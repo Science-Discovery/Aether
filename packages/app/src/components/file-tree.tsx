@@ -1,6 +1,7 @@
 import { useFile } from "@/context/file"
 import { encodeFilePath } from "@/context/file/path"
 import { Collapsible } from "@opencode-ai/ui/collapsible"
+import { ContextMenu } from "@opencode-ai/ui/context-menu"
 import { FileIcon } from "@opencode-ai/ui/file-icon"
 import { Icon } from "@opencode-ai/ui/icon"
 import {
@@ -202,6 +203,8 @@ export default function FileTree(props: {
   kinds?: ReadonlyMap<string, Kind>
   draggable?: boolean
   onFileClick?: (file: FileNode) => void
+  onFileCreate?: (dir: string, type: "file" | "directory") => void
+  onFileDelete?: (node: FileNode) => void
 
   _filter?: Filter
   _marks?: Set<string>
@@ -393,110 +396,145 @@ export default function FileTree(props: {
           const kind = () => visibleKind(node, kinds(), marks())
           const active = () => !!kind() && !node.ignored
 
+          const contextMenu = (trigger: () => JSXElement) => (
+            <ContextMenu>
+              <ContextMenu.Trigger as="div" class="w-full">
+                {trigger()}
+              </ContextMenu.Trigger>
+              <ContextMenu.Portal>
+                <ContextMenu.Content>
+                  {node.type === "directory" && (
+                    <>
+                      <ContextMenu.Item onSelect={() => props.onFileCreate?.(node.path, "file")}>
+                        <ContextMenu.ItemLabel>新建文件</ContextMenu.ItemLabel>
+                      </ContextMenu.Item>
+                      <ContextMenu.Item onSelect={() => props.onFileCreate?.(node.path, "directory")}>
+                        <ContextMenu.ItemLabel>新建文件夹</ContextMenu.ItemLabel>
+                      </ContextMenu.Item>
+                      <ContextMenu.Separator />
+                    </>
+                  )}
+                  <ContextMenu.Item
+                    onSelect={() => props.onFileDelete?.(node)}
+                    class="text-red-500 focus:text-red-500"
+                  >
+                    <ContextMenu.ItemLabel>删除</ContextMenu.ItemLabel>
+                  </ContextMenu.Item>
+                </ContextMenu.Content>
+              </ContextMenu.Portal>
+            </ContextMenu>
+          )
+
           return (
             <Switch>
               <Match when={node.type === "directory"}>
-                <Collapsible
-                  variant="ghost"
-                  class="w-full"
-                  data-scope="filetree"
-                  forceMount={false}
-                  open={expanded()}
-                  onOpenChange={(open) => (open ? file.tree.expand(node.path) : file.tree.collapse(node.path))}
-                >
-                  <Collapsible.Trigger>
-                    <FileTreeNode
-                      node={node}
-                      level={level}
-                      active={props.active}
-                      nodeClass={props.nodeClass}
-                      draggable={draggable()}
-                      kinds={kinds()}
-                      marks={marks()}
-                    >
-                      <div class="size-4 flex items-center justify-center text-icon-weak">
-                        <Icon name={expanded() ? "chevron-down" : "chevron-right"} size="small" />
-                      </div>
-                    </FileTreeNode>
-                  </Collapsible.Trigger>
-                  <Collapsible.Content class="relative pt-0.5">
-                    <div
-                      classList={{
-                        "absolute top-0 bottom-0 w-px pointer-events-none bg-border-weak-base opacity-0 transition-opacity duration-150 ease-out motion-reduce:transition-none": true,
-                        "group-hover/filetree:opacity-100": expanded() && deep() === level,
-                        "group-hover/filetree:opacity-50": !(expanded() && deep() === level),
-                      }}
-                      style={`left: ${Math.max(0, 8 + level * 12 - 4) + 8}px`}
-                    />
-                    <Show
-                      when={level < MAX_DEPTH && !chain.includes(key(node.path))}
-                      fallback={<div class="px-2 py-1 text-12-regular text-text-weak">...</div>}
-                    >
-                      <FileTree
-                        path={node.path}
-                        level={level + 1}
-                        allowed={props.allowed}
-                        modified={props.modified}
-                        kinds={props.kinds}
+                {contextMenu(() => (
+                  <Collapsible
+                    variant="ghost"
+                    class="w-full"
+                    data-scope="filetree"
+                    forceMount={false}
+                    open={expanded()}
+                    onOpenChange={(open) => (open ? file.tree.expand(node.path) : file.tree.collapse(node.path))}
+                  >
+                    <Collapsible.Trigger>
+                      <FileTreeNode
+                        node={node}
+                        level={level}
                         active={props.active}
-                        draggable={props.draggable}
-                        onFileClick={props.onFileClick}
-                        _filter={filter()}
-                        _marks={marks()}
-                        _deeps={deeps()}
-                        _kinds={kinds()}
-                        _chain={chain}
+                        nodeClass={props.nodeClass}
+                        draggable={draggable()}
+                        kinds={kinds()}
+                        marks={marks()}
+                      >
+                        <div class="size-4 flex items-center justify-center text-icon-weak">
+                          <Icon name={expanded() ? "chevron-down" : "chevron-right"} size="small" />
+                        </div>
+                      </FileTreeNode>
+                    </Collapsible.Trigger>
+                    <Collapsible.Content class="relative pt-0.5">
+                      <div
+                        classList={{
+                          "absolute top-0 bottom-0 w-px pointer-events-none bg-border-weak-base opacity-0 transition-opacity duration-150 ease-out motion-reduce:transition-none": true,
+                          "group-hover/filetree:opacity-100": expanded() && deep() === level,
+                          "group-hover/filetree:opacity-50": !(expanded() && deep() === level),
+                        }}
+                        style={`left: ${Math.max(0, 8 + level * 12 - 4) + 8}px`}
                       />
-                    </Show>
-                  </Collapsible.Content>
-                </Collapsible>
+                      <Show
+                        when={level < MAX_DEPTH && !chain.includes(key(node.path))}
+                        fallback={<div class="px-2 py-1 text-12-regular text-text-weak">...</div>}
+                      >
+                        <FileTree
+                          path={node.path}
+                          level={level + 1}
+                          allowed={props.allowed}
+                          modified={props.modified}
+                          kinds={props.kinds}
+                          active={props.active}
+                          draggable={props.draggable}
+                          onFileClick={props.onFileClick}
+                          onFileCreate={props.onFileCreate}
+                          onFileDelete={props.onFileDelete}
+                          _filter={filter()}
+                          _marks={marks()}
+                          _deeps={deeps()}
+                          _kinds={kinds()}
+                          _chain={chain}
+                        />
+                      </Show>
+                    </Collapsible.Content>
+                  </Collapsible>
+                ))}
               </Match>
               <Match when={node.type === "file"}>
-                <FileTreeNode
-                  node={node}
-                  level={level}
-                  active={props.active}
-                  nodeClass={props.nodeClass}
-                  draggable={draggable()}
-                  kinds={kinds()}
-                  marks={marks()}
-                  as="button"
-                  type="button"
-                  onClick={() => props.onFileClick?.(node)}
-                >
-                  <div class="w-4 shrink-0" />
-                  <Switch>
-                    <Match when={node.ignored}>
-                      <FileIcon
-                        node={node}
-                        class="size-4 filetree-icon filetree-icon--mono"
-                        style="color: var(--icon-weak-base)"
-                        mono
-                      />
-                    </Match>
-                    <Match when={active()}>
-                      <FileIcon
-                        node={node}
-                        class="size-4 filetree-icon filetree-icon--mono"
-                        style={kindTextColor(kind()!)}
-                        mono
-                      />
-                    </Match>
-                    <Match when={!node.ignored}>
-                      <span class="filetree-iconpair size-4">
+                {contextMenu(() => (
+                  <FileTreeNode
+                    node={node}
+                    level={level}
+                    active={props.active}
+                    nodeClass={props.nodeClass}
+                    draggable={draggable()}
+                    kinds={kinds()}
+                    marks={marks()}
+                    as="button"
+                    type="button"
+                    onClick={() => props.onFileClick?.(node)}
+                  >
+                    <div class="w-4 shrink-0" />
+                    <Switch>
+                      <Match when={node.ignored}>
                         <FileIcon
                           node={node}
-                          class="size-4 filetree-icon filetree-icon--color opacity-0 group-hover/filetree:opacity-100"
-                        />
-                        <FileIcon
-                          node={node}
-                          class="size-4 filetree-icon filetree-icon--mono group-hover/filetree:opacity-0"
+                          class="size-4 filetree-icon filetree-icon--mono"
+                          style="color: var(--icon-weak-base)"
                           mono
                         />
-                      </span>
-                    </Match>
-                  </Switch>
-                </FileTreeNode>
+                      </Match>
+                      <Match when={active()}>
+                        <FileIcon
+                          node={node}
+                          class="size-4 filetree-icon filetree-icon--mono"
+                          style={kindTextColor(kind()!)}
+                          mono
+                        />
+                      </Match>
+                      <Match when={!node.ignored}>
+                        <span class="filetree-iconpair size-4">
+                          <FileIcon
+                            node={node}
+                            class="size-4 filetree-icon filetree-icon--color opacity-0 group-hover/filetree:opacity-100"
+                          />
+                          <FileIcon
+                            node={node}
+                            class="size-4 filetree-icon filetree-icon--mono group-hover/filetree:opacity-0"
+                            mono
+                          />
+                        </span>
+                      </Match>
+                    </Switch>
+                  </FileTreeNode>
+                ))}
               </Match>
             </Switch>
           )

@@ -651,4 +651,25 @@ export namespace File {
     log.info("search", { query, kind, results: output.length })
     return output
   }
+
+  export async function create(filePath: string, type: "file" | "directory"): Promise<void> {
+    const resolved = path.join(Instance.directory, filePath)
+    if (!Instance.containsPath(resolved)) {
+      throw new Error("Access denied: path escapes project directory")
+    }
+    if (type === "directory") {
+      await fs.promises.mkdir(resolved, { recursive: true })
+    } else {
+      await fs.promises.mkdir(path.dirname(resolved), { recursive: true })
+      await fs.promises.writeFile(resolved, "", { flag: "wx" })
+    }
+  }
+
+  export async function remove(filePath: string): Promise<void> {
+    const resolved = path.join(Instance.directory, filePath)
+    if (!Instance.containsPath(resolved)) {
+      throw new Error("Access denied: path escapes project directory")
+    }
+    await fs.promises.rm(resolved, { recursive: true, force: true })
+  }
 }

@@ -825,6 +825,115 @@ export class Config2 extends HeyApiClient {
       ...params,
     })
   }
+
+  /**
+   * List default skills
+   */
+  public skillsList<ThrowOnError extends boolean = false>(
+    parameters?: { directory?: string; workspace?: string },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [{ args: [{ in: "query", key: "directory" }, { in: "query", key: "workspace" }] }],
+    )
+    return (options?.client ?? this.client).get<
+      Array<{ name: string; description: string; content: string }>,
+      unknown,
+      ThrowOnError
+    >({ url: "/config/skills", ...options, ...params })
+  }
+
+  /**
+   * Create or update a default skill
+   */
+  public skillsSave<ThrowOnError extends boolean = false>(
+    parameters: {
+      directory?: string
+      workspace?: string
+      name: string
+      description: string
+      content: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "name" },
+            { in: "body", key: "description" },
+            { in: "body", key: "content" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<{ ok: boolean }, unknown, ThrowOnError>({
+      url: "/config/skills",
+      ...options,
+      ...params,
+      headers: { "Content-Type": "application/json", ...options?.headers, ...params.headers },
+    })
+  }
+
+  /**
+   * Delete a default skill
+   */
+  public skillsDelete<ThrowOnError extends boolean = false>(
+    parameters: { name: string; directory?: string; workspace?: string },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "name" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).delete<{ ok: boolean }, unknown, ThrowOnError>({
+      url: "/config/skills/{name}",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Add default skills to project config
+   *
+   * Add the default skills from .opencode/skills/ to the project's opencode.jsonc skills.paths.
+   */
+  public skillsDefaults<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<{ added: string[] }, unknown, ThrowOnError>({
+      url: "/config/skills/defaults",
+      ...options,
+      ...params,
+    })
+  }
 }
 
 export class Tool extends HeyApiClient {
@@ -2833,6 +2942,69 @@ export class File extends HeyApiClient {
     )
     return (options?.client ?? this.client).get<FileStatusResponses, unknown, ThrowOnError>({
       url: "/file/status",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Create file or directory
+   */
+  public create<ThrowOnError extends boolean = false>(
+    parameters: {
+      directory?: string
+      workspace?: string
+      path: string
+      type: "file" | "directory"
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "path" },
+            { in: "body", key: "type" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<{ ok: boolean }, unknown, ThrowOnError>({
+      url: "/file",
+      ...options,
+      ...params,
+      headers: { "Content-Type": "application/json", ...options?.headers, ...params.headers },
+    })
+  }
+
+  /**
+   * Delete file or directory
+   */
+  public delete<ThrowOnError extends boolean = false>(
+    parameters: {
+      directory?: string
+      workspace?: string
+      path: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "query", key: "path" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).delete<{ ok: boolean }, unknown, ThrowOnError>({
+      url: "/file",
       ...options,
       ...params,
     })

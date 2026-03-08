@@ -6,6 +6,7 @@ import { Ripgrep } from "../../file/ripgrep"
 import { LSP } from "../../lsp"
 import { Instance } from "../../project/instance"
 import { lazy } from "../../util/lazy"
+import { errors } from "../error"
 
 export const FileRoutes = lazy(() =>
   new Hono()
@@ -170,6 +171,48 @@ export const FileRoutes = lazy(() =>
         const path = c.req.valid("query").path
         const content = await File.read(path)
         return c.json(content)
+      },
+    )
+    .post(
+      "/file",
+      describeRoute({
+        summary: "Create file or directory",
+        description: "Create a new file or directory at the specified path within the project.",
+        operationId: "file.create",
+        responses: {
+          200: {
+            description: "Created",
+            content: { "application/json": { schema: resolver(z.object({ ok: z.boolean() })) } },
+          },
+          ...errors(400),
+        },
+      }),
+      validator("json", z.object({ path: z.string(), type: z.enum(["file", "directory"]) })),
+      async (c) => {
+        const { path, type } = c.req.valid("json")
+        await File.create(path, type)
+        return c.json({ ok: true })
+      },
+    )
+    .delete(
+      "/file",
+      describeRoute({
+        summary: "Delete file or directory",
+        description: "Delete a file or directory at the specified path within the project.",
+        operationId: "file.delete",
+        responses: {
+          200: {
+            description: "Deleted",
+            content: { "application/json": { schema: resolver(z.object({ ok: z.boolean() })) } },
+          },
+          ...errors(400),
+        },
+      }),
+      validator("query", z.object({ path: z.string() })),
+      async (c) => {
+        const { path } = c.req.valid("query")
+        await File.remove(path)
+        return c.json({ ok: true })
       },
     )
     .get(

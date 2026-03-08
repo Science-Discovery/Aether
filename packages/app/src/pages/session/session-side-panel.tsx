@@ -3,9 +3,11 @@ import { createStore } from "solid-js/store"
 import { createMediaQuery } from "@solid-primitives/media"
 import { Tabs } from "@opencode-ai/ui/tabs"
 import { IconButton } from "@opencode-ai/ui/icon-button"
-import { TooltipKeybind } from "@opencode-ai/ui/tooltip"
+import { Icon } from "@opencode-ai/ui/icon"
+import { TooltipKeybind, Tooltip } from "@opencode-ai/ui/tooltip"
 import { ResizeHandle } from "@opencode-ai/ui/resize-handle"
 import { Mark } from "@opencode-ai/ui/logo"
+import { showToast } from "@opencode-ai/ui/toast"
 import { DragDropProvider, DragDropSensors, DragOverlay, SortableProvider, closestCenter } from "@thisbeyond/solid-dnd"
 import type { DragEvent } from "@thisbeyond/solid-dnd"
 import { ConstrainDragYAxis, getDraggableId } from "@/utils/solid-dnd"
@@ -20,12 +22,14 @@ import { useFile, type SelectedLineRange } from "@/context/file"
 import { useLanguage } from "@/context/language"
 import { useLayout } from "@/context/layout"
 import { useSync } from "@/context/sync"
+import { useSDK } from "@/context/sdk"
 import { createFileTabListSync } from "@/pages/session/file-tab-scroll"
 import { FileTabContent } from "@/pages/session/file-tabs"
 import { createOpenSessionFileTab, getTabReorderIndex, type Sizing } from "@/pages/session/helpers"
 import { StickyAddButton } from "@/pages/session/review-tab"
 import { setSessionHandoff } from "@/pages/session/handoff"
 import { useSessionLayout } from "@/pages/session/session-layout"
+import type { FileNode } from "@opencode-ai/sdk/v2"
 
 export function SessionSidePanel(props: {
   reviewPanel: () => JSX.Element
@@ -40,6 +44,40 @@ export function SessionSidePanel(props: {
   const language = useLanguage()
   const command = useCommand()
   const dialog = useDialog()
+  const sdk = useSDK()
+
+  async function handleFileCreate(dir: string, type: "file" | "directory") {
+    const name = window.prompt(type === "file" ? "新建文件名称：" : "新建文件夹名称：")
+    if (!name?.trim()) return
+    const newPath = dir ? `${dir}/${name.trim()}` : name.trim()
+    try {
+      await sdk.client.file.create({ path: newPath, type })
+      file.tree.refresh(dir)
+      if (!file.tree.state(dir)?.expanded) file.tree.expand(dir)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      showToast({ variant: "error", icon: "circle-x", title: "创建失败", description: message })
+    }
+  }
+
+  async function handleFileDelete(node: FileNode) {
+    const label = node.type === "directory" ? "文件夹" : "文件"
+    const confirmed = window.confirm(`确认删除${label} "${node.name}"？此操作不可撤销。`)
+    if (!confirmed) return
+    const parentDir = node.path.includes("/") ? node.path.slice(0, node.path.lastIndexOf("/")) : ""
+    try {
+      await sdk.client.file.delete({ path: node.path })
+      file.tree.refresh(parentDir)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      showToast({ variant: "error", icon: "circle-x", title: "删除失败", description: message })
+    }
+  }
+
+  function handleRefresh() {
+    file.tree.refresh("")
+  }
+
   const { params, sessionKey, tabs, view } = useSessionLayout()
 
   const isDesktop = createMediaQuery("(min-width: 768px)")
@@ -429,7 +467,39 @@ export function SessionSidePanel(props: {
                     </Match>
                   </Switch>
                 </Tabs.Content>
-                <Tabs.Content value="all" class="bg-background-stronger px-3 py-0">
+                <Tabs.Content value="all" class="bg-background-stronger px-3 py-0 flex flex-col">
+                  <div class="flex items-center gap-1 py-1.5 border-b border-border-weak-base">
+                    <Tooltip value="在项目根目录新建文件">
+                      <button
+                        type="button"
+                        class="flex items-center gap-1 px-2 py-1 rounded text-12-regular text-text-weak hover:text-text-base hover:bg-surface-raised-base-hover transition-colors"
+                        onClick={() => handleFileCreate("", "file")}
+                      >
+                        <Icon name="plus-small" size="small" />
+                        新建文件
+                      </button>
+                    </Tooltip>
+                    <Tooltip value="在项目根目录新建文件夹">
+                      <button
+                        type="button"
+                        class="flex items-center gap-1 px-2 py-1 rounded text-12-regular text-text-weak hover:text-text-base hover:bg-surface-raised-base-hover transition-colors"
+                        onClick={() => handleFileCreate("", "directory")}
+                      >
+                        <Icon name="folder-add-left" size="small" />
+                        新建文件夹
+                      </button>
+                    </Tooltip>
+                    <Tooltip value="刷新项目文件列表">
+                      <button
+                        type="button"
+                        class="ml-auto flex items-center gap-1 px-2 py-1 rounded text-12-regular text-text-weak hover:text-text-base hover:bg-surface-raised-base-hover transition-colors"
+                        onClick={handleRefresh}
+                      >
+                        <Icon name="arrow-down-to-line" size="small" />
+                        刷新
+                      </button>
+                    </Tooltip>
+                  </div>
                   <Switch>
                     <Match when={nofiles()}>{empty(language.t("session.files.empty"))}</Match>
                     <Match when={true}>
@@ -439,6 +509,8 @@ export function SessionSidePanel(props: {
                         modified={diffFiles()}
                         kinds={kinds()}
                         onFileClick={(node) => openTab(file.tab(node.path))}
+                        onFileCreate={handleFileCreate}
+                        onFileDelete={handleFileDelete}
                       />
                     </Match>
                   </Switch>

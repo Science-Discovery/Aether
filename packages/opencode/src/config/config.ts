@@ -25,7 +25,7 @@ import { LSPServer } from "../lsp/server"
 import { BunProc } from "@/bun"
 import { Installation } from "@/installation"
 import { ConfigMarkdown } from "./markdown"
-import { constants, existsSync } from "fs"
+import { constants, existsSync, statSync } from "fs"
 import { Bus } from "@/bus"
 import { GlobalBus } from "@/bus/global"
 import { Event } from "../server/event"
@@ -36,6 +36,7 @@ import { iife } from "@/util/iife"
 import { Account } from "@/account"
 import { ConfigPaths } from "./paths"
 import { Filesystem } from "@/util/filesystem"
+import matter from "gray-matter"
 
 export namespace Config {
   const ModelId = z.string().meta({ $ref: "https://models.dev/model-schema.json#/$defs/Model" })
@@ -1323,6 +1324,106 @@ export namespace Config {
     const existing = await loadFile(filepath)
     await Filesystem.writeJson(filepath, mergeDeep(existing, config))
     await Instance.dispose()
+  }
+
+  export const DefaultSkill = z.object({
+    name: z.string(),
+    description: z.string(),
+    content: z.string(),
+  })
+  export type DefaultSkill = z.infer<typeof DefaultSkill>
+
+  // Search upward from process.cwd() for .opencode/skills, calculated once at startup.
+  // This ensures the source skills dir is always the server's own project regardless of
+  // which project the user is currently viewing.
+  function findServerSkillsDirSync(): string | undefined {
+    let dir = process.cwd()
+    while (true) {
+      const candidate = path.join(dir, ".opencode", "skills")
+      try {
+        if (statSync(candidate).isDirectory()) return candidate
+      } catch {}
+      const parent = path.dirname(dir)
+      if (parent === dir) break
+      dir = parent
+    }
+    return undefined
+  }
+  const _serverSkillsDir = findServerSkillsDirSync()
+
+  export function getDefaultSkillsDir(): string | undefined {
+    return _serverSkillsDir
+  }
+
+  export async function listDefaultSkills(): Promise<DefaultSkill[]> {
+    const skillsDir = getDefaultSkillsDir()
+    if (!skillsDir) return []
+    if (!(await Filesystem.isDir(skillsDir))) return []
+
+    const entries = await fs.readdir(skillsDir, { withFileTypes: true }).catch(() => [])
+    const skills: DefaultSkill[] = []
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue
+      const skillFile = path.join(skillsDir, entry.name, "SKILL.md")
+      const text = await Filesystem.readText(skillFile).catch(() => null)
+      if (text === null) {
+        skills.push({ name: entry.name, description: "", content: "" })
+        continue
+      }
+      try {
+        const parsed = matter(text)
+        skills.push({
+          name: String(parsed.data.name ?? entry.name),
+          description: String(parsed.data.description ?? ""),
+          content: parsed.content.trim(),
+        })
+      } catch {
+        skills.push({ name: entry.name, description: "", content: text })
+      }
+    }
+    return skills
+  }
+
+  export async function saveDefaultSkill(name: string, description: string, content: string): Promise<void> {
+    const skillsDir = getDefaultSkillsDir()
+    if (!skillsDir) throw new Error("No .opencode directory found")
+    const skillDir = path.join(skillsDir, name)
+    await fs.mkdir(skillDir, { recursive: true })
+    const skillFile = path.join(skillDir, "SKILL.md")
+    const text = `---\nname: ${name}\ndescription: ${description}\n---\n${content}`
+    await Filesystem.write(skillFile, text)
+  }
+
+  export async function deleteDefaultSkill(name: string): Promise<void> {
+    const skillsDir = getDefaultSkillsDir()
+    if (!skillsDir) throw new Error("No .opencode directory found")
+    const skillDir = path.join(skillsDir, name)
+    await fs.rm(skillDir, { recursive: true, force: true })
+  }
+
+  export async function addDefaultSkills(): Promise<string[]> {
+    // Source: skills from the server's own project (found once at startup)
+    const sourceSkillsDir = getDefaultSkillsDir()
+    if (!sourceSkillsDir) return []
+
+    // Target: the currently viewed project (.opencode/skills/ under Instance.directory)
+    const targetSkillsDir = path.join(Instance.directory, ".opencode", "skills")
+    await fs.mkdir(targetSkillsDir, { recursive: true })
+
+    // Copy each skill directory from source to target
+    const entries = await fs.readdir(sourceSkillsDir, { withFileTypes: true }).catch(() => [])
+    const copied: string[] = []
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue
+      const src = path.join(sourceSkillsDir, entry.name)
+      const dest = path.join(targetSkillsDir, entry.name)
+      if (await Filesystem.isDir(dest)) continue // Already exists, skip
+      await fs.cp(src, dest, { recursive: true })
+      copied.push(entry.name)
+    }
+
+    if (copied.length > 0) await Instance.dispose()
+    return copied
   }
 
   function globalConfigFile() {

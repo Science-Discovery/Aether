@@ -59,6 +59,89 @@ export const ConfigRoutes = lazy(() =>
       },
     )
     .get(
+      "/skills",
+      describeRoute({
+        summary: "List default skills",
+        description: "List all default skills from the .opencode/skills/ directory.",
+        operationId: "config.skills.list",
+        responses: {
+          200: {
+            description: "List of default skills",
+            content: {
+              "application/json": {
+                schema: resolver(z.array(Config.DefaultSkill)),
+              },
+            },
+          },
+        },
+      }),
+      async (c) => {
+        const skills = await Config.listDefaultSkills()
+        return c.json(skills)
+      },
+    )
+    .post(
+      "/skills",
+      describeRoute({
+        summary: "Create or update a default skill",
+        description: "Create or update a skill in .opencode/skills/.",
+        operationId: "config.skills.save",
+        responses: {
+          200: {
+            description: "Skill saved",
+            content: { "application/json": { schema: resolver(z.object({ ok: z.boolean() })) } },
+          },
+        },
+      }),
+      validator("json", Config.DefaultSkill),
+      async (c) => {
+        const { name, description, content } = c.req.valid("json")
+        await Config.saveDefaultSkill(name, description, content)
+        return c.json({ ok: true })
+      },
+    )
+    .delete(
+      "/skills/:name",
+      describeRoute({
+        summary: "Delete a default skill",
+        description: "Delete a skill from .opencode/skills/.",
+        operationId: "config.skills.delete",
+        responses: {
+          200: {
+            description: "Skill deleted",
+            content: { "application/json": { schema: resolver(z.object({ ok: z.boolean() })) } },
+          },
+        },
+      }),
+      async (c) => {
+        const name = c.req.param("name")
+        await Config.deleteDefaultSkill(name)
+        return c.json({ ok: true })
+      },
+    )
+    .post(
+      "/skills/defaults",
+      describeRoute({
+        summary: "Add default skills to project config",
+        description: "Add the default skills from .opencode/skills/ to the project's opencode.jsonc skills.paths.",
+        operationId: "config.skills.addDefaults",
+        responses: {
+          200: {
+            description: "Successfully added default skills",
+            content: {
+              "application/json": {
+                schema: resolver(z.object({ added: z.array(z.string()) })),
+              },
+            },
+          },
+        },
+      }),
+      async (c) => {
+        const added = await Config.addDefaultSkills()
+        return c.json({ added })
+      },
+    )
+    .get(
       "/providers",
       describeRoute({
         summary: "List config providers",
