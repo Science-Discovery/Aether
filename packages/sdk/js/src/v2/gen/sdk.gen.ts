@@ -3009,6 +3009,76 @@ export class File extends HeyApiClient {
       ...params,
     })
   }
+
+  /**
+   * Generate directory summaries
+   *
+   * Generate .summary files for directories using LLM.
+   */
+  public summarize<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      maxDepth?: number
+      force?: boolean
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "maxDepth" },
+            { in: "body", key: "force" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<{ count: number }, unknown, ThrowOnError>({
+      url: "/file/summarize",
+      ...options,
+      ...params,
+      headers: { "Content-Type": "application/json", ...options?.headers, ...params.headers },
+    })
+  }
+
+  /**
+   * Write file
+   *
+   * Write content to a specified file within the project.
+   */
+  public write<ThrowOnError extends boolean = false>(
+    parameters: {
+      directory?: string
+      workspace?: string
+      path: string
+      content: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "path" },
+            { in: "body", key: "content" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).put<{ ok: boolean }, unknown, ThrowOnError>({
+      url: "/file/content",
+      ...options,
+      ...params,
+      headers: { "Content-Type": "application/json", ...options?.headers, ...params.headers },
+    })
+  }
 }
 
 export class Auth2 extends HeyApiClient {

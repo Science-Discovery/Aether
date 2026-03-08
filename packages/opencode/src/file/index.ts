@@ -665,6 +665,14 @@ export namespace File {
     }
   }
 
+  export async function write(filePath: string, content: string): Promise<void> {
+    const resolved = path.join(Instance.directory, filePath)
+    if (!Instance.containsPath(resolved)) {
+      throw new Error("Access denied: path escapes project directory")
+    }
+    await fs.promises.writeFile(resolved, content, "utf-8")
+  }
+
   export async function remove(filePath: string): Promise<void> {
     const resolved = path.join(Instance.directory, filePath)
     if (!Instance.containsPath(resolved)) {

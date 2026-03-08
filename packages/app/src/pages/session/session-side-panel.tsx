@@ -1,4 +1,4 @@
-import { For, Match, Show, Switch, createEffect, createMemo, onCleanup, type JSX } from "solid-js"
+import { For, Match, Show, Switch, createEffect, createMemo, createSignal, onCleanup, type JSX } from "solid-js"
 import { createStore } from "solid-js/store"
 import { createMediaQuery } from "@solid-primitives/media"
 import { Tabs } from "@opencode-ai/ui/tabs"
@@ -76,6 +76,27 @@ export function SessionSidePanel(props: {
 
   function handleRefresh() {
     file.tree.refresh("")
+  }
+
+  const [isSummarizing, setIsSummarizing] = createSignal(false)
+
+  async function handleSummarize() {
+    if (isSummarizing()) return
+    setIsSummarizing(true)
+    try {
+      const result = await sdk.client.file.summarize()
+      const data = result.data as { count: number } | undefined
+      const count = data?.count ?? 0
+      showToast({
+        variant: "success",
+        title: `已生成 ${count} 个目录摘要`,
+      })
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      showToast({ variant: "error", icon: "circle-x", title: "生成摘要失败", description: message })
+    } finally {
+      setIsSummarizing(false)
+    }
   }
 
   const { params, sessionKey, tabs, view } = useSessionLayout()
@@ -487,6 +508,17 @@ export function SessionSidePanel(props: {
                       >
                         <Icon name="folder-add-left" size="small" />
                         新建文件夹
+                      </button>
+                    </Tooltip>
+                    <Tooltip value="为项目所有文件夹生成 .summary 摘要文件">
+                      <button
+                        type="button"
+                        class="flex items-center gap-1 px-2 py-1 rounded text-12-regular text-text-weak hover:text-text-base hover:bg-surface-raised-base-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                        onClick={handleSummarize}
+                        disabled={isSummarizing()}
+                      >
+                        <Icon name="bullet-list" size="small" />
+                        {isSummarizing() ? "生成中..." : "生成摘要"}
                       </button>
                     </Tooltip>
                     <Tooltip value="刷新项目文件列表">

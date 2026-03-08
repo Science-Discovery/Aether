@@ -2,6 +2,7 @@ import { Plugin } from "../plugin"
 import { Format } from "../format"
 import { LSP } from "../lsp"
 import { FileWatcher } from "../file/watcher"
+import { SummaryWatcher } from "../file/summary-watcher"
 import { File } from "../file"
 import { Project } from "./project"
 import { Bus } from "../bus"
@@ -20,6 +21,7 @@ export async function InstanceBootstrap() {
   Format.init()
   await LSP.init()
   FileWatcher.init()
+  SummaryWatcher.init()
   File.init()
   Vcs.init()
   Snapshot.init()

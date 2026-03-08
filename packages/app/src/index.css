@@ -1,5 +1,14 @@
 @import "@opencode-ai/ui/styles/tailwind";
 
+/* Word wrap for file viewer */
+.file-word-wrap .cm-line {
+  white-space: pre-wrap !important;
+  word-break: break-word !important;
+}
+.file-word-wrap .cm-scroller {
+  overflow-x: hidden !important;
+}
+
 @layer components {
   [data-component="getting-started"] {
     container-type: inline-size;

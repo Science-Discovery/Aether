@@ -2,6 +2,7 @@ import { Hono } from "hono"
 import { describeRoute, validator, resolver } from "hono-openapi"
 import z from "zod"
 import { File } from "../../file"
+import { FolderSummary } from "../../file/summary"
 import { Ripgrep } from "../../file/ripgrep"
 import { LSP } from "../../lsp"
 import { Instance } from "../../project/instance"
@@ -173,6 +174,27 @@ export const FileRoutes = lazy(() =>
         return c.json(content)
       },
     )
+    .put(
+      "/file/content",
+      describeRoute({
+        summary: "Write file",
+        description: "Write content to a specified file within the project.",
+        operationId: "file.write",
+        responses: {
+          200: {
+            description: "Written",
+            content: { "application/json": { schema: resolver(z.object({ ok: z.boolean() })) } },
+          },
+          ...errors(400),
+        },
+      }),
+      validator("json", z.object({ path: z.string(), content: z.string() })),
+      async (c) => {
+        const { path, content } = c.req.valid("json")
+        await File.write(path, content)
+        return c.json({ ok: true })
+      },
+    )
     .post(
       "/file",
       describeRoute({
@@ -213,6 +235,34 @@ export const FileRoutes = lazy(() =>
         const { path } = c.req.valid("query")
         await File.remove(path)
         return c.json({ ok: true })
+      },
+    )
+    .post(
+      "/file/summarize",
+      describeRoute({
+        summary: "Generate directory summaries",
+        description: "Generate .summary files for all directories in the project using LLM.",
+        operationId: "file.summarize",
+        responses: {
+          200: {
+            description: "Generated",
+            content: { "application/json": { schema: resolver(z.object({ count: z.number() })) } },
+          },
+        },
+      }),
+      validator(
+        "json",
+        z.object({
+          directory: z.string().optional(),
+          maxDepth: z.number().int().min(1).max(5).optional(),
+          force: z.boolean().optional(),
+        }),
+      ),
+      async (c) => {
+        const { directory, maxDepth, force } = c.req.valid("json")
+        const root = directory ?? Instance.directory
+        const generated = await FolderSummary.generateAll(root, maxDepth ?? 3, force ?? false)
+        return c.json({ count: generated.length })
       },
     )
     .get(

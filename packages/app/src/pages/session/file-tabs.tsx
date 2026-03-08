@@ -1,4 +1,4 @@
-import { createEffect, createMemo, Match, on, onCleanup, Switch } from "solid-js"
+import { createEffect, createMemo, createSignal, Match, on, onCleanup, Show, Switch } from "solid-js"
 import { createStore } from "solid-js/store"
 import { Dynamic } from "solid-js/web"
 import type { FileSearchHandle } from "@opencode-ai/ui/file"
@@ -11,6 +11,9 @@ import { IconButton } from "@opencode-ai/ui/icon-button"
 import { Tabs } from "@opencode-ai/ui/tabs"
 import { ScrollView } from "@opencode-ai/ui/scroll-view"
 import { showToast } from "@opencode-ai/ui/toast"
+import { Markdown } from "@opencode-ai/ui/markdown"
+import { CodeEditor } from "@/components/code-editor"
+import { useSDK } from "@/context/sdk"
 import { selectionFromLines, useFile, type FileSelection, type SelectedLineRange } from "@/context/file"
 import { useComments } from "@/context/comments"
 import { useLanguage } from "@/context/language"
@@ -57,6 +60,42 @@ export function FileTabContent(props: { tab: string }) {
   const language = useLanguage()
   const prompt = usePrompt()
   const fileComponent = useFileComponent()
+  const sdk = useSDK()
+
+  const [isEditing, setIsEditing] = createSignal(false)
+  const [editContent, setEditContent] = createSignal("")
+  const [isSaving, setIsSaving] = createSignal(false)
+  const [wordWrap, setWordWrap] = createSignal(false)
+
+  const startEditing = () => {
+    setEditContent(contents())
+    setIsEditing(true)
+  }
+
+  const cancelEditing = () => {
+    setIsEditing(false)
+    setEditContent("")
+  }
+
+  const saveEditing = async () => {
+    const p = path()
+    if (!p) return
+    setIsSaving(true)
+    try {
+      await sdk.client.file.write({ path: p, content: editContent() })
+      setIsEditing(false)
+      setEditContent("")
+    } catch (e) {
+      showToast({
+        variant: "error",
+        title: language.t("toast.file.loadFailed.title"),
+        description: String(e),
+      })
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
   const { sessionKey, tabs, view } = useSessionLayout()
 
   let scroll: HTMLDivElement | undefined
@@ -73,6 +112,13 @@ export function FileTabContent(props: { tab: string }) {
   }
 
   const path = createMemo(() => file.pathFromTab(props.tab))
+
+  const isMarkdown = createMemo(() => {
+    const p = path()
+    if (!p) return false
+    const ext = p.split(".").pop()?.toLowerCase() ?? ""
+    return ext === "md" || ext === "mdx" || ext === "markdown"
+  })
   const state = createMemo(() => {
     const p = path()
     if (!p) return
@@ -392,54 +438,71 @@ export function FileTabContent(props: { tab: string }) {
     if (restoreFrame !== undefined) cancelAnimationFrame(restoreFrame)
   })
 
-  const renderFile = (source: string) => (
-    <div class="relative overflow-hidden pb-40">
-      <Dynamic
-        component={fileComponent}
-        mode="text"
-        file={{
-          name: path() ?? "",
-          contents: source,
-          cacheKey: cacheKey(),
-        }}
-        enableLineSelection
-        enableHoverUtility
-        selectedLines={activeSelection()}
-        commentedLines={commentedLines()}
-        onRendered={() => {
-          queueRestore()
-        }}
-        annotations={commentsUi.annotations()}
-        renderAnnotation={commentsUi.renderAnnotation}
-        renderHoverUtility={commentsUi.renderHoverUtility}
-        onLineSelected={(range: SelectedLineRange | null) => {
-          commentsUi.onLineSelected(range)
-        }}
-        onLineNumberSelectionEnd={commentsUi.onLineNumberSelectionEnd}
-        onLineSelectionEnd={(range: SelectedLineRange | null) => {
-          commentsUi.onLineSelectionEnd(range)
-        }}
-        search={search}
-        overflow="scroll"
-        class="select-text"
-        media={{
-          mode: "auto",
-          path: path(),
-          current: state()?.content,
-          onLoad: queueRestore,
-          onError: (args: { kind: "image" | "audio" | "svg" }) => {
-            if (args.kind !== "svg") return
-            showToast({
-              variant: "error",
-              title: language.t("toast.file.loadFailed.title"),
-            })
-          },
-        }}
-      />
-    </div>
-  )
+  const renderFile = (source: string) => {
+    if (isMarkdown()) {
+      return (
+        <div class="relative px-6 pb-40 select-text">
+          <Markdown text={source} cacheKey={cacheKey()} />
+        </div>
+      )
+    }
+    if (wordWrap()) {
+      return (
+        <div class="relative px-6 pb-40 select-text">
+          <pre class="text-sm font-mono leading-relaxed whitespace-pre-wrap break-words text-text-base">{source}</pre>
+        </div>
+      )
+    }
+    return (
+      <div class="relative overflow-hidden pb-40">
+        <Dynamic
+          component={fileComponent}
+          mode="text"
+          file={{
+            name: path() ?? "",
+            contents: source,
+            cacheKey: cacheKey(),
+          }}
+          enableLineSelection
+          enableHoverUtility
+          selectedLines={activeSelection()}
+          commentedLines={commentedLines()}
+          onRendered={() => {
+            queueRestore()
+          }}
+          annotations={commentsUi.annotations()}
+          renderAnnotation={commentsUi.renderAnnotation}
+          renderHoverUtility={commentsUi.renderHoverUtility}
+          onLineSelected={(range: SelectedLineRange | null) => {
+            commentsUi.onLineSelected(range)
+          }}
+          onLineNumberSelectionEnd={commentsUi.onLineNumberSelectionEnd}
+          onLineSelectionEnd={(range: SelectedLineRange | null) => {
+            commentsUi.onLineSelectionEnd(range)
+          }}
+          search={search}
+          overflow="scroll"
+          class="select-text"
+          media={{
+            mode: "auto",
+            path: path(),
+            current: state()?.content,
+            onLoad: queueRestore,
+            onError: (args: { kind: "image" | "audio" | "svg" }) => {
+              if (args.kind !== "svg") return
+              showToast({
+                variant: "error",
+                title: language.t("toast.file.loadFailed.title"),
+              })
+            },
+          }}
+        />
+      </div>
+    )
+  }
 
   return (
+<<<<<<< HEAD
     <Tabs.Content value={props.tab} class="mt-3 relative h-full">
       <ScrollView
         class="h-full"
@@ -448,15 +511,80 @@ export function FileTabContent(props: { tab: string }) {
           restoreScroll()
         }}
         onScroll={handleScroll as any}
+=======
+    <Tabs.Content value={props.tab} class="mt-3 relative flex h-full min-h-0 flex-col overflow-hidden contain-strict">
+      <Show when={state()?.loaded}>
+        <div class="flex justify-end px-3 pb-1 shrink-0 gap-1.5">
+          <Show when={!isEditing()}>
+            <IconButton
+              icon="align-right"
+              variant={wordWrap() ? "secondary" : "ghost"}
+              size="small"
+              aria-label="切换换行"
+              onClick={() => setWordWrap((w) => !w)}
+            />
+          </Show>
+          <Show
+            when={isEditing()}
+            fallback={
+              <IconButton
+                icon="pencil-line"
+                variant="ghost"
+                size="small"
+                aria-label={language.t("common.edit")}
+                onClick={startEditing}
+              />
+            }
+          >
+            <IconButton
+              icon="close"
+              variant="ghost"
+              size="small"
+              aria-label={language.t("common.cancel")}
+              onClick={cancelEditing}
+              disabled={isSaving()}
+            />
+            <IconButton
+              icon="check"
+              variant="ghost"
+              size="small"
+              aria-label={language.t("common.save")}
+              onClick={saveEditing}
+              disabled={isSaving()}
+            />
+          </Show>
+        </div>
+      </Show>
+      <Show
+        when={isEditing()}
+        fallback={
+          <ScrollView
+            class="h-full min-h-0 flex-1"
+            viewportRef={(el: HTMLDivElement) => {
+              scroll = el
+              restoreScroll()
+            }}
+            onScroll={handleScroll as any}
+          >
+            <Switch>
+              <Match when={state()?.loaded}>{renderFile(contents())}</Match>
+              <Match when={state()?.loading}>
+                <div class="px-6 py-4 text-text-weak">{language.t("common.loading")}...</div>
+              </Match>
+              <Match when={state()?.error}>{(err) => <div class="px-6 py-4 text-text-weak">{err()}</div>}</Match>
+            </Switch>
+          </ScrollView>
+        }
+>>>>>>> 691fb184f (新增目录摘要导航功能，新增换行切换按钮)
       >
-        <Switch>
-          <Match when={state()?.loaded}>{renderFile(contents())}</Match>
-          <Match when={state()?.loading}>
-            <div class="px-6 py-4 text-text-weak">{language.t("common.loading")}...</div>
-          </Match>
-          <Match when={state()?.error}>{(err) => <div class="px-6 py-4 text-text-weak">{err()}</div>}</Match>
-        </Switch>
-      </ScrollView>
+        <CodeEditor
+          content={editContent()}
+          filename={path() ?? ""}
+          onChange={setEditContent}
+          disabled={isSaving()}
+          wordWrap={wordWrap()}
+        />
+      </Show>
     </Tabs.Content>
   )
 }
