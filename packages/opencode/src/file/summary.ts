@@ -36,6 +36,85 @@ const ANCHOR_FILES = [
   "__init__.py",
 ]
 
+const BINARY_EXTENSIONS = new Set([
+  ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".ico", ".svg", ".webp",
+  ".woff", ".woff2", ".ttf", ".eot", ".otf",
+  ".zip", ".tar", ".gz", ".bz2", ".7z", ".rar",
+  ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx",
+  ".exe", ".dll", ".so", ".dylib", ".o", ".a",
+  ".mp3", ".mp4", ".avi", ".mov", ".wav", ".flac",
+  ".db", ".sqlite", ".lock",
+])
+
+type FormatType = "top-level" | "subfolder" | "hybrid"
+
+function detectFormat(childDirs: string[], childFiles: string[]): FormatType {
+  const hasDirs = childDirs.length > 0
+  const hasFiles = childFiles.length > 0
+  if (hasDirs && !hasFiles) return "top-level"
+  if (!hasDirs && hasFiles) return "subfolder"
+  return "hybrid"
+}
+
+async function readAnchorSnippet(dir: string, maxChars: number): Promise<string> {
+  for (const fname of ANCHOR_FILES) {
+    const fpath = path.join(dir, fname)
+    if (await Filesystem.exists(fpath)) {
+      const content = await Filesystem.readText(fpath).catch(() => "")
+      return content.slice(0, maxChars)
+    }
+  }
+  return ""
+}
+
+function isBinaryExt(filename: string): boolean {
+  const ext = path.extname(filename).toLowerCase()
+  return BINARY_EXTENSIONS.has(ext)
+}
+
+function buildFormatTemplate(format: FormatType): string {
+  if (format === "top-level") {
+    return `OUTPUT FORMAT (directory contains only subdirectories):
+\`\`\`markdown
+# [Icon] [Title]
+
+[One-sentence description]
+
+| Name | Description | When to Dive In |
+|------|-------------|-----------------|
+| \`subfolder/\` | [Icon] [Category Name] (N files) | [Trigger Condition] |
+\`\`\``
+  }
+  if (format === "subfolder") {
+    return `OUTPUT FORMAT (directory contains only files):
+\`\`\`markdown
+# [Icon] [Category Name]
+
+| File | Topic | Summary | When to Read |
+|------|-------|---------|--------------|
+| [filename.ext] | [Topic] | [One-sentence summary] | [Trigger Condition] |
+\`\`\``
+  }
+  return `OUTPUT FORMAT (directory contains both subdirectories and files):
+\`\`\`markdown
+# [Icon] [Title]
+
+[One-sentence description]
+
+## Subdirectories
+
+| Name | Description | When to Dive In |
+|------|-------------|-----------------|
+| \`subfolder/\` | [Icon] [Category Name] (N files) | [Trigger Condition] |
+
+## Files
+
+| File | Topic | Summary | When to Read |
+|------|-------|---------|--------------|
+| [filename.ext] | [Topic] | [One-sentence summary] | [Trigger Condition] |
+\`\`\``
+}
+
 export namespace FolderSummary {
   /** Generate and write .summary for a single directory */
   export async function generate(dir: string, root: string): Promise<void> {
@@ -46,35 +125,57 @@ export namespace FolderSummary {
     const childFiles = entries
       .filter((e) => e.isFile() && e.name !== SUMMARY_FILE)
       .map((e) => e.name)
-      .slice(0, 30)
+      .slice(0, 20)
 
     const childDirs = entries
       .filter((e) => e.isDirectory() && !SKIP_DIRS.has(e.name) && !e.name.startsWith("."))
       .map((e) => e.name + "/")
+      .slice(0, 10)
 
-    // Read the first found anchor file for additional context
-    let anchorContent = ""
-    for (const fname of ANCHOR_FILES) {
-      const fpath = path.join(dir, fname)
-      if (await Filesystem.exists(fpath)) {
-        const content = await Filesystem.readText(fpath).catch(() => "")
-        anchorContent = `=== ${fname} ===\n${content.slice(0, 1500)}`
-        break
-      }
-    }
-
+    const format = detectFormat(childDirs, childFiles)
     const relativePath = path.relative(root, dir) || "."
 
+    // Gather subdirectory info
+    const subdirSections: string[] = []
+    for (const dirName of childDirs) {
+      const subdirPath = path.join(dir, dirName.replace(/\/$/, ""))
+      const subEntries = await fs.readdir(subdirPath, { withFileTypes: true }).catch(() => [])
+      const fileCount = subEntries.filter((e) => e.isFile()).length
+      const anchorSnippet = await readAnchorSnippet(subdirPath, 500)
+      subdirSections.push(
+        `=== SUBDIR: ${dirName} (${fileCount} files) ===\n${anchorSnippet || "(no anchor file)"}`,
+      )
+    }
+
+    // Gather file content
+    const fileSections: string[] = []
+    for (const fileName of childFiles) {
+      if (isBinaryExt(fileName)) {
+        fileSections.push(`=== FILE: ${fileName} ===\n(binary file)`)
+        continue
+      }
+      const fpath = path.join(dir, fileName)
+      const content = await Filesystem.readText(fpath).catch(() => "")
+      fileSections.push(`=== FILE: ${fileName} ===\n${content.slice(0, 800)}`)
+    }
+
     const prompt = [
-      "You are summarizing a directory for AI navigation purposes.",
+      "You are generating a navigation signpost for a project directory in markdown table format.",
       `Directory: ${relativePath}`,
-      `Subdirectories: ${childDirs.join(", ") || "(none)"}`,
-      `Files: ${childFiles.join(", ") || "(none)"}`,
-      anchorContent ? `\nKey file content:\n${anchorContent}` : "",
-      "\nWrite a brief (2-4 sentence) summary: what code is in this directory, its role in the project, and which subdirectories are most relevant for different tasks. Be concise and concrete. Do not use markdown headers or bullet points.",
-    ]
-      .filter(Boolean)
-      .join("\n")
+      "",
+      buildFormatTemplate(format),
+      "",
+      "RULES:",
+      '- "When to Dive In" / "When to Read": use "When you need to..." format, max 40 characters',
+      "- \"Summary\": one sentence, max 60 characters",
+      "- Use appropriate emoji icons for categories",
+      "- Include one row per entry listed below",
+      "- Output ONLY the markdown content, no explanation or code fences",
+      "",
+      "DIRECTORY CONTENTS:",
+      ...subdirSections,
+      ...fileSections,
+    ].join("\n")
 
     // Try the default model first; if not found, fall back to first available non-opencode model.
     // The bundled "opencode" provider may return empty text outside a session context.
@@ -99,7 +200,7 @@ export namespace FolderSummary {
     const result = await generateText({
       model: language,
       messages: [{ role: "user", content: prompt }],
-      maxOutputTokens: 200,
+      maxOutputTokens: 1500,
       temperature: 0.2,
     })
 
