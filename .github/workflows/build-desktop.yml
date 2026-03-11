@@ -16,7 +16,7 @@ jobs:
       - uses: ./.github/actions/setup-bun
 
       - name: Build CLI
-        run: ./packages/opencode/script/build.ts --skip-install
+        run: ./packages/opencode/script/build.ts
         env:
           OPENCODE_RELEASE: ""
 
