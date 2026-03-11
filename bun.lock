@@ -309,7 +309,7 @@
       "name": "opencode",
       "version": "1.2.24",
       "bin": {
-        "opencode": "./bin/opencode",
+        "openresearch": "./bin/opencode",
       },
       "dependencies": {
         "@actions/core": "1.11.1",
