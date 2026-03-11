@@ -7,7 +7,7 @@ const channel = (() => {
 })()
 
 const getBase = (): Configuration => ({
-  artifactName: "opencode-electron-${os}-${arch}.${ext}",
+  artifactName: "openresearch-${os}-${arch}.${ext}",
   directories: {
     output: "dist",
     buildResources: "resources",
@@ -39,8 +39,8 @@ const getBase = (): Configuration => ({
     sign: true,
   },
   protocols: {
-    name: "OpenCode",
-    schemes: ["opencode"],
+    name: "OpenResearch",
+    schemes: ["openresearch"],
   },
   win: {
     icon: `resources/icons/icon.ico`,
@@ -66,29 +66,29 @@ function getConfig() {
     case "dev": {
       return {
         ...base,
-        appId: "ai.opencode.desktop.dev",
-        productName: "OpenCode Dev",
-        rpm: { packageName: "opencode-dev" },
+        appId: "com.openresearch.desktop.dev",
+        productName: "OpenResearch Dev",
+        rpm: { packageName: "openresearch-dev" },
       }
     }
     case "beta": {
       return {
         ...base,
-        appId: "ai.opencode.desktop.beta",
-        productName: "OpenCode Beta",
-        protocols: { name: "OpenCode Beta", schemes: ["opencode"] },
-        publish: { provider: "github", owner: "anomalyco", repo: "opencode-beta", channel: "latest" },
-        rpm: { packageName: "opencode-beta" },
+        appId: "com.openresearch.desktop.beta",
+        productName: "OpenResearch Beta",
+        protocols: { name: "OpenResearch Beta", schemes: ["openresearch"] },
+        publish: { provider: "github", owner: "anomalyco", repo: "openresearch-beta", channel: "latest" },
+        rpm: { packageName: "openresearch-beta" },
       }
     }
     case "prod": {
       return {
         ...base,
-        appId: "ai.opencode.desktop",
-        productName: "OpenCode",
-        protocols: { name: "OpenCode", schemes: ["opencode"] },
-        publish: { provider: "github", owner: "anomalyco", repo: "opencode", channel: "latest" },
-        rpm: { packageName: "opencode" },
+        appId: "com.openresearch.desktop",
+        productName: "OpenResearch",
+        protocols: { name: "OpenResearch", schemes: ["openresearch"] },
+        publish: { provider: "github", owner: "anomalyco", repo: "openresearch", channel: "latest" },
+        rpm: { packageName: "openresearch" },
       }
     }
   }

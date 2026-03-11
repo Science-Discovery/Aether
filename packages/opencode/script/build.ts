@@ -146,6 +146,11 @@ const targets = singleFlag
 
 await $`rm -rf dist`
 
+// Build web app (packages/app) and embed alongside binary
+console.log("building web app...")
+await $`bun run build`.cwd(path.resolve(dir, "../../packages/app"))
+console.log("web app built")
+
 const binaries: Record<string, string> = {}
 if (!skipInstall) {
   await $`bun install --os="*" --cpu="*" @opentui/core@${pkg.dependencies["@opentui/core"]}`
@@ -184,8 +189,8 @@ for (const item of targets) {
       autoloadTsconfig: true,
       autoloadPackageJson: true,
       target: name.replace(pkg.name, "bun") as any,
-      outfile: `dist/${name}/bin/opencode`,
-      execArgv: [`--user-agent=opencode/${Script.version}`, "--use-system-ca", "--"],
+      outfile: `dist/${name}/bin/openresearch`,
+      execArgv: [`--user-agent=openresearch/${Script.version}`, "--use-system-ca", "--"],
       windows: {},
     },
     entrypoints: ["./src/index.ts", parserWorker, workerPath],
@@ -200,6 +205,10 @@ for (const item of targets) {
   })
 
   await $`rm -rf ./dist/${name}/bin/tui`
+
+  // Copy web assets next to the binary
+  await $`cp -r ${path.resolve(dir, "../../packages/app/dist")} dist/${name}/bin/web`
+
   await Bun.file(`dist/${name}/package.json`).write(
     JSON.stringify(
       {

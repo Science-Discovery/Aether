@@ -1,3 +1,25 @@
+import nodePath from "path"
+
+const MIME_TYPES: Record<string, string> = {
+  ".html": "text/html; charset=utf-8",
+  ".js": "application/javascript",
+  ".mjs": "application/javascript",
+  ".css": "text/css",
+  ".json": "application/json",
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".svg": "image/svg+xml",
+  ".ico": "image/x-icon",
+  ".woff": "font/woff",
+  ".woff2": "font/woff2",
+  ".ttf": "font/ttf",
+  ".webmanifest": "application/manifest+json",
+}
+function getMimeType(filePath: string): string {
+  const ext = nodePath.extname(filePath).toLowerCase()
+  return MIME_TYPES[ext] ?? "application/octet-stream"
+}
 import { BusEvent } from "@/bus/bus-event"
 import { Bus } from "@/bus"
 import { Log } from "../util/log"
@@ -555,9 +577,23 @@ export namespace Server {
         },
       )
       .all("/*", async (c) => {
-        const path = c.req.path
+        const reqPath = c.req.path
 
-        const response = await proxy(`https://app.opencode.ai${path}`, {
+        // Serve local web assets if available (next to the binary)
+        const webDir = nodePath.join(nodePath.dirname(process.execPath), "web")
+        const localFilePath = nodePath.join(webDir, reqPath === "/" ? "index.html" : reqPath)
+        const localFile = Bun.file(localFilePath)
+        if (await localFile.exists()) {
+          return new Response(localFile, { headers: { "content-type": getMimeType(localFilePath) } })
+        }
+        // SPA fallback: serve index.html for unknown paths
+        const indexFile = Bun.file(nodePath.join(webDir, "index.html"))
+        if (await indexFile.exists()) {
+          return new Response(indexFile, { headers: { "content-type": "text/html" } })
+        }
+
+        // Fall back to remote proxy
+        const response = await proxy(`https://app.opencode.ai${reqPath}`, {
           ...c.req,
           headers: {
             ...c.req.raw.headers,
