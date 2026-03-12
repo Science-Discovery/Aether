@@ -45,6 +45,7 @@ export function SessionSidePanel(props: {
   const command = useCommand()
   const dialog = useDialog()
   const sdk = useSDK()
+  const { params, sessionKey, tabs, view } = useSessionLayout()
 
   async function handleFileCreate(dir: string, type: "file" | "directory") {
     const name = window.prompt(type === "file" ? "新建文件名称：" : "新建文件夹名称：")
@@ -98,9 +99,6 @@ export function SessionSidePanel(props: {
       setIsSummarizing(false)
     }
   }
-
-
-  const { params, sessionKey, tabs, view } = useSessionLayout()
 
   const isDesktop = createMediaQuery("(min-width: 768px)")
 
