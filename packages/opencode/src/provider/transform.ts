@@ -286,6 +286,18 @@ export namespace ProviderTransform {
       })
     }
 
+    // For @ai-sdk/anthropic, remove trailing assistant messages to prevent
+    // "assistant message prefill" errors. This handles zombie messages left
+    // by interrupted streaming sessions.
+    if (
+      model.api.npm === "@ai-sdk/anthropic" ||
+      model.api.npm === "@ai-sdk/google-vertex/anthropic"
+    ) {
+      while (msgs.length > 0 && msgs[msgs.length - 1].role === "assistant") {
+        msgs.pop()
+      }
+    }
+
     return msgs
   }
 
