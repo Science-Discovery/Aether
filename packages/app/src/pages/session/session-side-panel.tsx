@@ -99,6 +99,7 @@ export function SessionSidePanel(props: {
     }
   }
 
+
   const { params, sessionKey, tabs, view } = useSessionLayout()
 
   const isDesktop = createMediaQuery("(min-width: 768px)")
