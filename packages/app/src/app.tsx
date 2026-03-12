@@ -8,7 +8,6 @@ import { Font } from "@opencode-ai/ui/font"
 import { Splash } from "@opencode-ai/ui/logo"
 import { ThemeProvider } from "@opencode-ai/ui/theme"
 import { MetaProvider } from "@solidjs/meta"
-<<<<<<< Updated upstream
 import { type BaseRouterProps, Navigate, Route, Router } from "@solidjs/router"
 import { type Duration, Effect } from "effect"
 import {
@@ -25,11 +24,7 @@ import {
   Suspense,
 } from "solid-js"
 import { Dynamic } from "solid-js/web"
-=======
-import { BaseRouterProps, Navigate, Route, Router } from "@solidjs/router"
-import { Component, ErrorBoundary, type JSX, lazy, type ParentProps, Show, Suspense } from "solid-js"
 import { KnowledgeProvider } from "@/context/knowledge"
->>>>>>> Stashed changes
 import { CommandProvider } from "@/context/command"
 import { CommentsProvider } from "@/context/comments"
 import { FileProvider } from "@/context/file"

@@ -406,11 +406,11 @@ export function createPromptSubmit(input: PromptSubmitInput) {
         parts: requestParts,
         variant,
         knowledgeBase:
-          knowledge.state.enabled && knowledge.state.config
+          knowledge.enabled() && knowledge.activeKnowledgeBase()
             ? {
-                path: knowledge.state.config.path,
-                apiKey: knowledge.state.config.apiKey,
-                baseURL: knowledge.state.config.baseURL,
+                path: knowledge.activeKnowledgeBase()!.path,
+                apiKey: knowledge.activeKnowledgeBase()!.apiKey,
+                baseURL: knowledge.activeKnowledgeBase()!.baseURL,
               }
             : undefined,
       })
