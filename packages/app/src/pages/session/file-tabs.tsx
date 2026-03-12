@@ -502,16 +502,6 @@ export function FileTabContent(props: { tab: string }) {
   }
 
   return (
-<<<<<<< HEAD
-    <Tabs.Content value={props.tab} class="mt-3 relative h-full">
-      <ScrollView
-        class="h-full"
-        viewportRef={(el: HTMLDivElement) => {
-          scroll = el
-          restoreScroll()
-        }}
-        onScroll={handleScroll as any}
-=======
     <Tabs.Content value={props.tab} class="mt-3 relative flex h-full min-h-0 flex-col overflow-hidden contain-strict">
       <Show when={state()?.loaded}>
         <div class="flex justify-end px-3 pb-1 shrink-0 gap-1.5">
@@ -575,7 +565,6 @@ export function FileTabContent(props: { tab: string }) {
             </Switch>
           </ScrollView>
         }
->>>>>>> 691fb184f (新增目录摘要导航功能，新增换行切换按钮)
       >
         <CodeEditor
           content={editContent()}
