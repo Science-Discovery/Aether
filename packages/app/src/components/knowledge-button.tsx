@@ -25,7 +25,7 @@ export const KnowledgeButton: Component = () => {
           <span>{language.t("knowledge.title")}</span>
           <Show when={knowledge.enabled()}>
             <span class="text-12-regular text-text-weak">
-              {knowledge.state.documentCount} {language.t("knowledge.documents")}
+              {knowledge.activeKnowledgeBase()?.documentCount} {language.t("knowledge.documents")}
             </span>
           </Show>
         </div>
