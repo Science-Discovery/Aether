@@ -104,11 +104,16 @@ export const dict: Record<string, string> = {
   "ui.tool.questions": "Questions",
   "ui.tool.agent": "{{type}} Agent",
   "ui.tool.agent.default": "Agent",
+  "ui.tool.knowledgeSearch": "Knowledge Search",
 
   "ui.common.file.one": "file",
   "ui.common.file.other": "files",
   "ui.common.question.one": "question",
   "ui.common.question.other": "questions",
+  "ui.common.source.one": "source",
+  "ui.common.source.other": "sources",
+
+  "ui.knowledge.sources": "Sources:",
 
   "ui.common.add": "Add",
   "ui.common.back": "Back",

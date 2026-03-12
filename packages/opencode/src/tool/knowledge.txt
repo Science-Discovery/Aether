@@ -1,0 +1,17 @@
+Search the knowledge base for relevant information.
+
+This tool searches through indexed documents (PDFs, papers, etc.) that have been synced to the knowledge base. Use this when the user asks questions about topics that might be in their uploaded documents or papers.
+
+The knowledge base uses semantic search with embeddings, so you can search by meaning, not just exact keywords.
+
+Parameters:
+- query: The search query describing what information you're looking for
+- topK: Number of results to return (default: 5, max: 20)
+
+Returns relevant document chunks with their source filenames and similarity scores.
+
+Usage notes:
+  - Always use this tool when the user's question relates to documents they have uploaded to the knowledge base
+  - The query should describe the information you're looking for in natural language
+  - Results include the source filename, page number (if available), and relevant text content
+  - The score indicates relevance (higher is better)

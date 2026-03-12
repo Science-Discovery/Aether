@@ -12,6 +12,7 @@ import { usePermission } from "@/context/permission"
 import { type ImageAttachmentPart, type Prompt, usePrompt } from "@/context/prompt"
 import { useSDK } from "@/context/sdk"
 import { useSync } from "@/context/sync"
+import { useKnowledge } from "@/context/knowledge"
 import { Identifier } from "@/utils/id"
 import { Worktree as WorktreeState } from "@/utils/worktree"
 import { buildRequestParts } from "./build-request-parts"
@@ -64,6 +65,7 @@ export function createPromptSubmit(input: PromptSubmitInput) {
   const layout = useLayout()
   const language = useLanguage()
   const params = useParams()
+  const knowledge = useKnowledge()
 
   const errorMessage = (err: unknown) => {
     if (err && typeof err === "object" && "data" in err) {
@@ -403,6 +405,14 @@ export function createPromptSubmit(input: PromptSubmitInput) {
         messageID,
         parts: requestParts,
         variant,
+        knowledgeBase:
+          knowledge.state.enabled && knowledge.state.config
+            ? {
+                path: knowledge.state.config.path,
+                apiKey: knowledge.state.config.apiKey,
+                baseURL: knowledge.state.config.baseURL,
+              }
+            : undefined,
       })
     }
 

@@ -47,6 +47,7 @@ import { LLM } from "./llm"
 import { iife } from "@/util/iife"
 import { Shell } from "@/shell/shell"
 import { Truncate } from "@/tool/truncation"
+import { Knowledge } from "../knowledge"
 
 // @ts-ignore
 globalThis.AI_SDK_LOG_WARNINGS = false
@@ -110,6 +111,13 @@ export namespace SessionPrompt {
     format: MessageV2.Format.optional(),
     system: z.string().optional(),
     variant: z.string().optional(),
+    knowledgeBase: z
+      .object({
+        path: z.string(),
+        apiKey: z.string().optional(),
+        baseURL: z.string().optional(),
+      })
+      .optional(),
     parts: z.array(
       z.discriminatedUnion("type", [
         MessageV2.TextPart.omit({
@@ -970,6 +978,32 @@ export namespace SessionPrompt {
         : undefined
     const variant = input.variant ?? (agent.variant && full?.variants?.[agent.variant] ? agent.variant : undefined)
 
+    // RAG: search knowledge base and build context for system prompt
+    let ragContext: string | undefined
+    if (input.knowledgeBase) {
+      try {
+        const index = await Knowledge.load(input.knowledgeBase.path)
+        if (index) {
+          const userText = input.parts
+            .filter((p) => p.type === "text")
+            .map((p) => (p as { text: string }).text)
+            .join(" ")
+          const results = await Knowledge.search(input.knowledgeBase.path, index, userText, {
+            apiKey: input.knowledgeBase.apiKey,
+            baseURL: input.knowledgeBase.baseURL,
+            topK: 5,
+          })
+          if (results.length > 0) {
+            ragContext =
+              "以下是来自知识库的相关内容，请参考这些内容回答用户的问题：\n\n" +
+              Knowledge.buildRAGContext(results)
+          }
+        }
+      } catch {
+        // knowledge base unavailable, proceed without RAG context
+      }
+    }
+
     const info: MessageV2.Info = {
       id: input.messageID ?? MessageID.ascending(),
       role: "user",
@@ -980,7 +1014,7 @@ export namespace SessionPrompt {
       tools: input.tools,
       agent: agent.name,
       model,
-      system: input.system,
+      system: ragContext ? (input.system ? `${ragContext}\n\n${input.system}` : ragContext) : input.system,
       format: input.format,
       variant,
     }

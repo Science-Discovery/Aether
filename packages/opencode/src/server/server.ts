@@ -65,6 +65,7 @@ import { Filesystem } from "@/util/filesystem"
 import { QuestionRoutes } from "./routes/question"
 import { PermissionRoutes } from "./routes/permission"
 import { GlobalRoutes } from "./routes/global"
+import { KnowledgeRoutes } from "./routes/knowledge"
 import { MDNS } from "./mdns"
 import { lazy } from "@/util/lazy"
 
@@ -273,6 +274,7 @@ export namespace Server {
       .route("/", FileRoutes())
       .route("/mcp", McpRoutes())
       .route("/tui", TuiRoutes())
+      .route("/knowledge", KnowledgeRoutes())
       .post(
         "/instance/dispose",
         describeRoute({

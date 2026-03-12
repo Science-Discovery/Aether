@@ -7,7 +7,7 @@
 
 ### 1. Skills 扩展，部分实现
 - [ ] `brainstorm` — 头脑风暴技能，结构化发散思维
-- [ ] `write-paper` — 学术论文写作（摘要/引言/方法/结论模板）
+- [x] `write-paper` — 学术论文写作（摘要/引言/方法/结论模板）
 - [ ] `ppt-creator` — 演示文稿生成（输出 Markdown/PPTX）
 
 ### 2. 知识库（Knowledge Base），暂时不用

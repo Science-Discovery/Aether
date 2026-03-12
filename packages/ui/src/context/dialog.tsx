@@ -10,6 +10,7 @@ import {
   runWithOwner,
   useContext,
   type JSX,
+  For,
 } from "solid-js"
 import { Dialog as Kobalte } from "@kobalte/core/dialog"
 
@@ -27,7 +28,8 @@ type Active = {
 const Context = createContext<ReturnType<typeof init>>()
 
 function init() {
-  const [active, setActive] = createSignal<Active | undefined>()
+  // 改为对话框堆栈，支持多个对话框同时显示
+  const [stack, setStack] = createSignal<Active[]>([])
   const timer = { current: undefined as ReturnType<typeof setTimeout> | undefined }
   const lock = { value: false }
 
@@ -38,7 +40,8 @@ function init() {
   })
 
   const close = () => {
-    const current = active()
+    const currentStack = stack()
+    const current = currentStack[currentStack.length - 1]
     if (!current || lock.value) return
     lock.value = true
     current.onClose?.()
@@ -53,13 +56,21 @@ function init() {
     timer.current = setTimeout(() => {
       timer.current = undefined
       current.dispose()
-      if (active()?.id === id) setActive(undefined)
+      // 只移除最顶层的对话框
+      setStack(prev => {
+        if (prev.length === 0) return prev
+        if (prev[prev.length - 1].id === id) {
+          return prev.slice(0, -1)
+        }
+        return prev
+      })
       lock.value = false
     }, 100)
   }
 
   createEffect(() => {
-    if (!active()) return
+    const currentStack = stack()
+    if (currentStack.length === 0) return
 
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return
@@ -73,13 +84,6 @@ function init() {
   })
 
   const show = (element: DialogElement, owner: Owner, onClose?: () => void) => {
-    // Immediately dispose any existing dialog when showing a new one
-    const current = active()
-    if (current) {
-      current.dispose()
-      setActive(undefined)
-    }
-
     if (timer.current !== undefined) {
       clearTimeout(timer.current)
       timer.current = undefined
@@ -115,12 +119,20 @@ function init() {
 
     if (!dispose || !setClosing) return
 
-    setActive({ id, node, dispose, owner, onClose, setClosing })
+    // 将新对话框推入堆栈，而不是替换
+    const newActive: Active = { id, node, dispose, owner, onClose, setClosing }
+    setStack(prev => [...prev, newActive])
   }
+
+  // 获取当前活动的对话框（堆栈顶部）
+  const active = () => stack()[stack().length - 1]
 
   return {
     get active() {
       return active()
+    },
+    get stack() {
+      return stack()
     },
     close,
     show,
@@ -132,7 +144,9 @@ export function DialogProvider(props: ParentProps) {
   return (
     <Context.Provider value={ctx}>
       {props.children}
-      <div data-component="dialog-stack">{ctx.active?.node}</div>
+      <div data-component="dialog-stack">
+        <For each={ctx.stack}>{(item) => item.node}</For>
+      </div>
     </Context.Provider>
   )
 }

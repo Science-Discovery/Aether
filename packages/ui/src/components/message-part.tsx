@@ -2214,3 +2214,104 @@ ToolRegistry.register({
     return <BasicTool icon="brain" status={props.status} trigger={trigger()} hideDetails />
   },
 })
+
+// Knowledge search tool - displays sources as clickable links
+ToolRegistry.register({
+  name: "knowledge_search",
+  render(props) {
+    const i18n = useI18n()
+    const dialog = useDialog()
+    const pending = createMemo(() => props.status === "pending" || props.status === "running")
+    
+    // Extract sources from metadata
+    const sources = createMemo(() => {
+      const meta = props.metadata
+      if (!meta || !Array.isArray(meta.sources)) return []
+      return meta.sources as string[]
+    })
+    
+    // Parse file:// links from output and convert to API URLs
+    const sourceLinks = createMemo(() => {
+      const output = props.output || ""
+      const links: { name: string; filePath: string }[] = []
+      const regex = /\[([^\]]+)\]\(file:\/\/([^)]+)\)/g
+      let match
+      while ((match = regex.exec(output)) !== null) {
+        const name = match[1]
+        const filePath = match[2]
+        // Avoid duplicates
+        if (!links.find(l => l.filePath === filePath)) {
+          links.push({ name, filePath })
+        }
+      }
+      return links
+    })
+
+    const subtitle = createMemo(() => {
+      const count = sources().length
+      if (count === 0) return ""
+      return `${count} ${i18n.t(count > 1 ? "ui.common.source.other" : "ui.common.source.one")}`
+    })
+
+    // Open PDF in dialog using backend API
+    const openPdf = (filePath: string, fileName: string) => {
+      const apiUrl = `/knowledge/file?path=${encodeURIComponent(filePath)}`
+      dialog.show(() => (
+        <div data-component="pdf-preview-dialog" class="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div class="relative w-[90vw] h-[90vh] bg-background-base rounded-lg shadow-xl overflow-hidden flex flex-col">
+            <div class="flex items-center justify-between p-3 border-b border-border-base">
+              <span class="text-14-medium text-text-strong">{fileName}</span>
+              <IconButton
+                icon="close"
+                variant="ghost"
+                onClick={() => dialog.close()}
+                aria-label={i18n.t("ui.common.close")}
+              />
+            </div>
+            <iframe
+              src={apiUrl}
+              class="flex-1 w-full border-0"
+              title={fileName}
+            />
+          </div>
+        </div>
+      ))
+    }
+
+    return (
+      <BasicTool
+        {...props}
+        icon="magnifying-glass-menu"
+        trigger={{
+          title: i18n.t("ui.tool.knowledgeSearch"),
+          subtitle: subtitle(),
+        }}
+      >
+        <Show when={!pending() && sourceLinks().length > 0}>
+          <div data-component="knowledge-sources">
+            <div data-slot="knowledge-sources-label" class="text-12-medium text-text-base mb-2">
+              {i18n.t("ui.knowledge.sources")}
+            </div>
+            <div data-slot="knowledge-sources-list">
+              <For each={sourceLinks()}>
+                {(link) => (
+                  <button
+                    data-slot="knowledge-source-link"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      openPdf(link.filePath, link.name)
+                    }}
+                    class="flex items-center gap-2 text-13-regular text-text-strong hover:text-text-interactive py-1 cursor-pointer bg-transparent border-0 w-full text-left"
+                  >
+                    <FileIcon node={{ path: link.name, type: "file" }} class="size-4 shrink-0" />
+                    <span>{link.name}</span>
+                  </button>
+                )}
+              </For>
+            </div>
+          </div>
+        </Show>
+      </BasicTool>
+    )
+  },
+})

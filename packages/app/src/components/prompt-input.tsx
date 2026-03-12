@@ -55,6 +55,7 @@ import { PromptImageAttachments } from "./prompt-input/image-attachments"
 import { PromptDragOverlay } from "./prompt-input/drag-overlay"
 import { promptPlaceholder } from "./prompt-input/placeholder"
 import { ImagePreview } from "@opencode-ai/ui/image-preview"
+import { KnowledgeButton } from "@/components/knowledge-button"
 
 interface PromptInputProps {
   class?: string
@@ -1479,6 +1480,16 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                     variant="ghost"
                   />
                 </TooltipKeybind>
+                <div
+                  style={{
+                    opacity: buttonsSpring(),
+                    transform: `scale(${0.95 + buttonsSpring() * 0.05})`,
+                    filter: `blur(${(1 - buttonsSpring()) * 2}px)`,
+                    "pointer-events": buttonsSpring() > 0.5 ? "auto" : "none",
+                  }}
+                >
+                  <KnowledgeButton />
+                </div>
               </div>
             </div>
             <div class="shrink-0">
