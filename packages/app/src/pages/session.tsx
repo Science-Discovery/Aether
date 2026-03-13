@@ -1116,7 +1116,7 @@ export default function Page() {
     if (!id) return
 
     const wants = isDesktop()
-      ? desktopFileTreeOpen() || (desktopReviewOpen() && activeTab() === "review")
+      ? desktopFileTreeOpen() || desktopReviewOpen()
       : store.mobileTab === "changes"
     if (!wants) return
     if (sync.data.session_diff[id] !== undefined) return
@@ -1131,7 +1131,7 @@ export default function Page() {
         [
           sessionKey(),
           isDesktop()
-            ? desktopFileTreeOpen() || (desktopReviewOpen() && activeTab() === "review")
+            ? desktopFileTreeOpen() || desktopReviewOpen()
             : store.mobileTab === "changes",
         ] as const,
       ([key, wants]) => {
