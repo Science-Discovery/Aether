@@ -148,3 +148,55 @@ OPENCODE_CHANNEL=prod bun run package:linux
 - **macOS 公证**：macOS 版本启用了 `notarize`，发布前需要配置 Apple 开发者证书。
 - **CLI 依赖嵌入**：桌面应用打包时会自动将 CLI 二进制（`openresearch-cli*`）一并打入安装包（位于 `resources/` 目录）。
 - **协议注册**：安装后桌面应用会注册 `openresearch://` 协议，支持从浏览器唤起应用。
+
+---
+
+## 三、Windows 便携版打包（Linux/WSL 环境）
+
+在 Linux/WSL 下无法生成 NSIS `.exe` 安装程序（需要 Windows 原生环境），但可以打包成 **便携 zip**，用户解压后直接双击 `.exe` 运行，无需安装。
+
+### 步骤 1：构建应用
+
+确保先完整构建，包含最新的 web 修改：
+
+```bash
+cd packages/desktop-electron
+bun run build
+```
+
+### 步骤 2：生成 win-unpacked 目录
+
+使用 `--win dir` 跳过 NSIS 打包，只生成解压目录（忽略末尾的 wine 签名报错，不影响运行）：
+
+```bash
+cd packages/desktop-electron
+npx electron-builder --win dir --config electron-builder.config.ts
+```
+
+产物在 `dist/win-unpacked/`，包含 `OpenResearch Dev.exe` 及所有依赖。
+
+### 步骤 3：打包成 zip
+
+```bash
+cd packages/desktop-electron/dist
+python3 -c "
+import zipfile, os
+with zipfile.ZipFile('openresearch-win-x64-portable.zip', 'w', zipfile.ZIP_DEFLATED) as zf:
+    for root, dirs, files in os.walk('win-unpacked'):
+        for file in files:
+            fp = os.path.join(root, file)
+            zf.write(fp)
+print('Done!')
+"
+```
+
+输出文件：`packages/desktop-electron/dist/openresearch-win-x64-portable.zip`
+
+### 用户使用方式
+
+解压 zip 后，进入 `win-unpacked/` 目录，双击 **`OpenResearch Dev.exe`** 即可运行。
+
+### 注意事项
+
+- 每次修改源码后，**必须重新执行步骤 1（`bun run build`）**，否则打包的是旧版本。
+- `npx electron-builder --win dir` 末尾的 wine 报错（`could not load kernel32.dll`）是代码签名失败，不影响程序正常运行，可忽略。

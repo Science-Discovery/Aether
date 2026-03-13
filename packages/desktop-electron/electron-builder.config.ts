@@ -24,6 +24,22 @@ const getBase = (): Configuration => ({
       to: "native/",
       filter: ["index.js", "index.d.ts", "build/Release/mac_window.node", "swift-build/**"],
     },
+    {
+      from: "../../.opencode/skills",
+      to: ".opencode/skills",
+    },
+    {
+      from: "../../.opencode/agent",
+      to: ".opencode/agent",
+    },
+    {
+      from: "../../.opencode/command",
+      to: ".opencode/command",
+    },
+    {
+      from: "../../.opencode/themes",
+      to: ".opencode/themes",
+    },
   ],
   mac: {
     category: "public.app-category.developer-tools",
