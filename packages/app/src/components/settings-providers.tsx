@@ -11,6 +11,7 @@ import { useGlobalSync } from "@/context/global-sync"
 import { DialogConnectProvider } from "./dialog-connect-provider"
 import { DialogSelectProvider } from "./dialog-select-provider"
 import { DialogCustomProvider } from "./dialog-custom-provider"
+import { SettingsList } from "./settings-list"
 
 type ProviderSource = "env" | "api" | "config" | "custom"
 type ProviderItem = ReturnType<ReturnType<typeof useProviders>["connected"]>[number]
@@ -80,6 +81,16 @@ export const SettingsProviders: Component = () => {
     return true
   }
 
+  const canEditAsCustom = (providerID: string) => {
+    const provider = globalSync.data.config.provider?.[providerID]
+    if (!provider) return false
+    // Dialog-created providers always have npm set
+    if (provider.npm === "@ai-sdk/openai-compatible") return true
+    // Manually-configured providers have a baseURL but may lack npm
+    if (provider.options?.["baseURL"]) return true
+    return false
+  }
+
   const disableProvider = async (providerID: string, name: string) => {
     const before = globalSync.data.config.disabled_providers ?? []
     const next = before.includes(providerID) ? before : [...before, providerID]
@@ -136,7 +147,7 @@ export const SettingsProviders: Component = () => {
       <div class="flex flex-col gap-8 max-w-[720px]">
         <div class="flex flex-col gap-1" data-component="connected-providers-section">
           <h3 class="text-14-medium text-text-strong pb-2">{language.t("settings.providers.section.connected")}</h3>
-          <div class="bg-surface-raised-base px-4 rounded-lg">
+          <SettingsList>
             <Show
               when={connected().length > 0}
               fallback={
@@ -161,20 +172,33 @@ export const SettingsProviders: Component = () => {
                         </span>
                       }
                     >
-                      <Button size="large" variant="ghost" onClick={() => void disconnect(item.id, item.name)}>
-                        {language.t("common.disconnect")}
-                      </Button>
+                      <div class="flex items-center gap-2">
+                        <Show when={canEditAsCustom(item.id)}>
+                          <Button
+                            size="large"
+                            variant="ghost"
+                            onClick={() => {
+                              dialog.show(() => <DialogCustomProvider back="close" editProviderID={item.id} />)
+                            }}
+                          >
+                            {language.t("common.edit")}
+                          </Button>
+                        </Show>
+                        <Button size="large" variant="ghost" onClick={() => void disconnect(item.id, item.name)}>
+                          {language.t("common.disconnect")}
+                        </Button>
+                      </div>
                     </Show>
                   </div>
                 )}
               </For>
             </Show>
-          </div>
+          </SettingsList>
         </div>
 
         <div class="flex flex-col gap-1">
           <h3 class="text-14-medium text-text-strong pb-2">{language.t("settings.providers.section.popular")}</h3>
-          <div class="bg-surface-raised-base px-4 rounded-lg">
+          <SettingsList>
             <For each={popular()}>
               {(item) => (
                 <div class="flex flex-wrap items-center justify-between gap-4 min-h-16 py-3 border-b border-border-weak-base last:border-none">
@@ -232,7 +256,7 @@ export const SettingsProviders: Component = () => {
                 {language.t("common.connect")}
               </Button>
             </div>
-          </div>
+          </SettingsList>
 
           <Button
             variant="ghost"

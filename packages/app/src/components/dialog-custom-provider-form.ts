@@ -32,6 +32,7 @@ export type FormState = {
   name: string
   baseURL: string
   apiKey: string
+  providerType: "openai-compatible" | "anthropic"
   models: ModelRow[]
   headers: HeaderRow[]
   saving: boolean
@@ -47,6 +48,7 @@ type ValidateArgs = {
   t: Translator
   disabledProviders: string[]
   existingProviderIDs: Set<string>
+  editProviderID?: string
 }
 
 export function validateCustomProvider(input: ValidateArgs) {
@@ -74,7 +76,7 @@ export function validateCustomProvider(input: ValidateArgs) {
   const disabled = input.disabledProviders.includes(providerID)
   const existsError = idError
     ? undefined
-    : input.existingProviderIDs.has(providerID) && !disabled
+    : input.existingProviderIDs.has(providerID) && !disabled && providerID !== input.editProviderID
       ? input.t("provider.custom.error.providerID.exists")
       : undefined
 
@@ -129,6 +131,8 @@ export function validateCustomProvider(input: ValidateArgs) {
   const ok = !idError && !existsError && !nameError && !urlError && modelsValid && headersValid
   if (!ok) return { err, models, headers }
 
+  const npm = input.form.providerType === "anthropic" ? "@ai-sdk/anthropic" : OPENAI_COMPATIBLE
+
   return {
     err,
     models,
@@ -138,7 +142,7 @@ export function validateCustomProvider(input: ValidateArgs) {
       name,
       key,
       config: {
-        npm: OPENAI_COMPATIBLE,
+        npm,
         name,
         ...(env ? { env: [env] } : {}),
         options: {

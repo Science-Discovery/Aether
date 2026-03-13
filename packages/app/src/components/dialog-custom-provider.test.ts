@@ -11,6 +11,7 @@ describe("validateCustomProvider", () => {
         name: " Custom Provider ",
         baseURL: "https://api.example.com ",
         apiKey: " {env: CUSTOM_PROVIDER_KEY} ",
+        providerType: "openai-compatible" as const,
         models: [{ row: "m0", id: " model-a ", name: " Model A ", err: {} }],
         headers: [
           { row: "h0", key: " X-Test ", value: " enabled ", err: {} },
@@ -52,6 +53,7 @@ describe("validateCustomProvider", () => {
         name: "Provider",
         baseURL: "https://api.example.com",
         apiKey: "secret",
+        providerType: "openai-compatible" as const,
         models: [
           { row: "m0", id: "model-a", name: "Model A", err: {} },
           { row: "m1", id: "model-a", name: "Model A 2", err: {} },

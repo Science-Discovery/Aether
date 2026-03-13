@@ -3,9 +3,10 @@ import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { Dialog } from "@opencode-ai/ui/dialog"
 import { IconButton } from "@opencode-ai/ui/icon-button"
 import { ProviderIcon } from "@opencode-ai/ui/provider-icon"
+import { RadioGroup } from "@opencode-ai/ui/radio-group"
 import { TextField } from "@opencode-ai/ui/text-field"
 import { showToast } from "@opencode-ai/ui/toast"
-import { batch, For } from "solid-js"
+import { batch, createEffect, createSignal, For } from "solid-js"
 import { createStore, produce } from "solid-js/store"
 import { Link } from "@/components/link"
 import { useGlobalSDK } from "@/context/global-sdk"
@@ -16,7 +17,12 @@ import { DialogSelectProvider } from "./dialog-select-provider"
 
 type Props = {
   back?: "providers" | "close"
+  editProviderID?: string
 }
+
+const MASKED_KEY = "••••••••"
+
+type ProviderTypeOption = "openai-compatible" | "anthropic"
 
 export function DialogCustomProvider(props: Props) {
   const dialog = useDialog()
@@ -24,15 +30,61 @@ export function DialogCustomProvider(props: Props) {
   const globalSDK = useGlobalSDK()
   const language = useLanguage()
 
+  const [hasExistingKey, setHasExistingKey] = createSignal(false)
+
   const [form, setForm] = createStore<FormState>({
     providerID: "",
     name: "",
     baseURL: "",
     apiKey: "",
+    providerType: "openai-compatible",
     models: [modelRow()],
     headers: [headerRow()],
     saving: false,
     err: {},
+  })
+
+  // Pre-populate form when editing an existing provider
+  createEffect(() => {
+    const editID = props.editProviderID
+    if (!editID) return
+    const config = globalSync.data.config.provider?.[editID]
+    if (!config) return
+
+    const existingModels = config.models
+      ? Object.entries(config.models).map(([id, m]) => ({
+          ...modelRow(),
+          id,
+          name: (m as { name?: string }).name ?? "",
+        }))
+      : [modelRow()]
+
+    const existingHeaders = config.options?.["headers"]
+      ? Object.entries(config.options["headers"] as Record<string, string>).map(([key, value]) => ({
+          ...headerRow(),
+          key,
+          value,
+        }))
+      : [headerRow()]
+
+    // Check if there's a saved API key
+    const providerInfo = globalSync.data.provider.all.find((p) => p.id === editID)
+    const keyExists = !!(providerInfo as unknown as { key?: string })?.key
+    setHasExistingKey(keyExists)
+
+    // Detect provider type from npm field
+    const npm = config.npm
+    const providerType: ProviderTypeOption = npm === "@ai-sdk/anthropic" ? "anthropic" : "openai-compatible"
+
+    batch(() => {
+      setForm("providerID", editID)
+      setForm("name", config.name ?? "")
+      setForm("baseURL", (config.options?.["baseURL"] as string) ?? "")
+      setForm("apiKey", keyExists ? MASKED_KEY : "")
+      setForm("providerType", providerType)
+      setForm("models", existingModels)
+      setForm("headers", existingHeaders)
+    })
   })
 
   const goBack = () => {
@@ -107,6 +159,7 @@ export function DialogCustomProvider(props: Props) {
       t: language.t,
       disabledProviders: globalSync.data.config.disabled_providers ?? [],
       existingProviderIDs: new Set(globalSync.data.provider.all.map((p) => p.id)),
+      editProviderID: props.editProviderID,
     })
     batch(() => {
       setForm("err", output.err)
@@ -128,15 +181,18 @@ export function DialogCustomProvider(props: Props) {
     const disabledProviders = globalSync.data.config.disabled_providers ?? []
     const nextDisabled = disabledProviders.filter((id) => id !== result.providerID)
 
-    const auth = result.key
-      ? globalSDK.client.auth.set({
-          providerID: result.providerID,
-          auth: {
-            type: "api",
-            key: result.key,
-          },
-        })
-      : Promise.resolve()
+    // Skip auth update if the API key is unchanged (still showing the masked sentinel)
+    const apiKeyUnchanged = form.apiKey === MASKED_KEY
+    const auth =
+      result.key && !apiKeyUnchanged
+        ? globalSDK.client.auth.set({
+            providerID: result.providerID,
+            auth: {
+              type: "api",
+              key: result.key,
+            },
+          })
+        : Promise.resolve()
 
     auth
       .then(() =>
@@ -159,6 +215,10 @@ export function DialogCustomProvider(props: Props) {
         setForm("saving", false)
       })
   }
+
+  const isEdit = !!props.editProviderID
+
+  const providerTypeOptions: ProviderTypeOption[] = ["openai-compatible", "anthropic"]
 
   return (
     <Dialog
@@ -189,8 +249,26 @@ export function DialogCustomProvider(props: Props) {
           </p>
 
           <div class="flex flex-col gap-4">
+            <div class="flex flex-col gap-1.5">
+              <label class="text-12-medium text-text-weak">
+                {language.t("provider.custom.field.type.label")}
+              </label>
+              <RadioGroup
+                options={providerTypeOptions}
+                current={form.providerType}
+                label={(v) =>
+                  v === "anthropic"
+                    ? language.t("provider.custom.field.type.anthropic")
+                    : language.t("provider.custom.field.type.openai")
+                }
+                onSelect={(v) => {
+                  if (v) setForm("providerType", v)
+                }}
+              />
+            </div>
+
             <TextField
-              autofocus
+              autofocus={!isEdit}
               label={language.t("provider.custom.field.providerID.label")}
               placeholder={language.t("provider.custom.field.providerID.placeholder")}
               description={language.t("provider.custom.field.providerID.description")}
@@ -198,8 +276,10 @@ export function DialogCustomProvider(props: Props) {
               onChange={(v) => setField("providerID", v)}
               validationState={form.err.providerID ? "invalid" : undefined}
               error={form.err.providerID}
+              disabled={isEdit}
             />
             <TextField
+              autofocus={isEdit}
               label={language.t("provider.custom.field.name.label")}
               placeholder={language.t("provider.custom.field.name.placeholder")}
               value={form.name}
@@ -216,9 +296,14 @@ export function DialogCustomProvider(props: Props) {
               error={form.err.baseURL}
             />
             <TextField
+              type="password"
               label={language.t("provider.custom.field.apiKey.label")}
               placeholder={language.t("provider.custom.field.apiKey.placeholder")}
-              description={language.t("provider.custom.field.apiKey.description")}
+              description={
+                hasExistingKey() && form.apiKey === MASKED_KEY
+                  ? language.t("provider.custom.field.apiKey.savedDescription")
+                  : language.t("provider.custom.field.apiKey.description")
+              }
               value={form.apiKey}
               onChange={(v) => setField("apiKey", v)}
             />
