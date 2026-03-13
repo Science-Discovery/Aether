@@ -1,4 +1,4 @@
-import { Component, Show, For, createMemo, createSignal } from "solid-js"
+import { Component, Show, For, createMemo, createSignal, onMount } from "solid-js"
 import { Button } from "@opencode-ai/ui/button"
 import { Icon } from "@opencode-ai/ui/icon"
 import { Select } from "@opencode-ai/ui/select"
@@ -28,6 +28,18 @@ export const SettingsKnowledge: Component = () => {
 
   const models = knowledge.models()
 
+  // 从上次配置初始化表单
+  onMount(() => {
+    const lastConfig = knowledge.getLastConfig()
+    if (lastConfig) {
+      setNewProvider(lastConfig.provider)
+      setNewModel(lastConfig.model)
+      setNewApiKey(lastConfig.apiKey)
+      setNewBaseURL(lastConfig.baseURL)
+    }
+    knowledge.refreshAllStats()
+  })
+
   const providerModels = createMemo(() => {
     const p = newProvider()
     return models.filter((m) => m.provider === p)
@@ -54,7 +66,7 @@ export const SettingsKnowledge: Component = () => {
     const provider = p as "openai" | "local" | "custom"
     const firstModel = models.find((m) => m.provider === provider)
     setNewProvider(provider)
-    setNewModel(provider === "custom" ? "" : (firstModel?.id ?? ""))
+    setNewModel(provider === "custom" ? newModel() : (firstModel?.id ?? ""))
     // 不再设置 dimensions，让后端自动检测
   }
 
@@ -101,7 +113,7 @@ export const SettingsKnowledge: Component = () => {
         chunkOverlap: newChunkOverlap(),
       })
 
-      knowledge.setActive(id)
+      knowledge.toggleActive(id)
 
       const kb = knowledge.knowledgeBases().find(k => k.id === id)
       if (kb) {
@@ -119,15 +131,21 @@ export const SettingsKnowledge: Component = () => {
         setSuccess(`Added ${result.added} documents, updated ${result.updated}`)
       }
 
+      // 保存配置供下次使用
+      knowledge.saveLastConfig({
+        provider: newProvider(),
+        model: newModel(),
+        apiKey: newApiKey(),
+        baseURL: newBaseURL(),
+        dimensions: 1536,
+      })
+
       setShowAddForm(false)
       setNewPath("")
       setNewName("My Knowledge Base")
-      setNewProvider("openai")
-      setNewModel("text-embedding-3-small")
-      setNewApiKey("")
-      setNewBaseURL("")
-      // 不再需要重置 dimensions
+      // 不重置 provider、model、apiKey、baseURL，保留上次配置
     } catch (e) {
+      if (e instanceof Error && e.name === "AbortError") return
       const message = e instanceof Error ? e.message : String(e)
       setError(message)
     } finally {
@@ -147,6 +165,7 @@ export const SettingsKnowledge: Component = () => {
         setSuccess(`Added ${result.added} documents, updated ${result.updated}`)
       }
     } catch (e) {
+      if (e instanceof Error && e.name === "AbortError") return
       const message = e instanceof Error ? e.message : String(e)
       setError(message)
     } finally {
@@ -163,7 +182,7 @@ export const SettingsKnowledge: Component = () => {
   }
 
   const handleSelect = (id: string) => {
-    knowledge.setActive(id)
+    knowledge.toggleActive(id)
     const kb = knowledge.knowledgeBases().find(k => k.id === id)
     if (kb) {
       knowledge.loadKnowledgeBase(kb.path)
@@ -188,7 +207,7 @@ export const SettingsKnowledge: Component = () => {
             <div class="bg-surface-raised-base rounded-lg overflow-hidden">
               <For each={knowledge.knowledgeBases()}>
                 {(kb) => {
-                  const isActive = createMemo(() => knowledge.state.activeId === kb.id)
+                  const isActive = createMemo(() => knowledge.state.activeIds.includes(kb.id))
                   const isSyncing = createMemo(() => syncing() === kb.id)
                   return (
                     <div
@@ -196,18 +215,24 @@ export const SettingsKnowledge: Component = () => {
                       onClick={() => handleSelect(kb.id)}
                     >
                       <div class="flex items-center justify-center size-5 shrink-0">
-                        <Show when={isActive()}>
-                          <Icon name="check" class="size-4 text-icon-success-base" />
-                        </Show>
+                        <div
+                          class="size-4 rounded border flex items-center justify-center"
+                          classList={{
+                            "border-border-interactive bg-surface-interactive": isActive(),
+                            "border-border-base bg-transparent": !isActive(),
+                          }}
+                        >
+                          <Show when={isActive()}>
+                            <Icon name="check" class="size-3 text-icon-success-base" />
+                          </Show>
+                        </div>
                       </div>
                       <div class="flex-1 min-w-0">
                         <div class="text-14-medium text-text-strong truncate">{kb.name}</div>
                         <div class="text-12-regular text-text-weak truncate">{kb.path}</div>
                       </div>
                       <div class="flex items-center gap-2 text-12-regular text-text-base shrink-0">
-                        <span>{kb.documentCount ?? 0} docs</span>
-                        <span>·</span>
-                        <span>{kb.chunkCount ?? 0} chunks</span>
+                        <span>{kb.pdfFileCount ?? kb.documentCount ?? 0} docs</span>
                       </div>
                       <div class="flex items-center gap-1 shrink-0">
                         <Button
@@ -407,6 +432,34 @@ export const SettingsKnowledge: Component = () => {
               {syncing() === "new" ? "Adding..." : "Add & Sync"}
             </Button>
           </div>
+        </Show>
+
+        <Show when={knowledge.syncProgress()}>
+          {(progress) => (
+            <div class="flex flex-col gap-1.5">
+              <div class="flex justify-between items-center text-12-regular text-text-base">
+                <span>Processing documents...</span>
+                <div class="flex items-center gap-2">
+                  <span>{progress().current} / {progress().total}</span>
+                  <Button
+                    variant="ghost"
+                    size="small"
+                    onClick={() => knowledge.stopSync()}
+                    class="h-6 px-2 text-text-error"
+                    title="Stop embedding"
+                  >
+                    <Icon name="stop" class="size-3" />
+                  </Button>
+                </div>
+              </div>
+              <div class="h-1.5 w-full rounded-full bg-surface-raised overflow-hidden">
+                <div
+                  class="h-full rounded-full bg-blue-500 transition-all duration-300"
+                  style={{ width: `${Math.round((progress().current / progress().total) * 100)}%` }}
+                />
+              </div>
+            </div>
+          )}
         </Show>
 
         <Show when={error()}>

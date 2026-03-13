@@ -240,10 +240,14 @@ export namespace Knowledge {
   }
 
   // 获取知识库统计信息
-  export function getStats(index: KnowledgeIndex) {
+  export async function getStats(index: KnowledgeIndex) {
+    // 获取文件夹中实际 PDF 文件数量
+    const pdfFiles = await Storage.listPdfFiles(index.config.path)
+    
     return {
       totalDocuments: index.stats.totalDocuments,
       totalChunks: index.stats.totalChunks,
+      pdfFileCount: pdfFiles.length,
       lastSyncedAt: index.stats.lastSyncedAt,
       embeddingModel: index.config.embeddingModel,
       embeddingProvider: index.config.embeddingProvider,

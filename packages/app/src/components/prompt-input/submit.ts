@@ -44,7 +44,7 @@ type FollowupSendInput = {
   messageID?: string
   optimisticBusy?: boolean
   before?: () => Promise<boolean> | boolean
-  knowledgeBase?: { path: string; apiKey?: string; baseURL?: string }
+  knowledgeBase?: { path?: string; paths?: string[]; apiKey?: string; baseURL?: string }
 }
 
 const draftText = (prompt: Prompt) => prompt.map((part) => ("content" in part ? part.content : "")).join("")
@@ -157,7 +157,7 @@ export async function sendFollowupDraft(input: FollowupSendInput) {
       messageID,
       parts: requestParts,
       variant: input.draft.variant,
-      knowledgeBase: input.knowledgeBase,
+      knowledgeBase: input.knowledgeBase as any,
     })
     return true
   } catch (err) {
@@ -544,11 +544,11 @@ export function createPromptSubmit(input: PromptSubmitInput) {
       optimisticBusy: sessionDirectory === projectDirectory,
       before: waitForWorktree,
       knowledgeBase:
-        knowledge.enabled() && knowledge.activeKnowledgeBase()
+        knowledge.enabled() && knowledge.activeKnowledgeBases().length > 0
           ? {
-              path: knowledge.activeKnowledgeBase()!.path,
-              apiKey: knowledge.activeKnowledgeBase()!.apiKey,
-              baseURL: knowledge.activeKnowledgeBase()!.baseURL,
+              paths: knowledge.activeKnowledgeBases().map(kb => kb.path),
+              apiKey: knowledge.activeKnowledgeBases()[0]!.apiKey,
+              baseURL: knowledge.activeKnowledgeBases()[0]!.baseURL,
             }
           : undefined,
     }).catch((err) => {

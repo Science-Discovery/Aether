@@ -26,36 +26,53 @@ IMPORTANT: When answering based on search results, you MUST:
 
 Do not ignore any relevant results - synthesize information from all returned chunks.`
 
-// 全局知识库配置存储
+// 全局知识库配置存储（支持多个知识库）
 let globalKnowledgeConfig: {
-  path: string
+  paths: string[]  // 多个知识库路径
   apiKey?: string
   baseURL?: string
 } | null = null
 
-export function setKnowledgeConfig(config: { path: string; apiKey?: string; baseURL?: string } | null) {
-  globalKnowledgeConfig = config
+export function setKnowledgeConfig(config: { path?: string; paths?: string[]; apiKey?: string; baseURL?: string } | null) {
+  if (!config) {
+    globalKnowledgeConfig = null
+    return
+  }
+  // 支持单个 path 或多个 paths
+  const paths = config.paths || (config.path ? [config.path] : [])
+  globalKnowledgeConfig = {
+    paths,
+    apiKey: config.apiKey,
+    baseURL: config.baseURL,
+  }
 }
 
 export function getKnowledgeConfig() {
   return globalKnowledgeConfig
 }
 
-// 在 Instance 目录中查找知识库
-async function findKnowledgeBase(): Promise<string | null> {
-  // 优先使用全局配置
-  if (globalKnowledgeConfig?.path) {
-    const kbPath = Storage.kbPath(globalKnowledgeConfig.path)
-    if (await Filesystem.exists(kbPath)) {
-      return globalKnowledgeConfig.path
+// 获取所有激活的知识库路径
+async function getActiveKnowledgeBases(): Promise<string[]> {
+  const result: string[] = []
+  
+  // 优先使用全局配置中的路径
+  if (globalKnowledgeConfig?.paths?.length) {
+    for (const kbPath of globalKnowledgeConfig.paths) {
+      const metaPath = Storage.kbPath(kbPath)
+      if (await Filesystem.exists(metaPath)) {
+        result.push(kbPath)
+      }
+    }
+    if (result.length > 0) {
+      return result
     }
   }
 
-  // 在当前工作目录查找
+  // 回退：在当前工作目录查找
   const cwd = Instance.directory
   const cwdKbPath = Storage.kbPath(cwd)
   if (await Filesystem.exists(cwdKbPath)) {
-    return cwd
+    result.push(cwd)
   }
 
   // 在父目录中查找（最多向上 3 层）
@@ -66,11 +83,11 @@ async function findKnowledgeBase(): Promise<string | null> {
     dir = parent
     const kbPath = Storage.kbPath(dir)
     if (await Filesystem.exists(kbPath)) {
-      return dir
+      result.push(dir)
     }
   }
 
-  return null
+  return result
 }
 
 interface KnowledgeMetadata {
@@ -89,17 +106,17 @@ export const KnowledgeTool = Tool.define("knowledge_search", {
     topK: z.coerce.number().describe("Number of results to return (default: 10)").optional().default(10),
   }),
   async execute(params, ctx) {
-    // 查找知识库
-    const kbPath = await findKnowledgeBase()
+    // 获取所有激活的知识库
+    const kbPaths = await getActiveKnowledgeBases()
     
-    if (!kbPath) {
+    if (kbPaths.length === 0) {
       return {
         title: "Knowledge base not configured",
         output: `Knowledge base is not configured or not found.
 
 To use the knowledge base:
 1. Open the Knowledge Base dialog in the UI
-2. Select a folder containing your PDF documents
+2. Select folders containing your PDF documents
 3. Configure the embedding provider (OpenAI, Local, or Custom)
 4. Click Sync to index your documents
 
@@ -110,24 +127,19 @@ Once synced, you can search the knowledge base using this tool.`,
       }
     }
 
-    // 加载知识库索引
-    const index = await Knowledge.load(kbPath)
-    if (!index) {
-      return {
-        title: "Knowledge base not found",
-        output: `Knowledge base index not found at ${kbPath}. Please sync documents first.`,
-        metadata: {
-          configured: true,
-          exists: false,
-        } as KnowledgeMetadata,
+    // 加载所有知识库索引
+    const indexes: Array<{ path: string; index: typeof Knowledge.load extends (...args: any) => Promise<infer T> ? T : never }> = []
+    for (const kbPath of kbPaths) {
+      const index = await Knowledge.load(kbPath)
+      if (index && index.stats.totalDocuments > 0 && index.stats.totalChunks > 0) {
+        indexes.push({ path: kbPath, index: index as any })
       }
     }
 
-    // 检查是否有文档
-    if (index.stats.totalDocuments === 0 || index.stats.totalChunks === 0) {
+    if (indexes.length === 0) {
       return {
         title: "Knowledge base empty",
-        output: `Knowledge base at "${kbPath}" is empty. No documents have been synced yet.
+        output: `All ${kbPaths.length} knowledge base(s) are empty. No documents have been synced yet.
 
 Please run sync to index your documents:
 1. Open the Knowledge Base dialog
@@ -141,20 +153,37 @@ Please run sync to index your documents:
       }
     }
 
-    // 执行搜索 - 优先使用 index.config 中保存的 apiKey/baseURL
+    // 执行搜索 - 搜索所有激活的知识库
     const topK = Math.min(params.topK || 10, 20)
-    const results = await Knowledge.search(kbPath, index, params.query, {
-      apiKey: index.config.apiKey || globalKnowledgeConfig?.apiKey,
-      baseURL: index.config.baseURL || globalKnowledgeConfig?.baseURL,
-      topK,
-    })
+    const allResults: Array<{ result: typeof Knowledge.search extends (...args: any) => Promise<(infer T)[]> ? T : never; kbPath: string }> = []
+    
+    for (const { path: kbPath, index } of indexes) {
+      const results = await Knowledge.search(kbPath, index as any, params.query, {
+        apiKey: (index as any).config.apiKey || globalKnowledgeConfig?.apiKey,
+        baseURL: (index as any).config.baseURL || globalKnowledgeConfig?.baseURL,
+        topK,
+      })
+      for (const result of results) {
+        allResults.push({ result: result as any, kbPath })
+      }
+    }
 
-    if (results.length === 0) {
+    // 按分数排序并取 topK
+    allResults.sort((a, b) => (b.result as any).score - (a.result as any).score)
+    const topResults = allResults.slice(0, topK)
+
+    if (topResults.length === 0) {
+      let totalDocs = 0
+      let totalChunks = 0
+      for (const { index } of indexes) {
+        totalDocs += (index as any).stats.totalDocuments
+        totalChunks += (index as any).stats.totalChunks
+      }
       return {
         title: "No results found",
         output: `No relevant information found for query: "${params.query}"
 
-The knowledge base contains ${index.stats.totalDocuments} documents with ${index.stats.totalChunks} chunks, but none matched your query.
+The knowledge bases contain ${totalDocs} documents with ${totalChunks} chunks, but none matched your query.
 
 Try:
 - Using different keywords
@@ -163,8 +192,8 @@ Try:
         metadata: {
           configured: true,
           exists: true,
-          documents: index.stats.totalDocuments,
-          chunks: index.stats.totalChunks,
+          documents: totalDocs,
+          chunks: totalChunks,
           results: 0,
         } as KnowledgeMetadata,
       }
@@ -172,17 +201,17 @@ Try:
 
     // 格式化输出
     const outputParts: string[] = [
-      `<knowledge_search query="${params.query}" results="${results.length}">`,
+      `<knowledge_search query="${params.query}" results="${topResults.length}" bases="${indexes.length}">`,
       "",
     ]
 
     // 收集所有来源文件（用于生成来源链接）
     const sourceFiles = new Map<string, string>() // fileName -> filePath
 
-    for (let i = 0; i < results.length; i++) {
-      const result = results[i]
-      const filePath = result.document.filePath
-      const fileName = result.document.fileName
+    for (let i = 0; i < topResults.length; i++) {
+      const { result } = topResults[i]
+      const filePath = (result as any).document.filePath
+      const fileName = (result as any).document.fileName
       
       // 记录来源文件
       if (!sourceFiles.has(fileName)) {
@@ -192,13 +221,13 @@ Try:
       // 生成 file:// URL
       const fileUrl = `file://${filePath}`
       
-      outputParts.push(`<result index="${i + 1}" score="${result.score.toFixed(4)}">`)
+      outputParts.push(`<result index="${i + 1}" score="${(result as any).score.toFixed(4)}">`)
       outputParts.push(`  <source link="${fileUrl}">${fileName}</source>`)
-      if (result.chunk.pageNumber) {
-        outputParts.push(`  <page>${result.chunk.pageNumber}</page>`)
+      if ((result as any).chunk.pageNumber) {
+        outputParts.push(`  <page>${(result as any).chunk.pageNumber}</page>`)
       }
       outputParts.push(`  <content>`)
-      outputParts.push(`    ${result.chunk.content.trim()}`)
+      outputParts.push(`    ${(result as any).chunk.content.trim()}`)
       outputParts.push(`  </content>`)
       outputParts.push(`</result>`)
       outputParts.push("")
@@ -216,22 +245,30 @@ Try:
     outputParts.push(`</sources>`)
     outputParts.push("")
     
+    // 计算总数
+    let totalDocs = 0
+    let totalChunks = 0
+    for (const { index } of indexes) {
+      totalDocs += (index as any).stats.totalDocuments
+      totalChunks += (index as any).stats.totalChunks
+    }
+    
     outputParts.push(`<summary>`)
-    outputParts.push(`Found ${results.length} relevant chunks from ${sourceFiles.size} documents.`)
-    outputParts.push(`Knowledge base: ${kbPath}`)
-    outputParts.push(`Total: ${index.stats.totalDocuments} documents, ${index.stats.totalChunks} chunks.`)
+    outputParts.push(`Found ${topResults.length} relevant chunks from ${sourceFiles.size} documents.`)
+    outputParts.push(`Knowledge bases: ${kbPaths.join(", ")}`)
+    outputParts.push(`Total: ${totalDocs} documents, ${totalChunks} chunks.`)
     outputParts.push(`</summary>`)
 
     return {
-      title: `Found ${results.length} results`,
+      title: `Found ${topResults.length} results`,
       output: outputParts.join("\n"),
       metadata: {
         configured: true,
         exists: true,
-        documents: index.stats.totalDocuments,
-        chunks: index.stats.totalChunks,
-        results: results.length,
-        sources: [...new Set(results.map(r => r.document.fileName))],
+        documents: totalDocs,
+        chunks: totalChunks,
+        results: topResults.length,
+        sources: [...new Set(topResults.map(r => (r.result as any).document.fileName))],
       } as KnowledgeMetadata,
     }
   },

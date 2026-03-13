@@ -17,14 +17,24 @@ export interface KnowledgeConfig {
   chunkOverlap: number
   // 统计信息
   documentCount?: number
-  chunkCount?: number
+  pdfFileCount?: number
   syncedAt?: number
+}
+
+// 上次使用的配置
+export interface LastConfig {
+  provider: "openai" | "local" | "custom"
+  model: string
+  apiKey: string
+  baseURL: string
+  dimensions: number
 }
 
 // 知识库状态
 export interface KnowledgeState {
   knowledgeBases: KnowledgeConfig[]
-  activeId: string | null
+  activeIds: string[]
+  lastConfig?: LastConfig
 }
 
 // 知识库搜索结果
@@ -58,42 +68,32 @@ export interface EmbeddingModel {
 
 const DEFAULT_STATE: KnowledgeState = {
   knowledgeBases: [],
-  activeId: null,
+  activeIds: [],
 }
 
 interface KnowledgeContextValue {
   state: KnowledgeState
   models: () => EmbeddingModel[]
-  // 当前激活的知识库
-  activeKnowledgeBase: () => KnowledgeConfig | null
-  // 所有知识库
+  activeKnowledgeBases: () => KnowledgeConfig[]
   knowledgeBases: () => KnowledgeConfig[]
-  // 激活状态
   enabled: () => boolean
-  // 同步进度
   syncProgress: () => { current: number; total: number } | null
-  // 设置激活的知识库
-  setActive: (id: string | null) => void
-  // 添加知识库
+  isActive: (id: string) => boolean
+  toggleActive: (id: string) => void
+  setActive: (ids: string[]) => void
   addKnowledgeBase: (config: Omit<KnowledgeConfig, "id">) => string
-  // 更新知识库
   updateKnowledgeBase: (id: string, config: Partial<KnowledgeConfig>) => void
-  // 删除知识库
   removeKnowledgeBase: (id: string) => Promise<void>
-  // 加载知识库
   loadKnowledgeBase: (path: string) => Promise<any | null>
-  // 创建知识库
   createKnowledgeBase: (config: KnowledgeConfig) => Promise<any>
-  // 同步知识库
   syncKnowledgeBase: (id?: string) => Promise<{ added: number; updated: number; removed: number; errors?: string[] }>
-  // 停止同步
+  syncAllActive: () => Promise<void>
   stopSync: () => void
-  // 搜索
   search: (query: string, topK?: number) => Promise<KnowledgeSearchResult[]>
-  // 构建 RAG 上下文
   buildRAGContext: (results: KnowledgeSearchResult[], maxLength?: number) => string
-  // 刷新所有知识库统计信息
   refreshAllStats: () => Promise<void>
+  getLastConfig: () => LastConfig | undefined
+  saveLastConfig: (config: LastConfig) => void
 }
 
 const KnowledgeContext = createContext<KnowledgeContextValue>()
@@ -150,44 +150,43 @@ export const KnowledgeProvider: Component<{ children: JSX.Element }> = (props) =
     syncAbortController = null
   }
 
-  // 当前激活的知识库
-  const activeKnowledgeBase = () => {
-    const id = state.activeId
-    if (!id) return null
-    return state.knowledgeBases.find(kb => kb.id === id) ?? null
+  const activeKnowledgeBases = () => {
+    const ids = state.activeIds
+    return state.knowledgeBases.filter(kb => ids.includes(kb.id))
   }
 
-  // 所有知识库
   const knowledgeBases = () => state.knowledgeBases
 
-  // 是否启用（有激活的知识库）
-  const enabled = () => state.activeId !== null && state.knowledgeBases.length > 0
+  const enabled = () => state.activeIds.length > 0
 
-  // 设置激活的知识库
-  const setActive = (id: string | null) => {
-    setState("activeId", id)
+  const isActive = (id: string) => state.activeIds.includes(id)
+
+  const toggleActive = (id: string) => {
+    const current = state.activeIds
+    if (current.includes(id)) {
+      setState("activeIds", current.filter(aid => aid !== id))
+    } else {
+      setState("activeIds", [...current, id])
+    }
   }
 
-  // 添加知识库
+  const setActive = (ids: string[]) => {
+    setState("activeIds", ids)
+  }
+
   const addKnowledgeBase = (config: Omit<KnowledgeConfig, "id">): string => {
     const id = generateId()
     const newKb: KnowledgeConfig = { ...config, id }
     setState("knowledgeBases", [...state.knowledgeBases, newKb])
-    // 如果是第一个知识库，自动激活
-    if (state.knowledgeBases.length === 0) {
-      setState("activeId", id)
-    }
     return id
   }
 
-  // 更新知识库
   const updateKnowledgeBase = (id: string, config: Partial<KnowledgeConfig>) => {
     const index = state.knowledgeBases.findIndex(kb => kb.id === id)
     if (index === -1) return
     setState("knowledgeBases", index, { ...state.knowledgeBases[index], ...config })
   }
 
-  // API 请求辅助函数
   const fetchApi = async (path: string, options: RequestInit = {}) => {
     const baseUrl = sdk.url
     const headers: Record<string, string> = {
@@ -203,7 +202,6 @@ export const KnowledgeProvider: Component<{ children: JSX.Element }> = (props) =
     return response
   }
 
-  // 刷新所有知识库统计信息
   const refreshAllStats = async () => {
     for (const kb of state.knowledgeBases) {
       try {
@@ -213,7 +211,7 @@ export const KnowledgeProvider: Component<{ children: JSX.Element }> = (props) =
           const stats = await response.json()
           updateKnowledgeBase(kb.id, {
             documentCount: stats.totalDocuments,
-            chunkCount: stats.totalChunks,
+            pdfFileCount: stats.pdfFileCount,
             syncedAt: stats.lastSyncedAt,
           })
         }
@@ -223,7 +221,6 @@ export const KnowledgeProvider: Component<{ children: JSX.Element }> = (props) =
     }
   }
 
-  // 组件挂载时刷新统计信息
   onMount(() => {
     if (state.knowledgeBases.length > 0) {
       refreshAllStats()
@@ -268,7 +265,7 @@ export const KnowledgeProvider: Component<{ children: JSX.Element }> = (props) =
   }
 
   const syncKnowledgeBase = async (id?: string) => {
-    const targetId = id ?? state.activeId
+    const targetId = id ?? (state.activeIds.length > 0 ? state.activeIds[0] : null)
     if (!targetId) {
       throw new Error("No knowledge base selected")
     }
@@ -282,7 +279,6 @@ export const KnowledgeProvider: Component<{ children: JSX.Element }> = (props) =
     const encodedPath = encodeURIComponent(kb.path)
     const baseUrl = sdk.url
 
-    // 先设置全局配置，让 knowledge_search 工具知道知识库路径
     await fetchApi("/knowledge/config", {
       method: "POST",
       body: JSON.stringify({
@@ -346,13 +342,12 @@ export const KnowledgeProvider: Component<{ children: JSX.Element }> = (props) =
             setSyncProgress({ current: status.current, total: status.total })
           } else if (event === "complete") {
             finalResult = JSON.parse(data)
-            // 更新统计信息
             const statsResponse = await fetchApi(`/knowledge/${encodedPath}/stats`)
             if (statsResponse.ok) {
               const stats = await statsResponse.json()
               updateKnowledgeBase(targetId, {
                 documentCount: stats.totalDocuments,
-                chunkCount: stats.totalChunks,
+                pdfFileCount: stats.pdfFileCount,
                 syncedAt: Date.now(),
               })
             }
@@ -371,33 +366,44 @@ export const KnowledgeProvider: Component<{ children: JSX.Element }> = (props) =
     return finalResult
   }
 
+  const syncAllActive = async () => {
+    for (const id of state.activeIds) {
+      await syncKnowledgeBase(id)
+    }
+  }
+
   const search = async (query: string, topK: number = 5): Promise<KnowledgeSearchResult[]> => {
-    const kb = activeKnowledgeBase()
-    if (!kb) {
+    const kbs = activeKnowledgeBases()
+    if (kbs.length === 0) {
       return []
     }
 
-    const encodedPath = encodeURIComponent(kb.path)
-    const response = await fetchApi(`/knowledge/${encodedPath}/search`, {
-      method: "POST",
-      body: JSON.stringify({
-        query,
-        topK,
-        apiKey: kb.apiKey,
-        baseURL: kb.baseURL,
-      }),
-    })
+    const allResults: KnowledgeSearchResult[] = []
 
-    if (!response.ok) {
-      console.error("Knowledge search failed:", await response.text())
-      return []
+    for (const kb of kbs) {
+      const encodedPath = encodeURIComponent(kb.path)
+      const response = await fetchApi(`/knowledge/${encodedPath}/search`, {
+        method: "POST",
+        body: JSON.stringify({
+          query,
+          topK,
+          apiKey: kb.apiKey,
+          baseURL: kb.baseURL,
+        }),
+      })
+
+      if (response.ok) {
+        const results = await response.json()
+        allResults.push(...results)
+      }
     }
 
-    return response.json()
+    allResults.sort((a, b) => b.score - a.score)
+    return allResults.slice(0, topK)
   }
 
   const removeKnowledgeBase = async (id?: string) => {
-    const targetId = id ?? state.activeId
+    const targetId = id ?? (state.activeIds.length > 0 ? state.activeIds[0] : null)
     if (!targetId) return
 
     const kb = state.knowledgeBases.find(k => k.id === targetId)
@@ -413,14 +419,9 @@ export const KnowledgeProvider: Component<{ children: JSX.Element }> = (props) =
       throw new Error(`Failed to remove knowledge base: ${error}`)
     }
 
-    // 从列表中移除
     const newIndex = state.knowledgeBases.filter(k => k.id !== targetId)
     setState("knowledgeBases", newIndex)
-
-    // 如果删除的是当前激活的，切换到第一个或设为 null
-    if (state.activeId === targetId) {
-      setState("activeId", newIndex.length > 0 ? newIndex[0]!.id : null)
-    }
+    setState("activeIds", state.activeIds.filter(aid => aid !== targetId))
   }
 
   const buildRAGContext = (results: KnowledgeSearchResult[], maxLength: number = 4000): string => {
@@ -443,13 +444,21 @@ export const KnowledgeProvider: Component<{ children: JSX.Element }> = (props) =
     return parts.join("\n---\n\n")
   }
 
+  const getLastConfig = () => state.lastConfig
+
+  const saveLastConfig = (config: LastConfig) => {
+    setState("lastConfig", config)
+  }
+
   const value: KnowledgeContextValue = {
     state,
     models,
-    activeKnowledgeBase,
+    activeKnowledgeBases,
     knowledgeBases,
     enabled,
     syncProgress,
+    isActive,
+    toggleActive,
     setActive,
     addKnowledgeBase,
     updateKnowledgeBase,
@@ -457,10 +466,13 @@ export const KnowledgeProvider: Component<{ children: JSX.Element }> = (props) =
     loadKnowledgeBase,
     createKnowledgeBase,
     syncKnowledgeBase,
+    syncAllActive,
     stopSync,
     search,
     buildRAGContext,
     refreshAllStats,
+    getLastConfig,
+    saveLastConfig,
   }
 
   return (

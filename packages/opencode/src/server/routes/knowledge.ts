@@ -2,7 +2,7 @@ import { Hono } from "hono"
 import { streamSSE } from "hono/streaming"
 import { describeRoute, validator, resolver } from "hono-openapi"
 import z from "zod"
-import { Knowledge } from "../../knowledge"
+import { Knowledge, Storage } from "../../knowledge"
 import { getDefaultDimensions, detectDimensions } from "../../knowledge/embedding"
 import {
   KnowledgeIndexSchema,
@@ -92,7 +92,7 @@ export const KnowledgeRoutes = lazy(() =>
 
         // 自动检测维度：优先使用用户指定的维度，否则尝试从已知模型获取，最后自动检测
         let dimensions: number | undefined = opts.embeddingDimensions
-        
+
         if (!dimensions) {
           // 尝试从已知模型列表中获取
           const defaultDims = getDefaultDimensions(opts.embeddingModel)
@@ -100,7 +100,7 @@ export const KnowledgeRoutes = lazy(() =>
             dimensions = defaultDims
           }
         }
-        
+
         if (!dimensions) {
           // 未知模型，自动检测维度
           log.info("auto-detecting dimensions", { provider: opts.embeddingProvider, model: opts.embeddingModel })
@@ -126,6 +126,122 @@ export const KnowledgeRoutes = lazy(() =>
         })
 
         return c.json(index)
+      },
+    )
+    // 设置全局知识库配置（供前端调用）
+    // NOTE: 必须在 /:path{.+} 之前注册，否则会被 catch-all 路由拦截
+    .post(
+      "/config",
+      describeRoute({
+        summary: "Set knowledge config",
+        description: "设置全局知识库配置，供 knowledge_search 工具使用",
+        operationId: "knowledge.config.set",
+        responses: {
+          200: {
+            description: "配置成功",
+            content: {
+              "application/json": {
+                schema: resolver(z.object({ ok: z.boolean() })),
+              },
+            },
+          },
+        },
+      }),
+      validator(
+        "json",
+        z.object({
+          path: z.string(),
+          apiKey: z.string().optional(),
+          baseURL: z.string().optional(),
+        }),
+      ),
+      async (c) => {
+        const opts = c.req.valid("json")
+        setKnowledgeConfig({
+          path: opts.path,
+          apiKey: opts.apiKey,
+          baseURL: opts.baseURL,
+        })
+        log.info("set knowledge config", { path: opts.path })
+        return c.json({ ok: true })
+      },
+    )
+    // 获取全局知识库配置
+    // NOTE: 必须在 /:path{.+} 之前注册，否则会被 catch-all 路由拦截
+    .get(
+      "/config",
+      describeRoute({
+        summary: "Get knowledge config",
+        description: "获取全局知识库配置",
+        operationId: "knowledge.config.get",
+        responses: {
+          200: {
+            description: "当前配置",
+            content: {
+              "application/json": {
+                schema: resolver(
+                  z.object({
+                    path: z.string().optional(),
+                    apiKey: z.string().optional(),
+                    baseURL: z.string().optional(),
+                  }),
+                ),
+              },
+            },
+          },
+        },
+      }),
+      async (c) => {
+        const config = getKnowledgeConfig()
+        return c.json(config ?? {})
+      },
+    )
+    // 获取知识库统计信息
+    // NOTE: 必须在 GET /:path{.+} 之前注册！否则 /:path{.+} 会贪婪匹配整个路径
+    // 包括 /stats 后缀，导致 stats 请求被错误地路由到 GET /:path{.+} 处理器，
+    // 返回 404，前端 refreshAllStats() 静默忽略，doc count 永远显示 0。
+    .get(
+      "/:path{.+}/stats",
+      describeRoute({
+        summary: "Get knowledge base stats",
+        description: "获取知识库统计信息",
+        operationId: "knowledge.stats",
+        responses: {
+          200: {
+            description: "统计信息",
+            content: {
+              "application/json": {
+                schema: resolver(
+                  z.object({
+                    totalDocuments: z.number(),
+                    totalChunks: z.number(),
+                    pdfFileCount: z.number(),
+                    lastSyncedAt: z.number().optional(),
+                    embeddingModel: z.string(),
+                    embeddingProvider: z.string(),
+                    chunkSize: z.number(),
+                    chunkOverlap: z.number(),
+                  }),
+                ),
+              },
+            },
+          },
+          404: {
+            description: "知识库不存在",
+          },
+        },
+      }),
+      async (c) => {
+        const dir = decodeURIComponent(c.req.param("path"))
+        const index = await Knowledge.load(dir)
+
+        if (!index) {
+          const pdfFiles = await Storage.listPdfFiles(dir)
+          return c.json({ totalDocuments: 0, totalChunks: 0, pdfFileCount: pdfFiles.length, lastSyncedAt: 0, embeddingModel: "", embeddingProvider: "", chunkSize: 0, chunkOverlap: 0 })
+        }
+
+        const stats = await Knowledge.getStats(index)
+        return c.json(stats)
       },
     )
     // 获取知识库信息
@@ -333,115 +449,6 @@ export const KnowledgeRoutes = lazy(() =>
 
         const updatedIndex = await Knowledge.removeDocument(dir, index, documentId)
         return c.json(updatedIndex)
-      },
-    )
-    // 设置全局知识库配置（供前端调用）
-    .post(
-      "/config",
-      describeRoute({
-        summary: "Set knowledge config",
-        description: "设置全局知识库配置，供 knowledge_search 工具使用",
-        operationId: "knowledge.config.set",
-        responses: {
-          200: {
-            description: "配置成功",
-            content: {
-              "application/json": {
-                schema: resolver(z.object({ ok: z.boolean() })),
-              },
-            },
-          },
-        },
-      }),
-      validator(
-        "json",
-        z.object({
-          path: z.string(),
-          apiKey: z.string().optional(),
-          baseURL: z.string().optional(),
-        }),
-      ),
-      async (c) => {
-        const opts = c.req.valid("json")
-        setKnowledgeConfig({
-          path: opts.path,
-          apiKey: opts.apiKey,
-          baseURL: opts.baseURL,
-        })
-        log.info("set knowledge config", { path: opts.path })
-        return c.json({ ok: true })
-      },
-    )
-    // 获取全局知识库配置
-    .get(
-      "/config",
-      describeRoute({
-        summary: "Get knowledge config",
-        description: "获取全局知识库配置",
-        operationId: "knowledge.config.get",
-        responses: {
-          200: {
-            description: "当前配置",
-            content: {
-              "application/json": {
-                schema: resolver(
-                  z.object({
-                    path: z.string().optional(),
-                    apiKey: z.string().optional(),
-                    baseURL: z.string().optional(),
-                  }),
-                ),
-              },
-            },
-          },
-        },
-      }),
-      async (c) => {
-        const config = getKnowledgeConfig()
-        return c.json(config ?? {})
-      },
-    )
-    // 获取知识库统计信息
-    .get(
-      "/:path{.+}/stats",
-      describeRoute({
-        summary: "Get knowledge base stats",
-        description: "获取知识库统计信息",
-        operationId: "knowledge.stats",
-        responses: {
-          200: {
-            description: "统计信息",
-            content: {
-              "application/json": {
-                schema: resolver(
-                  z.object({
-                    totalDocuments: z.number(),
-                    totalChunks: z.number(),
-                    lastSyncedAt: z.number().optional(),
-                    embeddingModel: z.string(),
-                    embeddingProvider: z.string(),
-                    chunkSize: z.number(),
-                    chunkOverlap: z.number(),
-                  }),
-                ),
-              },
-            },
-          },
-          404: {
-            description: "知识库不存在",
-          },
-        },
-      }),
-      async (c) => {
-        const dir = decodeURIComponent(c.req.param("path"))
-        const index = await Knowledge.load(dir)
-
-        if (!index) {
-          return c.json({ error: "Knowledge base not found" }, 404)
-        }
-
-        const stats = Knowledge.getStats(index)
-        return c.json(stats)
       },
     )
     // 获取 PDF 文件内容 - 用于在网页中预览

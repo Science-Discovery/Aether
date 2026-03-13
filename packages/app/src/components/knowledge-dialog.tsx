@@ -1,23 +1,47 @@
-import { Component, Show, createMemo, createSignal, For } from "solid-js"
+import { Component, Show, createMemo, createSignal, For, onMount } from "solid-js"
 import { Dialog } from "@opencode-ai/ui/dialog"
 import { Button } from "@opencode-ai/ui/button"
 import { Icon } from "@opencode-ai/ui/icon"
 import { Select } from "@opencode-ai/ui/select"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
-import { useKnowledge, type KnowledgeConfig } from "@/context/knowledge"
+import { useKnowledge } from "@/context/knowledge"
 import { DialogSelectDirectory } from "./dialog-select-directory"
 
 export const KnowledgeDialog: Component = () => {
   const knowledge = useKnowledge()
   const dialog = useDialog()
 
-  // UI 状态
   const [syncing, setSyncing] = createSignal(false)
   const [error, setError] = createSignal("")
   const [success, setSuccess] = createSignal("")
   const [showAddForm, setShowAddForm] = createSignal(false)
 
-  // 新知识库配置
+  const getLastConfigDefaults = (): {
+    provider: "openai" | "local" | "custom"
+    model: string
+    apiKey: string
+    baseURL: string
+    dimensions: number
+  } => {
+    const last = knowledge.getLastConfig()
+    if (last) {
+      return {
+        provider: last.provider,
+        model: last.model,
+        apiKey: last.apiKey,
+        baseURL: last.baseURL,
+        dimensions: last.dimensions,
+      }
+    }
+    return {
+      provider: "openai",
+      model: "text-embedding-3-small",
+      apiKey: "",
+      baseURL: "",
+      dimensions: 1536,
+    }
+  }
+
   const [newPath, setNewPath] = createSignal("")
   const [newName, setNewName] = createSignal("My Knowledge Base")
   const [newProvider, setNewProvider] = createSignal<"openai" | "local" | "custom">("openai")
@@ -25,6 +49,16 @@ export const KnowledgeDialog: Component = () => {
   const [newApiKey, setNewApiKey] = createSignal("")
   const [newBaseURL, setNewBaseURL] = createSignal("")
   const [newDimensions, setNewDimensions] = createSignal(1536)
+
+  onMount(() => {
+    const defaults = getLastConfigDefaults()
+    setNewProvider(defaults.provider)
+    setNewModel(defaults.model)
+    setNewApiKey(defaults.apiKey)
+    setNewBaseURL(defaults.baseURL)
+    setNewDimensions(defaults.dimensions)
+    knowledge.refreshAllStats()
+  })
 
   const models = knowledge.models()
   
@@ -54,7 +88,7 @@ export const KnowledgeDialog: Component = () => {
     const provider = p as "openai" | "local" | "custom"
     const firstModel = models.find(m => m.provider === provider)
     setNewProvider(provider)
-    setNewModel(provider === "custom" ? "" : (firstModel?.id ?? ""))
+    setNewModel(provider === "custom" ? newModel() : (firstModel?.id ?? ""))
     setNewDimensions(firstModel?.dimensions ?? 1536)
   }
 
@@ -89,7 +123,6 @@ export const KnowledgeDialog: Component = () => {
 
     setSyncing(true)
     try {
-      // 添加知识库配置
       const id = knowledge.addKnowledgeBase({
         path: newPath(),
         name: newName(),
@@ -102,10 +135,8 @@ export const KnowledgeDialog: Component = () => {
         chunkOverlap: 50,
       })
 
-      // 激活新添加的知识库
-      knowledge.setActive(id)
+      knowledge.toggleActive(id)
 
-      // 创建知识库
       const kb = knowledge.knowledgeBases().find(k => k.id === id)
       if (kb) {
         let index = await knowledge.loadKnowledgeBase(kb.path)
@@ -114,25 +145,27 @@ export const KnowledgeDialog: Component = () => {
         }
       }
 
-      // 同步
       const result = await knowledge.syncKnowledgeBase(id)
       
+      knowledge.saveLastConfig({
+        provider: newProvider(),
+        model: newModel(),
+        apiKey: newApiKey(),
+        baseURL: newBaseURL(),
+        dimensions: newDimensions(),
+      })
+
       if (result.errors && result.errors.length > 0) {
         setError(`Synced with ${result.errors.length} errors: ${result.errors.slice(0, 3).join(", ")}`)
       } else {
         setSuccess(`Added ${result.added} documents, updated ${result.updated}`)
       }
 
-      // 重置表单
       setShowAddForm(false)
       setNewPath("")
       setNewName("My Knowledge Base")
-      setNewProvider("openai")
-      setNewModel("text-embedding-3-small")
-      setNewApiKey("")
-      setNewBaseURL("")
-      setNewDimensions(1536)
     } catch (e) {
+      if (e instanceof Error && e.name === "AbortError") return
       const message = e instanceof Error ? e.message : String(e)
       setError(message)
       console.error("Sync error:", e)
@@ -153,6 +186,7 @@ export const KnowledgeDialog: Component = () => {
         setSuccess(`Added ${result.added} documents, updated ${result.updated}`)
       }
     } catch (e) {
+      if (e instanceof Error && e.name === "AbortError") return
       const message = e instanceof Error ? e.message : String(e)
       setError(message)
     } finally {
@@ -168,26 +202,21 @@ export const KnowledgeDialog: Component = () => {
     }
   }
 
-  const handleSelect = (id: string) => {
-    knowledge.setActive(id)
-    // 更新后端配置
-    const kb = knowledge.knowledgeBases().find(k => k.id === id)
-    if (kb) {
-      knowledge.loadKnowledgeBase(kb.path)
-    }
+  const handleToggle = (id: string) => {
+    knowledge.toggleActive(id)
   }
 
   return (
     <Dialog title="Knowledge Base" class="max-w-lg">
       <div class="flex flex-col gap-4 p-4 max-h-[60vh] overflow-y-auto">
-        {/* 知识库列表 */}
         <Show when={knowledge.knowledgeBases().length > 0}>
           <div class="flex flex-col gap-2">
             <label class="text-13-medium text-text-strong">Knowledge Bases</label>
+            <p class="text-12-regular text-text-weak">可选择多个，不选则不使用知识库</p>
             <div class="flex flex-col gap-1">
               <For each={knowledge.knowledgeBases()}>
                 {(kb) => {
-                  const isActive = createMemo(() => knowledge.state.activeId === kb.id)
+                  const isActive = () => knowledge.isActive(kb.id)
                   return (
                     <div
                       class="flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors"
@@ -195,21 +224,27 @@ export const KnowledgeDialog: Component = () => {
                         "border-border-interactive bg-surface-raised-base": isActive(),
                         "border-border-base bg-surface-base hover:bg-surface-raised-base": !isActive(),
                       }}
-                      onClick={() => handleSelect(kb.id)}
+                      onClick={() => handleToggle(kb.id)}
                     >
                       <div class="flex items-center justify-center size-5 shrink-0">
-                        <Show when={isActive()}>
-                          <Icon name="check" class="size-4 text-icon-interactive" />
-                        </Show>
+                        <div
+                          class="size-4 rounded border flex items-center justify-center"
+                          classList={{
+                            "border-border-interactive bg-surface-interactive": isActive(),
+                            "border-border-base bg-transparent": !isActive(),
+                          }}
+                        >
+                          <Show when={isActive()}>
+                            <Icon name="check" class="size-3 text-icon-interactive" />
+                          </Show>
+                        </div>
                       </div>
                       <div class="flex-1 min-w-0">
                         <div class="text-14-medium text-text-strong truncate">{kb.name}</div>
                         <div class="text-12-regular text-text-weak truncate">{kb.path}</div>
                       </div>
                       <div class="flex items-center gap-2 text-12-regular text-text-base shrink-0">
-                        <span>{kb.documentCount ?? 0} docs</span>
-                        <span>·</span>
-                        <span>{kb.chunkCount ?? 0} chunks</span>
+                        <span>{kb.pdfFileCount ?? kb.documentCount ?? 0} docs</span>
                       </div>
                       <div class="flex items-center gap-1 shrink-0">
                         <Button
@@ -244,7 +279,6 @@ export const KnowledgeDialog: Component = () => {
           </div>
         </Show>
 
-        {/* 添加新知识库按钮 */}
         <Show when={!showAddForm()}>
           <Button
             variant="secondary"
@@ -257,7 +291,6 @@ export const KnowledgeDialog: Component = () => {
           </Button>
         </Show>
 
-        {/* 添加新知识库表单 */}
         <Show when={showAddForm()}>
           <div class="flex flex-col gap-4 p-3 rounded-lg border border-border-base bg-surface-base">
             <div class="flex items-center justify-between">
@@ -272,7 +305,6 @@ export const KnowledgeDialog: Component = () => {
               </Button>
             </div>
 
-            {/* 文件夹路径 */}
             <div class="flex flex-col gap-2">
               <label class="text-13-medium text-text-strong">Folder Path</label>
               <div class="flex gap-2">
@@ -295,7 +327,6 @@ export const KnowledgeDialog: Component = () => {
               </div>
             </div>
 
-            {/* 名称 */}
             <div class="flex flex-col gap-2">
               <label class="text-13-medium text-text-strong">Name</label>
               <input
@@ -307,7 +338,6 @@ export const KnowledgeDialog: Component = () => {
               />
             </div>
 
-            {/* 嵌入提供商 */}
             <div class="flex flex-col gap-2">
               <label class="text-13-medium text-text-strong">Embedding Provider</label>
               <Select
@@ -322,7 +352,6 @@ export const KnowledgeDialog: Component = () => {
               />
             </div>
 
-            {/* OpenAI/Local 模型选择 */}
             <Show when={newProvider() === "openai" || newProvider() === "local"}>
               <div class="flex flex-col gap-2">
                 <label class="text-13-medium text-text-strong">Embedding Model</label>
@@ -339,7 +368,6 @@ export const KnowledgeDialog: Component = () => {
               </div>
             </Show>
 
-            {/* OpenAI API Key */}
             <Show when={newProvider() === "openai"}>
               <div class="flex flex-col gap-2">
                 <label class="text-13-medium text-text-strong">OpenAI API Key</label>
@@ -353,7 +381,6 @@ export const KnowledgeDialog: Component = () => {
               </div>
             </Show>
 
-            {/* Custom Provider 配置 */}
             <Show when={newProvider() === "custom"}>
               <div class="flex flex-col gap-3 p-3 rounded-md border border-border-base bg-surface-base/50">
                 <div class="text-13-medium text-text-strong">Custom Embedding Configuration</div>
@@ -393,7 +420,6 @@ export const KnowledgeDialog: Component = () => {
               </div>
             </Show>
 
-            {/* 添加按钮 */}
             <Button
               variant="primary"
               size="small"
@@ -406,13 +432,23 @@ export const KnowledgeDialog: Component = () => {
           </div>
         </Show>
 
-        {/* 同步进度 */}
         <Show when={syncing() && knowledge.syncProgress()}>
           {(progress) => (
             <div class="flex flex-col gap-1.5">
-              <div class="flex justify-between text-12-regular text-text-base">
+              <div class="flex justify-between items-center text-12-regular text-text-base">
                 <span>Processing documents...</span>
-                <span>{progress().current} / {progress().total}</span>
+                <div class="flex items-center gap-2">
+                  <span>{progress().current} / {progress().total}</span>
+                  <Button
+                    variant="ghost"
+                    size="small"
+                    onClick={() => knowledge.stopSync()}
+                    class="h-6 px-2 text-text-error"
+                    title="Stop embedding"
+                  >
+                    <Icon name="stop" class="size-3" />
+                  </Button>
+                </div>
               </div>
               <div class="h-1.5 w-full rounded-full bg-surface-raised overflow-hidden">
                 <div
@@ -424,7 +460,6 @@ export const KnowledgeDialog: Component = () => {
           )}
         </Show>
 
-        {/* 错误显示 */}
         <Show when={error()}>
           <div class="flex items-start gap-2 text-13-regular text-text-error bg-surface-error/10 rounded p-2">
             <Icon name="circle-x" class="size-4 shrink-0 mt-0.5" />
@@ -432,7 +467,6 @@ export const KnowledgeDialog: Component = () => {
           </div>
         </Show>
 
-        {/* 成功显示 */}
         <Show when={success()}>
           <div class="flex items-start gap-2 text-13-regular text-text-success bg-surface-success/10 rounded p-2">
             <Icon name="check" class="size-4 shrink-0 mt-0.5" />

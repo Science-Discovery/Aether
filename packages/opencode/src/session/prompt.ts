@@ -113,7 +113,8 @@ export namespace SessionPrompt {
     variant: z.string().optional(),
     knowledgeBase: z
       .object({
-        path: z.string(),
+        path: z.string().optional(),
+        paths: z.array(z.string()).optional(),
         apiKey: z.string().optional(),
         baseURL: z.string().optional(),
       })
@@ -982,22 +983,32 @@ export namespace SessionPrompt {
     let ragContext: string | undefined
     if (input.knowledgeBase) {
       try {
-        const index = await Knowledge.load(input.knowledgeBase.path)
-        if (index) {
-          const userText = input.parts
-            .filter((p) => p.type === "text")
-            .map((p) => (p as { text: string }).text)
-            .join(" ")
-          const results = await Knowledge.search(input.knowledgeBase.path, index, userText, {
-            apiKey: input.knowledgeBase.apiKey,
-            baseURL: input.knowledgeBase.baseURL,
-            topK: 5,
-          })
-          if (results.length > 0) {
-            ragContext =
-              "以下是来自知识库的相关内容，请参考这些内容回答用户的问题：\n\n" +
-              Knowledge.buildRAGContext(results)
+        const paths = input.knowledgeBase.paths || (input.knowledgeBase.path ? [input.knowledgeBase.path] : [])
+        const allResults: Awaited<ReturnType<typeof Knowledge.search>> = []
+        
+        for (const kbPath of paths) {
+          const index = await Knowledge.load(kbPath)
+          if (index) {
+            const userText = input.parts
+              .filter((p) => p.type === "text")
+              .map((p) => (p as { text: string }).text)
+              .join(" ")
+            const results = await Knowledge.search(kbPath, index, userText, {
+              apiKey: input.knowledgeBase.apiKey,
+              baseURL: input.knowledgeBase.baseURL,
+              topK: 5,
+            })
+            allResults.push(...results)
           }
+        }
+        
+        if (allResults.length > 0) {
+          // 按分数排序并取 top 5
+          allResults.sort((a, b) => b.score - a.score)
+          const topResults = allResults.slice(0, 5)
+          ragContext =
+            "以下是来自知识库的相关内容，请参考这些内容回答用户的问题：\n\n" +
+            Knowledge.buildRAGContext(topResults)
         }
       } catch {
         // knowledge base unavailable, proceed without RAG context

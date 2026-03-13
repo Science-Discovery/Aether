@@ -25,7 +25,7 @@ export const KnowledgeButton: Component = () => {
           <span>{language.t("knowledge.title")}</span>
           <Show when={knowledge.enabled()}>
             <span class="text-12-regular text-text-weak">
-              {knowledge.activeKnowledgeBase()?.documentCount ?? 0} {language.t("knowledge.documents")}
+              {knowledge.activeKnowledgeBases().reduce((sum, kb) => sum + (kb.pdfFileCount ?? kb.documentCount ?? 0), 0)} {language.t("knowledge.documents")}
             </span>
           </Show>
         </div>
