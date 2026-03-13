@@ -44,6 +44,7 @@ type FollowupSendInput = {
   messageID?: string
   optimisticBusy?: boolean
   before?: () => Promise<boolean> | boolean
+  knowledgeBase?: { path: string; apiKey?: string; baseURL?: string }
 }
 
 const draftText = (prompt: Prompt) => prompt.map((part) => ("content" in part ? part.content : "")).join("")
@@ -156,6 +157,7 @@ export async function sendFollowupDraft(input: FollowupSendInput) {
       messageID,
       parts: requestParts,
       variant: input.draft.variant,
+      knowledgeBase: input.knowledgeBase,
     })
     return true
   } catch (err) {
