@@ -334,6 +334,10 @@ export namespace Session {
     Bus.publish(Event.Updated, {
       info: result,
     })
+    // Record a baseline snapshot so that human edits made before any AI
+    // processing are captured by the review panel diff.
+    const baseline = await Snapshot.track().catch(() => undefined)
+    if (baseline) await Storage.write(["session_diff_from", result.id], baseline).catch(() => {})
     return result
   }
 

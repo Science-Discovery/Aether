@@ -5,6 +5,8 @@ import { withNetworkOptions, resolveNetworkOptions } from "../network"
 import { Flag } from "../../flag/flag"
 import open from "open"
 import { networkInterfaces } from "os"
+import { Global } from "../../global"
+import nodePath from "path"
 
 function getNetworkIPs() {
   const nets = networkInterfaces()
@@ -38,6 +40,8 @@ export const WebCommand = cmd({
     }
     const opts = await resolveNetworkOptions(args)
     const server = Server.listen(opts)
+    const portfile = nodePath.join(Global.Path.data, "serve-port")
+    await Bun.write(portfile, String(server.port))
     UI.empty()
     UI.println(UI.logo("  "))
     UI.empty()

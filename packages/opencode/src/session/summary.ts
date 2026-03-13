@@ -82,7 +82,26 @@ export namespace SessionSummary {
   )
 
   async function summarizeSession(input: { sessionID: SessionID; messages: MessageV2.WithParts[] }) {
-    const diffs = await computeDiff({ messages: input.messages })
+    // Only store session_diff_from when it does not already exist.
+    // A baseline snapshot is recorded at session creation; preserving it
+    // ensures human edits made before the first AI step are included.
+    const existing = await Storage.read<string>(["session_diff_from", input.sessionID]).catch(() => undefined)
+    const from = firstSnapshot(input.messages)
+    if (from && !existing) {
+      await Storage.write(["session_diff_from", input.sessionID], from).catch(() => {})
+    }
+
+    // Prefer a full diff from the session baseline to the current working
+    // tree so that human edits made before the first AI step are included.
+    const baseline = existing ?? from
+    let diffs: Snapshot.FileDiff[]
+    if (baseline) {
+      const to = await Snapshot.track()
+      diffs = to ? await Snapshot.diffFull(baseline, to) : await computeDiff({ messages: input.messages })
+    } else {
+      diffs = await computeDiff({ messages: input.messages })
+    }
+
     await Session.setSummary({
       sessionID: input.sessionID,
       summary: {
@@ -112,12 +131,45 @@ export namespace SessionSummary {
     await Session.updateMessage(userMsg)
   }
 
+  function firstSnapshot(messages: MessageV2.WithParts[]) {
+    for (const item of messages) {
+      for (const part of item.parts) {
+        if (part.type === "step-start" && part.snapshot) return part.snapshot
+      }
+    }
+    return undefined
+  }
+
   export const diff = fn(
     z.object({
       sessionID: SessionID.zod,
       messageID: MessageID.zod.optional(),
     }),
     async (input) => {
+      let from = await Storage.read<string>(["session_diff_from", input.sessionID]).catch(() => undefined)
+
+      // Backward-compat: for sessions created before the baseline snapshot
+      // was recorded at creation time, try to derive one from messages.
+      if (!from) {
+        const msgs = await Session.messages({ sessionID: input.sessionID })
+        from = firstSnapshot(msgs)
+        if (from) {
+          await Storage.write(["session_diff_from", input.sessionID], from).catch(() => {})
+        }
+      }
+
+      if (from) {
+        const to = await Snapshot.track()
+        if (to) {
+          const diffs = await Snapshot.diffFull(from, to)
+          await Storage.write(["session_diff", input.sessionID], diffs)
+          Bus.publish(Session.Event.Diff, {
+            sessionID: input.sessionID,
+            diff: diffs,
+          })
+          return diffs
+        }
+      }
       const diffs = await Storage.read<Snapshot.FileDiff[]>(["session_diff", input.sessionID]).catch(() => [])
       const next = diffs.map((item) => {
         const file = unquoteGitPath(item.file)

@@ -59,8 +59,18 @@ export namespace SessionRevert {
       revert.snapshot = session.revert?.snapshot ?? (await Snapshot.track())
       await Snapshot.revert(patches)
       if (revert.snapshot) revert.diff = await Snapshot.diff(revert.snapshot)
-      const rangeMessages = all.filter((msg) => msg.info.id >= revert!.messageID)
-      const diffs = await SessionSummary.computeDiff({ messages: rangeMessages })
+      // Compute diffs matching what SessionSummary.diff() returns on refresh:
+      // use session_diff_from → current working tree when available,
+      // otherwise fall back to computing from remaining (non-reverted) messages.
+      const from = await Storage.read<string>(["session_diff_from", input.sessionID]).catch(() => undefined)
+      let diffs: Snapshot.FileDiff[]
+      if (from) {
+        const to = await Snapshot.track()
+        diffs = to ? await Snapshot.diffFull(from, to) : []
+      } else {
+        const remaining = all.filter((msg) => msg.info.id < revert!.messageID)
+        diffs = await SessionSummary.computeDiff({ messages: remaining })
+      }
       await Storage.write(["session_diff", input.sessionID], diffs)
       Bus.publish(Session.Event.Diff, {
         sessionID: input.sessionID,
@@ -85,6 +95,20 @@ export namespace SessionRevert {
     const session = await Session.get(input.sessionID)
     if (!session.revert) return session
     if (session.revert.snapshot) await Snapshot.restore(session.revert.snapshot)
+    const all = await Session.messages({ sessionID: input.sessionID })
+    const from = await Storage.read<string>(["session_diff_from", input.sessionID]).catch(() => undefined)
+    let diffs: Snapshot.FileDiff[]
+    if (from) {
+      const to = await Snapshot.track()
+      diffs = to ? await Snapshot.diffFull(from, to) : []
+    } else {
+      diffs = await SessionSummary.computeDiff({ messages: all })
+    }
+    await Storage.write(["session_diff", input.sessionID], diffs)
+    Bus.publish(Session.Event.Diff, {
+      sessionID: input.sessionID,
+      diff: diffs,
+    })
     return Session.clearRevert(input.sessionID)
   }
 

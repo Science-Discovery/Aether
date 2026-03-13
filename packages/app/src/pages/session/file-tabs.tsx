@@ -18,6 +18,7 @@ import { selectionFromLines, useFile, type FileSelection, type SelectedLineRange
 import { useComments } from "@/context/comments"
 import { useLanguage } from "@/context/language"
 import { usePrompt } from "@/context/prompt"
+import { useSync } from "@/context/sync"
 import { getSessionHandoff } from "@/pages/session/handoff"
 import { useSessionLayout } from "@/pages/session/session-layout"
 import { createSessionTabs } from "@/pages/session/helpers"
@@ -60,6 +61,7 @@ export function FileTabContent(props: { tab: string }) {
   const comments = useComments()
   const language = useLanguage()
   const prompt = usePrompt()
+  const sync = useSync()
   const fileComponent = useFileComponent()
   const sdk = useSDK()
 
@@ -86,6 +88,8 @@ export function FileTabContent(props: { tab: string }) {
       await sdk.client.file.write({ path: p, content: editContent() })
       setIsEditing(false)
       setEditContent("")
+      void file.load(p, { force: true })
+      if (params.id) void sync.session.diff(params.id, { force: true })
     } catch (e) {
       showToast({
         variant: "error",
@@ -97,7 +101,7 @@ export function FileTabContent(props: { tab: string }) {
     }
   }
 
-  const { sessionKey, tabs, view } = useSessionLayout()
+  const { params, sessionKey, tabs, view } = useSessionLayout()
   const activeFileTab = createSessionTabs({
     tabs,
     pathFromTab: file.pathFromTab,
