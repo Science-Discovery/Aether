@@ -177,34 +177,54 @@ export namespace FolderSummary {
       ...fileSections,
     ].join("\n")
 
-    // Try the default model first; if not found, fall back to first available non-opencode model.
-    // The bundled "opencode" provider may return empty text outside a session context.
+    // Try the default model first; if not found, fall back to first available model.
     let model: Awaited<ReturnType<typeof Provider.getModel>>
     try {
       const defaultModel = await Provider.defaultModel()
       model = await Provider.getModel(defaultModel.providerID, defaultModel.modelID)
-      if (model.providerID === "opencode") throw new Error("skip bundled provider")
     } catch {
       const providers = await Provider.list()
-      const userModels = Object.values(providers)
-        .filter((p) => p.id !== "opencode")
-        .flatMap((p) => Object.values(p.models))
       const allModels = Object.values(providers).flatMap((p) => Object.values(p.models))
-      const candidates = userModels.length > 0 ? userModels : allModels
-      const sorted = Provider.sort(candidates)
+      const sorted = Provider.sort(allModels)
       if (sorted.length === 0) throw new Error("No available models found")
       model = sorted[0]
     }
-    const language = await Provider.getLanguage(model)
 
-    const result = await generateText({
-      model: language,
-      messages: [{ role: "user", content: prompt }],
-      maxOutputTokens: 1500,
-      temperature: 0.2,
-    })
+    const tryGenerate = async (m: Awaited<ReturnType<typeof Provider.getModel>>): Promise<string> => {
+      const language = await Provider.getLanguage(m)
+      const result = await generateText({
+        model: language,
+        messages: [{ role: "user", content: prompt }],
+        maxOutputTokens: 1500,
+        temperature: 0.2,
+      })
+      return result.text.trim()
+    }
 
-    const summary = result.text.trim()
+    // Try the primary model; catch both throws and empty text, then fall back.
+    let summary = ""
+    try {
+      summary = await tryGenerate(model)
+    } catch (err) {
+      log.warn("primary model failed during summarization, trying fallback", {
+        providerID: model.providerID,
+        error: err,
+      })
+    }
+
+    if (!summary) {
+      const providers = await Provider.list()
+      const fallbackModels = Object.values(providers)
+        .filter((p) => p.id !== model.providerID)
+        .flatMap((p) => Object.values(p.models))
+      const sorted = Provider.sort(fallbackModels)
+      if (sorted.length > 0) {
+        summary = await tryGenerate(sorted[0])
+      }
+    }
+
+    if (!summary) throw new Error("No model could generate a summary")
+
     await Filesystem.write(path.join(dir, SUMMARY_FILE), summary)
     log.info("summary written", { dir, length: summary.length })
   }

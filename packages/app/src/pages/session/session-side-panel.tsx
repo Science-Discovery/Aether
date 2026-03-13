@@ -8,6 +8,7 @@ import { TooltipKeybind, Tooltip } from "@opencode-ai/ui/tooltip"
 import { ResizeHandle } from "@opencode-ai/ui/resize-handle"
 import { Mark } from "@opencode-ai/ui/logo"
 import { showToast } from "@opencode-ai/ui/toast"
+import { Dialog } from "@opencode-ai/ui/dialog"
 import { DragDropProvider, DragDropSensors, DragOverlay, SortableProvider, closestCenter } from "@thisbeyond/solid-dnd"
 import type { DragEvent } from "@thisbeyond/solid-dnd"
 import { ConstrainDragYAxis, getDraggableId } from "@/utils/solid-dnd"
@@ -46,32 +47,93 @@ export function SessionSidePanel(props: {
   const sdk = useSDK()
   const { params, sessionKey, tabs, view } = useSessionLayout()
 
-  async function handleFileCreate(dir: string, type: "file" | "directory") {
-    const name = window.prompt(type === "file" ? "新建文件名称：" : "新建文件夹名称：")
-    if (!name?.trim()) return
-    const newPath = dir ? `${dir}/${name.trim()}` : name.trim()
-    try {
-      await sdk.client.file.create({ path: newPath, type })
-      file.tree.refresh(dir)
-      if (!file.tree.state(dir)?.expanded) file.tree.expand(dir)
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err)
-      showToast({ variant: "error", icon: "circle-x", title: "创建失败", description: message })
-    }
+  function handleFileCreate(dir: string, type: "file" | "directory") {
+    const title = type === "file" ? "新建文件" : "新建文件夹"
+    const placeholder = type === "file" ? "文件名（如 notes.md）" : "文件夹名"
+    dialog.show(() => {
+      const [name, setName] = createSignal("")
+      const doCreate = async () => {
+        const trimmed = name().trim()
+        if (!trimmed) return
+        dialog.close()
+        const newPath = dir ? `${dir}/${trimmed}` : trimmed
+        try {
+          await sdk.client.file.create({ path: newPath, type })
+          file.tree.refresh(dir)
+          if (!file.tree.state(dir)?.expanded) file.tree.expand(dir)
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err)
+          showToast({ variant: "error", icon: "circle-x", title: "创建失败", description: message })
+        }
+      }
+      return (
+        <Dialog
+          title={title}
+          action={
+            <div style={{ display: "flex", gap: "8px" }}>
+              <button onClick={() => dialog.close()} style={{ padding: "4px 12px", cursor: "pointer" }}>
+                取消
+              </button>
+              <button onClick={doCreate} style={{ padding: "4px 12px", cursor: "pointer", "font-weight": "bold" }}>
+                确认
+              </button>
+            </div>
+          }
+        >
+          <div style={{ padding: "12px 0" }}>
+            <input
+              autofocus
+              type="text"
+              value={name()}
+              placeholder={placeholder}
+              onInput={(e) => setName(e.currentTarget.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") doCreate()
+                if (e.key === "Escape") dialog.close()
+              }}
+              style={{ width: "100%", padding: "6px 8px", "box-sizing": "border-box" }}
+            />
+          </div>
+        </Dialog>
+      )
+    })
   }
 
-  async function handleFileDelete(node: FileNode) {
+  function handleFileDelete(node: FileNode) {
     const label = node.type === "directory" ? "文件夹" : "文件"
-    const confirmed = window.confirm(`确认删除${label} "${node.name}"？此操作不可撤销。`)
-    if (!confirmed) return
-    const parentDir = node.path.includes("/") ? node.path.slice(0, node.path.lastIndexOf("/")) : ""
-    try {
-      await sdk.client.file.delete({ path: node.path })
-      file.tree.refresh(parentDir)
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err)
-      showToast({ variant: "error", icon: "circle-x", title: "删除失败", description: message })
-    }
+    dialog.show(() => {
+      const doDelete = async () => {
+        dialog.close()
+        const parentDir = node.path.includes("/") ? node.path.slice(0, node.path.lastIndexOf("/")) : ""
+        try {
+          await sdk.client.file.delete({ path: node.path })
+          file.tree.refresh(parentDir)
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err)
+          showToast({ variant: "error", icon: "circle-x", title: "删除失败", description: message })
+        }
+      }
+      return (
+        <Dialog
+          title={`删除${label}`}
+          description={`确认删除${label} "${node.name}"？此操作不可撤销。`}
+          action={
+            <div style={{ display: "flex", gap: "8px" }}>
+              <button onClick={() => dialog.close()} style={{ padding: "4px 12px", cursor: "pointer" }}>
+                取消
+              </button>
+              <button
+                autofocus
+                onClick={doDelete}
+                style={{ padding: "4px 12px", cursor: "pointer", "font-weight": "bold", color: "red" }}
+              >
+                删除
+              </button>
+            </div>
+          }
+        />
+      )
+    })
   }
 
   function handleRefresh() {

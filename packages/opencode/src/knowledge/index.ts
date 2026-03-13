@@ -99,80 +99,102 @@ export namespace Knowledge {
     // 处理新增和修改的文件
     const dimensions = index.config.embeddingDimensions
 
-    for (let i = 0; i < pdfFiles.length; i++) {
+    // 本地模型不支持并发，API provider 最多 100 并发
+    const CONCURRENCY = index.config.embeddingProvider === "local" ? 1 : 100
+
+    // 先跳过已存在文件，收集待处理列表
+    let processed = 0
+    const filesToProcess: string[] = []
+    for (const filePath of pdfFiles) {
+      if (existingFiles.has(filePath)) {
+        log.info("Skipping existing file", { file: filePath })
+        processed++
+        await opts?.onProgress?.({ phase: "processing", current: processed, total: pdfFiles.length })
+      } else {
+        filesToProcess.push(filePath)
+      }
+    }
+
+    // 分批并发处理
+    for (let batchStart = 0; batchStart < filesToProcess.length; batchStart += CONCURRENCY) {
       if (opts?.signal?.aborted) {
-        log.info("Sync aborted by signal", { processed: i, total: pdfFiles.length })
+        log.info("Sync aborted by signal", { processed, total: pdfFiles.length })
         break
       }
 
-      const filePath = pdfFiles[i]
+      const batch = filesToProcess.slice(batchStart, batchStart + CONCURRENCY)
+      log.info("Processing batch", { batchStart, batchSize: batch.length, concurrency: CONCURRENCY })
 
-      log.info("Processing file", { index: i + 1, total: pdfFiles.length, file: filePath })
+      // 并发解析 PDF + 生成嵌入向量
+      const batchResults = await Promise.allSettled(
+        batch.map(async (filePath) => {
+          log.info("Parsing PDF...", { file: filePath })
+          const fileInfo = await Storage.getFileInfo(filePath)
+          const docId = Storage.genDocId()
+          const { chunks, pageCount } = await processDocument(filePath, {
+            chunkSize: index.config.chunkSize,
+            chunkOverlap: index.config.chunkOverlap,
+            documentId: docId,
+          })
+          log.info("PDF parsed", { file: filePath, chunks: chunks.length, pages: pageCount })
 
-      const fileInfo = await Storage.getFileInfo(filePath)
-      const existing = existingFiles.get(filePath)
+          if (chunks.length === 0) {
+            return { type: "empty" as const, filePath }
+          }
 
-      // 检查文件是否需要更新
-      if (existing) {
-        log.info("Skipping existing file", { file: filePath })
-        await opts?.onProgress?.({ phase: "processing", current: i + 1, total: pdfFiles.length })
-        continue
+          log.info("Generating embeddings...", { file: filePath, chunks: chunks.length })
+          const contents = extractChunkContents(chunks)
+          const embeddings = await embedder.embed(contents)
+          log.info("Embeddings generated", { file: filePath, count: embeddings.length })
+
+          return { type: "success" as const, filePath, fileInfo, docId, chunks, pageCount, embeddings }
+        }),
+      )
+
+      // 顺序写入（保证嵌入文件偏移量正确）
+      for (let j = 0; j < batchResults.length; j++) {
+        const res = batchResults[j]
+
+        if (res.status === "rejected") {
+          result.errors?.push(`Failed to process ${batch[j]}: ${res.reason?.message || res.reason}`)
+        } else if (res.value.type === "empty") {
+          result.errors?.push(
+            `No text extracted from ${path.basename(res.value.filePath)}: PDF may be scanned image or use unsupported encoding`,
+          )
+        } else {
+          const { filePath, fileInfo, docId, chunks, pageCount, embeddings } = res.value
+
+          // 写入嵌入向量并获取偏移量
+          const offset = await Storage.appendEmbeddings(dir, embeddings)
+          for (let k = 0; k < chunks.length; k++) {
+            chunks[k].embeddingOffset = offset + k * dimensions
+            chunks[k].embeddingLength = dimensions
+          }
+
+          // 创建文档元数据
+          const docMeta: DocumentMeta = {
+            id: docId,
+            filePath,
+            fileName: fileInfo.name,
+            fileSize: fileInfo.size,
+            pageCount,
+            status: "ready",
+            createdAt: Date.now(),
+            updatedAt: Date.now(),
+          }
+
+          // 更新索引并保存
+          index.documents.push({ meta: docMeta, chunks })
+          index.stats.totalDocuments = index.documents.length
+          index.stats.totalChunks = index.documents.reduce((sum, doc) => sum + doc.chunks.length, 0)
+          await Storage.saveIndex(dir, index)
+
+          result.added++
+        }
+
+        processed++
+        await opts?.onProgress?.({ phase: "processing", current: processed, total: pdfFiles.length })
       }
-
-      try {
-        // 处理文档
-        log.info("Parsing PDF...", { file: filePath })
-        const docId = Storage.genDocId()
-        const { chunks, pageCount } = await processDocument(filePath, {
-          chunkSize: index.config.chunkSize,
-          chunkOverlap: index.config.chunkOverlap,
-          documentId: docId,
-        })
-        log.info("PDF parsed", { file: filePath, chunks: chunks.length, pages: pageCount })
-
-        if (chunks.length === 0) {
-          result.errors?.push(`No text extracted from ${path.basename(filePath)}: PDF may be scanned image or use unsupported encoding`)
-          await opts?.onProgress?.({ phase: "processing", current: i + 1, total: pdfFiles.length })
-          continue
-        }
-
-        // 生成嵌入向量
-        log.info("Generating embeddings...", { file: filePath, chunks: chunks.length })
-        const contents = extractChunkContents(chunks)
-        const embeddings = await embedder.embed(contents)
-        log.info("Embeddings generated", { file: filePath, count: embeddings.length })
-
-        // 立即写入嵌入向量并更新偏移量
-        const offset = await Storage.appendEmbeddings(dir, embeddings)
-        for (let j = 0; j < chunks.length; j++) {
-          chunks[j].embeddingOffset = offset + j * dimensions
-          chunks[j].embeddingLength = dimensions
-        }
-
-        // 创建文档元数据
-        const docMeta: DocumentMeta = {
-          id: docId,
-          filePath,
-          fileName: fileInfo.name,
-          fileSize: fileInfo.size,
-          pageCount,
-          status: "ready",
-          createdAt: Date.now(),
-          updatedAt: Date.now(),
-        }
-
-        // 立即更新索引并保存
-        index.documents.push({ meta: docMeta, chunks })
-        index.stats.totalDocuments = index.documents.length
-        index.stats.totalChunks = index.documents.reduce((sum, doc) => sum + doc.chunks.length, 0)
-        await Storage.saveIndex(dir, index)
-
-        result.added++
-      } catch (e: any) {
-        result.errors?.push(`Failed to process ${filePath}: ${e?.message || e}`)
-      }
-
-      await opts?.onProgress?.({ phase: "processing", current: i + 1, total: pdfFiles.length })
     }
 
     // 更新最终同步时间

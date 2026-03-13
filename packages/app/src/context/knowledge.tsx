@@ -2,6 +2,7 @@ import { createContext, useContext, createSignal, Component, JSX, onMount } from
 import { createStore } from "solid-js/store"
 import { Persist, persisted } from "@/utils/persist"
 import { useGlobalSDK } from "./global-sdk"
+import { useServer } from "./server"
 
 // 知识库配置
 export interface KnowledgeConfig {
@@ -112,6 +113,7 @@ function generateId(): string {
 
 export const KnowledgeProvider: Component<{ children: JSX.Element }> = (props) => {
   const sdk = useGlobalSDK()
+  const server = useServer()
 
   const [state, setState] = persisted(
     Persist.global("knowledge-state"),
@@ -189,8 +191,13 @@ export const KnowledgeProvider: Component<{ children: JSX.Element }> = (props) =
 
   const fetchApi = async (path: string, options: RequestInit = {}) => {
     const baseUrl = sdk.url
+    const s = server.current?.http
+    const authHeader = s?.password
+      ? { Authorization: `Basic ${btoa(`${s.username ?? "opencode"}:${s.password}`)}` }
+      : {}
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
+      ...authHeader,
       ...(options.headers as Record<string, string>),
     }
 
@@ -296,7 +303,10 @@ export const KnowledgeProvider: Component<{ children: JSX.Element }> = (props) =
 
     const response = await fetch(`${baseUrl}/knowledge/${encodedPath}/sync`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...(() => {
+        const s = server.current?.http
+        return s?.password ? { Authorization: `Basic ${btoa(`${s.username ?? "opencode"}:${s.password}`)}` } : {}
+      })() },
       body: JSON.stringify({
         apiKey: kb.apiKey,
         baseURL: kb.baseURL,
