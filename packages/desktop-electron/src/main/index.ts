@@ -131,6 +131,8 @@ async function initialize() {
     password,
   })
 
+  let sidecarFailed = false
+
   const loadingTask = (async () => {
     logger.log("sidecar connection started", { url })
 
@@ -152,6 +154,7 @@ async function initialize() {
       }),
     ]).catch((error) => {
       logger.error("sidecar health check failed", error)
+      sidecarFailed = true
     })
 
     logger.log("loading task finished")
@@ -172,6 +175,27 @@ async function initialize() {
 
   await loadingTask
   setInitStep({ phase: "done" })
+
+  if (sidecarFailed) {
+    overlay?.close()
+    await dialog.showMessageBox({
+      type: "error",
+      title: "启动失败",
+      message: "后台服务启动失败，无法连接。",
+      detail:
+        "可能原因：杀毒软件拦截了 opencode-cli.exe。\n请将其加入白名单后重启应用。",
+      buttons: ["重启", "退出"],
+      defaultId: 0,
+      cancelId: 1,
+    }).then((response) => {
+      killSidecar()
+      if (response.response === 0) {
+        app.relaunch()
+      }
+      app.exit(response.response === 0 ? 0 : 1)
+    })
+    return
+  }
 
   if (overlay) {
     await loadingComplete.promise

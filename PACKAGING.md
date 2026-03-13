@@ -223,5 +223,77 @@ print('Done!')
 
 ### 注意事项
 
-- 每次修改源码后，**必须重新执行步骤 1（`bun run build`）**，否则打包的是旧版本。
-- `npx electron-builder --win dir` 末尾的 wine 报错（`could not load kernel32.dll`）是代码签名失败，不影响程序正常运行，可忽略。
+---
+
+## 四、Web 浏览器版打包（跨平台推荐方案）
+
+**位置：** `packages/opencode/`
+
+相比 Electron 桌面应用，Web 版更稳定、无需代码签名、跨平台一致。CLI 内置 `web` 命令，启动本地 HTTP 服务后自动用系统默认浏览器打开界面。
+
+### 构建
+
+在 Windows 上仅构建 Windows 版本（`--single` 只编译当前平台）：
+
+```cmd
+cd /d D:\Postdoc\code\openresearch_1\opencode\packages\opencode
+bun run build -- --single
+```
+
+构建全平台（在 Linux/macOS 上运行）：
+
+```bash
+cd packages/opencode
+bun run build
+```
+
+### 输出目录
+
+```
+packages/opencode/dist/
+  openresearch-windows-x64/bin/
+    openresearch.exe          ← CLI 二进制
+    web/                      ← 前端静态资源
+    OpenResearch.vbs          ← Windows 启动器
+  openresearch-darwin-arm64/bin/
+    openresearch               ← CLI 二进制
+    web/
+    OpenResearch.command       ← macOS 启动器
+  openresearch-linux-x64/bin/
+    openresearch
+    web/
+```
+
+### 分发方式
+
+将对应平台的整个 `bin/` 目录打包成 zip/tar.gz 发给用户。
+
+#### Windows
+
+解压后双击 `OpenResearch.vbs`，无黑色命令窗口，浏览器自动打开界面。
+
+#### macOS/Linux
+
+在终端手动运行：
+
+```bash
+cd 解压目录
+chmod +x openresearch   # 首次需要，赋予执行权限
+./openresearch web
+```
+
+浏览器会自动打开（依赖 `xdg-open`，主流桌面环境均支持）。若不自动打开，手动访问终端中显示的 URL。
+
+#### 停止服务
+
+所有平台：在运行的终端窗口按 `Ctrl+C`。
+
+### 与 Electron 版对比
+
+| | Web 浏览器版 | Electron 桌面版 |
+|---|---|---|
+| 代码签名 | 不需要 | Windows 需要否则易被杀毒拦截 |
+| 跨平台 | 同一套 CLI 全平台通用 | 每个平台需单独打包 |
+| 稳定性 | 高（无 sidecar 进程管理问题）| 需处理 sidecar 进程生命周期 |
+| 用户体验 | 浏览器窗口 | 原生桌面窗口 |
+| 分发包大小 | 小 | 大（含完整 Electron 运行时）|

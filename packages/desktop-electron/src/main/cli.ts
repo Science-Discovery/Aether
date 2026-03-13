@@ -137,9 +137,12 @@ export async function killStaleSidecar(): Promise<void> {
   } catch {
     return
   }
-  await new Promise<void>((resolve) => {
-    treeKill(pid, "SIGKILL", () => resolve())
-  })
+  await Promise.race([
+    new Promise<void>((resolve) => {
+      treeKill(pid, "SIGKILL", () => resolve())
+    }),
+    new Promise<void>((resolve) => setTimeout(resolve, 3000)),
+  ])
   try {
     unlinkSync(pidFile)
   } catch {

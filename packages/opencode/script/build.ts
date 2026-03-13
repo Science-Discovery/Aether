@@ -207,7 +207,16 @@ for (const item of targets) {
   await $`rm -rf ./dist/${name}/bin/tui`
 
   // Copy web assets next to the binary
-  await $`cp -r ${path.resolve(dir, "../../packages/app/dist")} dist/${name}/bin/web`
+  fs.cpSync(path.resolve(dir, "../../packages/app/dist"), `dist/${name}/bin/web`, { recursive: true })
+
+  // Copy launcher
+  if (item.os === "win32") {
+    fs.copyFileSync(path.resolve(dir, "launcher/OpenResearch.vbs"), `dist/${name}/bin/OpenResearch.vbs`)
+  } else if (item.os === "darwin") {
+    const dest = `dist/${name}/bin/OpenResearch.command`
+    fs.copyFileSync(path.resolve(dir, "launcher/OpenResearch.command"), dest)
+    fs.chmodSync(dest, 0o755)
+  }
 
   await Bun.file(`dist/${name}/package.json`).write(
     JSON.stringify(
