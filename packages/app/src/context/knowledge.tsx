@@ -192,7 +192,7 @@ export const KnowledgeProvider: Component<{ children: JSX.Element }> = (props) =
   const fetchApi = async (path: string, options: RequestInit = {}) => {
     const baseUrl = sdk.url
     const s = server.current?.http
-    const authHeader = s?.password
+    const authHeader: Record<string, string> = s?.password
       ? { Authorization: `Basic ${btoa(`${s.username ?? "opencode"}:${s.password}`)}` }
       : {}
     const headers: Record<string, string> = {
@@ -303,10 +303,9 @@ export const KnowledgeProvider: Component<{ children: JSX.Element }> = (props) =
 
     const response = await fetch(`${baseUrl}/knowledge/${encodedPath}/sync`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", ...(() => {
-        const s = server.current?.http
-        return s?.password ? { Authorization: `Basic ${btoa(`${s.username ?? "opencode"}:${s.password}`)}` } : {}
-      })() },
+      headers: { "Content-Type": "application/json", ...(server.current?.http?.password
+        ? { Authorization: `Basic ${btoa(`${server.current.http.username ?? "opencode"}:${server.current.http.password}`)}` }
+        : {}) } as Record<string, string>,
       body: JSON.stringify({
         apiKey: kb.apiKey,
         baseURL: kb.baseURL,
