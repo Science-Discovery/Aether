@@ -9,6 +9,7 @@ import { usePlatform } from "@/context/platform"
 import { DateTime } from "luxon"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { DialogSelectDirectory } from "@/components/dialog-select-directory"
+import { DialogNewProject } from "@/components/dialog-new-project"
 import { DialogSelectServer } from "@/components/dialog-select-server"
 import { useServer } from "@/context/server"
 import { useGlobalSync } from "@/context/global-sync"
@@ -41,6 +42,19 @@ export default function Home() {
     layout.projects.open(directory)
     server.projects.touch(directory)
     navigate(`/${base64Encode(directory)}`)
+  }
+
+  async function newProject() {
+    dialog.show(
+      () => (
+        <DialogNewProject
+          onSelect={(result) => {
+            if (result) openProject(result)
+          }}
+        />
+      ),
+      () => {},
+    )
   }
 
   async function chooseProject() {
@@ -90,9 +104,14 @@ export default function Home() {
           <div class="mt-20 w-full flex flex-col gap-4">
             <div class="flex gap-2 items-center justify-between pl-3">
               <div class="text-14-medium text-text-strong">{language.t("home.recentProjects")}</div>
-              <Button icon="folder-add-left" size="normal" class="pl-2 pr-3" onClick={chooseProject}>
-                {language.t("command.project.open")}
-              </Button>
+              <div class="flex gap-2">
+                <Button icon="plus-small" size="normal" class="pl-2 pr-3" onClick={newProject}>
+                  {language.t("command.project.new")}
+                </Button>
+                <Button icon="folder-add-left" size="normal" class="pl-2 pr-3" onClick={chooseProject}>
+                  {language.t("command.project.open")}
+                </Button>
+              </div>
             </div>
             <ul class="flex flex-col gap-2">
               <For each={recent()}>
@@ -120,9 +139,14 @@ export default function Home() {
               <div class="text-14-medium text-text-strong">{language.t("home.empty.title")}</div>
               <div class="text-12-regular text-text-weak">{language.t("home.empty.description")}</div>
             </div>
-            <Button class="px-3 mt-1" onClick={chooseProject}>
-              {language.t("command.project.open")}
-            </Button>
+            <div class="flex gap-2 mt-1">
+              <Button class="px-3" onClick={newProject}>
+                {language.t("command.project.new")}
+              </Button>
+              <Button class="px-3" variant="ghost" onClick={chooseProject}>
+                {language.t("command.project.open")}
+              </Button>
+            </div>
           </div>
         </Match>
       </Switch>

@@ -23,6 +23,7 @@ export const dict = {
 
   "command.sidebar.toggle": "Toggle sidebar",
   "command.project.open": "Open project",
+  "command.project.new": "New project",
   "command.provider.connect": "Connect provider",
   "command.server.switch": "Switch server",
   "command.settings.open": "Open settings",
@@ -506,6 +507,11 @@ export const dict = {
   "home.empty.title": "No recent projects",
   "home.empty.description": "Get started by opening a local project",
 
+  "dialog.newProject.title": "New project",
+  "dialog.newProject.parentDirectory": "Browse folders",
+  "dialog.newProject.createGroup": "Create new folder",
+  "dialog.newProject.createFolder": "Create",
+
   "session.tab.session": "Session",
   "session.tab.review": "Review",
   "session.tab.context": "Context",
@@ -600,6 +606,7 @@ export const dict = {
   "common.requestFailed": "Request failed",
   "common.moreOptions": "More options",
   "common.learnMore": "Learn more",
+  "common.change": "Change",
   "common.rename": "Rename",
   "common.reset": "Reset",
   "common.archive": "Archive",

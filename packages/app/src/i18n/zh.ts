@@ -28,6 +28,7 @@ export const dict = {
   "command.sidebar.toggle": "切换侧边栏",
 
   "command.project.open": "打开项目",
+  "command.project.new": "新建项目",
 
   "command.provider.connect": "连接提供商",
 
@@ -499,6 +500,11 @@ export const dict = {
   "home.empty.title": "没有最近项目",
   "home.empty.description": "通过打开本地项目开始使用",
 
+  "dialog.newProject.title": "新建项目",
+  "dialog.newProject.parentDirectory": "浏览文件夹",
+  "dialog.newProject.createGroup": "新建文件夹",
+  "dialog.newProject.createFolder": "创建",
+
   "session.tab.session": "会话",
   "session.tab.review": "审查",
   "session.tab.context": "上下文",
@@ -585,6 +591,7 @@ export const dict = {
   "common.requestFailed": "请求失败",
   "common.moreOptions": "更多选项",
   "common.learnMore": "了解更多",
+  "common.change": "更改",
   "common.rename": "重命名",
   "common.reset": "重置",
   "common.archive": "归档",

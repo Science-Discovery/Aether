@@ -21,6 +21,8 @@ export const SidebarContent = (props: {
   handleDragStart: (event: unknown) => void
   handleDragEnd: () => void
   handleDragOver: (event: DragEvent) => void
+  newProjectLabel: JSX.Element
+  onNewProject: () => void
   openProjectLabel: JSX.Element
   openProjectKeybind: Accessor<string | undefined>
   onOpenProject: () => void
@@ -66,6 +68,15 @@ export const SidebarContent = (props: {
               <SortableProvider ids={props.projects().map((p) => p.worktree)}>
                 <For each={props.projects()}>{(project) => props.renderProject(project)}</For>
               </SortableProvider>
+              <Tooltip placement={placement()} value={props.newProjectLabel}>
+                <IconButton
+                  icon="new-session"
+                  variant="ghost"
+                  size="large"
+                  onClick={props.onNewProject}
+                  aria-label={typeof props.newProjectLabel === "string" ? props.newProjectLabel : undefined}
+                />
+              </Tooltip>
               <Tooltip
                 placement={placement()}
                 value={
