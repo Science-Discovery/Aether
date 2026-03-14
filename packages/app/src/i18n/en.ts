@@ -195,6 +195,7 @@ export const dict = {
   "provider.custom.field.type.label": "Provider type",
   "provider.custom.field.type.openai": "OpenAI-compatible",
   "provider.custom.field.type.anthropic": "Anthropic",
+  "provider.custom.field.type.google": "Google Gemini",
   "provider.custom.field.apiKey.savedDescription": "API key is saved. Leave empty to keep it unchanged.",
 
   "provider.disconnect.toast.disconnected.title": "{{provider}} disconnected",
