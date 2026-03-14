@@ -217,6 +217,7 @@ export const dict = {
   "provider.custom.field.type.label": "提供商类型",
   "provider.custom.field.type.openai": "OpenAI 兼容",
   "provider.custom.field.type.anthropic": "Anthropic",
+  "provider.custom.field.type.google": "Google Gemini",
   "provider.custom.field.apiKey.savedDescription": "已保存 API 密钥，留空则保持不变。",
 
   "provider.disconnect.toast.disconnected.title": "{{provider}} 已断开连接",

@@ -32,7 +32,7 @@ export type FormState = {
   name: string
   baseURL: string
   apiKey: string
-  providerType: "openai-compatible" | "anthropic"
+  providerType: "openai-compatible" | "anthropic" | "google"
   models: ModelRow[]
   headers: HeaderRow[]
   saving: boolean
@@ -131,7 +131,12 @@ export function validateCustomProvider(input: ValidateArgs) {
   const ok = !idError && !existsError && !nameError && !urlError && modelsValid && headersValid
   if (!ok) return { err, models, headers }
 
-  const npm = input.form.providerType === "anthropic" ? "@ai-sdk/anthropic" : OPENAI_COMPATIBLE
+  const npm =
+    input.form.providerType === "anthropic"
+      ? "@ai-sdk/anthropic"
+      : input.form.providerType === "google"
+        ? "@ai-sdk/google"
+        : OPENAI_COMPATIBLE
 
   return {
     err,

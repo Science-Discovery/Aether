@@ -22,7 +22,7 @@ type Props = {
 
 const MASKED_KEY = "••••••••"
 
-type ProviderTypeOption = "openai-compatible" | "anthropic"
+type ProviderTypeOption = "openai-compatible" | "anthropic" | "google"
 
 export function DialogCustomProvider(props: Props) {
   const dialog = useDialog()
@@ -74,7 +74,8 @@ export function DialogCustomProvider(props: Props) {
 
     // Detect provider type from npm field
     const npm = config.npm
-    const providerType: ProviderTypeOption = npm === "@ai-sdk/anthropic" ? "anthropic" : "openai-compatible"
+    const providerType: ProviderTypeOption =
+      npm === "@ai-sdk/anthropic" ? "anthropic" : npm === "@ai-sdk/google" ? "google" : "openai-compatible"
 
     batch(() => {
       setForm("providerID", editID)
@@ -218,7 +219,7 @@ export function DialogCustomProvider(props: Props) {
 
   const isEdit = !!props.editProviderID
 
-  const providerTypeOptions: ProviderTypeOption[] = ["openai-compatible", "anthropic"]
+  const providerTypeOptions: ProviderTypeOption[] = ["openai-compatible", "anthropic", "google"]
 
   return (
     <Dialog
@@ -259,7 +260,9 @@ export function DialogCustomProvider(props: Props) {
                 label={(v) =>
                   v === "anthropic"
                     ? language.t("provider.custom.field.type.anthropic")
-                    : language.t("provider.custom.field.type.openai")
+                    : v === "google"
+                      ? language.t("provider.custom.field.type.google")
+                      : language.t("provider.custom.field.type.openai")
                 }
                 onSelect={(v) => {
                   if (v) setForm("providerType", v)
