@@ -25,7 +25,7 @@ const { autoUpdater } = pkg
 import type { InitStep, ServerReadyData, SqliteMigrationProgress, WslConfig } from "../preload/types"
 import { checkAppExists, resolveAppPath, wslPath } from "./apps"
 import type { CommandChild } from "./cli"
-import { installCli, syncCli } from "./cli"
+import { installCli, killStaleSidecar, saveSidecarPid, syncCli } from "./cli"
 import { CHANNEL, UPDATER_ENABLED } from "./constants"
 import { registerIpcHandlers, sendDeepLinks, sendMenuCommand, sendSqliteMigrationProgress } from "./ipc"
 import { initLogging } from "./logging"
@@ -119,9 +119,12 @@ async function initialize() {
   const url = `http://${hostname}:${port}`
   const password = randomUUID()
 
+  logger.log("killing stale sidecar processes")
+  await killStaleSidecar()
   logger.log("spawning sidecar", { url })
   const { child, health, events } = spawnLocalServer(hostname, port, password)
   sidecar = child
+  if (child.pid) saveSidecarPid(child.pid)
   serverReady.resolve({
     url,
     username: "opencode",

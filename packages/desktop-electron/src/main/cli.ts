@@ -36,6 +36,7 @@ export type SqliteMigrationProgress = { type: "InProgress"; value: number } | { 
 
 export type CommandChild = {
   kill: () => void
+  pid?: number
 }
 
 const root = dirname(fileURLToPath(import.meta.url))
@@ -119,6 +120,33 @@ export function syncCli() {
   void installCli().catch(() => undefined)
 }
 
+export function saveSidecarPid(pid: number) {
+  try {
+    writeFileSync(join(app.getPath("userData"), "sidecar.pid"), String(pid), "utf8")
+  } catch {
+    // ignore
+  }
+}
+
+export async function killStaleSidecar(): Promise<void> {
+  const pidFile = join(app.getPath("userData"), "sidecar.pid")
+  let pid: number
+  try {
+    pid = Number.parseInt(readFileSync(pidFile, "utf8").trim(), 10)
+    if (Number.isNaN(pid)) return
+  } catch {
+    return
+  }
+  await new Promise<void>((resolve) => {
+    treeKill(pid, "SIGKILL", () => resolve())
+  })
+  try {
+    unlinkSync(pidFile)
+  } catch {
+    // ignore
+  }
+}
+
 export function serve(hostname: string, port: number, password: string) {
   const args = `--print-logs --log-level WARN serve --hostname ${hostname} --port ${port}`
   const env = {
@@ -192,7 +220,7 @@ export function spawnCommand(args: string, extraEnv: Record<string, string>) {
     treeKill(child.pid)
   }
 
-  return { events, child: { kill }, exit }
+  return { events, child: { kill, pid: child.pid }, exit }
 }
 
 function handleSqliteProgress(events: EventEmitter, line: string) {

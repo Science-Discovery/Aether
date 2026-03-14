@@ -99,11 +99,36 @@ bun run package:linux
 # macOS（生成 .dmg 和 .zip）
 bun run package:mac
 
-# Windows（生成 NSIS .exe 安装程序）
+# Windows（生成 NSIS .exe 安装程序，见下方 Windows 注意事项）
 bun run package:win
 
 # 当前平台（自动检测）
 bun run package
+```
+
+#### Windows 原生打包注意事项
+
+在 Windows 上执行 `bun run package:win` 前，需满足以下条件之一，否则会因无法创建符号链接而报错（`Cannot create symbolic link`）：
+
+- **方案 A（推荐）：开启开发者模式**
+  `设置 → 隐私和安全性 → 开发者选项 → 开发者模式 → 开启`
+
+- **方案 B：以管理员身份运行终端**
+  右键开始菜单 → `终端(管理员)` 或 `命令提示符(管理员)`
+
+Windows cmd 的环境变量语法与 Unix 不同，且跨盘符切换目录需加 `/d`：
+
+```cmd
+cd /d D:\Postdoc\code\openresearch_1\opencode\packages\desktop-electron
+bun run build
+set CSC_IDENTITY_AUTO_DISCOVERY=false && bun run package:win
+```
+
+PowerShell 写法：
+
+```powershell
+cd D:\Postdoc\code\openresearch_1\opencode\packages\desktop-electron
+$env:CSC_IDENTITY_AUTO_DISCOVERY="false"; bun run package:win
 ```
 
 ### 输出目录
