@@ -216,6 +216,10 @@ for (const item of targets) {
     const dest = `dist/${name}/bin/OpenResearch.command`
     fs.copyFileSync(path.resolve(dir, "launcher/OpenResearch.command"), dest)
     fs.chmodSync(dest, 0o755)
+  } else if (item.os === "linux") {
+    const dest = `dist/${name}/bin/OpenResearch.sh`
+    fs.copyFileSync(path.resolve(dir, "launcher/OpenResearch.sh"), dest)
+    fs.chmodSync(dest, 0o755)
   }
 
   await Bun.file(`dist/${name}/package.json`).write(

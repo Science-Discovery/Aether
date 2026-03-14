@@ -146,7 +146,7 @@ $env:CSC_IDENTITY_AUTO_DISCOVERY="false"; bun run package:win
 
 ### 渠道配置
 
-通过环境变量 `OPENCODE_CHANNEL` 控制构建渠道（默认为 `dev`）：
+通过环境变量 `OPENCODE_CHANNEL` 控制构建渠建（默认为 `dev`）：
 
 | 渠道 | 产品名 | App ID |
 |---|---|---|
@@ -155,74 +155,52 @@ $env:CSC_IDENTITY_AUTO_DISCOVERY="false"; bun run package:win
 | `prod` | OpenResearch | `com.openresearch.desktop` |
 
 ```bash
-# 开发版（默认）
-OPENCODE_CHANNEL=dev bun run package:linux
-
-# Beta 版
-OPENCODE_CHANNEL=beta bun run package:linux
-
-# 正式版
 OPENCODE_CHANNEL=prod bun run package:linux
 ```
 
 ---
 
-## 注意事项
-
-- **跨平台限制**：在 Linux/WSL 环境下，CLI 可以交叉编译到所有平台；但桌面应用（Electron）只能原生打包当前平台的安装包，macOS 安装包需要在 macOS 机器上构建，Windows 安装包需要在 Windows 上构建。
-- **macOS 公证**：macOS 版本启用了 `notarize`，发布前需要配置 Apple 开发者证书。
-- **CLI 依赖嵌入**：桌面应用打包时会自动将 CLI 二进制（`openresearch-cli*`）一并打入安装包（位于 `resources/` 目录）。
-- **协议注册**：安装后桌面应用会注册 `openresearch://` 协议，支持从浏览器唤起应用。
-
----
-
 ## 三、Windows 便携版打包（Linux/WSL 环境）
 
-在 Linux/WSL 下无法生成 NSIS `.exe` 安装程序（需要 Windows 原生环境），但可以打包成 **便携 zip**，用户解压后直接双击 `.exe` 运行，无需安装。
+在 Linux/WSL 下无法生成 NSIS `.exe` 安装程序，但可以打包成**便携 zip**，用户解压后直接双击 `.exe` 运行，无需安装。
 
-### 步骤 1：构建应用
-
-确保先完整构建，包含最新的 web 修改：
+### 完整流程（三步）
 
 ```bash
+# 步骤 1：构建（包含最新源码修改）
+# 相对路径
 cd packages/desktop-electron
+# 绝对路径
+cd /home/zheng/code/openresearch/opencode/packages/desktop-electron
 bun run build
-```
 
-### 步骤 2：生成 win-unpacked 目录
-
-使用 `--win dir` 跳过 NSIS 打包，只生成解压目录（忽略末尾的 wine 签名报错，不影响运行）：
-
-```bash
-cd packages/desktop-electron
+# 步骤 2：生成 win-unpacked（忽略末尾 wine 签名报错，不影响运行）
 npx electron-builder --win dir --config electron-builder.config.ts
-```
 
-产物在 `dist/win-unpacked/`，包含 `OpenResearch Dev.exe` 及所有依赖。
-
-### 步骤 3：打包成 zip
-
-```bash
-cd packages/desktop-electron/dist
+# 步骤 3：打包成 zip
+# 相对路径
+cd dist
+# 绝对路径
+cd /home/zheng/code/openresearch/opencode/packages/desktop-electron/dist
 python3 -c "
 import zipfile, os
 with zipfile.ZipFile('openresearch-win-x64-portable.zip', 'w', zipfile.ZIP_DEFLATED) as zf:
     for root, dirs, files in os.walk('win-unpacked'):
         for file in files:
-            fp = os.path.join(root, file)
-            zf.write(fp)
+            zf.write(os.path.join(root, file))
 print('Done!')
 "
 ```
 
-输出文件：`packages/desktop-electron/dist/openresearch-win-x64-portable.zip`
+输出：`packages/desktop-electron/dist/openresearch-win-x64-portable.zip`
 
 ### 用户使用方式
 
-解压 zip 后，进入 `win-unpacked/` 目录，双击 **`OpenResearch Dev.exe`** 即可运行。
+解压 zip，进入 `win-unpacked/`，双击 **`OpenResearch Dev.exe`** 即可运行。
 
-### 注意事项
+---
 
+<<<<<<< Updated upstream
 ---
 
 ## 四、Web 浏览器版打包（跨平台推荐方案）
@@ -297,3 +275,11 @@ chmod +x openresearch   # 首次需要，赋予执行权限
 | 稳定性 | 高（无 sidecar 进程管理问题）| 需处理 sidecar 进程生命周期 |
 | 用户体验 | 浏览器窗口 | 原生桌面窗口 |
 | 分发包大小 | 小 | 大（含完整 Electron 运行时）|
+=======
+## 注意事项
+
+- **跨平台限制**：在 Linux/WSL 下，CLI 可以交叉编译到所有平台；但 Electron 桌面应用只能原生打包当前平台，macOS 需在 macOS 上构建，Windows 需在 Windows 上构建（WSL 下只能生成便携 zip）。
+- **必须先 `bun run build`**：每次修改源码后都需重新构建，否则打包的是旧版本。
+- **macOS 公证**：macOS 版本启用了 `notarize`，发布前需配置 Apple 开发者证书。
+- **默认 Skills**：`resources/.opencode/skills/` 会随应用一起打包，用户无需手动配置即可使用内置 Skills。
+>>>>>>> Stashed changes

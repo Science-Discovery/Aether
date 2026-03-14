@@ -22,18 +22,13 @@ cd packages/opencode
 bun run build -- --single
 ```
 
-### 构建所有平台（用于分发）
-
-```cmd
-cd packages/opencode
-bun run build
-```
-
 构建过程会：
 1. 编译前端（`packages/app`）生成静态资源
 2. 用 Bun 交叉编译各平台 CLI 二进制
 3. 将前端静态资源复制到各平台 `bin/web/` 目录下
-4. 为 Windows 复制 `.vbs` 启动器，为 macOS 复制 `.command` 启动器
+4. 为 Windows 复制 `.vbs` 启动器，为 macOS 复制 `.command` 启动器，为 Linux 复制 `.sh` 启动器
+
+构建完成后各平台目录同时生成，可在 Linux/WSL 上一次性完成全平台打包，**无需切换系统**。
 
 ---
 
@@ -56,7 +51,7 @@ dist/
   openresearch-linux-x64/bin/
     openresearch
     web/
-                               ← Linux 无启动器，终端运行
+    OpenResearch.sh            ← Linux 双击或终端启动器
 ```
 
 `bin/web/` 是前端打包产物，CLI 启动时作为静态文件服务提供给浏览器访问。**`openresearch.exe` 和 `web/` 必须放在同一目录**，否则 CLI 找不到前端资源。
@@ -65,9 +60,34 @@ dist/
 
 ## 分发方式
 
-将对应平台的整个 `bin/` 目录打包成 zip 发给用户：
+将对应平台的整个 `bin/` 目录打包发给用户：
+
+```bash
+# Linux / macOS → tar.gz
+cd packages/opencode/dist/openresearch-linux-x64
+tar -czf ../../../openresearch-linux-x64.tar.gz -C bin .
+
+cd packages/opencode/dist/openresearch-darwin-arm64
+tar -czf ../../../openresearch-darwin-arm64.tar.gz -C bin .
+
+# Windows → zip
+cd packages/opencode/dist/openresearch-windows-x64/bin
+zip -r ../../../../openresearch-windows-x64.zip .
+```
+
+包内容示例：
 
 ```
+openresearch-linux-x64.tar.gz
+  openresearch
+  web/
+  OpenResearch.sh
+
+openresearch-darwin-arm64.tar.gz
+  openresearch
+  web/
+  OpenResearch.command
+
 openresearch-windows-x64.zip
   openresearch.exe
   web/
@@ -96,7 +116,7 @@ chmod +x openresearch   # 首次需要
 终端运行：
 
 ```bash
-chmod +x openresearch   # 首次需要
+chmod +x openresearch OpenResearch.sh   # 首次需要
 ./openresearch web
 ```
 
