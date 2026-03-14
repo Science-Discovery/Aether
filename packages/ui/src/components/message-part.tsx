@@ -2201,22 +2201,18 @@ ToolRegistry.register({
 ToolRegistry.register({
   name: "skill",
   render(props) {
-    const title = createMemo(() => props.input.name || "skill")
-    const running = createMemo(() => props.status === "pending" || props.status === "running")
+    const name = createMemo(() => props.input.name as string | undefined)
+    const pending = createMemo(() => props.status === "pending" || props.status === "running")
+    const title = createMemo(() => (pending() ? "Loading skill..." : `Skill "${name() || "skill"}"`))
 
-    const titleContent = () => <TextShimmer text={title()} active={running()} />
-
-    const trigger = () => (
-      <div data-slot="basic-tool-tool-info-structured">
-        <div data-slot="basic-tool-tool-info-main">
-          <span data-slot="basic-tool-tool-title" class="capitalize agent-title">
-            {titleContent()}
-          </span>
-        </div>
-      </div>
+    return (
+      <BasicTool
+        icon="brain"
+        status={props.status}
+        trigger={{ title: title() }}
+        hideDetails
+      />
     )
-
-    return <BasicTool icon="brain" status={props.status} trigger={trigger()} hideDetails />
   },
 })
 

@@ -1171,6 +1171,23 @@ export default function Page() {
     void (refresh ? file.tree.refresh("") : file.tree.list(""))
   })
 
+  // Refresh file tree when session becomes idle (AI finished writing files)
+  createEffect(
+    on(
+      () => {
+        const id = params.id
+        if (!id) return undefined
+        return (sync.data.session_status[id] ?? { type: "idle" as const }).type
+      },
+      (status, prev) => {
+        if (status !== "idle") return
+        if (prev === undefined) return // skip initial
+        void file.tree.refresh("")
+      },
+      { defer: true },
+    ),
+  )
+
   createEffect(
     on(
       () => sdk.directory,

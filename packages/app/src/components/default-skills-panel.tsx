@@ -15,6 +15,7 @@ import {
 import { createStore } from "solid-js/store"
 import { useGlobalSDK } from "@/context/global-sdk"
 import { useSDK } from "@/context/sdk"
+import { useFile } from "@/context/file"
 
 type DefaultSkill = { name: string; description: string; content: string }
 
@@ -23,6 +24,7 @@ type EditState = { mode: "none" } | { mode: "edit"; skill: DefaultSkill } | { mo
 export const DefaultSkillsPanel: Component = () => {
   const globalSDK = useGlobalSDK()
   const sdk = useSDK()
+  const file = useFile()
 
   // Skills list/save/delete use NO directory — the server defaults to process.cwd()
   // (the openresearch project), so skills always come from .opencode/skills/ there.
@@ -121,6 +123,7 @@ export const DefaultSkillsPanel: Component = () => {
       const result = await globalSDK.client.config.skillsDefaults({ directory: sdk.directory })
       const added = ((result.data as unknown) as { added: string[] }).added
       if (added.length > 0) {
+        void file.tree.refresh("")
         showToast({
           variant: "success",
           icon: "circle-check",

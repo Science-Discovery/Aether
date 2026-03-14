@@ -46,7 +46,12 @@ export function invalidateFromWatcher(event: WatcherEvent, ops: WatcherOps) {
   }
   if (kind !== "add" && kind !== "unlink") return
 
-  const parent = path.split("/").slice(0, -1).join("/")
+  // Traverse up to find the nearest loaded ancestor directory and refresh it.
+  // This handles the case where a new file is created inside a new (unloaded) subdirectory.
+  let parent = path.split("/").slice(0, -1).join("/")
+  while (parent !== "" && !ops.isDirLoaded(parent)) {
+    parent = parent.split("/").slice(0, -1).join("/")
+  }
   if (!ops.isDirLoaded(parent)) return
 
   ops.refreshDir(parent)
