@@ -680,4 +680,17 @@ export namespace File {
     }
     await fs.promises.rm(resolved, { recursive: true, force: true })
   }
+
+  export async function rename(oldPath: string, newName: string): Promise<string> {
+    const resolvedOld = path.join(Instance.directory, oldPath)
+    if (!Instance.containsPath(resolvedOld)) {
+      throw new Error("Access denied: path escapes project directory")
+    }
+    const newPath = path.join(path.dirname(resolvedOld), newName)
+    if (!Instance.containsPath(newPath)) {
+      throw new Error("Access denied: path escapes project directory")
+    }
+    await fs.promises.rename(resolvedOld, newPath)
+    return newPath
+  }
 }

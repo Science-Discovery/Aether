@@ -3017,6 +3017,39 @@ export class File extends HeyApiClient {
   }
 
   /**
+   * Rename file or directory
+   */
+  public rename<ThrowOnError extends boolean = false>(
+    parameters: {
+      directory?: string
+      workspace?: string
+      path: string
+      name: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "path" },
+            { in: "body", key: "name" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).patch<{ ok: boolean; path: string }, unknown, ThrowOnError>({
+      url: "/file",
+      ...options,
+      ...params,
+      headers: { "Content-Type": "application/json", ...options?.headers, ...params.headers },
+    })
+  }
+
+  /**
    * Generate directory summaries
    *
    * Generate .summary files for directories using LLM.

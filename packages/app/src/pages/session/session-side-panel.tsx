@@ -136,6 +136,68 @@ export function SessionSidePanel(props: {
     })
   }
 
+  function handleFileRename(node: FileNode) {
+    dialog.show(() => {
+      const [name, setName] = createSignal(node.name)
+      const doRename = async () => {
+        const newName = name().trim()
+        if (!newName || newName === node.name) {
+          dialog.close()
+          return
+        }
+        dialog.close()
+        const parentDir = node.path.includes("/") ? node.path.slice(0, node.path.lastIndexOf("/")) : ""
+        try {
+          await sdk.client.file.rename({ path: node.path, name: newName })
+          file.tree.refresh(parentDir)
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err)
+          showToast({ variant: "error", icon: "circle-x", title: "重命名失败", description: message })
+        }
+      }
+      return (
+        <Dialog
+          title="重命名"
+          action={
+            <div style={{ display: "flex", gap: "8px" }}>
+              <button onClick={() => dialog.close()} style={{ padding: "4px 12px", cursor: "pointer" }}>
+                取消
+              </button>
+              <button
+                autofocus
+                onClick={doRename}
+                style={{ padding: "4px 12px", cursor: "pointer", "font-weight": "bold" }}
+              >
+                确认
+              </button>
+            </div>
+          }
+        >
+          <input
+            type="text"
+            value={name()}
+            onInput={(e) => setName(e.currentTarget.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") doRename()
+              if (e.key === "Escape") dialog.close()
+            }}
+            style={{
+              width: "100%",
+              padding: "6px 8px",
+              background: "var(--surface-raised-base)",
+              border: "1px solid var(--border-base)",
+              "border-radius": "4px",
+              color: "var(--text-strong)",
+              "font-size": "14px",
+              outline: "none",
+            }}
+            ref={(el) => setTimeout(() => { el.focus(); el.select() }, 0)}
+          />
+        </Dialog>
+      )
+    })
+  }
+
   function handleRefresh() {
     file.tree.refresh("")
   }
@@ -589,6 +651,7 @@ export function SessionSidePanel(props: {
                         onFileClick={(node) => openTab(file.tab(node.path))}
                         onFileCreate={handleFileCreate}
                         onFileDelete={handleFileDelete}
+                        onFileRename={handleFileRename}
                       />
                     </Match>
                   </Switch>

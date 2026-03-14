@@ -237,6 +237,27 @@ export const FileRoutes = lazy(() =>
         return c.json({ ok: true })
       },
     )
+    .patch(
+      "/file",
+      describeRoute({
+        summary: "Rename file or directory",
+        description: "Rename a file or directory within the project.",
+        operationId: "file.rename",
+        responses: {
+          200: {
+            description: "Renamed",
+            content: { "application/json": { schema: resolver(z.object({ ok: z.boolean(), path: z.string() })) } },
+          },
+          ...errors(400),
+        },
+      }),
+      validator("json", z.object({ path: z.string(), name: z.string() })),
+      async (c) => {
+        const { path, name } = c.req.valid("json")
+        const newPath = await File.rename(path, name)
+        return c.json({ ok: true, path: newPath })
+      },
+    )
     .post(
       "/file/summarize",
       describeRoute({

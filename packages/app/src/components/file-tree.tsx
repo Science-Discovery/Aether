@@ -205,6 +205,7 @@ export default function FileTree(props: {
   onFileClick?: (file: FileNode) => void
   onFileCreate?: (dir: string, type: "file" | "directory") => void
   onFileDelete?: (node: FileNode) => void
+  onFileRename?: (node: FileNode) => void
 
   _filter?: Filter
   _marks?: Set<string>
@@ -414,6 +415,10 @@ export default function FileTree(props: {
                       <ContextMenu.Separator />
                     </>
                   )}
+                  <ContextMenu.Item onSelect={() => props.onFileRename?.(node)}>
+                    <ContextMenu.ItemLabel>重命名</ContextMenu.ItemLabel>
+                  </ContextMenu.Item>
+                  <ContextMenu.Separator />
                   <ContextMenu.Item
                     onSelect={() => props.onFileDelete?.(node)}
                     class="text-red-500 focus:text-red-500"
@@ -476,6 +481,7 @@ export default function FileTree(props: {
                           onFileClick={props.onFileClick}
                           onFileCreate={props.onFileCreate}
                           onFileDelete={props.onFileDelete}
+                          onFileRename={props.onFileRename}
                           _filter={filter()}
                           _marks={marks()}
                           _deeps={deeps()}
