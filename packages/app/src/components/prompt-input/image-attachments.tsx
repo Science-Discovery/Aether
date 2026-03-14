@@ -26,7 +26,7 @@ export const PromptImageAttachments: Component<PromptImageAttachmentsProps> = (p
               <Show
                 when={attachment.mime.startsWith("image/")}
                 fallback={
-                  <div class={fallbackClass}>
+                  <div class={fallbackClass + " cursor-pointer"} onClick={() => window.open(attachment.dataUrl)}>
                     <Icon name="folder" class="size-6 text-text-weak" />
                   </div>
                 }

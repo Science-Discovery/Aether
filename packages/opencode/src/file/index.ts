@@ -517,6 +517,15 @@ export namespace File {
       return { type: "text", content: "" }
     }
 
+    if (path.extname(file).toLowerCase() === ".pdf") {
+      if (await Filesystem.exists(full)) {
+        const buffer = await Filesystem.readBytes(full).catch(() => Buffer.from([]))
+        const content = buffer.toString("base64")
+        return { type: "text", content, mimeType: "application/pdf", encoding: "base64" }
+      }
+      return { type: "text", content: "" }
+    }
+
     const text = isTextByExtension(file) || isTextByName(file)
 
     if (isBinaryByExtension(file) && !text) {

@@ -245,6 +245,39 @@ export function FileMedia(props: { media?: FileMediaOptions; fallback: () => JSX
           )
         })()}
       </Match>
+      <Match when={kind() === "pdf"}>
+        {(() => {
+          const dataUrl = dataUrlFromMediaValue(cfg()?.current, "pdf")
+          const filename = cfg()?.path?.split("/").pop() ?? "document.pdf"
+          if (dataUrl) {
+            return (
+              <div class="flex min-h-56 flex-col items-center justify-center gap-3 px-6 py-10 text-center">
+                <div class="text-14-semibold text-text-strong">{filename}</div>
+                <button
+                  type="button"
+                  class="flex items-center gap-1.5 rounded-md bg-surface-raised-base px-4 py-2 text-14-medium text-text-base border border-border-base hover:bg-surface-raised-base-hover hover:border-border-strong-base transition-colors cursor-pointer"
+                  onClick={() => {
+                    const base64 = dataUrl.split(",")[1]
+                    if (!base64) return
+                    const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0))
+                    const blob = new Blob([bytes], { type: "application/pdf" })
+                    const url = URL.createObjectURL(blob)
+                    window.open(url)
+                  }}
+                >
+                  {i18n.t("ui.fileMedia.pdf.open")}
+                </button>
+              </div>
+            )
+          }
+          return (
+            <div class="flex min-h-56 flex-col items-center justify-center gap-2 px-6 py-10 text-center">
+              <div class="text-14-semibold text-text-strong">{filename}</div>
+              <div class="text-14-regular text-text-weak">{i18n.t("ui.fileMedia.state.loading", { kind: "PDF" })}</div>
+            </div>
+          )
+        })()}
+      </Match>
       <Match when={isBinary()}>
         <div class="flex min-h-56 flex-col items-center justify-center gap-2 px-6 py-10 text-center">
           <div class="text-14-semibold text-text-strong">

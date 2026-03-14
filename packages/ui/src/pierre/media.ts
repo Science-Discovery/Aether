@@ -1,6 +1,6 @@
 import type { FileContent } from "@opencode-ai/sdk/v2"
 
-export type MediaKind = "image" | "audio" | "svg"
+export type MediaKind = "image" | "audio" | "svg" | "pdf"
 
 const imageExtensions = new Set(["png", "jpg", "jpeg", "gif", "webp", "avif", "bmp", "ico", "tif", "tiff", "heic"])
 const audioExtensions = new Set(["mp3", "wav", "ogg", "m4a", "aac", "flac", "opus"])
@@ -38,6 +38,7 @@ export function mediaKindFromPath(path: string | undefined): MediaKind | undefin
   if (ext === "svg") return "svg"
   if (imageExtensions.has(ext)) return "image"
   if (audioExtensions.has(ext)) return "audio"
+  if (ext === "pdf") return "pdf"
 }
 
 export function isBinaryContent(value: MediaValue) {
@@ -75,6 +76,7 @@ export function dataUrlFromMediaValue(value: MediaValue, kind: MediaKind) {
 
   if (kind === "image" && !mime.startsWith("image/")) return
   if (kind === "audio" && !mime.startsWith("audio/")) return
+  if (kind === "pdf" && mime !== "application/pdf") return
   if (record.encoding !== "base64") return
 
   return `data:${mime};base64,${record.content}`
