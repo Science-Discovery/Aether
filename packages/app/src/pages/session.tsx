@@ -531,6 +531,7 @@ export default function Page() {
   let refreshTimer: number | undefined
   let diffFrame: number | undefined
   let diffTimer: number | undefined
+  let watcherDiff: number | undefined
 
   createComputed((prev) => {
     const open = desktopReviewOpen()
@@ -1158,6 +1159,30 @@ export default function Page() {
     ),
   )
 
+  // Refresh diffs when external file changes are detected (add/delete/modify)
+  const unwatchDiff = sdk.event.listen((e) => {
+    if (e.details.type !== "file.watcher.updated") return
+    const props =
+      typeof e.details.properties === "object" && e.details.properties
+        ? (e.details.properties as Record<string, unknown>)
+        : undefined
+    const raw = typeof props?.file === "string" ? props.file : undefined
+    if (!raw) return
+    const normalized = file.normalize(raw)
+    if (!normalized || normalized.startsWith(".git/")) return
+
+    const id = params.id
+    if (!id) return
+    if (sync.data.session_diff[id] === undefined) return
+
+    if (watcherDiff !== undefined) window.clearTimeout(watcherDiff)
+    watcherDiff = window.setTimeout(() => {
+      watcherDiff = undefined
+      if (params.id !== id) return
+      void sync.session.diff(id, { force: true })
+    }, 500)
+  })
+
   let treeDir: string | undefined
   createEffect(() => {
     const dir = sdk.directory
@@ -1656,11 +1681,13 @@ export default function Page() {
 
   onCleanup(() => {
     document.removeEventListener("keydown", handleKeyDown)
+    unwatchDiff()
     if (reviewFrame !== undefined) cancelAnimationFrame(reviewFrame)
     if (refreshFrame !== undefined) cancelAnimationFrame(refreshFrame)
     if (refreshTimer !== undefined) window.clearTimeout(refreshTimer)
     if (diffFrame !== undefined) cancelAnimationFrame(diffFrame)
     if (diffTimer !== undefined) window.clearTimeout(diffTimer)
+    if (watcherDiff !== undefined) window.clearTimeout(watcherDiff)
     if (scrollStateFrame !== undefined) cancelAnimationFrame(scrollStateFrame)
     if (fillFrame !== undefined) cancelAnimationFrame(fillFrame)
   })

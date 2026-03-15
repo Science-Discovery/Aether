@@ -60,6 +60,7 @@ export function SessionSidePanel(props: {
         try {
           await sdk.client.file.create({ path: newPath, type })
           file.tree.refresh(dir)
+          if (params.id) void sync.session.diff(params.id, { force: true })
           if (!file.tree.state(dir)?.expanded) file.tree.expand(dir)
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err)
@@ -108,6 +109,7 @@ export function SessionSidePanel(props: {
         try {
           await sdk.client.file.delete({ path: node.path })
           file.tree.refresh(parentDir)
+          if (params.id) void sync.session.diff(params.id, { force: true })
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err)
           showToast({ variant: "error", icon: "circle-x", title: "删除失败", description: message })
@@ -150,6 +152,7 @@ export function SessionSidePanel(props: {
         try {
           await sdk.client.file.rename({ path: node.path, name: newName })
           file.tree.refresh(parentDir)
+          if (params.id) void sync.session.diff(params.id, { force: true })
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err)
           showToast({ variant: "error", icon: "circle-x", title: "重命名失败", description: message })
