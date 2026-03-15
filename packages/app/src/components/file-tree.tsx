@@ -1,3 +1,4 @@
+import { showToast } from "@opencode-ai/ui/toast"
 import { useFile } from "@/context/file"
 import { encodeFilePath } from "@/context/file/path"
 import { Collapsible } from "@opencode-ai/ui/collapsible"
@@ -415,6 +416,23 @@ export default function FileTree(props: {
                       <ContextMenu.Separator />
                     </>
                   )}
+                  <ContextMenu.Item
+                    onSelect={() => {
+                      navigator.clipboard.writeText(node.path)
+                      showToast({ variant: "success", title: "已复制相对路径" })
+                    }}
+                  >
+                    <ContextMenu.ItemLabel>复制相对路径</ContextMenu.ItemLabel>
+                  </ContextMenu.Item>
+                  <ContextMenu.Item
+                    onSelect={() => {
+                      navigator.clipboard.writeText(node.absolute)
+                      showToast({ variant: "success", title: "已复制路径" })
+                    }}
+                  >
+                    <ContextMenu.ItemLabel>复制路径</ContextMenu.ItemLabel>
+                  </ContextMenu.Item>
+                  <ContextMenu.Separator />
                   <ContextMenu.Item onSelect={() => props.onFileRename?.(node)}>
                     <ContextMenu.ItemLabel>重命名</ContextMenu.ItemLabel>
                   </ContextMenu.Item>
