@@ -904,6 +904,23 @@ export namespace Provider {
 
       for (const [modelID, model] of Object.entries(provider.models ?? {})) {
         const existingModel = parsed.models[model.id ?? modelID]
+        // For custom providers not in models.dev, fall back to a models.dev provider to get cost.
+        // Priority: 1) canonical provider from npm (e.g. "@ai-sdk/anthropic" → "anthropic")
+        //           2) any provider in models.dev with the same model ID
+        const fallbackModel = existingModel ?? iife(() => {
+          const searchID = model.id ?? modelID
+          const npm = model.provider?.npm ?? provider.npm ?? ""
+          const canonicalID = npm.startsWith("@ai-sdk/") ? npm.slice("@ai-sdk/".length) : ""
+          if (canonicalID) {
+            const m = database[canonicalID]?.models[searchID]
+            if (m) return m
+          }
+          for (const p of Object.values(database)) {
+            const m = p.models[searchID]
+            if (m) return m
+          }
+          return undefined
+        })
         const name = iife(() => {
           if (model.name) return model.name
           if (model.id && model.id !== modelID) return modelID
@@ -946,11 +963,11 @@ export namespace Provider {
             interleaved: model.interleaved ?? false,
           },
           cost: {
-            input: model?.cost?.input ?? existingModel?.cost?.input ?? 0,
-            output: model?.cost?.output ?? existingModel?.cost?.output ?? 0,
+            input: model?.cost?.input ?? existingModel?.cost?.input ?? fallbackModel?.cost?.input ?? 0,
+            output: model?.cost?.output ?? existingModel?.cost?.output ?? fallbackModel?.cost?.output ?? 0,
             cache: {
-              read: model?.cost?.cache_read ?? existingModel?.cost?.cache.read ?? 0,
-              write: model?.cost?.cache_write ?? existingModel?.cost?.cache.write ?? 0,
+              read: model?.cost?.cache_read ?? existingModel?.cost?.cache.read ?? fallbackModel?.cost?.cache.read ?? 0,
+              write: model?.cost?.cache_write ?? existingModel?.cost?.cache.write ?? fallbackModel?.cost?.cache.write ?? 0,
             },
           },
           options: mergeDeep(existingModel?.options ?? {}, model.options ?? {}),
