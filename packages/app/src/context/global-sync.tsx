@@ -210,7 +210,11 @@ function createGlobalSync() {
           .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
         const limit = store.limit
         const childSessions = store.session.filter((s) => !!s.parentID)
-        const sessions = trimSessions([...nonArchived, ...childSessions], {
+        // Preserve root sessions that arrived via SSE while this API call was in-flight.
+        // Without this, reconcile() would overwrite them since the API snapshot predates their creation.
+        const apiIds = new Set(nonArchived.map((s) => s.id))
+        const sseSessions = store.session.filter((s) => !s.parentID && !s.time?.archived && !apiIds.has(s.id))
+        const sessions = trimSessions([...nonArchived, ...sseSessions, ...childSessions], {
           limit,
           permission: store.permission,
         })

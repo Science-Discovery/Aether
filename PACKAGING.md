@@ -218,11 +218,11 @@ cd /d D:\Postdoc\code\openresearch_1\opencode\packages\opencode
 bun run build -- --single
 ```
 
-构建全平台（在 Linux/macOS 上运行）：
+构建当前平台（在 Linux/macOS 上运行）：
 
 ```bash
 cd packages/opencode
-bun run build
+bun run build -- --single
 ```
 
 ### 输出目录

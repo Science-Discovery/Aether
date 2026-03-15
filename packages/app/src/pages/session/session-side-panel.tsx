@@ -215,6 +215,7 @@ export function SessionSidePanel(props: {
         variant: "success",
         title: `已生成 ${count} 个目录摘要`,
       })
+      file.tree.refresh("")
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       showToast({ variant: "error", icon: "circle-x", title: "生成摘要失败", description: message })
