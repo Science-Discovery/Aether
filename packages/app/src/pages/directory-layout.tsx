@@ -37,6 +37,8 @@ export default function Layout(props: ParentProps) {
   const directory = createMemo(() => decode64(params.dir) ?? "")
   const [state, setState] = createStore({ invalid: "", resolved: "" })
 
+  const normalizeSep = (p: string) => p.replace(/\\/g, "/")
+
   createEffect(() => {
     if (!params.dir) return
     const raw = directory()
@@ -52,6 +54,9 @@ export default function Layout(props: ParentProps) {
       return
     }
 
+    // Optimistically render with raw path to avoid blank flash while API resolves
+    if (!state.resolved) setState("resolved", raw)
+
     const current = params.dir
     globalSDK
       .createClient({
@@ -66,7 +71,8 @@ export default function Layout(props: ParentProps) {
           setState("invalid", "")
           setState("resolved", next)
         })
-        if (next === raw) return
+        // Only redirect if path content differs (ignore separator differences on Windows)
+        if (normalizeSep(next) === normalizeSep(raw)) return
         const path = location.pathname.slice(current.length + 1)
         navigate(`/${base64Encode(next)}${path}${location.search}${location.hash}`, { replace: true })
       })

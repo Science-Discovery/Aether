@@ -144,7 +144,10 @@ const targets = singleFlag
     })
   : allTargets
 
-await $`rm -rf dist`
+if (process.platform === "win32") {
+  await $`taskkill /F /IM openresearch.exe`.quiet().nothrow()
+}
+fs.rmSync("dist", { recursive: true, force: true })
 
 // Build web app (packages/app) and embed alongside binary
 console.log("building web app...")
