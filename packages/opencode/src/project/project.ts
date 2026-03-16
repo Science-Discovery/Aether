@@ -27,8 +27,8 @@ export namespace Project {
 
     name = Filesystem.windowsPath(name)
 
-    if (path.isAbsolute(name)) return path.normalize(name)
-    return path.resolve(cwd, name)
+    if (path.isAbsolute(name)) return Filesystem.resolve(name)
+    return Filesystem.resolve(path.resolve(cwd, name))
   }
 
   export const Info = z

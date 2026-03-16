@@ -1,6 +1,7 @@
 import { Hono } from "hono"
 import { Instance } from "../../project/instance"
 import { InstanceBootstrap } from "../../project/bootstrap"
+import { Filesystem } from "../../util/filesystem"
 import { SessionRoutes } from "../../server/routes/session"
 import { WorkspaceServerRoutes } from "./routes"
 import { WorkspaceContext } from "../workspace-context"
@@ -30,13 +31,13 @@ export namespace WorkspaceServer {
           throw new Error("directory parameter is required")
         }
 
-        const directory = (() => {
+        const directory = Filesystem.resolve((() => {
           try {
             return decodeURIComponent(raw)
           } catch {
             return raw
           }
-        })()
+        })())
 
         return WorkspaceContext.provide({
           workspaceID: WorkspaceID.make(rawWorkspaceID),
