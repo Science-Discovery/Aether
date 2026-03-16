@@ -601,7 +601,7 @@ graph TB
 
 ### 5.1 本地数据库（SQLite）
 
-数据库文件位于 `~/.opencode/opencode.db`（或按频道分离），使用 Drizzle ORM 管理 Schema，启动时自动迁移。
+数据库文件遵循 XDG Base Directory 规范，位于 `$XDG_DATA_HOME/opencode/opencode.db`（Linux 默认为 `~/.local/share/opencode/opencode.db`）。频道为 `latest` 或 `beta` 时使用 `opencode.db`，其他频道使用 `opencode-<channel>.db`。使用 Drizzle ORM 管理 Schema，启动时自动迁移。
 
 #### ER 图
 
@@ -732,7 +732,7 @@ erDiagram
 | `workspace` | 工作区，与项目关联，可绑定 Git 分支 | `packages/opencode/src/control-plane/workspace.sql.ts` |
 | `session` | 会话记录，存储对话元数据、变更摘要、权限快照 | `packages/opencode/src/session/session.sql.ts` |
 | `message` | 消息记录，关联到 session，data 字段存储消息元信息 | `packages/opencode/src/session/session.sql.ts` |
-| `part` | 消息部分，一条消息由多个 Part 组成（文本、工具调用、推理等） | `packages/opencode/src/session/session.sql.ts` |
+| `part` | 消息部分，一条消息由多个 Part 组成（见下方 Part 类型说明） | `packages/opencode/src/session/session.sql.ts` |
 | `todo` | 待办事项，关联到 session，按 position 排序 | `packages/opencode/src/session/session.sql.ts` |
 | `permission` | 项目级权限规则持久化 | `packages/opencode/src/session/session.sql.ts` |
 | `account` | 用户账户（远程认证信息） | `packages/opencode/src/account/account.sql.ts` |
@@ -744,6 +744,41 @@ erDiagram
 所有表通过 `Timestamps` mixin 包含 `time_created` 和 `time_updated` 两个整型时间戳字段。
 
 代码路径：`packages/opencode/src/storage/schema.sql.ts`
+
+#### Part 类型说明
+
+`part` 表的 `data` 字段存储 `MessageV2.Part` 类型（定义于 `packages/opencode/src/session/message-v2.ts`），共 12 种 Part 类型：
+
+| Part 类型 | 说明 | 关键字段 |
+|-----------|------|----------|
+| `text` | 文本内容（AI 回复文本、用户输入） | `text`、`synthetic`、`ignored`、`time` |
+| `tool` | 工具调用及结果 | `callID`、`tool`、`state`（pending/running/completed/error） |
+| `reasoning` | 推理过程（thinking） | `text`、`time` |
+| `file` | 文件附件（图片、PDF 等） | `mime`、`filename`、`url`、`source` |
+| `step-start` | LLM 调用步骤开始 | `snapshot` |
+| `step-finish` | LLM 调用步骤结束 | `reason`、`cost`、`tokens`（input/output/reasoning/cache） |
+| `snapshot` | 文件快照 | `snapshot` |
+| `patch` | 补丁信息 | `hash`、`files` |
+| `agent` | Agent 切换信息 | `name`、`source` |
+| `subtask` | 子任务信息 | `prompt`、`description`、`agent`、`model` |
+| `retry` | 重试记录 | `attempt`、`error`、`time` |
+| `compaction` | 压缩标记 | `auto`、`overflow` |
+
+其中 `tool` 类型的 `state` 字段有四种状态：
+
+| 状态 | 说明 |
+|------|------|
+| `pending` | 工具调用已生成，等待执行 |
+| `running` | 工具正在执行中 |
+| `completed` | 工具执行完成，包含输入、输出、耗时、附件等 |
+| `error` | 工具执行出错，包含错误信息 |
+
+`message` 表的 `data` 字段存储 `MessageV2.Info` 类型，分两种角色：
+
+| 角色 | 说明 | 关键字段 |
+|------|------|----------|
+| `user` | 用户消息 | `agent`、`model`、`system`、`tools`、`format` |
+| `assistant` | AI 回复 | `parentID`、`modelID`、`providerID`、`cost`、`tokens`、`error`、`finish` |
 
 ### 5.2 数据库访问层
 
