@@ -220,6 +220,17 @@ export function spawnCommand(args: string, extraEnv: Record<string, string>) {
 
   const kill = () => {
     if (!child.pid) return
+    if (process.platform !== "win32") {
+      // detached: true puts the child in its own process group (PGID = child.pid).
+      // Killing the negative PGID sends SIGKILL to every process in the group,
+      // which reliably terminates the shell wrapper and opencode-cli together.
+      try {
+        process.kill(-child.pid, "SIGKILL")
+        return
+      } catch {
+        // fall through to treeKill if the process group is already gone
+      }
+    }
     treeKill(child.pid)
   }
 

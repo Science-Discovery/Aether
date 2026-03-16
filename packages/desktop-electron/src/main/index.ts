@@ -39,6 +39,7 @@ let initStep: InitStep = { phase: "server_waiting" }
 
 let mainWindow: BrowserWindow | null = null
 let sidecar: CommandChild | null = null
+let sidecarPid: number | null = null
 const loadingComplete = defer<void>()
 
 const pendingDeepLinks: string[] = []
@@ -52,6 +53,21 @@ logger.log("app starting", {
 })
 
 setupApp()
+
+// Last-resort synchronous cleanup: fires on normal exit and most crash paths,
+// but NOT on SIGKILL (which is fundamentally uncatchable — killStaleSidecar
+// handles that on next startup). On macOS/Linux the detached process is in its
+// own process group (PGID = sidecarPid), so killing -PGID removes it entirely.
+process.on("exit", () => {
+  if (sidecarPid === null) return
+  if (process.platform !== "win32") {
+    try {
+      process.kill(-sidecarPid, "SIGKILL")
+    } catch {
+      // process already gone — ignore
+    }
+  }
+})
 
 function setupApp() {
   ensureLoopbackNoProxy()
@@ -124,6 +140,7 @@ async function initialize() {
   logger.log("spawning sidecar", { url })
   const { child, health, events } = spawnLocalServer(hostname, port, password)
   sidecar = child
+  sidecarPid = child.pid ?? null
   if (child.pid) saveSidecarPid(child.pid)
   serverReady.resolve({
     url,
@@ -263,6 +280,7 @@ function killSidecar() {
   if (!sidecar) return
   sidecar.kill()
   sidecar = null
+  sidecarPid = null
 }
 
 function ensureLoopbackNoProxy() {
