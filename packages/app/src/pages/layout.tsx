@@ -548,11 +548,12 @@ export default function Layout(props: ParentProps) {
     if (!directory) return
 
     const projects = layout.projects.list()
+    const dirKey = workspaceKey(directory)
 
-    const sandbox = projects.find((p) => p.sandboxes?.includes(directory))
+    const sandbox = projects.find((p) => p.sandboxes?.some((s) => workspaceKey(s) === dirKey))
     if (sandbox) return sandbox
 
-    const direct = projects.find((p) => p.worktree === directory)
+    const direct = projects.find((p) => workspaceKey(p.worktree) === dirKey)
     if (direct) return direct
 
     const [child] = globalSync.child(directory, { bootstrap: false })
@@ -1164,13 +1165,14 @@ export default function Layout(props: ParentProps) {
   }
 
   function projectRoot(directory: string) {
+    const dirKey = workspaceKey(directory)
     const project = layout.projects
       .list()
-      .find((item) => item.worktree === directory || item.sandboxes?.includes(directory))
+      .find((item) => workspaceKey(item.worktree) === dirKey || item.sandboxes?.some((s) => workspaceKey(s) === dirKey))
     if (project) return project.worktree
 
     const known = Object.entries(store.workspaceOrder).find(
-      ([root, dirs]) => root === directory || dirs.includes(directory),
+      ([root, dirs]) => workspaceKey(root) === dirKey || dirs.some((d) => workspaceKey(d) === dirKey),
     )
     if (known) return known[0]
 

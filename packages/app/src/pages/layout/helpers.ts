@@ -2,10 +2,12 @@ import { getFilename } from "@opencode-ai/util/path"
 import { type Session } from "@opencode-ai/sdk/v2/client"
 
 export const workspaceKey = (directory: string) => {
-  const drive = directory.match(/^([A-Za-z]:)[\\/]+$/)
-  if (drive) return `${drive[1]}${directory.includes("\\") ? "\\" : "/"}`
-  if (/^[\\/]+$/.test(directory)) return directory.includes("\\") ? "\\" : "/"
-  return directory.replace(/[\\/]+$/, "")
+  // Normalize separators to forward slashes; lowercase for Windows drive paths (case-insensitive FS)
+  const normalized = directory.replace(/\\/g, "/")
+  const cased = /^[A-Za-z]:/.test(normalized) ? normalized.toLowerCase() : normalized
+  if (/^[a-z]:\/+$/i.test(cased)) return `${cased[0]}:/`
+  if (/^\/+$/.test(cased)) return "/"
+  return cased.replace(/\/+$/, "")
 }
 
 function sortSessions(now: number) {
