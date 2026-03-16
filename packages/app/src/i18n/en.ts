@@ -133,6 +133,9 @@ export const dict = {
   "provider.connect.apiKey.label": "{{provider}} API key",
   "provider.connect.apiKey.placeholder": "API key",
   "provider.connect.apiKey.required": "API key is required",
+  "provider.connect.baseURL.label": "Base URL (optional)",
+  "provider.connect.baseURL.placeholder": "https://api.example.com/v1",
+  "provider.connect.baseURL.description": "Override the default API endpoint. Leave empty to use the provider's default.",
   "provider.connect.opencodeZen.line1":
     "OpenResearch Zen gives you access to a curated set of reliable optimized models for coding agents.",
   "provider.connect.opencodeZen.line2":

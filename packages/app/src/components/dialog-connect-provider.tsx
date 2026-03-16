@@ -238,31 +238,49 @@ export function DialogConnectProvider(props: { provider: string }) {
   }
 
   function ApiAuthView() {
-    const [formStore, setFormStore] = createStore({
-      value: "",
-      error: undefined as string | undefined,
+    const MASKED = "••••••••"
+    const cfg = globalSync.data.config.provider?.[props.provider]
+    const initURL = (cfg?.options?.["baseURL"] as string) ?? ""
+    const hasKey = !!(provider() as unknown as { key?: string })?.key
+
+    const [form, setForm] = createStore({
+      apiKey: hasKey ? MASKED : "",
+      baseURL: initURL,
+      err: undefined as string | undefined,
+      urlErr: undefined as string | undefined,
     })
 
     async function handleSubmit(e: SubmitEvent) {
       e.preventDefault()
 
-      const form = e.currentTarget as HTMLFormElement
-      const formData = new FormData(form)
-      const apiKey = formData.get("apiKey") as string
+      const key = form.apiKey.trim()
+      const url = form.baseURL.trim()
 
-      if (!apiKey?.trim()) {
-        setFormStore("error", language.t("provider.connect.apiKey.required"))
+      if (!key && !hasKey) {
+        setForm("err", language.t("provider.connect.apiKey.required"))
+        return
+      }
+      if (url && !/^https?:\/\//.test(url)) {
+        setForm("urlErr", language.t("provider.custom.error.baseURL.format"))
         return
       }
 
-      setFormStore("error", undefined)
-      await globalSDK.client.auth.set({
-        providerID: props.provider,
-        auth: {
-          type: "api",
-          key: apiKey,
-        },
-      })
+      setForm("err", undefined)
+      setForm("urlErr", undefined)
+
+      if (key && key !== MASKED) {
+        await globalSDK.client.auth.set({
+          providerID: props.provider,
+          auth: { type: "api", key },
+        })
+      }
+
+      if (url !== initURL) {
+        await globalSync.updateConfig({
+          provider: { [props.provider]: { options: { baseURL: url } } },
+        })
+      }
+
       await complete()
     }
 
@@ -294,11 +312,20 @@ export function DialogConnectProvider(props: { provider: string }) {
             type="text"
             label={language.t("provider.connect.apiKey.label", { provider: provider().name })}
             placeholder={language.t("provider.connect.apiKey.placeholder")}
-            name="apiKey"
-            value={formStore.value}
-            onChange={(v) => setFormStore("value", v)}
-            validationState={formStore.error ? "invalid" : undefined}
-            error={formStore.error}
+            description={hasKey ? language.t("provider.custom.field.apiKey.savedDescription") : undefined}
+            value={form.apiKey}
+            onChange={(v) => { setForm("apiKey", v); setForm("err", undefined) }}
+            validationState={form.err ? "invalid" : undefined}
+            error={form.err}
+          />
+          <TextField
+            label={language.t("provider.connect.baseURL.label")}
+            placeholder={language.t("provider.connect.baseURL.placeholder")}
+            description={language.t("provider.connect.baseURL.description")}
+            value={form.baseURL}
+            onChange={(v) => { setForm("baseURL", v); setForm("urlErr", undefined) }}
+            validationState={form.urlErr ? "invalid" : undefined}
+            error={form.urlErr}
           />
           <Button class="w-auto" type="submit" size="large" variant="primary">
             {language.t("common.submit")}
