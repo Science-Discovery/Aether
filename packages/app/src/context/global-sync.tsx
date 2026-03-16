@@ -34,7 +34,7 @@ import { estimateRootSessionTotal, loadRootSessionsWithFallback } from "./global
 import { trimSessions } from "./global-sync/session-trim"
 import type { ProjectMeta } from "./global-sync/types"
 import { SESSION_RECENT_LIMIT } from "./global-sync/types"
-import { sanitizeProject } from "./global-sync/utils"
+import { normalizeDir, sanitizeProject } from "./global-sync/utils"
 import { formatServerError } from "@/utils/server-errors"
 
 type GlobalStore = {
@@ -178,6 +178,7 @@ function createGlobalSync() {
   }
 
   async function loadSessions(directory: string) {
+    directory = normalizeDir(directory)
     const pending = sessionLoads.get(directory)
     if (pending) return pending
 
@@ -249,6 +250,7 @@ function createGlobalSync() {
   }
 
   async function bootstrapInstance(directory: string) {
+    directory = normalizeDir(directory)
     if (!directory) return
     const pending = booting.get(directory)
     if (pending) return pending
@@ -297,7 +299,7 @@ function createGlobalSync() {
       return
     }
 
-    const existing = children.children[directory]
+    const existing = children.getChild(directory)
     if (!existing) return
     children.mark(directory)
     const [store, setStore] = existing
@@ -308,9 +310,9 @@ function createGlobalSync() {
       setStore,
       push: queue.push,
       setSessionTodo,
-      vcsCache: children.vcsCache.get(directory),
+      vcsCache: children.vcsCache.get(normalizeDir(directory)),
       loadLsp: () => {
-        sdkFor(directory)
+        sdkFor(normalizeDir(directory))
           .lsp.status()
           .then((x) => setStore("lsp", x.data ?? []))
       },
