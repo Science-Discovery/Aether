@@ -84,11 +84,20 @@ export const SettingsProviders: Component = () => {
   const canEditAsCustom = (providerID: string) => {
     const provider = globalSync.data.config.provider?.[providerID]
     if (!provider) return false
+    // Must have at least one model defined to be editable as a custom provider
+    const hasModels = !!provider.models && Object.keys(provider.models).length > 0
+    if (!hasModels) return false
     // Dialog-created providers always have npm set
     if (provider.npm === "@ai-sdk/openai-compatible") return true
     // Manually-configured providers have a baseURL but may lack npm
     if (provider.options?.["baseURL"]) return true
     return false
+  }
+
+  // Preset providers connected via API key can have their URL/key edited via the connect dialog
+  const canEditPreset = (item: ProviderItem) => {
+    if (canEditAsCustom(item.id)) return false
+    return source(item) === "api"
   }
 
   const disableProvider = async (providerID: string, name: string) => {
@@ -179,6 +188,17 @@ export const SettingsProviders: Component = () => {
                             variant="ghost"
                             onClick={() => {
                               dialog.show(() => <DialogCustomProvider back="close" editProviderID={item.id} />)
+                            }}
+                          >
+                            {language.t("common.edit")}
+                          </Button>
+                        </Show>
+                        <Show when={canEditPreset(item)}>
+                          <Button
+                            size="large"
+                            variant="ghost"
+                            onClick={() => {
+                              dialog.show(() => <DialogConnectProvider provider={item.id} />)
                             }}
                           >
                             {language.t("common.edit")}
