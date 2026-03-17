@@ -1,6 +1,52 @@
 import { test, expect } from "../fixtures"
 import { closeDialog, openSettings } from "../actions"
 
+test("custom provider disconnect removes from connected list", async ({ page, gotoSession }) => {
+  await gotoSession()
+
+  const settings = await openSettings(page)
+  await settings.getByRole("tab", { name: "Providers" }).click()
+
+  const customProviderSection = settings.locator('[data-component="custom-provider-section"]')
+  await customProviderSection.getByRole("button", { name: "Connect" }).click()
+
+  const providerDialog = page.getByRole("dialog").filter({ has: page.getByText("Custom provider") })
+  await expect(providerDialog).toBeVisible()
+
+  // Create an anthropic-type custom provider (this was the bug path)
+  await providerDialog.getByLabel("Provider ID").fill("test-anthropic-disconnect")
+  await providerDialog.getByLabel("Display name").fill("Test Anthropic Disconnect")
+  await providerDialog.getByLabel("Base URL").fill("http://localhost:9999/anthropic")
+  await providerDialog.getByLabel("API key").fill("fake-anthropic-key")
+
+  // Select anthropic provider type
+  await providerDialog.getByRole("combobox", { name: /provider.*type/i }).click()
+  await page.getByRole("option", { name: /anthropic/i }).click()
+
+  await providerDialog.getByPlaceholder("model-id").first().fill("claude-test")
+  await providerDialog.getByPlaceholder("Display Name").first().fill("Claude Test")
+
+  // Save the provider
+  await providerDialog.getByRole("button", { name: /save|connect/i }).click()
+  await expect(providerDialog).toHaveCount(0)
+
+  // Verify it appears in connected list
+  const connectedSection = settings.locator('[data-component="connected-providers-section"]')
+  await expect(connectedSection.getByText("Test Anthropic Disconnect")).toBeVisible()
+
+  // Disconnect the provider
+  const providerRow = connectedSection.locator("div").filter({ hasText: "Test Anthropic Disconnect" })
+  await providerRow.getByRole("button", { name: /disconnect/i }).click()
+
+  // Verify toast shows success
+  await expect(page.locator("[data-sonner-toast]")).toBeVisible()
+
+  // Verify provider is removed from connected list
+  await expect(connectedSection.getByText("Test Anthropic Disconnect")).toHaveCount(0)
+
+  await closeDialog(page, settings)
+})
+
 test("custom provider form can be filled and validates input", async ({ page, gotoSession }) => {
   await gotoSession()
 
