@@ -200,7 +200,6 @@ print('Done!')
 
 ---
 
-<<<<<<< Updated upstream
 ---
 
 ## 四、Web 浏览器版打包（跨平台推荐方案）
@@ -275,11 +274,3 @@ chmod +x openresearch   # 首次需要，赋予执行权限
 | 稳定性 | 高（无 sidecar 进程管理问题）| 需处理 sidecar 进程生命周期 |
 | 用户体验 | 浏览器窗口 | 原生桌面窗口 |
 | 分发包大小 | 小 | 大（含完整 Electron 运行时）|
-=======
-## 注意事项
-
-- **跨平台限制**：在 Linux/WSL 下，CLI 可以交叉编译到所有平台；但 Electron 桌面应用只能原生打包当前平台，macOS 需在 macOS 上构建，Windows 需在 Windows 上构建（WSL 下只能生成便携 zip）。
-- **必须先 `bun run build`**：每次修改源码后都需重新构建，否则打包的是旧版本。
-- **macOS 公证**：macOS 版本启用了 `notarize`，发布前需配置 Apple 开发者证书。
-- **默认 Skills**：`resources/.opencode/skills/` 会随应用一起打包，用户无需手动配置即可使用内置 Skills。
->>>>>>> Stashed changes

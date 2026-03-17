@@ -40,6 +40,29 @@ export const WebCommand = cmd({
     }
     const opts = await resolveNetworkOptions(args)
     const server = Server.listen(opts)
+
+    // Auto-exit when all browser connections close (after at least one was open).
+    // Polling server.pendingRequests is more reliable than SSE onAbort, because
+    // Bun only detects TCP close when it next tries to write to the socket.
+    let everConnected = false
+    let exitTimer: ReturnType<typeof setTimeout> | null = null
+    const connectionChecker = setInterval(() => {
+      const active = (server as any).pendingRequests as number
+      if (active > 0) {
+        everConnected = true
+        if (exitTimer !== null) {
+          clearTimeout(exitTimer)
+          exitTimer = null
+        }
+      } else if (everConnected) {
+        exitTimer =
+          exitTimer ??
+          setTimeout(() => {
+            clearInterval(connectionChecker)
+            process.exit(0)
+          }, 3_000)
+      }
+    }, 1_000)
     const portfile = nodePath.join(Global.Path.data, "serve-port")
     await Bun.write(portfile, String(server.port))
     UI.empty()

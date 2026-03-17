@@ -50,7 +50,7 @@ bun dev <path>   # 在指定目录运行
 bun dev serve
 
 # 终端 2（然后打开 http://localhost:xxxx）
-bun run --cwd packages/app dev -- --port xxxx
+bun run --cwd packages/app dev
 ```
 
 **修改了 Server API 后，需重新生成 SDK：**

@@ -77,8 +77,9 @@ export namespace Server {
 
   export const Default = lazy(() => createApp({}))
 
-  export const createApp = (opts: { cors?: string[] }): Hono => {
+  export const createApp = (opts: { cors?: string[]; onBrowserConnectionChange?: (count: number) => void }): Hono => {
     const app = new Hono()
+    let sseConnectionCount = 0
     return app
       .onError((err, c) => {
         log.error("failed", {
@@ -541,6 +542,8 @@ export namespace Server {
           log.info("event connected")
           c.header("X-Accel-Buffering", "no")
           c.header("X-Content-Type-Options", "nosniff")
+          sseConnectionCount++
+          opts.onBrowserConnectionChange?.(sseConnectionCount)
           return streamSSE(c, async (stream) => {
             stream.writeSSE({
               data: JSON.stringify({
@@ -557,21 +560,38 @@ export namespace Server {
               }
             })
 
-            // Send heartbeat every 10s to prevent stalled proxy streams.
+            // Track disconnection via either onAbort (immediate) or heartbeat
+            // write failure (Bun only detects TCP close on next write attempt).
+            let disconnected = false
+            const onDisconnect = () => {
+              if (disconnected) return
+              disconnected = true
+              sseConnectionCount--
+              opts.onBrowserConnectionChange?.(sseConnectionCount)
+            }
+
+            // Heartbeat every 3s: keeps proxy streams alive and detects browser close.
             const heartbeat = setInterval(() => {
-              stream.writeSSE({
-                data: JSON.stringify({
-                  type: "server.heartbeat",
-                  properties: {},
-                }),
-              })
-            }, 10_000)
+              stream
+                .writeSSE({
+                  data: JSON.stringify({
+                    type: "server.heartbeat",
+                    properties: {},
+                  }),
+                })
+                .catch(() => {
+                  clearInterval(heartbeat)
+                  unsub()
+                  onDisconnect()
+                })
+            }, 3_000)
 
             await new Promise<void>((resolve) => {
               stream.onAbort(() => {
                 clearInterval(heartbeat)
                 unsub()
                 resolve()
+                onDisconnect()
                 log.info("event disconnected")
               })
             })
@@ -634,6 +654,7 @@ export namespace Server {
     mdns?: boolean
     mdnsDomain?: string
     cors?: string[]
+    onBrowserConnectionChange?: (count: number) => void
   }) {
     url = new URL(`http://${opts.hostname}:${opts.port}`)
     const app = createApp(opts)
