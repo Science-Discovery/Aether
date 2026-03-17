@@ -1,4 +1,4 @@
-import { useNavigate, useParams } from "@solidjs/router"
+import { useParams } from "@solidjs/router"
 import { createEffect, createMemo, For, Show, type Accessor, type JSX } from "solid-js"
 import { createStore } from "solid-js/store"
 import { createSortable } from "@thisbeyond/solid-dnd"
@@ -41,6 +41,8 @@ export type WorkspaceSidebarContext = {
   clearHoverProjectSoon: () => void
   prefetchSession: (session: Session, priority?: "high" | "low") => void
   archiveSession: (session: Session) => Promise<void>
+  createSession: (directory: string) => Promise<void>
+  deleteSession: (session: Session) => Promise<void>
   workspaceName: (directory: string, projectId?: string, branch?: string) => string | undefined
   renameWorkspace: (directory: string, next: string, projectId?: string, branch?: string) => void
   editorOpen: (id: string) => boolean
@@ -280,6 +282,7 @@ const WorkspaceSessionList = (props: {
           clearHoverProjectSoon={props.ctx.clearHoverProjectSoon}
           prefetchSession={props.ctx.prefetchSession}
           archiveSession={props.ctx.archiveSession}
+          deleteSession={props.ctx.deleteSession}
         />
       )}
     </For>
@@ -309,7 +312,6 @@ export const SortableWorkspace = (props: {
   mobile?: boolean
   popover?: boolean
 }): JSX.Element => {
-  const navigate = useNavigate()
   const params = useParams()
   const globalSync = useGlobalSync()
   const language = useLanguage()
@@ -429,7 +431,7 @@ export const SortableWorkspace = (props: {
                 root={props.project.worktree}
                 setHoverSession={props.ctx.setHoverSession}
                 clearHoverProjectSoon={props.ctx.clearHoverProjectSoon}
-                navigateToNewSession={() => navigate(`/${slug()}/session`)}
+                navigateToNewSession={() => props.ctx.createSession(props.directory)}
               />
             </div>
           </div>
