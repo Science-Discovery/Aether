@@ -7,10 +7,13 @@ import { Button } from "@opencode-ai/ui/button"
 import { Tooltip, TooltipKeybind } from "@opencode-ai/ui/tooltip"
 import { useTheme } from "@opencode-ai/ui/theme"
 
+import { useGlobalSDK } from "@/context/global-sdk"
 import { useLayout } from "@/context/layout"
 import { usePlatform } from "@/context/platform"
 import { useCommand } from "@/context/command"
 import { useLanguage } from "@/context/language"
+import { decode64 } from "@/utils/base64"
+import { showToast } from "@opencode-ai/ui/toast"
 import { applyPath, backPath, forwardPath } from "./titlebar-history"
 
 type TauriDesktopWindow = {
@@ -36,6 +39,7 @@ const currentDesktopWindow = () => tauriApi()?.window?.getCurrentWindow?.()
 const currentThemeWindow = () => tauriApi()?.webviewWindow?.getCurrentWebviewWindow?.()
 
 export function Titlebar() {
+  const globalSDK = useGlobalSDK()
   const layout = useLayout()
   const platform = usePlatform()
   const command = useCommand()
@@ -228,8 +232,20 @@ export function Titlebar() {
                   icon={creating() ? "new-session-active" : "new-session"}
                   class="titlebar-icon w-8 h-6 p-0 box-border"
                   onClick={() => {
-                    if (!params.dir) return
-                    navigate(`/${params.dir}/session`)
+                    const dir = decode64(params.dir)
+                    if (!dir) return
+                    void globalSDK.client.session
+                      .create({ directory: dir })
+                      .then((x) => {
+                        if (!x.data?.id) return
+                        navigate(`/${params.dir}/session/${x.data.id}`)
+                      })
+                      .catch(() => {
+                        showToast({
+                          title: language.t("prompt.toast.sessionCreateFailed.title"),
+                          variant: "error",
+                        })
+                      })
                   }}
                   aria-label={language.t("command.session.new")}
                   aria-current={creating() ? "page" : undefined}

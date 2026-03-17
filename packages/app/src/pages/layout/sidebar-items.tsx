@@ -1,5 +1,8 @@
 import type { Message, Session, TextPart, UserMessage } from "@opencode-ai/sdk/v2/client"
 import { Avatar } from "@opencode-ai/ui/avatar"
+import { Button } from "@opencode-ai/ui/button"
+import { useDialog } from "@opencode-ai/ui/context/dialog"
+import { Dialog } from "@opencode-ai/ui/dialog"
 import { HoverCard } from "@opencode-ai/ui/hover-card"
 import { Icon } from "@opencode-ai/ui/icon"
 import { IconButton } from "@opencode-ai/ui/icon-button"
@@ -82,6 +85,7 @@ export type SessionItemProps = {
   clearHoverProjectSoon: () => void
   prefetchSession: (session: Session, priority?: "high" | "low") => void
   archiveSession: (session: Session) => Promise<void>
+  deleteSession?: (session: Session) => Promise<void>
 }
 
 const SessionRow = (props: {
@@ -104,7 +108,7 @@ const SessionRow = (props: {
 }): JSX.Element => (
   <A
     href={`/${props.slug}/session/${props.session.id}`}
-    class={`flex items-center justify-between gap-3 min-w-0 text-left w-full focus:outline-none transition-[padding] ${props.mobile ? "pr-7" : ""} group-hover/session:pr-7 group-focus-within/session:pr-7 group-active/session:pr-7 ${props.dense ? "py-0.5" : "py-1"}`}
+    class={`flex items-center justify-between gap-3 min-w-0 text-left w-full focus:outline-none transition-[padding] ${props.mobile ? "pr-14" : ""} group-hover/session:pr-14 group-focus-within/session:pr-14 group-active/session:pr-14 ${props.dense ? "py-0.5" : "py-1"}`}
     onPointerDown={props.warmPress}
     onPointerEnter={props.warmHover}
     onPointerLeave={props.cancelHoverPrefetch}
@@ -191,6 +195,7 @@ export const SessionItem = (props: SessionItemProps): JSX.Element => {
   const navigate = useNavigate()
   const layout = useLayout()
   const language = useLanguage()
+  const dialog = useDialog()
   const notification = useNotification()
   const permission = usePermission()
   const globalSync = useGlobalSync()
@@ -343,6 +348,45 @@ export const SessionItem = (props: SessionItemProps): JSX.Element => {
           "group-focus-within/session:opacity-100 group-focus-within/session:pointer-events-auto": true,
         }}
       >
+        <Show when={props.deleteSession}>
+          <Tooltip value={language.t("common.delete")} placement="top">
+            <IconButton
+              icon="trash"
+              variant="ghost"
+              class="size-6 rounded-md"
+              aria-label={language.t("common.delete")}
+              onClick={(event) => {
+                event.preventDefault()
+                event.stopPropagation()
+                const name = props.session.title ?? language.t("command.session.new")
+                dialog.show(() => (
+                  <Dialog title={language.t("session.delete.title")} fit>
+                    <div class="flex flex-col gap-4 pl-6 pr-2.5 pb-3">
+                      <span class="text-14-regular text-text-strong">
+                        {language.t("session.delete.confirm", { name })}
+                      </span>
+                      <div class="flex justify-end gap-2">
+                        <Button variant="ghost" size="large" onClick={() => dialog.close()}>
+                          {language.t("common.cancel")}
+                        </Button>
+                        <Button
+                          variant="primary"
+                          size="large"
+                          onClick={async () => {
+                            await props.deleteSession!(props.session)
+                            dialog.close()
+                          }}
+                        >
+                          {language.t("session.delete.button")}
+                        </Button>
+                      </div>
+                    </div>
+                  </Dialog>
+                ))
+              }}
+            />
+          </Tooltip>
+        </Show>
         <Tooltip value={language.t("common.archive")} placement="top">
           <IconButton
             icon="archive"

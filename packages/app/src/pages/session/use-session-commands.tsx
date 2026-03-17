@@ -249,7 +249,11 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
         title: language.t("command.session.new"),
         keybind: "mod+shift+s",
         slash: "new",
-        onSelect: () => navigate(`/${params.dir}/session`),
+        onSelect: async () => {
+          const result = await sdk.client.session.create().catch(() => null)
+          if (!result?.data?.id) return
+          navigate(`/${params.dir}/session/${result.data.id}`)
+        },
       }),
       fileCommand({
         id: "file.open",

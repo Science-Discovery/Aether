@@ -981,6 +981,48 @@ export default function Layout(props: ParentProps) {
     }
   }
 
+  async function createSession(directory: string) {
+    const result = await globalSDK.client.session
+      .create({ directory })
+      .then((x) => x.data)
+      .catch((err) => {
+        showToast({
+          title: language.t("prompt.toast.sessionCreateFailed.title"),
+          description: errorMessage(err, language.t("common.requestFailed")),
+        })
+        return null
+      })
+    if (!result?.id) return
+    navigateWithSidebarReset(`/${base64Encode(directory)}/session/${result.id}`)
+  }
+
+  async function deleteSession(session: Session) {
+    const [store, setStore] = globalSync.child(session.directory)
+    const sessions = store.session ?? []
+    const idx = sessions.findIndex((s) => s.id === session.id)
+    const next = sessions[idx + 1] ?? sessions[idx - 1]
+    const ok = await globalSDK.client.session
+      .delete({ sessionID: session.id, directory: session.directory })
+      .then(() => true)
+      .catch((err) => {
+        showToast({
+          title: language.t("session.delete.failed.title"),
+          description: errorMessage(err, language.t("common.requestFailed")),
+        })
+        return false
+      })
+    if (!ok) return
+    setStore(
+      produce((draft) => {
+        const match = Binary.search(draft.session, session.id, (s) => s.id)
+        if (match.found) draft.session.splice(match.index, 1)
+      }),
+    )
+    if (session.id !== params.id) return
+    if (next) navigate(`/${base64Encode(session.directory)}/session/${next.id}`)
+    else navigate(`/${base64Encode(session.directory)}/session`)
+  }
+
   command.register("layout", () => {
     const commands: CommandOption[] = [
       {
@@ -1905,6 +1947,8 @@ export default function Layout(props: ParentProps) {
     clearHoverProjectSoon,
     prefetchSession,
     archiveSession,
+    createSession,
+    deleteSession,
     workspaceName,
     renameWorkspace,
     editorOpen,
@@ -2091,7 +2135,7 @@ export default function Layout(props: ParentProps) {
                           size="large"
                           icon="plus-small"
                           class="w-full"
-                          onClick={() => navigateWithSidebarReset(`/${base64Encode(p().worktree)}/session`)}
+                          onClick={() => createSession(p().worktree)}
                         >
                           {language.t("command.session.new")}
                         </Button>
