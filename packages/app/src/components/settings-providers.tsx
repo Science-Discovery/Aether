@@ -76,9 +76,17 @@ export const SettingsProviders: Component = () => {
   const isConfigCustom = (providerID: string) => {
     const provider = globalSync.data.config.provider?.[providerID]
     if (!provider) return false
-    if (provider.npm !== "@ai-sdk/openai-compatible") return false
     if (!provider.models || Object.keys(provider.models).length === 0) return false
-    return true
+    // Dialog-created providers use one of these npm packages
+    if (
+      provider.npm === "@ai-sdk/openai-compatible" ||
+      provider.npm === "@ai-sdk/anthropic" ||
+      provider.npm === "@ai-sdk/google"
+    )
+      return true
+    // Manually-configured providers may have baseURL but lack npm
+    if (provider.options?.["baseURL"]) return true
+    return false
   }
 
   const canEditAsCustom = (providerID: string) => {
@@ -87,8 +95,13 @@ export const SettingsProviders: Component = () => {
     // Must have at least one model defined to be editable as a custom provider
     const hasModels = !!provider.models && Object.keys(provider.models).length > 0
     if (!hasModels) return false
-    // Dialog-created providers always have npm set
-    if (provider.npm === "@ai-sdk/openai-compatible") return true
+    // Dialog-created providers use one of these npm packages
+    if (
+      provider.npm === "@ai-sdk/openai-compatible" ||
+      provider.npm === "@ai-sdk/anthropic" ||
+      provider.npm === "@ai-sdk/google"
+    )
+      return true
     // Manually-configured providers have a baseURL but may lack npm
     if (provider.options?.["baseURL"]) return true
     return false
