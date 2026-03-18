@@ -55,10 +55,7 @@ export const Logo = (props: { class?: string }) => {
     >
       <div style="display: flex; align-items: baseline; gap: 0.6em; font-family: 'Courier New', Courier, monospace; letter-spacing: 0.2em; text-transform: uppercase; line-height: 1;">
         <span style="font-size: 2.25rem; font-weight: 700; color: var(--text-strong); text-shadow: 0 0 20px color-mix(in srgb, var(--text-strong) 60%, transparent), 0 0 40px color-mix(in srgb, var(--text-strong) 25%, transparent);">
-          OPEN
-        </span>
-        <span style="font-size: 2.25rem; font-weight: 400; letter-spacing: 0.2em; color: var(--text-base);">
-          RESEARCH
+          AETHER
         </span>
       </div>
       <div style="width: 100%; height: 1px; background: linear-gradient(to right, transparent, var(--text-base), transparent); opacity: 0.4;" />

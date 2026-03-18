@@ -85,7 +85,7 @@ export default function Home() {
   return (
     <div class="mx-auto mt-55 w-full md:w-auto px-4">
       <div class="flex items-center gap-4">
-        <Mark class="size-16 opacity-90" />
+        {/* <Mark class="size-16 opacity-90" /> */}
         <Logo />
       </div>
       <Button
