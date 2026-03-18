@@ -1,6 +1,9 @@
 import { showToast } from "@opencode-ai/ui/toast"
 import { useFile } from "@/context/file"
 import { encodeFilePath } from "@/context/file/path"
+import { usePlatform } from "@/context/platform"
+import { useSDK } from "@/context/sdk"
+import { useSessionLayout } from "@/pages/session/session-layout"
 import { Collapsible } from "@opencode-ai/ui/collapsible"
 import { ContextMenu } from "@opencode-ai/ui/context-menu"
 import { FileIcon } from "@opencode-ai/ui/file-icon"
@@ -215,6 +218,9 @@ export default function FileTree(props: {
   _chain?: readonly string[]
 }) {
   const file = useFile()
+  const platform = usePlatform()
+  const sdk = useSDK()
+  const { params } = useSessionLayout()
   const level = props.level ?? 0
   const draggable = () => props.draggable ?? true
 
@@ -432,6 +438,35 @@ export default function FileTree(props: {
                   >
                     <ContextMenu.ItemLabel>复制路径</ContextMenu.ItemLabel>
                   </ContextMenu.Item>
+                  <Show when={platform.platform === "web"}>
+                    <ContextMenu.Separator />
+                    <ContextMenu.Item
+                      onSelect={async () => {
+                        try {
+                          await sdk.client.file.openInExplorer({
+                            path: node.absolute,
+                            directory: params.dir,
+                          })
+
+                          showToast({
+                            variant: "success",
+                            title: "已在文件资源管理器中打开",
+                          })
+                        } catch (err) {
+                          console.error("Failed to open in explorer:", err)
+
+                          await navigator.clipboard.writeText(node.absolute)
+                          showToast({
+                            variant: "error",
+                            title: "打开失败",
+                            description: "已复制路径到剪贴板，请手动打开",
+                          })
+                        }
+                      }}
+                    >
+                      <ContextMenu.ItemLabel>在文件资源管理器中打开</ContextMenu.ItemLabel>
+                    </ContextMenu.Item>
+                  </Show>
                   <ContextMenu.Separator />
                   <ContextMenu.Item onSelect={() => props.onFileRename?.(node)}>
                     <ContextMenu.ItemLabel>重命名</ContextMenu.ItemLabel>

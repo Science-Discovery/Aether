@@ -503,7 +503,7 @@ export function FileTabContent(props: { tab: string }) {
       )
     }
     return (
-      <div class="relative overflow-hidden h-full">
+      <div class="relative overflow-hidden">
         <Dynamic
           component={fileComponent}
           mode="text"

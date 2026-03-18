@@ -442,6 +442,10 @@ export const dict = {
 
   "toast.file.loadFailed.title": "Failed to load file",
   "toast.file.listFailed.title": "Failed to list files",
+  "toast.file.copyPath.success": "Path copied",
+  "toast.file.openFailed.title": "Failed to open",
+  "toast.file.openFailed.fallback": "Path copied to clipboard, please open manually",
+  "toast.file.openExplorer.success": "Opened in file explorer",
 
   "toast.context.noLineSelection.title": "No line selection",
   "toast.context.noLineSelection.description": "Select a line range in a file tab first.",
