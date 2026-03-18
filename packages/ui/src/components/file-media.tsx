@@ -153,6 +153,21 @@ export function FileMedia(props: { media?: FileMediaOptions; fallback: () => JSX
       { defer: true },
     ),
   )
+  
+  let pdfObjectUrl: string | null = null
+  
+  const cleanupPdfUrl = () => {
+    if (pdfObjectUrl) {
+      URL.revokeObjectURL(pdfObjectUrl)
+      pdfObjectUrl = null
+    }
+  }
+  
+  createEffect(() => {
+    return () => {
+      cleanupPdfUrl()
+    }
+  })
 
   const kindLabel = (value: "image" | "audio") =>
     i18n.t(value === "image" ? "ui.fileMedia.kind.image" : "ui.fileMedia.kind.audio")
@@ -250,23 +265,39 @@ export function FileMedia(props: { media?: FileMediaOptions; fallback: () => JSX
           const dataUrl = dataUrlFromMediaValue(cfg()?.current, "pdf")
           const filename = cfg()?.path?.split("/").pop() ?? "document.pdf"
           if (dataUrl) {
+            cleanupPdfUrl()
+            
+            const base64 = dataUrl.split(",")[1]
+            if (base64) {
+              const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0))
+              const blob = new Blob([bytes], { type: "application/pdf" })
+              pdfObjectUrl = URL.createObjectURL(blob)
+            }
+            
             return (
-              <div class="flex min-h-56 flex-col items-center justify-center gap-3 px-6 py-10 text-center">
-                <div class="text-14-semibold text-text-strong">{filename}</div>
-                <button
-                  type="button"
-                  class="flex items-center gap-1.5 rounded-md bg-surface-raised-base px-4 py-2 text-14-medium text-text-base border border-border-base hover:bg-surface-raised-base-hover hover:border-border-strong-base transition-colors cursor-pointer"
-                  onClick={() => {
-                    const base64 = dataUrl.split(",")[1]
-                    if (!base64) return
-                    const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0))
-                    const blob = new Blob([bytes], { type: "application/pdf" })
-                    const url = URL.createObjectURL(blob)
-                    window.open(url)
-                  }}
-                >
-                  {i18n.t("ui.fileMedia.pdf.open")}
-                </button>
+              <div class="flex flex-col gap-4 px-6 pb-4 h-full">
+                <div class="flex items-center justify-between">
+                  <div class="text-14-semibold text-text-strong">{filename}</div>
+                  <button
+                    type="button"
+                    class="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-12-medium text-text-base hover:bg-surface-raised-base-hover hover:border-border-strong-base transition-colors cursor-pointer"
+                    onClick={() => {
+                      if (pdfObjectUrl) {
+                        window.open(pdfObjectUrl)
+                      }
+                    }}
+                  >
+                    {i18n.t("ui.fileMedia.pdf.open")}
+                  </button>
+                </div>
+                <div class="flex flex-1 justify-center bg-background-stronger">
+                  <embed
+                    src={pdfObjectUrl || ""}
+                    title={filename}
+                    class="w-full max-w-full border border-border-weak-base rounded"
+                    onLoad={onLoad}
+                  />
+                </div>
               </div>
             )
           }

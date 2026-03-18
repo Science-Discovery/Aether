@@ -135,6 +135,15 @@ export function FileTabContent(props: { tab: string }) {
     return file.get(p)
   })
   const contents = createMemo(() => state()?.content?.content ?? "")
+  
+  const isTextFile = createMemo(() => {
+    const content = state()?.content
+    if (!content) return true
+    if (content.type === "binary") return false
+    const mimeType = content.mimeType
+    if (mimeType && !mimeType.startsWith("text/") && mimeType !== "application/json") return false
+    return true
+  })
   const cacheKey = createMemo(() => sampledChecksum(contents()))
   const selectedLines = createMemo<SelectedLineRange | null>(() => {
     const p = path()
@@ -464,7 +473,7 @@ export function FileTabContent(props: { tab: string }) {
       )
     }
     return (
-      <div class="relative overflow-hidden pb-40">
+      <div class="relative overflow-hidden h-full">
         <Dynamic
           component={fileComponent}
           mode="text"
@@ -515,7 +524,7 @@ export function FileTabContent(props: { tab: string }) {
     <Tabs.Content value={props.tab} class="mt-3 relative flex h-full min-h-0 flex-col overflow-hidden contain-strict">
       <Show when={state()?.loaded}>
         <div class="flex justify-end px-3 pb-1 shrink-0 gap-1.5">
-          <Show when={!isEditing()}>
+          <Show when={!isEditing() && isTextFile()}>
             <IconButton
               icon="align-right"
               variant={wordWrap() ? "secondary" : "ghost"}
@@ -525,15 +534,17 @@ export function FileTabContent(props: { tab: string }) {
             />
           </Show>
           <Show
-            when={isEditing()}
+            when={isEditing() && isTextFile()}
             fallback={
-              <IconButton
-                icon="pencil-line"
-                variant="ghost"
-                size="small"
-                aria-label={language.t("common.edit")}
-                onClick={startEditing}
-              />
+              <Show when={isTextFile()}>
+                <IconButton
+                  icon="pencil-line"
+                  variant="ghost"
+                  size="small"
+                  aria-label={language.t("common.edit")}
+                  onClick={startEditing}
+                />
+              </Show>
             }
           >
             <IconButton
