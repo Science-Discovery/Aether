@@ -294,7 +294,7 @@ export function FileMedia(props: { media?: FileMediaOptions; fallback: () => JSX
                   <embed
                     src={pdfObjectUrl || ""}
                     title={filename}
-                    class="w-full max-w-full border border-border-weak-base rounded"
+                    class="w-full max-w-full border border-border-weak-base rounded h-[80vh]"
                     onLoad={onLoad}
                   />
                 </div>
