@@ -254,12 +254,13 @@ function createWorkspaceTerminalSession(sdk: ReturnType<typeof useSDK>, dir: str
           console.error("Failed to run command in terminal", error)
           return undefined
         })
-      const id = result?.data?.id
-      if (!id) return undefined
+      const data = result?.data
+      const id = data?.id
+      if (!id || !data) return undefined
       batch(() => {
         setStore("all", store.all.length, {
           id,
-          title: result.data.title ?? title,
+          title: data.title ?? title,
           titleNumber: 0,
         })
         setStore("active", id)
