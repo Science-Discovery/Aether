@@ -576,7 +576,7 @@ export const dict = {
   "session.revertDock.expand": "Expand rolled back messages",
   "session.revertDock.restore": "Restore message",
 
-  "session.new.title": "Build anything",
+  "session.new.title": "Accelerate your research",
   "session.new.worktree.main": "Main branch",
   "session.new.worktree.mainWithBranch": "Main branch ({{branch}})",
   "session.new.worktree.create": "Create new worktree",
