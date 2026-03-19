@@ -7,7 +7,7 @@ const channel = (() => {
 })()
 
 const getBase = (): Configuration => ({
-  artifactName: "openresearch-${os}-${arch}.${ext}",
+  artifactName: "aether-${os}-${arch}.${ext}",
   directories: {
     output: "dist",
     buildResources: "resources",
@@ -50,8 +50,8 @@ const getBase = (): Configuration => ({
     target: ["dir"],
   },
   protocols: {
-    name: "OpenResearch",
-    schemes: ["openresearch"],
+    name: "Aether",
+    schemes: ["aether"],
   },
   win: {
     icon: `resources/icons/icon.ico`,
@@ -77,29 +77,29 @@ function getConfig() {
     case "dev": {
       return {
         ...base,
-        appId: "com.openresearch.desktop.dev",
-        productName: "OpenResearch Dev",
-        rpm: { packageName: "openresearch-dev" },
+        appId: "com.aether.desktop.dev",
+        productName: "Aether Dev",
+        rpm: { packageName: "aether-dev" },
       }
     }
     case "beta": {
       return {
         ...base,
-        appId: "com.openresearch.desktop.beta",
-        productName: "OpenResearch Beta",
-        protocols: { name: "OpenResearch Beta", schemes: ["openresearch"] },
-        publish: { provider: "github", owner: "anomalyco", repo: "openresearch-beta", channel: "latest" },
-        rpm: { packageName: "openresearch-beta" },
+        appId: "com.aether.desktop.beta",
+        productName: "Aether Beta",
+        protocols: { name: "Aether Beta", schemes: ["aether"] },
+        publish: { provider: "github", owner: "anomalyco", repo: "aether-beta", channel: "latest" },
+        rpm: { packageName: "aether-beta" },
       }
     }
     case "prod": {
       return {
         ...base,
-        appId: "com.openresearch.desktop",
-        productName: "OpenResearch",
-        protocols: { name: "OpenResearch", schemes: ["openresearch"] },
-        publish: { provider: "github", owner: "anomalyco", repo: "openresearch", channel: "latest" },
-        rpm: { packageName: "openresearch" },
+        appId: "com.aether.desktop",
+        productName: "Aether",
+        protocols: { name: "Aether", schemes: ["aether"] },
+        publish: { provider: "github", owner: "anomalyco", repo: "aether", channel: "latest" },
+        rpm: { packageName: "aether" },
       }
     }
   }

@@ -145,7 +145,7 @@ const targets = singleFlag
   : allTargets
 
 if (process.platform === "win32") {
-  await $`taskkill /F /IM openresearch.exe`.quiet().nothrow()
+  await $`taskkill /F /IM aether.exe`.quiet().nothrow()
 }
 fs.rmSync("dist", { recursive: true, force: true })
 
@@ -192,8 +192,8 @@ for (const item of targets) {
       autoloadTsconfig: true,
       autoloadPackageJson: true,
       target: name.replace(pkg.name, "bun") as any,
-      outfile: `dist/${name}/bin/openresearch`,
-      execArgv: [`--user-agent=openresearch/${Script.version}`, "--use-system-ca", "--"],
+      outfile: `dist/${name}/bin/aether`,
+      execArgv: [`--user-agent=aether/${Script.version}`, "--use-system-ca", "--"],
       windows: {},
     },
     entrypoints: ["./src/index.ts", parserWorker, workerPath],
@@ -214,14 +214,14 @@ for (const item of targets) {
 
   // Copy launcher
   if (item.os === "win32") {
-    fs.copyFileSync(path.resolve(dir, "launcher/OpenResearch.vbs"), `dist/${name}/bin/OpenResearch.vbs`)
+    fs.copyFileSync(path.resolve(dir, "launcher/Aether.vbs"), `dist/${name}/bin/Aether.vbs`)
   } else if (item.os === "darwin") {
-    const dest = `dist/${name}/bin/OpenResearch.command`
-    fs.copyFileSync(path.resolve(dir, "launcher/OpenResearch.command"), dest)
+    const dest = `dist/${name}/bin/Aether.command`
+    fs.copyFileSync(path.resolve(dir, "launcher/Aether.command"), dest)
     fs.chmodSync(dest, 0o755)
   } else if (item.os === "linux") {
-    const dest = `dist/${name}/bin/OpenResearch.sh`
-    fs.copyFileSync(path.resolve(dir, "launcher/OpenResearch.sh"), dest)
+    const dest = `dist/${name}/bin/Aether.sh`
+    fs.copyFileSync(path.resolve(dir, "launcher/Aether.sh"), dest)
     fs.chmodSync(dest, 0o755)
   }
 
