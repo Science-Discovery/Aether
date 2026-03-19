@@ -1,8 +1,6 @@
-<p align="center">
-  <strong>Aether</strong>
-</p>
+<h1 align="center">Aether</h1>
 <p align="center"><em>Autonomous Engine for Theoretical & Hands-on Exploration in Research</em></p>
-<p align="center">An AI coding agent built on <a href="https://github.com/anomalyco/opencode">OpenCode</a>.</p>
+<p align="center">An AI coding assistant for researchers, built on <a href="https://github.com/anomalyco/opencode">OpenCode</a>.</p>
 
 <p align="center">
   <a href="README.md">English</a> |
@@ -13,12 +11,59 @@
 
 ## Overview
 
-Aether is an AI coding assistant based on OpenCode, supporting terminal, browser, and desktop interfaces. Key features:
+Aether extends OpenCode with research-focused improvements, supporting terminal, browser, and desktop interfaces. Key improvements over upstream:
 
-- **Provider-agnostic**: Works with Claude, OpenAI, local models, or any OpenAI-compatible private API
-- **Three modes**: TUI terminal, Web browser, Electron desktop app
+- **Ready to use**: Download and double-click to launch — no dev environment setup required; built-in default model settings so you can start immediately
+- **Built-in research Skills**: Pre-configured prompts for literature review, experiment logging, paper writing, and more — no manual prompt engineering needed
+- **PDF viewing**: Open PDF files directly in the Web UI for easy side-by-side reading while coding
+- **Provider-agnostic**: Works with Gemini, Claude, OpenAI, local models, or any private API
+- **Full coding capabilities**: Code execution, LSP code intelligence, and file/terminal operations — on par with a VS Code daily workflow
 - **Client/server architecture**: CLI runs a built-in HTTP server accessible from a browser or mobile device
-- **Built-in LSP support**: Code-aware assistance
+
+---
+
+## Running from a Release Package
+
+Download the archive for your platform from the [Releases page](https://github.com/Science-Discovery/Aether/releases) and extract it.
+
+### Web Browser Version (Recommended)
+
+Extracted directory layout:
+
+```
+aether          ← CLI binary (aether.exe on Windows)
+web/            ← Frontend static assets (must stay alongside the binary)
+Aether.vbs      ← Windows launcher
+Aether.command  ← macOS launcher
+```
+
+**Windows:** Double-click `Aether.vbs` — browser opens automatically, no console window.
+
+**macOS:** Double-click `Aether.command`, or run in terminal:
+
+```bash
+chmod +x aether   # first time only
+./aether web
+```
+
+**Linux:**
+
+```bash
+chmod +x aether   # first time only
+./aether web
+```
+
+If the browser doesn't open automatically, visit the URL shown in the terminal. Press `Ctrl+C` to stop.
+
+### Electron Desktop Version
+
+Extract (or install) and double-click to run:
+
+| Platform | File |
+|---|---|
+| Linux | `aether-linux-x64.AppImage` / `.deb` / `.rpm` |
+| macOS | `aether-mac-arm64.dmg` (Apple Silicon) / `aether-mac-x64.dmg` |
+| Windows | `aether-win-x64.exe` installer / `win-unpacked/` portable |
 
 ---
 
@@ -95,54 +140,9 @@ echo 'export OPENCODE_CONFIG="$HOME/.opencode.json"' >> ~/.bashrc
 source ~/.bashrc
 ```
 
-Verify: `openresearch models` should list your custom models.
+Verify: `aether models` should list your custom models.
 
 See [DEBUG.md](DEBUG.md) for the full development guide.
-
----
-
-## Running from a Release Package
-
-Download the archive for your platform from the Releases page and extract it.
-
-### Web Browser Version (Recommended)
-
-Extracted directory layout:
-
-```
-openresearch          ← CLI binary (openresearch.exe on Windows)
-web/                  ← Frontend static assets (must stay alongside the binary)
-OpenResearch.vbs      ← Windows launcher
-OpenResearch.command  ← macOS launcher
-```
-
-**Windows:** Double-click `OpenResearch.vbs` — browser opens automatically, no console window.
-
-**macOS:** Double-click `OpenResearch.command`, or run in terminal:
-
-```bash
-chmod +x openresearch   # first time only
-./openresearch web
-```
-
-**Linux:**
-
-```bash
-chmod +x openresearch   # first time only
-./openresearch web
-```
-
-If the browser doesn't open automatically, visit the URL shown in the terminal. Press `Ctrl+C` to stop.
-
-### Electron Desktop Version
-
-Extract (or install) and double-click to run:
-
-| Platform | File |
-|---|---|
-| Linux | `openresearch-linux-x64.AppImage` / `.deb` / `.rpm` |
-| macOS | `openresearch-mac-arm64.dmg` (Apple Silicon) / `openresearch-mac-x64.dmg` |
-| Windows | `openresearch-win-x64.exe` installer / `win-unpacked/` portable |
 
 ---
 
@@ -154,4 +154,4 @@ Extract (or install) and double-click to run:
 
 **Browser doesn't open automatically:** Visit the URL shown in the terminal manually (requires `xdg-open`).
 
-**Frontend assets not found:** Ensure the `openresearch` binary and `web/` directory are in the same folder.
+**Frontend assets not found:** Ensure the `aether` binary and `web/` directory are in the same folder.
