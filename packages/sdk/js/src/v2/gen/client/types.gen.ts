@@ -188,7 +188,7 @@ export interface TDataShape {
   headers?: unknown
   path?: unknown
   query?: unknown
-  url: string
+  url?: string
 }
 
 type OmitKeys<T, K> = Pick<T, Exclude<keyof T, K>>
