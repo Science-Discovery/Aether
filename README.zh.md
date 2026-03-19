@@ -37,7 +37,7 @@ Aether.vbs      ← Windows 启动器
 Aether.command  ← macOS 启动器
 ```
 
-**Windows**：双击 `Aether.vbs`（不用点击Aether.exe），浏览器自动打开界面，无黑色命令窗口。
+**Windows**：双击 `Aether.vbs`（如果报错，则先点击Aether.exe），浏览器自动打开界面，无黑色命令窗口。
 
 **macOS**：双击 `Aether.command`，或在终端运行：
 

@@ -37,7 +37,7 @@ Aether.vbs      ← Windows launcher
 Aether.command  ← macOS launcher
 ```
 
-**Windows:** Double-click `Aether.vbs` — browser opens automatically, no console window.
+**Windows:** Double-click `Aether.vbs` (if it errors, run `Aether.exe` first) — browser opens automatically, no console window.
 
 **macOS:** Double-click `Aether.command`, or run in terminal:
 
