@@ -19,6 +19,7 @@ import { useComments } from "@/context/comments"
 import { useLanguage } from "@/context/language"
 import { usePrompt } from "@/context/prompt"
 import { useSync } from "@/context/sync"
+import { useTerminal } from "@/context/terminal"
 import { getSessionHandoff } from "@/pages/session/handoff"
 import { useSessionLayout } from "@/pages/session/session-layout"
 import { createSessionTabs } from "@/pages/session/helpers"
@@ -64,6 +65,7 @@ export function FileTabContent(props: { tab: string }) {
   const sync = useSync()
   const fileComponent = useFileComponent()
   const sdk = useSDK()
+  const terminal = useTerminal()
 
   const [isEditing, setIsEditing] = createSignal(false)
   const [editContent, setEditContent] = createSignal("")
@@ -129,6 +131,34 @@ export function FileTabContent(props: { tab: string }) {
     const ext = p.split(".").pop()?.toLowerCase() ?? ""
     return ext === "md" || ext === "mdx" || ext === "markdown"
   })
+
+  const isPython = createMemo(() => {
+    const p = path()
+    if (!p) return false
+    const ext = p.split(".").pop()?.toLowerCase() ?? ""
+    return ext === "py" || ext === "pyw"
+  })
+
+  const [isRunning, setIsRunning] = createSignal(false)
+
+  const runPython = async () => {
+    const p = path()
+    if (!p) return
+    setIsRunning(true)
+    try {
+      const fileName = p.split("/").pop() ?? p
+      await terminal.run("bash", ["-c", `python3 ${JSON.stringify(p)}; exec bash --noediting`], fileName)
+      view().terminal.open()
+    } catch (e) {
+      showToast({
+        variant: "error",
+        title: "运行失败",
+        description: String(e),
+      })
+    } finally {
+      setIsRunning(false)
+    }
+  }
   const state = createMemo(() => {
     const p = path()
     if (!p) return
@@ -473,7 +503,7 @@ export function FileTabContent(props: { tab: string }) {
       )
     }
     return (
-      <div class="relative overflow-hidden h-full">
+      <div class="relative overflow-hidden">
         <Dynamic
           component={fileComponent}
           mode="text"
@@ -524,6 +554,16 @@ export function FileTabContent(props: { tab: string }) {
     <Tabs.Content value={props.tab} class="mt-3 relative flex h-full min-h-0 flex-col overflow-hidden contain-strict">
       <Show when={state()?.loaded}>
         <div class="flex justify-end px-3 pb-1 shrink-0 gap-1.5">
+          <Show when={!isEditing() && isPython()}>
+            <IconButton
+              icon="console"
+              variant="ghost"
+              size="small"
+              aria-label="运行 Python 文件"
+              onClick={runPython}
+              disabled={isRunning()}
+            />
+          </Show>
           <Show when={!isEditing() && isTextFile()}>
             <IconButton
               icon="align-right"

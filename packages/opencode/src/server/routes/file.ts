@@ -8,6 +8,10 @@ import { LSP } from "../../lsp"
 import { Instance } from "../../project/instance"
 import { lazy } from "../../util/lazy"
 import { errors } from "../error"
+import { $ } from "bun"
+import { spawn } from "bun"
+import path from "path"
+import type { Stats } from "fs"
 
 export const FileRoutes = lazy(() =>
   new Hono()
@@ -284,6 +288,119 @@ export const FileRoutes = lazy(() =>
         const root = directory ?? Instance.directory
         const generated = await FolderSummary.generateAll(root, maxDepth ?? 3, force ?? false)
         return c.json({ count: generated.length })
+      },
+    )
+    .post(
+      "/file/open-in-explorer",
+      describeRoute({
+        summary: "Open in explorer",
+        description: "Open a file or directory in the system file explorer (server-side implementation).",
+        operationId: "file.openInExplorer",
+        responses: {
+          200: {
+            description: "Opened",
+            content: { "application/json": { schema: resolver(z.object({ ok: z.boolean() })) } },
+          },
+          ...errors(400),
+          ...errors(403),
+          ...errors(404),
+        },
+      }),
+      validator("json", z.object({ path: z.string() })),
+      async (c) => {
+        const inputPath = c.req.valid("json").path
+        let stat: Stats | undefined; 
+        try {
+          stat = await Bun.file(inputPath).stat()
+        } catch {
+          return c.json({ error: "Failed to access path" }, 500)
+        }
+
+        try {
+          if (process.platform === "win32") {
+            // Windows: use explorer
+            const isDir = stat.isDirectory()
+            if (isDir) {
+              const proc = spawn(["explorer.exe", `${inputPath}`]);
+              await proc.exited;
+            } else {
+              const proc = spawn(["explorer.exe", "/select,", `${inputPath}`]);
+              await proc.exited;
+            }
+          } else if (process.platform === "darwin") {
+            // macOS: open -R / open // todo
+            const stat = await Bun.file(inputPath).stat()
+            const isDir = stat.isDirectory()
+            if (isDir) {
+              await $`open ${inputPath}`.nothrow()
+            } else {
+              await $`open -R ${inputPath}`.nothrow()
+            }
+          } else {
+            // Linux: xdg-open // todo
+            const dir = path.dirname(inputPath)
+            await $`xdg-open ${dir}`.nothrow()
+          }
+
+          return c.json({ ok: true })
+        } catch (error) {
+          console.error("Failed to open in explorer:", error)
+          return c.json({ 
+            error: "Failed to open in explorer",
+            details: error instanceof Error ? error.message : String(error)
+          }, 500)
+        }
+      },
+    )
+    .post(
+      "/file/open",
+      describeRoute({
+        summary: "Open file",
+        description: "Open a file or directory with the system default application.",
+        operationId: "file.open",
+        responses: {
+          200: {
+            description: "Opened",
+            content: { "application/json": { schema: resolver(z.object({ ok: z.boolean() })) } },
+          },
+          ...errors(400),
+          ...errors(403),
+          ...errors(404),
+        },
+      }),
+      validator("json", z.object({ path: z.string() })),
+      async (c) => {
+        const inputPath = c.req.valid("json").path
+        let stat: Stats | undefined
+        try {
+          stat = await Bun.file(inputPath).stat()
+        } catch {
+          return c.json({ error: "Failed to access path" }, 500)
+        }
+
+        try {
+          if (process.platform === "win32") {
+            // Windows: start "" filepath
+            const proc = spawn(["cmd.exe", "/c", "start", "", inputPath])
+            await proc.exited
+          } else if (process.platform === "darwin") {
+            // macOS: open filepath
+            const proc = spawn(["open", inputPath])
+            await proc.exited
+          } else {
+            // Linux: xdg-open filepath
+            const proc = spawn(["xdg-open", inputPath])
+            await proc.exited
+          }
+
+          return c.json({ ok: true })
+        } catch (error) {
+          console.error("Failed to open file:", error)
+          return c.json({
+            error: "Failed to open file",
+            details: error instanceof Error ? error.message : String(error),
+          }, 500)
+        }
       },
     )
     .get(

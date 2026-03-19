@@ -630,6 +630,12 @@ export const dict = {
   "settings.general.section.feed": "Feed",
   "settings.general.section.display": "Pantalla",
 
+  "settings.general.row.defaultModel.title": "Default model",
+  "settings.general.row.defaultModel.description": "Model used for new conversations when no other model is selected",
+  "settings.general.row.defaultModel.none": "Auto (provider default)",
+  "settings.general.row.smallModel.title": "Small model",
+  "settings.general.row.smallModel.description": "Lightweight model used for tasks like title generation",
+  "settings.general.row.smallModel.none": "Auto (provider default)",
   "settings.general.row.language.title": "Idioma",
   "settings.general.row.language.description": "Cambiar el idioma de visualización para OpenCode",
   "settings.general.row.appearance.title": "Apariencia",

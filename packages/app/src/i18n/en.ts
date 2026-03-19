@@ -442,6 +442,13 @@ export const dict = {
 
   "toast.file.loadFailed.title": "Failed to load file",
   "toast.file.listFailed.title": "Failed to list files",
+  "toast.file.copyPath.success": "Path copied",
+  "toast.file.openFailed.title": "Failed to open",
+  "toast.file.openFailed.fallback": "Path copied to clipboard, please open manually",
+  "toast.file.openExplorer.success": "Shown in file explorer",
+  "toast.file.open.success": "Opened with default application",
+  "toast.file.open.failed.title": "Failed to open file",
+  "toast.file.open.failed.description": "Please try opening it manually",
 
   "toast.context.noLineSelection.title": "No line selection",
   "toast.context.noLineSelection.description": "Select a line range in a file tab first.",
@@ -576,7 +583,7 @@ export const dict = {
   "session.revertDock.expand": "Expand rolled back messages",
   "session.revertDock.restore": "Restore message",
 
-  "session.new.title": "Build anything",
+  "session.new.title": "Accelerate your research",
   "session.new.worktree.main": "Main branch",
   "session.new.worktree.mainWithBranch": "Main branch ({{branch}})",
   "session.new.worktree.create": "Create new worktree",
@@ -733,6 +740,12 @@ export const dict = {
   "settings.general.section.feed": "Feed",
   "settings.general.section.display": "Display",
 
+  "settings.general.row.defaultModel.title": "Default model",
+  "settings.general.row.defaultModel.description": "Model used for new conversations when no other model is selected",
+  "settings.general.row.defaultModel.none": "Auto (provider default)",
+  "settings.general.row.smallModel.title": "Small model",
+  "settings.general.row.smallModel.description": "Lightweight model used for tasks like title generation",
+  "settings.general.row.smallModel.none": "Auto (provider default)",
   "settings.general.row.language.title": "Language",
   "settings.general.row.language.description": "Change the display language for Aether",
   "settings.general.row.appearance.title": "Appearance",

@@ -247,6 +247,26 @@ function createWorkspaceTerminalSession(sdk: ReturnType<typeof useSDK>, dir: str
         return next
       })
     },
+    async run(command: string, args: string[], title: string) {
+      const result = await sdk.client.pty
+        .create({ command, args, title })
+        .catch((error: unknown) => {
+          console.error("Failed to run command in terminal", error)
+          return undefined
+        })
+      const data = result?.data
+      const id = data?.id
+      if (!id || !data) return undefined
+      batch(() => {
+        setStore("all", store.all.length, {
+          id,
+          title: data.title ?? title,
+          titleNumber: 0,
+        })
+        setStore("active", id)
+      })
+      return id
+    },
     async clone(id: string) {
       const index = store.all.findIndex((x) => x.id === id)
       const pty = store.all[index]
@@ -399,6 +419,7 @@ export const { use: useTerminal, provider: TerminalProvider } = createSimpleCont
       all: () => workspace().all(),
       active: () => workspace().active(),
       new: () => workspace().new(),
+      run: (command: string, args: string[], title: string) => workspace().run(command, args, title),
       update: (pty: Partial<LocalPTY> & { id: string }) => workspace().update(pty),
       trim: (id: string) => workspace().trim(id),
       trimAll: () => workspace().trimAll(),

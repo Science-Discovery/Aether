@@ -4,10 +4,7 @@ import { useSync } from "@/context/sync"
 import { useSDK } from "@/context/sdk"
 import { useLanguage } from "@/context/language"
 import { Icon } from "@opencode-ai/ui/icon"
-import { Mark } from "@opencode-ai/ui/logo"
 import { getDirectory, getFilename } from "@opencode-ai/util/path"
-import { useDialog } from "@opencode-ai/ui/context/dialog"
-import { DialogDefaultSkills } from "@/components/dialog-default-skills"
 
 const MAIN_WORKTREE = "main"
 const CREATE_WORKTREE = "create"
@@ -21,8 +18,6 @@ export function NewSessionView(props: NewSessionViewProps) {
   const sync = useSync()
   const sdk = useSDK()
   const language = useLanguage()
-  const dialog = useDialog()
-
   const sandboxes = createMemo(() => sync.project?.sandboxes ?? [])
   const options = createMemo(() => [MAIN_WORKTREE, ...sandboxes(), CREATE_WORKTREE])
   const current = createMemo(() => {
@@ -56,7 +51,7 @@ export function NewSessionView(props: NewSessionViewProps) {
       <div class="flex-1 px-6 pb-30 flex items-center justify-center text-center">
         <div class="w-full max-w-200 flex flex-col items-center text-center gap-4">
           <div class="flex flex-col items-center gap-6">
-            <Mark class="w-10" />
+            <div style="font-family: 'Courier New', Courier, monospace; letter-spacing: 0.2em; font-size: 1.5rem; font-weight: 700; color: var(--text-strong); text-shadow: 0 0 20px color-mix(in srgb, var(--text-strong) 60%, transparent), 0 0 40px color-mix(in srgb, var(--text-strong) 25%, transparent); user-select: none;">AETHER</div>
             <div class="text-20-medium text-text-strong">{language.t("session.new.title")}</div>
           </div>
           <div class="w-full flex flex-col gap-4 items-center">
@@ -108,17 +103,6 @@ export function NewSessionView(props: NewSessionViewProps) {
           </div>
         )}
       </Show>
-      <div class="w-full px-6 pt-2 pb-4 border-t border-border-weak-base shrink-0">
-        <button
-          type="button"
-          class="w-full flex items-center gap-2 px-3 py-2 rounded-lg border border-border-weak-base bg-surface-base hover:bg-surface-raised-base hover:border-border-base transition-colors text-left"
-          onClick={() => dialog.show(() => <DialogDefaultSkills />)}
-        >
-          <Icon name="brain" size="small" class="text-icon-base shrink-0" />
-          <span class="text-13-medium text-text-base">默认 Skills</span>
-          <Icon name="chevron-right" size="small" class="text-icon-weak ml-auto" />
-        </button>
-      </div>
     </div>
   )
 }

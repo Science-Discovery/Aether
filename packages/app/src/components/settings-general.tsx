@@ -7,7 +7,9 @@ import { Switch } from "@opencode-ai/ui/switch"
 import { Tooltip } from "@opencode-ai/ui/tooltip"
 import { useTheme, type ColorScheme } from "@opencode-ai/ui/theme"
 import { showToast } from "@opencode-ai/ui/toast"
+import { useGlobalSync } from "@/context/global-sync"
 import { useLanguage } from "@/context/language"
+import { useModels } from "@/context/models"
 import { usePlatform } from "@/context/platform"
 import { useSettings, monoFontFamily } from "@/context/settings"
 import { playSound, SOUND_OPTIONS } from "@/utils/sound"
@@ -43,12 +45,37 @@ export const SettingsGeneral: Component = () => {
   const language = useLanguage()
   const platform = usePlatform()
   const settings = useSettings()
+  const globalSync = useGlobalSync()
+  const models = useModels()
 
   const [store, setStore] = createStore({
     checking: false,
   })
 
   const linux = createMemo(() => platform.platform === "desktop" && platform.os === "linux")
+
+  const modelOptions = createMemo(() => {
+    const none = { value: "", label: language.t("settings.general.row.defaultModel.none"), providerID: "" }
+    const items = models
+      .list()
+      .filter((m) => models.visible({ providerID: m.provider.id, modelID: m.id }))
+      .map((m) => ({
+        value: `${m.provider.id}/${m.id}`,
+        label: `${m.name} (${m.provider.name})`,
+        providerID: m.provider.id,
+      }))
+    return [none, ...items]
+  })
+
+  const currentModel = createMemo(() => {
+    const val = globalSync.data.config.model ?? ""
+    return modelOptions().find((o) => o.value === val) ?? modelOptions()[0]
+  })
+
+  const currentSmallModel = createMemo(() => {
+    const val = globalSync.data.config.small_model ?? ""
+    return modelOptions().find((o) => o.value === val) ?? modelOptions()[0]
+  })
 
   const check = () => {
     if (!platform.checkUpdate) return
@@ -179,6 +206,62 @@ export const SettingsGeneral: Component = () => {
   const GeneralSection = () => (
     <div class="flex flex-col gap-1">
       <SettingsList>
+        <SettingsRow
+          title={language.t("settings.general.row.defaultModel.title")}
+          description={language.t("settings.general.row.defaultModel.description")}
+        >
+          <Select
+            data-action="settings-default-model"
+            options={modelOptions()}
+            current={currentModel()}
+            value={(o) => o.value}
+            label={(o) => o.label}
+            onSelect={(option) => {
+              if (!option) return
+              const model = option.value || undefined
+              const before = globalSync.data.config.model
+              globalSync.set("config", "model", model)
+              globalSync.updateConfig({ model }).catch((err: unknown) => {
+                globalSync.set("config", "model", before)
+                const message = err instanceof Error ? err.message : String(err)
+                showToast({ title: language.t("common.requestFailed"), description: message })
+              })
+            }}
+            variant="secondary"
+            size="small"
+            triggerVariant="settings"
+            triggerStyle={{ "min-width": "220px" }}
+          />
+        </SettingsRow>
+
+        <SettingsRow
+          title={language.t("settings.general.row.smallModel.title")}
+          description={language.t("settings.general.row.smallModel.description")}
+        >
+          <Select
+            data-action="settings-small-model"
+            options={modelOptions()}
+            current={currentSmallModel()}
+            value={(o) => o.value}
+            label={(o) => o.label}
+            onSelect={(option) => {
+              if (!option) return
+              const small_model = option.value || undefined
+              const before = globalSync.data.config.small_model
+              globalSync.set("config", "small_model", small_model)
+              globalSync.updateConfig({ small_model }).catch((err: unknown) => {
+                globalSync.set("config", "small_model", before)
+                const message = err instanceof Error ? err.message : String(err)
+                showToast({ title: language.t("common.requestFailed"), description: message })
+              })
+            }}
+            variant="secondary"
+            size="small"
+            triggerVariant="settings"
+            triggerStyle={{ "min-width": "220px" }}
+          />
+        </SettingsRow>
+
         <SettingsRow
           title={language.t("settings.general.row.language.title")}
           description={language.t("settings.general.row.language.description")}

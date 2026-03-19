@@ -57,6 +57,7 @@ import { PromptDragOverlay } from "./prompt-input/drag-overlay"
 import { promptPlaceholder } from "./prompt-input/placeholder"
 import { ImagePreview } from "@opencode-ai/ui/image-preview"
 import { KnowledgeButton } from "@/components/knowledge-button"
+import { DialogDefaultSkills } from "@/components/dialog-default-skills"
 
 interface PromptInputProps {
   class?: string
@@ -1581,6 +1582,17 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                 >
                   <KnowledgeButton />
                 </div>
+                <Tooltip placement="top" gutter={4} value="默认 Skills">
+                  <Button
+                    variant="ghost"
+                    size="normal"
+                    class="h-7 px-2 flex items-center gap-1 text-icon-weak"
+                    onClick={() => dialog.show(() => <DialogDefaultSkills />)}
+                    aria-label="默认 Skills"
+                  >
+                    <Icon name="bullet-list" class="size-4" />
+                  </Button>
+                </Tooltip>
               </div>
             </div>
           </div>
