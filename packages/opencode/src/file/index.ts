@@ -1,4 +1,6 @@
 import { BusEvent } from "@/bus/bus-event"
+import { Bus } from "@/bus"
+import { FileWatcher } from "./watcher"
 import z from "zod"
 import { formatPatch, structuredPatch } from "diff"
 import path from "path"
@@ -374,6 +376,37 @@ export namespace File {
       throw new Error("Access denied: path escapes project directory")
     }
     await fs.promises.writeFile(resolved, content, "utf-8")
+  }
+
+  export async function addToGitignore(
+    filePath: string,
+    nodeType: "file" | "directory",
+  ): Promise<{ created: boolean; alreadyExists: boolean }> {
+    let pattern = "/" + filePath.replace(/^\//, "")
+    if (nodeType === "directory" && !pattern.endsWith("/")) {
+      pattern += "/"
+    }
+
+    const gitignorePath = path.join(Instance.worktree, ".gitignore")
+    const exists = await Filesystem.exists(gitignorePath)
+
+    let content = ""
+    if (exists) {
+      content = await fs.promises.readFile(gitignorePath, "utf-8")
+      const lines = content.split("\n").map((l) => l.trim())
+      if (lines.includes(pattern.trim())) {
+        return { created: false, alreadyExists: true }
+      }
+    }
+
+    const newContent = content + (content && !content.endsWith("\n") ? "\n" : "") + pattern + "\n"
+    await fs.promises.writeFile(gitignorePath, newContent, "utf-8")
+    await Bus.publish(Event.Edited, { file: gitignorePath })
+    await Bus.publish(FileWatcher.Event.Updated, {
+      file: gitignorePath,
+      event: exists ? "change" : "add",
+    })
+    return { created: !exists, alreadyExists: false }
   }
 
   export async function remove(filePath: string): Promise<void> {

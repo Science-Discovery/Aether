@@ -403,6 +403,31 @@ export const FileRoutes = lazy(() =>
         }
       },
     )
+    .post(
+      "/file/gitignore",
+      describeRoute({
+        summary: "Add to .gitignore",
+        description: "Add a file or directory path to the project's .gitignore file, creating it if necessary.",
+        operationId: "file.addToGitignore",
+        responses: {
+          200: {
+            description: "Result",
+            content: {
+              "application/json": {
+                schema: resolver(z.object({ ok: z.boolean(), created: z.boolean(), alreadyExists: z.boolean() })),
+              },
+            },
+          },
+          ...errors(400),
+        },
+      }),
+      validator("json", z.object({ path: z.string(), type: z.enum(["file", "directory"]) })),
+      async (c) => {
+        const { path: filePath, type } = c.req.valid("json")
+        const result = await File.addToGitignore(filePath, type)
+        return c.json({ ok: true, ...result })
+      },
+    )
     .get(
       "/file/status",
       describeRoute({

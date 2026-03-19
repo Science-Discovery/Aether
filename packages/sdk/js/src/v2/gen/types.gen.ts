@@ -4301,6 +4301,28 @@ export type FileOpenResponses = {
 
 export type FileOpenResponse = FileOpenResponses[keyof FileOpenResponses]
 
+export type FileAddToGitignoreData = {
+  body: {
+    path: string
+    type: "file" | "directory"
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+}
+
+export type FileAddToGitignoreResponses = {
+  200: {
+    ok: boolean
+    created: boolean
+    alreadyExists: boolean
+  }
+}
+
+export type FileAddToGitignoreResponse = FileAddToGitignoreResponses[keyof FileAddToGitignoreResponses]
+
 export type McpStatusData = {
   body?: never
   path?: never

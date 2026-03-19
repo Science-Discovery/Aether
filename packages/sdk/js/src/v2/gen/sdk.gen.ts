@@ -32,6 +32,8 @@ import type {
   ExperimentalWorkspaceRemoveErrors,
   ExperimentalWorkspaceRemoveResponses,
   FileListResponses,
+  FileAddToGitignoreData,
+  FileAddToGitignoreResponses,
   FileOpenData,
   FileOpenInExplorerData,
   FileOpenResponses,
@@ -3021,6 +3023,43 @@ export class File extends HeyApiClient {
     )
     return (options?.client ?? this.client).post<FileOpenResponses, FileOpenData, ThrowOnError>({
       url: "/file/open",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Add path to .gitignore
+   */
+  public addToGitignore<ThrowOnError extends boolean = false>(
+    parameters: {
+      path: string
+      type: "file" | "directory"
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<FileAddToGitignoreData, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "path" },
+            { in: "body", key: "type" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<FileAddToGitignoreResponses, FileAddToGitignoreData, ThrowOnError>({
+      url: "/file/gitignore",
       ...options,
       ...params,
       headers: {

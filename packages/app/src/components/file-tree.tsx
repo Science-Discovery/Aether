@@ -443,7 +443,6 @@ export default function FileTree(props: {
                       try {
                         await sdk.client.file.open({
                           path: node.absolute,
-                          directory: params.dir,
                         })
 
                         showToast({
@@ -470,7 +469,6 @@ export default function FileTree(props: {
                         try {
                           await sdk.client.file.openInExplorer({
                             path: node.absolute,
-                            directory: params.dir,
                           })
 
                           showToast({
@@ -493,6 +491,43 @@ export default function FileTree(props: {
                     </ContextMenu.Item>
                   </Show>
                   <ContextMenu.Separator />
+                  <ContextMenu.Item
+                    onSelect={async () => {
+                      try {
+                        const res = await sdk.client.file.addToGitignore({
+                          path: node.path,
+                          type: node.type,
+                        })
+                        if (res.data?.alreadyExists) {
+                          showToast({
+                            variant: "default",
+                            title: "已在 .gitignore 中",
+                            description: `路径 "${node.path}" 已存在，无需重复添加`,
+                          })
+                        } else if (res.data?.created) {
+                          showToast({
+                            variant: "success",
+                            title: "已创建 .gitignore 并添加",
+                            description: `"${node.path}" 已添加到新建的 .gitignore`,
+                          })
+                        } else {
+                          showToast({
+                            variant: "success",
+                            title: "已添加到 .gitignore",
+                          })
+                        }
+                      } catch (err) {
+                        console.error("Failed to add to .gitignore:", err)
+                        showToast({
+                          variant: "error",
+                          title: "添加失败",
+                          description: "无法写入 .gitignore",
+                        })
+                      }
+                    }}
+                  >
+                    <ContextMenu.ItemLabel>忽略变更</ContextMenu.ItemLabel>
+                  </ContextMenu.Item>
                   <ContextMenu.Item onSelect={() => props.onFileRename?.(node)}>
                     <ContextMenu.ItemLabel>重命名</ContextMenu.ItemLabel>
                   </ContextMenu.Item>
