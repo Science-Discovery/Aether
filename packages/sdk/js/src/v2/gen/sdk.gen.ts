@@ -14,9 +14,13 @@ import type {
   AuthSetErrors,
   AuthSetResponses,
   CommandListResponses,
-  Config as Config3,
+  Config as Config4,
   ConfigGetResponses,
   ConfigProvidersResponses,
+  ConfigSkillsAddDefaultsResponses,
+  ConfigSkillsDeleteResponses,
+  ConfigSkillsListResponses,
+  ConfigSkillsSaveResponses,
   ConfigUpdateErrors,
   ConfigUpdateResponses,
   EventSubscribeResponses,
@@ -31,17 +35,26 @@ import type {
   ExperimentalWorkspaceListResponses,
   ExperimentalWorkspaceRemoveErrors,
   ExperimentalWorkspaceRemoveResponses,
-  FileListResponses,
-  FileAddToGitignoreData,
+  FileAddToGitignoreErrors,
   FileAddToGitignoreResponses,
-  FileOpenData,
-  FileOpenInExplorerData,
-  FileOpenResponses,
+  FileCreateErrors,
+  FileCreateResponses,
+  FileDeleteErrors,
+  FileDeleteResponses,
+  FileListResponses,
+  FileOpenErrors,
+  FileOpenInExplorerErrors,
   FileOpenInExplorerResponses,
+  FileOpenResponses,
   FilePartInput,
   FilePartSource,
   FileReadResponses,
+  FileRenameErrors,
+  FileRenameResponses,
   FileStatusResponses,
+  FileSummarizeResponses,
+  FileWriteErrors,
+  FileWriteResponses,
   FindFilesResponses,
   FindSymbolsResponses,
   FindTextResponses,
@@ -53,6 +66,23 @@ import type {
   GlobalEventResponses,
   GlobalHealthResponses,
   InstanceDisposeResponses,
+  KnowledgeConfigGetResponses,
+  KnowledgeConfigSetResponses,
+  KnowledgeCreateErrors,
+  KnowledgeCreateResponses,
+  KnowledgeDeleteErrors,
+  KnowledgeDeleteResponses,
+  KnowledgeDocumentDeleteErrors,
+  KnowledgeDocumentDeleteResponses,
+  KnowledgeGetErrors,
+  KnowledgeGetResponses,
+  KnowledgeModelsListResponses,
+  KnowledgeSearchErrors,
+  KnowledgeSearchResponses,
+  KnowledgeStatsErrors,
+  KnowledgeStatsResponses,
+  KnowledgeSyncErrors,
+  KnowledgeSyncResponses,
   LspStatusResponses,
   McpAddErrors,
   McpAddResponses,
@@ -254,7 +284,7 @@ export class Config extends HeyApiClient {
    */
   public update<ThrowOnError extends boolean = false>(
     parameters?: {
-      config?: Config3
+      config?: Config4
     },
     options?: Options<never, ThrowOnError>,
   ) {
@@ -734,6 +764,141 @@ export class Pty extends HeyApiClient {
   }
 }
 
+export class Skills extends HeyApiClient {
+  /**
+   * List default skills
+   *
+   * List all default skills from the .opencode/skills/ directory.
+   */
+  public list<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<ConfigSkillsListResponses, unknown, ThrowOnError>({
+      url: "/config/skills",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Create or update a default skill
+   *
+   * Create or update a skill in .opencode/skills/.
+   */
+  public save<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      name?: string
+      description?: string
+      content?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "name" },
+            { in: "body", key: "description" },
+            { in: "body", key: "content" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<ConfigSkillsSaveResponses, unknown, ThrowOnError>({
+      url: "/config/skills",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Delete a default skill
+   *
+   * Delete a skill from .opencode/skills/.
+   */
+  public delete<ThrowOnError extends boolean = false>(
+    parameters: {
+      name: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "name" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).delete<ConfigSkillsDeleteResponses, unknown, ThrowOnError>({
+      url: "/config/skills/{name}",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Add default skills to project config
+   *
+   * Add the default skills from .opencode/skills/ to the project's opencode.jsonc skills.paths.
+   */
+  public addDefaults<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<ConfigSkillsAddDefaultsResponses, unknown, ThrowOnError>({
+      url: "/config/skills/defaults",
+      ...options,
+      ...params,
+    })
+  }
+}
+
 export class Config2 extends HeyApiClient {
   /**
    * Get configuration
@@ -774,7 +939,7 @@ export class Config2 extends HeyApiClient {
     parameters?: {
       directory?: string
       workspace?: string
-      config?: Config3
+      config?: Config4
     },
     options?: Options<never, ThrowOnError>,
   ) {
@@ -832,113 +997,9 @@ export class Config2 extends HeyApiClient {
     })
   }
 
-  /**
-   * List default skills
-   */
-  public skillsList<ThrowOnError extends boolean = false>(
-    parameters?: { directory?: string; workspace?: string },
-    options?: Options<never, ThrowOnError>,
-  ) {
-    const params = buildClientParams(
-      [parameters],
-      [{ args: [{ in: "query", key: "directory" }, { in: "query", key: "workspace" }] }],
-    )
-    return (options?.client ?? this.client).get<
-      Array<{ name: string; description: string; content: string }>,
-      unknown,
-      ThrowOnError
-    >({ url: "/config/skills", ...options, ...params })
-  }
-
-  /**
-   * Create or update a default skill
-   */
-  public skillsSave<ThrowOnError extends boolean = false>(
-    parameters: {
-      directory?: string
-      workspace?: string
-      name: string
-      description: string
-      content: string
-    },
-    options?: Options<never, ThrowOnError>,
-  ) {
-    const params = buildClientParams(
-      [parameters],
-      [
-        {
-          args: [
-            { in: "query", key: "directory" },
-            { in: "query", key: "workspace" },
-            { in: "body", key: "name" },
-            { in: "body", key: "description" },
-            { in: "body", key: "content" },
-          ],
-        },
-      ],
-    )
-    return (options?.client ?? this.client).post<{ ok: boolean }, unknown, ThrowOnError>({
-      url: "/config/skills",
-      ...options,
-      ...params,
-      headers: { "Content-Type": "application/json", ...options?.headers, ...params.headers },
-    })
-  }
-
-  /**
-   * Delete a default skill
-   */
-  public skillsDelete<ThrowOnError extends boolean = false>(
-    parameters: { name: string; directory?: string; workspace?: string },
-    options?: Options<never, ThrowOnError>,
-  ) {
-    const params = buildClientParams(
-      [parameters],
-      [
-        {
-          args: [
-            { in: "path", key: "name" },
-            { in: "query", key: "directory" },
-            { in: "query", key: "workspace" },
-          ],
-        },
-      ],
-    )
-    return (options?.client ?? this.client).delete<{ ok: boolean }, unknown, ThrowOnError>({
-      url: "/config/skills/{name}",
-      ...options,
-      ...params,
-    })
-  }
-
-  /**
-   * Add default skills to project config
-   *
-   * Add the default skills from .opencode/skills/ to the project's opencode.jsonc skills.paths.
-   */
-  public skillsDefaults<ThrowOnError extends boolean = false>(
-    parameters?: {
-      directory?: string
-      workspace?: string
-    },
-    options?: Options<never, ThrowOnError>,
-  ) {
-    const params = buildClientParams(
-      [parameters],
-      [
-        {
-          args: [
-            { in: "query", key: "directory" },
-            { in: "query", key: "workspace" },
-          ],
-        },
-      ],
-    )
-    return (options?.client ?? this.client).post<{ added: string[] }, unknown, ThrowOnError>({
-      url: "/config/skills/defaults",
-      ...options,
-      ...params,
-    })
+  private _skills?: Skills
+  get skills(): Skills {
+    return (this._skills ??= new Skills({ client: this.client }))
   }
 }
 
@@ -1956,6 +2017,12 @@ export class Session2 extends HeyApiClient {
       format?: OutputFormat
       system?: string
       variant?: string
+      knowledgeBase?: {
+        path?: string
+        paths?: Array<string>
+        apiKey?: string
+        baseURL?: string
+      }
       parts?: Array<TextPartInput | FilePartInput | AgentPartInput | SubtaskPartInput>
     },
     options?: Options<never, ThrowOnError>,
@@ -1976,6 +2043,7 @@ export class Session2 extends HeyApiClient {
             { in: "body", key: "format" },
             { in: "body", key: "system" },
             { in: "body", key: "variant" },
+            { in: "body", key: "knowledgeBase" },
             { in: "body", key: "parts" },
           ],
         },
@@ -2089,7 +2157,8 @@ export class Session2 extends HeyApiClient {
       system?: string
       variant?: string
       knowledgeBase?: {
-        path: string
+        path?: string
+        paths?: Array<string>
         apiKey?: string
         baseURL?: string
       }
@@ -2868,6 +2937,38 @@ export class Find extends HeyApiClient {
 
 export class File extends HeyApiClient {
   /**
+   * Delete file or directory
+   *
+   * Delete a file or directory at the specified path within the project.
+   */
+  public delete<ThrowOnError extends boolean = false>(
+    parameters: {
+      directory?: string
+      workspace?: string
+      path: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "query", key: "path" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).delete<FileDeleteResponses, FileDeleteErrors, ThrowOnError>({
+      url: "/file",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
    * List files
    *
    * List files and directories in a specified path.
@@ -2896,6 +2997,84 @@ export class File extends HeyApiClient {
       url: "/file",
       ...options,
       ...params,
+    })
+  }
+
+  /**
+   * Rename file or directory
+   *
+   * Rename a file or directory within the project.
+   */
+  public rename<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      path?: string
+      name?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "path" },
+            { in: "body", key: "name" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).patch<FileRenameResponses, FileRenameErrors, ThrowOnError>({
+      url: "/file",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Create file or directory
+   *
+   * Create a new file or directory at the specified path within the project.
+   */
+  public create<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      path?: string
+      type?: "file" | "directory"
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "path" },
+            { in: "body", key: "type" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<FileCreateResponses, FileCreateErrors, ThrowOnError>({
+      url: "/file",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
     })
   }
 
@@ -2932,6 +3111,207 @@ export class File extends HeyApiClient {
   }
 
   /**
+   * Write file
+   *
+   * Write content to a specified file within the project.
+   */
+  public write<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      path?: string
+      content?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "path" },
+            { in: "body", key: "content" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).put<FileWriteResponses, FileWriteErrors, ThrowOnError>({
+      url: "/file/content",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Generate directory summaries
+   *
+   * Generate .summary files for all directories in the project using LLM.
+   */
+  public summarize<ThrowOnError extends boolean = false>(
+    parameters?: {
+      query_directory?: string
+      workspace?: string
+      body_directory?: string
+      maxDepth?: number
+      force?: boolean
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            {
+              in: "query",
+              key: "query_directory",
+              map: "directory",
+            },
+            { in: "query", key: "workspace" },
+            {
+              in: "body",
+              key: "body_directory",
+              map: "directory",
+            },
+            { in: "body", key: "maxDepth" },
+            { in: "body", key: "force" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<FileSummarizeResponses, unknown, ThrowOnError>({
+      url: "/file/summarize",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Open in explorer
+   *
+   * Open a file or directory in the system file explorer (server-side implementation).
+   */
+  public openInExplorer<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      path?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "path" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<FileOpenInExplorerResponses, FileOpenInExplorerErrors, ThrowOnError>({
+      url: "/file/open-in-explorer",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Open file
+   *
+   * Open a file or directory with the system default application.
+   */
+  public open<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      path?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "path" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<FileOpenResponses, FileOpenErrors, ThrowOnError>({
+      url: "/file/open",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Add to .gitignore
+   *
+   * Add a file or directory path to the project's .gitignore file, creating it if necessary.
+   */
+  public addToGitignore<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      path?: string
+      type?: "file" | "directory"
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "path" },
+            { in: "body", key: "type" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<FileAddToGitignoreResponses, FileAddToGitignoreErrors, ThrowOnError>({
+      url: "/file/gitignore",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
    * Get file status
    *
    * Get the git status of all files in the project.
@@ -2958,281 +3338,6 @@ export class File extends HeyApiClient {
       url: "/file/status",
       ...options,
       ...params,
-    })
-  }
-
-  /**
-   * Open file in system explorer
-   *
-   * Opens a file or its parent directory in the system file explorer via server-side API.
-   */
-  public openInExplorer<ThrowOnError extends boolean = false>(
-    parameters: {
-      path: string
-      directory?: string
-      workspace?: string
-    },
-    options?: Options<FileOpenInExplorerData, ThrowOnError>,
-  ) {
-    const params = buildClientParams(
-      [parameters],
-      [
-        {
-          args: [
-            { in: "query", key: "directory" },
-            { in: "query", key: "workspace" },
-            { in: "body", key: "path" },
-          ],
-        },
-      ],
-    )
-    return (options?.client ?? this.client).post<FileOpenInExplorerResponses, FileOpenInExplorerData, ThrowOnError>({
-      url: "/file/open-in-explorer",
-      ...options,
-      ...params,
-      headers: {
-        "Content-Type": "application/json",
-        ...options?.headers,
-        ...params.headers,
-      },
-    })
-  }
-
-  /**
-   * Open file with system default application
-   */
-  public open<ThrowOnError extends boolean = false>(
-    parameters: {
-      path: string
-      directory?: string
-      workspace?: string
-    },
-    options?: Options<FileOpenData, ThrowOnError>,
-  ) {
-    const params = buildClientParams(
-      [parameters],
-      [
-        {
-          args: [
-            { in: "query", key: "directory" },
-            { in: "query", key: "workspace" },
-            { in: "body", key: "path" },
-          ],
-        },
-      ],
-    )
-    return (options?.client ?? this.client).post<FileOpenResponses, FileOpenData, ThrowOnError>({
-      url: "/file/open",
-      ...options,
-      ...params,
-      headers: {
-        "Content-Type": "application/json",
-        ...options?.headers,
-        ...params.headers,
-      },
-    })
-  }
-
-  /**
-   * Add path to .gitignore
-   */
-  public addToGitignore<ThrowOnError extends boolean = false>(
-    parameters: {
-      path: string
-      type: "file" | "directory"
-      directory?: string
-      workspace?: string
-    },
-    options?: Options<FileAddToGitignoreData, ThrowOnError>,
-  ) {
-    const params = buildClientParams(
-      [parameters],
-      [
-        {
-          args: [
-            { in: "query", key: "directory" },
-            { in: "query", key: "workspace" },
-            { in: "body", key: "path" },
-            { in: "body", key: "type" },
-          ],
-        },
-      ],
-    )
-    return (options?.client ?? this.client).post<FileAddToGitignoreResponses, FileAddToGitignoreData, ThrowOnError>({
-      url: "/file/gitignore",
-      ...options,
-      ...params,
-      headers: {
-        "Content-Type": "application/json",
-        ...options?.headers,
-        ...params.headers,
-      },
-    })
-  }
-
-  /**
-   * Create file or directory
-   */
-  public create<ThrowOnError extends boolean = false>(
-    parameters: {
-      directory?: string
-      workspace?: string
-      path: string
-      type: "file" | "directory"
-    },
-    options?: Options<never, ThrowOnError>,
-  ) {
-    const params = buildClientParams(
-      [parameters],
-      [
-        {
-          args: [
-            { in: "query", key: "directory" },
-            { in: "query", key: "workspace" },
-            { in: "body", key: "path" },
-            { in: "body", key: "type" },
-          ],
-        },
-      ],
-    )
-    return (options?.client ?? this.client).post<{ ok: boolean }, unknown, ThrowOnError>({
-      url: "/file",
-      ...options,
-      ...params,
-      headers: { "Content-Type": "application/json", ...options?.headers, ...params.headers },
-    })
-  }
-
-  /**
-   * Delete file or directory
-   */
-  public delete<ThrowOnError extends boolean = false>(
-    parameters: {
-      directory?: string
-      workspace?: string
-      path: string
-    },
-    options?: Options<never, ThrowOnError>,
-  ) {
-    const params = buildClientParams(
-      [parameters],
-      [
-        {
-          args: [
-            { in: "query", key: "directory" },
-            { in: "query", key: "workspace" },
-            { in: "query", key: "path" },
-          ],
-        },
-      ],
-    )
-    return (options?.client ?? this.client).delete<{ ok: boolean }, unknown, ThrowOnError>({
-      url: "/file",
-      ...options,
-      ...params,
-    })
-  }
-
-  /**
-   * Rename file or directory
-   */
-  public rename<ThrowOnError extends boolean = false>(
-    parameters: {
-      directory?: string
-      workspace?: string
-      path: string
-      name: string
-    },
-    options?: Options<never, ThrowOnError>,
-  ) {
-    const params = buildClientParams(
-      [parameters],
-      [
-        {
-          args: [
-            { in: "query", key: "directory" },
-            { in: "query", key: "workspace" },
-            { in: "body", key: "path" },
-            { in: "body", key: "name" },
-          ],
-        },
-      ],
-    )
-    return (options?.client ?? this.client).patch<{ ok: boolean; path: string }, unknown, ThrowOnError>({
-      url: "/file",
-      ...options,
-      ...params,
-      headers: { "Content-Type": "application/json", ...options?.headers, ...params.headers },
-    })
-  }
-
-  /**
-   * Generate directory summaries
-   *
-   * Generate .summary files for directories using LLM.
-   */
-  public summarize<ThrowOnError extends boolean = false>(
-    parameters?: {
-      directory?: string
-      workspace?: string
-      maxDepth?: number
-      force?: boolean
-    },
-    options?: Options<never, ThrowOnError>,
-  ) {
-    const params = buildClientParams(
-      [parameters],
-      [
-        {
-          args: [
-            { in: "query", key: "directory" },
-            { in: "query", key: "workspace" },
-            { in: "body", key: "maxDepth" },
-            { in: "body", key: "force" },
-          ],
-        },
-      ],
-    )
-    return (options?.client ?? this.client).post<{ count: number }, unknown, ThrowOnError>({
-      url: "/file/summarize",
-      ...options,
-      ...params,
-      headers: { "Content-Type": "application/json", ...options?.headers, ...params.headers },
-    })
-  }
-
-  /**
-   * Write file
-   *
-   * Write content to a specified file within the project.
-   */
-  public write<ThrowOnError extends boolean = false>(
-    parameters: {
-      directory?: string
-      workspace?: string
-      path: string
-      content: string
-    },
-    options?: Options<never, ThrowOnError>,
-  ) {
-    const params = buildClientParams(
-      [parameters],
-      [
-        {
-          args: [
-            { in: "query", key: "directory" },
-            { in: "query", key: "workspace" },
-            { in: "body", key: "path" },
-            { in: "body", key: "content" },
-          ],
-        },
-      ],
-    )
-    return (options?.client ?? this.client).put<{ ok: boolean }, unknown, ThrowOnError>({
-      url: "/file/content",
-      ...options,
-      ...params,
-      headers: { "Content-Type": "application/json", ...options?.headers, ...params.headers },
     })
   }
 }
@@ -3959,6 +4064,403 @@ export class Tui extends HeyApiClient {
   }
 }
 
+export class Models extends HeyApiClient {
+  /**
+   * List embedding models
+   *
+   * 获取所有可用的嵌入模型列表
+   */
+  public list<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<KnowledgeModelsListResponses, unknown, ThrowOnError>({
+      url: "/knowledge/models",
+      ...options,
+      ...params,
+    })
+  }
+}
+
+export class Config3 extends HeyApiClient {
+  /**
+   * Get knowledge config
+   *
+   * 获取全局知识库配置
+   */
+  public get<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<KnowledgeConfigGetResponses, unknown, ThrowOnError>({
+      url: "/knowledge/config",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Set knowledge config
+   *
+   * 设置全局知识库配置，供 knowledge_search 工具使用
+   */
+  public set<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      path?: string
+      apiKey?: string
+      baseURL?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "path" },
+            { in: "body", key: "apiKey" },
+            { in: "body", key: "baseURL" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<KnowledgeConfigSetResponses, unknown, ThrowOnError>({
+      url: "/knowledge/config",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+}
+
+export class Document extends HeyApiClient {
+  /**
+   * Delete document
+   *
+   * 从知识库中删除指定文档
+   */
+  public delete<ThrowOnError extends boolean = false>(
+    parameters: {
+      path: string
+      documentId: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "path" },
+            { in: "path", key: "documentId" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).delete<
+      KnowledgeDocumentDeleteResponses,
+      KnowledgeDocumentDeleteErrors,
+      ThrowOnError
+    >({
+      url: "/knowledge/{path}/document/{documentId}",
+      ...options,
+      ...params,
+    })
+  }
+}
+
+export class Knowledge extends HeyApiClient {
+  /**
+   * Create knowledge base
+   *
+   * 创建新的知识库
+   */
+  public create<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      path?: string
+      name?: string
+      embeddingProvider?: "openai" | "local" | "custom"
+      embeddingModel?: string
+      embeddingDimensions?: number
+      apiKey?: string
+      baseURL?: string
+      chunkSize?: number
+      chunkOverlap?: number
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "path" },
+            { in: "body", key: "name" },
+            { in: "body", key: "embeddingProvider" },
+            { in: "body", key: "embeddingModel" },
+            { in: "body", key: "embeddingDimensions" },
+            { in: "body", key: "apiKey" },
+            { in: "body", key: "baseURL" },
+            { in: "body", key: "chunkSize" },
+            { in: "body", key: "chunkOverlap" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<KnowledgeCreateResponses, KnowledgeCreateErrors, ThrowOnError>({
+      url: "/knowledge",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Get knowledge base stats
+   *
+   * 获取知识库统计信息
+   */
+  public stats<ThrowOnError extends boolean = false>(
+    parameters: {
+      path: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "path" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<KnowledgeStatsResponses, KnowledgeStatsErrors, ThrowOnError>({
+      url: "/knowledge/{path}/stats",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Delete knowledge base
+   *
+   * 删除知识库（仅删除索引，不删除原文件）
+   */
+  public delete<ThrowOnError extends boolean = false>(
+    parameters: {
+      path: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "path" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).delete<KnowledgeDeleteResponses, KnowledgeDeleteErrors, ThrowOnError>({
+      url: "/knowledge/{path}",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Get knowledge base
+   *
+   * 获取知识库详细信息
+   */
+  public get<ThrowOnError extends boolean = false>(
+    parameters: {
+      path: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "path" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<KnowledgeGetResponses, KnowledgeGetErrors, ThrowOnError>({
+      url: "/knowledge/{path}",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Sync knowledge base
+   *
+   * 同步知识库文件夹，处理新增的 PDF 文件，以 SSE 流式返回进度
+   */
+  public sync<ThrowOnError extends boolean = false>(
+    parameters: {
+      path: string
+      directory?: string
+      workspace?: string
+      apiKey?: string
+      baseURL?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "path" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "apiKey" },
+            { in: "body", key: "baseURL" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).sse.post<KnowledgeSyncResponses, KnowledgeSyncErrors, ThrowOnError>({
+      url: "/knowledge/{path}/sync",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Search knowledge base
+   *
+   * 在知识库中搜索相关内容
+   */
+  public search<ThrowOnError extends boolean = false>(
+    parameters: {
+      path: string
+      directory?: string
+      workspace?: string
+      query?: string
+      topK?: number
+      apiKey?: string
+      baseURL?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "path" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "query" },
+            { in: "body", key: "topK" },
+            { in: "body", key: "apiKey" },
+            { in: "body", key: "baseURL" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<KnowledgeSearchResponses, KnowledgeSearchErrors, ThrowOnError>({
+      url: "/knowledge/{path}/search",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  private _models?: Models
+  get models(): Models {
+    return (this._models ??= new Models({ client: this.client }))
+  }
+
+  private _config?: Config3
+  get config(): Config3 {
+    return (this._config ??= new Config3({ client: this.client }))
+  }
+
+  private _document?: Document
+  get document(): Document {
+    return (this._document ??= new Document({ client: this.client }))
+  }
+}
+
 export class Instance extends HeyApiClient {
   /**
    * Dispose instance
@@ -4381,6 +4883,11 @@ export class OpencodeClient extends HeyApiClient {
   private _tui?: Tui
   get tui(): Tui {
     return (this._tui ??= new Tui({ client: this.client }))
+  }
+
+  private _knowledge?: Knowledge
+  get knowledge(): Knowledge {
+    return (this._knowledge ??= new Knowledge({ client: this.client }))
   }
 
   private _instance?: Instance
