@@ -445,7 +445,10 @@ export const dict = {
   "toast.file.copyPath.success": "Path copied",
   "toast.file.openFailed.title": "Failed to open",
   "toast.file.openFailed.fallback": "Path copied to clipboard, please open manually",
-  "toast.file.openExplorer.success": "Opened in file explorer",
+  "toast.file.openExplorer.success": "Shown in file explorer",
+  "toast.file.open.success": "Opened with default application",
+  "toast.file.open.failed.title": "Failed to open file",
+  "toast.file.open.failed.description": "Please try opening it manually",
 
   "toast.context.noLineSelection.title": "No line selection",
   "toast.context.noLineSelection.description": "Select a line range in a file tab first.",

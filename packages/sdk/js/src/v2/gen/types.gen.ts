@@ -4248,6 +4248,59 @@ export type FileOpenInExplorerResponses = {
 
 export type FileOpenInExplorerResponse = FileOpenInExplorerResponses[keyof FileOpenInExplorerResponses]
 
+export type FileOpenData = {
+  body: {
+    path: string
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/file/open"
+}
+
+export type FileOpenErrors = {
+  /**
+   * Bad request
+   */
+  400: {
+    error: string
+  }
+  /**
+   * Forbidden
+   */
+  403: {
+    error: string
+  }
+  /**
+   * Not found
+   */
+  404: {
+    error: string
+  }
+  /**
+   * Internal server error
+   */
+  500: {
+    error: string
+    details?: string
+  }
+}
+
+export type FileOpenError = FileOpenErrors[keyof FileOpenErrors]
+
+export type FileOpenResponses = {
+  /**
+   * Opened
+   */
+  200: {
+    ok: boolean
+  }
+}
+
+export type FileOpenResponse = FileOpenResponses[keyof FileOpenResponses]
+
 export type McpStatusData = {
   body?: never
   path?: never

@@ -438,6 +438,31 @@ export default function FileTree(props: {
                   >
                     <ContextMenu.ItemLabel>复制路径</ContextMenu.ItemLabel>
                   </ContextMenu.Item>
+                  <ContextMenu.Item
+                    onSelect={async () => {
+                      try {
+                        await sdk.client.file.open({
+                          path: node.absolute,
+                          directory: params.dir,
+                        })
+
+                        showToast({
+                          variant: "success",
+                          title: "已用默认应用打开",
+                        })
+                      } catch (err) {
+                        console.error("Failed to open file:", err)
+
+                        showToast({
+                          variant: "error",
+                          title: "打开文件失败",
+                          description: "请尝试手动打开",
+                        })
+                      }
+                    }}
+                  >
+                    <ContextMenu.ItemLabel>打开</ContextMenu.ItemLabel>
+                  </ContextMenu.Item>
                   <Show when={platform.platform === "web"}>
                     <ContextMenu.Separator />
                     <ContextMenu.Item
@@ -450,7 +475,7 @@ export default function FileTree(props: {
 
                           showToast({
                             variant: "success",
-                            title: "已在文件资源管理器中打开",
+                            title: "已在文件资源管理器中显示",
                           })
                         } catch (err) {
                           console.error("Failed to open in explorer:", err)
@@ -464,7 +489,7 @@ export default function FileTree(props: {
                         }
                       }}
                     >
-                      <ContextMenu.ItemLabel>在文件资源管理器中打开</ContextMenu.ItemLabel>
+                      <ContextMenu.ItemLabel>在文件资源管理器中显示</ContextMenu.ItemLabel>
                     </ContextMenu.Item>
                   </Show>
                   <ContextMenu.Separator />

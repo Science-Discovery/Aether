@@ -32,7 +32,9 @@ import type {
   ExperimentalWorkspaceRemoveErrors,
   ExperimentalWorkspaceRemoveResponses,
   FileListResponses,
+  FileOpenData,
   FileOpenInExplorerData,
+  FileOpenResponses,
   FileOpenInExplorerResponses,
   FilePartInput,
   FilePartSource,
@@ -2984,6 +2986,41 @@ export class File extends HeyApiClient {
     )
     return (options?.client ?? this.client).post<FileOpenInExplorerResponses, FileOpenInExplorerData, ThrowOnError>({
       url: "/file/open-in-explorer",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Open file with system default application
+   */
+  public open<ThrowOnError extends boolean = false>(
+    parameters: {
+      path: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<FileOpenData, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "path" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<FileOpenResponses, FileOpenData, ThrowOnError>({
+      url: "/file/open",
       ...options,
       ...params,
       headers: {

@@ -352,6 +352,57 @@ export const FileRoutes = lazy(() =>
         }
       },
     )
+    .post(
+      "/file/open",
+      describeRoute({
+        summary: "Open file",
+        description: "Open a file or directory with the system default application.",
+        operationId: "file.open",
+        responses: {
+          200: {
+            description: "Opened",
+            content: { "application/json": { schema: resolver(z.object({ ok: z.boolean() })) } },
+          },
+          ...errors(400),
+          ...errors(403),
+          ...errors(404),
+        },
+      }),
+      validator("json", z.object({ path: z.string() })),
+      async (c) => {
+        const inputPath = c.req.valid("json").path
+        let stat: Stats | undefined
+        try {
+          stat = await Bun.file(inputPath).stat()
+        } catch {
+          return c.json({ error: "Failed to access path" }, 500)
+        }
+
+        try {
+          if (process.platform === "win32") {
+            // Windows: start "" filepath
+            const proc = spawn(["cmd.exe", "/c", "start", "", inputPath])
+            await proc.exited
+          } else if (process.platform === "darwin") {
+            // macOS: open filepath
+            const proc = spawn(["open", inputPath])
+            await proc.exited
+          } else {
+            // Linux: xdg-open filepath
+            const proc = spawn(["xdg-open", inputPath])
+            await proc.exited
+          }
+
+          return c.json({ ok: true })
+        } catch (error) {
+          console.error("Failed to open file:", error)
+          return c.json({
+            error: "Failed to open file",
+            details: error instanceof Error ? error.message : String(error),
+          }, 500)
+        }
+      },
+    )
     .get(
       "/file/status",
       describeRoute({
