@@ -212,6 +212,12 @@ for (const item of targets) {
   // Copy web assets next to the binary
   fs.cpSync(path.resolve(dir, "../../packages/app/dist"), `dist/${name}/bin/web`, { recursive: true })
 
+  // Copy default skills next to the binary so they are available without a project config
+  const skillsSrc = path.resolve(dir, "../../.opencode/skills")
+  if (fs.existsSync(skillsSrc)) {
+    fs.cpSync(skillsSrc, `dist/${name}/bin/.opencode/skills`, { recursive: true })
+  }
+
   // Copy launcher
   if (item.os === "win32") {
     fs.copyFileSync(path.resolve(dir, "launcher/Aether.vbs"), `dist/${name}/bin/Aether.vbs`)
