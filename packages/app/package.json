@@ -50,6 +50,7 @@
     "@codemirror/theme-one-dark": "6.1.3",
     "@codemirror/view": "6.39.16",
     "@kobalte/core": "catalog:",
+    "@lezer/highlight": "1.2.3",
     "@opencode-ai/sdk": "workspace:*",
     "@opencode-ai/ui": "workspace:*",
     "@opencode-ai/util": "workspace:*",
