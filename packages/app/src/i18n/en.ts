@@ -135,7 +135,8 @@ export const dict = {
   "provider.connect.apiKey.required": "API key is required",
   "provider.connect.baseURL.label": "Base URL (optional)",
   "provider.connect.baseURL.placeholder": "https://api.example.com/v1",
-  "provider.connect.baseURL.description": "Override the default API endpoint. Leave empty to use the provider's default.",
+  "provider.connect.baseURL.description":
+    "Override the default API endpoint. Leave empty to use the provider's default.",
   "provider.connect.opencodeZen.line1":
     "Aether Zen gives you access to a curated set of reliable optimized models for coding agents.",
   "provider.connect.opencodeZen.line2":
@@ -785,6 +786,7 @@ export const dict = {
   "settings.updates.action.checking": "Checking...",
   "settings.updates.toast.latest.title": "You're up to date",
   "settings.updates.toast.latest.description": "You're running the latest version of Aether.",
+  "font.option.system": "System Default",
   "font.option.ibmPlexMono": "IBM Plex Mono",
   "font.option.cascadiaCode": "Cascadia Code",
   "font.option.firaCode": "Fira Code",

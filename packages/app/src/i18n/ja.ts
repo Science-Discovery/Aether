@@ -602,6 +602,7 @@ export const dict = {
   "settings.updates.action.checking": "確認中...",
   "settings.updates.toast.latest.title": "最新です",
   "settings.updates.toast.latest.description": "OpenCode は最新バージョンです。",
+  "font.option.system": "システムデフォルト",
   "font.option.ibmPlexMono": "IBM Plex Mono",
   "font.option.cascadiaCode": "Cascadia Code",
   "font.option.firaCode": "Fira Code",

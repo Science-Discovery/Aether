@@ -154,6 +154,7 @@ export const SettingsGeneral: Component = () => {
   )
 
   const fontOptions = [
+    { value: "system", label: "font.option.system" },
     { value: "ibm-plex-mono", label: "font.option.ibmPlexMono" },
     { value: "cascadia-code", label: "font.option.cascadiaCode" },
     { value: "fira-code", label: "font.option.firaCode" },
@@ -332,7 +333,7 @@ export const SettingsGeneral: Component = () => {
             triggerStyle={{ "min-width": "180px" }}
           />
         </SettingsRow>
-        </SettingsList>
+      </SettingsList>
     </div>
   )
 
@@ -417,7 +418,7 @@ export const SettingsGeneral: Component = () => {
             )}
           </Select>
         </SettingsRow>
-        </SettingsList>
+      </SettingsList>
     </div>
   )
 

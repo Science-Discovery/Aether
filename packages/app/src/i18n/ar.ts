@@ -597,6 +597,7 @@ export const dict = {
   "settings.updates.action.checking": "جارٍ التحقق...",
   "settings.updates.toast.latest.title": "أنت على آخر إصدار",
   "settings.updates.toast.latest.description": "أنت تستخدم أحدث إصدار من OpenCode.",
+  "font.option.system": "افتراضي النظام",
   "font.option.ibmPlexMono": "IBM Plex Mono",
   "font.option.cascadiaCode": "Cascadia Code",
   "font.option.firaCode": "Fira Code",
