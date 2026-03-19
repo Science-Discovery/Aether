@@ -672,6 +672,7 @@ export const dict = {
   "settings.updates.action.checking": "Provjera...",
   "settings.updates.toast.latest.title": "Sve je ažurno",
   "settings.updates.toast.latest.description": "Koristiš najnoviju verziju OpenCode-a.",
+  "font.option.system": "Zadani sistem",
   "font.option.ibmPlexMono": "IBM Plex Mono",
   "font.option.cascadiaCode": "Cascadia Code",
   "font.option.firaCode": "Fira Code",
