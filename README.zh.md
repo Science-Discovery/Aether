@@ -1,6 +1,6 @@
 <h1 align="center">Aether（以太）</h1>
 <p align="center"><em>Autonomous Engine for Theoretical & Hands-on Exploration in Research</em></p>
-<p align="center">面向科研人员的 AI 编程助手，基于 <a href="https://github.com/anomalyco/opencode">OpenCode</a> 深度定制。</p>
+<p align="center">面向科研人员的 AI 研究助手，基于 <a href="https://github.com/anomalyco/opencode">OpenCode</a> 深度定制。</p>
 
 <p align="center">
   <a href="README.md">English</a> |

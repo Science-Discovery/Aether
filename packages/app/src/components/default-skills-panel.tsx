@@ -30,7 +30,7 @@ export const DefaultSkillsPanel: Component = () => {
   // (the openresearch project), so skills always come from .opencode/skills/ there.
   // Only "add to project" passes sdk.directory (the currently viewed project).
   const [skills, { refetch }] = createResource<DefaultSkill[]>(async () => {
-    const result = await globalSDK.client.config.skillsList()
+    const result = await globalSDK.client.config.skills.list()
     return ((result.data as unknown) as DefaultSkill[]) ?? []
   })
 
@@ -87,7 +87,7 @@ export const DefaultSkillsPanel: Component = () => {
     }
     setSaving(true)
     try {
-      await globalSDK.client.config.skillsSave({
+      await globalSDK.client.config.skills.save({
         name: form.name.trim(),
         description: form.description.trim(),
         content: form.content,
@@ -106,7 +106,7 @@ export const DefaultSkillsPanel: Component = () => {
   async function handleDelete(name: string) {
     setDeleting(name)
     try {
-      await globalSDK.client.config.skillsDelete({ name })
+      await globalSDK.client.config.skills.delete({ name })
       await refetch()
       showToast({ icon: "check", title: `已删除 ${name}` })
     } catch (err) {
@@ -120,7 +120,7 @@ export const DefaultSkillsPanel: Component = () => {
   async function handleAddToProject() {
     setAdding(true)
     try {
-      const result = await globalSDK.client.config.skillsDefaults({ directory: sdk.directory })
+      const result = await globalSDK.client.config.skills.addDefaults({ directory: sdk.directory })
       const added = ((result.data as unknown) as { added: string[] }).added
       if (added.length > 0) {
         void file.tree.refresh("")

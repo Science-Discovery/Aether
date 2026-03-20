@@ -1,6 +1,6 @@
 <h1 align="center">Aether</h1>
 <p align="center"><em>Autonomous Engine for Theoretical & Hands-on Exploration in Research</em></p>
-<p align="center">An AI coding assistant for researchers, built on <a href="https://github.com/anomalyco/opencode">OpenCode</a>.</p>
+<p align="center">An AI researching assistant for researchers, built on <a href="https://github.com/anomalyco/opencode">OpenCode</a>.</p>
 
 <p align="center">
   <a href="README.md">English</a> |
