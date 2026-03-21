@@ -73,6 +73,113 @@ import { lazy } from "@/util/lazy"
 // @ts-ignore This global is needed to prevent ai-sdk from logging warnings to stdout https://github.com/vercel/ai/blob/2dc67e0ef538307f21368db32d5a12345d98831b/packages/ai/src/logger/log-warnings.ts#L85
 globalThis.AI_SDK_LOG_WARNINGS = false
 
+async function isWsl(): Promise<boolean> {
+  if (process.platform !== "linux") return false
+  try {
+    const text = await Bun.file("/proc/version").text()
+    return text.toLowerCase().includes("microsoft")
+  } catch {
+    return false
+  }
+}
+
+async function nativePickerAvailable(): Promise<boolean> {
+  if (process.platform === "darwin") return true
+  if (process.platform === "win32") return true
+  if (await isWsl()) return true
+  if (process.platform === "linux" && process.env.DISPLAY) {
+    const r = Bun.spawnSync(["which", "zenity"])
+    if (r.exitCode === 0) return true
+    const r2 = Bun.spawnSync(["which", "kdialog"])
+    if (r2.exitCode === 0) return true
+  }
+  return false
+}
+
+async function openNativeDirectoryPicker(title: string, multiple: boolean): Promise<string[] | null> {
+  // Native Windows (win32): PowerShell dialog, path returned as-is
+  if (process.platform === "win32") {
+    const ps = `
+Add-Type -AssemblyName System.Windows.Forms
+$d = New-Object System.Windows.Forms.FolderBrowserDialog
+$d.Description = '${title.replace(/'/g, "''")}'
+$d.ShowNewFolderButton = $true
+if ($d.ShowDialog() -eq 'OK') { $d.SelectedPath }
+`.trim()
+    const proc = Bun.spawn(["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", ps], {
+      stdout: "pipe",
+      stderr: "pipe",
+    })
+    await proc.exited
+    const winPath = (await new Response(proc.stdout).text()).trim()
+    return winPath ? [winPath] : null
+  }
+
+  if (await isWsl()) {
+    // WSL2: PowerShell dialog, convert Windows path to WSL path
+    const ps = `
+Add-Type -AssemblyName System.Windows.Forms
+$d = New-Object System.Windows.Forms.FolderBrowserDialog
+$d.Description = '${title.replace(/'/g, "''")}'
+$d.ShowNewFolderButton = $true
+if ($d.ShowDialog() -eq 'OK') { $d.SelectedPath }
+`.trim()
+    const proc = Bun.spawn(["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", ps], {
+      stdout: "pipe",
+      stderr: "pipe",
+    })
+    await proc.exited
+    const output = await new Response(proc.stdout).text()
+    const winPath = output.trim()
+    if (!winPath) return null
+    // Convert Windows path (C:\foo\bar) to WSL path (/mnt/c/foo/bar)
+    const wslPath = winPath.replace(/^([A-Za-z]):[\\\/]/, (_, d) => `/mnt/${d.toLowerCase()}/`).replace(/\\/g, "/")
+    return [wslPath]
+  }
+
+  if (process.platform === "darwin") {
+    const script = multiple
+      ? `POSIX path of (choose folder with prompt "${title}" with multiple selections allowed)`
+      : `POSIX path of (choose folder with prompt "${title}")`
+    const proc = Bun.spawn(["osascript", "-e", script], { stdout: "pipe", stderr: "pipe" })
+    await proc.exited
+    const output = await new Response(proc.stdout).text()
+    // multiple returns ": "-separated paths on some macOS versions
+    const paths = output
+      .trim()
+      .split(", ")
+      .map((p) => p.trim())
+      .filter(Boolean)
+    return paths.length > 0 ? paths : null
+  }
+
+  if (process.platform === "linux" && process.env.DISPLAY) {
+    const hasZenity = Bun.spawnSync(["which", "zenity"]).exitCode === 0
+    if (hasZenity) {
+      const args = ["zenity", "--file-selection", "--directory", `--title=${title}`]
+      if (multiple) args.push("--multiple", "--separator=\n")
+      const proc = Bun.spawn(args, { stdout: "pipe", stderr: "pipe" })
+      await proc.exited
+      const output = await new Response(proc.stdout).text()
+      const paths = output.trim().split("\n").filter(Boolean)
+      return paths.length > 0 ? paths : null
+    }
+    const hasKdialog = Bun.spawnSync(["which", "kdialog"]).exitCode === 0
+    if (hasKdialog) {
+      const proc = Bun.spawn(["kdialog", "--getexistingdirectory", "--title", title], {
+        stdout: "pipe",
+        stderr: "pipe",
+      })
+      await proc.exited
+      const output = await new Response(proc.stdout).text()
+      const p = output.trim()
+      return p ? [p] : null
+    }
+  }
+
+  return null
+}
+
 export namespace Server {
   const log = Log.create({ service: "server" })
 
@@ -338,6 +445,51 @@ export namespace Server {
             worktree: Instance.worktree,
             directory: Instance.directory,
           })
+        },
+      )
+      .get(
+        "/path/picker/check",
+        describeRoute({
+          summary: "Check native picker",
+          description: "Check whether a native OS directory picker dialog is available on this server.",
+          operationId: "path.picker.check",
+          responses: {
+            200: {
+              description: "Availability",
+              content: {
+                "application/json": {
+                  schema: resolver(z.object({ available: z.boolean() })),
+                },
+              },
+            },
+          },
+        }),
+        async (c) => {
+          return c.json({ available: await nativePickerAvailable() })
+        },
+      )
+      .get(
+        "/path/picker",
+        describeRoute({
+          summary: "Open native directory picker",
+          description: "Open a native OS directory picker dialog and return the selected path(s).",
+          operationId: "path.picker.open",
+          responses: {
+            200: {
+              description: "Selected paths",
+              content: {
+                "application/json": {
+                  schema: resolver(z.object({ paths: z.array(z.string()).nullable() })),
+                },
+              },
+            },
+          },
+        }),
+        async (c) => {
+          const title = c.req.query("title") || "Select folder"
+          const multiple = c.req.query("multiple") === "true"
+          const paths = await openNativeDirectoryPicker(title, multiple)
+          return c.json({ paths })
         },
       )
       .get(
