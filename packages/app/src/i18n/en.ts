@@ -231,7 +231,6 @@ export const dict = {
   "common.open": "Open",
   "common.connect": "Connect",
   "common.disconnect": "Disconnect",
-  "common.continue": "Continue",
   "common.submit": "Submit",
   "common.save": "Save",
   "common.saving": "Saving...",
@@ -316,12 +315,7 @@ export const dict = {
 
   "dialog.directory.search.placeholder": "Search folders",
   "dialog.directory.empty": "No folders found",
-
-  "dialog.fileBrowser.select": "Select folder",
-  "dialog.fileBrowser.empty": "No subfolders",
-  "dialog.fileBrowser.newFolder": "New folder",
-  "dialog.fileBrowser.newFolderPlaceholder": "Folder name",
-  "dialog.fileBrowser.createFolder": "Create",
+  "dialog.directory.select": "Select folder",
 
   "app.server.unreachable": "Could not reach {{server}}",
   "app.server.retrying": "Retrying automatically...",

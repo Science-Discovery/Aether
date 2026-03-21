@@ -2,7 +2,6 @@ import {
   batch,
   createEffect,
   createMemo,
-  createResource,
   For,
   on,
   onCleanup,
@@ -64,7 +63,6 @@ import { useCommand, type CommandOption } from "@/context/command"
 import { ConstrainDragXAxis, getDraggableId } from "@/utils/solid-dnd"
 import { DialogSelectDirectory } from "@/components/dialog-select-directory"
 import { DialogNewProject } from "@/components/dialog-new-project"
-import { DialogFileBrowser } from "@/components/dialog-file-browser"
 import { DialogEditProject } from "@/components/dialog-edit-project"
 import { DebugBar } from "@/components/debug-bar"
 import { Titlebar } from "@/components/titlebar"
@@ -131,16 +129,6 @@ export default function Layout(props: ParentProps) {
   const theme = useTheme()
   const language = useLanguage()
   const initialDirectory = decode64(params.dir)
-  const route = createMemo(() => {
-    const slug = params.dir
-    if (!slug) return { slug, dir: "" }
-    const dir = decode64(slug)
-    if (!dir) return { slug, dir: "" }
-    return {
-      slug,
-      dir: globalSync.peek(dir, { bootstrap: false })[0].path.directory || dir,
-    }
-  })
   const availableThemeEntries = createMemo(() => Object.entries(theme.themes()))
   const colorSchemeOrder: ColorScheme[] = ["system", "light", "dark"]
   const colorSchemeKey: Record<ColorScheme, "theme.scheme.system" | "theme.scheme.light" | "theme.scheme.dark"> = {
@@ -149,7 +137,7 @@ export default function Layout(props: ParentProps) {
     dark: "theme.scheme.dark",
   }
   const colorSchemeLabel = (scheme: ColorScheme) => language.t(colorSchemeKey[scheme])
-  const currentDir = createMemo(() => route().dir)
+  const currentDir = createMemo(() => decode64(params.dir) ?? "")
 
   const [state, setState] = createStore({
     autoselect: !initialDirectory,
@@ -288,6 +276,16 @@ export default function Layout(props: ParentProps) {
   createEffect(() => {
     if (!layout.sidebar.opened()) return
     setHoverProject(undefined)
+  })
+
+  const autoselecting = createMemo(() => {
+    if (params.dir) return false
+    if (!state.autoselect) return false
+    if (!pageReady()) return true
+    if (!layoutReady()) return true
+    const list = layout.projects.list()
+    if (list.length > 0) return true
+    return !!server.projects.last()
   })
 
   createEffect(() => {
@@ -496,8 +494,8 @@ export default function Layout(props: ParentProps) {
         }
 
         const currentSession = params.id
-        if (workspaceKey(directory) === workspaceKey(currentDir()) && props.sessionID === currentSession) return
-        if (workspaceKey(directory) === workspaceKey(currentDir()) && session?.parentID === currentSession) return
+        if (directory === currentDir() && props.sessionID === currentSession) return
+        if (directory === currentDir() && session?.parentID === currentSession) return
 
         dismissSessionAlert(sessionKey)
 
@@ -555,7 +553,6 @@ export default function Layout(props: ParentProps) {
   const currentProject = createMemo(() => {
     const directory = currentDir()
     if (!directory) return
-    const key = workspaceKey(directory)
 
     const projects = layout.projects.list()
     const dirKey = workspaceKey(directory)
@@ -577,23 +574,33 @@ export default function Layout(props: ParentProps) {
     return projects.find((p) => p.worktree === root)
   })
 
-  const [autoselecting] = createResource(async () => {
-    await ready.promise
-    await layout.ready.promise
-    if (!untrack(() => state.autoselect)) return
+  createEffect(
+    on(
+      () => ({ ready: pageReady(), layoutReady: layoutReady(), dir: params.dir, list: layout.projects.list() }),
+      (value) => {
+        if (!value.ready) return
+        if (!value.layoutReady) return
+        if (!state.autoselect) return
+        if (value.dir) return
 
-    const list = layout.projects.list()
-    const last = server.projects.last()
+        const last = server.projects.last()
 
-    if (list.length === 0) {
-      if (!last) return
-      await openProject(last, true)
-    } else {
-      const next = list.find((project) => project.worktree === last) ?? list[0]
-      if (!next) return
-      await openProject(next.worktree, true)
-    }
-  })
+        if (value.list.length === 0) {
+          if (!last) return
+          setState("autoselect", false)
+          openProject(last, false)
+          navigateToProject(last)
+          return
+        }
+
+        const next = value.list.find((project) => project.worktree === last) ?? value.list[0]
+        if (!next) return
+        setState("autoselect", false)
+        openProject(next.worktree, false)
+        navigateToProject(next.worktree)
+      },
+    ),
+  )
 
   const workspaceName = (directory: string, projectId?: string, branch?: string) => {
     const key = workspaceKey(directory)
@@ -633,7 +640,7 @@ export default function Layout(props: ParentProps) {
     const activeDir = currentDir()
     return workspaceIds(project).filter((directory) => {
       const expanded = store.workspaceExpanded[directory] ?? directory === project.worktree
-      const active = workspaceKey(directory) === workspaceKey(activeDir)
+      const active = directory === activeDir
       return expanded || active
     })
   })
@@ -644,11 +651,7 @@ export default function Layout(props: ParentProps) {
     const projects = layout.projects.list()
     for (const [directory, expanded] of Object.entries(store.workspaceExpanded)) {
       if (!expanded) continue
-      const key = workspaceKey(directory)
-      const project = projects.find(
-        (item) =>
-          workspaceKey(item.worktree) === key || item.sandboxes?.some((sandbox) => workspaceKey(sandbox) === key),
-      )
+      const project = projects.find((item) => item.worktree === directory || item.sandboxes?.includes(directory))
       if (!project) continue
       if (project.vcs === "git" && layout.sidebar.workspaces(project.worktree)()) continue
       setStore("workspaceExpanded", directory, false)
@@ -700,7 +703,7 @@ export default function Layout(props: ParentProps) {
       seen: lru,
       keep: sessionID,
       limit: PREFETCH_MAX_SESSIONS_PER_DIR,
-      preserve: params.id && workspaceKey(directory) === workspaceKey(currentDir()) ? [params.id] : undefined,
+      preserve: directory === params.dir && params.id ? [params.id] : undefined,
     })
   }
 
@@ -713,7 +716,7 @@ export default function Layout(props: ParentProps) {
   })
 
   createEffect(() => {
-    route()
+    params.dir
     globalSDK.url
 
     prefetchToken.value += 1
@@ -1238,6 +1241,13 @@ export default function Layout(props: ParentProps) {
     return currentProject()?.worktree ?? projectRoot(directory)
   }
 
+  function touchProjectRoute() {
+    const root = currentProject()?.worktree
+    if (!root) return
+    if (server.projects.last() !== root) server.projects.touch(root)
+    return root
+  }
+
   function rememberSessionRoute(directory: string, id: string, root = activeProjectRoot(directory)) {
     setStore("lastProjectSession", root, { directory, id, at: Date.now() })
     return root
@@ -1346,7 +1356,7 @@ export default function Layout(props: ParentProps) {
 
   function openProject(directory: string, navigate = true) {
     layout.projects.open(directory)
-    if (navigate) return navigateToProject(directory)
+    if (navigate) navigateToProject(directory)
   }
 
   const handleDeepLinks = (urls: string[]) => {
@@ -1401,9 +1411,8 @@ export default function Layout(props: ParentProps) {
 
   function closeProject(directory: string) {
     const list = layout.projects.list()
-    const key = workspaceKey(directory)
-    const index = list.findIndex((x) => workspaceKey(x.worktree) === key)
-    const active = workspaceKey(currentProject()?.worktree ?? "") === key
+    const index = list.findIndex((x) => x.worktree === directory)
+    const active = currentProject()?.worktree === directory
     if (index === -1) return
     const next = list[index + 1]
 
@@ -1457,33 +1466,23 @@ export default function Layout(props: ParentProps) {
       resolve(result)
     } else {
       dialog.show(
-        () => <DialogFileBrowser multiple={true} onSelect={resolve} />,
+        () => <DialogSelectDirectory multiple={true} onSelect={resolve} />,
         () => resolve(null),
       )
     }
   }
 
   function newProject() {
-    if (platform.openDirectoryPickerDialog && server.isLocal()) {
-      platform.openDirectoryPickerDialog?.({ title: language.t("command.project.new") }).then((result) => {
-        const dir = Array.isArray(result) ? result[0] : result
-        if (dir) openProject(dir)
-      })
-    } else {
-      dialog.show(
-        () => (
-          <DialogFileBrowser
-            title={language.t("command.project.new")}
-            allowCreate={true}
-            onSelect={(result) => {
-              const dir = Array.isArray(result) ? result[0] : result
-              if (dir) openProject(dir)
-            }}
-          />
-        ),
-        () => {},
-      )
-    }
+    dialog.show(
+      () => (
+        <DialogNewProject
+          onSelect={(result) => {
+            if (result) openProject(result)
+          }}
+        />
+      ),
+      () => {},
+    )
   }
 
   const deleteWorkspace = async (root: string, directory: string, leaveDeletedWorkspace = false) => {
@@ -1761,51 +1760,38 @@ export default function Layout(props: ParentProps) {
   const activeRoute = {
     session: "",
     sessionProject: "",
-    directory: "",
   }
 
   createEffect(
     on(
-      () => {
-        return [pageReady(), route().slug, params.id, currentProject()?.worktree, currentDir()] as const
-      },
-      ([ready, slug, id, root, dir]) => {
-        if (!ready || !slug || !dir) {
+      () => [pageReady(), params.dir, params.id, currentProject()?.worktree] as const,
+      ([ready, dir, id]) => {
+        if (!ready || !dir) {
           activeRoute.session = ""
           activeRoute.sessionProject = ""
-          activeRoute.directory = ""
           return
         }
+
+        const directory = decode64(dir)
+        if (!directory) return
+
+        const root = touchProjectRoute() ?? activeProjectRoot(directory)
 
         if (!id) {
           activeRoute.session = ""
           activeRoute.sessionProject = ""
-          activeRoute.directory = ""
           return
         }
 
-        const session = `${slug}/${id}`
-
-        if (!root) {
+        const session = `${dir}/${id}`
+        if (session !== activeRoute.session) {
           activeRoute.session = session
-          activeRoute.directory = dir
-          activeRoute.sessionProject = ""
-          return
-        }
-
-        if (server.projects.last() !== root) server.projects.touch(root)
-
-        const changed = session !== activeRoute.session || dir !== activeRoute.directory
-        if (changed) {
-          activeRoute.session = session
-          activeRoute.directory = dir
-          activeRoute.sessionProject = syncSessionRoute(dir, id, root)
+          activeRoute.sessionProject = syncSessionRoute(directory, id, root)
           return
         }
 
         if (root === activeRoute.sessionProject) return
-        activeRoute.directory = dir
-        activeRoute.sessionProject = rememberSessionRoute(dir, id, root)
+        activeRoute.sessionProject = rememberSessionRoute(directory, id, root)
       },
     ),
   )
@@ -1869,13 +1855,8 @@ export default function Layout(props: ParentProps) {
     const local = project.worktree
     const dirs = [local, ...(project.sandboxes ?? [])]
     const active = currentProject()
-    const directory = workspaceKey(active?.worktree ?? "") === workspaceKey(project.worktree) ? currentDir() : undefined
-    const extra =
-      directory &&
-      workspaceKey(directory) !== workspaceKey(local) &&
-      !dirs.some((item) => workspaceKey(item) === workspaceKey(directory))
-        ? directory
-        : undefined
+    const directory = active?.worktree === project.worktree ? currentDir() : undefined
+    const extra = directory && directory !== local && !dirs.includes(directory) ? directory : undefined
     const pending = extra ? WorktreeState.get(extra)?.status === "pending" : false
 
     const ordered = effectiveWorkspaceOrder(local, dirs, store.workspaceOrder[project.worktree])
@@ -2000,7 +1981,6 @@ export default function Layout(props: ParentProps) {
 
   const projectSidebarCtx: ProjectSidebarContext = {
     currentDir,
-    currentProject,
     sidebarOpened: () => layout.sidebar.opened(),
     sidebarHovering,
     hoverProject: () => state.hoverProject,
@@ -2462,7 +2442,7 @@ export default function Layout(props: ParentProps) {
                   "size-full overflow-x-hidden flex flex-col items-start contain-strict border-t border-border-weak-base bg-background-base xl:border-l xl:rounded-tl-[12px]": true,
                 }}
               >
-                <Show when={!autoselecting.loading} fallback={<div class="size-full" />}>
+                <Show when={!autoselecting()} fallback={<div class="size-full" />}>
                   {props.children}
                 </Show>
               </main>

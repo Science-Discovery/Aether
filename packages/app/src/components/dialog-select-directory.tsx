@@ -1,11 +1,12 @@
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { Dialog } from "@opencode-ai/ui/dialog"
+import { Button } from "@opencode-ai/ui/button"
 import { FileIcon } from "@opencode-ai/ui/file-icon"
 import { List } from "@opencode-ai/ui/list"
 import type { ListRef } from "@opencode-ai/ui/list"
 import { getDirectory, getFilename } from "@opencode-ai/util/path"
 import fuzzysort from "fuzzysort"
-import { createMemo, createResource, createSignal } from "solid-js"
+import { createMemo, createResource, createSignal, Show } from "solid-js"
 import { useGlobalSDK } from "@/context/global-sdk"
 import { useGlobalSync } from "@/context/global-sync"
 import { useLayout } from "@/context/layout"
@@ -253,6 +254,7 @@ export function DialogSelectDirectory(props: DialogSelectDirectoryProps) {
   const language = useLanguage()
 
   const [filter, setFilter] = createSignal("")
+  const [selectedPath, setSelectedPath] = createSignal<string | null>(null)
   let list: ListRef | undefined
 
   const missingBase = createMemo(() => !(sync.data.path.home || sync.data.path.directory))
@@ -353,11 +355,15 @@ export function DialogSelectDirectory(props: DialogSelectDirectoryProps) {
         }}
         onSelect={(path) => {
           if (!path) return
-          resolve(path.absolute)
+          // Navigate into the clicked directory (same as Tab key)
+          const value = displayPath(path.absolute, filter(), home())
+          list?.setFilter(value.endsWith("/") ? value : value + "/")
+          setSelectedPath(path.absolute)
         }}
       >
         {(item) => {
           const path = displayPath(item.absolute, filter(), home())
+
           if (path === "~") {
             return (
               <div class="w-full flex items-center justify-between rounded-md">
@@ -387,6 +393,16 @@ export function DialogSelectDirectory(props: DialogSelectDirectoryProps) {
           )
         }}
       </List>
+      <Show when={selectedPath()}>
+        <div class="flex items-center justify-between gap-3 px-4 py-3 border-t border-border-base">
+          <span class="text-12-mono text-text-weak truncate flex-1">
+            {displayPath(selectedPath()!, filter(), home())}
+          </span>
+          <Button size="small" onClick={() => resolve(selectedPath()!)}>
+            {language.t("dialog.directory.select")}
+          </Button>
+        </div>
+      </Show>
     </Dialog>
   )
 }

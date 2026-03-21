@@ -10,7 +10,6 @@ import { DateTime } from "luxon"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { DialogSelectDirectory } from "@/components/dialog-select-directory"
 import { DialogNewProject } from "@/components/dialog-new-project"
-import { DialogFileBrowser } from "@/components/dialog-file-browser"
 import { DialogSelectServer } from "@/components/dialog-select-server"
 import { useServer } from "@/context/server"
 import { useGlobalSync } from "@/context/global-sync"
@@ -46,26 +45,16 @@ export default function Home() {
   }
 
   async function newProject() {
-    if (platform.openDirectoryPickerDialog && server.isLocal()) {
-      const result = await platform.openDirectoryPickerDialog?.({
-        title: language.t("command.project.new"),
-      })
-      if (result) openProject(Array.isArray(result) ? result[0] : result)
-    } else {
-      dialog.show(
-        () => (
-          <DialogFileBrowser
-            title={language.t("command.project.new")}
-            allowCreate={true}
-            onSelect={(result) => {
-              const dir = Array.isArray(result) ? result[0] : result
-              if (dir) openProject(dir)
-            }}
-          />
-        ),
-        () => {},
-      )
-    }
+    dialog.show(
+      () => (
+        <DialogNewProject
+          onSelect={(result) => {
+            if (result) openProject(result)
+          }}
+        />
+      ),
+      () => {},
+    )
   }
 
   async function chooseProject() {
@@ -87,7 +76,7 @@ export default function Home() {
       resolve(result)
     } else {
       dialog.show(
-        () => <DialogFileBrowser multiple={true} onSelect={resolve} />,
+        () => <DialogSelectDirectory multiple={true} onSelect={resolve} />,
         () => resolve(null),
       )
     }
