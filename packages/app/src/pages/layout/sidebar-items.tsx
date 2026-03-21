@@ -85,6 +85,7 @@ export type SessionItemProps = {
   clearHoverProjectSoon: () => void
   prefetchSession: (session: Session, priority?: "high" | "low") => void
   archiveSession: (session: Session) => Promise<void>
+  unarchiveSession?: (session: Session) => Promise<void>
   deleteSession?: (session: Session) => Promise<void>
 }
 
@@ -385,19 +386,38 @@ export const SessionItem = (props: SessionItemProps): JSX.Element => {
             />
           </Tooltip>
         </Show>
-        <Tooltip value={language.t("common.archive")} placement="top">
-          <IconButton
-            icon="archive"
-            variant="ghost"
-            class="size-6 rounded-md"
-            aria-label={language.t("common.archive")}
-            onClick={(event) => {
-              event.preventDefault()
-              event.stopPropagation()
-              void props.archiveSession(props.session)
-            }}
-          />
-        </Tooltip>
+        <Show
+          when={props.unarchiveSession}
+          fallback={
+            <Tooltip value={language.t("common.archive")} placement="top">
+              <IconButton
+                icon="archive"
+                variant="ghost"
+                class="size-6 rounded-md"
+                aria-label={language.t("common.archive")}
+                onClick={(event) => {
+                  event.preventDefault()
+                  event.stopPropagation()
+                  void props.archiveSession(props.session)
+                }}
+              />
+            </Tooltip>
+          }
+        >
+          <Tooltip value={language.t("common.unarchive")} placement="top">
+            <IconButton
+              icon="arrow-up"
+              variant="ghost"
+              class="size-6 rounded-md"
+              aria-label={language.t("common.unarchive")}
+              onClick={(event) => {
+                event.preventDefault()
+                event.stopPropagation()
+                void props.unarchiveSession!(props.session)
+              }}
+            />
+          </Tooltip>
+        </Show>
       </div>
     </div>
   )
