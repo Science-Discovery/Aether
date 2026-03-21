@@ -86,7 +86,8 @@ async function isWsl(): Promise<boolean> {
 async function nativePickerAvailable(): Promise<boolean> {
   if (process.platform === "darwin") return true
   if (process.platform === "win32") return true
-  if (await isWsl()) return true
+  // WSL2: the Windows dialog cannot browse Linux paths; use DialogFileBrowser instead (backend API)
+  if (await isWsl()) return false
   if (process.platform === "linux" && process.env.DISPLAY) {
     const r = Bun.spawnSync(["which", "zenity"])
     if (r.exitCode === 0) return true
@@ -96,17 +97,91 @@ async function nativePickerAvailable(): Promise<boolean> {
   return false
 }
 
-async function openNativeDirectoryPicker(title: string, multiple: boolean): Promise<string[] | null> {
-  // Native Windows (win32): PowerShell dialog, path returned as-is
-  if (process.platform === "win32") {
-    const ps = `
-Add-Type -AssemblyName System.Windows.Forms
-$d = New-Object System.Windows.Forms.FolderBrowserDialog
-$d.Description = '${title.replace(/'/g, "''")}'
-$d.ShowNewFolderButton = $true
-if ($d.ShowDialog() -eq 'OK') { $d.SelectedPath }
+// Build a PowerShell script that shows the modern Vista-style IFileDialog folder picker
+// (address bar, navigation panel — same as Windows Explorer) instead of the old tree-view dialog.
+function buildModernPickerScript(title: string): string {
+  const safeTitle = title.replace(/'/g, "''")
+  return `
+Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+public class WinFolderPicker {
+    [DllImport("ole32.dll")] static extern void CoTaskMemFree(IntPtr ptr);
+    [ComImport, ClassInterface(ClassInterfaceType.None), Guid("DC1C5A9C-E88A-4dde-A5A1-60F82A20AEF7")]
+    class FileOpenDialog {}
+    [ComImport, Guid("42F85136-DB7E-439C-85F1-E4075D135FC8"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    interface IFileDialog {
+        [PreserveSig] uint Show(IntPtr hwnd);
+        void SetFileTypes(uint c, IntPtr r); void SetFileTypeIndex(uint i); void GetFileTypeIndex(out uint i);
+        void Advise(IntPtr p, out uint c); void Unadvise(uint c);
+        void SetOptions(uint fos); void GetOptions(out uint fos);
+        void SetDefaultFolder([MarshalAs(UnmanagedType.Interface)] IShellItem psi);
+        void SetFolder([MarshalAs(UnmanagedType.Interface)] IShellItem psi);
+        void GetFolder([MarshalAs(UnmanagedType.Interface)] out IShellItem ppsi);
+        void GetCurrentSelection([MarshalAs(UnmanagedType.Interface)] out IShellItem ppsi);
+        void SetFileName([MarshalAs(UnmanagedType.LPWStr)] string s); void GetFileName([MarshalAs(UnmanagedType.LPWStr)] out string s);
+        void SetTitle([MarshalAs(UnmanagedType.LPWStr)] string s);
+        void SetOkButtonLabel([MarshalAs(UnmanagedType.LPWStr)] string s); void SetFileNameLabel([MarshalAs(UnmanagedType.LPWStr)] string s);
+        void GetResult([MarshalAs(UnmanagedType.Interface)] out IShellItem ppsi);
+        void AddPlace([MarshalAs(UnmanagedType.Interface)] IShellItem psi, int f);
+        void SetDefaultExtension([MarshalAs(UnmanagedType.LPWStr)] string s);
+        void Close(int hr); void SetClientGuid(ref Guid g); void ClearClientData(); void SetFilter(IntPtr p);
+    }
+    [ComImport, Guid("43826D1E-E718-42EE-BC55-A1E261C37BFE"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    interface IShellItem {
+        void BindToHandler(IntPtr pbc, ref Guid bhid, ref Guid riid, out IntPtr ppv);
+        void GetParent([MarshalAs(UnmanagedType.Interface)] out IShellItem ppsi);
+        void GetDisplayName(uint sigdnName, out IntPtr ppszName);
+        void GetAttributes(uint sfgaoMask, out uint psfgaoAttribs);
+        void Compare([MarshalAs(UnmanagedType.Interface)] IShellItem psi, uint hint, out int piOrder);
+    }
+    public static string Pick(string title) {
+        try {
+            var dlg = (IFileDialog)new FileOpenDialog();
+            dlg.SetOptions(0x20u); // FOS_PICKFOLDERS (no FOS_FORCEFILESYSTEM so WSL paths are reachable)
+            dlg.SetTitle(title);
+            if (dlg.Show(IntPtr.Zero) != 0) return "";
+            IShellItem item; dlg.GetResult(out item);
+            IntPtr pPath = IntPtr.Zero;
+            // SIGDN_FILESYSPATH for drives; fall back to SIGDN_DESKTOPABSOLUTEPARSING for WSL/network paths
+            try { item.GetDisplayName(0x80058000u, out pPath); }
+            catch { try { item.GetDisplayName(0x80028000u, out pPath); } catch { return ""; } }
+            string path = Marshal.PtrToStringUni(pPath);
+            if (pPath != IntPtr.Zero) CoTaskMemFree(pPath);
+            return path ?? "";
+        } catch { return ""; }
+    }
+}
+'@
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+[WinFolderPicker]::Pick('${safeTitle}')
 `.trim()
-    const proc = Bun.spawn(["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", ps], {
+}
+
+// Convert a Windows path returned by the dialog to a WSL (Linux) path.
+// Handles both drive paths (C:\...) and WSL UNC paths (\\wsl.localhost\Distro\...).
+function convertWindowsPathForWsl(winPath: string): string {
+  // \\wsl.localhost\Ubuntu\home\zheng\... → /home/zheng/...
+  // \\wsl$\Ubuntu\home\zheng\...         → /home/zheng/...
+  const wslMatch = winPath.match(/^\\\\(?:wsl\.localhost|wsl\$)\\[^\\]+(?:\\(.*))?$/i)
+  if (wslMatch) {
+    const rest = (wslMatch[1] ?? "").replace(/\\/g, "/")
+    return rest ? `/${rest}` : "/"
+  }
+  // C:\Users\zheng\... → /mnt/c/Users/zheng/...
+  const driveMatch = winPath.match(/^([A-Za-z]):[\\\/]?(.*)$/)
+  if (driveMatch) {
+    const drive = driveMatch[1].toLowerCase()
+    const rest = (driveMatch[2] ?? "").replace(/\\/g, "/").replace(/\/+$/, "")
+    return rest ? `/mnt/${drive}/${rest}` : `/mnt/${drive}`
+  }
+  return winPath.replace(/\\/g, "/")
+}
+
+async function openNativeDirectoryPicker(title: string, multiple: boolean): Promise<string[] | null> {
+  // Native Windows (win32): modern IFileDialog, path returned as-is
+  if (process.platform === "win32") {
+    const proc = Bun.spawn(["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", buildModernPickerScript(title)], {
       stdout: "pipe",
       stderr: "pipe",
     })
@@ -116,25 +191,15 @@ if ($d.ShowDialog() -eq 'OK') { $d.SelectedPath }
   }
 
   if (await isWsl()) {
-    // WSL2: PowerShell dialog, convert Windows path to WSL path
-    const ps = `
-Add-Type -AssemblyName System.Windows.Forms
-$d = New-Object System.Windows.Forms.FolderBrowserDialog
-$d.Description = '${title.replace(/'/g, "''")}'
-$d.ShowNewFolderButton = $true
-if ($d.ShowDialog() -eq 'OK') { $d.SelectedPath }
-`.trim()
-    const proc = Bun.spawn(["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", ps], {
+    // WSL2: modern IFileDialog via PowerShell, convert result to WSL path
+    const proc = Bun.spawn(["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", buildModernPickerScript(title)], {
       stdout: "pipe",
       stderr: "pipe",
     })
     await proc.exited
-    const output = await new Response(proc.stdout).text()
-    const winPath = output.trim()
+    const winPath = (await new Response(proc.stdout).text()).trim()
     if (!winPath) return null
-    // Convert Windows path (C:\foo\bar) to WSL path (/mnt/c/foo/bar)
-    const wslPath = winPath.replace(/^([A-Za-z]):[\\\/]/, (_, d) => `/mnt/${d.toLowerCase()}/`).replace(/\\/g, "/")
-    return [wslPath]
+    return [convertWindowsPathForWsl(winPath)]
   }
 
   if (process.platform === "darwin") {
