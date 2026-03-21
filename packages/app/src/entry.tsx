@@ -125,6 +125,25 @@ const platform: Platform = {
   setDefaultServer: writeDefaultServerUrl,
 }
 
+// Asynchronously check if native directory picker is available on the server
+// and attach the handler only when supported (WSL2, macOS, Linux with zenity/kdialog)
+fetch(`${getCurrentUrl()}/path/picker/check`)
+  .then((r) => (r.ok ? r.json() : { available: false }))
+  .then((d: { available: boolean }) => {
+    if (!d.available) return
+    platform.openDirectoryPickerDialog = async (opts) => {
+      const params = new URLSearchParams()
+      if (opts?.title) params.set("title", opts.title)
+      if (opts?.multiple) params.set("multiple", "true")
+      const res = await fetch(`${getCurrentUrl()}/path/picker?${params}`)
+      if (!res.ok) return null
+      const data = (await res.json()) as { paths: string[] | null }
+      if (!data.paths || data.paths.length === 0) return null
+      return opts?.multiple ? data.paths : data.paths[0]
+    }
+  })
+  .catch(() => {})
+
 if (root instanceof HTMLElement) {
   const server: ServerConnection.Http = { type: "http", http: { url: getCurrentUrl() } }
   render(
