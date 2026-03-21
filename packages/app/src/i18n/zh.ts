@@ -334,6 +334,12 @@ export const dict = {
   "dialog.directory.search.placeholder": "搜索文件夹",
   "dialog.directory.empty": "未找到文件夹",
 
+  "dialog.fileBrowser.select": "选择此文件夹",
+  "dialog.fileBrowser.empty": "没有子文件夹",
+  "dialog.fileBrowser.newFolder": "新建文件夹",
+  "dialog.fileBrowser.newFolderPlaceholder": "文件夹名称",
+  "dialog.fileBrowser.createFolder": "创建",
+
   "dialog.server.title": "服务器",
   "dialog.server.description": "切换此应用连接的 OpenCode 服务器。",
   "dialog.server.search.placeholder": "搜索服务器",

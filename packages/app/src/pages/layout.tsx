@@ -63,6 +63,7 @@ import { useCommand, type CommandOption } from "@/context/command"
 import { ConstrainDragXAxis, getDraggableId } from "@/utils/solid-dnd"
 import { DialogSelectDirectory } from "@/components/dialog-select-directory"
 import { DialogNewProject } from "@/components/dialog-new-project"
+import { DialogFileBrowser } from "@/components/dialog-file-browser"
 import { DialogEditProject } from "@/components/dialog-edit-project"
 import { DebugBar } from "@/components/debug-bar"
 import { Titlebar } from "@/components/titlebar"
@@ -1466,23 +1467,33 @@ export default function Layout(props: ParentProps) {
       resolve(result)
     } else {
       dialog.show(
-        () => <DialogSelectDirectory multiple={true} onSelect={resolve} />,
+        () => <DialogFileBrowser multiple={true} onSelect={resolve} />,
         () => resolve(null),
       )
     }
   }
 
   function newProject() {
-    dialog.show(
-      () => (
-        <DialogNewProject
-          onSelect={(result) => {
-            if (result) openProject(result)
-          }}
-        />
-      ),
-      () => {},
-    )
+    if (platform.openDirectoryPickerDialog && server.isLocal()) {
+      platform.openDirectoryPickerDialog?.({ title: language.t("command.project.new") }).then((result) => {
+        const dir = Array.isArray(result) ? result[0] : result
+        if (dir) openProject(dir)
+      })
+    } else {
+      dialog.show(
+        () => (
+          <DialogFileBrowser
+            title={language.t("command.project.new")}
+            allowCreate={true}
+            onSelect={(result) => {
+              const dir = Array.isArray(result) ? result[0] : result
+              if (dir) openProject(dir)
+            }}
+          />
+        ),
+        () => {},
+      )
+    }
   }
 
   const deleteWorkspace = async (root: string, directory: string, leaveDeletedWorkspace = false) => {

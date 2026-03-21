@@ -316,6 +316,12 @@ export const dict = {
   "dialog.directory.search.placeholder": "Search folders",
   "dialog.directory.empty": "No folders found",
 
+  "dialog.fileBrowser.select": "Select folder",
+  "dialog.fileBrowser.empty": "No subfolders",
+  "dialog.fileBrowser.newFolder": "New folder",
+  "dialog.fileBrowser.newFolderPlaceholder": "Folder name",
+  "dialog.fileBrowser.createFolder": "Create",
+
   "app.server.unreachable": "Could not reach {{server}}",
   "app.server.retrying": "Retrying automatically...",
   "app.server.otherServers": "Other servers",
