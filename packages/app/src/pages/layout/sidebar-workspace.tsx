@@ -1,5 +1,5 @@
 import { useParams } from "@solidjs/router"
-import { createEffect, createMemo, For, Show, type Accessor, type JSX } from "solid-js"
+import { createEffect, createMemo, createSignal, For, Show, type Accessor, type JSX } from "solid-js"
 import { createStore } from "solid-js/store"
 import { createSortable } from "@thisbeyond/solid-dnd"
 import { createMediaQuery } from "@solid-primitives/media"
@@ -12,9 +12,10 @@ import { Icon } from "@opencode-ai/ui/icon"
 import { IconButton } from "@opencode-ai/ui/icon-button"
 import { Spinner } from "@opencode-ai/ui/spinner"
 import { Tooltip } from "@opencode-ai/ui/tooltip"
-import { type Session } from "@opencode-ai/sdk/v2/client"
+import { type GlobalSession, type Session } from "@opencode-ai/sdk/v2/client"
 import { type LocalProject } from "@/context/layout"
 import { useGlobalSync } from "@/context/global-sync"
+import { useGlobalSDK } from "@/context/global-sdk"
 import { useLanguage } from "@/context/language"
 import { NewSessionItem, SessionItem, SessionSkeleton } from "./sidebar-items"
 import { childMapByParent, sortedRootSessions } from "./helpers"
@@ -238,6 +239,96 @@ const WorkspaceActions = (props: {
   </div>
 )
 
+const ArchivedSessionList = (props: {
+  directory: string
+  slug: Accessor<string>
+  ctx: WorkspaceSidebarContext
+  mobile?: boolean
+  popover?: boolean
+  language: ReturnType<typeof useLanguage>
+}): JSX.Element => {
+  const globalSDK = useGlobalSDK()
+  const [open, setOpen] = createSignal(false)
+  const [sessions, setSessions] = createSignal<GlobalSession[]>([])
+  const [loading, setLoading] = createSignal(false)
+  const children = createMemo(() => childMapByParent(sessions() as unknown as Session[]))
+
+  const load = async () => {
+    setLoading(true)
+    try {
+      const result = await globalSDK.client.experimental.session.list({
+        directory: props.directory,
+        archived: true,
+        roots: true,
+      })
+      const data = (result.data ?? []).sort((a, b) => (b.time?.updated ?? 0) - (a.time?.updated ?? 0))
+      setSessions(data)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const toggle = () => {
+    const next = !open()
+    setOpen(next)
+    if (next) void load()
+  }
+
+  const unarchiveSession = async (session: Session) => {
+    await globalSDK.client.session.update({
+      directory: session.directory,
+      sessionID: session.id,
+      time: { archived: 0 },
+    })
+    setSessions((prev) => prev.filter((s) => s.id !== session.id))
+  }
+
+  return (
+    <div>
+      <Button
+        variant="ghost"
+        size="large"
+        class="flex w-full text-left items-center gap-2 text-14-regular text-text-weak pl-2 pr-2"
+        onClick={toggle}
+      >
+        <Icon name={open() ? "chevron-down" : "chevron-right"} size="small" class="shrink-0" />
+        <Icon name="archive" size="small" class="shrink-0" />
+        <span class="truncate">{props.language.t("common.archive")}</span>
+      </Button>
+      <Show when={open()}>
+        <Show when={loading()}>
+          <SessionSkeleton />
+        </Show>
+        <nav class="flex flex-col gap-1">
+          <For each={sessions()}>
+            {(session) => (
+              <SessionItem
+                session={session as unknown as Session}
+                list={sessions() as unknown as Session[]}
+                navList={props.ctx.navList}
+                slug={props.slug()}
+                mobile={props.mobile}
+                popover={props.popover}
+                children={children()}
+                sidebarExpanded={props.ctx.sidebarExpanded}
+                sidebarHovering={props.ctx.sidebarHovering}
+                nav={props.ctx.nav}
+                hoverSession={props.ctx.hoverSession}
+                setHoverSession={props.ctx.setHoverSession}
+                clearHoverProjectSoon={props.ctx.clearHoverProjectSoon}
+                prefetchSession={props.ctx.prefetchSession}
+                archiveSession={async () => {}}
+                unarchiveSession={unarchiveSession}
+                deleteSession={props.ctx.deleteSession}
+              />
+            )}
+          </For>
+        </nav>
+      </Show>
+    </div>
+  )
+}
+
 const WorkspaceSessionList = (props: {
   slug: Accessor<string>
   mobile?: boolean
@@ -451,6 +542,14 @@ export const SortableWorkspace = (props: {
             loadMore={loadMore}
             language={language}
           />
+          <ArchivedSessionList
+            directory={props.directory}
+            slug={slug}
+            ctx={props.ctx}
+            mobile={props.mobile}
+            popover={props.popover}
+            language={language}
+          />
         </Collapsible.Content>
       </Collapsible>
     </div>
@@ -497,6 +596,14 @@ export const LocalWorkspace = (props: {
         children={children}
         hasMore={hasMore}
         loadMore={loadMore}
+        language={language}
+      />
+      <ArchivedSessionList
+        directory={props.project.worktree}
+        slug={slug}
+        ctx={props.ctx}
+        mobile={props.mobile}
+        popover={props.popover}
         language={language}
       />
     </div>
