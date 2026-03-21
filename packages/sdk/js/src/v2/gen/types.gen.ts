@@ -54,6 +54,128 @@ export type EventServerInstanceDisposed = {
   }
 }
 
+export type EventFileWatcherUpdated = {
+  type: "file.watcher.updated"
+  properties: {
+    file: string
+    event: "add" | "change" | "unlink"
+  }
+}
+
+export type EventFileEdited = {
+  type: "file.edited"
+  properties: {
+    file: string
+  }
+}
+
+export type PermissionRequest = {
+  id: string
+  sessionID: string
+  permission: string
+  patterns: Array<string>
+  metadata: {
+    [key: string]: unknown
+  }
+  always: Array<string>
+  tool?: {
+    messageID: string
+    callID: string
+  }
+}
+
+export type EventPermissionAsked = {
+  type: "permission.asked"
+  properties: PermissionRequest
+}
+
+export type EventPermissionReplied = {
+  type: "permission.replied"
+  properties: {
+    sessionID: string
+    requestID: string
+    reply: "once" | "always" | "reject"
+  }
+}
+
+export type EventVcsBranchUpdated = {
+  type: "vcs.branch.updated"
+  properties: {
+    branch?: string
+  }
+}
+
+export type QuestionOption = {
+  /**
+   * Display text (1-5 words, concise)
+   */
+  label: string
+  /**
+   * Explanation of choice
+   */
+  description: string
+}
+
+export type QuestionInfo = {
+  /**
+   * Complete question
+   */
+  question: string
+  /**
+   * Very short label (max 30 chars)
+   */
+  header: string
+  /**
+   * Available choices
+   */
+  options: Array<QuestionOption>
+  /**
+   * Allow selecting multiple choices
+   */
+  multiple?: boolean
+  /**
+   * Allow typing a custom answer (default: true)
+   */
+  custom?: boolean
+}
+
+export type QuestionRequest = {
+  id: string
+  sessionID: string
+  /**
+   * Questions to ask
+   */
+  questions: Array<QuestionInfo>
+  tool?: {
+    messageID: string
+    callID: string
+  }
+}
+
+export type EventQuestionAsked = {
+  type: "question.asked"
+  properties: QuestionRequest
+}
+
+export type QuestionAnswer = Array<string>
+
+export type EventQuestionReplied = {
+  type: "question.replied"
+  properties: {
+    sessionID: string
+    requestID: string
+    answers: Array<QuestionAnswer>
+  }
+}
+
+export type EventQuestionRejected = {
+  type: "question.rejected"
+  properties: {
+    sessionID: string
+    requestID: string
+  }
+}
+
 export type EventServerConnected = {
   type: "server.connected"
   properties: {
@@ -80,13 +202,6 @@ export type EventLspUpdated = {
   type: "lsp.updated"
   properties: {
     [key: string]: unknown
-  }
-}
-
-export type EventFileEdited = {
-  type: "file.edited"
-  properties: {
-    file: string
   }
 }
 
@@ -549,35 +664,6 @@ export type EventMessagePartRemoved = {
   }
 }
 
-export type PermissionRequest = {
-  id: string
-  sessionID: string
-  permission: string
-  patterns: Array<string>
-  metadata: {
-    [key: string]: unknown
-  }
-  always: Array<string>
-  tool?: {
-    messageID: string
-    callID: string
-  }
-}
-
-export type EventPermissionAsked = {
-  type: "permission.asked"
-  properties: PermissionRequest
-}
-
-export type EventPermissionReplied = {
-  type: "permission.replied"
-  properties: {
-    sessionID: string
-    requestID: string
-    reply: "once" | "always" | "reject"
-  }
-}
-
 export type SessionStatus =
   | {
       type: "idle"
@@ -607,89 +693,10 @@ export type EventSessionIdle = {
   }
 }
 
-export type QuestionOption = {
-  /**
-   * Display text (1-5 words, concise)
-   */
-  label: string
-  /**
-   * Explanation of choice
-   */
-  description: string
-}
-
-export type QuestionInfo = {
-  /**
-   * Complete question
-   */
-  question: string
-  /**
-   * Very short label (max 30 chars)
-   */
-  header: string
-  /**
-   * Available choices
-   */
-  options: Array<QuestionOption>
-  /**
-   * Allow selecting multiple choices
-   */
-  multiple?: boolean
-  /**
-   * Allow typing a custom answer (default: true)
-   */
-  custom?: boolean
-}
-
-export type QuestionRequest = {
-  id: string
-  sessionID: string
-  /**
-   * Questions to ask
-   */
-  questions: Array<QuestionInfo>
-  tool?: {
-    messageID: string
-    callID: string
-  }
-}
-
-export type EventQuestionAsked = {
-  type: "question.asked"
-  properties: QuestionRequest
-}
-
-export type QuestionAnswer = Array<string>
-
-export type EventQuestionReplied = {
-  type: "question.replied"
-  properties: {
-    sessionID: string
-    requestID: string
-    answers: Array<QuestionAnswer>
-  }
-}
-
-export type EventQuestionRejected = {
-  type: "question.rejected"
-  properties: {
-    sessionID: string
-    requestID: string
-  }
-}
-
 export type EventSessionCompacted = {
   type: "session.compacted"
   properties: {
     sessionID: string
-  }
-}
-
-export type EventFileWatcherUpdated = {
-  type: "file.watcher.updated"
-  properties: {
-    file: string
-    event: "add" | "change" | "unlink"
   }
 }
 
@@ -882,13 +889,6 @@ export type EventSessionError = {
   }
 }
 
-export type EventVcsBranchUpdated = {
-  type: "vcs.branch.updated"
-  properties: {
-    branch?: string
-  }
-}
-
 export type EventWorkspaceReady = {
   type: "workspace.ready"
   properties: {
@@ -962,25 +962,26 @@ export type Event =
   | EventInstallationUpdateAvailable
   | EventProjectUpdated
   | EventServerInstanceDisposed
+  | EventFileWatcherUpdated
+  | EventFileEdited
+  | EventPermissionAsked
+  | EventPermissionReplied
+  | EventVcsBranchUpdated
+  | EventQuestionAsked
+  | EventQuestionReplied
+  | EventQuestionRejected
   | EventServerConnected
   | EventGlobalDisposed
   | EventLspClientDiagnostics
   | EventLspUpdated
-  | EventFileEdited
   | EventMessageUpdated
   | EventMessageRemoved
   | EventMessagePartUpdated
   | EventMessagePartDelta
   | EventMessagePartRemoved
-  | EventPermissionAsked
-  | EventPermissionReplied
   | EventSessionStatus
   | EventSessionIdle
-  | EventQuestionAsked
-  | EventQuestionReplied
-  | EventQuestionRejected
   | EventSessionCompacted
-  | EventFileWatcherUpdated
   | EventTodoUpdated
   | EventTuiPromptAppend
   | EventTuiCommandExecute
@@ -994,7 +995,6 @@ export type Event =
   | EventSessionDeleted
   | EventSessionDiff
   | EventSessionError
-  | EventVcsBranchUpdated
   | EventWorkspaceReady
   | EventWorkspaceFailed
   | EventPtyCreated
@@ -1534,6 +1534,8 @@ export type WellKnownAuth = {
   token: string
 }
 
+export type Auth = OAuth | ApiAuth | WellKnownAuth
+
 export type NotFoundError = {
   name: "NotFoundError"
   data: {
@@ -2056,7 +2058,7 @@ export type AuthRemoveResponses = {
 export type AuthRemoveResponse = AuthRemoveResponses[keyof AuthRemoveResponses]
 
 export type AuthSetData = {
-  body?: OAuth | ApiAuth | WellKnownAuth
+  body?: Auth
   path: {
     providerID: string
   }
@@ -2413,6 +2415,98 @@ export type ConfigUpdateResponses = {
 }
 
 export type ConfigUpdateResponse = ConfigUpdateResponses[keyof ConfigUpdateResponses]
+
+export type ConfigSkillsListData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/config/skills"
+}
+
+export type ConfigSkillsListResponses = {
+  /**
+   * List of default skills
+   */
+  200: Array<{
+    name: string
+    description: string
+    content: string
+  }>
+}
+
+export type ConfigSkillsListResponse = ConfigSkillsListResponses[keyof ConfigSkillsListResponses]
+
+export type ConfigSkillsSaveData = {
+  body?: {
+    name: string
+    description: string
+    content: string
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/config/skills"
+}
+
+export type ConfigSkillsSaveResponses = {
+  /**
+   * Skill saved
+   */
+  200: {
+    ok: boolean
+  }
+}
+
+export type ConfigSkillsSaveResponse = ConfigSkillsSaveResponses[keyof ConfigSkillsSaveResponses]
+
+export type ConfigSkillsDeleteData = {
+  body?: never
+  path: {
+    name: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/config/skills/{name}"
+}
+
+export type ConfigSkillsDeleteResponses = {
+  /**
+   * Skill deleted
+   */
+  200: {
+    ok: boolean
+  }
+}
+
+export type ConfigSkillsDeleteResponse = ConfigSkillsDeleteResponses[keyof ConfigSkillsDeleteResponses]
+
+export type ConfigSkillsAddDefaultsData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/config/skills/defaults"
+}
+
+export type ConfigSkillsAddDefaultsResponses = {
+  /**
+   * Successfully added default skills
+   */
+  200: {
+    added: Array<string>
+  }
+}
+
+export type ConfigSkillsAddDefaultsResponse = ConfigSkillsAddDefaultsResponses[keyof ConfigSkillsAddDefaultsResponses]
 
 export type ConfigProvidersData = {
   body?: never
@@ -3313,6 +3407,12 @@ export type SessionPromptData = {
     format?: OutputFormat
     system?: string
     variant?: string
+    knowledgeBase?: {
+      path?: string
+      paths?: Array<string>
+      apiKey?: string
+      baseURL?: string
+    }
     parts: Array<TextPartInput | FilePartInput | AgentPartInput | SubtaskPartInput>
   }
   path: {
@@ -3513,6 +3613,12 @@ export type SessionPromptAsyncData = {
     format?: OutputFormat
     system?: string
     variant?: string
+    knowledgeBase?: {
+      path?: string
+      paths?: Array<string>
+      apiKey?: string
+      baseURL?: string
+    }
     parts: Array<TextPartInput | FilePartInput | AgentPartInput | SubtaskPartInput>
   }
   path: {
@@ -4168,6 +4274,37 @@ export type FindSymbolsResponses = {
 
 export type FindSymbolsResponse = FindSymbolsResponses[keyof FindSymbolsResponses]
 
+export type FileDeleteData = {
+  body?: never
+  path?: never
+  query: {
+    directory?: string
+    workspace?: string
+    path: string
+  }
+  url: "/file"
+}
+
+export type FileDeleteErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type FileDeleteError = FileDeleteErrors[keyof FileDeleteErrors]
+
+export type FileDeleteResponses = {
+  /**
+   * Deleted
+   */
+  200: {
+    ok: boolean
+  }
+}
+
+export type FileDeleteResponse = FileDeleteResponses[keyof FileDeleteResponses]
+
 export type FileListData = {
   body?: never
   path?: never
@@ -4187,6 +4324,73 @@ export type FileListResponses = {
 }
 
 export type FileListResponse = FileListResponses[keyof FileListResponses]
+
+export type FileRenameData = {
+  body?: {
+    path: string
+    name: string
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/file"
+}
+
+export type FileRenameErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type FileRenameError = FileRenameErrors[keyof FileRenameErrors]
+
+export type FileRenameResponses = {
+  /**
+   * Renamed
+   */
+  200: {
+    ok: boolean
+    path: string
+  }
+}
+
+export type FileRenameResponse = FileRenameResponses[keyof FileRenameResponses]
+
+export type FileCreateData = {
+  body?: {
+    path: string
+    type: "file" | "directory"
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/file"
+}
+
+export type FileCreateErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type FileCreateError = FileCreateErrors[keyof FileCreateErrors]
+
+export type FileCreateResponses = {
+  /**
+   * Created
+   */
+  200: {
+    ok: boolean
+  }
+}
+
+export type FileCreateResponse = FileCreateResponses[keyof FileCreateResponses]
 
 export type FileReadData = {
   body?: never
@@ -4208,6 +4412,171 @@ export type FileReadResponses = {
 
 export type FileReadResponse = FileReadResponses[keyof FileReadResponses]
 
+export type FileWriteData = {
+  body?: {
+    path: string
+    content: string
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/file/content"
+}
+
+export type FileWriteErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type FileWriteError = FileWriteErrors[keyof FileWriteErrors]
+
+export type FileWriteResponses = {
+  /**
+   * Written
+   */
+  200: {
+    ok: boolean
+  }
+}
+
+export type FileWriteResponse = FileWriteResponses[keyof FileWriteResponses]
+
+export type FileSummarizeData = {
+  body?: {
+    directory?: string
+    maxDepth?: number
+    force?: boolean
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/file/summarize"
+}
+
+export type FileSummarizeResponses = {
+  /**
+   * Generated
+   */
+  200: {
+    count: number
+  }
+}
+
+export type FileSummarizeResponse = FileSummarizeResponses[keyof FileSummarizeResponses]
+
+export type FileOpenInExplorerData = {
+  body?: {
+    path: string
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/file/open-in-explorer"
+}
+
+export type FileOpenInExplorerErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type FileOpenInExplorerError = FileOpenInExplorerErrors[keyof FileOpenInExplorerErrors]
+
+export type FileOpenInExplorerResponses = {
+  /**
+   * Opened
+   */
+  200: {
+    ok: boolean
+  }
+}
+
+export type FileOpenInExplorerResponse = FileOpenInExplorerResponses[keyof FileOpenInExplorerResponses]
+
+export type FileOpenData = {
+  body?: {
+    path: string
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/file/open"
+}
+
+export type FileOpenErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type FileOpenError = FileOpenErrors[keyof FileOpenErrors]
+
+export type FileOpenResponses = {
+  /**
+   * Opened
+   */
+  200: {
+    ok: boolean
+  }
+}
+
+export type FileOpenResponse = FileOpenResponses[keyof FileOpenResponses]
+
+export type FileAddToGitignoreData = {
+  body?: {
+    path: string
+    type: "file" | "directory"
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/file/gitignore"
+}
+
+export type FileAddToGitignoreErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type FileAddToGitignoreError = FileAddToGitignoreErrors[keyof FileAddToGitignoreErrors]
+
+export type FileAddToGitignoreResponses = {
+  /**
+   * Result
+   */
+  200: {
+    ok: boolean
+    created: boolean
+    alreadyExists: boolean
+  }
+}
+
+export type FileAddToGitignoreResponse = FileAddToGitignoreResponses[keyof FileAddToGitignoreResponses]
+
 export type FileStatusData = {
   body?: never
   path?: never
@@ -4226,25 +4595,6 @@ export type FileStatusResponses = {
 }
 
 export type FileStatusResponse = FileStatusResponses[keyof FileStatusResponses]
-
-export type EventSubscribeData = {
-  body?: never
-  path?: never
-  query?: {
-    directory?: string
-    workspace?: string
-  }
-  url: "/event"
-}
-
-export type EventSubscribeResponses = {
-  /**
-   * Event stream
-   */
-  200: Event
-}
-
-export type EventSubscribeResponse = EventSubscribeResponses[keyof EventSubscribeResponses]
 
 export type McpStatusData = {
   body?: never
@@ -4793,6 +5143,510 @@ export type TuiControlResponseResponses = {
 
 export type TuiControlResponseResponse = TuiControlResponseResponses[keyof TuiControlResponseResponses]
 
+export type KnowledgeModelsListData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/knowledge/models"
+}
+
+export type KnowledgeModelsListResponses = {
+  /**
+   * 嵌入模型列表
+   */
+  200: Array<{
+    id: string
+    name: string
+    provider: "openai" | "local" | "custom"
+    dimensions: number
+    description?: string
+  }>
+}
+
+export type KnowledgeModelsListResponse = KnowledgeModelsListResponses[keyof KnowledgeModelsListResponses]
+
+export type KnowledgeCreateData = {
+  body?: {
+    /**
+     * 知识库文件夹路径
+     */
+    path: string
+    /**
+     * 知识库名称
+     */
+    name: string
+    /**
+     * 嵌入模型提供商
+     */
+    embeddingProvider: "openai" | "local" | "custom"
+    /**
+     * 嵌入模型 ID
+     */
+    embeddingModel: string
+    /**
+     * 嵌入向量维度（可选，默认使用模型默认值）
+     */
+    embeddingDimensions?: number
+    /**
+     * API 密钥（OpenAI/Custom 需要）
+     */
+    apiKey?: string
+    /**
+     * 自定义 API 地址
+     */
+    baseURL?: string
+    /**
+     * 分块大小
+     */
+    chunkSize?: number
+    /**
+     * 分块重叠
+     */
+    chunkOverlap?: number
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/knowledge"
+}
+
+export type KnowledgeCreateErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type KnowledgeCreateError = KnowledgeCreateErrors[keyof KnowledgeCreateErrors]
+
+export type KnowledgeCreateResponses = {
+  /**
+   * 知识库创建成功
+   */
+  200: {
+    version: 1
+    config: {
+      id: string
+      name: string
+      path: string
+      embeddingProvider: "openai" | "local" | "custom"
+      embeddingModel: string
+      embeddingDimensions: number
+      apiKey?: string
+      baseURL?: string
+      chunkSize?: number
+      chunkOverlap?: number
+      createdAt: number
+      updatedAt: number
+    }
+    documents: Array<{
+      meta: {
+        id: string
+        filePath: string
+        fileName: string
+        fileSize: number
+        pageCount?: number
+        status: "pending" | "processing" | "ready" | "error"
+        errorMessage?: string
+        createdAt: number
+        updatedAt: number
+      }
+      chunks: Array<{
+        id: string
+        documentId: string
+        index: number
+        content: string
+        pageNumber?: number
+        embeddingOffset: number
+        embeddingLength: number
+      }>
+    }>
+    stats: {
+      totalDocuments: number
+      totalChunks: number
+      lastSyncedAt?: number
+    }
+  }
+}
+
+export type KnowledgeCreateResponse = KnowledgeCreateResponses[keyof KnowledgeCreateResponses]
+
+export type KnowledgeConfigGetData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/knowledge/config"
+}
+
+export type KnowledgeConfigGetResponses = {
+  /**
+   * 当前配置
+   */
+  200: {
+    path?: string
+    apiKey?: string
+    baseURL?: string
+  }
+}
+
+export type KnowledgeConfigGetResponse = KnowledgeConfigGetResponses[keyof KnowledgeConfigGetResponses]
+
+export type KnowledgeConfigSetData = {
+  body?: {
+    path: string
+    apiKey?: string
+    baseURL?: string
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/knowledge/config"
+}
+
+export type KnowledgeConfigSetResponses = {
+  /**
+   * 配置成功
+   */
+  200: {
+    ok: boolean
+  }
+}
+
+export type KnowledgeConfigSetResponse = KnowledgeConfigSetResponses[keyof KnowledgeConfigSetResponses]
+
+export type KnowledgeStatsData = {
+  body?: never
+  path: {
+    path: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/knowledge/{path}/stats"
+}
+
+export type KnowledgeStatsErrors = {
+  /**
+   * 知识库不存在
+   */
+  404: unknown
+}
+
+export type KnowledgeStatsResponses = {
+  /**
+   * 统计信息
+   */
+  200: {
+    totalDocuments: number
+    totalChunks: number
+    pdfFileCount: number
+    lastSyncedAt?: number
+    embeddingModel: string
+    embeddingProvider: string
+    chunkSize: number
+    chunkOverlap: number
+  }
+}
+
+export type KnowledgeStatsResponse = KnowledgeStatsResponses[keyof KnowledgeStatsResponses]
+
+export type KnowledgeDeleteData = {
+  body?: never
+  path: {
+    path: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/knowledge/{path}"
+}
+
+export type KnowledgeDeleteErrors = {
+  /**
+   * 知识库不存在
+   */
+  404: unknown
+}
+
+export type KnowledgeDeleteResponses = {
+  /**
+   * 删除成功
+   */
+  200: {
+    ok: boolean
+  }
+}
+
+export type KnowledgeDeleteResponse = KnowledgeDeleteResponses[keyof KnowledgeDeleteResponses]
+
+export type KnowledgeGetData = {
+  body?: never
+  path: {
+    path: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/knowledge/{path}"
+}
+
+export type KnowledgeGetErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * 知识库不存在
+   */
+  404: unknown
+}
+
+export type KnowledgeGetError = KnowledgeGetErrors[keyof KnowledgeGetErrors]
+
+export type KnowledgeGetResponses = {
+  /**
+   * 知识库信息
+   */
+  200: {
+    version: 1
+    config: {
+      id: string
+      name: string
+      path: string
+      embeddingProvider: "openai" | "local" | "custom"
+      embeddingModel: string
+      embeddingDimensions: number
+      apiKey?: string
+      baseURL?: string
+      chunkSize?: number
+      chunkOverlap?: number
+      createdAt: number
+      updatedAt: number
+    }
+    documents: Array<{
+      meta: {
+        id: string
+        filePath: string
+        fileName: string
+        fileSize: number
+        pageCount?: number
+        status: "pending" | "processing" | "ready" | "error"
+        errorMessage?: string
+        createdAt: number
+        updatedAt: number
+      }
+      chunks: Array<{
+        id: string
+        documentId: string
+        index: number
+        content: string
+        pageNumber?: number
+        embeddingOffset: number
+        embeddingLength: number
+      }>
+    }>
+    stats: {
+      totalDocuments: number
+      totalChunks: number
+      lastSyncedAt?: number
+    }
+  }
+}
+
+export type KnowledgeGetResponse = KnowledgeGetResponses[keyof KnowledgeGetResponses]
+
+export type KnowledgeSyncData = {
+  body?: {
+    apiKey?: string
+    baseURL?: string
+  }
+  path: {
+    path: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/knowledge/{path}/sync"
+}
+
+export type KnowledgeSyncErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * 知识库不存在
+   */
+  404: unknown
+}
+
+export type KnowledgeSyncError = KnowledgeSyncErrors[keyof KnowledgeSyncErrors]
+
+export type KnowledgeSyncResponses = {
+  /**
+   * SSE 进度流，最终事件为 complete 或 error
+   */
+  200: {
+    event: string
+    data: string
+  }
+}
+
+export type KnowledgeSyncResponse = KnowledgeSyncResponses[keyof KnowledgeSyncResponses]
+
+export type KnowledgeSearchData = {
+  body?: {
+    /**
+     * 搜索查询
+     */
+    query: string
+    /**
+     * 返回结果数量
+     */
+    topK?: number
+    apiKey?: string
+    baseURL?: string
+  }
+  path: {
+    path: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/knowledge/{path}/search"
+}
+
+export type KnowledgeSearchErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * 知识库不存在
+   */
+  404: unknown
+}
+
+export type KnowledgeSearchError = KnowledgeSearchErrors[keyof KnowledgeSearchErrors]
+
+export type KnowledgeSearchResponses = {
+  /**
+   * 搜索结果
+   */
+  200: Array<{
+    chunk: {
+      id: string
+      documentId: string
+      index: number
+      content: string
+      pageNumber?: number
+      embeddingOffset: number
+      embeddingLength: number
+    }
+    document: {
+      id: string
+      filePath: string
+      fileName: string
+      fileSize: number
+      pageCount?: number
+      status: "pending" | "processing" | "ready" | "error"
+      errorMessage?: string
+      createdAt: number
+      updatedAt: number
+    }
+    score: number
+  }>
+}
+
+export type KnowledgeSearchResponse = KnowledgeSearchResponses[keyof KnowledgeSearchResponses]
+
+export type KnowledgeDocumentDeleteData = {
+  body?: never
+  path: {
+    path: string
+    documentId: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/knowledge/{path}/document/{documentId}"
+}
+
+export type KnowledgeDocumentDeleteErrors = {
+  /**
+   * 知识库或文档不存在
+   */
+  404: unknown
+}
+
+export type KnowledgeDocumentDeleteResponses = {
+  /**
+   * 删除成功
+   */
+  200: {
+    version: 1
+    config: {
+      id: string
+      name: string
+      path: string
+      embeddingProvider: "openai" | "local" | "custom"
+      embeddingModel: string
+      embeddingDimensions: number
+      apiKey?: string
+      baseURL?: string
+      chunkSize?: number
+      chunkOverlap?: number
+      createdAt: number
+      updatedAt: number
+    }
+    documents: Array<{
+      meta: {
+        id: string
+        filePath: string
+        fileName: string
+        fileSize: number
+        pageCount?: number
+        status: "pending" | "processing" | "ready" | "error"
+        errorMessage?: string
+        createdAt: number
+        updatedAt: number
+      }
+      chunks: Array<{
+        id: string
+        documentId: string
+        index: number
+        content: string
+        pageNumber?: number
+        embeddingOffset: number
+        embeddingLength: number
+      }>
+    }>
+    stats: {
+      totalDocuments: number
+      totalChunks: number
+      lastSyncedAt?: number
+    }
+  }
+}
+
+export type KnowledgeDocumentDeleteResponse = KnowledgeDocumentDeleteResponses[keyof KnowledgeDocumentDeleteResponses]
+
 export type InstanceDisposeData = {
   body?: never
   path?: never
@@ -4996,3 +5850,22 @@ export type FormatterStatusResponses = {
 }
 
 export type FormatterStatusResponse = FormatterStatusResponses[keyof FormatterStatusResponses]
+
+export type EventSubscribeData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/event"
+}
+
+export type EventSubscribeResponses = {
+  /**
+   * Event stream
+   */
+  200: Event
+}
+
+export type EventSubscribeResponse = EventSubscribeResponses[keyof EventSubscribeResponses]

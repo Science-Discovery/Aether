@@ -1,7 +1,6 @@
 import { Plugin } from "../plugin"
 import { Format } from "../format"
 import { LSP } from "../lsp"
-import { FileWatcherService } from "../file/watcher"
 import { SummaryWatcher } from "../file/summary-watcher"
 import { File } from "../file"
 import { FileWatcher } from "../file/watcher"
@@ -20,7 +19,6 @@ export async function InstanceBootstrap() {
   ShareNext.init()
   Format.init()
   await LSP.init()
-  await runPromiseInstance(FileWatcherService.use((service) => service.init()))
   SummaryWatcher.init()
   File.init()
   FileWatcher.init()
