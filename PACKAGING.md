@@ -104,6 +104,9 @@ bun run package:win
 
 # 当前平台（自动检测）
 bun run package
+
+#生成dmg安装包
+npx electron-builder --mac dmg --config electron-builder.config.ts
 ```
 
 #### Windows 原生打包注意事项
