@@ -223,7 +223,6 @@ export const dict = {
   "common.cancel": "Avbryt",
   "common.connect": "Koble til",
   "common.disconnect": "Koble fra",
-  "common.continue": "Send inn",
   "common.submit": "Send inn",
   "common.save": "Lagre",
   "common.saving": "Lagrer...",
