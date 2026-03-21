@@ -4,29 +4,32 @@ import { LSP } from "../lsp"
 import { FileWatcherService } from "../file/watcher"
 import { SummaryWatcher } from "../file/summary-watcher"
 import { File } from "../file"
+import { FileWatcher } from "../file/watcher"
+import { Snapshot } from "../snapshot"
 import { Project } from "./project"
+import { Vcs } from "./vcs"
 import { Bus } from "../bus"
 import { Command } from "../command"
 import { Instance } from "./instance"
-import { VcsService } from "./vcs"
 import { Log } from "@/util/log"
 import { ShareNext } from "@/share/share-next"
-import { runPromiseInstance } from "@/effect/runtime"
 
 export async function InstanceBootstrap() {
   Log.Default.info("bootstrapping", { directory: Instance.directory })
   await Plugin.init()
   ShareNext.init()
-  await Format.init()
+  Format.init()
   await LSP.init()
   await runPromiseInstance(FileWatcherService.use((service) => service.init()))
   SummaryWatcher.init()
   File.init()
-  await runPromiseInstance(VcsService.use((s) => s.init()))
+  FileWatcher.init()
+  Vcs.init()
+  Snapshot.init()
 
   Bus.subscribe(Command.Event.Executed, async (payload) => {
     if (payload.properties.name === Command.Default.INIT) {
-      await Project.setInitialized(Instance.project.id)
+      Project.setInitialized(Instance.project.id)
     }
   })
 }

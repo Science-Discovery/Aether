@@ -15,6 +15,7 @@ import { childMapByParent, displayName, sortedRootSessions, workspaceKey } from 
 
 export type ProjectSidebarContext = {
   currentDir: Accessor<string>
+  currentProject: Accessor<LocalProject | undefined>
   sidebarOpened: Accessor<boolean>
   sidebarHovering: Accessor<boolean>
   hoverProject: Accessor<string | undefined>

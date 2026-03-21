@@ -306,17 +306,6 @@ export function FileTabContent(props: { tab: string }) {
         onDelete={controls.remove}
       />
     ),
-    onDraftPopoverFocusOut: (e: FocusEvent) => {
-      const current = e.currentTarget as HTMLDivElement
-      const target = e.relatedTarget
-      if (target instanceof Node && current.contains(target)) return
-
-      setTimeout(() => {
-        if (!document.activeElement || !current.contains(document.activeElement)) {
-          setNote("commenting", null)
-        }
-      }, 0)
-    },
   })
 
   createEffect(() => {
@@ -503,7 +492,7 @@ export function FileTabContent(props: { tab: string }) {
       )
     }
     return (
-      <div class="relative overflow-hidden">
+      <div class="relative overflow-hidden pb-40">
         <Dynamic
           component={fileComponent}
           mode="text"

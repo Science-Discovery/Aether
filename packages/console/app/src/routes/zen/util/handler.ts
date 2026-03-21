@@ -24,7 +24,13 @@ import {
   FreeUsageLimitError,
   SubscriptionUsageLimitError,
 } from "./error"
-import { createBodyConverter, createStreamPartConverter, createResponseConverter, UsageInfo } from "./provider/provider"
+import {
+  buildCostChunk,
+  createBodyConverter,
+  createStreamPartConverter,
+  createResponseConverter,
+  UsageInfo,
+} from "./provider/provider"
 import { anthropicHelper } from "./provider/anthropic"
 import { googleHelper } from "./provider/google"
 import { openaiHelper } from "./provider/openai"
@@ -74,8 +80,9 @@ export async function handler(
   const dict = i18n(localeFromRequest(input.request))
   const t = (key: Key, params?: Record<string, string | number>) => resolve(dict[key], params)
   const ADMIN_WORKSPACES = [
-    "wrk_01K46JDFR0E75SG2Q8K172KF3Y", // frank
-    "wrk_01K6W1A3VE0KMNVSCQT43BG2SX", // opencode bench
+    "wrk_01K46JDFR0E75SG2Q8K172KF3Y", // anomaly
+    "wrk_01K6W1A3VE0KMNVSCQT43BG2SX", // benchmark
+    "wrk_01KKZDKDWCS1VTJF8QTX62DD50", // contributors
   ]
 
   try {
@@ -89,7 +96,7 @@ export async function handler(
     const projectId = input.request.headers.get("x-opencode-project") ?? ""
     const ocClient = input.request.headers.get("x-opencode-client") ?? ""
     logger.metric({
-      is_tream: isStream,
+      is_stream: isStream,
       session: sessionId,
       request: requestId,
       client: ocClient,
@@ -119,6 +126,7 @@ export async function handler(
         zenData,
         authInfo,
         modelInfo,
+        ip,
         sessionId,
         trialProviders,
         retry,
@@ -228,7 +236,7 @@ export async function handler(
       const body = JSON.stringify(
         responseConverter({
           ...json,
-          cost: calculateOccuredCost(billingSource, costInfo),
+          cost: calculateOccurredCost(billingSource, costInfo),
         }),
       )
       logger.metric({ response_length: body.length })
@@ -272,8 +280,8 @@ export async function handler(
                   await trialLimiter?.track(usageInfo)
                   await trackUsage(sessionId, billingSource, authInfo, modelInfo, providerInfo, usageInfo, costInfo)
                   await reload(billingSource, authInfo, costInfo)
-                  const cost = calculateOccuredCost(billingSource, costInfo)
-                  c.enqueue(encoder.encode(usageParser.buidlCostChunk(cost)))
+                  const cost = calculateOccurredCost(billingSource, costInfo)
+                  c.enqueue(encoder.encode(buildCostChunk(opts.format, cost)))
                 }
                 c.close()
                 return
@@ -401,6 +409,7 @@ export async function handler(
     zenData: ZenData,
     authInfo: AuthInfo,
     modelInfo: ModelInfo,
+    ip: string,
     sessionId: string,
     trialProviders: string[] | undefined,
     retry: RetryOptions,
@@ -429,10 +438,11 @@ export async function handler(
           .flatMap((provider) => Array<typeof provider>(provider.weight ?? 1).fill(provider))
 
         // Use the last 4 characters of session ID to select a provider
+        const identifier = sessionId.length ? sessionId : ip
         let h = 0
-        const l = sessionId.length
+        const l = identifier.length
         for (let i = l - 4; i < l; i++) {
-          h = (h * 31 + sessionId.charCodeAt(i)) | 0 // 32-bit int
+          h = (h * 31 + identifier.charCodeAt(i)) | 0 // 32-bit int
         }
         const index = (h >>> 0) % providers.length // make unsigned + range 0..length-1
         const provider = providers[index || 0]
@@ -814,7 +824,7 @@ export async function handler(
     }
   }
 
-  function calculateOccuredCost(billingSource: BillingSource, costInfo: CostInfo) {
+  function calculateOccurredCost(billingSource: BillingSource, costInfo: CostInfo) {
     return billingSource === "balance" ? (costInfo.totalCostInCent / 100).toFixed(8) : "0"
   }
 
