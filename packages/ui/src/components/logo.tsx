@@ -58,6 +58,9 @@ export const Logo = (props: { class?: string }) => {
           AETHER
         </span>
       </div>
+      <div style="font-size: 0.65rem; letter-spacing: 0.15em; color: var(--text-weak); font-family: 'Courier New', Courier, monospace; text-transform: uppercase;">
+        based on <span style="color: var(--text-base);">opencode</span>
+      </div>
       <div style="width: 100%; height: 1px; background: linear-gradient(to right, transparent, var(--text-base), transparent); opacity: 0.4;" />
     </div>
   )
