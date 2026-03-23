@@ -31,9 +31,10 @@
     }
     &:disabled {
       background-color: var(--icon-strong-disabled);
+      color: var(--text-weak);
 
       [data-slot="icon-svg"] {
-        color: var(--icon-invert-base);
+        color: var(--text-weak);
       }
     }
   }
