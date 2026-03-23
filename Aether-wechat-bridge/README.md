@@ -60,8 +60,9 @@ pip install -r requirements.txt
 ### 第二步：启动 Aether 服务
 
 ```bash
-在 Aether/packages/opencode/dist/aether-darwin-arm64/bin/aether文件夹下：
-./aether serve --port 4096
+在aether可执行文件下执行：
+chmod +x aether
+./aether serve 
 ```
 
 ### 第三步：运行微信桥接
@@ -92,15 +93,6 @@ export AETHER_AGENT="build"
 python aether_wechat_agent.py
 ```
 
-## 功能特性
-
-- ✅ 私聊消息处理
-- ✅ 群聊 @ 消息处理
-- ✅ 会话管理（每个对话独立会话）
-- ✅ 支持自定义模型
-- ✅ 支持自定义 Agent（build/plan 等）
-- ✅ 错误处理和重试
-
 ## 注意事项
 
 1. **首次登录**：首次运行需要扫码登录，登录凭证会保存在 `~/.wechat-agent-sdk/accounts.json`
@@ -108,31 +100,6 @@ python aether_wechat_agent.py
 3. **API 费用**：使用 AI 模型会产生费用，请注意用量
 4. **仅供学习**：本项目基于 iLink Bot API，仅供学习交流使用
 
-## 故障排除
-
-### 连接失败
-
-确认 Aether 服务正在运行：
-
-```bash
-curl http://127.0.0.1:4096/path
-```
-
-### API 密钥无效
-
-检查配置文件：
-
-```bash
-cat ~/.opencode.json
-```
-
-### 权限错误
-
-确保有写入权限：
-
-```bash
-chmod +x aether
-```
 
 ### 文件操作卡住/无响应
 
