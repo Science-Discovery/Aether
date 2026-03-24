@@ -208,6 +208,10 @@ export const { use: useFile, provider: FileProvider } = createSimpleContext({
         loadFile: (file) => {
           void load(file, { force: true })
         },
+        closeFile: (file) => {
+          const tab = tabs.all().find((tab) => path.pathFromTab(tab) === file)
+          if (tab) tabs.close(tab)
+        },
         node: tree.node,
         isDirLoaded: tree.isLoaded,
         refreshDir: (dir) => {

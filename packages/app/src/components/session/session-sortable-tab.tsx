@@ -1,4 +1,4 @@
-import { createMemo, Show } from "solid-js"
+import { createMemo, createSignal, Show } from "solid-js"
 import type { JSX } from "solid-js"
 import { createSortable } from "@thisbeyond/solid-dnd"
 import { FileIcon } from "@opencode-ai/ui/file-icon"
@@ -38,8 +38,30 @@ export function SortableTab(props: { tab: string; onTabClose: (tab: string) => v
     if (!value) return
     return <FileVisual path={value} />
   })
+
+  let wrapperRef: HTMLDivElement | undefined
+  const [clipped, setClipped] = createSignal(false)
+
+  const checkClipped = () => {
+    const el = wrapperRef
+    if (!el) return
+    const list = el.closest('[data-slot="tabs-list"]') as HTMLElement | null
+    if (!list) return
+    const elRect = el.getBoundingClientRect()
+    const stickyRight = list.querySelector('.sticky.right-0') as HTMLElement | null
+    const rightBound = stickyRight ? stickyRight.getBoundingClientRect().left : list.getBoundingClientRect().right
+    setClipped(elRect.right > rightBound + 2)
+  }
+
   return (
-    <div use:sortable class="h-full flex items-center" classList={{ "opacity-0": sortable.isActiveDraggable }}>
+    <div
+      ref={wrapperRef}
+      use:sortable
+      class="h-full flex items-center"
+      classList={{ "opacity-0": sortable.isActiveDraggable }}
+      onMouseEnter={checkClipped}
+      onMouseLeave={() => setClipped(false)}
+    >
       <div class="relative">
         <Tabs.Trigger
           value={props.tab}
@@ -64,6 +86,25 @@ export function SortableTab(props: { tab: string; onTabClose: (tab: string) => v
         >
           <Show when={content()}>{(value) => value()}</Show>
         </Tabs.Trigger>
+        {/* Overlay close button for clipped tabs */}
+        <Show when={clipped()}>
+          <div
+            class="absolute right-0 top-0 bottom-0 flex items-center z-10"
+            style={{
+              background: "linear-gradient(to right, transparent, var(--background-stronger) 40%)",
+              "padding-left": "16px",
+              "padding-right": "2px",
+            }}
+          >
+            <IconButton
+              icon="close-small"
+              variant="ghost"
+              class="h-5 w-5"
+              onClick={() => props.onTabClose(props.tab)}
+              aria-label={language.t("common.closeTab")}
+            />
+          </div>
+        </Show>
       </div>
     </div>
   )

@@ -160,9 +160,13 @@ export function createPromptAttachments(input: PromptAttachmentsInput) {
     const plainText = event.dataTransfer?.getData("text/plain")
     const filePrefix = "file:"
     if (plainText?.startsWith(filePrefix)) {
-      const filePath = plainText.slice(filePrefix.length)
       input.focusEditor()
-      input.addPart({ type: "file", path: filePath, content: "@" + filePath, start: 0, end: 0 })
+      // Support multiple file paths (one per line)
+      const lines = plainText.split("\n").filter((l) => l.startsWith(filePrefix))
+      for (const line of lines) {
+        const filePath = line.slice(filePrefix.length)
+        input.addPart({ type: "file", path: filePath, content: "@" + filePath, start: 0, end: 0 })
+      }
       return
     }
 
