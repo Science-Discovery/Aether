@@ -23,6 +23,9 @@ import { useTerminal } from "@/context/terminal"
 import { getSessionHandoff } from "@/pages/session/handoff"
 import { useSessionLayout } from "@/pages/session/session-layout"
 import { createSessionTabs } from "@/pages/session/helpers"
+import { useDialog } from "@opencode-ai/ui/context/dialog"
+import { DialogPdfToMarkdown } from "@/components/dialog-pdf-to-markdown"
+import { registerOpenFileCallback } from "@/components/pdf-convert-progress"
 
 function FileCommentMenu(props: {
   moreLabel: string
@@ -66,6 +69,7 @@ export function FileTabContent(props: { tab: string }) {
   const fileComponent = useFileComponent()
   const sdk = useSDK()
   const terminal = useTerminal()
+  const dialog = useDialog()
 
   const [isEditing, setIsEditing] = createSignal(false)
   const [editContent, setEditContent] = createSignal("")
@@ -110,6 +114,20 @@ export function FileTabContent(props: { tab: string }) {
     normalizeTab: (tab) => (tab.startsWith("file://") ? file.tab(tab) : tab),
   }).activeFileTab
 
+  // 注册 PDF 转换完成后的文件打开回调
+  registerOpenFileCallback((filePath: string) => {
+    // 刷新文件树使新文件可见
+    const parentDir = filePath.includes("/") ? filePath.slice(0, filePath.lastIndexOf("/")) : ""
+    file.tree.refresh(parentDir)
+    // 打开文件
+    setTimeout(() => {
+      const tab = file.tab(filePath)
+      tabs().open(tab)
+      tabs().setActive(tab)
+      file.load(filePath)
+    }, 500) // 等待文件树刷新完成
+  })
+
   let scroll: HTMLDivElement | undefined
   let scrollFrame: number | undefined
   let restoreFrame: number | undefined
@@ -137,6 +155,12 @@ export function FileTabContent(props: { tab: string }) {
     if (!p) return false
     const ext = p.split(".").pop()?.toLowerCase() ?? ""
     return ext === "py" || ext === "pyw"
+  })
+
+  const isPDF = createMemo(() => {
+    const p = path()
+    if (!p) return false
+    return p.split(".").pop()?.toLowerCase() === "pdf"
   })
 
   const [isRunning, setIsRunning] = createSignal(false)
@@ -479,20 +503,20 @@ export function FileTabContent(props: { tab: string }) {
   const renderFile = (source: string) => {
     if (isMarkdown()) {
       return (
-        <div class="relative px-6 pb-40 select-text">
+        <div class="relative px-6 pb-40 select-text" data-file-content>
           <Markdown text={source} cacheKey={cacheKey()} />
         </div>
       )
     }
     if (wordWrap()) {
       return (
-        <div class="relative px-6 pb-40 select-text">
+        <div class="relative px-6 pb-40 select-text" data-file-content>
           <pre class="text-sm font-mono leading-relaxed whitespace-pre-wrap break-words text-text-base">{source}</pre>
         </div>
       )
     }
     return (
-      <div class="relative overflow-hidden pb-40">
+      <div class="relative overflow-hidden pb-40" data-file-content>
         <Dynamic
           component={fileComponent}
           mode="text"
@@ -526,6 +550,19 @@ export function FileTabContent(props: { tab: string }) {
             path: path(),
             current: state()?.content,
             onLoad: queueRestore,
+            actions: isPDF() ? () => (
+              <button
+                type="button"
+                class="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-12-medium text-text-base hover:bg-surface-raised-base-hover transition-colors cursor-pointer"
+                onClick={() => {
+                  const p = path()
+                  if (!p) return
+                  dialog.show(() => <DialogPdfToMarkdown pdfPath={p} />)
+                }}
+              >
+                转换为 Markdown
+              </button>
+            ) : undefined,
             onError: (args: { kind: "image" | "audio" | "svg" }) => {
               if (args.kind !== "svg") return
               showToast({

@@ -31,6 +31,7 @@ type PromptAttachmentsInput = {
   focusEditor: () => void
   addPart: (part: ContentPart) => boolean
   readClipboardImage?: () => Promise<File | null>
+  dropZone?: () => HTMLElement | undefined
 }
 
 export function createPromptAttachments(input: PromptAttachmentsInput) {
@@ -132,9 +133,16 @@ export function createPromptAttachments(input: PromptAttachmentsInput) {
   }
 
   const handleGlobalDragOver = (event: DragEvent) => {
+    // Only prevent default globally so the browser doesn't open the file.
+    // Do NOT show the drop hint here – that happens in the zone-specific handler.
+    event.preventDefault()
+  }
+
+  const handleZoneDragOver = (event: DragEvent) => {
     if (input.isDialogActive()) return
 
     event.preventDefault()
+    event.stopPropagation()
     const hasFiles = event.dataTransfer?.types.includes("Files")
     const hasText = event.dataTransfer?.types.includes("text/plain")
     if (hasFiles) {
@@ -144,25 +152,31 @@ export function createPromptAttachments(input: PromptAttachmentsInput) {
     }
   }
 
-  const handleGlobalDragLeave = (event: DragEvent) => {
+  const handleZoneDragLeave = (event: DragEvent) => {
     if (input.isDialogActive()) return
-    if (!event.relatedTarget) {
-      input.setDraggingType(null)
-    }
+    const zone = input.dropZone?.()
+    // Only clear when leaving the drop zone entirely (not entering a child)
+    if (zone && event.relatedTarget && zone.contains(event.relatedTarget as Node)) return
+    input.setDraggingType(null)
   }
 
-  const handleGlobalDrop = async (event: DragEvent) => {
+  const handleZoneDrop = async (event: DragEvent) => {
     if (input.isDialogActive()) return
 
     event.preventDefault()
+    event.stopPropagation()
     input.setDraggingType(null)
 
     const plainText = event.dataTransfer?.getData("text/plain")
     const filePrefix = "file:"
     if (plainText?.startsWith(filePrefix)) {
-      const filePath = plainText.slice(filePrefix.length)
       input.focusEditor()
-      input.addPart({ type: "file", path: filePath, content: "@" + filePath, start: 0, end: 0 })
+      // Support multiple file paths (one per line)
+      const lines = plainText.split("\n").filter((l) => l.startsWith(filePrefix))
+      for (const line of lines) {
+        const filePath = line.slice(filePrefix.length)
+        input.addPart({ type: "file", path: filePath, content: "@" + filePath, start: 0, end: 0 })
+      }
       return
     }
 
@@ -178,15 +192,27 @@ export function createPromptAttachments(input: PromptAttachmentsInput) {
   }
 
   onMount(() => {
+    // Global: only prevent browser default (opening the file)
     document.addEventListener("dragover", handleGlobalDragOver)
-    document.addEventListener("dragleave", handleGlobalDragLeave)
-    document.addEventListener("drop", handleGlobalDrop)
+
+    // Zone-specific: show hint & handle drop only inside the chat input area
+    const zone = input.dropZone?.()
+    if (zone) {
+      zone.addEventListener("dragover", handleZoneDragOver)
+      zone.addEventListener("dragleave", handleZoneDragLeave)
+      zone.addEventListener("drop", handleZoneDrop)
+    }
   })
 
   onCleanup(() => {
     document.removeEventListener("dragover", handleGlobalDragOver)
-    document.removeEventListener("dragleave", handleGlobalDragLeave)
-    document.removeEventListener("drop", handleGlobalDrop)
+
+    const zone = input.dropZone?.()
+    if (zone) {
+      zone.removeEventListener("dragover", handleZoneDragOver)
+      zone.removeEventListener("dragleave", handleZoneDragLeave)
+      zone.removeEventListener("drop", handleZoneDrop)
+    }
   })
 
   return {

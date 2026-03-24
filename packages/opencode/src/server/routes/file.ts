@@ -1,4 +1,5 @@
 import { Hono } from "hono"
+import { streamSSE } from "hono/streaming"
 import { describeRoute, validator, resolver } from "hono-openapi"
 import z from "zod"
 import { File } from "../../file"
@@ -12,6 +13,10 @@ import { $ } from "bun"
 import { spawn } from "bun"
 import path from "path"
 import type { Stats } from "fs"
+import { parsePDF } from "../../knowledge/document"
+import { startConversion, getTask, cancelTask, getQueuePosition, getQueueLength } from "../../pdf-converter"
+import { generateTaskID, computeOutputPaths } from "../../pdf-converter/util"
+import { checkPythonAvailable } from "../../pdf-converter/pdf-renderer"
 
 export const FileRoutes = lazy(() =>
   new Hono()
@@ -448,6 +453,262 @@ export const FileRoutes = lazy(() =>
       async (c) => {
         const content = await File.status()
         return c.json(content)
+      },
+    )
+    // ====== PDF → Markdown 转换路由 ======
+    .get(
+      "/file/pdf-page-count",
+      describeRoute({
+        summary: "Get PDF page count",
+        description: "Get total page count and expected output paths for a PDF file.",
+        operationId: "file.pdfPageCount",
+        responses: {
+          200: {
+            description: "Page count and output paths",
+            content: {
+              "application/json": {
+                schema: resolver(
+                  z.object({
+                    pageCount: z.number(),
+                    outputPath: z.object({
+                      merged: z.string(),
+                      perPage: z.string(),
+                      images: z.string(),
+                    }),
+                  }),
+                ),
+              },
+            },
+          },
+          ...errors(400),
+        },
+      }),
+      validator(
+        "query",
+        z.object({
+          path: z.string(),
+        }),
+      ),
+      async (c) => {
+        const filePath = c.req.valid("query").path
+        const absPath = path.isAbsolute(filePath) ? filePath : path.join(Instance.directory, filePath)
+        try {
+          const parsed = await parsePDF(absPath)
+          const outputPaths = computeOutputPaths(absPath, "merged")
+
+          // 检查已存在的输出文件
+          const existingFiles: string[] = []
+          if (await Bun.file(outputPaths.merged).exists()) existingFiles.push(outputPaths.merged)
+          const perPageDir = outputPaths.perPage
+          try {
+            const stat = await Bun.file(perPageDir).stat()
+            if (stat.isDirectory()) existingFiles.push(perPageDir)
+          } catch { /* not exists */ }
+
+          return c.json({
+            pageCount: parsed.pageCount,
+            outputPath: {
+              merged: outputPaths.merged,
+              perPage: outputPaths.perPage,
+              images: outputPaths.images,
+            },
+            existingFiles,
+          })
+        } catch (e: any) {
+          return c.json({ error: e?.message || String(e) }, 400)
+        }
+      },
+    )
+    .get(
+      "/file/pdf-python-check",
+      describeRoute({
+        summary: "Check Python availability",
+        description: "Check if Python + PyMuPDF + Pillow are available for PDF rendering.",
+        operationId: "file.pdfPythonCheck",
+        responses: {
+          200: {
+            description: "Python status",
+            content: {
+              "application/json": {
+                schema: resolver(
+                  z.object({
+                    available: z.boolean(),
+                    pythonPath: z.string().nullable(),
+                    missingDeps: z.string().array(),
+                  }),
+                ),
+              },
+            },
+          },
+        },
+      }),
+      async (c) => {
+        const result = await checkPythonAvailable()
+        return c.json(result)
+      },
+    )
+    .post(
+      "/file/pdf-to-markdown",
+      describeRoute({
+        summary: "Start PDF to Markdown conversion",
+        description: "Start an async PDF to Markdown conversion task.",
+        operationId: "file.pdfToMarkdown",
+        responses: {
+          200: {
+            description: "Task started",
+            content: {
+              "application/json": {
+                schema: resolver(z.object({ taskID: z.string() })),
+              },
+            },
+          },
+          ...errors(400),
+        },
+      }),
+      validator(
+        "json",
+        z.object({
+          path: z.string(),
+          providerID: z.string(),
+          modelID: z.string(),
+          startPage: z.number().int().min(1),
+          endPage: z.number().int().min(1),
+          outputMode: z.enum(["merged", "per-page"]),
+          conflictAction: z.enum(["replace", "rename", "cancel"]),
+        }),
+      ),
+      async (c) => {
+        const body = c.req.valid("json")
+
+        // 校验页面范围
+        if (body.endPage < body.startPage) {
+          return c.json({ error: "结束页码不能小于起始页码" }, 400)
+        }
+        if (body.endPage - body.startPage + 1 > 50) {
+          return c.json({ error: "页面范围不能超过 50 页" }, 400)
+        }
+
+        const absPath = path.isAbsolute(body.path) ? body.path : path.join(Instance.directory, body.path)
+
+        const taskID = generateTaskID()
+        startConversion(taskID, {
+          ...body,
+          path: absPath,
+        })
+
+        return c.json({ taskID })
+      },
+    )
+    .get(
+      "/file/pdf-to-markdown/progress",
+      describeRoute({
+        summary: "Get conversion progress",
+        description: "SSE endpoint for real-time PDF conversion progress.",
+        operationId: "file.pdfToMarkdownProgress",
+        responses: {
+          200: {
+            description: "Progress event stream",
+            content: {
+              "text/event-stream": {
+                schema: resolver(z.any()),
+              },
+            },
+          },
+        },
+      }),
+      validator(
+        "query",
+        z.object({
+          taskID: z.string(),
+        }),
+      ),
+      async (c) => {
+        const { taskID } = c.req.valid("query")
+        const task = getTask(taskID)
+        if (!task) {
+          return c.json({ error: "任务不存在" }, 404)
+        }
+
+        c.header("X-Accel-Buffering", "no")
+        c.header("X-Content-Type-Options", "nosniff")
+
+        return streamSSE(c, async (stream) => {
+          // 发送已有的事件
+          for (const event of task.events) {
+            await stream.writeSSE({ data: JSON.stringify(event) })
+          }
+
+          // 如果任务已完成，直接关闭
+          if (task.status !== "running") {
+            return
+          }
+
+          // 注册实时监听器
+          const listener = async (event: any) => {
+            try {
+              await stream.writeSSE({ data: JSON.stringify(event) })
+              if (event.type === "done" || (event.type === "error" && !event.page)) {
+                cleanup()
+              }
+            } catch {
+              cleanup()
+            }
+          }
+
+          task.listeners.add(listener)
+
+          // 心跳保活
+          const heartbeat = setInterval(() => {
+            stream.writeSSE({
+              data: JSON.stringify({ type: "heartbeat" }),
+            }).catch(() => cleanup())
+          }, 5_000)
+
+          const cleanup = () => {
+            task.listeners.delete(listener)
+            clearInterval(heartbeat)
+          }
+
+          await new Promise<void>((resolve) => {
+            stream.onAbort(() => {
+              cleanup()
+              resolve()
+            })
+
+            // 任务完成时也关闭
+            const checkDone = setInterval(() => {
+              if (task.status !== "running") {
+                clearInterval(checkDone)
+                cleanup()
+                resolve()
+              }
+            }, 1000)
+          })
+        })
+      },
+    )
+    .post(
+      "/file/pdf-to-markdown/cancel",
+      describeRoute({
+        summary: "Cancel PDF conversion",
+        description: "Cancel a running PDF to Markdown conversion task.",
+        operationId: "file.pdfToMarkdownCancel",
+        responses: {
+          200: {
+            description: "Cancelled",
+            content: {
+              "application/json": {
+                schema: resolver(z.object({ ok: z.boolean() })),
+              },
+            },
+          },
+        },
+      }),
+      validator("json", z.object({ taskID: z.string() })),
+      async (c) => {
+        const { taskID } = c.req.valid("json")
+        const ok = cancelTask(taskID)
+        return c.json({ ok })
       },
     ),
 )

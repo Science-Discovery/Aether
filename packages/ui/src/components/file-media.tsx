@@ -19,6 +19,8 @@ export type FileMediaOptions = {
   readFile?: (path: string) => Promise<FileContent | undefined>
   onLoad?: () => void
   onError?: (ctx: { kind: "image" | "audio" | "svg" }) => void
+  /** 额外的操作按钮，渲染在文件名和"在浏览器中打开"之间 */
+  actions?: () => JSX.Element
 }
 
 function mediaValue(cfg: FileMediaOptions, mode: "image" | "audio") {
@@ -153,16 +155,16 @@ export function FileMedia(props: { media?: FileMediaOptions; fallback: () => JSX
       { defer: true },
     ),
   )
-  
+
   let pdfObjectUrl: string | null = null
-  
+
   const cleanupPdfUrl = () => {
     if (pdfObjectUrl) {
       URL.revokeObjectURL(pdfObjectUrl)
       pdfObjectUrl = null
     }
   }
-  
+
   createEffect(() => {
     return () => {
       cleanupPdfUrl()
@@ -266,29 +268,32 @@ export function FileMedia(props: { media?: FileMediaOptions; fallback: () => JSX
           const filename = cfg()?.path?.split("/").pop() ?? "document.pdf"
           if (dataUrl) {
             cleanupPdfUrl()
-            
+
             const base64 = dataUrl.split(",")[1]
             if (base64) {
               const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0))
               const blob = new Blob([bytes], { type: "application/pdf" })
               pdfObjectUrl = URL.createObjectURL(blob)
             }
-            
+
             return (
               <div class="flex flex-col gap-4 px-6 pb-4 h-full">
                 <div class="flex items-center justify-between">
                   <div class="text-14-semibold text-text-strong">{filename}</div>
-                  <button
-                    type="button"
-                    class="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-12-medium text-text-base hover:bg-surface-raised-base-hover hover:border-border-strong-base transition-colors cursor-pointer"
-                    onClick={() => {
-                      if (pdfObjectUrl) {
-                        window.open(pdfObjectUrl)
-                      }
-                    }}
-                  >
-                    {i18n.t("ui.fileMedia.pdf.open")}
-                  </button>
+                  <div class="flex items-center gap-2">
+                    {cfg()?.actions?.()}
+                    <button
+                      type="button"
+                      class="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-12-medium text-text-base hover:bg-surface-raised-base-hover hover:border-border-strong-base transition-colors cursor-pointer"
+                      onClick={() => {
+                        if (pdfObjectUrl) {
+                          window.open(pdfObjectUrl)
+                        }
+                      }}
+                    >
+                      {i18n.t("ui.fileMedia.pdf.open")}
+                    </button>
+                  </div>
                 </div>
                 <div class="flex flex-1 justify-center bg-background-stronger">
                   <embed

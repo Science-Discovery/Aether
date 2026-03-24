@@ -10,6 +10,7 @@ type WatcherOps = {
   hasFile: (path: string) => boolean
   isOpen?: (path: string) => boolean
   loadFile: (path: string) => void
+  closeFile?: (path: string) => void
   node: (path: string) => FileNode | undefined
   isDirLoaded: (path: string) => boolean
   refreshDir: (path: string) => void
@@ -45,6 +46,11 @@ export function invalidateFromWatcher(event: WatcherEvent, ops: WatcherOps) {
     return
   }
   if (kind !== "add" && kind !== "unlink") return
+
+  // When a file is deleted, close its tab if open
+  if (kind === "unlink" && ops.isOpen?.(path)) {
+    ops.closeFile?.(path)
+  }
 
   // Traverse up to find the nearest loaded ancestor directory and refresh it.
   // This handles the case where a new file is created inside a new (unloaded) subdirectory.

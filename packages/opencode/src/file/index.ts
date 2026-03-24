@@ -393,10 +393,16 @@ export namespace File {
     if (!Instance.containsPath(resolvedOld)) {
       throw new Error("Access denied: path escapes project directory")
     }
-    const newPath = path.join(path.dirname(resolvedOld), newName)
+    // If newName contains a path separator, treat it as a full relative path from project root
+    const newPath = newName.includes("/") || newName.includes("\\")
+      ? path.join(Instance.directory, newName)
+      : path.join(path.dirname(resolvedOld), newName)
     if (!Instance.containsPath(newPath)) {
       throw new Error("Access denied: path escapes project directory")
     }
+    // Ensure target directory exists
+    const targetDir = path.dirname(newPath)
+    await fs.promises.mkdir(targetDir, { recursive: true })
     await fs.promises.rename(resolvedOld, newPath)
     return newPath
   }

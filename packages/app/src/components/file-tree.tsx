@@ -11,6 +11,7 @@ import { Icon } from "@opencode-ai/ui/icon"
 import {
   createEffect,
   createMemo,
+  createSignal,
   For,
   Match,
   on,
@@ -22,6 +23,7 @@ import {
   type JSXElement,
   type ParentProps,
 } from "solid-js"
+import { TruncateMiddle } from "@/components/truncate-middle"
 import { Dynamic } from "solid-js/web"
 import type { FileNode } from "@opencode-ai/sdk/v2"
 
@@ -120,6 +122,8 @@ const FileTreeNode = (
       node: FileNode
       level: number
       active?: string
+      selected?: boolean
+      selectedPaths?: Set<string>
       nodeClass?: string
       draggable: boolean
       kinds?: ReadonlyMap<string, Kind>
@@ -131,6 +135,8 @@ const FileTreeNode = (
     "node",
     "level",
     "active",
+    "selected",
+    "selectedPaths",
     "nodeClass",
     "draggable",
     "kinds",
@@ -154,6 +160,7 @@ const FileTreeNode = (
       classList={{
         "w-full min-w-0 h-6 flex items-center justify-start gap-x-1.5 rounded-md px-1.5 py-0 text-left hover:bg-surface-raised-base-hover active:bg-surface-base-active transition-colors cursor-pointer": true,
         "bg-surface-base-active": local.node.path === local.active,
+        "bg-surface-raised-base-hover": !!local.selected && local.node.path !== local.active,
         ...(local.classList ?? {}),
         [local.class ?? ""]: !!local.class,
         [local.nodeClass ?? ""]: !!local.nodeClass,
@@ -162,24 +169,33 @@ const FileTreeNode = (
       draggable={local.draggable}
       onDragStart={(event: DragEvent) => {
         if (!local.draggable) return
-        event.dataTransfer?.setData("text/plain", `file:${local.node.path}`)
-        event.dataTransfer?.setData("text/uri-list", pathToFileUrl(local.node.path))
-        if (event.dataTransfer) event.dataTransfer.effectAllowed = "copy"
+        const sel = local.selectedPaths
+        if (sel && sel.size > 1 && sel.has(local.node.path)) {
+          // Drag all selected files
+          const paths = [...sel]
+          event.dataTransfer?.setData("text/plain", paths.map((p) => `file:${p}`).join("\n"))
+          event.dataTransfer?.setData("text/uri-list", paths.map(pathToFileUrl).join("\n"))
+          event.dataTransfer?.setData("application/x-filetree-multi", JSON.stringify(paths))
+        } else {
+          event.dataTransfer?.setData("text/plain", `file:${local.node.path}`)
+          event.dataTransfer?.setData("text/uri-list", pathToFileUrl(local.node.path))
+        }
+        if (event.dataTransfer) event.dataTransfer.effectAllowed = "copyMove"
         withFileDragImage(event)
       }}
       {...rest}
     >
       {local.children}
-      <span
-        classList={{
-          "flex-1 min-w-0 text-12-medium whitespace-nowrap truncate": true,
-          "text-text-weaker": local.node.ignored,
-          "text-text-weak": !local.node.ignored && !active(),
-        }}
+      <TruncateMiddle
+        text={local.node.name}
+        class={[
+          "flex-1 min-w-0 text-12-medium whitespace-nowrap overflow-hidden relative",
+          local.node.ignored ? "text-text-weaker" : !active() ? "text-text-weak" : "",
+        ]
+          .filter(Boolean)
+          .join(" ")}
         style={active() ? color() : undefined}
-      >
-        {local.node.name}
-      </span>
+      />
       {(() => {
         const value = kind()
         if (!value) return null
@@ -206,10 +222,20 @@ export default function FileTree(props: {
   modified?: readonly string[]
   kinds?: ReadonlyMap<string, Kind>
   draggable?: boolean
-  onFileClick?: (file: FileNode) => void
+  selectedPaths?: Set<string>
+  onFileClick?: (file: FileNode, event?: MouseEvent) => void
   onFileCreate?: (dir: string, type: "file" | "directory") => void
   onFileDelete?: (node: FileNode) => void
   onFileRename?: (node: FileNode) => void
+  /** Bulk operations for multi-select */
+  onMultiDelete?: (paths: string[]) => void
+  onMultiCopyPaths?: (paths: string[]) => void
+  onMultiDownload?: (paths: string[]) => void
+  onMultiMove?: (paths: string[], targetDir: string) => void
+  onMultiCopy?: (paths: string[]) => void
+  onMultiCut?: (paths: string[]) => void
+  /** Drag-drop into folders */
+  onFileDrop?: (paths: string[], targetDir: string) => void
 
   _filter?: Filter
   _marks?: Set<string>
@@ -404,6 +430,66 @@ export default function FileTree(props: {
           const kind = () => visibleKind(node, kinds(), marks())
           const active = () => !!kind() && !node.ignored
 
+          const isMultiSelected = () => {
+            const sel = props.selectedPaths
+            return sel && sel.size > 1 && sel.has(node.path)
+          }
+
+          const multiContextMenu = (trigger: () => JSXElement) => (
+            <ContextMenu>
+              <ContextMenu.Trigger as="div" class="w-full">
+                {trigger()}
+              </ContextMenu.Trigger>
+              <ContextMenu.Portal>
+                <ContextMenu.Content>
+                  <ContextMenu.Item
+                    onSelect={() => {
+                      const paths = [...(props.selectedPaths ?? [])]
+                      props.onMultiCopy?.(paths)
+                    }}
+                  >
+                    <ContextMenu.ItemLabel>复制（{props.selectedPaths?.size ?? 0} 项）</ContextMenu.ItemLabel>
+                  </ContextMenu.Item>
+                  <ContextMenu.Item
+                    onSelect={() => {
+                      const paths = [...(props.selectedPaths ?? [])]
+                      props.onMultiCut?.(paths)
+                    }}
+                  >
+                    <ContextMenu.ItemLabel>剪切（{props.selectedPaths?.size ?? 0} 项）</ContextMenu.ItemLabel>
+                  </ContextMenu.Item>
+                  <ContextMenu.Item
+                    onSelect={() => {
+                      const paths = [...(props.selectedPaths ?? [])]
+                      navigator.clipboard.writeText(paths.join("\n"))
+                      showToast({ variant: "success", title: `已复制 ${paths.length} 个路径` })
+                    }}
+                  >
+                    <ContextMenu.ItemLabel>复制路径（{props.selectedPaths?.size ?? 0} 项）</ContextMenu.ItemLabel>
+                  </ContextMenu.Item>
+                  <ContextMenu.Item
+                    onSelect={() => {
+                      const paths = [...(props.selectedPaths ?? [])]
+                      props.onMultiDownload?.(paths)
+                    }}
+                  >
+                    <ContextMenu.ItemLabel>下载（{props.selectedPaths?.size ?? 0} 项）</ContextMenu.ItemLabel>
+                  </ContextMenu.Item>
+                  <ContextMenu.Separator />
+                  <ContextMenu.Item
+                    onSelect={() => {
+                      const paths = [...(props.selectedPaths ?? [])]
+                      props.onMultiDelete?.(paths)
+                    }}
+                    class="text-red-500 focus:text-red-500"
+                  >
+                    <ContextMenu.ItemLabel>删除（{props.selectedPaths?.size ?? 0} 项）</ContextMenu.ItemLabel>
+                  </ContextMenu.Item>
+                </ContextMenu.Content>
+              </ContextMenu.Portal>
+            </ContextMenu>
+          )
+
           const contextMenu = (trigger: () => JSXElement) => (
             <ContextMenu>
               <ContextMenu.Trigger as="div" class="w-full">
@@ -543,10 +629,61 @@ export default function FileTree(props: {
             </ContextMenu>
           )
 
+          const wrapContextMenu = (trigger: () => JSXElement) =>
+            isMultiSelected() ? multiContextMenu(trigger) : contextMenu(trigger)
+
+          const [dragOver, setDragOver] = createSignal(false)
+          let dragCounter = 0
+
+          const handleDirDragEnter = (e: DragEvent) => {
+            if (!e.dataTransfer?.types.includes("text/plain")) return
+            e.preventDefault()
+            dragCounter++
+            setDragOver(true)
+          }
+          const handleDirDragLeave = () => {
+            dragCounter--
+            if (dragCounter <= 0) {
+              dragCounter = 0
+              setDragOver(false)
+            }
+          }
+          const handleDirDragOver = (e: DragEvent) => {
+            if (!e.dataTransfer?.types.includes("text/plain")) return
+            e.preventDefault()
+            if (e.dataTransfer) e.dataTransfer.dropEffect = "move"
+          }
+          const handleDirDrop = (e: DragEvent) => {
+            e.preventDefault()
+            e.stopPropagation()
+            dragCounter = 0
+            setDragOver(false)
+            const multi = e.dataTransfer?.getData("application/x-filetree-multi")
+            if (multi) {
+              try {
+                const paths = JSON.parse(multi) as string[]
+                const filtered = paths.filter((p) => {
+                  const parent = p.includes("/") ? p.slice(0, p.lastIndexOf("/")) : ""
+                  return parent !== node.path && p !== node.path
+                })
+                if (filtered.length > 0) props.onFileDrop?.(filtered, node.path)
+              } catch { /* ignore */ }
+              return
+            }
+            const plain = e.dataTransfer?.getData("text/plain")
+            if (plain?.startsWith("file:")) {
+              const filePath = plain.slice("file:".length)
+              const parent = filePath.includes("/") ? filePath.slice(0, filePath.lastIndexOf("/")) : ""
+              if (parent !== node.path && filePath !== node.path) {
+                props.onFileDrop?.([filePath], node.path)
+              }
+            }
+          }
+
           return (
             <Switch>
               <Match when={node.type === "directory"}>
-                {contextMenu(() => (
+                {wrapContextMenu(() => (
                   <Collapsible
                     variant="ghost"
                     class="w-full"
@@ -555,11 +692,30 @@ export default function FileTree(props: {
                     open={expanded()}
                     onOpenChange={(open) => (open ? file.tree.expand(node.path) : file.tree.collapse(node.path))}
                   >
-                    <Collapsible.Trigger>
-                      <FileTreeNode
+                    <div
+                      onDragEnter={handleDirDragEnter}
+                      onDragLeave={handleDirDragLeave}
+                      onDragOver={handleDirDragOver}
+                      onDrop={handleDirDrop}
+                      classList={{
+                        "rounded-md": true,
+                        "outline outline-2 outline-blue-400 bg-blue-400/10": dragOver(),
+                      }}
+                      onClick={(e: MouseEvent) => {
+                        if (e.metaKey || e.ctrlKey) {
+                          e.preventDefault()
+                          e.stopPropagation()
+                          props.onFileClick?.(node, e)
+                        }
+                      }}
+                    >
+                      <Collapsible.Trigger>
+                        <FileTreeNode
                         node={node}
                         level={level}
                         active={props.active}
+                        selected={props.selectedPaths?.has(node.path)}
+                        selectedPaths={props.selectedPaths}
                         nodeClass={props.nodeClass}
                         draggable={draggable()}
                         kinds={kinds()}
@@ -570,6 +726,7 @@ export default function FileTree(props: {
                         </div>
                       </FileTreeNode>
                     </Collapsible.Trigger>
+                    </div>
                     <Collapsible.Content class="relative pt-0.5">
                       <div
                         classList={{
@@ -591,10 +748,18 @@ export default function FileTree(props: {
                           kinds={props.kinds}
                           active={props.active}
                           draggable={props.draggable}
+                          selectedPaths={props.selectedPaths}
                           onFileClick={props.onFileClick}
                           onFileCreate={props.onFileCreate}
                           onFileDelete={props.onFileDelete}
                           onFileRename={props.onFileRename}
+                          onMultiDelete={props.onMultiDelete}
+                          onMultiCopyPaths={props.onMultiCopyPaths}
+                          onMultiDownload={props.onMultiDownload}
+                          onMultiMove={props.onMultiMove}
+                          onMultiCopy={props.onMultiCopy}
+                          onMultiCut={props.onMultiCut}
+                          onFileDrop={props.onFileDrop}
                           _filter={filter()}
                           _marks={marks()}
                           _deeps={deeps()}
@@ -607,18 +772,20 @@ export default function FileTree(props: {
                 ))}
               </Match>
               <Match when={node.type === "file"}>
-                {contextMenu(() => (
+                {wrapContextMenu(() => (
                   <FileTreeNode
                     node={node}
                     level={level}
                     active={props.active}
+                    selected={props.selectedPaths?.has(node.path)}
+                    selectedPaths={props.selectedPaths}
                     nodeClass={props.nodeClass}
                     draggable={draggable()}
                     kinds={kinds()}
                     marks={marks()}
                     as="button"
                     type="button"
-                    onClick={() => props.onFileClick?.(node)}
+                    onClick={(e: MouseEvent) => props.onFileClick?.(node, e)}
                   >
                     <div class="w-4 shrink-0" />
                     <Switch>

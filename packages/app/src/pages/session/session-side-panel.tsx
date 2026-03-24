@@ -109,6 +109,23 @@ export function SessionSidePanel(props: {
         try {
           await sdk.client.file.delete({ path: node.path })
           file.tree.refresh(parentDir)
+          // Close tabs for the deleted file/directory
+          const tabsToClose = tabs().all().filter((tab) => {
+            const tabPath = file.pathFromTab(tab)
+            if (!tabPath) return false
+            if (node.type === "directory") {
+              return tabPath === node.path || tabPath.startsWith(node.path + "/")
+            }
+            return tabPath === node.path
+          })
+          for (const tab of tabsToClose) tabs().close(tab)
+          // Also clear multi-select if the deleted path was selected
+          setSelectedPaths((prev) => {
+            if (!prev.has(node.path)) return prev
+            const next = new Set(prev)
+            next.delete(node.path)
+            return next
+          })
           if (params.id) void sync.session.diff(params.id, { force: true })
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err)
@@ -344,6 +361,144 @@ export function SessionSidePanel(props: {
   const [store, setStore] = createStore({
     activeDraggable: undefined as string | undefined,
   })
+
+  // Multi-select state for file tree (Cmd/Ctrl click) — 使用共享状态
+  const { selectedPaths, setSelectedPaths } = file
+
+  const handleFileClickWithMultiSelect = (node: import("@opencode-ai/sdk/v2").FileNode, event?: MouseEvent) => {
+    if (event && (event.metaKey || event.ctrlKey)) {
+      // Cmd/Ctrl click: toggle selection
+      setSelectedPaths((prev) => {
+        const next = new Set(prev)
+        if (next.has(node.path)) {
+          next.delete(node.path)
+        } else {
+          next.add(node.path)
+        }
+        return next
+      })
+    } else {
+      // Normal click: open file and mark as selected
+      setSelectedPaths(new Set<string>([node.path]))
+      openTab(file.tab(node.path))
+    }
+  }
+
+  const handleMultiDelete = (paths: string[]) => {
+    dialog.show(() => {
+      const doDelete = async () => {
+        dialog.close()
+        let success = 0
+        let failed = 0
+        const dirsToRefresh = new Set<string>()
+        for (const p of paths) {
+          const parentDir = p.includes("/") ? p.slice(0, p.lastIndexOf("/")) : ""
+          try {
+            await sdk.client.file.delete({ path: p })
+            dirsToRefresh.add(parentDir)
+            // Close any open tab for this path
+            const tabToClose = tabs().all().find((tab) => file.pathFromTab(tab) === p)
+            if (tabToClose) tabs().close(tabToClose)
+            success++
+          } catch {
+            failed++
+          }
+        }
+        for (const dir of dirsToRefresh) file.tree.refresh(dir)
+        setSelectedPaths(new Set<string>())
+        if (params.id) void sync.session.diff(params.id, { force: true })
+        if (failed > 0) {
+          showToast({ variant: "error", title: `删除完成：${success} 成功，${failed} 失败` })
+        } else {
+          showToast({ variant: "success", title: `已删除 ${success} 项` })
+        }
+      }
+      return (
+        <Dialog
+          title="批量删除"
+          description={`确认删除选中的 ${paths.length} 个文件/文件夹？此操作不可撤销。`}
+          action={
+            <div style={{ display: "flex", gap: "8px" }}>
+              <button onClick={() => dialog.close()} style={{ padding: "4px 12px", cursor: "pointer" }}>
+                取消
+              </button>
+              <button
+                autofocus
+                onClick={doDelete}
+                style={{ padding: "4px 12px", cursor: "pointer", "font-weight": "bold", color: "red" }}
+              >
+                删除
+              </button>
+            </div>
+          }
+        />
+      )
+    })
+  }
+
+  const handleMultiDownload = async (paths: string[]) => {
+    let count = 0
+    for (const p of paths) {
+      try {
+        const res = await sdk.client.file.read({ path: p })
+        const content = res.data?.content ?? ""
+        const blob = new Blob([content], { type: "text/plain" })
+        const url = URL.createObjectURL(blob)
+        const a = document.createElement("a")
+        a.href = url
+        a.download = p.split("/").pop() ?? p
+        document.body.appendChild(a)
+        a.click()
+        document.body.removeChild(a)
+        URL.revokeObjectURL(url)
+        count++
+      } catch {
+        // skip files that can't be read (directories, binary, etc.)
+      }
+    }
+    showToast({ variant: "success", title: `已下载 ${count} 个文件` })
+  }
+
+  // Clipboard state for copy/cut
+  const [clipboard, setClipboard] = createSignal<{ paths: string[]; mode: "copy" | "cut" } | null>(null)
+
+  const handleMultiCopy = (paths: string[]) => {
+    setClipboard({ paths, mode: "copy" })
+    showToast({ variant: "success", title: `已复制 ${paths.length} 项` })
+  }
+
+  const handleMultiCut = (paths: string[]) => {
+    setClipboard({ paths, mode: "cut" })
+    showToast({ variant: "success", title: `已剪切 ${paths.length} 项` })
+  }
+
+  const handleFileDrop = async (paths: string[], targetDir: string) => {
+    let success = 0
+    let failed = 0
+    const dirsToRefresh = new Set<string>()
+    dirsToRefresh.add(targetDir)
+    for (const p of paths) {
+      const fileName = p.includes("/") ? p.slice(p.lastIndexOf("/") + 1) : p
+      const parentDir = p.includes("/") ? p.slice(0, p.lastIndexOf("/")) : ""
+      const newPath = targetDir ? `${targetDir}/${fileName}` : fileName
+      if (newPath === p) continue
+      try {
+        await sdk.client.file.rename({ path: p, name: newPath })
+        dirsToRefresh.add(parentDir)
+        success++
+      } catch {
+        failed++
+      }
+    }
+    for (const dir of dirsToRefresh) file.tree.refresh(dir)
+    setSelectedPaths(new Set<string>())
+    if (params.id) void sync.session.diff(params.id, { force: true })
+    if (failed > 0) {
+      showToast({ variant: "error", title: `移动完成：${success} 成功，${failed} 失败` })
+    } else if (success > 0) {
+      showToast({ variant: "success", title: `已移动 ${success} 项` })
+    }
+  }
 
   const handleDragStart = (event: unknown) => {
     const id = getDraggableId(event)
@@ -652,10 +807,16 @@ export function SessionSidePanel(props: {
                         class="pt-3"
                         modified={diffFiles()}
                         kinds={kinds()}
-                        onFileClick={(node) => openTab(file.tab(node.path))}
+                        selectedPaths={selectedPaths()}
+                        onFileClick={handleFileClickWithMultiSelect}
                         onFileCreate={handleFileCreate}
                         onFileDelete={handleFileDelete}
                         onFileRename={handleFileRename}
+                        onMultiDelete={handleMultiDelete}
+                        onMultiDownload={handleMultiDownload}
+                        onMultiCopy={handleMultiCopy}
+                        onMultiCut={handleMultiCut}
+                        onFileDrop={handleFileDrop}
                       />
                     </Match>
                   </Switch>

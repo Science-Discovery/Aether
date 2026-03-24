@@ -1,5 +1,10 @@
 @import "@opencode-ai/ui/styles/tailwind";
 
+/* 选中文字在失去焦点后保留的视觉高亮 */
+::highlight(editor-saved-selection) {
+  background-color: rgba(0, 100, 200, 0.2);
+}
+
 /* Word wrap for file viewer */
 .file-word-wrap .cm-line {
   white-space: pre-wrap !important;
