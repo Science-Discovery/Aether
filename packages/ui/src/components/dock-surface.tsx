@@ -21,10 +21,11 @@ export function DockShell(props: ComponentProps<"div">) {
 }
 
 export function DockShellForm(props: ComponentProps<"form">) {
-  const [split, rest] = splitProps(props, ["children", "class", "classList"])
+  const [split, rest] = splitProps(props, ["children", "class", "classList", "ref"])
   return (
     <form
       {...rest}
+      ref={split.ref}
       data-dock-surface="shell"
       classList={{
         ...(split.classList ?? {}),

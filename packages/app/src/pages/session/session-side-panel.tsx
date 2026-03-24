@@ -362,8 +362,8 @@ export function SessionSidePanel(props: {
     activeDraggable: undefined as string | undefined,
   })
 
-  // Multi-select state for file tree (Cmd/Ctrl click)
-  const [selectedPaths, setSelectedPaths] = createSignal<Set<string>>(new Set())
+  // Multi-select state for file tree (Cmd/Ctrl click) — 使用共享状态
+  const { selectedPaths, setSelectedPaths } = file
 
   const handleFileClickWithMultiSelect = (node: import("@opencode-ai/sdk/v2").FileNode, event?: MouseEvent) => {
     if (event && (event.metaKey || event.ctrlKey)) {
@@ -378,8 +378,8 @@ export function SessionSidePanel(props: {
         return next
       })
     } else {
-      // Normal click: clear selection and open file
-      setSelectedPaths(new Set<string>())
+      // Normal click: open file and mark as selected
+      setSelectedPaths(new Set<string>([node.path]))
       openTab(file.tab(node.path))
     }
   }

@@ -27,6 +27,8 @@ type BuildRequestPartsInput = {
   messageID: string
   sessionID: string
   sessionDirectory: string
+  selectedPaths?: string[]
+  pdfSelectedText?: string
 }
 
 const absolute = (directory: string, path: string) => {
@@ -167,6 +169,26 @@ export function buildRequestParts(input: BuildRequestPartsInput) {
   })
 
   requestParts.push(...files, ...context, ...agents, ...images)
+
+  // 如果有打开的文件标签页，附加一条合成信息让 AI 知道
+  if (input.selectedPaths && input.selectedPaths.length > 0) {
+    requestParts.push({
+      id: Identifier.ascending("part"),
+      type: "text",
+      text: `[用户当前打开了以下文件标签页: ${input.selectedPaths.join(", ")}]`,
+      synthetic: true,
+    } satisfies PromptRequestPart)
+  }
+
+  // 如果用户选中了文字，以合成信息告知 AI（用户不可见）
+  if (input.pdfSelectedText) {
+    requestParts.push({
+      id: Identifier.ascending("part"),
+      type: "text",
+      text: `[用户当前在编辑器中选中了一段文字，内容如下:\n${input.pdfSelectedText}]`,
+      synthetic: true,
+    } satisfies PromptRequestPart)
+  }
 
   return {
     requestParts,

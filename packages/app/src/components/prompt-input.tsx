@@ -1,6 +1,6 @@
 import { useFilteredList } from "@opencode-ai/ui/hooks"
 import { useSpring } from "@opencode-ai/ui/motion-spring"
-import { createEffect, on, Component, Show, onCleanup, createMemo, createSignal } from "solid-js"
+import { createEffect, on, Component, Show, For, onCleanup, createMemo, createSignal } from "solid-js"
 import { createStore } from "solid-js/store"
 import { useLocal } from "@/context/local"
 import { selectionFromLines, type SelectedLineRange, useFile } from "@/context/file"
@@ -56,6 +56,7 @@ import { PromptImageAttachments } from "./prompt-input/image-attachments"
 import { PromptDragOverlay } from "./prompt-input/drag-overlay"
 import { promptPlaceholder } from "./prompt-input/placeholder"
 import { ImagePreview } from "@opencode-ai/ui/image-preview"
+import { FileIcon } from "@opencode-ai/ui/file-icon"
 import { KnowledgeButton } from "@/components/knowledge-button"
 import { DialogDefaultSkills } from "@/components/dialog-default-skills"
 
@@ -121,6 +122,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
   let fileInputRef: HTMLInputElement | undefined
   let scrollRef!: HTMLDivElement
   let slashPopoverRef!: HTMLDivElement
+  let shellFormRef: HTMLFormElement | undefined
 
   const mirror = { input: false }
   const inset = 56
@@ -1055,6 +1057,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     },
     addPart,
     readClipboardImage: platform.readClipboardImage,
+    dropZone: () => shellFormRef,
   })
 
   const variants = createMemo(() => ["default", ...local.model.variant.list()])
@@ -1097,6 +1100,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     onQueue: props.onQueue,
     onAbort: props.onAbort,
     onSubmit: props.onSubmit,
+    openTabPaths: recent,
   })
 
   const handleKeyDown = (event: KeyboardEvent) => {
@@ -1279,6 +1283,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
         t={(key) => language.t(key as Parameters<typeof language.t>[0])}
       />
       <DockShellForm
+        ref={shellFormRef}
         onSubmit={handleSubmit}
         classList={{
           "group/prompt-input": true,
@@ -1304,6 +1309,35 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
           }}
           t={(key) => language.t(key as Parameters<typeof language.t>[0])}
         />
+        <Show when={recent().length > 0 || files.selectedText()}>
+          <div class="flex flex-nowrap items-center gap-1.5 px-2 py-1 overflow-x-auto no-scrollbar">
+            <span class="text-11-regular text-text-weak shrink-0">AI 可见:</span>
+            <For each={recent()}>
+              {(path) => {
+                const name = path.includes("/") ? path.slice(path.lastIndexOf("/") + 1) : path
+                return (
+                  <div class="shrink-0 flex items-center gap-1 rounded bg-surface-info-base/10 px-1.5 py-0.5">
+                    <FileIcon node={{ path, type: "file" }} class="size-3" />
+                    <span class="text-11-regular text-text-strong">{name}</span>
+                  </div>
+                )
+              }}
+            </For>
+            <Show when={files.selectedText()}>
+              <div class="shrink-0 flex items-center gap-1 rounded bg-surface-warning-base/10 px-1.5 py-0.5">
+                <span class="text-11-regular text-text-weak">
+                  有选中文字
+                </span>
+                <button
+                  class="text-text-weak hover:text-text-strong ml-0.5 text-xs leading-none"
+                  onClick={() => files.clearSelectedText()}
+                >
+                  ×
+                </button>
+              </div>
+            </Show>
+          </div>
+        </Show>
         <PromptImageAttachments
           attachments={imageAttachments()}
           onOpen={(attachment) =>

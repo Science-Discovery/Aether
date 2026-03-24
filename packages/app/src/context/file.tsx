@@ -1,4 +1,4 @@
-import { batch, createEffect, createMemo, onCleanup } from "solid-js"
+import { batch, createEffect, createMemo, createSignal, onCleanup } from "solid-js"
 import { createStore, produce, reconcile } from "solid-js/store"
 import { createSimpleContext } from "@opencode-ai/ui/context"
 import { showToast } from "@opencode-ai/ui/toast"
@@ -61,6 +61,109 @@ export const { use: useFile, provider: FileProvider } = createSimpleContext({
 
     const scope = createMemo(() => sdk.directory)
     const path = createPathHelpers(scope)
+
+    // 文件树中选中的文件/文件夹路径（共享状态，供聊天面板读取）
+    const [selectedPaths, setSelectedPaths] = createSignal<Set<string>>(new Set())
+
+    // 编辑器中选中的文字（共享状态，供聊天面板读取）
+    // 当用户点击聊天框或文件树时保留高亮，点击文件阅读区域时正常清除
+    const [selectedText, setSelectedText] = createSignal("")
+    let savedRange: Range | null = null
+    const MARK_CLASS = "saved-selection-mark"
+
+    // 检测 CSS Highlight API 是否可用
+    const hasHighlightAPI = typeof globalThis.Highlight !== "undefined" && !!CSS.highlights
+
+    // 使用 CSS Highlight API 或 DOM mark 包裹方式保留视觉高亮
+    const applyHighlight = (range: Range) => {
+      if (hasHighlightAPI) {
+        try {
+          CSS.highlights!.set("editor-saved-selection", new Highlight(range))
+        } catch { /* 静默失败 */ }
+      } else {
+        // 备用方案：用 <mark> 包裹选中内容
+        try {
+          clearDomMarks()
+          const contents = range.cloneContents()
+          // 只在单个文本节点或简单内容时包裹
+          const mark = document.createElement("mark")
+          mark.className = MARK_CLASS
+          mark.style.backgroundColor = "rgba(0, 100, 200, 0.2)"
+          mark.style.color = "inherit"
+          range.surroundContents(mark)
+        } catch {
+          // surroundContents 对跨元素的 range 会失败，用 fallback
+          clearDomMarks()
+        }
+      }
+    }
+
+    const clearDomMarks = () => {
+      document.querySelectorAll(`.${MARK_CLASS}`).forEach((mark) => {
+        const parent = mark.parentNode
+        if (!parent) return
+        while (mark.firstChild) parent.insertBefore(mark.firstChild, mark)
+        parent.removeChild(mark)
+      })
+    }
+
+    const clearHighlight = () => {
+      if (hasHighlightAPI) {
+        try { CSS.highlights?.delete("editor-saved-selection") } catch {}
+      } else {
+        clearDomMarks()
+      }
+    }
+
+    const isFileContentArea = (el: HTMLElement | null) =>
+      !!el && (
+        !!el.closest("[data-file-content]") ||
+        el.tagName === "EMBED" ||
+        el.tagName === "IFRAME"
+      )
+
+    // mousedown: 点击文件内容区域→清除；点击其他任何地方→立刻应用高亮
+    const handleMousedown = (e: MouseEvent) => {
+      const target = e.target as HTMLElement | null
+      if (isFileContentArea(target)) {
+        // 点击文件内容区域——清除高亮和快照
+        clearHighlight()
+        savedRange = null
+        setSelectedText("")
+      } else if (savedRange) {
+        // 点击非文件内容区域——立刻应用高亮（不等 selectionchange）
+        applyHighlight(savedRange)
+      }
+    }
+    document.addEventListener("mousedown", handleMousedown, true)
+
+    // selectionchange: 只用来捕获文件内容区域内的新选中
+    const handleSelectionChange = () => {
+      const selection = document.getSelection()
+      if (!selection || selection.isCollapsed) return
+
+      // 只关心文件内容区域内产生的选中
+      const anchor = selection.anchorNode
+      const el = anchor instanceof HTMLElement ? anchor : anchor?.parentElement
+      if (!isFileContentArea(el ?? null)) return
+
+      const text = selection.toString().trim()
+      if (text) {
+        clearHighlight()
+        setSelectedText(text)
+        try {
+          savedRange = selection.getRangeAt(0).cloneRange()
+        } catch {
+          savedRange = null
+        }
+      }
+    }
+    document.addEventListener("selectionchange", handleSelectionChange)
+    onCleanup(() => {
+      document.removeEventListener("selectionchange", handleSelectionChange)
+      document.removeEventListener("mousedown", handleMousedown, true)
+      clearHighlight()
+    })
     const tabs = layout.tabs(() => `${params.dir}${params.id ? "/" + params.id : ""}`)
 
     const inflight = new Map<string, Promise<void>>()
@@ -279,6 +382,14 @@ export const { use: useFile, provider: FileProvider } = createSimpleContext({
       setSelectedLines,
       searchFiles: (query: string) => search(query, "false"),
       searchFilesAndDirectories: (query: string) => search(query, "true"),
+      selectedPaths,
+      setSelectedPaths,
+      selectedText,
+      clearSelectedText: () => {
+        setSelectedText("")
+        savedRange = null
+        clearHighlight()
+      },
     }
   },
 })

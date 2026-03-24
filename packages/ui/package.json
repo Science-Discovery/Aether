@@ -63,6 +63,7 @@
     "motion": "12.34.5",
     "motion-dom": "12.34.3",
     "motion-utils": "12.29.2",
+    "pdfjs-dist": "5.5.207",
     "remeda": "catalog:",
     "shiki": "catalog:",
     "solid-js": "catalog:",

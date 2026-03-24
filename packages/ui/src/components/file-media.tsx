@@ -155,16 +155,16 @@ export function FileMedia(props: { media?: FileMediaOptions; fallback: () => JSX
       { defer: true },
     ),
   )
-  
+
   let pdfObjectUrl: string | null = null
-  
+
   const cleanupPdfUrl = () => {
     if (pdfObjectUrl) {
       URL.revokeObjectURL(pdfObjectUrl)
       pdfObjectUrl = null
     }
   }
-  
+
   createEffect(() => {
     return () => {
       cleanupPdfUrl()
@@ -268,14 +268,14 @@ export function FileMedia(props: { media?: FileMediaOptions; fallback: () => JSX
           const filename = cfg()?.path?.split("/").pop() ?? "document.pdf"
           if (dataUrl) {
             cleanupPdfUrl()
-            
+
             const base64 = dataUrl.split(",")[1]
             if (base64) {
               const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0))
               const blob = new Blob([bytes], { type: "application/pdf" })
               pdfObjectUrl = URL.createObjectURL(blob)
             }
-            
+
             return (
               <div class="flex flex-col gap-4 px-6 pb-4 h-full">
                 <div class="flex items-center justify-between">

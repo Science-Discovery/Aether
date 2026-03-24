@@ -5,6 +5,7 @@ import { Binary } from "@opencode-ai/util/binary"
 import { useNavigate, useParams } from "@solidjs/router"
 import type { Accessor } from "solid-js"
 import type { FileSelection } from "@/context/file"
+import { useFile } from "@/context/file"
 import { useGlobalSync } from "@/context/global-sync"
 import { useLanguage } from "@/context/language"
 import { useLayout } from "@/context/layout"
@@ -35,6 +36,8 @@ export type FollowupDraft = {
   agent: string
   model: { providerID: string; modelID: string }
   variant?: string
+  selectedPaths?: string[]
+  pdfSelectedText?: string
 }
 
 type FollowupSendInput = {
@@ -114,6 +117,8 @@ export async function sendFollowupDraft(input: FollowupSendInput) {
     sessionID: input.draft.sessionID,
     messageID,
     sessionDirectory: input.draft.sessionDirectory,
+    selectedPaths: input.draft.selectedPaths,
+    pdfSelectedText: input.draft.pdfSelectedText,
   })
 
   const message: Message = {
@@ -188,6 +193,7 @@ type PromptSubmitInput = {
   onQueue?: (draft: FollowupDraft) => void
   onAbort?: () => void
   onSubmit?: () => void
+  openTabPaths?: Accessor<string[]>
 }
 
 type CommentItem = {
@@ -211,6 +217,7 @@ export function createPromptSubmit(input: PromptSubmitInput) {
   const language = useLanguage()
   const params = useParams()
   const knowledge = useKnowledge()
+  const fileCtx = useFile()
 
   const errorMessage = (err: unknown) => {
     if (err && typeof err === "object" && "data" in err) {
@@ -394,6 +401,8 @@ export function createPromptSubmit(input: PromptSubmitInput) {
     }
     const agent = currentAgent.name
     const context = prompt.context.items().slice()
+    const openPaths = input.openTabPaths?.() ?? []
+    const selText = fileCtx.selectedText()
     const draft: FollowupDraft = {
       sessionID: session.id,
       sessionDirectory,
@@ -402,6 +411,8 @@ export function createPromptSubmit(input: PromptSubmitInput) {
       agent,
       model,
       variant,
+      selectedPaths: openPaths.length > 0 ? openPaths : undefined,
+      pdfSelectedText: selText || undefined,
     }
 
     const clearInput = () => {

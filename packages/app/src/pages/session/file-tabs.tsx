@@ -503,20 +503,20 @@ export function FileTabContent(props: { tab: string }) {
   const renderFile = (source: string) => {
     if (isMarkdown()) {
       return (
-        <div class="relative px-6 pb-40 select-text">
+        <div class="relative px-6 pb-40 select-text" data-file-content>
           <Markdown text={source} cacheKey={cacheKey()} />
         </div>
       )
     }
     if (wordWrap()) {
       return (
-        <div class="relative px-6 pb-40 select-text">
+        <div class="relative px-6 pb-40 select-text" data-file-content>
           <pre class="text-sm font-mono leading-relaxed whitespace-pre-wrap break-words text-text-base">{source}</pre>
         </div>
       )
     }
     return (
-      <div class="relative overflow-hidden pb-40">
+      <div class="relative overflow-hidden pb-40" data-file-content>
         <Dynamic
           component={fileComponent}
           mode="text"
