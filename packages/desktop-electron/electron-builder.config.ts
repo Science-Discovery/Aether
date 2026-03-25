@@ -6,6 +6,8 @@ const channel = (() => {
   return "dev"
 })()
 
+const updater = process.env.OPENCODE_UPDATER_CHANNEL ?? "latest"
+
 const getBase = (): Configuration => ({
   artifactName: "aether-${os}-${arch}.${ext}",
   directories: {
@@ -102,7 +104,7 @@ function getConfig() {
         appId: "com.aether.desktop",
         productName: "Aether",
         protocols: { name: "Aether", schemes: ["aether"] },
-        publish: { provider: "github", owner: "anomalyco", repo: "aether", channel: "latest" },
+        publish: { provider: "github", owner: "Science-Discovery", repo: "Aether", channel: updater },
         rpm: { packageName: "aether" },
       }
     }

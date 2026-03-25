@@ -1,9 +1,10 @@
-import { Component, Show, createMemo, createResource, type JSX } from "solid-js"
+import { Component, Show, createEffect, createMemo, createResource, type JSX } from "solid-js"
 import { createStore } from "solid-js/store"
 import { Button } from "@opencode-ai/ui/button"
 import { Icon } from "@opencode-ai/ui/icon"
 import { Select } from "@opencode-ai/ui/select"
 import { Switch } from "@opencode-ai/ui/switch"
+import { TextField } from "@opencode-ai/ui/text-field"
 import { Tooltip } from "@opencode-ai/ui/tooltip"
 import { useTheme, type ColorScheme } from "@opencode-ai/ui/theme"
 import { showToast } from "@opencode-ai/ui/toast"
@@ -53,6 +54,33 @@ export const SettingsGeneral: Component = () => {
   })
 
   const linux = createMemo(() => platform.platform === "desktop" && platform.os === "linux")
+  const proxied = createMemo(() => !!platform.getProxyConfig && !!platform.setProxyConfig)
+  const [proxy, setProxy] = createStore({
+    busy: false,
+    loaded: false,
+    enabled: false,
+    httpHost: "",
+    httpPort: "8080",
+    httpsHost: "",
+    httpsPort: "8080",
+  })
+
+  createEffect(() => {
+    if (!proxied()) return
+    void platform
+      .getProxyConfig?.()
+      .then((cfg) => {
+        if (!cfg) return
+        setProxy("enabled", cfg.enabled)
+        setProxy("httpHost", cfg.http.host)
+        setProxy("httpPort", `${cfg.http.port}`)
+        setProxy("httpsHost", cfg.https.host)
+        setProxy("httpsPort", `${cfg.https.port}`)
+      })
+      .finally(() => {
+        setProxy("loaded", true)
+      })
+  })
 
   const modelOptions = createMemo(() => {
     const none = { value: "", label: language.t("settings.general.row.defaultModel.none"), providerID: "" }
@@ -145,7 +173,6 @@ export const SettingsGeneral: Component = () => {
     { value: "queue", label: language.t("settings.general.row.followup.option.queue") },
     { value: "steer", label: language.t("settings.general.row.followup.option.steer") },
   ])
-
   const languageOptions = createMemo(() =>
     language.locales.map((locale) => ({
       value: locale,
@@ -336,6 +363,57 @@ export const SettingsGeneral: Component = () => {
       </SettingsList>
     </div>
   )
+
+  const cfg = () => {
+    const httpHost = proxy.httpHost.trim()
+    const httpPort = Number.parseInt(proxy.httpPort, 10)
+    const httpsHost = proxy.httpsHost.trim()
+    const httpsPort = Number.parseInt(proxy.httpsPort, 10)
+    if (proxy.enabled && !httpHost && !httpsHost) {
+      showToast({ title: language.t("settings.general.proxy.toast.invalidHost") })
+      return
+    }
+    if (proxy.enabled && httpHost && (!Number.isInteger(httpPort) || httpPort < 1 || httpPort > 65535)) {
+      showToast({ title: language.t("settings.general.proxy.toast.invalidHttpPort") })
+      return
+    }
+    if (proxy.enabled && httpsHost && (!Number.isInteger(httpsPort) || httpsPort < 1 || httpsPort > 65535)) {
+      showToast({ title: language.t("settings.general.proxy.toast.invalidHttpsPort") })
+      return
+    }
+    return {
+      enabled: proxy.enabled,
+      http: {
+        host: httpHost,
+        port: Number.isInteger(httpPort) ? httpPort : 8080,
+      },
+      https: {
+        host: httpsHost,
+        port: Number.isInteger(httpsPort) ? httpsPort : 8080,
+      },
+    }
+  }
+
+  const save = async (apply: boolean) => {
+    const next = cfg()
+    if (!next || !platform.setProxyConfig) return
+    setProxy("busy", true)
+    await platform
+      .setProxyConfig(next)
+      .then(async () => {
+        showToast({ title: language.t("settings.general.proxy.toast.saved") })
+        if (!apply) return
+        showToast({ title: language.t("settings.general.proxy.toast.restarting") })
+        await platform.restart()
+      })
+      .catch((err: unknown) => {
+        const message = err instanceof Error ? err.message : String(err)
+        showToast({ title: language.t("common.requestFailed"), description: message })
+      })
+      .finally(() => {
+        setProxy("busy", false)
+      })
+  }
 
   const AppearanceSection = () => (
     <div class="flex flex-col gap-1">
@@ -563,6 +641,105 @@ export const SettingsGeneral: Component = () => {
     </div>
   )
 
+  const ProxySection = () => (
+    <div class="flex flex-col gap-1">
+      <h3 class="text-14-medium text-text-strong pb-2">{language.t("settings.general.section.network")}</h3>
+
+      <SettingsList>
+        <SettingsRow
+          title={language.t("settings.general.row.proxyEnabled.title")}
+          description={language.t("settings.general.row.proxyEnabled.description")}
+        >
+          <div data-action="settings-proxy-enabled">
+            <Switch
+              checked={proxy.enabled}
+              disabled={proxy.busy || !proxy.loaded}
+              onChange={(value) => setProxy("enabled", value)}
+            />
+          </div>
+        </SettingsRow>
+
+        <SettingsRow
+          title={language.t("settings.general.row.proxyHttp.title")}
+          description={language.t("settings.general.row.proxyHttp.description")}
+        >
+          <div class="flex items-center gap-2">
+            <TextField
+              data-action="settings-proxy-http-host"
+              type="text"
+              value={proxy.httpHost}
+              onChange={(value) => setProxy("httpHost", value)}
+              placeholder={language.t("settings.general.row.proxyHost.placeholder")}
+              disabled={proxy.busy || !proxy.loaded || !proxy.enabled}
+              class="w-48"
+            />
+            <TextField
+              data-action="settings-proxy-http-port"
+              type="text"
+              value={proxy.httpPort}
+              onChange={(value) => setProxy("httpPort", value)}
+              placeholder={language.t("settings.general.row.proxyPort.placeholder")}
+              disabled={proxy.busy || !proxy.loaded || !proxy.enabled}
+              class="w-24"
+            />
+          </div>
+        </SettingsRow>
+
+        <SettingsRow
+          title={language.t("settings.general.row.proxyHttps.title")}
+          description={language.t("settings.general.row.proxyHttps.description")}
+        >
+          <div class="flex items-center gap-2">
+            <TextField
+              data-action="settings-proxy-https-host"
+              type="text"
+              value={proxy.httpsHost}
+              onChange={(value) => setProxy("httpsHost", value)}
+              placeholder={language.t("settings.general.row.proxyHost.placeholder")}
+              disabled={proxy.busy || !proxy.loaded || !proxy.enabled}
+              class="w-48"
+            />
+            <TextField
+              data-action="settings-proxy-https-port"
+              type="text"
+              value={proxy.httpsPort}
+              onChange={(value) => setProxy("httpsPort", value)}
+              placeholder={language.t("settings.general.row.proxyPort.placeholder")}
+              disabled={proxy.busy || !proxy.loaded || !proxy.enabled}
+              class="w-24"
+            />
+          </div>
+        </SettingsRow>
+
+        <SettingsRow
+          title={language.t("settings.general.row.proxyApply.title")}
+          description={language.t("settings.general.row.proxyApply.description")}
+        >
+          <div class="flex items-center gap-2">
+            <Button
+              data-action="settings-proxy-save"
+              size="small"
+              variant="secondary"
+              disabled={proxy.busy || !proxy.loaded}
+              onClick={() => void save(false)}
+            >
+              {language.t("settings.general.proxy.action.save")}
+            </Button>
+            <Button
+              data-action="settings-proxy-apply"
+              size="small"
+              variant="secondary"
+              disabled={proxy.busy || !proxy.loaded}
+              onClick={() => void save(true)}
+            >
+              {language.t("settings.general.proxy.action.applyRestart")}
+            </Button>
+          </div>
+        </SettingsRow>
+      </SettingsList>
+    </div>
+  )
+
   return (
     <div class="flex flex-col h-full overflow-y-auto no-scrollbar px-4 pb-10 sm:px-10 sm:pb-10">
       <div class="sticky top-0 z-10 bg-[linear-gradient(to_bottom,var(--surface-stronger-non-alpha)_calc(100%_-_24px),transparent)]">
@@ -579,6 +756,8 @@ export const SettingsGeneral: Component = () => {
         <NotificationsSection />
 
         <SoundsSection />
+
+        <Show when={proxied()}>{(_) => <ProxySection />}</Show>
 
         {/*<Show when={platform.platform === "desktop" && platform.os === "windows" && platform.getWslEnabled}>
           {(_) => {

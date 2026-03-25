@@ -9,6 +9,17 @@ export type ServerReadyData = {
 export type SqliteMigrationProgress = { type: "InProgress"; value: number } | { type: "Done" }
 
 export type WslConfig = { enabled: boolean }
+export type ProxyConfig = {
+  enabled: boolean
+  http: {
+    host: string
+    port: number
+  }
+  https: {
+    host: string
+    port: number
+  }
+}
 
 export type LinuxDisplayBackend = "wayland" | "auto"
 export type TitlebarTheme = {
@@ -23,6 +34,8 @@ export type ElectronAPI = {
   setDefaultServerUrl: (url: string | null) => Promise<void>
   getWslConfig: () => Promise<WslConfig>
   setWslConfig: (config: WslConfig) => Promise<void>
+  getProxyConfig: () => Promise<ProxyConfig>
+  setProxyConfig: (config: ProxyConfig) => Promise<void>
   getDisplayBackend: () => Promise<LinuxDisplayBackend | null>
   setDisplayBackend: (backend: LinuxDisplayBackend | null) => Promise<void>
   parseMarkdownCommand: (markdown: string) => Promise<string>
