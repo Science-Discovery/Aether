@@ -110,6 +110,18 @@ export const DialogWeChat: Component = () => {
     setQrcode(null)
   }
 
+  const logout = async () => {
+    if (abort) {
+      abort.abort()
+      abort = null
+    }
+    await fetch(`${sdk.url}/wechat/stop`, { method: "POST", headers: authHeaders() })
+    await fetch(`${sdk.url}/wechat/session`, { method: "DELETE", headers: authHeaders() })
+    setUser(null)
+    updateStatus("idle")
+    setQrcode(null)
+  }
+
   const connectSSE = () => {
     if (abort) {
       abort.abort()
@@ -224,9 +236,14 @@ export const DialogWeChat: Component = () => {
                   <p class="text-14-regular text-text-weak">{user()!.name}</p>
                 </Show>
               </div>
-              <Button variant="secondary" onClick={stopBridge}>
-                断开连接
-              </Button>
+              <div class="flex gap-2">
+                <Button variant="secondary" onClick={stopBridge}>
+                  断开连接
+                </Button>
+                <Button variant="ghost" onClick={logout}>
+                  切换账号
+                </Button>
+              </div>
             </div>
           </Match>
 

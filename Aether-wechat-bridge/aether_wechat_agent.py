@@ -340,7 +340,11 @@ async def main():
     bot = CustomWeChatBot(
         agent=agent,
         account_id="aether",
-        storage=JsonFileStorage(),
+        storage=(
+            JsonFileStorage(Path(SESSION_FILE).parent)
+            if SESSION_FILE
+            else JsonFileStorage()
+        ),
     )
 
     try:

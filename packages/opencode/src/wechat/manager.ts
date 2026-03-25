@@ -513,6 +513,8 @@ class WeChatManagerImpl {
   async clearSession(): Promise<void> {
     try {
       await rm(SESSION_FILE, { force: true })
+      // Also clear the SDK token stored by JsonFileStorage in the same directory
+      await rm(join(WECHAT_DATA_DIR, "accounts.json"), { force: true })
       this._session = null
     } catch {}
   }
