@@ -14,12 +14,17 @@ import { MessageTable, PartTable } from "@/session/session.sql"
 import { desc, inArray } from "drizzle-orm"
 import { Config } from "@/config/config"
 
-const WECHAT_DATA_DIR = join(homedir(), ".local", "share", "opencode", "wechat")
+const WECHAT_DATA_DIR =
+  process.platform === "darwin"
+    ? join(homedir(), "Library", "Application Support", "opencode", "wechat")
+    : join(homedir(), ".local", "share", "opencode", "wechat")
 const QRCODE_FILE = join(WECHAT_DATA_DIR, "qrcode.txt")
 const SESSION_FILE = join(WECHAT_DATA_DIR, "session.json")
 const PID_FILE = join(WECHAT_DATA_DIR, "pid.txt")
 
 export type WeChatStatus = "idle" | "starting" | "qrcode" | "connected" | "error"
+
+const UV_VERSION = "0.6.14"
 
 export interface WeChatSession {
   connected: boolean
@@ -92,7 +97,13 @@ class WeChatManagerImpl {
     Bus.publish(WeChatEvent.StatusChanged, { status: value })
   }
 
-  async start(model?: string): Promise<{ success: boolean; message?: string; status?: string; user?: { id: string; name: string } }> {
+  async start(model?: string, auto = false): Promise<{
+    success: boolean
+    message?: string
+    code?: string
+    status?: string
+    user?: { id: string; name: string }
+  }> {
     if (this.process) {
       return { success: false, message: "WeChat bridge is already running" }
     }
@@ -106,20 +117,36 @@ class WeChatManagerImpl {
       return { success: true, status: "connected", user: savedSession.user }
     }
 
-    const pythonCheck = await this.checkPython()
-    if (!pythonCheck.available) {
-      this._error = { code: "python_not_found", message: pythonCheck.message || "Python 3.11+ not found" }
-      this.status = "error"
-      Bus.publish(WeChatEvent.Error, this._error)
-      return { success: false, message: pythonCheck.message }
-    }
-
-    const scriptPath = await this.findBridgeScript()
-    if (!scriptPath) {
+    const script = await this.findBridgeFile("aether_wechat_agent.py")
+    if (!script) {
       this._error = { code: "script_not_found", message: "WeChat bridge script not found" }
       this.status = "error"
       Bus.publish(WeChatEvent.Error, this._error)
       return { success: false, message: "WeChat bridge script not found" }
+    }
+
+    const root = dirname(script)
+    const env = join(root, ".venv")
+    const py = join(env, "bin", "python")
+
+    if (!(await this.ready(py))) {
+      if (!auto) {
+        this._error = {
+          code: "install_required",
+          message: "需要安装 Python 3.11 运行时与依赖，需要联网，可能耗时。请确认后重试。",
+        }
+        this.status = "error"
+        Bus.publish(WeChatEvent.Error, this._error)
+        return { success: false, code: this._error.code, message: this._error.message }
+      }
+
+      const setup = await this.install(root, env)
+      if (!setup.ok) {
+        this._error = { code: setup.code, message: setup.message }
+        this.status = "error"
+        Bus.publish(WeChatEvent.Error, this._error)
+        return { success: false, code: setup.code, message: setup.message }
+      }
     }
 
     await mkdir(WECHAT_DATA_DIR, { recursive: true })
@@ -127,15 +154,6 @@ class WeChatManagerImpl {
     this.status = "starting"
     this._error = null
     this._stderr = []
-
-    // Auto-install Python dependencies if missing
-    const deps = await this.ensureDeps(pythonCheck.path!, scriptPath)
-    if (!deps.ok) {
-      this._error = { code: "deps_install_failed", message: deps.message }
-      this.status = "error"
-      Bus.publish(WeChatEvent.Error, this._error)
-      return { success: false, message: deps.message }
-    }
 
     try {
       const aetherUrl = Server.url?.toString() || "http://127.0.0.1:4096"
@@ -182,7 +200,7 @@ class WeChatManagerImpl {
       }
       console.log(`[wechat] Using model: ${modelEnv || "(none, server will decide)"}`)
 
-      this.process = spawn(pythonCheck.path!, [scriptPath], {
+      this.process = spawn(py, [script], {
         env: {
           ...process.env,
           AETHER_WECHAT_QRCODE_FILE: QRCODE_FILE,
@@ -211,8 +229,8 @@ class WeChatManagerImpl {
         if (this._stderr.length > 50) this._stderr.shift()
       })
 
-      this.process.on("exit", (code, signal) => {
-        this.handleExit(code, signal)
+      this.process.on("exit", (code) => {
+        this.handleExit(code)
       })
 
       this.process.on("error", (err) => {
@@ -254,53 +272,110 @@ class WeChatManagerImpl {
     await this.clearSession()
   }
 
-  async checkPython(): Promise<{ available: boolean; path?: string; message?: string }> {
-    const pythonCommands = ["python3", "python"]
-
-    for (const cmd of pythonCommands) {
-      try {
-        const result = Bun.spawnSync([cmd, "--version"], { timeout: 5000 })
-        if (result.exitCode === 0) {
-          const version = result.stdout.toString().trim()
-          const match = version.match(/Python (\d+)\.(\d+)/)
-          if (match) {
-            const major = parseInt(match[1])
-            const minor = parseInt(match[2])
-            if (major > 3 || (major === 3 && minor >= 11)) {
-              return { available: true, path: cmd }
-            }
-          }
-        }
-      } catch {}
-    }
-
-    return {
-      available: false,
-      message: "Python 3.11+ is required. Please install Python 3.11 or later.",
-    }
+  private async ready(py: string): Promise<boolean> {
+    if (!existsSync(py)) return false
+    const check = Bun.spawnSync(
+      [
+        py,
+        "-c",
+        "import sys; import wechat_agent_sdk; import httpx; raise SystemExit(0 if sys.version_info >= (3, 11) else 1)",
+      ],
+      { timeout: 10000 },
+    )
+    return check.exitCode === 0
   }
 
-  private async ensureDeps(python: string, script: string): Promise<{ ok: boolean; message: string }> {
-    const check = Bun.spawnSync([python, "-c", "import wechat_agent_sdk; import httpx"], { timeout: 10000 })
-    if (check.exitCode === 0) return { ok: true, message: "" }
-
-    console.log("[wechat] Dependencies missing, installing...")
-    const req = join(dirname(script), "requirements.txt")
-    if (!existsSync(req)) return { ok: false, message: "requirements.txt not found" }
-
-    const install = Bun.spawnSync([python, "-m", "pip", "install", "--quiet", "-r", req], { timeout: 120000 })
-    if (install.exitCode === 0) return { ok: true, message: "" }
-
-    const err = install.stderr.toString().trim()
-    console.error("[wechat] pip install failed:", err)
-    return {
-      ok: false,
-      message: `Failed to install dependencies: ${err || "pip exited with code " + install.exitCode}`,
+  private async install(root: string, env: string): Promise<{ ok: boolean; code: string; message: string }> {
+    const uv = await this.findUv()
+    if (!uv) {
+      return {
+        ok: false,
+        code: "uv_not_found",
+        message: "未找到内置 uv。请重新安装应用后重试。",
+      }
     }
+
+    const prep = this.prepUv(uv)
+    if (!prep.ok) return prep
+
+    const py = join(env, "bin", "python")
+    const req = join(root, "requirements.txt")
+
+    const ver = Bun.spawnSync([uv, "python", "install", "3.11"], { timeout: 600000 })
+    if (ver.exitCode !== 0) {
+      return {
+        ok: false,
+        code: "python_install_failed",
+        message: this.stderr(ver.stderr, "安装 Python 3.11 失败"),
+      }
+    }
+
+    const venv = Bun.spawnSync([uv, "venv", "--python", "3.11", env], { timeout: 120000 })
+    if (venv.exitCode !== 0) {
+      return {
+        ok: false,
+        code: "venv_failed",
+        message: this.stderr(venv.stderr, "创建虚拟环境失败"),
+      }
+    }
+
+    const dep = Bun.spawnSync([uv, "pip", "install", "--python", py, "-r", req], { timeout: 600000 })
+    if (dep.exitCode !== 0) {
+      return {
+        ok: false,
+        code: "deps_failed",
+        message: this.stderr(dep.stderr, "安装依赖失败"),
+      }
+    }
+
+    return { ok: true, code: "", message: "" }
   }
 
-  private async findBridgeScript(): Promise<string | null> {
-    const target = "aether_wechat_agent.py"
+  private stderr(buf: Uint8Array, msg: string) {
+    const detail = Buffer.from(buf).toString().trim()
+    if (!detail) return msg
+    return `${msg}: ${detail}`
+  }
+
+  private prepUv(uv: string): { ok: boolean; code: string; message: string } {
+    const chmod = Bun.spawnSync(["chmod", "+x", uv], { timeout: 10000 })
+    if (chmod.exitCode !== 0) {
+      return {
+        ok: false,
+        code: "uv_not_executable",
+        message: this.stderr(chmod.stderr, "无法设置 uv 可执行权限"),
+      }
+    }
+
+    const ver = Bun.spawnSync([uv, "--version"], { timeout: 10000 })
+    if (ver.exitCode !== 0) {
+      return {
+        ok: false,
+        code: "uv_not_executable",
+        message: this.stderr(ver.stderr, "uv 无法执行"),
+      }
+    }
+
+    return { ok: true, code: "", message: "" }
+  }
+
+  private async findUv(): Promise<string | null> {
+    const target =
+      process.platform === "darwin"
+        ? process.arch === "arm64"
+          ? join("runtime", "uv", `uv-${UV_VERSION}-aarch64-apple-darwin`, "uv")
+          : join("runtime", "uv", `uv-${UV_VERSION}-x86_64-apple-darwin`, "uv")
+        : process.platform === "linux"
+          ? process.arch === "arm64"
+            ? join("runtime", "uv", `uv-${UV_VERSION}-aarch64-unknown-linux-gnu`, "uv")
+            : join("runtime", "uv", `uv-${UV_VERSION}-x86_64-unknown-linux-gnu`, "uv")
+          : ""
+
+    if (!target) return null
+    return this.findBridgeFile(target)
+  }
+
+  private async findBridgeFile(target: string): Promise<string | null> {
     const paths = [
       // Production: next to binary
       join(dirname(process.execPath), "wechat-bridge", target),
@@ -365,12 +440,14 @@ class WeChatManagerImpl {
     return { id: "unknown", name: "WeChat User" }
   }
 
-  private handleExit(code: number | null, signal: string | null) {
+  private handleExit(code: number | null) {
     this.process = null
     if (code !== 0 && code !== null) {
       const detail = this._stderr.slice(-5).join("\n").trim()
-      const message = detail ? `Process exited with code ${code}: ${detail}` : `Process exited with code ${code}`
-      this._error = { code: "process_exit", message }
+      if (!this._error) {
+        const message = detail ? `Process exited with code ${code}: ${detail}` : `Process exited with code ${code}`
+        this._error = { code: "process_exit", message }
+      }
       this.status = "error"
       Bus.publish(WeChatEvent.Error, this._error)
     } else {
