@@ -107,7 +107,10 @@ class WeChatManagerImpl {
     Bus.publish(WeChatEvent.StatusChanged, { status: value, message })
   }
 
-  async start(model?: string, auto = false): Promise<{
+  async start(
+    model?: string,
+    auto = false,
+  ): Promise<{
     success: boolean
     message?: string
     code?: string
@@ -317,7 +320,11 @@ class WeChatManagerImpl {
   private async ready(py: string): Promise<boolean> {
     if (!existsSync(py)) return false
     const { ok } = await this.runCmd(
-      [py, "-c", "import sys; import wechat_agent_sdk; import httpx; raise SystemExit(0 if sys.version_info >= (3, 11) else 1)"],
+      [
+        py,
+        "-c",
+        "import sys; import wechat_agent_sdk; import httpx; raise SystemExit(0 if sys.version_info >= (3, 11) else 1)",
+      ],
       10000,
     )
     return ok
@@ -367,8 +374,7 @@ class WeChatManagerImpl {
       // PyPI 连接失败，自动切换国内镜像重试
       this.statusMsg("starting", "正在安装依赖（切换国内镜像）...")
       dep = await this.runCmd(
-        [uv, "pip", "install", "--python", py, "-r", req,
-          "--index-url", "https://pypi.tuna.tsinghua.edu.cn/simple"],
+        [uv, "pip", "install", "--python", py, "-r", req, "--index-url", "https://pypi.tuna.tsinghua.edu.cn/simple"],
         600000,
       )
     }
@@ -414,7 +420,10 @@ class WeChatManagerImpl {
   }
 
   private async findBridgeFile(target: string): Promise<string | null> {
+    const resources = (process as NodeJS.Process & { resourcesPath?: string }).resourcesPath
     const paths = [
+      // Electron packaged app resources
+      resources ? join(resources, "wechat-bridge", target) : "",
       // Production: next to binary
       join(dirname(process.execPath), "wechat-bridge", target),
       // User installation
@@ -431,6 +440,7 @@ class WeChatManagerImpl {
     }
 
     for (const p of paths) {
+      if (!p) continue
       if (existsSync(p)) return p
     }
 

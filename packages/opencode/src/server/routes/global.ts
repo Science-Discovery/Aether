@@ -16,8 +16,110 @@ const log = Log.create({ service: "server" })
 
 export const GlobalDisposedEvent = BusEvent.define("global.disposed", z.object({}))
 
+const ProxyTarget = z.object({
+  host: z.string(),
+  port: z.number().int().min(1).max(65535),
+})
+
+const ProxyConfig = z.object({
+  enabled: z.boolean(),
+  http: ProxyTarget,
+  https: ProxyTarget,
+})
+
+function parseProxy(value?: string) {
+  if (!value) return { host: "", port: 8080 }
+  try {
+    const url = new URL(value)
+    const port = Number.parseInt(url.port, 10)
+    return {
+      host: url.hostname,
+      port: Number.isInteger(port) ? port : 8080,
+    }
+  } catch {
+    return { host: "", port: 8080 }
+  }
+}
+
 export const GlobalRoutes = lazy(() =>
   new Hono()
+    .get(
+      "/proxy",
+      describeRoute({
+        summary: "Get proxy configuration",
+        description: "Get current process-level HTTP/HTTPS proxy configuration.",
+        operationId: "global.proxy.get",
+        responses: {
+          200: {
+            description: "Proxy config",
+            content: {
+              "application/json": {
+                schema: resolver(ProxyConfig),
+              },
+            },
+          },
+        },
+      }),
+      async (c) => {
+        const http = parseProxy(process.env.HTTP_PROXY ?? process.env.http_proxy)
+        const https = parseProxy(process.env.HTTPS_PROXY ?? process.env.https_proxy)
+        return c.json({
+          enabled: !!(http.host || https.host),
+          http,
+          https,
+        })
+      },
+    )
+    .patch(
+      "/proxy",
+      describeRoute({
+        summary: "Update proxy configuration",
+        description: "Update process-level HTTP/HTTPS proxy configuration.",
+        operationId: "global.proxy.update",
+        responses: {
+          200: {
+            description: "Updated proxy config",
+            content: {
+              "application/json": {
+                schema: resolver(ProxyConfig),
+              },
+            },
+          },
+          ...errors(400),
+        },
+      }),
+      validator("json", ProxyConfig),
+      async (c) => {
+        const config = c.req.valid("json")
+        if (!config.enabled) {
+          delete process.env.HTTP_PROXY
+          delete process.env.HTTPS_PROXY
+          delete process.env.http_proxy
+          delete process.env.https_proxy
+          return c.json(config)
+        }
+        const http = config.http.host.trim() ? `http://${config.http.host.trim()}:${config.http.port}` : ""
+        const https = config.https.host.trim() ? `https://${config.https.host.trim()}:${config.https.port}` : ""
+        if (!http && !https) return c.json({ error: "Proxy host is required for HTTP or HTTPS" }, 400)
+        const httpValue = http || https
+        const httpsValue = https || http
+        process.env.HTTP_PROXY = httpValue
+        process.env.HTTPS_PROXY = httpsValue
+        process.env.http_proxy = httpValue
+        process.env.https_proxy = httpsValue
+        return c.json({
+          ...config,
+          http: {
+            ...config.http,
+            host: config.http.host.trim(),
+          },
+          https: {
+            ...config.https,
+            host: config.https.host.trim(),
+          },
+        })
+      },
+    )
     .get(
       "/health",
       describeRoute({

@@ -219,6 +219,14 @@ const createPlatform = (): Platform => {
       await window.api.setDisplayBackend(backend)
     },
 
+    getProxyConfig: async () => {
+      return window.api.getProxyConfig()
+    },
+
+    setProxyConfig: async (config) => {
+      await window.api.setProxyConfig(config)
+    },
+
     parseMarkdown: (markdown: string) => window.api.parseMarkdownCommand(markdown),
 
     webviewZoom,

@@ -6,6 +6,10 @@ const channel = (() => {
   return "dev"
 })()
 
+const updater = process.env.OPENCODE_UPDATER_CHANNEL ?? "latest"
+const rust = process.env.RUST_TARGET
+const bridgeFilter = rust ? ["**/*", "!runtime/uv/**", `runtime/uv/uv-*-${rust}/**`] : ["**/*"]
+
 const getBase = (): Configuration => ({
   artifactName: "aether-${os}-${arch}.${ext}",
   directories: {
@@ -43,6 +47,7 @@ const getBase = (): Configuration => ({
     {
       from: "../../Aether-wechat-bridge",
       to: "wechat-bridge",
+      filter: bridgeFilter,
     },
   ],
   mac: {
@@ -102,7 +107,7 @@ function getConfig() {
         appId: "com.aether.desktop",
         productName: "Aether",
         protocols: { name: "Aether", schemes: ["aether"] },
-        publish: { provider: "github", owner: "anomalyco", repo: "aether", channel: "latest" },
+        publish: { provider: "github", owner: "Science-Discovery", repo: "Aether", channel: updater },
         rpm: { packageName: "aether" },
       }
     }
