@@ -8,6 +8,7 @@ import z from "zod"
 import { BusEvent } from "@/bus/bus-event"
 import { Bus } from "@/bus"
 import { Server } from "@/server/server"
+import { Flag } from "@/flag/flag"
 
 const WECHAT_DATA_DIR = join(homedir(), ".local", "share", "opencode", "wechat")
 const QRCODE_FILE = join(WECHAT_DATA_DIR, "qrcode.txt")
@@ -64,6 +65,7 @@ class WeChatManagerImpl {
   private _qrcode: string | null = null
   private _session: WeChatSession | null = null
   private _error: { code: string; message: string } | null = null
+  private _stderr: string[] = []
 
   get status() {
     return this._status
@@ -120,6 +122,16 @@ class WeChatManagerImpl {
 
     this.status = "starting"
     this._error = null
+    this._stderr = []
+
+    // Auto-install Python dependencies if missing
+    const deps = await this.ensureDeps(pythonCheck.path!, scriptPath)
+    if (!deps.ok) {
+      this._error = { code: "deps_install_failed", message: deps.message }
+      this.status = "error"
+      Bus.publish(WeChatEvent.Error, this._error)
+      return { success: false, message: deps.message }
+    }
 
     try {
       const aetherUrl = Server.url?.toString() || "http://127.0.0.1:4096"
@@ -131,6 +143,8 @@ class WeChatManagerImpl {
           AETHER_WECHAT_SESSION_FILE: SESSION_FILE,
           PYTHONUNBUFFERED: "1",
           AETHER_URL: aetherUrl,
+          AETHER_USERNAME: Flag.OPENCODE_SERVER_USERNAME || "",
+          AETHER_PASSWORD: Flag.OPENCODE_SERVER_PASSWORD || "",
         },
         stdio: ["ignore", "pipe", "pipe"],
       })
@@ -146,6 +160,8 @@ class WeChatManagerImpl {
 
       stderr.on("line", (line) => {
         console.error("[wechat-bridge]", line)
+        this._stderr.push(line)
+        if (this._stderr.length > 50) this._stderr.shift()
       })
 
       this.process.on("exit", (code, signal) => {
@@ -214,6 +230,25 @@ class WeChatManagerImpl {
     return {
       available: false,
       message: "Python 3.11+ is required. Please install Python 3.11 or later.",
+    }
+  }
+
+  private async ensureDeps(python: string, script: string): Promise<{ ok: boolean; message: string }> {
+    const check = Bun.spawnSync([python, "-c", "import wechat_agent_sdk; import httpx"], { timeout: 10000 })
+    if (check.exitCode === 0) return { ok: true, message: "" }
+
+    console.log("[wechat] Dependencies missing, installing...")
+    const req = join(dirname(script), "requirements.txt")
+    if (!existsSync(req)) return { ok: false, message: "requirements.txt not found" }
+
+    const install = Bun.spawnSync([python, "-m", "pip", "install", "--quiet", "-r", req], { timeout: 120000 })
+    if (install.exitCode === 0) return { ok: true, message: "" }
+
+    const err = install.stderr.toString().trim()
+    console.error("[wechat] pip install failed:", err)
+    return {
+      ok: false,
+      message: `Failed to install dependencies: ${err || "pip exited with code " + install.exitCode}`,
     }
   }
 
@@ -286,7 +321,9 @@ class WeChatManagerImpl {
   private handleExit(code: number | null, signal: string | null) {
     this.process = null
     if (code !== 0 && code !== null) {
-      this._error = { code: "process_exit", message: `Process exited with code ${code}` }
+      const detail = this._stderr.slice(-5).join("\n").trim()
+      const message = detail ? `Process exited with code ${code}: ${detail}` : `Process exited with code ${code}`
+      this._error = { code: "process_exit", message }
       this.status = "error"
       Bus.publish(WeChatEvent.Error, this._error)
     } else {

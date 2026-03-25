@@ -4,6 +4,7 @@ import { Dialog } from "@opencode-ai/ui/dialog"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { Component, Show, Switch, Match, createSignal, onCleanup, onMount } from "solid-js"
 import { useSDK } from "@/context/sdk"
+import { useServer } from "@/context/server"
 import { setWechatStatus } from "@/context/wechat"
 
 type WeChatStatus = "idle" | "loading" | "qrcode" | "connected" | "error"
@@ -22,21 +23,28 @@ interface WeChatEvent {
 export const DialogWeChat: Component = () => {
   const dialog = useDialog()
   const sdk = useSDK()
+  const server = useServer()
   const [status, setStatus] = createSignal<WeChatStatus>("idle")
   const [qrcode, setQrcode] = createSignal<string | null>(null)
   const [error, setError] = createSignal<{ code: string; message: string } | null>(null)
   const [user, setUser] = createSignal<{ id: string; name: string } | null>(null)
+
+  const authHeaders = (): HeadersInit => {
+    const s = server.current?.http
+    if (!s?.password) return {}
+    return { Authorization: `Basic ${btoa(`${s.username ?? "opencode"}:${s.password}`)}` }
+  }
 
   const updateStatus = (s: WeChatStatus) => {
     setStatus(s)
     setWechatStatus(s)
   }
 
-  let eventSource: EventSource | null = null
+  let abort: AbortController | null = null
 
   const fetchStatus = async () => {
     try {
-      const response = await fetch(`${sdk.url}/wechat/status`)
+      const response = await fetch(`${sdk.url}/wechat/status`, { headers: authHeaders() })
       const data = await response.json()
       if (data.status === "connected" && data.user) {
         updateStatus("connected")
@@ -56,7 +64,7 @@ export const DialogWeChat: Component = () => {
     setError(null)
 
     try {
-      const response = await fetch(`${sdk.url}/wechat/start`, { method: "POST" })
+      const response = await fetch(`${sdk.url}/wechat/start`, { method: "POST", headers: authHeaders() })
       const data = await response.json()
 
       if (!data.success) {
@@ -72,7 +80,7 @@ export const DialogWeChat: Component = () => {
         return
       }
 
-      connectEventSource()
+      connectSSE()
     } catch (err) {
       setError({ code: "network_error", message: String(err) })
       updateStatus("error")
@@ -80,45 +88,66 @@ export const DialogWeChat: Component = () => {
   }
 
   const stopBridge = async () => {
-    if (eventSource) {
-      eventSource.close()
-      eventSource = null
+    if (abort) {
+      abort.abort()
+      abort = null
     }
-    await fetch(`${sdk.url}/wechat/stop`, { method: "POST" })
+    await fetch(`${sdk.url}/wechat/stop`, { method: "POST", headers: authHeaders() })
     updateStatus("idle")
     setQrcode(null)
   }
 
-  const connectEventSource = () => {
-    if (eventSource) {
-      eventSource.close()
+  const connectSSE = () => {
+    if (abort) {
+      abort.abort()
     }
+    abort = new AbortController()
 
-    eventSource = new EventSource(`${sdk.url}/wechat/events`)
-
-    eventSource.onmessage = (e) => {
+    void (async () => {
       try {
-        const event: WeChatEvent = JSON.parse(e.data)
+        const response = await fetch(`${sdk.url}/wechat/events`, {
+          headers: { ...authHeaders(), Accept: "text/event-stream" },
+          signal: abort!.signal,
+        })
+        if (!response.ok || !response.body) return
 
-        if (event.type === "wechat.qrcode" && event.properties.image) {
-          setQrcode(event.properties.image)
-          updateStatus("qrcode")
-        } else if (event.type === "wechat.connected" && event.properties.user) {
-          setUser(event.properties.user)
-          updateStatus("connected")
-        } else if (event.type === "wechat.error") {
-          setError({ code: event.properties.code || "unknown", message: event.properties.message || "Unknown error" })
-          updateStatus("error")
-        } else if (event.type === "wechat.status" && event.properties.status) {
-          updateStatus(event.properties.status)
+        const reader = response.body.getReader()
+        const decoder = new TextDecoder()
+        let buf = ""
+
+        while (true) {
+          const { done, value } = await reader.read()
+          if (done) break
+          buf += decoder.decode(value, { stream: true })
+
+          const lines = buf.split("\n")
+          buf = lines.pop() ?? ""
+          for (const line of lines) {
+            if (!line.startsWith("data:")) continue
+            const raw = line.slice(5).trim()
+            if (!raw) continue
+            try {
+              const event: WeChatEvent = JSON.parse(raw)
+              if (event.type === "wechat.qrcode" && event.properties.image) {
+                setQrcode(event.properties.image)
+                updateStatus("qrcode")
+              } else if (event.type === "wechat.connected" && event.properties.user) {
+                setUser(event.properties.user)
+                updateStatus("connected")
+              } else if (event.type === "wechat.error") {
+                setError({
+                  code: event.properties.code || "unknown",
+                  message: event.properties.message || "Unknown error",
+                })
+                updateStatus("error")
+              } else if (event.type === "wechat.status" && event.properties.status) {
+                updateStatus(event.properties.status)
+              }
+            } catch {}
+          }
         }
       } catch {}
-    }
-
-    eventSource.onerror = () => {
-      eventSource?.close()
-      eventSource = null
-    }
+    })()
   }
 
   onMount(() => {
@@ -126,9 +155,9 @@ export const DialogWeChat: Component = () => {
   })
 
   onCleanup(() => {
-    if (eventSource) {
-      eventSource.close()
-      eventSource = null
+    if (abort) {
+      abort.abort()
+      abort = null
     }
   })
 

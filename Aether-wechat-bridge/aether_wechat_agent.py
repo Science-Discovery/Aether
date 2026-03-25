@@ -93,12 +93,18 @@ class AetherAgent(Agent):
         self._client: httpx.AsyncClient = None  # type: ignore
         self._sessions: dict[str, str] = {}
         self._user_info: Optional[dict] = None
+        self._username = os.getenv("AETHER_USERNAME", "")
+        self._password = os.getenv("AETHER_PASSWORD", "")
 
     async def on_start(self) -> None:
         """初始化 HTTP 客户端"""
+        auth = None
+        if self._username and self._password:
+            auth = httpx.BasicAuth(self._username, self._password)
         self._client = httpx.AsyncClient(
             timeout=httpx.Timeout(300.0, connect=30.0),
             headers={"Content-Type": "application/json"},
+            auth=auth,
         )
         logger.info(f"已连接到 Aether: {self.base_url}")
         logger.info(f"工作目录: {self.directory}")
