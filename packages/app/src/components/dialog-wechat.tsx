@@ -6,6 +6,7 @@ import { Component, Show, Switch, Match, createSignal, onCleanup, onMount } from
 import { useSDK } from "@/context/sdk"
 import { useServer } from "@/context/server"
 import { setWechatStatus } from "@/context/wechat"
+import { useModels } from "@/context/models"
 
 type WeChatStatus = "idle" | "loading" | "qrcode" | "connected" | "error"
 
@@ -24,6 +25,7 @@ export const DialogWeChat: Component = () => {
   const dialog = useDialog()
   const sdk = useSDK()
   const server = useServer()
+  const models = useModels()
   const [status, setStatus] = createSignal<WeChatStatus>("idle")
   const [qrcode, setQrcode] = createSignal<string | null>(null)
   const [error, setError] = createSignal<{ code: string; message: string } | null>(null)
@@ -63,8 +65,15 @@ export const DialogWeChat: Component = () => {
     updateStatus("loading")
     setError(null)
 
+    const currentModel = models.recent.list()[0]
+    const modelStr = currentModel ? `${currentModel.providerID}/${currentModel.modelID}` : undefined
+
     try {
-      const response = await fetch(`${sdk.url}/wechat/start`, { method: "POST", headers: authHeaders() })
+      const response = await fetch(`${sdk.url}/wechat/start`, {
+        method: "POST",
+        headers: { ...authHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({ model: modelStr }),
+      })
       const data = await response.json()
 
       if (!data.success) {

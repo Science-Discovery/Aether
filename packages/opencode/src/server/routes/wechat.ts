@@ -39,7 +39,8 @@ export const WeChatRoutes = lazy(() =>
         },
       }),
       async (c) => {
-        const result = await WeChatManager.start()
+        const body = await c.req.json().catch(() => ({}))
+        const result = await WeChatManager.start(body?.model)
         return c.json(result)
       },
     )

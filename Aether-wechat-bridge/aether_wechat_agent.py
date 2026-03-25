@@ -14,6 +14,9 @@ Aether WeChat Bridge - 将 Aether AI 接入微信
 import asyncio
 import os
 import sys
+if sys.stdout.encoding != 'utf-8':
+    sys.stdout.reconfigure(encoding='utf-8')
+    sys.stderr.reconfigure(encoding='utf-8')
 import json
 import base64
 import logging
@@ -176,6 +179,15 @@ class AetherAgent(Agent):
 
     def _extract_response(self, result: dict) -> dict:
         parts = result.get("parts", [])
+        info = result.get("info", {})
+
+        # Check for API error in info
+        error = info.get("error")
+        if error:
+            err_msg = error.get("data", {}).get("message") or error.get("name", "未知错误")
+            logger.error(f"LLM API错误: {err_msg}")
+            return {"reasoning": "", "text": "", "formatted": f"AI 服务错误: {err_msg}"}
+
         reasoning_parts, text_parts, tool_parts = [], [], []
 
         for part in parts:
@@ -255,7 +267,7 @@ async def custom_login(client: ILinkBotClient, log=print) -> str:
                 except Exception as e:
                     logger.warning(f"保存会话失败: {e}")
 
-            log("✅ 微信连接成功！")
+            log("微信连接成功！")
             return token
         elif status == "scanned":
             log("已扫码，请在手机确认...")

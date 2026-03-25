@@ -24,6 +24,7 @@ fi
 # 设置默认环境变量
 export AETHER_URL="${AETHER_URL:-http://127.0.0.1:4096}"
 export AETHER_WORK_DIR="${AETHER_WORK_DIR:-$HOME}"
+export AETHER_MODEL="${AETHER_MODEL:-anthropic/claude-opus-4-6}"
 
 echo "Aether URL: $AETHER_URL"
 echo "工作目录: $AETHER_WORK_DIR"

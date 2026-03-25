@@ -9,6 +9,10 @@ import { BusEvent } from "@/bus/bus-event"
 import { Bus } from "@/bus"
 import { Server } from "@/server/server"
 import { Flag } from "@/flag/flag"
+import { Database } from "@/storage/db"
+import { MessageTable, PartTable } from "@/session/session.sql"
+import { desc, inArray } from "drizzle-orm"
+import { Config } from "@/config/config"
 
 const WECHAT_DATA_DIR = join(homedir(), ".local", "share", "opencode", "wechat")
 const QRCODE_FILE = join(WECHAT_DATA_DIR, "qrcode.txt")
@@ -88,7 +92,7 @@ class WeChatManagerImpl {
     Bus.publish(WeChatEvent.StatusChanged, { status: value })
   }
 
-  async start(): Promise<{ success: boolean; message?: string; status?: string; user?: { id: string; name: string } }> {
+  async start(model?: string): Promise<{ success: boolean; message?: string; status?: string; user?: { id: string; name: string } }> {
     if (this.process) {
       return { success: false, message: "WeChat bridge is already running" }
     }
@@ -136,6 +140,48 @@ class WeChatManagerImpl {
     try {
       const aetherUrl = Server.url?.toString() || "http://127.0.0.1:4096"
       console.log(`[wechat] Starting bridge with AETHER_URL=${aetherUrl}`)
+
+      // Use model passed from UI, or fall back to detecting from successful sessions
+      let modelEnv = model ?? ""
+      if (!modelEnv) {
+        try {
+          const cfg = await Config.get().catch(() => null)
+          const disabled = new Set(cfg?.disabled_providers ?? [])
+          const validProviders = cfg?.provider
+            ? new Set(Object.keys(cfg.provider).filter((id) => !disabled.has(id)))
+            : null
+
+          const sessionsWithParts = Database.use((db) =>
+            db.selectDistinct({ session_id: PartTable.session_id }).from(PartTable).all(),
+          ).map((r) => r.session_id)
+
+          if (sessionsWithParts.length > 0) {
+            const rows = Database.use((db) =>
+              db
+                .select()
+                .from(MessageTable)
+                .where(inArray(MessageTable.session_id, sessionsWithParts))
+                .orderBy(desc(MessageTable.time_created))
+                .limit(100)
+                .all(),
+            )
+            for (const row of rows) {
+              const data = row.data as any
+              if (data?.role === "user" && data?.model?.providerID && data?.model?.modelID) {
+                const pid = data.model.providerID as string
+                if (!validProviders || validProviders.has(pid)) {
+                  modelEnv = `${pid}/${data.model.modelID}`
+                  break
+                }
+              }
+            }
+          }
+        } catch (e) {
+          console.log(`[wechat] failed to detect model: ${e}`)
+        }
+      }
+      console.log(`[wechat] Using model: ${modelEnv || "(none, server will decide)"}`)
+
       this.process = spawn(pythonCheck.path!, [scriptPath], {
         env: {
           ...process.env,
@@ -145,6 +191,7 @@ class WeChatManagerImpl {
           AETHER_URL: aetherUrl,
           AETHER_USERNAME: Flag.OPENCODE_SERVER_USERNAME || "",
           AETHER_PASSWORD: Flag.OPENCODE_SERVER_PASSWORD || "",
+          ...(modelEnv ? { AETHER_MODEL: modelEnv } : {}),
         },
         stdio: ["ignore", "pipe", "pipe"],
       })
