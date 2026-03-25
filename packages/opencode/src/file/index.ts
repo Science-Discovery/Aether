@@ -38,6 +38,7 @@ export namespace File {
       path: z.string(),
       absolute: z.string(),
       type: z.enum(["file", "directory"]),
+      symlinkTarget: z.string().optional(),
       ignored: z.boolean(),
     })
     .meta({
@@ -721,12 +722,29 @@ export namespace File {
             if (exclude.includes(entry.name)) continue
             const absolute = path.join(resolved, entry.name)
             const file = path.relative(Instance.directory, absolute)
-            const type = entry.isDirectory() ? "directory" : "file"
+            
+            let type: "file" | "directory";
+            let symlinkTarget: string | undefined;
+            
+            if (entry.isSymbolicLink()) {
+              try {
+                const targetStat = await fs.promises.stat(absolute);
+                type = targetStat.isDirectory() ? "directory" : "file";
+                symlinkTarget = await fs.promises.readlink(absolute);
+              } catch {
+                type = "file";
+                symlinkTarget = undefined;
+              }
+            } else {
+              type = entry.isDirectory() ? "directory" : "file";
+            }
+            
             nodes.push({
               name: entry.name,
               path: file,
               absolute,
               type,
+              symlinkTarget,
               ignored: ignored(type === "directory" ? file + "/" : file),
             })
           }
