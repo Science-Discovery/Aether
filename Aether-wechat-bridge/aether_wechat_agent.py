@@ -58,7 +58,11 @@ def output_qrcode_base64(qrcode_url: str) -> str:
         b64 = base64.b64encode(buffer.getvalue()).decode("utf-8")
         data_url = f"data:image/png;base64,{b64}"
 
-        # 输出特殊标记
+        # 终端直接渲染二维码
+        qr.print_ascii(invert=True)
+        sys.stdout.flush()
+
+        # 输出特殊标记（供 Aether 网页解析）
         print(f"[QR] {data_url}")
         sys.stdout.flush()
 
