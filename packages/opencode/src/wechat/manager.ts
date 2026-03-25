@@ -17,7 +17,9 @@ import { Config } from "@/config/config"
 const WECHAT_DATA_DIR =
   process.platform === "darwin"
     ? join(homedir(), "Library", "Application Support", "opencode", "wechat")
-    : join(homedir(), ".local", "share", "opencode", "wechat")
+    : process.platform === "win32"
+      ? join(process.env.APPDATA || homedir(), "opencode", "wechat")
+      : join(homedir(), ".local", "share", "opencode", "wechat")
 const QRCODE_FILE = join(WECHAT_DATA_DIR, "qrcode.txt")
 const SESSION_FILE = join(WECHAT_DATA_DIR, "session.json")
 const PID_FILE = join(WECHAT_DATA_DIR, "pid.txt")
@@ -25,6 +27,9 @@ const PID_FILE = join(WECHAT_DATA_DIR, "pid.txt")
 export type WeChatStatus = "idle" | "starting" | "qrcode" | "connected" | "error"
 
 const UV_VERSION = "0.6.14"
+
+const pythonBin = (env: string) =>
+  process.platform === "win32" ? join(env, "Scripts", "python.exe") : join(env, "bin", "python")
 
 export interface WeChatSession {
   connected: boolean
@@ -97,6 +102,11 @@ class WeChatManagerImpl {
     Bus.publish(WeChatEvent.StatusChanged, { status: value })
   }
 
+  private statusMsg(value: WeChatStatus, message: string) {
+    this._status = value
+    Bus.publish(WeChatEvent.StatusChanged, { status: value, message })
+  }
+
   async start(model?: string, auto = false): Promise<{
     success: boolean
     message?: string
@@ -125,9 +135,19 @@ class WeChatManagerImpl {
       return { success: false, message: "WeChat bridge script not found" }
     }
 
+    this.status = "starting"
+    this._error = null
+    this._stderr = []
+
+    // 立即返回，安装和启动在后台异步进行，进度通过 SSE 推送
+    void this._doStart(script, auto, model)
+    return { success: true }
+  }
+
+  private async _doStart(script: string, auto: boolean, model?: string): Promise<void> {
     const root = dirname(script)
     const env = join(root, ".venv")
-    const py = join(env, "bin", "python")
+    const py = pythonBin(env)
 
     if (!(await this.ready(py))) {
       if (!auto) {
@@ -137,7 +157,7 @@ class WeChatManagerImpl {
         }
         this.status = "error"
         Bus.publish(WeChatEvent.Error, this._error)
-        return { success: false, code: this._error.code, message: this._error.message }
+        return
       }
 
       const setup = await this.install(root, env)
@@ -145,15 +165,11 @@ class WeChatManagerImpl {
         this._error = { code: setup.code, message: setup.message }
         this.status = "error"
         Bus.publish(WeChatEvent.Error, this._error)
-        return { success: false, code: setup.code, message: setup.message }
+        return
       }
     }
 
     await mkdir(WECHAT_DATA_DIR, { recursive: true })
-
-    this.status = "starting"
-    this._error = null
-    this._stderr = []
 
     try {
       const aetherUrl = Server.url?.toString() || "http://127.0.0.1:4096"
@@ -238,14 +254,11 @@ class WeChatManagerImpl {
         this.status = "error"
         Bus.publish(WeChatEvent.Error, this._error)
       })
-
-      return { success: true }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       this._error = { code: "start_failed", message }
       this.status = "error"
       Bus.publish(WeChatEvent.Error, this._error)
-      return { success: false, message }
     }
   }
 
@@ -259,7 +272,11 @@ class WeChatManagerImpl {
       return
     }
 
-    this.process.kill("SIGTERM")
+    if (process.platform === "win32") {
+      this.process.kill()
+    } else {
+      this.process.kill("SIGTERM")
+    }
     this.process = null
     this._session = null
     this._qrcode = null
@@ -272,17 +289,38 @@ class WeChatManagerImpl {
     await this.clearSession()
   }
 
+  private async runCmd(cmd: string[], timeout: number): Promise<{ ok: boolean; detail: string }> {
+    // Strip proxy env vars so uv connects directly.
+    // If the system proxy is configured but not running, uv pip install would fail.
+    const env = { ...process.env }
+    for (const key of Object.keys(env)) {
+      if (/^(https?|all)_proxy$/i.test(key)) delete env[key]
+    }
+    const proc = Bun.spawn(cmd, { stderr: "pipe", stdout: "ignore", env })
+    const timer = setTimeout(() => proc.kill(), timeout)
+    const [exitCode, detail] = await Promise.all([
+      proc.exited,
+      new Response(proc.stderr as ReadableStream).text().catch(() => ""),
+    ])
+    clearTimeout(timer)
+    return { ok: exitCode === 0, detail: detail.trim() }
+  }
+
+  private fmtErr(detail: string, msg: string) {
+    if (!detail) return msg
+    // 只取最后 3 行，避免 pip warning 太长
+    const lines = detail.split("\n").filter((l) => l.trim())
+    const tail = lines.slice(-3).join(" | ")
+    return `${msg}: ${tail}`
+  }
+
   private async ready(py: string): Promise<boolean> {
     if (!existsSync(py)) return false
-    const check = Bun.spawnSync(
-      [
-        py,
-        "-c",
-        "import sys; import wechat_agent_sdk; import httpx; raise SystemExit(0 if sys.version_info >= (3, 11) else 1)",
-      ],
-      { timeout: 10000 },
+    const { ok } = await this.runCmd(
+      [py, "-c", "import sys; import wechat_agent_sdk; import httpx; raise SystemExit(0 if sys.version_info >= (3, 11) else 1)"],
+      10000,
     )
-    return check.exitCode === 0
+    return ok
   }
 
   private async install(root: string, env: string): Promise<{ ok: boolean; code: string; message: string }> {
@@ -295,65 +333,63 @@ class WeChatManagerImpl {
       }
     }
 
-    const prep = this.prepUv(uv)
+    const prep = await this.prepUv(uv)
     if (!prep.ok) return prep
 
-    const py = join(env, "bin", "python")
+    const py = pythonBin(env)
     const req = join(root, "requirements.txt")
 
-    const ver = Bun.spawnSync([uv, "python", "install", "3.11"], { timeout: 600000 })
-    if (ver.exitCode !== 0) {
-      return {
-        ok: false,
-        code: "python_install_failed",
-        message: this.stderr(ver.stderr, "安装 Python 3.11 失败"),
+    // 先尝试用系统已有的 Python 3.11 创建 venv（不需要联网）
+    this.statusMsg("starting", "正在创建虚拟环境...")
+    const venvWithSystem = await this.runCmd(
+      [uv, "venv", "--python", "3.11", "--python-preference", "system", env],
+      120000,
+    )
+
+    if (!venvWithSystem.ok) {
+      // 系统没有 Python 3.11，需要从网上下载
+      this.statusMsg("starting", "正在下载 Python 3.11（首次需要联网）...")
+      const ver = await this.runCmd([uv, "python", "install", "3.11"], 600000)
+      if (!ver.ok) {
+        return { ok: false, code: "python_install_failed", message: this.fmtErr(ver.detail, "安装 Python 3.11 失败") }
+      }
+
+      this.statusMsg("starting", "正在创建虚拟环境...")
+      const venv = await this.runCmd([uv, "venv", "--python", "3.11", env], 120000)
+      if (!venv.ok) {
+        return { ok: false, code: "venv_failed", message: this.fmtErr(venv.detail, "创建虚拟环境失败") }
       }
     }
 
-    const venv = Bun.spawnSync([uv, "venv", "--python", "3.11", env], { timeout: 120000 })
-    if (venv.exitCode !== 0) {
-      return {
-        ok: false,
-        code: "venv_failed",
-        message: this.stderr(venv.stderr, "创建虚拟环境失败"),
-      }
+    this.statusMsg("starting", "正在安装依赖...")
+    let dep = await this.runCmd([uv, "pip", "install", "--python", py, "-r", req], 600000)
+    if (!dep.ok) {
+      // PyPI 连接失败，自动切换国内镜像重试
+      this.statusMsg("starting", "正在安装依赖（切换国内镜像）...")
+      dep = await this.runCmd(
+        [uv, "pip", "install", "--python", py, "-r", req,
+          "--index-url", "https://pypi.tuna.tsinghua.edu.cn/simple"],
+        600000,
+      )
     }
-
-    const dep = Bun.spawnSync([uv, "pip", "install", "--python", py, "-r", req], { timeout: 600000 })
-    if (dep.exitCode !== 0) {
-      return {
-        ok: false,
-        code: "deps_failed",
-        message: this.stderr(dep.stderr, "安装依赖失败"),
-      }
+    if (!dep.ok) {
+      return { ok: false, code: "deps_failed", message: this.fmtErr(dep.detail, "安装依赖失败") }
     }
 
     return { ok: true, code: "", message: "" }
   }
 
-  private stderr(buf: Uint8Array, msg: string) {
-    const detail = Buffer.from(buf).toString().trim()
-    if (!detail) return msg
-    return `${msg}: ${detail}`
-  }
-
-  private prepUv(uv: string): { ok: boolean; code: string; message: string } {
-    const chmod = Bun.spawnSync(["chmod", "+x", uv], { timeout: 10000 })
-    if (chmod.exitCode !== 0) {
-      return {
-        ok: false,
-        code: "uv_not_executable",
-        message: this.stderr(chmod.stderr, "无法设置 uv 可执行权限"),
+  private async prepUv(uv: string): Promise<{ ok: boolean; code: string; message: string }> {
+    if (process.platform !== "win32") {
+      const r = await this.runCmd(["chmod", "+x", uv], 10000)
+      if (!r.ok) {
+        return { ok: false, code: "uv_not_executable", message: this.fmtErr(r.detail, "无法设置 uv 可执行权限") }
       }
     }
 
-    const ver = Bun.spawnSync([uv, "--version"], { timeout: 10000 })
-    if (ver.exitCode !== 0) {
-      return {
-        ok: false,
-        code: "uv_not_executable",
-        message: this.stderr(ver.stderr, "uv 无法执行"),
-      }
+    const r = await this.runCmd([uv, "--version"], 10000)
+    if (!r.ok) {
+      return { ok: false, code: "uv_not_executable", message: this.fmtErr(r.detail, "uv 无法执行") }
     }
 
     return { ok: true, code: "", message: "" }
@@ -365,11 +401,13 @@ class WeChatManagerImpl {
         ? process.arch === "arm64"
           ? join("runtime", "uv", `uv-${UV_VERSION}-aarch64-apple-darwin`, "uv")
           : join("runtime", "uv", `uv-${UV_VERSION}-x86_64-apple-darwin`, "uv")
-        : process.platform === "linux"
-          ? process.arch === "arm64"
-            ? join("runtime", "uv", `uv-${UV_VERSION}-aarch64-unknown-linux-gnu`, "uv")
-            : join("runtime", "uv", `uv-${UV_VERSION}-x86_64-unknown-linux-gnu`, "uv")
-          : ""
+        : process.platform === "win32"
+          ? join("runtime", "uv", `uv-${UV_VERSION}-x86_64-pc-windows-msvc`, "uv.exe")
+          : process.platform === "linux"
+            ? process.arch === "arm64"
+              ? join("runtime", "uv", `uv-${UV_VERSION}-aarch64-unknown-linux-gnu`, "uv")
+              : join("runtime", "uv", `uv-${UV_VERSION}-x86_64-unknown-linux-gnu`, "uv")
+            : ""
 
     if (!target) return null
     return this.findBridgeFile(target)

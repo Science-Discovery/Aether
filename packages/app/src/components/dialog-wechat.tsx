@@ -30,6 +30,7 @@ export const DialogWeChat: Component = () => {
   const [qrcode, setQrcode] = createSignal<string | null>(null)
   const [error, setError] = createSignal<{ code: string; message: string } | null>(null)
   const [user, setUser] = createSignal<{ id: string; name: string } | null>(null)
+  const [loadingMsg, setLoadingMsg] = createSignal<string>("正在启动微信桥接...")
 
   const authHeaders = (): HeadersInit => {
     const s = server.current?.http
@@ -40,6 +41,7 @@ export const DialogWeChat: Component = () => {
   const updateStatus = (s: WeChatStatus) => {
     setStatus(s)
     setWechatStatus(s)
+    if (s !== "loading") setLoadingMsg("正在启动微信桥接...")
   }
 
   let abort: AbortController | null = null
@@ -63,6 +65,7 @@ export const DialogWeChat: Component = () => {
 
   const startBridge = async (auto = false) => {
     updateStatus("loading")
+    setLoadingMsg("正在启动微信桥接...")
     setError(null)
 
     const currentModel = models.recent.list()[0]
@@ -82,13 +85,14 @@ export const DialogWeChat: Component = () => {
         return
       }
 
-      // 检查响应中的状态（可能是已保存的会话）
+      // 已有保存的会话，直接显示连接状态
       if (data.status === "connected" && data.user) {
         setUser(data.user)
         updateStatus("connected")
         return
       }
 
+      // 安装/启动在后台进行，通过 SSE 接收进度和结果
       connectSSE()
     } catch (err) {
       setError({ code: "network_error", message: String(err) })
@@ -151,6 +155,7 @@ export const DialogWeChat: Component = () => {
                 updateStatus("error")
               } else if (event.type === "wechat.status" && event.properties.status) {
                 updateStatus(event.properties.status)
+                if (event.properties.message) setLoadingMsg(event.properties.message)
               }
             } catch {}
           }
@@ -178,7 +183,7 @@ export const DialogWeChat: Component = () => {
             <div class="flex flex-col items-center gap-4">
               <Icon name="wechat" size="large" class="size-16 text-icon-base" />
               <p class="text-14-regular text-text-base text-center">连接微信后，可在微信中使用 Aether AI</p>
-              <Button variant="primary" onClick={() => startBridge(false)}>
+              <Button variant="primary" onClick={() => startBridge(true)}>
                 连接微信
               </Button>
             </div>
@@ -187,7 +192,8 @@ export const DialogWeChat: Component = () => {
           <Match when={status() === "loading"}>
             <div class="flex flex-col items-center gap-4">
               <div class="size-12 animate-spin rounded-full border-2 border-icon-weak border-t-icon-base" />
-              <p class="text-14-regular text-text-base">正在启动微信桥接...</p>
+              <p class="text-14-regular text-text-base">{loadingMsg()}</p>
+              <p class="text-12-regular text-text-weak">首次使用将自动安装运行环境，可能需要几分钟</p>
             </div>
           </Match>
 
@@ -234,28 +240,14 @@ export const DialogWeChat: Component = () => {
                 <Show when={error()}>
                   <p class="text-14-regular text-text-weak text-center max-w-xs">{error()!.message}</p>
                 </Show>
-                <Show when={error()?.code === "install_required"}>
-                  <p class="text-12-regular text-text-weak text-center max-w-xs">
-                    将安装 Python 3.11 运行时与依赖，需要联网，可能耗时。
-                  </p>
-                </Show>
               </div>
               <div class="flex gap-2">
                 <Button variant="secondary" onClick={() => dialog.close()}>
                   关闭
                 </Button>
-                <Show
-                  when={error()?.code === "install_required"}
-                  fallback={
-                    <Button variant="primary" onClick={() => startBridge(false)}>
-                      重试
-                    </Button>
-                  }
-                >
-                  <Button variant="primary" onClick={() => startBridge(true)}>
-                    同意并安装
-                  </Button>
-                </Show>
+                <Button variant="primary" onClick={() => startBridge(true)}>
+                  重试
+                </Button>
               </div>
             </div>
           </Match>
