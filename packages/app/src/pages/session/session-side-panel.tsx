@@ -755,7 +755,7 @@ export function SessionSidePanel(props: {
                     </Match>
                   </Switch>
                 </Tabs.Content>
-                <Tabs.Content value="all" class="bg-background-stronger px-3 py-0 flex flex-col">
+                <Tabs.Content value="all" class="bg-background-stronger px-3 py-0 flex flex-col @container">
                   <div class="flex items-center gap-1 py-1.5 border-b border-border-weak-base">
                     <Tooltip value="在项目根目录新建文件">
                       <button
@@ -764,7 +764,7 @@ export function SessionSidePanel(props: {
                         onClick={() => handleFileCreate("", "file")}
                       >
                         <Icon name="plus-small" size="small" />
-                        新建文件
+                        <span class="hidden @sm:block">新建文件</span>
                       </button>
                     </Tooltip>
                     <Tooltip value="在项目根目录新建文件夹">
@@ -774,7 +774,7 @@ export function SessionSidePanel(props: {
                         onClick={() => handleFileCreate("", "directory")}
                       >
                         <Icon name="folder-add-left" size="small" />
-                        新建文件夹
+                        <span class="hidden @sm:block">新建文件夹</span>
                       </button>
                     </Tooltip>
                     <Tooltip value="为项目所有文件夹生成 .summary 摘要文件">
@@ -785,7 +785,9 @@ export function SessionSidePanel(props: {
                         disabled={isSummarizing()}
                       >
                         <Icon name="bullet-list" size="small" />
-                        {isSummarizing() ? "生成中..." : "生成摘要"}
+                        <span class="hidden @sm:block">
+                          {isSummarizing() ? "生成中..." : "生成摘要"}
+                        </span>
                       </button>
                     </Tooltip>
                     <Tooltip value="刷新项目文件列表">
@@ -795,7 +797,7 @@ export function SessionSidePanel(props: {
                         onClick={handleRefresh}
                       >
                         <Icon name="arrow-down-to-line" size="small" />
-                        刷新
+                        <span class="hidden @sm:block">刷新</span>
                       </button>
                     </Tooltip>
                   </div>
