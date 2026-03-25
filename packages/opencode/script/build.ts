@@ -209,7 +209,7 @@ for (const item of targets) {
 
   // Smoke test: only run if binary is for current platform
   if (item.os === process.platform && item.arch === process.arch && !item.abi) {
-    const binaryPath = `dist/${name}/bin/opencode`
+    const binaryPath = `dist/${name}/bin/aether`
     console.log(`Running smoke test: ${binaryPath} --version`)
     try {
       const versionOutput = await $`${binaryPath} --version`.text()
@@ -229,6 +229,12 @@ for (const item of targets) {
   const skillsSrc = path.resolve(dir, "../../.opencode/skills")
   if (fs.existsSync(skillsSrc)) {
     fs.cpSync(skillsSrc, `dist/${name}/bin/.opencode/skills`, { recursive: true })
+  }
+
+  // Copy wechat-bridge resources
+  const wechatBridgeSrc = path.resolve(dir, "../../../Aether-wechat-bridge")
+  if (fs.existsSync(wechatBridgeSrc)) {
+    fs.cpSync(wechatBridgeSrc, `dist/${name}/bin/wechat-bridge`, { recursive: true })
   }
 
   // Copy launcher
