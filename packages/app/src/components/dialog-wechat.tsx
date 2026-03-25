@@ -59,16 +59,17 @@ export const DialogWeChat: Component = () => {
     } catch {}
   }
 
-  const startBridge = async () => {
+  const startBridge = async (auto = false) => {
     updateStatus("loading")
     setError(null)
 
     try {
-      const response = await fetch(`${sdk.url}/wechat/start`, { method: "POST", headers: authHeaders() })
+      const url = auto ? `${sdk.url}/wechat/start?autoInstall=1` : `${sdk.url}/wechat/start`
+      const response = await fetch(url, { method: "POST", headers: authHeaders() })
       const data = await response.json()
 
       if (!data.success) {
-        setError({ code: "start_failed", message: data.message || "Failed to start WeChat bridge" })
+        setError({ code: data.code || "start_failed", message: data.message || "Failed to start WeChat bridge" })
         updateStatus("error")
         return
       }
@@ -169,7 +170,7 @@ export const DialogWeChat: Component = () => {
             <div class="flex flex-col items-center gap-4">
               <Icon name="wechat" size="large" class="size-16 text-icon-base" />
               <p class="text-14-regular text-text-base text-center">连接微信后，可在微信中使用 Aether AI</p>
-              <Button variant="primary" onClick={startBridge}>
+              <Button variant="primary" onClick={() => startBridge(false)}>
                 连接微信
               </Button>
             </div>
@@ -225,14 +226,28 @@ export const DialogWeChat: Component = () => {
                 <Show when={error()}>
                   <p class="text-14-regular text-text-weak text-center max-w-xs">{error()!.message}</p>
                 </Show>
+                <Show when={error()?.code === "install_required"}>
+                  <p class="text-12-regular text-text-weak text-center max-w-xs">
+                    将安装 Python 3.11 运行时与依赖，需要联网，可能耗时。
+                  </p>
+                </Show>
               </div>
               <div class="flex gap-2">
                 <Button variant="secondary" onClick={() => dialog.close()}>
                   关闭
                 </Button>
-                <Button variant="primary" onClick={startBridge}>
-                  重试
-                </Button>
+                <Show
+                  when={error()?.code === "install_required"}
+                  fallback={
+                    <Button variant="primary" onClick={() => startBridge(false)}>
+                      重试
+                    </Button>
+                  }
+                >
+                  <Button variant="primary" onClick={() => startBridge(true)}>
+                    同意并安装
+                  </Button>
+                </Show>
               </div>
             </div>
           </Match>
