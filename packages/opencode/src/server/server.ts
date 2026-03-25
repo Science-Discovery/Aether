@@ -67,6 +67,7 @@ import { QuestionRoutes } from "./routes/question"
 import { PermissionRoutes } from "./routes/permission"
 import { GlobalRoutes } from "./routes/global"
 import { KnowledgeRoutes } from "./routes/knowledge"
+import { WeChatRoutes } from "./routes/wechat"
 import { MDNS } from "./mdns"
 import { lazy } from "@/util/lazy"
 
@@ -279,6 +280,7 @@ export namespace Server {
       .route("/mcp", McpRoutes())
       .route("/tui", TuiRoutes())
       .route("/knowledge", KnowledgeRoutes())
+      .route("/wechat", WeChatRoutes())
       .post(
         "/instance/dispose",
         describeRoute({
@@ -659,7 +661,6 @@ export namespace Server {
     cors?: string[]
     onBrowserConnectionChange?: (count: number) => void
   }) {
-    url = new URL(`http://${opts.hostname}:${opts.port}`)
     const app = createApp(opts)
     const args = {
       hostname: opts.hostname,
@@ -676,6 +677,8 @@ export namespace Server {
     }
     const server = opts.port === 0 ? (tryServe(4096) ?? tryServe(0)) : tryServe(opts.port)
     if (!server) throw new Error(`Failed to start server on port ${opts.port}`)
+
+    url = new URL(`http://${opts.hostname}:${server.port}`)
 
     const shouldPublishMDNS =
       opts.mdns &&

@@ -231,6 +231,12 @@ for (const item of targets) {
     fs.cpSync(skillsSrc, `dist/${name}/bin/.opencode/skills`, { recursive: true })
   }
 
+  // Copy wechat-bridge resources
+  const wechatBridgeSrc = path.resolve(dir, "../../../Aether-wechat-bridge")
+  if (fs.existsSync(wechatBridgeSrc)) {
+    fs.cpSync(wechatBridgeSrc, `dist/${name}/bin/wechat-bridge`, { recursive: true })
+  }
+
   // Copy launcher
   if (item.os === "win32") {
     fs.copyFileSync(path.resolve(dir, "launcher/Aether.vbs"), `dist/${name}/bin/Aether.vbs`)

@@ -40,6 +40,10 @@ const getBase = (): Configuration => ({
       from: "../../.opencode/themes",
       to: ".opencode/themes",
     },
+    {
+      from: "../../Aether-wechat-bridge",
+      to: "wechat-bridge",
+    },
   ],
   mac: {
     category: "public.app-category.developer-tools",
@@ -47,7 +51,7 @@ const getBase = (): Configuration => ({
     hardenedRuntime: false,
     gatekeeperAssess: false,
     notarize: false,
-    target: ["dir"],
+    target: ["dmg"],
   },
   protocols: {
     name: "Aether",
