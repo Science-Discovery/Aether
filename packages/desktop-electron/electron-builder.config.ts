@@ -7,6 +7,8 @@ const channel = (() => {
 })()
 
 const updater = process.env.OPENCODE_UPDATER_CHANNEL ?? "latest"
+const rust = process.env.RUST_TARGET
+const bridgeFilter = rust ? ["**/*", "!runtime/uv/**", `runtime/uv/uv-*-${rust}/**`] : ["**/*"]
 
 const getBase = (): Configuration => ({
   artifactName: "aether-${os}-${arch}.${ext}",
@@ -45,6 +47,7 @@ const getBase = (): Configuration => ({
     {
       from: "../../Aether-wechat-bridge",
       to: "wechat-bridge",
+      filter: bridgeFilter,
     },
   ],
   mac: {

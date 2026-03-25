@@ -17,6 +17,11 @@ if not exist "%SRC%" (
   exit /b 1
 )
 
+set "UV=%SRC%\wechat-bridge\runtime\uv"
+if exist "%UV%" (
+  powershell -NoProfile -Command "& { $uv=$env:UV; Get-ChildItem -Path $uv -Directory | Where-Object { $_.Name -notlike '*x86_64-pc-windows-msvc*' } | Remove-Item -Recurse -Force }" || exit /b 1
+)
+
 set "ZIP=%CD%\dist\aether-windows-x64-web.zip"
 if exist "%ZIP%" del /f /q "%ZIP%"
 powershell -NoProfile -Command "& { Compress-Archive -Path '%SRC%\*' -DestinationPath '%ZIP%' -CompressionLevel Optimal }" || exit /b 1

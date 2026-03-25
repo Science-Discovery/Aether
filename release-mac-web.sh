@@ -14,6 +14,17 @@ if [ ! -d "$src" ]; then
   exit 1
 fi
 
+uv="$src/wechat-bridge/runtime/uv"
+if [ -d "$uv" ]; then
+  for dir in "$uv"/*; do
+    [ -d "$dir" ] || continue
+    case "$(basename "$dir")" in
+      *aarch64-apple-darwin*) ;;
+      *) rm -rf "$dir" ;;
+    esac
+  done
+fi
+
 zip="dist/aether-darwin-arm64-web.zip"
 rm -f "$zip"
 (cd "$src" && zip -r "../../aether-darwin-arm64-web.zip" .)

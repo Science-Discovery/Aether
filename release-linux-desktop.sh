@@ -8,6 +8,7 @@ date="$(date -u +"%Y-%m-%dT%H:%M:%S.000Z")"
 pushd "$root/packages/desktop-electron" >/dev/null
 export OPENCODE_CHANNEL=prod
 export OPENCODE_UPDATER_CHANNEL=latest
+export RUST_TARGET=x86_64-unknown-linux-gnu
 
 bun run build
 npx electron-builder --linux AppImage --x64 --publish never --config electron-builder.config.ts

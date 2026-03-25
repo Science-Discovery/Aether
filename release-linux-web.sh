@@ -14,6 +14,17 @@ if [ ! -d "$src" ]; then
   exit 1
 fi
 
+uv="$src/wechat-bridge/runtime/uv"
+if [ -d "$uv" ]; then
+  for dir in "$uv"/*; do
+    [ -d "$dir" ] || continue
+    case "$(basename "$dir")" in
+      *x86_64-unknown-linux-gnu*) ;;
+      *) rm -rf "$dir" ;;
+    esac
+  done
+fi
+
 zip="dist/aether-linux-x64-web.zip"
 rm -f "$zip"
 (cd "$src" && zip -r "../../aether-linux-x64-web.zip" .)

@@ -11,6 +11,7 @@ if "%~1"=="" (
 cd /d "%ROOT%packages\desktop-electron" || exit /b 1
 set "OPENCODE_CHANNEL=prod"
 set "OPENCODE_UPDATER_CHANNEL=latest"
+set "RUST_TARGET=x86_64-pc-windows-msvc"
 
 call bun run build || exit /b 1
 call npx electron-builder --win nsis --x64 --publish never --config electron-builder.config.ts || exit /b 1
