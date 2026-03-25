@@ -30,6 +30,7 @@ export const DialogWeChat: Component = () => {
   const [qrcode, setQrcode] = createSignal<string | null>(null)
   const [error, setError] = createSignal<{ code: string; message: string } | null>(null)
   const [user, setUser] = createSignal<{ id: string; name: string } | null>(null)
+  const [loadingMsg, setLoadingMsg] = createSignal<string>("正在启动微信桥接...")
 
   const authHeaders = (): HeadersInit => {
     const s = server.current?.http
@@ -40,6 +41,7 @@ export const DialogWeChat: Component = () => {
   const updateStatus = (s: WeChatStatus) => {
     setStatus(s)
     setWechatStatus(s)
+    if (s !== "loading") setLoadingMsg("正在启动微信桥接...")
   }
 
   let abort: AbortController | null = null
@@ -61,8 +63,9 @@ export const DialogWeChat: Component = () => {
     } catch {}
   }
 
-  const startBridge = async () => {
+  const startBridge = async (auto = false) => {
     updateStatus("loading")
+    setLoadingMsg("正在启动微信桥接...")
     setError(null)
 
     const currentModel = models.recent.list()[0]
@@ -72,23 +75,24 @@ export const DialogWeChat: Component = () => {
       const response = await fetch(`${sdk.url}/wechat/start`, {
         method: "POST",
         headers: { ...authHeaders(), "Content-Type": "application/json" },
-        body: JSON.stringify({ model: modelStr }),
+        body: JSON.stringify({ model: modelStr, autoInstall: auto }),
       })
       const data = await response.json()
 
       if (!data.success) {
-        setError({ code: "start_failed", message: data.message || "Failed to start WeChat bridge" })
+        setError({ code: data.code || "start_failed", message: data.message || "Failed to start WeChat bridge" })
         updateStatus("error")
         return
       }
 
-      // 检查响应中的状态（可能是已保存的会话）
+      // 已有保存的会话，直接显示连接状态
       if (data.status === "connected" && data.user) {
         setUser(data.user)
         updateStatus("connected")
         return
       }
 
+      // 安装/启动在后台进行，通过 SSE 接收进度和结果
       connectSSE()
     } catch (err) {
       setError({ code: "network_error", message: String(err) })
@@ -151,6 +155,7 @@ export const DialogWeChat: Component = () => {
                 updateStatus("error")
               } else if (event.type === "wechat.status" && event.properties.status) {
                 updateStatus(event.properties.status)
+                if (event.properties.message) setLoadingMsg(event.properties.message)
               }
             } catch {}
           }
@@ -178,7 +183,7 @@ export const DialogWeChat: Component = () => {
             <div class="flex flex-col items-center gap-4">
               <Icon name="wechat" size="large" class="size-16 text-icon-base" />
               <p class="text-14-regular text-text-base text-center">连接微信后，可在微信中使用 Aether AI</p>
-              <Button variant="primary" onClick={startBridge}>
+              <Button variant="primary" onClick={() => startBridge(true)}>
                 连接微信
               </Button>
             </div>
@@ -187,7 +192,8 @@ export const DialogWeChat: Component = () => {
           <Match when={status() === "loading"}>
             <div class="flex flex-col items-center gap-4">
               <div class="size-12 animate-spin rounded-full border-2 border-icon-weak border-t-icon-base" />
-              <p class="text-14-regular text-text-base">正在启动微信桥接...</p>
+              <p class="text-14-regular text-text-base">{loadingMsg()}</p>
+              <p class="text-12-regular text-text-weak">首次使用将自动安装运行环境，可能需要几分钟</p>
             </div>
           </Match>
 
@@ -239,7 +245,7 @@ export const DialogWeChat: Component = () => {
                 <Button variant="secondary" onClick={() => dialog.close()}>
                   关闭
                 </Button>
-                <Button variant="primary" onClick={startBridge}>
+                <Button variant="primary" onClick={() => startBridge(true)}>
                   重试
                 </Button>
               </div>

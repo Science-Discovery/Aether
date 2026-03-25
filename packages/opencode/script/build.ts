@@ -232,9 +232,34 @@ for (const item of targets) {
   }
 
   // Copy wechat-bridge resources
-  const wechatBridgeSrc = path.resolve(dir, "../../../Aether-wechat-bridge")
+  const wechatBridgeSrc = path.resolve(dir, "../../Aether-wechat-bridge")
   if (fs.existsSync(wechatBridgeSrc)) {
-    fs.cpSync(wechatBridgeSrc, `dist/${name}/bin/wechat-bridge`, { recursive: true })
+    fs.cpSync(wechatBridgeSrc, `dist/${name}/bin/wechat-bridge`, {
+      recursive: true,
+      filter: (src) => !src.includes("__pycache__") && !src.includes(".venv"),
+    })
+
+    // 只保留当前目标平台的 uv 二进制，删除其他平台的
+    const uvDir = `dist/${name}/bin/wechat-bridge/runtime/uv`
+    if (fs.existsSync(uvDir)) {
+      const uvTarget =
+        item.os === "darwin" && item.arch === "arm64"
+          ? "aarch64-apple-darwin"
+          : item.os === "darwin"
+            ? "x86_64-apple-darwin"
+            : item.os === "win32"
+              ? "x86_64-pc-windows-msvc"
+              : item.arch === "arm64"
+                ? "aarch64-unknown-linux-gnu"
+                : "x86_64-unknown-linux-gnu"
+
+      for (const entry of fs.readdirSync(uvDir)) {
+        const entryPath = path.join(uvDir, entry)
+        if (fs.statSync(entryPath).isDirectory() && !entry.includes(uvTarget)) {
+          fs.rmSync(entryPath, { recursive: true })
+        }
+      }
+    }
   }
 
   // Copy launcher

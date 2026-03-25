@@ -1,5 +1,5 @@
 import { Hono } from "hono"
-import { describeRoute, validator, resolver } from "hono-openapi"
+import { describeRoute, resolver } from "hono-openapi"
 import { streamSSE } from "hono/streaming"
 import z from "zod"
 import { lazy } from "@/util/lazy"
@@ -23,6 +23,7 @@ export const WeChatRoutes = lazy(() =>
                 schema: resolver(
                   z.object({
                     success: z.boolean(),
+                    code: z.string().optional(),
                     message: z.string().optional(),
                     status: z.string().optional(),
                     user: z
@@ -40,7 +41,7 @@ export const WeChatRoutes = lazy(() =>
       }),
       async (c) => {
         const body = await c.req.json().catch(() => ({}))
-        const result = await WeChatManager.start(body?.model)
+        const result = await WeChatManager.start(body?.model, body?.autoInstall === true)
         return c.json(result)
       },
     )
