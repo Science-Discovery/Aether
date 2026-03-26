@@ -35,7 +35,6 @@ export type FormState = {
   providerType: "openai-compatible" | "anthropic" | "google"
   models: ModelRow[]
   headers: HeaderRow[]
-  saving: boolean
   err: {
     providerID?: string
     name?: string

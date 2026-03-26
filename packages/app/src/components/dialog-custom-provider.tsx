@@ -4,6 +4,7 @@ import { Dialog } from "@opencode-ai/ui/dialog"
 import { IconButton } from "@opencode-ai/ui/icon-button"
 import { ProviderIcon } from "@opencode-ai/ui/provider-icon"
 import { RadioGroup } from "@opencode-ai/ui/radio-group"
+import { useMutation } from "@tanstack/solid-query"
 import { TextField } from "@opencode-ai/ui/text-field"
 import { showToast } from "@opencode-ai/ui/toast"
 import { batch, createEffect, createSignal, For } from "solid-js"
@@ -40,7 +41,6 @@ export function DialogCustomProvider(props: Props) {
     providerType: "openai-compatible",
     models: [modelRow()],
     headers: [headerRow()],
-    saving: false,
     err: {},
   })
 
@@ -170,51 +170,51 @@ export function DialogCustomProvider(props: Props) {
     return output.result
   }
 
-  const save = async (e: SubmitEvent) => {
+  const saveMutation = useMutation(() => ({
+    mutationFn: async (result: NonNullable<ReturnType<typeof validate>>) => {
+      const disabledProviders = globalSync.data.config.disabled_providers ?? []
+      const nextDisabled = disabledProviders.filter((id) => id !== result.providerID)
+
+      // Skip auth update if the API key is unchanged (still showing the masked sentinel)
+      const apiKeyUnchanged = form.apiKey === MASKED_KEY
+      if (result.key && !apiKeyUnchanged) {
+        await globalSDK.client.auth.set({
+          providerID: result.providerID,
+          auth: {
+            type: "api",
+            key: result.key,
+          },
+        })
+      }
+
+      await globalSync.updateConfig({
+        provider: { [result.providerID]: result.config },
+        disabled_providers: nextDisabled,
+      })
+      return result
+    },
+    onSuccess: (result) => {
+      dialog.close()
+      showToast({
+        variant: "success",
+        icon: "circle-check",
+        title: language.t("provider.connect.toast.connected.title", { provider: result.name }),
+        description: language.t("provider.connect.toast.connected.description", { provider: result.name }),
+      })
+    },
+    onError: (err) => {
+      const message = err instanceof Error ? err.message : String(err)
+      showToast({ title: language.t("common.requestFailed"), description: message })
+    },
+  }))
+
+  const save = (e: SubmitEvent) => {
     e.preventDefault()
-    if (form.saving) return
+    if (saveMutation.isPending) return
 
     const result = validate()
     if (!result) return
-
-    setForm("saving", true)
-
-    const disabledProviders = globalSync.data.config.disabled_providers ?? []
-    const nextDisabled = disabledProviders.filter((id) => id !== result.providerID)
-
-    // Skip auth update if the API key is unchanged (still showing the masked sentinel)
-    const apiKeyUnchanged = form.apiKey === MASKED_KEY
-    const auth =
-      result.key && !apiKeyUnchanged
-        ? globalSDK.client.auth.set({
-            providerID: result.providerID,
-            auth: {
-              type: "api",
-              key: result.key,
-            },
-          })
-        : Promise.resolve()
-
-    auth
-      .then(() =>
-        globalSync.updateConfig({ provider: { [result.providerID]: result.config }, disabled_providers: nextDisabled }),
-      )
-      .then(() => {
-        dialog.close()
-        showToast({
-          variant: "success",
-          icon: "circle-check",
-          title: language.t("provider.connect.toast.connected.title", { provider: result.name }),
-          description: language.t("provider.connect.toast.connected.description", { provider: result.name }),
-        })
-      })
-      .catch((err: unknown) => {
-        const message = err instanceof Error ? err.message : String(err)
-        showToast({ title: language.t("common.requestFailed"), description: message })
-      })
-      .finally(() => {
-        setForm("saving", false)
-      })
+    saveMutation.mutate(result)
   }
 
   const isEdit = !!props.editProviderID
@@ -400,8 +400,14 @@ export function DialogCustomProvider(props: Props) {
             </Button>
           </div>
 
-          <Button class="w-auto self-start" type="submit" size="large" variant="primary" disabled={form.saving}>
-            {form.saving ? language.t("common.saving") : language.t("common.submit")}
+          <Button
+            class="w-auto self-start"
+            type="submit"
+            size="large"
+            variant="primary"
+            disabled={saveMutation.isPending}
+          >
+            {saveMutation.isPending ? language.t("common.saving") : language.t("common.submit")}
           </Button>
         </form>
       </div>
