@@ -1086,6 +1086,26 @@ export default function Page() {
     setFileTreeTab("all")
   }
 
+  const refreshReview = () => {
+    file.tree.refresh("")
+    const id = params.id
+    if (!id) return
+
+    setStore("changes", "session")
+    if (!isDesktop()) setStore("mobileTab", "changes")
+    if (isDesktop()) {
+      if (!view().reviewPanel.opened()) view().reviewPanel.open()
+      if (activeTab() !== "review") tabs().setActive("review")
+    }
+
+    sync.set("session_diff", (value) => {
+      const next = { ...value }
+      delete next[id]
+      return next
+    })
+    void sync.session.diff(id, { force: true })
+  }
+
   const focusInput = () => inputRef?.focus()
 
   useSessionCommands({
@@ -2062,6 +2082,7 @@ export default function Page() {
           diffs={reviewDiffs}
           diffsReady={reviewReady}
           empty={reviewEmptyText}
+          onRefresh={refreshReview}
           hasReview={hasReview}
           reviewCount={reviewCount}
           reviewPanel={reviewPanel}

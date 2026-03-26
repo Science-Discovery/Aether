@@ -601,17 +601,22 @@ export default function Layout(props: ParentProps) {
 
         if (value.list.length === 0) {
           if (!last) return
-          setState("autoselect", false)
           openProject(last, false)
-          navigateToProject(last)
+          // IMPORTANT: Do NOT set autoselect=false synchronously before navigateToProject completes.
+          // Setting it early causes autoselecting() to become false immediately, which makes the
+          // main content <Show> render its children (Suspense + Router) while the URL is still "/".
+          // This triggers a lazy HomeRoute Suspense transition that overlaps with async setStore
+          // calls from bootstrapGlobal / SSE events, causing a SolidJS stale <Show> accessor error.
+          // Always defer setState("autoselect", false) until after navigation is done.
+          void navigateToProject(last).finally(() => setState("autoselect", false))
           return
         }
 
         const next = value.list.find((project) => project.worktree === last) ?? value.list[0]
         if (!next) return
-        setState("autoselect", false)
         openProject(next.worktree, false)
-        navigateToProject(next.worktree)
+        // Same reasoning as above: defer autoselect=false until navigation completes.
+        void navigateToProject(next.worktree).finally(() => setState("autoselect", false))
       },
     ),
   )
@@ -2172,7 +2177,8 @@ export default function Layout(props: ParentProps) {
             </Show>
           }
         >
-          <>
+          {(item) => (
+            <>
             <div class="shrink-0 pl-1 py-1">
               <div class="group/project flex items-start justify-between gap-2 py-2 pl-2 pr-0">
                 <div class="flex flex-col min-w-0">
@@ -2180,9 +2186,7 @@ export default function Layout(props: ParentProps) {
                     id={`project:${projectId()}`}
                     value={projectName}
                     onSave={(next) => {
-                      const item = project()
-                      if (!item) return
-                      renameProject(item, next)
+                      renameProject(item(), next)
                     }}
                     class="text-14-medium text-text-strong truncate"
                     displayClass="text-14-medium text-text-strong truncate"
@@ -2224,9 +2228,7 @@ export default function Layout(props: ParentProps) {
                     <DropdownMenu.Content class="mt-1">
                       <DropdownMenu.Item
                         onSelect={() => {
-                          const item = project()
-                          if (!item) return
-                          showEditProjectDialog(item)
+                          showEditProjectDialog(item())
                         }}
                       >
                         <DropdownMenu.ItemLabel>{language.t("common.edit")}</DropdownMenu.ItemLabel>
@@ -2236,9 +2238,7 @@ export default function Layout(props: ParentProps) {
                         data-project={slug()}
                         disabled={!canToggle()}
                         onSelect={() => {
-                          const item = project()
-                          if (!item) return
-                          toggleProjectWorkspaces(item)
+                          toggleProjectWorkspaces(item())
                         }}
                       >
                         <DropdownMenu.ItemLabel>
@@ -2296,7 +2296,7 @@ export default function Layout(props: ParentProps) {
                     <div class="flex-1 min-h-0">
                       <LocalWorkspace
                         ctx={workspaceSidebarCtx}
-                        project={project()!}
+                        project={item()}
                         sortNow={sortNow}
                         mobile={panelProps.mobile}
                         popover={popover()}
@@ -2312,9 +2312,7 @@ export default function Layout(props: ParentProps) {
                       icon="plus-small"
                       class="w-full"
                       onClick={() => {
-                        const item = project()
-                        if (!item) return
-                        createWorkspace(item)
+                        createWorkspace(item())
                       }}
                     >
                       {language.t("workspace.new")}
@@ -2341,7 +2339,7 @@ export default function Layout(props: ParentProps) {
                               <SortableWorkspace
                                 ctx={workspaceSidebarCtx}
                                 directory={directory}
-                                project={project()!}
+                                project={item()}
                                 sortNow={sortNow}
                                 mobile={panelProps.mobile}
                                 popover={popover()}
@@ -2362,7 +2360,8 @@ export default function Layout(props: ParentProps) {
                 </>
               </Show>
             </div>
-          </>
+            </>
+          )}
         </Show>
 
         <div
