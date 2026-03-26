@@ -17,6 +17,9 @@ import { parsePDF } from "../../knowledge/document"
 import { startConversion, getTask, cancelTask, getQueuePosition, getQueueLength } from "../../pdf-converter"
 import { generateTaskID, computeOutputPaths } from "../../pdf-converter/util"
 import { checkPythonAvailable } from "../../pdf-converter/pdf-renderer"
+import { startTranslation, getTranslateTask, cancelTranslateTask, generateTranslateTaskID } from "../../markdown-translator"
+import { detectDataJson, chunkByContent, chunksFromDataJson } from "../../markdown-translator/chunker"
+import fs from "fs/promises"
 
 export const FileRoutes = lazy(() =>
   new Hono()
@@ -708,6 +711,224 @@ export const FileRoutes = lazy(() =>
       async (c) => {
         const { taskID } = c.req.valid("json")
         const ok = cancelTask(taskID)
+        return c.json({ ok })
+      },
+    )
+    // ====== Markdown 翻译路由 ======
+    .get(
+      "/file/translate-markdown/check",
+      describeRoute({
+        summary: "Check markdown for translation",
+        description: "Pre-check a markdown file before translation: detect _data.json, estimate chunks, check conflicts.",
+        operationId: "file.translateMarkdownCheck",
+        responses: {
+          200: {
+            description: "Pre-check result",
+            content: {
+              "application/json": {
+                schema: resolver(
+                  z.object({
+                    hasDataJson: z.boolean(),
+                    chunkCount: z.number(),
+                    outputPath: z.string(),
+                    existingFiles: z.string().array(),
+                    fileSize: z.number(),
+                  }),
+                ),
+              },
+            },
+          },
+          ...errors(400),
+        },
+      }),
+      validator(
+        "query",
+        z.object({
+          path: z.string(),
+        }),
+      ),
+      async (c) => {
+        const filePath = c.req.valid("query").path
+        const absPath = path.isAbsolute(filePath) ? filePath : path.join(Instance.directory, filePath)
+        try {
+          const stat = await Bun.file(absPath).stat()
+          const fileSize = stat.size
+
+          const dataJsonPath = await detectDataJson(absPath)
+          let chunkCount: number
+          if (dataJsonPath) {
+            const raw = await fs.readFile(dataJsonPath, "utf-8")
+            const data = JSON.parse(raw)
+            chunkCount = data.pages?.length ?? 0
+          } else {
+            const content = await fs.readFile(absPath, "utf-8")
+            chunkCount = chunkByContent(content).length
+          }
+
+          const ext = absPath.match(/\.[^.]+$/)?.[0] ?? ""
+          const base = absPath.slice(0, absPath.length - ext.length)
+          const outputPath = `${base}_zh${ext}`
+
+          const existingFiles: string[] = []
+          if (await Bun.file(outputPath).exists()) existingFiles.push(outputPath)
+
+          return c.json({
+            hasDataJson: !!dataJsonPath,
+            chunkCount,
+            outputPath,
+            existingFiles,
+            fileSize,
+          })
+        } catch (e: any) {
+          return c.json({ error: e?.message || String(e) }, 400)
+        }
+      },
+    )
+    .post(
+      "/file/translate-markdown",
+      describeRoute({
+        summary: "Start markdown translation",
+        description: "Start an async markdown translation task.",
+        operationId: "file.translateMarkdown",
+        responses: {
+          200: {
+            description: "Task started",
+            content: {
+              "application/json": {
+                schema: resolver(z.object({ taskID: z.string() })),
+              },
+            },
+          },
+          ...errors(400),
+        },
+      }),
+      validator(
+        "json",
+        z.object({
+          path: z.string(),
+          providerID: z.string(),
+          modelID: z.string(),
+          targetLanguage: z.string().optional().default("zh-CN"),
+          conflictAction: z.enum(["replace", "rename", "cancel"]),
+        }),
+      ),
+      async (c) => {
+        const body = c.req.valid("json")
+        const absPath = path.isAbsolute(body.path) ? body.path : path.join(Instance.directory, body.path)
+
+        const taskID = generateTranslateTaskID()
+        startTranslation(taskID, {
+          ...body,
+          path: absPath,
+        })
+
+        return c.json({ taskID })
+      },
+    )
+    .get(
+      "/file/translate-markdown/progress",
+      describeRoute({
+        summary: "Get translation progress",
+        description: "SSE endpoint for real-time markdown translation progress.",
+        operationId: "file.translateMarkdownProgress",
+        responses: {
+          200: {
+            description: "Progress event stream",
+            content: {
+              "text/event-stream": {
+                schema: resolver(z.any()),
+              },
+            },
+          },
+        },
+      }),
+      validator(
+        "query",
+        z.object({
+          taskID: z.string(),
+        }),
+      ),
+      async (c) => {
+        const { taskID } = c.req.valid("query")
+        const task = getTranslateTask(taskID)
+        if (!task) {
+          return c.json({ error: "任务不存在" }, 404)
+        }
+
+        c.header("X-Accel-Buffering", "no")
+        c.header("X-Content-Type-Options", "nosniff")
+
+        return streamSSE(c, async (stream) => {
+          for (const event of task.events) {
+            await stream.writeSSE({ data: JSON.stringify(event) })
+          }
+
+          if (task.status !== "running") {
+            return
+          }
+
+          const listener = async (event: any) => {
+            try {
+              await stream.writeSSE({ data: JSON.stringify(event) })
+              if (event.type === "done" || (event.type === "error" && !event.page)) {
+                cleanup()
+              }
+            } catch {
+              cleanup()
+            }
+          }
+
+          task.listeners.add(listener)
+
+          const heartbeat = setInterval(() => {
+            stream.writeSSE({
+              data: JSON.stringify({ type: "heartbeat" }),
+            }).catch(() => cleanup())
+          }, 5_000)
+
+          const cleanup = () => {
+            task.listeners.delete(listener)
+            clearInterval(heartbeat)
+          }
+
+          await new Promise<void>((resolve) => {
+            stream.onAbort(() => {
+              cleanup()
+              resolve()
+            })
+
+            const checkDone = setInterval(() => {
+              if (task.status !== "running") {
+                clearInterval(checkDone)
+                cleanup()
+                resolve()
+              }
+            }, 1000)
+          })
+        })
+      },
+    )
+    .post(
+      "/file/translate-markdown/cancel",
+      describeRoute({
+        summary: "Cancel markdown translation",
+        description: "Cancel a running markdown translation task.",
+        operationId: "file.translateMarkdownCancel",
+        responses: {
+          200: {
+            description: "Cancelled",
+            content: {
+              "application/json": {
+                schema: resolver(z.object({ ok: z.boolean() })),
+              },
+            },
+          },
+        },
+      }),
+      validator("json", z.object({ taskID: z.string() })),
+      async (c) => {
+        const { taskID } = c.req.valid("json")
+        const ok = cancelTranslateTask(taskID)
         return c.json({ ok })
       },
     ),

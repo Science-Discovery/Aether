@@ -29,3 +29,4 @@ logs/
 *.bun-build
 tsconfig.tsbuildinfo
 .claude/
+textbox/

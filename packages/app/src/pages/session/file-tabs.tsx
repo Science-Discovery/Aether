@@ -25,6 +25,7 @@ import { useSessionLayout } from "@/pages/session/session-layout"
 import { createSessionTabs } from "@/pages/session/helpers"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { DialogPdfToMarkdown } from "@/components/dialog-pdf-to-markdown"
+import { DialogTranslateMarkdown } from "@/components/dialog-translate-markdown"
 import { registerOpenFileCallback } from "@/components/pdf-convert-progress"
 
 function FileCommentMenu(props: {
@@ -589,6 +590,19 @@ export function FileTabContent(props: { tab: string }) {
               onClick={runPython}
               disabled={isRunning()}
             />
+          </Show>
+          <Show when={!isEditing() && isMarkdown()}>
+            <button
+              type="button"
+              class="flex items-center justify-center rounded-md px-2 h-5 text-xs text-text-weak hover:bg-surface-raised-base-hover transition-colors cursor-pointer leading-none"
+              onClick={() => {
+                const p = path()
+                if (!p) return
+                dialog.show(() => <DialogTranslateMarkdown mdPath={p} />)
+              }}
+            >
+              翻译为中文
+            </button>
           </Show>
           <Show when={!isEditing() && isTextFile()}>
             <IconButton

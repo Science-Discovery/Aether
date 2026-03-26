@@ -17,6 +17,10 @@ import { useDialog } from "@opencode-ai/ui/context/dialog"
 import FileTree from "@/components/file-tree"
 import { SessionContextUsage } from "@/components/session-context-usage"
 import { DialogSelectFile } from "@/components/dialog-select-file"
+import { DialogPdfToMarkdown } from "@/components/dialog-pdf-to-markdown"
+import { DialogTranslateMarkdown } from "@/components/dialog-translate-markdown"
+import { DialogBatchPdfConvert } from "@/components/dialog-batch-pdf-convert"
+import { DialogBatchTranslateMarkdown } from "@/components/dialog-batch-translate-markdown"
 import { SessionContextTab, SortableTab, FileVisual } from "@/components/session"
 import { useCommand } from "@/context/command"
 import { useFile, type SelectedLineRange } from "@/context/file"
@@ -472,6 +476,22 @@ export function SessionSidePanel(props: {
     showToast({ variant: "success", title: `已剪切 ${paths.length} 项` })
   }
 
+  const handlePdfConvert = (paths: string[]) => {
+    if (paths.length === 1) {
+      dialog.show(() => <DialogPdfToMarkdown pdfPath={paths[0]} />)
+    } else {
+      dialog.show(() => <DialogBatchPdfConvert pdfPaths={paths} />)
+    }
+  }
+
+  const handleTranslateMarkdown = (paths: string[]) => {
+    if (paths.length === 1) {
+      dialog.show(() => <DialogTranslateMarkdown mdPath={paths[0]} />)
+    } else {
+      dialog.show(() => <DialogBatchTranslateMarkdown mdPaths={paths} />)
+    }
+  }
+
   const handleFileDrop = async (paths: string[], targetDir: string) => {
     let success = 0
     let failed = 0
@@ -817,6 +837,8 @@ export function SessionSidePanel(props: {
                         onMultiCopy={handleMultiCopy}
                         onMultiCut={handleMultiCut}
                         onFileDrop={handleFileDrop}
+                        onPdfConvert={handlePdfConvert}
+                        onTranslateMarkdown={handleTranslateMarkdown}
                       />
                     </Match>
                   </Switch>

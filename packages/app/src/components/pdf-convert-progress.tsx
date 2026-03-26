@@ -23,6 +23,8 @@ export interface PdfConvertTask {
   streamContent: string
   outputPath: string | null
   error: string | null
+  taskType: "pdf-convert" | "translate"
+  cancelUrl: string
 }
 
 // ===== 全局状态 =====
@@ -39,6 +41,8 @@ const emptyTask: PdfConvertTask = {
   streamContent: "",
   outputPath: null,
   error: null,
+  taskType: "pdf-convert",
+  cancelUrl: "/file/pdf-to-markdown/cancel",
 }
 
 const [globalTask, setGlobalTask] = createStore<PdfConvertTask>({ ...emptyTask })
@@ -123,11 +127,15 @@ export const PdfConvertProgressBar: Component = () => {
       case "fix": return "验证修复"
       case "crop": return "裁剪图片"
       case "postqa": return "质量检查"
+      case "translate": return "翻译中"
       default: return task.phase
     }
   }
 
   const fmt = (n: number) => n.toLocaleString()
+
+  const isTranslate = () => task.taskType === "translate"
+  const unitLabel = () => isTranslate() ? "块" : "页"
 
   const isDone = () => task.status === "done" && task.taskID !== ""
   const isError = () => task.status === "error"
@@ -142,7 +150,7 @@ export const PdfConvertProgressBar: Component = () => {
       globalEventSource = null
     }
     try {
-      await globalFetchApi("/file/pdf-to-markdown/cancel", {
+      await globalFetchApi(task.cancelUrl, {
         method: "POST",
         body: JSON.stringify({ taskID: task.taskID }),
       })
@@ -178,17 +186,17 @@ export const PdfConvertProgressBar: Component = () => {
           onClick={() => setExpanded(!expanded())}
         >
           <Show when={isRunning() && isQueued()}>
-            PDF 排队中（第 {queuePosition()} 位）
+            {isTranslate() ? "翻译" : "PDF"} 排队中（第 {queuePosition()} 位）
           </Show>
           <Show when={isRunning() && !isQueued()}>
             <Show when={task.phase === "postqa"} fallback={
-              <>PDF {task.currentPage}/{task.totalPages} 页 · {phaseLabel()}</>
+              <>{isTranslate() ? "翻译" : "PDF"} {task.currentPage}/{task.totalPages} {unitLabel()} · {phaseLabel()}</>
             }>
               正在检查
             </Show>
           </Show>
           <Show when={isDone()}>
-            PDF 转换完成
+            {isTranslate() ? "翻译完成" : "PDF 转换完成"}
           </Show>
           <Show when={isError()}>
             转换失败
