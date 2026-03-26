@@ -13,7 +13,7 @@ type WeChatStatus = "idle" | "loading" | "qrcode" | "connected" | "error"
 interface WeChatEvent {
   type: string
   properties: {
-    status?: WeChatStatus
+    status?: WeChatStatus | "starting"
     message?: string
     image?: string
     user?: { id: string; name: string }
@@ -166,7 +166,8 @@ export const DialogWeChat: Component = () => {
                 })
                 updateStatus("error")
               } else if (event.type === "wechat.status" && event.properties.status) {
-                updateStatus(event.properties.status)
+                const s = event.properties.status === "starting" ? "loading" : event.properties.status
+                updateStatus(s)
                 if (event.properties.message) setLoadingMsg(event.properties.message)
               }
             } catch {}
