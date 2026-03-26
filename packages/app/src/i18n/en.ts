@@ -538,6 +538,7 @@ export const dict = {
   "dialog.newProject.parentDirectory": "Browse folders",
   "dialog.newProject.createGroup": "Create new folder",
   "dialog.newProject.createFolder": "Create",
+  "dialog.newProject.browse": "Browse",
 
   "session.tab.session": "Session",
   "session.tab.review": "Review",

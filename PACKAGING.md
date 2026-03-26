@@ -216,7 +216,7 @@ print('Done!')
 在 Windows 上仅构建 Windows 版本（`--single` 只编译当前平台）：
 
 ```cmd
-cd /d D:\Postdoc\code\aether_1\opencode\packages\opencode
+cd /d D:\Postdoc\code\openresearch_1\opencode\packages\opencode
 bun run build -- --single
 ```
 
