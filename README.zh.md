@@ -152,3 +152,4 @@ source ~/.bashrc
 **浏览器未自动打开**：手动访问终端中显示的 URL（依赖 `xdg-open`）。
 
 **提示找不到前端资源**：确认 `aether` 二进制和 `web/` 目录在同一目录下。
+**加入我们的社区** [飞书](https://applink.feishu.cn/client/chat/chatter/add_by_link?link_token=738j8655-cd59-4633-a30a-1124e0096789&qr_code=true) | [X.com](https://x.com/opencode)
