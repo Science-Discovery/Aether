@@ -215,10 +215,8 @@ class AetherAgent(Agent):
         text = "\n\n".join(text_parts + tool_parts)
 
         formatted_parts = []
-        if reasoning:
-            formatted_parts.append(f"💭 思考：\n{reasoning}")
         if text:
-            formatted_parts.append(f"📝 回复：\n{text}")
+            formatted_parts.append(text)
 
         return {
             "reasoning": reasoning,

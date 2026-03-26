@@ -179,10 +179,8 @@ class AetherAgent(Agent):
 
         # 构建微信格式化消息
         formatted_parts = []
-        if reasoning:
-            formatted_parts.append(f"💭 思考：\n{reasoning}")
         if text:
-            formatted_parts.append(f"📝 回复：\n{text}")
+            formatted_parts.append(text)
 
         formatted = (
             "\n\n─────────\n\n".join(formatted_parts)
