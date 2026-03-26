@@ -1819,6 +1819,7 @@ export type FileNode = {
   path: string
   absolute: string
   type: "file" | "directory"
+  symlinkTarget?: string
   ignored: boolean
 }
 
