@@ -37,6 +37,7 @@ export function SessionSidePanel(props: {
   diffs: () => FileDiff[]
   diffsReady: () => boolean
   empty: () => string
+  onRefresh: () => void
   hasReview: () => boolean
   reviewCount: () => number
   reviewPanel: () => JSX.Element
@@ -226,7 +227,7 @@ export function SessionSidePanel(props: {
   }
 
   function handleRefresh() {
-    file.tree.refresh("")
+    props.onRefresh()
   }
 
   const [isSummarizing, setIsSummarizing] = createSignal(false)
