@@ -14,9 +14,13 @@ Aether WeChat Bridge - 将 Aether AI 接入微信
 import asyncio
 import os
 import sys
-if sys.stdout.encoding != 'utf-8':
-    sys.stdout.reconfigure(encoding='utf-8')
-    sys.stderr.reconfigure(encoding='utf-8')
+# 确保 stdout/stderr 使用 UTF-8（作为 Electron 子进程运行时管道可能默认 ASCII）
+for _s in (sys.stdout, sys.stderr):
+    if hasattr(_s, 'reconfigure'):
+        try:
+            _s.reconfigure(encoding='utf-8', errors='replace')
+        except Exception:
+            pass
 import json
 import base64
 import logging
@@ -32,6 +36,13 @@ import httpx
 # 设置日志
 logging.basicConfig(level=logging.INFO, format="[%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
+# 确保日志 handler 的输出流也使用 UTF-8（basicConfig 可能绑定了旧的 stderr 引用）
+for _h in logging.root.handlers:
+    if hasattr(_h, 'stream') and hasattr(_h.stream, 'reconfigure'):
+        try:
+            _h.stream.reconfigure(encoding='utf-8', errors='replace')
+        except Exception:
+            pass
 
 # SDK imports
 from wechat_agent_sdk import Agent, ChatRequest, ChatResponse, WeChatBot
