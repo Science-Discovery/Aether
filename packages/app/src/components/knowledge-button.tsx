@@ -17,20 +17,7 @@ export const KnowledgeButton: Component = () => {
   }
 
   return (
-    <Tooltip
-      placement="top"
-      gutter={4}
-      value={
-        <div class="flex flex-col gap-1">
-          <span>{language.t("knowledge.title")}</span>
-          <Show when={knowledge.enabled()}>
-            <span class="text-12-regular text-text-weak">
-              {knowledge.activeKnowledgeBases().reduce((sum, kb) => sum + (kb.pdfFileCount ?? kb.documentCount ?? 0), 0)} {language.t("knowledge.documents")}
-            </span>
-          </Show>
-        </div>
-      }
-    >
+    <Tooltip placement="top" gutter={4} value={language.t("knowledge.title")}>
       <Button
         variant="ghost"
         size="normal"
