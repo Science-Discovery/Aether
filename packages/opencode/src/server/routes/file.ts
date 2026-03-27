@@ -409,6 +409,66 @@ export const FileRoutes = lazy(() =>
       },
     )
     .post(
+      "/file/pick-folder",
+      describeRoute({
+        summary: "Pick folder",
+        description: "Open the native OS folder picker dialog and return the selected directory path.",
+        operationId: "file.pickFolder",
+        responses: {
+          200: {
+            description: "Selected folder path or null if cancelled",
+            content: { "application/json": { schema: resolver(z.object({ path: z.string().nullable() })) } },
+          },
+        },
+      }),
+      async (c) => {
+        try {
+          let selected: string | null = null
+          if (process.platform === "win32") {
+            const ps = spawn([
+              "powershell.exe",
+              "-NoProfile",
+              "-NonInteractive",
+              "-Command",
+              "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; Add-Type -AssemblyName System.Windows.Forms; $d = New-Object System.Windows.Forms.FolderBrowserDialog; $d.ShowNewFolderButton = $true; if ($d.ShowDialog() -eq 'OK') { $d.SelectedPath }",
+            ])
+            const output = await new Response(ps.stdout).text()
+            await ps.exited
+            const trimmed = output.trim()
+            if (trimmed) selected = trimmed
+          } else if (process.platform === "darwin") {
+            const proc = spawn(["osascript", "-e", "POSIX path of (choose folder)"])
+            const output = await new Response(proc.stdout).text()
+            await proc.exited
+            const trimmed = output.trim()
+            if (trimmed) selected = trimmed.replace(/\/$/, "")
+          } else {
+            try {
+              const proc = spawn(["zenity", "--file-selection", "--directory", "--title=Select Folder"])
+              const output = await new Response(proc.stdout).text()
+              await proc.exited
+              const trimmed = output.trim()
+              if (trimmed) selected = trimmed
+            } catch {
+              try {
+                const proc = spawn(["kdialog", "--getexistingdirectory", process.env.HOME || "/"])
+                const output = await new Response(proc.stdout).text()
+                await proc.exited
+                const trimmed = output.trim()
+                if (trimmed) selected = trimmed
+              } catch {
+                // No native dialog available
+              }
+            }
+          }
+          return c.json({ path: selected })
+        } catch (error) {
+          console.error("Failed to open folder picker:", error)
+          return c.json({ path: null })
+        }
+      },
+    )
+    .post(
       "/file/gitignore",
       describeRoute({
         summary: "Add to .gitignore",

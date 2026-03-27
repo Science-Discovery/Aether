@@ -4808,6 +4808,25 @@ export type FileOpenResponses = {
 }
 
 export type FileOpenResponse = FileOpenResponses[keyof FileOpenResponses]
+export type FilePickFolderData = {
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/file/pick-folder"
+}
+
+export type FilePickFolderResponses = {
+  /**
+   * Selected folder path or null if cancelled
+   */
+  200: {
+    path: string | null
+  }
+}
+
+export type FilePickFolderResponse = FilePickFolderResponses[keyof FilePickFolderResponses]
+
 
 export type FileAddToGitignoreData = {
   body?: {

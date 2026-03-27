@@ -45,6 +45,7 @@ import type {
   FileOpenErrors,
   FileOpenInExplorerErrors,
   FileOpenInExplorerResponses,
+  FilePickFolderResponses,
   FileOpenResponses,
   FilePartInput,
   FilePartSource,
@@ -3397,6 +3398,36 @@ export class File extends HeyApiClient {
         ...options?.headers,
         ...params.headers,
       },
+    })
+  }
+
+  /**
+   * Pick folder
+   *
+   * Open the native OS folder picker dialog and return the selected directory path.
+   */
+  public pickFolder<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<FilePickFolderResponses, unknown, ThrowOnError>({
+      url: "/file/pick-folder",
+      ...options,
+      ...params,
     })
   }
 
