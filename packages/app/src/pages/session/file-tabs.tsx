@@ -517,7 +517,7 @@ export function FileTabContent(props: { tab: string }) {
       )
     }
     return (
-      <div class="relative overflow-hidden pb-40" data-file-content>
+      <div class={`relative overflow-hidden ${isPDF() ? "" : "pb-40"}`} data-file-content>
         <Dynamic
           component={fileComponent}
           mode="text"
