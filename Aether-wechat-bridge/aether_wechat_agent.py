@@ -38,6 +38,37 @@ from wechat_agent_sdk.api.client import ILinkBotClient, DEFAULT_API_BASE
 from wechat_agent_sdk.api.auth import login_with_qrcode
 from wechat_agent_sdk.account.storage import JsonFileStorage
 
+# Patch ILinkBotClient: fall back to trust_env=False if system proxy causes ConnectTimeout
+async def _make_ilinkbot_client(trust_env: bool) -> httpx.AsyncClient:
+    from wechat_agent_sdk.api.client import POLL_TIMEOUT, _make_wechat_uin
+    async def _inject_uin(request):
+        request.headers["X-WECHAT-UIN"] = _make_wechat_uin()
+    return httpx.AsyncClient(
+        timeout=httpx.Timeout(connect=10.0, read=POLL_TIMEOUT + 10, write=10.0, pool=10.0),
+        headers={"Content-Type": "application/json", "AuthorizationType": "ilink_bot_token"},
+        event_hooks={"request": [_inject_uin]},
+        trust_env=trust_env,
+    )
+
+async def _request_qrcode_with_fallback(self) -> dict:
+    """Try request_qrcode; on ConnectTimeout, retry without system proxy."""
+    if not self._client:
+        self._client = await _make_ilinkbot_client(trust_env=True)
+        if self._token:
+            self._client.headers["Authorization"] = f"Bearer {self._token}"
+    try:
+        return await _orig_request_qrcode(self)
+    except httpx.ConnectTimeout:
+        logger.warning("[weixin] 连接超时，尝试绕过系统代理重连...")
+        await self._client.aclose()
+        self._client = await _make_ilinkbot_client(trust_env=False)
+        if self._token:
+            self._client.headers["Authorization"] = f"Bearer {self._token}"
+        return await _orig_request_qrcode(self)
+
+_orig_request_qrcode = ILinkBotClient.request_qrcode
+ILinkBotClient.request_qrcode = _request_qrcode_with_fallback
+
 # 环境变量
 QRCODE_FILE = os.getenv("AETHER_WECHAT_QRCODE_FILE", "")
 SESSION_FILE = os.getenv("AETHER_WECHAT_SESSION_FILE", "")
@@ -408,7 +439,16 @@ class AetherAgent(Agent):
 
 async def custom_login(client: ILinkBotClient, log=print) -> str:
     """自定义登录流程，输出 base64 二维码"""
-    qr_info = await client.request_qrcode()
+    qr_info = None
+    for attempt in range(5):
+        try:
+            qr_info = await client.request_qrcode()
+            break
+        except httpx.ConnectTimeout:
+            if attempt >= 4:
+                raise
+            log(f"[weixin] 连接超时，重试 ({attempt + 1}/5)...")
+            await asyncio.sleep(3.0)
     qrcode_url = qr_info["qrcode_url"]
     qr_uuid = qr_info["uuid"]
 
@@ -455,7 +495,12 @@ async def custom_login(client: ILinkBotClient, log=print) -> str:
         elif status == "expired":
             raise RuntimeError("二维码已过期")
         elif status == "error":
-            raise RuntimeError(f"登录失败: {result.get('message')}")
+            msg = result.get("message") or ""
+            if not msg:
+                # 网络暂时超时，继续等待
+                log("[weixin] 状态查询暂时失败，重试...")
+                continue
+            raise RuntimeError(f"登录失败: {msg}")
 
     raise RuntimeError("登录超时")
 
