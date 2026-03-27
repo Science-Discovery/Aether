@@ -26,7 +26,6 @@ from datetime import datetime
 from io import BytesIO
 
 import sqlite3
-import glob
 import httpx
 
 # 设置日志
@@ -91,47 +90,52 @@ HELP_TEXT = (
 
 /new          开启新对话（清除当前会话上下文）
 /model        查看可用模型列表及当前模型
-/model <id>   切换模型，例如：/model anthropic/claude-sonnet-4-5
+/model id   切换模型，例如：/model anthropic/claude-sonnet-4-5
 /project      查看当前工作项目
 /help         显示此帮助信息"""
 )
 
 
 def _read_projects_from_db() -> list[dict]:
-    """从 opencode SQLite 数据库读取所有项目（跨全部 channel db）"""
-    import platform
+    """从所有 opencode SQLite db 读取项目和 session 目录"""
     home = Path.home()
-    # XDG data dir (opencode 使用 xdg-basedir，Windows 上也落在 ~/.local/share)
     candidates = [
         home / ".local" / "share" / "opencode",
-        home / "Library" / "Application Support" / "opencode",  # macOS
+        home / "Library" / "Application Support" / "opencode",
     ]
     local_app = os.environ.get("LOCALAPPDATA", "")
     if local_app:
         candidates.append(Path(local_app) / "opencode")
-    # 允许环境变量覆盖
     override = os.environ.get("AETHER_OPENCODE_DATA_DIR", "")
     if override:
         candidates = [Path(override)]
 
+    _skip = ("/bin", "/dist", chr(92) + "bin", chr(92) + "dist")
     seen: dict[str, dict] = {}
     for data_dir in candidates:
         if not data_dir.exists():
             continue
         for db_path in sorted(data_dir.glob("opencode*.db")):
-            try:
-                uri = db_path.as_uri() + "?mode=ro&immutable=1"
-                con = sqlite3.connect(uri, uri=True)
-                cur = con.cursor()
-                cur.execute("SELECT id, worktree, name FROM project")
-                for pid, worktree, name in cur.fetchall():
-                    if worktree and worktree != "/" and worktree not in seen:
-                        seen[worktree] = {"id": pid, "worktree": worktree, "name": name}
-                con.close()
-            except Exception:
-                pass
-        break  # 找到第一个存在的目录就停止
+            for suffix in ("?mode=ro&immutable=1", "?mode=ro"):
+                try:
+                    con = sqlite3.connect(db_path.as_uri() + suffix, uri=True)
+                    cur = con.cursor()
+                    cur.execute("SELECT id, worktree, name FROM project")
+                    for pid, worktree, name in cur.fetchall():
+                        if worktree and worktree != "/" and worktree not in seen:
+                            seen[worktree] = {"id": pid, "worktree": worktree, "name": name}
+                    cur.execute("SELECT DISTINCT directory FROM session WHERE directory IS NOT NULL")
+                    for (directory,) in cur.fetchall():
+                        if directory and directory != "/" and directory not in seen:
+                            if not any(directory.endswith(s) for s in _skip):
+                                seen[directory] = {"id": "", "worktree": directory, "name": None}
+                    con.close()
+                    break
+                except Exception:
+                    pass
+        break
     return list(seen.values())
+
 
 class AetherAgent(Agent):
     """Aether 微信 Agent"""
@@ -239,17 +243,9 @@ class AetherAgent(Agent):
         return chr(10).join(lines)
 
     async def _cmd_project(self, conv_id: str, arg: str) -> str:
-        # 优先从 SQLite 读取（覆盖所有 channel），降级到 HTTP API
+        # 从所有 SQLite db 读取项目列表（与侧边栏一致）
+        # session 仍通过 HTTP API 创建，始终出现在当前 Web UI
         projects = _read_projects_from_db()
-        if not projects:
-            try:
-                resp = await self._client.get(f'{self.base_url}/project')
-                resp.raise_for_status()
-                projects = resp.json()
-            except Exception as e:
-                logger.error(f'获取项目列表失败: {e}')
-                return '❌ 无法获取项目列表，请检查 Aether 服务是否正常。'
-
         if not projects:
             return '❌ 未找到任何项目。'
 
@@ -279,7 +275,7 @@ class AetherAgent(Agent):
             lines.append(f'{i}. {name}{tag}')
             lines.append(f'   {worktree}')
         lines.append('')
-        lines.append('💡 /project <n> 切换项目')
+        lines.append('💡 /project n 切换项目')
         return chr(10).join(lines)
 
     def _cmd_set_model(self, conv_id: str, model_str: str) -> str:
