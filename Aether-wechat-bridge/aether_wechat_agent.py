@@ -14,9 +14,13 @@ Aether WeChat Bridge - 将 Aether AI 接入微信
 import asyncio
 import os
 import sys
-if sys.stdout.encoding != 'utf-8':
-    sys.stdout.reconfigure(encoding='utf-8')
-    sys.stderr.reconfigure(encoding='utf-8')
+# 确保 stdout/stderr 使用 UTF-8（作为 Electron 子进程运行时管道可能默认 ASCII）
+for _s in (sys.stdout, sys.stderr):
+    if hasattr(_s, 'reconfigure'):
+        try:
+            _s.reconfigure(encoding='utf-8', errors='replace')
+        except Exception:
+            pass
 import json
 import base64
 import logging
@@ -24,6 +28,7 @@ from pathlib import Path
 from typing import Optional
 from datetime import datetime
 from io import BytesIO
+from urllib.parse import quote
 
 import sqlite3
 import httpx
@@ -31,12 +36,50 @@ import httpx
 # 设置日志
 logging.basicConfig(level=logging.INFO, format="[%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
+# 确保日志 handler 的输出流也使用 UTF-8（basicConfig 可能绑定了旧的 stderr 引用）
+for _h in logging.root.handlers:
+    if hasattr(_h, 'stream') and hasattr(_h.stream, 'reconfigure'):
+        try:
+            _h.stream.reconfigure(encoding='utf-8', errors='replace')
+        except Exception:
+            pass
 
 # SDK imports
 from wechat_agent_sdk import Agent, ChatRequest, ChatResponse, WeChatBot
 from wechat_agent_sdk.api.client import ILinkBotClient, DEFAULT_API_BASE
 from wechat_agent_sdk.api.auth import login_with_qrcode
 from wechat_agent_sdk.account.storage import JsonFileStorage
+
+# Patch ILinkBotClient: fall back to trust_env=False if system proxy causes ConnectTimeout
+async def _make_ilinkbot_client(trust_env: bool) -> httpx.AsyncClient:
+    from wechat_agent_sdk.api.client import POLL_TIMEOUT, _make_wechat_uin
+    async def _inject_uin(request):
+        request.headers["X-WECHAT-UIN"] = _make_wechat_uin()
+    return httpx.AsyncClient(
+        timeout=httpx.Timeout(connect=10.0, read=POLL_TIMEOUT + 10, write=10.0, pool=10.0),
+        headers={"Content-Type": "application/json", "AuthorizationType": "ilink_bot_token"},
+        event_hooks={"request": [_inject_uin]},
+        trust_env=trust_env,
+    )
+
+async def _request_qrcode_with_fallback(self) -> dict:
+    """Try request_qrcode; on ConnectTimeout, retry without system proxy."""
+    if not self._client:
+        self._client = await _make_ilinkbot_client(trust_env=True)
+        if self._token:
+            self._client.headers["Authorization"] = f"Bearer {self._token}"
+    try:
+        return await _orig_request_qrcode(self)
+    except httpx.ConnectTimeout:
+        logger.warning("[weixin] 连接超时，尝试绕过系统代理重连...")
+        await self._client.aclose()
+        self._client = await _make_ilinkbot_client(trust_env=False)
+        if self._token:
+            self._client.headers["Authorization"] = f"Bearer {self._token}"
+        return await _orig_request_qrcode(self)
+
+_orig_request_qrcode = ILinkBotClient.request_qrcode
+ILinkBotClient.request_qrcode = _request_qrcode_with_fallback
 
 # 环境变量
 QRCODE_FILE = os.getenv("AETHER_WECHAT_QRCODE_FILE", "")
@@ -325,7 +368,7 @@ class AetherAgent(Agent):
             return ChatResponse(text=f"处理消息时出错: {e}")
 
     async def _create_session(self, directory: str = "") -> str:
-        headers = {"x-opencode-directory": directory} if directory else {}
+        headers = {"x-opencode-directory": quote(directory, safe='')} if directory else {}
         resp = await self._client.post(f"{self.base_url}/session", json={}, headers=headers)
         resp.raise_for_status()
         return resp.json()["id"]
@@ -346,7 +389,7 @@ class AetherAgent(Agent):
         resp = await self._client.post(
             f"{self.base_url}/session/{session_id}/message",
             json=payload,
-            headers={"x-opencode-directory": directory} if directory else {},
+            headers={"x-opencode-directory": quote(directory, safe='')} if directory else {},
         )
         resp.raise_for_status()
         body = resp.text.strip()
@@ -408,7 +451,16 @@ class AetherAgent(Agent):
 
 async def custom_login(client: ILinkBotClient, log=print) -> str:
     """自定义登录流程，输出 base64 二维码"""
-    qr_info = await client.request_qrcode()
+    qr_info = None
+    for attempt in range(5):
+        try:
+            qr_info = await client.request_qrcode()
+            break
+        except httpx.ConnectTimeout:
+            if attempt >= 4:
+                raise
+            log(f"[weixin] 连接超时，重试 ({attempt + 1}/5)...")
+            await asyncio.sleep(3.0)
     qrcode_url = qr_info["qrcode_url"]
     qr_uuid = qr_info["uuid"]
 
@@ -455,7 +507,12 @@ async def custom_login(client: ILinkBotClient, log=print) -> str:
         elif status == "expired":
             raise RuntimeError("二维码已过期")
         elif status == "error":
-            raise RuntimeError(f"登录失败: {result.get('message')}")
+            msg = result.get("message") or ""
+            if not msg:
+                # 网络暂时超时，继续等待
+                log("[weixin] 状态查询暂时失败，重试...")
+                continue
+            raise RuntimeError(f"登录失败: {msg}")
 
     raise RuntimeError("登录超时")
 
@@ -499,7 +556,14 @@ async def main():
     default_agent = os.getenv("AETHER_AGENT", "build")
 
     if not directory:
-        directory = str(Path.cwd())
+        # 自动从数据库选择第一个项目作为默认目录
+        projects = _read_projects_from_db()
+        if projects:
+            directory = projects[0]["worktree"]
+            name = projects[0].get("name") or directory.replace(chr(92), '/').rstrip('/').split('/')[-1]
+            logger.info(f"自动选择默认项目: {name} ({directory})")
+        else:
+            directory = str(Path.cwd())
 
     print("=" * 50)
     print("Aether WeChat Bridge")
