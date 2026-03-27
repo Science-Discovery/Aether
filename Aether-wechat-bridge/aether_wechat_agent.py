@@ -25,6 +25,8 @@ from typing import Optional
 from datetime import datetime
 from io import BytesIO
 
+import sqlite3
+import glob
 import httpx
 
 # 设置日志
@@ -90,8 +92,46 @@ HELP_TEXT = (
 /new          开启新对话（清除当前会话上下文）
 /model        查看可用模型列表及当前模型
 /model <id>   切换模型，例如：/model anthropic/claude-sonnet-4-5
+/project      查看当前工作项目
 /help         显示此帮助信息"""
 )
+
+
+def _read_projects_from_db() -> list[dict]:
+    """从 opencode SQLite 数据库读取所有项目（跨全部 channel db）"""
+    import platform
+    home = Path.home()
+    # XDG data dir (opencode 使用 xdg-basedir，Windows 上也落在 ~/.local/share)
+    candidates = [
+        home / ".local" / "share" / "opencode",
+        home / "Library" / "Application Support" / "opencode",  # macOS
+    ]
+    local_app = os.environ.get("LOCALAPPDATA", "")
+    if local_app:
+        candidates.append(Path(local_app) / "opencode")
+    # 允许环境变量覆盖
+    override = os.environ.get("AETHER_OPENCODE_DATA_DIR", "")
+    if override:
+        candidates = [Path(override)]
+
+    seen: dict[str, dict] = {}
+    for data_dir in candidates:
+        if not data_dir.exists():
+            continue
+        for db_path in sorted(data_dir.glob("opencode*.db")):
+            try:
+                uri = db_path.as_uri() + "?mode=ro&immutable=1"
+                con = sqlite3.connect(uri, uri=True)
+                cur = con.cursor()
+                cur.execute("SELECT id, worktree, name FROM project")
+                for pid, worktree, name in cur.fetchall():
+                    if worktree and worktree != "/" and worktree not in seen:
+                        seen[worktree] = {"id": pid, "worktree": worktree, "name": name}
+                con.close()
+            except Exception:
+                pass
+        break  # 找到第一个存在的目录就停止
+    return list(seen.values())
 
 class AetherAgent(Agent):
     """Aether 微信 Agent"""
@@ -110,6 +150,7 @@ class AetherAgent(Agent):
         self._client: httpx.AsyncClient = None  # type: ignore
         self._sessions: dict[str, str] = {}
         self._conv_models: dict[str, str] = {}
+        self._conv_dirs: dict[str, str] = {}
         self._user_info: Optional[dict] = None
         self._username = os.getenv("AETHER_USERNAME", "")
         self._password = os.getenv("AETHER_PASSWORD", "")
@@ -155,6 +196,8 @@ class AetherAgent(Agent):
             if not arg:
                 return await self._cmd_list_models(conv_id)
             return self._cmd_set_model(conv_id, arg)
+        if cmd == '/project':
+            return await self._cmd_project(conv_id, arg)
         return f'❓ 未知命令：{cmd}，发送 /help 查看可用命令。'
 
     async def _cmd_list_models(self, conv_id: str) -> str:
@@ -195,6 +238,50 @@ class AetherAgent(Agent):
         lines.append('💡 /model anthropic/claude-sonnet-4-5')
         return chr(10).join(lines)
 
+    async def _cmd_project(self, conv_id: str, arg: str) -> str:
+        # 优先从 SQLite 读取（覆盖所有 channel），降级到 HTTP API
+        projects = _read_projects_from_db()
+        if not projects:
+            try:
+                resp = await self._client.get(f'{self.base_url}/project')
+                resp.raise_for_status()
+                projects = resp.json()
+            except Exception as e:
+                logger.error(f'获取项目列表失败: {e}')
+                return '❌ 无法获取项目列表，请检查 Aether 服务是否正常。'
+
+        if not projects:
+            return '❌ 未找到任何项目。'
+
+        current_dir = self._conv_dirs.get(conv_id) or self.directory
+
+        if arg:
+            try:
+                idx = int(arg) - 1
+            except ValueError:
+                return '❌ 请输入项目编号，例如：/project 2'
+            if idx < 0 or idx >= len(projects):
+                return f'❌ 请输入 1~{len(projects)} 之间的数字。'
+            chosen = projects[idx]
+            new_dir = chosen.get('worktree', '')
+            self._conv_dirs[conv_id] = new_dir
+            self._sessions.pop(conv_id, None)
+            self._conv_models.pop(conv_id, None)
+            name = chosen.get('name') or new_dir.replace(chr(92), '/').rstrip('/').split('/')[-1]
+            logger.info(f'[/project] {conv_id} -> {new_dir}')
+            return f'✅ 已切换到：{name}\n   {new_dir}\n（已开启新会话）'
+
+        lines = ['📂 项目列表：', '']
+        for i, p in enumerate(projects, 1):
+            worktree = p.get('worktree', '')
+            name = p.get('name') or worktree.replace(chr(92), '/').rstrip('/').split('/')[-1]
+            tag = ' ◀' if worktree == current_dir else ''
+            lines.append(f'{i}. {name}{tag}')
+            lines.append(f'   {worktree}')
+        lines.append('')
+        lines.append('💡 /project <n> 切换项目')
+        return chr(10).join(lines)
+
     def _cmd_set_model(self, conv_id: str, model_str: str) -> str:
         if '/' not in model_str:
             return '❌ 格式错误，请使用 provider/model 格式。\n例如：/model anthropic/claude-sonnet-4-5'
@@ -220,14 +307,15 @@ class AetherAgent(Agent):
             return ChatResponse(text=slash_reply)
 
         try:
+            directory = self._conv_dirs.get(conv_id) or self.directory
             session_id = self._sessions.get(conv_id)
             if not session_id:
-                session_id = await self._create_session()
+                session_id = await self._create_session(directory=directory)
                 self._sessions[conv_id] = session_id
-                logger.info(f"创建新会话: {session_id[:8]}...")
+                logger.info(f"创建新会话: {session_id[:8]}... dir={directory}")
 
             model = self._conv_models.get(conv_id) or self.default_model
-            response = await self._send_message(session_id, user_text, model=model)
+            response = await self._send_message(session_id, user_text, model=model, directory=directory)
             return ChatResponse(text=response.get("formatted", "操作已完成"))
 
         except httpx.HTTPStatusError as e:
@@ -240,12 +328,13 @@ class AetherAgent(Agent):
             logger.error(f"处理错误: {e}")
             return ChatResponse(text=f"处理消息时出错: {e}")
 
-    async def _create_session(self) -> str:
-        resp = await self._client.post(f"{self.base_url}/session", json={})
+    async def _create_session(self, directory: str = "") -> str:
+        headers = {"x-opencode-directory": directory} if directory else {}
+        resp = await self._client.post(f"{self.base_url}/session", json={}, headers=headers)
         resp.raise_for_status()
         return resp.json()["id"]
 
-    async def _send_message(self, session_id: str, text: str, model=None) -> dict:
+    async def _send_message(self, session_id: str, text: str, model=None, directory="") -> dict:
         payload = {
             "parts": [{"type": "text", "text": text}],
             "agent": self.default_agent,
@@ -261,6 +350,7 @@ class AetherAgent(Agent):
         resp = await self._client.post(
             f"{self.base_url}/session/{session_id}/message",
             json=payload,
+            headers={"x-opencode-directory": directory} if directory else {},
         )
         resp.raise_for_status()
         body = resp.text.strip()
