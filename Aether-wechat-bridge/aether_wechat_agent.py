@@ -24,6 +24,7 @@ from pathlib import Path
 from typing import Optional
 from datetime import datetime
 from io import BytesIO
+from urllib.parse import quote
 
 import sqlite3
 import httpx
@@ -356,7 +357,7 @@ class AetherAgent(Agent):
             return ChatResponse(text=f"处理消息时出错: {e}")
 
     async def _create_session(self, directory: str = "") -> str:
-        headers = {"x-opencode-directory": directory} if directory else {}
+        headers = {"x-opencode-directory": quote(directory, safe='')} if directory else {}
         resp = await self._client.post(f"{self.base_url}/session", json={}, headers=headers)
         resp.raise_for_status()
         return resp.json()["id"]
@@ -377,7 +378,7 @@ class AetherAgent(Agent):
         resp = await self._client.post(
             f"{self.base_url}/session/{session_id}/message",
             json=payload,
-            headers={"x-opencode-directory": directory} if directory else {},
+            headers={"x-opencode-directory": quote(directory, safe='')} if directory else {},
         )
         resp.raise_for_status()
         body = resp.text.strip()
@@ -544,7 +545,14 @@ async def main():
     default_agent = os.getenv("AETHER_AGENT", "build")
 
     if not directory:
-        directory = str(Path.cwd())
+        # 自动从数据库选择第一个项目作为默认目录
+        projects = _read_projects_from_db()
+        if projects:
+            directory = projects[0]["worktree"]
+            name = projects[0].get("name") or directory.replace(chr(92), '/').rstrip('/').split('/')[-1]
+            logger.info(f"自动选择默认项目: {name} ({directory})")
+        else:
+            directory = str(Path.cwd())
 
     print("=" * 50)
     print("Aether WeChat Bridge")
