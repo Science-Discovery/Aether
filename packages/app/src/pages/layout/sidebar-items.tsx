@@ -1,4 +1,5 @@
 import type { Message, Session, TextPart, UserMessage } from "@opencode-ai/sdk/v2/client"
+import { ContextMenu } from "@opencode-ai/ui/context-menu"
 import { Avatar } from "@opencode-ai/ui/avatar"
 import { Button } from "@opencode-ai/ui/button"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
@@ -12,7 +13,7 @@ import { Tooltip } from "@opencode-ai/ui/tooltip"
 import { base64Encode } from "@opencode-ai/util/encode"
 import { getFilename } from "@opencode-ai/util/path"
 import { A, useNavigate, useParams } from "@solidjs/router"
-import { type Accessor, createMemo, For, type JSX, Match, onCleanup, Show, Switch } from "solid-js"
+import { type Accessor, createMemo, createSignal, For, type JSX, Match, onCleanup, Show, Switch } from "solid-js"
 import { useGlobalSync } from "@/context/global-sync"
 import { useLanguage } from "@/context/language"
 import { getAvatarColors, type LocalProject, useLayout } from "@/context/layout"
@@ -87,6 +88,7 @@ export type SessionItemProps = {
   archiveSession: (session: Session) => Promise<void>
   unarchiveSession?: (session: Session) => Promise<void>
   deleteSession?: (session: Session) => Promise<void>
+  renameSession?: (session: Session, title: string) => Promise<void>
 }
 
 const SessionRow = (props: {
@@ -286,6 +288,33 @@ export const SessionItem = (props: SessionItemProps): JSX.Element => {
 
   onCleanup(cancelHoverPrefetch)
 
+  const [renaming, setRenaming] = createSignal(false)
+  const [renameValue, setRenameValue] = createSignal("")
+  let renameInputRef: HTMLInputElement | undefined
+  let renameFrame: number | undefined
+
+  const startRename = () => {
+    setRenameValue(props.session.title ?? "")
+    setRenaming(true)
+    if (renameFrame !== undefined) cancelAnimationFrame(renameFrame)
+    renameFrame = requestAnimationFrame(() => {
+      renameFrame = undefined
+      renameInputRef?.focus()
+      renameInputRef?.select()
+    })
+  }
+
+  const commitRename = async () => {
+    const next = renameValue().trim()
+    setRenaming(false)
+    if (!next || next === props.session.title) return
+    await props.renameSession?.(props.session, next)
+  }
+
+  onCleanup(() => {
+    if (renameFrame !== undefined) cancelAnimationFrame(renameFrame)
+  })
+
   const messageLabel = (message: Message) => {
     const parts = sessionStore.part[message.id] ?? []
     const text = parts.find((part): part is TextPart => part?.type === "text" && !part.synthetic && !part.ignored)
@@ -313,131 +342,226 @@ export const SessionItem = (props: SessionItemProps): JSX.Element => {
   )
 
   return (
-    <div
-      data-session-id={props.session.id}
-      class="group/session relative w-full min-w-0 rounded-md cursor-default pl-2 pr-3 transition-colors
-             hover:bg-surface-raised-base-hover [&:has(:focus-visible)]:bg-surface-raised-base-hover has-[[data-expanded]]:bg-surface-raised-base-hover has-[.active]:bg-surface-base-active"
-    >
-      <div class="flex min-w-0 items-center gap-1">
-        <div class="min-w-0 flex-1">
-          <Show
-            when={hoverEnabled()}
-            fallback={
-              <Tooltip
-                placement={props.mobile ? "bottom" : "right"}
-                value={props.session.title}
-                gutter={10}
-                class="min-w-0 w-full"
-              >
-                {item}
-              </Tooltip>
-            }
-          >
-            <SessionHoverPreview
-              mobile={props.mobile}
-              nav={props.nav}
-              hoverSession={props.hoverSession}
-              session={props.session}
-              sidebarHovering={props.sidebarHovering}
-              hoverReady={hoverReady}
-              hoverMessages={hoverMessages}
-              language={language}
-              isActive={isActive}
-              slug={props.slug}
-              setHoverSession={props.setHoverSession}
-              messageLabel={messageLabel}
-              onMessageSelect={(message) => {
-                if (!isActive())
-                  layout.pendingMessage.set(`${base64Encode(props.session.directory)}/${props.session.id}`, message.id)
+    <ContextMenu modal={!props.sidebarHovering()}>
+      <ContextMenu.Trigger
+        as="div"
+        data-session-id={props.session.id}
+        class="group/session relative w-full min-w-0 rounded-md cursor-default pl-2 pr-3 transition-colors
+               hover:bg-surface-raised-base-hover [&:has(:focus-visible)]:bg-surface-raised-base-hover has-[[data-expanded]]:bg-surface-raised-base-hover has-[.active]:bg-surface-base-active"
+      >
+        <div class="flex min-w-0 items-center gap-1">
+          <div class="min-w-0 flex-1">
+            <Show
+              when={renaming()}
+              fallback={
+                <Show
+                  when={hoverEnabled()}
+                  fallback={
+                    <Tooltip
+                      placement={props.mobile ? "bottom" : "right"}
+                      value={props.session.title}
+                      gutter={10}
+                      class="min-w-0 w-full"
+                    >
+                      {item}
+                    </Tooltip>
+                  }
+                >
+                  <SessionHoverPreview
+                    mobile={props.mobile}
+                    nav={props.nav}
+                    hoverSession={props.hoverSession}
+                    session={props.session}
+                    sidebarHovering={props.sidebarHovering}
+                    hoverReady={hoverReady}
+                    hoverMessages={hoverMessages}
+                    language={language}
+                    isActive={isActive}
+                    slug={props.slug}
+                    setHoverSession={props.setHoverSession}
+                    messageLabel={messageLabel}
+                    onMessageSelect={(message) => {
+                      if (!isActive())
+                        layout.pendingMessage.set(`${base64Encode(props.session.directory)}/${props.session.id}`, message.id)
 
-                navigate(`${props.slug}/session/${props.session.id}#message-${message.id}`)
+                      navigate(`${props.slug}/session/${props.session.id}#message-${message.id}`)
+                    }}
+                    trigger={item}
+                  />
+                </Show>
+              }
+            >
+              <div class={`flex items-center gap-3 min-w-0 ${props.dense ? "py-0.5" : "py-1"}`}>
+                <div class="shrink-0 size-6 flex items-center justify-center">
+                  <Icon name="dash" size="small" class="text-icon-weak" />
+                </div>
+                <input
+                  ref={renameInputRef}
+                  value={renameValue()}
+                  class="text-14-regular text-text-strong min-w-0 flex-1 bg-transparent outline-none border-b border-border-base"
+                  onInput={(e) => setRenameValue(e.currentTarget.value)}
+                  onKeyDown={(e) => {
+                    e.stopPropagation()
+                    if (e.key === "Enter") {
+                      e.preventDefault()
+                      void commitRename()
+                    }
+                    if (e.key === "Escape") {
+                      e.preventDefault()
+                      setRenaming(false)
+                    }
+                  }}
+                  onBlur={() => void commitRename()}
+                  onClick={(e) => e.stopPropagation()}
+                  onPointerDown={(e) => e.stopPropagation()}
+                />
+              </div>
+            </Show>
+          </div>
+
+          <Show when={!renaming()}>
+            <div
+              class={`absolute ${props.dense ? "top-0.5 right-0.5" : "top-1 right-1"} flex items-center gap-0.5 transition-opacity`}
+              classList={{
+                "opacity-100 pointer-events-auto": !!props.mobile,
+                "opacity-0 pointer-events-none": !props.mobile,
+                "group-hover/session:opacity-100 group-hover/session:pointer-events-auto": true,
+                "group-focus-within/session:opacity-100 group-focus-within/session:pointer-events-auto": true,
               }}
-              trigger={item}
-            />
+            >
+              <Show when={!props.unarchiveSession}>
+                <Tooltip value={language.t("common.archive")} placement="top">
+                  <IconButton
+                    icon="archive"
+                    variant="ghost"
+                    class="size-6 rounded-md"
+                    aria-label={language.t("common.archive")}
+                    onClick={(event) => {
+                      event.preventDefault()
+                      event.stopPropagation()
+                      void props.archiveSession(props.session)
+                    }}
+                  />
+                </Tooltip>
+              </Show>
+              <Show when={props.deleteSession}>
+                <Tooltip value={language.t("common.delete")} placement="top">
+                  <IconButton
+                    icon="trash"
+                    variant="ghost"
+                    class="size-6 rounded-md"
+                    aria-label={language.t("common.delete")}
+                    onClick={(event) => {
+                      event.preventDefault()
+                      event.stopPropagation()
+                      const name = props.session.title ?? language.t("command.session.new")
+                      dialog.show(() => (
+                        <Dialog title={language.t("session.delete.title")} fit>
+                          <div class="flex flex-col gap-4 pl-6 pr-2.5 pb-3">
+                            <span class="text-14-regular text-text-strong">
+                              {language.t("session.delete.confirm", { name })}
+                            </span>
+                            <div class="flex justify-end gap-2">
+                              <Button variant="ghost" size="large" onClick={() => dialog.close()}>
+                                {language.t("common.cancel")}
+                              </Button>
+                              <Button
+                                variant="primary"
+                                size="large"
+                                onClick={async () => {
+                                  await props.deleteSession!(props.session)
+                                  dialog.close()
+                                }}
+                              >
+                                {language.t("session.delete.button")}
+                              </Button>
+                            </div>
+                          </div>
+                        </Dialog>
+                      ))
+                    }}
+                  />
+                </Tooltip>
+              </Show>
+              <Show when={props.unarchiveSession}>
+                <Tooltip value={language.t("common.unarchive")} placement="top">
+                  <IconButton
+                    icon="arrow-up"
+                    variant="ghost"
+                    class="size-6 rounded-md"
+                    aria-label={language.t("common.unarchive")}
+                    onClick={(event) => {
+                      event.preventDefault()
+                      event.stopPropagation()
+                      void props.unarchiveSession!(props.session)
+                    }}
+                  />
+                </Tooltip>
+              </Show>
+            </div>
           </Show>
         </div>
+      </ContextMenu.Trigger>
 
-        <div
-          class={`absolute ${props.dense ? "top-0.5 right-0.5" : "top-1 right-1"} flex items-center gap-0.5 transition-opacity`}
-          classList={{
-            "opacity-100 pointer-events-auto": !!props.mobile,
-            "opacity-0 pointer-events-none": !props.mobile,
-            "group-hover/session:opacity-100 group-hover/session:pointer-events-auto": true,
-            "group-focus-within/session:opacity-100 group-focus-within/session:pointer-events-auto": true,
+      <ContextMenu.Portal>
+        <ContextMenu.Content
+          onCloseAutoFocus={(e) => {
+            if (!renaming()) return
+            e.preventDefault()
           }}
         >
+          <Show when={props.renameSession}>
+            <ContextMenu.Item onSelect={startRename}>
+              <ContextMenu.ItemLabel>{language.t("common.rename")}</ContextMenu.ItemLabel>
+            </ContextMenu.Item>
+            <ContextMenu.Separator />
+          </Show>
           <Show when={!props.unarchiveSession}>
-            <Tooltip value={language.t("common.archive")} placement="top">
-              <IconButton
-                icon="archive"
-                variant="ghost"
-                class="size-6 rounded-md"
-                aria-label={language.t("common.archive")}
-                onClick={(event) => {
-                  event.preventDefault()
-                  event.stopPropagation()
-                  void props.archiveSession(props.session)
-                }}
-              />
-            </Tooltip>
+            <ContextMenu.Item onSelect={() => void props.archiveSession(props.session)}>
+              <ContextMenu.ItemLabel>{language.t("common.archive")}</ContextMenu.ItemLabel>
+            </ContextMenu.Item>
           </Show>
           <Show when={props.deleteSession}>
-            <Tooltip value={language.t("common.delete")} placement="top">
-              <IconButton
-                icon="trash"
-                variant="ghost"
-                class="size-6 rounded-md"
-                aria-label={language.t("common.delete")}
-                onClick={(event) => {
-                  event.preventDefault()
-                  event.stopPropagation()
-                  const name = props.session.title ?? language.t("command.session.new")
-                  dialog.show(() => (
-                    <Dialog title={language.t("session.delete.title")} fit>
-                      <div class="flex flex-col gap-4 pl-6 pr-2.5 pb-3">
-                        <span class="text-14-regular text-text-strong">
-                          {language.t("session.delete.confirm", { name })}
-                        </span>
-                        <div class="flex justify-end gap-2">
-                          <Button variant="ghost" size="large" onClick={() => dialog.close()}>
-                            {language.t("common.cancel")}
-                          </Button>
-                          <Button
-                            variant="primary"
-                            size="large"
-                            onClick={async () => {
-                              await props.deleteSession!(props.session)
-                              dialog.close()
-                            }}
-                          >
-                            {language.t("session.delete.button")}
-                          </Button>
-                        </div>
+            <ContextMenu.Item
+              onSelect={() => {
+                const name = props.session.title ?? language.t("command.session.new")
+                dialog.show(() => (
+                  <Dialog title={language.t("session.delete.title")} fit>
+                    <div class="flex flex-col gap-4 pl-6 pr-2.5 pb-3">
+                      <span class="text-14-regular text-text-strong">
+                        {language.t("session.delete.confirm", { name })}
+                      </span>
+                      <div class="flex justify-end gap-2">
+                        <Button variant="ghost" size="large" onClick={() => dialog.close()}>
+                          {language.t("common.cancel")}
+                        </Button>
+                        <Button
+                          variant="primary"
+                          size="large"
+                          onClick={async () => {
+                            await props.deleteSession!(props.session)
+                            dialog.close()
+                          }}
+                        >
+                          {language.t("session.delete.button")}
+                        </Button>
                       </div>
-                    </Dialog>
-                  ))
-                }}
-              />
-            </Tooltip>
+                    </div>
+                  </Dialog>
+                ))
+              }}
+            >
+              <ContextMenu.ItemLabel>{language.t("common.delete")}</ContextMenu.ItemLabel>
+            </ContextMenu.Item>
           </Show>
           <Show when={props.unarchiveSession}>
-            <Tooltip value={language.t("common.unarchive")} placement="top">
-              <IconButton
-                icon="arrow-up"
-                variant="ghost"
-                class="size-6 rounded-md"
-                aria-label={language.t("common.unarchive")}
-                onClick={(event) => {
-                  event.preventDefault()
-                  event.stopPropagation()
-                  void props.unarchiveSession!(props.session)
-                }}
-              />
-            </Tooltip>
+            <ContextMenu.Item onSelect={() => void props.unarchiveSession!(props.session)}>
+              <ContextMenu.ItemLabel>{language.t("common.unarchive")}</ContextMenu.ItemLabel>
+            </ContextMenu.Item>
           </Show>
-        </div>
-      </div>
-    </div>
+        </ContextMenu.Content>
+      </ContextMenu.Portal>
+    </ContextMenu>
   )
 }
 

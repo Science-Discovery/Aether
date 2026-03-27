@@ -1075,6 +1075,29 @@ export default function Layout(props: ParentProps) {
     else navigate(`/${base64Encode(session.directory)}/session`)
   }
 
+  async function renameSession(session: Session, title: string) {
+    const trimmed = title.trim()
+    if (!trimmed) return
+    const [, setStore] = globalSync.child(session.directory)
+    const ok = await globalSDK.client.session
+      .update({ directory: session.directory, sessionID: session.id, title: trimmed })
+      .then(() => true)
+      .catch((err) => {
+        showToast({
+          title: language.t("common.requestFailed"),
+          description: errorMessage(err, language.t("common.requestFailed")),
+        })
+        return false
+      })
+    if (!ok) return
+    setStore(
+      produce((draft) => {
+        const match = Binary.search(draft.session, session.id, (s) => s.id)
+        if (match.found) draft.session[match.index].title = trimmed
+      }),
+    )
+  }
+
   command.register("layout", () => {
     const commands: CommandOption[] = [
       {
@@ -2040,6 +2063,7 @@ export default function Layout(props: ParentProps) {
     archiveSession,
     createSession,
     deleteSession,
+    renameSession,
     workspaceName,
     renameWorkspace,
     editorOpen,
