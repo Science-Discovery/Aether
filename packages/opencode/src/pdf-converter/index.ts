@@ -44,6 +44,17 @@ export function getTask(taskID: string): ConvertTask | undefined {
   return activeTasks.get(taskID)
 }
 
+/** 列出所有活跃任务（含运行中和排队中） */
+export function listActiveTasks(): { taskID: string; status: string; path: string; taskType: "convert" }[] {
+  const result: { taskID: string; status: string; path: string; taskType: "convert" }[] = []
+  for (const [id, task] of activeTasks) {
+    if (task.status === "running") {
+      result.push({ taskID: id, status: task.status, path: task.config.path, taskType: "convert" })
+    }
+  }
+  return result
+}
+
 export function removeTask(taskID: string): void {
   activeTasks.delete(taskID)
 }

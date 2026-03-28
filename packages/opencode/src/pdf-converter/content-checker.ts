@@ -224,6 +224,10 @@ export function checkLatexSyntax(content: string): ContentIssue[] {
         break
       }
     }
+    // 检测 $$ 后面跟了多余字符（如逗号、句号），这会破坏 KaTeX block 解析
+    if (/^\$\$[,;.，；。、]/.test(trimmed)) {
+      issues.push({ type: "latex", message: `第 ${i + 1} 行：$$ 后面跟了多余字符「${trimmed.slice(2, 3)}」，应去除` })
+    }
   }
 
   return issues

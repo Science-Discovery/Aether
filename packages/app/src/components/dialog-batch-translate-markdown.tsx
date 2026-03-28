@@ -15,7 +15,7 @@ import { useSDK } from "@/context/sdk"
 import { useServer } from "@/context/server"
 import { useModels } from "@/context/models"
 import { ModelSelectorPopover } from "./dialog-select-model"
-import { registerConvertTask, updateConvertTask, triggerOpenFile, registerEventSource } from "./pdf-convert-progress"
+import { registerConvertTask, updateConvertTask, triggerOpenFile, triggerRefreshDir, registerEventSource } from "./pdf-convert-progress"
 
 // 复用翻译设置持久化
 const STORAGE_KEY = "translate-markdown-settings"
@@ -147,41 +147,74 @@ export const DialogBatchTranslateMarkdown: Component<{
 
   const totalChunks = createMemo(() => fileInfos().reduce((sum, f) => sum + f.chunkCount, 0))
 
-  const connectSSE = (taskID: string, isLast: boolean) => {
-    const baseUrl = sdk.url
-    const url = `${baseUrl}/file/translate-markdown/progress?taskID=${taskID}&directory=${encodeURIComponent(sdk.directory)}`
-    const es = new EventSource(url)
-    registerEventSource(es)
+  /** 连接 SSE 并返回一个 Promise，在任务完成/出错时 resolve */
+  const connectSSEAndWait = (taskID: string, isLast: boolean): Promise<void> => {
+    const MAX_RETRIES = 5
+    const RETRY_DELAY = 2000
 
-    es.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data)
-        switch (data.type) {
-          case "progress":
-            updateConvertTask({ currentPage: data.currentPage, totalPages: data.totalPages, phase: data.phase })
-            break
-          case "token":
-            updateConvertTask({ tokenInput: data.input, tokenOutput: data.output })
-            break
-          case "page_done":
-            updateConvertTask({ streamContent: "" })
-            break
-          case "done":
-            updateConvertTask({ status: "done", outputPath: data.outputPath })
-            es.close()
-            if (data.outputPath && isLast) triggerOpenFile(data.outputPath)
-            break
-          case "error":
-            if (!data.page) {
-              updateConvertTask({ status: "error", error: data.message })
-              es.close()
-            }
-            break
+    const attempt = (retryCount: number): Promise<void> => {
+      return new Promise<void>((resolve) => {
+        const baseUrl = sdk.url
+        const url = `${baseUrl}/file/translate-markdown/progress?taskID=${taskID}&directory=${encodeURIComponent(sdk.directory)}`
+        const es = new EventSource(url)
+        registerEventSource(es)
+        let gotTerminal = false
+
+        const finish = () => {
+          es.close()
+          resolve()
         }
-      } catch { /* ignore */ }
+
+        es.onmessage = (event) => {
+          try {
+            const data = JSON.parse(event.data)
+            switch (data.type) {
+              case "progress":
+                updateConvertTask({ currentPage: data.currentPage, totalPages: data.totalPages, phase: data.phase })
+                break
+              case "token":
+                updateConvertTask({ tokenInput: data.input, tokenOutput: data.output })
+                break
+              case "page_done":
+                updateConvertTask({ streamContent: "" })
+                break
+              case "done":
+                gotTerminal = true
+                updateConvertTask({ status: "done", outputPath: data.outputPath })
+                if (data.outputPath) triggerRefreshDir(data.outputPath)
+                if (data.outputPath && isLast) triggerOpenFile(data.outputPath)
+                finish()
+                break
+              case "error":
+                if (!data.page) {
+                  gotTerminal = true
+                  updateConvertTask({ status: "error", error: data.message })
+                  finish()
+                }
+                break
+            }
+          } catch { /* ignore */ }
+        }
+
+        es.onerror = () => {
+          if (es.readyState === EventSource.CLOSED) {
+            es.close()
+            if (gotTerminal) {
+              resolve()
+            } else if (retryCount < MAX_RETRIES) {
+              console.warn(`[batch-translate] SSE closed without terminal event for ${taskID}, retry ${retryCount + 1}/${MAX_RETRIES}`)
+              setTimeout(() => resolve(attempt(retryCount + 1)), RETRY_DELAY)
+            } else {
+              console.error(`[batch-translate] SSE failed after ${MAX_RETRIES} retries for ${taskID}`)
+              updateConvertTask({ status: "error", error: "连接中断，请检查任务状态" })
+              resolve()
+            }
+          }
+        }
+      })
     }
 
-    es.onerror = () => es.close()
+    return attempt(0)
   }
 
   const handleStart = async () => {
@@ -193,11 +226,14 @@ export const DialogBatchTranslateMarkdown: Component<{
 
     setStarting(true)
     saveSettings({ autoOpen: autoOpen(), conflictAction: conflictAction() })
+    dialogCtx.close()
 
     try {
       const infos = fileInfos()
       for (let i = 0; i < infos.length; i++) {
         const info = infos[i]
+        const isLast = i === infos.length - 1
+
         const res = await fetchApi("/file/translate-markdown", {
           method: "POST",
           body: JSON.stringify({
@@ -225,15 +261,16 @@ export const DialogBatchTranslateMarkdown: Component<{
             phase: "translate",
             taskType: "translate",
             cancelUrl: "/file/translate-markdown/cancel",
+            batchIndex: i + 1,
+            batchTotal: infos.length,
           },
           fetchApi,
-          autoOpen() && i === infos.length - 1,
+          autoOpen() && isLast,
         )
 
-        connectSSE(taskID, i === infos.length - 1)
+        // 等待当前任务完成后再启动下一个
+        await connectSSEAndWait(taskID, isLast)
       }
-
-      dialogCtx.close()
     } catch (e: any) {
       showToast({ variant: "error", title: "批量启动失败", description: e?.message })
     } finally {

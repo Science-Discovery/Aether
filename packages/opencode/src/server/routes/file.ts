@@ -14,15 +14,43 @@ import { spawn } from "bun"
 import path from "path"
 import type { Stats } from "fs"
 import { parsePDF } from "../../knowledge/document"
-import { startConversion, getTask, cancelTask, getQueuePosition, getQueueLength } from "../../pdf-converter"
+import { startConversion, getTask, cancelTask, getQueuePosition, getQueueLength, listActiveTasks } from "../../pdf-converter"
 import { generateTaskID, computeOutputPaths } from "../../pdf-converter/util"
 import { checkPythonAvailable } from "../../pdf-converter/pdf-renderer"
-import { startTranslation, getTranslateTask, cancelTranslateTask, generateTranslateTaskID } from "../../markdown-translator"
+import { startTranslation, getTranslateTask, cancelTranslateTask, generateTranslateTaskID, listActiveTranslateTasks } from "../../markdown-translator"
 import { detectDataJson, chunkByContent, chunksFromDataJson } from "../../markdown-translator/chunker"
 import fs from "fs/promises"
 
 export const FileRoutes = lazy(() =>
   new Hono()
+    .get(
+      "/file/active-tasks",
+      describeRoute({
+        summary: "List active conversion/translation tasks",
+        description: "Returns all currently running PDF conversion and markdown translation tasks, allowing the frontend to restore progress bars after page reload.",
+        operationId: "file.activeTasks",
+        responses: {
+          200: {
+            description: "Active tasks",
+            content: {
+              "application/json": {
+                schema: resolver(z.array(z.object({
+                  taskID: z.string(),
+                  status: z.string(),
+                  path: z.string(),
+                  taskType: z.enum(["convert", "translate"]),
+                }))),
+              },
+            },
+          },
+        },
+      }),
+      async (c) => {
+        const convertTasks = listActiveTasks()
+        const translateTasks = listActiveTranslateTasks()
+        return c.json([...convertTasks, ...translateTasks])
+      },
+    )
     .get(
       "/find",
       describeRoute({
@@ -636,45 +664,63 @@ export const FileRoutes = lazy(() =>
         c.header("X-Content-Type-Options", "nosniff")
 
         return streamSSE(c, async (stream) => {
-          // 发送已有的事件
-          for (const event of task.events) {
-            await stream.writeSSE({ data: JSON.stringify(event) })
+          // 先注册监听器，再重放历史事件，避免竞态：
+          // 如果先重放再注册，重放结束到注册之间产生的事件会丢失
+          const pendingEvents: any[] = []
+          let replayDone = false
+          let cleanedUp = false
+
+          const removeListener = () => { task.listeners.delete(listener) }
+          const doCleanup = (hb?: ReturnType<typeof setInterval>) => {
+            if (cleanedUp) return
+            cleanedUp = true
+            removeListener()
+            if (hb) clearInterval(hb)
           }
 
-          // 如果任务已完成，直接关闭
-          if (task.status !== "running") {
-            return
-          }
-
-          // 注册实时监听器
           const listener = async (event: any) => {
+            if (!replayDone) {
+              // 重放阶段：新事件暂存，避免乱序
+              pendingEvents.push(event)
+              return
+            }
             try {
               await stream.writeSSE({ data: JSON.stringify(event) })
-              if (event.type === "done" || (event.type === "error" && !event.page)) {
-                cleanup()
-              }
-            } catch {
-              cleanup()
-            }
+            } catch { /* stream broken */ }
           }
 
           task.listeners.add(listener)
+
+          // 重放已有的事件
+          const replayedCount = task.events.length
+          for (let i = 0; i < replayedCount; i++) {
+            await stream.writeSSE({ data: JSON.stringify(task.events[i]) })
+          }
+
+          // 重放期间可能有新事件通过 listener 暂存，现在发送它们
+          replayDone = true
+          for (const event of pendingEvents) {
+            try {
+              await stream.writeSSE({ data: JSON.stringify(event) })
+            } catch { /* stream broken */ }
+          }
+
+          // 如果任务已完成（重放+暂存事件中已包含终态），直接关闭
+          if (task.status !== "running") {
+            removeListener()
+            return
+          }
 
           // 心跳保活
           const heartbeat = setInterval(() => {
             stream.writeSSE({
               data: JSON.stringify({ type: "heartbeat" }),
-            }).catch(() => cleanup())
+            }).catch(() => doCleanup(heartbeat))
           }, 5_000)
-
-          const cleanup = () => {
-            task.listeners.delete(listener)
-            clearInterval(heartbeat)
-          }
 
           await new Promise<void>((resolve) => {
             stream.onAbort(() => {
-              cleanup()
+              doCleanup(heartbeat)
               resolve()
             })
 
@@ -682,7 +728,7 @@ export const FileRoutes = lazy(() =>
             const checkDone = setInterval(() => {
               if (task.status !== "running") {
                 clearInterval(checkDone)
-                cleanup()
+                doCleanup(heartbeat)
                 resolve()
               }
             }, 1000)
@@ -712,6 +758,42 @@ export const FileRoutes = lazy(() =>
         const { taskID } = c.req.valid("json")
         const ok = cancelTask(taskID)
         return c.json({ ok })
+      },
+    )
+    // ====== 原始文件内容（用于 <img src> 等二进制文件） ======
+    .get(
+      "/file/raw",
+      describeRoute({
+        summary: "Serve raw file",
+        description: "Serve a file's raw binary content with appropriate Content-Type.",
+        operationId: "file.raw",
+        responses: {
+          200: { description: "File content" },
+          ...errors(400, 404),
+        },
+      }),
+      validator("query", z.object({ path: z.string() })),
+      async (c) => {
+        const filePath = c.req.valid("query").path
+        const absPath = path.isAbsolute(filePath) ? filePath : path.join(Instance.directory, filePath)
+        const file = Bun.file(absPath)
+        if (!(await file.exists())) {
+          return c.json({ error: "File not found" }, 404)
+        }
+        const ext = absPath.split(".").pop()?.toLowerCase() ?? ""
+        const mimeMap: Record<string, string> = {
+          png: "image/png",
+          jpg: "image/jpeg",
+          jpeg: "image/jpeg",
+          gif: "image/gif",
+          svg: "image/svg+xml",
+          webp: "image/webp",
+          pdf: "application/pdf",
+        }
+        const contentType = mimeMap[ext] || "application/octet-stream"
+        return new Response(file, {
+          headers: { "Content-Type": contentType, "Cache-Control": "max-age=3600" },
+        })
       },
     )
     // ====== Markdown 翻译路由 ======
@@ -859,48 +941,68 @@ export const FileRoutes = lazy(() =>
         c.header("X-Content-Type-Options", "nosniff")
 
         return streamSSE(c, async (stream) => {
-          for (const event of task.events) {
-            await stream.writeSSE({ data: JSON.stringify(event) })
-          }
+          // 先注册监听器，再重放历史事件，避免竞态
+          const pendingEvents: any[] = []
+          let replayDone = false
 
-          if (task.status !== "running") {
-            return
+          let cleanedUp = false
+          const removeListener = () => { task.listeners.delete(listener) }
+          const doCleanup = (hb?: ReturnType<typeof setInterval>) => {
+            if (cleanedUp) return
+            cleanedUp = true
+            removeListener()
+            if (hb) clearInterval(hb)
           }
 
           const listener = async (event: any) => {
+            if (!replayDone) {
+              pendingEvents.push(event)
+              return
+            }
             try {
               await stream.writeSSE({ data: JSON.stringify(event) })
-              if (event.type === "done" || (event.type === "error" && !event.page)) {
-                cleanup()
-              }
             } catch {
-              cleanup()
+              /* stream broken */
             }
           }
 
           task.listeners.add(listener)
 
+          const replayedCount = task.events.length
+          for (let i = 0; i < replayedCount; i++) {
+            await stream.writeSSE({ data: JSON.stringify(task.events[i]) })
+          }
+
+          replayDone = true
+          for (const event of pendingEvents) {
+            try {
+              await stream.writeSSE({ data: JSON.stringify(event) })
+            } catch {
+              /* stream broken */
+            }
+          }
+
+          if (task.status !== "running") {
+            removeListener()
+            return
+          }
+
           const heartbeat = setInterval(() => {
             stream.writeSSE({
               data: JSON.stringify({ type: "heartbeat" }),
-            }).catch(() => cleanup())
+            }).catch(() => doCleanup(heartbeat))
           }, 5_000)
-
-          const cleanup = () => {
-            task.listeners.delete(listener)
-            clearInterval(heartbeat)
-          }
 
           await new Promise<void>((resolve) => {
             stream.onAbort(() => {
-              cleanup()
+              doCleanup(heartbeat)
               resolve()
             })
 
             const checkDone = setInterval(() => {
               if (task.status !== "running") {
                 clearInterval(checkDone)
-                cleanup()
+                doCleanup(heartbeat)
                 resolve()
               }
             }, 1000)

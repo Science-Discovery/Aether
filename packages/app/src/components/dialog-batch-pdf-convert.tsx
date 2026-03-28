@@ -15,7 +15,7 @@ import { useSDK } from "@/context/sdk"
 import { useServer } from "@/context/server"
 import { useModels } from "@/context/models"
 import { ModelSelectorPopover } from "./dialog-select-model"
-import { registerConvertTask, updateConvertTask, triggerOpenFile, registerEventSource, getCurrentPhase } from "./pdf-convert-progress"
+import { registerConvertTask, updateConvertTask, triggerOpenFile, triggerRefreshDir, registerEventSource, getCurrentPhase } from "./pdf-convert-progress"
 
 // 复用 PDF 转换的设置持久化
 const STORAGE_KEY = "pdf-to-markdown-settings"
@@ -152,46 +152,82 @@ export const DialogBatchPdfConvert: Component<{
   const totalPages = createMemo(() => fileInfos().reduce((sum, f) => sum + f.pageCount, 0))
   const hasOverLimit = createMemo(() => fileInfos().some((f) => f.pageCount > 50))
 
-  const connectSSE = (taskID: string, isLast: boolean) => {
-    const baseUrl = sdk.url
-    const url = `${baseUrl}/file/pdf-to-markdown/progress?taskID=${taskID}&directory=${encodeURIComponent(sdk.directory)}`
-    const es = new EventSource(url)
-    registerEventSource(es)
+  /** 连接 SSE 并返回一个 Promise，在任务完成/出错时 resolve */
+  const connectSSEAndWait = (taskID: string, isLast: boolean): Promise<void> => {
+    const MAX_RETRIES = 5
+    const RETRY_DELAY = 2000
 
-    es.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data)
-        switch (data.type) {
-          case "progress":
-            updateConvertTask({ currentPage: data.currentPage, totalPages: data.totalPages, phase: data.phase })
-            break
-          case "token":
-            updateConvertTask({ tokenInput: data.input, tokenOutput: data.output })
-            break
-          case "page_done":
-            updateConvertTask({ streamContent: "" })
-            break
-          case "done": {
-            const finish = () => {
-              updateConvertTask({ status: "done", outputPath: data.outputPath })
-              es.close()
-              if (data.outputPath && isLast) triggerOpenFile(data.outputPath)
-            }
-            if (getCurrentPhase() === "postqa") setTimeout(finish, 1200)
-            else finish()
-            break
-          }
-          case "error":
-            if (!data.page) {
-              updateConvertTask({ status: "error", error: data.message })
-              es.close()
-            }
-            break
+    const attempt = (retryCount: number): Promise<void> => {
+      return new Promise<void>((resolve) => {
+        const baseUrl = sdk.url
+        const url = `${baseUrl}/file/pdf-to-markdown/progress?taskID=${taskID}&directory=${encodeURIComponent(sdk.directory)}`
+        const es = new EventSource(url)
+        registerEventSource(es)
+        let gotTerminal = false // 收到了 done 或 fatal error
+
+        const finish = () => {
+          es.close()
+          resolve()
         }
-      } catch { /* ignore */ }
+
+        es.onmessage = (event) => {
+          try {
+            const data = JSON.parse(event.data)
+            switch (data.type) {
+              case "progress":
+                updateConvertTask({ currentPage: data.currentPage, totalPages: data.totalPages, phase: data.phase })
+                break
+              case "token":
+                updateConvertTask({ tokenInput: data.input, tokenOutput: data.output })
+                break
+              case "page_done":
+                updateConvertTask({ streamContent: "" })
+                break
+              case "done": {
+                gotTerminal = true
+                const doFinish = () => {
+                  updateConvertTask({ status: "done", outputPath: data.outputPath })
+                  if (data.outputPath) triggerRefreshDir(data.outputPath)
+                  if (data.outputPath && isLast) triggerOpenFile(data.outputPath)
+                  finish()
+                }
+                if (getCurrentPhase() === "postqa") setTimeout(doFinish, 1200)
+                else doFinish()
+                break
+              }
+              case "error":
+                if (!data.page) {
+                  gotTerminal = true
+                  updateConvertTask({ status: "error", error: data.message })
+                  finish()
+                }
+                break
+            }
+          } catch { /* ignore */ }
+        }
+
+        es.onerror = () => {
+          if (es.readyState === EventSource.CLOSED) {
+            es.close()
+            if (gotTerminal) {
+              // 已收到终态事件，正常结束
+              resolve()
+            } else if (retryCount < MAX_RETRIES) {
+              // 未收到终态事件就断开了，重试（服务端会重放历史事件）
+              console.warn(`[batch-pdf] SSE closed without terminal event for ${taskID}, retry ${retryCount + 1}/${MAX_RETRIES}`)
+              setTimeout(() => resolve(attempt(retryCount + 1)), RETRY_DELAY)
+            } else {
+              console.error(`[batch-pdf] SSE failed after ${MAX_RETRIES} retries for ${taskID}`)
+              updateConvertTask({ status: "error", error: "连接中断，请检查任务状态" })
+              resolve()
+            }
+          }
+          // readyState === CONNECTING 时是自动重连，不要关闭
+        }
+      })
     }
 
-    es.onerror = () => es.close()
+    return attempt(0)
   }
 
   const handleStart = async () => {
@@ -203,12 +239,13 @@ export const DialogBatchPdfConvert: Component<{
 
     setStarting(true)
     saveSettings({ outputMode: outputMode(), autoOpen: autoOpen(), conflictAction: conflictAction() })
+    dialogCtx.close()
 
     try {
-      const infos = fileInfos()
+      const infos = fileInfos().filter((f) => f.pageCount <= 50)
       for (let i = 0; i < infos.length; i++) {
         const info = infos[i]
-        if (info.pageCount > 50) continue
+        const isLast = i === infos.length - 1
 
         const res = await fetchApi("/file/pdf-to-markdown", {
           method: "POST",
@@ -237,15 +274,16 @@ export const DialogBatchPdfConvert: Component<{
             currentPage: 0,
             totalPages: info.pageCount,
             phase: "text",
+            batchIndex: i + 1,
+            batchTotal: infos.length,
           },
           fetchApi,
-          autoOpen() && i === infos.length - 1,
+          autoOpen() && isLast,
         )
 
-        connectSSE(taskID, i === infos.length - 1)
+        // 等待当前任务完成后再启动下一个
+        await connectSSEAndWait(taskID, isLast)
       }
-
-      dialogCtx.close()
     } catch (e: any) {
       showToast({ variant: "error", title: "批量启动失败", description: e?.message })
     } finally {

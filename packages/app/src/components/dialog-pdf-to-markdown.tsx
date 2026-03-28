@@ -14,7 +14,7 @@ import { useSDK } from "@/context/sdk"
 import { useServer } from "@/context/server"
 import { useModels } from "@/context/models"
 import { ModelSelectorPopover } from "./dialog-select-model"
-import { registerConvertTask, updateConvertTask, triggerOpenFile, registerEventSource, getCurrentPhase } from "./pdf-convert-progress"
+import { registerConvertTask, updateConvertTask, triggerOpenFile, triggerRefreshDir, registerEventSource, getCurrentPhase } from "./pdf-convert-progress"
 
 // ===== PDF 转换设置持久化（localStorage） =====
 const STORAGE_KEY = "pdf-to-markdown-settings"
@@ -202,6 +202,7 @@ export const DialogPdfToMarkdown: Component<{
                 updateConvertTask({ status: "done", outputPath: data.outputPath })
                 es.close()
                 if (data.outputPath) {
+                  triggerRefreshDir(data.outputPath)
                   triggerOpenFile(data.outputPath)
                 }
               }
@@ -222,7 +223,9 @@ export const DialogPdfToMarkdown: Component<{
       } catch { /* ignore */ }
     }
 
-    es.onerror = () => es.close()
+    es.onerror = () => {
+      if (es.readyState === EventSource.CLOSED) es.close()
+    }
   }
 
   const handleStart = async () => {
