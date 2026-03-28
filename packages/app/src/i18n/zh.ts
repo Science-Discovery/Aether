@@ -666,6 +666,8 @@ export const dict = {
   "settings.general.row.followup.description": "选择跟进提示是立即引导还是在队列中等待",
   "settings.general.row.followup.option.queue": "排队",
   "settings.general.row.followup.option.steer": "引导",
+  "settings.general.row.reviewBatch.title": "审查分页大小",
+  "settings.general.row.reviewBatch.description": "设置审查栏每次加载多少个文件变更，“加载更多”也会按这个数量继续加载。",
   "settings.general.row.reasoningSummaries.title": "显示推理摘要",
   "settings.general.row.reasoningSummaries.description": "在时间线中显示模型推理摘要",
   "settings.general.row.shellToolPartsExpanded.title": "展开 shell 工具部分",

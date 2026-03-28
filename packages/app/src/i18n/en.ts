@@ -769,6 +769,9 @@ export const dict = {
   "settings.general.row.followup.description": "Choose whether follow-up prompts steer immediately or wait in a queue",
   "settings.general.row.followup.option.queue": "Queue",
   "settings.general.row.followup.option.steer": "Steer",
+  "settings.general.row.reviewBatch.title": "Review page size",
+  "settings.general.row.reviewBatch.description":
+    "How many file changes the review panel loads at a time. The same count is used by Load more.",
   "settings.general.row.reasoningSummaries.title": "Show reasoning summaries",
   "settings.general.row.reasoningSummaries.description": "Display model reasoning summaries in the timeline",
   "settings.general.row.shellToolPartsExpanded.title": "Expand shell tool parts",

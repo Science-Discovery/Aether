@@ -1,5 +1,6 @@
-import { createEffect, onCleanup, type JSX } from "solid-js"
+import { createEffect, createMemo, createSignal, on, onCleanup, Show, type JSX } from "solid-js"
 import type { FileDiff } from "@opencode-ai/sdk/v2"
+import { Button } from "@opencode-ai/ui/button"
 import { SessionReview } from "@opencode-ai/ui/session-review"
 import type {
   SessionReviewCommentActions,
@@ -7,9 +8,11 @@ import type {
   SessionReviewCommentUpdate,
 } from "@opencode-ai/ui/session-review"
 import type { SelectedLineRange } from "@/context/file"
+import { useLanguage } from "@/context/language"
 import { useSDK } from "@/context/sdk"
 import { useLayout } from "@/context/layout"
 import type { LineComment } from "@/context/comments"
+import { useSettings } from "@/context/settings"
 
 export type DiffStyle = "unified" | "split"
 
@@ -43,8 +46,26 @@ export function SessionReviewTab(props: SessionReviewTabProps) {
   let userInteracted = false
   let restored: { x: number; y: number } | undefined
 
+  const language = useLanguage()
   const sdk = useSDK()
   const layout = useLayout()
+  const settings = useSettings()
+  const batch = createMemo(() => Math.max(1, settings.general.reviewBatch()))
+  const [count, setCount] = createSignal(batch())
+  const key = createMemo(() => props.diffs().map((diff) => diff.file).join("\n"))
+  const diffs = createMemo(() => props.diffs().slice(0, count()))
+  const more = createMemo(() => props.diffs().length > count())
+
+  createEffect(
+    on(key, () => {
+      setCount(batch())
+    }),
+  )
+
+  createEffect(() => {
+    if (count() >= batch()) return
+    setCount(batch())
+  })
 
   const readFile = async (path: string) => {
     return sdk.client.file
@@ -152,7 +173,16 @@ export function SessionReviewTab(props: SessionReviewTabProps) {
         header: props.classes?.header ?? "px-3",
         container: props.classes?.container ?? "pl-3",
       }}
-      diffs={props.diffs()}
+      diffs={diffs()}
+      footer={
+        <Show when={more()}>
+          <div class="flex justify-center px-3 pb-6">
+            <Button size="small" variant="secondary" onClick={() => setCount((count) => count + batch())}>
+              {language.t("common.loadMore")}
+            </Button>
+          </div>
+        </Show>
+      }
       diffStyle={props.diffStyle}
       onDiffStyleChange={props.onDiffStyleChange}
       onViewFile={props.onViewFile}
