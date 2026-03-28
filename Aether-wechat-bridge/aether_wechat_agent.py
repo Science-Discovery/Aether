@@ -198,6 +198,10 @@ class AetherAgent(Agent):
         self._sessions: dict[str, str] = {}
         self._conv_models: dict[str, str] = {}
         self._conv_dirs: dict[str, str] = {}
+        self._pending_questions: dict[str, dict] = {}
+        self._sse_tasks: dict[str, object] = {}
+        self._accumulated_text: dict[str, str] = {}
+        self._question_queues: dict[str, object] = {}
         self._user_info: Optional[dict] = None
         self._username = os.getenv("AETHER_USERNAME", "")
         self._password = os.getenv("AETHER_PASSWORD", "")
@@ -236,6 +240,16 @@ class AetherAgent(Agent):
         if cmd == '/new':
             old = self._sessions.pop(conv_id, None)
             self._conv_models.pop(conv_id, None)
+            pending = self._pending_questions.pop(conv_id, None)
+            if pending:
+                task = pending.get('task')
+                if task and not task.done():
+                    task.cancel()
+            sse = self._sse_tasks.pop(conv_id, None)
+            if sse and not sse.done():
+                sse.cancel()
+            self._question_queues.pop(conv_id, None)
+            self._accumulated_text.pop(conv_id, None)
             if old:
                 logger.info(f'[/new] 清除会话 {old[:8]}... for {conv_id}')
             return '✅ 已开启新对话，上下文已清空。'
@@ -341,6 +355,9 @@ class AetherAgent(Agent):
         if slash_reply is not None:
             return ChatResponse(text=slash_reply)
 
+        if conv_id in self._pending_questions:
+            return await self._handle_question_reply(conv_id, user_text)
+
         try:
             directory = self._conv_dirs.get(conv_id) or self.directory
             session_id = self._sessions.get(conv_id)
@@ -350,8 +367,20 @@ class AetherAgent(Agent):
                 logger.info(f"创建新会话: {session_id[:8]}... dir={directory}")
 
             model = self._conv_models.get(conv_id) or self.default_model
-            response = await self._send_message(session_id, user_text, model=model, directory=directory)
-            return ChatResponse(text=response.get("formatted", "操作已完成"))
+
+            q: asyncio.Queue = asyncio.Queue()
+            self._question_queues[conv_id] = q
+            self._accumulated_text[conv_id] = ""
+
+            task = asyncio.create_task(
+                self._send_message(session_id, user_text, model=model, directory=directory)
+            )
+            sse_task = asyncio.create_task(
+                self._monitor_sse(conv_id, session_id, directory, task, q)
+            )
+            self._sse_tasks[conv_id] = sse_task
+
+            return await self._wait_for_response(conv_id, session_id, directory, task, q)
 
         except httpx.HTTPStatusError as e:
             logger.error(f"HTTP 错误: {e.response.status_code}")
@@ -363,6 +392,206 @@ class AetherAgent(Agent):
             logger.error(f"处理错误: {e}")
             return ChatResponse(text=f"处理消息时出错: {e}")
 
+    async def _monitor_sse(self, conv_id: str, session_id: str, directory: str, task, q: asyncio.Queue) -> None:
+        """订阅 SSE 事件流，实时捕获文本和问题"""
+        headers = {"x-opencode-directory": quote(directory, safe="")} if directory else {}
+        try:
+            async with self._client.stream(
+                "GET",
+                f"{self.base_url}/event",
+                headers=headers,
+                timeout=httpx.Timeout(connect=30.0, read=None, write=None, pool=None),
+            ) as sse:
+                async for line in sse.aiter_lines():
+                    if task.done():
+                        break
+                    if not line.startswith("data: "):
+                        continue
+                    try:
+                        event = json.loads(line[6:])
+                    except Exception:
+                        continue
+
+                    event_type = event.get("type", "")
+                    props = event.get("properties", {})
+
+                    if event_type == "message.part.delta":
+                        if props.get("sessionID") == session_id and props.get("field") == "text":
+                            delta = props.get("delta", "")
+                            if delta:
+                                self._accumulated_text[conv_id] = (
+                                    self._accumulated_text.get(conv_id, "") + delta
+                                )
+
+                    elif event_type == "question.asked":
+                        if props.get("sessionID") == session_id:
+                            logger.info(f"[SSE] question.asked -> {conv_id}")
+                            await q.put(("question", props))
+
+        except asyncio.CancelledError:
+            pass
+        except Exception as e:
+            logger.warning(f"[SSE] 监听结束: {e}")
+        finally:
+            await q.put(("done", None))
+
+    async def _wait_for_response(self, conv_id: str, session_id: str, directory: str, task, q: asyncio.Queue) -> ChatResponse:
+        """等待消息完成：通过 SSE 队列接收事件"""
+        while True:
+            if task.done():
+                break
+            try:
+                kind, data = await asyncio.wait_for(q.get(), timeout=1.0)
+            except asyncio.TimeoutError:
+                continue
+
+            if kind == "done":
+                logger.warning("[SSE] 连接中断，轮询 /question")
+                return await self._wait_for_response_polling(conv_id, session_id, directory, task)
+
+            if kind == "question":
+                text_so_far = self._accumulated_text.pop(conv_id, "").strip()
+                if text_so_far and self._message_sender:
+                    try:
+                        await self._message_sender(text_so_far)
+                    except Exception as e:
+                        logger.warning(f"推送中间文本失败: {e}")
+                self._pending_questions[conv_id] = {
+                    "id": data["id"],
+                    "questions": data.get("questions", []),
+                    "task": task,
+                    "session_id": session_id,
+                    "directory": directory,
+                    "queue": q,
+                }
+                logger.info(f"[question] 推送问题到微信 {conv_id}")
+                return ChatResponse(text=self._format_question_request(data))
+
+        sse_task = self._sse_tasks.pop(conv_id, None)
+        if sse_task and not sse_task.done():
+            sse_task.cancel()
+        self._question_queues.pop(conv_id, None)
+        self._accumulated_text.pop(conv_id, None)
+
+        try:
+            result = await task
+            return ChatResponse(text=result.get("formatted", "操作已完成"))
+        except asyncio.CancelledError:
+            return ChatResponse(text="已取消。")
+        except httpx.HTTPStatusError as e:
+            return ChatResponse(text="服务暂时不可用，请稍后重试")
+        except Exception as e:
+            logger.error(f"消息任务失败: {e}")
+            return ChatResponse(text=f"处理消息时出错: {e}")
+
+    async def _wait_for_response_polling(self, conv_id: str, session_id: str, directory: str, task) -> ChatResponse:
+        """回退方案：轮询 /question 接口"""
+        poll_interval = 2.0
+        while not task.done():
+            await asyncio.sleep(poll_interval)
+            if task.done():
+                break
+            try:
+                question = await self._poll_question_for_session(session_id, directory)
+                if question:
+                    self._pending_questions[conv_id] = {
+                        "id": question["id"],
+                        "questions": question.get("questions", []),
+                        "task": task,
+                        "session_id": session_id,
+                        "directory": directory,
+                        "queue": None,
+                    }
+                    return ChatResponse(text=self._format_question_request(question))
+            except Exception as e:
+                logger.warning(f"轮询问题失败: {e}")
+        try:
+            result = await task
+            return ChatResponse(text=result.get("formatted", "操作已完成"))
+        except asyncio.CancelledError:
+            return ChatResponse(text="已取消。")
+        except Exception as e:
+            return ChatResponse(text=f"处理消息时出错: {e}")
+
+    async def _poll_question_for_session(self, session_id: str, directory: str = "") -> Optional[dict]:
+        """查询指定 session 下是否有待回答的 agent 问题"""
+        headers = {"x-opencode-directory": quote(directory, safe="")} if directory else {}
+        resp = await self._client.get(f"{self.base_url}/question", headers=headers)
+        resp.raise_for_status()
+        for q in resp.json():
+            if q.get("sessionID") == session_id:
+                return q
+        return None
+
+    def _format_question_request(self, question: dict) -> str:
+        """将 agent 问题格式化为微信消息"""
+        infos = question.get("questions", [])
+        parts = ["🤔 Agent 需要您回答：", ""]
+        for i, info in enumerate(infos, 1):
+            if len(infos) > 1:
+                q_text = info.get("question", "")
+                parts.append(f"【问题 {i}】{q_text}")
+            else:
+                parts.append(info.get("question", ""))
+            options = info.get("options", [])
+            if options:
+                parts.append("可选答案：")
+                for j, opt in enumerate(options, 1):
+                    desc = opt.get("description", "")
+                    label = opt.get("label", "")
+                    suffix = "：" + desc if desc else ""
+                    parts.append(f"  {j}. {label}{suffix}")
+        parts.append("")
+        parts.append("请直接回复答案（输入数字选择选项，或直接输入自定义答案）")
+        return chr(10).join(parts)
+
+    async def _handle_question_reply(self, conv_id: str, user_text: str) -> ChatResponse:
+        """处理用户对 agent 问题的回答"""
+        pending = self._pending_questions.pop(conv_id)
+        question_id = pending["id"]
+        questions = pending["questions"]
+        task = pending["task"]
+        session_id = pending["session_id"]
+        directory = pending.get("directory", "")
+        q = pending.get("queue")
+
+        answers = self._parse_question_answers(user_text, questions)
+        try:
+            headers = {"x-opencode-directory": quote(directory, safe="")} if directory else {}
+            resp = await self._client.post(
+                f"{self.base_url}/question/{question_id}/reply",
+                json={"answers": answers},
+                headers=headers,
+            )
+            resp.raise_for_status()
+            logger.info(f"[question] 已回复 {question_id}: {answers}")
+        except Exception as e:
+            logger.error(f"回复问题失败: {e}")
+            self._pending_questions[conv_id] = pending
+            err_msg = f"❌ 提交答案失败: {e}"
+            return ChatResponse(text=err_msg + chr(10) + "请重新发送您的答案。")
+
+        if q is not None:
+            return await self._wait_for_response(conv_id, session_id, directory, task, q)
+        else:
+            return await self._wait_for_response_polling(conv_id, session_id, directory, task)
+
+    def _parse_question_answers(self, user_text: str, questions: list) -> list:
+        """解析用户答案（每个问题一个答案数组）"""
+        text = user_text.strip()
+        answers = []
+        for info in questions:
+            options = info.get("options", [])
+            answer = [text]
+            if options:
+                try:
+                    idx = int(text) - 1
+                    if 0 <= idx < len(options):
+                        answer = [options[idx]["label"]]
+                except ValueError:
+                    pass
+            answers.append(answer)
+        return answers
     async def _create_session(self, directory: str = "") -> str:
         headers = {"x-opencode-directory": quote(directory, safe='')} if directory else {}
         resp = await self._client.post(f"{self.base_url}/session", json={}, headers=headers)
