@@ -97,12 +97,15 @@ export function registerIpcHandlers(deps: Deps) {
 
   ipcMain.handle(
     "open-directory-picker",
-    async (_event: IpcMainInvokeEvent, opts?: { multiple?: boolean; title?: string; defaultPath?: string }) => {
-      const result = await dialog.showOpenDialog({
-        properties: ["openDirectory", ...(opts?.multiple ? ["multiSelections" as const] : []), "createDirectory"],
+    async (event: IpcMainInvokeEvent, opts?: { multiple?: boolean; title?: string; defaultPath?: string }) => {
+      const win = BrowserWindow.fromWebContents(event.sender)
+      win?.focus()
+      const dialogOpts = {
+        properties: ["openDirectory", ...(opts?.multiple ? ["multiSelections" as const] : []), "createDirectory"] as any,
         title: opts?.title ?? "Choose a folder",
         defaultPath: opts?.defaultPath,
-      })
+      }
+      const result = win ? await dialog.showOpenDialog(win, dialogOpts) : await dialog.showOpenDialog(dialogOpts)
       if (result.canceled) return null
       return opts?.multiple ? result.filePaths : result.filePaths[0]
     },
@@ -111,15 +114,18 @@ export function registerIpcHandlers(deps: Deps) {
   ipcMain.handle(
     "open-file-picker",
     async (
-      _event: IpcMainInvokeEvent,
+      event: IpcMainInvokeEvent,
       opts?: { multiple?: boolean; title?: string; defaultPath?: string; accept?: string[]; extensions?: string[] },
     ) => {
-      const result = await dialog.showOpenDialog({
-        properties: ["openFile", ...(opts?.multiple ? ["multiSelections" as const] : [])],
+      const win = BrowserWindow.fromWebContents(event.sender)
+      win?.focus()
+      const dialogOpts = {
+        properties: ["openFile", ...(opts?.multiple ? ["multiSelections" as const] : [])] as any,
         title: opts?.title ?? "Choose a file",
         defaultPath: opts?.defaultPath,
         filters: pickerFilters(opts?.extensions),
-      })
+      }
+      const result = win ? await dialog.showOpenDialog(win, dialogOpts) : await dialog.showOpenDialog(dialogOpts)
       if (result.canceled) return null
       return opts?.multiple ? result.filePaths : result.filePaths[0]
     },
@@ -127,11 +133,14 @@ export function registerIpcHandlers(deps: Deps) {
 
   ipcMain.handle(
     "save-file-picker",
-    async (_event: IpcMainInvokeEvent, opts?: { title?: string; defaultPath?: string }) => {
-      const result = await dialog.showSaveDialog({
+    async (event: IpcMainInvokeEvent, opts?: { title?: string; defaultPath?: string }) => {
+      const win = BrowserWindow.fromWebContents(event.sender)
+      win?.focus()
+      const dialogOpts = {
         title: opts?.title ?? "Save file",
         defaultPath: opts?.defaultPath,
-      })
+      }
+      const result = win ? await dialog.showSaveDialog(win, dialogOpts) : await dialog.showSaveDialog(dialogOpts)
       if (result.canceled) return null
       return result.filePath ?? null
     },

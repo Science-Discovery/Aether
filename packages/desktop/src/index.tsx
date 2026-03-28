@@ -89,31 +89,49 @@ const createPlatform = (): Platform => {
 
     async openDirectoryPickerDialog(opts) {
       const defaultPath = await wslHome()
-      const result = await open({
-        directory: true,
-        multiple: opts?.multiple ?? false,
-        title: opts?.title ?? t("desktop.dialog.chooseFolder"),
-        defaultPath,
-      })
-      return await handleWslPicker(result)
+      const win = getCurrentWindow()
+      await win.setAlwaysOnTop(true)
+      try {
+        const result = await open({
+          directory: true,
+          multiple: opts?.multiple ?? false,
+          title: opts?.title ?? t("desktop.dialog.chooseFolder"),
+          defaultPath,
+        })
+        return await handleWslPicker(result)
+      } finally {
+        await win.setAlwaysOnTop(false)
+      }
     },
 
     async openFilePickerDialog(opts) {
-      const result = await open({
-        directory: false,
-        multiple: opts?.multiple ?? false,
-        title: opts?.title ?? t("desktop.dialog.chooseFile"),
-        filters: filePickerFilters(opts?.extensions ?? ACCEPTED_FILE_EXTENSIONS),
-      })
-      return handleWslPicker(result)
+      const win = getCurrentWindow()
+      await win.setAlwaysOnTop(true)
+      try {
+        const result = await open({
+          directory: false,
+          multiple: opts?.multiple ?? false,
+          title: opts?.title ?? t("desktop.dialog.chooseFile"),
+          filters: filePickerFilters(opts?.extensions ?? ACCEPTED_FILE_EXTENSIONS),
+        })
+        return handleWslPicker(result)
+      } finally {
+        await win.setAlwaysOnTop(false)
+      }
     },
 
     async saveFilePickerDialog(opts) {
-      const result = await save({
-        title: opts?.title ?? t("desktop.dialog.saveFile"),
-        defaultPath: opts?.defaultPath,
-      })
-      return handleWslPicker(result)
+      const win = getCurrentWindow()
+      await win.setAlwaysOnTop(true)
+      try {
+        const result = await save({
+          title: opts?.title ?? t("desktop.dialog.saveFile"),
+          defaultPath: opts?.defaultPath,
+        })
+        return handleWslPicker(result)
+      } finally {
+        await win.setAlwaysOnTop(false)
+      }
     },
 
     openLink(url: string) {

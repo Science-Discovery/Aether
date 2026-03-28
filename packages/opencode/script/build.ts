@@ -155,7 +155,7 @@ fs.rmSync("dist", { recursive: true, force: true })
 
 // Build web app (packages/app) and embed alongside binary
 console.log("building web app...")
-await $`bunx vite@7.1.4 build --app`.cwd(path.resolve(dir, "../../packages/app"))
+await $`bun run --cwd ${path.resolve(dir, "../../packages/app")} build`
 console.log("web app built")
 
 const binaries: Record<string, string> = {}
