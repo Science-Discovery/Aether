@@ -57,7 +57,7 @@ export const KnowledgeDialog: Component = () => {
     const last = knowledge.getLastConfig()
     if (last) {
       return {
-        provider: last.provider,
+        provider: toEmbeddingProvider(last.provider),
         model: last.model,
         apiKey: last.apiKey,
         baseURL: last.baseURL,
@@ -87,7 +87,10 @@ export const KnowledgeDialog: Component = () => {
   const providerOptions = createMemo(() => ["local", ...providers.connected().map((p) => p.id)])
 
   const localModels = createMemo(() =>
-    knowledge.models().filter((m) => m.provider === "local").map((m) => m.id),
+    knowledge
+      .models()
+      .filter((m) => m.provider === "local")
+      .map((m) => m.id),
   )
 
   const fetchProviderConnection = async (id: string) => {
@@ -140,7 +143,9 @@ export const KnowledgeDialog: Component = () => {
     if (last?.provider) {
       handleProviderSelect(last.provider)
       // 覆盖 handleProviderSelect 设置的 model，用上次保存的值
-      setTimeout(() => { if (last.model) setNewModel(last.model) }, 0)
+      setTimeout(() => {
+        if (last.model) setNewModel(last.model)
+      }, 0)
     }
     knowledge.refreshAllStats()
   })
@@ -660,7 +665,7 @@ export const KnowledgeDialog: Component = () => {
                 options={providerOptions()}
                 current={selectedProviderID()}
                 value={(id) => id}
-                label={(id) => id === "local" ? "Local (offline)" : id}
+                label={(id) => (id === "local" ? "Local (offline)" : id)}
                 onSelect={handleProviderSelect}
                 variant="secondary"
                 size="small"
@@ -680,10 +685,12 @@ export const KnowledgeDialog: Component = () => {
                     options={[...embeddingModelOptions(), "__manual__"]}
                     current={newModel()}
                     value={(id) => id}
-                    label={(id) => id === "__manual__" ? "Enter manually..." : id}
+                    label={(id) => (id === "__manual__" ? "Enter manually..." : id)}
                     onSelect={(id) => {
-                      if (id === "__manual__") { setUseManualModel(true); setNewModel("") }
-                      else if (id) setNewModel(id)
+                      if (id === "__manual__") {
+                        setUseManualModel(true)
+                        setNewModel("")
+                      } else if (id) setNewModel(id)
                     }}
                     variant="secondary"
                     size="small"
@@ -720,7 +727,9 @@ export const KnowledgeDialog: Component = () => {
               <div class="flex justify-between items-center text-12-regular text-text-base">
                 <span>Processing documents...</span>
                 <div class="flex items-center gap-2">
-                  <span>{progress().current} / {progress().total}</span>
+                  <span>
+                    {progress().current} / {progress().total}
+                  </span>
                   <Button
                     variant="ghost"
                     size="small"
