@@ -5,6 +5,12 @@ import { Icon } from "@opencode-ai/ui/icon"
 import { Select } from "@opencode-ai/ui/select"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { useKnowledge } from "@/context/knowledge"
+
+function toEmbeddingProvider(id: string): "openai" | "local" | "custom" {
+  if (id === "local") return "local"
+  if (id === "openai") return "openai"
+  return "custom"
+}
 import { DialogSelectDirectory } from "./dialog-select-directory"
 
 export const KnowledgeDialog: Component = () => {
@@ -17,7 +23,7 @@ export const KnowledgeDialog: Component = () => {
   const [showAddForm, setShowAddForm] = createSignal(false)
 
   const getLastConfigDefaults = (): {
-    provider: "openai" | "local" | "custom"
+    provider: string
     model: string
     apiKey: string
     baseURL: string
@@ -44,7 +50,7 @@ export const KnowledgeDialog: Component = () => {
 
   const [newPath, setNewPath] = createSignal("")
   const [newName, setNewName] = createSignal("My Knowledge Base")
-  const [newProvider, setNewProvider] = createSignal<"openai" | "local" | "custom">("openai")
+  const [newProvider, setNewProvider] = createSignal<string>("openai")
   const [newModel, setNewModel] = createSignal("text-embedding-3-small")
   const [newApiKey, setNewApiKey] = createSignal("")
   const [newBaseURL, setNewBaseURL] = createSignal("")
@@ -123,7 +129,7 @@ export const KnowledgeDialog: Component = () => {
       const id = knowledge.addKnowledgeBase({
         path: newPath(),
         name: newName(),
-        embeddingProvider: newProvider(),
+        embeddingProvider: toEmbeddingProvider(newProvider()),
         embeddingModel: newModel(),
         apiKey: newApiKey(),
         baseURL: newBaseURL(),
