@@ -429,21 +429,6 @@ export const SessionItem = (props: SessionItemProps): JSX.Element => {
                 "group-focus-within/session:opacity-100 group-focus-within/session:pointer-events-auto": true,
               }}
             >
-              <Show when={!props.unarchiveSession}>
-                <Tooltip value={language.t("common.archive")} placement="top">
-                  <IconButton
-                    icon="archive"
-                    variant="ghost"
-                    class="size-6 rounded-md"
-                    aria-label={language.t("common.archive")}
-                    onClick={(event) => {
-                      event.preventDefault()
-                      event.stopPropagation()
-                      void props.archiveSession(props.session)
-                    }}
-                  />
-                </Tooltip>
-              </Show>
               <Show when={props.deleteSession}>
                 <Tooltip value={language.t("common.delete")} placement="top">
                   <IconButton
@@ -479,6 +464,21 @@ export const SessionItem = (props: SessionItemProps): JSX.Element => {
                           </div>
                         </Dialog>
                       ))
+                    }}
+                  />
+                </Tooltip>
+              </Show>
+              <Show when={!props.unarchiveSession}>
+                <Tooltip value={language.t("common.archive")} placement="top">
+                  <IconButton
+                    icon="archive"
+                    variant="ghost"
+                    class="size-6 rounded-md"
+                    aria-label={language.t("common.archive")}
+                    onClick={(event) => {
+                      event.preventDefault()
+                      event.stopPropagation()
+                      void props.archiveSession(props.session)
                     }}
                   />
                 </Tooltip>

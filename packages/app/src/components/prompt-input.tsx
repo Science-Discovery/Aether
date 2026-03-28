@@ -26,6 +26,7 @@ import { Tooltip, TooltipKeybind } from "@opencode-ai/ui/tooltip"
 import { IconButton } from "@opencode-ai/ui/icon-button"
 import { Select } from "@opencode-ai/ui/select"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
+import { Popover } from "@opencode-ai/ui/popover"
 import { ModelSelectorPopover } from "@/components/dialog-select-model"
 import { DialogSelectModelUnpaid } from "@/components/dialog-select-model-unpaid"
 import { useProviders } from "@/hooks/use-providers"
@@ -1495,44 +1496,78 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                 <div class="size-4 shrink-0" />
               </div>
               <div class="flex items-center gap-1.5 min-w-0 flex-1">
-                <div data-component="prompt-agent-control">
-                  <TooltipKeybind
-                    placement="top"
-                    gutter={4}
-                    title={language.t("command.agent.cycle")}
-                    keybind={command.keybind("agent.cycle")}
-                  >
-                    <Select
-                      size="normal"
-                      options={agentNames()}
-                      current={local.agent.current()?.name ?? ""}
-                      onSelect={local.agent.set}
-                      class="capitalize max-w-[160px] text-text-base"
-                      valueClass="truncate text-13-regular text-text-base"
-                      triggerStyle={control()}
-                      triggerProps={{ "data-action": "prompt-agent" }}
-                      variant="ghost"
-                    />
-                  </TooltipKeybind>
-                </div>
-                <div data-component="prompt-model-control">
-                  <Show
-                    when={providers.paid().length > 0}
-                    fallback={
+                {/* 左侧：文本类选择器，可压缩截断 */}
+                <div class="flex items-center gap-1.5 min-w-0 overflow-hidden">
+                  <div data-component="prompt-agent-control">
+                    <TooltipKeybind
+                      placement="top"
+                      gutter={4}
+                      title={language.t("command.agent.cycle")}
+                      keybind={command.keybind("agent.cycle")}
+                    >
+                      <Select
+                        size="normal"
+                        options={agentNames()}
+                        current={local.agent.current()?.name ?? ""}
+                        onSelect={local.agent.set}
+                        class="capitalize max-w-[160px] text-text-base"
+                        valueClass="truncate text-13-regular text-text-base"
+                        triggerStyle={control()}
+                        triggerProps={{ "data-action": "prompt-agent" }}
+                        variant="ghost"
+                      />
+                    </TooltipKeybind>
+                  </div>
+                  <div data-component="prompt-model-control">
+                    <Show
+                      when={providers.paid().length > 0}
+                      fallback={
+                        <TooltipKeybind
+                          placement="top"
+                          gutter={4}
+                          title={language.t("command.model.choose")}
+                          keybind={command.keybind("model.choose")}
+                        >
+                          <Button
+                            data-action="prompt-model"
+                            as="div"
+                            variant="ghost"
+                            size="normal"
+                            class="min-w-0 max-w-[320px] text-13-regular text-text-base group"
+                            style={control()}
+                            onClick={() => dialog.show(() => <DialogSelectModelUnpaid model={local.model} />)}
+                          >
+                            <Show when={local.model.current()?.provider?.id}>
+                              <ProviderIcon
+                                id={local.model.current()?.provider?.id ?? ""}
+                                class="size-4 shrink-0 opacity-40 group-hover:opacity-100 transition-opacity duration-150"
+                                style={{ "will-change": "opacity", transform: "translateZ(0)" }}
+                              />
+                            </Show>
+                            <span class="truncate">
+                              {local.model.current()?.name ?? language.t("dialog.model.select.title")}
+                            </span>
+                            <Icon name="chevron-down" size="small" class="shrink-0" />
+                          </Button>
+                        </TooltipKeybind>
+                      }
+                    >
                       <TooltipKeybind
                         placement="top"
                         gutter={4}
                         title={language.t("command.model.choose")}
                         keybind={command.keybind("model.choose")}
                       >
-                        <Button
-                          data-action="prompt-model"
-                          as="div"
-                          variant="ghost"
-                          size="normal"
-                          class="min-w-0 max-w-[320px] text-13-regular text-text-base group"
-                          style={control()}
-                          onClick={() => dialog.show(() => <DialogSelectModelUnpaid model={local.model} />)}
+                        <ModelSelectorPopover
+                          model={local.model}
+                          triggerAs={Button}
+                          triggerProps={{
+                            variant: "ghost",
+                            size: "normal",
+                            style: control(),
+                            class: "min-w-0 max-w-[320px] text-13-regular text-text-base group",
+                            "data-action": "prompt-model",
+                          }}
                         >
                           <Show when={local.model.current()?.provider?.id}>
                             <ProviderIcon
@@ -1545,128 +1580,116 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                             {local.model.current()?.name ?? language.t("dialog.model.select.title")}
                           </span>
                           <Icon name="chevron-down" size="small" class="shrink-0" />
-                        </Button>
+                        </ModelSelectorPopover>
                       </TooltipKeybind>
-                    }
-                  >
+                    </Show>
+                  </div>
+                  <div data-component="prompt-variant-control">
                     <TooltipKeybind
                       placement="top"
                       gutter={4}
-                      title={language.t("command.model.choose")}
-                      keybind={command.keybind("model.choose")}
+                      title={language.t("command.model.variant.cycle")}
+                      keybind={command.keybind("model.variant.cycle")}
                     >
-                      <ModelSelectorPopover
-                        model={local.model}
-                        triggerAs={Button}
-                        triggerProps={{
-                          variant: "ghost",
-                          size: "normal",
-                          style: control(),
-                          class: "min-w-0 max-w-[320px] text-13-regular text-text-base group",
-                          "data-action": "prompt-model",
-                        }}
-                      >
-                        <Show when={local.model.current()?.provider?.id}>
-                          <ProviderIcon
-                            id={local.model.current()?.provider?.id ?? ""}
-                            class="size-4 shrink-0 opacity-40 group-hover:opacity-100 transition-opacity duration-150"
-                            style={{ "will-change": "opacity", transform: "translateZ(0)" }}
-                          />
-                        </Show>
-                        <span class="truncate">
-                          {local.model.current()?.name ?? language.t("dialog.model.select.title")}
-                        </span>
-                        <Icon name="chevron-down" size="small" class="shrink-0" />
-                      </ModelSelectorPopover>
+                      <Select
+                        size="normal"
+                        options={variants()}
+                        current={local.model.variant.current() ?? "default"}
+                        label={(x) => (x === "default" ? language.t("common.default") : x)}
+                        onSelect={(x) => local.model.variant.set(x === "default" ? undefined : x)}
+                        class="capitalize max-w-[160px] text-text-base"
+                        valueClass="truncate text-13-regular text-text-base"
+                        triggerStyle={control()}
+                        triggerProps={{ "data-action": "prompt-model-variant" }}
+                        variant="ghost"
+                      />
                     </TooltipKeybind>
-                  </Show>
+                  </div>
                 </div>
-                <div data-component="prompt-variant-control">
+                {/* 右侧：图标按钮，始终可见；极窄时折叠进 ⋯ Popover */}
+                <div class="flex items-center gap-0.5 shrink-0">
                   <TooltipKeybind
                     placement="top"
-                    gutter={4}
-                    title={language.t("command.model.variant.cycle")}
-                    keybind={command.keybind("model.variant.cycle")}
+                    gutter={8}
+                    title={acceptLabel()}
+                    keybind={command.keybind("permissions.autoaccept")}
                   >
-                    <Select
-                      size="normal"
-                      options={variants()}
-                      current={local.model.variant.current() ?? "default"}
-                      label={(x) => (x === "default" ? language.t("common.default") : x)}
-                      onSelect={(x) => local.model.variant.set(x === "default" ? undefined : x)}
-                      class="capitalize max-w-[160px] text-text-base"
-                      valueClass="truncate text-13-regular text-text-base"
-                      triggerStyle={control()}
-                      triggerProps={{ "data-action": "prompt-model-variant" }}
+                    <Button
+                      data-action="prompt-permissions"
                       variant="ghost"
-                    />
+                      onClick={toggleAccept}
+                      classList={{
+                        "h-7 w-7 p-0 shrink-0 flex items-center justify-center": true,
+                        "text-text-base": !accepting(),
+                        "hover:bg-surface-success-base": accepting(),
+                      }}
+                      style={control()}
+                      aria-label={acceptLabel()}
+                      aria-pressed={accepting()}
+                    >
+                      <Icon name="shield" size="small" classList={{ "text-icon-success-base": accepting() }} />
+                    </Button>
                   </TooltipKeybind>
-                </div>
-                <TooltipKeybind
-                  placement="top"
-                  gutter={8}
-                  title={acceptLabel()}
-                  keybind={command.keybind("permissions.autoaccept")}
-                >
-                  <Button
-                    data-action="prompt-permissions"
-                    variant="ghost"
-                    onClick={toggleAccept}
-                    classList={{
-                      "h-7 w-7 p-0 shrink-0 flex items-center justify-center": true,
-                      "text-text-base": !accepting(),
-                      "hover:bg-surface-success-base": accepting(),
+                  <div
+                    style={{
+                      opacity: buttonsSpring(),
+                      transform: `scale(${0.95 + buttonsSpring() * 0.05})`,
+                      filter: `blur(${(1 - buttonsSpring()) * 2}px)`,
+                      "pointer-events": buttonsSpring() > 0.5 ? "auto" : "none",
                     }}
-                    style={control()}
-                    aria-label={acceptLabel()}
-                    aria-pressed={accepting()}
                   >
-                    <Icon name="shield" size="small" classList={{ "text-icon-success-base": accepting() }} />
-                  </Button>
-                </TooltipKeybind>
-                <div
-                  style={{
-                    opacity: buttonsSpring(),
-                    transform: `scale(${0.95 + buttonsSpring() * 0.05})`,
-                    filter: `blur(${(1 - buttonsSpring()) * 2}px)`,
-                    "pointer-events": buttonsSpring() > 0.5 ? "auto" : "none",
-                  }}
-                >
-                  <KnowledgeButton />
+                    <KnowledgeButton />
+                  </div>
+                  <Popover
+                    placement="top-end"
+                    gutter={4}
+                    triggerAs={Button}
+                    triggerProps={{
+                      variant: "ghost",
+                      size: "normal",
+                      class: "h-7 w-7 p-0 flex items-center justify-center text-icon-weak shrink-0",
+                      "aria-label": "更多工具",
+                    }}
+                    trigger={<Icon name="dot-grid" class="size-4" />}
+                    class="p-1 flex flex-col gap-0.5 min-w-[120px]"
+                  >
+                    <Tooltip placement="left" gutter={4} value="默认 Skills">
+                      <Button
+                        variant="ghost"
+                        size="normal"
+                        class="w-full h-7 px-2 flex items-center gap-2 text-icon-weak justify-start"
+                        onClick={() => dialog.show(() => <DialogDefaultSkills />)}
+                        aria-label="默认 Skills"
+                      >
+                        <Icon name="bullet-list" class="size-4 shrink-0" />
+                        <span class="text-13-regular text-text-base">默认 Skills</span>
+                      </Button>
+                    </Tooltip>
+                    <Tooltip placement="left" gutter={4} value="微信连接">
+                      <Button
+                        variant="ghost"
+                        size="normal"
+                        class="w-full h-7 px-2 flex items-center gap-2 text-icon-weak justify-start"
+                        onClick={() => dialog.show(() => <DialogWeChat />)}
+                        aria-label="微信连接"
+                      >
+                        <Icon
+                          name="wechat"
+                          class={
+                            wechatStatus() === "connected"
+                              ? "size-4 shrink-0 text-green-500"
+                              : wechatStatus() === "loading" || wechatStatus() === "qrcode"
+                                ? "size-4 shrink-0 text-yellow-500 animate-pulse"
+                                : wechatStatus() === "error"
+                                  ? "size-4 shrink-0 text-red-500"
+                                  : "size-4 shrink-0 text-icon-weak"
+                          }
+                        />
+                        <span class="text-13-regular text-text-base">微信连接</span>
+                      </Button>
+                    </Tooltip>
+                  </Popover>
                 </div>
-                <Tooltip placement="top" gutter={4} value="默认 Skills">
-                  <Button
-                    variant="ghost"
-                    size="normal"
-                    class="h-7 px-2 flex items-center gap-1 text-icon-weak"
-                    onClick={() => dialog.show(() => <DialogDefaultSkills />)}
-                    aria-label="默认 Skills"
-                  >
-                    <Icon name="bullet-list" class="size-4" />
-                  </Button>
-                </Tooltip>
-                <Tooltip placement="top" gutter={4} value="微信连接">
-                  <Button
-                    variant="ghost"
-                    size="normal"
-                    class="h-7 px-2 flex items-center gap-1 text-icon-weak"
-                    onClick={() => dialog.show(() => <DialogWeChat />)}
-                    aria-label="微信连接"
-                  >
-                    <Icon
-                      name="wechat"
-                      class={
-                        wechatStatus() === "connected"
-                          ? "size-4 text-green-500"
-                          : wechatStatus() === "loading" || wechatStatus() === "qrcode"
-                            ? "size-4 text-yellow-500 animate-pulse"
-                            : wechatStatus() === "error"
-                              ? "size-4 text-red-500"
-                              : "size-4 text-icon-weak"
-                      }
-                    />
-                  </Button>
-                </Tooltip>
               </div>
             </div>
           </div>

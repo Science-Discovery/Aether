@@ -430,7 +430,7 @@ export const FileRoutes = lazy(() =>
               "-NoProfile",
               "-NonInteractive",
               "-Command",
-              "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; Add-Type -AssemblyName System.Windows.Forms; $d = New-Object System.Windows.Forms.FolderBrowserDialog; $d.ShowNewFolderButton = $true; if ($d.ShowDialog() -eq 'OK') { $d.SelectedPath }",
+              "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; Add-Type -AssemblyName System.Windows.Forms; $d = New-Object System.Windows.Forms.FolderBrowserDialog; $d.ShowNewFolderButton = $true; $owner = New-Object System.Windows.Forms.Form; $owner.TopMost = $true; $owner.WindowState = 'Minimized'; $owner.ShowInTaskbar = $false; $owner.Show(); $owner.Hide(); if ($d.ShowDialog($owner) -eq 'OK') { $d.SelectedPath }; $owner.Dispose()",
             ])
             const output = await new Response(ps.stdout).text()
             await ps.exited
