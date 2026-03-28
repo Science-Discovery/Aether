@@ -133,7 +133,7 @@ HELP_TEXT = (
 
 /new          开启新对话（清除当前会话上下文）
 /model        查看可用模型列表及当前模型
-/model id   切换模型，例如：/model anthropic/claude-sonnet-4-5
+/model id   切换模型，例如：/model opencode/minimax-m2.5-free
 /project      查看当前工作项目
 /help         显示此帮助信息"""
 )
@@ -260,7 +260,6 @@ class AetherAgent(Agent):
         providers = data.get('all', [])
         connected = set(data.get('connected', []))
         defaults = data.get('default', {})
-        # 只显示已连接的 provider
         for provider in providers:
             pid = provider.get('id', '')
             if pid not in connected:
@@ -272,17 +271,14 @@ class AetherAgent(Agent):
             lines.append(f'')
             lines.append(f'【{pname}】')
             default_mid = defaults.get(pid, '')
-            # 默认模型排在最前
             sorted_ids = sorted(models.keys(), key=lambda m: (m != default_mid, m))
-            for model_id in sorted_ids[:5]:
+            for model_id in sorted_ids:
                 tag = ' ★' if model_id == default_mid else ''
                 lines.append(f'  {pid}/{model_id}{tag}')
-            if len(models) > 5:
-                lines.append(f'  ...（共 {len(models)} 个）')
         if len(lines) <= 3:
             lines.append('（暂无已配置的模型，请先在 Aether 中连接 provider）')
         lines.append('')
-        lines.append('💡 /model anthropic/claude-sonnet-4-5')
+        lines.append('💡 /model opencode/minimax-m2.5-free')
         return chr(10).join(lines)
 
     async def _cmd_project(self, conv_id: str, arg: str) -> str:
