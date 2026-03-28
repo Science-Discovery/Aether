@@ -84,6 +84,70 @@ export const ProviderRoutes = lazy(() =>
         return c.json(await ProviderAuth.methods())
       },
     )
+    .get(
+      "/:providerID/connection",
+      describeRoute({
+        summary: "Get provider connection info",
+        description: "Get resolved API key, base URL, and embedding models for a connected provider.",
+        operationId: "provider.connection",
+        responses: {
+          200: {
+            description: "Provider connection info",
+            content: {
+              "application/json": {
+                schema: resolver(
+                  z.object({
+                    apiKey: z.string(),
+                    baseURL: z.string(),
+                    embeddingModels: z.array(z.string()),
+                  }),
+                ),
+              },
+            },
+          },
+          ...errors(404),
+        },
+      }),
+      validator(
+        "param",
+        z.object({
+          providerID: ProviderID.zod.meta({ description: "Provider ID" }),
+        }),
+      ),
+      async (c) => {
+        const { providerID } = c.req.valid("param")
+        const providers = await Provider.list()
+        const info = providers[providerID]
+        if (!info) return c.json({ message: "Provider not found" } as any, 404)
+
+        const apiKey = (info.key ?? (info.options?.apiKey as string | undefined)) ?? ""
+        const baseURL =
+          ((info.options?.baseURL ?? info.options?.endpoint) as string | undefined) ?? ""
+
+        let embeddingModels: string[] = []
+        if (apiKey && baseURL) {
+          try {
+            const controller = new AbortController()
+            const timeout = setTimeout(() => controller.abort(), 5000)
+            const resp = await fetch(`${baseURL.replace(/\/$/, "")}/models`, {
+              headers: { Authorization: `Bearer ${apiKey}` },
+              signal: controller.signal,
+            }).finally(() => clearTimeout(timeout))
+            if (resp.ok) {
+              const data = (await resp.json()) as { data?: { id: string }[] }
+              const list = data?.data ?? []
+              embeddingModels = list
+                .map((m) => m.id)
+                .filter((id) => id.toLowerCase().includes("embed"))
+            }
+          } catch {
+            // silently return empty list on timeout / network error
+          }
+        }
+
+        return c.json({ apiKey, baseURL, embeddingModels })
+      },
+    )
     .post(
       "/:providerID/oauth/authorize",
       describeRoute({
