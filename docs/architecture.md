@@ -1,8 +1,8 @@
-# OpenCode 架构设计文档
+# Aether 架构设计文档
 
 ## 1. 系统总体架构
 
-OpenCode 采用客户端/服务端（C/S）架构。服务端运行在本地或远程，负责 Agent 执行、LLM 交互、数据持久化；客户端提供用户交互界面（TUI / Web / 桌面应用），通过 HTTP API 和 SSE 与服务端通信。
+Aether 采用客户端/服务端（C/S）架构。服务端运行在本地或远程，负责 Agent 执行、LLM 交互、数据持久化；客户端提供用户交互界面（TUI / Web / 桌面应用），通过 HTTP API 和 SSE 与服务端通信。
 
 ```mermaid
 graph TB

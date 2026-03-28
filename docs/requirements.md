@@ -1,10 +1,10 @@
-# OpenCode 需求文档
+# Aether 需求文档
 
 ## 1. 项目概述
 
 ### 1.1 项目定位
 
-OpenCode 是一个开源的 AI 编程代理（AI Coding Agent），为开发者提供智能化的代码开发辅助能力。它通过与大语言模型（LLM）的深度集成，帮助开发者完成代码编写、分析、调试、重构等日常开发任务。
+Aether 是一个开源的 AI 研究代理（AI Research Agent）。
 
 ### 1.2 核心价值
 
@@ -211,7 +211,7 @@ Agent 通过调用工具与代码仓库和外部环境交互。工具分为以�
 | `opencode`（默认） | 启动 TUI 交互界面 |
 | `run` | 在当前目录执行 AI 编程会话 |
 | `serve` | 启动无头服务（headless server） |
-| `pr <number>` | 拉取 GitHub PR 并启动 OpenCode |
+| `pr <number>` | 拉取 GitHub PR 并启动 Aether |
 | `providers` | 管理 AI 模型提供商认证 |
 | `models` | 列出可用模型 |
 | `mcp` | 管理 MCP 服务器 |

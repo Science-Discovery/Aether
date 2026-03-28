@@ -20,7 +20,6 @@ const imageAttrs = {
 };
 
 const github = (config.social || []).filter(s => s.icon === 'github')[0];
-const discord = (config.social || []).filter(s => s.icon === 'discord')[0];
 const locale = Astro.currentLocale || 'root';
 const t = Astro.locals.t as (key: string) => string;
 const docsHref = getRelativeLocaleUrl(locale, "")
@@ -186,9 +185,6 @@ if (image) {
     <section class="footer">
       <div class="col1">
         <a href={github.href} target="_blank" rel="noopener noreferrer">GitHub</a>
-      </div>
-      <div class="col2">
-        <a href={discord.href} target="_blank" rel="noopener noreferrer">Discord</a>
       </div>
       <div class="col3">
       <span>&copy;2025 <a href="https://anoma.ly" target="_blank" rel="noopener noreferrer">Anomaly Innovations</a></span>
