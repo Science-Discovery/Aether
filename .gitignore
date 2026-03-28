@@ -31,3 +31,5 @@ logs/
 tsconfig.tsbuildinfo
 .claude/
 Aether-wechat-bridge/.venv/
+textbox/
+handouts/

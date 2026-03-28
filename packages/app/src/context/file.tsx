@@ -124,16 +124,16 @@ export const { use: useFile, provider: FileProvider } = createSimpleContext({
 
     // mousedown: 点击文件内容区域→清除；点击其他任何地方→立刻应用高亮
     const handleMousedown = (e: MouseEvent) => {
-      const target = e.target as HTMLElement | null
-      if (isFileContentArea(target)) {
-        // 点击文件内容区域——清除高亮和快照
-        clearHighlight()
-        savedRange = null
-        setSelectedText("")
-      } else if (savedRange) {
-        // 点击非文件内容区域——立刻应用高亮（不等 selectionchange）
-        applyHighlight(savedRange)
-      }
+      try {
+        const target = e.target as HTMLElement | null
+        if (isFileContentArea(target)) {
+          clearHighlight()
+          savedRange = null
+          setSelectedText("")
+        } else if (savedRange) {
+          applyHighlight(savedRange)
+        }
+      } catch { /* 静默失败，绝不能阻塞其他事件处理 */ }
     }
     document.addEventListener("mousedown", handleMousedown, true)
 

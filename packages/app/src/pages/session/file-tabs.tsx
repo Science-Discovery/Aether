@@ -26,7 +26,9 @@ import { useSessionLayout } from "@/pages/session/session-layout"
 import { createSessionTabs } from "@/pages/session/helpers"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { DialogPdfToMarkdown } from "@/components/dialog-pdf-to-markdown"
-import { registerOpenFileCallback } from "@/components/pdf-convert-progress"
+import { DialogTranslateMarkdown } from "@/components/dialog-translate-markdown"
+import { registerOpenFileCallback, registerRefreshDirCallback, restoreActiveTasks } from "@/components/pdf-convert-progress"
+import { useServer } from "@/context/server"
 
 function FileCommentMenu(props: {
   moreLabel: string
@@ -69,8 +71,28 @@ export function FileTabContent(props: { tab: string }) {
   const sync = useSync()
   const fileComponent = useFileComponent()
   const sdk = useSDK()
+  const server = useServer()
   const terminal = useTerminal()
   const dialog = useDialog()
+
+  // 构造 fetchApi 用于进度恢复和对话框
+  const fetchApi = (urlPath: string, options: RequestInit = {}): Promise<Response> => {
+    const baseUrl = sdk.url
+    const s = server.current?.http
+    const authHeader: Record<string, string> = s?.password
+      ? { Authorization: `Basic ${btoa(`${s.username ?? "opencode"}:${s.password}`)}` }
+      : {}
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+      ...authHeader,
+      ...(options.headers as Record<string, string> ?? {}),
+    }
+    const separator = urlPath.includes("?") ? "&" : "?"
+    return fetch(`${baseUrl}${urlPath}${separator}directory=${encodeURIComponent(sdk.directory)}`, {
+      ...options,
+      headers,
+    })
+  }
 
   const [isEditing, setIsEditing] = createSignal(false)
   const [editContent, setEditContent] = createSignal("")
@@ -116,18 +138,24 @@ export function FileTabContent(props: { tab: string }) {
   }).activeFileTab
 
   // 注册 PDF 转换完成后的文件打开回调
-  registerOpenFileCallback((filePath: string) => {
-    // 刷新文件树使新文件可见
+  registerOpenFileCallback(async (filePath: string) => {
+    // 刷新文件树使新文件可见（等待完成）
     const parentDir = filePath.includes("/") ? filePath.slice(0, filePath.lastIndexOf("/")) : ""
-    file.tree.refresh(parentDir)
-    // 打开文件
-    setTimeout(() => {
-      const tab = file.tab(filePath)
-      tabs().open(tab)
-      tabs().setActive(tab)
-      file.load(filePath)
-    }, 500) // 等待文件树刷新完成
+    await file.tree.refresh(parentDir)
+    // 打开并强制加载文件（确保不使用缓存）
+    const tab = file.tab(filePath)
+    tabs().open(tab)
+    tabs().setActive(tab)
+    await file.load(filePath, { force: true })
   })
+
+  // 注册目录刷新回调（每个文件转换完成后刷新文件树）
+  registerRefreshDirCallback((dirPath: string) => {
+    void file.tree.refresh(dirPath)
+  })
+
+  // 页面加载时查询后端活跃任务，恢复进度条
+  void restoreActiveTasks(fetchApi, sdk.url, sdk.directory)
 
   let scroll: HTMLDivElement | undefined
   let scrollFrame: number | undefined
@@ -501,11 +529,29 @@ export function FileTabContent(props: { tab: string }) {
     if (restoreFrame !== undefined) cancelAnimationFrame(restoreFrame)
   })
 
+  /** 将 markdown 中的相对图片路径重写为服务器 /file/raw URL */
+  const rewriteImagePaths = (md: string): string => {
+    const p = path()
+    if (!p) return md
+    const dir = p.includes("/") ? p.slice(0, p.lastIndexOf("/")) : ""
+    const baseUrl = sdk.url
+    const directory = encodeURIComponent(sdk.directory)
+    return md.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, (match, alt, src) => {
+      // 跳过已经是 URL 的路径
+      if (/^https?:\/\/|^data:/.test(src)) return match
+      // 将相对路径解析为工作目录下的绝对路径
+      const absImagePath = dir ? `${dir}/${src}` : src
+      const encodedPath = encodeURIComponent(absImagePath)
+      return `![${alt}](${baseUrl}/file/raw?path=${encodedPath}&directory=${directory})`
+    })
+  }
+
   const renderFile = (source: string) => {
     if (isMarkdown()) {
+      const processed = rewriteImagePaths(source)
       return (
         <div class="relative px-6 pb-40 select-text" data-file-content>
-          <Markdown text={source} cacheKey={cacheKey()} />
+          <Markdown text={processed} cacheKey={cacheKey()} />
         </div>
       )
     }
@@ -590,6 +636,19 @@ export function FileTabContent(props: { tab: string }) {
               onClick={runPython}
               disabled={isRunning()}
             />
+          </Show>
+          <Show when={!isEditing() && isMarkdown()}>
+            <button
+              type="button"
+              class="flex items-center justify-center rounded-md px-2 h-5 text-xs text-text-weak hover:bg-surface-raised-base-hover transition-colors cursor-pointer leading-none"
+              onClick={() => {
+                const p = path()
+                if (!p) return
+                dialog.show(() => <DialogTranslateMarkdown mdPath={p} />)
+              }}
+            >
+              翻译为中文
+            </button>
           </Show>
           <Show when={isTextFile()}>
             <Tooltip placement="top" gutter={4} value={wordWrap() ? "关闭自动换行" : "开启自动换行"}>

@@ -23,6 +23,12 @@ export interface PdfConvertTask {
   streamContent: string
   outputPath: string | null
   error: string | null
+  taskType: "pdf-convert" | "translate"
+  cancelUrl: string
+  /** 批量任务：当前文件索引（从 1 开始） */
+  batchIndex: number
+  /** 批量任务：总文件数 */
+  batchTotal: number
 }
 
 // ===== 全局状态 =====
@@ -39,10 +45,16 @@ const emptyTask: PdfConvertTask = {
   streamContent: "",
   outputPath: null,
   error: null,
+  taskType: "pdf-convert",
+  cancelUrl: "/file/pdf-to-markdown/cancel",
+  batchIndex: 0,
+  batchTotal: 0,
 }
 
 const [globalTask, setGlobalTask] = createStore<PdfConvertTask>({ ...emptyTask })
 const [globalVisible, setGlobalVisible] = createSignal(false)
+/** 自动隐藏定时器，注册新任务时取消 */
+let autoHideTimer: ReturnType<typeof setTimeout> | null = null
 
 // fetchApi 函数引用，由对话框注入
 let globalFetchApi: ((url: string, opts?: RequestInit) => Promise<Response>) | null = null
@@ -51,10 +63,24 @@ let globalAutoOpen = true
 let globalEventSource: EventSource | null = null
 /** 外部注册的打开文件回调（由持有 file/tab context 的组件提供） */
 let globalOpenFileCallback: ((filePath: string) => void) | null = null
+/** 外部注册的刷新目录回调（转换完成后刷新文件树） */
+let globalRefreshDirCallback: ((dirPath: string) => void) | null = null
 
 /** 注册打开文件的回调（由 file-tabs.tsx 等组件调用） */
 export function registerOpenFileCallback(cb: (filePath: string) => void) {
   globalOpenFileCallback = cb
+}
+
+/** 注册刷新目录的回调 */
+export function registerRefreshDirCallback(cb: (dirPath: string) => void) {
+  globalRefreshDirCallback = cb
+}
+
+/** 触发刷新输出文件所在目录（使新文件出现在文件树中） */
+export function triggerRefreshDir(filePath: string) {
+  if (!globalRefreshDirCallback) return
+  const dir = filePath.includes("/") ? filePath.slice(0, filePath.lastIndexOf("/")) : ""
+  globalRefreshDirCallback(dir)
 }
 
 /** 注册 SSE EventSource 引用 */
@@ -68,6 +94,11 @@ export function registerConvertTask(
   fetchApi: (url: string, opts?: RequestInit) => Promise<Response>,
   autoOpen: boolean,
 ) {
+  // 取消之前的自动隐藏定时器，防止新任务刚注册就被隐藏
+  if (autoHideTimer) {
+    clearTimeout(autoHideTimer)
+    autoHideTimer = null
+  }
   globalFetchApi = fetchApi
   globalAutoOpen = autoOpen
   setGlobalTask(reconcile({ ...emptyTask, ...task }))
@@ -123,11 +154,18 @@ export const PdfConvertProgressBar: Component = () => {
       case "fix": return "验证修复"
       case "crop": return "裁剪图片"
       case "postqa": return "质量检查"
+      case "translate": return "翻译中"
+      case "reconnecting": return "重连中"
       default: return task.phase
     }
   }
 
   const fmt = (n: number) => n.toLocaleString()
+
+  const isTranslate = () => task.taskType === "translate"
+  const unitLabel = () => isTranslate() ? "块" : "页"
+  const isBatch = () => task.batchTotal > 1
+  const batchPrefix = () => isBatch() ? `[${task.batchIndex}/${task.batchTotal}] ` : ""
 
   const isDone = () => task.status === "done" && task.taskID !== ""
   const isError = () => task.status === "error"
@@ -142,7 +180,7 @@ export const PdfConvertProgressBar: Component = () => {
       globalEventSource = null
     }
     try {
-      await globalFetchApi("/file/pdf-to-markdown/cancel", {
+      await globalFetchApi(task.cancelUrl, {
         method: "POST",
         body: JSON.stringify({ taskID: task.taskID }),
       })
@@ -150,11 +188,14 @@ export const PdfConvertProgressBar: Component = () => {
     setGlobalTask("status", "cancelled")
   }
 
-  // 完成时 5 秒后自动隐藏
+  // 完成时自动隐藏（批量任务最后一个完成后才隐藏）
   createEffect(on(() => task.status, (status) => {
     if (status === "done" || status === "error" || status === "cancelled") {
-      setTimeout(() => {
+      // 清除之前的定时器
+      if (autoHideTimer) clearTimeout(autoHideTimer)
+      autoHideTimer = setTimeout(() => {
         if (task.status !== "running") setGlobalVisible(false)
+        autoHideTimer = null
       }, 8000)
     }
   }))
@@ -178,17 +219,22 @@ export const PdfConvertProgressBar: Component = () => {
           onClick={() => setExpanded(!expanded())}
         >
           <Show when={isRunning() && isQueued()}>
-            PDF 排队中（第 {queuePosition()} 位）
+            {batchPrefix()}{isTranslate() ? "翻译" : "PDF"} 排队中（第 {queuePosition()} 位）
           </Show>
           <Show when={isRunning() && !isQueued()}>
             <Show when={task.phase === "postqa"} fallback={
-              <>PDF {task.currentPage}/{task.totalPages} 页 · {phaseLabel()}</>
+              <>{batchPrefix()}{isTranslate() ? "翻译" : "PDF"} {task.currentPage}/{task.totalPages} {unitLabel()} · {phaseLabel()}</>
             }>
-              正在检查
+              {batchPrefix()}正在检查
             </Show>
           </Show>
           <Show when={isDone()}>
-            PDF 转换完成
+            <Show when={isBatch()} fallback={isTranslate() ? "翻译完成" : "PDF 转换完成"}>
+              {task.batchIndex < task.batchTotal
+                ? <>{batchPrefix()}{isTranslate() ? "翻译完成" : "转换完成"}，准备下一个...</>
+                : <>全部完成（{task.batchTotal} 个文件）</>
+              }
+            </Show>
           </Show>
           <Show when={isError()}>
             转换失败
@@ -234,6 +280,87 @@ export const PdfConvertProgressBar: Component = () => {
       </div>
     </Show>
   )
+}
+
+/**
+ * 页面加载时查询后端活跃任务，恢复进度条和 SSE 连接。
+ * 由 file-tabs.tsx 等持有 fetchApi 的组件在 onMount 中调用。
+ */
+export async function restoreActiveTasks(
+  fetchApi: (url: string, opts?: RequestInit) => Promise<Response>,
+  baseUrl: string,
+  directory: string,
+) {
+  try {
+    const res = await fetchApi("/file/active-tasks")
+    if (!res.ok) return
+    const tasks = await res.json() as { taskID: string; status: string; path: string; taskType: "convert" | "translate" }[]
+    if (tasks.length === 0) return
+
+    // 取第一个运行中的任务恢复进度条
+    const activeTask = tasks[0]
+    const isTranslate = activeTask.taskType === "translate"
+    const cancelUrl = isTranslate ? "/file/translate-markdown/cancel" : "/file/pdf-to-markdown/cancel"
+    const progressUrl = isTranslate ? "/file/translate-markdown/progress" : "/file/pdf-to-markdown/progress"
+
+    registerConvertTask(
+      {
+        taskID: activeTask.taskID,
+        pdfPath: activeTask.path,
+        status: "running",
+        currentPage: 0,
+        totalPages: 0,
+        phase: "reconnecting",
+        taskType: isTranslate ? "translate" : "pdf-convert",
+        cancelUrl,
+        batchIndex: 1,
+        batchTotal: tasks.length,
+      },
+      fetchApi,
+      false,
+    )
+
+    // 连接 SSE 恢复实时进度
+    const url = `${baseUrl}${progressUrl}?taskID=${activeTask.taskID}&directory=${encodeURIComponent(directory)}`
+    const es = new EventSource(url)
+    registerEventSource(es)
+
+    es.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data)
+        switch (data.type) {
+          case "progress":
+            updateConvertTask({ currentPage: data.currentPage, totalPages: data.totalPages, phase: data.phase })
+            break
+          case "token":
+            updateConvertTask({ tokenInput: data.input, tokenOutput: data.output })
+            break
+          case "page_done":
+            updateConvertTask({ streamContent: "" })
+            break
+          case "done":
+            updateConvertTask({ status: "done", outputPath: data.outputPath })
+            if (data.outputPath) triggerRefreshDir(data.outputPath)
+            es.close()
+            break
+          case "error":
+            if (!data.page) {
+              updateConvertTask({ status: "error", error: data.message })
+              es.close()
+            }
+            break
+        }
+      } catch { /* ignore */ }
+    }
+
+    es.onerror = () => {
+      if (es.readyState === EventSource.CLOSED) {
+        es.close()
+      }
+    }
+  } catch {
+    // 查询失败，静默忽略
+  }
 }
 
 // 兼容旧导入

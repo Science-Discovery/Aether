@@ -49,9 +49,41 @@ export namespace ProviderTransform {
     model: Provider.Model,
     options: Record<string, unknown>,
   ): ModelMessage[] {
-    // Anthropic rejects messages with empty content - filter out empty string messages
+    // Strip openai itemId metadata following what codex does
+    if (model.api.npm === "@ai-sdk/openai" || options.store === false) {
+      msgs = msgs.map((msg) => {
+        if (msg.providerOptions) {
+          for (const opts of Object.values(msg.providerOptions)) {
+            if (opts && typeof opts === "object") {
+              delete opts["itemId"]
+            }
+          }
+        }
+        if (!Array.isArray(msg.content)) {
+          return msg
+        }
+        const content = msg.content.map((part) => {
+          if (part.providerOptions) {
+            for (const opts of Object.values(part.providerOptions)) {
+              if (opts && typeof opts === "object") {
+                delete opts["itemId"]
+              }
+            }
+          }
+          return part
+        })
+        return { ...msg, content } as typeof msg
+      })
+    }
+
+    // Anthropic and Google reject messages with empty content - filter out empty string messages
     // and remove empty text/reasoning parts from array content
-    if (model.api.npm === "@ai-sdk/anthropic" || model.api.npm === "@ai-sdk/amazon-bedrock") {
+    if (
+      model.api.npm === "@ai-sdk/anthropic" ||
+      model.api.npm === "@ai-sdk/amazon-bedrock" ||
+      model.api.npm === "@ai-sdk/google" ||
+      model.api.npm === "@ai-sdk/google-vertex"
+    ) {
       msgs = msgs
         .map((msg) => {
           if (typeof msg.content === "string") {
@@ -770,11 +802,13 @@ export namespace ProviderTransform {
     }
 
     if (input.model.api.npm === "@ai-sdk/google" || input.model.api.npm === "@ai-sdk/google-vertex") {
-      if (input.model.capabilities.reasoning) {
+      const gid = input.model.api.id.toLowerCase()
+      const supportsThinking = input.model.capabilities.reasoning || gid.includes("2.5") || gid.includes("gemini-3")
+      if (supportsThinking) {
         result["thinkingConfig"] = {
           includeThoughts: true,
         }
-        if (input.model.api.id.includes("gemini-3")) {
+        if (gid.includes("gemini-3")) {
           result["thinkingConfig"]["thinkingLevel"] = "high"
         }
       }
@@ -861,11 +895,15 @@ export namespace ProviderTransform {
       return { store: false }
     }
     if (model.providerID === "google") {
-      // gemini-3 uses thinkingLevel, gemini-2.5 uses thinkingBudget
-      if (model.api.id.includes("gemini-3")) {
+      const gid = model.api.id.toLowerCase()
+      // thinkingConfig 仅对支持 thinking 的模型生效（gemini-2.5+、gemini-3）
+      if (gid.includes("gemini-3")) {
         return { thinkingConfig: { thinkingLevel: "minimal" } }
       }
-      return { thinkingConfig: { thinkingBudget: 0 } }
+      if (gid.includes("2.5")) {
+        return { thinkingConfig: { thinkingBudget: 0 } }
+      }
+      return {}
     }
     if (model.providerID === "openrouter") {
       if (model.api.id.includes("google")) {

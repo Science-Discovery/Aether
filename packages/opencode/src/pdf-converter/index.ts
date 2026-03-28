@@ -44,6 +44,17 @@ export function getTask(taskID: string): ConvertTask | undefined {
   return activeTasks.get(taskID)
 }
 
+/** 列出所有活跃任务（含运行中和排队中） */
+export function listActiveTasks(): { taskID: string; status: string; path: string; taskType: "convert" }[] {
+  const result: { taskID: string; status: string; path: string; taskType: "convert" }[] = []
+  for (const [id, task] of activeTasks) {
+    if (task.status === "running") {
+      result.push({ taskID: id, status: task.status, path: task.config.path, taskType: "convert" })
+    }
+  }
+  return result
+}
+
 export function removeTask(taskID: string): void {
   activeTasks.delete(taskID)
 }
@@ -496,6 +507,18 @@ async function* convert(
     } else {
       await savePerPageOutput(pages, finalOutputPath)
     }
+
+    // 保存结构化中间数据 JSON（供翻译等后续功能使用）
+    const dataJson: ConvertDataJSON = {
+      version: "1.0",
+      source_pdf: path.basename(pdfPath),
+      source_language: "auto",
+      model: { provider: config.providerID, model: config.modelID },
+      pages,
+      output_mode: outputMode,
+      total_tokens: { input: totalInputTokens, output: totalOutputTokens },
+    }
+    await fs.writeFile(outputPaths.dataJson, JSON.stringify(dataJson, null, 2), "utf-8")
 
     yield {
       type: "done",
