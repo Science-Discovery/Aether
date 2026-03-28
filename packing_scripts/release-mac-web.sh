@@ -6,6 +6,7 @@ ver="${1:-$(cd "$root" && bun -e 'const p=await Bun.file("packages/opencode/pack
 date="$(date -u +"%Y-%m-%dT%H:%M:%S.000Z")"
 
 pushd "$root/packages/opencode" >/dev/null
+bun install
 bun run build -- --single
 
 src="dist/aether-darwin-arm64/bin"

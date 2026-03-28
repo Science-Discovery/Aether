@@ -91,6 +91,21 @@ if %RC% GEQ 8 (
   goto :fail
 )
 
+if exist "%APP%\package.json" (
+  where bun >nul 2>nul
+  if errorlevel 1 (
+    echo package.json found but bun is missing. Install bun and retry.
+    goto :fail
+  )
+  pushd "%APP%" || goto :fail
+  call bun install || (
+    popd
+    echo bun install failed.
+    goto :fail
+  )
+  popd
+)
+
 echo [4/4] Deleting old version files...
 echo Done. Current version: %VER_REMOTE%
 goto :ok

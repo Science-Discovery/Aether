@@ -105,6 +105,24 @@ fi
 mv "$app" "$old"
 mv "$next" "$app"
 
+if [ -f "$app/package.json" ]; then
+  if ! command -v bun >/dev/null 2>&1; then
+    echo "检测到 package.json，但未找到 bun。请先安装 bun 后重试。"
+    mv "$app" "$next"
+    mv "$old" "$app"
+    rm -rf "$next"
+    exit 1
+  fi
+
+  if ! (cd "$app" && bun install); then
+    echo "bun install 执行失败，已回滚到旧版本。"
+    mv "$app" "$next"
+    mv "$old" "$app"
+    rm -rf "$next"
+    exit 1
+  fi
+fi
+
 echo "[4/4] 删除旧版本..."
 rm -rf "$old"
 

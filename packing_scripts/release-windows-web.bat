@@ -9,6 +9,7 @@ if "%~1"=="" (
 )
 
 cd /d "%ROOT%\packages\opencode" || exit /b 1
+call bun install || exit /b 1
 call bun run build -- --single || exit /b 1
 
 set "SRC=%CD%\dist\aether-windows-x64\bin"
