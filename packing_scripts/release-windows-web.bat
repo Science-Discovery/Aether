@@ -57,7 +57,7 @@ set "ART=%ZIP%"
 set "VERSION=%VERSION%"
 set "YML=%YML%"
 
-powershell -NoProfile -Command "& { $art=$env:ART; $ver=$env:VERSION; $yml=$env:YML; $url=[IO.Path]::GetFileName($art); $sha=[Convert]::ToBase64String([Security.Cryptography.SHA512]::Create().ComputeHash([IO.File]::ReadAllBytes($art))); $size=(Get-Item $art).Length; $date=(Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ss.000Z'); $txt=@('version: ' + $ver,'files:','  - url: ' + $url,'    sha512: ' + $sha,'    size: ' + $size,'releaseDate: ' + $date) -join "`n"; Set-Content -Path $yml -Value ($txt + "`n") -Encoding utf8 }" || exit /b 1
+powershell -NoProfile -Command "& { $art=$env:ART; $ver=$env:VERSION; $yml=$env:YML; $url=[IO.Path]::GetFileName($art); $sha=[Convert]::ToBase64String([Security.Cryptography.SHA512]::Create().ComputeHash([IO.File]::ReadAllBytes($art))); $size=(Get-Item $art).Length; $date=(Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ss.000Z'); $txt=@('version: ' + $ver,'files:','  - url: ' + $url,'    sha512: ' + $sha,'    size: ' + $size,'releaseDate: ' + $date) -join "`n"; [IO.File]::WriteAllText($yml, $txt + "`n") }" || exit /b 1
 
 rmdir /s /q "%TMP%" >nul 2>nul
 
