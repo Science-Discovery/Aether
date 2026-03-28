@@ -133,7 +133,7 @@ HELP_TEXT = (
 
 /new          开启新对话（清除当前会话上下文）
 /model        查看可用模型列表及当前模型
-/model id   切换模型，例如：/model opencode/minimax-m2.5-free
+/model n      切换到编号 n 的模型（由 /model 列表确定）
 /project      查看当前工作项目
 /help         显示此帮助信息"""
 )
@@ -202,6 +202,7 @@ class AetherAgent(Agent):
         self._sse_tasks: dict[str, object] = {}
         self._accumulated_text: dict[str, str] = {}
         self._question_queues: dict[str, object] = {}
+        self._model_list: list[str] = []  # 上次 /model 获取的有序模型列表
         self._user_info: Optional[dict] = None
         self._username = os.getenv("AETHER_USERNAME", "")
         self._password = os.getenv("AETHER_PASSWORD", "")
@@ -256,6 +257,9 @@ class AetherAgent(Agent):
         if cmd == '/model':
             if not arg:
                 return await self._cmd_list_models(conv_id)
+            # 数字编号切换
+            if arg.isdigit():
+                return self._cmd_set_model_by_index(conv_id, int(arg))
             return self._cmd_set_model(conv_id, arg)
         if cmd == '/project':
             return await self._cmd_project(conv_id, arg)
@@ -274,6 +278,7 @@ class AetherAgent(Agent):
         providers = data.get('all', [])
         connected = set(data.get('connected', []))
         defaults = data.get('default', {})
+        model_list: list[str] = []
         for provider in providers:
             pid = provider.get('id', '')
             if pid not in connected:
@@ -287,13 +292,24 @@ class AetherAgent(Agent):
             default_mid = defaults.get(pid, '')
             sorted_ids = sorted(models.keys(), key=lambda m: (m != default_mid, m))
             for model_id in sorted_ids:
+                model_list.append(f'{pid}/{model_id}')
+                num = len(model_list)
                 tag = ' ★' if model_id == default_mid else ''
-                lines.append(f'  {pid}/{model_id}{tag}')
+                lines.append(f'  {num}. {pid}/{model_id}{tag}')
+        self._model_list = model_list
         if len(lines) <= 3:
             lines.append('（暂无已配置的模型，请先在 Aether 中连接 provider）')
         lines.append('')
-        lines.append('💡 /model opencode/minimax-m2.5-free')
+        lines.append('💡 /model n 切换模型')
         return chr(10).join(lines)
+
+    def _cmd_set_model_by_index(self, conv_id: str, n: int) -> str:
+        if not self._model_list:
+            return '❌ 请先发送 /model 获取模型列表，再用编号切换。'
+        if n < 1 or n > len(self._model_list):
+            return f'❌ 请输入 1~{len(self._model_list)} 之间的编号。'
+        model_str = self._model_list[n - 1]
+        return self._cmd_set_model(conv_id, model_str)
 
     async def _cmd_project(self, conv_id: str, arg: str) -> str:
         # 从所有 SQLite db 读取项目列表（与侧边栏一致）
