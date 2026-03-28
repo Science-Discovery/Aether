@@ -165,20 +165,31 @@ export async function killStaleSidecar(): Promise<void> {
 export function serve(hostname: string, port: number, password: string, proxy: ProxyConfig) {
   const args = `--print-logs --log-level WARN serve --hostname ${hostname} --port ${port}`
   const http = proxy.http.host.trim() ? `http://${proxy.http.host.trim()}:${proxy.http.port}` : ""
-  const https = proxy.https.host.trim() ? `https://${proxy.https.host.trim()}:${proxy.https.port}` : ""
+  const https = proxy.https.host.trim() ? `http://${proxy.https.host.trim()}:${proxy.https.port}` : ""
   const httpValue = http || https
   const httpsValue = https || http
-  const env = {
-    OPENCODE_SERVER_USERNAME: "opencode",
-    OPENCODE_SERVER_PASSWORD: password,
-    ...(proxy.enabled && (httpValue || httpsValue)
+  const proxyEnv =
+    proxy.enabled && (httpValue || httpsValue)
       ? {
           HTTP_PROXY: httpValue,
           HTTPS_PROXY: httpsValue,
+          ALL_PROXY: httpsValue,
           http_proxy: httpValue,
           https_proxy: httpsValue,
+          all_proxy: httpsValue,
         }
-      : {}),
+      : {
+          HTTP_PROXY: "",
+          HTTPS_PROXY: "",
+          ALL_PROXY: "",
+          http_proxy: "",
+          https_proxy: "",
+          all_proxy: "",
+        }
+  const env = {
+    OPENCODE_SERVER_USERNAME: "opencode",
+    OPENCODE_SERVER_PASSWORD: password,
+    ...proxyEnv,
   }
 
   return spawnCommand(args, env)

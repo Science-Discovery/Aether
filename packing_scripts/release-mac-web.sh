@@ -28,36 +28,38 @@ fi
 
 dmg="dist/aether-darwin-arm64-web.dmg"
 vol="Aether Web"
-tmp="dist/aether-darwin-arm64-web"
+pkg="aether-darwin-arm64-web"
+tmp="$(mktemp -d)"
+trap 'rm -rf "$tmp"' EXIT
+out="$tmp/$pkg"
 upd="$root/Update/update_darwin_web.command"
 
-rm -rf "$tmp"
-mkdir -p "$tmp"
-cp -R "$src"/. "$tmp"/
+mkdir -p "$out"
+cp -R "$src"/. "$out"/
 
 if [ ! -f "$upd" ]; then
   echo "Missing updater script: $upd"
   exit 1
 fi
-cp "$upd" "$tmp/update_darwin_web.command"
+cp "$upd" "$out/update_darwin_web.command"
 
-printf "%s\n" "$ver" >"$tmp/.aether_web_version"
+printf "%s\n" "$ver" >"$out/.aether_web_version"
 
-if [ -f "$tmp/aether" ]; then
-  chmod +x "$tmp/aether"
+if [ -f "$out/aether" ]; then
+  chmod +x "$out/aether"
 fi
 
-if [ -f "$tmp/Aether.command" ]; then
-  chmod +x "$tmp/Aether.command"
+if [ -f "$out/Aether.command" ]; then
+  chmod +x "$out/Aether.command"
 fi
 
-chmod +x "$tmp/update_darwin_web.command"
+chmod +x "$out/update_darwin_web.command"
 
-cat >"$tmp/README_FIRST.txt" <<'EOF'
+cat >"$out/README_FIRST.txt" <<'EOF'
 Aether Web (macOS arm64)
 
 Quick start
-1) Open this DMG and copy all files to a local folder, for example: ~/Applications/Aether-Web
+1) Open this DMG and copy the folder aether-darwin-arm64-web to a local path, for example: ~/Applications/Aether-Web
 2) In Finder, right click Aether.command and choose Open
 3) If macOS asks again, click Open in the security prompt
 

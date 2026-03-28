@@ -111,6 +111,46 @@ export namespace Provider {
     })
   }
 
+  function proxyFor(input: RequestInfo | URL) {
+    const url = iife(() => {
+      try {
+        if (input instanceof URL) return input
+        if (input instanceof Request) return new URL(input.url)
+        if (typeof input === "string") return new URL(input)
+        return new URL(String(input))
+      } catch {
+        return undefined
+      }
+    })
+    if (!url) return undefined
+
+    const noProxy = (process.env.NO_PROXY ?? process.env.no_proxy ?? "")
+      .split(",")
+      .map((item) => item.trim().toLowerCase())
+      .filter(Boolean)
+
+    const host = url.hostname.toLowerCase()
+    const bypass = noProxy.some((item) => {
+      if (item === "*") return true
+      if (item === host) return true
+      if (!item.startsWith(".")) return false
+      return host.endsWith(item)
+    })
+
+    if (bypass) return undefined
+    if (url.protocol === "http:") {
+      return process.env.HTTP_PROXY ?? process.env.http_proxy ?? process.env.ALL_PROXY ?? process.env.all_proxy
+    }
+    return (
+      process.env.HTTPS_PROXY ??
+      process.env.https_proxy ??
+      process.env.HTTP_PROXY ??
+      process.env.http_proxy ??
+      process.env.ALL_PROXY ??
+      process.env.all_proxy
+    )
+  }
+
   const BUNDLED_PROVIDERS: Record<string, (options: any) => SDK> = {
     "@ai-sdk/amazon-bedrock": createAmazonBedrock,
     "@ai-sdk/anthropic": createAnthropic,
@@ -978,20 +1018,22 @@ export namespace Provider {
         // For custom providers not in models.dev, fall back to a models.dev provider to get cost.
         // Priority: 1) canonical provider from npm (e.g. "@ai-sdk/anthropic" → "anthropic")
         //           2) any provider in models.dev with the same model ID
-        const fallbackModel = existingModel ?? iife(() => {
-          const searchID = model.id ?? modelID
-          const npm = model.provider?.npm ?? provider.npm ?? ""
-          const canonicalID = npm.startsWith("@ai-sdk/") ? npm.slice("@ai-sdk/".length) : ""
-          if (canonicalID) {
-            const m = database[canonicalID]?.models[searchID]
-            if (m) return m
-          }
-          for (const p of Object.values(database)) {
-            const m = p.models[searchID]
-            if (m) return m
-          }
-          return undefined
-        })
+        const fallbackModel =
+          existingModel ??
+          iife(() => {
+            const searchID = model.id ?? modelID
+            const npm = model.provider?.npm ?? provider.npm ?? ""
+            const canonicalID = npm.startsWith("@ai-sdk/") ? npm.slice("@ai-sdk/".length) : ""
+            if (canonicalID) {
+              const m = database[canonicalID]?.models[searchID]
+              if (m) return m
+            }
+            for (const p of Object.values(database)) {
+              const m = p.models[searchID]
+              if (m) return m
+            }
+            return undefined
+          })
         const name = iife(() => {
           if (model.name) return model.name
           if (model.id && model.id !== modelID) return modelID
@@ -1038,7 +1080,8 @@ export namespace Provider {
             output: model?.cost?.output ?? existingModel?.cost?.output ?? fallbackModel?.cost?.output ?? 0,
             cache: {
               read: model?.cost?.cache_read ?? existingModel?.cost?.cache.read ?? fallbackModel?.cost?.cache.read ?? 0,
-              write: model?.cost?.cache_write ?? existingModel?.cost?.cache.write ?? fallbackModel?.cost?.cache.write ?? 0,
+              write:
+                model?.cost?.cache_write ?? existingModel?.cost?.cache.write ?? fallbackModel?.cost?.cache.write ?? 0,
             },
           },
           options: mergeDeep(existingModel?.options ?? {}, model.options ?? {}),
@@ -1301,8 +1344,10 @@ export namespace Provider {
           }
         }
 
+        const proxy = proxyFor(input)
         const res = await fetchFn(input, {
           ...opts,
+          ...(proxy ? { proxy } : {}),
           // @ts-ignore see here: https://github.com/oven-sh/bun/issues/16682
           timeout: false,
         })
