@@ -1312,35 +1312,6 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
           }}
           t={(key) => language.t(key as Parameters<typeof language.t>[0])}
         />
-        <Show when={recent().length > 0 || files.selectedText()}>
-          <div class="flex flex-nowrap items-center gap-1.5 px-2 py-1 overflow-x-auto no-scrollbar">
-            <span class="text-11-regular text-text-weak shrink-0">AI 可见:</span>
-            <For each={recent()}>
-              {(path) => {
-                const name = path.includes("/") ? path.slice(path.lastIndexOf("/") + 1) : path
-                return (
-                  <div class="shrink-0 flex items-center gap-1 rounded bg-surface-info-base/10 px-1.5 py-0.5">
-                    <FileIcon node={{ path, type: "file" }} class="size-3" />
-                    <span class="text-11-regular text-text-strong">{name}</span>
-                  </div>
-                )
-              }}
-            </For>
-            <Show when={files.selectedText()}>
-              <div class="shrink-0 flex items-center gap-1 rounded bg-surface-warning-base/10 px-1.5 py-0.5">
-                <span class="text-11-regular text-text-weak">
-                  有选中文字
-                </span>
-                <button
-                  class="text-text-weak hover:text-text-strong ml-0.5 text-xs leading-none"
-                  onClick={() => files.clearSelectedText()}
-                >
-                  ×
-                </button>
-              </div>
-            </Show>
-          </div>
-        </Show>
         <PromptImageAttachments
           attachments={imageAttachments()}
           onOpen={(attachment) =>
