@@ -24,6 +24,7 @@ state="$app/.aether_web_version"
 tmp="$(mktemp -d "${TMPDIR:-/tmp}/aether-web-update.XXXXXX")"
 meta="$tmp/latest-web-linux.yml"
 zip="$tmp/aether-linux-x64-web.zip"
+ex="$tmp/extract"
 next="$parent/.${name}.next"
 old="$parent/.${name}.old"
 
@@ -73,9 +74,28 @@ if [ -n "$sha_remote" ]; then
 fi
 
 echo "[3/4] 安装新版本..."
+rm -rf "$ex"
+mkdir -p "$ex"
+unzip -q -o "$zip" -d "$ex"
+
+src="$ex"
+if [ ! -f "$src/aether" ] || [ ! -f "$src/Aether.sh" ]; then
+  shopt -s nullglob
+  dirs=("$ex"/*/)
+  shopt -u nullglob
+  if [ "${#dirs[@]}" -eq 1 ] && [ -f "${dirs[0]}aether" ] && [ -f "${dirs[0]}Aether.sh" ]; then
+    src="${dirs[0]%/}"
+  fi
+fi
+
+if [ ! -f "$src/aether" ] || [ ! -f "$src/Aether.sh" ]; then
+  echo "ZIP 内容结构不符合预期，未找到 aether 与 Aether.sh。"
+  exit 1
+fi
+
 rm -rf "$next"
 mkdir -p "$next"
-unzip -q -o "$zip" -d "$next"
+cp -R "$src"/. "$next"/
 
 if [ -f "$next/aether" ]; then
   chmod +x "$next/aether"
