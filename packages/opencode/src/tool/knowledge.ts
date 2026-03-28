@@ -8,7 +8,7 @@ import path from "path"
 
 const DESCRIPTION = `Search the knowledge base for relevant information.
 
-This tool searches through indexed documents (PDFs, papers, etc.) that have been synced to the knowledge base. Use this when the user asks questions about topics that might be in their uploaded documents or papers.
+This tool searches through indexed documents (PDFs and text files) that have been synced to the knowledge base. Use this when the user asks questions about topics that might be in their uploaded documents.
 
 The knowledge base uses semantic search with embeddings, so you can search by meaning, not just exact keywords.
 
@@ -21,19 +21,21 @@ Returns relevant document chunks with their source filenames and similarity scor
 IMPORTANT: When answering based on search results, you MUST:
 1. Read and consider ALL returned results, not just the top few
 2. Cite ALL source documents that contributed to your answer
-3. Use this exact format for citations: [filename.pdf](file:///full/path/to/file.pdf)
+3. Use this exact format for citations: [filename.ext](file:///full/path/to/file.ext)
 4. Include a "Sources:" section at the end listing ALL referenced documents
 
 Do not ignore any relevant results - synthesize information from all returned chunks.`
 
 // 全局知识库配置存储（支持多个知识库）
 let globalKnowledgeConfig: {
-  paths: string[]  // 多个知识库路径
+  paths: string[] // 多个知识库路径
   apiKey?: string
   baseURL?: string
 } | null = null
 
-export function setKnowledgeConfig(config: { path?: string; paths?: string[]; apiKey?: string; baseURL?: string } | null) {
+export function setKnowledgeConfig(
+  config: { path?: string; paths?: string[]; apiKey?: string; baseURL?: string } | null,
+) {
   if (!config) {
     globalKnowledgeConfig = null
     return
@@ -54,7 +56,7 @@ export function getKnowledgeConfig() {
 // 获取所有激活的知识库路径
 async function getActiveKnowledgeBases(): Promise<string[]> {
   const result: string[] = []
-  
+
   // 优先使用全局配置中的路径
   if (globalKnowledgeConfig?.paths?.length) {
     for (const kbPath of globalKnowledgeConfig.paths) {
@@ -108,7 +110,7 @@ export const KnowledgeTool = Tool.define("knowledge_search", {
   async execute(params, ctx) {
     // 获取所有激活的知识库
     const kbPaths = await getActiveKnowledgeBases()
-    
+
     if (kbPaths.length === 0) {
       return {
         title: "Knowledge base not configured",
@@ -116,7 +118,7 @@ export const KnowledgeTool = Tool.define("knowledge_search", {
 
 To use the knowledge base:
 1. Open the Knowledge Base dialog in the UI
-2. Select folders containing your PDF documents
+2. Select folders containing your documents
 3. Configure the embedding provider (OpenAI, Local, or Custom)
 4. Click Sync to index your documents
 
@@ -128,7 +130,10 @@ Once synced, you can search the knowledge base using this tool.`,
     }
 
     // 加载所有知识库索引
-    const indexes: Array<{ path: string; index: typeof Knowledge.load extends (...args: any) => Promise<infer T> ? T : never }> = []
+    const indexes: Array<{
+      path: string
+      index: typeof Knowledge.load extends (...args: any) => Promise<infer T> ? T : never
+    }> = []
     for (const kbPath of kbPaths) {
       const index = await Knowledge.load(kbPath)
       if (index && index.stats.totalDocuments > 0 && index.stats.totalChunks > 0) {
@@ -143,7 +148,7 @@ Once synced, you can search the knowledge base using this tool.`,
 
 Please run sync to index your documents:
 1. Open the Knowledge Base dialog
-2. Click the Sync button to index your PDFs`,
+2. Click the Sync button to index your documents`,
         metadata: {
           configured: true,
           exists: true,
@@ -155,8 +160,11 @@ Please run sync to index your documents:
 
     // 执行搜索 - 搜索所有激活的知识库
     const topK = Math.min(params.topK || 10, 20)
-    const allResults: Array<{ result: typeof Knowledge.search extends (...args: any) => Promise<(infer T)[]> ? T : never; kbPath: string }> = []
-    
+    const allResults: Array<{
+      result: typeof Knowledge.search extends (...args: any) => Promise<(infer T)[]> ? T : never
+      kbPath: string
+    }> = []
+
     for (const { path: kbPath, index } of indexes) {
       const results = await Knowledge.search(kbPath, index as any, params.query, {
         apiKey: (index as any).config.apiKey || globalKnowledgeConfig?.apiKey,
@@ -212,15 +220,15 @@ Try:
       const { result } = topResults[i]
       const filePath = (result as any).document.filePath
       const fileName = (result as any).document.fileName
-      
+
       // 记录来源文件
       if (!sourceFiles.has(fileName)) {
         sourceFiles.set(fileName, filePath)
       }
-      
+
       // 生成 file:// URL
       const fileUrl = `file://${filePath}`
-      
+
       outputParts.push(`<result index="${i + 1}" score="${(result as any).score.toFixed(4)}">`)
       outputParts.push(`  <source link="${fileUrl}">${fileName}</source>`)
       if ((result as any).chunk.pageNumber) {
@@ -235,7 +243,7 @@ Try:
 
     outputParts.push(`</knowledge_search>`)
     outputParts.push("")
-    
+
     // 生成来源链接列表（Markdown 格式，可点击）
     outputParts.push(`<sources>`)
     outputParts.push(`Referenced documents (click to open):`)
@@ -244,7 +252,7 @@ Try:
     }
     outputParts.push(`</sources>`)
     outputParts.push("")
-    
+
     // 计算总数
     let totalDocs = 0
     let totalChunks = 0
@@ -252,7 +260,7 @@ Try:
       totalDocs += (index as any).stats.totalDocuments
       totalChunks += (index as any).stats.totalChunks
     }
-    
+
     outputParts.push(`<summary>`)
     outputParts.push(`Found ${topResults.length} relevant chunks from ${sourceFiles.size} documents.`)
     outputParts.push(`Knowledge bases: ${kbPaths.join(", ")}`)
@@ -268,7 +276,7 @@ Try:
         documents: totalDocs,
         chunks: totalChunks,
         results: topResults.length,
-        sources: [...new Set(topResults.map(r => (r.result as any).document.fileName))],
+        sources: [...new Set(topResults.map((r) => (r.result as any).document.fileName))],
       } as KnowledgeMetadata,
     }
   },

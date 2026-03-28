@@ -6,13 +6,7 @@ import { quickSearch } from "./search"
 import { Log } from "../util/log"
 
 const log = Log.create({ service: "knowledge" })
-import type {
-  KnowledgeIndex,
-  DocumentMeta,
-  SearchResult,
-  SyncResult,
-  EmbeddingProvider,
-} from "./types"
+import type { KnowledgeIndex, DocumentMeta, SearchResult, SyncResult, EmbeddingProvider } from "./types"
 
 export namespace Knowledge {
   // 创建新知识库
@@ -85,12 +79,12 @@ export namespace Knowledge {
     })
     log.info("Embedder created")
 
-    // 获取文件夹中的 PDF 文件
-    log.info("Listing PDF files...", { dir })
-    const pdfFiles = await Storage.listPdfFiles(dir)
-    log.info("Found PDF files", { count: pdfFiles.length, files: pdfFiles })
+    // 获取文件夹中的可索引文档
+    log.info("Listing document files...", { dir })
+    const files = await Storage.listDocumentFiles(dir)
+    log.info("Found document files", { count: files.length, files })
 
-    const existingFiles = new Map<string, typeof index.documents[0]>()
+    const existingFiles = new Map<string, (typeof index.documents)[0]>()
 
     for (const doc of index.documents) {
       existingFiles.set(doc.meta.filePath, doc)
@@ -105,11 +99,11 @@ export namespace Knowledge {
     // 先跳过已存在文件，收集待处理列表
     let processed = 0
     const filesToProcess: string[] = []
-    for (const filePath of pdfFiles) {
+    for (const filePath of files) {
       if (existingFiles.has(filePath)) {
         log.info("Skipping existing file", { file: filePath })
         processed++
-        await opts?.onProgress?.({ phase: "processing", current: processed, total: pdfFiles.length })
+        await opts?.onProgress?.({ phase: "processing", current: processed, total: files.length })
       } else {
         filesToProcess.push(filePath)
       }
@@ -118,17 +112,17 @@ export namespace Knowledge {
     // 分批并发处理
     for (let batchStart = 0; batchStart < filesToProcess.length; batchStart += CONCURRENCY) {
       if (opts?.signal?.aborted) {
-        log.info("Sync aborted by signal", { processed, total: pdfFiles.length })
+        log.info("Sync aborted by signal", { processed, total: files.length })
         break
       }
 
       const batch = filesToProcess.slice(batchStart, batchStart + CONCURRENCY)
       log.info("Processing batch", { batchStart, batchSize: batch.length, concurrency: CONCURRENCY })
 
-      // 并发解析 PDF + 生成嵌入向量
+      // 并发解析文档 + 生成嵌入向量
       const batchResults = await Promise.allSettled(
         batch.map(async (filePath) => {
-          log.info("Parsing PDF...", { file: filePath })
+          log.info("Parsing document...", { file: filePath })
           const fileInfo = await Storage.getFileInfo(filePath)
           const docId = Storage.genDocId()
           const { chunks, pageCount } = await processDocument(filePath, {
@@ -136,7 +130,7 @@ export namespace Knowledge {
             chunkOverlap: index.config.chunkOverlap,
             documentId: docId,
           })
-          log.info("PDF parsed", { file: filePath, chunks: chunks.length, pages: pageCount })
+          log.info("Document parsed", { file: filePath, chunks: chunks.length, pages: pageCount })
 
           if (chunks.length === 0) {
             return { type: "empty" as const, filePath }
@@ -159,7 +153,7 @@ export namespace Knowledge {
           result.errors?.push(`Failed to process ${batch[j]}: ${res.reason?.message || res.reason}`)
         } else if (res.value.type === "empty") {
           result.errors?.push(
-            `No text extracted from ${path.basename(res.value.filePath)}: PDF may be scanned image or use unsupported encoding`,
+            `No text extracted from ${path.basename(res.value.filePath)}: document may be image-only or use unsupported encoding`,
           )
         } else {
           const { filePath, fileInfo, docId, chunks, pageCount, embeddings } = res.value
@@ -193,7 +187,7 @@ export namespace Knowledge {
         }
 
         processed++
-        await opts?.onProgress?.({ phase: "processing", current: processed, total: pdfFiles.length })
+        await opts?.onProgress?.({ phase: "processing", current: processed, total: files.length })
       }
     }
 
@@ -263,13 +257,13 @@ export namespace Knowledge {
 
   // 获取知识库统计信息
   export async function getStats(index: KnowledgeIndex) {
-    // 获取文件夹中实际 PDF 文件数量
-    const pdfFiles = await Storage.listPdfFiles(index.config.path)
-    
+    // 获取文件夹中实际可索引文档数量
+    const docs = await Storage.listDocumentFiles(index.config.path)
+
     return {
       totalDocuments: index.stats.totalDocuments,
       totalChunks: index.stats.totalChunks,
-      pdfFileCount: pdfFiles.length,
+      pdfFileCount: docs.length,
       lastSyncedAt: index.stats.lastSyncedAt,
       embeddingModel: index.config.embeddingModel,
       embeddingProvider: index.config.embeddingProvider,
@@ -302,6 +296,41 @@ export namespace Knowledge {
     // 保存索引
     await Storage.saveIndex(dir, index)
 
+    return index
+  }
+
+  // 更新知识库配置（模型变更时重建索引）
+  export async function updateConfig(
+    dir: string,
+    index: KnowledgeIndex,
+    opts: {
+      embeddingProvider: EmbeddingProvider
+      embeddingModel: string
+      embeddingDimensions: number
+      apiKey?: string
+      baseURL?: string
+    },
+  ): Promise<KnowledgeIndex> {
+    const rebuild =
+      index.config.embeddingProvider !== opts.embeddingProvider ||
+      index.config.embeddingModel !== opts.embeddingModel ||
+      index.config.embeddingDimensions !== opts.embeddingDimensions
+
+    index.config.embeddingProvider = opts.embeddingProvider
+    index.config.embeddingModel = opts.embeddingModel
+    index.config.embeddingDimensions = opts.embeddingDimensions
+    index.config.apiKey = opts.apiKey
+    index.config.baseURL = opts.baseURL
+
+    if (rebuild) {
+      index.documents = []
+      index.stats.totalDocuments = 0
+      index.stats.totalChunks = 0
+      index.stats.lastSyncedAt = undefined
+      await Storage.clearEmbeddings(dir)
+    }
+
+    await Storage.saveIndex(dir, index)
     return index
   }
 }

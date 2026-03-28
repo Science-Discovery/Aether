@@ -1,4 +1,5 @@
 import { Component, Show, createMemo, createSignal, For, onMount } from "solid-js"
+import { createStore } from "solid-js/store"
 import { Dialog } from "@opencode-ai/ui/dialog"
 import { Button } from "@opencode-ai/ui/button"
 import { Icon } from "@opencode-ai/ui/icon"
@@ -27,6 +28,50 @@ export const KnowledgeDialog: Component = () => {
   const [error, setError] = createSignal("")
   const [success, setSuccess] = createSignal("")
   const [showAddForm, setShowAddForm] = createSignal(false)
+  const [editId, setEditId] = createSignal("")
+  const [editProvider, setEditProvider] = createSignal<"openai" | "local" | "custom">("openai")
+  const [editModel, setEditModel] = createSignal("")
+  const [editApiKey, setEditApiKey] = createSignal("")
+  const [editBaseURL, setEditBaseURL] = createSignal("")
+  const [addPath, setAddPath] = createSignal("")
+  const [docs, setDocs] = createStore<
+    Record<
+      string,
+      Array<{
+        id: string
+        fileName: string
+        filePath: string
+        fileSize: number
+        status: string
+      }>
+    >
+  >({})
+
+  const getLastConfigDefaults = (): {
+    provider: "openai" | "local" | "custom"
+    model: string
+    apiKey: string
+    baseURL: string
+    dimensions: number
+  } => {
+    const last = knowledge.getLastConfig()
+    if (last) {
+      return {
+        provider: last.provider,
+        model: last.model,
+        apiKey: last.apiKey,
+        baseURL: last.baseURL,
+        dimensions: last.dimensions,
+      }
+    }
+    return {
+      provider: "openai",
+      model: "text-embedding-3-small",
+      apiKey: "",
+      baseURL: "",
+      dimensions: 1536,
+    }
+  }
 
   const [newPath, setNewPath] = createSignal("")
   const [newName, setNewName] = createSignal("My Knowledge Base")
@@ -220,6 +265,138 @@ export const KnowledgeDialog: Component = () => {
     knowledge.toggleActive(id)
   }
 
+  const openEditor = async (id: string) => {
+    const kb = knowledge.knowledgeBases().find((item) => item.id === id)
+    if (!kb) return
+    setEditId(id)
+    setEditProvider(kb.embeddingProvider)
+    setEditModel(kb.embeddingModel)
+    setEditApiKey(kb.apiKey || "")
+    setEditBaseURL(kb.baseURL || "")
+    try {
+      const list = await knowledge.listDocuments(id)
+      setDocs(
+        id,
+        list.map((item) => ({
+          id: item.id,
+          fileName: item.fileName,
+          filePath: item.filePath,
+          fileSize: item.fileSize,
+          status: item.status,
+        })),
+      )
+    } catch {
+      setDocs(id, [])
+    }
+  }
+
+  const closeEditor = () => {
+    setEditId("")
+  }
+
+  const handleUpdateConfig = async () => {
+    const id = editId()
+    if (!id) return
+    setError("")
+    setSuccess("")
+
+    if (!editModel()) {
+      setError("Please enter the model name")
+      return
+    }
+    if (editProvider() === "openai" && !editApiKey()) {
+      setError("Please enter your OpenAI API key")
+      return
+    }
+    if (editProvider() === "custom" && (!editApiKey() || !editBaseURL())) {
+      setError("Please enter custom API URL and API Key")
+      return
+    }
+
+    setSyncing(true)
+    try {
+      await knowledge.updateEmbeddingConfig(id, {
+        embeddingProvider: editProvider(),
+        embeddingModel: editModel(),
+        apiKey: editApiKey(),
+        baseURL: editBaseURL(),
+      })
+      const list = await knowledge.listDocuments(id)
+      setDocs(
+        id,
+        list.map((item) => ({
+          id: item.id,
+          fileName: item.fileName,
+          filePath: item.filePath,
+          fileSize: item.fileSize,
+          status: item.status,
+        })),
+      )
+      setSuccess("Embedding config updated. Click sync to rebuild index with the new model.")
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e)
+      setError(message)
+    } finally {
+      setSyncing(false)
+    }
+  }
+
+  const handleRemoveDocument = async (kbId: string, docId: string) => {
+    setError("")
+    setSuccess("")
+    try {
+      await knowledge.removeDocument(kbId, docId)
+      setDocs(
+        kbId,
+        (docs[kbId] || []).filter((item) => item.id !== docId),
+      )
+      setSuccess("Document removed from knowledge base")
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e)
+      setError(message)
+    }
+  }
+
+  const handleImportDocument = async (kbId: string) => {
+    setError("")
+    setSuccess("")
+    if (!addPath()) {
+      setError("Please enter a file path")
+      return
+    }
+
+    setSyncing(true)
+    try {
+      const result = await knowledge.importDocument(kbId, addPath())
+      if (result.errors.length > 0) {
+        setError(result.errors.slice(0, 2).join(", "))
+      }
+      if (result.added > 0) {
+        await handleSync(kbId)
+      }
+      const list = await knowledge.listDocuments(kbId)
+      setDocs(
+        kbId,
+        list.map((item) => ({
+          id: item.id,
+          fileName: item.fileName,
+          filePath: item.filePath,
+          fileSize: item.fileSize,
+          status: item.status,
+        })),
+      )
+      if (result.added > 0) {
+        setSuccess("File imported and indexed")
+      }
+      setAddPath("")
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e)
+      setError(message)
+    } finally {
+      setSyncing(false)
+    }
+  }
+
   return (
     <Dialog title="Knowledge Base" class="max-w-lg">
       <div class="flex flex-col gap-4 p-4 max-h-[60vh] overflow-y-auto">
@@ -231,54 +408,197 @@ export const KnowledgeDialog: Component = () => {
               <For each={knowledge.knowledgeBases()}>
                 {(kb) => {
                   const isActive = () => knowledge.isActive(kb.id)
+                  const isEdit = () => editId() === kb.id
                   return (
-                    <div
-                      class="flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors"
-                      classList={{
-                        "border-border-interactive bg-surface-raised-base": isActive(),
-                        "border-border-base bg-surface-base hover:bg-surface-raised-base": !isActive(),
-                      }}
-                      onClick={() => handleToggle(kb.id)}
-                    >
-                      <div class="flex items-center justify-center size-5 shrink-0">
-                        <div
-                          class="size-4 rounded border flex items-center justify-center"
-                          classList={{
-                            "border-border-interactive bg-surface-interactive": isActive(),
-                            "border-border-base bg-transparent": !isActive(),
-                          }}
-                        >
-                          <Show when={isActive()}>
-                            <Icon name="check" class="size-3 text-icon-interactive" />
-                          </Show>
+                    <div class="flex flex-col gap-2">
+                      <div
+                        class="flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors"
+                        classList={{
+                          "border-border-interactive bg-surface-raised-base": isActive(),
+                          "border-border-base bg-surface-base hover:bg-surface-raised-base": !isActive(),
+                        }}
+                        onClick={() => handleToggle(kb.id)}
+                      >
+                        <div class="flex items-center justify-center size-5 shrink-0">
+                          <div
+                            class="size-4 rounded border flex items-center justify-center"
+                            classList={{
+                              "border-border-interactive bg-surface-interactive": isActive(),
+                              "border-border-base bg-transparent": !isActive(),
+                            }}
+                          >
+                            <Show when={isActive()}>
+                              <Icon name="check" class="size-3 text-icon-interactive" />
+                            </Show>
+                          </div>
+                        </div>
+                        <div class="flex-1 min-w-0">
+                          <div class="text-14-medium text-text-strong truncate">{kb.name}</div>
+                          <div class="text-12-regular text-text-weak truncate">{kb.path}</div>
+                        </div>
+                        <div class="flex items-center gap-2 text-12-regular text-text-base shrink-0">
+                          <span>{kb.pdfFileCount ?? kb.documentCount ?? 0} docs</span>
+                        </div>
+                        <div class="flex items-center gap-1 shrink-0">
+                          <Button
+                            variant="ghost"
+                            size="small"
+                            onClick={(e: MouseEvent) => {
+                              e.stopPropagation()
+                              handleSync(kb.id)
+                            }}
+                            disabled={syncing()}
+                            class="h-7 px-2"
+                            title="Sync new files"
+                          >
+                            <Icon name="arrow-down-to-line" class="size-3.5" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="small"
+                            onClick={(e: MouseEvent) => {
+                              e.stopPropagation()
+                              if (isEdit()) {
+                                closeEditor()
+                                return
+                              }
+                              openEditor(kb.id)
+                            }}
+                            class="h-7 px-2"
+                            title="Edit knowledge base"
+                          >
+                            <Icon name="edit" class="size-3.5" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="small"
+                            onClick={(e: MouseEvent) => {
+                              e.stopPropagation()
+                              handleRemove(kb.id)
+                            }}
+                            class="h-7 px-2 text-text-error"
+                          >
+                            <Icon name="trash" class="size-3.5" />
+                          </Button>
                         </div>
                       </div>
-                      <div class="flex-1 min-w-0">
-                        <div class="text-14-medium text-text-strong truncate">{kb.name}</div>
-                        <div class="text-12-regular text-text-weak truncate">{kb.path}</div>
-                      </div>
-                      <div class="flex items-center gap-2 text-12-regular text-text-base shrink-0">
-                        <span>{kb.pdfFileCount ?? kb.documentCount ?? 0} docs</span>
-                      </div>
-                      <div class="flex items-center gap-1 shrink-0">
-                        <Button
-                          variant="ghost"
-                          size="small"
-                          onClick={(e: MouseEvent) => { e.stopPropagation(); handleSync(kb.id) }}
-                          disabled={syncing()}
-                          class="h-7 px-2"
-                        >
-                          <Icon name="arrow-down-to-line" class="size-3.5" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="small"
-                          onClick={(e: MouseEvent) => { e.stopPropagation(); handleRemove(kb.id) }}
-                          class="h-7 px-2 text-text-error"
-                        >
-                          <Icon name="trash" class="size-3.5" />
-                        </Button>
-                      </div>
+
+                      <Show when={isEdit()}>
+                        <div class="rounded-lg border border-border-base bg-surface-base p-3 flex flex-col gap-3">
+                          <div class="text-13-medium text-text-strong">Edit Knowledge Base</div>
+                          <p class="text-12-regular text-text-weak">
+                            To add new files, put files into this folder and click sync.
+                          </p>
+
+                          <div class="grid grid-cols-1 gap-2">
+                            <label class="text-12-regular text-text-base">Embedding Provider</label>
+                            <Select
+                              options={["openai", "local", "custom"]}
+                              current={editProvider()}
+                              value={(p) => p}
+                              label={(p) => (p === "openai" ? "OpenAI" : p === "local" ? "Local" : "Custom")}
+                              onSelect={(p) => p && setEditProvider(p as "openai" | "local" | "custom")}
+                              variant="secondary"
+                              size="small"
+                              class="w-full"
+                            />
+                          </div>
+
+                          <div class="grid grid-cols-1 gap-2">
+                            <label class="text-12-regular text-text-base">Model Name</label>
+                            <input
+                              type="text"
+                              value={editModel()}
+                              onInput={(e) => setEditModel(e.currentTarget.value)}
+                              class="h-9 w-full rounded-md border border-border-base bg-surface-base px-3 text-14-regular text-text-strong"
+                            />
+                          </div>
+
+                          <Show when={editProvider() === "openai" || editProvider() === "custom"}>
+                            <div class="grid grid-cols-1 gap-2">
+                              <label class="text-12-regular text-text-base">API Key</label>
+                              <input
+                                type="password"
+                                value={editApiKey()}
+                                onInput={(e) => setEditApiKey(e.currentTarget.value)}
+                                class="h-9 w-full rounded-md border border-border-base bg-surface-base px-3 text-14-regular text-text-strong"
+                              />
+                            </div>
+                          </Show>
+
+                          <Show when={editProvider() === "custom"}>
+                            <div class="grid grid-cols-1 gap-2">
+                              <label class="text-12-regular text-text-base">API URL</label>
+                              <input
+                                type="text"
+                                value={editBaseURL()}
+                                onInput={(e) => setEditBaseURL(e.currentTarget.value)}
+                                class="h-9 w-full rounded-md border border-border-base bg-surface-base px-3 text-14-regular text-text-strong"
+                              />
+                            </div>
+                          </Show>
+
+                          <div class="flex items-center gap-2">
+                            <Button variant="secondary" size="small" onClick={handleUpdateConfig} disabled={syncing()}>
+                              Update Embedding Config
+                            </Button>
+                            <Button variant="ghost" size="small" onClick={() => handleSync(kb.id)} disabled={syncing()}>
+                              Sync Now
+                            </Button>
+                          </div>
+
+                          <div class="flex flex-col gap-2">
+                            <div class="text-12-medium text-text-strong">Add File</div>
+                            <div class="flex gap-2">
+                              <input
+                                type="text"
+                                value={addPath()}
+                                onInput={(e) => setAddPath(e.currentTarget.value)}
+                                placeholder="/absolute/path/to/file.md"
+                                class="h-9 flex-1 rounded-md border border-border-base bg-surface-base px-3 text-14-regular text-text-strong"
+                              />
+                              <Button
+                                variant="secondary"
+                                size="small"
+                                onClick={() => handleImportDocument(kb.id)}
+                                disabled={syncing()}
+                                class="h-9"
+                              >
+                                Add
+                              </Button>
+                            </div>
+                          </div>
+
+                          <div class="flex flex-col gap-2">
+                            <div class="text-12-medium text-text-strong">Indexed Documents</div>
+                            <Show
+                              when={(docs[kb.id] || []).length > 0}
+                              fallback={<div class="text-12-regular text-text-weak">No indexed documents.</div>}
+                            >
+                              <div class="flex flex-col gap-1 max-h-40 overflow-y-auto">
+                                <For each={docs[kb.id] || []}>
+                                  {(item) => (
+                                    <div class="flex items-center gap-2 rounded border border-border-base px-2 py-1.5">
+                                      <div class="min-w-0 flex-1">
+                                        <div class="text-12-medium text-text-strong truncate">{item.fileName}</div>
+                                        <div class="text-11-regular text-text-weak truncate">{item.filePath}</div>
+                                      </div>
+                                      <Button
+                                        variant="ghost"
+                                        size="small"
+                                        class="h-6 px-2 text-text-error"
+                                        onClick={() => handleRemoveDocument(kb.id, item.id)}
+                                      >
+                                        <Icon name="trash" class="size-3" />
+                                      </Button>
+                                    </div>
+                                  )}
+                                </For>
+                              </div>
+                            </Show>
+                          </div>
+                        </div>
+                      </Show>
                     </div>
                   )
                 }}

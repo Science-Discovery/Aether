@@ -8,6 +8,7 @@ import type { KnowledgeIndex, KnowledgeBaseConfig } from "./types"
 const KB_FOLDER = ".opencode-kb"
 const INDEX_FILE = "index.json"
 const EMBEDDING_FILE = "embedding.bin"
+const DOC_EXT = new Set([".pdf", ".md", ".markdown", ".txt", ".tex", ".rst", ".json", ".yml", ".yaml", ".csv"])
 
 export namespace Storage {
   // 获取知识库元数据文件夹路径
@@ -89,7 +90,7 @@ export namespace Storage {
   export async function appendEmbeddings(dir: string, embeddings: Float32Array[]): Promise<number> {
     const embPath = embeddingPath(dir)
     const file = Bun.file(embPath)
-    const existingSize = await file.exists() ? file.size : 0
+    const existingSize = (await file.exists()) ? file.size : 0
     const offset = existingSize / 4 // Float32 的偏移量
 
     // 合并所有向量
@@ -102,7 +103,7 @@ export namespace Storage {
     }
 
     // 读取现有内容并追加
-    const existing = await file.exists() ? await file.arrayBuffer() : new ArrayBuffer(0)
+    const existing = (await file.exists()) ? await file.arrayBuffer() : new ArrayBuffer(0)
     const newBuffer = new Uint8Array(existing.byteLength + buffer.byteLength)
     newBuffer.set(new Uint8Array(existing), 0)
     newBuffer.set(new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength), existing.byteLength)
@@ -121,6 +122,11 @@ export namespace Storage {
     }
     const buffer = await file.arrayBuffer()
     return new Float32Array(buffer)
+  }
+
+  // 清空嵌入向量文件
+  export async function clearEmbeddings(dir: string): Promise<void> {
+    await Bun.write(embeddingPath(dir), new Uint8Array(0))
   }
 
   // 读取指定范围的嵌入向量
@@ -205,8 +211,8 @@ export namespace Storage {
     }
   }
 
-  // 列出文件夹中的 PDF 文件（递归扫描子目录）
-  export async function listPdfFiles(dir: string): Promise<string[]> {
+  // 列出文件夹中的可索引文档（递归扫描子目录）
+  export async function listDocumentFiles(dir: string): Promise<string[]> {
     const files: string[] = []
 
     async function scan(currentDir: string) {
@@ -216,7 +222,7 @@ export namespace Storage {
         const fullPath = path.join(currentDir, entry.name)
         if (entry.isDirectory()) {
           await scan(fullPath)
-        } else if (entry.isFile() && entry.name.toLowerCase().endsWith(".pdf")) {
+        } else if (entry.isFile() && DOC_EXT.has(path.extname(entry.name).toLowerCase())) {
           files.push(fullPath)
         }
       }
@@ -224,6 +230,11 @@ export namespace Storage {
 
     await scan(dir)
     return files
+  }
+
+  // 兼容旧命名
+  export async function listPdfFiles(dir: string): Promise<string[]> {
+    return listDocumentFiles(dir)
   }
 
   // 获取文件信息

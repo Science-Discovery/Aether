@@ -1,6 +1,7 @@
 import type { ChunkMeta } from "./types"
 import { Storage } from "./storage"
 import { extractText, getDocumentProxy } from "unpdf"
+import path from "path"
 
 // PDF 解析结果
 export interface ParsedDocument {
@@ -17,6 +18,17 @@ export interface ChunkedDocument {
 export interface Chunk {
   content: string
   pageNumber?: number
+}
+
+const TEXT_EXT = new Set([".md", ".markdown", ".txt", ".tex", ".rst", ".json", ".yml", ".yaml", ".csv"])
+
+export function isTextDocument(filePath: string) {
+  return TEXT_EXT.has(path.extname(filePath).toLowerCase())
+}
+
+export function isSupportedDocument(filePath: string) {
+  const ext = path.extname(filePath).toLowerCase()
+  return ext === ".pdf" || isTextDocument(filePath)
 }
 
 // PDF 解析 - 使用 unpdf 库
@@ -65,6 +77,20 @@ export async function parsePDF(filePath: string): Promise<ParsedDocument> {
     }
   } catch (e: any) {
     throw new Error(`Failed to parse PDF ${filePath}: ${e?.message || e}`)
+  }
+}
+
+export async function parseText(filePath: string): Promise<ParsedDocument> {
+  try {
+    const text = await Bun.file(filePath).text()
+    const body = text.trim()
+    return {
+      text,
+      pages: [{ pageNumber: 1, text }],
+      pageCount: body ? 1 : 0,
+    }
+  } catch (e: any) {
+    throw new Error(`Failed to parse text document ${filePath}: ${e?.message || e}`)
   }
 }
 
@@ -159,8 +185,7 @@ export async function processDocument(
 ): Promise<{ chunks: ChunkMeta[]; pageCount: number }> {
   const { chunkSize, chunkOverlap, documentId } = options
 
-  // 解析 PDF
-  const parsed = await parsePDF(filePath)
+  const parsed = filePath.toLowerCase().endsWith(".pdf") ? await parsePDF(filePath) : await parseText(filePath)
 
   // 分块
   const rawChunks = chunkText(parsed.text, { chunkSize, chunkOverlap })

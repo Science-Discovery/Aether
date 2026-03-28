@@ -4,15 +4,12 @@ import { describeRoute, validator, resolver } from "hono-openapi"
 import z from "zod"
 import { Knowledge, Storage } from "../../knowledge"
 import { getDefaultDimensions, detectDimensions } from "../../knowledge/embedding"
-import {
-  KnowledgeIndexSchema,
-  SearchResultSchema,
-  EmbeddingModelInfoSchema,
-} from "../../knowledge/types"
+import { KnowledgeIndexSchema, SearchResultSchema, EmbeddingModelInfoSchema } from "../../knowledge/types"
 import { errors } from "../error"
 import { lazy } from "../../util/lazy"
 import { Log } from "../../util/log"
 import { setKnowledgeConfig, getKnowledgeConfig } from "../../tool/knowledge"
+import path from "path"
 
 const log = Log.create({ service: "knowledge" })
 
@@ -39,6 +36,18 @@ const SearchSchema = z.object({
   topK: z.number().optional().default(5).meta({ description: "返回结果数量" }),
   apiKey: z.string().optional(),
   baseURL: z.string().optional(),
+})
+
+const UpdateConfigSchema = z.object({
+  embeddingProvider: z.enum(["openai", "local", "custom"]).optional(),
+  embeddingModel: z.string().optional(),
+  embeddingDimensions: z.number().optional(),
+  apiKey: z.string().optional(),
+  baseURL: z.string().optional(),
+})
+
+const ImportSchema = z.object({
+  paths: z.array(z.string()).min(1),
 })
 
 export const KnowledgeRoutes = lazy(() =>
@@ -236,8 +245,17 @@ export const KnowledgeRoutes = lazy(() =>
         const index = await Knowledge.load(dir)
 
         if (!index) {
-          const pdfFiles = await Storage.listPdfFiles(dir)
-          return c.json({ totalDocuments: 0, totalChunks: 0, pdfFileCount: pdfFiles.length, lastSyncedAt: 0, embeddingModel: "", embeddingProvider: "", chunkSize: 0, chunkOverlap: 0 })
+          const docs = await Storage.listDocumentFiles(dir)
+          return c.json({
+            totalDocuments: 0,
+            totalChunks: 0,
+            pdfFileCount: docs.length,
+            lastSyncedAt: 0,
+            embeddingModel: "",
+            embeddingProvider: "",
+            chunkSize: 0,
+            chunkOverlap: 0,
+          })
         }
 
         const stats = await Knowledge.getStats(index)
@@ -277,6 +295,152 @@ export const KnowledgeRoutes = lazy(() =>
         return c.json(index)
       },
     )
+    // 更新知识库配置
+    .patch(
+      "/:path{.+}/config",
+      describeRoute({
+        summary: "Update knowledge base config",
+        description: "更新知识库嵌入模型配置，模型变更时会清空索引并等待重新同步",
+        operationId: "knowledge.config.update",
+        responses: {
+          200: {
+            description: "更新后的知识库",
+            content: {
+              "application/json": {
+                schema: resolver(KnowledgeIndexSchema),
+              },
+            },
+          },
+          404: {
+            description: "知识库不存在",
+          },
+          ...errors(400),
+        },
+      }),
+      validator("json", UpdateConfigSchema),
+      async (c) => {
+        const dir = decodeURIComponent(c.req.param("path"))
+        const opts = c.req.valid("json")
+
+        const index = await Knowledge.load(dir)
+        if (!index) {
+          return c.json({ error: "Knowledge base not found" }, 404)
+        }
+
+        const provider = opts.embeddingProvider ?? index.config.embeddingProvider
+        const model = opts.embeddingModel ?? index.config.embeddingModel
+        const apiKey = opts.apiKey ?? index.config.apiKey
+        const baseURL = opts.baseURL ?? index.config.baseURL
+
+        let dimensions = opts.embeddingDimensions
+        if (!dimensions) {
+          const known = getDefaultDimensions(model)
+          if (known !== null) {
+            dimensions = known
+          }
+        }
+        if (!dimensions) {
+          dimensions = await detectDimensions({
+            provider,
+            model,
+            apiKey,
+            baseURL,
+          })
+        }
+
+        const updated = await Knowledge.updateConfig(dir, index, {
+          embeddingProvider: provider,
+          embeddingModel: model,
+          embeddingDimensions: dimensions,
+          apiKey,
+          baseURL,
+        })
+
+        return c.json(updated)
+      },
+    )
+    // 导入文档文件到知识库目录
+    .post(
+      "/:path{.+}/import",
+      describeRoute({
+        summary: "Import files into knowledge base",
+        description: "复制文件到知识库目录（不自动同步）",
+        operationId: "knowledge.import",
+        responses: {
+          200: {
+            description: "导入结果",
+            content: {
+              "application/json": {
+                schema: resolver(
+                  z.object({
+                    added: z.number(),
+                    skipped: z.number(),
+                    errors: z.array(z.string()),
+                  }),
+                ),
+              },
+            },
+          },
+          404: {
+            description: "知识库不存在",
+          },
+        },
+      }),
+      validator("json", ImportSchema),
+      async (c) => {
+        const dir = decodeURIComponent(c.req.param("path"))
+        const opts = c.req.valid("json")
+
+        const index = await Knowledge.load(dir)
+        if (!index) {
+          return c.json({ error: "Knowledge base not found" }, 404)
+        }
+
+        const allow = new Set([".pdf", ".md", ".markdown", ".txt", ".tex", ".rst", ".json", ".yml", ".yaml", ".csv"])
+        let added = 0
+        let skipped = 0
+        const errors: string[] = []
+
+        for (const src of opts.paths) {
+          const ext = path.extname(src).toLowerCase()
+          if (!allow.has(ext)) {
+            skipped++
+            errors.push(`Unsupported file type: ${src}`)
+            continue
+          }
+
+          const from = Bun.file(src)
+          if (!(await from.exists())) {
+            skipped++
+            errors.push(`File not found: ${src}`)
+            continue
+          }
+
+          let to = path.join(dir, path.basename(src))
+          if (to === src) {
+            skipped++
+            continue
+          }
+
+          let i = 1
+          while (await Bun.file(to).exists()) {
+            to = path.join(dir, `${path.basename(src, ext)}-${i}${ext}`)
+            i++
+          }
+
+          try {
+            const data = await from.arrayBuffer()
+            await Bun.write(to, new Uint8Array(data))
+            added++
+          } catch (err: any) {
+            skipped++
+            errors.push(`Failed to import ${src}: ${err?.message || err}`)
+          }
+        }
+
+        return c.json({ added, skipped, errors })
+      },
+    )
     // 删除知识库
     .delete(
       "/:path{.+}",
@@ -311,7 +475,7 @@ export const KnowledgeRoutes = lazy(() =>
       "/:path{.+}/sync",
       describeRoute({
         summary: "Sync knowledge base",
-        description: "同步知识库文件夹，处理新增的 PDF 文件，以 SSE 流式返回进度",
+        description: "同步知识库文件夹，处理新增的可支持文档，以 SSE 流式返回进度",
         operationId: "knowledge.sync",
         responses: {
           200: {
@@ -451,38 +615,50 @@ export const KnowledgeRoutes = lazy(() =>
         return c.json(updatedIndex)
       },
     )
-    // 获取 PDF 文件内容 - 用于在网页中预览
-    .get(
-      "/file",
-      async (c) => {
-        const url = new URL(c.req.url)
-        const filePath = url.searchParams.get("path")
+    // 获取文档文件内容 - 用于在网页中预览
+    .get("/file", async (c) => {
+      const url = new URL(c.req.url)
+      const filePath = url.searchParams.get("path")
 
-        if (!filePath) {
-          return c.json({ error: "Missing path parameter" }, 400)
+      if (!filePath) {
+        return c.json({ error: "Missing path parameter" }, 400)
+      }
+
+      try {
+        const file = Bun.file(filePath)
+        const exists = await file.exists()
+
+        if (!exists) {
+          return c.json({ error: "File not found" }, 404)
         }
 
-        try {
-          const file = Bun.file(filePath)
-          const exists = await file.exists()
+        const data = await file.arrayBuffer()
+        const filename = filePath.split("/").pop() || "document.pdf"
+        const ext = filename.split(".").pop()?.toLowerCase() || ""
+        const type =
+          ext === "pdf"
+            ? "application/pdf"
+            : ext === "md" || ext === "markdown"
+              ? "text/markdown; charset=utf-8"
+              : ext === "txt" || ext === "tex" || ext === "rst"
+                ? "text/plain; charset=utf-8"
+                : ext === "json"
+                  ? "application/json; charset=utf-8"
+                  : ext === "yaml" || ext === "yml"
+                    ? "application/yaml; charset=utf-8"
+                    : ext === "csv"
+                      ? "text/csv; charset=utf-8"
+                      : "application/octet-stream"
 
-          if (!exists) {
-            return c.json({ error: "File not found" }, 404)
-          }
-
-          const data = await file.arrayBuffer()
-          const filename = filePath.split("/").pop() || "document.pdf"
-
-          return new Response(data, {
-            headers: {
-              "Content-Type": "application/pdf",
-              "Content-Disposition": `inline; filename="${filename}"`,
-            },
-          })
-        } catch (err) {
-          log.error("Failed to read PDF file", { path: filePath, error: err })
-          return c.json({ error: "Failed to read file" }, 500)
-        }
-      },
-    )
+        return new Response(data, {
+          headers: {
+            "Content-Type": type,
+            "Content-Disposition": `inline; filename="${filename}"`,
+          },
+        })
+      } catch (err) {
+        log.error("Failed to read document file", { path: filePath, error: err })
+        return c.json({ error: "Failed to read file" }, 500)
+      }
+    }),
 )
