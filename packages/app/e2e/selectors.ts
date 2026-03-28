@@ -3,6 +3,7 @@ export const terminalPanelSelector = '#terminal-panel[aria-hidden="false"]'
 export const terminalSelector = `${terminalPanelSelector} [data-component="terminal"]`
 export const sessionComposerDockSelector = '[data-component="session-prompt-dock"]'
 export const questionDockSelector = '[data-component="dock-prompt"][data-kind="question"]'
+export const questionResizeSelector = `${questionDockSelector} [data-slot="question-resize"]`
 export const permissionDockSelector = '[data-component="dock-prompt"][data-kind="permission"]'
 export const permissionRejectSelector = `${permissionDockSelector} [data-slot="permission-footer-actions"] [data-component="button"]:nth-child(1)`
 export const permissionAllowAlwaysSelector = `${permissionDockSelector} [data-slot="permission-footer-actions"] [data-component="button"]:nth-child(2)`

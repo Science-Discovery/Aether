@@ -10,6 +10,7 @@ import {
   permissionDockSelector,
   promptSelector,
   questionDockSelector,
+  questionResizeSelector,
   sessionComposerDockSelector,
   sessionTodoToggleButtonSelector,
 } from "../selectors"
@@ -299,6 +300,47 @@ test("blocked question flow unblocks after submit", async ({ page, sdk, gotoSess
       await dock.getByRole("button", { name: /submit/i }).click()
 
       await expectQuestionOpen(page)
+    })
+  })
+})
+
+test("question dock height can be resized by dragging", async ({ page, sdk, gotoSession }) => {
+  await withDockSession(sdk, "e2e composer dock question resize", async (session) => {
+    await withDockSeed(sdk, session.id, async () => {
+      await gotoSession(session.id)
+
+      await seedSessionQuestion(sdk, {
+        sessionID: session.id,
+        questions: [
+          {
+            header: "Need input",
+            question: "Pick one option",
+            options: Array.from({ length: 12 }, (_, i) => ({
+              label: `Option ${i + 1}`,
+              description: `Description ${i + 1}`,
+            })),
+          },
+        ],
+      })
+
+      const dock = page.locator(questionDockSelector)
+      const handle = page.locator(questionResizeSelector)
+
+      await expectQuestionBlocked(page)
+      await expect(handle).toBeVisible()
+
+      const before = await dock.evaluate((el) => Math.round(el.getBoundingClientRect().height))
+      const box = await handle.boundingBox()
+      if (!box) throw new Error("missing resize handle box")
+
+      await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
+      await page.mouse.down()
+      await page.mouse.move(box.x + box.width / 2, box.y - 120, { steps: 12 })
+      await page.mouse.up()
+
+      await expect
+        .poll(async () => await dock.evaluate((el) => Math.round(el.getBoundingClientRect().height)))
+        .toBeGreaterThan(before + 60)
     })
   })
 })

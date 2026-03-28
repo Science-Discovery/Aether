@@ -1,4 +1,4 @@
-import { For, Show, createMemo, onCleanup, onMount, type Component } from "solid-js"
+import { For, Show, createEffect, createMemo, onCleanup, onMount, type Component } from "solid-js"
 import { createStore } from "solid-js/store"
 import { useMutation } from "@tanstack/solid-query"
 import { Button } from "@opencode-ai/ui/button"
@@ -9,7 +9,12 @@ import type { QuestionAnswer, QuestionRequest } from "@opencode-ai/sdk/v2"
 import { useLanguage } from "@/context/language"
 import { useSDK } from "@/context/sdk"
 
-const cache = new Map<string, { tab: number; answers: QuestionAnswer[]; custom: string[]; customOn: boolean[] }>()
+const min = 240
+
+const cache = new Map<
+  string,
+  { tab: number; answers: QuestionAnswer[]; custom: string[]; customOn: boolean[]; size?: number; base?: number }
+>()
 
 export const SessionQuestionDock: Component<{ request: QuestionRequest; onSubmit: () => void }> = (props) => {
   const sdk = useSDK()
@@ -25,6 +30,9 @@ export const SessionQuestionDock: Component<{ request: QuestionRequest; onSubmit
     custom: cached?.custom ?? ([] as string[]),
     customOn: cached?.customOn ?? ([] as boolean[]),
     editing: false,
+    base: cached?.base,
+    size: cached?.size,
+    max: min,
   })
 
   let root: HTMLDivElement | undefined
@@ -66,24 +74,86 @@ export const SessionQuestionDock: Component<{ request: QuestionRequest; onSubmit
   const measure = () => {
     if (!root) return
 
-    const scroller = document.querySelector(".scroll-view__viewport")
-    const head = scroller instanceof HTMLElement ? scroller.firstElementChild : undefined
-    const top =
-      head instanceof HTMLElement && head.classList.contains("sticky") ? head.getBoundingClientRect().bottom : 0
-    if (!top) {
+    const dock = root.closest('[data-component="session-prompt-dock"]')
+    if (!(dock instanceof HTMLElement)) {
       root.style.removeProperty("--question-prompt-max-height")
+      setStore("max", min)
       return
     }
 
-    const dock = root.closest('[data-component="session-prompt-dock"]')
-    if (!(dock instanceof HTMLElement)) return
-
-    const dockBottom = dock.getBoundingClientRect().bottom
-    const below = Math.max(0, dockBottom - root.getBoundingClientRect().bottom)
+    const scroller = document.querySelector(".scroll-view__viewport")
+    const head = scroller instanceof HTMLElement ? scroller.firstElementChild : undefined
+    const rect = dock.getBoundingClientRect()
+    const top =
+      head instanceof HTMLElement && head.classList.contains("sticky")
+        ? head.getBoundingClientRect().bottom
+        : scroller instanceof HTMLElement
+          ? scroller.getBoundingClientRect().top
+          : 0
+    if (!top) {
+      root.style.removeProperty("--question-prompt-max-height")
+      setStore("max", min)
+      return
+    }
     const gap = 8
-    const max = Math.max(240, Math.floor(dockBottom - top - gap - below))
+    const max = Math.max(min, Math.floor(rect.bottom - top - gap))
+    setStore("max", max)
+    if (store.size !== undefined && store.size > max) setStore("size", max)
     root.style.setProperty("--question-prompt-max-height", `${max}px`)
   }
+
+  const paint = () => {
+    if (!root) return
+    if (store.size === undefined || store.base === undefined) {
+      root.style.removeProperty("--question-prompt-height")
+      root.style.removeProperty("--question-prompt-offset")
+      return
+    }
+    const size = Math.min(store.max, Math.max(min, store.size))
+    root.style.setProperty("--question-prompt-height", `${size}px`)
+    root.style.setProperty("--question-prompt-offset", `${store.base - size}px`)
+  }
+
+  const drag = (e: PointerEvent) => {
+    if (sending()) return
+    if (!(e.currentTarget instanceof HTMLDivElement)) return
+
+    e.preventDefault()
+    const el = e.currentTarget
+    const win = window
+    const start = e.clientY
+    const size = store.size ?? Math.max(min, root?.getBoundingClientRect().height ?? min)
+    const base = store.base ?? size
+    if (store.base === undefined) setStore("base", base)
+
+    document.body.style.userSelect = "none"
+    document.body.style.cursor = "ns-resize"
+    el.setPointerCapture(e.pointerId)
+
+    const move = (next: PointerEvent) => {
+      const delta = start - next.clientY
+      setStore("size", Math.min(store.max, Math.max(min, size + delta)))
+    }
+
+    const done = () => {
+      document.body.style.userSelect = ""
+      document.body.style.cursor = ""
+      if (el.hasPointerCapture(e.pointerId)) el.releasePointerCapture(e.pointerId)
+      win.removeEventListener("pointermove", move)
+      win.removeEventListener("pointerup", done)
+      win.removeEventListener("pointercancel", done)
+    }
+
+    win.addEventListener("pointermove", move)
+    win.addEventListener("pointerup", done)
+    win.addEventListener("pointercancel", done)
+  }
+
+  createEffect(() => {
+    store.size
+    store.max
+    paint()
+  })
 
   onMount(() => {
     let raf: number | undefined
@@ -98,11 +168,13 @@ export const SessionQuestionDock: Component<{ request: QuestionRequest; onSubmit
     update()
     window.addEventListener("resize", update)
 
-    const dock = root?.closest('[data-component="session-prompt-dock"]')
-    const scroller = document.querySelector(".scroll-view__viewport")
     const observer = new ResizeObserver(update)
+    const dock = root?.closest('[data-component="session-prompt-dock"]')
     if (dock instanceof HTMLElement) observer.observe(dock)
-    if (scroller instanceof HTMLElement) observer.observe(scroller)
+    const scroller = document.querySelector(".scroll-view__viewport")
+    const head = scroller instanceof HTMLElement ? scroller.firstElementChild : undefined
+    if (head instanceof HTMLElement && head.classList.contains("sticky")) observer.observe(head)
+    paint()
 
     onCleanup(() => {
       window.removeEventListener("resize", update)
@@ -118,6 +190,8 @@ export const SessionQuestionDock: Component<{ request: QuestionRequest; onSubmit
       answers: store.answers.map((a) => (a ? [...a] : [])),
       custom: store.custom.map((s) => s ?? ""),
       customOn: store.customOn.map((b) => b ?? false),
+      base: store.base,
+      size: store.size,
     })
   })
 
@@ -260,6 +334,15 @@ export const SessionQuestionDock: Component<{ request: QuestionRequest; onSubmit
     <DockPrompt
       kind="question"
       ref={(el) => (root = el)}
+      overlay={
+        <div
+          data-slot="question-resize"
+          role="separator"
+          aria-orientation="horizontal"
+          aria-label="Resize"
+          onPointerDown={drag}
+        />
+      }
       header={
         <>
           <div data-slot="question-header-title">{summary()}</div>

@@ -6,6 +6,7 @@ export function DockPrompt(props: {
   header: JSX.Element
   children: JSX.Element
   footer: JSX.Element
+  overlay?: JSX.Element
   ref?: (el: HTMLDivElement) => void
 }) {
   const slot = (name: string) => `${props.kind}-${name}`
@@ -17,6 +18,7 @@ export function DockPrompt(props: {
         <div data-slot={slot("content")}>{props.children}</div>
       </DockShell>
       <DockTray data-slot={slot("footer")}>{props.footer}</DockTray>
+      {props.overlay}
     </div>
   )
 }
