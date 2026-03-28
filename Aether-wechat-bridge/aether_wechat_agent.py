@@ -267,7 +267,9 @@ class AetherAgent(Agent):
 
     async def _cmd_list_models(self, conv_id: str) -> str:
         try:
-            resp = await self._client.get(f'{self.base_url}/provider')
+            directory = self._conv_dirs.get(conv_id) or self.directory
+            headers = {"x-opencode-directory": quote(directory, safe="")} if directory else {}
+            resp = await self._client.get(f'{self.base_url}/provider', headers=headers)
             resp.raise_for_status()
             data = resp.json()
         except Exception as e:

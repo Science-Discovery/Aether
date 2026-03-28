@@ -30,7 +30,7 @@ if not exist "%UPD%" (
 )
 
 copy /y "%UPD%" "%SRC%\update_windows_web.bat" >nul || exit /b 1
-powershell -NoProfile -Command "& { Set-Content -Path (Join-Path $env:SRC '.aether_web_version') -Value $env:VERSION -Encoding utf8NoBOM }" || exit /b 1
+powershell -NoProfile -Command "& { $p=Join-Path $env:SRC '.aether_web_version'; [IO.File]::WriteAllText($p, $env:VERSION) }" || exit /b 1
 
 set "ZIP=%CD%\dist\aether-windows-x64-web.zip"
 if exist "%ZIP%" del /f /q "%ZIP%"
@@ -41,7 +41,7 @@ set "ART=%ZIP%"
 set "VERSION=%VERSION%"
 set "YML=%YML%"
 
-powershell -NoProfile -Command "& { $art=$env:ART; $ver=$env:VERSION; $yml=$env:YML; $url=[IO.Path]::GetFileName($art); $sha=[Convert]::ToBase64String([Security.Cryptography.SHA512]::Create().ComputeHash([IO.File]::ReadAllBytes($art))); $size=(Get-Item $art).Length; $date=(Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ss.000Z'); $txt=@('version: ' + $ver,'files:','  - url: ' + $url,'    sha512: ' + $sha,'    size: ' + $size,'releaseDate: ' + $date) -join "`n"; Set-Content -Path $yml -Value ($txt + "`n") -Encoding utf8 }" || exit /b 1
+powershell -NoProfile -Command "& { $art=$env:ART; $ver=$env:VERSION; $yml=$env:YML; $url=[IO.Path]::GetFileName($art); $sha=[Convert]::ToBase64String([Security.Cryptography.SHA512]::Create().ComputeHash([IO.File]::ReadAllBytes($art))); $size=(Get-Item $art).Length; $date=(Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ss.000Z'); $txt=@('version: ' + $ver,'files:','  - url: ' + $url,'    sha512: ' + $sha,'    size: ' + $size,'releaseDate: ' + $date) -join "`n"; [IO.File]::WriteAllText($yml, $txt + "`n") }" || exit /b 1
 
 echo Done
 echo Asset: %ZIP%
