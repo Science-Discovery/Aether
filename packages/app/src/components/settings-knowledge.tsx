@@ -7,14 +7,13 @@ import { useKnowledge } from "@/context/knowledge"
 import { useGlobalSDK } from "@/context/global-sdk"
 import { useServer } from "@/context/server"
 import { useProviders } from "@/hooks/use-providers"
+import {
+  labelEmbeddingModel,
+  labelProvider,
+  listEmbeddingModels,
+  toEmbeddingProvider,
+} from "@/utils/knowledge-embedding"
 import { DialogSelectDirectory } from "./dialog-select-directory"
-
-// Map a provider ID to the embeddingProvider type the backend expects
-function toEmbeddingProvider(id: string): "openai" | "local" | "custom" {
-  if (id === "local") return "local"
-  if (id === "openai") return "openai"
-  return "custom"
-}
 
 export const SettingsKnowledge: Component = () => {
   const knowledge = useKnowledge()
@@ -40,24 +39,21 @@ export const SettingsKnowledge: Component = () => {
   const [embeddingModelOptions, setEmbeddingModelOptions] = createSignal<string[]>([])
   const [loadingModels, setLoadingModels] = createSignal(false)
   const [useManualModel, setUseManualModel] = createSignal(false)
+  let run = 0
 
   // Connected providers + local
-  const providerOptions = createMemo(() => ["local", ...providers.connected().map((p) => p.id)])
-
-  const localModels = createMemo(() =>
-    knowledge.models().filter((m) => m.provider === "local").map((m) => m.id),
-  )
+  const connected = createMemo(() => providers.connected())
+  const providerOptions = createMemo(() => ["local", ...connected().map((p) => p.id)])
 
   onMount(() => {
     const lastConfig = knowledge.getLastConfig()
     if (lastConfig) {
-      setNewModel(lastConfig.model)
       // Restore provider and trigger selection
       if (lastConfig.provider) {
-        handleProviderSelect(lastConfig.provider)
+        void handleProviderSelect(lastConfig.provider, lastConfig.model)
       }
     }
-    knowledge.refreshAllStats()
+    void knowledge.refreshAllStats()
   })
 
   const fetchProviderConnection = async (id: string) => {
@@ -73,35 +69,63 @@ export const SettingsKnowledge: Component = () => {
     return resp.json() as Promise<{ apiKey: string; baseURL: string; embeddingModels: string[] }>
   }
 
-  const handleProviderSelect = async (id: string | undefined) => {
-    if (!id) return
-    setSelectedProviderID(id)
-    setEmbeddingModelOptions([])
-    setUseManualModel(false)
-    setNewModel("")
-    setNewApiKey("")
-    setNewBaseURL("")
+  const setModels = (id: string, extra: string[] = [], pick?: string) => {
+    const list = Array.from(
+      new Set([
+        ...listEmbeddingModels(
+          id,
+          connected(),
+          knowledge.models(),
+        ),
+        ...extra,
+      ]),
+    )
+    setEmbeddingModelOptions(list)
 
-    if (id === "local") {
-      const models = localModels()
-      setEmbeddingModelOptions(models)
-      if (models.length > 0) setNewModel(models[0])
-      else setUseManualModel(true)
+    if (pick) {
+      if (list.includes(pick)) {
+        setUseManualModel(false)
+        setNewModel(pick)
+        return
+      }
+      setUseManualModel(true)
+      setNewModel(pick)
       return
     }
 
-    setLoadingModels(true)
+    if (list.length > 0) {
+      setUseManualModel(false)
+      setNewModel(list[0]!)
+      return
+    }
+
+    setUseManualModel(true)
+    setNewModel("")
+  }
+
+  const handleProviderSelect = async (id: string | undefined, pick?: string) => {
+    if (!id) return
+    const cur = ++run
+    setSelectedProviderID(id)
+    setLoadingModels(id !== "local")
+    setNewApiKey("")
+    setNewBaseURL("")
+    setModels(id, [], pick)
+
+    if (id === "local") {
+      return
+    }
+
     try {
       const data = await fetchProviderConnection(id)
+      if (cur !== run) return
       if (data.baseURL) setNewBaseURL(data.baseURL)
       if (data.apiKey) setNewApiKey(data.apiKey)
-      setEmbeddingModelOptions(data.embeddingModels)
-      if (data.embeddingModels.length > 0) setNewModel(data.embeddingModels[0])
-      else setUseManualModel(true)
+      setModels(id, data.embeddingModels, pick)
     } catch {
-      setUseManualModel(true)
+      if (cur !== run) return
     } finally {
-      setLoadingModels(false)
+      if (cur === run) setLoadingModels(false)
     }
   }
 
@@ -137,7 +161,7 @@ export const SettingsKnowledge: Component = () => {
       setError("Please select or enter an embedding model")
       return
     }
-    if (selectedProviderID() !== "local" && !newBaseURL()) {
+    if (toEmbeddingProvider(selectedProviderID()) === "custom" && !newBaseURL()) {
       setError("Could not resolve provider API URL. Please check your provider configuration.")
       return
     }
@@ -147,6 +171,7 @@ export const SettingsKnowledge: Component = () => {
       const id = knowledge.addKnowledgeBase({
         path: newPath(),
         name: newName(),
+        providerID: selectedProviderID(),
         embeddingProvider: toEmbeddingProvider(selectedProviderID()),
         embeddingModel: newModel(),
         apiKey: newApiKey(),
@@ -178,7 +203,7 @@ export const SettingsKnowledge: Component = () => {
         model: newModel(),
         apiKey: newApiKey(),
         baseURL: newBaseURL(),
-        dimensions: 1536,
+        dimensions: knowledge.models().find((item) => item.id === newModel())?.dimensions ?? 1536,
       })
 
       setShowAddForm(false)
@@ -362,7 +387,7 @@ export const SettingsKnowledge: Component = () => {
                   options={providerOptions()}
                   current={selectedProviderID()}
                   value={(id) => id}
-                  label={(id) => id === "local" ? "Local (offline)" : id}
+                  label={(id) => labelProvider(id, connected())}
                   onSelect={handleProviderSelect}
                   variant="secondary"
                   size="small"
@@ -384,7 +409,11 @@ export const SettingsKnowledge: Component = () => {
                       options={[...embeddingModelOptions(), "__manual__"]}
                       current={newModel()}
                       value={(id) => id}
-                      label={(id) => id === "__manual__" ? "Enter manually..." : id}
+                      label={(id) =>
+                        id === "__manual__"
+                          ? "Enter manually..."
+                          : labelEmbeddingModel(id, selectedProviderID(), connected(), knowledge.models())
+                      }
                       onSelect={(id) => {
                         if (id === "__manual__") { setUseManualModel(true); setNewModel("") }
                         else if (id) setNewModel(id)

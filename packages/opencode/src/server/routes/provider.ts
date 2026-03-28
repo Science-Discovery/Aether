@@ -122,7 +122,9 @@ export const ProviderRoutes = lazy(() =>
 
         const apiKey = (info.key ?? (info.options?.apiKey as string | undefined)) ?? ""
         const baseURL =
-          ((info.options?.baseURL ?? info.options?.endpoint) as string | undefined) ?? ""
+          ((info.options?.baseURL ?? info.options?.endpoint) as string | undefined) ??
+          Object.values(info.models)[0]?.api.url ??
+          ""
 
         let embeddingModels: string[] = []
         if (apiKey && baseURL) {
