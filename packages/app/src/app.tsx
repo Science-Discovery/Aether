@@ -51,12 +51,17 @@ import { useCheckServerHealth } from "./utils/server-health"
 
 const HomeRoute = lazy(() => import("@/pages/home"))
 const Session = lazy(() => import("@/pages/session"))
+const ReadingSession = lazy(() => import("@/pages/reading-session"))
 const Loading = () => <div class="size-full" />
 
 const SessionRoute = () => (
   <SessionProviders>
     <Session />
   </SessionProviders>
+)
+
+const ReadingSessionRoute = () => (
+  <ReadingSession />
 )
 
 const SessionIndexRoute = () => <Navigate href="session" />
@@ -303,6 +308,7 @@ export function AppInterface(props: {
                 <Route path="/:dir" component={DirectoryLayout}>
                   <Route path="/" component={SessionIndexRoute} />
                   <Route path="/session/:id?" component={SessionRoute} />
+                  <Route path="/session/:id/reading" component={ReadingSessionRoute} />
                 </Route>
               </Dynamic>
             </GlobalSyncProvider>

@@ -60,3 +60,4 @@ export default [
   tailwindcss(),
   solidPlugin(),
 ]
+

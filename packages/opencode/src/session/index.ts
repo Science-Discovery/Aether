@@ -35,6 +35,7 @@ import { Permission } from "@/permission"
 import { Global } from "@/global"
 import type { LanguageModelV2Usage } from "@ai-sdk/provider"
 import { iife } from "@/util/iife"
+import type { ReadingMode } from "../reading-mode/types"
 
 export namespace Session {
   const log = Log.create({ service: "session" })
@@ -79,6 +80,7 @@ export namespace Session {
       share,
       revert,
       permission: row.permission ?? undefined,
+      readingMode: row.reading_mode ?? undefined,
       time: {
         created: row.time_created,
         updated: row.time_updated,
@@ -105,6 +107,7 @@ export namespace Session {
       summary_diffs: info.summary?.diffs,
       revert: info.revert ?? null,
       permission: info.permission,
+      reading_mode: info.readingMode ?? null,
       time_created: info.time.created,
       time_updated: info.time.updated,
       time_compacting: info.time.compacting,
@@ -158,6 +161,22 @@ export namespace Session {
           partID: PartID.zod.optional(),
           snapshot: z.string().optional(),
           diff: z.string().optional(),
+        })
+        .optional(),
+      readingMode: z
+        .object({
+          pdfFileName: z.string(),
+          pdfStorePath: z.string(),
+          lastReadPage: z.number(),
+          annotationsPath: z.string(),
+          settings: z.object({
+            translatePrompt: z.string(),
+            questionPrompt: z.string(),
+            firstReadPrompt: z.string(),
+            contextPageRange: z.union([z.literal(0), z.literal(1), z.literal(2)]),
+            autoFirstRead: z.boolean(),
+          }),
+          firstReadCompleted: z.boolean(),
         })
         .optional(),
     })
@@ -447,6 +466,22 @@ export namespace Session {
       },
     })
   })
+
+  export const setReadingMode = fn(
+    z.object({
+      sessionID: SessionID.zod,
+      readingMode: Info.shape.readingMode,
+    }),
+    async (input) => {
+      SyncEvent.run(Event.Updated, {
+        sessionID: input.sessionID,
+        info: {
+          readingMode: input.readingMode,
+          time: { updated: Date.now() },
+        },
+      })
+    },
+  )
 
   export const setSummary = fn(
     z.object({

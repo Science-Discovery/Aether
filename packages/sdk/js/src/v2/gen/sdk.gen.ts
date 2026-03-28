@@ -180,6 +180,16 @@ import type {
   QuestionRejectResponses,
   QuestionReplyErrors,
   QuestionReplyResponses,
+  ReadingModeAnnotationsGetErrors,
+  ReadingModeAnnotationsGetResponses,
+  ReadingModeAnnotationsUpdateErrors,
+  ReadingModeAnnotationsUpdateResponses,
+  ReadingModePdfGetErrors,
+  ReadingModePdfGetResponses,
+  ReadingModeSessionCreateErrors,
+  ReadingModeSessionCreateResponses,
+  ReadingModeSessionUpdateErrors,
+  ReadingModeSessionUpdateResponses,
   SessionAbortErrors,
   SessionAbortResponses,
   SessionChildrenErrors,
@@ -5597,6 +5607,215 @@ export class Wechat extends HeyApiClient {
   }
 }
 
+export class Session4 extends HeyApiClient {
+  /**
+   * Create reading mode session
+   */
+  public create<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      ReadingModeSessionCreateResponses,
+      ReadingModeSessionCreateErrors,
+      ThrowOnError
+    >({
+      url: "/reading-mode/session",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Update reading mode session settings
+   */
+  public update<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      directory?: string
+      workspace?: string
+      settings?: {
+        translatePrompt?: string
+        questionPrompt?: string
+        firstReadPrompt?: string
+        contextPageRange?: 0 | 1 | 2
+        autoFirstRead?: boolean
+      }
+      firstReadCompleted?: boolean
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "settings" },
+            { in: "body", key: "firstReadCompleted" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).patch<
+      ReadingModeSessionUpdateResponses,
+      ReadingModeSessionUpdateErrors,
+      ThrowOnError
+    >({
+      url: "/reading-mode/session/{sessionID}",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+}
+
+export class Annotations extends HeyApiClient {
+  /**
+   * Get reading mode annotations
+   */
+  public get<ThrowOnError extends boolean = false>(
+    parameters: {
+      directory?: string
+      workspace?: string
+      sessionID: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "query", key: "sessionID" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<
+      ReadingModeAnnotationsGetResponses,
+      ReadingModeAnnotationsGetErrors,
+      ThrowOnError
+    >({
+      url: "/reading-mode/annotations",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Update reading mode annotations
+   */
+  public update<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      sessionID?: string
+      data?: unknown
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "sessionID" },
+            { in: "body", key: "data" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).put<
+      ReadingModeAnnotationsUpdateResponses,
+      ReadingModeAnnotationsUpdateErrors,
+      ThrowOnError
+    >({
+      url: "/reading-mode/annotations",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+}
+
+export class Pdf extends HeyApiClient {
+  /**
+   * Get stored PDF file
+   */
+  public get<ThrowOnError extends boolean = false>(
+    parameters: {
+      directory?: string
+      workspace?: string
+      sessionID: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "query", key: "sessionID" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<ReadingModePdfGetResponses, ReadingModePdfGetErrors, ThrowOnError>({
+      url: "/reading-mode/pdf",
+      ...options,
+      ...params,
+    })
+  }
+}
+
+export class ReadingMode extends HeyApiClient {
+  private _session?: Session4
+  get session(): Session4 {
+    return (this._session ??= new Session4({ client: this.client }))
+  }
+
+  private _annotations?: Annotations
+  get annotations(): Annotations {
+    return (this._annotations ??= new Annotations({ client: this.client }))
+  }
+
+  private _pdf?: Pdf
+  get pdf(): Pdf {
+    return (this._pdf ??= new Pdf({ client: this.client }))
+  }
+}
+
 export class Instance extends HeyApiClient {
   /**
    * Dispose instance
@@ -6034,6 +6253,11 @@ export class OpencodeClient extends HeyApiClient {
   private _wechat?: Wechat
   get wechat(): Wechat {
     return (this._wechat ??= new Wechat({ client: this.client }))
+  }
+
+  private _readingMode?: ReadingMode
+  get readingMode(): ReadingMode {
+    return (this._readingMode ??= new ReadingMode({ client: this.client }))
   }
 
   private _instance?: Instance
