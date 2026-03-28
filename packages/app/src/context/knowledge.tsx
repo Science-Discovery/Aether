@@ -9,6 +9,7 @@ export interface KnowledgeConfig {
   id: string
   path: string
   name: string
+  providerID?: string
   embeddingProvider: "openai" | "local" | "custom"
   embeddingModel: string
   embeddingDimensions?: number
