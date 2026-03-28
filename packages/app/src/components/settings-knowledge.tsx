@@ -4,11 +4,24 @@ import { Icon } from "@opencode-ai/ui/icon"
 import { Select } from "@opencode-ai/ui/select"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { useKnowledge } from "@/context/knowledge"
+import { useGlobalSDK } from "@/context/global-sdk"
+import { useServer } from "@/context/server"
+import { useProviders } from "@/hooks/use-providers"
 import { DialogSelectDirectory } from "./dialog-select-directory"
+
+// Map a provider ID to the embeddingProvider type the backend expects
+function toEmbeddingProvider(id: string): "openai" | "local" | "custom" {
+  if (id === "local") return "local"
+  if (id === "openai") return "openai"
+  return "custom"
+}
 
 export const SettingsKnowledge: Component = () => {
   const knowledge = useKnowledge()
   const dialog = useDialog()
+  const sdk = useGlobalSDK()
+  const server = useServer()
+  const providers = useProviders()
 
   const [syncing, setSyncing] = createSignal<string | null>(null)
   const [error, setError] = createSignal("")
@@ -17,33 +30,80 @@ export const SettingsKnowledge: Component = () => {
 
   const [newPath, setNewPath] = createSignal("")
   const [newName, setNewName] = createSignal("My Knowledge Base")
-  const [newProvider, setNewProvider] = createSignal<"openai" | "local" | "custom">("openai")
-  const [newModel, setNewModel] = createSignal("text-embedding-3-small")
+  const [selectedProviderID, setSelectedProviderID] = createSignal("")
+  const [newModel, setNewModel] = createSignal("")
   const [newApiKey, setNewApiKey] = createSignal("")
   const [newBaseURL, setNewBaseURL] = createSignal("")
-  // 不再硬编码 dimensions，让后端自动检测
-  // const [newDimensions, setNewDimensions] = createSignal(1536)
   const [newChunkSize, setNewChunkSize] = createSignal(500)
   const [newChunkOverlap, setNewChunkOverlap] = createSignal(50)
 
-  const models = knowledge.models()
+  const [embeddingModelOptions, setEmbeddingModelOptions] = createSignal<string[]>([])
+  const [loadingModels, setLoadingModels] = createSignal(false)
+  const [useManualModel, setUseManualModel] = createSignal(false)
 
-  // 从上次配置初始化表单
+  // Connected providers + local
+  const providerOptions = createMemo(() => ["local", ...providers.connected().map((p) => p.id)])
+
+  const localModels = createMemo(() =>
+    knowledge.models().filter((m) => m.provider === "local").map((m) => m.id),
+  )
+
   onMount(() => {
     const lastConfig = knowledge.getLastConfig()
     if (lastConfig) {
-      setNewProvider(lastConfig.provider)
       setNewModel(lastConfig.model)
-      setNewApiKey(lastConfig.apiKey)
-      setNewBaseURL(lastConfig.baseURL)
+      // Restore provider and trigger selection
+      if (lastConfig.provider) {
+        handleProviderSelect(lastConfig.provider)
+      }
     }
     knowledge.refreshAllStats()
   })
 
-  const providerModels = createMemo(() => {
-    const p = newProvider()
-    return models.filter((m) => m.provider === p)
-  })
+  const fetchProviderConnection = async (id: string) => {
+    const baseUrl = sdk.url
+    const s = server.current?.http
+    const authHeader: Record<string, string> = s?.password
+      ? { Authorization: `Basic ${btoa(`${s.username ?? "opencode"}:${s.password}`)}` }
+      : {}
+    const resp = await fetch(`${baseUrl}/provider/${encodeURIComponent(id)}/connection`, {
+      headers: { "Content-Type": "application/json", ...authHeader },
+    })
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
+    return resp.json() as Promise<{ apiKey: string; baseURL: string; embeddingModels: string[] }>
+  }
+
+  const handleProviderSelect = async (id: string | undefined) => {
+    if (!id) return
+    setSelectedProviderID(id)
+    setEmbeddingModelOptions([])
+    setUseManualModel(false)
+    setNewModel("")
+    setNewApiKey("")
+    setNewBaseURL("")
+
+    if (id === "local") {
+      const models = localModels()
+      setEmbeddingModelOptions(models)
+      if (models.length > 0) setNewModel(models[0])
+      else setUseManualModel(true)
+      return
+    }
+
+    setLoadingModels(true)
+    try {
+      const data = await fetchProviderConnection(id)
+      if (data.baseURL) setNewBaseURL(data.baseURL)
+      if (data.apiKey) setNewApiKey(data.apiKey)
+      setEmbeddingModelOptions(data.embeddingModels)
+      if (data.embeddingModels.length > 0) setNewModel(data.embeddingModels[0])
+      else setUseManualModel(true)
+    } catch {
+      setUseManualModel(true)
+    } finally {
+      setLoadingModels(false)
+    }
+  }
 
   const handleSelectFolder = () => {
     dialog.show(() => (
@@ -61,15 +121,6 @@ export const SettingsKnowledge: Component = () => {
     ))
   }
 
-  const handleProviderChange = (p: string | undefined) => {
-    if (!p) return
-    const provider = p as "openai" | "local" | "custom"
-    const firstModel = models.find((m) => m.provider === provider)
-    setNewProvider(provider)
-    setNewModel(provider === "custom" ? newModel() : (firstModel?.id ?? ""))
-    // 不再设置 dimensions，让后端自动检测
-  }
-
   const handleAddKnowledgeBase = async () => {
     setError("")
     setSuccess("")
@@ -78,25 +129,17 @@ export const SettingsKnowledge: Component = () => {
       setError("Please select a folder")
       return
     }
-
-    if (newProvider() === "openai" && !newApiKey()) {
-      setError("Please enter your OpenAI API key")
+    if (!selectedProviderID()) {
+      setError("Please select an embedding provider")
       return
     }
-
-    if (newProvider() === "custom") {
-      if (!newModel()) {
-        setError("Please enter the model name")
-        return
-      }
-      if (!newBaseURL()) {
-        setError("Please enter the API URL")
-        return
-      }
-      if (!newApiKey()) {
-        setError("Please enter the API Key")
-        return
-      }
+    if (!newModel()) {
+      setError("Please select or enter an embedding model")
+      return
+    }
+    if (selectedProviderID() !== "local" && !newBaseURL()) {
+      setError("Could not resolve provider API URL. Please check your provider configuration.")
+      return
     }
 
     setSyncing("new")
@@ -104,9 +147,8 @@ export const SettingsKnowledge: Component = () => {
       const id = knowledge.addKnowledgeBase({
         path: newPath(),
         name: newName(),
-        embeddingProvider: newProvider(),
+        embeddingProvider: toEmbeddingProvider(selectedProviderID()),
         embeddingModel: newModel(),
-        // 不再传递 dimensions，让后端自动检测
         apiKey: newApiKey(),
         baseURL: newBaseURL(),
         chunkSize: newChunkSize(),
@@ -115,7 +157,7 @@ export const SettingsKnowledge: Component = () => {
 
       knowledge.toggleActive(id)
 
-      const kb = knowledge.knowledgeBases().find(k => k.id === id)
+      const kb = knowledge.knowledgeBases().find((k) => k.id === id)
       if (kb) {
         let index = await knowledge.loadKnowledgeBase(kb.path)
         if (!index) {
@@ -131,9 +173,8 @@ export const SettingsKnowledge: Component = () => {
         setSuccess(`Added ${result.added} documents, updated ${result.updated}`)
       }
 
-      // 保存配置供下次使用
       knowledge.saveLastConfig({
-        provider: newProvider(),
+        provider: selectedProviderID(),
         model: newModel(),
         apiKey: newApiKey(),
         baseURL: newBaseURL(),
@@ -143,7 +184,6 @@ export const SettingsKnowledge: Component = () => {
       setShowAddForm(false)
       setNewPath("")
       setNewName("My Knowledge Base")
-      // 不重置 provider、model、apiKey、baseURL，保留上次配置
     } catch (e) {
       if (e instanceof Error && e.name === "AbortError") return
       const message = e instanceof Error ? e.message : String(e)
@@ -183,7 +223,7 @@ export const SettingsKnowledge: Component = () => {
 
   const handleSelect = (id: string) => {
     knowledge.toggleActive(id)
-    const kb = knowledge.knowledgeBases().find(k => k.id === id)
+    const kb = knowledge.knowledgeBases().find((k) => k.id === id)
     if (kb) {
       knowledge.loadKnowledgeBase(kb.path)
     }
@@ -278,6 +318,7 @@ export const SettingsKnowledge: Component = () => {
             </div>
 
             <div class="bg-surface-raised-base px-4 rounded-lg">
+              {/* Folder Path */}
               <div class="flex flex-wrap items-center justify-between gap-4 min-h-16 py-3 border-b border-border-weak-base">
                 <div class="flex flex-col min-w-0 flex-1">
                   <span class="text-14-medium text-text-strong">Folder Path</span>
@@ -297,6 +338,7 @@ export const SettingsKnowledge: Component = () => {
                 </div>
               </div>
 
+              {/* Name */}
               <div class="flex flex-wrap items-center justify-between gap-4 min-h-16 py-3 border-b border-border-weak-base">
                 <div class="flex flex-col min-w-0 flex-1">
                   <span class="text-14-medium text-text-strong">Name</span>
@@ -310,94 +352,61 @@ export const SettingsKnowledge: Component = () => {
                 />
               </div>
 
+              {/* Embedding Provider — select from configured providers */}
               <div class="flex flex-wrap items-center justify-between gap-4 min-h-16 py-3 border-b border-border-weak-base">
                 <div class="flex flex-col min-w-0 flex-1">
                   <span class="text-14-medium text-text-strong">Embedding Provider</span>
+                  <span class="text-12-regular text-text-weak">Choose a configured provider to use for embeddings</span>
                 </div>
                 <Select
-                  options={["openai", "local", "custom"]}
-                  current={newProvider()}
-                  value={(p) => p}
-                  label={(p) => (p === "openai" ? "OpenAI" : p === "local" ? "Local" : "Custom")}
-                  onSelect={handleProviderChange}
+                  options={providerOptions()}
+                  current={selectedProviderID()}
+                  value={(id) => id}
+                  label={(id) => id === "local" ? "Local (offline)" : id}
+                  onSelect={handleProviderSelect}
                   variant="secondary"
                   size="small"
-                  class="w-40"
+                  class="w-48"
                 />
               </div>
 
-              <Show when={newProvider() === "openai" || newProvider() === "local"}>
+              {/* Embedding Model */}
+              <Show when={selectedProviderID()}>
                 <div class="flex flex-wrap items-center justify-between gap-4 min-h-16 py-3 border-b border-border-weak-base">
                   <div class="flex flex-col min-w-0 flex-1">
                     <span class="text-14-medium text-text-strong">Embedding Model</span>
                   </div>
-                  <Select
-                    options={providerModels().map((m) => m.id)}
-                    current={newModel()}
-                    value={(id) => id}
-                    label={(id) => models.find((m) => m.id === id)?.name ?? id}
-                    onSelect={(id) => id && setNewModel(id)}
-                    variant="secondary"
-                    size="small"
-                    class="w-64"
-                  />
+                  <Show when={loadingModels()}>
+                    <span class="text-13-regular text-text-weak italic">Loading models...</span>
+                  </Show>
+                  <Show when={!loadingModels() && embeddingModelOptions().length > 0 && !useManualModel()}>
+                    <Select
+                      options={[...embeddingModelOptions(), "__manual__"]}
+                      current={newModel()}
+                      value={(id) => id}
+                      label={(id) => id === "__manual__" ? "Enter manually..." : id}
+                      onSelect={(id) => {
+                        if (id === "__manual__") { setUseManualModel(true); setNewModel("") }
+                        else if (id) setNewModel(id)
+                      }}
+                      variant="secondary"
+                      size="small"
+                      class="w-64"
+                    />
+                  </Show>
+                  <Show when={!loadingModels() && (embeddingModelOptions().length === 0 || useManualModel())}>
+                    <input
+                      type="text"
+                      value={newModel()}
+                      onInput={(e) => setNewModel(e.currentTarget.value)}
+                      placeholder="text-embedding-3-small"
+                      class="h-9 flex-1 max-w-xs rounded-md border border-border-base bg-surface-base px-3 text-14-regular text-text-strong placeholder:text-text-weak focus:outline-none focus:ring-2 focus:ring-border-focus"
+                    />
+                  </Show>
                 </div>
               </Show>
 
-              <Show when={newProvider() === "openai"}>
-                <div class="flex flex-wrap items-center justify-between gap-4 min-h-16 py-3 border-b border-border-weak-base">
-                  <div class="flex flex-col min-w-0 flex-1">
-                    <span class="text-14-medium text-text-strong">OpenAI API Key</span>
-                  </div>
-                  <input
-                    type="password"
-                    value={newApiKey()}
-                    onInput={(e) => setNewApiKey(e.currentTarget.value)}
-                    placeholder="sk-..."
-                    class="h-9 flex-1 max-w-xs rounded-md border border-border-base bg-surface-base px-3 text-14-regular text-text-strong placeholder:text-text-weak focus:outline-none focus:ring-2 focus:ring-border-focus"
-                  />
-                </div>
-              </Show>
-
-              <Show when={newProvider() === "custom"}>
-                <div class="flex flex-wrap items-center justify-between gap-4 min-h-16 py-3 border-b border-border-weak-base">
-                  <div class="flex flex-col min-w-0 flex-1">
-                    <span class="text-14-medium text-text-strong">API URL</span>
-                  </div>
-                  <input
-                    type="text"
-                    value={newBaseURL()}
-                    onInput={(e) => setNewBaseURL(e.currentTarget.value)}
-                    placeholder="https://api.example.com/v1"
-                    class="h-9 flex-1 max-w-xs rounded-md border border-border-base bg-surface-base px-3 text-14-regular text-text-strong placeholder:text-text-weak focus:outline-none focus:ring-2 focus:ring-border-focus"
-                  />
-                </div>
-                <div class="flex flex-wrap items-center justify-between gap-4 min-h-16 py-3 border-b border-border-weak-base">
-                  <div class="flex flex-col min-w-0 flex-1">
-                    <span class="text-14-medium text-text-strong">API Key</span>
-                  </div>
-                  <input
-                    type="password"
-                    value={newApiKey()}
-                    onInput={(e) => setNewApiKey(e.currentTarget.value)}
-                    placeholder="your-api-key"
-                    class="h-9 flex-1 max-w-xs rounded-md border border-border-base bg-surface-base px-3 text-14-regular text-text-strong placeholder:text-text-weak focus:outline-none focus:ring-2 focus:ring-border-focus"
-                  />
-                </div>
-                <div class="flex flex-wrap items-center justify-between gap-4 min-h-16 py-3 border-b border-border-weak-base">
-                  <div class="flex flex-col min-w-0 flex-1">
-                    <span class="text-14-medium text-text-strong">Model Name</span>
-                  </div>
-                  <input
-                    type="text"
-                    value={newModel()}
-                    onInput={(e) => setNewModel(e.currentTarget.value)}
-                    placeholder="text-embedding-3-small"
-                    class="h-9 flex-1 max-w-xs rounded-md border border-border-base bg-surface-base px-3 text-14-regular text-text-strong placeholder:text-text-weak focus:outline-none focus:ring-2 focus:ring-border-focus"
-                  />
-                </div>
-              </Show>
-
+              {/* Chunk Size */}
               <div class="flex flex-wrap items-center justify-between gap-4 min-h-16 py-3 border-b border-border-weak-base">
                 <div class="flex flex-col min-w-0 flex-1">
                   <span class="text-14-medium text-text-strong">Chunk Size</span>
@@ -410,6 +419,7 @@ export const SettingsKnowledge: Component = () => {
                 />
               </div>
 
+              {/* Chunk Overlap */}
               <div class="flex flex-wrap items-center justify-between gap-4 min-h-16 py-3">
                 <div class="flex flex-col min-w-0 flex-1">
                   <span class="text-14-medium text-text-strong">Chunk Overlap</span>

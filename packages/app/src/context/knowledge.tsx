@@ -24,7 +24,7 @@ export interface KnowledgeConfig {
 
 // 上次使用的配置
 export interface LastConfig {
-  provider: "openai" | "local" | "custom"
+  provider: string  // provider ID, e.g. "openai", "siliconflow", "local"
   model: string
   apiKey: string
   baseURL: string

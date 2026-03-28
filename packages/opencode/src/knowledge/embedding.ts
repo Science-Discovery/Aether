@@ -1,4 +1,3 @@
-import z from "zod"
 import type { EmbeddingProvider, EmbeddingModelInfo } from "./types"
 
 // 嵌入模型统一接口
@@ -55,37 +54,47 @@ export class OpenAIEmbedder implements Embedder {
     this.baseURL = opts.baseURL || "https://api.openai.com/v1"
   }
 
+  private async embedBatch(batch: string[]): Promise<Float32Array[]> {
+    const response = await fetch(`${this.baseURL}/embeddings`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${this.apiKey}`,
+      },
+      body: JSON.stringify({
+        input: batch.length === 1 ? batch[0] : batch,
+        model: this.model,
+      }),
+      signal: AbortSignal.timeout(30000),
+    })
+
+    if (!response.ok) {
+      const error = await response.text()
+      throw new Error(`OpenAI embedding failed: ${error}`)
+    }
+
+    const data = await response.json()
+    const items: any[] = Array.isArray(data.data) ? data.data : [data.data]
+    const sorted = items.sort((a: any, b: any) => (a.index ?? 0) - (b.index ?? 0))
+    return sorted.map((item: any) => new Float32Array(item.embedding))
+  }
+
   async embed(texts: string[]): Promise<Float32Array[]> {
     const allEmbeddings: Float32Array[] = []
 
-    // 分批处理，每批最多 EMBEDDING_BATCH_SIZE 个
     for (let i = 0; i < texts.length; i += EMBEDDING_BATCH_SIZE) {
       const batch = texts.slice(i, i + EMBEDDING_BATCH_SIZE)
 
-      const response = await fetch(`${this.baseURL}/embeddings`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${this.apiKey}`,
-        },
-        body: JSON.stringify({
-          input: batch,
-          model: this.model,
-        }),
-        signal: AbortSignal.timeout(30000),
-      })
-
-      if (!response.ok) {
-        const error = await response.text()
-        throw new Error(`OpenAI embedding failed: ${error}`)
-      }
-
-      const data = await response.json()
-
-      // 按 index 排序确保顺序正确
-      const sortedData = data.data.sort((a: any, b: any) => a.index - b.index)
-      for (const item of sortedData) {
-        allEmbeddings.push(new Float32Array(item.embedding))
+      try {
+        // 尝试批量发送
+        const embeddings = await this.embedBatch(batch)
+        allEmbeddings.push(...embeddings)
+      } catch {
+        // 批量失败（部分模型不支持数组输入）时降级为逐条发送
+        for (const text of batch) {
+          const embeddings = await this.embedBatch([text])
+          allEmbeddings.push(...embeddings)
+        }
       }
     }
 
