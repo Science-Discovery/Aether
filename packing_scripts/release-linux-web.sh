@@ -33,13 +33,42 @@ if [ ! -f "$upd" ]; then
   exit 1
 fi
 
-cp "$upd" "$src/update_linux_web.sh"
-chmod +x "$src/update_linux_web.sh"
-printf "%s\n" "$ver" >"$src/.aether_web_version"
+pkg="aether-linux-x64-web"
+tmp="$(mktemp -d)"
+trap 'rm -rf "$tmp"' EXIT
+out="$tmp/$pkg"
+
+mkdir -p "$out"
+cp -R "$src"/. "$out"/
+
+cp "$upd" "$out/update_linux_web.sh"
+chmod +x "$out/update_linux_web.sh"
+printf "%s\n" "$ver" >"$out/.aether_web_version"
+
+if [ -f "$out/aether" ]; then
+  chmod +x "$out/aether"
+fi
+
+if [ -f "$out/Aether.sh" ]; then
+  chmod +x "$out/Aether.sh"
+fi
+
+cat >"$out/README_FIRST.txt" <<'EOF'
+Aether Web (Linux x64)
+
+Quick start
+1) Extract this ZIP and copy the folder aether-linux-x64-web to a local path, for example: ~/Applications/Aether-Web
+2) Open Terminal in that folder and run: ./Aether.sh
+
+Offline update
+- Run ./update_linux_web.sh to check and install newer versions from:
+  https://aether.aiphys.cn/download
+EOF
 
 zip="dist/aether-linux-x64-web.zip"
+zip_path="$PWD/$zip"
 rm -f "$zip"
-(cd "$src" && zip -r "../../aether-linux-x64-web.zip" .)
+(cd "$tmp" && zip -r "$zip_path" "$pkg")
 
 sha="$(openssl dgst -sha512 -binary "$zip" | openssl base64 -A)"
 size="$(wc -c <"$zip" | tr -d '[:space:]')"
@@ -58,4 +87,4 @@ popd >/dev/null
 echo "Done"
 echo "Asset: packages/opencode/$zip"
 echo "YML:   packages/opencode/dist/latest-web-linux.yml"
-echo "Note:  Package includes update_linux_web.sh"
+echo "Note:  ZIP includes folder $pkg"

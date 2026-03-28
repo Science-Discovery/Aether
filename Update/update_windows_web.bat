@@ -2,7 +2,8 @@
 setlocal EnableExtensions
 
 set "BASE=https://aether.aiphys.cn/download"
-set "META_URL=%BASE%/latest-web.yml"
+set "META_URL=%BASE%/latest-web-windows.yml"
+set "META_URL_OLD=%BASE%/latest-web.yml"
 
 set "SELF=%~dp0"
 if "%SELF:~-1%"=="\" set "SELF=%SELF:~0,-1%"
@@ -24,15 +25,17 @@ for %%i in ("%APP%") do (
 
 set "STATE=%APP%\.aether_web_version"
 set "TMP=%TEMP%\aether-web-update-%RANDOM%%RANDOM%"
-set "META=%TMP%\latest-web.yml"
+set "META=%TMP%\latest-web-windows.yml"
 set "ZIP=%TMP%\aether-windows-x64-web.zip"
+set "EXTRACT=%TMP%\extract"
+set "SRC_FILE=%TMP%\src.txt"
 set "NEXT=%TMP%\next"
 
 if exist "%TMP%" rmdir /s /q "%TMP%"
 mkdir "%TMP%" || exit /b 1
 
 echo [1/4] Checking remote version...
-powershell -NoProfile -Command "& { Invoke-WebRequest -UseBasicParsing -Uri $env:META_URL -OutFile $env:META }" || goto :fail
+powershell -NoProfile -Command "& { try { Invoke-WebRequest -UseBasicParsing -Uri $env:META_URL -OutFile $env:META } catch { Invoke-WebRequest -UseBasicParsing -Uri $env:META_URL_OLD -OutFile $env:META } }" || goto :fail
 
 for /f "usebackq delims=" %%i in (`powershell -NoProfile -Command "$m=Get-Content -Raw -Path $env:META; if($m -match '(?m)^version:\s*(.+)$'){ $matches[1].Trim() }"`) do set "VER_REMOTE=%%i"
 for /f "usebackq delims=" %%i in (`powershell -NoProfile -Command "$m=Get-Content -Raw -Path $env:META; if($m -match '(?m)^\s*-\s*url:\s*(.+)$'){ $matches[1].Trim() }"`) do set "URL_REMOTE=%%i"
@@ -69,16 +72,33 @@ if not "%SHA_REMOTE%"=="" (
 
 echo [3/4] Installing new version...
 if exist "%NEXT%" rmdir /s /q "%NEXT%"
+if exist "%EXTRACT%" rmdir /s /q "%EXTRACT%"
 mkdir "%NEXT%" || goto :fail
-powershell -NoProfile -Command "& { Expand-Archive -Path $env:ZIP -DestinationPath $env:NEXT -Force }" || goto :fail
+mkdir "%EXTRACT%" || goto :fail
 
-if not exist "%NEXT%\aether.exe" (
+powershell -NoProfile -Command "& { Expand-Archive -Path $env:ZIP -DestinationPath $env:EXTRACT -Force; $src=$env:EXTRACT; if(-not ((Test-Path (Join-Path $src 'aether.exe')) -and (Test-Path (Join-Path $src 'Aether.vbs')))) { $dirs=Get-ChildItem -Path $env:EXTRACT -Directory; if($dirs.Count -eq 1) { $d=$dirs[0].FullName; if((Test-Path (Join-Path $d 'aether.exe')) -and (Test-Path (Join-Path $d 'Aether.vbs'))) { $src=$d } else { throw 'Bad package layout' } } else { throw 'Bad package layout' } }; Set-Content -Path $env:SRC_FILE -Value $src -Encoding utf8NoBOM }" || goto :fail
+
+set "SRC="
+if exist "%SRC_FILE%" set /p SRC=<"%SRC_FILE%"
+if "%SRC%"=="" (
+  echo Missing valid app folder in new package.
+  goto :fail
+)
+
+if not exist "%SRC%\aether.exe" (
   echo Missing aether.exe in new package.
   goto :fail
 )
 
-if not exist "%NEXT%\Aether.vbs" (
+if not exist "%SRC%\Aether.vbs" (
   echo Missing Aether.vbs in new package.
+  goto :fail
+)
+
+robocopy "%SRC%" "%NEXT%" /MIR /NFL /NDL /NJH /NJS /NP >nul
+set "RC=%ERRORLEVEL%"
+if %RC% GEQ 8 (
+  echo Failed to stage files. Robocopy exit code: %RC%
   goto :fail
 )
 

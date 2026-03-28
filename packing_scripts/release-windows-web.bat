@@ -20,6 +20,9 @@ if not exist "%SRC%" (
 
 set "UV=%SRC%\wechat-bridge\runtime\uv"
 set "UPD=%ROOT%\Update\update_windows_web.bat"
+set "PKG=aether-windows-x64-web"
+set "TMP=%TEMP%\aether-web-pack-%RANDOM%%RANDOM%"
+set "OUT=%TMP%\%PKG%"
 if exist "%UV%" (
   powershell -NoProfile -Command "& { $uv=$env:UV; Get-ChildItem -Path $uv -Directory | Where-Object { $_.Name -notlike '*x86_64-pc-windows-msvc*' } | Remove-Item -Recurse -Force }" || exit /b 1
 )
@@ -29,21 +32,36 @@ if not exist "%UPD%" (
   exit /b 1
 )
 
-copy /y "%UPD%" "%SRC%\update_windows_web.bat" >nul || exit /b 1
-powershell -NoProfile -Command "& { Set-Content -Path (Join-Path $env:SRC '.aether_web_version') -Value $env:VERSION -Encoding utf8NoBOM }" || exit /b 1
+if exist "%TMP%" rmdir /s /q "%TMP%"
+mkdir "%OUT%" || exit /b 1
+
+robocopy "%SRC%" "%OUT%" /E /NFL /NDL /NJH /NJS /NP >nul
+set "RC=%ERRORLEVEL%"
+if %RC% GEQ 8 (
+  echo Failed to stage files. Robocopy exit code: %RC%
+  rmdir /s /q "%TMP%" >nul 2>nul
+  exit /b 1
+)
+
+copy /y "%UPD%" "%OUT%\update_windows_web.bat" >nul || exit /b 1
+powershell -NoProfile -Command "& { Set-Content -Path (Join-Path $env:OUT '.aether_web_version') -Value $env:VERSION -Encoding utf8NoBOM }" || exit /b 1
+
+powershell -NoProfile -Command "& { $txt=@('Aether Web (Windows x64)','', 'Quick start', '1) Extract this ZIP and copy the folder aether-windows-x64-web to a local path, for example: C:\Aether-Web', '2) In that folder, double click Aether.vbs', '', 'Offline update', '- Run update_windows_web.bat to check and install newer versions from:', '  https://aether.aiphys.cn/download') -join \"`r`n\"; Set-Content -Path (Join-Path $env:OUT 'README_FIRST.txt') -Value ($txt + \"`r`n\") -Encoding ascii }" || exit /b 1
 
 set "ZIP=%CD%\dist\aether-windows-x64-web.zip"
 if exist "%ZIP%" del /f /q "%ZIP%"
-powershell -NoProfile -Command "& { Compress-Archive -Path '%SRC%\*' -DestinationPath '%ZIP%' -CompressionLevel Optimal }" || exit /b 1
+powershell -NoProfile -Command "& { Compress-Archive -Path $env:OUT -DestinationPath $env:ZIP -CompressionLevel Optimal }" || exit /b 1
 
-set "YML=%CD%\dist\latest-web.yml"
+set "YML=%CD%\dist\latest-web-windows.yml"
 set "ART=%ZIP%"
 set "VERSION=%VERSION%"
 set "YML=%YML%"
 
 powershell -NoProfile -Command "& { $art=$env:ART; $ver=$env:VERSION; $yml=$env:YML; $url=[IO.Path]::GetFileName($art); $sha=[Convert]::ToBase64String([Security.Cryptography.SHA512]::Create().ComputeHash([IO.File]::ReadAllBytes($art))); $size=(Get-Item $art).Length; $date=(Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ss.000Z'); $txt=@('version: ' + $ver,'files:','  - url: ' + $url,'    sha512: ' + $sha,'    size: ' + $size,'releaseDate: ' + $date) -join "`n"; Set-Content -Path $yml -Value ($txt + "`n") -Encoding utf8 }" || exit /b 1
 
+rmdir /s /q "%TMP%" >nul 2>nul
+
 echo Done
 echo Asset: %ZIP%
 echo YML:   %YML%
-echo Note:  Package includes update_windows_web.bat
+echo Note:  ZIP includes folder %PKG%

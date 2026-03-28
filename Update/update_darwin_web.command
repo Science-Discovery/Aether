@@ -80,7 +80,23 @@ hdiutil attach "$dmg" -nobrowse -readonly -mountpoint "$mnt" -quiet
 
 rm -rf "$next"
 mkdir -p "$next"
-ditto "$mnt" "$next"
+
+src="$mnt"
+if [ ! -f "$src/aether" ] || [ ! -f "$src/Aether.command" ]; then
+  shopt -s nullglob
+  dirs=("$mnt"/*/)
+  shopt -u nullglob
+  if [ "${#dirs[@]}" -eq 1 ] && [ -f "${dirs[0]}aether" ] && [ -f "${dirs[0]}Aether.command" ]; then
+    src="${dirs[0]%/}"
+  fi
+fi
+
+if [ ! -f "$src/aether" ] || [ ! -f "$src/Aether.command" ]; then
+  echo "DMG 内容结构不符合预期，未找到 aether 与 Aether.command。"
+  exit 1
+fi
+
+ditto "$src" "$next"
 
 if [ -f "$next/aether" ]; then
   chmod +x "$next/aether"
