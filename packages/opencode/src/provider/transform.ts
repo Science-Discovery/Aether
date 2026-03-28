@@ -226,7 +226,10 @@ export namespace ProviderTransform {
     }
 
     for (const msg of unique([...system, ...final])) {
-      const useMessageLevelOptions = model.providerID === "anthropic" || model.providerID.includes("bedrock")
+      const useMessageLevelOptions =
+        model.providerID === "anthropic" ||
+        model.providerID.includes("bedrock") ||
+        model.api.npm === "@ai-sdk/amazon-bedrock"
       const shouldUseContentOptions = !useMessageLevelOptions && Array.isArray(msg.content) && msg.content.length > 0
 
       if (shouldUseContentOptions) {
@@ -799,14 +802,11 @@ export namespace ProviderTransform {
     }
 
     if (input.model.api.npm === "@ai-sdk/google" || input.model.api.npm === "@ai-sdk/google-vertex") {
-      const gid = input.model.api.id.toLowerCase()
-      // thinkingConfig 仅对支持 thinking 的模型生效（gemini-2.5+、gemini-3）
-      const supportsThinking = gid.includes("2.5") || gid.includes("gemini-3")
-      if (supportsThinking) {
+      if (input.model.capabilities.reasoning) {
         result["thinkingConfig"] = {
           includeThoughts: true,
         }
-        if (gid.includes("gemini-3")) {
+        if (input.model.api.id.includes("gemini-3")) {
           result["thinkingConfig"]["thinkingLevel"] = "high"
         }
       }

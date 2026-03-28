@@ -72,7 +72,7 @@ export interface PageResult {
 
 /** SSE 进度事件类型 */
 export type ProgressEvent =
-  | { type: "progress"; currentPage: number; totalPages: number; phase: "text" | "figure" | "fix" | "crop" | "postqa" }
+  | { type: "progress"; currentPage: number; totalPages: number; phase: "text" | "figure" | "fix" | "crop" | "postqa" | `queued:${number}` }
   | { type: "stream"; content: string }
   | { type: "token"; input: number; output: number; total: number }
   | { type: "page_done"; page: number; figureCount: number }

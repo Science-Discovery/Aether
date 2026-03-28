@@ -6,6 +6,7 @@ node_modules
 .idea
 .vscode
 .codex
+.venv
 *~
 playground
 tmp
@@ -31,3 +32,4 @@ tsconfig.tsbuildinfo
 .claude/
 textbox/
 handouts/
+Aether-wechat-bridge/.venv/

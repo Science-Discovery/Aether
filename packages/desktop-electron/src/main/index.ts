@@ -31,7 +31,15 @@ import { registerIpcHandlers, sendDeepLinks, sendMenuCommand, sendSqliteMigratio
 import { initLogging } from "./logging"
 import { parseMarkdown } from "./markdown"
 import { createMenu } from "./menu"
-import { getDefaultServerUrl, getWslConfig, setDefaultServerUrl, setWslConfig, spawnLocalServer } from "./server"
+import {
+  getDefaultServerUrl,
+  getProxyConfig,
+  getWslConfig,
+  setDefaultServerUrl,
+  setProxyConfig,
+  setWslConfig,
+  spawnLocalServer,
+} from "./server"
 import { createLoadingWindow, createMainWindow, setBackgroundColor, setDockIcon } from "./windows"
 
 const initEmitter = new EventEmitter()
@@ -96,6 +104,17 @@ function setupApp() {
   app.on("before-quit", () => {
     killSidecar()
   })
+
+  app.on("will-quit", () => {
+    killSidecar()
+  })
+
+  for (const signal of ["SIGINT", "SIGTERM"] as const) {
+    process.on(signal, () => {
+      killSidecar()
+      app.exit(0)
+    })
+  }
 
   void app.whenReady().then(async () => {
     // migrate()
@@ -195,22 +214,23 @@ async function initialize() {
 
   if (sidecarFailed) {
     overlay?.close()
-    await dialog.showMessageBox({
-      type: "error",
-      title: "启动失败",
-      message: "后台服务启动失败，无法连接。",
-      detail:
-        "可能原因：杀毒软件拦截了 opencode-cli.exe。\n请将其加入白名单后重启应用。",
-      buttons: ["重启", "退出"],
-      defaultId: 0,
-      cancelId: 1,
-    }).then((response) => {
-      killSidecar()
-      if (response.response === 0) {
-        app.relaunch()
-      }
-      app.exit(response.response === 0 ? 0 : 1)
-    })
+    await dialog
+      .showMessageBox({
+        type: "error",
+        title: "启动失败",
+        message: "后台服务启动失败，无法连接。",
+        detail: "可能原因：杀毒软件拦截了 opencode-cli.exe。\n请将其加入白名单后重启应用。",
+        buttons: ["重启", "退出"],
+        defaultId: 0,
+        cancelId: 1,
+      })
+      .then((response) => {
+        killSidecar()
+        if (response.response === 0) {
+          app.relaunch()
+        }
+        app.exit(response.response === 0 ? 0 : 1)
+      })
     return
   }
 
@@ -263,6 +283,8 @@ registerIpcHandlers({
   setDefaultServerUrl: (url) => setDefaultServerUrl(url),
   getWslConfig: () => Promise.resolve(getWslConfig()),
   setWslConfig: (config: WslConfig) => setWslConfig(config),
+  getProxyConfig: () => Promise.resolve(getProxyConfig()),
+  setProxyConfig: (config) => setProxyConfig(config),
   getDisplayBackend: async () => null,
   setDisplayBackend: async () => undefined,
   parseMarkdown: async (markdown) => parseMarkdown(markdown),
@@ -278,9 +300,16 @@ registerIpcHandlers({
 
 function killSidecar() {
   if (!sidecar) return
+  const pid = sidecar.pid
   sidecar.kill()
   sidecar = null
   sidecarPid = null
+  // tree-kill is async; also send process group signal as immediate fallback
+  if (pid && process.platform !== "win32") {
+    try {
+      process.kill(-pid, "SIGTERM")
+    } catch {}
+  }
 }
 
 function ensureLoopbackNoProxy() {
@@ -335,7 +364,7 @@ function sqliteFileExists() {
 function setupAutoUpdater() {
   if (!UPDATER_ENABLED) return
   autoUpdater.logger = logger
-  autoUpdater.channel = "latest"
+  autoUpdater.channel = import.meta.env.OPENCODE_UPDATER_CHANNEL || "latest"
   autoUpdater.allowPrerelease = false
   autoUpdater.allowDowngrade = true
   autoUpdater.autoDownload = false

@@ -48,7 +48,6 @@ export const KnowledgeDialog: Component = () => {
   const [newModel, setNewModel] = createSignal("text-embedding-3-small")
   const [newApiKey, setNewApiKey] = createSignal("")
   const [newBaseURL, setNewBaseURL] = createSignal("")
-  const [newDimensions, setNewDimensions] = createSignal(1536)
 
   onMount(() => {
     const defaults = getLastConfigDefaults()
@@ -56,15 +55,14 @@ export const KnowledgeDialog: Component = () => {
     setNewModel(defaults.model)
     setNewApiKey(defaults.apiKey)
     setNewBaseURL(defaults.baseURL)
-    setNewDimensions(defaults.dimensions)
     knowledge.refreshAllStats()
   })
 
   const models = knowledge.models()
-  
+
   const providerModels = createMemo(() => {
     const p = newProvider()
-    return models.filter(m => m.provider === p)
+    return models.filter((m) => m.provider === p)
   })
 
   const handleSelectFolder = () => {
@@ -86,10 +84,9 @@ export const KnowledgeDialog: Component = () => {
   const handleProviderChange = (p: string | undefined) => {
     if (!p) return
     const provider = p as "openai" | "local" | "custom"
-    const firstModel = models.find(m => m.provider === provider)
+    const firstModel = models.find((m) => m.provider === provider)
     setNewProvider(provider)
     setNewModel(provider === "custom" ? newModel() : (firstModel?.id ?? ""))
-    setNewDimensions(firstModel?.dimensions ?? 1536)
   }
 
   const handleAddKnowledgeBase = async () => {
@@ -128,7 +125,6 @@ export const KnowledgeDialog: Component = () => {
         name: newName(),
         embeddingProvider: newProvider(),
         embeddingModel: newModel(),
-        embeddingDimensions: newDimensions(),
         apiKey: newApiKey(),
         baseURL: newBaseURL(),
         chunkSize: 500,
@@ -137,7 +133,7 @@ export const KnowledgeDialog: Component = () => {
 
       knowledge.toggleActive(id)
 
-      const kb = knowledge.knowledgeBases().find(k => k.id === id)
+      const kb = knowledge.knowledgeBases().find((k) => k.id === id)
       if (kb) {
         let index = await knowledge.loadKnowledgeBase(kb.path)
         if (!index) {
@@ -146,13 +142,13 @@ export const KnowledgeDialog: Component = () => {
       }
 
       const result = await knowledge.syncKnowledgeBase(id)
-      
+
       knowledge.saveLastConfig({
         provider: newProvider(),
         model: newModel(),
         apiKey: newApiKey(),
         baseURL: newBaseURL(),
-        dimensions: newDimensions(),
+        dimensions: 1536,
       })
 
       if (result.errors && result.errors.length > 0) {
@@ -280,12 +276,7 @@ export const KnowledgeDialog: Component = () => {
         </Show>
 
         <Show when={!showAddForm()}>
-          <Button
-            variant="secondary"
-            size="small"
-            onClick={() => setShowAddForm(true)}
-            class="w-full"
-          >
+          <Button variant="secondary" size="small" onClick={() => setShowAddForm(true)} class="w-full">
             <Icon name="plus" class="size-4 mr-1" />
             Add Knowledge Base
           </Button>
@@ -295,12 +286,7 @@ export const KnowledgeDialog: Component = () => {
           <div class="flex flex-col gap-4 p-3 rounded-lg border border-border-base bg-surface-base">
             <div class="flex items-center justify-between">
               <span class="text-14-medium text-text-strong">New Knowledge Base</span>
-              <Button
-                variant="ghost"
-                size="small"
-                onClick={() => setShowAddForm(false)}
-                class="h-7 px-2"
-              >
+              <Button variant="ghost" size="small" onClick={() => setShowAddForm(false)} class="h-7 px-2">
                 <Icon name="close" class="size-4" />
               </Button>
             </div>
@@ -315,12 +301,7 @@ export const KnowledgeDialog: Component = () => {
                   placeholder="/path/to/your/papers"
                   class="h-9 flex-1 rounded-md border border-border-base bg-surface-base px-3 text-14-regular text-text-strong placeholder:text-text-weak focus:outline-none focus:ring-2 focus:ring-border-focus"
                 />
-                <Button
-                  variant="secondary"
-                  size="small"
-                  onClick={handleSelectFolder}
-                  class="h-9 px-3 shrink-0"
-                >
+                <Button variant="secondary" size="small" onClick={handleSelectFolder} class="h-9 px-3 shrink-0">
                   <Icon name="folder" class="size-4 mr-1" />
                   Browse
                 </Button>
@@ -344,7 +325,7 @@ export const KnowledgeDialog: Component = () => {
                 options={["openai", "local", "custom"]}
                 current={newProvider()}
                 value={(p) => p}
-                label={(p) => p === "openai" ? "OpenAI" : p === "local" ? "Local" : "Custom"}
+                label={(p) => (p === "openai" ? "OpenAI" : p === "local" ? "Local" : "Custom")}
                 onSelect={handleProviderChange}
                 variant="secondary"
                 size="small"
@@ -356,10 +337,10 @@ export const KnowledgeDialog: Component = () => {
               <div class="flex flex-col gap-2">
                 <label class="text-13-medium text-text-strong">Embedding Model</label>
                 <Select
-                  options={providerModels().map(m => m.id)}
+                  options={providerModels().map((m) => m.id)}
                   current={newModel()}
                   value={(id) => id}
-                  label={(id) => models.find(m => m.id === id)?.name ?? id}
+                  label={(id) => models.find((m) => m.id === id)?.name ?? id}
                   onSelect={(id) => id && setNewModel(id)}
                   variant="secondary"
                   size="small"
@@ -384,7 +365,7 @@ export const KnowledgeDialog: Component = () => {
             <Show when={newProvider() === "custom"}>
               <div class="flex flex-col gap-3 p-3 rounded-md border border-border-base bg-surface-base/50">
                 <div class="text-13-medium text-text-strong">Custom Embedding Configuration</div>
-                
+
                 <div class="flex flex-col gap-2">
                   <label class="text-12-regular text-text-base">API URL</label>
                   <input
@@ -438,7 +419,9 @@ export const KnowledgeDialog: Component = () => {
               <div class="flex justify-between items-center text-12-regular text-text-base">
                 <span>Processing documents...</span>
                 <div class="flex items-center gap-2">
-                  <span>{progress().current} / {progress().total}</span>
+                  <span>
+                    {progress().current} / {progress().total}
+                  </span>
                   <Button
                     variant="ghost"
                     size="small"

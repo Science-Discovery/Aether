@@ -1,6 +1,7 @@
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { Dialog } from "@opencode-ai/ui/dialog"
 import { FileIcon } from "@opencode-ai/ui/file-icon"
+import { Button } from "@opencode-ai/ui/button"
 import { List } from "@opencode-ai/ui/list"
 import type { ListRef } from "@opencode-ai/ui/list"
 import { getDirectory, getFilename } from "@opencode-ai/util/path"
@@ -254,6 +255,7 @@ export function DialogNewProject(props: DialogNewProjectProps) {
 
   const [filter, setFilter] = createSignal("")
   const [creating, setCreating] = createSignal(false)
+  const [browsing, setBrowsing] = createSignal(false)
   let list: ListRef | undefined
 
   const missingBase = createMemo(() => !(sync.data.path.home || sync.data.path.directory))
@@ -322,7 +324,31 @@ export function DialogNewProject(props: DialogNewProjectProps) {
   return (
     <Dialog title={language.t("dialog.newProject.title")}>
       <List
-        search={{ placeholder: language.t("dialog.directory.search.placeholder"), autofocus: true }}
+        search={{
+          placeholder: language.t("dialog.directory.search.placeholder"),
+          autofocus: true,
+          action: (
+            <Button
+              icon="folder"
+              size="small"
+              variant="secondary"
+              disabled={browsing()}
+              onClick={async () => {
+                if (browsing()) return
+                setBrowsing(true)
+                try {
+                  const result = await sdk.client.file.pickFolder()
+                  const picked = result.data?.path
+                  if (picked) {
+                    list?.setFilter(picked)
+                  }
+                } finally {
+                  setBrowsing(false)
+                }
+              }}
+            >{language.t("dialog.newProject.browse")}</Button>
+          ),
+        }}
         emptyMessage={language.t("dialog.directory.empty")}
         loadingMessage={language.t("common.loading")}
         items={items}

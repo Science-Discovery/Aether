@@ -18,7 +18,7 @@ bun install
 
 **位置：** `packages/opencode/`
 
-CLI 工具使用 Bun 的 `compile` 功能构建，支持交叉编译到所有平台。构建产物为单个可执行二进制文件，命名为 `openresearch`。
+CLI 工具使用 Bun 的 `compile` 功能构建，支持交叉编译到所有平台。构建产物为单个可执行二进制文件，命名为 `aether`。
 
 ### 仅构建当前平台
 
@@ -39,9 +39,9 @@ bun run build
 构建完成后，产物在 `packages/opencode/dist/` 下，按平台分目录。每个目录包含二进制文件和 web 资源：
 
 ```
-openresearch-linux-x64/
+aether-linux-x64/
   bin/
-    openresearch        ← CLI 二进制
+    aether        ← CLI 二进制
     web/                ← Web UI 静态资源（由 packages/app 构建）
       index.html
       assets/
@@ -50,26 +50,26 @@ openresearch-linux-x64/
 
 | 目录 | 平台 |
 |---|---|
-| `openresearch-linux-x64/bin/` | Linux x64 (glibc) |
-| `openresearch-linux-arm64/bin/` | Linux ARM64 |
-| `openresearch-linux-x64-musl/bin/` | Linux x64 (musl) |
-| `openresearch-darwin-x64/bin/` | macOS x64 |
-| `openresearch-darwin-arm64/bin/` | macOS ARM64 (Apple Silicon) |
-| `openresearch-windows-x64/bin/` | Windows x64 |
+| `aether-linux-x64/bin/` | Linux x64 (glibc) |
+| `aether-linux-arm64/bin/` | Linux ARM64 |
+| `aether-linux-x64-musl/bin/` | Linux x64 (musl) |
+| `aether-darwin-x64/bin/` | macOS x64 |
+| `aether-darwin-arm64/bin/` | macOS ARM64 (Apple Silicon) |
+| `aether-windows-x64/bin/` | Windows x64 |
 
 ### 安装到系统
 
-**必须将 `openresearch` 二进制和 `web/` 目录一起复制**，否则 `openresearch web` 会回退到显示远程版本：
+**必须将 `aether` 二进制和 `web/` 目录一起复制**，否则 `aether web` 会回退到显示远程版本：
 
 ```bash
 # Linux 安装（复制二进制 + web 资源）
-sudo cp dist/openresearch-linux-x64/bin/openresearch /usr/local/bin/
-sudo cp -r dist/openresearch-linux-x64/bin/web /usr/local/bin/
+sudo cp dist/aether-linux-x64/bin/aether /usr/local/bin/
+sudo cp -r dist/aether-linux-x64/bin/web /usr/local/bin/
 ```
 
 卸载：
 ```bash
-sudo rm /usr/local/bin/openresearch
+sudo rm /usr/local/bin/aether
 sudo rm -rf /usr/local/bin/web
 ```
 
@@ -122,7 +122,7 @@ npx electron-builder --mac dmg --config electron-builder.config.ts
 Windows cmd 的环境变量语法与 Unix 不同，且跨盘符切换目录需加 `/d`：
 
 ```cmd
-cd /d D:\Postdoc\code\openresearch_1\opencode\packages\desktop-electron
+cd /d D:\Postdoc\code\aether_1\opencode\packages\desktop-electron
 bun run build
 set CSC_IDENTITY_AUTO_DISCOVERY=false && bun run package:win
 ```
@@ -130,7 +130,7 @@ set CSC_IDENTITY_AUTO_DISCOVERY=false && bun run package:win
 PowerShell 写法：
 
 ```powershell
-cd D:\Postdoc\code\openresearch_1\opencode\packages\desktop-electron
+cd D:\Postdoc\code\aether_1\opencode\packages\desktop-electron
 $env:CSC_IDENTITY_AUTO_DISCOVERY="false"; bun run package:win
 ```
 
@@ -140,12 +140,12 @@ $env:CSC_IDENTITY_AUTO_DISCOVERY="false"; bun run package:win
 
 | 文件 | 平台 |
 |---|---|
-| `openresearch-linux-x64.AppImage` | Linux AppImage |
-| `openresearch-linux-x64.deb` | Debian/Ubuntu |
-| `openresearch-linux-x64.rpm` | Fedora/RHEL |
-| `openresearch-mac-x64.dmg` | macOS x64 |
-| `openresearch-mac-arm64.dmg` | macOS Apple Silicon |
-| `openresearch-win-x64.exe` | Windows 安装程序 |
+| `aether-linux-x64.AppImage` | Linux AppImage |
+| `aether-linux-x64.deb` | Debian/Ubuntu |
+| `aether-linux-x64.rpm` | Fedora/RHEL |
+| `aether-mac-x64.dmg` | macOS x64 |
+| `aether-mac-arm64.dmg` | macOS Apple Silicon |
+| `aether-win-x64.exe` | Windows 安装程序 |
 
 ### 渠道配置
 
@@ -153,9 +153,9 @@ $env:CSC_IDENTITY_AUTO_DISCOVERY="false"; bun run package:win
 
 | 渠道 | 产品名 | App ID |
 |---|---|---|
-| `dev`（默认） | OpenResearch Dev | `com.openresearch.desktop.dev` |
-| `beta` | OpenResearch Beta | `com.openresearch.desktop.beta` |
-| `prod` | OpenResearch | `com.openresearch.desktop` |
+| `dev`（默认） | OpenResearch Dev | `com.aether.desktop.dev` |
+| `beta` | OpenResearch Beta | `com.aether.desktop.beta` |
+| `prod` | OpenResearch | `com.aether.desktop` |
 
 ```bash
 OPENCODE_CHANNEL=prod bun run package:linux
@@ -174,7 +174,7 @@ OPENCODE_CHANNEL=prod bun run package:linux
 # 相对路径
 cd packages/desktop-electron
 # 绝对路径
-cd /home/zheng/code/openresearch/opencode/packages/desktop-electron
+cd /home/zheng/code/aether/opencode/packages/desktop-electron
 bun run build
 
 # 步骤 2：生成 win-unpacked（忽略末尾 wine 签名报错，不影响运行）
@@ -184,10 +184,10 @@ npx electron-builder --win dir --config electron-builder.config.ts
 # 相对路径
 cd dist
 # 绝对路径
-cd /home/zheng/code/openresearch/opencode/packages/desktop-electron/dist
+cd /home/zheng/code/aether/opencode/packages/desktop-electron/dist
 python3 -c "
 import zipfile, os
-with zipfile.ZipFile('openresearch-win-x64-portable.zip', 'w', zipfile.ZIP_DEFLATED) as zf:
+with zipfile.ZipFile('aether-win-x64-portable.zip', 'w', zipfile.ZIP_DEFLATED) as zf:
     for root, dirs, files in os.walk('win-unpacked'):
         for file in files:
             zf.write(os.path.join(root, file))
@@ -195,7 +195,7 @@ print('Done!')
 "
 ```
 
-输出：`packages/desktop-electron/dist/openresearch-win-x64-portable.zip`
+输出：`packages/desktop-electron/dist/aether-win-x64-portable.zip`
 
 ### 用户使用方式
 
@@ -231,16 +231,16 @@ bun run build -- --single
 
 ```
 packages/opencode/dist/
-  openresearch-windows-x64/bin/
-    openresearch.exe          ← CLI 二进制
+  aether-windows-x64/bin/
+    aether.exe          ← CLI 二进制
     web/                      ← 前端静态资源
-    OpenResearch.vbs          ← Windows 启动器
-  openresearch-darwin-arm64/bin/
-    openresearch               ← CLI 二进制
+    Aether.vbs          ← Windows 启动器
+  aether-darwin-arm64/bin/
+    aether               ← CLI 二进制
     web/
-    OpenResearch.command       ← macOS 启动器
-  openresearch-linux-x64/bin/
-    openresearch
+    Aether.command       ← macOS 启动器
+  aether-linux-x64/bin/
+    aether
     web/
 ```
 
@@ -250,7 +250,7 @@ packages/opencode/dist/
 
 #### Windows
 
-解压后双击 `OpenResearch.vbs`，无黑色命令窗口，浏览器自动打开界面。
+解压后双击 `Aether.vbs`，无黑色命令窗口，浏览器自动打开界面。
 
 #### macOS/Linux
 
@@ -258,8 +258,8 @@ packages/opencode/dist/
 
 ```bash
 cd 解压目录
-chmod +x openresearch   # 首次需要，赋予执行权限
-./openresearch web
+chmod +x aether   # 首次需要，赋予执行权限
+./aether web
 ```
 
 浏览器会自动打开（依赖 `xdg-open`，主流桌面环境均支持）。若不自动打开，手动访问终端中显示的 URL。

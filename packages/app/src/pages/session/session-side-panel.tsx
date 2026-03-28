@@ -11,6 +11,7 @@ import { showToast } from "@opencode-ai/ui/toast"
 import { Dialog } from "@opencode-ai/ui/dialog"
 import { DragDropProvider, DragDropSensors, DragOverlay, SortableProvider, closestCenter } from "@thisbeyond/solid-dnd"
 import type { DragEvent } from "@thisbeyond/solid-dnd"
+import type { FileDiff } from "@opencode-ai/sdk/v2"
 import { ConstrainDragYAxis, getDraggableId } from "@/utils/solid-dnd"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 
@@ -36,6 +37,13 @@ import { useSessionLayout } from "@/pages/session/session-layout"
 import type { FileNode } from "@opencode-ai/sdk/v2"
 
 export function SessionSidePanel(props: {
+  canReview: () => boolean
+  diffs: () => FileDiff[]
+  diffsReady: () => boolean
+  empty: () => string
+  onRefresh: () => void
+  hasReview: () => boolean
+  reviewCount: () => number
   reviewPanel: () => JSX.Element
   activeDiff?: string
   focusReviewDiff: (path: string) => void
@@ -43,12 +51,12 @@ export function SessionSidePanel(props: {
   size: Sizing
 }) {
   const layout = useLayout()
-  const sync = useSync()
   const file = useFile()
   const language = useLanguage()
   const command = useCommand()
   const dialog = useDialog()
   const sdk = useSDK()
+  const sync = useSync()
   const { params, sessionKey, tabs, view } = useSessionLayout()
 
   function handleFileCreate(dir: string, type: "file" | "directory") {
@@ -223,7 +231,7 @@ export function SessionSidePanel(props: {
   }
 
   function handleRefresh() {
-    file.tree.refresh("")
+    props.onRefresh()
   }
 
   const [isSummarizing, setIsSummarizing] = createSignal(false)
@@ -261,24 +269,7 @@ export function SessionSidePanel(props: {
   })
   const treeWidth = createMemo(() => (fileOpen() ? `${layout.fileTree.width()}px` : "0px"))
 
-  const info = createMemo(() => (params.id ? sync.session.get(params.id) : undefined))
-  const diffs = createMemo(() => (params.id ? (sync.data.session_diff[params.id] ?? []) : []))
-  const reviewCount = createMemo(() => Math.max(info()?.summary?.files ?? 0, diffs().length))
-  const hasReview = createMemo(() => reviewCount() > 0)
-  const diffsReady = createMemo(() => {
-    const id = params.id
-    if (!id) return true
-    if (!hasReview()) return true
-    return sync.data.session_diff[id] !== undefined
-  })
-
-  const reviewEmptyKey = createMemo(() => {
-    if (sync.project && !sync.project.vcs) return "session.review.noVcs"
-    if (sync.data.config.snapshot === false) return "session.review.noSnapshot"
-    return "session.review.noChanges"
-  })
-
-  const diffFiles = createMemo(() => diffs().map((d) => d.file))
+  const diffFiles = createMemo(() => props.diffs().map((d) => d.file))
   const kinds = createMemo(() => {
     const merge = (a: "add" | "del" | "mix" | undefined, b: "add" | "del" | "mix") => {
       if (!a) return b
@@ -289,7 +280,7 @@ export function SessionSidePanel(props: {
     const normalize = (p: string) => p.replaceAll("\\\\", "/").replace(/\/+$/, "")
 
     const out = new Map<string, "add" | "del" | "mix">()
-    for (const diff of diffs()) {
+    for (const diff of props.diffs()) {
       const file = normalize(diff.file)
       const kind = diff.status === "added" ? "add" : diff.status === "deleted" ? "del" : "mix"
 
@@ -343,7 +334,7 @@ export function SessionSidePanel(props: {
     pathFromTab: file.pathFromTab,
     normalizeTab,
     review: reviewTab,
-    hasReview,
+    hasReview: props.canReview,
   })
   const contextOpen = tabState.contextOpen
   const openedTabs = tabState.openedTabs
@@ -602,12 +593,12 @@ export function SessionSidePanel(props: {
                         onCleanup(stop)
                       }}
                     >
-                      <Show when={reviewTab()}>
+                      <Show when={reviewTab() && props.canReview()}>
                         <Tabs.Trigger value="review">
                           <div class="flex items-center gap-1.5">
                             <div>{language.t("session.tab.review")}</div>
-                            <Show when={hasReview()}>
-                              <div>{reviewCount()}</div>
+                            <Show when={props.hasReview()}>
+                              <div>{props.reviewCount()}</div>
                             </Show>
                           </div>
                         </Tabs.Trigger>
@@ -664,7 +655,7 @@ export function SessionSidePanel(props: {
                     </Tabs.List>
                   </div>
 
-                  <Show when={reviewTab()}>
+                  <Show when={reviewTab() && props.canReview()}>
                     <Tabs.Content value="review" class="flex flex-col h-full overflow-hidden contain-strict">
                       <Show when={activeTab() === "review"}>{props.reviewPanel()}</Show>
                     </Tabs.Content>
@@ -738,8 +729,10 @@ export function SessionSidePanel(props: {
               >
                 <Tabs.List>
                   <Tabs.Trigger value="changes" class="flex-1" classes={{ button: "w-full" }}>
-                    {reviewCount()}{" "}
-                    {language.t(reviewCount() === 1 ? "session.review.change.one" : "session.review.change.other")}
+                    {props.reviewCount()}{" "}
+                    {language.t(
+                      props.reviewCount() === 1 ? "session.review.change.one" : "session.review.change.other",
+                    )}
                   </Tabs.Trigger>
                   <Tabs.Trigger value="all" class="flex-1" classes={{ button: "w-full" }}>
                     {language.t("session.files.all")}
@@ -747,9 +740,9 @@ export function SessionSidePanel(props: {
                 </Tabs.List>
                 <Tabs.Content value="changes" class="bg-background-stronger px-3 py-0">
                   <Switch>
-                    <Match when={hasReview()}>
+                    <Match when={props.hasReview() || !props.diffsReady()}>
                       <Show
-                        when={diffsReady()}
+                        when={props.diffsReady()}
                         fallback={
                           <div class="px-2 py-2 text-12-regular text-text-weak">
                             {language.t("common.loading")}
@@ -768,14 +761,10 @@ export function SessionSidePanel(props: {
                         />
                       </Show>
                     </Match>
-                    <Match when={true}>
-                      {empty(
-                        language.t(sync.project && !sync.project.vcs ? "session.review.noChanges" : reviewEmptyKey()),
-                      )}
-                    </Match>
+                    <Match when={true}>{empty(props.empty())}</Match>
                   </Switch>
                 </Tabs.Content>
-                <Tabs.Content value="all" class="bg-background-stronger px-3 py-0 flex flex-col">
+                <Tabs.Content value="all" class="bg-background-stronger px-3 py-0 flex flex-col @container">
                   <div class="flex items-center gap-1 py-1.5 border-b border-border-weak-base">
                     <Tooltip value="在项目根目录新建文件">
                       <button
@@ -784,7 +773,7 @@ export function SessionSidePanel(props: {
                         onClick={() => handleFileCreate("", "file")}
                       >
                         <Icon name="plus-small" size="small" />
-                        新建文件
+                        <span class="hidden @sm:block">新建文件</span>
                       </button>
                     </Tooltip>
                     <Tooltip value="在项目根目录新建文件夹">
@@ -794,7 +783,7 @@ export function SessionSidePanel(props: {
                         onClick={() => handleFileCreate("", "directory")}
                       >
                         <Icon name="folder-add-left" size="small" />
-                        新建文件夹
+                        <span class="hidden @sm:block">新建文件夹</span>
                       </button>
                     </Tooltip>
                     <Tooltip value="为项目所有文件夹生成 .summary 摘要文件">
@@ -805,7 +794,9 @@ export function SessionSidePanel(props: {
                         disabled={isSummarizing()}
                       >
                         <Icon name="bullet-list" size="small" />
-                        {isSummarizing() ? "生成中..." : "生成摘要"}
+                        <span class="hidden @sm:block">
+                          {isSummarizing() ? "生成中..." : "生成摘要"}
+                        </span>
                       </button>
                     </Tooltip>
                     <Tooltip value="刷新项目文件列表">
@@ -815,7 +806,7 @@ export function SessionSidePanel(props: {
                         onClick={handleRefresh}
                       >
                         <Icon name="arrow-down-to-line" size="small" />
-                        刷新
+                        <span class="hidden @sm:block">刷新</span>
                       </button>
                     </Tooltip>
                   </div>
@@ -853,12 +844,10 @@ export function SessionSidePanel(props: {
                   size={layout.fileTree.width()}
                   min={200}
                   max={480}
-                  collapseThreshold={160}
                   onResize={(width) => {
                     props.size.touch()
                     layout.fileTree.resize(width)
                   }}
-                  onCollapse={layout.fileTree.close}
                 />
               </div>
             </Show>

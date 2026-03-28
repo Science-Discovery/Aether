@@ -2,7 +2,14 @@ import { execFile } from "node:child_process"
 import { BrowserWindow, Notification, app, clipboard, dialog, ipcMain, shell } from "electron"
 import type { IpcMainEvent, IpcMainInvokeEvent } from "electron"
 
-import type { InitStep, ServerReadyData, SqliteMigrationProgress, TitlebarTheme, WslConfig } from "../preload/types"
+import type {
+  InitStep,
+  ProxyConfig,
+  ServerReadyData,
+  SqliteMigrationProgress,
+  TitlebarTheme,
+  WslConfig,
+} from "../preload/types"
 import { getStore } from "./store"
 import { setTitlebar } from "./windows"
 
@@ -19,6 +26,8 @@ type Deps = {
   setDefaultServerUrl: (url: string | null) => Promise<void> | void
   getWslConfig: () => Promise<WslConfig>
   setWslConfig: (config: WslConfig) => Promise<void> | void
+  getProxyConfig: () => Promise<ProxyConfig>
+  setProxyConfig: (config: ProxyConfig) => Promise<void> | void
   getDisplayBackend: () => Promise<string | null>
   setDisplayBackend: (backend: string | null) => Promise<void> | void
   parseMarkdown: (markdown: string) => Promise<string> | string
@@ -45,6 +54,8 @@ export function registerIpcHandlers(deps: Deps) {
   )
   ipcMain.handle("get-wsl-config", () => deps.getWslConfig())
   ipcMain.handle("set-wsl-config", (_event: IpcMainInvokeEvent, config: WslConfig) => deps.setWslConfig(config))
+  ipcMain.handle("get-proxy-config", () => deps.getProxyConfig())
+  ipcMain.handle("set-proxy-config", (_event: IpcMainInvokeEvent, config: ProxyConfig) => deps.setProxyConfig(config))
   ipcMain.handle("get-display-backend", () => deps.getDisplayBackend())
   ipcMain.handle("set-display-backend", (_event: IpcMainInvokeEvent, backend: string | null) =>
     deps.setDisplayBackend(backend),
@@ -88,7 +99,7 @@ export function registerIpcHandlers(deps: Deps) {
     "open-directory-picker",
     async (_event: IpcMainInvokeEvent, opts?: { multiple?: boolean; title?: string; defaultPath?: string }) => {
       const result = await dialog.showOpenDialog({
-        properties: ["openDirectory", ...(opts?.multiple ? ["multiSelections" as const] : [])],
+        properties: ["openDirectory", ...(opts?.multiple ? ["multiSelections" as const] : []), "createDirectory"],
         title: opts?.title ?? "Choose a folder",
         defaultPath: opts?.defaultPath,
       })

@@ -11,6 +11,7 @@ import { IconButton } from "@opencode-ai/ui/icon-button"
 import { Tabs } from "@opencode-ai/ui/tabs"
 import { ScrollView } from "@opencode-ai/ui/scroll-view"
 import { showToast } from "@opencode-ai/ui/toast"
+import { Tooltip } from "@opencode-ai/ui/tooltip"
 import { Markdown } from "@opencode-ai/ui/markdown"
 import { CodeEditor } from "@/components/code-editor"
 import { useSDK } from "@/context/sdk"
@@ -562,7 +563,7 @@ export function FileTabContent(props: { tab: string }) {
       )
     }
     return (
-      <div class="relative overflow-hidden pb-40" data-file-content>
+      <div class={`relative overflow-hidden ${isPDF() ? "" : "pb-40"}`} data-file-content>
         <Dynamic
           component={fileComponent}
           mode="text"
@@ -649,14 +650,16 @@ export function FileTabContent(props: { tab: string }) {
               翻译为中文
             </button>
           </Show>
-          <Show when={!isEditing() && isTextFile()}>
-            <IconButton
-              icon="align-right"
-              variant={wordWrap() ? "secondary" : "ghost"}
-              size="small"
-              aria-label="切换换行"
-              onClick={() => setWordWrap((w) => !w)}
-            />
+          <Show when={isTextFile()}>
+            <Tooltip placement="top" gutter={4} value={wordWrap() ? "关闭自动换行" : "开启自动换行"}>
+              <IconButton
+                icon="align-right"
+                variant={wordWrap() ? "secondary" : "ghost"}
+                size="small"
+                aria-label={wordWrap() ? "关闭自动换行" : "开启自动换行"}
+                onClick={() => setWordWrap((w) => !w)}
+              />
+            </Tooltip>
           </Show>
           <Show
             when={isEditing() && isTextFile()}

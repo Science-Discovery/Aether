@@ -23,6 +23,18 @@ export type Config = {
   server?: ServerConfig
 }
 
+export type ProxyConfig = {
+  enabled: boolean
+  http: {
+    host: string
+    port: number
+  }
+  https: {
+    host: string
+    port: number
+  }
+}
+
 export type TerminatedPayload = { code: number | null; signal: number | null }
 
 export type CommandEvent =
@@ -35,8 +47,8 @@ export type CommandEvent =
 export type SqliteMigrationProgress = { type: "InProgress"; value: number } | { type: "Done" }
 
 export type CommandChild = {
-  kill: () => void
   pid?: number
+  kill: () => void
 }
 
 const root = dirname(fileURLToPath(import.meta.url))
@@ -150,11 +162,23 @@ export async function killStaleSidecar(): Promise<void> {
   }
 }
 
-export function serve(hostname: string, port: number, password: string) {
+export function serve(hostname: string, port: number, password: string, proxy: ProxyConfig) {
   const args = `--print-logs --log-level WARN serve --hostname ${hostname} --port ${port}`
+  const http = proxy.http.host.trim() ? `http://${proxy.http.host.trim()}:${proxy.http.port}` : ""
+  const https = proxy.https.host.trim() ? `https://${proxy.https.host.trim()}:${proxy.https.port}` : ""
+  const httpValue = http || https
+  const httpsValue = https || http
   const env = {
     OPENCODE_SERVER_USERNAME: "opencode",
     OPENCODE_SERVER_PASSWORD: password,
+    ...(proxy.enabled && (httpValue || httpsValue)
+      ? {
+          HTTP_PROXY: httpValue,
+          HTTPS_PROXY: httpsValue,
+          http_proxy: httpValue,
+          https_proxy: httpsValue,
+        }
+      : {}),
   }
 
   return spawnCommand(args, env)
@@ -234,7 +258,7 @@ export function spawnCommand(args: string, extraEnv: Record<string, string>) {
     treeKill(child.pid)
   }
 
-  return { events, child: { kill, pid: child.pid }, exit }
+  return { events, child: { pid: child.pid, kill }, exit }
 }
 
 function handleSqliteProgress(events: EventEmitter, line: string) {

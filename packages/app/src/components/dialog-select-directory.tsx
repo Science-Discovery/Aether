@@ -255,6 +255,7 @@ export function DialogSelectDirectory(props: DialogSelectDirectoryProps) {
 
   const [filter, setFilter] = createSignal("")
   const [selectedPath, setSelectedPath] = createSignal<string | null>(null)
+  const [browsing, setBrowsing] = createSignal(false)
   let list: ListRef | undefined
 
   const missingBase = createMemo(() => !(sync.data.path.home || sync.data.path.directory))
@@ -326,7 +327,32 @@ export function DialogSelectDirectory(props: DialogSelectDirectoryProps) {
   return (
     <Dialog title={props.title ?? language.t("command.project.open")}>
       <List
-        search={{ placeholder: language.t("dialog.directory.search.placeholder"), autofocus: true }}
+        search={{
+          placeholder: language.t("dialog.directory.search.placeholder"),
+          autofocus: true,
+          action: (
+            <Button
+              icon="folder"
+              size="small"
+              variant="secondary"
+              disabled={browsing()}
+              onClick={async () => {
+                if (browsing()) return
+                setBrowsing(true)
+                try {
+                  const result = await sdk.client.file.pickFolder()
+                  const picked = result.data?.path
+                  if (picked) {
+                    list?.setFilter(picked)
+                    setSelectedPath(picked)
+                  }
+                } finally {
+                  setBrowsing(false)
+                }
+              }}
+            >{language.t("dialog.newProject.browse")}</Button>
+          ),
+        }}
         emptyMessage={language.t("dialog.directory.empty")}
         loadingMessage={language.t("common.loading")}
         items={items}

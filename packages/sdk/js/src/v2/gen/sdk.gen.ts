@@ -45,9 +45,17 @@ import type {
   FileOpenErrors,
   FileOpenInExplorerErrors,
   FileOpenInExplorerResponses,
+  FilePickFolderResponses,
   FileOpenResponses,
   FilePartInput,
   FilePartSource,
+  FilePdfPageCountErrors,
+  FilePdfPageCountResponses,
+  FilePdfPythonCheckResponses,
+  FilePdfToMarkdownCancelResponses,
+  FilePdfToMarkdownErrors,
+  FilePdfToMarkdownProgressResponses,
+  FilePdfToMarkdownResponses,
   FileReadResponses,
   FileRenameErrors,
   FileRenameResponses,
@@ -65,6 +73,12 @@ import type {
   GlobalDisposeResponses,
   GlobalEventResponses,
   GlobalHealthResponses,
+  GlobalProxyGetResponses,
+  GlobalProxyUpdateErrors,
+  GlobalProxyUpdateResponses,
+  GlobalSyncEventSubscribeResponses,
+  GlobalUpgradeErrors,
+  GlobalUpgradeResponses,
   InstanceDisposeResponses,
   KnowledgeConfigGetResponses,
   KnowledgeConfigSetResponses,
@@ -208,7 +222,13 @@ import type {
   TuiSelectSessionResponses,
   TuiShowToastResponses,
   TuiSubmitPromptResponses,
+  VcsDiffResponses,
   VcsGetResponses,
+  WechatEventsResponses,
+  WechatSessionClearResponses,
+  WechatStartResponses,
+  WechatStatusResponses,
+  WechatStopResponses,
   WorktreeCreateErrors,
   WorktreeCreateInput,
   WorktreeCreateResponses,
@@ -261,6 +281,77 @@ class HeyApiRegistry<T> {
 
   set(value: T, key?: string): void {
     this.instances.set(key ?? this.defaultKey, value)
+  }
+}
+
+export class Proxy extends HeyApiClient {
+  /**
+   * Get proxy configuration
+   *
+   * Get current process-level HTTP/HTTPS proxy configuration.
+   */
+  public get<ThrowOnError extends boolean = false>(options?: Options<never, ThrowOnError>) {
+    return (options?.client ?? this.client).get<GlobalProxyGetResponses, unknown, ThrowOnError>({
+      url: "/global/proxy",
+      ...options,
+    })
+  }
+
+  /**
+   * Update proxy configuration
+   *
+   * Update process-level HTTP/HTTPS proxy configuration.
+   */
+  public update<ThrowOnError extends boolean = false>(
+    parameters?: {
+      enabled?: boolean
+      http?: {
+        host: string
+        port: number
+      }
+      https?: {
+        host: string
+        port: number
+      }
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "body", key: "enabled" },
+            { in: "body", key: "http" },
+            { in: "body", key: "https" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).patch<GlobalProxyUpdateResponses, GlobalProxyUpdateErrors, ThrowOnError>({
+      url: "/global/proxy",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+}
+
+export class SyncEvent extends HeyApiClient {
+  /**
+   * Subscribe to global sync events
+   *
+   * Get global sync events
+   */
+  public subscribe<ThrowOnError extends boolean = false>(options?: Options<never, ThrowOnError>) {
+    return (options?.client ?? this.client).sse.get<GlobalSyncEventSubscribeResponses, unknown, ThrowOnError>({
+      url: "/global/sync-event",
+      ...options,
+    })
   }
 }
 
@@ -337,6 +428,40 @@ export class Global extends HeyApiClient {
       url: "/global/dispose",
       ...options,
     })
+  }
+
+  /**
+   * Upgrade opencode
+   *
+   * Upgrade opencode to the specified version or latest if not specified.
+   */
+  public upgrade<ThrowOnError extends boolean = false>(
+    parameters?: {
+      target?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams([parameters], [{ args: [{ in: "body", key: "target" }] }])
+    return (options?.client ?? this.client).post<GlobalUpgradeResponses, GlobalUpgradeErrors, ThrowOnError>({
+      url: "/global/upgrade",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  private _proxy?: Proxy
+  get proxy(): Proxy {
+    return (this._proxy ??= new Proxy({ client: this.client }))
+  }
+
+  private _syncEvent?: SyncEvent
+  get syncEvent(): SyncEvent {
+    return (this._syncEvent ??= new SyncEvent({ client: this.client }))
   }
 
   private _config?: Config
@@ -2686,7 +2811,9 @@ export class Oauth extends HeyApiClient {
       directory?: string
       workspace?: string
       method?: number
-      inputs?: { [key: string]: string }
+      inputs?: {
+        [key: string]: string
+      }
     },
     options?: Options<never, ThrowOnError>,
   ) {
@@ -3275,6 +3402,36 @@ export class File extends HeyApiClient {
   }
 
   /**
+   * Pick folder
+   *
+   * Open the native OS folder picker dialog and return the selected directory path.
+   */
+  public pickFolder<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<FilePickFolderResponses, unknown, ThrowOnError>({
+      url: "/file/pick-folder",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
    * Add to .gitignore
    *
    * Add a file or directory path to the project's .gitignore file, creating it if necessary.
@@ -3338,6 +3495,218 @@ export class File extends HeyApiClient {
     )
     return (options?.client ?? this.client).get<FileStatusResponses, unknown, ThrowOnError>({
       url: "/file/status",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Get PDF page count
+   *
+   * Get total page count and expected output paths for a PDF file.
+   */
+  public pdfPageCount<ThrowOnError extends boolean = false>(
+    parameters: {
+      directory?: string
+      workspace?: string
+      path: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "query", key: "path" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<FilePdfPageCountResponses, FilePdfPageCountErrors, ThrowOnError>({
+      url: "/file/pdf-page-count",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Check Python availability
+   *
+   * Check if Python + PyMuPDF + Pillow are available for PDF rendering.
+   */
+  public pdfPythonCheck<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<FilePdfPythonCheckResponses, unknown, ThrowOnError>({
+      url: "/file/pdf-python-check",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Start PDF to Markdown conversion
+   *
+   * Start an async PDF to Markdown conversion task.
+   */
+  public pdfToMarkdown<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      path?: string
+      providerID?: string
+      modelID?: string
+      startPage?: number
+      endPage?: number
+      outputMode?: "merged" | "per-page"
+      conflictAction?: "replace" | "rename" | "cancel"
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "path" },
+            { in: "body", key: "providerID" },
+            { in: "body", key: "modelID" },
+            { in: "body", key: "startPage" },
+            { in: "body", key: "endPage" },
+            { in: "body", key: "outputMode" },
+            { in: "body", key: "conflictAction" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<FilePdfToMarkdownResponses, FilePdfToMarkdownErrors, ThrowOnError>({
+      url: "/file/pdf-to-markdown",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Get conversion progress
+   *
+   * SSE endpoint for real-time PDF conversion progress.
+   */
+  public pdfToMarkdownProgress<ThrowOnError extends boolean = false>(
+    parameters: {
+      directory?: string
+      workspace?: string
+      taskID: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "query", key: "taskID" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).sse.get<FilePdfToMarkdownProgressResponses, unknown, ThrowOnError>({
+      url: "/file/pdf-to-markdown/progress",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Cancel PDF conversion
+   *
+   * Cancel a running PDF to Markdown conversion task.
+   */
+  public pdfToMarkdownCancel<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      taskID?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "taskID" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<FilePdfToMarkdownCancelResponses, unknown, ThrowOnError>({
+      url: "/file/pdf-to-markdown/cancel",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+}
+
+export class Event extends HeyApiClient {
+  /**
+   * Subscribe to events
+   *
+   * Get events
+   */
+  public subscribe<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).sse.get<EventSubscribeResponses, unknown, ThrowOnError>({
+      url: "/event",
       ...options,
       ...params,
     })
@@ -4463,6 +4832,165 @@ export class Knowledge extends HeyApiClient {
   }
 }
 
+export class Session3 extends HeyApiClient {
+  /**
+   * Clear WeChat session
+   *
+   * Clear the saved WeChat session
+   */
+  public clear<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).delete<WechatSessionClearResponses, unknown, ThrowOnError>({
+      url: "/wechat/session",
+      ...options,
+      ...params,
+    })
+  }
+}
+
+export class Wechat extends HeyApiClient {
+  /**
+   * Start WeChat bridge
+   *
+   * Start the WeChat bridge service
+   */
+  public start<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<WechatStartResponses, unknown, ThrowOnError>({
+      url: "/wechat/start",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Stop WeChat bridge
+   *
+   * Stop the WeChat bridge service
+   */
+  public stop<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<WechatStopResponses, unknown, ThrowOnError>({
+      url: "/wechat/stop",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Get WeChat status
+   *
+   * Get the current WeChat bridge status
+   */
+  public status<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<WechatStatusResponses, unknown, ThrowOnError>({
+      url: "/wechat/status",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Subscribe to WeChat events
+   *
+   * Get real-time WeChat events via SSE
+   */
+  public events<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).sse.get<WechatEventsResponses, unknown, ThrowOnError>({
+      url: "/wechat/events",
+      ...options,
+      ...params,
+    })
+  }
+
+  private _session?: Session3
+  get session(): Session3 {
+    return (this._session ??= new Session3({ client: this.client }))
+  }
+}
+
 export class Instance extends HeyApiClient {
   /**
    * Dispose instance
@@ -4553,6 +5081,38 @@ export class Vcs extends HeyApiClient {
     )
     return (options?.client ?? this.client).get<VcsGetResponses, unknown, ThrowOnError>({
       url: "/vcs",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Get VCS diff
+   *
+   * Retrieve the current git diff for the working tree or against the default branch.
+   */
+  public diff<ThrowOnError extends boolean = false>(
+    parameters: {
+      directory?: string
+      workspace?: string
+      mode: "git" | "branch"
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "query", key: "mode" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<VcsDiffResponses, unknown, ThrowOnError>({
+      url: "/vcs/diff",
       ...options,
       ...params,
     })
@@ -4762,38 +5322,6 @@ export class Formatter extends HeyApiClient {
   }
 }
 
-export class Event extends HeyApiClient {
-  /**
-   * Subscribe to events
-   *
-   * Get events
-   */
-  public subscribe<ThrowOnError extends boolean = false>(
-    parameters?: {
-      directory?: string
-      workspace?: string
-    },
-    options?: Options<never, ThrowOnError>,
-  ) {
-    const params = buildClientParams(
-      [parameters],
-      [
-        {
-          args: [
-            { in: "query", key: "directory" },
-            { in: "query", key: "workspace" },
-          ],
-        },
-      ],
-    )
-    return (options?.client ?? this.client).sse.get<EventSubscribeResponses, unknown, ThrowOnError>({
-      url: "/event",
-      ...options,
-      ...params,
-    })
-  }
-}
-
 export class OpencodeClient extends HeyApiClient {
   public static readonly __registry = new HeyApiRegistry<OpencodeClient>()
 
@@ -4877,6 +5405,11 @@ export class OpencodeClient extends HeyApiClient {
     return (this._file ??= new File({ client: this.client }))
   }
 
+  private _event?: Event
+  get event(): Event {
+    return (this._event ??= new Event({ client: this.client }))
+  }
+
   private _mcp?: Mcp
   get mcp(): Mcp {
     return (this._mcp ??= new Mcp({ client: this.client }))
@@ -4890,6 +5423,11 @@ export class OpencodeClient extends HeyApiClient {
   private _knowledge?: Knowledge
   get knowledge(): Knowledge {
     return (this._knowledge ??= new Knowledge({ client: this.client }))
+  }
+
+  private _wechat?: Wechat
+  get wechat(): Wechat {
+    return (this._wechat ??= new Wechat({ client: this.client }))
   }
 
   private _instance?: Instance
@@ -4925,10 +5463,5 @@ export class OpencodeClient extends HeyApiClient {
   private _formatter?: Formatter
   get formatter(): Formatter {
     return (this._formatter ??= new Formatter({ client: this.client }))
-  }
-
-  private _event?: Event
-  get event(): Event {
-    return (this._event ??= new Event({ client: this.client }))
   }
 }

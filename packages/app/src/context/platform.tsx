@@ -76,6 +76,12 @@ export type Platform = {
   /** Set the preferred display backend (desktop only) */
   setDisplayBackend?(backend: DisplayBackend): Promise<void>
 
+  /** Get the configured outbound proxy (desktop only) */
+  getProxyConfig?(): Promise<ProxyConfig>
+
+  /** Set the configured outbound proxy (desktop only) */
+  setProxyConfig?(config: ProxyConfig): Promise<void>
+
   /** Parse markdown to HTML using native parser (desktop only, returns unprocessed code blocks) */
   parseMarkdown?(markdown: string): Promise<string>
 
@@ -90,6 +96,18 @@ export type Platform = {
 }
 
 export type DisplayBackend = "auto" | "wayland"
+
+export type ProxyConfig = {
+  enabled: boolean
+  http: {
+    host: string
+    port: number
+  }
+  https: {
+    host: string
+    port: number
+  }
+}
 
 export const { use: usePlatform, provider: PlatformProvider } = createSimpleContext({
   name: "Platform",

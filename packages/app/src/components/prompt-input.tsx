@@ -59,6 +59,8 @@ import { ImagePreview } from "@opencode-ai/ui/image-preview"
 import { FileIcon } from "@opencode-ai/ui/file-icon"
 import { KnowledgeButton } from "@/components/knowledge-button"
 import { DialogDefaultSkills } from "@/components/dialog-default-skills"
+import { DialogWeChat } from "@/components/dialog-wechat"
+import { wechatStatus } from "@/context/wechat"
 
 interface PromptInputProps {
   class?: string
@@ -576,6 +578,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
       const open = recent()
       const seen = new Set(open)
       const pinned: AtOption[] = open.map((path) => ({ type: "file", path, display: path, recent: true }))
+      if (!query.trim()) return [...agents, ...pinned]
       const paths = await files.searchFilesAndDirectories(query)
       const fileOptions: AtOption[] = paths
         .filter((path) => !seen.has(path))
@@ -1047,7 +1050,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     return true
   }
 
-  const { addAttachment, removeAttachment, handlePaste } = createPromptAttachments({
+  const { addAttachments, removeAttachment, handlePaste } = createPromptAttachments({
     editor: () => editorRef,
     isDialogActive: () => !!dialog.active,
     setDraggingType: (type) => setStore("draggingType", type),
@@ -1424,11 +1427,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
               class="hidden"
               onChange={(e) => {
                 const list = e.currentTarget.files
-                if (list) {
-                  for (const file of Array.from(list)) {
-                    void addAttachment(file)
-                  }
-                }
+                if (list) void addAttachments(Array.from(list))
                 e.currentTarget.value = ""
               }}
             />
@@ -1537,7 +1536,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                         >
                           <Show when={local.model.current()?.provider?.id}>
                             <ProviderIcon
-                              id={local.model.current()!.provider.id}
+                              id={local.model.current()?.provider?.id ?? ""}
                               class="size-4 shrink-0 opacity-40 group-hover:opacity-100 transition-opacity duration-150"
                               style={{ "will-change": "opacity", transform: "translateZ(0)" }}
                             />
@@ -1569,7 +1568,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                       >
                         <Show when={local.model.current()?.provider?.id}>
                           <ProviderIcon
-                            id={local.model.current()!.provider.id}
+                            id={local.model.current()?.provider?.id ?? ""}
                             class="size-4 shrink-0 opacity-40 group-hover:opacity-100 transition-opacity duration-150"
                             style={{ "will-change": "opacity", transform: "translateZ(0)" }}
                           />
@@ -1644,6 +1643,28 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                     aria-label="默认 Skills"
                   >
                     <Icon name="bullet-list" class="size-4" />
+                  </Button>
+                </Tooltip>
+                <Tooltip placement="top" gutter={4} value="微信连接">
+                  <Button
+                    variant="ghost"
+                    size="normal"
+                    class="h-7 px-2 flex items-center gap-1 text-icon-weak"
+                    onClick={() => dialog.show(() => <DialogWeChat />)}
+                    aria-label="微信连接"
+                  >
+                    <Icon
+                      name="wechat"
+                      class={
+                        wechatStatus() === "connected"
+                          ? "size-4 text-green-500"
+                          : wechatStatus() === "loading" || wechatStatus() === "qrcode"
+                            ? "size-4 text-yellow-500 animate-pulse"
+                            : wechatStatus() === "error"
+                              ? "size-4 text-red-500"
+                              : "size-4 text-icon-weak"
+                      }
+                    />
                   </Button>
                 </Tooltip>
               </div>
