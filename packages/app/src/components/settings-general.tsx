@@ -383,6 +383,26 @@ export const SettingsGeneral: Component = () => {
             triggerStyle={{ "min-width": "180px" }}
           />
         </SettingsRow>
+
+        <SettingsRow
+          title={language.t("settings.general.row.reviewBatch.title")}
+          description={language.t("settings.general.row.reviewBatch.description")}
+        >
+          <TextField
+            data-action="settings-review-batch"
+            type="number"
+            min="1"
+            step="1"
+            inputMode="numeric"
+            value={`${settings.general.reviewBatch()}`}
+            onChange={(value) => {
+              const next = Number.parseInt(value, 10)
+              if (!Number.isInteger(next) || next < 1) return
+              settings.general.setReviewBatch(next)
+            }}
+            class="w-24"
+          />
+        </SettingsRow>
       </SettingsList>
     </div>
   )
