@@ -1,14 +1,15 @@
 @echo off
 setlocal
 
-set "ROOT=%~dp0"
+for %%i in ("%~dp0..") do set "ROOT=%%~fi"
 if "%~1"=="" (
   for /f %%i in ('cd /d "%ROOT%" ^& bun -e "const p=await Bun.file('packages/opencode/package.json').json();console.log(p.version)"') do set "VERSION=%%i"
 ) else (
   set "VERSION=%~1"
 )
 
-cd /d "%ROOT%packages\opencode" || exit /b 1
+cd /d "%ROOT%\packages\opencode" || exit /b 1
+call bun install || exit /b 1
 call bun run build -- --single || exit /b 1
 
 set "SRC=%CD%\dist\aether-windows-x64\bin"
@@ -18,9 +19,18 @@ if not exist "%SRC%" (
 )
 
 set "UV=%SRC%\wechat-bridge\runtime\uv"
+set "UPD=%ROOT%\Update\update_windows_web.bat"
 if exist "%UV%" (
   powershell -NoProfile -Command "& { $uv=$env:UV; Get-ChildItem -Path $uv -Directory | Where-Object { $_.Name -notlike '*x86_64-pc-windows-msvc*' } | Remove-Item -Recurse -Force }" || exit /b 1
 )
+
+if not exist "%UPD%" (
+  echo Missing updater script: %UPD%
+  exit /b 1
+)
+
+copy /y "%UPD%" "%SRC%\update_windows_web.bat" >nul || exit /b 1
+powershell -NoProfile -Command "& { Set-Content -Path (Join-Path $env:SRC '.aether_web_version') -Value $env:VERSION -Encoding utf8NoBOM }" || exit /b 1
 
 set "ZIP=%CD%\dist\aether-windows-x64-web.zip"
 if exist "%ZIP%" del /f /q "%ZIP%"
@@ -36,3 +46,4 @@ powershell -NoProfile -Command "& { $art=$env:ART; $ver=$env:VERSION; $yml=$env:
 echo Done
 echo Asset: %ZIP%
 echo YML:   %YML%
+echo Note:  Package includes update_windows_web.bat

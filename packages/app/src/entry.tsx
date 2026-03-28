@@ -97,6 +97,12 @@ const writeProxy = (proxy: {
   https: { host: string; port: number }
 }) => setStorage(PROXY_KEY, JSON.stringify(proxy))
 
+const hosted = (proxy: { http: { host: string }; https: { host: string } }) =>
+  !!(proxy.http.host.trim() || proxy.https.host.trim())
+
+const empty = (proxy: { enabled: boolean; http: { host: string }; https: { host: string } }) =>
+  !proxy.enabled && !hosted(proxy)
+
 const notify: Platform["notify"] = async (title, description, href) => {
   if (!("Notification" in window)) return
 
@@ -150,6 +156,7 @@ const getCurrentUrl = () => {
 }
 
 const getDefaultUrl = () => {
+  if (import.meta.env.DEV) return getCurrentUrl()
   const lsDefault = readDefaultServerUrl()
   if (lsDefault) return lsDefault
   return getCurrentUrl()
@@ -176,21 +183,29 @@ const platform: Platform = {
   setDefaultServer: writeDefaultServerUrl,
   getProxyConfig: async () => {
     const local = readProxy()
+    const fallback = local ?? {
+      enabled: false,
+      http: { host: "", port: 8080 },
+      https: { host: "", port: 8080 },
+    }
+
     return req("/global/proxy")
       .then((res) => res.json())
-      .then((next) => {
+      .then(async (next) => {
+        if (local && empty(next)) {
+          writeProxy(local)
+          if (!local.enabled || !hosted(local)) return local
+          await req("/global/proxy", {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(local),
+          }).catch(() => undefined)
+          return local
+        }
         writeProxy(next)
         return next
       })
-      .catch(() => {
-        return (
-          local ?? {
-            enabled: false,
-            http: { host: "", port: 8080 },
-            https: { host: "", port: 8080 },
-          }
-        )
-      })
+      .catch(() => fallback)
   },
   setProxyConfig: async (config) => {
     await req("/global/proxy", {

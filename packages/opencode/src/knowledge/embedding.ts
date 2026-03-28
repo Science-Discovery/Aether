@@ -36,6 +36,121 @@ export const EMBEDDING_MODELS: EmbeddingModelInfo[] = [
 // Embedding 批量大小限制（大多数 API 限制为 100）
 const EMBEDDING_BATCH_SIZE = 100
 
+type EmbeddingResponse = {
+  data?: Array<{
+    index?: number
+    embedding?: unknown
+  }>
+  error?:
+    | {
+        message?: string
+      }
+    | string
+}
+
+class ReqError extends Error {
+  status: number
+  url: string
+
+  constructor(message: string, status: number, url: string) {
+    super(message)
+    this.name = "ReqError"
+    this.status = status
+    this.url = url
+  }
+}
+
+function trimURL(url: string) {
+  return url.replace(/\/+$/, "")
+}
+
+function listURLs(baseURL: string) {
+  const base = trimURL(baseURL)
+  const list = [`${base}/embeddings`]
+  if (/\/v\d+$/.test(base)) {
+    list.push(`${base.replace(/\/v\d+$/, "")}/embeddings`)
+  } else {
+    list.push(`${base}/v1/embeddings`)
+  }
+  return Array.from(new Set(list))
+}
+
+function getError(data: EmbeddingResponse | null) {
+  if (!data?.error) return ""
+  if (typeof data.error === "string") return data.error
+  return data.error.message || ""
+}
+
+async function callEmbedding(opts: { url: string; apiKey: string; model: string; input: string | string[] }) {
+  const response = await fetch(opts.url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${opts.apiKey}`,
+    },
+    body: JSON.stringify({
+      input: opts.input,
+      model: opts.model,
+    }),
+    signal: AbortSignal.timeout(30000),
+  })
+
+  const text = await response.text()
+  const type = response.headers.get("content-type") || ""
+  const data = text && type.includes("application/json") ? (JSON.parse(text) as EmbeddingResponse) : null
+
+  if (response.ok) {
+    if (!data) {
+      throw new ReqError(
+        `Embedding API returned empty body (${response.status} ${response.statusText}) at ${opts.url}`,
+        response.status,
+        opts.url,
+      )
+    }
+    return data
+  }
+
+  const msg = getError(data) || text
+  if (msg) {
+    throw new ReqError(
+      `Embedding API failed (${response.status} ${response.statusText}) at ${opts.url}: ${msg}`,
+      response.status,
+      opts.url,
+    )
+  }
+
+  throw new ReqError(
+    `Embedding API failed (${response.status} ${response.statusText}) at ${opts.url} with empty response body`,
+    response.status,
+    opts.url,
+  )
+}
+
+function pick(err: Error | undefined, next: Error) {
+  if (!err) return next
+  if (!(err instanceof ReqError) || !(next instanceof ReqError)) return next
+  const a = err.status === 404 || err.status === 405
+  const b = next.status === 404 || next.status === 405
+  if (a && !b) return next
+  return err
+}
+
+function limit(msg: string) {
+  const m = msg.match(/larger than\s+(\d+)/i) || msg.match(/batch size[^\d]*(\d+)/i)
+  if (!m) return
+  const n = Number(m[1])
+  if (!Number.isFinite(n) || n < 1) return
+  return Math.floor(n)
+}
+
+function getVector(data: EmbeddingResponse, url: string) {
+  const vec = data.data?.[0]?.embedding
+  if (Array.isArray(vec)) {
+    return vec
+  }
+  throw new Error(`Invalid embedding response at ${url}: missing data[0].embedding array`)
+}
+
 // OpenAI 嵌入实现
 export class OpenAIEmbedder implements Embedder {
   readonly name: string
@@ -122,36 +237,49 @@ export class CustomEmbedder implements Embedder {
 
   async embed(texts: string[]): Promise<Float32Array[]> {
     const allEmbeddings: Float32Array[] = []
+    const urls = listURLs(this.baseURL)
+    let size = EMBEDDING_BATCH_SIZE
 
     // 分批处理，每批最多 EMBEDDING_BATCH_SIZE 个
-    for (let i = 0; i < texts.length; i += EMBEDDING_BATCH_SIZE) {
-      const batch = texts.slice(i, i + EMBEDDING_BATCH_SIZE)
+    for (let i = 0; i < texts.length; ) {
+      const batch = texts.slice(i, i + size)
 
-      const response = await fetch(`${this.baseURL}/embeddings`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${this.apiKey}`,
-        },
-        body: JSON.stringify({
-          input: batch,
-          model: this.model,
-        }),
-        signal: AbortSignal.timeout(30000),
-      })
-
-      if (!response.ok) {
-        const error = await response.text()
-        throw new Error(`Custom embedding failed: ${error}`)
+      let data: EmbeddingResponse | undefined
+      let err: Error | undefined
+      const tried: string[] = []
+      for (const url of urls) {
+        tried.push(url)
+        try {
+          data = await callEmbedding({
+            url,
+            apiKey: this.apiKey,
+            model: this.model,
+            input: batch,
+          })
+          break
+        } catch (e) {
+          err = pick(err, e instanceof Error ? e : new Error(String(e)))
+        }
       }
 
-      const data = await response.json()
+      if (!data) {
+        const cap = err ? limit(err.message) : undefined
+        if (cap && cap < size) {
+          size = cap
+          continue
+        }
+        throw new Error(`Custom embedding failed: ${err?.message || "request failed"}. Tried: ${tried.join(", ")}`)
+      }
 
-      // 按 index 排序确保顺序正确
-      const sortedData = data.data.sort((a: any, b: any) => a.index - b.index)
+      const sortedData = (data.data || []).sort((a, b) => (a.index || 0) - (b.index || 0))
       for (const item of sortedData) {
+        if (!Array.isArray(item.embedding)) {
+          throw new Error("Custom embedding failed: response contains invalid embedding vector")
+        }
         allEmbeddings.push(new Float32Array(item.embedding))
       }
+
+      i += batch.length
     }
 
     return allEmbeddings
@@ -165,7 +293,9 @@ export class LocalEmbedder implements Embedder {
   readonly dimensions: number
 
   private model: string
-  private extractor: ((text: string, opts: { pooling: string; normalize: boolean }) => Promise<{ data: number[] }>) | null = null
+  private extractor:
+    | ((text: string, opts: { pooling: string; normalize: boolean }) => Promise<{ data: number[] }>)
+    | null = null
   private initPromise: Promise<void> | null = null
 
   constructor(opts: { model: string; dimensions: number }) {
@@ -277,7 +407,7 @@ export async function detectDimensions(opts: {
   baseURL?: string
 }): Promise<number> {
   const testText = "test"
-  
+
   switch (opts.provider) {
     case "openai": {
       if (!opts.apiKey) {
@@ -303,31 +433,36 @@ export async function detectDimensions(opts: {
       const data = await response.json()
       return data.data[0].embedding.length
     }
-    
+
     case "custom": {
       if (!opts.apiKey || !opts.baseURL) {
         throw new Error("Custom embedding requires API key and base URL")
       }
-      const response = await fetch(`${opts.baseURL}/embeddings`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${opts.apiKey}`,
-        },
-        body: JSON.stringify({
-          input: testText,
-          model: opts.model,
-        }),
-        signal: AbortSignal.timeout(30000),
-      })
-      if (!response.ok) {
-        const error = await response.text()
-        throw new Error(`Failed to detect dimensions: ${error}`)
+      let err: Error | undefined
+      const urls = listURLs(opts.baseURL)
+      const inputs: Array<string | string[]> = [testText, [testText]]
+      const tried: string[] = []
+
+      for (const url of urls) {
+        for (const input of inputs) {
+          tried.push(`${url} (input: ${Array.isArray(input) ? "string[]" : "string"})`)
+          try {
+            const data = await callEmbedding({
+              url,
+              apiKey: opts.apiKey,
+              model: opts.model,
+              input,
+            })
+            return getVector(data, url).length
+          } catch (e) {
+            err = pick(err, e instanceof Error ? e : new Error(String(e)))
+          }
+        }
       }
-      const data = await response.json()
-      return data.data[0].embedding.length
+
+      throw new Error(`Failed to detect dimensions: ${err?.message || "request failed"}. Tried: ${tried.join(", ")}`)
     }
-    
+
     case "local": {
       // 本地模型需要加载后才能检测
       try {
@@ -342,7 +477,7 @@ export async function detectDimensions(opts: {
         throw new Error(`Failed to detect dimensions for local model: ${e?.message || e}`)
       }
     }
-    
+
     default:
       throw new Error(`Unknown embedding provider: ${opts.provider}`)
   }

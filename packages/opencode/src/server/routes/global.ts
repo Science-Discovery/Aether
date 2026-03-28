@@ -112,12 +112,13 @@ export const GlobalRoutes = lazy(() =>
         },
       }),
       async (c) => {
+        const all = parseProxy(process.env.ALL_PROXY ?? process.env.all_proxy)
         const http = parseProxy(process.env.HTTP_PROXY ?? process.env.http_proxy)
         const https = parseProxy(process.env.HTTPS_PROXY ?? process.env.https_proxy)
         return c.json({
-          enabled: !!(http.host || https.host),
-          http,
-          https,
+          enabled: !!(http.host || https.host || all.host),
+          http: http.host ? http : all,
+          https: https.host ? https : all,
         })
       },
     )
@@ -145,19 +146,23 @@ export const GlobalRoutes = lazy(() =>
         if (!config.enabled) {
           delete process.env.HTTP_PROXY
           delete process.env.HTTPS_PROXY
+          delete process.env.ALL_PROXY
           delete process.env.http_proxy
           delete process.env.https_proxy
+          delete process.env.all_proxy
           return c.json(config)
         }
         const http = config.http.host.trim() ? `http://${config.http.host.trim()}:${config.http.port}` : ""
-        const https = config.https.host.trim() ? `https://${config.https.host.trim()}:${config.https.port}` : ""
+        const https = config.https.host.trim() ? `http://${config.https.host.trim()}:${config.https.port}` : ""
         if (!http && !https) return c.json({ error: "Proxy host is required for HTTP or HTTPS" }, 400)
         const httpValue = http || https
         const httpsValue = https || http
         process.env.HTTP_PROXY = httpValue
         process.env.HTTPS_PROXY = httpsValue
+        process.env.ALL_PROXY = httpsValue
         process.env.http_proxy = httpValue
         process.env.https_proxy = httpsValue
+        process.env.all_proxy = httpsValue
         return c.json({
           ...config,
           http: {

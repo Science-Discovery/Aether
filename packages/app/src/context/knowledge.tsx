@@ -58,6 +58,30 @@ export interface KnowledgeSearchResult {
   score: number
 }
 
+export interface KnowledgeDocument {
+  id: string
+  filePath: string
+  fileName: string
+  fileSize: number
+  pageCount?: number
+  status: string
+}
+
+interface KnowledgeIndexData {
+  config: {
+    embeddingProvider: "openai" | "local" | "custom"
+    embeddingModel: string
+    embeddingDimensions: number
+    apiKey?: string
+    baseURL?: string
+  }
+  documents: Array<{ meta: KnowledgeDocument }>
+  stats: {
+    totalDocuments: number
+    lastSyncedAt?: number
+  }
+}
+
 // 嵌入模型信息
 export interface EmbeddingModel {
   id: string
@@ -85,11 +109,23 @@ interface KnowledgeContextValue {
   addKnowledgeBase: (config: Omit<KnowledgeConfig, "id">) => string
   updateKnowledgeBase: (id: string, config: Partial<KnowledgeConfig>) => void
   removeKnowledgeBase: (id: string) => Promise<void>
-  loadKnowledgeBase: (path: string) => Promise<any | null>
+  loadKnowledgeBase: (path: string) => Promise<KnowledgeIndexData | null>
   createKnowledgeBase: (config: KnowledgeConfig) => Promise<any>
   syncKnowledgeBase: (id?: string) => Promise<{ added: number; updated: number; removed: number; errors?: string[] }>
   syncAllActive: () => Promise<void>
   stopSync: () => void
+  listDocuments: (id: string) => Promise<KnowledgeDocument[]>
+  removeDocument: (id: string, documentId: string) => Promise<void>
+  importDocument: (id: string, filePath: string) => Promise<{ added: number; skipped: number; errors: string[] }>
+  updateEmbeddingConfig: (
+    id: string,
+    cfg: {
+      embeddingProvider: "openai" | "local" | "custom"
+      embeddingModel: string
+      apiKey?: string
+      baseURL?: string
+    },
+  ) => Promise<void>
   search: (query: string, topK?: number) => Promise<KnowledgeSearchResult[]>
   buildRAGContext: (results: KnowledgeSearchResult[], maxLength?: number) => string
   refreshAllStats: () => Promise<void>
@@ -115,10 +151,7 @@ export const KnowledgeProvider: Component<{ children: JSX.Element }> = (props) =
   const sdk = useGlobalSDK()
   const server = useServer()
 
-  const [state, setState] = persisted(
-    Persist.global("knowledge-state"),
-    createStore<KnowledgeState>(DEFAULT_STATE),
-  )
+  const [state, setState] = persisted(Persist.global("knowledge-state"), createStore<KnowledgeState>(DEFAULT_STATE))
 
   const [models] = createSignal<EmbeddingModel[]>([
     {
@@ -154,7 +187,7 @@ export const KnowledgeProvider: Component<{ children: JSX.Element }> = (props) =
 
   const activeKnowledgeBases = () => {
     const ids = state.activeIds
-    return state.knowledgeBases.filter(kb => ids.includes(kb.id))
+    return state.knowledgeBases.filter((kb) => ids.includes(kb.id))
   }
 
   const knowledgeBases = () => state.knowledgeBases
@@ -166,7 +199,10 @@ export const KnowledgeProvider: Component<{ children: JSX.Element }> = (props) =
   const toggleActive = (id: string) => {
     const current = state.activeIds
     if (current.includes(id)) {
-      setState("activeIds", current.filter(aid => aid !== id))
+      setState(
+        "activeIds",
+        current.filter((aid) => aid !== id),
+      )
     } else {
       setState("activeIds", [...current, id])
     }
@@ -184,7 +220,7 @@ export const KnowledgeProvider: Component<{ children: JSX.Element }> = (props) =
   }
 
   const updateKnowledgeBase = (id: string, config: Partial<KnowledgeConfig>) => {
-    const index = state.knowledgeBases.findIndex(kb => kb.id === id)
+    const index = state.knowledgeBases.findIndex((kb) => kb.id === id)
     if (index === -1) return
     setState("knowledgeBases", index, { ...state.knowledgeBases[index], ...config })
   }
@@ -234,7 +270,7 @@ export const KnowledgeProvider: Component<{ children: JSX.Element }> = (props) =
     }
   })
 
-  const loadKnowledgeBase = async (path: string) => {
+  const loadKnowledgeBase = async (path: string): Promise<KnowledgeIndexData | null> => {
     const encodedPath = encodeURIComponent(path)
     const response = await fetchApi(`/knowledge/${encodedPath}`, {
       method: "GET",
@@ -247,7 +283,7 @@ export const KnowledgeProvider: Component<{ children: JSX.Element }> = (props) =
     return response.json()
   }
 
-  const createKnowledgeBase = async (cfg: KnowledgeConfig) => {
+  const createKnowledgeBase = async (cfg: KnowledgeConfig): Promise<KnowledgeIndexData> => {
     const response = await fetchApi("/knowledge", {
       method: "POST",
       body: JSON.stringify({
@@ -277,7 +313,7 @@ export const KnowledgeProvider: Component<{ children: JSX.Element }> = (props) =
       throw new Error("No knowledge base selected")
     }
 
-    const kb = state.knowledgeBases.find(k => k.id === targetId)
+    const kb = state.knowledgeBases.find((k) => k.id === targetId)
     if (!kb) {
       throw new Error("Knowledge base not found")
     }
@@ -303,9 +339,14 @@ export const KnowledgeProvider: Component<{ children: JSX.Element }> = (props) =
 
     const response = await fetch(`${baseUrl}/knowledge/${encodedPath}/sync`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", ...(server.current?.http?.password
-        ? { Authorization: `Basic ${btoa(`${server.current.http.username ?? "opencode"}:${server.current.http.password}`)}` }
-        : {}) } as Record<string, string>,
+      headers: {
+        "Content-Type": "application/json",
+        ...(server.current?.http?.password
+          ? {
+              Authorization: `Basic ${btoa(`${server.current.http.username ?? "opencode"}:${server.current.http.password}`)}`,
+            }
+          : {}),
+      } as Record<string, string>,
       body: JSON.stringify({
         apiKey: kb.apiKey,
         baseURL: kb.baseURL,
@@ -381,6 +422,92 @@ export const KnowledgeProvider: Component<{ children: JSX.Element }> = (props) =
     }
   }
 
+  const listDocuments = async (id: string): Promise<KnowledgeDocument[]> => {
+    const kb = state.knowledgeBases.find((item) => item.id === id)
+    if (!kb) return []
+    const index = await loadKnowledgeBase(kb.path)
+    if (!index?.documents) return []
+    return index.documents.map((item) => item.meta)
+  }
+
+  const removeDocument = async (id: string, documentId: string) => {
+    const kb = state.knowledgeBases.find((item) => item.id === id)
+    if (!kb) {
+      throw new Error("Knowledge base not found")
+    }
+    const encodedPath = encodeURIComponent(kb.path)
+    const response = await fetchApi(`/knowledge/${encodedPath}/document/${encodeURIComponent(documentId)}`, {
+      method: "DELETE",
+    })
+
+    if (!response.ok) {
+      const error = await response.text()
+      throw new Error(`Failed to remove document: ${error}`)
+    }
+
+    const index = await response.json()
+    updateKnowledgeBase(id, {
+      documentCount: index.stats.totalDocuments,
+      syncedAt: index.stats.lastSyncedAt,
+    })
+  }
+
+  const importDocument = async (id: string, filePath: string) => {
+    const kb = state.knowledgeBases.find((item) => item.id === id)
+    if (!kb) {
+      throw new Error("Knowledge base not found")
+    }
+    const encodedPath = encodeURIComponent(kb.path)
+    const response = await fetchApi(`/knowledge/${encodedPath}/import`, {
+      method: "POST",
+      body: JSON.stringify({ paths: [filePath] }),
+    })
+
+    if (!response.ok) {
+      const error = await response.text()
+      throw new Error(`Failed to import document: ${error}`)
+    }
+
+    return response.json() as Promise<{ added: number; skipped: number; errors: string[] }>
+  }
+
+  const updateEmbeddingConfig = async (
+    id: string,
+    cfg: {
+      embeddingProvider: "openai" | "local" | "custom"
+      embeddingModel: string
+      apiKey?: string
+      baseURL?: string
+    },
+  ) => {
+    const kb = state.knowledgeBases.find((item) => item.id === id)
+    if (!kb) {
+      throw new Error("Knowledge base not found")
+    }
+
+    const encodedPath = encodeURIComponent(kb.path)
+    const response = await fetchApi(`/knowledge/${encodedPath}/config`, {
+      method: "PATCH",
+      body: JSON.stringify(cfg),
+    })
+
+    if (!response.ok) {
+      const error = await response.text()
+      throw new Error(`Failed to update embedding config: ${error}`)
+    }
+
+    const index = await response.json()
+    updateKnowledgeBase(id, {
+      embeddingProvider: index.config.embeddingProvider,
+      embeddingModel: index.config.embeddingModel,
+      embeddingDimensions: index.config.embeddingDimensions,
+      apiKey: index.config.apiKey,
+      baseURL: index.config.baseURL,
+      documentCount: index.stats.totalDocuments,
+      syncedAt: index.stats.lastSyncedAt,
+    })
+  }
+
   const search = async (query: string, topK: number = 5): Promise<KnowledgeSearchResult[]> => {
     const kbs = activeKnowledgeBases()
     if (kbs.length === 0) {
@@ -415,7 +542,7 @@ export const KnowledgeProvider: Component<{ children: JSX.Element }> = (props) =
     const targetId = id ?? (state.activeIds.length > 0 ? state.activeIds[0] : null)
     if (!targetId) return
 
-    const kb = state.knowledgeBases.find(k => k.id === targetId)
+    const kb = state.knowledgeBases.find((k) => k.id === targetId)
     if (!kb) return
 
     const encodedPath = encodeURIComponent(kb.path)
@@ -428,9 +555,12 @@ export const KnowledgeProvider: Component<{ children: JSX.Element }> = (props) =
       throw new Error(`Failed to remove knowledge base: ${error}`)
     }
 
-    const newIndex = state.knowledgeBases.filter(k => k.id !== targetId)
+    const newIndex = state.knowledgeBases.filter((k) => k.id !== targetId)
     setState("knowledgeBases", newIndex)
-    setState("activeIds", state.activeIds.filter(aid => aid !== targetId))
+    setState(
+      "activeIds",
+      state.activeIds.filter((aid) => aid !== targetId),
+    )
   }
 
   const buildRAGContext = (results: KnowledgeSearchResult[], maxLength: number = 4000): string => {
@@ -477,6 +607,10 @@ export const KnowledgeProvider: Component<{ children: JSX.Element }> = (props) =
     syncKnowledgeBase,
     syncAllActive,
     stopSync,
+    listDocuments,
+    removeDocument,
+    importDocument,
+    updateEmbeddingConfig,
     search,
     buildRAGContext,
     refreshAllStats,
@@ -484,9 +618,5 @@ export const KnowledgeProvider: Component<{ children: JSX.Element }> = (props) =
     saveLastConfig,
   }
 
-  return (
-    <KnowledgeContext.Provider value={value}>
-      {props.children}
-    </KnowledgeContext.Provider>
-  )
+  return <KnowledgeContext.Provider value={value}>{props.children}</KnowledgeContext.Provider>
 }

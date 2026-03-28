@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-root="$(cd "$(dirname "$0")" && pwd)"
+root="$(cd "$(dirname "$0")/.." && pwd)"
 ver="${1:-$(cd "$root" && bun -e 'const p=await Bun.file("packages/opencode/package.json").json();console.log(p.version)')}"
 date="$(date -u +"%Y-%m-%dT%H:%M:%S.000Z")"
 
 pushd "$root/packages/opencode" >/dev/null
+bun install
 bun run build -- --single
 
 src="dist/aether-linux-x64/bin"
@@ -15,6 +16,8 @@ if [ ! -d "$src" ]; then
 fi
 
 uv="$src/wechat-bridge/runtime/uv"
+upd="$root/Update/update_linux_web.sh"
+
 if [ -d "$uv" ]; then
   for dir in "$uv"/*; do
     [ -d "$dir" ] || continue
@@ -24,6 +27,15 @@ if [ -d "$uv" ]; then
     esac
   done
 fi
+
+if [ ! -f "$upd" ]; then
+  echo "Missing updater script: $upd"
+  exit 1
+fi
+
+cp "$upd" "$src/update_linux_web.sh"
+chmod +x "$src/update_linux_web.sh"
+printf "%s\n" "$ver" >"$src/.aether_web_version"
 
 zip="dist/aether-linux-x64-web.zip"
 rm -f "$zip"
@@ -46,3 +58,4 @@ popd >/dev/null
 echo "Done"
 echo "Asset: packages/opencode/$zip"
 echo "YML:   packages/opencode/dist/latest-web-linux.yml"
+echo "Note:  Package includes update_linux_web.sh"

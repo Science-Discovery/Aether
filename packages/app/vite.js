@@ -7,13 +7,19 @@ import { homedir } from "os"
 
 function readServePort() {
   if (process.env.VITE_OPENCODE_SERVER_PORT) return process.env.VITE_OPENCODE_SERVER_PORT
-  const xdg = process.env.XDG_DATA_HOME || join(homedir(), ".local", "share")
-  const portfile = join(xdg, "opencode", "serve-port")
-  try {
-    return readFileSync(portfile, "utf-8").trim()
-  } catch {
-    return undefined
+  const dirs = [
+    process.env.XDG_DATA_HOME,
+    join(homedir(), ".local", "share"),
+    join(homedir(), "Library", "Application Support"),
+  ].filter((x) => typeof x === "string" && x.length > 0)
+  for (const dir of dirs) {
+    const file = join(dir, "opencode", "serve-port")
+    try {
+      const port = readFileSync(file, "utf-8").trim()
+      if (port) return port
+    } catch {}
   }
+  return undefined
 }
 
 const theme = fileURLToPath(new URL("./public/oc-theme-preload.js", import.meta.url))

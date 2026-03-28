@@ -1,23 +1,30 @@
-import { Component, Show, createSignal } from "solid-js"
+import { Component } from "solid-js"
 import { Button } from "@opencode-ai/ui/button"
 import { Icon } from "@opencode-ai/ui/icon"
 import { Tooltip } from "@opencode-ai/ui/tooltip"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { KnowledgeDialog } from "./knowledge-dialog"
 import { useKnowledge } from "@/context/knowledge"
-import { useLanguage } from "@/context/language"
 
 export const KnowledgeButton: Component = () => {
   const knowledge = useKnowledge()
   const dialog = useDialog()
-  const language = useLanguage()
+
+  const label = () => {
+    const list = knowledge.activeKnowledgeBases()
+    if (list.length === 0) {
+      return "知识库：无"
+    }
+    const text = list.map((kb) => `${kb.name}(${kb.pdfFileCount ?? kb.documentCount ?? 0})`).join(", ")
+    return `知识库：${text}`
+  }
 
   const handleClick = () => {
     dialog.show(() => <KnowledgeDialog />)
   }
 
   return (
-    <Tooltip placement="top" gutter={4} value={language.t("knowledge.title")}>
+    <Tooltip placement="top" gutter={4} value={<span>{label()}</span>}>
       <Button
         variant="ghost"
         size="normal"

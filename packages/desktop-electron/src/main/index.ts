@@ -284,7 +284,22 @@ registerIpcHandlers({
   getWslConfig: () => Promise.resolve(getWslConfig()),
   setWslConfig: (config: WslConfig) => setWslConfig(config),
   getProxyConfig: () => Promise.resolve(getProxyConfig()),
-  setProxyConfig: (config) => setProxyConfig(config),
+  setProxyConfig: async (config) => {
+    setProxyConfig(config)
+    const data = await serverReady.promise.catch(() => null)
+    if (!data) return
+    if (!data.username || !data.password) return
+    const auth = Buffer.from(`${data.username}:${data.password}`).toString("base64")
+    await fetch(new URL("/global/proxy", data.url), {
+      method: "PATCH",
+      headers: {
+        authorization: `Basic ${auth}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify(config),
+      signal: AbortSignal.timeout(3000),
+    }).catch(() => undefined)
+  },
   getDisplayBackend: async () => null,
   setDisplayBackend: async () => undefined,
   parseMarkdown: async (markdown) => parseMarkdown(markdown),

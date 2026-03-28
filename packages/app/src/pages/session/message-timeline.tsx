@@ -31,6 +31,7 @@ import { useSync } from "@/context/sync"
 import { messageAgentColor } from "@/utils/agent"
 import { parseCommentNote, readCommentMetadata } from "@/utils/comment-note"
 import { makeTimer } from "@solid-primitives/timer"
+import { createChatFind, ChatFindBar } from "@/pages/session/chat-find"
 
 type MessageComment = {
   path: string
@@ -220,6 +221,7 @@ export function MessageTimeline(props: {
   anchor: (id: string) => string
 }) {
   let touchGesture: number | undefined
+  let log: HTMLDivElement | undefined
 
   const navigate = useNavigate()
   const globalSDK = useGlobalSDK()
@@ -302,6 +304,16 @@ export function MessageTimeline(props: {
     messages: () => props.renderedUserMessages,
     config: stageCfg,
   })
+  const find = createChatFind({
+    root: () => log,
+    active: () => !props.mobileChanges,
+  })
+  const findText = createMemo(() => ({
+    placeholder: language.t("ui.fileSearch.placeholder"),
+    prev: language.t("ui.fileSearch.previousMatch"),
+    next: language.t("ui.fileSearch.nextMatch"),
+    close: language.t("ui.fileSearch.close"),
+  }))
 
   const [title, setTitle] = createStore({
     draft: "",
@@ -565,6 +577,9 @@ export function MessageTimeline(props: {
       fallback={<div class="relative h-full overflow-hidden">{props.mobileFallback}</div>}
     >
       <div class="relative w-full h-full min-w-0">
+        <Show when={find.open()}>
+          <ChatFindBar find={find} text={findText()} />
+        </Show>
         <div
           class="absolute left-1/2 -translate-x-1/2 bottom-6 z-[60] pointer-events-none transition-all duration-200 ease-out"
           classList={{
