@@ -5,70 +5,99 @@ import { Icon } from "@opencode-ai/ui/icon"
 import { Select } from "@opencode-ai/ui/select"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { useKnowledge } from "@/context/knowledge"
+import { useGlobalSDK } from "@/context/global-sdk"
+import { useServer } from "@/context/server"
+import { useProviders } from "@/hooks/use-providers"
+import { DialogSelectDirectory } from "./dialog-select-directory"
 
 function toEmbeddingProvider(id: string): "openai" | "local" | "custom" {
   if (id === "local") return "local"
   if (id === "openai") return "openai"
   return "custom"
 }
-import { DialogSelectDirectory } from "./dialog-select-directory"
 
 export const KnowledgeDialog: Component = () => {
   const knowledge = useKnowledge()
   const dialog = useDialog()
+  const sdk = useGlobalSDK()
+  const server = useServer()
+  const providers = useProviders()
 
   const [syncing, setSyncing] = createSignal(false)
   const [error, setError] = createSignal("")
   const [success, setSuccess] = createSignal("")
   const [showAddForm, setShowAddForm] = createSignal(false)
 
-  const getLastConfigDefaults = (): {
-    provider: string
-    model: string
-    apiKey: string
-    baseURL: string
-    dimensions: number
-  } => {
-    const last = knowledge.getLastConfig()
-    if (last) {
-      return {
-        provider: last.provider,
-        model: last.model,
-        apiKey: last.apiKey,
-        baseURL: last.baseURL,
-        dimensions: last.dimensions,
-      }
-    }
-    return {
-      provider: "openai",
-      model: "text-embedding-3-small",
-      apiKey: "",
-      baseURL: "",
-      dimensions: 1536,
-    }
-  }
-
   const [newPath, setNewPath] = createSignal("")
   const [newName, setNewName] = createSignal("My Knowledge Base")
-  const [newProvider, setNewProvider] = createSignal<string>("openai")
-  const [newModel, setNewModel] = createSignal("text-embedding-3-small")
+  const [selectedProviderID, setSelectedProviderID] = createSignal("")
+  const [newModel, setNewModel] = createSignal("")
   const [newApiKey, setNewApiKey] = createSignal("")
   const [newBaseURL, setNewBaseURL] = createSignal("")
 
+  const [embeddingModelOptions, setEmbeddingModelOptions] = createSignal<string[]>([])
+  const [loadingModels, setLoadingModels] = createSignal(false)
+  const [useManualModel, setUseManualModel] = createSignal(false)
+
+  const providerOptions = createMemo(() => ["local", ...providers.connected().map((p) => p.id)])
+
+  const localModels = createMemo(() =>
+    knowledge.models().filter((m) => m.provider === "local").map((m) => m.id),
+  )
+
+  const fetchProviderConnection = async (id: string) => {
+    const baseUrl = sdk.url
+    const s = server.current?.http
+    const authHeader: Record<string, string> = s?.password
+      ? { Authorization: `Basic ${btoa(`${s.username ?? "opencode"}:${s.password}`)}` }
+      : {}
+    const resp = await fetch(`${baseUrl}/provider/${encodeURIComponent(id)}/connection`, {
+      headers: { "Content-Type": "application/json", ...authHeader },
+    })
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
+    return resp.json() as Promise<{ apiKey: string; baseURL: string; embeddingModels: string[] }>
+  }
+
+  const handleProviderSelect = async (id: string | undefined) => {
+    if (!id) return
+    setSelectedProviderID(id)
+    setEmbeddingModelOptions([])
+    setUseManualModel(false)
+    setNewModel("")
+    setNewApiKey("")
+    setNewBaseURL("")
+
+    if (id === "local") {
+      const models = localModels()
+      setEmbeddingModelOptions(models)
+      if (models.length > 0) setNewModel(models[0])
+      else setUseManualModel(true)
+      return
+    }
+
+    setLoadingModels(true)
+    try {
+      const data = await fetchProviderConnection(id)
+      if (data.baseURL) setNewBaseURL(data.baseURL)
+      if (data.apiKey) setNewApiKey(data.apiKey)
+      setEmbeddingModelOptions(data.embeddingModels)
+      if (data.embeddingModels.length > 0) setNewModel(data.embeddingModels[0])
+      else setUseManualModel(true)
+    } catch {
+      setUseManualModel(true)
+    } finally {
+      setLoadingModels(false)
+    }
+  }
+
   onMount(() => {
-    const defaults = getLastConfigDefaults()
-    setNewProvider(defaults.provider)
-    setNewModel(defaults.model)
-    setNewApiKey(defaults.apiKey)
-    setNewBaseURL(defaults.baseURL)
+    const last = knowledge.getLastConfig()
+    if (last?.provider) {
+      handleProviderSelect(last.provider)
+      // 覆盖 handleProviderSelect 设置的 model，用上次保存的值
+      setTimeout(() => { if (last.model) setNewModel(last.model) }, 0)
+    }
     knowledge.refreshAllStats()
-  })
-
-  const models = knowledge.models()
-
-  const providerModels = createMemo(() => {
-    const p = newProvider()
-    return models.filter((m) => m.provider === p)
   })
 
   const handleSelectFolder = () => {
@@ -87,14 +116,6 @@ export const KnowledgeDialog: Component = () => {
     ))
   }
 
-  const handleProviderChange = (p: string | undefined) => {
-    if (!p) return
-    const provider = p as "openai" | "local" | "custom"
-    const firstModel = models.find((m) => m.provider === provider)
-    setNewProvider(provider)
-    setNewModel(provider === "custom" ? newModel() : (firstModel?.id ?? ""))
-  }
-
   const handleAddKnowledgeBase = async () => {
     setError("")
     setSuccess("")
@@ -103,25 +124,17 @@ export const KnowledgeDialog: Component = () => {
       setError("Please select a folder")
       return
     }
-
-    if (newProvider() === "openai" && !newApiKey()) {
-      setError("Please enter your OpenAI API key")
+    if (!selectedProviderID()) {
+      setError("Please select an embedding provider")
       return
     }
-
-    if (newProvider() === "custom") {
-      if (!newModel()) {
-        setError("Please enter the model name")
-        return
-      }
-      if (!newBaseURL()) {
-        setError("Please enter the API URL")
-        return
-      }
-      if (!newApiKey()) {
-        setError("Please enter the API Key")
-        return
-      }
+    if (!newModel()) {
+      setError("Please select or enter an embedding model")
+      return
+    }
+    if (selectedProviderID() !== "local" && !newBaseURL()) {
+      setError("Could not resolve provider API URL. Please check your provider configuration.")
+      return
     }
 
     setSyncing(true)
@@ -129,7 +142,7 @@ export const KnowledgeDialog: Component = () => {
       const id = knowledge.addKnowledgeBase({
         path: newPath(),
         name: newName(),
-        embeddingProvider: toEmbeddingProvider(newProvider()),
+        embeddingProvider: toEmbeddingProvider(selectedProviderID()),
         embeddingModel: newModel(),
         apiKey: newApiKey(),
         baseURL: newBaseURL(),
@@ -150,7 +163,7 @@ export const KnowledgeDialog: Component = () => {
       const result = await knowledge.syncKnowledgeBase(id)
 
       knowledge.saveLastConfig({
-        provider: newProvider(),
+        provider: selectedProviderID(),
         model: newModel(),
         apiKey: newApiKey(),
         baseURL: newBaseURL(),
@@ -170,7 +183,6 @@ export const KnowledgeDialog: Component = () => {
       if (e instanceof Error && e.name === "AbortError") return
       const message = e instanceof Error ? e.message : String(e)
       setError(message)
-      console.error("Sync error:", e)
     } finally {
       setSyncing(false)
     }
@@ -252,10 +264,7 @@ export const KnowledgeDialog: Component = () => {
                         <Button
                           variant="ghost"
                           size="small"
-                          onClick={(e: MouseEvent) => {
-                            e.stopPropagation()
-                            handleSync(kb.id)
-                          }}
+                          onClick={(e: MouseEvent) => { e.stopPropagation(); handleSync(kb.id) }}
                           disabled={syncing()}
                           class="h-7 px-2"
                         >
@@ -264,10 +273,7 @@ export const KnowledgeDialog: Component = () => {
                         <Button
                           variant="ghost"
                           size="small"
-                          onClick={(e: MouseEvent) => {
-                            e.stopPropagation()
-                            handleRemove(kb.id)
-                          }}
+                          onClick={(e: MouseEvent) => { e.stopPropagation(); handleRemove(kb.id) }}
                           class="h-7 px-2 text-text-error"
                         >
                           <Icon name="trash" class="size-3.5" />
@@ -297,6 +303,7 @@ export const KnowledgeDialog: Component = () => {
               </Button>
             </div>
 
+            {/* Folder Path */}
             <div class="flex flex-col gap-2">
               <label class="text-13-medium text-text-strong">Folder Path</label>
               <div class="flex gap-2">
@@ -314,6 +321,7 @@ export const KnowledgeDialog: Component = () => {
               </div>
             </div>
 
+            {/* Name */}
             <div class="flex flex-col gap-2">
               <label class="text-13-medium text-text-strong">Name</label>
               <input
@@ -325,77 +333,44 @@ export const KnowledgeDialog: Component = () => {
               />
             </div>
 
+            {/* Embedding Provider — from configured providers */}
             <div class="flex flex-col gap-2">
               <label class="text-13-medium text-text-strong">Embedding Provider</label>
               <Select
-                options={["openai", "local", "custom"]}
-                current={newProvider()}
-                value={(p) => p}
-                label={(p) => (p === "openai" ? "OpenAI" : p === "local" ? "Local" : "Custom")}
-                onSelect={handleProviderChange}
+                options={providerOptions()}
+                current={selectedProviderID()}
+                value={(id) => id}
+                label={(id) => id === "local" ? "Local (offline)" : id}
+                onSelect={handleProviderSelect}
                 variant="secondary"
                 size="small"
                 class="w-full"
               />
             </div>
 
-            <Show when={newProvider() === "openai" || newProvider() === "local"}>
+            {/* Embedding Model */}
+            <Show when={selectedProviderID()}>
               <div class="flex flex-col gap-2">
                 <label class="text-13-medium text-text-strong">Embedding Model</label>
-                <Select
-                  options={providerModels().map((m) => m.id)}
-                  current={newModel()}
-                  value={(id) => id}
-                  label={(id) => models.find((m) => m.id === id)?.name ?? id}
-                  onSelect={(id) => id && setNewModel(id)}
-                  variant="secondary"
-                  size="small"
-                  class="w-full"
-                />
-              </div>
-            </Show>
-
-            <Show when={newProvider() === "openai"}>
-              <div class="flex flex-col gap-2">
-                <label class="text-13-medium text-text-strong">OpenAI API Key</label>
-                <input
-                  type="password"
-                  value={newApiKey()}
-                  onInput={(e) => setNewApiKey(e.currentTarget.value)}
-                  placeholder="sk-..."
-                  class="h-9 w-full rounded-md border border-border-base bg-surface-base px-3 text-14-regular text-text-strong placeholder:text-text-weak focus:outline-none focus:ring-2 focus:ring-border-focus"
-                />
-              </div>
-            </Show>
-
-            <Show when={newProvider() === "custom"}>
-              <div class="flex flex-col gap-3 p-3 rounded-md border border-border-base bg-surface-base/50">
-                <div class="text-13-medium text-text-strong">Custom Embedding Configuration</div>
-
-                <div class="flex flex-col gap-2">
-                  <label class="text-12-regular text-text-base">API URL</label>
-                  <input
-                    type="text"
-                    value={newBaseURL()}
-                    onInput={(e) => setNewBaseURL(e.currentTarget.value)}
-                    placeholder="https://generativelanguage.googleapis.com/v1beta/openai"
-                    class="h-9 w-full rounded-md border border-border-base bg-surface-base px-3 text-14-regular text-text-strong placeholder:text-text-weak focus:outline-none focus:ring-2 focus:ring-border-focus"
+                <Show when={loadingModels()}>
+                  <span class="text-13-regular text-text-weak italic">Loading models...</span>
+                </Show>
+                <Show when={!loadingModels() && embeddingModelOptions().length > 0 && !useManualModel()}>
+                  <Select
+                    options={[...embeddingModelOptions(), "__manual__"]}
+                    current={newModel()}
+                    value={(id) => id}
+                    label={(id) => id === "__manual__" ? "Enter manually..." : id}
+                    onSelect={(id) => {
+                      if (id === "__manual__") { setUseManualModel(true); setNewModel("") }
+                      else if (id) setNewModel(id)
+                    }}
+                    variant="secondary"
+                    size="small"
+                    class="w-full"
                   />
-                </div>
-
-                <div class="flex flex-col gap-2">
-                  <label class="text-12-regular text-text-base">API Key</label>
-                  <input
-                    type="password"
-                    value={newApiKey()}
-                    onInput={(e) => setNewApiKey(e.currentTarget.value)}
-                    placeholder="your-api-key"
-                    class="h-9 w-full rounded-md border border-border-base bg-surface-base px-3 text-14-regular text-text-strong placeholder:text-text-weak focus:outline-none focus:ring-2 focus:ring-border-focus"
-                  />
-                </div>
-
-                <div class="flex flex-col gap-2">
-                  <label class="text-12-regular text-text-base">Model Name</label>
+                </Show>
+                <Show when={!loadingModels() && (embeddingModelOptions().length === 0 || useManualModel())}>
                   <input
                     type="text"
                     value={newModel()}
@@ -403,7 +378,7 @@ export const KnowledgeDialog: Component = () => {
                     placeholder="text-embedding-3-small"
                     class="h-9 w-full rounded-md border border-border-base bg-surface-base px-3 text-14-regular text-text-strong placeholder:text-text-weak focus:outline-none focus:ring-2 focus:ring-border-focus"
                   />
-                </div>
+                </Show>
               </div>
             </Show>
 
@@ -425,9 +400,7 @@ export const KnowledgeDialog: Component = () => {
               <div class="flex justify-between items-center text-12-regular text-text-base">
                 <span>Processing documents...</span>
                 <div class="flex items-center gap-2">
-                  <span>
-                    {progress().current} / {progress().total}
-                  </span>
+                  <span>{progress().current} / {progress().total}</span>
                   <Button
                     variant="ghost"
                     size="small"
