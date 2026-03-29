@@ -7,6 +7,7 @@ import open from "open"
 import { networkInterfaces } from "os"
 import { Global } from "../../global"
 import nodePath from "path"
+import { Lease } from "../../server/lease"
 
 function getNetworkIPs() {
   const nets = networkInterfaces()
@@ -39,7 +40,14 @@ export const WebCommand = cmd({
       UI.println(UI.Style.TEXT_WARNING_BOLD + "!  " + "OPENCODE_SERVER_PASSWORD is not set; server is unsecured.")
     }
     const opts = await resolveNetworkOptions(args)
-    const server = Server.listen(opts)
+    const EXIT_GRACE_MS = 10_000
+    let sse = 0
+    const server = Server.listen({
+      ...opts,
+      onBrowserConnectionChange: (count) => {
+        sse = count
+      },
+    })
 
     // Auto-exit when all browser connections close (after at least one was open).
     // Polling server.pendingRequests is more reliable than SSE onAbort, because
@@ -48,7 +56,7 @@ export const WebCommand = cmd({
     let exitTimer: ReturnType<typeof setTimeout> | null = null
     const connectionChecker = setInterval(() => {
       const active = (server as any).pendingRequests as number
-      if (active > 0) {
+      if (active > 0 || sse > 0 || Lease.count() > 0) {
         everConnected = true
         if (exitTimer !== null) {
           clearTimeout(exitTimer)
@@ -58,9 +66,14 @@ export const WebCommand = cmd({
         exitTimer =
           exitTimer ??
           setTimeout(() => {
+            const pending = (server as any).pendingRequests as number
+            if (pending > 0 || sse > 0 || Lease.count() > 0) {
+              exitTimer = null
+              return
+            }
             clearInterval(connectionChecker)
             process.exit(0)
-          }, 3_000)
+          }, EXIT_GRACE_MS)
       }
     }, 1_000)
     const portfile = nodePath.join(Global.Path.data, "serve-port")

@@ -2172,6 +2172,36 @@ export type GlobalHealthResponses = {
 
 export type GlobalHealthResponse = GlobalHealthResponses[keyof GlobalHealthResponses]
 
+export type GlobalPingData = {
+  body?: {
+    id: string
+    alive?: boolean
+  }
+  path?: never
+  query?: never
+  url: "/global/ping"
+}
+
+export type GlobalPingErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type GlobalPingError = GlobalPingErrors[keyof GlobalPingErrors]
+
+export type GlobalPingResponses = {
+  /**
+   * Lease touched
+   */
+  200: {
+    ok: true
+  }
+}
+
+export type GlobalPingResponse = GlobalPingResponses[keyof GlobalPingResponses]
+
 export type GlobalEventData = {
   body?: never
   path?: never
@@ -4376,6 +4406,43 @@ export type ProviderAuthResponses = {
 
 export type ProviderAuthResponse = ProviderAuthResponses[keyof ProviderAuthResponses]
 
+export type ProviderConnectionData = {
+  body?: never
+  path: {
+    /**
+     * Provider ID
+     */
+    providerID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/provider/{providerID}/connection"
+}
+
+export type ProviderConnectionErrors = {
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type ProviderConnectionError = ProviderConnectionErrors[keyof ProviderConnectionErrors]
+
+export type ProviderConnectionResponses = {
+  /**
+   * Provider connection info
+   */
+  200: {
+    apiKey: string
+    baseURL: string
+    embeddingModels: Array<string>
+  }
+}
+
+export type ProviderConnectionResponse = ProviderConnectionResponses[keyof ProviderConnectionResponses]
+
 export type ProviderOauthAuthorizeData = {
   body?: {
     /**
@@ -4461,6 +4528,30 @@ export type ProviderOauthCallbackResponses = {
 }
 
 export type ProviderOauthCallbackResponse = ProviderOauthCallbackResponses[keyof ProviderOauthCallbackResponses]
+
+export type FileActiveTasksData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/file/active-tasks"
+}
+
+export type FileActiveTasksResponses = {
+  /**
+   * Active tasks
+   */
+  200: Array<{
+    taskID: string
+    status: string
+    path: string
+    taskType: "convert" | "translate"
+  }>
+}
+
+export type FileActiveTasksResponse = FileActiveTasksResponses[keyof FileActiveTasksResponses]
 
 export type FindTextData = {
   body?: never
@@ -4776,6 +4867,7 @@ export type FileOpenInExplorerResponse = FileOpenInExplorerResponses[keyof FileO
 export type FileOpenData = {
   body?: {
     path: string
+    app?: string
   }
   path?: never
   query?: {
@@ -4808,7 +4900,10 @@ export type FileOpenResponses = {
 }
 
 export type FileOpenResponse = FileOpenResponses[keyof FileOpenResponses]
+
 export type FilePickFolderData = {
+  body?: never
+  path?: never
   query?: {
     directory?: string
     workspace?: string
@@ -4826,7 +4921,6 @@ export type FilePickFolderResponses = {
 }
 
 export type FilePickFolderResponse = FilePickFolderResponses[keyof FilePickFolderResponses]
-
 
 export type FileAddToGitignoreData = {
   body?: {
@@ -5019,6 +5113,151 @@ export type FilePdfToMarkdownCancelResponses = {
 }
 
 export type FilePdfToMarkdownCancelResponse = FilePdfToMarkdownCancelResponses[keyof FilePdfToMarkdownCancelResponses]
+
+export type FileRawData = {
+  body?: never
+  path?: never
+  query: {
+    directory?: string
+    workspace?: string
+    path: string
+  }
+  url: "/file/raw"
+}
+
+export type FileRawErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type FileRawError = FileRawErrors[keyof FileRawErrors]
+
+export type FileRawResponses = {
+  /**
+   * File content
+   */
+  200: unknown
+}
+
+export type FileTranslateMarkdownCheckData = {
+  body?: never
+  path?: never
+  query: {
+    directory?: string
+    workspace?: string
+    path: string
+  }
+  url: "/file/translate-markdown/check"
+}
+
+export type FileTranslateMarkdownCheckErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type FileTranslateMarkdownCheckError = FileTranslateMarkdownCheckErrors[keyof FileTranslateMarkdownCheckErrors]
+
+export type FileTranslateMarkdownCheckResponses = {
+  /**
+   * Pre-check result
+   */
+  200: {
+    hasDataJson: boolean
+    chunkCount: number
+    outputPath: string
+    existingFiles: Array<string>
+    fileSize: number
+  }
+}
+
+export type FileTranslateMarkdownCheckResponse =
+  FileTranslateMarkdownCheckResponses[keyof FileTranslateMarkdownCheckResponses]
+
+export type FileTranslateMarkdownData = {
+  body?: {
+    path: string
+    providerID: string
+    modelID: string
+    targetLanguage?: string
+    conflictAction: "replace" | "rename" | "cancel"
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/file/translate-markdown"
+}
+
+export type FileTranslateMarkdownErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type FileTranslateMarkdownError = FileTranslateMarkdownErrors[keyof FileTranslateMarkdownErrors]
+
+export type FileTranslateMarkdownResponses = {
+  /**
+   * Task started
+   */
+  200: {
+    taskID: string
+  }
+}
+
+export type FileTranslateMarkdownResponse = FileTranslateMarkdownResponses[keyof FileTranslateMarkdownResponses]
+
+export type FileTranslateMarkdownProgressData = {
+  body?: never
+  path?: never
+  query: {
+    directory?: string
+    workspace?: string
+    taskID: string
+  }
+  url: "/file/translate-markdown/progress"
+}
+
+export type FileTranslateMarkdownProgressResponses = {
+  /**
+   * Progress event stream
+   */
+  200: unknown
+}
+
+export type FileTranslateMarkdownCancelData = {
+  body?: {
+    taskID: string
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/file/translate-markdown/cancel"
+}
+
+export type FileTranslateMarkdownCancelResponses = {
+  /**
+   * Cancelled
+   */
+  200: {
+    ok: boolean
+  }
+}
+
+export type FileTranslateMarkdownCancelResponse =
+  FileTranslateMarkdownCancelResponses[keyof FileTranslateMarkdownCancelResponses]
 
 export type EventSubscribeData = {
   body?: never
@@ -5910,6 +6149,123 @@ export type KnowledgeGetResponses = {
 }
 
 export type KnowledgeGetResponse = KnowledgeGetResponses[keyof KnowledgeGetResponses]
+
+export type KnowledgeConfigUpdateData = {
+  body?: {
+    embeddingProvider?: "openai" | "local" | "custom"
+    embeddingModel?: string
+    embeddingDimensions?: number
+    apiKey?: string
+    baseURL?: string
+  }
+  path: {
+    path: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/knowledge/{path}/config"
+}
+
+export type KnowledgeConfigUpdateErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * 知识库不存在
+   */
+  404: unknown
+}
+
+export type KnowledgeConfigUpdateError = KnowledgeConfigUpdateErrors[keyof KnowledgeConfigUpdateErrors]
+
+export type KnowledgeConfigUpdateResponses = {
+  /**
+   * 更新后的知识库
+   */
+  200: {
+    version: 1
+    config: {
+      id: string
+      name: string
+      path: string
+      embeddingProvider: "openai" | "local" | "custom"
+      embeddingModel: string
+      embeddingDimensions: number
+      apiKey?: string
+      baseURL?: string
+      chunkSize?: number
+      chunkOverlap?: number
+      createdAt: number
+      updatedAt: number
+    }
+    documents: Array<{
+      meta: {
+        id: string
+        filePath: string
+        fileName: string
+        fileSize: number
+        pageCount?: number
+        status: "pending" | "processing" | "ready" | "error"
+        errorMessage?: string
+        createdAt: number
+        updatedAt: number
+      }
+      chunks: Array<{
+        id: string
+        documentId: string
+        index: number
+        content: string
+        pageNumber?: number
+        embeddingOffset: number
+        embeddingLength: number
+      }>
+    }>
+    stats: {
+      totalDocuments: number
+      totalChunks: number
+      lastSyncedAt?: number
+    }
+  }
+}
+
+export type KnowledgeConfigUpdateResponse = KnowledgeConfigUpdateResponses[keyof KnowledgeConfigUpdateResponses]
+
+export type KnowledgeImportData = {
+  body?: {
+    paths: Array<string>
+  }
+  path: {
+    path: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/knowledge/{path}/import"
+}
+
+export type KnowledgeImportErrors = {
+  /**
+   * 知识库不存在
+   */
+  404: unknown
+}
+
+export type KnowledgeImportResponses = {
+  /**
+   * 导入结果
+   */
+  200: {
+    added: number
+    skipped: number
+    errors: Array<string>
+  }
+}
+
+export type KnowledgeImportResponse = KnowledgeImportResponses[keyof KnowledgeImportResponses]
 
 export type KnowledgeSyncData = {
   body?: {

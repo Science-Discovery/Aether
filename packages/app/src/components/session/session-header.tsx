@@ -16,6 +16,7 @@ import { useCommand } from "@/context/command"
 import { useLanguage } from "@/context/language"
 import { useLayout } from "@/context/layout"
 import { usePlatform } from "@/context/platform"
+import { useSDK } from "@/context/sdk"
 import { useServer } from "@/context/server"
 import { useSync } from "@/context/sync"
 import { useTerminal } from "@/context/terminal"
@@ -134,6 +135,7 @@ export function SessionHeader() {
   const command = useCommand()
   const server = useServer()
   const platform = usePlatform()
+  const sdk = useSDK()
   const language = useLanguage()
   const sync = useSync()
   const terminal = useTerminal()
@@ -214,7 +216,11 @@ export function SessionHeader() {
     app: undefined as OpenApp | undefined,
   })
 
-  const canOpen = createMemo(() => platform.platform === "desktop" && !!platform.openPath && server.isLocal())
+  const canOpen = createMemo(() => {
+    if (!server.isLocal()) return false
+    if (platform.platform === "desktop") return !!platform.openPath
+    return platform.platform === "web"
+  })
   const current = createMemo(
     () =>
       options().find((o) => o.id === prefs.app) ??
@@ -232,15 +238,18 @@ export function SessionHeader() {
   }
 
   const openDir = (app: OpenApp) => {
-    if (opening() || !canOpen() || !platform.openPath) return
+    if (opening() || !canOpen()) return
     const directory = projectDirectory()
     if (!directory) return
 
     const item = options().find((o) => o.id === app)
     const openWith = item && "openWith" in item ? item.openWith : undefined
     setOpenRequest("app", app)
-    platform
-      .openPath(directory, openWith)
+    const task =
+      platform.platform === "desktop" && platform.openPath
+        ? platform.openPath(directory, openWith)
+        : sdk.client.file.open({ path: directory, app: openWith }).then(() => undefined)
+    task
       .catch((err: unknown) => showRequestError(language, err))
       .finally(() => {
         setOpenRequest("app", undefined)

@@ -130,6 +130,9 @@ export namespace Provider {
       .filter(Boolean)
 
     const host = url.hostname.toLowerCase()
+    if (host === "localhost" || host === "127.0.0.1" || host === "::1" || host.endsWith(".localhost")) {
+      return undefined
+    }
     const bypass = noProxy.some((item) => {
       if (item === "*") return true
       if (item === host) return true

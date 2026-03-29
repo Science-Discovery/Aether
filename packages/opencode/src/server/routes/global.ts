@@ -12,6 +12,7 @@ import { Log } from "../../util/log"
 import { lazy } from "../../util/lazy"
 import { Config } from "../../config/config"
 import { errors } from "../error"
+import { Lease } from "../lease"
 
 const log = Log.create({ service: "server" })
 
@@ -28,6 +29,11 @@ const ProxyConfig = z.object({
   https: ProxyTarget,
 })
 
+const PingInput = z.object({
+  id: z.string().min(1),
+  alive: z.boolean().optional(),
+})
+
 function parseProxy(value?: string) {
   if (!value) return { host: "", port: 8080 }
   try {
@@ -40,6 +46,18 @@ function parseProxy(value?: string) {
   } catch {
     return { host: "", port: 8080 }
   }
+}
+
+function keepLoopbackNoProxy(value?: string) {
+  const items = (value ?? "")
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean)
+  for (const host of ["127.0.0.1", "localhost", "::1"]) {
+    if (items.some((item) => item.toLowerCase() === host)) continue
+    items.push(host)
+  }
+  return items.join(",")
 }
 
 async function streamEvents(c: Context, subscribe: (q: AsyncQueue<string | null>) => () => void) {
@@ -150,6 +168,7 @@ export const GlobalRoutes = lazy(() =>
           delete process.env.http_proxy
           delete process.env.https_proxy
           delete process.env.all_proxy
+          log.info("proxy updated", { enabled: false })
           return c.json(config)
         }
         const http = config.http.host.trim() ? `http://${config.http.host.trim()}:${config.http.port}` : ""
@@ -163,6 +182,17 @@ export const GlobalRoutes = lazy(() =>
         process.env.http_proxy = httpValue
         process.env.https_proxy = httpsValue
         process.env.all_proxy = httpsValue
+        const noProxy = keepLoopbackNoProxy(process.env.NO_PROXY ?? process.env.no_proxy)
+        process.env.NO_PROXY = noProxy
+        process.env.no_proxy = noProxy
+        log.info("proxy updated", {
+          enabled: true,
+          http_host: config.http.host.trim() || "-",
+          http_port: config.http.port,
+          https_host: config.https.host.trim() || "-",
+          https_port: config.https.port,
+          no_proxy: noProxy,
+        })
         return c.json({
           ...config,
           http: {
@@ -195,6 +225,35 @@ export const GlobalRoutes = lazy(() =>
       }),
       async (c) => {
         return c.json({ healthy: true, version: Installation.VERSION })
+      },
+    )
+    .post(
+      "/ping",
+      describeRoute({
+        summary: "Ping lease",
+        description: "Refresh or release browser lease for web auto-exit detection.",
+        operationId: "global.ping",
+        responses: {
+          200: {
+            description: "Lease touched",
+            content: {
+              "application/json": {
+                schema: resolver(z.object({ ok: z.literal(true) })),
+              },
+            },
+          },
+          ...errors(400),
+        },
+      }),
+      validator("json", PingInput),
+      async (c) => {
+        const body = c.req.valid("json")
+        if (body.alive === false) {
+          Lease.drop(body.id)
+          return c.json({ ok: true as const })
+        }
+        Lease.touch(body.id)
+        return c.json({ ok: true as const })
       },
     )
     .get(

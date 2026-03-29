@@ -554,9 +554,9 @@ export const FileRoutes = lazy(() =>
           ...errors(404),
         },
       }),
-      validator("json", z.object({ path: z.string() })),
+      validator("json", z.object({ path: z.string(), app: z.string().optional() })),
       async (c) => {
-        const inputPath = c.req.valid("json").path
+        const { path: inputPath, app } = c.req.valid("json")
         let stat: Stats | undefined
         try {
           stat = await Bun.file(inputPath).stat()
@@ -565,6 +565,17 @@ export const FileRoutes = lazy(() =>
         }
 
         try {
+          if (app) {
+            if (process.platform === "darwin") {
+              const proc = spawn(["open", "-a", app, inputPath])
+              await proc.exited
+            } else {
+              const proc = spawn([app, inputPath])
+              await proc.exited
+            }
+            return c.json({ ok: true })
+          }
+
           if (process.platform === "win32") {
             // Windows: start "" filepath
             const proc = spawn(["cmd.exe", "/c", "start", "", inputPath])

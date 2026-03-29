@@ -168,6 +168,77 @@ const req = async (path: string, init?: RequestInit) => {
   throw new Error(`Request failed: ${res.status}`)
 }
 
+const push = async (proxy: {
+  enabled: boolean
+  http: { host: string; port: number }
+  https: { host: string; port: number }
+}) => {
+  await req("/global/proxy", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(proxy),
+  })
+}
+
+const sync = async () => {
+  const local = readProxy()
+  if (!local) return
+  if (!local.enabled || !hosted(local)) return
+  await push(local).catch(() => undefined)
+}
+
+const lease = (() => {
+  try {
+    return crypto.randomUUID()
+  } catch {
+    return `${Date.now()}-${Math.random().toString(36).slice(2)}`
+  }
+})()
+
+const ping = async (alive = true) => {
+  await req("/global/ping", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ id: lease, alive }),
+  }).catch(() => undefined)
+}
+
+const release = () => {
+  const url = new URL("/global/ping", getCurrentUrl()).toString()
+  const body = JSON.stringify({ id: lease, alive: false })
+  if (navigator.sendBeacon) {
+    const data = new Blob([body], { type: "application/json" })
+    if (navigator.sendBeacon(url, data)) return
+  }
+  void fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body,
+    keepalive: true,
+  }).catch(() => undefined)
+}
+
+const start = () => {
+  void ping()
+  const timer = setInterval(() => {
+    void ping()
+  }, 10_000)
+  const hide = () => release()
+  const focus = () => {
+    if (document.visibilityState !== "visible") return
+    void ping()
+  }
+  window.addEventListener("pagehide", hide)
+  window.addEventListener("beforeunload", hide)
+  document.addEventListener("visibilitychange", focus)
+  return () => {
+    clearInterval(timer)
+    window.removeEventListener("pagehide", hide)
+    window.removeEventListener("beforeunload", hide)
+    document.removeEventListener("visibilitychange", focus)
+  }
+}
+
 const platform: Platform = {
   platform: "web",
   version: pkg.version,
@@ -208,16 +279,15 @@ const platform: Platform = {
       .catch(() => fallback)
   },
   setProxyConfig: async (config) => {
-    await req("/global/proxy", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(config),
-    })
+    await push(config)
     writeProxy(config)
   },
 }
 
-if (root instanceof HTMLElement) {
+const boot = async () => {
+  if (!(root instanceof HTMLElement)) return
+  const stop = start()
+  await sync()
   const server: ServerConnection.Http = { type: "http", http: { url: getCurrentUrl() } }
   render(
     () => (
@@ -233,4 +303,7 @@ if (root instanceof HTMLElement) {
     ),
     root,
   )
+  window.addEventListener("unload", stop, { once: true })
 }
+
+void boot()
