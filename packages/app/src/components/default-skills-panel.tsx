@@ -1,41 +1,34 @@
 import { Button } from "@opencode-ai/ui/button"
 import { Icon } from "@opencode-ai/ui/icon"
-import { IconButton } from "@opencode-ai/ui/icon-button"
+import { Switch } from "@opencode-ai/ui/switch"
 import { showToast } from "@opencode-ai/ui/toast"
-import { TextField } from "@opencode-ai/ui/text-field"
 import {
   Component,
   For,
   Match,
   Show,
-  Switch,
+  Switch as SolidSwitch,
   createResource,
   createSignal,
 } from "solid-js"
-import { createStore } from "solid-js/store"
 import { useGlobalSDK } from "@/context/global-sdk"
 import { useSDK } from "@/context/sdk"
 import { useFile } from "@/context/file"
 
-type DefaultSkill = { name: string; description: string; content: string }
-
-type EditState = { mode: "none" } | { mode: "edit"; skill: DefaultSkill } | { mode: "new" }
+type DefaultSkill = { name: string; description: string; content: string; enabled?: boolean }
 
 export const DefaultSkillsPanel: Component = () => {
   const globalSDK = useGlobalSDK()
   const sdk = useSDK()
   const file = useFile()
 
-  // Skills list/save/delete use NO directory — the server defaults to process.cwd()
-  // (the openresearch project), so skills always come from .opencode/skills/ there.
-  // Only "add to project" passes sdk.directory (the currently viewed project).
   const [skills, { refetch }] = createResource<DefaultSkill[]>(async () => {
     const result = await globalSDK.client.config.skills.list()
     return ((result.data as unknown) as DefaultSkill[]) ?? []
   })
 
   const [collapsed, setCollapsed] = createSignal(true)
-  const [listHeight, setListHeight] = createSignal(208) // default max-h-52 = 208px
+  const [listHeight, setListHeight] = createSignal(208)
   let resizing = false
   let startY = 0
   let startHeight = 0
@@ -47,7 +40,6 @@ export const DefaultSkillsPanel: Component = () => {
     startHeight = listHeight()
     const onMove = (e: MouseEvent) => {
       if (!resizing) return
-      // Dragging up (negative delta) expands the list, dragging down shrinks it
       const delta = e.clientY - startY
       setListHeight(Math.max(80, Math.min(600, startHeight - delta)))
     }
@@ -59,61 +51,19 @@ export const DefaultSkillsPanel: Component = () => {
     window.addEventListener("mousemove", onMove)
     window.addEventListener("mouseup", onUp)
   }
-  const [edit, setEdit] = createSignal<EditState>({ mode: "none" })
   const [adding, setAdding] = createSignal(false)
-  const [deleting, setDeleting] = createSignal<string | null>(null)
-  const [saving, setSaving] = createSignal(false)
+  const [toggling, setToggling] = createSignal<string | null>(null)
 
-  const [form, setForm] = createStore({ name: "", description: "", content: "" })
-
-  function openNew() {
-    setForm({ name: "", description: "", content: "" })
-    setEdit({ mode: "new" })
-  }
-
-  function openEdit(skill: DefaultSkill) {
-    setForm({ name: skill.name, description: skill.description, content: skill.content })
-    setEdit({ mode: "edit", skill })
-  }
-
-  function cancelEdit() {
-    setEdit({ mode: "none" })
-  }
-
-  async function handleSave() {
-    if (!form.name.trim()) {
-      showToast({ variant: "error", icon: "circle-x", title: "名称不能为空" })
-      return
-    }
-    setSaving(true)
+  async function handleToggle(name: string, enabled: boolean) {
+    setToggling(name)
     try {
-      await globalSDK.client.config.skills.save({
-        name: form.name.trim(),
-        description: form.description.trim(),
-        content: form.content,
-      })
+      await globalSDK.client.config.skills.toggle({ name, enabled })
       await refetch()
-      setEdit({ mode: "none" })
-      showToast({ variant: "success", icon: "circle-check", title: "Skill 已保存" })
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
-      showToast({ variant: "error", icon: "circle-x", title: "保存失败", description: message })
+      showToast({ variant: "error", icon: "circle-x", title: "操作失败", description: message })
     } finally {
-      setSaving(false)
-    }
-  }
-
-  async function handleDelete(name: string) {
-    setDeleting(name)
-    try {
-      await globalSDK.client.config.skills.delete({ name })
-      await refetch()
-      showToast({ icon: "check", title: `已删除 ${name}` })
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err)
-      showToast({ variant: "error", icon: "circle-x", title: "删除失败", description: message })
-    } finally {
-      setDeleting(null)
+      setToggling(null)
     }
   }
 
@@ -157,10 +107,6 @@ export const DefaultSkillsPanel: Component = () => {
         </div>
         <div class="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
           <Show when={!collapsed()}>
-            <Button variant="secondary" size="small" onClick={openNew}>
-              <Icon name="plus" size="small" />
-              新建
-            </Button>
             <Button
               variant="primary"
               size="small"
@@ -181,7 +127,7 @@ export const DefaultSkillsPanel: Component = () => {
 
       {/* Skill list */}
       <Show when={!collapsed()}>
-      {/* Resize handle — at the top of the list, drag up to expand */}
+      {/* Resize handle */}
       <div
         class="flex items-center justify-center h-4 w-full cursor-ns-resize group -mb-1"
         onMouseDown={onResizeStart}
@@ -189,13 +135,13 @@ export const DefaultSkillsPanel: Component = () => {
       >
         <div class="h-1 w-10 rounded-full bg-border-weak-base group-hover:bg-border-base transition-colors" />
       </div>
-      <Switch>
+      <SolidSwitch>
         <Match when={skills.loading}>
           <div class="text-12-regular text-text-weak px-1">加载中...</div>
         </Match>
-        <Match when={skills()?.length === 0 && edit().mode === "none"}>
+        <Match when={skills()?.length === 0}>
           <div class="text-12-regular text-text-weak px-1">
-            暂无默认 Skills，点击「新建」创建第一个
+            暂无默认 Skills
           </div>
         </Match>
         <Match when={true}>
@@ -212,21 +158,11 @@ export const DefaultSkillsPanel: Component = () => {
                       <span class="text-12-regular text-text-subtle italic">暂无描述</span>
                     </Show>
                   </div>
-                  <div class="flex items-center gap-1 shrink-0">
-                    <IconButton
-                      icon="edit"
-                      variant="ghost"
-                      size="small"
-                      aria-label="编辑"
-                      onClick={() => openEdit(skill)}
-                    />
-                    <IconButton
-                      icon="trash"
-                      variant="ghost"
-                      size="small"
-                      aria-label="删除"
-                      disabled={deleting() === skill.name}
-                      onClick={() => handleDelete(skill.name)}
+                  <div class="flex items-center shrink-0">
+                    <Switch
+                      checked={skill.enabled !== false}
+                      disabled={toggling() === skill.name}
+                      onChange={(checked) => handleToggle(skill.name, checked)}
                     />
                   </div>
                 </div>
@@ -234,48 +170,7 @@ export const DefaultSkillsPanel: Component = () => {
             </For>
           </div>
         </Match>
-      </Switch>
-
-      {/* Edit / New form */}
-      <Show when={edit().mode !== "none"}>
-        <div class="flex flex-col gap-3 p-3 rounded-lg border border-border-base bg-surface-raised-base">
-
-          <span class="text-13-medium text-text-strong">
-            {edit().mode === "new" ? "新建 Skill" : `编辑：${(edit() as { mode: "edit"; skill: DefaultSkill }).skill.name}`}
-          </span>
-          <Show when={edit().mode === "new"}>
-            <TextField
-              label="名称（英文，用作目录名）"
-              placeholder="e.g. academic-researcher"
-              value={form.name}
-              onChange={(v) => setForm("name", v)}
-            />
-          </Show>
-          <TextField
-            label="描述"
-            placeholder="这个 Skill 的用途..."
-            value={form.description}
-            onChange={(v) => setForm("description", v)}
-          />
-          <TextField
-            multiline
-            label="内容（Markdown）"
-            placeholder="Skill 的详细指令..."
-            value={form.content}
-            onChange={(v) => setForm("content", v)}
-            spellcheck={false}
-            class="font-mono text-xs min-h-24 max-h-48 overflow-y-auto"
-          />
-          <div class="flex justify-end gap-2">
-            <Button type="button" variant="ghost" size="small" onClick={cancelEdit}>
-              取消
-            </Button>
-            <Button type="button" variant="primary" size="small" disabled={saving()} onClick={handleSave}>
-              {saving() ? "保存中..." : "保存"}
-            </Button>
-          </div>
-        </div>
-      </Show>
+      </SolidSwitch>
       </Show>
     </div>
   )

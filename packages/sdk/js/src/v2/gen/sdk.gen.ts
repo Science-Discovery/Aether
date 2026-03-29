@@ -1022,6 +1022,45 @@ export class Skills extends HeyApiClient {
       ...params,
     })
   }
+
+  /**
+   * Toggle skill activation
+   *
+   * Enable or disable a default skill by name.
+   */
+  public toggle<ThrowOnError extends boolean = false>(
+    parameters: {
+      name: string
+      enabled: boolean
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "name" },
+            { in: "body", key: "enabled" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<{ 200: { ok: boolean } }, unknown, ThrowOnError>({
+      url: "/config/skills/toggle",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
 }
 
 export class Config2 extends HeyApiClient {

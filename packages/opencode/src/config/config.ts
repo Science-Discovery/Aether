@@ -706,6 +706,7 @@ export namespace Config {
       .array(z.string())
       .optional()
       .describe("URLs to fetch skills from (e.g., https://example.com/.well-known/skills/)"),
+    disabled: z.array(z.string()).optional().describe("List of skill names to deactivate"),
   })
   export type Skills = z.infer<typeof Skills>
 
@@ -1357,6 +1358,7 @@ export namespace Config {
     name: z.string(),
     description: z.string(),
     content: z.string(),
+    enabled: z.boolean().optional(),
   })
   export type DefaultSkill = z.infer<typeof DefaultSkill>
 
@@ -1387,6 +1389,9 @@ export namespace Config {
     if (!skillsDir) return []
     if (!(await Filesystem.isDir(skillsDir))) return []
 
+    const cfg = await get()
+    const disabled = new Set(cfg.skills?.disabled ?? [])
+
     const entries = await fs.readdir(skillsDir, { withFileTypes: true }).catch(() => [])
     const skills: DefaultSkill[] = []
     for (const entry of entries) {
@@ -1394,18 +1399,20 @@ export namespace Config {
       const skillFile = path.join(skillsDir, entry.name, "SKILL.md")
       const text = await Filesystem.readText(skillFile).catch(() => null)
       if (text === null) {
-        skills.push({ name: entry.name, description: "", content: "" })
+        skills.push({ name: entry.name, description: "", content: "", enabled: !disabled.has(entry.name) })
         continue
       }
       try {
         const parsed = matter(text)
+        const name = String(parsed.data.name ?? entry.name)
         skills.push({
-          name: String(parsed.data.name ?? entry.name),
+          name,
           description: String(parsed.data.description ?? ""),
           content: parsed.content.trim(),
+          enabled: !disabled.has(name),
         })
       } catch {
-        skills.push({ name: entry.name, description: "", content: text })
+        skills.push({ name: entry.name, description: "", content: text, enabled: !disabled.has(entry.name) })
       }
     }
     return skills
@@ -1451,6 +1458,17 @@ export namespace Config {
 
     if (copied.length > 0) await Instance.dispose()
     return copied
+  }
+
+  export async function toggleSkill(name: string, enabled: boolean): Promise<void> {
+    const cfg = await get()
+    const disabled = new Set(cfg.skills?.disabled ?? [])
+    if (enabled) {
+      disabled.delete(name)
+    } else {
+      disabled.add(name)
+    }
+    await updateGlobal({ skills: { disabled: [...disabled] } } as any)
   }
 
   function globalConfigFile() {
