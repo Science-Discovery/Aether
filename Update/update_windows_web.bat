@@ -1,5 +1,5 @@
 @echo off
-setlocal EnableExtensions
+setlocal EnableExtensions EnableDelayedExpansion
 
 set "BASE=https://aether.aiphys.cn/download"
 set "META_URL=%BASE%/latest-web-windows.yml"
@@ -64,7 +64,7 @@ powershell -NoProfile -Command "& { Invoke-WebRequest -UseBasicParsing -Uri ($en
 
 if not "%SHA_REMOTE%"=="" (
   for /f "usebackq delims=" %%i in (`powershell -NoProfile -Command "$h=[Security.Cryptography.SHA512]::Create().ComputeHash([IO.File]::ReadAllBytes($env:ZIP)); [Convert]::ToBase64String($h)"`) do set "SHA_LOCAL=%%i"
-  if /I not "%SHA_LOCAL%"=="%SHA_REMOTE%" (
+  if /I not "!SHA_LOCAL!"=="%SHA_REMOTE%" (
     echo SHA512 mismatch. Stop update.
     goto :fail
   )
@@ -76,7 +76,7 @@ if exist "%EXTRACT%" rmdir /s /q "%EXTRACT%"
 mkdir "%NEXT%" || goto :fail
 mkdir "%EXTRACT%" || goto :fail
 
-powershell -NoProfile -Command "& { Expand-Archive -Path $env:ZIP -DestinationPath $env:EXTRACT -Force; $src=$env:EXTRACT; if(-not ((Test-Path (Join-Path $src 'aether.exe')) -and (Test-Path (Join-Path $src 'Aether.vbs')))) { $dirs=Get-ChildItem -Path $env:EXTRACT -Directory; if($dirs.Count -eq 1) { $d=$dirs[0].FullName; if((Test-Path (Join-Path $d 'aether.exe')) -and (Test-Path (Join-Path $d 'Aether.vbs'))) { $src=$d } else { throw 'Bad package layout' } } else { throw 'Bad package layout' } }; Set-Content -Path $env:SRC_FILE -Value $src -Encoding utf8NoBOM }" || goto :fail
+powershell -NoProfile -Command "& { Expand-Archive -Path $env:ZIP -DestinationPath $env:EXTRACT -Force; $src=$env:EXTRACT; if(-not ((Test-Path (Join-Path $src 'aether.exe')) -and (Test-Path (Join-Path $src 'Aether.vbs')))) { $dirs=Get-ChildItem -Path $env:EXTRACT -Directory; if($dirs.Count -eq 1) { $d=$dirs[0].FullName; if((Test-Path (Join-Path $d 'aether.exe')) -and (Test-Path (Join-Path $d 'Aether.vbs'))) { $src=$d } else { throw 'Bad package layout' } } else { throw 'Bad package layout' } }; [IO.File]::WriteAllText($env:SRC_FILE, $src) }" || goto :fail
 
 set "SRC="
 if exist "%SRC_FILE%" set /p SRC=<"%SRC_FILE%"
@@ -102,12 +102,13 @@ if %RC% GEQ 8 (
   goto :fail
 )
 
-powershell -NoProfile -Command "& { Set-Content -Path (Join-Path $env:NEXT '.aether_web_version') -Value $env:VER_REMOTE -Encoding utf8NoBOM }" || goto :fail
+powershell -NoProfile -Command "& { [IO.File]::WriteAllText((Join-Path $env:NEXT '.aether_web_version'), $env:VER_REMOTE) }" || goto :fail
 
-robocopy "%NEXT%" "%APP%" /MIR /NFL /NDL /NJH /NJS /NP >nul
+robocopy "%NEXT%" "%APP%" /MIR /XF update_windows_web.bat /NFL /NDL /NJH /NJS /NP >nul
 set "RC=%ERRORLEVEL%"
 if %RC% GEQ 8 (
   echo Failed to apply files. Robocopy exit code: %RC%
+  echo DEBUG APP=[%APP%]
   goto :fail
 )
 

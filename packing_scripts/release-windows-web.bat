@@ -44,9 +44,9 @@ if %RC% GEQ 8 (
 )
 
 copy /y "%UPD%" "%OUT%\update_windows_web.bat" >nul || exit /b 1
-powershell -NoProfile -Command "& { Set-Content -Path (Join-Path $env:OUT '.aether_web_version') -Value $env:VERSION -Encoding utf8NoBOM }" || exit /b 1
+powershell -NoProfile -Command "& { [IO.File]::WriteAllText((Join-Path $env:OUT '.aether_web_version'), $env:VERSION) }" || exit /b 1
 
-powershell -NoProfile -Command "& { $txt=@('Aether Web (Windows x64)','', 'Quick start', '1) Extract this ZIP and copy the folder aether-windows-x64-web to a local path, for example: C:\Aether-Web', '2) In that folder, double click Aether.vbs', '', 'Offline update', '- Run update_windows_web.bat to check and install newer versions from:', '  https://aether.aiphys.cn/download') -join \"`r`n\"; Set-Content -Path (Join-Path $env:OUT 'README_FIRST.txt') -Value ($txt + \"`r`n\") -Encoding ascii }" || exit /b 1
+powershell -NoProfile -Command "& { $crlf=[char]13+[char]10; $txt=@('Aether Web (Windows x64)','', 'Quick start', '1) Extract this ZIP and copy the folder aether-windows-x64-web to a local path, for example: C:\Aether-Web', '2) In that folder, double click Aether.vbs', '', 'Offline update', '- Run update_windows_web.bat to check and install newer versions from:', '  https://aether.aiphys.cn/download') -join $crlf; Set-Content -Path (Join-Path $env:OUT 'README_FIRST.txt') -Value ($txt + $crlf) -Encoding ascii }" || exit /b 1
 
 set "ZIP=%CD%\dist\aether-windows-x64-web.zip"
 if exist "%ZIP%" del /f /q "%ZIP%"
@@ -54,10 +54,8 @@ powershell -NoProfile -Command "& { Compress-Archive -Path $env:OUT -Destination
 
 set "YML=%CD%\dist\latest-web-windows.yml"
 set "ART=%ZIP%"
-set "VERSION=%VERSION%"
-set "YML=%YML%"
 
-powershell -NoProfile -Command "& { $art=$env:ART; $ver=$env:VERSION; $yml=$env:YML; $url=[IO.Path]::GetFileName($art); $sha=[Convert]::ToBase64String([Security.Cryptography.SHA512]::Create().ComputeHash([IO.File]::ReadAllBytes($art))); $size=(Get-Item $art).Length; $date=(Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ss.000Z'); $txt=@('version: ' + $ver,'files:','  - url: ' + $url,'    sha512: ' + $sha,'    size: ' + $size,'releaseDate: ' + $date) -join "`n"; [IO.File]::WriteAllText($yml, $txt + "`n") }" || exit /b 1
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$art=$env:ART; $ver=$env:VERSION; $yml=$env:YML; $url=[IO.Path]::GetFileName($art); $sha=[Convert]::ToBase64String([Security.Cryptography.SHA512]::Create().ComputeHash([IO.File]::ReadAllBytes($art))); $size=(Get-Item $art).Length; $date=(Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ss.000Z'); $lines=@(('version: '+$ver),('files:'),('  - url: '+$url),('    sha512: '+$sha),('    size: '+$size),('releaseDate: '+$date)); [IO.File]::WriteAllLines($yml, $lines)" || exit /b 1
 
 rmdir /s /q "%TMP%" >nul 2>nul
 
