@@ -14,12 +14,41 @@ import { spawn } from "bun"
 import path from "path"
 import type { Stats } from "fs"
 import { parsePDF } from "../../knowledge/document"
-import { startConversion, getTask, cancelTask, getQueuePosition, getQueueLength, listActiveTasks } from "../../pdf-converter"
+import {
+  startConversion,
+  getTask,
+  cancelTask,
+  getQueuePosition,
+  getQueueLength,
+  listActiveTasks,
+} from "../../pdf-converter"
 import { generateTaskID, computeOutputPaths } from "../../pdf-converter/util"
 import { checkPythonAvailable } from "../../pdf-converter/pdf-renderer"
-import { startTranslation, getTranslateTask, cancelTranslateTask, generateTranslateTaskID, listActiveTranslateTasks } from "../../markdown-translator"
+import {
+  startTranslation,
+  getTranslateTask,
+  cancelTranslateTask,
+  generateTranslateTaskID,
+  listActiveTranslateTasks,
+} from "../../markdown-translator"
 import { detectDataJson, chunkByContent, chunksFromDataJson } from "../../markdown-translator/chunker"
 import fs from "fs/promises"
+
+const encode = (input: string) =>
+  encodeURIComponent(input).replace(/['()*]/g, (part) => `%${part.charCodeAt(0).toString(16).toUpperCase()}`)
+
+const ascii = (input: string) => {
+  const out = input
+    .replaceAll(/["\\;\r\n]/g, "_")
+    .split("")
+    .map((part) => (/[\x20-\x7E]/.test(part) ? part : "_"))
+    .join("")
+    .trim()
+
+  return out || "download"
+}
+
+const attachment = (name: string) => `attachment; filename="${ascii(name)}"; filename*=UTF-8''${encode(name)}`
 
 export const FileRoutes = lazy(() =>
   new Hono()
@@ -27,19 +56,24 @@ export const FileRoutes = lazy(() =>
       "/file/active-tasks",
       describeRoute({
         summary: "List active conversion/translation tasks",
-        description: "Returns all currently running PDF conversion and markdown translation tasks, allowing the frontend to restore progress bars after page reload.",
+        description:
+          "Returns all currently running PDF conversion and markdown translation tasks, allowing the frontend to restore progress bars after page reload.",
         operationId: "file.activeTasks",
         responses: {
           200: {
             description: "Active tasks",
             content: {
               "application/json": {
-                schema: resolver(z.array(z.object({
-                  taskID: z.string(),
-                  status: z.string(),
-                  path: z.string(),
-                  taskType: z.enum(["convert", "translate"]),
-                }))),
+                schema: resolver(
+                  z.array(
+                    z.object({
+                      taskID: z.string(),
+                      status: z.string(),
+                      path: z.string(),
+                      taskType: z.enum(["convert", "translate"]),
+                    }),
+                  ),
+                ),
               },
             },
           },
@@ -214,6 +248,45 @@ export const FileRoutes = lazy(() =>
         return c.json(content)
       },
     )
+    .get(
+      "/file/download",
+      describeRoute({
+        summary: "Download file or directory",
+        description: "Download a file directly or a directory as a zip archive.",
+        operationId: "file.download",
+        responses: {
+          200: {
+            description: "File payload",
+          },
+          ...errors(400),
+          ...errors(404),
+        },
+      }),
+      validator(
+        "query",
+        z.object({
+          path: z.string(),
+        }),
+      ),
+      async (c) => {
+        const path = c.req.valid("query").path
+
+        try {
+          const out = await File.download(path)
+          return new Response(out.body, {
+            headers: {
+              "Content-Type": out.type,
+              "Content-Disposition": attachment(out.name),
+            },
+          })
+        } catch (err) {
+          if (err instanceof Error && /ENOENT/.test(err.message)) {
+            return c.json({ error: "File not found" }, 404)
+          }
+          throw err
+        }
+      },
+    )
     .put(
       "/file/content",
       describeRoute({
@@ -233,6 +306,80 @@ export const FileRoutes = lazy(() =>
         const { path, content } = c.req.valid("json")
         await File.write(path, content)
         return c.json({ ok: true })
+      },
+    )
+    .post(
+      "/file/upload",
+      describeRoute({
+        summary: "Upload files or directories",
+        description: "Upload one or more files or directories into the current project.",
+        operationId: "file.upload",
+        responses: {
+          200: {
+            description: "Uploaded",
+            content: {
+              "application/json": {
+                schema: resolver(
+                  z.object({
+                    ok: z.boolean(),
+                    dirs: z.number().int(),
+                    created: z.number().int(),
+                    updated: z.number().int(),
+                    failed: z.array(
+                      z.object({
+                        path: z.string(),
+                        error: z.string(),
+                      }),
+                    ),
+                  }),
+                ),
+              },
+            },
+          },
+          ...errors(400),
+        },
+      }),
+      async (c) => {
+        const form = await c.req.formData()
+        const root = form.get("target")
+        const dirs = form.get("dirs")
+        const paths = form.get("paths")
+        const files = form.getAll("files")
+
+        const next = typeof root === "string" ? root : ""
+        const parse = (input: FormDataEntryValue | null) => {
+          if (typeof input !== "string") return []
+          try {
+            return JSON.parse(input)
+          } catch {
+            return undefined
+          }
+        }
+        const dir = parse(dirs)
+        const list = parse(paths)
+
+        if (!Array.isArray(dir) || !dir.every((item) => typeof item === "string")) {
+          return c.json({ error: "Invalid upload directories" }, 400)
+        }
+        if (!Array.isArray(list) || !list.every((item) => typeof item === "string")) {
+          return c.json({ error: "Invalid upload paths" }, 400)
+        }
+
+        const body = files.filter((item): item is globalThis.File => item instanceof globalThis.File)
+        if (body.length !== list.length) {
+          return c.json({ error: "Upload payload is malformed" }, 400)
+        }
+
+        const result = await File.upload({
+          root: next,
+          dirs: dir,
+          files: body.map((file, idx) => ({
+            path: list[idx]!,
+            file,
+          })),
+        })
+
+        return c.json(result)
       },
     )
     .post(
@@ -345,7 +492,7 @@ export const FileRoutes = lazy(() =>
       validator("json", z.object({ path: z.string() })),
       async (c) => {
         const inputPath = c.req.valid("json").path
-        let stat: Stats | undefined; 
+        let stat: Stats | undefined
         try {
           stat = await Bun.file(inputPath).stat()
         } catch {
@@ -357,11 +504,11 @@ export const FileRoutes = lazy(() =>
             // Windows: use explorer
             const isDir = stat.isDirectory()
             if (isDir) {
-              const proc = spawn(["explorer.exe", `${inputPath}`]);
-              await proc.exited;
+              const proc = spawn(["explorer.exe", `${inputPath}`])
+              await proc.exited
             } else {
-              const proc = spawn(["explorer.exe", "/select,", `${inputPath}`]);
-              await proc.exited;
+              const proc = spawn(["explorer.exe", "/select,", `${inputPath}`])
+              await proc.exited
             }
           } else if (process.platform === "darwin") {
             // macOS: open -R / open // todo
@@ -381,10 +528,13 @@ export const FileRoutes = lazy(() =>
           return c.json({ ok: true })
         } catch (error) {
           console.error("Failed to open in explorer:", error)
-          return c.json({ 
-            error: "Failed to open in explorer",
-            details: error instanceof Error ? error.message : String(error)
-          }, 500)
+          return c.json(
+            {
+              error: "Failed to open in explorer",
+              details: error instanceof Error ? error.message : String(error),
+            },
+            500,
+          )
         }
       },
     )
@@ -432,10 +582,13 @@ export const FileRoutes = lazy(() =>
           return c.json({ ok: true })
         } catch (error) {
           console.error("Failed to open file:", error)
-          return c.json({
-            error: "Failed to open file",
-            details: error instanceof Error ? error.message : String(error),
-          }, 500)
+          return c.json(
+            {
+              error: "Failed to open file",
+              details: error instanceof Error ? error.message : String(error),
+            },
+            500,
+          )
         }
       },
     )
@@ -594,7 +747,9 @@ export const FileRoutes = lazy(() =>
           try {
             const stat = await Bun.file(perPageDir).stat()
             if (stat.isDirectory()) existingFiles.push(perPageDir)
-          } catch { /* not exists */ }
+          } catch {
+            /* not exists */
+          }
 
           return c.json({
             pageCount: parsed.pageCount,
@@ -730,7 +885,9 @@ export const FileRoutes = lazy(() =>
           let replayDone = false
           let cleanedUp = false
 
-          const removeListener = () => { task.listeners.delete(listener) }
+          const removeListener = () => {
+            task.listeners.delete(listener)
+          }
           const doCleanup = (hb?: ReturnType<typeof setInterval>) => {
             if (cleanedUp) return
             cleanedUp = true
@@ -746,7 +903,9 @@ export const FileRoutes = lazy(() =>
             }
             try {
               await stream.writeSSE({ data: JSON.stringify(event) })
-            } catch { /* stream broken */ }
+            } catch {
+              /* stream broken */
+            }
           }
 
           task.listeners.add(listener)
@@ -762,7 +921,9 @@ export const FileRoutes = lazy(() =>
           for (const event of pendingEvents) {
             try {
               await stream.writeSSE({ data: JSON.stringify(event) })
-            } catch { /* stream broken */ }
+            } catch {
+              /* stream broken */
+            }
           }
 
           // 如果任务已完成（重放+暂存事件中已包含终态），直接关闭
@@ -773,9 +934,11 @@ export const FileRoutes = lazy(() =>
 
           // 心跳保活
           const heartbeat = setInterval(() => {
-            stream.writeSSE({
-              data: JSON.stringify({ type: "heartbeat" }),
-            }).catch(() => doCleanup(heartbeat))
+            stream
+              .writeSSE({
+                data: JSON.stringify({ type: "heartbeat" }),
+              })
+              .catch(() => doCleanup(heartbeat))
           }, 5_000)
 
           await new Promise<void>((resolve) => {
@@ -861,7 +1024,8 @@ export const FileRoutes = lazy(() =>
       "/file/translate-markdown/check",
       describeRoute({
         summary: "Check markdown for translation",
-        description: "Pre-check a markdown file before translation: detect _data.json, estimate chunks, check conflicts.",
+        description:
+          "Pre-check a markdown file before translation: detect _data.json, estimate chunks, check conflicts.",
         operationId: "file.translateMarkdownCheck",
         responses: {
           200: {
@@ -1006,7 +1170,9 @@ export const FileRoutes = lazy(() =>
           let replayDone = false
 
           let cleanedUp = false
-          const removeListener = () => { task.listeners.delete(listener) }
+          const removeListener = () => {
+            task.listeners.delete(listener)
+          }
           const doCleanup = (hb?: ReturnType<typeof setInterval>) => {
             if (cleanedUp) return
             cleanedUp = true
@@ -1048,9 +1214,11 @@ export const FileRoutes = lazy(() =>
           }
 
           const heartbeat = setInterval(() => {
-            stream.writeSSE({
-              data: JSON.stringify({ type: "heartbeat" }),
-            }).catch(() => doCleanup(heartbeat))
+            stream
+              .writeSSE({
+                data: JSON.stringify({ type: "heartbeat" }),
+              })
+              .catch(() => doCleanup(heartbeat))
           }, 5_000)
 
           await new Promise<void>((resolve) => {

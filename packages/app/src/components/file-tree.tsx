@@ -227,6 +227,7 @@ export default function FileTree(props: {
   onFileCreate?: (dir: string, type: "file" | "directory") => void
   onFileDelete?: (node: FileNode) => void
   onFileRename?: (node: FileNode) => void
+  onFileDownload?: (node: FileNode) => void
   /** Bulk operations for multi-select */
   onMultiDelete?: (paths: string[]) => void
   onMultiCopyPaths?: (paths: string[]) => void
@@ -236,6 +237,8 @@ export default function FileTree(props: {
   onMultiCut?: (paths: string[]) => void
   /** Drag-drop into folders */
   onFileDrop?: (paths: string[], targetDir: string) => void
+  /** External file/folder uploads into folders */
+  onUploadDrop?: (event: DragEvent, targetDir: string) => void
   /** PDF 转 Markdown（单文件或批量） */
   onPdfConvert?: (paths: string[]) => void
   /** Markdown 翻译为中文（单文件或批量） */
@@ -508,7 +511,9 @@ export default function FileTree(props: {
                         props.onPdfConvert?.(paths)
                       }}
                     >
-                      <ContextMenu.ItemLabel>转换为 Markdown（{props.selectedPaths?.size ?? 0} 项）</ContextMenu.ItemLabel>
+                      <ContextMenu.ItemLabel>
+                        转换为 Markdown（{props.selectedPaths?.size ?? 0} 项）
+                      </ContextMenu.ItemLabel>
                     </ContextMenu.Item>
                   </Show>
                   <Show when={allSelectedAreMarkdown() && props.onTranslateMarkdown}>
@@ -570,6 +575,9 @@ export default function FileTree(props: {
                     }}
                   >
                     <ContextMenu.ItemLabel>复制路径</ContextMenu.ItemLabel>
+                  </ContextMenu.Item>
+                  <ContextMenu.Item onSelect={() => props.onFileDownload?.(node)}>
+                    <ContextMenu.ItemLabel>下载</ContextMenu.ItemLabel>
                   </ContextMenu.Item>
                   <ContextMenu.Item
                     onSelect={async () => {
@@ -677,10 +685,7 @@ export default function FileTree(props: {
                     <ContextMenu.ItemLabel>重命名</ContextMenu.ItemLabel>
                   </ContextMenu.Item>
                   <ContextMenu.Separator />
-                  <ContextMenu.Item
-                    onSelect={() => props.onFileDelete?.(node)}
-                    class="text-red-500 focus:text-red-500"
-                  >
+                  <ContextMenu.Item onSelect={() => props.onFileDelete?.(node)} class="text-red-500 focus:text-red-500">
                     <ContextMenu.ItemLabel>删除</ContextMenu.ItemLabel>
                   </ContextMenu.Item>
                 </ContextMenu.Content>
@@ -695,7 +700,8 @@ export default function FileTree(props: {
           let dragCounter = 0
 
           const handleDirDragEnter = (e: DragEvent) => {
-            if (!e.dataTransfer?.types.includes("text/plain")) return
+            if (!e.dataTransfer) return
+            if (!e.dataTransfer.types.includes("text/plain") && !e.dataTransfer.types.includes("Files")) return
             e.preventDefault()
             dragCounter++
             setDragOver(true)
@@ -708,15 +714,20 @@ export default function FileTree(props: {
             }
           }
           const handleDirDragOver = (e: DragEvent) => {
-            if (!e.dataTransfer?.types.includes("text/plain")) return
+            if (!e.dataTransfer) return
+            if (!e.dataTransfer.types.includes("text/plain") && !e.dataTransfer.types.includes("Files")) return
             e.preventDefault()
-            if (e.dataTransfer) e.dataTransfer.dropEffect = "move"
+            e.dataTransfer.dropEffect = e.dataTransfer.types.includes("Files") ? "copy" : "move"
           }
           const handleDirDrop = (e: DragEvent) => {
             e.preventDefault()
             e.stopPropagation()
             dragCounter = 0
             setDragOver(false)
+            if (e.dataTransfer?.types.includes("Files")) {
+              props.onUploadDrop?.(e, node.path)
+              return
+            }
             const multi = e.dataTransfer?.getData("application/x-filetree-multi")
             if (multi) {
               try {
@@ -726,7 +737,9 @@ export default function FileTree(props: {
                   return parent !== node.path && p !== node.path
                 })
                 if (filtered.length > 0) props.onFileDrop?.(filtered, node.path)
-              } catch { /* ignore */ }
+              } catch {
+                /* ignore */
+              }
               return
             }
             const plain = e.dataTransfer?.getData("text/plain")
@@ -785,7 +798,11 @@ export default function FileTree(props: {
                           </div>
                         </FileTreeNode>
                         <Show when={node.symlinkTarget}>
-                          <Icon name="link" size="small" class="size-3.5 text-text-weak ml-1 flex-shrink-0 align-middle" />
+                          <Icon
+                            name="link"
+                            size="small"
+                            class="size-3.5 text-text-weak ml-1 flex-shrink-0 align-middle"
+                          />
                         </Show>
                       </Collapsible.Trigger>
                     </div>
@@ -815,6 +832,7 @@ export default function FileTree(props: {
                           onFileCreate={props.onFileCreate}
                           onFileDelete={props.onFileDelete}
                           onFileRename={props.onFileRename}
+                          onFileDownload={props.onFileDownload}
                           onMultiDelete={props.onMultiDelete}
                           onMultiCopyPaths={props.onMultiCopyPaths}
                           onMultiDownload={props.onMultiDownload}
@@ -822,6 +840,7 @@ export default function FileTree(props: {
                           onMultiCopy={props.onMultiCopy}
                           onMultiCut={props.onMultiCut}
                           onFileDrop={props.onFileDrop}
+                          onUploadDrop={props.onUploadDrop}
                           onPdfConvert={props.onPdfConvert}
                           onTranslateMarkdown={props.onTranslateMarkdown}
                           _filter={filter()}

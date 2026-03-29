@@ -9,6 +9,7 @@ import { ResizeHandle } from "@opencode-ai/ui/resize-handle"
 import { Mark } from "@opencode-ai/ui/logo"
 import { showToast } from "@opencode-ai/ui/toast"
 import { Dialog } from "@opencode-ai/ui/dialog"
+import { DropdownMenu } from "@opencode-ai/ui/dropdown-menu"
 import { DragDropProvider, DragDropSensors, DragOverlay, SortableProvider, closestCenter } from "@thisbeyond/solid-dnd"
 import type { DragEvent } from "@thisbeyond/solid-dnd"
 import type { FileDiff } from "@opencode-ai/sdk/v2"
@@ -27,6 +28,7 @@ import { useCommand } from "@/context/command"
 import { useFile, type SelectedLineRange } from "@/context/file"
 import { useLanguage } from "@/context/language"
 import { useLayout } from "@/context/layout"
+import { usePlatform } from "@/context/platform"
 import { useSync } from "@/context/sync"
 import { useSDK } from "@/context/sdk"
 import { createFileTabListSync } from "@/pages/session/file-tab-scroll"
@@ -34,6 +36,8 @@ import { FileTabContent } from "@/pages/session/file-tabs"
 import { createOpenSessionFileTab, createSessionTabs, getTabReorderIndex, type Sizing } from "@/pages/session/helpers"
 import { setSessionHandoff } from "@/pages/session/handoff"
 import { useSessionLayout } from "@/pages/session/session-layout"
+import { save } from "./download"
+import { fromDir, fromDrop, fromList, isExternal, send } from "./upload"
 import type { FileNode } from "@opencode-ai/sdk/v2"
 
 export function SessionSidePanel(props: {
@@ -57,6 +61,7 @@ export function SessionSidePanel(props: {
   const command = useCommand()
   const dialog = useDialog()
   const sdk = useSDK()
+  const platform = usePlatform()
   const sync = useSync()
   const { params, sessionKey, tabs, view } = useSessionLayout()
 
@@ -128,14 +133,16 @@ export function SessionSidePanel(props: {
           await sdk.client.file.delete({ path: node.path })
           file.tree.refresh(parentDir)
           // Close tabs for the deleted file/directory
-          const tabsToClose = tabs().all().filter((tab) => {
-            const tabPath = file.pathFromTab(tab)
-            if (!tabPath) return false
-            if (node.type === "directory") {
-              return tabPath === node.path || tabPath.startsWith(node.path + "/")
-            }
-            return tabPath === node.path
-          })
+          const tabsToClose = tabs()
+            .all()
+            .filter((tab) => {
+              const tabPath = file.pathFromTab(tab)
+              if (!tabPath) return false
+              if (node.type === "directory") {
+                return tabPath === node.path || tabPath.startsWith(node.path + "/")
+              }
+              return tabPath === node.path
+            })
           for (const tab of tabsToClose) tabs().close(tab)
           // Also clear multi-select if the deleted path was selected
           setSelectedPaths((prev) => {
@@ -229,7 +236,12 @@ export function SessionSidePanel(props: {
               "font-size": "14px",
               outline: "none",
             }}
-            ref={(el) => setTimeout(() => { el.focus(); el.select() }, 0)}
+            ref={(el) =>
+              setTimeout(() => {
+                el.focus()
+                el.select()
+              }, 0)
+            }
           />
         </Dialog>
       )
@@ -399,7 +411,9 @@ export function SessionSidePanel(props: {
             await sdk.client.file.delete({ path: p })
             dirsToRefresh.add(parentDir)
             // Close any open tab for this path
-            const tabToClose = tabs().all().find((tab) => file.pathFromTab(tab) === p)
+            const tabToClose = tabs()
+              .all()
+              .find((tab) => file.pathFromTab(tab) === p)
             if (tabToClose) tabs().close(tabToClose)
             success++
           } catch {
@@ -440,25 +454,43 @@ export function SessionSidePanel(props: {
 
   const handleMultiDownload = async (paths: string[]) => {
     let count = 0
+    let failed = 0
     for (const p of paths) {
       try {
-        const res = await sdk.client.file.read({ path: p })
-        const content = res.data?.content ?? ""
-        const blob = new Blob([content], { type: "text/plain" })
-        const url = URL.createObjectURL(blob)
-        const a = document.createElement("a")
-        a.href = url
-        a.download = p.split("/").pop() ?? p
-        document.body.appendChild(a)
-        a.click()
-        document.body.removeChild(a)
-        URL.revokeObjectURL(url)
+        await save({
+          url: sdk.url,
+          dir: sdk.directory,
+          path: p,
+          fetch: platform.fetch,
+        })
         count++
       } catch {
-        // skip files that can't be read (directories, binary, etc.)
+        failed++
       }
     }
-    showToast({ variant: "success", title: `已下载 ${count} 个文件` })
+    if (failed > 0) {
+      showToast({ variant: "error", title: `下载完成：${count} 成功，${failed} 失败` })
+      return
+    }
+    showToast({ variant: "success", title: `已下载 ${count} 项` })
+  }
+
+  const handleFileDownload = async (node: FileNode) => {
+    try {
+      await save({
+        url: sdk.url,
+        dir: sdk.directory,
+        path: node.path,
+        fetch: platform.fetch,
+      })
+      showToast({ variant: "success", title: `已开始下载 ${node.name}` })
+    } catch (err) {
+      showToast({
+        variant: "error",
+        title: "下载失败",
+        description: err instanceof Error ? err.message : String(err),
+      })
+    }
   }
 
   // Clipboard state for copy/cut
@@ -516,6 +548,141 @@ export function SessionSidePanel(props: {
     } else if (success > 0) {
       showToast({ variant: "success", title: `已移动 ${success} 项` })
     }
+  }
+
+  const [uploading, setUploading] = createSignal(false)
+  const [dragging, setDragging] = createSignal(false)
+  let fileInput: HTMLInputElement | undefined
+  let dirInput: HTMLInputElement | undefined
+  let drag = 0
+
+  const refreshUpload = (dir: string) => {
+    file.tree.refresh(dir)
+    if (dir && !file.tree.state(dir)?.expanded) file.tree.expand(dir)
+    refresh()
+  }
+
+  const finishUpload = (res: Awaited<ReturnType<typeof send>>) => {
+    const done = res.created + res.updated
+    const extra = [
+      res.created ? `${res.created} 新建` : "",
+      res.updated ? `${res.updated} 覆盖` : "",
+      res.dirs ? `${res.dirs} 文件夹` : "",
+    ]
+      .filter(Boolean)
+      .join("，")
+
+    if (res.failed.length > 0) {
+      showToast({
+        variant: "error",
+        title: `上传完成：${done} 成功，${res.failed.length} 失败`,
+        description: res.failed[0]?.error,
+      })
+      return
+    }
+
+    showToast({
+      variant: "success",
+      title: done > 0 ? `已上传 ${done} 个文件` : "已创建文件夹",
+      description: extra || undefined,
+    })
+  }
+
+  const upload = async (batch: Parameters<typeof send>[0]["batch"], dir: string) => {
+    if (uploading()) {
+      showToast({ variant: "default", title: "上传仍在进行中" })
+      return
+    }
+    if (batch.files.length === 0 && batch.dirs.length === 0) return
+
+    setUploading(true)
+
+    try {
+      const res = await send({
+        url: sdk.url,
+        dir: sdk.directory,
+        target: dir,
+        batch,
+        fetch: platform.fetch,
+      })
+      refreshUpload(dir)
+      finishUpload(res)
+    } catch (err) {
+      showToast({
+        variant: "error",
+        title: "上传失败",
+        description: err instanceof Error ? err.message : String(err),
+      })
+    } finally {
+      setUploading(false)
+    }
+  }
+
+  const pickFiles = () => fileInput?.click()
+
+  const pickDir = async () => {
+    if (typeof window !== "undefined" && "showDirectoryPicker" in window) {
+      try {
+        const pick = window.showDirectoryPicker as () => Promise<FileSystemDirectoryHandle>
+        const dir = await pick()
+        await upload(await fromDir(dir), "")
+      } catch (err) {
+        if (err instanceof DOMException && err.name === "AbortError") return
+        showToast({
+          variant: "error",
+          title: "选择文件夹失败",
+          description: err instanceof Error ? err.message : String(err),
+        })
+      }
+      return
+    }
+
+    dirInput?.click()
+  }
+
+  const uploadFiles = async (list: FileList | null) => {
+    if (!list || list.length === 0) return
+    await upload(fromList(list), "")
+  }
+
+  const uploadDirs = async (list: FileList | null) => {
+    if (!list || list.length === 0) return
+    await upload(fromList(list), "")
+  }
+
+  const handleUploadDrop = async (event: globalThis.DragEvent, dir: string) => {
+    const data = event.dataTransfer
+    if (!data || !isExternal(data)) return
+    setDragging(false)
+    drag = 0
+    await upload(await fromDrop(data), dir)
+  }
+
+  const handleRootDragEnter = (event: globalThis.DragEvent) => {
+    if (!isExternal(event.dataTransfer)) return
+    event.preventDefault()
+    drag++
+    setDragging(true)
+  }
+
+  const handleRootDragLeave = () => {
+    drag--
+    if (drag > 0) return
+    drag = 0
+    setDragging(false)
+  }
+
+  const handleRootDragOver = (event: globalThis.DragEvent) => {
+    if (!isExternal(event.dataTransfer)) return
+    event.preventDefault()
+    if (event.dataTransfer) event.dataTransfer.dropEffect = "copy"
+  }
+
+  const handleRootDrop = async (event: globalThis.DragEvent) => {
+    if (!isExternal(event.dataTransfer)) return
+    event.preventDefault()
+    drag = 0
+    await handleUploadDrop(event, "")
   }
 
   const handleDragStart = (event: unknown) => {
@@ -773,6 +940,29 @@ export function SessionSidePanel(props: {
                 </Tabs.Content>
                 <Tabs.Content value="all" class="bg-background-stronger px-3 py-0 flex flex-col @container">
                   <div class="flex items-center gap-1 py-1.5 border-b border-border-weak-base">
+                    <DropdownMenu>
+                      <Tooltip value="上传文件或文件夹到项目">
+                        <DropdownMenu.Trigger
+                          as="button"
+                          type="button"
+                          class="flex items-center gap-1 px-2 py-1 rounded text-12-regular text-text-weak hover:text-text-base hover:bg-surface-raised-base-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                          disabled={uploading()}
+                        >
+                          <Icon name="cloud-upload" size="small" />
+                          <span class="hidden @sm:block">{uploading() ? "上传中..." : "上传"}</span>
+                        </DropdownMenu.Trigger>
+                      </Tooltip>
+                      <DropdownMenu.Portal>
+                        <DropdownMenu.Content>
+                          <DropdownMenu.Item onSelect={pickFiles} disabled={uploading()}>
+                            <DropdownMenu.ItemLabel>上传文件</DropdownMenu.ItemLabel>
+                          </DropdownMenu.Item>
+                          <DropdownMenu.Item onSelect={() => void pickDir()} disabled={uploading()}>
+                            <DropdownMenu.ItemLabel>上传文件夹</DropdownMenu.ItemLabel>
+                          </DropdownMenu.Item>
+                        </DropdownMenu.Content>
+                      </DropdownMenu.Portal>
+                    </DropdownMenu>
                     <Tooltip value="在项目根目录新建文件">
                       <button
                         type="button"
@@ -801,9 +991,7 @@ export function SessionSidePanel(props: {
                         disabled={isSummarizing()}
                       >
                         <Icon name="bullet-list" size="small" />
-                        <span class="hidden @sm:block">
-                          {isSummarizing() ? "生成中..." : "生成摘要"}
-                        </span>
+                        <span class="hidden @sm:block">{isSummarizing() ? "生成中..." : "生成摘要"}</span>
                       </button>
                     </Tooltip>
                     <Tooltip value="刷新项目文件列表">
@@ -817,29 +1005,74 @@ export function SessionSidePanel(props: {
                       </button>
                     </Tooltip>
                   </div>
-                  <Switch>
-                    <Match when={nofiles()}>{empty(language.t("session.files.empty"))}</Match>
-                    <Match when={true}>
-                      <FileTree
-                        path=""
-                        class="pt-3"
-                        modified={diffFiles()}
-                        kinds={kinds()}
-                        selectedPaths={selectedPaths()}
-                        onFileClick={handleFileClickWithMultiSelect}
-                        onFileCreate={handleFileCreate}
-                        onFileDelete={handleFileDelete}
-                        onFileRename={handleFileRename}
-                        onMultiDelete={handleMultiDelete}
-                        onMultiDownload={handleMultiDownload}
-                        onMultiCopy={handleMultiCopy}
-                        onMultiCut={handleMultiCut}
-                        onFileDrop={handleFileDrop}
-                        onPdfConvert={handlePdfConvert}
-                        onTranslateMarkdown={handleTranslateMarkdown}
-                      />
-                    </Match>
-                  </Switch>
+                  <div
+                    class="relative flex-1 min-h-0"
+                    onDragEnter={handleRootDragEnter}
+                    onDragLeave={handleRootDragLeave}
+                    onDragOver={handleRootDragOver}
+                    onDrop={(event) => void handleRootDrop(event)}
+                  >
+                    <div
+                      classList={{
+                        "absolute inset-2 rounded-lg border-2 border-dashed border-border-base bg-surface-raised-base/60 pointer-events-none transition-opacity": true,
+                        "opacity-100": dragging(),
+                        "opacity-0": !dragging(),
+                      }}
+                    >
+                      <div class="h-full flex items-center justify-center px-6 text-center text-12-medium text-text-base">
+                        拖拽文件或文件夹到这里，上传到当前项目
+                      </div>
+                    </div>
+                    <Switch>
+                      <Match when={nofiles()}>{empty(language.t("session.files.empty"))}</Match>
+                      <Match when={true}>
+                        <FileTree
+                          path=""
+                          class="pt-3"
+                          modified={diffFiles()}
+                          kinds={kinds()}
+                          selectedPaths={selectedPaths()}
+                          onFileClick={handleFileClickWithMultiSelect}
+                          onFileCreate={handleFileCreate}
+                          onFileDelete={handleFileDelete}
+                          onFileRename={handleFileRename}
+                          onFileDownload={handleFileDownload}
+                          onMultiDelete={handleMultiDelete}
+                          onMultiDownload={handleMultiDownload}
+                          onMultiCopy={handleMultiCopy}
+                          onMultiCut={handleMultiCut}
+                          onFileDrop={handleFileDrop}
+                          onUploadDrop={(event, dir) => void handleUploadDrop(event, dir)}
+                          onPdfConvert={handlePdfConvert}
+                          onTranslateMarkdown={handleTranslateMarkdown}
+                        />
+                      </Match>
+                    </Switch>
+                  </div>
+                  <input
+                    ref={fileInput}
+                    type="file"
+                    multiple
+                    class="hidden"
+                    onChange={(event) => {
+                      void uploadFiles(event.currentTarget.files)
+                      event.currentTarget.value = ""
+                    }}
+                  />
+                  <input
+                    ref={(el) => {
+                      dirInput = el
+                      el.setAttribute("webkitdirectory", "")
+                      el.setAttribute("directory", "")
+                    }}
+                    type="file"
+                    multiple
+                    class="hidden"
+                    onChange={(event) => {
+                      void uploadDirs(event.currentTarget.files)
+                      event.currentTarget.value = ""
+                    }}
+                  />
                 </Tabs.Content>
               </Tabs>
             </div>

@@ -17,6 +17,7 @@ import { Filesystem } from "../util/filesystem"
 import { Log } from "../util/log"
 import { Protected } from "./protected"
 import { Ripgrep } from "./ripgrep"
+import { Uint8ArrayReader, Uint8ArrayWriter, ZipWriter } from "@zip.js/zip.js"
 
 export namespace File {
   export const Info = z
@@ -328,6 +329,35 @@ export namespace File {
     cache: Entry
   }
 
+  const clean = (input: string) => {
+    const list = input
+      .replaceAll("\\", "/")
+      .split("/")
+      .filter(Boolean)
+      .filter((part) => part !== ".")
+
+    if (list.some((part) => part === "..")) {
+      throw new Error("Invalid upload path")
+    }
+
+    return list.join("/")
+  }
+
+  const target = (root: string, item: string) => {
+    const base = clean(root)
+    const rel = clean(item)
+    if (!rel) {
+      throw new Error("Upload path is required")
+    }
+
+    const next = path.join(Instance.directory, base, rel)
+    if (!Instance.containsPath(next)) {
+      throw new Error("Access denied: path escapes project directory")
+    }
+
+    return next
+  }
+
   export async function create(filePath: string, type: "file" | "directory"): Promise<void> {
     const resolved = path.join(Instance.directory, filePath)
     if (!Instance.containsPath(resolved)) {
@@ -347,6 +377,126 @@ export namespace File {
       throw new Error("Access denied: path escapes project directory")
     }
     await fs.promises.writeFile(resolved, content, "utf-8")
+  }
+
+  export async function upload(input: {
+    root?: string
+    dirs?: string[]
+    files?: {
+      path: string
+      file: globalThis.File
+    }[]
+  }) {
+    const root = input.root ?? ""
+    const dirs = input.dirs ?? []
+    const files = input.files ?? []
+    const seen = new Set<string>()
+    const fail: { path: string; error: string }[] = []
+    let made = 0
+    let wrote = 0
+    let changed = 0
+
+    for (const item of dirs) {
+      try {
+        const rel = clean(item)
+        if (!rel || seen.has(rel)) continue
+        seen.add(rel)
+        const next = target(root, rel)
+        const stat = await fs.promises.stat(next).catch(() => undefined)
+        if (stat?.isFile()) {
+          throw new Error("Cannot create directory because a file already exists at that path")
+        }
+        if (!stat) made++
+        await fs.promises.mkdir(next, { recursive: true })
+      } catch (err) {
+        fail.push({
+          path: item,
+          error: err instanceof Error ? err.message : String(err),
+        })
+      }
+    }
+
+    for (const item of files) {
+      try {
+        const rel = clean(item.path)
+        const next = target(root, rel)
+        const stat = await fs.promises.stat(next).catch(() => undefined)
+        if (stat?.isDirectory()) {
+          throw new Error("Cannot overwrite directory with file")
+        }
+        await fs.promises.mkdir(path.dirname(next), { recursive: true })
+        await Bun.write(next, item.file)
+        if (stat) changed++
+        else wrote++
+      } catch (err) {
+        fail.push({
+          path: item.path,
+          error: err instanceof Error ? err.message : String(err),
+        })
+      }
+    }
+
+    return {
+      ok: fail.length === 0,
+      dirs: made,
+      created: wrote,
+      updated: changed,
+      failed: fail,
+    }
+  }
+
+  async function pack(zip: ZipWriter<Uint8Array>, abs: string, rel: string) {
+    await zip.add(rel + "/", undefined, { directory: true })
+
+    const list = await fs.promises.readdir(abs, { withFileTypes: true })
+    list.sort((a, b) => a.name.localeCompare(b.name))
+
+    for (const item of list) {
+      const next = path.join(abs, item.name)
+      const name = `${rel}/${item.name}`
+      if (item.isDirectory()) {
+        await pack(zip, next, name)
+        continue
+      }
+
+      if (item.isSymbolicLink()) {
+        const stat = await fs.promises.stat(next).catch(() => undefined)
+        if (stat?.isDirectory()) {
+          await pack(zip, next, name)
+          continue
+        }
+      }
+
+      const data = new Uint8Array(await Bun.file(next).arrayBuffer())
+      await zip.add(name, new Uint8ArrayReader(data))
+    }
+  }
+
+  export async function download(filePath: string) {
+    const resolved = path.join(Instance.directory, filePath)
+    if (!Instance.containsPath(resolved)) {
+      throw new Error("Access denied: path escapes project directory")
+    }
+
+    const stat = await fs.promises.stat(resolved)
+    if (!stat.isDirectory()) {
+      return {
+        name: path.basename(resolved),
+        type: Filesystem.mimeType(resolved),
+        body: Bun.file(resolved),
+      }
+    }
+
+    const base = path.basename(resolved) || "archive"
+    const writer = new Uint8ArrayWriter()
+    const zipfile = new ZipWriter(writer)
+    await pack(zipfile, resolved, base)
+    const body = Uint8Array.from(await zipfile.close())
+    return {
+      name: `${base}.zip`,
+      type: "application/zip",
+      body: new Blob([body], { type: "application/zip" }),
+    }
   }
 
   export async function addToGitignore(
@@ -394,9 +544,10 @@ export namespace File {
       throw new Error("Access denied: path escapes project directory")
     }
     // If newName contains a path separator, treat it as a full relative path from project root
-    const newPath = newName.includes("/") || newName.includes("\\")
-      ? path.join(Instance.directory, newName)
-      : path.join(path.dirname(resolvedOld), newName)
+    const newPath =
+      newName.includes("/") || newName.includes("\\")
+        ? path.join(Instance.directory, newName)
+        : path.join(path.dirname(resolvedOld), newName)
     if (!Instance.containsPath(newPath)) {
       throw new Error("Access denied: path escapes project directory")
     }
@@ -710,23 +861,23 @@ export namespace File {
             if (exclude.includes(entry.name)) continue
             const absolute = path.join(resolved, entry.name)
             const file = path.relative(Instance.directory, absolute)
-            
-            let type: "file" | "directory";
-            let symlinkTarget: string | undefined;
-            
+
+            let type: "file" | "directory"
+            let symlinkTarget: string | undefined
+
             if (entry.isSymbolicLink()) {
               try {
-                const targetStat = await fs.promises.stat(absolute);
-                type = targetStat.isDirectory() ? "directory" : "file";
-                symlinkTarget = await fs.promises.readlink(absolute);
+                const targetStat = await fs.promises.stat(absolute)
+                type = targetStat.isDirectory() ? "directory" : "file"
+                symlinkTarget = await fs.promises.readlink(absolute)
               } catch {
-                type = "file";
-                symlinkTarget = undefined;
+                type = "file"
+                symlinkTarget = undefined
               }
             } else {
-              type = entry.isDirectory() ? "directory" : "file";
+              type = entry.isDirectory() ? "directory" : "file"
             }
-            
+
             nodes.push({
               name: entry.name,
               path: file,

@@ -6,6 +6,7 @@ import { File } from "../../src/file"
 import { Instance } from "../../src/project/instance"
 import { Filesystem } from "../../src/util/filesystem"
 import { tmpdir } from "../fixture/fixture"
+import { BlobReader, TextWriter, ZipReader } from "@zip.js/zip.js"
 
 afterEach(async () => {
   await Instance.disposeAll()
@@ -941,6 +942,137 @@ describe("file/index Filesystem patterns", () => {
           expect(stale).not.toContain("before.ts")
         },
       })
+    })
+  })
+})
+
+describe("File.upload()", () => {
+  test("uploads files and creates empty directories", async () => {
+    await using tmp = await tmpdir()
+
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const png = new globalThis.File([Uint8Array.from([0x89, 0x50, 0x4e, 0x47])], "logo.png", {
+          type: "image/png",
+        })
+
+        const res = await File.upload({
+          root: "assets",
+          dirs: ["empty"],
+          files: [
+            { path: "docs/readme.txt", file: new globalThis.File(["hello"], "readme.txt", { type: "text/plain" }) },
+            { path: "img/logo.png", file: png },
+          ],
+        })
+
+        expect(res.ok).toBe(true)
+        expect(res.dirs).toBe(1)
+        expect(res.created).toBe(2)
+        expect(res.updated).toBe(0)
+        expect(res.failed).toEqual([])
+        expect(await fs.readFile(path.join(tmp.path, "assets", "docs", "readme.txt"), "utf-8")).toBe("hello")
+        expect(await fs.readFile(path.join(tmp.path, "assets", "img", "logo.png"))).toEqual(
+          Buffer.from([0x89, 0x50, 0x4e, 0x47]),
+        )
+        expect(await Filesystem.exists(path.join(tmp.path, "assets", "empty"))).toBe(true)
+      },
+    })
+  })
+
+  test("reports invalid upload paths without escaping the project", async () => {
+    await using tmp = await tmpdir()
+
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const res = await File.upload({
+          files: [{ path: "../escape.txt", file: new globalThis.File(["bad"], "escape.txt", { type: "text/plain" }) }],
+        })
+
+        expect(res.ok).toBe(false)
+        expect(res.created).toBe(0)
+        expect(res.failed).toHaveLength(1)
+        expect(res.failed[0]?.error).toContain("Invalid upload path")
+        expect(await Filesystem.exists(path.join(tmp.path, "..", "escape.txt"))).toBe(false)
+      },
+    })
+  })
+
+  test("counts overwrites as updates", async () => {
+    await using tmp = await tmpdir({
+      init: async (dir) => {
+        await Bun.write(path.join(dir, "keep.txt"), "old")
+      },
+    })
+
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const res = await File.upload({
+          files: [{ path: "keep.txt", file: new globalThis.File(["new"], "keep.txt", { type: "text/plain" }) }],
+        })
+
+        expect(res.ok).toBe(true)
+        expect(res.created).toBe(0)
+        expect(res.updated).toBe(1)
+        expect(await fs.readFile(path.join(tmp.path, "keep.txt"), "utf-8")).toBe("new")
+      },
+    })
+  })
+})
+
+describe("File.download()", () => {
+  test("downloads a file with its original content", async () => {
+    await using tmp = await tmpdir({
+      init: async (dir) => {
+        await Bun.write(path.join(dir, "note.txt"), "hello")
+      },
+    })
+
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const out = await File.download("note.txt")
+
+        expect(out.name).toBe("note.txt")
+        expect(out.type).toContain("text/plain")
+        expect(await new Response(out.body).text()).toBe("hello")
+      },
+    })
+  })
+
+  test("downloads a directory as zip", async () => {
+    await using tmp = await tmpdir({
+      init: async (dir) => {
+        await Bun.write(path.join(dir, "docs", "a.txt"), "A")
+        await Bun.write(path.join(dir, "docs", "nested", "b.txt"), "B")
+      },
+    })
+
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const out = await File.download("docs")
+        expect(out.name).toBe("docs.zip")
+        expect(out.type).toBe("application/zip")
+
+        const blob = out.body instanceof Blob ? out.body : await new Response(out.body).blob()
+        const zip = new ZipReader(new BlobReader(blob))
+        const entries = await zip.getEntries()
+        const names = entries.map((item) => item.filename)
+        expect(names).toContain("docs/")
+        expect(names).toContain("docs/a.txt")
+        expect(names).toContain("docs/nested/")
+        expect(names).toContain("docs/nested/b.txt")
+
+        const a = entries.find((item) => item.filename === "docs/a.txt")
+        const b = entries.find((item) => item.filename === "docs/nested/b.txt")
+        if (!a || !b) throw new Error("Expected zip entries to exist")
+        expect(await a.getData!(new TextWriter())).toBe("A")
+        expect(await b.getData!(new TextWriter())).toBe("B")
+        await zip.close()
+      },
     })
   })
 })
