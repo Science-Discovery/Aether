@@ -1091,12 +1091,13 @@ export default function Page() {
     const id = params.id
     if (!id) return
 
-    setStore("changes", "session")
-    if (!isDesktop()) setStore("mobileTab", "changes")
-    if (isDesktop()) {
-      if (!view().reviewPanel.opened()) view().reviewPanel.open()
-      if (activeTab() !== "review") tabs().setActive("review")
+    const mode = untrack(() => store.changes)
+    if (mode === "git" || mode === "branch") {
+      refreshVcs()
+      return
     }
+
+    if (mode !== "session") return
 
     sync.set("session_diff", (value) => {
       const next = { ...value }
@@ -2083,6 +2084,7 @@ export default function Page() {
           diffsReady={reviewReady}
           empty={reviewEmptyText}
           onRefresh={refreshReview}
+          onVcsRefresh={refreshVcs}
           hasReview={hasReview}
           reviewCount={reviewCount}
           reviewPanel={reviewPanel}

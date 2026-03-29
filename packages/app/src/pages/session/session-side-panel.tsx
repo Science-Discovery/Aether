@@ -42,6 +42,7 @@ export function SessionSidePanel(props: {
   diffsReady: () => boolean
   empty: () => string
   onRefresh: () => void
+  onVcsRefresh: () => void
   hasReview: () => boolean
   reviewCount: () => number
   reviewPanel: () => JSX.Element
@@ -59,6 +60,11 @@ export function SessionSidePanel(props: {
   const sync = useSync()
   const { params, sessionKey, tabs, view } = useSessionLayout()
 
+  const refresh = () => {
+    props.onVcsRefresh()
+    if (params.id) void sync.session.diff(params.id, { force: true })
+  }
+
   function handleFileCreate(dir: string, type: "file" | "directory") {
     const title = type === "file" ? "新建文件" : "新建文件夹"
     const placeholder = type === "file" ? "文件名（如 notes.md）" : "文件夹名"
@@ -72,7 +78,7 @@ export function SessionSidePanel(props: {
         try {
           await sdk.client.file.create({ path: newPath, type })
           file.tree.refresh(dir)
-          if (params.id) void sync.session.diff(params.id, { force: true })
+          refresh()
           if (!file.tree.state(dir)?.expanded) file.tree.expand(dir)
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err)
@@ -138,7 +144,7 @@ export function SessionSidePanel(props: {
             next.delete(node.path)
             return next
           })
-          if (params.id) void sync.session.diff(params.id, { force: true })
+          refresh()
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err)
           showToast({ variant: "error", icon: "circle-x", title: "删除失败", description: message })
@@ -181,7 +187,7 @@ export function SessionSidePanel(props: {
         try {
           await sdk.client.file.rename({ path: node.path, name: newName })
           file.tree.refresh(parentDir)
-          if (params.id) void sync.session.diff(params.id, { force: true })
+          refresh()
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err)
           showToast({ variant: "error", icon: "circle-x", title: "重命名失败", description: message })
@@ -248,6 +254,7 @@ export function SessionSidePanel(props: {
         title: `已生成 ${count} 个目录摘要`,
       })
       file.tree.refresh("")
+      refresh()
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       showToast({ variant: "error", icon: "circle-x", title: "生成摘要失败", description: message })
@@ -401,7 +408,7 @@ export function SessionSidePanel(props: {
         }
         for (const dir of dirsToRefresh) file.tree.refresh(dir)
         setSelectedPaths(new Set<string>())
-        if (params.id) void sync.session.diff(params.id, { force: true })
+        refresh()
         if (failed > 0) {
           showToast({ variant: "error", title: `删除完成：${success} 成功，${failed} 失败` })
         } else {
@@ -503,7 +510,7 @@ export function SessionSidePanel(props: {
     }
     for (const dir of dirsToRefresh) file.tree.refresh(dir)
     setSelectedPaths(new Set<string>())
-    if (params.id) void sync.session.diff(params.id, { force: true })
+    refresh()
     if (failed > 0) {
       showToast({ variant: "error", title: `移动完成：${success} 成功，${failed} 失败` })
     } else if (success > 0) {
