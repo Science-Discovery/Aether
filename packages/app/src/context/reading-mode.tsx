@@ -18,6 +18,33 @@ export type ReadingModeSessionMeta = {
   firstReadCompleted: boolean
 }
 
+export type ReadingHighlightColor = "yellow" | "red" | "green" | "blue"
+
+export type ReadingHighlight = {
+  id: string
+  type: "highlight"
+  page: number
+  color: ReadingHighlightColor
+  rects: Array<{ x1: number; y1: number; x2: number; y2: number }>
+  selectedText: string
+  note: string
+  createdAt: number
+}
+
+export type ReadingPendingAction =
+  | {
+      kind: "send"
+      source: "translate" | "first-read"
+      text: string
+    }
+  | {
+      kind: "compose"
+      source: "ask"
+      text: string
+      cursor: number
+    }
+  | null
+
 type Store = {
   currentPage: number
   totalPages: number
@@ -26,6 +53,8 @@ type Store = {
   nightMode: boolean
   continuousMode: boolean // true = scroll through all pages, false = single page
   sessionMeta: ReadingModeSessionMeta | null
+  annotations: ReadingHighlight[]
+  pendingAction: ReadingPendingAction
 }
 
 type Ctx = {
@@ -37,6 +66,8 @@ type Ctx = {
   setNightMode: (v: boolean) => void
   setContinuousMode: (v: boolean) => void
   setSessionMeta: (meta: ReadingModeSessionMeta | null) => void
+  setAnnotations: (items: ReadingHighlight[]) => void
+  setPendingAction: (action: ReadingPendingAction) => void
 }
 
 const ReadingModeContext = createContext<Ctx>()
@@ -50,6 +81,8 @@ export function ReadingModeProvider(props: ParentProps) {
     nightMode: false,
     continuousMode: true,
     sessionMeta: null,
+    annotations: [],
+    pendingAction: null,
   })
 
   const ctx: Ctx = {
@@ -61,6 +94,8 @@ export function ReadingModeProvider(props: ParentProps) {
     setNightMode: (v) => setStore("nightMode", v),
     setContinuousMode: (v) => setStore("continuousMode", v),
     setSessionMeta: (meta) => setStore("sessionMeta", meta),
+    setAnnotations: (items) => setStore("annotations", items),
+    setPendingAction: (action) => setStore("pendingAction", action),
   }
 
   return <ReadingModeContext.Provider value={ctx}>{props.children}</ReadingModeContext.Provider>

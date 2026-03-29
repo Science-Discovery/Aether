@@ -1,4 +1,4 @@
-import { type Component, createSignal, Show } from "solid-js"
+﻿import { type Component, createSignal, Show } from "solid-js"
 import { useNavigate, useParams } from "@solidjs/router"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { Dialog } from "@opencode-ai/ui/dialog"
@@ -23,8 +23,8 @@ export const DialogReadingMode: Component = () => {
 
   const MB = 1024 * 1024
   const GB = 1024 * MB
-  const MAX_SIZE = GB // 1 GB hard limit (matches server maxRequestBodySize)
-  const WARN_SIZE = 500 * MB // show a notice above 500 MB
+  const MAX_SIZE = GB
+  const WARN_SIZE = 500 * MB
 
   function formatSize(bytes: number) {
     if (bytes >= GB) return `${(bytes / GB).toFixed(1)} GB`
@@ -34,21 +34,26 @@ export const DialogReadingMode: Component = () => {
 
   function pickFile(f: File | undefined) {
     if (!f) return
-    if (f.type !== "application/pdf") { setError("仅支持 PDF 文件"); return }
-    if (f.size > MAX_SIZE) { setError(`文件过大（${formatSize(f.size)}），上限为 1 GB`); return }
+    if (f.type !== "application/pdf") {
+      setError("仅支持 PDF 文件")
+      return
+    }
+    if (f.size > MAX_SIZE) {
+      setError(`文件过大（${formatSize(f.size)}），上限为 1 GB`)
+      return
+    }
     setError(null)
     setFile(f)
   }
 
-  // Advanced settings state
   const [translatePrompt, setTranslatePrompt] = createSignal(
-    "请将以下英文内容翻译成中文，保留所有专业术语的英文原文（首次出现时括注中文），数学公式保持不变，保持原文的段落结构。",
+    "请将以下英文内容翻译成中文，保留所有专业术语的英文原文，在首次出现时补充中文说明；数学公式保持不变，并尽量保留原文段落结构。",
   )
   const [questionPrompt, setQuestionPrompt] = createSignal(
-    "用户正在阅读一份 PDF 文件，并选中了以下内容：\n\n【选中内容】\n{selected_content}\n\n用户的问题是：{user_question}\n\n你可以参考以下相关页面的内容来辅助回答：\n\n【参考页面内容】\n{context_pages}\n\n请针对用户选中的这部分内容，结合参考页面，给出清晰准确的回答。",
+    "用户正在阅读一份 PDF 文档，并选中了以下内容：\n\n【选中内容】\n{selected_content}\n\n用户的问题是：{user_question}\n\n你可以参考以下相关页面内容来辅助回答：\n\n【参考页面内容】\n{context_pages}\n\n请围绕用户选中的内容，结合参考页面，给出清晰、准确的回答。",
   )
   const [firstReadPrompt, setFirstReadPrompt] = createSignal(
-    "请初步阅读这份PDF文件（或其中一部分），对文件的主要内容、结构和核心论点进行总结和概括。接下来用户可能会就文件中的具体内容向你提问，请在回答时参考你对全文的理解。",
+    "请先通读这份 PDF 文档，概括它的主要内容、整体结构和核心观点。接下来用户可能会针对文档中的具体内容继续提问，请在回答时参考你对全文的理解。",
   )
   const [contextPageRange, setContextPageRange] = createSignal<0 | 1 | 2>(1)
   const [disableAutoRead, setDisableAutoRead] = createSignal(false)
@@ -66,7 +71,7 @@ export const DialogReadingMode: Component = () => {
     if (!f) return
     setUploading(true)
     setError(null)
-    setUploadProgress(f.size > WARN_SIZE ? `正在上传（${formatSize(f.size)}，请稍候…）` : null)
+    setUploadProgress(f.size > WARN_SIZE ? `正在上传（${formatSize(f.size)}），请稍候...` : null)
 
     try {
       const currentServer = server.current
@@ -97,8 +102,6 @@ export const DialogReadingMode: Component = () => {
 
       const session = await res.json()
       dialogCtx.close()
-
-      // Navigate to the new reading session
       navigate(`/${encodeURIComponent(params.dir ?? "")}/session/${session.id}/reading`)
     } catch (e) {
       setError(String((e as Error)?.message ?? "Upload failed"))
@@ -115,7 +118,6 @@ export const DialogReadingMode: Component = () => {
           <div class="text-red-400 text-sm bg-surface-raised-base rounded p-2">{error()}</div>
         </Show>
 
-        {/* File upload area */}
         <div>
           <p class="text-sm text-text-base mb-2">{language.t("reading.dialog.upload.label")}</p>
           <div
@@ -139,9 +141,7 @@ export const DialogReadingMode: Component = () => {
                   <p class="text-sm text-text-strong">{f().name}</p>
                   <p class="text-xs text-text-muted">{formatSize(f().size)}</p>
                   <Show when={f().size > WARN_SIZE}>
-                    <p class="text-xs text-yellow-500 mt-1">
-                      文件较大，上传可能需要较长时间
-                    </p>
+                    <p class="text-xs text-yellow-500 mt-1">文件较大，上传可能需要更长时间。</p>
                   </Show>
                 </div>
               )}
@@ -159,7 +159,6 @@ export const DialogReadingMode: Component = () => {
           />
         </div>
 
-        {/* Advanced settings collapsible */}
         <div>
           <button
             type="button"
@@ -228,7 +227,6 @@ export const DialogReadingMode: Component = () => {
           </Show>
         </div>
 
-        {/* Action buttons */}
         <div class="flex flex-col gap-2 pt-2">
           <Show when={uploadProgress()}>
             <p class="text-xs text-text-muted text-center">{uploadProgress()}</p>
