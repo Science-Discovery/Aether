@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-root="$(cd "$(dirname "$0")" && pwd)"
+root="$(cd "$(dirname "$0")/.." && pwd)"
 ver="${1:-$(cd "$root" && bun -e 'const p=await Bun.file("packages/desktop-electron/package.json").json();console.log(p.version)')}"
 date="$(date -u +"%Y-%m-%dT%H:%M:%S.000Z")"
+
+bun install
 
 pushd "$root/packages/desktop-electron" >/dev/null
 export OPENCODE_CHANNEL=prod
