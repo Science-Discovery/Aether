@@ -1,9 +1,11 @@
+import fs from "fs/promises"
 import path from "path"
 import { pathToFileURL } from "url"
 import z from "zod"
 import { Tool } from "./tool"
 import { Skill } from "../skill"
 import { Ripgrep } from "../file/ripgrep"
+import { ConfigMarkdown } from "../config/markdown"
 import { iife } from "@/util/iife"
 
 export const SkillTool = Tool.define("skill", async (ctx) => {
@@ -43,10 +45,15 @@ export const SkillTool = Tool.define("skill", async (ctx) => {
     async execute(params: z.infer<typeof parameters>, ctx) {
       const skill = await Skill.get(params.name)
 
-      if (!skill) {
+      if (!skill || !(await fs.access(skill.location).then(() => true, () => false))) {
         const available = await Skill.all().then((x) => x.map((skill) => skill.name).join(", "))
         throw new Error(`Skill "${params.name}" not found. Available skills: ${available || "none"}`)
       }
+
+      // Re-read SKILL.md from disk to get the latest content instead of using cached version
+      const freshContent = await ConfigMarkdown.parse(skill.location)
+        .then((md) => md.content)
+        .catch(() => skill.content)
 
       await ctx.ask({
         permission: "skill",
@@ -84,7 +91,7 @@ export const SkillTool = Tool.define("skill", async (ctx) => {
           `<skill_content name="${skill.name}">`,
           `# Skill: ${skill.name}`,
           "",
-          skill.content.trim(),
+          freshContent.trim(),
           "",
           `Base directory for this skill: ${base}`,
           "Relative paths in this skill (e.g., scripts/, reference/) are relative to this base directory.",
