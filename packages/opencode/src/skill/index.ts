@@ -152,6 +152,15 @@ export namespace Skill {
     }
 
     log.info("init", { count: Object.keys(state.skills).length })
+
+    // Remove disabled skills
+    const disabled = new Set(cfg.skills?.disabled ?? [])
+    for (const name of disabled) {
+      if (state.skills[name]) {
+        delete state.skills[name]
+        log.info("skill disabled by config", { name })
+      }
+    }
   }
 
   export class Service extends ServiceMap.Service<Service, Interface>()("@opencode/Skill") {}

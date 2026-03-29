@@ -141,6 +141,26 @@ export const ConfigRoutes = lazy(() =>
         return c.json({ added })
       },
     )
+    .post(
+      "/skills/toggle",
+      describeRoute({
+        summary: "Toggle skill activation",
+        description: "Enable or disable a default skill by name.",
+        operationId: "config.skills.toggle",
+        responses: {
+          200: {
+            description: "Skill toggled",
+            content: { "application/json": { schema: resolver(z.object({ ok: z.boolean() })) } },
+          },
+        },
+      }),
+      validator("json", z.object({ name: z.string(), enabled: z.boolean() })),
+      async (c) => {
+        const { name, enabled } = c.req.valid("json")
+        await Config.toggleSkill(name, enabled)
+        return c.json({ ok: true })
+      },
+    )
     .get(
       "/providers",
       describeRoute({
