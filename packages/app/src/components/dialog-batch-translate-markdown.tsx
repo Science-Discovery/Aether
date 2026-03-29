@@ -15,7 +15,7 @@ import { useSDK } from "@/context/sdk"
 import { useServer } from "@/context/server"
 import { useModels } from "@/context/models"
 import { ModelSelectorPopover } from "./dialog-select-model"
-import { registerConvertTask, updateConvertTask, triggerOpenFile, triggerRefreshDir, registerEventSource } from "./pdf-convert-progress"
+import { registerConvertTask, updateConvertTask, triggerOpenFile, triggerRefreshDir, registerEventSource, taskUrl } from "./pdf-convert-progress"
 
 // 复用翻译设置持久化
 const STORAGE_KEY = "translate-markdown-settings"
@@ -155,7 +155,7 @@ export const DialogBatchTranslateMarkdown: Component<{
     const attempt = (retryCount: number): Promise<void> => {
       return new Promise<void>((resolve) => {
         const baseUrl = sdk.url
-        const url = `${baseUrl}/file/translate-markdown/progress?taskID=${taskID}&directory=${encodeURIComponent(sdk.directory)}`
+        const url = taskUrl(baseUrl, "/file/translate-markdown/progress", taskID, sdk.directory, server.current?.http)
         const es = new EventSource(url)
         registerEventSource(es)
         let gotTerminal = false

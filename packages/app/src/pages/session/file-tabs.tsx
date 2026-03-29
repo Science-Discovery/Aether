@@ -27,8 +27,6 @@ import { createSessionTabs } from "@/pages/session/helpers"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { DialogPdfToMarkdown } from "@/components/dialog-pdf-to-markdown"
 import { DialogTranslateMarkdown } from "@/components/dialog-translate-markdown"
-import { registerOpenFileCallback, registerRefreshDirCallback, restoreActiveTasks } from "@/components/pdf-convert-progress"
-import { useServer } from "@/context/server"
 
 function FileCommentMenu(props: {
   moreLabel: string
@@ -71,28 +69,8 @@ export function FileTabContent(props: { tab: string }) {
   const sync = useSync()
   const fileComponent = useFileComponent()
   const sdk = useSDK()
-  const server = useServer()
   const terminal = useTerminal()
   const dialog = useDialog()
-
-  // 构造 fetchApi 用于进度恢复和对话框
-  const fetchApi = (urlPath: string, options: RequestInit = {}): Promise<Response> => {
-    const baseUrl = sdk.url
-    const s = server.current?.http
-    const authHeader: Record<string, string> = s?.password
-      ? { Authorization: `Basic ${btoa(`${s.username ?? "opencode"}:${s.password}`)}` }
-      : {}
-    const headers: Record<string, string> = {
-      "Content-Type": "application/json",
-      ...authHeader,
-      ...(options.headers as Record<string, string> ?? {}),
-    }
-    const separator = urlPath.includes("?") ? "&" : "?"
-    return fetch(`${baseUrl}${urlPath}${separator}directory=${encodeURIComponent(sdk.directory)}`, {
-      ...options,
-      headers,
-    })
-  }
 
   const [isEditing, setIsEditing] = createSignal(false)
   const [editContent, setEditContent] = createSignal("")
@@ -136,26 +114,6 @@ export function FileTabContent(props: { tab: string }) {
     pathFromTab: file.pathFromTab,
     normalizeTab: (tab) => (tab.startsWith("file://") ? file.tab(tab) : tab),
   }).activeFileTab
-
-  // 注册 PDF 转换完成后的文件打开回调
-  registerOpenFileCallback(async (filePath: string) => {
-    // 刷新文件树使新文件可见（等待完成）
-    const parentDir = filePath.includes("/") ? filePath.slice(0, filePath.lastIndexOf("/")) : ""
-    await file.tree.refresh(parentDir)
-    // 打开并强制加载文件（确保不使用缓存）
-    const tab = file.tab(filePath)
-    tabs().open(tab)
-    tabs().setActive(tab)
-    await file.load(filePath, { force: true })
-  })
-
-  // 注册目录刷新回调（每个文件转换完成后刷新文件树）
-  registerRefreshDirCallback((dirPath: string) => {
-    void file.tree.refresh(dirPath)
-  })
-
-  // 页面加载时查询后端活跃任务，恢复进度条
-  void restoreActiveTasks(fetchApi, sdk.url, sdk.directory)
 
   let scroll: HTMLDivElement | undefined
   let scrollFrame: number | undefined

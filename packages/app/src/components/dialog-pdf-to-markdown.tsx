@@ -14,7 +14,7 @@ import { useSDK } from "@/context/sdk"
 import { useServer } from "@/context/server"
 import { useModels } from "@/context/models"
 import { ModelSelectorPopover } from "./dialog-select-model"
-import { registerConvertTask, updateConvertTask, triggerOpenFile, triggerRefreshDir, registerEventSource, getCurrentPhase } from "./pdf-convert-progress"
+import { registerConvertTask, updateConvertTask, triggerOpenFile, triggerRefreshDir, registerEventSource, getCurrentPhase, taskUrl } from "./pdf-convert-progress"
 
 // ===== PDF 转换设置持久化（localStorage） =====
 const STORAGE_KEY = "pdf-to-markdown-settings"
@@ -136,6 +136,11 @@ export const DialogPdfToMarkdown: Component<{
     return endPage() - startPage() + 1 > 50
   })
 
+  const conflicts = createMemo(() => {
+    if (outputMode() === "merged") return existingFiles().filter((file) => /\.md$/i.test(file))
+    return existingFiles().filter((file) => !/\.[^./\\]+$/i.test(file))
+  })
+
   // PDF 转换模型：首次打开时用聊天模型初始化，之后完全独立
   if (!_pdfModelInitialized) {
     const m = local.model.current()
@@ -171,7 +176,7 @@ export const DialogPdfToMarkdown: Component<{
 
   const connectSSE = (taskID: string) => {
     const baseUrl = sdk.url
-    const url = `${baseUrl}/file/pdf-to-markdown/progress?taskID=${taskID}&directory=${encodeURIComponent(sdk.directory)}`
+    const url = taskUrl(baseUrl, "/file/pdf-to-markdown/progress", taskID, sdk.directory, server.current?.http)
     const es = new EventSource(url)
     registerEventSource(es)
 
@@ -393,13 +398,13 @@ export const DialogPdfToMarkdown: Component<{
           </label>
 
           {/* 文件冲突提示 */}
-          <Show when={existingFiles().length > 0}>
+          <Show when={conflicts().length > 0}>
             <div class="p-3 rounded-md bg-yellow-500/10 border border-yellow-500/20">
               <p class="text-sm font-medium text-yellow-600 dark:text-yellow-400">
                 检测到已存在的转换文件：
               </p>
               <ul class="text-xs text-text-weak mt-1 list-disc pl-4">
-                {existingFiles().map((f) => <li>{f.split("/").pop()}</li>)}
+                {conflicts().map((f) => <li>{f.split("/").pop()}</li>)}
               </ul>
               <div class="flex flex-col gap-1 mt-2">
                 <label class="flex items-center gap-2 text-sm cursor-pointer">

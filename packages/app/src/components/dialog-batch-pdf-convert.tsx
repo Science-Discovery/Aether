@@ -15,7 +15,7 @@ import { useSDK } from "@/context/sdk"
 import { useServer } from "@/context/server"
 import { useModels } from "@/context/models"
 import { ModelSelectorPopover } from "./dialog-select-model"
-import { registerConvertTask, updateConvertTask, triggerOpenFile, triggerRefreshDir, registerEventSource, getCurrentPhase } from "./pdf-convert-progress"
+import { registerConvertTask, updateConvertTask, triggerOpenFile, triggerRefreshDir, registerEventSource, getCurrentPhase, taskUrl } from "./pdf-convert-progress"
 
 // 复用 PDF 转换的设置持久化
 const STORAGE_KEY = "pdf-to-markdown-settings"
@@ -160,7 +160,7 @@ export const DialogBatchPdfConvert: Component<{
     const attempt = (retryCount: number): Promise<void> => {
       return new Promise<void>((resolve) => {
         const baseUrl = sdk.url
-        const url = `${baseUrl}/file/pdf-to-markdown/progress?taskID=${taskID}&directory=${encodeURIComponent(sdk.directory)}`
+        const url = taskUrl(baseUrl, "/file/pdf-to-markdown/progress", taskID, sdk.directory, server.current?.http)
         const es = new EventSource(url)
         registerEventSource(es)
         let gotTerminal = false // 收到了 done 或 fatal error
