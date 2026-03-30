@@ -1,7 +1,45 @@
-import { type Component, createEffect, createMemo, onCleanup } from "solid-js"
+import { type Component, createEffect, createMemo, createSignal, onCleanup } from "solid-js"
 import "./pdf-viewer-shell.css"
 
 type ViewerMode = "full" | "compact"
+const NIGHT_MODE_KEY = "aether-pdf-night-mode"
+const nightModeSubscribers = new Set<(value: boolean) => void>()
+let sharedNightMode = readNightMode()
+let syncBound = false
+
+function readNightMode() {
+  if (typeof window === "undefined") return false
+  try {
+    return localStorage.getItem(NIGHT_MODE_KEY) === "1"
+  } catch {
+    return false
+  }
+}
+
+function notifyNightMode() {
+  for (const subscriber of nightModeSubscribers) {
+    subscriber(sharedNightMode)
+  }
+}
+
+function bindNightModeSync() {
+  if (syncBound || typeof window === "undefined") return
+  syncBound = true
+  window.addEventListener("storage", (event) => {
+    if (event.key !== NIGHT_MODE_KEY) return
+    sharedNightMode = event.newValue === "1"
+    notifyNightMode()
+  })
+}
+
+function setSharedNightMode(next: boolean) {
+  if (sharedNightMode === next) return
+  sharedNightMode = next
+  try {
+    localStorage.setItem(NIGHT_MODE_KEY, next ? "1" : "0")
+  } catch {}
+  notifyNightMode()
+}
 
 export type PdfViewerShellProps = {
   src: string
@@ -17,18 +55,22 @@ type ViewerMessage =
   | { channel: "aether-pdf-viewer"; type: "ready" }
   | { channel: "aether-pdf-viewer"; type: "pagechange"; page: number }
   | { channel: "aether-pdf-viewer"; type: "pdf2md" }
+  | { channel: "aether-pdf-viewer"; type: "nightmode"; enabled: boolean }
 
 export const PdfViewerShell: Component<PdfViewerShellProps> = (props) => {
+  bindNightModeSync()
   let iframeRef: HTMLIFrameElement | undefined
   let ready = false
   let lastReportedPage: number | undefined
   let lastConfigKey = ""
+  const [nightMode, setNightMode] = createSignal(sharedNightMode)
 
   const viewerSrc = createMemo(() => "/pdf-viewer.html")
   const config = createMemo(() => ({
     src: props.src,
     authHeader: props.authHeader,
     mode: props.mode,
+    nightMode: nightMode(),
     features: {
       pdf2md: !!props.onPdfToMarkdown && props.mode === "compact",
     },
@@ -69,6 +111,9 @@ export const PdfViewerShell: Component<PdfViewerShellProps> = (props) => {
     })
   })
 
+  nightModeSubscribers.add(setNightMode)
+  onCleanup(() => nightModeSubscribers.delete(setNightMode))
+
   const onMessage = (event: MessageEvent<ViewerMessage>) => {
     if (event.origin !== window.location.origin) return
     if (event.source !== iframeRef?.contentWindow) return
@@ -89,6 +134,11 @@ export const PdfViewerShell: Component<PdfViewerShellProps> = (props) => {
 
     if (event.data.type === "pdf2md") {
       props.onPdfToMarkdown?.()
+      return
+    }
+
+    if (event.data.type === "nightmode") {
+      setSharedNightMode(!!event.data.enabled)
     }
   }
 

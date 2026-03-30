@@ -34,8 +34,14 @@ body.aether-pdf-viewer #toolbarViewerMiddle {
 }
 
 body.aether-pdf-viewer #aetherPdf2md,
-body.aether-pdf-viewer #aetherScrollModeContainer {
+body.aether-pdf-viewer #aetherScrollModeContainer,
+body.aether-pdf-viewer #aetherNightMode {
   margin-inline-start: 6px;
+}
+
+body.aether-pdf-viewer {
+  --aether-night-moon-icon: url("/pdfjs-ref/web/images/aether-night-mode-moon.svg");
+  --aether-night-sun-icon: url("/pdfjs-ref/web/images/aether-night-mode-sun.svg");
 }
 
 body.aether-pdf-viewer #aetherPdf2md {
@@ -66,6 +72,20 @@ body.aether-pdf-viewer #aetherPdf2md > span {
 body.aether-pdf-viewer #aetherPdf2md:hover,
 body.aether-pdf-viewer #aetherPdf2md:focus-visible {
   background-color: var(--button-hover-color);
+}
+
+body.aether-pdf-viewer #aetherNightMode::before {
+  -webkit-mask-image: var(--aether-night-moon-icon);
+  mask-image: var(--aether-night-moon-icon);
+}
+
+body.aether-pdf-viewer[data-night-mode="on"] #aetherNightMode::before {
+  -webkit-mask-image: var(--aether-night-sun-icon);
+  mask-image: var(--aether-night-sun-icon);
+}
+
+body.aether-pdf-viewer[data-night-mode="on"] #aetherNightMode {
+  background-color: var(--toggled-btn-bg-color);
 }
 
 body.aether-pdf-viewer #aetherScrollModeContainer {
@@ -108,6 +128,29 @@ body.aether-pdf-viewer[data-mode="compact"] #toolbarViewerRight .verticalToolbar
 
 body.aether-pdf-viewer #viewerContainer {
   top: 32px;
+}
+
+body.aether-pdf-viewer[data-night-mode="on"] #viewerContainer {
+  background: #0f1012;
+}
+
+body.aether-pdf-viewer[data-night-mode="on"] .pdfViewer .page,
+body.aether-pdf-viewer[data-night-mode="on"] .pdfViewer .dummyPage {
+  background: #050608;
+  box-shadow: 0 1px 4px rgb(0 0 0 / 0.55);
+}
+
+body.aether-pdf-viewer[data-night-mode="on"] .pdfViewer .page canvas {
+  filter: invert(1);
+}
+
+body.aether-pdf-viewer[data-night-mode="on"] .textLayer,
+body.aether-pdf-viewer[data-night-mode="on"] .annotationLayer {
+  filter: none !important;
+}
+
+body.aether-pdf-viewer[data-night-mode="on"] .textLayer {
+  opacity: 0.2;
 }
 
 body.aether-pdf-viewer[data-mode="full"] #toolbarSidebar,

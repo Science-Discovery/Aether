@@ -13,6 +13,11 @@
   let currentConfig = null;
   let currentKey = "";
   let eventsBound = false;
+  let suppressSidebarTracking = false;
+  let sidebarState = {
+    initialized: false,
+    userClosed: false,
+  };
 
   function post(type, payload) {
     window.parent?.postMessage({ channel: CHANNEL, type, ...(payload || {}) }, ORIGIN);
@@ -39,6 +44,7 @@
       src: typeof input?.src === "string" ? input.src : "",
       authHeader: typeof input?.authHeader === "string" && input.authHeader ? input.authHeader : undefined,
       mode,
+      nightMode: !!input?.nightMode,
       page:
         typeof input?.page === "number" && Number.isFinite(input.page) && input.page > 0
           ? Math.round(input.page)
@@ -54,6 +60,7 @@
 
   function applyChrome(config) {
     document.body.dataset.mode = config.mode;
+    document.body.dataset.nightMode = config.nightMode ? "on" : "off";
     const outerContainer = document.getElementById("outerContainer");
 
     const pdf2md = document.getElementById("aetherPdf2md");
@@ -62,8 +69,32 @@
       pdf2md.title = "Convert PDF to Markdown";
     }
 
+    const nightMode = document.getElementById("aetherNightMode");
+    if (nightMode) {
+      nightMode.title = config.nightMode ? "Disable night mode" : "Enable night mode";
+      nightMode.classList.toggle("toggled", !!config.nightMode);
+      nightMode.setAttribute("aria-pressed", config.nightMode ? "true" : "false");
+    }
+
     if (config.mode === "compact" && outerContainer) {
       outerContainer.classList.remove("sidebarOpen", "sidebarMoving", "sidebarResizing");
+    }
+  }
+
+  function rememberSidebarState(isOpen) {
+    if (!currentConfig || currentConfig.mode !== "full") return;
+    sidebarState.initialized = true;
+    sidebarState.userClosed = !isOpen;
+  }
+
+  function withSidebarTrackingSuppressed(fn) {
+    suppressSidebarTracking = true;
+    try {
+      fn();
+    } finally {
+      setTimeout(() => {
+        suppressSidebarTracking = false;
+      }, 0);
     }
   }
 
@@ -90,14 +121,20 @@
     syncScrollModeSelect(config.scrollMode);
 
     if (config.mode === "full") {
-      if (hasOutline()) {
-        app.pdfSidebar?.switchView?.(outlineSidebarView(), true);
-        app.pdfSidebar?.open?.();
+      if (hasOutline() && !sidebarState.userClosed) {
+        withSidebarTrackingSuppressed(() => {
+          app.pdfSidebar?.switchView?.(outlineSidebarView(), true);
+          app.pdfSidebar?.open?.();
+        });
       } else {
-        app.pdfSidebar?.close?.();
+        withSidebarTrackingSuppressed(() => {
+          app.pdfSidebar?.close?.();
+        });
       }
     } else {
-      app.pdfSidebar?.close?.();
+      withSidebarTrackingSuppressed(() => {
+        app.pdfSidebar?.close?.();
+      });
       document.getElementById("outerContainer")?.classList.remove("sidebarOpen", "sidebarMoving", "sidebarResizing");
     }
 
@@ -118,13 +155,23 @@
       post("pagechange", { page: evt.pageNumber });
     });
 
+    eventBus.on("sidebarviewchanged", function (evt) {
+      if (!currentConfig || currentConfig.mode !== "full") return;
+      if (suppressSidebarTracking) return;
+      rememberSidebarState(!!evt?.view);
+    });
+
     eventBus.on("outlineloaded", function () {
       if (!currentConfig || currentConfig.mode !== "full") return;
-      if (hasOutline()) {
-        app.pdfSidebar?.switchView?.(outlineSidebarView(), true);
-        app.pdfSidebar?.open?.();
+      if (hasOutline() && !sidebarState.userClosed) {
+        withSidebarTrackingSuppressed(() => {
+          app.pdfSidebar?.switchView?.(outlineSidebarView(), true);
+          app.pdfSidebar?.open?.();
+        });
       } else {
-        app.pdfSidebar?.close?.();
+        withSidebarTrackingSuppressed(() => {
+          app.pdfSidebar?.close?.();
+        });
       }
     });
 
@@ -132,6 +179,15 @@
     if (pdf2md) {
       pdf2md.addEventListener("click", function () {
         post("pdf2md");
+      });
+    }
+
+    const nightMode = document.getElementById("aetherNightMode");
+    if (nightMode) {
+      nightMode.addEventListener("click", function () {
+        currentConfig = { ...(currentConfig || sanitizeConfig({})), nightMode: !currentConfig?.nightMode };
+        applyChrome(currentConfig);
+        post("nightmode", { enabled: currentConfig.nightMode });
       });
     }
 
@@ -152,11 +208,18 @@
 
     if (currentKey === [config.src, config.authHeader || "", config.mode].join("|")) {
       applyChrome(config);
-      applyDocumentDefaults(config);
+      if (app.pdfViewer) {
+        app.pdfViewer.scrollMode = mapScrollMode(config.scrollMode);
+        app.pdfViewer.spreadMode = 0;
+      }
       return;
     }
 
     currentKey = [config.src, config.authHeader || "", config.mode].join("|");
+    sidebarState = {
+      initialized: false,
+      userClosed: false,
+    };
     applyChrome(config);
 
     if (app.pdfDocument) {
