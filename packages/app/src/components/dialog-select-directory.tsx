@@ -21,6 +21,9 @@ type Row = {
   absolute: string
   search: string
   group: "recent" | "folders"
+  isExpander?: true
+  isCollapser?: true
+  expanderCount?: number
 }
 
 function cleanInput(value: string) {
@@ -254,6 +257,7 @@ export function DialogSelectDirectory(props: DialogSelectDirectoryProps) {
   const [filter, setFilter] = createSignal("")
   const [selectedPath, setSelectedPath] = createSignal<string | null>(null)
   const [browsing, setBrowsing] = createSignal(false)
+  const [expanded, setExpanded] = createSignal(false)
   let list: ListRef | undefined
 
   const missingBase = createMemo(() => !(sync.data.path.home || sync.data.path.directory))
@@ -284,7 +288,10 @@ export function DialogSelectDirectory(props: DialogSelectDirectoryProps) {
     return result.data ?? []
   })
 
+  const RECENT_LIMIT = 5
+
   const recentProjects = createMemo(() => {
+    const isExpanded = expanded()
     const known = sync.data.project
     const byWorktree = new Map(known.map((p) => [p.worktree, p]))
     const byProject = new Map<string, number>()
@@ -321,13 +328,39 @@ export function DialogSelectDirectory(props: DialogSelectDirectoryProps) {
         return { ...row, search: `${row.search}\n${name}` }
       })
 
-    return [...knownRows, ...extra]
+    const all = [...knownRows, ...extra]
+
+    if (!isExpanded && all.length > RECENT_LIMIT) {
+      return [
+        ...all.slice(0, RECENT_LIMIT),
+        {
+          absolute: "__expander__",
+          search: "",
+          group: "recent" as const,
+          isExpander: true as const,
+          expanderCount: all.length - RECENT_LIMIT,
+        },
+      ]
+    }
+    if (isExpanded && all.length > RECENT_LIMIT) {
+      return [
+        ...all,
+        {
+          absolute: "__collapser__",
+          search: "",
+          group: "recent" as const,
+          isCollapser: true as const,
+        },
+      ]
+    }
+    return all
   })
 
   const items = async (value: string) => {
+    const recentRows = recentProjects() // sync before await — tracks expanded() via memo
     const results = await directories(value)
     const directoryRows = results.map((absolute) => toRow(absolute, home(), "folders"))
-    return uniqueRows([...recentProjects(), ...directoryRows])
+    return uniqueRows([...recentRows, ...directoryRows])
   }
 
   function resolve(absolute: string) {
@@ -382,7 +415,7 @@ export function DialogSelectDirectory(props: DialogSelectDirectoryProps) {
         onKeyEvent={(e, item) => {
           if (e.key !== "Tab") return
           if (e.shiftKey) return
-          if (!item) return
+          if (!item || item.isExpander || item.isCollapser) return
 
           e.preventDefault()
           e.stopPropagation()
@@ -392,6 +425,14 @@ export function DialogSelectDirectory(props: DialogSelectDirectoryProps) {
         }}
         onSelect={(path) => {
           if (!path) return
+          if (path.isExpander) {
+            setExpanded(true)
+            return
+          }
+          if (path.isCollapser) {
+            setExpanded(false)
+            return
+          }
           // Navigate into the clicked directory (same as Tab key)
           const value = displayPath(path.absolute, filter(), home())
           list?.setFilter(value.endsWith("/") ? value : value + "/")
@@ -399,6 +440,21 @@ export function DialogSelectDirectory(props: DialogSelectDirectoryProps) {
         }}
       >
         {(item) => {
+          if (item.isExpander) {
+            return (
+              <div class="w-full flex items-center gap-x-3 text-14-regular text-text-weak">
+                <span>展开更多 ({item.expanderCount})</span>
+              </div>
+            )
+          }
+          if (item.isCollapser) {
+            return (
+              <div class="w-full flex items-center gap-x-3 text-14-regular text-text-weak">
+                <span>收起</span>
+              </div>
+            )
+          }
+
           const path = displayPath(item.absolute, filter(), home())
 
           if (path === "~") {
