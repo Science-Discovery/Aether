@@ -30,6 +30,6 @@ logs/
 *.bun-build
 tsconfig.tsbuildinfo
 .claude/
-Aether-wechat-bridge/.venv/
 textbox/
 handouts/
+Aether-wechat-bridge/.venv/

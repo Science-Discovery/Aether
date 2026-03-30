@@ -31,6 +31,8 @@ import { useLayout } from "@/context/layout"
 import { usePlatform } from "@/context/platform"
 import { useSync } from "@/context/sync"
 import { useSDK } from "@/context/sdk"
+import { useServer } from "@/context/server"
+import { registerOpenFileCallback, registerRefreshDirCallback, restoreActiveTasks } from "@/components/pdf-convert-progress"
 import { createFileTabListSync } from "@/pages/session/file-tab-scroll"
 import { FileTabContent } from "@/pages/session/file-tabs"
 import { createOpenSessionFileTab, createSessionTabs, getTabReorderIndex, type Sizing } from "@/pages/session/helpers"
@@ -62,6 +64,7 @@ export function SessionSidePanel(props: {
   const dialog = useDialog()
   const sdk = useSDK()
   const platform = usePlatform()
+  const server = useServer()
   const sync = useSync()
   const { params, sessionKey, tabs, view } = useSessionLayout()
 
@@ -70,6 +73,46 @@ export function SessionSidePanel(props: {
     if (params.id) void sync.session.diff(params.id, { force: true })
   }
 
+  const fetchApi = (urlPath: string, options: RequestInit = {}): Promise<Response> => {
+    const s = server.current?.http
+    const authHeader: Record<string, string> = s?.password
+      ? { Authorization: `Basic ${btoa(`${s.username ?? "opencode"}:${s.password}`)}` }
+      : {}
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+      ...authHeader,
+      ...(options.headers as Record<string, string> ?? {}),
+    }
+    const separator = urlPath.includes("?") ? "&" : "?"
+    const req = platform.fetch ?? fetch
+    return req(`${sdk.url}${urlPath}${separator}directory=${encodeURIComponent(sdk.directory)}`, {
+      ...options,
+      headers,
+    })
+  }
+
+  let restored = ""
+
+  createEffect(() => {
+    registerOpenFileCallback(async (filePath: string) => {
+      const parentDir = filePath.includes("/") ? filePath.slice(0, filePath.lastIndexOf("/")) : ""
+      await file.tree.refresh(parentDir)
+      const tab = file.tab(filePath)
+      tabs().open(tab)
+      tabs().setActive(tab)
+      await file.load(filePath, { force: true })
+    })
+
+    registerRefreshDirCallback((dirPath: string) => {
+      void file.tree.refresh(dirPath)
+    })
+
+    const s = server.current?.http
+    const key = [sdk.url, sdk.directory, s?.url ?? "", s?.username ?? "", s?.password ?? ""].join("\n")
+    if (restored === key) return
+    restored = key
+    void restoreActiveTasks(fetchApi, sdk.url, sdk.directory, s)
+  })
   function handleFileCreate(dir: string, type: "file" | "directory") {
     const title = type === "file" ? "新建文件" : "新建文件夹"
     const placeholder = type === "file" ? "文件名（如 notes.md）" : "文件夹名"
@@ -249,6 +292,7 @@ export function SessionSidePanel(props: {
   }
 
   function handleRefresh() {
+    void file.tree.refresh("")
     props.onRefresh()
   }
 
@@ -375,26 +419,41 @@ export function SessionSidePanel(props: {
   const [store, setStore] = createStore({
     activeDraggable: undefined as string | undefined,
   })
+  let box: HTMLDivElement | undefined
 
   // Multi-select state for file tree (Cmd/Ctrl click) — 使用共享状态
   const { selectedPaths, setSelectedPaths } = file
 
+  const keep = (run: () => void) => {
+    const top = box?.scrollTop ?? 0
+    run()
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        if (box) box.scrollTop = top
+      })
+    })
+  }
+
   const handleFileClickWithMultiSelect = (node: import("@opencode-ai/sdk/v2").FileNode, event?: MouseEvent) => {
     if (event && (event.metaKey || event.ctrlKey)) {
       // Cmd/Ctrl click: toggle selection
-      setSelectedPaths((prev) => {
-        const next = new Set(prev)
-        if (next.has(node.path)) {
-          next.delete(node.path)
-        } else {
-          next.add(node.path)
-        }
-        return next
+      keep(() => {
+        setSelectedPaths((prev) => {
+          const next = new Set(prev)
+          if (next.has(node.path)) {
+            next.delete(node.path)
+          } else {
+            next.add(node.path)
+          }
+          return next
+        })
       })
     } else {
       // Normal click: open file and mark as selected
-      setSelectedPaths(new Set<string>([node.path]))
-      openTab(file.tab(node.path))
+      keep(() => {
+        setSelectedPaths(new Set<string>([node.path]))
+        openTab(file.tab(node.path))
+      })
     }
   }
 
@@ -1006,7 +1065,8 @@ export function SessionSidePanel(props: {
                     </Tooltip>
                   </div>
                   <div
-                    class="relative flex-1 min-h-0"
+                    ref={box}
+                    class="relative flex-1 min-h-0 overflow-auto"
                     onDragEnter={handleRootDragEnter}
                     onDragLeave={handleRootDragLeave}
                     onDragOver={handleRootDragOver}

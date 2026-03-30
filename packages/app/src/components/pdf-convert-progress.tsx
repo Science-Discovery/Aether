@@ -7,9 +7,6 @@
 
 import { type Component, Show, createSignal, createEffect, on } from "solid-js"
 import { createStore, reconcile } from "solid-js/store"
-import { Portal } from "solid-js/web"
-import { Button } from "@opencode-ai/ui/button"
-import { showToast } from "@opencode-ai/ui/toast"
 
 export interface PdfConvertTask {
   taskID: string
@@ -66,6 +63,11 @@ let globalOpenFileCallback: ((filePath: string) => void) | null = null
 /** 外部注册的刷新目录回调（转换完成后刷新文件树） */
 let globalRefreshDirCallback: ((dirPath: string) => void) | null = null
 
+type Http = {
+  username?: string
+  password?: string
+}
+
 /** 注册打开文件的回调（由 file-tabs.tsx 等组件调用） */
 export function registerOpenFileCallback(cb: (filePath: string) => void) {
   globalOpenFileCallback = cb
@@ -86,6 +88,17 @@ export function triggerRefreshDir(filePath: string) {
 /** 注册 SSE EventSource 引用 */
 export function registerEventSource(es: EventSource) {
   globalEventSource = es
+}
+
+export function taskUrl(
+  baseUrl: string,
+  path: string,
+  taskID: string,
+  directory: string,
+  http?: Http,
+) {
+  const auth = http?.password ? `&_auth=${btoa(`${http.username ?? "opencode"}:${http.password}`)}` : ""
+  return `${baseUrl}${path}?taskID=${taskID}&directory=${encodeURIComponent(directory)}${auth}`
 }
 
 /** 对话框调用：注册一个新的转换任务到全局状态 */
@@ -154,13 +167,13 @@ export const PdfConvertProgressBar: Component = () => {
       case "fix": return "验证修复"
       case "crop": return "裁剪图片"
       case "postqa": return "质量检查"
-      case "translate": return "翻译中"
-      case "reconnecting": return "重连中"
+      case "translate": return "翻译文本"
+      case "reconnecting": return "重新连接"
       default: return task.phase
     }
   }
 
-  const fmt = (n: number) => n.toLocaleString()
+  const fmt = (n: number) => `${(n / 1000).toFixed(1)}k`
 
   const isTranslate = () => task.taskType === "translate"
   const unitLabel = () => isTranslate() ? "块" : "页"
@@ -215,7 +228,7 @@ export const PdfConvertProgressBar: Component = () => {
 
         {/* 主文字 */}
         <span
-          class="text-text-weak truncate cursor-pointer"
+          class="flex-1 min-w-0 text-text-weak truncate cursor-pointer"
           onClick={() => setExpanded(!expanded())}
         >
           <Show when={isRunning() && isQueued()}>
@@ -223,7 +236,7 @@ export const PdfConvertProgressBar: Component = () => {
           </Show>
           <Show when={isRunning() && !isQueued()}>
             <Show when={task.phase === "postqa"} fallback={
-              <>{batchPrefix()}{isTranslate() ? "翻译" : "PDF"} {task.currentPage}/{task.totalPages} {unitLabel()} · {phaseLabel()}</>
+              <>{batchPrefix()}{isTranslate() ? "翻译" : "PDF"} {task.currentPage}/{task.totalPages}{unitLabel()}·{phaseLabel()}</>
             }>
               {batchPrefix()}正在检查
             </Show>
@@ -284,12 +297,13 @@ export const PdfConvertProgressBar: Component = () => {
 
 /**
  * 页面加载时查询后端活跃任务，恢复进度条和 SSE 连接。
- * 由 file-tabs.tsx 等持有 fetchApi 的组件在 onMount 中调用。
+ * 由会话级组件在挂载时调用。
  */
 export async function restoreActiveTasks(
   fetchApi: (url: string, opts?: RequestInit) => Promise<Response>,
   baseUrl: string,
   directory: string,
+  http?: Http,
 ) {
   try {
     const res = await fetchApi("/file/active-tasks")
@@ -301,7 +315,7 @@ export async function restoreActiveTasks(
     const activeTask = tasks[0]
     const isTranslate = activeTask.taskType === "translate"
     const cancelUrl = isTranslate ? "/file/translate-markdown/cancel" : "/file/pdf-to-markdown/cancel"
-    const progressUrl = isTranslate ? "/file/translate-markdown/progress" : "/file/pdf-to-markdown/progress"
+    const path = isTranslate ? "/file/translate-markdown/progress" : "/file/pdf-to-markdown/progress"
 
     registerConvertTask(
       {
@@ -321,7 +335,7 @@ export async function restoreActiveTasks(
     )
 
     // 连接 SSE 恢复实时进度
-    const url = `${baseUrl}${progressUrl}?taskID=${activeTask.taskID}&directory=${encodeURIComponent(directory)}`
+    const url = taskUrl(baseUrl, path, activeTask.taskID, directory, http)
     const es = new EventSource(url)
     registerEventSource(es)
 

@@ -359,7 +359,7 @@ export const { use: useFile, provider: FileProvider } = createSimpleContext({
       pathFromTab: path.pathFromTab,
       tree: {
         list: tree.listDir,
-        refresh: (input: string) => tree.listDir(input, { force: true }),
+        refresh: tree.refreshDir,
         state: tree.dirState,
         children: tree.children,
         expand: tree.expandDir,

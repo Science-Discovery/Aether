@@ -14,7 +14,7 @@ import { useSDK } from "@/context/sdk"
 import { useServer } from "@/context/server"
 import { useModels } from "@/context/models"
 import { ModelSelectorPopover } from "./dialog-select-model"
-import { registerConvertTask, updateConvertTask, triggerOpenFile, registerEventSource, getCurrentPhase } from "./pdf-convert-progress"
+import { registerConvertTask, updateConvertTask, triggerOpenFile, triggerRefreshDir, registerEventSource, taskUrl } from "./pdf-convert-progress"
 
 // ===== 翻译设置持久化（localStorage） =====
 const STORAGE_KEY = "translate-markdown-settings"
@@ -144,7 +144,7 @@ export const DialogTranslateMarkdown: Component<{
 
   const connectSSE = (taskID: string) => {
     const baseUrl = sdk.url
-    const url = `${baseUrl}/file/translate-markdown/progress?taskID=${taskID}&directory=${encodeURIComponent(sdk.directory)}`
+    const url = taskUrl(baseUrl, "/file/translate-markdown/progress", taskID, sdk.directory, server.current?.http)
     const es = new EventSource(url)
     registerEventSource(es)
 
@@ -169,6 +169,7 @@ export const DialogTranslateMarkdown: Component<{
             updateConvertTask({ status: "done", outputPath: data.outputPath })
             es.close()
             if (data.outputPath) {
+              triggerRefreshDir(data.outputPath)
               triggerOpenFile(data.outputPath)
             }
             break
