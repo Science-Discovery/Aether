@@ -1,4 +1,4 @@
-import { createMemo, For, Match, Switch } from "solid-js"
+import { createMemo, For, Match, Show, Switch } from "solid-js"
 import { Button } from "@opencode-ai/ui/button"
 import { Logo, Mark } from "@opencode-ai/ui/logo"
 import { useLayout } from "@/context/layout"
@@ -108,9 +108,11 @@ export default function Home() {
             <div class="flex gap-2 items-center justify-between pl-3">
               <div class="text-14-medium text-text-strong">{language.t("home.recentProjects")}</div>
               <div class="flex gap-2">
-                <Button icon="plus-small" size="normal" class="pl-2 pr-3" onClick={newProject}>
-                  {language.t("command.project.new")}
-                </Button>
+                <Show when={platform.platform === "desktop"}>
+                  <Button icon="plus-small" size="normal" class="pl-2 pr-3" onClick={newProject}>
+                    {language.t("command.project.new")}
+                  </Button>
+                </Show>
                 <Button icon="folder-add-left" size="normal" class="pl-2 pr-3" onClick={chooseProject}>
                   {language.t("command.project.open")}
                 </Button>
@@ -151,9 +153,11 @@ export default function Home() {
               <div class="text-12-regular text-text-weak">{language.t("home.empty.description")}</div>
             </div>
             <div class="flex gap-2 mt-1">
-              <Button class="px-3" onClick={newProject}>
-                {language.t("command.project.new")}
-              </Button>
+              <Show when={platform.platform === "desktop"}>
+                <Button class="px-3" onClick={newProject}>
+                  {language.t("command.project.new")}
+                </Button>
+              </Show>
               <Button class="px-3" variant="ghost" onClick={chooseProject}>
                 {language.t("command.project.open")}
               </Button>
