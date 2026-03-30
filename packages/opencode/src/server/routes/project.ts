@@ -34,6 +34,27 @@ export const ProjectRoutes = lazy(() =>
       },
     )
     .get(
+      "/directories",
+      describeRoute({
+        summary: "List all known directories",
+        description: "Returns all project worktrees plus unique session directories.",
+        operationId: "project.directories",
+        responses: {
+          200: {
+            description: "List of directory paths",
+            content: {
+              "application/json": {
+                schema: resolver(z.array(z.string())),
+              },
+            },
+          },
+        },
+      }),
+      async (c) => {
+        return c.json(Project.directories())
+      },
+    )
+    .get(
       "/current",
       describeRoute({
         summary: "Get current project",

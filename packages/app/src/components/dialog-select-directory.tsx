@@ -9,7 +9,6 @@ import fuzzysort from "fuzzysort"
 import { createMemo, createResource, createSignal, Show } from "solid-js"
 import { useGlobalSDK } from "@/context/global-sdk"
 import { useGlobalSync } from "@/context/global-sync"
-import { useLayout } from "@/context/layout"
 import { useLanguage } from "@/context/language"
 
 interface DialogSelectDirectoryProps {
@@ -249,7 +248,6 @@ function useDirectorySearch(args: {
 export function DialogSelectDirectory(props: DialogSelectDirectoryProps) {
   const sync = useGlobalSync()
   const sdk = useGlobalSDK()
-  const layout = useLayout()
   const dialog = useDialog()
   const language = useLanguage()
 
@@ -281,11 +279,17 @@ export function DialogSelectDirectory(props: DialogSelectDirectoryProps) {
     start,
   })
 
+  const [allDirectories] = createResource(async () => {
+    const result = await sdk.client.project.directories()
+    return result.data ?? []
+  })
+
   const recentProjects = createMemo(() => {
-    const projects = layout.projects.list()
+    const known = sync.data.project
+    const byWorktree = new Map(known.map((p) => [p.worktree, p]))
     const byProject = new Map<string, number>()
 
-    for (const project of projects) {
+    for (const project of known) {
       let at = 0
       const dirs = [project.worktree, ...(project.sandboxes ?? [])]
       for (const directory of dirs) {
@@ -299,18 +303,25 @@ export function DialogSelectDirectory(props: DialogSelectDirectoryProps) {
       byProject.set(project.worktree, at)
     }
 
-    return projects
+    const knownRows = known
       .map((project, index) => ({ project, at: byProject.get(project.worktree) ?? 0, index }))
       .sort((a, b) => b.at - a.at || a.index - b.index)
-      .slice(0, 5)
       .map(({ project }) => {
         const row = toRow(project.worktree, home(), "recent")
         const name = project.name || getFilename(project.worktree)
-        return {
-          ...row,
-          search: `${row.search}\n${name}`,
-        }
+        return { ...row, search: `${row.search}\n${name}` }
       })
+
+    const knownWorktrees = new Set(known.map((p) => p.worktree))
+    const extra = (allDirectories() ?? [])
+      .filter((d) => !knownWorktrees.has(d))
+      .map((d) => {
+        const row = toRow(d, home(), "recent")
+        const name = byWorktree.get(d)?.name || getFilename(d)
+        return { ...row, search: `${row.search}\n${name}` }
+      })
+
+    return [...knownRows, ...extra]
   })
 
   const items = async (value: string) => {
