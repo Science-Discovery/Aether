@@ -31,9 +31,20 @@ export function ResizeHandle(props: ResizeHandleProps) {
     const start = local.direction === "horizontal" ? e.clientX : e.clientY
     const startSize = local.size
     let current = startSize
+    const overlay = document.createElement("div")
+
+    overlay.setAttribute("data-resize-overlay", "")
+    overlay.style.position = "fixed"
+    overlay.style.inset = "0"
+    overlay.style.zIndex = "2147483647"
+    overlay.style.background = "transparent"
+    overlay.style.cursor = local.direction === "horizontal" ? "col-resize" : "row-resize"
 
     document.body.style.userSelect = "none"
     document.body.style.overflow = "hidden"
+    document.body.style.cursor = overlay.style.cursor
+    document.body.classList.add("is-resizing")
+    document.body.appendChild(overlay)
 
     const onMouseMove = (moveEvent: MouseEvent) => {
       const pos = local.direction === "horizontal" ? moveEvent.clientX : moveEvent.clientY
@@ -53,6 +64,9 @@ export function ResizeHandle(props: ResizeHandleProps) {
     const onMouseUp = () => {
       document.body.style.userSelect = ""
       document.body.style.overflow = ""
+      document.body.style.cursor = ""
+      document.body.classList.remove("is-resizing")
+      overlay.remove()
       document.removeEventListener("mousemove", onMouseMove)
       document.removeEventListener("mouseup", onMouseUp)
 

@@ -1,4 +1,4 @@
-import { createEffect, createMemo, createSignal, Match, on, onCleanup, Show, Switch } from "solid-js"
+﻿import { createEffect, createMemo, createSignal, Match, on, onCleanup, Show, Switch } from "solid-js"
 import { createStore } from "solid-js/store"
 import { Dynamic } from "solid-js/web"
 import type { FileSearchHandle } from "@opencode-ai/ui/file"
@@ -15,11 +15,14 @@ import { showToast } from "@opencode-ai/ui/toast"
 import { Tooltip } from "@opencode-ai/ui/tooltip"
 import { Markdown } from "@opencode-ai/ui/markdown"
 import { CodeEditor } from "@/components/code-editor"
+import { PdfViewerShell } from "@/components/pdf-viewer-shell-official"
+import { registerOpenFileCallback, registerRefreshDirCallback, restoreActiveTasks } from "@/components/pdf-convert-progress"
 import { useSDK } from "@/context/sdk"
 import { selectionFromLines, useFile, type FileSelection, type SelectedLineRange } from "@/context/file"
 import { useComments } from "@/context/comments"
 import { useLanguage } from "@/context/language"
 import { usePrompt } from "@/context/prompt"
+import { useServer } from "@/context/server"
 import { useSync } from "@/context/sync"
 import { useTerminal } from "@/context/terminal"
 import { getSessionHandoff } from "@/pages/session/handoff"
@@ -72,15 +75,33 @@ export function FileTabContent(props: { tab: string }) {
   const sync = useSync()
   const fileComponent = useFileComponent()
   const sdk = useSDK()
+  const server = useServer()
   const terminal = useTerminal()
   const dialog = useDialog()
-
   const [isEditing, setIsEditingSignal] = createSignal(false)
   const [editContent, setEditContentSignal] = createSignal("")
   const [isSaving, setIsSaving] = createSignal(false)
   const [isStale, setIsStale] = createSignal(false)
   const [needsConfirm, setNeedsConfirm] = createSignal(false)
   const [wordWrap, setWordWrapSignal] = createSignal(false)
+
+  const fetchApi = (urlPath: string, options: RequestInit = {}): Promise<Response> => {
+    const baseUrl = sdk.url
+    const s = server.current?.http
+    const authHeader: Record<string, string> = s?.password
+      ? { Authorization: `Basic ${btoa(`${s.username ?? "opencode"}:${s.password}`)}` }
+      : {}
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+      ...authHeader,
+      ...(options.headers as Record<string, string> ?? {}),
+    }
+    const separator = urlPath.includes("?") ? "&" : "?"
+    return fetch(`${baseUrl}${urlPath}${separator}directory=${encodeURIComponent(sdk.directory)}`, {
+      ...options,
+      headers,
+    })
+  }
 
   // 持久化 word wrap 和 isEditing（在文件路径确定后才能读取，延迟初始化）
   let persistedStateLoaded = false
@@ -285,6 +306,20 @@ export function FileTabContent(props: { tab: string }) {
     normalizeTab: (tab) => (tab.startsWith("file://") ? file.tab(tab) : tab),
   }).activeFileTab
 
+  registerOpenFileCallback(async (filePath: string) => {
+    const parentDir = filePath.includes("/") ? filePath.slice(0, filePath.lastIndexOf("/")) : ""
+    await file.tree.refresh(parentDir)
+    const tab = file.tab(filePath)
+    tabs().open(tab)
+    tabs().setActive(tab)
+    await file.load(filePath, { force: true })
+  })
+
+  registerRefreshDirCallback((dirPath: string) => {
+    void file.tree.refresh(dirPath)
+  })
+
+  void restoreActiveTasks(fetchApi, sdk.url, sdk.directory)
   let scroll: HTMLDivElement | undefined
   let scrollFrame: number | undefined
   let restoreFrame: number | undefined
@@ -331,6 +366,24 @@ export function FileTabContent(props: { tab: string }) {
     return p.split(".").pop()?.toLowerCase() === "pdf"
   })
 
+  const pdfPreviewUrl = createMemo(() => {
+    const p = path()
+    if (!p) return ""
+    return `${sdk.url}/file/raw?path=${encodeURIComponent(p)}&directory=${encodeURIComponent(sdk.directory)}`
+  })
+
+  const pdfAuthHeader = createMemo(() => {
+    const http = server.current?.http
+    if (!http?.password) return undefined
+    return `Basic ${btoa(`${http.username ?? "opencode"}:${http.password}`)}`
+  })
+
+  const openPdfToMarkdown = () => {
+    const p = path()
+    if (!p) return
+    dialog.show(() => <DialogPdfToMarkdown pdfPath={p} />)
+  }
+
   const [isRunning, setIsRunning] = createSignal(false)
 
   const runPython = async () => {
@@ -344,7 +397,7 @@ export function FileTabContent(props: { tab: string }) {
     } catch (e) {
       showToast({
         variant: "error",
-        title: "运行失败",
+        title: "杩愯澶辫触",
         description: String(e),
       })
     } finally {
@@ -756,7 +809,7 @@ export function FileTabContent(props: { tab: string }) {
     if (restoreFrame !== undefined) cancelAnimationFrame(restoreFrame)
   })
 
-  /** 将 markdown 中的相对图片路径重写为服务器 /file/raw URL */
+  /** 灏?markdown 涓殑鐩稿鍥剧墖璺緞閲嶅啓涓烘湇鍔″櫒 /file/raw URL */
   const rewriteImagePaths = (md: string): string => {
     const p = path()
     if (!p) return md
@@ -764,9 +817,9 @@ export function FileTabContent(props: { tab: string }) {
     const baseUrl = sdk.url
     const directory = encodeURIComponent(sdk.directory)
     return md.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, (match, alt, src) => {
-      // 跳过已经是 URL 的路径
+      // 璺宠繃宸茬粡鏄?URL 鐨勮矾寰?
       if (/^https?:\/\/|^data:/.test(src)) return match
-      // 将相对路径解析为工作目录下的绝对路径
+      // 灏嗙浉瀵硅矾寰勮В鏋愪负宸ヤ綔鐩綍涓嬬殑缁濆璺緞
       const absImagePath = dir ? `${dir}/${src}` : src
       const encodedPath = encodeURIComponent(absImagePath)
       return `![${alt}](${baseUrl}/file/raw?path=${encodedPath}&directory=${directory})`
@@ -774,6 +827,19 @@ export function FileTabContent(props: { tab: string }) {
   }
 
   const renderFile = (source: string) => {
+    if (isPDF()) {
+      return (
+        <div class="relative h-full min-h-0 overflow-hidden" data-file-content>
+          <PdfViewerShell
+            src={pdfPreviewUrl()}
+            authHeader={pdfAuthHeader()}
+            mode="compact"
+            class="size-full"
+            onPdfToMarkdown={openPdfToMarkdown}
+          />
+        </div>
+      )
+    }
     if (isMarkdown()) {
       const processed = rewriteImagePaths(source)
       return (
@@ -942,31 +1008,45 @@ export function FileTabContent(props: { tab: string }) {
       <Show
         when={isEditing()}
         fallback={
-          <ScrollView
-            class="h-full min-h-0 flex-1"
-            viewportRef={(el: HTMLDivElement) => {
-              scroll = el
-              if (switchAnchorText !== null || switchScrollRatio !== null) {
-                // 从编辑模式切回：用文本锚点定位（fallback 到比例）
-                const anchor = switchAnchorText
-                const ratio = switchScrollRatio ?? 0
-                switchAnchorText = null
-                switchScrollRatio = null
-                scrollPreviewToAnchor(el, anchor, ratio)
-              } else {
-                restoreScroll()
-              }
-            }}
-            onScroll={handleScroll as any}
+          <Show
+            when={isPDF()}
+            fallback={
+              <ScrollView
+                class="h-full min-h-0 flex-1"
+                viewportRef={(el: HTMLDivElement) => {
+                  scroll = el
+                  if (switchAnchorText !== null || switchScrollRatio !== null) {
+                    const anchor = switchAnchorText
+                    const ratio = switchScrollRatio ?? 0
+                    switchAnchorText = null
+                    switchScrollRatio = null
+                    scrollPreviewToAnchor(el, anchor, ratio)
+                  } else {
+                    restoreScroll()
+                  }
+                }}
+                onScroll={handleScroll as any}
+              >
+                <Switch>
+                  <Match when={state()?.loaded}>{renderFile(contents())}</Match>
+                  <Match when={state()?.loading}>
+                    <div class="px-6 py-4 text-text-weak">{language.t("common.loading")}...</div>
+                  </Match>
+                  <Match when={state()?.error}>{(err) => <div class="px-6 py-4 text-text-weak">{err()}</div>}</Match>
+                </Switch>
+              </ScrollView>
+            }
           >
-            <Switch>
-              <Match when={state()?.loaded}>{renderFile(contents())}</Match>
-              <Match when={state()?.loading}>
-                <div class="px-6 py-4 text-text-weak">{language.t("common.loading")}...</div>
-              </Match>
-              <Match when={state()?.error}>{(err) => <div class="px-6 py-4 text-text-weak">{err()}</div>}</Match>
-            </Switch>
-          </ScrollView>
+            <div class="h-full min-h-0 flex-1 overflow-hidden">
+              <Switch>
+                <Match when={state()?.loaded}>{renderFile(contents())}</Match>
+                <Match when={state()?.loading}>
+                  <div class="px-6 py-4 text-text-weak">{language.t("common.loading")}...</div>
+                </Match>
+                <Match when={state()?.error}>{(err) => <div class="px-6 py-4 text-text-weak">{err()}</div>}</Match>
+              </Switch>
+            </div>
+          </Show>
         }
       >
         <CodeEditor
@@ -988,3 +1068,6 @@ export function FileTabContent(props: { tab: string }) {
     </Tabs.Content>
   )
 }
+
+
+
