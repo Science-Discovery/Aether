@@ -7,9 +7,11 @@ import type { ListRef } from "@opencode-ai/ui/list"
 import { getDirectory, getFilename } from "@opencode-ai/util/path"
 import fuzzysort from "fuzzysort"
 import { createMemo, createResource, createSignal, Show } from "solid-js"
+import { createStore } from "solid-js/store"
 import { useGlobalSDK } from "@/context/global-sdk"
 import { useGlobalSync } from "@/context/global-sync"
 import { useLanguage } from "@/context/language"
+import { Persist, persisted } from "@/utils/persist"
 
 interface DialogSelectDirectoryProps {
   title?: string
@@ -20,9 +22,10 @@ interface DialogSelectDirectoryProps {
 type Row = {
   absolute: string
   search: string
-  group: "recent" | "folders"
+  group: "recent" | "folders" | "create"
   isExpander?: true
   isCollapser?: true
+  isCreate?: true
   expanderCount?: number
 }
 
@@ -128,6 +131,23 @@ function uniqueRows(rows: Row[]) {
     seen.add(row.absolute)
     return true
   })
+}
+
+function resolveNewPath(value: string, home: string, start: string) {
+  const raw = normalizeDriveRoot(value.trim())
+  if (!raw) return undefined
+  let absolute: string
+  if (raw === "~" || raw.startsWith("~/")) {
+    absolute = trimTrailing(raw === "~" ? home : joinPath(home, raw.slice(2)))
+  } else if (rootOf(raw)) {
+    absolute = trimTrailing(raw)
+  } else {
+    absolute = trimTrailing(joinPath(start, raw))
+  }
+  const name = getFilename(absolute)
+  if (!name) return undefined
+  const parent = parentOf(absolute)
+  return { parent, name, full: absolute }
 }
 
 function useDirectorySearch(args: {
@@ -258,6 +278,11 @@ export function DialogSelectDirectory(props: DialogSelectDirectoryProps) {
   const [selectedPath, setSelectedPath] = createSignal<string | null>(null)
   const [browsing, setBrowsing] = createSignal(false)
   const [expanded, setExpanded] = createSignal(false)
+  const [creating, setCreating] = createSignal(false)
+  const [hidden, setHidden] = persisted(
+    Persist.global("recent-projects-hidden"),
+    createStore({ dirs: [] as string[] }),
+  )
   let list: ListRef | undefined
 
   const missingBase = createMemo(() => !(sync.data.path.home || sync.data.path.directory))
@@ -328,7 +353,8 @@ export function DialogSelectDirectory(props: DialogSelectDirectoryProps) {
         return { ...row, search: `${row.search}\n${name}` }
       })
 
-    const all = [...knownRows, ...extra]
+    const hiddenSet = new Set(hidden.dirs)
+    const all = [...knownRows, ...extra].filter((r) => !hiddenSet.has(r.absolute))
 
     if (!isExpanded && all.length > RECENT_LIMIT) {
       return [
@@ -360,12 +386,28 @@ export function DialogSelectDirectory(props: DialogSelectDirectoryProps) {
     const recentRows = recentProjects() // sync before await — tracks expanded() via memo
     const results = await directories(value)
     const directoryRows = results.map((absolute) => toRow(absolute, home(), "folders"))
-    return uniqueRows([...recentRows, ...directoryRows])
+    const rows = uniqueRows([...recentRows, ...directoryRows])
+
+    if (value) {
+      const resolved = resolveNewPath(value, home(), start() ?? "")
+      if (resolved && !rows.find((r) => r.absolute === resolved.full)) {
+        return [{ absolute: resolved.full, search: value, group: "create" as const, isCreate: true as const }, ...rows]
+      }
+    }
+    return rows
   }
 
   function resolve(absolute: string) {
     props.onSelect(props.multiple ? [absolute] : absolute)
     dialog.close()
+  }
+
+  function goUp() {
+    const current = filter()
+    if (!current) return
+    const trimmed = trimTrailing(current)
+    const parent = getDirectory(trimmed)
+    list?.setFilter(parent ?? "")
   }
 
   return (
@@ -375,47 +417,59 @@ export function DialogSelectDirectory(props: DialogSelectDirectoryProps) {
           placeholder: language.t("dialog.directory.search.placeholder"),
           autofocus: true,
           action: (
-            <Button
-              icon="folder"
-              size="small"
-              variant="secondary"
-              disabled={browsing()}
-              onClick={async () => {
-                if (browsing()) return
-                setBrowsing(true)
-                try {
-                  const result = await sdk.client.file.pickFolder()
-                  const picked = result.data?.path
-                  if (picked) {
-                    list?.setFilter(picked)
-                    setSelectedPath(picked)
+            <div class="flex items-center gap-1">
+              <Show when={filter()}>
+                <Button
+                  icon="arrow-left"
+                  size="small"
+                  variant="ghost"
+                  onClick={goUp}
+                />
+              </Show>
+              <Button
+                icon="folder"
+                size="small"
+                variant="secondary"
+                disabled={browsing()}
+                onClick={async () => {
+                  if (browsing()) return
+                  setBrowsing(true)
+                  try {
+                    const result = await sdk.client.file.pickFolder()
+                    const picked = result.data?.path
+                    if (picked) {
+                      list?.setFilter(picked)
+                      setSelectedPath(picked)
+                    }
+                  } finally {
+                    setBrowsing(false)
                   }
-                } finally {
-                  setBrowsing(false)
-                }
-              }}
-            >{language.t("dialog.newProject.browse")}</Button>
+                }}
+              >{language.t("dialog.newProject.browse")}</Button>
+            </div>
           ),
         }}
         emptyMessage={language.t("dialog.directory.empty")}
         loadingMessage={language.t("common.loading")}
         items={items}
-        key={(x) => x.absolute}
+        key={(x) => x.isCreate ? "__create__" : x.absolute}
         filterKeys={["search"]}
         groupBy={(item) => item.group}
         sortGroupsBy={(a, b) => {
-          if (a.category === b.category) return 0
-          return a.category === "recent" ? -1 : 1
+          const order = { create: 0, recent: 1, folders: 2 }
+          return (order[a.category as keyof typeof order] ?? 3) - (order[b.category as keyof typeof order] ?? 3)
         }}
-        groupHeader={(group) =>
-          group.category === "recent" ? language.t("home.recentProjects") : language.t("command.project.open")
-        }
+        groupHeader={(group) => {
+          if (group.category === "create") return language.t("dialog.newProject.createGroup")
+          if (group.category === "recent") return language.t("home.recentProjects")
+          return language.t("command.project.open")
+        }}
         ref={(r) => (list = r)}
         onFilter={(value) => setFilter(cleanInput(value))}
         onKeyEvent={(e, item) => {
           if (e.key !== "Tab") return
           if (e.shiftKey) return
-          if (!item || item.isExpander || item.isCollapser) return
+          if (!item || item.isExpander || item.isCollapser || item.isCreate) return
 
           e.preventDefault()
           e.stopPropagation()
@@ -433,6 +487,17 @@ export function DialogSelectDirectory(props: DialogSelectDirectoryProps) {
             setExpanded(false)
             return
           }
+          if (path.isCreate) {
+            if (creating()) return
+            const resolved = resolveNewPath(filter(), home(), start() ?? "")
+            if (!resolved) return
+            setCreating(true)
+            sdk.client.file.create({ directory: resolved.parent, path: resolved.name, type: "directory" })
+              .then(() => resolve(resolved.full))
+              .catch(() => {})
+              .finally(() => setCreating(false))
+            return
+          }
           // Navigate into the clicked directory (same as Tab key)
           const value = displayPath(path.absolute, filter(), home())
           list?.setFilter(value.endsWith("/") ? value : value + "/")
@@ -440,6 +505,23 @@ export function DialogSelectDirectory(props: DialogSelectDirectoryProps) {
         }}
       >
         {(item) => {
+          if (item.isCreate) {
+            const resolved = createMemo(() => resolveNewPath(filter(), home(), start() ?? ""))
+            const display = createMemo(() => {
+              const r = resolved()
+              if (!r) return ""
+              return `${tildeOf(r.parent, home()) || r.parent}/${r.name}`
+            })
+            return (
+              <div class="w-full flex items-center gap-x-3 rounded-md">
+                <FileIcon node={{ path: item.absolute, type: "directory" }} class="shrink-0 size-4" />
+                <div class="flex items-center gap-2 text-14-regular min-w-0 grow">
+                  <span class="text-text-strong whitespace-nowrap">{language.t("dialog.newProject.createFolder")}</span>
+                  <span class="text-text-weak font-mono truncate min-w-0">{display()}</span>
+                </div>
+              </div>
+            )
+          }
           if (item.isExpander) {
             return (
               <div class="w-full flex items-center gap-x-3 text-14-regular text-text-weak">
@@ -456,10 +538,27 @@ export function DialogSelectDirectory(props: DialogSelectDirectoryProps) {
           }
 
           const path = displayPath(item.absolute, filter(), home())
+          const isRecent = item.group === "recent"
+
+          const removeBtn = (
+            <Show when={isRecent}>
+              <button
+                type="button"
+                class="opacity-0 group-hover:opacity-100 shrink-0 p-0.5 text-text-weak hover:text-text-strong transition-opacity"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  setHidden("dirs", (prev) => [...prev, item.absolute])
+                }}
+                title="从最近项目中移除"
+              >
+                ×
+              </button>
+            </Show>
+          )
 
           if (path === "~") {
             return (
-              <div class="w-full flex items-center justify-between rounded-md">
+              <div class="w-full flex items-center justify-between rounded-md group">
                 <div class="flex items-center gap-x-3 grow min-w-0">
                   <FileIcon node={{ path: item.absolute, type: "directory" }} class="shrink-0 size-4" />
                   <div class="flex items-center text-14-regular min-w-0">
@@ -467,11 +566,12 @@ export function DialogSelectDirectory(props: DialogSelectDirectoryProps) {
                     <span class="text-text-weak whitespace-nowrap">/</span>
                   </div>
                 </div>
+                {removeBtn}
               </div>
             )
           }
           return (
-            <div class="w-full flex items-center justify-between rounded-md">
+            <div class="w-full flex items-center justify-between rounded-md group">
               <div class="flex items-center gap-x-3 grow min-w-0">
                 <FileIcon node={{ path: item.absolute, type: "directory" }} class="shrink-0 size-4" />
                 <div class="flex items-center text-14-regular min-w-0">
@@ -482,6 +582,7 @@ export function DialogSelectDirectory(props: DialogSelectDirectoryProps) {
                   <span class="text-text-weak whitespace-nowrap">/</span>
                 </div>
               </div>
+              {removeBtn}
             </div>
           )
         }}
