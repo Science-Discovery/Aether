@@ -207,7 +207,7 @@ async function* convert(
   config: ConvertConfig,
   abortSignal: AbortSignal,
 ): AsyncGenerator<ProgressEvent> {
-  const { path: pdfPath, startPage, endPage, outputMode, conflictAction, dpi = 400 } = config
+  const { path: pdfPath, startPage, endPage, outputMode, conflictAction, dpi = 400, outputDir } = config
 
   // 获取 LLM 模型实例
   const modelInfo = await Provider.getModel(
@@ -217,7 +217,7 @@ async function* convert(
   const languageModel: LanguageModel = await Provider.getLanguage(modelInfo)
 
   // 计算输出路径
-  const outputPaths = computeOutputPaths(pdfPath, outputMode)
+  const outputPaths = computeOutputPaths(pdfPath, outputMode, outputDir)
 
   // 处理文件冲突
   let finalOutputPath: string
@@ -226,8 +226,16 @@ async function* convert(
       ? outputPaths.merged
       : await resolveConflict(outputPaths.merged, conflictAction)
   } else {
-    finalOutputPath = outputPaths.perPage
+    finalOutputPath = conflictAction === "cancel"
+      ? outputPaths.perPage
+      : await resolveConflict(outputPaths.perPage, conflictAction)
   }
+  const finalImagesDir = outputMode === "merged"
+    ? `${finalOutputPath.replace(/\.md$/i, "")}_images`
+    : path.join(finalOutputPath, "images")
+  const finalDataJsonPath = outputMode === "merged"
+    ? `${finalOutputPath.replace(/\.md$/i, "")}_data.json`
+    : `${finalOutputPath}_data.json`
 
   // 创建临时目录用于渲染
   const tempDir = path.join(path.dirname(pdfPath), `.pdf_convert_temp_${Date.now()}`)
@@ -434,7 +442,7 @@ async function* convert(
       const hasFigures = figures.length > 0 || formulaFigures.length > 0
       if (hasFigures) {
         yield { type: "progress", currentPage: pageIndex + 1, totalPages, phase: "crop" }
-        const imagesDir = outputPaths.images
+        const imagesDir = finalImagesDir
         const pageImagesDir = path.join(imagesDir, `page_${String(pageNum).padStart(3, "0")}`)
         await fs.mkdir(pageImagesDir, { recursive: true })
 
@@ -459,7 +467,7 @@ async function* convert(
 
       // [I] 占位符替换
       const imagesRelDir = outputMode === "merged"
-        ? path.basename(outputPaths.images)
+        ? path.basename(finalImagesDir)
         : "images"
 
       const finalContent = replacePlaceholders(
@@ -510,7 +518,7 @@ async function* convert(
           const qaResult = await runPostQA(
             languageModel,
             pages,
-            outputPaths.images,
+            finalImagesDir,
             abortSignal,
           )
           totalInputTokens += qaResult.tokenInput
@@ -547,7 +555,7 @@ async function* convert(
       output_mode: outputMode,
       total_tokens: { input: totalInputTokens, output: totalOutputTokens },
     }
-    await fs.writeFile(outputPaths.dataJson, JSON.stringify(dataJson, null, 2), "utf-8")
+    await fs.writeFile(finalDataJsonPath, JSON.stringify(dataJson, null, 2), "utf-8")
 
     yield {
       type: "done",

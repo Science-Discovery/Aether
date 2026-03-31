@@ -15,6 +15,7 @@ import {
 import { Dialog as Kobalte } from "@kobalte/core/dialog"
 
 type DialogElement = () => JSX.Element
+type DialogOptions = { modal?: boolean }
 
 type Active = {
   id: string
@@ -83,12 +84,13 @@ function init() {
     onCleanup(() => window.removeEventListener("keydown", onKeyDown, true))
   })
 
-  const show = (element: DialogElement, owner: Owner, onClose?: () => void) => {
+  const show = (element: DialogElement, owner: Owner, onClose?: () => void, options?: DialogOptions) => {
     if (timer.current !== undefined) {
       clearTimeout(timer.current)
       timer.current = undefined
     }
     lock.value = false
+    const modal = options?.modal !== false
 
     const id = Math.random().toString(36).slice(2)
     let dispose: (() => void) | undefined
@@ -101,7 +103,7 @@ function init() {
         setClosing = setClosingSignal
         return (
           <Kobalte
-            modal
+            modal={modal}
             open={!closing()}
             onOpenChange={(open: boolean) => {
               if (open) return
@@ -109,7 +111,7 @@ function init() {
             }}
           >
             <Kobalte.Portal>
-              <Kobalte.Overlay data-component="dialog-overlay" onClick={close} />
+              {modal && <Kobalte.Overlay data-component="dialog-overlay" onClick={close} />}
               {element()}
             </Kobalte.Portal>
           </Kobalte>
@@ -169,6 +171,10 @@ export function useDialog() {
     show(element: DialogElement, onClose?: () => void) {
       const base = ctx.active?.owner ?? owner
       ctx.show(element, base, onClose)
+    },
+    showModeless(element: DialogElement, onClose?: () => void) {
+      const base = ctx.active?.owner ?? owner
+      ctx.show(element, base, onClose, { modal: false })
     },
     close() {
       ctx.close()

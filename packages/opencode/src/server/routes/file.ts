@@ -50,6 +50,19 @@ const ascii = (input: string) => {
 
 const attachment = (name: string) => `attachment; filename="${ascii(name)}"; filename*=UTF-8''${encode(name)}`
 
+const resolvePath = (input: string) => (path.isAbsolute(input) ? input : path.join(Instance.directory, input))
+
+const requireDirectory = async (input: string) => {
+  try {
+    const dir = resolvePath(input)
+    const stat = await fs.stat(dir)
+    if (!stat.isDirectory()) throw new Error("路径必须指向一个文件夹")
+    return dir
+  } catch {
+    throw new Error("路径必须指向一个文件夹")
+  }
+}
+
 export const FileRoutes = lazy(() =>
   new Hono()
     .get(
@@ -83,6 +96,43 @@ export const FileRoutes = lazy(() =>
         const convertTasks = listActiveTasks()
         const translateTasks = listActiveTranslateTasks()
         return c.json([...convertTasks, ...translateTasks])
+      },
+    )
+    .get(
+      "/file/check-directory",
+      describeRoute({
+        summary: "Check directory",
+        description: "Check whether a path exists and points to a directory.",
+        operationId: "file.checkDirectory",
+        responses: {
+          200: {
+            description: "Directory check result",
+            content: {
+              "application/json": {
+                schema: resolver(
+                  z.object({
+                    path: z.string(),
+                  }),
+                ),
+              },
+            },
+          },
+          ...errors(400),
+        },
+      }),
+      validator(
+        "query",
+        z.object({
+          path: z.string(),
+        }),
+      ),
+      async (c) => {
+        try {
+          const dir = await requireDirectory(c.req.valid("query").path)
+          return c.json({ path: dir })
+        } catch (e: any) {
+          return c.json({ error: e?.message || "路径必须指向一个文件夹" }, 400)
+        }
       },
     )
     .get(
@@ -742,14 +792,16 @@ export const FileRoutes = lazy(() =>
         "query",
         z.object({
           path: z.string(),
+          outputDir: z.string().optional(),
         }),
       ),
       async (c) => {
-        const filePath = c.req.valid("query").path
-        const absPath = path.isAbsolute(filePath) ? filePath : path.join(Instance.directory, filePath)
+        const query = c.req.valid("query")
+        const absPath = resolvePath(query.path)
         try {
+          const outputDir = query.outputDir ? await requireDirectory(query.outputDir) : undefined
           const parsed = await parsePDF(absPath)
-          const outputPaths = computeOutputPaths(absPath, "merged")
+          const outputPaths = computeOutputPaths(absPath, "merged", outputDir)
 
           // 检查已存在的输出文件
           const existingFiles: string[] = []
@@ -832,6 +884,7 @@ export const FileRoutes = lazy(() =>
           endPage: z.number().int().min(1),
           outputMode: z.enum(["merged", "per-page"]),
           conflictAction: z.enum(["replace", "rename", "cancel"]),
+          outputDir: z.string().optional(),
         }),
       ),
       async (c) => {
@@ -845,12 +898,17 @@ export const FileRoutes = lazy(() =>
           return c.json({ error: "页面范围不能超过 50 页" }, 400)
         }
 
-        const absPath = path.isAbsolute(body.path) ? body.path : path.join(Instance.directory, body.path)
+        const absPath = resolvePath(body.path)
+        const outputDir = body.outputDir ? await requireDirectory(body.outputDir).catch(() => undefined) : undefined
+        if (body.outputDir && !outputDir) {
+          return c.json({ error: "路径必须指向一个文件夹" }, 400)
+        }
 
         const taskID = generateTaskID()
         startConversion(taskID, {
           ...body,
           path: absPath,
+          outputDir,
         })
 
         return c.json({ taskID })
@@ -1062,12 +1120,14 @@ export const FileRoutes = lazy(() =>
         "query",
         z.object({
           path: z.string(),
+          outputDir: z.string().optional(),
         }),
       ),
       async (c) => {
-        const filePath = c.req.valid("query").path
-        const absPath = path.isAbsolute(filePath) ? filePath : path.join(Instance.directory, filePath)
+        const query = c.req.valid("query")
+        const absPath = resolvePath(query.path)
         try {
+          const outputDir = query.outputDir ? await requireDirectory(query.outputDir) : undefined
           const stat = await Bun.file(absPath).stat()
           const fileSize = stat.size
 
@@ -1083,7 +1143,8 @@ export const FileRoutes = lazy(() =>
           }
 
           const ext = absPath.match(/\.[^.]+$/)?.[0] ?? ""
-          const base = absPath.slice(0, absPath.length - ext.length)
+          const dir = outputDir ?? path.dirname(absPath)
+          const base = path.join(dir, path.basename(absPath, ext))
           const outputPath = `${base}_zh${ext}`
 
           const existingFiles: string[] = []
@@ -1127,16 +1188,22 @@ export const FileRoutes = lazy(() =>
           modelID: z.string(),
           targetLanguage: z.string().optional().default("zh-CN"),
           conflictAction: z.enum(["replace", "rename", "cancel"]),
+          outputDir: z.string().optional(),
         }),
       ),
       async (c) => {
         const body = c.req.valid("json")
-        const absPath = path.isAbsolute(body.path) ? body.path : path.join(Instance.directory, body.path)
+        const absPath = resolvePath(body.path)
+        const outputDir = body.outputDir ? await requireDirectory(body.outputDir).catch(() => undefined) : undefined
+        if (body.outputDir && !outputDir) {
+          return c.json({ error: "路径必须指向一个文件夹" }, 400)
+        }
 
         const taskID = generateTranslateTaskID()
         startTranslation(taskID, {
           ...body,
           path: absPath,
+          outputDir,
         })
 
         return c.json({ taskID })

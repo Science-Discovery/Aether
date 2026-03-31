@@ -724,7 +724,7 @@ export function FileTabContent(props: { tab: string }) {
                 onClick={() => {
                   const p = path()
                   if (!p) return
-                  dialog.show(() => <DialogPdfToMarkdown pdfPath={p} />)
+                  dialog.showModeless(() => <DialogPdfToMarkdown pdfPath={p} />)
                 }}
               >
                 转换为 Markdown
@@ -764,7 +764,7 @@ export function FileTabContent(props: { tab: string }) {
               onClick={() => {
                 const p = path()
                 if (!p) return
-                dialog.show(() => <DialogTranslateMarkdown mdPath={p} />)
+                dialog.showModeless(() => <DialogTranslateMarkdown mdPath={p} />)
               }}
             >
               翻译为中文

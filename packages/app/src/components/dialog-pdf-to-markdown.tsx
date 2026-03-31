@@ -4,7 +4,7 @@
  * 开始转换后关闭对话框，进度通过全局 signal 推送到顶部进度条。
  */
 
-import { type Component, Show, createSignal, createMemo, onMount } from "solid-js"
+import { type Component, Show, createSignal, createMemo, createEffect, onMount } from "solid-js"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { Dialog } from "@opencode-ai/ui/dialog"
 import { Button } from "@opencode-ai/ui/button"
@@ -14,6 +14,7 @@ import { useSDK } from "@/context/sdk"
 import { useServer } from "@/context/server"
 import { useModels } from "@/context/models"
 import { ModelSelectorPopover } from "./dialog-select-model"
+import { OutputDirectory } from "./output-directory"
 import { registerConvertTask, updateConvertTask, triggerOpenFile, triggerRefreshDir, registerEventSource, getCurrentPhase, taskUrl } from "./pdf-convert-progress"
 
 // ===== PDF 转换设置持久化（localStorage） =====
@@ -24,14 +25,16 @@ type PdfConvertSettings = {
   outputMode: "merged" | "per-page"
   autoOpen: boolean
   conflictAction: "replace" | "rename"
+  outputTarget: "neighbor" | "custom"
+  outputDir?: string
 }
 
 function loadSettings(): PdfConvertSettings {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
-    if (raw) return { outputMode: "merged", autoOpen: true, conflictAction: "replace", ...JSON.parse(raw) }
+    if (raw) return { outputMode: "merged", autoOpen: true, conflictAction: "replace", outputTarget: "neighbor", ...JSON.parse(raw) }
   } catch { /* ignore */ }
-  return { outputMode: "merged", autoOpen: true, conflictAction: "replace" }
+  return { outputMode: "merged", autoOpen: true, conflictAction: "replace", outputTarget: "neighbor" }
 }
 
 function saveSettings(s: Partial<PdfConvertSettings>) {
@@ -76,6 +79,9 @@ export const DialogPdfToMarkdown: Component<{
   const [pythonMissing, setPythonMissing] = createSignal<string[]>([])
   const [existingFiles, setExistingFiles] = createSignal<string[]>([])
   const [conflictAction, setConflictAction] = createSignal<"replace" | "rename">(loadSettings().conflictAction)
+  const [outputTarget, setOutputTarget] = createSignal<"neighbor" | "custom">(loadSettings().outputTarget)
+  const [outputDir, setOutputDir] = createSignal(loadSettings().outputDir ?? "")
+  const [outputDirError, setOutputDirError] = createSignal<string | null>(null)
   // fetch 帮助函数
   const fetchApi = async (urlPath: string, options: RequestInit = {}): Promise<Response> => {
     const baseUrl = sdk.url
@@ -95,36 +101,61 @@ export const DialogPdfToMarkdown: Component<{
     })
   }
 
-  // 获取页数 + 检查 Python 环境
-  onMount(async () => {
+  const selectedOutputDir = createMemo(() => {
+    if (outputTarget() !== "custom") return
+    const value = outputDir().trim()
+    if (!value) return
+    return value
+  })
+
+  const loadPdfInfo = async () => {
     setLoading(true)
     try {
-      const [pageRes, pyRes] = await Promise.all([
-        fetchApi(`/file/pdf-page-count?path=${encodeURIComponent(props.pdfPath)}`),
-        fetchApi("/file/pdf-python-check"),
-      ])
-
+      const suffix = selectedOutputDir() ? `&outputDir=${encodeURIComponent(selectedOutputDir()!)}` : ""
+      const pageRes = await fetchApi(`/file/pdf-page-count?path=${encodeURIComponent(props.pdfPath)}${suffix}`)
       if (!pageRes.ok) {
         const err = await pageRes.json()
         throw new Error(err.error || "获取页数失败")
       }
       const pageData = await pageRes.json()
       setPageCount(pageData.pageCount)
-      setEndPage(Math.min(pageData.pageCount, 50))
-      if (pageData.existingFiles?.length > 0) {
-        setExistingFiles(pageData.existingFiles)
+      setEndPage((prev) => {
+        const next = Math.min(pageData.pageCount, 50)
+        if (prev > pageData.pageCount) return next
+        if (prev < 1) return 1
+        return prev || next
+      })
+      if (outputTarget() === "custom" && !selectedOutputDir()) {
+        setExistingFiles([])
+      } else {
+        setExistingFiles(pageData.existingFiles ?? [])
       }
-
-      if (pyRes.ok) {
-        const pyData = await pyRes.json()
-        setPythonAvailable(pyData.available)
-        setPythonMissing(pyData.missingDeps ?? [])
-      }
+      setError(null)
     } catch (e: any) {
-      setError(e?.message || "获取 PDF 页数失败")
+      setExistingFiles([])
+      if (e?.message === "路径必须指向一个文件夹") {
+        setError(null)
+      } else {
+        setError(e?.message || "获取 PDF 页数失败")
+      }
     } finally {
       setLoading(false)
     }
+  }
+
+  onMount(async () => {
+    const pyRes = await fetchApi("/file/pdf-python-check").catch(() => null)
+    if (pyRes?.ok) {
+      const pyData = await pyRes.json()
+      setPythonAvailable(pyData.available)
+      setPythonMissing(pyData.missingDeps ?? [])
+    }
+  })
+
+  createEffect(() => {
+    outputTarget()
+    selectedOutputDir()
+    void loadPdfInfo()
   })
 
   const overLimit = createMemo(() => {
@@ -239,6 +270,19 @@ export const DialogPdfToMarkdown: Component<{
       showToast({ variant: "error", title: "请先选择模型" })
       return
     }
+    setOutputDirError(null)
+    if (outputTarget() === "custom") {
+      const value = outputDir().trim()
+      if (!value) {
+        setOutputDirError("路径必须指向一个文件夹")
+        return
+      }
+      const check = await fetchApi(`/file/check-directory?path=${encodeURIComponent(value)}`)
+      if (!check.ok) {
+        setOutputDirError("路径必须指向一个文件夹")
+        return
+      }
+    }
 
     setStarting(true)
     // 保存当前选项供下次使用
@@ -246,6 +290,8 @@ export const DialogPdfToMarkdown: Component<{
       outputMode: outputMode(),
       autoOpen: autoOpen(),
       conflictAction: conflictAction(),
+      outputTarget: outputTarget(),
+      outputDir: outputDir().trim() || undefined,
     })
     try {
       const res = await fetchApi("/file/pdf-to-markdown", {
@@ -258,10 +304,15 @@ export const DialogPdfToMarkdown: Component<{
           endPage: endPage(),
           outputMode: outputMode(),
           conflictAction: conflictAction(),
+          outputDir: selectedOutputDir(),
         }),
       })
       if (!res.ok) {
         const err = await res.json()
+        if (err.error === "路径必须指向一个文件夹") {
+          setOutputDirError(err.error)
+          return
+        }
         throw new Error(err.error || "启动转换失败")
       }
       const { taskID } = await res.json()
@@ -292,7 +343,7 @@ export const DialogPdfToMarkdown: Component<{
   }
 
   return (
-    <Dialog title="PDF 转 Markdown" size="large">
+    <Dialog title="PDF 转 Markdown" size="large" persistent>
       <div class="flex flex-col gap-4 p-4 max-h-[70vh] overflow-y-auto">
         <Show when={loading()}>
           <div class="text-text-weak text-sm">正在获取 PDF 信息...</div>
@@ -390,6 +441,20 @@ export const DialogPdfToMarkdown: Component<{
               </label>
             </div>
           </div>
+
+          <OutputDirectory
+            label="输出位置"
+            title="选择 PDF 转换输出文件夹"
+            name="pdfOutputTarget"
+            neighbor="保存在原 PDF 文件旁边"
+            custom="保存在指定文件夹"
+            target={outputTarget}
+            setTarget={setOutputTarget}
+            value={outputDir}
+            setValue={setOutputDir}
+            error={outputDirError}
+            setError={setOutputDirError}
+          />
 
           {/* 转换完成后自动打开 */}
           <label class="flex items-center gap-2 text-sm cursor-pointer">

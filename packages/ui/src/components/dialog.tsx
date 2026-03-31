@@ -8,6 +8,7 @@ export interface DialogProps extends ParentProps {
   description?: JSXElement
   action?: JSXElement
   size?: "normal" | "large" | "x-large"
+  persistent?: boolean
   class?: ComponentProps<"div">["class"]
   classList?: ComponentProps<"div">["classList"]
   fit?: boolean
@@ -30,6 +31,10 @@ export function Dialog(props: DialogProps) {
           classList={{
             ...(props.classList ?? {}),
             [props.class ?? ""]: !!props.class,
+          }}
+          onInteractOutside={(e) => {
+            if (!props.persistent) return
+            e.preventDefault()
           }}
           onOpenAutoFocus={(e) => {
             const target = e.currentTarget as HTMLElement | null

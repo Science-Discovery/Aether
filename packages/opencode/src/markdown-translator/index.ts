@@ -250,7 +250,7 @@ async function* translate(
   config: TranslateConfig,
   abortSignal: AbortSignal,
 ): AsyncGenerator<TranslateProgressEvent> {
-  const { path: mdPath, targetLanguage, conflictAction } = config
+  const { path: mdPath, targetLanguage, conflictAction, outputDir } = config
 
   // 1. 获取 LLM 模型实例
   const modelInfo = await Provider.getModel(
@@ -332,7 +332,7 @@ async function* translate(
   const mergedContent = translatedChunks.filter(Boolean).join("\n\n")
 
   // 5. 计算输出路径
-  const dir = path.dirname(mdPath)
+  const dir = outputDir ?? path.dirname(mdPath)
   const ext = path.extname(mdPath)
   const basename = path.basename(mdPath, ext)
   let outputPath = path.join(dir, `${basename}_zh${ext}`)

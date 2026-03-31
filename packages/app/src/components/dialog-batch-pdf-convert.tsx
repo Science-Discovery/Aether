@@ -15,6 +15,7 @@ import { useSDK } from "@/context/sdk"
 import { useServer } from "@/context/server"
 import { useModels } from "@/context/models"
 import { ModelSelectorPopover } from "./dialog-select-model"
+import { OutputDirectory } from "./output-directory"
 import { registerConvertTask, updateConvertTask, triggerOpenFile, triggerRefreshDir, registerEventSource, getCurrentPhase, taskUrl } from "./pdf-convert-progress"
 
 // 复用 PDF 转换的设置持久化
@@ -25,14 +26,16 @@ type PdfConvertSettings = {
   outputMode: "merged" | "per-page"
   autoOpen: boolean
   conflictAction: "replace" | "rename"
+  outputTarget: "neighbor" | "custom"
+  outputDir?: string
 }
 
 function loadSettings(): PdfConvertSettings {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
-    if (raw) return { outputMode: "merged", autoOpen: true, conflictAction: "replace", ...JSON.parse(raw) }
+    if (raw) return { outputMode: "merged", autoOpen: true, conflictAction: "replace", outputTarget: "neighbor", ...JSON.parse(raw) }
   } catch { /* ignore */ }
-  return { outputMode: "merged", autoOpen: true, conflictAction: "replace" }
+  return { outputMode: "merged", autoOpen: true, conflictAction: "replace", outputTarget: "neighbor" }
 }
 
 function saveSettings(s: Partial<PdfConvertSettings>) {
@@ -72,6 +75,9 @@ export const DialogBatchPdfConvert: Component<{
   const [pythonAvailable, setPythonAvailable] = createSignal(true)
   const [pythonMissing, setPythonMissing] = createSignal<string[]>([])
   const [fileInfos, setFileInfos] = createSignal<{ path: string; name: string; pageCount: number }[]>([])
+  const [outputTarget, setOutputTarget] = createSignal<"neighbor" | "custom">(loadSettings().outputTarget)
+  const [outputDir, setOutputDir] = createSignal(loadSettings().outputDir ?? "")
+  const [outputDirError, setOutputDirError] = createSignal<string | null>(null)
 
   const fetchApi = async (urlPath: string, options: RequestInit = {}): Promise<Response> => {
     const baseUrl = sdk.url
@@ -151,6 +157,12 @@ export const DialogBatchPdfConvert: Component<{
 
   const totalPages = createMemo(() => fileInfos().reduce((sum, f) => sum + f.pageCount, 0))
   const hasOverLimit = createMemo(() => fileInfos().some((f) => f.pageCount > 50))
+  const selectedOutputDir = createMemo(() => {
+    if (outputTarget() !== "custom") return
+    const value = outputDir().trim()
+    if (!value) return
+    return value
+  })
 
   /** 连接 SSE 并返回一个 Promise，在任务完成/出错时 resolve */
   const connectSSEAndWait = (taskID: string, isLast: boolean): Promise<void> => {
@@ -236,9 +248,28 @@ export const DialogBatchPdfConvert: Component<{
       showToast({ variant: "error", title: "请先选择模型" })
       return
     }
+    setOutputDirError(null)
+    if (outputTarget() === "custom") {
+      const value = outputDir().trim()
+      if (!value) {
+        setOutputDirError("路径必须指向一个文件夹")
+        return
+      }
+      const check = await fetchApi(`/file/check-directory?path=${encodeURIComponent(value)}`)
+      if (!check.ok) {
+        setOutputDirError("路径必须指向一个文件夹")
+        return
+      }
+    }
 
     setStarting(true)
-    saveSettings({ outputMode: outputMode(), autoOpen: autoOpen(), conflictAction: conflictAction() })
+    saveSettings({
+      outputMode: outputMode(),
+      autoOpen: autoOpen(),
+      conflictAction: conflictAction(),
+      outputTarget: outputTarget(),
+      outputDir: outputDir().trim() || undefined,
+    })
     dialogCtx.close()
 
     try {
@@ -259,10 +290,15 @@ export const DialogBatchPdfConvert: Component<{
             endPage: info.pageCount,
             outputMode: outputMode(),
             conflictAction: conflictAction(),
+            outputDir: selectedOutputDir(),
           }),
         })
         if (!res.ok) {
           const err = await res.json()
+          if (err.error === "路径必须指向一个文件夹") {
+            setOutputDirError(err.error)
+            return
+          }
           showToast({ variant: "error", title: `${info.name} 启动失败`, description: err.error })
           continue
         }
@@ -302,7 +338,7 @@ export const DialogBatchPdfConvert: Component<{
   }
 
   return (
-    <Dialog title={`批量 PDF 转 Markdown（${props.pdfPaths.length} 个文件）`} size="large">
+    <Dialog title={`批量 PDF 转 Markdown（${props.pdfPaths.length} 个文件）`} size="large" persistent>
       <div class="flex flex-col gap-4 p-4 max-h-[70vh] overflow-y-auto">
         <Show when={loading()}>
           <div class="text-text-weak text-sm">正在检查文件信息...</div>
@@ -375,6 +411,20 @@ export const DialogBatchPdfConvert: Component<{
               </label>
             </div>
           </div>
+
+          <OutputDirectory
+            label="输出位置（对所有文件统一）"
+            title="选择批量 PDF 转换输出文件夹"
+            name="batchPdfOutputTarget"
+            neighbor="保存在各自 PDF 文件旁边"
+            custom="统一保存到指定文件夹"
+            target={outputTarget}
+            setTarget={setOutputTarget}
+            value={outputDir}
+            setValue={setOutputDir}
+            error={outputDirError}
+            setError={setOutputDirError}
+          />
 
           {/* 冲突策略 */}
           <div class="flex flex-col gap-2">

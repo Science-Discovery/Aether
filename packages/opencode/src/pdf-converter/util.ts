@@ -2,6 +2,7 @@
  * JSON 解析和通用工具函数
  */
 
+import fs from "node:fs/promises"
 import { Log } from "../util/log"
 
 const log = Log.create({ service: "pdf-util" })
@@ -53,8 +54,9 @@ export function generateTaskID(): string {
 export function computeOutputPaths(
   pdfPath: string,
   outputMode: "merged" | "per-page",
+  outputDir?: string,
 ): { merged: string; perPage: string; images: string; dataJson: string } {
-  const dir = pdfPath.replace(/[/\\][^/\\]+$/, "")
+  const dir = outputDir ?? pdfPath.replace(/[/\\][^/\\]+$/, "")
   const basename = pdfPath.replace(/^.*[/\\]/, "").replace(/\.pdf$/i, "")
 
   return {
@@ -75,18 +77,27 @@ export async function resolveConflict(
   if (action === "replace") return filePath
 
   // If the original path is not taken, use it directly
-  if (!(await Bun.file(filePath).exists())) return filePath
+  if (!(await exists(filePath))) return filePath
 
   const ext = filePath.match(/\.[^.]+$/)?.[0] ?? ""
   const base = filePath.slice(0, filePath.length - ext.length)
 
   let i = 1
   let candidate = `${base}(${i})${ext}`
-  while (await Bun.file(candidate).exists()) {
+  while (await exists(candidate)) {
     i++
     candidate = `${base}(${i})${ext}`
   }
   return candidate
+}
+
+async function exists(filePath: string) {
+  try {
+    await fs.stat(filePath)
+    return true
+  } catch {
+    return false
+  }
 }
 
 /**

@@ -4,7 +4,7 @@
  * 模式参考 dialog-pdf-to-markdown.tsx，但更简单（无页面范围、输出模式、Python 检查）。
  */
 
-import { type Component, Show, createSignal, createMemo, onMount } from "solid-js"
+import { type Component, Show, createSignal, createMemo, createEffect } from "solid-js"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { Dialog } from "@opencode-ai/ui/dialog"
 import { Button } from "@opencode-ai/ui/button"
@@ -14,6 +14,7 @@ import { useSDK } from "@/context/sdk"
 import { useServer } from "@/context/server"
 import { useModels } from "@/context/models"
 import { ModelSelectorPopover } from "./dialog-select-model"
+import { OutputDirectory } from "./output-directory"
 import { registerConvertTask, updateConvertTask, triggerOpenFile, triggerRefreshDir, registerEventSource, taskUrl } from "./pdf-convert-progress"
 
 // ===== 翻译设置持久化（localStorage） =====
@@ -23,14 +24,16 @@ type TranslateSettings = {
   model?: ModelKey
   autoOpen: boolean
   conflictAction: "replace" | "rename"
+  outputTarget: "neighbor" | "custom"
+  outputDir?: string
 }
 
 function loadSettings(): TranslateSettings {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
-    if (raw) return { autoOpen: true, conflictAction: "replace", ...JSON.parse(raw) }
+    if (raw) return { autoOpen: true, conflictAction: "replace", outputTarget: "neighbor", ...JSON.parse(raw) }
   } catch { /* ignore */ }
-  return { autoOpen: true, conflictAction: "replace" }
+  return { autoOpen: true, conflictAction: "replace", outputTarget: "neighbor" }
 }
 
 function saveSettings(s: Partial<TranslateSettings>) {
@@ -70,6 +73,9 @@ export const DialogTranslateMarkdown: Component<{
   const [starting, setStarting] = createSignal(false)
   const [existingFiles, setExistingFiles] = createSignal<string[]>([])
   const [conflictAction, setConflictAction] = createSignal<"replace" | "rename">(loadSettings().conflictAction)
+  const [outputTarget, setOutputTarget] = createSignal<"neighbor" | "custom">(loadSettings().outputTarget)
+  const [outputDir, setOutputDir] = createSignal(loadSettings().outputDir ?? "")
+  const [outputDirError, setOutputDirError] = createSignal<string | null>(null)
 
   const fetchApi = async (urlPath: string, options: RequestInit = {}): Promise<Response> => {
     const baseUrl = sdk.url
@@ -89,10 +95,18 @@ export const DialogTranslateMarkdown: Component<{
     })
   }
 
-  onMount(async () => {
+  const selectedOutputDir = createMemo(() => {
+    if (outputTarget() !== "custom") return
+    const value = outputDir().trim()
+    if (!value) return
+    return value
+  })
+
+  const loadCheck = async () => {
     setLoading(true)
     try {
-      const res = await fetchApi(`/file/translate-markdown/check?path=${encodeURIComponent(props.mdPath)}`)
+      const suffix = selectedOutputDir() ? `&outputDir=${encodeURIComponent(selectedOutputDir()!)}` : ""
+      const res = await fetchApi(`/file/translate-markdown/check?path=${encodeURIComponent(props.mdPath)}${suffix}`)
       if (!res.ok) {
         const err = await res.json()
         throw new Error(err.error || "预检查失败")
@@ -100,14 +114,28 @@ export const DialogTranslateMarkdown: Component<{
       const data = await res.json()
       setChunkCount(data.chunkCount)
       setHasDataJson(data.hasDataJson)
-      if (data.existingFiles?.length > 0) {
-        setExistingFiles(data.existingFiles)
+      if (outputTarget() === "custom" && !selectedOutputDir()) {
+        setExistingFiles([])
+      } else {
+        setExistingFiles(data.existingFiles ?? [])
       }
+      setError(null)
     } catch (e: any) {
-      setError(e?.message || "预检查失败")
+      setExistingFiles([])
+      if (e?.message === "路径必须指向一个文件夹") {
+        setError(null)
+      } else {
+        setError(e?.message || "预检查失败")
+      }
     } finally {
       setLoading(false)
     }
+  }
+
+  createEffect(() => {
+    outputTarget()
+    selectedOutputDir()
+    void loadCheck()
   })
 
   // 翻译模型：首次打开时用聊天模型初始化，之后完全独立
@@ -192,11 +220,26 @@ export const DialogTranslateMarkdown: Component<{
       showToast({ variant: "error", title: "请先选择模型" })
       return
     }
+    setOutputDirError(null)
+    if (outputTarget() === "custom") {
+      const value = outputDir().trim()
+      if (!value) {
+        setOutputDirError("路径必须指向一个文件夹")
+        return
+      }
+      const check = await fetchApi(`/file/check-directory?path=${encodeURIComponent(value)}`)
+      if (!check.ok) {
+        setOutputDirError("路径必须指向一个文件夹")
+        return
+      }
+    }
 
     setStarting(true)
     saveSettings({
       autoOpen: autoOpen(),
       conflictAction: conflictAction(),
+      outputTarget: outputTarget(),
+      outputDir: outputDir().trim() || undefined,
     })
     try {
       const res = await fetchApi("/file/translate-markdown", {
@@ -207,10 +250,15 @@ export const DialogTranslateMarkdown: Component<{
           modelID: model.id,
           targetLanguage: "zh-CN",
           conflictAction: conflictAction(),
+          outputDir: selectedOutputDir(),
         }),
       })
       if (!res.ok) {
         const err = await res.json()
+        if (err.error === "路径必须指向一个文件夹") {
+          setOutputDirError(err.error)
+          return
+        }
         throw new Error(err.error || "启动翻译失败")
       }
       const { taskID } = await res.json()
@@ -240,7 +288,7 @@ export const DialogTranslateMarkdown: Component<{
   }
 
   return (
-    <Dialog title="翻译为中文" size="large">
+    <Dialog title="翻译为中文" size="large" persistent>
       <div class="flex flex-col gap-4 p-4 max-h-[70vh] overflow-y-auto">
         <Show when={loading()}>
           <div class="text-text-weak text-sm">正在检查文件信息...</div>
@@ -283,6 +331,20 @@ export const DialogTranslateMarkdown: Component<{
               文件将被分为 {chunkCount()} 个块进行翻译
             </p>
           </Show>
+
+          <OutputDirectory
+            label="输出位置"
+            title="选择 Markdown 翻译输出文件夹"
+            name="translateOutputTarget"
+            neighbor="保存在原 Markdown 文件旁边"
+            custom="保存在指定文件夹"
+            target={outputTarget}
+            setTarget={setOutputTarget}
+            value={outputDir}
+            setValue={setOutputDir}
+            error={outputDirError}
+            setError={setOutputDirError}
+          />
 
           {/* 自动打开复选框 */}
           <label class="flex items-center gap-2 text-sm cursor-pointer">
