@@ -36,13 +36,17 @@ export function getTranslateTask(taskID: string): TranslateTask | undefined {
   return activeTasks.get(taskID)
 }
 
-/** 列出所有活跃翻译任务（运行中） */
+/** 列出所有活跃翻译任务（运行中排首位，其余按队列顺序） */
 export function listActiveTranslateTasks(): { taskID: string; status: string; path: string; taskType: "translate" }[] {
   const result: { taskID: string; status: string; path: string; taskType: "translate" }[] = []
-  for (const [id, task] of activeTasks) {
-    if (task.status === "running") {
-      result.push({ taskID: id, status: task.status, path: task.config.path, taskType: "translate" })
-    }
+  // 先加入正在运行的任务
+  if (currentRunningTaskID) {
+    const task = activeTasks.get(currentRunningTaskID)
+    if (task) result.push({ taskID: task.id, status: "running", path: task.config.path, taskType: "translate" })
+  }
+  // 再按队列顺序加入等待中的任务
+  for (const queued of taskQueue) {
+    result.push({ taskID: queued.taskID, status: "queued", path: queued.config.path, taskType: "translate" })
   }
   return result
 }

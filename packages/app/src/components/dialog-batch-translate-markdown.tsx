@@ -230,10 +230,12 @@ export const DialogBatchTranslateMarkdown: Component<{
 
     try {
       const infos = fileInfos()
+
+      // 第一步：一次性将所有文件提交到后端队列
+      // 这样即使页面关闭，后端也已持有全部任务，不会中断
+      const submitted: { taskID: string; info: typeof infos[number]; index: number }[] = []
       for (let i = 0; i < infos.length; i++) {
         const info = infos[i]
-        const isLast = i === infos.length - 1
-
         const res = await fetchApi("/file/translate-markdown", {
           method: "POST",
           body: JSON.stringify({
@@ -250,6 +252,15 @@ export const DialogBatchTranslateMarkdown: Component<{
           continue
         }
         const { taskID } = await res.json()
+        submitted.push({ taskID, info, index: i })
+      }
+
+      if (submitted.length === 0) return
+
+      // 第二步：逐个连接 SSE 跟踪进度（仅用于 UI 显示，不影响后端执行）
+      for (let j = 0; j < submitted.length; j++) {
+        const { taskID, info, index } = submitted[j]
+        const isLast = j === submitted.length - 1
 
         registerConvertTask(
           {
@@ -261,14 +272,13 @@ export const DialogBatchTranslateMarkdown: Component<{
             phase: "translate",
             taskType: "translate",
             cancelUrl: "/file/translate-markdown/cancel",
-            batchIndex: i + 1,
+            batchIndex: index + 1,
             batchTotal: infos.length,
           },
           fetchApi,
           autoOpen() && isLast,
         )
 
-        // 等待当前任务完成后再启动下一个
         await connectSSEAndWait(taskID, isLast)
       }
     } catch (e: any) {
