@@ -510,7 +510,7 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
           return runInflight(inflightDiff, key, () =>
             retry(() => client.session.diff({ sessionID })).then((diff) => {
               if (!tracked(directory, sessionID)) return
-              setStore("session_diff", sessionID, [...(diff.data ?? [])])
+              setStore("session_diff", sessionID, [...(Array.isArray(diff.data) ? diff.data : [])])
             }),
           )
         },
