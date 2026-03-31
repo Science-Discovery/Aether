@@ -311,66 +311,93 @@ export async function restoreActiveTasks(
     const tasks = await res.json() as { taskID: string; status: string; path: string; taskType: "convert" | "translate" }[]
     if (tasks.length === 0) return
 
-    // 取第一个运行中的任务恢复进度条
-    const activeTask = tasks[0]
-    const isTranslate = activeTask.taskType === "translate"
-    const cancelUrl = isTranslate ? "/file/translate-markdown/cancel" : "/file/pdf-to-markdown/cancel"
-    const path = isTranslate ? "/file/translate-markdown/progress" : "/file/pdf-to-markdown/progress"
+    const batchTotal = tasks.length
 
-    registerConvertTask(
-      {
-        taskID: activeTask.taskID,
-        pdfPath: activeTask.path,
-        status: "running",
-        currentPage: 0,
-        totalPages: 0,
-        phase: "reconnecting",
-        taskType: isTranslate ? "translate" : "pdf-convert",
-        cancelUrl,
-        batchIndex: 1,
-        batchTotal: tasks.length,
-      },
-      fetchApi,
-      false,
-    )
+    const MAX_RETRIES = 5
+    const RETRY_DELAY = 2000
 
-    // 连接 SSE 恢复实时进度
-    const url = taskUrl(baseUrl, path, activeTask.taskID, directory, http)
-    const es = new EventSource(url)
-    registerEventSource(es)
+    // 逐个连接 SSE，等当前任务完成后再跟踪下一个，带重试防止网络抖动中断
+    const connectAndWait = (task: typeof tasks[number], batchIndex: number, retryCount = 0): Promise<void> => {
+      const isTranslate = task.taskType === "translate"
+      const cancelUrl = isTranslate ? "/file/translate-markdown/cancel" : "/file/pdf-to-markdown/cancel"
+      const progressPath = isTranslate ? "/file/translate-markdown/progress" : "/file/pdf-to-markdown/progress"
 
-    es.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data)
-        switch (data.type) {
-          case "progress":
-            updateConvertTask({ currentPage: data.currentPage, totalPages: data.totalPages, phase: data.phase })
-            break
-          case "token":
-            updateConvertTask({ tokenInput: data.input, tokenOutput: data.output })
-            break
-          case "page_done":
-            updateConvertTask({ streamContent: "" })
-            break
-          case "done":
-            updateConvertTask({ status: "done", outputPath: data.outputPath })
-            if (data.outputPath) triggerRefreshDir(data.outputPath)
-            es.close()
-            break
-          case "error":
-            if (!data.page) {
-              updateConvertTask({ status: "error", error: data.message })
-              es.close()
+      registerConvertTask(
+        {
+          taskID: task.taskID,
+          pdfPath: task.path,
+          status: "running",
+          currentPage: 0,
+          totalPages: 0,
+          phase: "reconnecting",
+          taskType: isTranslate ? "translate" : "pdf-convert",
+          cancelUrl,
+          batchIndex,
+          batchTotal,
+        },
+        fetchApi,
+        false,
+      )
+
+      const url = taskUrl(baseUrl, progressPath, task.taskID, directory, http)
+      const es = new EventSource(url)
+      registerEventSource(es)
+
+      return new Promise<void>((resolve) => {
+        let gotTerminal = false
+
+        es.onmessage = (event) => {
+          try {
+            const data = JSON.parse(event.data)
+            switch (data.type) {
+              case "progress":
+                updateConvertTask({ currentPage: data.currentPage, totalPages: data.totalPages, phase: data.phase })
+                break
+              case "token":
+                updateConvertTask({ tokenInput: data.input, tokenOutput: data.output })
+                break
+              case "page_done":
+                updateConvertTask({ streamContent: "" })
+                break
+              case "done":
+                gotTerminal = true
+                updateConvertTask({ status: "done", outputPath: data.outputPath })
+                if (data.outputPath) triggerRefreshDir(data.outputPath)
+                es.close()
+                resolve()
+                break
+              case "error":
+                if (!data.page) {
+                  gotTerminal = true
+                  updateConvertTask({ status: "error", error: data.message })
+                  es.close()
+                  resolve()
+                }
+                break
             }
-            break
+          } catch { /* ignore */ }
         }
-      } catch { /* ignore */ }
+
+        es.onerror = () => {
+          if (es.readyState === EventSource.CLOSED) {
+            es.close()
+            if (gotTerminal) {
+              resolve()
+            } else if (retryCount < MAX_RETRIES) {
+              // 未收到终态事件就断开，重试（后端会重放历史事件）
+              setTimeout(() => resolve(connectAndWait(task, batchIndex, retryCount + 1)), RETRY_DELAY)
+            } else {
+              // 重试耗尽，放弃当前任务跟踪，继续下一个
+              resolve()
+            }
+          }
+          // readyState === CONNECTING 时是浏览器自动重连，不处理
+        }
+      })
     }
 
-    es.onerror = () => {
-      if (es.readyState === EventSource.CLOSED) {
-        es.close()
-      }
+    for (let i = 0; i < tasks.length; i++) {
+      await connectAndWait(tasks[i], i + 1)
     }
   } catch {
     // 查询失败，静默忽略

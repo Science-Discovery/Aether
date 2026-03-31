@@ -44,13 +44,17 @@ export function getTask(taskID: string): ConvertTask | undefined {
   return activeTasks.get(taskID)
 }
 
-/** 列出所有活跃任务（含运行中和排队中） */
+/** 列出所有活跃任务（运行中排首位，其余按队列顺序） */
 export function listActiveTasks(): { taskID: string; status: string; path: string; taskType: "convert" }[] {
   const result: { taskID: string; status: string; path: string; taskType: "convert" }[] = []
-  for (const [id, task] of activeTasks) {
-    if (task.status === "running") {
-      result.push({ taskID: id, status: task.status, path: task.config.path, taskType: "convert" })
-    }
+  // 先加入正在运行的任务
+  if (currentRunningTaskID) {
+    const task = activeTasks.get(currentRunningTaskID)
+    if (task) result.push({ taskID: task.id, status: "running", path: task.config.path, taskType: "convert" })
+  }
+  // 再按队列顺序加入等待中的任务
+  for (const queued of taskQueue) {
+    result.push({ taskID: queued.taskID, status: "queued", path: queued.config.path, taskType: "convert" })
   }
   return result
 }
@@ -257,11 +261,12 @@ async function* convert(
 
       // [A] 文字提取 和 [B] 图片 bbox 提取并行
       const embeddedText = renderResult.embedded_text || null
-      const hasEmbeddedImages = renderResult.embedded_image_count > 0
+      // 触发图片提取的条件：光栅图片 OR 矢量图形（费曼图、示意图等 PDF path 绘图）
+      const hasVisualContent = renderResult.embedded_image_count > 0 || renderResult.has_vector_figures
 
       // 并行启动
       const textGen = extractText(languageModel, renderResult.image_path, embeddedText, abortSignal)
-      const figureGen = hasEmbeddedImages
+      const figureGen = hasVisualContent
         ? extractFigures(languageModel, renderResult.image_path, undefined, abortSignal)
         : null
 
@@ -320,7 +325,7 @@ async function* convert(
       }
 
       // bbox 验证失败时重试一次
-      if (bboxRetryHints.length > 0 && validatedFigures.length < figures.length && hasEmbeddedImages) {
+      if (bboxRetryHints.length > 0 && validatedFigures.length < figures.length && hasVisualContent) {
         try {
           const retryGen = extractFigures(languageModel, renderResult.image_path, bboxRetryHints, abortSignal)
           const retryResult = await collectGeneratorResult(retryGen, (event) => {
@@ -341,6 +346,30 @@ async function* convert(
         }
       }
       figures = validatedFigures
+
+      // 如果文字提取发现有图片占位符，但图片提取完全为空（矢量图形页面常见），额外重试一次
+      if (textResult.figure_count > 0 && figures.length === 0 && hasVisualContent) {
+        log.info("figure count mismatch: text found figures but extraction returned empty, retrying", {
+          pageNum,
+          expectedCount: textResult.figure_count,
+        })
+        try {
+          const countMismatchHint = `文字提取发现 ${textResult.figure_count} 个图片占位符，但图片提取返回为空。请仔细观察页面中的线条、曲线、示意图等视觉元素并提取其 bbox。`
+          const retryGen = extractFigures(languageModel, renderResult.image_path, [countMismatchHint], abortSignal)
+          const retryResult = await collectGeneratorResult(retryGen, (event) => {
+            if (event.type === "token") {
+              totalInputTokens += event.input
+              totalOutputTokens += event.output
+            }
+          })
+          for (const fig of retryResult.figures) {
+            const result = validateFigure(fig)
+            if (result.valid) figures.push(fig)
+          }
+        } catch (e: any) {
+          log.error("figure retry (count mismatch) failed", { pageNum, error: e.message })
+        }
+      }
 
       // [D] LaTeX 语法验证 + [E] 内容完整性检查（Phase 2）
       yield { type: "progress", currentPage: pageIndex + 1, totalPages, phase: "fix" }

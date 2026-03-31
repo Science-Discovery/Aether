@@ -63,8 +63,13 @@ def render_page(pdf_path: str, page_num: int, dpi: int, output_dir: str) -> dict
         # 提取嵌入式文本
         embedded_text = page.get_text("text").strip()
 
-        # 统计嵌入式图片数量
+        # 统计嵌入式图片数量（仅光栅图片）
         embedded_image_count = len(page.get_images(full=True))
+
+        # 检测矢量图形（费曼图、示意图等 PDF path 绘图）
+        # 阈值 10：排除页面边框、页眉分隔线等少量装饰性线条
+        drawings = page.get_drawings()
+        has_vector_figures = len(drawings) > 10
 
         return {
             "image_path": output_path,
@@ -73,6 +78,7 @@ def render_page(pdf_path: str, page_num: int, dpi: int, output_dir: str) -> dict
             "actual_dpi": actual_dpi,
             "embedded_text": embedded_text if len(embedded_text) > 50 else "",
             "embedded_image_count": embedded_image_count,
+            "has_vector_figures": has_vector_figures,
         }
     finally:
         doc.close()
