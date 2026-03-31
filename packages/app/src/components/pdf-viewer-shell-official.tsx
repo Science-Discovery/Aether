@@ -47,8 +47,10 @@ export type PdfViewerShellProps = {
   mode: ViewerMode
   class?: string
   page?: number
+  layoutSwapped?: boolean
   onPageChange?: (page: number) => void
   onPdfToMarkdown?: () => void
+  onSwapLayout?: () => void
 }
 
 type ViewerMessage =
@@ -56,6 +58,7 @@ type ViewerMessage =
   | { channel: "aether-pdf-viewer"; type: "pagechange"; page: number }
   | { channel: "aether-pdf-viewer"; type: "pdf2md" }
   | { channel: "aether-pdf-viewer"; type: "nightmode"; enabled: boolean }
+  | { channel: "aether-pdf-viewer"; type: "swaplayout" }
 
 export const PdfViewerShell: Component<PdfViewerShellProps> = (props) => {
   bindNightModeSync()
@@ -71,6 +74,7 @@ export const PdfViewerShell: Component<PdfViewerShellProps> = (props) => {
     authHeader: props.authHeader,
     mode: props.mode,
     nightMode: nightMode(),
+    layoutSwapped: !!props.layoutSwapped,
     features: {
       pdf2md: !!props.onPdfToMarkdown && props.mode === "compact",
     },
@@ -139,6 +143,11 @@ export const PdfViewerShell: Component<PdfViewerShellProps> = (props) => {
 
     if (event.data.type === "nightmode") {
       setSharedNightMode(!!event.data.enabled)
+      return
+    }
+
+    if (event.data.type === "swaplayout") {
+      props.onSwapLayout?.()
     }
   }
 

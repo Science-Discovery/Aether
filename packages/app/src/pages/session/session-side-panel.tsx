@@ -43,6 +43,12 @@ import { fromDir, fromDrop, fromList, isExternal, send } from "./upload"
 import type { FileNode } from "@opencode-ai/sdk/v2"
 
 export function SessionSidePanel(props: {
+  style?: JSX.CSSProperties
+  widthOverride?: number
+  reviewOpenOverride?: boolean
+  fileOpenOverride?: boolean
+  treeWidthOverride?: number
+  fileTreeResizable?: boolean
   canReview: () => boolean
   diffs: () => FileDiff[]
   diffsReady: () => boolean
@@ -321,16 +327,24 @@ export function SessionSidePanel(props: {
 
   const isDesktop = createMediaQuery("(min-width: 768px)")
 
-  const reviewOpen = createMemo(() => isDesktop() && view().reviewPanel.opened())
-  const fileOpen = createMemo(() => isDesktop() && layout.fileTree.opened())
+  const reviewOpen = createMemo(() =>
+    isDesktop() && (typeof props.reviewOpenOverride === "boolean" ? props.reviewOpenOverride : view().reviewPanel.opened()),
+  )
+  const fileOpen = createMemo(() =>
+    isDesktop() && (typeof props.fileOpenOverride === "boolean" ? props.fileOpenOverride : layout.fileTree.opened()),
+  )
   const open = createMemo(() => reviewOpen() || fileOpen())
   const reviewTab = createMemo(() => isDesktop())
+  const treePixelWidth = createMemo(() =>
+    typeof props.treeWidthOverride === "number" ? Math.max(0, props.treeWidthOverride) : layout.fileTree.width(),
+  )
   const panelWidth = createMemo(() => {
+    if (typeof props.widthOverride === "number") return `${Math.max(0, props.widthOverride)}px`
     if (!open()) return "0px"
     if (reviewOpen()) return `calc(100% - ${layout.session.width()}px)`
     return `${layout.fileTree.width()}px`
   })
-  const treeWidth = createMemo(() => (fileOpen() ? `${layout.fileTree.width()}px` : "0px"))
+  const treeWidth = createMemo(() => (fileOpen() ? `${treePixelWidth()}px` : "0px"))
 
   const diffFiles = createMemo(() => {
     const d = props.diffs()
@@ -840,7 +854,7 @@ export function SessionSidePanel(props: {
           "transition-[width] duration-[240ms] ease-[cubic-bezier(0.22,1,0.36,1)] will-change-[width] motion-reduce:transition-none":
             !props.size.active() && !props.reviewSnap,
         }}
-        style={{ width: panelWidth() }}
+        style={{ ...(props.style ?? {}), width: panelWidth() }}
       >
         <div class="size-full flex border-l border-border-weaker-base">
           <div
@@ -1193,12 +1207,12 @@ export function SessionSidePanel(props: {
                 </Tabs.Content>
               </Tabs>
             </div>
-            <Show when={fileOpen()}>
+            <Show when={fileOpen() && (props.fileTreeResizable ?? true)}>
               <div onPointerDown={() => props.size.start()}>
                 <ResizeHandle
                   direction="horizontal"
                   edge="start"
-                  size={layout.fileTree.width()}
+                  size={treePixelWidth()}
                   min={200}
                   max={480}
                   onResize={(width) => {

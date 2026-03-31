@@ -3,7 +3,11 @@ import { PdfViewerShell } from "@/components/pdf-viewer-shell-official"
 import { useReadingMode } from "@/context/reading-mode"
 import { useServer } from "@/context/server"
 
-export const OfficialReadingPdfViewer: Component<{ url: string }> = (props) => {
+export const OfficialReadingPdfViewer: Component<{
+  url: string
+  layoutSwapped?: boolean
+  onSwapLayout?: () => void
+}> = (props) => {
   const rm = useReadingMode()
   const server = useServer()
 
@@ -20,7 +24,9 @@ export const OfficialReadingPdfViewer: Component<{ url: string }> = (props) => {
       authHeader={authHeader()}
       mode="full"
       page={rm.store.currentPage}
+      layoutSwapped={props.layoutSwapped}
       onPageChange={(page) => rm.setPage(page)}
+      onSwapLayout={props.onSwapLayout}
       class="size-full"
     />
   )

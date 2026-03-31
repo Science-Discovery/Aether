@@ -45,6 +45,7 @@
       authHeader: typeof input?.authHeader === "string" && input.authHeader ? input.authHeader : undefined,
       mode,
       nightMode: !!input?.nightMode,
+      layoutSwapped: !!input?.layoutSwapped,
       page:
         typeof input?.page === "number" && Number.isFinite(input.page) && input.page > 0
           ? Math.round(input.page)
@@ -61,6 +62,7 @@
   function applyChrome(config) {
     document.body.dataset.mode = config.mode;
     document.body.dataset.nightMode = config.nightMode ? "on" : "off";
+    document.body.dataset.layoutSwapped = config.layoutSwapped ? "on" : "off";
     const outerContainer = document.getElementById("outerContainer");
 
     const pdf2md = document.getElementById("aetherPdf2md");
@@ -74,6 +76,15 @@
       nightMode.title = config.nightMode ? "Disable night mode" : "Enable night mode";
       nightMode.classList.toggle("toggled", !!config.nightMode);
       nightMode.setAttribute("aria-pressed", config.nightMode ? "true" : "false");
+    }
+
+    const swapLayout = document.getElementById("aetherSwapLayout");
+    if (swapLayout) {
+      swapLayout.hidden = config.mode !== "full";
+      swapLayout.title = config.layoutSwapped ? "Move PDF to the left" : "Move PDF to the right";
+      swapLayout.setAttribute("aria-label", swapLayout.title);
+      swapLayout.setAttribute("aria-pressed", config.layoutSwapped ? "true" : "false");
+      swapLayout.dataset.direction = config.layoutSwapped ? "left" : "right";
     }
 
     if (config.mode === "compact" && outerContainer) {
@@ -98,13 +109,6 @@
     }
   }
 
-  function syncScrollModeSelect(mode) {
-    const select = document.getElementById("aetherScrollMode");
-    if (select) {
-      select.value = mode;
-    }
-  }
-
   function hasOutline() {
     const outline = document.getElementById("outlineView");
     return !!outline && outline.children.length > 0;
@@ -118,7 +122,6 @@
     app.pdfViewer.scrollMode = mapScrollMode(config.scrollMode);
     app.pdfViewer.spreadMode = 0;
     app.pdfViewer.currentScaleValue = config.scale;
-    syncScrollModeSelect(config.scrollMode);
 
     if (config.mode === "full") {
       if (hasOutline() && !sidebarState.userClosed) {
@@ -191,15 +194,13 @@
       });
     }
 
-    const scrollSelect = document.getElementById("aetherScrollMode");
-    if (scrollSelect) {
-      scrollSelect.addEventListener("change", function (event) {
-        const value = event.currentTarget?.value;
-        if (!window.PDFViewerApplication?.pdfViewer) return;
-        currentConfig = { ...(currentConfig || sanitizeConfig({})), scrollMode: value === "horizontal" || value === "wrapped" ? value : "vertical" };
-        window.PDFViewerApplication.pdfViewer.scrollMode = mapScrollMode(currentConfig.scrollMode);
+    const swapLayout = document.getElementById("aetherSwapLayout");
+    if (swapLayout) {
+      swapLayout.addEventListener("click", function () {
+        post("swaplayout");
       });
     }
+
   }
 
   async function openDocument(config) {
@@ -274,6 +275,7 @@
         if (window.PDFViewerApplication?.pdfDocument) {
           window.PDFViewerApplication.page = Math.round(page);
         }
+        return;
       }
     },
     false,
