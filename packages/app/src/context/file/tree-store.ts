@@ -14,6 +14,10 @@ type TreeStoreOptions = {
   normalizeDir: (input: string) => string
   list: (input: string) => Promise<FileNode[]>
   onError: (message: string) => void
+  /** 初始展开的目录路径集合（从持久化存储恢复，只在创建时读一次） */
+  initialExpanded?: Set<string>
+  /** 目录展开/折叠变化时的回调（用于持久化） */
+  onExpandedChange?: (expanded: Set<string>) => void
 }
 
 export function createFileTreeStore(options: TreeStoreOptions) {
@@ -27,16 +31,37 @@ export function createFileTreeStore(options: TreeStoreOptions) {
 
   const inflight = new Map<string, Promise<void>>()
 
-  const reset = () => {
+  const applyExpanded = (dirs?: Iterable<string>) => {
+    if (!dirs) return
+    for (const dir of dirs) {
+      if (dir === "") continue
+      setTree("dir", dir, (prev) => ({ ...(prev ?? {}), expanded: true }))
+    }
+  }
+  applyExpanded(options.initialExpanded)
+
+  /** 收集当前所有展开的目录（不含根目录） */
+  const getExpandedSet = (): Set<string> => {
+    const result = new Set<string>()
+    for (const [path, state] of Object.entries(tree.dir)) {
+      if (path !== "" && state.expanded) result.add(path)
+    }
+    return result
+  }
+
+  const reset = (dirs?: Iterable<string>) => {
     inflight.clear()
     setTree("node", reconcile({}))
     setTree("dir", reconcile({}))
     setTree("dir", "", { expanded: true })
+    applyExpanded(dirs ?? options.initialExpanded)
   }
 
   const ensureDir = (path: string) => {
     if (tree.dir[path]) return
-    setTree("dir", path, { expanded: false })
+    // 检查是否在初始展开集合中
+    const initial = options.initialExpanded
+    setTree("dir", path, { expanded: initial?.has(path) ?? false })
   }
 
   const listDir = (input: string, opts?: { force?: boolean }) => {
@@ -147,12 +172,14 @@ export function createFileTreeStore(options: TreeStoreOptions) {
     ensureDir(dir)
     setTree("dir", dir, "expanded", true)
     void listDir(dir)
+    options.onExpandedChange?.(getExpandedSet())
   }
 
   const collapseDir = (input: string) => {
     const dir = options.normalizeDir(input)
     ensureDir(dir)
     setTree("dir", dir, "expanded", false)
+    options.onExpandedChange?.(getExpandedSet())
   }
 
   const dirState = (input: string) => {

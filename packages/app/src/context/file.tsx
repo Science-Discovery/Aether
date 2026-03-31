@@ -1,5 +1,6 @@
-import { batch, createEffect, createMemo, createSignal, onCleanup } from "solid-js"
+import { batch, createEffect, createMemo, createSignal, on, onCleanup, untrack } from "solid-js"
 import { createStore, produce, reconcile } from "solid-js/store"
+import { Persist, persisted } from "@/utils/persist"
 import { createSimpleContext } from "@opencode-ai/ui/context"
 import { showToast } from "@opencode-ai/ui/toast"
 import { useParams } from "@solidjs/router"
@@ -173,6 +174,10 @@ export const { use: useFile, provider: FileProvider } = createSimpleContext({
       file: {},
     })
 
+    const [treeExpandStore, setTreeExpandStore] = persisted(
+      Persist.global("file-tree-expanded.v2"),
+      createStore<Record<string, string[]>>({}),
+    )
     const tree = createFileTreeStore({
       scope,
       normalizeDir: path.normalizeDir,
@@ -183,6 +188,10 @@ export const { use: useFile, provider: FileProvider } = createSimpleContext({
           title: language.t("toast.file.listFailed.title"),
           description: message,
         })
+      },
+      initialExpanded: new Set(treeExpandStore[scope()] ?? []),
+      onExpandedChange: (expanded) => {
+        setTreeExpandStore(scope(), [...expanded])
       },
     })
 
@@ -200,15 +209,20 @@ export const { use: useFile, provider: FileProvider } = createSimpleContext({
       })
     }
 
-    createEffect(() => {
-      scope()
-      inflight.clear()
-      resetFileContentLru()
-      batch(() => {
-        setStore("file", reconcile({}))
-        tree.reset()
-      })
-    })
+    createEffect(
+      on(
+        scope,
+        (dir) => {
+          inflight.clear()
+          resetFileContentLru()
+          batch(() => {
+            setStore("file", reconcile({}))
+            tree.reset(untrack(() => treeExpandStore[dir] ?? []))
+          })
+        },
+        { defer: false },
+      ),
+    )
 
     const viewCache = createFileViewCache()
     const view = createMemo(() => viewCache.load(scope(), params.id))
@@ -336,16 +350,24 @@ export const { use: useFile, provider: FileProvider } = createSimpleContext({
       return state
     }
 
-    function withPath(input: string, action: (file: string) => unknown) {
+    function withPath<T>(input: string, action: (file: string) => T): T {
       return action(path.normalize(input))
     }
     const scrollTop = (input: string) => withPath(input, (file) => view().scrollTop(file))
     const scrollLeft = (input: string) => withPath(input, (file) => view().scrollLeft(file))
     const selectedLines = (input: string) => withPath(input, (file) => view().selectedLines(file))
+    const wordWrap = (input: string) => withPath(input, (file) => view().wordWrap(file))
+    const isEditing = (input: string) => withPath(input, (file) => view().isEditing(file))
+    const draft = (input: string) => withPath(input, (file) => view().draft(file))
     const setScrollTop = (input: string, top: number) => withPath(input, (file) => view().setScrollTop(file, top))
     const setScrollLeft = (input: string, left: number) => withPath(input, (file) => view().setScrollLeft(file, left))
     const setSelectedLines = (input: string, range: SelectedLineRange | null) =>
       withPath(input, (file) => view().setSelectedLines(file, range))
+    const setWordWrap = (input: string, wrap: boolean) => withPath(input, (file) => view().setWordWrap(file, wrap))
+    const setIsEditing = (input: string, editing: boolean) =>
+      withPath(input, (file) => view().setIsEditing(file, editing))
+    const setDraft = (input: string, value: string) => withPath(input, (file) => view().setDraft(file, value))
+    const clearDraft = (input: string) => withPath(input, (file) => view().clearDraft(file))
 
     onCleanup(() => {
       stop()
@@ -380,6 +402,13 @@ export const { use: useFile, provider: FileProvider } = createSimpleContext({
       setScrollLeft,
       selectedLines,
       setSelectedLines,
+      wordWrap,
+      setWordWrap,
+      isEditing,
+      setIsEditing,
+      draft,
+      setDraft,
+      clearDraft,
       searchFiles: (query: string) => search(query, "false"),
       searchFilesAndDirectories: (query: string) => search(query, "true"),
       selectedPaths,
