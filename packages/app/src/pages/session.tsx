@@ -427,8 +427,7 @@ export default function Page() {
 
   const info = createMemo(() => (params.id ? sync.session.get(params.id) : undefined))
   const diffs = createMemo(() => (params.id ? (sync.data.session_diff[params.id] ?? []) : []))
-  const sessionCount = createMemo(() => Math.max(info()?.summary?.files ?? 0, diffs().length))
-  const hasSessionReview = createMemo(() => sessionCount() > 0)
+  const saved = createMemo(() => info()?.summary?.files ?? 0)
   const canReview = createMemo(() => !!params.id)
   const reviewTab = createMemo(() => isDesktop())
   const tabState = createSessionTabs({
@@ -462,9 +461,11 @@ export default function Page() {
   const diffsReady = createMemo(() => {
     const id = params.id
     if (!id) return true
-    if (!hasSessionReview()) return true
-    return sync.data.session_diff[id] !== undefined
+    if (sync.data.session_diff[id] !== undefined) return true
+    return saved() === 0
   })
+  const sessionCount = createMemo(() => (diffsReady() ? diffs().length : saved()))
+  const hasSessionReview = createMemo(() => sessionCount() > 0)
 
   const userMessages = createMemo(
     () => messages().filter((m) => m.role === "user") as UserMessage[],
@@ -1030,6 +1031,20 @@ export default function Page() {
     isDesktop()
       ? desktopFileTreeOpen() || (desktopReviewOpen() && activeTab() === "review")
       : store.mobileTab === "changes",
+  )
+
+  createEffect(
+    on(
+      sessionKey,
+      () => {
+        resetVcs()
+        const mode = untrack(vcsMode)
+        if (!mode) return
+        if (!untrack(wantsReview)) return
+        void loadVcs(mode)
+      },
+      { defer: true },
+    ),
   )
 
   createEffect(() => {

@@ -34,11 +34,24 @@ export namespace FileWatcher {
     ),
   }
 
+  function libc() {
+    if (process.platform !== "linux") return
+    if (process.env.OPENCODE_LIBC) return process.env.OPENCODE_LIBC
+    if (typeof OPENCODE_LIBC !== "undefined" && OPENCODE_LIBC) return OPENCODE_LIBC
+    const report = process.report?.getReport?.()
+    const header =
+      typeof report === "object" && report && "header" in report && typeof report.header === "object" && report.header
+        ? report.header
+        : undefined
+    return typeof header === "object" && header && "glibcVersionRuntime" in header && typeof header.glibcVersionRuntime === "string"
+      ? "glibc"
+      : "musl"
+  }
+
   const watcher = lazy((): typeof import("@parcel/watcher") | undefined => {
     try {
-      const binding = require(
-        `@parcel/watcher-${process.platform}-${process.arch}${process.platform === "linux" ? `-${OPENCODE_LIBC || "glibc"}` : ""}`,
-      )
+      const abi = libc()
+      const binding = require(`@parcel/watcher-${process.platform}-${process.arch}${abi ? `-${abi}` : ""}`)
       return createWrapper(binding) as typeof import("@parcel/watcher")
     } catch (error) {
       log.error("failed to load watcher binding", { error })
@@ -121,11 +134,14 @@ export namespace FileWatcher {
             const cfgIgnores = cfg.watcher?.ignore ?? []
 
             if (yield* Flag.OPENCODE_EXPERIMENTAL_FILEWATCHER) {
+              log.info("watching worktree", { directory: Instance.directory })
               yield* subscribe(Instance.directory, [
                 ...FileIgnore.PATTERNS,
                 ...cfgIgnores,
                 ...protecteds(Instance.directory),
               ])
+            } else {
+              log.info("worktree watcher disabled", { directory: Instance.directory })
             }
 
             if (Instance.project.vcs === "git") {
