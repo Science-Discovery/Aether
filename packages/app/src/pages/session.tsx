@@ -426,7 +426,11 @@ export default function Page() {
   }
 
   const info = createMemo(() => (params.id ? sync.session.get(params.id) : undefined))
-  const diffs = createMemo(() => (params.id ? (sync.data.session_diff[params.id] ?? []) : []))
+  const diffs = createMemo(() => {
+    if (!params.id) return []
+    const val = sync.data.session_diff[params.id]
+    return Array.isArray(val) ? val : []
+  })
   const saved = createMemo(() => info()?.summary?.files ?? 0)
   const canReview = createMemo(() => !!params.id)
   const reviewTab = createMemo(() => isDesktop())
