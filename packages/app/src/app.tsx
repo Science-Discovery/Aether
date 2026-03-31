@@ -30,6 +30,7 @@ import { KnowledgeProvider } from "@/context/knowledge"
 import { CommandProvider } from "@/context/command"
 import { CommentsProvider } from "@/context/comments"
 import { FileProvider } from "@/context/file"
+import { AuthProvider } from "@/context/auth"
 import { GlobalSDKProvider } from "@/context/global-sdk"
 import { GlobalSyncProvider } from "@/context/global-sync"
 import { HighlightsProvider } from "@/context/highlights"
@@ -90,23 +91,25 @@ function QueryProvider(props: ParentProps) {
 
 function AppShellProviders(props: ParentProps) {
   return (
-    <SettingsProvider>
-      <PermissionProvider>
-        <LayoutProvider>
-          <NotificationProvider>
-            <ModelsProvider>
-              <CommandProvider>
-                <HighlightsProvider>
-                  <KnowledgeProvider>
-                    <Layout>{props.children}</Layout>
-                  </KnowledgeProvider>
-                </HighlightsProvider>
-              </CommandProvider>
-            </ModelsProvider>
-          </NotificationProvider>
-        </LayoutProvider>
-      </PermissionProvider>
-    </SettingsProvider>
+    <AuthProvider>
+      <SettingsProvider>
+        <PermissionProvider>
+          <LayoutProvider>
+            <NotificationProvider>
+              <ModelsProvider>
+                <CommandProvider>
+                  <HighlightsProvider>
+                    <KnowledgeProvider>
+                      <Layout>{props.children}</Layout>
+                    </KnowledgeProvider>
+                  </HighlightsProvider>
+                </CommandProvider>
+              </ModelsProvider>
+            </NotificationProvider>
+          </LayoutProvider>
+        </PermissionProvider>
+      </SettingsProvider>
+    </AuthProvider>
   )
 }
 

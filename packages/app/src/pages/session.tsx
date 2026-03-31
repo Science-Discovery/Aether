@@ -637,7 +637,10 @@ export default function Page() {
     return open
   }, desktopReviewOpen())
 
-  const turnDiffs = createMemo(() => lastUserMessage()?.summary?.diffs ?? [])
+  const turnDiffs = createMemo(() => {
+    const raw = lastUserMessage()?.summary?.diffs
+    return Array.isArray(raw) ? raw : []
+  })
   const changesOptions = createMemo<ChangeMode[]>(() => {
     const list: ChangeMode[] = []
     if (sync.project?.vcs === "git") list.push("git")
