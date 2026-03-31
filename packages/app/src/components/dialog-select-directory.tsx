@@ -221,6 +221,12 @@ function useDirectorySearch(args: {
         .catch(() => [])
 
     if (!isPath) {
+      // When start is a root path (e.g. "/" on Windows), use directory listing instead of fuzzy search
+      if (rootOf(trimTrailing(scopedInput.directory)) === trimTrailing(scopedInput.directory)) {
+        const items = await match(scopedInput.directory, "", 50)
+        if (!active()) return []
+        return items
+      }
       const results = await find()
       if (!active()) return []
       return results.map((rel) => joinPath(scopedInput.directory, rel)).slice(0, 50)

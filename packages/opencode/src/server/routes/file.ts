@@ -149,6 +149,26 @@ export const FileRoutes = lazy(() =>
         const dirs = c.req.valid("query").dirs
         const type = c.req.valid("query").type
         const limit = c.req.valid("query").limit
+
+        // On Windows, return drive roots when browsing from "/"
+        if (process.platform === "win32" && type === "directory") {
+          const rawDir = (() => {
+            const v = c.req.query("directory") || ""
+            try { return decodeURIComponent(v) } catch { return v }
+          })()
+          if (rawDir === "/") {
+            const { existsSync } = await import("fs")
+            const drives: string[] = []
+            for (let code = 65; code <= 90; code++) {
+              const letter = String.fromCharCode(code)
+              if (existsSync(`${letter}:\\`)) {
+                drives.push(`${letter}:/`)
+              }
+            }
+            return c.json(drives)
+          }
+        }
+
         const results = await File.search({
           query,
           limit: limit ?? 10,
@@ -215,6 +235,25 @@ export const FileRoutes = lazy(() =>
       ),
       async (c) => {
         const path = c.req.valid("query").path
+        const rawDir = (() => {
+          const v = c.req.query("directory") || ""
+          try { return decodeURIComponent(v) } catch { return v }
+        })()
+
+        // On Windows, return drive roots when browsing from "/"
+        if (process.platform === "win32" && !path && rawDir === "/") {
+          const { existsSync } = await import("fs")
+          const drives: Array<{ name: string; path: string; absolute: string; type: "directory"; ignored: boolean }> = []
+          for (let code = 65; code <= 90; code++) {
+            const letter = String.fromCharCode(code)
+            const drivePath = `${letter}:\\`
+            if (existsSync(drivePath)) {
+              drives.push({ name: `${letter}:`, path: `${letter}:/`, absolute: `${letter}:/`, type: "directory", ignored: false })
+            }
+          }
+          return c.json(drives)
+        }
+
         const content = await File.list(path)
         return c.json(content)
       },

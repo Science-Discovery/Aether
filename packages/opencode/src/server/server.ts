@@ -342,7 +342,7 @@ export namespace Server {
         }),
         async (c) => {
           return c.json({
-            home: Global.Path.home,
+            home: process.platform === "win32" ? "/" : Global.Path.home,
             state: Global.Path.state,
             config: Global.Path.config,
             worktree: Instance.worktree,
