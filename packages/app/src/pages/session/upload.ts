@@ -153,9 +153,12 @@ export const fromDrop = async (data: DataTransfer) => {
   const items = [...data.items] as WebItem[]
 
   if (items.some((item) => !!item.getAsFileSystemHandle)) {
+    // Call getAsFileSystemHandle() synchronously on all items before any await,
+    // because DataTransferItem objects become stale after the first await.
+    const handlePromises = items.map((item) => item.getAsFileSystemHandle?.() ?? Promise.resolve(null))
     let out: Batch = { dirs: [], files: [] }
-    for (const item of items) {
-      const handle = await item.getAsFileSystemHandle?.()
+    for (const promise of handlePromises) {
+      const handle = await promise
       if (!handle) continue
       out = merge(out, await fromHandle(handle))
     }
@@ -163,16 +166,20 @@ export const fromDrop = async (data: DataTransfer) => {
   }
 
   if (items.some((item) => !!item.webkitGetAsEntry)) {
+    // Call webkitGetAsEntry() synchronously on all items before any await,
+    // because DataTransferItem objects become stale after the first await.
+    const entries = items.map((item) => item.webkitGetAsEntry?.() ?? null)
     let out: Batch = { dirs: [], files: [] }
-    for (const item of items) {
-      const entry = item.webkitGetAsEntry?.()
+    for (const entry of entries) {
       if (!entry) continue
       out = merge(out, await fromEntry(entry))
     }
     return out
   }
 
-  return fromList(data.files)
+  // Capture files synchronously before any async work
+  const files = [...data.files]
+  return fromList(files)
 }
 
 const err = async (res: Response) => {

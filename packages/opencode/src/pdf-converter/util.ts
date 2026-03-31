@@ -74,6 +74,9 @@ export async function resolveConflict(
 ): Promise<string> {
   if (action === "replace") return filePath
 
+  // If the original path is not taken, use it directly
+  if (!(await Bun.file(filePath).exists())) return filePath
+
   const ext = filePath.match(/\.[^.]+$/)?.[0] ?? ""
   const base = filePath.slice(0, filePath.length - ext.length)
 

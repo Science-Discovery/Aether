@@ -10,6 +10,8 @@ export interface PageRenderResult {
   actual_dpi: number
   embedded_text: string
   embedded_image_count: number
+  /** 页面是否包含矢量图形（费曼图、示意图等 PDF path 绘图） */
+  has_vector_figures: boolean
 }
 
 /** 图片裁剪结果（Python crop_image.py 输出） */
