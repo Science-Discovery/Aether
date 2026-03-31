@@ -135,12 +135,78 @@ HELP_TEXT = (
 /model        查看可用模型列表及当前模型
 /model n      切换到编号 n 的模型（由 /model 列表确定）
 /project      查看当前工作项目
+/project n    切换到编号 n 的项目
+/project hide n  隐藏项目（在桌面端或微信端重新使用后自动恢复）
 /help         显示此帮助信息"""
 )
 
+_HIDDEN_FILE: Path = (
+    Path(SESSION_FILE).parent / "hidden_projects.json"
+    if SESSION_FILE
+    else Path.home() / ".config" / "aether-wechat" / "hidden_projects.json"
+)
 
-def _read_projects_from_db() -> list[dict]:
-    """从所有 opencode SQLite db 读取项目和 session 目录"""
+
+def _read_projects_from_db(db_path: Path) -> list[dict]:
+    """从指定 opencode SQLite db 读取项目列表。
+    使用 ?mode=ro 以支持 WAL 日志模式读取最新数据。
+    """
+    _skip = ("/bin", "/dist", chr(92) + "bin", chr(92) + "dist")
+    seen: dict[str, dict] = {}
+    for suffix in ("?mode=ro", "?mode=ro&immutable=1"):
+        try:
+            con = sqlite3.connect(db_path.as_uri() + suffix, uri=True)
+            cur = con.cursor()
+            cur.execute("SELECT id, worktree, name FROM project")
+            for pid, worktree, name in cur.fetchall():
+                if worktree and worktree != "/" and worktree not in seen:
+                    seen[worktree] = {"id": pid, "worktree": worktree, "name": name}
+            cur.execute("SELECT DISTINCT directory FROM session WHERE directory IS NOT NULL")
+            for (directory,) in cur.fetchall():
+                if directory and directory != "/" and directory not in seen:
+                    if not any(directory.endswith(s) for s in _skip):
+                        seen[directory] = {"id": "", "worktree": directory, "name": None}
+            con.close()
+            return list(seen.values())
+        except Exception:
+            pass
+    return []
+
+
+def _get_max_session_times(db_path: Path, directories: list[str]) -> dict[str, int]:
+    """查询各项目目录最近一次 session 的 time_updated（毫秒）。
+    通过 project_id JOIN project 表匹配 worktree，兼容直接匹配 session.directory。
+    """
+    if not directories:
+        return {}
+    placeholders = ",".join("?" * len(directories))
+    for suffix in ("?mode=ro", "?mode=ro&immutable=1"):
+        try:
+            con = sqlite3.connect(db_path.as_uri() + suffix, uri=True)
+            cur = con.cursor()
+            cur.execute(
+                f"""
+                SELECT worktree, MAX(t) FROM (
+                    SELECT p.worktree AS worktree, s.time_updated AS t
+                    FROM session s JOIN project p ON s.project_id = p.id
+                    WHERE p.worktree IN ({placeholders})
+                    UNION ALL
+                    SELECT s.directory AS worktree, s.time_updated AS t
+                    FROM session s WHERE s.directory IN ({placeholders})
+                ) GROUP BY worktree
+                """,
+                directories + directories,
+            )
+            result = {w: int(t) for w, t in cur.fetchall() if t is not None}
+            con.close()
+            return result
+        except Exception:
+            pass
+    return {}
+
+
+def _find_fallback_db() -> Optional[Path]:
+    """启动时 HTTP 客户端尚未就绪时，从文件系统找一个可用 db。"""
     home = Path.home()
     candidates = [
         home / ".local" / "share" / "opencode",
@@ -152,32 +218,12 @@ def _read_projects_from_db() -> list[dict]:
     override = os.environ.get("AETHER_OPENCODE_DATA_DIR", "")
     if override:
         candidates = [Path(override)]
-
-    _skip = ("/bin", "/dist", chr(92) + "bin", chr(92) + "dist")
-    seen: dict[str, dict] = {}
     for data_dir in candidates:
-        if not data_dir.exists():
-            continue
-        for db_path in sorted(data_dir.glob("opencode*.db")):
-            for suffix in ("?mode=ro&immutable=1", "?mode=ro"):
-                try:
-                    con = sqlite3.connect(db_path.as_uri() + suffix, uri=True)
-                    cur = con.cursor()
-                    cur.execute("SELECT id, worktree, name FROM project")
-                    for pid, worktree, name in cur.fetchall():
-                        if worktree and worktree != "/" and worktree not in seen:
-                            seen[worktree] = {"id": pid, "worktree": worktree, "name": name}
-                    cur.execute("SELECT DISTINCT directory FROM session WHERE directory IS NOT NULL")
-                    for (directory,) in cur.fetchall():
-                        if directory and directory != "/" and directory not in seen:
-                            if not any(directory.endswith(s) for s in _skip):
-                                seen[directory] = {"id": "", "worktree": directory, "name": None}
-                    con.close()
-                    break
-                except Exception:
-                    pass
-        break
-    return list(seen.values())
+        if data_dir.exists():
+            dbs = sorted(data_dir.glob("opencode*.db"))
+            if dbs:
+                return dbs[0]
+    return None
 
 
 class AetherAgent(Agent):
@@ -206,6 +252,7 @@ class AetherAgent(Agent):
         self._user_info: Optional[dict] = None
         self._username = os.getenv("AETHER_USERNAME", "")
         self._password = os.getenv("AETHER_PASSWORD", "")
+        self._hidden_dirs: dict[str, int] = {}  # worktree → 隐藏时的时间戳(ms)
 
     async def on_start(self) -> None:
         """初始化 HTTP 客户端"""
@@ -221,12 +268,39 @@ class AetherAgent(Agent):
         logger.info(f"工作目录: {self.directory}")
         if self.default_model:
             logger.info(f"默认模型: {self.default_model}")
+        try:
+            if _HIDDEN_FILE.exists():
+                raw = json.loads(_HIDDEN_FILE.read_text(encoding="utf-8"))
+                self._hidden_dirs = {k: int(v) for k, v in raw.items()} if isinstance(raw, dict) else {}
+                if self._hidden_dirs:
+                    logger.info(f"已加载 {len(self._hidden_dirs)} 个隐藏项目")
+        except Exception as e:
+            logger.warning(f"加载隐藏项目失败: {e}")
 
     async def on_stop(self) -> None:
         """清理资源"""
         if self._client:
             await self._client.aclose()
         logger.info("已断开 Aether 连接")
+
+    def _save_hidden_dirs(self) -> None:
+        try:
+            _HIDDEN_FILE.parent.mkdir(parents=True, exist_ok=True)
+            _HIDDEN_FILE.write_text(json.dumps(self._hidden_dirs), encoding="utf-8")
+        except Exception as e:
+            logger.warning(f"保存隐藏项目失败: {e}")
+
+    async def _get_active_db_path(self) -> Optional[Path]:
+        """通过 GET /global/database 获取当前 active 的 db 路径。"""
+        try:
+            resp = await self._client.get(f"{self.base_url}/global/database")
+            resp.raise_for_status()
+            for entry in resp.json():
+                if entry.get("active"):
+                    return Path(entry["path"])
+        except Exception as e:
+            logger.warning(f"获取 active db 失败: {e}")
+        return None
 
 
     async def _handle_slash_command(self, conv_id: str, text: str):
@@ -314,20 +388,50 @@ class AetherAgent(Agent):
         return self._cmd_set_model(conv_id, model_str)
 
     async def _cmd_project(self, conv_id: str, arg: str) -> str:
-        # 从所有 SQLite db 读取项目列表（与侧边栏一致）
-        # session 仍通过 HTTP API 创建，始终出现在当前 Web UI
-        projects = _read_projects_from_db()
-        if not projects:
-            return '❌ 未找到任何项目。'
+        db_path = await self._get_active_db_path()
+        if db_path is None:
+            return '❌ 无法获取数据库路径，请检查 Aether 服务是否正常。'
 
+        all_projects = _read_projects_from_db(db_path)
+
+        # 自动取消隐藏：检查哪些隐藏项目在隐藏后有新 session 活动
+        if self._hidden_dirs:
+            hidden_list = list(self._hidden_dirs.keys())
+            times = _get_max_session_times(db_path, hidden_list)
+            changed = False
+            for worktree, hide_time in list(self._hidden_dirs.items()):
+                if times.get(worktree, 0) > hide_time:
+                    del self._hidden_dirs[worktree]
+                    changed = True
+                    logger.info(f'[/project] 自动恢复隐藏项目: {worktree}')
+            if changed:
+                self._save_hidden_dirs()
+
+        projects = [p for p in all_projects if p.get('worktree', '') not in self._hidden_dirs]
         current_dir = self._conv_dirs.get(conv_id) or self.directory
 
+        # /project hide n
+        if arg.startswith('hide '):
+            del_arg = arg[5:].strip()
+            if not del_arg.isdigit() or not projects:
+                return '❌ 用法：/project hide n'
+            idx = int(del_arg) - 1
+            if idx < 0 or idx >= len(projects):
+                return f'❌ 请输入 1~{len(projects)} 之间的数字。'
+            target = projects[idx]
+            worktree = target.get('worktree', '')
+            self._hidden_dirs[worktree] = int(datetime.now().timestamp() * 1000)
+            self._save_hidden_dirs()
+            name = target.get('name') or worktree.replace(chr(92), '/').rstrip('/').split('/')[-1]
+            return f'✅ 已隐藏：{name}\n（在桌面端或微信端重新使用后自动恢复）'
+
+        # /project n
         if arg:
             try:
                 idx = int(arg) - 1
             except ValueError:
                 return '❌ 请输入项目编号，例如：/project 2'
-            if idx < 0 or idx >= len(projects):
+            if not projects or idx < 0 or idx >= len(projects):
                 return f'❌ 请输入 1~{len(projects)} 之间的数字。'
             chosen = projects[idx]
             new_dir = chosen.get('worktree', '')
@@ -338,7 +442,12 @@ class AetherAgent(Agent):
             logger.info(f'[/project] {conv_id} -> {new_dir}')
             return f'✅ 已切换到：{name}\n   {new_dir}\n（已开启新会话）'
 
-        lines = ['📂 项目列表：', '']
+        # /project（列表）
+        if not projects:
+            hint = f'（有 {len(self._hidden_dirs)} 个项目已隐藏）' if self._hidden_dirs else ''
+            return f'❌ 未找到任何项目。{hint}'
+
+        lines = [f'📂 项目列表（db: {db_path.stem}）：', '']
         for i, p in enumerate(projects, 1):
             worktree = p.get('worktree', '')
             name = p.get('name') or worktree.replace(chr(92), '/').rstrip('/').split('/')[-1]
@@ -346,7 +455,9 @@ class AetherAgent(Agent):
             lines.append(f'{i}. {name}{tag}')
             lines.append(f'   {worktree}')
         lines.append('')
-        lines.append('💡 /project n 切换项目')
+        lines.append('💡 /project n 切换 | /project hide n 隐藏')
+        if self._hidden_dirs:
+            lines.append(f'ℹ️ 已隐藏 {len(self._hidden_dirs)} 个项目（重新使用后自动恢复）')
         return chr(10).join(lines)
 
     def _cmd_set_model(self, conv_id: str, model_str: str) -> str:
@@ -799,8 +910,9 @@ async def main():
     default_agent = os.getenv("AETHER_AGENT", "build")
 
     if not directory:
-        # 自动从数据库选择第一个项目作为默认目录
-        projects = _read_projects_from_db()
+        # 自动从数据库选择第一个项目作为默认目录（启动时 HTTP 尚未就绪，用文件系统 fallback）
+        _db = _find_fallback_db()
+        projects = _read_projects_from_db(_db) if _db else []
         if projects:
             directory = projects[0]["worktree"]
             name = projects[0].get("name") or directory.replace(chr(92), '/').rstrip('/').split('/')[-1]
