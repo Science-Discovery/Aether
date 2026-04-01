@@ -89,6 +89,8 @@ export interface SessionReviewProps {
   diffs: ReviewDiff[]
   onViewFile?: (file: string) => void
   readFile?: (path: string) => Promise<FileContent | undefined>
+  onDiscardFile?: (file: string) => void
+  discardLabel?: string
 }
 
 function ReviewCommentMenu(props: {
@@ -419,6 +421,26 @@ export const SessionReview = (props: SessionReviewProps) => {
                                         }}
                                       >
                                         <Icon name="open-file" size="small" />
+                                      </button>
+                                    </Tooltip>
+                                  </Show>
+                                  <Show when={props.onDiscardFile}>
+                                    <Tooltip
+                                      value={props.discardLabel ?? i18n.t("ui.sessionReview.discard")}
+                                      placement="top"
+                                      gutter={4}
+                                    >
+                                      <button
+                                        data-slot="session-review-discard-button"
+                                        type="button"
+                                        aria-label={props.discardLabel ?? i18n.t("ui.sessionReview.discard")}
+                                        class="text-text-weaker hover:text-icon-danger-base transition-colors"
+                                        onClick={(e) => {
+                                          e.stopPropagation()
+                                          props.onDiscardFile?.(file)
+                                        }}
+                                      >
+                                        <Icon name="reset" size="small" />
                                       </button>
                                     </Tooltip>
                                   </Show>

@@ -50,6 +50,7 @@ import {
 } from "@/pages/session/helpers"
 import { MessageTimeline } from "@/pages/session/message-timeline"
 import { type DiffStyle, SessionReviewTab, type SessionReviewTabProps } from "@/pages/session/review-tab"
+import { discardFileDiff } from "@/pages/session/review-discard"
 import { useSessionLayout } from "@/pages/session/session-layout"
 import { syncSessionModel } from "@/pages/session/session-model-helpers"
 import { SessionSidePanel } from "@/pages/session/session-side-panel"
@@ -1146,6 +1147,38 @@ export default function Page() {
     loadFile: file.load,
   })
 
+  const handleDiscardFile = async (filePath: string) => {
+    const id = params.id
+    if (!id) return
+
+    const currentDiffs = reviewDiffs()
+    const result = discardFileDiff(currentDiffs, filePath)
+
+    if (result.action === "none") return
+
+    try {
+      if (result.action === "delete") {
+        await sdk.client.file.delete({ path: filePath })
+      } else {
+        await sdk.client.file.write({ path: filePath, content: result.content ?? "" })
+      }
+
+      file.tree.refresh("")
+      sync.set("session_diff", (value) => {
+        const next = { ...value }
+        delete next[id]
+        return next
+      })
+      void sync.session.diff(id, { force: true })
+    } catch (err: any) {
+      showToast({
+        variant: "error",
+        title: language.t("common.requestFailed"),
+        description: formatServerError(err, language.t),
+      })
+    }
+  }
+
   const changesTitle = () => {
     if (!canReview()) {
       return null
@@ -1248,6 +1281,7 @@ export default function Page() {
         focusedComment={comments.focus()}
         onFocusedCommentChange={comments.setFocus}
         onViewFile={openReviewFile}
+        onDiscardFile={store.changes === "session" || store.changes === "turn" ? handleDiscardFile : undefined}
         classes={input.classes}
       />
     </Show>
