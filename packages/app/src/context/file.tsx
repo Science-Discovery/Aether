@@ -62,8 +62,19 @@ export const { use: useFile, provider: FileProvider } = createSimpleContext({
     const scope = createMemo(() => sdk.directory)
     const path = createPathHelpers(scope)
 
-    // 文件树中选中的文件/文件夹路径（共享状态，供聊天面板读取）
-    const [selectedPaths, setSelectedPaths] = createSignal<Set<string>>(new Set())
+    // 文件树中选中的文件/文件夹路径（按 session 隔离，避免多会话显示混合）
+    const sessionSelections = new Map<string, Set<string>>()
+    const selectedPaths = () => sessionSelections.get(params.id ?? "") ?? new Set<string>()
+    const setSelectedPaths = (valueOrFn: Set<string> | ((prev: Set<string>) => Set<string>)) => {
+      const id = params.id ?? ""
+      const prev = sessionSelections.get(id) ?? new Set<string>()
+      const next = typeof valueOrFn === "function" ? valueOrFn(prev) : valueOrFn
+      if (next.size === 0) {
+        sessionSelections.delete(id)
+      } else {
+        sessionSelections.set(id, next)
+      }
+    }
 
     // 编辑器中选中的文字（共享状态，供聊天面板读取）
     // 当用户点击聊天框或文件树时保留高亮，点击文件阅读区域时正常清除
