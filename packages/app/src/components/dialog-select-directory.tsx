@@ -471,7 +471,11 @@ export function DialogSelectDirectory(props: DialogSelectDirectoryProps) {
           return language.t("command.project.open")
         }}
         ref={(r) => (list = r)}
-        onFilter={(value) => setFilter(cleanInput(value))}
+        onFilter={(value) => {
+          const normalized = value.replaceAll("\\", "/")
+          setFilter(cleanInput(normalized))
+          if (normalized !== value) list?.setFilter(normalized)
+        }}
         onKeyEvent={(e, item) => {
           if (e.key !== "Tab") return
           if (e.shiftKey) return
