@@ -23,6 +23,7 @@ import {
 import { createFileViewCache } from "./file/view-cache"
 import { createFileTreeStore } from "./file/tree-store"
 import { invalidateFromWatcher } from "./file/watcher"
+import { createSessionSelectionMap } from "./file/session-selection"
 import {
   selectionFromLines,
   type FileState,
@@ -62,8 +63,15 @@ export const { use: useFile, provider: FileProvider } = createSimpleContext({
     const scope = createMemo(() => sdk.directory)
     const path = createPathHelpers(scope)
 
-    // 文件树中选中的文件/文件夹路径（共享状态，供聊天面板读取）
-    const [selectedPaths, setSelectedPaths] = createSignal<Set<string>>(new Set())
+    // 文件树中选中的文件/文件夹路径（按会话隔离，防止同项目多会话状态混合）
+    const sessionSelections = createSessionSelectionMap()
+    const selectedPaths = () => sessionSelections.get(params.id ?? "")
+    const setSelectedPaths = (valueOrFn: Set<string> | ((prev: Set<string>) => Set<string>)) => {
+      const id = params.id ?? ""
+      const prev = sessionSelections.get(id)
+      const next = typeof valueOrFn === "function" ? valueOrFn(prev) : valueOrFn
+      sessionSelections.set(id, next)
+    }
 
     // 编辑器中选中的文字（共享状态，供聊天面板读取）
     // 当用户点击聊天框或文件树时保留高亮，点击文件阅读区域时正常清除
