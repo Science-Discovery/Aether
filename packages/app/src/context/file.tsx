@@ -11,6 +11,7 @@ import { useLayout } from "@/context/layout"
 import { createPathHelpers } from "./file/path"
 import {
   approxBytes,
+  buildEvictionKeepSet,
   evictContentLru,
   getFileContentBytesTotal,
   getFileContentEntryCount,
@@ -34,6 +35,7 @@ import {
 export type { FileSelection, SelectedLineRange, FileViewState, FileState }
 export { selectionFromLines }
 export {
+  buildEvictionKeepSet,
   evictContentLru,
   getFileContentBytesTotal,
   getFileContentEntryCount,
@@ -283,7 +285,8 @@ export const { use: useFile, provider: FileProvider } = createSimpleContext({
 
           if (!content) return
           touchFileContent(file, approxBytes(content))
-          evictContent(new Set([file]))
+          const openTabs = tabs.all().map((tab) => ({ tab, path: path.pathFromTab(tab) }))
+          evictContent(buildEvictionKeepSet(file, openTabs))
         })
         .catch((e) => {
           if (scope() !== directory) return

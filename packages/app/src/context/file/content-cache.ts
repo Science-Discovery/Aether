@@ -86,3 +86,12 @@ export function getFileContentEntryCount() {
 export function hasFileContent(path: string) {
   return lru.has(path)
 }
+
+export function buildEvictionKeepSet(loaded: string, openTabs: Array<{ tab: string; path: string | undefined }>) {
+  const keep = new Set<string>()
+  keep.add(loaded)
+  for (const entry of openTabs) {
+    if (entry.path) keep.add(entry.path)
+  }
+  return keep
+}
