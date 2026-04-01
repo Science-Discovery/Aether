@@ -10,7 +10,12 @@ import {
 import { ConstrainDragXAxis } from "@/utils/solid-dnd"
 import { IconButton } from "@opencode-ai/ui/icon-button"
 import { Tooltip, TooltipKeybind } from "@opencode-ai/ui/tooltip"
+import { DropdownMenu } from "@opencode-ai/ui/dropdown-menu"
 import { type LocalProject } from "@/context/layout"
+import { useAuth } from "@/context/auth"
+import { useDialog } from "@opencode-ai/ui/context/dialog"
+import { useLanguage } from "@/context/language"
+import { showToast } from "@opencode-ai/ui/toast"
 
 export const SidebarContent = (props: {
   mobile?: boolean
@@ -21,6 +26,7 @@ export const SidebarContent = (props: {
   handleDragStart: (event: unknown) => void
   handleDragEnd: () => void
   handleDragOver: (event: DragEvent) => void
+  showNewProject?: boolean
   newProjectLabel: JSX.Element
   onNewProject: () => void
   openProjectLabel: JSX.Element
@@ -36,7 +42,36 @@ export const SidebarContent = (props: {
 }): JSX.Element => {
   const expanded = createMemo(() => !!props.mobile || props.opened())
   const placement = () => (props.mobile ? "bottom" : "right")
+  const auth = useAuth()
+  const dialog = useDialog()
+  const language = useLanguage()
   let panel: HTMLDivElement | undefined
+  let authDialogRun = 0
+
+  function openRegister() {
+    const run = ++authDialogRun
+    void import("@/components/dialog-register").then((x) => {
+      if (authDialogRun !== run) return
+      dialog.show(() => <x.DialogRegister />)
+    })
+  }
+
+  function openLogin() {
+    const run = ++authDialogRun
+    void import("@/components/dialog-login").then((x) => {
+      if (authDialogRun !== run) return
+      dialog.show(() => <x.DialogLogin />)
+    })
+  }
+
+  async function handleLogout() {
+    await auth.logout()
+    showToast({
+      variant: "success",
+      icon: "circle-check",
+      title: language.t("auth.logout.success.title"),
+    })
+  }
 
   createEffect(() => {
     const el = panel
@@ -68,15 +103,17 @@ export const SidebarContent = (props: {
               <SortableProvider ids={props.projects().map((p) => p.worktree)}>
                 <For each={props.projects()}>{(project) => props.renderProject(project)}</For>
               </SortableProvider>
-              <Tooltip placement={placement()} value={props.newProjectLabel}>
-                <IconButton
-                  icon="new-session"
-                  variant="ghost"
-                  size="large"
-                  onClick={props.onNewProject}
-                  aria-label={typeof props.newProjectLabel === "string" ? props.newProjectLabel : undefined}
-                />
-              </Tooltip>
+              <Show when={props.showNewProject !== false}>
+                <Tooltip placement={placement()} value={props.newProjectLabel}>
+                  <IconButton
+                    icon="new-session"
+                    variant="ghost"
+                    size="large"
+                    onClick={props.onNewProject}
+                    aria-label={typeof props.newProjectLabel === "string" ? props.newProjectLabel : undefined}
+                  />
+                </Tooltip>
+              </Show>
               <Tooltip
                 placement={placement()}
                 value={
@@ -101,6 +138,57 @@ export const SidebarContent = (props: {
           </DragDropProvider>
         </div>
         <div class="shrink-0 w-full pt-3 pb-6 flex flex-col items-center gap-2">
+          <Show
+            when={auth.isAuthenticated && auth.account}
+            fallback={
+              <DropdownMenu>
+                <Tooltip placement={placement()} value={language.t("auth.account.loginOrRegister")}>
+                  <DropdownMenu.Trigger
+                    as={IconButton}
+                    icon="user"
+                    variant="ghost"
+                    size="large"
+                    aria-label={language.t("auth.account.loginOrRegister")}
+                  />
+                </Tooltip>
+                <DropdownMenu.Portal>
+                  <DropdownMenu.Content class="mt-1">
+                    <DropdownMenu.Item onSelect={openLogin}>
+                      <DropdownMenu.ItemLabel>{language.t("auth.login.submit")}</DropdownMenu.ItemLabel>
+                    </DropdownMenu.Item>
+                    <DropdownMenu.Item onSelect={openRegister}>
+                      <DropdownMenu.ItemLabel>{language.t("auth.register.submit")}</DropdownMenu.ItemLabel>
+                    </DropdownMenu.Item>
+                  </DropdownMenu.Content>
+                </DropdownMenu.Portal>
+              </DropdownMenu>
+            }
+          >
+            {(account) => (
+              <DropdownMenu>
+                <Tooltip placement={placement()} value={account().name || account().email}>
+                  <DropdownMenu.Trigger
+                    as={IconButton}
+                    icon="user"
+                    variant="ghost"
+                    size="large"
+                    aria-label={account().name || account().email}
+                  />
+                </Tooltip>
+                <DropdownMenu.Portal>
+                  <DropdownMenu.Content class="mt-1">
+                    <DropdownMenu.Item disabled>
+                      <DropdownMenu.ItemLabel class="text-text-weak">{account().email}</DropdownMenu.ItemLabel>
+                    </DropdownMenu.Item>
+                    <DropdownMenu.Separator />
+                    <DropdownMenu.Item onSelect={handleLogout}>
+                      <DropdownMenu.ItemLabel>{language.t("auth.logout.submit")}</DropdownMenu.ItemLabel>
+                    </DropdownMenu.Item>
+                  </DropdownMenu.Content>
+                </DropdownMenu.Portal>
+              </DropdownMenu>
+            )}
+          </Show>
           <TooltipKeybind placement={placement()} title={props.settingsLabel()} keybind={props.settingsKeybind() ?? ""}>
             <IconButton
               icon="settings-gear"

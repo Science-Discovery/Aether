@@ -142,6 +142,7 @@ import type {
   PermissionRespondResponses,
   PermissionRuleset,
   ProjectCurrentResponses,
+  ProjectDirectoriesResponses,
   ProjectInitGitResponses,
   ProjectListResponses,
   ProjectUpdateErrors,
@@ -606,6 +607,18 @@ export class Project extends HeyApiClient {
       url: "/project",
       ...options,
       ...params,
+    })
+  }
+
+  /**
+   * List all known directories
+   *
+   * Returns all project worktrees plus unique session directories.
+   */
+  public directories<ThrowOnError extends boolean = false>(options?: Options<never, ThrowOnError>) {
+    return (options?.client ?? this.client).get<ProjectDirectoriesResponses, unknown, ThrowOnError>({
+      url: "/project/directories",
+      ...options,
     })
   }
 

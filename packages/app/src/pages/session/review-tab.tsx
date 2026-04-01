@@ -52,9 +52,13 @@ export function SessionReviewTab(props: SessionReviewTabProps) {
   const settings = useSettings()
   const batch = createMemo(() => Math.max(1, settings.general.reviewBatch()))
   const [count, setCount] = createSignal(batch())
-  const key = createMemo(() => props.diffs().map((diff) => diff.file).join("\n"))
-  const diffs = createMemo(() => props.diffs().slice(0, count()))
-  const more = createMemo(() => props.diffs().length > count())
+  const safeDiffs = () => {
+    const d = props.diffs()
+    return Array.isArray(d) ? d : []
+  }
+  const key = createMemo(() => safeDiffs().map((diff) => diff.file).join("\n"))
+  const diffs = createMemo(() => safeDiffs().slice(0, count()))
+  const more = createMemo(() => safeDiffs().length > count())
 
   createEffect(
     on(key, () => {
@@ -133,7 +137,7 @@ export function SessionReviewTab(props: SessionReviewTabProps) {
   }
 
   createEffect(() => {
-    props.diffs().length
+    safeDiffs().length
     props.diffStyle
     if (!layout.ready()) return
     queueRestore()

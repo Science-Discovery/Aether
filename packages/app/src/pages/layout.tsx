@@ -2435,6 +2435,7 @@ export default function Layout(props: ParentProps) {
       handleDragEnd={handleDragEnd}
       handleDragOver={handleDragOver}
       newProjectLabel={language.t("command.project.new")}
+      showNewProject={platform.platform === "desktop"}
       onNewProject={newProject}
       openProjectLabel={language.t("command.project.open")}
       openProjectKeybind={() => command.keybind("project.open")}

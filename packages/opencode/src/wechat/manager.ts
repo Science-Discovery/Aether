@@ -266,30 +266,26 @@ class WeChatManagerImpl {
   }
 
   async stop(): Promise<void> {
-    if (!this.process) {
-      // 即使没有进程，也要清除会话状态
-      this._session = null
-      this._qrcode = null
-      this.status = "idle"
-      await this.clearSession()
-      return
+    if (this.process) {
+      if (process.platform === "win32") {
+        this.process.kill()
+      } else {
+        this.process.kill("SIGTERM")
+      }
+      this.process = null
+      try {
+        await rm(PID_FILE, { force: true })
+      } catch {}
     }
 
-    if (process.platform === "win32") {
-      this.process.kill()
-    } else {
-      this.process.kill("SIGTERM")
-    }
-    this.process = null
     this._session = null
     this._qrcode = null
     this.status = "idle"
 
+    // 只删 session.json，保留 accounts.json（SDK token），下次连接无需重新扫码
     try {
-      await rm(PID_FILE, { force: true })
+      await rm(SESSION_FILE, { force: true })
     } catch {}
-
-    await this.clearSession()
   }
 
   private async runCmd(cmd: string[], timeout: number): Promise<{ ok: boolean; detail: string }> {

@@ -2400,6 +2400,22 @@ export type ProjectListResponses = {
 
 export type ProjectListResponse = ProjectListResponses[keyof ProjectListResponses]
 
+export type ProjectDirectoriesData = {
+  body?: never
+  path?: never
+  query?: never
+  url: "/project/directories"
+}
+
+export type ProjectDirectoriesResponses = {
+  /**
+   * List of directory paths
+   */
+  200: Array<string>
+}
+
+export type ProjectDirectoriesResponse = ProjectDirectoriesResponses[keyof ProjectDirectoriesResponses]
+
 export type ProjectCurrentData = {
   body?: never
   path?: never

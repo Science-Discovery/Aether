@@ -486,6 +486,22 @@ export namespace Project {
     )
   }
 
+  export function directories(): string[] {
+    return Database.use((db) => {
+      const projects = db.select().from(ProjectTable).all()
+      const worktrees = new Set(projects.map((p) => p.worktree))
+
+      const sessionDirs = db
+        .selectDistinct({ directory: SessionTable.directory })
+        .from(SessionTable)
+        .all()
+        .map((r) => r.directory)
+        .filter((d): d is string => !!d && d !== "/" && !worktrees.has(d))
+
+      return [...worktrees, ...sessionDirs]
+    })
+  }
+
   export function get(id: ProjectID): Info | undefined {
     const row = Database.use((db) => db.select().from(ProjectTable).where(eq(ProjectTable.id, id)).get())
     if (!row) return undefined
