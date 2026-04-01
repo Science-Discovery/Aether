@@ -43,9 +43,16 @@ const customHighlightStyle = HighlightStyle.define([
   { tag: t.escape, color: "var(--syntax-constant)" },
   { tag: t.link, color: "var(--text-interactive-base)", textDecoration: "underline" },
   { tag: t.strikethrough, textDecoration: "line-through" },
+  // Markdown-specific highlighting
+  { tag: t.heading, color: "var(--text-strong)", fontWeight: "bold" },
+  { tag: t.emphasis, fontStyle: "italic" },
+  { tag: t.strong, fontWeight: "bold", color: "var(--text-strong)" },
+  { tag: t.monospace, color: "var(--syntax-string)", fontFamily: "var(--font-family-mono)" },
+  { tag: t.url, color: "var(--text-interactive-base)", textDecoration: "underline" },
+  { tag: t.special(t.string), color: "var(--syntax-string)" },
 ])
 
-function getLanguageExtension(filename: string) {
+export function getLanguageExtension(filename: string) {
   const ext = filename.split(".").pop()?.toLowerCase() ?? ""
   switch (ext) {
     case "py":

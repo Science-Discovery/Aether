@@ -233,21 +233,78 @@
     font-size: var(--font-size-base);
     display: block;
     overflow-x: auto;
+    scrollbar-width: thin;
   }
 
   th,
   td {
-    /* Minimal borders for structure, matching TUI "lines" roughly but keeping it web-clean */
     border-bottom: 1px solid var(--border-weaker-base);
-    padding: 0.75rem 0.5rem;
+    padding: 0.5rem 0.75rem;
     text-align: left;
     vertical-align: top;
+    min-width: 3rem;
   }
 
   th {
     color: var(--text-strong);
     font-weight: var(--font-weight-medium);
-    border-bottom: 1px solid var(--border-weak-base);
+    border-bottom: 2px solid var(--border-weak-base);
+    background: var(--surface-base);
+  }
+
+  tr:hover td {
+    background: var(--surface-base-hover);
+  }
+
+  /* Task list checkboxes */
+  input[type="checkbox"] {
+    appearance: none;
+    -webkit-appearance: none;
+    width: 1rem;
+    height: 1rem;
+    border: 1px solid var(--border-base);
+    border-radius: 3px;
+    vertical-align: middle;
+    margin-right: 0.375rem;
+    position: relative;
+    cursor: default;
+  }
+
+  input[type="checkbox"]:checked {
+    background: var(--text-interactive-base);
+    border-color: var(--text-interactive-base);
+  }
+
+  input[type="checkbox"]:checked::after {
+    content: "";
+    position: absolute;
+    left: 3px;
+    top: 0.5px;
+    width: 4px;
+    height: 8px;
+    border: solid var(--background-stronger);
+    border-width: 0 2px 2px 0;
+    transform: rotate(45deg);
+  }
+
+  /* Task list items */
+  li:has(> input[type="checkbox"]) {
+    list-style-type: none;
+    margin-left: -1.25rem;
+  }
+
+  /* Code block language badge */
+  [data-component="markdown-code"] > [data-component="icon"]:first-child {
+    position: absolute;
+    top: 4px;
+    left: 8px;
+    opacity: 0;
+    transition: opacity 0.15s ease;
+    pointer-events: none;
+  }
+
+  [data-component="markdown-code"]:hover > [data-component="icon"]:first-child {
+    opacity: 1;
   }
 
   /* Images */
