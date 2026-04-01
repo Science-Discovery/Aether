@@ -23,6 +23,7 @@ import {
 import { createFileViewCache } from "./file/view-cache"
 import { createFileTreeStore } from "./file/tree-store"
 import { invalidateFromWatcher } from "./file/watcher"
+import { createAutoRefresh } from "./file/auto-refresh"
 import {
   selectionFromLines,
   type FileState,
@@ -186,6 +187,15 @@ export const { use: useFile, provider: FileProvider } = createSimpleContext({
       },
     })
 
+    // Auto-refresh keeps the tree in sync during long-running sessions where
+    // WebSocket events may be dropped or the connection can silently break.
+    const AUTO_REFRESH_INTERVAL_MS = 30_000
+    const autoRefresh = createAutoRefresh({
+      intervalMs: AUTO_REFRESH_INTERVAL_MS,
+      refreshDir: () => void tree.refreshDir(""),
+    })
+    autoRefresh.start()
+
     const evictContent = (keep?: Set<string>) => {
       evictContentLru(keep, (target) => {
         if (!store.file[target]) return
@@ -348,6 +358,7 @@ export const { use: useFile, provider: FileProvider } = createSimpleContext({
       withPath(input, (file) => view().setSelectedLines(file, range))
 
     onCleanup(() => {
+      autoRefresh.stop()
       stop()
       viewCache.clear()
     })
