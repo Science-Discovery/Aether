@@ -25,6 +25,84 @@ const file = (path: string): Node => ({
   ignored: false,
 })
 
+describe("file tree store force refresh", () => {
+  test("force refresh starts a new request when an in-flight request exists", async () => {
+    let callCount = 0
+    const resolvers: Array<() => void> = []
+
+    const data = new Map<string, Node[]>([
+      ["", [file("a.txt")]],
+    ])
+
+    const tree = createFileTreeStore({
+      scope: () => "/repo",
+      normalizeDir: (input) => input.replace(/\/+$/, ""),
+      list: async (input) => {
+        callCount++
+        await new Promise<void>((resolve) => {
+          resolvers.push(resolve)
+        })
+        return data.get(input) ?? []
+      },
+      onError: () => {},
+    })
+
+    // Start an initial load (it will hang until we resolve it)
+    const firstLoad = tree.listDir("")
+
+    // Update data BEFORE the first request resolves
+    data.set("", [file("a.txt"), file("b.txt")])
+
+    // Start a force refresh while the first request is still in-flight
+    const refreshPromise = tree.refreshDir("")
+
+    // Force refresh should have started a NEW request (callCount should be 2),
+    // not reused the in-flight one
+    expect(callCount).toBe(2)
+
+    // Resolve the first (stale) request
+    resolvers[0]()
+
+    // Resolve the second (fresh) request
+    resolvers[1]()
+
+    await Promise.all([firstLoad, refreshPromise])
+
+    // Tree should reflect the latest data
+    expect(tree.children("").map((item) => item.path)).toEqual(["a.txt", "b.txt"])
+  })
+
+  test("force refresh fetches fresh data after previous load completed", async () => {
+    let callCount = 0
+    const data = new Map<string, Node[]>([
+      ["", [file("a.txt")]],
+    ])
+
+    const tree = createFileTreeStore({
+      scope: () => "/repo",
+      normalizeDir: (input) => input.replace(/\/+$/, ""),
+      list: async (input) => {
+        callCount++
+        return data.get(input) ?? []
+      },
+      onError: () => {},
+    })
+
+    // Initial load completes
+    await tree.listDir("")
+    expect(tree.children("").map((i) => i.path)).toEqual(["a.txt"])
+
+    // Data changes
+    data.set("", [file("a.txt"), file("b.txt")])
+
+    // Force refresh picks up new data
+    await tree.refreshDir("")
+
+    expect(callCount).toBe(2)
+    expect(tree.children("").map((i) => i.path)).toEqual(["a.txt", "b.txt"])
+  })
+})
+
 describe("file tree store refresh", () => {
   test("refreshes loaded descendants when refreshing root", async () => {
     const data = new Map<string, Node[]>([
