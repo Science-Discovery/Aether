@@ -5,12 +5,21 @@ import { FileIcon } from "@opencode-ai/ui/file-icon"
 import { IconButton } from "@opencode-ai/ui/icon-button"
 import { TooltipKeybind } from "@opencode-ai/ui/tooltip"
 import { Tabs } from "@opencode-ai/ui/tabs"
-import { getFilename } from "@opencode-ai/util/path"
 import { useFile } from "@/context/file"
 import { useLanguage } from "@/context/language"
 import { useCommand } from "@/context/command"
+import { computeTabLabel } from "@/utils/tab-name"
 
-export function FileVisual(props: { path: string; active?: boolean }): JSX.Element {
+export function FileVisual(props: { path: string; active?: boolean; otherPaths?: string[] }): JSX.Element {
+  const label = createMemo(() => {
+    if (props.otherPaths && props.otherPaths.length > 0) {
+      return computeTabLabel(props.path, props.otherPaths)
+    }
+    // Fallback: just use the filename
+    const parts = props.path.replace(/[\/\\]+$/, "").split(/[\/\\]/)
+    return parts[parts.length - 1] ?? ""
+  })
+
   return (
     <div class="flex items-center gap-x-1.5 min-w-0">
       <Show
@@ -22,21 +31,29 @@ export function FileVisual(props: { path: string; active?: boolean }): JSX.Eleme
           <FileIcon node={{ path: props.path, type: "file" }} mono class="absolute inset-0 size-4 tab-fileicon-mono" />
         </span>
       </Show>
-      <span class="text-14-medium truncate">{getFilename(props.path)}</span>
+      <span class="text-14-medium truncate">{label()}</span>
     </div>
   )
 }
 
-export function SortableTab(props: { tab: string; onTabClose: (tab: string) => void }): JSX.Element {
+export function SortableTab(props: { tab: string; onTabClose: (tab: string) => void; allTabs?: string[] }): JSX.Element {
   const file = useFile()
   const language = useLanguage()
   const command = useCommand()
   const sortable = createSortable(props.tab)
   const path = createMemo(() => file.pathFromTab(props.tab))
+  const otherPaths = createMemo(() => {
+    const myPath = path()
+    if (!myPath || !props.allTabs) return []
+    return props.allTabs
+      .filter((t) => t !== props.tab)
+      .map((t) => file.pathFromTab(t))
+      .filter((p): p is string => !!p && p !== myPath)
+  })
   const content = createMemo(() => {
     const value = path()
     if (!value) return
-    return <FileVisual path={value} />
+    return <FileVisual path={value} otherPaths={otherPaths()} />
   })
 
   let wrapperRef: HTMLDivElement | undefined

@@ -870,7 +870,7 @@ export function SessionSidePanel(props: {
                         </Tabs.Trigger>
                       </Show>
                       <SortableProvider ids={openedTabs()}>
-                        <For each={openedTabs()}>{(tab) => <SortableTab tab={tab} onTabClose={tabs().close} />}</For>
+                        <For each={openedTabs()}>{(tab) => <SortableTab tab={tab} onTabClose={tabs().close} allTabs={openedTabs()} />}</For>
                       </SortableProvider>
                       <div class="bg-background-stronger h-full shrink-0 sticky right-0 z-10 flex items-center justify-center pr-3">
                         <TooltipKeybind
