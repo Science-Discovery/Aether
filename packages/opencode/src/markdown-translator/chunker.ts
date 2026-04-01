@@ -49,8 +49,8 @@ export function chunkByContent(content: string): string[] {
     // 按 ## 标题分块
     rawChunks = splitByHeading(content)
   } else {
-    // 按连续空行分块
-    rawChunks = content.split(/\n{3,}/).filter((c) => c.trim().length > 0)
+    // 按连续空行分块（保护代码块、公式、表格）
+    rawChunks = splitSafeParagraphs(content)
   }
 
   // 如果只有一个块且内容为空，返回空
@@ -69,14 +69,45 @@ export function chunkByContent(content: string): string[] {
   return result
 }
 
-/** 按 ## 标题分块 */
+/** Track whether a line is inside a fenced code block */
+function isInCodeBlock(lines: string[]): boolean[] {
+  const flags: boolean[] = new Array(lines.length).fill(false)
+  let inside = false
+  let fenceLen = 0
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]!
+    if (!inside) {
+      const m = line.match(/^(>{0,3})\s*(`{3,}|~{3,})/)
+      if (m) {
+        inside = true
+        fenceLen = m[2]!.length
+        flags[i] = false // opening fence itself is not "inside"
+        continue
+      }
+    } else {
+      const m = line.match(/^\s*(`{3,}|~{3,})\s*$/)
+      if (m && m[1]!.length >= fenceLen) {
+        inside = false
+        flags[i] = false
+        continue
+      }
+    }
+    flags[i] = inside
+  }
+  return flags
+}
+
+/** 按 ## 标题分块（不拆分代码块内部） */
 function splitByHeading(content: string): string[] {
   const lines = content.split("\n")
+  const codeFlags = isInCodeBlock(lines)
   const chunks: string[] = []
   let current: string[] = []
 
-  for (const line of lines) {
-    if (/^## /.test(line) && current.length > 0) {
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]!
+    // Only split on ## headings that are NOT inside a fenced code block
+    if (/^## /.test(line) && current.length > 0 && !codeFlags[i]) {
       const text = current.join("\n").trim()
       if (text) chunks.push(text)
       current = []
@@ -92,9 +123,76 @@ function splitByHeading(content: string): string[] {
   return chunks
 }
 
-/** 在段落边界处拆分超大块 */
+/**
+ * Split a string by triple-or-more newlines while keeping $$ math blocks,
+ * fenced code blocks, and tables intact as single units.
+ */
+function splitSafeParagraphs(chunk: string): string[] {
+  // Collect ranges that must not be split across
+  const protectedRanges: [number, number][] = []
+
+  // Protect fenced code blocks
+  for (const m of chunk.matchAll(/```[\s\S]*?```/g)) {
+    if (m.index !== undefined) protectedRanges.push([m.index, m.index + m[0].length])
+  }
+
+  // Protect $$ ... $$ (non-greedy, including newlines)
+  for (const m of chunk.matchAll(/\$\$[\s\S]*?\$\$/g)) {
+    if (m.index !== undefined) protectedRanges.push([m.index, m.index + m[0].length])
+  }
+
+  // Protect single-dollar block math ($ on its own line)
+  for (const m of chunk.matchAll(/^\$\s*\n[\s\S]*?\n\$\s*$/gm)) {
+    if (m.index !== undefined) protectedRanges.push([m.index, m.index + m[0].length])
+  }
+
+  // Protect tables: lines starting with | (header + separator + data rows)
+  // Find contiguous groups of | lines
+  const lines = chunk.split("\n")
+  let tableStart = -1
+  for (let i = 0; i < lines.length; i++) {
+    if (/^\s*\|/.test(lines[i]!)) {
+      if (tableStart === -1) tableStart = i
+    } else {
+      if (tableStart !== -1) {
+        const startIdx = chunk.indexOf(lines[tableStart]!)
+        const endLine = lines[i - 1]!
+        const endIdx = chunk.indexOf(endLine, startIdx) + endLine.length
+        protectedRanges.push([startIdx, endIdx])
+        tableStart = -1
+      }
+    }
+  }
+  if (tableStart !== -1) {
+    const startIdx = chunk.indexOf(lines[tableStart]!)
+    const endLine = lines[lines.length - 1]!
+    const endIdx = chunk.indexOf(endLine, startIdx) + endLine.length
+    protectedRanges.push([startIdx, endIdx])
+  }
+
+  // Split by 3+ newlines (two or more blank lines)
+  const result: string[] = []
+  let lastEnd = 0
+  for (const m of chunk.matchAll(/\n{3,}/g)) {
+    const splitAt = m.index!
+    // Check if this split point is inside a protected range
+    const inProtected = protectedRanges.some(
+      ([start, end]) => splitAt >= start && splitAt < end,
+    )
+    if (!inProtected) {
+      const segment = chunk.slice(lastEnd, splitAt)
+      if (segment.trim()) result.push(segment)
+      lastEnd = splitAt + m[0].length
+    }
+  }
+  const tail = chunk.slice(lastEnd)
+  if (tail.trim()) result.push(tail)
+  return result
+}
+
+/** 在安全段落边界处拆分超大块（保护代码、公式、表格） */
 function splitLargeChunk(chunk: string): string[] {
-  const paragraphs = chunk.split(/\n\n+/)
+  const paragraphs = splitSafeParagraphs(chunk)
   const result: string[] = []
   let current: string[] = []
   let currentSize = 0

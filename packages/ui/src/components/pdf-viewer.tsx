@@ -223,7 +223,7 @@ export const PdfViewer: Component<PdfViewerProps> = (props) => {
           </div>
         }
       >
-        <div ref={containerRef} class="flex-1 overflow-auto bg-background-stronger flex justify-center py-4">
+        <div ref={containerRef} class="flex-1 overflow-auto bg-background-stronger flex justify-center py-4" tabIndex={-1}>
           <div class="relative inline-block">
             <canvas ref={canvasRef} />
             <div

@@ -1,5 +1,5 @@
 import type { FileContent } from "@opencode-ai/sdk/v2"
-import { createEffect, createMemo, createResource, Match, on, Show, Switch, type JSX } from "solid-js"
+import { createEffect, createMemo, createResource, Match, on, onCleanup, Show, Switch, type JSX } from "solid-js"
 import { useI18n } from "../context/i18n"
 import {
   dataUrlFromMediaValue,
@@ -174,6 +174,42 @@ export function FileMedia(props: { media?: FileMediaOptions; fallback: () => JSX
   const kindLabel = (value: "image" | "audio") =>
     i18n.t(value === "image" ? "ui.fileMedia.kind.image" : "ui.fileMedia.kind.audio")
 
+  const handlePdfFocus = (e: FocusEvent) => {
+    // Prevent the PDF embed/iframe from stealing keyboard focus from the editor.
+    // When the browser's PDF plugin loads, it auto-focuses the embed element,
+    // which steals shortcuts like Cmd+S, Cmd+P, etc.
+    const target = e.target as HTMLElement
+    if (target.tagName === "EMBED" || target.tagName === "IFRAME") {
+      e.preventDefault()
+      target.blur()
+    }
+  }
+
+  const handlePdfKeydown = (e: KeyboardEvent) => {
+    // Block keyboard shortcuts from propagating out of the PDF viewer area.
+    // The browser PDF plugin captures Cmd+S, Cmd+P, etc. when focused.
+    if (e.metaKey || e.ctrlKey) {
+      e.stopPropagation()
+    }
+  }
+
+  let pdfContainerRef: HTMLDivElement | undefined
+
+  const setupPdfFocusGuard = () => {
+    // Use capture phase to intercept focus before the embed gets it
+    pdfContainerRef?.addEventListener("focusin", handlePdfFocus, true)
+    pdfContainerRef?.addEventListener("keydown", handlePdfKeydown, true)
+  }
+
+  const teardownPdfFocusGuard = () => {
+    pdfContainerRef?.removeEventListener("focusin", handlePdfFocus, true)
+    pdfContainerRef?.removeEventListener("keydown", handlePdfKeydown, true)
+  }
+
+  createEffect(() => {
+    return () => teardownPdfFocusGuard()
+  })
+
   return (
     <Switch>
       <Match when={kind() === "image" || kind() === "audio"}>
@@ -295,11 +331,12 @@ export function FileMedia(props: { media?: FileMediaOptions; fallback: () => JSX
                     </button>
                   </div>
                 </div>
-                <div class="flex flex-1 justify-center bg-background-stronger">
+                <div ref={(el) => { pdfContainerRef = el; setupPdfFocusGuard() }} class="flex flex-1 justify-center bg-background-stronger">
                   <embed
                     src={pdfObjectUrl || ""}
                     title={filename}
                     class="w-full max-w-full border border-border-weak-base rounded h-[80vh]"
+                    tabIndex={-1}
                     onLoad={onLoad}
                   />
                 </div>
