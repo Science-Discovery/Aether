@@ -1,10 +1,10 @@
-import { type Component, createEffect, createMemo } from "solid-js"
+import { type Component, createEffect, createMemo, Show } from "solid-js"
 import { ResizeHandle } from "@opencode-ai/ui/resize-handle"
 import { OfficialReadingPdfViewer } from "./reading-pdf-viewer-official"
 import { useReadingMode } from "@/context/reading-mode"
 import { useSDK } from "@/context/sdk"
 import { useSync } from "@/context/sync"
-import { createSizing } from "@/pages/session/helpers"
+import { createSizing, type Sizing } from "@/pages/session/helpers"
 
 export const ReadingModePanel: Component<{
   sessionID: string
@@ -14,11 +14,13 @@ export const ReadingModePanel: Component<{
   layoutSwapped: boolean
   onSwapLayout?: () => void
   onResizeWidth: (width: number) => void
+  resizeHandleEnabled?: boolean
+  sizing?: Sizing
 }> = (props) => {
   const rm = useReadingMode()
   const sdk = useSDK()
   const sync = useSync()
-  const size = createSizing()
+  const size = props.sizing ?? createSizing()
 
   const pdfUrl = createMemo(() => `${sdk.url}/reading-mode/pdf?sessionID=${encodeURIComponent(props.sessionID)}`)
   let restoredInitialPage = false
@@ -48,34 +50,36 @@ export const ReadingModePanel: Component<{
         </div>
       </div>
 
-      <div
-        class="absolute inset-y-0 z-10 w-0 overflow-visible"
-        classList={{
-          "left-0": props.layoutSwapped,
-          "right-0": !props.layoutSwapped,
-        }}
-        onPointerDown={() => size.start()}
-      >
+      <Show when={props.resizeHandleEnabled !== false}>
         <div
-          class="pointer-events-none absolute inset-y-0 w-px bg-border-base/80"
+          class="absolute inset-y-0 z-10 w-0 overflow-visible"
           classList={{
-            "left-0 -translate-x-1/2": !props.layoutSwapped,
-            "right-0 translate-x-1/2": props.layoutSwapped,
+            "left-0": props.layoutSwapped,
+            "right-0": !props.layoutSwapped,
           }}
-        />
-        <ResizeHandle
-          direction="horizontal"
-          edge={props.layoutSwapped ? "start" : "end"}
-          class="after:bg-border-base/90"
-          size={props.width}
-          min={props.minWidth}
-          max={props.maxWidth}
-          onResize={(width) => {
-            size.touch()
-            props.onResizeWidth(width)
-          }}
-        />
-      </div>
+          onPointerDown={() => size.start()}
+        >
+          <div
+            class="pointer-events-none absolute inset-y-0 w-px bg-border-base/80"
+            classList={{
+              "left-0 -translate-x-1/2": !props.layoutSwapped,
+              "right-0 translate-x-1/2": props.layoutSwapped,
+            }}
+          />
+          <ResizeHandle
+            direction="horizontal"
+            edge={props.layoutSwapped ? "start" : "end"}
+            class="after:bg-border-base/90"
+            size={props.width}
+            min={props.minWidth}
+            max={props.maxWidth}
+            onResize={(width) => {
+              size.touch()
+              props.onResizeWidth(width)
+            }}
+          />
+        </div>
+      </Show>
     </div>
   )
 }

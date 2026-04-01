@@ -55,6 +55,7 @@
         input?.scrollMode === "horizontal" || input?.scrollMode === "wrapped" ? input.scrollMode : "vertical",
       features: {
         pdf2md: !!input?.features?.pdf2md,
+        readingMode: !!input?.features?.readingMode,
       },
     };
   }
@@ -69,6 +70,12 @@
     if (pdf2md) {
       pdf2md.hidden = !(config.mode === "compact" && config.features.pdf2md);
       pdf2md.title = "Convert PDF to Markdown";
+    }
+
+    const readingMode = document.getElementById("aetherOpenReadingMode");
+    if (readingMode) {
+      readingMode.hidden = !(config.mode === "compact" && config.features.readingMode);
+      readingMode.title = "Open in Reading Mode";
     }
 
     const nightMode = document.getElementById("aetherNightMode");
@@ -182,6 +189,13 @@
     if (pdf2md) {
       pdf2md.addEventListener("click", function () {
         post("pdf2md");
+      });
+    }
+
+    const readingMode = document.getElementById("aetherOpenReadingMode");
+    if (readingMode) {
+      readingMode.addEventListener("click", function () {
+        post("openreadingmode");
       });
     }
 

@@ -47,6 +47,7 @@ import {
   createOpenReviewFile,
   createSessionTabs,
   createSizing,
+  type Sizing,
   focusTerminalById,
   shouldFocusTerminalOnKeyDown,
 } from "@/pages/session/helpers"
@@ -324,11 +325,16 @@ export default function Page(props: {
   readingCompositeMinWidth?: number
   readingCompositeMaxWidth?: number
   onReadingCompositeResize?: (width: number) => void
+  readingSessionResizeSize?: number
+  readingSessionResizeMin?: number
+  readingSessionResizeMax?: number
+  onReadingSessionResize?: (width: number) => void
   readingReviewOpen?: boolean
   readingFileTreeOpen?: boolean
   readingSidePanelWidth?: number
   readingFileTreeWidth?: number
   readingFileTreeResizable?: boolean
+  readingSizing?: Sizing
 } = {}) {
   const globalSync = useGlobalSync()
   const layout = useLayout()
@@ -411,7 +417,7 @@ export default function Page(props: {
   )
 
   const isDesktop = createMediaQuery("(min-width: 768px)")
-  const size = createSizing()
+  const size = props.readingSizing ?? createSizing()
   const readingModeActive = createMemo(() => isDesktop() && !!props.readingPane)
   const desktopReviewOpen = createMemo(() =>
     isDesktop() && (readingModeActive() ? !!props.readingReviewOpen : view().reviewPanel.opened()),
@@ -2170,6 +2176,31 @@ export default function Page(props: {
                   promptDock = el
                 }}
               />
+              <Show
+                when={
+                  readingModeActive() &&
+                  props.onReadingSessionResize &&
+                  (props.readingSessionResizeMax ?? 0) > (props.readingSessionResizeMin ?? 0)
+                }
+              >
+                <div class="absolute inset-y-0 right-0 z-10 w-0 overflow-visible" onPointerDown={() => size.start()}>
+                  <div class="pointer-events-none absolute inset-y-0 right-0 translate-x-1/2 w-px bg-border-base/80" />
+                  <ResizeHandle
+                    direction="horizontal"
+                    class="after:bg-border-base/90"
+                    size={Math.max(0, props.readingSessionResizeSize ?? 0)}
+                    min={Math.max(0, props.readingSessionResizeMin ?? 0)}
+                    max={Math.max(
+                      Math.max(0, props.readingSessionResizeMin ?? 0),
+                      props.readingSessionResizeMax ?? 0,
+                    )}
+                    onResize={(width) => {
+                      size.touch()
+                      props.onReadingSessionResize?.(width)
+                    }}
+                  />
+                </div>
+              </Show>
             </div>
             <Show when={props.readingPanePosition === "after"}>
               <div class="min-h-0 shrink-0" style={{ order: String(readingPaneOrder()) }}>

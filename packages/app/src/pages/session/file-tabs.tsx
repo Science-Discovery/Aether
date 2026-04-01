@@ -1,6 +1,7 @@
 ﻿import { createEffect, createMemo, createSignal, Match, on, onCleanup, Show, Switch } from "solid-js"
 import { createStore } from "solid-js/store"
 import { Dynamic } from "solid-js/web"
+import { useNavigate } from "@solidjs/router"
 import type { FileSearchHandle } from "@opencode-ai/ui/file"
 import { Button } from "@opencode-ai/ui/button"
 import { useFileComponent } from "@opencode-ai/ui/context/file"
@@ -68,6 +69,7 @@ function FileCommentMenu(props: {
 }
 
 export function FileTabContent(props: { tab: string }) {
+  const navigate = useNavigate()
   const file = useFile()
   const comments = useComments()
   const language = useLanguage()
@@ -382,6 +384,52 @@ export function FileTabContent(props: { tab: string }) {
     const p = path()
     if (!p) return
     dialog.show(() => <DialogPdfToMarkdown pdfPath={p} />)
+  }
+
+  const openPdfInReadingMode = async () => {
+    const p = path()
+    const previewUrl = pdfPreviewUrl()
+    const currentServer = server.current
+    if (!p || !previewUrl || !currentServer) return
+
+    try {
+      const authHeaders: Record<string, string> = currentServer.http.password
+        ? { Authorization: `Basic ${btoa(`${currentServer.http.username ?? "opencode"}:${currentServer.http.password}`)}` }
+        : {}
+
+      const pdfResponse = await fetch(previewUrl, {
+        headers: authHeaders,
+      })
+
+      if (!pdfResponse.ok) {
+        throw new Error(`Failed to load PDF: HTTP ${pdfResponse.status}`)
+      }
+
+      const pdfBlob = await pdfResponse.blob()
+      const filename = p.split("/").pop() ?? "document.pdf"
+      const form = new FormData()
+      form.append("pdf", new File([pdfBlob], filename, { type: pdfBlob.type || "application/pdf" }))
+
+      const response = await fetch(`${currentServer.http.url}/reading-mode/session`, {
+        method: "POST",
+        body: form,
+        headers: authHeaders,
+      })
+
+      if (!response.ok) {
+        const text = await response.text()
+        throw new Error(text || `HTTP ${response.status}`)
+      }
+
+      const session = await response.json()
+      navigate(`/${encodeURIComponent(params.dir ?? "")}/session/${session.id}/reading`)
+    } catch (e) {
+      showToast({
+        variant: "error",
+        title: "Failed to open reading mode",
+        description: String((e as Error)?.message ?? e),
+      })
+    }
   }
 
   const [isRunning, setIsRunning] = createSignal(false)
@@ -836,6 +884,7 @@ export function FileTabContent(props: { tab: string }) {
             mode="compact"
             class="size-full"
             onPdfToMarkdown={openPdfToMarkdown}
+            onOpenReadingMode={openPdfInReadingMode}
           />
         </div>
       )

@@ -9,6 +9,7 @@ import { PromptProvider } from "@/context/prompt"
 import { CommentsProvider } from "@/context/comments"
 import { useLayout } from "@/context/layout"
 import { useSessionLayout } from "@/pages/session/session-layout"
+import { createSizing } from "@/pages/session/helpers"
 import SessionPage from "./session"
 
 type LayoutVariant = "two-pane" | "tree" | "review" | "review-tree"
@@ -56,6 +57,7 @@ const ReadingSession: Component = () => {
   const [containerWidth, setContainerWidth] = createSignal(0)
   const [layoutSwapped, setLayoutSwapped] = createSignal(false)
   const [layoutReady, setLayoutReady] = createSignal(false)
+  const sizing = createSizing()
   const [panel, setPanel] = createStore({
     pdfRatio: VARIANT_DEFAULTS["two-pane"].pdf,
     chatRatio: VARIANT_DEFAULTS["two-pane"].chat,
@@ -193,12 +195,24 @@ const ReadingSession: Component = () => {
         return { min: compositePixelWidth(), max: compositePixelWidth() }
     }
   })
+  const sessionResizeBounds = createMemo(() => {
+    const bounds = chatRatioBounds()
+    if (!bounds || (mode() !== "review-right" && mode() !== "review-tree-right")) {
+      return { min: 0, max: 0 }
+    }
+    const total = totalWidth()
+    return {
+      min: Math.floor(bounds.min * total),
+      max: Math.floor(bounds.max * total),
+    }
+  })
   const pdfMinWidth = createMemo(() => Math.floor(totalWidth() * pdfResizeBounds().min))
   const pdfMaxWidth = createMemo(() => Math.floor(totalWidth() * pdfResizeBounds().max))
 
   onMount(() => {
     try {
-      setLayoutSwapped(localStorage.getItem(storageKey()) === "pdf-right")
+      const savedLayout = localStorage.getItem(storageKey())
+      setLayoutSwapped(savedLayout ? savedLayout === "pdf-right" : true)
     } catch {}
 
     previousReviewOpen = view().reviewPanel.opened()
@@ -292,6 +306,20 @@ const ReadingSession: Component = () => {
     }
   }
 
+  const handleResizeSessionWidth = (width: number) => {
+    const total = totalWidth()
+    const bounds = chatRatioBounds()
+    if (
+      total <= 0 ||
+      !bounds ||
+      (mode() !== "review-right" && mode() !== "review-tree-right")
+    ) {
+      return
+    }
+    const nextChat = Math.min(bounds.max, Math.max(bounds.min, width / total))
+    setPanel("chatRatio", nextChat)
+  }
+
   return (
     <ReadingModeProvider>
       <TerminalProvider>
@@ -307,9 +335,11 @@ const ReadingSession: Component = () => {
                       minWidth={pdfMinWidth()}
                       maxWidth={Math.max(pdfMinWidth(), pdfMaxWidth())}
                       layoutSwapped={layoutSwapped()}
-                      onSwapLayout={handleSwapLayout}
-                      onResizeWidth={handleResizeWidth}
-                    />
+                    onSwapLayout={handleSwapLayout}
+                    onResizeWidth={handleResizeWidth}
+                    resizeHandleEnabled={mode() !== "review-right" && mode() !== "review-tree-right"}
+                    sizing={sizing}
+                  />
                   }
                   readingPanePosition={layoutSwapped() ? "after" : "before"}
                   readingPaneWidth={pdfPixelWidth()}
@@ -317,11 +347,16 @@ const ReadingSession: Component = () => {
                   readingCompositeMinWidth={compositeResizeBounds().min}
                   readingCompositeMaxWidth={compositeResizeBounds().max}
                   onReadingCompositeResize={handleResizeCompositeWidth}
+                  readingSessionResizeSize={chatPixelWidth()}
+                  readingSessionResizeMin={sessionResizeBounds().min}
+                  readingSessionResizeMax={sessionResizeBounds().max}
+                  onReadingSessionResize={handleResizeSessionWidth}
                   readingReviewOpen={reviewOpen()}
                   readingFileTreeOpen={fileTreeOpen()}
                   readingSidePanelWidth={sidePanelWidth()}
                   readingFileTreeWidth={fileTreePixelWidth()}
                   readingFileTreeResizable={false}
+                  readingSizing={sizing}
                 />
               </div>
             </CommentsProvider>

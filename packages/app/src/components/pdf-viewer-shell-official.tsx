@@ -50,6 +50,7 @@ export type PdfViewerShellProps = {
   layoutSwapped?: boolean
   onPageChange?: (page: number) => void
   onPdfToMarkdown?: () => void
+  onOpenReadingMode?: () => void
   onSwapLayout?: () => void
 }
 
@@ -57,6 +58,7 @@ type ViewerMessage =
   | { channel: "aether-pdf-viewer"; type: "ready" }
   | { channel: "aether-pdf-viewer"; type: "pagechange"; page: number }
   | { channel: "aether-pdf-viewer"; type: "pdf2md" }
+  | { channel: "aether-pdf-viewer"; type: "openreadingmode" }
   | { channel: "aether-pdf-viewer"; type: "nightmode"; enabled: boolean }
   | { channel: "aether-pdf-viewer"; type: "swaplayout" }
 
@@ -77,6 +79,7 @@ export const PdfViewerShell: Component<PdfViewerShellProps> = (props) => {
     layoutSwapped: !!props.layoutSwapped,
     features: {
       pdf2md: !!props.onPdfToMarkdown && props.mode === "compact",
+      readingMode: !!props.onOpenReadingMode && props.mode === "compact",
     },
   }))
 
@@ -138,6 +141,11 @@ export const PdfViewerShell: Component<PdfViewerShellProps> = (props) => {
 
     if (event.data.type === "pdf2md") {
       props.onPdfToMarkdown?.()
+      return
+    }
+
+    if (event.data.type === "openreadingmode") {
+      props.onOpenReadingMode?.()
       return
     }
 
