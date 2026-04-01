@@ -10,6 +10,40 @@ const parseUrl = (input: string) => {
   }
 }
 
+export type ServerUrlResult = {
+  url: string
+  username?: string
+  password?: string
+}
+
+export function parseServerUrl(input: string): ServerUrlResult | undefined {
+  const trimmed = input.trim()
+  if (!trimmed) return
+
+  // Don't intercept opencode:// protocol
+  if (trimmed.startsWith("opencode://")) return
+
+  // Reject plain paths
+  if (trimmed.startsWith("/")) return
+
+  let url: URL
+  try {
+    const withProtocol = /^https?:\/\//.test(trimmed) ? trimmed : `http://${trimmed}`
+    url = new URL(withProtocol)
+  } catch {
+    return
+  }
+
+  const result: ServerUrlResult = {
+    url: `${url.protocol}//${url.host}`,
+  }
+
+  if (url.username) result.username = decodeURIComponent(url.username)
+  if (url.password) result.password = decodeURIComponent(url.password)
+
+  return result
+}
+
 export const parseDeepLink = (input: string) => {
   const url = parseUrl(input)
   if (!url) return

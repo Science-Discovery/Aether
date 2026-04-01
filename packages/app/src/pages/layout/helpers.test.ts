@@ -5,6 +5,7 @@ import {
   drainPendingDeepLinks,
   parseDeepLink,
   parseNewSessionDeepLink,
+  parseServerUrl,
 } from "./deep-links"
 import { type Session } from "@opencode-ai/sdk/v2/client"
 import {
@@ -98,6 +99,36 @@ describe("layout deep links", () => {
 
     expect(drainPendingDeepLinks(target)).toEqual(["opencode://open-project?directory=/a"])
     expect(drainPendingDeepLinks(target)).toEqual([])
+  })
+})
+
+describe("layout server URL parsing", () => {
+  test("parses http URL as server connection", () => {
+    expect(parseServerUrl("http://localhost:3000")).toEqual({ url: "http://localhost:3000" })
+    expect(parseServerUrl("https://my-server.example.com:8080")).toEqual({ url: "https://my-server.example.com:8080" })
+  })
+
+  test("parses http URL without protocol", () => {
+    expect(parseServerUrl("192.168.1.100:3000")).toEqual({ url: "http://192.168.1.100:3000" })
+    expect(parseServerUrl("my-server.com")).toEqual({ url: "http://my-server.com" })
+  })
+
+  test("parses http URL with credentials", () => {
+    expect(parseServerUrl("http://user:pass@localhost:3000")).toEqual({
+      url: "http://localhost:3000",
+      username: "user",
+      password: "pass",
+    })
+  })
+
+  test("rejects non-URL strings that look like paths", () => {
+    expect(parseServerUrl("/just/a/path")).toBeUndefined()
+    expect(parseServerUrl("")).toBeUndefined()
+    expect(parseServerUrl("   ")).toBeUndefined()
+  })
+
+  test("rejects opencode:// protocol (not a server URL)", () => {
+    expect(parseServerUrl("opencode://open-project?directory=/tmp")).toBeUndefined()
   })
 })
 
