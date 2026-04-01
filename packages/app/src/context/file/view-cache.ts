@@ -76,6 +76,7 @@ function createViewSession(dir: string, id: string | undefined) {
   const wordWrap = (path: string) => view.file[path]?.wordWrap
   const isEditing = (path: string) => view.file[path]?.isEditing
   const draft = (path: string) => view.file[path]?.draft
+  const draftBase = (path: string) => view.file[path]?.draftBase
 
   const setScrollTop = (path: string, top: number) => {
     setView(
@@ -144,13 +145,26 @@ function createViewSession(dir: string, id: string | undefined) {
     pruneView(path)
   }
 
-  const clearDraft = (path: string) => {
+  const setDraftBase = (path: string, value: string) => {
+    setView(
+      produce((draft) => {
+        const file = draft.file[path] ?? (draft.file[path] = {})
+        if (file.draftBase === value) return
+        file.draftBase = value
+      }),
+    )
+    pruneView(path)
+  }
+
+  const clearDraftMeta = (path: string) => {
     setView(
       produce((draft) => {
         const file = draft.file[path]
         if (!file) return
-        if (file.draft === undefined) return
+        if (file.draft === undefined && file.draftBase === undefined && file.isEditing === undefined) return
         delete file.draft
+        delete file.draftBase
+        delete file.isEditing
       }),
     )
   }
@@ -163,13 +177,15 @@ function createViewSession(dir: string, id: string | undefined) {
     wordWrap,
     isEditing,
     draft,
+    draftBase,
     setScrollTop,
     setScrollLeft,
     setSelectedLines,
     setWordWrap,
     setIsEditing,
     setDraft,
-    clearDraft,
+    setDraftBase,
+    clearDraftMeta,
   }
 }
 

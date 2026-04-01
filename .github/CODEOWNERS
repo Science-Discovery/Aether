@@ -1,3 +1,5 @@
+* @code-JDS
+
 # web + desktop packages
 packages/app/      @adamdotdevin
 packages/tauri/    @adamdotdevin

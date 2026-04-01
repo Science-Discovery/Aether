@@ -387,13 +387,37 @@ export const FileRoutes = lazy(() =>
             description: "Written",
             content: { "application/json": { schema: resolver(z.object({ ok: z.boolean() })) } },
           },
+          409: {
+            description: "Write conflict",
+            content: {
+              "application/json": {
+                schema: resolver(
+                  z.object({
+                    error: z.literal("conflict"),
+                    currentChecksum: z.string(),
+                    currentContent: z.string(),
+                  }),
+                ),
+              },
+            },
+          },
           ...errors(400),
         },
       }),
-      validator("json", z.object({ path: z.string(), content: z.string() })),
+      validator("json", z.object({ path: z.string(), content: z.string(), expectedChecksum: z.string().optional() })),
       async (c) => {
-        const { path, content } = c.req.valid("json")
-        await File.write(path, content)
+        const { path, content, expectedChecksum } = c.req.valid("json")
+        const result = await File.write(path, content, { expectedChecksum })
+        if (result) {
+          return c.json(
+            {
+              error: "conflict",
+              currentChecksum: result.currentChecksum,
+              currentContent: result.currentContent,
+            },
+            409,
+          )
+        }
         return c.json({ ok: true })
       },
     )

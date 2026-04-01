@@ -359,6 +359,7 @@ export const { use: useFile, provider: FileProvider } = createSimpleContext({
     const wordWrap = (input: string) => withPath(input, (file) => view().wordWrap(file))
     const isEditing = (input: string) => withPath(input, (file) => view().isEditing(file))
     const draft = (input: string) => withPath(input, (file) => view().draft(file))
+    const draftBase = (input: string) => withPath(input, (file) => view().draftBase(file))
     const setScrollTop = (input: string, top: number) => withPath(input, (file) => view().setScrollTop(file, top))
     const setScrollLeft = (input: string, left: number) => withPath(input, (file) => view().setScrollLeft(file, left))
     const setSelectedLines = (input: string, range: SelectedLineRange | null) =>
@@ -367,7 +368,8 @@ export const { use: useFile, provider: FileProvider } = createSimpleContext({
     const setIsEditing = (input: string, editing: boolean) =>
       withPath(input, (file) => view().setIsEditing(file, editing))
     const setDraft = (input: string, value: string) => withPath(input, (file) => view().setDraft(file, value))
-    const clearDraft = (input: string) => withPath(input, (file) => view().clearDraft(file))
+    const setDraftBase = (input: string, value: string) => withPath(input, (file) => view().setDraftBase(file, value))
+    const clearDraftMeta = (input: string) => withPath(input, (file) => view().clearDraftMeta(file))
 
     onCleanup(() => {
       stop()
@@ -407,8 +409,10 @@ export const { use: useFile, provider: FileProvider } = createSimpleContext({
       isEditing,
       setIsEditing,
       draft,
+      draftBase,
       setDraft,
-      clearDraft,
+      setDraftBase,
+      clearDraftMeta,
       searchFiles: (query: string) => search(query, "false"),
       searchFilesAndDirectories: (query: string) => search(query, "true"),
       selectedPaths,

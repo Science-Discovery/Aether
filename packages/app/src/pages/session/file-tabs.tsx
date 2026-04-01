@@ -2,10 +2,11 @@ import { createEffect, createMemo, createSignal, Match, on, onCleanup, Show, Swi
 import { createStore } from "solid-js/store"
 import { Dynamic } from "solid-js/web"
 import type { FileSearchHandle } from "@opencode-ai/ui/file"
+import { Button } from "@opencode-ai/ui/button"
 import { useFileComponent } from "@opencode-ai/ui/context/file"
 import { cloneSelectedLineRange, previewSelectedLines } from "@opencode-ai/ui/pierre/selection-bridge"
 import { createLineCommentController } from "@opencode-ai/ui/line-comment-annotations"
-import { sampledChecksum } from "@opencode-ai/util/encode"
+import { checksum, sampledChecksum } from "@opencode-ai/util/encode"
 import { DropdownMenu } from "@opencode-ai/ui/dropdown-menu"
 import { IconButton } from "@opencode-ai/ui/icon-button"
 import { Tabs } from "@opencode-ai/ui/tabs"
@@ -23,9 +24,10 @@ import { useSync } from "@/context/sync"
 import { useTerminal } from "@/context/terminal"
 import { getSessionHandoff } from "@/pages/session/handoff"
 import { useSessionLayout } from "@/pages/session/session-layout"
-import { canRestoreEditor, editorValue } from "@/pages/session/file-tab-state"
+import { draftState, editorValue } from "@/pages/session/file-tab-state"
 import { createSessionTabs } from "@/pages/session/helpers"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
+import { DialogDraftConflict } from "@/components/dialog-draft-conflict"
 import { DialogPdfToMarkdown } from "@/components/dialog-pdf-to-markdown"
 import { DialogTranslateMarkdown } from "@/components/dialog-translate-markdown"
 
@@ -76,6 +78,8 @@ export function FileTabContent(props: { tab: string }) {
   const [isEditing, setIsEditingSignal] = createSignal(false)
   const [editContent, setEditContentSignal] = createSignal("")
   const [isSaving, setIsSaving] = createSignal(false)
+  const [isStale, setIsStale] = createSignal(false)
+  const [needsConfirm, setNeedsConfirm] = createSignal(false)
   const [wordWrap, setWordWrapSignal] = createSignal(false)
 
   // 持久化 word wrap 和 isEditing（在文件路径确定后才能读取，延迟初始化）
@@ -88,23 +92,34 @@ export function FileTabContent(props: { tab: string }) {
     persistedStateLoaded = true
     const savedWrap = file.wordWrap(p)
     if (savedWrap != null) setWordWrapSignal(Boolean(savedWrap))
-    const savedEditing = file.isEditing(p)
-    if (
-      canRestoreEditor({
-        ready: file.ready(),
-        loaded: !!state()?.loaded,
-        text: isTextFile(),
-        editing: !!savedEditing,
-      })
-    ) {
+    const saved = draftState({
+      ready: file.ready(),
+      loaded: !!state()?.loaded,
+      text: isTextFile(),
+      editing: !!file.isEditing(p),
+      draft: file.draft(p),
+      draftBase: file.draftBase(p),
+      content: contents(),
+    })
+    if (saved === "fresh") {
       setEditContentSignal(editorValue({ draft: file.draft(p), content: contents() }))
       setIsEditingSignal(true)
+      setIsStale(false)
+      setNeedsConfirm(false)
       return
     }
-    if (savedEditing) {
-      file.setIsEditing(p, false)
-      file.clearDraft(p)
+    if (saved === "stale") {
+      setIsEditingSignal(false)
+      setEditContentSignal("")
+      setIsStale(true)
+      setNeedsConfirm(file.draftBase(p) === undefined)
+      return
     }
+    if (file.isEditing(p)) {
+      file.clearDraftMeta(p)
+    }
+    setIsStale(false)
+    setNeedsConfirm(false)
   }
 
   const setIsEditing = (val: boolean) => {
@@ -134,35 +149,125 @@ export function FileTabContent(props: { tab: string }) {
   }
 
   const startEditing = () => {
+    const p = path()
+    if (!p) return
     // 进入编辑模式前，从预览视口中心提取文本锚点（用于定位到编辑器对应位置）
     if (scroll) {
       const maxScroll = scroll.scrollHeight - scroll.clientHeight
       switchScrollRatio = maxScroll > 0 ? scroll.scrollTop / maxScroll : 0
       switchAnchorText = extractPreviewAnchor(scroll, contents())
     }
-    setEditContent(contents())
+    const next = contents()
+    setEditContent(next)
+    file.setDraftBase(p, checksum(next) ?? "")
+    setIsStale(false)
+    setNeedsConfirm(false)
+    setIsEditing(true)
+  }
+
+  const discardDraft = () => {
+    const p = path()
+    if (!p) return
+    setIsEditing(false)
+    setEditContentSignal("")
+    setIsStale(false)
+    setNeedsConfirm(false)
+    file.clearDraftMeta(p)
+    void file.load(p, { force: true })
+  }
+
+  const restoreDraft = () => {
+    const p = path()
+    if (!p) return
+    setEditContentSignal(editorValue({ draft: file.draft(p), content: contents() }))
+    setIsStale(false)
+    setNeedsConfirm(file.draftBase(p) === undefined)
     setIsEditing(true)
   }
 
   const cancelEditing = () => {
-    const p = path()
+    discardDraft()
+  }
+
+  const done = (p: string) => {
     setIsEditing(false)
     setEditContentSignal("")
-    if (p) file.clearDraft(p)
+    setIsStale(false)
+    setNeedsConfirm(false)
+    file.clearDraftMeta(p)
+    void file.load(p, { force: true })
+    if (params.id) void sync.session.diff(params.id, { force: true })
+  }
+
+  const isConflict = (
+    err: unknown,
+  ): err is {
+    error: "conflict"
+    currentChecksum: string
+    currentContent: string
+  } => {
+    if (!err || typeof err !== "object") return false
+    if ((err as { error?: string }).error !== "conflict") return false
+    if (typeof (err as { currentChecksum?: unknown }).currentChecksum !== "string") return false
+    return typeof (err as { currentContent?: unknown }).currentContent === "string"
+  }
+
+  const writeEditing = (p: string, force = false) =>
+    sdk.client.file.write(
+      {
+        path: p,
+        content: editContent(),
+        ...(force || file.draftBase(p) === undefined ? {} : { expectedChecksum: file.draftBase(p) }),
+      },
+      { throwOnError: true },
+    )
+
+  const acceptConflict = async (p: string) => {
+    setIsSaving(true)
+    try {
+      await writeEditing(p, true)
+      done(p)
+    } catch (e) {
+      showToast({
+        variant: "error",
+        title: language.t("toast.file.loadFailed.title"),
+        description: String(e),
+      })
+    } finally {
+      setIsSaving(false)
+    }
   }
 
   const saveEditing = async () => {
     const p = path()
     if (!p) return
+    if (needsConfirm()) {
+      dialog.show(() => (
+        <DialogDraftConflict
+          onAccept={() => void acceptConflict(p)}
+          onDiscard={discardDraft}
+        />
+      ))
+      return
+    }
     setIsSaving(true)
     try {
-      await sdk.client.file.write({ path: p, content: editContent() })
-      setIsEditing(false)
-      setEditContentSignal("")
-      file.clearDraft(p)
-      void file.load(p, { force: true })
-      if (params.id) void sync.session.diff(params.id, { force: true })
+      await writeEditing(p)
+      done(p)
     } catch (e) {
+      if (isConflict(e)) {
+        if (editContent() === e.currentContent) {
+          done(p)
+          return
+        }
+        dialog.show(() => (
+          <DialogDraftConflict
+            onAccept={() => void acceptConflict(p)}
+            onDiscard={discardDraft}
+          />
+        ))
+        return
+      }
       showToast({
         variant: "error",
         title: language.t("toast.file.loadFailed.title"),
@@ -419,6 +524,8 @@ export function FileTabContent(props: { tab: string }) {
         persistedStateLoaded = false
         setIsEditingSignal(false)
         setEditContentSignal("")
+        setIsStale(false)
+        setNeedsConfirm(false)
         setWordWrapSignal(false)
         commentsUi.note.reset()
       },
@@ -746,72 +853,90 @@ export function FileTabContent(props: { tab: string }) {
   return (
     <Tabs.Content value={props.tab} class="mt-3 relative flex h-full min-h-0 flex-col overflow-hidden contain-strict">
       <Show when={state()?.loaded}>
-        <div class="flex justify-end px-3 pb-1 shrink-0 gap-1.5">
-          <Show when={!isEditing() && isPython()}>
-            <IconButton
-              icon="console"
-              variant="ghost"
-              size="small"
-              aria-label="运行 Python 文件"
-              onClick={runPython}
-              disabled={isRunning()}
-            />
+        <div class="px-3 pb-1 shrink-0">
+          <Show when={isStale() && isTextFile()}>
+            <div class="mb-2 flex items-center justify-between gap-3 rounded-md border border-yellow-500/25 bg-yellow-500/10 px-3 py-2">
+              <div class="min-w-0">
+                <div class="text-xs font-medium text-text-base">检测到未保存草稿</div>
+                <div class="text-xs text-text-weak">当前文件已发生变化，review 中显示的是当前真实文件。</div>
+              </div>
+              <div class="flex shrink-0 items-center gap-2">
+                <Button size="small" variant="ghost" onClick={discardDraft}>
+                  放弃草稿
+                </Button>
+                <Button size="small" onClick={restoreDraft}>
+                  恢复旧草稿
+                </Button>
+              </div>
+            </div>
           </Show>
-          <Show when={!isEditing() && isMarkdown()}>
-            <button
-              type="button"
-              class="flex items-center justify-center rounded-md px-2 h-5 text-xs text-text-weak hover:bg-surface-raised-base-hover transition-colors cursor-pointer leading-none"
-              onClick={() => {
-                const p = path()
-                if (!p) return
-                dialog.showModeless(() => <DialogTranslateMarkdown mdPath={p} />)
-              }}
-            >
-              翻译为中文
-            </button>
-          </Show>
-          <Show when={isTextFile()}>
-            <Tooltip placement="top" gutter={4} value={wordWrap() ? "关闭自动换行" : "开启自动换行"}>
+          <div class="flex justify-end gap-1.5">
+            <Show when={!isEditing() && isPython()}>
               <IconButton
-                icon="align-right"
-                variant={wordWrap() ? "secondary" : "ghost"}
+                icon="console"
+                variant="ghost"
                 size="small"
-                aria-label={wordWrap() ? "关闭自动换行" : "开启自动换行"}
-                onClick={() => setWordWrap(!wordWrap())}
+                aria-label="运行 Python 文件"
+                onClick={runPython}
+                disabled={isRunning()}
               />
-            </Tooltip>
-          </Show>
-          <Show
-            when={isEditing() && isTextFile()}
-            fallback={
-              <Show when={isTextFile()}>
+            </Show>
+            <Show when={!isEditing() && isMarkdown()}>
+              <button
+                type="button"
+                class="flex items-center justify-center rounded-md px-2 h-5 text-xs text-text-weak hover:bg-surface-raised-base-hover transition-colors cursor-pointer leading-none"
+                onClick={() => {
+                  const p = path()
+                  if (!p) return
+                  dialog.showModeless(() => <DialogTranslateMarkdown mdPath={p} />)
+                }}
+              >
+                翻译为中文
+              </button>
+            </Show>
+            <Show when={isTextFile()}>
+              <Tooltip placement="top" gutter={4} value={wordWrap() ? "关闭自动换行" : "开启自动换行"}>
                 <IconButton
-                  icon="pencil-line"
-                  variant="ghost"
+                  icon="align-right"
+                  variant={wordWrap() ? "secondary" : "ghost"}
                   size="small"
-                  aria-label={language.t("common.edit")}
-                  onClick={startEditing}
+                  aria-label={wordWrap() ? "关闭自动换行" : "开启自动换行"}
+                  onClick={() => setWordWrap(!wordWrap())}
                 />
-              </Show>
-            }
-          >
-            <IconButton
-              icon="close"
-              variant="ghost"
-              size="small"
-              aria-label={language.t("common.cancel")}
-              onClick={cancelEditing}
-              disabled={isSaving()}
-            />
-            <IconButton
-              icon="check"
-              variant="ghost"
-              size="small"
-              aria-label={language.t("common.save")}
-              onClick={saveEditing}
-              disabled={isSaving()}
-            />
-          </Show>
+              </Tooltip>
+            </Show>
+            <Show
+              when={isEditing() && isTextFile()}
+              fallback={
+                <Show when={isTextFile() && !isStale()}>
+                  <IconButton
+                    icon="pencil-line"
+                    variant="ghost"
+                    size="small"
+                    aria-label={language.t("common.edit")}
+                    onClick={startEditing}
+                  />
+                </Show>
+              }
+            >
+              <IconButton
+                icon="close"
+                variant="ghost"
+                size="small"
+                aria-label={language.t("common.cancel")}
+                onClick={cancelEditing}
+                disabled={isSaving()}
+              />
+              <IconButton
+                icon="check"
+                variant="ghost"
+                size="small"
+                aria-label={language.t("common.save")}
+                onClick={saveEditing}
+                disabled={isSaving()}
+              />
+            </Show>
+          </div>
         </div>
       </Show>
       <Show

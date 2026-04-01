@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test"
-import { canRestoreEditor, editorValue } from "./file-tab-state"
+import { checksum } from "@opencode-ai/util/encode"
+import { canRestoreEditor, draftState, editorValue } from "./file-tab-state"
 
 describe("file tab editor restore", () => {
   test("restores only after text content is ready", () => {
@@ -13,5 +14,46 @@ describe("file tab editor restore", () => {
   test("prefers saved draft over file content", () => {
     expect(editorValue({ draft: "draft body", content: "saved body" })).toBe("draft body")
     expect(editorValue({ content: "saved body" })).toBe("saved body")
+  })
+
+  test("treats persisted drafts without base as stale", () => {
+    expect(
+      draftState({
+        ready: true,
+        loaded: true,
+        text: true,
+        editing: true,
+        draft: "draft body",
+        content: "saved body",
+      }),
+    ).toBe("stale")
+  })
+
+  test("treats drafts with mismatched base as stale", () => {
+    expect(
+      draftState({
+        ready: true,
+        loaded: true,
+        text: true,
+        editing: true,
+        draft: "draft body",
+        draftBase: "old-base",
+        content: "saved body",
+      }),
+    ).toBe("stale")
+  })
+
+  test("restores draft when base still matches current file", () => {
+    expect(
+      draftState({
+        ready: true,
+        loaded: true,
+        text: true,
+        editing: true,
+        draft: "draft body",
+        draftBase: checksum("saved body") ?? "",
+        content: "saved body",
+      }),
+    ).toBe("fresh")
   })
 })
