@@ -15,6 +15,7 @@ import { Global } from "../../global"
 import { modify, applyEdits } from "jsonc-parser"
 import { Filesystem } from "../../util/filesystem"
 import { Bus } from "../../bus"
+import { getConfigDirName } from "../../config/dirname"
 
 function getAuthStatusIcon(status: MCP.AuthStatus): string {
   switch (status) {
@@ -381,11 +382,12 @@ export const McpLogoutCommand = cmd({
 })
 
 async function resolveConfigPath(baseDir: string, global = false) {
-  // Check for existing config files (prefer .jsonc over .json, check .opencode/ subdirectory too)
+  // Check for existing config files (prefer .jsonc over .json, check config dir subdirectory too)
   const candidates = [path.join(baseDir, "opencode.json"), path.join(baseDir, "opencode.jsonc")]
 
   if (!global) {
-    candidates.push(path.join(baseDir, ".opencode", "opencode.json"), path.join(baseDir, ".opencode", "opencode.jsonc"))
+    const configDirName = getConfigDirName()
+    candidates.push(path.join(baseDir, configDirName, "opencode.json"), path.join(baseDir, configDirName, "opencode.jsonc"))
   }
 
   for (const candidate of candidates) {

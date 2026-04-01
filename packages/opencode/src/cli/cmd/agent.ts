@@ -9,6 +9,7 @@ import fs from "fs/promises"
 import { Filesystem } from "../../util/filesystem"
 import matter from "gray-matter"
 import { Instance } from "../../project/instance"
+import { getConfigDirName } from "../../config/dirname"
 import { EOL } from "os"
 import type { Argv } from "yargs"
 
@@ -87,7 +88,7 @@ const AgentCreateCommand = cmd({
             scope = scopeResult
           }
           targetPath = path.join(
-            scope === "global" ? Global.Path.config : path.join(Instance.worktree, ".opencode"),
+            scope === "global" ? Global.Path.config : path.join(Instance.worktree, getConfigDirName()),
             "agent",
           )
         }

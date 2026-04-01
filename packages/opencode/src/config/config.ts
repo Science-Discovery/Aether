@@ -35,6 +35,7 @@ import { proxied } from "@/util/proxied"
 import { iife } from "@/util/iife"
 import { Account } from "@/account"
 import { ConfigPaths } from "./paths"
+import { getConfigDirName } from "./dirname"
 import { Filesystem } from "@/util/filesystem"
 import matter from "gray-matter"
 import { Process } from "@/util/process"
@@ -142,7 +143,7 @@ export namespace Config {
     const deps = []
 
     for (const dir of unique(directories)) {
-      if (dir.endsWith(".opencode") || dir === Flag.OPENCODE_CONFIG_DIR) {
+      if (dir.endsWith(getConfigDirName()) || dir === Flag.OPENCODE_CONFIG_DIR) {
         for (const file of ["opencode.jsonc", "opencode.json"]) {
           log.debug(`loading config from ${path.join(dir, file)}`)
           result = mergeConfigConcatArrays(result, await loadFile(path.join(dir, file)))
@@ -401,7 +402,7 @@ export namespace Config {
       })
       if (!md) continue
 
-      const patterns = ["/.opencode/command/", "/.opencode/commands/", "/command/", "/commands/"]
+      const patterns = [`/${getConfigDirName()}/command/`, `/${getConfigDirName()}/commands/`, "/command/", "/commands/"]
       const file = rel(item, patterns) ?? path.basename(item)
       const name = trim(file)
 
@@ -440,7 +441,7 @@ export namespace Config {
       })
       if (!md) continue
 
-      const patterns = ["/.opencode/agent/", "/.opencode/agents/", "/agent/", "/agents/"]
+      const patterns = [`/${getConfigDirName()}/agent/`, `/${getConfigDirName()}/agents/`, "/agent/", "/agents/"]
       const file = rel(item, patterns) ?? path.basename(item)
       const agentName = trim(file)
 
@@ -1362,13 +1363,13 @@ export namespace Config {
   })
   export type DefaultSkill = z.infer<typeof DefaultSkill>
 
-  // Search upward from process.cwd() for .opencode/skills, calculated once at startup.
+  // Search upward from process.cwd() for <configDir>/skills, calculated once at startup.
   // This ensures the source skills dir is always the server's own project regardless of
   // which project the user is currently viewing.
   function findServerSkillsDirSync(): string | undefined {
     let dir = process.cwd()
     while (true) {
-      const candidate = path.join(dir, ".opencode", "skills")
+      const candidate = path.join(dir, getConfigDirName(), "skills")
       try {
         if (statSync(candidate).isDirectory()) return candidate
       } catch {}
@@ -1420,7 +1421,7 @@ export namespace Config {
 
   export async function saveDefaultSkill(name: string, description: string, content: string): Promise<void> {
     const skillsDir = getDefaultSkillsDir()
-    if (!skillsDir) throw new Error("No .opencode directory found")
+    if (!skillsDir) throw new Error(`No ${getConfigDirName()} directory found`)
     const skillDir = path.join(skillsDir, name)
     await fs.mkdir(skillDir, { recursive: true })
     const skillFile = path.join(skillDir, "SKILL.md")
@@ -1430,7 +1431,7 @@ export namespace Config {
 
   export async function deleteDefaultSkill(name: string): Promise<void> {
     const skillsDir = getDefaultSkillsDir()
-    if (!skillsDir) throw new Error("No .opencode directory found")
+    if (!skillsDir) throw new Error(`No ${getConfigDirName()} directory found`)
     const skillDir = path.join(skillsDir, name)
     await fs.rm(skillDir, { recursive: true, force: true })
   }
@@ -1440,8 +1441,8 @@ export namespace Config {
     const sourceSkillsDir = getDefaultSkillsDir()
     if (!sourceSkillsDir) return []
 
-    // Target: the currently viewed project (.opencode/skills/ under Instance.directory)
-    const targetSkillsDir = path.join(Instance.directory, ".opencode", "skills")
+    // Target: the currently viewed project (<configDir>/skills/ under Instance.directory)
+    const targetSkillsDir = path.join(Instance.directory, getConfigDirName(), "skills")
     await fs.mkdir(targetSkillsDir, { recursive: true })
 
     // Copy each skill directory from source to target

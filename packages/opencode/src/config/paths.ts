@@ -6,6 +6,7 @@ import { NamedError } from "@opencode-ai/util/error"
 import { Filesystem } from "@/util/filesystem"
 import { Flag } from "@/flag/flag"
 import { Global } from "@/global"
+import { getConfigDirName } from "./dirname"
 
 export namespace ConfigPaths {
   export async function projectFiles(name: string, directory: string, worktree: string) {
@@ -23,13 +24,14 @@ export namespace ConfigPaths {
     // Include the directory next to the binary so bundled default skills are found
     // when running a compiled single binary (e.g. dist/.../bin/aether + dist/.../bin/.opencode/skills/)
     const binaryDir = path.dirname(process.execPath)
+    const configDirName = getConfigDirName()
 
     return [
       Global.Path.config,
       ...(!Flag.OPENCODE_DISABLE_PROJECT_CONFIG
         ? await Array.fromAsync(
             Filesystem.up({
-              targets: [".opencode"],
+              targets: [configDirName],
               start: directory,
               stop: worktree,
             }),
@@ -37,14 +39,14 @@ export namespace ConfigPaths {
         : []),
       ...(await Array.fromAsync(
         Filesystem.up({
-          targets: [".opencode"],
+          targets: [configDirName],
           start: Global.Path.home,
           stop: Global.Path.home,
         }),
       )),
       ...(await Array.fromAsync(
         Filesystem.up({
-          targets: [".opencode"],
+          targets: [configDirName],
           start: binaryDir,
           stop: binaryDir,
         }),

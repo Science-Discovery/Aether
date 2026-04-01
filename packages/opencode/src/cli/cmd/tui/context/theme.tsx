@@ -3,6 +3,7 @@ import path from "path"
 import { createEffect, createMemo, onCleanup, onMount } from "solid-js"
 import { createSimpleContext } from "./helper"
 import { Glob } from "../../../../util/glob"
+import { getConfigDirName } from "@/config/dirname"
 import aura from "./theme/aura.json" with { type: "json" }
 import ayu from "./theme/ayu.json" with { type: "json" }
 import catppuccin from "./theme/catppuccin.json" with { type: "json" }
@@ -438,7 +439,7 @@ async function getCustomThemes() {
     Global.Path.config,
     ...(await Array.fromAsync(
       Filesystem.up({
-        targets: [".opencode"],
+        targets: [getConfigDirName()],
         start: process.cwd(),
       }),
     )),

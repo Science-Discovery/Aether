@@ -8,6 +8,7 @@ import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
 import path from "path"
 import z from "zod"
 import { BusEvent } from "@/bus/bus-event"
+import { getConfigDirName } from "@/config/dirname"
 import { Flag } from "../flag/flag"
 import { Log } from "../util/log"
 
@@ -172,7 +173,7 @@ export namespace Installation {
         )
 
         const methodImpl = Effect.fn("Installation.method")(function* () {
-          if (process.execPath.includes(path.join(".opencode", "bin"))) return "curl" as Method
+          if (process.execPath.includes(path.join(getConfigDirName(), "bin"))) return "curl" as Method
           if (process.execPath.includes(path.join(".local", "bin"))) return "curl" as Method
           const exec = process.execPath.toLowerCase()
 

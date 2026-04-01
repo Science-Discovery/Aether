@@ -8,6 +8,7 @@ import path from "path"
 import os from "os"
 import { Filesystem } from "../../util/filesystem"
 import { Process } from "../../util/process"
+import { getConfigDirName } from "@/config/dirname"
 
 interface UninstallArgs {
   keepConfig: boolean
@@ -215,7 +216,7 @@ async function executeUninstall(method: Installation.Method, targets: RemovalTar
     prompts.log.info(`  rm "${targets.binary}"`)
 
     const binDir = path.dirname(targets.binary)
-    if (binDir.includes(".opencode")) {
+    if (binDir.includes(getConfigDirName())) {
       prompts.log.info(`  rmdir "${binDir}" 2>/dev/null`)
     }
   }
@@ -266,7 +267,8 @@ async function getShellConfigFile(): Promise<string | null> {
     if (!exists) continue
 
     const content = await Filesystem.readText(file).catch(() => "")
-    if (content.includes("# opencode") || content.includes(".opencode/bin")) {
+    const configDirName = getConfigDirName()
+    if (content.includes("# opencode") || content.includes(`${configDirName}/bin`)) {
       return file
     }
   }
@@ -277,6 +279,7 @@ async function getShellConfigFile(): Promise<string | null> {
 async function cleanShellConfig(file: string) {
   const content = await Filesystem.readText(file)
   const lines = content.split("\n")
+  const configDirName = getConfigDirName()
 
   const filtered: string[] = []
   let skip = false
@@ -291,14 +294,14 @@ async function cleanShellConfig(file: string) {
 
     if (skip) {
       skip = false
-      if (trimmed.includes(".opencode/bin") || trimmed.includes("fish_add_path")) {
+      if (trimmed.includes(`${configDirName}/bin`) || trimmed.includes("fish_add_path")) {
         continue
       }
     }
 
     if (
-      (trimmed.startsWith("export PATH=") && trimmed.includes(".opencode/bin")) ||
-      (trimmed.startsWith("fish_add_path") && trimmed.includes(".opencode"))
+      (trimmed.startsWith("export PATH=") && trimmed.includes(`${configDirName}/bin`)) ||
+      (trimmed.startsWith("fish_add_path") && trimmed.includes(configDirName))
     ) {
       continue
     }

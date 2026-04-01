@@ -13,6 +13,7 @@ import { text } from "node:stream/consumers"
 
 import { ZipReader, BlobReader, BlobWriter } from "@zip.js/zip.js"
 import { Log } from "@/util/log"
+import { getConfigDirName } from "@/config/dirname"
 
 export namespace Ripgrep {
   const log = Log.create({ service: "ripgrep" })
@@ -292,7 +293,7 @@ export namespace Ripgrep {
 
     const root: Node = { name: "", children: new Map() }
     for (const file of files) {
-      if (file.includes(".opencode")) continue
+      if (file.includes(getConfigDirName())) continue
       const parts = file.split(path.sep)
       if (parts.length < 2) continue
       let node = root

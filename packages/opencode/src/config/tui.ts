@@ -8,6 +8,7 @@ import { TuiInfo } from "./tui-schema"
 import { Instance } from "@/project/instance"
 import { Flag } from "@/flag/flag"
 import { Log } from "@/util/log"
+import { getConfigDirName } from "./dirname"
 import { Global } from "@/global"
 
 export namespace TuiConfig {
@@ -54,7 +55,7 @@ export namespace TuiConfig {
     }
 
     for (const dir of unique(directories)) {
-      if (!dir.endsWith(".opencode") && dir !== Flag.OPENCODE_CONFIG_DIR) continue
+      if (!dir.endsWith(getConfigDirName()) && dir !== Flag.OPENCODE_CONFIG_DIR) continue
       for (const file of ConfigPaths.fileInDirectory(dir, "tui")) {
         result = mergeInfo(result, await loadFile(file))
       }

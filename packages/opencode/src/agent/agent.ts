@@ -1,4 +1,5 @@
 import { Config } from "../config/config"
+import { getConfigDirName } from "../config/dirname"
 import z from "zod"
 import { Provider } from "../provider/provider"
 import { ModelID, ProviderID } from "../provider/schema"
@@ -132,7 +133,7 @@ export namespace Agent {
                   },
                   edit: {
                     "*": "deny",
-                    [path.join(".opencode", "plans", "*.md")]: "allow",
+                    [path.join(getConfigDirName(), "plans", "*.md")]: "allow",
                     [path.relative(Instance.worktree, path.join(Global.Path.data, path.join("plans", "*.md")))]:
                       "allow",
                   },
