@@ -15,6 +15,7 @@ import { useSDK } from "@/context/sdk"
 import { useServer } from "@/context/server"
 import { useModels } from "@/context/models"
 import { ModelSelectorPopover } from "./dialog-select-model"
+import { OutputDirectory } from "./output-directory"
 import { registerConvertTask, updateConvertTask, triggerOpenFile, triggerRefreshDir, registerEventSource, taskUrl } from "./pdf-convert-progress"
 
 // 复用翻译设置持久化
@@ -24,14 +25,16 @@ type TranslateSettings = {
   model?: ModelKey
   autoOpen: boolean
   conflictAction: "replace" | "rename"
+  outputTarget: "neighbor" | "custom"
+  outputDir?: string
 }
 
 function loadSettings(): TranslateSettings {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
-    if (raw) return { autoOpen: true, conflictAction: "replace", ...JSON.parse(raw) }
+    if (raw) return { autoOpen: true, conflictAction: "replace", outputTarget: "neighbor", ...JSON.parse(raw) }
   } catch { /* ignore */ }
-  return { autoOpen: true, conflictAction: "replace" }
+  return { autoOpen: true, conflictAction: "replace", outputTarget: "neighbor" }
 }
 
 function saveSettings(s: Partial<TranslateSettings>) {
@@ -68,6 +71,9 @@ export const DialogBatchTranslateMarkdown: Component<{
   const [error, setError] = createSignal<string | null>(null)
   const [starting, setStarting] = createSignal(false)
   const [fileInfos, setFileInfos] = createSignal<{ path: string; name: string; chunkCount: number; hasDataJson: boolean }[]>([])
+  const [outputTarget, setOutputTarget] = createSignal<"neighbor" | "custom">(loadSettings().outputTarget)
+  const [outputDir, setOutputDir] = createSignal(loadSettings().outputDir ?? "")
+  const [outputDirError, setOutputDirError] = createSignal<string | null>(null)
 
   const fetchApi = async (urlPath: string, options: RequestInit = {}): Promise<Response> => {
     const baseUrl = sdk.url
@@ -146,6 +152,12 @@ export const DialogBatchTranslateMarkdown: Component<{
   }
 
   const totalChunks = createMemo(() => fileInfos().reduce((sum, f) => sum + f.chunkCount, 0))
+  const selectedOutputDir = createMemo(() => {
+    if (outputTarget() !== "custom") return
+    const value = outputDir().trim()
+    if (!value) return
+    return value
+  })
 
   /** 连接 SSE 并返回一个 Promise，在任务完成/出错时 resolve */
   const connectSSEAndWait = (taskID: string, isLast: boolean): Promise<void> => {
@@ -223,9 +235,27 @@ export const DialogBatchTranslateMarkdown: Component<{
       showToast({ variant: "error", title: "请先选择模型" })
       return
     }
+    setOutputDirError(null)
+    if (outputTarget() === "custom") {
+      const value = outputDir().trim()
+      if (!value) {
+        setOutputDirError("路径必须指向一个文件夹")
+        return
+      }
+      const check = await fetchApi(`/file/check-directory?path=${encodeURIComponent(value)}`)
+      if (!check.ok) {
+        setOutputDirError("路径必须指向一个文件夹")
+        return
+      }
+    }
 
     setStarting(true)
-    saveSettings({ autoOpen: autoOpen(), conflictAction: conflictAction() })
+    saveSettings({
+      autoOpen: autoOpen(),
+      conflictAction: conflictAction(),
+      outputTarget: outputTarget(),
+      outputDir: outputDir().trim() || undefined,
+    })
     dialogCtx.close()
 
     try {
@@ -244,10 +274,15 @@ export const DialogBatchTranslateMarkdown: Component<{
             modelID: model.id,
             targetLanguage: "zh-CN",
             conflictAction: conflictAction(),
+            outputDir: selectedOutputDir(),
           }),
         })
         if (!res.ok) {
           const err = await res.json()
+          if (err.error === "路径必须指向一个文件夹") {
+            setOutputDirError(err.error)
+            return
+          }
           showToast({ variant: "error", title: `${info.name} 启动失败`, description: err.error })
           continue
         }
@@ -289,7 +324,7 @@ export const DialogBatchTranslateMarkdown: Component<{
   }
 
   return (
-    <Dialog title={`批量翻译为中文（${props.mdPaths.length} 个文件）`} size="large">
+    <Dialog title={`批量翻译为中文（${props.mdPaths.length} 个文件）`} size="large" persistent>
       <div class="flex flex-col gap-4 p-4 max-h-[70vh] overflow-y-auto">
         <Show when={loading()}>
           <div class="text-text-weak text-sm">正在检查文件信息...</div>
@@ -350,6 +385,20 @@ export const DialogBatchTranslateMarkdown: Component<{
               </label>
             </div>
           </div>
+
+          <OutputDirectory
+            label="输出位置（对所有文件统一）"
+            title="选择批量 Markdown 翻译输出文件夹"
+            name="batchTranslateOutputTarget"
+            neighbor="保存在各自 Markdown 文件旁边"
+            custom="统一保存到指定文件夹"
+            target={outputTarget}
+            setTarget={setOutputTarget}
+            value={outputDir}
+            setValue={setOutputDir}
+            error={outputDirError}
+            setError={setOutputDirError}
+          />
 
           {/* 自动打开 */}
           <label class="flex items-center gap-2 text-sm cursor-pointer">

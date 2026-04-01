@@ -572,17 +572,17 @@ export function SessionSidePanel(props: {
 
   const handlePdfConvert = (paths: string[]) => {
     if (paths.length === 1) {
-      dialog.show(() => <DialogPdfToMarkdown pdfPath={paths[0]} />)
+      dialog.showModeless(() => <DialogPdfToMarkdown pdfPath={paths[0]} />)
     } else {
-      dialog.show(() => <DialogBatchPdfConvert pdfPaths={paths} />)
+      dialog.showModeless(() => <DialogBatchPdfConvert pdfPaths={paths} />)
     }
   }
 
   const handleTranslateMarkdown = (paths: string[]) => {
     if (paths.length === 1) {
-      dialog.show(() => <DialogTranslateMarkdown mdPath={paths[0]} />)
+      dialog.showModeless(() => <DialogTranslateMarkdown mdPath={paths[0]} />)
     } else {
-      dialog.show(() => <DialogBatchTranslateMarkdown mdPaths={paths} />)
+      dialog.showModeless(() => <DialogBatchTranslateMarkdown mdPaths={paths} />)
     }
   }
 

@@ -18,6 +18,9 @@ export type FileViewState = {
   scrollTop?: number
   scrollLeft?: number
   selectedLines?: SelectedLineRange | null
+  wordWrap?: boolean
+  isEditing?: boolean
+  draft?: string
 }
 
 export type FileState = {

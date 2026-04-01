@@ -6,7 +6,7 @@ import { List } from "@opencode-ai/ui/list"
 import type { ListRef } from "@opencode-ai/ui/list"
 import { getDirectory, getFilename } from "@opencode-ai/util/path"
 import fuzzysort from "fuzzysort"
-import { createMemo, createResource, createSignal, Show } from "solid-js"
+import { createMemo, createResource, createSignal, onMount, Show } from "solid-js"
 import { createStore } from "solid-js/store"
 import { useGlobalSDK } from "@/context/global-sdk"
 import { useGlobalSync } from "@/context/global-sync"
@@ -15,7 +15,9 @@ import { Persist, persisted } from "@/utils/persist"
 
 interface DialogSelectDirectoryProps {
   title?: string
+  initial?: string
   multiple?: boolean
+  persistent?: boolean
   onSelect: (result: string | string[] | null) => void
 }
 
@@ -321,6 +323,12 @@ export function DialogSelectDirectory(props: DialogSelectDirectoryProps) {
 
   const RECENT_LIMIT = 5
 
+  onMount(() => {
+    const value = cleanInput(props.initial ?? "")
+    if (!value) return
+    list?.setFilter(value)
+    setSelectedPath(trimTrailing(normalizeDriveRoot(value)))
+  })
   const recentProjects = createMemo(() => {
     const isExpanded = expanded()
     const known = sync.data.project
@@ -417,7 +425,7 @@ export function DialogSelectDirectory(props: DialogSelectDirectoryProps) {
   }
 
   return (
-    <Dialog title={props.title ?? language.t("command.project.open")}>
+    <Dialog title={props.title ?? language.t("command.project.open")} persistent={props.persistent}>
       <List
         search={{
           placeholder: language.t("dialog.directory.search.placeholder"),

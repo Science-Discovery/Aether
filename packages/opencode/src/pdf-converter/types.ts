@@ -90,6 +90,7 @@ export interface ConvertConfig {
   endPage: number
   outputMode: "merged" | "per-page"
   conflictAction: "replace" | "rename" | "cancel"
+  outputDir?: string
   dpi?: number
 }
 

@@ -359,10 +359,13 @@ export default function FileTree(props: {
 
   createEffect(
     on(
-      () => props.path,
-      (path) => {
-        const dir = untrack(() => file.tree.state(path))
-        if (!shouldListRoot({ level, dir })) return
+      () => {
+        const dir = file.tree.state(props.path)
+        return [props.path, dir?.expanded, dir?.loaded, dir?.loading] as const
+      },
+      ([path, expanded, loaded, loading]) => {
+        const dir = { expanded, loaded, loading }
+        if (!shouldListRoot({ level, dir }) && !shouldListExpanded({ level, dir })) return
         void file.tree.list(path)
       },
       { defer: false },

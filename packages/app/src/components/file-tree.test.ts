@@ -9,6 +9,9 @@ beforeAll(async () => {
     useNavigate: () => () => undefined,
     useParams: () => ({}),
   }))
+  mock.module("@opencode-ai/ui/toast", () => ({
+    showToast: () => undefined,
+  }))
   mock.module("@/context/file", () => ({
     useFile: () => ({
       tree: {
@@ -20,10 +23,37 @@ beforeAll(async () => {
       },
     }),
   }))
+  mock.module("@/context/platform", () => ({
+    usePlatform: () => ({ platform: "web" }),
+  }))
+  mock.module("@/context/sdk", () => ({
+    useSDK: () => ({
+      client: {
+        file: {
+          open: async () => undefined,
+          openInExplorer: async () => undefined,
+          addToGitignore: async () => ({ data: {} }),
+        },
+      },
+    }),
+  }))
+  mock.module("@/pages/session/session-layout", () => ({
+    useSessionLayout: () => ({ params: {} }),
+  }))
   mock.module("@opencode-ai/ui/collapsible", () => ({
     Collapsible: {
       Trigger: (props: { children?: unknown }) => props.children,
       Content: (props: { children?: unknown }) => props.children,
+    },
+  }))
+  mock.module("@opencode-ai/ui/context-menu", () => ({
+    ContextMenu: {
+      Trigger: (props: { children?: unknown }) => props.children,
+      Portal: (props: { children?: unknown }) => props.children,
+      Content: (props: { children?: unknown }) => props.children,
+      Item: (props: { children?: unknown }) => props.children,
+      ItemLabel: (props: { children?: unknown }) => props.children,
+      Separator: () => null,
     },
   }))
   mock.module("@opencode-ai/ui/file-icon", () => ({ FileIcon: () => null }))

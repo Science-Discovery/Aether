@@ -73,6 +73,9 @@ function createViewSession(dir: string, id: string | undefined) {
   const scrollTop = (path: string) => view.file[path]?.scrollTop
   const scrollLeft = (path: string) => view.file[path]?.scrollLeft
   const selectedLines = (path: string) => view.file[path]?.selectedLines
+  const wordWrap = (path: string) => view.file[path]?.wordWrap
+  const isEditing = (path: string) => view.file[path]?.isEditing
+  const draft = (path: string) => view.file[path]?.draft
 
   const setScrollTop = (path: string, top: number) => {
     setView(
@@ -108,14 +111,65 @@ function createViewSession(dir: string, id: string | undefined) {
     pruneView(path)
   }
 
+  const setWordWrap = (path: string, wrap: boolean) => {
+    setView(
+      produce((draft) => {
+        const file = draft.file[path] ?? (draft.file[path] = {})
+        if (file.wordWrap === wrap) return
+        file.wordWrap = wrap
+      }),
+    )
+    pruneView(path)
+  }
+
+  const setIsEditing = (path: string, editing: boolean) => {
+    setView(
+      produce((draft) => {
+        const file = draft.file[path] ?? (draft.file[path] = {})
+        if (file.isEditing === editing) return
+        file.isEditing = editing
+      }),
+    )
+    pruneView(path)
+  }
+
+  const setDraft = (path: string, value: string) => {
+    setView(
+      produce((draft) => {
+        const file = draft.file[path] ?? (draft.file[path] = {})
+        if (file.draft === value) return
+        file.draft = value
+      }),
+    )
+    pruneView(path)
+  }
+
+  const clearDraft = (path: string) => {
+    setView(
+      produce((draft) => {
+        const file = draft.file[path]
+        if (!file) return
+        if (file.draft === undefined) return
+        delete file.draft
+      }),
+    )
+  }
+
   return {
     ready,
     scrollTop,
     scrollLeft,
     selectedLines,
+    wordWrap,
+    isEditing,
+    draft,
     setScrollTop,
     setScrollLeft,
     setSelectedLines,
+    setWordWrap,
+    setIsEditing,
+    setDraft,
+    clearDraft,
   }
 }
 

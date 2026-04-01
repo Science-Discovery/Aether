@@ -9,6 +9,7 @@ export interface TranslateConfig {
   modelID: string
   targetLanguage: string
   conflictAction: "replace" | "rename" | "cancel"
+  outputDir?: string
 }
 
 /** SSE 进度事件类型 */

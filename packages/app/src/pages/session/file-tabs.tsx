@@ -23,6 +23,7 @@ import { useSync } from "@/context/sync"
 import { useTerminal } from "@/context/terminal"
 import { getSessionHandoff } from "@/pages/session/handoff"
 import { useSessionLayout } from "@/pages/session/session-layout"
+import { canRestoreEditor, editorValue } from "@/pages/session/file-tab-state"
 import { createSessionTabs } from "@/pages/session/helpers"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { DialogPdfToMarkdown } from "@/components/dialog-pdf-to-markdown"
@@ -72,19 +73,82 @@ export function FileTabContent(props: { tab: string }) {
   const terminal = useTerminal()
   const dialog = useDialog()
 
-  const [isEditing, setIsEditing] = createSignal(false)
-  const [editContent, setEditContent] = createSignal("")
+  const [isEditing, setIsEditingSignal] = createSignal(false)
+  const [editContent, setEditContentSignal] = createSignal("")
   const [isSaving, setIsSaving] = createSignal(false)
-  const [wordWrap, setWordWrap] = createSignal(false)
+  const [wordWrap, setWordWrapSignal] = createSignal(false)
+
+  // 持久化 word wrap 和 isEditing（在文件路径确定后才能读取，延迟初始化）
+  let persistedStateLoaded = false
+  const loadPersistedFileState = () => {
+    if (persistedStateLoaded) return
+    const p = path()
+    if (!p || !file.ready()) return
+    if (!state()?.loaded) return
+    persistedStateLoaded = true
+    const savedWrap = file.wordWrap(p)
+    if (savedWrap != null) setWordWrapSignal(Boolean(savedWrap))
+    const savedEditing = file.isEditing(p)
+    if (
+      canRestoreEditor({
+        ready: file.ready(),
+        loaded: !!state()?.loaded,
+        text: isTextFile(),
+        editing: !!savedEditing,
+      })
+    ) {
+      setEditContentSignal(editorValue({ draft: file.draft(p), content: contents() }))
+      setIsEditingSignal(true)
+      return
+    }
+    if (savedEditing) {
+      file.setIsEditing(p, false)
+      file.clearDraft(p)
+    }
+  }
+
+  const setIsEditing = (val: boolean) => {
+    setIsEditingSignal(val)
+    const p = path()
+    if (p) file.setIsEditing(p, val)
+  }
+
+  const setWordWrap = (val: boolean) => {
+    setWordWrapSignal(val)
+    const p = path()
+    if (p) file.setWordWrap(p, val)
+  }
+
+  const setEditContent = (value: string) => {
+    setEditContentSignal(value)
+    const p = path()
+    if (!p) return
+    file.setDraft(p, value)
+  }
+
+  const setEditorScroll = (pos: { x: number; y: number }) => {
+    const p = path()
+    if (!p) return
+    file.setScrollLeft(p, pos.x)
+    file.setScrollTop(p, pos.y)
+  }
 
   const startEditing = () => {
+    // 进入编辑模式前，从预览视口中心提取文本锚点（用于定位到编辑器对应位置）
+    if (scroll) {
+      const maxScroll = scroll.scrollHeight - scroll.clientHeight
+      switchScrollRatio = maxScroll > 0 ? scroll.scrollTop / maxScroll : 0
+      switchAnchorText = extractPreviewAnchor(scroll, contents())
+    }
     setEditContent(contents())
     setIsEditing(true)
   }
 
   const cancelEditing = () => {
+    const p = path()
     setIsEditing(false)
-    setEditContent("")
+    setEditContentSignal("")
+    if (p) file.clearDraft(p)
   }
 
   const saveEditing = async () => {
@@ -94,7 +158,8 @@ export function FileTabContent(props: { tab: string }) {
     try {
       await sdk.client.file.write({ path: p, content: editContent() })
       setIsEditing(false)
-      setEditContent("")
+      setEditContentSignal("")
+      file.clearDraft(p)
       void file.load(p, { force: true })
       if (params.id) void sync.session.diff(params.id, { force: true })
     } catch (e) {
@@ -121,6 +186,9 @@ export function FileTabContent(props: { tab: string }) {
   let pending: { x: number; y: number } | undefined
   let codeScroll: HTMLElement[] = []
   let find: FileSearchHandle | null = null
+  /** 模式切换时记录的文本锚点（优先）和滚动比例（fallback） */
+  let switchAnchorText: string | null = null
+  let switchScrollRatio: number | null = null
 
   const search = {
     register: (handle: FileSearchHandle | null) => {
@@ -129,6 +197,14 @@ export function FileTabContent(props: { tab: string }) {
   }
 
   const path = createMemo(() => file.pathFromTab(props.tab))
+  const editorScroll = createMemo(() => {
+    const p = path()
+    if (!p) return
+    return {
+      x: file.scrollLeft(p) ?? 0,
+      y: file.scrollTop(p) ?? 0,
+    }
+  })
 
   const isMarkdown = createMemo(() => {
     const p = path()
@@ -340,6 +416,10 @@ export function FileTabContent(props: { tab: string }) {
     on(
       path,
       () => {
+        persistedStateLoaded = false
+        setIsEditingSignal(false)
+        setEditContentSignal("")
+        setWordWrapSignal(false)
         commentsUi.note.reset()
       },
       { defer: true },
@@ -447,6 +527,86 @@ export function FileTabContent(props: { tab: string }) {
     })
   }
 
+  /**
+   * 从预览视口中心提取文本锚点。
+   * 跳过 KaTeX 渲染的数学内容（与原始 LaTeX 文本不同），
+   * 找最接近视口中心的普通文本节点，且该文本存在于原始内容中。
+   */
+  const extractPreviewAnchor = (scrollEl: HTMLDivElement, rawContent: string): string | null => {
+    const scrollRect = scrollEl.getBoundingClientRect()
+    const centerScreenY = scrollRect.top + scrollEl.clientHeight / 2
+
+    const walker = document.createTreeWalker(scrollEl, NodeFilter.SHOW_TEXT)
+    let bestAnchor: string | null = null
+    let bestDist = Infinity
+    let node: Node | null
+
+    while ((node = walker.nextNode())) {
+      const text = node.textContent?.trim() ?? ""
+      if (text.length < 15) continue
+
+      // 跳过 KaTeX 渲染的数学公式内容（渲染后与原始 LaTeX 不同）
+      let el: Element | null = node.parentElement
+      let inMath = false
+      while (el && el !== scrollEl) {
+        if (el.classList?.contains("katex")) { inMath = true; break }
+        el = el.parentElement
+      }
+      if (inMath) continue
+
+      const range = document.createRange()
+      range.selectNodeContents(node)
+      const rects = range.getClientRects()
+      if (!rects.length) continue
+
+      const r = rects[0]
+      const dist = Math.abs((r.top + r.bottom) / 2 - centerScreenY)
+      const candidate = text.slice(0, 35)
+
+      if (dist < bestDist && rawContent.includes(candidate)) {
+        bestDist = dist
+        bestAnchor = candidate
+      }
+    }
+
+    return bestAnchor
+  }
+
+  /**
+   * 在预览 DOM 中搜索锚点文本并滚动到对应位置（居中显示）。
+   * 若未找到则 fallback 到比例定位。
+   * 使用 setTimeout 等待 markdown 渲染完成。
+   */
+  const scrollPreviewToAnchor = (scrollEl: HTMLDivElement, anchor: string | null, ratio: number) => {
+    const doScroll = () => {
+      if (anchor) {
+        const walker = document.createTreeWalker(scrollEl, NodeFilter.SHOW_TEXT)
+        let node: Node | null
+        while ((node = walker.nextNode())) {
+          if (!node.textContent?.includes(anchor.slice(0, 20))) continue
+          const parent = node.parentElement
+          if (!parent) continue
+          const range = document.createRange()
+          range.selectNodeContents(node)
+          const rects = range.getClientRects()
+          if (!rects.length) continue
+          const r = rects[0]
+          const scrollRect = scrollEl.getBoundingClientRect()
+          const nodeScrollY = scrollEl.scrollTop + r.top - scrollRect.top
+          scrollEl.scrollTop = Math.max(0, nodeScrollY - scrollEl.clientHeight / 2 + r.height / 2)
+          return
+        }
+      }
+      // fallback：比例定位
+      const maxScroll = scrollEl.scrollHeight - scrollEl.clientHeight
+      if (maxScroll > 0 && ratio > 0) scrollEl.scrollTop = ratio * maxScroll
+    }
+    // 等待 markdown 渲染（通常同步，但给一帧余量）
+    requestAnimationFrame(() => {
+      doScroll()
+    })
+  }
+
   const handleScroll = (event: Event & { currentTarget: HTMLDivElement }) => {
     if (codeScroll.length === 0) syncCodeScroll()
 
@@ -475,6 +635,8 @@ export function FileTabContent(props: { tab: string }) {
     const restore = (loaded && !prev.loaded) || (ready && !prev.ready) || (active && loaded && !prev.active)
     prev = { loaded, ready, active }
     if (!restore) return
+    // 文件加载完成时，恢复持久化的 wordWrap / isEditing 状态
+    loadPersistedFileState()
     queueRestore()
   })
 
@@ -562,7 +724,7 @@ export function FileTabContent(props: { tab: string }) {
                 onClick={() => {
                   const p = path()
                   if (!p) return
-                  dialog.show(() => <DialogPdfToMarkdown pdfPath={p} />)
+                  dialog.showModeless(() => <DialogPdfToMarkdown pdfPath={p} />)
                 }}
               >
                 转换为 Markdown
@@ -602,7 +764,7 @@ export function FileTabContent(props: { tab: string }) {
               onClick={() => {
                 const p = path()
                 if (!p) return
-                dialog.show(() => <DialogTranslateMarkdown mdPath={p} />)
+                dialog.showModeless(() => <DialogTranslateMarkdown mdPath={p} />)
               }}
             >
               翻译为中文
@@ -615,7 +777,7 @@ export function FileTabContent(props: { tab: string }) {
                 variant={wordWrap() ? "secondary" : "ghost"}
                 size="small"
                 aria-label={wordWrap() ? "关闭自动换行" : "开启自动换行"}
-                onClick={() => setWordWrap((w) => !w)}
+                onClick={() => setWordWrap(!wordWrap())}
               />
             </Tooltip>
           </Show>
@@ -659,7 +821,16 @@ export function FileTabContent(props: { tab: string }) {
             class="h-full min-h-0 flex-1"
             viewportRef={(el: HTMLDivElement) => {
               scroll = el
-              restoreScroll()
+              if (switchAnchorText !== null || switchScrollRatio !== null) {
+                // 从编辑模式切回：用文本锚点定位（fallback 到比例）
+                const anchor = switchAnchorText
+                const ratio = switchScrollRatio ?? 0
+                switchAnchorText = null
+                switchScrollRatio = null
+                scrollPreviewToAnchor(el, anchor, ratio)
+              } else {
+                restoreScroll()
+              }
             }}
             onScroll={handleScroll as any}
           >
@@ -679,6 +850,14 @@ export function FileTabContent(props: { tab: string }) {
           onChange={setEditContent}
           disabled={isSaving()}
           wordWrap={wordWrap()}
+          initialScroll={switchAnchorText === null && switchScrollRatio === null ? editorScroll() : undefined}
+          initialAnchorText={switchAnchorText ?? undefined}
+          initialScrollRatio={switchScrollRatio ?? 0}
+          onScroll={setEditorScroll}
+          onUnmount={(centerText, ratio) => {
+            switchAnchorText = centerText || null
+            switchScrollRatio = ratio
+          }}
         />
       </Show>
     </Tabs.Content>
