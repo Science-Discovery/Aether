@@ -10,6 +10,36 @@ import {
   svgTextFromValue,
 } from "../pierre/media"
 
+// ===== PDF Navigation & Zoom Constants & Functions =====
+export const defaultZoom = 1
+export const minZoom = 0.5
+export const maxZoom = 3
+export const zoomStep = 0.25
+
+export function clampPage(page: number, totalPages: number): number {
+  return Math.max(1, Math.min(page, Math.max(1, totalPages)))
+}
+
+export function nextPage(current: number, totalPages: number): number {
+  return clampPage(current + 1, totalPages)
+}
+
+export function prevPage(current: number, totalPages: number): number {
+  return clampPage(current - 1, totalPages)
+}
+
+export function clampZoom(zoom: number): number {
+  return Math.max(minZoom, Math.min(zoom, maxZoom))
+}
+
+export function zoomIn(current: number): number {
+  return clampZoom(current + zoomStep)
+}
+
+export function zoomOut(current: number): number {
+  return clampZoom(current - zoomStep)
+}
+
 export type FileMediaOptions = {
   mode?: "auto" | "off"
   path?: string
