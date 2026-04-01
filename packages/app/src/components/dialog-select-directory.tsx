@@ -10,7 +10,9 @@ import { createMemo, createResource, createSignal, Show } from "solid-js"
 import { useGlobalSDK } from "@/context/global-sdk"
 import { useGlobalSync } from "@/context/global-sync"
 import { useLayout } from "@/context/layout"
+import { useServer } from "@/context/server"
 import { useLanguage } from "@/context/language"
+import { recentProjectStart } from "@/pages/layout/helpers"
 
 interface DialogSelectDirectoryProps {
   title?: string
@@ -250,6 +252,7 @@ export function DialogSelectDirectory(props: DialogSelectDirectoryProps) {
   const sync = useGlobalSync()
   const sdk = useGlobalSDK()
   const layout = useLayout()
+  const server = useServer()
   const dialog = useDialog()
   const language = useLanguage()
 
@@ -271,9 +274,19 @@ export function DialogSelectDirectory(props: DialogSelectDirectoryProps) {
   )
 
   const home = createMemo(() => sync.data.path.home || fallbackPath()?.home || "")
-  const start = createMemo(
-    () => sync.data.path.home || sync.data.path.directory || fallbackPath()?.home || fallbackPath()?.directory,
-  )
+  const start = createMemo(() => {
+    const lastProject = server.projects.last()
+    const lastProjectList = layout.projects.list()
+    const recent = lastProjectList.find((p) => p.worktree === lastProject)
+    const recentDir = recentProjectStart(recent, home())
+    return (
+      recentDir ||
+      sync.data.path.home ||
+      sync.data.path.directory ||
+      fallbackPath()?.home ||
+      fallbackPath()?.directory
+    )
+  })
 
   const directories = useDirectorySearch({
     sdk,

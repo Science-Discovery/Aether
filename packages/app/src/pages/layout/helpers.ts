@@ -73,6 +73,43 @@ export const errorMessage = (err: unknown, fallback: string) => {
   return fallback
 }
 
+/**
+ * Derive a starting directory for the "open project" dialog from the most
+ * recently used project.  Returns the *parent* of the last project's worktree
+ * so the user lands in the folder that contains sibling projects.
+ *
+ * Returns `undefined` when no recent project is available.
+ */
+export const recentProjectStart = (
+  recent: { worktree: string } | undefined,
+  home: string,
+): string | undefined => {
+  if (!recent) return undefined
+
+  const normalized = recent.worktree.replace(/\\/g, "/")
+  const key = workspaceKey(normalized)
+  const homeKey = workspaceKey(home)
+
+  // If the project is the home directory itself, or directly inside home,
+  // just return home.
+  if (key === homeKey) return home
+
+  // Find the parent directory.
+  const lastSlash = key.lastIndexOf("/")
+  if (lastSlash <= 0) return "/" // POSIX root
+
+  const parent = key.slice(0, lastSlash)
+
+  // If parent is the root of a Windows drive (e.g. "C:"), normalize.
+  if (/^[A-Za-z]:$/.test(parent)) return parent + "/"
+
+  // If parent is the same as (or above) home, just use home.
+  if (parent.length < homeKey.length) return home
+  if (parent === homeKey) return home
+
+  return parent
+}
+
 export const effectiveWorkspaceOrder = (local: string, dirs: string[], persisted?: string[]) => {
   const root = workspaceKey(local)
   const live = new Map<string, string>()

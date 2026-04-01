@@ -13,6 +13,7 @@ import {
   errorMessage,
   hasProjectPermissions,
   latestRootSession,
+  recentProjectStart,
   workspaceKey,
 } from "./helpers"
 
@@ -207,5 +208,53 @@ describe("layout workspace helpers", () => {
     expect(errorMessage({ data: { message: "boom" } }, "fallback")).toBe("boom")
     expect(errorMessage(new Error("broken"), "fallback")).toBe("broken")
     expect(errorMessage("unknown", "fallback")).toBe("fallback")
+  })
+
+  describe("recentProjectStart", () => {
+    test("returns the parent directory of the most recent project", () => {
+      const result = recentProjectStart(
+        { worktree: "/home/user/projects/myapp" },
+        "/home/user",
+      )
+      expect(result).toBe("/home/user/projects")
+    })
+
+    test("returns the parent directory for Windows-style paths", () => {
+      const result = recentProjectStart(
+        { worktree: "C:\\Users\\dev\\code\\myproject" },
+        "C:\\Users\\dev",
+      )
+      // workspaceKey lowercases drive letters
+      expect(result).toBe("c:/users/dev/code")
+    })
+
+    test("returns home when the project is directly inside home", () => {
+      const result = recentProjectStart(
+        { worktree: "/home/user/myapp" },
+        "/home/user",
+      )
+      expect(result).toBe("/home/user")
+    })
+
+    test("returns home when the project equals home", () => {
+      const result = recentProjectStart(
+        { worktree: "/home/user" },
+        "/home/user",
+      )
+      expect(result).toBe("/home/user")
+    })
+
+    test("returns undefined when no recent project is provided", () => {
+      const result = recentProjectStart(undefined, "/home/user")
+      expect(result).toBeUndefined()
+    })
+
+    test("returns root when project is at root level", () => {
+      const result = recentProjectStart(
+        { worktree: "/myapp" },
+        "/",
+      )
+      expect(result).toBe("/")
+    })
   })
 })
