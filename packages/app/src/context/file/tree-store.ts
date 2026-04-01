@@ -26,9 +26,11 @@ export function createFileTreeStore(options: TreeStoreOptions) {
   })
 
   const inflight = new Map<string, Promise<void>>()
+  const version = new Map<string, number>()
 
   const reset = () => {
     inflight.clear()
+    version.clear()
     setTree("node", reconcile({}))
     setTree("dir", reconcile({}))
     setTree("dir", "", { expanded: true })
@@ -46,8 +48,15 @@ export function createFileTreeStore(options: TreeStoreOptions) {
     const current = tree.dir[dir]
     if (!opts?.force && current?.loaded) return Promise.resolve()
 
-    const pending = inflight.get(dir)
-    if (pending) return pending
+    if (!opts?.force) {
+      const pending = inflight.get(dir)
+      if (pending) return pending
+    }
+
+    if (opts?.force) {
+      version.set(dir, (version.get(dir) ?? 0) + 1)
+    }
+    const ver = version.get(dir) ?? 0
 
     setTree(
       "dir",
@@ -64,6 +73,7 @@ export function createFileTreeStore(options: TreeStoreOptions) {
       .list(dir)
       .then((nodes) => {
         if (options.scope() !== directory) return
+        if ((version.get(dir) ?? 0) !== ver) return
         const prevChildren = tree.dir[dir]?.children ?? []
         const nextChildren = nodes.map((node) => node.path)
         const nextSet = new Set(nextChildren)
@@ -109,6 +119,7 @@ export function createFileTreeStore(options: TreeStoreOptions) {
       })
       .catch((e) => {
         if (options.scope() !== directory) return
+        if ((version.get(dir) ?? 0) !== ver) return
         setTree(
           "dir",
           dir,

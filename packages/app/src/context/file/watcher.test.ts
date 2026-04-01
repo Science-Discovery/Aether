@@ -146,4 +146,78 @@ describe("file watcher invalidation", () => {
 
     expect(refresh).toEqual([])
   })
+
+  test("refreshes root when file added at root level", () => {
+    const refresh: string[] = []
+
+    invalidateFromWatcher(
+      {
+        type: "file.watcher.updated",
+        properties: {
+          file: "new-file.ts",
+          event: "add",
+        },
+      },
+      {
+        normalize: (input) => input,
+        hasFile: () => false,
+        loadFile: () => {},
+        node: () => undefined,
+        isDirLoaded: (path) => path === "",
+        refreshDir: (path) => refresh.push(path),
+      },
+    )
+
+    expect(refresh).toEqual([""])
+  })
+
+  test("walks up to nearest loaded ancestor for deeply nested new file", () => {
+    const refresh: string[] = []
+
+    invalidateFromWatcher(
+      {
+        type: "file.watcher.updated",
+        properties: {
+          file: "src/components/ui/button.tsx",
+          event: "add",
+        },
+      },
+      {
+        normalize: (input) => input,
+        hasFile: () => false,
+        loadFile: () => {},
+        node: () => undefined,
+        isDirLoaded: (path) => path === "src",
+        refreshDir: (path) => refresh.push(path),
+      },
+    )
+
+    expect(refresh).toEqual(["src"])
+  })
+
+  test("closes tab on unlink event", () => {
+    const closed: string[] = []
+
+    invalidateFromWatcher(
+      {
+        type: "file.watcher.updated",
+        properties: {
+          file: "src/deleted.ts",
+          event: "unlink",
+        },
+      },
+      {
+        normalize: (input) => input,
+        hasFile: () => false,
+        isOpen: (path) => path === "src/deleted.ts",
+        loadFile: () => {},
+        closeFile: (path) => closed.push(path),
+        node: () => undefined,
+        isDirLoaded: (path) => path === "src",
+        refreshDir: () => {},
+      },
+    )
+
+    expect(closed).toEqual(["src/deleted.ts"])
+  })
 })
