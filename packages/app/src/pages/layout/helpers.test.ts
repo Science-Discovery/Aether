@@ -5,6 +5,7 @@ import {
   drainPendingDeepLinks,
   parseDeepLink,
   parseNewSessionDeepLink,
+  parseServerUrl,
 } from "./deep-links"
 import { type Session } from "@opencode-ai/sdk/v2/client"
 import {
@@ -207,5 +208,35 @@ describe("layout workspace helpers", () => {
     expect(errorMessage({ data: { message: "boom" } }, "fallback")).toBe("boom")
     expect(errorMessage(new Error("broken"), "fallback")).toBe("broken")
     expect(errorMessage("unknown", "fallback")).toBe("fallback")
+  })
+})
+
+describe("layout server URL parsing", () => {
+  test("parses http URL as server connection", () => {
+    expect(parseServerUrl("http://localhost:3000")).toEqual({ url: "http://localhost:3000" })
+    expect(parseServerUrl("https://my-server.example.com:8080")).toEqual({ url: "https://my-server.example.com:8080" })
+  })
+
+  test("parses URL without protocol (auto-adds http://)", () => {
+    expect(parseServerUrl("192.168.1.100:3000")).toEqual({ url: "http://192.168.1.100:3000" })
+    expect(parseServerUrl("my-server.com")).toEqual({ url: "http://my-server.com" })
+  })
+
+  test("parses URL with credentials", () => {
+    expect(parseServerUrl("http://user:pass@localhost:3000")).toEqual({
+      url: "http://localhost:3000",
+      username: "user",
+      password: "pass",
+    })
+  })
+
+  test("rejects non-URL strings", () => {
+    expect(parseServerUrl("/just/a/path")).toBeUndefined()
+    expect(parseServerUrl("")).toBeUndefined()
+    expect(parseServerUrl("   ")).toBeUndefined()
+  })
+
+  test("rejects opencode:// protocol", () => {
+    expect(parseServerUrl("opencode://open-project?directory=/tmp")).toBeUndefined()
   })
 })
