@@ -5,6 +5,7 @@
 import path from "path"
 import type { PageRenderResult } from "./types"
 import { Log } from "../util/log"
+import { getAllPythonCandidates } from "../util/python-resolver"
 
 const log = Log.create({ service: "pdf-renderer" })
 
@@ -14,11 +15,11 @@ const RENDER_SCRIPT = path.join(import.meta.dir, "python", "render_page.py")
 /** 检测可用的 Python 命令 */
 let cachedPythonPath: string | null | undefined = undefined
 
-export async function findPython(): Promise<string | null> {
+export async function findPython(projectDir?: string): Promise<string | null> {
   if (cachedPythonPath !== undefined) return cachedPythonPath
 
-  // 也尝试常见的绝对路径
-  const candidates = ["python3", "python", "/usr/bin/python3", "/usr/local/bin/python3"]
+  // Use cross-platform candidates with venv detection
+  const candidates = getAllPythonCandidates(projectDir)
   for (const cmd of candidates) {
     try {
       const proc = Bun.spawn([cmd, "-c", "import fitz; from PIL import Image; print('ok')"], {
@@ -41,12 +42,13 @@ export async function findPython(): Promise<string | null> {
 }
 
 /** 检查 Python 环境是否可用 */
-export async function checkPythonAvailable(): Promise<{
+export async function checkPythonAvailable(projectDir?: string): Promise<{
   available: boolean
   pythonPath: string | null
   missingDeps: string[]
 }> {
-  for (const cmd of ["python3", "python", "/usr/bin/python3", "/usr/local/bin/python3"]) {
+  const candidates = getAllPythonCandidates(projectDir)
+  for (const cmd of candidates) {
     try {
       const proc = Bun.spawn(
         [cmd, "-c", "import sys; print(sys.version); import fitz; from PIL import Image; print('deps_ok')"],
@@ -78,7 +80,10 @@ export async function checkPythonAvailable(): Promise<{
       // 继续
     }
   }
-  return { available: false, pythonPath: null, missingDeps: ["Python3", "PyMuPDF", "Pillow"] }
+  const defaultMissing = process.platform === "win32"
+    ? ["Python", "PyMuPDF", "Pillow"]
+    : ["Python3", "PyMuPDF", "Pillow"]
+  return { available: false, pythonPath: null, missingDeps: defaultMissing }
 }
 
 /** 调用 Python 脚本渲染 PDF 页面 */
@@ -88,9 +93,12 @@ export async function renderPage(
   outputDir: string,
   dpi: number = 400,
 ): Promise<PageRenderResult> {
-  const pythonPath = await findPython()
+  // Derive project directory from the PDF file's parent directory for venv detection
+  const projectDir = path.dirname(pdfPath)
+  const pythonPath = await findPython(projectDir)
   if (!pythonPath) {
-    throw new Error("Python 环境不可用，请安装 Python3、PyMuPDF 和 Pillow")
+    const pythonName = process.platform === "win32" ? "Python" : "Python3"
+    throw new Error(`${pythonName} 环境不可用，请安装 ${pythonName}、PyMuPDF 和 Pillow`)
   }
 
   const input = JSON.stringify({

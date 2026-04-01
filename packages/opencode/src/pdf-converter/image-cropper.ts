@@ -16,9 +16,12 @@ export async function cropImage(
   bbox: [number, number, number, number],
   outputPath: string,
 ): Promise<CropResult> {
-  const pythonPath = await findPython()
+  // Derive project directory from the image file's parent for venv detection
+  const projectDir = path.dirname(imagePath)
+  const pythonPath = await findPython(projectDir)
   if (!pythonPath) {
-    throw new Error("Python 环境不可用")
+    const pythonName = process.platform === "win32" ? "Python" : "Python3"
+    throw new Error(`${pythonName} 环境不可用`)
   }
 
   const input = JSON.stringify({
