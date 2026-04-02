@@ -39,7 +39,7 @@ import { createOpenSessionFileTab, createSessionTabs, getTabReorderIndex, type S
 import { setSessionHandoff } from "@/pages/session/handoff"
 import { useSessionLayout } from "@/pages/session/session-layout"
 import { save } from "./download"
-import { fromDir, fromDrop, fromList, isExternal, send, withTarget } from "./upload"
+import { fromDir, fromDrop, fromList, isExternal, send } from "./upload"
 import type { FileNode } from "@opencode-ai/sdk/v2"
 
 export function SessionSidePanel(props: {
@@ -684,9 +684,13 @@ export function SessionSidePanel(props: {
     }
   }
 
-  const pickFiles = () => fileInput?.click()
+  const pickFiles = () => {
+    uploadTarget = ""
+    fileInput?.click()
+  }
 
   const pickDir = async () => {
+    uploadTarget = ""
     if (typeof window !== "undefined" && "showDirectoryPicker" in window) {
       try {
         const pick = window.showDirectoryPicker as () => Promise<FileSystemDirectoryHandle>
@@ -713,7 +717,7 @@ export function SessionSidePanel(props: {
         try {
           const pick = window.showDirectoryPicker as () => Promise<FileSystemDirectoryHandle>
           const handle = await pick()
-          await upload(withTarget(await fromDir(handle), dir), dir)
+          await upload(await fromDir(handle), dir)
           uploadTarget = ""
           return
         } catch (err) {
@@ -737,14 +741,14 @@ export function SessionSidePanel(props: {
     if (!list || list.length === 0) return
     const target = uploadTarget
     uploadTarget = ""
-    await upload(withTarget(fromList(list), target), target)
+    await upload(fromList(list), target)
   }
 
   const uploadDirs = async (list: FileList | null) => {
     if (!list || list.length === 0) return
     const target = uploadTarget
     uploadTarget = ""
-    await upload(withTarget(fromList(list), target), target)
+    await upload(fromList(list), target)
   }
 
   const handleUploadDrop = async (event: globalThis.DragEvent, dir: string) => {

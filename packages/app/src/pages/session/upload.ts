@@ -139,14 +139,6 @@ const fromEntry = async (item: WebEntry, root = ""): Promise<Batch> => {
   }
 }
 
-export const withTarget = (batch: Batch, target: string): Batch => {
-  if (!target) return batch
-  return {
-    dirs: batch.dirs.map((d) => `${target}/${d}`),
-    files: batch.files.map((f) => ({ ...f, path: `${target}/${f.path}` })),
-  }
-}
-
 export const isExternal = (data: DataTransfer | null | undefined) => !!data?.types.includes("Files")
 
 export const fromList = (list: Iterable<File>) =>

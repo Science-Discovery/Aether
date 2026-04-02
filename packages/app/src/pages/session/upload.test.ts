@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { fromList, isExternal, merge, withTarget, type Batch } from "./upload"
+import { fromList, isExternal, merge, send, type Batch } from "./upload"
 
 const withPath = (file: File, path: string) => {
   Object.defineProperty(file, "webkitRelativePath", {
@@ -41,7 +41,7 @@ describe("session upload helpers", () => {
     expect(out.dirs).toEqual(["src", "lib"])
   })
 
-  test("withTarget rewrites batch paths under a directory", () => {
+  test("send keeps target separate from relative upload paths", async () => {
     const batch: Batch = {
       dirs: ["docs"],
       files: [
@@ -49,19 +49,24 @@ describe("session upload helpers", () => {
         { path: "readme.md", file: new File(["r"], "readme.md") },
       ],
     }
-    const out = withTarget(batch, "subdir")
-    expect(out.files.map((f) => f.path)).toEqual(["subdir/docs/a.txt", "subdir/readme.md"])
-    expect(out.dirs).toEqual(["subdir/docs"])
-  })
-
-  test("withTarget with empty target returns batch unchanged", () => {
-    const batch: Batch = {
-      dirs: ["docs"],
-      files: [{ path: "docs/a.txt", file: new File(["a"], "a.txt") }],
-    }
-    const out = withTarget(batch, "")
-    expect(out.files.map((f) => f.path)).toEqual(["docs/a.txt"])
-    expect(out.dirs).toEqual(["docs"])
+    let body: FormData | undefined
+    const req = Object.assign(
+      async (...args: Parameters<typeof fetch>) => {
+        body = args[1]?.body as FormData
+        return new Response(JSON.stringify({ ok: true, dirs: 1, created: 2, updated: 0, failed: [] }))
+      },
+      { preconnect: fetch.preconnect },
+    ) satisfies typeof fetch
+    await send({
+      url: "http://localhost:3000",
+      dir: "repo",
+      target: "subdir",
+      batch,
+      fetch: req,
+    })
+    expect(body?.get("target")).toBe("subdir")
+    expect(JSON.parse(body?.get("dirs") as string)).toEqual(["docs"])
+    expect(JSON.parse(body?.get("paths") as string)).toEqual(["docs/a.txt", "readme.md"])
   })
 
   test("batch size tracks total files and dirs", () => {
