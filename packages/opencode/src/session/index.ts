@@ -1,4 +1,5 @@
 import { Slug } from "@opencode-ai/util/slug"
+import fs from "fs/promises"
 import path from "path"
 import { BusEvent } from "@/bus/bus-event"
 import { Bus } from "@/bus"
@@ -45,6 +46,10 @@ export namespace Session {
 
   function createDefaultTitle(isChild = false) {
     return (isChild ? childTitlePrefix : parentTitlePrefix) + new Date().toISOString()
+  }
+
+  function readingModeDir(sessionID: string) {
+    return path.join(Global.Path.data, "reading-mode", sessionID)
   }
 
   export function isDefaultTitle(title: string) {
@@ -664,6 +669,18 @@ export namespace Session {
       for (const child of await children(sessionID)) {
         await remove(child.id)
       }
+
+      if (session.readingMode) {
+        const dir = readingModeDir(sessionID)
+        await fs.rm(dir, { recursive: true, force: true }).catch((error) => {
+          log.error("failed to remove reading mode session directory", {
+            sessionID,
+            dir,
+            error,
+          })
+        })
+      }
+
       await unshare(sessionID).catch(() => {})
 
       SyncEvent.run(Event.Deleted, { sessionID, info: session })
