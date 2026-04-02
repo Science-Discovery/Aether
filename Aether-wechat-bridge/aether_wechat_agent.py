@@ -177,6 +177,8 @@ class AetherAgent(Agent):
         self._conv_dirs: dict[str, str] = {}
         self._fresh: set[str] = set()
         self._pending_questions: dict[str, dict] = {}
+        self._pending_permissions: dict[str, dict] = {}
+        self._tasks: dict[str, object] = {}
         self._sse_tasks: dict[str, object] = {}
         self._accumulated_text: dict[str, str] = {}
         self._question_queues: dict[str, object] = {}
@@ -334,6 +336,14 @@ class AetherAgent(Agent):
                 task = pending.get("task")
                 if task and not task.done():
                     task.cancel()
+            pending = self._pending_permissions.pop(conv_id, None)
+            if pending:
+                task = pending.get("task")
+                if task and not task.done():
+                    task.cancel()
+            task = self._tasks.pop(conv_id, None)
+            if task and not task.done():
+                task.cancel()
             sse = self._sse_tasks.pop(conv_id, None)
             if sse and not sse.done():
                 sse.cancel()
@@ -533,6 +543,9 @@ class AetherAgent(Agent):
         if conv_id in self._pending_questions:
             return await self._handle_question_reply(conv_id, user_text)
 
+        if conv_id in self._pending_permissions:
+            return await self._handle_permission_reply(conv_id, user_text)
+
         try:
             directory = self._conv_dirs.get(conv_id) or self.directory
             session_id = self._sessions.get(conv_id)
@@ -546,6 +559,14 @@ class AetherAgent(Agent):
                     f"{'创建' if created else '选择'}会话: {session_id[:8]}... dir={directory}"
                 )
 
+            pending = await self._sync_pending(conv_id, session_id, directory)
+            if pending:
+                return ChatResponse(text=pending)
+
+            task = self._tasks.get(conv_id)
+            if task and not task.done():
+                return ChatResponse(text=self._format_busy_reply(conv_id))
+
             model = self._conv_models.get(conv_id) or self.default_model
 
             q: asyncio.Queue = asyncio.Queue()
@@ -557,6 +578,7 @@ class AetherAgent(Agent):
                     session_id, user_text, model=model, directory=directory
                 )
             )
+            self._tasks[conv_id] = task
             sse_task = asyncio.create_task(
                 self._monitor_sse(conv_id, session_id, directory, task, q)
             )
@@ -619,6 +641,11 @@ class AetherAgent(Agent):
                             logger.info(f"[SSE] question.asked -> {conv_id}")
                             await q.put(("question", props))
 
+                    elif event_type == "permission.asked":
+                        if props.get("sessionID") == session_id:
+                            logger.info(f"[SSE] permission.asked -> {conv_id}")
+                            await q.put(("permission", props))
+
         except asyncio.CancelledError:
             pass
         except Exception as e:
@@ -662,11 +689,31 @@ class AetherAgent(Agent):
                 logger.info(f"[question] 推送问题到微信 {conv_id}")
                 return ChatResponse(text=self._format_question_request(data))
 
+            if kind == "permission":
+                text_so_far = self._accumulated_text.pop(conv_id, "").strip()
+                if text_so_far and self._message_sender:
+                    try:
+                        await self._message_sender(text_so_far)
+                    except Exception as e:
+                        logger.warning(f"推送中间文本失败: {e}")
+                self._pending_permissions[conv_id] = {
+                    "id": data["id"],
+                    "permission": data,
+                    "task": task,
+                    "session_id": session_id,
+                    "directory": directory,
+                    "queue": q,
+                }
+                logger.info(f"[permission] 推送授权到微信 {conv_id}")
+                return ChatResponse(text=self._format_permission_request(data))
+
         sse_task = self._sse_tasks.pop(conv_id, None)
         if sse_task and not sse_task.done():
             sse_task.cancel()
+        self._tasks.pop(conv_id, None)
         self._question_queues.pop(conv_id, None)
         self._accumulated_text.pop(conv_id, None)
+        self._pending_permissions.pop(conv_id, None)
 
         try:
             result = await task
@@ -700,8 +747,25 @@ class AetherAgent(Agent):
                         "queue": None,
                     }
                     return ChatResponse(text=self._format_question_request(question))
+                permission = await self._poll_permission_for_session(
+                    session_id, directory
+                )
+                if permission:
+                    self._pending_permissions[conv_id] = {
+                        "id": permission["id"],
+                        "permission": permission,
+                        "task": task,
+                        "session_id": session_id,
+                        "directory": directory,
+                        "queue": None,
+                    }
+                    return ChatResponse(
+                        text=self._format_permission_request(permission)
+                    )
             except Exception as e:
                 logger.warning(f"轮询问题失败: {e}")
+        self._tasks.pop(conv_id, None)
+        self._pending_permissions.pop(conv_id, None)
         try:
             result = await task
             return ChatResponse(text=result.get("formatted", "操作已完成"))
@@ -724,6 +788,61 @@ class AetherAgent(Agent):
                 return q
         return None
 
+    async def _poll_permission_for_session(
+        self, session_id: str, directory: str = ""
+    ) -> Optional[dict]:
+        """查询指定 session 下是否有待授权的请求"""
+        headers = (
+            {"x-opencode-directory": quote(directory, safe="")} if directory else {}
+        )
+        resp = await self._client.get(f"{self.base_url}/permission", headers=headers)
+        resp.raise_for_status()
+        for item in resp.json():
+            if item.get("sessionID") == session_id:
+                return item
+        return None
+
+    async def _sync_pending(
+        self, conv_id: str, session_id: str, directory: str
+    ) -> Optional[str]:
+        question = await self._poll_question_for_session(session_id, directory)
+        if question:
+            self._pending_questions[conv_id] = {
+                "id": question["id"],
+                "questions": question.get("questions", []),
+                "task": None,
+                "session_id": session_id,
+                "directory": directory,
+                "queue": None,
+            }
+            return self._format_question_request(question)
+
+        permission = await self._poll_permission_for_session(session_id, directory)
+        if permission:
+            self._pending_permissions[conv_id] = {
+                "id": permission["id"],
+                "permission": permission,
+                "task": None,
+                "session_id": session_id,
+                "directory": directory,
+                "queue": None,
+            }
+            return self._format_permission_request(permission)
+
+        return None
+
+    def _format_busy_reply(self, conv_id: str) -> str:
+        if conv_id in self._pending_questions:
+            state = "等待你的回答"
+        elif conv_id in self._pending_permissions:
+            state = "等待你的授权"
+        else:
+            state = "正在生成回复"
+        return (
+            f"当前会话{state}，请等待当前对话结束后再发送；"
+            "如需立即开始新问题，请先 /new 或切换 /session n。"
+        )
+
     def _format_question_request(self, question: dict) -> str:
         """将 agent 问题格式化为微信消息"""
         infos = question.get("questions", [])
@@ -743,7 +862,26 @@ class AetherAgent(Agent):
                     suffix = "：" + desc if desc else ""
                     parts.append(f"  {j}. {label}{suffix}")
         parts.append("")
-        parts.append("请直接回复答案（输入数字选择选项，或直接输入自定义答案）")
+        parts.append("请直接回复数字编号。")
+        parts.append("如需立即开始新问题，请先 /new 或切换 /session n。")
+        return chr(10).join(parts)
+
+    def _format_permission_request(self, permission: dict) -> str:
+        """将授权请求格式化为微信消息"""
+        parts = ["🔐 当前操作需要你的授权：", ""]
+        name = permission.get("permission", "未知权限")
+        parts.append(f"权限：{name}")
+        patterns = permission.get("patterns", [])
+        if patterns:
+            parts.append("范围：")
+            for item in patterns:
+                parts.append(f"  - {item}")
+        parts.append("")
+        parts.append("请直接回复：")
+        parts.append("1. 允许一次（仅这次）")
+        parts.append("2. 始终允许（后续同类操作自动通过）")
+        parts.append("3. 拒绝（本次不允许执行）")
+        parts.append("如需立即开始新问题，请先 /new 或切换 /session n。")
         return chr(10).join(parts)
 
     async def _handle_question_reply(
@@ -759,6 +897,12 @@ class AetherAgent(Agent):
         q = pending.get("queue")
 
         answers = self._parse_question_answers(user_text, questions)
+        if answers is None:
+            self._pending_questions[conv_id] = pending
+            return ChatResponse(
+                text="未识别，请回复数字编号。\n\n"
+                + self._format_question_request({"questions": questions})
+            )
         try:
             headers = (
                 {"x-opencode-directory": quote(directory, safe="")} if directory else {}
@@ -776,6 +920,9 @@ class AetherAgent(Agent):
             err_msg = f"❌ 提交答案失败: {e}"
             return ChatResponse(text=err_msg + chr(10) + "请重新发送您的答案。")
 
+        if task is None:
+            return ChatResponse(text="已提交回答，请等待当前对话继续处理。")
+
         if q is not None:
             return await self._wait_for_response(
                 conv_id, session_id, directory, task, q
@@ -785,22 +932,98 @@ class AetherAgent(Agent):
                 conv_id, session_id, directory, task
             )
 
-    def _parse_question_answers(self, user_text: str, questions: list) -> list:
+    async def _handle_permission_reply(
+        self, conv_id: str, user_text: str
+    ) -> ChatResponse:
+        """处理用户对授权请求的回答"""
+        pending = self._pending_permissions.pop(conv_id)
+        request_id = pending["id"]
+        task = pending["task"]
+        session_id = pending["session_id"]
+        directory = pending.get("directory", "")
+        q = pending.get("queue")
+
+        reply = self._parse_permission_reply(user_text)
+        if not reply:
+            self._pending_permissions[conv_id] = pending
+            return ChatResponse(
+                text="未识别，请回复数字编号。\n\n"
+                + self._format_permission_request(pending["permission"])
+            )
+
+        try:
+            headers = (
+                {"x-opencode-directory": quote(directory, safe="")} if directory else {}
+            )
+            resp = await self._client.post(
+                f"{self.base_url}/permission/{request_id}/reply",
+                json={"reply": reply},
+                headers=headers,
+            )
+            resp.raise_for_status()
+            logger.info(f"[permission] 已回复 {request_id}: {reply}")
+        except Exception as e:
+            logger.error(f"回复授权失败: {e}")
+            self._pending_permissions[conv_id] = pending
+            return ChatResponse(text=f"❌ 提交授权失败: {e}\n请重新发送您的选择。")
+
+        if task is None:
+            return ChatResponse(
+                text={
+                    "once": "已收到授权：允许一次，请等待当前对话继续处理。",
+                    "always": "已收到授权：始终允许，请等待当前对话继续处理。",
+                    "reject": "已提交拒绝，请等待当前对话继续处理。",
+                }[reply]
+            )
+
+        if self._message_sender:
+            try:
+                notice = {
+                    "once": "已收到授权：允许一次，继续处理中。",
+                    "always": "已收到授权：始终允许，继续处理中。",
+                    "reject": "已收到你的选择：拒绝，正在继续处理。",
+                }[reply]
+                await self._message_sender(notice)
+            except Exception as e:
+                logger.warning(f"推送授权确认失败: {e}")
+
+        if q is not None:
+            return await self._wait_for_response(
+                conv_id, session_id, directory, task, q
+            )
+        else:
+            return await self._wait_for_response_polling(
+                conv_id, session_id, directory, task
+            )
+
+    def _parse_question_answers(
+        self, user_text: str, questions: list
+    ) -> Optional[list]:
         """解析用户答案（每个问题一个答案数组）"""
         text = user_text.strip()
+        if not text.isdigit():
+            return None
         answers = []
         for info in questions:
             options = info.get("options", [])
-            answer = [text]
-            if options:
-                try:
-                    idx = int(text) - 1
-                    if 0 <= idx < len(options):
-                        answer = [options[idx]["label"]]
-                except ValueError:
-                    pass
+            if not options:
+                return None
+            idx = int(text) - 1
+            if idx < 0 or idx >= len(options):
+                return None
+            answer = [options[idx]["label"]]
             answers.append(answer)
         return answers
+
+    def _parse_permission_reply(self, user_text: str) -> Optional[str]:
+        text = user_text.strip()
+        if text == "1":
+            return "once"
+        if text == "2":
+            return "always"
+        if text == "3":
+            return "reject"
+        return None
 
     async def _create_session(self, directory: str = "") -> str:
         headers = (
