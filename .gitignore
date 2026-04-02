@@ -33,3 +33,5 @@ tsconfig.tsbuildinfo
 textbox/
 handouts/
 Aether-wechat-bridge/.venv/
+__pycache__/
+*.pyc
