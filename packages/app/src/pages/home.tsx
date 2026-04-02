@@ -25,10 +25,7 @@ export default function Home() {
   const language = useLanguage()
   const homedir = createMemo(() => sync.data.path.home)
   const recent = createMemo(() => {
-    return sync.data.project
-      .slice()
-      .sort((a, b) => (b.time.updated ?? b.time.created) - (a.time.updated ?? a.time.created))
-      .slice(0, 5)
+    return sync.project.recent().slice(0, 5)
   })
 
   const serverDotClass = createMemo(() => {
@@ -103,7 +100,7 @@ export default function Home() {
         {server.name}
       </Button>
       <Switch>
-        <Match when={sync.data.project.length > 0}>
+        <Match when={recent().length > 0}>
           <div class="mt-20 w-full flex flex-col gap-4">
             <div class="flex gap-2 items-center justify-between pl-3">
               <div class="text-14-medium text-text-strong">{language.t("home.recentProjects")}</div>
@@ -120,16 +117,16 @@ export default function Home() {
             </div>
             <ul class="flex flex-col gap-2">
               <For each={recent()}>
-                {(project) => (
+                {(item) => (
                   <Button
                     size="large"
                     variant="ghost"
                     class="text-14-mono text-left justify-between px-3"
-                    onClick={() => openProject(project.worktree)}
+                    onClick={() => openProject(item.directory)}
                   >
-                    {project.worktree.replace(homedir(), "~")}
+                    {item.directory.replace(homedir(), "~")}
                     <div class="text-14-regular text-text-weak">
-                      {DateTime.fromMillis(project.time.updated ?? project.time.created).toRelative()}
+                      {DateTime.fromMillis(item.time.activity).toRelative()}
                     </div>
                   </Button>
                 )}

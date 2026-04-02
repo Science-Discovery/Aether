@@ -1,6 +1,6 @@
 import z from "zod"
 import { and, Database, eq } from "../storage/db"
-import { ProjectTable } from "./project.sql"
+import { ProjectRecentTable, ProjectTable } from "./project.sql"
 import { SessionTable } from "../session/session.sql"
 import { Log } from "../util/log"
 import { Flag } from "@/flag/flag"
@@ -14,6 +14,7 @@ import { NodeFileSystem, NodePath } from "@effect/platform-node"
 import { makeRuntime } from "@/effect/run-service"
 import { AppFileSystem } from "@/filesystem"
 import * as CrossSpawnSpawner from "@/effect/cross-spawn-spawner"
+import { Hash } from "@/util/hash"
 
 export namespace Project {
   const log = Log.create({ service: "project" })
@@ -48,30 +49,314 @@ export namespace Project {
     })
   export type Info = z.infer<typeof Info>
 
+  export const RecentInfo = z
+    .object({
+      id: z.string(),
+      kind: z.enum(["project", "directory"]),
+      projectID: ProjectID.zod.optional(),
+      directory: z.string(),
+      worktree: z.string().optional(),
+      vcs: z.literal("git").optional(),
+      name: z.string().optional(),
+      icon: Info.shape.icon.optional(),
+      commands: Info.shape.commands.optional(),
+      time: z.object({
+        activity: z.number(),
+        created: z.number().optional(),
+        updated: z.number().optional(),
+      }),
+    })
+    .meta({
+      ref: "ProjectRecent",
+    })
+  export type RecentInfo = z.infer<typeof RecentInfo>
+
   export const Event = {
     Updated: BusEvent.define("project.updated", Info),
+    RecentUpdated: BusEvent.define("project.recent.updated", z.object({})),
   }
 
   type Row = typeof ProjectTable.$inferSelect
+  type RecentRow = {
+    kind: string | null
+    project_id: string | null
+    directory: string | null
+    activity_at: number | null
+    worktree: string | null
+    vcs: string | null
+    name: string | null
+    icon_url: string | null
+    icon_color: string | null
+    time_created: number | null
+    time_updated: number | null
+    commands: string | null
+  }
+
+  type RecentEntry = {
+    id: string
+    kind: "project" | "directory"
+    projectID?: ProjectID
+    directory: string
+    worktree?: string
+    vcs?: Info["vcs"]
+    name?: string
+    icon?: Info["icon"]
+    commands?: Info["commands"]
+    time: RecentInfo["time"]
+  }
+
+  function norm(input: string) {
+    const next = input.replace(/\\/g, "/")
+    const trim = /^\/+$/g.test(next) ? "/" : next.replace(/\/+$/, "")
+    if (/^[A-Za-z]:/.test(trim)) return trim[0].toLowerCase() + trim.slice(1)
+    return trim
+  }
+
+  function name(input: string) {
+    return input.replace(/\\/g, "/").replace(/\/+$/, "").split("/").pop() || input
+  }
+
+  function dirID(input: string) {
+    return `dir:${Hash.fast(norm(input))}`
+  }
+
+  function dirKey(input: string) {
+    return `dir:${norm(input)}`
+  }
+
+  function projectKey(id: string) {
+    return `project:${id}`
+  }
+
+  function skipDir(input: string) {
+    if (!input) return true
+    const next = norm(input)
+    if (next === "/" || next === "\\") return true
+    return ["/bin", "/dist", "\\bin", "\\dist"].some((item) => next.endsWith(item))
+  }
+
+  function rowIcon(row: {
+    icon_url?: string | null
+    icon_color?: string | null
+  }) {
+    if (!row.icon_url && !row.icon_color) return
+    return {
+      url: row.icon_url ?? undefined,
+      color: row.icon_color ?? undefined,
+    } satisfies Info["icon"]
+  }
+
+  function rowCommands(row: { commands?: string | { start?: string } | null }) {
+    if (!row.commands) return
+    if (typeof row.commands === "string") return JSON.parse(row.commands) as Info["commands"]
+    return row.commands
+  }
+
+  function canonical() {
+    return Database.use((db) => db.select().from(ProjectTable).all())
+      .map(fromRow)
+      .sort((a, b) => a.id.localeCompare(b.id))
+  }
+
+  function rawRecent(client: { prepare: (sql: string) => { all: () => unknown[]; get: () => unknown } }) {
+    const hasRecent = client
+      .prepare(`select 1 as ok from sqlite_master where type = 'table' and name = 'project_recent'`)
+      .get() as { ok?: number } | undefined
+    if (hasRecent?.ok) {
+      return client.prepare(
+        `select
+          r.kind as kind,
+          r.project_id as project_id,
+          r.directory as directory,
+          r.activity_at as activity_at,
+          p.worktree as worktree,
+          p.vcs as vcs,
+          p.name as name,
+          p.icon_url as icon_url,
+          p.icon_color as icon_color,
+          p.time_created as time_created,
+          p.time_updated as time_updated,
+          p.commands as commands
+        from project_recent r
+        left join project p on p.id = r.project_id`,
+      ).all() as RecentRow[]
+    }
+
+    const ps = client.prepare(
+      `select
+        'project' as kind,
+        p.id as project_id,
+        p.worktree as directory,
+        max(coalesce(p.time_updated, 0), coalesce(p.time_created, 0), coalesce(s.time_updated, 0)) as activity_at,
+        p.worktree as worktree,
+        p.vcs as vcs,
+        p.name as name,
+        p.icon_url as icon_url,
+        p.icon_color as icon_color,
+        p.time_created as time_created,
+        p.time_updated as time_updated,
+        p.commands as commands
+      from project p
+      left join (
+        select directory, max(time_updated) as time_updated
+        from session
+        where directory is not null and directory != '/'
+        group by directory
+      ) s on s.directory = p.worktree
+      where p.worktree is not null and p.worktree != '/'`,
+    ).all() as RecentRow[]
+    const ss = client.prepare(
+      `select
+        'directory' as kind,
+        null as project_id,
+        directory as directory,
+        max(time_updated) as activity_at,
+        null as worktree,
+        null as vcs,
+        null as name,
+        null as icon_url,
+        null as icon_color,
+        null as time_created,
+        null as time_updated,
+        null as commands
+      from session
+      where directory is not null and directory != '/'
+      group by directory`,
+    ).all() as RecentRow[]
+    return [...ps, ...ss]
+  }
+
+  function addRecent(map: Map<string, RecentEntry>, next: RecentEntry) {
+    const prev = map.get(next.id)
+    if (!prev) {
+      map.set(next.id, next)
+      return
+    }
+    const lead = next.time.activity >= prev.time.activity ? next : prev
+    const tail = lead === next ? prev : next
+    map.set(next.id, {
+      id: next.id,
+      kind: prev.kind === "project" || next.kind === "project" ? "project" : "directory",
+      projectID: lead.projectID ?? tail.projectID,
+      directory: lead.directory || tail.directory,
+      worktree: lead.worktree ?? tail.worktree,
+      vcs: lead.vcs ?? tail.vcs,
+      name: lead.name ?? tail.name,
+      icon: lead.icon ?? tail.icon,
+      commands: lead.commands ?? tail.commands,
+      time: {
+        activity: Math.max(prev.time.activity, next.time.activity),
+        created: lead.time.created ?? tail.time.created,
+        updated: lead.time.updated ?? tail.time.updated,
+      },
+    })
+  }
+
+  function recent() {
+    const canon = canonical()
+    const byId = new Map(canon.map((item) => [item.id, item] as const))
+    const byDir = new Map<string, Info>()
+    for (const item of canon) {
+      if (item.worktree) byDir.set(norm(item.worktree), item)
+      for (const sandbox of item.sandboxes) byDir.set(norm(sandbox), item)
+    }
+
+    const map = new Map<string, RecentEntry>()
+    const read = (client: { prepare: (sql: string) => { all: () => unknown[]; get: () => unknown } }) => {
+      for (const row of rawRecent(client)) {
+        const dir = row.directory ?? row.worktree ?? undefined
+        if (!dir || skipDir(dir)) continue
+        const known = (row.project_id && byId.get(ProjectID.make(row.project_id))) ?? byDir.get(norm(dir))
+        if (known && known.id !== ProjectID.global) {
+          addRecent(map, {
+            id: projectKey(known.id),
+            kind: "project",
+            projectID: known.id,
+            directory: known.worktree,
+            worktree: known.worktree,
+            vcs: known.vcs,
+            name: known.name ?? name(known.worktree),
+            icon: known.icon,
+            commands: known.commands,
+            time: {
+              activity: row.activity_at ?? 0,
+              created: known.time.created,
+              updated: known.time.updated,
+            },
+          })
+          continue
+        }
+
+        if (row.project_id && row.project_id !== ProjectID.global && row.worktree && !skipDir(row.worktree)) {
+          addRecent(map, {
+            id: projectKey(row.project_id),
+            kind: "project",
+            projectID: ProjectID.make(row.project_id),
+            directory: row.worktree,
+            worktree: row.worktree,
+            vcs: row.vcs ? Info.shape.vcs.parse(row.vcs) : undefined,
+            name: row.name ?? name(row.worktree),
+            icon: rowIcon(row),
+            commands: rowCommands(row),
+            time: {
+              activity: row.activity_at ?? 0,
+              created: row.time_created ?? undefined,
+              updated: row.time_updated ?? undefined,
+            },
+          })
+          continue
+        }
+
+        addRecent(map, {
+          id: dirID(dir),
+          kind: "directory",
+          directory: dir,
+          name: row.name ?? name(dir),
+          time: {
+            activity: row.activity_at ?? 0,
+          },
+        })
+      }
+    }
+
+    Database.withSources((source) => {
+      try {
+        read(source.client)
+      } catch (error) {
+        log.warn("recent scan failed", { path: source.path, current: source.current, error })
+      }
+    })
+
+    return [...map.values()]
+      .sort((a, b) => b.time.activity - a.time.activity || a.directory.localeCompare(b.directory))
+      .map((item) => ({
+        id: item.id,
+        kind: item.kind,
+        projectID: item.projectID,
+        directory: item.directory,
+        worktree: item.worktree,
+        vcs: item.vcs,
+        name: item.name,
+        icon: item.icon,
+        commands: item.commands,
+        time: item.time,
+      }))
+  }
 
   export function fromRow(row: Row): Info {
-    const icon =
-      row.icon_url || row.icon_color
-        ? { url: row.icon_url ?? undefined, color: row.icon_color ?? undefined }
-        : undefined
     return {
       id: row.id,
       worktree: row.worktree,
       vcs: row.vcs ? Info.shape.vcs.parse(row.vcs) : undefined,
       name: row.name ?? undefined,
-      icon,
+      icon: rowIcon(row),
       time: {
         created: row.time_created,
         updated: row.time_updated,
         initialized: row.time_initialized ?? undefined,
       },
       sandboxes: row.sandboxes,
-      commands: row.commands ?? undefined,
+      commands: rowCommands(row),
     }
   }
 
@@ -91,6 +376,7 @@ export namespace Project {
     readonly fromDirectory: (directory: string) => Effect.Effect<{ project: Info; sandbox: string }>
     readonly discover: (input: Info) => Effect.Effect<void>
     readonly list: () => Effect.Effect<Info[]>
+    readonly recent: () => Effect.Effect<RecentInfo[]>
     readonly get: (id: ProjectID) => Effect.Effect<Info | undefined>
     readonly update: (input: UpdateInput) => Effect.Effect<Info>
     readonly initGit: (input: { directory: string; project: Info }) => Effect.Effect<Info>
@@ -141,6 +427,12 @@ export namespace Project {
           }),
         )
 
+      const emitRecentUpdated = Effect.sync(() =>
+        GlobalBus.emit("event", {
+          payload: { type: Event.RecentUpdated.type, properties: {} },
+        }),
+      )
+
       const fakeVcs = Info.shape.vcs.parse(Flag.OPENCODE_FAKE_VCS)
 
       const resolveGitPath = (cwd: string, name: string) => {
@@ -160,6 +452,40 @@ export namespace Project {
           Effect.map(ProjectID.make),
           Effect.catch(() => Effect.succeed(undefined)),
         )
+      })
+
+      const touch = Effect.fn("Project.touch")(function* (input: { project: Info; directory: string }) {
+        const now = Date.now()
+        const isProject = input.project.id !== ProjectID.global && input.project.worktree !== "/"
+        const key = isProject ? projectKey(input.project.id) : dirKey(input.directory)
+        const kind = isProject ? "project" : "directory"
+        const directory = isProject ? input.project.worktree : input.directory
+
+        yield* db((d) =>
+          d
+            .insert(ProjectRecentTable)
+            .values({
+              key,
+              kind,
+              project_id: isProject ? input.project.id : null,
+              directory,
+              activity_at: now,
+              time_created: now,
+              time_updated: now,
+            })
+            .onConflictDoUpdate({
+              target: ProjectRecentTable.key,
+              set: {
+                kind,
+                project_id: isProject ? input.project.id : null,
+                directory,
+                activity_at: now,
+                time_updated: now,
+              },
+            })
+            .run(),
+        )
+        yield* emitRecentUpdated
       })
 
       const fromDirectory = Effect.fn("Project.fromDirectory")(function* (directory: string) {
@@ -321,6 +647,7 @@ export namespace Project {
         }
 
         yield* emitUpdated(result)
+        yield* touch({ project: result, directory })
         return { project: result, sandbox: data.sandbox }
       })
 
@@ -347,7 +674,11 @@ export namespace Project {
       })
 
       const list = Effect.fn("Project.list")(function* () {
-        return yield* db((d) => d.select().from(ProjectTable).all().map(fromRow))
+        return yield* Effect.sync(canonical)
+      })
+
+      const recentList = Effect.fn("Project.recent")(function* () {
+        return yield* Effect.sync(recent)
       })
 
       const get = Effect.fn("Project.get")(function* (id: ProjectID) {
@@ -445,6 +776,7 @@ export namespace Project {
         fromDirectory,
         discover,
         list,
+        recent: recentList,
         get,
         update,
         initGit,
@@ -477,29 +809,15 @@ export namespace Project {
   }
 
   export function list() {
-    return Database.use((db) =>
-      db
-        .select()
-        .from(ProjectTable)
-        .all()
-        .map((row) => fromRow(row)),
-    )
+    return canonical()
+  }
+
+  export function recentList() {
+    return recent()
   }
 
   export function directories(): string[] {
-    return Database.use((db) => {
-      const projects = db.select().from(ProjectTable).all()
-      const worktrees = new Set(projects.map((p) => p.worktree))
-
-      const sessionDirs = db
-        .selectDistinct({ directory: SessionTable.directory })
-        .from(SessionTable)
-        .all()
-        .map((r) => r.directory)
-        .filter((d): d is string => !!d && d !== "/" && !worktrees.has(d))
-
-      return [...worktrees, ...sessionDirs]
-    })
+    return [...new Set(recentList().map((item) => item.directory))]
   }
 
   export function get(id: ProjectID): Info | undefined {

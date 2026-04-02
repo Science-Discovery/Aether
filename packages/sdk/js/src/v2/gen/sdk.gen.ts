@@ -152,6 +152,7 @@ import type {
   ProjectDirectoriesResponses,
   ProjectInitGitResponses,
   ProjectListResponses,
+  ProjectRecentResponses,
   ProjectUpdateErrors,
   ProjectUpdateResponses,
   ProviderAuthResponses,
@@ -612,6 +613,36 @@ export class Project extends HeyApiClient {
     )
     return (options?.client ?? this.client).get<ProjectListResponses, unknown, ThrowOnError>({
       url: "/project",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * List recent projects and directories
+   *
+   * Returns the recent project feed used by the web app and WeChat bridge.
+   */
+  public recent<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<ProjectRecentResponses, unknown, ThrowOnError>({
+      url: "/project/recent",
       ...options,
       ...params,
     })

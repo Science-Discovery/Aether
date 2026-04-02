@@ -581,7 +581,7 @@ export default function Layout(props: ParentProps) {
     const id = child.project
     if (!id) return
 
-    const meta = globalSync.data.project.find((p) => p.id === id)
+    const meta = globalSync.project.get(id)
     const root = meta?.worktree
     if (!root) return
 
@@ -1323,7 +1323,7 @@ export default function Layout(props: ParentProps) {
     const id = child.project
     if (!id) return directory
 
-    const meta = globalSync.data.project.find((item) => item.id === id)
+    const meta = globalSync.project.get(id)
     return meta?.worktree ?? directory
   }
 
@@ -1617,14 +1617,7 @@ export default function Layout(props: ParentProps) {
       clearLastProjectSession(root)
     }
 
-    globalSync.set(
-      "project",
-      produce((draft) => {
-        const project = draft.find((item) => item.worktree === root)
-        if (!project) return
-        project.sandboxes = (project.sandboxes ?? []).filter((sandbox) => sandbox !== directory)
-      }),
-    )
+    globalSync.project.removeSandbox(root, directory)
     setStore("workspaceOrder", root, (order) => (order ?? []).filter((workspace) => workspace !== directory))
 
     layout.projects.close(directory)

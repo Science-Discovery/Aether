@@ -1,4 +1,4 @@
-import type { Agent, Project, ProviderListResponse } from "@opencode-ai/sdk/v2/client"
+import type { Agent, Project, ProjectRecent, ProviderListResponse } from "@opencode-ai/sdk/v2/client"
 
 export const cmp = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0)
 
@@ -41,6 +41,18 @@ export function sanitizeProject(project: Project) {
     ...project,
     icon: {
       ...project.icon,
+      url: undefined,
+      override: undefined,
+    },
+  }
+}
+
+export function sanitizeRecent(item: ProjectRecent) {
+  if (!item.icon?.url && !item.icon?.override) return item
+  return {
+    ...item,
+    icon: {
+      ...item.icon,
       url: undefined,
       override: undefined,
     },

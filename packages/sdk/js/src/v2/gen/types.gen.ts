@@ -55,6 +55,13 @@ export type EventProjectUpdated = {
   properties: Project
 }
 
+export type EventProjectRecentUpdated = {
+  type: "project.recent.updated"
+  properties: {
+    [key: string]: unknown
+  }
+}
+
 export type EventServerInstanceDisposed = {
   type: "server.instance.disposed"
   properties: {
@@ -1008,6 +1015,7 @@ export type Event =
   | EventInstallationUpdated
   | EventInstallationUpdateAvailable
   | EventProjectUpdated
+  | EventProjectRecentUpdated
   | EventServerInstanceDisposed
   | EventServerConnected
   | EventGlobalDisposed
@@ -1681,6 +1689,32 @@ export type WellKnownAuth = {
 }
 
 export type Auth = OAuth | ApiAuth | WellKnownAuth
+
+export type ProjectRecent = {
+  id: string
+  kind: "project" | "directory"
+  projectID?: string
+  directory: string
+  worktree?: string
+  vcs?: "git"
+  name?: string
+  icon?: {
+    url?: string
+    override?: string
+    color?: string
+  }
+  commands?: {
+    /**
+     * Startup script to run when creating a new workspace (worktree)
+     */
+    start?: string
+  }
+  time: {
+    activity: number
+    created?: number
+    updated?: number
+  }
+}
 
 export type NotFoundError = {
   name: "NotFoundError"
@@ -2403,6 +2437,25 @@ export type ProjectListResponses = {
 }
 
 export type ProjectListResponse = ProjectListResponses[keyof ProjectListResponses]
+
+export type ProjectRecentData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/project/recent"
+}
+
+export type ProjectRecentResponses = {
+  /**
+   * Recent project feed
+   */
+  200: Array<ProjectRecent>
+}
+
+export type ProjectRecentResponse = ProjectRecentResponses[keyof ProjectRecentResponses]
 
 export type ProjectDirectoriesData = {
   body?: never
