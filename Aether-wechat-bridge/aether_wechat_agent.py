@@ -563,6 +563,9 @@ class AetherAgent(Agent):
             if pending:
                 return ChatResponse(text=pending)
 
+            if await self._is_session_busy(session_id, directory):
+                return ChatResponse(text=self._format_busy_reply(conv_id))
+
             task = self._tasks.get(conv_id)
             if task and not task.done():
                 return ChatResponse(text=self._format_busy_reply(conv_id))
@@ -801,6 +804,17 @@ class AetherAgent(Agent):
             if item.get("sessionID") == session_id:
                 return item
         return None
+
+    async def _is_session_busy(self, session_id: str, directory: str = "") -> bool:
+        headers = (
+            {"x-opencode-directory": quote(directory, safe="")} if directory else {}
+        )
+        resp = await self._client.get(
+            f"{self.base_url}/session/status", headers=headers
+        )
+        resp.raise_for_status()
+        info = resp.json().get(session_id)
+        return isinstance(info, dict) and info.get("type") == "busy"
 
     async def _sync_pending(
         self, conv_id: str, session_id: str, directory: str
