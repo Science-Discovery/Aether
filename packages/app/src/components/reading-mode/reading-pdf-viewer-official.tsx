@@ -7,6 +7,7 @@ export const OfficialReadingPdfViewer: Component<{
   url: string
   layoutSwapped?: boolean
   onSwapLayout?: () => void
+  onOpenSettings?: () => void
   onTextSelectionAction?: (input: { action: "copy" | "translate" | "ask"; page: number; text: string }) => void
   onImageSelectionAction?: (input: { action: "copy" | "translate" | "ask"; page: number; imageDataUrl: string }) => void
 }> = (props) => {
@@ -29,6 +30,7 @@ export const OfficialReadingPdfViewer: Component<{
       layoutSwapped={props.layoutSwapped}
       onPageChange={(page) => rm.setPage(page)}
       onDocumentInfo={({ totalPages }) => rm.setTotalPages(totalPages)}
+      onOpenSettings={props.onOpenSettings}
       onTextSelectionAction={props.onTextSelectionAction}
       onImageSelectionAction={props.onImageSelectionAction}
       onSwapLayout={props.onSwapLayout}

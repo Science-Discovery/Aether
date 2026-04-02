@@ -36,6 +36,7 @@ body.aether-pdf-viewer #toolbarViewerMiddle {
 body.aether-pdf-viewer #aetherPdf2md,
 body.aether-pdf-viewer #aetherNightMode,
 body.aether-pdf-viewer #aetherCaptureRegion,
+body.aether-pdf-viewer #aetherReadingSettings,
 body.aether-pdf-viewer #aetherSwapLayout,
 body.aether-pdf-viewer #aetherOpenReadingMode {
   margin-inline-start: 6px;
@@ -45,6 +46,7 @@ body.aether-pdf-viewer {
   --aether-night-moon-icon: url("/pdfjs-ref/web/images/aether-night-mode-moon.svg");
   --aether-night-sun-icon: url("/pdfjs-ref/web/images/aether-night-mode-sun.svg");
   --aether-capture-region-icon: url("/pdfjs-ref/web/images/aether-capture-region.svg");
+  --aether-reading-settings-icon: url("/pdfjs-ref/web/images/secondaryToolbarButton-documentProperties.svg");
   --aether-swap-right-icon: url("/pdfjs-ref/web/images/aether-swap-layout-right.svg");
   --aether-swap-left-icon: url("/pdfjs-ref/web/images/aether-swap-layout-left.svg");
   --aether-reading-mode-icon: url("/pdfjs-ref/web/images/aether-reading-mode.svg");
@@ -87,9 +89,18 @@ body.aether-pdf-viewer #aetherCaptureRegion {
   min-width: 32px;
 }
 
+body.aether-pdf-viewer #aetherReadingSettings {
+  min-width: 32px;
+}
+
 body.aether-pdf-viewer #aetherCaptureRegion::before {
   -webkit-mask-image: var(--aether-capture-region-icon);
   mask-image: var(--aether-capture-region-icon);
+}
+
+body.aether-pdf-viewer #aetherReadingSettings::before {
+  -webkit-mask-image: var(--aether-reading-settings-icon);
+  mask-image: var(--aether-reading-settings-icon);
 }
 
 body.aether-pdf-viewer #aetherCaptureRegion.toggled {
@@ -135,6 +146,10 @@ body.aether-pdf-viewer[data-mode="compact"] #aetherSwapLayout {
 }
 
 body.aether-pdf-viewer[data-mode="compact"] #aetherCaptureRegion {
+  display: none !important;
+}
+
+body.aether-pdf-viewer[data-mode="compact"] #aetherReadingSettings {
   display: none !important;
 }
 

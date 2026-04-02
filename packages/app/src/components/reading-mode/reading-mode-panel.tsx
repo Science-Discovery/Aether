@@ -1,8 +1,10 @@
 ﻿import { type Component, createEffect, createMemo, Show } from "solid-js"
+import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { showToast } from "@opencode-ai/ui/toast"
 import { ResizeHandle } from "@opencode-ai/ui/resize-handle"
 import { OfficialReadingPdfViewer } from "./reading-pdf-viewer-official"
 import { ReadingFirstReadGate } from "./reading-first-read-gate-pdf"
+import { DialogReadingModeSettings } from "@/components/dialog-reading-mode-settings"
 import { DEFAULT_PROMPT } from "@/context/prompt"
 import { useGlobalSync } from "@/context/global-sync"
 import { useLanguage } from "@/context/language"
@@ -32,6 +34,7 @@ export const ReadingModePanel: Component<{
   const globalSync = useGlobalSync()
   const local = useLocal()
   const language = useLanguage()
+  const dialog = useDialog()
   const size = props.sizing ?? createSizing()
 
   const pdfUrl = createMemo(() => `${sdk.url}/reading-mode/pdf?sessionID=${encodeURIComponent(props.sessionID)}`)
@@ -225,6 +228,10 @@ export const ReadingModePanel: Component<{
     })
   }
 
+  const handleOpenSettings = () => {
+    dialog.show(() => <DialogReadingModeSettings sessionID={props.sessionID} />)
+  }
+
   return (
     <div class="relative h-full shrink-0 overflow-visible" style={{ width: `${props.width}px` }}>
       <ReadingFirstReadGate sessionID={props.sessionID} />
@@ -240,6 +247,7 @@ export const ReadingModePanel: Component<{
             url={pdfUrl()}
             layoutSwapped={props.layoutSwapped}
             onSwapLayout={props.onSwapLayout}
+            onOpenSettings={handleOpenSettings}
             onTextSelectionAction={handleTextSelectionAction}
             onImageSelectionAction={handleImageSelectionAction}
           />

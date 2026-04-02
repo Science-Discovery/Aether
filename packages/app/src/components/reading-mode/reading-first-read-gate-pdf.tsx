@@ -282,7 +282,12 @@ const ReadingFirstReadDialog: Component<{
   })
 
   return (
-    <Dialog title={firstReadLabel(language, "reading.firstRead.title")} size="large">
+    <Dialog
+      title={firstReadLabel(language, "reading.firstRead.title")}
+      size={largeDocument() ? "large" : undefined}
+      fit={!largeDocument()}
+      class={largeDocument() ? undefined : "w-full max-w-[560px] mx-auto"}
+    >
       <div class="flex flex-col gap-4 p-4">
         <p class="text-sm text-text-base">
           {largeDocument()

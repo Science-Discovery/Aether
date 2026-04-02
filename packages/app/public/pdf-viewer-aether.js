@@ -65,6 +65,7 @@
       features: {
         pdf2md: !!input?.features?.pdf2md,
         readingMode: !!input?.features?.readingMode,
+        settings: !!input?.features?.settings,
         textSelectionActions: !!input?.features?.textSelectionActions,
         imageSelectionActions: !!input?.features?.imageSelectionActions,
       },
@@ -532,6 +533,13 @@
       captureRegion.setAttribute("aria-pressed", captureModeActive ? "true" : "false");
     }
 
+    const readingSettings = document.getElementById("aetherReadingSettings");
+    if (readingSettings) {
+      readingSettings.hidden = !(config.mode === "full" && config.features.settings);
+      readingSettings.title = "Reading settings";
+      readingSettings.setAttribute("aria-label", readingSettings.title);
+    }
+
     const nightMode = document.getElementById("aetherNightMode");
     if (nightMode) {
       nightMode.title = config.nightMode ? "Disable night mode" : "Enable night mode";
@@ -683,6 +691,13 @@
     if (captureRegion) {
       captureRegion.addEventListener("click", function () {
         setCaptureMode(!captureModeActive);
+      });
+    }
+
+    const readingSettings = document.getElementById("aetherReadingSettings");
+    if (readingSettings) {
+      readingSettings.addEventListener("click", function () {
+        post("opensettings");
       });
     }
 
