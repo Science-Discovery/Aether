@@ -145,6 +145,8 @@ HELP_TEXT = """📋 可用命令：
 /project      查看当前工作项目
 /project n    切换到编号 n 的项目
 /project hide n  隐藏项目（在桌面端或微信端重新使用后自动恢复）
+/session      查看当前项目下的会话列表
+/session n    切换到当前项目下编号 n 的会话
 /help         显示此帮助信息"""
 
 _HIDDEN_FILE: Path = (
@@ -170,8 +172,10 @@ class AetherAgent(Agent):
         self.default_agent = default_agent
         self._client: httpx.AsyncClient = None  # type: ignore
         self._sessions: dict[str, str] = {}
+        self._session_list: dict[str, list[dict]] = {}
         self._conv_models: dict[str, str] = {}
         self._conv_dirs: dict[str, str] = {}
+        self._fresh: set[str] = set()
         self._pending_questions: dict[str, dict] = {}
         self._sse_tasks: dict[str, object] = {}
         self._accumulated_text: dict[str, str] = {}
@@ -206,6 +210,13 @@ class AetherAgent(Agent):
                     logger.info(f"已加载 {len(self._hidden_dirs)} 个隐藏项目")
         except Exception as e:
             logger.warning(f"加载隐藏项目失败: {e}")
+        try:
+            session_id, created = await self._ensure_session(self.directory)
+            logger.info(
+                f"默认会话: {session_id[:8]}... dir={self.directory} created={created}"
+            )
+        except Exception as e:
+            logger.warning(f"初始化默认会话失败: {e}")
 
     async def on_stop(self) -> None:
         """清理资源"""
@@ -233,6 +244,76 @@ class AetherAgent(Agent):
             logger.warning(f"获取项目列表失败: {e}")
             return []
 
+    async def _list_sessions(self, directory: str) -> list[dict]:
+        headers = (
+            {"x-opencode-directory": quote(directory, safe="")} if directory else {}
+        )
+        resp = await self._client.get(
+            f"{self.base_url}/session",
+            params={"directory": directory} if directory else None,
+            headers=headers,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        return data if isinstance(data, list) else []
+
+    async def _ensure_session(
+        self, directory: str, fresh: bool = False
+    ) -> tuple[str, bool]:
+        if fresh:
+            return await self._create_session(directory=directory), True
+        items = await self._list_sessions(directory)
+        if items:
+            return items[0]["id"], False
+        return await self._create_session(directory=directory), True
+
+    def _format_session_time(self, val: object) -> str:
+        if not isinstance(val, int):
+            return "未知时间"
+        return datetime.fromtimestamp(val / 1000).strftime("%Y-%m-%d %H:%M")
+
+    async def _cmd_session(self, conv_id: str, arg: str) -> str:
+        directory = self._conv_dirs.get(conv_id) or self.directory
+        items = await self._list_sessions(directory)
+        self._session_list[conv_id] = items
+
+        if arg:
+            try:
+                idx = int(arg) - 1
+            except ValueError:
+                return "❌ 请输入会话编号，例如：/session 2"
+            if idx < 0 or idx >= len(items):
+                return (
+                    f"❌ 请输入 1~{len(items)} 之间的数字。"
+                    if items
+                    else "❌ 当前项目下还没有任何会话。"
+                )
+            chosen = items[idx]
+            self._sessions[conv_id] = chosen["id"]
+            self._fresh.discard(conv_id)
+            title = chosen.get("title") or chosen["id"][:8]
+            logger.info(f"[/session] {conv_id} -> {chosen['id']}")
+            return f"✅ 已切换到会话：{title}\n   更新时间：{self._format_session_time(chosen.get('time', {}).get('updated'))}"
+
+        if not items:
+            session_id = await self._create_session(directory=directory)
+            self._sessions[conv_id] = session_id
+            self._fresh.discard(conv_id)
+            logger.info(f"[/session] 为 {conv_id} 创建新会话 {session_id[:8]}...")
+            return "📂 当前项目下还没有任何会话，已自动创建一个新会话并切换。"
+
+        current = self._sessions.get(conv_id)
+        lines = ["🗂 当前项目会话列表：", ""]
+        for i, item in enumerate(items, 1):
+            title = item.get("title") or item["id"][:8]
+            updated = self._format_session_time(item.get("time", {}).get("updated"))
+            tag = " ◀" if item["id"] == current else ""
+            lines.append(f"{i}. {title}{tag}")
+            lines.append(f"   {updated}")
+        lines.append("")
+        lines.append("💡 /session n 切换会话")
+        return chr(10).join(lines)
+
     async def _handle_slash_command(self, conv_id: str, text: str):
         stripped = text.strip()
         if not stripped.startswith("/"):
@@ -244,7 +325,9 @@ class AetherAgent(Agent):
             return HELP_TEXT
         if cmd == "/new":
             old = self._sessions.pop(conv_id, None)
+            self._session_list.pop(conv_id, None)
             self._conv_models.pop(conv_id, None)
+            self._fresh.add(conv_id)
             pending = self._pending_questions.pop(conv_id, None)
             if pending:
                 task = pending.get("task")
@@ -267,6 +350,8 @@ class AetherAgent(Agent):
             return self._cmd_set_model(conv_id, arg)
         if cmd == "/project":
             return await self._cmd_project(conv_id, arg)
+        if cmd == "/session":
+            return await self._cmd_session(conv_id, arg)
         return f"❓ 未知命令：{cmd}，发送 /help 查看可用命令。"
 
     async def _cmd_list_models(self, conv_id: str) -> str:
@@ -373,14 +458,18 @@ class AetherAgent(Agent):
             chosen = projects[idx]
             new_dir = chosen.get("worktree", "")
             self._conv_dirs[conv_id] = new_dir
-            self._sessions.pop(conv_id, None)
+            session_id, created = await self._ensure_session(new_dir)
+            self._sessions[conv_id] = session_id
+            self._session_list.pop(conv_id, None)
+            self._fresh.discard(conv_id)
             self._conv_models.pop(conv_id, None)
             name = (
                 chosen.get("name")
                 or new_dir.replace(chr(92), "/").rstrip("/").split("/")[-1]
             )
             logger.info(f"[/project] {conv_id} -> {new_dir}")
-            return f"✅ 已切换到：{name}\n   {new_dir}\n（已开启新会话）"
+            note = "已创建新会话" if created else "已进入该项目最新会话"
+            return f"✅ 已切换到：{name}\n   {new_dir}\n（{note}）"
 
         # /project（列表）
         if not projects:
@@ -440,9 +529,14 @@ class AetherAgent(Agent):
             directory = self._conv_dirs.get(conv_id) or self.directory
             session_id = self._sessions.get(conv_id)
             if not session_id:
-                session_id = await self._create_session(directory=directory)
+                session_id, created = await self._ensure_session(
+                    directory, conv_id in self._fresh
+                )
                 self._sessions[conv_id] = session_id
-                logger.info(f"创建新会话: {session_id[:8]}... dir={directory}")
+                self._fresh.discard(conv_id)
+                logger.info(
+                    f"{'创建' if created else '选择'}会话: {session_id[:8]}... dir={directory}"
+                )
 
             model = self._conv_models.get(conv_id) or self.default_model
 
