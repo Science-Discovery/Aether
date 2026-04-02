@@ -11,4 +11,20 @@ describe("Database.Path", () => {
       : path.join(Global.Path.data, `opencode-${Installation.CHANNEL.replace(/[^a-zA-Z0-9._-]/g, "-")}.db`)
     expect(Database.getChannelPath()).toBe(expected)
   })
+
+  test("currentPath matches the active database path", () => {
+    expect(Database.currentPath()).toBe(Database.Path)
+  })
+
+  test("withSources always yields the active database first", () => {
+    const list = Database.withSources((source) => ({
+      path: source.path,
+      current: source.current,
+    }))
+    expect(list.length).toBeGreaterThan(0)
+    expect(list[0]).toEqual({
+      path: Database.currentPath(),
+      current: true,
+    })
+  })
 })

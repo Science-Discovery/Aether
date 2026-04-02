@@ -4,6 +4,7 @@ import type {
   Path,
   PermissionRequest,
   Project,
+  ProjectRecent,
   ProviderAuthResponse,
   ProviderListResponse,
   QuestionRequest,
@@ -22,6 +23,7 @@ type GlobalStore = {
   ready: boolean
   path: Path
   project: Project[]
+  recent: ProjectRecent[]
   session_todo: {
     [sessionID: string]: Todo[]
   }
@@ -107,9 +109,15 @@ export async function bootstrapGlobal(input: {
           const projects = (x.data ?? [])
             .filter((p) => !!p?.id)
             .filter((p) => !!p.worktree && !p.worktree.includes("opencode-test"))
-            .slice()
             .sort((a, b) => cmp(a.id, b.id))
           input.setGlobalStore("project", projects)
+        }),
+      ),
+    () =>
+      retry(() =>
+        input.globalSDK.project.recent().then((x) => {
+          const recent = (x.data ?? []).filter((item) => !!item?.id).filter((item) => !!item.directory)
+          input.setGlobalStore("recent", recent)
         }),
       ),
   ]

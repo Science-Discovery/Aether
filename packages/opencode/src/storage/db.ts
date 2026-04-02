@@ -27,6 +27,16 @@ export const NotFoundError = NamedError.create(
 const log = Log.create({ service: "db" })
 
 export namespace Database {
+  function norm(input: string) {
+    return path.resolve(input).replace(/\\/g, "/").toLowerCase()
+  }
+
+  export type Source = {
+    path: string
+    current: boolean
+    client: ReturnType<typeof Client>["$client"]
+  }
+
   export function getChannelPath() {
     const channel = Installation.CHANNEL
     if (["latest", "beta"].includes(channel) || Flag.OPENCODE_DISABLE_CHANNEL_DB)
@@ -42,6 +52,58 @@ export namespace Database {
     }
     return getChannelPath()
   })
+
+  export function currentPath() {
+    return Path
+  }
+
+  export function knownPaths() {
+    const current = Path
+    const currentFile = current === ":memory:" ? undefined : norm(current)
+    try {
+      const seen = new Set<string>()
+      return readdirSync(Global.Path.data, { withFileTypes: true })
+        .filter((entry) => entry.isFile() && /^opencode.*\.db$/i.test(entry.name))
+        .map((entry) => path.join(Global.Path.data, entry.name))
+        .sort()
+        .filter((file) => {
+          const key = norm(file)
+          if (key === currentFile) return false
+          if (seen.has(key)) return false
+          seen.add(key)
+          return true
+        })
+    } catch (error) {
+      log.warn("failed to enumerate known database paths", { error, dir: Global.Path.data })
+      return []
+    }
+  }
+
+  export function withSources<T>(callback: (source: Source) => T) {
+    const result: T[] = []
+    result.push(
+      callback({
+        path: currentPath(),
+        current: true,
+        client: Client().$client,
+      }),
+    )
+    for (const file of knownPaths()) {
+      const db = init(file)
+      try {
+        result.push(
+          callback({
+            path: file,
+            current: false,
+            client: db.$client,
+          }),
+        )
+      } finally {
+        db.$client.close()
+      }
+    }
+    return result
+  }
 
   export type Transaction = SQLiteTransaction<"sync", void>
 

@@ -34,6 +34,27 @@ export const ProjectRoutes = lazy(() =>
       },
     )
     .get(
+      "/recent",
+      describeRoute({
+        summary: "List recent projects and directories",
+        description: "Returns the recent project feed used by the web app and WeChat bridge.",
+        operationId: "project.recent",
+        responses: {
+          200: {
+            description: "Recent project feed",
+            content: {
+              "application/json": {
+                schema: resolver(Project.RecentInfo.array()),
+              },
+            },
+          },
+        },
+      }),
+      async (c) => {
+        return c.json(Project.recentList())
+      },
+    )
+    .get(
       "/directories",
       describeRoute({
         summary: "List all known directories",
