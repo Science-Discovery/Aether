@@ -48,14 +48,6 @@ export const SidebarContent = (props: {
   let panel: HTMLDivElement | undefined
   let authDialogRun = 0
 
-  function openRegister() {
-    const run = ++authDialogRun
-    void import("@/components/dialog-register").then((x) => {
-      if (authDialogRun !== run) return
-      dialog.show(() => <x.DialogRegister />)
-    })
-  }
-
   function openLogin() {
     const run = ++authDialogRun
     void import("@/components/dialog-login").then((x) => {
@@ -148,16 +140,13 @@ export const SidebarContent = (props: {
                     icon="user"
                     variant="ghost"
                     size="large"
-                    aria-label={language.t("auth.account.loginOrRegister")}
+                    aria-label={language.t("auth.login.submit")}
                   />
                 </Tooltip>
                 <DropdownMenu.Portal>
                   <DropdownMenu.Content class="mt-1">
                     <DropdownMenu.Item onSelect={openLogin}>
                       <DropdownMenu.ItemLabel>{language.t("auth.login.submit")}</DropdownMenu.ItemLabel>
-                    </DropdownMenu.Item>
-                    <DropdownMenu.Item onSelect={openRegister}>
-                      <DropdownMenu.ItemLabel>{language.t("auth.register.submit")}</DropdownMenu.ItemLabel>
                     </DropdownMenu.Item>
                   </DropdownMenu.Content>
                 </DropdownMenu.Portal>

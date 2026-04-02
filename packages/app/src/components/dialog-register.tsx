@@ -15,9 +15,11 @@ export function DialogRegister() {
   const [form, setForm] = createStore({
     email: "",
     password: "",
+    confirm: "",
     name: "",
     emailErr: undefined as string | undefined,
     passwordErr: undefined as string | undefined,
+    confirmErr: undefined as string | undefined,
     nameErr: undefined as string | undefined,
     submitting: false,
     generalErr: undefined as string | undefined,
@@ -25,7 +27,13 @@ export function DialogRegister() {
 
   function validate(): boolean {
     let ok = true
-    setForm({ emailErr: undefined, passwordErr: undefined, nameErr: undefined, generalErr: undefined })
+    setForm({
+      emailErr: undefined,
+      passwordErr: undefined,
+      confirmErr: undefined,
+      nameErr: undefined,
+      generalErr: undefined,
+    })
 
     if (!form.email.trim()) {
       setForm("emailErr", language.t("auth.register.email.required"))
@@ -43,6 +51,14 @@ export function DialogRegister() {
       ok = false
     } else if (!/[a-zA-Z]/.test(form.password) || !/[0-9]/.test(form.password)) {
       setForm("passwordErr", language.t("auth.register.password.weak"))
+      ok = false
+    }
+
+    if (!form.confirm) {
+      setForm("confirmErr", language.t("auth.register.confirm.required"))
+      ok = false
+    } else if (form.confirm !== form.password) {
+      setForm("confirmErr", language.t("auth.register.confirm.mismatch"))
       ok = false
     }
 
@@ -96,7 +112,11 @@ export function DialogRegister() {
           label={language.t("auth.register.email.label")}
           placeholder={language.t("auth.register.email.placeholder")}
           value={form.email}
-          onChange={(v) => { setForm("email", v); setForm("emailErr", undefined); setForm("generalErr", undefined) }}
+          onChange={(v) => {
+            setForm("email", v)
+            setForm("emailErr", undefined)
+            setForm("generalErr", undefined)
+          }}
           validationState={form.emailErr ? "invalid" : undefined}
           error={form.emailErr}
         />
@@ -105,22 +125,42 @@ export function DialogRegister() {
           label={language.t("auth.register.password.label")}
           placeholder={language.t("auth.register.password.placeholder")}
           value={form.password}
-          onChange={(v) => { setForm("password", v); setForm("passwordErr", undefined); setForm("generalErr", undefined) }}
+          onChange={(v) => {
+            setForm("password", v)
+            setForm("passwordErr", undefined)
+            setForm("confirmErr", undefined)
+            setForm("generalErr", undefined)
+          }}
           validationState={form.passwordErr ? "invalid" : undefined}
           error={form.passwordErr}
+        />
+        <TextField
+          type="password"
+          label={language.t("auth.register.confirm.label")}
+          placeholder={language.t("auth.register.confirm.placeholder")}
+          value={form.confirm}
+          onChange={(v) => {
+            setForm("confirm", v)
+            setForm("confirmErr", undefined)
+            setForm("generalErr", undefined)
+          }}
+          validationState={form.confirmErr ? "invalid" : undefined}
+          error={form.confirmErr}
         />
         <TextField
           type="text"
           label={language.t("auth.register.name.label")}
           placeholder={language.t("auth.register.name.placeholder")}
           value={form.name}
-          onChange={(v) => { setForm("name", v); setForm("nameErr", undefined); setForm("generalErr", undefined) }}
+          onChange={(v) => {
+            setForm("name", v)
+            setForm("nameErr", undefined)
+            setForm("generalErr", undefined)
+          }}
           validationState={form.nameErr ? "invalid" : undefined}
           error={form.nameErr}
         />
-        {form.generalErr && (
-          <div class="text-14-regular text-text-critical">{form.generalErr}</div>
-        )}
+        {form.generalErr && <div class="text-14-regular text-text-critical">{form.generalErr}</div>}
         <div class="flex justify-end gap-2 pt-2">
           <Button variant="ghost" size="large" onClick={() => dialog.close()}>
             {language.t("common.cancel")}

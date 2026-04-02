@@ -11,6 +11,10 @@ export function DialogLogin() {
   const dialog = useDialog()
   const auth = useAuth()
   const language = useLanguage()
+  const [state, setState] = createStore({
+    hover: false,
+  })
+  let run = 0
 
   const [form, setForm] = createStore({
     email: "",
@@ -68,6 +72,14 @@ export function DialogLogin() {
     }
   }
 
+  function openRegister() {
+    const id = ++run
+    void import("@/components/dialog-register").then((x) => {
+      if (run !== id) return
+      dialog.show(() => <x.DialogRegister />)
+    })
+  }
+
   return (
     <Dialog title={language.t("auth.login.title")} fit>
       <form onSubmit={handleSubmit} class="flex flex-col gap-4 pl-6 pr-2.5 pb-3">
@@ -77,7 +89,11 @@ export function DialogLogin() {
           label={language.t("auth.login.email.label")}
           placeholder={language.t("auth.login.email.placeholder")}
           value={form.email}
-          onChange={(v) => { setForm("email", v); setForm("emailErr", undefined); setForm("generalErr", undefined) }}
+          onChange={(v) => {
+            setForm("email", v)
+            setForm("emailErr", undefined)
+            setForm("generalErr", undefined)
+          }}
           validationState={form.emailErr ? "invalid" : undefined}
           error={form.emailErr}
         />
@@ -86,13 +102,15 @@ export function DialogLogin() {
           label={language.t("auth.login.password.label")}
           placeholder={language.t("auth.login.password.placeholder")}
           value={form.password}
-          onChange={(v) => { setForm("password", v); setForm("passwordErr", undefined); setForm("generalErr", undefined) }}
+          onChange={(v) => {
+            setForm("password", v)
+            setForm("passwordErr", undefined)
+            setForm("generalErr", undefined)
+          }}
           validationState={form.passwordErr ? "invalid" : undefined}
           error={form.passwordErr}
         />
-        {form.generalErr && (
-          <div class="text-14-regular text-text-critical">{form.generalErr}</div>
-        )}
+        {form.generalErr && <div class="text-14-regular text-text-critical">{form.generalErr}</div>}
         <div class="flex justify-end gap-2 pt-2">
           <Button variant="ghost" size="large" onClick={() => dialog.close()}>
             {language.t("common.cancel")}
@@ -101,6 +119,15 @@ export function DialogLogin() {
             {form.submitting ? language.t("auth.login.submitting") : language.t("auth.login.submit")}
           </Button>
         </div>
+        <button
+          type="button"
+          class="text-12-medium text-text-link self-end transition-all duration-150 hover:opacity-80 hover:-translate-y-0.5"
+          onMouseEnter={() => setState("hover", true)}
+          onMouseLeave={() => setState("hover", false)}
+          onClick={openRegister}
+        >
+          {state.hover ? language.t("auth.login.newUserRegisterHover") : language.t("auth.login.newUserRegister")}
+        </button>
       </form>
     </Dialog>
   )
