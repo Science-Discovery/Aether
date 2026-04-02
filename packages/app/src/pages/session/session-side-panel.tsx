@@ -39,7 +39,7 @@ import { createOpenSessionFileTab, createSessionTabs, getTabReorderIndex, type S
 import { setSessionHandoff } from "@/pages/session/handoff"
 import { useSessionLayout } from "@/pages/session/session-layout"
 import { save } from "./download"
-import { fromDir, fromDrop, fromList, isExternal, send } from "./upload"
+import { fromDir, fromDrop, fromList, isExternal, send, withTarget } from "./upload"
 import type { FileNode } from "@opencode-ai/sdk/v2"
 
 export function SessionSidePanel(props: {
@@ -618,7 +618,9 @@ export function SessionSidePanel(props: {
   const [dragging, setDragging] = createSignal(false)
   let fileInput: HTMLInputElement | undefined
   let dirInput: HTMLInputElement | undefined
+  let dirUploadInput: HTMLInputElement | undefined
   let drag = 0
+  let uploadTarget = ""
 
   const refreshUpload = (dir: string) => {
     file.tree.refresh(dir)
@@ -704,14 +706,45 @@ export function SessionSidePanel(props: {
     dirInput?.click()
   }
 
+  const uploadToDir = async (dir: string, type: "file" | "directory") => {
+    uploadTarget = dir
+    if (type === "directory") {
+      if (typeof window !== "undefined" && "showDirectoryPicker" in window) {
+        try {
+          const pick = window.showDirectoryPicker as () => Promise<FileSystemDirectoryHandle>
+          const handle = await pick()
+          await upload(withTarget(await fromDir(handle), dir), dir)
+          uploadTarget = ""
+          return
+        } catch (err) {
+          uploadTarget = ""
+          if (err instanceof DOMException && err.name === "AbortError") return
+          showToast({
+            variant: "error",
+            title: "选择文件夹失败",
+            description: err instanceof Error ? err.message : String(err),
+          })
+          return
+        }
+      }
+      dirUploadInput?.click()
+      return
+    }
+    fileInput?.click()
+  }
+
   const uploadFiles = async (list: FileList | null) => {
     if (!list || list.length === 0) return
-    await upload(fromList(list), "")
+    const target = uploadTarget
+    uploadTarget = ""
+    await upload(withTarget(fromList(list), target), target)
   }
 
   const uploadDirs = async (list: FileList | null) => {
     if (!list || list.length === 0) return
-    await upload(fromList(list), "")
+    const target = uploadTarget
+    uploadTarget = ""
+    await upload(withTarget(fromList(list), target), target)
   }
 
   const handleUploadDrop = async (event: globalThis.DragEvent, dir: string) => {
@@ -1108,6 +1141,7 @@ export function SessionSidePanel(props: {
                           onMultiCut={handleMultiCut}
                           onFileDrop={handleFileDrop}
                           onUploadDrop={(event, dir) => void handleUploadDrop(event, dir)}
+                          onUploadToDir={(dir, type) => void uploadToDir(dir, type)}
                           onPdfConvert={handlePdfConvert}
                           onTranslateMarkdown={handleTranslateMarkdown}
                         />
@@ -1127,6 +1161,20 @@ export function SessionSidePanel(props: {
                   <input
                     ref={(el) => {
                       dirInput = el
+                      el.setAttribute("webkitdirectory", "")
+                      el.setAttribute("directory", "")
+                    }}
+                    type="file"
+                    multiple
+                    class="hidden"
+                    onChange={(event) => {
+                      void uploadDirs(event.currentTarget.files)
+                      event.currentTarget.value = ""
+                    }}
+                  />
+                  <input
+                    ref={(el) => {
+                      dirUploadInput = el
                       el.setAttribute("webkitdirectory", "")
                       el.setAttribute("directory", "")
                     }}
