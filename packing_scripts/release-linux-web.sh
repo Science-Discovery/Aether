@@ -43,7 +43,7 @@ cp -R "$src"/. "$out"/
 
 cp "$upd" "$out/update_linux_web.sh"
 chmod +x "$out/update_linux_web.sh"
-printf "%s\n" "$ver" >"$out/.aether_web_version"
+printf "%s\n" "$ver" >"$out/.aether_version"
 
 if [ -f "$out/aether" ]; then
   chmod +x "$out/aether"

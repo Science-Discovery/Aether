@@ -43,7 +43,7 @@ if [ ! -f "$upd" ]; then
 fi
 cp "$upd" "$out/update_darwin_web.command"
 
-printf "%s\n" "$ver" >"$out/.aether_web_version"
+printf "%s\n" "$ver" >"$out/.aether_version"
 
 if [ -f "$out/aether" ]; then
   chmod +x "$out/aether"

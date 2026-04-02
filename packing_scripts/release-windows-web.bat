@@ -44,7 +44,7 @@ if %RC% GEQ 8 (
 )
 
 copy /y "%UPD%" "%OUT%\update_windows_web.bat" >nul || exit /b 1
-powershell -NoProfile -Command "& { [IO.File]::WriteAllText((Join-Path $env:OUT '.aether_web_version'), $env:VERSION) }" || exit /b 1
+powershell -NoProfile -Command "& { [IO.File]::WriteAllText((Join-Path $env:OUT '.aether_version'), $env:VERSION) }" || exit /b 1
 
 powershell -NoProfile -Command "& { $crlf=[char]13+[char]10; $txt=@('Aether Web (Windows x64)','', 'Quick start', '1) Extract this ZIP and copy the folder aether-windows-x64-web to a local path, for example: C:\Aether-Web', '2) In that folder, double click Aether.vbs', '', 'Offline update', '- Run update_windows_web.bat to check and install newer versions from:', '  https://aether.aiphys.cn/download') -join $crlf; Set-Content -Path (Join-Path $env:OUT 'README_FIRST.txt') -Value ($txt + $crlf) -Encoding ascii }" || exit /b 1
 
