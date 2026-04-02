@@ -990,6 +990,10 @@ export type Session = {
     pdfStorePath: string
     lastReadPage: number
     annotationsPath: string
+    source: {
+      kind: "workspace-file" | "upload"
+      path?: string
+    }
     settings: {
       translatePrompt: string
       questionPrompt: string
@@ -998,6 +1002,7 @@ export type Session = {
       autoFirstRead: boolean
     }
     firstReadCompleted: boolean
+    firstReadDismissed: boolean
   }
 }
 
@@ -1170,6 +1175,10 @@ export type SyncEventSessionUpdated = {
         pdfStorePath: string
         lastReadPage: number
         annotationsPath: string
+        source: {
+          kind: "workspace-file" | "upload"
+          path?: string
+        }
         settings: {
           translatePrompt: string
           questionPrompt: string
@@ -1178,6 +1187,7 @@ export type SyncEventSessionUpdated = {
           autoFirstRead: boolean
         }
         firstReadCompleted: boolean
+        firstReadDismissed: boolean
       } | null
     }
   }
@@ -1920,6 +1930,10 @@ export type GlobalSession = {
     pdfStorePath: string
     lastReadPage: number
     annotationsPath: string
+    source: {
+      kind: "workspace-file" | "upload"
+      path?: string
+    }
     settings: {
       translatePrompt: string
       questionPrompt: string
@@ -1928,6 +1942,7 @@ export type GlobalSession = {
       autoFirstRead: boolean
     }
     firstReadCompleted: boolean
+    firstReadDismissed: boolean
   }
   project: ProjectSummary | null
 }
@@ -6959,6 +6974,7 @@ export type ReadingModeSessionUpdateData = {
       autoFirstRead?: boolean
     }
     firstReadCompleted?: boolean
+    firstReadDismissed?: boolean
   }
   path: {
     sessionID: string

@@ -14,8 +14,13 @@ export type ReadingModeSessionMeta = {
   pdfStorePath: string
   lastReadPage: number
   annotationsPath: string
+  source: {
+    kind: "workspace-file" | "upload"
+    path?: string
+  }
   settings: ReadingModeSettings
   firstReadCompleted: boolean
+  firstReadDismissed: boolean
 }
 
 export type ReadingHighlightColor = "yellow" | "red" | "green" | "blue"
@@ -31,19 +36,18 @@ export type ReadingHighlight = {
   createdAt: number
 }
 
-export type ReadingPendingAction =
-  | {
-      kind: "send"
-      source: "translate" | "first-read"
-      text: string
-    }
-  | {
-      kind: "compose"
-      source: "ask"
-      text: string
-      cursor: number
-    }
-  | null
+export type ReadingPendingQuestion = {
+  kind: "text-question"
+  page: number
+  text: string
+  createdAt: number
+} | {
+  kind: "image-question"
+  page: number
+  text: string
+  imageDataUrl: string
+  createdAt: number
+} | null
 
 type Store = {
   currentPage: number
@@ -54,7 +58,7 @@ type Store = {
   continuousMode: boolean // true = scroll through all pages, false = single page
   sessionMeta: ReadingModeSessionMeta | null
   annotations: ReadingHighlight[]
-  pendingAction: ReadingPendingAction
+  pendingQuestion: ReadingPendingQuestion
 }
 
 type Ctx = {
@@ -67,7 +71,7 @@ type Ctx = {
   setContinuousMode: (v: boolean) => void
   setSessionMeta: (meta: ReadingModeSessionMeta | null) => void
   setAnnotations: (items: ReadingHighlight[]) => void
-  setPendingAction: (action: ReadingPendingAction) => void
+  setPendingQuestion: (question: ReadingPendingQuestion) => void
 }
 
 const ReadingModeContext = createContext<Ctx>()
@@ -82,7 +86,7 @@ export function ReadingModeProvider(props: ParentProps) {
     continuousMode: true,
     sessionMeta: null,
     annotations: [],
-    pendingAction: null,
+    pendingQuestion: null,
   })
 
   const ctx: Ctx = {
@@ -95,7 +99,7 @@ export function ReadingModeProvider(props: ParentProps) {
     setContinuousMode: (v) => setStore("continuousMode", v),
     setSessionMeta: (meta) => setStore("sessionMeta", meta),
     setAnnotations: (items) => setStore("annotations", items),
-    setPendingAction: (action) => setStore("pendingAction", action),
+    setPendingQuestion: (question) => setStore("pendingQuestion", question),
   }
 
   return <ReadingModeContext.Provider value={ctx}>{props.children}</ReadingModeContext.Provider>
@@ -105,4 +109,8 @@ export function useReadingMode(): Ctx {
   const ctx = useContext(ReadingModeContext)
   if (!ctx) throw new Error("useReadingMode must be used within ReadingModeProvider")
   return ctx
+}
+
+export function useMaybeReadingMode(): Ctx | undefined {
+  return useContext(ReadingModeContext)
 }

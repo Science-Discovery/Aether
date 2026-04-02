@@ -2,6 +2,7 @@
 import { createStore } from "solid-js/store"
 import { Dynamic } from "solid-js/web"
 import { useNavigate } from "@solidjs/router"
+import type { Session } from "@opencode-ai/sdk/v2/client"
 import type { FileSearchHandle } from "@opencode-ai/ui/file"
 import { Button } from "@opencode-ai/ui/button"
 import { useFileComponent } from "@opencode-ai/ui/context/file"
@@ -12,6 +13,8 @@ import { DropdownMenu } from "@opencode-ai/ui/dropdown-menu"
 import { IconButton } from "@opencode-ai/ui/icon-button"
 import { Tabs } from "@opencode-ai/ui/tabs"
 import { ScrollView } from "@opencode-ai/ui/scroll-view"
+import { Button } from "@opencode-ai/ui/button"
+import { Dialog } from "@opencode-ai/ui/dialog"
 import { showToast } from "@opencode-ai/ui/toast"
 import { Tooltip } from "@opencode-ai/ui/tooltip"
 import { Markdown } from "@opencode-ai/ui/markdown"
@@ -34,6 +37,9 @@ import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { DialogDraftConflict } from "@/components/dialog-draft-conflict"
 import { DialogPdfToMarkdown } from "@/components/dialog-pdf-to-markdown"
 import { DialogTranslateMarkdown } from "@/components/dialog-translate-markdown"
+import { registerOpenFileCallback, registerRefreshDirCallback, restoreActiveTasks } from "@/components/pdf-convert-progress"
+import { useServer } from "@/context/server"
+import { upsertSessionList } from "@/utils/session-store"
 
 function FileCommentMenu(props: {
   moreLabel: string
@@ -68,6 +74,26 @@ function FileCommentMenu(props: {
   )
 }
 
+type ReadingModeFromFileResponse = {
+  action: "existing" | "created"
+  session: Session
+}
+
+function readingModeText(language: ReturnType<typeof useLanguage>, key: string) {
+  const zh = language.locale() === "zh" || language.locale() === "zht"
+  switch (key) {
+    case "resume.title":
+      return zh ? "继续阅读模式" : "Continue reading mode"
+    case "resume.description":
+      return zh ? "这份 PDF 已经有阅读会话。你想继续之前的阅读对话，还是新建一条阅读会话？" : "This PDF already has a reading session. Continue the existing reading conversation or create a new one?"
+    case "resume.continue":
+      return zh ? "继续已有阅读" : "Continue existing reading"
+    case "resume.new":
+      return zh ? "新建阅读会话" : "Create new reading session"
+  }
+  return key
+}
+
 export function FileTabContent(props: { tab: string }) {
   const navigate = useNavigate()
   const file = useFile()
@@ -87,6 +113,7 @@ export function FileTabContent(props: { tab: string }) {
   const [needsConfirm, setNeedsConfirm] = createSignal(false)
   const [wordWrap, setWordWrapSignal] = createSignal(false)
 
+  // Build fetchApi for progress recovery and modal actions.
   const fetchApi = (urlPath: string, options: RequestInit = {}): Promise<Response> => {
     const baseUrl = sdk.url
     const s = server.current?.http
@@ -308,6 +335,7 @@ export function FileTabContent(props: { tab: string }) {
     normalizeTab: (tab) => (tab.startsWith("file://") ? file.tab(tab) : tab),
   }).activeFileTab
 
+  // Register the callback that opens files after PDF conversion completes.
   registerOpenFileCallback(async (filePath: string) => {
     const parentDir = filePath.includes("/") ? filePath.slice(0, filePath.lastIndexOf("/")) : ""
     await file.tree.refresh(parentDir)
@@ -317,10 +345,12 @@ export function FileTabContent(props: { tab: string }) {
     await file.load(filePath, { force: true })
   })
 
+  // Register the directory refresh callback after each conversion finishes.
   registerRefreshDirCallback((dirPath: string) => {
     void file.tree.refresh(dirPath)
   })
 
+  // Restore conversion progress from any active backend tasks during page load.
   void restoreActiveTasks(fetchApi, sdk.url, sdk.directory)
   let scroll: HTMLDivElement | undefined
   let scrollFrame: number | undefined
@@ -388,41 +418,91 @@ export function FileTabContent(props: { tab: string }) {
 
   const openPdfInReadingMode = async () => {
     const p = path()
-    const previewUrl = pdfPreviewUrl()
     const currentServer = server.current
-    if (!p || !previewUrl || !currentServer) return
+    if (!p || !currentServer) return
 
     try {
       const authHeaders: Record<string, string> = currentServer.http.password
         ? { Authorization: `Basic ${btoa(`${currentServer.http.username ?? "opencode"}:${currentServer.http.password}`)}` }
         : {}
 
-      const pdfResponse = await fetch(previewUrl, {
-        headers: authHeaders,
-      })
+      const openFromFile = async (forceNew = false) => {
+        const response = await fetch(
+          `${currentServer.http.url}/reading-mode/session/from-file?directory=${encodeURIComponent(sdk.directory)}`,
+          {
+          method: "POST",
+          headers: {
+            ...authHeaders,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            path: p,
+            forceNew,
+          }),
+          },
+        )
 
-      if (!pdfResponse.ok) {
-        throw new Error(`Failed to load PDF: HTTP ${pdfResponse.status}`)
+        if (!response.ok) {
+          const text = await response.text()
+          throw new Error(text || `HTTP ${response.status}`)
+        }
+
+        return (await response.json()) as ReadingModeFromFileResponse
       }
 
-      const pdfBlob = await pdfResponse.blob()
-      const filename = p.split("/").pop() ?? "document.pdf"
-      const form = new FormData()
-      form.append("pdf", new File([pdfBlob], filename, { type: pdfBlob.type || "application/pdf" }))
-
-      const response = await fetch(`${currentServer.http.url}/reading-mode/session`, {
-        method: "POST",
-        body: form,
-        headers: authHeaders,
-      })
-
-      if (!response.ok) {
-        const text = await response.text()
-        throw new Error(text || `HTTP ${response.status}`)
+      const goToReadingSession = (sessionID: string) => {
+        navigate(`/${encodeURIComponent(params.dir ?? "")}/session/${sessionID}/reading`)
       }
 
-      const session = await response.json()
-      navigate(`/${encodeURIComponent(params.dir ?? "")}/session/${session.id}/reading`)
+      const mergeReadingSession = (session: Session) => {
+        sync.set("session", (items: Session[]) => upsertSessionList(items, session))
+      }
+
+      const result = await openFromFile()
+      mergeReadingSession(result.session)
+      if (result.action === "existing") {
+        dialog.show(() => (
+          <Dialog title={readingModeText(language, "resume.title")} fit>
+            <div class="flex flex-col gap-4 p-4">
+              <p class="text-sm text-text-base">{readingModeText(language, "resume.description")}</p>
+              <div class="flex justify-end gap-2">
+                <Button
+                  variant="ghost"
+                  onClick={() => {
+                    void (async () => {
+                      try {
+                        const created = await openFromFile(true)
+                        mergeReadingSession(created.session)
+                        dialog.close()
+                        goToReadingSession(created.session.id)
+                      } catch (error) {
+                        showToast({
+                          variant: "error",
+                          title: "Failed to open reading mode",
+                          description: String((error as Error)?.message ?? error),
+                        })
+                      }
+                    })()
+                  }}
+                >
+                  {readingModeText(language, "resume.new")}
+                </Button>
+                <Button
+                  onClick={() => {
+                    dialog.close()
+                    goToReadingSession(result.session.id)
+                  }}
+                >
+                  {readingModeText(language, "resume.continue")}
+                </Button>
+              </div>
+            </div>
+          </Dialog>
+        ))
+        return
+      }
+
+      goToReadingSession(result.session.id)
     } catch (e) {
       showToast({
         variant: "error",
@@ -857,7 +937,7 @@ export function FileTabContent(props: { tab: string }) {
     if (restoreFrame !== undefined) cancelAnimationFrame(restoreFrame)
   })
 
-  /** 灏?markdown 涓殑鐩稿鍥剧墖璺緞閲嶅啓涓烘湇鍔″櫒 /file/raw URL */
+  /** Rewrite relative image paths in markdown to server /file/raw URLs. */
   const rewriteImagePaths = (md: string): string => {
     const p = path()
     if (!p) return md

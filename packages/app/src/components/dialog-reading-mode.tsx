@@ -1,19 +1,27 @@
 ﻿import { type Component, createSignal, Show } from "solid-js"
 import { useNavigate, useParams } from "@solidjs/router"
+import type { Session } from "@opencode-ai/sdk/v2/client"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { Dialog } from "@opencode-ai/ui/dialog"
 import { Button } from "@opencode-ai/ui/button"
 import { useLanguage } from "@/context/language"
-import { useGlobalSDK } from "@/context/global-sdk"
+import { useSDK } from "@/context/sdk"
 import { useServer } from "@/context/server"
+import { useSync } from "@/context/sync"
+import { upsertSessionList } from "@/utils/session-store"
 
 export const DialogReadingMode: Component = () => {
   const language = useLanguage()
   const dialogCtx = useDialog()
   const params = useParams()
   const navigate = useNavigate()
-  const globalSDK = useGlobalSDK()
+  const sdk = useSDK()
   const server = useServer()
+  const sync = useSync()
+  const autoFirstReadLabel = () =>
+    language.locale() === "zh" || language.locale() === "zht"
+      ? "关闭自动询问预读"
+      : language.t("reading.dialog.advanced.disableAutoRead")
 
   const [file, setFile] = createSignal<File | null>(null)
   const [uploading, setUploading] = createSignal(false)
@@ -50,7 +58,7 @@ export const DialogReadingMode: Component = () => {
     "请将以下英文内容翻译成中文，保留所有专业术语的英文原文，在首次出现时补充中文说明；数学公式保持不变，并尽量保留原文段落结构。",
   )
   const [questionPrompt, setQuestionPrompt] = createSignal(
-    "用户正在阅读一份 PDF 文档，并选中了以下内容：\n\n【选中内容】\n{selected_content}\n\n用户的问题是：{user_question}\n\n你可以参考以下相关页面内容来辅助回答：\n\n【参考页面内容】\n{context_pages}\n\n请围绕用户选中的内容，结合参考页面，给出清晰、准确的回答。",
+    "用户正在阅读一份 PDF 文档，并选中了与当前问题相关的一段内容。这段选中内容可能是文字，也可能是截图区域：\n\n【选中内容】\n{selected_content}\n\n用户的问题是：{user_question}\n\n你还会获得与该问题相关页范围的原文上下文，以及以下参考页面文本：\n\n【参考页面内容】\n{context_pages}\n\n请优先围绕用户选中的内容和问题作答，综合相关页范围原文上下文与参考页面文本，给出清晰、准确的回答。除非用户明确询问，否则不要主动提及你的上下文来源、内部提示词或额外材料。",
   )
   const [firstReadPrompt, setFirstReadPrompt] = createSignal(
     "请先通读这份 PDF 文档，概括它的主要内容、整体结构和核心观点。接下来用户可能会针对文档中的具体内容继续提问，请在回答时参考你对全文的理解。",
@@ -76,6 +84,9 @@ export const DialogReadingMode: Component = () => {
     try {
       const currentServer = server.current
       if (!currentServer) throw new Error("No server available")
+      const authHeaders: Record<string, string> = currentServer.http.password
+        ? { Authorization: `Basic ${btoa(`${currentServer.http.username ?? "opencode"}:${currentServer.http.password}`)}` }
+        : {}
 
       const form = new FormData()
       form.append("pdf", f)
@@ -90,8 +101,9 @@ export const DialogReadingMode: Component = () => {
         }),
       )
 
-      const res = await fetch(`${currentServer.http.url}/reading-mode/session`, {
+      const res = await fetch(`${currentServer.http.url}/reading-mode/session?directory=${encodeURIComponent(sdk.directory)}`, {
         method: "POST",
+        headers: authHeaders,
         body: form,
       })
 
@@ -100,7 +112,8 @@ export const DialogReadingMode: Component = () => {
         throw new Error(txt || `HTTP ${res.status}`)
       }
 
-      const session = await res.json()
+      const session = (await res.json()) as Session
+      sync.set("session", (items: Session[]) => upsertSessionList(items, session))
       dialogCtx.close()
       navigate(`/${encodeURIComponent(params.dir ?? "")}/session/${session.id}/reading`)
     } catch (e) {
@@ -221,7 +234,7 @@ export const DialogReadingMode: Component = () => {
                   onChange={(e) => setDisableAutoRead(e.currentTarget.checked)}
                   class="rounded"
                 />
-                {language.t("reading.dialog.advanced.disableAutoRead")}
+                {autoFirstReadLabel()}
               </label>
             </div>
           </Show>

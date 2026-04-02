@@ -29,7 +29,7 @@ import { previewSelectedLines } from "@opencode-ai/ui/pierre/selection-bridge"
 import { Button } from "@opencode-ai/ui/button"
 import { showToast } from "@opencode-ai/ui/toast"
 import { base64Encode, checksum } from "@opencode-ai/util/encode"
-import { useNavigate, useSearchParams } from "@solidjs/router"
+import { useLocation, useNavigate, useSearchParams } from "@solidjs/router"
 import { NewSessionView, SessionHeader } from "@/components/session"
 import { useComments } from "@/context/comments"
 import { getSessionPrefetch, SESSION_PREFETCH_TTL } from "@/context/global-sync/session-prefetch"
@@ -343,6 +343,7 @@ export default function Page(props: {
   const sync = useSync()
   const dialog = useDialog()
   const language = useLanguage()
+  const location = useLocation()
   const navigate = useNavigate()
   const sdk = useSDK()
   const settings = useSettings()
@@ -522,6 +523,14 @@ export default function Page(props: {
   }
 
   const info = createMemo(() => (params.id ? sync.session.get(params.id) : undefined))
+  createEffect(() => {
+    const session = info()
+    const id = params.id
+    const dir = params.dir
+    if (!session?.readingMode || !id || !dir) return
+    if (location.pathname.endsWith("/reading")) return
+    navigate(`/${dir}/session/${id}/reading`, { replace: true })
+  })
   const diffs = createMemo(() => {
     if (!params.id) return []
     const val = sync.data.session_diff[params.id]

@@ -49,16 +49,28 @@ export type PdfViewerShellProps = {
   page?: number
   layoutSwapped?: boolean
   onPageChange?: (page: number) => void
+  onDocumentInfo?: (info: { totalPages: number }) => void
   onPdfToMarkdown?: () => void
   onOpenReadingMode?: () => void
+  onTextSelectionAction?: (input: { action: "copy" | "translate" | "ask"; page: number; text: string }) => void
+  onImageSelectionAction?: (input: { action: "copy" | "translate" | "ask"; page: number; imageDataUrl: string }) => void
   onSwapLayout?: () => void
 }
 
 type ViewerMessage =
   | { channel: "aether-pdf-viewer"; type: "ready" }
   | { channel: "aether-pdf-viewer"; type: "pagechange"; page: number }
+  | { channel: "aether-pdf-viewer"; type: "documentinfo"; totalPages: number }
   | { channel: "aether-pdf-viewer"; type: "pdf2md" }
   | { channel: "aether-pdf-viewer"; type: "openreadingmode" }
+  | { channel: "aether-pdf-viewer"; type: "textselectionaction"; action: "copy" | "translate" | "ask"; page: number; text: string }
+  | {
+      channel: "aether-pdf-viewer"
+      type: "imageselectionaction"
+      action: "copy" | "translate" | "ask"
+      page: number
+      imageDataUrl: string
+    }
   | { channel: "aether-pdf-viewer"; type: "nightmode"; enabled: boolean }
   | { channel: "aether-pdf-viewer"; type: "swaplayout" }
 
@@ -77,11 +89,13 @@ export const PdfViewerShell: Component<PdfViewerShellProps> = (props) => {
     mode: props.mode,
     nightMode: nightMode(),
     layoutSwapped: !!props.layoutSwapped,
-    features: {
-      pdf2md: !!props.onPdfToMarkdown && props.mode === "compact",
-      readingMode: !!props.onOpenReadingMode && props.mode === "compact",
-    },
-  }))
+      features: {
+        pdf2md: !!props.onPdfToMarkdown && props.mode === "compact",
+        readingMode: !!props.onOpenReadingMode && props.mode === "compact",
+        textSelectionActions: !!props.onTextSelectionAction && props.mode === "full",
+        imageSelectionActions: !!props.onImageSelectionAction && props.mode === "full",
+      },
+    }))
 
   const post = (message: unknown) => {
     const frame = iframeRef?.contentWindow
@@ -139,6 +153,11 @@ export const PdfViewerShell: Component<PdfViewerShellProps> = (props) => {
       return
     }
 
+    if (event.data.type === "documentinfo") {
+      props.onDocumentInfo?.({ totalPages: event.data.totalPages })
+      return
+    }
+
     if (event.data.type === "pdf2md") {
       props.onPdfToMarkdown?.()
       return
@@ -146,6 +165,24 @@ export const PdfViewerShell: Component<PdfViewerShellProps> = (props) => {
 
     if (event.data.type === "openreadingmode") {
       props.onOpenReadingMode?.()
+      return
+    }
+
+    if (event.data.type === "textselectionaction") {
+      props.onTextSelectionAction?.({
+        action: event.data.action,
+        page: event.data.page,
+        text: event.data.text,
+      })
+      return
+    }
+
+    if (event.data.type === "imageselectionaction") {
+      props.onImageSelectionAction?.({
+        action: event.data.action,
+        page: event.data.page,
+        imageDataUrl: event.data.imageDataUrl,
+      })
       return
     }
 

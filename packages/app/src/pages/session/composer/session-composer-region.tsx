@@ -2,17 +2,18 @@ import { Show, createEffect, createMemo, onCleanup } from "solid-js"
 import { createStore } from "solid-js/store"
 import { useSpring } from "@opencode-ai/ui/motion-spring"
 import { PromptInput } from "@/components/prompt-input"
+import { type FollowupDraft } from "@/components/prompt-input/submit"
 import { useLanguage } from "@/context/language"
+import { useMaybeReadingMode } from "@/context/reading-mode"
 import { usePrompt } from "@/context/prompt"
-import { getSessionHandoff, setSessionHandoff } from "@/pages/session/handoff"
-import { useSessionKey } from "@/pages/session/session-layout"
+import { SessionFollowupDock } from "@/pages/session/composer/session-followup-dock"
+import type { SessionComposerState } from "@/pages/session/composer/session-composer-state"
 import { SessionPermissionDock } from "@/pages/session/composer/session-permission-dock"
 import { SessionQuestionDock } from "@/pages/session/composer/session-question-dock"
-import { SessionFollowupDock } from "@/pages/session/composer/session-followup-dock"
 import { SessionRevertDock } from "@/pages/session/composer/session-revert-dock"
-import type { SessionComposerState } from "@/pages/session/composer/session-composer-state"
 import { SessionTodoDock } from "@/pages/session/composer/session-todo-dock"
-import type { FollowupDraft } from "@/components/prompt-input/submit"
+import { getSessionHandoff, setSessionHandoff } from "@/pages/session/handoff"
+import { useSessionKey } from "@/pages/session/session-layout"
 
 export function SessionComposerRegion(props: {
   state: SessionComposerState
@@ -44,7 +45,9 @@ export function SessionComposerRegion(props: {
 }) {
   const prompt = usePrompt()
   const language = useLanguage()
+  const readingMode = useMaybeReadingMode()
   const route = useSessionKey()
+  const pendingQuestion = createMemo(() => readingMode?.store.pendingQuestion ?? null)
 
   const handoffPrompt = createMemo(() => getSessionHandoff(route.sessionKey())?.prompt)
 
@@ -235,6 +238,35 @@ export function SessionComposerRegion(props: {
                   onEdit={props.followup!.onEdit}
                 />
               </Show>
+              <Show when={pendingQuestion()} keyed>
+                {(question) => (
+                  <div class="mb-2 rounded-lg border border-border-weak-base bg-surface-base px-3 py-2 shadow-xs">
+                    <div class="flex items-start justify-between gap-3">
+                      <div class="min-w-0 flex-1">
+                        <div class="text-11-medium uppercase tracking-wide text-text-weak">
+                          {`PDF Quote - p.${question.page}`}
+                        </div>
+                        <Show when={question.kind === "image-question"}>
+                          <img
+                            src={question.kind === "image-question" ? question.imageDataUrl : undefined}
+                            alt={`Captured region from page ${question.page}`}
+                            class="mt-2 h-20 max-w-full rounded-md border border-border-weak-base bg-background-base object-contain"
+                          />
+                        </Show>
+                        <div class="mt-1 line-clamp-3 whitespace-pre-wrap break-words text-13-regular text-text-strong">
+                          {question.text}
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        class="shrink-0 rounded-md px-1 py-0.5 text-12-medium text-text-weak transition hover:bg-surface-hover hover:text-text-strong"
+                        onClick={() => readingMode?.setPendingQuestion(null)}
+                        aria-label={language.t("common.clear")}
+                      >x</button>
+                    </div>
+                  </div>
+                )}
+              </Show>
               <PromptInput
                 ref={props.inputRef}
                 newSessionWorktree={props.newSessionWorktree}
@@ -253,3 +285,4 @@ export function SessionComposerRegion(props: {
     </div>
   )
 }
+

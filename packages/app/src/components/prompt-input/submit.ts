@@ -11,13 +11,15 @@ import { useLanguage } from "@/context/language"
 import { useLayout } from "@/context/layout"
 import { useLocal } from "@/context/local"
 import { usePermission } from "@/context/permission"
-import { type ContextItem, type ImageAttachmentPart, type Prompt, usePrompt } from "@/context/prompt"
+import { DEFAULT_PROMPT, type ContextItem, type ImageAttachmentPart, type Prompt, usePrompt } from "@/context/prompt"
+import { useMaybeReadingMode } from "@/context/reading-mode"
 import { useSDK } from "@/context/sdk"
+import { useServer } from "@/context/server"
 import { useSync } from "@/context/sync"
 import { useKnowledge } from "@/context/knowledge"
 import { Identifier } from "@/utils/id"
 import { Worktree as WorktreeState } from "@/utils/worktree"
-import { buildRequestParts } from "./build-request-parts"
+import { buildRequestParts, type DataAttachment } from "./build-request-parts"
 import { setCursorPosition } from "./editor-dom"
 import { formatServerError } from "@/utils/server-errors"
 
@@ -32,6 +34,13 @@ export type FollowupDraft = {
   sessionID: string
   sessionDirectory: string
   prompt: Prompt
+  attachments?: DataAttachment[]
+  extraTextParts?: Array<{
+    text: string
+    synthetic?: boolean
+    ignored?: boolean
+    metadata?: Record<string, unknown>
+  }>
   context: (ContextItem & { key: string })[]
   agent: string
   model: { providerID: string; modelID: string }
@@ -54,6 +63,63 @@ type FollowupSendInput = {
 const draftText = (prompt: Prompt) => prompt.map((part) => ("content" in part ? part.content : "")).join("")
 
 const draftImages = (prompt: Prompt) => prompt.filter((part): part is ImageAttachmentPart => part.type === "image")
+
+function buildAuthHeaders(input: { username?: string; password?: string; json?: boolean }) {
+  const headers: Record<string, string> = {}
+  if (input.password) {
+    headers.Authorization = `Basic ${btoa(`${input.username ?? "opencode"}:${input.password}`)}`
+  }
+  if (input.json) {
+    headers["Content-Type"] = "application/json"
+  }
+  return headers
+}
+
+function fillReadingQuestionPrompt(template: string, input: {
+  selectedContent: string
+  userQuestion: string
+  contextPages: string
+}) {
+  return template
+    .replaceAll("{selected_content}", input.selectedContent)
+    .replaceAll("{user_question}", input.userQuestion)
+    .replaceAll("{context_pages}", input.contextPages)
+}
+
+function describeReadingSelection(input: { page: number; kind: "text-question" | "image-question"; text?: string }) {
+  if (input.kind === "image-question") {
+    return `用户选中的是一张来自 PDF 第 ${input.page} 页的截图区域，请结合截图与上下文回答。`
+  }
+  return input.text ?? ""
+}
+
+function blobToDataUrl(blob: Blob) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader()
+    reader.addEventListener("error", () => reject(reader.error ?? new Error("failed to read blob")))
+    reader.addEventListener("load", () => {
+      const value = typeof reader.result === "string" ? reader.result : ""
+      resolve(value)
+    })
+    reader.readAsDataURL(blob)
+  })
+}
+
+function resolveReadingContextRange(input: {
+  page: number
+  range: 0 | 1 | 2
+  totalPages?: number
+}) {
+  const totalPages =
+    typeof input.totalPages === "number" && Number.isFinite(input.totalPages) && input.totalPages > 0
+      ? Math.floor(input.totalPages)
+      : undefined
+  const safePage = totalPages ? Math.min(totalPages, Math.max(1, input.page)) : Math.max(1, input.page)
+  return {
+    startPage: Math.max(1, safePage - input.range),
+    endPage: totalPages ? Math.min(totalPages, safePage + input.range) : safePage + input.range,
+  }
+}
 
 export async function sendFollowupDraft(input: FollowupSendInput) {
   const text = draftText(input.draft.prompt)
@@ -113,7 +179,9 @@ export async function sendFollowupDraft(input: FollowupSendInput) {
     prompt: input.draft.prompt,
     context: input.draft.context,
     images,
+    attachments: input.draft.attachments,
     text,
+    extraTextParts: input.draft.extraTextParts,
     sessionID: input.draft.sessionID,
     messageID,
     sessionDirectory: input.draft.sessionDirectory,
@@ -213,11 +281,13 @@ export function createPromptSubmit(input: PromptSubmitInput) {
   const local = useLocal()
   const permission = usePermission()
   const prompt = usePrompt()
+  const readingMode = useMaybeReadingMode()
   const layout = useLayout()
   const language = useLanguage()
   const params = useParams()
   const knowledge = useKnowledge()
   const fileCtx = useFile()
+  const server = useServer()
 
   const errorMessage = (err: unknown) => {
     if (err && typeof err === "object" && "data" in err) {
@@ -290,6 +360,61 @@ export function createPromptSubmit(input: PromptSubmitInput) {
       next.splice(result.index, 0, info)
       return next
     })
+  }
+
+  const fetchReadingContextPages = async (input: {
+    sessionID: string
+    page: number
+    range: 0 | 1 | 2
+    totalPages?: number
+  }) => {
+    const { startPage, endPage } = resolveReadingContextRange(input)
+    const http = server.current?.http
+    const response = await fetch(`${sdk.url}/reading-mode/page-text`, {
+      method: "POST",
+      headers: buildAuthHeaders({ username: http?.username, password: http?.password, json: true }),
+      body: JSON.stringify({
+        sessionID: input.sessionID,
+        startPage,
+        endPage,
+      }),
+    })
+    if (!response.ok) {
+      const message = await response.text()
+      throw new Error(message || `HTTP ${response.status}`)
+    }
+    return (await response.json()) as {
+      pageCount: number
+      pages: Array<{ pageNumber: number; text: string }>
+      combinedText: string
+    }
+  }
+
+  const fetchReadingContextPdf = async (input: {
+    sessionID: string
+    page: number
+    range: 0 | 1 | 2
+    totalPages?: number
+  }) => {
+    const { startPage, endPage } = resolveReadingContextRange(input)
+    const http = server.current?.http
+    const response = await fetch(`${sdk.url}/reading-mode/page-pdf`, {
+      method: "POST",
+      headers: buildAuthHeaders({ username: http?.username, password: http?.password, json: true }),
+      body: JSON.stringify({
+        sessionID: input.sessionID,
+        startPage,
+        endPage,
+      }),
+    })
+    if (!response.ok) {
+      const message = await response.text()
+      throw new Error(message || `HTTP ${response.status}`)
+    }
+    return {
+      range: { startPage, endPage },
+      blob: await response.blob(),
+    }
   }
 
   const handleSubmit = async (event: Event) => {
@@ -403,6 +528,7 @@ export function createPromptSubmit(input: PromptSubmitInput) {
     const context = prompt.context.items().slice()
     const openPaths = input.openTabPaths?.() ?? []
     const selText = fileCtx.selectedText()
+    const readingQuestion = readingMode?.store.pendingQuestion
     const draft: FollowupDraft = {
       sessionID: session.id,
       sessionDirectory,
@@ -462,7 +588,7 @@ export function createPromptSubmit(input: PromptSubmitInput) {
       return
     }
 
-    if (text.startsWith("/")) {
+    if (!readingQuestion && text.startsWith("/")) {
       const [cmdName, ...args] = text.split(" ")
       const commandName = cmdName.slice(1)
       const customCommand = sync.data.command.find((c) => c.name === commandName)
@@ -562,6 +688,131 @@ export function createPromptSubmit(input: PromptSubmitInput) {
       if (controller.signal.aborted) return false
       if (result.status === "failed") throw new Error(result.message)
       return true
+    }
+
+    if (mode === "normal" && readingQuestion) {
+      const typedQuestion = text.trim()
+      const sessionMeta = sync.session.get(session.id)?.readingMode ?? readingMode?.store.sessionMeta
+      if (!typedQuestion || !sessionMeta) {
+        restoreCommentItems(commentItems)
+        restoreInput()
+        showToast({
+          title: language.t("prompt.toast.promptSendFailed.title"),
+          description: language.t("prompt.toast.promptSendFailed.description"),
+        })
+        return
+      }
+
+      let requestDraft: FollowupDraft
+      try {
+        const contextInput = {
+          sessionID: session.id,
+          page: readingQuestion.page,
+          range: sessionMeta.settings.contextPageRange,
+          totalPages: readingMode?.store.totalPages,
+        } as const
+        const [pageText, pagePdf] = await Promise.all([
+          fetchReadingContextPages(contextInput),
+          fetchReadingContextPdf(contextInput),
+        ])
+        const pdfDataUrl = await blobToDataUrl(pagePdf.blob)
+        const baseName = sessionMeta.pdfFileName.replace(/\.pdf$/i, "") || "document"
+        const imageAttachment =
+          readingQuestion.kind === "image-question"
+            ? [
+                {
+                  filename: `pdf-region-page-${readingQuestion.page}.png`,
+                  mime: "image/png",
+                  dataUrl: readingQuestion.imageDataUrl,
+                },
+              ]
+            : []
+
+        requestDraft = {
+          sessionID: session.id,
+          sessionDirectory,
+          prompt: [DEFAULT_PROMPT[0]!, ...images],
+          attachments: [
+            ...imageAttachment,
+            {
+              filename: `${baseName}-pages-${pagePdf.range.startPage}-${pagePdf.range.endPage}.pdf`,
+              mime: "application/pdf",
+              dataUrl: pdfDataUrl,
+            },
+          ],
+          context,
+          agent,
+          model,
+          variant,
+          selectedPaths: openPaths.length > 0 ? openPaths : undefined,
+          extraTextParts: [
+            {
+              text: typedQuestion,
+              ignored: true,
+            },
+            {
+              text: fillReadingQuestionPrompt(sessionMeta.settings.questionPrompt, {
+                selectedContent: describeReadingSelection({
+                  page: readingQuestion.page,
+                  kind: readingQuestion.kind,
+                  text: readingQuestion.kind === "text-question" ? readingQuestion.text : undefined,
+                }),
+                userQuestion: typedQuestion,
+                contextPages: pageText.combinedText,
+              }),
+              synthetic: true,
+            },
+          ],
+        }
+      } catch (err) {
+        showToast({
+          title: language.t("prompt.toast.promptSendFailed.title"),
+          description: errorMessage(err),
+        })
+        restoreCommentItems(commentItems)
+        restoreInput()
+        return
+      }
+
+      void sendFollowupDraft({
+        client,
+        sync,
+        globalSync,
+        draft: requestDraft,
+        messageID,
+        optimisticBusy: sessionDirectory === projectDirectory,
+        before: waitForWorktree,
+        knowledgeBase:
+          knowledge.enabled() && knowledge.activeKnowledgeBases().length > 0
+            ? {
+                paths: knowledge.activeKnowledgeBases().map((kb) => kb.path),
+                apiKey: knowledge.activeKnowledgeBases()[0]!.apiKey,
+                baseURL: knowledge.activeKnowledgeBases()[0]!.baseURL,
+              }
+            : undefined,
+      })
+        .then((ok) => {
+          if (ok) {
+            readingMode?.setPendingQuestion(null)
+            return
+          }
+          restoreCommentItems(commentItems)
+          restoreInput()
+        })
+        .catch((err) => {
+          pending.delete(session.id)
+          if (sessionDirectory === projectDirectory) {
+            sync.set("session_status", session.id, { type: "idle" })
+          }
+          showToast({
+            title: language.t("prompt.toast.promptSendFailed.title"),
+            description: errorMessage(err),
+          })
+          removeOptimisticMessage()
+          restoreCommentItems(commentItems)
+          restoreInput()
+        })
+      return
     }
 
     void sendFollowupDraft({

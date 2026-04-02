@@ -91,6 +91,9 @@ export type SessionItemProps = {
   renameSession?: (session: Session, title: string) => Promise<void>
 }
 
+const sessionHref = (slug: string, session: Session, hash?: string) =>
+  `/${slug}/session/${session.id}${session.readingMode ? "/reading" : ""}${hash ?? ""}`
+
 const SessionRow = (props: {
   session: Session
   slug: string
@@ -110,7 +113,7 @@ const SessionRow = (props: {
   cancelHoverPrefetch: () => void
 }): JSX.Element => (
   <A
-    href={`/${props.slug}/session/${props.session.id}`}
+    href={sessionHref(props.slug, props.session)}
     class={`flex items-center justify-between gap-3 min-w-0 text-left w-full focus:outline-none transition-[padding] ${props.mobile ? "pr-14" : ""} group-hover/session:pr-14 group-focus-within/session:pr-14 group-active/session:pr-14 ${props.dense ? "py-0.5" : "py-1"}`}
     onPointerDown={props.warmPress}
     onPointerEnter={props.warmHover}
@@ -141,6 +144,11 @@ const SessionRow = (props: {
         </Match>
       </Switch>
     </div>
+    <Show when={props.session.readingMode}>
+      <span class="shrink-0 rounded bg-surface-raised-base px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-text-muted">
+        PDF
+      </span>
+    </Show>
     <span class="text-14-regular text-text-strong min-w-0 flex-1 truncate">{props.session.title}</span>
   </A>
 )
@@ -384,7 +392,7 @@ export const SessionItem = (props: SessionItemProps): JSX.Element => {
                       if (!isActive())
                         layout.pendingMessage.set(`${base64Encode(props.session.directory)}/${props.session.id}`, message.id)
 
-                      navigate(`${props.slug}/session/${props.session.id}#message-${message.id}`)
+                      navigate(sessionHref(props.slug, props.session, `#message-${message.id}`))
                     }}
                     trigger={item}
                   />

@@ -80,7 +80,13 @@ export namespace Session {
       share,
       revert,
       permission: row.permission ?? undefined,
-      readingMode: row.reading_mode ?? undefined,
+      readingMode: row.reading_mode
+        ? {
+            ...row.reading_mode,
+            source: row.reading_mode.source ?? { kind: "upload" },
+            firstReadDismissed: row.reading_mode.firstReadDismissed ?? false,
+          }
+        : undefined,
       time: {
         created: row.time_created,
         updated: row.time_updated,
@@ -169,6 +175,10 @@ export namespace Session {
           pdfStorePath: z.string(),
           lastReadPage: z.number(),
           annotationsPath: z.string(),
+          source: z.object({
+            kind: z.union([z.literal("workspace-file"), z.literal("upload")]),
+            path: z.string().optional(),
+          }),
           settings: z.object({
             translatePrompt: z.string(),
             questionPrompt: z.string(),
@@ -177,6 +187,7 @@ export namespace Session {
             autoFirstRead: z.boolean(),
           }),
           firstReadCompleted: z.boolean(),
+          firstReadDismissed: z.boolean(),
         })
         .optional(),
     })

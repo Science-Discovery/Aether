@@ -35,6 +35,7 @@ body.aether-pdf-viewer #toolbarViewerMiddle {
 
 body.aether-pdf-viewer #aetherPdf2md,
 body.aether-pdf-viewer #aetherNightMode,
+body.aether-pdf-viewer #aetherCaptureRegion,
 body.aether-pdf-viewer #aetherSwapLayout,
 body.aether-pdf-viewer #aetherOpenReadingMode {
   margin-inline-start: 6px;
@@ -43,6 +44,7 @@ body.aether-pdf-viewer #aetherOpenReadingMode {
 body.aether-pdf-viewer {
   --aether-night-moon-icon: url("/pdfjs-ref/web/images/aether-night-mode-moon.svg");
   --aether-night-sun-icon: url("/pdfjs-ref/web/images/aether-night-mode-sun.svg");
+  --aether-capture-region-icon: url("/pdfjs-ref/web/images/aether-capture-region.svg");
   --aether-swap-right-icon: url("/pdfjs-ref/web/images/aether-swap-layout-right.svg");
   --aether-swap-left-icon: url("/pdfjs-ref/web/images/aether-swap-layout-left.svg");
   --aether-reading-mode-icon: url("/pdfjs-ref/web/images/aether-reading-mode.svg");
@@ -81,6 +83,19 @@ body.aether-pdf-viewer #aetherOpenReadingMode {
   min-width: 32px;
 }
 
+body.aether-pdf-viewer #aetherCaptureRegion {
+  min-width: 32px;
+}
+
+body.aether-pdf-viewer #aetherCaptureRegion::before {
+  -webkit-mask-image: var(--aether-capture-region-icon);
+  mask-image: var(--aether-capture-region-icon);
+}
+
+body.aether-pdf-viewer #aetherCaptureRegion.toggled {
+  background-color: var(--toggled-btn-bg-color);
+}
+
 body.aether-pdf-viewer #aetherSwapLayout::before {
   -webkit-mask-image: var(--aether-swap-right-icon);
   mask-image: var(--aether-swap-right-icon);
@@ -116,6 +131,10 @@ body.aether-pdf-viewer[data-night-mode="on"] #aetherNightMode {
 }
 
 body.aether-pdf-viewer[data-mode="compact"] #aetherSwapLayout {
+  display: none !important;
+}
+
+body.aether-pdf-viewer[data-mode="compact"] #aetherCaptureRegion {
   display: none !important;
 }
 
@@ -179,4 +198,91 @@ body.aether-pdf-viewer[data-mode="full"] #viewLayers {
 
 body.aether-pdf-viewer[data-mode="full"] #sidebarContent {
   top: 0;
+}
+
+body.aether-pdf-viewer #aetherSelectionMenu {
+  position: fixed;
+  z-index: 1200;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px;
+  border: 1px solid rgb(255 255 255 / 0.08);
+  border-radius: 10px;
+  background: rgb(16 18 24 / 0.94);
+  box-shadow:
+    0 12px 28px rgb(0 0 0 / 0.32),
+    inset 0 1px 0 rgb(255 255 255 / 0.04);
+  backdrop-filter: blur(12px);
+}
+
+body.aether-pdf-viewer #aetherSelectionHint {
+  position: fixed;
+  top: 44px;
+  left: 50%;
+  z-index: 1190;
+  transform: translateX(-50%);
+  max-width: min(320px, calc(100vw - 24px));
+  padding: 7px 10px;
+  border: 1px solid rgb(255 255 255 / 0.08);
+  border-radius: 999px;
+  background: rgb(16 18 24 / 0.94);
+  box-shadow: 0 10px 24px rgb(0 0 0 / 0.28);
+  color: rgb(247 248 250 / 0.92);
+  font-size: 12px;
+  line-height: 1.2;
+  text-align: center;
+}
+
+body.aether-pdf-viewer .aetherSelectionMenuButton {
+  appearance: none;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: rgb(247 248 250 / 0.92);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1;
+  padding: 7px 10px;
+  cursor: pointer;
+}
+
+body.aether-pdf-viewer .aetherSelectionMenuButton:hover,
+body.aether-pdf-viewer .aetherSelectionMenuButton:focus-visible {
+  outline: none;
+  background: rgb(255 255 255 / 0.1);
+}
+
+body.aether-pdf-viewer #aetherCaptureOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1180;
+  cursor: crosshair;
+  pointer-events: none;
+}
+
+body.aether-pdf-viewer #aetherCaptureOverlay[hidden] {
+  display: none !important;
+}
+
+body.aether-pdf-viewer #aetherCaptureShade {
+  position: absolute;
+  inset: 0;
+  background: rgb(3 6 14 / 0.14);
+}
+
+body.aether-pdf-viewer #aetherCaptureBox {
+  position: absolute;
+  border: 1px solid rgb(104 184 255 / 0.95);
+  background: rgb(84 169 255 / 0.16);
+  box-shadow:
+    0 0 0 1px rgb(255 255 255 / 0.1),
+    0 8px 24px rgb(0 0 0 / 0.18);
+  pointer-events: none;
+}
+
+body.aether-pdf-viewer.capture-mode-active #viewerContainer,
+body.aether-pdf-viewer.capture-mode-active .textLayer {
+  user-select: none !important;
 }
