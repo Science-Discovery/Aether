@@ -14,6 +14,11 @@ import { NodeFileSystem, NodePath } from "@effect/platform-node"
 import { makeRuntime } from "@/effect/run-service"
 import { AppFileSystem } from "@/filesystem"
 import * as CrossSpawnSpawner from "@/effect/cross-spawn-spawner"
+import { Global } from "@/global"
+import { Hash } from "@/util/hash"
+import { init as initDb } from "#db"
+import fs from "fs"
+import path from "path"
 
 export namespace Project {
   const log = Log.create({ service: "project" })
@@ -53,6 +58,152 @@ export namespace Project {
   }
 
   type Row = typeof ProjectTable.$inferSelect
+
+  type Entry = {
+    id: string
+    worktree: string
+    vcs?: Info["vcs"]
+    name?: string
+    icon?: Info["icon"]
+    commands?: Info["commands"]
+    time: Info["time"]
+    sandboxes: string[]
+    at: number
+  }
+
+  function norm(input: string) {
+    const next = input.replace(/\\/g, "/")
+    const trim = /^\/+$/g.test(next) ? "/" : next.replace(/\/+$/, "")
+    if (/^[A-Za-z]:/.test(trim)) return trim[0].toLowerCase() + trim.slice(1)
+    return trim
+  }
+
+  function name(input: string) {
+    return input.replace(/\\/g, "/").replace(/\/+$/, "").split("/").pop() || input
+  }
+
+  function id(input: string) {
+    return ProjectID.make(`dir:${Hash.fast(input)}`)
+  }
+
+  function add(map: Map<string, Entry>, next: Entry) {
+    const key = norm(next.worktree)
+    const prev = map.get(key)
+    if (!prev) {
+      map.set(key, next)
+      return
+    }
+    map.set(key, {
+      ...prev,
+      ...(!prev.vcs && next.vcs ? { vcs: next.vcs } : {}),
+      ...(!prev.icon && next.icon ? { icon: next.icon } : {}),
+      ...(!prev.commands && next.commands ? { commands: next.commands } : {}),
+      ...(!prev.name && next.name ? { name: next.name } : {}),
+      sandboxes: Array.from(new Set([...prev.sandboxes, ...next.sandboxes])),
+      at: Math.max(prev.at, next.at),
+      time: {
+        created: Math.min(prev.time.created, next.time.created),
+        updated: Math.max(prev.time.updated, next.time.updated),
+        initialized: prev.time.initialized ?? next.time.initialized,
+      },
+    })
+  }
+
+  function files() {
+    return fs
+      .readdirSync(Global.Path.data, { withFileTypes: true })
+      .filter((x) => x.isFile() && /^opencode.*\.db$/i.test(x.name))
+      .map((x) => path.join(Global.Path.data, x.name))
+      .sort()
+  }
+
+  function known() {
+    const map = new Map<string, Entry>()
+    const skip = ["/", "\\", "/bin", "/dist", "\\bin", "\\dist"]
+
+    for (const file of files()) {
+      const db = initDb(file)
+      try {
+        const ps = db.$client
+          .prepare(
+            `select id, worktree, vcs, name, icon_url, icon_color, time_created, time_updated, time_initialized, sandboxes, commands from project`,
+          )
+          .all() as Array<{
+          id: string
+          worktree: string
+          vcs: string | null
+          name: string | null
+          icon_url: string | null
+          icon_color: string | null
+          time_created: number | null
+          time_updated: number | null
+          time_initialized: number | null
+          sandboxes: string | null
+          commands: string | null
+        }>
+        const ss = db.$client
+          .prepare(
+            `select directory, max(time_updated) as time_updated from session where directory is not null and directory != '/' group by directory`,
+          )
+          .all() as Array<{ directory: string; time_updated: number | null }>
+        const smap = new Map(ss.map((x) => [x.directory, x.time_updated ?? 0]))
+
+        for (const row of ps) {
+          if (!row.worktree || row.worktree === "/") continue
+          const at = Math.max(row.time_updated ?? 0, row.time_created ?? 0, smap.get(row.worktree) ?? 0)
+          add(map, {
+            id: row.id,
+            worktree: row.worktree,
+            vcs: row.vcs ? Info.shape.vcs.parse(row.vcs) : undefined,
+            name: row.name ?? name(row.worktree),
+            icon:
+              row.icon_url || row.icon_color
+                ? { url: row.icon_url ?? undefined, color: row.icon_color ?? undefined }
+                : undefined,
+            commands: row.commands ? JSON.parse(row.commands) : undefined,
+            sandboxes: row.sandboxes ? JSON.parse(row.sandboxes) : [],
+            time: {
+              created: row.time_created ?? at,
+              updated: at,
+              initialized: row.time_initialized ?? undefined,
+            },
+            at,
+          })
+        }
+
+        for (const row of ss) {
+          if (!row.directory || skip.some((x) => row.directory.endsWith(x))) continue
+          const at = row.time_updated ?? 0
+          add(map, {
+            id: id(norm(row.directory)),
+            worktree: row.directory,
+            name: name(row.directory),
+            sandboxes: [],
+            time: {
+              created: at,
+              updated: at,
+            },
+            at,
+          })
+        }
+      } finally {
+        db.$client.close()
+      }
+    }
+
+    return [...map.values()]
+      .sort((a, b) => b.at - a.at || a.worktree.localeCompare(b.worktree))
+      .map((item) => ({
+        id: ProjectID.make(item.id),
+        worktree: item.worktree,
+        vcs: item.vcs,
+        name: item.name,
+        icon: item.icon,
+        commands: item.commands,
+        time: item.time,
+        sandboxes: item.sandboxes,
+      }))
+  }
 
   export function fromRow(row: Row): Info {
     const icon =
@@ -347,7 +498,7 @@ export namespace Project {
       })
 
       const list = Effect.fn("Project.list")(function* () {
-        return yield* db((d) => d.select().from(ProjectTable).all().map(fromRow))
+        return yield* Effect.sync(known)
       })
 
       const get = Effect.fn("Project.get")(function* (id: ProjectID) {
@@ -477,29 +628,11 @@ export namespace Project {
   }
 
   export function list() {
-    return Database.use((db) =>
-      db
-        .select()
-        .from(ProjectTable)
-        .all()
-        .map((row) => fromRow(row)),
-    )
+    return known()
   }
 
   export function directories(): string[] {
-    return Database.use((db) => {
-      const projects = db.select().from(ProjectTable).all()
-      const worktrees = new Set(projects.map((p) => p.worktree))
-
-      const sessionDirs = db
-        .selectDistinct({ directory: SessionTable.directory })
-        .from(SessionTable)
-        .all()
-        .map((r) => r.directory)
-        .filter((d): d is string => !!d && d !== "/" && !worktrees.has(d))
-
-      return [...worktrees, ...sessionDirs]
-    })
+    return list().map((item) => item.worktree)
   }
 
   export function get(id: ProjectID): Info | undefined {

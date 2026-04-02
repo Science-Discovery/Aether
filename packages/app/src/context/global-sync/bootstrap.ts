@@ -107,8 +107,6 @@ export async function bootstrapGlobal(input: {
           const projects = (x.data ?? [])
             .filter((p) => !!p?.id)
             .filter((p) => !!p.worktree && !p.worktree.includes("opencode-test"))
-            .slice()
-            .sort((a, b) => cmp(a.id, b.id))
           input.setGlobalStore("project", projects)
         }),
       ),
