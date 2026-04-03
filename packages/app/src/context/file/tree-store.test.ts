@@ -45,10 +45,32 @@ describe("file tree store refresh", () => {
     data.set("", [dir("docs"), file("README.md"), file("notes.md")])
     data.set("docs", [file("docs/intro.md"), file("docs/new.md")])
 
-    await tree.refreshDir("")
+    const changed = await tree.refreshDir("")
 
     expect(tree.children("").map((item) => item.path)).toEqual(["docs", "README.md", "notes.md"])
     expect(tree.children("docs").map((item) => item.path)).toEqual(["docs/intro.md", "docs/new.md"])
+    expect(changed).toBe(true)
+  })
+
+  test("returns false when refresh finds no changes", async () => {
+    const data = new Map<string, Node[]>([
+      ["", [dir("docs"), file("README.md")]],
+      ["docs", [file("docs/intro.md")]],
+    ])
+
+    const tree = createFileTreeStore({
+      scope: () => "/repo",
+      normalizeDir: (input) => input.replace(/\/+$/, ""),
+      list: async (input) => data.get(input) ?? [],
+      onError: () => {},
+    })
+
+    await tree.listDir("")
+    await tree.listDir("docs")
+
+    const changed = await tree.refreshDir("")
+
+    expect(changed).toBe(false)
   })
 
   test("reset restores the saved expanded dirs", () => {

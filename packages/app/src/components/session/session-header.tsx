@@ -3,6 +3,7 @@ import { Button } from "@opencode-ai/ui/button"
 import { DropdownMenu } from "@opencode-ai/ui/dropdown-menu"
 import { Icon } from "@opencode-ai/ui/icon"
 import { IconButton } from "@opencode-ai/ui/icon-button"
+import { FileRefreshNotice } from "@/components/file-refresh-notice"
 import { PdfConvertProgressBar } from "@/components/pdf-convert-progress"
 import { Keybind } from "@opencode-ai/ui/keybind"
 import { Spinner } from "@opencode-ai/ui/spinner"
@@ -311,6 +312,7 @@ export function SessionHeader() {
         {(mount) => (
           <Portal mount={mount()}>
             <div class="flex items-center gap-2">
+              <FileRefreshNotice />
               <PdfConvertProgressBar />
               <Show when={projectDirectory()}>
                 <div class="hidden xl:flex items-center">

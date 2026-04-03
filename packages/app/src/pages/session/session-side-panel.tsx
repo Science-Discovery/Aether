@@ -23,6 +23,7 @@ import { DialogPdfToMarkdown } from "@/components/dialog-pdf-to-markdown"
 import { DialogTranslateMarkdown } from "@/components/dialog-translate-markdown"
 import { DialogBatchPdfConvert } from "@/components/dialog-batch-pdf-convert"
 import { DialogBatchTranslateMarkdown } from "@/components/dialog-batch-translate-markdown"
+import { showFileRefreshNotice } from "@/components/file-refresh-notice"
 import { SessionContextTab, SortableTab, FileVisual } from "@/components/session"
 import { useCommand } from "@/context/command"
 import { useFile, type SelectedLineRange } from "@/context/file"
@@ -72,6 +73,10 @@ export function SessionSidePanel(props: {
     props.onVcsRefresh()
     if (params.id) void sync.session.diff(params.id, { force: true })
   }
+  const [refreshing, setRefreshing] = createSignal(false)
+  const [press, setPress] = createSignal(false)
+  const [flash, setFlash] = createSignal(false)
+  let flashTimer: ReturnType<typeof setTimeout> | undefined
 
   const fetchApi = (urlPath: string, options: RequestInit = {}): Promise<Response> => {
     const s = server.current?.http
@@ -92,6 +97,28 @@ export function SessionSidePanel(props: {
   }
 
   let restored = ""
+
+  const clearPress = () => setPress(false)
+  if (typeof window === "object") {
+    window.addEventListener("pointerup", clearPress)
+    window.addEventListener("pointercancel", clearPress)
+    onCleanup(() => {
+      window.removeEventListener("pointerup", clearPress)
+      window.removeEventListener("pointercancel", clearPress)
+    })
+  }
+  onCleanup(() => {
+    if (flashTimer) clearTimeout(flashTimer)
+  })
+
+  const pulse = () => {
+    if (flashTimer) clearTimeout(flashTimer)
+    setFlash(true)
+    flashTimer = setTimeout(() => {
+      setFlash(false)
+      flashTimer = undefined
+    }, 220)
+  }
 
   createEffect(() => {
     registerOpenFileCallback(async (filePath: string) => {
@@ -291,9 +318,14 @@ export function SessionSidePanel(props: {
     })
   }
 
-  function handleRefresh() {
-    void file.tree.refresh("")
+  async function handleRefresh() {
+    if (refreshing()) return
+    setRefreshing(true)
+    pulse()
+    const changed = await file.tree.refresh("")
     props.onRefresh()
+    if (changed !== undefined) showFileRefreshNotice(changed)
+    setRefreshing(false)
   }
 
   const [isSummarizing, setIsSummarizing] = createSignal(false)
@@ -1098,8 +1130,16 @@ export function SessionSidePanel(props: {
                     <Tooltip value="刷新项目文件列表">
                       <button
                         type="button"
-                        class="ml-auto flex items-center gap-1 px-2 py-1 rounded text-12-regular text-text-weak hover:text-text-base hover:bg-surface-raised-base-hover transition-colors"
-                        onClick={handleRefresh}
+                        class={`ml-auto flex items-center gap-1 px-2 py-1 rounded text-12-regular text-text-weak hover:text-text-base transition-colors ${
+                          press() ? "bg-transparent" : "hover:bg-surface-raised-base-hover"
+                        }`}
+                        disabled={refreshing()}
+                        onPointerDown={(event) => {
+                          if (event.button !== 0) return
+                          setPress(true)
+                        }}
+                        onPointerLeave={clearPress}
+                        onClick={() => void handleRefresh()}
                       >
                         <Icon name="arrow-down-to-line" size="small" />
                         <span class="hidden @sm:block">刷新</span>
@@ -1114,6 +1154,13 @@ export function SessionSidePanel(props: {
                     onDragOver={handleRootDragOver}
                     onDrop={(event) => void handleRootDrop(event)}
                   >
+                    <div
+                      class="absolute inset-0 rounded-md bg-surface-base-active pointer-events-none transition-opacity duration-200"
+                      classList={{
+                        "opacity-0": !flash(),
+                        "opacity-100": flash(),
+                      }}
+                    />
                     <div
                       classList={{
                         "absolute inset-2 rounded-lg border-2 border-dashed border-border-base bg-surface-raised-base/60 pointer-events-none transition-opacity": true,
