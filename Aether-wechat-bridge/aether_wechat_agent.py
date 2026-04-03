@@ -373,6 +373,9 @@ class AetherAgent(Agent):
                 break
         return rows
 
+    async def _wrap_message(self, text: str, session_id: str, directory: str) -> str:
+        return text
+
     async def _get_projects(self) -> list[dict]:
         try:
             resp = await self._client.get(f"{self.base_url}/project")
