@@ -163,7 +163,7 @@ export async function sendFollowupDraft(input: FollowupSendInput) {
       messageID,
       parts: requestParts,
       variant: input.draft.variant,
-      knowledgeBase: input.knowledgeBase as any,
+      knowledgeBase: input.knowledgeBase,
     })
     return true
   } catch (err) {

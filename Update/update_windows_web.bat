@@ -14,16 +14,32 @@ if /I "%~1"=="--no-pause" set "HOLD="
 
 set "SELF=%~dp0"
 if "%SELF:~-1%"=="\" set "SELF=%SELF:~0,-1%"
+set "APP_HINT=%SELF%\aether-windows-x64-web"
 set "CACHE=%SELF%\aether-windows-x64-web.zip"
 set "STAMP=%SELF%\.aether_web_package_version"
 
-if exist "%SELF%\aether.exe" if exist "%SELF%\Aether.vbs" (
+for %%i in ("%SELF%") do set "SELF_NAME=%%~nxi"
+
+if /I "%SELF_NAME%"=="aether-windows-x64-web" if exist "%SELF%\aether.exe" if exist "%SELF%\Aether.vbs" (
   set "APP=%SELF%"
-) else if exist "%SELF%\..\aether.exe" if exist "%SELF%\..\Aether.vbs" (
-  for %%i in ("%SELF%\..") do set "APP=%%~fi"
-) else (
-  set "APP=%SELF%"
+  goto :detect_done
 )
+
+for %%i in ("%SELF%\..") do set "PARENT=%%~fi" & set "PARENT_NAME=%%~nxi"
+
+if /I "%PARENT_NAME%"=="aether-windows-x64-web" if exist "%PARENT%\aether.exe" if exist "%PARENT%\Aether.vbs" (
+  set "APP=%PARENT%"
+  goto :detect_done
+)
+
+if exist "%APP_HINT%\aether.exe" if exist "%APP_HINT%\Aether.vbs" (
+  set "APP=%APP_HINT%"
+  goto :detect_done
+)
+
+set "APP=%APP_HINT%"
+
+:detect_done
 
 set "STATE=%APP%\.aether_web_version"
 set "TMP=%TEMP%\aether-web-update-%RANDOM%%RANDOM%"
@@ -155,7 +171,7 @@ if "%HAS_APP%"=="1" (
   echo Done. Current version: %VER_REMOTE%
 ) else (
   echo Installed. Current version: %VER_REMOTE%
-  echo Install path: %APP%
+  echo Install path: "!APP!"
 )
 goto :ok
 
@@ -173,10 +189,10 @@ exit /b 0
 :fetch
 set "URL=%~1"
 set "OUT=%~2"
-set "MODE=%~3"
+set "FETCH=%~3"
 where curl.exe >nul 2>nul
 if not errorlevel 1 (
-  if /I "%MODE%"=="meta" (
+  if /I "%FETCH%"=="meta" (
     curl.exe --fail --location --silent --show-error --connect-timeout %CTO% --max-time %TMO% --retry %RETRY% --retry-delay %DELAY% --retry-all-errors --output "%OUT%" "%URL%"
   ) else (
     curl.exe --fail --location --progress-bar --connect-timeout %CTO% --max-time %TMO% --retry %RETRY% --retry-delay %DELAY% --retry-all-errors --output "%OUT%" "%URL%"

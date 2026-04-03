@@ -40,6 +40,8 @@ type Filter = {
   dirs: Set<string>
 }
 
+const symlink = (node: FileNode) => (node as FileNode & { symlinkTarget?: string }).symlinkTarget
+
 export function shouldListRoot(input: { level: number; dir?: { loaded?: boolean; loading?: boolean } }) {
   if (input.level !== 0) return false
   if (input.dir?.loaded) return false
@@ -809,7 +811,7 @@ export default function FileTree(props: {
                             <Icon name={expanded() ? "chevron-down" : "chevron-right"} size="small" />
                           </div>
                         </FileTreeNode>
-                        <Show when={node.symlinkTarget}>
+                        <Show when={symlink(node)}>
                           <Icon
                             name="link"
                             size="small"
@@ -917,7 +919,7 @@ export default function FileTree(props: {
                         </Match>
                       </Switch>
                     </FileTreeNode>
-                    <Show when={node.symlinkTarget}>
+                    <Show when={symlink(node)}>
                       <Icon name="link" size="small" class="size-3.5 text-text-weak ml-1 flex-shrink-0 align-middle" />
                     </Show>
                   </div>

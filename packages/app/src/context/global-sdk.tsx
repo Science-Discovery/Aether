@@ -3,7 +3,7 @@ import { createSimpleContext } from "@opencode-ai/ui/context"
 import { createGlobalEmitter } from "@solid-primitives/event-bus"
 import { batch, onCleanup } from "solid-js"
 import z from "zod"
-import { createSdkForServer } from "@/utils/server"
+import { type AppClient, createSdkForServer } from "@/utils/server"
 import { useLanguage } from "./language"
 import { usePlatform } from "./platform"
 import { useServer } from "./server"
@@ -12,9 +12,16 @@ const abortError = z.object({
   name: z.literal("AbortError"),
 })
 
+export type GlobalSDKValue = {
+  url: string
+  client: AppClient
+  event: ReturnType<typeof createGlobalEmitter<{ [key: string]: Event }>>
+  createClient: (opts: Omit<Parameters<typeof createSdkForServer>[0], "server" | "fetch">) => AppClient
+}
+
 export const { use: useGlobalSDK, provider: GlobalSDKProvider } = createSimpleContext({
   name: "GlobalSDK",
-  init: () => {
+  init: (): GlobalSDKValue => {
     const language = useLanguage()
     const server = useServer()
     const platform = usePlatform()
