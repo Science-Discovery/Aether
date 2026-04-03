@@ -140,6 +140,7 @@ def output_qrcode_base64(qrcode_url: str) -> str:
 HELP_TEXT = """📋 可用命令：
 
 /new             开启新对话（清除当前会话上下文）
+/stop            停止当前会话中的执行
 /model           查看模型列表
 /model list      查看全部模型
 /model n         切换到编号 n 的模型
@@ -481,29 +482,14 @@ class AetherAgent(Agent):
         arg = parts[1].strip() if len(parts) > 1 else ""
         if cmd == "/help":
             return HELP_TEXT
+        if cmd == "/stop":
+            return await self._cmd_stop(conv_id)
         if cmd == "/new":
             old = self._sessions.pop(conv_id, None)
             self._session_list.pop(conv_id, None)
             self._conv_models.pop(conv_id, None)
             self._fresh.add(conv_id)
-            pending = self._pending_questions.pop(conv_id, None)
-            if pending:
-                task = pending.get("task")
-                if task and not task.done():
-                    task.cancel()
-            pending = self._pending_permissions.pop(conv_id, None)
-            if pending:
-                task = pending.get("task")
-                if task and not task.done():
-                    task.cancel()
-            task = self._tasks.pop(conv_id, None)
-            if task and not task.done():
-                task.cancel()
-            sse = self._sse_tasks.pop(conv_id, None)
-            if sse and not sse.done():
-                sse.cancel()
-            self._question_queues.pop(conv_id, None)
-            self._accumulated_text.pop(conv_id, None)
+            self._clear_runtime(conv_id)
             if old:
                 logger.info(f"[/new] 清除会话 {old[:8]}... for {conv_id}")
             return "✅ 已开启新对话，上下文已清空。"
@@ -682,6 +668,56 @@ class AetherAgent(Agent):
         self._touch_model(model_str)
         logger.info(f"[/model] {conv_id} -> {model_str}")
         return f"✅ 已切换模型：{model_str}\n（仅对当前对话生效，/new 后将重置）"
+
+    def _clear_runtime(self, conv_id: str) -> None:
+        pending = self._pending_questions.pop(conv_id, None)
+        if pending:
+            task = pending.get("task")
+            if task and not task.done():
+                task.cancel()
+        pending = self._pending_permissions.pop(conv_id, None)
+        if pending:
+            task = pending.get("task")
+            if task and not task.done():
+                task.cancel()
+        task = self._tasks.pop(conv_id, None)
+        if task and not task.done():
+            task.cancel()
+        sse = self._sse_tasks.pop(conv_id, None)
+        if sse and not sse.done():
+            sse.cancel()
+        self._question_queues.pop(conv_id, None)
+        self._accumulated_text.pop(conv_id, None)
+
+    async def _cmd_stop(self, conv_id: str) -> str:
+        directory = self._conv_dirs.get(conv_id) or self.directory
+        session_id = self._sessions.get(conv_id)
+        if not session_id:
+            return "当前没有可停止的会话。"
+
+        task = self._tasks.get(conv_id)
+        local = any(
+            [
+                conv_id in self._pending_questions,
+                conv_id in self._pending_permissions,
+                task is not None and not task.done(),
+            ]
+        )
+        busy = await self._is_session_busy(session_id, directory)
+        if not local and not busy:
+            return "当前没有正在执行的任务。"
+
+        headers = (
+            {"x-opencode-directory": quote(directory, safe="")} if directory else {}
+        )
+        resp = await self._client.post(
+            f"{self.base_url}/session/{session_id}/abort",
+            headers=headers,
+        )
+        resp.raise_for_status()
+        self._clear_runtime(conv_id)
+        logger.info(f"[/stop] 已停止会话 {session_id[:8]}... for {conv_id}")
+        return "已停止当前执行。"
 
     async def chat(self, request: ChatRequest) -> ChatResponse:
         """处理微信消息"""
@@ -1054,7 +1090,8 @@ class AetherAgent(Agent):
             state = "正在生成回复"
         return await self._wrap_message(
             f"当前会话{state}，请等待当前对话结束后再发送；"
-            "如需立即开始新问题，请先 /new 或切换 /session n。",
+            "如需立即开始新问题，请先 /new 或切换 /session n。"
+            "如需停止本会话请输入/stop",
             session_id,
             directory,
         )
