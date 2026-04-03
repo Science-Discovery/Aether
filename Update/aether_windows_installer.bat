@@ -1,4 +1,5 @@
 @echo off
+chcp 65001 >nul
 setlocal EnableExtensions EnableDelayedExpansion
 
 set "BASE=https://aether.aiphys.cn/download"
@@ -239,7 +240,7 @@ if not "%RC%"=="0" (
   exit /b %META_ERR%
 )
 
-for /f "usebackq delims=" %%i in (`powershell -NoProfile -Command "$sec=''; $ver=''; $pkg=''; $sha=''; $ins=''; $note=''; foreach($line in Get-Content -Path $env:MANIFEST){ if($line -match '^\s*version:\s*(.+?)\s*$'){ $ver=$matches[1].Trim().Trim("'\""); continue }; if($line -match '^\s*package:\s*$'){ $sec='package'; continue }; if($line -match '^\s*installer:\s*$'){ $sec='installer'; continue }; if($line -match '^\s*notes_url:\s*(.+?)\s*$'){ $note=$matches[1].Trim(); continue }; if($line -match '^\S'){ $sec='' }; if($sec -eq 'package' -and $line -match '^\s*url:\s*(.+?)\s*$'){ $pkg=$matches[1].Trim(); continue }; if($sec -eq 'package' -and $line -match '^\s*sha512:\s*(.+?)\s*$'){ $sha=$matches[1].Trim(); continue }; if($sec -eq 'installer' -and $line -match '^\s*url:\s*(.+?)\s*$'){ $ins=$matches[1].Trim(); continue } }; if([string]::IsNullOrEmpty($pkg)){ foreach($line in Get-Content -Path $env:MANIFEST){ if($line -match '^\s*files:\s*$'){ $sec='files'; continue }; if($line -match '^\S'){ $sec='' }; if($sec -eq 'files' -and $line -match '^\s*-\s*url:\s*(.+?)\s*$'){ $pkg=$matches[1].Trim(); continue }; if($sec -eq 'files' -and $line -match '^\s*sha512:\s*(.+?)\s*$'){ $sha=$matches[1].Trim(); continue } } }; 'VER=' + $ver; 'PKG=' + $pkg; 'SHA=' + $sha; 'INS=' + $ins; 'NOTE=' + $note"`) do set "%%i"
+for /f "usebackq delims=" %%i in (`powershell -NoProfile -Command "$sec=''; $ver=''; $pkg=''; $sha=''; $ins=''; $note=''; $clean={ param($v) $v.Trim().Trim([char]39).Trim([char]34) }; foreach($line in Get-Content -Path $env:MANIFEST){ if($line -match '^\s*version:\s*(.+?)\s*$'){ $ver=& $clean $matches[1]; continue }; if($line -match '^\s*package:\s*$'){ $sec='package'; continue }; if($line -match '^\s*installer:\s*$'){ $sec='installer'; continue }; if($line -match '^\s*notes_url:\s*(.+?)\s*$'){ $note=& $clean $matches[1]; continue }; if($line -match '^\S'){ $sec='' }; if($sec -eq 'package' -and $line -match '^\s*url:\s*(.+?)\s*$'){ $pkg=& $clean $matches[1]; continue }; if($sec -eq 'package' -and $line -match '^\s*sha512:\s*(.+?)\s*$'){ $sha=& $clean $matches[1]; continue }; if($sec -eq 'installer' -and $line -match '^\s*url:\s*(.+?)\s*$'){ $ins=& $clean $matches[1]; continue } }; if([string]::IsNullOrEmpty($pkg)){ foreach($line in Get-Content -Path $env:MANIFEST){ if($line -match '^\s*files:\s*$'){ $sec='files'; continue }; if($line -match '^\S'){ $sec='' }; if($sec -eq 'files' -and $line -match '^\s*-\s*url:\s*(.+?)\s*$'){ $pkg=& $clean $matches[1]; continue }; if($sec -eq 'files' -and $line -match '^\s*sha512:\s*(.+?)\s*$'){ $sha=& $clean $matches[1]; continue } } }; 'VER=' + $ver; 'PKG=' + $pkg; 'SHA=' + $sha; 'INS=' + $ins; 'NOTE=' + $note"`) do set "%%i"
 
 if not defined VER (
   rmdir /s /q "%TMP%" >nul 2>nul
@@ -272,7 +273,7 @@ if exist "%PKG_FILE%" (
     set "NEED_PKG=0"
   ) else (
     for /f "usebackq delims=" %%i in (`powershell -NoProfile -Command "$h=[Security.Cryptography.SHA512]::Create().ComputeHash([IO.File]::ReadAllBytes($env:PKG_FILE)); [Convert]::ToBase64String($h)"`) do set "SUM=%%i"
-    if /I "%SUM%"=="%SHA%" set "NEED_PKG=0"
+    if /I "!SUM!"=="!SHA!" set "NEED_PKG=0"
   )
 )
 
@@ -287,19 +288,19 @@ if "%NEED_PKG%"=="1" (
 
 if defined SHA (
   for /f "usebackq delims=" %%i in (`powershell -NoProfile -Command "$h=[Security.Cryptography.SHA512]::Create().ComputeHash([IO.File]::ReadAllBytes($env:PKG_FILE)); [Convert]::ToBase64String($h)"`) do set "SUM=%%i"
-  if /I not "%SUM%"=="%SHA%" exit /b %SUM_ERR%
+  if /I not "!SUM!"=="!SHA!" exit /b %SUM_ERR%
 )
 
 if defined INS_URL if defined INS_NAME (
-  for %%i in ("%INS_NAME%") do set "INS_EXT=%%~xi"
-  set "INS_FILE=%DL%\update_windows_web-%VER%%INS_EXT%"
-  if exist "%INS_FILE%" (
+  for %%i in ("!INS_NAME!") do set "INS_EXT=%%~xi"
+  set "INS_FILE=!DL!\update_windows_web-!VER!!INS_EXT!"
+  if exist "!INS_FILE!" (
     echo Using cached installer:
-    echo   %INS_FILE%
+    echo   !INS_FILE!
   ) else (
     echo Downloading installer:
-    echo   %INS_URL%
-    call :fetch_file "%INS_URL%" "%INS_FILE%" || exit /b %DL_ERR%
+    echo   !INS_URL!
+    call :fetch_file "!INS_URL!" "!INS_FILE!" || exit /b %DL_ERR%
   )
 )
 
@@ -334,7 +335,7 @@ exit /b 0
 :cmp
 set "A=%~1"
 set "B=%~2"
-for /f "usebackq delims=" %%i in (`powershell -NoProfile -Command "$a=$env:A; $b=$env:B; function norm([string]$v){ if(!$v){ return $null }; $v=$v.Trim(); $v=$v -replace '^v',''; $v=$v.Split('-')[0]; $p=$v.Split('.'); while($p.Count -lt 4){ $p += '0' }; if($p.Count -gt 4){ $p=$p[0..3] }; [string]::Join('.', $p) }; $x=norm $a; $y=norm $b; if(!$x -or !$y){ if($a -eq $b){ 'eq' } else { 'lt' }; exit 0 }; if(([version]$x) -lt ([version]$y)){ 'lt' } elseif(([version]$x) -gt ([version]$y)){ 'gt' } else { 'eq' }"`) do set "CMP=%%i"
+for /f "usebackq delims=" %%i in (`powershell -NoProfile -Command "$a=$env:A; $b=$env:B; function norm([string]$v){ if($null -eq $v -or $v -eq ''){ return $null }; $v=$v.Trim(); $v=$v -replace '^v',''; $v=$v.Split('-')[0]; $p=$v.Split('.'); while($p.Count -lt 4){ $p += '0' }; if($p.Count -gt 4){ $p=$p[0..3] }; [string]::Join('.', $p) }; $x=norm $a; $y=norm $b; if($null -eq $x -or $null -eq $y){ if($a -eq $b){ 'eq' } else { 'lt' }; exit 0 }; if(([version]$x) -lt ([version]$y)){ 'lt' } elseif(([version]$x) -gt ([version]$y)){ 'gt' } else { 'eq' }"`) do set "CMP=%%i"
 exit /b 0
 
 :work
@@ -380,28 +381,123 @@ exit /b 0
 set "URL=%~1"
 set "OUT=%~2"
 set "FETCH_HTTP="
-where curl.exe >nul 2>nul
-if not errorlevel 1 (
-  for /f "delims=" %%i in ('curl.exe --location --silent --show-error --connect-timeout %CTO% --max-time %TMO% --retry %RETRY% --retry-delay %DELAY% --output "%OUT%" --write-out "%%{http_code}" "%URL%"') do set "FETCH_HTTP=%%i"
-  if "%FETCH_HTTP%"=="200" exit /b 0
-  if exist "%OUT%" del /f /q "%OUT%" >nul 2>nul
-  exit /b 1
-)
-for /f "usebackq delims=" %%i in (`powershell -NoProfile -Command "& { try { $r=Invoke-WebRequest -UseBasicParsing -Uri $env:URL -OutFile $env:OUT -PassThru; [Console]::Out.Write([int]$r.StatusCode) } catch { if(Test-Path $env:OUT){ Remove-Item -LiteralPath $env:OUT -Force -ErrorAction SilentlyContinue }; if($_.Exception.Response){ [Console]::Out.Write([int]$_.Exception.Response.StatusCode) } else { [Console]::Out.Write('000') }; exit 1 } }"`) do set "FETCH_HTTP=%%i"
-if "%FETCH_HTTP%"=="200" exit /b 0
+set "META_404=0"
+call :detect_git_curl
+call :meta_try git
+if "%ERRORLEVEL%"=="0" exit /b 0
+if "%FETCH_HTTP%"=="404" set "META_404=1"
+call :meta_try curl
+if "%ERRORLEVEL%"=="0" exit /b 0
+if "%FETCH_HTTP%"=="404" set "META_404=1"
+call :meta_try iwr
+if "%ERRORLEVEL%"=="0" exit /b 0
+if "%FETCH_HTTP%"=="404" set "META_404=1"
+call :meta_try bits
+if "%ERRORLEVEL%"=="0" exit /b 0
+if "%META_404%"=="1" set "FETCH_HTTP=404"
 exit /b 1
 
 :fetch_file
 set "URL=%~1"
 set "OUT=%~2"
-where curl.exe >nul 2>nul
-if not errorlevel 1 (
-  curl.exe --fail --location --progress-bar --connect-timeout %CTO% --max-time %TMO% --retry %RETRY% --retry-delay %DELAY% --retry-all-errors --output "%OUT%" "%URL%"
+call :detect_git_curl
+call :file_try git
+if "%ERRORLEVEL%"=="0" exit /b 0
+call :file_try curl
+if "%ERRORLEVEL%"=="0" exit /b 0
+call :file_try iwr
+if "%ERRORLEVEL%"=="0" exit /b 0
+call :file_try bits
+if "%ERRORLEVEL%"=="0" exit /b 0
+exit /b 1
+
+:detect_git_curl
+set "GIT_CURL="
+if exist "%ProgramFiles%\Git\mingw64\bin\curl.exe" set "GIT_CURL=%ProgramFiles%\Git\mingw64\bin\curl.exe"
+if not defined GIT_CURL if exist "%ProgramFiles%\Git\usr\bin\curl.exe" set "GIT_CURL=%ProgramFiles%\Git\usr\bin\curl.exe"
+if not defined GIT_CURL if defined ProgramFiles(x86) if exist "%ProgramFiles(x86)%\Git\mingw64\bin\curl.exe" set "GIT_CURL=%ProgramFiles(x86)%\Git\mingw64\bin\curl.exe"
+if not defined GIT_CURL if defined ProgramFiles(x86) if exist "%ProgramFiles(x86)%\Git\usr\bin\curl.exe" set "GIT_CURL=%ProgramFiles(x86)%\Git\usr\bin\curl.exe"
+exit /b 0
+
+:meta_try
+set "TOOL=%~1"
+if /I "%TOOL%"=="git" (
+  if not defined GIT_CURL exit /b 1
+  echo [meta] Downloader: git curl
+  call :curl_meta "%GIT_CURL%"
   exit /b %ERRORLEVEL%
 )
-echo curl.exe not found. Falling back to PowerShell download...
-powershell -NoProfile -Command "& { Invoke-WebRequest -UseBasicParsing -Uri $env:URL -OutFile $env:OUT }"
-exit /b %ERRORLEVEL%
+if /I "%TOOL%"=="curl" (
+  where curl.exe >nul 2>nul
+  if errorlevel 1 exit /b 1
+  echo [meta] Downloader: curl.exe
+  call :curl_meta "curl.exe"
+  exit /b %ERRORLEVEL%
+)
+if /I "%TOOL%"=="iwr" (
+  echo [meta] Downloader: Invoke-WebRequest
+  for /f "usebackq delims=" %%i in (`powershell -NoProfile -Command "& { try { $r=Invoke-WebRequest -UseBasicParsing -Uri $env:URL -OutFile $env:OUT -PassThru -ErrorAction Stop; [Console]::Out.Write([int]$r.StatusCode) } catch { if(Test-Path $env:OUT){ Remove-Item -LiteralPath $env:OUT -Force -ErrorAction SilentlyContinue }; if($_.Exception.Response){ [Console]::Out.Write([int]$_.Exception.Response.StatusCode) } else { [Console]::Out.Write('000') }; exit 1 } }"`) do set "FETCH_HTTP=%%i"
+  if "%FETCH_HTTP%"=="200" exit /b 0
+  exit /b 1
+)
+if /I "%TOOL%"=="bits" (
+  echo [meta] Downloader: Start-BitsTransfer
+  for /f "usebackq delims=" %%i in (`powershell -NoProfile -Command "& { if(-not (Get-Command Start-BitsTransfer -ErrorAction SilentlyContinue)){ [Console]::Out.Write('000'); exit 1 }; try { Start-BitsTransfer -Source $env:URL -Destination $env:OUT -ErrorAction Stop; [Console]::Out.Write('200') } catch { if(Test-Path $env:OUT){ Remove-Item -LiteralPath $env:OUT -Force -ErrorAction SilentlyContinue }; [Console]::Out.Write('000'); exit 1 } }"`) do set "FETCH_HTTP=%%i"
+  if "%FETCH_HTTP%"=="200" exit /b 0
+  exit /b 1
+)
+exit /b 1
+
+:file_try
+set "TOOL=%~1"
+if /I "%TOOL%"=="git" (
+  if not defined GIT_CURL exit /b 1
+  echo [file] Downloader: git curl
+  call :curl_file "%GIT_CURL%"
+  exit /b %ERRORLEVEL%
+)
+if /I "%TOOL%"=="curl" (
+  where curl.exe >nul 2>nul
+  if errorlevel 1 exit /b 1
+  echo [file] Downloader: curl.exe
+  call :curl_file "curl.exe"
+  exit /b %ERRORLEVEL%
+)
+if /I "%TOOL%"=="iwr" (
+  echo [file] Downloader: Invoke-WebRequest
+  powershell -NoProfile -Command "& { try { Invoke-WebRequest -UseBasicParsing -Uri $env:URL -OutFile $env:OUT -ErrorAction Stop } catch { if(Test-Path $env:OUT){ Remove-Item -LiteralPath $env:OUT -Force -ErrorAction SilentlyContinue }; exit 1 } }"
+  if errorlevel 1 exit /b 1
+  exit /b 0
+)
+if /I "%TOOL%"=="bits" (
+  echo [file] Downloader: Start-BitsTransfer
+  powershell -NoProfile -Command "& { if(-not (Get-Command Start-BitsTransfer -ErrorAction SilentlyContinue)){ exit 1 }; try { Start-BitsTransfer -Source $env:URL -Destination $env:OUT -ErrorAction Stop } catch { if(Test-Path $env:OUT){ Remove-Item -LiteralPath $env:OUT -Force -ErrorAction SilentlyContinue }; exit 1 } }"
+  if errorlevel 1 exit /b 1
+  exit /b 0
+)
+exit /b 1
+
+:curl_meta
+set "BIN=%~1"
+set "FETCH_HTTP="
+set "HTTP_FILE=%TEMP%\aether-http-%RANDOM%%RANDOM%.txt"
+"%BIN%" --location --silent --show-error --connect-timeout %CTO% --max-time %TMO% --retry %RETRY% --retry-delay %DELAY% --output "%OUT%" --write-out "%%{http_code}" "%URL%" > "%HTTP_FILE%"
+if exist "%HTTP_FILE%" (
+  set /p FETCH_HTTP=<"%HTTP_FILE%"
+  del /f /q "%HTTP_FILE%" >nul 2>nul
+)
+if "%FETCH_HTTP%"=="200" exit /b 0
+if exist "%OUT%" del /f /q "%OUT%" >nul 2>nul
+exit /b 1
+
+:curl_file
+set "BIN=%~1"
+"%BIN%" --fail --location --progress-bar --connect-timeout %CTO% --max-time %TMO% --retry %RETRY% --retry-delay %DELAY% --retry-all-errors --output "%OUT%" "%URL%"
+if errorlevel 1 (
+  if exist "%OUT%" del /f /q "%OUT%" >nul 2>nul
+  exit /b 1
+)
+exit /b 0
 
 :help
 echo Aether Windows Installer
