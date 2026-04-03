@@ -164,7 +164,7 @@ fetch_file() {
 }
 
 parse() {
-  ver="$(awk -F': *' '/^version:/{print $2; exit}' "$1")"
+  ver="$(awk -F': *' '/^version:/{print $2; exit}' "$1" | tr -d "'\"")"
   note="$(awk -F': *' '/^notes_url:/{print $2; exit}' "$1")"
   pkg="$(awk '
     /^package:[[:space:]]*$/ { sec="package"; next }
@@ -181,7 +181,18 @@ parse() {
     /^[^[:space:]]/ { sec="" }
     sec=="installer" && /^[[:space:]]+url:[[:space:]]*/ { sub(/^[[:space:]]+url:[[:space:]]*/, ""); print; exit }
   ' "$1")"
-  [ -n "$ver" ] && [ -n "$pkg" ] && [ -n "$ins" ]
+  # fallback: parse files: list (electron-builder format)
+  if [ -z "$pkg" ]; then
+    pkg="$(awk '
+      /^files:[[:space:]]*$/ { sec="files"; next }
+      sec=="files" && /^[[:space:]]*-[[:space:]]*url:[[:space:]]*/ { sub(/^[[:space:]]*-[[:space:]]*url:[[:space:]]*/, ""); print; exit }
+    ' "$1")"
+    sha="$(awk '
+      /^files:[[:space:]]*$/ { sec="files"; next }
+      sec=="files" && /^[[:space:]]*sha512:[[:space:]]*/ { sub(/^[[:space:]]*sha512:[[:space:]]*/, ""); print; exit }
+    ' "$1")"
+  fi
+  [ -n "$ver" ] && [ -n "$pkg" ]
 }
 
 manifest() {
@@ -213,7 +224,6 @@ grab() {
   dl="$work/downloads"
   mkdir -p "$dl" || return "$dir_err"
   pkg_file="$dl/$pkg_name"
-  ins_file="$dl/$ins_name"
   echo "Downloading package:"
   echo "  $pkg_url"
   fetch_file "$pkg_url" "$pkg_file" || return "$dl_err"
@@ -222,9 +232,14 @@ grab() {
     sum="$(openssl dgst -sha512 -binary "$pkg_file" | openssl base64 -A)"
     [ "$sum" = "$sha" ] || return "$sum_err"
   fi
-  echo "Downloading installer:"
-  echo "  $ins_url"
-  fetch_file "$ins_url" "$ins_file" || return "$dl_err"
+  if [ -n "$ins_url" ] && [ -n "$ins_name" ]; then
+    ins_file="$dl/$ins_name"
+    echo "Downloading installer:"
+    echo "  $ins_url"
+    fetch_file "$ins_url" "$ins_file" || return "$dl_err"
+  else
+    ins_file=""
+  fi
 }
 
 help() {

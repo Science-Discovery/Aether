@@ -171,7 +171,7 @@ if not "%RC%"=="0" (
   exit /b %META_ERR%
 )
 
-for /f "usebackq delims=" %%i in (`powershell -NoProfile -Command "$sec=''; $ver=''; $pkg=''; $sha=''; $ins=''; $note=''; foreach($line in Get-Content -Path $env:MANIFEST){ if($line -match '^\s*version:\s*(.+?)\s*$'){ $ver=$matches[1].Trim(); continue }; if($line -match '^\s*package:\s*$'){ $sec='package'; continue }; if($line -match '^\s*installer:\s*$'){ $sec='installer'; continue }; if($line -match '^\s*notes_url:\s*(.+?)\s*$'){ $note=$matches[1].Trim(); continue }; if($line -match '^\S'){ $sec='' }; if($sec -eq 'package' -and $line -match '^\s*url:\s*(.+?)\s*$'){ $pkg=$matches[1].Trim(); continue }; if($sec -eq 'package' -and $line -match '^\s*sha512:\s*(.+?)\s*$'){ $sha=$matches[1].Trim(); continue }; if($sec -eq 'installer' -and $line -match '^\s*url:\s*(.+?)\s*$'){ $ins=$matches[1].Trim(); continue } }; 'VER=' + $ver; 'PKG=' + $pkg; 'SHA=' + $sha; 'INS=' + $ins; 'NOTE=' + $note"`) do set "%%i"
+for /f "usebackq delims=" %%i in (`powershell -NoProfile -Command "$sec=''; $ver=''; $pkg=''; $sha=''; $ins=''; $note=''; foreach($line in Get-Content -Path $env:MANIFEST){ if($line -match '^\s*version:\s*(.+?)\s*$'){ $ver=$matches[1].Trim().Trim("'"); continue }; if($line -match '^\s*package:\s*$'){ $sec='package'; continue }; if($line -match '^\s*installer:\s*$'){ $sec='installer'; continue }; if($line -match '^\s*notes_url:\s*(.+?)\s*$'){ $note=$matches[1].Trim(); continue }; if($line -match '^\S'){ $sec='' }; if($sec -eq 'package' -and $line -match '^\s*url:\s*(.+?)\s*$'){ $pkg=$matches[1].Trim(); continue }; if($sec -eq 'package' -and $line -match '^\s*sha512:\s*(.+?)\s*$'){ $sha=$matches[1].Trim(); continue }; if($sec -eq 'installer' -and $line -match '^\s*url:\s*(.+?)\s*$'){ $ins=$matches[1].Trim(); continue } }; if([string]::IsNullOrEmpty($pkg)){ foreach($line in Get-Content -Path $env:MANIFEST){ if($line -match '^\s*files:\s*$'){ $sec='files'; continue }; if($line -match '^\S'){ $sec='' }; if($sec -eq 'files' -and $line -match '^\s*-\s*url:\s*(.+?)\s*$'){ $pkg=$matches[1].Trim(); continue }; if($sec -eq 'files' -and $line -match '^\s*sha512:\s*(.+?)\s*$'){ $sha=$matches[1].Trim(); continue } } }; 'VER=' + $ver; 'PKG=' + $pkg; 'SHA=' + $sha; 'INS=' + $ins; 'NOTE=' + $note"`) do set "%%i"
 
 if not defined VER (
   rmdir /s /q "%TMP%" >nul 2>nul
@@ -181,24 +181,18 @@ if not defined PKG (
   rmdir /s /q "%TMP%" >nul 2>nul
   exit /b %META_ERR%
 )
-if not defined INS (
-  rmdir /s /q "%TMP%" >nul 2>nul
-  exit /b %META_ERR%
-)
 
 call :abs PKG_URL "%PKG%"
-call :abs INS_URL "%INS%"
-call :abs NOTE_URL "%NOTE%"
+if defined INS call :abs INS_URL "%INS%"
+if defined NOTE call :abs NOTE_URL "%NOTE%"
 
 for %%i in ("%PKG_URL%") do set "PKG_NAME=%%~nxi"
-for %%i in ("%INS_URL%") do set "INS_NAME=%%~nxi"
 if not defined PKG_NAME (
   rmdir /s /q "%TMP%" >nul 2>nul
   exit /b %META_ERR%
 )
-if not defined INS_NAME (
-  rmdir /s /q "%TMP%" >nul 2>nul
-  exit /b %META_ERR%
+if defined INS_URL (
+  for %%i in ("%INS_URL%") do set "INS_NAME=%%~nxi"
 )
 
 rmdir /s /q "%TMP%" >nul 2>nul
@@ -209,17 +203,20 @@ set "DL=%WORK%\downloads"
 if not exist "%DL%" mkdir "%DL%" >nul 2>nul || exit /b %DIR_ERR%
 
 set "PKG_FILE=%DL%\%PKG_NAME%"
-set "INS_FILE=%DL%\%INS_NAME%"
+set "INS_FILE="
 
 echo Downloading package:
 echo   %PKG_URL%
 call :fetch_file "%PKG_URL%" "%PKG_FILE%" || exit /b %DL_ERR%
 
-if not defined SHA goto :grab_ins
+if not defined SHA goto :grab_ins_check
 for /f "usebackq delims=" %%i in (`powershell -NoProfile -Command "$h=[Security.Cryptography.SHA512]::Create().ComputeHash([IO.File]::ReadAllBytes($env:PKG_FILE)); [Convert]::ToBase64String($h)"`) do set "SUM=%%i"
 if /I not "%SUM%"=="%SHA%" exit /b %SUM_ERR%
 
-:grab_ins
+:grab_ins_check
+if not defined INS_URL exit /b 0
+if not defined INS_NAME exit /b 0
+set "INS_FILE=%DL%\%INS_NAME%"
 echo Downloading installer:
 echo   %INS_URL%
 call :fetch_file "%INS_URL%" "%INS_FILE%" || exit /b %DL_ERR%

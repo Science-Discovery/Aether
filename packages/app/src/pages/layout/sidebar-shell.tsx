@@ -36,6 +36,8 @@ export const SidebarContent = (props: {
   settingsLabel: Accessor<string>
   settingsKeybind: Accessor<string | undefined>
   onOpenSettings: () => void
+  updateLabel?: Accessor<string>
+  onOpenUpdate?: () => void
   helpLabel: Accessor<string>
   onOpenHelp: () => void
   renderPanel: () => JSX.Element
@@ -177,6 +179,17 @@ export const SidebarContent = (props: {
                 </DropdownMenu.Portal>
               </DropdownMenu>
             )}
+          </Show>
+          <Show when={props.updateLabel && props.onOpenUpdate}>
+            <Tooltip placement={placement()} value={props.updateLabel!()}>
+              <IconButton
+                icon="download"
+                variant="ghost"
+                size="large"
+                onClick={props.onOpenUpdate}
+                aria-label={props.updateLabel!()}
+              />
+            </Tooltip>
           </Show>
           <TooltipKeybind placement={placement()} title={props.settingsLabel()} keybind={props.settingsKeybind() ?? ""}>
             <IconButton

@@ -43,7 +43,14 @@ if [ ! -f "$upd" ]; then
 fi
 cp "$upd" "$out/update_darwin_web.command"
 
-printf "%s\n" "$ver" >"$out/.aether_version"
+ins="$root/Update/aether_darwin_installer.command"
+if [ -f "$ins" ]; then
+  mkdir -p "$out/Update"
+  cp "$ins" "$out/Update/aether_darwin_installer.command"
+  chmod +x "$out/Update/aether_darwin_installer.command"
+fi
+
+printf "%s\n" "$ver" >"$out/.aether_web_version"
 
 if [ -f "$out/aether" ]; then
   chmod +x "$out/aether"
