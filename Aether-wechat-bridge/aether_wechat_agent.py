@@ -198,6 +198,8 @@ class AetherAgent(Agent):
         self._password = os.getenv("AETHER_PASSWORD", "")
         self._hidden_dirs: dict[str, int] = {}  # worktree → 隐藏时的时间戳(ms)
         self._model_order: dict[str, list[str]] = {}
+        self._project_names: dict[str, str] = {}
+        self._session_info: dict[str, dict] = {}
 
     async def on_start(self) -> None:
         """初始化 HTTP 客户端"""
@@ -374,8 +376,75 @@ class AetherAgent(Agent):
                 break
         return rows
 
+    def _base(self, directory: str) -> str:
+        text = (directory or "").replace(chr(92), "/").rstrip("/")
+        return text.split("/")[-1] if text else "unknown"
+
+    def _clip(self, text: str, limit: int) -> str:
+        if len(text) <= limit:
+            return text
+        return text[: limit - 3].rstrip() + "..."
+
+    async def _get_session_info(self, session_id: str, directory: str) -> dict:
+        info = self._session_info.get(session_id)
+        if info:
+            return info
+        headers = (
+            {"x-opencode-directory": quote(directory, safe="")} if directory else {}
+        )
+        try:
+            resp = await self._client.get(
+                f"{self.base_url}/session/{session_id}", headers=headers
+            )
+            resp.raise_for_status()
+            info = resp.json()
+            if isinstance(info, dict):
+                self._session_info[session_id] = info
+                return info
+        except Exception as e:
+            logger.warning(f"获取会话信息失败: {e}")
+        return {}
+
+    async def _get_project_name(self, directory: str) -> str:
+        if not directory:
+            return "unknown"
+        name = self._project_names.get(directory)
+        if name:
+            return name
+        try:
+            item = next(
+                (
+                    p
+                    for p in await self._get_projects()
+                    if p.get("worktree", "") == directory
+                ),
+                None,
+            )
+            name = item.get("name") if item else ""
+            if isinstance(name, str) and name.strip():
+                self._project_names[directory] = name.strip()
+                return self._project_names[directory]
+        except Exception:
+            pass
+        self._project_names[directory] = self._base(directory)
+        return self._project_names[directory]
+
+    async def _format_header(self, session_id: str, directory: str) -> str:
+        info = await self._get_session_info(session_id, directory)
+        project = await self._get_project_name(directory)
+        title = info.get("title") if isinstance(info, dict) else ""
+        label = title.strip() if isinstance(title, str) else ""
+        if not label:
+            label = session_id[:8]
+        elif label != session_id[:8]:
+            label = f"{self._clip(label, 24)} · {session_id[:8]}"
+        return f"[项目] {self._clip(project, 24)}\n[对话] {label}\n------------------------"
+
     async def _wrap_message(self, text: str, session_id: str, directory: str) -> str:
-        return text
+        body = text.strip()
+        if not body:
+            return text
+        return f"{await self._format_header(session_id, directory)}\n{body}"
 
     async def _get_projects(self) -> list[dict]:
         try:
