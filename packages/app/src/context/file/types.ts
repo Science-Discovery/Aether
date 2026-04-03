@@ -21,6 +21,7 @@ export type FileViewState = {
   wordWrap?: boolean
   isEditing?: boolean
   draft?: string
+  draftBase?: string
 }
 
 export type FileState = {

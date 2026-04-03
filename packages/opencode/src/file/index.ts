@@ -11,6 +11,7 @@ import fuzzysort from "fuzzysort"
 import ignore from "ignore"
 import path from "path"
 import z from "zod"
+import { checksum } from "@opencode-ai/util/encode"
 import { Global } from "../global"
 import { Instance } from "../project/instance"
 import { Filesystem } from "../util/filesystem"
@@ -371,10 +372,35 @@ export namespace File {
     }
   }
 
-  export async function write(filePath: string, content: string): Promise<void> {
+  export async function write(
+    filePath: string,
+    content: string,
+    opts: {
+      expectedChecksum?: string
+    } = {},
+  ): Promise<
+    | void
+    | {
+        currentChecksum: string
+        currentContent: string
+      }
+  > {
     const resolved = path.join(Instance.directory, filePath)
     if (!Instance.containsPath(resolved)) {
       throw new Error("Access denied: path escapes project directory")
+    }
+    if (opts.expectedChecksum !== undefined) {
+      const current = await fs.promises.readFile(resolved, "utf-8").catch((err: NodeJS.ErrnoException) => {
+        if (err.code === "ENOENT") return ""
+        throw err
+      })
+      const sum = checksum(current) ?? ""
+      if (sum !== opts.expectedChecksum) {
+        return {
+          currentChecksum: sum,
+          currentContent: current,
+        }
+      }
     }
     await fs.promises.writeFile(resolved, content, "utf-8")
   }

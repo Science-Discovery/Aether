@@ -21,6 +21,7 @@ import type {
   ConfigSkillsDeleteResponses,
   ConfigSkillsListResponses,
   ConfigSkillsSaveResponses,
+  ConfigSkillsToggleResponses,
   ConfigUpdateErrors,
   ConfigUpdateResponses,
   EventSubscribeResponses,
@@ -38,10 +39,14 @@ import type {
   FileActiveTasksResponses,
   FileAddToGitignoreErrors,
   FileAddToGitignoreResponses,
+  FileCheckDirectoryErrors,
+  FileCheckDirectoryResponses,
   FileCreateErrors,
   FileCreateResponses,
   FileDeleteErrors,
   FileDeleteResponses,
+  FileDownloadErrors,
+  FileDownloadResponses,
   FileListResponses,
   FileOpenErrors,
   FileOpenInExplorerErrors,
@@ -70,6 +75,8 @@ import type {
   FileTranslateMarkdownErrors,
   FileTranslateMarkdownProgressResponses,
   FileTranslateMarkdownResponses,
+  FileUploadErrors,
+  FileUploadResponses,
   FileWriteErrors,
   FileWriteResponses,
   FindFilesResponses,
@@ -145,6 +152,7 @@ import type {
   ProjectDirectoriesResponses,
   ProjectInitGitResponses,
   ProjectListResponses,
+  ProjectRecentResponses,
   ProjectUpdateErrors,
   ProjectUpdateResponses,
   ProviderAuthResponses,
@@ -611,14 +619,62 @@ export class Project extends HeyApiClient {
   }
 
   /**
+   * List recent projects and directories
+   *
+   * Returns the recent project feed used by the web app and WeChat bridge.
+   */
+  public recent<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<ProjectRecentResponses, unknown, ThrowOnError>({
+      url: "/project/recent",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
    * List all known directories
    *
    * Returns all project worktrees plus unique session directories.
    */
-  public directories<ThrowOnError extends boolean = false>(options?: Options<never, ThrowOnError>) {
+  public directories<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
     return (options?.client ?? this.client).get<ProjectDirectoriesResponses, unknown, ThrowOnError>({
       url: "/project/directories",
       ...options,
+      ...params,
     })
   }
 
@@ -997,6 +1053,7 @@ export class Skills extends HeyApiClient {
       name?: string
       description?: string
       content?: string
+      enabled?: boolean
     },
     options?: Options<never, ThrowOnError>,
   ) {
@@ -1010,6 +1067,7 @@ export class Skills extends HeyApiClient {
             { in: "body", key: "name" },
             { in: "body", key: "description" },
             { in: "body", key: "content" },
+            { in: "body", key: "enabled" },
           ],
         },
       ],
@@ -1094,11 +1152,11 @@ export class Skills extends HeyApiClient {
    * Enable or disable a default skill by name.
    */
   public toggle<ThrowOnError extends boolean = false>(
-    parameters: {
-      name: string
-      enabled: boolean
+    parameters?: {
       directory?: string
       workspace?: string
+      name?: string
+      enabled?: boolean
     },
     options?: Options<never, ThrowOnError>,
   ) {
@@ -1115,7 +1173,7 @@ export class Skills extends HeyApiClient {
         },
       ],
     )
-    return (options?.client ?? this.client).post<{ 200: { ok: boolean } }, unknown, ThrowOnError>({
+    return (options?.client ?? this.client).post<ConfigSkillsToggleResponses, unknown, ThrowOnError>({
       url: "/config/skills/toggle",
       ...options,
       ...params,
@@ -3128,6 +3186,38 @@ export class File extends HeyApiClient {
   }
 
   /**
+   * Check directory
+   *
+   * Check whether a path exists and points to a directory.
+   */
+  public checkDirectory<ThrowOnError extends boolean = false>(
+    parameters: {
+      directory?: string
+      workspace?: string
+      path: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "query", key: "path" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<FileCheckDirectoryResponses, FileCheckDirectoryErrors, ThrowOnError>({
+      url: "/file/check-directory",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
    * Delete file or directory
    *
    * Delete a file or directory at the specified path within the project.
@@ -3312,6 +3402,7 @@ export class File extends HeyApiClient {
       workspace?: string
       path?: string
       content?: string
+      expectedChecksum?: string
     },
     options?: Options<never, ThrowOnError>,
   ) {
@@ -3324,6 +3415,7 @@ export class File extends HeyApiClient {
             { in: "query", key: "workspace" },
             { in: "body", key: "path" },
             { in: "body", key: "content" },
+            { in: "body", key: "expectedChecksum" },
           ],
         },
       ],
@@ -3337,6 +3429,68 @@ export class File extends HeyApiClient {
         ...options?.headers,
         ...params.headers,
       },
+    })
+  }
+
+  /**
+   * Download file or directory
+   *
+   * Download a file directly or a directory as a zip archive.
+   */
+  public download<ThrowOnError extends boolean = false>(
+    parameters: {
+      directory?: string
+      workspace?: string
+      path: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "query", key: "path" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<FileDownloadResponses, FileDownloadErrors, ThrowOnError>({
+      url: "/file/download",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Upload files or directories
+   *
+   * Upload one or more files or directories into the current project.
+   */
+  public upload<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<FileUploadResponses, FileUploadErrors, ThrowOnError>({
+      url: "/file/upload",
+      ...options,
+      ...params,
     })
   }
 
@@ -3574,6 +3728,7 @@ export class File extends HeyApiClient {
       directory?: string
       workspace?: string
       path: string
+      outputDir?: string
     },
     options?: Options<never, ThrowOnError>,
   ) {
@@ -3585,6 +3740,7 @@ export class File extends HeyApiClient {
             { in: "query", key: "directory" },
             { in: "query", key: "workspace" },
             { in: "query", key: "path" },
+            { in: "query", key: "outputDir" },
           ],
         },
       ],
@@ -3642,6 +3798,7 @@ export class File extends HeyApiClient {
       endPage?: number
       outputMode?: "merged" | "per-page"
       conflictAction?: "replace" | "rename" | "cancel"
+      outputDir?: string
     },
     options?: Options<never, ThrowOnError>,
   ) {
@@ -3659,6 +3816,7 @@ export class File extends HeyApiClient {
             { in: "body", key: "endPage" },
             { in: "body", key: "outputMode" },
             { in: "body", key: "conflictAction" },
+            { in: "body", key: "outputDir" },
           ],
         },
       ],
@@ -3786,6 +3944,7 @@ export class File extends HeyApiClient {
       directory?: string
       workspace?: string
       path: string
+      outputDir?: string
     },
     options?: Options<never, ThrowOnError>,
   ) {
@@ -3797,6 +3956,7 @@ export class File extends HeyApiClient {
             { in: "query", key: "directory" },
             { in: "query", key: "workspace" },
             { in: "query", key: "path" },
+            { in: "query", key: "outputDir" },
           ],
         },
       ],
@@ -3826,6 +3986,7 @@ export class File extends HeyApiClient {
       modelID?: string
       targetLanguage?: string
       conflictAction?: "replace" | "rename" | "cancel"
+      outputDir?: string
     },
     options?: Options<never, ThrowOnError>,
   ) {
@@ -3841,6 +4002,7 @@ export class File extends HeyApiClient {
             { in: "body", key: "modelID" },
             { in: "body", key: "targetLanguage" },
             { in: "body", key: "conflictAction" },
+            { in: "body", key: "outputDir" },
           ],
         },
       ],

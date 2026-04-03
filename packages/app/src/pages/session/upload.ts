@@ -48,7 +48,7 @@ const clean = (input: string) => {
   return list.join("/")
 }
 
-const merge = (out: Batch, next: Batch) => {
+export const merge = (out: Batch, next: Batch) => {
   const dirs = new Set([...out.dirs, ...next.dirs])
   const files = [...out.files]
   const seen = new Set(files.map((item) => item.path))

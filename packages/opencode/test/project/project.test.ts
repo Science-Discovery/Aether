@@ -411,6 +411,44 @@ describe("Project.list and Project.get", () => {
   })
 })
 
+describe("Project.recentList", () => {
+  test("tracks recent activity independently from metadata updates", async () => {
+    await using a = await tmpdir({ git: true })
+    await using b = await tmpdir({ git: true })
+
+    await Project.fromDirectory(a.path)
+    await Bun.sleep(10)
+    await Project.fromDirectory(b.path)
+
+    const before = Project.recentList()
+      .filter((item) => item.kind === "project")
+      .map((item) => item.directory)
+    expect(before.slice(0, 2)).toEqual([b.path, a.path])
+
+    const item = Project.list().find((project) => project.worktree === a.path)
+    expect(item).toBeDefined()
+    await Project.update({
+      projectID: item!.id,
+      name: "renamed",
+    })
+
+    const after = Project.recentList()
+      .filter((entry) => entry.kind === "project")
+      .map((entry) => entry.directory)
+    expect(after.slice(0, 2)).toEqual([b.path, a.path])
+  })
+
+  test("keeps non-git directories as directory items", async () => {
+    await using tmp = await tmpdir()
+
+    await Project.fromDirectory(tmp.path)
+
+    const item = Project.recentList().find((entry) => entry.directory === tmp.path)
+    expect(item).toBeDefined()
+    expect(item?.kind).toBe("directory")
+  })
+})
+
 describe("Project.setInitialized", () => {
   test("sets time_initialized on project", async () => {
     await using tmp = await tmpdir({ git: true })

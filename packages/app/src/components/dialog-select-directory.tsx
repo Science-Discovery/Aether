@@ -287,10 +287,7 @@ export function DialogSelectDirectory(props: DialogSelectDirectoryProps) {
   const [browsing, setBrowsing] = createSignal(false)
   const [expanded, setExpanded] = createSignal(false)
   const [creating, setCreating] = createSignal(false)
-  const [hidden, setHidden] = persisted(
-    Persist.global("recent-projects-hidden"),
-    createStore({ dirs: [] as string[] }),
-  )
+  const [hidden, setHidden] = persisted(Persist.global("recent-projects-hidden"), createStore({ dirs: [] as string[] }))
   let list: ListRef | undefined
 
   const missingBase = createMemo(() => !(sync.data.path.home || sync.data.path.directory))
@@ -315,62 +312,24 @@ export function DialogSelectDirectory(props: DialogSelectDirectoryProps) {
     home,
     start,
   })
-
+  const RECENT_LIMIT = 5
   onMount(() => {
     const value = cleanInput(props.initial ?? "")
     if (!value) return
     list?.setFilter(value)
     setSelectedPath(trimTrailing(normalizeDriveRoot(value)))
   })
-
-  const [allDirectories] = createResource(async () => {
-    return sdk.client.project
-      .directories()
-      .then((x) => x.data ?? [])
-      .catch(() => [])
-  })
-
-  const RECENT_LIMIT = 5
   const recentProjects = createMemo(() => {
     const isExpanded = expanded()
-    const known = sync.data.project
-    const byWorktree = new Map(known.map((p) => [p.worktree, p]))
-    const byProject = new Map<string, number>()
-
-    for (const project of known) {
-      let at = 0
-      const dirs = [project.worktree, ...(project.sandboxes ?? [])]
-      for (const directory of dirs) {
-        const sessions = sync.child(directory, { bootstrap: false })[0].session
-        for (const session of sessions) {
-          if (session.time.archived) continue
-          const updated = session.time.updated ?? session.time.created
-          if (updated > at) at = updated
-        }
-      }
-      byProject.set(project.worktree, at)
-    }
-
-    const knownRows = known
-      .map((project, index) => ({ project, at: byProject.get(project.worktree) ?? 0, index }))
-      .sort((a, b) => b.at - a.at || a.index - b.index)
-      .map(({ project }) => {
-        const row = toRow(project.worktree, home(), "recent")
-        const name = project.name || getFilename(project.worktree)
-        return { ...row, search: `${row.search}\n${name}` }
-      })
-
-    const knownWorktrees = new Set(known.map((p) => p.worktree))
-    const extra = (allDirectories() ?? [])
-      .filter((d) => !knownWorktrees.has(d))
-      .map((d) => {
-        const row = toRow(d, home(), "recent")
-        const name = byWorktree.get(d)?.name || getFilename(d)
-        return { ...row, search: `${row.search}\n${name}` }
-      })
-
+    const known = sync.project.recent()
     const hiddenSet = new Set(hidden.dirs)
-    const all = [...knownRows, ...extra].filter((r) => !hiddenSet.has(r.absolute))
+    const all = known
+      .map((item) => {
+        const row = toRow(item.directory, home(), "recent")
+        const name = item.name || getFilename(item.directory)
+        return { ...row, search: `${row.search}\n${name}` }
+      })
+      .filter((r) => !hiddenSet.has(r.absolute))
 
     if (!isExpanded && all.length > RECENT_LIMIT) {
       return [
@@ -435,12 +394,7 @@ export function DialogSelectDirectory(props: DialogSelectDirectoryProps) {
           action: (
             <div class="flex items-center gap-1">
               <Show when={filter()}>
-                <Button
-                  icon="arrow-left"
-                  size="small"
-                  variant="ghost"
-                  onClick={goUp}
-                />
+                <Button icon="arrow-left" size="small" variant="ghost" onClick={goUp} />
               </Show>
               <Button
                 icon="folder"
@@ -461,14 +415,16 @@ export function DialogSelectDirectory(props: DialogSelectDirectoryProps) {
                     setBrowsing(false)
                   }
                 }}
-              >{language.t("dialog.newProject.browse")}</Button>
+              >
+                {language.t("dialog.newProject.browse")}
+              </Button>
             </div>
           ),
         }}
         emptyMessage={language.t("dialog.directory.empty")}
         loadingMessage={language.t("common.loading")}
         items={items}
-        key={(x) => x.isCreate ? "__create__" : x.absolute}
+        key={(x) => (x.isCreate ? "__create__" : x.absolute)}
         filterKeys={["search"]}
         groupBy={(item) => item.group}
         sortGroupsBy={(a, b) => {
@@ -512,7 +468,8 @@ export function DialogSelectDirectory(props: DialogSelectDirectoryProps) {
             const resolved = resolveNewPath(filter(), home(), start() ?? "")
             if (!resolved) return
             setCreating(true)
-            sdk.client.file.create({ directory: resolved.parent, path: resolved.name, type: "directory" })
+            sdk.client.file
+              .create({ directory: resolved.parent, path: resolved.name, type: "directory" })
               .then(() => resolve(resolved.full))
               .catch(() => {})
               .finally(() => setCreating(false))

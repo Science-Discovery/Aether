@@ -239,6 +239,8 @@ export default function FileTree(props: {
   onFileDrop?: (paths: string[], targetDir: string) => void
   /** External file/folder uploads into folders */
   onUploadDrop?: (event: DragEvent, targetDir: string) => void
+  /** Upload files to a specific directory via picker */
+  onUploadToDir?: (dir: string, type: "file" | "directory") => void
   /** PDF 转 Markdown（单文件或批量） */
   onPdfConvert?: (paths: string[]) => void
   /** Markdown 翻译为中文（单文件或批量） */
@@ -561,6 +563,13 @@ export default function FileTree(props: {
                         <ContextMenu.ItemLabel>新建文件夹</ContextMenu.ItemLabel>
                       </ContextMenu.Item>
                       <ContextMenu.Separator />
+                      <ContextMenu.Item onSelect={() => props.onUploadToDir?.(node.path, "file")}>
+                        <ContextMenu.ItemLabel>上传文件到此处</ContextMenu.ItemLabel>
+                      </ContextMenu.Item>
+                      <ContextMenu.Item onSelect={() => props.onUploadToDir?.(node.path, "directory")}>
+                        <ContextMenu.ItemLabel>上传文件夹到此处</ContextMenu.ItemLabel>
+                      </ContextMenu.Item>
+                      <ContextMenu.Separator />
                     </>
                   )}
                   <ContextMenu.Item
@@ -844,6 +853,7 @@ export default function FileTree(props: {
                           onMultiCut={props.onMultiCut}
                           onFileDrop={props.onFileDrop}
                           onUploadDrop={props.onUploadDrop}
+                          onUploadToDir={props.onUploadToDir}
                           onPdfConvert={props.onPdfConvert}
                           onTranslateMarkdown={props.onTranslateMarkdown}
                           _filter={filter()}

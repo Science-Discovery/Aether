@@ -382,9 +382,7 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
       },
       get project() {
         const store = current()[0]
-        const match = Binary.search(globalSync.data.project, store.project, (p) => p.id)
-        if (match.found) return globalSync.data.project[match.index]
-        return undefined
+        return globalSync.project.get(store.project)
       },
       session: {
         get: getSession,

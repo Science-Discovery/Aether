@@ -14,11 +14,12 @@ Aether WeChat Bridge - 将 Aether AI 接入微信
 import asyncio
 import os
 import sys
+
 # 确保 stdout/stderr 使用 UTF-8（作为 Electron 子进程运行时管道可能默认 ASCII）
 for _s in (sys.stdout, sys.stderr):
-    if hasattr(_s, 'reconfigure'):
+    if hasattr(_s, "reconfigure"):
         try:
-            _s.reconfigure(encoding='utf-8', errors='replace')
+            _s.reconfigure(encoding="utf-8", errors="replace")
         except Exception:
             pass
 import json
@@ -30,7 +31,6 @@ from datetime import datetime
 from io import BytesIO
 from urllib.parse import quote
 
-import sqlite3
 import httpx
 
 # 设置日志
@@ -38,9 +38,9 @@ logging.basicConfig(level=logging.INFO, format="[%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
 # 确保日志 handler 的输出流也使用 UTF-8（basicConfig 可能绑定了旧的 stderr 引用）
 for _h in logging.root.handlers:
-    if hasattr(_h, 'stream') and hasattr(_h.stream, 'reconfigure'):
+    if hasattr(_h, "stream") and hasattr(_h.stream, "reconfigure"):
         try:
-            _h.stream.reconfigure(encoding='utf-8', errors='replace')
+            _h.stream.reconfigure(encoding="utf-8", errors="replace")
         except Exception:
             pass
 
@@ -50,17 +50,26 @@ from wechat_agent_sdk.api.client import ILinkBotClient, DEFAULT_API_BASE
 from wechat_agent_sdk.api.auth import login_with_qrcode
 from wechat_agent_sdk.account.storage import JsonFileStorage
 
+
 # Patch ILinkBotClient: fall back to trust_env=False if system proxy causes ConnectTimeout
 async def _make_ilinkbot_client(trust_env: bool) -> httpx.AsyncClient:
     from wechat_agent_sdk.api.client import POLL_TIMEOUT, _make_wechat_uin
+
     async def _inject_uin(request):
         request.headers["X-WECHAT-UIN"] = _make_wechat_uin()
+
     return httpx.AsyncClient(
-        timeout=httpx.Timeout(connect=10.0, read=POLL_TIMEOUT + 10, write=10.0, pool=10.0),
-        headers={"Content-Type": "application/json", "AuthorizationType": "ilink_bot_token"},
+        timeout=httpx.Timeout(
+            connect=10.0, read=POLL_TIMEOUT + 10, write=10.0, pool=10.0
+        ),
+        headers={
+            "Content-Type": "application/json",
+            "AuthorizationType": "ilink_bot_token",
+        },
         event_hooks={"request": [_inject_uin]},
         trust_env=trust_env,
     )
+
 
 async def _request_qrcode_with_fallback(self) -> dict:
     """Try request_qrcode; on ConnectTimeout, retry without system proxy."""
@@ -77,6 +86,7 @@ async def _request_qrcode_with_fallback(self) -> dict:
         if self._token:
             self._client.headers["Authorization"] = f"Bearer {self._token}"
         return await _orig_request_qrcode(self)
+
 
 _orig_request_qrcode = ILinkBotClient.request_qrcode
 ILinkBotClient.request_qrcode = _request_qrcode_with_fallback
@@ -127,103 +137,26 @@ def output_qrcode_base64(qrcode_url: str) -> str:
         return qrcode_url
 
 
-
-HELP_TEXT = (
-    """📋 可用命令：
+HELP_TEXT = """📋 可用命令：
 
 /new          开启新对话（清除当前会话上下文）
+/stop         停止当前会话中的执行
 /model        查看可用模型列表及当前模型
 /model n      切换到编号 n 的模型（由 /model 列表确定）
 /project      查看当前工作项目
+/project list 查看全部项目
 /project n    切换到编号 n 的项目
 /project hide n  隐藏项目（在桌面端或微信端重新使用后自动恢复）
+/session      查看当前项目下的会话列表
+/session list 查看当前项目下全部会话
+/session n    切换到当前项目下编号 n 的会话
 /help         显示此帮助信息"""
-)
 
 _HIDDEN_FILE: Path = (
     Path(SESSION_FILE).parent / "hidden_projects.json"
     if SESSION_FILE
     else Path.home() / ".config" / "aether-wechat" / "hidden_projects.json"
 )
-
-
-def _read_projects_from_db(db_path: Path) -> list[dict]:
-    """从指定 opencode SQLite db 读取项目列表。
-    使用 ?mode=ro 以支持 WAL 日志模式读取最新数据。
-    """
-    _skip = ("/bin", "/dist", chr(92) + "bin", chr(92) + "dist")
-    seen: dict[str, dict] = {}
-    for suffix in ("?mode=ro", "?mode=ro&immutable=1"):
-        try:
-            con = sqlite3.connect(db_path.as_uri() + suffix, uri=True)
-            cur = con.cursor()
-            cur.execute("SELECT id, worktree, name FROM project")
-            for pid, worktree, name in cur.fetchall():
-                if worktree and worktree != "/" and worktree not in seen:
-                    seen[worktree] = {"id": pid, "worktree": worktree, "name": name}
-            cur.execute("SELECT DISTINCT directory FROM session WHERE directory IS NOT NULL")
-            for (directory,) in cur.fetchall():
-                if directory and directory != "/" and directory not in seen:
-                    if not any(directory.endswith(s) for s in _skip):
-                        seen[directory] = {"id": "", "worktree": directory, "name": None}
-            con.close()
-            return list(seen.values())
-        except Exception:
-            pass
-    return []
-
-
-def _get_max_session_times(db_path: Path, directories: list[str]) -> dict[str, int]:
-    """查询各项目目录最近一次 session 的 time_updated（毫秒）。
-    通过 project_id JOIN project 表匹配 worktree，兼容直接匹配 session.directory。
-    """
-    if not directories:
-        return {}
-    placeholders = ",".join("?" * len(directories))
-    for suffix in ("?mode=ro", "?mode=ro&immutable=1"):
-        try:
-            con = sqlite3.connect(db_path.as_uri() + suffix, uri=True)
-            cur = con.cursor()
-            cur.execute(
-                f"""
-                SELECT worktree, MAX(t) FROM (
-                    SELECT p.worktree AS worktree, s.time_updated AS t
-                    FROM session s JOIN project p ON s.project_id = p.id
-                    WHERE p.worktree IN ({placeholders})
-                    UNION ALL
-                    SELECT s.directory AS worktree, s.time_updated AS t
-                    FROM session s WHERE s.directory IN ({placeholders})
-                ) GROUP BY worktree
-                """,
-                directories + directories,
-            )
-            result = {w: int(t) for w, t in cur.fetchall() if t is not None}
-            con.close()
-            return result
-        except Exception:
-            pass
-    return {}
-
-
-def _find_fallback_db() -> Optional[Path]:
-    """启动时 HTTP 客户端尚未就绪时，从文件系统找一个可用 db。"""
-    home = Path.home()
-    candidates = [
-        home / ".local" / "share" / "opencode",
-        home / "Library" / "Application Support" / "opencode",
-    ]
-    local_app = os.environ.get("LOCALAPPDATA", "")
-    if local_app:
-        candidates.append(Path(local_app) / "opencode")
-    override = os.environ.get("AETHER_OPENCODE_DATA_DIR", "")
-    if override:
-        candidates = [Path(override)]
-    for data_dir in candidates:
-        if data_dir.exists():
-            dbs = sorted(data_dir.glob("opencode*.db"))
-            if dbs:
-                return dbs[0]
-    return None
 
 
 class AetherAgent(Agent):
@@ -242,9 +175,13 @@ class AetherAgent(Agent):
         self.default_agent = default_agent
         self._client: httpx.AsyncClient = None  # type: ignore
         self._sessions: dict[str, str] = {}
+        self._session_list: dict[str, list[dict]] = {}
         self._conv_models: dict[str, str] = {}
         self._conv_dirs: dict[str, str] = {}
+        self._fresh: set[str] = set()
         self._pending_questions: dict[str, dict] = {}
+        self._pending_permissions: dict[str, dict] = {}
+        self._tasks: dict[str, object] = {}
         self._sse_tasks: dict[str, object] = {}
         self._accumulated_text: dict[str, str] = {}
         self._question_queues: dict[str, object] = {}
@@ -253,6 +190,8 @@ class AetherAgent(Agent):
         self._username = os.getenv("AETHER_USERNAME", "")
         self._password = os.getenv("AETHER_PASSWORD", "")
         self._hidden_dirs: dict[str, int] = {}  # worktree → 隐藏时的时间戳(ms)
+        self._project_names: dict[str, str] = {}
+        self._session_info: dict[str, dict] = {}
 
     async def on_start(self) -> None:
         """初始化 HTTP 客户端"""
@@ -271,11 +210,20 @@ class AetherAgent(Agent):
         try:
             if _HIDDEN_FILE.exists():
                 raw = json.loads(_HIDDEN_FILE.read_text(encoding="utf-8"))
-                self._hidden_dirs = {k: int(v) for k, v in raw.items()} if isinstance(raw, dict) else {}
+                self._hidden_dirs = (
+                    {k: int(v) for k, v in raw.items()} if isinstance(raw, dict) else {}
+                )
                 if self._hidden_dirs:
                     logger.info(f"已加载 {len(self._hidden_dirs)} 个隐藏项目")
         except Exception as e:
             logger.warning(f"加载隐藏项目失败: {e}")
+        try:
+            session_id, created = await self._ensure_session(self.directory)
+            logger.info(
+                f"默认会话: {session_id[:8]}... dir={self.directory} created={created}"
+            )
+        except Exception as e:
+            logger.warning(f"初始化默认会话失败: {e}")
 
     async def on_stop(self) -> None:
         """清理资源"""
@@ -290,182 +238,465 @@ class AetherAgent(Agent):
         except Exception as e:
             logger.warning(f"保存隐藏项目失败: {e}")
 
-    async def _get_active_db_path(self) -> Optional[Path]:
-        """通过 GET /global/database 获取当前 active 的 db 路径。"""
-        try:
-            resp = await self._client.get(f"{self.base_url}/global/database")
-            resp.raise_for_status()
-            for entry in resp.json():
-                if entry.get("active"):
-                    return Path(entry["path"])
-        except Exception as e:
-            logger.warning(f"获取 active db 失败: {e}")
-        return None
+    def _project_dir(self, item: dict) -> str:
+        return item.get("directory") or item.get("worktree", "")
 
+    def _project_name(self, item: dict) -> str:
+        directory = self._project_dir(item)
+        return (
+            item.get("name")
+            or directory.replace(chr(92), "/").rstrip("/").split("/")[-1]
+        )
+
+    def _base(self, directory: str) -> str:
+        text = (directory or "").replace(chr(92), "/").rstrip("/")
+        return text.split("/")[-1] if text else "unknown"
+
+    def _clip(self, text: str, limit: int) -> str:
+        if len(text) <= limit:
+            return text
+        return text[: limit - 3].rstrip() + "..."
+
+    async def _get_project_name(self, directory: str) -> str:
+        if not directory:
+            return "unknown"
+        cached = self._project_names.get(directory)
+        if cached:
+            return cached
+        try:
+            item = next(
+                (item for item in await self._get_projects() if self._project_dir(item) == directory),
+                None,
+            )
+            if item:
+                name = self._project_name(item)
+                if name:
+                    self._project_names[directory] = name
+                    return name
+        except Exception:
+            pass
+        self._project_names[directory] = self._base(directory)
+        return self._project_names[directory]
+
+    async def _get_session_info(self, session_id: str, directory: str) -> dict:
+        info = self._session_info.get(session_id)
+        if info:
+            return info
+        headers = (
+            {"x-opencode-directory": quote(directory, safe="")} if directory else {}
+        )
+        try:
+            resp = await self._client.get(
+                f"{self.base_url}/session/{session_id}", headers=headers
+            )
+            resp.raise_for_status()
+            info = resp.json()
+            if isinstance(info, dict):
+                self._session_info[session_id] = info
+                return info
+        except Exception as e:
+            logger.warning(f"获取会话信息失败: {e}")
+        return {}
+
+    async def _current_project_line(self, conv_id: str) -> str:
+        directory = self._conv_dirs.get(conv_id) or self.directory
+        return f"📂 当前项目：{await self._get_project_name(directory)}"
+
+    async def _current_session_line(self, conv_id: str) -> str:
+        directory = self._conv_dirs.get(conv_id) or self.directory
+        current = self._sessions.get(conv_id)
+        items = self._session_list.get(conv_id)
+        if items is None:
+            items = await self._list_sessions(directory)
+            self._session_list[conv_id] = items
+        item = next((row for row in items if row.get("id") == current), None)
+        if not item and items:
+            item = items[0]
+        if not item:
+            return "🗂 当前会话：无"
+        title = item.get("title") or item["id"][:8]
+        return f"🗂 当前会话：{title}"
+
+    async def _current_lines(self, conv_id: str) -> list[str]:
+        return [
+            await self._current_project_line(conv_id),
+            await self._current_session_line(conv_id),
+        ]
+
+    def _pick(
+        self, items: list[dict], size: int, hide: Optional[set[str]] = None
+    ) -> list[tuple[int, dict]]:
+        rows = []
+        for idx, item in enumerate(items, 1):
+            if hide and self._project_dir(item) in hide:
+                continue
+            rows.append((idx, item))
+            if len(rows) >= size:
+                break
+        return rows
+
+    async def _format_header(self, session_id: str, directory: str) -> str:
+        info = await self._get_session_info(session_id, directory)
+        project = await self._get_project_name(directory)
+        title = info.get("title") if isinstance(info, dict) else ""
+        label = title.strip() if isinstance(title, str) else ""
+        if not label:
+            label = session_id[:8]
+        elif label != session_id[:8]:
+            label = f"{self._clip(label, 24)} · {session_id[:8]}"
+        return f"[项目] {self._clip(project, 24)}\n[对话] {label}\n------------------------"
+
+    async def _wrap_message(self, text: str, session_id: str, directory: str) -> str:
+        body = text.strip()
+        if not body:
+            return text
+        return f"{await self._format_header(session_id, directory)}\n{body}"
+
+    async def _get_projects(self) -> list[dict]:
+        try:
+            resp = await self._client.get(f"{self.base_url}/project/recent")
+            resp.raise_for_status()
+            return [
+                item
+                for item in resp.json()
+                if (item.get("directory") or item.get("worktree"))
+                and (item.get("directory") or item.get("worktree")) != "/"
+            ]
+        except Exception as e:
+            logger.warning(f"获取项目列表失败: {e}")
+            return []
+
+    async def _list_sessions(self, directory: str) -> list[dict]:
+        headers = (
+            {"x-opencode-directory": quote(directory, safe="")} if directory else {}
+        )
+        resp = await self._client.get(
+            f"{self.base_url}/session",
+            params={"directory": directory} if directory else None,
+            headers=headers,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        return data if isinstance(data, list) else []
+
+    async def _ensure_session(
+        self, directory: str, fresh: bool = False
+    ) -> tuple[str, bool]:
+        if fresh:
+            return await self._create_session(directory=directory), True
+        items = await self._list_sessions(directory)
+        if items:
+            return items[0]["id"], False
+        return await self._create_session(directory=directory), True
+
+    def _format_session_time(self, val: object) -> str:
+        if not isinstance(val, int):
+            return "未知时间"
+        return datetime.fromtimestamp(val / 1000).strftime("%Y-%m-%d %H:%M")
+
+    async def _cmd_session(self, conv_id: str, arg: str) -> str:
+        directory = self._conv_dirs.get(conv_id) or self.directory
+        items = await self._list_sessions(directory)
+        self._session_list[conv_id] = items
+
+        if arg == "list":
+            current = self._sessions.get(conv_id)
+            lines = [*(await self._current_lines(conv_id)), "", "🗂 会话列表：", ""]
+            for i, item in enumerate(items, 1):
+                title = item.get("title") or item["id"][:8]
+                updated = self._format_session_time(item.get("time", {}).get("updated"))
+                tag = " ◀" if item["id"] == current else ""
+                lines.append(f"{i}. {title}{tag}")
+                lines.append(f"   {updated}")
+            if not items:
+                lines.append("（当前项目下还没有任何会话）")
+            return chr(10).join(lines)
+
+        if arg:
+            try:
+                idx = int(arg) - 1
+            except ValueError:
+                return "❌ 请输入会话编号，例如：/session 2"
+            if idx < 0 or idx >= len(items):
+                return (
+                    f"❌ 请输入 1~{len(items)} 之间的数字。"
+                    if items
+                    else "❌ 当前项目下还没有任何会话。"
+                )
+            chosen = items[idx]
+            self._sessions[conv_id] = chosen["id"]
+            self._fresh.discard(conv_id)
+            title = chosen.get("title") or chosen["id"][:8]
+            logger.info(f"[/session] {conv_id} -> {chosen['id']}")
+            return f"✅ 已切换到会话：{title}\n   更新时间：{self._format_session_time(chosen.get('time', {}).get('updated'))}"
+
+        if not items:
+            session_id = await self._create_session(directory=directory)
+            self._sessions[conv_id] = session_id
+            self._fresh.discard(conv_id)
+            logger.info(f"[/session] 为 {conv_id} 创建新会话 {session_id[:8]}...")
+            return "📂 当前项目下还没有任何会话，已自动创建一个新会话并切换。"
+
+        current = self._sessions.get(conv_id)
+        lines = [*(await self._current_lines(conv_id)), "", "🗂 会话列表：", ""]
+        for i, item in enumerate(items[:10], 1):
+            title = item.get("title") or item["id"][:8]
+            updated = self._format_session_time(item.get("time", {}).get("updated"))
+            tag = " ◀" if item["id"] == current else ""
+            lines.append(f"{i}. {title}{tag}")
+            lines.append(f"   {updated}")
+        lines.append("")
+        lines.append("💡 /session n 切换会话 | /session list 查看全部")
+        return chr(10).join(lines)
 
     async def _handle_slash_command(self, conv_id: str, text: str):
         stripped = text.strip()
-        if not stripped.startswith('/'):
+        if not stripped.startswith("/"):
             return None
         parts = stripped.split(maxsplit=1)
         cmd = parts[0].lower()
-        arg = parts[1].strip() if len(parts) > 1 else ''
-        if cmd == '/help':
+        arg = parts[1].strip() if len(parts) > 1 else ""
+        if cmd == "/help":
             return HELP_TEXT
-        if cmd == '/new':
+        if cmd == "/stop":
+            return await self._cmd_stop(conv_id)
+        if cmd == "/new":
             old = self._sessions.pop(conv_id, None)
+            self._session_list.pop(conv_id, None)
             self._conv_models.pop(conv_id, None)
-            pending = self._pending_questions.pop(conv_id, None)
-            if pending:
-                task = pending.get('task')
-                if task and not task.done():
-                    task.cancel()
-            sse = self._sse_tasks.pop(conv_id, None)
-            if sse and not sse.done():
-                sse.cancel()
-            self._question_queues.pop(conv_id, None)
-            self._accumulated_text.pop(conv_id, None)
+            self._fresh.add(conv_id)
+            self._clear_runtime(conv_id)
             if old:
-                logger.info(f'[/new] 清除会话 {old[:8]}... for {conv_id}')
-            return '✅ 已开启新对话，上下文已清空。'
-        if cmd == '/model':
+                logger.info(f"[/new] 清除会话 {old[:8]}... for {conv_id}")
+            return "✅ 已开启新对话，上下文已清空。"
+        if cmd == "/model":
             if not arg:
                 return await self._cmd_list_models(conv_id)
             # 数字编号切换
             if arg.isdigit():
                 return self._cmd_set_model_by_index(conv_id, int(arg))
             return self._cmd_set_model(conv_id, arg)
-        if cmd == '/project':
+        if cmd == "/project":
             return await self._cmd_project(conv_id, arg)
-        return f'❓ 未知命令：{cmd}，发送 /help 查看可用命令。'
+        if cmd == "/session":
+            return await self._cmd_session(conv_id, arg)
+        return f"❓ 未知命令：{cmd}，发送 /help 查看可用命令。"
 
     async def _cmd_list_models(self, conv_id: str) -> str:
         try:
             directory = self._conv_dirs.get(conv_id) or self.directory
-            headers = {"x-opencode-directory": quote(directory, safe="")} if directory else {}
-            resp = await self._client.get(f'{self.base_url}/provider', headers=headers)
+            headers = (
+                {"x-opencode-directory": quote(directory, safe="")} if directory else {}
+            )
+            resp = await self._client.get(f"{self.base_url}/provider", headers=headers)
             resp.raise_for_status()
             data = resp.json()
         except Exception as e:
-            logger.error(f'获取模型列表失败: {e}')
-            return '❌ 无法获取模型列表，请检查 Aether 服务是否正常。'
-        current = self._conv_models.get(conv_id) or self.default_model or '（全局默认）'
-        lines = [f'🤖 当前：{current}', '', '📦 可用模型：']
-        providers = data.get('all', [])
-        connected = set(data.get('connected', []))
-        defaults = data.get('default', {})
+            logger.error(f"获取模型列表失败: {e}")
+            return "❌ 无法获取模型列表，请检查 Aether 服务是否正常。"
+        current = self._conv_models.get(conv_id) or self.default_model or "（全局默认）"
+        lines = [f"🤖 当前：{current}", "", "📦 可用模型："]
+        providers = data.get("all", [])
+        connected = set(data.get("connected", []))
+        defaults = data.get("default", {})
         model_list: list[str] = []
         for provider in providers:
-            pid = provider.get('id', '')
+            pid = provider.get("id", "")
             if pid not in connected:
                 continue
-            pname = provider.get('name', pid)
-            models = provider.get('models', {})
+            pname = provider.get("name", pid)
+            models = provider.get("models", {})
             if not models:
                 continue
-            lines.append(f'')
-            lines.append(f'【{pname}】')
-            default_mid = defaults.get(pid, '')
+            lines.append(f"")
+            lines.append(f"【{pname}】")
+            default_mid = defaults.get(pid, "")
             sorted_ids = sorted(models.keys(), key=lambda m: (m != default_mid, m))
             for model_id in sorted_ids:
-                model_list.append(f'{pid}/{model_id}')
+                model_list.append(f"{pid}/{model_id}")
                 num = len(model_list)
-                tag = ' ★' if model_id == default_mid else ''
-                lines.append(f'  {num}. {pid}/{model_id}{tag}')
+                tag = " ★" if model_id == default_mid else ""
+                lines.append(f"  {num}. {pid}/{model_id}{tag}")
         self._model_list = model_list
         if len(lines) <= 3:
-            lines.append('（暂无已配置的模型，请先在 Aether 中连接 provider）')
-        lines.append('')
-        lines.append('💡 /model n 切换模型')
+            lines.append("（暂无已配置的模型，请先在 Aether 中连接 provider）")
+        lines.append("")
+        lines.append("💡 /model n 切换模型")
         return chr(10).join(lines)
 
     def _cmd_set_model_by_index(self, conv_id: str, n: int) -> str:
         if not self._model_list:
-            return '❌ 请先发送 /model 获取模型列表，再用编号切换。'
+            return "❌ 请先发送 /model 获取模型列表，再用编号切换。"
         if n < 1 or n > len(self._model_list):
-            return f'❌ 请输入 1~{len(self._model_list)} 之间的编号。'
+            return f"❌ 请输入 1~{len(self._model_list)} 之间的编号。"
         model_str = self._model_list[n - 1]
         return self._cmd_set_model(conv_id, model_str)
 
     async def _cmd_project(self, conv_id: str, arg: str) -> str:
-        db_path = await self._get_active_db_path()
-        if db_path is None:
-            return '❌ 无法获取数据库路径，请检查 Aether 服务是否正常。'
-
-        all_projects = _read_projects_from_db(db_path)
+        all_projects = await self._get_projects()
+        if not all_projects:
+            return "❌ 无法获取项目列表，请检查 Aether 服务是否正常。"
 
         # 自动取消隐藏：检查哪些隐藏项目在隐藏后有新 session 活动
         if self._hidden_dirs:
-            hidden_list = list(self._hidden_dirs.keys())
-            times = _get_max_session_times(db_path, hidden_list)
             changed = False
-            for worktree, hide_time in list(self._hidden_dirs.items()):
-                if times.get(worktree, 0) > hide_time:
-                    del self._hidden_dirs[worktree]
+            for directory, hide_time in list(self._hidden_dirs.items()):
+                item = next(
+                    (
+                        p
+                        for p in all_projects
+                        if self._project_dir(p) == directory
+                    ),
+                    None,
+                )
+                activity = (((item or {}).get("time") or {}).get("activity")) or 0
+                if activity > hide_time:
+                    del self._hidden_dirs[directory]
                     changed = True
-                    logger.info(f'[/project] 自动恢复隐藏项目: {worktree}')
+                    logger.info(f"[/project] 自动恢复隐藏项目: {directory}")
             if changed:
                 self._save_hidden_dirs()
 
-        projects = [p for p in all_projects if p.get('worktree', '') not in self._hidden_dirs]
+        projects = [
+            p
+            for p in all_projects
+            if self._project_dir(p) not in self._hidden_dirs
+        ]
         current_dir = self._conv_dirs.get(conv_id) or self.directory
 
         # /project hide n
-        if arg.startswith('hide '):
+        if arg.startswith("hide "):
             del_arg = arg[5:].strip()
-            if not del_arg.isdigit() or not projects:
-                return '❌ 用法：/project hide n'
+            if not del_arg.isdigit() or not all_projects:
+                return "❌ 用法：/project hide n"
             idx = int(del_arg) - 1
-            if idx < 0 or idx >= len(projects):
-                return f'❌ 请输入 1~{len(projects)} 之间的数字。'
-            target = projects[idx]
-            worktree = target.get('worktree', '')
-            self._hidden_dirs[worktree] = int(datetime.now().timestamp() * 1000)
+            if idx < 0 or idx >= len(all_projects):
+                return f"❌ 请输入 1~{len(all_projects)} 之间的数字。"
+            target = all_projects[idx]
+            directory = self._project_dir(target)
+            self._hidden_dirs[directory] = int(datetime.now().timestamp() * 1000)
             self._save_hidden_dirs()
-            name = target.get('name') or worktree.replace(chr(92), '/').rstrip('/').split('/')[-1]
-            return f'✅ 已隐藏：{name}\n（在桌面端或微信端重新使用后自动恢复）'
+            name = self._project_name(target)
+            return f"✅ 已隐藏：{name}\n（在桌面端或微信端重新使用后自动恢复）"
+
+        if arg == "list":
+            lines = [*(await self._current_lines(conv_id)), "", "📂 项目列表：", ""]
+            for idx, item in enumerate(all_projects, 1):
+                directory = self._project_dir(item)
+                tag = " ◀" if directory == current_dir else ""
+                mark = " [已隐藏]" if directory in self._hidden_dirs else ""
+                lines.append(f"{idx}. {self._project_name(item)}{tag}{mark}")
+                lines.append(f"   {directory}")
+            return chr(10).join(lines)
 
         # /project n
         if arg:
             try:
                 idx = int(arg) - 1
             except ValueError:
-                return '❌ 请输入项目编号，例如：/project 2'
-            if not projects or idx < 0 or idx >= len(projects):
-                return f'❌ 请输入 1~{len(projects)} 之间的数字。'
-            chosen = projects[idx]
-            new_dir = chosen.get('worktree', '')
+                return "❌ 请输入项目编号，例如：/project 2"
+            if not all_projects or idx < 0 or idx >= len(all_projects):
+                return f"❌ 请输入 1~{len(all_projects)} 之间的数字。"
+            chosen = all_projects[idx]
+            new_dir = self._project_dir(chosen)
             self._conv_dirs[conv_id] = new_dir
-            self._sessions.pop(conv_id, None)
+            session_id, created = await self._ensure_session(new_dir)
+            self._sessions[conv_id] = session_id
+            self._session_list.pop(conv_id, None)
+            self._fresh.discard(conv_id)
             self._conv_models.pop(conv_id, None)
-            name = chosen.get('name') or new_dir.replace(chr(92), '/').rstrip('/').split('/')[-1]
-            logger.info(f'[/project] {conv_id} -> {new_dir}')
-            return f'✅ 已切换到：{name}\n   {new_dir}\n（已开启新会话）'
+            if new_dir in self._hidden_dirs:
+                del self._hidden_dirs[new_dir]
+                self._save_hidden_dirs()
+            name = self._project_name(chosen)
+            logger.info(f"[/project] {conv_id} -> {new_dir}")
+            note = "已创建新会话"
+            if not created:
+                items = await self._list_sessions(new_dir)
+                item = next((row for row in items if row.get("id") == session_id), None)
+                title = (item or {}).get("title") or session_id[:8]
+                note = f"已进入该项目最新会话：{title}"
+            return f"✅ 已切换到：{name}\n   {new_dir}\n（{note}）"
 
         # /project（列表）
         if not projects:
-            hint = f'（有 {len(self._hidden_dirs)} 个项目已隐藏）' if self._hidden_dirs else ''
-            return f'❌ 未找到任何项目。{hint}'
+            hint = (
+                f"（有 {len(self._hidden_dirs)} 个项目已隐藏）"
+                if self._hidden_dirs
+                else ""
+            )
+            return f"❌ 未找到任何项目。{hint}"
 
-        lines = [f'📂 项目列表（db: {db_path.stem}）：', '']
-        for i, p in enumerate(projects, 1):
-            worktree = p.get('worktree', '')
-            name = p.get('name') or worktree.replace(chr(92), '/').rstrip('/').split('/')[-1]
-            tag = ' ◀' if worktree == current_dir else ''
-            lines.append(f'{i}. {name}{tag}')
-            lines.append(f'   {worktree}')
-        lines.append('')
-        lines.append('💡 /project n 切换 | /project hide n 隐藏')
+        lines = [*(await self._current_lines(conv_id)), "", "📂 项目列表：", ""]
+        for idx, item in self._pick(all_projects, 10, set(self._hidden_dirs)):
+            directory = self._project_dir(item)
+            tag = " ◀" if directory == current_dir else ""
+            lines.append(f"{idx}. {self._project_name(item)}{tag}")
+            lines.append(f"   {directory}")
+        lines.append("")
+        lines.append("💡 /project n 切换 | /project list 查看全部 | /project hide n 隐藏")
         if self._hidden_dirs:
-            lines.append(f'ℹ️ 已隐藏 {len(self._hidden_dirs)} 个项目（重新使用后自动恢复）')
+            lines.append(
+                f"ℹ️ 已隐藏 {len(self._hidden_dirs)} 个项目（重新使用后自动恢复）"
+            )
         return chr(10).join(lines)
 
     def _cmd_set_model(self, conv_id: str, model_str: str) -> str:
-        if '/' not in model_str:
-            return '❌ 格式错误，请使用 provider/model 格式。\n例如：/model anthropic/claude-sonnet-4-5'
+        if "/" not in model_str:
+            return "❌ 格式错误，请使用 provider/model 格式。\n例如：/model anthropic/claude-sonnet-4-5"
         self._conv_models[conv_id] = model_str
-        logger.info(f'[/model] {conv_id} -> {model_str}')
-        return f'✅ 已切换模型：{model_str}\n（仅对当前对话生效，/new 后将重置）'
+        logger.info(f"[/model] {conv_id} -> {model_str}")
+        return f"✅ 已切换模型：{model_str}\n（仅对当前对话生效，/new 后将重置）"
+
+    def _clear_runtime(self, conv_id: str) -> None:
+        pending = self._pending_questions.pop(conv_id, None)
+        if pending:
+            task = pending.get("task")
+            if task and not task.done():
+                task.cancel()
+        pending = self._pending_permissions.pop(conv_id, None)
+        if pending:
+            task = pending.get("task")
+            if task and not task.done():
+                task.cancel()
+        task = self._tasks.pop(conv_id, None)
+        if task and not task.done():
+            task.cancel()
+        sse = self._sse_tasks.pop(conv_id, None)
+        if sse and not sse.done():
+            sse.cancel()
+        self._question_queues.pop(conv_id, None)
+        self._accumulated_text.pop(conv_id, None)
+
+    async def _cmd_stop(self, conv_id: str) -> str:
+        directory = self._conv_dirs.get(conv_id) or self.directory
+        session_id = self._sessions.get(conv_id)
+        if not session_id:
+            return "当前没有可停止的会话。"
+
+        task = self._tasks.get(conv_id)
+        local = any(
+            [
+                conv_id in self._pending_questions,
+                conv_id in self._pending_permissions,
+                task is not None and not task.done(),
+            ]
+        )
+        busy = await self._is_session_busy(session_id, directory)
+        if not local and not busy:
+            return "当前没有正在执行的任务。"
+
+        headers = (
+            {"x-opencode-directory": quote(directory, safe="")} if directory else {}
+        )
+        resp = await self._client.post(
+            f"{self.base_url}/session/{session_id}/abort",
+            headers=headers,
+        )
+        resp.raise_for_status()
+        self._clear_runtime(conv_id)
+        logger.info(f"[/stop] 已停止会话 {session_id[:8]}... for {conv_id}")
+        return "已停止当前执行。"
 
     async def chat(self, request: ChatRequest) -> ChatResponse:
         """处理微信消息"""
@@ -487,13 +718,36 @@ class AetherAgent(Agent):
         if conv_id in self._pending_questions:
             return await self._handle_question_reply(conv_id, user_text)
 
+        if conv_id in self._pending_permissions:
+            return await self._handle_permission_reply(conv_id, user_text)
+
         try:
             directory = self._conv_dirs.get(conv_id) or self.directory
             session_id = self._sessions.get(conv_id)
             if not session_id:
-                session_id = await self._create_session(directory=directory)
+                session_id, created = await self._ensure_session(
+                    directory, conv_id in self._fresh
+                )
                 self._sessions[conv_id] = session_id
-                logger.info(f"创建新会话: {session_id[:8]}... dir={directory}")
+                self._fresh.discard(conv_id)
+                logger.info(
+                    f"{'创建' if created else '选择'}会话: {session_id[:8]}... dir={directory}"
+                )
+
+            pending = await self._sync_pending(conv_id, session_id, directory)
+            if pending:
+                return ChatResponse(text=pending)
+
+            if await self._is_session_busy(session_id, directory):
+                return ChatResponse(
+                    text=await self._format_busy_reply(conv_id, session_id, directory)
+                )
+
+            task = self._tasks.get(conv_id)
+            if task and not task.done():
+                return ChatResponse(
+                    text=await self._format_busy_reply(conv_id, session_id, directory)
+                )
 
             model = self._conv_models.get(conv_id) or self.default_model
 
@@ -502,14 +756,19 @@ class AetherAgent(Agent):
             self._accumulated_text[conv_id] = ""
 
             task = asyncio.create_task(
-                self._send_message(session_id, user_text, model=model, directory=directory)
+                self._send_message(
+                    session_id, user_text, model=model, directory=directory
+                )
             )
+            self._tasks[conv_id] = task
             sse_task = asyncio.create_task(
                 self._monitor_sse(conv_id, session_id, directory, task, q)
             )
             self._sse_tasks[conv_id] = sse_task
 
-            return await self._wait_for_response(conv_id, session_id, directory, task, q)
+            return await self._wait_for_response(
+                conv_id, session_id, directory, task, q
+            )
 
         except httpx.HTTPStatusError as e:
             logger.error(f"HTTP 错误: {e.response.status_code}")
@@ -521,9 +780,13 @@ class AetherAgent(Agent):
             logger.error(f"处理错误: {e}")
             return ChatResponse(text=f"处理消息时出错: {e}")
 
-    async def _monitor_sse(self, conv_id: str, session_id: str, directory: str, task, q: asyncio.Queue) -> None:
+    async def _monitor_sse(
+        self, conv_id: str, session_id: str, directory: str, task, q: asyncio.Queue
+    ) -> None:
         """订阅 SSE 事件流，实时捕获文本和问题"""
-        headers = {"x-opencode-directory": quote(directory, safe="")} if directory else {}
+        headers = (
+            {"x-opencode-directory": quote(directory, safe="")} if directory else {}
+        )
         try:
             async with self._client.stream(
                 "GET",
@@ -545,7 +808,10 @@ class AetherAgent(Agent):
                     props = event.get("properties", {})
 
                     if event_type == "message.part.delta":
-                        if props.get("sessionID") == session_id and props.get("field") == "text":
+                        if (
+                            props.get("sessionID") == session_id
+                            and props.get("field") == "text"
+                        ):
                             delta = props.get("delta", "")
                             if delta:
                                 self._accumulated_text[conv_id] = (
@@ -557,6 +823,11 @@ class AetherAgent(Agent):
                             logger.info(f"[SSE] question.asked -> {conv_id}")
                             await q.put(("question", props))
 
+                    elif event_type == "permission.asked":
+                        if props.get("sessionID") == session_id:
+                            logger.info(f"[SSE] permission.asked -> {conv_id}")
+                            await q.put(("permission", props))
+
         except asyncio.CancelledError:
             pass
         except Exception as e:
@@ -564,7 +835,9 @@ class AetherAgent(Agent):
         finally:
             await q.put(("done", None))
 
-    async def _wait_for_response(self, conv_id: str, session_id: str, directory: str, task, q: asyncio.Queue) -> ChatResponse:
+    async def _wait_for_response(
+        self, conv_id: str, session_id: str, directory: str, task, q: asyncio.Queue
+    ) -> ChatResponse:
         """等待消息完成：通过 SSE 队列接收事件"""
         while True:
             if task.done():
@@ -576,13 +849,17 @@ class AetherAgent(Agent):
 
             if kind == "done":
                 logger.warning("[SSE] 连接中断，轮询 /question")
-                return await self._wait_for_response_polling(conv_id, session_id, directory, task)
+                return await self._wait_for_response_polling(
+                    conv_id, session_id, directory, task
+                )
 
             if kind == "question":
                 text_so_far = self._accumulated_text.pop(conv_id, "").strip()
                 if text_so_far and self._message_sender:
                     try:
-                        await self._message_sender(text_so_far)
+                        await self._message_sender(
+                            await self._wrap_message(text_so_far, session_id, directory)
+                        )
                     except Exception as e:
                         logger.warning(f"推送中间文本失败: {e}")
                 self._pending_questions[conv_id] = {
@@ -594,17 +871,51 @@ class AetherAgent(Agent):
                     "queue": q,
                 }
                 logger.info(f"[question] 推送问题到微信 {conv_id}")
-                return ChatResponse(text=self._format_question_request(data))
+                return ChatResponse(
+                    text=await self._wrap_message(
+                        self._format_question_request(data), session_id, directory
+                    )
+                )
+
+            if kind == "permission":
+                text_so_far = self._accumulated_text.pop(conv_id, "").strip()
+                if text_so_far and self._message_sender:
+                    try:
+                        await self._message_sender(
+                            await self._wrap_message(text_so_far, session_id, directory)
+                        )
+                    except Exception as e:
+                        logger.warning(f"推送中间文本失败: {e}")
+                self._pending_permissions[conv_id] = {
+                    "id": data["id"],
+                    "permission": data,
+                    "task": task,
+                    "session_id": session_id,
+                    "directory": directory,
+                    "queue": q,
+                }
+                logger.info(f"[permission] 推送授权到微信 {conv_id}")
+                return ChatResponse(
+                    text=await self._wrap_message(
+                        self._format_permission_request(data), session_id, directory
+                    )
+                )
 
         sse_task = self._sse_tasks.pop(conv_id, None)
         if sse_task and not sse_task.done():
             sse_task.cancel()
+        self._tasks.pop(conv_id, None)
         self._question_queues.pop(conv_id, None)
         self._accumulated_text.pop(conv_id, None)
+        self._pending_permissions.pop(conv_id, None)
 
         try:
             result = await task
-            return ChatResponse(text=result.get("formatted", "操作已完成"))
+            return ChatResponse(
+                text=await self._wrap_message(
+                    result.get("formatted", "操作已完成"), session_id, directory
+                )
+            )
         except asyncio.CancelledError:
             return ChatResponse(text="已取消。")
         except httpx.HTTPStatusError as e:
@@ -613,7 +924,9 @@ class AetherAgent(Agent):
             logger.error(f"消息任务失败: {e}")
             return ChatResponse(text=f"处理消息时出错: {e}")
 
-    async def _wait_for_response_polling(self, conv_id: str, session_id: str, directory: str, task) -> ChatResponse:
+    async def _wait_for_response_polling(
+        self, conv_id: str, session_id: str, directory: str, task
+    ) -> ChatResponse:
         """回退方案：轮询 /question 接口"""
         poll_interval = 2.0
         while not task.done():
@@ -631,26 +944,136 @@ class AetherAgent(Agent):
                         "directory": directory,
                         "queue": None,
                     }
-                    return ChatResponse(text=self._format_question_request(question))
+                    return ChatResponse(
+                        text=await self._wrap_message(
+                            self._format_question_request(question),
+                            session_id,
+                            directory,
+                        )
+                    )
+                permission = await self._poll_permission_for_session(
+                    session_id, directory
+                )
+                if permission:
+                    self._pending_permissions[conv_id] = {
+                        "id": permission["id"],
+                        "permission": permission,
+                        "task": task,
+                        "session_id": session_id,
+                        "directory": directory,
+                        "queue": None,
+                    }
+                    return ChatResponse(
+                        text=await self._wrap_message(
+                            self._format_permission_request(permission),
+                            session_id,
+                            directory,
+                        )
+                    )
             except Exception as e:
                 logger.warning(f"轮询问题失败: {e}")
+        self._tasks.pop(conv_id, None)
+        self._pending_permissions.pop(conv_id, None)
         try:
             result = await task
-            return ChatResponse(text=result.get("formatted", "操作已完成"))
+            return ChatResponse(
+                text=await self._wrap_message(
+                    result.get("formatted", "操作已完成"), session_id, directory
+                )
+            )
         except asyncio.CancelledError:
             return ChatResponse(text="已取消。")
         except Exception as e:
             return ChatResponse(text=f"处理消息时出错: {e}")
 
-    async def _poll_question_for_session(self, session_id: str, directory: str = "") -> Optional[dict]:
+    async def _poll_question_for_session(
+        self, session_id: str, directory: str = ""
+    ) -> Optional[dict]:
         """查询指定 session 下是否有待回答的 agent 问题"""
-        headers = {"x-opencode-directory": quote(directory, safe="")} if directory else {}
+        headers = (
+            {"x-opencode-directory": quote(directory, safe="")} if directory else {}
+        )
         resp = await self._client.get(f"{self.base_url}/question", headers=headers)
         resp.raise_for_status()
         for q in resp.json():
             if q.get("sessionID") == session_id:
                 return q
         return None
+
+    async def _poll_permission_for_session(
+        self, session_id: str, directory: str = ""
+    ) -> Optional[dict]:
+        """查询指定 session 下是否有待授权的请求"""
+        headers = (
+            {"x-opencode-directory": quote(directory, safe="")} if directory else {}
+        )
+        resp = await self._client.get(f"{self.base_url}/permission", headers=headers)
+        resp.raise_for_status()
+        for item in resp.json():
+            if item.get("sessionID") == session_id:
+                return item
+        return None
+
+    async def _is_session_busy(self, session_id: str, directory: str = "") -> bool:
+        headers = (
+            {"x-opencode-directory": quote(directory, safe="")} if directory else {}
+        )
+        resp = await self._client.get(
+            f"{self.base_url}/session/status", headers=headers
+        )
+        resp.raise_for_status()
+        info = resp.json().get(session_id)
+        return isinstance(info, dict) and info.get("type") == "busy"
+
+    async def _sync_pending(
+        self, conv_id: str, session_id: str, directory: str
+    ) -> Optional[str]:
+        question = await self._poll_question_for_session(session_id, directory)
+        if question:
+            self._pending_questions[conv_id] = {
+                "id": question["id"],
+                "questions": question.get("questions", []),
+                "task": None,
+                "session_id": session_id,
+                "directory": directory,
+                "queue": None,
+            }
+            return await self._wrap_message(
+                self._format_question_request(question), session_id, directory
+            )
+
+        permission = await self._poll_permission_for_session(session_id, directory)
+        if permission:
+            self._pending_permissions[conv_id] = {
+                "id": permission["id"],
+                "permission": permission,
+                "task": None,
+                "session_id": session_id,
+                "directory": directory,
+                "queue": None,
+            }
+            return await self._wrap_message(
+                self._format_permission_request(permission), session_id, directory
+            )
+
+        return None
+
+    async def _format_busy_reply(
+        self, conv_id: str, session_id: str, directory: str
+    ) -> str:
+        if conv_id in self._pending_questions:
+            state = "等待你的回答"
+        elif conv_id in self._pending_permissions:
+            state = "等待你的授权"
+        else:
+            state = "正在生成回复"
+        return await self._wrap_message(
+            f"当前会话{state}，请等待当前对话结束后再发送；"
+            "如需立即开始新问题，请先 /new 或切换 /session n。"
+            "如需停止本会话请输入/stop",
+            session_id,
+            directory,
+        )
 
     def _format_question_request(self, question: dict) -> str:
         """将 agent 问题格式化为微信消息"""
@@ -671,10 +1094,31 @@ class AetherAgent(Agent):
                     suffix = "：" + desc if desc else ""
                     parts.append(f"  {j}. {label}{suffix}")
         parts.append("")
-        parts.append("请直接回复答案（输入数字选择选项，或直接输入自定义答案）")
+        parts.append("请直接回复答案（可输入数字编号；若题目允许自定义，也可直接输入文本）。")
+        parts.append("如需立即开始新问题，请先 /new 或切换 /session n。")
         return chr(10).join(parts)
 
-    async def _handle_question_reply(self, conv_id: str, user_text: str) -> ChatResponse:
+    def _format_permission_request(self, permission: dict) -> str:
+        """将授权请求格式化为微信消息"""
+        parts = ["🔐 当前操作需要你的授权：", ""]
+        name = permission.get("permission", "未知权限")
+        parts.append(f"权限：{name}")
+        patterns = permission.get("patterns", [])
+        if patterns:
+            parts.append("范围：")
+            for item in patterns:
+                parts.append(f"  - {item}")
+        parts.append("")
+        parts.append("请直接回复：")
+        parts.append("1. 允许一次（仅这次）")
+        parts.append("2. 始终允许（后续同类操作自动通过）")
+        parts.append("3. 拒绝（本次不允许执行）")
+        parts.append("如需立即开始新问题，请先 /new 或切换 /session n。")
+        return chr(10).join(parts)
+
+    async def _handle_question_reply(
+        self, conv_id: str, user_text: str
+    ) -> ChatResponse:
         """处理用户对 agent 问题的回答"""
         pending = self._pending_questions.pop(conv_id)
         question_id = pending["id"]
@@ -685,8 +1129,20 @@ class AetherAgent(Agent):
         q = pending.get("queue")
 
         answers = self._parse_question_answers(user_text, questions)
+        if answers is None:
+            self._pending_questions[conv_id] = pending
+            return ChatResponse(
+                text=await self._wrap_message(
+                    "未识别，请回复答案或数字编号。\n\n"
+                    + self._format_question_request({"questions": questions}),
+                    session_id,
+                    directory,
+                )
+            )
         try:
-            headers = {"x-opencode-directory": quote(directory, safe="")} if directory else {}
+            headers = (
+                {"x-opencode-directory": quote(directory, safe="")} if directory else {}
+            )
             resp = await self._client.post(
                 f"{self.base_url}/question/{question_id}/reply",
                 json={"answers": answers},
@@ -698,36 +1154,157 @@ class AetherAgent(Agent):
             logger.error(f"回复问题失败: {e}")
             self._pending_questions[conv_id] = pending
             err_msg = f"❌ 提交答案失败: {e}"
-            return ChatResponse(text=err_msg + chr(10) + "请重新发送您的答案。")
+            return ChatResponse(
+                text=await self._wrap_message(
+                    err_msg + chr(10) + "请重新发送您的答案。",
+                    session_id,
+                    directory,
+                )
+            )
+
+        if task is None:
+            return ChatResponse(
+                text=await self._wrap_message(
+                    "已提交回答，请等待当前对话继续处理。",
+                    session_id,
+                    directory,
+                )
+            )
 
         if q is not None:
-            return await self._wait_for_response(conv_id, session_id, directory, task, q)
+            return await self._wait_for_response(
+                conv_id, session_id, directory, task, q
+            )
         else:
-            return await self._wait_for_response_polling(conv_id, session_id, directory, task)
+            return await self._wait_for_response_polling(
+                conv_id, session_id, directory, task
+            )
 
-    def _parse_question_answers(self, user_text: str, questions: list) -> list:
+    async def _handle_permission_reply(
+        self, conv_id: str, user_text: str
+    ) -> ChatResponse:
+        """处理用户对授权请求的回答"""
+        pending = self._pending_permissions.pop(conv_id)
+        request_id = pending["id"]
+        task = pending["task"]
+        session_id = pending["session_id"]
+        directory = pending.get("directory", "")
+        q = pending.get("queue")
+
+        reply = self._parse_permission_reply(user_text)
+        if not reply:
+            self._pending_permissions[conv_id] = pending
+            return ChatResponse(
+                text=await self._wrap_message(
+                    "未识别，请回复数字编号。\n\n"
+                    + self._format_permission_request(pending["permission"]),
+                    session_id,
+                    directory,
+                )
+            )
+
+        try:
+            headers = (
+                {"x-opencode-directory": quote(directory, safe="")} if directory else {}
+            )
+            resp = await self._client.post(
+                f"{self.base_url}/permission/{request_id}/reply",
+                json={"reply": reply},
+                headers=headers,
+            )
+            resp.raise_for_status()
+            logger.info(f"[permission] 已回复 {request_id}: {reply}")
+        except Exception as e:
+            logger.error(f"回复授权失败: {e}")
+            self._pending_permissions[conv_id] = pending
+            return ChatResponse(
+                text=await self._wrap_message(
+                    f"❌ 提交授权失败: {e}\n请重新发送您的选择。",
+                    session_id,
+                    directory,
+                )
+            )
+
+        if task is None:
+            return ChatResponse(
+                text=await self._wrap_message(
+                    {
+                        "once": "已收到授权：允许一次，请等待当前对话继续处理。",
+                        "always": "已收到授权：始终允许，请等待当前对话继续处理。",
+                        "reject": "已提交拒绝，请等待当前对话继续处理。",
+                    }[reply],
+                    session_id,
+                    directory,
+                )
+            )
+
+        if self._message_sender:
+            try:
+                notice = {
+                    "once": "已收到授权：允许一次，继续处理中。",
+                    "always": "已收到授权：始终允许，继续处理中。",
+                    "reject": "已收到你的选择：拒绝，正在继续处理。",
+                }[reply]
+                await self._message_sender(
+                    await self._wrap_message(notice, session_id, directory)
+                )
+            except Exception as e:
+                logger.warning(f"推送授权确认失败: {e}")
+
+        if q is not None:
+            return await self._wait_for_response(
+                conv_id, session_id, directory, task, q
+            )
+        else:
+            return await self._wait_for_response_polling(
+                conv_id, session_id, directory, task
+            )
+
+    def _parse_question_answers(
+        self, user_text: str, questions: list
+    ) -> Optional[list]:
         """解析用户答案（每个问题一个答案数组）"""
         text = user_text.strip()
+        if not text:
+            return None
         answers = []
         for info in questions:
             options = info.get("options", [])
-            answer = [text]
-            if options:
-                try:
-                    idx = int(text) - 1
-                    if 0 <= idx < len(options):
-                        answer = [options[idx]["label"]]
-                except ValueError:
-                    pass
-            answers.append(answer)
+            if text.isdigit() and options:
+                idx = int(text) - 1
+                if 0 <= idx < len(options):
+                    answers.append([options[idx]["label"]])
+                    continue
+                if not info.get("custom", True):
+                    return None
+            elif options and not info.get("custom", True):
+                return None
+            answers.append([text])
         return answers
+
+    def _parse_permission_reply(self, user_text: str) -> Optional[str]:
+        text = user_text.strip()
+        if text == "1":
+            return "once"
+        if text == "2":
+            return "always"
+        if text == "3":
+            return "reject"
+        return None
+
     async def _create_session(self, directory: str = "") -> str:
-        headers = {"x-opencode-directory": quote(directory, safe='')} if directory else {}
-        resp = await self._client.post(f"{self.base_url}/session", json={}, headers=headers)
+        headers = (
+            {"x-opencode-directory": quote(directory, safe="")} if directory else {}
+        )
+        resp = await self._client.post(
+            f"{self.base_url}/session", json={}, headers=headers
+        )
         resp.raise_for_status()
         return resp.json()["id"]
 
-    async def _send_message(self, session_id: str, text: str, model=None, directory="") -> dict:
+    async def _send_message(
+        self, session_id: str, text: str, model=None, directory=""
+    ) -> dict:
         payload = {
             "parts": [{"type": "text", "text": text}],
             "agent": self.default_agent,
@@ -743,14 +1320,18 @@ class AetherAgent(Agent):
         resp = await self._client.post(
             f"{self.base_url}/session/{session_id}/message",
             json=payload,
-            headers={"x-opencode-directory": quote(directory, safe='')} if directory else {},
+            headers={"x-opencode-directory": quote(directory, safe="")}
+            if directory
+            else {},
         )
         resp.raise_for_status()
         body = resp.text.strip()
         if not body:
             # 服务端错误（如模型不存在）导致流式响应为空
             model_hint = f"（当前模型：{effective_model}）" if effective_model else ""
-            return {"formatted": f"❌ 服务端返回空响应，请检查模型是否有效 {model_hint}"}
+            return {
+                "formatted": f"❌ 服务端返回空响应，请检查模型是否有效 {model_hint}"
+            }
         try:
             return self._extract_response(resp.json())
         except Exception:
@@ -764,7 +1345,9 @@ class AetherAgent(Agent):
         # Check for API error in info
         error = info.get("error")
         if error:
-            err_msg = error.get("data", {}).get("message") or error.get("name", "未知错误")
+            err_msg = error.get("data", {}).get("message") or error.get(
+                "name", "未知错误"
+            )
             logger.error(f"LLM API错误: {err_msg}")
             return {"reasoning": "", "text": "", "formatted": f"AI 服务错误: {err_msg}"}
 
@@ -910,15 +1493,7 @@ async def main():
     default_agent = os.getenv("AETHER_AGENT", "build")
 
     if not directory:
-        # 自动从数据库选择第一个项目作为默认目录（启动时 HTTP 尚未就绪，用文件系统 fallback）
-        _db = _find_fallback_db()
-        projects = _read_projects_from_db(_db) if _db else []
-        if projects:
-            directory = projects[0]["worktree"]
-            name = projects[0].get("name") or directory.replace(chr(92), '/').rstrip('/').split('/')[-1]
-            logger.info(f"自动选择默认项目: {name} ({directory})")
-        else:
-            directory = str(Path.cwd())
+        directory = str(Path.cwd())
 
     print("=" * 50)
     print("Aether WeChat Bridge")

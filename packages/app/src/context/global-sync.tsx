@@ -3,13 +3,14 @@ import type {
   OpencodeClient,
   Path,
   Project,
+  ProjectRecent,
   ProviderAuthResponse,
   ProviderListResponse,
   Todo,
 } from "@opencode-ai/sdk/v2/client"
 import { showToast } from "@opencode-ai/ui/toast"
 import { getFilename } from "@opencode-ai/util/path"
-import { createContext, getOwner, onCleanup, onMount, type ParentProps, untrack, useContext } from "solid-js"
+import { createContext, createMemo, getOwner, onCleanup, onMount, type ParentProps, untrack, useContext } from "solid-js"
 import { createStore, produce, reconcile } from "solid-js/store"
 import { useLanguage } from "@/context/language"
 import { Persist, persisted } from "@/utils/persist"
@@ -24,7 +25,7 @@ import { estimateRootSessionTotal, loadRootSessionsWithFallback } from "./global
 import { trimSessions } from "./global-sync/session-trim"
 import type { ProjectMeta } from "./global-sync/types"
 import { SESSION_RECENT_LIMIT } from "./global-sync/types"
-import { normalizeDir, sanitizeProject } from "./global-sync/utils"
+import { normalizeDir, sanitizeProject, sanitizeRecent } from "./global-sync/utils"
 import { formatServerError } from "@/utils/server-errors"
 
 type GlobalStore = {
@@ -32,6 +33,7 @@ type GlobalStore = {
   error?: InitError
   path: Path
   project: Project[]
+  recent: ProjectRecent[]
   session_todo: {
     [sessionID: string]: Todo[]
   }
@@ -56,11 +58,16 @@ function createGlobalSync() {
     Persist.global("globalSync.project", ["globalSync.project.v1"]),
     createStore({ value: [] as Project[] }),
   )
+  const [recentCache, setRecentCache, recentInit] = persisted(
+    Persist.global("globalSync.recent", ["globalSync.recent.v1"]),
+    createStore({ value: [] as ProjectRecent[] }),
+  )
 
   const [globalStore, setGlobalStore] = createStore<GlobalStore>({
     ready: false,
     path: { state: "", config: "", worktree: "", directory: "", home: "" },
     project: projectCache.value,
+    recent: recentCache.value,
     session_todo: {},
     provider: { all: [], connected: [], default: {} },
     provider_auth: {},
@@ -70,6 +77,7 @@ function createGlobalSync() {
 
   let active = true
   let projectWritten = false
+  let recentWritten = false
   let bootedAt = 0
   let bootingRoot = false
 
@@ -84,6 +92,13 @@ function createGlobalSync() {
     )
   }
 
+  const cacheRecent = () => {
+    setRecentCache(
+      "value",
+      untrack(() => globalStore.recent.map(sanitizeRecent)),
+    )
+  }
+
   const setProjects = (next: Project[] | ((draft: Project[]) => void)) => {
     projectWritten = true
     if (typeof next === "function") {
@@ -95,9 +110,24 @@ function createGlobalSync() {
     cacheProjects()
   }
 
+  const setRecent = (next: ProjectRecent[] | ((draft: ProjectRecent[]) => void)) => {
+    recentWritten = true
+    if (typeof next === "function") {
+      setGlobalStore("recent", produce(next))
+      cacheRecent()
+      return
+    }
+    setGlobalStore("recent", next)
+    cacheRecent()
+  }
+
   const setBootStore = ((...input: unknown[]) => {
     if (input[0] === "project" && Array.isArray(input[1])) {
       setProjects(input[1] as Project[])
+      return input[1]
+    }
+    if (input[0] === "recent" && Array.isArray(input[1])) {
+      setRecent(input[1] as ProjectRecent[])
       return input[1]
     }
     return (setGlobalStore as (...args: unknown[]) => unknown)(...input)
@@ -106,6 +136,10 @@ function createGlobalSync() {
   const set = ((...input: unknown[]) => {
     if (input[0] === "project" && (Array.isArray(input[1]) || typeof input[1] === "function")) {
       setProjects(input[1] as Project[] | ((draft: Project[]) => void))
+      return input[1]
+    }
+    if (input[0] === "recent" && (Array.isArray(input[1]) || typeof input[1] === "function")) {
+      setRecent(input[1] as ProjectRecent[] | ((draft: ProjectRecent[]) => void))
       return input[1]
     }
     return (setGlobalStore as (...args: unknown[]) => unknown)(...input)
@@ -118,6 +152,16 @@ function createGlobalSync() {
       const cached = projectCache.value
       if (cached.length === 0) return
       setGlobalStore("project", cached)
+    })
+  }
+
+  if (recentInit instanceof Promise) {
+    void recentInit.then(() => {
+      if (!active) return
+      if (recentWritten) return
+      const cached = recentCache.value
+      if (cached.length === 0) return
+      setGlobalStore("recent", cached)
     })
   }
 
@@ -168,6 +212,25 @@ function createGlobalSync() {
     })
     sdkCache.set(directory, sdk)
     return sdk
+  }
+
+  let recentTask: Promise<void> | undefined
+
+  function refreshRecent() {
+    if (recentTask) return recentTask
+    recentTask = globalSDK.client.project
+      .recent()
+      .then((x) => {
+        const next = (x.data ?? []).filter((item) => !!item?.id).filter((item) => !!item.directory)
+        setRecent(next)
+      })
+      .catch((err) => {
+        console.error("Failed to refresh recent projects", err)
+      })
+      .finally(() => {
+        recentTask = undefined
+      })
+    return recentTask
   }
 
   async function loadSessions(directory: string) {
@@ -293,6 +356,9 @@ function createGlobalSync() {
         },
         setGlobalProject: setProjects,
       })
+      if (event.type === "project.updated" || event.type === "project.recent.updated") {
+        void refreshRecent()
+      }
       if (event.type === "server.connected" || event.type === "global.disposed") {
         if (recent) return
         for (const directory of Object.keys(children.children)) {
@@ -352,8 +418,52 @@ function createGlobalSync() {
     void bootstrap()
   })
 
+  const byId = createMemo(() => new Map(globalStore.project.map((item) => [item.id, item] as const)))
+  const byDir = createMemo(() => {
+    const map = new Map<string, Project>()
+    for (const item of globalStore.project) {
+      map.set(normalizeDir(item.worktree), item)
+      for (const sandbox of item.sandboxes ?? []) {
+        map.set(normalizeDir(sandbox), item)
+      }
+    }
+    return map
+  })
+
   const projectApi = {
     loadSessions,
+    list: () => globalStore.project,
+    recent: () => globalStore.recent,
+    get(id?: string) {
+      if (!id) return
+      return byId().get(id)
+    },
+    fromDir(directory: string) {
+      return byDir().get(normalizeDir(directory))
+    },
+    upsert(next: Project) {
+      setProjects((draft) => {
+        const index = draft.findIndex((item) => item.id === next.id)
+        if (index >= 0) {
+          draft[index] = { ...draft[index], ...next }
+          return
+        }
+        const at = draft.findIndex((item) => item.id > next.id)
+        if (at >= 0) {
+          draft.splice(at, 0, next)
+          return
+        }
+        draft.push(next)
+      })
+    },
+    removeSandbox(root: string, directory: string) {
+      setProjects((draft) => {
+        const item = draft.find((project) => project.worktree === root)
+        if (!item) return
+        item.sandboxes = (item.sandboxes ?? []).filter((sandbox) => sandbox !== directory)
+      })
+    },
+    refreshRecent,
     meta(directory: string, patch: ProjectMeta) {
       children.projectMeta(directory, patch)
     },

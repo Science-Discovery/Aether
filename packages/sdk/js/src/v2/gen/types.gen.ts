@@ -55,6 +55,13 @@ export type EventProjectUpdated = {
   properties: Project
 }
 
+export type EventProjectRecentUpdated = {
+  type: "project.recent.updated"
+  properties: {
+    [key: string]: unknown
+  }
+}
+
 export type EventServerInstanceDisposed = {
   type: "server.instance.disposed"
   properties: {
@@ -1008,6 +1015,7 @@ export type Event =
   | EventInstallationUpdated
   | EventInstallationUpdateAvailable
   | EventProjectUpdated
+  | EventProjectRecentUpdated
   | EventServerInstanceDisposed
   | EventServerConnected
   | EventGlobalDisposed
@@ -1488,6 +1496,10 @@ export type Config = {
      * URLs to fetch skills from (e.g., https://example.com/.well-known/skills/)
      */
     urls?: Array<string>
+    /**
+     * List of skill names to deactivate
+     */
+    disabled?: Array<string>
   }
   watcher?: {
     ignore?: Array<string>
@@ -1677,6 +1689,32 @@ export type WellKnownAuth = {
 }
 
 export type Auth = OAuth | ApiAuth | WellKnownAuth
+
+export type ProjectRecent = {
+  id: string
+  kind: "project" | "directory"
+  projectID?: string
+  directory: string
+  worktree?: string
+  vcs?: "git"
+  name?: string
+  icon?: {
+    url?: string
+    override?: string
+    color?: string
+  }
+  commands?: {
+    /**
+     * Startup script to run when creating a new workspace (worktree)
+     */
+    start?: string
+  }
+  time: {
+    activity: number
+    created?: number
+    updated?: number
+  }
+}
 
 export type NotFoundError = {
   name: "NotFoundError"
@@ -2400,10 +2438,32 @@ export type ProjectListResponses = {
 
 export type ProjectListResponse = ProjectListResponses[keyof ProjectListResponses]
 
+export type ProjectRecentData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/project/recent"
+}
+
+export type ProjectRecentResponses = {
+  /**
+   * Recent project feed
+   */
+  200: Array<ProjectRecent>
+}
+
+export type ProjectRecentResponse = ProjectRecentResponses[keyof ProjectRecentResponses]
+
 export type ProjectDirectoriesData = {
   body?: never
   path?: never
-  query?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
   url: "/project/directories"
 }
 
@@ -2747,6 +2807,7 @@ export type ConfigSkillsListResponses = {
     name: string
     description: string
     content: string
+    enabled?: boolean
   }>
 }
 
@@ -2757,6 +2818,7 @@ export type ConfigSkillsSaveData = {
     name: string
     description: string
     content: string
+    enabled?: boolean
   }
   path?: never
   query?: {
@@ -2820,6 +2882,30 @@ export type ConfigSkillsAddDefaultsResponses = {
 }
 
 export type ConfigSkillsAddDefaultsResponse = ConfigSkillsAddDefaultsResponses[keyof ConfigSkillsAddDefaultsResponses]
+
+export type ConfigSkillsToggleData = {
+  body?: {
+    name: string
+    enabled: boolean
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/config/skills/toggle"
+}
+
+export type ConfigSkillsToggleResponses = {
+  /**
+   * Skill toggled
+   */
+  200: {
+    ok: boolean
+  }
+}
+
+export type ConfigSkillsToggleResponse = ConfigSkillsToggleResponses[keyof ConfigSkillsToggleResponses]
 
 export type ConfigProvidersData = {
   body?: never
@@ -4569,6 +4655,37 @@ export type FileActiveTasksResponses = {
 
 export type FileActiveTasksResponse = FileActiveTasksResponses[keyof FileActiveTasksResponses]
 
+export type FileCheckDirectoryData = {
+  body?: never
+  path?: never
+  query: {
+    directory?: string
+    workspace?: string
+    path: string
+  }
+  url: "/file/check-directory"
+}
+
+export type FileCheckDirectoryErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type FileCheckDirectoryError = FileCheckDirectoryErrors[keyof FileCheckDirectoryErrors]
+
+export type FileCheckDirectoryResponses = {
+  /**
+   * Directory check result
+   */
+  200: {
+    path: string
+  }
+}
+
+export type FileCheckDirectoryResponse = FileCheckDirectoryResponses[keyof FileCheckDirectoryResponses]
+
 export type FindTextData = {
   body?: never
   path?: never
@@ -4790,6 +4907,7 @@ export type FileWriteData = {
   body?: {
     path: string
     content: string
+    expectedChecksum?: string
   }
   path?: never
   query?: {
@@ -4804,6 +4922,14 @@ export type FileWriteErrors = {
    * Bad request
    */
   400: BadRequestError
+  /**
+   * Write conflict
+   */
+  409: {
+    error: "conflict"
+    currentChecksum: string
+    currentContent: string
+  }
 }
 
 export type FileWriteError = FileWriteErrors[keyof FileWriteErrors]
@@ -4818,6 +4944,74 @@ export type FileWriteResponses = {
 }
 
 export type FileWriteResponse = FileWriteResponses[keyof FileWriteResponses]
+
+export type FileDownloadData = {
+  body?: never
+  path?: never
+  query: {
+    directory?: string
+    workspace?: string
+    path: string
+  }
+  url: "/file/download"
+}
+
+export type FileDownloadErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type FileDownloadError = FileDownloadErrors[keyof FileDownloadErrors]
+
+export type FileDownloadResponses = {
+  /**
+   * File payload
+   */
+  200: unknown
+}
+
+export type FileUploadData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/file/upload"
+}
+
+export type FileUploadErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type FileUploadError = FileUploadErrors[keyof FileUploadErrors]
+
+export type FileUploadResponses = {
+  /**
+   * Uploaded
+   */
+  200: {
+    ok: boolean
+    dirs: number
+    created: number
+    updated: number
+    failed: Array<{
+      path: string
+      error: string
+    }>
+  }
+}
+
+export type FileUploadResponse = FileUploadResponses[keyof FileUploadResponses]
 
 export type FileSummarizeData = {
   body?: {
@@ -4999,6 +5193,7 @@ export type FilePdfPageCountData = {
     directory?: string
     workspace?: string
     path: string
+    outputDir?: string
   }
   url: "/file/pdf-page-count"
 }
@@ -5060,6 +5255,7 @@ export type FilePdfToMarkdownData = {
     endPage: number
     outputMode: "merged" | "per-page"
     conflictAction: "replace" | "rename" | "cancel"
+    outputDir?: string
   }
   path?: never
   query?: {
@@ -5168,6 +5364,7 @@ export type FileTranslateMarkdownCheckData = {
     directory?: string
     workspace?: string
     path: string
+    outputDir?: string
   }
   url: "/file/translate-markdown/check"
 }
@@ -5204,6 +5401,7 @@ export type FileTranslateMarkdownData = {
     modelID: string
     targetLanguage?: string
     conflictAction: "replace" | "rename" | "cancel"
+    outputDir?: string
   }
   path?: never
   query?: {
