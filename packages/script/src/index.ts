@@ -1,5 +1,6 @@
 import { $ } from "bun"
 import semver from "semver"
+import fs from "fs"
 import path from "path"
 
 const rootPkgPath = path.resolve(import.meta.dir, "../../../package.json")
@@ -23,11 +24,29 @@ const env = {
   OPENCODE_VERSION: process.env["OPENCODE_VERSION"],
   OPENCODE_RELEASE: process.env["OPENCODE_RELEASE"],
 }
+const root = path.resolve(import.meta.dir, "../../..")
+const git = path.join(root, ".git")
+const head = async () => {
+  const dot = await Bun.file(git).text().catch(() => "")
+  if (dot.startsWith("gitdir:")) {
+    const dir = path.resolve(root, dot.replace("gitdir:", "").trim())
+    return Bun.file(path.join(dir, "HEAD")).text().catch(() => "")
+  }
+  if (fs.existsSync(git)) return dot
+  return ""
+}
 const CHANNEL = await (async () => {
   if (env.OPENCODE_CHANNEL) return env.OPENCODE_CHANNEL
   if (env.OPENCODE_BUMP) return "latest"
   if (env.OPENCODE_VERSION && !env.OPENCODE_VERSION.startsWith("0.0.0-")) return "latest"
-  return await $`git branch --show-current`.text().then((x) => x.trim())
+  try {
+    return await $`git branch --show-current`.text().then((x) => x.trim())
+  } catch (err) {
+    if (process.platform !== "win32") throw err
+  }
+  const ref = await head()
+  if (ref.startsWith("ref: refs/heads/")) return ref.slice("ref: refs/heads/".length).trim()
+  return "dev"
 })()
 const IS_PREVIEW = CHANNEL !== "latest"
 
