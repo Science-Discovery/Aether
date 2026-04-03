@@ -316,11 +316,16 @@ export function createPromptSubmit(input: PromptSubmitInput) {
       return
     }
 
+    const isNewSession = !params.id
+    const shouldQueue = !isNewSession && mode === "normal" && !!input.shouldQueue?.()
+    if (input.working() && !shouldQueue) {
+      await abort()
+    }
+
     input.addToHistory(currentPrompt, mode)
     input.resetHistoryNavigation()
 
     const projectDirectory = sdk.directory
-    const isNewSession = !params.id
     const shouldAutoAccept = isNewSession && input.autoAccept()
     const worktreeSelection = input.newSessionWorktree?.() || "main"
 
@@ -434,7 +439,7 @@ export function createPromptSubmit(input: PromptSubmitInput) {
       })
     }
 
-    if (!isNewSession && mode === "normal" && input.shouldQueue?.()) {
+    if (shouldQueue) {
       input.onQueue?.(draft)
       clearContext()
       clearInput()

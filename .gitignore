@@ -33,3 +33,7 @@ tsconfig.tsbuildinfo
 textbox/
 handouts/
 Aether-wechat-bridge/.venv/
+docs/IPK/
+docs/plans/
+WEB_UI_PLAN.md
+docs/skills-architecture.zh-CN.md
