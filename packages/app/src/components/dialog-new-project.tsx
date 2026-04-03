@@ -4,12 +4,14 @@ import { FileIcon } from "@opencode-ai/ui/file-icon"
 import { Button } from "@opencode-ai/ui/button"
 import { List } from "@opencode-ai/ui/list"
 import type { ListRef } from "@opencode-ai/ui/list"
+import { showToast } from "@opencode-ai/ui/toast"
 import { getDirectory, getFilename } from "@opencode-ai/util/path"
 import fuzzysort from "fuzzysort"
 import { createMemo, createResource, createSignal } from "solid-js"
 import { useGlobalSDK } from "@/context/global-sdk"
 import { useGlobalSync } from "@/context/global-sync"
 import { useLanguage } from "@/context/language"
+import { picked } from "./pick-folder"
 
 interface DialogNewProjectProps {
   onSelect: (result: string | null) => void
@@ -338,9 +340,9 @@ export function DialogNewProject(props: DialogNewProjectProps) {
                 setBrowsing(true)
                 try {
                   const result = await sdk.client.file.pickFolder()
-                  const picked = result.data?.path
-                  if (picked) {
-                    list?.setFilter(picked)
+                  const path = picked(result.data, showToast, language.t("common.requestFailed"))
+                  if (path) {
+                    list?.setFilter(path)
                   }
                 } finally {
                   setBrowsing(false)

@@ -5127,6 +5127,8 @@ export type FilePickFolderResponses = {
    */
   200: {
     path: string | null
+    unavailable?: boolean
+    reason?: "missing_picker"
   }
 }
 

@@ -4,6 +4,7 @@ import { Button } from "@opencode-ai/ui/button"
 import { FileIcon } from "@opencode-ai/ui/file-icon"
 import { List } from "@opencode-ai/ui/list"
 import type { ListRef } from "@opencode-ai/ui/list"
+import { showToast } from "@opencode-ai/ui/toast"
 import { getDirectory, getFilename } from "@opencode-ai/util/path"
 import fuzzysort from "fuzzysort"
 import { createMemo, createResource, createSignal, onMount, Show } from "solid-js"
@@ -11,6 +12,7 @@ import { createStore } from "solid-js/store"
 import { useGlobalSDK } from "@/context/global-sdk"
 import { useGlobalSync } from "@/context/global-sync"
 import { useLanguage } from "@/context/language"
+import { picked } from "./pick-folder"
 import { Persist, persisted } from "@/utils/persist"
 
 interface DialogSelectDirectoryProps {
@@ -408,10 +410,10 @@ export function DialogSelectDirectory(props: DialogSelectDirectoryProps) {
                   setBrowsing(true)
                   try {
                     const result = await sdk.client.file.pickFolder()
-                    const picked = result.data?.path
-                    if (picked) {
-                      list?.setFilter(picked)
-                      setSelectedPath(picked)
+                    const path = picked(result.data, showToast, language.t("common.requestFailed"))
+                    if (path) {
+                      list?.setFilter(path)
+                      setSelectedPath(path)
                     }
                   } finally {
                     setBrowsing(false)
