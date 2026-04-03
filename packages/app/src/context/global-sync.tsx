@@ -1,6 +1,5 @@
 import type {
   Config,
-  OpencodeClient,
   Path,
   Project,
   ProjectRecent,
@@ -14,6 +13,7 @@ import { createContext, createMemo, getOwner, onCleanup, onMount, type ParentPro
 import { createStore, produce, reconcile } from "solid-js/store"
 import { useLanguage } from "@/context/language"
 import { Persist, persisted } from "@/utils/persist"
+import type { AppClient } from "@/utils/server"
 import type { InitError } from "../pages/error"
 import { useGlobalSDK } from "./global-sdk"
 import { bootstrapDirectory, bootstrapGlobal } from "./global-sync/bootstrap"
@@ -49,7 +49,7 @@ function createGlobalSync() {
   const owner = getOwner()
   if (!owner) throw new Error("GlobalSync must be created within owner")
 
-  const sdkCache = new Map<string, OpencodeClient>()
+  const sdkCache = new Map<string, AppClient>()
   const booting = new Map<string, Promise<void>>()
   const sessionLoads = new Map<string, Promise<void>>()
   const sessionMeta = new Map<string, { limit: number }>()

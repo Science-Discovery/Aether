@@ -140,7 +140,7 @@ const forward: Platform["forward"] = () => {
 }
 
 const restart: Platform["restart"] = async () => {
-  window.location.reload()
+  return
 }
 
 const root = document.getElementById("root")
@@ -239,6 +239,13 @@ const start = () => {
   }
 }
 
+const detectOS = (): string => {
+  const ua = navigator.userAgent.toLowerCase()
+  if (ua.includes("mac")) return "darwin"
+  if (ua.includes("win")) return "windows"
+  return "linux"
+}
+
 const platform: Platform = {
   platform: "web",
   version: pkg.version,
@@ -247,6 +254,37 @@ const platform: Platform = {
   forward,
   restart,
   notify,
+  checkUpdate: async () => {
+    const os = detectOS()
+    const res = await req(`/global/web-update/check?os=${os}`)
+    const data = await res.json()
+    return { updateAvailable: data.updateAvailable, version: data.remoteVersion, downloaded: !!data.downloaded }
+  },
+  downloadUpdate: async () => {
+    const os = detectOS()
+    const checkRes = await req(`/global/web-update/check?os=${os}`)
+    const checkData = await checkRes.json()
+    if (!checkData.updateAvailable) return
+    const dlRes = await req("/global/web-update/download", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ os, version: checkData.remoteVersion }),
+    })
+    const dlData = await dlRes.json()
+    if (!dlData.success) throw new Error(dlData.error)
+  },
+  update: async () => {
+    const os = detectOS()
+    const checkRes = await req(`/global/web-update/check?os=${os}`)
+    const checkData = await checkRes.json()
+    const installRes = await req("/global/web-update/install", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ os, version: checkData.remoteVersion }),
+    })
+    const installData = await installRes.json()
+    if (!installData.success) throw new Error(installData.error)
+  },
   getDefaultServer: async () => {
     const stored = readDefaultServerUrl()
     return stored ? ServerConnection.Key.make(stored) : null

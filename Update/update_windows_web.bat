@@ -1,141 +1,167 @@
 @echo off
 setlocal EnableExtensions EnableDelayedExpansion
 
-set "BASE=https://aether.aiphys.cn/download"
-set "META_URL=%BASE%/latest-web-windows.yml"
-set "META_URL_OLD=%BASE%/latest-web.yml"
-
+set "WANT=%~1"
+set "RESTART=0"
+if /I "%~2"=="--restart" set "RESTART=1"
 set "SELF=%~dp0"
 if "%SELF:~-1%"=="\" set "SELF=%SELF:~0,-1%"
+for %%i in ("%SELF%") do set "BASE=%%~nxi"
+for %%i in ("%SELF%\..") do set "WORK=%%~fi"
+set "LAUNCH="
+set "NOTE="
 
-if exist "%SELF%\aether.exe" if exist "%SELF%\Aether.vbs" (
-  set "APP=%SELF%"
-) else if exist "%SELF%\..\aether.exe" if exist "%SELF%\..\Aether.vbs" (
-  for %%i in ("%SELF%\..") do set "APP=%%~fi"
-) else (
-  echo Cannot detect install folder. Put this script in the install folder or one level below.
-  echo Example: C:\Aether-Web\update_windows_web.bat
+if /I not "%BASE%"=="downloads" (
+  echo 规范错误：update_windows_web.bat 必须放在 ...\Aether\downloads 目录。当前: %SELF%
+  exit /b 1
+)
+for %%i in ("%WORK%") do set "WORK_NAME=%%~nxi"
+if /I not "%WORK_NAME%"=="Aether" (
+  echo 规范错误：工作目录必须是 ...\Aether。当前: %WORK%
+  exit /b 1
+)
+if not exist "%WORK%\aether_windows_installer.bat" (
+  echo 规范错误：缺少 ...\Aether\aether_windows_installer.bat
   exit /b 1
 )
 
-for %%i in ("%APP%") do (
-  set "NAME=%%~nxi"
-  set "PARENT=%%~dpi"
+echo [0/4] 工作目录: %WORK%
+
+call :pick_pkg "%SELF%" "%WANT%"
+if errorlevel 1 (
+  echo 未在 ...\Aether\downloads 找到可用 zip（文件名需包含版本号）
+  exit /b 1
 )
 
-set "STATE=%APP%\.aether_web_version"
-set "TMP=%TEMP%\aether-web-update-%RANDOM%%RANDOM%"
-set "META=%TMP%\latest-web-windows.yml"
-set "ZIP=%TMP%\aether-windows-x64-web.zip"
-set "EXTRACT=%TMP%\extract"
+set "TARGET=%WORK%\aether_%VER%"
+echo [1/4] 安装包: %PKG_NAME%
+echo       目标版本: %VER%
+
+set "TMP=%TEMP%\aether-web-install-%RANDOM%%RANDOM%"
+set "EX=%TMP%\extract"
+set "NEXT=%WORK%\.aether_%VER%.next"
 set "SRC_FILE=%TMP%\src.txt"
-set "NEXT=%TMP%\next"
 
-if exist "%TMP%" rmdir /s /q "%TMP%"
-mkdir "%TMP%" || exit /b 1
+if exist "%TMP%" rmdir /s /q "%TMP%" >nul 2>nul
+if exist "%NEXT%" rmdir /s /q "%NEXT%" >nul 2>nul
+mkdir "%EX%" || exit /b 1
+mkdir "%NEXT%" || exit /b 1
 
-echo [1/4] Checking remote version...
-powershell -NoProfile -Command "& { try { Invoke-WebRequest -UseBasicParsing -Uri $env:META_URL -OutFile $env:META } catch { Invoke-WebRequest -UseBasicParsing -Uri $env:META_URL_OLD -OutFile $env:META } }" || goto :fail
-
-for /f "usebackq delims=" %%i in (`powershell -NoProfile -Command "$m=Get-Content -Raw -Path $env:META; if($m -match '(?m)^version:\s*(.+)$'){ $matches[1].Trim() }"`) do set "VER_REMOTE=%%i"
-for /f "usebackq delims=" %%i in (`powershell -NoProfile -Command "$m=Get-Content -Raw -Path $env:META; if($m -match '(?m)^\s*-\s*url:\s*(.+)$'){ $matches[1].Trim() }"`) do set "URL_REMOTE=%%i"
-for /f "usebackq delims=" %%i in (`powershell -NoProfile -Command "$m=Get-Content -Raw -Path $env:META; if($m -match '(?m)^\s*sha512:\s*(.+)$'){ $matches[1].Trim() }"`) do set "SHA_REMOTE=%%i"
-
-if "%VER_REMOTE%"=="" (
-  echo Failed to read remote version from %META_URL%
-  goto :fail
-)
-
-if "%URL_REMOTE%"=="" set "URL_REMOTE=aether-windows-x64-web.zip"
-
-set "VER_LOCAL="
-if exist "%STATE%" set /p VER_LOCAL=<"%STATE%"
-
-echo Local version: %VER_LOCAL%
-echo Remote version: %VER_REMOTE%
-
-if "%VER_LOCAL%"=="%VER_REMOTE%" (
-  echo Already up to date.
-  goto :ok
-)
-
-echo [2/4] Downloading new version...
-powershell -NoProfile -Command "& { Invoke-WebRequest -UseBasicParsing -Uri ($env:BASE + '/' + $env:URL_REMOTE) -OutFile $env:ZIP }" || goto :fail
-
-if not "%SHA_REMOTE%"=="" (
-  for /f "usebackq delims=" %%i in (`powershell -NoProfile -Command "$h=[Security.Cryptography.SHA512]::Create().ComputeHash([IO.File]::ReadAllBytes($env:ZIP)); [Convert]::ToBase64String($h)"`) do set "SHA_LOCAL=%%i"
-  if /I not "!SHA_LOCAL!"=="%SHA_REMOTE%" (
-    echo SHA512 mismatch. Stop update.
-    goto :fail
-  )
-)
-
-echo [3/4] Installing new version...
-if exist "%NEXT%" rmdir /s /q "%NEXT%"
-if exist "%EXTRACT%" rmdir /s /q "%EXTRACT%"
-mkdir "%NEXT%" || goto :fail
-mkdir "%EXTRACT%" || goto :fail
-
-powershell -NoProfile -Command "& { Expand-Archive -Path $env:ZIP -DestinationPath $env:EXTRACT -Force; $src=$env:EXTRACT; if(-not ((Test-Path (Join-Path $src 'aether.exe')) -and (Test-Path (Join-Path $src 'Aether.vbs')))) { $dirs=Get-ChildItem -Path $env:EXTRACT -Directory; if($dirs.Count -eq 1) { $d=$dirs[0].FullName; if((Test-Path (Join-Path $d 'aether.exe')) -and (Test-Path (Join-Path $d 'Aether.vbs'))) { $src=$d } else { throw 'Bad package layout' } } else { throw 'Bad package layout' } }; [IO.File]::WriteAllText($env:SRC_FILE, $src) }" || goto :fail
+powershell -NoProfile -Command "& { Expand-Archive -Path $env:PKG -DestinationPath $env:EX -Force; $hit=Get-ChildItem -Path $env:EX -Filter 'aether.exe' -File -Recurse | Where-Object { Test-Path (Join-Path $_.DirectoryName 'Aether.vbs') } | Sort-Object { $_.DirectoryName.Length } | Select-Object -First 1; if(-not $hit){ throw 'missing app files' }; [IO.File]::WriteAllText($env:SRC_FILE, $hit.DirectoryName) }" || goto :fail
 
 set "SRC="
 if exist "%SRC_FILE%" set /p SRC=<"%SRC_FILE%"
 if "%SRC%"=="" (
-  echo Missing valid app folder in new package.
+  echo 安装包内容缺少 aether.exe 或 Aether.vbs
   goto :fail
 )
 
-if not exist "%SRC%\aether.exe" (
-  echo Missing aether.exe in new package.
-  goto :fail
-)
-
-if not exist "%SRC%\Aether.vbs" (
-  echo Missing Aether.vbs in new package.
-  goto :fail
-)
-
+echo [2/4] 解包并安装到: %TARGET%
 robocopy "%SRC%" "%NEXT%" /MIR /NFL /NDL /NJH /NJS /NP >nul
 set "RC=%ERRORLEVEL%"
-if %RC% GEQ 8 (
-  echo Failed to stage files. Robocopy exit code: %RC%
-  goto :fail
+if %RC% GEQ 8 goto :fail
+
+call :active_dir
+set "SMALL=0"
+if defined OLD if exist "%OLD%\.aether_web_version" (
+  set /p OLD_VER=<"%OLD%\.aether_web_version"
+  call :major_minor "%OLD_VER%" OM
+  call :major_minor "%VER%" NM
+  if /I "%OM%"=="%NM%" set "SMALL=1"
 )
 
-powershell -NoProfile -Command "& { [IO.File]::WriteAllText((Join-Path $env:NEXT '.aether_web_version'), $env:VER_REMOTE) }" || goto :fail
+if exist "%TARGET%" rmdir /s /q "%TARGET%" >nul 2>nul
+move "%NEXT%" "%TARGET%" >nul || goto :fail
 
-robocopy "%NEXT%" "%APP%" /MIR /XF update_windows_web.bat /NFL /NDL /NJH /NJS /NP >nul
-set "RC=%ERRORLEVEL%"
-if %RC% GEQ 8 (
-  echo Failed to apply files. Robocopy exit code: %RC%
-  echo DEBUG APP=[%APP%]
-  goto :fail
+echo %VER%>"%TARGET%\.aether_web_version"
+echo %VER%>"%WORK%\.aether_web_version"
+
+if exist "%WORK%\current" rmdir "%WORK%\current" >nul 2>nul
+mklink /J "%WORK%\current" "%TARGET%" >nul
+
+call :write_launch
+
+if "%RESTART%"=="1" call :restart
+
+if "%SMALL%"=="1" if defined OLD if /I not "%OLD%"=="%TARGET%" (
+  echo [3/4] 小版本更新：替换旧目录
+  rmdir /s /q "%OLD%" >nul 2>nul
+) else (
+  echo [3/4] 大版本更新：保留旧版本目录
 )
 
-if exist "%APP%\package.json" (
-  where bun >nul 2>nul
-  if errorlevel 1 (
-    echo package.json found but bun is missing. Install bun and retry.
-    goto :fail
+echo [4/4] 完成
+echo 当前版本: %VER%
+echo 版本目录: %TARGET%
+echo 启动入口: %LAUNCH%
+if defined NOTE echo %NOTE%
+
+rmdir /s /q "%TMP%" >nul 2>nul
+exit /b 0
+
+:write_launch
+set "DESK=%USERPROFILE%\Desktop"
+if not exist "%DESK%" mkdir "%DESK%"
+set "LNK=%DESK%\Aether.lnk"
+set "CMD=%WORK%\current\Aether.vbs"
+powershell -NoProfile -Command "$w=New-Object -ComObject WScript.Shell; $s=$w.CreateShortcut($env:LNK); $s.TargetPath=$env:CMD; $s.WorkingDirectory=(Split-Path -Parent $env:CMD); $s.IconLocation=$env:CMD+',0'; $s.Save()"
+if exist "%LNK%" (
+  set "LAUNCH=%LNK%"
+) else (
+  set "LAUNCH=%CMD%"
+  set "NOTE=桌面快捷方式创建失败，已回退到直接启动路径。"
+)
+exit /b 0
+
+:restart
+if defined OLD (
+  powershell -NoProfile -Command "$p=$env:OLD; Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like ('*' + $p + '*') -and ($_.Name -ieq 'aether.exe' -or $_.Name -ieq 'wscript.exe' -or $_.Name -ieq 'cscript.exe') } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }"
+)
+powershell -NoProfile -Command "$p=$env:WORK + '\\current'; Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like ('*' + $p + '*') -and ($_.Name -ieq 'aether.exe' -or $_.Name -ieq 'wscript.exe' -or $_.Name -ieq 'cscript.exe') } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }"
+start "" "%WORK%\current\Aether.vbs"
+exit /b 0
+
+:active_dir
+set "OLD="
+if exist "%WORK%\current\.aether_web_version" (
+  set "OLD=%WORK%\current"
+  exit /b 0
+)
+if exist "%WORK%\.aether_web_version" (
+  set /p RV=<"%WORK%\.aether_web_version"
+  if exist "%WORK%\aether_%RV%\.aether_web_version" (
+    set "OLD=%WORK%\aether_%RV%"
+    exit /b 0
   )
-  pushd "%APP%" || goto :fail
-  call bun install || (
-    popd
-    echo bun install failed.
-    goto :fail
-  )
-  popd
 )
+for /d %%i in ("%WORK%\aether_*") do (
+  if exist "%%~fi\.aether_web_version" (
+    set "OLD=%%~fi"
+    exit /b 0
+  )
+)
+exit /b 0
 
-echo [4/4] Deleting old version files...
-echo Done. Current version: %VER_REMOTE%
-goto :ok
+:major_minor
+set "IN=%~1"
+for /f "usebackq delims=" %%i in (`powershell -NoProfile -Command "$v=$env:IN; if(!$v){'0.0'; exit}; $v=$v.Trim().TrimStart('v'); $v=$v.Split('-')[0]; $p=$v.Split('.'); if($p.Count -lt 2){$p+= '0'}; ($p[0] + '.' + $p[1])"`) do set "%~2=%%i"
+exit /b 0
+
+:pick_pkg
+set "DIR=%~1"
+set "W=%~2"
+set "PKG="
+set "VER="
+set "PKG_NAME="
+for /f "usebackq tokens=1,2,3 delims=|" %%i in (`powershell -NoProfile -Command "$dir=$env:DIR; $want=$env:W; $hits=Get-ChildItem -Path $dir -File -Filter '*.zip' | ForEach-Object { if($_.BaseName -match '([0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z]+)*)$'){ [PSCustomObject]@{Path=$_.FullName;Name=$_.Name;Ver=$matches[1]} } } | Where-Object { $_ }; if($want){ $hits=$hits | Where-Object { $_.Ver -eq $want } }; if(-not $hits){ exit 1 }; $pick=$hits | Sort-Object { [version](($_.Ver -replace '^v','').Split('-')[0]) } | Select-Object -Last 1; Write-Output ($pick.Path + '|' + $pick.Ver + '|' + $pick.Name)"`) do (
+  set "PKG=%%i"
+  set "VER=%%j"
+  set "PKG_NAME=%%k"
+)
+if not defined PKG exit /b 1
+exit /b 0
 
 :fail
 echo Update failed.
 rmdir /s /q "%TMP%" >nul 2>nul
 exit /b 1
-
-:ok
-rmdir /s /q "%TMP%" >nul 2>nul
-exit /b 0

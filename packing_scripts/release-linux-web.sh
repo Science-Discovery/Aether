@@ -43,7 +43,15 @@ cp -R "$src"/. "$out"/
 
 cp "$upd" "$out/update_linux_web.sh"
 chmod +x "$out/update_linux_web.sh"
-printf "%s\n" "$ver" >"$out/.aether_version"
+cp "$upd" "dist/update_linux_web.sh"
+chmod +x "dist/update_linux_web.sh"
+
+ins="$root/Update/aether_linux_installer.sh"
+if [ -f "$ins" ]; then
+  cp "$ins" "$out/aether_linux_installer.sh"
+  chmod +x "$out/aether_linux_installer.sh"
+fi
+printf "%s\n" "$ver" >"$out/.aether_web_version"
 
 if [ -f "$out/aether" ]; then
   chmod +x "$out/aether"
@@ -86,5 +94,6 @@ popd >/dev/null
 
 echo "Done"
 echo "Asset: packages/opencode/$zip"
+echo "Updater: packages/opencode/dist/update_linux_web.sh"
 echo "YML:   packages/opencode/dist/latest-web-linux.yml"
 echo "Note:  ZIP includes folder $pkg"

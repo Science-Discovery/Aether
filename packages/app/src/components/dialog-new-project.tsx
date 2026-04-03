@@ -304,8 +304,7 @@ export function DialogNewProject(props: DialogNewProjectProps) {
       setCreating(true)
       try {
         await sdk.client.file.create({
-          directory: resolved.parent,
-          path: resolved.name,
+          path: resolved.full,
           type: "directory",
         })
         props.onSelect(resolved.full)

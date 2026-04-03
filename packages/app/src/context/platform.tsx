@@ -7,7 +7,11 @@ type PickerPaths = string | string[] | null
 type OpenDirectoryPickerOptions = { title?: string; multiple?: boolean }
 type OpenFilePickerOptions = { title?: string; multiple?: boolean; accept?: string[]; extensions?: string[] }
 type SaveFilePickerOptions = { title?: string; defaultPath?: string }
-type UpdateInfo = { updateAvailable: boolean; version?: string }
+type UpdateStatus = {
+  updateAvailable: boolean
+  version?: string
+  downloaded?: boolean
+}
 
 export type Platform = {
   /** Platform discriminator */
@@ -49,10 +53,13 @@ export type Platform = {
   /** Storage mechanism, defaults to localStorage */
   storage?: (name?: string) => SyncStorage | AsyncStorage
 
-  /** Check for updates (Tauri only) */
-  checkUpdate?(): Promise<UpdateInfo>
+  /** Check for updates */
+  checkUpdate?(): Promise<UpdateStatus>
 
-  /** Install updates (Tauri only) */
+  /** Download updates */
+  downloadUpdate?(): Promise<void>
+
+  /** Install updates */
   update?(): Promise<void>
 
   /** Fetch override */
