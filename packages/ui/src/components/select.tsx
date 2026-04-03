@@ -1,5 +1,6 @@
 import { Select as Kobalte } from "@kobalte/core/select"
-import { createMemo, onCleanup, splitProps, type ComponentProps, type JSX } from "solid-js"
+import { createMemo, onCleanup, Show, splitProps, type ComponentProps, type JSX } from "solid-js"
+import { createStore } from "solid-js/store"
 import { pipe, groupBy, entries, map } from "remeda"
 import { Button, ButtonProps } from "./button"
 import { Icon } from "./icon"
@@ -14,6 +15,8 @@ export type SelectProps<T> = Omit<ComponentProps<typeof Kobalte<T>>, "value" | "
   valueClass?: ComponentProps<"div">["class"]
   onSelect?: (value: T | undefined) => void
   onHighlight?: (value: T | undefined) => (() => void) | void
+  hint?: (value: T | undefined) => JSX.Element | undefined
+  hintDelay?: number
   class?: ComponentProps<"div">["class"]
   classList?: ComponentProps<"div">["classList"]
   children?: (item: T | undefined) => JSX.Element
@@ -35,6 +38,8 @@ export function Select<T>(props: SelectProps<T> & Omit<ButtonProps, "children">)
     "valueClass",
     "onSelect",
     "onHighlight",
+    "hint",
+    "hintDelay",
     "onOpenChange",
     "children",
     "triggerStyle",
@@ -46,11 +51,20 @@ export function Select<T>(props: SelectProps<T> & Omit<ButtonProps, "children">)
     key: undefined as string | undefined,
     cleanup: undefined as (() => void) | void,
   }
+  const [hint, setHint] = createStore({
+    open: false,
+    top: 0,
+    item: undefined as T | undefined,
+  })
+  let timer: ReturnType<typeof setTimeout> | undefined
 
   const stop = () => {
     state.cleanup?.()
     state.cleanup = undefined
     state.key = undefined
+    clearTimeout(timer)
+    setHint("open", false)
+    setHint("item", undefined)
   }
 
   const keyFor = (item: T) => (local.value ? local.value(item) : (item as string))
@@ -67,6 +81,25 @@ export function Select<T>(props: SelectProps<T> & Omit<ButtonProps, "children">)
     state.cleanup?.()
     state.cleanup = local.onHighlight(item)
     state.key = key
+  }
+
+  const queue = (item: T | undefined, el?: HTMLElement) => {
+    clearTimeout(timer)
+    setHint("open", false)
+
+    if (!local.hint || !item || !el) {
+      setHint("item", undefined)
+      return
+    }
+
+    if (!local.hint(item)) {
+      setHint("item", undefined)
+      return
+    }
+
+    setHint("item", item)
+    setHint("top", el.offsetTop + el.offsetHeight / 2)
+    timer = setTimeout(() => setHint("open", true), local.hintDelay ?? 1000)
   }
 
   onCleanup(stop)
@@ -107,9 +140,17 @@ export function Select<T>(props: SelectProps<T> & Omit<ButtonProps, "children">)
             ...(local.classList ?? {}),
             [local.class ?? ""]: !!local.class,
           }}
-          onPointerEnter={() => move(itemProps.item.rawValue)}
+          onPointerEnter={(event) => {
+            move(itemProps.item.rawValue)
+            queue(itemProps.item.rawValue, event.currentTarget)
+          }}
           onPointerMove={() => move(itemProps.item.rawValue)}
-          onFocus={() => move(itemProps.item.rawValue)}
+          onPointerLeave={() => queue(undefined)}
+          onFocus={(event) => {
+            move(itemProps.item.rawValue)
+            queue(itemProps.item.rawValue, event.currentTarget)
+          }}
+          onBlur={() => queue(undefined)}
         >
           <Kobalte.ItemLabel data-slot="select-select-item-label">
             {local.children
@@ -165,8 +206,14 @@ export function Select<T>(props: SelectProps<T> & Omit<ButtonProps, "children">)
           }}
           data-component="select-content"
           data-trigger-style={local.triggerVariant}
+          data-hint={local.hint ? "" : undefined}
         >
           <Kobalte.Listbox data-slot="select-select-content-list" />
+          <Show when={hint.open && local.hint && hint.item !== undefined}>
+            <div data-slot="select-select-hint" style={{ top: `${hint.top}px` }}>
+              {local.hint?.(hint.item as T)}
+            </div>
+          </Show>
         </Kobalte.Content>
       </Kobalte.Portal>
     </Kobalte>

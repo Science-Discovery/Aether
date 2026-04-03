@@ -426,12 +426,13 @@ export function SessionHeader() {
                 </div>
               </Show>
               <div class="flex items-center gap-1">
-                <Tooltip placement="bottom" value={language.t("status.popover.trigger")}>
+                <Tooltip placement="bottom" value={language.t("status.popover.trigger")} allowExpanded>
                   <StatusPopover />
                 </Tooltip>
                 <TooltipKeybind
                   title={language.t("command.terminal.toggle")}
                   keybind={command.keybind("terminal.toggle")}
+                  allowExpanded
                 >
                   <Button
                     variant="ghost"
@@ -449,6 +450,7 @@ export function SessionHeader() {
                   <TooltipKeybind
                     title={language.t("command.review.toggle")}
                     keybind={command.keybind("review.toggle")}
+                    allowExpanded
                   >
                     <Button
                       variant="ghost"
@@ -465,6 +467,7 @@ export function SessionHeader() {
                   <TooltipKeybind
                     title={language.t("command.fileTree.toggle")}
                     keybind={command.keybind("fileTree.toggle")}
+                    allowExpanded
                   >
                     <Button
                       variant="ghost"

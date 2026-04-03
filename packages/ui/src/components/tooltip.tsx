@@ -10,6 +10,7 @@ export interface TooltipProps extends ComponentProps<typeof KobalteTooltip> {
   contentStyle?: JSX.CSSProperties
   inactive?: boolean
   forceOpen?: boolean
+  allowExpanded?: boolean
 }
 
 export interface TooltipKeybindProps extends Omit<TooltipProps, "value"> {
@@ -46,6 +47,7 @@ export function Tooltip(props: TooltipProps) {
     "contentStyle",
     "inactive",
     "forceOpen",
+    "allowExpanded",
     "ignoreSafeArea",
     "value",
   ])
@@ -66,7 +68,7 @@ export function Tooltip(props: TooltipProps) {
   }
 
   const sync = () => {
-    const expand = !!ref?.querySelector('[aria-expanded="true"], [data-expanded]')
+    const expand = local.allowExpanded ? false : !!ref?.querySelector('[aria-expanded="true"], [data-expanded]')
     setState("expand", expand)
     if (expand) {
       setState("block", true)

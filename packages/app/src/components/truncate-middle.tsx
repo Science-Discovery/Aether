@@ -3,7 +3,7 @@ import { Portal } from "solid-js/web"
 
 /**
  * Displays text with middle-ellipsis truncation: "beginning…ending"
- * When truncated, hovering for 1.5s shows a tooltip with the full text.
+ * When truncated, hovering for 1s shows a tooltip with the full text.
  */
 export function TruncateMiddle(props: {
   text: string
@@ -104,7 +104,7 @@ export function TruncateMiddle(props: {
     setTipStyle({ left: `${left}px`, top: `${top}px` })
   }
 
-  const onMouseEnter = (e: MouseEvent) => {
+  const onMouseEnter = () => {
     if (!truncated()) return
     clearTimeout(hoverTimer)
     hoverTimer = setTimeout(() => {
@@ -112,7 +112,7 @@ export function TruncateMiddle(props: {
       setShowTip(true)
       // Position after render
       requestAnimationFrame(positionTip)
-    }, 1500)
+    }, 1000)
   }
 
   const onMouseLeave = () => {

@@ -170,6 +170,34 @@
   }
 }
 
+[data-component="select-content"][data-hint] {
+  overflow: visible;
+
+  [data-slot="select-select-hint"] {
+    position: absolute;
+    left: calc(100% + 8px);
+    transform: translateY(-50%);
+    width: 120px;
+    max-width: min(12rem, calc(100vw - 2rem));
+    padding: 8px 10px;
+    border-radius: var(--radius-md);
+    border: 1px solid var(--border-weak-base);
+    background-color: var(--surface-raised-base);
+    box-shadow: var(--shadow-xs-border);
+    color: var(--text-base);
+    pointer-events: none;
+    white-space: normal;
+    z-index: 1;
+
+    font-family: var(--font-family-sans);
+    font-size: var(--font-size-small);
+    font-style: normal;
+    font-weight: var(--font-weight-regular);
+    line-height: var(--line-height-large);
+    letter-spacing: var(--letter-spacing-normal);
+  }
+}
+
 [data-component="select-content"][data-trigger-style="settings"] {
   min-width: 160px;
   border-radius: 8px;

@@ -552,6 +552,12 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
       .map((agent): AtOption => ({ type: "agent", name: agent.name, display: agent.name })),
   )
   const agentNames = createMemo(() => local.agent.list().map((agent) => agent.name))
+  const agentTip = (name: string | undefined) => {
+    const key = name?.toLowerCase()
+    if (key === "build") return "直接动手改代码"
+    if (key === "plan") return "先分析再定方案"
+    if (key === "docs") return "侧重文档与资料"
+  }
 
   const handleAtSelect = (option: AtOption | undefined) => {
     if (!option) return
@@ -1480,6 +1486,12 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                         size="normal"
                         options={agentNames()}
                         current={local.agent.current()?.name ?? ""}
+                        hint={(name) => {
+                          const tip = agentTip(name)
+                          if (!tip) return
+                          return <span>{tip}</span>
+                        }}
+                        hintDelay={1000}
                         onSelect={local.agent.set}
                         class="capitalize max-w-[160px] text-text-base"
                         valueClass="truncate text-13-regular text-text-base"
@@ -1614,6 +1626,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                   <Popover
                     placement="top-end"
                     gutter={4}
+                    onOpenAutoFocus={(event) => event.preventDefault()}
                     triggerAs={Button}
                     triggerProps={{
                       variant: "ghost",
@@ -1624,7 +1637,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                     trigger={<Icon name="dot-grid" class="size-4" />}
                     class="p-1 flex flex-col gap-0.5 min-w-[120px]"
                   >
-                    <Tooltip placement="left" gutter={4} value="默认 Skills">
+                    <Tooltip placement="left" gutter={4} skipDelayDuration={0} value="管理项目默认技能">
                       <Button
                         variant="ghost"
                         size="normal"
@@ -1636,7 +1649,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                         <span class="text-13-regular text-text-base">默认 Skills</span>
                       </Button>
                     </Tooltip>
-                    <Tooltip placement="left" gutter={4} value="微信连接">
+                    <Tooltip placement="left" gutter={4} skipDelayDuration={0} value="连接微信消息通道">
                       <Button
                         variant="ghost"
                         size="normal"
