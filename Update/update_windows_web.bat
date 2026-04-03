@@ -13,9 +13,7 @@ if exist "%SELF%\aether.exe" if exist "%SELF%\Aether.vbs" (
 ) else if exist "%SELF%\..\aether.exe" if exist "%SELF%\..\Aether.vbs" (
   for %%i in ("%SELF%\..") do set "APP=%%~fi"
 ) else (
-  echo Cannot detect install folder. Put this script in the install folder or one level below.
-  echo Example: C:\Aether-Web\update_windows_web.bat
-  exit /b 1
+  set "APP=%USERPROFILE%\Applications\Aether-Web"
 )
 
 for %%i in ("%APP%") do (
@@ -30,6 +28,9 @@ set "ZIP=%TMP%\aether-windows-x64-web.zip"
 set "EXTRACT=%TMP%\extract"
 set "SRC_FILE=%TMP%\src.txt"
 set "NEXT=%TMP%\next"
+set "HAS_APP=0"
+
+if exist "%APP%\aether.exe" if exist "%APP%\Aether.vbs" set "HAS_APP=1"
 
 if exist "%TMP%" rmdir /s /q "%TMP%"
 mkdir "%TMP%" || exit /b 1
@@ -54,7 +55,7 @@ if exist "%STATE%" set /p VER_LOCAL=<"%STATE%"
 echo Local version: %VER_LOCAL%
 echo Remote version: %VER_REMOTE%
 
-if "%VER_LOCAL%"=="%VER_REMOTE%" (
+if "%HAS_APP%"=="1" if "%VER_LOCAL%"=="%VER_REMOTE%" (
   echo Already up to date.
   goto :ok
 )
@@ -104,31 +105,37 @@ if %RC% GEQ 8 (
 
 powershell -NoProfile -Command "& { [IO.File]::WriteAllText((Join-Path $env:NEXT '.aether_web_version'), $env:VER_REMOTE) }" || goto :fail
 
-robocopy "%NEXT%" "%APP%" /MIR /XF update_windows_web.bat /NFL /NDL /NJH /NJS /NP >nul
-set "RC=%ERRORLEVEL%"
-if %RC% GEQ 8 (
-  echo Failed to apply files. Robocopy exit code: %RC%
-  echo DEBUG APP=[%APP%]
-  goto :fail
-)
-
-if exist "%APP%\package.json" (
-  where bun >nul 2>nul
-  if errorlevel 1 (
-    echo package.json found but bun is missing. Install bun and retry.
+if "%HAS_APP%"=="1" (
+  robocopy "%NEXT%" "%APP%" /MIR /XF update_windows_web.bat /NFL /NDL /NJH /NJS /NP >nul
+  set "RC=%ERRORLEVEL%"
+  if !RC! GEQ 8 (
+    echo Failed to apply files. Robocopy exit code: !RC!
+    echo DEBUG APP=[%APP%]
     goto :fail
   )
-  pushd "%APP%" || goto :fail
-  call bun install || (
-    popd
-    echo bun install failed.
+) else (
+  if exist "%APP%" (
+    echo Target directory exists but is not a valid installation: %APP%
+    echo Please clean this directory or run this script from an existing install folder.
     goto :fail
   )
-  popd
+  for %%i in ("%APP%") do set "APP_PARENT=%%~dpi"
+  if not exist "%APP_PARENT%" mkdir "%APP_PARENT%" || goto :fail
+  robocopy "%NEXT%" "%APP%" /MIR /XF update_windows_web.bat /NFL /NDL /NJH /NJS /NP >nul
+  set "RC=%ERRORLEVEL%"
+  if !RC! GEQ 8 (
+    echo Failed to install files. Robocopy exit code: !RC!
+    goto :fail
+  )
 )
 
 echo [4/4] Deleting old version files...
-echo Done. Current version: %VER_REMOTE%
+if "%HAS_APP%"=="1" (
+  echo Done. Current version: %VER_REMOTE%
+) else (
+  echo Installed. Current version: %VER_REMOTE%
+  echo Install path: %APP%
+)
 goto :ok
 
 :fail

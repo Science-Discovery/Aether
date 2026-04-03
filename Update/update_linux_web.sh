@@ -12,9 +12,7 @@ if [ -f "$self/aether" ] && [ -f "$self/Aether.sh" ]; then
 elif [ -f "$self/../aether" ] && [ -f "$self/../Aether.sh" ]; then
   app="$(cd "$self/.." && pwd)"
 else
-  echo "未检测到当前安装目录。请将此脚本放在安装目录中，或安装目录的子目录中再执行。"
-  echo "示例: ~/Applications/Aether-Web/update_linux_web.sh"
-  exit 1
+  app="${HOME}/Applications/Aether-Web"
 fi
 
 name="$(basename "$app")"
@@ -27,6 +25,11 @@ zip="$tmp/aether-linux-x64-web.zip"
 ex="$tmp/extract"
 next="$parent/.${name}.next"
 old="$parent/.${name}.old"
+has_app="0"
+
+if [ -f "$app/aether" ] && [ -f "$app/Aether.sh" ]; then
+  has_app="1"
+fi
 
 cleanup() {
   rm -rf "$tmp"
@@ -57,7 +60,7 @@ fi
 echo "本地版本: ${ver_local:-未记录}"
 echo "远端版本: $ver_remote"
 
-if [ "$ver_local" = "$ver_remote" ]; then
+if [ "$has_app" = "1" ] && [ "$ver_local" = "$ver_remote" ]; then
   echo "已是最新版本，无需更新。"
   exit 0
 fi
@@ -115,28 +118,27 @@ if [ -d "$old" ]; then
   rm -rf "$old"
 fi
 
-mv "$app" "$old"
-mv "$next" "$app"
+mkdir -p "$parent"
 
-if [ -f "$app/package.json" ]; then
-  if ! command -v bun >/dev/null 2>&1; then
-    echo "检测到 package.json，但未找到 bun。请先安装 bun 后重试。"
-    mv "$app" "$next"
-    mv "$old" "$app"
+if [ "$has_app" = "1" ]; then
+  mv "$app" "$old"
+  mv "$next" "$app"
+else
+  if [ -d "$app" ]; then
+    echo "目标目录已存在但不是已安装实例: $app"
+    echo "请先清理该目录后重试，或将脚本放到已安装目录中执行更新。"
     rm -rf "$next"
     exit 1
   fi
-
-  if ! (cd "$app" && bun install); then
-    echo "bun install 执行失败，已回滚到旧版本。"
-    mv "$app" "$next"
-    mv "$old" "$app"
-    rm -rf "$next"
-    exit 1
-  fi
+  mv "$next" "$app"
 fi
 
 echo "[4/4] 删除旧版本..."
 rm -rf "$old"
 
-echo "更新完成，当前版本: $ver_remote"
+if [ "$has_app" = "1" ]; then
+  echo "更新完成，当前版本: $ver_remote"
+else
+  echo "安装完成，当前版本: $ver_remote"
+  echo "安装目录: $app"
+fi
