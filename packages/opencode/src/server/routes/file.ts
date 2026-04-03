@@ -33,7 +33,7 @@ import {
 } from "../../markdown-translator"
 import { detectDataJson, chunkByContent, chunksFromDataJson } from "../../markdown-translator/chunker"
 import fs from "fs/promises"
-import { linux, missing } from "../pick-folder"
+import { linux, missing, windows, wsl, wslPath } from "../pick-folder"
 
 const encode = (input: string) =>
   encodeURIComponent(input).replace(/['()*]/g, (part) => `%${part.charCodeAt(0).toString(16).toUpperCase()}`)
@@ -744,13 +744,9 @@ export const FileRoutes = lazy(() =>
         try {
           let selected: string | null = null
           if (process.platform === "win32") {
-            const ps = spawn([
-              "powershell.exe",
-              "-NoProfile",
-              "-NonInteractive",
-              "-Command",
-              "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; Add-Type -AssemblyName System.Windows.Forms; $d = New-Object System.Windows.Forms.FolderBrowserDialog; $d.ShowNewFolderButton = $true; $owner = New-Object System.Windows.Forms.Form; $owner.TopMost = $true; $owner.WindowState = 'Minimized'; $owner.ShowInTaskbar = $false; $owner.Show(); $owner.Hide(); if ($d.ShowDialog($owner) -eq 'OK') { $d.SelectedPath }; $owner.Dispose()",
-            ])
+            const cmd = windows()
+            if (!cmd) return c.json(missing())
+            const ps = spawn(cmd)
             const output = await new Response(ps.stdout).text()
             await ps.exited
             const trimmed = output.trim()
@@ -762,13 +758,13 @@ export const FileRoutes = lazy(() =>
             const trimmed = output.trim()
             if (trimmed) selected = trimmed.replace(/\/$/, "")
           } else {
-            const cmd = linux()
+            const cmd = linux() || wsl()
             if (!cmd) return c.json(missing())
             const proc = spawn(cmd)
             const output = await new Response(proc.stdout).text()
             await proc.exited
             const trimmed = output.trim()
-            if (trimmed) selected = trimmed
+            if (trimmed) selected = cmd.at(0)?.toLowerCase().endsWith("powershell.exe") ? wslPath(trimmed) : trimmed
           }
           return c.json({ path: selected })
         } catch (error) {
