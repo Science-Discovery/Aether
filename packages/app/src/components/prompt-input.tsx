@@ -29,6 +29,7 @@ import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { Popover } from "@opencode-ai/ui/popover"
 import { ModelSelectorPopover } from "@/components/dialog-select-model"
 import { DialogSelectModelUnpaid } from "@/components/dialog-select-model-unpaid"
+import { DialogReadingMode } from "@/components/dialog-reading-mode"
 import { useProviders } from "@/hooks/use-providers"
 import { useCommand } from "@/context/command"
 import { Persist, persisted } from "@/utils/persist"
@@ -1424,7 +1425,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
           <div class="pointer-events-none absolute bottom-2 left-2">
             <div
               aria-hidden={store.mode !== "normal"}
-              class="pointer-events-auto"
+              class="pointer-events-auto flex items-center"
               style={{
                 "pointer-events": buttonsSpring() > 0.5 ? "auto" : "none",
               }}
@@ -1448,6 +1449,21 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                   <Icon name="plus" class="size-4.5" />
                 </Button>
               </TooltipKeybind>
+              <Tooltip placement="top" value={language.t("prompt.action.readingMode")}>
+                <Button
+                  data-action="prompt-reading-mode"
+                  type="button"
+                  variant="ghost"
+                  class="size-8 p-0"
+                  style={buttons()}
+                  onClick={() => dialog.show(() => <DialogReadingMode />)}
+                  disabled={store.mode !== "normal"}
+                  tabIndex={store.mode === "normal" ? undefined : -1}
+                  aria-label={language.t("prompt.action.readingMode")}
+                >
+                  <Icon name="glasses" class="size-4.5" />
+                </Button>
+              </Tooltip>
             </div>
           </div>
         </div>

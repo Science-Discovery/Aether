@@ -7,6 +7,11 @@ import { Identifier } from "@/utils/id"
 import { createCommentMetadata, formatCommentNote } from "@/utils/comment-note"
 
 type PromptRequestPart = (TextPartInput | FilePartInput | AgentPartInput) & { id: string }
+export type DataAttachment = {
+  filename: string
+  mime: string
+  dataUrl: string
+}
 
 type ContextFile = {
   key: string
@@ -23,7 +28,14 @@ type BuildRequestPartsInput = {
   prompt: Prompt
   context: ContextFile[]
   images: ImageAttachmentPart[]
+  attachments?: DataAttachment[]
   text: string
+  extraTextParts?: Array<{
+    text: string
+    synthetic?: boolean
+    ignored?: boolean
+    metadata?: Record<string, unknown>
+  }>
   messageID: string
   sessionID: string
   sessionDirectory: string
@@ -81,13 +93,28 @@ const toOptimisticPart = (part: PromptRequestPart, sessionID: string, messageID:
 }
 
 export function buildRequestParts(input: BuildRequestPartsInput) {
-  const requestParts: PromptRequestPart[] = [
-    {
+  const requestParts: PromptRequestPart[] = []
+
+  if (input.text.length > 0 || !input.extraTextParts?.length) {
+    requestParts.push({
       id: Identifier.ascending("part"),
       type: "text",
       text: input.text,
-    },
-  ]
+    })
+  }
+
+  if (input.extraTextParts?.length) {
+    requestParts.push(
+      ...input.extraTextParts.map((part) => ({
+        id: Identifier.ascending("part"),
+        type: "text" as const,
+        text: part.text,
+        synthetic: part.synthetic,
+        ignored: part.ignored,
+        metadata: part.metadata,
+      })),
+    )
+  }
 
   const files = input.prompt.filter(isFileAttachment).map((attachment) => {
     const path = absolute(input.sessionDirectory, attachment.path)
@@ -168,7 +195,17 @@ export function buildRequestParts(input: BuildRequestPartsInput) {
     } satisfies PromptRequestPart
   })
 
-  requestParts.push(...files, ...context, ...agents, ...images)
+  const attachments = (input.attachments ?? []).map((attachment) => {
+    return {
+      id: Identifier.ascending("part"),
+      type: "file",
+      mime: attachment.mime,
+      url: attachment.dataUrl,
+      filename: attachment.filename,
+    } satisfies PromptRequestPart
+  })
+
+  requestParts.push(...files, ...context, ...agents, ...images, ...attachments)
 
   // 如果有打开的文件标签页，附加一条合成信息让 AI 知道
   if (input.selectedPaths && input.selectedPaths.length > 0) {

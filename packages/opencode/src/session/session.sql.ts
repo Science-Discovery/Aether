@@ -7,6 +7,7 @@ import type { ProjectID } from "../project/schema"
 import type { SessionID, MessageID, PartID } from "./schema"
 import type { WorkspaceID } from "../control-plane/schema"
 import { Timestamps } from "../storage/schema.sql"
+import type { ReadingMode } from "../reading-mode/types"
 
 type PartData = Omit<MessageV2.Part, "id" | "sessionID" | "messageID">
 type InfoData = Omit<MessageV2.Info, "id" | "sessionID">
@@ -32,6 +33,7 @@ export const SessionTable = sqliteTable(
     summary_diffs: text({ mode: "json" }).$type<Snapshot.FileDiff[]>(),
     revert: text({ mode: "json" }).$type<{ messageID: MessageID; partID?: PartID; snapshot?: string; diff?: string }>(),
     permission: text({ mode: "json" }).$type<Permission.Ruleset>(),
+    reading_mode: text({ mode: "json" }).$type<ReadingMode.SessionMeta>(),
     ...Timestamps,
     time_compacting: integer(),
     time_archived: integer(),

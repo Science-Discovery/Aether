@@ -985,6 +985,25 @@ export type Session = {
     snapshot?: string
     diff?: string
   }
+  readingMode?: {
+    pdfFileName: string
+    pdfStorePath: string
+    lastReadPage: number
+    annotationsPath: string
+    source: {
+      kind: "workspace-file" | "upload"
+      path?: string
+    }
+    settings: {
+      translatePrompt: string
+      questionPrompt: string
+      firstReadPrompt: string
+      contextPageRange: 0 | 1 | 2
+      autoFirstRead: boolean
+    }
+    firstReadCompleted: boolean
+    firstReadDismissed: boolean
+  }
 }
 
 export type EventSessionCreated = {
@@ -1150,6 +1169,25 @@ export type SyncEventSessionUpdated = {
         partID?: string
         snapshot?: string
         diff?: string
+      } | null
+      readingMode: {
+        pdfFileName: string
+        pdfStorePath: string
+        lastReadPage: number
+        annotationsPath: string
+        source: {
+          kind: "workspace-file" | "upload"
+          path?: string
+        }
+        settings: {
+          translatePrompt: string
+          questionPrompt: string
+          firstReadPrompt: string
+          contextPageRange: 0 | 1 | 2
+          autoFirstRead: boolean
+        }
+        firstReadCompleted: boolean
+        firstReadDismissed: boolean
       } | null
     }
   }
@@ -1886,6 +1924,25 @@ export type GlobalSession = {
     partID?: string
     snapshot?: string
     diff?: string
+  }
+  readingMode?: {
+    pdfFileName: string
+    pdfStorePath: string
+    lastReadPage: number
+    annotationsPath: string
+    source: {
+      kind: "workspace-file" | "upload"
+      path?: string
+    }
+    settings: {
+      translatePrompt: string
+      questionPrompt: string
+      firstReadPrompt: string
+      contextPageRange: 0 | 1 | 2
+      autoFirstRead: boolean
+    }
+    firstReadCompleted: boolean
+    firstReadDismissed: boolean
   }
   project: ProjectSummary | null
 }
@@ -6778,6 +6835,181 @@ export type WechatSessionClearResponses = {
 }
 
 export type WechatSessionClearResponse = WechatSessionClearResponses[keyof WechatSessionClearResponses]
+
+export type ReadingModeSessionCreateData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/reading-mode/session"
+}
+
+export type ReadingModeSessionCreateErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type ReadingModeSessionCreateError = ReadingModeSessionCreateErrors[keyof ReadingModeSessionCreateErrors]
+
+export type ReadingModeSessionCreateResponses = {
+  /**
+   * Created session info with readingMode meta
+   */
+  200: Session
+}
+
+export type ReadingModeSessionCreateResponse =
+  ReadingModeSessionCreateResponses[keyof ReadingModeSessionCreateResponses]
+
+export type ReadingModeAnnotationsGetData = {
+  body?: never
+  path?: never
+  query: {
+    directory?: string
+    workspace?: string
+    sessionID: string
+  }
+  url: "/reading-mode/annotations"
+}
+
+export type ReadingModeAnnotationsGetErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type ReadingModeAnnotationsGetError = ReadingModeAnnotationsGetErrors[keyof ReadingModeAnnotationsGetErrors]
+
+export type ReadingModeAnnotationsGetResponses = {
+  /**
+   * Annotation file content
+   */
+  200: unknown
+}
+
+export type ReadingModeAnnotationsUpdateData = {
+  body?: {
+    sessionID: string
+    data: unknown
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/reading-mode/annotations"
+}
+
+export type ReadingModeAnnotationsUpdateErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type ReadingModeAnnotationsUpdateError =
+  ReadingModeAnnotationsUpdateErrors[keyof ReadingModeAnnotationsUpdateErrors]
+
+export type ReadingModeAnnotationsUpdateResponses = {
+  /**
+   * OK
+   */
+  200: {
+    ok: boolean
+  }
+}
+
+export type ReadingModeAnnotationsUpdateResponse =
+  ReadingModeAnnotationsUpdateResponses[keyof ReadingModeAnnotationsUpdateResponses]
+
+export type ReadingModePdfGetData = {
+  body?: never
+  path?: never
+  query: {
+    directory?: string
+    workspace?: string
+    sessionID: string
+  }
+  url: "/reading-mode/pdf"
+}
+
+export type ReadingModePdfGetErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type ReadingModePdfGetError = ReadingModePdfGetErrors[keyof ReadingModePdfGetErrors]
+
+export type ReadingModePdfGetResponses = {
+  /**
+   * PDF binary
+   */
+  200: unknown
+}
+
+export type ReadingModeSessionUpdateData = {
+  body?: {
+    settings?: {
+      translatePrompt?: string
+      questionPrompt?: string
+      firstReadPrompt?: string
+      contextPageRange?: 0 | 1 | 2
+      autoFirstRead?: boolean
+    }
+    firstReadCompleted?: boolean
+    firstReadDismissed?: boolean
+  }
+  path: {
+    sessionID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/reading-mode/session/{sessionID}"
+}
+
+export type ReadingModeSessionUpdateErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type ReadingModeSessionUpdateError = ReadingModeSessionUpdateErrors[keyof ReadingModeSessionUpdateErrors]
+
+export type ReadingModeSessionUpdateResponses = {
+  /**
+   * Updated session
+   */
+  200: Session
+}
+
+export type ReadingModeSessionUpdateResponse =
+  ReadingModeSessionUpdateResponses[keyof ReadingModeSessionUpdateResponses]
 
 export type InstanceDisposeData = {
   body?: never

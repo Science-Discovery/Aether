@@ -70,6 +70,7 @@ import { PermissionRoutes } from "./routes/permission"
 import { GlobalRoutes } from "./routes/global"
 import { KnowledgeRoutes } from "./routes/knowledge"
 import { WeChatRoutes } from "./routes/wechat"
+import { ReadingModeRoutes } from "./routes/reading-mode"
 import { MDNS } from "./mdns"
 import { lazy } from "@/util/lazy"
 import { initProjectors } from "./projectors"
@@ -289,6 +290,7 @@ export namespace Server {
       .route("/tui", TuiRoutes())
       .route("/knowledge", KnowledgeRoutes())
       .route("/wechat", WeChatRoutes())
+      .route("/reading-mode", ReadingModeRoutes())
       .post(
         "/instance/dispose",
         describeRoute({
@@ -706,6 +708,8 @@ export namespace Server {
       idleTimeout: 0,
       fetch: app.fetch,
       websocket: websocket,
+      // Raise body limit to 1 GB to support large PDF uploads (default is 128 MB)
+      maxRequestBodySize: 1024 * 1024 * 1024,
     } as const
     const tryServe = (port: number) => {
       try {

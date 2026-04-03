@@ -3,6 +3,7 @@ import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { useMutation } from "@tanstack/solid-query"
 import {
   batch,
+  children,
   onCleanup,
   Show,
   Match,
@@ -10,6 +11,7 @@ import {
   createMemo,
   createEffect,
   createComputed,
+  createSignal,
   on,
   onMount,
   untrack,
@@ -27,7 +29,7 @@ import { previewSelectedLines } from "@opencode-ai/ui/pierre/selection-bridge"
 import { Button } from "@opencode-ai/ui/button"
 import { showToast } from "@opencode-ai/ui/toast"
 import { base64Encode, checksum } from "@opencode-ai/util/encode"
-import { useNavigate, useSearchParams } from "@solidjs/router"
+import { useLocation, useNavigate, useSearchParams } from "@solidjs/router"
 import { NewSessionView, SessionHeader } from "@/components/session"
 import { useComments } from "@/context/comments"
 import { getSessionPrefetch, SESSION_PREFETCH_TTL } from "@/context/global-sync/session-prefetch"
@@ -45,6 +47,7 @@ import {
   createOpenReviewFile,
   createSessionTabs,
   createSizing,
+  type Sizing,
   focusTerminalById,
   shouldFocusTerminalOnKeyDown,
 } from "@/pages/session/helpers"
@@ -63,6 +66,8 @@ import { formatServerError } from "@/utils/server-errors"
 
 const emptyUserMessages: UserMessage[] = []
 const emptyFollowups: (FollowupDraft & { id: string })[] = []
+const READING_CHAT_MIN_WIDTH = 360
+const READING_REVIEW_MIN_WIDTH = 320
 
 type ChangeMode = "git" | "branch" | "session" | "turn"
 type VcsMode = "git" | "branch"
@@ -312,7 +317,25 @@ function createSessionHistoryWindow(input: SessionHistoryWindowInput) {
   }
 }
 
-export default function Page() {
+export default function Page(props: {
+  readingPane?: any
+  readingPanePosition?: "before" | "after"
+  readingPaneWidth?: number
+  readingCompositeWidth?: number
+  readingCompositeMinWidth?: number
+  readingCompositeMaxWidth?: number
+  onReadingCompositeResize?: (width: number) => void
+  readingSessionResizeSize?: number
+  readingSessionResizeMin?: number
+  readingSessionResizeMax?: number
+  onReadingSessionResize?: (width: number) => void
+  readingReviewOpen?: boolean
+  readingFileTreeOpen?: boolean
+  readingSidePanelWidth?: number
+  readingFileTreeWidth?: number
+  readingFileTreeResizable?: boolean
+  readingSizing?: Sizing
+} = {}) {
   const globalSync = useGlobalSync()
   const layout = useLayout()
   const local = useLocal()
@@ -320,6 +343,7 @@ export default function Page() {
   const sync = useSync()
   const dialog = useDialog()
   const language = useLanguage()
+  const location = useLocation()
   const navigate = useNavigate()
   const sdk = useSDK()
   const settings = useSettings()
@@ -355,6 +379,7 @@ export default function Page() {
 
   const workspaceKey = createMemo(() => params.dir ?? "")
   const workspaceTabs = createMemo(() => layout.tabs(workspaceKey))
+  const readingPane = children(() => props.readingPane)
 
   createEffect(
     on(
@@ -393,16 +418,88 @@ export default function Page() {
   )
 
   const isDesktop = createMediaQuery("(min-width: 768px)")
-  const size = createSizing()
-  const desktopReviewOpen = createMemo(() => isDesktop() && view().reviewPanel.opened())
-  const desktopFileTreeOpen = createMemo(() => isDesktop() && layout.fileTree.opened())
+  const size = props.readingSizing ?? createSizing()
+  const readingModeActive = createMemo(() => isDesktop() && !!props.readingPane)
+  const desktopReviewOpen = createMemo(() =>
+    isDesktop() && (readingModeActive() ? !!props.readingReviewOpen : view().reviewPanel.opened()),
+  )
+  const desktopFileTreeOpen = createMemo(() =>
+    isDesktop() && (readingModeActive() ? !!props.readingFileTreeOpen : layout.fileTree.opened()),
+  )
   const desktopSidePanelOpen = createMemo(() => desktopReviewOpen() || desktopFileTreeOpen())
+  let rowRef: HTMLDivElement | undefined
+  const [rowWidth, setRowWidth] = createSignal(0)
+  const readingPaneWidth = createMemo(() => {
+    if (!isDesktop() || !props.readingPane) return 0
+    return Math.max(0, props.readingPaneWidth ?? 0)
+  })
+  const readingCompositeMinWidth = createMemo(() =>
+    readingModeActive() ? Math.max(0, props.readingCompositeMinWidth ?? 0) : 0,
+  )
+  const readingCompositeMaxWidth = createMemo(() => {
+    if (!readingModeActive()) return 0
+    const fallback = rowWidth() > 0 ? rowWidth() : props.readingCompositeWidth ?? 0
+    return Math.max(readingCompositeMinWidth(), props.readingCompositeMaxWidth ?? fallback)
+  })
+  const readingFileTreeWidth = createMemo(() =>
+    readingModeActive() ? Math.max(0, props.readingFileTreeWidth ?? 0) : layout.fileTree.width(),
+  )
+  const sidePanelMinWidth = createMemo(() => {
+    let width = 0
+    if (desktopReviewOpen()) width += READING_REVIEW_MIN_WIDTH
+    if (desktopFileTreeOpen()) width += readingFileTreeWidth()
+    return width
+  })
+  const compositeMinWidth = createMemo(() => {
+    if (!readingModeActive()) return 0
+    return readingPaneWidth() + READING_CHAT_MIN_WIDTH
+  })
+  const effectiveCompositeWidth = createMemo(() => {
+    if (!readingModeActive()) return 0
+    const total = rowWidth()
+    const fallback = props.readingCompositeWidth ?? 0
+    if (total <= 0) return Math.min(readingCompositeMaxWidth(), Math.max(readingCompositeMinWidth(), fallback))
+    if (!desktopSidePanelOpen()) return total
+    const requested = props.readingCompositeWidth ?? Math.max(0, total - (props.readingSidePanelWidth ?? 0))
+    return Math.min(readingCompositeMaxWidth(), Math.max(readingCompositeMinWidth(), requested))
+  })
+  const effectiveSessionPanelWidth = createMemo(() => {
+    if (!readingModeActive()) return undefined
+    return Math.max(0, effectiveCompositeWidth() - readingPaneWidth())
+  })
+  const effectiveSidePanelWidth = createMemo(() => {
+    if (!readingModeActive()) return undefined
+    if (!desktopSidePanelOpen()) return 0
+    if (typeof props.readingSidePanelWidth === "number") return Math.max(0, props.readingSidePanelWidth)
+    return Math.max(sidePanelMinWidth(), rowWidth() - effectiveCompositeWidth())
+  })
   const sessionPanelWidth = createMemo(() => {
-    if (!desktopSidePanelOpen()) return "100%"
-    if (desktopReviewOpen()) return `${layout.session.width()}px`
-    return `calc(100% - ${layout.fileTree.width()}px)`
+    if (readingModeActive()) {
+      return `${effectiveSessionPanelWidth() ?? READING_CHAT_MIN_WIDTH}px`
+    }
+    const pdfWidth = readingPaneWidth()
+    if (!desktopSidePanelOpen()) {
+      return pdfWidth > 0 ? `calc(100% - ${pdfWidth}px)` : "100%"
+    }
+    if (desktopReviewOpen()) {
+      return `${Math.max(360, layout.session.width() - pdfWidth)}px`
+    }
+    return pdfWidth > 0 ? `calc(100% - ${layout.fileTree.width()}px - ${pdfWidth}px)` : `calc(100% - ${layout.fileTree.width()}px)`
   })
   const centered = createMemo(() => isDesktop() && !desktopReviewOpen())
+  const readingPaneOrder = createMemo(() => (props.readingPanePosition === "after" ? 1 : 0))
+  const sessionPanelOrder = createMemo(() => (props.readingPanePosition === "after" ? 0 : 1))
+
+  onMount(() => {
+    const syncRowWidth = () => {
+      if (!rowRef) return
+      setRowWidth(rowRef.clientWidth)
+    }
+    syncRowWidth()
+    const observer = new ResizeObserver(syncRowWidth)
+    if (rowRef) observer.observe(rowRef)
+    onCleanup(() => observer.disconnect())
+  })
 
   function normalizeTab(tab: string) {
     if (!tab.startsWith("file://")) return tab
@@ -426,6 +523,14 @@ export default function Page() {
   }
 
   const info = createMemo(() => (params.id ? sync.session.get(params.id) : undefined))
+  createEffect(() => {
+    const session = info()
+    const id = params.id
+    const dir = params.dir
+    if (!session?.readingMode || !id || !dir) return
+    if (location.pathname.endsWith("/reading")) return
+    navigate(`/${dir}/session/${id}/reading`, { replace: true })
+  })
   const diffs = createMemo(() => {
     if (!params.id) return []
     const val = sync.data.session_diff[params.id]
@@ -1932,7 +2037,7 @@ export default function Page() {
   return (
     <div class="relative bg-background-base size-full overflow-hidden flex flex-col">
       <SessionHeader />
-      <div class="flex-1 min-h-0 flex flex-col md:flex-row">
+      <div ref={rowRef} class="flex-1 min-h-0 flex flex-col md:flex-row">
         <Show when={!isDesktop() && !!params.id}>
           <Tabs value={store.mobileTab} class="h-auto">
             <Tabs.List>
@@ -1958,17 +2063,190 @@ export default function Page() {
           </Tabs>
         </Show>
 
-        {/* Session panel */}
-        <div
-          classList={{
-            "@container relative shrink-0 flex flex-col min-h-0 h-full bg-background-stronger flex-1 md:flex-none": true,
-            "transition-[width] duration-[240ms] ease-[cubic-bezier(0.22,1,0.36,1)] will-change-[width] motion-reduce:transition-none":
-              !size.active() && !ui.reviewSnap,
-          }}
-          style={{
-            width: sessionPanelWidth(),
-          }}
-        >
+        <Show when={readingModeActive()}>
+          <div
+            class="relative flex min-h-0 shrink-0 overflow-hidden"
+            style={{ width: `${effectiveCompositeWidth()}px` }}
+          >
+            <Show when={props.readingPanePosition !== "after"}>
+              <div class="min-h-0 shrink-0" style={{ order: String(readingPaneOrder()) }}>
+                {readingPane()}
+              </div>
+            </Show>
+            <div
+              classList={{
+                "@container relative shrink-0 flex flex-col min-h-0 h-full bg-background-stronger flex-1 md:flex-none": true,
+                "transition-[width] duration-[240ms] ease-[cubic-bezier(0.22,1,0.36,1)] will-change-[width] motion-reduce:transition-none":
+                  !size.active() && !ui.reviewSnap,
+              }}
+              style={{
+                width: sessionPanelWidth(),
+                order: String(sessionPanelOrder()),
+              }}
+            >
+              <div class="flex-1 min-h-0 overflow-hidden">
+                <Switch>
+                  <Match when={params.id}>
+                    <Show when={messagesReady()}>
+                      <MessageTimeline
+                        mobileChanges={mobileChanges()}
+                        mobileFallback={reviewContent({
+                          diffStyle: "unified",
+                          classes: {
+                            root: "pb-8",
+                            header: "px-4",
+                            container: "px-4",
+                          },
+                          loadingClass: "px-4 py-4 text-text-weak",
+                          emptyClass: "h-full pb-64 -mt-4 flex flex-col items-center justify-center text-center gap-6",
+                        })}
+                        actions={actions}
+                        scroll={ui.scroll}
+                        onResumeScroll={resumeScroll}
+                        setScrollRef={setScrollRef}
+                        onScheduleScrollState={scheduleScrollState}
+                        onAutoScrollHandleScroll={autoScroll.handleScroll}
+                        onMarkScrollGesture={markScrollGesture}
+                        hasScrollGesture={hasScrollGesture}
+                        onUserScroll={markUserScroll}
+                        onTurnBackfillScroll={historyWindow.onScrollerScroll}
+                        onAutoScrollInteraction={autoScroll.handleInteraction}
+                        centered={centered()}
+                        setContentRef={(el) => {
+                          content = el
+                          autoScroll.contentRef(el)
+
+                          const root = scroller
+                          if (root) scheduleScrollState(root)
+                        }}
+                        turnStart={historyWindow.turnStart()}
+                        historyMore={historyMore()}
+                        historyLoading={historyLoading()}
+                        onLoadEarlier={() => {
+                          void historyWindow.loadAndReveal()
+                        }}
+                        renderedUserMessages={historyWindow.renderedUserMessages()}
+                        anchor={anchor}
+                      />
+                    </Show>
+                  </Match>
+                  <Match when={true}>
+                    <NewSessionView worktree={newSessionWorktree()} />
+                  </Match>
+                </Switch>
+              </div>
+
+              <SessionComposerRegion
+                state={composer}
+                ready={!store.deferRender && messagesReady()}
+                centered={centered()}
+                inputRef={(el) => {
+                  inputRef = el
+                }}
+                newSessionWorktree={newSessionWorktree()}
+                onNewSessionWorktreeReset={() => setStore("newSessionWorktree", "main")}
+                onSubmit={() => {
+                  comments.clear()
+                  resumeScroll()
+                }}
+                onResponseSubmit={resumeScroll}
+                followup={
+                  params.id
+                    ? {
+                        queue: queueEnabled,
+                        items: followupDock(),
+                        sending: sendingFollowup(),
+                        edit: editingFollowup(),
+                        onQueue: queueFollowup,
+                        onAbort: () => {
+                          const id = params.id
+                          if (!id) return
+                          setFollowup("paused", id, true)
+                        },
+                        onSend: (id) => {
+                          void sendFollowup(params.id!, id, { manual: true })
+                        },
+                        onEdit: editFollowup,
+                        onEditLoaded: clearFollowupEdit,
+                      }
+                    : undefined
+                }
+                revert={
+                  rolled().length > 0
+                    ? {
+                        items: rolled(),
+                        restoring: restoring(),
+                        disabled: reverting(),
+                        onRestore: restore,
+                      }
+                    : undefined
+                }
+                setPromptDockRef={(el) => {
+                  promptDock = el
+                }}
+              />
+              <Show
+                when={
+                  readingModeActive() &&
+                  props.onReadingSessionResize &&
+                  (props.readingSessionResizeMax ?? 0) > (props.readingSessionResizeMin ?? 0)
+                }
+              >
+                <div class="absolute inset-y-0 right-0 z-10 w-0 overflow-visible" onPointerDown={() => size.start()}>
+                  <div class="pointer-events-none absolute inset-y-0 right-0 translate-x-1/2 w-px bg-border-base/80" />
+                  <ResizeHandle
+                    direction="horizontal"
+                    class="after:bg-border-base/90"
+                    size={Math.max(0, props.readingSessionResizeSize ?? 0)}
+                    min={Math.max(0, props.readingSessionResizeMin ?? 0)}
+                    max={Math.max(
+                      Math.max(0, props.readingSessionResizeMin ?? 0),
+                      props.readingSessionResizeMax ?? 0,
+                    )}
+                    onResize={(width) => {
+                      size.touch()
+                      props.onReadingSessionResize?.(width)
+                    }}
+                  />
+                </div>
+              </Show>
+            </div>
+            <Show when={props.readingPanePosition === "after"}>
+              <div class="min-h-0 shrink-0" style={{ order: String(readingPaneOrder()) }}>
+                {readingPane()}
+              </div>
+            </Show>
+            <Show when={desktopSidePanelOpen() && readingCompositeMaxWidth() > readingCompositeMinWidth()}>
+              <div class="absolute inset-y-0 right-0 z-10 w-0 overflow-visible" onPointerDown={() => size.start()}>
+                <div class="pointer-events-none absolute inset-y-0 right-0 translate-x-1/2 w-px bg-border-base/80" />
+                <ResizeHandle
+                  direction="horizontal"
+                  class="after:bg-border-base/90"
+                  size={effectiveCompositeWidth()}
+                  min={readingCompositeMinWidth()}
+                  max={readingCompositeMaxWidth()}
+                  onResize={(width) => {
+                    size.touch()
+                    props.onReadingCompositeResize?.(width)
+                  }}
+                />
+              </div>
+            </Show>
+          </div>
+        </Show>
+
+        <Show when={!readingModeActive()}>
+          <div
+            classList={{
+              "@container relative shrink-0 flex flex-col min-h-0 h-full bg-background-stronger flex-1 md:flex-none": true,
+              "transition-[width] duration-[240ms] ease-[cubic-bezier(0.22,1,0.36,1)] will-change-[width] motion-reduce:transition-none":
+                !size.active() && !ui.reviewSnap,
+            }}
+            style={{
+              width: sessionPanelWidth(),
+              order: String(sessionPanelOrder()),
+            }}
+          >
           <div class="flex-1 min-h-0 overflow-hidden">
             <Switch>
               <Match when={params.id}>
@@ -2085,9 +2363,16 @@ export default function Page() {
               />
             </div>
           </Show>
-        </div>
+          </div>
+        </Show>
 
         <SessionSidePanel
+          style={{ order: "2" }}
+          widthOverride={effectiveSidePanelWidth()}
+          reviewOpenOverride={readingModeActive() ? desktopReviewOpen() : undefined}
+          fileOpenOverride={readingModeActive() ? desktopFileTreeOpen() : undefined}
+          treeWidthOverride={readingModeActive() ? readingFileTreeWidth() : undefined}
+          fileTreeResizable={readingModeActive() ? props.readingFileTreeResizable : undefined}
           canReview={canReview}
           diffs={reviewDiffs}
           diffsReady={reviewReady}

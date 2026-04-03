@@ -1,0 +1,303 @@
+body.aether-pdf-viewer[data-mode="compact"] #sidebarContainer,
+body.aether-pdf-viewer[data-mode="compact"] #sidebarToggle,
+body.aether-pdf-viewer[data-mode="compact"] #viewFind,
+body.aether-pdf-viewer[data-mode="compact"] #secondaryToolbarToggle,
+body.aether-pdf-viewer[data-mode="compact"] #secondaryToolbar {
+  display: none !important;
+}
+
+body.aether-pdf-viewer #openFile,
+body.aether-pdf-viewer #print,
+body.aether-pdf-viewer #download,
+body.aether-pdf-viewer #presentationMode,
+body.aether-pdf-viewer #viewBookmark,
+body.aether-pdf-viewer #documentProperties,
+body.aether-pdf-viewer #editorModeButtons,
+body.aether-pdf-viewer #editorModeSeparator,
+body.aether-pdf-viewer #editorFreeTextParamsToolbar,
+body.aether-pdf-viewer #editorInkParamsToolbar,
+body.aether-pdf-viewer #viewThumbnail,
+body.aether-pdf-viewer #viewAttachments,
+body.aether-pdf-viewer #viewLayers,
+body.aether-pdf-viewer #thumbnailView,
+body.aether-pdf-viewer #attachmentsView,
+body.aether-pdf-viewer #layersView,
+body.aether-pdf-viewer #spreadModeButtons,
+body.aether-pdf-viewer #pageRotateCw,
+body.aether-pdf-viewer #pageRotateCcw {
+  display: none !important;
+}
+
+body.aether-pdf-viewer #toolbarViewerMiddle {
+  align-items: center;
+  gap: 6px;
+}
+
+body.aether-pdf-viewer #aetherPdf2md,
+body.aether-pdf-viewer #aetherNightMode,
+body.aether-pdf-viewer #aetherCaptureRegion,
+body.aether-pdf-viewer #aetherReadingSettings,
+body.aether-pdf-viewer #aetherSwapLayout,
+body.aether-pdf-viewer #aetherOpenReadingMode {
+  margin-inline-start: 6px;
+}
+
+body.aether-pdf-viewer {
+  --aether-night-moon-icon: url("/pdfjs-ref/web/images/aether-night-mode-moon.svg");
+  --aether-night-sun-icon: url("/pdfjs-ref/web/images/aether-night-mode-sun.svg");
+  --aether-capture-region-icon: url("/pdfjs-ref/web/images/aether-capture-region.svg");
+  --aether-reading-settings-icon: url("/pdfjs-ref/web/images/secondaryToolbarButton-documentProperties.svg");
+  --aether-swap-right-icon: url("/pdfjs-ref/web/images/aether-swap-layout-right.svg");
+  --aether-swap-left-icon: url("/pdfjs-ref/web/images/aether-swap-layout-left.svg");
+  --aether-reading-mode-icon: url("/pdfjs-ref/web/images/aether-reading-mode.svg");
+}
+
+body.aether-pdf-viewer #aetherPdf2md {
+  width: auto;
+  max-width: none;
+  min-width: 78px;
+  padding-inline: 10px;
+  background-color: var(--dropdown-btn-bg-color);
+  border: 1px solid var(--toolbar-border-color);
+  border-radius: 2px;
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.04);
+}
+
+body.aether-pdf-viewer #aetherPdf2md::before {
+  content: none;
+}
+
+body.aether-pdf-viewer #aetherPdf2md > span {
+  position: static;
+  width: auto;
+  height: auto;
+  overflow: visible;
+  padding: 0;
+  text-indent: 0;
+  white-space: nowrap;
+}
+
+body.aether-pdf-viewer #aetherSwapLayout {
+  min-width: 32px;
+}
+
+body.aether-pdf-viewer #aetherOpenReadingMode {
+  min-width: 32px;
+}
+
+body.aether-pdf-viewer #aetherCaptureRegion {
+  min-width: 32px;
+}
+
+body.aether-pdf-viewer #aetherReadingSettings {
+  min-width: 32px;
+}
+
+body.aether-pdf-viewer #aetherCaptureRegion::before {
+  -webkit-mask-image: var(--aether-capture-region-icon);
+  mask-image: var(--aether-capture-region-icon);
+}
+
+body.aether-pdf-viewer #aetherReadingSettings::before {
+  -webkit-mask-image: var(--aether-reading-settings-icon);
+  mask-image: var(--aether-reading-settings-icon);
+}
+
+body.aether-pdf-viewer #aetherCaptureRegion.toggled {
+  background-color: var(--toggled-btn-bg-color);
+}
+
+body.aether-pdf-viewer #aetherSwapLayout::before {
+  -webkit-mask-image: var(--aether-swap-right-icon);
+  mask-image: var(--aether-swap-right-icon);
+}
+
+body.aether-pdf-viewer #aetherOpenReadingMode::before {
+  -webkit-mask-image: var(--aether-reading-mode-icon);
+  mask-image: var(--aether-reading-mode-icon);
+}
+
+body.aether-pdf-viewer #aetherSwapLayout[data-direction="left"]::before {
+  -webkit-mask-image: var(--aether-swap-left-icon);
+  mask-image: var(--aether-swap-left-icon);
+}
+
+body.aether-pdf-viewer #aetherPdf2md:hover,
+body.aether-pdf-viewer #aetherPdf2md:focus-visible {
+  background-color: var(--button-hover-color);
+}
+
+body.aether-pdf-viewer #aetherNightMode::before {
+  -webkit-mask-image: var(--aether-night-moon-icon);
+  mask-image: var(--aether-night-moon-icon);
+}
+
+body.aether-pdf-viewer[data-night-mode="on"] #aetherNightMode::before {
+  -webkit-mask-image: var(--aether-night-sun-icon);
+  mask-image: var(--aether-night-sun-icon);
+}
+
+body.aether-pdf-viewer[data-night-mode="on"] #aetherNightMode {
+  background-color: var(--toggled-btn-bg-color);
+}
+
+body.aether-pdf-viewer[data-mode="compact"] #aetherSwapLayout {
+  display: none !important;
+}
+
+body.aether-pdf-viewer[data-mode="compact"] #aetherCaptureRegion {
+  display: none !important;
+}
+
+body.aether-pdf-viewer[data-mode="compact"] #aetherReadingSettings {
+  display: none !important;
+}
+
+body.aether-pdf-viewer[data-mode="compact"] #sidebarContainer,
+body.aether-pdf-viewer[data-mode="compact"] #sidebarResizer {
+  width: 0 !important;
+  min-width: 0 !important;
+  border: 0 !important;
+}
+
+body.aether-pdf-viewer[data-mode="compact"] #outerContainer.sidebarOpen #viewerContainer:not(.pdfPresentationMode),
+body.aether-pdf-viewer[data-mode="compact"] #outerContainer.sidebarOpen #loadingBar,
+body.aether-pdf-viewer[data-mode="compact"] #viewerContainer:not(.pdfPresentationMode),
+body.aether-pdf-viewer[data-mode="compact"] #loadingBar {
+  left: 0 !important;
+  right: 0 !important;
+}
+
+body.aether-pdf-viewer[data-mode="compact"] #toolbarViewer {
+  justify-content: space-between;
+}
+
+body.aether-pdf-viewer[data-mode="compact"] #toolbarViewerLeft .toolbarButtonSpacer,
+body.aether-pdf-viewer[data-mode="compact"] #toolbarViewerRight .verticalToolbarSeparator {
+  display: none !important;
+}
+
+body.aether-pdf-viewer #viewerContainer {
+  top: 32px;
+}
+
+body.aether-pdf-viewer[data-night-mode="on"] #viewerContainer {
+  background: #0f1012;
+}
+
+body.aether-pdf-viewer[data-night-mode="on"] .pdfViewer .page,
+body.aether-pdf-viewer[data-night-mode="on"] .pdfViewer .dummyPage {
+  background: #050608;
+  box-shadow: 0 1px 4px rgb(0 0 0 / 0.55);
+}
+
+body.aether-pdf-viewer[data-night-mode="on"] .pdfViewer .page canvas {
+  filter: invert(1);
+}
+
+body.aether-pdf-viewer[data-night-mode="on"] .textLayer,
+body.aether-pdf-viewer[data-night-mode="on"] .annotationLayer {
+  filter: none !important;
+}
+
+body.aether-pdf-viewer[data-night-mode="on"] .textLayer {
+  opacity: 0.2;
+}
+
+body.aether-pdf-viewer[data-mode="full"] #toolbarSidebar,
+body.aether-pdf-viewer[data-mode="full"] #viewThumbnail,
+body.aether-pdf-viewer[data-mode="full"] #viewAttachments,
+body.aether-pdf-viewer[data-mode="full"] #viewLayers {
+  display: none !important;
+}
+
+body.aether-pdf-viewer[data-mode="full"] #sidebarContent {
+  top: 0;
+}
+
+body.aether-pdf-viewer #aetherSelectionMenu {
+  position: fixed;
+  z-index: 1200;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px;
+  border: 1px solid rgb(255 255 255 / 0.08);
+  border-radius: 10px;
+  background: rgb(16 18 24 / 0.94);
+  box-shadow:
+    0 12px 28px rgb(0 0 0 / 0.32),
+    inset 0 1px 0 rgb(255 255 255 / 0.04);
+  backdrop-filter: blur(12px);
+}
+
+body.aether-pdf-viewer #aetherSelectionHint {
+  position: fixed;
+  top: 44px;
+  left: 50%;
+  z-index: 1190;
+  transform: translateX(-50%);
+  max-width: min(320px, calc(100vw - 24px));
+  padding: 7px 10px;
+  border: 1px solid rgb(255 255 255 / 0.08);
+  border-radius: 999px;
+  background: rgb(16 18 24 / 0.94);
+  box-shadow: 0 10px 24px rgb(0 0 0 / 0.28);
+  color: rgb(247 248 250 / 0.92);
+  font-size: 12px;
+  line-height: 1.2;
+  text-align: center;
+}
+
+body.aether-pdf-viewer .aetherSelectionMenuButton {
+  appearance: none;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: rgb(247 248 250 / 0.92);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1;
+  padding: 7px 10px;
+  cursor: pointer;
+}
+
+body.aether-pdf-viewer .aetherSelectionMenuButton:hover,
+body.aether-pdf-viewer .aetherSelectionMenuButton:focus-visible {
+  outline: none;
+  background: rgb(255 255 255 / 0.1);
+}
+
+body.aether-pdf-viewer #aetherCaptureOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1180;
+  cursor: crosshair;
+  pointer-events: none;
+}
+
+body.aether-pdf-viewer #aetherCaptureOverlay[hidden] {
+  display: none !important;
+}
+
+body.aether-pdf-viewer #aetherCaptureShade {
+  position: absolute;
+  inset: 0;
+  background: rgb(3 6 14 / 0.14);
+}
+
+body.aether-pdf-viewer #aetherCaptureBox {
+  position: absolute;
+  border: 1px solid rgb(104 184 255 / 0.95);
+  background: rgb(84 169 255 / 0.16);
+  box-shadow:
+    0 0 0 1px rgb(255 255 255 / 0.1),
+    0 8px 24px rgb(0 0 0 / 0.18);
+  pointer-events: none;
+}
+
+body.aether-pdf-viewer.capture-mode-active #viewerContainer,
+body.aether-pdf-viewer.capture-mode-active .textLayer {
+  user-select: none !important;
+}

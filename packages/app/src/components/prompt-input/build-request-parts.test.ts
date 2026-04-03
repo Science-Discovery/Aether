@@ -75,6 +75,27 @@ describe("buildRequestParts", () => {
     expect(files.map((part) => (part.type === "file" ? part.filename : ""))).toEqual(["a.png", "b.pdf"])
   })
 
+  test("supports ignored and synthetic extra text parts without a blank base text", () => {
+    const result = buildRequestParts({
+      prompt: [{ type: "text", content: "", start: 0, end: 0 }],
+      context: [],
+      images: [],
+      text: "",
+      extraTextParts: [
+        { text: "开始预读第 1-30 页", ignored: true },
+        { text: "隐藏的预读提示", synthetic: true },
+      ],
+      messageID: "msg_extra",
+      sessionID: "ses_extra",
+      sessionDirectory: "/repo",
+    })
+
+    const textParts = result.requestParts.filter((part) => part.type === "text")
+    expect(textParts).toHaveLength(2)
+    expect(textParts[0]).toMatchObject({ text: "开始预读第 1-30 页", ignored: true })
+    expect(textParts[1]).toMatchObject({ text: "隐藏的预读提示", synthetic: true })
+  })
+
   test("deduplicates context files when prompt already includes same path", () => {
     const prompt: Prompt = [{ type: "file", path: "src/foo.ts", content: "@src/foo.ts", start: 0, end: 11 }]
 
@@ -308,5 +329,31 @@ describe("buildRequestParts", () => {
       // Should preserve .. segments (backend normalizes)
       expect(filePart.url).toContain("/..")
     }
+  })
+
+  test("appends explicit data attachments after prompt images", () => {
+    const result = buildRequestParts({
+      prompt: [{ type: "text", content: "pre-read", start: 0, end: 8 }],
+      context: [],
+      images: [
+        { type: "image", id: "img_1", filename: "cover.png", mime: "image/png", dataUrl: "data:image/png;base64,AAA" },
+      ],
+      attachments: [
+        {
+          filename: "pages-1-30.pdf",
+          mime: "application/pdf",
+          dataUrl: "data:application/pdf;base64,BBB",
+        },
+      ],
+      text: "pre-read",
+      messageID: "msg_attach",
+      sessionID: "ses_attach",
+      sessionDirectory: "/repo",
+    })
+
+    const files = result.requestParts.filter((part) => part.type === "file" && part.url.startsWith("data:"))
+
+    expect(files).toHaveLength(2)
+    expect(files.map((part) => (part.type === "file" ? part.filename : ""))).toEqual(["cover.png", "pages-1-30.pdf"])
   })
 })
