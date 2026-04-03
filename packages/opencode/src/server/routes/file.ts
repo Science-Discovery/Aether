@@ -33,6 +33,7 @@ import {
 } from "../../markdown-translator"
 import { detectDataJson, chunkByContent, chunksFromDataJson } from "../../markdown-translator/chunker"
 import fs from "fs/promises"
+import { linux, missing, windows, wsl, wslPath } from "../pick-folder"
 
 const encode = (input: string) =>
   encodeURIComponent(input).replace(/['()*]/g, (part) => `%${part.charCodeAt(0).toString(16).toUpperCase()}`)
@@ -725,7 +726,17 @@ export const FileRoutes = lazy(() =>
         responses: {
           200: {
             description: "Selected folder path or null if cancelled",
-            content: { "application/json": { schema: resolver(z.object({ path: z.string().nullable() })) } },
+            content: {
+              "application/json": {
+                schema: resolver(
+                  z.object({
+                    path: z.string().nullable(),
+                    unavailable: z.boolean().optional(),
+                    reason: z.enum(["missing_picker"]).optional(),
+                  }),
+                ),
+              },
+            },
           },
         },
       }),
@@ -733,13 +744,9 @@ export const FileRoutes = lazy(() =>
         try {
           let selected: string | null = null
           if (process.platform === "win32") {
-            const ps = spawn([
-              "powershell.exe",
-              "-NoProfile",
-              "-NonInteractive",
-              "-Command",
-              "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; Add-Type -AssemblyName System.Windows.Forms; $d = New-Object System.Windows.Forms.FolderBrowserDialog; $d.ShowNewFolderButton = $true; $owner = New-Object System.Windows.Forms.Form; $owner.TopMost = $true; $owner.WindowState = 'Minimized'; $owner.ShowInTaskbar = $false; $owner.Show(); $owner.Hide(); if ($d.ShowDialog($owner) -eq 'OK') { $d.SelectedPath }; $owner.Dispose()",
-            ])
+            const cmd = windows()
+            if (!cmd) return c.json(missing())
+            const ps = spawn(cmd)
             const output = await new Response(ps.stdout).text()
             await ps.exited
             const trimmed = output.trim()
@@ -751,23 +758,13 @@ export const FileRoutes = lazy(() =>
             const trimmed = output.trim()
             if (trimmed) selected = trimmed.replace(/\/$/, "")
           } else {
-            try {
-              const proc = spawn(["zenity", "--file-selection", "--directory", "--title=Select Folder"])
-              const output = await new Response(proc.stdout).text()
-              await proc.exited
-              const trimmed = output.trim()
-              if (trimmed) selected = trimmed
-            } catch {
-              try {
-                const proc = spawn(["kdialog", "--getexistingdirectory", process.env.HOME || "/"])
-                const output = await new Response(proc.stdout).text()
-                await proc.exited
-                const trimmed = output.trim()
-                if (trimmed) selected = trimmed
-              } catch {
-                // No native dialog available
-              }
-            }
+            const cmd = linux() || wsl()
+            if (!cmd) return c.json(missing())
+            const proc = spawn(cmd)
+            const output = await new Response(proc.stdout).text()
+            await proc.exited
+            const trimmed = output.trim()
+            if (trimmed) selected = cmd.at(0)?.toLowerCase().endsWith("powershell.exe") ? wslPath(trimmed) : trimmed
           }
           return c.json({ path: selected })
         } catch (error) {
