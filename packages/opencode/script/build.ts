@@ -153,10 +153,23 @@ if (process.platform === "win32") {
 }
 fs.rmSync("dist", { recursive: true, force: true })
 
+// Sync version into package.json so the web app picks it up at build time
+const pkgPath = path.resolve(dir, "package.json")
+const pkgRaw = await Bun.file(pkgPath).json()
+const originalVersion = pkgRaw.version
+pkgRaw.version = Script.version
+await Bun.write(pkgPath, JSON.stringify(pkgRaw, null, 2) + "\n")
+
 // Build web app (packages/app) and embed alongside binary
-console.log("building web app...")
-await $`bun run --cwd ${path.resolve(dir, "../../packages/app")} build`
-console.log("web app built")
+try {
+  console.log("building web app...")
+  await $`bun run --cwd ${path.resolve(dir, "../../packages/app")} build`
+  console.log("web app built")
+} finally {
+  // Restore original version in package.json to avoid dirtying the working tree
+  pkgRaw.version = originalVersion
+  await Bun.write(pkgPath, JSON.stringify(pkgRaw, null, 2) + "\n")
+}
 
 const binaries: Record<string, string> = {}
 if (!skipInstall) {
