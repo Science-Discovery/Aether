@@ -14,9 +14,7 @@ const detectOS = (): string => {
   return "linux"
 }
 
-const Spinner = () => (
-  <div class="size-4 animate-spin rounded-full border-2 border-icon-weak border-t-icon-base" />
-)
+const Spinner = () => <div class="size-4 animate-spin rounded-full border-2 border-icon-weak border-t-icon-base" />
 
 export const DialogUpdate: Component = () => {
   const language = useLanguage()
@@ -48,7 +46,7 @@ export const DialogUpdate: Component = () => {
         return
       }
       setRemoteVersion(data.remoteVersion)
-      if (data.downloadedVersion) setDownloadedVersion(data.downloadedVersion)
+      setDownloadedVersion(data.currentVersion || "")
       setState(data.updateAvailable ? "available" : "up-to-date")
     } catch (e) {
       setState("error")
@@ -181,7 +179,9 @@ export const DialogUpdate: Component = () => {
           <Show when={state() === "error"}>
             <div class="flex items-center gap-2 text-13-regular text-text-dimmed-red">
               <Icon name="warning" class="size-4" />
-              <span>{language.t("update.checkFailed")}: {errorMessage()}</span>
+              <span>
+                {language.t("update.checkFailed")}: {errorMessage()}
+              </span>
             </div>
             <Button size="small" variant="secondary" onClick={checkVersion}>
               {language.t("update.retry")}

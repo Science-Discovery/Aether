@@ -1,0 +1,12 @@
+mode: 'auto'
+status: 'up_to_date'
+code: 20
+current_version: 'local'
+target_version: '0.2.0'
+requested_version: ''
+work_dir: '/Users/lx/Desktop/code/AI/Aether/Update'
+download_dir: '/Users/lx/Desktop/code/AI/Aether/Update/downloads'
+package_path: ''
+installer_path: ''
+manifest_url: 'https://aether.aiphys.cn/download/latest/mac-arm64.yml'
+notes_url: ''

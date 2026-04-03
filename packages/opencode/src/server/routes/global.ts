@@ -223,7 +223,6 @@ powershell -NoProfile -Command "& {
 `
 }
 
-
 function parseProxy(value?: string) {
   if (!value) return { host: "", port: 8080 }
   try {
@@ -648,7 +647,22 @@ export const GlobalRoutes = lazy(() =>
           if (!remoteVersion) {
             return c.json({ error: "Could not parse remote version from metadata" }, 400)
           }
-          const currentVersion = Installation.VERSION
+          let currentVersion = ""
+          try {
+            const state = await fs.readFile(path.join(getAppRoot(), ".aether_web_version"), "utf-8")
+            const ver = state.trim()
+            if (ver) currentVersion = ver
+          } catch {}
+          if (!currentVersion) {
+            try {
+              const raw = await fs.readFile(path.resolve(process.cwd(), "packages/opencode/package.json"), "utf-8")
+              const parsed = JSON.parse(raw)
+              if (parsed && typeof parsed === "object" && typeof parsed.version === "string" && parsed.version.trim()) {
+                currentVersion = parsed.version.trim()
+              }
+            } catch {}
+          }
+          if (!currentVersion) currentVersion = Installation.VERSION
           // also check if a newer version was already downloaded
           let downloadedVersion = ""
           try {
@@ -719,12 +733,10 @@ export const GlobalRoutes = lazy(() =>
         try {
           const content = await fs.readFile(resultPath, "utf-8")
           const cached = parseResultYml(content)
-          if (
-            cached.status === "update_ready" &&
-            cached.target_version === version &&
-            cached.package_path
-          ) {
-            await fs.access(cached.package_path).catch(() => { throw new Error("missing") })
+          if (cached.status === "update_ready" && cached.target_version === version && cached.package_path) {
+            await fs.access(cached.package_path).catch(() => {
+              throw new Error("missing")
+            })
             log.info("using cached download", { os, version, pkg: cached.package_path })
             return c.json({ success: true as const, path: resultPath })
           }
@@ -733,9 +745,8 @@ export const GlobalRoutes = lazy(() =>
         try {
           const exitCode = await new Promise<number>((resolve, reject) => {
             const cmd = os === "windows" ? "cmd" : "bash"
-            const cmdArgs = os === "windows"
-              ? ["/c", scriptPath, "auto", currentVersion]
-              : [scriptPath, "auto", currentVersion]
+            const cmdArgs =
+              os === "windows" ? ["/c", scriptPath, "auto", currentVersion] : [scriptPath, "auto", currentVersion]
             const child = spawn(cmd, cmdArgs, { cwd: workDir })
             child.on("close", (code: number | null) => resolve(code ?? 1))
             child.on("error", reject)
@@ -814,9 +825,10 @@ export const GlobalRoutes = lazy(() =>
           } catch {}
           log.info("launching version installer", { os, installer: installerExe })
           try {
-            const child = os === "windows"
-              ? spawn("cmd", ["/c", installerExe], { detached: true, stdio: "ignore", cwd: workDir })
-              : spawn("bash", [installerExe], { detached: true, stdio: "ignore", cwd: workDir })
+            const child =
+              os === "windows"
+                ? spawn("cmd", ["/c", installerExe], { detached: true, stdio: "ignore", cwd: workDir })
+                : spawn("bash", [installerExe], { detached: true, stdio: "ignore", cwd: workDir })
             child.unref()
             log.info("version installer launched", { os, path: installerExe, pid: child.pid })
             return c.json({ success: true as const })
@@ -837,15 +849,20 @@ export const GlobalRoutes = lazy(() =>
           return c.json({ success: false as const, error: `Package not found: ${pkgPath}` })
         }
         const dir = path.basename(workDir)
-        const appRoot = (dir === "Update" || dir === "update") ? path.dirname(workDir) : workDir
+        const appRoot = dir === "Update" || dir === "update" ? path.dirname(workDir) : workDir
         log.info("launching package-based update", { os, pkg: pkgPath, appRoot })
         try {
           const updScript = generateSelfUpdateScript(os, pkgPath, appRoot)
-          const updPath = path.join(workDir, "downloads", `self-update-${Date.now()}.${os === "windows" ? "bat" : "sh"}`)
+          const updPath = path.join(
+            workDir,
+            "downloads",
+            `self-update-${Date.now()}.${os === "windows" ? "bat" : "sh"}`,
+          )
           await fs.writeFile(updPath, updScript, { mode: 0o755 })
-          const child = os === "windows"
-            ? spawn("cmd", ["/c", updPath], { detached: true, stdio: "ignore", cwd: workDir })
-            : spawn("bash", [updPath], { detached: true, stdio: "ignore", cwd: workDir })
+          const child =
+            os === "windows"
+              ? spawn("cmd", ["/c", updPath], { detached: true, stdio: "ignore", cwd: workDir })
+              : spawn("bash", [updPath], { detached: true, stdio: "ignore", cwd: workDir })
           child.unref()
           log.info("self-update script launched", { os, path: updPath, pid: child.pid })
           return c.json({ success: true as const })

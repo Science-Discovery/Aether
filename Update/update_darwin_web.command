@@ -2,35 +2,191 @@
 
 set -euo pipefail
 
-base="https://aether.aiphys.cn/download"
-meta_url="$base/latest-web-mac.yml"
-
+want="${1:-}"
 self="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-if [ -f "$self/aether" ] && [ -f "$self/Aether.command" ]; then
-  app="$self"
-elif [ -f "$self/../aether" ] && [ -f "$self/../Aether.command" ]; then
-  app="$(cd "$self/.." && pwd)"
-else
-  app="${HOME}/Applications/Aether-Web"
+fail() {
+  echo "$1"
+  exit 1
+}
+
+ver_from_name() {
+  local file name
+  file="$(basename "$1")"
+  name="${file%.dmg}"
+  if [[ "$name" =~ ([0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z]+)*)$ ]]; then
+    printf "%s" "${BASH_REMATCH[1]}"
+    return 0
+  fi
+  printf ""
+}
+
+cmp() {
+  local a b
+  a="${1#v}"
+  b="${2#v}"
+  a="${a%%-*}"
+  b="${b%%-*}"
+  local aa bb i x y
+  IFS=. read -r -a aa <<<"$a"
+  IFS=. read -r -a bb <<<"$b"
+  for i in 0 1 2 3; do
+    x="${aa[$i]:-0}"
+    y="${bb[$i]:-0}"
+    x=$((10#$x))
+    y=$((10#$y))
+    if [ "$x" -lt "$y" ]; then
+      echo lt
+      return 0
+    fi
+    if [ "$x" -gt "$y" ]; then
+      echo gt
+      return 0
+    fi
+  done
+  echo eq
+}
+
+major_minor() {
+  local v a b
+  v="${1#v}"
+  v="${v%%-*}"
+  IFS=. read -r a b _ <<<"$v"
+  printf "%s.%s" "${a:-0}" "${b:-0}"
+}
+
+detect_work() {
+  local dir base par
+  dir="$1"
+  base="$(basename "$dir")"
+  par="$(basename "$(dirname "$dir")")"
+  if [ "$base" = "Aether" ]; then
+    printf "%s" "$dir"
+    return 0
+  fi
+  if [ "$base" = "Update" ] && [ "$par" = "Aether" ]; then
+    printf "%s" "$(dirname "$dir")"
+    return 0
+  fi
+  if [ "$base" = "downloads" ] && [ "$par" = "Aether" ]; then
+    printf "%s" "$(dirname "$dir")"
+    return 0
+  fi
+  if [[ "$base" == aether-* ]] && [ "$par" = "Aether" ]; then
+    printf "%s" "$(dirname "$dir")"
+    return 0
+  fi
+  printf "%s" "$HOME/Applications/Aether"
+}
+
+pick_pkg() {
+  local dir want_ver file ver best_file best_ver
+  dir="$1"
+  want_ver="$2"
+  best_file=""
+  best_ver=""
+  shopt -s nullglob
+  for file in "$dir"/*.dmg; do
+    [ -f "$file" ] || continue
+    ver="$(ver_from_name "$file")"
+    if [ -z "$ver" ]; then
+      continue
+    fi
+    if [ -n "$want_ver" ] && [ "$ver" != "$want_ver" ]; then
+      continue
+    fi
+    if [ -z "$best_file" ]; then
+      best_file="$file"
+      best_ver="$ver"
+      continue
+    fi
+    if [ "$(cmp "$best_ver" "$ver")" = "lt" ]; then
+      best_file="$file"
+      best_ver="$ver"
+    fi
+  done
+  shopt -u nullglob
+  if [ -n "$best_file" ]; then
+    echo "$best_file|$best_ver"
+    return 0
+  fi
+  return 1
+}
+
+active_dir() {
+  local work link real file
+  work="$1"
+  link="$work/current"
+  if [ -L "$link" ]; then
+    real="$(cd "$(dirname "$link")" && pwd)/$(readlink "$link")"
+    if [ -d "$real" ] && [ -f "$real/.aether_web_version" ]; then
+      printf "%s" "$real"
+      return 0
+    fi
+  fi
+  if [ -f "$work/.aether_web_version" ]; then
+    local v
+    v="$(tr -d '[:space:]' <"$work/.aether_web_version")"
+    if [ -n "$v" ] && [ -d "$work/aether-$v" ]; then
+      printf "%s" "$work/aether-$v"
+      return 0
+    fi
+  fi
+  shopt -s nullglob
+  for file in "$work"/aether-*; do
+    [ -d "$file" ] || continue
+    if [ -f "$file/.aether_web_version" ]; then
+      printf "%s" "$file"
+      shopt -u nullglob
+      return 0
+    fi
+  done
+  shopt -u nullglob
+  printf ""
+}
+
+launch_file() {
+  local work
+  work="$1"
+  cat >"$work/Aether.command" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+root="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cur="$root/current"
+
+if [ -L "$cur" ] && [ -f "$cur/Aether.command" ]; then
+  exec "$cur/Aether.command"
 fi
 
-name="$(basename "$app")"
-parent="$(dirname "$app")"
-state="$app/.aether_web_version"
+echo "No active version found under: $root"
+exit 1
+EOF
+  chmod +x "$work/Aether.command"
+  xattr -cr "$work/Aether.command" >/dev/null 2>&1 || true
+}
 
-tmp="$(mktemp -d "${TMPDIR:-/tmp}/aether-web-update.XXXXXX")"
-meta="$tmp/latest-web-mac.yml"
-pkg=""
+work="$(detect_work "$self")"
+if [ "$(basename "$work")" != "Aether" ]; then
+  work="$work/Aether"
+fi
+mkdir -p "$work"
+
+echo "[0/4] 工作目录: $work"
+
+pick="$(pick_pkg "$self" "$want" || true)"
+[ -n "$pick" ] || fail "未在脚本目录找到可用 dmg（文件名需包含版本号）。目录: $self"
+
+pkg="${pick%%|*}"
+ver="${pick##*|}"
+target="$work/aether-$ver"
+
+echo "[1/4] 安装包: $(basename "$pkg")"
+echo "      目标版本: $ver"
+
+tmp="$(mktemp -d "${TMPDIR:-/tmp}/aether-web-install.XXXXXX")"
 mnt="$tmp/mount"
-ex="$tmp/extract"
-next="$parent/.${name}.next"
-old="$parent/.${name}.old"
-has_app="0"
-
-if [ -f "$app/aether" ] && [ -f "$app/Aether.command" ]; then
-  has_app="1"
-fi
+next="$work/.aether-$ver.next"
 
 cleanup() {
   hdiutil detach "$mnt" -quiet >/dev/null 2>&1 || true
@@ -38,131 +194,68 @@ cleanup() {
 }
 trap cleanup EXIT
 
-echo "[1/4] 检查远端版本..."
-curl -fsSL "$meta_url" -o "$meta"
-
-ver_remote="$(awk -F': ' '/^version:/{print $2; exit}' "$meta")"
-url_remote="$(awk '/- url:/{print $3; exit}' "$meta")"
-sha_remote="$(awk '/sha512:/{print $2; exit}' "$meta")"
-
-if [ -z "$ver_remote" ]; then
-  echo "无法读取远端版本号: $meta_url"
-  exit 1
-fi
-
-if [ -z "$url_remote" ]; then
-  url_remote="aether-darwin-arm64-web.dmg"
-fi
-
-pkg="$tmp/$(basename "$url_remote")"
-
-ver_local=""
-if [ -f "$state" ]; then
-  ver_local="$(tr -d '[:space:]' <"$state")"
-fi
-
-echo "本地版本: ${ver_local:-未记录}"
-echo "远端版本: $ver_remote"
-
-if [ "$has_app" = "1" ] && [ "$ver_local" = "$ver_remote" ]; then
-  echo "已是最新版本，无需更新。"
-  exit 0
-fi
-
-echo "[2/4] 下载新版本..."
-curl -fL "$base/$url_remote" -o "$pkg"
-
-if [ -n "$sha_remote" ]; then
-  sha_local="$(openssl dgst -sha512 -binary "$pkg" | openssl base64 -A)"
-  if [ "$sha_local" != "$sha_remote" ]; then
-    echo "下载文件校验失败（sha512 不一致），已停止更新。"
-    exit 1
-  fi
-fi
-
-echo "[3/4] 安装新版本..."
 rm -rf "$next"
-mkdir -p "$next"
+mkdir -p "$next" "$mnt"
 
-src=""
+hdiutil attach "$pkg" -nobrowse -readonly -mountpoint "$mnt" -quiet
 
-if [[ "$pkg" == *.dmg ]]; then
-  mkdir -p "$mnt"
-  hdiutil attach "$pkg" -nobrowse -readonly -mountpoint "$mnt" -quiet
-  src="$mnt"
-  if [ ! -f "$src/aether" ] || [ ! -f "$src/Aether.command" ]; then
-    shopt -s nullglob
-    dirs=("$mnt"/*/)
-    shopt -u nullglob
-    if [ "${#dirs[@]}" -eq 1 ] && [ -f "${dirs[0]}aether" ] && [ -f "${dirs[0]}Aether.command" ]; then
-      src="${dirs[0]%/}"
-    fi
-  fi
-elif [[ "$pkg" == *.zip ]]; then
-  rm -rf "$ex"
-  mkdir -p "$ex"
-  unzip -q -o "$pkg" -d "$ex"
-  src="$ex"
-  if [ ! -f "$src/aether" ] || [ ! -f "$src/Aether.command" ]; then
-    shopt -s nullglob
-    dirs=("$ex"/*/)
-    shopt -u nullglob
-    if [ "${#dirs[@]}" -eq 1 ] && [ -f "${dirs[0]}aether" ] && [ -f "${dirs[0]}Aether.command" ]; then
-      src="${dirs[0]%/}"
-    fi
-  fi
-else
-  echo "不支持的安装包格式: $pkg"
-  exit 1
-fi
-
+src="$mnt"
 if [ ! -f "$src/aether" ] || [ ! -f "$src/Aether.command" ]; then
-  echo "安装包内容结构不符合预期，未找到 aether 与 Aether.command。"
-  exit 1
+  shopt -s nullglob
+  dirs=("$mnt"/*/)
+  shopt -u nullglob
+  if [ "${#dirs[@]}" -eq 1 ] && [ -f "${dirs[0]}aether" ] && [ -f "${dirs[0]}Aether.command" ]; then
+    src="${dirs[0]%/}"
+  fi
 fi
 
+[ -f "$src/aether" ] || fail "安装包内容缺少 aether"
+[ -f "$src/Aether.command" ] || fail "安装包内容缺少 Aether.command"
+
+echo "[2/4] 解包并安装到: $target"
 ditto "$src" "$next"
 
-if [ -f "$next/aether" ]; then
-  chmod +x "$next/aether"
-fi
-
-if [ -f "$next/Aether.command" ]; then
-  chmod +x "$next/Aether.command"
-fi
-
-if [ -f "$next/aether" ] && [ -f "$next/Aether.command" ]; then
-  xattr -cr "$next/aether" "$next/Aether.command" || true
-fi
-
-printf "%s\n" "$ver_remote" >"$next/.aether_web_version"
-
-hdiutil detach "$mnt" -quiet
-
-mkdir -p "$parent"
-
-if [ "$has_app" = "1" ]; then
-  if [ -d "$old" ]; then
-    rm -rf "$old"
+old="$(active_dir "$work")"
+small=0
+if [ -n "$old" ] && [ -f "$old/.aether_web_version" ]; then
+  old_ver="$(tr -d '[:space:]' <"$old/.aether_web_version")"
+  if [ -n "$old_ver" ] && [ "$(major_minor "$old_ver")" = "$(major_minor "$ver")" ]; then
+    small=1
   fi
-  mv "$app" "$old"
-  mv "$next" "$app"
-else
-  if [ -d "$app" ]; then
-    echo "目标目录已存在但不是已安装实例: $app"
-    echo "请先清理该目录后重试，或将脚本放到已安装目录中执行更新。"
-    rm -rf "$next"
-    exit 1
-  fi
-  mv "$next" "$app"
 fi
 
-echo "[4/4] 删除旧版本..."
-rm -rf "$old"
-
-if [ "$has_app" = "1" ]; then
-  echo "更新完成，当前版本: $ver_remote"
-else
-  echo "安装完成，当前版本: $ver_remote"
-  echo "安装目录: $app"
+if [ "$small" = "1" ] && [ -n "${old:-}" ] && [ "$old" != "$target" ] && [ -d "$old/.opencode" ]; then
+  rm -rf "$next/.opencode"
+  cp -R "$old/.opencode" "$next/.opencode"
 fi
+
+rm -rf "$target"
+mv "$next" "$target"
+chflags nohidden "$target" >/dev/null 2>&1 || true
+
+shopt -s nullglob
+for dir in "$work"/aether-*; do
+  [ -d "$dir" ] || continue
+  chflags nohidden "$dir" >/dev/null 2>&1 || true
+done
+shopt -u nullglob
+
+chmod +x "$target/aether" "$target/Aether.command"
+xattr -cr "$target/aether" "$target/Aether.command" >/dev/null 2>&1 || true
+printf "%s\n" "$ver" >"$target/.aether_web_version"
+printf "%s\n" "$ver" >"$work/.aether_web_version"
+
+ln -sfn "aether-$ver" "$work/current"
+launch_file "$work"
+
+if [ "$small" = "1" ] && [ -n "${old:-}" ] && [ "$old" != "$target" ]; then
+  echo "[3/4] 小版本更新：替换旧目录并保留 .opencode"
+  rm -rf "$old"
+else
+  echo "[3/4] 大版本更新：保留旧版本目录"
+fi
+
+echo "[4/4] 完成"
+echo "当前版本: $ver"
+echo "版本目录: $target"
+echo "启动入口: $work/Aether.command"
