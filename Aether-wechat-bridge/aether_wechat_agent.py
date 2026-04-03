@@ -139,20 +139,29 @@ def output_qrcode_base64(qrcode_url: str) -> str:
 
 HELP_TEXT = """📋 可用命令：
 
-/new          开启新对话（清除当前会话上下文）
-/model        查看可用模型列表及当前模型
-/model n      切换到编号 n 的模型（由 /model 列表确定）
-/project      查看当前工作项目
-/project n    切换到编号 n 的项目
+/new             开启新对话（清除当前会话上下文）
+/model           查看模型列表
+/model list      查看全部模型
+/model n         切换到编号 n 的模型
+/project         查看项目列表
+/project list    查看全部项目
+/project n       切换到编号 n 的项目
 /project hide n  隐藏项目（在桌面端或微信端重新使用后自动恢复）
-/session      查看当前项目下的会话列表
-/session n    切换到当前项目下编号 n 的会话
-/help         显示此帮助信息"""
+/session         查看会话列表
+/session list    查看当前项目下全部会话
+/session n       切换到当前项目下编号 n 的会话
+/help            显示此帮助信息"""
 
 _HIDDEN_FILE: Path = (
     Path(SESSION_FILE).parent / "hidden_projects.json"
     if SESSION_FILE
     else Path.home() / ".config" / "aether-wechat" / "hidden_projects.json"
+)
+
+_MODEL_FILE: Path = (
+    Path(SESSION_FILE).parent / "model_order.json"
+    if SESSION_FILE
+    else Path.home() / ".config" / "aether-wechat" / "model_order.json"
 )
 
 
@@ -187,6 +196,7 @@ class AetherAgent(Agent):
         self._username = os.getenv("AETHER_USERNAME", "")
         self._password = os.getenv("AETHER_PASSWORD", "")
         self._hidden_dirs: dict[str, int] = {}  # worktree → 隐藏时的时间戳(ms)
+        self._model_order: dict[str, list[str]] = {}
 
     async def on_start(self) -> None:
         """初始化 HTTP 客户端"""
@@ -213,6 +223,20 @@ class AetherAgent(Agent):
         except Exception as e:
             logger.warning(f"加载隐藏项目失败: {e}")
         try:
+            if _MODEL_FILE.exists():
+                raw = json.loads(_MODEL_FILE.read_text(encoding="utf-8"))
+                self._model_order = (
+                    {
+                        str(k): [str(v) for v in vals if isinstance(v, str)]
+                        for k, vals in raw.items()
+                        if isinstance(vals, list)
+                    }
+                    if isinstance(raw, dict)
+                    else {}
+                )
+        except Exception as e:
+            logger.warning(f"加载模型排序失败: {e}")
+        try:
             session_id, created = await self._ensure_session(self.directory)
             logger.info(
                 f"默认会话: {session_id[:8]}... dir={self.directory} created={created}"
@@ -232,6 +256,122 @@ class AetherAgent(Agent):
             _HIDDEN_FILE.write_text(json.dumps(self._hidden_dirs), encoding="utf-8")
         except Exception as e:
             logger.warning(f"保存隐藏项目失败: {e}")
+
+    def _save_model_order(self) -> None:
+        try:
+            _MODEL_FILE.parent.mkdir(parents=True, exist_ok=True)
+            _MODEL_FILE.write_text(
+                json.dumps(self._model_order, ensure_ascii=False),
+                encoding="utf-8",
+            )
+        except Exception as e:
+            logger.warning(f"保存模型排序失败: {e}")
+
+    def _project_name(self, item: dict) -> str:
+        worktree = item.get("worktree", "")
+        return (
+            item.get("name")
+            or worktree.replace(chr(92), "/").rstrip("/").split("/")[-1]
+        )
+
+    def _current_project_line(self, conv_id: str) -> str:
+        directory = self._conv_dirs.get(conv_id) or self.directory
+        return f"📂 当前项目：{self._project_name({'name': '', 'worktree': directory})}"
+
+    async def _current_session_line(self, conv_id: str) -> str:
+        directory = self._conv_dirs.get(conv_id) or self.directory
+        current = self._sessions.get(conv_id)
+        items = self._session_list.get(conv_id)
+        if items is None:
+            items = await self._list_sessions(directory)
+            self._session_list[conv_id] = items
+        item = next((row for row in items if row.get("id") == current), None)
+        if not item and items:
+            item = items[0]
+        if not item:
+            return "🗂 当前会话：无"
+        title = item.get("title") or item["id"][:8]
+        return f"🗂 当前会话：{title}"
+
+    async def _current_lines(self, conv_id: str) -> list[str]:
+        return [
+            self._current_project_line(conv_id),
+            await self._current_session_line(conv_id),
+        ]
+
+    def _sort_models(self, data: dict) -> list[dict]:
+        providers = data.get("all", [])
+        connected = set(data.get("connected", []))
+        defaults = data.get("default", {})
+        items = []
+        next_order: dict[str, list[str]] = {}
+        for provider in providers:
+            pid = provider.get("id", "")
+            if pid not in connected:
+                continue
+            models = provider.get("models", {})
+            if not models:
+                continue
+            base = sorted(
+                models.keys(), key=lambda mid: (mid != defaults.get(pid, ""), mid)
+            )
+            saved = self._model_order.get(pid, [])
+            seen = set()
+            order = []
+            for mid in saved:
+                if mid in models and mid not in seen:
+                    order.append(mid)
+                    seen.add(mid)
+            for mid in base:
+                if mid not in seen:
+                    order.append(mid)
+                    seen.add(mid)
+            next_order[pid] = order
+            items.append(
+                {
+                    "id": pid,
+                    "name": provider.get("name", pid),
+                    "default": defaults.get(pid, ""),
+                    "order": order,
+                }
+            )
+        if next_order != self._model_order:
+            self._model_order = next_order
+            self._save_model_order()
+        return items
+
+    def _touch_model(self, model: str) -> None:
+        if "/" not in model:
+            return
+        pid, mid = model.split("/", 1)
+        order = self._model_order.get(pid, [])
+        next_order = [mid] + [item for item in order if item != mid]
+        if next_order != order:
+            self._model_order[pid] = next_order
+            self._save_model_order()
+
+    def _prune_hidden(self, projects: list[dict]) -> None:
+        if not self._hidden_dirs:
+            return
+        worktrees = {item.get("worktree", "") for item in projects}
+        keys = list(self._hidden_dirs.keys())
+        for worktree in keys:
+            if worktree not in worktrees:
+                del self._hidden_dirs[worktree]
+        if keys != list(self._hidden_dirs.keys()):
+            self._save_hidden_dirs()
+
+    def _pick(
+        self, items: list[dict], size: int, key: str, hide: Optional[set[str]] = None
+    ) -> list[tuple[int, dict]]:
+        rows = []
+        for idx, item in enumerate(items, 1):
+            if hide and item.get(key, "") in hide:
+                continue
+            rows.append((idx, item))
+            if len(rows) >= size:
+                break
+        return rows
 
     async def _get_projects(self) -> list[dict]:
         try:
@@ -279,6 +419,19 @@ class AetherAgent(Agent):
         items = await self._list_sessions(directory)
         self._session_list[conv_id] = items
 
+        if arg == "list":
+            current = self._sessions.get(conv_id)
+            lines = [*(await self._current_lines(conv_id)), "", "🗂 会话列表：", ""]
+            for i, item in enumerate(items, 1):
+                title = item.get("title") or item["id"][:8]
+                updated = self._format_session_time(item.get("time", {}).get("updated"))
+                tag = " ◀" if item["id"] == current else ""
+                lines.append(f"{i}. {title}{tag}")
+                lines.append(f"   {updated}")
+            if not items:
+                lines.append("（当前项目下还没有任何会话）")
+            return chr(10).join(lines)
+
         if arg:
             try:
                 idx = int(arg) - 1
@@ -305,15 +458,15 @@ class AetherAgent(Agent):
             return "📂 当前项目下还没有任何会话，已自动创建一个新会话并切换。"
 
         current = self._sessions.get(conv_id)
-        lines = ["🗂 当前项目会话列表：", ""]
-        for i, item in enumerate(items, 1):
+        lines = [*(await self._current_lines(conv_id)), "", "🗂 会话列表：", ""]
+        for i, item in enumerate(items[:10], 1):
             title = item.get("title") or item["id"][:8]
             updated = self._format_session_time(item.get("time", {}).get("updated"))
             tag = " ◀" if item["id"] == current else ""
             lines.append(f"{i}. {title}{tag}")
             lines.append(f"   {updated}")
         lines.append("")
-        lines.append("💡 /session n 切换会话")
+        lines.append("💡 /session n 切换会话 | /session list 查看全部")
         return chr(10).join(lines)
 
     async def _handle_slash_command(self, conv_id: str, text: str):
@@ -353,7 +506,9 @@ class AetherAgent(Agent):
             return "✅ 已开启新对话，上下文已清空。"
         if cmd == "/model":
             if not arg:
-                return await self._cmd_list_models(conv_id)
+                return await self._cmd_list_models(conv_id, False)
+            if arg == "list":
+                return await self._cmd_list_models(conv_id, True)
             # 数字编号切换
             if arg.isdigit():
                 return self._cmd_set_model_by_index(conv_id, int(arg))
@@ -364,7 +519,7 @@ class AetherAgent(Agent):
             return await self._cmd_session(conv_id, arg)
         return f"❓ 未知命令：{cmd}，发送 /help 查看可用命令。"
 
-    async def _cmd_list_models(self, conv_id: str) -> str:
+    async def _cmd_list_models(self, conv_id: str, full: bool) -> str:
         try:
             directory = self._conv_dirs.get(conv_id) or self.directory
             headers = (
@@ -377,33 +532,29 @@ class AetherAgent(Agent):
             logger.error(f"获取模型列表失败: {e}")
             return "❌ 无法获取模型列表，请检查 Aether 服务是否正常。"
         current = self._conv_models.get(conv_id) or self.default_model or "（全局默认）"
-        lines = [f"🤖 当前：{current}", "", "📦 可用模型："]
-        providers = data.get("all", [])
-        connected = set(data.get("connected", []))
-        defaults = data.get("default", {})
+        lines = [
+            *(await self._current_lines(conv_id)),
+            f"🤖 当前模型：{current}",
+            "",
+            "📦 可用模型：",
+        ]
         model_list: list[str] = []
-        for provider in providers:
-            pid = provider.get("id", "")
-            if pid not in connected:
-                continue
-            pname = provider.get("name", pid)
-            models = provider.get("models", {})
-            if not models:
-                continue
+        for provider in self._sort_models(data):
+            pid = provider["id"]
             lines.append(f"")
-            lines.append(f"【{pname}】")
-            default_mid = defaults.get(pid, "")
-            sorted_ids = sorted(models.keys(), key=lambda m: (m != default_mid, m))
-            for model_id in sorted_ids:
+            lines.append(f"【{provider['name']}】")
+            for pos, model_id in enumerate(provider["order"]):
                 model_list.append(f"{pid}/{model_id}")
                 num = len(model_list)
-                tag = " ★" if model_id == default_mid else ""
+                if not full and pos >= 5:
+                    continue
+                tag = " ★" if model_id == provider["default"] else ""
                 lines.append(f"  {num}. {pid}/{model_id}{tag}")
         self._model_list = model_list
-        if len(lines) <= 3:
+        if not model_list:
             lines.append("（暂无已配置的模型，请先在 Aether 中连接 provider）")
         lines.append("")
-        lines.append("💡 /model n 切换模型")
+        lines.append("💡 /model n 切换模型 | /model list 查看全部")
         return chr(10).join(lines)
 
     def _cmd_set_model_by_index(self, conv_id: str, n: int) -> str:
@@ -418,6 +569,7 @@ class AetherAgent(Agent):
         all_projects = await self._get_projects()
         if not all_projects:
             return "❌ 无法获取项目列表，请检查 Aether 服务是否正常。"
+        self._prune_hidden(all_projects)
 
         # 自动取消隐藏：检查哪些隐藏项目在隐藏后有新 session 活动
         if self._hidden_dirs:
@@ -442,20 +594,27 @@ class AetherAgent(Agent):
         # /project hide n
         if arg.startswith("hide "):
             del_arg = arg[5:].strip()
-            if not del_arg.isdigit() or not projects:
+            if not del_arg.isdigit() or not all_projects:
                 return "❌ 用法：/project hide n"
             idx = int(del_arg) - 1
-            if idx < 0 or idx >= len(projects):
-                return f"❌ 请输入 1~{len(projects)} 之间的数字。"
-            target = projects[idx]
+            if idx < 0 or idx >= len(all_projects):
+                return f"❌ 请输入 1~{len(all_projects)} 之间的数字。"
+            target = all_projects[idx]
             worktree = target.get("worktree", "")
             self._hidden_dirs[worktree] = int(datetime.now().timestamp() * 1000)
             self._save_hidden_dirs()
-            name = (
-                target.get("name")
-                or worktree.replace(chr(92), "/").rstrip("/").split("/")[-1]
-            )
+            name = self._project_name(target)
             return f"✅ 已隐藏：{name}\n（在桌面端或微信端重新使用后自动恢复）"
+
+        if arg == "list":
+            lines = [*(await self._current_lines(conv_id)), "", "📂 项目列表：", ""]
+            for idx, item in enumerate(all_projects, 1):
+                worktree = item.get("worktree", "")
+                tag = " ◀" if worktree == current_dir else ""
+                mark = " [已隐藏]" if worktree in self._hidden_dirs else ""
+                lines.append(f"{idx}. {self._project_name(item)}{tag}{mark}")
+                lines.append(f"   {worktree}")
+            return chr(10).join(lines)
 
         # /project n
         if arg:
@@ -463,9 +622,9 @@ class AetherAgent(Agent):
                 idx = int(arg) - 1
             except ValueError:
                 return "❌ 请输入项目编号，例如：/project 2"
-            if not projects or idx < 0 or idx >= len(projects):
-                return f"❌ 请输入 1~{len(projects)} 之间的数字。"
-            chosen = projects[idx]
+            if not all_projects or idx < 0 or idx >= len(all_projects):
+                return f"❌ 请输入 1~{len(all_projects)} 之间的数字。"
+            chosen = all_projects[idx]
             new_dir = chosen.get("worktree", "")
             self._conv_dirs[conv_id] = new_dir
             session_id, created = await self._ensure_session(new_dir)
@@ -473,12 +632,17 @@ class AetherAgent(Agent):
             self._session_list.pop(conv_id, None)
             self._fresh.discard(conv_id)
             self._conv_models.pop(conv_id, None)
-            name = (
-                chosen.get("name")
-                or new_dir.replace(chr(92), "/").rstrip("/").split("/")[-1]
-            )
+            if new_dir in self._hidden_dirs:
+                del self._hidden_dirs[new_dir]
+                self._save_hidden_dirs()
+            name = self._project_name(chosen)
             logger.info(f"[/project] {conv_id} -> {new_dir}")
-            note = "已创建新会话" if created else "已进入该项目最新会话"
+            note = "已创建新会话"
+            if not created:
+                items = await self._list_sessions(new_dir)
+                item = next((row for row in items if row.get("id") == session_id), None)
+                title = (item or {}).get("title") or session_id[:8]
+                note = f"已进入该项目最新会话：{title}"
             return f"✅ 已切换到：{name}\n   {new_dir}\n（{note}）"
 
         # /project（列表）
@@ -490,18 +654,18 @@ class AetherAgent(Agent):
             )
             return f"❌ 未找到任何项目。{hint}"
 
-        lines = ["📂 项目列表：", ""]
-        for i, p in enumerate(projects, 1):
-            worktree = p.get("worktree", "")
-            name = (
-                p.get("name")
-                or worktree.replace(chr(92), "/").rstrip("/").split("/")[-1]
-            )
+        lines = [*(await self._current_lines(conv_id)), "", "📂 项目列表：", ""]
+        for idx, item in self._pick(
+            all_projects, 10, "worktree", set(self._hidden_dirs)
+        ):
+            worktree = item.get("worktree", "")
             tag = " ◀" if worktree == current_dir else ""
-            lines.append(f"{i}. {name}{tag}")
+            lines.append(f"{idx}. {self._project_name(item)}{tag}")
             lines.append(f"   {worktree}")
         lines.append("")
-        lines.append("💡 /project n 切换 | /project hide n 隐藏")
+        lines.append(
+            "💡 /project n 切换 | /project list 查看全部 | /project hide n 隐藏"
+        )
         if self._hidden_dirs:
             lines.append(
                 f"ℹ️ 已隐藏 {len(self._hidden_dirs)} 个项目（重新使用后自动恢复）"
@@ -512,6 +676,7 @@ class AetherAgent(Agent):
         if "/" not in model_str:
             return "❌ 格式错误，请使用 provider/model 格式。\n例如：/model anthropic/claude-sonnet-4-5"
         self._conv_models[conv_id] = model_str
+        self._touch_model(model_str)
         logger.info(f"[/model] {conv_id} -> {model_str}")
         return f"✅ 已切换模型：{model_str}\n（仅对当前对话生效，/new 后将重置）"
 
@@ -556,11 +721,15 @@ class AetherAgent(Agent):
                 return ChatResponse(text=pending)
 
             if await self._is_session_busy(session_id, directory):
-                return ChatResponse(text=self._format_busy_reply(conv_id))
+                return ChatResponse(
+                    text=await self._format_busy_reply(conv_id, session_id, directory)
+                )
 
             task = self._tasks.get(conv_id)
             if task and not task.done():
-                return ChatResponse(text=self._format_busy_reply(conv_id))
+                return ChatResponse(
+                    text=await self._format_busy_reply(conv_id, session_id, directory)
+                )
 
             model = self._conv_models.get(conv_id) or self.default_model
 
@@ -670,7 +839,9 @@ class AetherAgent(Agent):
                 text_so_far = self._accumulated_text.pop(conv_id, "").strip()
                 if text_so_far and self._message_sender:
                     try:
-                        await self._message_sender(text_so_far)
+                        await self._message_sender(
+                            await self._wrap_message(text_so_far, session_id, directory)
+                        )
                     except Exception as e:
                         logger.warning(f"推送中间文本失败: {e}")
                 self._pending_questions[conv_id] = {
@@ -682,13 +853,19 @@ class AetherAgent(Agent):
                     "queue": q,
                 }
                 logger.info(f"[question] 推送问题到微信 {conv_id}")
-                return ChatResponse(text=self._format_question_request(data))
+                return ChatResponse(
+                    text=await self._wrap_message(
+                        self._format_question_request(data), session_id, directory
+                    )
+                )
 
             if kind == "permission":
                 text_so_far = self._accumulated_text.pop(conv_id, "").strip()
                 if text_so_far and self._message_sender:
                     try:
-                        await self._message_sender(text_so_far)
+                        await self._message_sender(
+                            await self._wrap_message(text_so_far, session_id, directory)
+                        )
                     except Exception as e:
                         logger.warning(f"推送中间文本失败: {e}")
                 self._pending_permissions[conv_id] = {
@@ -700,7 +877,11 @@ class AetherAgent(Agent):
                     "queue": q,
                 }
                 logger.info(f"[permission] 推送授权到微信 {conv_id}")
-                return ChatResponse(text=self._format_permission_request(data))
+                return ChatResponse(
+                    text=await self._wrap_message(
+                        self._format_permission_request(data), session_id, directory
+                    )
+                )
 
         sse_task = self._sse_tasks.pop(conv_id, None)
         if sse_task and not sse_task.done():
@@ -712,7 +893,11 @@ class AetherAgent(Agent):
 
         try:
             result = await task
-            return ChatResponse(text=result.get("formatted", "操作已完成"))
+            return ChatResponse(
+                text=await self._wrap_message(
+                    result.get("formatted", "操作已完成"), session_id, directory
+                )
+            )
         except asyncio.CancelledError:
             return ChatResponse(text="已取消。")
         except httpx.HTTPStatusError as e:
@@ -741,7 +926,13 @@ class AetherAgent(Agent):
                         "directory": directory,
                         "queue": None,
                     }
-                    return ChatResponse(text=self._format_question_request(question))
+                    return ChatResponse(
+                        text=await self._wrap_message(
+                            self._format_question_request(question),
+                            session_id,
+                            directory,
+                        )
+                    )
                 permission = await self._poll_permission_for_session(
                     session_id, directory
                 )
@@ -755,7 +946,11 @@ class AetherAgent(Agent):
                         "queue": None,
                     }
                     return ChatResponse(
-                        text=self._format_permission_request(permission)
+                        text=await self._wrap_message(
+                            self._format_permission_request(permission),
+                            session_id,
+                            directory,
+                        )
                     )
             except Exception as e:
                 logger.warning(f"轮询问题失败: {e}")
@@ -763,7 +958,11 @@ class AetherAgent(Agent):
         self._pending_permissions.pop(conv_id, None)
         try:
             result = await task
-            return ChatResponse(text=result.get("formatted", "操作已完成"))
+            return ChatResponse(
+                text=await self._wrap_message(
+                    result.get("formatted", "操作已完成"), session_id, directory
+                )
+            )
         except asyncio.CancelledError:
             return ChatResponse(text="已取消。")
         except Exception as e:
@@ -821,7 +1020,9 @@ class AetherAgent(Agent):
                 "directory": directory,
                 "queue": None,
             }
-            return self._format_question_request(question)
+            return await self._wrap_message(
+                self._format_question_request(question), session_id, directory
+            )
 
         permission = await self._poll_permission_for_session(session_id, directory)
         if permission:
@@ -833,20 +1034,26 @@ class AetherAgent(Agent):
                 "directory": directory,
                 "queue": None,
             }
-            return self._format_permission_request(permission)
+            return await self._wrap_message(
+                self._format_permission_request(permission), session_id, directory
+            )
 
         return None
 
-    def _format_busy_reply(self, conv_id: str) -> str:
+    async def _format_busy_reply(
+        self, conv_id: str, session_id: str, directory: str
+    ) -> str:
         if conv_id in self._pending_questions:
             state = "等待你的回答"
         elif conv_id in self._pending_permissions:
             state = "等待你的授权"
         else:
             state = "正在生成回复"
-        return (
+        return await self._wrap_message(
             f"当前会话{state}，请等待当前对话结束后再发送；"
-            "如需立即开始新问题，请先 /new 或切换 /session n。"
+            "如需立即开始新问题，请先 /new 或切换 /session n。",
+            session_id,
+            directory,
         )
 
     def _format_question_request(self, question: dict) -> str:
@@ -906,8 +1113,12 @@ class AetherAgent(Agent):
         if answers is None:
             self._pending_questions[conv_id] = pending
             return ChatResponse(
-                text="未识别，请回复数字编号。\n\n"
-                + self._format_question_request({"questions": questions})
+                text=await self._wrap_message(
+                    "未识别，请回复数字编号。\n\n"
+                    + self._format_question_request({"questions": questions}),
+                    session_id,
+                    directory,
+                )
             )
         try:
             headers = (
@@ -924,10 +1135,22 @@ class AetherAgent(Agent):
             logger.error(f"回复问题失败: {e}")
             self._pending_questions[conv_id] = pending
             err_msg = f"❌ 提交答案失败: {e}"
-            return ChatResponse(text=err_msg + chr(10) + "请重新发送您的答案。")
+            return ChatResponse(
+                text=await self._wrap_message(
+                    err_msg + chr(10) + "请重新发送您的答案。",
+                    session_id,
+                    directory,
+                )
+            )
 
         if task is None:
-            return ChatResponse(text="已提交回答，请等待当前对话继续处理。")
+            return ChatResponse(
+                text=await self._wrap_message(
+                    "已提交回答，请等待当前对话继续处理。",
+                    session_id,
+                    directory,
+                )
+            )
 
         if q is not None:
             return await self._wait_for_response(
@@ -953,8 +1176,12 @@ class AetherAgent(Agent):
         if not reply:
             self._pending_permissions[conv_id] = pending
             return ChatResponse(
-                text="未识别，请回复数字编号。\n\n"
-                + self._format_permission_request(pending["permission"])
+                text=await self._wrap_message(
+                    "未识别，请回复数字编号。\n\n"
+                    + self._format_permission_request(pending["permission"]),
+                    session_id,
+                    directory,
+                )
             )
 
         try:
@@ -971,15 +1198,25 @@ class AetherAgent(Agent):
         except Exception as e:
             logger.error(f"回复授权失败: {e}")
             self._pending_permissions[conv_id] = pending
-            return ChatResponse(text=f"❌ 提交授权失败: {e}\n请重新发送您的选择。")
+            return ChatResponse(
+                text=await self._wrap_message(
+                    f"❌ 提交授权失败: {e}\n请重新发送您的选择。",
+                    session_id,
+                    directory,
+                )
+            )
 
         if task is None:
             return ChatResponse(
-                text={
-                    "once": "已收到授权：允许一次，请等待当前对话继续处理。",
-                    "always": "已收到授权：始终允许，请等待当前对话继续处理。",
-                    "reject": "已提交拒绝，请等待当前对话继续处理。",
-                }[reply]
+                text=await self._wrap_message(
+                    {
+                        "once": "已收到授权：允许一次，请等待当前对话继续处理。",
+                        "always": "已收到授权：始终允许，请等待当前对话继续处理。",
+                        "reject": "已提交拒绝，请等待当前对话继续处理。",
+                    }[reply],
+                    session_id,
+                    directory,
+                )
             )
 
         if self._message_sender:
@@ -989,7 +1226,9 @@ class AetherAgent(Agent):
                     "always": "已收到授权：始终允许，继续处理中。",
                     "reject": "已收到你的选择：拒绝，正在继续处理。",
                 }[reply]
-                await self._message_sender(notice)
+                await self._message_sender(
+                    await self._wrap_message(notice, session_id, directory)
+                )
             except Exception as e:
                 logger.warning(f"推送授权确认失败: {e}")
 
@@ -1049,6 +1288,8 @@ class AetherAgent(Agent):
             "agent": self.default_agent,
         }
         effective_model = model or self.default_model
+        if effective_model:
+            self._touch_model(effective_model)
         if effective_model:
             if "/" in effective_model:
                 provider, mdl = effective_model.split("/", 1)
