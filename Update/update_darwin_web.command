@@ -6,6 +6,13 @@ want="${1:-}"
 self="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 base="$(basename "$self")"
 work="$(dirname "$self")"
+launch=""
+launch_note=""
+restart="0"
+
+if [ "${2:-}" = "--restart" ]; then
+  restart="1"
+fi
 
 fail() {
   echo "$1"
@@ -114,24 +121,69 @@ active_dir() {
 }
 
 write_launch() {
-  local root
+  local root target
   root="$1"
-  cat >"$root/Aether.command" <<'EOF'
+  build_app() {
+    local dir app bin
+    dir="$1"
+    app="$dir/Aether.app"
+    bin="$app/Contents/MacOS/Aether"
+    rm -rf "$app"
+    mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
+    cat >"$bin" <<EOF
 #!/usr/bin/env bash
 set -euo pipefail
 
-root="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-cur="$root/current"
+root="$root"
+cur="\$root/current"
 
-if [ -L "$cur" ] && [ -f "$cur/Aether.command" ]; then
-  exec "$cur/Aether.command"
+if [ -L "\$cur" ] && [ -f "\$cur/Aether.command" ]; then
+  nohup "\$cur/Aether.command" >/dev/null 2>&1 &
+  exit 0
 fi
 
 echo "No active version found under: $root"
 exit 1
 EOF
-  chmod +x "$root/Aether.command"
-  xattr -cr "$root/Aether.command" >/dev/null 2>&1 || true
+    chmod +x "$bin"
+    cat >"$app/Contents/Info.plist" <<'EOF'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleName</key>
+  <string>Aether</string>
+  <key>CFBundleDisplayName</key>
+  <string>Aether</string>
+  <key>CFBundleIdentifier</key>
+  <string>cn.aiphys.aether.web</string>
+  <key>CFBundleVersion</key>
+  <string>1</string>
+  <key>CFBundleShortVersionString</key>
+  <string>1.0</string>
+  <key>CFBundlePackageType</key>
+  <string>APPL</string>
+  <key>CFBundleExecutable</key>
+  <string>Aether</string>
+  <key>LSMinimumSystemVersion</key>
+  <string>11.0</string>
+</dict>
+</plist>
+EOF
+    xattr -cr "$app" >/dev/null 2>&1 || true
+  }
+
+  target="/Applications"
+  if build_app "$target" 2>/dev/null; then
+    launch="$target/Aether.app"
+    return 0
+  fi
+
+  target="$HOME/Applications"
+  mkdir -p "$target"
+  build_app "$target"
+  launch="$target/Aether.app"
+  launch_note="无法写入 /Applications，已回退到 $launch。你可手动复制该 App 到 /Applications。"
 }
 
 if [ "$base" != "downloads" ]; then
@@ -196,11 +248,6 @@ if [ -n "$old" ] && [ -f "$old/.aether_web_version" ]; then
   fi
 fi
 
-if [ "$small" = "1" ] && [ -n "${old:-}" ] && [ "$old" != "$target" ] && [ -d "$old/.opencode" ]; then
-  rm -rf "$next/.opencode"
-  cp -R "$old/.opencode" "$next/.opencode"
-fi
-
 rm -rf "$target"
 mv "$next" "$target"
 chflags nohidden "$target" >/dev/null 2>&1 || true
@@ -213,15 +260,34 @@ done
 shopt -u nullglob
 
 chmod +x "$target/aether" "$target/Aether.command"
+uv="$target/wechat-bridge/runtime/uv/uv-0.6.14-aarch64-apple-darwin/uv"
+if [ -f "$uv" ]; then
+  chmod +x "$uv"
+fi
 xattr -cr "$target/aether" "$target/Aether.command" >/dev/null 2>&1 || true
+if [ -f "$uv" ]; then
+  xattr -cr "$uv" >/dev/null 2>&1 || true
+fi
 printf "%s\n" "$ver" >"$target/.aether_web_version"
 printf "%s\n" "$ver" >"$work/.aether_web_version"
 
 ln -sfn "aether_$ver" "$work/current"
 write_launch "$work"
 
+if [ "$restart" = "1" ]; then
+  if [ -n "$old" ]; then
+    pkill -f "$old/Aether.command" >/dev/null 2>&1 || true
+    pkill -f "$old/aether web" >/dev/null 2>&1 || true
+    pkill -f "$old/aether serve" >/dev/null 2>&1 || true
+  fi
+  pkill -f "$work/current/Aether.command" >/dev/null 2>&1 || true
+  pkill -f "$work/current/aether web" >/dev/null 2>&1 || true
+  pkill -f "$work/current/aether serve" >/dev/null 2>&1 || true
+  nohup "$work/current/Aether.command" >/dev/null 2>&1 &
+fi
+
 if [ "$small" = "1" ] && [ -n "${old:-}" ] && [ "$old" != "$target" ]; then
-  echo "[3/4] 小版本更新：替换旧目录并保留 .opencode"
+  echo "[3/4] 小版本更新：替换旧目录"
   rm -rf "$old"
 else
   echo "[3/4] 大版本更新：保留旧版本目录"
@@ -230,4 +296,7 @@ fi
 echo "[4/4] 完成"
 echo "当前版本: $ver"
 echo "版本目录: $target"
-echo "启动入口: $work/Aether.command"
+echo "启动入口: $launch"
+if [ -n "$launch_note" ]; then
+  echo "$launch_note"
+fi

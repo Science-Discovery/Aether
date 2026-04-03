@@ -1,12 +1,13 @@
 # Aether Windows 安装入口设计
 
-这个脚本是 Windows 版本安装入口，不直接执行具体版本的安装脚本，而是负责：
+这个脚本是 Windows 版本安装入口，负责：
 
 - 选择或推导工作目录
 - 拉取远端 `yml` 元数据
 - 下载目标版本压缩包和对应版本安装脚本
 - 输出标准退出码
 - 生成 `last-result.yml`，供 Aether 软件读取并决定后续交互
+- 在 `init` 模式下，下载完成后直接执行对应版本安装脚本完成首次安装
 
 文件：
 
@@ -15,7 +16,7 @@
 ## 模式
 
 - `init`
-  首次安装入口。默认工作目录是 `%LOCALAPPDATA%\Programs\Aether`，允许用户改路径。
+  首次安装入口。默认工作目录是 `%USERPROFILE%\Applications\Aether`，默认不交互。可通过 `--path <dir>` 指定父目录。下载完成后会自动执行下载到本地的版本安装脚本。
 - `auto <current-version>`
   自动更新检查。用于 Aether 软件后台调用。
 - `manual <target-version>`
@@ -24,10 +25,9 @@
 ## 工作目录
 
 - `init`
-  使用用户输入路径，默认 `%LOCALAPPDATA%\Programs\Aether`
+  默认工作目录为 `%USERPROFILE%\Applications\Aether`。若传入 `--path <dir>`，则输入的是父目录，实际工作目录固定归一化为 `父目录\Aether`。
 - `auto` 和 `manual`
-  默认取安装器所在目录的上一层
-  如果安装器直接放在工作目录根下，则直接使用脚本所在目录
+  默认使用安装器脚本所在目录（即 `...\Aether`）
 
 ## 脚本职责
 
@@ -37,12 +37,13 @@
 2. 得到目标版本、压缩包地址、版本安装脚本地址
 3. 下载到 `工作目录\downloads`
 4. 把结果写入 `工作目录\downloads\last-result.yml`
-5. 用退出码把状态返回给 Aether
+5. `init` 模式直接执行下载到本地的版本安装脚本
+6. 用退出码把状态返回给 Aether
 
 说明：
 
-- 入口脚本不再直接执行远端版本安装脚本
-- 具体是否提示用户、是否开始安装、何时重启，都由 Aether 软件决定
+- `init`：会直接执行下载到本地的版本安装脚本。
+- `auto` / `manual`：只下载并写结果，不直接安装。
 
 ## 远端约定
 
@@ -89,9 +90,9 @@ notes_url: windows/1.2.3/notes.md
 - `0`
   `init` 成功结束
 - `10`
-  发现并下载了最新版本，等待 Aether 决定是否安装
+  发现并下载了最新版本
 - `11`
-  指定版本存在且已下载完成，等待 Aether 决定是否安装
+  指定版本存在且已下载完成
 - `20`
   当前已经是最新版本
 - `21`
@@ -102,6 +103,8 @@ notes_url: windows/1.2.3/notes.md
   文件下载失败
 - `32`
   文件校验失败
+- `33`
+  `init` 模式执行本地安装脚本失败
 - `40`
   工作目录创建失败或无权限
 - `50`
@@ -116,18 +119,18 @@ notes_url: windows/1.2.3/notes.md
 示例：
 
 ```yml
-mode: 'auto'
-status: 'update_ready'
+mode: "auto"
+status: "update_ready"
 code: 10
-current_version: '1.2.2'
-target_version: '1.2.3'
-requested_version: ''
+current_version: "1.2.2"
+target_version: "1.2.3"
+requested_version: ""
 work_dir: 'C:\Users\name\AppData\Local\Programs\Aether'
 download_dir: 'C:\Users\name\AppData\Local\Programs\Aether\downloads'
 package_path: 'C:\Users\name\AppData\Local\Programs\Aether\downloads\aether-1.2.3.zip'
 installer_path: 'C:\Users\name\AppData\Local\Programs\Aether\downloads\install.bat'
-manifest_url: 'https://aether.aiphys.cn/download/latest/windows-x64.yml'
-notes_url: 'https://aether.aiphys.cn/download/1.2.3/notes.md'
+manifest_url: "https://aether.aiphys.cn/download/latest/windows-x64.yml"
+notes_url: "https://aether.aiphys.cn/download/1.2.3/notes.md"
 ```
 
 常见 `status`：
@@ -155,6 +158,7 @@ notes_url: 'https://aether.aiphys.cn/download/1.2.3/notes.md'
 
 ```bat
 Update\aether_windows_installer.bat init
+Update\aether_windows_installer.bat --path C:\Users\name\Desktop init
 Update\aether_windows_installer.bat auto 1.2.3
 Update\aether_windows_installer.bat manual 1.2.0
 Update\aether_windows_installer.bat --no-pause auto 1.2.3

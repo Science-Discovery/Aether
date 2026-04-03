@@ -1,12 +1,13 @@
 # Aether Linux 安装入口设计
 
-这个脚本是 Linux 版本安装入口，不直接执行具体版本的安装脚本，而是负责：
+这个脚本是 Linux 版本安装入口，负责：
 
 - 选择或推导工作目录
 - 拉取远端 `yml` 元数据
 - 下载目标版本压缩包和对应版本安装脚本
 - 输出标准退出码
 - 生成 `last-result.yml`，供 Aether 软件读取并决定后续交互
+- 在 `init` 模式下，下载完成后直接执行对应版本安装脚本完成首次安装
 
 文件：
 
@@ -15,7 +16,7 @@
 ## 模式
 
 - `init`
-  首次安装入口。默认工作目录是 `~/Applications/Aether`，允许用户改路径。
+  首次安装入口。默认工作目录是 `~/Applications/Aether`，默认不交互。可通过 `--path <dir>` 指定父目录。下载完成后会自动执行下载到本地的版本安装脚本。
 - `auto <current-version>`
   自动更新检查。用于 Aether 软件后台调用。
 - `manual <target-version>`
@@ -24,10 +25,9 @@
 ## 工作目录
 
 - `init`
-  使用用户输入路径，默认 `~/Applications/Aether`
+  默认工作目录为 `~/Applications/Aether`。若传入 `--path <dir>`，则输入的是父目录，实际工作目录固定归一化为 `父目录/Aether`。
 - `auto` 和 `manual`
-  默认取安装器所在目录的上一层
-  如果安装器直接放在工作目录根下，则直接使用脚本所在目录
+  默认使用安装器脚本所在目录（即 `.../Aether`）
 
 ## 远端约定
 
@@ -62,7 +62,10 @@ notes_url: 1.2.3/notes.md
 - 退出码
 - `工作目录/downloads/last-result.yml`
 
-脚本不会直接执行下载到本地的版本安装脚本。
+说明：
+
+- `init`：会直接执行下载到本地的版本安装脚本。
+- `auto` / `manual`：只下载并写结果，不直接安装。
 
 ## 退出码
 
@@ -74,6 +77,7 @@ notes_url: 1.2.3/notes.md
 - `30` 元数据拉取失败或网络错误
 - `31` 文件下载失败
 - `32` 文件校验失败
+- `33` `init` 模式执行本地安装脚本失败
 - `40` 工作目录创建失败或无权限
 - `50` 参数错误
 
@@ -86,18 +90,18 @@ notes_url: 1.2.3/notes.md
 示例：
 
 ```yml
-mode: 'manual'
-status: 'manual_ready'
+mode: "manual"
+status: "manual_ready"
 code: 11
-current_version: ''
-target_version: '1.2.3'
-requested_version: '1.2.3'
-work_dir: '/home/name/Applications/Aether'
-download_dir: '/home/name/Applications/Aether/downloads'
-package_path: '/home/name/Applications/Aether/downloads/aether-1.2.3-linux-x64.tar.gz'
-installer_path: '/home/name/Applications/Aether/downloads/install-linux.sh'
-manifest_url: 'https://aether.aiphys.cn/download/1.2.3/linux-x64.yml'
-notes_url: 'https://aether.aiphys.cn/download/1.2.3/notes.md'
+current_version: ""
+target_version: "1.2.3"
+requested_version: "1.2.3"
+work_dir: "/home/name/Applications/Aether"
+download_dir: "/home/name/Applications/Aether/downloads"
+package_path: "/home/name/Applications/Aether/downloads/aether-1.2.3-linux-x64.tar.gz"
+installer_path: "/home/name/Applications/Aether/downloads/install-linux.sh"
+manifest_url: "https://aether.aiphys.cn/download/1.2.3/linux-x64.yml"
+notes_url: "https://aether.aiphys.cn/download/1.2.3/notes.md"
 ```
 
 ## 暂停行为
@@ -110,6 +114,7 @@ notes_url: 'https://aether.aiphys.cn/download/1.2.3/notes.md'
 
 ```bash
 Update/aether_linux_installer.sh init
+Update/aether_linux_installer.sh --path /home/name/Desktop init
 Update/aether_linux_installer.sh auto 1.2.3
 Update/aether_linux_installer.sh manual 1.2.0
 Update/aether_linux_installer.sh --no-pause auto 1.2.3

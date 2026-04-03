@@ -5,8 +5,9 @@ set -euo pipefail
 base="https://aether.aiphys.cn/download"
 latest="latest/linux-x64.yml"
 default="$HOME/Applications/Aether"
-mode="${1:-init}"
-arg="${2:-}"
+mode="init"
+arg=""
+path_arg=""
 hold=0
 nohold=0
 
@@ -18,14 +19,37 @@ miss=21
 meta_err=30
 dl_err=31
 sum_err=32
+run_err=33
 dir_err=40
 arg_err=50
 
-if [ "${1:-}" = "--no-pause" ]; then
-  nohold=1
-  mode="${2:-init}"
-  arg="${3:-}"
-fi
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --no-pause)
+      nohold=1
+      ;;
+    --path)
+      shift
+      if [ "$#" -eq 0 ]; then
+        echo "--path needs a value"
+        exit "$arg_err"
+      fi
+      path_arg="$1"
+      ;;
+    init|auto|manual|help|-h|--help)
+      mode="$1"
+      ;;
+    *)
+      if [ -z "$arg" ]; then
+        arg="$1"
+      else
+        echo "Unsupported argument: $1"
+        exit "$arg_err"
+      fi
+      ;;
+  esac
+  shift
+done
 
 if [ "$mode" = "init" ] && [ "$nohold" = "0" ]; then
   hold=1
@@ -51,6 +75,7 @@ manifest_url=""
 res=""
 res_file=""
 fetch_http=""
+keep="3"
 
 done_hold() {
   if [ "$hold" = "1" ]; then
@@ -82,6 +107,7 @@ result() {
   [ "$res" = "meta_error" ] && code="$meta_err"
   [ "$res" = "download_error" ] && code="$dl_err"
   [ "$res" = "checksum_error" ] && code="$sum_err"
+  [ "$res" = "run_error" ] && code="$run_err"
   [ "$res" = "dir_error" ] && code="$dir_err"
   [ "$res" = "arg_error" ] && code="$arg_err"
   {
@@ -117,10 +143,21 @@ prep() {
   mkdir -p "$1" 2>/dev/null
 }
 
+normalize_work() {
+  local dir base
+  dir="$1"
+  base="$(basename "$dir")"
+  if [ "$base" = "Aether" ]; then
+    printf "%s" "$dir"
+    return 0
+  fi
+  printf "%s/Aether" "$dir"
+}
+
 workdir() {
   local dir
   dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-  if [[ "$(basename "$dir")" == aether-* ]]; then
+  if [[ "$(basename "$dir")" == aether_* ]]; then
     cd "$dir/.." && pwd
     return 0
   fi
@@ -181,7 +218,6 @@ parse() {
     /^[^[:space:]]/ { sec="" }
     sec=="installer" && /^[[:space:]]+url:[[:space:]]*/ { sub(/^[[:space:]]+url:[[:space:]]*/, ""); print; exit }
   ' "$1")"
-  # fallback: parse files: list (electron-builder format)
   if [ -z "$pkg" ]; then
     pkg="$(awk '
       /^files:[[:space:]]*$/ { sec="files"; next }
@@ -223,22 +259,109 @@ manifest() {
 grab() {
   dl="$work/downloads"
   mkdir -p "$dl" || return "$dir_err"
-  pkg_file="$dl/$pkg_name"
-  echo "Downloading package:"
-  echo "  $pkg_url"
-  fetch_file "$pkg_url" "$pkg_file" || return "$dl_err"
+  local pkg_ext ins_ext need_pkg need_ins sum
+
+  pkg_ext="${pkg_name##*.}"
+  if [ "$pkg_ext" = "$pkg_name" ]; then
+    pkg_ext=""
+  else
+    pkg_ext=".$pkg_ext"
+  fi
+  pkg_file="$dl/aether-linux-x64-web-$ver$pkg_ext"
+
+  need_pkg=1
+  if [ -f "$pkg_file" ]; then
+    if [ -n "$sha" ]; then
+      sum="$(openssl dgst -sha512 -binary "$pkg_file" | openssl base64 -A || true)"
+      if [ "$sum" = "$sha" ]; then
+        need_pkg=0
+      fi
+    else
+      need_pkg=0
+    fi
+  fi
+
+  if [ "$need_pkg" = "1" ]; then
+    echo "Downloading package:"
+    echo "  $pkg_url"
+    fetch_file "$pkg_url" "$pkg_file" || return "$dl_err"
+  else
+    echo "Using cached package:"
+    echo "  $pkg_file"
+  fi
+
   if [ -n "$sha" ]; then
-    local sum
     sum="$(openssl dgst -sha512 -binary "$pkg_file" | openssl base64 -A)"
     [ "$sum" = "$sha" ] || return "$sum_err"
   fi
+
   if [ -n "$ins_url" ] && [ -n "$ins_name" ]; then
-    ins_file="$dl/$ins_name"
-    echo "Downloading installer:"
-    echo "  $ins_url"
-    fetch_file "$ins_url" "$ins_file" || return "$dl_err"
+    ins_ext="${ins_name##*.}"
+    if [ "$ins_ext" = "$ins_name" ]; then
+      ins_ext=""
+    else
+      ins_ext=".$ins_ext"
+    fi
+    ins_file="$dl/update_linux_web-$ver$ins_ext"
+
+    need_ins=1
+    if [ -f "$ins_file" ]; then
+      need_ins=0
+    fi
+
+    if [ "$need_ins" = "1" ]; then
+      echo "Downloading installer:"
+      echo "  $ins_url"
+      fetch_file "$ins_url" "$ins_file" || return "$dl_err"
+    else
+      echo "Using cached installer:"
+      echo "  $ins_file"
+    fi
+    chmod +x "$ins_file" 2>/dev/null || true
   else
     ins_file=""
+  fi
+
+  prune
+}
+
+prune() {
+  dl="${dl:-$work/downloads}"
+  [ -d "$dl" ] || return 0
+  local arr n cut i list item
+
+  shopt -s nullglob
+  arr=("$dl"/aether-linux-x64-web-*.*)
+  shopt -u nullglob
+  n="${#arr[@]}"
+  if [ "$n" -gt "$keep" ]; then
+    list="$(printf "%s\n" "${arr[@]}" | sort -V)"
+    cut=$((n - keep))
+    i=0
+    while IFS= read -r item; do
+      [ -n "$item" ] || continue
+      if [ "$i" -lt "$cut" ]; then
+        rm -f "$item"
+      fi
+      i=$((i + 1))
+    done <<<"$list"
+  fi
+
+  shopt -s nullglob
+  arr=("$dl"/update_linux_web-*.sh)
+  shopt -u nullglob
+  n="${#arr[@]}"
+  if [ "$n" -gt "$keep" ]; then
+    list="$(printf "%s\n" "${arr[@]}" | sort -V)"
+    cut=$((n - keep))
+    i=0
+    while IFS= read -r item; do
+      [ -n "$item" ] || continue
+      if [ "$i" -lt "$cut" ]; then
+        rm -f "$item"
+      fi
+      i=$((i + 1))
+    done <<<"$list"
   fi
 }
 
@@ -247,7 +370,7 @@ help() {
 Aether Linux Installer
 
 Usage:
-  $(basename "$0") [--no-pause] init
+  $(basename "$0") [--no-pause] [--path <dir>] init
   $(basename "$0") [--no-pause] auto <current-version>
   $(basename "$0") [--no-pause] manual <target-version>
 
@@ -267,6 +390,7 @@ Exit codes:
   30  manifest or network error
   31  download failed
   32  checksum mismatch
+  33  init install run failed
   40  work directory error
   50  argument error
 EOF
@@ -280,11 +404,9 @@ fi
 if [ "$mode" = "init" ]; then
   echo "Aether Linux Installer"
   echo
-  echo "Default work directory:"
-  echo "  $default"
-  echo
-  read -r -p "Press Enter to use default, or input another path: " work
-  work="${work:-$default}"
+  work="$(normalize_work "${path_arg:-$default}")"
+  echo "Install directory:"
+  echo "  $work"
   prep "$work" || {
     res="dir_error"
     result
@@ -292,13 +414,17 @@ if [ "$mode" = "init" ]; then
     echo "Work directory failed."
     fail "$dir_err"
   }
-  cp "$0" "$work/$(basename "$0")" 2>/dev/null || {
-    res="dir_error"
-    result
-    echo
-    echo "Failed to copy installer to $work"
-    fail "$dir_err"
-  }
+  local_self="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
+  local_dst="$work/$(basename "$0")"
+  if [ "$local_self" != "$local_dst" ]; then
+    cp "$0" "$local_dst" 2>/dev/null || {
+      res="dir_error"
+      result
+      echo
+      echo "Failed to copy installer to $work"
+      fail "$dir_err"
+    }
+  fi
   manifest_url="$base/$latest"
   manifest "$manifest_url" latest || {
     res="meta_error"
@@ -325,8 +451,25 @@ if [ "$mode" = "init" ]; then
   echo "Installer: $ins_file"
   echo "Result:    $res_file"
   echo
-  echo "Next step:"
-  echo "  Let Aether read last-result.yml and continue the installation flow."
+  if [ -n "$ins_file" ]; then
+    echo "[init] Running installer script..."
+    if ! (cd "$work/downloads" && bash "$(basename "$ins_file")" "$ver"); then
+      res="run_error"
+      result
+      echo
+      echo "Install step failed while running: $ins_file"
+      fail "$run_err"
+    fi
+  else
+    res="run_error"
+    result
+    echo
+    echo "Install step failed: installer script missing in manifest."
+    fail "$run_err"
+  fi
+
+  mkdir -p "$HOME/Aether_Database" 2>/dev/null || true
+
   done_hold
   exit 0
 fi

@@ -59,6 +59,50 @@ const UPDATE_SCRIPT: Record<string, string> = {
   windows: "update_windows_web.bat",
 }
 
+const UPDATE_PKG_EXT: Record<string, string> = {
+  darwin: ".dmg",
+  linux: ".zip",
+  windows: ".zip",
+}
+
+async function downloadedReady(os: string, ver: string) {
+  const script = await findInstallerScript(os)
+  if (!script) return false
+  const file = UPDATE_SCRIPT[os]
+  if (!file) return false
+  const ext = UPDATE_PKG_EXT[os] ?? ".dmg"
+  const work = computeWorkDir(script)
+  const dl = path.join(work, "downloads")
+  const upd = path.join(dl, versioned(file, ver))
+  try {
+    await fs.access(upd)
+  } catch {
+    return false
+  }
+  const files = await fs.readdir(dl).catch(() => [])
+  return files.some((x) => x.toLowerCase().endsWith(ext) && x.includes(ver))
+}
+
+function versioned(name: string, ver: string) {
+  const idx = name.lastIndexOf(".")
+  if (idx < 0) return `${name}-${ver}`
+  return `${name.slice(0, idx)}-${ver}${name.slice(idx)}`
+}
+
+function compareVer(a: string, b: string) {
+  const norm = (v: string) => v.replace(/^v/i, "").split("-")[0].split(".").map((x) => Number.parseInt(x || "0", 10) || 0)
+  const x = norm(a)
+  const y = norm(b)
+  const len = Math.max(x.length, y.length, 3)
+  for (let i = 0; i < len; i++) {
+    const p = x[i] ?? 0
+    const q = y[i] ?? 0
+    if (p < q) return -1
+    if (p > q) return 1
+  }
+  return 0
+}
+
 function getWorkDir(): string | null {
   const dir = getAppRoot()
   const base = path.basename(dir)
@@ -489,6 +533,7 @@ export const GlobalRoutes = lazy(() =>
                     currentVersion: z.string(),
                     remoteVersion: z.string(),
                     updateAvailable: z.boolean(),
+                    downloaded: z.boolean(),
                   }),
                 ),
               },
@@ -531,10 +576,13 @@ export const GlobalRoutes = lazy(() =>
             } catch {}
           }
           if (!currentVersion) currentVersion = Installation.VERSION
+          const updateAvailable = compareVer(currentVersion, remoteVersion) < 0
+          const downloaded = updateAvailable ? await downloadedReady(os, remoteVersion) : false
           return c.json({
             currentVersion,
             remoteVersion,
-            updateAvailable: remoteVersion !== currentVersion,
+            updateAvailable,
+            downloaded,
           })
         } catch (e) {
           const message = e instanceof Error ? e.message : String(e)
@@ -584,6 +632,9 @@ export const GlobalRoutes = lazy(() =>
           await fs.chmod(scriptPath, 0o755)
         } catch {}
         const workDir = computeWorkDir(scriptPath)
+        if (await downloadedReady(os, version)) {
+          return c.json({ success: true as const, path: path.join(workDir, "downloads", versioned(upd, version)) })
+        }
         const currentVersion = (() => {
           try {
             const state = Bun.file(path.join(workDir, ".aether_web_version"))
@@ -598,6 +649,9 @@ export const GlobalRoutes = lazy(() =>
         log.info("running installer auto mode", { os, script: scriptPath, version, workDir })
         try {
           const cur = await currentVersion
+          if (compareVer(cur, version) >= 0) {
+            return c.json({ success: false as const, error: "No upgrade needed" })
+          }
           const exitCode = await new Promise<number>((resolve, reject) => {
             const cmd = os === "windows" ? "cmd" : "bash"
             const cmdArgs = os === "windows" ? ["/c", scriptPath, "auto", cur] : [scriptPath, "auto", cur]
@@ -607,7 +661,7 @@ export const GlobalRoutes = lazy(() =>
           })
 
           const dl = path.join(workDir, "downloads")
-          const scriptInDownloads = path.join(dl, upd)
+          const scriptInDownloads = path.join(dl, versioned(upd, version))
           try {
             await fs.access(scriptInDownloads)
           } catch {
@@ -619,9 +673,10 @@ export const GlobalRoutes = lazy(() =>
 
           const pick = async () => {
             const files = await fs.readdir(dl)
-            const list = files.filter((x) => x.toLowerCase().endsWith(".dmg") && x.includes(version)).sort()
+            const ext = UPDATE_PKG_EXT[os] ?? ".dmg"
+            const list = files.filter((x) => x.toLowerCase().endsWith(ext) && x.includes(version)).sort()
             if (list.length > 0) return path.join(dl, list[list.length - 1])
-            const any = files.filter((x) => x.toLowerCase().endsWith(".dmg")).sort()
+            const any = files.filter((x) => x.toLowerCase().endsWith(ext)).sort()
             if (any.length > 0) return path.join(dl, any[any.length - 1])
             return ""
           }
@@ -668,10 +723,11 @@ export const GlobalRoutes = lazy(() =>
         "json",
         z.object({
           os: WebUpdateOS,
+          version: z.string().min(1).optional(),
         }),
       ),
       async (c) => {
-        const { os } = c.req.valid("json")
+        const { os, version } = c.req.valid("json")
         const scriptPath = await findInstallerScript(os)
         if (!scriptPath) {
           return c.json({ success: false as const, error: `Installer script not found for ${os}` })
@@ -679,21 +735,34 @@ export const GlobalRoutes = lazy(() =>
         const workDir = computeWorkDir(scriptPath)
         const file = UPDATE_SCRIPT[os]
         if (!file) return c.json({ success: false as const, error: `Update script not configured for ${os}` })
-        const upd = path.join(workDir, "downloads", file)
-        try {
-          await fs.access(upd)
-        } catch {
-          return c.json({ success: false as const, error: `Update script not found: ${upd}` })
+        const dl = path.join(workDir, "downloads")
+        const upd = version ? path.join(dl, versioned(file, version)) : path.join(dl, file)
+        let run = upd
+        if (!version) {
+          const files = await fs.readdir(dl).catch(() => [])
+          const idx = file.lastIndexOf(".")
+          const stem = idx < 0 ? file : file.slice(0, idx)
+          const ext = idx < 0 ? "" : file.slice(idx)
+          const prefix = `${stem}-`
+          const list = files.filter((x) => x.startsWith(prefix) && x.endsWith(ext)).sort()
+          if (list.length > 0) run = path.join(dl, list[list.length - 1])
         }
         try {
-          await fs.chmod(upd, 0o755)
-        } catch {}
-        log.info("launching update script", { os, updater: upd, workDir })
+          await fs.access(run)
+        } catch {
+          return c.json({ success: false as const, error: `Update script not found: ${run}` })
+        }
         try {
+          await fs.chmod(run, 0o755)
+        } catch {}
+        log.info("launching update script", { os, updater: run, workDir, version })
+        try {
+          const args = version ? [run, version] : [run]
+          if (os === "darwin" || os === "linux" || os === "windows") args.push("--restart")
           const child =
             os === "windows"
-              ? spawn("cmd", ["/c", upd], { detached: true, stdio: "ignore", cwd: path.join(workDir, "downloads") })
-              : spawn("bash", [upd], { detached: true, stdio: "ignore", cwd: path.join(workDir, "downloads") })
+              ? spawn("cmd", ["/c", ...args], { detached: true, stdio: "ignore", cwd: path.join(workDir, "downloads") })
+              : spawn("bash", args, { detached: true, stdio: "ignore", cwd: path.join(workDir, "downloads") })
           child.unref()
           return c.json({ success: true as const })
         } catch (e) {

@@ -4,11 +4,10 @@ setlocal EnableExtensions EnableDelayedExpansion
 set "BASE=https://aether.aiphys.cn/download"
 set "LATEST=latest/windows-x64.yml"
 if not defined LOCALAPPDATA set "LOCALAPPDATA=%USERPROFILE%\AppData\Local"
-set "DEFAULT=%LOCALAPPDATA%\Programs\Aether"
-set "CTO=15"
-set "TMO=1800"
-set "RETRY=3"
-set "DELAY=2"
+set "DEFAULT=%USERPROFILE%\Applications\Aether"
+set "MODE=init"
+set "ARG="
+set "PATH_ARG="
 set "NOHOLD=0"
 set "HOLD="
 
@@ -20,52 +19,110 @@ set "MISS=21"
 set "META_ERR=30"
 set "DL_ERR=31"
 set "SUM_ERR=32"
+set "RUN_ERR=33"
 set "DIR_ERR=40"
 set "ARG_ERR=50"
 
-set "ARG1=%~1"
-set "ARG2=%~2"
-set "ARG3=%~3"
+set "CTO=15"
+set "TMO=1800"
+set "RETRY=3"
+set "DELAY=2"
+set "KEEP=3"
 
-if /I "%ARG1%"=="--no-pause" (
+:parse
+if "%~1"=="" goto :parse_done
+if /I "%~1"=="--no-pause" (
   set "NOHOLD=1"
-  set "ARG1=%~2"
-  set "ARG2=%~3"
-  set "ARG3=%~4"
+  shift
+  goto :parse
 )
-
-if /I "%ARG1%"=="help" goto :help
-if /I "%ARG1%"=="--help" goto :help
-if /I "%ARG1%"=="-h" goto :help
-
-set "MODE=%ARG1%"
-if "%MODE%"=="" set "MODE=init"
-
-if /I "%MODE%"=="init" (
-  if "%NOHOLD%"=="0" set "HOLD=1"
-  goto :init
+if /I "%~1"=="--path" (
+  if "%~2"=="" (
+    echo --path needs a value
+    exit /b %ARG_ERR%
+  )
+  set "PATH_ARG=%~2"
+  shift
+  shift
+  goto :parse
 )
+if /I "%~1"=="init" set "MODE=init" & shift & goto :parse
+if /I "%~1"=="auto" set "MODE=auto" & shift & goto :parse
+if /I "%~1"=="manual" set "MODE=manual" & shift & goto :parse
+if /I "%~1"=="help" set "MODE=help" & shift & goto :parse
+if /I "%~1"=="-h" set "MODE=help" & shift & goto :parse
+if /I "%~1"=="--help" set "MODE=help" & shift & goto :parse
+if not defined ARG (
+  set "ARG=%~1"
+  shift
+  goto :parse
+)
+echo Unsupported argument: %~1
+exit /b %ARG_ERR%
+
+:parse_done
+
+if /I "%MODE%"=="help" goto :help
+if /I "%MODE%"=="init" if "%NOHOLD%"=="0" set "HOLD=1"
+
+set "WORK="
+set "CUR="
+set "REQ="
+set "VER="
+set "PKG="
+set "SHA="
+set "INS="
+set "NOTE="
+set "PKG_URL="
+set "INS_URL="
+set "NOTE_URL="
+set "PKG_NAME="
+set "INS_NAME="
+set "PKG_FILE="
+set "INS_FILE="
+set "DL="
+set "MANIFEST_URL="
+set "RES="
+set "RES_FILE="
+set "FETCH_HTTP="
+
+if /I "%MODE%"=="init" goto :init
 if /I "%MODE%"=="auto" goto :auto
 if /I "%MODE%"=="manual" goto :manual
 
 echo Unsupported mode: %MODE%
 goto :bad
 
+:normalize
+set "IN=%~1"
+for %%i in ("%IN%") do set "BASE_NAME=%%~nxi"
+if /I "%BASE_NAME%"=="Aether" (
+  set "%~2=%IN%"
+) else (
+  set "%~2=%IN%\Aether"
+)
+exit /b 0
+
 :init
 echo Aether Windows Installer
 echo.
-echo Default work directory:
-echo   %DEFAULT%
-echo.
-set "WORK="
-set /p WORK=Press Enter to use default, or input another path: 
-if "%WORK%"=="" set "WORK=%DEFAULT%"
+if defined PATH_ARG (
+  call :normalize "%PATH_ARG%" WORK
+) else (
+  set "WORK=%DEFAULT%"
+)
+echo Install directory:
+echo   %WORK%
 call :full WORK "%WORK%"
 call :prep "%WORK%" || goto :dir_fail
 
-copy /y "%~f0" "%WORK%\%~nx0" >nul || (
-  echo Failed to copy installer to %WORK%
-  goto :dir_fail
+set "SELF=%~f0"
+set "DST=%WORK%\%~nx0"
+if /I not "%SELF%"=="%DST%" (
+  copy /y "%~f0" "%DST%" >nul || (
+    echo Failed to copy installer to %WORK%
+    goto :dir_fail
+  )
 )
 
 set "CUR="
@@ -81,23 +138,38 @@ echo Package:   %PKG_FILE%
 echo Installer: %INS_FILE%
 echo Result:    %RES_FILE%
 echo.
-echo Next step:
-echo   Let Aether read last-result.yml and continue the installation flow.
+
+if "%INS_FILE%"=="" (
+  set "RES=run_error"
+  call :result
+  echo Install step failed: installer script missing in manifest.
+  goto :run_fail
+)
+
+echo [init] Running installer script...
+call cmd /c ""%INS_FILE%" %VER%"
+if errorlevel 1 (
+  set "RES=run_error"
+  call :result
+  echo Install step failed while running: %INS_FILE%
+  goto :run_fail
+)
+
+if not exist "%LOCALAPPDATA%\Aether_Database" mkdir "%LOCALAPPDATA%\Aether_Database" >nul 2>nul
+
 goto :done
 
 :auto
-if "%ARG2%"=="" (
+if "%ARG%"=="" (
   echo auto mode needs current version.
   echo Example: %~nx0 auto 1.2.3
   goto :bad
 )
-
-set "CUR=%ARG2%"
+set "CUR=%ARG%"
 call :work WORK
 call :prep "%WORK%" || goto :dir_fail
 call :latest || goto :meta_fail
 call :cmp "%CUR%" "%VER%"
-
 if /I "%CMP%"=="lt" (
   echo Current version: %CUR%
   echo Remote version: %VER%
@@ -106,7 +178,6 @@ if /I "%CMP%"=="lt" (
   call :result
   exit /b %READY%
 )
-
 echo Current version: %CUR%
 echo Remote version: %VER%
 echo Already up to date.
@@ -115,14 +186,13 @@ call :result
 exit /b %LATEST_OK%
 
 :manual
-if "%ARG2%"=="" (
+if "%ARG%"=="" (
   echo manual mode needs a version.
   echo Example: %~nx0 manual 1.2.3
   goto :bad
 )
-
 set "CUR="
-set "REQ=%ARG2%"
+set "REQ=%ARG%"
 call :work WORK
 call :prep "%WORK%" || goto :dir_fail
 call :version "%REQ%"
@@ -134,7 +204,6 @@ if "%RC%"=="%MISS%" (
   exit /b %MISS%
 )
 if not "%RC%"=="0" goto :meta_fail
-
 echo Requested version: %REQ%
 echo Resolved version:  %VER%
 call :grab || goto :dl_fail
@@ -159,7 +228,6 @@ set "TMP=%TEMP%\aether-installer-%RANDOM%%RANDOM%"
 if exist "%TMP%" rmdir /s /q "%TMP%" >nul 2>nul
 mkdir "%TMP%" >nul 2>nul || exit /b %META_ERR%
 set "MANIFEST=%TMP%\manifest.yml"
-
 call :fetch_meta "%MANIFEST_URL%" "%MANIFEST%"
 set "RC=%ERRORLEVEL%"
 if not "%RC%"=="0" (
@@ -171,7 +239,7 @@ if not "%RC%"=="0" (
   exit /b %META_ERR%
 )
 
-for /f "usebackq delims=" %%i in (`powershell -NoProfile -Command "$sec=''; $ver=''; $pkg=''; $sha=''; $ins=''; $note=''; foreach($line in Get-Content -Path $env:MANIFEST){ if($line -match '^\s*version:\s*(.+?)\s*$'){ $ver=$matches[1].Trim().Trim("'"); continue }; if($line -match '^\s*package:\s*$'){ $sec='package'; continue }; if($line -match '^\s*installer:\s*$'){ $sec='installer'; continue }; if($line -match '^\s*notes_url:\s*(.+?)\s*$'){ $note=$matches[1].Trim(); continue }; if($line -match '^\S'){ $sec='' }; if($sec -eq 'package' -and $line -match '^\s*url:\s*(.+?)\s*$'){ $pkg=$matches[1].Trim(); continue }; if($sec -eq 'package' -and $line -match '^\s*sha512:\s*(.+?)\s*$'){ $sha=$matches[1].Trim(); continue }; if($sec -eq 'installer' -and $line -match '^\s*url:\s*(.+?)\s*$'){ $ins=$matches[1].Trim(); continue } }; if([string]::IsNullOrEmpty($pkg)){ foreach($line in Get-Content -Path $env:MANIFEST){ if($line -match '^\s*files:\s*$'){ $sec='files'; continue }; if($line -match '^\S'){ $sec='' }; if($sec -eq 'files' -and $line -match '^\s*-\s*url:\s*(.+?)\s*$'){ $pkg=$matches[1].Trim(); continue }; if($sec -eq 'files' -and $line -match '^\s*sha512:\s*(.+?)\s*$'){ $sha=$matches[1].Trim(); continue } } }; 'VER=' + $ver; 'PKG=' + $pkg; 'SHA=' + $sha; 'INS=' + $ins; 'NOTE=' + $note"`) do set "%%i"
+for /f "usebackq delims=" %%i in (`powershell -NoProfile -Command "$sec=''; $ver=''; $pkg=''; $sha=''; $ins=''; $note=''; foreach($line in Get-Content -Path $env:MANIFEST){ if($line -match '^\s*version:\s*(.+?)\s*$'){ $ver=$matches[1].Trim().Trim("'\""); continue }; if($line -match '^\s*package:\s*$'){ $sec='package'; continue }; if($line -match '^\s*installer:\s*$'){ $sec='installer'; continue }; if($line -match '^\s*notes_url:\s*(.+?)\s*$'){ $note=$matches[1].Trim(); continue }; if($line -match '^\S'){ $sec='' }; if($sec -eq 'package' -and $line -match '^\s*url:\s*(.+?)\s*$'){ $pkg=$matches[1].Trim(); continue }; if($sec -eq 'package' -and $line -match '^\s*sha512:\s*(.+?)\s*$'){ $sha=$matches[1].Trim(); continue }; if($sec -eq 'installer' -and $line -match '^\s*url:\s*(.+?)\s*$'){ $ins=$matches[1].Trim(); continue } }; if([string]::IsNullOrEmpty($pkg)){ foreach($line in Get-Content -Path $env:MANIFEST){ if($line -match '^\s*files:\s*$'){ $sec='files'; continue }; if($line -match '^\S'){ $sec='' }; if($sec -eq 'files' -and $line -match '^\s*-\s*url:\s*(.+?)\s*$'){ $pkg=$matches[1].Trim(); continue }; if($sec -eq 'files' -and $line -match '^\s*sha512:\s*(.+?)\s*$'){ $sha=$matches[1].Trim(); continue } } }; 'VER=' + $ver; 'PKG=' + $pkg; 'SHA=' + $sha; 'INS=' + $ins; 'NOTE=' + $note"`) do set "%%i"
 
 if not defined VER (
   rmdir /s /q "%TMP%" >nul 2>nul
@@ -185,16 +253,8 @@ if not defined PKG (
 call :abs PKG_URL "%PKG%"
 if defined INS call :abs INS_URL "%INS%"
 if defined NOTE call :abs NOTE_URL "%NOTE%"
-
 for %%i in ("%PKG_URL%") do set "PKG_NAME=%%~nxi"
-if not defined PKG_NAME (
-  rmdir /s /q "%TMP%" >nul 2>nul
-  exit /b %META_ERR%
-)
-if defined INS_URL (
-  for %%i in ("%INS_URL%") do set "INS_NAME=%%~nxi"
-)
-
+if defined INS_URL for %%i in ("%INS_URL%") do set "INS_NAME=%%~nxi"
 rmdir /s /q "%TMP%" >nul 2>nul
 exit /b 0
 
@@ -202,24 +262,53 @@ exit /b 0
 set "DL=%WORK%\downloads"
 if not exist "%DL%" mkdir "%DL%" >nul 2>nul || exit /b %DIR_ERR%
 
-set "PKG_FILE=%DL%\%PKG_NAME%"
+for %%i in ("%PKG_NAME%") do set "PKG_EXT=%%~xi"
+set "PKG_FILE=%DL%\aether-windows-x64-web-%VER%%PKG_EXT%"
 set "INS_FILE="
+set "NEED_PKG=1"
 
-echo Downloading package:
-echo   %PKG_URL%
-call :fetch_file "%PKG_URL%" "%PKG_FILE%" || exit /b %DL_ERR%
+if exist "%PKG_FILE%" (
+  if not defined SHA (
+    set "NEED_PKG=0"
+  ) else (
+    for /f "usebackq delims=" %%i in (`powershell -NoProfile -Command "$h=[Security.Cryptography.SHA512]::Create().ComputeHash([IO.File]::ReadAllBytes($env:PKG_FILE)); [Convert]::ToBase64String($h)"`) do set "SUM=%%i"
+    if /I "%SUM%"=="%SHA%" set "NEED_PKG=0"
+  )
+)
 
-if not defined SHA goto :grab_ins_check
-for /f "usebackq delims=" %%i in (`powershell -NoProfile -Command "$h=[Security.Cryptography.SHA512]::Create().ComputeHash([IO.File]::ReadAllBytes($env:PKG_FILE)); [Convert]::ToBase64String($h)"`) do set "SUM=%%i"
-if /I not "%SUM%"=="%SHA%" exit /b %SUM_ERR%
+if "%NEED_PKG%"=="1" (
+  echo Downloading package:
+  echo   %PKG_URL%
+  call :fetch_file "%PKG_URL%" "%PKG_FILE%" || exit /b %DL_ERR%
+) else (
+  echo Using cached package:
+  echo   %PKG_FILE%
+)
 
-:grab_ins_check
-if not defined INS_URL exit /b 0
-if not defined INS_NAME exit /b 0
-set "INS_FILE=%DL%\%INS_NAME%"
-echo Downloading installer:
-echo   %INS_URL%
-call :fetch_file "%INS_URL%" "%INS_FILE%" || exit /b %DL_ERR%
+if defined SHA (
+  for /f "usebackq delims=" %%i in (`powershell -NoProfile -Command "$h=[Security.Cryptography.SHA512]::Create().ComputeHash([IO.File]::ReadAllBytes($env:PKG_FILE)); [Convert]::ToBase64String($h)"`) do set "SUM=%%i"
+  if /I not "%SUM%"=="%SHA%" exit /b %SUM_ERR%
+)
+
+if defined INS_URL if defined INS_NAME (
+  for %%i in ("%INS_NAME%") do set "INS_EXT=%%~xi"
+  set "INS_FILE=%DL%\update_windows_web-%VER%%INS_EXT%"
+  if exist "%INS_FILE%" (
+    echo Using cached installer:
+    echo   %INS_FILE%
+  ) else (
+    echo Downloading installer:
+    echo   %INS_URL%
+    call :fetch_file "%INS_URL%" "%INS_FILE%" || exit /b %DL_ERR%
+  )
+)
+
+call :prune
+exit /b 0
+
+:prune
+set "DL=%WORK%\downloads"
+powershell -NoProfile -Command "$dl=$env:DL; $keep=[int]$env:KEEP; if(-not (Test-Path $dl)){ exit 0 }; $a=Get-ChildItem -Path $dl -File -Filter 'aether-windows-x64-web-*' | Sort-Object Name; if($a.Count -gt $keep){ $a | Select-Object -First ($a.Count-$keep) | Remove-Item -Force }; $b=Get-ChildItem -Path $dl -File -Filter 'update_windows_web-*.bat' | Sort-Object Name; if($b.Count -gt $keep){ $b | Select-Object -First ($b.Count-$keep) | Remove-Item -Force }"
 exit /b 0
 
 :result
@@ -235,6 +324,7 @@ if /I "%RES%"=="version_missing" set "CODE=%MISS%"
 if /I "%RES%"=="meta_error" set "CODE=%META_ERR%"
 if /I "%RES%"=="download_error" set "CODE=%DL_ERR%"
 if /I "%RES%"=="checksum_error" set "CODE=%SUM_ERR%"
+if /I "%RES%"=="run_error" set "CODE=%RUN_ERR%"
 if /I "%RES%"=="dir_error" set "CODE=%DIR_ERR%"
 if /I "%RES%"=="arg_error" set "CODE=%ARG_ERR%"
 
@@ -251,7 +341,7 @@ exit /b 0
 set "DIR=%~dp0"
 if "%DIR:~-1%"=="\" set "DIR=%DIR:~0,-1%"
 for %%i in ("%DIR%") do set "NAME=%%~nxi"
-if /I "!NAME:~0,7!"=="aether-" (
+if /I "!NAME:~0,7!"=="aether_" (
   for %%i in ("%DIR%\..") do set "%~1=%%~fi"
   exit /b 0
 )
@@ -297,7 +387,6 @@ if not errorlevel 1 (
   if exist "%OUT%" del /f /q "%OUT%" >nul 2>nul
   exit /b 1
 )
-
 for /f "usebackq delims=" %%i in (`powershell -NoProfile -Command "& { try { $r=Invoke-WebRequest -UseBasicParsing -Uri $env:URL -OutFile $env:OUT -PassThru; [Console]::Out.Write([int]$r.StatusCode) } catch { if(Test-Path $env:OUT){ Remove-Item -LiteralPath $env:OUT -Force -ErrorAction SilentlyContinue }; if($_.Exception.Response){ [Console]::Out.Write([int]$_.Exception.Response.StatusCode) } else { [Console]::Out.Write('000') }; exit 1 } }"`) do set "FETCH_HTTP=%%i"
 if "%FETCH_HTTP%"=="200" exit /b 0
 exit /b 1
@@ -310,7 +399,6 @@ if not errorlevel 1 (
   curl.exe --fail --location --progress-bar --connect-timeout %CTO% --max-time %TMO% --retry %RETRY% --retry-delay %DELAY% --retry-all-errors --output "%OUT%" "%URL%"
   exit /b %ERRORLEVEL%
 )
-
 echo curl.exe not found. Falling back to PowerShell download...
 powershell -NoProfile -Command "& { Invoke-WebRequest -UseBasicParsing -Uri $env:URL -OutFile $env:OUT }"
 exit /b %ERRORLEVEL%
@@ -319,7 +407,7 @@ exit /b %ERRORLEVEL%
 echo Aether Windows Installer
 echo.
 echo Usage:
-echo   %~nx0 [--no-pause] init
+echo   %~nx0 [--no-pause] [--path ^<dir^>] init
 echo   %~nx0 [--no-pause] auto ^<current-version^>
 echo   %~nx0 [--no-pause] manual ^<target-version^>
 echo.
@@ -339,6 +427,7 @@ echo   21  requested version not found
 echo   30  manifest or network error
 echo   31  download failed
 echo   32  checksum mismatch
+echo   33  init install run failed
 echo   40  work directory error
 echo   50  argument error
 goto :done
@@ -371,12 +460,15 @@ if "%RC%"=="%SUM_ERR%" (
 if /I "%MODE%"=="init" goto :done_err
 exit /b %RC%
 
+:run_fail
+if /I "%MODE%"=="init" goto :done_err
+exit /b %RUN_ERR%
+
 :dir_fail
 set "RES=dir_error"
 call :result
 echo.
 echo Work directory failed.
-echo Choose another path or make sure the current user can write to this directory.
 if /I "%MODE%"=="init" goto :done_err
 exit /b %DIR_ERR%
 

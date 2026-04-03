@@ -140,7 +140,7 @@ const forward: Platform["forward"] = () => {
 }
 
 const restart: Platform["restart"] = async () => {
-  window.location.reload()
+  return
 }
 
 const root = document.getElementById("root")
@@ -258,7 +258,7 @@ const platform: Platform = {
     const os = detectOS()
     const res = await req(`/global/web-update/check?os=${os}`)
     const data = await res.json()
-    return { updateAvailable: data.updateAvailable, version: data.remoteVersion }
+    return { updateAvailable: data.updateAvailable, version: data.remoteVersion, downloaded: !!data.downloaded }
   },
   downloadUpdate: async () => {
     const os = detectOS()
@@ -275,10 +275,12 @@ const platform: Platform = {
   },
   update: async () => {
     const os = detectOS()
+    const checkRes = await req(`/global/web-update/check?os=${os}`)
+    const checkData = await checkRes.json()
     const installRes = await req("/global/web-update/install", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ os }),
+      body: JSON.stringify({ os, version: checkData.remoteVersion }),
     })
     const installData = await installRes.json()
     if (!installData.success) throw new Error(installData.error)

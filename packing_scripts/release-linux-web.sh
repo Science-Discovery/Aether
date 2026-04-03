@@ -46,9 +46,8 @@ chmod +x "$out/update_linux_web.sh"
 
 ins="$root/Update/aether_linux_installer.sh"
 if [ -f "$ins" ]; then
-  mkdir -p "$out/Update"
-  cp "$ins" "$out/Update/aether_linux_installer.sh"
-  chmod +x "$out/Update/aether_linux_installer.sh"
+  cp "$ins" "$out/aether_linux_installer.sh"
+  chmod +x "$out/aether_linux_installer.sh"
 fi
 printf "%s\n" "$ver" >"$out/.aether_web_version"
 

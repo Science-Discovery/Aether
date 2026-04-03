@@ -26,9 +26,9 @@ if [ -d "$uv" ]; then
   done
 fi
 
-dmg="dist/aether-darwin-arm64-web.dmg"
+dmg="dist/aether-darwin-arm64.dmg"
 vol="Aether Web"
-pkg="aether-darwin-arm64-web"
+pkg="aether-darwin-arm64"
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 out="$tmp/$pkg"
@@ -45,12 +45,11 @@ cp "$upd" "$out/update_darwin_web.command"
 
 ins="$root/Update/aether_darwin_installer.command"
 if [ -f "$ins" ]; then
-  mkdir -p "$out/Update"
-  cp "$ins" "$out/Update/aether_darwin_installer.command"
-  chmod +x "$out/Update/aether_darwin_installer.command"
+  cp "$ins" "$out/aether_darwin_installer.command"
+  chmod +x "$out/aether_darwin_installer.command"
 fi
 
-printf "%s\n" "$ver" >"$out/.aether_web_version"
+printf "%s\n" "$ver" >"$out/.aether_version"
 
 if [ -f "$out/aether" ]; then
   chmod +x "$out/aether"
@@ -61,12 +60,14 @@ if [ -f "$out/Aether.command" ]; then
 fi
 
 chmod +x "$out/update_darwin_web.command"
+cp "$upd" "dist/update_darwin_web.command"
+chmod +x "dist/update_darwin_web.command"
 
 cat >"$out/README_FIRST.txt" <<'EOF'
 Aether Web (macOS arm64)
 
 Quick start
-1) Open this DMG and copy the folder aether-darwin-arm64-web to a local path, for example: ~/Applications/Aether-Web
+1) Open this DMG and copy the folder aether-darwin-arm64 to a local path, for example: ~/Applications/Aether-Web
 2) In Finder, right click Aether.command and choose Open
 3) If macOS asks again, click Open in the security prompt
 
@@ -98,7 +99,7 @@ size="$(wc -c <"$dmg" | tr -d '[:space:]')"
 cat >dist/latest-web-mac.yml <<EOF
 version: $ver
 files:
-  - url: aether-darwin-arm64-web.dmg
+  - url: aether-darwin-arm64.dmg
     sha512: $sha
     size: $size
 releaseDate: '$date'
@@ -108,5 +109,6 @@ popd >/dev/null
 
 echo "Done"
 echo "Asset: packages/opencode/$dmg"
+echo "Updater: packages/opencode/dist/update_darwin_web.command"
 echo "YML:   packages/opencode/dist/latest-web-mac.yml"
 echo "Note:  DMG includes README_FIRST.txt and update_darwin_web.command"

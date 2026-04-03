@@ -48,8 +48,7 @@ copy /y "%UPD%" "%OUT%\update_windows_web.bat" >nul || exit /b 1
 
 set "INS=%ROOT%\Update\aether_windows_installer.bat"
 if exist "%INS%" (
-  if not exist "%OUT%\Update" mkdir "%OUT%\Update"
-  copy /y "%INS%" "%OUT%\Update\aether_windows_installer.bat" >nul || exit /b 1
+  copy /y "%INS%" "%OUT%\aether_windows_installer.bat" >nul || exit /b 1
 )
 
 powershell -NoProfile -Command "& { [IO.File]::WriteAllText((Join-Path $env:OUT '.aether_web_version'), $env:VERSION) }" || exit /b 1

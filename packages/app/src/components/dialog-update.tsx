@@ -47,7 +47,11 @@ export const DialogUpdate: Component = () => {
       }
       setRemoteVersion(data.remoteVersion)
       setDownloadedVersion(data.currentVersion || "")
-      setState(data.updateAvailable ? "available" : "up-to-date")
+      if (!data.updateAvailable) {
+        setState("up-to-date")
+        return
+      }
+      setState(data.downloaded ? "downloaded" : "downloading")
     } catch (e) {
       setState("error")
       setErrorMessage(e instanceof Error ? e.message : String(e))
@@ -94,8 +98,8 @@ export const DialogUpdate: Component = () => {
         return
       }
       setTimeout(() => {
-        window.location.reload()
-      }, 3000)
+        window.close()
+      }, 1200)
     } catch (e) {
       setState("error")
       setErrorMessage(e instanceof Error ? e.message : String(e))
@@ -147,9 +151,6 @@ export const DialogUpdate: Component = () => {
               <Icon name="arrow-down-to-line" class="size-4" />
               <span>{language.t("update.available")}</span>
             </div>
-            <Button size="small" variant="primary" onClick={downloadUpdate}>
-              {language.t("update.download")}
-            </Button>
           </Show>
 
           <Show when={state() === "downloading"}>
@@ -183,7 +184,7 @@ export const DialogUpdate: Component = () => {
                 {language.t("update.checkFailed")}: {errorMessage()}
               </span>
             </div>
-            <Button size="small" variant="secondary" onClick={checkVersion}>
+            <Button size="small" variant="secondary" onClick={downloadUpdate}>
               {language.t("update.retry")}
             </Button>
           </Show>

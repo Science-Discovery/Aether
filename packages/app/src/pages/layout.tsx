@@ -381,11 +381,9 @@ export default function Layout(props: ParentProps) {
       let toastId: number | undefined
       let interval: ReturnType<typeof setInterval> | undefined
 
-      const pollUpdate = () =>
-        platform.checkUpdate!().then(({ updateAvailable, version }) => {
-          if (!updateAvailable) return
-          if (toastId !== undefined) return
-          toastId = showToast({
+      const showUpdateToast = (version?: string) => {
+        if (toastId !== undefined) return
+        toastId = showToast({
             persistent: true,
             icon: "download",
             title: language.t("toast.update.title"),
@@ -394,8 +392,11 @@ export default function Layout(props: ParentProps) {
               platform.platform === "web"
                 ? [
                     {
-                      label: language.t("settings.updates.action.checkNow"),
-                      onClick: () => openUpdate(),
+                      label: language.t("update.install"),
+                      onClick: async () => {
+                        await platform.update!()
+                        await platform.restart!()
+                      },
                     },
                     {
                       label: language.t("toast.update.action.notYet"),
@@ -415,7 +416,21 @@ export default function Layout(props: ParentProps) {
                       onClick: "dismiss",
                     },
                   ],
-          })
+        })
+      }
+
+      const pollUpdate = () =>
+        platform.checkUpdate!().then(async ({ updateAvailable, version, downloaded }) => {
+          if (!updateAvailable) return
+          if (platform.platform === "web" && platform.downloadUpdate && !downloaded) {
+            await platform.downloadUpdate().catch(() => undefined)
+            const next = await platform.checkUpdate!().catch(() => undefined)
+            if (!next?.updateAvailable || !next.downloaded) return
+            showUpdateToast(next.version)
+            return
+          }
+          if (!downloaded && platform.platform === "web") return
+          showUpdateToast(version)
         })
 
       createEffect(() => {
