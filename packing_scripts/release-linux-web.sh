@@ -43,6 +43,8 @@ cp -R "$src"/. "$out"/
 
 cp "$upd" "$out/update_linux_web.sh"
 chmod +x "$out/update_linux_web.sh"
+cp "$upd" "dist/update_linux_web.sh"
+chmod +x "dist/update_linux_web.sh"
 
 ins="$root/Update/aether_linux_installer.sh"
 if [ -f "$ins" ]; then
@@ -92,5 +94,6 @@ popd >/dev/null
 
 echo "Done"
 echo "Asset: packages/opencode/$zip"
+echo "Updater: packages/opencode/dist/update_linux_web.sh"
 echo "YML:   packages/opencode/dist/latest-web-linux.yml"
 echo "Note:  ZIP includes folder $pkg"

@@ -45,6 +45,7 @@ if %RC% GEQ 8 (
 )
 
 copy /y "%UPD%" "%OUT%\update_windows_web.bat" >nul || exit /b 1
+copy /y "%UPD%" "%CD%\dist\update_windows_web.bat" >nul || exit /b 1
 
 set "INS=%ROOT%\Update\aether_windows_installer.bat"
 if exist "%INS%" (
@@ -68,5 +69,6 @@ rmdir /s /q "%TMP%" >nul 2>nul
 
 echo Done
 echo Asset: %ZIP%
+echo Updater: %CD%\dist\update_windows_web.bat
 echo YML:   %YML%
 echo Note:  ZIP includes folder %PKG%
