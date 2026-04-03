@@ -136,11 +136,19 @@ if %RC% GEQ 8 (
 powershell -NoProfile -Command "& { [IO.File]::WriteAllText((Join-Path $env:NEXT '.aether_web_version'), $env:VER_REMOTE) }" || goto :fail
 
 if "%HAS_APP%"=="1" (
-  robocopy "%NEXT%" "%APP%" /MIR /NFL /NDL /NJH /NJS /NP >nul
+  robocopy "%NEXT%" "%APP%" /MIR /XD "%NEXT%\.opencode" /NFL /NDL /NJH /NJS /NP >nul
   set "RC=!ERRORLEVEL!"
   if !RC! GEQ 8 (
     echo Failed to apply files. Robocopy exit code: !RC!
     goto :fail
+  )
+  if exist "%NEXT%\.opencode" (
+    robocopy "%NEXT%\.opencode" "%APP%\.opencode" /E /NFL /NDL /NJH /NJS /NP >nul
+    set "RC=!ERRORLEVEL!"
+    if !RC! GEQ 8 (
+      echo Failed to merge .opencode files. Robocopy exit code: !RC!
+      goto :fail
+    )
   )
 ) else (
   if exist "%APP%" (
@@ -149,21 +157,6 @@ if "%HAS_APP%"=="1" (
     goto :fail
   )
   move "%NEXT%" "%APP%" >nul || goto :fail
-)
-
-if exist "%APP%\package.json" (
-  where bun >nul 2>nul
-  if errorlevel 1 (
-    echo package.json found but bun is missing. Install bun and retry.
-    goto :fail
-  )
-  pushd "%APP%" || goto :fail
-  call bun install || (
-    popd
-    echo bun install failed.
-    goto :fail
-  )
-  popd
 )
 
 echo [4/4] Deleting old version files...
