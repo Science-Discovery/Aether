@@ -2129,13 +2129,19 @@ ToolRegistry.register({
         <Show when={todos().length}>
           <div data-component="todos">
             <For each={todos()}>
-              {(todo: Todo) => (
+              {(todo: Todo, i) => (
                 <Checkbox readOnly checked={todo.status === "completed"}>
-                  <span
-                    data-slot="message-part-todo-content"
-                    data-completed={todo.status === "completed" ? "completed" : undefined}
-                  >
-                    {todo.content}
+                  <span class="min-w-0 flex items-start gap-1.5">
+                    <span data-slot="message-part-todo-index" aria-hidden="true">
+                      {i() + 1}.
+                    </span>
+                    <span
+                      class="min-w-0 break-words"
+                      data-slot="message-part-todo-content"
+                      data-completed={todo.status === "completed" ? "completed" : undefined}
+                    >
+                      {todo.content}
+                    </span>
                   </span>
                 </Checkbox>
               )}

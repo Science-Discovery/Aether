@@ -284,7 +284,7 @@ function TodoList(props: { todos: Todo[]; open: boolean }) {
         }}
       >
         <Index each={props.todos}>
-          {(todo) => (
+          {(todo, i) => (
             <Checkbox
               readOnly
               checked={todo().status === "completed"}
@@ -299,21 +299,39 @@ function TodoList(props: { todos: Todo[]; open: boolean }) {
                 opacity: todo().status === "pending" ? "0.94" : "1",
               }}
             >
-              <TextStrikethrough
-                active={todo().status === "completed" || todo().status === "cancelled"}
-                text={todo().content}
-                class="text-14-regular min-w-0 break-words"
-                style={{
-                  "line-height": "var(--line-height-normal)",
-                  transition:
-                    "color 220ms var(--tool-motion-ease, cubic-bezier(0.22, 1, 0.36, 1)), opacity 220ms var(--tool-motion-ease, cubic-bezier(0.22, 1, 0.36, 1))",
-                  color:
-                    todo().status === "completed" || todo().status === "cancelled"
-                      ? "var(--text-weak)"
-                      : "var(--text-strong)",
-                  opacity: todo().status === "pending" ? "0.92" : "1",
-                }}
-              />
+              <span class="min-w-0 flex items-start gap-1.5">
+                <span
+                  aria-hidden="true"
+                  class="shrink-0 text-14-regular tabular-nums"
+                  style={{
+                    "line-height": "var(--line-height-normal)",
+                    transition:
+                      "color 220ms var(--tool-motion-ease, cubic-bezier(0.22, 1, 0.36, 1)), opacity 220ms var(--tool-motion-ease, cubic-bezier(0.22, 1, 0.36, 1))",
+                    color:
+                      todo().status === "completed" || todo().status === "cancelled"
+                        ? "var(--text-weak)"
+                        : "var(--text-weaker)",
+                    opacity: todo().status === "pending" ? "0.92" : "1",
+                  }}
+                >
+                  {i + 1}.
+                </span>
+                <TextStrikethrough
+                  active={todo().status === "completed" || todo().status === "cancelled"}
+                  text={todo().content}
+                  class="text-14-regular min-w-0 break-words"
+                  style={{
+                    "line-height": "var(--line-height-normal)",
+                    transition:
+                      "color 220ms var(--tool-motion-ease, cubic-bezier(0.22, 1, 0.36, 1)), opacity 220ms var(--tool-motion-ease, cubic-bezier(0.22, 1, 0.36, 1))",
+                    color:
+                      todo().status === "completed" || todo().status === "cancelled"
+                        ? "var(--text-weak)"
+                        : "var(--text-strong)",
+                    opacity: todo().status === "pending" ? "0.92" : "1",
+                  }}
+                />
+              </span>
             </Checkbox>
           )}
         </Index>

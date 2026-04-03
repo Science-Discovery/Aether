@@ -613,6 +613,13 @@
       color: var(--text-weaker);
     }
   }
+
+  [data-slot="message-part-todo-index"] {
+    flex-shrink: 0;
+    color: var(--text-weaker);
+    line-height: var(--line-height-normal);
+    font-variant-numeric: tabular-nums;
+  }
 }
 
 [data-component="context-tool-group-trigger"] {
