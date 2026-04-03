@@ -51,7 +51,7 @@ from wechat_agent_sdk.api.auth import login_with_qrcode
 from wechat_agent_sdk.account.storage import JsonFileStorage
 
 
-# Patch ILinkBotClient: fall back to trust_env=False if system proxy causes ConnectTimeout
+# Patch ILinkBotClient: fall back to trust_env=False if system proxy/network causes connection errors
 async def _make_ilinkbot_client(trust_env: bool) -> httpx.AsyncClient:
     from wechat_agent_sdk.api.client import POLL_TIMEOUT, _make_wechat_uin
 
@@ -72,14 +72,14 @@ async def _make_ilinkbot_client(trust_env: bool) -> httpx.AsyncClient:
 
 
 async def _request_qrcode_with_fallback(self) -> dict:
-    """Try request_qrcode; on ConnectTimeout, retry without system proxy."""
+    """Try request_qrcode; on connection errors, retry without system proxy."""
     if not self._client:
         self._client = await _make_ilinkbot_client(trust_env=True)
         if self._token:
             self._client.headers["Authorization"] = f"Bearer {self._token}"
     try:
         return await _orig_request_qrcode(self)
-    except httpx.ConnectTimeout:
+    except (httpx.ConnectTimeout, httpx.ConnectError):
         logger.warning("[weixin] 连接超时，尝试绕过系统代理重连...")
         await self._client.aclose()
         self._client = await _make_ilinkbot_client(trust_env=False)
@@ -1393,7 +1393,7 @@ async def custom_login(client: ILinkBotClient, log=print) -> str:
         try:
             qr_info = await client.request_qrcode()
             break
-        except httpx.ConnectTimeout:
+        except (httpx.ConnectTimeout, httpx.ConnectError):
             if attempt >= 4:
                 raise
             log(f"[weixin] 连接超时，重试 ({attempt + 1}/5)...")
@@ -1488,6 +1488,7 @@ class CustomWeChatBot(WeChatBot):
 
 async def main():
     base_url = os.getenv("AETHER_URL", "http://127.0.0.1:4096")
+    api_base_url = os.getenv("AETHER_WECHAT_API_BASE", "").strip()
     directory = os.getenv("AETHER_WORK_DIR")
     default_model = os.getenv("AETHER_MODEL")
     default_agent = os.getenv("AETHER_AGENT", "build")
@@ -1498,6 +1499,8 @@ async def main():
     print("=" * 50)
     print("Aether WeChat Bridge")
     print("=" * 50)
+    if api_base_url:
+        print(f"WeChat API Base: {api_base_url}")
     print()
 
     agent = AetherAgent(
@@ -1511,6 +1514,7 @@ async def main():
     bot = CustomWeChatBot(
         agent=agent,
         account_id="aether",
+        api_base_url=api_base_url,
         storage=(
             JsonFileStorage(Path(SESSION_FILE).parent)
             if SESSION_FILE
