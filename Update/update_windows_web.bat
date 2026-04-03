@@ -1,4 +1,5 @@
 @echo off
+chcp 65001 >nul
 setlocal EnableExtensions EnableDelayedExpansion
 
 set "WANT=%~1"
@@ -42,8 +43,7 @@ set "EX=%TMP%\extract"
 set "NEXT=%WORK%\.aether_%VER%.next"
 set "SRC_FILE=%TMP%\src.txt"
 
-if exist "%TMP%" rmdir /s /q "%TMP%" >nul 2>nul
-if exist "%NEXT%" rmdir /s /q "%NEXT%" >nul 2>nul
+call :clean_tmp
 mkdir "%EX%" || exit /b 1
 mkdir "%NEXT%" || exit /b 1
 
@@ -76,8 +76,7 @@ move "%NEXT%" "%TARGET%" >nul || goto :fail
 echo %VER%>"%TARGET%\.aether_web_version"
 echo %VER%>"%WORK%\.aether_web_version"
 
-if exist "%WORK%\current" rmdir "%WORK%\current" >nul 2>nul
-mklink /J "%WORK%\current" "%TARGET%" >nul
+call :set_current || goto :fail
 
 call :write_launch
 
@@ -96,28 +95,34 @@ echo 版本目录: %TARGET%
 echo 启动入口: %LAUNCH%
 if defined NOTE echo %NOTE%
 
-rmdir /s /q "%TMP%" >nul 2>nul
+call :clean_tmp
 exit /b 0
 
 :write_launch
 set "DESK=%USERPROFILE%\Desktop"
 if not exist "%DESK%" mkdir "%DESK%"
 set "LNK=%DESK%\Aether.lnk"
+set "MENU=%APPDATA%\Microsoft\Windows\Start Menu\Programs"
+if not exist "%MENU%" mkdir "%MENU%"
+set "MLNK=%MENU%\Aether.lnk"
 set "CMD=%WORK%\current\Aether.vbs"
-powershell -NoProfile -Command "$w=New-Object -ComObject WScript.Shell; $s=$w.CreateShortcut($env:LNK); $s.TargetPath=$env:CMD; $s.WorkingDirectory=(Split-Path -Parent $env:CMD); $s.IconLocation=$env:CMD+',0'; $s.Save()"
+if exist "%LNK%" del /f /q "%LNK%" >nul 2>nul
+if exist "%MLNK%" del /f /q "%MLNK%" >nul 2>nul
+powershell -NoProfile -Command "$w=New-Object -ComObject WScript.Shell; $mk={ param($p,$t) $s=$w.CreateShortcut($p); $s.TargetPath=$t; $s.WorkingDirectory=(Split-Path -Parent $t); $s.Save() }; & $mk $env:LNK $env:CMD; & $mk $env:MLNK $env:CMD"
 if exist "%LNK%" (
   set "LAUNCH=%LNK%"
+) else if exist "%MLNK%" (
+  set "LAUNCH=%MLNK%"
+  set "NOTE=Desktop shortcut failed, Start Menu shortcut created."
 ) else (
   set "LAUNCH=%CMD%"
-  set "NOTE=桌面快捷方式创建失败，已回退到直接启动路径。"
+  set "NOTE=Desktop and Start Menu shortcuts both failed, using direct launch path."
 )
 exit /b 0
 
 :restart
-if defined OLD (
-  powershell -NoProfile -Command "$p=$env:OLD; Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like ('*' + $p + '*') -and ($_.Name -ieq 'aether.exe' -or $_.Name -ieq 'wscript.exe' -or $_.Name -ieq 'cscript.exe') } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }"
-)
-powershell -NoProfile -Command "$p=$env:WORK + '\\current'; Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like ('*' + $p + '*') -and ($_.Name -ieq 'aether.exe' -or $_.Name -ieq 'wscript.exe' -or $_.Name -ieq 'cscript.exe') } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }"
+powershell -NoProfile -Command "& { $names=@('aether.exe','wscript.exe','cscript.exe','node.exe','bun.exe'); $roots=@(); if($env:OLD){ $roots += [IO.Path]::GetFullPath($env:OLD) }; $roots += [IO.Path]::GetFullPath($env:WORK + '\current'); if($env:TARGET){ $roots += [IO.Path]::GetFullPath($env:TARGET) }; $roots += (Get-ChildItem -Path $env:WORK -Directory -Filter 'aether_*' -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName }); $roots=$roots | Where-Object { $_ } | Select-Object -Unique; Get-CimInstance Win32_Process | Where-Object { $n=$_.Name.ToLowerInvariant(); if($names -notcontains $n){ return $false }; $cmd=$_.CommandLine; $exe=$_.ExecutablePath; foreach($r in $roots){ if(($cmd -and $cmd -like ('*' + $r + '*')) -or ($exe -and $exe -like ($r + '*'))){ return $true } }; return $false } | Sort-Object ProcessId -Descending | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue } }"
+timeout /t 1 /nobreak >nul
 start "" "%WORK%\current\Aether.vbs"
 exit /b 0
 
@@ -163,5 +168,23 @@ exit /b 0
 
 :fail
 echo Update failed.
-rmdir /s /q "%TMP%" >nul 2>nul
+call :clean_tmp
 exit /b 1
+
+:clean_tmp
+if exist "%TMP%" rmdir /s /q "%TMP%" >nul 2>nul
+if exist "%NEXT%" rmdir /s /q "%NEXT%" >nul 2>nul
+exit /b 0
+
+:set_current
+if exist "%WORK%\current" rmdir "%WORK%\current" >nul 2>nul
+if exist "%WORK%\current" rmdir /s /q "%WORK%\current" >nul 2>nul
+mklink /J "%WORK%\current" "%TARGET%" >nul 2>nul
+if exist "%WORK%\current\Aether.vbs" exit /b 0
+
+mkdir "%WORK%\current" >nul 2>nul
+robocopy "%TARGET%" "%WORK%\current" /MIR /NFL /NDL /NJH /NJS /NP >nul
+set "RC=%ERRORLEVEL%"
+if %RC% GEQ 8 exit /b 1
+if not exist "%WORK%\current\Aether.vbs" exit /b 1
+exit /b 0
