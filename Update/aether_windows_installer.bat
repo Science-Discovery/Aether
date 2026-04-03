@@ -3,7 +3,8 @@ setlocal EnableExtensions EnableDelayedExpansion
 
 set "BASE=https://aether.aiphys.cn/download"
 set "LATEST=latest/windows-x64.yml"
-set "DEFAULT=C:\Program Files\Aether"
+if not defined LOCALAPPDATA set "LOCALAPPDATA=%USERPROFILE%\AppData\Local"
+set "DEFAULT=%LOCALAPPDATA%\Programs\Aether"
 set "CTO=15"
 set "TMO=1800"
 set "RETRY=3"
@@ -378,7 +379,7 @@ set "RES=dir_error"
 call :result
 echo.
 echo Work directory failed.
-echo If this path is under Program Files, run as administrator or choose another path.
+echo Choose another path or make sure the current user can write to this directory.
 if /I "%MODE%"=="init" goto :done_err
 exit /b %DIR_ERR%
 

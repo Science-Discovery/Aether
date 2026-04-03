@@ -15,7 +15,7 @@
 ## 模式
 
 - `init`
-  首次安装入口。默认工作目录是 `C:\Program Files\Aether`，允许用户改路径。
+  首次安装入口。默认工作目录是 `%LOCALAPPDATA%\Programs\Aether`，允许用户改路径。
 - `auto <current-version>`
   自动更新检查。用于 Aether 软件后台调用。
 - `manual <target-version>`
@@ -24,7 +24,7 @@
 ## 工作目录
 
 - `init`
-  使用用户输入路径，默认 `C:\Program Files\Aether`
+  使用用户输入路径，默认 `%LOCALAPPDATA%\Programs\Aether`
 - `auto` 和 `manual`
   默认取安装器所在目录的上一层
   如果安装器直接放在工作目录根下，则直接使用脚本所在目录
@@ -122,11 +122,11 @@ code: 10
 current_version: '1.2.2'
 target_version: '1.2.3'
 requested_version: ''
-work_dir: 'C:\Program Files\Aether'
-download_dir: 'C:\Program Files\Aether\downloads'
-package_path: 'C:\Program Files\Aether\downloads\aether-1.2.3.zip'
-installer_path: 'C:\Program Files\Aether\downloads\install.bat'
-manifest_url: 'https://aether.aiphys.cn/download/windows/latest.yml'
+work_dir: 'C:\Users\name\AppData\Local\Programs\Aether'
+download_dir: 'C:\Users\name\AppData\Local\Programs\Aether\downloads'
+package_path: 'C:\Users\name\AppData\Local\Programs\Aether\downloads\aether-1.2.3.zip'
+installer_path: 'C:\Users\name\AppData\Local\Programs\Aether\downloads\install.bat'
+manifest_url: 'https://aether.aiphys.cn/download/latest/windows-x64.yml'
 notes_url: 'https://aether.aiphys.cn/download/1.2.3/notes.md'
 ```
 

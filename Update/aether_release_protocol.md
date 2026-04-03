@@ -164,7 +164,7 @@ notes_url: 1.2.3/notes.md
 Windows：
 
 - 默认工作目录
-  `C:\Program Files\Aether`
+  `%LOCALAPPDATA%\Programs\Aether`
 
 macOS / Linux：
 
@@ -238,10 +238,10 @@ code: 10
 current_version: '1.2.2'
 target_version: '1.2.3'
 requested_version: ''
-work_dir: 'C:\Program Files\Aether'
-download_dir: 'C:\Program Files\Aether\downloads'
-package_path: 'C:\Program Files\Aether\downloads\aether-1.2.3-windows-x64.zip'
-installer_path: 'C:\Program Files\Aether\downloads\install-windows.bat'
+work_dir: 'C:\Users\name\AppData\Local\Programs\Aether'
+download_dir: 'C:\Users\name\AppData\Local\Programs\Aether\downloads'
+package_path: 'C:\Users\name\AppData\Local\Programs\Aether\downloads\aether-1.2.3-windows-x64.zip'
+installer_path: 'C:\Users\name\AppData\Local\Programs\Aether\downloads\install-windows.bat'
 manifest_url: 'https://aether.aiphys.cn/download/latest/windows-x64.yml'
 notes_url: 'https://aether.aiphys.cn/download/1.2.3/notes.md'
 ```
