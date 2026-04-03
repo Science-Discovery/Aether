@@ -1,6 +1,7 @@
 import type { FileContent } from "@opencode-ai/sdk/v2"
-import { createEffect, createMemo, createResource, Match, on, Show, Switch, type JSX } from "solid-js"
+import { createEffect, createMemo, createResource, createSignal, Match, on, Show, Switch, type JSX } from "solid-js"
 import { useI18n } from "../context/i18n"
+import { IconButton } from "./icon-button"
 import {
   dataUrlFromMediaValue,
   hasMediaValue,
@@ -32,6 +33,65 @@ function mediaValue(cfg: FileMediaOptions, mode: "image" | "audio") {
 export function FileMedia(props: { media?: FileMediaOptions; fallback: () => JSX.Element }) {
   const i18n = useI18n()
   const cfg = () => props.media
+  const [zoom, setZoom] = createSignal(1)
+  const [drag, setDrag] = createSignal(false)
+  const [x, setX] = createSignal(0)
+  const [y, setY] = createSignal(0)
+  const min = 0.25
+  const max = 8
+  const step = 0.1
+  const clamp = (x: number) => Math.min(max, Math.max(min, x))
+  const change = (x: number) => setZoom((z) => clamp(Number((z + x).toFixed(2))))
+  const reset = () => {
+    setZoom(1)
+    setX(0)
+    setY(0)
+  }
+  const pct = createMemo(() => `${Math.round(zoom() * 100)}%`)
+  const cursor = createMemo(() => {
+    if (zoom() <= 1) return "default"
+    if (drag()) return "grabbing"
+    return "grab"
+  })
+  const wheel = (e: WheelEvent) => {
+    if (!e.ctrlKey && !e.metaKey) return
+    e.preventDefault()
+    change(e.deltaY < 0 ? step : -step)
+  }
+  let pid: number | undefined
+  let sx = 0
+  let sy = 0
+  let ox = 0
+  let oy = 0
+  const down = (e: PointerEvent) => {
+    if (e.button !== 0) return
+    if (zoom() <= 1) return
+    pid = e.pointerId
+    sx = e.clientX
+    sy = e.clientY
+    ox = x()
+    oy = y()
+    setDrag(true)
+    const el = e.currentTarget as HTMLElement | null
+    if (!el) return
+    el.setPointerCapture(e.pointerId)
+    e.preventDefault()
+  }
+  const move = (e: PointerEvent) => {
+    if (!drag()) return
+    if (pid !== e.pointerId) return
+    setX(ox + e.clientX - sx)
+    setY(oy + e.clientY - sy)
+  }
+  const up = (e: PointerEvent) => {
+    if (pid !== e.pointerId) return
+    pid = undefined
+    setDrag(false)
+    const el = e.currentTarget as HTMLElement | null
+    if (!el) return
+    if (!el.hasPointerCapture(e.pointerId)) return
+    el.releasePointerCapture(e.pointerId)
+  }
   const kind = createMemo(() => {
     const media = cfg()
     if (!media || media.mode === "off") return
@@ -114,6 +174,13 @@ export function FileMedia(props: { media?: FileMediaOptions; fallback: () => JSX
     const value = remote()
     return direct() ?? (value && "src" in value ? value.src : undefined)
   })
+
+  createEffect(
+    on([src, kind], () => {
+      reset()
+    }),
+  )
+
   const status = createMemo(() => {
     if (direct()) return "ready" as const
     if (!request()) return "idle" as const
@@ -218,13 +285,54 @@ export function FileMedia(props: { media?: FileMediaOptions; fallback: () => JSX
             if (k !== "image" && k !== "audio") return props.fallback()
             if (k === "image") {
               return (
-                <div class="flex justify-center bg-background-stronger px-6 py-4">
-                  <img
-                    src={value()}
-                    alt={cfg()?.path}
-                    class="max-h-[60vh] max-w-full rounded border border-border-weak-base bg-background-base object-contain"
-                    onLoad={onLoad}
-                  />
+                <div class="flex flex-col gap-2 bg-background-stronger px-6 py-4">
+                  <div class="flex items-center justify-end gap-1">
+                    <IconButton
+                      icon="dash"
+                      variant="ghost"
+                      size="small"
+                      aria-label="Zoom out"
+                      title="Zoom out"
+                      onClick={() => change(-step)}
+                      disabled={zoom() <= min}
+                    />
+                    <button
+                      type="button"
+                      class="rounded px-2 py-1 text-12-medium text-text-secondary hover:bg-surface-raised-base-hover hover:text-text-primary"
+                      onClick={reset}
+                      aria-label="Reset zoom"
+                      title="Reset zoom"
+                    >
+                      {pct()}
+                    </button>
+                    <IconButton
+                      icon="plus"
+                      variant="ghost"
+                      size="small"
+                      aria-label="Zoom in"
+                      title="Zoom in"
+                      onClick={() => change(step)}
+                      disabled={zoom() >= max}
+                    />
+                  </div>
+                  <div class="flex justify-center overflow-auto" onWheel={wheel}>
+                    <img
+                      src={value()}
+                      alt={cfg()?.path}
+                      class="max-h-[60vh] max-w-full rounded border border-border-weak-base bg-background-base object-contain transition-transform"
+                      style={{
+                        transform: `translate(${x()}px, ${y()}px) scale(${zoom()})`,
+                        "transform-origin": "center center",
+                        cursor: cursor(),
+                      }}
+                      onLoad={onLoad}
+                      onDblClick={reset}
+                      onPointerDown={down}
+                      onPointerMove={move}
+                      onPointerUp={up}
+                      onPointerCancel={up}
+                    />
+                  </div>
                 </div>
               )
             }
