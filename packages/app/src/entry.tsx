@@ -260,7 +260,7 @@ const platform: Platform = {
     const data = await res.json()
     return { updateAvailable: data.updateAvailable, version: data.remoteVersion }
   },
-  update: async () => {
+  downloadUpdate: async () => {
     const os = detectOS()
     const checkRes = await req(`/global/web-update/check?os=${os}`)
     const checkData = await checkRes.json()
@@ -272,6 +272,9 @@ const platform: Platform = {
     })
     const dlData = await dlRes.json()
     if (!dlData.success) throw new Error(dlData.error)
+  },
+  update: async () => {
+    const os = detectOS()
     const installRes = await req("/global/web-update/install", {
       method: "POST",
       headers: { "Content-Type": "application/json" },

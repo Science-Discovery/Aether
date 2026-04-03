@@ -4,6 +4,8 @@ set -euo pipefail
 
 want="${1:-}"
 self="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+base="$(basename "$self")"
+work="$(dirname "$self")"
 
 fail() {
   echo "$1"
@@ -55,30 +57,6 @@ major_minor() {
   printf "%s.%s" "${a:-0}" "${b:-0}"
 }
 
-detect_work() {
-  local dir base par
-  dir="$1"
-  base="$(basename "$dir")"
-  par="$(basename "$(dirname "$dir")")"
-  if [ "$base" = "Aether" ]; then
-    printf "%s" "$dir"
-    return 0
-  fi
-  if [ "$base" = "Update" ] && [ "$par" = "Aether" ]; then
-    printf "%s" "$(dirname "$dir")"
-    return 0
-  fi
-  if [ "$base" = "downloads" ] && [ "$par" = "Aether" ]; then
-    printf "%s" "$(dirname "$dir")"
-    return 0
-  fi
-  if [[ "$base" == aether-* ]] && [ "$par" = "Aether" ]; then
-    printf "%s" "$(dirname "$dir")"
-    return 0
-  fi
-  printf "%s" "$HOME/Applications/Aether"
-}
-
 pick_pkg() {
   local dir want_ver file ver best_file best_ver
   dir="$1"
@@ -114,41 +92,31 @@ pick_pkg() {
 }
 
 active_dir() {
-  local work link real file
-  work="$1"
-  link="$work/current"
+  local root link rel dir v
+  root="$1"
+  link="$root/current"
   if [ -L "$link" ]; then
-    real="$(cd "$(dirname "$link")" && pwd)/$(readlink "$link")"
-    if [ -d "$real" ] && [ -f "$real/.aether_web_version" ]; then
-      printf "%s" "$real"
+    rel="$(readlink "$link")"
+    dir="$root/$rel"
+    if [ -d "$dir" ] && [ -f "$dir/.aether_web_version" ]; then
+      printf "%s" "$dir"
       return 0
     fi
   fi
-  if [ -f "$work/.aether_web_version" ]; then
-    local v
-    v="$(tr -d '[:space:]' <"$work/.aether_web_version")"
-    if [ -n "$v" ] && [ -d "$work/aether-$v" ]; then
-      printf "%s" "$work/aether-$v"
+  if [ -f "$root/.aether_web_version" ]; then
+    v="$(tr -d '[:space:]' <"$root/.aether_web_version")"
+    if [ -n "$v" ] && [ -d "$root/aether_$v" ]; then
+      printf "%s" "$root/aether_$v"
       return 0
     fi
   fi
-  shopt -s nullglob
-  for file in "$work"/aether-*; do
-    [ -d "$file" ] || continue
-    if [ -f "$file/.aether_web_version" ]; then
-      printf "%s" "$file"
-      shopt -u nullglob
-      return 0
-    fi
-  done
-  shopt -u nullglob
   printf ""
 }
 
-launch_file() {
-  local work
-  work="$1"
-  cat >"$work/Aether.command" <<'EOF'
+write_launch() {
+  local root
+  root="$1"
+  cat >"$root/Aether.command" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
 
@@ -162,31 +130,35 @@ fi
 echo "No active version found under: $root"
 exit 1
 EOF
-  chmod +x "$work/Aether.command"
-  xattr -cr "$work/Aether.command" >/dev/null 2>&1 || true
+  chmod +x "$root/Aether.command"
+  xattr -cr "$root/Aether.command" >/dev/null 2>&1 || true
 }
 
-work="$(detect_work "$self")"
-if [ "$(basename "$work")" != "Aether" ]; then
-  work="$work/Aether"
+if [ "$base" != "downloads" ]; then
+  fail "规范错误：update_darwin_web.command 必须放在 .../Aether/downloads 目录。当前: $self"
 fi
-mkdir -p "$work"
+if [ "$(basename "$work")" != "Aether" ]; then
+  fail "规范错误：工作目录必须是 .../Aether。当前: $work"
+fi
+if [ ! -f "$work/aether_darwin_installer.command" ]; then
+  fail "规范错误：缺少 .../Aether/aether_darwin_installer.command"
+fi
 
 echo "[0/4] 工作目录: $work"
 
 pick="$(pick_pkg "$self" "$want" || true)"
-[ -n "$pick" ] || fail "未在脚本目录找到可用 dmg（文件名需包含版本号）。目录: $self"
+[ -n "$pick" ] || fail "未在 .../Aether/downloads 找到可用 dmg（文件名需包含版本号）"
 
 pkg="${pick%%|*}"
 ver="${pick##*|}"
-target="$work/aether-$ver"
+target="$work/aether_$ver"
 
 echo "[1/4] 安装包: $(basename "$pkg")"
 echo "      目标版本: $ver"
 
 tmp="$(mktemp -d "${TMPDIR:-/tmp}/aether-web-install.XXXXXX")"
 mnt="$tmp/mount"
-next="$work/.aether-$ver.next"
+next="$work/.aether_$ver.next"
 
 cleanup() {
   hdiutil detach "$mnt" -quiet >/dev/null 2>&1 || true
@@ -234,7 +206,7 @@ mv "$next" "$target"
 chflags nohidden "$target" >/dev/null 2>&1 || true
 
 shopt -s nullglob
-for dir in "$work"/aether-*; do
+for dir in "$work"/aether_*; do
   [ -d "$dir" ] || continue
   chflags nohidden "$dir" >/dev/null 2>&1 || true
 done
@@ -245,8 +217,8 @@ xattr -cr "$target/aether" "$target/Aether.command" >/dev/null 2>&1 || true
 printf "%s\n" "$ver" >"$target/.aether_web_version"
 printf "%s\n" "$ver" >"$work/.aether_web_version"
 
-ln -sfn "aether-$ver" "$work/current"
-launch_file "$work"
+ln -sfn "aether_$ver" "$work/current"
+write_launch "$work"
 
 if [ "$small" = "1" ] && [ -n "${old:-}" ] && [ "$old" != "$target" ]; then
   echo "[3/4] 小版本更新：替换旧目录并保留 .opencode"

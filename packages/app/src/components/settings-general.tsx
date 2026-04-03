@@ -148,13 +148,31 @@ export const SettingsGeneral: Component = () => {
         }
 
         const actions =
-          platform.update && platform.restart
+          platform.downloadUpdate && platform.update && platform.restart
             ? [
                 {
-                  label: language.t("toast.update.action.installRestart"),
+                  label: language.t("update.download"),
                   onClick: async () => {
-                    await platform.update!()
-                    await platform.restart!()
+                    await platform.downloadUpdate!()
+                    showToast({
+                      persistent: true,
+                      icon: "download",
+                      title: language.t("update.downloadComplete"),
+                      description: language.t("toast.update.description", { version: result.version ?? "" }),
+                      actions: [
+                        {
+                          label: language.t("update.install"),
+                          onClick: async () => {
+                            await platform.update!()
+                            await platform.restart!()
+                          },
+                        },
+                        {
+                          label: language.t("toast.update.action.notYet"),
+                          onClick: "dismiss" as const,
+                        },
+                      ],
+                    })
                   },
                 },
                 {

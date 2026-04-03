@@ -390,19 +390,31 @@ export default function Layout(props: ParentProps) {
             icon: "download",
             title: language.t("toast.update.title"),
             description: language.t("toast.update.description", { version: version ?? "" }),
-            actions: [
-              {
-                label: language.t("toast.update.action.installRestart"),
-                onClick: async () => {
-                  await platform.update!()
-                  await platform.restart!()
-                },
-              },
-              {
-                label: language.t("toast.update.action.notYet"),
-                onClick: "dismiss",
-              },
-            ],
+            actions:
+              platform.platform === "web"
+                ? [
+                    {
+                      label: language.t("settings.updates.action.checkNow"),
+                      onClick: () => openUpdate(),
+                    },
+                    {
+                      label: language.t("toast.update.action.notYet"),
+                      onClick: "dismiss",
+                    },
+                  ]
+                : [
+                    {
+                      label: language.t("toast.update.action.installRestart"),
+                      onClick: async () => {
+                        await platform.update!()
+                        await platform.restart!()
+                      },
+                    },
+                    {
+                      label: language.t("toast.update.action.notYet"),
+                      onClick: "dismiss",
+                    },
+                  ],
           })
         })
 
@@ -2204,187 +2216,187 @@ export default function Layout(props: ParentProps) {
         >
           {(item) => (
             <>
-            <div class="shrink-0 pl-1 py-1">
-              <div class="group/project flex items-start justify-between gap-2 py-2 pl-2 pr-0">
-                <div class="flex flex-col min-w-0">
-                  <InlineEditor
-                    id={`project:${projectId()}`}
-                    value={projectName}
-                    onSave={(next) => {
-                      renameProject(item(), next)
-                    }}
-                    class="text-14-medium text-text-strong truncate"
-                    displayClass="text-14-medium text-text-strong truncate"
-                    stopPropagation
-                  />
+              <div class="shrink-0 pl-1 py-1">
+                <div class="group/project flex items-start justify-between gap-2 py-2 pl-2 pr-0">
+                  <div class="flex flex-col min-w-0">
+                    <InlineEditor
+                      id={`project:${projectId()}`}
+                      value={projectName}
+                      onSave={(next) => {
+                        renameProject(item(), next)
+                      }}
+                      class="text-14-medium text-text-strong truncate"
+                      displayClass="text-14-medium text-text-strong truncate"
+                      stopPropagation
+                    />
 
-                  <Tooltip
-                    placement="bottom"
-                    gutter={2}
-                    value={worktree()}
-                    class="shrink-0"
-                    contentStyle={{
-                      "max-width": "640px",
-                      transform: "translate3d(52px, 0, 0)",
-                    }}
-                  >
-                    <span class="text-12-regular text-text-base truncate select-text">
-                      {worktree().replace(homedir(), "~")}
-                    </span>
-                  </Tooltip>
+                    <Tooltip
+                      placement="bottom"
+                      gutter={2}
+                      value={worktree()}
+                      class="shrink-0"
+                      contentStyle={{
+                        "max-width": "640px",
+                        transform: "translate3d(52px, 0, 0)",
+                      }}
+                    >
+                      <span class="text-12-regular text-text-base truncate select-text">
+                        {worktree().replace(homedir(), "~")}
+                      </span>
+                    </Tooltip>
+                  </div>
+
+                  <DropdownMenu modal={!sidebarHovering()}>
+                    <DropdownMenu.Trigger
+                      as={IconButton}
+                      icon="dot-grid"
+                      variant="ghost"
+                      data-action="project-menu"
+                      data-project={slug()}
+                      class="shrink-0 size-6 rounded-md transition-opacity data-[expanded]:bg-surface-base-active"
+                      classList={{
+                        "opacity-100": panelProps.mobile || merged(),
+                        "opacity-0 group-hover/project:opacity-100 group-focus-within/project:opacity-100 data-[expanded]:opacity-100":
+                          !panelProps.mobile && !merged(),
+                      }}
+                      aria-label={language.t("common.moreOptions")}
+                    />
+                    <DropdownMenu.Portal>
+                      <DropdownMenu.Content class="mt-1">
+                        <DropdownMenu.Item
+                          onSelect={() => {
+                            showEditProjectDialog(item())
+                          }}
+                        >
+                          <DropdownMenu.ItemLabel>{language.t("common.edit")}</DropdownMenu.ItemLabel>
+                        </DropdownMenu.Item>
+                        <DropdownMenu.Item
+                          data-action="project-workspaces-toggle"
+                          data-project={slug()}
+                          disabled={!canToggle()}
+                          onSelect={() => {
+                            toggleProjectWorkspaces(item())
+                          }}
+                        >
+                          <DropdownMenu.ItemLabel>
+                            {workspacesEnabled()
+                              ? language.t("sidebar.workspaces.disable")
+                              : language.t("sidebar.workspaces.enable")}
+                          </DropdownMenu.ItemLabel>
+                        </DropdownMenu.Item>
+                        <DropdownMenu.Item
+                          data-action="project-clear-notifications"
+                          data-project={slug()}
+                          disabled={unseenCount() === 0}
+                          onSelect={clearNotifications}
+                        >
+                          <DropdownMenu.ItemLabel>
+                            {language.t("sidebar.project.clearNotifications")}
+                          </DropdownMenu.ItemLabel>
+                        </DropdownMenu.Item>
+                        <DropdownMenu.Separator />
+                        <DropdownMenu.Item
+                          data-action="project-close-menu"
+                          data-project={slug()}
+                          onSelect={() => {
+                            const dir = worktree()
+                            if (!dir) return
+                            closeProject(dir)
+                          }}
+                        >
+                          <DropdownMenu.ItemLabel>{language.t("common.close")}</DropdownMenu.ItemLabel>
+                        </DropdownMenu.Item>
+                      </DropdownMenu.Content>
+                    </DropdownMenu.Portal>
+                  </DropdownMenu>
                 </div>
-
-                <DropdownMenu modal={!sidebarHovering()}>
-                  <DropdownMenu.Trigger
-                    as={IconButton}
-                    icon="dot-grid"
-                    variant="ghost"
-                    data-action="project-menu"
-                    data-project={slug()}
-                    class="shrink-0 size-6 rounded-md transition-opacity data-[expanded]:bg-surface-base-active"
-                    classList={{
-                      "opacity-100": panelProps.mobile || merged(),
-                      "opacity-0 group-hover/project:opacity-100 group-focus-within/project:opacity-100 data-[expanded]:opacity-100":
-                        !panelProps.mobile && !merged(),
-                    }}
-                    aria-label={language.t("common.moreOptions")}
-                  />
-                  <DropdownMenu.Portal>
-                    <DropdownMenu.Content class="mt-1">
-                      <DropdownMenu.Item
-                        onSelect={() => {
-                          showEditProjectDialog(item())
-                        }}
-                      >
-                        <DropdownMenu.ItemLabel>{language.t("common.edit")}</DropdownMenu.ItemLabel>
-                      </DropdownMenu.Item>
-                      <DropdownMenu.Item
-                        data-action="project-workspaces-toggle"
-                        data-project={slug()}
-                        disabled={!canToggle()}
-                        onSelect={() => {
-                          toggleProjectWorkspaces(item())
-                        }}
-                      >
-                        <DropdownMenu.ItemLabel>
-                          {workspacesEnabled()
-                            ? language.t("sidebar.workspaces.disable")
-                            : language.t("sidebar.workspaces.enable")}
-                        </DropdownMenu.ItemLabel>
-                      </DropdownMenu.Item>
-                      <DropdownMenu.Item
-                        data-action="project-clear-notifications"
-                        data-project={slug()}
-                        disabled={unseenCount() === 0}
-                        onSelect={clearNotifications}
-                      >
-                        <DropdownMenu.ItemLabel>
-                          {language.t("sidebar.project.clearNotifications")}
-                        </DropdownMenu.ItemLabel>
-                      </DropdownMenu.Item>
-                      <DropdownMenu.Separator />
-                      <DropdownMenu.Item
-                        data-action="project-close-menu"
-                        data-project={slug()}
-                        onSelect={() => {
-                          const dir = worktree()
-                          if (!dir) return
-                          closeProject(dir)
-                        }}
-                      >
-                        <DropdownMenu.ItemLabel>{language.t("common.close")}</DropdownMenu.ItemLabel>
-                      </DropdownMenu.Item>
-                    </DropdownMenu.Content>
-                  </DropdownMenu.Portal>
-                </DropdownMenu>
               </div>
-            </div>
 
-            <div class="flex-1 min-h-0 flex flex-col">
-              <Show
-                when={workspacesEnabled()}
-                fallback={
+              <div class="flex-1 min-h-0 flex flex-col">
+                <Show
+                  when={workspacesEnabled()}
+                  fallback={
+                    <>
+                      <div class="shrink-0 py-4">
+                        <Button
+                          size="large"
+                          icon="new-session"
+                          class="w-full"
+                          onClick={() => {
+                            const dir = worktree()
+                            if (dir) createSession(dir)
+                          }}
+                        >
+                          {language.t("command.session.new")}
+                        </Button>
+                      </div>
+                      <div class="flex-1 min-h-0">
+                        <LocalWorkspace
+                          ctx={workspaceSidebarCtx}
+                          project={item()}
+                          sortNow={sortNow}
+                          mobile={panelProps.mobile}
+                          popover={popover()}
+                        />
+                      </div>
+                    </>
+                  }
+                >
                   <>
                     <div class="shrink-0 py-4">
                       <Button
                         size="large"
-                        icon="new-session"
+                        icon="plus-small"
                         class="w-full"
                         onClick={() => {
-                          const dir = worktree()
-                          if (dir) createSession(dir)
+                          createWorkspace(item())
                         }}
                       >
-                        {language.t("command.session.new")}
+                        {language.t("workspace.new")}
                       </Button>
                     </div>
-                    <div class="flex-1 min-h-0">
-                      <LocalWorkspace
-                        ctx={workspaceSidebarCtx}
-                        project={item()}
-                        sortNow={sortNow}
-                        mobile={panelProps.mobile}
-                        popover={popover()}
-                      />
+                    <div class="relative flex-1 min-h-0">
+                      <DragDropProvider
+                        onDragStart={handleWorkspaceDragStart}
+                        onDragEnd={handleWorkspaceDragEnd}
+                        onDragOver={handleWorkspaceDragOver}
+                        collisionDetector={closestCenter}
+                      >
+                        <DragDropSensors />
+                        <ConstrainDragXAxis />
+                        <div
+                          ref={(el) => {
+                            if (!panelProps.mobile) scrollContainerRef = el
+                          }}
+                          class="size-full flex flex-col py-2 gap-4 overflow-y-auto no-scrollbar [overflow-anchor:none]"
+                        >
+                          <SortableProvider ids={workspaces()}>
+                            <For each={workspaces()}>
+                              {(directory) => (
+                                <SortableWorkspace
+                                  ctx={workspaceSidebarCtx}
+                                  directory={directory}
+                                  project={item()}
+                                  sortNow={sortNow}
+                                  mobile={panelProps.mobile}
+                                  popover={popover()}
+                                />
+                              )}
+                            </For>
+                          </SortableProvider>
+                        </div>
+                        <DragOverlay>
+                          <WorkspaceDragOverlay
+                            sidebarProject={sidebarProject}
+                            activeWorkspace={() => store.activeWorkspace}
+                            workspaceLabel={workspaceLabel}
+                          />
+                        </DragOverlay>
+                      </DragDropProvider>
                     </div>
                   </>
-                }
-              >
-                <>
-                  <div class="shrink-0 py-4">
-                    <Button
-                      size="large"
-                      icon="plus-small"
-                      class="w-full"
-                      onClick={() => {
-                        createWorkspace(item())
-                      }}
-                    >
-                      {language.t("workspace.new")}
-                    </Button>
-                  </div>
-                  <div class="relative flex-1 min-h-0">
-                    <DragDropProvider
-                      onDragStart={handleWorkspaceDragStart}
-                      onDragEnd={handleWorkspaceDragEnd}
-                      onDragOver={handleWorkspaceDragOver}
-                      collisionDetector={closestCenter}
-                    >
-                      <DragDropSensors />
-                      <ConstrainDragXAxis />
-                      <div
-                        ref={(el) => {
-                          if (!panelProps.mobile) scrollContainerRef = el
-                        }}
-                        class="size-full flex flex-col py-2 gap-4 overflow-y-auto no-scrollbar [overflow-anchor:none]"
-                      >
-                        <SortableProvider ids={workspaces()}>
-                          <For each={workspaces()}>
-                            {(directory) => (
-                              <SortableWorkspace
-                                ctx={workspaceSidebarCtx}
-                                directory={directory}
-                                project={item()}
-                                sortNow={sortNow}
-                                mobile={panelProps.mobile}
-                                popover={popover()}
-                              />
-                            )}
-                          </For>
-                        </SortableProvider>
-                      </div>
-                      <DragOverlay>
-                        <WorkspaceDragOverlay
-                          sidebarProject={sidebarProject}
-                          activeWorkspace={() => store.activeWorkspace}
-                          workspaceLabel={workspaceLabel}
-                        />
-                      </DragOverlay>
-                    </DragDropProvider>
-                  </div>
-                </>
-              </Show>
-            </div>
+                </Show>
+              </div>
             </>
           )}
         </Show>
