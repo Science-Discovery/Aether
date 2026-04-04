@@ -25,7 +25,7 @@ import { estimateRootSessionTotal, loadRootSessionsWithFallback } from "./global
 import { trimSessions } from "./global-sync/session-trim"
 import type { ProjectMeta } from "./global-sync/types"
 import { SESSION_RECENT_LIMIT } from "./global-sync/types"
-import { normalizeDir, sanitizeProject, sanitizeRecent } from "./global-sync/utils"
+import { isRoot, normalizeDir, sanitizeProject, sanitizeRecent } from "./global-sync/utils"
 import { formatServerError } from "@/utils/server-errors"
 
 type GlobalStore = {
@@ -114,10 +114,11 @@ function createGlobalSync() {
     recentWritten = true
     if (typeof next === "function") {
       setGlobalStore("recent", produce(next))
+      setGlobalStore("recent", (list) => list.filter((item) => !isRoot(item.directory)))
       cacheRecent()
       return
     }
-    setGlobalStore("recent", next)
+    setGlobalStore("recent", next.filter((item) => !isRoot(item.directory)))
     cacheRecent()
   }
 
@@ -221,7 +222,10 @@ function createGlobalSync() {
     recentTask = globalSDK.client.project
       .recent()
       .then((x) => {
-        const next = (x.data ?? []).filter((item) => !!item?.id).filter((item) => !!item.directory)
+        const next = (x.data ?? [])
+          .filter((item) => !!item?.id)
+          .filter((item) => !!item.directory)
+          .filter((item) => !isRoot(item.directory))
         setRecent(next)
       })
       .catch((err) => {
@@ -433,7 +437,7 @@ function createGlobalSync() {
   const projectApi = {
     loadSessions,
     list: () => globalStore.project,
-    recent: () => globalStore.recent,
+    recent: () => globalStore.recent.filter((item) => !isRoot(item.directory)),
     get(id?: string) {
       if (!id) return
       return byId().get(id)

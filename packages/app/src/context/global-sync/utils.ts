@@ -11,6 +11,13 @@ export function normalizeDir(directory: string): string {
   return cased.replace(/\/+$/, "")
 }
 
+export function isRoot(directory: string) {
+  const dir = normalizeDir(directory)
+  if (!dir) return false
+  if (dir === "/") return true
+  return /^[a-z]:\/$/i.test(dir)
+}
+
 function isAgent(input: unknown): input is Agent {
   if (!input || typeof input !== "object") return false
   const item = input as { name?: unknown; mode?: unknown }
