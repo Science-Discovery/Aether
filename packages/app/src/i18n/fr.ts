@@ -399,7 +399,7 @@ export const dict = {
   "toast.session.listFailed.title": "Échec du chargement des sessions pour {{project}}",
   "toast.update.title": "Mise à jour disponible",
   "toast.update.description":
-    "Une nouvelle version d'OpenCode ({{version}}) est maintenant disponible pour installation.",
+    "Une nouvelle version d'Aether ({{version}}) est maintenant disponible pour installation.",
   "toast.update.action.installRestart": "Installer et redémarrer",
   "toast.update.action.notYet": "Pas encore",
   "error.page.title": "Quelque chose s'est mal passé",

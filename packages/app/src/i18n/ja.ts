@@ -395,7 +395,7 @@ export const dict = {
   "toast.session.unshare.failed.description": "セッションの共有解除中にエラーが発生しました",
   "toast.session.listFailed.title": "{{project}}のセッション読み込みに失敗しました",
   "toast.update.title": "アップデートが利用可能です",
-  "toast.update.description": "OpenCodeの新しいバージョン ({{version}}) がインストール可能です。",
+  "toast.update.description": "Aetherの新しいバージョン ({{version}}) がインストール可能です。",
   "toast.update.action.installRestart": "インストールして再起動",
   "toast.update.action.notYet": "今はしない",
   "error.page.title": "問題が発生しました",

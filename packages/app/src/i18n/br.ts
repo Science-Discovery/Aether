@@ -396,7 +396,7 @@ export const dict = {
   "toast.session.unshare.failed.description": "Ocorreu um erro ao parar de compartilhar a sessão",
   "toast.session.listFailed.title": "Falha ao carregar sessões para {{project}}",
   "toast.update.title": "Atualização disponível",
-  "toast.update.description": "Uma nova versão do OpenCode ({{version}}) está disponível para instalação.",
+  "toast.update.description": "Uma nova versão do Aether ({{version}}) está disponível para instalação.",
   "toast.update.action.installRestart": "Instalar e reiniciar",
   "toast.update.action.notYet": "Agora não",
   "error.page.title": "Algo deu errado",

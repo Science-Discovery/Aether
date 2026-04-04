@@ -441,7 +441,7 @@ export const dict = {
   "toast.session.listFailed.title": "Neuspjelo učitavanje sesija za {{project}}",
 
   "toast.update.title": "Dostupno ažuriranje",
-  "toast.update.description": "Nova verzija OpenCode-a ({{version}}) je dostupna za instalaciju.",
+  "toast.update.description": "Nova verzija Aether-a ({{version}}) je dostupna za instalaciju.",
   "toast.update.action.installRestart": "Instaliraj i restartuj",
   "toast.update.action.notYet": "Ne još",
 
