@@ -290,6 +290,45 @@ class AetherAgent(Agent):
             return text
         return text[: limit - 3].rstrip() + "..."
 
+    async def _restore_hidden_dirs(self, all_projects: Optional[list[dict]] = None) -> None:
+        if not self._hidden_dirs:
+            return
+        items = all_projects or await self._get_projects()
+        if not items:
+            return
+
+        times: dict[str, int] = {}
+        for item in items:
+            directory = self._project_dir(item)
+            if not directory:
+                continue
+            activity = int((((item.get("time") or {}).get("activity")) or 0))
+            times[directory] = max(times.get(directory, 0), activity)
+
+        changed = False
+        for directory, hide_time in list(self._hidden_dirs.items()):
+            activity = times.get(directory, 0)
+            updated = 0
+            if activity <= hide_time and directory:
+                try:
+                    rows = await self._list_sessions(directory)
+                    updated = max(
+                        (
+                            int((((row.get("time") or {}).get("updated")) or 0))
+                            for row in rows
+                        ),
+                        default=0,
+                    )
+                except Exception:
+                    updated = 0
+            if max(activity, updated) <= hide_time:
+                continue
+            del self._hidden_dirs[directory]
+            changed = True
+
+        if changed:
+            self._save_hidden_dirs()
+
     async def _get_project_name(self, directory: str) -> str:
         if not directory:
             return "unknown"
@@ -570,25 +609,7 @@ class AetherAgent(Agent):
         if not all_projects:
             return "❌ 无法获取项目列表，请检查 Aether 服务是否正常。"
 
-        # 自动取消隐藏：检查哪些隐藏项目在隐藏后有新 session 活动
-        if self._hidden_dirs:
-            changed = False
-            for directory, hide_time in list(self._hidden_dirs.items()):
-                item = next(
-                    (
-                        p
-                        for p in all_projects
-                        if self._project_dir(p) == directory
-                    ),
-                    None,
-                )
-                activity = (((item or {}).get("time") or {}).get("activity")) or 0
-                if activity > hide_time:
-                    del self._hidden_dirs[directory]
-                    changed = True
-                    logger.info(f"[/project] 自动恢复隐藏项目: {directory}")
-            if changed:
-                self._save_hidden_dirs()
+        await self._restore_hidden_dirs(all_projects)
 
         projects = [
             p
@@ -796,6 +817,7 @@ class AetherAgent(Agent):
             return await self._handle_permission_reply(conv_id, user_text)
 
         try:
+            await self._restore_hidden_dirs()
             directory = self._conv_dirs.get(conv_id) or self.directory
             session_id = self._sessions.get(conv_id)
             if not session_id:
