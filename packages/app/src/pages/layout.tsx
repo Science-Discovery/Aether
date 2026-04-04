@@ -59,6 +59,7 @@ import { useTheme, type ColorScheme } from "@opencode-ai/ui/theme/context"
 import { useCommand, type CommandOption } from "@/context/command"
 import { ConstrainDragXAxis, getDraggableId } from "@/utils/solid-dnd"
 import { DialogSelectDirectory } from "@/components/dialog-select-directory"
+import { DialogFindSkills } from "@/components/dialog-find-skills"
 import { DialogNewProject } from "@/components/dialog-new-project"
 import { DialogEditProject } from "@/components/dialog-edit-project"
 import { DebugBar } from "@/components/debug-bar"
@@ -1179,6 +1180,12 @@ export default function Layout(props: ParentProps) {
         title: language.t("command.server.switch"),
         category: language.t("command.category.server"),
         onSelect: () => openServer(),
+      },
+      {
+        id: "skills.find",
+        title: "Find Skills",
+        category: language.t("command.category.settings"),
+        onSelect: () => dialog.show(() => <DialogFindSkills directory={currentDir()} />),
       },
       {
         id: "settings.open",

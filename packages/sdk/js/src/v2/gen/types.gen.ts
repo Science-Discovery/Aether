@@ -1572,6 +1572,10 @@ export type Config = {
    */
   model?: string
   /**
+   * Model to use for skill search query expansion, reranking, and summaries
+   */
+  search_model?: string
+  /**
    * Small model to use for tasks like title generation in the format of provider/model
    */
   small_model?: string
@@ -4309,6 +4313,336 @@ export type PermissionRespondResponses = {
 }
 
 export type PermissionRespondResponse = PermissionRespondResponses[keyof PermissionRespondResponses]
+
+export type AppSkillsData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/skill"
+}
+
+export type AppSkillsResponses = {
+  /**
+   * List of skills
+   */
+  200: Array<{
+    name: string
+    description: string
+    location: string
+    content: string
+  }>
+}
+
+export type AppSkillsResponse = AppSkillsResponses[keyof AppSkillsResponses]
+
+export type SkillSearchData = {
+  body?: {
+    query: string
+    semantic?: boolean
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/skill/search"
+}
+
+export type SkillSearchErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type SkillSearchError = SkillSearchErrors[keyof SkillSearchErrors]
+
+export type SkillSearchResponses = {
+  /**
+   * Search results
+   */
+  200: {
+    main: Array<{
+      id: string
+      provider: "registry" | "external"
+      rank: "exact" | "semantic"
+      name: string
+      description?: string
+      installs?: string
+      url?: string
+      registry?: string
+      version?: string
+      package?: string
+      source?: string
+      installed?: boolean
+      scope?: "project" | "global"
+      update_available?: boolean
+      summary_zh?: string
+      summary_source?: "skills_summary" | "skill_md"
+      relevance?: "high" | "medium" | "low"
+      tier?: "main" | "more"
+    }>
+    more: Array<{
+      id: string
+      provider: "registry" | "external"
+      rank: "exact" | "semantic"
+      name: string
+      description?: string
+      installs?: string
+      url?: string
+      registry?: string
+      version?: string
+      package?: string
+      source?: string
+      installed?: boolean
+      scope?: "project" | "global"
+      update_available?: boolean
+      summary_zh?: string
+      summary_source?: "skills_summary" | "skill_md"
+      relevance?: "high" | "medium" | "low"
+      tier?: "main" | "more"
+    }>
+    meta: {
+      model?: string
+      latency_ms?: number
+    }
+  }
+}
+
+export type SkillSearchResponse = SkillSearchResponses[keyof SkillSearchResponses]
+
+export type SkillInstalledData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/skill/installed"
+}
+
+export type SkillInstalledResponses = {
+  /**
+   * Installed skills
+   */
+  200: Array<{
+    id: string
+    provider: "registry" | "external"
+    name: string
+    description?: string
+    installs?: string
+    url?: string
+    registry?: string
+    version?: string
+    package?: string
+    source?: string
+    installed?: boolean
+    scope?: "project" | "global"
+    update_available?: boolean
+    summary_zh?: string
+    summary_source?: "skills_summary" | "skill_md"
+    relevance?: "high" | "medium" | "low"
+    tier?: "main" | "more"
+  }>
+}
+
+export type SkillInstalledResponse = SkillInstalledResponses[keyof SkillInstalledResponses]
+
+export type SkillDescribeData = {
+  body?: {
+    id: string
+    name: string
+    provider: "registry" | "external"
+    description?: string
+    url?: string
+    source?: string
+    registry?: string
+    package?: string
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/skill/describe"
+}
+
+export type SkillDescribeErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type SkillDescribeError = SkillDescribeErrors[keyof SkillDescribeErrors]
+
+export type SkillDescribeResponses = {
+  /**
+   * Skill summary
+   */
+  200: {
+    summary_zh: string
+    summary_source?: "skills_summary" | "skill_md" | "fallback"
+  }
+}
+
+export type SkillDescribeResponse = SkillDescribeResponses[keyof SkillDescribeResponses]
+
+export type SkillCheckData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/skill/check"
+}
+
+export type SkillCheckResponses = {
+  /**
+   * Installed skills with update status
+   */
+  200: Array<{
+    id: string
+    provider: "registry" | "external"
+    name: string
+    description?: string
+    installs?: string
+    url?: string
+    registry?: string
+    version?: string
+    package?: string
+    source?: string
+    installed?: boolean
+    scope?: "project" | "global"
+    update_available?: boolean
+    summary_zh?: string
+    summary_source?: "skills_summary" | "skill_md"
+    relevance?: "high" | "medium" | "low"
+    tier?: "main" | "more"
+  }>
+}
+
+export type SkillCheckResponse = SkillCheckResponses[keyof SkillCheckResponses]
+
+export type SkillJobsData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/skill/jobs"
+}
+
+export type SkillJobsResponses = {
+  /**
+   * Install jobs
+   */
+  200: Array<{
+    job_id: string
+    id: string
+    provider: "registry" | "external"
+    name: string
+    registry?: string
+    package?: string
+    source?: string
+    scope?: "project" | "global"
+    status: "queued" | "running" | "success" | "error"
+    message?: string
+    started_at?: number
+    finished_at?: number
+  }>
+}
+
+export type SkillJobsResponse = SkillJobsResponses[keyof SkillJobsResponses]
+
+export type SkillInstallData = {
+  body?:
+    | {
+        kind: "registry"
+        registry: string
+        name: string
+      }
+    | {
+        kind: "external"
+        package: string
+        scope: "project" | "global"
+      }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/skill/install"
+}
+
+export type SkillInstallErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type SkillInstallError = SkillInstallErrors[keyof SkillInstallErrors]
+
+export type SkillInstallResponses = {
+  /**
+   * Install result
+   */
+  200: {
+    job_id: string
+    id: string
+    provider: "registry" | "external"
+    name: string
+    registry?: string
+    package?: string
+    source?: string
+    scope?: "project" | "global"
+    status: "queued" | "running" | "success" | "error"
+    message?: string
+    started_at?: number
+    finished_at?: number
+  }
+}
+
+export type SkillInstallResponse = SkillInstallResponses[keyof SkillInstallResponses]
+
+export type SkillUpdateData = {
+  body?: {
+    names?: Array<string>
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/skill/update"
+}
+
+export type SkillUpdateErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type SkillUpdateError = SkillUpdateErrors[keyof SkillUpdateErrors]
+
+export type SkillUpdateResponses = {
+  /**
+   * Update result
+   */
+  200: {
+    ok: boolean
+    updated: Array<string>
+  }
+}
+
+export type SkillUpdateResponse = SkillUpdateResponses[keyof SkillUpdateResponses]
 
 export type PermissionReplyData = {
   body?: {
@@ -7172,30 +7506,6 @@ export type AppAgentsResponses = {
 }
 
 export type AppAgentsResponse = AppAgentsResponses[keyof AppAgentsResponses]
-
-export type AppSkillsData = {
-  body?: never
-  path?: never
-  query?: {
-    directory?: string
-    workspace?: string
-  }
-  url: "/skill"
-}
-
-export type AppSkillsResponses = {
-  /**
-   * List of skills
-   */
-  200: Array<{
-    name: string
-    description: string
-    location: string
-    content: string
-  }>
-}
-
-export type AppSkillsResponse = AppSkillsResponses[keyof AppSkillsResponses]
 
 export type LspStatusData = {
   body?: never

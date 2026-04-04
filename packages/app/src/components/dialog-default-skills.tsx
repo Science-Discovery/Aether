@@ -15,6 +15,7 @@ import {
 } from "solid-js"
 import { useGlobalSDK } from "@/context/global-sdk"
 import { useSDK } from "@/context/sdk"
+import { DialogFindSkills } from "@/components/dialog-find-skills"
 
 type DefaultSkill = { name: string; description: string; content: string; enabled?: boolean }
 
@@ -73,6 +74,14 @@ export const DialogDefaultSkills: Component = () => {
       title="默认 Skills"
       action={
         <div class="flex items-center gap-1.5 -my-1">
+          <Button
+            variant="secondary"
+            size="small"
+            onClick={() => dialog.show(() => <DialogFindSkills directory={sdk.directory} />)}
+          >
+            <Icon name="brain" size="small" />
+            Find Skills
+          </Button>
           <Button variant="primary" size="small" disabled={adding()} onClick={handleAddToProject}>
             <Icon name="download" size="small" />
             {adding() ? "添加中..." : "添加到项目"}

@@ -61,6 +61,7 @@ import { ImagePreview } from "@opencode-ai/ui/image-preview"
 import { FileIcon } from "@opencode-ai/ui/file-icon"
 import { KnowledgeButton } from "@/components/knowledge-button"
 import { DialogDefaultSkills } from "@/components/dialog-default-skills"
+import { DialogFindSkills } from "@/components/dialog-find-skills"
 import { DialogWeChat } from "@/components/dialog-wechat"
 import { status as wechatStatus } from "@/context/wechat"
 import { DialogFeishu } from "@/components/dialog-feishu"
@@ -351,6 +352,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
       t: (key, params) => language.t(key as Parameters<typeof language.t>[0], params as never),
     }),
   )
+  const [tools, setTools] = createSignal(false)
 
   const historyComments = () => {
     const byID = new Map(comments.all().map((item) => [`${item.file}\n${item.id}`, item] as const))
@@ -1630,6 +1632,8 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                     <KnowledgeButton />
                   </div>
                   <Popover
+                    open={tools()}
+                    onOpenChange={setTools}
                     placement="top-end"
                     gutter={4}
                     triggerAs={Button}
@@ -1642,12 +1646,30 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                     trigger={<Icon name="dot-grid" class="size-4" />}
                     class="p-1 flex flex-col gap-0.5 min-w-[120px]"
                   >
+                    <Tooltip placement="left" gutter={4} value="Find Skills">
+                      <Button
+                        variant="ghost"
+                        size="normal"
+                        class="w-full h-7 px-2 flex items-center gap-2 text-icon-weak justify-start"
+                        onClick={() => {
+                          setTools(false)
+                          requestAnimationFrame(() => dialog.show(() => <DialogFindSkills directory={sdk.directory} />))
+                        }}
+                        aria-label="Find Skills"
+                      >
+                        <Icon name="brain" class="size-4 shrink-0" />
+                        <span class="text-13-regular text-text-base">Find Skills</span>
+                      </Button>
+                    </Tooltip>
                     <Tooltip placement="left" gutter={4} value="默认 Skills">
                       <Button
                         variant="ghost"
                         size="normal"
                         class="w-full h-7 px-2 flex items-center gap-2 text-icon-weak justify-start"
-                        onClick={() => dialog.show(() => <DialogDefaultSkills />)}
+                        onClick={() => {
+                          setTools(false)
+                          requestAnimationFrame(() => dialog.show(() => <DialogDefaultSkills />))
+                        }}
                         aria-label="默认 Skills"
                       >
                         <Icon name="bullet-list" class="size-4 shrink-0" />
@@ -1659,7 +1681,10 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                         variant="ghost"
                         size="normal"
                         class="w-full h-7 px-2 flex items-center gap-2 text-icon-weak justify-start"
-                        onClick={() => dialog.show(() => <DialogWeChat />)}
+                        onClick={() => {
+                          setTools(false)
+                          requestAnimationFrame(() => dialog.show(() => <DialogWeChat />))
+                        }}
                         aria-label="微信连接"
                       >
                         <Icon

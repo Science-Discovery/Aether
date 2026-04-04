@@ -39,7 +39,6 @@ import { TuiRoutes } from "./routes/tui"
 import { Instance } from "../project/instance"
 import { Vcs } from "../project/vcs"
 import { Agent } from "../agent/agent"
-import { Skill } from "../skill"
 import { Auth } from "../auth"
 import { Flag } from "../flag/flag"
 import { Command } from "../command"
@@ -69,6 +68,7 @@ import { QuestionRoutes } from "./routes/question"
 import { PermissionRoutes } from "./routes/permission"
 import { GlobalRoutes } from "./routes/global"
 import { KnowledgeRoutes } from "./routes/knowledge"
+import { SkillRoutes } from "./routes/skill"
 import { WeChatRoutes } from "./routes/wechat"
 import { FeishuRoutes } from "./routes/feishu"
 import { ReadingModeRoutes } from "./routes/reading-mode"
@@ -288,6 +288,7 @@ export namespace Server {
       .route("/config", ConfigRoutes())
       .route("/experimental", ExperimentalRoutes())
       .route("/session", SessionRoutes())
+      .route("/skill", SkillRoutes())
       .route("/permission", PermissionRoutes())
       .route("/question", QuestionRoutes())
       .route("/provider", ProviderRoutes())
@@ -507,28 +508,6 @@ export namespace Server {
         async (c) => {
           const modes = await Agent.list()
           return c.json(modes)
-        },
-      )
-      .get(
-        "/skill",
-        describeRoute({
-          summary: "List skills",
-          description: "Get a list of all available skills in the OpenCode system.",
-          operationId: "app.skills",
-          responses: {
-            200: {
-              description: "List of skills",
-              content: {
-                "application/json": {
-                  schema: resolver(Skill.Info.array()),
-                },
-              },
-            },
-          },
-        }),
-        async (c) => {
-          const skills = await Skill.all()
-          return c.json(skills)
         },
       )
       .get(

@@ -27,7 +27,7 @@ export const { use: useGlobalSDK, provider: GlobalSDKProvider } = createSimpleCo
     const platform = usePlatform()
     const abort = new AbortController()
 
-    const eventFetch = (() => {
+    const requestFetch = (() => {
       if (!platform.fetch || !server.current) return
       try {
         const url = new URL(server.current.http.url)
@@ -43,7 +43,7 @@ export const { use: useGlobalSDK, provider: GlobalSDKProvider } = createSimpleCo
 
     const eventSdk = createSdkForServer({
       signal: abort.signal,
-      fetch: eventFetch,
+      fetch: requestFetch,
       server: currentServer.http,
     })
     const emitter = createGlobalEmitter<{
@@ -145,7 +145,7 @@ export const { use: useGlobalSDK, provider: GlobalSDKProvider } = createSimpleCo
               streamErrorLogged = true
               console.error("[global-sdk] event stream error", {
                 url: currentServer.http.url,
-                fetch: eventFetch ? "platform" : "webview",
+                fetch: requestFetch ? "platform" : "webview",
                 error,
               })
             },
@@ -182,7 +182,7 @@ export const { use: useGlobalSDK, provider: GlobalSDKProvider } = createSimpleCo
             streamErrorLogged = true
             console.error("[global-sdk] event stream failed", {
               url: currentServer.http.url,
-              fetch: eventFetch ? "platform" : "webview",
+              fetch: requestFetch ? "platform" : "webview",
               error,
             })
           }
@@ -217,7 +217,7 @@ export const { use: useGlobalSDK, provider: GlobalSDKProvider } = createSimpleCo
 
     const sdk = createSdkForServer({
       server: server.current.http,
-      fetch: platform.fetch,
+      fetch: requestFetch,
       throwOnError: true,
     })
     addPreferenceMethods(
@@ -240,7 +240,7 @@ export const { use: useGlobalSDK, provider: GlobalSDKProvider } = createSimpleCo
         if (!s) throw new Error(language.t("error.globalSDK.serverNotAvailable"))
         const c = createSdkForServer({
           server: s.http,
-          fetch: platform.fetch,
+          fetch: requestFetch,
           ...opts,
         })
         addPreferenceMethods(
