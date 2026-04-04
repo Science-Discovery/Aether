@@ -4,7 +4,7 @@ set -euo pipefail
 
 base="https://aether.aiphys.cn/download"
 latest="latest/linux-x64.yml"
-default="$HOME/Applications/Aether"
+default="$HOME/.local/share/applications/Aether"
 mode="init"
 arg=""
 path_arg=""

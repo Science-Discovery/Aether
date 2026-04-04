@@ -16,7 +16,7 @@
 ## 模式
 
 - `init`
-  首次安装入口。默认工作目录是 `~/Applications/Aether`，默认不交互。可通过 `--path <dir>` 指定父目录。下载完成后会自动执行下载到本地的版本安装脚本。
+  首次安装入口。默认工作目录是 `~/.local/share/applications/Aether`，默认不交互。可通过 `--path <dir>` 指定父目录。下载完成后会自动执行下载到本地的版本安装脚本。
 - `auto <current-version>`
   自动更新检查。用于 Aether 软件后台调用。
 - `manual <target-version>`
@@ -25,7 +25,7 @@
 ## 工作目录
 
 - `init`
-  默认工作目录为 `~/Applications/Aether`。若传入 `--path <dir>`，则输入的是父目录，实际工作目录固定归一化为 `父目录/Aether`。
+  默认工作目录为 `~/.local/share/applications/Aether`。若传入 `--path <dir>`，则输入的是父目录，实际工作目录固定归一化为 `父目录/Aether`。
 - `auto` 和 `manual`
   默认使用安装器脚本所在目录（即 `.../Aether`）
 
@@ -96,10 +96,10 @@ code: 11
 current_version: ""
 target_version: "1.2.3"
 requested_version: "1.2.3"
-work_dir: "/home/name/Applications/Aether"
-download_dir: "/home/name/Applications/Aether/downloads"
-package_path: "/home/name/Applications/Aether/downloads/aether-1.2.3-linux-x64.tar.gz"
-installer_path: "/home/name/Applications/Aether/downloads/install-linux.sh"
+work_dir: "/home/name/.local/share/applications/Aether"
+download_dir: "/home/name/.local/share/applications/Aether/downloads"
+package_path: "/home/name/.local/share/applications/Aether/downloads/aether-1.2.3-linux-x64.tar.gz"
+installer_path: "/home/name/.local/share/applications/Aether/downloads/install-linux.sh"
 manifest_url: "https://aether.aiphys.cn/download/1.2.3/linux-x64.yml"
 notes_url: "https://aether.aiphys.cn/download/1.2.3/notes.md"
 ```
