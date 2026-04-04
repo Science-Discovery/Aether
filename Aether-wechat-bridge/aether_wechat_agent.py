@@ -13,6 +13,7 @@ Aether WeChat Bridge - 将 Aether AI 接入微信
 
 import asyncio
 import os
+import re
 import sys
 
 # 确保 stdout/stderr 使用 UTF-8（作为 Electron 子进程运行时管道可能默认 ASCII）
@@ -239,7 +240,25 @@ class AetherAgent(Agent):
             logger.warning(f"保存隐藏项目失败: {e}")
 
     def _project_dir(self, item: dict) -> str:
-        return item.get("directory") or item.get("worktree", "")
+        return self._norm_dir(item.get("directory") or item.get("worktree", ""))
+
+    def _norm_dir(self, directory: str) -> str:
+        text = (directory or "").replace(chr(92), "/")
+        if not text:
+            return ""
+        if re.fullmatch(r"/+", text):
+            return "/"
+        if re.fullmatch(r"[A-Za-z]:/?", text):
+            return f"{text[0].lower()}:/"
+        if re.fullmatch(r"[A-Za-z]:/+", text):
+            return f"{text[0].lower()}:/"
+        return text.rstrip("/")
+
+    def _is_root_dir(self, directory: str) -> bool:
+        text = self._norm_dir(directory)
+        if text == "/":
+            return True
+        return bool(re.fullmatch(r"[a-z]:/", text))
 
     def _project_name(self, item: dict) -> str:
         directory = self._project_dir(item)
@@ -359,8 +378,8 @@ class AetherAgent(Agent):
             return [
                 item
                 for item in resp.json()
-                if (item.get("directory") or item.get("worktree"))
-                and (item.get("directory") or item.get("worktree")) != "/"
+                if self._project_dir(item)
+                and not self._is_root_dir(self._project_dir(item))
             ]
         except Exception as e:
             logger.warning(f"获取项目列表失败: {e}")
