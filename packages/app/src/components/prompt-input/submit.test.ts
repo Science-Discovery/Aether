@@ -104,6 +104,7 @@ beforeAll(async () => {
   }))
 
   mock.module("@/context/prompt", () => ({
+    DEFAULT_PROMPT: [{ type: "text", content: "", start: 0, end: 0 }],
     usePrompt: () => ({
       current: () => promptValue,
       reset: () => undefined,
@@ -188,6 +189,28 @@ beforeAll(async () => {
   mock.module("@/context/platform", () => ({
     usePlatform: () => ({
       fetch: fetch,
+    }),
+  }))
+
+  mock.module("@/context/knowledge", () => ({
+    useKnowledge: () => ({
+      enabled: () => false,
+      activeKnowledgeBases: () => [],
+      data: {
+        selected: () => undefined,
+      },
+    }),
+  }))
+
+  mock.module("@/context/file", () => ({
+    useFile: () => ({
+      selectedText: () => undefined,
+    }),
+  }))
+
+  mock.module("@/context/server", () => ({
+    useServer: () => ({
+      current: undefined,
     }),
   }))
 

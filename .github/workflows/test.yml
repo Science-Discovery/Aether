@@ -18,17 +18,10 @@ permissions:
   checks: write
 
 jobs:
-  unit:
-    name: unit (${{ matrix.settings.name }})
-    strategy:
-      fail-fast: false
-      matrix:
-        settings:
-          - name: linux
-            host: ubuntu-latest
-          - name: windows
-            host: windows-latest
-    runs-on: ${{ matrix.settings.host }}
+  # First-layer CI: fast and currently stable app unit tests.
+  app-unit:
+    name: app unit (linux)
+    runs-on: ubuntu-latest
     defaults:
       run:
         shell: bash
@@ -46,53 +39,15 @@ jobs:
           git config --global user.email "bot@opencode.ai"
           git config --global user.name "opencode"
 
-      - name: Cache Turbo
-        uses: actions/cache@v4
-        with:
-          path: node_modules/.cache/turbo
-          key: turbo-${{ runner.os }}-${{ hashFiles('turbo.json', '**/package.json') }}-${{ github.sha }}
-          restore-keys: |
-            turbo-${{ runner.os }}-${{ hashFiles('turbo.json', '**/package.json') }}-
-            turbo-${{ runner.os }}-
+      - name: Run app unit tests
+        run: bun --cwd packages/app test:unit
 
-      - name: Run unit tests
-        run: bun turbo test:ci
-        env:
-          OPENCODE_EXPERIMENTAL_DISABLE_FILEWATCHER: ${{ runner.os == 'Windows' && 'true' || 'false' }}
-
-      - name: Publish unit reports
-        if: always()
-        uses: mikepenz/action-junit-report@v6
-        with:
-          report_paths: packages/*/.artifacts/unit/junit.xml
-          check_name: "unit results (${{ matrix.settings.name }})"
-          detailed_summary: true
-          include_time_in_summary: true
-          fail_on_failure: false
-
-      - name: Upload unit artifacts
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: unit-${{ matrix.settings.name }}-${{ github.run_attempt }}
-          include-hidden-files: true
-          if-no-files-found: ignore
-          retention-days: 7
-          path: packages/*/.artifacts/unit/junit.xml
-
-  e2e:
-    name: e2e (${{ matrix.settings.name }})
-    strategy:
-      fail-fast: false
-      matrix:
-        settings:
-          - name: linux
-            host: ubuntu-latest
-          - name: windows
-            host: windows-latest
-    runs-on: ${{ matrix.settings.host }}
-    env:
-      PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/.playwright-browsers
+  # Second-layer CI: keep core package tests visible even while they are still failing.
+  # This is intentional: these failures represent real product/test issues, not runner noise.
+  opencode-unit:
+    name: opencode unit (linux)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
     defaults:
       run:
         shell: bash
@@ -105,44 +60,17 @@ jobs:
       - name: Setup Bun
         uses: ./.github/actions/setup-bun
 
-      - name: Read Playwright version
-        id: playwright-version
-        run: |
-          version=$(node -e 'console.log(require("./packages/app/package.json").devDependencies["@playwright/test"])')
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-
-      - name: Cache Playwright browsers
-        id: playwright-cache
-        uses: actions/cache@v4
-        with:
-          path: ${{ github.workspace }}/.playwright-browsers
-          key: ${{ runner.os }}-${{ runner.arch }}-playwright-${{ steps.playwright-version.outputs.version }}-chromium
-
-      - name: Install Playwright system dependencies
-        if: runner.os == 'Linux'
-        working-directory: packages/app
-        run: bunx playwright install-deps chromium
-
-      - name: Install Playwright browsers
-        if: steps.playwright-cache.outputs.cache-hit != 'true'
-        working-directory: packages/app
-        run: bunx playwright install chromium
-
-      - name: Run app e2e tests
-        run: bun --cwd packages/app test:e2e:local
+      - name: Run opencode unit tests
+        working-directory: packages/opencode
         env:
-          CI: true
-          PLAYWRIGHT_JUNIT_OUTPUT: e2e/junit-${{ matrix.settings.name }}.xml
-        timeout-minutes: 30
+          OPENCODE_EXPERIMENTAL_DISABLE_FILEWATCHER: "true"
+        run: bun test --timeout 30000
 
-      - name: Upload Playwright artifacts
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: playwright-${{ matrix.settings.name }}-${{ github.run_attempt }}
-          if-no-files-found: ignore
-          retention-days: 7
-          path: |
-            packages/app/e2e/junit-*.xml
-            packages/app/e2e/test-results
-            packages/app/e2e/playwright-report
+  # Windows test jobs are intentionally not part of the current required CI baseline.
+  # The repository contains symlinks that fail during checkout on GitHub-hosted Windows
+  # runners with "Filename too long", so keeping them here as required jobs would only
+  # add infrastructure noise before tests even start.
+  #
+  # App E2E is also intentionally excluded from the current required CI baseline.
+  # The local E2E harness currently fails to acquire an ephemeral port in CI and needs
+  # its own stabilization pass before it can serve as a trustworthy correctness gate.
