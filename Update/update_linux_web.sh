@@ -5,7 +5,7 @@ set -euo pipefail
 base="https://aether.aiphys.cn/download"
 latest="latest/linux-x64.yml"
 site="${base%/download}"
-default="$HOME/Applications/Aether"
+default="$HOME/Applications/aether"
 mode="init"
 arg=""
 path_arg=""
@@ -153,11 +153,11 @@ normalize_work() {
   local dir base
   dir="$1"
   base="$(basename "$dir")"
-  if [ "$base" = "Aether" ]; then
+  if [ "$base" = "aether" ]; then
     printf "%s" "$dir"
     return 0
   fi
-  printf "%s/Aether" "$dir"
+  printf "%s/aether" "$dir"
 }
 
 workdir() {

@@ -13,16 +13,16 @@ set "LAUNCH="
 set "NOTE="
 
 if /I not "%BASE%"=="downloads" (
-  echo 规范错误：update_windows_web.bat 必须放在 ...\Aether\downloads 目录。当前: %SELF%
+  echo 规范错误：update_windows_web.bat 必须放在 ...\aether\downloads 目录。当前: %SELF%
   exit /b 1
 )
 for %%i in ("%WORK%") do set "WORK_NAME=%%~nxi"
-if /I not "%WORK_NAME%"=="Aether" (
-  echo 规范错误：工作目录必须是 ...\Aether。当前: %WORK%
+if /I not "%WORK_NAME%"=="aether" (
+  echo 规范错误：工作目录必须是 ...\aether。当前: %WORK%
   exit /b 1
 )
 if not exist "%WORK%\aether_windows_installer.bat" (
-  echo 规范错误：缺少 ...\Aether\aether_windows_installer.bat
+  echo 规范错误：缺少 ...\aether\aether_windows_installer.bat
   exit /b 1
 )
 
@@ -30,7 +30,7 @@ echo [0/4] 工作目录: %WORK%
 
 call :pick_pkg "%SELF%" "%WANT%"
 if errorlevel 1 (
-  echo 未在 ...\Aether\downloads 找到可用 zip（文件名需包含版本号）
+  echo 未在 ...\aether\downloads 找到可用 zip（文件名需包含版本号）
   exit /b 1
 )
 
