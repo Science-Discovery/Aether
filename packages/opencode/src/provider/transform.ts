@@ -25,8 +25,9 @@ export namespace ProviderTransform {
     switch (npm) {
       case "@ai-sdk/github-copilot":
         return "copilot"
-      case "@ai-sdk/openai":
       case "@ai-sdk/azure":
+        return "azure"
+      case "@ai-sdk/openai":
         return "openai"
       case "@ai-sdk/amazon-bedrock":
         return "bedrock"
@@ -34,6 +35,7 @@ export namespace ProviderTransform {
       case "@ai-sdk/google-vertex/anthropic":
         return "anthropic"
       case "@ai-sdk/google-vertex":
+        return "vertex"
       case "@ai-sdk/google":
         return "google"
       case "@ai-sdk/gateway":
@@ -49,41 +51,9 @@ export namespace ProviderTransform {
     model: Provider.Model,
     options: Record<string, unknown>,
   ): ModelMessage[] {
-    // Strip openai itemId metadata following what codex does
-    if (model.api.npm === "@ai-sdk/openai" || options.store === false) {
-      msgs = msgs.map((msg) => {
-        if (msg.providerOptions) {
-          for (const opts of Object.values(msg.providerOptions)) {
-            if (opts && typeof opts === "object") {
-              delete opts["itemId"]
-            }
-          }
-        }
-        if (!Array.isArray(msg.content)) {
-          return msg
-        }
-        const content = msg.content.map((part) => {
-          if (part.providerOptions) {
-            for (const opts of Object.values(part.providerOptions)) {
-              if (opts && typeof opts === "object") {
-                delete opts["itemId"]
-              }
-            }
-          }
-          return part
-        })
-        return { ...msg, content } as typeof msg
-      })
-    }
-
-    // Anthropic and Google reject messages with empty content - filter out empty string messages
+    // Anthropic rejects messages with empty content - filter out empty string messages
     // and remove empty text/reasoning parts from array content
-    if (
-      model.api.npm === "@ai-sdk/anthropic" ||
-      model.api.npm === "@ai-sdk/amazon-bedrock" ||
-      model.api.npm === "@ai-sdk/google" ||
-      model.api.npm === "@ai-sdk/google-vertex"
-    ) {
+    if (model.api.npm === "@ai-sdk/anthropic" || model.api.npm === "@ai-sdk/amazon-bedrock") {
       msgs = msgs
         .map((msg) => {
           if (typeof msg.content === "string") {
@@ -104,17 +74,29 @@ export namespace ProviderTransform {
     }
 
     if (model.api.id.includes("claude")) {
+      const scrub = (id: string) => id.replace(/[^a-zA-Z0-9_-]/g, "_")
       return msgs.map((msg) => {
-        if ((msg.role === "assistant" || msg.role === "tool") && Array.isArray(msg.content)) {
-          msg.content = msg.content.map((part) => {
-            if ((part.type === "tool-call" || part.type === "tool-result") && "toolCallId" in part) {
-              return {
-                ...part,
-                toolCallId: part.toolCallId.replace(/[^a-zA-Z0-9_-]/g, "_"),
+        if (msg.role === "assistant" && Array.isArray(msg.content)) {
+          return {
+            ...msg,
+            content: msg.content.map((part) => {
+              if (part.type === "tool-call" || part.type === "tool-result") {
+                return { ...part, toolCallId: scrub(part.toolCallId) }
               }
-            }
-            return part
-          })
+              return part
+            }),
+          }
+        }
+        if (msg.role === "tool" && Array.isArray(msg.content)) {
+          return {
+            ...msg,
+            content: msg.content.map((part) => {
+              if (part.type === "tool-result") {
+                return { ...part, toolCallId: scrub(part.toolCallId) }
+              }
+              return part
+            }),
+          }
         }
         return msg
       })
@@ -124,24 +106,29 @@ export namespace ProviderTransform {
       model.api.id.toLowerCase().includes("mistral") ||
       model.api.id.toLocaleLowerCase().includes("devstral")
     ) {
+      const scrub = (id: string) => {
+        return id
+          .replace(/[^a-zA-Z0-9]/g, "")
+          .substring(0, 9)
+          .padEnd(9, "0")
+      }
       const result: ModelMessage[] = []
       for (let i = 0; i < msgs.length; i++) {
         const msg = msgs[i]
         const nextMsg = msgs[i + 1]
 
-        if ((msg.role === "assistant" || msg.role === "tool") && Array.isArray(msg.content)) {
+        if (msg.role === "assistant" && Array.isArray(msg.content)) {
           msg.content = msg.content.map((part) => {
-            if ((part.type === "tool-call" || part.type === "tool-result") && "toolCallId" in part) {
-              // Mistral requires alphanumeric tool call IDs with exactly 9 characters
-              const normalizedId = part.toolCallId
-                .replace(/[^a-zA-Z0-9]/g, "") // Remove non-alphanumeric characters
-                .substring(0, 9) // Take first 9 characters
-                .padEnd(9, "0") // Pad with zeros if less than 9 characters
-
-              return {
-                ...part,
-                toolCallId: normalizedId,
-              }
+            if (part.type === "tool-call" || part.type === "tool-result") {
+              return { ...part, toolCallId: scrub(part.toolCallId) }
+            }
+            return part
+          })
+        }
+        if (msg.role === "tool" && Array.isArray(msg.content)) {
+          msg.content = msg.content.map((part) => {
+            if (part.type === "tool-result") {
+              return { ...part, toolCallId: scrub(part.toolCallId) }
             }
             return part
           })
@@ -233,8 +220,13 @@ export namespace ProviderTransform {
       const shouldUseContentOptions = !useMessageLevelOptions && Array.isArray(msg.content) && msg.content.length > 0
 
       if (shouldUseContentOptions) {
-        const lastContent = msg.content[msg.content.length - 1]
-        if (lastContent && typeof lastContent === "object") {
+        const lastContent = msg.content[msg.content.length - 1] as any
+        if (
+          lastContent &&
+          typeof lastContent === "object" &&
+          lastContent.type !== "tool-approval-request" &&
+          lastContent.type !== "tool-approval-response"
+        ) {
           lastContent.providerOptions = mergeDeep(lastContent.providerOptions ?? {}, providerOptions)
           continue
         }
@@ -289,6 +281,7 @@ export namespace ProviderTransform {
     msgs = normalizeMessages(msgs, model, options)
     if (
       (model.providerID === "anthropic" ||
+        model.providerID === "google-vertex-anthropic" ||
         model.api.id.includes("anthropic") ||
         model.api.id.includes("claude") ||
         model.id.includes("anthropic") ||
@@ -301,7 +294,7 @@ export namespace ProviderTransform {
 
     // Remap providerOptions keys from stored providerID to expected SDK key
     const key = sdkKey(model.api.npm)
-    if (key && key !== model.providerID && model.api.npm !== "@ai-sdk/azure") {
+    if (key && key !== model.providerID) {
       const remap = (opts: Record<string, any> | undefined) => {
         if (!opts) return opts
         if (!(model.providerID in opts)) return opts
@@ -316,21 +309,15 @@ export namespace ProviderTransform {
         return {
           ...msg,
           providerOptions: remap(msg.providerOptions),
-          content: msg.content.map((part) => ({ ...part, providerOptions: remap(part.providerOptions) })),
+          content: msg.content.map((part) => {
+            const item = part as any
+            if (item.type === "tool-approval-request" || item.type === "tool-approval-response") {
+              return { ...item }
+            }
+            return { ...part, providerOptions: remap(part.providerOptions) }
+          }),
         } as typeof msg
       })
-    }
-
-    // For @ai-sdk/anthropic, remove trailing assistant messages to prevent
-    // "assistant message prefill" errors. This handles zombie messages left
-    // by interrupted streaming sessions.
-    if (
-      model.api.npm === "@ai-sdk/anthropic" ||
-      model.api.npm === "@ai-sdk/google-vertex/anthropic"
-    ) {
-      while (msgs.length > 0 && msgs[msgs.length - 1].role === "assistant") {
-        msgs.pop()
-      }
     }
 
     return msgs

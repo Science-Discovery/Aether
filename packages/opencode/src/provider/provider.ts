@@ -1171,15 +1171,6 @@ export namespace Provider {
     // load config
     for (const [id, provider] of configProviders) {
       const providerID = ProviderID.make(id)
-      // For preset providers (already in models.dev), only merge into the connected list if:
-      // 1. Already connected via env/api/plugin (providers[providerID] exists), OR
-      // 2. Config entry defines custom models (making it a custom provider variant)
-      // This prevents preset providers from appearing connected when they only have
-      // option overrides (e.g. baseURL) but no actual credentials.
-      if (!providers[providerID] && modelsDev[providerID]) {
-        const hasModels = !!provider.models && Object.keys(provider.models).length > 0
-        if (!hasModels) continue
-      }
       const partial: Partial<Info> = { source: "config" }
       if (provider.env) partial.env = provider.env
       if (provider.name) partial.name = provider.name

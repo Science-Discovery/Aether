@@ -1,5 +1,6 @@
 import type * as Arr from "effect/Array"
-import { NodeSink, NodeStream } from "@effect/platform-node"
+import { NodeFileSystem, NodeSink, NodeStream } from "@effect/platform-node"
+import * as NodePath from "@effect/platform-node/NodePath"
 import * as Deferred from "effect/Deferred"
 import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
@@ -23,6 +24,7 @@ import {
 import * as NodeChildProcess from "node:child_process"
 import { PassThrough } from "node:stream"
 import launch from "cross-spawn"
+import { lazy } from "@/util/lazy"
 
 const toError = (err: unknown): Error => (err instanceof globalThis.Error ? err : new globalThis.Error(String(err)))
 
@@ -474,3 +476,17 @@ export const layer: Layer.Layer<ChildProcessSpawner, never, FileSystem.FileSyste
   ChildProcessSpawner,
   make,
 )
+
+export const defaultLayer = layer.pipe(Layer.provide(NodeFileSystem.layer), Layer.provide(NodePath.layer))
+
+const rt = lazy(async () => {
+  const { makeRuntime } = await import("@/effect/run-service")
+  return makeRuntime(ChildProcessSpawner, defaultLayer)
+})
+
+export async function runPromise<A, Err>(
+  fn: (svc: ChildProcessSpawner) => Effect.Effect<A, Err, never>,
+  options?: Effect.RunOptions,
+) {
+  return (await rt()).runPromise(fn as any, options) as Promise<A>
+}

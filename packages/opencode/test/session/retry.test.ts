@@ -5,6 +5,7 @@ import { setTimeout as sleep } from "node:timers/promises"
 import { SessionRetry } from "../../src/session/retry"
 import { MessageV2 } from "../../src/session/message-v2"
 import { ProviderID } from "../../src/provider/schema"
+import { serve } from "../lib/server"
 
 const providerID = ProviderID.make("test")
 
@@ -143,10 +144,10 @@ describe("session.message-v2.fromError", () => {
   test.concurrent(
     "converts ECONNRESET socket errors to retryable APIError",
     async () => {
-      using server = Bun.serve({
+      using server = await serve({
         port: 0,
         idleTimeout: 8,
-        async fetch(req) {
+        async fetch(req: Request) {
           return new Response(
             new ReadableStream({
               async pull(controller) {

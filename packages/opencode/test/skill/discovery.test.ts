@@ -5,6 +5,7 @@ import { Global } from "../../src/global"
 import { Filesystem } from "../../src/util/filesystem"
 import { rm } from "fs/promises"
 import path from "path"
+import { serve } from "../lib/server"
 
 let CLOUDFLARE_SKILLS_URL: string
 let server: ReturnType<typeof Bun.serve>
@@ -16,9 +17,9 @@ const cacheDir = path.join(Global.Path.cache, "skills")
 beforeAll(async () => {
   await rm(cacheDir, { recursive: true, force: true })
 
-  server = Bun.serve({
+  server = await serve({
     port: 0,
-    async fetch(req) {
+    async fetch(req: Request) {
       const url = new URL(req.url)
 
       // route /.well-known/skills/* to the fixture directory

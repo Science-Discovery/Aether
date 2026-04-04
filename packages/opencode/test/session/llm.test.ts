@@ -14,6 +14,7 @@ import { tmpdir } from "../fixture/fixture"
 import type { Agent } from "../../src/agent/agent"
 import type { MessageV2 } from "../../src/session/message-v2"
 import { SessionID, MessageID } from "../../src/session/schema"
+import { serve } from "../lib/server"
 
 describe("session.llm.hasToolCalls", () => {
   test("returns false for empty messages array", () => {
@@ -128,9 +129,9 @@ function waitRequest(pathname: string, response: Response) {
 }
 
 beforeAll(() => {
-  state.server = Bun.serve({
+  return serve({
     port: 0,
-    async fetch(req) {
+    async fetch(req: Request) {
       const next = state.queue.shift()
       if (!next) {
         return new Response("unexpected request", { status: 500 })
@@ -146,6 +147,8 @@ beforeAll(() => {
 
       return next.response
     },
+  }).then((server) => {
+    state.server = server
   })
 })
 
