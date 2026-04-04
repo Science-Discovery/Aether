@@ -135,7 +135,7 @@ if [ ! -x "$VENV/bin/python" ]; then
   "$PY" -m venv "$VENV"
 fi
 
-if ! "$VENV/bin/python" -c "import wechat_agent_sdk, httpx" >/dev/null 2>&1; then
+if ! "$VENV/bin/python" -c "import wechat_agent_sdk, httpx, socksio" >/dev/null 2>&1; then
   echo "正在安装依赖..."
   "$VENV/bin/python" -m pip install --upgrade pip
   "$VENV/bin/python" -m pip install -r requirements.txt

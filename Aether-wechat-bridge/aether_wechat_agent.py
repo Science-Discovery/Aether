@@ -52,14 +52,26 @@ from wechat_agent_sdk.api.auth import login_with_qrcode
 from wechat_agent_sdk.account.storage import JsonFileStorage
 
 
-# Patch ILinkBotClient: fall back to trust_env=False if system proxy causes ConnectTimeout
+def make_httpx(**kwargs) -> httpx.AsyncClient:
+    try:
+        return httpx.AsyncClient(**kwargs)
+    except ImportError as err:
+        if "socksio" not in str(err):
+            raise
+        logger.warning("[weixin] 检测到 SOCKS 代理但未安装 socksio，已绕过系统代理")
+        cfg = dict(kwargs)
+        cfg["trust_env"] = False
+        return httpx.AsyncClient(**cfg)
+
+
+# Patch ILinkBotClient: fall back to trust_env=False if system proxy/network causes connection errors
 async def _make_ilinkbot_client(trust_env: bool) -> httpx.AsyncClient:
     from wechat_agent_sdk.api.client import POLL_TIMEOUT, _make_wechat_uin
 
     async def _inject_uin(request):
         request.headers["X-WECHAT-UIN"] = _make_wechat_uin()
 
-    return httpx.AsyncClient(
+    return make_httpx(
         timeout=httpx.Timeout(
             connect=10.0, read=POLL_TIMEOUT + 10, write=10.0, pool=10.0
         ),
@@ -186,6 +198,8 @@ class AetherAgent(Agent):
         self._sse_tasks: dict[str, object] = {}
         self._accumulated_text: dict[str, str] = {}
         self._question_queues: dict[str, object] = {}
+        self._wechat_client = None  # ILinkBotClient, set by CustomWeChatBot
+        self._wechat_ctx: dict[str, str] = {}  # conv_id -> context_token
         self._model_list: list[str] = []  # 上次 /model 获取的有序模型列表
         self._user_info: Optional[dict] = None
         self._username = os.getenv("AETHER_USERNAME", "")
@@ -199,7 +213,7 @@ class AetherAgent(Agent):
         auth = None
         if self._username and self._password:
             auth = httpx.BasicAuth(self._username, self._password)
-        self._client = httpx.AsyncClient(
+        self._client = make_httpx(
             timeout=httpx.Timeout(300.0, connect=30.0),
             headers={"Content-Type": "application/json"},
             auth=auth,
@@ -687,6 +701,42 @@ class AetherAgent(Agent):
         self._question_queues.pop(conv_id, None)
         self._accumulated_text.pop(conv_id, None)
 
+    async def _send_to_conv(self, conv_id: str, text: str) -> None:
+        """直接通过微信客户端向指定会话发送消息（不依赖 _active_chat_id）"""
+        if not text:
+            return
+        if self._wechat_client:
+            from wechat_agent_sdk.messaging.send import send_response as wechat_send
+            ctx = self._wechat_ctx.get(conv_id, "")
+            await wechat_send(
+                self._wechat_client, conv_id, ChatResponse(text=text), ctx
+            )
+        elif self._message_sender:
+            await self._message_sender(text)
+
+    async def _background_dispatch(
+        self, conv_id: str, session_id: str, directory: str, task, q
+    ) -> None:
+        """后台等待 AI 响应，完成后通过微信客户端投递结果"""
+        try:
+            if q is not None:
+                response = await self._wait_for_response(
+                    conv_id, session_id, directory, task, q
+                )
+            else:
+                response = await self._wait_for_response_polling(
+                    conv_id, session_id, directory, task
+                )
+            await self._send_to_conv(conv_id, response.text)
+        except asyncio.CancelledError:
+            pass
+        except Exception as e:
+            logger.error(f"[background] 消息处理失败: {e}")
+            try:
+                await self._send_to_conv(conv_id, f"处理消息时出错: {e}")
+            except Exception:
+                pass
+
     async def _cmd_stop(self, conv_id: str) -> str:
         directory = self._conv_dirs.get(conv_id) or self.directory
         session_id = self._sessions.get(conv_id)
@@ -724,6 +774,11 @@ class AetherAgent(Agent):
 
         conv_id = request.conversation_id
         user_text = request.text
+
+        # 缓存 context_token，供后台投递消息时使用
+        ctx_token = (request.raw or {}).get("context_token", "")
+        if ctx_token:
+            self._wechat_ctx[conv_id] = ctx_token
 
         if request.group_id and request.is_at_bot:
             logger.info(f"[群聊] {request.sender_name}: {user_text}")
@@ -785,9 +840,12 @@ class AetherAgent(Agent):
             )
             self._sse_tasks[conv_id] = sse_task
 
-            return await self._wait_for_response(
-                conv_id, session_id, directory, task, q
+            # 立即返回空响应（不发送微信消息），释放 SDK 轮询循环；
+            # AI 结果由后台任务通过 _send_to_conv 投递。
+            asyncio.create_task(
+                self._background_dispatch(conv_id, session_id, directory, task, q)
             )
+            return ChatResponse(text="")
 
         except httpx.HTTPStatusError as e:
             logger.error(f"HTTP 错误: {e.response.status_code}")
@@ -874,10 +932,11 @@ class AetherAgent(Agent):
 
             if kind == "question":
                 text_so_far = self._accumulated_text.pop(conv_id, "").strip()
-                if text_so_far and self._message_sender:
+                if text_so_far:
                     try:
-                        await self._message_sender(
-                            await self._wrap_message(text_so_far, session_id, directory)
+                        await self._send_to_conv(
+                            conv_id,
+                            await self._wrap_message(text_so_far, session_id, directory),
                         )
                     except Exception as e:
                         logger.warning(f"推送中间文本失败: {e}")
@@ -898,10 +957,11 @@ class AetherAgent(Agent):
 
             if kind == "permission":
                 text_so_far = self._accumulated_text.pop(conv_id, "").strip()
-                if text_so_far and self._message_sender:
+                if text_so_far:
                     try:
-                        await self._message_sender(
-                            await self._wrap_message(text_so_far, session_id, directory)
+                        await self._send_to_conv(
+                            conv_id,
+                            await self._wrap_message(text_so_far, session_id, directory),
                         )
                     except Exception as e:
                         logger.warning(f"推送中间文本失败: {e}")
@@ -1190,14 +1250,10 @@ class AetherAgent(Agent):
                 )
             )
 
-        if q is not None:
-            return await self._wait_for_response(
-                conv_id, session_id, directory, task, q
-            )
-        else:
-            return await self._wait_for_response_polling(
-                conv_id, session_id, directory, task
-            )
+        asyncio.create_task(
+            self._background_dispatch(conv_id, session_id, directory, task, q)
+        )
+        return ChatResponse(text="")
 
     async def _handle_permission_reply(
         self, conv_id: str, user_text: str
@@ -1257,27 +1313,23 @@ class AetherAgent(Agent):
                 )
             )
 
-        if self._message_sender:
-            try:
-                notice = {
-                    "once": "已收到授权：允许一次，继续处理中。",
-                    "always": "已收到授权：始终允许，继续处理中。",
-                    "reject": "已收到你的选择：拒绝，正在继续处理。",
-                }[reply]
-                await self._message_sender(
-                    await self._wrap_message(notice, session_id, directory)
-                )
-            except Exception as e:
-                logger.warning(f"推送授权确认失败: {e}")
+        try:
+            notice = {
+                "once": "已收到授权：允许一次，继续处理中。",
+                "always": "已收到授权：始终允许，继续处理中。",
+                "reject": "已收到你的选择：拒绝，正在继续处理。",
+            }[reply]
+            await self._send_to_conv(
+                conv_id,
+                await self._wrap_message(notice, session_id, directory),
+            )
+        except Exception as e:
+            logger.warning(f"推送授权确认失败: {e}")
 
-        if q is not None:
-            return await self._wait_for_response(
-                conv_id, session_id, directory, task, q
-            )
-        else:
-            return await self._wait_for_response_polling(
-                conv_id, session_id, directory, task
-            )
+        asyncio.create_task(
+            self._background_dispatch(conv_id, session_id, directory, task, q)
+        )
+        return ChatResponse(text="")
 
     def _parse_question_answers(
         self, user_text: str, questions: list
@@ -1536,6 +1588,8 @@ async def main():
             else JsonFileStorage()
         ),
     )
+    # 把微信客户端传给 agent，让后台任务能直接投递消息
+    agent._wechat_client = bot._client
 
     try:
         await bot.run(log=print)

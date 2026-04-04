@@ -319,7 +319,7 @@ class WeChatManagerImpl {
       [
         py,
         "-c",
-        "import sys; import wechat_agent_sdk; import httpx; raise SystemExit(0 if sys.version_info >= (3, 11) else 1)",
+        "import sys; import wechat_agent_sdk; import httpx; import socksio; raise SystemExit(0 if sys.version_info >= (3, 11) else 1)",
       ],
       10000,
     )
