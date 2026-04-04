@@ -51,7 +51,7 @@ from wechat_agent_sdk.api.auth import login_with_qrcode
 from wechat_agent_sdk.account.storage import JsonFileStorage
 
 
-# Patch ILinkBotClient: fall back to trust_env=False if system proxy/network causes connection errors
+# Patch ILinkBotClient: fall back to trust_env=False if system proxy causes ConnectTimeout
 async def _make_ilinkbot_client(trust_env: bool) -> httpx.AsyncClient:
     from wechat_agent_sdk.api.client import POLL_TIMEOUT, _make_wechat_uin
 
@@ -72,14 +72,14 @@ async def _make_ilinkbot_client(trust_env: bool) -> httpx.AsyncClient:
 
 
 async def _request_qrcode_with_fallback(self) -> dict:
-    """Try request_qrcode; on connection errors, retry without system proxy."""
+    """Try request_qrcode; on ConnectTimeout, retry without system proxy."""
     if not self._client:
         self._client = await _make_ilinkbot_client(trust_env=True)
         if self._token:
             self._client.headers["Authorization"] = f"Bearer {self._token}"
     try:
         return await _orig_request_qrcode(self)
-    except (httpx.ConnectTimeout, httpx.ConnectError):
+    except httpx.ConnectTimeout:
         logger.warning("[weixin] 连接超时，尝试绕过系统代理重连...")
         await self._client.aclose()
         self._client = await _make_ilinkbot_client(trust_env=False)
@@ -189,7 +189,7 @@ class AetherAgent(Agent):
         self._user_info: Optional[dict] = None
         self._username = os.getenv("AETHER_USERNAME", "")
         self._password = os.getenv("AETHER_PASSWORD", "")
-        self._hidden_dirs: dict[str, int] = {}  # project key -> hidden baseline time(ms)
+        self._hidden_dirs: dict[str, int] = {}  # worktree → 隐藏时的时间戳(ms)
         self._project_names: dict[str, str] = {}
         self._session_info: dict[str, dict] = {}
 
@@ -211,17 +211,7 @@ class AetherAgent(Agent):
             if _HIDDEN_FILE.exists():
                 raw = json.loads(_HIDDEN_FILE.read_text(encoding="utf-8"))
                 self._hidden_dirs = (
-                    {
-                        (
-                            str(k)
-                            if str(k).startswith("id:")
-                            else self._hide_key(str(k))
-                        ): int(v)
-                        for k, v in raw.items()
-                        if (str(k).startswith("id:") and str(k)) or self._hide_key(str(k))
-                    }
-                    if isinstance(raw, dict)
-                    else {}
+                    {k: int(v) for k, v in raw.items()} if isinstance(raw, dict) else {}
                 )
                 if self._hidden_dirs:
                     logger.info(f"已加载 {len(self._hidden_dirs)} 个隐藏项目")
@@ -247,33 +237,6 @@ class AetherAgent(Agent):
             _HIDDEN_FILE.write_text(json.dumps(self._hidden_dirs), encoding="utf-8")
         except Exception as e:
             logger.warning(f"保存隐藏项目失败: {e}")
-
-    def _norm_dir(self, directory: str) -> str:
-        text = (directory or "").replace(chr(92), "/").rstrip("/")
-        if not text:
-            return ""
-        if os.name == "nt":
-            return text.lower()
-        return text
-
-    def _hide_key(self, directory: str) -> str:
-        return self._norm_dir(directory)
-
-    def _item_key(self, item: dict) -> str:
-        value = item.get("id", "")
-        if isinstance(value, str) and value:
-            return f"id:{value}"
-        return self._hide_key(self._project_dir(item))
-
-    def _item_keys(self, item: dict) -> list[str]:
-        keys: list[str] = []
-        key = self._item_key(item)
-        if key:
-            keys.append(key)
-        alt = self._hide_key(self._project_dir(item))
-        if alt and alt not in keys:
-            keys.append(alt)
-        return keys
 
     def _project_dir(self, item: dict) -> str:
         return item.get("directory") or item.get("worktree", "")
@@ -302,7 +265,7 @@ class AetherAgent(Agent):
             return cached
         try:
             item = next(
-                (item for item in await self._get_projects() if self._hide_key(self._project_dir(item)) == self._hide_key(directory)),
+                (item for item in await self._get_projects() if self._project_dir(item) == directory),
                 None,
             )
             if item:
@@ -314,47 +277,6 @@ class AetherAgent(Agent):
             pass
         self._project_names[directory] = self._base(directory)
         return self._project_names[directory]
-
-    async def _restore_hidden_dirs(self, all_projects: Optional[list[dict]] = None) -> None:
-        if not self._hidden_dirs:
-            return
-        items = all_projects or await self._get_projects()
-        if not items:
-            return
-        times: dict[str, int] = {}
-        dirs: dict[str, str] = {}
-        for item in items:
-            directory = self._project_dir(item)
-            activity = int((((item.get("time") or {}).get("activity")) or 0))
-            for key in self._item_keys(item):
-                times[key] = max(times.get(key, 0), activity)
-                if directory:
-                    dirs[key] = directory
-
-        async def session_time(directory: str) -> int:
-            if not directory:
-                return 0
-            rows = await self._list_sessions(directory)
-            return max(
-                (
-                    int((((row.get("time") or {}).get("updated")) or 0))
-                    for row in rows
-                ),
-                default=0,
-            )
-
-        changed = False
-        for key, hide_time in list(self._hidden_dirs.items()):
-            activity = times.get(key, 0)
-            updated = 0
-            if activity <= hide_time:
-                updated = await session_time(dirs.get(key, ""))
-            now = max(activity, updated)
-            if now > hide_time:
-                del self._hidden_dirs[key]
-                changed = True
-        if changed:
-            self._save_hidden_dirs()
 
     async def _get_session_info(self, session_id: str, directory: str) -> dict:
         info = self._session_info.get(session_id)
@@ -406,7 +328,7 @@ class AetherAgent(Agent):
     ) -> list[tuple[int, dict]]:
         rows = []
         for idx, item in enumerate(items, 1):
-            if hide and any(key in hide for key in self._item_keys(item)):
+            if hide and self._project_dir(item) in hide:
                 continue
             rows.append((idx, item))
             if len(rows) >= size:
@@ -614,12 +536,31 @@ class AetherAgent(Agent):
         all_projects = await self._get_projects()
         if not all_projects:
             return "❌ 无法获取项目列表，请检查 Aether 服务是否正常。"
-        await self._restore_hidden_dirs(all_projects)
+
+        # 自动取消隐藏：检查哪些隐藏项目在隐藏后有新 session 活动
+        if self._hidden_dirs:
+            changed = False
+            for directory, hide_time in list(self._hidden_dirs.items()):
+                item = next(
+                    (
+                        p
+                        for p in all_projects
+                        if self._project_dir(p) == directory
+                    ),
+                    None,
+                )
+                activity = (((item or {}).get("time") or {}).get("activity")) or 0
+                if activity > hide_time:
+                    del self._hidden_dirs[directory]
+                    changed = True
+                    logger.info(f"[/project] 自动恢复隐藏项目: {directory}")
+            if changed:
+                self._save_hidden_dirs()
 
         projects = [
             p
             for p in all_projects
-            if not any(key in self._hidden_dirs for key in self._item_keys(p))
+            if self._project_dir(p) not in self._hidden_dirs
         ]
         current_dir = self._conv_dirs.get(conv_id) or self.directory
 
@@ -632,17 +573,8 @@ class AetherAgent(Agent):
             if idx < 0 or idx >= len(all_projects):
                 return f"❌ 请输入 1~{len(all_projects)} 之间的数字。"
             target = all_projects[idx]
-            activity = int((((target.get("time") or {}).get("activity")) or 0))
-            session_activity = max(
-                (
-                    int((((row.get("time") or {}).get("updated")) or 0))
-                    for row in await self._list_sessions(self._project_dir(target))
-                ),
-                default=0,
-            )
-            key = self._item_key(target)
-            if key:
-                self._hidden_dirs[key] = max(activity, session_activity)
+            directory = self._project_dir(target)
+            self._hidden_dirs[directory] = int(datetime.now().timestamp() * 1000)
             self._save_hidden_dirs()
             name = self._project_name(target)
             return f"✅ 已隐藏：{name}\n（在桌面端或微信端重新使用后自动恢复）"
@@ -652,11 +584,7 @@ class AetherAgent(Agent):
             for idx, item in enumerate(all_projects, 1):
                 directory = self._project_dir(item)
                 tag = " ◀" if directory == current_dir else ""
-                mark = (
-                    " [已隐藏]"
-                    if any(key in self._hidden_dirs for key in self._item_keys(item))
-                    else ""
-                )
+                mark = " [已隐藏]" if directory in self._hidden_dirs else ""
                 lines.append(f"{idx}. {self._project_name(item)}{tag}{mark}")
                 lines.append(f"   {directory}")
             return chr(10).join(lines)
@@ -677,13 +605,8 @@ class AetherAgent(Agent):
             self._session_list.pop(conv_id, None)
             self._fresh.discard(conv_id)
             self._conv_models.pop(conv_id, None)
-            changed = False
-            for key in self._item_keys(chosen):
-                if key not in self._hidden_dirs:
-                    continue
-                del self._hidden_dirs[key]
-                changed = True
-            if changed:
+            if new_dir in self._hidden_dirs:
+                del self._hidden_dirs[new_dir]
                 self._save_hidden_dirs()
             name = self._project_name(chosen)
             logger.info(f"[/project] {conv_id} -> {new_dir}")
@@ -799,7 +722,6 @@ class AetherAgent(Agent):
             return await self._handle_permission_reply(conv_id, user_text)
 
         try:
-            await self._restore_hidden_dirs()
             directory = self._conv_dirs.get(conv_id) or self.directory
             session_id = self._sessions.get(conv_id)
             if not session_id:
@@ -1471,7 +1393,7 @@ async def custom_login(client: ILinkBotClient, log=print) -> str:
         try:
             qr_info = await client.request_qrcode()
             break
-        except (httpx.ConnectTimeout, httpx.ConnectError):
+        except httpx.ConnectTimeout:
             if attempt >= 4:
                 raise
             log(f"[weixin] 连接超时，重试 ({attempt + 1}/5)...")
@@ -1566,7 +1488,6 @@ class CustomWeChatBot(WeChatBot):
 
 async def main():
     base_url = os.getenv("AETHER_URL", "http://127.0.0.1:4096")
-    api_base_url = os.getenv("AETHER_WECHAT_API_BASE", "").strip()
     directory = os.getenv("AETHER_WORK_DIR")
     default_model = os.getenv("AETHER_MODEL")
     default_agent = os.getenv("AETHER_AGENT", "build")
@@ -1577,8 +1498,6 @@ async def main():
     print("=" * 50)
     print("Aether WeChat Bridge")
     print("=" * 50)
-    if api_base_url:
-        print(f"WeChat API Base: {api_base_url}")
     print()
 
     agent = AetherAgent(
@@ -1592,7 +1511,6 @@ async def main():
     bot = CustomWeChatBot(
         agent=agent,
         account_id="aether",
-        api_base_url=api_base_url,
         storage=(
             JsonFileStorage(Path(SESSION_FILE).parent)
             if SESSION_FILE
