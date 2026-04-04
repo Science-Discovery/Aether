@@ -441,7 +441,7 @@ export const dict = {
   "toast.session.listFailed.title": "Fallo al cargar sesiones para {{project}}",
 
   "toast.update.title": "Actualización disponible",
-  "toast.update.description": "Una nueva versión de OpenCode ({{version}}) está disponible para instalar.",
+  "toast.update.description": "Una nueva versión de Aether ({{version}}) está disponible para instalar.",
   "toast.update.action.installRestart": "Instalar y reiniciar",
   "toast.update.action.notYet": "Todavía no",
 

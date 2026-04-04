@@ -395,7 +395,7 @@ export const dict = {
   "toast.session.unshare.failed.description": "حدث خطأ أثناء إلغاء مشاركة الجلسة",
   "toast.session.listFailed.title": "فشل تحميل الجلسات لـ {{project}}",
   "toast.update.title": "تحديث متاح",
-  "toast.update.description": "نسخة جديدة من OpenCode ({{version}}) متاحة الآن للتثبيت.",
+  "toast.update.description": "نسخة جديدة من Aether ({{version}}) متاحة الآن للتثبيت.",
   "toast.update.action.installRestart": "تثبيت وإعادة تشغيل",
   "toast.update.action.notYet": "ليس الآن",
   "error.page.title": "حدث خطأ ما",

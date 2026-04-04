@@ -436,7 +436,7 @@ export const dict = {
   "toast.session.listFailed.title": "無法載入 {{project}} 的工作階段",
 
   "toast.update.title": "有可用更新",
-  "toast.update.description": "OpenCode 有新版本 ({{version}}) 可安裝。",
+  "toast.update.description": "Aether 有新版本 ({{version}}) 可安裝。",
   "toast.update.action.installRestart": "安裝並重新啟動",
   "toast.update.action.notYet": "稍後",
 
