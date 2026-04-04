@@ -3,7 +3,7 @@ import { createInterface } from "readline"
 import { mkdir, readFile, writeFile, rm } from "fs/promises"
 import { join, dirname } from "path"
 import { homedir } from "os"
-import { existsSync } from "fs"
+import { existsSync, readFileSync, unlinkSync } from "fs"
 import z from "zod"
 import { BusEvent } from "@/bus/bus-event"
 import { Bus } from "@/bus"
@@ -23,6 +23,7 @@ const WECHAT_DATA_DIR =
 const QRCODE_FILE = join(WECHAT_DATA_DIR, "qrcode.txt")
 const SESSION_FILE = join(WECHAT_DATA_DIR, "session.json")
 const PID_FILE = join(WECHAT_DATA_DIR, "pid.txt")
+const LOCK_FILE = join(WECHAT_DATA_DIR, "lock.json")
 
 export type WeChatStatus = "idle" | "starting" | "qrcode" | "connected" | "error"
 
@@ -95,6 +96,44 @@ class WeChatManagerImpl {
 
   get error() {
     return this._error
+  }
+
+  /** Read the current lock holder from disk. Returns null if no valid lock. */
+  get lockHolder(): string | null {
+    try {
+      if (!existsSync(LOCK_FILE)) return null
+      const raw = readFileSync(LOCK_FILE, "utf-8")
+      const lock = JSON.parse(raw) as { clientId: string; pid: number }
+      // Check if the locking process is still alive
+      try {
+        process.kill(lock.pid, 0)
+      } catch {
+        // Process is dead — stale lock
+        try { unlinkSync(LOCK_FILE) } catch {}
+        return null
+      }
+      return lock.clientId
+    } catch {
+      return null
+    }
+  }
+
+  /** Try to acquire the exclusive file-based lock. Returns true if acquired or already held by this id. */
+  async tryLock(clientId: string): Promise<boolean> {
+    await mkdir(WECHAT_DATA_DIR, { recursive: true })
+    const current = this.lockHolder
+    if (!current || current === clientId) {
+      await writeFile(LOCK_FILE, JSON.stringify({ clientId, pid: process.pid }))
+      return true
+    }
+    return false
+  }
+
+  /** Release the lock if held by this client. */
+  async unlock(clientId: string): Promise<void> {
+    if (this.lockHolder === clientId) {
+      await rm(LOCK_FILE, { force: true })
+    }
   }
 
   private set status(value: WeChatStatus) {
