@@ -6,10 +6,10 @@ on:
 
 jobs:
   check-duplicates:
-    if: false
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      issues: write
       pull-requests: write
     steps:
       - name: Checkout repository
@@ -32,39 +32,19 @@ jobs:
         if: steps.team-check.outputs.is_team != 'true'
         uses: ./.github/actions/setup-bun
 
-      - name: Install dependencies
-        if: steps.team-check.outputs.is_team != 'true'
-        run: bun install
-
-      - name: Install opencode
-        if: steps.team-check.outputs.is_team != 'true'
-        run: curl -fsSL https://opencode.ai/install | bash
-
-      - name: Build prompt
-        if: steps.team-check.outputs.is_team != 'true'
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-        run: |
-          {
-            echo "Check for duplicate PRs related to this new PR:"
-            echo ""
-            echo "CURRENT_PR_NUMBER: $PR_NUMBER"
-            echo ""
-            echo "Title: $(gh pr view "$PR_NUMBER" --json title --jq .title)"
-            echo ""
-            echo "Description:"
-            gh pr view "$PR_NUMBER" --json body --jq .body
-          } > pr_info.txt
-
       - name: Check for duplicate PRs
         if: steps.team-check.outputs.is_team != 'true'
         env:
-          OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GOVERNANCE_LLM_API_KEY: ${{ secrets.GOVERNANCE_LLM_API_KEY }}
+          GOVERNANCE_LLM_BASE_URL: ${{ vars.GOVERNANCE_LLM_BASE_URL }}
+          GOVERNANCE_LLM_MODEL: ${{ vars.GOVERNANCE_LLM_MODEL }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BODY: ${{ github.event.pull_request.body }}
         run: |
-          COMMENT=$(bun script/duplicate-pr.ts -f pr_info.txt "Check the attached file for PR details and search for duplicates")
+          COMMENT=$(bun script/duplicate-pr.ts)
 
           if [ "$COMMENT" != "No duplicate PRs found" ]; then
             gh pr comment "$PR_NUMBER" --body "_The following comment was made by an LLM, it may be inaccurate:_

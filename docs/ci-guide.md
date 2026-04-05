@@ -340,7 +340,12 @@
 - 状态：⚠️ 当前保留但不处理
 - 触发（原本预期）：issue `opened`
 - 主要内容：
-  - 执行 `opencode run --agent triage`
+  - checkout 仓库并安装 Bun / `opencode` CLI
+  - 从 GitHub 事件中读取 issue 编号、标题、正文，并通过环境变量传给 `opencode run --agent triage`
+  - `triage` agent 根据仓库内的分诊规则判断 issue 属于哪一类，例如 `windows`、`docs`、`core`、`desktop`、`nix`、`zen` 等
+  - agent 调用专用的 `github-triage` 工具，而不是只生成文字总结
+  - `github-triage` 工具会真正调用 GitHub API，为 issue 添加标签，并给 issue 指派维护者
+  - 分诊规则里还包含约束校验，例如标签与正文是否匹配、某些标签是否必须对应特定维护者
 - 作用：
   - 对新 issue 做自动分诊
 - 当前触发：`workflow_dispatch`
@@ -376,22 +381,23 @@
 #### `pr-management.yml`
 
 - 类型：PR 治理
-- 状态：部分启用 / 待重构
+- 状态：已重构，待验证
 - 触发：`pull_request_target` `opened`
 - 主要内容：
-  - 检查作者是否是团队成员或 bot
-  - 若不是，则构建 PR 信息并运行 `bun script/duplicate-pr.ts`
-  - 如果疑似重复 PR，则自动评论
+  - checkout 仓库后先检查 PR 作者是否是团队成员或 bot；如果是，则跳过重复 PR 检查
+  - 对外部贡献者 PR，直接把当前 PR 编号、标题、正文传给 `bun script/duplicate-pr.ts`
+  - `duplicate-pr.ts` 会先调用 GitHub Search API，在当前仓库里检索可能相关的 open PR 候选集
+  - 再把“当前 PR + 候选 PR 列表”发送给第三方 OpenAI-compatible LLM API 做重复判断
+  - 若模型返回疑似重复结果，则自动在 PR 下发布提示评论，并附上相关 PR 链接和原因
   - 若作者 `author_association` 为 `CONTRIBUTOR`，自动加 `contributor` 标签
 - 作用：
   - 减少重复 PR
   - 标记外部贡献者
 - 当前现状：
-  - `contributor` 标签逻辑仍然启用，依旧会在合适条件下为外部贡献者打标签
-  - 重复 PR 检查 job 已被显式停用，不再依赖 OpenCode 运行
-- 后续处理：
-  - 这条 workflow 需要在脱钩后补上一套新的重复 PR 检查方案
-  - 本轮不展开恢复设计，只保留状态说明
+  - 重复 PR 检查已不再依赖 OpenCode，而是改为 `GitHub API + 第三方 OpenAI-compatible LLM API`
+  - 当前实现依赖 `GOVERNANCE_LLM_API_KEY`、`GOVERNANCE_LLM_BASE_URL`、`GOVERNANCE_LLM_MODEL`
+  - 若未配置上述凭据或模型，脚本会安全跳过重复检查，不会阻塞 PR
+  - `contributor` 标签逻辑仍然保留，依旧会在合适条件下为外部贡献者打标签
 
 #### `pr-standards.yml`
 
