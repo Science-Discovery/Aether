@@ -381,7 +381,7 @@
 #### `pr-management.yml`
 
 - 类型：PR 治理
-- 状态：已重构，待验证
+- 状态：已验证
 - 触发：`pull_request_target` `opened`
 - 主要内容：
   - checkout 仓库后先检查 PR 作者是否是团队成员或 bot；如果是，则跳过重复 PR 检查
@@ -395,6 +395,7 @@
   - 标记外部贡献者
 - 当前现状：
   - 重复 PR 检查已不再依赖 OpenCode，而是改为 `GitHub API + 第三方 OpenAI-compatible LLM API`
+  - 当前已按 `AIHubMix + gpt-5.4-mini` 跑通实际验证
   - 当前实现依赖 `GOVERNANCE_LLM_API_KEY`、`GOVERNANCE_LLM_BASE_URL`、`GOVERNANCE_LLM_MODEL`
   - 若未配置上述凭据或模型，脚本会安全跳过重复检查，不会阻塞 PR
   - `contributor` 标签逻辑仍然保留，依旧会在合适条件下为外部贡献者打标签
