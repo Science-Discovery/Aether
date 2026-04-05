@@ -9,6 +9,7 @@ import { Bus } from "@/bus"
 import { Instance } from "@/project/instance"
 import { Session } from "@/session"
 import { SessionPrompt } from "@/session/prompt"
+import { SessionID } from "@/session/schema"
 
 const FEISHU_DATA_DIR =
   process.platform === "darwin"
@@ -230,7 +231,7 @@ class FeishuManagerImpl {
       // Send to Aether
       console.log("[feishu] sending to aether, session:", sessionId)
       const msg = await SessionPrompt.prompt({
-        sessionID: sessionId,
+        sessionID: SessionID.make(sessionId),
         parts: [{ type: "text", text }],
       })
       console.log("[feishu] aether responded, parts:", msg?.parts?.length)
