@@ -6,6 +6,7 @@ on:
 
 jobs:
   check-duplicates:
+    if: false
     runs-on: ubuntu-latest
     permissions:
       contents: read
