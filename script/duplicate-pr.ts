@@ -162,6 +162,7 @@ async function main() {
     2,
   )
 
+  warn(`calling LLM API with ${prs.length} candidate PRs via ${model}`)
   const res = await fetch(`${base}/chat/completions`, {
     method: "POST",
     headers: {
