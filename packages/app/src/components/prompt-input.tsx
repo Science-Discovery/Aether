@@ -63,6 +63,8 @@ import { KnowledgeButton } from "@/components/knowledge-button"
 import { DialogDefaultSkills } from "@/components/dialog-default-skills"
 import { DialogWeChat } from "@/components/dialog-wechat"
 import { status as wechatStatus } from "@/context/wechat"
+import { DialogFeishu } from "@/components/dialog-feishu"
+import { feishuStatus } from "@/context/feishu"
 
 interface PromptInputProps {
   class?: string
@@ -1675,6 +1677,29 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                           }
                         />
                         <span class="text-13-regular text-text-base">微信连接</span>
+                      </Button>
+                    </Tooltip>
+                    <Tooltip placement="left" gutter={4} value="飞书连接">
+                      <Button
+                        variant="ghost"
+                        size="normal"
+                        class="w-full h-7 px-2 flex items-center gap-2 text-icon-weak justify-start"
+                        onClick={() => dialog.show(() => <DialogFeishu />)}
+                        aria-label="飞书连接"
+                      >
+                        <Icon
+                          name="feishu"
+                          class={
+                            feishuStatus() === "connected"
+                              ? "size-4 shrink-0 text-blue-500"
+                              : feishuStatus() === "loading"
+                                ? "size-4 shrink-0 text-yellow-500 animate-pulse"
+                                : feishuStatus() === "error"
+                                  ? "size-4 shrink-0 text-red-500"
+                                  : "size-4 shrink-0 text-icon-weak"
+                          }
+                        />
+                        <span class="text-13-regular text-text-base">飞书连接</span>
                       </Button>
                     </Tooltip>
                   </Popover>
