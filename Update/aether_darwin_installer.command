@@ -468,7 +468,7 @@ if [ "$mode" = "init" ]; then
     fail "$run_err"
   fi
 
-  mkdir -p "$HOME/Aether_Database" 2>/dev/null || true
+  mkdir -p "$HOME/aether_Database" 2>/dev/null || true
 
   done_hold
   exit 0
