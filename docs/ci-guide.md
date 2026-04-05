@@ -1,6 +1,6 @@
 # CI/CD 与仓库自动化备忘
 
-本文档基于当前仓库 [`.github/workflows`](/home/dsjian/researches/Aether/.github/workflows) 与 [`.github/actions`](/home/dsjian/researches/Aether/.github/actions) 的实际配置整理。当前共存在 `32` 条 workflow，以及 `2` 个复用 action。
+本文档基于当前仓库 [`.github/workflows`](/home/dsjian/researches/Aether/.github/workflows) 与 [`.github/actions`](/home/dsjian/researches/Aether/.github/actions) 的实际配置整理。当前共存在 `30` 条 workflow，以及 `2` 个复用 action。
 
 需要先说明一点：这个仓库的 GitHub Actions 不只有传统意义上的 CI/CD，还包含了大量仓库治理、社区运营和 AI 自动化流程。所以更准确的分类是：
 
@@ -266,8 +266,9 @@
 #### `duplicate-issues.yml`
 
 - 类型：Issue 治理
-- 触发：issue `opened`、`edited`
-- 主要内容：
+- 状态：待恢复（当前禁用）
+- 触发（原本预期）：issue `opened`、`edited`
+- 主要内容（原本预期）：
   - 在 issue 新建时：
     - 检查是否符合 issue 模板与贡献规范
     - 检查是否疑似重复 issue
@@ -280,10 +281,19 @@
 - 作用：
   - 降低低质量 issue
   - 及早提示重复问题
+- 当前触发：`workflow_dispatch`
+- 当前现状：
+  - 这条 workflow 原本承担 issue 合规检查、重复 issue 检查、keybind 提示等工作
+  - 现在因为强依赖 OpenCode CLI 与 `OPENCODE_API_KEY`，已经从自动触发改为仅手动触发
+  - 当前 fork 仓库不再把它视为可直接启用的社区入口
+- 后续处理：
+  - 需要在与 OpenCode 脱钩后重新设计 issue 合规/重复检查方案
+  - 本轮只保留条目说明，不恢复实现
 
 #### `compliance-close.yml`
 
 - 类型：Issue/PR 治理
+- 状态：已验证
 - 触发：
   - 每 30 分钟
   - `workflow_dispatch`
@@ -297,6 +307,7 @@
 #### `close-issues.yml`
 
 - 类型：Issue 治理
+- 状态：已验证
 - 触发：
   - 每天一次
   - `workflow_dispatch`
@@ -304,10 +315,14 @@
   - 执行 `bun script/github/close-issues.ts`
 - 作用：
   - 自动关闭 stale issue
+- 当前现状：
+  - 脚本已修复为针对当前仓库运行，不再写死上游仓库名
+  - stale 阈值与提示文案已统一为 `60` 天
 
 #### `close-stale-prs.yml`
 
 - 类型：PR 治理
+- 状态：已验证
 - 触发：
   - 每天一次
   - `workflow_dispatch`
@@ -322,16 +337,25 @@
 #### `triage.yml`
 
 - 类型：Issue 治理 / AI 分诊
-- 触发：issue `opened`
+- 状态：⚠️ 当前保留但不处理
+- 触发（原本预期）：issue `opened`
 - 主要内容：
   - 执行 `opencode run --agent triage`
 - 作用：
   - 对新 issue 做自动分诊
+- 当前触发：`workflow_dispatch`
+- 当前现状：
+  - 这条 workflow 仍依赖旧的 OpenCode 执行链路：安装 `opencode` CLI 后执行 `opencode run --agent triage`
+  - 当前 fork 仓库没有恢复这条链路，也不再把它作为自动 issue 分诊入口
+- 备注：
+  - 本轮不移除文件
+  - 本轮也不恢复实现，仅在文档中明确现状
 
 #### `review.yml`
 
 - 类型：PR 治理 / 按需 AI 审查
-- 触发：PR 评论中出现 `/review`
+- 状态：⚠️ 当前保留但不处理
+- 触发（原本预期）：PR 评论中出现 `/review`
 - 权限条件：
   - 评论者必须是 `OWNER` 或 `MEMBER`
 - 主要内容：
@@ -341,10 +365,18 @@
   - 若没有问题，仅回复 `lgtm`
 - 作用：
   - 让维护者可以手动触发一次 AI code review
+- 当前触发：`workflow_dispatch`
+- 当前现状：
+  - 这条 workflow 虽然使用 `ANTHROPIC_API_KEY` 作为底层模型凭据，但执行器仍是旧的 `opencode` CLI
+  - 当前 fork 仓库暂未恢复这条 AI review 能力，也不再保留评论触发入口
+- 备注：
+  - 本轮不移除文件
+  - 本轮不继续改造实现，仅保留现状说明
 
 #### `pr-management.yml`
 
 - 类型：PR 治理
+- 状态：部分启用 / 待重构
 - 触发：`pull_request_target` `opened`
 - 主要内容：
   - 检查作者是否是团队成员或 bot
@@ -354,10 +386,17 @@
 - 作用：
   - 减少重复 PR
   - 标记外部贡献者
+- 当前现状：
+  - `contributor` 标签逻辑仍然启用，依旧会在合适条件下为外部贡献者打标签
+  - 重复 PR 检查 job 已被显式停用，不再依赖 OpenCode 运行
+- 后续处理：
+  - 这条 workflow 需要在脱钩后补上一套新的重复 PR 检查方案
+  - 本轮不展开恢复设计，只保留状态说明
 
 #### `pr-standards.yml`
 
 - 类型：PR 治理 / 规范校验
+- 状态：活跃，但本轮不继续验证
 - 触发：`pull_request_target` 的 `opened`、`edited`、`synchronize`
 - 主要内容：
   - `check-standards`
@@ -374,10 +413,14 @@
     - 修复后自动删旧评论、移除标签并回评
 - 作用：
   - 确保 PR 标题、issue 关联、模板内容、验证说明符合仓库要求
+- 当前现状：
+  - 这条 workflow 仍然启用
+  - 它会跳过团队成员与 bot，因此对维护者自测不一定有可见结果
 
 #### `vouch-check-issue.yml`
 
 - 类型：Issue 治理 / 信任体系
+- 状态：已验证
 - 触发：issue `opened`
 - 主要内容：
   - 读取 `.github/VOUCHED.td`
@@ -389,6 +432,7 @@
 #### `vouch-check-pr.yml`
 
 - 类型：PR 治理 / 信任体系
+- 状态：已验证
 - 触发：`pull_request_target` `opened`
 - 主要内容：
   - 与 `vouch-check-issue.yml` 同逻辑，但对象是 PR
@@ -398,25 +442,24 @@
 #### `vouch-manage-by-issue.yml`
 
 - 类型：仓库治理工具
-- 触发：issue comment `created`
-- 主要内容：
-  - 使用 `mitchellh/vouch/action/manage-by-issue@main`
-  - 借助 GitHub App token 变更 vouch 数据
-- 作用：
-  - 允许通过 issue 讨论驱动 vouch 列表的维护
+- 状态：已移除
+- 原始作用：
+  - 原本用于通过 issue comment 驱动 vouch 列表维护
+  - 依赖旧的 GitHub App 配置 `OPENCODE_APP_ID` 与 `OPENCODE_APP_SECRET`
+- 当前现状：
+  - 这条 workflow 已不再是当前仓库支持的社区流程入口
+  - 因为与当前 fork 的治理方式不匹配，已从仓库中直接移除
 
 #### `opencode.yml`
 
 - 类型：仓库内 AI 助手入口
-- 触发：
-  - issue comment `created`
-  - pull request review comment `created`
-  - 且评论正文包含 `/oc` 或 `/opencode`
-- 主要内容：
-  - 调用 `anomalyco/opencode/github@latest`
-  - 限制 `bash` 权限
-- 作用：
-  - 提供评论触发式 AI 助手能力
+- 状态：已移除
+- 原始作用：
+  - 原本用于通过 `/oc` 或 `/opencode` 评论触发仓库内 AI 助手
+  - 依赖 `anomalyco/opencode/github@latest` 与旧的 `OPENCODE_API_KEY`
+- 当前现状：
+  - 这条 workflow 已不再是当前仓库支持的社区流程入口
+  - 评论触发式 AI 助手能力已随 OpenCode 绑定能力一起移除
 
 ### 5. 报表与通知
 
