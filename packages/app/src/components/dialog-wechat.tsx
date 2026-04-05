@@ -31,6 +31,8 @@ export const DialogWeChat: Component = () => {
   const [error, setError] = createSignal<{ code: string; message: string } | null>(null)
   const [user, setUser] = createSignal<{ id: string; name: string } | null>(null)
   const [loadingMsg, setLoadingMsg] = createSignal<string>("正在启动微信桥接...")
+  const [locked, setLocked] = createSignal(false)
+  let clientId: string | null = null
 
   const authHeaders = (): HeadersInit => {
     const s = server.current?.http
@@ -50,6 +52,12 @@ export const DialogWeChat: Component = () => {
     try {
       const response = await fetch(`${sdk.url}/wechat/status`, { headers: authHeaders() })
       const data = await response.json()
+      if (data.locked && data.status !== "idle") {
+        setLocked(true)
+        if (data.user) setUser(data.user)
+        return
+      }
+      setLocked(false)
       if (data.status === "connected" && data.user) {
         updateStatus("connected")
         setUser(data.user)
@@ -67,28 +75,38 @@ export const DialogWeChat: Component = () => {
     updateStatus("loading")
     setLoadingMsg("正在启动微信桥接...")
     setError(null)
+    setLocked(false)
 
     const currentModel = models.recent.list()[0]
     const modelStr = currentModel ? `${currentModel.providerID}/${currentModel.modelID}` : undefined
+    clientId = clientId || crypto.randomUUID()
 
     try {
       const response = await fetch(`${sdk.url}/wechat/start`, {
         method: "POST",
         headers: { ...authHeaders(), "Content-Type": "application/json" },
-        body: JSON.stringify({ model: modelStr, autoInstall: auto }),
+        body: JSON.stringify({ model: modelStr, autoInstall: auto, clientId }),
       })
       const data = await response.json()
 
       if (!data.success) {
+        if (data.code === "locked") {
+          setLocked(true)
+          updateStatus("idle")
+          return
+        }
         setError({ code: data.code || "start_failed", message: data.message || "Failed to start WeChat bridge" })
         updateStatus("error")
         return
       }
 
+      clientId = data.clientId || clientId
+
       // 已有保存的会话，直接显示连接状态
       if (data.status === "connected" && data.user) {
         setUser(data.user)
         updateStatus("connected")
+        connectSSE()
         return
       }
 
@@ -105,7 +123,12 @@ export const DialogWeChat: Component = () => {
       abort.abort()
       abort = null
     }
-    await fetch(`${sdk.url}/wechat/stop`, { method: "POST", headers: authHeaders() })
+    await fetch(`${sdk.url}/wechat/stop`, {
+      method: "POST",
+      headers: { ...authHeaders(), "Content-Type": "application/json" },
+      body: JSON.stringify({ clientId }),
+    })
+    clientId = null
     updateStatus("idle")
     setQrcode(null)
   }
@@ -115,8 +138,13 @@ export const DialogWeChat: Component = () => {
       abort.abort()
       abort = null
     }
-    await fetch(`${sdk.url}/wechat/stop`, { method: "POST", headers: authHeaders() })
+    await fetch(`${sdk.url}/wechat/stop`, {
+      method: "POST",
+      headers: { ...authHeaders(), "Content-Type": "application/json" },
+      body: JSON.stringify({ clientId }),
+    })
     await fetch(`${sdk.url}/wechat/session`, { method: "DELETE", headers: authHeaders() })
+    clientId = null
     setUser(null)
     updateStatus("idle")
     setQrcode(null)
@@ -130,7 +158,10 @@ export const DialogWeChat: Component = () => {
 
     void (async () => {
       try {
-        const response = await fetch(`${sdk.url}/wechat/events`, {
+        const url = clientId
+          ? `${sdk.url}/wechat/events?clientId=${encodeURIComponent(clientId)}`
+          : `${sdk.url}/wechat/events`
+        const response = await fetch(url, {
           headers: { ...authHeaders(), Accept: "text/event-stream" },
           signal: abort!.signal,
         })
@@ -192,6 +223,19 @@ export const DialogWeChat: Component = () => {
     <Dialog title="微信连接" class="max-w-md">
       <div class="flex flex-col items-center gap-6 p-6">
         <Switch fallback={<div />}>
+          <Match when={locked()}>
+            <div class="flex flex-col items-center gap-4">
+              <Icon name="wechat" size="large" class="size-16 text-icon-weak" />
+              <div class="flex flex-col items-center gap-1">
+                <p class="text-16-medium text-text-strong">微信已被其他客户端连接</p>
+                <p class="text-14-regular text-text-weak text-center">当前有另一个页面正在使用微信，请先在该页面断开连接</p>
+              </div>
+              <Button variant="secondary" onClick={() => dialog.close()}>
+                关闭
+              </Button>
+            </div>
+          </Match>
+
           <Match when={status() === "idle"}>
             <div class="flex flex-col items-center gap-4">
               <Icon name="wechat" size="large" class="size-16 text-icon-base" />

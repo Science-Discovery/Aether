@@ -41,8 +41,15 @@ export const WeChatRoutes = lazy(() =>
       }),
       async (c) => {
         const body = await c.req.json().catch(() => ({}))
+        const clientId: string = body?.clientId || crypto.randomUUID()
+        if (!(await WeChatManager.tryLock(clientId))) {
+          return c.json({ success: false, code: "locked", message: "微信已被其他客户端连接" })
+        }
         const result = await WeChatManager.start(body?.model, body?.autoInstall === true)
-        return c.json(result)
+        if (!result.success) {
+          await WeChatManager.unlock(clientId)
+        }
+        return c.json({ ...result, clientId })
       },
     )
     .post(
@@ -63,6 +70,8 @@ export const WeChatRoutes = lazy(() =>
         },
       }),
       async (c) => {
+        const body = await c.req.json().catch(() => ({}))
+        if (body?.clientId) await WeChatManager.unlock(body.clientId)
         await WeChatManager.stop()
         return c.json({ success: true })
       },
@@ -108,6 +117,7 @@ export const WeChatRoutes = lazy(() =>
           qrcode: WeChatManager.qrcode,
           user: WeChatManager.session?.user || session?.user || null,
           error: WeChatManager.error,
+          locked: WeChatManager.lockHolder !== null,
         })
       },
     )
@@ -131,6 +141,7 @@ export const WeChatRoutes = lazy(() =>
       async (c) => {
         c.header("X-Accel-Buffering", "no")
         c.header("X-Content-Type-Options", "nosniff")
+        const clientId = c.req.query("clientId") || ""
 
         return streamSSE(c, async (stream) => {
           const q = new AsyncQueue<string | null>()
@@ -164,6 +175,10 @@ export const WeChatRoutes = lazy(() =>
             clearInterval(heartbeat)
             unsub()
             q.push(null)
+            // Release lock and stop bridge when the owning client disconnects
+            if (clientId && WeChatManager.lockHolder === clientId) {
+              void WeChatManager.unlock(clientId).then(() => WeChatManager.stop())
+            }
           }
 
           stream.onAbort(stop)
