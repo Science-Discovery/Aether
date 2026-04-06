@@ -119,9 +119,9 @@ idle ──▶ starting ──▶ connected
 |------|------|
 | `start(config?)` | 入口。加载或接收配置，触发连接 |
 | `_doStart(config)` | 实际连接逻辑：创建 SDK 客户端、注册事件、启动 WebSocket |
-| `handleMessage(data)` | 接收飞书消息 → 解析 → 映射会话 → 调用 AI → 回复 |
+| `handleMessage(data)` | 接收飞书消息 → 过滤 @mention → 映射会话 → 调用 AI → 回复 |
 | `handleCommand(text)` | 处理 `/new`、`/help` 等斜杠命令 |
-| `replyText(messageId, text)` | 通过飞书 API 回复消息 |
+| `replyText(messageId, text)` | 通过飞书 REST API（原生 fetch）回复消息 |
 | `stop()` | 断开 WebSocket，清理客户端 |
 | `clearSession()` | 删除本地配置和会话映射文件 |
 
@@ -166,6 +166,8 @@ private async _doStart(config: FeishuConfig): Promise<void> {
 - `rootId`：消息线程根 ID（`root_id` 或 `parent_id`，回退到 `message_id`）
 
 同一线程内的消息共享同一个 Aether 会话。使用 `/new` 命令清除当前聊天的所有映射。
+
+首次发消息（无映射）时，优先复用 Aether 中最近的会话，无已有会话时才新建。
 
 映射持久化到本地文件 `sessions.json`。
 
@@ -261,11 +263,12 @@ export const [feishuStatus, setFeishuStatus] = createSignal<FeishuStatus>("idle"
 3. 事件回调通过 Instance.bind 恢复上下文，用 void 立即返回（不阻塞 SDK）
 4. handleMessage 在后台异步执行：
    a. 非文本消息 → 回复"暂时只支持文本消息"
-   b. 斜杠命令 → handleCommand 处理
-   c. 普通文本 → 继续
+   b. 过滤 @mention 占位符（群聊中的 `@_user_1 ` 前缀）
+   c. 斜杠命令 → handleCommand 处理
+   d. 普通文本 → 继续
 5. 根据 chatId + rootId 查找已有 Aether 会话
-   a. 无匹配 → Session.create() 创建新会话
-   b. 有匹配 → 复用已有会话
+   a. 有映射 → 复用已映射的会话
+   b. 无映射 → 复用最近的会话；若无任何会话则新建
 6. SessionPrompt.prompt() 将文本发送给 AI
 7. 提取 AI 回复的文本部分
 8. larkClient.im.message.reply() 回复到飞书
@@ -308,4 +311,5 @@ SDK 使用方式：
 | 日期 | 修改内容 | 原因 |
 |------|---------|------|
 | 2026-04-06 11:25 | 事件回调从 `await` 改为 `void`（非阻塞） | 飞书服务器在回调未及时返回时会重发消息，导致用户收到重复回复 |
-| 2026-04-06 11:38 | `handleMessage` 的 catch 中增加 `replyText` 错误反馈 | 报错时飞书用户无任何提示，现在会收到错误信息 |
+| 2026-04-06 11:39 | `handleMessage` 的 catch 中增加 `replyText` 错误反馈 | 报错时飞书用户无任何提示，现在会收到错误信息 |
+| 2026-04-06 16:03 | 首次发消息优先复用最近会话，而非总是新建 | 飞书每条消息都新建会话，web 端体验混乱 |

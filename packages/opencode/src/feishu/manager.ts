@@ -217,15 +217,21 @@ class FeishuManagerImpl {
       let sessionId = this.sessionMap[sessionKey]
 
       if (!sessionId) {
-        // Create new Aether session
-        console.log("[feishu] creating new session...")
-        const session = await Session.create({
-          title: `飞书对话 ${chatId.slice(-6)}`,
-        })
-        sessionId = session.id
+        // Reuse the most recent session if available, otherwise create one
+        const recent = [...Session.list({ roots: true, limit: 1 })]
+        if (recent.length > 0) {
+          sessionId = recent[0].id
+          console.log("[feishu] reusing existing session:", sessionId)
+        } else {
+          console.log("[feishu] creating new session...")
+          const session = await Session.create({
+            title: `飞书对话 ${chatId.slice(-6)}`,
+          })
+          sessionId = session.id
+          console.log("[feishu] session created:", sessionId)
+        }
         this.sessionMap[sessionKey] = sessionId
         await this.saveSessionMap()
-        console.log("[feishu] session created:", sessionId)
       }
 
       // Send to Aether
