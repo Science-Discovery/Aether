@@ -245,8 +245,14 @@ class FeishuManagerImpl {
       // Extract text response
       const responseText = this.extractResponseText(msg)
       if (responseText) {
+        // Build context header so user knows which project/session is active
+        const projectName = Instance.directory.split("/").at(-1) ?? Instance.directory
+        const sessionInfo = [...Session.list({ roots: true, limit: 100 })].find((s) => s.id === sessionId)
+        const sessionTitle = sessionInfo?.title ?? sessionId.slice(0, 8)
+        const header = `📁 ${projectName}\n💬 ${sessionTitle}\n${"─".repeat(20)}\n`
+
         console.log("[feishu] replying:", responseText.slice(0, 100))
-        await this.replyText(messageId, responseText)
+        await this.replyText(messageId, header + responseText)
       } else {
         console.log("[feishu] no text in response")
       }
