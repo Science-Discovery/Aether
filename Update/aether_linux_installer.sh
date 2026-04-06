@@ -157,7 +157,7 @@ normalize_work() {
 workdir() {
   local dir
   dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-  if [[ "$(basename "$dir")" == aether_* ]]; then
+  if [[ "$(basename "$dir")" == aether-* ]]; then
     cd "$dir/.." && pwd
     return 0
   fi
@@ -468,7 +468,7 @@ if [ "$mode" = "init" ]; then
     fail "$run_err"
   fi
 
-  mkdir -p "$HOME/Aether_Database" 2>/dev/null || true
+  mkdir -p "$HOME/aether_Database" 2>/dev/null || true
 
   done_hold
   exit 0
