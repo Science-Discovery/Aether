@@ -1,6 +1,6 @@
 <h1 align="center">Aether</h1>
 <p align="center"><em>Autonomous Engine for Theoretical & Hands-on Exploration in Research</em></p>
-<p align="center">An AI researching assistant for researchers, built on <a href="https://github.com/anomalyco/opencode">OpenCode</a>.</p>
+<p align="center">An AI researching assistant for researchers, tailored for research-heavy workflows.</p>
 
 <p align="center">
   <a href="README.md">English</a> |
@@ -11,7 +11,7 @@
 
 ## Overview
 
-Aether extends OpenCode with research-focused improvements, supporting terminal, browser, and desktop interfaces. Key improvements over upstream:
+Aether is a research-focused AI assistant for terminal, browser, and desktop workflows. Key strengths include:
 
 - **Ready to use**: Download and double-click to launch — no dev environment setup required; built-in default model settings so you can start immediately
 - **Built-in research Skills**: Pre-configured prompts for literature review, experiment logging, paper writing, and more — no manual prompt engineering needed
@@ -59,11 +59,11 @@ If the browser doesn't open automatically, visit the URL shown in the terminal. 
 
 Extract (or install) and double-click to run:
 
-| Platform | File |
-|---|---|
-| Linux | `aether-linux-x64.AppImage` / `.deb` / `.rpm` |
-| macOS | `aether-mac-arm64.dmg` (Apple Silicon) / `aether-mac-x64.dmg` |
-| Windows | `aether-win-x64.exe` installer / `win-unpacked/` portable |
+| Platform | File                                                          |
+| -------- | ------------------------------------------------------------- |
+| Linux    | `aether-linux-x64.AppImage` / `.deb` / `.rpm`                 |
+| macOS    | `aether-mac-arm64.dmg` (Apple Silicon) / `aether-mac-x64.dmg` |
+| Windows  | `aether-win-x64.exe` installer / `win-unpacked/` portable     |
 
 ---
 
@@ -90,6 +90,7 @@ bun dev <path>
 ```
 
 Two built-in agents, switch with `Tab`:
+
 - **build**: Default mode with full permissions, for active development
 - **plan**: Read-only mode for code analysis and planning
 

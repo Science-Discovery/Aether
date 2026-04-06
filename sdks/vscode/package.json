@@ -1,7 +1,7 @@
 {
   "name": "opencode",
-  "displayName": "opencode",
-  "description": "opencode for VS Code",
+  "displayName": "Aether",
+  "description": "Aether for VS Code",
   "version": "1.3.2",
   "publisher": "sst-dev",
   "repository": {
@@ -26,7 +26,7 @@
     "commands": [
       {
         "command": "opencode.openTerminal",
-        "title": "Open opencode",
+        "title": "Open Aether",
         "icon": {
           "light": "images/button-dark.svg",
           "dark": "images/button-light.svg"
@@ -34,7 +34,7 @@
       },
       {
         "command": "opencode.openNewTerminal",
-        "title": "Open opencode in new tab",
+        "title": "Open Aether in new tab",
         "icon": {
           "light": "images/button-dark.svg",
           "dark": "images/button-light.svg"
@@ -56,7 +56,7 @@
     "keybindings": [
       {
         "command": "opencode.openTerminal",
-        "title": "Run opencode",
+        "title": "Run Aether",
         "key": "cmd+escape",
         "mac": "cmd+escape",
         "win": "ctrl+escape",
@@ -64,7 +64,7 @@
       },
       {
         "command": "opencode.openNewTerminal",
-        "title": "Run opencode",
+        "title": "Run Aether",
         "key": "cmd+shift+escape",
         "mac": "cmd+shift+escape",
         "win": "ctrl+shift+escape",
@@ -72,7 +72,7 @@
       },
       {
         "command": "opencode.addFilepathToTerminal",
-        "title": "opencode: Insert At-Mentioned",
+        "title": "Aether: Insert At-Mentioned",
         "key": "cmd+alt+k",
         "mac": "cmd+alt+k",
         "win": "ctrl+alt+K",

@@ -1,6 +1,6 @@
 <h1 align="center">Aether（以太）</h1>
 <p align="center"><em>Autonomous Engine for Theoretical & Hands-on Exploration in Research</em></p>
-<p align="center">面向科研人员的 AI 研究助手，基于 <a href="https://github.com/anomalyco/opencode">OpenCode</a> 深度定制。</p>
+<p align="center">面向科研人员的 AI 研究助手，专为高强度科研工作流设计。</p>
 
 <p align="center">
   <a href="README.md">English</a> |
@@ -11,7 +11,7 @@
 
 ## 项目简介
 
-Aether 在 OpenCode 基础上针对研究场景做了大量改进，支持终端、浏览器和桌面三种使用方式。相比上游的主要改进：
+Aether 面向研究场景进行了深度优化，支持终端、浏览器和桌面三种使用方式。主要特点包括：
 
 - **开箱即用**：下载安装包双击即可启动，无需配置开发环境；内置默认模型设置，首次打开可直接使用
 - **内置科研 Skills**：预置文献阅读、实验记录、论文写作等科研场景提示词，无需手动编写 Prompt
@@ -59,11 +59,11 @@ chmod +x aether   # 首次需要
 
 解压（或安装）后直接双击运行：
 
-| 平台 | 文件 |
-|---|---|
-| Linux | `aether-linux-x64.AppImage` / `.deb` / `.rpm` |
-| macOS | `aether-mac-arm64.dmg`（Apple Silicon）/ `aether-mac-x64.dmg` |
-| Windows | `aether-win-x64.exe` 安装程序 / `win-unpacked/` 便携版 |
+| 平台    | 文件                                                          |
+| ------- | ------------------------------------------------------------- |
+| Linux   | `aether-linux-x64.AppImage` / `.deb` / `.rpm`                 |
+| macOS   | `aether-mac-arm64.dmg`（Apple Silicon）/ `aether-mac-x64.dmg` |
+| Windows | `aether-win-x64.exe` 安装程序 / `win-unpacked/` 便携版        |
 
 ---
 
@@ -89,6 +89,7 @@ bun dev <path>
 ```
 
 内置两种 Agent，`Tab` 键切换：
+
 - **build**：默认模式，具备完整权限，适合开发
 - **plan**：只读模式，适合代码分析与规划
 
@@ -152,4 +153,4 @@ source ~/.bashrc
 **浏览器未自动打开**：手动访问终端中显示的 URL（依赖 `xdg-open`）。
 
 **提示找不到前端资源**：确认 `aether` 二进制和 `web/` 目录在同一目录下。
-**加入我们的社区** [飞书](https://applink.feishu.cn/client/chat/chatter/add_by_link?link_token=738j8655-cd59-4633-a30a-1124e0096789&qr_code=true) | [X.com](https://x.com/opencode)
+**加入我们的社区** [飞书](https://applink.feishu.cn/client/chat/chatter/add_by_link?link_token=738j8655-cd59-4633-a30a-1124e0096789&qr_code=true) | [X.com](https://x.com/Aether)

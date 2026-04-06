@@ -450,7 +450,7 @@ export function DialogConnectProvider(props: { provider: string }) {
               <div class="text-14-regular text-text-base">{language.t("provider.connect.opencodeZen.line2")}</div>
               <div class="text-14-regular text-text-base">
                 {language.t("provider.connect.opencodeZen.visit.prefix")}
-                <Link href="https://opencode.ai/zen" tabIndex={-1}>
+                <Link href="https://aether.ai/zen" tabIndex={-1}>
                   {language.t("provider.connect.opencodeZen.visit.link")}
                 </Link>
                 {language.t("provider.connect.opencodeZen.visit.suffix")}
@@ -463,7 +463,7 @@ export function DialogConnectProvider(props: { provider: string }) {
             </div>
           </Match>
         </Switch>
-        <form ref={(el) => ref = el} onSubmit={handleSubmit} class="flex flex-col items-start gap-4">
+        <form ref={(el) => (ref = el)} onSubmit={handleSubmit} class="flex flex-col items-start gap-4">
           <TextField
             autofocus
             type="password"
@@ -471,7 +471,10 @@ export function DialogConnectProvider(props: { provider: string }) {
             placeholder={language.t("provider.connect.apiKey.placeholder")}
             description={hasKey ? language.t("provider.custom.field.apiKey.savedDescription") : undefined}
             value={form.apiKey}
-            onChange={(v) => { setForm("apiKey", v); setForm("err", undefined) }}
+            onChange={(v) => {
+              setForm("apiKey", v)
+              setForm("err", undefined)
+            }}
             validationState={form.err ? "invalid" : undefined}
             error={form.err}
           />
@@ -485,7 +488,10 @@ export function DialogConnectProvider(props: { provider: string }) {
                 placeholder={apiURL || language.t("provider.connect.baseURL.placeholder")}
                 description={language.t("provider.connect.baseURL.description")}
                 value={form.baseURL}
-                onChange={(v) => { setForm("baseURL", v); setForm("urlErr", undefined) }}
+                onChange={(v) => {
+                  setForm("baseURL", v)
+                  setForm("urlErr", undefined)
+                }}
                 validationState={form.urlErr ? "invalid" : undefined}
                 error={form.urlErr}
               />
