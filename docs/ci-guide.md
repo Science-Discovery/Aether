@@ -137,7 +137,8 @@
     - 先构建本地 sidecar，再打包 Electron 安装包
     - 不做代码签名，不直接发布到 GitHub Release
     - 相关 job 仍保留在 workflow 中，作为后续恢复 Electron 发布的备用配置
-    - 当前被顶层开关禁用，不参与实际 CD 发布链路
+    - 当前改为 `workflow_dispatch` 的可选输入，默认不构建
+    - 当前默认发布链路仍不上传 Electron artifact
   - `build-web-mac` / `build-web-linux` / `build-web-windows`
     - 分别调用现有打包脚本产出纯浏览器版安装包
     - 保留各平台更新脚本与元数据文件
@@ -150,6 +151,7 @@
 - 说明：
   - 旧版 workflow 中的 Tauri、Azure 签名、Apple 签名、npm、GHCR、AUR、Homebrew、GitHub App 等上游耦合逻辑已移除
   - 当前发布模式改为“手动输入版本号 -> GitHub Actions 构建 -> 生成 draft release -> 上传附件”
+  - 如需临时验证 Electron 构建，可在手动触发时勾选 `release_electron`；如需恢复上传，还要把 `publish.needs` 中的 `build-electron` 接回去
   - Electron 发布步骤没有直接删除，而是通过 workflow 顶层开关暂时停用，便于后续恢复
   - 这条 workflow 当前不依赖仓库级自定义 secrets，默认使用 `GITHUB_TOKEN`
 

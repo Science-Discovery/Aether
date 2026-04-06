@@ -8,12 +8,13 @@ on:
         description: "Release version, for example 0.2.3"
         required: true
         type: string
+      release_electron:
+        description: "Also build Electron artifacts"
+        required: false
+        default: false
+        type: boolean
 
 concurrency: ${{ github.workflow }}-${{ github.ref }}-${{ inputs.version }}
-
-env:
-  # Temporarily keep the Electron release job in-repo, but disable it in CD.
-  RELEASE_ELECTRON: "false"
 
 permissions:
   contents: write
@@ -44,9 +45,10 @@ jobs:
           echo "version=${{ inputs.version }}" >> "$GITHUB_OUTPUT"
 
   build-electron:
-    # To restore Electron release, set RELEASE_ELECTRON to "true" above and
-    # re-add build-electron under publish.needs below.
-    if: github.repository == 'Science-Discovery/Aether' && env.RELEASE_ELECTRON == 'true'
+    # Electron build stays available, but is opt-in via workflow_dispatch input.
+    # To upload Electron artifacts again, also re-add build-electron under
+    # publish.needs below.
+    if: github.repository == 'Science-Discovery/Aether' && inputs.release_electron
     needs: release
     strategy:
       fail-fast: false
