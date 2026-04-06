@@ -1,5 +1,6 @@
 #!/usr/bin/env bun
 import { $ } from "bun"
+import fs from "fs"
 
 import { Script } from "@opencode-ai/script"
 import { copyBinaryToSidecarFolder, getCurrentSidecar, resolveChannel, windowsify } from "./utils"
@@ -15,10 +16,15 @@ console.log(`Updated package.json version to ${Script.version}`)
 const sidecarConfig = getCurrentSidecar()
 
 const dir = "resources/opencode-binaries"
+const local = windowsify(`../opencode/dist/${sidecarConfig.ocBinary}/bin/aether`)
 
 await $`mkdir -p ${dir}`
-await $`gh run download ${Bun.env.GITHUB_RUN_ID} -n opencode-cli`.cwd(dir)
 
-await copyBinaryToSidecarFolder(windowsify(`${dir}/${sidecarConfig.ocBinary}/bin/opencode`))
+if (!fs.existsSync(local)) {
+  const artifact = Bun.env.OPENCODE_CLI_ARTIFACT ?? "aether-cli"
+  await $`gh run download ${Bun.env.GITHUB_RUN_ID} -n ${artifact}`.cwd(dir)
+}
+
+await copyBinaryToSidecarFolder(fs.existsSync(local) ? local : windowsify(`${dir}/${sidecarConfig.ocBinary}/bin/aether`))
 
 await $`rm -rf ${dir}`

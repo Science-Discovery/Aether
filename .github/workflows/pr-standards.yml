@@ -103,6 +103,7 @@ jobs:
             Where \`scope\` is the package name (e.g., \`app\`, \`desktop\`, \`core\`).
 
             See [CONTRIBUTING.md](../blob/dev/CONTRIBUTING.md#pr-titles) for details.`);
+              core.setFailed('PR title does not follow conventional commit format');
               return;
             }
 
@@ -146,6 +147,7 @@ jobs:
             2. Add \`Fixes #<number>\` or \`Closes #<number>\` to this PR description
 
             See [CONTRIBUTING.md](../blob/dev/CONTRIBUTING.md#issue-first-policy) for details.`);
+              core.setFailed('PR must reference a linked issue');
               return;
             }
 
@@ -319,6 +321,7 @@ jobs:
               }
 
               console.log(`PR #${pr.number} is non-compliant: ${issues.join(', ')}`);
+              core.setFailed(`PR does not meet template compliance requirements: ${issues.join(', ')}`);
             } else if (hasComplianceLabel) {
               // Was non-compliant, now fixed
               await removeLabel('needs:compliance');
