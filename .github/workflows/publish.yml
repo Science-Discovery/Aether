@@ -51,32 +51,38 @@ jobs:
             rust_target: aarch64-apple-darwin
             flag: --mac --arm64
             files: |
-              packages/desktop-electron/dist/*.dmg
-              packages/desktop-electron/dist/latest*.yml
-              packages/desktop-electron/dist/*.blockmap
+              repo/packages/desktop-electron/dist/*.dmg
+              repo/packages/desktop-electron/dist/latest*.yml
+              repo/packages/desktop-electron/dist/*.blockmap
           - id: windows
             host: windows-2022
             rust_target: x86_64-pc-windows-msvc
             flag: --win
             files: |
-              packages/desktop-electron/dist/*.exe
-              packages/desktop-electron/dist/latest*.yml
-              packages/desktop-electron/dist/*.blockmap
+              repo/packages/desktop-electron/dist/*.exe
+              repo/packages/desktop-electron/dist/latest*.yml
+              repo/packages/desktop-electron/dist/*.blockmap
           - id: linux
             host: ubuntu-24.04
             rust_target: x86_64-unknown-linux-gnu
             flag: --linux
             files: |
-              packages/desktop-electron/dist/*.AppImage
-              packages/desktop-electron/dist/*.deb
-              packages/desktop-electron/dist/*.rpm
-              packages/desktop-electron/dist/latest*.yml
-              packages/desktop-electron/dist/*.blockmap
+              repo/packages/desktop-electron/dist/*.AppImage
+              repo/packages/desktop-electron/dist/*.deb
+              repo/packages/desktop-electron/dist/*.rpm
+              repo/packages/desktop-electron/dist/latest*.yml
+              repo/packages/desktop-electron/dist/*.blockmap
     runs-on: ${{ matrix.host }}
     steps:
-      - uses: actions/checkout@v4
+      - name: Enable Windows long paths
+        if: runner.os == 'Windows'
+        run: git config --system core.longpaths true
 
-      - uses: ./.github/actions/setup-bun
+      - uses: actions/checkout@v4
+        with:
+          path: repo
+
+      - uses: ./repo/.github/actions/setup-bun
 
       - uses: actions/setup-node@v4
         with:
@@ -88,13 +94,14 @@ jobs:
 
       - name: Build sidecar
         run: bun ./packages/opencode/script/build.ts --single --skip-install --skip-smoke
+        working-directory: repo
         env:
           OPENCODE_VERSION: ${{ needs.release.outputs.version }}
           OPENCODE_CHANNEL: prod
 
       - name: Prepare Electron resources
         run: bun ./scripts/prepare.ts
-        working-directory: packages/desktop-electron
+        working-directory: repo/packages/desktop-electron
         env:
           OPENCODE_VERSION: ${{ needs.release.outputs.version }}
           OPENCODE_CHANNEL: prod
@@ -104,13 +111,13 @@ jobs:
 
       - name: Build Electron app
         run: bun run build
-        working-directory: packages/desktop-electron
+        working-directory: repo/packages/desktop-electron
         env:
           OPENCODE_CHANNEL: prod
 
       - name: Package Electron app
         run: npx electron-builder ${{ matrix.flag }} --publish never --config electron-builder.config.ts
-        working-directory: packages/desktop-electron
+        working-directory: repo/packages/desktop-electron
         env:
           OPENCODE_CHANNEL: prod
           CSC_IDENTITY_AUTO_DISCOVERY: false
@@ -127,11 +134,14 @@ jobs:
     runs-on: macos-14
     steps:
       - uses: actions/checkout@v4
+        with:
+          path: repo
 
-      - uses: ./.github/actions/setup-bun
+      - uses: ./repo/.github/actions/setup-bun
 
       - name: Package browser build for macOS
         run: ./packing_scripts/release-mac-web.sh ${{ needs.release.outputs.version }}
+        working-directory: repo
         env:
           OPENCODE_VERSION: ${{ needs.release.outputs.version }}
           OPENCODE_CHANNEL: prod
@@ -140,9 +150,9 @@ jobs:
         with:
           name: release-web-mac
           path: |
-            packages/opencode/dist/aether-darwin-arm64.dmg
-            packages/opencode/dist/latest-web-mac.yml
-            packages/opencode/dist/update_darwin_web.command
+            repo/packages/opencode/dist/aether-darwin-arm64.dmg
+            repo/packages/opencode/dist/latest-web-mac.yml
+            repo/packages/opencode/dist/update_darwin_web.command
           if-no-files-found: error
 
   build-web-linux:
@@ -151,11 +161,14 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+        with:
+          path: repo
 
-      - uses: ./.github/actions/setup-bun
+      - uses: ./repo/.github/actions/setup-bun
 
       - name: Package browser build for Linux
         run: ./packing_scripts/release-linux-web.sh ${{ needs.release.outputs.version }}
+        working-directory: repo
         env:
           OPENCODE_VERSION: ${{ needs.release.outputs.version }}
           OPENCODE_CHANNEL: prod
@@ -164,9 +177,9 @@ jobs:
         with:
           name: release-web-linux
           path: |
-            packages/opencode/dist/aether-linux-x64-web.zip
-            packages/opencode/dist/latest-web-linux.yml
-            packages/opencode/dist/update_linux_web.sh
+            repo/packages/opencode/dist/aether-linux-x64-web.zip
+            repo/packages/opencode/dist/latest-web-linux.yml
+            repo/packages/opencode/dist/update_linux_web.sh
           if-no-files-found: error
 
   build-web-windows:
@@ -174,12 +187,17 @@ jobs:
     needs: release
     runs-on: windows-2022
     steps:
-      - uses: actions/checkout@v4
+      - name: Enable Windows long paths
+        run: git config --system core.longpaths true
 
-      - uses: ./.github/actions/setup-bun
+      - uses: actions/checkout@v4
+        with:
+          path: repo
+
+      - uses: ./repo/.github/actions/setup-bun
 
       - name: Package browser build for Windows
-        run: packing_scripts\release-windows-web.bat ${{ needs.release.outputs.version }}
+        run: repo\packing_scripts\release-windows-web.bat ${{ needs.release.outputs.version }}
         shell: cmd
         env:
           OPENCODE_VERSION: ${{ needs.release.outputs.version }}
@@ -189,9 +207,9 @@ jobs:
         with:
           name: release-web-windows
           path: |
-            packages/opencode/dist/aether-windows-x64-web.zip
-            packages/opencode/dist/latest-web-windows.yml
-            packages/opencode/dist/update_windows_web.bat
+            repo/packages/opencode/dist/aether-windows-x64-web.zip
+            repo/packages/opencode/dist/latest-web-windows.yml
+            repo/packages/opencode/dist/update_windows_web.bat
           if-no-files-found: error
 
   publish:
