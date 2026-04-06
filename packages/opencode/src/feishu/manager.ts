@@ -283,8 +283,11 @@ class FeishuManagerImpl {
           delete this.sessionMap[key]
         }
       }
+      // Create new session immediately so it appears in the web UI right away.
+      // The next message will reuse it via the "most recent session" logic.
+      const session = await Session.create({ title: `飞书对话 ${chatId.slice(-6)}` })
       await this.saveSessionMap()
-      await this.replyText(messageId, "已创建新对话，下一条消息将开始新的会话。")
+      await this.replyText(messageId, `✅ 已开启新对话\n💬 ${session.title}`)
     } else if (cmd === "/help") {
       await this.replyText(
         messageId,
