@@ -321,7 +321,7 @@ export function DialogConnectProvider(props: { provider: string }) {
   })
 
   async function complete() {
-    await globalSync.bootstrap()
+    await globalSDK.client.global.dispose()
     dialog.close()
     showToast({
       variant: "success",
@@ -383,21 +383,17 @@ export function DialogConnectProvider(props: { provider: string }) {
     const MASKED = "••••••••"
     const cfg = globalSync.data.config.provider?.[props.provider]
     const initURL = (cfg?.options?.["baseURL"] as string) ?? ""
-    const apiURL = provider().api ?? ""
     const hasKey = !!(provider() as unknown as { key?: string })?.key
-    let ref: HTMLFormElement | undefined
 
     const [form, setForm] = createStore({
       apiKey: hasKey ? MASKED : "",
       baseURL: initURL,
       err: undefined as string | undefined,
       urlErr: undefined as string | undefined,
-      busy: false,
     })
 
     async function handleSubmit(e: SubmitEvent) {
       e.preventDefault()
-      if (form.busy) return
 
       const key = form.apiKey.trim()
       const url = form.baseURL.trim()
@@ -413,32 +409,21 @@ export function DialogConnectProvider(props: { provider: string }) {
 
       setForm("err", undefined)
       setForm("urlErr", undefined)
-      setForm("busy", true)
 
-      await (async () => {
-        if (key && key !== MASKED) {
-          await globalSDK.client.auth.set({
-            providerID: props.provider,
-            auth: { type: "api", key },
-          })
-        }
-
-        if (url !== initURL) {
-          await globalSync.updateConfig({
-            provider: { [props.provider]: { options: { baseURL: url } } },
-          })
-        }
-
-        await complete()
-      })()
-        .catch((err: unknown) => {
-          const message = formatError(err, language.t("common.requestFailed"))
-          setForm("err", message)
-          showToast({ title: language.t("common.requestFailed"), description: message })
+      if (key && key !== MASKED) {
+        await globalSDK.client.auth.set({
+          providerID: props.provider,
+          auth: { type: "api", key },
         })
-        .finally(() => {
-          setForm("busy", false)
+      }
+
+      if (url !== initURL) {
+        await globalSync.updateConfig({
+          provider: { [props.provider]: { options: { baseURL: url } } },
         })
+      }
+
+      await complete()
     }
 
     return (
@@ -463,10 +448,10 @@ export function DialogConnectProvider(props: { provider: string }) {
             </div>
           </Match>
         </Switch>
-        <form ref={(el) => ref = el} onSubmit={handleSubmit} class="flex flex-col items-start gap-4">
+        <form onSubmit={handleSubmit} class="flex flex-col items-start gap-4">
           <TextField
             autofocus
-            type="password"
+            type="text"
             label={language.t("provider.connect.apiKey.label", { provider: provider().name })}
             placeholder={language.t("provider.connect.apiKey.placeholder")}
             description={hasKey ? language.t("provider.custom.field.apiKey.savedDescription") : undefined}
@@ -475,31 +460,17 @@ export function DialogConnectProvider(props: { provider: string }) {
             validationState={form.err ? "invalid" : undefined}
             error={form.err}
           />
-          <details class="w-full rounded-lg border border-border-weak-base px-3 py-2" open={!!initURL}>
-            <summary class="cursor-pointer text-12-medium text-text-weak outline-none select-none">
-              {language.t("provider.connect.baseURL.label")}
-            </summary>
-            <div class="pt-3">
-              <TextField
-                label={language.t("provider.connect.baseURL.label")}
-                placeholder={apiURL || language.t("provider.connect.baseURL.placeholder")}
-                description={language.t("provider.connect.baseURL.description")}
-                value={form.baseURL}
-                onChange={(v) => { setForm("baseURL", v); setForm("urlErr", undefined) }}
-                validationState={form.urlErr ? "invalid" : undefined}
-                error={form.urlErr}
-              />
-            </div>
-          </details>
-          <Button
-            class="w-auto"
-            type="submit"
-            size="large"
-            variant="primary"
-            disabled={form.busy}
-            onClick={() => ref?.requestSubmit()}
-          >
-            {form.busy ? language.t("provider.connect.status.inProgress") : language.t("common.connect")}
+          <TextField
+            label={language.t("provider.connect.baseURL.label")}
+            placeholder={language.t("provider.connect.baseURL.placeholder")}
+            description={language.t("provider.connect.baseURL.description")}
+            value={form.baseURL}
+            onChange={(v) => { setForm("baseURL", v); setForm("urlErr", undefined) }}
+            validationState={form.urlErr ? "invalid" : undefined}
+            error={form.urlErr}
+          />
+          <Button class="w-auto" type="submit" size="large" variant="primary">
+            {language.t("common.continue")}
           </Button>
         </form>
       </div>
