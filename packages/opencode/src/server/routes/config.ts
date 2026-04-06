@@ -62,7 +62,7 @@ export const ConfigRoutes = lazy(() =>
       "/skills",
       describeRoute({
         summary: "List default skills",
-        description: "List all default skills from the .opencode/skills/ directory.",
+        description: "List all default skills from the .Aether/skills/ directory.",
         operationId: "config.skills.list",
         responses: {
           200: {
@@ -84,7 +84,7 @@ export const ConfigRoutes = lazy(() =>
       "/skills",
       describeRoute({
         summary: "Create or update a default skill",
-        description: "Create or update a skill in .opencode/skills/.",
+        description: "Create or update a skill in .Aether/skills/.",
         operationId: "config.skills.save",
         responses: {
           200: {
@@ -104,7 +104,7 @@ export const ConfigRoutes = lazy(() =>
       "/skills/:name",
       describeRoute({
         summary: "Delete a default skill",
-        description: "Delete a skill from .opencode/skills/.",
+        description: "Delete a skill from .Aether/skills/.",
         operationId: "config.skills.delete",
         responses: {
           200: {
@@ -123,7 +123,7 @@ export const ConfigRoutes = lazy(() =>
       "/skills/defaults",
       describeRoute({
         summary: "Add default skills to project config",
-        description: "Add the default skills from .opencode/skills/ to the project's opencode.jsonc skills.paths.",
+        description: "Add the default skills from .Aether/skills/ to the project's opencode.jsonc skills.paths.",
         operationId: "config.skills.addDefaults",
         responses: {
           200: {

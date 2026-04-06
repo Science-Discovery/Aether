@@ -84,7 +84,7 @@ export namespace Config {
     // 2) Global config (~/.config/opencode/opencode.json{,c})
     // 3) Custom config (OPENCODE_CONFIG)
     // 4) Project config (opencode.json{,c})
-    // 5) .opencode directories (.opencode/agents/, .opencode/commands/, .opencode/plugins/, .opencode/opencode.json{,c})
+    // 5) project resource directories (.Aether/agents/, .Aether/commands/, .Aether/plugins/, .Aether/opencode.json{,c})
     // 6) Inline config (OPENCODE_CONFIG_CONTENT)
     // Managed config directory is enterprise-only and always overrides everything above.
     let result: Info = {}
@@ -134,7 +134,7 @@ export namespace Config {
 
     const directories = await ConfigPaths.directories(Instance.directory, Instance.worktree)
 
-    // .opencode directory config overrides (project and global) config sources.
+    // Project resource directory config overrides project and global config sources.
     if (Flag.OPENCODE_CONFIG_DIR) {
       log.debug("loading config from OPENCODE_CONFIG_DIR", { path: Flag.OPENCODE_CONFIG_DIR })
     }
@@ -142,7 +142,7 @@ export namespace Config {
     const deps = []
 
     for (const dir of unique(directories)) {
-      if (dir.endsWith(".opencode") || dir === Flag.OPENCODE_CONFIG_DIR) {
+      if (ConfigPaths.matches(dir) || dir === Flag.OPENCODE_CONFIG_DIR) {
         for (const file of ["opencode.jsonc", "opencode.json"]) {
           log.debug(`loading config from ${path.join(dir, file)}`)
           result = mergeConfigConcatArrays(result, await loadFile(path.join(dir, file)))
@@ -401,7 +401,14 @@ export namespace Config {
       })
       if (!md) continue
 
-      const patterns = ["/.opencode/command/", "/.opencode/commands/", "/command/", "/commands/"]
+      const patterns = [
+        "/.Aether/command/",
+        "/.Aether/commands/",
+        "/.opencode/command/",
+        "/.opencode/commands/",
+        "/command/",
+        "/commands/",
+      ]
       const file = rel(item, patterns) ?? path.basename(item)
       const name = trim(file)
 
@@ -440,7 +447,14 @@ export namespace Config {
       })
       if (!md) continue
 
-      const patterns = ["/.opencode/agent/", "/.opencode/agents/", "/agent/", "/agents/"]
+      const patterns = [
+        "/.Aether/agent/",
+        "/.Aether/agents/",
+        "/.opencode/agent/",
+        "/.opencode/agents/",
+        "/agent/",
+        "/agents/",
+      ]
       const file = rel(item, patterns) ?? path.basename(item)
       const agentName = trim(file)
 
@@ -1362,16 +1376,18 @@ export namespace Config {
   })
   export type DefaultSkill = z.infer<typeof DefaultSkill>
 
-  // Search upward from process.cwd() for .opencode/skills, calculated once at startup.
+  // Search upward from process.cwd() for bundled skills, calculated once at startup.
   // This ensures the source skills dir is always the server's own project regardless of
   // which project the user is currently viewing.
   function findServerSkillsDirSync(): string | undefined {
     let dir = process.cwd()
     while (true) {
-      const candidate = path.join(dir, ".opencode", "skills")
-      try {
-        if (statSync(candidate).isDirectory()) return candidate
-      } catch {}
+      for (const root of ConfigPaths.dirs) {
+        const candidate = path.join(dir, root, "skills")
+        try {
+          if (statSync(candidate).isDirectory()) return candidate
+        } catch {}
+      }
       const parent = path.dirname(dir)
       if (parent === dir) break
       dir = parent
@@ -1420,7 +1436,7 @@ export namespace Config {
 
   export async function saveDefaultSkill(name: string, description: string, content: string): Promise<void> {
     const skillsDir = getDefaultSkillsDir()
-    if (!skillsDir) throw new Error("No .opencode directory found")
+    if (!skillsDir) throw new Error("No bundled skills directory found")
     const skillDir = path.join(skillsDir, name)
     await fs.mkdir(skillDir, { recursive: true })
     const skillFile = path.join(skillDir, "SKILL.md")
@@ -1430,7 +1446,7 @@ export namespace Config {
 
   export async function deleteDefaultSkill(name: string): Promise<void> {
     const skillsDir = getDefaultSkillsDir()
-    if (!skillsDir) throw new Error("No .opencode directory found")
+    if (!skillsDir) throw new Error("No bundled skills directory found")
     const skillDir = path.join(skillsDir, name)
     await fs.rm(skillDir, { recursive: true, force: true })
   }
@@ -1440,8 +1456,8 @@ export namespace Config {
     const sourceSkillsDir = getDefaultSkillsDir()
     if (!sourceSkillsDir) return []
 
-    // Target: the currently viewed project (.opencode/skills/ under Instance.directory)
-    const targetSkillsDir = path.join(Instance.directory, ".opencode", "skills")
+    // Target: the currently viewed project (.Aether/skills/ under Instance.directory)
+    const targetSkillsDir = path.join(Instance.directory, ConfigPaths.root, "skills")
     await fs.mkdir(targetSkillsDir, { recursive: true })
 
     // Copy each skill directory from source to target

@@ -25,14 +25,14 @@ describe("file.ripgrep", () => {
     await using tmp = await tmpdir({
       init: async (dir) => {
         await Bun.write(path.join(dir, "visible.txt"), "hello")
-        await fs.mkdir(path.join(dir, ".opencode"), { recursive: true })
-        await Bun.write(path.join(dir, ".opencode", "thing.json"), "{}")
+        await fs.mkdir(path.join(dir, ".Aether"), { recursive: true })
+        await Bun.write(path.join(dir, ".Aether", "thing.json"), "{}")
       },
     })
 
     const files = await Array.fromAsync(Ripgrep.files({ cwd: tmp.path, hidden: false }))
     const hasVisible = files.includes("visible.txt")
-    const hasHidden = files.includes(path.join(".opencode", "thing.json"))
+    const hasHidden = files.includes(path.join(".Aether", "thing.json"))
     expect(hasVisible).toBe(true)
     expect(hasHidden).toBe(false)
   })

@@ -504,12 +504,12 @@ test("migrates mode field to agent field", async () => {
   })
 })
 
-test("loads config from .opencode directory", async () => {
+test("loads config from .Aether directory", async () => {
   await using tmp = await tmpdir({
     init: async (dir) => {
-      const opencodeDir = path.join(dir, ".opencode")
-      await fs.mkdir(opencodeDir, { recursive: true })
-      const agentDir = path.join(opencodeDir, "agent")
+      const aetherDir = path.join(dir, ".Aether")
+      await fs.mkdir(aetherDir, { recursive: true })
+      const agentDir = path.join(aetherDir, "agent")
       await fs.mkdir(agentDir, { recursive: true })
 
       await Filesystem.write(
@@ -582,6 +582,30 @@ Nested agent prompt`,
         model: "test/model",
         mode: "subagent",
         prompt: "Nested agent prompt",
+      })
+    },
+  })
+})
+
+test("prefers .Aether over .opencode", async () => {
+  await using tmp = await tmpdir({
+    init: async (dir) => {
+      const aetherDir = path.join(dir, ".Aether", "command")
+      const opencodeDir = path.join(dir, ".opencode", "command")
+      await fs.mkdir(aetherDir, { recursive: true })
+      await fs.mkdir(opencodeDir, { recursive: true })
+      await Filesystem.write(path.join(aetherDir, "hello.md"), "---\ndescription: Aether\n---\nAether command")
+      await Filesystem.write(path.join(opencodeDir, "hello.md"), "---\ndescription: Legacy\n---\nLegacy command")
+    },
+  })
+
+  await Instance.provide({
+    directory: tmp.path,
+    fn: async () => {
+      const config = await Config.get()
+      expect(config.command?.["hello"]).toEqual({
+        description: "Aether",
+        template: "Aether command",
       })
     },
   })
@@ -1850,26 +1874,24 @@ describe("OPENCODE_DISABLE_PROJECT_CONFIG", () => {
     }
   })
 
-  test("skips project .opencode/ directories when flag is set", async () => {
+  test("skips project .Aether directories when flag is set", async () => {
     const originalEnv = process.env["OPENCODE_DISABLE_PROJECT_CONFIG"]
     process.env["OPENCODE_DISABLE_PROJECT_CONFIG"] = "true"
 
     try {
       await using tmp = await tmpdir({
         init: async (dir) => {
-          // Create a .opencode directory with a command
-          const opencodeDir = path.join(dir, ".opencode", "command")
-          await fs.mkdir(opencodeDir, { recursive: true })
-          await Filesystem.write(path.join(opencodeDir, "test-cmd.md"), "# Test Command\nThis is a test command.")
+          const aetherDir = path.join(dir, ".Aether", "command")
+          await fs.mkdir(aetherDir, { recursive: true })
+          await Filesystem.write(path.join(aetherDir, "test-cmd.md"), "# Test Command\nThis is a test command.")
         },
       })
       await Instance.provide({
         directory: tmp.path,
         fn: async () => {
           const directories = await Config.directories()
-          // Project .opencode should NOT be in directories list
-          const hasProjectOpencode = directories.some((d) => d.startsWith(tmp.path))
-          expect(hasProjectOpencode).toBe(false)
+          const hasProjectDir = directories.some((d) => d.startsWith(tmp.path))
+          expect(hasProjectDir).toBe(false)
         },
       })
     } finally {

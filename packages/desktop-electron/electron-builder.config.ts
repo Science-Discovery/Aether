@@ -31,20 +31,20 @@ const getBase = (): Configuration => ({
       filter: ["index.js", "index.d.ts", "build/Release/mac_window.node", "swift-build/**"],
     },
     {
-      from: "../../.opencode/skills",
-      to: ".opencode/skills",
+      from: "../../.Aether/skills",
+      to: ".Aether/skills",
     },
     {
-      from: "../../.opencode/agent",
-      to: ".opencode/agent",
+      from: "../../.Aether/agent",
+      to: ".Aether/agent",
     },
     {
-      from: "../../.opencode/command",
-      to: ".opencode/command",
+      from: "../../.Aether/command",
+      to: ".Aether/command",
     },
     {
-      from: "../../.opencode/themes",
-      to: ".opencode/themes",
+      from: "../../.Aether/themes",
+      to: ".Aether/themes",
     },
     {
       from: "../../Aether-wechat-bridge",
@@ -54,11 +54,7 @@ const getBase = (): Configuration => ({
     {
       from: "../../Update",
       to: "Update",
-      filter: [
-        "aether_darwin_installer.command",
-        "aether_linux_installer.sh",
-        "aether_windows_installer.bat",
-      ],
+      filter: ["aether_darwin_installer.command", "aether_linux_installer.sh", "aether_windows_installer.bat"],
     },
   ],
   mac: {

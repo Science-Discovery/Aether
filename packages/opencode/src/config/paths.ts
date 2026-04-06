@@ -8,6 +8,30 @@ import { Flag } from "@/flag/flag"
 import { Global } from "@/global"
 
 export namespace ConfigPaths {
+  export const root = ".Aether"
+  export const legacy = ".opencode"
+  export const dirs = [legacy, root] as const
+
+  export function matches(input: string) {
+    return dirs.some((item) => input.endsWith(item))
+  }
+
+  async function list(start: string, stop: string) {
+    return (
+      await Promise.all(
+        dirs.map((target) =>
+          Array.fromAsync(
+            Filesystem.up({
+              targets: [target],
+              start,
+              stop,
+            }),
+          ),
+        ),
+      )
+    ).flat()
+  }
+
   export async function projectFiles(name: string, directory: string, worktree: string) {
     const files: string[] = []
     for (const file of [`${name}.jsonc`, `${name}.json`]) {
@@ -21,34 +45,14 @@ export namespace ConfigPaths {
 
   export async function directories(directory: string, worktree: string) {
     // Include the directory next to the binary so bundled default skills are found
-    // when running a compiled single binary (e.g. dist/.../bin/aether + dist/.../bin/.opencode/skills/)
+    // when running a compiled single binary (e.g. dist/.../bin/aether + dist/.../bin/.Aether/skills/)
     const binaryDir = path.dirname(process.execPath)
 
     return [
       Global.Path.config,
-      ...(!Flag.OPENCODE_DISABLE_PROJECT_CONFIG
-        ? await Array.fromAsync(
-            Filesystem.up({
-              targets: [".opencode"],
-              start: directory,
-              stop: worktree,
-            }),
-          )
-        : []),
-      ...(await Array.fromAsync(
-        Filesystem.up({
-          targets: [".opencode"],
-          start: Global.Path.home,
-          stop: Global.Path.home,
-        }),
-      )),
-      ...(await Array.fromAsync(
-        Filesystem.up({
-          targets: [".opencode"],
-          start: binaryDir,
-          stop: binaryDir,
-        }),
-      )),
+      ...(!Flag.OPENCODE_DISABLE_PROJECT_CONFIG ? await list(directory, worktree) : []),
+      ...(await list(Global.Path.home, Global.Path.home)),
+      ...(await list(binaryDir, binaryDir)),
       ...(Flag.OPENCODE_CONFIG_DIR ? [Flag.OPENCODE_CONFIG_DIR] : []),
     ]
   }

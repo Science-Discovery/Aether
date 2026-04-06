@@ -42,6 +42,7 @@ import { createStore, produce } from "solid-js/store"
 import { Global } from "@/global"
 import { Filesystem } from "@/util/filesystem"
 import { useTuiConfig } from "./tui-config"
+import { ConfigPaths } from "@/config/paths"
 
 type ThemeColors = {
   primary: RGBA
@@ -438,7 +439,7 @@ async function getCustomThemes() {
     Global.Path.config,
     ...(await Array.fromAsync(
       Filesystem.up({
-        targets: [".opencode"],
+        targets: [...ConfigPaths.dirs],
         start: process.cwd(),
       }),
     )),

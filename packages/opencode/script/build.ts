@@ -254,9 +254,9 @@ for (const item of targets) {
   fs.cpSync(path.resolve(dir, "../../packages/app/dist"), `dist/${name}/bin/web`, { recursive: true })
 
   // Copy default skills next to the binary so they are available without a project config
-  const skillsSrc = path.resolve(dir, "../../.opencode/skills")
+  const skillsSrc = path.resolve(dir, "../../.Aether/skills")
   if (fs.existsSync(skillsSrc)) {
-    fs.cpSync(skillsSrc, `dist/${name}/bin/.opencode/skills`, { recursive: true })
+    fs.cpSync(skillsSrc, `dist/${name}/bin/.Aether/skills`, { recursive: true })
   }
 
   // Copy wechat-bridge resources
