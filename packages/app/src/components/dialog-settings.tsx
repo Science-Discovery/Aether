@@ -55,7 +55,7 @@ export const DialogSettings: Component = () => {
               </div>
             </div>
             <div class="flex flex-col gap-1 pl-1 py-1 text-12-medium text-text-weak">
-              <span>Aether v{platform.version}</span>
+              <span>{platform.version ? `Aether v${platform.version}` : "Aether -"}</span>
             </div>
           </div>
         </Tabs.List>
