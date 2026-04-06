@@ -166,10 +166,15 @@ Windows：
 - 默认工作目录
   `%LOCALAPPDATA%\Programs\Aether`
 
-macOS / Linux：
+macOS：
 
 - 默认工作目录
   `~/Applications/Aether`
+
+Linux：
+
+- 默认工作目录
+  `~/.local/share/applications/Aether`
 
 非 `init` 模式：
 

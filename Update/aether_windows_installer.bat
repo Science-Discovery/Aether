@@ -5,7 +5,7 @@ setlocal EnableExtensions EnableDelayedExpansion
 set "BASE=https://aether.aiphys.cn/download"
 set "LATEST=latest/windows-x64.yml"
 if not defined LOCALAPPDATA set "LOCALAPPDATA=%USERPROFILE%\AppData\Local"
-set "DEFAULT=%USERPROFILE%\Applications\Aether"
+set "DEFAULT=%LOCALAPPDATA%\Programs\Aether"
 set "MODE=init"
 set "ARG="
 set "PATH_ARG="
