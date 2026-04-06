@@ -179,6 +179,12 @@ export namespace Provider {
     "@ai-sdk/github-copilot": createGitHubCopilotOpenAICompatible,
   }
 
+  // Providers whose upstream npm package is incompatible with bundled AI SDK versions.
+  // Override to use a bundled, compatible SDK instead.
+  const PROVIDER_OVERRIDES: Record<string, { npm?: string; api?: string }> = {
+    aihubmix: { npm: "@ai-sdk/openai-compatible", api: "https://aihubmix.com/v1" },
+  }
+
   type CustomModelLoader = (sdk: any, modelID: string, options?: Record<string, any>) => Promise<any>
   type CustomVarsLoader = (options: Record<string, any>) => Record<string, string>
   type CustomDiscoverModels = () => Promise<Record<string, Model>>
@@ -889,8 +895,8 @@ export namespace Provider {
       family: model.family,
       api: {
         id: model.id,
-        url: model.provider?.api ?? provider.api!,
-        npm: model.provider?.npm ?? provider.npm ?? "@ai-sdk/openai-compatible",
+        url: model.provider?.api ?? PROVIDER_OVERRIDES[provider.id]?.api ?? provider.api!,
+        npm: model.provider?.npm ?? PROVIDER_OVERRIDES[provider.id]?.npm ?? provider.npm ?? "@ai-sdk/openai-compatible",
       },
       status: model.status ?? "active",
       headers: model.headers ?? {},
