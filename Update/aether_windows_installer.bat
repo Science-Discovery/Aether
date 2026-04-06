@@ -1,11 +1,11 @@
-@echo off
+﻿@echo off
 chcp 65001 >nul
 setlocal EnableExtensions EnableDelayedExpansion
 
 set "BASE=https://aether.aiphys.cn/download"
 set "LATEST=latest/windows-x64.yml"
 if not defined LOCALAPPDATA set "LOCALAPPDATA=%USERPROFILE%\AppData\Local"
-set "DEFAULT=%USERPROFILE%\Applications\Aether"
+set "DEFAULT=%LOCALAPPDATA%\Programs\aether"
 set "MODE=init"
 set "ARG="
 set "PATH_ARG="
@@ -97,10 +97,10 @@ goto :bad
 :normalize
 set "IN=%~1"
 for %%i in ("%IN%") do set "BASE_NAME=%%~nxi"
-if /I "%BASE_NAME%"=="Aether" (
+if /I "%BASE_NAME%"=="aether" (
   set "%~2=%IN%"
 ) else (
-  set "%~2=%IN%\Aether"
+  set "%~2=%IN%\aether"
 )
 exit /b 0
 

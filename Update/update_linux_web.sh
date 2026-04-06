@@ -2,42 +2,19 @@
 
 set -euo pipefail
 
-base="https://aether.aiphys.cn/download"
-latest="latest/linux-x64.yml"
-site="${base%/download}"
-default="$HOME/Applications/Aether"
-mode="init"
-arg=""
-path_arg=""
-hold=0
-nohold=0
-
 ok=0
-ready=10
-manual_ready=11
-latest_ok=20
-miss=21
-meta_err=30
 dl_err=31
-sum_err=32
 run_err=33
-dir_err=40
 arg_err=50
+
+mode="install"
+arg=""
+tmp=""
+next=""
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
-    --no-pause)
-      nohold=1
-      ;;
-    --path)
-      shift
-      if [ "$#" -eq 0 ]; then
-        echo "--path needs a value"
-        exit "$arg_err"
-      fi
-      path_arg="$1"
-      ;;
-    init|auto|manual|help|-h|--help)
+    install|help|-h|--help)
       mode="$1"
       ;;
     *)
@@ -52,538 +29,361 @@ while [ "$#" -gt 0 ]; do
   shift
 done
 
-if [ "$mode" = "init" ] && [ "$nohold" = "0" ]; then
-  hold=1
-fi
-
-work=""
-cur=""
-req=""
-ver=""
-pkg=""
-sha=""
-ins=""
-note=""
-pkg_url=""
-ins_url=""
-note_url=""
-pkg_name=""
-ins_name=""
-pkg_file=""
-ins_file=""
-dl=""
-manifest_url=""
-res=""
-res_file=""
-fetch_http=""
-keep="3"
-
-done_hold() {
-  if [ "$hold" = "1" ]; then
-    echo
-    read -r -p "Press Enter to close..." _
-  fi
-}
-
-fail() {
-  local code="$1"
-  done_hold
-  exit "$code"
-}
-
-quote() {
-  printf "'%s'" "${1//\'/\'\'}"
-}
-
-result() {
-  [ -n "$work" ] || return 0
-  dl="${dl:-$work/downloads}"
-  mkdir -p "$dl" || return 0
-  res_file="$dl/last-result.yml"
-  local code="$ok"
-  [ "$res" = "update_ready" ] && code="$ready"
-  [ "$res" = "manual_ready" ] && code="$manual_ready"
-  [ "$res" = "up_to_date" ] && code="$latest_ok"
-  [ "$res" = "version_missing" ] && code="$miss"
-  [ "$res" = "meta_error" ] && code="$meta_err"
-  [ "$res" = "download_error" ] && code="$dl_err"
-  [ "$res" = "checksum_error" ] && code="$sum_err"
-  [ "$res" = "run_error" ] && code="$run_err"
-  [ "$res" = "dir_error" ] && code="$dir_err"
-  [ "$res" = "arg_error" ] && code="$arg_err"
-  {
-    echo "mode: $(quote "$mode")"
-    echo "status: $(quote "$res")"
-    echo "code: $code"
-    echo "current_version: $(quote "$cur")"
-    echo "target_version: $(quote "$ver")"
-    echo "requested_version: $(quote "$req")"
-    echo "work_dir: $(quote "$work")"
-    echo "download_dir: $(quote "$dl")"
-    echo "package_path: $(quote "$pkg_file")"
-    echo "installer_path: $(quote "$ins_file")"
-    echo "manifest_url: $(quote "$manifest_url")"
-    echo "notes_url: $(quote "$note_url")"
-  } >"$res_file"
-}
-
-abs() {
-  local src="$1"
-  local val="$2"
-  local dir
-  if [ -z "$val" ]; then
-    printf ""
-    return 0
-  fi
-  case "$val" in
-    http://*|https://*) printf "%s" "$val" ;;
-    /*) printf "%s/%s" "$site" "${val#/}" ;;
-    *)
-      dir="${src%/*}"
-      printf "%s/%s" "$dir" "$val"
-      ;;
-  esac
-}
-
-prep() {
-  mkdir -p "$1" 2>/dev/null
-}
-
-normalize_work() {
-  local dir base
-  dir="$1"
-  base="$(basename "$dir")"
-  if [ "$base" = "Aether" ]; then
-    printf "%s" "$dir"
-    return 0
-  fi
-  printf "%s/Aether" "$dir"
-}
-
-workdir() {
-  local dir
-  dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-  if [[ "$(basename "$dir")" == aether_* ]]; then
-    cd "$dir/.." && pwd
-    return 0
-  fi
-  printf "%s" "$dir"
-}
-
-cmp() {
-  local a="${1#v}"
-  local b="${2#v}"
-  a="${a%%-*}"
-  b="${b%%-*}"
-  local aa bb i
-  IFS=. read -r -a aa <<<"$a"
-  IFS=. read -r -a bb <<<"$b"
-  for i in 0 1 2 3; do
-    local x="${aa[$i]:-0}"
-    local y="${bb[$i]:-0}"
-    x=$((10#$x))
-    y=$((10#$y))
-    if [ "$x" -lt "$y" ]; then
-      echo lt
-      return 0
-    fi
-    if [ "$x" -gt "$y" ]; then
-      echo gt
-      return 0
-    fi
-  done
-  echo eq
-}
-
-fetch_meta() {
-  local url="$1"
-  local out="$2"
-  fetch_http="$(curl --location --silent --show-error --connect-timeout 15 --max-time 1800 --retry 3 --retry-delay 2 --output "$out" --write-out "%{http_code}" "$url" || true)"
-  [ "$fetch_http" = "200" ]
-}
-
-fetch_file() {
-  curl --fail --location --progress-bar --connect-timeout 15 --max-time 1800 --retry 3 --retry-delay 2 --output "$2" "$1"
-}
-
-parse() {
-  ver="$(awk -F': *' '/^version:/{print $2; exit}' "$1" | tr -d "'\"")"
-  note="$(awk -F': *' '/^notes_url:/{print $2; exit}' "$1")"
-  pkg="$(awk '
-    /^package:[[:space:]]*$/ { sec="package"; next }
-    /^[^[:space:]]/ { sec="" }
-    sec=="package" && /^[[:space:]]+url:[[:space:]]*/ { sub(/^[[:space:]]+url:[[:space:]]*/, ""); print; exit }
-  ' "$1")"
-  sha="$(awk '
-    /^package:[[:space:]]*$/ { sec="package"; next }
-    /^[^[:space:]]/ { sec="" }
-    sec=="package" && /^[[:space:]]+sha512:[[:space:]]*/ { sub(/^[[:space:]]+sha512:[[:space:]]*/, ""); print; exit }
-  ' "$1")"
-  ins="$(awk '
-    /^installer:[[:space:]]*$/ { sec="installer"; next }
-    /^[^[:space:]]/ { sec="" }
-    sec=="installer" && /^[[:space:]]+url:[[:space:]]*/ { sub(/^[[:space:]]+url:[[:space:]]*/, ""); print; exit }
-  ' "$1")"
-  if [ -z "$pkg" ]; then
-    pkg="$(awk '
-      /^files:[[:space:]]*$/ { sec="files"; next }
-      sec=="files" && /^[[:space:]]*-[[:space:]]*url:[[:space:]]*/ { sub(/^[[:space:]]*-[[:space:]]*url:[[:space:]]*/, ""); print; exit }
-    ' "$1")"
-    sha="$(awk '
-      /^files:[[:space:]]*$/ { sec="files"; next }
-      sec=="files" && /^[[:space:]]*sha512:[[:space:]]*/ { sub(/^[[:space:]]*sha512:[[:space:]]*/, ""); print; exit }
-    ' "$1")"
-  fi
-  [ -n "$ver" ] && [ -n "$pkg" ]
-}
-
-manifest() {
-  local url="$1"
-  local kind="$2"
-  local tmp
-  tmp="$(mktemp -d "${TMPDIR:-/tmp}/aether-installer.XXXXXX")"
-  local file="$tmp/manifest.yml"
-  if ! fetch_meta "$url" "$file"; then
-    rm -rf "$tmp"
-    if [ "$kind" = "version" ] && [ "$fetch_http" = "404" ]; then
-      return "$miss"
-    fi
-    return "$meta_err"
-  fi
-  if ! parse "$file"; then
-    rm -rf "$tmp"
-    return "$meta_err"
-  fi
-  pkg_url="$(abs "$url" "$pkg")"
-  ins_url="$(abs "$url" "$ins")"
-  note_url="$(abs "$url" "$note")"
-  pkg_name="$(basename "$pkg_url")"
-  ins_name="$(basename "$ins_url")"
-  rm -rf "$tmp"
-}
-
-grab() {
-  dl="$work/downloads"
-  mkdir -p "$dl" || return "$dir_err"
-  local pkg_ext ins_ext need_pkg need_ins sum
-
-  pkg_ext="${pkg_name##*.}"
-  if [ "$pkg_ext" = "$pkg_name" ]; then
-    pkg_ext=""
-  else
-    pkg_ext=".$pkg_ext"
-  fi
-  pkg_file="$dl/aether-linux-x64-web-$ver$pkg_ext"
-
-  need_pkg=1
-  if [ -f "$pkg_file" ]; then
-    if [ -n "$sha" ]; then
-      sum="$(openssl dgst -sha512 -binary "$pkg_file" | openssl base64 -A || true)"
-      if [ "$sum" = "$sha" ]; then
-        need_pkg=0
-      fi
-    else
-      need_pkg=0
-    fi
-  fi
-
-  if [ "$need_pkg" = "1" ]; then
-    echo "Downloading package:"
-    echo "  $pkg_url"
-    fetch_file "$pkg_url" "$pkg_file" || return "$dl_err"
-  else
-    echo "Using cached package:"
-    echo "  $pkg_file"
-  fi
-
-  if [ -n "$sha" ]; then
-    sum="$(openssl dgst -sha512 -binary "$pkg_file" | openssl base64 -A)"
-    [ "$sum" = "$sha" ] || return "$sum_err"
-  fi
-
-  if [ -n "$ins_url" ] && [ -n "$ins_name" ]; then
-    ins_ext="${ins_name##*.}"
-    if [ "$ins_ext" = "$ins_name" ]; then
-      ins_ext=""
-    else
-      ins_ext=".$ins_ext"
-    fi
-    ins_file="$dl/update_linux_web-$ver$ins_ext"
-
-    need_ins=1
-    if [ -f "$ins_file" ]; then
-      need_ins=0
-    fi
-
-    if [ "$need_ins" = "1" ]; then
-      echo "Downloading installer:"
-      echo "  $ins_url"
-      fetch_file "$ins_url" "$ins_file" || return "$dl_err"
-    else
-      echo "Using cached installer:"
-      echo "  $ins_file"
-    fi
-    chmod +x "$ins_file" 2>/dev/null || true
-  else
-    ins_file=""
-  fi
-
-  prune
-}
-
-prune() {
-  dl="${dl:-$work/downloads}"
-  [ -d "$dl" ] || return 0
-  local arr n cut i list item
-
-  shopt -s nullglob
-  arr=("$dl"/aether-linux-x64-web-*.*)
-  shopt -u nullglob
-  n="${#arr[@]}"
-  if [ "$n" -gt "$keep" ]; then
-    list="$(printf "%s\n" "${arr[@]}" | sort -V)"
-    cut=$((n - keep))
-    i=0
-    while IFS= read -r item; do
-      [ -n "$item" ] || continue
-      if [ "$i" -lt "$cut" ]; then
-        rm -f "$item"
-      fi
-      i=$((i + 1))
-    done <<<"$list"
-  fi
-
-  shopt -s nullglob
-  arr=("$dl"/update_linux_web-*.sh)
-  shopt -u nullglob
-  n="${#arr[@]}"
-  if [ "$n" -gt "$keep" ]; then
-    list="$(printf "%s\n" "${arr[@]}" | sort -V)"
-    cut=$((n - keep))
-    i=0
-    while IFS= read -r item; do
-      [ -n "$item" ] || continue
-      if [ "$i" -lt "$cut" ]; then
-        rm -f "$item"
-      fi
-      i=$((i + 1))
-    done <<<"$list"
-  fi
-}
-
 help() {
   cat <<EOF
-Aether Linux Installer
+Aether Linux Local Installer
 
 Usage:
-  $(basename "$0") [--no-pause] [--path <dir>] init
-  $(basename "$0") [--no-pause] auto <current-version>
-  $(basename "$0") [--no-pause] manual <target-version>
+  $(basename "$0") install <version>
+  $(basename "$0") <version>
 
-Remote manifests:
-  $base/$latest
-  $base/1.2.3/linux-x64.yml
+Behavior:
+  - Local install only; no network download
+  - Installs to a versioned directory: aether_<version>
+  - Updates current symlink to the latest installed version
 
-Result file:
-  work_dir/downloads/last-result.yml
+Package name pattern:
+  aether-linux-x64-web-<version>.*
 
 Exit codes:
-  0   init finished successfully
-  10  latest update downloaded and ready
-  11  requested version downloaded and ready
-  20  already up to date
-  21  requested version not found
-  30  manifest or network error
-  31  download failed
-  32  checksum mismatch
-  33  init install run failed
-  40  work directory error
+  0   install finished successfully
+  31  local package not found
+  33  extract/install failed
   50  argument error
 EOF
 }
 
+clean() {
+  if [ -n "$tmp" ] && [ -d "$tmp" ]; then
+    rm -rf "$tmp"
+  fi
+  if [ -n "$next" ] && [ -d "$next" ]; then
+    rm -rf "$next"
+  fi
+}
+
+pick_home() {
+  local home="$HOME"
+  if [ -n "${SUDO_USER:-}" ] && [ "$SUDO_USER" != "root" ]; then
+    if command -v getent >/dev/null 2>&1; then
+      home="$(getent passwd "$SUDO_USER" 2>/dev/null | cut -d: -f6)"
+    else
+      home=""
+    fi
+    if [ -z "$home" ]; then
+      home="$(eval echo "~$SUDO_USER" 2>/dev/null || true)"
+    fi
+    [ -n "$home" ] || home="$HOME"
+  fi
+  printf "%s" "$home"
+}
+
+pick_src() {
+  local ex="$1"
+  if [ -f "$ex/aether" ] && [ -f "$ex/Aether.sh" ]; then
+    printf "%s" "$ex"
+    return 0
+  fi
+
+  shopt -s nullglob
+  for d in "$ex"/*; do
+    if [ -d "$d" ] && [ -f "$d/aether" ] && [ -f "$d/Aether.sh" ]; then
+      printf "%s" "$d"
+      shopt -u nullglob
+      return 0
+    fi
+  done
+  shopt -u nullglob
+  printf ""
+}
+
+set_current() {
+  local work="$1"
+  local target="$2"
+  local link="$work/current"
+
+  ln -sfn "$(basename "$target")" "$link" 2>/dev/null || true
+  if [ -f "$link/Aether.sh" ]; then
+    return 0
+  fi
+
+  rm -rf "$link" 2>/dev/null || true
+  mkdir -p "$link"
+  cp -R "$target"/. "$link" || return 1
+  [ -f "$link/Aether.sh" ]
+}
+
+list_ssl() {
+  {
+    if command -v ldconfig >/dev/null 2>&1; then
+      ldconfig -p 2>/dev/null | awk '/libssl\.so\./{print $NF}'
+    fi
+    for p in /lib /usr/lib /lib64 /usr/lib64 /usr/local/lib /usr/local/lib64 /lib/x86_64-linux-gnu /usr/lib/x86_64-linux-gnu; do
+      [ -d "$p" ] || continue
+      find "$p" -maxdepth 2 -type f -name 'libssl.so.*' 2>/dev/null
+    done
+  } | awk 'NF && !seen[$0]++'
+}
+
+list_crypto() {
+  {
+    if command -v ldconfig >/dev/null 2>&1; then
+      ldconfig -p 2>/dev/null | awk '/libcrypto\.so\./{print $NF}'
+    fi
+    for p in /lib /usr/lib /lib64 /usr/lib64 /usr/local/lib /usr/local/lib64 /lib/x86_64-linux-gnu /usr/lib/x86_64-linux-gnu; do
+      [ -d "$p" ] || continue
+      find "$p" -maxdepth 2 -type f -name 'libcrypto.so.*' 2>/dev/null
+    done
+  } | awk 'NF && !seen[$0]++'
+}
+
+has_ssl3() {
+  if command -v ldconfig >/dev/null 2>&1 && ldconfig -p 2>/dev/null | grep -q '\blibssl\.so\.3\b'; then
+    return 0
+  fi
+  list_ssl | grep -q '/libssl.so.3$'
+}
+
+probe_pair() {
+  local dir="$1"
+  local ssl="$2"
+  local crypto="$3"
+  local probe="$dir/.ssl_probe"
+
+  rm -rf "$probe" 2>/dev/null || true
+  mkdir -p "$probe" || return 1
+  ln -sf "$ssl" "$probe/libssl.so.3" || return 1
+  ln -sf "$crypto" "$probe/libcrypto.so.3" || return 1
+
+  if ! command -v ldd >/dev/null 2>&1 || [ ! -x "$dir/aether" ]; then
+    rm -rf "$probe" 2>/dev/null || true
+    return 0
+  fi
+
+  local out
+  out="$(LD_LIBRARY_PATH="$probe${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" ldd "$dir/aether" 2>/dev/null || true)"
+  rm -rf "$probe" 2>/dev/null || true
+  if [ -z "$out" ]; then
+    return 1
+  fi
+
+  if printf "%s\n" "$out" | grep -q 'libssl.so.3 => .*not found'; then
+    return 1
+  fi
+  if printf "%s\n" "$out" | grep -q 'libcrypto.so.3 => .*not found'; then
+    return 1
+  fi
+  return 0
+}
+
+pick_pair() {
+  local dir="$1"
+  local ssl_ref="$2"
+  local crypto_ref="$3"
+  local ssl=""
+  local crypto=""
+  local c=""
+
+  mapfile -t _ssl < <(list_ssl)
+  mapfile -t _crypto < <(list_crypto)
+
+  for ssl in "${_ssl[@]}"; do
+    [ -f "$ssl" ] || continue
+    local sdir
+    sdir="$(dirname "$ssl")"
+
+    crypto=""
+    if [ -f "$sdir/libcrypto.so.1.1" ]; then
+      crypto="$sdir/libcrypto.so.1.1"
+    fi
+    if [ -z "$crypto" ]; then
+      crypto="$(find "$sdir" -maxdepth 1 -type f -name 'libcrypto.so.1.*' 2>/dev/null | head -1)"
+    fi
+    if [ -z "$crypto" ]; then
+      for c in "${_crypto[@]}"; do
+        if [[ "$c" == "$sdir"/* ]]; then
+          crypto="$c"
+          break
+        fi
+      done
+    fi
+    if [ -z "$crypto" ]; then
+      for c in "${_crypto[@]}"; do
+        crypto="$c"
+        break
+      done
+    fi
+    [ -n "$crypto" ] || continue
+    if probe_pair "$dir" "$ssl" "$crypto"; then
+      printf -v "$ssl_ref" '%s' "$ssl"
+      printf -v "$crypto_ref" '%s' "$crypto"
+      return 0
+    fi
+  done
+
+  return 1
+}
+
+fix_libssl() {
+  local dir="$1"
+  [ -d "$dir" ] || return 0
+
+  if has_ssl3; then
+    return 0
+  fi
+
+  local ssl=""
+  local crypto=""
+  if ! pick_pair "$dir" ssl crypto; then
+    echo "[install] Warning: libssl.so.3 is missing, and no usable libssl/libcrypto pair was found."
+    echo "[install] Please install libssl3 (preferred) or a compatible OpenSSL runtime and retry."
+    return 0
+  fi
+
+  local lib="$dir/lib"
+  mkdir -p "$lib"
+  ln -sf "$ssl" "$lib/libssl.so.3"
+  ln -sf "$crypto" "$lib/libcrypto.so.3"
+  echo "[install] Added compatibility symlinks in $lib"
+  echo "[install]   libssl.so.3 -> $ssl"
+  echo "[install]   libcrypto.so.3 -> $crypto"
+
+  local launch="$dir/Aether.sh"
+  local real="$dir/Aether.sh.real"
+  if [ -f "$launch" ] && [ ! -f "$real" ]; then
+    mv "$launch" "$real"
+    cat > "$launch" <<'EOF'
+#!/usr/bin/env bash
+DIR="$(cd "$(dirname "$0")" && pwd)"
+export LD_LIBRARY_PATH="$DIR/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+if [ -x "$DIR/Aether.sh.real" ]; then
+  exec "$DIR/Aether.sh.real" "$@"
+fi
+exec "$DIR/aether" web "$@"
+EOF
+    chmod +x "$launch"
+    echo "[install] Patched Aether.sh with compatibility wrapper."
+  fi
+}
+
+write_launch() {
+  local work="$1"
+  local home
+  home="$(pick_home)"
+  local desk="$home/Desktop"
+  local launch="$desk/Aether.sh"
+  local app="$work/current/Aether.sh"
+
+  [ -f "$app" ] || return 1
+  mkdir -p "$desk" || return 1
+
+  cat > "$launch" <<EOF
+#!/usr/bin/env bash
+exec "$app" "\$@"
+EOF
+  chmod +x "$launch" || return 1
+  printf "%s" "$launch"
+}
+
 if [ "$mode" = "help" ] || [ "$mode" = "--help" ] || [ "$mode" = "-h" ]; then
   help
-  exit 0
+  exit "$ok"
 fi
 
-if [ "$mode" = "init" ]; then
-  echo "Aether Linux Installer"
-  echo
-  work="$(normalize_work "${path_arg:-$default}")"
-  echo "Install directory:"
-  echo "  $work"
-  prep "$work" || {
-    res="dir_error"
-    result
-    echo
-    echo "Work directory failed."
-    fail "$dir_err"
-  }
-  local_self="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
-  local_dst="$work/$(basename "$0")"
-  if [ "$local_self" != "$local_dst" ]; then
-    cp "$0" "$local_dst" 2>/dev/null || {
-      res="dir_error"
-      result
-      echo
-      echo "Failed to copy installer to $work"
-      fail "$dir_err"
+if [ "$mode" = "install" ] && [ -z "$arg" ]; then
+  echo "install mode needs a version."
+  echo "Example: $(basename "$0") install 0.3.0"
+  exit "$arg_err"
+fi
+
+if [ "$mode" != "install" ] && [ -n "$arg" ]; then
+  mode="install"
+fi
+
+if [ "$mode" != "install" ]; then
+  echo "Unsupported mode: $mode"
+  exit "$arg_err"
+fi
+
+trap clean EXIT
+
+ver="$arg"
+dl="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+work="$(cd "$dl/.." && pwd)"
+target="$work/aether_$ver"
+next="$work/.aether_$ver.next"
+
+shopt -s nullglob
+arr=("$dl"/aether-linux-x64-web-"$ver".*)
+shopt -u nullglob
+if [ "${#arr[@]}" -eq 0 ]; then
+  echo "[install] Package not found for version $ver in $dl"
+  exit "$dl_err"
+fi
+
+pkg="${arr[0]}"
+tmp="$(mktemp -d "${TMPDIR:-/tmp}/aether-web-install.XXXXXX")"
+ex="$tmp/extract"
+mkdir -p "$ex" || exit "$run_err"
+
+echo "[install] Installing version $ver"
+echo "  Package: $pkg"
+echo "  Target:  $target"
+
+case "$pkg" in
+  *.zip)
+    unzip -o "$pkg" -d "$ex" || {
+      echo "[install] Failed to extract $pkg"
+      exit "$run_err"
     }
-  fi
-  manifest_url="$base/$latest"
-  manifest "$manifest_url" latest || {
-    res="meta_error"
-    result
-    echo
-    echo "Manifest check failed."
-    fail "$meta_err"
-  }
-  grab || {
-    code="$?"
-    res="download_error"
-    [ "$code" = "$sum_err" ] && res="checksum_error"
-    result
-    echo
-    echo "Download failed."
-    fail "$code"
-  }
-  res="init_ready"
-  result
-  echo
-  echo "Download finished."
-  echo "Version:   $ver"
-  echo "Package:   $pkg_file"
-  echo "Installer: $ins_file"
-  echo "Result:    $res_file"
-  echo
-  if [ -n "$ins_file" ]; then
-    echo "[init] Running installer script..."
-    if ! (cd "$work/downloads" && bash "$(basename "$ins_file")" "$ver"); then
-      res="run_error"
-      result
-      echo
-      echo "Install step failed while running: $ins_file"
-      fail "$run_err"
-    fi
-  else
-    res="run_error"
-    result
-    echo
-    echo "Install step failed: installer script missing in manifest."
-    fail "$run_err"
-  fi
-
-  mkdir -p "$HOME/Aether_Database" 2>/dev/null || true
-
-  done_hold
-  exit 0
-fi
-
-if [ "$mode" = "auto" ]; then
-  [ -n "$arg" ] || {
-    echo "auto mode needs current version."
-    echo "Example: $(basename "$0") auto 1.2.3"
-    res="arg_error"
-    work="$(workdir)"
-    result
-    help
-    exit "$arg_err"
-  }
-  cur="$arg"
-  work="$(workdir)"
-  prep "$work" || {
-    res="dir_error"
-    result
-    echo
-    echo "Work directory failed."
-    exit "$dir_err"
-  }
-  manifest_url="$base/$latest"
-  manifest "$manifest_url" latest || {
-    res="meta_error"
-    result
-    echo
-    echo "Manifest check failed."
-    exit "$meta_err"
-  }
-  if [ "$(cmp "$cur" "$ver")" = "lt" ]; then
-    echo "Current version: $cur"
-    echo "Remote version: $ver"
-    grab || {
-      code="$?"
-      res="download_error"
-      [ "$code" = "$sum_err" ] && res="checksum_error"
-      result
-      echo
-      echo "Download failed."
-      exit "$code"
+    ;;
+  *.tar.gz|*.tgz)
+    tar -xzf "$pkg" -C "$ex" || {
+      echo "[install] Failed to extract $pkg"
+      exit "$run_err"
     }
-    res="update_ready"
-    result
-    exit "$ready"
-  fi
-  echo "Current version: $cur"
-  echo "Remote version: $ver"
-  echo "Already up to date."
-  res="up_to_date"
-  result
-  exit "$latest_ok"
+    ;;
+  *.tar.bz2)
+    tar -xjf "$pkg" -C "$ex" || {
+      echo "[install] Failed to extract $pkg"
+      exit "$run_err"
+    }
+    ;;
+  *)
+    echo "[install] Unknown package format: $pkg"
+    exit "$run_err"
+    ;;
+esac
+
+src="$(pick_src "$ex")"
+if [ -z "$src" ]; then
+  echo "[install] Missing app files (aether/Aether.sh) in package"
+  exit "$run_err"
 fi
 
-if [ "$mode" = "manual" ]; then
-  [ -n "$arg" ] || {
-    echo "manual mode needs a version."
-    echo "Example: $(basename "$0") manual 1.2.3"
-    res="arg_error"
-    work="$(workdir)"
-    result
-    help
-    exit "$arg_err"
-  }
-  req="$arg"
-  work="$(workdir)"
-  prep "$work" || {
-    res="dir_error"
-    result
-    echo
-    echo "Work directory failed."
-    exit "$dir_err"
-  }
-  manifest_url="$base/$req/linux-x64.yml"
-  if ! manifest "$manifest_url" version; then
-    code="$?"
-    if [ "$code" = "$miss" ]; then
-      ver="$req"
-      res="version_missing"
-      result
-      exit "$miss"
-    fi
-    res="meta_error"
-    result
-    echo
-    echo "Manifest check failed."
-    exit "$meta_err"
-  fi
-  echo "Requested version: $req"
-  echo "Resolved version:  $ver"
-  grab || {
-    code="$?"
-    res="download_error"
-    [ "$code" = "$sum_err" ] && res="checksum_error"
-    result
-    echo
-    echo "Download failed."
-    exit "$code"
-  }
-  res="manual_ready"
-  result
-  exit "$manual_ready"
+rm -rf "$next" "$target" 2>/dev/null || true
+mkdir -p "$next" || exit "$run_err"
+cp -R "$src"/. "$next" || exit "$run_err"
+mv "$next" "$target" || exit "$run_err"
+
+chmod +x "$target/aether" "$target/Aether.sh" 2>/dev/null || true
+printf "%s\n" "$ver" > "$target/.aether_web_version"
+printf "%s\n" "$ver" > "$work/.aether_web_version"
+
+set_current "$work" "$target" || {
+  echo "[install] Failed to update current link"
+  exit "$run_err"
+}
+
+fix_libssl "$target"
+
+launch="$(write_launch "$work" || true)"
+if [ -n "$launch" ]; then
+  echo "[install] Desktop launcher: $launch"
+else
+  echo "[install] Warning: failed to create Desktop launcher."
 fi
 
-echo "Unsupported mode: $mode"
-res="arg_error"
-work="$(workdir)"
-result
-help
-exit "$arg_err"
+echo "[install] Current: $work/current"
+echo "[install] Done."
+exit "$ok"

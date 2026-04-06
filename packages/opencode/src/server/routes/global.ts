@@ -135,6 +135,70 @@ function getAppRoot(): string {
   return path.dirname(process.execPath)
 }
 
+async function readWebCurrentVersion() {
+  const file = path.join(getAppRoot(), ".aether_web_version")
+  const read = () =>
+    fs
+      .readFile(file, "utf-8")
+      .then((x) => x.trim())
+      .catch(() => "")
+
+  const cached = await read()
+  if (cached) return cached
+  const fallback = Installation.VERSION
+  await fs.writeFile(file, `${fallback}\n`, "utf-8").catch(() => undefined)
+  const next = await read()
+  return next || fallback
+}
+
+async function webCheck(os: z.infer<typeof WebUpdateOS>) {
+  const currentVersion = await readWebCurrentVersion()
+  const ymlPath = INSTALLER_YML[os]
+  const metaUrl = `${WEB_UPDATE_BASE}/${ymlPath}`
+  try {
+    const res = await fetch(metaUrl)
+    if (!res.ok) {
+      return {
+        currentVersion,
+        remoteVersion: "",
+        updateAvailable: false,
+        downloaded: false,
+        checkError: `Failed to fetch version metadata: ${res.status}`,
+      }
+    }
+    const text = await res.text()
+    const match = text.match(/^version:\s*(.+)$/m)
+    const remoteVersion = (match?.[1]?.trim() ?? "").replace(/^['"]|['"]$/g, "")
+    if (!remoteVersion) {
+      return {
+        currentVersion,
+        remoteVersion: "",
+        updateAvailable: false,
+        downloaded: false,
+        checkError: "Could not parse remote version from metadata",
+      }
+    }
+    const updateAvailable = compareVer(currentVersion, remoteVersion) < 0
+    const downloaded = updateAvailable ? await downloadedReady(os, remoteVersion) : false
+    return {
+      currentVersion,
+      remoteVersion,
+      updateAvailable,
+      downloaded,
+      checkError: undefined,
+    }
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e)
+    return {
+      currentVersion,
+      remoteVersion: "",
+      updateAvailable: false,
+      downloaded: false,
+      checkError: `Failed to check update: ${message}`,
+    }
+  }
+}
+
 function parseProxy(value?: string) {
   if (!value) return { host: "", port: 8080 }
   try {
@@ -325,7 +389,32 @@ export const GlobalRoutes = lazy(() =>
         },
       }),
       async (c) => {
-        return c.json({ healthy: true, version: Installation.VERSION })
+        return c.json({ healthy: true, version: await readWebCurrentVersion() })
+      },
+    )
+    .get(
+      "/web-update/current",
+      describeRoute({
+        summary: "Get current web version",
+        description: "Read the current web app version from local update state.",
+        operationId: "global.web-update.current",
+        responses: {
+          200: {
+            description: "Current local web version",
+            content: {
+              "application/json": {
+                schema: resolver(
+                  z.object({
+                    currentVersion: z.string(),
+                  }),
+                ),
+              },
+            },
+          },
+        },
+      }),
+      async (c) => {
+        return c.json({ currentVersion: await readWebCurrentVersion() })
       },
     )
     .post(
@@ -534,6 +623,7 @@ export const GlobalRoutes = lazy(() =>
                     remoteVersion: z.string(),
                     updateAvailable: z.boolean(),
                     downloaded: z.boolean(),
+                    checkError: z.string().optional(),
                   }),
                 ),
               },
@@ -544,50 +634,11 @@ export const GlobalRoutes = lazy(() =>
       }),
       async (c) => {
         const os = c.req.query("os")
-        if (!os || !WebUpdateOS.safeParse(os).success) {
+        const parsed = WebUpdateOS.safeParse(os)
+        if (!parsed.success) {
           return c.json({ error: "Invalid or missing 'os' query parameter. Expected: darwin, linux, or windows" }, 400)
         }
-        const ymlPath = INSTALLER_YML[os]
-        const metaUrl = `${WEB_UPDATE_BASE}/${ymlPath}`
-        try {
-          const res = await fetch(metaUrl)
-          if (!res.ok) {
-            return c.json({ error: `Failed to fetch version metadata: ${res.status}` }, 400)
-          }
-          const text = await res.text()
-          const match = text.match(/^version:\s*(.+)$/m)
-          const remoteVersion = (match?.[1]?.trim() ?? "").replace(/^['"]|['"]$/g, "")
-          if (!remoteVersion) {
-            return c.json({ error: "Could not parse remote version from metadata" }, 400)
-          }
-          let currentVersion = ""
-          try {
-            const state = await fs.readFile(path.join(getAppRoot(), ".aether_web_version"), "utf-8")
-            const ver = state.trim()
-            if (ver) currentVersion = ver
-          } catch {}
-          if (!currentVersion) {
-            try {
-              const raw = await fs.readFile(path.resolve(process.cwd(), "packages/opencode/package.json"), "utf-8")
-              const parsed = JSON.parse(raw)
-              if (parsed && typeof parsed === "object" && typeof parsed.version === "string" && parsed.version.trim()) {
-                currentVersion = parsed.version.trim()
-              }
-            } catch {}
-          }
-          if (!currentVersion) currentVersion = Installation.VERSION
-          const updateAvailable = compareVer(currentVersion, remoteVersion) < 0
-          const downloaded = updateAvailable ? await downloadedReady(os, remoteVersion) : false
-          return c.json({
-            currentVersion,
-            remoteVersion,
-            updateAvailable,
-            downloaded,
-          })
-        } catch (e) {
-          const message = e instanceof Error ? e.message : String(e)
-          return c.json({ error: `Failed to check update: ${message}` }, 400)
-        }
+        return c.json(await webCheck(parsed.data))
       },
     )
     .post(
@@ -635,17 +686,7 @@ export const GlobalRoutes = lazy(() =>
         if (await downloadedReady(os, version)) {
           return c.json({ success: true as const, path: path.join(workDir, "downloads", versioned(upd, version)) })
         }
-        const currentVersion = (() => {
-          try {
-            const state = Bun.file(path.join(workDir, ".aether_web_version"))
-            return state
-              .text()
-              .then((x) => x.trim())
-              .catch(() => Installation.VERSION)
-          } catch {
-            return Promise.resolve(Installation.VERSION)
-          }
-        })()
+        const currentVersion = readWebCurrentVersion()
         log.info("running installer auto mode", { os, script: scriptPath, version, workDir })
         try {
           const cur = await currentVersion

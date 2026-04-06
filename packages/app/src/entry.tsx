@@ -6,7 +6,6 @@ import { type Platform, PlatformProvider } from "@/context/platform"
 import { dict as en } from "@/i18n/en"
 import { dict as zh } from "@/i18n/zh"
 import { handleNotificationClick } from "@/utils/notification-click"
-import pkg from "../../opencode/package.json"
 import { ServerConnection } from "./context/server"
 
 const DEFAULT_SERVER_URL_KEY = "opencode.settings.dat:defaultServerUrl"
@@ -155,6 +154,18 @@ const getCurrentUrl = () => {
   return location.origin
 }
 
+const readWebVersion = async () => {
+  return fetch(new URL("/global/web-update/current", getCurrentUrl()))
+    .then((res) => (res.ok ? res.json() : null))
+    .then((data: unknown) => {
+      if (!data || typeof data !== "object") return ""
+      const version = (data as Record<string, unknown>).currentVersion
+      if (typeof version !== "string") return ""
+      return version.trim()
+    })
+    .catch(() => "")
+}
+
 const getDefaultUrl = () => {
   if (import.meta.env.DEV) return getCurrentUrl()
   const lsDefault = readDefaultServerUrl()
@@ -248,7 +259,7 @@ const detectOS = (): string => {
 
 const platform: Platform = {
   platform: "web",
-  version: pkg.version,
+  version: undefined,
   openLink,
   back,
   forward,
@@ -258,12 +269,14 @@ const platform: Platform = {
     const os = detectOS()
     const res = await req(`/global/web-update/check?os=${os}`)
     const data = await res.json()
+    if (typeof data.checkError === "string" && data.checkError) throw new Error(data.checkError)
     return { updateAvailable: data.updateAvailable, version: data.remoteVersion, downloaded: !!data.downloaded }
   },
   downloadUpdate: async () => {
     const os = detectOS()
     const checkRes = await req(`/global/web-update/check?os=${os}`)
     const checkData = await checkRes.json()
+    if (typeof checkData.checkError === "string" && checkData.checkError) throw new Error(checkData.checkError)
     if (!checkData.updateAvailable) return
     const dlRes = await req("/global/web-update/download", {
       method: "POST",
@@ -277,6 +290,7 @@ const platform: Platform = {
     const os = detectOS()
     const checkRes = await req(`/global/web-update/check?os=${os}`)
     const checkData = await checkRes.json()
+    if (typeof checkData.checkError === "string" && checkData.checkError) throw new Error(checkData.checkError)
     const installRes = await req("/global/web-update/install", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -324,6 +338,7 @@ const platform: Platform = {
 
 const boot = async () => {
   if (!(root instanceof HTMLElement)) return
+  platform.version = (await readWebVersion()) || undefined
   const stop = start()
   await sync()
   const server: ServerConnection.Http = { type: "http", http: { url: getCurrentUrl() } }

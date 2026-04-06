@@ -187,19 +187,19 @@ EOF
 }
 
 if [ "$base" != "downloads" ]; then
-  fail "规范错误：update_darwin_web.command 必须放在 .../Aether/downloads 目录。当前: $self"
+  fail "规范错误：update_darwin_web.command 必须放在 .../aether/downloads 目录。当前: $self"
 fi
-if [ "$(basename "$work")" != "Aether" ]; then
-  fail "规范错误：工作目录必须是 .../Aether。当前: $work"
+if [ "$(basename "$work")" != "aether" ]; then
+  fail "规范错误：工作目录必须是 .../aether。当前: $work"
 fi
 if [ ! -f "$work/aether_darwin_installer.command" ]; then
-  fail "规范错误：缺少 .../Aether/aether_darwin_installer.command"
+  fail "规范错误：缺少 .../aether/aether_darwin_installer.command"
 fi
 
 echo "[0/4] 工作目录: $work"
 
 pick="$(pick_pkg "$self" "$want" || true)"
-[ -n "$pick" ] || fail "未在 .../Aether/downloads 找到可用 dmg（文件名需包含版本号）"
+[ -n "$pick" ] || fail "未在 .../aether/downloads 找到可用 dmg（文件名需包含版本号）"
 
 pkg="${pick%%|*}"
 ver="${pick##*|}"

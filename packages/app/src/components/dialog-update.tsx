@@ -40,13 +40,20 @@ export const DialogUpdate: Component = () => {
       const os = detectOS()
       const res = await fetchApi(`/global/web-update/check?os=${os}`)
       const data = await res.json()
+      const current = typeof data.currentVersion === "string" ? data.currentVersion.trim() : ""
+      const remote = typeof data.remoteVersion === "string" ? data.remoteVersion.trim() : ""
+      if (current) setDownloadedVersion(current)
+      setRemoteVersion(remote)
+      if (typeof data.checkError === "string" && data.checkError) {
+        setState("error")
+        setErrorMessage(data.checkError)
+        return
+      }
       if (data.error) {
         setState("error")
         setErrorMessage(data.error)
         return
       }
-      setRemoteVersion(data.remoteVersion)
-      setDownloadedVersion(data.currentVersion || "")
       if (!data.updateAvailable) {
         setState("up-to-date")
         return
@@ -121,7 +128,7 @@ export const DialogUpdate: Component = () => {
         <div class="flex flex-col gap-4">
           <div class="flex justify-between items-center">
             <span class="text-13-regular text-text-weak">{language.t("update.currentVersion")}</span>
-            <span class="text-13-medium text-text-strong">v{currentVersion()}</span>
+            <span class="text-13-medium text-text-strong">{currentVersion() ? `v${currentVersion()}` : "-"}</span>
           </div>
           <div class="flex justify-between items-center">
             <span class="text-13-regular text-text-weak">{language.t("update.remoteVersion")}</span>
@@ -184,7 +191,7 @@ export const DialogUpdate: Component = () => {
                 {language.t("update.checkFailed")}: {errorMessage()}
               </span>
             </div>
-            <Button size="small" variant="secondary" onClick={downloadUpdate}>
+            <Button size="small" variant="secondary" onClick={checkVersion}>
               {language.t("update.retry")}
             </Button>
           </Show>
