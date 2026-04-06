@@ -26,6 +26,7 @@ jobs:
         id: release
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
         run: |
           tag="v${{ inputs.version }}"
 
@@ -212,6 +213,7 @@ jobs:
       - name: Upload assets to draft release
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
         run: |
           mapfile -t files < <(find dist -maxdepth 1 -type f | sort)
 
