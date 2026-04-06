@@ -289,7 +289,7 @@ graph LR
     GlobalBus --> SSE_EP
     InMemory --> Internal
     SSE_EP -->|Server-Sent Events| SDK
-    SDK -->|事件合并 (16ms)| Store
+    SDK -->|"事件合并 (16ms)"| Store
 ```
 
 **事件类型定义方式：**
@@ -691,7 +691,7 @@ erDiagram
     }
 
     Permission {
-        text project_id PK_FK
+        text project_id PK
         json data
         integer time_created
         integer time_updated
@@ -715,7 +715,7 @@ erDiagram
     }
 
     SessionShare {
-        text session_id PK_FK
+        text session_id PK
         text id
         text secret
         text url
