@@ -128,9 +128,9 @@ class FeishuManagerImpl {
       console.log("[feishu] _doStart called")
 
       // Capture Instance context so event callbacks can access Session/Instance APIs
-      const boundHandleMessage = Instance.bind(async (data: any) => {
+      const boundHandleMessage = Instance.bind((data: any) => {
         console.log("[feishu] >>> event received!")
-        await this.handleMessage(data)
+        void this.handleMessage(data)
       })
 
       // Create Feishu API client
@@ -246,6 +246,11 @@ class FeishuManagerImpl {
       }
     } catch (err) {
       console.error("[feishu] handleMessage error:", err)
+      const messageId = data?.message?.message_id
+      if (messageId) {
+        const errMsg = err instanceof Error ? err.message : String(err)
+        await this.replyText(messageId, `处理消息时出错: ${errMsg}`).catch(() => {})
+      }
     }
   }
 

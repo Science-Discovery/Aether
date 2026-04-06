@@ -137,8 +137,8 @@ idle ──▶ starting ──▶ connected
 // _doStart 由 HTTP 请求触发，此时 Instance 上下文可用
 private async _doStart(config: FeishuConfig): Promise<void> {
   // 捕获 Instance 上下文，绑定到事件回调
-  const boundHandleMessage = Instance.bind(async (data: any) => {
-    await this.handleMessage(data)
+  const boundHandleMessage = Instance.bind((data: any) => {
+    void this.handleMessage(data)  // 不 await，立即返回
   })
 
   const eventDispatcher = new lark.EventDispatcher({})
@@ -150,6 +150,9 @@ private async _doStart(config: FeishuConfig): Promise<void> {
 ```
 
 调用链：`HTTP POST /feishu/start` → 中间件注入 Instance 上下文 → `FeishuManager.start()` → `void _doStart()` 同步启动 → `Instance.bind()` 捕获上下文 → 后续事件回调中恢复。
+
+> **为什么用 `void` 而不是 `await`？**
+> 飞书 SDK 的事件回调要求快速返回。如果回调里 `await handleMessage()`（等 AI 生成回复，可能要几秒到几十秒），飞书服务器会认为投递失败并重发同一条消息，导致用户收到重复回复。改为 `void` 后回调立即返回，`handleMessage` 在后台异步执行。
 
 #### 会话映射
 
@@ -255,8 +258,8 @@ export const [feishuStatus, setFeishuStatus] = createSignal<FeishuStatus>("idle"
 ```
 1. 飞书用户发送文本消息
 2. 飞书服务器通过 WebSocket 推送 im.message.receive_v1 事件
-3. Instance.bind 恢复 AsyncLocalStorage 上下文
-4. handleMessage 解析消息：
+3. 事件回调通过 Instance.bind 恢复上下文，用 void 立即返回（不阻塞 SDK）
+4. handleMessage 在后台异步执行：
    a. 非文本消息 → 回复"暂时只支持文本消息"
    b. 斜杠命令 → handleCommand 处理
    c. 普通文本 → 继续
@@ -266,6 +269,7 @@ export const [feishuStatus, setFeishuStatus] = createSignal<FeishuStatus>("idle"
 6. SessionPrompt.prompt() 将文本发送给 AI
 7. 提取 AI 回复的文本部分
 8. larkClient.im.message.reply() 回复到飞书
+9. 如果任何步骤报错 → catch 中通过 replyText 将错误信息发回飞书，用户会收到"处理消息时出错: xxx"
 ```
 
 ## 依赖
@@ -298,3 +302,10 @@ SDK 使用方式：
 2. **无自动重连**：WebSocket 断开后需手动重新连接
 3. **单实例**：FeishuManager 是全局单例，不支持同时连接多个飞书应用
 4. **群聊限制**：当前设计面向私聊场景，群聊中 @机器人 需要额外的消息过滤逻辑
+
+## 变更记录
+
+| 日期 | 修改内容 | 原因 |
+|------|---------|------|
+| 2026-04-06 11:25 | 事件回调从 `await` 改为 `void`（非阻塞） | 飞书服务器在回调未及时返回时会重发消息，导致用户收到重复回复 |
+| 2026-04-06 11:38 | `handleMessage` 的 catch 中增加 `replyText` 错误反馈 | 报错时飞书用户无任何提示，现在会收到错误信息 |
