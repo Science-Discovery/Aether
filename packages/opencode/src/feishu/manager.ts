@@ -6,6 +6,7 @@ import z from "zod"
 import * as lark from "@larksuiteoapi/node-sdk"
 import { BusEvent } from "@/bus/bus-event"
 import { Bus } from "@/bus"
+import { GlobalBus } from "@/bus/global"
 import { Instance } from "@/project/instance"
 import { Project } from "@/project/project"
 import { Session } from "@/session"
@@ -100,6 +101,8 @@ class FeishuManagerImpl {
   private _chatDirs: Record<string, string> = {}
   // Hidden project directories: directory -> timestamp when hidden. Persisted to disk.
   private _hiddenDirs: Record<string, number> = {}
+  // GlobalBus listener for detecting web UI activity on hidden projects.
+  private _globalBusListener: ((event: { directory?: string; payload: any }) => void) | null = null
   // ─────────────────────────────────────────────────────────────────────────
 
   get status() {
@@ -160,6 +163,28 @@ class FeishuManagerImpl {
       const dir = this.projectDir(item)
       return dir && !this.isRootDir(dir)
     })
+  }
+
+  /**
+   * Check all hidden projects against current time.activity.
+   * If a project has new activity (from any source: Feishu or web UI) since it was hidden,
+   * automatically restore it. Mirrors WeChat's auto-unhide logic.
+   * Called on every incoming message so web UI activity is also detected promptly.
+   */
+  private async autoUnhide(): Promise<void> {
+    if (Object.keys(this._hiddenDirs).length === 0) return
+    const allProjects = this.getProjects()
+    let changed = false
+    for (const [directory, hideTime] of Object.entries(this._hiddenDirs)) {
+      const item = allProjects.find((p) => this.projectDir(p) === directory)
+      const activity = item?.time?.activity ?? 0
+      if (activity > hideTime) {
+        delete this._hiddenDirs[directory]
+        changed = true
+        console.log("[feishu] auto-restored hidden project:", directory)
+      }
+    }
+    if (changed) await this.saveHiddenDirs()
   }
 
   // ── Model helpers ─────────────────────────────────────────────────────────
@@ -263,6 +288,18 @@ class FeishuManagerImpl {
 
       this._modelList = await this.buildModelList()
 
+      // Listen to all Bus events across instances.
+      // If any event comes from a hidden project directory, auto-unhide it.
+      // This catches web UI activity on hidden projects without polling.
+      this._globalBusListener = (event) => {
+        const dir = event.directory ? this.normDir(event.directory) : null
+        if (!dir || !(dir in this._hiddenDirs)) return
+        delete this._hiddenDirs[dir]
+        console.log("[feishu] auto-unhide via GlobalBus activity:", dir)
+        void this.saveHiddenDirs()
+      }
+      GlobalBus.on("event", this._globalBusListener)
+
       this._session = {
         connected: true,
         appId: config.appId,
@@ -286,6 +323,9 @@ class FeishuManagerImpl {
         console.log("[feishu] no message in event data, keys:", Object.keys(data || {}))
         return
       }
+
+      // Check for hidden projects with new activity (web UI or prior Feishu messages)
+      await this.autoUnhide()
 
       const chatId = message.chat_id
       const messageId = message.message_id
@@ -319,6 +359,13 @@ class FeishuManagerImpl {
 
       // Effective directory for this chat (may differ from connect-time Instance.directory)
       const effectiveDir = this._chatDirs[chatId] ?? Instance.directory
+
+      // Feishu message to a hidden project → unhide immediately
+      if (effectiveDir in this._hiddenDirs) {
+        delete this._hiddenDirs[effectiveDir]
+        console.log("[feishu] auto-unhide via Feishu message:", effectiveDir)
+        void this.saveHiddenDirs()
+      }
 
       // Run session lookup and AI prompt in the effective directory's Instance context
       await Instance.provide({
@@ -501,18 +548,9 @@ class FeishuManagerImpl {
       return
     }
 
-    // Auto-unhide: if a hidden project has new activity since it was hidden, restore it
-    let hiddenChanged = false
-    for (const [directory, hideTime] of Object.entries(this._hiddenDirs)) {
-      const item = allProjects.find((p) => this.projectDir(p) === directory)
-      const activity = item?.time?.activity ?? 0
-      if (activity > hideTime) {
-        delete this._hiddenDirs[directory]
-        hiddenChanged = true
-        console.log("[feishu] auto-restored hidden project:", directory)
-      }
-    }
-    if (hiddenChanged) await this.saveHiddenDirs()
+    // autoUnhide already ran at message entry; run again here to catch
+    // activity created by the current message batch before /project was typed
+    await this.autoUnhide()
 
     const visibleProjects = allProjects.filter((p) => !(this.projectDir(p) in this._hiddenDirs))
     const currentDir = this._chatDirs[chatId] ?? Instance.directory
@@ -650,6 +688,10 @@ class FeishuManagerImpl {
   }
 
   async stop(): Promise<void> {
+    if (this._globalBusListener) {
+      GlobalBus.off("event", this._globalBusListener)
+      this._globalBusListener = null
+    }
     if (this.wsClient) {
       try {
         if (typeof this.wsClient.stop === "function") {
