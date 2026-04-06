@@ -6,6 +6,7 @@ import { Component, Show, Switch, Match, createSignal, onCleanup, onMount } from
 import { useSDK } from "@/context/sdk"
 import { useServer } from "@/context/server"
 import { setFeishuStatus } from "@/context/feishu"
+import { useLocal } from "@/context/local"
 
 type FeishuStatus = "idle" | "loading" | "config" | "connected" | "error"
 
@@ -23,6 +24,7 @@ export const DialogFeishu: Component = () => {
   const dialog = useDialog()
   const sdk = useSDK()
   const server = useServer()
+  const local = useLocal()
   const [status, setStatus] = createSignal<FeishuStatus>("idle")
   const [error, setError] = createSignal<{ code: string; message: string } | null>(null)
   const [appId, setAppId] = createSignal("")
@@ -76,6 +78,11 @@ export const DialogFeishu: Component = () => {
       if (withConfig) {
         body.appId = appId()
         body.appSecret = appSecret()
+      }
+      // Pass current web UI model so Feishu uses the same model after connecting
+      const currentModel = local.model.current()
+      if (currentModel) {
+        body.model = { providerID: currentModel.provider.id, modelID: currentModel.id }
       }
 
       const response = await fetch(`${sdk.url}/feishu/start`, {

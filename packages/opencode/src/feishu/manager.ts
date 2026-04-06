@@ -10,6 +10,9 @@ import { Instance } from "@/project/instance"
 import { Session } from "@/session"
 import { SessionPrompt } from "@/session/prompt"
 import { SessionID } from "@/session/schema"
+import { Provider } from "@/provider/provider"
+import { ProviderID } from "@/provider/schema"
+import { ModelID } from "@/provider/schema"
 
 const FEISHU_DATA_DIR =
   process.platform === "darwin"
@@ -59,6 +62,20 @@ export const FeishuEvent = {
 // Session mapping: feishu chat key -> aether session ID
 type SessionMap = Record<string, string>
 
+// Model reference: providerID + modelID
+interface ModelRef {
+  providerID: string
+  modelID: string
+}
+
+// Flat model entry for listing
+interface ModelEntry {
+  index: number
+  providerID: string
+  modelID: string
+  name: string
+}
+
 class FeishuManagerImpl {
   private wsClient: any = null
   private larkClient: any = null
@@ -66,6 +83,18 @@ class FeishuManagerImpl {
   private _session: FeishuSession | null = null
   private _error: { code: string; message: string } | null = null
   private sessionMap: SessionMap = {}
+
+  // ── Model state ──────────────────────────────────────────────────────────
+  // Snapshot of the model active in the web UI at connect time.
+  // Frozen after connection — web UI changes don't affect it.
+  private _connectedModel: ModelRef | null = null
+
+  // Per-chat overrides set via /model n. Cleared by /new, not by /stop.
+  private _modelOverrides: Record<string, ModelRef> = {}
+
+  // Cached flat model list, built once at connect time (and on demand).
+  private _modelList: ModelEntry[] = []
+  // ─────────────────────────────────────────────────────────────────────────
 
   get status() {
     return this._status
@@ -89,7 +118,49 @@ class FeishuManagerImpl {
     Bus.publish(FeishuEvent.StatusChanged, { status: value, message })
   }
 
-  async start(config?: FeishuConfig): Promise<{
+  // ── Model helpers ─────────────────────────────────────────────────────────
+
+  /**
+   * Build a flat numbered list of all available models.
+   * Used by /model to display options and /model n to select.
+   */
+  private async buildModelList(): Promise<ModelEntry[]> {
+    try {
+      const providers = await Provider.list()
+      const entries: ModelEntry[] = []
+      let index = 1
+      for (const [providerID, info] of Object.entries(providers)) {
+        for (const [modelID, model] of Object.entries(info.models)) {
+          entries.push({ index, providerID, modelID, name: model.name || modelID })
+          index++
+        }
+      }
+      return entries
+    } catch (err) {
+      console.error("[feishu] buildModelList error:", err)
+      return []
+    }
+  }
+
+  /**
+   * Resolve the model to use for a given chat.
+   * Priority: per-chat override > connection snapshot > undefined (SessionPrompt default)
+   */
+  private resolveModel(chatId: string): { providerID: ProviderID; modelID: ModelID } | undefined {
+    const override = this._modelOverrides[chatId] ?? this._connectedModel
+    if (!override) return undefined
+    return {
+      providerID: ProviderID.make(override.providerID),
+      modelID: ModelID.make(override.modelID),
+    }
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+
+  async start(
+    config?: FeishuConfig,
+    model?: ModelRef,
+  ): Promise<{
     success: boolean
     message?: string
     code?: string
@@ -118,11 +189,11 @@ class FeishuManagerImpl {
     // Load session map
     this.sessionMap = await this.loadSessionMap()
 
-    void this._doStart(cfg)
+    void this._doStart(cfg, model ?? null)
     return { success: true }
   }
 
-  private async _doStart(config: FeishuConfig): Promise<void> {
+  private async _doStart(config: FeishuConfig, model: ModelRef | null): Promise<void> {
     try {
       this.statusMsg("starting", "正在连接飞书...")
       console.log("[feishu] _doStart called")
@@ -157,6 +228,13 @@ class FeishuManagerImpl {
       console.log("[feishu] calling wsClient.start()...")
       await this.wsClient.start({ eventDispatcher })
       console.log("[feishu] wsClient.start() resolved")
+
+      // Use the model passed from the web UI at connect time (frozen until stop)
+      this._connectedModel = model
+      console.log("[feishu] connected model:", this._connectedModel)
+
+      // Pre-build model list for /model command
+      this._modelList = await this.buildModelList()
 
       this._session = {
         connected: true,
@@ -203,10 +281,13 @@ class FeishuManagerImpl {
         return
       }
 
-      if (!text?.trim()) return
+      // Strip @mention tags (group chat)
+      text = text.replace(/@_\w+\s*/g, "").trim()
+
+      if (!text) return
       console.log("[feishu] text:", text)
 
-      // Handle commands
+      // Handle slash commands
       if (text.startsWith("/")) {
         await this.handleCommand(text, messageId, chatId)
         return
@@ -234,11 +315,16 @@ class FeishuManagerImpl {
         await this.saveSessionMap()
       }
 
+      // Resolve model: per-chat override > connection snapshot > undefined
+      const model = this.resolveModel(chatId)
+      console.log("[feishu] using model:", model ?? "(default)")
+
       // Send to Aether
       console.log("[feishu] sending to aether, session:", sessionId)
       const msg = await SessionPrompt.prompt({
         sessionID: SessionID.make(sessionId),
         parts: [{ type: "text", text }],
+        ...(model ? { model } : {}),
       })
       console.log("[feishu] aether responded, parts:", msg?.parts?.length)
 
@@ -273,30 +359,107 @@ class FeishuManagerImpl {
     return textParts.map((p: any) => p.text).join("\n")
   }
 
-  private async handleCommand(text: string, messageId: string, chatId: string): Promise<void> {
-    const cmd = text.trim().toLowerCase()
+  // ── Command handlers ──────────────────────────────────────────────────────
 
-    if (cmd === "/new") {
-      // Clear session mapping for this chat
-      for (const key of Object.keys(this.sessionMap)) {
-        if (key.startsWith(`${chatId}:`)) {
-          delete this.sessionMap[key]
-        }
-      }
-      // Create new session immediately so it appears in the web UI right away.
-      // The next message will reuse it via the "most recent session" logic.
-      const session = await Session.create({ title: `飞书对话 ${chatId.slice(-6)}` })
-      await this.saveSessionMap()
-      await this.replyText(messageId, `✅ 已开启新对话\n💬 ${session.title}`)
-    } else if (cmd === "/help") {
+  private async handleCommand(text: string, messageId: string, chatId: string): Promise<void> {
+    const [cmd, ...args] = text.trim().split(/\s+/)
+    const command = cmd.toLowerCase()
+
+    if (command === "/new") {
+      await this.cmdNew(messageId, chatId)
+    } else if (command === "/model") {
+      await this.cmdModel(messageId, chatId, args)
+    } else if (command === "/help") {
       await this.replyText(
         messageId,
-        "可用命令：\n/new - 开始新对话\n/help - 显示帮助\n\n直接发送消息即可与 Aether AI 对话。",
+        "可用命令：\n/new - 开始新对话\n/model - 查看/切换模型\n/help - 显示帮助\n\n直接发送消息即可与 Aether AI 对话。",
       )
     } else {
-      await this.replyText(messageId, `未知命令: ${cmd}\n发送 /help 查看可用命令。`)
+      await this.replyText(messageId, `未知命令: ${command}\n发送 /help 查看可用命令。`)
     }
   }
+
+  /** /new — clear session and per-chat model override, keep connection snapshot */
+  private async cmdNew(messageId: string, chatId: string): Promise<void> {
+    // Clear session mapping for this chat
+    for (const key of Object.keys(this.sessionMap)) {
+      if (key.startsWith(`${chatId}:`)) {
+        delete this.sessionMap[key]
+      }
+    }
+    // Clear per-chat model override (connection snapshot stays)
+    delete this._modelOverrides[chatId]
+
+    // Create new session immediately so it appears in the web UI right away
+    const session = await Session.create({ title: `飞书对话 ${chatId.slice(-6)}` })
+    await this.saveSessionMap()
+    await this.replyText(messageId, `✅ 已开启新对话\n💬 ${session.title}`)
+  }
+
+  /**
+   * /model        — list all models with current selection
+   * /model <n>    — set per-chat model override to entry n
+   */
+  private async cmdModel(messageId: string, chatId: string, args: string[]): Promise<void> {
+    // Ensure model list is loaded
+    if (this._modelList.length === 0) {
+      this._modelList = await this.buildModelList()
+    }
+
+    if (args.length === 0) {
+      // List models
+      await this.replyText(messageId, this.formatModelList(chatId))
+      return
+    }
+
+    const n = parseInt(args[0], 10)
+    if (isNaN(n) || n < 1 || n > this._modelList.length) {
+      await this.replyText(messageId, `无效编号，请输入 1 到 ${this._modelList.length} 之间的数字。`)
+      return
+    }
+
+    const entry = this._modelList[n - 1]
+    this._modelOverrides[chatId] = { providerID: entry.providerID, modelID: entry.modelID }
+    await this.replyText(messageId, `✅ 已切换模型：${entry.providerID}/${entry.modelID}\n（仅对当前对话生效，/new 后将重置）`)
+  }
+
+  private formatModelList(chatId: string): string {
+    const current = this._modelOverrides[chatId] ?? this._connectedModel
+    const currentStr = current ? `${current.providerID}/${current.modelID}` : "（全局默认）"
+
+    const lines: string[] = []
+    lines.push(`🤖 当前：${currentStr}`)
+    lines.push("")
+    lines.push("📦 可用模型：")
+
+    // Group by provider
+    const byProvider = new Map<string, ModelEntry[]>()
+    for (const entry of this._modelList) {
+      const group = byProvider.get(entry.providerID) ?? []
+      group.push(entry)
+      byProvider.set(entry.providerID, group)
+    }
+
+    for (const [providerID, entries] of byProvider) {
+      lines.push("")
+      lines.push(`【${providerID}】`)
+      for (const entry of entries) {
+        const active =
+          current && current.providerID === entry.providerID && current.modelID === entry.modelID ? " ★" : ""
+        lines.push(`  ${entry.index}. ${entry.providerID}/${entry.modelID}${active}`)
+      }
+    }
+
+    if (this._modelList.length === 0) {
+      lines.push("（暂无可用模型，请先在 Aether 中配置 provider）")
+    }
+
+    lines.push("")
+    lines.push("💡 /model n 切换模型")
+    return lines.join("\n")
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
 
   private async replyText(messageId: string, text: string): Promise<void> {
     if (!this.larkClient) return
@@ -316,8 +479,6 @@ class FeishuManagerImpl {
   async stop(): Promise<void> {
     if (this.wsClient) {
       try {
-        // The SDK's ws client doesn't have a formal stop method in all versions
-        // so we try to clean up gracefully
         if (typeof this.wsClient.stop === "function") {
           this.wsClient.stop()
         }
@@ -326,6 +487,9 @@ class FeishuManagerImpl {
       this.larkClient = null
     }
     this._session = null
+    this._connectedModel = null
+    this._modelOverrides = {}
+    this._modelList = []
     this.status = "idle"
   }
 

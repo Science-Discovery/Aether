@@ -49,53 +49,29 @@ Aether 通过飞书官方 SDK 的 **WebSocket 长连接模式**，在本地与�
 
 **WebSocket 推送** — 一种网络连接方式。普通 HTTP 像「发短信」，你问一次服务器答一次。WebSocket 像「打电话」，连接建立后一直保持通着，服务器有新消息随时推过来，不需要你反复去问。这就是为什么 Aether 不需要公网地址——是你的电脑主动打电话给飞书服务器，而不是反过来。
 
-**Aether 本地进程** — 运行在你电脑上的 Aether 程序，就是你双击打开的那个应用。整个大框就是它。
+**Bus 事件** — Aether 内部的事件总线，`FeishuManager` 通过它广播状态变更（如 `feishu.connected`、`feishu.status`），前端 SSE 路由监听这些事件并转发给浏览器。
 
-**FeishuManager (manager.ts)** — Aether 里专门负责和飞书打交道的模块。它做三件事：收飞书消息、交给 AI 处理、把回复发回飞书。同时它还记住「飞书的哪个聊天 = Aether 的哪个 AI 会话」。
+**Instance.bind()** — Aether 用 AsyncLocalStorage 存储当前项目上下文（目录、工作区等）。飞书 SDK 的回调跑在独立的异步上下文里，需要用 `Instance.bind()` 手动恢复上下文，否则 `Session.create` 等 API 无法知道当前项目。
 
-**Bus 事件** — 程序内部的广播机制。像对讲机：FeishuManager 喊一句「我已连上飞书了」，所有在听的模块都能收到。这里主要用来把连接状态（连接中/已连接/出错）传给前端。
-
-**SSE 事件流 (routes/feishu.ts)** — Server-Sent Events，一种服务器向浏览器单向推送数据的技术。Aether 后端通过 SSE 持续向前端推送状态更新。前端收到后就能实时刷新界面，显示「正在连接...」或「已连接」。
-
-**HTTP** — 前端和后端之间最基本的请求/响应通信。你在界面上点击「连接飞书」按钮 → 前端发一个 HTTP 请求到后端 → 后端执行连接操作并返回结果。图中 `routes/feishu.ts` 定义了后端能响应哪些请求（开始连接、断开、查状态等）。
-
-**Instance.bind()** — 这是一个技术细节。飞书的消息回调运行在「另一个执行空间」里，访问不到 Aether 的项目信息（比如当前工作目录）。`Instance.bind()` 的作用是在连接飞书时把项目信息「打包」起来，等消息回调触发时再「解包」恢复，这样回调里就能正常创建 AI 会话了。
-
-**Session API** — Aether 的 AI 会话接口。`Session.create` = 新建一个 AI 对话；`Prompt.prompt` = 把用户说的话发给 AI 模型，等 AI 想好了返回回答。
-
-**前端 UI (dialog-feishu.tsx)** — 你在 Aether 界面里看到的「飞书连接」弹窗。用来输入 App ID/Secret、显示连接状态、提供断开/重连按钮。
-
-**larkClient.im.message.reply()** — 飞书 SDK 提供的「回复消息」方法。AI 生成回答后，通过这个方法把文字发回飞书，用户就能在飞书聊天里看到回复了。
-
-### 一句话总结
-
-飞书用户发消息 → 飞书服务器通过 WebSocket 推给你电脑上的 Aether → FeishuManager 收到后交给 AI 处理 → AI 回复后通过飞书 SDK 发回去 → 飞书用户看到回复。与此同时，连接状态通过 Bus → SSE 实时推给前端界面显示。
-
-## 文件结构
+## 代码结构
 
 ```
-packages/opencode/src/
-  feishu/
-    manager.ts              # 核心：连接管理、消息处理、会话映射
+packages/opencode/src/feishu/
+  manager.ts              # 连接管理器（SDK 初始化、消息处理、会话映射、模型管理）
 
 packages/opencode/src/server/routes/
-  feishu.ts                 # HTTP API 路由（start/stop/status/events）
+  feishu.ts               # HTTP API（start/stop/status/events/session）
 
 packages/app/src/
-  context/feishu.ts         # 前端全局状态信号
-  components/
-    dialog-feishu.tsx       # 连接对话框 UI
-    prompt-input.tsx        # 工具栏飞书按钮（状态指示）
-
-packages/ui/src/components/
-  icon.tsx                  # feishu 图标定义
+  context/feishu.ts       # 前端全局状态（feishuStatus 信号）
+  components/dialog-feishu.tsx  # 连接对话框 UI
 ```
 
-## 核心模块详解
+## 各模块详解
 
-### 1. FeishuManager (`packages/opencode/src/feishu/manager.ts`)
+### 1. 连接管理器 (`packages/opencode/src/feishu/manager.ts`)
 
-单例模式的连接管理器，负责全部飞书交互逻辑。
+全局单例 `FeishuManager`，负责整个飞书连接的生命周期。
 
 #### 状态机
 
@@ -117,12 +93,16 @@ idle ──▶ starting ──▶ connected
 
 | 方法 | 职责 |
 |------|------|
-| `start(config?)` | 入口。加载或接收配置，触发连接 |
-| `_doStart(config)` | 实际连接逻辑：创建 SDK 客户端、注册事件、启动 WebSocket |
-| `handleMessage(data)` | 接收飞书消息 → 过滤 @mention → 映射会话 → 调用 AI → 回复 |
-| `handleCommand(text)` | 处理 `/new`、`/help` 等斜杠命令 |
-| `replyText(messageId, text)` | 通过飞书 REST API（原生 fetch）回复消息 |
-| `stop()` | 断开 WebSocket，清理客户端 |
+| `start(config?, model?)` | 入口。加载或接收配置和模型，触发连接 |
+| `_doStart(config, model)` | 实际连接逻辑：创建 SDK 客户端、注册事件、启动 WebSocket、设置连接模型 |
+| `handleMessage(data)` | 接收飞书消息 → 过滤 @mention → 映射会话 → 解析模型 → 调用 AI → 回复 |
+| `handleCommand(text)` | 分发 `/new`、`/model`、`/help` 等斜杠命令 |
+| `cmdNew(messageId, chatId)` | 清除会话映射和本聊天的模型 override，立即新建会话 |
+| `cmdModel(messageId, chatId, args)` | 无参数列出模型，有参数切换本聊天的模型 |
+| `buildModelList()` | 调用 `Provider.list()` 展平成编号列表，供 `/model` 使用 |
+| `resolveModel(chatId)` | 三级模型解析：per-chat override → 连接快照 → undefined |
+| `replyText(messageId, text)` | 通过飞书 REST API 回复消息 |
+| `stop()` | 断开 WebSocket，清理客户端和所有模型状态 |
 | `clearSession()` | 删除本地配置和会话映射文件 |
 
 #### AsyncLocalStorage 上下文绑定
@@ -135,7 +115,7 @@ idle ──▶ starting ──▶ connected
 
 ```typescript
 // _doStart 由 HTTP 请求触发，此时 Instance 上下文可用
-private async _doStart(config: FeishuConfig): Promise<void> {
+private async _doStart(config: FeishuConfig, model: ModelRef | null): Promise<void> {
   // 捕获 Instance 上下文，绑定到事件回调
   const boundHandleMessage = Instance.bind((data: any) => {
     void this.handleMessage(data)  // 不 await，立即返回
@@ -189,7 +169,7 @@ private async _doStart(config: FeishuConfig): Promise<void> {
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| POST | `/feishu/start` | 启动连接。body 可选传 `appId`/`appSecret`，否则用已保存配置 |
+| POST | `/feishu/start` | 启动连接。body 可选传 `appId`/`appSecret` 和 `model`，否则用已保存配置 |
 | POST | `/feishu/stop` | 断开连接 |
 | GET | `/feishu/status` | 返回 `{ status, appId, hasConfig, error }` |
 | GET | `/feishu/events` | SSE 事件流，推送状态变更和心跳 |
@@ -235,7 +215,7 @@ SolidJS 对话框组件，提供完整的连接管理界面。
   │
   ├─ 1. connectSSE()          先建立 SSE 连接，避免遗漏事件
   │
-  └─ 2. fetch POST /start     触发后端连接
+  └─ 2. fetch POST /start     携带当前模型（providerID + modelID）触发后端连接
        │
        └─ SSE 接收事件 ──▶ 更新 UI 状态
 ```
@@ -264,15 +244,74 @@ export const [feishuStatus, setFeishuStatus] = createSignal<FeishuStatus>("idle"
 4. handleMessage 在后台异步执行：
    a. 非文本消息 → 回复"暂时只支持文本消息"
    b. 过滤 @mention 占位符（群聊中的 `@_user_1 ` 前缀）
-   c. 斜杠命令 → handleCommand 处理
+   c. 斜杠命令 → handleCommand 分发处理
    d. 普通文本 → 继续
 5. 根据 chatId + rootId 查找已有 Aether 会话
    a. 有映射 → 复用已映射的会话
    b. 无映射 → 复用最近的会话；若无任何会话则新建
-6. SessionPrompt.prompt() 将文本发送给 AI
-7. 提取 AI 回复的文本部分
-8. larkClient.im.message.reply() 回复到飞书
-9. 如果任何步骤报错 → catch 中通过 replyText 将错误信息发回飞书，用户会收到"处理消息时出错: xxx"
+6. resolveModel(chatId) 解析本次使用的模型
+7. SessionPrompt.prompt() 将文本发送给 AI（携带模型参数）
+8. 提取 AI 回复的文本部分，拼接项目/会话标题头部
+9. larkClient.im.message.reply() 回复到飞书
+10. 如果任何步骤报错 → catch 中通过 replyText 将错误信息发回飞书
+```
+
+## 模型选择逻辑
+
+### 设计原则
+
+- 连接飞书时，前端把 web UI 底栏当前选中的模型一并发给后端，作为连接快照
+- 连接期间 web UI 切换模型不影响飞书端（快照冻结）
+- 用户可通过 `/model n` 为当前聊天设置独立的模型 override
+- `/new` 只清除本聊天的 override，连接快照保持不变
+- `/stop` 清除所有模型状态
+
+### 三级解析（`resolveModel(chatId)`）
+
+```
+per-chat override (_modelOverrides[chatId])
+       ↓ 无
+连接快照 (_connectedModel)
+       ↓ 无
+undefined → SessionPrompt 内部默认逻辑
+```
+
+### 状态字段
+
+| 字段 | 类型 | 生命周期 |
+|------|------|---------|
+| `_connectedModel` | `{ providerID, modelID } \| null` | 连接时由前端传入，`stop()` 时清除 |
+| `_modelOverrides` | `Record<chatId, ModelRef>` | `/model n` 设置，`/new` 或 `stop()` 清除 |
+| `_modelList` | `ModelEntry[]` | 连接时预构建，`stop()` 时清除 |
+
+### 连接时传递模型
+
+前端 `dialog-feishu.tsx` 在调用 `/feishu/start` 时，读取 `useLocal().model.current()`，将 `{ providerID, modelID }` 放入 POST body。后端路由解析后传给 `FeishuManager.start(config, model)`，直接赋值给 `_connectedModel`。
+
+这比从 session 消息历史反推更可靠：用户刚切换模型未发消息时，历史记录里没有新模型的 assistant 消息，反推会拿到错误的模型。
+
+### `/model` 命令格式
+
+```
+/model          → 列出所有可用模型
+/model <n>      → 将本聊天的模型 override 设为第 n 号
+```
+
+列表格式（参考微信端）：
+
+```
+🤖 当前：anthropic/claude-sonnet-4-6
+
+📦 可用模型：
+
+【anthropic】
+  1. anthropic/claude-opus-4-6
+  2. anthropic/claude-sonnet-4-6 ★
+
+【openai】
+  3. openai/gpt-4o
+
+💡 /model n 切换模型
 ```
 
 ## 依赖
@@ -298,13 +337,14 @@ SDK 使用方式：
 | 上下文处理 | HTTP API 自带中间件上下文 | Instance.bind() 手动绑定上下文 |
 | 需要公网 | 否 | 否 |
 | 首次配置 | 扫码 | 飞书开放平台创建应用 |
+| 模型传递 | 环境变量 `AETHER_MODEL` | POST body `model` 字段 |
 
 ## 已知限制
 
 1. **仅支持文本消息**：图片、文件等消息类型暂不处理
 2. **无自动重连**：WebSocket 断开后需手动重新连接
 3. **单实例**：FeishuManager 是全局单例，不支持同时连接多个飞书应用
-4. **群聊限制**：当前设计面向私聊场景，群聊中 @机器人 需要额外的消息过滤逻辑
+4. **群聊限制**：当前设计面向私聊场景，群聊中 @机器人 已过滤 @mention 占位符，但未经大规模验证
 
 ## 变更记录
 
@@ -315,3 +355,5 @@ SDK 使用方式：
 | 2026-04-06 16:03 | 首次发消息优先复用最近会话，而非总是新建 | 飞书每条消息都新建会话，web 端体验混乱 |
 | 2026-04-06 16:15 | 每条 AI 回复顶部追加项目和会话标题（`📁 项目名\n💬 会话名\n───`） | 用户无法感知当前处于哪个项目/会话 |
 | 2026-04-06 16:25 | `/new` 改为立即创建新会话（`Session.create`），不再等到下一条消息才新建 | web 端侧边栏需实时出现新会话，旧实现只清除映射延迟到下条消息才生效 |
+| 2026-04-06 18:30 | 新增模型选择逻辑：连接时前端传模型 + per-chat override + `/model` 命令 | 飞书端应沿用 web UI 当前选中的模型，连接后 web UI 切换模型不应影响飞书端 |
+| 2026-04-06 19:00 | `/model` 列表格式改为按 provider 分组，参考微信端风格 | 原格式不直观，统一两端体验 |
