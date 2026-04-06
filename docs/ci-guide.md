@@ -126,7 +126,7 @@
 #### `publish.yml`
 
 - 类型：CD / 主发布流水线
-- 状态：活跃（已于 2026-04-06 精简为 Aether 自有发布流程）
+- 状态：活跃（已于 2026-04-06 精简为 Aether 自有发布流程；同日切到仅发布纯浏览器版）
 - 触发：
   - `workflow_dispatch`
 - 主要内容：
@@ -136,18 +136,21 @@
     - 在 macOS、Windows、Linux 上分别构建 Electron 桌面版
     - 先构建本地 sidecar，再打包 Electron 安装包
     - 不做代码签名，不直接发布到 GitHub Release
+    - 相关 job 仍保留在 workflow 中，作为后续恢复 Electron 发布的备用配置
+    - 当前被顶层开关禁用，不参与实际 CD 发布链路
   - `build-web-mac` / `build-web-linux` / `build-web-windows`
     - 分别调用现有打包脚本产出纯浏览器版安装包
     - 保留各平台更新脚本与元数据文件
   - `publish`
-    - 汇总所有 artifact
+    - 汇总所有（当前启用的平台浏览器版）artifact
     - 上传到同一个 GitHub draft release
 - 作用：
-  - 统一完成 Aether 的 Electron 桌面版与纯浏览器版打包
+  - 统一完成 Aether 的 （Electron 桌面版）与纯浏览器版打包
   - 统一将产物上传到 GitHub Release，作为当前唯一正式分发入口
 - 说明：
   - 旧版 workflow 中的 Tauri、Azure 签名、Apple 签名、npm、GHCR、AUR、Homebrew、GitHub App 等上游耦合逻辑已移除
   - 当前发布模式改为“手动输入版本号 -> GitHub Actions 构建 -> 生成 draft release -> 上传附件”
+  - Electron 发布步骤没有直接删除，而是通过 workflow 顶层开关暂时停用，便于后续恢复
   - 这条 workflow 当前不依赖仓库级自定义 secrets，默认使用 `GITHUB_TOKEN`
 
 #### `deploy.yml`

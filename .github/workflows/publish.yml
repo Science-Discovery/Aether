@@ -11,6 +11,10 @@ on:
 
 concurrency: ${{ github.workflow }}-${{ github.ref }}-${{ inputs.version }}
 
+env:
+  # Temporarily keep the Electron release job in-repo, but disable it in CD.
+  RELEASE_ELECTRON: "false"
+
 permissions:
   contents: write
 
@@ -40,7 +44,9 @@ jobs:
           echo "version=${{ inputs.version }}" >> "$GITHUB_OUTPUT"
 
   build-electron:
-    if: github.repository == 'Science-Discovery/Aether'
+    # To restore Electron release, set RELEASE_ELECTRON to "true" above and
+    # re-add build-electron under publish.needs below.
+    if: github.repository == 'Science-Discovery/Aether' && env.RELEASE_ELECTRON == 'true'
     needs: release
     strategy:
       fail-fast: false
@@ -198,7 +204,8 @@ jobs:
     if: github.repository == 'Science-Discovery/Aether'
     needs:
       - release
-      - build-electron
+      # Electron release artifacts are temporarily disabled in this workflow.
+      # - build-electron
       - build-web-mac
       - build-web-linux
       - build-web-windows
