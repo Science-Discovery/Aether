@@ -64,11 +64,13 @@ Aether 支持通过飞书进行对话，体验与微信连接一致：
 
 ### 通过界面操作
 
-1. 打开 Aether
+1. 打开 Aether，在 web UI 底栏选择好想使用的模型
 2. 点击输入框旁边的菜单按钮
 3. 点击「飞书连接」
 4. 首次使用：输入 App ID 和 App Secret，点击「连接」
 5. 之后使用：直接点击「连接飞书」
+
+> **提示**：连接时会自动快照当前 web UI 选中的模型。连接后切换 web UI 模型不会影响飞书端，如需更换模型请在飞书中使用 `/model n`。
 
 ### 连接状态
 
@@ -92,8 +94,31 @@ Aether 支持通过飞书进行对话，体验与微信连接一致：
 
 | 命令 | 说明 |
 |------|------|
-| `/new` | 开始新对话（清除当前会话上下文） |
+| `/new` | 开始新对话（清除当前会话上下文和本聊天的模型设置） |
+| `/model` | 列出所有可用模型，当前选中标 ★ |
+| `/model <n>` | 将本聊天切换到第 n 号模型 |
 | `/help` | 显示帮助信息 |
+
+### 模型切换
+
+发送 `/model` 查看可用模型列表：
+
+```
+🤖 当前：anthropic/claude-sonnet-4-6
+
+📦 可用模型：
+
+【anthropic】
+  1. anthropic/claude-opus-4-6
+  2. anthropic/claude-sonnet-4-6 ★
+
+【openai】
+  3. openai/gpt-4o
+
+💡 /model n 切换模型
+```
+
+发送 `/model 3` 切换到第 3 号模型，仅对当前聊天生效，`/new` 后重置为连接快照模型。
 
 ### 会话映射规则
 
@@ -123,6 +148,7 @@ Aether 支持通过飞书进行对话，体验与微信连接一致：
 | 首次配置 | 扫码即可 | 需先在飞书平台创建应用 |
 | 后续使用 | 点击连接 | 点击连接 |
 | 实现语言 | Python 子进程 | TypeScript（内置） |
+| 模型传递 | 环境变量 | 连接时前端传入 |
 
 ## 架构说明
 
@@ -135,6 +161,8 @@ Aether 本地 (FeishuManager)
     ↓
 会话映射 → 创建/复用 Aether Session
     ↓
+resolveModel() → per-chat override / 连接快照 / 默认
+    ↓
 SessionPrompt.prompt() → AI 处理
     ↓
 飞书 SDK → 回复消息
@@ -146,7 +174,7 @@ SessionPrompt.prompt() → AI 处理
 
 ```
 packages/opencode/src/feishu/
-  manager.ts              # 连接管理器（SDK 初始化、消息处理、会话映射）
+  manager.ts              # 连接管理器（SDK 初始化、消息处理、会话映射、模型管理）
 
 packages/opencode/src/server/routes/
   feishu.ts               # HTTP API（start/stop/status/events）
@@ -160,7 +188,7 @@ packages/app/src/
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| POST | `/feishu/start` | 启动飞书连接 |
+| POST | `/feishu/start` | 启动飞书连接（body 可传 appId/appSecret/model） |
 | POST | `/feishu/stop` | 断开连接 |
 | GET | `/feishu/status` | 获取连接状态 |
 | GET | `/feishu/events` | SSE 事件流 |
@@ -179,7 +207,13 @@ packages/app/src/
 
 1. 确认已添加 `im.message.receive_v1` 事件订阅
 2. 确认已开通 `im:message` 权限
-3. 确认在飞书中直接给机器人发消息（非群聊中 @机器人，群聊需额外配置）
+3. 确认在飞书中直接给机器人发消息（群聊中 @机器人 也支持，但需开通群聊权限）
+
+### 模型不对
+
+1. 连接前先在 web UI 底栏切换到目标模型，再点击连接
+2. 已连接时使用 `/model n` 切换
+3. 重新连接（断开后重连）也会重新快照当前 web UI 模型
 
 ### 断线重连
 

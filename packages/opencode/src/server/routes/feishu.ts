@@ -38,7 +38,11 @@ export const FeishuRoutes = lazy(() =>
         const body = await c.req.json().catch(() => ({}))
         const config =
           body?.appId && body?.appSecret ? { appId: body.appId, appSecret: body.appSecret } : undefined
-        const result = await FeishuManager.start(config)
+        const model =
+          body?.model?.providerID && body?.model?.modelID
+            ? { providerID: body.model.providerID as string, modelID: body.model.modelID as string }
+            : undefined
+        const result = await FeishuManager.start(config, model)
         return c.json(result)
       },
     )
