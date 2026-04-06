@@ -99,8 +99,10 @@ idle ──▶ starting ──▶ connected
 | `handleCommand(text)` | 分发 `/new`、`/model`、`/help` 等斜杠命令 |
 | `cmdNew(messageId, chatId)` | 清除会话映射和本聊天的模型 override，立即新建会话 |
 | `cmdModel(messageId, chatId, args)` | 无参数列出模型，有参数切换本聊天的模型 |
+| `cmdProject(messageId, chatId, arg)` | 查看/切换/隐藏项目，完整对齐微信端逻辑 |
 | `buildModelList()` | 调用 `Provider.list()` 展平成编号列表，供 `/model` 使用 |
 | `resolveModel(chatId)` | 三级模型解析：per-chat override → 连接快照 → undefined |
+| `getProjects()` | 调用 `Project.recentList()` 并过滤根目录，与微信端 `GET /project/recent` 数据一致 |
 | `replyText(messageId, text)` | 通过飞书 REST API 回复消息 |
 | `stop()` | 断开 WebSocket，清理客户端和所有模型状态 |
 | `clearSession()` | 删除本地配置和会话映射文件 |
@@ -157,6 +159,7 @@ private async _doStart(config: FeishuConfig, model: ModelRef | null): Promise<vo
 |------|------|
 | `config.json` | App ID 和 App Secret |
 | `sessions.json` | 飞书聊天 → Aether 会话 ID 映射 |
+| `hidden_projects.json` | 隐藏项目目录 → 隐藏时间戳 |
 
 存储路径按平台：
 - Windows: `%APPDATA%\opencode\feishu\`
@@ -266,6 +269,50 @@ export const [feishuStatus, setFeishuStatus] = createSignal<FeishuStatus>("idle"
 - `/new` 只清除本聊天的 override，连接快照保持不变
 - `/stop` 清除所有模型状态
 
+## 项目切换逻辑
+
+### 命令
+
+| 命令 | 行为 |
+|------|------|
+| `/project` | 显示前 10 个非隐藏项目，当前项目标 `◀` |
+| `/project list` | 显示全部项目，隐藏项目标 `[已隐藏]` |
+| `/project n` | 切换到第 n 个项目，自动复用/新建该项目的会话 |
+| `/project hide n` | 隐藏第 n 个项目；该项目有新活动后自动恢复 |
+
+### 数据来源
+
+`getProjects()` 直接调用 `Project.recentList()`，这与微信端调用的 `GET /project/recent` HTTP 接口是**同一个函数**，因此两端看到的项目列表完全一致。
+
+### 每聊天目录（`_chatDirs`）
+
+`/project n` 切换后，该 chatId 的目标目录保存在 `_chatDirs[chatId]`。后续每条消息都在该目录的 Instance 上下文中执行：
+
+```typescript
+const effectiveDir = this._chatDirs[chatId] ?? Instance.directory
+await Instance.provide({
+  directory: effectiveDir,
+  fn: async () => {
+    // Session 查找/创建、SessionPrompt.prompt() 均在此上下文内运行
+  },
+})
+```
+
+这样 `Session.create()` 和 AI 回复都归属于正确的项目，而不是连接时的默认目录。
+
+### 隐藏项目
+
+- 隐藏状态持久化到 `hidden_projects.json`，重连后保留
+- 每次执行 `/project` 命令时自动检查：若隐藏项目的 `time.activity` 晚于隐藏时间，则自动恢复显示
+- `/project n` 切换到已隐藏的项目时也会自动取消隐藏
+
+### 状态字段
+
+| 字段 | 类型 | 生命周期 |
+|------|------|---------|
+| `_chatDirs` | `Record<chatId, directory>` | `/project n` 设置，`stop()` 时清除 |
+| `_hiddenDirs` | `Record<directory, timestamp>` | `/project hide n` 设置，持久化，重连保留 |
+
 ### 三级解析（`resolveModel(chatId)`）
 
 ```
@@ -357,3 +404,4 @@ SDK 使用方式：
 | 2026-04-06 16:25 | `/new` 改为立即创建新会话（`Session.create`），不再等到下一条消息才新建 | web 端侧边栏需实时出现新会话，旧实现只清除映射延迟到下条消息才生效 |
 | 2026-04-06 18:30 | 新增模型选择逻辑：连接时前端传模型 + per-chat override + `/model` 命令 | 飞书端应沿用 web UI 当前选中的模型，连接后 web UI 切换模型不应影响飞书端 |
 | 2026-04-06 19:00 | `/model` 列表格式改为按 provider 分组，参考微信端风格 | 原格式不直观，统一两端体验 |
+| 2026-04-06 20:00 | 新增 `/project` 命令：查看/切换/隐藏项目，数据源与微信端一致 | 多项目场景下需在飞书端切换工作目录；切换后消息自动在对应项目上下文中执行 |

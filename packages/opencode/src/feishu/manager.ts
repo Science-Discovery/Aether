@@ -7,6 +7,7 @@ import * as lark from "@larksuiteoapi/node-sdk"
 import { BusEvent } from "@/bus/bus-event"
 import { Bus } from "@/bus"
 import { Instance } from "@/project/instance"
+import { Project } from "@/project/project"
 import { Session } from "@/session"
 import { SessionPrompt } from "@/session/prompt"
 import { SessionID } from "@/session/schema"
@@ -22,6 +23,7 @@ const FEISHU_DATA_DIR =
       : join(homedir(), ".local", "share", "opencode", "feishu")
 const CONFIG_FILE = join(FEISHU_DATA_DIR, "config.json")
 const SESSION_MAP_FILE = join(FEISHU_DATA_DIR, "sessions.json")
+const HIDDEN_DIRS_FILE = join(FEISHU_DATA_DIR, "hidden_projects.json")
 
 export type FeishuStatus = "idle" | "starting" | "connected" | "error"
 
@@ -85,15 +87,19 @@ class FeishuManagerImpl {
   private sessionMap: SessionMap = {}
 
   // ── Model state ──────────────────────────────────────────────────────────
-  // Snapshot of the model active in the web UI at connect time.
-  // Frozen after connection — web UI changes don't affect it.
+  // Snapshot of the model active in the web UI at connect time (frozen).
   private _connectedModel: ModelRef | null = null
-
-  // Per-chat overrides set via /model n. Cleared by /new, not by /stop.
+  // Per-chat overrides set via /model n. Cleared by /new.
   private _modelOverrides: Record<string, ModelRef> = {}
-
   // Cached flat model list, built once at connect time (and on demand).
   private _modelList: ModelEntry[] = []
+  // ─────────────────────────────────────────────────────────────────────────
+
+  // ── Project state ─────────────────────────────────────────────────────────
+  // Per-chat current directory (set by /project n). Empty = use connect-time Instance.directory.
+  private _chatDirs: Record<string, string> = {}
+  // Hidden project directories: directory -> timestamp when hidden. Persisted to disk.
+  private _hiddenDirs: Record<string, number> = {}
   // ─────────────────────────────────────────────────────────────────────────
 
   get status() {
@@ -118,12 +124,46 @@ class FeishuManagerImpl {
     Bus.publish(FeishuEvent.StatusChanged, { status: value, message })
   }
 
+  // ── Project helpers (mirrors WeChat _get_projects / _project_dir / _project_name) ──
+
+  private normDir(dir: string): string {
+    const text = (dir || "").replace(/\\/g, "/")
+    if (!text) return ""
+    if (/^\/+$/.test(text)) return "/"
+    if (/^[A-Za-z]:\/?$/.test(text)) return `${text[0].toLowerCase()}:/`
+    return text.replace(/\/+$/, "")
+  }
+
+  private isRootDir(dir: string): boolean {
+    const text = this.normDir(dir)
+    if (text === "/") return true
+    return /^[a-z]:\//.test(text) && text.length <= 3
+  }
+
+  private projectDir(item: Project.RecentInfo): string {
+    return this.normDir(item.directory || item.worktree || "")
+  }
+
+  private projectName(item: Project.RecentInfo): string {
+    const dir = this.projectDir(item)
+    return item.name || dir.replace(/\\/g, "/").replace(/\/+$/, "").split("/").at(-1) || dir
+  }
+
+  private clip(text: string, limit: number): string {
+    if (text.length <= limit) return text
+    return text.slice(0, limit - 3).trimEnd() + "..."
+  }
+
+  /** Same data source as WeChat: GET /project/recent → Project.recentList() */
+  private getProjects(): Project.RecentInfo[] {
+    return Project.recentList().filter((item) => {
+      const dir = this.projectDir(item)
+      return dir && !this.isRootDir(dir)
+    })
+  }
+
   // ── Model helpers ─────────────────────────────────────────────────────────
 
-  /**
-   * Build a flat numbered list of all available models.
-   * Used by /model to display options and /model n to select.
-   */
   private async buildModelList(): Promise<ModelEntry[]> {
     try {
       const providers = await Provider.list()
@@ -131,7 +171,7 @@ class FeishuManagerImpl {
       let index = 1
       for (const [providerID, info] of Object.entries(providers)) {
         for (const [modelID, model] of Object.entries(info.models)) {
-          entries.push({ index, providerID, modelID, name: model.name || modelID })
+          entries.push({ index, providerID, modelID, name: (model as any).name || modelID })
           index++
         }
       }
@@ -142,10 +182,7 @@ class FeishuManagerImpl {
     }
   }
 
-  /**
-   * Resolve the model to use for a given chat.
-   * Priority: per-chat override > connection snapshot > undefined (SessionPrompt default)
-   */
+  /** Three-level model resolution: per-chat override → connection snapshot → undefined */
   private resolveModel(chatId: string): { providerID: ProviderID; modelID: ModelID } | undefined {
     const override = this._modelOverrides[chatId] ?? this._connectedModel
     if (!override) return undefined
@@ -171,7 +208,6 @@ class FeishuManagerImpl {
       return { success: false, message: "Feishu bridge is already running" }
     }
 
-    // If no config provided, try loading saved config
     const cfg = config || (await this.loadConfig())
     if (!cfg?.appId || !cfg?.appSecret) {
       this._error = { code: "config_missing", message: "请提供飞书应用的 App ID 和 App Secret" }
@@ -183,11 +219,9 @@ class FeishuManagerImpl {
     this.status = "starting"
     this._error = null
 
-    // Save config for future use
     await this.saveConfig(cfg)
-
-    // Load session map
     this.sessionMap = await this.loadSessionMap()
+    this._hiddenDirs = await this.loadHiddenDirs()
 
     void this._doStart(cfg, model ?? null)
     return { success: true }
@@ -198,42 +232,35 @@ class FeishuManagerImpl {
       this.statusMsg("starting", "正在连接飞书...")
       console.log("[feishu] _doStart called")
 
-      // Capture Instance context so event callbacks can access Session/Instance APIs
       const boundHandleMessage = Instance.bind((data: any) => {
         console.log("[feishu] >>> event received!")
         void this.handleMessage(data)
       })
 
-      // Create Feishu API client
       this.larkClient = new lark.Client({
         appId: config.appId,
         appSecret: config.appSecret,
         disableTokenCache: false,
       })
 
-      // Create event dispatcher
       const eventDispatcher = new lark.EventDispatcher({})
       eventDispatcher.register({
         "im.message.receive_v1": boundHandleMessage,
       })
 
-      // Create WebSocket client with debug logging
       this.wsClient = new lark.WSClient({
         appId: config.appId,
         appSecret: config.appSecret,
         loggerLevel: lark.LoggerLevel.debug,
       })
 
-      // eventDispatcher is passed to start(), not constructor
       console.log("[feishu] calling wsClient.start()...")
       await this.wsClient.start({ eventDispatcher })
       console.log("[feishu] wsClient.start() resolved")
 
-      // Use the model passed from the web UI at connect time (frozen until stop)
       this._connectedModel = model
       console.log("[feishu] connected model:", this._connectedModel)
 
-      // Pre-build model list for /model command
       this._modelList = await this.buildModelList()
 
       this._session = {
@@ -265,13 +292,11 @@ class FeishuManagerImpl {
       const rootId = message.root_id || message.parent_id || messageId
       console.log("[feishu] message:", { chatId, messageId, type: message.message_type })
 
-      // Only handle text messages for now
       if (message.message_type !== "text") {
         await this.replyText(messageId, "暂时只支持文本消息")
         return
       }
 
-      // Parse message content
       let text: string
       try {
         const content = JSON.parse(message.content)
@@ -283,7 +308,6 @@ class FeishuManagerImpl {
 
       // Strip @mention tags (group chat)
       text = text.replace(/@_\w+\s*/g, "").trim()
-
       if (!text) return
       console.log("[feishu] text:", text)
 
@@ -293,55 +317,61 @@ class FeishuManagerImpl {
         return
       }
 
-      // Map to Aether session
-      const sessionKey = `${chatId}:${rootId}`
-      let sessionId = this.sessionMap[sessionKey]
+      // Effective directory for this chat (may differ from connect-time Instance.directory)
+      const effectiveDir = this._chatDirs[chatId] ?? Instance.directory
 
-      if (!sessionId) {
-        // Reuse the most recent session if available, otherwise create one
-        const recent = [...Session.list({ roots: true, limit: 1 })]
-        if (recent.length > 0) {
-          sessionId = recent[0].id
-          console.log("[feishu] reusing existing session:", sessionId)
-        } else {
-          console.log("[feishu] creating new session...")
-          const session = await Session.create({
-            title: `飞书对话 ${chatId.slice(-6)}`,
+      // Run session lookup and AI prompt in the effective directory's Instance context
+      await Instance.provide({
+        directory: effectiveDir,
+        fn: async () => {
+          const sessionKey = `${chatId}:${rootId}`
+          let sessionId = this.sessionMap[sessionKey]
+
+          if (!sessionId) {
+            // Reuse most recent session in this directory, or create one
+            const recent = [...Session.list({ directory: effectiveDir, roots: true, limit: 1 })]
+            if (recent.length > 0) {
+              sessionId = recent[0].id
+              console.log("[feishu] reusing existing session:", sessionId)
+            } else {
+              console.log("[feishu] creating new session...")
+              const session = await Session.create({
+                title: `飞书对话 ${chatId.slice(-6)}`,
+              })
+              sessionId = session.id
+              console.log("[feishu] session created:", sessionId)
+            }
+            this.sessionMap[sessionKey] = sessionId
+            await this.saveSessionMap()
+          }
+
+          const model = this.resolveModel(chatId)
+          console.log("[feishu] using model:", model ?? "(default)")
+
+          console.log("[feishu] sending to aether, session:", sessionId)
+          const msg = await SessionPrompt.prompt({
+            sessionID: SessionID.make(sessionId),
+            parts: [{ type: "text", text }],
+            ...(model ? { model } : {}),
           })
-          sessionId = session.id
-          console.log("[feishu] session created:", sessionId)
-        }
-        this.sessionMap[sessionKey] = sessionId
-        await this.saveSessionMap()
-      }
+          console.log("[feishu] aether responded, parts:", msg?.parts?.length)
 
-      // Resolve model: per-chat override > connection snapshot > undefined
-      const model = this.resolveModel(chatId)
-      console.log("[feishu] using model:", model ?? "(default)")
+          const responseText = this.extractResponseText(msg)
+          if (responseText) {
+            const projectName = effectiveDir.split("/").at(-1) ?? effectiveDir
+            const sessionInfo = [...Session.list({ directory: effectiveDir, roots: true, limit: 100 })].find(
+              (s) => s.id === sessionId,
+            )
+            const sessionTitle = sessionInfo?.title ?? sessionId.slice(0, 8)
+            const header = `📁 ${projectName}\n💬 ${sessionTitle}\n${"─".repeat(20)}\n`
 
-      // Send to Aether
-      console.log("[feishu] sending to aether, session:", sessionId)
-      const msg = await SessionPrompt.prompt({
-        sessionID: SessionID.make(sessionId),
-        parts: [{ type: "text", text }],
-        ...(model ? { model } : {}),
+            console.log("[feishu] replying:", responseText.slice(0, 100))
+            await this.replyText(messageId, header + responseText)
+          } else {
+            console.log("[feishu] no text in response")
+          }
+        },
       })
-      console.log("[feishu] aether responded, parts:", msg?.parts?.length)
-
-      // Extract text response
-      const responseText = this.extractResponseText(msg)
-      if (responseText) {
-        // Build context header so user knows which project/session is active
-        const projectName = Instance.directory.split("/").at(-1) ?? Instance.directory
-        const sessionInfo = [...Session.list({ roots: true, limit: 100 })].find((s) => s.id === sessionId)
-        const sessionTitle = sessionInfo?.title ?? sessionId.slice(0, 8)
-        const header = `📁 ${projectName}\n💬 ${sessionTitle}\n${"─".repeat(20)}\n`
-
-        console.log("[feishu] replying:", responseText.slice(0, 100))
-        await this.replyText(messageId, header + responseText)
-      } else {
-        console.log("[feishu] no text in response")
-      }
     } catch (err) {
       console.error("[feishu] handleMessage error:", err)
       const messageId = data?.message?.message_id
@@ -362,17 +392,20 @@ class FeishuManagerImpl {
   // ── Command handlers ──────────────────────────────────────────────────────
 
   private async handleCommand(text: string, messageId: string, chatId: string): Promise<void> {
-    const [cmd, ...args] = text.trim().split(/\s+/)
-    const command = cmd.toLowerCase()
+    const parts = text.trim().split(/\s+/)
+    const command = parts[0].toLowerCase()
+    const rest = parts.slice(1).join(" ")
 
     if (command === "/new") {
       await this.cmdNew(messageId, chatId)
     } else if (command === "/model") {
-      await this.cmdModel(messageId, chatId, args)
+      await this.cmdModel(messageId, chatId, parts.slice(1))
+    } else if (command === "/project") {
+      await this.cmdProject(messageId, chatId, rest)
     } else if (command === "/help") {
       await this.replyText(
         messageId,
-        "可用命令：\n/new - 开始新对话\n/model - 查看/切换模型\n/help - 显示帮助\n\n直接发送消息即可与 Aether AI 对话。",
+        "可用命令：\n/new - 开始新对话\n/model - 查看/切换模型\n/project - 查看/切换项目\n/help - 显示帮助\n\n直接发送消息即可与 Aether AI 对话。",
       )
     } else {
       await this.replyText(messageId, `未知命令: ${command}\n发送 /help 查看可用命令。`)
@@ -381,17 +414,16 @@ class FeishuManagerImpl {
 
   /** /new — clear session and per-chat model override, keep connection snapshot */
   private async cmdNew(messageId: string, chatId: string): Promise<void> {
-    // Clear session mapping for this chat
     for (const key of Object.keys(this.sessionMap)) {
-      if (key.startsWith(`${chatId}:`)) {
-        delete this.sessionMap[key]
-      }
+      if (key.startsWith(`${chatId}:`)) delete this.sessionMap[key]
     }
-    // Clear per-chat model override (connection snapshot stays)
     delete this._modelOverrides[chatId]
 
-    // Create new session immediately so it appears in the web UI right away
-    const session = await Session.create({ title: `飞书对话 ${chatId.slice(-6)}` })
+    const effectiveDir = this._chatDirs[chatId] ?? Instance.directory
+    const session = await Instance.provide({
+      directory: effectiveDir,
+      fn: () => Session.create({ title: `飞书对话 ${chatId.slice(-6)}` }),
+    })
     await this.saveSessionMap()
     await this.replyText(messageId, `✅ 已开启新对话\n💬 ${session.title}`)
   }
@@ -401,13 +433,11 @@ class FeishuManagerImpl {
    * /model <n>    — set per-chat model override to entry n
    */
   private async cmdModel(messageId: string, chatId: string, args: string[]): Promise<void> {
-    // Ensure model list is loaded
     if (this._modelList.length === 0) {
       this._modelList = await this.buildModelList()
     }
 
     if (args.length === 0) {
-      // List models
       await this.replyText(messageId, this.formatModelList(chatId))
       return
     }
@@ -432,7 +462,6 @@ class FeishuManagerImpl {
     lines.push("")
     lines.push("📦 可用模型：")
 
-    // Group by provider
     const byProvider = new Map<string, ModelEntry[]>()
     for (const entry of this._modelList) {
       const group = byProvider.get(entry.providerID) ?? []
@@ -457,6 +486,150 @@ class FeishuManagerImpl {
     lines.push("")
     lines.push("💡 /model n 切换模型")
     return lines.join("\n")
+  }
+
+  /**
+   * /project            — list top-10 non-hidden projects (current marked ◀)
+   * /project list       — list ALL projects including hidden ones
+   * /project <n>        — switch to project n
+   * /project hide <n>   — hide project n
+   */
+  private async cmdProject(messageId: string, chatId: string, arg: string): Promise<void> {
+    const allProjects = this.getProjects()
+    if (allProjects.length === 0) {
+      await this.replyText(messageId, "❌ 无法获取项目列表，请检查 Aether 是否正常运行。")
+      return
+    }
+
+    // Auto-unhide: if a hidden project has new activity since it was hidden, restore it
+    let hiddenChanged = false
+    for (const [directory, hideTime] of Object.entries(this._hiddenDirs)) {
+      const item = allProjects.find((p) => this.projectDir(p) === directory)
+      const activity = item?.time?.activity ?? 0
+      if (activity > hideTime) {
+        delete this._hiddenDirs[directory]
+        hiddenChanged = true
+        console.log("[feishu] auto-restored hidden project:", directory)
+      }
+    }
+    if (hiddenChanged) await this.saveHiddenDirs()
+
+    const visibleProjects = allProjects.filter((p) => !(this.projectDir(p) in this._hiddenDirs))
+    const currentDir = this._chatDirs[chatId] ?? Instance.directory
+
+    // /project hide <n>
+    if (arg.startsWith("hide ")) {
+      const delArg = arg.slice(5).trim()
+      const idx = parseInt(delArg, 10) - 1
+      if (isNaN(idx) || idx < 0 || idx >= allProjects.length) {
+        await this.replyText(messageId, `❌ 用法：/project hide n（n 为 1~${allProjects.length}）`)
+        return
+      }
+      const target = allProjects[idx]
+      const directory = this.projectDir(target)
+      this._hiddenDirs[directory] = Date.now()
+      await this.saveHiddenDirs()
+      const name = this.projectName(target)
+      await this.replyText(messageId, `✅ 已隐藏：${name}\n（在桌面端或飞书端重新使用后自动恢复）`)
+      return
+    }
+
+    // /project list — all projects including hidden
+    if (arg === "list") {
+      const currentItem = allProjects.find((p) => this.projectDir(p) === currentDir) ?? allProjects[0]
+      const lines = [
+        `📂 当前项目：${this.clip(this.projectName(currentItem), 24)}`,
+        "",
+        "📂 项目列表：",
+        "",
+      ]
+      for (let i = 0; i < allProjects.length; i++) {
+        const item = allProjects[i]
+        const directory = this.projectDir(item)
+        const tag = directory === currentDir ? " ◀" : ""
+        const mark = directory in this._hiddenDirs ? " [已隐藏]" : ""
+        lines.push(`${i + 1}. ${this.projectName(item)}${tag}${mark}`)
+        lines.push(`   ${directory}`)
+      }
+      await this.replyText(messageId, lines.join("\n"))
+      return
+    }
+
+    // /project <n> — switch to project n (1-indexed into allProjects)
+    if (arg) {
+      const idx = parseInt(arg, 10) - 1
+      if (isNaN(idx) || idx < 0 || idx >= allProjects.length) {
+        await this.replyText(messageId, `❌ 请输入 1~${allProjects.length} 之间的编号。`)
+        return
+      }
+      const chosen = allProjects[idx]
+      const newDir = this.projectDir(chosen)
+
+      // Clear session mapping for this chat so next message uses the new project
+      for (const key of Object.keys(this.sessionMap)) {
+        if (key.startsWith(`${chatId}:`)) delete this.sessionMap[key]
+      }
+      delete this._modelOverrides[chatId]
+      this._chatDirs[chatId] = newDir
+
+      // Auto-unhide if it was hidden
+      if (newDir in this._hiddenDirs) {
+        delete this._hiddenDirs[newDir]
+        await this.saveHiddenDirs()
+      }
+
+      // Find or create a session in the new project
+      const { sessionTitle, created } = await Instance.provide({
+        directory: newDir,
+        fn: async () => {
+          const recent = [...Session.list({ directory: newDir, roots: true, limit: 1 })]
+          if (recent.length > 0) {
+            return { sessionTitle: recent[0].title ?? recent[0].id.slice(0, 8), created: false }
+          } else {
+            const session = await Session.create({ title: `飞书对话 ${chatId.slice(-6)}` })
+            return { sessionTitle: session.title, created: true }
+          }
+        },
+      })
+      await this.saveSessionMap()
+
+      const name = this.projectName(chosen)
+      const note = created ? "已创建新会话" : `已进入该项目最新会话：${sessionTitle}`
+      console.log("[feishu] /project switched:", chatId, "->", newDir)
+      await this.replyText(messageId, `✅ 已切换到：${name}\n   ${newDir}\n（${note}）`)
+      return
+    }
+
+    // /project — list top-10 non-hidden projects
+    if (visibleProjects.length === 0) {
+      const hint = Object.keys(this._hiddenDirs).length > 0 ? `（有 ${Object.keys(this._hiddenDirs).length} 个项目已隐藏）` : ""
+      await this.replyText(messageId, `❌ 未找到任何项目。${hint}`)
+      return
+    }
+
+    const currentItem2 = allProjects.find((p) => this.projectDir(p) === currentDir) ?? allProjects[0]
+    const lines = [
+      `📂 当前项目：${this.clip(this.projectName(currentItem2), 24)}`,
+      "",
+      "📂 项目列表：",
+      "",
+    ]
+    let count = 0
+    for (let i = 0; i < allProjects.length && count < 10; i++) {
+      const item = allProjects[i]
+      const directory = this.projectDir(item)
+      if (directory in this._hiddenDirs) continue
+      const tag = directory === currentDir ? " ◀" : ""
+      lines.push(`${i + 1}. ${this.projectName(item)}${tag}`)
+      lines.push(`   ${directory}`)
+      count++
+    }
+    lines.push("")
+    lines.push("💡 /project n 切换 | /project list 查看全部 | /project hide n 隐藏")
+    if (Object.keys(this._hiddenDirs).length > 0) {
+      lines.push(`ℹ️ 已隐藏 ${Object.keys(this._hiddenDirs).length} 个项目（重新使用后自动恢复）`)
+    }
+    await this.replyText(messageId, lines.join("\n"))
   }
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -490,6 +663,8 @@ class FeishuManagerImpl {
     this._connectedModel = null
     this._modelOverrides = {}
     this._modelList = []
+    this._chatDirs = {}
+    // _hiddenDirs intentionally kept (persisted, survives reconnect)
     this.status = "idle"
   }
 
@@ -497,8 +672,10 @@ class FeishuManagerImpl {
     try {
       await rm(CONFIG_FILE, { force: true })
       await rm(SESSION_MAP_FILE, { force: true })
+      await rm(HIDDEN_DIRS_FILE, { force: true })
       this._session = null
       this.sessionMap = {}
+      this._hiddenDirs = {}
     } catch {}
   }
 
@@ -532,8 +709,22 @@ class FeishuManagerImpl {
     await writeFile(SESSION_MAP_FILE, JSON.stringify(this.sessionMap, null, 2))
   }
 
+  private async loadHiddenDirs(): Promise<Record<string, number>> {
+    try {
+      if (existsSync(HIDDEN_DIRS_FILE)) {
+        const data = await readFile(HIDDEN_DIRS_FILE, "utf-8")
+        return JSON.parse(data)
+      }
+    } catch {}
+    return {}
+  }
+
+  private async saveHiddenDirs(): Promise<void> {
+    await mkdir(FEISHU_DATA_DIR, { recursive: true })
+    await writeFile(HIDDEN_DIRS_FILE, JSON.stringify(this._hiddenDirs, null, 2))
+  }
+
   async loadSession(): Promise<FeishuSession | null> {
-    // Check if there's a saved config (means user has configured before)
     const config = await this.loadConfig()
     if (config && this._session) return this._session
     return null
