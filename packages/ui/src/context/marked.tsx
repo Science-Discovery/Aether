@@ -423,14 +423,6 @@ function renderMathExpressions(html: string): string {
     .join("")
 }
 
-function hasMarkdownHints(md: string): boolean {
-  return /(^|\n)\s{0,3}(#{1,6}\s+|\d+[.)]\s+|[-*+]\s+|>\s+)/.test(md)
-}
-
-function hasStructuredMarkup(html: string): boolean {
-  return /<(h[1-6]|ul|ol|li|blockquote|table|pre|code)\b/i.test(html)
-}
-
 async function highlightCodeBlocks(html: string): Promise<string> {
   const codeBlockRegex = /<pre><code(?:\s+class="language-([^"]*)")?>([\s\S]*?)<\/code><\/pre>/g
   const matches = [...html.matchAll(codeBlockRegex)]
@@ -515,9 +507,7 @@ export const { use: useMarked, provider: MarkedProvider } = createSimpleContext(
       const nativeParser = props.nativeParser
       return {
         async parse(markdown: string): Promise<string> {
-          const raw = await nativeParser(markdown)
-          const html =
-            hasMarkdownHints(markdown) && !hasStructuredMarkup(raw) ? await jsParser.parse(markdown) : raw
+          const html = await nativeParser(markdown)
           const withMath = renderMathExpressions(html)
           return highlightCodeBlocks(withMath)
         },

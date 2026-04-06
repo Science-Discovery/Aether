@@ -1,16 +1,12 @@
 [data-component="markdown"] {
-  /* Layout */
+  /* Reset & Base Typography */
   min-width: 0;
-  max-width: min(860px, 100%);
-  width: 100%;
-  margin-inline: auto;
-  padding-inline: clamp(8px, 2vw, 20px);
+  max-width: 100%;
   overflow-wrap: break-word;
-  color: color-mix(in srgb, var(--text-strong) 94%, var(--text-base));
+  color: var(--text-strong);
   font-family: var(--font-family-sans);
-  font-size: 16px;
-  line-height: 1.78;
-  letter-spacing: 0.01em;
+  font-size: var(--font-size-base); /* 14px */
+  line-height: var(--line-height-x-large);
 
   /* Spacing for flow */
   > *:first-child {
@@ -20,82 +16,38 @@
     margin-bottom: 0;
   }
 
-  /* Headings */
+  /* Headings: Same size, distinguished by color and spacing */
   h1,
   h2,
   h3,
   h4,
   h5,
   h6 {
+    font-size: var(--font-size-base);
     color: var(--text-strong);
-    font-weight: 700;
-    line-height: 1.3;
-    margin-top: 1.75rem;
-    margin-bottom: 0.8rem;
-  }
-
-  h1 {
-    font-size: clamp(2rem, 3.5vw, 3rem);
-    margin-top: 0.25rem;
-    margin-bottom: 1.25rem;
-    line-height: 1.18;
-    letter-spacing: -0.01em;
-  }
-
-  h2 {
-    font-size: clamp(1.55rem, 2.6vw, 2.2rem);
-    margin-top: 2.4rem;
-    margin-bottom: 1rem;
-    line-height: 1.24;
-    padding-bottom: 0.35rem;
-    border-bottom: 1px solid color-mix(in srgb, var(--border-weaker-base) 78%, transparent);
-  }
-
-  h3 {
-    font-size: clamp(1.3rem, 2.1vw, 1.75rem);
+    font-weight: var(--font-weight-medium);
     margin-top: 2rem;
-  }
-
-  h4 {
-    font-size: clamp(1.12rem, 1.6vw, 1.35rem);
-    margin-top: 1.5rem;
-  }
-
-  h5 {
-    font-size: 1.05rem;
-  }
-
-  h6 {
-    font-size: 0.95rem;
-    color: var(--text-weak);
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
+    margin-bottom: 0.75rem;
+    line-height: var(--line-height-large);
   }
 
   /* Emphasis & Strong: Neutral strong color */
   strong,
   b {
     color: var(--text-strong);
-    font-weight: 800;
-    letter-spacing: 0;
+    font-weight: var(--font-weight-medium);
   }
 
   /* Paragraphs */
-  p,
-  li {
-    color: color-mix(in srgb, var(--text-strong) 92%, var(--text-base));
-  }
-
   p {
-    margin-top: 0;
-    margin-bottom: 1.1rem;
+    margin-bottom: 1rem;
   }
 
   /* Links */
   a {
     color: var(--text-interactive-base);
     text-decoration: none;
-    font-weight: 500;
+    font-weight: inherit;
   }
 
   a:hover {
@@ -106,10 +58,10 @@
   /* Lists */
   ul,
   ol {
-    margin-top: 0.7rem;
-    margin-bottom: 1.2rem;
+    margin-top: 0.5rem;
+    margin-bottom: 1rem;
     margin-left: 0;
-    padding-left: 1.85rem;
+    padding-left: 1.5rem;
     list-style-position: outside;
   }
 
@@ -119,11 +71,11 @@
 
   ol {
     list-style-type: decimal;
-    padding-left: 2.1rem;
+    padding-left: 2.25rem;
   }
 
   li {
-    margin-bottom: 0.52rem;
+    margin-bottom: 0.5rem;
   }
 
   li > p:first-child {
@@ -133,12 +85,11 @@
 
   li > p + p {
     display: block;
-    margin-top: 0.6rem;
+    margin-top: 0.5rem;
   }
 
   li::marker {
-    color: color-mix(in srgb, var(--text-interactive-base) 72%, var(--text-weak));
-    font-weight: 600;
+    color: var(--text-weak);
   }
 
   /* Nested lists spacing */
@@ -155,32 +106,25 @@
 
   /* Blockquotes */
   blockquote {
-    border-left: 3px solid color-mix(in srgb, var(--border-weak-base) 85%, var(--text-weak));
+    border-left: 2px solid var(--border-weak-base);
     margin: 1.5rem 0;
-    padding: 0.1rem 0 0.1rem 0.8rem;
-    color: color-mix(in srgb, var(--text-base) 88%, var(--text-weak));
+    padding-left: 0.5rem;
+    color: var(--text-weak);
     font-style: normal;
-    background: color-mix(in srgb, var(--surface-base) 88%, transparent);
-    border-radius: 0 8px 8px 0;
   }
 
-  /* Section divider */
+  /* Horizontal Rule - Invisible spacing only */
   hr {
     border: none;
-    height: 4px;
-    margin: 2.2rem 0;
-    border-radius: 999px;
-    background: color-mix(in srgb, var(--border-weak-base) 75%, var(--surface-raised-strong));
+    height: 0;
+    margin: 2.5rem 0;
   }
 
   .shiki {
-    font-size: 14px;
-    line-height: 1.65;
-    padding: 14px 16px;
-    border-radius: 10px;
-    border: 1px solid color-mix(in srgb, var(--border-weak-base) 82%, transparent);
-    background: color-mix(in srgb, var(--surface-raised-base) 80%, var(--surface-base));
-    box-shadow: inset 0 1px 0 color-mix(in srgb, var(--border-weaker-base) 75%, transparent);
+    font-size: 13px;
+    padding: 8px 12px;
+    border-radius: 6px;
+    border: 0.5px solid var(--border-weak-base);
   }
 
   [data-component="markdown-code"] {
@@ -257,8 +201,8 @@
   }
 
   pre {
-    margin-top: 1.2rem;
-    margin-bottom: 1.7rem;
+    margin-top: 2rem;
+    margin-bottom: 2rem;
     overflow: auto;
 
     scrollbar-width: none;
@@ -270,26 +214,15 @@
   :not(pre) > code {
     font-family: var(--font-family-mono);
     font-feature-settings: var(--font-family-mono--font-feature-settings);
-    color: var(--text-strong);
-    font-weight: 500;
-    font-size: 0.9em;
-    padding: 2px 6px;
-    margin: 0 1px;
-    border-radius: 6px;
-    background: color-mix(in srgb, var(--surface-raised-base) 85%, var(--surface-base));
-    border: 1px solid color-mix(in srgb, var(--border-weak-base) 72%, transparent);
-  }
+    color: var(--syntax-string);
+    font-weight: var(--font-weight-medium);
+    /* font-size: 13px; */
 
-  .katex-display {
-    margin: 1.55rem 0;
-    padding: 0.25rem 0;
-    font-size: 1.08em;
-    overflow-x: auto;
-    overflow-y: hidden;
-  }
-
-  .katex {
-    font-size: 1.03em;
+    /* padding: 2px 2px; */
+    /* margin: 0 1.5px; */
+    /* border-radius: 2px; */
+    /* background: var(--surface-base); */
+    /* box-shadow: 0 0 0 0.5px var(--border-weak-base); */
   }
 
   /* Tables */
@@ -297,17 +230,16 @@
     width: 100%;
     border-collapse: collapse;
     margin: 1.5rem 0;
-    font-size: 0.95em;
+    font-size: var(--font-size-base);
     display: block;
     overflow-x: auto;
-    border: 1px solid var(--border-weaker-base);
-    border-radius: 10px;
   }
 
   th,
   td {
+    /* Minimal borders for structure, matching TUI "lines" roughly but keeping it web-clean */
     border-bottom: 1px solid var(--border-weaker-base);
-    padding: 0.72rem 0.65rem;
+    padding: 0.75rem 0.5rem;
     text-align: left;
     vertical-align: top;
   }
@@ -322,10 +254,9 @@
   img {
     max-width: 100%;
     height: auto;
-    border-radius: 8px;
+    border-radius: 4px;
     margin: 1.5rem 0;
     display: block;
-    border: 1px solid color-mix(in srgb, var(--border-weaker-base) 70%, transparent);
   }
 }
 
