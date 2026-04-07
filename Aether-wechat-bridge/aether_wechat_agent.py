@@ -1529,9 +1529,10 @@ class CustomWeChatBot(WeChatBot):
     """自定义 Bot，覆盖登录方法"""
 
     async def login(self, log=print) -> str:
-        stored_token = await self._storage.load_token(self._account_id)
+        transport = self._transport
+        stored_token = await transport._storage.load_token(transport.account_id)
         if stored_token:
-            self._client.token = stored_token
+            transport._client.token = stored_token
             log(f"[weixin] 使用已保存的 token")
             # 通知 Aether 已连接
             print(f"[登录成功] user: unknown (已保存的账号)")
@@ -1552,8 +1553,8 @@ class CustomWeChatBot(WeChatBot):
                     logger.warning(f"保存会话失败: {e}")
             return stored_token
 
-        token = await custom_login(self._client, log=log)
-        await self._storage.save_token(self._account_id, token)
+        token = await custom_login(transport._client, log=log)
+        await transport._storage.save_token(transport.account_id, token)
         return token
 
 
@@ -1589,7 +1590,7 @@ async def main():
         ),
     )
     # 把微信客户端传给 agent，让后台任务能直接投递消息
-    agent._wechat_client = bot._client
+    agent._wechat_client = bot._transport._client
 
     try:
         await bot.run(log=print)
