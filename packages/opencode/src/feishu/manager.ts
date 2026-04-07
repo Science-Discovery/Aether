@@ -99,6 +99,8 @@ class FeishuManagerImpl {
   // ── Project state ─────────────────────────────────────────────────────────
   // Per-chat current directory (set by /project n). Empty = use connect-time Instance.directory.
   private _chatDirs: Record<string, string> = {}
+  // Per-chat pinned session (set by /session n or /new). Overrides thread-based sessionMap.
+  private _chatSessions: Record<string, string> = {}
   // Hidden project directories: directory -> timestamp when hidden. Persisted to disk.
   private _hiddenDirs: Record<string, number> = {}
   // GlobalBus listener for detecting web UI activity on hidden projects.
@@ -372,7 +374,8 @@ class FeishuManagerImpl {
         directory: effectiveDir,
         fn: async () => {
           const sessionKey = `${chatId}:${rootId}`
-          let sessionId = this.sessionMap[sessionKey]
+          // Pinned session (/session n) takes priority over thread-based mapping
+          let sessionId = this._chatSessions[chatId] ?? this.sessionMap[sessionKey]
 
           if (!sessionId) {
             // Reuse most recent session in this directory, or create one
@@ -388,6 +391,7 @@ class FeishuManagerImpl {
               sessionId = session.id
               console.log("[feishu] session created:", sessionId)
             }
+            this._chatSessions[chatId] = sessionId
             this.sessionMap[sessionKey] = sessionId
             await this.saveSessionMap()
           }
@@ -449,10 +453,12 @@ class FeishuManagerImpl {
       await this.cmdModel(messageId, chatId, parts.slice(1))
     } else if (command === "/project") {
       await this.cmdProject(messageId, chatId, rest)
+    } else if (command === "/session") {
+      await this.cmdSession(messageId, chatId, rest)
     } else if (command === "/help") {
       await this.replyText(
         messageId,
-        "可用命令：\n/new - 开始新对话\n/model - 查看/切换模型\n/project - 查看/切换项目\n/help - 显示帮助\n\n直接发送消息即可与 Aether AI 对话。",
+        "📋 可用命令：\n\n/new          开启新对话（清除当前会话上下文）\n/model        查看可用模型列表及当前模型\n/model n      切换到编号 n 的模型\n/project      查看/切换项目\n/project n    切换到编号 n 的项目\n/project hide n  隐藏项目\n/session      查看当前项目下的会话列表\n/session list 查看全部会话\n/session n    切换到编号 n 的会话\n/help         显示此帮助信息",
       )
     } else {
       await this.replyText(messageId, `未知命令: ${command}\n发送 /help 查看可用命令。`)
@@ -465,12 +471,14 @@ class FeishuManagerImpl {
       if (key.startsWith(`${chatId}:`)) delete this.sessionMap[key]
     }
     delete this._modelOverrides[chatId]
+    delete this._chatSessions[chatId]
 
     const effectiveDir = this._chatDirs[chatId] ?? Instance.directory
     const session = await Instance.provide({
       directory: effectiveDir,
       fn: () => Session.create({ title: `飞书对话 ${chatId.slice(-6)}` }),
     })
+    this._chatSessions[chatId] = session.id
     await this.saveSessionMap()
     await this.replyText(messageId, `✅ 已开启新对话\n💬 ${session.title}`)
   }
@@ -617,18 +625,19 @@ class FeishuManagerImpl {
       }
 
       // Find or create a session in the new project
-      const { sessionTitle, created } = await Instance.provide({
+      const { sessionId: newSessionId, sessionTitle, created } = await Instance.provide({
         directory: newDir,
         fn: async () => {
           const recent = [...Session.list({ directory: newDir, roots: true, limit: 1 })]
           if (recent.length > 0) {
-            return { sessionTitle: recent[0].title ?? recent[0].id.slice(0, 8), created: false }
+            return { sessionId: recent[0].id, sessionTitle: recent[0].title ?? recent[0].id.slice(0, 8), created: false }
           } else {
             const session = await Session.create({ title: `飞书对话 ${chatId.slice(-6)}` })
-            return { sessionTitle: session.title, created: true }
+            return { sessionId: session.id, sessionTitle: session.title, created: true }
           }
         },
       })
+      this._chatSessions[chatId] = newSessionId
       await this.saveSessionMap()
 
       const name = this.projectName(chosen)
@@ -670,6 +679,85 @@ class FeishuManagerImpl {
     await this.replyText(messageId, lines.join("\n"))
   }
 
+  private formatSessionTime(timestamp: number): string {
+    const d = new Date(timestamp)
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`
+  }
+
+  /**
+   * /session          — list top-10 sessions in current project
+   * /session list     — list all sessions
+   * /session <n>      — switch to session n
+   */
+  private async cmdSession(messageId: string, chatId: string, arg: string): Promise<void> {
+    const effectiveDir = this._chatDirs[chatId] ?? Instance.directory
+    let items: Session.Info[] = []
+    await Instance.provide({
+      directory: effectiveDir,
+      fn: async () => {
+        items = [...Session.list({ directory: effectiveDir, roots: true, limit: 100 })]
+      },
+    })
+
+    const currentId = this._chatSessions[chatId]
+
+    if (arg === "list") {
+      const currentItem = items.find((i) => i.id === currentId)
+      const currentTitle = currentItem?.title ?? currentId?.slice(0, 8) ?? "无"
+      const lines = [`🗂 当前会话：${currentTitle}`, "", "🗂 会话列表：", ""]
+      for (let i = 0; i < items.length; i++) {
+        const item = items[i]
+        const tag = item.id === currentId ? " ◀" : ""
+        lines.push(`${i + 1}. ${item.title}${tag}`)
+        lines.push(`   ${this.formatSessionTime(item.time.updated)}`)
+      }
+      if (!items.length) lines.push("（当前项目下还没有任何会话）")
+      await this.replyText(messageId, lines.join("\n"))
+      return
+    }
+
+    if (arg) {
+      const idx = parseInt(arg, 10) - 1
+      if (isNaN(idx) || idx < 0 || idx >= items.length) {
+        await this.replyText(
+          messageId,
+          items.length ? `❌ 请输入 1~${items.length} 之间的数字。` : "❌ 当前项目下还没有任何会话。",
+        )
+        return
+      }
+      const chosen = items[idx]
+      this._chatSessions[chatId] = chosen.id
+      await this.replyText(
+        messageId,
+        `✅ 已切换到会话：${chosen.title}\n   更新时间：${this.formatSessionTime(chosen.time.updated)}`,
+      )
+      return
+    }
+
+    // /session — list top-10, auto-create if empty
+    if (!items.length) {
+      const session = await Instance.provide({
+        directory: effectiveDir,
+        fn: () => Session.create({ title: `飞书对话 ${chatId.slice(-6)}` }),
+      })
+      this._chatSessions[chatId] = session.id
+      await this.replyText(messageId, "📂 当前项目下还没有任何会话，已自动创建一个新会话并切换。")
+      return
+    }
+
+    const currentItem = items.find((i) => i.id === currentId) ?? items[0]
+    const lines = [`🗂 当前会话：${currentItem.title}`, "", "🗂 会话列表：", ""]
+    for (let i = 0; i < Math.min(items.length, 10); i++) {
+      const item = items[i]
+      const tag = item.id === currentId ? " ◀" : ""
+      lines.push(`${i + 1}. ${item.title}${tag}`)
+      lines.push(`   ${this.formatSessionTime(item.time.updated)}`)
+    }
+    lines.push("")
+    lines.push("💡 /session n 切换会话 | /session list 查看全部")
+    await this.replyText(messageId, lines.join("\n"))
+  }
+
   // ─────────────────────────────────────────────────────────────────────────
 
   private async replyText(messageId: string, text: string): Promise<void> {
@@ -706,6 +794,7 @@ class FeishuManagerImpl {
     this._modelOverrides = {}
     this._modelList = []
     this._chatDirs = {}
+    this._chatSessions = {}
     // _hiddenDirs intentionally kept (persisted, survives reconnect)
     this.status = "idle"
   }

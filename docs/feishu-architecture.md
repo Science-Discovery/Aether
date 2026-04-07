@@ -280,6 +280,25 @@ export const [feishuStatus, setFeishuStatus] = createSignal<FeishuStatus>("idle"
 | `/project n` | 切换到第 n 个项目，自动复用/新建该项目的会话 |
 | `/project hide n` | 隐藏第 n 个项目；该项目有新活动后自动恢复 |
 
+## 会话切换
+
+### 命令
+
+| 命令 | 行为 |
+|------|------|
+| `/session` | 显示当前项目前 10 个会话，当前会话标 `◀` |
+| `/session list` | 显示全部会话 |
+| `/session n` | 切换到第 n 个会话 |
+
+### 设计
+
+每个 `chatId` 维护一个"当前会话"状态（`_chatSessions[chatId]`），优先级高于线程级 `sessionMap[chatId:rootId]`。
+
+- `/session n` 设置 `_chatSessions[chatId]`，后续所有消息都发往该会话
+- `/new` 清除并立即新建，新会话存入 `_chatSessions[chatId]`
+- `/project n` 切换项目时，将目标项目的最近会话存入 `_chatSessions[chatId]`
+- `stop()` 清除所有 `_chatSessions`（不持久化）
+
 ### 数据来源
 
 `getProjects()` 直接调用 `Project.recentList()`，这与微信端调用的 `GET /project/recent` HTTP 接口是**同一个函数**，因此两端看到的项目列表完全一致。
@@ -409,3 +428,4 @@ SDK 使用方式：
 | 2026-04-06 19:17 | `/model` 列表格式改为按 provider 分组，参考微信端风格 | 原格式不直观，统一两端体验 |
 | 2026-04-06 19:17 | 新增 `/project` 命令：查看/切换/隐藏项目，数据源与微信端一致 | 多项目场景下需在飞书端切换工作目录；切换后消息自动在对应项目上下文中执行 |
 | 2026-04-06 19:17 | 取消隐藏改为双机制：飞书消息直接判断 + GlobalBus 监听 web 端活动 | `time.activity` 只在项目初始化时更新，不反映 session 消息，原方案对活跃项目无效 |
+| 2026-04-07 | 新增 `/session` 命令：查看/切换会话，数据源与微信端一致；`_chatSessions` 存储 per-chat 当前会话 | 微信端支持多会话切换，飞书端功能对齐 |
