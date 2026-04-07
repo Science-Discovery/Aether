@@ -8,12 +8,10 @@ import { showToast } from "@opencode-ai/ui/toast"
 import { getDirectory, getFilename } from "@opencode-ai/util/path"
 import fuzzysort from "fuzzysort"
 import { createMemo, createResource, createSignal, onMount, Show } from "solid-js"
-import { createStore } from "solid-js/store"
 import { useGlobalSDK } from "@/context/global-sdk"
 import { useGlobalSync } from "@/context/global-sync"
 import { useLanguage } from "@/context/language"
 import { picked } from "./pick-folder"
-import { Persist, persisted } from "@/utils/persist"
 
 interface DialogSelectDirectoryProps {
   title?: string
@@ -289,7 +287,6 @@ export function DialogSelectDirectory(props: DialogSelectDirectoryProps) {
   const [browsing, setBrowsing] = createSignal(false)
   const [expanded, setExpanded] = createSignal(false)
   const [creating, setCreating] = createSignal(false)
-  const [hidden, setHidden] = persisted(Persist.global("recent-projects-hidden"), createStore({ dirs: [] as string[] }))
   let list: ListRef | undefined
 
   const missingBase = createMemo(() => !(sync.data.path.home || sync.data.path.directory))
@@ -325,15 +322,11 @@ export function DialogSelectDirectory(props: DialogSelectDirectoryProps) {
   })
   const recentProjects = createMemo(() => {
     const isExpanded = expanded()
-    const known = sync.project.recent()
-    const hiddenSet = new Set(hidden.dirs)
-    const all = known
-      .map((item) => {
-        const row = toRow(item.directory, home(), "recent")
-        const name = item.name || getFilename(item.directory)
-        return { ...row, search: `${row.search}\n${name}` }
-      })
-      .filter((r) => !hiddenSet.has(r.absolute))
+    const all = sync.project.recent().map((item) => {
+      const row = toRow(item.directory, home(), "recent")
+      const name = item.name || getFilename(item.directory)
+      return { ...row, search: `${row.search}\n${name}` }
+    })
 
     if (!isExpanded && all.length > RECENT_LIMIT) {
       return [
@@ -519,51 +512,28 @@ export function DialogSelectDirectory(props: DialogSelectDirectoryProps) {
           }
 
           const path = displayPath(item.absolute, filter(), home())
-          const isRecent = item.group === "recent"
-
-          const removeBtn = (
-            <Show when={isRecent}>
-              <button
-                type="button"
-                class="opacity-0 group-hover:opacity-100 shrink-0 p-0.5 text-text-weak hover:text-text-strong transition-opacity"
-                onClick={(e) => {
-                  e.stopPropagation()
-                  setHidden("dirs", (prev) => [...prev, item.absolute])
-                }}
-                title="从最近项目中移除"
-              >
-                ×
-              </button>
-            </Show>
-          )
 
           if (path === "~") {
             return (
-              <div class="w-full flex items-center justify-between rounded-md group">
-                <div class="flex items-center gap-x-3 grow min-w-0">
-                  <FileIcon node={{ path: item.absolute, type: "directory" }} class="shrink-0 size-4" />
-                  <div class="flex items-center text-14-regular min-w-0">
-                    <span class="text-text-strong whitespace-nowrap">~</span>
-                    <span class="text-text-weak whitespace-nowrap">/</span>
-                  </div>
+              <div class="w-full flex items-center gap-x-3 rounded-md">
+                <FileIcon node={{ path: item.absolute, type: "directory" }} class="shrink-0 size-4" />
+                <div class="flex items-center text-14-regular min-w-0">
+                  <span class="text-text-strong whitespace-nowrap">~</span>
+                  <span class="text-text-weak whitespace-nowrap">/</span>
                 </div>
-                {removeBtn}
               </div>
             )
           }
           return (
-            <div class="w-full flex items-center justify-between rounded-md group">
-              <div class="flex items-center gap-x-3 grow min-w-0">
-                <FileIcon node={{ path: item.absolute, type: "directory" }} class="shrink-0 size-4" />
-                <div class="flex items-center text-14-regular min-w-0">
-                  <span class="text-text-weak whitespace-nowrap overflow-hidden overflow-ellipsis truncate min-w-0">
-                    {getDirectory(path)}
-                  </span>
-                  <span class="text-text-strong whitespace-nowrap">{getFilename(path)}</span>
-                  <span class="text-text-weak whitespace-nowrap">/</span>
-                </div>
+            <div class="w-full flex items-center gap-x-3 rounded-md">
+              <FileIcon node={{ path: item.absolute, type: "directory" }} class="shrink-0 size-4" />
+              <div class="flex items-center text-14-regular min-w-0">
+                <span class="text-text-weak whitespace-nowrap overflow-hidden overflow-ellipsis truncate min-w-0">
+                  {getDirectory(path)}
+                </span>
+                <span class="text-text-strong whitespace-nowrap">{getFilename(path)}</span>
+                <span class="text-text-weak whitespace-nowrap">/</span>
               </div>
-              {removeBtn}
             </div>
           )
         }}
