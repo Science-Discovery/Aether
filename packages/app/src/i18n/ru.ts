@@ -306,6 +306,8 @@ export const dict = {
   "dialog.directory.search.placeholder": "Поиск папок",
   "dialog.directory.empty": "Папки не найдены",
   "dialog.directory.existingProjects": "Существующие проекты",
+  "dialog.directory.browse": "Обзор",
+  "dialog.directory.confirm": "Подтвердить",
 
   "dialog.server.title": "Серверы",
   "dialog.server.description": "Переключите сервер OpenCode к которому подключается приложение.",

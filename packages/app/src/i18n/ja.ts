@@ -280,6 +280,8 @@ export const dict = {
   "dialog.directory.search.placeholder": "フォルダを検索",
   "dialog.directory.empty": "フォルダが見つかりません",
   "dialog.directory.existingProjects": "既存のプロジェクト",
+  "dialog.directory.browse": "参照",
+  "dialog.directory.confirm": "確認",
   "dialog.server.title": "サーバー",
   "dialog.server.description": "このアプリが接続するOpenCodeサーバーを切り替えます。",
   "dialog.server.search.placeholder": "サーバーを検索",

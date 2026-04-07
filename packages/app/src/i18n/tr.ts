@@ -310,6 +310,8 @@ export const dict = {
   "dialog.directory.search.placeholder": "Klasör ara",
   "dialog.directory.empty": "Klasör bulunamadı",
   "dialog.directory.existingProjects": "Mevcut projeler",
+  "dialog.directory.browse": "Gözat",
+  "dialog.directory.confirm": "Onayla",
 
   "dialog.server.title": "Sunucular",
   "dialog.server.description": "Bu uygulamanın hangi OpenCode sunucusuna bağlanacağını değiştirin.",
