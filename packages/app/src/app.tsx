@@ -48,6 +48,7 @@ import DirectoryLayout from "@/pages/directory-layout"
 import Layout from "@/pages/layout"
 import { ErrorPage } from "./pages/error"
 import { useCheckServerHealth } from "./utils/server-health"
+import { LegacyDBGuard } from "@/components/legacy-db-guard"
 
 const HomeRoute = lazy(() => import("@/pages/home"))
 const Session = lazy(() => import("@/pages/session"))
@@ -133,6 +134,7 @@ function SessionProviders(props: ParentProps) {
 function RouterRoot(props: ParentProps<{ appChildren?: JSX.Element }>) {
   return (
     <AppShellProviders>
+      <LegacyDBGuard />
       <Suspense fallback={<Loading />}>
         {props.appChildren}
         {props.children}

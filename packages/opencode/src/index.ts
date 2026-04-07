@@ -32,6 +32,7 @@ import { SessionCommand } from "./cli/cmd/session"
 import { DbCommand } from "./cli/cmd/db"
 import { JsonMigration } from "./storage/json-migration"
 import { Database } from "./storage/db"
+import { LegacyDB } from "./storage/legacy-db"
 
 process.on("unhandledRejection", (e) => {
   Log.Default.error("rejection", {
@@ -81,6 +82,11 @@ let cli = yargs(hideBin(process.argv))
       version: Installation.VERSION,
       args: process.argv.slice(2),
     })
+
+    const legacy = await LegacyDB.status()
+    if (legacy.has_legacy) {
+      process.stderr.write(`发现旧库: ${legacy.legacy_count} 个，可通过 /database/legacy/merge 触发合并。` + EOL)
+    }
 
     const marker = Database.currentPath()
     const seeded = marker !== ":memory:" && (await Filesystem.exists(marker))

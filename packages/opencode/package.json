@@ -7,7 +7,7 @@
   "private": true,
   "scripts": {
     "prepare": "effect-language-service patch || true",
-    "typecheck": "tsgo --noEmit",
+    "typecheck": "bun ../../node_modules/@typescript/native-preview/bin/tsgo.js --noEmit",
     "test": "bun test --timeout 30000",
     "build": "bun run script/build.ts",
     "dev": "bun run --conditions=browser ./src/index.ts",
