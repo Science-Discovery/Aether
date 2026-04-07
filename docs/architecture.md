@@ -601,7 +601,7 @@ graph TB
 
 ### 5.1 本地数据库（SQLite）
 
-数据库文件遵循 XDG Base Directory 规范，位于 `$XDG_DATA_HOME/opencode/opencode.db`（Linux 默认为 `~/.local/share/opencode/opencode.db`）。频道为 `latest` 或 `beta` 时使用 `opencode.db`，其他频道使用 `opencode-<channel>.db`。使用 Drizzle ORM 管理 Schema，启动时自动迁移。
+数据库文件遵循 XDG Base Directory 规范，位于 `$XDG_DATA_HOME/opencode/aether.db`（Linux 默认为 `~/.local/share/opencode/aether.db`）。频道为 `latest` 或 `beta` 时使用 `aether.db`，其他频道使用 `aether-<channel>.db`。使用 Drizzle ORM 管理 Schema，启动时自动迁移。
 
 #### ER 图
 

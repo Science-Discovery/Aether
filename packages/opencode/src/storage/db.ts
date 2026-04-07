@@ -40,9 +40,9 @@ export namespace Database {
   export function getChannelPath() {
     const channel = Installation.CHANNEL
     if (["latest", "beta"].includes(channel) || Flag.OPENCODE_DISABLE_CHANNEL_DB)
-      return path.join(Global.Path.data, "opencode.db")
+      return path.join(Global.Path.data, "aether.db")
     const safe = channel.replace(/[^a-zA-Z0-9._-]/g, "-")
-    return path.join(Global.Path.data, `opencode-${safe}.db`)
+    return path.join(Global.Path.data, `aether-${safe}.db`)
   }
 
   export const Path = iife(() => {
@@ -63,7 +63,7 @@ export namespace Database {
     try {
       const seen = new Set<string>()
       return readdirSync(Global.Path.data, { withFileTypes: true })
-        .filter((entry) => entry.isFile() && /^opencode.*\.db$/i.test(entry.name))
+        .filter((entry) => entry.isFile() && /^aether.*\.db$/i.test(entry.name))
         .map((entry) => path.join(Global.Path.data, entry.name))
         .sort()
         .filter((file) => {
