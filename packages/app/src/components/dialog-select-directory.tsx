@@ -12,6 +12,7 @@ import { useGlobalSDK } from "@/context/global-sdk"
 import { useGlobalSync } from "@/context/global-sync"
 import { useLanguage } from "@/context/language"
 import { picked } from "./pick-folder"
+import { useLayout } from "@/context/layout"
 
 interface DialogSelectDirectoryProps {
   title?: string
@@ -165,7 +166,11 @@ function useDirectorySearch(args: {
     if (!base) return
 
     const raw = normalizeDriveRoot(value)
-    if (!raw) return { directory: trimTrailing(base), path: "" }
+    if (!raw) {
+      const h = args.home()
+      if (/^[A-Za-z]:\//.test(h)) return { directory: "/", path: "" }
+      return { directory: trimTrailing(h), path: "" }
+    }
 
     const h = args.home()
     if (raw === "~") return { directory: trimTrailing(h || base), path: "" }
@@ -223,8 +228,7 @@ function useDirectorySearch(args: {
         .catch(() => [])
 
     if (!isPath) {
-      // When start is a root path (e.g. "/" on Windows), use directory listing instead of fuzzy search
-      if (rootOf(trimTrailing(scopedInput.directory)) === trimTrailing(scopedInput.directory)) {
+      if (!raw || rootOf(trimTrailing(scopedInput.directory)) === trimTrailing(scopedInput.directory)) {
         const items = await match(scopedInput.directory, "", 50)
         if (!active()) return []
         return items
@@ -281,6 +285,7 @@ export function DialogSelectDirectory(props: DialogSelectDirectoryProps) {
   const sdk = useGlobalSDK()
   const dialog = useDialog()
   const language = useLanguage()
+  const layout = useLayout()
 
   const [filter, setFilter] = createSignal("")
   const [selectedPath, setSelectedPath] = createSignal<string | null>(null)
@@ -322,11 +327,15 @@ export function DialogSelectDirectory(props: DialogSelectDirectoryProps) {
   })
   const recentProjects = createMemo(() => {
     const isExpanded = expanded()
-    const all = sync.project.recent().map((item) => {
-      const row = toRow(item.directory, home(), "recent")
-      const name = item.name || getFilename(item.directory)
-      return { ...row, search: `${row.search}\n${name}` }
-    })
+    const open = new Set(layout.projects.list().map((p) => normalizeDriveRoot(p.worktree).toLowerCase()))
+    const all = sync.project
+      .recent()
+      .filter((item) => !open.has(normalizeDriveRoot(item.directory).toLowerCase()))
+      .map((item) => {
+        const row = toRow(item.directory, home(), "recent")
+        const name = item.name || getFilename(item.directory)
+        return { ...row, search: `${row.search}\n${name}` }
+      })
 
     if (!isExpanded && all.length > RECENT_LIMIT) {
       return [
