@@ -280,6 +280,7 @@ export const dict = {
   "dialog.fork.empty": "لا توجد رسائل للتفرع منها",
   "dialog.directory.search.placeholder": "البحث في المجلدات",
   "dialog.directory.empty": "لم يتم العثور على مجلدات",
+  "dialog.directory.existingProjects": "المشاريع الموجودة",
   "dialog.server.title": "الخوادم",
   "dialog.server.description": "تبديل خادم OpenCode الذي يتصل به هذا التطبيق.",
   "dialog.server.search.placeholder": "البحث في الخوادم",

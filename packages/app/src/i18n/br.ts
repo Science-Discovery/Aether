@@ -280,6 +280,7 @@ export const dict = {
   "dialog.fork.empty": "Nenhuma mensagem para bifurcar",
   "dialog.directory.search.placeholder": "Buscar pastas",
   "dialog.directory.empty": "Nenhuma pasta encontrada",
+  "dialog.directory.existingProjects": "Projetos existentes",
   "dialog.server.title": "Servidores",
   "dialog.server.description": "Trocar para qual servidor OpenCode este aplicativo se conecta.",
   "dialog.server.search.placeholder": "Buscar servidores",

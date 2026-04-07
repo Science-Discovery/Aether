@@ -281,6 +281,7 @@ export const dict = {
   "dialog.fork.empty": "Brak wiadomości do rozwidlenia",
   "dialog.directory.search.placeholder": "Szukaj folderów",
   "dialog.directory.empty": "Nie znaleziono folderów",
+  "dialog.directory.existingProjects": "Istniejące projekty",
   "dialog.server.title": "Serwery",
   "dialog.server.description": "Przełącz serwer OpenCode, z którym łączy się ta aplikacja.",
   "dialog.server.search.placeholder": "Szukaj serwerów",
