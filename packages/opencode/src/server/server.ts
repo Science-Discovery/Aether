@@ -71,6 +71,7 @@ import { GlobalRoutes } from "./routes/global"
 import { KnowledgeRoutes } from "./routes/knowledge"
 import { WeChatRoutes } from "./routes/wechat"
 import { ReadingModeRoutes } from "./routes/reading-mode"
+import { DatabaseRoutes } from "./routes/database"
 import { MDNS } from "./mdns"
 import { lazy } from "@/util/lazy"
 import { initProjectors } from "./projectors"
@@ -80,6 +81,8 @@ globalThis.AI_SDK_LOG_WARNINGS = false
 
 const csp = (hash = "") =>
   `default-src 'self'; script-src 'self' 'wasm-unsafe-eval'${hash ? ` 'sha256-${hash}'` : ""}; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; media-src 'self' data:; connect-src 'self' data:`
+
+const web = process.env.AETHER_WEB_ORIGIN || process.env.OPENCODE_WEB_ORIGIN || "https://app.opencode.ai"
 
 initProjectors()
 
@@ -139,6 +142,7 @@ export namespace Server {
       })
       .use(
         cors({
+          credentials: true,
           origin(input) {
             if (!input) return
 
@@ -284,6 +288,7 @@ export namespace Server {
       .route("/permission", PermissionRoutes())
       .route("/question", QuestionRoutes())
       .route("/provider", ProviderRoutes())
+      .route("/database", DatabaseRoutes())
       .route("/", FileRoutes())
       .route("/", EventRoutes())
       .route("/mcp", McpRoutes())
@@ -658,11 +663,12 @@ export namespace Server {
         }
 
         // Fall back to remote proxy
-        const response = await proxy(`https://app.opencode.ai${reqPath}`, {
+        const remote = new URL(reqPath, web)
+        const response = await proxy(remote.toString(), {
           ...c.req,
           headers: {
             ...c.req.raw.headers,
-            host: "app.opencode.ai",
+            host: remote.host,
           },
         })
         const match = response.headers.get("content-type")?.includes("text/html")
