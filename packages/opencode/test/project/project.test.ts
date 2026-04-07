@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import { Project } from "../../src/project/project"
+import { Session } from "../../src/session"
+import { Instance } from "../../src/project/instance"
 import { Log } from "../../src/util/log"
 import { $ } from "bun"
 import path from "path"
@@ -417,8 +419,10 @@ describe("Project.recentList", () => {
     await using b = await tmpdir({ git: true })
 
     await Project.fromDirectory(a.path)
+    await Instance.provide({ directory: a.path, fn: async () => Session.create({}) })
     await Bun.sleep(10)
     await Project.fromDirectory(b.path)
+    await Instance.provide({ directory: b.path, fn: async () => Session.create({}) })
 
     const before = Project.recentList()
       .filter((item) => item.kind === "project")
@@ -438,14 +442,22 @@ describe("Project.recentList", () => {
     expect(after.slice(0, 2)).toEqual([b.path, a.path])
   })
 
-  test("keeps non-git directories as directory items", async () => {
+  test("filters out directories with no sessions", async () => {
     await using tmp = await tmpdir()
 
     await Project.fromDirectory(tmp.path)
 
     const item = Project.recentList().find((entry) => entry.directory === tmp.path)
-    expect(item).toBeDefined()
-    expect(item?.kind).toBe("directory")
+    expect(item).toBeUndefined()
+  })
+
+  test("filters out git projects with no sessions", async () => {
+    await using tmp = await tmpdir({ git: true })
+
+    await Project.fromDirectory(tmp.path)
+
+    const item = Project.recentList().find((entry) => entry.directory === tmp.path)
+    expect(item).toBeUndefined()
   })
 })
 
