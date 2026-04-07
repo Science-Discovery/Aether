@@ -9,7 +9,9 @@ export namespace LegacyRepair {
     mode: Mode.default("auto"),
     force: z.boolean().default(false),
     status: LegacyDB.Status,
-    merge: LegacyDB.Merge,
+    merge: z.object({
+      errors: z.array(z.string()),
+    }),
   })
 
   export const Output = z.object({
@@ -60,7 +62,13 @@ export namespace LegacyRepair {
       directory: input.status.directory,
       title: "Legacy database repair",
       prompt: prompt(input),
-    })
+    }).catch(() => undefined)
+    if (!task) {
+      return {
+        started: false,
+        reason: "session-start-failed",
+      }
+    }
     return {
       started: true,
       reason: next.reason,

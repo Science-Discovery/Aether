@@ -3,22 +3,10 @@ import fs from "fs/promises"
 import path from "path"
 import z from "zod"
 import { Global } from "@/global"
-import { Log } from "@/util/log"
-
-const log = Log.create({ service: "legacy-db" })
 
 const target_file = "aether-prod.db"
 const pref_file = "legacy-db.json"
-const time_cols = ["time_updated", "updated_at", "updated", "time_created", "created_at", "created"] as const
-const low = "-9223372036854775808"
-
-function q(name: string) {
-  return `"${name.replaceAll('"', '""')}"`
-}
-
-function lit(text: string) {
-  return `'${text.replaceAll("'", "''")}'`
-}
+const archive_file = "legacy-db-archive.json"
 
 function dbPath(name: string) {
   return path.join(Global.Path.data, name)
@@ -26,6 +14,10 @@ function dbPath(name: string) {
 
 function prefPath() {
   return path.join(Global.Path.state, pref_file)
+}
+
+function archivePath() {
+  return path.join(Global.Path.state, archive_file)
 }
 
 function isdb(name: string) {
@@ -75,60 +67,6 @@ async function versions(file: string) {
   }
 }
 
-function pickTime(cols: string[]) {
-  return time_cols.find((col) => cols.includes(col))
-}
-
-function common(a: string[], b: string[]) {
-  const set = new Set(b)
-  return a.filter((item) => set.has(item))
-}
-
-function mergeSql(input: { table: string; cols: string[]; pks: string[]; time?: string }) {
-  const table = q(input.table)
-  const cols = input.cols.map(q)
-  const list = cols.join(", ")
-  const rows = input.cols.map((col) => `src.${table}.${q(col)}`).join(", ")
-
-  if (input.pks.length === 0) {
-    return `insert into main.${table} (${list}) select ${rows} from src.${table}`
-  }
-
-  const keys = input.pks.map(q).join(", ")
-  const updates = input.cols
-    .filter((col) => !input.pks.includes(col))
-    .map((col) => `${q(col)}=coalesce(excluded.${q(col)}, ${table}.${q(col)})`)
-
-  if (updates.length === 0) {
-    return `insert into main.${table} (${list}) select ${rows} from src.${table} where 1 on conflict (${keys}) do nothing`
-  }
-
-  const where = input.time
-    ? ` where coalesce(excluded.${q(input.time)}, ${low}) >= coalesce(${table}.${q(input.time)}, ${low})`
-    : ""
-
-  return `insert into main.${table} (${list}) select ${rows} from src.${table} where 1 on conflict (${keys}) do update set ${updates.join(", ")}${where}`
-}
-
-function tableInfo(db: Sqlite, schema: "main" | "src", table: string) {
-  return db.query(`pragma ${schema}.table_info(${lit(table)})`).all() as {
-    name: string
-    pk: number
-  }[]
-}
-
-function master(db: Sqlite, schema: "main" | "src") {
-  return db
-    .query(`select name, sql from ${schema}.sqlite_master where type='table' and name not like 'sqlite_%'`)
-    .all() as {
-    name: string
-    sql: string | null
-  }[]
-}
-
-function createSql(sql: string) {
-  return sql.replace(/^create\s+table\s+/i, "create table if not exists ")
-}
 
 export namespace LegacyDB {
   export const target = target_file
@@ -156,15 +94,6 @@ export namespace LegacyDB {
     dismissed: z.boolean(),
   })
 
-  export const Merge = z.object({
-    target: z.string(),
-    merged: z.array(z.string()),
-    tables: z.number(),
-    changes: z.number(),
-    skipped: z.array(z.string()),
-    errors: z.array(z.string()),
-  })
-
   export const Archive = z.object({
     history: z.string(),
     moved: z.array(z.string()),
@@ -174,9 +103,16 @@ export namespace LegacyDB {
   })
 
   export type Status = z.infer<typeof Status>
-  export type Merge = z.infer<typeof Merge>
   export type Preference = z.infer<typeof Preference>
   export type Archive = z.infer<typeof Archive>
+
+  export const ArchiveState = z.object({
+    state: z.enum(["idle", "running", "done", "error"]),
+    updated: z.number(),
+    result: Archive.optional(),
+    error: z.string().optional(),
+  })
+  export type ArchiveState = z.infer<typeof ArchiveState>
 
   async function scan() {
     const dir = Global.Path.data
@@ -220,6 +156,54 @@ export namespace LegacyDB {
     return dbPath(target_file)
   }
 
+  export async function ensureTarget() {
+    const target = targetPath()
+    const stat = await fs.stat(target).catch(() => undefined)
+    if (stat) return target
+    const list = (await scan()).filter((item) => item.name.toLowerCase() !== target_file)
+    if (list.length === 0) {
+      const db = new Sqlite(target)
+      db.close()
+      return target
+    }
+    const pick = [...list].sort((a, b) => a.mtime - b.mtime || rank(a.name) - rank(b.name) || a.name.localeCompare(b.name)).at(-1)
+    if (pick) await fs.copyFile(pick.path, target)
+    return target
+  }
+
+  export async function archiveState(): Promise<ArchiveState> {
+    const raw = await fs.readFile(archivePath(), "utf-8").catch(() => "")
+    if (!raw) {
+      return {
+        state: "idle",
+        updated: Date.now(),
+      }
+    }
+    let json: unknown
+    try {
+      json = JSON.parse(raw)
+    } catch {
+      return {
+        state: "idle",
+        updated: Date.now(),
+      }
+    }
+    const next = ArchiveState.safeParse(json)
+    if (!next.success) {
+      return {
+        state: "idle",
+        updated: Date.now(),
+      }
+    }
+    return next.data
+  }
+
+  export async function setArchiveState(input: ArchiveState) {
+    const state = ArchiveState.parse(input)
+    await fs.writeFile(archivePath(), JSON.stringify(state, null, 2), "utf-8")
+    return state
+  }
+
   export async function status(): Promise<Status> {
     const dir = Global.Path.data
     const files = await scan()
@@ -250,99 +234,6 @@ export namespace LegacyDB {
       files: old.sort((a, b) => a.name.localeCompare(b.name)),
       naming,
       versions: dist,
-    }
-  }
-
-  async function seed(files: Status["files"]) {
-    const target = targetPath()
-    const stat = await fs.stat(target).catch(() => undefined)
-    if (stat) return
-    if (files.length === 0) {
-      const db = new Sqlite(target)
-      db.close()
-      return
-    }
-    const list = [...files].sort((a, b) => a.mtime - b.mtime || rank(a.name) - rank(b.name) || a.name.localeCompare(b.name))
-    await fs.copyFile(list.at(-1)!.path, target)
-  }
-
-  export async function merge(): Promise<Merge> {
-    const info = await status()
-    await seed(info.files)
-    const target = targetPath()
-
-    const list = [...info.files].sort((a, b) => a.mtime - b.mtime || rank(a.name) - rank(b.name) || a.name.localeCompare(b.name))
-    const merged: string[] = []
-    const skipped: string[] = []
-    const errors: string[] = []
-
-    const db = new Sqlite(target)
-    db.exec("pragma busy_timeout = 5000")
-    let total = 0
-    let tabs = 0
-
-    try {
-      for (const file of list) {
-        if (path.resolve(file.path) === path.resolve(target)) continue
-        db.exec(`attach database ${lit(file.path)} as src`)
-        try {
-          const src = master(db, "src")
-          const main = new Set(master(db, "main").map((item) => item.name))
-
-          for (const tab of src) {
-            if (!tab.sql) {
-              skipped.push(`${file.name}:${tab.name}:missing-schema`)
-              continue
-            }
-            if (!main.has(tab.name)) {
-              db.exec(createSql(tab.sql))
-              main.add(tab.name)
-            }
-
-            const srcInfo = tableInfo(db, "src", tab.name)
-            const mainInfo = tableInfo(db, "main", tab.name)
-            const cols = common(
-              mainInfo.map((item) => item.name),
-              srcInfo.map((item) => item.name),
-            )
-            if (cols.length === 0) {
-              skipped.push(`${file.name}:${tab.name}:no-common-columns`)
-              continue
-            }
-
-            const srcPk = srcInfo.filter((item) => item.pk > 0).map((item) => item.name)
-            const mainPk = mainInfo.filter((item) => item.pk > 0).map((item) => item.name)
-            const pks = common(mainPk, srcPk)
-            const time = pickTime(cols)
-            const sql = mergeSql({ table: tab.name, cols, pks, time })
-
-            db.exec(sql)
-            const row = db.query("select changes() as c").get() as { c: number }
-            total += row.c
-            tabs += 1
-          }
-          merged.push(file.path)
-        } catch (error) {
-          errors.push(`${file.name}:${error instanceof Error ? error.message : String(error)}`)
-          log.warn("legacy merge source failed", {
-            source: file.path,
-            error,
-          })
-        } finally {
-          db.exec("detach database src")
-        }
-      }
-    } finally {
-      db.close()
-    }
-
-    return {
-      target,
-      merged,
-      tables: tabs,
-      changes: total,
-      skipped,
-      errors,
     }
   }
 

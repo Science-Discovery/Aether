@@ -46,47 +46,11 @@ describe("LegacyDB", () => {
     expect(info.versions["0.2.0"]).toBe(1)
   })
 
-  test("merges into aether-prod.db with latest_wins", async () => {
-    create(path.join(Global.Path.data, "opencode-dev.db"), [
-      { id: "s1", title: "old", version: "0.1.0", time: 100 },
-      { id: "s2", title: "keep", version: "0.1.0", time: 100 },
-    ])
-    create(path.join(Global.Path.data, "opencode-local.db"), [
-      { id: "s1", title: "new", version: "0.2.0", time: 200 },
-    ])
-
-    const report = await LegacyDB.merge()
-    expect(report.errors.length).toBe(0)
-    expect(report.merged.length).toBe(2)
-
-    const db = new Sqlite(LegacyDB.targetPath(), { readonly: true })
-    const row = db.query("select id, title, time_updated from session where id='s1'").get() as {
-      id: string
-      title: string
-      time_updated: number
-    }
-    const row2 = db.query("select id, title from session where id='s2'").get() as {
-      id: string
-      title: string
-    }
-    db.close()
-
-    expect(row.id).toBe("s1")
-    expect(row.title).toBe("new")
-    expect(row.time_updated).toBe(200)
-    expect(row2.title).toBe("keep")
-
-    const oldA = await fs.stat(path.join(Global.Path.data, "opencode-dev.db")).catch(() => undefined)
-    const oldB = await fs.stat(path.join(Global.Path.data, "opencode-local.db")).catch(() => undefined)
-    expect(!!oldA).toBeTrue()
-    expect(!!oldB).toBeTrue()
-  })
-
   test("archives legacy db files after merge", async () => {
     create(path.join(Global.Path.data, "opencode-dev.db"), [{ id: "x", title: "dev", version: "0.1.0", time: 1 }])
     create(path.join(Global.Path.data, "opencode-local.db"), [{ id: "y", title: "local", version: "0.2.0", time: 2 }])
 
-    await LegacyDB.merge()
+    await LegacyDB.ensureTarget()
     const arc = await LegacyDB.archive()
     expect(arc.clean).toBeTrue()
     expect(arc.moved.length).toBe(2)

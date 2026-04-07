@@ -3,7 +3,7 @@ import { LegacyRepair } from "../../src/automation/legacy-repair"
 
 const status = {
   directory: "/tmp/opencode",
-  target: "/tmp/opencode/opencode-prod.db",
+  target: "/tmp/opencode/aether-prod.db",
   has_legacy: true,
   message: "发现旧库",
   dismissed: false,
@@ -27,11 +27,6 @@ describe("LegacyRepair.decide", () => {
       force: false,
       status,
       merge: {
-        target: status.target,
-        merged: [],
-        tables: 0,
-        changes: 0,
-        skipped: [],
         errors: ["bad db"],
       },
     })
@@ -45,11 +40,6 @@ describe("LegacyRepair.decide", () => {
       force: false,
       status,
       merge: {
-        target: status.target,
-        merged: [],
-        tables: 0,
-        changes: 0,
-        skipped: [],
         errors: ["bad db"],
       },
     })

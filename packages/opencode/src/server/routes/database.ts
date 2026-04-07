@@ -3,21 +3,14 @@ import { describeRoute, resolver } from "hono-openapi"
 import { lazy } from "@/util/lazy"
 import { LegacyDB } from "@/storage/legacy-db"
 import z from "zod"
-import { LegacyRepair } from "@/automation/legacy-repair"
+import { SessionTask } from "@/automation/session-task"
 
-const MergeInput = z
-  .object({
-    session: z.boolean().default(false),
-    mode: LegacyRepair.Mode.default("auto"),
-  })
-  .optional()
+const MergeInput = z.object({}).optional()
 
 const MergeOutput = z.object({
   status: LegacyDB.Status,
-  merge: LegacyDB.Merge,
-  archive: LegacyDB.Archive.optional(),
-  sessionID: LegacyRepair.Output.shape.sessionID.optional(),
-  fallback: LegacyRepair.Output,
+  sessionID: SessionTask.Output.shape.sessionID,
+  archive_state: LegacyDB.ArchiveState,
 })
 
 const PreferenceInput = z.object({
@@ -90,11 +83,32 @@ export const DatabaseRoutes = lazy(() =>
         return c.json(await LegacyDB.setPreference(body))
       },
     )
+    .get(
+      "/legacy/archive/state",
+      describeRoute({
+        summary: "Get archive state",
+        description: "Get asynchronous archive task state after agent-driven merge.",
+        operationId: "database.legacy.archive.state",
+        responses: {
+          200: {
+            description: "Archive state",
+            content: {
+              "application/json": {
+                schema: resolver(LegacyDB.ArchiveState),
+              },
+            },
+          },
+        },
+      }),
+      async (c) => {
+        return c.json(await LegacyDB.archiveState())
+      },
+    )
     .post(
       "/legacy/merge",
       describeRoute({
         summary: "Merge legacy databases",
-        description: "Merge all legacy databases into aether-prod.db and archive old database files.",
+        description: "Start agent-driven merge into aether-prod.db and run fixed archive after session completes.",
         operationId: "database.legacy.merge",
         responses: {
           200: {
@@ -108,22 +122,50 @@ export const DatabaseRoutes = lazy(() =>
         },
       }),
       async (c) => {
-        const body = MergeInput.parse(await c.req.json().catch(() => undefined))
+        MergeInput.parse(await c.req.json().catch(() => undefined))
         const status = await LegacyDB.status()
-        const merge = await LegacyDB.merge()
-        const archive = merge.errors.length === 0 ? await LegacyDB.archive() : undefined
-        const fallback = await LegacyRepair.start({
-          mode: body?.mode ?? "auto",
-          force: body?.session ?? false,
-          status,
-          merge,
+        await LegacyDB.ensureTarget()
+        const files = status.files.map((file) => `- ${file.path}`).join("\n")
+        const task = await SessionTask.begin({
+          directory: status.directory,
+          title: "Legacy database merge",
+          prompt: [
+            "请识别当前目录顶层（不含子目录）中的所有 .db 文件。",
+            "请将用户历史对话信息合并到 aether-prod.db。",
+            "冲突策略：latest_wins（time_updated/updated_at/updated/time_created/created_at/created），时间相同按来源优先级与文件名稳定排序。",
+            "不要移动或删除任何历史 db 文件。",
+            "完成后请输出合并报告：成功库、失败库、冲突数。",
+            "文件列表：",
+            files || "- 无",
+          ].join("\n"),
         })
+
+        await LegacyDB.setArchiveState({
+          state: "running",
+          updated: Date.now(),
+        })
+
+        void task.done
+          .then(async () => {
+            const archive = await LegacyDB.archive()
+            await LegacyDB.setArchiveState({
+              state: "done",
+              updated: Date.now(),
+              result: archive,
+            })
+          })
+          .catch(async (error) => {
+            await LegacyDB.setArchiveState({
+              state: "error",
+              updated: Date.now(),
+              error: error instanceof Error ? error.message : String(error),
+            })
+          })
+
         return c.json({
           status,
-          merge,
-          archive,
-          sessionID: fallback.sessionID,
-          fallback,
+          sessionID: task.sessionID,
+          archive_state: await LegacyDB.archiveState(),
         })
       },
     ),

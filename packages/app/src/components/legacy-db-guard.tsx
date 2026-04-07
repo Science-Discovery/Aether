@@ -15,10 +15,15 @@ type Status = {
 
 type Merge = {
   sessionID?: string
-  archive?: {
+}
+
+type ArchiveState = {
+  state: "idle" | "running" | "done" | "error"
+  result?: {
     history: string
     clean: boolean
   }
+  error?: string
 }
 
 const retry_delays = [200, 400, 800, 1200, 1800, 2500]
@@ -84,6 +89,49 @@ export function LegacyDBGuard() {
         navigate(`/${dir}/session/${sessionID}`)
       }
 
+      const watch = async () => {
+        for (let i = 0; i < 120; i++) {
+          const state = await fetch(`${conn.url}/database/legacy/archive/state`, {
+            headers: head,
+            signal: abort.signal,
+          })
+            .then((x) => (x.ok ? x.json() : undefined))
+            .catch(() => undefined)
+          if (!state) {
+            await new Promise((resolve) => setTimeout(resolve, 2000))
+            continue
+          }
+          const info = state as ArchiveState
+          if (info.state === "running") {
+            await new Promise((resolve) => setTimeout(resolve, 2000))
+            continue
+          }
+          if (info.state === "done" && info.result?.history) {
+            showToast({
+              title: "旧会话记录已归档",
+              description: `旧会话记录被归档至 ${info.result.history}`,
+            })
+            if (!info.result.clean) {
+              showToast({
+                variant: "error",
+                title: "旧数据库文件未完全归档",
+                description: "请查看数据库目录并手动检查剩余 .db 文件。",
+              })
+            }
+            return
+          }
+          if (info.state === "error") {
+            showToast({
+              variant: "error",
+              title: "旧数据库归档失败",
+              description: info.error || "请查看后端服务日志。",
+            })
+            return
+          }
+          return
+        }
+      }
+
       showToast({
         persistent: true,
         icon: "download",
@@ -117,19 +165,7 @@ export function LegacyDBGuard() {
               }
               sessionStorage.setItem(key(conn.url), "1")
               const info = merge as Merge
-              if (info.archive?.history) {
-                showToast({
-                  title: "旧会话记录已归档",
-                  description: `旧会话记录被归档至 ${info.archive.history}`,
-                })
-                if (!info.archive.clean) {
-                  showToast({
-                    variant: "error",
-                    title: "旧数据库文件未完全归档",
-                    description: "请查看数据库目录并手动检查剩余 .db 文件。",
-                  })
-                }
-              }
+              void watch()
               open(info.sessionID)
             },
           },
