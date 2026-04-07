@@ -283,6 +283,7 @@ export const dict = {
   "dialog.fork.empty": "분기할 메시지 없음",
   "dialog.directory.search.placeholder": "폴더 검색",
   "dialog.directory.empty": "폴더 없음",
+  "dialog.directory.existingProjects": "기존 프로젝트",
   "dialog.server.title": "서버",
   "dialog.server.description": "이 앱이 연결할 OpenCode 서버를 전환합니다.",
   "dialog.server.search.placeholder": "서버 검색",

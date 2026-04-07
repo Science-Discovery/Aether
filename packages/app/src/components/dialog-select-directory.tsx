@@ -365,9 +365,19 @@ export function DialogSelectDirectory(props: DialogSelectDirectoryProps) {
 
   const items = async (value: string) => {
     const recentRows = recentProjects() // sync before await — tracks expanded() via memo
+
+    const raw = normalizeDriveRoot(cleanInput(value))
+    const isAbs = raw && rootOf(raw)
+    const filteredRecent = isAbs
+      ? recentRows.filter((row) => {
+          if (row.isExpander || row.isCollapser) return true
+          return row.absolute.toLowerCase().startsWith(trimTrailing(raw).toLowerCase())
+        })
+      : recentRows
+
     const results = await directories(value)
     const directoryRows = results.map((absolute) => toRow(absolute, home(), "folders"))
-    const rows = uniqueRows([...recentRows, ...directoryRows])
+    const rows = uniqueRows([...filteredRecent, ...directoryRows])
 
     if (value) {
       const resolved = resolveNewPath(value, home(), start() ?? "")
@@ -439,8 +449,8 @@ export function DialogSelectDirectory(props: DialogSelectDirectoryProps) {
         }}
         groupHeader={(group) => {
           if (group.category === "create") return language.t("dialog.newProject.createGroup")
-          if (group.category === "recent") return language.t("home.recentProjects")
-          return language.t("command.project.open")
+          if (group.category === "recent") return language.t("dialog.directory.existingProjects")
+          return language.t("dialog.newProject.title")
         }}
         ref={(r) => (list = r)}
         onFilter={(value) => {

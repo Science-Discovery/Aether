@@ -305,6 +305,7 @@ export const dict = {
 
   "dialog.directory.search.placeholder": "ค้นหาโฟลเดอร์",
   "dialog.directory.empty": "ไม่พบโฟลเดอร์",
+  "dialog.directory.existingProjects": "โปรเจกต์ที่มีอยู่",
 
   "dialog.server.title": "เซิร์ฟเวอร์",
   "dialog.server.description": "สลับเซิร์ฟเวอร์ OpenCode ที่แอปนี้เชื่อมต่อด้วย",
