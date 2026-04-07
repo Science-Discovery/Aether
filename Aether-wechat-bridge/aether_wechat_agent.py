@@ -298,7 +298,11 @@ class AetherAgent(Agent):
             return cached
         try:
             item = next(
-                (item for item in await self._get_projects() if self._project_dir(item) == directory),
+                (
+                    item
+                    for item in await self._get_projects()
+                    if self._project_dir(item) == directory
+                ),
                 None,
             )
             if item:
@@ -575,11 +579,7 @@ class AetherAgent(Agent):
             changed = False
             for directory, hide_time in list(self._hidden_dirs.items()):
                 item = next(
-                    (
-                        p
-                        for p in all_projects
-                        if self._project_dir(p) == directory
-                    ),
+                    (p for p in all_projects if self._project_dir(p) == directory),
                     None,
                 )
                 activity = (((item or {}).get("time") or {}).get("activity")) or 0
@@ -591,9 +591,7 @@ class AetherAgent(Agent):
                 self._save_hidden_dirs()
 
         projects = [
-            p
-            for p in all_projects
-            if self._project_dir(p) not in self._hidden_dirs
+            p for p in all_projects if self._project_dir(p) not in self._hidden_dirs
         ]
         current_dir = self._conv_dirs.get(conv_id) or self.directory
 
@@ -667,7 +665,9 @@ class AetherAgent(Agent):
             lines.append(f"{idx}. {self._project_name(item)}{tag}")
             lines.append(f"   {directory}")
         lines.append("")
-        lines.append("💡 /project n 切换 | /project list 查看全部 | /project hide n 隐藏")
+        lines.append(
+            "💡 /project n 切换 | /project list 查看全部 | /project hide n 隐藏"
+        )
         if self._hidden_dirs:
             lines.append(
                 f"ℹ️ 已隐藏 {len(self._hidden_dirs)} 个项目（重新使用后自动恢复）"
@@ -707,6 +707,7 @@ class AetherAgent(Agent):
             return
         if self._wechat_client:
             from wechat_agent_sdk.messaging.send import send_response as wechat_send
+
             ctx = self._wechat_ctx.get(conv_id, "")
             await wechat_send(
                 self._wechat_client, conv_id, ChatResponse(text=text), ctx
@@ -936,7 +937,9 @@ class AetherAgent(Agent):
                     try:
                         await self._send_to_conv(
                             conv_id,
-                            await self._wrap_message(text_so_far, session_id, directory),
+                            await self._wrap_message(
+                                text_so_far, session_id, directory
+                            ),
                         )
                     except Exception as e:
                         logger.warning(f"推送中间文本失败: {e}")
@@ -961,7 +964,9 @@ class AetherAgent(Agent):
                     try:
                         await self._send_to_conv(
                             conv_id,
-                            await self._wrap_message(text_so_far, session_id, directory),
+                            await self._wrap_message(
+                                text_so_far, session_id, directory
+                            ),
                         )
                     except Exception as e:
                         logger.warning(f"推送中间文本失败: {e}")
@@ -1173,7 +1178,9 @@ class AetherAgent(Agent):
                     suffix = "：" + desc if desc else ""
                     parts.append(f"  {j}. {label}{suffix}")
         parts.append("")
-        parts.append("请直接回复答案（可输入数字编号；若题目允许自定义，也可直接输入文本）。")
+        parts.append(
+            "请直接回复答案（可输入数字编号；若题目允许自定义，也可直接输入文本）。"
+        )
         parts.append("如需立即开始新问题，请先 /new 或切换 /session n。")
         return chr(10).join(parts)
 
@@ -1529,9 +1536,10 @@ class CustomWeChatBot(WeChatBot):
     """自定义 Bot，覆盖登录方法"""
 
     async def login(self, log=print) -> str:
-        stored_token = await self._storage.load_token(self._account_id)
+        transport = self._transport
+        stored_token = await transport._storage.load_token(transport.account_id)
         if stored_token:
-            self._client.token = stored_token
+            transport._client.token = stored_token
             log(f"[weixin] 使用已保存的 token")
             # 通知 Aether 已连接
             print(f"[登录成功] user: unknown (已保存的账号)")
@@ -1552,8 +1560,8 @@ class CustomWeChatBot(WeChatBot):
                     logger.warning(f"保存会话失败: {e}")
             return stored_token
 
-        token = await custom_login(self._client, log=log)
-        await self._storage.save_token(self._account_id, token)
+        token = await custom_login(transport._client, log=log)
+        await transport._storage.save_token(transport.account_id, token)
         return token
 
 
@@ -1589,7 +1597,7 @@ async def main():
         ),
     )
     # 把微信客户端传给 agent，让后台任务能直接投递消息
-    agent._wechat_client = bot._client
+    agent._wechat_client = bot._transport._client
 
     try:
         await bot.run(log=print)
