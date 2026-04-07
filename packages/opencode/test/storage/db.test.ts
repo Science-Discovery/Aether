@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test"
+import { rm } from "fs/promises"
 import path from "path"
 import { Global } from "../../src/global"
 import { Installation } from "../../src/installation"
@@ -7,8 +8,8 @@ import { Database } from "../../src/storage/db"
 describe("Database.Path", () => {
   test("returns database path for the current channel", () => {
     const expected = ["latest", "beta"].includes(Installation.CHANNEL)
-      ? path.join(Global.Path.data, "opencode.db")
-      : path.join(Global.Path.data, `opencode-${Installation.CHANNEL.replace(/[^a-zA-Z0-9._-]/g, "-")}.db`)
+      ? path.join(Global.Path.data, "aether.db")
+      : path.join(Global.Path.data, `aether-${Installation.CHANNEL.replace(/[^a-zA-Z0-9._-]/g, "-")}.db`)
     expect(Database.getChannelPath()).toBe(expected)
   })
 
@@ -26,5 +27,17 @@ describe("Database.Path", () => {
       path: Database.currentPath(),
       current: true,
     })
+  })
+
+  test("knownPaths only returns aether databases", async () => {
+    const one = path.join(Global.Path.data, "aether.db")
+    const two = path.join(Global.Path.data, "aether-local.db")
+    const old = path.join(Global.Path.data, "opencode.db")
+    await Promise.all([Bun.write(one, ""), Bun.write(two, ""), Bun.write(old, "")])
+    try {
+      expect(Database.knownPaths().sort()).toEqual([one, two].sort())
+    } finally {
+      await Promise.all([rm(one, { force: true }), rm(two, { force: true }), rm(old, { force: true })])
+    }
   })
 })
