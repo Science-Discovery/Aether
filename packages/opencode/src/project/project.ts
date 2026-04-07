@@ -167,7 +167,7 @@ export namespace Project {
           r.kind as kind,
           r.project_id as project_id,
           r.directory as directory,
-          r.activity_at as activity_at,
+          coalesce(sx.activity, 0) as activity_at,
           p.worktree as worktree,
           p.vcs as vcs,
           p.name as name,
@@ -176,9 +176,15 @@ export namespace Project {
           p.time_created as time_created,
           p.time_updated as time_updated,
           p.commands as commands,
-          (select count(*) from session s where s.directory = r.directory) as session_count
+          coalesce(sx.cnt, 0) as session_count
         from project_recent r
-        left join project p on p.id = r.project_id`,
+        left join project p on p.id = r.project_id
+        left join (
+          select directory, max(time_updated) as activity, count(*) as cnt
+          from session
+          where directory is not null and directory != '/'
+          group by directory
+        ) sx on sx.directory = r.directory`,
         )
         .all() as RecentRow[]
     }
