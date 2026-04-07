@@ -279,6 +279,7 @@ export const dict = {
   "dialog.fork.empty": "フォーク元のメッセージがありません",
   "dialog.directory.search.placeholder": "フォルダを検索",
   "dialog.directory.empty": "フォルダが見つかりません",
+  "dialog.directory.existingProjects": "既存のプロジェクト",
   "dialog.server.title": "サーバー",
   "dialog.server.description": "このアプリが接続するOpenCodeサーバーを切り替えます。",
   "dialog.server.search.placeholder": "サーバーを検索",

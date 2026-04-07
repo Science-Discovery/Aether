@@ -319,6 +319,7 @@ export const dict = {
   "dialog.directory.search.placeholder": "Search folders",
   "dialog.directory.empty": "No folders found",
   "dialog.directory.select": "Select folder",
+  "dialog.directory.existingProjects": "Existing projects",
 
   "app.server.unreachable": "Could not reach {{server}}",
   "app.server.retrying": "Retrying automatically...",
