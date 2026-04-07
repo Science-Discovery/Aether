@@ -1,6 +1,6 @@
 # CI/CD 与仓库自动化备忘
 
-本文档基于当前仓库 [`.github/workflows`](/home/dsjian/researches/Aether/.github/workflows) 与 [`.github/actions`](/home/dsjian/researches/Aether/.github/actions) 的实际配置整理。当前共存在 `22` 条 workflow，以及 `2` 个复用 action。
+本文档基于当前仓库 [`.github/workflows`](/home/dsjian/researches/Aether/.github/workflows) 与 [`.github/actions`](/home/dsjian/researches/Aether/.github/actions) 的实际配置整理。当前共存在 `19` 条 workflow，以及 `2` 个复用 action。
 
 需要先说明一点：这个仓库的 GitHub Actions 不只有传统意义上的 CI/CD，还包含了大量仓库治理、社区运营和 AI 自动化流程。所以更准确的分类是：
 
@@ -676,6 +676,7 @@
 #### `daily-issues-recap.yml`
 
 - 类型：社区日报
+- 状态：🚫 已删除（2026-04-07，仅保留文档说明作历史参考）
 - 触发：
   - 每天 `23:00 UTC`
   - `workflow_dispatch`
@@ -686,10 +687,13 @@
   - 生成 Discord 兼容摘要并通过 webhook 推送
 - 作用：
   - 让团队快速了解当天社区 issue 动态
+- 备注：
+  - 当前项目不再需要日报与 Discord 通知，因此已从实际 workflow 中移除
 
 #### `daily-pr-recap.yml`
 
 - 类型：社区日报
+- 状态：🚫 已删除（2026-04-07，仅保留文档说明作历史参考）
 - 触发：
   - 每天 `22:00 UTC`
   - `workflow_dispatch`
@@ -700,10 +704,13 @@
   - 生成 Discord 摘要并推送
 - 作用：
   - 帮助团队快速抓住当天最值得看的社区 PR
+- 备注：
+  - 当前项目不再需要日报与 Discord 通知，因此已从实际 workflow 中移除
 
 #### `stats.yml`
 
 - 类型：统计自动化
+- 状态：🚫 已删除（2026-04-07，仅保留文档说明作历史参考）
 - 触发：
   - 每天 `12:00 UTC`
   - `workflow_dispatch`
@@ -715,6 +722,7 @@
   - 维护下载统计等项目指标
 - 备注：
   - 只在 `anomalyco/opencode` 仓库中执行
+  - 当前项目不再需要这类项目统计报表，因此已从实际 workflow 中移除
 
 ## 复用 action
 
