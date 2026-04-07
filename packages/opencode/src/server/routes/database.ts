@@ -19,6 +19,10 @@ const MergeOutput = z.object({
   fallback: LegacyRepair.Output,
 })
 
+const PreferenceInput = z.object({
+  dismissed: z.boolean(),
+})
+
 export const DatabaseRoutes = lazy(() =>
   new Hono()
     .get(
@@ -40,6 +44,49 @@ export const DatabaseRoutes = lazy(() =>
       }),
       async (c) => {
         return c.json(await LegacyDB.status())
+      },
+    )
+    .get(
+      "/legacy/preference",
+      describeRoute({
+        summary: "Get legacy merge prompt preference",
+        description: "Get whether legacy merge prompt is permanently dismissed.",
+        operationId: "database.legacy.preference.get",
+        responses: {
+          200: {
+            description: "Legacy prompt preference",
+            content: {
+              "application/json": {
+                schema: resolver(LegacyDB.Preference),
+              },
+            },
+          },
+        },
+      }),
+      async (c) => {
+        return c.json(await LegacyDB.preference())
+      },
+    )
+    .patch(
+      "/legacy/preference",
+      describeRoute({
+        summary: "Update legacy merge prompt preference",
+        description: "Update whether legacy merge prompt is permanently dismissed.",
+        operationId: "database.legacy.preference.patch",
+        responses: {
+          200: {
+            description: "Updated legacy prompt preference",
+            content: {
+              "application/json": {
+                schema: resolver(LegacyDB.Preference),
+              },
+            },
+          },
+        },
+      }),
+      async (c) => {
+        const body = PreferenceInput.parse(await c.req.json())
+        return c.json(await LegacyDB.setPreference(body))
       },
     )
     .post(

@@ -3,11 +3,13 @@ import { useServer } from "@/context/server"
 import { useLayout } from "@/context/layout"
 import { useNavigate } from "@solidjs/router"
 import { base64Encode } from "@opencode-ai/util/encode"
+import { showToast } from "@opencode-ai/ui/toast"
 
 type Status = {
   directory: string
   has_legacy: boolean
   message: string
+  dismissed: boolean
   legacy_count: number
 }
 
@@ -24,8 +26,8 @@ function auth(input: { url: string; username?: string; password?: string }) {
   return head
 }
 
-function key(url: string, count: number) {
-  return `aether.legacy.prompt.${url}.${count}`
+function key(url: string) {
+  return `aether.legacy.prompt.once.${url}`
 }
 
 export function LegacyDBGuard() {
@@ -64,36 +66,97 @@ export function LegacyDBGuard() {
       if (!status) return
       const info = status as Status
       if (!info.has_legacy) return
-      if (localStorage.getItem(key(conn.url, info.legacy_count)) === "1") return
+      if (info.dismissed) return
+      if (sessionStorage.getItem(key(conn.url)) === "1") return
 
-      const yes = confirm("侦测到旧版本的数据文件，是否合并到新版本")
-      localStorage.setItem(key(conn.url, info.legacy_count), "1")
-      if (!yes) return
-
-      const merge = await fetch(`${conn.url}/database/legacy/merge`, {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          ...head,
-        },
-        body: JSON.stringify({
-          mode: "auto",
-          session: true,
-        }),
-        signal: abort.signal,
-      })
-        .then((x) => x.json())
-        .catch(() => undefined)
-      if (!merge) return
-      const sessionID = (merge as Merge).sessionID
-      layout.projects.open(info.directory)
-      server.projects.touch(info.directory)
-      const dir = base64Encode(info.directory)
-      if (!sessionID) {
-        navigate(`/${dir}`)
-        return
+      const open = (sessionID?: string) => {
+        layout.projects.open(info.directory)
+        server.projects.touch(info.directory)
+        const dir = base64Encode(info.directory)
+        if (!sessionID) {
+          navigate(`/${dir}`)
+          return
+        }
+        navigate(`/${dir}/session/${sessionID}`)
       }
-      navigate(`/${dir}/session/${sessionID}`)
+
+      showToast({
+        persistent: true,
+        icon: "download",
+        title: "侦测到旧版本的对话记录",
+        description: "是否全部合并到新版本的对话中?",
+        actions: [
+          {
+            label: "立即合并",
+            onClick: async () => {
+              const merge = await fetch(`${conn.url}/database/legacy/merge`, {
+                method: "POST",
+                headers: {
+                  "content-type": "application/json",
+                  ...head,
+                },
+                body: JSON.stringify({
+                  mode: "auto",
+                  session: true,
+                }),
+                signal: abort.signal,
+              })
+                .then((x) => (x.ok ? x.json() : undefined))
+                .catch(() => undefined)
+              if (!merge) {
+                showToast({
+                  variant: "error",
+                  title: "数据库合并启动失败",
+                  description: "请稍后重试或检查后端服务日志。",
+                })
+                return
+              }
+              sessionStorage.setItem(key(conn.url), "1")
+              open((merge as Merge).sessionID)
+            },
+          },
+          {
+            label: "取消",
+            onClick: () => {
+              showToast({
+                persistent: true,
+                icon: "download",
+                title: "侦测到旧版本的对话记录",
+                description: "已取消，是否下次开启Aether时执行对话记录合并。",
+                actions: [
+                  {
+                    label: "下一次提醒我",
+                    onClick: () => {
+                      sessionStorage.setItem(key(conn.url), "1")
+                    },
+                  },
+                  {
+                    label: "不再询问",
+                    onClick: async () => {
+                      await fetch(`${conn.url}/database/legacy/preference`, {
+                        method: "PATCH",
+                        headers: {
+                          "content-type": "application/json",
+                          ...head,
+                        },
+                        body: JSON.stringify({
+                          dismissed: true,
+                        }),
+                        signal: abort.signal,
+                      }).catch(() => undefined)
+                      sessionStorage.setItem(key(conn.url), "1")
+                      showToast({
+                        description:
+                          "已关闭，如需将对话合并到新版本请参考https://aether.aiphys.cn中的常见问题。",
+                      })
+                    },
+                  },
+                ],
+              })
+            },
+          },
+        ],
+      })
     }
 
     void run()

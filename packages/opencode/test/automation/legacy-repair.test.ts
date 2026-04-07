@@ -6,6 +6,7 @@ const status = {
   target: "/tmp/opencode/opencode-prod.db",
   has_legacy: true,
   message: "发现旧库",
+  dismissed: false,
   legacy_count: 1,
   files: [
     {
