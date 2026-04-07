@@ -77,21 +77,6 @@ export namespace Project {
   }
 
   type Row = typeof ProjectTable.$inferSelect
-  type RecentRow = {
-    kind: string | null
-    project_id: string | null
-    directory: string | null
-    activity_at: number | null
-    worktree: string | null
-    vcs: string | null
-    name: string | null
-    icon_url: string | null
-    icon_color: string | null
-    time_created: number | null
-    time_updated: number | null
-    commands: string | null
-    session_count: number | null
-  }
 
   type RecentEntry = {
     id: string
@@ -155,119 +140,22 @@ export namespace Project {
       .map(fromRow)
       .sort((a, b) => a.id.localeCompare(b.id))
   }
-
   function rawRecent(client: { prepare: (sql: string) => { all: () => unknown[]; get: () => unknown } }) {
-    const hasRecent = client
-      .prepare(`select 1 as ok from sqlite_master where type = 'table' and name = 'project_recent'`)
-      .get() as { ok?: number } | undefined
-    if (hasRecent?.ok) {
-      return client
-        .prepare(
-          `select
-          r.kind as kind,
-          r.project_id as project_id,
-          r.directory as directory,
-          coalesce(sx.activity, 0) as activity_at,
-          p.worktree as worktree,
-          p.vcs as vcs,
-          p.name as name,
-          p.icon_url as icon_url,
-          p.icon_color as icon_color,
-          p.time_created as time_created,
-          p.time_updated as time_updated,
-          p.commands as commands,
-          coalesce(sx.cnt, 0) as session_count
-        from project_recent r
-        left join project p on p.id = r.project_id
-        left join (
-          select directory, max(time_updated) as activity, count(*) as cnt
-          from session
-          where directory is not null and directory != '/'
-          group by directory
-        ) sx on sx.directory = r.directory`,
-        )
-        .all() as RecentRow[]
-    }
-
-    const ps = client
+    return client
       .prepare(
         `select
-        'project' as kind,
-        p.id as project_id,
-        p.worktree as directory,
-        max(coalesce(p.time_updated, 0), coalesce(p.time_created, 0), coalesce(s.time_updated, 0)) as activity_at,
-        p.worktree as worktree,
-        p.vcs as vcs,
-        p.name as name,
-        p.icon_url as icon_url,
-        p.icon_color as icon_color,
-        p.time_created as time_created,
-        p.time_updated as time_updated,
-        p.commands as commands,
-        (select count(*) from session s2 where s2.directory = p.worktree) as session_count
-      from project p
-      left join (
-        select directory, max(time_updated) as time_updated
-        from session
-        where directory is not null and directory != '/'
-        group by directory
-      ) s on s.directory = p.worktree
-      where p.worktree is not null and p.worktree != '/'`,
-      )
-      .all() as RecentRow[]
-    const ss = client
-      .prepare(
-        `select
-        'directory' as kind,
-        null as project_id,
-        directory as directory,
+        directory,
         max(time_updated) as activity_at,
-        null as worktree,
-        null as vcs,
-        null as name,
-        null as icon_url,
-        null as icon_color,
-        null as time_created,
-        null as time_updated,
-        null as commands,
         count(*) as session_count
       from session
       where directory is not null and directory != '/'
       group by directory`,
       )
-      .all() as RecentRow[]
-    return [...ps, ...ss]
-  }
-
-  function addRecent(map: Map<string, RecentEntry>, next: RecentEntry) {
-    const prev = map.get(next.id)
-    if (!prev) {
-      map.set(next.id, next)
-      return
-    }
-    const lead = next.time.activity >= prev.time.activity ? next : prev
-    const tail = lead === next ? prev : next
-    map.set(next.id, {
-      id: next.id,
-      kind: prev.kind === "project" || next.kind === "project" ? "project" : "directory",
-      projectID: lead.projectID ?? tail.projectID,
-      directory: lead.directory || tail.directory,
-      worktree: lead.worktree ?? tail.worktree,
-      vcs: lead.vcs ?? tail.vcs,
-      name: lead.name ?? tail.name,
-      icon: lead.icon ?? tail.icon,
-      commands: lead.commands ?? tail.commands,
-      time: {
-        activity: Math.max(prev.time.activity, next.time.activity),
-        created: lead.time.created ?? tail.time.created,
-        updated: lead.time.updated ?? tail.time.updated,
-      },
-    })
+      .all() as { directory: string; activity_at: number; session_count: number }[]
   }
 
   function recent() {
     const canon = canonical()
-    const byId = new Map(canon.map((item) => [item.id, item] as const))
     const byDir = new Map<string, Info>()
     for (const item of canon) {
       if (item.worktree) byDir.set(norm(item.worktree), item)
@@ -275,64 +163,35 @@ export namespace Project {
     }
 
     const map = new Map<string, RecentEntry>()
-    const read = (client: { prepare: (sql: string) => { all: () => unknown[]; get: () => unknown } }) => {
-      for (const row of rawRecent(client)) {
-        const dir = row.directory ?? row.worktree ?? undefined
-        if (!dir || skipDir(dir) || !row.session_count) continue
-        const known = (row.project_id && byId.get(ProjectID.make(row.project_id))) ?? byDir.get(norm(dir))
-        if (known && known.id !== ProjectID.global) {
-          addRecent(map, {
-            id: projectKey(known.id),
-            kind: "project",
-            projectID: known.id,
-            directory: known.worktree,
-            worktree: known.worktree,
-            vcs: known.vcs,
-            name: known.name ?? name(known.worktree),
-            icon: known.icon,
-            commands: known.commands,
-            time: {
-              activity: row.activity_at ?? 0,
-              created: known.time.created,
-              updated: known.time.updated,
-            },
-          })
-          continue
-        }
-
-        if (row.project_id && row.project_id !== ProjectID.global && row.worktree && !skipDir(row.worktree)) {
-          addRecent(map, {
-            id: projectKey(row.project_id),
-            kind: "project",
-            projectID: ProjectID.make(row.project_id),
-            directory: row.worktree,
-            worktree: row.worktree,
-            vcs: row.vcs ? Info.shape.vcs.parse(row.vcs) : undefined,
-            name: row.name ?? name(row.worktree),
-            icon: rowIcon(row),
-            commands: rowCommands(row),
-            time: {
-              activity: row.activity_at ?? 0,
-              created: row.time_created ?? undefined,
-              updated: row.time_updated ?? undefined,
-            },
-          })
-          continue
-        }
-
-        addRecent(map, {
-          id: dirID(dir),
-          kind: "directory",
-          directory: dir,
-          name: row.name ?? name(dir),
-          time: {
-            activity: row.activity_at ?? 0,
-          },
+    for (const row of rawRecent(Database.Client().$client)) {
+      if (skipDir(row.directory) || !row.session_count) continue
+      const known = byDir.get(norm(row.directory))
+      if (known && known.id !== ProjectID.global) {
+        const key = projectKey(known.id)
+        const prev = map.get(key)
+        const activity = Math.max(row.activity_at ?? 0, prev?.time?.activity ?? 0)
+        map.set(key, {
+          id: key,
+          kind: "project",
+          projectID: known.id,
+          directory: known.worktree,
+          worktree: known.worktree,
+          vcs: known.vcs,
+          name: known.name ?? name(known.worktree),
+          icon: known.icon,
+          commands: known.commands,
+          time: { activity, created: known.time.created, updated: known.time.updated },
         })
+        continue
       }
+      map.set(dirID(row.directory), {
+        id: dirID(row.directory),
+        kind: "directory",
+        directory: row.directory,
+        name: name(row.directory),
+        time: { activity: row.activity_at ?? 0 },
+      })
     }
-
-    read(Database.Client().$client)
 
     return [...map.values()]
       .sort((a, b) => b.time.activity - a.time.activity || a.directory.localeCompare(b.directory))
