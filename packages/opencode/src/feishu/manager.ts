@@ -332,7 +332,17 @@ class FeishuManagerImpl {
       const chatId = message.chat_id
       const messageId = message.message_id
       const rootId = message.root_id || message.parent_id || messageId
-      console.log("[feishu] message:", { chatId, messageId, type: message.message_type })
+      const chatType = message.chat_type // "p2p" or "group"
+      console.log("[feishu] message:", { chatId, messageId, type: message.message_type, chatType })
+
+      // In group chats, only respond when the bot is @mentioned
+      if (chatType === "group") {
+        const mentions = message.mentions
+        if (!mentions || !Array.isArray(mentions) || mentions.length === 0) {
+          console.log("[feishu] group message without @mention, ignoring")
+          return
+        }
+      }
 
       if (message.message_type !== "text") {
         await this.replyText(messageId, "暂时只支持文本消息")
