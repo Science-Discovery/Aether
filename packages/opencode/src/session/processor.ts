@@ -21,20 +21,6 @@ export namespace SessionProcessor {
   const DOOM_LOOP_THRESHOLD = 3
   const log = Log.create({ service: "session.processor" })
 
-  export function finish(input: unknown, hasTools: boolean) {
-    if (typeof input === "string" && input.trim()) return input
-    if (input && typeof input === "object") {
-      const item = input as Record<string, unknown>
-      if (typeof item.reason === "string" && item.reason.trim()) return item.reason
-      if (typeof item.type === "string" && item.type.trim()) return item.type
-      if (typeof item.finishReason === "string" && item.finishReason.trim()) return item.finishReason
-    }
-    if (input !== undefined && input !== null) {
-      log.warn("unexpected finish reason", { input })
-    }
-    return hasTools ? "tool-calls" : "stop"
-  }
-
   export type Info = Awaited<ReturnType<typeof create>>
   export type Result = Awaited<ReturnType<Info["process"]>>
 
@@ -257,18 +243,17 @@ export namespace SessionProcessor {
                   break
 
                 case "finish-step":
-                  const finish = SessionProcessor.finish(value.finishReason, Object.keys(toolcalls).length > 0)
                   const usage = Session.getUsage({
                     model: input.model,
                     usage: value.usage,
                     metadata: value.providerMetadata,
                   })
-                  input.assistantMessage.finish = finish
+                  input.assistantMessage.finish = value.finishReason
                   input.assistantMessage.cost += usage.cost
                   input.assistantMessage.tokens = usage.tokens
                   await Session.updatePart({
                     id: PartID.ascending(),
-                    reason: finish,
+                    reason: value.finishReason,
                     snapshot: await Snapshot.track(),
                     messageID: input.assistantMessage.id,
                     sessionID: input.assistantMessage.sessionID,
