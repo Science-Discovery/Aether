@@ -172,18 +172,7 @@ async function initialize() {
   const loadingTask = (async () => {
     logger.log("sidecar connection started", { url })
 
-    events.on("sqlite", (progress: SqliteMigrationProgress) => {
-      setInitStep({ phase: "sqlite_waiting" })
-      if (overlay) sendSqliteMigrationProgress(overlay, progress)
-      if (mainWindow) sendSqliteMigrationProgress(mainWindow, progress)
-      if (progress.type === "Done") sqliteDone?.resolve()
-    })
-
-    if (needsMigration) {
-      await sqliteDone?.promise
-    }
-
-    await Promise.race([
+    const probe = Promise.race([
       health.wait,
       delay(30_000).then(() => {
         throw new Error("Sidecar health check timed out")
@@ -192,6 +181,19 @@ async function initialize() {
       logger.error("sidecar health check failed", error)
       sidecarFailed = true
     })
+
+    events.on("sqlite", (progress: SqliteMigrationProgress) => {
+      setInitStep({ phase: "sqlite_waiting" })
+      if (overlay) sendSqliteMigrationProgress(overlay, progress)
+      if (mainWindow) sendSqliteMigrationProgress(mainWindow, progress)
+      if (progress.type === "Done") sqliteDone?.resolve()
+    })
+
+    if (needsMigration) {
+      await Promise.race([sqliteDone!.promise, probe])
+    }
+
+    await probe
 
     logger.log("loading task finished")
   })()
@@ -371,9 +373,13 @@ async function getSidecarPort() {
 }
 
 function sqliteFileExists() {
+  const file = CHANNEL === "beta" ? "aether.db" : `aether-${CHANNEL}.db`
+  if (process.platform === "darwin" || process.platform === "win32") {
+    return existsSync(join(app.getPath("appData"), "opencode", file))
+  }
   const xdg = process.env.XDG_DATA_HOME
   const base = xdg && xdg.length > 0 ? xdg : join(homedir(), ".local", "share")
-  return existsSync(join(base, "opencode", "aether.db"))
+  return existsSync(join(base, "opencode", file))
 }
 
 function setupAutoUpdater() {
