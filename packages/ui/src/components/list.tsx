@@ -308,7 +308,7 @@ export function List<T>(props: ListProps<T> & { ref?: (ref: ListRef) => void }) 
                 icon="circle-x"
                 variant="ghost"
                 onClick={() => {
-                  setInternalFilter("")
+                  applyFilter("")
                   queueMicrotask(() => inputRef?.focus())
                 }}
                 aria-label={i18n.t("ui.list.clearFilter")}
