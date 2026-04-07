@@ -8,6 +8,7 @@ import { Log } from "@/util/log"
 const log = Log.create({ service: "legacy-db" })
 
 const target_file = "opencode-prod.db"
+const pref_file = "legacy-db.json"
 const time_cols = ["time_updated", "updated_at", "updated", "time_created", "created_at", "created"] as const
 const low = "-9223372036854775808"
 
@@ -21,6 +22,10 @@ function lit(text: string) {
 
 function dbPath(name: string) {
   return path.join(Global.Path.data, name)
+}
+
+function prefPath() {
+  return path.join(Global.Path.state, pref_file)
 }
 
 function channel(name: string) {
@@ -136,10 +141,15 @@ export namespace LegacyDB {
     target: z.string(),
     has_legacy: z.boolean(),
     message: z.string(),
+    dismissed: z.boolean(),
     legacy_count: z.number(),
     files: File.array(),
     naming: z.record(z.string(), z.number()),
     versions: z.record(z.string(), z.number()),
+  })
+
+  export const Preference = z.object({
+    dismissed: z.boolean(),
   })
 
   export const Merge = z.object({
@@ -153,6 +163,27 @@ export namespace LegacyDB {
 
   export type Status = z.infer<typeof Status>
   export type Merge = z.infer<typeof Merge>
+  export type Preference = z.infer<typeof Preference>
+
+  export async function preference(): Promise<Preference> {
+    const raw = await fs.readFile(prefPath(), "utf-8").catch(() => "")
+    if (!raw) return { dismissed: false }
+    let json: unknown
+    try {
+      json = JSON.parse(raw)
+    } catch {
+      return { dismissed: false }
+    }
+    const next = Preference.safeParse(json)
+    if (!next.success) return { dismissed: false }
+    return next.data
+  }
+
+  export async function setPreference(input: Preference) {
+    const pref = Preference.parse(input)
+    await fs.writeFile(prefPath(), JSON.stringify(pref, null, 2), "utf-8")
+    return pref
+  }
 
   export function targetPath() {
     return dbPath(target_file)
@@ -189,11 +220,14 @@ export namespace LegacyDB {
       return acc
     }, {})
 
+    const pref = await preference()
+
     return {
       directory: dir,
       target: targetPath(),
       has_legacy: old.length > 0,
       message: old.length > 0 ? "发现旧库" : "未发现旧库",
+      dismissed: pref.dismissed,
       legacy_count: old.length,
       files: old.sort((a, b) => a.name.localeCompare(b.name)),
       naming,
