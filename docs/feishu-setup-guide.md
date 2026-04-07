@@ -53,6 +53,7 @@ Aether 支持通过飞书进行对话，体验与微信连接一致：
 |------|------|
 | `im:message` | 获取与发送消息 |
 | `im:message:send_as_bot` | 以机器人身份发送消息 |
+| `im:message.p2p_msg:readonly` | 读取私聊消息 |
 
 ### 第五步：发布应用
 
