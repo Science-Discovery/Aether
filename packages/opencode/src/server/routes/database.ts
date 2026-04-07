@@ -15,6 +15,7 @@ const MergeInput = z
 const MergeOutput = z.object({
   status: LegacyDB.Status,
   merge: LegacyDB.Merge,
+  archive: LegacyDB.Archive.optional(),
   sessionID: LegacyRepair.Output.shape.sessionID.optional(),
   fallback: LegacyRepair.Output,
 })
@@ -93,7 +94,7 @@ export const DatabaseRoutes = lazy(() =>
       "/legacy/merge",
       describeRoute({
         summary: "Merge legacy databases",
-        description: "Merge all legacy databases into opencode-prod.db without moving source files.",
+        description: "Merge all legacy databases into aether-prod.db and archive old database files.",
         operationId: "database.legacy.merge",
         responses: {
           200: {
@@ -110,6 +111,7 @@ export const DatabaseRoutes = lazy(() =>
         const body = MergeInput.parse(await c.req.json().catch(() => undefined))
         const status = await LegacyDB.status()
         const merge = await LegacyDB.merge()
+        const archive = merge.errors.length === 0 ? await LegacyDB.archive() : undefined
         const fallback = await LegacyRepair.start({
           mode: body?.mode ?? "auto",
           force: body?.session ?? false,
@@ -119,6 +121,7 @@ export const DatabaseRoutes = lazy(() =>
         return c.json({
           status,
           merge,
+          archive,
           sessionID: fallback.sessionID,
           fallback,
         })

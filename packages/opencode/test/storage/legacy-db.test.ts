@@ -9,7 +9,7 @@ async function clean() {
   const rows = await fs.readdir(Global.Path.data, { withFileTypes: true }).catch(() => [])
   await Promise.all(
     rows
-      .filter((row) => row.isFile() && /^opencode.*\.db$/i.test(row.name))
+      .filter((row) => row.isFile() && /^(opencode|aether).*\.db$/i.test(row.name))
       .map((row) => fs.rm(path.join(Global.Path.data, row.name), { force: true })),
   )
 }
@@ -46,7 +46,7 @@ describe("LegacyDB", () => {
     expect(info.versions["0.2.0"]).toBe(1)
   })
 
-  test("merges into opencode-prod.db with latest_wins", async () => {
+  test("merges into aether-prod.db with latest_wins", async () => {
     create(path.join(Global.Path.data, "opencode-dev.db"), [
       { id: "s1", title: "old", version: "0.1.0", time: 100 },
       { id: "s2", title: "keep", version: "0.1.0", time: 100 },
@@ -80,5 +80,20 @@ describe("LegacyDB", () => {
     const oldB = await fs.stat(path.join(Global.Path.data, "opencode-local.db")).catch(() => undefined)
     expect(!!oldA).toBeTrue()
     expect(!!oldB).toBeTrue()
+  })
+
+  test("archives legacy db files after merge", async () => {
+    create(path.join(Global.Path.data, "opencode-dev.db"), [{ id: "x", title: "dev", version: "0.1.0", time: 1 }])
+    create(path.join(Global.Path.data, "opencode-local.db"), [{ id: "y", title: "local", version: "0.2.0", time: 2 }])
+
+    await LegacyDB.merge()
+    const arc = await LegacyDB.archive()
+    expect(arc.clean).toBeTrue()
+    expect(arc.moved.length).toBe(2)
+
+    const left = await fs.readdir(Global.Path.data)
+    const dbs = left.filter((item) => item.endsWith(".db"))
+    expect(dbs.includes("aether-prod.db")).toBeTrue()
+    expect(dbs.length).toBe(1)
   })
 })

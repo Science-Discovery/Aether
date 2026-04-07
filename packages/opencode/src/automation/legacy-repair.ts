@@ -35,7 +35,7 @@ export namespace LegacyRepair {
     return [
       "侦测到旧版本数据库合并存在失败项，请执行兜底修复。",
       "仅处理当前目录顶层（不含子目录）中的 .db 文件。",
-      "目标是将用户历史信息汇总到 opencode-prod.db。",
+      "目标是将用户历史信息汇总到 aether-prod.db。",
       "优先策略：latest_wins（time_updated/updated_at/updated/time_created/created_at/created），时间相同时按来源优先级与文件名稳定排序。",
       "若遇到约束错误，请先识别缺失字段或依赖表并做最小修复后继续合并。",
       "不要移动或删除任何历史 db 文件。",

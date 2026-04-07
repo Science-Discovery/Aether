@@ -15,6 +15,10 @@ type Status = {
 
 type Merge = {
   sessionID?: string
+  archive?: {
+    history: string
+    clean: boolean
+  }
 }
 
 const retry_delays = [200, 400, 800, 1200, 1800, 2500]
@@ -112,7 +116,21 @@ export function LegacyDBGuard() {
                 return
               }
               sessionStorage.setItem(key(conn.url), "1")
-              open((merge as Merge).sessionID)
+              const info = merge as Merge
+              if (info.archive?.history) {
+                showToast({
+                  title: "旧会话记录已归档",
+                  description: `旧会话记录被归档至 ${info.archive.history}`,
+                })
+                if (!info.archive.clean) {
+                  showToast({
+                    variant: "error",
+                    title: "旧数据库文件未完全归档",
+                    description: "请查看数据库目录并手动检查剩余 .db 文件。",
+                  })
+                }
+              }
+              open(info.sessionID)
             },
           },
           {
@@ -147,7 +165,7 @@ export function LegacyDBGuard() {
                       sessionStorage.setItem(key(conn.url), "1")
                       showToast({
                         description:
-                          "已关闭，如需将对话合并到新版本请参考https://aether.aiphys.cn中的常见问题。",
+                          "已关闭询问，如需将对话合并到新版本请参考https://aether.aiphys.cn中的常见问题。",
                       })
                     },
                   },

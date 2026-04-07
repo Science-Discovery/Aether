@@ -7,7 +7,7 @@ import { Log } from "@/util/log"
 
 const log = Log.create({ service: "legacy-db" })
 
-const target_file = "opencode-prod.db"
+const target_file = "aether-prod.db"
 const pref_file = "legacy-db.json"
 const time_cols = ["time_updated", "updated_at", "updated", "time_created", "created_at", "created"] as const
 const low = "-9223372036854775808"
@@ -28,11 +28,15 @@ function prefPath() {
   return path.join(Global.Path.state, pref_file)
 }
 
+function isdb(name: string) {
+  return /^(opencode|aether).*\.db$/i.test(name)
+}
+
 function channel(name: string) {
   const file = path.basename(name)
-  if (!file.toLowerCase().startsWith("opencode") || !file.toLowerCase().endsWith(".db")) return "unknown"
-  if (file.toLowerCase() === "opencode.db") return "latest"
   if (file.toLowerCase() === target_file) return "prod"
+  if (!isdb(file)) return "unknown"
+  if (file.toLowerCase() === "opencode.db") return "latest"
   const match = /^opencode-(.+)\.db$/i.exec(file)
   if (!match) return "unknown"
   return match[1]
@@ -161,9 +165,36 @@ export namespace LegacyDB {
     errors: z.array(z.string()),
   })
 
+  export const Archive = z.object({
+    history: z.string(),
+    moved: z.array(z.string()),
+    skipped: z.array(z.string()),
+    remaining: z.array(z.string()),
+    clean: z.boolean(),
+  })
+
   export type Status = z.infer<typeof Status>
   export type Merge = z.infer<typeof Merge>
   export type Preference = z.infer<typeof Preference>
+  export type Archive = z.infer<typeof Archive>
+
+  async function scan() {
+    const dir = Global.Path.data
+    const rows = await fs.readdir(dir, { withFileTypes: true }).catch(() => [])
+    return Promise.all(
+      rows
+        .filter((row) => row.isFile() && isdb(row.name))
+        .map(async (row) => {
+          const file = path.join(dir, row.name)
+          return {
+            name: row.name,
+            path: file,
+            channel: channel(row.name),
+            mtime: await mod(file),
+          }
+        }),
+    )
+  }
 
   export async function preference(): Promise<Preference> {
     const raw = await fs.readFile(prefPath(), "utf-8").catch(() => "")
@@ -191,20 +222,7 @@ export namespace LegacyDB {
 
   export async function status(): Promise<Status> {
     const dir = Global.Path.data
-    const rows = await fs.readdir(dir, { withFileTypes: true }).catch(() => [])
-    const files = await Promise.all(
-      rows
-        .filter((row) => row.isFile() && /^opencode.*\.db$/i.test(row.name))
-        .map(async (row) => {
-          const file = path.join(dir, row.name)
-          return {
-            name: row.name,
-            path: file,
-            channel: channel(row.name),
-            mtime: await mod(file),
-          }
-        }),
-    )
+    const files = await scan()
     const old = files.filter((file) => file.name.toLowerCase() !== target_file)
 
     const naming = old.reduce<Record<string, number>>((acc, file) => {
@@ -325,6 +343,46 @@ export namespace LegacyDB {
       changes: total,
       skipped,
       errors,
+    }
+  }
+
+  export async function archive(): Promise<Archive> {
+    const status = await LegacyDB.status()
+    const history = path.join(status.directory, "history_database")
+    await fs.mkdir(history, { recursive: true })
+    const moved: string[] = []
+    const skipped: string[] = []
+
+    const unique = async (file: string) => {
+      const ext = path.extname(file)
+      const name = path.basename(file, ext)
+      let next = path.join(history, file)
+      let i = 0
+      while (await fs.stat(next).then(() => true).catch(() => false)) {
+        i += 1
+        next = path.join(history, `${name}-${Date.now()}-${i}${ext}`)
+      }
+      return next
+    }
+
+    for (const file of status.files) {
+      const src = path.join(status.directory, file.name)
+      const dst = await unique(file.name)
+      try {
+        await fs.rename(src, dst)
+        moved.push(dst)
+      } catch {
+        skipped.push(src)
+      }
+    }
+
+    const rest = (await scan()).filter((item) => item.name.toLowerCase() !== target_file).map((item) => item.path)
+    return {
+      history,
+      moved,
+      skipped,
+      remaining: rest,
+      clean: rest.length === 0,
     }
   }
 }
