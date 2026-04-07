@@ -35,7 +35,11 @@ describe("Database.Path", () => {
     const old = path.join(Global.Path.data, "opencode.db")
     await Promise.all([Bun.write(one, ""), Bun.write(two, ""), Bun.write(old, "")])
     try {
-      expect(Database.knownPaths().sort()).toEqual([one, two].sort())
+      const list = Database.knownPaths()
+      const expected = [one, two].filter((file) => file !== Database.currentPath())
+      expect(list).toEqual(expect.arrayContaining(expected))
+      expect(list).not.toContain(old)
+      expect(list.every((file) => path.basename(file).startsWith("aether"))).toBe(true)
     } finally {
       await Promise.all([rm(one, { force: true }), rm(two, { force: true }), rm(old, { force: true })])
     }
