@@ -286,6 +286,8 @@ export const dict = {
   "dialog.directory.search.placeholder": "Ordner durchsuchen",
   "dialog.directory.empty": "Keine Ordner gefunden",
   "dialog.directory.existingProjects": "Bestehende Projekte",
+  "dialog.directory.browse": "Durchsuchen",
+  "dialog.directory.confirm": "Bestätigen",
   "dialog.server.title": "Server",
   "dialog.server.description": "Wechseln Sie den OpenCode-Server, mit dem sich diese App verbindet.",
   "dialog.server.search.placeholder": "Server durchsuchen",

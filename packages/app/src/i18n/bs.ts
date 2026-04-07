@@ -307,6 +307,8 @@ export const dict = {
   "dialog.directory.search.placeholder": "Pretraži foldere",
   "dialog.directory.empty": "Nema pronađenih foldera",
   "dialog.directory.existingProjects": "Postojeći projekti",
+  "dialog.directory.browse": "Pregledaj",
+  "dialog.directory.confirm": "Potvrdi",
 
   "dialog.server.title": "Serveri",
   "dialog.server.description": "Promijeni na koji se OpenCode server ova aplikacija povezuje.",
