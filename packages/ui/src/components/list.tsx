@@ -18,6 +18,7 @@ export interface ListSearchProps {
   autofocus?: boolean
   hideIcon?: boolean
   class?: string
+  prefix?: JSX.Element
   action?: JSX.Element
 }
 
@@ -89,6 +90,7 @@ export function List<T>(props: ListProps<T> & { ref?: (ref: ListRef) => void }) 
   const { filter, grouped, flat, active, setActive, onKeyDown, onInput, refetch } = useFilteredList<T>(props)
 
   const searchProps = () => (typeof props.search === "object" ? props.search : {})
+  const searchPrefix = () => searchProps().prefix
   const searchAction = () => searchProps().action
   const addProps = () => props.add
   const showAdd = () => !!addProps()
@@ -263,6 +265,7 @@ export function List<T>(props: ListProps<T> & { ref?: (ref: ListRef) => void }) 
     <div data-component="list" classList={{ [props.class ?? ""]: !!props.class }}>
       <Show when={!!props.search}>
         <div data-slot="list-search-wrapper">
+          {searchPrefix()}
           <div
             data-slot="list-search"
             classList={{ [searchProps().class ?? ""]: !!searchProps().class }}

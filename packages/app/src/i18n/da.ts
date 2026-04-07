@@ -305,6 +305,8 @@ export const dict = {
   "dialog.directory.search.placeholder": "Søg mapper",
   "dialog.directory.empty": "Ingen mapper fundet",
   "dialog.directory.existingProjects": "Eksisterende projekter",
+  "dialog.directory.browse": "Gennemse",
+  "dialog.directory.confirm": "Bekræft",
 
   "dialog.server.title": "Servere",
   "dialog.server.description": "Skift hvilken OpenCode-server denne app forbinder til.",
