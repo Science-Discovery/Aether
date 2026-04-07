@@ -90,6 +90,7 @@ export namespace Project {
     time_created: number | null
     time_updated: number | null
     commands: string | null
+    session_count: number | null
   }
 
   type RecentEntry = {
@@ -135,10 +136,7 @@ export namespace Project {
     return ["/bin", "/dist", "\\bin", "\\dist"].some((item) => next.endsWith(item))
   }
 
-  function rowIcon(row: {
-    icon_url?: string | null
-    icon_color?: string | null
-  }) {
+  function rowIcon(row: { icon_url?: string | null; icon_color?: string | null }) {
     if (!row.icon_url && !row.icon_color) return
     return {
       url: row.icon_url ?? undefined,
@@ -163,8 +161,9 @@ export namespace Project {
       .prepare(`select 1 as ok from sqlite_master where type = 'table' and name = 'project_recent'`)
       .get() as { ok?: number } | undefined
     if (hasRecent?.ok) {
-      return client.prepare(
-        `select
+      return client
+        .prepare(
+          `select
           r.kind as kind,
           r.project_id as project_id,
           r.directory as directory,
@@ -176,14 +175,17 @@ export namespace Project {
           p.icon_color as icon_color,
           p.time_created as time_created,
           p.time_updated as time_updated,
-          p.commands as commands
+          p.commands as commands,
+          (select count(*) from session s where s.directory = r.directory) as session_count
         from project_recent r
         left join project p on p.id = r.project_id`,
-      ).all() as RecentRow[]
+        )
+        .all() as RecentRow[]
     }
 
-    const ps = client.prepare(
-      `select
+    const ps = client
+      .prepare(
+        `select
         'project' as kind,
         p.id as project_id,
         p.worktree as directory,
@@ -195,7 +197,8 @@ export namespace Project {
         p.icon_color as icon_color,
         p.time_created as time_created,
         p.time_updated as time_updated,
-        p.commands as commands
+        p.commands as commands,
+        (select count(*) from session s2 where s2.directory = p.worktree) as session_count
       from project p
       left join (
         select directory, max(time_updated) as time_updated
@@ -204,9 +207,11 @@ export namespace Project {
         group by directory
       ) s on s.directory = p.worktree
       where p.worktree is not null and p.worktree != '/'`,
-    ).all() as RecentRow[]
-    const ss = client.prepare(
-      `select
+      )
+      .all() as RecentRow[]
+    const ss = client
+      .prepare(
+        `select
         'directory' as kind,
         null as project_id,
         directory as directory,
@@ -218,11 +223,13 @@ export namespace Project {
         null as icon_color,
         null as time_created,
         null as time_updated,
-        null as commands
+        null as commands,
+        count(*) as session_count
       from session
       where directory is not null and directory != '/'
       group by directory`,
-    ).all() as RecentRow[]
+      )
+      .all() as RecentRow[]
     return [...ps, ...ss]
   }
 
@@ -265,7 +272,7 @@ export namespace Project {
     const read = (client: { prepare: (sql: string) => { all: () => unknown[]; get: () => unknown } }) => {
       for (const row of rawRecent(client)) {
         const dir = row.directory ?? row.worktree ?? undefined
-        if (!dir || skipDir(dir)) continue
+        if (!dir || skipDir(dir) || !row.session_count) continue
         const known = (row.project_id && byId.get(ProjectID.make(row.project_id))) ?? byDir.get(norm(dir))
         if (known && known.id !== ProjectID.global) {
           addRecent(map, {
@@ -319,13 +326,7 @@ export namespace Project {
       }
     }
 
-    Database.withSources((source) => {
-      try {
-        read(source.client)
-      } catch (error) {
-        log.warn("recent scan failed", { path: source.path, current: source.current, error })
-      }
-    })
+    read(Database.Client().$client)
 
     return [...map.values()]
       .sort((a, b) => b.time.activity - a.time.activity || a.directory.localeCompare(b.directory))
