@@ -303,7 +303,7 @@ export const dict = {
   "dialog.fork.empty": "Ingen beskeder at forgrene fra",
 
   "dialog.directory.search.placeholder": "Søg mapper",
-  "dialog.directory.empty": "Ingen mapper fundet",
+  "dialog.directory.empty": "Ingen undermapper i denne mappe",
   "dialog.directory.existingProjects": "Eksisterende projekter",
   "dialog.directory.browse": "Gennemse",
   "dialog.directory.confirm": "Bekræft",

@@ -304,7 +304,7 @@ export const dict = {
   "dialog.fork.empty": "No hay mensajes desde donde bifurcar",
 
   "dialog.directory.search.placeholder": "Buscar carpetas",
-  "dialog.directory.empty": "No se encontraron carpetas",
+  "dialog.directory.empty": "No hay subcarpetas en este directorio",
   "dialog.directory.existingProjects": "Proyectos existentes",
   "dialog.directory.browse": "Examinar",
   "dialog.directory.confirm": "Confirmar",

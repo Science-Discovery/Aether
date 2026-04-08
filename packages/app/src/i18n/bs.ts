@@ -305,7 +305,7 @@ export const dict = {
   "dialog.fork.empty": "Nema poruka za fork",
 
   "dialog.directory.search.placeholder": "Pretraži foldere",
-  "dialog.directory.empty": "Nema pronađenih foldera",
+  "dialog.directory.empty": "Nema podfoldera u ovom direktoriju",
   "dialog.directory.existingProjects": "Postojeći projekti",
   "dialog.directory.browse": "Pregledaj",
   "dialog.directory.confirm": "Potvrdi",

@@ -282,7 +282,7 @@ export const dict = {
   "mcp.status.disabled": "비활성화됨",
   "dialog.fork.empty": "분기할 메시지 없음",
   "dialog.directory.search.placeholder": "폴더 검색",
-  "dialog.directory.empty": "폴더 없음",
+  "dialog.directory.empty": "이 디렉토리에 하위 폴다 없음",
   "dialog.directory.existingProjects": "기존 프로젝트",
   "dialog.directory.browse": "찾아보기",
   "dialog.directory.confirm": "확인",

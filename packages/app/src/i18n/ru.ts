@@ -304,7 +304,7 @@ export const dict = {
   "dialog.fork.empty": "Нет сообщений для ответвления",
 
   "dialog.directory.search.placeholder": "Поиск папок",
-  "dialog.directory.empty": "Папки не найдены",
+  "dialog.directory.empty": "В этой директории нет подпапок",
   "dialog.directory.existingProjects": "Существующие проекты",
   "dialog.directory.browse": "Обзор",
   "dialog.directory.confirm": "Подтвердить",

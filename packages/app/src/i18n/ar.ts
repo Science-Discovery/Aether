@@ -279,7 +279,7 @@ export const dict = {
   "mcp.status.disabled": "معطل",
   "dialog.fork.empty": "لا توجد رسائل للتفرع منها",
   "dialog.directory.search.placeholder": "البحث في المجلدات",
-  "dialog.directory.empty": "لم يتم العثور على مجلدات",
+  "dialog.directory.empty": "لا توجد مجلدات فرعية في هذا المجلد",
   "dialog.directory.existingProjects": "المشاريع الموجودة",
   "dialog.directory.browse": "استعراض",
   "dialog.directory.confirm": "تأكيد",

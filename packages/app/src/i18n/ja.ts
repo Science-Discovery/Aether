@@ -278,7 +278,7 @@ export const dict = {
   "mcp.status.disabled": "無効",
   "dialog.fork.empty": "フォーク元のメッセージがありません",
   "dialog.directory.search.placeholder": "フォルダを検索",
-  "dialog.directory.empty": "フォルダが見つかりません",
+  "dialog.directory.empty": "このディレクトリにサブフォルダはありません",
   "dialog.directory.existingProjects": "既存のプロジェクト",
   "dialog.directory.browse": "参照",
   "dialog.directory.confirm": "確認",

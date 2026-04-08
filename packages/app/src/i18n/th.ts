@@ -304,7 +304,7 @@ export const dict = {
   "dialog.fork.empty": "ไม่มีข้อความให้แตกแขนง",
 
   "dialog.directory.search.placeholder": "ค้นหาโฟลเดอร์",
-  "dialog.directory.empty": "ไม่พบโฟลเดอร์",
+  "dialog.directory.empty": "ไม่มีโฟลเดอร์ย่อยในไดเรกทอรีนี้",
   "dialog.directory.existingProjects": "โปรเจกต์ที่มีอยู่",
   "dialog.directory.browse": "เรียกดู",
   "dialog.directory.confirm": "ยืนยัน",
