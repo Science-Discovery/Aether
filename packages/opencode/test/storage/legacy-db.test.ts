@@ -29,35 +29,34 @@ describe("LegacyDB", () => {
     await clean()
   })
 
-  test("reports legacy database stats", async () => {
-    create(path.join(Global.Path.data, "opencode-dev.db"), [
-      { id: "a", title: "dev", version: "0.1.0", time: 100 },
-    ])
-    create(path.join(Global.Path.data, "opencode-local.db"), [
-      { id: "b", title: "local", version: "0.2.0", time: 120 },
-    ])
-
+  test("reports auto-merge status when target is missing", async () => {
+    create(path.join(Global.Path.data, "opencode-dev.db"), [{ id: "a", title: "dev", version: "0.1.0", time: 1 }])
     const info = await LegacyDB.status()
-    expect(info.has_legacy).toBeTrue()
-    expect(info.legacy_count).toBe(2)
-    expect(info.naming["dev"]).toBe(1)
-    expect(info.naming["local"]).toBe(1)
-    expect(info.versions["0.1.0"]).toBe(1)
-    expect(info.versions["0.2.0"]).toBe(1)
+    expect(info.should_merge).toBeTrue()
+    expect(info.source_count).toBe(1)
+    expect(info.target.endsWith("aether-prod.db")).toBeTrue()
   })
 
-  test("archives legacy db files after merge", async () => {
-    create(path.join(Global.Path.data, "opencode-dev.db"), [{ id: "x", title: "dev", version: "0.1.0", time: 1 }])
-    create(path.join(Global.Path.data, "opencode-local.db"), [{ id: "y", title: "local", version: "0.2.0", time: 2 }])
-
-    await LegacyDB.ensureTarget()
-    const arc = await LegacyDB.archive()
-    expect(arc.clean).toBeTrue()
-    expect(arc.moved.length).toBe(2)
-
+  test("copies single source into target and keeps source db intact", async () => {
+    create(path.join(Global.Path.data, "opencode-dev.db"), [{ id: "a", title: "dev", version: "0.1.0", time: 1 }])
+    await LegacyDB.copySource()
+    const db = new Sqlite(LegacyDB.targetPath(), { readonly: true })
+    const row = db.query("select id, title from session where id='a'").get() as { id: string; title: string }
+    db.close()
+    expect(row.title).toBe("dev")
     const left = await fs.readdir(Global.Path.data)
     const dbs = left.filter((item) => item.endsWith(".db"))
     expect(dbs.includes("aether-prod.db")).toBeTrue()
-    expect(dbs.length).toBe(1)
+    expect(dbs.includes("opencode-dev.db")).toBeTrue()
+    expect(dbs.length).toBe(2)
+  })
+
+  test("does not re-trigger merge once target exists and boot flag is cleared", async () => {
+    create(path.join(Global.Path.data, "opencode-dev.db"), [{ id: "a", title: "dev", version: "0.1.0", time: 1 }])
+    await LegacyDB.setBootState({ should_merge: true, source_count: 1, updated: Date.now() })
+    await LegacyDB.copySource()
+    await LegacyDB.setBootState({ should_merge: false, source_count: 1, updated: Date.now() })
+    const info = await LegacyDB.status()
+    expect(info.should_merge).toBeFalse()
   })
 })
