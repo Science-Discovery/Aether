@@ -76,6 +76,36 @@ export const WeChatRoutes = lazy(() =>
         return c.json({ success: true })
       },
     )
+    .post(
+      "/ping",
+      describeRoute({
+        summary: "Ping WeChat lease",
+        description: "Renew the WeChat lock lease or detect if stolen by another client",
+        operationId: "wechat.ping",
+        responses: {
+          200: {
+            description: "Ping result",
+            content: {
+              "application/json": {
+                schema: resolver(
+                  z.object({
+                    ok: z.boolean(),
+                    stolen: z.boolean(),
+                  }),
+                ),
+              },
+            },
+          },
+        },
+      }),
+      async (c) => {
+        const body = await c.req.json().catch(() => ({}))
+        const clientId: string = body?.clientId || ""
+        if (!clientId) return c.json({ ok: false, stolen: false })
+        const result = await WeChatManager.ping(clientId)
+        return c.json(result)
+      },
+    )
     .get(
       "/status",
       describeRoute({
@@ -118,6 +148,7 @@ export const WeChatRoutes = lazy(() =>
           user: WeChatManager.session?.user || session?.user || null,
           error: WeChatManager.error,
           locked: WeChatManager.lockHolder !== null,
+          lockHolder: WeChatManager.lockHolder,
         })
       },
     )
@@ -175,10 +206,6 @@ export const WeChatRoutes = lazy(() =>
             clearInterval(heartbeat)
             unsub()
             q.push(null)
-            // Release lock and stop bridge when the owning client disconnects
-            if (clientId && WeChatManager.lockHolder === clientId) {
-              void WeChatManager.unlock(clientId).then(() => WeChatManager.stop())
-            }
           }
 
           stream.onAbort(stop)

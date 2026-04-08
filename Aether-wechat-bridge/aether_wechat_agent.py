@@ -335,31 +335,6 @@ class AetherAgent(Agent):
             logger.warning(f"获取会话信息失败: {e}")
         return {}
 
-    async def _current_project_line(self, conv_id: str) -> str:
-        directory = self._conv_dirs.get(conv_id) or self.directory
-        return f"📂 当前项目：{await self._get_project_name(directory)}"
-
-    async def _current_session_line(self, conv_id: str) -> str:
-        directory = self._conv_dirs.get(conv_id) or self.directory
-        current = self._sessions.get(conv_id)
-        items = self._session_list.get(conv_id)
-        if items is None:
-            items = await self._list_sessions(directory)
-            self._session_list[conv_id] = items
-        item = next((row for row in items if row.get("id") == current), None)
-        if not item and items:
-            item = items[0]
-        if not item:
-            return "🗂 当前会话：无"
-        title = item.get("title") or item["id"][:8]
-        return f"🗂 当前会话：{title}"
-
-    async def _current_lines(self, conv_id: str) -> list[str]:
-        return [
-            await self._current_project_line(conv_id),
-            await self._current_session_line(conv_id),
-        ]
-
     def _pick(
         self, items: list[dict], size: int, hide: Optional[set[str]] = None
     ) -> list[tuple[int, dict]]:
@@ -372,22 +347,27 @@ class AetherAgent(Agent):
                 break
         return rows
 
-    async def _format_header(self, session_id: str, directory: str) -> str:
-        info = await self._get_session_info(session_id, directory)
-        project = await self._get_project_name(directory)
-        title = info.get("title") if isinstance(info, dict) else ""
-        label = title.strip() if isinstance(title, str) else ""
-        if not label:
-            label = session_id[:8]
-        elif label != session_id[:8]:
-            label = f"{self._clip(label, 24)} · {session_id[:8]}"
-        return f"[项目] {self._clip(project, 24)}\n[对话] {label}\n------------------------"
+    async def _format_header(
+        self, session_id: str, directory: str, conv_id: str = ""
+    ) -> str:
+        project = self._clip(await self._get_project_name(directory), 24)
+        label = session_id[:8] if session_id else "—"
+        if session_id:
+            info = await self._get_session_info(session_id, directory)
+            title = info.get("title") if isinstance(info, dict) else ""
+            if isinstance(title, str) and title.strip():
+                label = self._clip(title.strip(), 24)
+        mode = self.default_agent.capitalize() if self.default_agent else "—"
+        model = self._conv_models.get(conv_id, "") or self.default_model or "—"
+        return f"{project}  ·  {label}  ·  {mode}  ·  {model}\n————————"
 
-    async def _wrap_message(self, text: str, session_id: str, directory: str) -> str:
+    async def _wrap_message(
+        self, text: str, session_id: str, directory: str, conv_id: str = ""
+    ) -> str:
         body = text.strip()
         if not body:
             return text
-        return f"{await self._format_header(session_id, directory)}\n{body}"
+        return f"{await self._format_header(session_id, directory, conv_id)}\n{body}"
 
     async def _get_projects(self) -> list[dict]:
         try:
@@ -438,7 +418,7 @@ class AetherAgent(Agent):
 
         if arg == "list":
             current = self._sessions.get(conv_id)
-            lines = [*(await self._current_lines(conv_id)), "", "🗂 会话列表：", ""]
+            lines = ["🗂 会话列表：", ""]
             for i, item in enumerate(items, 1):
                 title = item.get("title") or item["id"][:8]
                 updated = self._format_session_time(item.get("time", {}).get("updated"))
@@ -475,7 +455,7 @@ class AetherAgent(Agent):
             return "📂 当前项目下还没有任何会话，已自动创建一个新会话并切换。"
 
         current = self._sessions.get(conv_id)
-        lines = [*(await self._current_lines(conv_id)), "", "🗂 会话列表：", ""]
+        lines = ["🗂 会话列表：", ""]
         for i, item in enumerate(items[:10], 1):
             title = item.get("title") or item["id"][:8]
             updated = self._format_session_time(item.get("time", {}).get("updated"))
@@ -532,7 +512,7 @@ class AetherAgent(Agent):
             logger.error(f"获取模型列表失败: {e}")
             return "❌ 无法获取模型列表，请检查 Aether 服务是否正常。"
         current = self._conv_models.get(conv_id) or self.default_model or "（全局默认）"
-        lines = [f"🤖 当前：{current}", "", "📦 可用模型："]
+        lines = ["📦 可用模型："]
         providers = data.get("all", [])
         connected = set(data.get("connected", []))
         defaults = data.get("default", {})
@@ -611,7 +591,7 @@ class AetherAgent(Agent):
             return f"✅ 已隐藏：{name}\n（在桌面端或微信端重新使用后自动恢复）"
 
         if arg == "list":
-            lines = [*(await self._current_lines(conv_id)), "", "📂 项目列表：", ""]
+            lines = ["📂 项目列表：", ""]
             for idx, item in enumerate(all_projects, 1):
                 directory = self._project_dir(item)
                 tag = " ◀" if directory == current_dir else ""
@@ -658,7 +638,7 @@ class AetherAgent(Agent):
             )
             return f"❌ 未找到任何项目。{hint}"
 
-        lines = [*(await self._current_lines(conv_id)), "", "📂 项目列表：", ""]
+        lines = ["📂 项目列表：", ""]
         for idx, item in self._pick(all_projects, 10, set(self._hidden_dirs)):
             directory = self._project_dir(item)
             tag = " ◀" if directory == current_dir else ""
@@ -788,6 +768,12 @@ class AetherAgent(Agent):
 
         slash_reply = await self._handle_slash_command(conv_id, user_text)
         if slash_reply is not None:
+            directory = self._conv_dirs.get(conv_id) or self.directory
+            session_id = self._sessions.get(conv_id)
+            if session_id:
+                slash_reply = await self._wrap_message(
+                    slash_reply, session_id, directory, conv_id
+                )
             return ChatResponse(text=slash_reply)
 
         if conv_id in self._pending_questions:
@@ -938,7 +924,7 @@ class AetherAgent(Agent):
                         await self._send_to_conv(
                             conv_id,
                             await self._wrap_message(
-                                text_so_far, session_id, directory
+                                text_so_far, session_id, directory, conv_id
                             ),
                         )
                     except Exception as e:
@@ -954,7 +940,10 @@ class AetherAgent(Agent):
                 logger.info(f"[question] 推送问题到微信 {conv_id}")
                 return ChatResponse(
                     text=await self._wrap_message(
-                        self._format_question_request(data), session_id, directory
+                        self._format_question_request(data),
+                        session_id,
+                        directory,
+                        conv_id,
                     )
                 )
 
@@ -965,7 +954,7 @@ class AetherAgent(Agent):
                         await self._send_to_conv(
                             conv_id,
                             await self._wrap_message(
-                                text_so_far, session_id, directory
+                                text_so_far, session_id, directory, conv_id
                             ),
                         )
                     except Exception as e:
@@ -981,7 +970,10 @@ class AetherAgent(Agent):
                 logger.info(f"[permission] 推送授权到微信 {conv_id}")
                 return ChatResponse(
                     text=await self._wrap_message(
-                        self._format_permission_request(data), session_id, directory
+                        self._format_permission_request(data),
+                        session_id,
+                        directory,
+                        conv_id,
                     )
                 )
 
@@ -997,7 +989,10 @@ class AetherAgent(Agent):
             result = await task
             return ChatResponse(
                 text=await self._wrap_message(
-                    result.get("formatted", "操作已完成"), session_id, directory
+                    result.get("formatted", "操作已完成"),
+                    session_id,
+                    directory,
+                    conv_id,
                 )
             )
         except asyncio.CancelledError:
@@ -1033,6 +1028,7 @@ class AetherAgent(Agent):
                             self._format_question_request(question),
                             session_id,
                             directory,
+                            conv_id,
                         )
                     )
                 permission = await self._poll_permission_for_session(
@@ -1052,6 +1048,7 @@ class AetherAgent(Agent):
                             self._format_permission_request(permission),
                             session_id,
                             directory,
+                            conv_id,
                         )
                     )
             except Exception as e:
@@ -1062,7 +1059,10 @@ class AetherAgent(Agent):
             result = await task
             return ChatResponse(
                 text=await self._wrap_message(
-                    result.get("formatted", "操作已完成"), session_id, directory
+                    result.get("formatted", "操作已完成"),
+                    session_id,
+                    directory,
+                    conv_id,
                 )
             )
         except asyncio.CancelledError:
@@ -1123,7 +1123,7 @@ class AetherAgent(Agent):
                 "queue": None,
             }
             return await self._wrap_message(
-                self._format_question_request(question), session_id, directory
+                self._format_question_request(question), session_id, directory, conv_id
             )
 
         permission = await self._poll_permission_for_session(session_id, directory)
@@ -1137,7 +1137,10 @@ class AetherAgent(Agent):
                 "queue": None,
             }
             return await self._wrap_message(
-                self._format_permission_request(permission), session_id, directory
+                self._format_permission_request(permission),
+                session_id,
+                directory,
+                conv_id,
             )
 
         return None
@@ -1157,6 +1160,7 @@ class AetherAgent(Agent):
             "如需停止本会话请输入/stop",
             session_id,
             directory,
+            conv_id,
         )
 
     def _format_question_request(self, question: dict) -> str:
@@ -1223,6 +1227,7 @@ class AetherAgent(Agent):
                     + self._format_question_request({"questions": questions}),
                     session_id,
                     directory,
+                    conv_id,
                 )
             )
         try:
@@ -1245,6 +1250,7 @@ class AetherAgent(Agent):
                     err_msg + chr(10) + "请重新发送您的答案。",
                     session_id,
                     directory,
+                    conv_id,
                 )
             )
 
@@ -1254,6 +1260,7 @@ class AetherAgent(Agent):
                     "已提交回答，请等待当前对话继续处理。",
                     session_id,
                     directory,
+                    conv_id,
                 )
             )
 
@@ -1282,6 +1289,7 @@ class AetherAgent(Agent):
                     + self._format_permission_request(pending["permission"]),
                     session_id,
                     directory,
+                    conv_id,
                 )
             )
 
@@ -1304,6 +1312,7 @@ class AetherAgent(Agent):
                     f"❌ 提交授权失败: {e}\n请重新发送您的选择。",
                     session_id,
                     directory,
+                    conv_id,
                 )
             )
 
@@ -1317,6 +1326,7 @@ class AetherAgent(Agent):
                     }[reply],
                     session_id,
                     directory,
+                    conv_id,
                 )
             )
 
@@ -1328,7 +1338,7 @@ class AetherAgent(Agent):
             }[reply]
             await self._send_to_conv(
                 conv_id,
-                await self._wrap_message(notice, session_id, directory),
+                await self._wrap_message(notice, session_id, directory, conv_id),
             )
         except Exception as e:
             logger.warning(f"推送授权确认失败: {e}")
