@@ -27,6 +27,22 @@
       display: none;
     }
   }
+
+  &[data-placement="top-center"] {
+    top: 72px;
+    left: 50%;
+    right: auto;
+    bottom: auto;
+    width: min(520px, calc(100vw - 24px));
+    max-width: min(520px, calc(100vw - 24px));
+    transform: translateX(-50%);
+    max-height: calc(100dvh - 120px);
+    overflow: visible;
+
+    [data-slot="toast-list"] {
+      overflow: visible;
+    }
+  }
 }
 
 [data-component="toast"] {
@@ -54,6 +70,10 @@
 
   &[data-opened] {
     animation: toastPopIn 150ms ease-out;
+  }
+
+  &[data-opened][data-shifted="true"] {
+    animation: none;
   }
 
   &[data-closed] {
@@ -204,26 +224,18 @@
   }
 
   &[data-placement="top-center"] {
-    position: fixed;
-    top: 72px;
-    left: 50%;
-    right: auto;
-    width: min(520px, calc(100vw - 24px));
-    max-width: min(520px, calc(100vw - 24px));
-    transform: translateX(-50%);
-    z-index: 1100;
+    width: 100%;
+    max-width: none;
   }
 
-  &[data-placement="top-center"][data-swipe="move"] {
-    transform: translateX(calc(-50% + var(--kb-toast-swipe-move-x)));
+  &[data-draggable="true"] {
+    cursor: grab;
+    user-select: none;
   }
 
-  &[data-placement="top-center"][data-swipe="cancel"] {
-    transform: translateX(-50%);
-  }
-
-  &[data-placement="top-center"][data-swipe="end"] {
-    animation: toastSwipeOutTop 100ms ease-out forwards;
+  &[data-dragging="true"] {
+    cursor: grabbing;
+    transition: none;
   }
 }
 
@@ -255,14 +267,5 @@
   }
   to {
     transform: translateX(100%);
-  }
-}
-
-@keyframes toastSwipeOutTop {
-  from {
-    transform: translateX(calc(-50% + var(--kb-toast-swipe-end-x)));
-  }
-  to {
-    transform: translateX(calc(-50% + 100%));
   }
 }

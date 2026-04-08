@@ -1,8 +1,10 @@
+/** @jsxImportSource solid-js */
 import { Toast as Kobalte, toaster } from "@kobalte/core/toast"
 import type { ToastRootProps, ToastCloseButtonProps, ToastTitleProps, ToastDescriptionProps } from "@kobalte/core/toast"
 import type { ComponentProps, JSX } from "solid-js"
 import { Show } from "solid-js"
 import { Portal } from "solid-js/web"
+import { createStore } from "solid-js/store"
 import { useI18n } from "../context/i18n"
 import { Icon, type IconProps } from "./icon"
 import { IconButton } from "./icon-button"
@@ -102,7 +104,11 @@ export type ToastVariant = "default" | "success" | "error" | "loading"
 
 export interface ToastAction {
   label: string
-  onClick: "dismiss" | (() => void)
+  onClick:
+    | "dismiss"
+    | ((input: { toastId: number; placement?: ToastOptions["placement"]; offset: { x: number; y: number } }) =>
+        | void
+        | Promise<void>)
 }
 
 export interface ToastOptions {
@@ -114,43 +120,132 @@ export interface ToastOptions {
   persistent?: boolean
   placement?: "bottom-right" | "top-center"
   guarded?: boolean
+  offset?: { x: number; y: number }
   actions?: ToastAction[]
 }
 
-export function showToast(options: ToastOptions | string) {
-  const opts = typeof options === "string" ? { description: options } : options
+type Context = {
+  placement?: ToastOptions["placement"]
+  offset: { x: number; y: number }
+}
+
+let current: Context | undefined
+
+function region(placement: ToastOptions["placement"]) {
+  return placement === "top-center" ? "top-center" : "bottom-right"
+}
+
+function shift(input: { placement?: ToastOptions["placement"]; x: number; y: number }) {
+  return `translate(${input.x}px, ${input.y}px)`
+}
+
+function ToastItem(props: { toastId: number; opts: ToastOptions }) {
+  const [drag, setDrag] = createStore({
+    x: props.opts.offset?.x ?? 0,
+    y: props.opts.offset?.y ?? 0,
+    on: false,
+    px: 0,
+    py: 0,
+    id: -1,
+  })
+
   const stop = (event: Event) => event.preventDefault()
-  return toaster.show((props) => (
+  const draggable = props.opts.guarded && props.opts.placement === "top-center"
+
+  const down: JSX.EventHandlerUnion<HTMLElement, PointerEvent> = (event) => {
+    if (!draggable) return
+    const node = event.target as HTMLElement | null
+    if (node?.closest("[data-slot='toast-action']")) return
+    setDrag({
+      on: true,
+      px: event.clientX,
+      py: event.clientY,
+      id: event.pointerId,
+    })
+    event.currentTarget.setPointerCapture?.(event.pointerId)
+    event.preventDefault()
+    event.stopPropagation()
+  }
+
+  const move: JSX.EventHandlerUnion<HTMLElement, PointerEvent> = (event) => {
+    if (!drag.on) return
+    if (event.pointerId !== drag.id) return
+    setDrag({
+      x: drag.x + event.clientX - drag.px,
+      y: drag.y + event.clientY - drag.py,
+      px: event.clientX,
+      py: event.clientY,
+    })
+    event.preventDefault()
+    event.stopPropagation()
+  }
+
+  const up: JSX.EventHandlerUnion<HTMLElement, PointerEvent> = (event) => {
+    if (!drag.on) return
+    if (event.pointerId !== drag.id) return
+    setDrag({ on: false, id: -1 })
+    if (event.currentTarget.hasPointerCapture?.(event.pointerId)) {
+      event.currentTarget.releasePointerCapture?.(event.pointerId)
+    }
+    event.preventDefault()
+    event.stopPropagation()
+  }
+
+  return (
     <Toast
       toastId={props.toastId}
-      duration={opts.duration}
-      persistent={opts.persistent}
-      onEscapeKeyDown={opts.guarded ? stop : undefined}
-      onSwipeStart={opts.guarded ? stop : undefined}
-      onSwipeMove={opts.guarded ? stop : undefined}
-      onSwipeCancel={opts.guarded ? stop : undefined}
-      onSwipeEnd={opts.guarded ? stop : undefined}
-      data-variant={opts.variant ?? "default"}
-      data-placement={opts.placement ?? "bottom-right"}
+      duration={props.opts.duration}
+      persistent={props.opts.persistent}
+      onEscapeKeyDown={props.opts.guarded ? stop : undefined}
+      onSwipeStart={props.opts.guarded ? stop : undefined}
+      onSwipeMove={props.opts.guarded ? stop : undefined}
+      onSwipeCancel={props.opts.guarded ? stop : undefined}
+      onSwipeEnd={props.opts.guarded ? stop : undefined}
+      onPointerDown={down}
+      onPointerMove={move}
+      onPointerUp={up}
+      data-variant={props.opts.variant ?? "default"}
+      data-placement={props.opts.placement ?? "bottom-right"}
+      data-draggable={draggable ? "true" : undefined}
+      data-dragging={drag.on ? "true" : undefined}
+      data-shifted={drag.x !== 0 || drag.y !== 0 ? "true" : undefined}
+      style={{ transform: shift({ placement: props.opts.placement, x: drag.x, y: drag.y }) }}
     >
-      <Show when={opts.icon}>
-        <Toast.Icon name={opts.icon!} />
+      <Show when={props.opts.icon}>
+        <Toast.Icon name={props.opts.icon!} />
       </Show>
       <Toast.Content>
-        <Show when={opts.title}>
-          <Toast.Title>{opts.title}</Toast.Title>
+        <Show when={props.opts.title}>
+          <Toast.Title>{props.opts.title}</Toast.Title>
         </Show>
-        <Show when={opts.description}>
-          <Toast.Description>{opts.description}</Toast.Description>
+        <Show when={props.opts.description}>
+          <Toast.Description>{props.opts.description}</Toast.Description>
         </Show>
-        <Show when={opts.actions?.length}>
+        <Show when={props.opts.actions?.length}>
           <Toast.Actions>
-            {opts.actions!.map((action) => (
+            {props.opts.actions!.map((action) => (
               <button
                 data-slot="toast-action"
                 onClick={() => {
+                  current = {
+                    placement: props.opts.placement,
+                    offset: { x: drag.x, y: drag.y },
+                  }
                   if (typeof action.onClick === "function") {
-                    action.onClick()
+                    const result = action.onClick({
+                      toastId: props.toastId,
+                      placement: props.opts.placement,
+                      offset: { x: drag.x, y: drag.y },
+                    })
+                    if (result && typeof (result as Promise<unknown>).finally === "function") {
+                      ;(result as Promise<unknown>).finally(() => {
+                        current = undefined
+                      })
+                    } else {
+                      current = undefined
+                    }
+                  } else {
+                    current = undefined
                   }
                   toaster.dismiss(props.toastId)
                 }}
@@ -161,11 +256,25 @@ export function showToast(options: ToastOptions | string) {
           </Toast.Actions>
         </Show>
       </Toast.Content>
-      <Show when={!opts.guarded}>
+      <Show when={!props.opts.guarded}>
         <Toast.CloseButton />
       </Show>
     </Toast>
-  ))
+  )
+}
+
+export function showToast(options: ToastOptions | string) {
+  const raw = typeof options === "string" ? { description: options } : options
+  const opts =
+    raw.offset || !current || raw.placement !== current.placement
+      ? raw
+      : {
+          ...raw,
+          offset: current.offset,
+        }
+  return toaster.show((props) => <ToastItem toastId={props.toastId} opts={opts} />, {
+    region: region(opts.placement),
+  })
 }
 
 export interface ToastPromiseOptions<T, U = unknown> {

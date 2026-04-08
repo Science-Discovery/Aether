@@ -2647,7 +2647,13 @@ export default function Layout(props: ParentProps) {
         </div>
         {import.meta.env.DEV && <DebugBar />}
       </div>
-      <Toast.Region />
+      <Toast.Region regionId="bottom-right" data-placement="bottom-right" />
+      <Toast.Region
+        regionId="top-center"
+        data-placement="top-center"
+        swipeDirection="right"
+        swipeThreshold={100000}
+      />
     </div>
   )
 }
