@@ -254,7 +254,10 @@ export const [feishuStatus, setFeishuStatus] = createSignal<FeishuStatus>("idle"
    a. 有映射 → 复用已映射的会话
    b. 无映射 → 复用最近的会话；若无任何会话则新建
 6. resolveModel(chatId) 解析本次使用的模型
-7. SessionPrompt.prompt() 将文本发送给 AI（携带模型参数）
+7. detectSummaryIntent(text) 检测是否为总结请求（含"总结/汇总/归纳"且含"群/今天/消息"等词）
+   a. 命中 → fetchChatHistory() 调用 larkClient.im.message.list() 拉取历史，拼入 prompt
+   b. 未命中 → 直接使用原始文本
+8. SessionPrompt.prompt() 将文本发送给 AI（携带模型参数）
 8. 提取 AI 回复的文本部分，拼接项目/会话标题头部
 9. larkClient.im.message.reply() 回复到飞书
 10. 如果任何步骤报错 → catch 中通过 replyText 将错误信息发回飞书
@@ -393,8 +396,12 @@ undefined → SessionPrompt 内部默认逻辑
 SDK 使用方式：
 - `lark.WSClient` — WebSocket 长连接客户端
 - `lark.EventDispatcher` — 事件注册和分发
-- `lark.Client` — REST API 客户端（发送回复消息）
+- `lark.Client` — REST API 客户端（发送回复消息、拉取消息历史）
 - `lark.LoggerLevel.debug` — 调试日志级别
+
+`lark.Client` 调用的 API：
+- `larkClient.im.message.reply()` — 回复消息
+- `larkClient.im.message.list()` — 拉取群聊消息历史（总结功能使用，需 `im:message.group_msg` 权限）
 
 ## 与微信连接的架构对比
 
@@ -431,3 +438,4 @@ SDK 使用方式：
 | 2026-04-06 19:17 | 取消隐藏改为双机制：飞书消息直接判断 + GlobalBus 监听 web 端活动 | `time.activity` 只在项目初始化时更新，不反映 session 消息，原方案对活跃项目无效 |
 | 2026-04-07 | 新增 `/session` 命令：查看/切换会话，数据源与微信端一致；`_chatSessions` 存储 per-chat 当前会话 | 微信端支持多会话切换，飞书端功能对齐 |
 | 2026-04-07 | 群聊中仅响应 @机器人 的消息，检查 `chat_type` 和 `mentions` 字段 | 之前群聊中所有消息都会触发回复，@一次后机器人对所有消息都回复 |
+| 2026-04-08 16:28 | 新增群聊总结功能：`detectSummaryIntent()` 关键词检测 + `fetchChatHistory()` 拉取历史注入 prompt | 用户可直接用自然语言（如"帮我总结今天的群聊"）触发，无需斜杠命令；需开启 `im:message.group_msg` 权限 |
