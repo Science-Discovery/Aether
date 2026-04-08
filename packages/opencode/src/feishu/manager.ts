@@ -409,10 +409,24 @@ class FeishuManagerImpl {
           const model = this.resolveModel(chatId)
           console.log("[feishu] using model:", model ?? "(default)")
 
+          // Detect summarization intent and inject chat history into prompt
+          let promptText = text
+          const intent = this.detectSummaryIntent(text)
+          if (intent.isSummary) {
+            console.log("[feishu] summary intent detected, fetching chat history...")
+            const history = await this.fetchChatHistory(chatId, { today: intent.today, count: intent.count })
+            if (history) {
+              promptText = `${text}\n\n以下是群聊记录，请据此进行总结：\n\n${history}`
+            } else {
+              await this.replyText(messageId, "⚠️ 未能获取群聊记录（可能需要在飞书开放平台开启 im:message.group_msg 权限）")
+              return
+            }
+          }
+
           console.log("[feishu] sending to aether, session:", sessionId)
           const msg = await SessionPrompt.prompt({
             sessionID: SessionID.make(sessionId),
-            parts: [{ type: "text", text }],
+            parts: [{ type: "text", text: promptText }],
             ...(model ? { model } : {}),
           })
           console.log("[feishu] aether responded, parts:", msg?.parts?.length)
@@ -440,6 +454,75 @@ class FeishuManagerImpl {
         const errMsg = err instanceof Error ? err.message : String(err)
         await this.replyText(messageId, `处理消息时出错: ${errMsg}`).catch(() => {})
       }
+    }
+  }
+
+  /** Detect if the user is asking for a chat summary and extract time range. */
+  private detectSummaryIntent(text: string): { isSummary: boolean; today: boolean; count: number } {
+    const summaryWords = ["总结", "汇总", "归纳", "概括", "summary"]
+    const contextWords = ["群", "聊天", "消息", "今天", "最近", "记录", "内容", "讨论"]
+    const lower = text.toLowerCase()
+    const hasSummary = summaryWords.some((w) => lower.includes(w))
+    const hasContext = contextWords.some((w) => lower.includes(w))
+    if (!hasSummary || !hasContext) return { isSummary: false, today: false, count: 50 }
+    const today = lower.includes("今天") || lower.includes("today")
+    const match = text.match(/(\d+)\s*条/)
+    const count = match ? Math.min(parseInt(match[1], 10), 100) : 50
+    return { isSummary: true, today, count }
+  }
+
+  /** Fetch recent messages from a chat and format as transcript. */
+  private async fetchChatHistory(chatId: string, opts: { today: boolean; count: number }): Promise<string | null> {
+    if (!this.larkClient) return null
+    try {
+      const params: Record<string, any> = {
+        container_id_type: "chat",
+        container_id: chatId,
+        page_size: Math.min(opts.count, 50),
+        sort_type: "ByCreateTimeDesc",
+      }
+      if (opts.today) {
+        const midnight = new Date()
+        midnight.setHours(0, 0, 0, 0)
+        params.start_time = String(Math.floor(midnight.getTime() / 1000))
+      }
+
+      const items: any[] = []
+      let pageToken: string | undefined
+      let remaining = opts.count
+      do {
+        const result = await this.larkClient.im.message.list({
+          params: { ...params, page_size: Math.min(remaining, 50), ...(pageToken ? { page_token: pageToken } : {}) },
+        })
+        const batch: any[] = result?.data?.items ?? []
+        items.push(...batch)
+        pageToken = result?.data?.has_more ? result.data.page_token : undefined
+        remaining -= batch.length
+      } while (pageToken && remaining > 0)
+
+      items.reverse()
+
+      const lines: string[] = []
+      for (const item of items) {
+        if (item.deleted || item.msg_type !== "text") continue
+        let content: string
+        try {
+          content = JSON.parse(item.body?.content || "{}").text ?? ""
+        } catch {
+          continue
+        }
+        if (!content.trim()) continue
+        const senderId = (item.sender?.sender_id?.open_id ?? "unknown").slice(-8)
+        const ts = parseInt(item.create_time ?? "0")
+        const time = new Date(ts).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })
+        lines.push(`[${time}] ${senderId}: ${content}`)
+      }
+
+      if (lines.length === 0) return null
+      return lines.join("\n")
+    } catch (err) {
+      console.error("[feishu] fetchChatHistory error:", err)
+      return null
     }
   }
 
