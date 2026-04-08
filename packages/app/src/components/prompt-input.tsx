@@ -62,7 +62,7 @@ import { FileIcon } from "@opencode-ai/ui/file-icon"
 import { KnowledgeButton } from "@/components/knowledge-button"
 import { DialogDefaultSkills } from "@/components/dialog-default-skills"
 import { DialogWeChat } from "@/components/dialog-wechat"
-import { wechatStatus } from "@/context/wechat"
+import { status as wechatStatus } from "@/context/wechat"
 
 interface PromptInputProps {
   class?: string
@@ -1665,9 +1665,11 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                           class={
                             wechatStatus() === "connected"
                               ? "size-4 shrink-0 text-green-500"
-                              : wechatStatus() === "loading" || wechatStatus() === "qrcode"
+                              : wechatStatus() === "loading" ||
+                                  wechatStatus() === "qrcode" ||
+                                  wechatStatus() === "reconnecting"
                                 ? "size-4 shrink-0 text-yellow-500 animate-pulse"
-                                : wechatStatus() === "error"
+                                : wechatStatus() === "error" || wechatStatus() === "stolen"
                                   ? "size-4 shrink-0 text-red-500"
                                   : "size-4 shrink-0 text-icon-weak"
                           }

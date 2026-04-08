@@ -64,6 +64,7 @@ import { DialogEditProject } from "@/components/dialog-edit-project"
 import { DebugBar } from "@/components/debug-bar"
 import { Titlebar } from "@/components/titlebar"
 import { useServer } from "@/context/server"
+import { bindWechatResolver, initWechat } from "@/context/wechat"
 import { useLanguage, type Locale } from "@/context/language"
 import {
   displayName,
@@ -118,6 +119,14 @@ export default function Layout(props: ParentProps) {
   const platform = usePlatform()
   const settings = useSettings()
   const server = useServer()
+  bindWechatResolver(() => {
+    const s = server.current?.http
+    const headers: HeadersInit = !s?.password
+      ? {}
+      : { Authorization: `Basic ${btoa(`${s.username ?? "opencode"}:${s.password}`)}` }
+    return { url: globalSDK.url, headers }
+  })
+  initWechat()
   const notification = useNotification()
   const permission = usePermission()
   const navigate = useNavigate()
@@ -384,38 +393,38 @@ export default function Layout(props: ParentProps) {
       const showUpdateToast = (version?: string) => {
         if (toastId !== undefined) return
         toastId = showToast({
-            persistent: true,
-            icon: "download",
-            title: language.t("toast.update.title"),
-            description: language.t("toast.update.description", { version: version ?? "" }),
-            actions:
-              platform.platform === "web"
-                ? [
-                    {
-                      label: language.t("update.install"),
-                      onClick: async () => {
-                        await platform.update!()
-                        await platform.restart!()
-                      },
+          persistent: true,
+          icon: "download",
+          title: language.t("toast.update.title"),
+          description: language.t("toast.update.description", { version: version ?? "" }),
+          actions:
+            platform.platform === "web"
+              ? [
+                  {
+                    label: language.t("update.install"),
+                    onClick: async () => {
+                      await platform.update!()
+                      await platform.restart!()
                     },
-                    {
-                      label: language.t("toast.update.action.notYet"),
-                      onClick: "dismiss",
+                  },
+                  {
+                    label: language.t("toast.update.action.notYet"),
+                    onClick: "dismiss",
+                  },
+                ]
+              : [
+                  {
+                    label: language.t("toast.update.action.installRestart"),
+                    onClick: async () => {
+                      await platform.update!()
+                      await platform.restart!()
                     },
-                  ]
-                : [
-                    {
-                      label: language.t("toast.update.action.installRestart"),
-                      onClick: async () => {
-                        await platform.update!()
-                        await platform.restart!()
-                      },
-                    },
-                    {
-                      label: language.t("toast.update.action.notYet"),
-                      onClick: "dismiss",
-                    },
-                  ],
+                  },
+                  {
+                    label: language.t("toast.update.action.notYet"),
+                    onClick: "dismiss",
+                  },
+                ],
         })
       }
 

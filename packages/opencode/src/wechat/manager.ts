@@ -103,13 +103,13 @@ class WeChatManagerImpl {
     try {
       if (!existsSync(LOCK_FILE)) return null
       const raw = readFileSync(LOCK_FILE, "utf-8")
-      const lock = JSON.parse(raw) as { clientId: string; pid: number }
-      // Check if the locking process is still alive
+      const lock = JSON.parse(raw) as { clientId: string; pid: number; updatedAt?: number }
       try {
         process.kill(lock.pid, 0)
       } catch {
-        // Process is dead — stale lock
-        try { unlinkSync(LOCK_FILE) } catch {}
+        try {
+          unlinkSync(LOCK_FILE)
+        } catch {}
         return null
       }
       return lock.clientId
@@ -123,7 +123,7 @@ class WeChatManagerImpl {
     await mkdir(WECHAT_DATA_DIR, { recursive: true })
     const current = this.lockHolder
     if (!current || current === clientId) {
-      await writeFile(LOCK_FILE, JSON.stringify({ clientId, pid: process.pid }))
+      await writeFile(LOCK_FILE, JSON.stringify({ clientId, pid: process.pid, updatedAt: Date.now() }))
       return true
     }
     return false
@@ -134,6 +134,16 @@ class WeChatManagerImpl {
     if (this.lockHolder === clientId) {
       await rm(LOCK_FILE, { force: true })
     }
+  }
+
+  /** Renew the lock lease. Returns false if the lock was stolen by another client. */
+  async ping(clientId: string): Promise<{ ok: boolean; stolen: boolean }> {
+    const current = this.lockHolder
+    if (current === clientId) {
+      await writeFile(LOCK_FILE, JSON.stringify({ clientId, pid: process.pid, updatedAt: Date.now() }))
+      return { ok: true, stolen: false }
+    }
+    return { ok: false, stolen: current !== null }
   }
 
   private set status(value: WeChatStatus) {
