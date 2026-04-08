@@ -195,7 +195,7 @@ export async function fetchStatus() {
   } catch {}
 }
 
-export async function startBridge(auto = false, modelStr?: string) {
+export async function startBridge(auto = false, modelStr?: string, force = false) {
   updateStatus("loading")
   setLoadingMsg("正在启动微信桥接...")
   setError(null)
@@ -208,7 +208,7 @@ export async function startBridge(auto = false, modelStr?: string) {
     const response = await fetch(`${url}/wechat/start`, {
       method: "POST",
       headers: { ...headers, "Content-Type": "application/json" },
-      body: JSON.stringify({ model: modelStr, autoInstall: auto, clientId }),
+      body: JSON.stringify({ model: modelStr, autoInstall: auto, clientId, force }),
     })
     const data = await response.json()
 
@@ -287,8 +287,19 @@ export async function logout() {
   setQrcode(null)
 }
 
+export function forceTakeover(modelStr?: string) {
+  return startBridge(true, modelStr, true)
+}
+
 export function initWechat() {
   if (initialized) return
   initialized = true
+  window.addEventListener("beforeunload", () => {
+    if (!clientId) return
+    try {
+      const { url } = api()
+      navigator.sendBeacon(`${url}/wechat/stop`, new Blob([JSON.stringify({ clientId })], { type: "application/json" }))
+    } catch {}
+  })
   fetchStatus()
 }

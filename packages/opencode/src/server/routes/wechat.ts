@@ -42,7 +42,10 @@ export const WeChatRoutes = lazy(() =>
       async (c) => {
         const body = await c.req.json().catch(() => ({}))
         const clientId: string = body?.clientId || crypto.randomUUID()
-        if (!(await WeChatManager.tryLock(clientId))) {
+        const force: boolean = body?.force === true
+        if (force) {
+          await WeChatManager.forceLock(clientId)
+        } else if (!(await WeChatManager.tryLock(clientId))) {
           return c.json({ success: false, code: "locked", message: "微信已被其他客户端连接" })
         }
         const result = await WeChatManager.start(body?.model, body?.autoInstall === true)
