@@ -98,6 +98,11 @@ class WeChatManagerImpl {
     return this._error
   }
 
+  private isLockExpired(lock: { updatedAt?: number }): boolean {
+    if (!lock.updatedAt) return true
+    return Date.now() - lock.updatedAt > 30_000
+  }
+
   /** Read the current lock holder from disk. Returns null if no valid lock. */
   get lockHolder(): string | null {
     try {
@@ -107,6 +112,12 @@ class WeChatManagerImpl {
       try {
         process.kill(lock.pid, 0)
       } catch {
+        try {
+          unlinkSync(LOCK_FILE)
+        } catch {}
+        return null
+      }
+      if (this.isLockExpired(lock)) {
         try {
           unlinkSync(LOCK_FILE)
         } catch {}
@@ -127,6 +138,15 @@ class WeChatManagerImpl {
       return true
     }
     return false
+  }
+
+  /** Force-acquire the lock, removing any existing holder. */
+  async forceLock(clientId: string): Promise<void> {
+    await mkdir(WECHAT_DATA_DIR, { recursive: true })
+    try {
+      await rm(LOCK_FILE, { force: true })
+    } catch {}
+    await writeFile(LOCK_FILE, JSON.stringify({ clientId, pid: process.pid, updatedAt: Date.now() }))
   }
 
   /** Release the lock if held by this client. */

@@ -14,6 +14,7 @@ import {
   startBridge,
   stopBridge,
   logout,
+  forceTakeover,
   type WeChatStatus,
 } from "@/context/wechat"
 
@@ -39,9 +40,14 @@ export const DialogWeChat: Component = () => {
                   当前有另一个页面正在使用微信，请先在该页面断开连接
                 </p>
               </div>
-              <Button variant="secondary" onClick={() => dialog.close()}>
-                关闭
-              </Button>
+              <div class="flex gap-2">
+                <Button variant="secondary" onClick={() => dialog.close()}>
+                  关闭
+                </Button>
+                <Button variant="primary" onClick={() => forceTakeover(currentModelStr())}>
+                  强制接管
+                </Button>
+              </div>
             </div>
           </Match>
 
