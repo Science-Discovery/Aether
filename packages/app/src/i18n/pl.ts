@@ -280,7 +280,7 @@ export const dict = {
   "mcp.status.disabled": "wyłączone",
   "dialog.fork.empty": "Brak wiadomości do rozwidlenia",
   "dialog.directory.search.placeholder": "Szukaj folderów",
-  "dialog.directory.empty": "Nie znaleziono folderów",
+  "dialog.directory.empty": "Brak podfolderów w tym katalogu",
   "dialog.directory.existingProjects": "Istniejące projekty",
   "dialog.directory.browse": "Przeglądaj",
   "dialog.directory.confirm": "Potwierdź",

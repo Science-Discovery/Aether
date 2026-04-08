@@ -280,7 +280,7 @@ export const dict = {
   "mcp.status.disabled": "désactivé",
   "dialog.fork.empty": "Aucun message à partir duquel bifurquer",
   "dialog.directory.search.placeholder": "Rechercher des dossiers",
-  "dialog.directory.empty": "Aucun dossier trouvé",
+  "dialog.directory.empty": "Aucun sous-dossier dans ce répertoire",
   "dialog.directory.existingProjects": "Projets existants",
   "dialog.directory.browse": "Parcourir",
   "dialog.directory.confirm": "Confirmer",

@@ -284,7 +284,7 @@ export const dict = {
   "mcp.status.disabled": "deaktiviert",
   "dialog.fork.empty": "Keine Nachrichten zum Abzweigen vorhanden",
   "dialog.directory.search.placeholder": "Ordner durchsuchen",
-  "dialog.directory.empty": "Keine Ordner gefunden",
+  "dialog.directory.empty": "Keine Unterordner in diesem Verzeichnis",
   "dialog.directory.existingProjects": "Bestehende Projekte",
   "dialog.directory.browse": "Durchsuchen",
   "dialog.directory.confirm": "Bestätigen",

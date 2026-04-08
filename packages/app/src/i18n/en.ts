@@ -317,7 +317,7 @@ export const dict = {
   "dialog.fork.empty": "No messages to fork from",
 
   "dialog.directory.search.placeholder": "Search folders",
-  "dialog.directory.empty": "No folders found",
+  "dialog.directory.empty": "No subfolders in this directory",
   "dialog.directory.select": "Select folder",
   "dialog.directory.existingProjects": "Existing projects",
   "dialog.directory.browse": "Browse",
