@@ -167,6 +167,7 @@ private async _doStart(config: FeishuConfig, model: ModelRef | null): Promise<vo
 | `config.json` | App ID 和 App Secret |
 | `sessions.json` | 飞书聊天 → Aether 会话 ID 映射 |
 | `hidden_projects.json` | 隐藏项目目录 → 隐藏时间戳 |
+| `default_project.json` | 默认项目目录（`/project default n` 设置，重连后自动生效） |
 
 存储路径按平台：
 - Windows: `%APPDATA%\opencode\feishu\`
@@ -325,10 +326,11 @@ replyFile(messageId, filePath)
 
 | 命令 | 行为 |
 |------|------|
-| `/project` | 显示前 10 个非隐藏项目，当前项目标 `◀` |
-| `/project list` | 显示全部项目，隐藏项目标 `[已隐藏]` |
+| `/project` | 显示前 10 个非隐藏项目，当前项目标 `◀`，默认项目标 `[默认]` |
+| `/project list` | 显示全部项目，隐藏项目标 `[已隐藏]`，默认项目标 `[默认]` |
 | `/project n` | 切换到第 n 个项目，自动复用/新建该项目的会话 |
 | `/project hide n` | 隐藏第 n 个项目；该项目有新活动后自动恢复 |
+| `/project default n` | 设置第 n 个项目为默认项目，持久化到磁盘，重连后自动进入 |
 
 ## 会话切换
 
@@ -358,7 +360,7 @@ replyFile(messageId, filePath)
 `/project n` 切换后，该 chatId 的目标目录保存在 `_chatDirs[chatId]`。后续每条消息都在该目录的 Instance 上下文中执行：
 
 ```typescript
-const effectiveDir = this._chatDirs[chatId] ?? Instance.directory
+const effectiveDir = this._chatDirs[chatId] ?? this._defaultDir ?? Instance.directory
 await Instance.provide({
   directory: effectiveDir,
   fn: async () => {
@@ -384,6 +386,7 @@ await Instance.provide({
 |------|------|---------|
 | `_chatDirs` | `Record<chatId, directory>` | `/project n` 设置，`stop()` 时清除 |
 | `_hiddenDirs` | `Record<directory, timestamp>` | `/project hide n` 设置，持久化，重连保留 |
+| `_defaultDir` | `string \| null` | `/project default n` 设置，持久化到 `default_project.json`，重连保留 |
 
 ### 三级解析（`resolveModel(chatId)`）
 
@@ -491,3 +494,4 @@ native `fetch` 直接调用的飞书 REST API（绕过 SDK axios，解决 Bun �
 | 2026-04-07 | 群聊中仅响应 @机器人 的消息，检查 `chat_type` 和 `mentions` 字段 | 之前群聊中所有消息都会触发回复，@一次后机器人对所有消息都回复 |
 | 2026-04-08 16:28 | 新增群聊总结功能：`detectSummaryIntent()` 关键词检测 + `fetchChatHistory()` 拉取历史注入 prompt | 用户可直接用自然语言（如"帮我总结今天的群聊"）触发，无需斜杠命令；需开启 `im:message.group_msg` 权限 |
 | 2026-04-08 16:28 | 新增文件发送功能：AI 回复后自动提取 `PatchPart` 中的变更文件，通过 `larkClient.im.file.create()` 上传并回复到飞书 | 用户在飞书请求 AI 生成/修改文件后，可直接在聊天中收到文件附件 |
+| 2026-04-08 17:54 | 新增 `/project default n` 命令：设置默认项目，持久化到 `default_project.json`，重连后自动生效；`effectiveDir` 改为三级回退 `_chatDirs ?? _defaultDir ?? Instance.directory` | 用户每次重连都需手动切换项目，体验繁琐 |
