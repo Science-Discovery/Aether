@@ -1,5 +1,5 @@
-import { mkdir, readFile, writeFile, rm } from "fs/promises"
-import { join } from "path"
+import { mkdir, readFile, writeFile, rm, stat } from "fs/promises"
+import { join, basename } from "path"
 import { homedir } from "os"
 import { existsSync } from "fs"
 import z from "zod"
@@ -82,6 +82,8 @@ interface ModelEntry {
 class FeishuManagerImpl {
   private wsClient: any = null
   private larkClient: any = null
+  private _appId: string = ""
+  private _appSecret: string = ""
   private _status: FeishuStatus = "idle"
   private _session: FeishuSession | null = null
   private _error: { code: string; message: string } | null = null
@@ -264,6 +266,8 @@ class FeishuManagerImpl {
         void this.handleMessage(data)
       })
 
+      this._appId = config.appId
+      this._appSecret = config.appSecret
       this.larkClient = new lark.Client({
         appId: config.appId,
         appSecret: config.appSecret,
@@ -411,6 +415,9 @@ class FeishuManagerImpl {
 
           // Detect summarization intent and inject chat history into prompt
           let promptText = text
+          if (this.detectFileSendIntent(text)) {
+            promptText += `\n\n[系统提示：用户需要通过飞书接收文件附件，请在回复中包含该文件的完整绝对路径（格式如 /home/user/file.md），系统将自动将其作为附件发送给用户]`
+          }
           const intent = this.detectSummaryIntent(text)
           if (intent.isSummary) {
             console.log("[feishu] summary intent detected, fetching chat history...")
@@ -444,6 +451,21 @@ class FeishuManagerImpl {
             await this.replyText(messageId, header + responseText)
           } else {
             console.log("[feishu] no text in response")
+          }
+
+          // If user explicitly asked for a file, send files that were read this turn
+          // or extract file paths mentioned in the AI response text
+          if (this.detectFileSendIntent(text)) {
+            let filesToSend = this.extractReadFiles(msg)
+            if (filesToSend.length === 0 && responseText) {
+              filesToSend = this.extractFilePathsFromText(responseText)
+            }
+            if (filesToSend.length > 0) {
+              console.log("[feishu] sending", filesToSend.length, "requested file(s)")
+              for (const filePath of filesToSend.slice(0, 5)) {
+                await this.replyFile(messageId, filePath)
+              }
+            }
           }
         },
       })
@@ -531,6 +553,93 @@ class FeishuManagerImpl {
     const textParts = msg.parts.filter((p: any) => p.type === "text")
     if (textParts.length === 0) return null
     return textParts.map((p: any) => p.text).join("\n")
+  }
+
+  /** Extract file paths that were read by the AI during this turn (from ToolParts). */
+  private extractReadFiles(msg: any): string[] {
+    if (!msg?.parts) return []
+    const files: string[] = []
+    for (const part of msg.parts) {
+      if (part.type !== "tool" || part.state?.status !== "completed") continue
+      if (part.tool === "read" && part.state?.input?.filePath) {
+        files.push(part.state.input.filePath)
+      }
+    }
+    return [...new Set(files)]
+  }
+
+  /** Detect if the user is explicitly asking to receive a file. */
+  private detectFileSendIntent(text: string): boolean {
+    const lower = text.toLowerCase()
+    return ["发给我", "发来", "源文件", "原文件", "发过来", "原始文件", "send me", "send file"].some((w) =>
+      lower.includes(w),
+    )
+  }
+
+  /** Extract existing absolute file paths mentioned in text (e.g. in AI response). */
+  private extractFilePathsFromText(text: string): string[] {
+    const matches = text.match(/`?(\/[^\s`'"(){}<>]+\.[a-zA-Z0-9]+)`?/g) ?? []
+    return [...new Set(matches.map((m) => m.replace(/^`|`$/g, "").trim()).filter((p) => existsSync(p)))]
+  }
+
+  /** Map file extension to Feishu file_type. */
+  private feishuFileType(filename: string): string {
+    const ext = (filename.split(".").pop() ?? "").toLowerCase()
+    const map: Record<string, string> = { pdf: "pdf", doc: "doc", docx: "doc", xls: "xls", xlsx: "xls", ppt: "ppt", pptx: "ppt" }
+    return map[ext] ?? "stream"
+  }
+
+  /** Get a fresh tenant access token via native fetch (bypasses axios). */
+  private async getTenantAccessToken(): Promise<string> {
+    const resp = await fetch("https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ app_id: this._appId, app_secret: this._appSecret }),
+    })
+    const data = (await resp.json()) as any
+    if (!data.tenant_access_token) throw new Error(`获取 token 失败: ${JSON.stringify(data)}`)
+    return data.tenant_access_token
+  }
+
+  /** Upload a local file to Feishu and reply with it. Uses native fetch to bypass axios/Bun issues. */
+  private async replyFile(messageId: string, filePath: string): Promise<void> {
+    if (!this._appId) return
+    try {
+      const info = await stat(filePath)
+      if (info.size > 30 * 1024 * 1024) {
+        console.log("[feishu] file too large, skipping:", filePath)
+        return
+      }
+      const filename = basename(filePath)
+      const fileBuffer = await readFile(filePath)
+      const token = await this.getTenantAccessToken()
+
+      const form = new FormData()
+      form.append("file_type", this.feishuFileType(filename))
+      form.append("file_name", filename)
+      form.append("file", new Blob([new Uint8Array(fileBuffer)]), filename)
+
+      const uploadResp = await fetch("https://open.feishu.cn/open-apis/im/v1/files", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+        body: form,
+      })
+      const uploadData = (await uploadResp.json()) as any
+      const fileKey = uploadData?.data?.file_key
+      if (!fileKey) {
+        console.error("[feishu] file upload failed:", JSON.stringify(uploadData))
+        return
+      }
+
+      await fetch(`https://open.feishu.cn/open-apis/im/v1/messages/${messageId}/reply`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ msg_type: "file", content: JSON.stringify({ file_key: fileKey }) }),
+      })
+      console.log("[feishu] sent file:", filename)
+    } catch (err) {
+      console.error("[feishu] replyFile error:", filePath, err)
+    }
   }
 
   // ── Command handlers ──────────────────────────────────────────────────────

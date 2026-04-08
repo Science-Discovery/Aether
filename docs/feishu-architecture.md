@@ -103,7 +103,14 @@ idle ──▶ starting ──▶ connected
 | `buildModelList()` | 调用 `Provider.list()` 展平成编号列表，供 `/model` 使用 |
 | `resolveModel(chatId)` | 三级模型解析：per-chat override → 连接快照 → undefined |
 | `getProjects()` | 调用 `Project.recentList()` 并过滤根目录，与微信端 `GET /project/recent` 数据一致 |
-| `replyText(messageId, text)` | 通过飞书 REST API 回复消息 |
+| `replyText(messageId, text)` | 通过飞书 REST API 回复文本消息 |
+| `replyFile(messageId, filePath)` | 用 native fetch 上传本地文件并以附件形式回复 |
+| `getTenantAccessToken()` | 用 native fetch 获取 tenant_access_token（绕过 SDK axios） |
+| `detectFileSendIntent(text)` | 检测用户是否在索要文件（含"发给我/源文件/原文件"等词） |
+| `extractReadFiles(msg)` | 从 AI 响应的 ToolPart 中提取被读取的文件路径 |
+| `extractFilePathsFromText(text)` | 从文本中用正则提取存在于磁盘的绝对路径 |
+| `detectSummaryIntent(text)` | 检测用户是否在请求群聊总结，返回时间范围和条数 |
+| `fetchChatHistory(chatId, opts)` | 调用飞书 message.list API 拉取群聊历史并格式化 |
 | `stop()` | 断开 WebSocket，清理客户端和所有模型状态 |
 | `clearSession()` | 删除本地配置和会话映射文件 |
 
@@ -254,14 +261,53 @@ export const [feishuStatus, setFeishuStatus] = createSignal<FeishuStatus>("idle"
    a. 有映射 → 复用已映射的会话
    b. 无映射 → 复用最近的会话；若无任何会话则新建
 6. resolveModel(chatId) 解析本次使用的模型
-7. detectSummaryIntent(text) 检测是否为总结请求（含"总结/汇总/归纳"且含"群/今天/消息"等词）
+7. detectFileSendIntent(text) 检测用户是否在索要文件（含"发给我/源文件/原文件"等词）
+   a. 命中 → 在发给 AI 的 prompt 末尾追加系统提示，要求 AI 在回复中包含文件的完整绝对路径
+   b. 未命中 → 不修改 prompt
+8. detectSummaryIntent(text) 检测是否为总结请求（含"总结/汇总/归纳"且含"群/今天/消息"等词）
    a. 命中 → fetchChatHistory() 调用 larkClient.im.message.list() 拉取历史，拼入 prompt
    b. 未命中 → 直接使用原始文本
-8. SessionPrompt.prompt() 将文本发送给 AI（携带模型参数）
-8. 提取 AI 回复的文本部分，拼接项目/会话标题头部
-9. larkClient.im.message.reply() 回复到飞书
-10. 如果任何步骤报错 → catch 中通过 replyText 将错误信息发回飞书
+9. SessionPrompt.prompt() 将文本发送给 AI（携带模型参数）
+10. 提取 AI 回复的文本部分，拼接项目/会话标题头部，replyText() 回复到飞书
+11. 若检测到索要文件意图，进入文件发送流程：
+    a. extractReadFiles(msg) 从 ToolPart 中提取 AI 调用 Read 工具读取的文件路径
+    b. 若无，extractFilePathsFromText(responseText) 用正则从回复文本提取绝对路径，验证文件存在
+    c. replyFile() 上传并发送附件（见下方"文件上传流程"）
+12. 如果任何步骤报错 → catch 中通过 replyText 将错误信息发回飞书
 ```
+
+## 文件上传流程
+
+飞书 SDK 内部使用 axios 做 multipart 上传，在 Bun 运行时有兼容性问题（`Error.captureStackTrace` 行为差异导致真实错误被吞掉）。因此文件上传全部改用 native `fetch` 直接调飞书 REST API。
+
+```
+replyFile(messageId, filePath)
+  │
+  ├─ 1. stat(filePath) 检查文件大小，超过 30MB 则跳过
+  │
+  ├─ 2. readFile(filePath) 读取文件内容到 Buffer
+  │      转为 Uint8Array 以兼容 Blob 构造器
+  │
+  ├─ 3. getTenantAccessToken()
+  │      fetch POST /open-apis/auth/v3/tenant_access_token/internal
+  │      body: { app_id, app_secret }
+  │      → tenant_access_token
+  │
+  ├─ 4. 上传文件
+  │      fetch POST /open-apis/im/v1/files
+  │      headers: Authorization: Bearer {token}
+  │      body: FormData { file_type, file_name, file: Blob }
+  │      file_type 根据扩展名映射：pdf/doc/xls/ppt → 对应类型，其余 → "stream"
+  │      → file_key
+  │
+  └─ 5. 发送附件消息
+         fetch POST /open-apis/im/v1/messages/{messageId}/reply
+         headers: Authorization: Bearer {token}
+         body: { msg_type: "file", content: { file_key } }
+         → 飞书用户收到可下载附件
+```
+
+所需权限：`im:resource`（上传文件资源）
 
 ## 模型选择逻辑
 
@@ -400,8 +446,13 @@ SDK 使用方式：
 - `lark.LoggerLevel.debug` — 调试日志级别
 
 `lark.Client` 调用的 API：
-- `larkClient.im.message.reply()` — 回复消息
-- `larkClient.im.message.list()` — 拉取群聊消息历史（总结功能使用，需 `im:message.group_msg` 权限）
+- `larkClient.im.message.reply()` — 回复文本消息
+- `larkClient.im.message.list()` — 拉取群聊消息历史（总结功能，需 `im:message.group_msg` 权限）
+
+native `fetch` 直接调用的飞书 REST API（绕过 SDK axios，解决 Bun 兼容性问题）：
+- `POST /open-apis/auth/v3/tenant_access_token/internal` — 获取 tenant access token
+- `POST /open-apis/im/v1/files` — 上传文件资源，获取 file_key（需 `im:resource` 权限）
+- `POST /open-apis/im/v1/messages/{messageId}/reply` — 以附件形式回复消息
 
 ## 与微信连接的架构对比
 
@@ -418,7 +469,7 @@ SDK 使用方式：
 
 ## 已知限制
 
-1. **仅支持文本消息**：图片、文件等消息类型暂不处理
+1. **接收仅支持文本消息**：接收图片、文件等消息类型暂不处理；发送侧已支持文本和文件附件
 2. **无自动重连**：WebSocket 断开后需手动重新连接
 3. **单实例**：FeishuManager 是全局单例，不支持同时连接多个飞书应用
 4. **群聊限制**：群聊中仅响应 @机器人 的消息，未 @则忽略；@mention 占位符会自动过滤
@@ -439,3 +490,4 @@ SDK 使用方式：
 | 2026-04-07 | 新增 `/session` 命令：查看/切换会话，数据源与微信端一致；`_chatSessions` 存储 per-chat 当前会话 | 微信端支持多会话切换，飞书端功能对齐 |
 | 2026-04-07 | 群聊中仅响应 @机器人 的消息，检查 `chat_type` 和 `mentions` 字段 | 之前群聊中所有消息都会触发回复，@一次后机器人对所有消息都回复 |
 | 2026-04-08 16:28 | 新增群聊总结功能：`detectSummaryIntent()` 关键词检测 + `fetchChatHistory()` 拉取历史注入 prompt | 用户可直接用自然语言（如"帮我总结今天的群聊"）触发，无需斜杠命令；需开启 `im:message.group_msg` 权限 |
+| 2026-04-08 16:28 | 新增文件发送功能：AI 回复后自动提取 `PatchPart` 中的变更文件，通过 `larkClient.im.file.create()` 上传并回复到飞书 | 用户在飞书请求 AI 生成/修改文件后，可直接在聊天中收到文件附件 |
