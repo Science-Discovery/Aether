@@ -112,17 +112,26 @@ export interface ToastOptions {
   variant?: ToastVariant
   duration?: number
   persistent?: boolean
+  placement?: "bottom-right" | "top-center"
+  guarded?: boolean
   actions?: ToastAction[]
 }
 
 export function showToast(options: ToastOptions | string) {
   const opts = typeof options === "string" ? { description: options } : options
+  const stop = (event: Event) => event.preventDefault()
   return toaster.show((props) => (
     <Toast
       toastId={props.toastId}
       duration={opts.duration}
       persistent={opts.persistent}
+      onEscapeKeyDown={opts.guarded ? stop : undefined}
+      onSwipeStart={opts.guarded ? stop : undefined}
+      onSwipeMove={opts.guarded ? stop : undefined}
+      onSwipeCancel={opts.guarded ? stop : undefined}
+      onSwipeEnd={opts.guarded ? stop : undefined}
       data-variant={opts.variant ?? "default"}
+      data-placement={opts.placement ?? "bottom-right"}
     >
       <Show when={opts.icon}>
         <Toast.Icon name={opts.icon!} />
@@ -152,7 +161,9 @@ export function showToast(options: ToastOptions | string) {
           </Toast.Actions>
         </Show>
       </Toast.Content>
-      <Toast.CloseButton />
+      <Show when={!opts.guarded}>
+        <Toast.CloseButton />
+      </Show>
     </Toast>
   ))
 }

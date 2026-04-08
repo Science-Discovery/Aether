@@ -134,6 +134,8 @@ export function LegacyDBGuard() {
 
       showToast({
         persistent: true,
+        placement: "top-center",
+        guarded: true,
         icon: "download",
         title: "侦测到旧版本的对话记录",
         description: "是否全部合并到新版本的对话中?",
@@ -174,6 +176,8 @@ export function LegacyDBGuard() {
             onClick: () => {
               showToast({
                 persistent: true,
+                placement: "top-center",
+                guarded: true,
                 icon: "download",
                 title: "侦测到旧版本的对话记录",
                 description: "已取消，是否下次开启Aether时执行对话记录合并。",

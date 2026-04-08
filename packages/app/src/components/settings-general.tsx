@@ -171,6 +171,8 @@ export const SettingsGeneral: Component = () => {
 
         showToast({
           persistent: true,
+          placement: "top-center",
+          guarded: true,
           icon: "download",
           title: language.t("toast.update.title"),
           description: language.t("toast.update.description", { version: result.version ?? "" }),
