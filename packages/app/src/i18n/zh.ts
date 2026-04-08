@@ -333,8 +333,11 @@ export const dict = {
   "dialog.fork.empty": "没有可用于分叉的消息",
 
   "dialog.directory.search.placeholder": "搜索文件夹",
-  "dialog.directory.empty": "未找到文件夹",
+  "dialog.directory.empty": "该目录下无子文件夹",
   "dialog.directory.select": "选择文件夹",
+  "dialog.directory.existingProjects": "已有项目",
+  "dialog.directory.browse": "浏览",
+  "dialog.directory.confirm": "确认",
 
   "dialog.server.title": "服务器",
   "dialog.server.description": "切换此应用连接的 OpenCode 服务器。",

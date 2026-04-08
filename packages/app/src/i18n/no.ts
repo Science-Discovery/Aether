@@ -306,7 +306,10 @@ export const dict = {
   "dialog.fork.empty": "Ingen meldinger å forgrene fra",
 
   "dialog.directory.search.placeholder": "Søk etter mapper",
-  "dialog.directory.empty": "Ingen mapper funnet",
+  "dialog.directory.empty": "Ingen undermapper i denne mappen",
+  "dialog.directory.existingProjects": "Eksisterende prosjekter",
+  "dialog.directory.browse": "Bla gjennom",
+  "dialog.directory.confirm": "Bekreft",
 
   "dialog.server.title": "Servere",
   "dialog.server.description": "Bytt hvilken OpenCode-server denne appen kobler til.",

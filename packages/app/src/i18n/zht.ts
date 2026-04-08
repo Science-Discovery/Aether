@@ -303,7 +303,10 @@ export const dict = {
   "dialog.fork.empty": "沒有可用於分支的訊息",
 
   "dialog.directory.search.placeholder": "搜尋資料夾",
-  "dialog.directory.empty": "找不到資料夾",
+  "dialog.directory.empty": "該目錄下無子資料夾",
+  "dialog.directory.existingProjects": "已有專案",
+  "dialog.directory.browse": "瀏覽",
+  "dialog.directory.confirm": "確認",
 
   "dialog.server.title": "伺服器",
   "dialog.server.description": "切換此應用程式連線的 OpenCode 伺服器。",
