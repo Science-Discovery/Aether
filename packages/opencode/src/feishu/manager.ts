@@ -25,6 +25,7 @@ const FEISHU_DATA_DIR =
 const CONFIG_FILE = join(FEISHU_DATA_DIR, "config.json")
 const SESSION_MAP_FILE = join(FEISHU_DATA_DIR, "sessions.json")
 const HIDDEN_DIRS_FILE = join(FEISHU_DATA_DIR, "hidden_projects.json")
+const DEFAULT_PROJECT_FILE = join(FEISHU_DATA_DIR, "default_project.json")
 
 export type FeishuStatus = "idle" | "starting" | "connected" | "error"
 
@@ -99,12 +100,14 @@ class FeishuManagerImpl {
   // ─────────────────────────────────────────────────────────────────────────
 
   // ── Project state ─────────────────────────────────────────────────────────
-  // Per-chat current directory (set by /project n). Empty = use connect-time Instance.directory.
+  // Per-chat current directory (set by /project n). Empty = use default or connect-time Instance.directory.
   private _chatDirs: Record<string, string> = {}
   // Per-chat pinned session (set by /session n or /new). Overrides thread-based sessionMap.
   private _chatSessions: Record<string, string> = {}
   // Hidden project directories: directory -> timestamp when hidden. Persisted to disk.
   private _hiddenDirs: Record<string, number> = {}
+  // Default project directory applied to all chats on connect. Persisted to disk.
+  private _defaultDir: string | null = null
   // GlobalBus listener for detecting web UI activity on hidden projects.
   private _globalBusListener: ((event: { directory?: string; payload: any }) => void) | null = null
   // ─────────────────────────────────────────────────────────────────────────
@@ -251,6 +254,7 @@ class FeishuManagerImpl {
     await this.saveConfig(cfg)
     this.sessionMap = await this.loadSessionMap()
     this._hiddenDirs = await this.loadHiddenDirs()
+    this._defaultDir = await this.loadDefaultDir()
 
     void this._doStart(cfg, model ?? null)
     return { success: true }
@@ -374,7 +378,7 @@ class FeishuManagerImpl {
       }
 
       // Effective directory for this chat (may differ from connect-time Instance.directory)
-      const effectiveDir = this._chatDirs[chatId] ?? Instance.directory
+      const effectiveDir = this._chatDirs[chatId] ?? this._defaultDir ?? Instance.directory
 
       // Feishu message to a hidden project → unhide immediately
       if (effectiveDir in this._hiddenDirs) {
@@ -660,7 +664,7 @@ class FeishuManagerImpl {
     } else if (command === "/help") {
       await this.replyText(
         messageId,
-        "📋 可用命令：\n\n/new          开启新对话（清除当前会话上下文）\n/model        查看可用模型列表及当前模型\n/model n      切换到编号 n 的模型\n/project      查看/切换项目\n/project n    切换到编号 n 的项目\n/project hide n  隐藏项目\n/session      查看当前项目下的会话列表\n/session list 查看全部会话\n/session n    切换到编号 n 的会话\n/help         显示此帮助信息",
+        "📋 可用命令：\n\n/new             开启新对话（清除当前会话上下文）\n/model           查看可用模型列表及当前模型\n/model n         切换到编号 n 的模型\n/project         查看/切换项目\n/project n       切换到编号 n 的项目\n/project hide n  隐藏项目\n/project default n  设置编号 n 的项目为默认（重连后自动进入）\n/session         查看当前项目下的会话列表\n/session list    查看全部会话\n/session n       切换到编号 n 的会话\n/help            显示此帮助信息",
       )
     } else {
       await this.replyText(messageId, `未知命令: ${command}\n发送 /help 查看可用命令。`)
@@ -675,7 +679,7 @@ class FeishuManagerImpl {
     delete this._modelOverrides[chatId]
     delete this._chatSessions[chatId]
 
-    const effectiveDir = this._chatDirs[chatId] ?? Instance.directory
+    const effectiveDir = this._chatDirs[chatId] ?? this._defaultDir ?? Instance.directory
     const session = await Instance.provide({
       directory: effectiveDir,
       fn: () => Session.create({ title: `飞书对话 ${chatId.slice(-6)}` }),
@@ -763,7 +767,22 @@ class FeishuManagerImpl {
     await this.autoUnhide()
 
     const visibleProjects = allProjects.filter((p) => !(this.projectDir(p) in this._hiddenDirs))
-    const currentDir = this._chatDirs[chatId] ?? Instance.directory
+    const currentDir = this._chatDirs[chatId] ?? this._defaultDir ?? Instance.directory
+
+    // /project default <n>
+    if (arg.startsWith("default ")) {
+      const idxArg = arg.slice(8).trim()
+      const idx = parseInt(idxArg, 10) - 1
+      if (isNaN(idx) || idx < 0 || idx >= allProjects.length) {
+        await this.replyText(messageId, `❌ 用法：/project default n（n 为 1~${allProjects.length}）`)
+        return
+      }
+      const target = allProjects[idx]
+      this._defaultDir = this.projectDir(target)
+      await this.saveDefaultDir(this._defaultDir)
+      await this.replyText(messageId, `✅ 已设置默认项目：${this.projectName(target)}\n   ${this._defaultDir}\n（断开重连后自动进入此项目）`)
+      return
+    }
 
     // /project hide <n>
     if (arg.startsWith("hide ")) {
@@ -796,7 +815,8 @@ class FeishuManagerImpl {
         const directory = this.projectDir(item)
         const tag = directory === currentDir ? " ◀" : ""
         const mark = directory in this._hiddenDirs ? " [已隐藏]" : ""
-        lines.push(`${i + 1}. ${this.projectName(item)}${tag}${mark}`)
+        const def = directory === this._defaultDir ? " [默认]" : ""
+        lines.push(`${i + 1}. ${this.projectName(item)}${tag}${def}${mark}`)
         lines.push(`   ${directory}`)
       }
       await this.replyText(messageId, lines.join("\n"))
@@ -869,7 +889,8 @@ class FeishuManagerImpl {
       const directory = this.projectDir(item)
       if (directory in this._hiddenDirs) continue
       const tag = directory === currentDir ? " ◀" : ""
-      lines.push(`${i + 1}. ${this.projectName(item)}${tag}`)
+      const def = directory === this._defaultDir ? " [默认]" : ""
+      lines.push(`${i + 1}. ${this.projectName(item)}${tag}${def}`)
       lines.push(`   ${directory}`)
       count++
     }
@@ -892,7 +913,7 @@ class FeishuManagerImpl {
    * /session <n>      — switch to session n
    */
   private async cmdSession(messageId: string, chatId: string, arg: string): Promise<void> {
-    const effectiveDir = this._chatDirs[chatId] ?? Instance.directory
+    const effectiveDir = this._chatDirs[chatId] ?? this._defaultDir ?? Instance.directory
     let items: Session.Info[] = []
     await Instance.provide({
       directory: effectiveDir,
@@ -1055,6 +1076,21 @@ class FeishuManagerImpl {
   private async saveHiddenDirs(): Promise<void> {
     await mkdir(FEISHU_DATA_DIR, { recursive: true })
     await writeFile(HIDDEN_DIRS_FILE, JSON.stringify(this._hiddenDirs, null, 2))
+  }
+
+  private async loadDefaultDir(): Promise<string | null> {
+    try {
+      if (existsSync(DEFAULT_PROJECT_FILE)) {
+        const data = await readFile(DEFAULT_PROJECT_FILE, "utf-8")
+        return JSON.parse(data)?.directory ?? null
+      }
+    } catch {}
+    return null
+  }
+
+  private async saveDefaultDir(directory: string): Promise<void> {
+    await mkdir(FEISHU_DATA_DIR, { recursive: true })
+    await writeFile(DEFAULT_PROJECT_FILE, JSON.stringify({ directory }, null, 2))
   }
 
   async loadSession(): Promise<FeishuSession | null> {
