@@ -36,3 +36,4 @@ Aether-wechat-bridge/.venv/
 __pycache__/
 *.pyc
 */__pycache__/
+.opencode/skills/aether-issue-pr
