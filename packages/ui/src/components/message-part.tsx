@@ -910,12 +910,18 @@ export function UserMessageDisplay(props: { message: UserMessage; parts: PartTyp
     const match = data.store.provider?.all?.find((p) => p.id === providerID)
     return match?.models?.[modelID]?.name ?? modelID
   })
-  const timefmt = createMemo(() => new Intl.DateTimeFormat(i18n.locale(), { timeStyle: "short" }))
+  const timefmt = createMemo(() => {
+    const pad = (n: number) => String(n).padStart(2, "0")
+    return (ms: number) => {
+      const d = new Date(ms)
+      return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}-${pad(d.getHours())}:${pad(d.getMinutes())}`
+    }
+  })
 
   const stamp = createMemo(() => {
     const created = props.message.time?.created
     if (typeof created !== "number") return ""
-    return timefmt().format(created)
+    return timefmt()(created)
   })
 
   const metaHead = createMemo(() => {
