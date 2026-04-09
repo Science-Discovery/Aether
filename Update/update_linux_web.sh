@@ -43,7 +43,7 @@ Behavior:
   - Updates current symlink to the latest installed version
 
 Package name pattern:
-  aether-linux-x64-web-<version>.*
+  aether-linux-x64-<version>.*
 
 Exit codes:
   0   install finished successfully
@@ -314,7 +314,7 @@ target="$work/aether_$ver"
 next="$work/.aether_$ver.next"
 
 shopt -s nullglob
-arr=("$dl"/aether-linux-x64-web-"$ver".*)
+arr=("$dl"/aether-linux-x64-"$ver".*)
 shopt -u nullglob
 if [ "${#arr[@]}" -eq 0 ]; then
   echo "[install] Package not found for version $ver in $dl"

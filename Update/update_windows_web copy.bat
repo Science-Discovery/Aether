@@ -14,7 +14,7 @@ if /I "%~1"=="--no-pause" set "HOLD="
 
 set "SELF=%~dp0"
 if "%SELF:~-1%"=="\" set "SELF=%SELF:~0,-1%"
-set "CACHE=%SELF%\aether-windows-x64-web.zip"
+set "CACHE=%SELF%\aether-windows-x64.zip"
 set "STAMP=%SELF%\.aether_web_package_version"
 
 if exist "%SELF%\aether.exe" if exist "%SELF%\Aether.vbs" (
@@ -31,7 +31,7 @@ if exist "%SELF%\aether.exe" if exist "%SELF%\Aether.vbs" (
 set "STATE=%APP%\.aether_web_version"
 set "TMP=%TEMP%\aether-web-update-%RANDOM%%RANDOM%"
 set "META=%TMP%\latest-web-windows.yml"
-set "ZIP=%TMP%\aether-windows-x64-web.zip"
+set "ZIP=%TMP%\aether-windows-x64.zip"
 set "EXTRACT=%TMP%\extract"
 set "SRC_FILE=%TMP%\src.txt"
 set "NEXT=%TMP%\next"
@@ -57,7 +57,7 @@ if "%VER_REMOTE%"=="" (
   goto :fail
 )
 
-if "%URL_REMOTE%"=="" set "URL_REMOTE=aether-windows-x64-web.zip"
+if "%URL_REMOTE%"=="" set "URL_REMOTE=aether-windows-x64.zip"
 
 set "VER_LOCAL="
 if exist "%STATE%" set /p VER_LOCAL=<"%STATE%"
