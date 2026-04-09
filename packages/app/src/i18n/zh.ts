@@ -338,6 +338,9 @@ export const dict = {
   "dialog.directory.existingProjects": "已有项目",
   "dialog.directory.browse": "浏览",
   "dialog.directory.confirm": "确认",
+  "dialog.directory.create.title": "创建文件夹",
+  "dialog.directory.create.message": "目录不存在，是否创建此文件夹？",
+  "dialog.directory.create.action": "创建",
 
   "dialog.server.title": "服务器",
   "dialog.server.description": "切换此应用连接的 OpenCode 服务器。",

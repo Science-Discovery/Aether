@@ -307,6 +307,9 @@ export const dict = {
   "dialog.directory.existingProjects": "Eksisterende projekter",
   "dialog.directory.browse": "Gennemse",
   "dialog.directory.confirm": "Bekræft",
+  "dialog.directory.create.title": "Opret mappe",
+  "dialog.directory.create.message": "Denne mappe findes ikke. Vil du oprette den?",
+  "dialog.directory.create.action": "Opret",
 
   "dialog.server.title": "Servere",
   "dialog.server.description": "Skift hvilken OpenCode-server denne app forbinder til.",

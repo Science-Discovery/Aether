@@ -312,6 +312,9 @@ export const dict = {
   "dialog.directory.existingProjects": "Mevcut projeler",
   "dialog.directory.browse": "Gözat",
   "dialog.directory.confirm": "Onayla",
+  "dialog.directory.create.title": "Klasor olustur",
+  "dialog.directory.create.message": "Bu dizin mevcut degil. Bu klasor olusturulsun mu?",
+  "dialog.directory.create.action": "Olustur",
 
   "dialog.server.title": "Sunucular",
   "dialog.server.description": "Bu uygulamanın hangi OpenCode sunucusuna bağlanacağını değiştirin.",

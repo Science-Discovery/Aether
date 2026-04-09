@@ -205,7 +205,11 @@ export const FileRoutes = lazy(() =>
         if (process.platform === "win32" && type === "directory") {
           const rawDir = (() => {
             const v = c.req.query("directory") || ""
-            try { return decodeURIComponent(v) } catch { return v }
+            try {
+              return decodeURIComponent(v)
+            } catch {
+              return v
+            }
           })()
           if (rawDir === "/") {
             const { existsSync } = await import("fs")
@@ -288,18 +292,29 @@ export const FileRoutes = lazy(() =>
         const path = c.req.valid("query").path
         const rawDir = (() => {
           const v = c.req.query("directory") || ""
-          try { return decodeURIComponent(v) } catch { return v }
+          try {
+            return decodeURIComponent(v)
+          } catch {
+            return v
+          }
         })()
 
         // On Windows, return drive roots when browsing from "/"
         if (process.platform === "win32" && !path && rawDir === "/") {
           const { existsSync } = await import("fs")
-          const drives: Array<{ name: string; path: string; absolute: string; type: "directory"; ignored: boolean }> = []
+          const drives: Array<{ name: string; path: string; absolute: string; type: "directory"; ignored: boolean }> =
+            []
           for (let code = 65; code <= 90; code++) {
             const letter = String.fromCharCode(code)
             const drivePath = `${letter}:\\`
             if (existsSync(drivePath)) {
-              drives.push({ name: `${letter}:`, path: `${letter}:/`, absolute: `${letter}:/`, type: "directory", ignored: false })
+              drives.push({
+                name: `${letter}:`,
+                path: `${letter}:/`,
+                absolute: `${letter}:/`,
+                type: "directory",
+                ignored: false,
+              })
             }
           }
           return c.json(drives)
@@ -494,6 +509,29 @@ export const FileRoutes = lazy(() =>
         })
 
         return c.json(result)
+      },
+    )
+    .post(
+      "/file/ensure-directory",
+      describeRoute({
+        summary: "Ensure directory exists",
+        description:
+          "Create a directory at the given absolute path if it does not exist, including any intermediate directories.",
+        operationId: "file.ensureDirectory",
+        responses: {
+          200: {
+            description: "Directory ensured",
+            content: { "application/json": { schema: resolver(z.object({ ok: z.boolean(), path: z.string() })) } },
+          },
+          ...errors(400),
+        },
+      }),
+      validator("json", z.object({ path: z.string() })),
+      async (c) => {
+        const input = c.req.valid("json").path
+        if (!path.isAbsolute(input)) return c.json({ error: "path must be absolute" }, 400)
+        await fs.mkdir(input, { recursive: true })
+        return c.json({ ok: true, path: input })
       },
     )
     .post(

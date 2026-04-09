@@ -11,8 +11,36 @@ import { createMemo, createResource, createSignal, onMount, Show } from "solid-j
 import { useGlobalSDK } from "@/context/global-sdk"
 import { useGlobalSync } from "@/context/global-sync"
 import { useLanguage } from "@/context/language"
+import { useServer } from "@/context/server"
 import { picked } from "./pick-folder"
 import { useLayout } from "@/context/layout"
+
+function DialogCreateDirectory(props: { path: string; onClose: (ok: boolean) => void }) {
+  const dialog = useDialog()
+  const language = useLanguage()
+
+  const close = (ok: boolean) => {
+    dialog.close()
+    props.onClose(ok)
+  }
+
+  return (
+    <Dialog title={language.t("dialog.directory.create.title")} persistent>
+      <div class="flex flex-col gap-4 p-4">
+        <div class="text-sm text-text-strong">{language.t("dialog.directory.create.message")}</div>
+        <div class="text-xs text-text-weak break-all font-mono">{props.path}</div>
+        <div class="flex items-center justify-end gap-2">
+          <Button variant="ghost" onClick={() => close(false)}>
+            {language.t("common.cancel")}
+          </Button>
+          <Button variant="secondary" onClick={() => close(true)}>
+            {language.t("dialog.directory.create.action")}
+          </Button>
+        </div>
+      </div>
+    </Dialog>
+  )
+}
 
 interface DialogSelectDirectoryProps {
   title?: string
@@ -268,9 +296,11 @@ export function DialogSelectDirectory(props: DialogSelectDirectoryProps) {
   const dialog = useDialog()
   const language = useLanguage()
   const layout = useLayout()
+  const server = useServer()
 
   const [filter, setFilter] = createSignal("")
   const [browsing, setBrowsing] = createSignal(false)
+  const [creating, setCreating] = createSignal(false)
   const [expanded, setExpanded] = createSignal(false)
   let list: ListRef | undefined
 
@@ -359,8 +389,12 @@ export function DialogSelectDirectory(props: DialogSelectDirectoryProps) {
     return uniqueRows([...filteredRecent, ...directoryRows])
   }
 
-  function resolve(absolute: string) {
+  function select(absolute: string) {
     props.onSelect(props.multiple ? [absolute] : absolute)
+  }
+
+  function resolve(absolute: string) {
+    select(absolute)
     dialog.close()
   }
 
@@ -372,7 +406,30 @@ export function DialogSelectDirectory(props: DialogSelectDirectoryProps) {
     list?.setFilter(parent ?? "")
   }
 
-  function openOrCreate() {
+  const confirmCreate = (path: string) =>
+    new Promise<boolean>((done) => {
+      dialog.show(() => <DialogCreateDirectory path={path} onClose={done} />)
+    })
+
+  const fetchApi = async (urlPath: string, options: RequestInit = {}): Promise<Response> => {
+    const baseUrl = sdk.url
+    const s = server.current?.http
+    const authHeader: Record<string, string> = s?.password
+      ? { Authorization: `Basic ${btoa(`${s.username ?? "opencode"}:${s.password}`)}` }
+      : {}
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+      ...authHeader,
+      ...((options.headers as Record<string, string>) ?? {}),
+    }
+    const separator = urlPath.includes("?") ? "&" : "?"
+    return fetch(`${baseUrl}${urlPath}${separator}directory=${encodeURIComponent(sdk.directory)}`, {
+      ...options,
+      headers,
+    })
+  }
+
+  async function openOrCreate() {
     const raw = normalizeDriveRoot(cleanInput(filter()))
     if (!raw) return
     let absolute: string
@@ -383,7 +440,40 @@ export function DialogSelectDirectory(props: DialogSelectDirectoryProps) {
     } else {
       absolute = trimTrailing(joinPath(start() ?? "", raw))
     }
-    resolve(absolute)
+
+    const check = await fetchApi(`/file/check-directory?path=${encodeURIComponent(absolute)}`).catch(() => null)
+    if (!check) {
+      showToast.error(language.t("common.requestFailed"))
+      return
+    }
+
+    if (check.ok) {
+      resolve(absolute)
+      return
+    }
+
+    if (!(await confirmCreate(absolute))) return
+
+    await new Promise((done) => setTimeout(done, 120))
+    dialog.close()
+
+    setCreating(true)
+    try {
+      const res = await fetchApi("/file/ensure-directory", {
+        method: "POST",
+        body: JSON.stringify({ path: absolute }),
+      })
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}))
+        showToast.error(body.error ?? language.t("common.requestFailed"))
+        return
+      }
+      select(absolute)
+    } catch {
+      showToast.error(language.t("common.requestFailed"))
+    } finally {
+      setCreating(false)
+    }
   }
 
   return (
@@ -419,8 +509,8 @@ export function DialogSelectDirectory(props: DialogSelectDirectoryProps) {
             </div>
           ),
           action: (
-            <Button size="small" variant="secondary" disabled={!filter()} onClick={openOrCreate}>
-              {language.t("dialog.directory.confirm")}
+            <Button size="small" variant="secondary" disabled={!filter() || creating()} onClick={openOrCreate}>
+              {creating() ? language.t("common.loading") : language.t("dialog.directory.confirm")}
             </Button>
           ),
         }}

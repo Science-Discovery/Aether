@@ -308,6 +308,9 @@ export const dict = {
   "dialog.directory.existingProjects": "โปรเจกต์ที่มีอยู่",
   "dialog.directory.browse": "เรียกดู",
   "dialog.directory.confirm": "ยืนยัน",
+  "dialog.directory.create.title": "สร้างโฟลเดอร์",
+  "dialog.directory.create.message": "ไดเรกทอรีนี้ไม่มีอยู่ ต้องการสร้างโฟลเดอร์นี้หรือไม่?",
+  "dialog.directory.create.action": "สร้าง",
 
   "dialog.server.title": "เซิร์ฟเวอร์",
   "dialog.server.description": "สลับเซิร์ฟเวอร์ OpenCode ที่แอปนี้เชื่อมต่อด้วย",
