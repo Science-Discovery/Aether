@@ -15,8 +15,8 @@
 | `release-linux-desktop.sh`    | `packages/desktop-electron/dist/*-linux-x64.AppImage`（或匹配 `*linux*x64*.AppImage`） | `packages/desktop-electron/dist/latest-linux.yml` |
 | `release-windows-desktop.bat` | `packages/desktop-electron/dist/aether-win-x64.exe`（或匹配 `*win*x64*.exe`）          | `packages/desktop-electron/dist/latest.yml`       |
 | `release-mac-web.sh`          | `packages/opencode/dist/aether-darwin-arm64-web.dmg`                                   | `packages/opencode/dist/latest-web-mac.yml`       |
-| `release-linux-web.sh`        | `packages/opencode/dist/aether-linux-x64-web.zip`                                      | `packages/opencode/dist/latest-web-linux.yml`     |
-| `release-windows-web.bat`     | `packages/opencode/dist/aether-windows-x64-web.zip`                                    | `packages/opencode/dist/latest-web-windows.yml`   |
+| `release-linux-web.sh`        | `packages/opencode/dist/aether-linux-x64.zip`                                          | `packages/opencode/dist/latest-web-linux.yml`     |
+| `release-windows-web.bat`     | `packages/opencode/dist/aether-windows-x64.zip`                                        | `packages/opencode/dist/latest-web-windows.yml`   |
 
 ## 上传策略
 
@@ -26,8 +26,8 @@
   - windows：`.exe` + `latest.yml`
 - `web` 渠道（`latest-web`）：上传 3 个 web 分发包 + 3 个 web `yml`
   - mac：`aether-darwin-arm64-web.dmg` + `latest-web-mac.yml`
-  - linux：`aether-linux-x64-web.zip` + `latest-web-linux.yml`
-  - windows：`aether-windows-x64-web.zip` + `latest-web-windows.yml`
+  - linux：`aether-linux-x64.zip` + `latest-web-linux.yml`
+  - windows：`aether-windows-x64.zip` + `latest-web-windows.yml`
 
 ## 发布前检查
 

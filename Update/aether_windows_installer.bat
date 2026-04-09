@@ -264,7 +264,7 @@ set "DL=%WORK%\downloads"
 if not exist "%DL%" mkdir "%DL%" >nul 2>nul || exit /b %DIR_ERR%
 
 for %%i in ("%PKG_NAME%") do set "PKG_EXT=%%~xi"
-set "PKG_FILE=%DL%\aether-windows-x64-web-%VER%%PKG_EXT%"
+set "PKG_FILE=%DL%\aether-windows-x64-%VER%%PKG_EXT%"
 set "INS_FILE="
 set "NEED_PKG=1"
 
@@ -309,7 +309,7 @@ exit /b 0
 
 :prune
 set "DL=%WORK%\downloads"
-powershell -NoProfile -Command "$dl=$env:DL; $keep=[int]$env:KEEP; if(-not (Test-Path $dl)){ exit 0 }; $a=Get-ChildItem -Path $dl -File -Filter 'aether-windows-x64-web-*' | Sort-Object Name; if($a.Count -gt $keep){ $a | Select-Object -First ($a.Count-$keep) | Remove-Item -Force }; $b=Get-ChildItem -Path $dl -File -Filter 'update_windows_web-*.bat' | Sort-Object Name; if($b.Count -gt $keep){ $b | Select-Object -First ($b.Count-$keep) | Remove-Item -Force }"
+powershell -NoProfile -Command "$dl=$env:DL; $keep=[int]$env:KEEP; if(-not (Test-Path $dl)){ exit 0 }; $a=Get-ChildItem -Path $dl -File -Filter 'aether-windows-x64-*' | Sort-Object Name; if($a.Count -gt $keep){ $a | Select-Object -First ($a.Count-$keep) | Remove-Item -Force }; $b=Get-ChildItem -Path $dl -File -Filter 'update_windows_web-*.bat' | Sort-Object Name; if($b.Count -gt $keep){ $b | Select-Object -First ($b.Count-$keep) | Remove-Item -Force }"
 exit /b 0
 
 :result
