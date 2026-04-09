@@ -393,38 +393,40 @@ export default function Layout(props: ParentProps) {
       const showUpdateToast = (version?: string) => {
         if (toastId !== undefined) return
         toastId = showToast({
-          persistent: true,
-          icon: "download",
-          title: language.t("toast.update.title"),
-          description: language.t("toast.update.description", { version: version ?? "" }),
-          actions:
-            platform.platform === "web"
-              ? [
-                  {
-                    label: language.t("update.install"),
-                    onClick: async () => {
-                      await platform.update!()
-                      await platform.restart!()
+            persistent: true,
+            placement: "top-center",
+            guarded: true,
+            icon: "download",
+            title: language.t("toast.update.title"),
+            description: language.t("toast.update.description", { version: version ?? "" }),
+            actions:
+              platform.platform === "web"
+                ? [
+                    {
+                      label: language.t("update.install"),
+                      onClick: async () => {
+                        await platform.update!()
+                        await platform.restart!()
+                      },
                     },
-                  },
-                  {
-                    label: language.t("toast.update.action.notYet"),
-                    onClick: "dismiss",
-                  },
-                ]
-              : [
-                  {
-                    label: language.t("toast.update.action.installRestart"),
-                    onClick: async () => {
-                      await platform.update!()
-                      await platform.restart!()
+                    {
+                      label: language.t("toast.update.action.notYet"),
+                      onClick: "dismiss",
                     },
-                  },
-                  {
-                    label: language.t("toast.update.action.notYet"),
-                    onClick: "dismiss",
-                  },
-                ],
+                  ]
+                : [
+                    {
+                      label: language.t("toast.update.action.installRestart"),
+                      onClick: async () => {
+                        await platform.update!()
+                        await platform.restart!()
+                      },
+                    },
+                    {
+                      label: language.t("toast.update.action.notYet"),
+                      onClick: "dismiss",
+                    },
+                  ],
         })
       }
 
@@ -551,6 +553,8 @@ export default function Layout(props: ParentProps) {
 
         const toastId = showToast({
           persistent: true,
+          placement: "top-center",
+          guarded: true,
           icon,
           title,
           description,
@@ -1741,6 +1745,8 @@ export default function Layout(props: ParentProps) {
     dismiss()
 
     showToast({
+      placement: "top-center",
+      guarded: true,
       title: language.t("workspace.reset.success.title"),
       description: language.t("workspace.reset.success.description"),
       actions: [
@@ -2641,7 +2647,13 @@ export default function Layout(props: ParentProps) {
         </div>
         {import.meta.env.DEV && <DebugBar />}
       </div>
-      <Toast.Region />
+      <Toast.Region regionId="bottom-right" data-placement="bottom-right" />
+      <Toast.Region
+        regionId="top-center"
+        data-placement="top-center"
+        swipeDirection="right"
+        swipeThreshold={100000}
+      />
     </div>
   )
 }

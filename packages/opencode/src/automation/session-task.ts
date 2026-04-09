@@ -23,7 +23,9 @@ export namespace SessionTask {
 
   export type Running = {
     sessionID: Output["sessionID"]
-    done: Promise<void>
+    done: Promise<{
+      aborted: boolean
+    }>
   }
 
   export async function begin(raw: Input): Promise<Running> {
@@ -44,7 +46,9 @@ export namespace SessionTask {
             },
           ],
         })
-          .then(() => undefined)
+          .then((result) => ({
+            aborted: JSON.stringify(result).includes("User aborted the command"),
+          }))
           .catch((error) => {
             log.error("session task failed", {
               sessionID: session.id,

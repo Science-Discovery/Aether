@@ -3,10 +3,17 @@ import fs from "fs/promises"
 import path from "path"
 import z from "zod"
 import { Global } from "@/global"
+import { Flag } from "@/flag/flag"
 
-const target_file = "aether-prod.db"
 const pref_file = "legacy-db.json"
-const archive_file = "legacy-db-archive.json"
+const merge_file = "legacy-db-merge.json"
+const boot_file = "legacy-db-boot.json"
+
+function targetFile() {
+  const file = Flag.OPENCODE_DB
+  if (!file || file === ":memory:") return "aether-prod.db"
+  return path.basename(file)
+}
 
 function dbPath(name: string) {
   return path.join(Global.Path.data, name)
@@ -16,32 +23,31 @@ function prefPath() {
   return path.join(Global.Path.state, pref_file)
 }
 
-function archivePath() {
-  return path.join(Global.Path.state, archive_file)
+function mergePath() {
+  return path.join(Global.Path.state, merge_file)
 }
+
+function bootPath() {
+  return path.join(Global.Path.state, boot_file)
+}
+
 
 function isdb(name: string) {
   return /^(opencode|aether).*\.db$/i.test(name)
 }
 
+function sourceDb(name: string) {
+  return /^opencode.*\.db$/i.test(name)
+}
+
 function channel(name: string) {
   const file = path.basename(name)
-  if (file.toLowerCase() === target_file) return "prod"
+  if (file.toLowerCase() === targetFile().toLowerCase()) return "prod"
   if (!isdb(file)) return "unknown"
   if (file.toLowerCase() === "opencode.db") return "latest"
   const match = /^opencode-(.+)\.db$/i.exec(file)
   if (!match) return "unknown"
   return match[1]
-}
-
-function rank(name: string) {
-  const ch = channel(name)
-  if (ch === "local") return 0
-  if (ch === "dev") return 1
-  if (ch === "beta") return 2
-  if (ch === "latest") return 3
-  if (ch === "prod") return 4
-  return 2
 }
 
 async function mod(file: string) {
@@ -67,10 +73,7 @@ async function versions(file: string) {
   }
 }
 
-
 export namespace LegacyDB {
-  export const target = target_file
-
   export const File = z.object({
     name: z.string(),
     path: z.string(),
@@ -84,6 +87,8 @@ export namespace LegacyDB {
     has_legacy: z.boolean(),
     message: z.string(),
     dismissed: z.boolean(),
+    should_merge: z.boolean(),
+    source_count: z.number(),
     legacy_count: z.number(),
     files: File.array(),
     naming: z.record(z.string(), z.number()),
@@ -94,25 +99,23 @@ export namespace LegacyDB {
     dismissed: z.boolean(),
   })
 
-  export const Archive = z.object({
-    history: z.string(),
-    moved: z.array(z.string()),
-    skipped: z.array(z.string()),
-    remaining: z.array(z.string()),
-    clean: z.boolean(),
+  export const MergeState = z.object({
+    state: z.enum(["idle", "running", "done", "error"]),
+    updated: z.number(),
+    error: z.string().optional(),
+    details: z.array(z.string()).optional(),
   })
 
   export type Status = z.infer<typeof Status>
   export type Preference = z.infer<typeof Preference>
-  export type Archive = z.infer<typeof Archive>
+  export type MergeState = z.infer<typeof MergeState>
 
-  export const ArchiveState = z.object({
-    state: z.enum(["idle", "running", "done", "error"]),
+  export const BootState = z.object({
+    should_merge: z.boolean(),
+    source_count: z.number(),
     updated: z.number(),
-    result: Archive.optional(),
-    error: z.string().optional(),
   })
-  export type ArchiveState = z.infer<typeof ArchiveState>
+  export type BootState = z.infer<typeof BootState>
 
   async function scan() {
     const dir = Global.Path.data
@@ -120,15 +123,12 @@ export namespace LegacyDB {
     return Promise.all(
       rows
         .filter((row) => row.isFile() && isdb(row.name))
-        .map(async (row) => {
-          const file = path.join(dir, row.name)
-          return {
-            name: row.name,
-            path: file,
-            channel: channel(row.name),
-            mtime: await mod(file),
-          }
-        }),
+        .map(async (row) => ({
+          name: row.name,
+          path: path.join(dir, row.name),
+          channel: channel(row.name),
+          mtime: await mod(path.join(dir, row.name)),
+        })),
     )
   }
 
@@ -153,61 +153,84 @@ export namespace LegacyDB {
   }
 
   export function targetPath() {
-    return dbPath(target_file)
+    return dbPath(targetFile())
+  }
+
+  export async function copySource() {
+    const files = (await scan()).filter((item) => sourceDb(item.name))
+    if (files.length !== 1) return
+    await fs.copyFile(files[0].path, targetPath())
+    return files[0].path
   }
 
   export async function ensureTarget() {
     const target = targetPath()
     const stat = await fs.stat(target).catch(() => undefined)
     if (stat) return target
-    const list = (await scan()).filter((item) => item.name.toLowerCase() !== target_file)
-    if (list.length === 0) {
+    const files = (await scan()).filter((item) => sourceDb(item.name))
+    if (files.length === 0) {
       const db = new Sqlite(target)
       db.close()
       return target
     }
-    const pick = [...list].sort((a, b) => a.mtime - b.mtime || rank(a.name) - rank(b.name) || a.name.localeCompare(b.name)).at(-1)
-    if (pick) await fs.copyFile(pick.path, target)
+    await fs.copyFile(files[0].path, target)
     return target
   }
 
-  export async function archiveState(): Promise<ArchiveState> {
-    const raw = await fs.readFile(archivePath(), "utf-8").catch(() => "")
-    if (!raw) {
-      return {
-        state: "idle",
-        updated: Date.now(),
-      }
-    }
+  export async function mergeState(): Promise<MergeState> {
+    const raw = await fs.readFile(mergePath(), "utf-8").catch(() => "")
+    if (!raw) return { state: "idle", updated: Date.now() }
     let json: unknown
     try {
       json = JSON.parse(raw)
     } catch {
-      return {
-        state: "idle",
-        updated: Date.now(),
-      }
+      return { state: "idle", updated: Date.now() }
     }
-    const next = ArchiveState.safeParse(json)
-    if (!next.success) {
-      return {
-        state: "idle",
-        updated: Date.now(),
-      }
-    }
+    const next = MergeState.safeParse(json)
+    if (!next.success) return { state: "idle", updated: Date.now() }
     return next.data
   }
 
-  export async function setArchiveState(input: ArchiveState) {
-    const state = ArchiveState.parse(input)
-    await fs.writeFile(archivePath(), JSON.stringify(state, null, 2), "utf-8")
+  export async function setMergeState(input: MergeState) {
+    const state = MergeState.parse(input)
+    await fs.writeFile(mergePath(), JSON.stringify(state, null, 2), "utf-8")
+    return state
+  }
+
+  export async function clearMergeState() {
+    return setMergeState({
+      state: "idle",
+      updated: Date.now(),
+    })
+  }
+
+  export async function bootState(): Promise<BootState | undefined> {
+    const raw = await fs.readFile(bootPath(), "utf-8").catch(() => "")
+    if (!raw) return
+    let json: unknown
+    try {
+      json = JSON.parse(raw)
+    } catch {
+      return
+    }
+    const next = BootState.safeParse(json)
+    if (!next.success) return
+    return next.data
+  }
+
+  export async function setBootState(input: BootState) {
+    const state = BootState.parse(input)
+    await fs.writeFile(bootPath(), JSON.stringify(state, null, 2), "utf-8")
     return state
   }
 
   export async function status(): Promise<Status> {
     const dir = Global.Path.data
     const files = await scan()
-    const old = files.filter((file) => file.name.toLowerCase() !== target_file)
+    const target = targetFile().toLowerCase()
+    const old = files.filter((file) => file.name.toLowerCase() !== target)
+    const src = files.filter((file) => sourceDb(file.name))
+    const hasTarget = files.some((file) => file.name.toLowerCase() === target)
 
     const naming = old.reduce<Record<string, number>>((acc, file) => {
       acc[file.channel] = (acc[file.channel] ?? 0) + 1
@@ -222,14 +245,15 @@ export namespace LegacyDB {
       return acc
     }, {})
 
-    const pref = await preference()
-
+    const boot = await bootState()
     return {
       directory: dir,
       target: targetPath(),
       has_legacy: old.length > 0,
       message: old.length > 0 ? "发现旧库" : "未发现旧库",
-      dismissed: pref.dismissed,
+      dismissed: false,
+      should_merge: src.length > 0 && (boot?.should_merge || !hasTarget),
+      source_count: src.length,
       legacy_count: old.length,
       files: old.sort((a, b) => a.name.localeCompare(b.name)),
       naming,
@@ -237,43 +261,4 @@ export namespace LegacyDB {
     }
   }
 
-  export async function archive(): Promise<Archive> {
-    const status = await LegacyDB.status()
-    const history = path.join(status.directory, "history_database")
-    await fs.mkdir(history, { recursive: true })
-    const moved: string[] = []
-    const skipped: string[] = []
-
-    const unique = async (file: string) => {
-      const ext = path.extname(file)
-      const name = path.basename(file, ext)
-      let next = path.join(history, file)
-      let i = 0
-      while (await fs.stat(next).then(() => true).catch(() => false)) {
-        i += 1
-        next = path.join(history, `${name}-${Date.now()}-${i}${ext}`)
-      }
-      return next
-    }
-
-    for (const file of status.files) {
-      const src = path.join(status.directory, file.name)
-      const dst = await unique(file.name)
-      try {
-        await fs.rename(src, dst)
-        moved.push(dst)
-      } catch {
-        skipped.push(src)
-      }
-    }
-
-    const rest = (await scan()).filter((item) => item.name.toLowerCase() !== target_file).map((item) => item.path)
-    return {
-      history,
-      moved,
-      skipped,
-      remaining: rest,
-      clean: rest.length === 0,
-    }
-  }
 }

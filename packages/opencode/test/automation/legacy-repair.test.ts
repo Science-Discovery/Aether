@@ -7,6 +7,8 @@ const status = {
   has_legacy: true,
   message: "发现旧库",
   dismissed: false,
+  should_merge: true,
+  source_count: 1,
   legacy_count: 1,
   files: [
     {
