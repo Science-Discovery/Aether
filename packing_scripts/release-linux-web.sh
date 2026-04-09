@@ -33,7 +33,7 @@ if [ ! -f "$upd" ]; then
   exit 1
 fi
 
-pkg="aether-linux-x64-web"
+pkg="aether-linux-x64"
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 out="$tmp/$pkg"
@@ -65,7 +65,7 @@ cat >"$out/README_FIRST.txt" <<'EOF'
 Aether Web (Linux x64)
 
 Quick start
-1) Extract this ZIP and copy the folder aether-linux-x64-web to a local path, for example: ~/Applications/Aether-Web
+1) Extract this ZIP and copy the folder aether-linux-x64 to a local path, for example: ~/Applications/Aether-Web
 2) Open Terminal in that folder and run: ./Aether.sh
 
 Offline update
@@ -73,7 +73,7 @@ Offline update
   https://aether.aiphys.cn/download
 EOF
 
-zip="dist/aether-linux-x64-web.zip"
+zip="dist/aether-linux-x64.zip"
 zip_path="$PWD/$zip"
 rm -f "$zip"
 (cd "$tmp" && zip -r "$zip_path" "$pkg")
@@ -84,7 +84,7 @@ size="$(wc -c <"$zip" | tr -d '[:space:]')"
 cat >dist/latest-web-linux.yml <<EOF
 version: $ver
 files:
-  - url: aether-linux-x64-web.zip
+  - url: aether-linux-x64.zip
     sha512: $sha
     size: $size
 releaseDate: '$date'
