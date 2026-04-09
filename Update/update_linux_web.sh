@@ -377,12 +377,14 @@ set_current "$work" "$target" || {
 
 fix_libssl "$target"
 
-launch="$(write_launch "$work" || true)"
-if [ -n "$launch" ]; then
-  echo "[install] Desktop launcher: $launch"
-else
-  echo "[install] Warning: failed to create Desktop launcher."
-fi
+  launch="$(write_launch "$work" || true)"
+  if [ -n "$launch" ]; then
+    echo "[install] Desktop launcher: $launch"
+    echo "[install] To start Aether, right-click the Aether.sh file on your desktop and choose Run as a Program."
+  else
+    echo "[install] Warning: failed to create Desktop launcher."
+    echo "[install] To start Aether, open $work/current, right-click Aether.sh, and choose Run as a Program."
+  fi
 
 echo "[install] Current: $work/current"
 echo "[install] Done."

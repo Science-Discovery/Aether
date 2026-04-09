@@ -1,4 +1,4 @@
-﻿@echo off
+@echo off
 chcp 65001 >nul
 setlocal EnableExtensions EnableDelayedExpansion
 
@@ -127,6 +127,7 @@ if /I not "%SELF%"=="%DST%" (
     goto :dir_fail
   )
 )
+copy /y "%~f0" "%WORK%\aether_windows_installer.bat" >nul
 
 set "CUR="
 call :latest || goto :meta_fail
