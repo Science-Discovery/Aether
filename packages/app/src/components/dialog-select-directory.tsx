@@ -423,7 +423,8 @@ export function DialogSelectDirectory(props: DialogSelectDirectoryProps) {
       ...((options.headers as Record<string, string>) ?? {}),
     }
     const separator = urlPath.includes("?") ? "&" : "?"
-    return fetch(`${baseUrl}${urlPath}${separator}directory=${encodeURIComponent(sdk.directory)}`, {
+    const dir = sync.data.path.directory || start() || ""
+    return fetch(`${baseUrl}${urlPath}${separator}directory=${encodeURIComponent(dir)}`, {
       ...options,
       headers,
     })
@@ -443,7 +444,7 @@ export function DialogSelectDirectory(props: DialogSelectDirectoryProps) {
 
     const check = await fetchApi(`/file/check-directory?path=${encodeURIComponent(absolute)}`).catch(() => null)
     if (!check) {
-      showToast.error(language.t("common.requestFailed"))
+      showToast({ variant: "error", title: language.t("common.requestFailed") })
       return
     }
 
@@ -465,12 +466,12 @@ export function DialogSelectDirectory(props: DialogSelectDirectoryProps) {
       })
       if (!res.ok) {
         const body = await res.json().catch(() => ({}))
-        showToast.error(body.error ?? language.t("common.requestFailed"))
+        showToast({ variant: "error", title: body.error ?? language.t("common.requestFailed") })
         return
       }
       select(absolute)
     } catch {
-      showToast.error(language.t("common.requestFailed"))
+      showToast({ variant: "error", title: language.t("common.requestFailed") })
     } finally {
       setCreating(false)
     }
