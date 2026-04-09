@@ -1326,6 +1326,22 @@ export namespace Provider {
         const combined = signals.length === 0 ? null : signals.length === 1 ? signals[0] : AbortSignal.any(signals)
         if (combined) opts.signal = combined
 
+        // For openai-compatible providers using chat completions API with newer OpenAI models
+        // (gpt-5+, o-series), replace max_tokens with max_completion_tokens.
+        // The @ai-sdk/openai-compatible package always sends max_tokens, but newer OpenAI
+        // models only accept max_completion_tokens.
+        if (model.api.npm === "@ai-sdk/openai-compatible" && opts.body && opts.method === "POST") {
+          const body = JSON.parse(opts.body as string)
+          if (body.max_tokens != null && body.max_completion_tokens == null) {
+            const id = (body.model ?? model.api.id).toLowerCase()
+            if (/^(gpt-5|o[1-9])/.test(id) && !id.startsWith("gpt-5-chat")) {
+              body.max_completion_tokens = body.max_tokens
+              delete body.max_tokens
+              opts.body = JSON.stringify(body)
+            }
+          }
+        }
+
         // Strip openai itemId metadata following what codex does
         // Codex uses #[serde(skip_serializing)] on id fields for all item types:
         // Message, Reasoning, FunctionCall, LocalShellCall, CustomToolCall, WebSearchCall

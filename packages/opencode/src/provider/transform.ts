@@ -509,6 +509,11 @@ export namespace ProviderTransform {
         if (id.includes("gpt-5-") || id === "gpt-5") {
           azureEfforts.unshift("minimal")
         }
+        if (id.includes("gpt-5.4")) {
+          return Object.fromEntries(
+            azureEfforts.map((effort) => [effort, { reasoningEffort: effort }]),
+          )
+        }
         return Object.fromEntries(
           azureEfforts.map((effort) => [
             effort,
@@ -522,6 +527,21 @@ export namespace ProviderTransform {
       case "@ai-sdk/openai":
         // https://v5.ai-sdk.dev/providers/ai-sdk-providers/openai
         if (id === "gpt-5-pro") return {}
+        if (id.includes("gpt-5.4")) {
+          const openaiEfforts = iife(() => {
+            const arr = [...WIDELY_SUPPORTED_EFFORTS]
+            if (model.release_date >= "2025-11-13") {
+              arr.unshift("none")
+            }
+            if (model.release_date >= "2025-12-04") {
+              arr.push("xhigh")
+            }
+            return arr
+          })
+          return Object.fromEntries(
+            openaiEfforts.map((effort) => [effort, { reasoningEffort: effort }]),
+          )
+        }
         const openaiEfforts = iife(() => {
           if (id.includes("codex")) {
             if (id.includes("5.2") || id.includes("5.3")) return [...WIDELY_SUPPORTED_EFFORTS, "xhigh"]
@@ -828,7 +848,7 @@ export namespace ProviderTransform {
     }
 
     if (input.model.api.id.includes("gpt-5") && !input.model.api.id.includes("gpt-5-chat")) {
-      if (!input.model.api.id.includes("gpt-5-pro")) {
+      if (!input.model.api.id.includes("gpt-5-pro") && !input.model.api.id.includes("gpt-5.4")) {
         result["reasoningEffort"] = "medium"
         result["reasoningSummary"] = "auto"
       }
@@ -846,8 +866,10 @@ export namespace ProviderTransform {
 
       if (input.model.providerID.startsWith("opencode")) {
         result["promptCacheKey"] = input.sessionID
-        result["include"] = ["reasoning.encrypted_content"]
-        result["reasoningSummary"] = "auto"
+        if (!input.model.api.id.includes("gpt-5.4")) {
+          result["include"] = ["reasoning.encrypted_content"]
+          result["reasoningSummary"] = "auto"
+        }
       }
     }
 
