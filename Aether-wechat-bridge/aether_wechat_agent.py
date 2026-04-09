@@ -152,20 +152,20 @@ def output_qrcode_base64(qrcode_url: str) -> str:
 
 HELP_TEXT = """📋 可用命令：
 
-/new          开启新对话（清除当前会话上下文）
+/new          开启全新对话（无当前会话上下文）
 /stop         停止当前会话中的执行
+/compact      压缩当前会话上下文
 /model        查看可用模型列表及当前模型
 /model n      切换到编号 n 的模型（由 /model 列表确定）
 /mode         查看当前会话模式
 /mode <name>  切换到指定模式（如 build、plan、docs）
 /approval     查看当前审批模式
-/approval auto 自动批准权限请求
-/approval ask 每次权限请求需手动审批
-/project      查看当前工作项目
+/approval <name> 切换审批模式（如 auto、ask）
+/project      查看最近项目
 /project list 查看全部项目
 /project n    切换到编号 n 的项目
 /project hide n  隐藏项目（在桌面端或微信端重新使用后自动恢复）
-/session      查看当前项目下的会话列表
+/session      查看当前项目下的最近会话
 /session list 查看当前项目下全部会话
 /session n    切换到当前项目下编号 n 的会话
 /help         显示此帮助信息"""
@@ -542,6 +542,8 @@ class AetherAgent(Agent):
             if old:
                 logger.info(f"[/new] 清除会话 {old[:8]}... for {conv_id}")
             return "✅ 已开启新对话，上下文已清空。"
+        if cmd == "/compact":
+            return await self._cmd_compact(conv_id)
         if cmd == "/model":
             if not arg:
                 return await self._cmd_list_models(conv_id)
@@ -558,6 +560,43 @@ class AetherAgent(Agent):
         if cmd == "/approval":
             return await self._cmd_approval(conv_id, arg)
         return f"❓ 未知命令：{cmd}，发送 /help 查看可用命令。"
+
+    async def _cmd_compact(self, conv_id: str) -> str:
+        session_id = self._sessions.get(conv_id)
+        if not session_id:
+            return "❌ 当前没有活跃会话，请先发送一条消息。"
+        directory = self._conv_dirs.get(conv_id) or self.directory
+        if await self._is_session_busy(session_id, directory):
+            return "❌ 当前会话正在执行，请等待完成后再压缩。"
+        pref = await self._get_preference(session_id, directory)
+        pref_model = pref.get("model") if isinstance(pref, dict) else None
+        provider = ""
+        model = ""
+        if isinstance(pref_model, dict):
+            provider = str(pref_model.get("providerID") or "")
+            model = str(pref_model.get("modelID") or "")
+        if (
+            (not provider or not model)
+            and self.default_model
+            and "/" in self.default_model
+        ):
+            provider, model = self.default_model.split("/", 1)
+        if not provider or not model:
+            return "❌ 当前未设置有效模型，请先使用 /model 选择模型。"
+        headers = (
+            {"x-opencode-directory": quote(directory, safe="")} if directory else {}
+        )
+        try:
+            resp = await self._client.post(
+                f"{self.base_url}/session/{session_id}/summarize",
+                json={"providerID": provider, "modelID": model, "auto": False},
+                headers=headers,
+            )
+            resp.raise_for_status()
+            return "✅ 已压缩当前会话上下文。"
+        except Exception as e:
+            logger.warning(f"压缩会话失败: {e}")
+            return f"❌ 压缩会话失败：{e}"
 
     async def _cmd_list_models(self, conv_id: str) -> str:
         try:
@@ -902,7 +941,12 @@ class AetherAgent(Agent):
         if slash_reply is not None:
             directory = self._conv_dirs.get(conv_id) or self.directory
             session_id = self._sessions.get(conv_id)
-            if session_id:
+            cmd = (
+                user_text.strip().split(maxsplit=1)[0].lower()
+                if user_text.strip()
+                else ""
+            )
+            if session_id and cmd != "/help":
                 slash_reply = await self._wrap_message(
                     slash_reply, session_id, directory, conv_id
                 )

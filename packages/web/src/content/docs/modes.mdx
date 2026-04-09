@@ -10,7 +10,7 @@ Modes are now configured through the `agent` option in the opencode config. The
 
 Modes in opencode allow you to customize the behavior, tools, and prompts for different use cases.
 
-It comes with two built-in modes: **build** and **plan**. You can customize
+It comes with three built-in modes: **build**, **plan**, and **docs**. You can customize
 these or configure your own through the opencode config.
 
 You can switch between modes during a session or configure them in your config file.
@@ -19,7 +19,7 @@ You can switch between modes during a session or configure them in your config f
 
 ## Built-in
 
-opencode comes with two built-in modes.
+opencode comes with three built-in modes.
 
 ---
 
@@ -39,6 +39,14 @@ A restricted mode designed for planning and analysis. In plan mode, the followin
 - `bash` - Cannot execute shell commands
 
 This mode is useful when you want the AI to analyze code, suggest changes, or create plans without making any actual modifications to your codebase.
+
+---
+
+### Docs
+
+Docs is designed for documentation work. It allows file operations for writing and updating docs, but disables shell commands by default.
+
+This mode is useful when you want the AI to edit docs safely without running system commands.
 
 ---
 
