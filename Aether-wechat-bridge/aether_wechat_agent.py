@@ -268,12 +268,6 @@ class AetherAgent(Agent):
             return f"{text[0].lower()}:/"
         return text.rstrip("/")
 
-    def _is_root_dir(self, directory: str) -> bool:
-        text = self._norm_dir(directory)
-        if text == "/":
-            return True
-        return bool(re.fullmatch(r"[a-z]:/", text))
-
     def _project_name(self, item: dict) -> str:
         directory = self._project_dir(item)
         return (
@@ -373,12 +367,7 @@ class AetherAgent(Agent):
         try:
             resp = await self._client.get(f"{self.base_url}/project/recent")
             resp.raise_for_status()
-            return [
-                item
-                for item in resp.json()
-                if self._project_dir(item)
-                and not self._is_root_dir(self._project_dir(item))
-            ]
+            return [item for item in resp.json() if self._project_dir(item)]
         except Exception as e:
             logger.warning(f"获取项目列表失败: {e}")
             return []
@@ -1575,6 +1564,20 @@ class CustomWeChatBot(WeChatBot):
         return token
 
 
+async def _resolve_default_directory(base_url: str) -> str:
+    try:
+        async with make_httpx(timeout=httpx.Timeout(10.0, connect=5.0)) as client:
+            resp = await client.get(f"{base_url.rstrip('/')}/project/recent")
+            resp.raise_for_status()
+            for item in resp.json():
+                d = item.get("directory")
+                if d:
+                    return d
+    except Exception as e:
+        logger.warning(f"获取最近项目失败，fallback 到 home 目录: {e}")
+    return str(Path.home())
+
+
 async def main():
     base_url = os.getenv("AETHER_URL", "http://127.0.0.1:4096")
     directory = os.getenv("AETHER_WORK_DIR")
@@ -1582,7 +1585,7 @@ async def main():
     default_agent = os.getenv("AETHER_AGENT", "build")
 
     if not directory:
-        directory = str(Path.cwd())
+        directory = await _resolve_default_directory(base_url)
 
     print("=" * 50)
     print("Aether WeChat Bridge")
