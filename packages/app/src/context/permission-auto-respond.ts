@@ -20,7 +20,7 @@ export function isDirectoryAutoAccepting(autoAccept: Record<string, boolean>, di
   return autoAccept[key] ?? false
 }
 
-function sessionLineage(session: { id: string; parentID?: string }[], sessionID: string) {
+function sessionLineage(session: readonly { id: string; parentID?: string }[], sessionID: string) {
   const parent = session.reduce((acc, item) => {
     if (item.parentID) acc.set(item.id, item.parentID)
     return acc
@@ -40,7 +40,7 @@ function sessionLineage(session: { id: string; parentID?: string }[], sessionID:
 
 export function autoRespondsPermission(
   autoAccept: Record<string, boolean>,
-  session: { id: string; parentID?: string }[],
+  session: readonly { id: string; parentID?: string }[],
   permission: { sessionID: string },
   directory?: string,
   preference?: Record<string, { autoAccept: boolean | null }>,
