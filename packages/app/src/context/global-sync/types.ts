@@ -13,6 +13,7 @@ import type {
   ProviderListResponse,
   QuestionRequest,
   Session,
+  SessionPreference,
   SessionStatus,
   Todo,
   VcsInfo,
@@ -69,6 +70,9 @@ export type State = {
   }
   part: {
     [messageID: string]: Part[]
+  }
+  preference: {
+    [sessionID: string]: SessionPreference
   }
 }
 

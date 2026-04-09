@@ -29,6 +29,7 @@ import { WorkspaceContext } from "../control-plane/workspace-context"
 import { ProjectID } from "../project/schema"
 import { WorkspaceID } from "../control-plane/schema"
 import { SessionID, MessageID, PartID } from "./schema"
+import { SessionPreference } from "./preference"
 
 import type { Provider } from "@/provider/provider"
 import { ModelID, ProviderID } from "@/provider/schema"
@@ -304,6 +305,18 @@ export namespace Session {
         workspaceID: original.workspaceID,
         title,
       })
+
+      const pref = SessionPreference.get(input.sessionID)
+      if (pref.agent !== null || pref.model !== null || pref.variant !== null || pref.autoAccept !== null) {
+        SessionPreference.set({
+          sessionID: session.id,
+          agent: pref.agent,
+          model: pref.model,
+          variant: pref.variant,
+          autoAccept: pref.autoAccept,
+        })
+      }
+
       const msgs = await messages({ sessionID: input.sessionID })
       const idMap = new Map<string, MessageID>()
 

@@ -186,6 +186,7 @@ export function createChildStoreManager(input: {
             limit: 5,
             message: {},
             part: {},
+            preference: {},
           })
           children[directory] = child
           disposers.set(directory, dispose)

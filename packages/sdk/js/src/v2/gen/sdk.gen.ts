@@ -24,6 +24,11 @@ import type {
   ConfigSkillsToggleResponses,
   ConfigUpdateErrors,
   ConfigUpdateResponses,
+  DatabaseLegacyArchiveStateResponses,
+  DatabaseLegacyMergeResponses,
+  DatabaseLegacyPreferenceGetResponses,
+  DatabaseLegacyPreferencePatchResponses,
+  DatabaseLegacyStatusResponses,
   EventSubscribeResponses,
   EventTuiCommandExecute,
   EventTuiPromptAppend,
@@ -97,6 +102,13 @@ import type {
   GlobalSyncEventSubscribeResponses,
   GlobalUpgradeErrors,
   GlobalUpgradeResponses,
+  GlobalWebUpdateCheckErrors,
+  GlobalWebUpdateCheckResponses,
+  GlobalWebUpdateCurrentResponses,
+  GlobalWebUpdateDownloadErrors,
+  GlobalWebUpdateDownloadResponses,
+  GlobalWebUpdateInstallErrors,
+  GlobalWebUpdateInstallResponses,
   InstanceDisposeResponses,
   KnowledgeConfigGetResponses,
   KnowledgeConfigSetResponses,
@@ -184,10 +196,16 @@ import type {
   ReadingModeAnnotationsGetResponses,
   ReadingModeAnnotationsUpdateErrors,
   ReadingModeAnnotationsUpdateResponses,
+  ReadingModePagePdfErrors,
+  ReadingModePagePdfResponses,
+  ReadingModePageTextErrors,
+  ReadingModePageTextResponses,
   ReadingModePdfGetErrors,
   ReadingModePdfGetResponses,
   ReadingModeSessionCreateErrors,
   ReadingModeSessionCreateResponses,
+  ReadingModeSessionFromFileErrors,
+  ReadingModeSessionFromFileResponses,
   ReadingModeSessionUpdateErrors,
   ReadingModeSessionUpdateResponses,
   SessionAbortErrors,
@@ -213,6 +231,10 @@ import type {
   SessionMessageResponses,
   SessionMessagesErrors,
   SessionMessagesResponses,
+  SessionPreferenceGetErrors,
+  SessionPreferenceGetResponses,
+  SessionPreferenceUpdateErrors,
+  SessionPreferenceUpdateResponses,
   SessionPromptAsyncErrors,
   SessionPromptAsyncResponses,
   SessionPromptErrors,
@@ -261,6 +283,7 @@ import type {
   VcsDiffResponses,
   VcsGetResponses,
   WechatEventsResponses,
+  WechatPingResponses,
   WechatSessionClearResponses,
   WechatStartResponses,
   WechatStatusResponses,
@@ -366,6 +389,111 @@ export class Proxy extends HeyApiClient {
     )
     return (options?.client ?? this.client).patch<GlobalProxyUpdateResponses, GlobalProxyUpdateErrors, ThrowOnError>({
       url: "/global/proxy",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+}
+
+export class WebUpdate extends HeyApiClient {
+  /**
+   * Get current web version
+   *
+   * Read the current web app version from local update state.
+   */
+  public current<ThrowOnError extends boolean = false>(options?: Options<never, ThrowOnError>) {
+    return (options?.client ?? this.client).get<GlobalWebUpdateCurrentResponses, unknown, ThrowOnError>({
+      url: "/global/web-update/current",
+      ...options,
+    })
+  }
+
+  /**
+   * Check web update
+   *
+   * Check for available web application updates by fetching remote version metadata.
+   */
+  public check<ThrowOnError extends boolean = false>(options?: Options<never, ThrowOnError>) {
+    return (options?.client ?? this.client).get<
+      GlobalWebUpdateCheckResponses,
+      GlobalWebUpdateCheckErrors,
+      ThrowOnError
+    >({ url: "/global/web-update/check", ...options })
+  }
+
+  /**
+   * Download web update script
+   *
+   * Download the update/install script for the specified OS and version.
+   */
+  public download<ThrowOnError extends boolean = false>(
+    parameters?: {
+      os?: "darwin" | "linux" | "windows"
+      version?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "body", key: "os" },
+            { in: "body", key: "version" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      GlobalWebUpdateDownloadResponses,
+      GlobalWebUpdateDownloadErrors,
+      ThrowOnError
+    >({
+      url: "/global/web-update/download",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Execute web update script
+   *
+   * Execute the previously downloaded update script to install the new version.
+   */
+  public install<ThrowOnError extends boolean = false>(
+    parameters?: {
+      os?: "darwin" | "linux" | "windows"
+      version?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "body", key: "os" },
+            { in: "body", key: "version" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      GlobalWebUpdateInstallResponses,
+      GlobalWebUpdateInstallErrors,
+      ThrowOnError
+    >({
+      url: "/global/web-update/install",
       ...options,
       ...params,
       headers: {
@@ -528,6 +656,11 @@ export class Global extends HeyApiClient {
   private _proxy?: Proxy
   get proxy(): Proxy {
     return (this._proxy ??= new Proxy({ client: this.client }))
+  }
+
+  private _webUpdate?: WebUpdate
+  get webUpdate(): WebUpdate {
+    return (this._webUpdate ??= new WebUpdate({ client: this.client }))
   }
 
   private _syncEvent?: SyncEvent
@@ -1717,6 +1850,96 @@ export class Worktree extends HeyApiClient {
   }
 }
 
+export class Preference extends HeyApiClient {
+  /**
+   * Get session preference
+   *
+   * Retrieve the preference (agent, model, variant, autoAccept) for a session.
+   */
+  public get<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<
+      SessionPreferenceGetResponses,
+      SessionPreferenceGetErrors,
+      ThrowOnError
+    >({
+      url: "/session/{sessionID}/preference",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Update session preference
+   *
+   * Patch the preference (agent, model, variant, autoAccept) for a session. Pass null to clear a field.
+   */
+  public update<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      directory?: string
+      workspace?: string
+      agent?: string | null
+      model?: {
+        providerID: string
+        modelID: string
+      } | null
+      variant?: string | null
+      autoAccept?: boolean | null
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "agent" },
+            { in: "body", key: "model" },
+            { in: "body", key: "variant" },
+            { in: "body", key: "autoAccept" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).patch<
+      SessionPreferenceUpdateResponses,
+      SessionPreferenceUpdateErrors,
+      ThrowOnError
+    >({
+      url: "/session/{sessionID}/preference",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+}
+
 export class Session2 extends HeyApiClient {
   /**
    * List sessions
@@ -2673,6 +2896,11 @@ export class Session2 extends HeyApiClient {
       ...params,
     })
   }
+
+  private _preference?: Preference
+  get preference(): Preference {
+    return (this._preference ??= new Preference({ client: this.client }))
+  }
 }
 
 export class Part extends HeyApiClient {
@@ -3161,6 +3389,179 @@ export class Provider extends HeyApiClient {
   private _oauth?: Oauth
   get oauth(): Oauth {
     return (this._oauth ??= new Oauth({ client: this.client }))
+  }
+}
+
+export class Preference2 extends HeyApiClient {
+  /**
+   * Get legacy merge prompt preference
+   *
+   * Get whether legacy merge prompt is permanently dismissed.
+   */
+  public get<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<DatabaseLegacyPreferenceGetResponses, unknown, ThrowOnError>({
+      url: "/database/legacy/preference",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Update legacy merge prompt preference
+   *
+   * Update whether legacy merge prompt is permanently dismissed.
+   */
+  public patch<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).patch<DatabaseLegacyPreferencePatchResponses, unknown, ThrowOnError>({
+      url: "/database/legacy/preference",
+      ...options,
+      ...params,
+    })
+  }
+}
+
+export class Archive extends HeyApiClient {
+  /**
+   * Get archive state
+   *
+   * Get asynchronous archive task state after agent-driven merge.
+   */
+  public state<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<DatabaseLegacyArchiveStateResponses, unknown, ThrowOnError>({
+      url: "/database/legacy/archive/state",
+      ...options,
+      ...params,
+    })
+  }
+}
+
+export class Legacy extends HeyApiClient {
+  /**
+   * Scan legacy databases
+   *
+   * Scan current data directory and report legacy database statistics.
+   */
+  public status<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<DatabaseLegacyStatusResponses, unknown, ThrowOnError>({
+      url: "/database/legacy/status",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Merge legacy databases
+   *
+   * Start agent-driven merge into aether-prod.db and run fixed archive after session completes.
+   */
+  public merge<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<DatabaseLegacyMergeResponses, unknown, ThrowOnError>({
+      url: "/database/legacy/merge",
+      ...options,
+      ...params,
+    })
+  }
+
+  private _preference?: Preference2
+  get preference(): Preference2 {
+    return (this._preference ??= new Preference2({ client: this.client }))
+  }
+
+  private _archive?: Archive
+  get archive(): Archive {
+    return (this._archive ??= new Archive({ client: this.client }))
+  }
+}
+
+export class Database extends HeyApiClient {
+  private _legacy?: Legacy
+  get legacy(): Legacy {
+    return (this._legacy ??= new Legacy({ client: this.client }))
   }
 }
 
@@ -5542,6 +5943,36 @@ export class Wechat extends HeyApiClient {
   }
 
   /**
+   * Ping WeChat lease
+   *
+   * Renew the WeChat lock lease or detect if stolen by another client
+   */
+  public ping<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<WechatPingResponses, unknown, ThrowOnError>({
+      url: "/wechat/ping",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
    * Get WeChat status
    *
    * Get the current WeChat bridge status
@@ -5641,6 +6072,55 @@ export class Session4 extends HeyApiClient {
   }
 
   /**
+   * Open reading mode from a workspace PDF file
+   */
+  public fromFile<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      path?: string
+      settings?: {
+        translatePrompt?: string
+        questionPrompt?: string
+        firstReadPrompt?: string
+        contextPageRange?: 0 | 1 | 2
+        autoFirstRead?: boolean
+      }
+      forceNew?: boolean
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "path" },
+            { in: "body", key: "settings" },
+            { in: "body", key: "forceNew" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      ReadingModeSessionFromFileResponses,
+      ReadingModeSessionFromFileErrors,
+      ThrowOnError
+    >({
+      url: "/reading-mode/session/from-file",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
    * Update reading mode session settings
    */
   public update<ThrowOnError extends boolean = false>(
@@ -5656,6 +6136,7 @@ export class Session4 extends HeyApiClient {
         autoFirstRead?: boolean
       }
       firstReadCompleted?: boolean
+      firstReadDismissed?: boolean
     },
     options?: Options<never, ThrowOnError>,
   ) {
@@ -5669,6 +6150,7 @@ export class Session4 extends HeyApiClient {
             { in: "query", key: "workspace" },
             { in: "body", key: "settings" },
             { in: "body", key: "firstReadCompleted" },
+            { in: "body", key: "firstReadDismissed" },
           ],
         },
       ],
@@ -5800,6 +6282,86 @@ export class Pdf extends HeyApiClient {
 }
 
 export class ReadingMode extends HeyApiClient {
+  /**
+   * Get extracted text for reading mode PDF pages
+   */
+  public pageText<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      sessionID?: string
+      startPage?: number
+      endPage?: number
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "sessionID" },
+            { in: "body", key: "startPage" },
+            { in: "body", key: "endPage" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<ReadingModePageTextResponses, ReadingModePageTextErrors, ThrowOnError>(
+      {
+        url: "/reading-mode/page-text",
+        ...options,
+        ...params,
+        headers: {
+          "Content-Type": "application/json",
+          ...options?.headers,
+          ...params.headers,
+        },
+      },
+    )
+  }
+
+  /**
+   * Get a ranged PDF subdocument for reading mode
+   */
+  public pagePdf<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      sessionID?: string
+      startPage?: number
+      endPage?: number
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "sessionID" },
+            { in: "body", key: "startPage" },
+            { in: "body", key: "endPage" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<ReadingModePagePdfResponses, ReadingModePagePdfErrors, ThrowOnError>({
+      url: "/reading-mode/page-pdf",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
   private _session?: Session4
   get session(): Session4 {
     return (this._session ??= new Session4({ client: this.client }))
@@ -6218,6 +6780,11 @@ export class OpencodeClient extends HeyApiClient {
   private _provider?: Provider
   get provider(): Provider {
     return (this._provider ??= new Provider({ client: this.client }))
+  }
+
+  private _database?: Database
+  get database(): Database {
+    return (this._database ??= new Database({ client: this.client }))
   }
 
   private _file?: File

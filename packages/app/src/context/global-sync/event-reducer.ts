@@ -8,6 +8,7 @@ import type {
   Project,
   QuestionRequest,
   Session,
+  SessionPreference,
   SessionStatus,
   Todo,
 } from "@opencode-ai/sdk/v2/client"
@@ -354,6 +355,11 @@ export function applyDirectoryEvent(input: {
     }
     case "lsp.updated": {
       input.loadLsp()
+      break
+    }
+    case "session.preference.updated": {
+      const props = event.properties as { sessionID: string; preference: SessionPreference }
+      input.setStore("preference", props.sessionID, reconcile(props.preference))
       break
     }
   }
