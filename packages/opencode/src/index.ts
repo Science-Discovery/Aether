@@ -84,19 +84,9 @@ let cli = yargs(hideBin(process.argv))
     })
 
     const legacy = await LegacyDB.status()
-    await LegacyDB.setBootState({
-      should_merge: legacy.should_merge,
-      source_count: legacy.source_count,
-      updated: Date.now(),
-    })
-    if (legacy.should_merge && legacy.source_count === 1) {
+    if (legacy.should_merge) {
       try {
         await LegacyDB.copySource()
-        await LegacyDB.setBootState({
-          should_merge: false,
-          source_count: legacy.source_count,
-          updated: Date.now(),
-        })
         await LegacyDB.setMergeState({
           state: "done",
           updated: Date.now(),
@@ -110,7 +100,7 @@ let cli = yargs(hideBin(process.argv))
       }
     }
     if (legacy.has_legacy) {
-      process.stderr.write(`发现旧库: ${legacy.legacy_count} 个，可通过 /database/legacy/merge 触发合并。` + EOL)
+      process.stderr.write(`发现旧库: ${legacy.legacy_count} 个；缺少 aether-prod.db 时会自动复制最新数据库。` + EOL)
     }
 
     const marker = Database.currentPath()
