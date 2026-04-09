@@ -155,8 +155,9 @@ HELP_TEXT = """📋 可用命令：
 /new          开启全新对话（无当前会话上下文）
 /stop         停止当前会话中的执行
 /compact      压缩当前会话上下文
-/model        查看可用模型列表及当前模型
-/model n      切换到编号 n 的模型（由 /model 列表确定）
+ /model        查看可用 LLM 模型（每个 provider 最多显示前 5 个）
+ /model list   查看所有可用 LLM 模型
+ /model n      切换到编号 n 的模型（按全量模型编号）
 /mode         查看当前会话模式
 /mode <name>  切换到指定模式（如 build、plan、docs）
 /approval     查看当前审批模式
@@ -536,6 +537,8 @@ class AetherAgent(Agent):
         if cmd == "/model":
             if not arg:
                 return await self._cmd_list_models(conv_id)
+            if arg.lower() == "list":
+                return await self._cmd_list_models(conv_id, full=True)
             # 数字编号切换
             if arg.isdigit():
                 return await self._cmd_set_model_by_index(conv_id, int(arg))
@@ -587,7 +590,7 @@ class AetherAgent(Agent):
             logger.warning(f"压缩会话失败: {e}")
             return f"❌ 压缩会话失败：{e}"
 
-    async def _cmd_list_models(self, conv_id: str) -> str:
+    async def _cmd_list_models(self, conv_id: str, full: bool = False) -> str:
         try:
             directory = self._conv_dirs.get(conv_id) or self.directory
             headers = (
@@ -608,11 +611,12 @@ class AetherAgent(Agent):
             )
         else:
             current = self.default_model or "（全局默认）"
-        lines = ["📦 可用模型："]
+        lines = ["📦 可用 LLM 模型："]
         providers = data.get("all", [])
         connected = set(data.get("connected", []))
         defaults = data.get("default", {})
         model_list: list[str] = []
+        groups: list[tuple[str, list[tuple[int, str, str]]]] = []
         for provider in providers:
             pid = provider.get("id", "")
             if pid not in connected:
@@ -621,20 +625,26 @@ class AetherAgent(Agent):
             models = provider.get("models", {})
             if not models:
                 continue
-            lines.append(f"")
-            lines.append(f"【{pname}】")
             default_mid = defaults.get(pid, "")
             sorted_ids = sorted(models.keys(), key=lambda m: (m != default_mid, m))
+            items: list[tuple[int, str, str]] = []
             for model_id in sorted_ids:
                 model_list.append(f"{pid}/{model_id}")
                 num = len(model_list)
                 tag = " ★" if model_id == default_mid else ""
-                lines.append(f"  {num}. {pid}/{model_id}{tag}")
+                items.append((num, model_id, tag))
+            groups.append((pname, items))
         self._model_list = model_list
+        for pname, items in groups:
+            lines.append("")
+            lines.append(f"【{pname}】")
+            for num, model_id, tag in items if full else items[:5]:
+                pid = model_list[num - 1].split("/", 1)[0]
+                lines.append(f"  {num}. {pid}/{model_id}{tag}")
         if len(lines) <= 3:
             lines.append("（暂无已配置的模型，请先在 Aether 中连接 provider）")
         lines.append("")
-        lines.append("💡 /model n 切换模型")
+        lines.append("💡 /model n 切换模型 | /model list 查看全部模型")
         return chr(10).join(lines)
 
     async def _cmd_set_model_by_index(self, conv_id: str, n: int) -> str:
