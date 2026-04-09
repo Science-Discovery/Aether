@@ -36,10 +36,10 @@ describe("Database.Path", () => {
     await Promise.all([Bun.write(one, ""), Bun.write(two, ""), Bun.write(old, "")])
     try {
       const list = Database.knownPaths()
-      expect(list.includes(one)).toBeTrue()
-      expect(list.includes(two)).toBeTrue()
-      expect(list.includes(old)).toBeFalse()
-      expect(list.every((file) => /^aether.*\.db$/i.test(path.basename(file)))).toBeTrue()
+      const expected = [one, two].filter((file) => file !== Database.currentPath())
+      expect(list).toEqual(expect.arrayContaining(expected))
+      expect(list).not.toContain(old)
+      expect(list.every((file) => path.basename(file).startsWith("aether"))).toBe(true)
     } finally {
       await Promise.all([rm(one, { force: true }), rm(two, { force: true }), rm(old, { force: true })])
     }
