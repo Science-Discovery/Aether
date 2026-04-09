@@ -41,6 +41,16 @@ function setSharedNightMode(next: boolean) {
   notifyNightMode()
 }
 
+function isFileProtocol() {
+  return typeof window !== "undefined" && window.location.protocol === "file:"
+}
+
+function viewerMessageTargetOrigin() {
+  // Chromium treats file:// documents as opaque origins for postMessage.
+  // Use "*" and validate the message source explicitly on receipt.
+  return isFileProtocol() ? "*" : window.location.origin
+}
+
 export type PdfViewerShellProps = {
   src: string
   authHeader?: string
@@ -84,7 +94,12 @@ export const PdfViewerShell: Component<PdfViewerShellProps> = (props) => {
   let lastConfigKey = ""
   const [nightMode, setNightMode] = createSignal(sharedNightMode)
 
-  const viewerSrc = createMemo(() => "/pdf-viewer.html")
+  const viewerSrc = createMemo(() => {
+    if (typeof window !== "undefined" && window.location.protocol === "file:") {
+      return "./pdf-viewer.html"
+    }
+    return "/pdf-viewer.html"
+  })
   const config = createMemo(() => ({
     src: props.src,
     authHeader: props.authHeader,
@@ -103,7 +118,7 @@ export const PdfViewerShell: Component<PdfViewerShellProps> = (props) => {
   const post = (message: unknown) => {
     const frame = iframeRef?.contentWindow
     if (!frame) return
-    frame.postMessage(message, window.location.origin)
+    frame.postMessage(message, viewerMessageTargetOrigin())
   }
 
   const sendConfig = () => {
@@ -139,9 +154,9 @@ export const PdfViewerShell: Component<PdfViewerShellProps> = (props) => {
   onCleanup(() => nightModeSubscribers.delete(setNightMode))
 
   const onMessage = (event: MessageEvent<ViewerMessage>) => {
-    if (event.origin !== window.location.origin) return
     if (event.source !== iframeRef?.contentWindow) return
     if (event.data?.channel !== "aether-pdf-viewer") return
+    if (!isFileProtocol() && event.origin !== window.location.origin) return
 
     if (event.data.type === "ready") {
       ready = true
