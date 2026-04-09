@@ -96,6 +96,19 @@ export const TodoTable = sqliteTable(
   ],
 )
 
+export const SessionPreferenceTable = sqliteTable("session_preference", {
+  session_id: text()
+    .$type<SessionID>()
+    .primaryKey()
+    .references(() => SessionTable.id, { onDelete: "cascade" }),
+  agent: text(),
+  model_provider_id: text().$type<string>(),
+  model_id: text().$type<string>(),
+  variant: text(),
+  auto_accept: integer().$type<boolean>(),
+  ...Timestamps,
+})
+
 export const PermissionTable = sqliteTable("permission", {
   project_id: text()
     .primaryKey()

@@ -8,6 +8,7 @@ import { MessageV2 } from "./message-v2"
 import { Log } from "../util/log"
 import { SessionRevert } from "./revert"
 import { Session } from "."
+import { SessionPreference } from "./preference"
 import { Agent } from "../agent/agent"
 import { Provider } from "../provider/provider"
 import { ModelID, ProviderID } from "../provider/schema"
@@ -993,7 +994,9 @@ export namespace SessionPrompt {
   }
 
   async function createUserMessage(input: PromptInput) {
-    const agentName = input.agent || (await Agent.defaultAgent())
+    const pref = SessionPreference.get(input.sessionID)
+
+    const agentName = input.agent || pref.agent || (await Agent.defaultAgent())
     const agent = await Agent.get(agentName)
     if (!agent) {
       const available = await Agent.list().then((agents) => agents.filter((a) => !a.hidden).map((a) => a.name))
@@ -1006,12 +1009,14 @@ export namespace SessionPrompt {
       throw error
     }
 
-    const model = input.model ?? agent.model ?? (await lastModel(input.sessionID))
+    const model = input.model ?? pref.model ?? agent.model ?? (await lastModel(input.sessionID))
+    const prefVariant = pref.model && pref.variant ? pref.variant : undefined
     const full =
-      !input.variant && agent.variant
+      !input.variant && !prefVariant && agent.variant
         ? await Provider.getModel(model.providerID, model.modelID).catch(() => undefined)
         : undefined
-    const variant = input.variant ?? (agent.variant && full?.variants?.[agent.variant] ? agent.variant : undefined)
+    const variant =
+      input.variant ?? prefVariant ?? (agent.variant && full?.variants?.[agent.variant] ? agent.variant : undefined)
 
     // RAG: search knowledge base and build context for system prompt
     let ragContext: string | undefined
@@ -1019,7 +1024,7 @@ export namespace SessionPrompt {
       try {
         const paths = input.knowledgeBase.paths || (input.knowledgeBase.path ? [input.knowledgeBase.path] : [])
         const allResults: Awaited<ReturnType<typeof Knowledge.search>> = []
-        
+
         for (const kbPath of paths) {
           const index = await Knowledge.load(kbPath)
           if (index) {
@@ -1035,14 +1040,13 @@ export namespace SessionPrompt {
             allResults.push(...results)
           }
         }
-        
+
         if (allResults.length > 0) {
           // 按分数排序并取 top 5
           allResults.sort((a, b) => b.score - a.score)
           const topResults = allResults.slice(0, 5)
           ragContext =
-            "以下是来自知识库的相关内容，请参考这些内容回答用户的问题：\n\n" +
-            Knowledge.buildRAGContext(topResults)
+            "以下是来自知识库的相关内容，请参考这些内容回答用户的问题：\n\n" + Knowledge.buildRAGContext(topResults)
         }
       } catch {
         // knowledge base unavailable, proceed without RAG context

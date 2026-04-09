@@ -2,7 +2,8 @@ import z from "zod"
 import sessionProjectors from "../session/projectors"
 import { SyncEvent } from "@/sync"
 import { Session } from "@/session"
-import { SessionTable } from "@/session/session.sql"
+import { SessionPreference } from "@/session/preference"
+import { SessionTable, SessionPreferenceTable } from "@/session/session.sql"
 import { Database, eq } from "@/storage/db"
 
 export function initProjectors() {
@@ -19,6 +20,14 @@ export function initProjectors() {
           sessionID: id,
           info: Session.fromRow(row),
         }
+      }
+      if (type === "session.preference.updated") {
+        const id = (data as z.infer<typeof SessionPreference.Event.Updated.schema>).sessionID
+        const row = Database.use((db) =>
+          db.select().from(SessionPreferenceTable).where(eq(SessionPreferenceTable.session_id, id)).get(),
+        )
+        if (!row) return data
+        return { sessionID: id, preference: SessionPreference.get(id) }
       }
       return data
     },

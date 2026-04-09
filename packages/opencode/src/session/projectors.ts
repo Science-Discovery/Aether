@@ -1,8 +1,9 @@
 import { NotFoundError, eq, and } from "../storage/db"
 import { SyncEvent } from "@/sync"
 import { Session } from "./index"
+import { SessionPreference } from "./preference"
 import { MessageV2 } from "./message-v2"
-import { SessionTable, MessageTable, PartTable } from "./session.sql"
+import { SessionTable, MessageTable, PartTable, SessionPreferenceTable } from "./session.sql"
 import { ProjectTable } from "../project/project.sql"
 import { Log } from "../util/log"
 
@@ -132,5 +133,32 @@ export default [
       if (!foreign(err)) throw err
       log.warn("ignored late part update", { partID: id, messageID, sessionID })
     }
+  }),
+
+  SyncEvent.project(SessionPreference.Event.Updated, (db, data) => {
+    const p = data.preference
+    db.insert(SessionPreferenceTable)
+      .values({
+        session_id: p.sessionID,
+        agent: p.agent,
+        model_provider_id: p.model?.providerID ?? null,
+        model_id: p.model?.modelID ?? null,
+        variant: p.variant,
+        auto_accept: p.autoAccept,
+        time_created: p.time.created,
+        time_updated: p.time.updated,
+      })
+      .onConflictDoUpdate({
+        target: SessionPreferenceTable.session_id,
+        set: {
+          agent: p.agent,
+          model_provider_id: p.model?.providerID ?? null,
+          model_id: p.model?.modelID ?? null,
+          variant: p.variant,
+          auto_accept: p.autoAccept,
+          time_updated: p.time.updated,
+        },
+      })
+      .run()
   }),
 ]

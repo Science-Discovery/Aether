@@ -944,6 +944,29 @@ export type EventMessagePartRemoved = {
   }
 }
 
+export type SessionPreference = {
+  sessionID: string
+  agent: string | null
+  model: {
+    providerID: string
+    modelID: string
+  } | null
+  variant: string | null
+  autoAccept: boolean | null
+  time: {
+    created: number
+    updated: number
+  }
+}
+
+export type EventSessionPreferenceUpdated = {
+  type: "session.preference.updated"
+  properties: {
+    sessionID: string
+    preference: SessionPreference
+  }
+}
+
 export type PermissionAction = "allow" | "deny" | "ask"
 
 export type PermissionRule = {
@@ -1078,6 +1101,7 @@ export type Event =
   | EventMessageRemoved
   | EventMessagePartUpdated
   | EventMessagePartRemoved
+  | EventSessionPreferenceUpdated
   | EventSessionCreated
   | EventSessionUpdated
   | EventSessionDeleted
@@ -1122,6 +1146,15 @@ export type SyncEventMessagePartRemoved = {
     sessionID: string
     messageID: string
     partID: string
+  }
+}
+
+export type SyncEventSessionPreferenceUpdated = {
+  type: "session.preference.updated.1"
+  aggregate: "sessionID"
+  data: {
+    sessionID: string
+    preference: SessionPreference
   }
 }
 
@@ -2267,6 +2300,24 @@ export type GlobalHealthResponses = {
 
 export type GlobalHealthResponse = GlobalHealthResponses[keyof GlobalHealthResponses]
 
+export type GlobalWebUpdateCurrentData = {
+  body?: never
+  path?: never
+  query?: never
+  url: "/global/web-update/current"
+}
+
+export type GlobalWebUpdateCurrentResponses = {
+  /**
+   * Current local web version
+   */
+  200: {
+    currentVersion: string
+  }
+}
+
+export type GlobalWebUpdateCurrentResponse = GlobalWebUpdateCurrentResponses[keyof GlobalWebUpdateCurrentResponses]
+
 export type GlobalPingData = {
   body?: {
     id: string
@@ -2386,6 +2437,108 @@ export type GlobalDisposeResponses = {
 }
 
 export type GlobalDisposeResponse = GlobalDisposeResponses[keyof GlobalDisposeResponses]
+
+export type GlobalWebUpdateCheckData = {
+  body?: never
+  path?: never
+  query?: never
+  url: "/global/web-update/check"
+}
+
+export type GlobalWebUpdateCheckErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type GlobalWebUpdateCheckError = GlobalWebUpdateCheckErrors[keyof GlobalWebUpdateCheckErrors]
+
+export type GlobalWebUpdateCheckResponses = {
+  /**
+   * Version check result
+   */
+  200: {
+    currentVersion: string
+    remoteVersion: string
+    updateAvailable: boolean
+    downloaded: boolean
+    checkError?: string
+  }
+}
+
+export type GlobalWebUpdateCheckResponse = GlobalWebUpdateCheckResponses[keyof GlobalWebUpdateCheckResponses]
+
+export type GlobalWebUpdateDownloadData = {
+  body?: {
+    os: "darwin" | "linux" | "windows"
+    version: string
+  }
+  path?: never
+  query?: never
+  url: "/global/web-update/download"
+}
+
+export type GlobalWebUpdateDownloadErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type GlobalWebUpdateDownloadError = GlobalWebUpdateDownloadErrors[keyof GlobalWebUpdateDownloadErrors]
+
+export type GlobalWebUpdateDownloadResponses = {
+  /**
+   * Download result
+   */
+  200:
+    | {
+        success: true
+        path: string
+      }
+    | {
+        success: false
+        error: string
+      }
+}
+
+export type GlobalWebUpdateDownloadResponse = GlobalWebUpdateDownloadResponses[keyof GlobalWebUpdateDownloadResponses]
+
+export type GlobalWebUpdateInstallData = {
+  body?: {
+    os: "darwin" | "linux" | "windows"
+    version?: string
+  }
+  path?: never
+  query?: never
+  url: "/global/web-update/install"
+}
+
+export type GlobalWebUpdateInstallErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type GlobalWebUpdateInstallError = GlobalWebUpdateInstallErrors[keyof GlobalWebUpdateInstallErrors]
+
+export type GlobalWebUpdateInstallResponses = {
+  /**
+   * Install result
+   */
+  200:
+    | {
+        success: true
+      }
+    | {
+        success: false
+        error: string
+      }
+}
+
+export type GlobalWebUpdateInstallResponse = GlobalWebUpdateInstallResponses[keyof GlobalWebUpdateInstallResponses]
 
 export type GlobalUpgradeData = {
   body?: {
@@ -3511,6 +3664,82 @@ export type SessionUpdateResponses = {
 }
 
 export type SessionUpdateResponse = SessionUpdateResponses[keyof SessionUpdateResponses]
+
+export type SessionPreferenceGetData = {
+  body?: never
+  path: {
+    sessionID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/session/{sessionID}/preference"
+}
+
+export type SessionPreferenceGetErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type SessionPreferenceGetError = SessionPreferenceGetErrors[keyof SessionPreferenceGetErrors]
+
+export type SessionPreferenceGetResponses = {
+  /**
+   * Session preference
+   */
+  200: SessionPreference
+}
+
+export type SessionPreferenceGetResponse = SessionPreferenceGetResponses[keyof SessionPreferenceGetResponses]
+
+export type SessionPreferenceUpdateData = {
+  body?: {
+    agent?: string | null
+    model?: {
+      providerID: string
+      modelID: string
+    } | null
+    variant?: string | null
+    autoAccept?: boolean | null
+  }
+  path: {
+    sessionID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/session/{sessionID}/preference"
+}
+
+export type SessionPreferenceUpdateErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type SessionPreferenceUpdateError = SessionPreferenceUpdateErrors[keyof SessionPreferenceUpdateErrors]
+
+export type SessionPreferenceUpdateResponses = {
+  /**
+   * Updated preference
+   */
+  200: SessionPreference
+}
+
+export type SessionPreferenceUpdateResponse = SessionPreferenceUpdateResponses[keyof SessionPreferenceUpdateResponses]
 
 export type SessionChildrenData = {
   body?: never
@@ -4687,6 +4916,172 @@ export type ProviderOauthCallbackResponses = {
 }
 
 export type ProviderOauthCallbackResponse = ProviderOauthCallbackResponses[keyof ProviderOauthCallbackResponses]
+
+export type DatabaseLegacyStatusData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/database/legacy/status"
+}
+
+export type DatabaseLegacyStatusResponses = {
+  /**
+   * Legacy database scan status
+   */
+  200: {
+    directory: string
+    target: string
+    has_legacy: boolean
+    message: string
+    dismissed: boolean
+    legacy_count: number
+    files: Array<{
+      name: string
+      path: string
+      channel: string
+      mtime: number
+    }>
+    naming: {
+      [key: string]: number
+    }
+    versions: {
+      [key: string]: number
+    }
+  }
+}
+
+export type DatabaseLegacyStatusResponse = DatabaseLegacyStatusResponses[keyof DatabaseLegacyStatusResponses]
+
+export type DatabaseLegacyPreferenceGetData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/database/legacy/preference"
+}
+
+export type DatabaseLegacyPreferenceGetResponses = {
+  /**
+   * Legacy prompt preference
+   */
+  200: {
+    dismissed: boolean
+  }
+}
+
+export type DatabaseLegacyPreferenceGetResponse =
+  DatabaseLegacyPreferenceGetResponses[keyof DatabaseLegacyPreferenceGetResponses]
+
+export type DatabaseLegacyPreferencePatchData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/database/legacy/preference"
+}
+
+export type DatabaseLegacyPreferencePatchResponses = {
+  /**
+   * Updated legacy prompt preference
+   */
+  200: {
+    dismissed: boolean
+  }
+}
+
+export type DatabaseLegacyPreferencePatchResponse =
+  DatabaseLegacyPreferencePatchResponses[keyof DatabaseLegacyPreferencePatchResponses]
+
+export type DatabaseLegacyArchiveStateData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/database/legacy/archive/state"
+}
+
+export type DatabaseLegacyArchiveStateResponses = {
+  /**
+   * Archive state
+   */
+  200: {
+    state: "idle" | "running" | "done" | "error"
+    updated: number
+    result?: {
+      history: string
+      moved: Array<string>
+      skipped: Array<string>
+      remaining: Array<string>
+      clean: boolean
+    }
+    error?: string
+  }
+}
+
+export type DatabaseLegacyArchiveStateResponse =
+  DatabaseLegacyArchiveStateResponses[keyof DatabaseLegacyArchiveStateResponses]
+
+export type DatabaseLegacyMergeData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/database/legacy/merge"
+}
+
+export type DatabaseLegacyMergeResponses = {
+  /**
+   * Merge report
+   */
+  200: {
+    status: {
+      directory: string
+      target: string
+      has_legacy: boolean
+      message: string
+      dismissed: boolean
+      legacy_count: number
+      files: Array<{
+        name: string
+        path: string
+        channel: string
+        mtime: number
+      }>
+      naming: {
+        [key: string]: number
+      }
+      versions: {
+        [key: string]: number
+      }
+    }
+    sessionID: string
+    archive_state: {
+      state: "idle" | "running" | "done" | "error"
+      updated: number
+      result?: {
+        history: string
+        moved: Array<string>
+        skipped: Array<string>
+        remaining: Array<string>
+        clean: boolean
+      }
+      error?: string
+    }
+  }
+}
+
+export type DatabaseLegacyMergeResponse = DatabaseLegacyMergeResponses[keyof DatabaseLegacyMergeResponses]
 
 export type FileActiveTasksData = {
   body?: never
@@ -6768,6 +7163,28 @@ export type WechatStopResponses = {
 
 export type WechatStopResponse = WechatStopResponses[keyof WechatStopResponses]
 
+export type WechatPingData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/wechat/ping"
+}
+
+export type WechatPingResponses = {
+  /**
+   * Ping result
+   */
+  200: {
+    ok: boolean
+    stolen: boolean
+  }
+}
+
+export type WechatPingResponse = WechatPingResponses[keyof WechatPingResponses]
+
 export type WechatStatusData = {
   body?: never
   path?: never
@@ -6864,6 +7281,129 @@ export type ReadingModeSessionCreateResponses = {
 
 export type ReadingModeSessionCreateResponse =
   ReadingModeSessionCreateResponses[keyof ReadingModeSessionCreateResponses]
+
+export type ReadingModeSessionFromFileData = {
+  body?: {
+    path: string
+    settings?: {
+      translatePrompt?: string
+      questionPrompt?: string
+      firstReadPrompt?: string
+      contextPageRange?: 0 | 1 | 2
+      autoFirstRead?: boolean
+    }
+    forceNew?: boolean
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/reading-mode/session/from-file"
+}
+
+export type ReadingModeSessionFromFileErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type ReadingModeSessionFromFileError = ReadingModeSessionFromFileErrors[keyof ReadingModeSessionFromFileErrors]
+
+export type ReadingModeSessionFromFileResponses = {
+  /**
+   * Existing or newly created reading mode session
+   */
+  200: {
+    action: "existing" | "created"
+    session: Session
+  }
+}
+
+export type ReadingModeSessionFromFileResponse =
+  ReadingModeSessionFromFileResponses[keyof ReadingModeSessionFromFileResponses]
+
+export type ReadingModePageTextData = {
+  body?: {
+    sessionID: string
+    startPage: number
+    endPage: number
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/reading-mode/page-text"
+}
+
+export type ReadingModePageTextErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type ReadingModePageTextError = ReadingModePageTextErrors[keyof ReadingModePageTextErrors]
+
+export type ReadingModePageTextResponses = {
+  /**
+   * Extracted page text
+   */
+  200: {
+    pageCount: number
+    pages: Array<{
+      pageNumber: number
+      text: string
+    }>
+    combinedText: string
+  }
+}
+
+export type ReadingModePageTextResponse = ReadingModePageTextResponses[keyof ReadingModePageTextResponses]
+
+export type ReadingModePagePdfData = {
+  body?: {
+    sessionID: string
+    startPage: number
+    endPage: number
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/reading-mode/page-pdf"
+}
+
+export type ReadingModePagePdfErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type ReadingModePagePdfError = ReadingModePagePdfErrors[keyof ReadingModePagePdfErrors]
+
+export type ReadingModePagePdfResponses = {
+  /**
+   * PDF binary for the requested page range
+   */
+  200: unknown
+}
 
 export type ReadingModeAnnotationsGetData = {
   body?: never

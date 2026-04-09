@@ -81,6 +81,12 @@ export const { use: usePermission, provider: PermissionProvider } = createSimple
       }),
     )
 
+    const current = () => {
+      const directory = decode64(params.dir)
+      if (!directory) return { session: [], preference: {} } as const
+      return globalSync.child(directory, { bootstrap: false })[0]
+    }
+
     // When config has permission: "allow", auto-enable directory-level auto-accept
     createEffect(() => {
       if (!ready()) return
@@ -139,8 +145,8 @@ export const { use: usePermission, provider: PermissionProvider } = createSimple
     }
 
     function isAutoAccepting(sessionID: string, directory?: string) {
-      const session = directory ? globalSync.child(directory, { bootstrap: false })[0].session : []
-      return autoRespondsPermission(store.autoAccept, session, { sessionID }, directory)
+      const child = directory ? globalSync.child(directory, { bootstrap: false })[0] : current()
+      return autoRespondsPermission(store.autoAccept, child.session, { sessionID }, directory, child.preference)
     }
 
     function isAutoAcceptingDirectory(directory: string) {
@@ -148,8 +154,8 @@ export const { use: usePermission, provider: PermissionProvider } = createSimple
     }
 
     function shouldAutoRespond(permission: PermissionRequest, directory?: string) {
-      const session = directory ? globalSync.child(directory, { bootstrap: false })[0].session : []
-      return autoRespondsPermission(store.autoAccept, session, permission, directory)
+      const child = directory ? globalSync.child(directory, { bootstrap: false })[0] : current()
+      return autoRespondsPermission(store.autoAccept, child.session, permission, directory, child.preference)
     }
 
     function bumpEnableVersion(sessionID: string, directory?: string) {
@@ -210,6 +216,8 @@ export const { use: usePermission, provider: PermissionProvider } = createSimple
         }),
       )
 
+      globalSDK.client.session.preference.update({ sessionID, directory, autoAccept: true }).catch(() => {})
+
       globalSDK.client.permission
         .list({ directory })
         .then((x) => {
@@ -234,6 +242,10 @@ export const { use: usePermission, provider: PermissionProvider } = createSimple
           delete draft.autoAccept[sessionID]
         }),
       )
+
+      if (directory) {
+        globalSDK.client.session.preference.update({ sessionID, directory, autoAccept: false }).catch(() => {})
+      }
     }
 
     return {

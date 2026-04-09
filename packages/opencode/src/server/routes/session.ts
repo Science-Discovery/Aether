@@ -4,6 +4,7 @@ import { describeRoute, validator, resolver } from "hono-openapi"
 import { SessionID, MessageID, PartID } from "@/session/schema"
 import z from "zod"
 import { Session } from "../../session"
+import { SessionPreference } from "../../session/preference"
 import { MessageV2 } from "../../session/message-v2"
 import { SessionPrompt } from "../../session/prompt"
 import { SessionCompaction } from "../../session/compaction"
@@ -124,6 +125,61 @@ export const SessionRoutes = lazy(() =>
         log.info("SEARCH", { url: c.req.url })
         const session = await Session.get(sessionID)
         return c.json(session)
+      },
+    )
+    .get(
+      "/:sessionID/preference",
+      describeRoute({
+        summary: "Get session preference",
+        description: "Retrieve the preference (agent, model, variant, autoAccept) for a session.",
+        operationId: "session.preference.get",
+        responses: {
+          200: {
+            description: "Session preference",
+            content: {
+              "application/json": {
+                schema: resolver(SessionPreference.Info),
+              },
+            },
+          },
+          ...errors(400, 404),
+        },
+      }),
+      validator("param", z.object({ sessionID: SessionID.zod })),
+      async (c) => {
+        const sessionID = c.req.valid("param").sessionID
+        await Session.get(sessionID)
+        const preference = SessionPreference.get(sessionID)
+        return c.json(preference)
+      },
+    )
+    .patch(
+      "/:sessionID/preference",
+      describeRoute({
+        summary: "Update session preference",
+        description:
+          "Patch the preference (agent, model, variant, autoAccept) for a session. Pass null to clear a field.",
+        operationId: "session.preference.update",
+        responses: {
+          200: {
+            description: "Updated preference",
+            content: {
+              "application/json": {
+                schema: resolver(SessionPreference.Info),
+              },
+            },
+          },
+          ...errors(400, 404),
+        },
+      }),
+      validator("param", z.object({ sessionID: SessionID.zod })),
+      validator("json", SessionPreference.Patch.omit({ sessionID: true })),
+      async (c) => {
+        const sessionID = c.req.valid("param").sessionID
+        const body = c.req.valid("json")
+        await Session.get(sessionID)
+        const preference = SessionPreference.set({ ...body, sessionID })
+        return c.json(preference)
       },
     )
     .get(

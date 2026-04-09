@@ -122,6 +122,14 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
     const scope = createMemo<State | undefined>(() => {
       const session = id()
       if (!session) return store.draft
+      const pref = sync.data.preference[session]
+      if (pref) {
+        return {
+          agent: pref.agent ?? undefined,
+          model: pref.model ?? undefined,
+          variant: pref.variant,
+        }
+      }
       return saved.session[session] ?? handoff.get(handoffKey(sdk.directory, session))
     })
 
@@ -253,6 +261,27 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
       } satisfies State
     }
 
+    const pending = new Map<string, ReturnType<typeof setTimeout>>()
+
+    const patchPreference = (session: string, next: State) => {
+      const existing = pending.get(session)
+      if (existing) clearTimeout(existing)
+      pending.set(
+        session,
+        setTimeout(() => {
+          pending.delete(session)
+          sdk.client.session.preference
+            .update({
+              sessionID: session,
+              agent: next.agent ?? null,
+              model: next.model ?? null,
+              variant: next.variant ?? null,
+            })
+            .catch(() => {})
+        }, 100),
+      )
+    }
+
     const write = (next: Partial<State>) => {
       const state = {
         ...(scope() ?? { agent: agent.current()?.name }),
@@ -262,6 +291,7 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
       const session = id()
       if (session) {
         setSaved("session", session, state)
+        patchPreference(session, state)
         return
       }
       setStore("draft", state)
@@ -367,6 +397,7 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
           if (dir === sdk.directory) {
             setSaved("session", session, next)
             setStore("draft", undefined)
+            patchPreference(session, next)
             return
           }
 

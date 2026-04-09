@@ -1,0 +1,9 @@
+# 📦 JavaScript SDK
+
+JavaScript SDK for Opencode AI client and server integration.
+
+## Subdirectories
+
+| Name | Description | When to Dive In |
+|------|-------------|-----------------|
+| `example/` | 💡 Examples (1 files) | When you need
