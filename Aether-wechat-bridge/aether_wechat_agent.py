@@ -945,6 +945,9 @@ class AetherAgent(Agent):
                 if user_text.strip()
                 else ""
             )
+            if not session_id:
+                session_id, _ = await self._ensure_session(directory)
+                self._sessions[conv_id] = session_id
             if session_id and cmd != "/help":
                 slash_reply = await self._wrap_message(
                     slash_reply, session_id, directory, conv_id
