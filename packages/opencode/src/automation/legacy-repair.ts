@@ -35,16 +35,16 @@ export namespace LegacyRepair {
     const files = input.status.files.map((file) => `- ${file.path}`).join("\n")
     const errs = input.merge.errors.map((err) => `- ${err}`).join("\n")
     return [
-      "侦测到旧版本数据库合并存在失败项，请执行兜底修复。",
+      "侦测到旧版本数据库处理存在异常，请执行诊断与修复。",
       "仅处理当前目录顶层（不含子目录）中的 .db 文件。",
-      "目标是将用户历史信息汇总到 aether-prod.db。",
-      "优先策略：latest_wins（time_updated/updated_at/updated/time_created/created_at/created），时间相同时按来源优先级与文件名稳定排序。",
-      "若遇到约束错误，请先识别缺失字段或依赖表并做最小修复后继续合并。",
+      "请以保守方式检查 aether-prod.db 与历史数据库文件，只做最小必要修复。",
+      "如果需要写入，请优先保证不覆盖现有用户数据，并保留原始数据库文件。",
+      "若遇到约束错误，请先识别缺失字段或依赖表，再决定是否需要最小修复。",
       "不要移动或删除任何历史 db 文件。",
-      "请输出最终报告：成功源库、失败源库、冲突数量、修复动作、剩余风险。",
+      "请输出最终报告：检查结果、修复动作、剩余风险。",
       "扫描到的库：",
       files || "- 无",
-      "受控合并器失败信息：",
+      "已知异常信息：",
       errs || "- 无",
     ].join("\n")
   }

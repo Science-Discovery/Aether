@@ -2,12 +2,11 @@ import { Database as Sqlite } from "bun:sqlite"
 import fs from "fs/promises"
 import path from "path"
 import z from "zod"
-import { Global } from "@/global"
 import { Flag } from "@/flag/flag"
+import { Global } from "@/global"
 
 const pref_file = "legacy-db.json"
 const merge_file = "legacy-db-merge.json"
-const boot_file = "legacy-db-boot.json"
 
 function targetFile() {
   const file = Flag.OPENCODE_DB
@@ -27,25 +26,14 @@ function mergePath() {
   return path.join(Global.Path.state, merge_file)
 }
 
-function bootPath() {
-  return path.join(Global.Path.state, boot_file)
-}
-
-
 function isdb(name: string) {
-  return /^(opencode|aether).*\.db$/i.test(name)
-}
-
-function sourceDb(name: string) {
-  return /^opencode.*\.db$/i.test(name)
+  return /\.db$/i.test(name)
 }
 
 function channel(name: string) {
   const file = path.basename(name)
   if (file.toLowerCase() === targetFile().toLowerCase()) return "prod"
-  if (!isdb(file)) return "unknown"
-  if (file.toLowerCase() === "opencode.db") return "latest"
-  const match = /^opencode-(.+)\.db$/i.exec(file)
+  const match = /^(.+)\.db$/i.exec(file)
   if (!match) return "unknown"
   return match[1]
 }
@@ -56,20 +44,23 @@ async function mod(file: string) {
 }
 
 async function versions(file: string) {
-  const db = new Sqlite(file, { readonly: true })
   try {
-    const rows = db
-      .query("select version, count(*) as count from session group by version")
-      .all() as { version: string | null; count: number }[]
-    return rows.reduce<Record<string, number>>((acc, row) => {
-      const key = row.version || "unknown"
-      acc[key] = (acc[key] ?? 0) + row.count
-      return acc
-    }, {})
+    const db = new Sqlite(file, { readonly: true })
+    try {
+      const rows = db.query("select version, count(*) as count from session group by version").all() as {
+        version: string | null
+        count: number
+      }[]
+      return rows.reduce<Record<string, number>>((acc, row) => {
+        const key = row.version || "unknown"
+        acc[key] = (acc[key] ?? 0) + row.count
+        return acc
+      }, {})
+    } finally {
+      db.close()
+    }
   } catch {
     return {}
-  } finally {
-    db.close()
   }
 }
 
@@ -110,13 +101,6 @@ export namespace LegacyDB {
   export type Preference = z.infer<typeof Preference>
   export type MergeState = z.infer<typeof MergeState>
 
-  export const BootState = z.object({
-    should_merge: z.boolean(),
-    source_count: z.number(),
-    updated: z.number(),
-  })
-  export type BootState = z.infer<typeof BootState>
-
   async function scan() {
     const dir = Global.Path.data
     const rows = await fs.readdir(dir, { withFileTypes: true }).catch(() => [])
@@ -130,6 +114,16 @@ export namespace LegacyDB {
           mtime: await mod(path.join(dir, row.name)),
         })),
     )
+  }
+
+  async function latest() {
+    const target = targetFile().toLowerCase()
+    const files = (await scan()).filter((item) => item.name.toLowerCase() !== target)
+    return files.sort((a, b) => b.mtime - a.mtime || a.name.localeCompare(b.name))[0]
+  }
+
+  async function copySidecar(src: string, dst: string, ext: "shm" | "wal") {
+    await fs.copyFile(`${src}-${ext}`, `${dst}-${ext}`).catch(() => undefined)
   }
 
   export async function preference(): Promise<Preference> {
@@ -157,24 +151,14 @@ export namespace LegacyDB {
   }
 
   export async function copySource() {
-    const files = (await scan()).filter((item) => sourceDb(item.name))
-    if (files.length !== 1) return
-    await fs.copyFile(files[0].path, targetPath())
-    return files[0].path
-  }
-
-  export async function ensureTarget() {
     const target = targetPath()
     const stat = await fs.stat(target).catch(() => undefined)
-    if (stat) return target
-    const files = (await scan()).filter((item) => sourceDb(item.name))
-    if (files.length === 0) {
-      const db = new Sqlite(target)
-      db.close()
-      return target
-    }
-    await fs.copyFile(files[0].path, target)
-    return target
+    if (stat) return
+    const file = await latest()
+    if (!file) return
+    await fs.copyFile(file.path, target)
+    await Promise.all([copySidecar(file.path, target, "shm"), copySidecar(file.path, target, "wal")])
+    return file.path
   }
 
   export async function mergeState(): Promise<MergeState> {
@@ -204,32 +188,11 @@ export namespace LegacyDB {
     })
   }
 
-  export async function bootState(): Promise<BootState | undefined> {
-    const raw = await fs.readFile(bootPath(), "utf-8").catch(() => "")
-    if (!raw) return
-    let json: unknown
-    try {
-      json = JSON.parse(raw)
-    } catch {
-      return
-    }
-    const next = BootState.safeParse(json)
-    if (!next.success) return
-    return next.data
-  }
-
-  export async function setBootState(input: BootState) {
-    const state = BootState.parse(input)
-    await fs.writeFile(bootPath(), JSON.stringify(state, null, 2), "utf-8")
-    return state
-  }
-
   export async function status(): Promise<Status> {
     const dir = Global.Path.data
     const files = await scan()
     const target = targetFile().toLowerCase()
     const old = files.filter((file) => file.name.toLowerCase() !== target)
-    const src = files.filter((file) => sourceDb(file.name))
     const hasTarget = files.some((file) => file.name.toLowerCase() === target)
 
     const naming = old.reduce<Record<string, number>>((acc, file) => {
@@ -245,20 +208,18 @@ export namespace LegacyDB {
       return acc
     }, {})
 
-    const boot = await bootState()
     return {
       directory: dir,
       target: targetPath(),
       has_legacy: old.length > 0,
       message: old.length > 0 ? "发现旧库" : "未发现旧库",
       dismissed: false,
-      should_merge: src.length > 0 && (boot?.should_merge || !hasTarget),
-      source_count: src.length,
+      should_merge: !hasTarget && old.length > 0,
+      source_count: old.length,
       legacy_count: old.length,
-      files: old.sort((a, b) => a.name.localeCompare(b.name)),
+      files: old.sort((a, b) => b.mtime - a.mtime || a.name.localeCompare(b.name)),
       naming,
       versions: dist,
     }
   }
-
 }
