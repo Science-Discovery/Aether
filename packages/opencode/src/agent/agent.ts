@@ -10,6 +10,7 @@ import { ProviderTransform } from "../provider/transform"
 
 import PROMPT_GENERATE from "./generate.txt"
 import PROMPT_COMPACTION from "./prompt/compaction.txt"
+import PROMPT_DOCS from "./prompt/docs.txt"
 import PROMPT_EXPLORE from "./prompt/explore.txt"
 import PROMPT_SUMMARY from "./prompt/summary.txt"
 import PROMPT_TITLE from "./prompt/title.txt"
@@ -136,6 +137,23 @@ export namespace Agent {
                     [path.relative(Instance.worktree, path.join(Global.Path.data, path.join("plans", "*.md")))]:
                       "allow",
                   },
+                }),
+                user,
+              ),
+              mode: "primary",
+              native: true,
+            },
+            docs: {
+              name: "docs",
+              description: "Documentation mode. Allows file edits but blocks shell commands.",
+              options: {},
+              prompt: PROMPT_DOCS,
+              permission: Permission.merge(
+                defaults,
+                Permission.fromConfig({
+                  question: "allow",
+                  plan_enter: "allow",
+                  bash: "deny",
                 }),
                 user,
               ),
