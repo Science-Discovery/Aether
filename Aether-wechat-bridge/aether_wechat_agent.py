@@ -152,15 +152,21 @@ def output_qrcode_base64(qrcode_url: str) -> str:
 
 HELP_TEXT = """📋 可用命令：
 
-/new          开启新对话（清除当前会话上下文）
+/new          开启全新对话（无当前会话上下文）
 /stop         停止当前会话中的执行
-/model        查看可用模型列表及当前模型
-/model n      切换到编号 n 的模型（由 /model 列表确定）
-/project      查看当前工作项目
+/compact      压缩当前会话上下文
+/model        查看可用 LLM 模型（每个 provider 最多显示前 5 个）
+/model list   查看所有可用 LLM 模型
+/model n      切换到编号 n 的模型（按全量模型编号）
+/mode         查看当前会话模式
+/mode <name>  切换到指定模式（如 build、plan、docs）
+/approval     查看当前审批模式
+/approval <name> 切换审批模式（如 auto、ask）
+/project      查看最近项目
 /project list 查看全部项目
 /project n    切换到编号 n 的项目
 /project hide n  隐藏项目（在桌面端或微信端重新使用后自动恢复）
-/session      查看当前项目下的会话列表
+/session      查看当前项目下的最近会话
 /session list 查看当前项目下全部会话
 /session n    切换到当前项目下编号 n 的会话
 /help         显示此帮助信息"""
@@ -190,6 +196,8 @@ class AetherAgent(Agent):
         self._sessions: dict[str, str] = {}
         self._session_list: dict[str, list[dict]] = {}
         self._conv_models: dict[str, str] = {}
+        self._conv_agents: dict[str, str] = {}
+        self._conv_approvals: dict[str, str] = {}
         self._conv_dirs: dict[str, str] = {}
         self._fresh: set[str] = set()
         self._pending_questions: dict[str, dict] = {}
@@ -351,7 +359,8 @@ class AetherAgent(Agent):
             title = info.get("title") if isinstance(info, dict) else ""
             if isinstance(title, str) and title.strip():
                 label = self._clip(title.strip(), 24)
-        mode = self.default_agent.capitalize() if self.default_agent else "—"
+        mode_name = self._conv_agents.get(conv_id) or self.default_agent
+        mode = mode_name.capitalize() if mode_name else "—"
         model = self._conv_models.get(conv_id, "") or self.default_model or "—"
         return f"{project}  ·  {label}  ·  {mode}  ·  {model}\n————————"
 
@@ -395,6 +404,40 @@ class AetherAgent(Agent):
             return items[0]["id"], False
         return await self._create_session(directory=directory), True
 
+    async def _list_agents(self) -> list[dict]:
+        resp = await self._client.get(f"{self.base_url}/agent")
+        resp.raise_for_status()
+        return [item for item in resp.json() if not item.get("hidden")]
+
+    def _approval_mode(self, conv_id: str) -> str:
+        return self._conv_approvals.get(conv_id, "ask")
+
+    async def _reply_permission(
+        self, request_id: str, reply: str, directory: str = ""
+    ) -> None:
+        headers = (
+            {"x-opencode-directory": quote(directory, safe="")} if directory else {}
+        )
+        resp = await self._client.post(
+            f"{self.base_url}/permission/{request_id}/reply",
+            json={"reply": reply},
+            headers=headers,
+        )
+        resp.raise_for_status()
+
+    async def _auto_approve(
+        self, conv_id: str, permission: dict, directory: str = ""
+    ) -> bool:
+        if self._approval_mode(conv_id) != "auto":
+            return False
+        try:
+            await self._reply_permission(permission["id"], "always", directory)
+            logger.info(f"[/approval] 自动接受授权 {permission['id']} for {conv_id}")
+            return True
+        except Exception as e:
+            logger.warning(f"自动接受授权失败: {e}")
+            return False
+
     def _format_session_time(self, val: object) -> str:
         if not isinstance(val, int):
             return "未知时间"
@@ -432,6 +475,8 @@ class AetherAgent(Agent):
             chosen = items[idx]
             self._sessions[conv_id] = chosen["id"]
             self._fresh.discard(conv_id)
+            self._conv_agents.pop(conv_id, None)
+            self._conv_approvals.pop(conv_id, None)
             title = chosen.get("title") or chosen["id"][:8]
             logger.info(f"[/session] {conv_id} -> {chosen['id']}")
             return f"✅ 已切换到会话：{title}\n   更新时间：{self._format_session_time(chosen.get('time', {}).get('updated'))}"
@@ -440,6 +485,8 @@ class AetherAgent(Agent):
             session_id = await self._create_session(directory=directory)
             self._sessions[conv_id] = session_id
             self._fresh.discard(conv_id)
+            self._conv_agents.pop(conv_id, None)
+            self._conv_approvals.pop(conv_id, None)
             logger.info(f"[/session] 为 {conv_id} 创建新会话 {session_id[:8]}...")
             return "📂 当前项目下还没有任何会话，已自动创建一个新会话并切换。"
 
@@ -470,25 +517,35 @@ class AetherAgent(Agent):
             old = self._sessions.pop(conv_id, None)
             self._session_list.pop(conv_id, None)
             self._conv_models.pop(conv_id, None)
+            self._conv_agents.pop(conv_id, None)
+            self._conv_approvals.pop(conv_id, None)
             self._fresh.add(conv_id)
             self._clear_runtime(conv_id)
             if old:
                 logger.info(f"[/new] 清除会话 {old[:8]}... for {conv_id}")
             return "✅ 已开启新对话，上下文已清空。"
+        if cmd == "/compact":
+            return await self._cmd_compact(conv_id)
         if cmd == "/model":
             if not arg:
                 return await self._cmd_list_models(conv_id)
+            if arg == "list":
+                return await self._cmd_list_models(conv_id, True)
             # 数字编号切换
             if arg.isdigit():
                 return self._cmd_set_model_by_index(conv_id, int(arg))
             return self._cmd_set_model(conv_id, arg)
+        if cmd == "/mode":
+            return await self._cmd_mode(conv_id, arg)
+        if cmd == "/approval":
+            return await self._cmd_approval(conv_id, arg)
         if cmd == "/project":
             return await self._cmd_project(conv_id, arg)
         if cmd == "/session":
             return await self._cmd_session(conv_id, arg)
         return f"❓ 未知命令：{cmd}，发送 /help 查看可用命令。"
 
-    async def _cmd_list_models(self, conv_id: str) -> str:
+    async def _cmd_list_models(self, conv_id: str, full: bool = False) -> str:
         try:
             directory = self._conv_dirs.get(conv_id) or self.directory
             headers = (
@@ -501,7 +558,7 @@ class AetherAgent(Agent):
             logger.error(f"获取模型列表失败: {e}")
             return "❌ 无法获取模型列表，请检查 Aether 服务是否正常。"
         current = self._conv_models.get(conv_id) or self.default_model or "（全局默认）"
-        lines = ["📦 可用模型："]
+        lines = [f"📦 当前模型：{current}", "", "可用模型："]
         providers = data.get("all", [])
         connected = set(data.get("connected", []))
         defaults = data.get("default", {})
@@ -520,15 +577,80 @@ class AetherAgent(Agent):
             sorted_ids = sorted(models.keys(), key=lambda m: (m != default_mid, m))
             for model_id in sorted_ids:
                 model_list.append(f"{pid}/{model_id}")
-                num = len(model_list)
+            visible = sorted_ids if full else sorted_ids[:5]
+            for model_id in visible:
+                num = model_list.index(f"{pid}/{model_id}") + 1
                 tag = " ★" if model_id == default_mid else ""
                 lines.append(f"  {num}. {pid}/{model_id}{tag}")
+            if not full and len(sorted_ids) > len(visible):
+                lines.append(
+                    f"  ... 还有 {len(sorted_ids) - len(visible)} 个，发送 /model list 查看全部"
+                )
         self._model_list = model_list
-        if len(lines) <= 3:
+        if len(lines) <= 5:
             lines.append("（暂无已配置的模型，请先在 Aether 中连接 provider）")
         lines.append("")
-        lines.append("💡 /model n 切换模型")
+        lines.append("💡 /model n 切换模型 | /model list 查看全部")
         return chr(10).join(lines)
+
+    async def _cmd_mode(self, conv_id: str, arg: str) -> str:
+        try:
+            items = await self._list_agents()
+        except Exception as e:
+            logger.error(f"获取模式列表失败: {e}")
+            return "❌ 无法获取模式列表，请检查 Aether 服务是否正常。"
+        names = [item.get("name", "") for item in items if item.get("name")]
+        current = self._conv_agents.get(conv_id) or self.default_agent
+        if not arg:
+            sample = "、".join(names[:10]) or "（暂无可用模式）"
+            return f"🧠 当前模式：{current}\n可用模式：{sample}"
+        if arg not in names:
+            sample = "、".join(names[:10]) or "（暂无可用模式）"
+            return f"❌ 未找到模式：{arg}\n可用模式：{sample}"
+        self._conv_agents[conv_id] = arg
+        logger.info(f"[/mode] {conv_id} -> {arg}")
+        return f"✅ 已切换模式：{arg}\n（仅对当前对话生效，/new 后将重置）"
+
+    async def _cmd_approval(self, conv_id: str, arg: str) -> str:
+        current = self._approval_mode(conv_id)
+        if not arg:
+            return f"🔐 当前审批模式：{current}\n可用模式：auto、ask"
+        if arg not in {"auto", "ask"}:
+            return "❌ 仅支持 /approval auto 或 /approval ask"
+        self._conv_approvals[conv_id] = arg
+        logger.info(f"[/approval] {conv_id} -> {arg}")
+        if arg == "auto" and conv_id in self._pending_permissions:
+            await self._handle_permission_reply(conv_id, "2")
+        return (
+            "✅ 已开启自动接受权限\n（后续权限请求将自动批准）"
+            if arg == "auto"
+            else "✅ 已停止自动接受权限\n（后续权限请求将需要你确认）"
+        )
+
+    async def _cmd_compact(self, conv_id: str) -> str:
+        directory = self._conv_dirs.get(conv_id) or self.directory
+        session_id = self._sessions.get(conv_id)
+        if not session_id:
+            session_id, _ = await self._ensure_session(directory)
+            self._sessions[conv_id] = session_id
+        model = self._conv_models.get(conv_id) or self.default_model
+        if not model or "/" not in model:
+            return "❌ 压缩当前会话前，请先使用 /model 选择 provider/model 格式的模型。"
+        provider, mdl = model.split("/", 1)
+        headers = (
+            {"x-opencode-directory": quote(directory, safe="")} if directory else {}
+        )
+        try:
+            resp = await self._client.post(
+                f"{self.base_url}/session/{session_id}/summarize",
+                json={"providerID": provider, "modelID": mdl, "auto": False},
+                headers=headers,
+            )
+            resp.raise_for_status()
+            return "✅ 已开始压缩当前会话上下文，请稍后查看结果。"
+        except Exception as e:
+            logger.error(f"压缩会话失败: {e}")
+            return f"❌ 压缩会话失败: {e}"
 
     def _cmd_set_model_by_index(self, conv_id: str, n: int) -> str:
         if not self._model_list:
@@ -605,6 +727,8 @@ class AetherAgent(Agent):
             self._session_list.pop(conv_id, None)
             self._fresh.discard(conv_id)
             self._conv_models.pop(conv_id, None)
+            self._conv_agents.pop(conv_id, None)
+            self._conv_approvals.pop(conv_id, None)
             if new_dir in self._hidden_dirs:
                 del self._hidden_dirs[new_dir]
                 self._save_hidden_dirs()
@@ -808,6 +932,7 @@ class AetherAgent(Agent):
                 )
 
             model = self._conv_models.get(conv_id) or self.default_model
+            agent = self._conv_agents.get(conv_id) or self.default_agent
 
             q: asyncio.Queue = asyncio.Queue()
             self._question_queues[conv_id] = q
@@ -815,7 +940,11 @@ class AetherAgent(Agent):
 
             task = asyncio.create_task(
                 self._send_message(
-                    session_id, user_text, model=model, directory=directory
+                    session_id,
+                    user_text,
+                    model=model,
+                    agent=agent,
+                    directory=directory,
                 )
             )
             self._tasks[conv_id] = task
@@ -945,6 +1074,8 @@ class AetherAgent(Agent):
                 )
 
             if kind == "permission":
+                if await self._auto_approve(conv_id, data, directory):
+                    continue
                 text_so_far = self._accumulated_text.pop(conv_id, "").strip()
                 if text_so_far:
                     try:
@@ -1032,6 +1163,8 @@ class AetherAgent(Agent):
                     session_id, directory
                 )
                 if permission:
+                    if await self._auto_approve(conv_id, permission, directory):
+                        continue
                     self._pending_permissions[conv_id] = {
                         "id": permission["id"],
                         "permission": permission,
@@ -1125,6 +1258,8 @@ class AetherAgent(Agent):
 
         permission = await self._poll_permission_for_session(session_id, directory)
         if permission:
+            if await self._auto_approve(conv_id, permission, directory):
+                return await self._sync_pending(conv_id, session_id, directory)
             self._pending_permissions[conv_id] = {
                 "id": permission["id"],
                 "permission": permission,
@@ -1388,11 +1523,11 @@ class AetherAgent(Agent):
         return resp.json()["id"]
 
     async def _send_message(
-        self, session_id: str, text: str, model=None, directory=""
+        self, session_id: str, text: str, model=None, agent=None, directory=""
     ) -> dict:
         payload = {
             "parts": [{"type": "text", "text": text}],
-            "agent": self.default_agent,
+            "agent": agent or self.default_agent,
         }
         effective_model = model or self.default_model
         if effective_model:
