@@ -759,7 +759,15 @@ class AetherAgent(Agent):
         if slash_reply is not None:
             directory = self._conv_dirs.get(conv_id) or self.directory
             session_id = self._sessions.get(conv_id)
-            if session_id:
+            cmd = (
+                user_text.strip().split(maxsplit=1)[0].lower()
+                if user_text.strip()
+                else ""
+            )
+            if not session_id and cmd != "/help":
+                session_id, _ = await self._ensure_session(directory)
+                self._sessions[conv_id] = session_id
+            if session_id and cmd != "/help":
                 slash_reply = await self._wrap_message(
                     slash_reply, session_id, directory, conv_id
                 )
