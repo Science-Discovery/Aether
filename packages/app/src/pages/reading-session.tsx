@@ -60,7 +60,8 @@ const ReadingSession: Component = () => {
   const { view } = useSessionLayout()
 
   const overridePdfUrl = createMemo(() => {
-    const pdfPath = searchParams.pdf
+    const raw = searchParams.pdf
+    const pdfPath = Array.isArray(raw) ? raw[0] : raw
     if (!pdfPath) return undefined
     return `${sdk.url}/file/raw?path=${encodeURIComponent(pdfPath)}&directory=${encodeURIComponent(sdk.directory)}`
   })
