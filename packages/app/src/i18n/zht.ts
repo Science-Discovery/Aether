@@ -307,6 +307,9 @@ export const dict = {
   "dialog.directory.existingProjects": "已有專案",
   "dialog.directory.browse": "瀏覽",
   "dialog.directory.confirm": "確認",
+  "dialog.directory.create.title": "建立資料夾",
+  "dialog.directory.create.message": "目錄不存在，是否建立此資料夾？",
+  "dialog.directory.create.action": "建立",
 
   "dialog.server.title": "伺服器",
   "dialog.server.description": "切換此應用程式連線的 OpenCode 伺服器。",

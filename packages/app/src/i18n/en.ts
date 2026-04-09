@@ -322,6 +322,9 @@ export const dict = {
   "dialog.directory.existingProjects": "Existing projects",
   "dialog.directory.browse": "Browse",
   "dialog.directory.confirm": "Confirm",
+  "dialog.directory.create.title": "Create folder",
+  "dialog.directory.create.message": "This directory does not exist. Create this folder?",
+  "dialog.directory.create.action": "Create",
 
   "app.server.unreachable": "Could not reach {{server}}",
   "app.server.retrying": "Retrying automatically...",

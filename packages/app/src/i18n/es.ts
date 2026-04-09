@@ -308,6 +308,9 @@ export const dict = {
   "dialog.directory.existingProjects": "Proyectos existentes",
   "dialog.directory.browse": "Examinar",
   "dialog.directory.confirm": "Confirmar",
+  "dialog.directory.create.title": "Crear carpeta",
+  "dialog.directory.create.message": "Este directorio no existe. ?Crear esta carpeta?",
+  "dialog.directory.create.action": "Crear",
 
   "dialog.server.title": "Servidores",
   "dialog.server.description": "Cambiar a qué servidor de OpenCode se conecta esta app.",
