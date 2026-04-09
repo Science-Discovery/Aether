@@ -172,7 +172,7 @@ jobs:
         with:
           name: release-web-linux
           path: |
-            packages/opencode/dist/aether-linux-x64-web.zip
+            packages/opencode/dist/aether-linux-x64.zip
             packages/opencode/dist/latest-web-linux.yml
             packages/opencode/dist/update_linux_web.sh
           if-no-files-found: error
@@ -197,7 +197,7 @@ jobs:
         with:
           name: release-web-windows
           path: |
-            packages/opencode/dist/aether-windows-x64-web.zip
+            packages/opencode/dist/aether-windows-x64.zip
             packages/opencode/dist/latest-web-windows.yml
             packages/opencode/dist/update_windows_web.bat
           if-no-files-found: error
