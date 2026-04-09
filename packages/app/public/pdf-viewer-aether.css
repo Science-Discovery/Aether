@@ -50,6 +50,7 @@ body.aether-pdf-viewer {
   --aether-swap-right-icon: url("/pdfjs-ref/web/images/aether-swap-layout-right.svg");
   --aether-swap-left-icon: url("/pdfjs-ref/web/images/aether-swap-layout-left.svg");
   --aether-reading-mode-icon: url("/pdfjs-ref/web/images/aether-reading-mode.svg");
+  --aether-close-reading-mode-icon: url("/pdfjs-ref/web/images/aether-close-reading-mode.svg");
 }
 
 body.aether-pdf-viewer #aetherPdf2md {
@@ -75,6 +76,16 @@ body.aether-pdf-viewer #aetherPdf2md > span {
   padding: 0;
   text-indent: 0;
   white-space: nowrap;
+}
+
+body.aether-pdf-viewer #aetherCloseReadingMode {
+  min-width: 32px;
+  margin-inline-start: 6px;
+}
+
+body.aether-pdf-viewer #aetherCloseReadingMode::before {
+  -webkit-mask-image: var(--aether-close-reading-mode-icon);
+  mask-image: var(--aether-close-reading-mode-icon);
 }
 
 body.aether-pdf-viewer #aetherSwapLayout {

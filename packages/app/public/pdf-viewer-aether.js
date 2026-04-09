@@ -547,6 +547,11 @@
       nightMode.setAttribute("aria-pressed", config.nightMode ? "true" : "false");
     }
 
+    const closeReadingMode = document.getElementById("aetherCloseReadingMode");
+    if (closeReadingMode) {
+      closeReadingMode.hidden = config.mode !== "full";
+    }
+
     const swapLayout = document.getElementById("aetherSwapLayout");
     if (swapLayout) {
       swapLayout.hidden = config.mode !== "full";
@@ -698,6 +703,13 @@
     if (readingSettings) {
       readingSettings.addEventListener("click", function () {
         post("opensettings");
+      });
+    }
+
+    const closeReadingMode = document.getElementById("aetherCloseReadingMode");
+    if (closeReadingMode) {
+      closeReadingMode.addEventListener("click", function () {
+        post("closereadingmode");
       });
     }
 

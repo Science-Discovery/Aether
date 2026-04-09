@@ -52,6 +52,7 @@ export type PdfViewerShellProps = {
   onDocumentInfo?: (info: { totalPages: number }) => void
   onPdfToMarkdown?: () => void
   onOpenReadingMode?: () => void
+  onCloseReadingMode?: () => void
   onOpenSettings?: () => void
   onTextSelectionAction?: (input: { action: "copy" | "translate" | "ask"; page: number; text: string }) => void
   onImageSelectionAction?: (input: { action: "copy" | "translate" | "ask"; page: number; imageDataUrl: string }) => void
@@ -74,6 +75,7 @@ type ViewerMessage =
       imageDataUrl: string
     }
   | { channel: "aether-pdf-viewer"; type: "nightmode"; enabled: boolean }
+  | { channel: "aether-pdf-viewer"; type: "closereadingmode" }
   | { channel: "aether-pdf-viewer"; type: "swaplayout" }
 
 export const PdfViewerShell: Component<PdfViewerShellProps> = (props) => {
@@ -168,6 +170,11 @@ export const PdfViewerShell: Component<PdfViewerShellProps> = (props) => {
 
     if (event.data.type === "openreadingmode") {
       props.onOpenReadingMode?.()
+      return
+    }
+
+    if (event.data.type === "closereadingmode") {
+      props.onCloseReadingMode?.()
       return
     }
 

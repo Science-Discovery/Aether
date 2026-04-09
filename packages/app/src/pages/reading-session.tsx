@@ -1,6 +1,6 @@
 import { type Component, createEffect, createMemo, createSignal, onCleanup, onMount } from "solid-js"
 import { createStore } from "solid-js/store"
-import { useParams } from "@solidjs/router"
+import { useNavigate, useParams, useSearchParams } from "@solidjs/router"
 import { ReadingModeProvider } from "@/context/reading-mode"
 import { ReadingModePanel } from "@/components/reading-mode/reading-mode-panel"
 import { TerminalProvider } from "@/context/terminal"
@@ -8,6 +8,7 @@ import { FileProvider } from "@/context/file"
 import { PromptProvider } from "@/context/prompt"
 import { CommentsProvider } from "@/context/comments"
 import { useLayout } from "@/context/layout"
+import { useSDK } from "@/context/sdk"
 import { useSessionLayout } from "@/pages/session/session-layout"
 import { createSizing } from "@/pages/session/helpers"
 import SessionPage from "./session"
@@ -51,9 +52,22 @@ const CHAT_RATIO_BOUNDS: Partial<Record<LayoutVariant, { min: number; max: numbe
 }
 
 const ReadingSession: Component = () => {
-  const params = useParams<{ id: string }>()
+  const params = useParams<{ id: string; dir?: string }>()
+  const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
+  const sdk = useSDK()
   const layout = useLayout()
   const { view } = useSessionLayout()
+
+  const overridePdfUrl = createMemo(() => {
+    const pdfPath = searchParams.pdf
+    if (!pdfPath) return undefined
+    return `${sdk.url}/file/raw?path=${encodeURIComponent(pdfPath)}&directory=${encodeURIComponent(sdk.directory)}`
+  })
+
+  const handleCloseReadingMode = () => {
+    navigate(`/${encodeURIComponent(params.dir ?? "")}/session/${params.id}`)
+  }
   const [containerWidth, setContainerWidth] = createSignal(0)
   const [layoutSwapped, setLayoutSwapped] = createSignal(false)
   const [layoutReady, setLayoutReady] = createSignal(false)
@@ -336,8 +350,10 @@ const ReadingSession: Component = () => {
                       maxWidth={Math.max(pdfMinWidth(), pdfMaxWidth())}
                       layoutSwapped={layoutSwapped()}
                     onSwapLayout={handleSwapLayout}
+                    onCloseReadingMode={handleCloseReadingMode}
                     onResizeWidth={handleResizeWidth}
                     resizeHandleEnabled={mode() !== "review-right" && mode() !== "review-tree-right"}
+                    overridePdfUrl={overridePdfUrl()}
                     sizing={sizing}
                   />
                   }

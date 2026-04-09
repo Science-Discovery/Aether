@@ -24,9 +24,11 @@ export const ReadingModePanel: Component<{
   maxWidth: number
   layoutSwapped: boolean
   onSwapLayout?: () => void
+  onCloseReadingMode?: () => void
   onResizeWidth: (width: number) => void
   resizeHandleEnabled?: boolean
   sizing?: Sizing
+  overridePdfUrl?: string
 }> = (props) => {
   const rm = useReadingMode()
   const sdk = useSDK()
@@ -37,7 +39,7 @@ export const ReadingModePanel: Component<{
   const dialog = useDialog()
   const size = props.sizing ?? createSizing()
 
-  const pdfUrl = createMemo(() => `${sdk.url}/reading-mode/pdf?sessionID=${encodeURIComponent(props.sessionID)}`)
+  const pdfUrl = createMemo(() => props.overridePdfUrl ?? `${sdk.url}/reading-mode/pdf?sessionID=${encodeURIComponent(props.sessionID)}`)
   let restoredInitialPage = false
 
   createEffect(() => {
@@ -234,7 +236,9 @@ export const ReadingModePanel: Component<{
 
   return (
     <div class="relative h-full shrink-0 overflow-visible" style={{ width: `${props.width}px` }}>
-      <ReadingFirstReadGate sessionID={props.sessionID} />
+      <Show when={!props.overridePdfUrl}>
+        <ReadingFirstReadGate sessionID={props.sessionID} />
+      </Show>
       <div
         class="flex h-full flex-col overflow-hidden bg-surface-base"
         classList={{
@@ -247,6 +251,7 @@ export const ReadingModePanel: Component<{
             url={pdfUrl()}
             layoutSwapped={props.layoutSwapped}
             onSwapLayout={props.onSwapLayout}
+            onCloseReadingMode={props.onCloseReadingMode}
             onOpenSettings={handleOpenSettings}
             onTextSelectionAction={handleTextSelectionAction}
             onImageSelectionAction={handleImageSelectionAction}
