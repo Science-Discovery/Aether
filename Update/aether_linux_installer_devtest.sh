@@ -574,7 +574,7 @@ grab() {
   else
     pkg_ext=".$pkg_ext"
   fi
-  pkg_file="$dl/aether-linux-x64-web-$ver$pkg_ext"
+  pkg_file="$dl/aether-linux-x64-$ver$pkg_ext"
 
   need_pkg=1
   if [ -f "$pkg_file" ]; then
@@ -645,7 +645,7 @@ prune() {
   local arr n cut i list item
 
   shopt -s nullglob
-  arr=("$dl"/aether-linux-x64-web-*.*)
+  arr=("$dl"/aether-linux-x64-*.*)
   shopt -u nullglob
   n="${#arr[@]}"
   if [ "$n" -gt "$keep" ]; then
