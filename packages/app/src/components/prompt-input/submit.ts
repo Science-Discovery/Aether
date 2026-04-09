@@ -75,11 +75,14 @@ function buildAuthHeaders(input: { username?: string; password?: string; json?: 
   return headers
 }
 
-function fillReadingQuestionPrompt(template: string, input: {
-  selectedContent: string
-  userQuestion: string
-  contextPages: string
-}) {
+function fillReadingQuestionPrompt(
+  template: string,
+  input: {
+    selectedContent: string
+    userQuestion: string
+    contextPages: string
+  },
+) {
   return template
     .replaceAll("{selected_content}", input.selectedContent)
     .replaceAll("{user_question}", input.userQuestion)
@@ -105,11 +108,7 @@ function blobToDataUrl(blob: Blob) {
   })
 }
 
-function resolveReadingContextRange(input: {
-  page: number
-  range: 0 | 1 | 2
-  totalPages?: number
-}) {
+function resolveReadingContextRange(input: { page: number; range: 0 | 1 | 2; totalPages?: number }) {
   const totalPages =
     typeof input.totalPages === "number" && Number.isFinite(input.totalPages) && input.totalPages > 0
       ? Math.floor(input.totalPages)
@@ -156,9 +155,6 @@ export async function sendFollowupDraft(input: FollowupSendInput) {
         sessionID: input.draft.sessionID,
         command: cmd,
         arguments: tail.join(" "),
-        agent: input.draft.agent,
-        model: `${input.draft.model.providerID}/${input.draft.model.modelID}`,
-        variant: input.draft.variant,
         parts: images.map((attachment) => ({
           id: Identifier.ascending("part"),
           type: "file" as const,
@@ -226,11 +222,8 @@ export async function sendFollowupDraft(input: FollowupSendInput) {
 
     await input.client.session.promptAsync({
       sessionID: input.draft.sessionID,
-      agent: input.draft.agent,
-      model: input.draft.model,
       messageID,
       parts: requestParts,
-      variant: input.draft.variant,
       knowledgeBase: input.knowledgeBase,
     })
     return true
@@ -574,8 +567,6 @@ export function createPromptSubmit(input: PromptSubmitInput) {
       client.session
         .shell({
           sessionID: session.id,
-          agent,
-          model,
           command: text,
         })
         .catch((err) => {
@@ -599,9 +590,6 @@ export function createPromptSubmit(input: PromptSubmitInput) {
             sessionID: session.id,
             command: commandName,
             arguments: args.join(" "),
-            agent,
-            model: `${model.providerID}/${model.modelID}`,
-            variant,
             parts: images.map((attachment) => ({
               id: Identifier.ascending("part"),
               type: "file" as const,
@@ -826,7 +814,7 @@ export function createPromptSubmit(input: PromptSubmitInput) {
       knowledgeBase:
         knowledge.enabled() && knowledge.activeKnowledgeBases().length > 0
           ? {
-              paths: knowledge.activeKnowledgeBases().map(kb => kb.path),
+              paths: knowledge.activeKnowledgeBases().map((kb) => kb.path),
               apiKey: knowledge.activeKnowledgeBases()[0]!.apiKey,
               baseURL: knowledge.activeKnowledgeBases()[0]!.baseURL,
             }

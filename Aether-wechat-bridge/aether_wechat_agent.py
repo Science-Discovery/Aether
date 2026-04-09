@@ -157,8 +157,7 @@ HELP_TEXT = """📋 可用命令：
 /model        查看可用模型列表及当前模型
 /model n      切换到编号 n 的模型（由 /model 列表确定）
 /mode         查看当前会话模式
-/mode plan    切换到计划模式
-/mode build   切换到构建模式
+/mode <name>  切换到指定模式（如 build、plan、docs）
 /approval     查看当前审批模式
 /approval auto 自动批准权限请求
 /approval ask 每次权限请求需手动审批
@@ -195,7 +194,6 @@ class AetherAgent(Agent):
         self._client: httpx.AsyncClient = None  # type: ignore
         self._sessions: dict[str, str] = {}
         self._session_list: dict[str, list[dict]] = {}
-        self._conv_models: dict[str, str] = {}
         self._conv_dirs: dict[str, str] = {}
         self._fresh: set[str] = set()
         self._pending_questions: dict[str, dict] = {}
@@ -411,7 +409,7 @@ class AetherAgent(Agent):
                 f"{pref_model.get('providerID', '')}/{pref_model.get('modelID', '')}"
             )
         else:
-            model = self._conv_models.get(conv_id, "") or self.default_model or "—"
+            model = self.default_model or "—"
         return f"{project}  ·  {label}  ·  {mode}  ·  {model}\n————————"
 
     async def _wrap_message(
@@ -528,7 +526,6 @@ class AetherAgent(Agent):
         if cmd == "/new":
             old = self._sessions.pop(conv_id, None)
             self._session_list.pop(conv_id, None)
-            self._conv_models.pop(conv_id, None)
             self._fresh.add(conv_id)
             self._clear_runtime(conv_id)
             if old:
@@ -571,9 +568,7 @@ class AetherAgent(Agent):
                 f"{pref_model.get('providerID', '')}/{pref_model.get('modelID', '')}"
             )
         else:
-            current = (
-                self._conv_models.get(conv_id) or self.default_model or "（全局默认）"
-            )
+            current = self.default_model or "（全局默认）"
         lines = ["📦 可用模型："]
         providers = data.get("all", [])
         connected = set(data.get("connected", []))
@@ -677,7 +672,6 @@ class AetherAgent(Agent):
             self._sessions[conv_id] = session_id
             self._session_list.pop(conv_id, None)
             self._fresh.discard(conv_id)
-            self._conv_models.pop(conv_id, None)
             if new_dir in self._hidden_dirs:
                 del self._hidden_dirs[new_dir]
                 self._save_hidden_dirs()
@@ -719,31 +713,49 @@ class AetherAgent(Agent):
     async def _cmd_set_model(self, conv_id: str, model_str: str) -> str:
         if "/" not in model_str:
             return "❌ 格式错误，请使用 provider/model 格式。\n例如：/model anthropic/claude-sonnet-4-5"
-        self._conv_models[conv_id] = model_str
         session_id = self._sessions.get(conv_id)
-        if session_id:
-            directory = self._conv_dirs.get(conv_id) or self.directory
-            provider, mdl = model_str.split("/", 1)
-            await self._patch_preference(
-                session_id,
-                directory,
-                model={"providerID": provider, "modelID": mdl},
-            )
+        if not session_id:
+            return "❌ 当前没有活跃会话，请先发送一条消息。"
+        directory = self._conv_dirs.get(conv_id) or self.directory
+        provider, mdl = model_str.split("/", 1)
+        await self._patch_preference(
+            session_id,
+            directory,
+            model={"providerID": provider, "modelID": mdl},
+        )
         logger.info(f"[/model] {conv_id} -> {model_str}")
-        return f"✅ 已切换模型：{model_str}\n（仅对当前对话生效，/new 后将重置）"
+        return f"✅ 已切换模型：{model_str}"
+
+    async def _get_agents(self, directory: str) -> list[dict]:
+        headers = (
+            {"x-opencode-directory": quote(directory, safe="")} if directory else {}
+        )
+        try:
+            resp = await self._client.get(f"{self.base_url}/agent", headers=headers)
+            resp.raise_for_status()
+            return [a for a in resp.json() if not a.get("hidden")]
+        except Exception as e:
+            logger.warning(f"获取 agent 列表失败: {e}")
+            return []
 
     async def _cmd_mode(self, conv_id: str, arg: str) -> str:
         session_id = self._sessions.get(conv_id)
         directory = self._conv_dirs.get(conv_id) or self.directory
+        agents = await self._get_agents(directory)
+        agent_names = [a.get("name", "") for a in agents]
         if not arg:
             pref = (
                 await self._get_preference(session_id, directory) if session_id else {}
             )
-            agent = (pref or {}).get("agent") or self.default_agent or "—"
-            return f"🔧 当前模式：{agent}\n💡 /mode plan 或 /mode build 切换模式"
+            current = (pref or {}).get("agent") or self.default_agent or "—"
+            available = "、".join(agent_names) if agent_names else "无可用模式"
+            return (
+                f"🔧 当前模式：{current}\n💡 可用模式：{available}\n例如：/mode build"
+            )
         mode = arg.strip().lower()
-        if mode not in ("plan", "build"):
-            return "❌ 可用模式：plan、build\n例如：/mode plan"
+        if agent_names and mode not in agent_names:
+            available = "、".join(agent_names)
+            return f"❌ 可用模式：{available}\n例如：/mode build"
         if session_id:
             await self._patch_preference(session_id, directory, agent=mode)
         return f"✅ 已切换模式：{mode}"
@@ -919,16 +931,12 @@ class AetherAgent(Agent):
                     text=await self._format_busy_reply(conv_id, session_id, directory)
                 )
 
-            model = self._conv_models.get(conv_id) or self.default_model
-
             q: asyncio.Queue = asyncio.Queue()
             self._question_queues[conv_id] = q
             self._accumulated_text[conv_id] = ""
 
             task = asyncio.create_task(
-                self._send_message(
-                    session_id, user_text, model=model, directory=directory
-                )
+                self._send_message(session_id, user_text, directory=directory)
             )
             self._tasks[conv_id] = task
             sse_task = asyncio.create_task(
@@ -1499,19 +1507,10 @@ class AetherAgent(Agent):
         resp.raise_for_status()
         return resp.json()["id"]
 
-    async def _send_message(
-        self, session_id: str, text: str, model=None, directory=""
-    ) -> dict:
+    async def _send_message(self, session_id: str, text: str, directory="") -> dict:
         payload = {
             "parts": [{"type": "text", "text": text}],
         }
-        effective_model = model or self.default_model
-        if effective_model:
-            if "/" in effective_model:
-                provider, mdl = effective_model.split("/", 1)
-                payload["model"] = {"providerID": provider, "modelID": mdl}
-            else:
-                payload["model"] = effective_model
 
         resp = await self._client.post(
             f"{self.base_url}/session/{session_id}/message",

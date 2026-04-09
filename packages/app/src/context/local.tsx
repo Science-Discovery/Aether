@@ -200,18 +200,11 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
             model: item.model,
             variant: item.variant ?? null,
           })
-          const prev = scope()
-          const next = {
+          write({
             agent: item.name,
-            model: item.model ?? prev?.model,
-            variant: item.variant ?? prev?.variant,
-          } satisfies State
-          const session = id()
-          if (session) {
-            setSaved("session", session, next)
-            return
-          }
-          setStore("draft", next)
+            model: item.model ?? scope()?.model,
+            variant: item.variant ?? scope()?.variant,
+          })
         })
       },
       move(direction: 1 | -1) {
@@ -397,7 +390,14 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
           if (dir === sdk.directory) {
             setSaved("session", session, next)
             setStore("draft", undefined)
-            patchPreference(session, next)
+            sdk.client.session.preference
+              .update({
+                sessionID: session,
+                agent: next.agent ?? null,
+                model: next.model ?? null,
+                variant: next.variant ?? null,
+              })
+              .catch(() => {})
             return
           }
 
