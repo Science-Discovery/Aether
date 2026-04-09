@@ -2,9 +2,11 @@
 
 set -euo pipefail
 
-base="https://aether.aiphys.cn/download"
-latest="latest/mac-arm64.yml"
-default="$HOME/Applications/aether"
+base="https://aether.aiphys.cn/api/download2"
+latest="latest/linux-x64.yml"
+auth_name="x-download-admin-password"
+auth_value="ZkTi123456"
+default="$HOME/.local/share/applications/aether"
 mode="init"
 arg=""
 path_arg=""
@@ -75,7 +77,216 @@ manifest_url=""
 res=""
 res_file=""
 fetch_http=""
+fetch_tool=""
 keep="3"
+openssl_mode=""
+openssl_checked=0
+openssl_lib=""
+lib_roots="/usr/lib/x86_64-linux-gnu /usr/lib64 /usr/lib /lib/x86_64-linux-gnu /lib64 /lib"
+
+lib_exact() {
+  local name="$1"
+  local roots="${2:-$lib_roots}"
+  for p in $roots; do
+    if [ -f "$p/$name" ]; then
+      printf "%s" "$p/$name"
+      return 0
+    fi
+  done
+  printf ""
+}
+
+lib_glob() {
+  local pat="$1"
+  local roots="${2:-$lib_roots}"
+  for p in $roots; do
+    local f
+    f="$(find "$p" -maxdepth 1 -name "$pat" 2>/dev/null | head -1)"
+    if [ -n "$f" ]; then
+      printf "%s" "$f"
+      return 0
+    fi
+  done
+  printf ""
+}
+
+run_openssl() {
+  if [ "$openssl_mode" = "compat" ] && [ -n "$openssl_lib" ]; then
+    LD_LIBRARY_PATH="$openssl_lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" openssl "$@"
+    return $?
+  fi
+  openssl "$@"
+}
+
+repair_openssl() {
+  local ssl
+  local crypto
+  ssl="$(lib_exact "libssl.so.1.1")"
+  if [ -z "$ssl" ]; then
+    ssl="$(lib_glob "libssl.so.1.*")"
+  fi
+  crypto="$(lib_exact "libcrypto.so.1.1")"
+  if [ -z "$crypto" ]; then
+    crypto="$(lib_glob "libcrypto.so.1.*")"
+  fi
+  if [ -z "$ssl" ] || [ -z "$crypto" ]; then
+    return 1
+  fi
+
+  local dir
+  if [ -n "$work" ]; then
+    dir="$work/.openssl_compat"
+  else
+    dir="${TMPDIR:-/tmp}/aether-openssl-compat"
+  fi
+  mkdir -p "$dir" 2>/dev/null || return 1
+  ln -sf "$ssl" "$dir/libssl.so.3" 2>/dev/null || return 1
+  ln -sf "$crypto" "$dir/libcrypto.so.3" 2>/dev/null || return 1
+
+  if LD_LIBRARY_PATH="$dir${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" openssl version >/dev/null 2>&1; then
+    openssl_lib="$dir"
+    return 0
+  fi
+
+  return 1
+}
+
+pick_openssl() {
+  if [ "$openssl_checked" = "1" ]; then
+    return 0
+  fi
+  openssl_checked=1
+
+  if ! command -v openssl >/dev/null 2>&1; then
+    openssl_mode="none"
+    return 0
+  fi
+
+  if openssl version >/dev/null 2>&1; then
+    openssl_mode="system"
+    return 0
+  fi
+
+  echo "[hash] openssl exists but cannot run (likely missing libssl.so.3)."
+  echo "[hash] Trying local OpenSSL runtime compatibility shim..."
+  if repair_openssl; then
+    openssl_mode="compat"
+    echo "[hash] OpenSSL shim enabled via LD_LIBRARY_PATH=$openssl_lib"
+    return 0
+  fi
+
+  openssl_mode="broken"
+  echo "[hash] OpenSSL runtime repair failed; will auto-fallback to non-openssl hashing."
+}
+
+compute_sha512_base64() {
+  local file="$1"
+  pick_openssl
+  if [ "$openssl_mode" = "system" ] || [ "$openssl_mode" = "compat" ]; then
+    local out
+    if out="$(run_openssl dgst -sha512 -binary "$file" 2>/dev/null | run_openssl base64 -A 2>/dev/null)"; then
+      printf "%s" "$out"
+      return 0
+    fi
+  fi
+
+  if command -v sha512sum >/dev/null 2>&1; then
+    local hex
+    hex="$(sha512sum "$file" | awk '{print $1}')"
+    if command -v python3 >/dev/null 2>&1; then
+      python3 -c "import base64,binascii;print(base64.b64encode(binascii.unhexlify('$hex')).decode(),end='')"
+    elif command -v python >/dev/null 2>&1; then
+      python -c "import base64,binascii;print(base64.b64encode(binascii.unhexlify('$hex')).decode(),end='')"
+    elif command -v perl >/dev/null 2>&1; then
+      perl -e "use MIME::Base64;print encode_base64(pack('H*','$hex'),'')"
+    else
+      echo "__NOBASE64__"
+    fi
+  else
+    echo "__NOHASH__"
+  fi
+}
+
+ensure_libssl() {
+  local app_dir="$1"
+  local ssl1_path=""
+
+  if [ -n "$(lib_exact "libssl.so.3")" ]; then
+    return 0
+  fi
+
+  echo
+  echo "[compat] libssl.so.3 not found on this system."
+
+  ssl1_path="$(lib_exact "libssl.so.1.1")"
+  if [ -z "$ssl1_path" ]; then
+    ssl1_path="$(lib_glob "libssl.so.1.*")"
+  fi
+
+  if [ -z "$ssl1_path" ]; then
+    echo "[compat] WARNING: No libssl.so.1.x found either. The application may not start."
+    echo "[compat] Try: sudo apt install libssl-dev"
+    return 0
+  fi
+
+  local crypto1_path=""
+  local ssl1_dir
+  ssl1_dir="$(dirname "$ssl1_path")"
+  crypto1_path="$(lib_exact "libcrypto.so.1.1" "$ssl1_dir")"
+  if [ -z "$crypto1_path" ]; then
+    crypto1_path="$(lib_glob "libcrypto.so.1.*" "$ssl1_dir")"
+  fi
+
+  echo "[compat] Found: $ssl1_path"
+
+  local compat_dir="$app_dir/ssl_compat"
+  mkdir -p "$compat_dir" 2>/dev/null || return 0
+
+  ln -sf "$ssl1_path" "$compat_dir/libssl.so.3" 2>/dev/null || true
+  if [ -n "$crypto1_path" ]; then
+    ln -sf "$crypto1_path" "$compat_dir/libcrypto.so.3" 2>/dev/null || true
+    echo "[compat] Symlinked $crypto1_path -> $compat_dir/libcrypto.so.3"
+  fi
+  echo "[compat] Symlinked $ssl1_path -> $compat_dir/libssl.so.3"
+
+  local wrapper=""
+  shopt -s nullglob
+  for f in "$app_dir"/aether "$app_dir"/Aether "$app_dir"/aether-*/aether "$app_dir"/resources/../aether; do
+    if [ -x "$f" ] && [ ! -d "$f" ]; then
+      wrapper="$f"
+      break
+    fi
+  done
+  shopt -u nullglob
+
+  if [ -n "$wrapper" ]; then
+    local wrapper_dir
+    wrapper_dir="$(dirname "$wrapper")"
+    local wrapper_name
+    wrapper_name="$(basename "$wrapper")"
+    local real_bin="$wrapper_dir/${wrapper_name}.real"
+    if [ ! -f "$real_bin" ]; then
+      mv "$wrapper" "$real_bin"
+      cat > "$wrapper" <<EOWRAP
+#!/usr/bin/env bash
+export LD_LIBRARY_PATH="$compat_dir\${LD_LIBRARY_PATH:+:\$LD_LIBRARY_PATH}"
+exec "$real_bin" "\$@"
+EOWRAP
+      chmod +x "$wrapper"
+      echo "[compat] Created wrapper: $wrapper"
+      echo "[compat] LD_LIBRARY_PATH will include: $compat_dir"
+    fi
+  else
+    echo "[compat] NOTE: Set LD_LIBRARY_PATH=$compat_dir before running Aether."
+    echo "[compat] Example: LD_LIBRARY_PATH=$compat_dir aether"
+  fi
+
+  echo "[compat] WARNING: libssl 1.x -> 3 symlinks may not be fully ABI-compatible."
+  echo "[compat] If the app crashes, consider installing OpenSSL 3:"
+  echo "[compat]   Ubuntu 22.04+: sudo apt install libssl3"
+  echo "[compat]   Older Ubuntu:  install from a PPA or build from source."
+  echo
+}
 
 done_hold() {
   if [ "$hold" = "1" ]; then
@@ -100,16 +311,18 @@ result() {
   mkdir -p "$dl" || return 0
   res_file="$dl/last-result.yml"
   local code="$ok"
-  [ "$res" = "update_ready" ] && code="$ready"
-  [ "$res" = "manual_ready" ] && code="$manual_ready"
-  [ "$res" = "up_to_date" ] && code="$latest_ok"
-  [ "$res" = "version_missing" ] && code="$miss"
-  [ "$res" = "meta_error" ] && code="$meta_err"
-  [ "$res" = "download_error" ] && code="$dl_err"
-  [ "$res" = "checksum_error" ] && code="$sum_err"
-  [ "$res" = "run_error" ] && code="$run_err"
-  [ "$res" = "dir_error" ] && code="$dir_err"
-  [ "$res" = "arg_error" ] && code="$arg_err"
+  case "$res" in
+    update_ready) code="$ready" ;;
+    manual_ready) code="$manual_ready" ;;
+    up_to_date) code="$latest_ok" ;;
+    version_missing) code="$miss" ;;
+    meta_error) code="$meta_err" ;;
+    download_error) code="$dl_err" ;;
+    checksum_error) code="$sum_err" ;;
+    run_error) code="$run_err" ;;
+    dir_error) code="$dir_err" ;;
+    arg_error) code="$arg_err" ;;
+  esac
   {
     echo "mode: $(quote "$mode")"
     echo "status: $(quote "$res")"
@@ -153,8 +366,51 @@ abs() {
   esac
 }
 
+pick_fetch() {
+  if [ -n "$fetch_tool" ]; then
+    return 0
+  fi
+  if command -v curl >/dev/null 2>&1; then
+    fetch_tool="curl"
+    return 0
+  fi
+  if command -v wget >/dev/null 2>&1; then
+    fetch_tool="wget"
+    return 0
+  fi
+  if command -v busybox >/dev/null 2>&1 && busybox wget --help >/dev/null 2>&1; then
+    fetch_tool="busybox"
+    return 0
+  fi
+  echo "No downloader found. Install curl or wget (busybox wget also works)."
+  return 1
+}
+
 prep() {
   mkdir -p "$1" 2>/dev/null
+}
+
+desktop_hint() {
+  local home="$HOME"
+  if [ -n "${SUDO_USER:-}" ] && [ "$SUDO_USER" != "root" ]; then
+    if command -v getent >/dev/null 2>&1; then
+      home="$(getent passwd "$SUDO_USER" 2>/dev/null | cut -d: -f6)"
+    else
+      home=""
+    fi
+    if [ -z "$home" ]; then
+      home="$(eval echo "~$SUDO_USER" 2>/dev/null || true)"
+    fi
+    [ -n "$home" ] || home="$HOME"
+  fi
+
+  local launch="$home/Desktop/Aether.sh"
+  if [ -f "$launch" ]; then
+    echo "[init] Desktop launcher: $launch"
+    return 0
+  fi
+  echo "[init] NOTE: Desktop launcher not found: $launch"
+  echo "[init] The local installer should create it; check Desktop permissions if missing."
 }
 
 normalize_work() {
@@ -171,7 +427,7 @@ normalize_work() {
 workdir() {
   local dir
   dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-  if [[ "$(basename "$dir")" == aether-* ]]; then
+  if [[ "$(basename "$dir")" == aether_* ]]; then
     cd "$dir/.." && pwd
     return 0
   fi
@@ -206,12 +462,49 @@ cmp() {
 fetch_meta() {
   local url="$1"
   local out="$2"
-  fetch_http="$(curl --location --silent --show-error --connect-timeout 15 --max-time 1800 --retry 3 --retry-delay 2 --output "$out" --write-out "%{http_code}" "$url" || true)"
-  [ "$fetch_http" = "200" ]
+  pick_fetch || {
+    fetch_http="000"
+    return 1
+  }
+  if [ "$fetch_tool" = "curl" ]; then
+    fetch_http="$(curl --location --silent --show-error --connect-timeout 15 --max-time 1800 --retry 3 --retry-delay 2 -H "$auth_name: $auth_value" --output "$out" --write-out "%{http_code}" "$url" || true)"
+    [ "$fetch_http" = "200" ]
+    return 0
+  fi
+
+  local err
+  err="$(mktemp "${TMPDIR:-/tmp}/aether-fetch.XXXXXX")"
+  if [ "$fetch_tool" = "wget" ]; then
+    wget --server-response --header="$auth_name: $auth_value" --tries=3 --timeout=15 --read-timeout=1800 --output-document "$out" "$url" 2>"$err" && {
+      fetch_http="200"
+      rm -f "$err"
+      return 0
+    }
+  else
+    busybox wget --header "$auth_name: $auth_value" -S -T 15 -O "$out" "$url" 2>"$err" && {
+      fetch_http="200"
+      rm -f "$err"
+      return 0
+    }
+  fi
+
+  fetch_http="$(awk '/^  HTTP\//{c=$2} /^HTTP\//{c=$2} END{print c}' "$err")"
+  [ -n "$fetch_http" ] || fetch_http="000"
+  rm -f "$err"
+  return 1
 }
 
 fetch_file() {
-  curl --fail --location --progress-bar --connect-timeout 15 --max-time 1800 --retry 3 --retry-delay 2 --output "$2" "$1"
+  pick_fetch || return 1
+  if [ "$fetch_tool" = "curl" ]; then
+    curl --fail --location --progress-bar --connect-timeout 15 --max-time 1800 --retry 3 --retry-delay 2 -H "$auth_name: $auth_value" --output "$2" "$1"
+    return 0
+  fi
+  if [ "$fetch_tool" = "wget" ]; then
+    wget --header="$auth_name: $auth_value" --tries=3 --timeout=15 --read-timeout=1800 --output-document "$2" "$1"
+    return 0
+  fi
+  busybox wget --header "$auth_name: $auth_value" -T 15 -O "$2" "$1"
 }
 
 parse() {
@@ -232,7 +525,6 @@ parse() {
     /^[^[:space:]]/ { sec="" }
     sec=="installer" && /^[[:space:]]+url:[[:space:]]*/ { sub(/^[[:space:]]+url:[[:space:]]*/, ""); print; exit }
   ' "$1")"
-  # fallback: parse files: list (electron-builder format)
   if [ -z "$pkg" ]; then
     pkg="$(awk '
       /^files:[[:space:]]*$/ { sec="files"; next }
@@ -275,19 +567,23 @@ grab() {
   dl="$work/downloads"
   mkdir -p "$dl" || return "$dir_err"
   local pkg_ext ins_ext need_pkg need_ins sum
+
   pkg_ext="${pkg_name##*.}"
   if [ "$pkg_ext" = "$pkg_name" ]; then
     pkg_ext=""
   else
     pkg_ext=".$pkg_ext"
   fi
-  pkg_file="$dl/aether-darwin-arm64-web-$ver$pkg_ext"
+  pkg_file="$dl/aether-linux-x64-web-$ver$pkg_ext"
 
   need_pkg=1
   if [ -f "$pkg_file" ]; then
     if [ -n "$sha" ]; then
-      sum="$(openssl dgst -sha512 -binary "$pkg_file" | openssl base64 -A || true)"
+      sum="$(compute_sha512_base64 "$pkg_file" || true)"
       if [ "$sum" = "$sha" ]; then
+        need_pkg=0
+      elif [ "$sum" = "__NOHASH__" ] || [ "$sum" = "__NOBASE64__" ]; then
+        echo "Warning: cannot verify checksum (no openssl/sha512sum/base64 tool found)"
         need_pkg=0
       fi
     else
@@ -305,8 +601,12 @@ grab() {
   fi
 
   if [ -n "$sha" ]; then
-    sum="$(openssl dgst -sha512 -binary "$pkg_file" | openssl base64 -A)"
-    [ "$sum" = "$sha" ] || return "$sum_err"
+    sum="$(compute_sha512_base64 "$pkg_file")"
+    if [ "$sum" = "__NOHASH__" ] || [ "$sum" = "__NOBASE64__" ]; then
+      echo "Warning: cannot verify checksum (no openssl/sha512sum/base64 tool found), skipping verification"
+    else
+      [ "$sum" = "$sha" ] || return "$sum_err"
+    fi
   fi
 
   if [ -n "$ins_url" ] && [ -n "$ins_name" ]; then
@@ -316,7 +616,7 @@ grab() {
     else
       ins_ext=".$ins_ext"
     fi
-    ins_file="$dl/update_darwin_web-$ver$ins_ext"
+    ins_file="$dl/update_linux_web-$ver$ins_ext"
 
     need_ins=1
     if [ -f "$ins_file" ]; then
@@ -342,11 +642,10 @@ grab() {
 prune() {
   dl="${dl:-$work/downloads}"
   [ -d "$dl" ] || return 0
-
   local arr n cut i list item
 
   shopt -s nullglob
-  arr=("$dl"/aether-darwin-arm64-web-*.*)
+  arr=("$dl"/aether-linux-x64-web-*.*)
   shopt -u nullglob
   n="${#arr[@]}"
   if [ "$n" -gt "$keep" ]; then
@@ -363,7 +662,7 @@ prune() {
   fi
 
   shopt -s nullglob
-  arr=("$dl"/update_darwin_web-*.command)
+  arr=("$dl"/update_linux_web-*.sh)
   shopt -u nullglob
   n="${#arr[@]}"
   if [ "$n" -gt "$keep" ]; then
@@ -382,7 +681,7 @@ prune() {
 
 help() {
   cat <<EOF
-Aether Darwin Installer
+Aether Linux Installer
 
 Usage:
   $(basename "$0") [--no-pause] [--path <dir>] init
@@ -391,7 +690,10 @@ Usage:
 
 Remote manifests:
   $base/$latest
-  $base/1.2.3/mac-arm64.yml
+  $base/1.2.3/linux-x64.yml
+
+Downloaders:
+  curl (preferred), wget, or busybox wget
 
 Result file:
   work_dir/downloads/last-result.yml
@@ -405,6 +707,7 @@ Exit codes:
   30  manifest or network error
   31  download failed
   32  checksum mismatch
+  33  init install run failed
   40  work directory error
   50  argument error
 EOF
@@ -416,7 +719,7 @@ if [ "$mode" = "help" ] || [ "$mode" = "--help" ] || [ "$mode" = "-h" ]; then
 fi
 
 if [ "$mode" = "init" ]; then
-  echo "Aether Darwin Installer"
+  echo "Aether Linux Installer"
   echo
   work="$(normalize_work "${path_arg:-$default}")"
   echo "Install directory:"
@@ -467,7 +770,7 @@ if [ "$mode" = "init" ]; then
   echo
   if [ -n "$ins_file" ]; then
     echo "[init] Running installer script..."
-    if ! (cd "$work/downloads" && bash "$(basename "$ins_file")" "$ver"); then
+    if ! (cd "$work/downloads" && bash "$(basename "$ins_file")" install "$ver"); then
       res="run_error"
       result
       echo
@@ -482,7 +785,11 @@ if [ "$mode" = "init" ]; then
     fail "$run_err"
   fi
 
-  mkdir -p "$HOME/aether_Database" 2>/dev/null || true
+  mkdir -p "$HOME/Aether_Database" 2>/dev/null || true
+
+  ensure_libssl "$work/current"
+
+  desktop_hint
 
   done_hold
   exit 0
@@ -558,7 +865,7 @@ if [ "$mode" = "manual" ]; then
     echo "Work directory failed."
     exit "$dir_err"
   }
-  manifest_url="$base/$req/mac-arm64.yml"
+  manifest_url="$base/$req/linux-x64.yml"
   if ! manifest "$manifest_url" version; then
     code="$?"
     if [ "$code" = "$miss" ]; then

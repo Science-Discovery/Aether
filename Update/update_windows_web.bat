@@ -111,12 +111,13 @@ if exist "%MLNK%" del /f /q "%MLNK%" >nul 2>nul
 powershell -NoProfile -Command "$w=New-Object -ComObject WScript.Shell; $mk={ param($p,$t) $s=$w.CreateShortcut($p); $s.TargetPath=$t; $s.WorkingDirectory=(Split-Path -Parent $t); $s.Save() }; & $mk $env:LNK $env:CMD; & $mk $env:MLNK $env:CMD"
 if exist "%LNK%" (
   set "LAUNCH=%LNK%"
+  set "NOTE=双击桌面上的 Aether.vbs 文件运行。"
 ) else if exist "%MLNK%" (
   set "LAUNCH=%MLNK%"
-  set "NOTE=Desktop shortcut failed, Start Menu shortcut created."
+  set "NOTE=从开始菜单的 Aether.vbs 文件运行。"
 ) else (
   set "LAUNCH=%CMD%"
-  set "NOTE=Desktop and Start Menu shortcuts both failed, using direct launch path."
+  set "NOTE=创建快捷方式失败，请打开文件管理器找到该路径对应的文件，双击运行。"
 )
 exit /b 0
 

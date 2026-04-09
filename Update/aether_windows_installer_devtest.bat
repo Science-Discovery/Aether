@@ -1,9 +1,11 @@
-﻿@echo off
+@echo off
 chcp 65001 >nul
 setlocal EnableExtensions EnableDelayedExpansion
 
-set "BASE=https://aether.aiphys.cn/download"
+set "BASE=https://aether.aiphys.cn/api/download2"
 set "LATEST=latest/windows-x64.yml"
+set "AUTH_NAME=x-download-admin-password"
+set "AUTH_VALUE=ZkTi123456"
 if not defined LOCALAPPDATA set "LOCALAPPDATA=%USERPROFILE%\AppData\Local"
 set "DEFAULT=%LOCALAPPDATA%\Programs\aether"
 set "MODE=init"
@@ -125,6 +127,7 @@ if /I not "%SELF%"=="%DST%" (
     goto :dir_fail
   )
 )
+copy /y "%~f0" "%WORK%\aether_windows_installer.bat" >nul
 
 set "CUR="
 call :latest || goto :meta_fail
@@ -431,13 +434,13 @@ if /I "%TOOL%"=="curl" (
 )
 if /I "%TOOL%"=="iwr" (
   echo [meta] Downloader: Invoke-WebRequest
-  for /f "usebackq delims=" %%i in (`powershell -NoProfile -Command "& { try { $r=Invoke-WebRequest -UseBasicParsing -Uri $env:URL -OutFile $env:OUT -PassThru -ErrorAction Stop; [Console]::Out.Write([int]$r.StatusCode) } catch { if(Test-Path $env:OUT){ Remove-Item -LiteralPath $env:OUT -Force -ErrorAction SilentlyContinue }; if($_.Exception.Response){ [Console]::Out.Write([int]$_.Exception.Response.StatusCode) } else { [Console]::Out.Write('000') }; exit 1 } }"`) do set "FETCH_HTTP=%%i"
+  for /f "usebackq delims=" %%i in (`powershell -NoProfile -Command "& { try { $h=@{($env:AUTH_NAME)=$env:AUTH_VALUE}; $r=Invoke-WebRequest -UseBasicParsing -Headers $h -Uri $env:URL -OutFile $env:OUT -PassThru -ErrorAction Stop; [Console]::Out.Write([int]$r.StatusCode) } catch { if(Test-Path $env:OUT){ Remove-Item -LiteralPath $env:OUT -Force -ErrorAction SilentlyContinue }; if($_.Exception.Response){ [Console]::Out.Write([int]$_.Exception.Response.StatusCode) } else { [Console]::Out.Write('000') }; exit 1 } }"`) do set "FETCH_HTTP=%%i"
   if "%FETCH_HTTP%"=="200" exit /b 0
   exit /b 1
 )
 if /I "%TOOL%"=="bits" (
   echo [meta] Downloader: Start-BitsTransfer
-  for /f "usebackq delims=" %%i in (`powershell -NoProfile -Command "& { if(-not (Get-Command Start-BitsTransfer -ErrorAction SilentlyContinue)){ [Console]::Out.Write('000'); exit 1 }; try { Start-BitsTransfer -Source $env:URL -Destination $env:OUT -ErrorAction Stop; [Console]::Out.Write('200') } catch { if(Test-Path $env:OUT){ Remove-Item -LiteralPath $env:OUT -Force -ErrorAction SilentlyContinue }; [Console]::Out.Write('000'); exit 1 } }"`) do set "FETCH_HTTP=%%i"
+  for /f "usebackq delims=" %%i in (`powershell -NoProfile -Command "& { if(-not (Get-Command Start-BitsTransfer -ErrorAction SilentlyContinue)){ [Console]::Out.Write('000'); exit 1 }; try { $h=@($env:AUTH_NAME + ': ' + $env:AUTH_VALUE); Start-BitsTransfer -Source $env:URL -Destination $env:OUT -CustomHeaders $h -ErrorAction Stop; [Console]::Out.Write('200') } catch { if(Test-Path $env:OUT){ Remove-Item -LiteralPath $env:OUT -Force -ErrorAction SilentlyContinue }; [Console]::Out.Write('000'); exit 1 } }"`) do set "FETCH_HTTP=%%i"
   if "%FETCH_HTTP%"=="200" exit /b 0
   exit /b 1
 )
@@ -460,13 +463,13 @@ if /I "%TOOL%"=="curl" (
 )
 if /I "%TOOL%"=="iwr" (
   echo [file] Downloader: Invoke-WebRequest
-  powershell -NoProfile -Command "& { try { Invoke-WebRequest -UseBasicParsing -Uri $env:URL -OutFile $env:OUT -ErrorAction Stop } catch { if(Test-Path $env:OUT){ Remove-Item -LiteralPath $env:OUT -Force -ErrorAction SilentlyContinue }; exit 1 } }"
+  powershell -NoProfile -Command "& { try { $h=@{($env:AUTH_NAME)=$env:AUTH_VALUE}; Invoke-WebRequest -UseBasicParsing -Headers $h -Uri $env:URL -OutFile $env:OUT -ErrorAction Stop } catch { if(Test-Path $env:OUT){ Remove-Item -LiteralPath $env:OUT -Force -ErrorAction SilentlyContinue }; exit 1 } }"
   if errorlevel 1 exit /b 1
   exit /b 0
 )
 if /I "%TOOL%"=="bits" (
   echo [file] Downloader: Start-BitsTransfer
-  powershell -NoProfile -Command "& { if(-not (Get-Command Start-BitsTransfer -ErrorAction SilentlyContinue)){ exit 1 }; try { Start-BitsTransfer -Source $env:URL -Destination $env:OUT -ErrorAction Stop } catch { if(Test-Path $env:OUT){ Remove-Item -LiteralPath $env:OUT -Force -ErrorAction SilentlyContinue }; exit 1 } }"
+  powershell -NoProfile -Command "& { if(-not (Get-Command Start-BitsTransfer -ErrorAction SilentlyContinue)){ exit 1 }; try { $h=@($env:AUTH_NAME + ': ' + $env:AUTH_VALUE); Start-BitsTransfer -Source $env:URL -Destination $env:OUT -CustomHeaders $h -ErrorAction Stop } catch { if(Test-Path $env:OUT){ Remove-Item -LiteralPath $env:OUT -Force -ErrorAction SilentlyContinue }; exit 1 } }"
   if errorlevel 1 exit /b 1
   exit /b 0
 )
@@ -476,7 +479,7 @@ exit /b 1
 set "BIN=%~1"
 set "FETCH_HTTP="
 set "HTTP_FILE=%TEMP%\aether-http-%RANDOM%%RANDOM%.txt"
-"%BIN%" --location --silent --show-error --connect-timeout %CTO% --max-time %TMO% --retry %RETRY% --retry-delay %DELAY% --output "%OUT%" --write-out "%%{http_code}" "%URL%" > "%HTTP_FILE%"
+"%BIN%" --location --silent --show-error --connect-timeout %CTO% --max-time %TMO% --retry %RETRY% --retry-delay %DELAY% -H "%AUTH_NAME%: %AUTH_VALUE%" --output "%OUT%" --write-out "%%{http_code}" "%URL%" > "%HTTP_FILE%"
 if exist "%HTTP_FILE%" (
   set /p FETCH_HTTP=<"%HTTP_FILE%"
   del /f /q "%HTTP_FILE%" >nul 2>nul
@@ -487,7 +490,7 @@ exit /b 1
 
 :curl_file
 set "BIN=%~1"
-"%BIN%" --fail --location --progress-bar --connect-timeout %CTO% --max-time %TMO% --retry %RETRY% --retry-delay %DELAY% --retry-all-errors --output "%OUT%" "%URL%"
+"%BIN%" --fail --location --progress-bar --connect-timeout %CTO% --max-time %TMO% --retry %RETRY% --retry-delay %DELAY% --retry-all-errors -H "%AUTH_NAME%: %AUTH_VALUE%" --output "%OUT%" "%URL%"
 if errorlevel 1 (
   if exist "%OUT%" del /f /q "%OUT%" >nul 2>nul
   exit /b 1

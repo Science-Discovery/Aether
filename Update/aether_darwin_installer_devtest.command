@@ -2,8 +2,10 @@
 
 set -euo pipefail
 
-base="https://aether.aiphys.cn/download"
+base="https://aether.aiphys.cn/api/download2"
 latest="latest/mac-arm64.yml"
+auth_name="x-download-admin-password"
+auth_value="ZkTi123456"
 default="$HOME/Applications/aether"
 mode="init"
 arg=""
@@ -206,12 +208,12 @@ cmp() {
 fetch_meta() {
   local url="$1"
   local out="$2"
-  fetch_http="$(curl --location --silent --show-error --connect-timeout 15 --max-time 1800 --retry 3 --retry-delay 2 --output "$out" --write-out "%{http_code}" "$url" || true)"
+  fetch_http="$(curl --location --silent --show-error --connect-timeout 15 --max-time 1800 --retry 3 --retry-delay 2 -H "$auth_name: $auth_value" --output "$out" --write-out "%{http_code}" "$url" || true)"
   [ "$fetch_http" = "200" ]
 }
 
 fetch_file() {
-  curl --fail --location --progress-bar --connect-timeout 15 --max-time 1800 --retry 3 --retry-delay 2 --output "$2" "$1"
+  curl --fail --location --progress-bar --connect-timeout 15 --max-time 1800 --retry 3 --retry-delay 2 -H "$auth_name: $auth_value" --output "$2" "$1"
 }
 
 parse() {

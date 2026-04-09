@@ -176,6 +176,7 @@ EOF
   target="/Applications"
   if build_app "$target" 2>/dev/null; then
     launch="$target/Aether.app"
+    launch_note="从 app 启动器中运行Aether。"
     return 0
   fi
 
@@ -183,7 +184,7 @@ EOF
   mkdir -p "$target"
   build_app "$target"
   launch="$target/Aether.app"
-  launch_note="无法写入 /Applications，已回退到 $launch。你可手动复制该 App 到 /Applications。"
+  launch_note="无法写入 /Applications，已回退到 $launch。手动复制该 App 到 /Applications后，从 app 启动器中运行Aether，或在\"$HOME/Applications\"文件夹中双击Aether.app运行。"
 }
 
 if [ "$base" != "downloads" ]; then
