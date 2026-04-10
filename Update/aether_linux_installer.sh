@@ -4,7 +4,6 @@ set -euo pipefail
 
 base="https://aether.aiphys.cn/download"
 latest="latest/linux-x64.yml"
-site="${base%/download}"
 default="$HOME/.local/share/applications/aether"
 mode="init"
 arg=""
@@ -338,6 +337,15 @@ result() {
   } >"$res_file"
 }
 
+origin() {
+  local src="$1"
+  local scheme rest host
+  scheme="${src%%://*}"
+  rest="${src#*://}"
+  host="${rest%%/*}"
+  printf "%s://%s" "$scheme" "$host"
+}
+
 abs() {
   local src="$1"
   local val="$2"
@@ -348,7 +356,7 @@ abs() {
   fi
   case "$val" in
     http://*|https://*) printf "%s" "$val" ;;
-    /*) printf "%s/%s" "$site" "${val#/}" ;;
+    /*) printf "%s%s" "$(origin "$src")" "$val" ;;
     *)
       dir="${src%/*}"
       printf "%s/%s" "$dir" "$val"
@@ -606,7 +614,7 @@ grab() {
     else
       ins_ext=".$ins_ext"
     fi
-    ins_file="$dl/update_linux_web-$ver$ins_ext"
+    ins_file="$dl/update_linux-$ver$ins_ext"
 
     need_ins=1
     if [ -f "$ins_file" ]; then
@@ -652,7 +660,7 @@ prune() {
   fi
 
   shopt -s nullglob
-  arr=("$dl"/update_linux_web-*.sh)
+  arr=("$dl"/update_linux-*.sh)
   shopt -u nullglob
   n="${#arr[@]}"
   if [ "$n" -gt "$keep" ]; then
