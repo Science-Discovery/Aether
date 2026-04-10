@@ -296,7 +296,7 @@ if defined SHA (
 
 if defined INS_URL if defined INS_NAME (
   for %%i in ("!INS_NAME!") do set "INS_EXT=%%~xi"
-  set "INS_FILE=!DL!\update_windows_web-!VER!!INS_EXT!"
+  set "INS_FILE=!DL!\update_windows-!VER!!INS_EXT!"
   if exist "!INS_FILE!" (
     echo Using cached installer:
     echo   !INS_FILE!
@@ -312,7 +312,7 @@ exit /b 0
 
 :prune
 set "DL=%WORK%\downloads"
-powershell -NoProfile -Command "$dl=$env:DL; $keep=[int]$env:KEEP; if(-not (Test-Path $dl)){ exit 0 }; $a=Get-ChildItem -Path $dl -File -Filter 'aether-windows-x64-*' | Sort-Object Name; if($a.Count -gt $keep){ $a | Select-Object -First ($a.Count-$keep) | Remove-Item -Force }; $b=Get-ChildItem -Path $dl -File -Filter 'update_windows_web-*.bat' | Sort-Object Name; if($b.Count -gt $keep){ $b | Select-Object -First ($b.Count-$keep) | Remove-Item -Force }"
+powershell -NoProfile -Command "$dl=$env:DL; $keep=[int]$env:KEEP; if(-not (Test-Path $dl)){ exit 0 }; $a=Get-ChildItem -Path $dl -File -Filter 'aether-windows-x64-*' | Sort-Object Name; if($a.Count -gt $keep){ $a | Select-Object -First ($a.Count-$keep) | Remove-Item -Force }; $b=Get-ChildItem -Path $dl -File -Filter 'update_windows-*.bat' | Sort-Object Name; if($b.Count -gt $keep){ $b | Select-Object -First ($b.Count-$keep) | Remove-Item -Force }"
 exit /b 0
 
 :result

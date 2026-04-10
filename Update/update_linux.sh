@@ -11,6 +11,7 @@ mode="install"
 arg=""
 tmp=""
 next=""
+prune="0"
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -95,6 +96,95 @@ pick_src() {
   done
   shopt -u nullglob
   printf ""
+}
+
+cmp() {
+  local a b aa bb i x y
+  a="${1#v}"
+  b="${2#v}"
+  a="${a%%-*}"
+  b="${b%%-*}"
+  IFS=. read -r -a aa <<<"$a"
+  IFS=. read -r -a bb <<<"$b"
+  for i in 0 1 2 3; do
+    x="${aa[$i]:-0}"
+    y="${bb[$i]:-0}"
+    x=$((10#$x))
+    y=$((10#$y))
+    if [ "$x" -lt "$y" ]; then
+      echo lt
+      return 0
+    fi
+    if [ "$x" -gt "$y" ]; then
+      echo gt
+      return 0
+    fi
+  done
+  echo eq
+}
+
+has_dir() {
+  local dir="$1"
+  shift
+  local item
+  for item in "$@"; do
+    if [ "$item" = "$dir" ]; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+prune_versions() {
+  local root keep hold dir ver item tmp i j
+  local -a items=()
+  local -a keepers=()
+  root="$1"
+  keep="$2"
+  hold="$3"
+  prune="0"
+
+  shopt -s nullglob
+  for dir in "$root"/aether_*; do
+    [ -d "$dir" ] || continue
+    [ -f "$dir/.aether_web_version" ] || continue
+    ver="$(tr -d '[:space:]' <"$dir/.aether_web_version")"
+    [ -n "$ver" ] || continue
+    items+=("$ver|$dir")
+  done
+  shopt -u nullglob
+
+  for ((i = 0; i < ${#items[@]}; i++)); do
+    for ((j = i + 1; j < ${#items[@]}; j++)); do
+      if [ "$(cmp "${items[$i]%%|*}" "${items[$j]%%|*}")" = "lt" ]; then
+        tmp="${items[$i]}"
+        items[$i]="${items[$j]}"
+        items[$j]="$tmp"
+      fi
+    done
+  done
+
+  if [ -n "$hold" ]; then
+    keepers+=("$hold")
+  fi
+
+  for item in "${items[@]}"; do
+    if [ "${#keepers[@]}" -ge "$keep" ]; then
+      break
+    fi
+    dir="${item#*|}"
+    has_dir "$dir" "${keepers[@]}" && continue
+    keepers+=("$dir")
+  done
+
+  for item in "${items[@]}"; do
+    dir="${item#*|}"
+    has_dir "$dir" "${keepers[@]}" && continue
+    rm -rf "$dir"
+    if [ ! -d "$dir" ]; then
+      prune=$((prune + 1))
+    fi
+  done
 }
 
 set_current() {
@@ -313,6 +403,8 @@ work="$(cd "$dl/.." && pwd)"
 target="$work/aether_$ver"
 next="$work/.aether_$ver.next"
 
+echo "[0/4] Work directory: $work"
+
 shopt -s nullglob
 arr=("$dl"/aether-linux-x64-"$ver".*)
 shopt -u nullglob
@@ -322,13 +414,12 @@ if [ "${#arr[@]}" -eq 0 ]; then
 fi
 
 pkg="${arr[0]}"
-tmp="$(mktemp -d "${TMPDIR:-/tmp}/aether-web-install.XXXXXX")"
+tmp="$(mktemp -d "${TMPDIR:-/tmp}/aether-install.XXXXXX")"
 ex="$tmp/extract"
 mkdir -p "$ex" || exit "$run_err"
 
-echo "[install] Installing version $ver"
-echo "  Package: $pkg"
-echo "  Target:  $target"
+echo "[1/4] Package: $(basename "$pkg")"
+echo "      Target version: $ver"
 
 case "$pkg" in
   *.zip)
@@ -361,6 +452,7 @@ if [ -z "$src" ]; then
   exit "$run_err"
 fi
 
+echo "[2/4] Extracting and installing to: $target"
 rm -rf "$next" "$target" 2>/dev/null || true
 mkdir -p "$next" || exit "$run_err"
 cp -R "$src"/. "$next" || exit "$run_err"
@@ -376,16 +468,23 @@ set_current "$work" "$target" || {
 }
 
 fix_libssl "$target"
+prune_versions "$work" 5 "$target"
 
-  launch="$(write_launch "$work" || true)"
-  if [ -n "$launch" ]; then
-    echo "[install] Desktop launcher: $launch"
-    echo "[install] To start Aether, right-click the Aether.sh file on your desktop and choose Run as a Program."
-  else
-    echo "[install] Warning: failed to create Desktop launcher."
-    echo "[install] To start Aether, open $work/current, right-click Aether.sh, and choose Run as a Program."
-  fi
+launch="$(write_launch "$work" || true)"
+if [ -n "$launch" ]; then
+  echo "[install] Desktop launcher: $launch"
+  echo "[install] To start Aether, right-click the Aether.sh file on your desktop and choose Run as a Program."
+else
+  echo "[install] Warning: failed to create Desktop launcher."
+  echo "[install] To start Aether, open $work/current, right-click Aether.sh, and choose Run as a Program."
+fi
 
-echo "[install] Current: $work/current"
-echo "[install] Done."
+if [ "$prune" -gt 0 ]; then
+  echo "[3/4] Keeping the latest 5 versions; removed $prune older version directories."
+else
+  echo "[3/4] Keeping the latest 5 versions; no older version directories needed removal."
+fi
+
+echo "[4/4] Done"
+echo "Current: $work/current"
 exit "$ok"

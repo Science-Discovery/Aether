@@ -175,7 +175,7 @@ export const SettingsGeneral: Component = () => {
           guarded: true,
           icon: "download",
           title: language.t("toast.update.title"),
-          description: language.t("toast.update.description", { version: result.version ?? "" }),
+          description: `${language.t("toast.update.description", { version: result.version ?? "" })} ${language.t("update.installHint")}`,
           actions,
         })
       })
