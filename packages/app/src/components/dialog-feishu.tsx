@@ -1,8 +1,10 @@
 import { Button } from "@opencode-ai/ui/button"
 import { Icon } from "@opencode-ai/ui/icon"
 import { Dialog } from "@opencode-ai/ui/dialog"
+import { Collapsible } from "@opencode-ai/ui/collapsible"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { Component, Show, Switch, Match, createSignal, onCleanup, onMount } from "solid-js"
+import { createStore } from "solid-js/store"
 import { useSDK } from "@/context/sdk"
 import { useServer } from "@/context/server"
 import { setFeishuStatus } from "@/context/feishu"
@@ -32,6 +34,7 @@ export const DialogFeishu: Component = () => {
   const [connectedAppId, setConnectedAppId] = createSignal<string | null>(null)
   const [loadingMsg, setLoadingMsg] = createSignal("正在连接飞书...")
   const [hasConfig, setHasConfig] = createSignal(false)
+  const [steps, setSteps] = createStore({ 1: false, 2: false, 3: false, 4: false, 5: false })
 
   const authHeaders = (): HeadersInit => {
     const s = server.current?.http
@@ -196,7 +199,7 @@ export const DialogFeishu: Component = () => {
   })
 
   return (
-    <Dialog title="飞书连接" class="max-w-md">
+    <Dialog title="飞书连接" size="large" class="max-w-lg">
       <div class="flex flex-col items-center gap-6 p-6">
         <Switch fallback={<div />}>
           <Match when={status() === "idle"}>
@@ -224,11 +227,7 @@ export const DialogFeishu: Component = () => {
           </Match>
 
           <Match when={status() === "config"}>
-            <div class="flex flex-col items-center gap-4 w-full">
-              <Icon name="feishu" size="large" class="size-12 text-icon-base" />
-              <p class="text-14-regular text-text-weak text-center">
-                请在飞书开放平台创建应用，获取 App ID 和 App Secret
-              </p>
+            <div class="flex flex-col gap-4 w-full">
               <div class="w-full flex flex-col gap-3">
                 <div class="flex flex-col gap-1">
                   <label class="text-12-medium text-text-base">App ID</label>
@@ -250,18 +249,140 @@ export const DialogFeishu: Component = () => {
                     class="w-full px-3 py-2 rounded-md border border-border-base bg-surface-base text-text-base text-13-regular focus:outline-none focus:border-border-focus"
                   />
                 </div>
+                <div class="flex justify-end gap-2">
+                  <Button variant="ghost" onClick={() => updateStatus("idle")}>
+                    取消
+                  </Button>
+                  <Button variant="primary" disabled={!appId() || !appSecret()} onClick={() => startBridge(true)}>
+                    连接
+                  </Button>
+                </div>
               </div>
-              <div class="flex gap-2">
-                <Button variant="ghost" onClick={() => updateStatus("idle")}>
-                  取消
-                </Button>
-                <Button
-                  variant="primary"
-                  disabled={!appId() || !appSecret()}
-                  onClick={() => startBridge(true)}
-                >
-                  连接
-                </Button>
+              <div class="w-full flex flex-col gap-1 pt-2 border-t border-border-base max-h-[280px] overflow-y-auto">
+                <Collapsible open={true} variant="ghost">
+                  <Collapsible.Trigger class="flex items-center gap-2 w-full px-2 py-1.5 rounded-md hover:bg-surface-muted cursor-pointer">
+                    <Collapsible.Arrow />
+                    <span class="text-13-medium text-text-strong">
+                      按以下步骤在飞书开放平台配置应用【点击展开每步细节】
+                    </span>
+                  </Collapsible.Trigger>
+                  <Collapsible.Content class="flex flex-col gap-1">
+                    <Collapsible open={steps[1]} onOpenChange={(v) => setSteps(1, v)} variant="ghost">
+                      <Collapsible.Trigger class="flex items-center gap-2 w-full px-2 py-1.5 rounded-md hover:bg-surface-muted cursor-pointer">
+                        <Collapsible.Arrow />
+                        <span class="text-13-medium text-text-strong">第一步：创建应用</span>
+                      </Collapsible.Trigger>
+                      <Collapsible.Content class="px-2 pb-2">
+                        <ol class="text-13-regular text-text-weak list-decimal list-outside ml-4 space-y-1">
+                          <li>
+                            打开{" "}
+                            <a
+                              href="https://open.feishu.cn/app"
+                              target="_blank"
+                              rel="noopener"
+                              class="text-text-link underline"
+                            >
+                              飞书开放平台
+                            </a>
+                          </li>
+                          <li>点击「创建企业自建应用」</li>
+                          <li>填写应用名称（如 "Aether AI"）和描述</li>
+                          <li>
+                            创建完成后，在「凭证与基础信息」页面获取 <strong class="text-text-base">App ID</strong>
+                            （格式：
+                            <code class="text-12-regular bg-surface-muted px-1 rounded">
+                              cli_xxxxxxxxxxxxxxxx
+                            </code>）和 <strong class="text-text-base">App Secret</strong>
+                          </li>
+                        </ol>
+                      </Collapsible.Content>
+                    </Collapsible>
+
+                    <Collapsible open={steps[2]} onOpenChange={(v) => setSteps(2, v)} variant="ghost">
+                      <Collapsible.Trigger class="flex items-center gap-2 w-full px-2 py-1.5 rounded-md hover:bg-surface-muted cursor-pointer">
+                        <Collapsible.Arrow />
+                        <span class="text-13-medium text-text-strong">第二步：开启机器人能力</span>
+                      </Collapsible.Trigger>
+                      <Collapsible.Content class="px-2 pb-2">
+                        <ol class="text-13-regular text-text-weak list-decimal list-outside ml-4 space-y-1">
+                          <li>在应用列表中点击刚创建的应用</li>
+                          <li>在左侧导航栏找到「添加应用能力」</li>
+                          <li>找到「机器人」，点击「添加」</li>
+                        </ol>
+                      </Collapsible.Content>
+                    </Collapsible>
+
+                    <Collapsible open={steps[3]} onOpenChange={(v) => setSteps(3, v)} variant="ghost">
+                      <Collapsible.Trigger class="flex items-center gap-2 w-full px-2 py-1.5 rounded-md hover:bg-surface-muted cursor-pointer">
+                        <Collapsible.Arrow />
+                        <span class="text-13-medium text-text-strong">第三步：配置事件订阅</span>
+                      </Collapsible.Trigger>
+                      <Collapsible.Content class="px-2 pb-2">
+                        <ol class="text-13-regular text-text-weak list-decimal list-outside ml-4 space-y-1">
+                          <li>在左侧导航栏点击「事件与回调」→「事件配置」</li>
+                          <li>
+                            订阅方式选择：<strong class="text-text-base">使用长连接接收事件</strong>（非 webhook）
+                          </li>
+                          <li>
+                            添加事件：
+                            <code class="text-12-regular bg-surface-muted px-1 rounded">im.message.receive_v1</code>
+                            （接收消息）
+                          </li>
+                        </ol>
+                      </Collapsible.Content>
+                    </Collapsible>
+
+                    <Collapsible open={steps[4]} onOpenChange={(v) => setSteps(4, v)} variant="ghost">
+                      <Collapsible.Trigger class="flex items-center gap-2 w-full px-2 py-1.5 rounded-md hover:bg-surface-muted cursor-pointer">
+                        <Collapsible.Arrow />
+                        <span class="text-13-medium text-text-strong">第四步：配置权限</span>
+                      </Collapsible.Trigger>
+                      <Collapsible.Content class="px-2 pb-2">
+                        <p class="text-13-regular text-text-weak mb-1.5">
+                          在左侧导航栏点击「权限管理」，搜索并开通以下权限：
+                        </p>
+                        <ul class="text-13-regular text-text-weak space-y-1">
+                          <li>
+                            <code class="text-12-regular bg-surface-muted px-1 rounded">im:message</code> —
+                            获取与发送消息
+                          </li>
+                          <li>
+                            <code class="text-12-regular bg-surface-muted px-1 rounded">im:message:send_as_bot</code> —
+                            以机器人身份发送消息
+                          </li>
+                          <li>
+                            <code class="text-12-regular bg-surface-muted px-1 rounded">
+                              im:message.p2p_msg:readonly
+                            </code>{" "}
+                            — 读取私聊消息
+                          </li>
+                          <li>
+                            <code class="text-12-regular bg-surface-muted px-1 rounded">im:message.group_msg</code> —
+                            读取群聊消息历史（总结功能需要）
+                          </li>
+                          <li>
+                            <code class="text-12-regular bg-surface-muted px-1 rounded">im:resource</code> —
+                            上传文件资源（发送附件功能需要）
+                          </li>
+                        </ul>
+                      </Collapsible.Content>
+                    </Collapsible>
+
+                    <Collapsible open={steps[5]} onOpenChange={(v) => setSteps(5, v)} variant="ghost">
+                      <Collapsible.Trigger class="flex items-center gap-2 w-full px-2 py-1.5 rounded-md hover:bg-surface-muted cursor-pointer">
+                        <Collapsible.Arrow />
+                        <span class="text-13-medium text-text-strong">第五步：发布应用</span>
+                      </Collapsible.Trigger>
+                      <Collapsible.Content class="px-2 pb-2">
+                        <ol class="text-13-regular text-text-weak list-decimal list-outside ml-4 space-y-1">
+                          <li>在左侧导航栏点击「版本管理与发布」</li>
+                          <li>创建版本并提交审核</li>
+                          <li>管理员审核通过后即可使用</li>
+                        </ol>
+                      </Collapsible.Content>
+                    </Collapsible>
+                  </Collapsible.Content>
+                </Collapsible>
               </div>
             </div>
           </Match>
@@ -283,6 +404,13 @@ export const DialogFeishu: Component = () => {
                 <Show when={connectedAppId()}>
                   <p class="text-14-regular text-text-weak">App: {connectedAppId()!.slice(0, 16)}...</p>
                 </Show>
+              </div>
+              <div class="w-full text-13-regular text-text-weak bg-surface-muted rounded-md p-3 space-y-1">
+                <p class="text-12-medium text-text-base">使用方式</p>
+                <p>私聊：直接给机器人发消息</p>
+                <p>
+                  群聊：需要 <strong class="text-text-base">@机器人</strong> 才会触发回复
+                </p>
               </div>
               <div class="flex gap-2">
                 <Button variant="secondary" onClick={stopBridge}>
