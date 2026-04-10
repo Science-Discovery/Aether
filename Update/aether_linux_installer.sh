@@ -205,6 +205,39 @@ compute_sha512_base64() {
   fi
 }
 
+installed() {
+  local root name best_ver dir ver
+  root="$1"
+  if [ -f "$root/.aether_web_version" ]; then
+    ver="$(tr -d '[:space:]' <"$root/.aether_web_version")"
+    if [ -n "$ver" ]; then
+      printf "%s" "$ver"
+      return 0
+    fi
+  fi
+
+  name="$(basename "$root")"
+  if [[ "$name" =~ ^aether[-_]([0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z]+)*)$ ]]; then
+    printf "%s" "${BASH_REMATCH[1]}"
+    return 0
+  fi
+
+  best_ver=""
+  shopt -s nullglob
+  for dir in "$root"/aether_* "$root"/aether-*; do
+    [ -d "$dir" ] || continue
+    name="$(basename "$dir")"
+    if [[ "$name" =~ ^aether[-_]([0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z]+)*)$ ]]; then
+      ver="${BASH_REMATCH[1]}"
+      if [ -z "$best_ver" ] || [ "$(cmp "$best_ver" "$ver")" = "lt" ]; then
+        best_ver="$ver"
+      fi
+    fi
+  done
+  shopt -u nullglob
+  printf "%s" "$best_ver"
+}
+
 ensure_libssl() {
   local app_dir="$1"
   local ssl1_path=""
@@ -748,6 +781,17 @@ if [ "$mode" = "init" ]; then
     echo "Manifest check failed."
     fail "$meta_err"
   }
+  cur="$(installed "$work")"
+  if [ -n "$cur" ] && [ "$(cmp "$cur" "$ver")" = "eq" ]; then
+    res="up_to_date"
+    result
+    echo
+    echo "Current version: $cur"
+    echo "Remote version: $ver"
+    echo "Already up to date."
+    done_hold
+    exit "$latest_ok"
+  fi
   grab || {
     code="$?"
     res="download_error"

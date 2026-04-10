@@ -129,6 +129,19 @@ copy /y "%~f0" "%WORK%\aether_windows_installer.bat" >nul
 
 set "CUR="
 call :latest || goto :meta_fail
+call :installed "%WORK%" CUR
+if defined CUR (
+  call :cmp "%CUR%" "%VER%"
+  if /I "%CMP%"=="eq" (
+    set "RES=up_to_date"
+    call :result
+    echo.
+    echo Current version: %CUR%
+    echo Remote version: %VER%
+    echo Already up to date.
+    goto :done
+  )
+)
 call :grab || goto :dl_fail
 set "RES=init_ready"
 call :result
@@ -358,6 +371,22 @@ exit /b 0
 
 :full
 for %%i in ("%~2") do set "%~1=%%~fi"
+exit /b 0
+
+:installed
+set "%~2="
+set "DIR=%~1"
+if exist "%DIR%\.aether_web_version" (
+  set /p RV=<"%DIR%\.aether_web_version"
+  if defined RV (
+    set "%~2=%RV%"
+    exit /b 0
+  )
+)
+for %%i in ("%DIR%") do set "NAME=%%~nxi"
+for /f "usebackq delims=" %%i in (`powershell -NoProfile -Command "$name=$env:NAME; if($name -match '^aether[-_]([0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z]+)*)$'){ [Console]::Write($matches[1]) }"`) do set "%~2=%%i"
+if defined %~2 exit /b 0
+for /f "usebackq delims=" %%i in (`powershell -NoProfile -Command "$root=$env:DIR; $best=Get-ChildItem -Path $root -Directory -ErrorAction SilentlyContinue | ForEach-Object { if($_.Name -match '^aether[-_]([0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z]+)*)$'){ [PSCustomObject]@{ Ver=$matches[1] } } } | Where-Object { $_ } | Sort-Object @{Expression={ [version](($_.Ver -replace '^v','').Split('-')[0]) }} -Descending | Select-Object -First 1 -ExpandProperty Ver; if($best){ [Console]::Write($best) }"`) do set "%~2=%%i"
 exit /b 0
 
 :abs
