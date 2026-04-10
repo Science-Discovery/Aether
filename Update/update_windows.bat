@@ -9,11 +9,12 @@ set "SELF=%~dp0"
 if "%SELF:~-1%"=="\" set "SELF=%SELF:~0,-1%"
 for %%i in ("%SELF%") do set "BASE=%%~nxi"
 for %%i in ("%SELF%\..") do set "WORK=%%~fi"
+set "PRUNE=0"
 set "LAUNCH="
 set "NOTE="
 
 if /I not "%BASE%"=="downloads" (
-  echo 规范错误：update_windows_web.bat 必须放在 ...\aether\downloads 目录。当前: %SELF%
+  echo 规范错误：update_windows.bat 必须放在 ...\aether\downloads 目录。当前: %SELF%
   exit /b 1
 )
 for %%i in ("%WORK%") do set "WORK_NAME=%%~nxi"
@@ -38,7 +39,7 @@ set "TARGET=%WORK%\aether_%VER%"
 echo [1/4] 安装包: %PKG_NAME%
 echo       目标版本: %VER%
 
-set "TMP=%TEMP%\aether-web-install-%RANDOM%%RANDOM%"
+set "TMP=%TEMP%\aether-install-%RANDOM%%RANDOM%"
 set "EX=%TMP%\extract"
 set "NEXT=%WORK%\.aether_%VER%.next"
 set "SRC_FILE=%TMP%\src.txt"
@@ -62,14 +63,6 @@ set "RC=%ERRORLEVEL%"
 if %RC% GEQ 8 goto :fail
 
 call :active_dir
-set "SMALL=0"
-if defined OLD if exist "%OLD%\.aether_web_version" (
-  set /p OLD_VER=<"%OLD%\.aether_web_version"
-  call :major_minor "%OLD_VER%" OM
-  call :major_minor "%VER%" NM
-  if /I "%OM%"=="%NM%" set "SMALL=1"
-)
-
 if exist "%TARGET%" rmdir /s /q "%TARGET%" >nul 2>nul
 move "%NEXT%" "%TARGET%" >nul || goto :fail
 
@@ -79,14 +72,14 @@ echo %VER%>"%WORK%\.aether_web_version"
 call :set_current || goto :fail
 
 call :write_launch
+call :prune_versions || goto :fail
 
 if "%RESTART%"=="1" call :restart
 
-if "%SMALL%"=="1" if defined OLD if /I not "%OLD%"=="%TARGET%" (
-  echo [3/4] 小版本更新：替换旧目录
-  rmdir /s /q "%OLD%" >nul 2>nul
+if not "%PRUNE%"=="0" (
+  echo [3/4] 保留最近 5 个版本，已清理 %PRUNE% 个旧版本目录
 ) else (
-  echo [3/4] 大版本更新：保留旧版本目录
+  echo [3/4] 保留最近 5 个版本，无需清理旧版本目录
 )
 
 echo [4/4] 完成
@@ -148,11 +141,6 @@ for /d %%i in ("%WORK%\aether_*") do (
 )
 exit /b 0
 
-:major_minor
-set "IN=%~1"
-for /f "usebackq delims=" %%i in (`powershell -NoProfile -Command "$v=$env:IN; if(!$v){'0.0'; exit}; $v=$v.Trim().TrimStart('v'); $v=$v.Split('-')[0]; $p=$v.Split('.'); if($p.Count -lt 2){$p+= '0'}; ($p[0] + '.' + $p[1])"`) do set "%~2=%%i"
-exit /b 0
-
 :pick_pkg
 set "DIR=%~1"
 set "W=%~2"
@@ -188,4 +176,9 @@ robocopy "%TARGET%" "%WORK%\current" /MIR /NFL /NDL /NJH /NJS /NP >nul
 set "RC=%ERRORLEVEL%"
 if %RC% GEQ 8 exit /b 1
 if not exist "%WORK%\current\Aether.vbs" exit /b 1
+exit /b 0
+
+:prune_versions
+for /f "usebackq delims=" %%i in (`powershell -NoProfile -Command "& { $root=$env:WORK; $keep=5; $hold=[IO.Path]::GetFullPath($env:TARGET); $cur=''; if(Test-Path (Join-Path $root 'current')){ try { $cur=(Get-Item (Join-Path $root 'current')).FullName } catch {} }; $items=Get-ChildItem -Path $root -Directory -Filter 'aether_*' -ErrorAction SilentlyContinue | Where-Object { Test-Path (Join-Path $_.FullName '.aether_web_version') } | ForEach-Object { $ver=(Get-Content (Join-Path $_.FullName '.aether_web_version') -TotalCount 1).Trim(); if($ver){ [PSCustomObject]@{ Dir=$_.FullName; Ver=$ver } } } | Where-Object { $_ } | Sort-Object @{Expression={ [version](($_.Ver -replace '^v','').Split('-')[0]) }} -Descending; $keepers=New-Object System.Collections.Generic.List[string]; foreach($dir in @($hold,$cur)){ if($dir -and ($items | Where-Object { $_.Dir -eq $dir }) -and -not $keepers.Contains($dir)){ $keepers.Add($dir) } }; foreach($item in $items){ if($keepers.Count -ge $keep){ break }; if(-not $keepers.Contains($item.Dir)){ $keepers.Add($item.Dir) } }; $gone=0; foreach($item in $items){ if($keepers.Contains($item.Dir)){ continue }; Remove-Item $item.Dir -Recurse -Force -ErrorAction SilentlyContinue; if(-not (Test-Path $item.Dir)){ $gone++ } }; Write-Output $gone }"`) do set "PRUNE=%%i"
+if not defined PRUNE set "PRUNE=0"
 exit /b 0

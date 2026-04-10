@@ -9,6 +9,7 @@ work="$(dirname "$self")"
 launch=""
 launch_note=""
 restart="0"
+prune="0"
 
 if [ "${2:-}" = "--restart" ]; then
   restart="1"
@@ -54,14 +55,6 @@ cmp() {
     fi
   done
   echo eq
-}
-
-major_minor() {
-  local v a b
-  v="${1#v}"
-  v="${v%%-*}"
-  IFS=. read -r a b _ <<<"$v"
-  printf "%s.%s" "${a:-0}" "${b:-0}"
 }
 
 pick_pkg() {
@@ -118,6 +111,85 @@ active_dir() {
     fi
   fi
   printf ""
+}
+
+has_dir() {
+  local dir="$1"
+  shift
+  local item
+  for item in "$@"; do
+    if [ "$item" = "$dir" ]; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+prune_versions() {
+  local root keep hold cur rel dir ver item tmp i j
+  local -a items=()
+  local -a keepers=()
+  root="$1"
+  keep="$2"
+  hold="$3"
+  prune="0"
+
+  if [ -L "$root/current" ]; then
+    rel="$(readlink "$root/current")"
+    dir="$root/$rel"
+    if [ -d "$dir" ]; then
+      cur="$dir"
+    fi
+  fi
+
+  shopt -s nullglob
+  for dir in "$root"/aether_*; do
+    [ -d "$dir" ] || continue
+    [ -f "$dir/.aether_web_version" ] || continue
+    ver="$(tr -d '[:space:]' <"$dir/.aether_web_version")"
+    [ -n "$ver" ] || continue
+    items+=("$ver|$dir")
+  done
+  shopt -u nullglob
+
+  for ((i = 0; i < ${#items[@]}; i++)); do
+    for ((j = i + 1; j < ${#items[@]}; j++)); do
+      if [ "$(cmp "${items[$i]%%|*}" "${items[$j]%%|*}")" = "lt" ]; then
+        tmp="${items[$i]}"
+        items[$i]="${items[$j]}"
+        items[$j]="$tmp"
+      fi
+    done
+  done
+
+  for dir in "$hold" "$cur"; do
+    [ -n "${dir:-}" ] || continue
+    has_dir "$dir" "${keepers[@]}" && continue
+    for item in "${items[@]}"; do
+      if [ "${item#*|}" = "$dir" ]; then
+        keepers+=("$dir")
+        break
+      fi
+    done
+  done
+
+  for item in "${items[@]}"; do
+    if [ "${#keepers[@]}" -ge "$keep" ]; then
+      break
+    fi
+    dir="${item#*|}"
+    has_dir "$dir" "${keepers[@]}" && continue
+    keepers+=("$dir")
+  done
+
+  for item in "${items[@]}"; do
+    dir="${item#*|}"
+    has_dir "$dir" "${keepers[@]}" && continue
+    rm -rf "$dir"
+    if [ ! -d "$dir" ]; then
+      prune=$((prune + 1))
+    fi
+  done
 }
 
 write_launch() {
@@ -188,7 +260,7 @@ EOF
 }
 
 if [ "$base" != "downloads" ]; then
-  fail "规范错误：update_darwin_web.command 必须放在 .../aether/downloads 目录。当前: $self"
+  fail "规范错误：update_darwin.command 必须放在 .../aether/downloads 目录。当前: $self"
 fi
 if [ "$(basename "$work")" != "aether" ]; then
   fail "规范错误：工作目录必须是 .../aether。当前: $work"
@@ -209,7 +281,7 @@ target="$work/aether_$ver"
 echo "[1/4] 安装包: $(basename "$pkg")"
 echo "      目标版本: $ver"
 
-tmp="$(mktemp -d "${TMPDIR:-/tmp}/aether-web-install.XXXXXX")"
+tmp="$(mktemp -d "${TMPDIR:-/tmp}/aether-install.XXXXXX")"
 mnt="$tmp/mount"
 next="$work/.aether_$ver.next"
 
@@ -241,13 +313,6 @@ echo "[2/4] 解包并安装到: $target"
 ditto "$src" "$next"
 
 old="$(active_dir "$work")"
-small=0
-if [ -n "$old" ] && [ -f "$old/.aether_web_version" ]; then
-  old_ver="$(tr -d '[:space:]' <"$old/.aether_web_version")"
-  if [ -n "$old_ver" ] && [ "$(major_minor "$old_ver")" = "$(major_minor "$ver")" ]; then
-    small=1
-  fi
-fi
 
 rm -rf "$target"
 mv "$next" "$target"
@@ -274,6 +339,7 @@ printf "%s\n" "$ver" >"$work/.aether_web_version"
 
 ln -sfn "aether_$ver" "$work/current"
 write_launch "$work"
+prune_versions "$work" 5 "$target"
 
 if [ "$restart" = "1" ]; then
   if [ -n "$old" ]; then
@@ -287,11 +353,10 @@ if [ "$restart" = "1" ]; then
   nohup "$work/current/Aether.command" >/dev/null 2>&1 &
 fi
 
-if [ "$small" = "1" ] && [ -n "${old:-}" ] && [ "$old" != "$target" ]; then
-  echo "[3/4] 小版本更新：替换旧目录"
-  rm -rf "$old"
+if [ "$prune" -gt 0 ]; then
+  echo "[3/4] 保留最近 5 个版本，已清理 $prune 个旧版本目录"
 else
-  echo "[3/4] 大版本更新：保留旧版本目录"
+  echo "[3/4] 保留最近 5 个版本，无需清理旧版本目录"
 fi
 
 echo "[4/4] 完成"

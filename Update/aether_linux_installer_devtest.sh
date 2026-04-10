@@ -616,7 +616,7 @@ grab() {
     else
       ins_ext=".$ins_ext"
     fi
-    ins_file="$dl/update_linux_web-$ver$ins_ext"
+    ins_file="$dl/update_linux-$ver$ins_ext"
 
     need_ins=1
     if [ -f "$ins_file" ]; then
@@ -662,7 +662,7 @@ prune() {
   fi
 
   shopt -s nullglob
-  arr=("$dl"/update_linux_web-*.sh)
+  arr=("$dl"/update_linux-*.sh)
   shopt -u nullglob
   n="${#arr[@]}"
   if [ "$n" -gt "$keep" ]; then
