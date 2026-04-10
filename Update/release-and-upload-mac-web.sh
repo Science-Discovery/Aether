@@ -51,10 +51,10 @@ cp -R "$src"/. "$pkg"/
 # Write version file
 printf "%s\n" "$ver" > "$pkg/.aether_version"
 
-# Include updater script
-if [ -f "$updater" ]; then
-  cp "$updater" "$pkg/update_darwin.command"
-  chmod +x "$pkg/update_darwin.command"
+ins="$root/Update/aether_darwin_installer.command"
+if [ -f "$ins" ]; then
+  cp "$ins" "$pkg/aether_darwin_installer.command"
+  chmod +x "$pkg/aether_darwin_installer.command"
 fi
 
 # Ensure executables are +x
@@ -78,8 +78,8 @@ Troubleshooting
 - Permission denied:
   chmod +x ./aether ./Aether.command
 
-Offline update
-- Run ./update_darwin.command
+Updates
+- Use Aether's in-app update flow to download and install newer versions.
 EOFREADME
 
 rm -f "$dmg"

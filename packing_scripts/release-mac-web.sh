@@ -32,16 +32,9 @@ pkg="aether-darwin-arm64"
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 out="$tmp/$pkg"
-upd="$root/Update/update_darwin.command"
 
 mkdir -p "$out"
 cp -R "$src"/. "$out"/
-
-if [ ! -f "$upd" ]; then
-  echo "Missing updater script: $upd"
-  exit 1
-fi
-cp "$upd" "$out/update_darwin.command"
 
 ins="$root/Update/aether_darwin_installer.command"
 if [ -f "$ins" ]; then
@@ -58,10 +51,6 @@ fi
 if [ -f "$out/Aether.command" ]; then
   chmod +x "$out/Aether.command"
 fi
-
-chmod +x "$out/update_darwin.command"
-cp "$upd" "dist/update_darwin.command"
-chmod +x "dist/update_darwin.command"
 
 cat >"$out/README_FIRST.txt" <<'EOF'
 Aether Web (macOS arm64)
@@ -85,9 +74,8 @@ Troubleshooting
 - If Gatekeeper still blocks it:
   System Settings -> Privacy & Security -> scroll down and allow the blocked item, then retry Open
 
-Offline update
-- Run ./update_darwin.command to check and install newer versions from:
-  https://aether.aiphys.cn/download
+Updates
+- Use Aether's in-app update flow to download and install newer versions.
 EOF
 
 rm -f "$dmg"
@@ -109,6 +97,5 @@ popd >/dev/null
 
 echo "Done"
 echo "Asset: packages/opencode/$dmg"
-echo "Updater: packages/opencode/dist/update_darwin.command"
 echo "YML:   packages/opencode/dist/latest-web-mac.yml"
-echo "Note:  DMG includes README_FIRST.txt and update_darwin.command"
+echo "Note:  DMG includes README_FIRST.txt and aether_darwin_installer.command"

@@ -16,7 +16,6 @@ if [ ! -d "$src" ]; then
 fi
 
 uv="$src/wechat-bridge/runtime/uv"
-upd="$root/Update/update_linux.sh"
 
 if [ -d "$uv" ]; then
   for dir in "$uv"/*; do
@@ -28,11 +27,6 @@ if [ -d "$uv" ]; then
   done
 fi
 
-if [ ! -f "$upd" ]; then
-  echo "Missing updater script: $upd"
-  exit 1
-fi
-
 pkg="aether-linux-x64"
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
@@ -40,11 +34,6 @@ out="$tmp/$pkg"
 
 mkdir -p "$out"
 cp -R "$src"/. "$out"/
-
-cp "$upd" "$out/update_linux.sh"
-chmod +x "$out/update_linux.sh"
-cp "$upd" "dist/update_linux.sh"
-chmod +x "dist/update_linux.sh"
 
 ins="$root/Update/aether_linux_installer.sh"
 if [ -f "$ins" ]; then
@@ -68,9 +57,8 @@ Quick start
 1) Extract this ZIP and copy the folder aether-linux-x64 to a local path, for example: ~/Applications/Aether-Web
 2) Open Terminal in that folder and run: ./Aether.sh
 
-Offline update
-- Run ./update_linux.sh to check and install newer versions from:
-  https://aether.aiphys.cn/download
+Updates
+- Use Aether's in-app update flow to download and install newer versions.
 EOF
 
 zip="dist/aether-linux-x64.zip"
@@ -94,6 +82,5 @@ popd >/dev/null
 
 echo "Done"
 echo "Asset: packages/opencode/$zip"
-echo "Updater: packages/opencode/dist/update_linux.sh"
 echo "YML:   packages/opencode/dist/latest-web-linux.yml"
-echo "Note:  ZIP includes folder $pkg"
+echo "Note:  ZIP includes folder $pkg and aether_linux_installer.sh"

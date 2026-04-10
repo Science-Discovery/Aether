@@ -2,10 +2,10 @@
 
 - `packing_scripts/release-mac-web.sh`
   - 构建 web 二进制并裁剪 `wechat-bridge/runtime/uv` 仅保留 mac arm64 目标。
-  - 组装产物目录，包含运行文件、`update_darwin.command`、`aether_darwin_installer.command`、`.aether_web_version`、`README_FIRST.txt`。
-  - 修正执行权限（`aether`、`Aether.command`、`update_darwin.command`、installer）。
+  - 组装产物目录，包含运行文件、`aether_darwin_installer.command`、`.aether_web_version`、`README_FIRST.txt`。
+  - 修正执行权限（`aether`、`Aether.command`、installer）。
   - 打出 `dist/aether-darwin-arm64-web.dmg`，生成 `dist/latest-web-mac.yml`。
-  - 额外在 `dist/` 放一份 `update_darwin.command` 方便你上传远端。
+  - 不再额外在 `dist/` 放 `update_darwin.command`；初始分发包也不再包含该脚本。
 
 - `Update/aether_darwin_installer.command`（入口脚本）
   - 支持 `init | auto <current-version> | manual <target-version>`，支持 `--path`、`--no-pause`。
