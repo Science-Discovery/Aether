@@ -207,6 +207,80 @@ compute_sha512_base64() {
   fi
 }
 
+installed() {
+  local root name best_ver dir ver
+  root="$1"
+  if [ -f "$root/.aether_web_version" ]; then
+    ver="$(tr -d '[:space:]' <"$root/.aether_web_version")"
+    if [ -n "$ver" ]; then
+      printf "%s" "$ver"
+      return 0
+    fi
+  fi
+
+  name="$(basename "$root")"
+  if [[ "$name" =~ ^aether[-_]([0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z]+)*)$ ]]; then
+    printf "%s" "${BASH_REMATCH[1]}"
+    return 0
+  fi
+
+  best_ver=""
+  shopt -s nullglob
+  for dir in "$root"/aether_* "$root"/aether-*; do
+    [ -d "$dir" ] || continue
+    name="$(basename "$dir")"
+    if [[ "$name" =~ ^aether[-_]([0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z]+)*)$ ]]; then
+      ver="${BASH_REMATCH[1]}"
+      if [ -z "$best_ver" ] || [ "$(cmp "$best_ver" "$ver")" = "lt" ]; then
+        best_ver="$ver"
+      fi
+    fi
+  done
+  shopt -u nullglob
+  printf "%s" "$best_ver"
+}
+
+cache_paths() {
+  dl="$work/downloads"
+  [ -n "$pkg_name" ] || return 1
+  local pkg_ext ins_ext
+  pkg_ext="${pkg_name##*.}"
+  if [ "$pkg_ext" = "$pkg_name" ]; then
+    pkg_ext=""
+  else
+    pkg_ext=".$pkg_ext"
+  fi
+  pkg_file="$dl/aether-linux-x64-$ver$pkg_ext"
+  ins_file=""
+  if [ -n "$ins_url" ] && [ -n "$ins_name" ]; then
+    ins_ext="${ins_name##*.}"
+    if [ "$ins_ext" = "$ins_name" ]; then
+      ins_ext=""
+    else
+      ins_ext=".$ins_ext"
+    fi
+    ins_file="$dl/update_linux-$ver$ins_ext"
+  fi
+}
+
+cached_ready() {
+  [ -d "$work/downloads" ] || return 1
+  cache_paths || return 1
+  [ -f "$pkg_file" ] || return 1
+  if [ -n "$sha" ]; then
+    local sum
+    sum="$(compute_sha512_base64 "$pkg_file" || true)"
+    if [ "$sum" = "__NOHASH__" ] || [ "$sum" = "__NOBASE64__" ]; then
+      :
+    else
+      [ "$sum" = "$sha" ] || return 1
+    fi
+  fi
+  [ -n "$ins_file" ] || return 1
+  [ -f "$ins_file" ] || return 1
+  chmod +x "$ins_file" 2>/dev/null || true
+}
+
 ensure_libssl() {
   local app_dir="$1"
   local ssl1_path=""
@@ -750,15 +824,34 @@ if [ "$mode" = "init" ]; then
     echo "Manifest check failed."
     fail "$meta_err"
   }
-  grab || {
-    code="$?"
-    res="download_error"
-    [ "$code" = "$sum_err" ] && res="checksum_error"
+  echo "Latest version: $ver"
+  cur="$(installed "$work")"
+  if [ -n "$cur" ] && [ "$(cmp "$cur" "$ver")" = "eq" ]; then
+    res="up_to_date"
     result
     echo
-    echo "Download failed."
-    fail "$code"
-  }
+    echo "Current version: $cur"
+    echo "Remote version: $ver"
+    echo "Already up to date."
+    done_hold
+    exit "$latest_ok"
+  fi
+  if cached_ready; then
+    echo "Using cached package:"
+    echo "  $pkg_file"
+    echo "Using cached installer:"
+    echo "  $ins_file"
+  else
+    grab || {
+      code="$?"
+      res="download_error"
+      [ "$code" = "$sum_err" ] && res="checksum_error"
+      result
+      echo
+      echo "Download failed."
+      fail "$code"
+    }
+  fi
   res="init_ready"
   result
   echo
@@ -787,7 +880,7 @@ if [ "$mode" = "init" ]; then
 
   mkdir -p "$HOME/Aether_Database" 2>/dev/null || true
 
-  ensure_libssl "$work/current"
+  ensure_libssl "$work/aether_$ver"
 
   desktop_hint
 
@@ -822,6 +915,7 @@ if [ "$mode" = "auto" ]; then
     echo "Manifest check failed."
     exit "$meta_err"
   }
+  echo "Latest version: $ver"
   if [ "$(cmp "$cur" "$ver")" = "lt" ]; then
     echo "Current version: $cur"
     echo "Remote version: $ver"

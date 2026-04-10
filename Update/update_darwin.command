@@ -91,18 +91,29 @@ pick_pkg() {
   return 1
 }
 
-active_dir() {
-  local root link rel dir v
+latest_dir() {
+  local root best best_ver dir ver
   root="$1"
-  link="$root/current"
-  if [ -L "$link" ]; then
-    rel="$(readlink "$link")"
-    dir="$root/$rel"
-    if [ -d "$dir" ] && [ -f "$dir/.aether_web_version" ]; then
-      printf "%s" "$dir"
-      return 0
+  best=""
+  best_ver=""
+  shopt -s nullglob
+  for dir in "$root"/aether_*; do
+    [ -d "$dir" ] || continue
+    [ -f "$dir/.aether_web_version" ] || continue
+    ver="$(tr -d '[:space:]' <"$dir/.aether_web_version")"
+    [ -n "$ver" ] || continue
+    if [ -z "$best" ] || [ "$(cmp "$best_ver" "$ver")" = "lt" ]; then
+      best="$dir"
+      best_ver="$ver"
     fi
-  fi
+  done
+  shopt -u nullglob
+  printf "%s" "$best"
+}
+
+active_dir() {
+  local root dir v
+  root="$1"
   if [ -f "$root/.aether_web_version" ]; then
     v="$(tr -d '[:space:]' <"$root/.aether_web_version")"
     if [ -n "$v" ] && [ -d "$root/aether_$v" ]; then
@@ -110,7 +121,7 @@ active_dir() {
       return 0
     fi
   fi
-  printf ""
+  printf "%s" "$(latest_dir "$root")"
 }
 
 has_dir() {
@@ -126,21 +137,13 @@ has_dir() {
 }
 
 prune_versions() {
-  local root keep hold cur rel dir ver item tmp i j
+  local root keep hold dir ver item tmp i j
   local -a items=()
   local -a keepers=()
   root="$1"
   keep="$2"
   hold="$3"
   prune="0"
-
-  if [ -L "$root/current" ]; then
-    rel="$(readlink "$root/current")"
-    dir="$root/$rel"
-    if [ -d "$dir" ]; then
-      cur="$dir"
-    fi
-  fi
 
   shopt -s nullglob
   for dir in "$root"/aether_*; do
@@ -162,9 +165,11 @@ prune_versions() {
     done
   done
 
-  for dir in "$hold" "$cur"; do
+  for dir in "$hold"; do
     [ -n "${dir:-}" ] || continue
-    has_dir "$dir" "${keepers[@]}" && continue
+    if [ "${#keepers[@]}" -gt 0 ] && has_dir "$dir" "${keepers[@]}"; then
+      continue
+    fi
     for item in "${items[@]}"; do
       if [ "${item#*|}" = "$dir" ]; then
         keepers+=("$dir")
@@ -178,13 +183,17 @@ prune_versions() {
       break
     fi
     dir="${item#*|}"
-    has_dir "$dir" "${keepers[@]}" && continue
+    if [ "${#keepers[@]}" -gt 0 ] && has_dir "$dir" "${keepers[@]}"; then
+      continue
+    fi
     keepers+=("$dir")
   done
 
   for item in "${items[@]}"; do
     dir="${item#*|}"
-    has_dir "$dir" "${keepers[@]}" && continue
+    if [ "${#keepers[@]}" -gt 0 ] && has_dir "$dir" "${keepers[@]}"; then
+      continue
+    fi
     rm -rf "$dir"
     if [ ! -d "$dir" ]; then
       prune=$((prune + 1))
@@ -195,7 +204,7 @@ prune_versions() {
 write_launch() {
   local root target
   root="$1"
-  build_app() {
+build_app() {
     local dir app bin
     dir="$1"
     app="$dir/Aether.app"
@@ -207,10 +216,58 @@ write_launch() {
 set -euo pipefail
 
 root="$root"
-cur="\$root/current"
+cmp() {
+  local a="\${1#v}"
+  local b="\${2#v}"
+  a="\${a%%-*}"
+  b="\${b%%-*}"
+  local aa bb i x y
+  IFS=. read -r -a aa <<<"\$a"
+  IFS=. read -r -a bb <<<"\$b"
+  for i in 0 1 2 3; do
+    x="\${aa[\$i]:-0}"
+    y="\${bb[\$i]:-0}"
+    x=\$((10#\$x))
+    y=\$((10#\$y))
+    if [ "\$x" -lt "\$y" ]; then
+      echo lt
+      return 0
+    fi
+    if [ "\$x" -gt "\$y" ]; then
+      echo gt
+      return 0
+    fi
+  done
+  echo eq
+}
 
-if [ -L "\$cur" ] && [ -f "\$cur/Aether.command" ]; then
-  nohup "\$cur/Aether.command" >/dev/null 2>&1 &
+pick() {
+  local dir ver best best_ver item
+  if [ -f "\$root/.aether_web_version" ]; then
+    ver="\$(tr -d '[:space:]' <"\$root/.aether_web_version")"
+    if [ -n "\$ver" ] && [ -f "\$root/aether_\$ver/Aether.command" ]; then
+      printf "%s" "\$root/aether_\$ver"
+      return 0
+    fi
+  fi
+  shopt -s nullglob
+  for item in "\$root"/aether_*; do
+    [ -d "\$item" ] || continue
+    [ -f "\$item/.aether_web_version" ] || continue
+    ver="\$(tr -d '[:space:]' <"\$item/.aether_web_version")"
+    [ -n "\$ver" ] || continue
+    if [ -z "\${best:-}" ] || [ "\$(cmp "\$best_ver" "\$ver")" = "lt" ]; then
+      best="\$item"
+      best_ver="\$ver"
+    fi
+  done
+  shopt -u nullglob
+  printf "%s" "\${best:-}"
+}
+
+app="\$(pick)"
+if [ -n "\$app" ] && [ -f "\$app/Aether.command" ]; then
+  nohup "\$app/Aether.command" >/dev/null 2>&1 &
   exit 0
 fi
 
@@ -337,7 +394,7 @@ fi
 printf "%s\n" "$ver" >"$target/.aether_web_version"
 printf "%s\n" "$ver" >"$work/.aether_web_version"
 
-ln -sfn "aether_$ver" "$work/current"
+rm -rf "$work/current" >/dev/null 2>&1 || true
 write_launch "$work"
 prune_versions "$work" 5 "$target"
 
@@ -347,10 +404,10 @@ if [ "$restart" = "1" ]; then
     pkill -f "$old/aether web" >/dev/null 2>&1 || true
     pkill -f "$old/aether serve" >/dev/null 2>&1 || true
   fi
-  pkill -f "$work/current/Aether.command" >/dev/null 2>&1 || true
-  pkill -f "$work/current/aether web" >/dev/null 2>&1 || true
-  pkill -f "$work/current/aether serve" >/dev/null 2>&1 || true
-  nohup "$work/current/Aether.command" >/dev/null 2>&1 &
+  pkill -f "$target/Aether.command" >/dev/null 2>&1 || true
+  pkill -f "$target/aether web" >/dev/null 2>&1 || true
+  pkill -f "$target/aether serve" >/dev/null 2>&1 || true
+  nohup "$target/Aether.command" >/dev/null 2>&1 &
 fi
 
 if [ "$prune" -gt 0 ]; then
