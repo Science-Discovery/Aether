@@ -46,6 +46,7 @@ import { SessionStatus } from "./status"
 import { LLM } from "./llm"
 import { iife } from "@/util/iife"
 import { Shell } from "@/shell/shell"
+import { cleanupNul } from "@/shell/guard"
 import { Truncate } from "@/tool/truncate"
 import { Knowledge } from "../knowledge"
 import { decodeDataUrl } from "@/util/data-url"
@@ -1019,7 +1020,7 @@ export namespace SessionPrompt {
       try {
         const paths = input.knowledgeBase.paths || (input.knowledgeBase.path ? [input.knowledgeBase.path] : [])
         const allResults: Awaited<ReturnType<typeof Knowledge.search>> = []
-        
+
         for (const kbPath of paths) {
           const index = await Knowledge.load(kbPath)
           if (index) {
@@ -1035,14 +1036,13 @@ export namespace SessionPrompt {
             allResults.push(...results)
           }
         }
-        
+
         if (allResults.length > 0) {
           // 按分数排序并取 top 5
           allResults.sort((a, b) => b.score - a.score)
           const topResults = allResults.slice(0, 5)
           ragContext =
-            "以下是来自知识库的相关内容，请参考这些内容回答用户的问题：\n\n" +
-            Knowledge.buildRAGContext(topResults)
+            "以下是来自知识库的相关内容，请参考这些内容回答用户的问题：\n\n" + Knowledge.buildRAGContext(topResults)
         }
       } catch {
         // knowledge base unavailable, proceed without RAG context
@@ -1806,6 +1806,8 @@ NOTE: At any point in time through this workflow you should feel free to ask the
         resolve()
       })
     })
+
+    await cleanupNul(Instance.directory)
 
     if (aborted) {
       output += "\n\n" + ["<metadata>", "User aborted the command", "</metadata>"].join("\n")

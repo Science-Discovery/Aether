@@ -13,6 +13,7 @@ import { Filesystem } from "@/util/filesystem"
 import { fileURLToPath } from "url"
 import { Flag } from "@/flag/flag.ts"
 import { Shell } from "@/shell/shell"
+import { cleanupNul } from "@/shell/guard"
 
 import { BashArity } from "@/permission/arity"
 import { Truncate } from "./truncate"
@@ -255,6 +256,8 @@ export const BashTool = Tool.define("bash", async () => {
       if (resultMetadata.length > 0) {
         output += "\n\n<bash_metadata>\n" + resultMetadata.join("\n") + "\n</bash_metadata>"
       }
+
+      await cleanupNul(cwd)
 
       return {
         title: params.description,
