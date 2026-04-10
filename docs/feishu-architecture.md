@@ -1,0 +1,497 @@
+# 飞书连接架构文档
+
+## 概述
+
+Aether 通过飞书官方 SDK 的 **WebSocket 长连接模式**，在本地与飞书服务器建立实时通信。用户在飞书中给机器人发消息，Aether 本地接收并调用 AI 处理后，通过飞书 API 回复。
+
+核心特点：
+- **无需公网地址**：本地主动连接飞书服务器，不需要 webhook 或云端部署
+- **内置实现**：TypeScript 原生集成，非子进程方案
+- **体验一致**：与微信连接的使用流程完全对齐
+
+## 整体架构
+
+```
+飞书用户
+  │
+  ▼
+飞书服务器
+  │ WebSocket 推送
+  ▼
+┌─────────────────────────────────────────────────┐
+│  Aether 本地进程                                 │
+│                                                  │
+│  ┌──────────────┐    Bus 事件    ┌────────────┐ │
+│  │ FeishuManager│ ──────────────▶│ SSE 事件流  │ │
+│  │  (manager.ts)│               │(routes/     │ │
+│  │              │◀──── HTTP ────│ feishu.ts)  │ │
+│  └──────┬───────┘               └──────┬──────┘ │
+│         │                              │        │
+│         │ Instance.bind()              │ SSE    │
+│         ▼                              ▼        │
+│  ┌──────────────┐               ┌────────────┐ │
+│  │ Session API  │               │  前端 UI    │ │
+│  │ Session.create│              │(dialog-     │ │
+│  │ Prompt.prompt│               │ feishu.tsx) │ │
+│  └──────────────┘               └────────────┘ │
+└─────────────────────────────────────────────────┘
+  │
+  │ larkClient.im.message.reply()
+  ▼
+飞书用户看到回复
+```
+
+### 图中名词解释
+
+如果你是第一次看这张图，下面逐个解释每个名词：
+
+**飞书服务器** — 飞书的云端服务，负责在用户之间传递消息，类似微信的后台。
+
+**WebSocket 推送** — 一种网络连接方式。普通 HTTP 像「发短信」，你问一次服务器答一次。WebSocket 像「打电话」，连接建立后一直保持通着，服务器有新消息随时推过来，不需要你反复去问。这就是为什么 Aether 不需要公网地址——是你的电脑主动打电话给飞书服务器，而不是反过来。
+
+**Bus 事件** — Aether 内部的事件总线，`FeishuManager` 通过它广播状态变更（如 `feishu.connected`、`feishu.status`），前端 SSE 路由监听这些事件并转发给浏览器。
+
+**Instance.bind()** — Aether 用 AsyncLocalStorage 存储当前项目上下文（目录、工作区等）。飞书 SDK 的回调跑在独立的异步上下文里，需要用 `Instance.bind()` 手动恢复上下文，否则 `Session.create` 等 API 无法知道当前项目。
+
+## 代码结构
+
+```
+packages/opencode/src/feishu/
+  manager.ts              # 连接管理器（SDK 初始化、消息处理、会话映射、模型管理）
+
+packages/opencode/src/server/routes/
+  feishu.ts               # HTTP API（start/stop/status/events/session）
+
+packages/app/src/
+  context/feishu.ts       # 前端全局状态（feishuStatus 信号）
+  components/dialog-feishu.tsx  # 连接对话框 UI
+```
+
+## 各模块详解
+
+### 1. 连接管理器 (`packages/opencode/src/feishu/manager.ts`)
+
+全局单例 `FeishuManager`，负责整个飞书连接的生命周期。
+
+#### 状态机
+
+```
+idle ──▶ starting ──▶ connected
+  ▲         │              │
+  │         ▼              │
+  └───── error ◀───────────┘
+```
+
+| 状态 | 含义 |
+|------|------|
+| `idle` | 未连接，等待用户操作 |
+| `starting` | 正在建立 WebSocket 连接 |
+| `connected` | 连接成功，正常接收消息 |
+| `error` | 连接失败或运行时错误 |
+
+#### 关键方法
+
+| 方法 | 职责 |
+|------|------|
+| `start(config?, model?)` | 入口。加载或接收配置和模型，触发连接 |
+| `_doStart(config, model)` | 实际连接逻辑：创建 SDK 客户端、注册事件、启动 WebSocket、设置连接模型 |
+| `handleMessage(data)` | 接收飞书消息 → 过滤 @mention → 映射会话 → 解析模型 → 调用 AI → 回复 |
+| `handleCommand(text)` | 分发 `/new`、`/model`、`/help` 等斜杠命令 |
+| `cmdNew(messageId, chatId)` | 清除会话映射和本聊天的模型 override，立即新建会话 |
+| `cmdModel(messageId, chatId, args)` | 无参数列出模型，有参数切换本聊天的模型 |
+| `cmdProject(messageId, chatId, arg)` | 查看/切换/隐藏项目，完整对齐微信端逻辑 |
+| `buildModelList()` | 调用 `Provider.list()` 展平成编号列表，供 `/model` 使用 |
+| `resolveModel(chatId)` | 三级模型解析：per-chat override → 连接快照 → undefined |
+| `getProjects()` | 调用 `Project.recentList()` 并过滤根目录，与微信端 `GET /project/recent` 数据一致 |
+| `replyText(messageId, text)` | 通过飞书 REST API 回复文本消息 |
+| `replyFile(messageId, filePath)` | 用 native fetch 上传本地文件并以附件形式回复 |
+| `getTenantAccessToken()` | 用 native fetch 获取 tenant_access_token（绕过 SDK axios） |
+| `detectFileSendIntent(text)` | 检测用户是否在索要文件（含"发给我/源文件/原文件"等词） |
+| `extractReadFiles(msg)` | 从 AI 响应的 ToolPart 中提取被读取的文件路径 |
+| `extractFilePathsFromText(text)` | 从文本中用正则提取存在于磁盘的绝对路径 |
+| `detectSummaryIntent(text)` | 检测用户是否在请求群聊总结，返回时间范围和条数 |
+| `fetchChatHistory(chatId, opts)` | 调用飞书 message.list API 拉取群聊历史并格式化 |
+| `stop()` | 断开 WebSocket，清理客户端和所有模型状态 |
+| `clearSession()` | 删除本地配置和会话映射文件 |
+
+#### AsyncLocalStorage 上下文绑定
+
+这是架构中最关键的技术细节。
+
+`Session.create()` 和 `SessionPrompt.prompt()` 依赖 `Instance` AsyncLocalStorage 上下文（提供 `directory`、`worktree` 等项目信息）。HTTP 路由通过中间件自动注入此上下文，但飞书 SDK 的 WebSocket 事件回调运行在独立的异步上下文中，没有 Instance 信息。
+
+解决方案：在 `_doStart()` 中使用 `Instance.bind()` 捕获当前上下文：
+
+```typescript
+// _doStart 由 HTTP 请求触发，此时 Instance 上下文可用
+private async _doStart(config: FeishuConfig, model: ModelRef | null): Promise<void> {
+  // 捕获 Instance 上下文，绑定到事件回调
+  const boundHandleMessage = Instance.bind((data: any) => {
+    void this.handleMessage(data)  // 不 await，立即返回
+  })
+
+  const eventDispatcher = new lark.EventDispatcher({})
+  eventDispatcher.register({
+    "im.message.receive_v1": boundHandleMessage,  // 事件触发时自动恢复上下文
+  })
+  // ...
+}
+```
+
+调用链：`HTTP POST /feishu/start` → 中间件注入 Instance 上下文 → `FeishuManager.start()` → `void _doStart()` 同步启动 → `Instance.bind()` 捕获上下文 → 后续事件回调中恢复。
+
+> **为什么用 `void` 而不是 `await`？**
+> 飞书 SDK 的事件回调要求快速返回。如果回调里 `await handleMessage()`（等 AI 生成回复，可能要几秒到几十秒），飞书服务器会认为投递失败并重发同一条消息，导致用户收到重复回复。改为 `void` 后回调立即返回，`handleMessage` 在后台异步执行。
+
+#### 会话映射
+
+飞书聊天到 Aether 会话的映射规则：
+
+```
+映射 key = `${chatId}:${rootId}`
+```
+
+- `chatId`：飞书聊天 ID
+- `rootId`：消息线程根 ID（`root_id` 或 `parent_id`，回退到 `message_id`）
+
+同一线程内的消息共享同一个 Aether 会话。使用 `/new` 命令清除当前聊天的所有映射。
+
+首次发消息（无映射）时，优先复用 Aether 中最近的会话，无已有会话时才新建。
+
+映射持久化到本地文件 `sessions.json`。
+
+#### 数据持久化
+
+| 文件 | 内容 |
+|------|------|
+| `config.json` | App ID 和 App Secret |
+| `sessions.json` | 飞书聊天 → Aether 会话 ID 映射 |
+| `hidden_projects.json` | 隐藏项目目录 → 隐藏时间戳 |
+| `default_project.json` | 默认项目目录（`/project default n` 设置，重连后自动生效） |
+
+存储路径按平台：
+- Windows: `%APPDATA%\opencode\feishu\`
+- macOS: `~/Library/Application Support/opencode/feishu/`
+- Linux: `~/.local/share/opencode/feishu/`
+
+### 2. HTTP 路由 (`packages/opencode/src/server/routes/feishu.ts`)
+
+通过 Hono 框架注册在 `/feishu` 路径下。
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| POST | `/feishu/start` | 启动连接。body 可选传 `appId`/`appSecret` 和 `model`，否则用已保存配置 |
+| POST | `/feishu/stop` | 断开连接 |
+| GET | `/feishu/status` | 返回 `{ status, appId, hasConfig, error }` |
+| GET | `/feishu/events` | SSE 事件流，推送状态变更和心跳 |
+| DELETE | `/feishu/session` | 清除本地配置和会话数据 |
+
+#### SSE 事件流
+
+`/feishu/events` 端点通过 Server-Sent Events 向前端实时推送状态：
+
+```
+初始连接 → 推送当前 status
+         → 若已 connected，额外推送 feishu.connected 事件
+运行中   → 每 10 秒推送 heartbeat
+         → 订阅 Bus 上所有 feishu.* 事件并转发
+断开     → 清理订阅和定时器
+```
+
+事件格式：
+```json
+data: {"type": "feishu.connected", "properties": {"appId": "cli_xxx"}}
+data: {"type": "feishu.status", "properties": {"status": "starting", "message": "正在连接飞书..."}}
+data: {"type": "feishu.error", "properties": {"code": "start_failed", "message": "..."}}
+```
+
+### 3. 前端 UI (`packages/app/src/components/dialog-feishu.tsx`)
+
+SolidJS 对话框组件，提供完整的连接管理界面。
+
+#### UI 状态
+
+| 状态 | 显示内容 |
+|------|---------|
+| `idle` | 飞书图标 + "连接飞书"按钮（有配置时）或"配置飞书应用"按钮 |
+| `config` | App ID / App Secret 输入表单 |
+| `loading` | 旋转动画 + 状态文字 |
+| `connected` | 绿色勾 + 已连接信息 + "断开连接"/"切换应用"按钮 |
+| `error` | 红色警告 + 错误信息 + "重试"按钮 |
+
+#### 事件处理时序
+
+```
+用户点击"连接飞书"
+  │
+  ├─ 1. connectSSE()          先建立 SSE 连接，避免遗漏事件
+  │
+  └─ 2. fetch POST /start     携带当前模型（providerID + modelID）触发后端连接
+       │
+       └─ SSE 接收事件 ──▶ 更新 UI 状态
+```
+
+关键设计：SSE 在 start 请求之前建立，因为 `_doStart` 是 `void` 调用（异步不等待），可能在 start 返回前就完成连接。
+
+### 4. 全局状态 (`packages/app/src/context/feishu.ts`)
+
+```typescript
+export type FeishuStatus = "idle" | "loading" | "connected" | "error"
+export const [feishuStatus, setFeishuStatus] = createSignal<FeishuStatus>("idle")
+```
+
+在 `prompt-input.tsx` 中用于工具栏按钮的状态指示颜色：
+- 蓝色 = connected
+- 黄色闪烁 = loading
+- 红色 = error
+- 灰色 = idle
+
+## 消息处理流程
+
+```
+1. 飞书用户发送文本消息
+2. 飞书服务器通过 WebSocket 推送 im.message.receive_v1 事件
+3. 事件回调通过 Instance.bind 恢复上下文，用 void 立即返回（不阻塞 SDK）
+4. handleMessage 在后台异步执行：
+   a. 群聊消息：检查 mentions 字段，未 @机器人则忽略
+   b. 非文本消息 → 回复"暂时只支持文本消息"
+   c. 过滤 @mention 占位符（群聊中的 `@_user_1 ` 前缀）
+   d. 斜杠命令 → handleCommand 分发处理
+   e. 普通文本 → 继续
+5. 根据 chatId + rootId 查找已有 Aether 会话
+   a. 有映射 → 复用已映射的会话
+   b. 无映射 → 复用最近的会话；若无任何会话则新建
+6. resolveModel(chatId) 解析本次使用的模型
+7. detectFileSendIntent(text) 检测用户是否在索要文件（含"发给我/源文件/原文件"等词）
+   a. 命中 → 在发给 AI 的 prompt 末尾追加系统提示，要求 AI 在回复中包含文件的完整绝对路径
+   b. 未命中 → 不修改 prompt
+8. detectSummaryIntent(text) 检测是否为总结请求（含"总结/汇总/归纳"且含"群/今天/消息"等词）
+   a. 命中 → fetchChatHistory() 调用 larkClient.im.message.list() 拉取历史，拼入 prompt
+   b. 未命中 → 直接使用原始文本
+9. SessionPrompt.prompt() 将文本发送给 AI（携带模型参数）
+10. 提取 AI 回复的文本部分，拼接项目/会话标题头部，replyText() 回复到飞书
+11. 若检测到索要文件意图，进入文件发送流程：
+    a. extractReadFiles(msg) 从 ToolPart 中提取 AI 调用 Read 工具读取的文件路径
+    b. 若无，extractFilePathsFromText(responseText) 用正则从回复文本提取绝对路径，验证文件存在
+    c. replyFile() 上传并发送附件（见下方"文件上传流程"）
+12. 如果任何步骤报错 → catch 中通过 replyText 将错误信息发回飞书
+```
+
+## 文件上传流程
+
+飞书 SDK 内部使用 axios 做 multipart 上传，在 Bun 运行时有兼容性问题（`Error.captureStackTrace` 行为差异导致真实错误被吞掉）。因此文件上传全部改用 native `fetch` 直接调飞书 REST API。
+
+```
+replyFile(messageId, filePath)
+  │
+  ├─ 1. stat(filePath) 检查文件大小，超过 30MB 则跳过
+  │
+  ├─ 2. readFile(filePath) 读取文件内容到 Buffer
+  │      转为 Uint8Array 以兼容 Blob 构造器
+  │
+  ├─ 3. getTenantAccessToken()
+  │      fetch POST /open-apis/auth/v3/tenant_access_token/internal
+  │      body: { app_id, app_secret }
+  │      → tenant_access_token
+  │
+  ├─ 4. 上传文件
+  │      fetch POST /open-apis/im/v1/files
+  │      headers: Authorization: Bearer {token}
+  │      body: FormData { file_type, file_name, file: Blob }
+  │      file_type 根据扩展名映射：pdf/doc/xls/ppt → 对应类型，其余 → "stream"
+  │      → file_key
+  │
+  └─ 5. 发送附件消息
+         fetch POST /open-apis/im/v1/messages/{messageId}/reply
+         headers: Authorization: Bearer {token}
+         body: { msg_type: "file", content: { file_key } }
+         → 飞书用户收到可下载附件
+```
+
+所需权限：`im:resource`（上传文件资源）
+
+## 模型选择逻辑
+
+### 设计原则
+
+- 连接飞书时，前端把 web UI 底栏当前选中的模型一并发给后端，作为连接快照
+- 连接期间 web UI 切换模型不影响飞书端（快照冻结）
+- 用户可通过 `/model n` 为当前聊天设置独立的模型 override
+- `/new` 只清除本聊天的 override，连接快照保持不变
+- `/stop` 清除所有模型状态
+
+## 项目切换逻辑
+
+### 命令
+
+| 命令 | 行为 |
+|------|------|
+| `/project` | 显示前 10 个非隐藏项目，当前项目标 `◀`，默认项目标 `[默认]` |
+| `/project list` | 显示全部项目，隐藏项目标 `[已隐藏]`，默认项目标 `[默认]` |
+| `/project n` | 切换到第 n 个项目，自动复用/新建该项目的会话 |
+| `/project hide n` | 隐藏第 n 个项目；该项目有新活动后自动恢复 |
+| `/project default n` | 设置第 n 个项目为默认项目，持久化到磁盘，重连后自动进入 |
+
+## 会话切换
+
+### 命令
+
+| 命令 | 行为 |
+|------|------|
+| `/session` | 显示当前项目前 10 个会话，当前会话标 `◀` |
+| `/session list` | 显示全部会话 |
+| `/session n` | 切换到第 n 个会话 |
+
+### 设计
+
+每个 `chatId` 维护一个"当前会话"状态（`_chatSessions[chatId]`），优先级高于线程级 `sessionMap[chatId:rootId]`。
+
+- `/session n` 设置 `_chatSessions[chatId]`，后续所有消息都发往该会话
+- `/new` 清除并立即新建，新会话存入 `_chatSessions[chatId]`
+- `/project n` 切换项目时，将目标项目的最近会话存入 `_chatSessions[chatId]`
+- `stop()` 清除所有 `_chatSessions`（不持久化）
+
+### 数据来源
+
+`getProjects()` 直接调用 `Project.recentList()`，这与微信端调用的 `GET /project/recent` HTTP 接口是**同一个函数**，因此两端看到的项目列表完全一致。
+
+### 每聊天目录（`_chatDirs`）
+
+`/project n` 切换后，该 chatId 的目标目录保存在 `_chatDirs[chatId]`。后续每条消息都在该目录的 Instance 上下文中执行：
+
+```typescript
+const effectiveDir = this._chatDirs[chatId] ?? this._defaultDir ?? Instance.directory
+await Instance.provide({
+  directory: effectiveDir,
+  fn: async () => {
+    // Session 查找/创建、SessionPrompt.prompt() 均在此上下文内运行
+  },
+})
+```
+
+这样 `Session.create()` 和 AI 回复都归属于正确的项目，而不是连接时的默认目录。
+
+### 隐藏项目
+
+- 隐藏状态持久化到 `hidden_projects.json`，重连后保留
+- **取消隐藏双机制**：
+  - 飞书消息直接触发：`handleMessage` 中若本条消息的目标目录在 `_hiddenDirs` 中，立即删除
+  - GlobalBus 监听：连接后注册 `GlobalBus.on("event", listener)`，web 端对该目录有任何活动时自动取消隐藏
+- `/project n` 切换到已隐藏的项目时也会自动取消隐藏
+- `autoUnhide()` 作为兜底：每条消息和 `/project` 命令时运行，基于 `time.activity` 时间戳对比
+
+### 状态字段
+
+| 字段 | 类型 | 生命周期 |
+|------|------|---------|
+| `_chatDirs` | `Record<chatId, directory>` | `/project n` 设置，`stop()` 时清除 |
+| `_hiddenDirs` | `Record<directory, timestamp>` | `/project hide n` 设置，持久化，重连保留 |
+| `_defaultDir` | `string \| null` | `/project default n` 设置，持久化到 `default_project.json`，重连保留 |
+
+### 三级解析（`resolveModel(chatId)`）
+
+```
+per-chat override (_modelOverrides[chatId])
+       ↓ 无
+连接快照 (_connectedModel)
+       ↓ 无
+undefined → SessionPrompt 内部默认逻辑
+```
+
+### 状态字段
+
+| 字段 | 类型 | 生命周期 |
+|------|------|---------|
+| `_connectedModel` | `{ providerID, modelID } \| null` | 连接时由前端传入，`stop()` 时清除 |
+| `_modelOverrides` | `Record<chatId, ModelRef>` | `/model n` 设置，`/new` 或 `stop()` 清除 |
+| `_modelList` | `ModelEntry[]` | 连接时预构建，`stop()` 时清除 |
+
+### 连接时传递模型
+
+前端 `dialog-feishu.tsx` 在调用 `/feishu/start` 时，读取 `useLocal().model.current()`，将 `{ providerID, modelID }` 放入 POST body。后端路由解析后传给 `FeishuManager.start(config, model)`，直接赋值给 `_connectedModel`。
+
+这比从 session 消息历史反推更可靠：用户刚切换模型未发消息时，历史记录里没有新模型的 assistant 消息，反推会拿到错误的模型。
+
+### `/model` 命令格式
+
+```
+/model          → 列出所有可用模型
+/model <n>      → 将本聊天的模型 override 设为第 n 号
+```
+
+列表格式（参考微信端）：
+
+```
+🤖 当前：anthropic/claude-sonnet-4-6
+
+📦 可用模型：
+
+【anthropic】
+  1. anthropic/claude-opus-4-6
+  2. anthropic/claude-sonnet-4-6 ★
+
+【openai】
+  3. openai/gpt-4o
+
+💡 /model n 切换模型
+```
+
+## 依赖
+
+| 包 | 版本 | 用途 |
+|----|------|------|
+| `@larksuiteoapi/node-sdk` | 1.60.0 | 飞书官方 SDK：WSClient、EventDispatcher、Client |
+
+SDK 使用方式：
+- `lark.WSClient` — WebSocket 长连接客户端
+- `lark.EventDispatcher` — 事件注册和分发
+- `lark.Client` — REST API 客户端（发送回复消息、拉取消息历史）
+- `lark.LoggerLevel.debug` — 调试日志级别
+
+`lark.Client` 调用的 API：
+- `larkClient.im.message.reply()` — 回复文本消息
+- `larkClient.im.message.list()` — 拉取群聊消息历史（总结功能，需 `im:message.group_msg` 权限）
+
+native `fetch` 直接调用的飞书 REST API（绕过 SDK axios，解决 Bun 兼容性问题）：
+- `POST /open-apis/auth/v3/tenant_access_token/internal` — 获取 tenant access token
+- `POST /open-apis/im/v1/files` — 上传文件资源，获取 file_key（需 `im:resource` 权限）
+- `POST /open-apis/im/v1/messages/{messageId}/reply` — 以附件形式回复消息
+
+## 与微信连接的架构对比
+
+| 维度 | 微信 | 飞书 |
+|------|------|------|
+| 连接方式 | Python 子进程 + 客户端长连接 | TypeScript 内置 + WebSocket 长连接 |
+| SDK | Python wechatferry | Node.js @larksuiteoapi/node-sdk |
+| 认证 | 扫二维码 | App ID + App Secret |
+| 消息桥接 | 子进程 stdout/HTTP 通信 | 进程内直接调用 Session API |
+| 上下文处理 | HTTP API 自带中间件上下文 | Instance.bind() 手动绑定上下文 |
+| 需要公网 | 否 | 否 |
+| 首次配置 | 扫码 | 飞书开放平台创建应用 |
+| 模型传递 | 环境变量 `AETHER_MODEL` | POST body `model` 字段 |
+
+## 已知限制
+
+1. **接收仅支持文本消息**：接收图片、文件等消息类型暂不处理；发送侧已支持文本和文件附件
+2. **无自动重连**：WebSocket 断开后需手动重新连接
+3. **单实例**：FeishuManager 是全局单例，不支持同时连接多个飞书应用
+4. **群聊限制**：群聊中仅响应 @机器人 的消息，未 @则忽略；@mention 占位符会自动过滤
+
+## 变更记录
+
+| 日期 | 修改内容 | 原因 |
+|------|---------|------|
+| 2026-04-06 11:39 | 事件回调从 `await` 改为 `void`（非阻塞） | 飞书服务器在回调未及时返回时会重发消息，导致用户收到重复回复 |
+| 2026-04-06 11:39 | `handleMessage` 的 catch 中增加 `replyText` 错误反馈 | 报错时飞书用户无任何提示，现在会收到错误信息 |
+| 2026-04-06 16:05 | 首次发消息优先复用最近会话，而非总是新建 | 飞书每条消息都新建会话，web 端体验混乱 |
+| 2026-04-06 16:25 | 每条 AI 回复顶部追加项目和会话标题（`📁 项目名\n💬 会话名\n───`） | 用户无法感知当前处于哪个项目/会话 |
+| 2026-04-06 17:09 | `/new` 改为立即创建新会话（`Session.create`），不再等到下一条消息才新建 | web 端侧边栏需实时出现新会话，旧实现只清除映射延迟到下条消息才生效 |
+| 2026-04-06 18:54 | 新增模型选择逻辑：连接时前端传模型 + per-chat override + `/model` 命令 | 飞书端应沿用 web UI 当前选中的模型，连接后 web UI 切换模型不应影响飞书端 |
+| 2026-04-06 19:17 | `/model` 列表格式改为按 provider 分组，参考微信端风格 | 原格式不直观，统一两端体验 |
+| 2026-04-06 19:17 | 新增 `/project` 命令：查看/切换/隐藏项目，数据源与微信端一致 | 多项目场景下需在飞书端切换工作目录；切换后消息自动在对应项目上下文中执行 |
+| 2026-04-06 19:17 | 取消隐藏改为双机制：飞书消息直接判断 + GlobalBus 监听 web 端活动 | `time.activity` 只在项目初始化时更新，不反映 session 消息，原方案对活跃项目无效 |
+| 2026-04-07 | 新增 `/session` 命令：查看/切换会话，数据源与微信端一致；`_chatSessions` 存储 per-chat 当前会话 | 微信端支持多会话切换，飞书端功能对齐 |
+| 2026-04-07 | 群聊中仅响应 @机器人 的消息，检查 `chat_type` 和 `mentions` 字段 | 之前群聊中所有消息都会触发回复，@一次后机器人对所有消息都回复 |
+| 2026-04-08 16:28 | 新增群聊总结功能：`detectSummaryIntent()` 关键词检测 + `fetchChatHistory()` 拉取历史注入 prompt | 用户可直接用自然语言（如"帮我总结今天的群聊"）触发，无需斜杠命令；需开启 `im:message.group_msg` 权限 |
+| 2026-04-08 16:28 | 新增文件发送功能：AI 回复后自动提取 `PatchPart` 中的变更文件，通过 `larkClient.im.file.create()` 上传并回复到飞书 | 用户在飞书请求 AI 生成/修改文件后，可直接在聊天中收到文件附件 |
+| 2026-04-08 17:54 | 新增 `/project default n` 命令：设置默认项目，持久化到 `default_project.json`，重连后自动生效；`effectiveDir` 改为三级回退 `_chatDirs ?? _defaultDir ?? Instance.directory` | 用户每次重连都需手动切换项目，体验繁琐 |
