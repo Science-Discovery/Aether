@@ -54,9 +54,9 @@ const INSTALLER_SCRIPT: Record<string, string> = {
 }
 
 const UPDATE_SCRIPT: Record<string, string> = {
-  darwin: "update_darwin_web.command",
-  linux: "update_linux_web.sh",
-  windows: "update_windows_web.bat",
+  darwin: "update_darwin.command",
+  linux: "update_linux.sh",
+  windows: "update_windows.bat",
 }
 
 const UPDATE_PKG_EXT: Record<string, string> = {

@@ -24,7 +24,7 @@ root="$(cd "$(dirname "$0")/.." && pwd)"
 dist="$root/packages/opencode/dist"
 src="$dist/aether-darwin-arm64/bin"
 dmg="$dist/aether-darwin-arm64-web.dmg"
-updater="$root/Update/update_darwin_web.command"
+updater="$root/Update/update_darwin.command"
 upload_url="https://aether.aiphys.cn/api/download/admin/upload"
 
 # ── 1. Build ────────────────────────────────────────────────────────
@@ -53,8 +53,8 @@ printf "%s\n" "$ver" > "$pkg/.aether_version"
 
 # Include updater script
 if [ -f "$updater" ]; then
-  cp "$updater" "$pkg/update_darwin_web.command"
-  chmod +x "$pkg/update_darwin_web.command"
+  cp "$updater" "$pkg/update_darwin.command"
+  chmod +x "$pkg/update_darwin.command"
 fi
 
 # Ensure executables are +x
@@ -79,7 +79,7 @@ Troubleshooting
   chmod +x ./aether ./Aether.command
 
 Offline update
-- Run ./update_darwin_web.command
+- Run ./update_darwin.command
 EOFREADME
 
 rm -f "$dmg"

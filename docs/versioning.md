@@ -91,7 +91,7 @@ packages/opencode/dist/
 
 | 平台 | 格式 | 内容 |
 |------|------|------|
-| macOS | `.dmg` | `aether` + `web/` + `Aether.command` + `update_darwin_web.command` + `README_FIRST.txt` |
+| macOS | `.dmg` | `aether` + `web/` + `Aether.command` + `update_darwin.command` + `README_FIRST.txt` |
 | Linux | `.tar.gz` | `aether` + `web/` + `Aether.sh` |
 | Windows | `.zip` | `aether.exe` + `web/` + `Aether.vbs` |
 
@@ -142,7 +142,7 @@ curl -X POST https://aether.aiphys.cn/api/download/admin/upload \
   -H 'x-download-admin-password: <password>' \
   -F 'macVersion=0.2.3' \
   -F 'macos=@aether-darwin-arm64-web.dmg' \
-  -F 'macInstaller=@Update/update_darwin_web.command' \
+  -F 'macInstaller=@Update/update_darwin.command' \
   -F 'macNotesUrl=https://aether.aiphys.cn/release-notes/0.2.3'
 ```
 
@@ -152,13 +152,13 @@ curl -X POST https://aether.aiphys.cn/api/download/admin/upload \
 
 ### 4.1 macOS 离线更新脚本
 
-**文件**：`Update/update_darwin_web.command`
+**文件**：`Update/update_darwin.command`
 
 用户双击即可检查并安装更新，流程：
 
 ```mermaid
 flowchart TD
-    A[运行 update_darwin_web.command] --> B[从 aether.aiphys.cn 获取 latest-web-mac.yml]
+    A[运行 update_darwin.command] --> B[从 aether.aiphys.cn 获取 latest-web-mac.yml]
     B --> C{本地版本 == 远端版本?}
     C -->|是| D[已是最新，退出]
     C -->|否| E[下载新版本 DMG]
@@ -192,8 +192,8 @@ flowchart TD
 | Web 前端版本读取 | `packages/app/src/entry.tsx` |
 | macOS 构建+上传脚本 | `Update/release-and-upload-mac-web.sh` |
 | macOS 打包脚本 | `packing_scripts/release-mac-web.sh` |
-| macOS 更新脚本 | `Update/update_darwin_web.command` |
-| Linux 更新脚本 | `Update/update_linux_web.sh` |
-| Windows 更新脚本 | `Update/update_windows_web.bat` |
+| macOS 更新脚本 | `Update/update_darwin.command` |
+| Linux 更新脚本 | `Update/update_linux.sh` |
+| Windows 更新脚本 | `Update/update_windows.bat` |
 | 打包指南（详细） | `PACKAGING.md` |
 | 打包指南（Web 版） | `PACKAGING-1.md` |

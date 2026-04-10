@@ -16,7 +16,7 @@ if [ ! -d "$src" ]; then
 fi
 
 uv="$src/wechat-bridge/runtime/uv"
-upd="$root/Update/update_linux_web.sh"
+upd="$root/Update/update_linux.sh"
 
 if [ -d "$uv" ]; then
   for dir in "$uv"/*; do
@@ -41,10 +41,10 @@ out="$tmp/$pkg"
 mkdir -p "$out"
 cp -R "$src"/. "$out"/
 
-cp "$upd" "$out/update_linux_web.sh"
-chmod +x "$out/update_linux_web.sh"
-cp "$upd" "dist/update_linux_web.sh"
-chmod +x "dist/update_linux_web.sh"
+cp "$upd" "$out/update_linux.sh"
+chmod +x "$out/update_linux.sh"
+cp "$upd" "dist/update_linux.sh"
+chmod +x "dist/update_linux.sh"
 
 ins="$root/Update/aether_linux_installer.sh"
 if [ -f "$ins" ]; then
@@ -69,7 +69,7 @@ Quick start
 2) Open Terminal in that folder and run: ./Aether.sh
 
 Offline update
-- Run ./update_linux_web.sh to check and install newer versions from:
+- Run ./update_linux.sh to check and install newer versions from:
   https://aether.aiphys.cn/download
 EOF
 
@@ -94,6 +94,6 @@ popd >/dev/null
 
 echo "Done"
 echo "Asset: packages/opencode/$zip"
-echo "Updater: packages/opencode/dist/update_linux_web.sh"
+echo "Updater: packages/opencode/dist/update_linux.sh"
 echo "YML:   packages/opencode/dist/latest-web-linux.yml"
 echo "Note:  ZIP includes folder $pkg"
