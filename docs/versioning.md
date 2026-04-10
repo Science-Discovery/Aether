@@ -91,13 +91,13 @@ packages/opencode/dist/
 
 | 平台 | 格式 | 内容 |
 |------|------|------|
-| macOS | `.dmg` | `aether` + `web/` + `Aether.command` + `update_darwin.command` + `README_FIRST.txt` |
-| Linux | `.tar.gz` | `aether` + `web/` + `Aether.sh` |
-| Windows | `.zip` | `aether.exe` + `web/` + `Aether.vbs` |
+| macOS | `.dmg` | `aether` + `web/` + `Aether.command` + `aether_darwin_installer.command` + `README_FIRST.txt` |
+| Linux | `.tar.gz` | `aether` + `web/` + `Aether.sh` + `aether_linux_installer.sh` |
+| Windows | `.zip` | `aether.exe` + `web/` + `Aether.vbs` + `aether_windows_installer.bat` |
 
 ### 3.2 macOS DMG 打包
 
-macOS 使用 DMG 格式分发，内含更新脚本和说明文档。
+macOS 使用 DMG 格式分发，内含 installer 和说明文档。
 
 **macOS 上打包**（使用 `hdiutil`）：
 
@@ -114,7 +114,7 @@ sudo apt install genisoimage   # 首次安装
 genisoimage -V "Aether Web" -D -R -apple -no-pad -o output.dmg <source-folder>
 ```
 
-DMG 打包后同时生成 `latest-web-mac.yml` 元数据文件（含 sha512 和文件大小），供客户端更新脚本校验。
+DMG 打包后同时生成 `latest-web-mac.yml` 元数据文件（含 sha512 和文件大小），供客户端更新流程校验。
 
 ### 3.3 一键构建 + 上传（macOS Web 版）
 
@@ -131,7 +131,7 @@ DMG 打包后同时生成 `latest-web-mac.yml` 元数据文件（含 sha512 和�
 1. `OPENCODE_VERSION=<version> bun run build` 全平台构建
 2. 将 `dist/aether-darwin-arm64/bin/` 打包为 DMG（自动检测 `hdiutil` 或 `genisoimage`）
 3. 生成 `latest-web-mac.yml` 元数据
-4. `curl` 上传 DMG 和更新脚本到 `aether.aiphys.cn`
+4. `curl` 上传 DMG，并按需上传供 installer 使用的更新脚本到 `aether.aiphys.cn`
 
 ### 3.4 分发服务器
 
@@ -150,24 +150,25 @@ curl -X POST https://aether.aiphys.cn/api/download/admin/upload \
 
 ## 4. 客户端更新
 
-### 4.1 macOS 离线更新脚本
+### 4.1 macOS 更新流程
 
-**文件**：`Update/update_darwin.command`
+**入口文件**：`Update/aether_darwin_installer.command`
 
-用户双击即可检查并安装更新，流程：
+应用内更新会先调用 installer，再由 installer 下载版本化 `update_darwin.command` 完成安装，流程：
 
 ```mermaid
 flowchart TD
-    A[运行 update_darwin.command] --> B[从 aether.aiphys.cn 获取 latest-web-mac.yml]
+    A[运行 aether_darwin_installer.command] --> B[从 aether.aiphys.cn 获取 latest-web-mac.yml]
     B --> C{本地版本 == 远端版本?}
     C -->|是| D[已是最新，退出]
-    C -->|否| E[下载新版本 DMG]
+    C -->|否| E[下载新版本 DMG 和版本化 update_darwin.command]
     E --> F[校验 sha512]
     F -->|失败| G[停止更新]
-    F -->|通过| H[挂载 DMG，复制文件到临时目录]
-    H --> I[原子替换：旧目录 → .old，新目录 → 安装位置]
-    I --> J[写入 .aether_web_version]
-    J --> K[删除旧版本，完成]
+    F -->|通过| H[执行下载后的 update_darwin.command]
+    H --> I[挂载 DMG，复制文件到临时目录]
+    I --> J[原子替换：旧目录 → .old，新目录 → 安装位置]
+    J --> K[写入 .aether_web_version]
+    K --> L[删除旧版本，完成]
 ```
 
 版本比对依据：
@@ -192,8 +193,8 @@ flowchart TD
 | Web 前端版本读取 | `packages/app/src/entry.tsx` |
 | macOS 构建+上传脚本 | `Update/release-and-upload-mac-web.sh` |
 | macOS 打包脚本 | `packing_scripts/release-mac-web.sh` |
-| macOS 更新脚本 | `Update/update_darwin.command` |
-| Linux 更新脚本 | `Update/update_linux.sh` |
-| Windows 更新脚本 | `Update/update_windows.bat` |
+| macOS installer | `Update/aether_darwin_installer.command` |
+| Linux installer | `Update/aether_linux_installer.sh` |
+| Windows installer | `Update/aether_windows_installer.bat` |
 | 打包指南（详细） | `PACKAGING.md` |
 | 打包指南（Web 版） | `PACKAGING-1.md` |

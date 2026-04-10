@@ -166,6 +166,7 @@ curl -X POST https://aether.aiphys.cn/api/download2/admin/upload \
 
 补充说明：
 
+- 当前 GitHub Release 与 web 初始分发包默认不再携带 `update_*` 脚本；这些字段主要供下载服务托管 installer 在运行时拉取的更新脚本使用
 - 当前上传实现仍会写入 `downloads/latest/` 作为镜像目录
 - 但客户端下载 `latest` 时，应将其视为“当前最新公开版本”的路由别名，而不是依赖某个固定物理目录
 - 如需测试“已上传 latest 但暂不公开发布”的产物，开发者可使用 `/api/download2/...`；该路由直接读取 `downloads2/`，并要求提供 `x-download-admin-password` 请求头或 `?password=` 参数
@@ -263,10 +264,13 @@ curl -X POST https://aether.aiphys.cn/api/download2/admin/upload \
 对应安装包：
 
 - `/download/latest/aether-darwin-arm64.dmg`
-- `/download/latest/update_darwin.command`
 - `/download/latest/aether-windows-x64.zip`
-- `/download/latest/update_windows.bat`
 - `/download/latest/aether-linux-x64.zip`
+
+如果服务端托管了更新脚本，installer 还会额外访问：
+
+- `/download/latest/update_darwin.command`
+- `/download/latest/update_windows.bat`
 - `/download/latest/update_linux.sh`
 
 解析规则：
@@ -286,10 +290,13 @@ curl -X POST https://aether.aiphys.cn/api/download2/admin/upload \
 对应安装包：
 
 - `/download/<version>/aether-darwin-arm64.dmg`
-- `/download/<version>/update_darwin.command`
 - `/download/<version>/aether-windows-x64.zip`
-- `/download/<version>/update_windows.bat`
 - `/download/<version>/aether-linux-x64.zip`
+
+如果服务端托管了更新脚本，installer 还会额外访问：
+
+- `/download/<version>/update_darwin.command`
+- `/download/<version>/update_windows.bat`
 - `/download/<version>/update_linux.sh`
 
 ### 兼容旧地址

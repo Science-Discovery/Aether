@@ -28,6 +28,7 @@
   - mac：`aether-darwin-arm64-web.dmg` + `latest-web-mac.yml`
   - linux：`aether-linux-x64.zip` + `latest-web-linux.yml`
   - windows：`aether-windows-x64.zip` + `latest-web-windows.yml`
+- `web` release asset 不再上传 `update_*` 脚本；在线更新继续由包内 `aether_*_installer.*` 触发
 
 ## 发布前检查
 
