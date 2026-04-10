@@ -69,7 +69,8 @@ move "%NEXT%" "%TARGET%" >nul || goto :fail
 echo %VER%>"%TARGET%\.aether_web_version"
 echo %VER%>"%WORK%\.aether_web_version"
 
-call :set_current || goto :fail
+if exist "%WORK%\current" rmdir "%WORK%\current" >nul 2>nul
+if exist "%WORK%\current" rmdir /s /q "%WORK%\current" >nul 2>nul
 
 call :write_launch
 call :prune_versions || goto :fail
@@ -92,21 +93,43 @@ call :clean_tmp
 exit /b 0
 
 :write_launch
-set "DESK=%USERPROFILE%\Desktop"
+set "DESK="
+set "DESK_COMMON="
+set "MENU="
+set "MENU_COMMON="
+for /f "usebackq tokens=1,2,3,4 delims=|" %%i in (`powershell -NoProfile -Command "$desk=[Environment]::GetFolderPath('DesktopDirectory'); $desk2=[Environment]::GetFolderPath('CommonDesktopDirectory'); $menu=[Environment]::GetFolderPath('Programs'); $menu2=[Environment]::GetFolderPath('CommonPrograms'); [Console]::Write(([string]$desk) + '|' + ([string]$desk2) + '|' + ([string]$menu) + '|' + ([string]$menu2))"`) do (
+  set "DESK=%%i"
+  set "DESK_COMMON=%%j"
+  set "MENU=%%k"
+  set "MENU_COMMON=%%l"
+)
+if not defined DESK set "DESK=%USERPROFILE%\Desktop"
+if not defined MENU set "MENU=%APPDATA%\Microsoft\Windows\Start Menu\Programs"
+if not defined DESK_COMMON set "DESK_COMMON=%PUBLIC%\Desktop"
+if not defined MENU_COMMON set "MENU_COMMON=%ProgramData%\Microsoft\Windows\Start Menu\Programs"
 if not exist "%DESK%" mkdir "%DESK%"
-set "LNK=%DESK%\Aether.lnk"
-set "MENU=%APPDATA%\Microsoft\Windows\Start Menu\Programs"
 if not exist "%MENU%" mkdir "%MENU%"
+set "LNK=%DESK%\Aether.lnk"
 set "MLNK=%MENU%\Aether.lnk"
-set "CMD=%WORK%\current\Aether.vbs"
+set "CLNK=%DESK_COMMON%\Aether.lnk"
+set "CMLNK=%MENU_COMMON%\Aether.lnk"
+set "CMD=%TARGET%\Aether.vbs"
 if exist "%LNK%" del /f /q "%LNK%" >nul 2>nul
 if exist "%MLNK%" del /f /q "%MLNK%" >nul 2>nul
-powershell -NoProfile -Command "$w=New-Object -ComObject WScript.Shell; $mk={ param($p,$t) $s=$w.CreateShortcut($p); $s.TargetPath=$t; $s.WorkingDirectory=(Split-Path -Parent $t); $s.Save() }; & $mk $env:LNK $env:CMD; & $mk $env:MLNK $env:CMD"
+powershell -NoProfile -Command "$w=New-Object -ComObject WScript.Shell; $mk={ param($p,$t) if(-not $p){ return $false }; $dir=Split-Path -Parent $p; if($dir -and -not (Test-Path $dir)){ New-Item -ItemType Directory -Path $dir -Force | Out-Null }; try { $s=$w.CreateShortcut($p); $s.TargetPath=$t; $s.WorkingDirectory=(Split-Path -Parent $t); $s.Save() } catch { try { if(Test-Path $p){ Remove-Item -LiteralPath $p -Force -ErrorAction Stop }; $s=$w.CreateShortcut($p); $s.TargetPath=$t; $s.WorkingDirectory=(Split-Path -Parent $t); $s.Save() } catch { return $false } }; if(-not (Test-Path $p)){ return $false }; try { $hit=$w.CreateShortcut($p); return $hit.TargetPath -eq $t } catch { return $false } }; $ok1=& $mk $env:LNK $env:CMD; $ok2=& $mk $env:MLNK $env:CMD; $ok3=$false; $ok4=$false; if($env:CLNK){ if((Test-Path $env:CLNK) -or -not [string]::Equals($env:CLNK,$env:LNK,[System.StringComparison]::OrdinalIgnoreCase)){ $ok3=& $mk $env:CLNK $env:CMD } }; if($env:CMLNK){ if((Test-Path $env:CMLNK) -or -not [string]::Equals($env:CMLNK,$env:MLNK,[System.StringComparison]::OrdinalIgnoreCase)){ $ok4=& $mk $env:CMLNK $env:CMD } }; if(-not ($ok1 -or $ok2 -or $ok3 -or $ok4)){ exit 1 }"
 if exist "%LNK%" (
   set "LAUNCH=%LNK%"
   set "NOTE=双击桌面上的 Aether.vbs 文件运行。"
+  if /I not "%CLNK%"=="%LNK%" if exist "%CLNK%" set "NOTE=双击桌面上的 Aether.vbs 文件运行。公共桌面快捷方式也已同步更新。"
 ) else if exist "%MLNK%" (
   set "LAUNCH=%MLNK%"
+  set "NOTE=从开始菜单的 Aether.vbs 文件运行。"
+  if /I not "%CMLNK%"=="%MLNK%" if exist "%CMLNK%" set "NOTE=从开始菜单的 Aether.vbs 文件运行。公共开始菜单快捷方式也已同步更新。"
+) else if exist "%CLNK%" (
+  set "LAUNCH=%CLNK%"
+  set "NOTE=双击桌面上的 Aether.vbs 文件运行。"
+) else if exist "%CMLNK%" (
+  set "LAUNCH=%CMLNK%"
   set "NOTE=从开始菜单的 Aether.vbs 文件运行。"
 ) else (
   set "LAUNCH=%CMD%"
@@ -115,17 +138,13 @@ if exist "%LNK%" (
 exit /b 0
 
 :restart
-powershell -NoProfile -Command "& { $names=@('aether.exe','wscript.exe','cscript.exe','node.exe','bun.exe'); $roots=@(); if($env:OLD){ $roots += [IO.Path]::GetFullPath($env:OLD) }; $roots += [IO.Path]::GetFullPath($env:WORK + '\current'); if($env:TARGET){ $roots += [IO.Path]::GetFullPath($env:TARGET) }; $roots += (Get-ChildItem -Path $env:WORK -Directory -Filter 'aether_*' -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName }); $roots=$roots | Where-Object { $_ } | Select-Object -Unique; Get-CimInstance Win32_Process | Where-Object { $n=$_.Name.ToLowerInvariant(); if($names -notcontains $n){ return $false }; $cmd=$_.CommandLine; $exe=$_.ExecutablePath; foreach($r in $roots){ if(($cmd -and $cmd -like ('*' + $r + '*')) -or ($exe -and $exe -like ($r + '*'))){ return $true } }; return $false } | Sort-Object ProcessId -Descending | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue } }"
+powershell -NoProfile -Command "& { $names=@('aether.exe','wscript.exe','cscript.exe','node.exe','bun.exe'); $roots=@(); if($env:OLD){ $roots += [IO.Path]::GetFullPath($env:OLD) }; if($env:TARGET){ $roots += [IO.Path]::GetFullPath($env:TARGET) }; $roots += (Get-ChildItem -Path $env:WORK -Directory -Filter 'aether_*' -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName }); $roots=$roots | Where-Object { $_ } | Select-Object -Unique; Get-CimInstance Win32_Process | Where-Object { $n=$_.Name.ToLowerInvariant(); if($names -notcontains $n){ return $false }; $cmd=$_.CommandLine; $exe=$_.ExecutablePath; foreach($r in $roots){ if(($cmd -and $cmd -like ('*' + $r + '*')) -or ($exe -and $exe -like ($r + '*'))){ return $true } }; return $false } | Sort-Object ProcessId -Descending | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue } }"
 timeout /t 1 /nobreak >nul
-start "" "%WORK%\current\Aether.vbs"
+start "" "%TARGET%\Aether.vbs"
 exit /b 0
 
 :active_dir
 set "OLD="
-if exist "%WORK%\current\.aether_web_version" (
-  set "OLD=%WORK%\current"
-  exit /b 0
-)
 if exist "%WORK%\.aether_web_version" (
   set /p RV=<"%WORK%\.aether_web_version"
   if exist "%WORK%\aether_%RV%\.aether_web_version" (
@@ -133,6 +152,8 @@ if exist "%WORK%\.aether_web_version" (
     exit /b 0
   )
 )
+for /f "usebackq delims=" %%i in (`powershell -NoProfile -Command "$root=$env:WORK; $pick=Get-ChildItem -Path $root -Directory -Filter 'aether_*' -ErrorAction SilentlyContinue | Where-Object { Test-Path (Join-Path $_.FullName '.aether_web_version') } | ForEach-Object { $ver=(Get-Content (Join-Path $_.FullName '.aether_web_version') -TotalCount 1).Trim(); if($ver){ [PSCustomObject]@{ Dir=$_.FullName; Ver=$ver } } } | Where-Object { $_ } | Sort-Object @{Expression={ [version](($_.Ver -replace '^v','').Split('-')[0]) }} -Descending | Select-Object -First 1 -ExpandProperty Dir; if($pick){ [Console]::Write($pick) }"`) do set "OLD=%%i"
+if defined OLD exit /b 0
 for /d %%i in ("%WORK%\aether_*") do (
   if exist "%%~fi\.aether_web_version" (
     set "OLD=%%~fi"
@@ -147,7 +168,15 @@ set "W=%~2"
 set "PKG="
 set "VER="
 set "PKG_NAME="
-for /f "usebackq tokens=1,2,3 delims=|" %%i in (`powershell -NoProfile -Command "$dir=$env:DIR; $want=$env:W; $hits=Get-ChildItem -Path $dir -File -Filter '*.zip' | ForEach-Object { if($_.BaseName -match '([0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z]+)*)$'){ [PSCustomObject]@{Path=$_.FullName;Name=$_.Name;Ver=$matches[1]} } } | Where-Object { $_ }; if($want){ $hits=$hits | Where-Object { $_.Ver -eq $want } }; if(-not $hits){ exit 1 }; $pick=$hits | Sort-Object { [version](($_.Ver -replace '^v','').Split('-')[0]) } | Select-Object -Last 1; Write-Output ($pick.Path + '|' + $pick.Ver + '|' + $pick.Name)"`) do (
+if defined W (
+  set "PKG=%DIR%\aether-windows-x64-%W%.zip"
+  if exist "%PKG%" (
+    set "VER=%W%"
+    for %%i in ("%PKG%") do set "PKG_NAME=%%~nxi"
+    exit /b 0
+  )
+)
+for /f "usebackq tokens=1,2,3 delims=|" %%i in (`powershell -NoProfile -Command "$dir=$env:DIR; $hits=Get-ChildItem -Path $dir -File -Filter 'aether-windows-x64-*.zip' | ForEach-Object { $name='aether-windows-x64-'; if($_.BaseName.Length -gt $name.Length){ [PSCustomObject]@{Path=$_.FullName;Name=$_.Name;Ver=$_.BaseName.Substring($name.Length)} } } | Where-Object { $_ -and $_.Ver }; if(-not $hits){ exit 1 }; $pick=$hits | Sort-Object { [version](($_.Ver -replace '^v','').Split('-')[0]) } | Select-Object -Last 1; Write-Output ($pick.Path + '|' + $pick.Ver + '|' + $pick.Name)"`) do (
   set "PKG=%%i"
   set "VER=%%j"
   set "PKG_NAME=%%k"
@@ -165,20 +194,7 @@ if exist "%TMP%" rmdir /s /q "%TMP%" >nul 2>nul
 if exist "%NEXT%" rmdir /s /q "%NEXT%" >nul 2>nul
 exit /b 0
 
-:set_current
-if exist "%WORK%\current" rmdir "%WORK%\current" >nul 2>nul
-if exist "%WORK%\current" rmdir /s /q "%WORK%\current" >nul 2>nul
-mklink /J "%WORK%\current" "%TARGET%" >nul 2>nul
-if exist "%WORK%\current\Aether.vbs" exit /b 0
-
-mkdir "%WORK%\current" >nul 2>nul
-robocopy "%TARGET%" "%WORK%\current" /MIR /NFL /NDL /NJH /NJS /NP >nul
-set "RC=%ERRORLEVEL%"
-if %RC% GEQ 8 exit /b 1
-if not exist "%WORK%\current\Aether.vbs" exit /b 1
-exit /b 0
-
 :prune_versions
-for /f "usebackq delims=" %%i in (`powershell -NoProfile -Command "& { $root=$env:WORK; $keep=5; $hold=[IO.Path]::GetFullPath($env:TARGET); $cur=''; if(Test-Path (Join-Path $root 'current')){ try { $cur=(Get-Item (Join-Path $root 'current')).FullName } catch {} }; $items=Get-ChildItem -Path $root -Directory -Filter 'aether_*' -ErrorAction SilentlyContinue | Where-Object { Test-Path (Join-Path $_.FullName '.aether_web_version') } | ForEach-Object { $ver=(Get-Content (Join-Path $_.FullName '.aether_web_version') -TotalCount 1).Trim(); if($ver){ [PSCustomObject]@{ Dir=$_.FullName; Ver=$ver } } } | Where-Object { $_ } | Sort-Object @{Expression={ [version](($_.Ver -replace '^v','').Split('-')[0]) }} -Descending; $keepers=New-Object System.Collections.Generic.List[string]; foreach($dir in @($hold,$cur)){ if($dir -and ($items | Where-Object { $_.Dir -eq $dir }) -and -not $keepers.Contains($dir)){ $keepers.Add($dir) } }; foreach($item in $items){ if($keepers.Count -ge $keep){ break }; if(-not $keepers.Contains($item.Dir)){ $keepers.Add($item.Dir) } }; $gone=0; foreach($item in $items){ if($keepers.Contains($item.Dir)){ continue }; Remove-Item $item.Dir -Recurse -Force -ErrorAction SilentlyContinue; if(-not (Test-Path $item.Dir)){ $gone++ } }; Write-Output $gone }"`) do set "PRUNE=%%i"
+for /f "usebackq delims=" %%i in (`powershell -NoProfile -Command "& { $root=$env:WORK; $keep=5; $hold=[IO.Path]::GetFullPath($env:TARGET); $items=Get-ChildItem -Path $root -Directory -Filter 'aether_*' -ErrorAction SilentlyContinue | Where-Object { Test-Path (Join-Path $_.FullName '.aether_web_version') } | ForEach-Object { $ver=(Get-Content (Join-Path $_.FullName '.aether_web_version') -TotalCount 1).Trim(); if($ver){ [PSCustomObject]@{ Dir=$_.FullName; Ver=$ver } } } | Where-Object { $_ } | Sort-Object @{Expression={ [version](($_.Ver -replace '^v','').Split('-')[0]) }} -Descending; $keepers=New-Object System.Collections.Generic.List[string]; foreach($dir in @($hold)){ if($dir -and ($items | Where-Object { $_.Dir -eq $dir }) -and -not $keepers.Contains($dir)){ $keepers.Add($dir) } }; foreach($item in $items){ if($keepers.Count -ge $keep){ break }; if(-not $keepers.Contains($item.Dir)){ $keepers.Add($item.Dir) } }; $gone=0; foreach($item in $items){ if($keepers.Contains($item.Dir)){ continue }; Remove-Item $item.Dir -Recurse -Force -ErrorAction SilentlyContinue; if(-not (Test-Path $item.Dir)){ $gone++ } }; Write-Output $gone }"`) do set "PRUNE=%%i"
 if not defined PRUNE set "PRUNE=0"
 exit /b 0

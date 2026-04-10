@@ -785,7 +785,7 @@ if [ "$mode" = "init" ]; then
 
   mkdir -p "$HOME/Aether_Database" 2>/dev/null || true
 
-  ensure_libssl "$work/current"
+  ensure_libssl "$work/aether_$ver"
 
   desktop_hint
 

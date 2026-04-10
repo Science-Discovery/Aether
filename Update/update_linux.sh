@@ -41,7 +41,7 @@ Usage:
 Behavior:
   - Local install only; no network download
   - Installs to a versioned directory: aether_<version>
-  - Updates current symlink to the latest installed version
+  - Marks the latest installed version in .aether_web_version
 
 Package name pattern:
   aether-linux-x64-<version>.*
@@ -135,6 +135,39 @@ has_dir() {
   return 1
 }
 
+latest_dir() {
+  local root best best_ver dir ver
+  root="$1"
+  best=""
+  best_ver=""
+  shopt -s nullglob
+  for dir in "$root"/aether_*; do
+    [ -d "$dir" ] || continue
+    [ -f "$dir/.aether_web_version" ] || continue
+    ver="$(tr -d '[:space:]' <"$dir/.aether_web_version")"
+    [ -n "$ver" ] || continue
+    if [ -z "$best" ] || [ "$(cmp "$best_ver" "$ver")" = "lt" ]; then
+      best="$dir"
+      best_ver="$ver"
+    fi
+  done
+  shopt -u nullglob
+  printf "%s" "$best"
+}
+
+active_dir() {
+  local root dir ver
+  root="$1"
+  if [ -f "$root/.aether_web_version" ]; then
+    ver="$(tr -d '[:space:]' <"$root/.aether_web_version")"
+    if [ -n "$ver" ] && [ -d "$root/aether_$ver" ]; then
+      printf "%s" "$root/aether_$ver"
+      return 0
+    fi
+  fi
+  printf "%s" "$(latest_dir "$root")"
+}
+
 prune_versions() {
   local root keep hold dir ver item tmp i j
   local -a items=()
@@ -189,22 +222,6 @@ prune_versions() {
       prune=$((prune + 1))
     fi
   done
-}
-
-set_current() {
-  local work="$1"
-  local target="$2"
-  local link="$work/current"
-
-  ln -sfn "$(basename "$target")" "$link" 2>/dev/null || true
-  if [ -f "$link/Aether.sh" ]; then
-    return 0
-  fi
-
-  rm -rf "$link" 2>/dev/null || true
-  mkdir -p "$link"
-  cp -R "$target"/. "$link" || return 1
-  [ -f "$link/Aether.sh" ]
 }
 
 list_ssl() {
@@ -366,14 +383,66 @@ write_launch() {
   home="$(pick_home)"
   local desk="$home/Desktop"
   local launch="$desk/Aether.sh"
-  local app="$work/current/Aether.sh"
-
-  [ -f "$app" ] || return 1
   mkdir -p "$desk" || return 1
 
   cat > "$launch" <<EOF
 #!/usr/bin/env bash
-exec "$app" "\$@"
+set -euo pipefail
+
+root="$work"
+
+cmp() {
+  local a="\${1#v}"
+  local b="\${2#v}"
+  local aa bb i x y
+  a="\${a%%-*}"
+  b="\${b%%-*}"
+  IFS=. read -r -a aa <<<"\$a"
+  IFS=. read -r -a bb <<<"\$b"
+  for i in 0 1 2 3; do
+    x="\${aa[\$i]:-0}"
+    y="\${bb[\$i]:-0}"
+    x=\$((10#\$x))
+    y=\$((10#\$y))
+    if [ "\$x" -lt "\$y" ]; then
+      echo lt
+      return 0
+    fi
+    if [ "\$x" -gt "\$y" ]; then
+      echo gt
+      return 0
+    fi
+  done
+  echo eq
+}
+
+pick() {
+  local dir ver best best_ver item
+  if [ -f "\$root/.aether_web_version" ]; then
+    ver="\$(tr -d '[:space:]' <"\$root/.aether_web_version")"
+    if [ -n "\$ver" ] && [ -f "\$root/aether_\$ver/Aether.sh" ]; then
+      printf "%s" "\$root/aether_\$ver"
+      return 0
+    fi
+  fi
+  shopt -s nullglob
+  for item in "\$root"/aether_*; do
+    [ -d "\$item" ] || continue
+    [ -f "\$item/.aether_web_version" ] || continue
+    ver="\$(tr -d '[:space:]' <"\$item/.aether_web_version")"
+    [ -n "\$ver" ] || continue
+    if [ -z "\${best:-}" ] || [ "\$(cmp "\$best_ver" "\$ver")" = "lt" ]; then
+      best="\$item"
+      best_ver="\$ver"
+    fi
+  done
+  shopt -u nullglob
+  printf "%s" "\${best:-}"
+}
+
+app="\$(pick)"
+[ -n "\$app" ] || exit 1
+exec "\$app/Aether.sh" "\$@"
 EOF
   chmod +x "$launch" || return 1
   printf "%s" "$launch"
@@ -466,10 +535,7 @@ chmod +x "$target/aether" "$target/Aether.sh" 2>/dev/null || true
 printf "%s\n" "$ver" > "$target/.aether_web_version"
 printf "%s\n" "$ver" > "$work/.aether_web_version"
 
-set_current "$work" "$target" || {
-  echo "[install] Failed to update current link"
-  exit "$run_err"
-}
+rm -rf "$work/current" 2>/dev/null || true
 
 fix_libssl "$target"
 prune_versions "$work" 5 "$target"
@@ -480,7 +546,7 @@ if [ -n "$launch" ]; then
   echo "[install] To start Aether, right-click the Aether.sh file on your desktop and choose Run as a Program."
 else
   echo "[install] Warning: failed to create Desktop launcher."
-  echo "[install] To start Aether, open $work/current, right-click Aether.sh, and choose Run as a Program."
+  echo "[install] To start Aether, open $target, right-click Aether.sh, and choose Run as a Program."
 fi
 
 if [ "$prune" -gt 0 ]; then
@@ -490,5 +556,5 @@ else
 fi
 
 echo "[4/4] Done"
-echo "Current: $work/current"
+echo "Version directory: $target"
 exit "$ok"
