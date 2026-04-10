@@ -199,7 +199,6 @@ class AetherAgent(Agent):
         self._conv_agents: dict[str, str] = {}
         self._conv_approvals: dict[str, str] = {}
         self._conv_dirs: dict[str, str] = {}
-        self._fresh: set[str] = set()
         self._pending_questions: dict[str, dict] = {}
         self._pending_permissions: dict[str, dict] = {}
         self._tasks: dict[str, object] = {}
@@ -474,7 +473,6 @@ class AetherAgent(Agent):
                 )
             chosen = items[idx]
             self._sessions[conv_id] = chosen["id"]
-            self._fresh.discard(conv_id)
             self._conv_agents.pop(conv_id, None)
             self._conv_approvals.pop(conv_id, None)
             title = chosen.get("title") or chosen["id"][:8]
@@ -484,7 +482,6 @@ class AetherAgent(Agent):
         if not items:
             session_id = await self._create_session(directory=directory)
             self._sessions[conv_id] = session_id
-            self._fresh.discard(conv_id)
             self._conv_agents.pop(conv_id, None)
             self._conv_approvals.pop(conv_id, None)
             logger.info(f"[/session] 为 {conv_id} 创建新会话 {session_id[:8]}...")
@@ -519,10 +516,13 @@ class AetherAgent(Agent):
             self._conv_models.pop(conv_id, None)
             self._conv_agents.pop(conv_id, None)
             self._conv_approvals.pop(conv_id, None)
-            self._fresh.add(conv_id)
             self._clear_runtime(conv_id)
+            directory = self._conv_dirs.get(conv_id) or self.directory
+            session_id = await self._create_session(directory)
+            self._sessions[conv_id] = session_id
             if old:
                 logger.info(f"[/new] 清除会话 {old[:8]}... for {conv_id}")
+            logger.info(f"[/new] 为 {conv_id} 创建新会话 {session_id[:8]}...")
             return "✅ 已开启新对话，上下文已清空。"
         if cmd == "/compact":
             return await self._cmd_compact(conv_id)
@@ -725,7 +725,6 @@ class AetherAgent(Agent):
             session_id, created = await self._ensure_session(new_dir)
             self._sessions[conv_id] = session_id
             self._session_list.pop(conv_id, None)
-            self._fresh.discard(conv_id)
             self._conv_models.pop(conv_id, None)
             self._conv_agents.pop(conv_id, None)
             self._conv_approvals.pop(conv_id, None)
@@ -907,11 +906,8 @@ class AetherAgent(Agent):
             directory = self._conv_dirs.get(conv_id) or self.directory
             session_id = self._sessions.get(conv_id)
             if not session_id:
-                session_id, created = await self._ensure_session(
-                    directory, conv_id in self._fresh
-                )
+                session_id, created = await self._ensure_session(directory)
                 self._sessions[conv_id] = session_id
-                self._fresh.discard(conv_id)
                 logger.info(
                     f"{'创建' if created else '选择'}会话: {session_id[:8]}... dir={directory}"
                 )
