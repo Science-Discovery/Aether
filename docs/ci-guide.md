@@ -341,9 +341,9 @@
 #### `duplicate-issues.yml`
 
 - 类型：Issue 治理 / 合规与重复检测
-- 状态：保留文件，但当前基本不可用
-- 触发（原本预期）：issue `opened`、`edited`
+- 状态：活跃
 - 触发（当前）：
+  - issue `opened`、`edited`
   - `workflow_dispatch`
 - 主要内容：
   - 定义了两个 job：
@@ -353,33 +353,50 @@
     - 只在 `github.event.action == 'opened'` 时才会运行
     - checkout 仓库
     - 调用 `.github/actions/setup-bun`
-    - 通过 `curl` 安装 `opencode` CLI
-    - 调用 `opencode run -m opencode/claude-sonnet-4-6`
-    - prompt 要求 agent 一次性完成两件事：
-      - 检查 issue 是否符合 issue template 与贡献规范
-      - 检查是否疑似重复 issue，并对 keybind 相关问题提示固定参考 issue `#4997`
-    - agent 被限制只能使用 `gh issue*` 类命令，不允许通用 bash 与 webfetch
-    - 如果发现不合规，要求 agent：
-      - 在评论中加入 `<!-- issue-compliance -->` 标记
-      - 解释需要修复的问题
-      - 给 issue 加上 `needs:compliance`
-    - 如果发现重复 issue，则把候选 issue 链接和相似原因一并写进同一条评论
+    - 把 `GITHUB_TOKEN`、`GITHUB_REPOSITORY`、`ISSUE_NUMBER`，以及治理用 LLM 的密钥/模型/基地址传给 `bun script/duplicate-issue.ts open`
+    - `duplicate-issue.ts` 的具体逻辑是：
+      - 先校验 GitHub 上下文和治理 LLM 配置，缺失时安全退出
+      - 直接调用 GitHub API 读取当前 issue 与现有评论
+      - 从标题、正文、反引号内容、引号短语中提取多组搜索线索
+      - 用这些线索调用 GitHub Search API，在当前仓库检索 issue 候选集
+      - 去重后最多拉取 `8` 个候选 issue 摘要
+      - 把“当前 issue + 候选 issue 摘要 + 规则说明”发给 OpenAI-compatible `chat/completions` 接口
+      - 要求模型返回严格 JSON，同时产出：
+        - issue 是否合规
+        - 不合规原因
+        - 疑似重复 issue 列表
+      - 只保留 `confidence` 为 `medium` 或 `high` 的 duplicate 候选
+    - 如果发现不合规：
+      - 给 issue 打上 `needs:compliance`
+      - 创建或更新一条带 `<!-- issue-compliance -->` 标记的评论
+      - 评论会保留 `2` 小时整改提示，供 `compliance-close.yml` 继续处理
+    - 如果发现重复 issue：
+      - 在同一条评论里加入 duplicate 段落
+      - 每个候选会附带 issue 编号、标题、链接与相似原因
+    - 如果 issue 提到 keybind / keyboard shortcut / key binding：
+      - 在评论中附加固定参考 issue `#4997`
+    - 如果 issue 合规、没有 duplicate，且不涉及 keybind，则不评论
   - `recheck-compliance`
     - 只在 `github.event.action == 'edited'` 且 issue 带 `needs:compliance` 标签时运行
-    - 同样 checkout、setup-bun、安装 `opencode`
-    - 再次检查 issue 是否修复
-    - 若已修复，则要求 agent：
+    - 同样 checkout、setup-bun
+    - 调用 `bun script/duplicate-issue.ts recheck`
+    - 脚本会再次读取 issue 内容，并把模板/规范要求发给治理 LLM 复核
+    - 若已修复，则脚本会：
       - 移除 `needs:compliance`
       - 删除旧的 `<!-- issue-compliance -->` 评论
-      - 发送一条简短确认评论
-    - 若仍不合规，则继续保留标签并补充说明
+      - 新发一条简短确认评论
+    - 若仍不合规，则脚本会：
+      - 保留 `needs:compliance`
+      - 更新原有 `<!-- issue-compliance -->` 评论，而不是继续叠加新评论
+    - 这种“更新原评论”的处理方式可以保留最初评论的 `created_at`，从而与 `compliance-close.yml` 的 `2` 小时窗口计算保持一致
 - 作用：
   - 降低低质量 issue
   - 及早提示重复问题
+  - 在入口校验阶段就把 issue 合规整改链路与 `compliance-close.yml` 串起来
 - 备注：
-  - 当前 `on:` 只有 `workflow_dispatch`，但两个 job 的执行条件仍然依赖 `github.event.action == 'opened'/'edited'` 和 `github.event.issue.*`
-  - 这意味着在正常手动触发场景下，这两个 job 实际上都不会运行，当前文件基本等于“保留了旧逻辑，但没有可用入口”
-  - 即使未来恢复 issue 事件触发，它仍然依赖 `OPENCODE_API_KEY` 与外部 `opencode` CLI 执行链路
+  - 这条 workflow 已不再依赖旧的 OpenCode CLI，而是 `GitHub API + Bun 脚本 + 第三方 OpenAI-compatible LLM API`
+  - 虽然保留了 `workflow_dispatch`，但两个 job 仍然依赖 `github.event.action` 与 `github.event.issue.*`；因此手动触发通常不会真正进入治理逻辑
+  - duplicate 检索当前不再限定 `state:open`，所以已关闭 issue 也可能作为“历史重复问题”被引用出来
 
 #### `compliance-close.yml`
 
