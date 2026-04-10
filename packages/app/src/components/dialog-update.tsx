@@ -168,9 +168,12 @@ export const DialogUpdate: Component = () => {
           </Show>
 
           <Show when={state() === "downloaded"}>
-            <div class="flex items-center gap-2 text-13-regular text-text-dimmed-green">
-              <Icon name="circle-check" class="size-4" />
-              <span>{language.t("update.downloadComplete")}</span>
+            <div class="flex flex-col gap-2">
+              <div class="flex items-center gap-2 text-13-regular text-text-dimmed-green">
+                <Icon name="circle-check" class="size-4" />
+                <span>{language.t("update.downloadComplete")}</span>
+              </div>
+              <div class="text-12-regular text-text-weak">{language.t("update.installHint")}</div>
             </div>
             <Button size="small" variant="primary" onClick={installUpdate}>
               {language.t("update.install")}
@@ -178,9 +181,12 @@ export const DialogUpdate: Component = () => {
           </Show>
 
           <Show when={state() === "installing"}>
-            <div class="flex items-center gap-2 text-13-regular text-text-weak">
-              <Spinner />
-              <span>{language.t("update.installing")}</span>
+            <div class="flex flex-col gap-2">
+              <div class="flex items-center gap-2 text-13-regular text-text-weak">
+                <Spinner />
+                <span>{language.t("update.installing")}</span>
+              </div>
+              <div class="text-12-regular text-text-weak">{language.t("update.installHint")}</div>
             </div>
           </Show>
 

@@ -398,7 +398,7 @@ export default function Layout(props: ParentProps) {
             guarded: true,
             icon: "download",
             title: language.t("toast.update.title"),
-            description: language.t("toast.update.description", { version: version ?? "" }),
+            description: `${language.t("toast.update.description", { version: version ?? "" })} ${language.t("update.installHint")}`,
             actions:
               platform.platform === "web"
                 ? [

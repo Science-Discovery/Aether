@@ -482,6 +482,7 @@ export const dict = {
   "update.downloadComplete": "下载完成",
   "update.install": "更新并重启",
   "update.installing": "正在安装...",
+  "update.installHint": "安装更新会关闭 Aether。",
   "update.checkFailed": "检查失败",
   "update.retry": "重试",
 
