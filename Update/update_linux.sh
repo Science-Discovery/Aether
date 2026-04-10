@@ -173,13 +173,17 @@ prune_versions() {
       break
     fi
     dir="${item#*|}"
-    has_dir "$dir" "${keepers[@]}" && continue
+    if [ "${#keepers[@]}" -gt 0 ] && has_dir "$dir" "${keepers[@]}"; then
+      continue
+    fi
     keepers+=("$dir")
   done
 
   for item in "${items[@]}"; do
     dir="${item#*|}"
-    has_dir "$dir" "${keepers[@]}" && continue
+    if [ "${#keepers[@]}" -gt 0 ] && has_dir "$dir" "${keepers[@]}"; then
+      continue
+    fi
     rm -rf "$dir"
     if [ ! -d "$dir" ]; then
       prune=$((prune + 1))
