@@ -20,7 +20,7 @@ if not exist "%SRC%" (
 )
 
 set "UV=%SRC%\wechat-bridge\runtime\uv"
-set "UPD=%ROOT%\Update\update_windows_web.bat"
+set "UPD=%ROOT%\Update\update_windows.bat"
 set "PKG=aether-windows-x64"
 set "TMP=%TEMP%\aether-web-pack-%RANDOM%%RANDOM%"
 set "OUT=%TMP%\%PKG%"
@@ -44,8 +44,8 @@ if %RC% GEQ 8 (
   exit /b 1
 )
 
-copy /y "%UPD%" "%OUT%\update_windows_web.bat" >nul || exit /b 1
-copy /y "%UPD%" "%CD%\dist\update_windows_web.bat" >nul || exit /b 1
+copy /y "%UPD%" "%OUT%\update_windows.bat" >nul || exit /b 1
+copy /y "%UPD%" "%CD%\dist\update_windows.bat" >nul || exit /b 1
 
 set "INS=%ROOT%\Update\aether_windows_installer.bat"
 if exist "%INS%" (
@@ -54,7 +54,7 @@ if exist "%INS%" (
 
 powershell -NoProfile -Command "& { [IO.File]::WriteAllText((Join-Path $env:OUT '.aether_web_version'), $env:VERSION) }" || exit /b 1
 
-powershell -NoProfile -Command "& { $crlf=[char]13+[char]10; $txt=@('Aether Web (Windows x64)','', 'Quick start', '1) Extract this ZIP and copy the folder aether-windows-x64 to a local path, for example: C:\Aether-Web', '2) In that folder, double click Aether.vbs', '', 'Offline update', '- Run update_windows_web.bat to check and install newer versions from:', '  https://aether.aiphys.cn/download') -join $crlf; Set-Content -Path (Join-Path $env:OUT 'README_FIRST.txt') -Value ($txt + $crlf) -Encoding ascii }" || exit /b 1
+powershell -NoProfile -Command "& { $crlf=[char]13+[char]10; $txt=@('Aether Web (Windows x64)','', 'Quick start', '1) Extract this ZIP and copy the folder aether-windows-x64 to a local path, for example: C:\Aether-Web', '2) In that folder, double click Aether.vbs', '', 'Offline update', '- Run update_windows.bat to check and install newer versions from:', '  https://aether.aiphys.cn/download') -join $crlf; Set-Content -Path (Join-Path $env:OUT 'README_FIRST.txt') -Value ($txt + $crlf) -Encoding ascii }" || exit /b 1
 
 set "ZIP=%CD%\dist\aether-windows-x64.zip"
 if exist "%ZIP%" del /f /q "%ZIP%"
@@ -69,6 +69,6 @@ rmdir /s /q "%TMP%" >nul 2>nul
 
 echo Done
 echo Asset: %ZIP%
-echo Updater: %CD%\dist\update_windows_web.bat
+echo Updater: %CD%\dist\update_windows.bat
 echo YML:   %YML%
 echo Note:  ZIP includes folder %PKG%

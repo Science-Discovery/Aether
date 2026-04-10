@@ -78,9 +78,9 @@ POST https://aether.aiphys.cn/api/download2/admin/upload
 
 | 字段 | 含义 |
 | --- | --- |
-| `macInstaller` | macOS 可选更新脚本文件，发布为 `update_darwin_web.command` |
-| `winInstaller` | Windows 可选更新脚本文件，发布为 `update_windows_web.bat` |
-| `linuxInstaller` | Linux 可选更新脚本文件，发布为 `update_linux_web.sh` |
+| `macInstaller` | macOS 可选更新脚本文件，发布为 `update_darwin.command` |
+| `winInstaller` | Windows 可选更新脚本文件，发布为 `update_windows.bat` |
+| `linuxInstaller` | Linux 可选更新脚本文件，发布为 `update_linux.sh` |
 
 ### macOS 额外可选字段
 
@@ -96,9 +96,9 @@ POST https://aether.aiphys.cn/api/download2/admin/upload
 | 主字段 | 兼容别名 |
 | --- | --- |
 | `macos` | `darwin`、`mac`、`macPackage`、`aether-darwin-arm64.dmg` |
-| `macInstaller` | `macCommand`、`installer`、`command`、`update_darwin_web.command` |
-| `winInstaller` | `windowsInstaller`、`update_windows_web.bat` |
-| `linuxInstaller` | `update_linux_web.sh` |
+| `macInstaller` | `macCommand`、`installer`、`command`、`update_darwin.command` |
+| `winInstaller` | `windowsInstaller`、`update_windows.bat` |
+| `linuxInstaller` | `update_linux.sh` |
 | `macNotesUrl` | `notesUrl`、`notes_url` |
 | `macVersion` | `darwinVersion`、`mac_version` |
 | `windowsVersion` | `winVersion`、`windows_version` |
@@ -113,7 +113,7 @@ curl -X POST https://aether.aiphys.cn/api/download/admin/upload \
   -H 'x-download-admin-password: <your-password>' \
   -F 'macVersion=1.3.3' \
   -F 'macos=@aether-darwin-arm64.dmg' \
-  -F 'macInstaller=@update_darwin_web.command' \
+  -F 'macInstaller=@update_darwin.command' \
   -F 'macNotesUrl=https://aether.aiphys.cn/release-notes/1.3.3'
 ```
 
@@ -124,13 +124,13 @@ curl -X POST https://aether.aiphys.cn/api/download/admin/upload \
   -F 'password=<your-password>' \
   -F 'macVersion=1.3.3' \
   -F 'macos=@aether-darwin-arm64.dmg' \
-  -F 'macInstaller=@update_darwin_web.command' \
+  -F 'macInstaller=@update_darwin.command' \
   -F 'linuxVersion=1.3.4' \
   -F 'linux=@aether-linux-x64.zip' \
-  -F 'linuxInstaller=@update_linux_web.sh' \
+  -F 'linuxInstaller=@update_linux.sh' \
   -F 'windowsVersion=1.3.5' \
   -F 'windows=@aether-windows-x64.zip' \
-  -F 'winInstaller=@update_windows_web.bat'
+  -F 'winInstaller=@update_windows.bat'
 ```
 
 ## 开发者私有测试上传接口
@@ -151,7 +151,7 @@ curl -X POST https://aether.aiphys.cn/api/download2/admin/upload \
   -H 'x-download-admin-password: <your-password>' \
   -F 'macVersion=1.4.1-dev' \
   -F 'macos=@aether-darwin-arm64.dmg' \
-  -F 'macInstaller=@update_darwin_web.command'
+  -F 'macInstaller=@update_darwin.command'
 ```
 
 ## 上传成功后的行为
@@ -210,7 +210,7 @@ curl -X POST https://aether.aiphys.cn/api/download2/admin/upload \
       "latestManifestUrl": "/api/download2/latest/mac-arm64.yml",
       "sha512": "<base64-sha512>",
       "size": 93444053,
-      "latestInstallerUrl": "/api/download2/latest/update_darwin_web.command",
+      "latestInstallerUrl": "/api/download2/latest/update_darwin.command",
       "notesUrl": null
     }
   ]
@@ -235,8 +235,8 @@ curl -X POST https://aether.aiphys.cn/api/download2/admin/upload \
       "latestManifestUrl": "/download/latest/mac-arm64.yml",
       "sha512": "<base64-sha512>",
       "size": 93444053,
-      "installerUrl": "/download/1.3.3/update_darwin_web.command",
-      "latestInstallerUrl": "/download/latest/update_darwin_web.command",
+      "installerUrl": "/download/1.3.3/update_darwin.command",
+      "latestInstallerUrl": "/download/latest/update_darwin.command",
       "notesUrl": "https://aether.aiphys.cn/release-notes/1.3.3"
     }
   ]
@@ -263,11 +263,11 @@ curl -X POST https://aether.aiphys.cn/api/download2/admin/upload \
 对应安装包：
 
 - `/download/latest/aether-darwin-arm64.dmg`
-- `/download/latest/update_darwin_web.command`
+- `/download/latest/update_darwin.command`
 - `/download/latest/aether-windows-x64.zip`
-- `/download/latest/update_windows_web.bat`
+- `/download/latest/update_windows.bat`
 - `/download/latest/aether-linux-x64.zip`
-- `/download/latest/update_linux_web.sh`
+- `/download/latest/update_linux.sh`
 
 解析规则：
 
@@ -286,11 +286,11 @@ curl -X POST https://aether.aiphys.cn/api/download2/admin/upload \
 对应安装包：
 
 - `/download/<version>/aether-darwin-arm64.dmg`
-- `/download/<version>/update_darwin_web.command`
+- `/download/<version>/update_darwin.command`
 - `/download/<version>/aether-windows-x64.zip`
-- `/download/<version>/update_windows_web.bat`
+- `/download/<version>/update_windows.bat`
 - `/download/<version>/aether-linux-x64.zip`
-- `/download/<version>/update_linux_web.sh`
+- `/download/<version>/update_linux.sh`
 
 ### 兼容旧地址
 
@@ -300,11 +300,11 @@ curl -X POST https://aether.aiphys.cn/api/download2/admin/upload \
 - `/download/latest-web-windows.yml`
 - `/download/latest-web-linux.yml`
 - `/download/aether-darwin-arm64.dmg`
-- `/download/update_darwin_web.command`
+- `/download/update_darwin.command`
 - `/download/aether-windows-x64.zip`
-- `/download/update_windows_web.bat`
+- `/download/update_windows.bat`
 - `/download/aether-linux-x64.zip`
-- `/download/update_linux_web.sh`
+- `/download/update_linux.sh`
 
 ## macOS Manifest 协议
 
@@ -331,7 +331,7 @@ package:
   sha512: <base64-sha512>
   size: 93444053
 installer:
-  url: update_darwin_web.command
+  url: update_darwin.command
   size: 4096
 notes_url: 'https://aether.aiphys.cn/release-notes/1.3.3'
 files:

@@ -150,7 +150,7 @@ jobs:
           path: |
             packages/opencode/dist/aether-darwin-arm64.dmg
             packages/opencode/dist/latest-web-mac.yml
-            packages/opencode/dist/update_darwin_web.command
+            packages/opencode/dist/update_darwin.command
           if-no-files-found: error
 
   build-web-linux:
@@ -174,7 +174,7 @@ jobs:
           path: |
             packages/opencode/dist/aether-linux-x64.zip
             packages/opencode/dist/latest-web-linux.yml
-            packages/opencode/dist/update_linux_web.sh
+            packages/opencode/dist/update_linux.sh
           if-no-files-found: error
 
   build-web-windows:
@@ -199,7 +199,7 @@ jobs:
           path: |
             packages/opencode/dist/aether-windows-x64.zip
             packages/opencode/dist/latest-web-windows.yml
-            packages/opencode/dist/update_windows_web.bat
+            packages/opencode/dist/update_windows.bat
           if-no-files-found: error
 
   publish:

@@ -1,11 +1,11 @@
-# update_darwin_web.command（macOS Web 更新执行脚本）
+# update_darwin.command（macOS Web 更新执行脚本）
 
 这个脚本只负责**本地已下载安装包的版本安装**，不负责远端检查、下载、校验。
 
 与 `aether_darwin_installer.command` 的职责分离如下：
 
 - `aether_darwin_installer.command`：拉取元数据、下载包和安装器、写 `last-result.yml`
-- `update_darwin_web.command`：消费本地 dmg，执行版本目录安装与切换
+- `update_darwin.command`：消费本地 dmg，执行版本目录安装与切换
 
 ## 输入与前提
 
@@ -45,8 +45,8 @@
 
 ```bash
 # 自动选择脚本目录中最高版本 dmg
-./update_darwin_web.command
+./update_darwin.command
 
 # 指定安装版本（脚本目录中必须有对应 dmg）
-./update_darwin_web.command 0.3.1
+./update_darwin.command 0.3.1
 ```
