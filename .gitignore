@@ -37,3 +37,4 @@ __pycache__/
 *.pyc
 */__pycache__/
 .opencode/skills/aether-issue-pr
+nul
