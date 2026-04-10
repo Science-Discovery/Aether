@@ -238,6 +238,47 @@ installed() {
   printf "%s" "$best_ver"
 }
 
+cache_paths() {
+  dl="$work/downloads"
+  [ -n "$pkg_name" ] || return 1
+  local pkg_ext ins_ext
+  pkg_ext="${pkg_name##*.}"
+  if [ "$pkg_ext" = "$pkg_name" ]; then
+    pkg_ext=""
+  else
+    pkg_ext=".$pkg_ext"
+  fi
+  pkg_file="$dl/aether-linux-x64-$ver$pkg_ext"
+  ins_file=""
+  if [ -n "$ins_url" ] && [ -n "$ins_name" ]; then
+    ins_ext="${ins_name##*.}"
+    if [ "$ins_ext" = "$ins_name" ]; then
+      ins_ext=""
+    else
+      ins_ext=".$ins_ext"
+    fi
+    ins_file="$dl/update_linux-$ver$ins_ext"
+  fi
+}
+
+cached_ready() {
+  [ -d "$work/downloads" ] || return 1
+  cache_paths || return 1
+  [ -f "$pkg_file" ] || return 1
+  if [ -n "$sha" ]; then
+    local sum
+    sum="$(compute_sha512_base64 "$pkg_file" || true)"
+    if [ "$sum" = "__NOHASH__" ] || [ "$sum" = "__NOBASE64__" ]; then
+      :
+    else
+      [ "$sum" = "$sha" ] || return 1
+    fi
+  fi
+  [ -n "$ins_file" ] || return 1
+  [ -f "$ins_file" ] || return 1
+  chmod +x "$ins_file" 2>/dev/null || true
+}
+
 ensure_libssl() {
   local app_dir="$1"
   local ssl1_path=""
@@ -781,6 +822,7 @@ if [ "$mode" = "init" ]; then
     echo "Manifest check failed."
     fail "$meta_err"
   }
+  echo "Latest version: $ver"
   cur="$(installed "$work")"
   if [ -n "$cur" ] && [ "$(cmp "$cur" "$ver")" = "eq" ]; then
     res="up_to_date"
@@ -792,15 +834,22 @@ if [ "$mode" = "init" ]; then
     done_hold
     exit "$latest_ok"
   fi
-  grab || {
-    code="$?"
-    res="download_error"
-    [ "$code" = "$sum_err" ] && res="checksum_error"
-    result
-    echo
-    echo "Download failed."
-    fail "$code"
-  }
+  if cached_ready; then
+    echo "Using cached package:"
+    echo "  $pkg_file"
+    echo "Using cached installer:"
+    echo "  $ins_file"
+  else
+    grab || {
+      code="$?"
+      res="download_error"
+      [ "$code" = "$sum_err" ] && res="checksum_error"
+      result
+      echo
+      echo "Download failed."
+      fail "$code"
+    }
+  fi
   res="init_ready"
   result
   echo
@@ -864,6 +913,7 @@ if [ "$mode" = "auto" ]; then
     echo "Manifest check failed."
     exit "$meta_err"
   }
+  echo "Latest version: $ver"
   if [ "$(cmp "$cur" "$ver")" = "lt" ]; then
     echo "Current version: $cur"
     echo "Remote version: $ver"

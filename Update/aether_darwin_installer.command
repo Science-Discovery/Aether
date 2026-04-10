@@ -80,7 +80,7 @@ keep="3"
 done_hold() {
   if [ "$hold" = "1" ]; then
     echo
-    read -r -p "Press Enter to close..." _
+    read -r -p "按回车关闭..." _
   fi
 }
 
@@ -236,6 +236,43 @@ installed() {
   done
   shopt -u nullglob
   printf "%s" "$best_ver"
+}
+
+cache_paths() {
+  dl="$work/downloads"
+  [ -n "$pkg_name" ] || return 1
+  local pkg_ext ins_ext
+  pkg_ext="${pkg_name##*.}"
+  if [ "$pkg_ext" = "$pkg_name" ]; then
+    pkg_ext=""
+  else
+    pkg_ext=".$pkg_ext"
+  fi
+  pkg_file="$dl/aether-darwin-arm64-$ver$pkg_ext"
+  ins_file=""
+  if [ -n "$ins_url" ] && [ -n "$ins_name" ]; then
+    ins_ext="${ins_name##*.}"
+    if [ "$ins_ext" = "$ins_name" ]; then
+      ins_ext=""
+    else
+      ins_ext=".$ins_ext"
+    fi
+    ins_file="$dl/update_darwin-$ver$ins_ext"
+  fi
+}
+
+cached_ready() {
+  [ -d "$work/downloads" ] || return 1
+  cache_paths || return 1
+  [ -f "$pkg_file" ] || return 1
+  if [ -n "$sha" ]; then
+    local sum
+    sum="$(openssl dgst -sha512 -binary "$pkg_file" | openssl base64 -A || true)"
+    [ "$sum" = "$sha" ] || return 1
+  fi
+  [ -n "$ins_file" ] || return 1
+  [ -f "$ins_file" ] || return 1
+  chmod +x "$ins_file" 2>/dev/null || true
 }
 
 fetch_meta() {
@@ -417,31 +454,31 @@ prune() {
 
 help() {
   cat <<EOF
-Aether Darwin Installer
+Aether macOS 安装器
 
-Usage:
+用法:
   $(basename "$0") [--no-pause] [--path <dir>] init
   $(basename "$0") [--no-pause] auto <current-version>
   $(basename "$0") [--no-pause] manual <target-version>
 
-Remote manifests:
+远端清单:
   $base/$latest
   $base/1.2.3/mac-arm64.yml
 
-Result file:
+结果文件:
   work_dir/downloads/last-result.yml
 
-Exit codes:
-  0   init finished successfully
-  10  latest update downloaded and ready
-  11  requested version downloaded and ready
-  20  already up to date
-  21  requested version not found
-  30  manifest or network error
-  31  download failed
-  32  checksum mismatch
-  40  work directory error
-  50  argument error
+退出码:
+  0   初始化安装成功完成
+  10  最新更新已下载，等待安装
+  11  指定版本已下载，等待安装
+  20  已是最新版本
+  21  未找到指定版本
+  30  清单或网络错误
+  31  下载失败
+  32  校验和不匹配
+  40  工作目录错误
+  50  参数错误
 EOF
 }
 
@@ -451,16 +488,16 @@ if [ "$mode" = "help" ] || [ "$mode" = "--help" ] || [ "$mode" = "-h" ]; then
 fi
 
 if [ "$mode" = "init" ]; then
-  echo "Aether Darwin Installer"
+  echo "Aether macOS 安装器"
   echo
   work="$(normalize_work "${path_arg:-$default}")"
-  echo "Install directory:"
+  echo "安装目录:"
   echo "  $work"
   prep "$work" || {
     res="dir_error"
     result
     echo
-    echo "Work directory failed."
+    echo "工作目录处理失败。"
     fail "$dir_err"
   }
   local_self="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
@@ -470,7 +507,7 @@ if [ "$mode" = "init" ]; then
       res="dir_error"
       result
       echo
-      echo "Failed to copy installer to $work"
+      echo "复制安装器到 $work 失败"
       fail "$dir_err"
     }
   fi
@@ -479,52 +516,62 @@ if [ "$mode" = "init" ]; then
     res="meta_error"
     result
     echo
-    echo "Manifest check failed."
+    echo "获取清单失败。"
     fail "$meta_err"
   }
+  echo
+  echo "最新版本: $ver"
+  echo
   cur="$(installed "$work")"
   if [ -n "$cur" ] && [ "$(cmp "$cur" "$ver")" = "eq" ]; then
     res="up_to_date"
     result
     echo
-    echo "Current version: $cur"
-    echo "Remote version: $ver"
-    echo "Already up to date."
+    echo "当前版本: $cur"
+    echo "远端版本: $ver"
+    echo "已经是最新版本。"
     done_hold
     exit "$latest_ok"
   fi
-  grab || {
-    code="$?"
-    res="download_error"
-    [ "$code" = "$sum_err" ] && res="checksum_error"
-    result
-    echo
-    echo "Download failed."
-    fail "$code"
-  }
+  if cached_ready; then
+    echo "Using cached package:"
+    echo "  $pkg_file"
+    echo "Using cached installer:"
+    echo "  $ins_file"
+  else
+    grab || {
+      code="$?"
+      res="download_error"
+      [ "$code" = "$sum_err" ] && res="checksum_error"
+      result
+      echo
+      echo "下载失败。"
+      fail "$code"
+    }
+  fi
   res="init_ready"
   result
   echo
-  echo "Download finished."
-  echo "Version:   $ver"
-  echo "Package:   $pkg_file"
-  echo "Installer: $ins_file"
-  echo "Result:    $res_file"
+  echo "下载完成。"
+  echo "版本:     $ver"
+  echo "安装包:   $pkg_file"
+  echo "安装脚本: $ins_file"
+  echo "结果文件: $res_file"
   echo
   if [ -n "$ins_file" ]; then
-    echo "[init] Running installer script..."
+    echo "[init] 正在运行安装脚本..."
     if ! (cd "$work/downloads" && bash "$(basename "$ins_file")" "$ver"); then
       res="run_error"
       result
       echo
-      echo "Install step failed while running: $ins_file"
+      echo "执行安装步骤失败: $ins_file"
       fail "$run_err"
     fi
   else
     res="run_error"
     result
     echo
-    echo "Install step failed: installer script missing in manifest."
+    echo "执行安装步骤失败：清单中缺少安装脚本。"
     fail "$run_err"
   fi
 
@@ -536,8 +583,8 @@ fi
 
 if [ "$mode" = "auto" ]; then
   [ -n "$arg" ] || {
-    echo "auto mode needs current version."
-    echo "Example: $(basename "$0") auto 1.2.3"
+    echo "auto 模式需要当前版本号。"
+    echo "示例: $(basename "$0") auto 1.2.3"
     res="arg_error"
     work="$(workdir)"
     result
@@ -550,7 +597,7 @@ if [ "$mode" = "auto" ]; then
     res="dir_error"
     result
     echo
-    echo "Work directory failed."
+    echo "工作目录处理失败。"
     exit "$dir_err"
   }
   manifest_url="$base/$latest"
@@ -558,28 +605,31 @@ if [ "$mode" = "auto" ]; then
     res="meta_error"
     result
     echo
-    echo "Manifest check failed."
+    echo "获取清单失败。"
     exit "$meta_err"
   }
+  echo
+  echo "最新版本: $ver"
+  echo
   if [ "$(cmp "$cur" "$ver")" = "lt" ]; then
-    echo "Current version: $cur"
-    echo "Remote version: $ver"
+    echo "当前版本: $cur"
+    echo "远端版本: $ver"
     grab || {
       code="$?"
       res="download_error"
       [ "$code" = "$sum_err" ] && res="checksum_error"
       result
       echo
-      echo "Download failed."
+      echo "下载失败。"
       exit "$code"
     }
     res="update_ready"
     result
     exit "$ready"
   fi
-  echo "Current version: $cur"
-  echo "Remote version: $ver"
-  echo "Already up to date."
+  echo "当前版本: $cur"
+  echo "远端版本: $ver"
+  echo "已经是最新版本。"
   res="up_to_date"
   result
   exit "$latest_ok"
@@ -587,8 +637,8 @@ fi
 
 if [ "$mode" = "manual" ]; then
   [ -n "$arg" ] || {
-    echo "manual mode needs a version."
-    echo "Example: $(basename "$0") manual 1.2.3"
+    echo "manual 模式需要版本号。"
+    echo "示例: $(basename "$0") manual 1.2.3"
     res="arg_error"
     work="$(workdir)"
     result
@@ -601,7 +651,7 @@ if [ "$mode" = "manual" ]; then
     res="dir_error"
     result
     echo
-    echo "Work directory failed."
+    echo "工作目录处理失败。"
     exit "$dir_err"
   }
   manifest_url="$base/$req/mac-arm64.yml"
@@ -616,18 +666,18 @@ if [ "$mode" = "manual" ]; then
     res="meta_error"
     result
     echo
-    echo "Manifest check failed."
+    echo "获取清单失败。"
     exit "$meta_err"
   fi
-  echo "Requested version: $req"
-  echo "Resolved version:  $ver"
+  echo "请求版本: $req"
+  echo "解析版本: $ver"
   grab || {
     code="$?"
     res="download_error"
     [ "$code" = "$sum_err" ] && res="checksum_error"
     result
     echo
-    echo "Download failed."
+    echo "下载失败。"
     exit "$code"
   }
   res="manual_ready"

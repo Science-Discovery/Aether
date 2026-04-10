@@ -121,7 +121,7 @@ set "SELF=%~f0"
 set "DST=%WORK%\%~nx0"
 if /I not "%SELF%"=="%DST%" (
   copy /y "%~f0" "%DST%" >nul || (
-    echo Failed to copy installer to %WORK%
+    call :print_copy_fail "%WORK%"
     goto :dir_fail
   )
 )
@@ -129,44 +129,41 @@ copy /y "%~f0" "%WORK%\aether_windows_installer.bat" >nul
 
 set "CUR="
 call :latest || goto :meta_fail
+call :print_latest
 call :installed "%WORK%" CUR
 if defined CUR (
   call :cmp "%CUR%" "%VER%"
-  if /I "%CMP%"=="eq" (
+  if /I "!CMP!"=="eq" (
     set "RES=up_to_date"
     call :result
-    echo.
-    echo Current version: %CUR%
-    echo Remote version: %VER%
-    echo Already up to date.
+    call :print_uptodate "!CUR!" "%VER%"
     goto :done
   )
 )
-call :grab || goto :dl_fail
+call :cached_ready
+if errorlevel 1 (
+  call :grab || goto :dl_fail
+) else (
+  call :print_cached
+)
 set "RES=init_ready"
 call :result
 
-echo.
-echo Download finished.
-echo Version:   %VER%
-echo Package:   %PKG_FILE%
-echo Installer: %INS_FILE%
-echo Result:    %RES_FILE%
-echo.
+call :print_downloaded
 
 if "%INS_FILE%"=="" (
   set "RES=run_error"
   call :result
-  echo Install step failed: installer script missing in manifest.
+  call :print_install_missing
   goto :run_fail
 )
 
-echo [init] Running installer script...
+call :print_init_run
 call cmd /c ""%INS_FILE%" %VER%"
 if errorlevel 1 (
   set "RES=run_error"
   call :result
-  echo Install step failed while running: %INS_FILE%
+  call :print_install_fail "%INS_FILE%"
   goto :run_fail
 )
 
@@ -176,34 +173,30 @@ goto :done
 
 :auto
 if "%ARG%"=="" (
-  echo auto mode needs current version.
-  echo Example: %~nx0 auto 1.2.3
+  call :print_auto_arg
   goto :bad
 )
 set "CUR=%ARG%"
 call :work WORK
 call :prep "%WORK%" || goto :dir_fail
 call :latest || goto :meta_fail
+call :print_latest
 call :cmp "%CUR%" "%VER%"
 if /I "%CMP%"=="lt" (
-  echo Current version: %CUR%
-  echo Remote version: %VER%
+  call :print_versions "%CUR%" "%VER%"
   call :grab || goto :dl_fail
   set "RES=update_ready"
   call :result
   exit /b %READY%
 )
-echo Current version: %CUR%
-echo Remote version: %VER%
-echo Already up to date.
+call :print_uptodate "%CUR%" "%VER%"
 set "RES=up_to_date"
 call :result
 exit /b %LATEST_OK%
 
 :manual
 if "%ARG%"=="" (
-  echo manual mode needs a version.
-  echo Example: %~nx0 manual 1.2.3
+  call :print_manual_arg
   goto :bad
 )
 set "CUR="
@@ -219,8 +212,7 @@ if "%RC%"=="%MISS%" (
   exit /b %MISS%
 )
 if not "%RC%"=="0" goto :meta_fail
-echo Requested version: %REQ%
-echo Resolved version:  %VER%
+call :print_manual_versions "%REQ%" "%VER%"
 call :grab || goto :dl_fail
 set "RES=manual_ready"
 call :result
@@ -376,17 +368,106 @@ exit /b 0
 :installed
 set "%~2="
 set "DIR=%~1"
+set "RV="
 if exist "%DIR%\.aether_web_version" (
   set /p RV=<"%DIR%\.aether_web_version"
-  if defined RV (
-    set "%~2=%RV%"
-    exit /b 0
-  )
+)
+if defined RV (
+  set "%~2=!RV!"
+  exit /b 0
 )
 for %%i in ("%DIR%") do set "NAME=%%~nxi"
 for /f "usebackq delims=" %%i in (`powershell -NoProfile -Command "$name=$env:NAME; if($name -match '^aether[-_]([0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z]+)*)$'){ [Console]::Write($matches[1]) }"`) do set "%~2=%%i"
 if defined %~2 exit /b 0
 for /f "usebackq delims=" %%i in (`powershell -NoProfile -Command "$root=$env:DIR; $best=Get-ChildItem -Path $root -Directory -ErrorAction SilentlyContinue | ForEach-Object { if($_.Name -match '^aether[-_]([0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z]+)*)$'){ [PSCustomObject]@{ Ver=$matches[1] } } } | Where-Object { $_ } | Sort-Object @{Expression={ [version](($_.Ver -replace '^v','').Split('-')[0]) }} -Descending | Select-Object -First 1 -ExpandProperty Ver; if($best){ [Console]::Write($best) }"`) do set "%~2=%%i"
+exit /b 0
+
+:cache_paths
+for %%i in ("%PKG_NAME%") do set "PKG_EXT=%%~xi"
+set "PKG_FILE=%WORK%\downloads\aether-windows-x64-%VER%%PKG_EXT%"
+set "INS_FILE="
+if defined INS_URL if defined INS_NAME (
+  for %%i in ("%INS_NAME%") do set "INS_EXT=%%~xi"
+  set "INS_FILE=%WORK%\downloads\update_windows-%VER%%INS_EXT%"
+)
+exit /b 0
+
+:cached_ready
+call :cache_paths
+if not exist "%WORK%\downloads" exit /b 1
+if not exist "%PKG_FILE%" exit /b 1
+if defined SHA (
+  set "SUM="
+  for /f "usebackq delims=" %%i in (`powershell -NoProfile -Command "$h=[Security.Cryptography.SHA512]::Create().ComputeHash([IO.File]::ReadAllBytes($env:PKG_FILE)); [Convert]::ToBase64String($h)"`) do set "SUM=%%i"
+  if /I not "!SUM!"=="!SHA!" exit /b 1
+)
+if not defined INS_FILE exit /b 1
+if not exist "%INS_FILE%" exit /b 1
+exit /b 0
+
+:print_latest
+echo.
+echo Latest version: %VER%
+echo.
+exit /b 0
+
+:print_versions
+echo Current version: %~1
+echo Remote version: %~2
+exit /b 0
+
+:print_uptodate
+echo.
+call :print_versions "%~1" "%~2"
+echo Already up to date.
+exit /b 0
+
+:print_downloaded
+echo.
+echo Download finished.
+echo Version:   %VER%
+echo Package:   %PKG_FILE%
+echo Installer: %INS_FILE%
+echo Result:    %RES_FILE%
+echo.
+exit /b 0
+
+:print_cached
+echo Using cached package:
+echo   %PKG_FILE%
+echo Using cached installer:
+echo   %INS_FILE%
+exit /b 0
+
+:print_install_missing
+echo Install step failed: installer script missing in manifest.
+exit /b 0
+
+:print_init_run
+echo [init] Running installer script...
+exit /b 0
+
+:print_install_fail
+echo Install step failed while running: %~1
+exit /b 0
+
+:print_auto_arg
+echo auto mode needs current version.
+echo Example: %~nx0 auto 1.2.3
+exit /b 0
+
+:print_manual_arg
+echo manual mode needs a version.
+echo Example: %~nx0 manual 1.2.3
+exit /b 0
+
+:print_manual_versions
+echo Requested version: %~1
+echo Resolved version:  %~2
+exit /b 0
+
+:print_copy_fail
+echo Failed to copy installer to %~1
 exit /b 0
 
 :abs

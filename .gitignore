@@ -38,3 +38,4 @@ __pycache__/
 */__pycache__/
 .opencode/skills/aether-issue-pr
 nul
+Update/test_installer_init_flow.sh

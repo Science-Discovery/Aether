@@ -1,4 +1,4 @@
-﻿@echo off
+@echo off
 chcp 65001 >nul
 setlocal EnableExtensions EnableDelayedExpansion
 
@@ -14,30 +14,30 @@ set "LAUNCH="
 set "NOTE="
 
 if /I not "%BASE%"=="downloads" (
-  echo 规范错误：update_windows.bat 必须放在 ...\aether\downloads 目录。当前: %SELF%
+  echo Spec error: update_windows.bat must be placed in ...\aether\downloads. Current: %SELF%
   exit /b 1
 )
 for %%i in ("%WORK%") do set "WORK_NAME=%%~nxi"
 if /I not "%WORK_NAME%"=="aether" (
-  echo 规范错误：工作目录必须是 ...\aether。当前: %WORK%
+  echo Spec error: work directory must be ...\aether. Current: %WORK%
   exit /b 1
 )
 if not exist "%WORK%\aether_windows_installer.bat" (
-  echo 规范错误：缺少 ...\aether\aether_windows_installer.bat
+  echo Spec error: missing ...\aether\aether_windows_installer.bat
   exit /b 1
 )
 
-echo [0/4] 工作目录: %WORK%
+echo [0/4] Work directory: %WORK%
 
 call :pick_pkg "%SELF%" "%WANT%"
 if errorlevel 1 (
-  echo 未在 ...\aether\downloads 找到可用 zip（文件名需包含版本号）
+  echo No usable zip found in ...\aether\downloads; filename must include a version
   exit /b 1
 )
 
 set "TARGET=%WORK%\aether_%VER%"
-echo [1/4] 安装包: %PKG_NAME%
-echo       目标版本: %VER%
+echo [1/4] Package: %PKG_NAME%
+echo       Target version: %VER%
 
 set "TMP=%TEMP%\aether-install-%RANDOM%%RANDOM%"
 set "EX=%TMP%\extract"
@@ -53,11 +53,11 @@ powershell -NoProfile -Command "& { Expand-Archive -Path $env:PKG -DestinationPa
 set "SRC="
 if exist "%SRC_FILE%" set /p SRC=<"%SRC_FILE%"
 if "%SRC%"=="" (
-  echo 安装包内容缺少 aether.exe 或 Aether.vbs
+  echo Package contents missing aether.exe or Aether.vbs
   goto :fail
 )
 
-echo [2/4] 解包并安装到: %TARGET%
+echo [2/4] Extracting and installing to: %TARGET%
 robocopy "%SRC%" "%NEXT%" /MIR /NFL /NDL /NJH /NJS /NP >nul
 set "RC=%ERRORLEVEL%"
 if %RC% GEQ 8 goto :fail
@@ -77,64 +77,41 @@ call :prune_versions || goto :fail
 
 if "%RESTART%"=="1" call :restart
 
-if not "%PRUNE%"=="0" (
-  echo [3/4] 保留最近 5 个版本，已清理 %PRUNE% 个旧版本目录
-) else (
-  echo [3/4] 保留最近 5 个版本，无需清理旧版本目录
-)
+call :print_prune
 
-echo [4/4] 完成
-echo 当前版本: %VER%
-echo 版本目录: %TARGET%
-echo 启动入口: %LAUNCH%
+echo [4/4] Done
+echo Current version: %VER%
+echo Version directory: %TARGET%
+echo Launch entry: %LAUNCH%
 if defined NOTE echo %NOTE%
 
 call :clean_tmp
 exit /b 0
 
 :write_launch
-set "DESK="
-set "DESK_COMMON="
-set "MENU="
-set "MENU_COMMON="
-for /f "usebackq tokens=1,2,3,4 delims=|" %%i in (`powershell -NoProfile -Command "$desk=[Environment]::GetFolderPath('DesktopDirectory'); $desk2=[Environment]::GetFolderPath('CommonDesktopDirectory'); $menu=[Environment]::GetFolderPath('Programs'); $menu2=[Environment]::GetFolderPath('CommonPrograms'); [Console]::Write(([string]$desk) + '|' + ([string]$desk2) + '|' + ([string]$menu) + '|' + ([string]$menu2))"`) do (
-  set "DESK=%%i"
-  set "DESK_COMMON=%%j"
-  set "MENU=%%k"
-  set "MENU_COMMON=%%l"
-)
-if not defined DESK set "DESK=%USERPROFILE%\Desktop"
-if not defined MENU set "MENU=%APPDATA%\Microsoft\Windows\Start Menu\Programs"
-if not defined DESK_COMMON set "DESK_COMMON=%PUBLIC%\Desktop"
-if not defined MENU_COMMON set "MENU_COMMON=%ProgramData%\Microsoft\Windows\Start Menu\Programs"
-if not exist "%DESK%" mkdir "%DESK%"
-if not exist "%MENU%" mkdir "%MENU%"
-set "LNK=%DESK%\Aether.lnk"
-set "MLNK=%MENU%\Aether.lnk"
-set "CLNK=%DESK_COMMON%\Aether.lnk"
-set "CMLNK=%MENU_COMMON%\Aether.lnk"
 set "CMD=%TARGET%\Aether.vbs"
-if exist "%LNK%" del /f /q "%LNK%" >nul 2>nul
-if exist "%MLNK%" del /f /q "%MLNK%" >nul 2>nul
-powershell -NoProfile -Command "$w=New-Object -ComObject WScript.Shell; $mk={ param($p,$t) if(-not $p){ return $false }; $dir=Split-Path -Parent $p; if($dir -and -not (Test-Path $dir)){ New-Item -ItemType Directory -Path $dir -Force | Out-Null }; try { $s=$w.CreateShortcut($p); $s.TargetPath=$t; $s.WorkingDirectory=(Split-Path -Parent $t); $s.Save() } catch { try { if(Test-Path $p){ Remove-Item -LiteralPath $p -Force -ErrorAction Stop }; $s=$w.CreateShortcut($p); $s.TargetPath=$t; $s.WorkingDirectory=(Split-Path -Parent $t); $s.Save() } catch { return $false } }; if(-not (Test-Path $p)){ return $false }; try { $hit=$w.CreateShortcut($p); return $hit.TargetPath -eq $t } catch { return $false } }; $ok1=& $mk $env:LNK $env:CMD; $ok2=& $mk $env:MLNK $env:CMD; $ok3=$false; $ok4=$false; if($env:CLNK){ if((Test-Path $env:CLNK) -or -not [string]::Equals($env:CLNK,$env:LNK,[System.StringComparison]::OrdinalIgnoreCase)){ $ok3=& $mk $env:CLNK $env:CMD } }; if($env:CMLNK){ if((Test-Path $env:CMLNK) -or -not [string]::Equals($env:CMLNK,$env:MLNK,[System.StringComparison]::OrdinalIgnoreCase)){ $ok4=& $mk $env:CMLNK $env:CMD } }; if(-not ($ok1 -or $ok2 -or $ok3 -or $ok4)){ exit 1 }"
-if exist "%LNK%" (
-  set "LAUNCH=%LNK%"
-  set "NOTE=双击桌面上的 Aether.vbs 文件运行。"
-  if /I not "%CLNK%"=="%LNK%" if exist "%CLNK%" set "NOTE=双击桌面上的 Aether.vbs 文件运行。公共桌面快捷方式也已同步更新。"
-) else if exist "%MLNK%" (
-  set "LAUNCH=%MLNK%"
-  set "NOTE=从开始菜单的 Aether.vbs 文件运行。"
-  if /I not "%CMLNK%"=="%MLNK%" if exist "%CMLNK%" set "NOTE=从开始菜单的 Aether.vbs 文件运行。公共开始菜单快捷方式也已同步更新。"
-) else if exist "%CLNK%" (
-  set "LAUNCH=%CLNK%"
-  set "NOTE=双击桌面上的 Aether.vbs 文件运行。"
-) else if exist "%CMLNK%" (
-  set "LAUNCH=%CMLNK%"
-  set "NOTE=从开始菜单的 Aether.vbs 文件运行。"
-) else (
-  set "LAUNCH=%CMD%"
-  set "NOTE=创建快捷方式失败，请打开文件管理器找到该路径对应的文件，双击运行。"
+set "OUT=%TEMP%\aether-launch-%RANDOM%%RANDOM%.txt"
+if exist "%OUT%" del /f /q "%OUT%" >nul 2>nul
+powershell -NoProfile -Command "$cmd=$env:CMD; $out=$env:OUT; $w=New-Object -ComObject WScript.Shell; $desk=[Environment]::GetFolderPath('DesktopDirectory'); if(-not $desk){ $desk=$w.SpecialFolders.Item('Desktop') }; $menu=[Environment]::GetFolderPath('Programs'); if(-not $menu){ $menu=Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs' }; $desk2=[Environment]::GetFolderPath('CommonDesktopDirectory'); $menu2=[Environment]::GetFolderPath('CommonPrograms'); $all=@($desk,$menu,$desk2,$menu2) | Where-Object { $_ } | Select-Object -Unique; foreach($dir in $all){ $lnk=Join-Path $dir 'Aether.lnk'; try { if(Test-Path $lnk){ Remove-Item -LiteralPath $lnk -Force -ErrorAction Stop } } catch {} }; $mk={ param($path,$target) try { $dir=Split-Path -Parent $path; if($dir -and -not (Test-Path $dir)){ New-Item -ItemType Directory -Path $dir -Force | Out-Null }; if(Test-Path $path){ Remove-Item -LiteralPath $path -Force -ErrorAction SilentlyContinue }; $s=$w.CreateShortcut($path); $s.TargetPath=$target; $s.WorkingDirectory=(Split-Path -Parent $target); $s.Save(); if(-not (Test-Path $path)){ return $false }; $hit=$w.CreateShortcut($path); return $hit.TargetPath -eq $target } catch { return $false } }; $launch=''; $note=''; $desk_ok=$false; $menu_ok=$false; if($desk){ $desk_ok=& $mk (Join-Path $desk 'Aether.lnk') $cmd }; if($menu){ $menu_ok=& $mk (Join-Path $menu 'Aether.lnk') $cmd }; if($desk_ok){ $launch=Join-Path $desk 'Aether.lnk'; $note='Double-click Aether.vbs on your desktop to run it.' } elseif($menu_ok){ $launch=Join-Path $menu 'Aether.lnk'; $note='Run Aether.vbs from the Start Menu.' } else { $launch=$cmd; $note='Shortcut creation failed. Open File Explorer, find this path, and double-click the file to run it.' }; [IO.File]::WriteAllLines($out, @($launch,$note))"
+set "LAUNCH=%CMD%"
+set "NOTE=Shortcut creation failed. Open File Explorer, find this path, and double-click the file to run it."
+if exist "%OUT%" (
+  set /p LAUNCH=<"%OUT%"
+  for /f "usebackq skip=1 delims=" %%i in ("%OUT%") do (
+    set "NOTE=%%i"
+    goto :write_launch_done
+  )
 )
+:write_launch_done
+if exist "%OUT%" del /f /q "%OUT%" >nul 2>nul
+exit /b 0
+
+:print_prune
+if "%PRUNE%"=="0" (
+  echo [3/4] Keeping the latest 5 versions; no older version directories needed removal.
+  exit /b 0
+)
+echo [3/4] Keeping the latest 5 versions; removed %PRUNE% older version directories.
 exit /b 0
 
 :restart
