@@ -22,7 +22,7 @@
   - 仓库设置：
     - 必须启用 GitHub Actions
     - 因 job 需要 `checks: write`，`Settings -> Actions -> General -> Workflow permissions` 需要设为 `Read and write permissions`
-    - 如果组织限制了可用 action，需要放行 `actions/checkout@v4`、`oven-sh/setup-bun@v2`、`actions/cache@v4`
+    - 如果组织限制了可用 action，需要放行 `actions/checkout@v4`、`actions/setup-node@v4`、`oven-sh/setup-bun@v2`、`actions/cache@v4`
   - Repository variables：无
   - Repository secrets：无自定义项；使用系统自带 `GITHUB_TOKEN`
   - 可选但常见的仓库配置：
@@ -41,18 +41,29 @@
     - 配置 git 身份
     - 执行 `bun --cwd packages/app test:unit`
     - 该命令实际会跑 `packages/app` 下的 `bun test --preload ./happydom.ts ./src`
+  - `app-unit-windows`
+    - 运行在 GitHub Hosted `windows-2022`
+    - 先调用 `actions/setup-node@v4` 固定 Node `24`，再调用 `.github/actions/setup-bun`
+    - 配置 git 身份
+    - 执行 `bun --cwd packages/app test:unit`
   - `opencode-unit`
     - checkout 仓库
     - 调用 `.github/actions/setup-bun`
     - 在 `packages/opencode` 下设置 `OPENCODE_EXPERIMENTAL_DISABLE_FILEWATCHER=true`
     - 执行 `bun test --timeout 30000`
     - 这条 job 设置了 `20` 分钟超时
+  - `opencode-unit-windows`
+    - 运行在 GitHub Hosted `windows-2022`
+    - 先调用 `actions/setup-node@v4` 固定 Node `24`，再调用 `.github/actions/setup-bun`
+    - 配置 git 身份
+    - 在 `packages/opencode` 下设置 `OPENCODE_EXPERIMENTAL_DISABLE_FILEWATCHER=true`
+    - 执行 `bun test --timeout 30000`
+    - 同样设置了 `20` 分钟超时
 - 作用：
-  - 为 `packages/app` 和 `packages/opencode` 提供持续的单元测试校验
+  - 为 `packages/app` 和 `packages/opencode` 提供 Linux 与 Windows 两个平台的持续单元测试校验
   - 把较稳定的前端单测与核心包单测分开展示，便于区分问题来源
 - 备注：
   - workflow 注释明确说明：
-    - Windows 测试当前不纳入 required baseline，原因是仓库 symlink 在 GitHub Hosted Windows runner 上会遇到 checkout 阶段的 `Filename too long`
     - app E2E 当前也不纳入 required baseline，原因是 CI 中临时端口分配尚未稳定
 
 #### `typecheck.yml`
