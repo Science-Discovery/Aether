@@ -136,10 +136,6 @@ exit /b 0
 set "OLD="
 for /f "usebackq delims=" %%i in (`powershell -NoProfile -Command "$root=$env:WORK; $pick=Get-ChildItem -Path $root -Directory -Filter 'aether_*' -ErrorAction SilentlyContinue | ForEach-Object { $ver=''; if(Test-Path (Join-Path $_.FullName '.aether_web_version')){ $ver=(Get-Content (Join-Path $_.FullName '.aether_web_version') -TotalCount 1).Trim() }; if(-not $ver -and $_.Name -match '^aether[-_]([0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z]+)*)$'){ $ver=$matches[1] }; if($ver){ [PSCustomObject]@{ Dir=$_.FullName; Ver=$ver } } } | Where-Object { $_ } | Sort-Object @{Expression={ [version](($_.Ver -replace '^v','').Split('-')[0]) }} -Descending | Select-Object -First 1 -ExpandProperty Dir; if($pick){ [Console]::Write($pick) }"`) do set "OLD=%%i"
 if defined OLD exit /b 0
-for /d %%i in ("%WORK%\aether_*") do (
-  for /f "usebackq delims=" %%j in (`powershell -NoProfile -Command "$dir=$env:DIR; $name=[IO.Path]::GetFileName($dir); $ver=''; if(Test-Path (Join-Path $dir '.aether_web_version')){ $ver=(Get-Content (Join-Path $dir '.aether_web_version') -TotalCount 1).Trim() }; if(-not $ver -and $name -match '^aether[-_]([0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z]+)*)$'){ $ver=$matches[1] }; if($ver){ [Console]::Write($ver) }"`) do set "OLD=%%~fi"
-  if defined OLD exit /b 0
-)
 exit /b 0
 
 :pick_pkg
