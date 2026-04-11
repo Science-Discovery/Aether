@@ -1,0 +1,140 @@
+name: cicd-guard
+
+on:
+  pull_request_target:
+    branches: [dev]
+    types: [opened, reopened, synchronize, ready_for_review]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: read
+
+jobs:
+  guard:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout guard config
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            .github/cicd-admins.txt
+            .github/cicd-protected-files.txt
+
+      - name: Block CI/CD changes for non-admin PRs
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const fs = require("node:fs")
+            const path = require("node:path")
+
+            const mark = "<!-- cicd-guard -->"
+            const root = process.env.GITHUB_WORKSPACE
+            const pr = context.payload.pull_request
+            const owner = context.repo.owner
+            const repo = context.repo.repo
+
+            const read = (file) =>
+              fs
+                .readFileSync(path.join(root, file), "utf8")
+                .split("\n")
+                .map((x) => x.trim())
+                .filter((x) => x && !x.startsWith("#"))
+
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner,
+              repo,
+              issue_number: pr.number,
+              per_page: 100,
+            })
+
+            const prev = comments.find((x) => x.body?.includes(mark))
+
+            const clear = async () => {
+              if (!prev) return
+
+              await github.rest.issues.deleteComment({
+                owner,
+                repo,
+                comment_id: prev.id,
+              })
+            }
+
+            const sync = async (body) => {
+              if (prev) {
+                await github.rest.issues.updateComment({
+                  owner,
+                  repo,
+                  comment_id: prev.id,
+                  body,
+                })
+                return
+              }
+
+              await github.rest.issues.createComment({
+                owner,
+                repo,
+                issue_number: pr.number,
+                body,
+              })
+            }
+
+            const admins = new Set(read(".github/cicd-admins.txt").map((x) => x.toLowerCase()))
+            const user = pr.user.login.toLowerCase()
+
+            if (admins.has(user)) {
+              core.info(`Skipping guard for CI/CD admin ${pr.user.login}`)
+              await clear()
+              return
+            }
+
+            const keep = new Set(read(".github/cicd-protected-files.txt"))
+            const files = await github.paginate(github.rest.pulls.listFiles, {
+              owner,
+              repo,
+              pull_number: pr.number,
+              per_page: 100,
+            })
+
+            const hit = []
+            const seen = new Set()
+
+            for (const file of files) {
+              const list = [file.previous_filename, file.filename].filter(Boolean)
+              if (!list.some((x) => keep.has(x))) continue
+
+              const row =
+                file.previous_filename && file.previous_filename !== file.filename
+                  ? `${file.previous_filename} -> ${file.filename}`
+                  : file.filename
+
+              if (seen.has(row)) continue
+              seen.add(row)
+              hit.push(row)
+            }
+
+            if (hit.length === 0) {
+              await clear()
+              return
+            }
+
+            hit.sort()
+
+            const body = [
+              mark,
+              "CI/CD-related files cannot be changed in pull requests unless the author is listed in `.github/cicd-admins.txt`.",
+              "",
+              "Violating files:",
+              ...hit.map((x) => `- \`${x}\``),
+              "",
+              "This guard reads the protected list from `.github/cicd-protected-files.txt`.",
+            ].join("\n")
+
+            await sync(body)
+            core.setFailed(`Blocked CI/CD-related changes: ${hit.join(", ")}`)
