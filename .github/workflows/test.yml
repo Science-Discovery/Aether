@@ -42,6 +42,37 @@ jobs:
       - name: Run app unit tests
         run: bun --cwd packages/app test:unit
 
+  # Restore Windows coverage using the same hosted runner family already used by publish.yml.
+  app-unit-windows:
+    name: app unit (windows)
+    runs-on: windows-2022
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Setup Bun
+        uses: ./.github/actions/setup-bun
+
+      - name: Configure git identity
+        run: |
+          git config --global user.email "bot@opencode.ai"
+          git config --global user.name "opencode"
+
+      - name: Run app unit tests
+        run: bun --cwd packages/app test:unit
+
   # Second-layer CI: keep core package tests visible even while they are still failing.
   # This is intentional: these failures represent real product/test issues, not runner noise.
   opencode-unit:
@@ -66,11 +97,40 @@ jobs:
           OPENCODE_EXPERIMENTAL_DISABLE_FILEWATCHER: "true"
         run: bun test --timeout 30000
 
-  # Windows test jobs are intentionally not part of the current required CI baseline.
-  # The repository contains symlinks that fail during checkout on GitHub-hosted Windows
-  # runners with "Filename too long", so keeping them here as required jobs would only
-  # add infrastructure noise before tests even start.
-  #
-  # App E2E is also intentionally excluded from the current required CI baseline.
+  opencode-unit-windows:
+    name: opencode unit (windows)
+    runs-on: windows-2022
+    timeout-minutes: 20
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Setup Bun
+        uses: ./.github/actions/setup-bun
+
+      - name: Configure git identity
+        run: |
+          git config --global user.email "bot@opencode.ai"
+          git config --global user.name "opencode"
+
+      - name: Run opencode unit tests
+        working-directory: packages/opencode
+        env:
+          OPENCODE_EXPERIMENTAL_DISABLE_FILEWATCHER: "true"
+        run: bun test --timeout 30000
+
+  # App E2E is intentionally excluded from the current required CI baseline.
   # The local E2E harness currently fails to acquire an ephemeral port in CI and needs
   # its own stabilization pass before it can serve as a trustworthy correctness gate.
