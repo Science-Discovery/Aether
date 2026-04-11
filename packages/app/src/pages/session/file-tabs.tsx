@@ -21,6 +21,7 @@ import { useSDK } from "@/context/sdk"
 import { selectionFromLines, useFile, type FileSelection, type SelectedLineRange } from "@/context/file"
 import { useComments } from "@/context/comments"
 import { useLanguage } from "@/context/language"
+import { useLayout } from "@/context/layout"
 import { usePrompt } from "@/context/prompt"
 import { useServer } from "@/context/server"
 import { useSync } from "@/context/sync"
@@ -71,6 +72,7 @@ export function FileTabContent(props: { tab: string }) {
   const file = useFile()
   const comments = useComments()
   const language = useLanguage()
+  const layout = useLayout()
   const prompt = usePrompt()
   const sync = useSync()
   const fileComponent = useFileComponent()
@@ -401,6 +403,8 @@ export function FileTabContent(props: { tab: string }) {
   const openPdfInReadingMode = async () => {
     const p = path()
     if (!p || !params.id) return
+    view().reviewPanel.close()
+    layout.fileTree.close()
     view().quickReading.open(p, p.split("/").pop() ?? "document.pdf")
   }
 

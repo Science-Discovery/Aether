@@ -137,12 +137,20 @@ const QuickReadingFirstReadDialog: Component<{
   const [endPage, setEndPage] = createSignal(defaultEndPage())
   const [error, setError] = createSignal<string | null>(null)
   const [sending, setSending] = createSignal(false)
+  const [largeRangeConfirmOpen, setLargeRangeConfirmOpen] = createSignal(false)
   let resolved = false
 
   createEffect(() => {
     setStartPage(1)
     setEndPage(defaultEndPage())
     setError(null)
+    setLargeRangeConfirmOpen(false)
+  })
+
+  createEffect(() => {
+    startPage()
+    endPage()
+    setLargeRangeConfirmOpen(false)
   })
 
   const rangeError = createMemo(() => {
@@ -152,9 +160,17 @@ const QuickReadingFirstReadDialog: Component<{
     if (start < 1 || end < 1) return firstReadLabel(locale(), "invalid")
     if (start > end) return firstReadLabel(locale(), "order")
     if (end > props.totalPages) return firstReadLabel(locale(), "bounds", { total: props.totalPages })
-    if (end - start + 1 > 30) return firstReadLabel(locale(), "limit")
     return undefined
   })
+
+  const selectedRangePages = createMemo(() => {
+    const start = largeDocument() ? startPage() : 1
+    const end = largeDocument() ? endPage() : props.totalPages
+    if (!Number.isInteger(start) || !Number.isInteger(end)) return 0
+    return Math.max(0, end - start + 1)
+  })
+
+  const requiresLargeRangeConfirm = createMemo(() => selectedRangePages() > 30)
 
   const fetchPagePdf = async (start: number, end: number) => {
     const http = server.current?.http
@@ -188,7 +204,7 @@ const QuickReadingFirstReadDialog: Component<{
     return blob
   }
 
-  const handleStart = async () => {
+  const queuePreRead = async () => {
     if (sending()) return
 
     const currentModel = local.model.current()
@@ -287,6 +303,20 @@ const QuickReadingFirstReadDialog: Component<{
     }
   }
 
+  const handleStart = async () => {
+    const validation = rangeError()
+    if (validation) {
+      setError(validation)
+      return
+    }
+    if (requiresLargeRangeConfirm() && !largeRangeConfirmOpen()) {
+      setError(null)
+      setLargeRangeConfirmOpen(true)
+      return
+    }
+    await queuePreRead()
+  }
+
   const handleDismiss = () => {
     if (sending()) return
     quickReading.setFirstReadDismissed(true)
@@ -310,51 +340,80 @@ const QuickReadingFirstReadDialog: Component<{
       class={largeDocument() ? undefined : "w-full max-w-[560px] mx-auto"}
     >
       <div class="flex flex-col gap-4 p-4">
-        <p class="text-sm text-text-base">
-          {largeDocument()
-            ? firstReadLabel(locale(), "large", { total: props.totalPages })
-            : firstReadLabel(locale(), "small", { total: props.totalPages })}
-        </p>
+        {largeRangeConfirmOpen() ? (
+          <>
+            <p class="text-sm text-text-base">
+              {language.locale() === "zh" || language.locale() === "zht"
+                ? `当前将预读第 ${startPage()}-${endPage()} 页，共 ${selectedRangePages()} 页。该范围较大，可能耗时更久，是否继续？`
+                : `You are about to pre-read pages ${startPage()}-${endPage()} (${selectedRangePages()} pages total). This is a large range and may take longer. Continue?`}
+            </p>
+            <div class="rounded bg-surface-raised-base p-3 text-sm text-text-muted">
+              {language.locale() === "zh" || language.locale() === "zht"
+                ? `当前 PDF 共 ${props.totalPages} 页。`
+                : `This PDF has ${props.totalPages} pages in total.`}
+            </div>
+            <div class="flex justify-end gap-2">
+              <Button variant="ghost" onClick={() => setLargeRangeConfirmOpen(false)} disabled={sending()}>
+                {language.locale() === "zh" || language.locale() === "zht" ? "返回修改" : "Back to edit"}
+              </Button>
+              <Button onClick={handleStart} disabled={sending()}>
+                {sending()
+                  ? firstReadLabel(locale(), "submitting")
+                  : language.locale() === "zh" || language.locale() === "zht"
+                    ? "继续预读"
+                    : "Continue pre-read"}
+              </Button>
+            </div>
+          </>
+        ) : (
+          <>
+            <p class="text-sm text-text-base">
+              {largeDocument()
+                ? firstReadLabel(locale(), "large", { total: props.totalPages })
+                : firstReadLabel(locale(), "small", { total: props.totalPages })}
+            </p>
 
-        {largeDocument() && (
-          <div class="grid grid-cols-2 gap-3">
-            <label class="flex flex-col gap-1">
-              <span class="text-xs text-text-muted">{firstReadLabel(locale(), "start")}</span>
-              <input
-                type="number"
-                min={1}
-                max={props.totalPages}
-                value={startPage()}
-                onInput={(event) => setStartPage(event.currentTarget.valueAsNumber || 0)}
-                class="rounded border border-border-base bg-surface-raised-base px-3 py-2 text-sm text-text-base focus:outline-none"
-              />
-            </label>
-            <label class="flex flex-col gap-1">
-              <span class="text-xs text-text-muted">{firstReadLabel(locale(), "end")}</span>
-              <input
-                type="number"
-                min={1}
-                max={props.totalPages}
-                value={endPage()}
-                onInput={(event) => setEndPage(event.currentTarget.valueAsNumber || 0)}
-                class="rounded border border-border-base bg-surface-raised-base px-3 py-2 text-sm text-text-base focus:outline-none"
-              />
-            </label>
-          </div>
+            {largeDocument() && (
+              <div class="grid grid-cols-2 gap-3">
+                <label class="flex flex-col gap-1">
+                  <span class="text-xs text-text-muted">{firstReadLabel(locale(), "start")}</span>
+                  <input
+                    type="number"
+                    min={1}
+                    max={props.totalPages}
+                    value={startPage()}
+                    onInput={(event) => setStartPage(event.currentTarget.valueAsNumber || 0)}
+                    class="rounded border border-border-base bg-surface-raised-base px-3 py-2 text-sm text-text-base focus:outline-none"
+                  />
+                </label>
+                <label class="flex flex-col gap-1">
+                  <span class="text-xs text-text-muted">{firstReadLabel(locale(), "end")}</span>
+                  <input
+                    type="number"
+                    min={1}
+                    max={props.totalPages}
+                    value={endPage()}
+                    onInput={(event) => setEndPage(event.currentTarget.valueAsNumber || 0)}
+                    class="rounded border border-border-base bg-surface-raised-base px-3 py-2 text-sm text-text-base focus:outline-none"
+                  />
+                </label>
+              </div>
+            )}
+
+            {(error() || rangeError()) && (
+              <div class="rounded bg-surface-raised-base p-2 text-sm text-red-400">{error() || rangeError()}</div>
+            )}
+
+            <div class="flex justify-end gap-2">
+              <Button variant="ghost" onClick={handleDismiss} disabled={sending()}>
+                {firstReadLabel(locale(), "cancel")}
+              </Button>
+              <Button onClick={handleStart} disabled={sending()}>
+                {sending() ? firstReadLabel(locale(), "submitting") : firstReadLabel(locale(), "submit")}
+              </Button>
+            </div>
+          </>
         )}
-
-        {(error() || rangeError()) && (
-          <div class="rounded bg-surface-raised-base p-2 text-sm text-red-400">{error() || rangeError()}</div>
-        )}
-
-        <div class="flex justify-end gap-2">
-          <Button variant="ghost" onClick={handleDismiss} disabled={sending()}>
-            {firstReadLabel(locale(), "cancel")}
-          </Button>
-          <Button onClick={handleStart} disabled={sending()}>
-            {sending() ? firstReadLabel(locale(), "submitting") : firstReadLabel(locale(), "submit")}
-          </Button>
-        </div>
       </div>
     </Dialog>
   )

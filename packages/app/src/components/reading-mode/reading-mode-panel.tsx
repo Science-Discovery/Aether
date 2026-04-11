@@ -14,6 +14,7 @@ import { useSDK } from "@/context/sdk"
 import { useSync } from "@/context/sync"
 import { sendFollowupDraft, type FollowupDraft } from "@/components/prompt-input/submit"
 import { Identifier } from "@/utils/id"
+import { createReadingQuoteMetadata, summarizeReadingQuoteText } from "@/utils/comment-note"
 import { formatServerError } from "@/utils/server-errors"
 import { createSizing, type Sizing } from "@/pages/session/helpers"
 
@@ -125,6 +126,20 @@ export const ReadingModePanel: Component<{
         {
           text: translatePromptText(meta.settings.translatePrompt, text),
           synthetic: true,
+        },
+        {
+          text: "",
+          synthetic: true,
+          ignored: true,
+          metadata: createReadingQuoteMetadata({
+            mode: "classic",
+            action: "translate",
+            contentType: "text",
+            pdfFileName: meta.pdfFileName,
+            page: input.page,
+            summary: summarizeReadingQuoteText(text),
+            fullText: text,
+          }),
         },
       ],
     }

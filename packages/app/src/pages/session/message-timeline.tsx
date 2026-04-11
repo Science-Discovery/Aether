@@ -29,7 +29,7 @@ import { useSettings } from "@/context/settings"
 import { useSDK } from "@/context/sdk"
 import { useSync } from "@/context/sync"
 import { messageAgentColor } from "@/utils/agent"
-import { parseCommentNote, readCommentMetadata } from "@/utils/comment-note"
+import { parseCommentNote, readCommentMetadata, readReadingQuoteMetadata, type ReadingQuote } from "@/utils/comment-note"
 import { makeTimer } from "@solid-primitives/timer"
 import { createChatFind, ChatFindBar } from "@/pages/session/chat-find"
 
@@ -41,6 +41,8 @@ type MessageComment = {
     endLine: number
   }
 }
+
+type MessageReadingQuote = ReadingQuote
 
 const emptyMessages: MessageType[] = []
 const idle = { type: "idle" as const }
@@ -68,6 +70,48 @@ const messageComments = (parts: Part[]): MessageComment[] =>
       },
     ]
   })
+
+const messageReadingQuotes = (parts: Part[]): MessageReadingQuote[] =>
+  parts.flatMap((part) => {
+    if (part.type !== "text" || !(part as TextPart).synthetic) return []
+    const next = readReadingQuoteMetadata(part.metadata)
+    return next && next.contentType === "text" ? [next] : []
+  })
+
+function DialogReadingQuoteText(props: { quote: MessageReadingQuote }) {
+  return (
+    <Dialog title={`${props.quote.pdfFileName} · p.${props.quote.page} · ${props.quote.action === "ask" ? "Ask" : "Translate"}`} fit>
+      <div class="flex max-h-[70vh] w-[min(720px,90vw)] flex-col gap-3 overflow-hidden p-4">
+        <div class="text-12-regular text-text-weak">
+          {props.quote.action === "ask" ? "Quoted content used for Ask" : "Quoted content used for Translate"}
+        </div>
+        <div class="overflow-auto rounded-md border border-border-weak-base bg-background-stronger px-3 py-3 text-13-regular text-text-strong whitespace-pre-wrap break-words">
+          {props.quote.fullText || props.quote.summary}
+        </div>
+      </div>
+    </Dialog>
+  )
+}
+
+function DialogReadingQuoteTextContent(props: { quote: MessageReadingQuote }) {
+  return (
+    <Dialog title="PDF Quote" class="w-[min(720px,calc(100vw-32px))] max-w-[calc(100vw-32px)]">
+      <div class="flex max-h-[70vh] min-w-0 w-full max-w-full flex-col gap-3 overflow-hidden p-4">
+        <div class="min-w-0 break-words text-14-medium text-text-strong">
+          {`${props.quote.pdfFileName} - p.${props.quote.page} - ${props.quote.action === "ask" ? "Ask" : "Translate"}`}
+        </div>
+        <div class="text-12-regular text-text-weak">
+          {props.quote.action === "ask" ? "Quoted content used for Ask" : "Quoted content used for Translate"}
+        </div>
+        <div class="min-w-0 w-full max-w-full overflow-auto rounded-md border border-border-weak-base bg-background-stronger px-3 py-3">
+          <div class="min-w-0 w-full max-w-full whitespace-pre-wrap break-words text-13-regular text-text-strong [overflow-wrap:anywhere]">
+            {props.quote.fullText || props.quote.summary}
+          </div>
+        </div>
+      </div>
+    </Dialog>
+  )
+}
 
 const boundaryTarget = (root: HTMLElement, target: EventTarget | null) => {
   const current = target instanceof Element ? target : undefined
@@ -949,7 +993,23 @@ export function MessageTimeline(props: {
                           c.selection?.endLine === b[i].selection?.endLine,
                       ),
                   })
+                  const readingQuotes = createMemo(() => messageReadingQuotes(sync.data.part[messageID] ?? []), [], {
+                    equals: (a, b) =>
+                      a.length === b.length &&
+                      a.every(
+                        (quote, i) =>
+                          quote.mode === b[i].mode &&
+                          quote.action === b[i].action &&
+                          quote.contentType === b[i].contentType &&
+                          quote.pdfFileName === b[i].pdfFileName &&
+                          quote.page === b[i].page &&
+                          quote.summary === b[i].summary &&
+                          quote.fullText === b[i].fullText &&
+                          quote.imageDataUrl === b[i].imageDataUrl,
+                      ),
+                  })
                   const commentCount = createMemo(() => comments().length)
+                  const readingQuoteCount = createMemo(() => readingQuotes().length)
                   return (
                     <div
                       id={props.anchor(messageID)}
@@ -960,7 +1020,7 @@ export function MessageTimeline(props: {
                       }}
                       style={{ "content-visibility": "auto", "contain-intrinsic-size": "auto 500px" }}
                     >
-                      <Show when={commentCount() > 0}>
+                      <Show when={commentCount() > 0 || readingQuoteCount() > 0}>
                         <div class="w-full px-4 md:px-5 pb-2">
                           <div class="ml-auto max-w-[82%] overflow-x-auto no-scrollbar">
                             <div class="flex w-max min-w-full justify-end gap-2">
@@ -991,6 +1051,38 @@ export function MessageTimeline(props: {
                                             {c().comment}
                                           </div>
                                         </div>
+                                      )}
+                                    </Show>
+                                  )
+                                }}
+                              </Index>
+                              <Index each={readingQuotes()}>
+                                {(quoteAccessor: () => MessageReadingQuote) => {
+                                  const quote = createMemo(() => quoteAccessor())
+                                  return (
+                                    <Show when={quote()}>
+                                      {(q) => (
+                                        <button
+                                          type="button"
+                                          class="shrink-0 max-w-[260px] rounded-[6px] border border-border-weak-base bg-background-stronger px-2.5 py-2 text-left transition hover:bg-background-base"
+                                          onClick={() => {
+                                            dialog.show(() => <DialogReadingQuoteTextContent quote={q()} />)
+                                          }}
+                                        >
+                                          <div class="flex items-center gap-1.5 min-w-0 text-11-medium text-text-strong">
+                                            <FileIcon
+                                              node={{ path: q().pdfFileName, type: "file" }}
+                                              class="size-3.5 shrink-0"
+                                            />
+                                            <span class="truncate">{q().pdfFileName}</span>
+                                          </div>
+                                          <div class="pt-1 text-11-medium text-text-weak">
+                                            {`p.${q().page} · ${q().action === "ask" ? "Ask" : "Translate"}`}
+                                          </div>
+                                          <div class="pt-1 text-12-regular text-text-strong whitespace-pre-wrap break-words line-clamp-3">
+                                            {q().summary}
+                                          </div>
+                                        </button>
                                       )}
                                     </Show>
                                   )

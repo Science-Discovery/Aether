@@ -22,6 +22,7 @@ import { Identifier } from "@/utils/id"
 import { Worktree as WorktreeState } from "@/utils/worktree"
 import { buildRequestParts, type DataAttachment } from "./build-request-parts"
 import { setCursorPosition } from "./editor-dom"
+import { createReadingQuoteMetadata, summarizeReadingQuoteText } from "@/utils/comment-note"
 import { formatServerError } from "@/utils/server-errors"
 
 type PendingPrompt = {
@@ -759,6 +760,20 @@ export function createPromptSubmit(input: PromptSubmitInput) {
             }),
             synthetic: true,
           },
+          {
+            text: "",
+            synthetic: true,
+            ignored: true,
+            metadata: createReadingQuoteMetadata({
+              mode: "quick",
+              action: "ask",
+              contentType: "text",
+              pdfFileName: quickReadingQuestion.pdfFileName,
+              page: quickReadingQuestion.page,
+              summary: summarizeReadingQuoteText(quickReadingQuestion.text),
+              fullText: quickReadingQuestion.text,
+            }),
+          },
         ],
       }
 
@@ -874,6 +889,20 @@ export function createPromptSubmit(input: PromptSubmitInput) {
                 contextPages: pageText.combinedText,
               }),
               synthetic: true,
+            },
+            {
+              text: "",
+              synthetic: true,
+              ignored: true,
+              metadata: createReadingQuoteMetadata({
+                mode: "classic",
+                action: "ask",
+                contentType: "text",
+                pdfFileName: sessionMeta.pdfFileName,
+                page: readingQuestion.page,
+                summary: summarizeReadingQuoteText(readingQuestion.text),
+                fullText: readingQuestion.text,
+              }),
             },
           ],
         }
