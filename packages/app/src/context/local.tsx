@@ -312,10 +312,12 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
     })
 
     createEffect(() => {
-      const unsub = sdk.event.on("session.preference.changed", (event) => {
+      const unsub = sdk.event.listen((e) => {
+        const event = e.details
+        if (event.type !== "session.preference.changed") return
         const session = id()
         if (!session) return
-        if (event.properties.info.sessionID !== session) return
+        if (event.properties.sessionID !== session) return
         const pref = event.properties.info
         const state: State = {}
         if (pref.agent) state.agent = pref.agent
