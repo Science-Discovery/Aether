@@ -161,7 +161,7 @@ if "%INS_FILE%"=="" (
 )
 
 call :print_init_run
-call cmd /c ""%INS_FILE%" %VER%"
+call "%INS_FILE%" "%VER%"
 if errorlevel 1 (
   set "RES=run_error"
   call :result
@@ -371,17 +371,10 @@ exit /b 0
 set "%~2="
 set "DIR=%~1"
 set "RV="
-if exist "%DIR%\.aether_web_version" (
-  set /p RV=<"%DIR%\.aether_web_version"
-)
-if defined RV (
-  set "%~2=!RV!"
-  exit /b 0
-)
 for %%i in ("%DIR%") do set "NAME=%%~nxi"
 for /f "usebackq delims=" %%i in (`powershell -NoProfile -Command "$name=$env:NAME; if($name -match '^aether[-_]([0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z]+)*)$'){ [Console]::Write($matches[1]) }"`) do set "%~2=%%i"
 if defined %~2 exit /b 0
-for /f "usebackq delims=" %%i in (`powershell -NoProfile -Command "$root=$env:DIR; $best=Get-ChildItem -Path $root -Directory -ErrorAction SilentlyContinue | ForEach-Object { if($_.Name -match '^aether[-_]([0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z]+)*)$'){ [PSCustomObject]@{ Ver=$matches[1] } } } | Where-Object { $_ } | Sort-Object @{Expression={ [version](($_.Ver -replace '^v','').Split('-')[0]) }} -Descending | Select-Object -First 1 -ExpandProperty Ver; if($best){ [Console]::Write($best) }"`) do set "%~2=%%i"
+for /f "usebackq delims=" %%i in (`powershell -NoProfile -Command "$root=$env:DIR; $best=Get-ChildItem -Path $root -Directory -ErrorAction SilentlyContinue | ForEach-Object { $ver=''; if(Test-Path (Join-Path $_.FullName '.aether_web_version')){ $ver=(Get-Content (Join-Path $_.FullName '.aether_web_version') -TotalCount 1).Trim() }; if(-not $ver -and $_.Name -match '^aether[-_]([0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z]+)*)$'){ $ver=$matches[1] }; if($ver){ [PSCustomObject]@{ Ver=$ver } } } | Where-Object { $_ } | Sort-Object @{Expression={ [version](($_.Ver -replace '^v','').Split('-')[0]) }} -Descending | Select-Object -First 1 -ExpandProperty Ver; if($best){ [Console]::Write($best) }"`) do set "%~2=%%i"
 exit /b 0
 
 :cache_paths
