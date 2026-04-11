@@ -1,6 +1,7 @@
 import { Database as Sqlite } from "bun:sqlite"
 import fs from "fs/promises"
 import path from "path"
+import { setTimeout as sleep } from "node:timers/promises"
 import z from "zod"
 import { Flag } from "@/flag/flag"
 import { Global } from "@/global"
@@ -61,6 +62,28 @@ async function versions(file: string) {
     }
   } catch {
     return {}
+  }
+}
+
+function lock(err: unknown) {
+  return typeof err === "object" && err !== null && "code" in err && ["EBUSY", "EPERM"].includes(String(err.code))
+}
+
+async function copy(src: string, dst: string) {
+  if (process.platform !== "win32") {
+    await fs.copyFile(src, dst)
+    return
+  }
+
+  for (let attempt = 0; attempt < 10; attempt++) {
+    try {
+      await fs.copyFile(src, dst)
+      return
+    } catch (err) {
+      if (!lock(err) || attempt >= 9) throw err
+      Bun.gc(true)
+      await sleep(100)
+    }
   }
 }
 
@@ -156,7 +179,7 @@ export namespace LegacyDB {
     if (stat) return
     const file = await latest()
     if (!file) return
-    await fs.copyFile(file.path, target)
+    await copy(file.path, target)
     await Promise.all([copySidecar(file.path, target, "shm"), copySidecar(file.path, target, "wal")])
     return file.path
   }
