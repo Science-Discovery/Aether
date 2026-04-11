@@ -36,7 +36,6 @@ body.aether-pdf-viewer #toolbarViewerMiddle {
 body.aether-pdf-viewer #aetherPdf2md,
 body.aether-pdf-viewer #aetherNightMode,
 body.aether-pdf-viewer #aetherCaptureRegion,
-body.aether-pdf-viewer #aetherFirstRead,
 body.aether-pdf-viewer #aetherReadingSettings,
 body.aether-pdf-viewer #aetherExitQuickReading,
 body.aether-pdf-viewer #aetherSwapLayout,
@@ -44,7 +43,12 @@ body.aether-pdf-viewer #aetherOpenReadingMode {
   margin-inline-start: 6px;
 }
 
+body.aether-pdf-viewer #secondaryToolbar #aetherFirstRead {
+  margin-inline-start: 0;
+}
+
 body.aether-pdf-viewer {
+  --aether-pdf2md-icon: url("./pdfjs-ref/web/images/aether-pdf2md.svg");
   --aether-night-moon-icon: url("./pdfjs-ref/web/images/aether-night-mode-moon.svg");
   --aether-night-sun-icon: url("./pdfjs-ref/web/images/aether-night-mode-sun.svg");
   --aether-capture-region-icon: url("./pdfjs-ref/web/images/aether-capture-region.svg");
@@ -56,28 +60,24 @@ body.aether-pdf-viewer {
 }
 
 body.aether-pdf-viewer #aetherPdf2md {
-  width: auto;
-  max-width: none;
-  min-width: 78px;
-  padding-inline: 10px;
-  background-color: var(--dropdown-btn-bg-color);
-  border: 1px solid var(--toolbar-border-color);
-  border-radius: 2px;
-  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.04);
+  min-width: 32px;
 }
 
 body.aether-pdf-viewer #aetherPdf2md::before {
-  content: none;
+  -webkit-mask-image: var(--aether-pdf2md-icon);
+  mask-image: var(--aether-pdf2md-icon);
 }
 
 body.aether-pdf-viewer #aetherPdf2md > span {
-  position: static;
-  width: auto;
-  height: auto;
-  overflow: visible;
+  position: absolute;
+  width: 1px;
+  height: 1px;
   padding: 0;
-  text-indent: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
   white-space: nowrap;
+  border: 0;
 }
 
 body.aether-pdf-viewer #aetherSwapLayout {
@@ -90,31 +90,6 @@ body.aether-pdf-viewer #aetherOpenReadingMode {
 
 body.aether-pdf-viewer #aetherCaptureRegion {
   min-width: 32px;
-}
-
-body.aether-pdf-viewer #aetherFirstRead {
-  width: auto;
-  max-width: none;
-  min-width: 72px;
-  padding-inline: 10px;
-  background-color: var(--dropdown-btn-bg-color);
-  border: 1px solid var(--toolbar-border-color);
-  border-radius: 2px;
-  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.04);
-}
-
-body.aether-pdf-viewer #aetherFirstRead::before {
-  content: none;
-}
-
-body.aether-pdf-viewer #aetherFirstRead > span {
-  position: static;
-  width: auto;
-  height: auto;
-  overflow: visible;
-  padding: 0;
-  text-indent: 0;
-  white-space: nowrap;
 }
 
 body.aether-pdf-viewer #aetherReadingSettings {
@@ -135,6 +110,16 @@ body.aether-pdf-viewer #aetherReadingSettings::before {
   mask-image: var(--aether-reading-settings-icon);
 }
 
+body.aether-pdf-viewer #secondaryToolbar #aetherFirstRead::before {
+  -webkit-mask-image: var(--aether-reading-mode-icon);
+  mask-image: var(--aether-reading-mode-icon);
+}
+
+body.aether-pdf-viewer #secondaryToolbar #aetherReadingSettingsSecondary::before {
+  -webkit-mask-image: var(--aether-reading-settings-icon);
+  mask-image: var(--aether-reading-settings-icon);
+}
+
 body.aether-pdf-viewer #aetherExitQuickReading::before {
   -webkit-mask-image: var(--aether-exit-quick-reading-icon);
   mask-image: var(--aether-exit-quick-reading-icon);
@@ -149,12 +134,22 @@ body.aether-pdf-viewer #aetherSwapLayout::before {
   mask-image: var(--aether-swap-right-icon);
 }
 
+body.aether-pdf-viewer #secondaryToolbar #aetherSwapLayoutSecondary::before {
+  -webkit-mask-image: var(--aether-swap-right-icon);
+  mask-image: var(--aether-swap-right-icon);
+}
+
 body.aether-pdf-viewer #aetherOpenReadingMode::before {
   -webkit-mask-image: var(--aether-reading-mode-icon);
   mask-image: var(--aether-reading-mode-icon);
 }
 
 body.aether-pdf-viewer #aetherSwapLayout[data-direction="left"]::before {
+  -webkit-mask-image: var(--aether-swap-left-icon);
+  mask-image: var(--aether-swap-left-icon);
+}
+
+body.aether-pdf-viewer #secondaryToolbar #aetherSwapLayoutSecondary[data-direction="left"]::before {
   -webkit-mask-image: var(--aether-swap-left-icon);
   mask-image: var(--aether-swap-left-icon);
 }
