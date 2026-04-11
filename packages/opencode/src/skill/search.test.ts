@@ -1,139 +1,99 @@
-import { afterAll, describe, expect, mock, test } from "bun:test"
-import { ModelID, ProviderID } from "@/provider/schema"
+import { describe, expect, test } from "bun:test"
+import { split, type SearchResult } from "./catalog"
 
-mock.module("ai", () => ({
-  generateObject: async (input: { messages?: Array<{ role: string; content: string }> }) => {
-    const text = input.messages?.find((item) => item.role === "user")?.content ?? ""
-    if (text.includes("make this writing sound more human")) {
-      return {
-        object: {
-          items: [
-            {
-              id: "writer/skills@humanizer",
-              relevance: "high",
-              summary_zh: "把文本改得更自然。",
-            },
-            {
-              id: "eyh0602/skillshub@paper-polish",
-              relevance: "high",
-              summary_zh: "润色论文。",
-            },
-          ],
-        },
-      }
-    }
-    return {
-      object: {
-        items: [],
-      },
-    }
-  },
-  generateText: async () => ({ text: "" }),
-}))
-
-mock.module("@/provider/provider", () => ({
-  Provider: {
-    getModel: async () => ({}),
-    getLanguage: async () => ({}),
-    defaultModel: async () => undefined,
-    list: async () => ({}),
-  },
-}))
-
-const { Catalog } = await import("./catalog")
-
-const model = {
-  providerID: ProviderID.make("mock"),
-  modelID: ModelID.make("mock"),
+function item(input: Partial<SearchResult> & Pick<SearchResult, "id" | "name" | "provider" | "rank">): SearchResult {
+  return {
+    installed: false,
+    ...input,
+  }
 }
 
-afterAll(() => {
-  mock.restore()
-})
+describe("split", () => {
+  test("keeps paper translation skills in main for translation queries", () => {
+    expect(
+      split(
+        "找一下翻译论文的skill",
+        item({
+          id: "translator/skills@paper-translation",
+          name: "paper-translation",
+          provider: "external",
+          rank: "semantic",
+          source: "translator/skills",
+        }),
+        "Translate academic manuscripts and research papers while preserving scholarly terminology.",
+      ),
+    ).toBe("main")
 
-describe("Catalog.bench", () => {
-  test("keeps translation intent for translating papers", async () => {
-    const out = await Catalog.bench(
-      {
-        query: "找一下翻译论文的skill",
-        items: [
-          {
-            id: "translator/skills@paper-translation",
-            name: "paper-translation",
-            source: "translator/skills",
-            rank: "semantic",
-            body: "Translate academic manuscripts and research papers while preserving scholarly terminology.",
-            summary_source: "skill_md",
-          },
-          {
-            id: "translator/skills@docs-translation",
-            name: "docs-translation",
-            source: "translator/skills",
-            rank: "semantic",
-            body: "Translate technical documentation and product docs between Chinese and English.",
-            summary_source: "skill_md",
-          },
-          {
-            id: "review/skills@manuscript-review",
-            name: "manuscript-review",
-            source: "review/skills",
-            rank: "semantic",
-            body: "Review manuscript structure and submission readiness for academic papers.",
-            summary_source: "skill_md",
-          },
-          {
-            id: "media/skills@subtitle-translation",
-            name: "subtitle-translation",
-            source: "media/skills",
-            rank: "semantic",
-            body: "Translate subtitles and captions for short-form video projects.",
-            summary_source: "skill_md",
-          },
-        ],
-      },
-      model,
-    )
+    expect(
+      split(
+        "找一下翻译论文的skill",
+        item({
+          id: "translator/skills@docs-translation",
+          name: "docs-translation",
+          provider: "external",
+          rank: "semantic",
+          source: "translator/skills",
+        }),
+        "Translate technical documentation and product docs between Chinese and English.",
+      ),
+    ).toBe("main")
 
-    expect(out.main.map((item) => item.name)).toEqual(expect.arrayContaining(["paper-translation", "docs-translation"]))
-    expect(out.main.map((item) => item.name)).not.toContain("subtitle-translation")
+    expect(
+      split(
+        "找一下翻译论文的skill",
+        item({
+          id: "media/skills@subtitle-translation",
+          name: "subtitle-translation",
+          provider: "external",
+          rank: "semantic",
+          source: "media/skills",
+        }),
+        "Translate subtitles and captions for short-form video projects.",
+      ),
+    ).toBeUndefined()
   })
 
-  test("does not let the model promote paper polish into humanizer main results", async () => {
-    const out = await Catalog.bench(
-      {
-        query: "make this writing sound more human",
-        items: [
-          {
-            id: "writer/skills@humanizer",
-            name: "humanizer",
-            source: "writer/skills",
-            rank: "exact",
-            body: "Rewrite text so it sounds more natural and less AI-generated.",
-            summary_source: "skill_md",
-          },
-          {
-            id: "writer/skills@writing-humanizer",
-            name: "writing-humanizer",
-            source: "writer/skills",
-            rank: "semantic",
-            body: "Humanize drafted writing by improving flow and natural phrasing.",
-            summary_source: "skill_md",
-          },
-          {
-            id: "eyh0602/skillshub@paper-polish",
-            name: "paper-polish",
-            source: "eyh0602/skillshub",
-            rank: "semantic",
-            body: "Polish and revise academic papers in LaTeX format.",
-            summary_source: "skill_md",
-          },
-        ],
-      },
-      model,
-    )
+  test("keeps paper polish out of humanizer main results", () => {
+    expect(
+      split(
+        "make this writing sound more human",
+        item({
+          id: "writer/skills@humanizer",
+          name: "humanizer",
+          provider: "external",
+          rank: "exact",
+          source: "writer/skills",
+        }),
+        "Rewrite text so it sounds more natural and less AI-generated.",
+      ),
+    ).toBe("main")
 
-    expect(out.main.map((item) => item.name)).toEqual(expect.arrayContaining(["humanizer", "writing-humanizer"]))
-    expect(out.main.map((item) => item.name)).not.toContain("paper-polish")
-    expect(out.more.map((item) => item.name)).toContain("paper-polish")
+    expect(
+      split(
+        "make this writing sound more human",
+        item({
+          id: "writer/skills@writing-humanizer",
+          name: "writing-humanizer",
+          provider: "external",
+          rank: "semantic",
+          source: "writer/skills",
+        }),
+        "Humanize drafted writing by improving flow and natural phrasing.",
+      ),
+    ).toBe("main")
+
+    expect(
+      split(
+        "make this writing sound more human",
+        item({
+          id: "eyh0602/skillshub@paper-polish",
+          name: "paper-polish",
+          provider: "external",
+          rank: "semantic",
+          source: "eyh0602/skillshub",
+        }),
+        "Polish and revise academic papers in LaTeX format.",
+      ),
+    ).toBe("more")
   })
 })

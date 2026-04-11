@@ -3,6 +3,31 @@ import type { ServerConnection } from "@/context/server"
 
 type Base = ReturnType<typeof createOpencodeClient>
 type Req<T> = Promise<{ data?: T }>
+type PrefGet = { sessionID: string }
+type PrefSet = {
+  sessionID: string
+  agent?: string
+  model?: { providerID: string; modelID: string }
+  variant?: string
+  approval?: string
+  source?: string
+}
+type Pref = {
+  get(input: PrefGet): Req<{
+    sessionID: string
+    agent?: string
+    model?: { providerID: string; modelID: string }
+    variant?: string
+    approval?: string
+  } | null>
+  set(input: PrefSet): Req<{
+    sessionID: string
+    agent?: string
+    model?: { providerID: string; modelID: string }
+    variant?: string
+    approval?: string
+  } | null>
+}
 type Skill = {
   name: string
   description: string
@@ -38,7 +63,7 @@ export type AppClient = Base & {
       alreadyExists: boolean
     }>
   }
-  session: Base["session"] & {
+  session: Omit<Base["session"], "promptAsync" | "preference"> & {
     promptAsync(input: {
       sessionID: string
       directory?: string
@@ -59,29 +84,7 @@ export type AppClient = Base & {
       knowledgeBase?: Kb
       parts: unknown[]
     }): Req<unknown>
-    preference: {
-      get(input: { sessionID: string }): Req<{
-        sessionID: string
-        agent?: string
-        model?: { providerID: string; modelID: string }
-        variant?: string
-        approval?: string
-      } | null>
-      set(input: {
-        sessionID: string
-        agent?: string
-        model?: { providerID: string; modelID: string }
-        variant?: string
-        approval?: string
-        source?: string
-      }): Req<{
-        sessionID: string
-        agent?: string
-        model?: { providerID: string; modelID: string }
-        variant?: string
-        approval?: string
-      } | null>
-    }
+    preference: Pref
   }
 }
 
@@ -105,14 +108,16 @@ export function createSdkForServer({
 }
 
 export function addPreferenceMethods(client: AppClient, baseUrl: string, auth?: Record<string, string>): AppClient {
+  const session = client.session as { preference?: Pref }
+  if (Reflect.has(session, "preference")) return client
   const headers: Record<string, string> = { "Content-Type": "application/json", ...auth }
-  client.session.preference = {
-    async get(input) {
+  session.preference = {
+    async get(input: PrefGet) {
       const resp = await fetch(`${baseUrl}/session/${input.sessionID}/preference`, { headers })
       const data = await resp.json()
       return { data }
     },
-    async set(input) {
+    async set(input: PrefSet) {
       const { sessionID, ...body } = input
       const resp = await fetch(`${baseUrl}/session/${sessionID}/preference`, {
         method: "PUT",

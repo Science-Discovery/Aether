@@ -24,6 +24,10 @@ import type {
   ConfigSkillsToggleResponses,
   ConfigUpdateErrors,
   ConfigUpdateResponses,
+  DatabaseLegacyMergeResponses,
+  DatabaseLegacyMergeStateResetResponses,
+  DatabaseLegacyMergeStateResponses,
+  DatabaseLegacyStatusResponses,
   EventSubscribeResponses,
   EventTuiCommandExecute,
   EventTuiPromptAppend,
@@ -36,6 +40,11 @@ import type {
   ExperimentalWorkspaceListResponses,
   ExperimentalWorkspaceRemoveErrors,
   ExperimentalWorkspaceRemoveResponses,
+  FeishuEventsResponses,
+  FeishuSessionClearResponses,
+  FeishuStartResponses,
+  FeishuStatusResponses,
+  FeishuStopResponses,
   FileActiveTasksResponses,
   FileAddToGitignoreErrors,
   FileAddToGitignoreResponses,
@@ -47,6 +56,8 @@ import type {
   FileDeleteResponses,
   FileDownloadErrors,
   FileDownloadResponses,
+  FileEnsureDirectoryErrors,
+  FileEnsureDirectoryResponses,
   FileListResponses,
   FileOpenErrors,
   FileOpenInExplorerErrors,
@@ -97,6 +108,13 @@ import type {
   GlobalSyncEventSubscribeResponses,
   GlobalUpgradeErrors,
   GlobalUpgradeResponses,
+  GlobalWebUpdateCheckErrors,
+  GlobalWebUpdateCheckResponses,
+  GlobalWebUpdateCurrentResponses,
+  GlobalWebUpdateDownloadErrors,
+  GlobalWebUpdateDownloadResponses,
+  GlobalWebUpdateInstallErrors,
+  GlobalWebUpdateInstallResponses,
   InstanceDisposeResponses,
   KnowledgeConfigGetResponses,
   KnowledgeConfigSetResponses,
@@ -184,10 +202,16 @@ import type {
   ReadingModeAnnotationsGetResponses,
   ReadingModeAnnotationsUpdateErrors,
   ReadingModeAnnotationsUpdateResponses,
+  ReadingModePagePdfErrors,
+  ReadingModePagePdfResponses,
+  ReadingModePageTextErrors,
+  ReadingModePageTextResponses,
   ReadingModePdfGetErrors,
   ReadingModePdfGetResponses,
   ReadingModeSessionCreateErrors,
   ReadingModeSessionCreateResponses,
+  ReadingModeSessionFromFileErrors,
+  ReadingModeSessionFromFileResponses,
   ReadingModeSessionUpdateErrors,
   ReadingModeSessionUpdateResponses,
   SessionAbortErrors,
@@ -213,6 +237,10 @@ import type {
   SessionMessageResponses,
   SessionMessagesErrors,
   SessionMessagesResponses,
+  SessionPreferenceGetErrors,
+  SessionPreferenceGetResponses,
+  SessionPreferenceSetErrors,
+  SessionPreferenceSetResponses,
   SessionPromptAsyncErrors,
   SessionPromptAsyncResponses,
   SessionPromptErrors,
@@ -272,6 +300,7 @@ import type {
   VcsDiffResponses,
   VcsGetResponses,
   WechatEventsResponses,
+  WechatPingResponses,
   WechatSessionClearResponses,
   WechatStartResponses,
   WechatStatusResponses,
@@ -377,6 +406,111 @@ export class Proxy extends HeyApiClient {
     )
     return (options?.client ?? this.client).patch<GlobalProxyUpdateResponses, GlobalProxyUpdateErrors, ThrowOnError>({
       url: "/global/proxy",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+}
+
+export class WebUpdate extends HeyApiClient {
+  /**
+   * Get current web version
+   *
+   * Read the current web app version from local update state.
+   */
+  public current<ThrowOnError extends boolean = false>(options?: Options<never, ThrowOnError>) {
+    return (options?.client ?? this.client).get<GlobalWebUpdateCurrentResponses, unknown, ThrowOnError>({
+      url: "/global/web-update/current",
+      ...options,
+    })
+  }
+
+  /**
+   * Check web update
+   *
+   * Check for available web application updates by fetching remote version metadata.
+   */
+  public check<ThrowOnError extends boolean = false>(options?: Options<never, ThrowOnError>) {
+    return (options?.client ?? this.client).get<
+      GlobalWebUpdateCheckResponses,
+      GlobalWebUpdateCheckErrors,
+      ThrowOnError
+    >({ url: "/global/web-update/check", ...options })
+  }
+
+  /**
+   * Download web update script
+   *
+   * Download the update/install script for the specified OS and version.
+   */
+  public download<ThrowOnError extends boolean = false>(
+    parameters?: {
+      os?: "darwin" | "linux" | "windows"
+      version?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "body", key: "os" },
+            { in: "body", key: "version" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      GlobalWebUpdateDownloadResponses,
+      GlobalWebUpdateDownloadErrors,
+      ThrowOnError
+    >({
+      url: "/global/web-update/download",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Execute web update script
+   *
+   * Execute the previously downloaded update script to install the new version.
+   */
+  public install<ThrowOnError extends boolean = false>(
+    parameters?: {
+      os?: "darwin" | "linux" | "windows"
+      version?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "body", key: "os" },
+            { in: "body", key: "version" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      GlobalWebUpdateInstallResponses,
+      GlobalWebUpdateInstallErrors,
+      ThrowOnError
+    >({
+      url: "/global/web-update/install",
       ...options,
       ...params,
       headers: {
@@ -539,6 +673,11 @@ export class Global extends HeyApiClient {
   private _proxy?: Proxy
   get proxy(): Proxy {
     return (this._proxy ??= new Proxy({ client: this.client }))
+  }
+
+  private _webUpdate?: WebUpdate
+  get webUpdate(): WebUpdate {
+    return (this._webUpdate ??= new WebUpdate({ client: this.client }))
   }
 
   private _syncEvent?: SyncEvent
@@ -1728,6 +1867,98 @@ export class Worktree extends HeyApiClient {
   }
 }
 
+export class Preference extends HeyApiClient {
+  /**
+   * Get session preference
+   *
+   * Retrieve the current preference for a session from in-memory store.
+   */
+  public get<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<
+      SessionPreferenceGetResponses,
+      SessionPreferenceGetErrors,
+      ThrowOnError
+    >({
+      url: "/session/{sessionID}/preference",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Set session preference
+   *
+   * Set preference for a session. Stored in memory and broadcast via SSE.
+   */
+  public set<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      directory?: string
+      workspace?: string
+      agent?: string
+      model?: {
+        providerID: string
+        modelID: string
+      }
+      variant?: string
+      approval?: "auto" | "ask"
+      source?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "agent" },
+            { in: "body", key: "model" },
+            { in: "body", key: "variant" },
+            { in: "body", key: "approval" },
+            { in: "body", key: "source" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).put<
+      SessionPreferenceSetResponses,
+      SessionPreferenceSetErrors,
+      ThrowOnError
+    >({
+      url: "/session/{sessionID}/preference",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+}
+
 export class Session2 extends HeyApiClient {
   /**
    * List sessions
@@ -2684,6 +2915,11 @@ export class Session2 extends HeyApiClient {
       ...params,
     })
   }
+
+  private _preference?: Preference
+  get preference(): Preference {
+    return (this._preference ??= new Preference({ client: this.client }))
+  }
 }
 
 export class Part extends HeyApiClient {
@@ -3548,6 +3784,149 @@ export class Provider extends HeyApiClient {
   }
 }
 
+export class State extends HeyApiClient {
+  /**
+   * Reset merge state
+   *
+   * Mark copy completion state as consumed so restart will not re-show the completion toast.
+   */
+  public reset<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<DatabaseLegacyMergeStateResetResponses, unknown, ThrowOnError>({
+      url: "/database/legacy/merge/state/reset",
+      ...options,
+      ...params,
+    })
+  }
+}
+
+export class Merge extends HeyApiClient {
+  /**
+   * Get merge state
+   *
+   * Get legacy database copy state.
+   */
+  public state<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<DatabaseLegacyMergeStateResponses, unknown, ThrowOnError>({
+      url: "/database/legacy/merge/state",
+      ...options,
+      ...params,
+    })
+  }
+
+  private _state?: State
+  get state2(): State {
+    return (this._state ??= new State({ client: this.client }))
+  }
+}
+
+export class Legacy extends HeyApiClient {
+  /**
+   * Scan legacy databases
+   *
+   * Scan current data directory and report whether the latest legacy database should be copied.
+   */
+  public status<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<DatabaseLegacyStatusResponses, unknown, ThrowOnError>({
+      url: "/database/legacy/status",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Copy latest legacy database
+   *
+   * Copy the latest legacy database into aether-prod.db when the target database is missing.
+   */
+  public merge<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<DatabaseLegacyMergeResponses, unknown, ThrowOnError>({
+      url: "/database/legacy/merge",
+      ...options,
+      ...params,
+    })
+  }
+
+  private _merge?: Merge
+  get merge2(): Merge {
+    return (this._merge ??= new Merge({ client: this.client }))
+  }
+}
+
+export class Database extends HeyApiClient {
+  private _legacy?: Legacy
+  get legacy(): Legacy {
+    return (this._legacy ??= new Legacy({ client: this.client }))
+  }
+}
+
 export class File extends HeyApiClient {
   /**
    * List active conversion/translation tasks
@@ -3886,6 +4265,45 @@ export class File extends HeyApiClient {
       ...options,
       ...params,
     })
+  }
+
+  /**
+   * Ensure directory exists
+   *
+   * Create a directory at the given absolute path if it does not exist, including any intermediate directories.
+   */
+  public ensureDirectory<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      path?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "path" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<FileEnsureDirectoryResponses, FileEnsureDirectoryErrors, ThrowOnError>(
+      {
+        url: "/file/ensure-directory",
+        ...options,
+        ...params,
+        headers: {
+          "Content-Type": "application/json",
+          ...options?.headers,
+          ...params.headers,
+        },
+      },
+    )
   }
 
   /**
@@ -5926,6 +6344,36 @@ export class Wechat extends HeyApiClient {
   }
 
   /**
+   * Ping WeChat lease
+   *
+   * Renew the WeChat lock lease or detect if stolen by another client
+   */
+  public ping<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<WechatPingResponses, unknown, ThrowOnError>({
+      url: "/wechat/ping",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
    * Get WeChat status
    *
    * Get the current WeChat bridge status
@@ -5993,6 +6441,165 @@ export class Wechat extends HeyApiClient {
 
 export class Session4 extends HeyApiClient {
   /**
+   * Clear Feishu session
+   *
+   * Clear the saved Feishu configuration and session data
+   */
+  public clear<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).delete<FeishuSessionClearResponses, unknown, ThrowOnError>({
+      url: "/feishu/session",
+      ...options,
+      ...params,
+    })
+  }
+}
+
+export class Feishu extends HeyApiClient {
+  /**
+   * Start Feishu bridge
+   *
+   * Start the Feishu bridge service with WebSocket connection
+   */
+  public start<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<FeishuStartResponses, unknown, ThrowOnError>({
+      url: "/feishu/start",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Stop Feishu bridge
+   *
+   * Stop the Feishu bridge service
+   */
+  public stop<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<FeishuStopResponses, unknown, ThrowOnError>({
+      url: "/feishu/stop",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Get Feishu status
+   *
+   * Get the current Feishu bridge status
+   */
+  public status<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<FeishuStatusResponses, unknown, ThrowOnError>({
+      url: "/feishu/status",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Subscribe to Feishu events
+   *
+   * Get real-time Feishu events via SSE
+   */
+  public events<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).sse.get<FeishuEventsResponses, unknown, ThrowOnError>({
+      url: "/feishu/events",
+      ...options,
+      ...params,
+    })
+  }
+
+  private _session?: Session4
+  get session(): Session4 {
+    return (this._session ??= new Session4({ client: this.client }))
+  }
+}
+
+export class Session5 extends HeyApiClient {
+  /**
    * Create reading mode session
    */
   public create<ThrowOnError extends boolean = false>(
@@ -6025,6 +6632,55 @@ export class Session4 extends HeyApiClient {
   }
 
   /**
+   * Open reading mode from a workspace PDF file
+   */
+  public fromFile<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      path?: string
+      settings?: {
+        translatePrompt?: string
+        questionPrompt?: string
+        firstReadPrompt?: string
+        contextPageRange?: 0 | 1 | 2
+        autoFirstRead?: boolean
+      }
+      forceNew?: boolean
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "path" },
+            { in: "body", key: "settings" },
+            { in: "body", key: "forceNew" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      ReadingModeSessionFromFileResponses,
+      ReadingModeSessionFromFileErrors,
+      ThrowOnError
+    >({
+      url: "/reading-mode/session/from-file",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
    * Update reading mode session settings
    */
   public update<ThrowOnError extends boolean = false>(
@@ -6040,6 +6696,7 @@ export class Session4 extends HeyApiClient {
         autoFirstRead?: boolean
       }
       firstReadCompleted?: boolean
+      firstReadDismissed?: boolean
     },
     options?: Options<never, ThrowOnError>,
   ) {
@@ -6053,6 +6710,7 @@ export class Session4 extends HeyApiClient {
             { in: "query", key: "workspace" },
             { in: "body", key: "settings" },
             { in: "body", key: "firstReadCompleted" },
+            { in: "body", key: "firstReadDismissed" },
           ],
         },
       ],
@@ -6184,9 +6842,89 @@ export class Pdf extends HeyApiClient {
 }
 
 export class ReadingMode extends HeyApiClient {
-  private _session?: Session4
-  get session(): Session4 {
-    return (this._session ??= new Session4({ client: this.client }))
+  /**
+   * Get extracted text for reading mode PDF pages
+   */
+  public pageText<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      sessionID?: string
+      startPage?: number
+      endPage?: number
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "sessionID" },
+            { in: "body", key: "startPage" },
+            { in: "body", key: "endPage" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<ReadingModePageTextResponses, ReadingModePageTextErrors, ThrowOnError>(
+      {
+        url: "/reading-mode/page-text",
+        ...options,
+        ...params,
+        headers: {
+          "Content-Type": "application/json",
+          ...options?.headers,
+          ...params.headers,
+        },
+      },
+    )
+  }
+
+  /**
+   * Get a ranged PDF subdocument for reading mode
+   */
+  public pagePdf<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      sessionID?: string
+      startPage?: number
+      endPage?: number
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "sessionID" },
+            { in: "body", key: "startPage" },
+            { in: "body", key: "endPage" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<ReadingModePagePdfResponses, ReadingModePagePdfErrors, ThrowOnError>({
+      url: "/reading-mode/page-pdf",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  private _session?: Session5
+  get session(): Session5 {
+    return (this._session ??= new Session5({ client: this.client }))
   }
 
   private _annotations?: Annotations
@@ -6507,6 +7245,11 @@ export class OpencodeClient extends HeyApiClient {
     return (this._provider ??= new Provider({ client: this.client }))
   }
 
+  private _database?: Database
+  get database(): Database {
+    return (this._database ??= new Database({ client: this.client }))
+  }
+
   private _file?: File
   get file(): File {
     return (this._file ??= new File({ client: this.client }))
@@ -6540,6 +7283,11 @@ export class OpencodeClient extends HeyApiClient {
   private _wechat?: Wechat
   get wechat(): Wechat {
     return (this._wechat ??= new Wechat({ client: this.client }))
+  }
+
+  private _feishu?: Feishu
+  get feishu(): Feishu {
+    return (this._feishu ??= new Feishu({ client: this.client }))
   }
 
   private _readingMode?: ReadingMode

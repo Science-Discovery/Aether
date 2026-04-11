@@ -69,8 +69,8 @@ describe("table", () => {
 })
 
 describe("cases", () => {
-  test("covers mixed gui-style chinese and english queries", () => {
-    expect(cases.length).toBeGreaterThanOrEqual(12)
+  test("covers mixed chinese and english discovery intents across writing, automation, export, and slides", () => {
+    expect(cases.length).toBeGreaterThanOrEqual(22)
     expect(cases.map((item) => item.id)).toEqual(
       expect.arrayContaining([
         "paper-polish-zh",
@@ -85,6 +85,16 @@ describe("cases", () => {
         "translate-en",
         "exact-updater",
         "exact-humanizer-cn",
+        "browser-zh",
+        "browser-en",
+        "exact-playwright",
+        "pdf-zh",
+        "pdf-en",
+        "slides-zh",
+        "slides-en",
+        "pptx-en",
+        "paper-web-en",
+        "latex-en",
       ]),
     )
   })

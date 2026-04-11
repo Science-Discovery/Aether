@@ -539,7 +539,7 @@ function level(
   return review === "low" ? "low" : "medium"
 }
 
-function split(query: string, item: SearchResult, body?: string, relevance?: z.infer<typeof Relevance>) {
+export function split(query: string, item: SearchResult, body?: string, relevance?: z.infer<typeof Relevance>) {
   if (blocked(query, item, body)) return
   const rank = relevance ?? item.relevance ?? relate(query, item, body)
   if (item.provider === "external" && !body) return item.rank === "exact" ? ("more" as const) : undefined
