@@ -19,6 +19,5 @@
         "namespaceImportPackages": ["effect", "@effect/*"]
       }
     ]
-  },
-  "exclude": ["test"]
+  }
 }

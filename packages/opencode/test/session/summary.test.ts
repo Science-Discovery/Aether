@@ -6,7 +6,7 @@ import { Snapshot } from "../../src/snapshot"
 import { Session } from "../../src/session"
 import { SessionSummary } from "../../src/session/summary"
 import { MessageV2 } from "../../src/session/message-v2"
-import { MessageID, PartID } from "../../src/session/schema"
+import { MessageID, PartID, SessionID } from "../../src/session/schema"
 import { Instance } from "../../src/project/instance"
 import { ModelID, ProviderID } from "../../src/provider/schema"
 import { Log } from "../../src/util/log"
@@ -30,7 +30,7 @@ async function track(file: string, text: string) {
   return snap!
 }
 
-async function user(sessionID: string, text = "user") {
+async function user(sessionID: SessionID, text = "user") {
   const msg = await Session.updateMessage({
     id: MessageID.ascending(),
     role: "user",
@@ -52,8 +52,8 @@ async function user(sessionID: string, text = "user") {
 }
 
 async function reply(input: {
-  sessionID: string
-  parentID: string
+  sessionID: SessionID
+  parentID: MessageID
   start: string
   finish: string
   text?: string
@@ -165,7 +165,7 @@ describe("session summary semantics", () => {
       directory: tmp.path,
       fn: async () => {
         const session = await Session.create({})
-        const seen: { sessionID: string; diff: { file: string }[] }[] = []
+        const seen: { sessionID: SessionID; diff: { file: string }[] }[] = []
         const off = Bus.subscribe(Session.Event.Diff, (evt) => {
           seen.push({
             sessionID: evt.properties.sessionID,
@@ -224,7 +224,8 @@ describe("session summary semantics", () => {
         expect(info.summary?.files).toBe(2)
         expect(info.summary?.additions).toBeGreaterThanOrEqual(2)
         expect(next?.info.role).toBe("user")
-        expect(next?.info.summary?.diffs?.map((item) => item.file)).toEqual(["b.txt"])
+        const nextSummary = next?.info.summary
+        expect(nextSummary && typeof nextSummary === "object" && nextSummary.diffs?.map((item: { file: string }) => item.file)).toEqual(["b.txt"])
       },
     })
   })
@@ -260,8 +261,10 @@ describe("session summary semantics", () => {
         const one = msgs.find((item) => item.info.id === u1.id)
         const two = msgs.find((item) => item.info.id === u2.id)
 
-        expect(one?.info.summary?.diffs).toBeUndefined()
-        expect(two?.info.summary?.diffs?.map((item) => item.file)).toEqual(["b.txt"])
+        const oneSummary = one?.info.summary
+        expect(oneSummary && typeof oneSummary === "object" ? oneSummary.diffs : undefined).toBeUndefined()
+        const twoSummary = two?.info.summary
+        expect(twoSummary && typeof twoSummary === "object" && twoSummary.diffs?.map((item: { file: string }) => item.file)).toEqual(["b.txt"])
       },
     })
   })
