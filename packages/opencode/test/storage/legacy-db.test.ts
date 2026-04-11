@@ -7,11 +7,23 @@ import { LegacyDB } from "../../src/storage/legacy-db"
 
 async function clean() {
   const rows = await fs.readdir(Global.Path.data, { withFileTypes: true }).catch(() => [])
-  await Promise.all(
-    rows
-      .filter((row) => row.isFile() && /^.*\.db(?:-shm|-wal)?$/i.test(row.name))
-      .map((row) => fs.rm(path.join(Global.Path.data, row.name), { force: true })),
-  )
+  const files = rows
+    .filter((row) => row.isFile() && /^.*\.db(?:-shm|-wal)?$/i.test(row.name))
+    .map((row) => path.join(Global.Path.data, row.name))
+  // Windows can keep SQLite WAL handles alive after db.close() until GC runs.
+  // Retry with forced GC to avoid flaky EBUSY (same pattern as test/preload.ts).
+  for (const file of files) {
+    for (let attempt = 0; attempt < 10; attempt++) {
+      try {
+        await fs.rm(file, { force: true })
+        break
+      } catch (e: any) {
+        if (e?.code !== "EBUSY" || attempt >= 9) throw e
+        Bun.gc(true)
+        await new Promise((r) => setTimeout(r, 100))
+      }
+    }
+  }
 }
 
 function create(file: string, rows: { id: string; title: string; version: string; time: number }[]) {

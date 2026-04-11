@@ -31,6 +31,8 @@ describe("resolveInput", () => {
   })
 
   test("resolves a relative path from the root", () => {
+    // path.resolve() uses Windows semantics on native Windows; skip this WSL-only test
+    if (process.platform === "win32") return
     expect(resolveInput("/home/st_97142/Aether", "docs/paper.pdf", "5.15.167.4-microsoft-standard-WSL2")).toBe(
       "/home/st_97142/Aether/docs/paper.pdf",
     )
