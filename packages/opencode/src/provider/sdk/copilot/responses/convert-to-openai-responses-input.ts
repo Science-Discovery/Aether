@@ -18,6 +18,20 @@ function isFileId(data: string, prefixes?: readonly string[]): boolean {
   return prefixes.some((prefix) => data.startsWith(prefix))
 }
 
+function normalizeDataUrl(data: string, mediaType: string) {
+  if (!data.startsWith("data:")) return undefined
+  const comma = data.indexOf(",")
+  if (comma === -1) return data
+  return `data:${mediaType};base64,${data.slice(comma + 1)}`
+}
+
+function extractDataUrlBase64(data: string) {
+  if (!data.startsWith("data:")) return undefined
+  const comma = data.indexOf(",")
+  if (comma === -1) return ""
+  return data.slice(comma + 1)
+}
+
 export async function convertToOpenAIResponsesInput({
   prompt,
   systemMessageMode,
@@ -75,6 +89,8 @@ export async function convertToOpenAIResponsesInput({
               case "file": {
                 if (part.mediaType.startsWith("image/")) {
                   const mediaType = part.mediaType === "image/*" ? "image/jpeg" : part.mediaType
+                  const normalizedDataUrl =
+                    typeof part.data === "string" ? normalizeDataUrl(part.data, mediaType) : undefined
 
                   return {
                     type: "input_image",
@@ -82,12 +98,18 @@ export async function convertToOpenAIResponsesInput({
                       ? { image_url: part.data.toString() }
                       : typeof part.data === "string" && isFileId(part.data, fileIdPrefixes)
                         ? { file_id: part.data }
+                        : normalizedDataUrl
+                          ? { image_url: normalizedDataUrl }
                         : {
                             image_url: `data:${mediaType};base64,${convertToBase64(part.data)}`,
                           }),
                     detail: part.providerOptions?.openai?.imageDetail,
                   }
                 } else if (part.mediaType === "application/pdf") {
+                  const normalizedDataUrl =
+                    typeof part.data === "string" ? normalizeDataUrl(part.data, "application/pdf") : undefined
+                  const pdfBase64 =
+                    typeof part.data === "string" ? extractDataUrlBase64(normalizedDataUrl ?? part.data) : undefined
                   if (part.data instanceof URL) {
                     return {
                       type: "input_file",
@@ -98,9 +120,14 @@ export async function convertToOpenAIResponsesInput({
                     type: "input_file",
                     ...(typeof part.data === "string" && isFileId(part.data, fileIdPrefixes)
                       ? { file_id: part.data }
+                      : pdfBase64 !== undefined
+                        ? {
+                            filename: part.filename ?? `part-${index}.pdf`,
+                            file_data: pdfBase64,
+                          }
                       : {
                           filename: part.filename ?? `part-${index}.pdf`,
-                          file_data: `data:application/pdf;base64,${convertToBase64(part.data)}`,
+                          file_data: convertToBase64(part.data),
                         }),
                   }
                 } else {

@@ -10,6 +10,13 @@ function getOpenAIMetadata(message: { providerOptions?: SharedV2ProviderMetadata
   return message?.providerOptions?.copilot ?? {}
 }
 
+function normalizeDataUrl(data: string, mediaType: string) {
+  if (!data.startsWith("data:")) return undefined
+  const comma = data.indexOf(",")
+  if (comma === -1) return data
+  return `data:${mediaType};base64,${data.slice(comma + 1)}`
+}
+
 export function convertToOpenAICompatibleChatMessages(prompt: LanguageModelV2Prompt): OpenAICompatibleChatPrompt {
   const messages: OpenAICompatibleChatPrompt = []
   for (const { role, content, ...message } of prompt) {
@@ -45,6 +52,8 @@ export function convertToOpenAICompatibleChatMessages(prompt: LanguageModelV2Pro
               case "file": {
                 if (part.mediaType.startsWith("image/")) {
                   const mediaType = part.mediaType === "image/*" ? "image/jpeg" : part.mediaType
+                  const normalizedDataUrl =
+                    typeof part.data === "string" ? normalizeDataUrl(part.data, mediaType) : undefined
 
                   return {
                     type: "image_url",
@@ -52,6 +61,8 @@ export function convertToOpenAICompatibleChatMessages(prompt: LanguageModelV2Pro
                       url:
                         part.data instanceof URL
                           ? part.data.toString()
+                          : normalizedDataUrl
+                            ? normalizedDataUrl
                           : `data:${mediaType};base64,${convertToBase64(part.data)}`,
                     },
                     ...partMetadata,

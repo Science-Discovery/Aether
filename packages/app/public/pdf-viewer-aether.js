@@ -80,6 +80,8 @@
       features: {
         pdf2md: !!input?.features?.pdf2md,
         readingMode: !!input?.features?.readingMode,
+        quickReadingExit: !!input?.features?.quickReadingExit,
+        firstRead: !!input?.features?.firstRead,
         settings: !!input?.features?.settings,
         textSelectionActions: !!input?.features?.textSelectionActions,
         imageSelectionActions: !!input?.features?.imageSelectionActions,
@@ -538,7 +540,15 @@
     const readingMode = document.getElementById("aetherOpenReadingMode");
     if (readingMode) {
       readingMode.hidden = !(config.mode === "compact" && config.features.readingMode);
-      readingMode.title = "Open in Reading Mode";
+      readingMode.title = "Open in Quick Reading Mode";
+      readingMode.setAttribute("aria-label", readingMode.title);
+    }
+
+    const exitQuickReading = document.getElementById("aetherExitQuickReading");
+    if (exitQuickReading) {
+      exitQuickReading.hidden = !(config.mode === "full" && config.features.quickReadingExit);
+      exitQuickReading.title = "Exit quick reading mode";
+      exitQuickReading.setAttribute("aria-label", exitQuickReading.title);
     }
 
     const captureRegion = document.getElementById("aetherCaptureRegion");
@@ -546,6 +556,13 @@
       captureRegion.hidden = !(config.mode === "full" && config.features.imageSelectionActions);
       captureRegion.title = captureModeActive ? "Exit capture mode" : "Capture region";
       captureRegion.setAttribute("aria-pressed", captureModeActive ? "true" : "false");
+    }
+
+    const firstRead = document.getElementById("aetherFirstRead");
+    if (firstRead) {
+      firstRead.hidden = !(config.mode === "full" && config.features.firstRead);
+      firstRead.title = "Pre-read";
+      firstRead.setAttribute("aria-label", firstRead.title);
     }
 
     const readingSettings = document.getElementById("aetherReadingSettings");
@@ -693,6 +710,13 @@
       });
     }
 
+    const exitQuickReading = document.getElementById("aetherExitQuickReading");
+    if (exitQuickReading) {
+      exitQuickReading.addEventListener("click", function () {
+        post("exitquickreading");
+      });
+    }
+
     const nightMode = document.getElementById("aetherNightMode");
     if (nightMode) {
       nightMode.addEventListener("click", function () {
@@ -706,6 +730,13 @@
     if (captureRegion) {
       captureRegion.addEventListener("click", function () {
         setCaptureMode(!captureModeActive);
+      });
+    }
+
+    const firstRead = document.getElementById("aetherFirstRead");
+    if (firstRead) {
+      firstRead.addEventListener("click", function () {
+        post("startfirstread");
       });
     }
 

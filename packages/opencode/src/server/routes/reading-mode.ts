@@ -123,6 +123,46 @@ function resolveWorkspacePdfPath(inputPath: string) {
   return resolvedPath
 }
 
+async function buildPagePdfResponse(input: {
+  sourceBytes: Buffer
+  pdfFileName: string
+  startPage: number
+  endPage: number
+}) {
+  const source = await PDFDocument.load(input.sourceBytes)
+  const pageCount = source.getPageCount()
+  if (pageCount === 0) {
+    return { error: "pdf has no pages", status: 400 as const }
+  }
+
+  if (input.startPage > pageCount || input.endPage > pageCount) {
+    return { error: "page range out of bounds", status: 400 as const }
+  }
+
+  const output = await PDFDocument.create()
+  const indices = Array.from(
+    { length: input.endPage - input.startPage + 1 },
+    (_, index) => input.startPage - 1 + index,
+  )
+  const pages = await output.copyPages(source, indices)
+  for (const page of pages) output.addPage(page)
+
+  const pdfBytes = await output.save()
+  const pdfArrayBuffer = new ArrayBuffer(pdfBytes.byteLength)
+  new Uint8Array(pdfArrayBuffer).set(pdfBytes)
+  const pdfBlob = new Blob([pdfArrayBuffer], { type: "application/pdf" })
+  const baseName = path.basename(input.pdfFileName, ".pdf") || "document"
+  const filename = `${baseName}-pages-${input.startPage}-${input.endPage}.pdf`
+
+  return new Response(pdfBlob, {
+    headers: {
+      "Content-Type": "application/pdf",
+      "Content-Disposition": `attachment; filename*=UTF-8''${encodeURIComponent(filename)}`,
+      "Cache-Control": "no-store",
+    },
+  })
+}
+
 async function createReadingSession(input: {
   pdfFileName: string
   settings: ReadingMode.Settings
@@ -371,35 +411,77 @@ export const ReadingModeRoutes = lazy(() =>
         }
 
         try {
-          const source = await PDFDocument.load(sourceBytes)
-          const pageCount = source.getPageCount()
-          if (pageCount === 0) {
-            return c.json({ error: "pdf has no pages" }, 400)
-          }
-
-          if (startPage > pageCount || endPage > pageCount) {
-            return c.json({ error: "page range out of bounds" }, 400)
-          }
-
-          const output = await PDFDocument.create()
-          const indices = Array.from({ length: endPage - startPage + 1 }, (_, index) => startPage - 1 + index)
-          const pages = await output.copyPages(source, indices)
-          for (const page of pages) output.addPage(page)
-
-          const pdfBytes = await output.save()
-          const pdfArrayBuffer = new ArrayBuffer(pdfBytes.byteLength)
-          new Uint8Array(pdfArrayBuffer).set(pdfBytes)
-          const pdfBlob = new Blob([pdfArrayBuffer], { type: "application/pdf" })
-          const baseName = path.basename(session.readingMode.pdfFileName, ".pdf") || "document"
-          const filename = `${baseName}-pages-${startPage}-${endPage}.pdf`
-
-          return new Response(pdfBlob, {
-            headers: {
-              "Content-Type": "application/pdf",
-              "Content-Disposition": `attachment; filename*=UTF-8''${encodeURIComponent(filename)}`,
-              "Cache-Control": "no-store",
-            },
+          const response = await buildPagePdfResponse({
+            sourceBytes,
+            pdfFileName: session.readingMode.pdfFileName,
+            startPage,
+            endPage,
           })
+          if ("error" in response) {
+            return c.json({ error: response.error }, response.status)
+          }
+          return response
+        } catch (error) {
+          return c.json({ error: error instanceof Error ? error.message : "failed to build page pdf" }, 400)
+        }
+      },
+    )
+
+    .post(
+      "/page-pdf-from-file",
+      describeRoute({
+        summary: "Get a ranged PDF subdocument for a workspace file",
+        operationId: "reading-mode.page-pdf-from-file",
+        responses: {
+          200: {
+            description: "PDF binary for the requested page range",
+          },
+          ...errors(400, 404),
+        },
+      }),
+      validator(
+        "json",
+        z.object({
+          path: z.string(),
+          startPage: z.number().int().positive(),
+          endPage: z.number().int().positive(),
+        }),
+      ),
+      async (c) => {
+        const { path: pdfPath, startPage, endPage } = c.req.valid("json")
+        if (startPage > endPage) return c.json({ error: "invalid page range" }, 400)
+
+        let resolvedPath: string
+        try {
+          resolvedPath = resolveWorkspacePdfPath(pdfPath)
+        } catch (error) {
+          return c.json({ error: error instanceof Error ? error.message : "invalid path" }, 400)
+        }
+
+        const stats = await fs.stat(resolvedPath).catch(() => undefined)
+        if (!stats?.isFile()) return c.json({ error: "pdf not found" }, 404)
+        if (path.extname(resolvedPath).toLowerCase() !== ".pdf") {
+          return c.json({ error: "path must reference a PDF file" }, 400)
+        }
+
+        let sourceBytes: Buffer
+        try {
+          sourceBytes = await fs.readFile(resolvedPath)
+        } catch {
+          return c.json({ error: "pdf not found" }, 404)
+        }
+
+        try {
+          const response = await buildPagePdfResponse({
+            sourceBytes,
+            pdfFileName: path.basename(resolvedPath),
+            startPage,
+            endPage,
+          })
+          if ("error" in response) {
+            return c.json({ error: response.error }, response.status)
+          }
+          return response
         } catch (error) {
           return c.json({ error: error instanceof Error ? error.message : "failed to build page pdf" }, 400)
         }

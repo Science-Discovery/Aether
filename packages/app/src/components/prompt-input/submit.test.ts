@@ -20,10 +20,24 @@ const storedSessions: Record<string, Array<{ id: string; title?: string }>> = {}
 const promoted: Array<{ directory: string; sessionID: string }> = []
 const sentShell: string[] = []
 const syncedDirectories: string[] = []
+const promptAsyncCalls: any[] = []
+const fetchCalls: Array<{ input: RequestInfo | URL; init?: RequestInit }> = []
 
 let params: { id?: string } = {}
 let selected = "/repo/worktree-a"
 let variant: string | undefined
+let quickReadingPendingQuestion:
+  | {
+      kind: "text-question" | "image-question"
+      sessionID: string
+      pdfPath: string
+      pdfFileName: string
+      page: number
+      text: string
+      imageDataUrl?: string
+      createdAt: number
+    }
+  | null = null
 
 const promptValue: Prompt = [{ type: "text", content: "ls", start: 0, end: 2 }]
 
@@ -45,7 +59,10 @@ const clientFor = (directory: string) => {
         return { data: undefined }
       },
       prompt: async () => ({ data: undefined }),
-      promptAsync: async () => ({ data: undefined }),
+      promptAsync: async (input: any) => {
+        promptAsyncCalls.push(input)
+        return { data: undefined }
+      },
       command: async () => ({ data: undefined }),
       abort: async () => ({ data: undefined }),
     },
@@ -214,11 +231,35 @@ beforeAll(async () => {
     }),
   }))
 
+  mock.module("@/context/quick-reading-mode", () => ({
+    useMaybeQuickReadingMode: () => ({
+      store: {
+        pendingQuestion: quickReadingPendingQuestion,
+        snapshot: {
+          settings: {
+            translatePrompt: "translate prompt",
+            questionPrompt: "Selected:\n{selected_content}\nQuestion:\n{user_question}",
+            firstReadPrompt: "first read prompt",
+            autoFirstRead: true,
+          },
+        },
+      },
+      setPendingQuestion: (question: typeof quickReadingPendingQuestion) => {
+        quickReadingPendingQuestion = question
+      },
+    }),
+  }))
+
   mock.module("@/context/language", () => ({
     useLanguage: () => ({
       t: (key: string) => key,
     }),
   }))
+
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    fetchCalls.push({ input, init })
+    return new Response("{}")
+  }) as typeof fetch
 
   const mod = await import("./submit")
   createPromptSubmit = mod.createPromptSubmit
@@ -234,8 +275,11 @@ beforeEach(() => {
   params = {}
   sentShell.length = 0
   syncedDirectories.length = 0
+  promptAsyncCalls.length = 0
+  fetchCalls.length = 0
   selected = "/repo/worktree-a"
   variant = undefined
+  quickReadingPendingQuestion = null
   for (const key of Object.keys(storedSessions)) delete storedSessions[key]
 })
 
@@ -365,5 +409,107 @@ describe("prompt submit worktree selection", () => {
 
     expect(storedSessions["/repo/worktree-a"]).toEqual([{ id: "session-1", title: "New session 1" }])
     expect(optimisticSeeded).toEqual([true])
+  })
+
+  test("quick-reading text ask does not fetch reading context and clears pending on success", async () => {
+    params = { id: "session-1" }
+    quickReadingPendingQuestion = {
+      kind: "text-question",
+      sessionID: "session-1",
+      pdfPath: "/repo/paper-a.pdf",
+      pdfFileName: "paper-a.pdf",
+      page: 12,
+      text: "selected text",
+      createdAt: Date.now(),
+    }
+
+    const submit = createPromptSubmit({
+      info: () => ({ id: "session-1" }),
+      imageAttachments: () => [],
+      commentCount: () => 0,
+      autoAccept: () => false,
+      mode: () => "normal",
+      working: () => false,
+      editor: () => undefined,
+      queueScroll: () => undefined,
+      promptLength: (value) => value.reduce((sum, part) => sum + ("content" in part ? part.content.length : 0), 0),
+      addToHistory: () => undefined,
+      resetHistoryNavigation: () => undefined,
+      setMode: () => undefined,
+      setPopover: () => undefined,
+      onSubmit: () => undefined,
+    })
+
+    const event = { preventDefault: () => undefined } as unknown as Event
+    await submit.handleSubmit(event)
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(fetchCalls).toEqual([])
+    expect(promptAsyncCalls).toHaveLength(1)
+    expect(promptAsyncCalls[0].parts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: "text",
+          synthetic: true,
+          text: expect.stringContaining("selected text"),
+        }),
+      ]),
+    )
+    expect(quickReadingPendingQuestion).toBeNull()
+  })
+
+  test("quick-reading image ask sends screenshot attachment without reading context pdf", async () => {
+    params = { id: "session-1" }
+    quickReadingPendingQuestion = {
+      kind: "image-question",
+      sessionID: "session-1",
+      pdfPath: "/repo/paper-a.pdf",
+      pdfFileName: "paper-a.pdf",
+      page: 7,
+      text: "Captured region from paper-a.pdf, page 7",
+      imageDataUrl: "data:image/png;base64,abc",
+      createdAt: Date.now(),
+    }
+
+    const submit = createPromptSubmit({
+      info: () => ({ id: "session-1" }),
+      imageAttachments: () => [],
+      commentCount: () => 0,
+      autoAccept: () => false,
+      mode: () => "normal",
+      working: () => false,
+      editor: () => undefined,
+      queueScroll: () => undefined,
+      promptLength: (value) => value.reduce((sum, part) => sum + ("content" in part ? part.content.length : 0), 0),
+      addToHistory: () => undefined,
+      resetHistoryNavigation: () => undefined,
+      setMode: () => undefined,
+      setPopover: () => undefined,
+      onSubmit: () => undefined,
+    })
+
+    const event = { preventDefault: () => undefined } as unknown as Event
+    await submit.handleSubmit(event)
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(fetchCalls).toEqual([])
+    expect(promptAsyncCalls).toHaveLength(1)
+    expect(promptAsyncCalls[0].parts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: "file",
+          mime: "image/png",
+          filename: "pdf-region-page-7.png",
+        }),
+      ]),
+    )
+    expect(promptAsyncCalls[0].parts).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          mime: "application/pdf",
+        }),
+      ]),
+    )
+    expect(quickReadingPendingQuestion).toBeNull()
   })
 })
