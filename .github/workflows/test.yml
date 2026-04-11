@@ -18,6 +18,49 @@ permissions:
   checks: write
 
 jobs:
+  ui-unit:
+    name: ui unit (linux)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Bun
+        uses: ./.github/actions/setup-bun
+
+      - name: Run ui unit tests
+        run: bun --cwd packages/ui test:unit
+
+  ui-unit-windows:
+    name: ui unit (windows)
+    runs-on: windows-2022
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Setup Bun
+        uses: ./.github/actions/setup-bun
+
+      - name: Run ui unit tests
+        run: bun --cwd packages/ui test:unit
+
   # First-layer CI: fast and currently stable app unit tests.
   app-unit:
     name: app unit (linux)

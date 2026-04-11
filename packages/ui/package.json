@@ -26,6 +26,9 @@
   },
   "scripts": {
     "typecheck": "tsgo --noEmit",
+    "test": "bun run test:unit",
+    "test:unit": "bun run ./script/vitest.ts run --config ./vitest.config.ts",
+    "test:unit:watch": "bun run ./script/vitest.ts --config ./vitest.config.ts",
     "dev": "vite",
     "generate:tailwind": "bun run script/tailwind.ts"
   },
