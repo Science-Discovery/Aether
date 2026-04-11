@@ -44,6 +44,31 @@ function hasPermissionPromptRules(permission: unknown) {
   return Object.values(config).some(isNonAllowRule)
 }
 
+function allowAll(permission: unknown) {
+  if (permission === undefined) return undefined
+  if (typeof permission === "string") return permission === "allow"
+  if (!Array.isArray(permission)) return false
+  return permission.some((rule) => {
+    if (!rule || typeof rule !== "object" || Array.isArray(rule)) return false
+    const item = rule as Record<string, unknown>
+    return item.permission === "*" && item.pattern === "*" && item.action === "allow"
+  })
+}
+
+function sessionAccepts(session: { id: string; parentID?: string; permission?: unknown }[], sessionID: string) {
+  const map = new Map(session.map((item) => [item.id, item]))
+  const seen = new Set<string>()
+  let current: string | undefined = sessionID
+
+  while (current && !seen.has(current)) {
+    seen.add(current)
+    const item = map.get(current)
+    const value = allowAll(item?.permission)
+    if (value !== undefined) return value
+    current = item?.parentID
+  }
+}
+
 export const { use: usePermission, provider: PermissionProvider } = createSimpleContext({
   name: "Permission",
   init: () => {
@@ -140,6 +165,8 @@ export const { use: usePermission, provider: PermissionProvider } = createSimple
 
     function isAutoAccepting(sessionID: string, directory?: string) {
       const session = directory ? globalSync.child(directory, { bootstrap: false })[0].session : []
+      const value = sessionAccepts(session, sessionID)
+      if (value !== undefined) return value
       return autoRespondsPermission(store.autoAccept, session, { sessionID }, directory)
     }
 
@@ -149,6 +176,8 @@ export const { use: usePermission, provider: PermissionProvider } = createSimple
 
     function shouldAutoRespond(permission: PermissionRequest, directory?: string) {
       const session = directory ? globalSync.child(directory, { bootstrap: false })[0].session : []
+      const value = sessionAccepts(session, permission.sessionID)
+      if (value !== undefined) return value
       return autoRespondsPermission(store.autoAccept, session, permission, directory)
     }
 
@@ -157,6 +186,12 @@ export const { use: usePermission, provider: PermissionProvider } = createSimple
       const next = (enableVersion.get(key) ?? 0) + 1
       enableVersion.set(key, next)
       return next
+    }
+
+    function writeApproval(sessionID: string, directory: string, approval: "auto" | "ask") {
+      return globalSDK
+        .createClient({ directory, throwOnError: true })
+        .session.preference.set({ sessionID, approval, source: "desktop" })
     }
 
     const unsubscribe = globalSDK.event.listen((e) => {
@@ -210,6 +245,8 @@ export const { use: usePermission, provider: PermissionProvider } = createSimple
         }),
       )
 
+      writeApproval(sessionID, directory, "auto").catch(() => undefined)
+
       globalSDK.client.permission
         .list({ directory })
         .then((x) => {
@@ -234,6 +271,10 @@ export const { use: usePermission, provider: PermissionProvider } = createSimple
           delete draft.autoAccept[sessionID]
         }),
       )
+
+      if (directory) {
+        writeApproval(sessionID, directory, "ask").catch(() => undefined)
+      }
     }
 
     return {

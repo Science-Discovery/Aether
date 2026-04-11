@@ -251,6 +251,27 @@ class FeishuManagerImpl {
     }
   }
 
+  private async currentSession(chatId: string, create?: boolean): Promise<string | undefined> {
+    const pinned = this._chatSessions[chatId]
+    if (pinned) return pinned
+    const dir = this._chatDirs[chatId] ?? this._defaultDir ?? Instance.directory
+    const recent = await Instance.provide({
+      directory: dir,
+      fn: () => [...Session.list({ directory: dir, roots: true, limit: 1 })],
+    })
+    if (recent[0]) {
+      this._chatSessions[chatId] = recent[0].id
+      return recent[0].id
+    }
+    if (!create) return
+    const session = await Instance.provide({
+      directory: dir,
+      fn: () => Session.create({ title: `飞书对话 ${chatId.slice(-6)}` }),
+    })
+    this._chatSessions[chatId] = session.id
+    return session.id
+  }
+
   // ─────────────────────────────────────────────────────────────────────────
 
   async start(
@@ -967,7 +988,7 @@ class FeishuManagerImpl {
    * /approval <name> — switch approval mode (auto, ask)
    */
   private async cmdApproval(messageId: string, chatId: string, arg: string): Promise<void> {
-    const sessionId = this._chatSessions[chatId]
+    const sessionId = await this.currentSession(chatId, !!arg)
     const prefApproval = sessionId ? SessionPreference.get(sessionId)?.approval : undefined
     const current = prefApproval || "ask"
     if (!arg) {
