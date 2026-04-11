@@ -2,20 +2,26 @@ import fs from "fs"
 import path from "path"
 import { pathToFileURL } from "url"
 
-const root = path.resolve(import.meta.dirname, "../../../../node_modules/.bun")
+const modules = path.resolve(import.meta.dirname, "../../../../node_modules")
 
-const pick = (prefix: string, file: string) => {
+function findPackage(prefix: string, file: string): string {
+  // Standard node_modules path (Windows Bun installs here directly)
+  const standard = path.join(modules, file)
+  if (fs.existsSync(standard)) return standard
+
+  // Bun cache directory (Linux/macOS uses .bun for hoisted packages)
+  const bunDir = path.join(modules, ".bun")
   const dir = fs
-    .readdirSync(root)
+    .readdirSync(bunDir)
     .filter((item) => item.startsWith(prefix))
     .toSorted()
     .at(-1)
-  if (!dir) throw new Error(`missing ${prefix} in ${root}`)
-  return path.join(root, dir, file)
+  if (!dir) throw new Error(`missing ${prefix} in ${bunDir}`)
+  return path.join(bunDir, dir, "node_modules", file)
 }
 
 const mod = await import(
-  pathToFileURL(pick("@happy-dom+global-registrator@", "node_modules/@happy-dom/global-registrator/lib/index.js")).href
+  pathToFileURL(findPackage("@happy-dom+global-registrator@", "@happy-dom/global-registrator/lib/index.js")).href
 )
 
 mod.GlobalRegistrator.register()
