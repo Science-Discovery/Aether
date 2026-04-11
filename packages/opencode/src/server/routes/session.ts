@@ -21,6 +21,7 @@ import { errors } from "../error"
 import { lazy } from "../../util/lazy"
 import { Bus } from "../../bus"
 import { NamedError } from "@opencode-ai/util/error"
+import { SessionPreference } from "../../session/preference"
 
 const log = Log.create({ service: "server" })
 
@@ -1026,6 +1027,86 @@ export const SessionRoutes = lazy(() =>
           reply: c.req.valid("json").response,
         })
         return c.json(true)
+      },
+    )
+    .get(
+      "/:sessionID/preference",
+      describeRoute({
+        summary: "Get session preference",
+        description: "Retrieve the current preference for a session from in-memory store.",
+        operationId: "session.preference.get",
+        responses: {
+          200: {
+            description: "Session preference",
+            content: {
+              "application/json": {
+                schema: resolver(SessionPreference.Info.nullable()),
+              },
+            },
+          },
+          ...errors(400, 404),
+        },
+      }),
+      validator(
+        "param",
+        z.object({
+          sessionID: SessionID.zod,
+        }),
+      ),
+      async (c) => {
+        const sessionID = c.req.valid("param").sessionID
+        const pref = SessionPreference.get(sessionID)
+        return c.json(pref ?? null)
+      },
+    )
+    .put(
+      "/:sessionID/preference",
+      describeRoute({
+        summary: "Set session preference",
+        description: "Set preference for a session. Stored in memory and broadcast via SSE.",
+        operationId: "session.preference.set",
+        responses: {
+          200: {
+            description: "Preference updated",
+            content: {
+              "application/json": {
+                schema: resolver(SessionPreference.Info),
+              },
+            },
+          },
+          ...errors(400, 404),
+        },
+      }),
+      validator(
+        "param",
+        z.object({
+          sessionID: SessionID.zod,
+        }),
+      ),
+      validator(
+        "json",
+        z.object({
+          agent: z.string().optional(),
+          model: z
+            .object({
+              providerID: ProviderID.zod,
+              modelID: ModelID.zod,
+            })
+            .optional(),
+          variant: z.string().optional(),
+          approval: z.enum(["auto", "ask"]).optional(),
+          source: z.string().optional(),
+        }),
+      ),
+      async (c) => {
+        const sessionID = c.req.valid("param").sessionID
+        const body = c.req.valid("json")
+        await SessionPreference.set({
+          sessionID,
+          ...body,
+        })
+        const pref = SessionPreference.get(sessionID)
+        return c.json(pref ?? null)
       },
     ),
 )

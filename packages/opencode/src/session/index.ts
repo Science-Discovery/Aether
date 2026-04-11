@@ -37,6 +37,7 @@ import { Global } from "@/global"
 import type { LanguageModelV2Usage } from "@ai-sdk/provider"
 import { iife } from "@/util/iife"
 import type { ReadingMode } from "../reading-mode/types"
+import { SessionPreference } from "./preference"
 
 export namespace Session {
   const log = Log.create({ service: "session" })
@@ -268,6 +269,7 @@ export namespace Session {
         error: MessageV2.Assistant.shape.error,
       }),
     ),
+    PreferenceChanged: SessionPreference.PreferenceChanged,
   }
 
   export const create = fn(
@@ -304,6 +306,11 @@ export namespace Session {
         workspaceID: original.workspaceID,
         title,
       })
+      const pref = SessionPreference.get(input.sessionID)
+      if (pref) {
+        const { sessionID: _, ...prefData } = pref
+        await SessionPreference.set({ sessionID: session.id, ...prefData, source: "desktop" })
+      }
       const msgs = await messages({ sessionID: input.sessionID })
       const idMap = new Map<string, MessageID>()
 

@@ -42,6 +42,7 @@ import { SessionProcessor } from "./processor"
 import { TaskTool } from "@/tool/task"
 import { Tool } from "@/tool/tool"
 import { Permission } from "@/permission"
+import { SessionPreference } from "./preference"
 import { SessionStatus } from "./status"
 import { LLM } from "./llm"
 import { iife } from "@/util/iife"
@@ -994,7 +995,8 @@ export namespace SessionPrompt {
   }
 
   async function createUserMessage(input: PromptInput) {
-    const agentName = input.agent || (await Agent.defaultAgent())
+    const pref = SessionPreference.get(input.sessionID)
+    const agentName = input.agent || pref?.agent || (await Agent.defaultAgent())
     const agent = await Agent.get(agentName)
     if (!agent) {
       const available = await Agent.list().then((agents) => agents.filter((a) => !a.hidden).map((a) => a.name))
@@ -1007,12 +1009,20 @@ export namespace SessionPrompt {
       throw error
     }
 
-    const model = input.model ?? agent.model ?? (await lastModel(input.sessionID))
+    const prefModel = pref?.model ? { providerID: pref.model.providerID, modelID: pref.model.modelID } : undefined
+    const model = input.model ?? prefModel ?? agent.model ?? (await lastModel(input.sessionID))
+    const variant =
+      input.variant ??
+      pref?.variant ??
+      (() => {
+        if (!agent.variant) return undefined
+        return undefined
+      })()
     const full =
-      !input.variant && agent.variant
+      !variant && agent.variant
         ? await Provider.getModel(model.providerID, model.modelID).catch(() => undefined)
         : undefined
-    const variant = input.variant ?? (agent.variant && full?.variants?.[agent.variant] ? agent.variant : undefined)
+    const resolvedVariant = variant ?? (agent.variant && full?.variants?.[agent.variant] ? agent.variant : undefined)
 
     // RAG: search knowledge base and build context for system prompt
     let ragContext: string | undefined
@@ -1061,7 +1071,7 @@ export namespace SessionPrompt {
       model,
       system: ragContext ? (input.system ? `${ragContext}\n\n${input.system}` : ragContext) : input.system,
       format: input.format,
-      variant,
+      variant: resolvedVariant,
     }
     using _ = defer(() => InstructionPrompt.clear(info.id))
 
