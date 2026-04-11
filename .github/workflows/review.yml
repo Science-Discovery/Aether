@@ -1,82 +1,124 @@
 name: review
 
 on:
-  workflow_dispatch:
+  issue_comment:
+    types: [created]
 
 jobs:
-  check-guidelines:
+  review:
     if: |
       github.event.issue.pull_request &&
-      startsWith(github.event.comment.body, '/review') &&
-      contains(fromJson('["OWNER","MEMBER"]'), github.event.comment.author_association)
+      (
+        github.event.comment.body == '/oc review' ||
+        github.event.comment.body == '/opencode review'
+      )
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      issues: write
       pull-requests: write
+    env:
+      PR_NUMBER: ${{ github.event.issue.number }}
+      REPOSITORY: ${{ github.repository }}
     steps:
-      - name: Get PR number
-        id: pr-number
-        run: |
-          if [ "${{ github.event_name }}" = "pull_request_target" ]; then
-            echo "number=${{ github.event.pull_request.number }}" >> $GITHUB_OUTPUT
-          else
-            echo "number=${{ github.event.issue.number }}" >> $GITHUB_OUTPUT
-          fi
-
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 1
 
-      - uses: ./.github/actions/setup-bun
+      - name: Check team membership
+        id: team
+        env:
+          LOGIN: ${{ github.event.comment.user.login }}
+        run: |
+          set -euo pipefail
+
+          if grep -qxF "$LOGIN" .github/TEAM_MEMBERS; then
+            echo "allowed=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "allowed=false" >> "$GITHUB_OUTPUT"
+          echo "Skipping review: $LOGIN is not listed in .github/TEAM_MEMBERS"
+
+      - name: Validate review configuration
+        if: steps.team.outputs.allowed == 'true'
+        env:
+          REVIEW_LLM_API_KEY: ${{ secrets.REVIEW_LLM_API_KEY }}
+          REVIEW_LLM_BASE_URL: ${{ vars.REVIEW_LLM_BASE_URL }}
+          REVIEW_LLM_MODEL: ${{ vars.REVIEW_LLM_MODEL }}
+        run: |
+          set -euo pipefail
+
+          missing=()
+          if [ -z "${REVIEW_LLM_API_KEY:-}" ]; then
+            missing+=("REVIEW_LLM_API_KEY")
+          fi
+          if [ -z "${REVIEW_LLM_BASE_URL:-}" ]; then
+            missing+=("REVIEW_LLM_BASE_URL")
+          fi
+          if [ -z "${REVIEW_LLM_MODEL:-}" ]; then
+            missing+=("REVIEW_LLM_MODEL")
+          fi
+
+          if [ "${#missing[@]}" -gt 0 ]; then
+            printf 'Missing review LLM configuration: %s\n' "${missing[*]}" >&2
+            exit 1
+          fi
 
       - name: Install opencode
-        run: curl -fsSL https://opencode.ai/install | bash
-
-      - name: Get PR details
-        id: pr-details
+        if: steps.team.outputs.allowed == 'true'
         run: |
-          gh api /repos/${{ github.repository }}/pulls/${{ steps.pr-number.outputs.number }} > pr_data.json
-          echo "title=$(jq -r .title pr_data.json)" >> $GITHUB_OUTPUT
-          echo "sha=$(jq -r .head.sha pr_data.json)" >> $GITHUB_OUTPUT
+          set -euo pipefail
+          curl -fsSL https://opencode.ai/install | bash
+          echo "$HOME/.opencode/bin" >> "$GITHUB_PATH"
+
+      - name: Build review prompt
+        if: steps.team.outputs.allowed == 'true'
+        env:
+          COMMENT_BODY: ${{ github.event.comment.body }}
+          COMMENT_AUTHOR: ${{ github.event.comment.user.login }}
+        run: |
+          set -euo pipefail
+
+          cp .github/prompts/review.txt review-prompt.txt
+
+          cat <<EOF >> review-prompt.txt
+
+          <review_context>
+          repository: ${REPOSITORY}
+          pr_number: ${PR_NUMBER}
+          trigger_comment: ${COMMENT_BODY}
+          trigger_author: ${COMMENT_AUTHOR}
+          </review_context>
+          EOF
+
+      - name: Run opencode review
+        if: steps.team.outputs.allowed == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Check PR guidelines compliance
-        env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          OPENCODE_PERMISSION: '{ "bash": {  "*": "deny", "gh*": "allow", "gh pr review*": "deny" } }'
-          PR_TITLE: ${{ steps.pr-details.outputs.title }}
+          REVIEW_LLM_API_KEY: ${{ secrets.REVIEW_LLM_API_KEY }}
+          REVIEW_LLM_BASE_URL: ${{ vars.REVIEW_LLM_BASE_URL }}
+          REVIEW_LLM_MODEL: ${{ vars.REVIEW_LLM_MODEL }}
+          OPENCODE_CONFIG_CONTENT: >-
+            {"$schema":"https://opencode.ai/config.json","enabled_providers":["review"],"provider":{"review":{"name":"Review Provider","npm":"@ai-sdk/openai-compatible","env":[],"models":{"primary":{"id":"{env:REVIEW_LLM_MODEL}","name":"Review Primary","tool_call":true,"limit":{"context":128000,"output":8192}}},"options":{"apiKey":"{env:REVIEW_LLM_API_KEY}","baseURL":"{env:REVIEW_LLM_BASE_URL}"}}},"agent":{"review":{"mode":"primary","description":"Restricted PR review agent for GitHub Actions","steps":12,"permission":{"*":"deny","bash":{"*":"deny","gh pr view *":"allow","gh pr diff *":"allow","gh api *pulls*":"allow","gh api *contents*":"allow","gh api *comments*":"deny","gh api *reviews*":"deny","gh api *--method*":"deny","gh api *-X*":"deny","gh api graphql*":"deny","gh pr comment *":"deny"}}}}}
         run: |
-          PR_BODY=$(jq -r .body pr_data.json)
-          opencode run -m anthropic/claude-opus-4-5 "A new pull request has been created: '${PR_TITLE}'
+          set -euo pipefail
 
-          <pr-number>
-          ${{ steps.pr-number.outputs.number }}
-          </pr-number>
+          opencode run \
+            --agent review \
+            --model review/primary \
+            --format json \
+            < review-prompt.txt \
+            > review-events.jsonl
 
-          <pr-description>
-          $PR_BODY
-          </pr-description>
+          node .github/scripts/extract-opencode-comment.mjs review-events.jsonl > review-comment.md
 
-          Please check all the code changes in this pull request against the style guide, also look for any bugs if they exist. Diffs are important but make sure you read the entire file to get proper context. Make it clear the suggestions are merely suggestions and the human can decide what to do
-
-          When critiquing code against the style guide, be sure that the code is ACTUALLY in violation, don't complain about else statements if they already use early returns there. You may complain about excessive nesting though, regardless of else statement usage.
-          When critiquing code style don't be a zealot, we don't like "let" statements but sometimes they are the simplest option, if someone does a bunch of nesting with let, they should consider using iife (see packages/opencode/src/util.iife.ts)
-
-          Use the gh cli to create comments on the files for the violations. Try to leave the comment on the exact line number. If you have a suggested fix include it in a suggestion code block.
-          If you are writing suggested fixes, BE SURE THAT the change you are recommending is actually valid typescript, often I have seen missing closing "}" or other syntax errors.
-          Generally, write a comment instead of writing suggested change if you can help it.
-
-          Command MUST be like this.
-          \`\`\`
-          gh api \
-            --method POST \
-            -H \"Accept: application/vnd.github+json\" \
-            -H \"X-GitHub-Api-Version: 2022-11-28\" \
-            /repos/${{ github.repository }}/pulls/${{ steps.pr-number.outputs.number }}/comments \
-            -f 'body=[summary of issue]' -f 'commit_id=${{ steps.pr-details.outputs.sha }}' -f 'path=[path-to-file]' -F \"line=[line]\" -f 'side=RIGHT'
-          \`\`\`
-
-          Only create comments for actual violations. If the code follows all guidelines, comment on the issue using gh cli: 'lgtm' AND NOTHING ELSE!!!!."
+      - name: Post review comment
+        if: steps.team.outputs.allowed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh pr comment "$PR_NUMBER" --repo "$REPOSITORY" --body-file review-comment.md
