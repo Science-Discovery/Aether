@@ -10,6 +10,7 @@ import { Persist, persisted } from "@/utils/persist"
 import { cycleModelVariant, getConfiguredAgentVariant, resolveModelVariant } from "./model-variant"
 import { useSDK } from "./sdk"
 import { useSync } from "./sync"
+import { unwrap } from "solid-js/store"
 
 export type ModelKey = { providerID: string; modelID: string }
 
@@ -17,6 +18,7 @@ type State = {
   agent?: string
   model?: ModelKey
   variant?: string | null
+  approval?: "auto" | "ask"
 }
 
 type Saved = {
@@ -138,6 +140,7 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
       }
 
       setSaved("session", session, clone(next))
+      syncPreferenceToServer(session, next)
       handoff.delete(key)
     })
 
@@ -201,6 +204,7 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
           const session = id()
           if (session) {
             setSaved("session", session, next)
+            syncPreferenceToServer(session, next)
             return
           }
           setStore("draft", next)
@@ -250,6 +254,7 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
         agent: agent.current()?.name,
         model: model ? { providerID: model.provider.id, modelID: model.id } : undefined,
         variant: selected(),
+        approval: scope()?.approval,
       } satisfies State
     }
 
@@ -262,10 +267,67 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
       const session = id()
       if (session) {
         setSaved("session", session, state)
+        syncPreferenceToServer(session, state)
         return
       }
       setStore("draft", state)
     }
+
+    const syncPreferenceToServer = (session: string, state: State) => {
+      if (!sdk.client.session.preference) return
+      const body: Record<string, unknown> = { source: "desktop" }
+      if (state.agent) body.agent = state.agent
+      if (state.model) body.model = state.model
+      if (state.variant != null) body.variant = state.variant
+      if (state.approval) body.approval = state.approval
+      sdk.client.session.preference.set({ sessionID: session, ...body }).catch(() => {})
+    }
+
+    createEffect(() => {
+      const session = id()
+      if (!session) return
+      const local = saved.session[session]
+      if (local) {
+        syncPreferenceToServer(session, local)
+        return
+      }
+      sdk.client.session.preference
+        .get({ sessionID: session })
+        .then((resp) => {
+          if (!resp.data) return
+          const currentSession = id()
+          if (currentSession !== session) return
+          if (saved.session[session] !== undefined) return
+          const serverPref = resp.data
+          const state: State = {}
+          if (serverPref.agent) state.agent = serverPref.agent
+          if (serverPref.model) state.model = serverPref.model
+          if (serverPref.variant) state.variant = serverPref.variant
+          if (serverPref.approval) state.approval = serverPref.approval as "auto" | "ask"
+          if (Object.keys(state).length > 0) {
+            setSaved("session", session, state)
+          }
+        })
+        .catch(() => {})
+    })
+
+    createEffect(() => {
+      const unsub = sdk.event.on("session.preference.changed", (event) => {
+        const session = id()
+        if (!session) return
+        if (event.properties.info.sessionID !== session) return
+        const pref = event.properties.info
+        const state: State = {}
+        if (pref.agent) state.agent = pref.agent
+        if (pref.model) state.model = pref.model
+        if (pref.variant) state.variant = pref.variant
+        if (pref.approval) state.approval = pref.approval
+        if (Object.keys(state).length > 0) {
+          setSaved("session", session, { ...(saved.session[session] ?? {}), ...state })
+        }
+      })
+      onCleanup(unsub)
+    })
 
     const recent = createMemo(() => models.recent.list().map(models.find).filter(Boolean))
 
@@ -366,6 +428,7 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
 
           if (dir === sdk.directory) {
             setSaved("session", session, next)
+            syncPreferenceToServer(session, next)
             setStore("draft", undefined)
             return
           }

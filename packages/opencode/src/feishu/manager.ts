@@ -18,7 +18,7 @@ import { Provider } from "@/provider/provider"
 import { ProviderID } from "@/provider/schema"
 import { ModelID } from "@/provider/schema"
 import { Agent } from "@/agent/agent"
-import { Permission } from "@/permission"
+import { SessionPreference } from "@/session/preference"
 
 const FEISHU_DATA_DIR =
   process.platform === "darwin"
@@ -99,8 +99,6 @@ class FeishuManagerImpl {
   // ── Model state ──────────────────────────────────────────────────────────
   // Snapshot of the model active in the web UI at connect time (frozen).
   private _connectedModel: ModelRef | null = null
-  // Per-chat overrides set via /model n. Cleared by /new.
-  private _modelOverrides: Record<string, ModelRef> = {}
   // Cached flat model list, built once at connect time (and on demand).
   private _modelList: ModelEntry[] = []
   // ─────────────────────────────────────────────────────────────────────────
@@ -119,10 +117,7 @@ class FeishuManagerImpl {
   // ─────────────────────────────────────────────────────────────────────────
 
   // ── Agent & approval state ────────────────────────────────────────────────
-  // Per-chat agent overrides set via /agent <name>. Cleared by /new.
-  private _agentOverrides: Record<string, string> = {}
-  // Per-chat approval mode set via /approval <auto|ask>. Defaults to "ask". Cleared by /new.
-  private _approvalOverrides: Record<string, string> = {}
+  // (Moved to SessionPreference)
   // ─────────────────────────────────────────────────────────────────────────
 
   get status() {
@@ -237,13 +232,22 @@ class FeishuManagerImpl {
     }
   }
 
-  /** Three-level model resolution: per-chat override → connection snapshot → undefined */
+  /** Model resolution: SessionPreference → connection snapshot → undefined */
   private resolveModel(chatId: string): { providerID: ProviderID; modelID: ModelID } | undefined {
-    const override = this._modelOverrides[chatId] ?? this._connectedModel
-    if (!override) return undefined
+    const sessionId = this._chatSessions[chatId]
+    if (sessionId) {
+      const pref = SessionPreference.get(sessionId)
+      if (pref?.model) {
+        return {
+          providerID: ProviderID.make(pref.model.providerID),
+          modelID: ModelID.make(pref.model.modelID),
+        }
+      }
+    }
+    if (!this._connectedModel) return undefined
     return {
-      providerID: ProviderID.make(override.providerID),
-      modelID: ModelID.make(override.modelID),
+      providerID: ProviderID.make(this._connectedModel.providerID),
+      modelID: ModelID.make(this._connectedModel.modelID),
     }
   }
 
@@ -460,8 +464,8 @@ class FeishuManagerImpl {
             }
           }
 
-          const agent = this._agentOverrides[chatId]
-          if (this._approvalOverrides[chatId] === "auto") {
+          const pref = sessionId ? SessionPreference.get(sessionId) : undefined
+          if (pref?.approval === "auto") {
             const session = await Session.get(SessionID.make(sessionId))
             if (!session.permission?.some((r) => r.permission === "*" && r.action === "allow")) {
               await Session.setPermission({
@@ -474,8 +478,6 @@ class FeishuManagerImpl {
           const msg = await SessionPrompt.prompt({
             sessionID: SessionID.make(sessionId),
             parts: [{ type: "text", text: promptText }],
-            ...(model ? { model } : {}),
-            ...(agent ? { agent } : {}),
           })
           console.log("[feishu] aether responded, parts:", msg?.parts?.length)
 
@@ -710,6 +712,8 @@ class FeishuManagerImpl {
       await this.cmdAgent(messageId, chatId, rest)
     } else if (command === "/approval") {
       await this.cmdApproval(messageId, chatId, rest)
+    } else if (command === "/variant") {
+      await this.cmdVariant(messageId, chatId, rest)
     } else if (command === "/project") {
       await this.cmdProject(messageId, chatId, rest)
     } else if (command === "/session") {
@@ -717,21 +721,18 @@ class FeishuManagerImpl {
     } else if (command === "/help") {
       await this.replyText(
         messageId,
-        "📋 可用命令：\n\n/new             开启全新对话（无当前会话上下文）\n/stop            停止当前会话中的执行\n/compact         压缩当前会话上下文\n/model           查看可用 LLM 模型（每个 provider 最多显示前 5 个）\n/model list      查看所有可用 LLM 模型\n/model n         切换到编号 n 的模型（按全量模型编号）\n/agent           查看当前会话模式\n/agent <name>    切换到指定模式（如 build、plan、docs）\n/approval        查看当前审批模式\n/approval <name> 切换审批模式（如 auto、ask）\n/project         查看最近项目\n/project list    查看全部项目\n/project n       切换到编号 n 的项目\n/project hide n  隐藏项目（在桌面端或飞书端重新使用后自动恢复）\n/project default n  设置编号 n 的项目为默认（重连后自动进入）\n/session         查看当前项目下的最近会话\n/session list    查看当前项目下全部会话\n/session n       切换到当前项目下编号 n 的会话\n/help            显示此帮助信息",
+        "📋 可用命令：\n\n/new             开启全新对话（无当前会话上下文）\n/stop            停止当前会话中的执行\n/compact         压缩当前会话上下文\n/model           查看可用 LLM 模型（每个 provider 最多显示前 5 个）\n/model list      查看所有可用 LLM 模型\n/model n         切换到编号 n 的模型（按全量模型编号）\n/agent           查看当前会话模式\n/agent <name>    切换到指定模式（如 build、plan、docs）\n/approval        查看当前审批模式\n/approval <name> 切换审批模式（如 auto、ask）\n/variant         查看当前变体\n/variant <name>  切换到指定变体\n/project         查看最近项目\n/project list    查看全部项目\n/project n       切换到编号 n 的项目\n/project hide n  隐藏项目（在桌面端或飞书端重新使用后自动恢复）\n/project default n  设置编号 n 的项目为默认（重连后自动进入）\n/session         查看当前项目下的最近会话\n/session list    查看当前项目下全部会话\n/session n       切换到当前项目下编号 n 的会话\n/help            显示此帮助信息",
       )
     } else {
       await this.replyText(messageId, `未知命令: ${command}\n发送 /help 查看可用命令。`)
     }
   }
 
-  /** /new — clear session and per-chat model/agent/approval override, keep connection snapshot */
+  /** /new — clear session mapping, keep connection snapshot */
   private async cmdNew(messageId: string, chatId: string): Promise<void> {
     for (const key of Object.keys(this.sessionMap)) {
       if (key.startsWith(`${chatId}:`)) delete this.sessionMap[key]
     }
-    delete this._modelOverrides[chatId]
-    delete this._agentOverrides[chatId]
-    delete this._approvalOverrides[chatId]
     delete this._chatSessions[chatId]
 
     const effectiveDir = this._chatDirs[chatId] ?? this._defaultDir ?? Instance.directory
@@ -768,7 +769,18 @@ class FeishuManagerImpl {
     const n = parseInt(args[0], 10)
     if (!isNaN(n) && n >= 1 && n <= this._modelList.length) {
       const entry = this._modelList[n - 1]
-      this._modelOverrides[chatId] = { providerID: entry.providerID, modelID: entry.modelID }
+      const sessionId = this._chatSessions[chatId]
+      if (sessionId) {
+        await Instance.provide({
+          directory: this._chatDirs[chatId] ?? this._defaultDir ?? Instance.directory,
+          fn: () =>
+            SessionPreference.set({
+              sessionID: SessionID.make(sessionId),
+              model: { providerID: ProviderID.make(entry.providerID), modelID: ModelID.make(entry.modelID) },
+              source: "feishu",
+            }),
+        })
+      }
       await this.replyText(
         messageId,
         `✅ 已切换模型：${entry.providerID}/${entry.modelID}\n（仅对当前对话生效，/new 后将重置）`,
@@ -784,7 +796,18 @@ class FeishuManagerImpl {
         await this.replyText(messageId, `❌ 未找到模型：${arg}\n请先发送 /model 查看可用模型。`)
         return
       }
-      this._modelOverrides[chatId] = { providerID, modelID }
+      const sessionId = this._chatSessions[chatId]
+      if (sessionId) {
+        await Instance.provide({
+          directory: this._chatDirs[chatId] ?? this._defaultDir ?? Instance.directory,
+          fn: () =>
+            SessionPreference.set({
+              sessionID: SessionID.make(sessionId),
+              model: { providerID: ProviderID.make(providerID), modelID: ModelID.make(modelID) },
+              source: "feishu",
+            }),
+        })
+      }
       await this.replyText(messageId, `✅ 已切换模型：${arg}\n（仅对当前对话生效，/new 后将重置）`)
       return
     }
@@ -793,7 +816,9 @@ class FeishuManagerImpl {
   }
 
   private formatModelList(chatId: string, full: boolean): string {
-    const current = this._modelOverrides[chatId] ?? this._connectedModel
+    const sessionId = this._chatSessions[chatId]
+    const prefModel = sessionId ? SessionPreference.get(sessionId)?.model : undefined
+    const current = prefModel ?? this._connectedModel
     const currentStr = current ? `${current.providerID}/${current.modelID}` : "（全局默认）"
 
     const lines: string[] = []
@@ -886,7 +911,7 @@ class FeishuManagerImpl {
         }
         await SessionCompaction.create({
           sessionID: SessionID.make(sessionId),
-          agent: this._agentOverrides[chatId] ?? currentAgent,
+          agent: (sessionId ? SessionPreference.get(sessionId)?.agent : undefined) ?? currentAgent,
           model,
           auto: false,
         })
@@ -910,7 +935,9 @@ class FeishuManagerImpl {
     }
     const visible = agents.filter((a) => !a.hidden)
     const names = visible.map((a) => a.name)
-    const current = this._agentOverrides[chatId] || (await Agent.defaultAgent())
+    const sessionId = this._chatSessions[chatId]
+    const prefAgent = sessionId ? SessionPreference.get(sessionId)?.agent : undefined
+    const current = prefAgent || (await Agent.defaultAgent())
     if (!arg) {
       const sample = names.slice(0, 10).join("、") || "（暂无可用模式）"
       await this.replyText(messageId, `🧠 当前模式：${current}\n可用模式：${sample}`)
@@ -921,7 +948,17 @@ class FeishuManagerImpl {
       await this.replyText(messageId, `❌ 未找到模式：${arg}\n可用模式：${sample}`)
       return
     }
-    this._agentOverrides[chatId] = arg
+    if (sessionId) {
+      await Instance.provide({
+        directory: this._chatDirs[chatId] ?? this._defaultDir ?? Instance.directory,
+        fn: () =>
+          SessionPreference.set({
+            sessionID: SessionID.make(sessionId),
+            agent: arg,
+            source: "feishu",
+          }),
+      })
+    }
     await this.replyText(messageId, `✅ 已切换模式：${arg}\n（仅对当前对话生效，/new 后将重置）`)
   }
 
@@ -930,7 +967,9 @@ class FeishuManagerImpl {
    * /approval <name> — switch approval mode (auto, ask)
    */
   private async cmdApproval(messageId: string, chatId: string, arg: string): Promise<void> {
-    const current = this._approvalOverrides[chatId] || "ask"
+    const sessionId = this._chatSessions[chatId]
+    const prefApproval = sessionId ? SessionPreference.get(sessionId)?.approval : undefined
+    const current = prefApproval || "ask"
     if (!arg) {
       await this.replyText(messageId, `🔐 当前审批模式：${current}\n可用模式：auto、ask`)
       return
@@ -939,43 +978,47 @@ class FeishuManagerImpl {
       await this.replyText(messageId, "❌ 仅支持 /approval auto 或 /approval ask")
       return
     }
-    this._approvalOverrides[chatId] = arg
-    const sessionId = this._chatSessions[chatId]
-    if (arg === "auto") {
-      const effectiveDir = this._chatDirs[chatId] ?? this._defaultDir ?? Instance.directory
+    if (sessionId) {
       await Instance.provide({
-        directory: effectiveDir,
-        fn: async () => {
-          const permissions = await Permission.list()
-          for (const p of permissions) {
-            if (sessionId && p.sessionID === sessionId) {
-              await Permission.reply({ requestID: p.id, reply: "always" })
-            }
-          }
-          if (sessionId) {
-            await Session.setPermission({
-              sessionID: SessionID.make(sessionId),
-              permission: [{ permission: "*", pattern: "*", action: "allow" }],
-            })
-          }
-        },
+        directory: this._chatDirs[chatId] ?? this._defaultDir ?? Instance.directory,
+        fn: () =>
+          SessionPreference.set({
+            sessionID: SessionID.make(sessionId),
+            approval: arg,
+            source: "feishu",
+          }),
       })
+    }
+    if (arg === "auto") {
       await this.replyText(messageId, "✅ 已开启自动接受权限\n（后续权限请求将自动批准）")
     } else {
-      const effectiveDir = this._chatDirs[chatId] ?? this._defaultDir ?? Instance.directory
-      await Instance.provide({
-        directory: effectiveDir,
-        fn: async () => {
-          if (sessionId) {
-            await Session.setPermission({
-              sessionID: SessionID.make(sessionId),
-              permission: [],
-            })
-          }
-        },
-      })
       await this.replyText(messageId, "✅ 已停止自动接受权限\n（后续权限请求将需要你确认）")
     }
+  }
+
+  /**
+   * /variant        — show current variant
+   * /variant <name> — switch to named variant
+   */
+  private async cmdVariant(messageId: string, chatId: string, arg: string): Promise<void> {
+    const sessionId = this._chatSessions[chatId]
+    const prefVariant = sessionId ? SessionPreference.get(sessionId)?.variant : undefined
+    if (!arg) {
+      await this.replyText(messageId, `🔀 当前变体：${prefVariant || "（默认）"}`)
+      return
+    }
+    if (sessionId) {
+      await Instance.provide({
+        directory: this._chatDirs[chatId] ?? this._defaultDir ?? Instance.directory,
+        fn: () =>
+          SessionPreference.set({
+            sessionID: SessionID.make(sessionId),
+            variant: arg,
+            source: "feishu",
+          }),
+      })
+    }
+    await this.replyText(messageId, `✅ 已切换变体：${arg}\n（仅对当前对话生效，/new 后将重置）`)
   }
 
   /**
@@ -1064,9 +1107,6 @@ class FeishuManagerImpl {
       for (const key of Object.keys(this.sessionMap)) {
         if (key.startsWith(`${chatId}:`)) delete this.sessionMap[key]
       }
-      delete this._modelOverrides[chatId]
-      delete this._agentOverrides[chatId]
-      delete this._approvalOverrides[chatId]
       this._chatDirs[chatId] = newDir
 
       // Auto-unhide if it was hidden
@@ -1183,8 +1223,6 @@ class FeishuManagerImpl {
       }
       const chosen = items[idx]
       this._chatSessions[chatId] = chosen.id
-      delete this._agentOverrides[chatId]
-      delete this._approvalOverrides[chatId]
       await this.replyText(
         messageId,
         `✅ 已切换到会话：${chosen.title}\n   更新时间：${this.formatSessionTime(chosen.time.updated)}`,
@@ -1249,9 +1287,6 @@ class FeishuManagerImpl {
     }
     this._session = null
     this._connectedModel = null
-    this._modelOverrides = {}
-    this._agentOverrides = {}
-    this._approvalOverrides = {}
     this._modelList = []
     this._chatDirs = {}
     this._chatSessions = {}
