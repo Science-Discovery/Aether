@@ -239,6 +239,12 @@ class AetherAgent(Agent):
         except Exception as e:
             logger.warning(f"加载隐藏项目失败: {e}")
         try:
+            all_projects = await self._get_projects()
+            visible = [
+                p for p in all_projects if self._project_dir(p) not in self._hidden_dirs
+            ]
+            if visible:
+                self.directory = self._project_dir(visible[0])
             session_id, created = await self._ensure_session(self.directory)
             logger.info(
                 f"默认会话: {session_id[:8]}... dir={self.directory} created={created}"
