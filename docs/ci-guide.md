@@ -18,6 +18,15 @@
 
 - 类型：CI / 单元测试
 - 状态：活跃
+- 所需 GitHub 配置：
+  - 仓库设置：
+    - 必须启用 GitHub Actions
+    - 因 job 需要 `checks: write`，`Settings -> Actions -> General -> Workflow permissions` 需要设为 `Read and write permissions`
+    - 如果组织限制了可用 action，需要放行 `actions/checkout@v4`、`oven-sh/setup-bun@v2`、`actions/cache@v4`
+  - Repository variables：无
+  - Repository secrets：无自定义项；使用系统自带 `GITHUB_TOKEN`
+  - 可选但常见的仓库配置：
+    - 如果希望把它作为合并门禁，需要在 `dev` 分支保护规则里把对应 check 设为 required
 - 触发（当前）：
   - `push` 到 `dev`
   - 所有 `pull_request`
@@ -50,6 +59,15 @@
 
 - 类型：CI / 静态类型校验
 - 状态：活跃
+- 所需 GitHub 配置：
+  - 仓库设置：
+    - 必须启用 GitHub Actions
+    - 默认 `GITHUB_TOKEN` 只读即可；无需仓库级写权限
+    - 如果组织限制了可用 action，需要放行 `actions/checkout@v4`、`oven-sh/setup-bun@v2`、`actions/cache@v4`
+  - Repository variables：无
+  - Repository secrets：无
+  - 可选但常见的仓库配置：
+    - 如果希望把它作为合并门禁，需要在 `dev` 分支保护规则里把对应 check 设为 required
 - 触发（当前）：
   - `push` 到 `dev`
   - `pull_request` 到 `dev`
@@ -69,6 +87,15 @@
 
 - 类型：CI / UI 构建校验
 - 状态：活跃
+- 所需 GitHub 配置：
+  - 仓库设置：
+    - 必须启用 GitHub Actions
+    - 默认 `GITHUB_TOKEN` 只读即可；无需仓库级写权限
+    - 如果组织限制了可用 action，需要放行 `actions/checkout@v4`、`oven-sh/setup-bun@v2`、`actions/cache@v4`
+  - Repository variables：无
+  - Repository secrets：无
+  - 可选但常见的仓库配置：
+    - 如果希望把它作为合并门禁，需要在 `dev` 分支保护规则里把对应 check 设为 required
 - 触发（当前）：
   - `push` 到 `dev`
   - `pull_request` 到 `dev`
@@ -90,6 +117,15 @@
 
 - 类型：CI / Nix Flake 求值校验
 - 状态：活跃
+- 所需 GitHub 配置：
+  - 仓库设置：
+    - 必须启用 GitHub Actions
+    - 默认 `GITHUB_TOKEN` 只读即可；无需仓库级写权限
+    - 如果组织限制了可用 action，需要放行 `actions/checkout@v6`、`nixbuild/nix-quick-install-action@v34`
+  - Repository variables：无
+  - Repository secrets：无
+  - 可选但常见的仓库配置：
+    - 如果希望把它作为合并门禁，需要在 `dev` 分支保护规则里把对应 check 设为 required
 - 触发（当前）：
   - `push` 到 `dev`
   - `pull_request` 到 `dev`
@@ -127,6 +163,17 @@
 
 - 类型：CD / 主发布流水线
 - 状态：活跃（已于 2026-04-06 精简为 Aether 自有发布流程；同日切到仅发布纯浏览器版）
+- 所需 GitHub 配置：
+  - 仓库设置：
+    - 必须启用 GitHub Actions
+    - 因 workflow 需要 `contents: write` 创建 draft release 并上传 release assets，`Settings -> Actions -> General -> Workflow permissions` 需要设为 `Read and write permissions`
+    - 仓库需要启用 Releases 功能
+    - 如果组织限制了可用 action，需要放行 `actions/checkout@v4`、`oven-sh/setup-bun@v2`、`actions/cache@v4`、`actions/setup-node@v4`、`actions/upload-artifact@v4`、`actions/download-artifact@v4`
+  - Repository variables：无
+  - Repository secrets：无自定义项；使用系统自带 `GITHUB_TOKEN`
+  - 其他前置条件：
+    - 手动触发时必须提供 `version`
+    - 如要启用 Electron 构建，还需要 runner 能正常执行 `sudo apt-get install rpm`、`npx electron-builder` 和三平台构建
 - 触发：
   - `workflow_dispatch`
 - 主要内容：
@@ -282,6 +329,20 @@
 #### `generate.yml`
 
 - 类型：自动生成
+- 所需 GitHub 配置：
+  - 仓库设置：
+    - 必须启用 GitHub Actions
+    - 因 workflow 需要提交并推送变更，`Settings -> Actions -> General -> Workflow permissions` 需要设为 `Read and write permissions`
+    - 如果组织限制了可用 action，需要放行 `actions/checkout@v4`、`oven-sh/setup-bun@v2`、`actions/cache@v4`、`actions/create-github-app-token@v2`
+  - Repository variables：
+    - `OPENCODE_APP_ID`
+  - Repository secrets：
+    - `OPENCODE_APP_SECRET`
+  - GitHub App / 权限：
+    - `OPENCODE_APP_ID` / `OPENCODE_APP_SECRET` 对应的 GitHub App 必须已安装到本仓库
+    - 该 App 至少需要仓库 `Contents: Read and write` 权限，才能让 `.github/actions/setup-git-committer` 生成 token 并 `git push`
+  - 其他前置条件：
+    - 仓库需要接入名为 `blacksmith-4vcpu-ubuntu-2404` 的 runner；若未接入 Blacksmith，需要修改 workflow 的 `runs-on`
 - 触发：`push` 到 `dev`
 - 主要内容：
   - 执行 `./script/generate.ts`
@@ -292,6 +353,20 @@
 #### `docs-update.yml`
 
 - 类型：文档自动化
+- 所需 GitHub 配置：
+  - 仓库设置：
+    - 必须启用 GitHub Actions
+    - 因 workflow 需要改文档并开 PR/写回仓库，`Settings -> Actions -> General -> Workflow permissions` 需要设为 `Read and write permissions`
+    - 这是定时任务，仓库默认分支上必须保留该 workflow；本仓库默认分支当前是 `dev`
+    - 如果组织限制了可用 action，需要放行 `actions/checkout@v4`、`oven-sh/setup-bun@v2`、`actions/cache@v4`、`sst/opencode/github@latest`
+  - Repository variables：无
+  - Repository secrets：
+    - `OPENCODE_API_KEY`
+  - OIDC / 权限：
+    - job 显式申请了 `id-token: write`；如果后续 `sst/opencode/github` 依赖 OIDC，这个权限已在 workflow 中打开，不需要额外仓库变量
+  - 当前仓库的额外现实情况：
+    - job 带有 `if: github.repository == 'sst/opencode'`
+    - 因此在 `Science-Discovery/Aether` 里即使 secrets 配齐，这条 workflow 目前也不会真正执行
 - 触发：
   - 每 12 小时
   - `workflow_dispatch`
@@ -306,6 +381,21 @@
 #### `docs-locale-sync.yml`
 
 - 类型：文档自动化
+- 所需 GitHub 配置：
+  - 仓库设置：
+    - 必须启用 GitHub Actions
+    - 因 workflow 需要提交并推送多语言文档，`Settings -> Actions -> General -> Workflow permissions` 需要设为 `Read and write permissions`
+    - 如果组织限制了可用 action，需要放行 `actions/checkout@v4`、`oven-sh/setup-bun@v2`、`actions/cache@v4`、`actions/create-github-app-token@v2`
+  - Repository variables：
+    - `OPENCODE_APP_ID`
+  - Repository secrets：
+    - `OPENCODE_APP_SECRET`
+    - `OPENCODE_API_KEY`
+  - GitHub App / 权限：
+    - `OPENCODE_APP_ID` / `OPENCODE_APP_SECRET` 对应的 GitHub App 必须已安装到本仓库
+    - 该 App 至少需要仓库 `Contents: Read and write` 权限，才能用于自动提交 locale 文档
+  - 其他前置条件：
+    - 仓库需要接入名为 `blacksmith-4vcpu-ubuntu-2404` 的 runner；若未接入 Blacksmith，需要修改 workflow 的 `runs-on`
 - 触发：
   - `push` 到 `dev`
   - 且只在英文 docs 变化时触发
@@ -323,6 +413,18 @@
 #### `nix-hashes.yml`
 
 - 类型：构建辅助 / 可复现性维护
+- 所需 GitHub 配置：
+  - 仓库设置：
+    - 必须启用 GitHub Actions
+    - 因 workflow 需要更新 `nix/hashes.json` 并推送，`Settings -> Actions -> General -> Workflow permissions` 需要设为 `Read and write permissions`
+    - 如果组织限制了可用 action，需要放行 `actions/checkout@v4`、`actions/checkout@v6`、`nixbuild/nix-quick-install-action@v34`、`actions/upload-artifact@v4`、`actions/download-artifact@v4`、`actions/create-github-app-token@v2`
+  - Repository variables：
+    - `OPENCODE_APP_ID`
+  - Repository secrets：
+    - `OPENCODE_APP_SECRET`
+  - GitHub App / 权限：
+    - `OPENCODE_APP_ID` / `OPENCODE_APP_SECRET` 对应的 GitHub App 必须已安装到本仓库
+    - 该 App 至少需要仓库 `Contents: Read and write` 权限，才能把更新后的 `nix/hashes.json` 推回分支
 - 触发：
   - `workflow_dispatch`
   - `push` 到 `dev`、`beta`
@@ -342,6 +444,18 @@
 
 - 类型：Issue 治理 / 合规与重复检测
 - 状态：活跃
+- 所需 GitHub 配置：
+  - 仓库设置：
+    - 必须启用 GitHub Actions
+    - 因 workflow 需要评论 issue 和加标签，`Settings -> Actions -> General -> Workflow permissions` 需要设为 `Read and write permissions`
+    - 如果组织限制了可用 action，需要放行 `actions/checkout@v4`、`oven-sh/setup-bun@v2`、`actions/cache@v4`
+  - Repository variables：
+    - `GOVERNANCE_LLM_BASE_URL`
+    - `GOVERNANCE_LLM_MODEL`
+  - Repository secrets：
+    - `GOVERNANCE_LLM_API_KEY`
+  - 仓库内前置对象：
+    - 建议预先创建 `needs:compliance` 标签，避免首次运行时标签展示风格不可控
 - 触发（当前）：
   - issue `opened`、`edited`
   - `workflow_dispatch`
@@ -402,6 +516,16 @@
 
 - 类型：Issue/PR 治理
 - 状态：活跃
+- 所需 GitHub 配置：
+  - 仓库设置：
+    - 必须启用 GitHub Actions
+    - 因 workflow 需要评论、移除标签并关闭 issue/PR，`Settings -> Actions -> General -> Workflow permissions` 需要设为 `Read and write permissions`
+    - 这是定时任务，仓库默认分支上必须保留该 workflow；本仓库默认分支当前是 `dev`
+    - 如果组织限制了可用 action，需要放行 `actions/github-script@v7`
+  - Repository variables：无
+  - Repository secrets：无自定义项；使用系统自带 `GITHUB_TOKEN`
+  - 仓库内前置对象：
+    - 需要存在并被其他流程使用的 `needs:compliance` 标签
 - 触发（当前）：
   - 每 30 分钟
   - `workflow_dispatch`
@@ -427,6 +551,14 @@
 
 - 类型：Issue 治理
 - 状态：活跃，但实现有边界风险
+- 所需 GitHub 配置：
+  - 仓库设置：
+    - 必须启用 GitHub Actions
+    - 因 workflow 需要评论并关闭 issue，`Settings -> Actions -> General -> Workflow permissions` 需要设为 `Read and write permissions`
+    - 这是定时任务，仓库默认分支上必须保留该 workflow；本仓库默认分支当前是 `dev`
+    - 如果组织限制了可用 action，需要放行 `actions/checkout@v4`、`oven-sh/setup-bun@v2`
+  - Repository variables：无
+  - Repository secrets：无自定义项；使用系统自带 `GITHUB_TOKEN`
 - 触发（当前）：
   - 每天 `02:00 UTC`
   - `workflow_dispatch`
@@ -454,6 +586,14 @@
 
 - 类型：PR 治理
 - 状态：活跃
+- 所需 GitHub 配置：
+  - 仓库设置：
+    - 必须启用 GitHub Actions
+    - 因 workflow 需要评论并关闭 PR，`Settings -> Actions -> General -> Workflow permissions` 需要设为 `Read and write permissions`
+    - 这是定时任务，仓库默认分支上必须保留该 workflow；本仓库默认分支当前是 `dev`
+    - 如果组织限制了可用 action，需要放行 `actions/github-script@v8`
+  - Repository variables：无
+  - Repository secrets：无自定义项；使用系统自带 `GITHUB_TOKEN`
 - 触发（当前）：
   - 每天 `06:00 UTC`
   - `workflow_dispatch`
@@ -485,6 +625,14 @@
 
 - 类型：Issue 治理 / AI 分诊
 - 状态：保留文件，但当前基本不可用
+- 所需 GitHub 配置：
+  - 仓库设置：
+    - 必须启用 GitHub Actions
+    - 因 workflow 需要写 issue 相关结果，`Settings -> Actions -> General -> Workflow permissions` 需要设为 `Read and write permissions`
+    - 如果组织限制了可用 action，需要放行 `actions/checkout@v4`、`oven-sh/setup-bun@v2`、`actions/cache@v4`
+  - Repository variables：无
+  - Repository secrets：
+    - `OPENCODE_API_KEY`
 - 触发（原本预期）：issue `opened`
 - 触发（当前）：
   - `workflow_dispatch`
@@ -505,38 +653,63 @@
 #### `review.yml`
 
 - 类型：PR 治理 / 按需 AI 审查
-- 状态：保留文件，但当前不可达
-- 触发（原本预期）：PR 评论中出现 `/review`
+- 状态：活跃
+- 所需 GitHub 配置：
+  - 仓库设置：
+    - 必须启用 GitHub Actions
+    - 因 workflow 需要读取仓库内容并在 PR 下发表评论，`Settings -> Actions -> General -> Workflow permissions` 需要设为 `Read and write permissions`
+    - `issue_comment` 事件只会在默认分支上存在该 workflow 文件时生效；本仓库默认分支当前是 `dev`
+    - 如果组织限制了可用 action，需要放行 `actions/checkout@v4`
+  - Repository variables：
+    - `REVIEW_LLM_BASE_URL`：自定义 OpenAI-compatible 提供商的 base URL，例如 `https://your-provider.example/v1`
+    - `REVIEW_LLM_MODEL`：review workflow 使用的模型名
+  - Repository secrets：
+    - `REVIEW_LLM_API_KEY`：上述 provider 的 API key
+    - 系统自带 `GITHUB_TOKEN` 由 workflow 自动使用，无需手动创建
+  - 仓库内前置对象：
+    - 需要存在 `.github/TEAM_MEMBERS`，只有文件中列出的 GitHub 用户名才能真正执行 review
+    - 需要保留 `.github/prompts/review.txt` 与 `.github/scripts/extract-opencode-comment.mjs`
 - 触发（当前）：
-  - `workflow_dispatch`
+  - `issue_comment` `created`
 - 主要内容：
-  - job 级别先检查三个条件：
-    - 评论目标必须是 PR 线程
-    - 评论正文必须以 `/review` 开头
-    - 评论者必须是 `OWNER` 或 `MEMBER`
-  - 如果条件满足，workflow 才会继续：
-    - 解析 PR 编号
-    - checkout 仓库
-    - 调用 `.github/actions/setup-bun`
-    - 安装 `opencode` CLI
-    - 用 `gh api` 拉取 PR 标题、正文和 head SHA
-    - 调用 `opencode run -m anthropic/claude-opus-4-5`
-    - prompt 明确要求 agent：
-      - 阅读 PR 变更并检查代码风格和潜在 bug
-      - 使用 `gh api` 在具体文件行上创建 review comments
-      - 如果没有问题，只回 `lgtm`
+  - 只在 PR 评论中出现 `/oc review` 或 `/opencode review` 时触发
+  - checkout 仓库后读取 `.github/TEAM_MEMBERS`，只有名单中的 GitHub 用户名才继续执行 review
+  - checkout 仓库以读取 review prompt 和辅助脚本
+  - 安装 `opencode` CLI
+  - 通过 `OPENCODE_CONFIG_CONTENT` 临时注入 review 专用 provider：
+    - 底层使用 OpenAI-compatible provider
+    - `apiKey`、`baseURL`、模型名分别来自 `REVIEW_LLM_API_KEY`、`REVIEW_LLM_BASE_URL`、`REVIEW_LLM_MODEL`
+  - 调用 `opencode run --agent review --model review/primary --format json`
+  - review agent 被限制为只允许受限的 `gh pr view`、`gh pr diff`、`gh api` 读取命令：
+    - 不允许编辑代码
+    - 不允许 git push / 发评论 / 创建 review comments
+  - workflow 从 JSON 事件流中提取最终 assistant 文本
+  - 最后由 workflow 自己用 `gh pr comment` 把这段文本发到当前 PR
 - 作用：
-  - 让维护者可以手动触发一次 AI code review
+  - 让 `.github/TEAM_MEMBERS` 中列出的成员在 PR 线程中按需触发一次只读 AI code review
 - 备注：
-  - 当前 `on:` 是 `workflow_dispatch`，但 job 的 `if:` 仍然严格依赖 `github.event.issue.pull_request`、`github.event.comment.body` 和 `github.event.comment.author_association`
-  - 因此在正常手动触发场景下，job 条件不会满足，workflow 实际上不会进入审查步骤
-  - 也就是说：这条文件目前不是“手动 review 入口”，而是“保留了旧评论触发逻辑，但触发器已经被拿掉”
-  - 另外它仍依赖 `ANTHROPIC_API_KEY` 与旧的 `opencode` CLI 执行链路
+  - 这条 workflow 不再让 agent 直接发布评论；agent 只产出文本，评论发布由 workflow 完成
+  - review 依据是 GitHub API 返回的 PR 元数据、diff 和按需读取的文件内容，而不是本地 checkout 的 PR 代码
 
 #### `pr-management.yml`
 
 - 类型：PR 治理
 - 状态：活跃
+- 所需 GitHub 配置：
+  - 仓库设置：
+    - 必须启用 GitHub Actions
+    - 因 workflow 需要评论 PR 和加标签，`Settings -> Actions -> General -> Workflow permissions` 需要设为 `Read and write permissions`
+    - 如果组织限制了可用 action，需要放行 `actions/checkout@v4`、`oven-sh/setup-bun@v2`、`actions/cache@v4`、`actions/github-script@v8`
+  - Repository variables：
+    - `GOVERNANCE_LLM_BASE_URL`
+    - `GOVERNANCE_LLM_MODEL`
+  - Repository secrets：
+    - `GOVERNANCE_LLM_API_KEY`
+  - 运行时令牌：
+    - 额外使用系统自带 `GITHUB_TOKEN` 检索候选 PR 并向当前 PR 发评论
+  - 仓库内前置对象：
+    - `.github/TEAM_MEMBERS` 需要维护团队成员名单；当前该文件就是“跳过团队成员重复检测”的唯一来源
+    - 建议预先创建 `contributor` 标签，保持标签颜色和描述稳定
 - 触发（当前）：
   - `pull_request_target` `opened`
 - 主要内容：
@@ -576,6 +749,16 @@
 
 - 类型：PR 治理 / 规范校验
 - 状态：活跃
+- 所需 GitHub 配置：
+  - 仓库设置：
+    - 必须启用 GitHub Actions
+    - 因 workflow 需要评论、删评论和打标签，`Settings -> Actions -> General -> Workflow permissions` 需要设为 `Read and write permissions`
+    - 如果组织限制了可用 action，需要放行 `actions/github-script@v7`
+  - Repository variables：无
+  - Repository secrets：无自定义项；使用系统自带 `GITHUB_TOKEN`
+  - 仓库内前置对象：
+    - `.github/TEAM_MEMBERS` 需要维护团队成员名单；workflow 用它跳过团队成员
+    - 建议预先创建 `needs:title`、`needs:issue`、`needs:compliance` 标签，避免首次自动打标时样式不可控
 - 触发（当前）：
   - `pull_request_target` 的 `opened`、`edited`、`synchronize`
 - 主要内容：
@@ -634,6 +817,16 @@
 
 - 类型：Issue 治理 / 信任体系
 - 状态：活跃，但当前策略表为空
+- 所需 GitHub 配置：
+  - 仓库设置：
+    - 必须启用 GitHub Actions
+    - 因 workflow 需要评论、关闭 issue 和加标签，`Settings -> Actions -> General -> Workflow permissions` 需要设为 `Read and write permissions`
+    - 如果组织限制了可用 action，需要放行 `actions/github-script@v7`
+  - Repository variables：无
+  - Repository secrets：无自定义项；使用系统自带 `GITHUB_TOKEN`
+  - 仓库内前置对象：
+    - `.github/VOUCHED.td` 必须存在；即使为空表，workflow 也会读取它
+    - 建议预先创建 `Vouched` 标签，保持标签颜色和描述稳定
 - 触发（当前）：
   - issue `opened`
 - 主要内容：
@@ -664,6 +857,16 @@
 
 - 类型：PR 治理 / 信任体系
 - 状态：活跃，但当前策略表为空
+- 所需 GitHub 配置：
+  - 仓库设置：
+    - 必须启用 GitHub Actions
+    - 因 workflow 需要评论、关闭 PR 和加标签，`Settings -> Actions -> General -> Workflow permissions` 需要设为 `Read and write permissions`
+    - 如果组织限制了可用 action，需要放行 `actions/github-script@v7`
+  - Repository variables：无
+  - Repository secrets：无自定义项；使用系统自带 `GITHUB_TOKEN`
+  - 仓库内前置对象：
+    - `.github/VOUCHED.td` 必须存在；即使为空表，workflow 也会读取它
+    - 建议预先创建 `Vouched` 标签，保持标签颜色和描述稳定
 - 触发（当前）：
   - `pull_request_target` `opened`
 - 主要内容：
