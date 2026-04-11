@@ -88,6 +88,8 @@ export const dict = {
   "command.session.fork.description": "Create a new session from a previous message",
   "command.session.share": "Share session",
   "command.session.share.description": "Share this session and copy the URL to clipboard",
+  "command.session.readingMode": "Reading mode",
+  "command.session.readingMode.description": "Open classic reading mode",
   "command.session.unshare": "Unshare session",
   "command.session.unshare.description": "Stop sharing this session",
 

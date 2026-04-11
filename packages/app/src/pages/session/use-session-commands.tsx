@@ -15,6 +15,7 @@ import { DialogSelectFile } from "@/components/dialog-select-file"
 import { DialogSelectModel } from "@/components/dialog-select-model"
 import { DialogSelectMcp } from "@/components/dialog-select-mcp"
 import { DialogFork } from "@/components/dialog-fork"
+import { DialogReadingMode } from "@/components/dialog-reading-mode"
 import { showToast } from "@opencode-ai/ui/toast"
 import { findLast } from "@opencode-ai/util/array"
 import { createSessionTabs } from "@/pages/session/helpers"
@@ -249,6 +250,16 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
           const result = await sdk.client.session.create().catch(() => null)
           if (!result?.data?.id) return
           navigate(`/${params.dir}/session/${result.data.id}`)
+        },
+      }),
+      sessionCommand({
+        id: "session.readingMode",
+        title: language.t("command.session.readingMode"),
+        description: language.t("command.session.readingMode.description"),
+        disabled: !params.id,
+        onSelect: () => {
+          if (!params.id) return
+          dialog.show(() => <DialogReadingMode />)
         },
       }),
       fileCommand({
