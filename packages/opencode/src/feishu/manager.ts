@@ -32,7 +32,7 @@ const CONFIG_FILE = join(FEISHU_DATA_DIR, "config.json")
 const SESSION_MAP_FILE = join(FEISHU_DATA_DIR, "sessions.json")
 const HIDDEN_DIRS_FILE = join(FEISHU_DATA_DIR, "hidden_projects.json")
 
-export type FeishuStatus = "idle" | "starting" | "connected" | "error"
+export type FeishuStatus = "idle" | "starting" | "connected" | "reconnecting" | "error"
 
 export interface FeishuConfig {
   appId: string
@@ -49,7 +49,7 @@ export const FeishuEvent = {
   StatusChanged: BusEvent.define(
     "feishu.status",
     z.object({
-      status: z.enum(["idle", "starting", "connected", "error"]),
+      status: z.enum(["idle", "starting", "connected", "reconnecting", "error"]),
       message: z.string().optional(),
     }),
   ),
@@ -64,6 +64,13 @@ export const FeishuEvent = {
     z.object({
       code: z.string(),
       message: z.string(),
+    }),
+  ),
+  Reconnecting: BusEvent.define(
+    "feishu.reconnecting",
+    z.object({
+      attempt: z.number(),
+      delay: z.number(),
     }),
   ),
 }
@@ -124,7 +131,19 @@ class FeishuManagerImpl {
   // ── Pending interaction state ─────────────────────────────────────────────
   private _pendingQuestions: Record<string, Question.Request> = {}
   private _pendingPermissions: Record<string, Permission.Request> = {}
+  private _queues = new Map<string, Promise<void>>()
+  private _heartbeat: ReturnType<typeof setInterval> | null = null
+  private _heartbeatFails = 0
+  private _reconnect: ReturnType<typeof setTimeout> | null = null
+  private _reconnectCount = 0
+  private _manualStop = false
+  private _lastConfig: FeishuConfig | null = null
+  private _starting = false
   // ─────────────────────────────────────────────────────────────────────────
+
+  private static readonly HEARTBEAT_MS = 30_000
+  private static readonly HEARTBEAT_FAILS = 3
+  private static readonly RECONNECT_MAX = 10
 
   get status() {
     return this._status
@@ -351,7 +370,7 @@ class FeishuManagerImpl {
     status?: string
     appId?: string
   }> {
-    if (this.wsClient || this._status === "starting" || this._status === "connected") {
+    if (this.wsClient || this._starting || ["starting", "connected", "reconnecting"].includes(this._status)) {
       return { success: false, message: "Feishu bridge is already running" }
     }
 
@@ -365,6 +384,8 @@ class FeishuManagerImpl {
 
     this.status = "starting"
     this._error = null
+    this._manualStop = false
+    this._lastConfig = cfg
 
     await this.saveConfig(cfg)
     this.sessionMap = await this.loadSessionMap()
@@ -374,13 +395,14 @@ class FeishuManagerImpl {
   }
 
   private async _doStart(config: FeishuConfig, model: ModelRef | null): Promise<void> {
+    this._starting = true
     try {
       this.statusMsg("starting", "正在连接飞书...")
       console.log("[feishu] _doStart called")
 
       const boundHandleMessage = (data: any) => {
         console.log("[feishu] >>> event received!")
-        void this.handleMessage(data)
+        void this.enqueueMessage(data)
       }
 
       this._appId = config.appId
@@ -401,12 +423,14 @@ class FeishuManagerImpl {
         appSecret: config.appSecret,
         loggerLevel: lark.LoggerLevel.debug,
       })
+      this.bindLifecycle(this.wsClient)
 
       console.log("[feishu] calling wsClient.start()...")
       await this.wsClient.start({ eventDispatcher })
       console.log("[feishu] wsClient.start() resolved")
 
       this._connectedModel = model
+      this._reconnectCount = 0
       console.log("[feishu] connected model:", this._connectedModel)
 
       this._modelList = await this.buildModelList()
@@ -428,6 +452,7 @@ class FeishuManagerImpl {
         appId: config.appId,
         createdAt: Date.now(),
       }
+      this.startHeartbeat()
       this.status = "connected"
       Bus.publish(FeishuEvent.Connected, { appId: config.appId })
 
@@ -441,7 +466,142 @@ class FeishuManagerImpl {
       this._error = { code: "start_failed", message }
       this.status = "error"
       Bus.publish(FeishuEvent.Error, this._error)
+      if (!this._manualStop) this.scheduleReconnect(message)
+    } finally {
+      this._starting = false
     }
+  }
+
+  private bindLifecycle(client: any): void {
+    const on = client?.on?.bind(client)
+    if (typeof on === "function") {
+      on("close", () => this.onDisconnect("ws_close"))
+      on("error", (err: unknown) => this.onDisconnect(err instanceof Error ? err.message : "ws_error"))
+    }
+
+    const bind = () => {
+      const ws = client?.ws
+      if (!ws || ws.__aetherBound) return
+      ws.__aetherBound = true
+      const close = ws.addEventListener?.bind(ws)
+      if (typeof close === "function") {
+        close("close", () => this.onDisconnect("socket_close"))
+        close("error", () => this.onDisconnect("socket_error"))
+        return
+      }
+      const add = ws.on?.bind(ws)
+      if (typeof add === "function") {
+        add("close", () => this.onDisconnect("socket_close"))
+        add("error", () => this.onDisconnect("socket_error"))
+      }
+    }
+
+    bind()
+
+    const connect = client?.connect?.bind(client)
+    if (typeof connect !== "function") return
+    client.connect = async (...args: any[]) => {
+      const result = await connect(...args)
+      bind()
+      return result
+    }
+  }
+
+  private onDisconnect(reason: string): void {
+    if (this._manualStop) return
+    if (this._status === "idle" || this._status === "error") return
+    console.warn("[feishu] disconnect detected:", reason)
+    this.stopHeartbeat()
+    this.scheduleReconnect(reason)
+  }
+
+  private scheduleReconnect(reason: string): void {
+    if (this._manualStop || !this._lastConfig) return
+    if (this._reconnect || this._status === "reconnecting") return
+    if (this._reconnectCount >= FeishuManagerImpl.RECONNECT_MAX) {
+      this._error = { code: "reconnect_failed", message: "飞书连接多次重试失败，请手动重新连接。" }
+      this.status = "error"
+      Bus.publish(FeishuEvent.Error, this._error)
+      return
+    }
+    const attempt = this._reconnectCount + 1
+    const delay = Math.min(2_000 * 2 ** this._reconnectCount, 30_000)
+    this._reconnectCount = attempt
+    this.statusMsg("reconnecting", `飞书连接已断开，正在重连（第 ${attempt} 次）...`)
+    Bus.publish(FeishuEvent.Reconnecting, { attempt, delay })
+    this._reconnect = setTimeout(() => {
+      this._reconnect = null
+      void this.restartAfterDisconnect(reason)
+    }, delay)
+  }
+
+  private async restartAfterDisconnect(reason: string): Promise<void> {
+    if (this._manualStop || !this._lastConfig) return
+    console.log("[feishu] reconnecting after:", reason)
+    await this.cleanupConnection(false)
+    await this._doStart(this._lastConfig, this._connectedModel)
+  }
+
+  private startHeartbeat(): void {
+    this.stopHeartbeat()
+    this._heartbeatFails = 0
+    this._heartbeat = setInterval(() => {
+      void this.checkHeartbeat()
+    }, FeishuManagerImpl.HEARTBEAT_MS)
+  }
+
+  private stopHeartbeat(): void {
+    if (!this._heartbeat) return
+    clearInterval(this._heartbeat)
+    this._heartbeat = null
+  }
+
+  private async checkHeartbeat(): Promise<void> {
+    if (this._manualStop || this._status !== "connected") return
+    try {
+      await this.getTenantAccessToken()
+      this._heartbeatFails = 0
+    } catch (err) {
+      this._heartbeatFails += 1
+      console.warn("[feishu] heartbeat failed:", this._heartbeatFails, err)
+      if (this._heartbeatFails < FeishuManagerImpl.HEARTBEAT_FAILS) return
+      this.onDisconnect("heartbeat_failed")
+    }
+  }
+
+  private async cleanupConnection(reset = true): Promise<void> {
+    this.stopHeartbeat()
+    if (this._reconnect) {
+      clearTimeout(this._reconnect)
+      this._reconnect = null
+    }
+    if (this._globalBusListener) {
+      GlobalBus.off("event", this._globalBusListener)
+      this._globalBusListener = null
+    }
+    if (this.wsClient) {
+      const prev = this._manualStop
+      this._manualStop = true
+      try {
+        if (typeof this.wsClient.close === "function") {
+          await this.wsClient.close()
+        }
+      } catch {}
+      this._manualStop = prev
+      this.wsClient = null
+    }
+    this.larkClient = null
+    this._session = null
+    this._modelList = []
+    this._pendingQuestions = {}
+    this._pendingPermissions = {}
+    this._queues.clear()
+    if (!reset) return
+    this._connectedModel = null
+    this._chatDirs = {}
+    this._chatSessions = {}
+    this._initialDir = ""
+    this.status = "idle"
   }
 
   private async handleMessage(data: any): Promise<void> {
@@ -724,6 +884,20 @@ class FeishuManagerImpl {
         console.error("[feishu] failed to send error reply:", e2)
       }
     }
+  }
+
+  private enqueueMessage(data: any): Promise<void> {
+    const chatId = data?.message?.chat_id
+    if (!chatId) return this.handleMessage(data)
+    const prev = this._queues.get(chatId) ?? Promise.resolve()
+    const next = prev
+      .catch(() => {})
+      .then(() => this.handleMessage(data))
+      .finally(() => {
+        if (this._queues.get(chatId) === next) this._queues.delete(chatId)
+      })
+    this._queues.set(chatId, next)
+    return next
   }
 
   /** Detect if the user is asking for a chat summary and extract time range. */
@@ -1441,29 +1615,10 @@ class FeishuManagerImpl {
   }
 
   async stop(): Promise<void> {
-    if (this._globalBusListener) {
-      GlobalBus.off("event", this._globalBusListener)
-      this._globalBusListener = null
-    }
-    if (this.wsClient) {
-      try {
-        if (typeof this.wsClient.stop === "function") {
-          this.wsClient.stop()
-        }
-      } catch {}
-      this.wsClient = null
-      this.larkClient = null
-    }
-    this._session = null
-    this._connectedModel = null
-    this._modelList = []
-    this._chatDirs = {}
-    this._chatSessions = {}
-    this._initialDir = ""
-    this._pendingQuestions = {}
-    this._pendingPermissions = {}
+    this._manualStop = true
+    this._reconnectCount = 0
+    await this.cleanupConnection()
     // _hiddenDirs intentionally kept (persisted, survives reconnect)
-    this.status = "idle"
   }
 
   async clearSession(): Promise<void> {

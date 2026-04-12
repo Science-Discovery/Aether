@@ -10,7 +10,7 @@ import { useServer } from "@/context/server"
 import { setFeishuStatus } from "@/context/feishu"
 import { useLocal } from "@/context/local"
 
-type FeishuStatus = "idle" | "loading" | "config" | "connected" | "error"
+type FeishuStatus = "idle" | "loading" | "config" | "connected" | "reconnecting" | "error"
 
 interface FeishuEvent {
   type: string
@@ -49,6 +49,25 @@ export const DialogFeishu: Component = () => {
   }
 
   let abort: AbortController | null = null
+  let retry: ReturnType<typeof setTimeout> | null = null
+
+  const clearRetry = () => {
+    if (!retry) return
+    clearTimeout(retry)
+    retry = null
+  }
+
+  const scheduleRetry = () => {
+    if (retry || !hasConfig()) return
+    retry = setTimeout(() => {
+      retry = null
+      if (status() === "connected" || status() === "loading") return
+      updateStatus("reconnecting")
+      setLoadingMsg("飞书事件流已断开，正在重连...")
+      connectSSE()
+      void fetchStatus()
+    }, 3_000)
+  }
 
   const fetchStatus = async () => {
     try {
@@ -56,8 +75,11 @@ export const DialogFeishu: Component = () => {
       const data = await response.json()
       setHasConfig(data.hasConfig)
       if (data.status === "connected" && data.appId) {
+        clearRetry()
         updateStatus("connected")
         setConnectedAppId(data.appId)
+      } else if (data.status === "reconnecting") {
+        updateStatus("reconnecting")
       } else if (data.error) {
         setError(data.error)
         updateStatus("error")
@@ -113,6 +135,7 @@ export const DialogFeishu: Component = () => {
   }
 
   const stopBridge = async () => {
+    clearRetry()
     if (abort) {
       abort.abort()
       abort = null
@@ -122,6 +145,7 @@ export const DialogFeishu: Component = () => {
   }
 
   const logout = async () => {
+    clearRetry()
     if (abort) {
       abort.abort()
       abort = null
@@ -147,7 +171,10 @@ export const DialogFeishu: Component = () => {
           headers: { ...authHeaders(), Accept: "text/event-stream" },
           signal: abort!.signal,
         })
-        if (!response.ok || !response.body) return
+        if (!response.ok || !response.body) {
+          scheduleRetry()
+          return
+        }
 
         const reader = response.body.getReader()
         const decoder = new TextDecoder()
@@ -167,8 +194,12 @@ export const DialogFeishu: Component = () => {
             try {
               const event: FeishuEvent = JSON.parse(raw)
               if (event.type === "feishu.connected" && event.properties.appId) {
+                clearRetry()
                 setConnectedAppId(event.properties.appId)
                 updateStatus("connected")
+              } else if (event.type === "feishu.reconnecting") {
+                updateStatus("reconnecting")
+                setLoadingMsg("飞书连接中断，正在自动重连...")
               } else if (event.type === "feishu.error") {
                 setError({
                   code: event.properties.code || "unknown",
@@ -179,11 +210,15 @@ export const DialogFeishu: Component = () => {
                 const s = event.properties.status === "starting" ? "loading" : event.properties.status
                 updateStatus(s)
                 if (event.properties.message) setLoadingMsg(event.properties.message)
+                if (s === "connected") clearRetry()
               }
             } catch {}
           }
         }
-      } catch {}
+        scheduleRetry()
+      } catch {
+        scheduleRetry()
+      }
     })()
   }
 
@@ -196,6 +231,7 @@ export const DialogFeishu: Component = () => {
       abort.abort()
       abort = null
     }
+    clearRetry()
   })
 
   return (
@@ -391,6 +427,18 @@ export const DialogFeishu: Component = () => {
             <div class="flex flex-col items-center gap-4">
               <div class="size-12 animate-spin rounded-full border-2 border-icon-weak border-t-icon-base" />
               <p class="text-14-regular text-text-base">{loadingMsg()}</p>
+            </div>
+          </Match>
+
+          <Match when={status() === "reconnecting"}>
+            <div class="flex flex-col items-center gap-4">
+              <div class="size-16 rounded-full bg-surface-warning flex items-center justify-center">
+                <Icon name="arrow-right" size="large" class="text-icon-warning-base animate-spin" />
+              </div>
+              <div class="flex flex-col items-center gap-1">
+                <p class="text-16-medium text-text-strong">正在重连飞书</p>
+                <p class="text-14-regular text-text-weak text-center max-w-xs">{loadingMsg()}</p>
+              </div>
             </div>
           </Match>
 

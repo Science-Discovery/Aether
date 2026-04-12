@@ -36,8 +36,7 @@ export const FeishuRoutes = lazy(() =>
       }),
       async (c) => {
         const body = await c.req.json().catch(() => ({}))
-        const config =
-          body?.appId && body?.appSecret ? { appId: body.appId, appSecret: body.appSecret } : undefined
+        const config = body?.appId && body?.appSecret ? { appId: body.appId, appSecret: body.appSecret } : undefined
         const model =
           body?.model?.providerID && body?.model?.modelID
             ? { providerID: body.model.providerID as string, modelID: body.model.modelID as string }
@@ -81,7 +80,7 @@ export const FeishuRoutes = lazy(() =>
               "application/json": {
                 schema: resolver(
                   z.object({
-                    status: z.enum(["idle", "starting", "connected", "error"]),
+                    status: z.enum(["idle", "starting", "connected", "reconnecting", "error"]),
                     appId: z.string().nullable(),
                     hasConfig: z.boolean(),
                     error: z
