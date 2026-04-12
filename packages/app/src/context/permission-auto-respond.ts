@@ -43,8 +43,16 @@ export function autoRespondsPermission(
   session: { id: string; parentID?: string }[],
   permission: { sessionID: string },
   directory?: string,
+  preference?: Record<string, { autoAccept?: boolean }>,
 ) {
-  const value = sessionLineage(session, permission.sessionID)
+  const lineage = sessionLineage(session, permission.sessionID)
+  if (preference) {
+    const prefValue = lineage
+      .map((id) => preference[id]?.autoAccept)
+      .find((item): item is boolean => item !== undefined)
+    if (prefValue !== undefined) return prefValue
+  }
+  const value = lineage
     .map((id) => accepted(autoAccept, id, directory))
     .find((item): item is boolean => item !== undefined)
   return value ?? false

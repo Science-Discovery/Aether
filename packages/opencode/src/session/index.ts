@@ -269,7 +269,7 @@ export namespace Session {
         error: MessageV2.Assistant.shape.error,
       }),
     ),
-    PreferenceChanged: SessionPreference.PreferenceChanged,
+    PreferenceUpdated: SessionPreference.PreferenceUpdated,
   }
 
   export const create = fn(
@@ -309,7 +309,7 @@ export namespace Session {
       const pref = SessionPreference.get(input.sessionID)
       if (pref) {
         const { sessionID: _, ...prefData } = pref
-        await SessionPreference.set({ sessionID: session.id, ...prefData, source: "desktop" })
+        await SessionPreference.update({ sessionID: session.id, ...prefData })
       }
       const msgs = await messages({ sessionID: input.sessionID })
       const idMap = new Map<string, MessageID>()

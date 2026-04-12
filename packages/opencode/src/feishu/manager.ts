@@ -19,6 +19,8 @@ import { ProviderID } from "@/provider/schema"
 import { ModelID } from "@/provider/schema"
 import { Agent } from "@/agent/agent"
 import { SessionPreference } from "@/session/preference"
+import { Question } from "@/question"
+import { Permission } from "@/permission"
 
 const FEISHU_DATA_DIR =
   process.platform === "darwin"
@@ -29,9 +31,8 @@ const FEISHU_DATA_DIR =
 const CONFIG_FILE = join(FEISHU_DATA_DIR, "config.json")
 const SESSION_MAP_FILE = join(FEISHU_DATA_DIR, "sessions.json")
 const HIDDEN_DIRS_FILE = join(FEISHU_DATA_DIR, "hidden_projects.json")
-const DEFAULT_PROJECT_FILE = join(FEISHU_DATA_DIR, "default_project.json")
 
-export type FeishuStatus = "idle" | "starting" | "connected" | "error"
+export type FeishuStatus = "idle" | "starting" | "connected" | "reconnecting" | "error"
 
 export interface FeishuConfig {
   appId: string
@@ -44,11 +45,17 @@ export interface FeishuSession {
   createdAt: number
 }
 
+const HELP_TEXT =
+  "📋 可用命令：\n\n/n, /new      开启新对话\n/stop         停止当前执行\n/c, /compact  压缩当前上下文\n\n/m, /model    查看可用模型\n/m l          查看全部模型\n/m n          切换编号模型\n\n/a, /agent    查看当前模式\n/a <name>     切换指定模式\n\n/p, /project  查看最近项目\n/p l          查看全部项目\n/p n          切换编号项目\n\n/s, /session  查看最近会话\n/s l          查看全部会话\n/s n          切换编号会话\n\n/h, /help     显示帮助信息\n/help list    显示全部命令"
+
+const HELP_LIST_TEXT =
+  "📋 全部命令：\n\n/n, /new\n  开启新对话，清空当前会话上下文\n\n/stop\n  停止当前执行中的任务\n\n/c, /compact\n  压缩当前会话上下文\n\n/m, /model\n  查看可用模型\n/m l, /model list\n  查看全部模型（l = list）\n/m n, /model n\n  切换到编号 n 的模型（n 为全量模型编号）\n\n/a, /agent\n  查看当前模式\n/a <name>, /agent <name>\n  切换模式（如 build、plan、docs）\n\n/p, /project\n  查看最近项目\n/p l, /project list\n  查看全部项目（l = list）\n/p n, /project n\n  切换到编号 n 的项目\n/project hide n\n  隐藏编号 n 的项目，重新在桌面端或消息端使用后自动恢复\n\n/s, /session\n  查看最近会话\n/s l, /session list\n  查看当前项目下全部会话（l = list）\n/s n, /session n\n  切换到当前项目下编号 n 的会话\n\n/approval\n  查看审批模式\n/approval <name>\n  切换审批模式（name 可选：auto、ask）\n\n/variant\n  查看当前变体\n/variant <name>\n  切换到指定变体（name 为变体名）\n\n/h, /help\n  显示常用命令\n/help list\n  显示全部命令"
+
 export const FeishuEvent = {
   StatusChanged: BusEvent.define(
     "feishu.status",
     z.object({
-      status: z.enum(["idle", "starting", "connected", "error"]),
+      status: z.enum(["idle", "starting", "connected", "reconnecting", "error"]),
       message: z.string().optional(),
     }),
   ),
@@ -63,6 +70,13 @@ export const FeishuEvent = {
     z.object({
       code: z.string(),
       message: z.string(),
+    }),
+  ),
+  Reconnecting: BusEvent.define(
+    "feishu.reconnecting",
+    z.object({
+      attempt: z.number(),
+      delay: z.number(),
     }),
   ),
 }
@@ -110,8 +124,8 @@ class FeishuManagerImpl {
   private _chatSessions: Record<string, string> = {}
   // Hidden project directories: directory -> timestamp when hidden. Persisted to disk.
   private _hiddenDirs: Record<string, number> = {}
-  // Default project directory applied to all chats on connect. Persisted to disk.
-  private _defaultDir: string | null = null
+  // Initial directory computed from first visible project on connect.
+  private _initialDir: string = ""
   // GlobalBus listener for detecting web UI activity on hidden projects.
   private _globalBusListener: ((event: { directory?: string; payload: any }) => void) | null = null
   // ─────────────────────────────────────────────────────────────────────────
@@ -119,6 +133,23 @@ class FeishuManagerImpl {
   // ── Agent & approval state ────────────────────────────────────────────────
   // (Moved to SessionPreference)
   // ─────────────────────────────────────────────────────────────────────────
+
+  // ── Pending interaction state ─────────────────────────────────────────────
+  private _pendingQuestions: Record<string, Question.Request> = {}
+  private _pendingPermissions: Record<string, Permission.Request> = {}
+  private _queues = new Map<string, Promise<void>>()
+  private _heartbeat: ReturnType<typeof setInterval> | null = null
+  private _heartbeatFails = 0
+  private _reconnect: ReturnType<typeof setTimeout> | null = null
+  private _reconnectCount = 0
+  private _manualStop = false
+  private _lastConfig: FeishuConfig | null = null
+  private _starting = false
+  // ─────────────────────────────────────────────────────────────────────────
+
+  private static readonly HEARTBEAT_MS = 30_000
+  private static readonly HEARTBEAT_FAILS = 3
+  private static readonly RECONNECT_MAX_MS = 300_000
 
   get status() {
     return this._status
@@ -251,10 +282,71 @@ class FeishuManagerImpl {
     }
   }
 
+  private effectiveDir(chatId: string): string {
+    return this._chatDirs[chatId] ?? (this._initialDir || Instance.directory)
+  }
+
+  private async clearRuntime(chatId: string): Promise<void> {
+    delete this._pendingQuestions[chatId]
+    delete this._pendingPermissions[chatId]
+  }
+
+  private async commandCtx(chatId: string): Promise<{
+    dir: string
+    sessionId: string
+    pref: ReturnType<typeof SessionPreference.get>
+    projectName: string
+    sessionTitle: string
+    modeName: string
+    modelStr: string
+  }> {
+    const dir = this.effectiveDir(chatId)
+    const sessionId = await this.currentSession(chatId, true)
+    if (!sessionId) throw new Error("no session for chat: " + chatId)
+    const pref = SessionPreference.get(sessionId)
+    const projectItem = this.getProjects().find((p) => this.normDir(this.projectDir(p)) === this.normDir(dir))
+    const projectName = this.clip(
+      projectItem
+        ? this.projectName(projectItem)
+        : (dir.replace(/\\/g, "/").replace(/\/+$/, "").split("/").at(-1) ?? dir),
+      24,
+    )
+    let sessionTitle = sessionId.slice(0, 8)
+    try {
+      const info = await Instance.provide({
+        directory: dir,
+        fn: () => [...Session.list({ directory: dir, roots: true, limit: 100 })].find((s) => s.id === sessionId),
+      })
+      if (info?.title) sessionTitle = info.title
+    } catch {}
+    sessionTitle = this.clip(sessionTitle, 24)
+    const modeName = pref?.agent ?? "build"
+    const model = this.resolveModel(chatId)
+    const modelStr = model
+      ? `${model.providerID}/${model.modelID}`
+      : this._connectedModel
+        ? `${this._connectedModel.providerID}/${this._connectedModel.modelID}`
+        : "—"
+    return { dir, sessionId, pref, projectName, sessionTitle, modeName, modelStr }
+  }
+
+  private commandHeader(ctx: Awaited<ReturnType<typeof this.commandCtx>>): string {
+    const mode = ctx.modeName.charAt(0).toUpperCase() + ctx.modeName.slice(1)
+    return `${ctx.projectName}  ·  ${ctx.sessionTitle}  ·  ${mode}  ·  ${ctx.modelStr}\n————————\n`
+  }
+
+  private async setPref(chatId: string, patch: Record<string, any>): Promise<void> {
+    const ctx = await this.commandCtx(chatId)
+    await Instance.provide({
+      directory: ctx.dir,
+      fn: () => SessionPreference.update({ sessionID: SessionID.make(ctx.sessionId), ...patch }),
+    })
+  }
+
   private async currentSession(chatId: string, create?: boolean): Promise<string | undefined> {
     const pinned = this._chatSessions[chatId]
     if (pinned) return pinned
-    const dir = this._chatDirs[chatId] ?? this._defaultDir ?? Instance.directory
+    const dir = this.effectiveDir(chatId)
     const recent = await Instance.provide({
       directory: dir,
       fn: () => [...Session.list({ directory: dir, roots: true, limit: 1 })],
@@ -284,7 +376,7 @@ class FeishuManagerImpl {
     status?: string
     appId?: string
   }> {
-    if (this.wsClient || this._status === "starting" || this._status === "connected") {
+    if (this.wsClient || this._starting || ["starting", "connected", "reconnecting"].includes(this._status)) {
       return { success: false, message: "Feishu bridge is already running" }
     }
 
@@ -298,25 +390,26 @@ class FeishuManagerImpl {
 
     this.status = "starting"
     this._error = null
+    this._manualStop = false
+    this._lastConfig = cfg
 
     await this.saveConfig(cfg)
     this.sessionMap = await this.loadSessionMap()
     this._hiddenDirs = await this.loadHiddenDirs()
-    this._defaultDir = await this.loadDefaultDir()
-
     void this._doStart(cfg, model ?? null)
     return { success: true }
   }
 
   private async _doStart(config: FeishuConfig, model: ModelRef | null): Promise<void> {
+    this._starting = true
     try {
       this.statusMsg("starting", "正在连接飞书...")
       console.log("[feishu] _doStart called")
 
-      const boundHandleMessage = Instance.bind((data: any) => {
+      const boundHandleMessage = (data: any) => {
         console.log("[feishu] >>> event received!")
-        void this.handleMessage(data)
-      })
+        void this.enqueueMessage(data)
+      }
 
       this._appId = config.appId
       this._appSecret = config.appSecret
@@ -336,12 +429,14 @@ class FeishuManagerImpl {
         appSecret: config.appSecret,
         loggerLevel: lark.LoggerLevel.debug,
       })
+      this.bindLifecycle(this.wsClient)
 
       console.log("[feishu] calling wsClient.start()...")
       await this.wsClient.start({ eventDispatcher })
       console.log("[feishu] wsClient.start() resolved")
 
       this._connectedModel = model
+      this._reconnectCount = 0
       console.log("[feishu] connected model:", this._connectedModel)
 
       this._modelList = await this.buildModelList()
@@ -363,18 +458,155 @@ class FeishuManagerImpl {
         appId: config.appId,
         createdAt: Date.now(),
       }
+      this.startHeartbeat()
       this.status = "connected"
       Bus.publish(FeishuEvent.Connected, { appId: config.appId })
+
+      // Compute initial directory from first visible project
+      const allProjects = this.getProjects()
+      const visibleProjects = allProjects.filter((p) => !(this.projectDir(p) in this._hiddenDirs))
+      this._initialDir = visibleProjects.length > 0 ? this.projectDir(visibleProjects[0]) : Instance.directory
+      console.log("[feishu] initial dir:", this._initialDir)
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       this._error = { code: "start_failed", message }
       this.status = "error"
       Bus.publish(FeishuEvent.Error, this._error)
+      if (!this._manualStop) this.scheduleReconnect(message)
+    } finally {
+      this._starting = false
     }
+  }
+
+  private bindLifecycle(client: any): void {
+    const on = client?.on?.bind(client)
+    if (typeof on === "function") {
+      on("close", () => this.onDisconnect("ws_close"))
+      on("error", (err: unknown) => this.onDisconnect(err instanceof Error ? err.message : "ws_error"))
+    }
+
+    const bind = () => {
+      const ws = client?.ws
+      if (!ws || ws.__aetherBound) return
+      ws.__aetherBound = true
+      const close = ws.addEventListener?.bind(ws)
+      if (typeof close === "function") {
+        close("close", () => this.onDisconnect("socket_close"))
+        close("error", () => this.onDisconnect("socket_error"))
+        return
+      }
+      const add = ws.on?.bind(ws)
+      if (typeof add === "function") {
+        add("close", () => this.onDisconnect("socket_close"))
+        add("error", () => this.onDisconnect("socket_error"))
+      }
+    }
+
+    bind()
+
+    const connect = client?.connect?.bind(client)
+    if (typeof connect !== "function") return
+    client.connect = async (...args: any[]) => {
+      const result = await connect(...args)
+      bind()
+      return result
+    }
+  }
+
+  private onDisconnect(reason: string): void {
+    if (this._manualStop) return
+    if (this._status === "idle" || this._status === "error") return
+    console.warn("[feishu] disconnect detected:", reason)
+    this.stopHeartbeat()
+    this.scheduleReconnect(reason)
+  }
+
+  private scheduleReconnect(reason: string): void {
+    if (this._manualStop || !this._lastConfig) return
+    if (this._reconnect || this._status === "reconnecting") return
+    const attempt = this._reconnectCount + 1
+    const delay = Math.min(2_000 * 2 ** this._reconnectCount, FeishuManagerImpl.RECONNECT_MAX_MS)
+    this._reconnectCount = attempt
+    this.statusMsg("reconnecting", `飞书连接已断开，正在重连（第 ${attempt} 次）...`)
+    Bus.publish(FeishuEvent.Reconnecting, { attempt, delay })
+    this._reconnect = setTimeout(() => {
+      this._reconnect = null
+      void this.restartAfterDisconnect(reason)
+    }, delay)
+  }
+
+  private async restartAfterDisconnect(reason: string): Promise<void> {
+    if (this._manualStop || !this._lastConfig) return
+    console.log("[feishu] reconnecting after:", reason)
+    await this.cleanupConnection(false)
+    await this._doStart(this._lastConfig, this._connectedModel)
+  }
+
+  private startHeartbeat(): void {
+    this.stopHeartbeat()
+    this._heartbeatFails = 0
+    this._heartbeat = setInterval(() => {
+      void this.checkHeartbeat()
+    }, FeishuManagerImpl.HEARTBEAT_MS)
+  }
+
+  private stopHeartbeat(): void {
+    if (!this._heartbeat) return
+    clearInterval(this._heartbeat)
+    this._heartbeat = null
+  }
+
+  private async checkHeartbeat(): Promise<void> {
+    if (this._manualStop || this._status !== "connected") return
+    try {
+      await this.getTenantAccessToken()
+      this._heartbeatFails = 0
+    } catch (err) {
+      this._heartbeatFails += 1
+      console.warn("[feishu] heartbeat failed:", this._heartbeatFails, err)
+      if (this._heartbeatFails < FeishuManagerImpl.HEARTBEAT_FAILS) return
+      this.onDisconnect("heartbeat_failed")
+    }
+  }
+
+  private async cleanupConnection(reset = true): Promise<void> {
+    this.stopHeartbeat()
+    if (this._reconnect) {
+      clearTimeout(this._reconnect)
+      this._reconnect = null
+    }
+    if (this._globalBusListener) {
+      GlobalBus.off("event", this._globalBusListener)
+      this._globalBusListener = null
+    }
+    if (this.wsClient) {
+      const prev = this._manualStop
+      this._manualStop = true
+      try {
+        if (typeof this.wsClient.close === "function") {
+          await this.wsClient.close()
+        }
+      } catch {}
+      this._manualStop = prev
+      this.wsClient = null
+    }
+    this.larkClient = null
+    this._session = null
+    this._modelList = []
+    this._pendingQuestions = {}
+    this._pendingPermissions = {}
+    this._queues.clear()
+    if (!reset) return
+    this._connectedModel = null
+    this._chatDirs = {}
+    this._chatSessions = {}
+    this._initialDir = ""
+    this.status = "idle"
   }
 
   private async handleMessage(data: any): Promise<void> {
     try {
+      console.log("[feishu] handleMessage invoked")
       console.log("[feishu] received event:", JSON.stringify(data).slice(0, 500))
       const message = data?.message
       if (!message) {
@@ -382,16 +614,12 @@ class FeishuManagerImpl {
         return
       }
 
-      // Check for hidden projects with new activity (web UI or prior Feishu messages)
-      await this.autoUnhide()
-
       const chatId = message.chat_id
       const messageId = message.message_id
       const rootId = message.root_id || message.parent_id || messageId
-      const chatType = message.chat_type // "p2p" or "group"
+      const chatType = message.chat_type
       console.log("[feishu] message:", { chatId, messageId, type: message.message_type, chatType })
 
-      // In group chats, only respond when the bot is @mentioned
       if (chatType === "group") {
         const mentions = message.mentions
         if (!mentions || !Array.isArray(mentions) || mentions.length === 0) {
@@ -414,37 +642,132 @@ class FeishuManagerImpl {
         return
       }
 
-      // Strip @mention tags (group chat)
       text = text.replace(/@_\w+\s*/g, "").trim()
       if (!text) return
       console.log("[feishu] text:", text)
 
-      // Handle slash commands
-      if (text.startsWith("/")) {
+      const isSlash = text.startsWith("/")
+      const parts = isSlash ? text.trim().split(/\s+/) : []
+      const cmd = isSlash ? text.trim().split(/\s+/)[0].toLowerCase() : ""
+
+      if (cmd === "/h" || cmd === "/help") {
+        await this.replyText(messageId, parts[1]?.toLowerCase() === "list" ? HELP_LIST_TEXT : HELP_TEXT)
+        return
+      }
+
+      await this.autoUnhide()
+
+      if (isSlash && cmd !== "/stop" && cmd !== "/compact" && cmd !== "/c") {
         await this.handleCommand(text, messageId, chatId)
         return
       }
 
-      // Effective directory for this chat (may differ from connect-time Instance.directory)
-      const effectiveDir = this._chatDirs[chatId] ?? this._defaultDir ?? Instance.directory
+      const effectiveDir = this.effectiveDir(chatId)
 
-      // Feishu message to a hidden project → unhide immediately
       if (effectiveDir in this._hiddenDirs) {
         delete this._hiddenDirs[effectiveDir]
         console.log("[feishu] auto-unhide via Feishu message:", effectiveDir)
         void this.saveHiddenDirs()
       }
 
-      // Run session lookup and AI prompt in the effective directory's Instance context
+      if (cmd === "/stop") {
+        const hasPending = chatId in this._pendingQuestions || chatId in this._pendingPermissions
+        const currentSid = this._chatSessions[chatId]
+        if (!currentSid) {
+          await this.replyText(messageId, "没有任务在执行")
+          return
+        }
+        const busy = await Instance.provide({
+          directory: effectiveDir,
+          fn: () => SessionStatus.get(SessionID.make(currentSid)),
+        }).catch(() => ({ type: "idle" as const }))
+        if (busy.type !== "busy" && !hasPending) {
+          await this.replyText(messageId, "没有任务在执行")
+          return
+        }
+        if (busy.type === "busy") {
+          try {
+            await Instance.provide({
+              directory: effectiveDir,
+              fn: () => SessionPrompt.cancel(SessionID.make(currentSid)),
+            })
+          } catch {}
+        }
+        await this.clearRuntime(chatId)
+        await this.replyText(messageId, "✅ 已停止当前执行。")
+        return
+      }
+
+      if (cmd === "/c" || cmd === "/compact") {
+        const pendingQ = this._pendingQuestions[chatId]
+        if (pendingQ) {
+          await this.replyText(messageId, this.formatQuestionRequest(pendingQ))
+          return
+        }
+        const pendingP = this._pendingPermissions[chatId]
+        if (pendingP) {
+          await this.replyText(messageId, this.formatPermissionRequest(pendingP))
+          return
+        }
+        const currentSid = this._chatSessions[chatId]
+        if (currentSid) {
+          const busy = await Instance.provide({
+            directory: effectiveDir,
+            fn: () => SessionStatus.get(SessionID.make(currentSid)),
+          }).catch(() => null)
+          if (busy?.type === "busy") {
+            await this.replyText(
+              messageId,
+              "当前会话正在生成回复，请等待当前对话结束后再发送；如需立即开始新问题，请先 /new 或切换 /session n。如需停止本会话请输入 /stop",
+            )
+            return
+          }
+        }
+        if (!(chatId in this._chatSessions)) {
+          await this.replyText(messageId, "没有任务在执行")
+          return
+        }
+        try {
+          await this.cmdCompact(messageId, chatId)
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err)
+          await this.replyText(messageId, `命令执行出错: ${msg}`)
+        }
+        return
+      }
+
+      const pendingQ = this._pendingQuestions[chatId]
+      if (pendingQ) {
+        await this.replyText(messageId, this.formatQuestionRequest(pendingQ))
+        return
+      }
+      const pendingP = this._pendingPermissions[chatId]
+      if (pendingP) {
+        await this.replyText(messageId, this.formatPermissionRequest(pendingP))
+        return
+      }
+      const currentSid = this._chatSessions[chatId]
+      if (currentSid) {
+        const busy = await Instance.provide({
+          directory: effectiveDir,
+          fn: () => SessionStatus.get(SessionID.make(currentSid)),
+        }).catch(() => null)
+        if (busy?.type === "busy") {
+          await this.replyText(
+            messageId,
+            "当前会话正在生成回复，请等待当前对话结束后再发送；如需立即开始新问题，请先 /new 或切换 /session n。如需停止本会话请输入 /stop",
+          )
+          return
+        }
+      }
+
       await Instance.provide({
         directory: effectiveDir,
         fn: async () => {
           const sessionKey = `${chatId}:${rootId}`
-          // Pinned session (/session n) takes priority over thread-based mapping
           let sessionId = this._chatSessions[chatId] ?? this.sessionMap[sessionKey]
 
           if (!sessionId) {
-            // Reuse most recent session in this directory, or create one
             const recent = [...Session.list({ directory: effectiveDir, roots: true, limit: 1 })]
             if (recent.length > 0) {
               sessionId = recent[0].id
@@ -465,7 +788,6 @@ class FeishuManagerImpl {
           const model = this.resolveModel(chatId)
           console.log("[feishu] using model:", model ?? "(default)")
 
-          // Detect summarization intent and inject chat history into prompt
           let promptText = text
           if (this.detectFileSendIntent(text)) {
             promptText += `\n\n[系统提示：用户需要通过飞书接收文件附件，请在回复中包含该文件的完整绝对路径（格式如 /home/user/file.md），系统将自动将其作为附件发送给用户]`
@@ -486,7 +808,7 @@ class FeishuManagerImpl {
           }
 
           const pref = sessionId ? SessionPreference.get(sessionId) : undefined
-          if (pref?.approval === "auto") {
+          if (pref?.autoAccept) {
             const session = await Session.get(SessionID.make(sessionId))
             if (!session.permission?.some((r) => r.permission === "*" && r.action === "allow")) {
               await Session.setPermission({
@@ -504,12 +826,29 @@ class FeishuManagerImpl {
 
           const responseText = this.extractResponseText(msg)
           if (responseText) {
-            const projectName = effectiveDir.split("/").at(-1) ?? effectiveDir
+            const projectItem = this.getProjects().find(
+              (p) => this.normDir(this.projectDir(p)) === this.normDir(effectiveDir),
+            )
+            const projectName = this.clip(
+              projectItem
+                ? this.projectName(projectItem)
+                : (effectiveDir.replace(/\\/g, "/").replace(/\/+$/, "").split("/").at(-1) ?? effectiveDir),
+              24,
+            )
             const sessionInfo = [...Session.list({ directory: effectiveDir, roots: true, limit: 100 })].find(
               (s) => s.id === sessionId,
             )
-            const sessionTitle = sessionInfo?.title ?? sessionId.slice(0, 8)
-            const header = `📁 ${projectName}\n💬 ${sessionTitle}\n${"─".repeat(20)}\n`
+            const label = this.clip(sessionInfo?.title ?? sessionId.slice(0, 8), 24)
+            const pref = SessionPreference.get(sessionId)
+            const modeName = pref?.agent ?? "build"
+            const mode = modeName.charAt(0).toUpperCase() + modeName.slice(1)
+            const model = this.resolveModel(chatId)
+            const modelStr = model
+              ? `${model.providerID}/${model.modelID}`
+              : this._connectedModel
+                ? `${this._connectedModel.providerID}/${this._connectedModel.modelID}`
+                : "—"
+            const header = `${projectName}  ·  ${label}  ·  ${mode}  ·  ${modelStr}\n————————\n`
 
             console.log("[feishu] replying:", responseText.slice(0, 100))
             await this.replyText(messageId, header + responseText)
@@ -517,8 +856,6 @@ class FeishuManagerImpl {
             console.log("[feishu] no text in response")
           }
 
-          // If user explicitly asked for a file, send files that were read this turn
-          // or extract file paths mentioned in the AI response text
           if (this.detectFileSendIntent(text)) {
             let filesToSend = this.extractReadFiles(msg)
             if (filesToSend.length === 0 && responseText) {
@@ -535,12 +872,30 @@ class FeishuManagerImpl {
       })
     } catch (err) {
       console.error("[feishu] handleMessage error:", err)
-      const messageId = data?.message?.message_id
-      if (messageId) {
-        const errMsg = err instanceof Error ? err.message : String(err)
-        await this.replyText(messageId, `处理消息时出错: ${errMsg}`).catch(() => {})
+      try {
+        const messageId = data?.message?.message_id
+        if (messageId) {
+          const errMsg = err instanceof Error ? err.message : String(err)
+          await this.replyText(messageId, `处理消息时出错: ${errMsg}`)
+        }
+      } catch (e2) {
+        console.error("[feishu] failed to send error reply:", e2)
       }
     }
+  }
+
+  private enqueueMessage(data: any): Promise<void> {
+    const chatId = data?.message?.chat_id
+    if (!chatId) return this.handleMessage(data)
+    const prev = this._queues.get(chatId) ?? Promise.resolve()
+    const next = prev
+      .catch(() => {})
+      .then(() => this.handleMessage(data))
+      .finally(() => {
+        if (this._queues.get(chatId) === next) this._queues.delete(chatId)
+      })
+    this._queues.set(chatId, next)
+    return next
   }
 
   /** Detect if the user is asking for a chat summary and extract time range. */
@@ -721,31 +1076,33 @@ class FeishuManagerImpl {
     const command = parts[0].toLowerCase()
     const rest = parts.slice(1).join(" ")
 
-    if (command === "/new") {
-      await this.cmdNew(messageId, chatId)
-    } else if (command === "/stop") {
-      await this.cmdStop(messageId, chatId)
-    } else if (command === "/compact") {
-      await this.cmdCompact(messageId, chatId)
-    } else if (command === "/model") {
-      await this.cmdModel(messageId, chatId, parts.slice(1))
-    } else if (command === "/agent") {
-      await this.cmdAgent(messageId, chatId, rest)
-    } else if (command === "/approval") {
-      await this.cmdApproval(messageId, chatId, rest)
-    } else if (command === "/variant") {
-      await this.cmdVariant(messageId, chatId, rest)
-    } else if (command === "/project") {
-      await this.cmdProject(messageId, chatId, rest)
-    } else if (command === "/session") {
-      await this.cmdSession(messageId, chatId, rest)
-    } else if (command === "/help") {
-      await this.replyText(
-        messageId,
-        "📋 可用命令：\n\n/new             开启全新对话（无当前会话上下文）\n/stop            停止当前会话中的执行\n/compact         压缩当前会话上下文\n/model           查看可用 LLM 模型（每个 provider 最多显示前 5 个）\n/model list      查看所有可用 LLM 模型\n/model n         切换到编号 n 的模型（按全量模型编号）\n/agent           查看当前会话模式\n/agent <name>    切换到指定模式（如 build、plan、docs）\n/approval        查看当前审批模式\n/approval <name> 切换审批模式（如 auto、ask）\n/variant         查看当前变体\n/variant <name>  切换到指定变体\n/project         查看最近项目\n/project list    查看全部项目\n/project n       切换到编号 n 的项目\n/project hide n  隐藏项目（在桌面端或飞书端重新使用后自动恢复）\n/project default n  设置编号 n 的项目为默认（重连后自动进入）\n/session         查看当前项目下的最近会话\n/session list    查看当前项目下全部会话\n/session n       切换到当前项目下编号 n 的会话\n/help            显示此帮助信息",
-      )
-    } else {
-      await this.replyText(messageId, `未知命令: ${command}\n发送 /help 查看可用命令。`)
+    try {
+      if (command === "/n" || command === "/new") {
+        await this.cmdNew(messageId, chatId)
+      } else if (command === "/m" || command === "/model") {
+        const args = parts.slice(1)
+        if (args[0] === "l") args[0] = "list"
+        await this.cmdModel(messageId, chatId, args)
+      } else if (command === "/a" || command === "/agent") {
+        await this.cmdAgent(messageId, chatId, rest)
+      } else if (command === "/approval") {
+        await this.cmdApproval(messageId, chatId, rest)
+      } else if (command === "/variant") {
+        await this.cmdVariant(messageId, chatId, rest)
+      } else if (command === "/p" || command === "/project") {
+        const arg = rest === "l" ? "list" : rest.startsWith("h ") ? `hide ${rest.slice(2).trim()}` : rest
+        await this.cmdProject(messageId, chatId, arg)
+      } else if (command === "/s" || command === "/session") {
+        await this.cmdSession(messageId, chatId, rest === "l" ? "list" : rest)
+      } else if (command === "/h" || command === "/help") {
+        await this.replyText(messageId, rest.toLowerCase() === "list" ? HELP_LIST_TEXT : HELP_TEXT)
+      } else {
+        await this.replyText(messageId, `❓ 未知命令：${command}\n发送 /help 查看常用命令，/help list 查看全部命令。`)
+      }
+    } catch (err) {
+      console.error("[feishu] handleCommand error:", err)
+      const errMsg = err instanceof Error ? err.message : String(err)
+      await this.replyText(messageId, `命令执行出错: ${errMsg}`).catch(() => {})
     }
   }
 
@@ -755,15 +1112,17 @@ class FeishuManagerImpl {
       if (key.startsWith(`${chatId}:`)) delete this.sessionMap[key]
     }
     delete this._chatSessions[chatId]
+    void this.clearRuntime(chatId)
 
-    const effectiveDir = this._chatDirs[chatId] ?? this._defaultDir ?? Instance.directory
+    const dir = this.effectiveDir(chatId)
     const session = await Instance.provide({
-      directory: effectiveDir,
+      directory: dir,
       fn: () => Session.create({ title: `飞书对话 ${chatId.slice(-6)}` }),
     })
     this._chatSessions[chatId] = session.id
     await this.saveSessionMap()
-    await this.replyText(messageId, `✅ 已开启新对话\n💬 ${session.title}`)
+    const ctx = await this.commandCtx(chatId)
+    await this.replyText(messageId, this.commandHeader(ctx) + `✅ 已开启新对话\n💬 ${session.title}`)
   }
 
   /**
@@ -773,38 +1132,31 @@ class FeishuManagerImpl {
    * /model <provider/model> — set per-chat model override by name
    */
   private async cmdModel(messageId: string, chatId: string, args: string[]): Promise<void> {
+    const ctx = await this.commandCtx(chatId)
     if (this._modelList.length === 0) {
       this._modelList = await this.buildModelList()
     }
 
     if (args.length === 0) {
-      await this.replyText(messageId, this.formatModelList(chatId, false))
+      await this.replyText(messageId, this.commandHeader(ctx) + this.formatModelList(ctx, false))
       return
     }
 
     if (args[0] === "list") {
-      await this.replyText(messageId, this.formatModelList(chatId, true))
+      await this.replyText(messageId, this.commandHeader(ctx) + this.formatModelList(ctx, true))
       return
     }
 
     const n = parseInt(args[0], 10)
     if (!isNaN(n) && n >= 1 && n <= this._modelList.length) {
       const entry = this._modelList[n - 1]
-      const sessionId = this._chatSessions[chatId]
-      if (sessionId) {
-        await Instance.provide({
-          directory: this._chatDirs[chatId] ?? this._defaultDir ?? Instance.directory,
-          fn: () =>
-            SessionPreference.set({
-              sessionID: SessionID.make(sessionId),
-              model: { providerID: ProviderID.make(entry.providerID), modelID: ModelID.make(entry.modelID) },
-              source: "feishu",
-            }),
-        })
-      }
+      await this.setPref(chatId, {
+        model: { providerID: ProviderID.make(entry.providerID), modelID: ModelID.make(entry.modelID) },
+      })
       await this.replyText(
         messageId,
-        `✅ 已切换模型：${entry.providerID}/${entry.modelID}\n（仅对当前对话生效，/new 后将重置）`,
+        this.commandHeader(ctx) +
+          `✅ 已切换模型：${entry.providerID}/${entry.modelID}\n（仅对当前对话生效，/new 后将重置）`,
       )
       return
     }
@@ -814,31 +1166,25 @@ class FeishuManagerImpl {
       const [providerID, modelID] = arg.split("/", 2)
       const found = this._modelList.find((e) => e.providerID === providerID && e.modelID === modelID)
       if (!found) {
-        await this.replyText(messageId, `❌ 未找到模型：${arg}\n请先发送 /model 查看可用模型。`)
+        await this.replyText(
+          messageId,
+          this.commandHeader(ctx) + `❌ 未找到模型：${arg}\n请先发送 /model 查看可用模型。`,
+        )
         return
       }
-      const sessionId = this._chatSessions[chatId]
-      if (sessionId) {
-        await Instance.provide({
-          directory: this._chatDirs[chatId] ?? this._defaultDir ?? Instance.directory,
-          fn: () =>
-            SessionPreference.set({
-              sessionID: SessionID.make(sessionId),
-              model: { providerID: ProviderID.make(providerID), modelID: ModelID.make(modelID) },
-              source: "feishu",
-            }),
-        })
-      }
-      await this.replyText(messageId, `✅ 已切换模型：${arg}\n（仅对当前对话生效，/new 后将重置）`)
+      await this.setPref(chatId, { model: { providerID: ProviderID.make(providerID), modelID: ModelID.make(modelID) } })
+      await this.replyText(
+        messageId,
+        this.commandHeader(ctx) + `✅ 已切换模型：${arg}\n（仅对当前对话生效，/new 后将重置）`,
+      )
       return
     }
 
-    await this.replyText(messageId, `无效参数，请输入编号、list 或 provider/model 格式。`)
+    await this.replyText(messageId, this.commandHeader(ctx) + "❌ 无效参数，请输入编号、list 或 provider/model 格式。")
   }
 
-  private formatModelList(chatId: string, full: boolean): string {
-    const sessionId = this._chatSessions[chatId]
-    const prefModel = sessionId ? SessionPreference.get(sessionId)?.model : undefined
+  private formatModelList(ctx: Awaited<ReturnType<typeof this.commandCtx>>, full: boolean): string {
+    const prefModel = ctx.pref?.model
     const current = prefModel ?? this._connectedModel
     const currentStr = current ? `${current.providerID}/${current.modelID}` : "（全局默认）"
 
@@ -863,7 +1209,7 @@ class FeishuManagerImpl {
         lines.push(`  ${entry.index}. ${entry.providerID}/${entry.modelID}${def}`)
       }
       if (!full && entries.length > visible.length) {
-        lines.push(`  ... 还有 ${entries.length - visible.length} 个，发送 /model list 查看全部`)
+        lines.push(`  ... 还有 ${entries.length - visible.length} 个，发送 /m l 查看全部`)
       }
     }
 
@@ -872,56 +1218,22 @@ class FeishuManagerImpl {
     }
 
     lines.push("")
-    lines.push("💡 /model n 切换模型 | /model list 查看全部")
+    lines.push("💡 /m n 切换模型 | /m l 查看全部")
     return lines.join("\n")
-  }
-
-  /** /stop — abort the active prompt in the current session */
-  private async cmdStop(messageId: string, chatId: string): Promise<void> {
-    const sessionId = this._chatSessions[chatId]
-    if (!sessionId) {
-      await this.replyText(messageId, "当前没有可停止的会话。")
-      return
-    }
-    const effectiveDir = this._chatDirs[chatId] ?? this._defaultDir ?? Instance.directory
-    const busy = await Instance.provide({
-      directory: effectiveDir,
-      fn: () => SessionStatus.get(SessionID.make(sessionId)),
-    })
-    if (busy.type !== "busy") {
-      await this.replyText(messageId, "当前没有正在执行的任务。")
-      return
-    }
-    await Instance.provide({
-      directory: effectiveDir,
-      fn: async () => {
-        SessionPrompt.cancel(SessionID.make(sessionId))
-      },
-    })
-    await this.replyText(messageId, "✅ 已停止当前执行。")
   }
 
   /** /compact — compress the current session context */
   private async cmdCompact(messageId: string, chatId: string): Promise<void> {
-    const effectiveDir = this._chatDirs[chatId] ?? this._defaultDir ?? Instance.directory
-    let sessionId = this._chatSessions[chatId]
-    if (!sessionId) {
-      const session = await Instance.provide({
-        directory: effectiveDir,
-        fn: () => Session.create({ title: `飞书对话 ${chatId.slice(-6)}` }),
-      })
-      sessionId = session.id
-      this._chatSessions[chatId] = sessionId
-    }
+    const ctx = await this.commandCtx(chatId)
     const model = this.resolveModel(chatId)
     if (!model) {
-      await this.replyText(messageId, "❌ 压缩当前会话前，请先使用 /model 选择模型。")
+      await this.replyText(messageId, this.commandHeader(ctx) + "❌ 压缩当前会话前，请先使用 /model 选择模型。")
       return
     }
     await Instance.provide({
-      directory: effectiveDir,
+      directory: ctx.dir,
       fn: async () => {
-        const msgs = await Session.messages({ sessionID: SessionID.make(sessionId) })
+        const msgs = await Session.messages({ sessionID: SessionID.make(ctx.sessionId) })
         let currentAgent = await Agent.defaultAgent()
         for (let i = msgs.length - 1; i >= 0; i--) {
           const info = msgs[i].info
@@ -931,15 +1243,15 @@ class FeishuManagerImpl {
           }
         }
         await SessionCompaction.create({
-          sessionID: SessionID.make(sessionId),
-          agent: (sessionId ? SessionPreference.get(sessionId)?.agent : undefined) ?? currentAgent,
+          sessionID: SessionID.make(ctx.sessionId),
+          agent: ctx.pref?.agent ?? currentAgent,
           model,
           auto: false,
         })
-        await SessionPrompt.loop({ sessionID: SessionID.make(sessionId) })
+        await SessionPrompt.loop({ sessionID: SessionID.make(ctx.sessionId) })
       },
     })
-    await this.replyText(messageId, "✅ 已开始压缩当前会话上下文，请稍后查看结果。")
+    await this.replyText(messageId, this.commandHeader(ctx) + "✅ 已开始压缩当前会话上下文，请稍后查看结果。")
   }
 
   /**
@@ -947,40 +1259,38 @@ class FeishuManagerImpl {
    * /agent <name> — switch to named agent (e.g. build, plan, docs)
    */
   private async cmdAgent(messageId: string, chatId: string, arg: string): Promise<void> {
+    const ctx = await this.commandCtx(chatId)
     let agents: { name: string; hidden?: boolean }[] = []
+    let current: string = "build"
     try {
-      agents = await Agent.list()
+      await Instance.provide({
+        directory: ctx.dir,
+        fn: async () => {
+          agents = await Agent.list()
+          current = ctx.pref?.agent || (await Agent.defaultAgent())
+        },
+      })
     } catch {
-      await this.replyText(messageId, "❌ 无法获取模式列表，请检查 Aether 服务是否正常。")
+      await this.replyText(messageId, this.commandHeader(ctx) + "❌ 无法获取模式列表，请检查 Aether 服务是否正常。")
       return
     }
     const visible = agents.filter((a) => !a.hidden)
     const names = visible.map((a) => a.name)
-    const sessionId = this._chatSessions[chatId]
-    const prefAgent = sessionId ? SessionPreference.get(sessionId)?.agent : undefined
-    const current = prefAgent || (await Agent.defaultAgent())
     if (!arg) {
       const sample = names.slice(0, 10).join("、") || "（暂无可用模式）"
-      await this.replyText(messageId, `🧠 当前模式：${current}\n可用模式：${sample}`)
+      await this.replyText(messageId, this.commandHeader(ctx) + `🧠 当前模式：${current}\n可用模式：${sample}`)
       return
     }
     if (!names.includes(arg)) {
       const sample = names.slice(0, 10).join("、") || "（暂无可用模式）"
-      await this.replyText(messageId, `❌ 未找到模式：${arg}\n可用模式：${sample}`)
+      await this.replyText(messageId, this.commandHeader(ctx) + `❌ 未找到模式：${arg}\n可用模式：${sample}`)
       return
     }
-    if (sessionId) {
-      await Instance.provide({
-        directory: this._chatDirs[chatId] ?? this._defaultDir ?? Instance.directory,
-        fn: () =>
-          SessionPreference.set({
-            sessionID: SessionID.make(sessionId),
-            agent: arg,
-            source: "feishu",
-          }),
-      })
-    }
-    await this.replyText(messageId, `✅ 已切换模式：${arg}\n（仅对当前对话生效，/new 后将重置）`)
+    await this.setPref(chatId, { agent: arg })
+    await this.replyText(
+      messageId,
+      this.commandHeader(ctx) + `✅ 已切换模式：${arg}\n（仅对当前对话生效，/new 后将重置）`,
+    )
   }
 
   /**
@@ -988,32 +1298,35 @@ class FeishuManagerImpl {
    * /approval <name> — switch approval mode (auto, ask)
    */
   private async cmdApproval(messageId: string, chatId: string, arg: string): Promise<void> {
-    const sessionId = await this.currentSession(chatId, !!arg)
-    const prefApproval = sessionId ? SessionPreference.get(sessionId)?.approval : undefined
-    const current = prefApproval || "ask"
+    const ctx = await this.commandCtx(chatId)
+    const auto = ctx.pref?.autoAccept ?? false
     if (!arg) {
-      await this.replyText(messageId, `🔐 当前审批模式：${current}\n可用模式：auto、ask`)
+      const mode = auto ? "自动批准" : "手动审批"
+      await this.replyText(messageId, this.commandHeader(ctx) + `🔐 当前审批模式：${mode}\n可用模式：auto、ask`)
       return
     }
     if (arg !== "auto" && arg !== "ask") {
-      await this.replyText(messageId, "❌ 仅支持 /approval auto 或 /approval ask")
+      await this.replyText(messageId, this.commandHeader(ctx) + "❌ 仅支持 /approval auto 或 /approval ask")
       return
     }
-    if (sessionId) {
-      await Instance.provide({
-        directory: this._chatDirs[chatId] ?? this._defaultDir ?? Instance.directory,
-        fn: () =>
-          SessionPreference.set({
-            sessionID: SessionID.make(sessionId),
-            approval: arg,
-            source: "feishu",
-          }),
-      })
-    }
+    await this.setPref(chatId, { autoAccept: arg === "auto" })
     if (arg === "auto") {
-      await this.replyText(messageId, "✅ 已开启自动接受权限\n（后续权限请求将自动批准）")
+      const pending = this._pendingPermissions[chatId]
+      if (pending) {
+        delete this._pendingPermissions[chatId]
+        await Instance.provide({
+          directory: ctx.dir,
+          fn: () => Permission.reply({ requestID: pending.id, reply: "always" }),
+        })
+        await this.replyText(
+          messageId,
+          this.commandHeader(ctx) + "✅ 已开启自动接受权限，并已自动批准当前挂起的授权请求",
+        )
+      } else {
+        await this.replyText(messageId, this.commandHeader(ctx) + "✅ 已开启自动接受权限\n（后续权限请求将自动批准）")
+      }
     } else {
-      await this.replyText(messageId, "✅ 已停止自动接受权限\n（后续权限请求将需要你确认）")
+      await this.replyText(messageId, this.commandHeader(ctx) + "✅ 已停止自动接受权限\n（后续权限请求将需要你确认）")
     }
   }
 
@@ -1022,24 +1335,17 @@ class FeishuManagerImpl {
    * /variant <name> — switch to named variant
    */
   private async cmdVariant(messageId: string, chatId: string, arg: string): Promise<void> {
-    const sessionId = this._chatSessions[chatId]
-    const prefVariant = sessionId ? SessionPreference.get(sessionId)?.variant : undefined
+    const ctx = await this.commandCtx(chatId)
+    const current = ctx.pref?.variant || "（默认）"
     if (!arg) {
-      await this.replyText(messageId, `🔀 当前变体：${prefVariant || "（默认）"}`)
+      await this.replyText(messageId, this.commandHeader(ctx) + `🔀 当前变体：${current}`)
       return
     }
-    if (sessionId) {
-      await Instance.provide({
-        directory: this._chatDirs[chatId] ?? this._defaultDir ?? Instance.directory,
-        fn: () =>
-          SessionPreference.set({
-            sessionID: SessionID.make(sessionId),
-            variant: arg,
-            source: "feishu",
-          }),
-      })
-    }
-    await this.replyText(messageId, `✅ 已切换变体：${arg}\n（仅对当前对话生效，/new 后将重置）`)
+    await this.setPref(chatId, { variant: arg })
+    await this.replyText(
+      messageId,
+      this.commandHeader(ctx) + `✅ 已切换变体：${arg}\n（仅对当前对话生效，/new 后将重置）`,
+    )
   }
 
   /**
@@ -1055,30 +1361,8 @@ class FeishuManagerImpl {
       return
     }
 
-    // autoUnhide already ran at message entry; run again here to catch
-    // activity created by the current message batch before /project was typed
-    await this.autoUnhide()
-
     const visibleProjects = allProjects.filter((p) => !(this.projectDir(p) in this._hiddenDirs))
-    const currentDir = this._chatDirs[chatId] ?? this._defaultDir ?? Instance.directory
-
-    // /project default <n>
-    if (arg.startsWith("default ")) {
-      const idxArg = arg.slice(8).trim()
-      const idx = parseInt(idxArg, 10) - 1
-      if (isNaN(idx) || idx < 0 || idx >= allProjects.length) {
-        await this.replyText(messageId, `❌ 用法：/project default n（n 为 1~${allProjects.length}）`)
-        return
-      }
-      const target = allProjects[idx]
-      this._defaultDir = this.projectDir(target)
-      await this.saveDefaultDir(this._defaultDir)
-      await this.replyText(
-        messageId,
-        `✅ 已设置默认项目：${this.projectName(target)}\n   ${this._defaultDir}\n（断开重连后自动进入此项目）`,
-      )
-      return
-    }
+    const currentDir = this.effectiveDir(chatId)
 
     // /project hide <n>
     if (arg.startsWith("hide ")) {
@@ -1093,7 +1377,7 @@ class FeishuManagerImpl {
       this._hiddenDirs[directory] = Date.now()
       await this.saveHiddenDirs()
       const name = this.projectName(target)
-      await this.replyText(messageId, `✅ 已隐藏：${name}\n（在桌面端或飞书端重新使用后自动恢复）`)
+      await this.replyText(messageId, `✅ 已隐藏：${name}\n（在桌面端或消息端重新使用后自动恢复）`)
       return
     }
 
@@ -1106,8 +1390,7 @@ class FeishuManagerImpl {
         const directory = this.projectDir(item)
         const tag = directory === currentDir ? " ◀" : ""
         const mark = directory in this._hiddenDirs ? " [已隐藏]" : ""
-        const def = directory === this._defaultDir ? " [默认]" : ""
-        lines.push(`${i + 1}. ${this.projectName(item)}${tag}${def}${mark}`)
+        lines.push(`${i + 1}. ${this.projectName(item)}${tag}${mark}`)
         lines.push(`   ${directory}`)
       }
       await this.replyText(messageId, lines.join("\n"))
@@ -1129,6 +1412,7 @@ class FeishuManagerImpl {
         if (key.startsWith(`${chatId}:`)) delete this.sessionMap[key]
       }
       this._chatDirs[chatId] = newDir
+      void this.clearRuntime(chatId)
 
       // Auto-unhide if it was hidden
       if (newDir in this._hiddenDirs) {
@@ -1183,13 +1467,12 @@ class FeishuManagerImpl {
       const directory = this.projectDir(item)
       if (directory in this._hiddenDirs) continue
       const tag = directory === currentDir ? " ◀" : ""
-      const def = directory === this._defaultDir ? " [默认]" : ""
-      lines.push(`${i + 1}. ${this.projectName(item)}${tag}${def}`)
+      lines.push(`${i + 1}. ${this.projectName(item)}${tag}`)
       lines.push(`   ${directory}`)
       count++
     }
     lines.push("")
-    lines.push("💡 /project n 切换 | /project list 查看全部 | /project hide n 隐藏")
+    lines.push("💡 /p n 切换 | /p l 查看全部")
     if (Object.keys(this._hiddenDirs).length > 0) {
       lines.push(`ℹ️ 已隐藏 ${Object.keys(this._hiddenDirs).length} 个项目（重新使用后自动恢复）`)
     }
@@ -1207,7 +1490,7 @@ class FeishuManagerImpl {
    * /session <n>      — switch to session n
    */
   private async cmdSession(messageId: string, chatId: string, arg: string): Promise<void> {
-    const effectiveDir = this._chatDirs[chatId] ?? this._defaultDir ?? Instance.directory
+    const effectiveDir = this.effectiveDir(chatId)
     let items: Session.Info[] = []
     await Instance.provide({
       directory: effectiveDir,
@@ -1244,6 +1527,7 @@ class FeishuManagerImpl {
       }
       const chosen = items[idx]
       this._chatSessions[chatId] = chosen.id
+      void this.clearRuntime(chatId)
       await this.replyText(
         messageId,
         `✅ 已切换到会话：${chosen.title}\n   更新时间：${this.formatSessionTime(chosen.time.updated)}`,
@@ -1271,11 +1555,48 @@ class FeishuManagerImpl {
       lines.push(`   ${this.formatSessionTime(item.time.updated)}`)
     }
     lines.push("")
-    lines.push("💡 /session n 切换会话 | /session list 查看全部")
+    lines.push("💡 /s n 切换会话 | /s l 查看全部")
     await this.replyText(messageId, lines.join("\n"))
   }
 
   // ─────────────────────────────────────────────────────────────────────────
+
+  private formatQuestionRequest(q: Question.Request): string {
+    const parts = ["🤔 Agent 需要您回答：", ""]
+    for (let i = 0; i < q.questions.length; i++) {
+      const info = q.questions[i]
+      if (q.questions.length > 1) parts.push(`【问题 ${i + 1}】${info.question}`)
+      else parts.push(info.question)
+      if (info.options?.length) {
+        parts.push("可选答案：")
+        for (let j = 0; j < info.options.length; j++) {
+          const opt = info.options[j]
+          const suffix = opt.description ? `：${opt.description}` : ""
+          parts.push(`  ${j + 1}. ${opt.label}${suffix}`)
+        }
+      }
+    }
+    parts.push("")
+    parts.push("请直接回复答案（可输入数字编号；若题目允许自定义，也可直接输入文本）。")
+    parts.push("如需开始新问题，请先 /new 或切换 /session n。")
+    return parts.join("\n")
+  }
+
+  private formatPermissionRequest(p: Permission.Request): string {
+    const parts = ["🔐 当前操作需要你的授权：", ""]
+    parts.push(`权限：${p.permission}`)
+    if (p.patterns?.length) {
+      parts.push("范围：")
+      for (const item of p.patterns) parts.push(`  - ${item}`)
+    }
+    parts.push("")
+    parts.push("请直接回复：")
+    parts.push("1. 允许一次（仅这次）")
+    parts.push("2. 始终允许（后续同类操作自动通过）")
+    parts.push("3. 拒绝（本次不允许执行）")
+    parts.push("如需开始新问题，请先 /new 或切换 /session n。")
+    return parts.join("\n")
+  }
 
   private async replyText(messageId: string, text: string): Promise<void> {
     if (!this.larkClient) return
@@ -1293,26 +1614,10 @@ class FeishuManagerImpl {
   }
 
   async stop(): Promise<void> {
-    if (this._globalBusListener) {
-      GlobalBus.off("event", this._globalBusListener)
-      this._globalBusListener = null
-    }
-    if (this.wsClient) {
-      try {
-        if (typeof this.wsClient.stop === "function") {
-          this.wsClient.stop()
-        }
-      } catch {}
-      this.wsClient = null
-      this.larkClient = null
-    }
-    this._session = null
-    this._connectedModel = null
-    this._modelList = []
-    this._chatDirs = {}
-    this._chatSessions = {}
+    this._manualStop = true
+    this._reconnectCount = 0
+    await this.cleanupConnection()
     // _hiddenDirs intentionally kept (persisted, survives reconnect)
-    this.status = "idle"
   }
 
   async clearSession(): Promise<void> {
@@ -1369,21 +1674,6 @@ class FeishuManagerImpl {
   private async saveHiddenDirs(): Promise<void> {
     await mkdir(FEISHU_DATA_DIR, { recursive: true })
     await writeFile(HIDDEN_DIRS_FILE, JSON.stringify(this._hiddenDirs, null, 2))
-  }
-
-  private async loadDefaultDir(): Promise<string | null> {
-    try {
-      if (existsSync(DEFAULT_PROJECT_FILE)) {
-        const data = await readFile(DEFAULT_PROJECT_FILE, "utf-8")
-        return JSON.parse(data)?.directory ?? null
-      }
-    } catch {}
-    return null
-  }
-
-  private async saveDefaultDir(directory: string): Promise<void> {
-    await mkdir(FEISHU_DATA_DIR, { recursive: true })
-    await writeFile(DEFAULT_PROJECT_FILE, JSON.stringify({ directory }, null, 2))
   }
 
   async loadSession(): Promise<FeishuSession | null> {

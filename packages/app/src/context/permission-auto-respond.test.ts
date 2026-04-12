@@ -81,6 +81,30 @@ describe("autoRespondsPermission", () => {
 
     expect(autoRespondsPermission(autoAccept, sessions, permission("root"), directory)).toBe(false)
   })
+
+  test("prefers preference.autoAccept over local autoAccept when preference is set", () => {
+    const sessions = [session({ id: "root" })]
+    const autoAccept = { root: true }
+    const preference = { root: { autoAccept: false } }
+
+    expect(autoRespondsPermission(autoAccept, sessions, permission("root"), "/tmp/project", preference)).toBe(false)
+  })
+
+  test("falls back to local autoAccept when preference.autoAccept is undefined", () => {
+    const sessions = [session({ id: "root" })]
+    const autoAccept = { root: true }
+    const preference = { root: {} }
+
+    expect(autoRespondsPermission(autoAccept, sessions, permission("root"), "/tmp/project", preference)).toBe(true)
+  })
+
+  test("inherits preference.autoAccept from parent session", () => {
+    const sessions = [session({ id: "root" }), session({ id: "child", parentID: "root" })]
+    const autoAccept = {}
+    const preference = { root: { autoAccept: true } }
+
+    expect(autoRespondsPermission(autoAccept, sessions, permission("child"), "/tmp/project", preference)).toBe(true)
+  })
 })
 
 describe("isDirectoryAutoAccepting", () => {
