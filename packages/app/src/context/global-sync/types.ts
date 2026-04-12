@@ -31,6 +31,14 @@ export type ProjectMeta = {
   }
 }
 
+export type SessionPreference = {
+  sessionID: string
+  agent?: string
+  model?: { providerID: string; modelID: string }
+  variant?: string
+  autoAccept?: boolean
+}
+
 export type State = {
   status: "loading" | "partial" | "complete"
   agent: Agent[]
@@ -69,6 +77,9 @@ export type State = {
   }
   part: {
     [messageID: string]: Part[]
+  }
+  preference: {
+    [sessionID: string]: SessionPreference
   }
 }
 

@@ -20,16 +20,31 @@ export namespace SessionPreference {
       })
       .optional(),
     variant: z.string().optional(),
-    approval: z.enum(["auto", "ask"]).optional(),
+    autoAccept: z.boolean().optional(),
   })
 
   export type Info = z.output<typeof Info>
 
-  export const PreferenceChanged = BusEvent.define(
-    "session.preference.changed",
+  export const Patch = z.object({
+    sessionID: SessionID.zod,
+    agent: z.string().optional(),
+    model: z
+      .object({
+        providerID: ProviderID.zod,
+        modelID: ModelID.zod,
+      })
+      .optional(),
+    variant: z.string().optional(),
+    autoAccept: z.boolean().optional(),
+  })
+
+  export type Patch = z.output<typeof Patch>
+
+  export const PreferenceUpdated = BusEvent.define(
+    "session.preference.updated",
     z.object({
       sessionID: SessionID.zod,
-      info: Info,
+      preference: Info,
     }),
   )
 
@@ -37,34 +52,36 @@ export namespace SessionPreference {
     return store.get(sessionID)
   }
 
-  export async function set(input: SessionPreference.Info & { source?: string }): Promise<void> {
-    const { source, ...data } = input
-    const prev = store.get(data.sessionID)
-    const merged: SessionPreference.Info = {
-      ...prev,
-      ...data,
+  export async function update(patch: Patch): Promise<Info> {
+    const prev = store.get(patch.sessionID)
+    const merged: Info = {
+      sessionID: patch.sessionID,
+      agent: patch.agent ?? prev?.agent,
+      model: patch.model ?? prev?.model,
+      variant: patch.variant ?? prev?.variant,
+      autoAccept: patch.autoAccept ?? prev?.autoAccept,
     }
-    store.set(data.sessionID, merged)
-    log.info("set", { sessionID: data.sessionID, source })
+    store.set(patch.sessionID, merged)
+    log.info("update", { sessionID: patch.sessionID })
 
-    if (source !== "desktop") {
-      Bus.publish(PreferenceChanged, { sessionID: data.sessionID, info: merged })
-    }
+    Bus.publish(PreferenceUpdated, { sessionID: patch.sessionID, preference: merged })
 
-    if (data.approval !== undefined && data.approval !== prev?.approval) {
+    if (patch.autoAccept !== undefined && patch.autoAccept !== prev?.autoAccept) {
       const { Session } = await import(".")
-      if (data.approval === "auto") {
+      if (patch.autoAccept) {
         await Session.setPermission({
-          sessionID: data.sessionID,
+          sessionID: patch.sessionID,
           permission: [{ permission: "*", pattern: "*", action: "allow" }],
         })
-      } else if (data.approval === "ask") {
+      } else {
         await Session.setPermission({
-          sessionID: data.sessionID,
+          sessionID: patch.sessionID,
           permission: [],
         })
       }
     }
+
+    return merged
   }
 
   export function remove(sessionID: string): void {

@@ -1059,12 +1059,12 @@ export const SessionRoutes = lazy(() =>
         return c.json(pref ?? null)
       },
     )
-    .put(
+    .patch(
       "/:sessionID/preference",
       describeRoute({
-        summary: "Set session preference",
-        description: "Set preference for a session. Stored in memory and broadcast via SSE.",
-        operationId: "session.preference.set",
+        summary: "Update session preference",
+        description: "Patch preference for a session. Stored in memory and broadcast via SSE.",
+        operationId: "session.preference.update",
         responses: {
           200: {
             description: "Preference updated",
@@ -1094,18 +1094,16 @@ export const SessionRoutes = lazy(() =>
             })
             .optional(),
           variant: z.string().optional(),
-          approval: z.enum(["auto", "ask"]).optional(),
-          source: z.string().optional(),
+          autoAccept: z.boolean().optional(),
         }),
       ),
       async (c) => {
         const sessionID = c.req.valid("param").sessionID
         const body = c.req.valid("json")
-        await SessionPreference.set({
+        const pref = await SessionPreference.update({
           sessionID,
           ...body,
         })
-        const pref = SessionPreference.get(sessionID)
         return c.json(pref ?? null)
       },
     ),

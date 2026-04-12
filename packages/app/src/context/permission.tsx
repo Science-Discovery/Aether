@@ -13,6 +13,7 @@ import {
   isDirectoryAutoAccepting,
   autoRespondsPermission,
 } from "./permission-auto-respond"
+import type { SessionPreference } from "./global-sync/types"
 
 type PermissionRespondFn = (input: {
   sessionID: string
@@ -42,31 +43,6 @@ function hasPermissionPromptRules(permission: unknown) {
 
   const config = permission as Record<string, unknown>
   return Object.values(config).some(isNonAllowRule)
-}
-
-function allowAll(permission: unknown) {
-  if (permission === undefined) return undefined
-  if (typeof permission === "string") return permission === "allow"
-  if (!Array.isArray(permission)) return false
-  return permission.some((rule) => {
-    if (!rule || typeof rule !== "object" || Array.isArray(rule)) return false
-    const item = rule as Record<string, unknown>
-    return item.permission === "*" && item.pattern === "*" && item.action === "allow"
-  })
-}
-
-function sessionAccepts(session: { id: string; parentID?: string; permission?: unknown }[], sessionID: string) {
-  const map = new Map(session.map((item) => [item.id, item]))
-  const seen = new Set<string>()
-  let current: string | undefined = sessionID
-
-  while (current && !seen.has(current)) {
-    seen.add(current)
-    const item = map.get(current)
-    const value = allowAll(item?.permission)
-    if (value !== undefined) return value
-    current = item?.parentID
-  }
 }
 
 export const { use: usePermission, provider: PermissionProvider } = createSimpleContext({
@@ -106,7 +82,6 @@ export const { use: usePermission, provider: PermissionProvider } = createSimple
       }),
     )
 
-    // When config has permission: "allow", auto-enable directory-level auto-accept
     createEffect(() => {
       if (!ready()) return
       const directory = decode64(params.dir)
@@ -124,6 +99,12 @@ export const { use: usePermission, provider: PermissionProvider } = createSimple
         }
       }
     })
+
+    const current = () => {
+      const directory = decode64(params.dir)
+      if (!directory) return { session: [], preference: {} } as const
+      return globalSync.child(directory, { bootstrap: false })[0]
+    }
 
     const MAX_RESPONDED = 1000
     const RESPONDED_TTL_MS = 60 * 60 * 1000
@@ -164,10 +145,8 @@ export const { use: usePermission, provider: PermissionProvider } = createSimple
     }
 
     function isAutoAccepting(sessionID: string, directory?: string) {
-      const session = directory ? globalSync.child(directory, { bootstrap: false })[0].session : []
-      const value = sessionAccepts(session, sessionID)
-      if (value !== undefined) return value
-      return autoRespondsPermission(store.autoAccept, session, { sessionID }, directory)
+      const child = directory ? globalSync.child(directory, { bootstrap: false })[0] : current()
+      return autoRespondsPermission(store.autoAccept, [...child.session], { sessionID }, directory, child.preference)
     }
 
     function isAutoAcceptingDirectory(directory: string) {
@@ -175,10 +154,8 @@ export const { use: usePermission, provider: PermissionProvider } = createSimple
     }
 
     function shouldAutoRespond(permission: PermissionRequest, directory?: string) {
-      const session = directory ? globalSync.child(directory, { bootstrap: false })[0].session : []
-      const value = sessionAccepts(session, permission.sessionID)
-      if (value !== undefined) return value
-      return autoRespondsPermission(store.autoAccept, session, permission, directory)
+      const child = directory ? globalSync.child(directory, { bootstrap: false })[0] : current()
+      return autoRespondsPermission(store.autoAccept, [...child.session], permission, directory, child.preference)
     }
 
     function bumpEnableVersion(sessionID: string, directory?: string) {
@@ -188,10 +165,10 @@ export const { use: usePermission, provider: PermissionProvider } = createSimple
       return next
     }
 
-    function writeApproval(sessionID: string, directory: string, approval: "auto" | "ask") {
+    function writeAutoAccept(sessionID: string, directory: string, autoAccept: boolean) {
       return globalSDK
         .createClient({ directory, throwOnError: true })
-        .session.preference.set({ sessionID, approval, source: "desktop" })
+        .session.preference.update({ sessionID, autoAccept })
     }
 
     const unsubscribe = globalSDK.event.listen((e) => {
@@ -245,7 +222,7 @@ export const { use: usePermission, provider: PermissionProvider } = createSimple
         }),
       )
 
-      writeApproval(sessionID, directory, "auto").catch(() => undefined)
+      writeAutoAccept(sessionID, directory, true).catch(() => undefined)
 
       globalSDK.client.permission
         .list({ directory })
@@ -273,7 +250,7 @@ export const { use: usePermission, provider: PermissionProvider } = createSimple
       )
 
       if (directory) {
-        writeApproval(sessionID, directory, "ask").catch(() => undefined)
+        writeAutoAccept(sessionID, directory, false).catch(() => undefined)
       }
     }
 

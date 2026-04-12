@@ -446,9 +446,8 @@ class AetherAgent(Agent):
             {"x-opencode-directory": quote(directory, safe="")} if directory else {}
         )
         body = {k: v for k, v in kwargs.items() if v is not None}
-        body["source"] = "wechat"
         try:
-            resp = await self._client.put(
+            resp = await self._client.patch(
                 f"{self.base_url}/session/{session_id}/preference",
                 json=body,
                 headers=headers,
@@ -476,7 +475,7 @@ class AetherAgent(Agent):
         session_id = self._sessions.get(conv_id)
         if session_id:
             pref = await self._get_preference(session_id, directory)
-            if (pref or {}).get("approval") != "auto":
+            if not (pref or {}).get("autoAccept"):
                 return False
         else:
             return False
@@ -684,13 +683,16 @@ class AetherAgent(Agent):
         session_id = self._sessions.get(conv_id)
         directory = self._conv_dirs.get(conv_id) or self.directory
         pref = await self._get_preference(session_id, directory) if session_id else None
-        current = (pref or {}).get("approval") or "ask"
+        auto = (pref or {}).get("autoAccept")
         if not arg:
-            return f"🔐 当前审批模式：{current}\n可用模式：auto、ask"
+            mode = "自动批准" if auto else "手动审批"
+            return f"🔐 当前审批模式：{mode}\n💡 /approval auto 自动批准 | /approval ask 手动审批"
         if arg not in {"auto", "ask"}:
             return "❌ 仅支持 /approval auto 或 /approval ask"
         if session_id:
-            await self._set_preference(session_id, directory, approval=arg)
+            await self._set_preference(
+                session_id, directory, autoAccept=(arg == "auto")
+            )
         logger.info(f"[/approval] {conv_id} -> {arg}")
         if arg == "auto" and conv_id in self._pending_permissions:
             await self._handle_permission_reply(conv_id, "2")

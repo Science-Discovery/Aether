@@ -333,7 +333,7 @@ class FeishuManagerImpl {
     const ctx = await this.commandCtx(chatId)
     await Instance.provide({
       directory: ctx.dir,
-      fn: () => SessionPreference.set({ sessionID: SessionID.make(ctx.sessionId), source: "feishu", ...patch }),
+      fn: () => SessionPreference.update({ sessionID: SessionID.make(ctx.sessionId), ...patch }),
     })
   }
 
@@ -810,7 +810,7 @@ class FeishuManagerImpl {
           }
 
           const pref = sessionId ? SessionPreference.get(sessionId) : undefined
-          if (pref?.approval === "auto") {
+          if (pref?.autoAccept) {
             const session = await Session.get(SessionID.make(sessionId))
             if (!session.permission?.some((r) => r.permission === "*" && r.action === "allow")) {
               await Session.setPermission({
@@ -1301,16 +1301,17 @@ class FeishuManagerImpl {
    */
   private async cmdApproval(messageId: string, chatId: string, arg: string): Promise<void> {
     const ctx = await this.commandCtx(chatId)
-    const current = ctx.pref?.approval || "ask"
+    const auto = ctx.pref?.autoAccept ?? false
     if (!arg) {
-      await this.replyText(messageId, this.commandHeader(ctx) + `🔐 当前审批模式：${current}\n可用模式：auto、ask`)
+      const mode = auto ? "auto" : "ask"
+      await this.replyText(messageId, this.commandHeader(ctx) + `🔐 当前审批模式：${mode}\n可用模式：auto、ask`)
       return
     }
     if (arg !== "auto" && arg !== "ask") {
       await this.replyText(messageId, this.commandHeader(ctx) + "❌ 仅支持 /approval auto 或 /approval ask")
       return
     }
-    await this.setPref(chatId, { approval: arg })
+    await this.setPref(chatId, { autoAccept: arg === "auto" })
     if (arg === "auto") {
       const pending = this._pendingPermissions[chatId]
       if (pending) {

@@ -65,21 +65,20 @@ export type AppClient = Base & {
         agent?: string
         model?: { providerID: string; modelID: string }
         variant?: string
-        approval?: string
+        autoAccept?: boolean
       } | null>
-      set(input: {
+      update(input: {
         sessionID: string
         agent?: string
         model?: { providerID: string; modelID: string }
         variant?: string
-        approval?: string
-        source?: string
+        autoAccept?: boolean
       }): Req<{
         sessionID: string
         agent?: string
         model?: { providerID: string; modelID: string }
         variant?: string
-        approval?: string
+        autoAccept?: boolean
       } | null>
     }
   }
@@ -112,10 +111,10 @@ export function addPreferenceMethods(client: AppClient, baseUrl: string, auth?: 
       const data = await resp.json()
       return { data }
     },
-    async set(input) {
+    async update(input) {
       const { sessionID, ...body } = input
       const resp = await fetch(`${baseUrl}/session/${sessionID}/preference`, {
-        method: "PUT",
+        method: "PATCH",
         headers,
         body: JSON.stringify(body),
       })

@@ -18,7 +18,7 @@ type State = {
   agent?: string
   model?: ModelKey
   variant?: string | null
-  approval?: "auto" | "ask"
+  autoAccept?: boolean
 }
 
 type Saved = {
@@ -254,7 +254,7 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
         agent: agent.current()?.name,
         model: model ? { providerID: model.provider.id, modelID: model.id } : undefined,
         variant: selected(),
-        approval: scope()?.approval,
+        autoAccept: scope()?.autoAccept,
       } satisfies State
     }
 
@@ -275,12 +275,12 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
 
     const syncPreferenceToServer = (session: string, state: State) => {
       if (!sdk.client.session.preference) return
-      const body: Record<string, unknown> = { source: "desktop" }
+      const body: Record<string, unknown> = {}
       if (state.agent) body.agent = state.agent
       if (state.model) body.model = state.model
       if (state.variant != null) body.variant = state.variant
-      if (state.approval) body.approval = state.approval
-      sdk.client.session.preference.set({ sessionID: session, ...body }).catch(() => {})
+      if (state.autoAccept !== undefined) body.autoAccept = state.autoAccept
+      sdk.client.session.preference.update({ sessionID: session, ...body }).catch(() => {})
     }
 
     createEffect(() => {
@@ -303,7 +303,7 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
           if (serverPref.agent) state.agent = serverPref.agent
           if (serverPref.model) state.model = serverPref.model
           if (serverPref.variant) state.variant = serverPref.variant
-          if (serverPref.approval) state.approval = serverPref.approval as "auto" | "ask"
+          if (serverPref.autoAccept !== undefined) state.autoAccept = serverPref.autoAccept
           if (Object.keys(state).length > 0) {
             setSaved("session", session, state)
           }
@@ -313,18 +313,24 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
 
     createEffect(() => {
       const unsub = sdk.event.listen((e) => {
-        const event = e.details as { type: string; properties?: { sessionID?: string; info?: State } }
-        if (event.type !== "session.preference.changed") return
+        const event = e.details as {
+          type: string
+          properties?: {
+            sessionID?: string
+            preference?: { agent?: string; model?: ModelKey; variant?: string; autoAccept?: boolean }
+          }
+        }
+        if (event.type !== "session.preference.updated") return
         const session = id()
         if (!session) return
         if (!event.properties || event.properties.sessionID !== session) return
-        const pref = event.properties.info
+        const pref = event.properties.preference
         if (!pref) return
         const state: State = {}
         if (pref.agent) state.agent = pref.agent
         if (pref.model) state.model = pref.model
         if (pref.variant) state.variant = pref.variant
-        if (pref.approval) state.approval = pref.approval
+        if (pref.autoAccept !== undefined) state.autoAccept = pref.autoAccept
         if (Object.keys(state).length > 0) {
           setSaved("session", session, { ...(saved.session[session] ?? {}), ...state })
         }
