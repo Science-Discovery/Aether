@@ -574,7 +574,7 @@ class AetherAgent(Agent):
             lines.append(f"{i}. {title}{tag}")
             lines.append(f"   {updated}")
         lines.append("")
-        lines.append("💡 /session n 切换会话 | /session list 查看全部")
+        lines.append("💡 /s n 切换会话 | /s l 查看全部")
         return chr(10).join(lines)
 
     async def _handle_slash_command(self, conv_id: str, text: str):
@@ -628,7 +628,7 @@ class AetherAgent(Agent):
             if arg == "l":
                 arg = "list"
             return await self._cmd_session(conv_id, arg)
-        return f"❓ 未知命令：{cmd}，发送 /help 查看可用命令。"
+        return f"❓ 未知命令：{cmd}\n发送 /help 查看常用命令，/help list 查看全部命令。"
 
     async def _cmd_list_models(self, conv_id: str, full: bool = False) -> str:
         try:
@@ -676,13 +676,13 @@ class AetherAgent(Agent):
                 lines.append(f"  {num}. {pid}/{model_id}{tag}")
             if not full and len(sorted_ids) > len(visible):
                 lines.append(
-                    f"  ... 还有 {len(sorted_ids) - len(visible)} 个，发送 /model list 查看全部"
+                    f"  ... 还有 {len(sorted_ids) - len(visible)} 个，发送 /m l 查看全部"
                 )
         self._model_list = model_list
         if len(lines) <= 5:
             lines.append("（暂无已配置的模型，请先在 Aether 中连接 provider）")
         lines.append("")
-        lines.append("💡 /model n 切换模型 | /model list 查看全部")
+        lines.append("💡 /m n 切换模型 | /m l 查看全部")
         return chr(10).join(lines)
 
     async def _cmd_agent(self, conv_id: str, arg: str) -> str:
@@ -726,7 +726,7 @@ class AetherAgent(Agent):
         auto = (pref or {}).get("autoAccept")
         if not arg:
             mode = "自动批准" if auto else "手动审批"
-            return f"🔐 当前审批模式：{mode}\n💡 /approval auto 自动批准 | /approval ask 手动审批"
+            return f"🔐 当前审批模式：{mode}\n可用模式：auto、ask"
         if arg not in {"auto", "ask"}:
             return "❌ 仅支持 /approval auto 或 /approval ask"
         if session_id:
@@ -820,7 +820,7 @@ class AetherAgent(Agent):
             self._hidden_dirs[directory] = int(datetime.now().timestamp() * 1000)
             self._save_hidden_dirs()
             name = self._project_name(target)
-            return f"✅ 已隐藏：{name}\n（在桌面端或微信端重新使用后自动恢复）"
+            return f"✅ 已隐藏：{name}\n（在桌面端或消息端重新使用后自动恢复）"
 
         if arg == "list":
             lines = ["📂 项目列表：", ""]
@@ -875,9 +875,7 @@ class AetherAgent(Agent):
             lines.append(f"{idx}. {self._project_name(item)}{tag}")
             lines.append(f"   {directory}")
         lines.append("")
-        lines.append(
-            "💡 /project n 切换 | /project list 查看全部 | /project hide n 隐藏"
-        )
+        lines.append("💡 /p n 切换 | /p l 查看全部")
         if self._hidden_dirs:
             lines.append(
                 f"ℹ️ 已隐藏 {len(self._hidden_dirs)} 个项目（重新使用后自动恢复）"

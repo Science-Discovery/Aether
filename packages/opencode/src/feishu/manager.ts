@@ -1103,7 +1103,7 @@ class FeishuManagerImpl {
       } else if (command === "/h" || command === "/help") {
         await this.replyText(messageId, rest.toLowerCase() === "list" ? HELP_LIST_TEXT : HELP_TEXT)
       } else {
-        await this.replyText(messageId, `未知命令: ${command}\n发送 /help 查看可用命令。`)
+        await this.replyText(messageId, `❓ 未知命令：${command}\n发送 /help 查看常用命令，/help list 查看全部命令。`)
       }
     } catch (err) {
       console.error("[feishu] handleCommand error:", err)
@@ -1186,7 +1186,7 @@ class FeishuManagerImpl {
       return
     }
 
-    await this.replyText(messageId, this.commandHeader(ctx) + "无效参数，请输入编号、list 或 provider/model 格式。")
+    await this.replyText(messageId, this.commandHeader(ctx) + "❌ 无效参数，请输入编号、list 或 provider/model 格式。")
   }
 
   private formatModelList(ctx: Awaited<ReturnType<typeof this.commandCtx>>, full: boolean): string {
@@ -1215,7 +1215,7 @@ class FeishuManagerImpl {
         lines.push(`  ${entry.index}. ${entry.providerID}/${entry.modelID}${def}`)
       }
       if (!full && entries.length > visible.length) {
-        lines.push(`  ... 还有 ${entries.length - visible.length} 个，发送 /model list 查看全部`)
+        lines.push(`  ... 还有 ${entries.length - visible.length} 个，发送 /m l 查看全部`)
       }
     }
 
@@ -1224,7 +1224,7 @@ class FeishuManagerImpl {
     }
 
     lines.push("")
-    lines.push("💡 /model n 切换模型 | /model list 查看全部")
+    lines.push("💡 /m n 切换模型 | /m l 查看全部")
     return lines.join("\n")
   }
 
@@ -1307,7 +1307,7 @@ class FeishuManagerImpl {
     const ctx = await this.commandCtx(chatId)
     const auto = ctx.pref?.autoAccept ?? false
     if (!arg) {
-      const mode = auto ? "auto" : "ask"
+      const mode = auto ? "自动批准" : "手动审批"
       await this.replyText(messageId, this.commandHeader(ctx) + `🔐 当前审批模式：${mode}\n可用模式：auto、ask`)
       return
     }
@@ -1383,7 +1383,7 @@ class FeishuManagerImpl {
       this._hiddenDirs[directory] = Date.now()
       await this.saveHiddenDirs()
       const name = this.projectName(target)
-      await this.replyText(messageId, `✅ 已隐藏：${name}\n（在桌面端或飞书端重新使用后自动恢复）`)
+      await this.replyText(messageId, `✅ 已隐藏：${name}\n（在桌面端或消息端重新使用后自动恢复）`)
       return
     }
 
@@ -1478,7 +1478,7 @@ class FeishuManagerImpl {
       count++
     }
     lines.push("")
-    lines.push("💡 /project n 切换 | /project list 查看全部 | /project hide n 隐藏")
+    lines.push("💡 /p n 切换 | /p l 查看全部")
     if (Object.keys(this._hiddenDirs).length > 0) {
       lines.push(`ℹ️ 已隐藏 ${Object.keys(this._hiddenDirs).length} 个项目（重新使用后自动恢复）`)
     }
@@ -1561,7 +1561,7 @@ class FeishuManagerImpl {
       lines.push(`   ${this.formatSessionTime(item.time.updated)}`)
     }
     lines.push("")
-    lines.push("💡 /session n 切换会话 | /session list 查看全部")
+    lines.push("💡 /s n 切换会话 | /s l 查看全部")
     await this.replyText(messageId, lines.join("\n"))
   }
 
