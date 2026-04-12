@@ -454,16 +454,12 @@ class FeishuManagerImpl {
         return
       }
 
-      // Check for hidden projects with new activity (web UI or prior Feishu messages)
-      await this.autoUnhide()
-
       const chatId = message.chat_id
       const messageId = message.message_id
       const rootId = message.root_id || message.parent_id || messageId
-      const chatType = message.chat_type // "p2p" or "group"
+      const chatType = message.chat_type
       console.log("[feishu] message:", { chatId, messageId, type: message.message_type, chatType })
 
-      // In group chats, only respond when the bot is @mentioned
       if (chatType === "group") {
         const mentions = message.mentions
         if (!mentions || !Array.isArray(mentions) || mentions.length === 0) {
@@ -486,61 +482,127 @@ class FeishuManagerImpl {
         return
       }
 
-      // Strip @mention tags (group chat)
       text = text.replace(/@_\w+\s*/g, "").trim()
       if (!text) return
       console.log("[feishu] text:", text)
 
-      // Handle slash commands
-      if (text.startsWith("/")) {
+      const isSlash = text.startsWith("/")
+      const cmd = isSlash ? text.trim().split(/\s+/)[0].toLowerCase() : ""
+
+      if (cmd === "/help") {
+        await this.replyText(
+          messageId,
+          "📋 可用命令：\n\n/new             开启全新对话（无当前会话上下文）\n/stop            停止当前会话中的执行\n/compact         压缩当前会话上下文\n/model           查看可用 LLM 模型（每个 provider 最多显示前 5 个）\n/model list      查看所有可用 LLM 模型\n/model n         切换到编号 n 的模型（按全量模型编号）\n/agent           查看当前会话模式\n/agent <name>    切换到指定模式（如 build、plan、docs）\n/approval        查看当前审批模式\n/approval <name> 切换审批模式（如 auto、ask）\n/variant         查看当前变体\n/variant <name>  切换到指定变体\n/project         查看最近项目\n/project list    查看全部项目\n/project n       切换到编号 n 的项目\n/project hide n  隐藏项目（在桌面端或飞书端重新使用后自动恢复）\n/session         查看当前项目下的最近会话\n/session list    查看当前项目下全部会话\n/session n       切换到当前项目下编号 n 的会话\n/help            显示此帮助信息",
+        )
+        return
+      }
+
+      await this.autoUnhide()
+
+      if (isSlash && cmd !== "/stop" && cmd !== "/compact") {
         await this.handleCommand(text, messageId, chatId)
         return
       }
 
-      // If this chat has a pending question, treat the text as an answer
-      const pendingQ = this._pendingQuestions[chatId]
-      if (pendingQ) {
-        delete this._pendingQuestions[chatId]
-        await this.handleQuestionReply(messageId, chatId, pendingQ, text)
-        return
-      }
-
-      // If this chat has a pending permission, treat the text as a permission reply
-      const pendingP = this._pendingPermissions[chatId]
-      if (pendingP) {
-        delete this._pendingPermissions[chatId]
-        await this.handlePermissionReply(messageId, chatId, pendingP, text)
-        return
-      }
-
-      // Effective directory for this chat (may differ from connect-time Instance.directory)
       const effectiveDir = this.effectiveDir(chatId)
 
-      // Feishu message to a hidden project → unhide immediately
       if (effectiveDir in this._hiddenDirs) {
         delete this._hiddenDirs[effectiveDir]
         console.log("[feishu] auto-unhide via Feishu message:", effectiveDir)
         void this.saveHiddenDirs()
       }
 
-      // Busy check (before entering main Instance.provide)
-      const currentSid = this._chatSessions[chatId]
-      if (currentSid) {
-        try {
+      if (cmd === "/stop") {
+        const hasPending = chatId in this._pendingQuestions || chatId in this._pendingPermissions
+        const currentSid = this._chatSessions[chatId]
+        if (!currentSid) {
+          await this.replyText(messageId, "没有任务在执行")
+          return
+        }
+        const busy = await Instance.provide({
+          directory: effectiveDir,
+          fn: () => SessionStatus.get(SessionID.make(currentSid)),
+        }).catch(() => ({ type: "idle" as const }))
+        if (busy.type !== "busy" && !hasPending) {
+          await this.replyText(messageId, "没有任务在执行")
+          return
+        }
+        if (busy.type === "busy") {
+          try {
+            await Instance.provide({
+              directory: effectiveDir,
+              fn: () => SessionPrompt.cancel(SessionID.make(currentSid)),
+            })
+          } catch {}
+        }
+        await this.clearRuntime(chatId)
+        await this.replyText(messageId, "✅ 已停止当前执行。")
+        return
+      }
+
+      if (cmd === "/compact") {
+        const pendingQ = this._pendingQuestions[chatId]
+        if (pendingQ) {
+          await this.replyText(messageId, this.formatQuestionRequest(pendingQ))
+          return
+        }
+        const pendingP = this._pendingPermissions[chatId]
+        if (pendingP) {
+          await this.replyText(messageId, this.formatPermissionRequest(pendingP))
+          return
+        }
+        const currentSid = this._chatSessions[chatId]
+        if (currentSid) {
           const busy = await Instance.provide({
             directory: effectiveDir,
             fn: () => SessionStatus.get(SessionID.make(currentSid)),
-          })
+          }).catch(() => null)
           if (busy?.type === "busy") {
-            await this.replyText(messageId, "当前会话正在生成回复，请等待结束后再发送；\n如需停止请输入 /stop")
+            await this.replyText(
+              messageId,
+              "当前会话正在生成回复，请等待当前对话结束后再发送；如需立即开始新问题，请先 /new 或切换 /session n。如需停止本会话请输入 /stop",
+            )
             return
           }
-        } catch {
-          // SessionStatus.get may fail if instance not booted yet; skip check
+        }
+        if (!(chatId in this._chatSessions)) {
+          await this.replyText(messageId, "没有任务在执行")
+          return
+        }
+        try {
+          await this.cmdCompact(messageId, chatId)
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err)
+          await this.replyText(messageId, `命令执行出错: ${msg}`)
+        }
+        return
+      }
+
+      const pendingQ = this._pendingQuestions[chatId]
+      if (pendingQ) {
+        await this.replyText(messageId, this.formatQuestionRequest(pendingQ))
+        return
+      }
+      const pendingP = this._pendingPermissions[chatId]
+      if (pendingP) {
+        await this.replyText(messageId, this.formatPermissionRequest(pendingP))
+        return
+      }
+      const currentSid = this._chatSessions[chatId]
+      if (currentSid) {
+        const busy = await Instance.provide({
+          directory: effectiveDir,
+          fn: () => SessionStatus.get(SessionID.make(currentSid)),
+        }).catch(() => null)
+        if (busy?.type === "busy") {
+          await this.replyText(
+            messageId,
+            "当前会话正在生成回复，请等待当前对话结束后再发送；如需立即开始新问题，请先 /new 或切换 /session n。如需停止本会话请输入 /stop",
+          )
+          return
         }
       }
 
-      // Run session lookup and AI prompt in the effective directory's Instance context
       await Instance.provide({
         directory: effectiveDir,
         fn: async () => {
@@ -565,18 +627,9 @@ class FeishuManagerImpl {
             await this.saveSessionMap()
           }
 
-          // Sync pending: check if session has unanswered questions or permissions
-          try {
-            const synced = await this.syncPending(messageId, chatId, sessionId, effectiveDir)
-            if (synced) return
-          } catch (e) {
-            console.log("[feishu] syncPending error, continuing:", e)
-          }
-
           const model = this.resolveModel(chatId)
           console.log("[feishu] using model:", model ?? "(default)")
 
-          // Detect summarization intent and inject chat history into prompt
           let promptText = text
           if (this.detectFileSendIntent(text)) {
             promptText += `\n\n[系统提示：用户需要通过飞书接收文件附件，请在回复中包含该文件的完整绝对路径（格式如 /home/user/file.md），系统将自动将其作为附件发送给用户]`
@@ -645,8 +698,6 @@ class FeishuManagerImpl {
             console.log("[feishu] no text in response")
           }
 
-          // If user explicitly asked for a file, send files that were read this turn
-          // or extract file paths mentioned in the AI response text
           if (this.detectFileSendIntent(text)) {
             let filesToSend = this.extractReadFiles(msg)
             if (filesToSend.length === 0 && responseText) {
@@ -856,10 +907,6 @@ class FeishuManagerImpl {
     try {
       if (command === "/new") {
         await this.cmdNew(messageId, chatId)
-      } else if (command === "/stop") {
-        await this.cmdStop(messageId, chatId)
-      } else if (command === "/compact") {
-        await this.cmdCompact(messageId, chatId)
       } else if (command === "/model") {
         await this.cmdModel(messageId, chatId, parts.slice(1))
       } else if (command === "/agent") {
@@ -1003,30 +1050,6 @@ class FeishuManagerImpl {
     return lines.join("\n")
   }
 
-  /** /stop — abort the active prompt in the current session */
-  private async cmdStop(messageId: string, chatId: string): Promise<void> {
-    const ctx = await this.commandCtx(chatId)
-    const hasPending = chatId in this._pendingQuestions || chatId in this._pendingPermissions
-    const busy = await Instance.provide({
-      directory: ctx.dir,
-      fn: () => SessionStatus.get(SessionID.make(ctx.sessionId)),
-    })
-    if (busy.type !== "busy" && !hasPending) {
-      await this.replyText(messageId, this.commandHeader(ctx) + "当前没有正在执行的任务。")
-      return
-    }
-    if (busy.type === "busy") {
-      await Instance.provide({
-        directory: ctx.dir,
-        fn: async () => {
-          SessionPrompt.cancel(SessionID.make(ctx.sessionId))
-        },
-      })
-    }
-    await this.clearRuntime(chatId)
-    await this.replyText(messageId, this.commandHeader(ctx) + "✅ 已停止当前执行。")
-  }
-
   /** /compact — compress the current session context */
   private async cmdCompact(messageId: string, chatId: string): Promise<void> {
     const ctx = await this.commandCtx(chatId)
@@ -1164,10 +1187,6 @@ class FeishuManagerImpl {
       await this.replyText(messageId, "❌ 无法获取项目列表，请检查 Aether 是否正常运行。")
       return
     }
-
-    // autoUnhide already ran at message entry; run again here to catch
-    // activity created by the current message batch before /project was typed
-    await this.autoUnhide()
 
     const visibleProjects = allProjects.filter((p) => !(this.projectDir(p) in this._hiddenDirs))
     const currentDir = this.effectiveDir(chatId)
@@ -1369,34 +1388,6 @@ class FeishuManagerImpl {
 
   // ─────────────────────────────────────────────────────────────────────────
 
-  /** Check for pending questions/permissions on a session; return true if handled */
-  private async syncPending(messageId: string, chatId: string, sessionId: string, dir: string): Promise<boolean> {
-    const sid = SessionID.make(sessionId)
-    const questions = await Question.list()
-    const q = questions.find((r) => r.sessionID === sid)
-    if (q) {
-      this._pendingQuestions[chatId] = q
-      await this.replyText(messageId, this.formatQuestionRequest(q))
-      return true
-    }
-
-    const permissions = await Permission.list()
-    const p = permissions.find((r) => r.sessionID === sid)
-    if (p) {
-      const pref = SessionPreference.get(sessionId)
-      if (pref?.approval === "auto") {
-        await Permission.reply({ requestID: p.id, reply: "always" })
-        delete this._pendingPermissions[chatId]
-        console.log("[feishu] auto-approved pending permission:", p.id)
-        return false
-      }
-      this._pendingPermissions[chatId] = p
-      await this.replyText(messageId, this.formatPermissionRequest(p))
-      return true
-    }
-    return false
-  }
-
   private formatQuestionRequest(q: Question.Request): string {
     const parts = ["🤔 Agent 需要您回答：", ""]
     for (let i = 0; i < q.questions.length; i++) {
@@ -1432,48 +1423,6 @@ class FeishuManagerImpl {
     parts.push("3. 拒绝（本次不允许执行）")
     parts.push("如需开始新问题，请先 /new 或切换 /session n。")
     return parts.join("\n")
-  }
-
-  private async handleQuestionReply(
-    messageId: string,
-    chatId: string,
-    q: Question.Request,
-    text: string,
-  ): Promise<void> {
-    const answers: string[][] = []
-    for (const info of q.questions) {
-      const idx = parseInt(text, 10)
-      if (!isNaN(idx) && idx >= 1 && idx <= (info.options?.length ?? 0)) {
-        answers.push([info.options![idx - 1].label])
-      } else {
-        answers.push([text])
-      }
-    }
-    await Question.reply({ requestID: q.id, answers })
-    await this.replyText(messageId, "✅ 已提交回答，请等待当前对话继续处理。")
-  }
-
-  private async handlePermissionReply(
-    messageId: string,
-    chatId: string,
-    p: Permission.Request,
-    text: string,
-  ): Promise<void> {
-    const idx = parseInt(text.trim(), 10)
-    const replyMap: Record<number, Permission.Reply> = { 1: "once", 2: "always", 3: "reject" }
-    const reply = replyMap[idx]
-    if (!reply) {
-      this._pendingPermissions[chatId] = p
-      await this.replyText(messageId, "未识别，请回复数字编号。\n\n" + this.formatPermissionRequest(p))
-      return
-    }
-    await Permission.reply({ requestID: p.id, reply })
-    const labels: Record<string, string> = {
-      once: "已收到授权：允许一次，请等待当前对话继续处理。",
-      always: "已收到授权：始终允许，请等待当前对话继续处理。",
-      reject: "已提交拒绝，请等待当前对话继续处理。",
-    }
-    await this.replyText(messageId, labels[reply])
   }
 
   private async replyText(messageId: string, text: string): Promise<void> {
