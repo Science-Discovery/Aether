@@ -49,7 +49,7 @@ const HELP_TEXT =
   "📋 可用命令：\n\n/n, /new      开启新对话\n/stop         停止当前执行\n/c, /compact  压缩当前上下文\n\n/m, /model    查看可用模型\n/m l          查看全部模型\n/m n          切换编号模型\n\n/a, /agent    查看当前模式\n/a <name>     切换指定模式\n\n/p, /project  查看最近项目\n/p l          查看全部项目\n/p n          切换编号项目\n\n/s, /session  查看最近会话\n/s l          查看全部会话\n/s n          切换编号会话\n\n/h, /help     显示帮助信息\n/help list    显示全部命令"
 
 const HELP_LIST_TEXT =
-  "📋 全部命令：\n\n/n, /new           开启新对话\n/stop              停止当前执行\n/c, /compact       压缩当前上下文\n\n/m, /model         查看可用模型\n/m l, /model list  查看全部模型\n/m n, /model n     切换编号模型\n\n/a, /agent         查看当前模式\n/a <name>          切换指定模式\n\n/p, /project       查看最近项目\n/p l, /project list 查看全部项目\n/p n, /project n   切换编号项目\n/project hide n    隐藏指定项目\n\n/s, /session       查看最近会话\n/s l, /session list 查看全部会话\n/s n, /session n   切换编号会话\n\n/approval          查看审批模式\n/approval <name>   切换审批模式\n\n/variant           查看当前变体\n/variant <name>    切换指定变体\n\n/h, /help          显示帮助信息\n/help list         显示全部命令"
+  "📋 全部命令：\n\n/n, /new\n  开启新对话，清空当前会话上下文\n\n/stop\n  停止当前执行中的任务\n\n/c, /compact\n  压缩当前会话上下文\n\n/m, /model\n  查看可用模型\n/m l, /model list\n  查看全部模型（l = list）\n/m n, /model n\n  切换到编号 n 的模型（n 为全量模型编号）\n\n/a, /agent\n  查看当前模式\n/a <name>, /agent <name>\n  切换模式（如 build、plan、docs）\n\n/p, /project\n  查看最近项目\n/p l, /project list\n  查看全部项目（l = list）\n/p n, /project n\n  切换到编号 n 的项目\n/project hide n\n  隐藏编号 n 的项目，重新在桌面端或消息端使用后自动恢复\n\n/s, /session\n  查看最近会话\n/s l, /session list\n  查看当前项目下全部会话（l = list）\n/s n, /session n\n  切换到当前项目下编号 n 的会话\n\n/approval\n  查看审批模式\n/approval <name>\n  切换审批模式（name 可选：auto、ask）\n\n/variant\n  查看当前变体\n/variant <name>\n  切换到指定变体（name 为变体名）\n\n/h, /help\n  显示常用命令\n/help list\n  显示全部命令"
 
 export const FeishuEvent = {
   StatusChanged: BusEvent.define(
@@ -149,7 +149,7 @@ class FeishuManagerImpl {
 
   private static readonly HEARTBEAT_MS = 30_000
   private static readonly HEARTBEAT_FAILS = 3
-  private static readonly RECONNECT_MAX = 10
+  private static readonly RECONNECT_MAX_MS = 300_000
 
   get status() {
     return this._status
@@ -524,14 +524,8 @@ class FeishuManagerImpl {
   private scheduleReconnect(reason: string): void {
     if (this._manualStop || !this._lastConfig) return
     if (this._reconnect || this._status === "reconnecting") return
-    if (this._reconnectCount >= FeishuManagerImpl.RECONNECT_MAX) {
-      this._error = { code: "reconnect_failed", message: "飞书连接多次重试失败，请手动重新连接。" }
-      this.status = "error"
-      Bus.publish(FeishuEvent.Error, this._error)
-      return
-    }
     const attempt = this._reconnectCount + 1
-    const delay = Math.min(2_000 * 2 ** this._reconnectCount, 30_000)
+    const delay = Math.min(2_000 * 2 ** this._reconnectCount, FeishuManagerImpl.RECONNECT_MAX_MS)
     this._reconnectCount = attempt
     this.statusMsg("reconnecting", `飞书连接已断开，正在重连（第 ${attempt} 次）...`)
     Bus.publish(FeishuEvent.Reconnecting, { attempt, delay })

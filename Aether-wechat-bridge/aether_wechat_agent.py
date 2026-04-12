@@ -176,34 +176,57 @@ HELP_TEXT = """📋 可用命令：
 
 HELP_LIST_TEXT = """📋 全部命令：
 
-/n, /new           开启新对话
-/stop              停止当前执行
-/c, /compact       压缩当前上下文
+/n, /new
+  开启新对话，清空当前会话上下文
 
-/m, /model         查看可用模型
-/m l, /model list  查看全部模型
-/m n, /model n     切换编号模型
+/stop
+  停止当前执行中的任务
 
-/a, /agent         查看当前模式
-/a <name>          切换指定模式
+/c, /compact
+  压缩当前会话上下文
 
-/p, /project       查看最近项目
-/p l, /project list 查看全部项目
-/p n, /project n   切换编号项目
-/project hide n    隐藏指定项目
+/m, /model
+  查看可用模型
+/m l, /model list
+  查看全部模型（l = list）
+/m n, /model n
+  切换到编号 n 的模型（n 为全量模型编号）
 
-/s, /session       查看最近会话
-/s l, /session list 查看全部会话
-/s n, /session n   切换编号会话
+/a, /agent
+  查看当前模式
+/a <name>, /agent <name>
+  切换模式（如 build、plan、docs）
 
-/approval          查看审批模式
-/approval <name>   切换审批模式
+/p, /project
+  查看最近项目
+/p l, /project list
+  查看全部项目（l = list）
+/p n, /project n
+  切换到编号 n 的项目
+/project hide n
+  隐藏编号 n 的项目，重新在桌面端或消息端使用后自动恢复
 
-/variant           查看当前变体
-/variant <name>    切换指定变体
+/s, /session
+  查看最近会话
+/s l, /session list
+  查看当前项目下全部会话（l = list）
+/s n, /session n
+  切换到当前项目下编号 n 的会话
 
-/h, /help          显示帮助信息
-/help list         显示全部命令"""
+/approval
+  查看审批模式
+/approval <name>
+  切换审批模式（name 可选：auto、ask）
+
+/variant
+  查看当前变体
+/variant <name>
+  切换到指定变体（name 为变体名）
+
+/h, /help
+  显示常用命令
+/help list
+  显示全部命令"""
 
 _HIDDEN_FILE: Path = (
     Path(SESSION_FILE).parent / "hidden_projects.json"
