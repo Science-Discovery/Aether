@@ -152,26 +152,58 @@ def output_qrcode_base64(qrcode_url: str) -> str:
 
 HELP_TEXT = """📋 可用命令：
 
-/new          开启全新对话（无当前会话上下文）
-/stop         停止当前会话中的执行
-/compact      压缩当前会话上下文
-/model        查看可用 LLM 模型（每个 provider 最多显示前 5 个）
-/model list   查看所有可用 LLM 模型
-/model n      切换到编号 n 的模型（按全量模型编号）
-/agent        查看当前会话模式
-/agent <name> 切换到指定模式（如 build、plan、docs）
-/variant      查看当前变体
-/variant <name> 切换到指定变体
-/approval     查看当前审批模式
-/approval <name> 切换审批模式（如 auto、ask）
-/project      查看最近项目
-/project list 查看全部项目
-/project n    切换到编号 n 的项目
-/project hide n  隐藏项目（在桌面端或微信端重新使用后自动恢复）
-/session      查看当前项目下的最近会话
-/session list 查看当前项目下全部会话
-/session n    切换到当前项目下编号 n 的会话
-/help         显示此帮助信息"""
+/n, /new      开启新对话
+/stop         停止当前执行
+/c, /compact  压缩当前上下文
+
+/m, /model    查看可用模型
+/m l          查看全部模型
+/m n          切换编号模型
+
+/a, /agent    查看当前模式
+/a <name>     切换指定模式
+
+/p, /project  查看最近项目
+/p l          查看全部项目
+/p n          切换编号项目
+
+/s, /session  查看最近会话
+/s l          查看全部会话
+/s n          切换编号会话
+
+/h, /help     显示帮助信息
+/help list    显示全部命令"""
+
+HELP_LIST_TEXT = """📋 全部命令：
+
+/n, /new           开启新对话
+/stop              停止当前执行
+/c, /compact       压缩当前上下文
+
+/m, /model         查看可用模型
+/m l, /model list  查看全部模型
+/m n, /model n     切换编号模型
+
+/a, /agent         查看当前模式
+/a <name>          切换指定模式
+
+/p, /project       查看最近项目
+/p l, /project list 查看全部项目
+/p n, /project n   切换编号项目
+/project hide n    隐藏指定项目
+
+/s, /session       查看最近会话
+/s l, /session list 查看全部会话
+/s n, /session n   切换编号会话
+
+/approval          查看审批模式
+/approval <name>   切换审批模式
+
+/variant           查看当前变体
+/variant <name>    切换指定变体
+
+/h, /help          显示帮助信息
+/help list         显示全部命令"""
 
 _HIDDEN_FILE: Path = (
     Path(SESSION_FILE).parent / "hidden_projects.json"
@@ -552,11 +584,11 @@ class AetherAgent(Agent):
         parts = stripped.split(maxsplit=1)
         cmd = parts[0].lower()
         arg = parts[1].strip() if len(parts) > 1 else ""
-        if cmd == "/help":
-            return HELP_TEXT
+        if cmd in {"/h", "/help"}:
+            return HELP_LIST_TEXT if arg == "list" else HELP_TEXT
         if cmd == "/stop":
             return await self._cmd_stop(conv_id)
-        if cmd == "/new":
+        if cmd in {"/n", "/new"}:
             old = self._sessions.pop(conv_id, None)
             self._session_list.pop(conv_id, None)
             self._clear_runtime(conv_id)
@@ -567,9 +599,11 @@ class AetherAgent(Agent):
                 logger.info(f"[/new] 清除会话 {old[:8]}... for {conv_id}")
             logger.info(f"[/new] 为 {conv_id} 创建新会话 {session_id[:8]}...")
             return "✅ 已开启新对话，上下文已清空。"
-        if cmd == "/compact":
+        if cmd in {"/c", "/compact"}:
             return await self._cmd_compact(conv_id)
-        if cmd == "/model":
+        if cmd in {"/m", "/model"}:
+            if arg == "l":
+                arg = "list"
             if not arg:
                 return await self._cmd_list_models(conv_id)
             if arg == "list":
@@ -578,15 +612,21 @@ class AetherAgent(Agent):
             if arg.isdigit():
                 return self._cmd_set_model_by_index(conv_id, int(arg))
             return self._cmd_set_model(conv_id, arg)
-        if cmd == "/agent":
+        if cmd in {"/a", "/agent"}:
             return await self._cmd_agent(conv_id, arg)
         if cmd == "/variant":
             return await self._cmd_variant(conv_id, arg)
         if cmd == "/approval":
             return await self._cmd_approval(conv_id, arg)
-        if cmd == "/project":
+        if cmd in {"/p", "/project"}:
+            if arg == "l":
+                arg = "list"
+            elif arg.startswith("h "):
+                arg = f"hide {arg[2:].strip()}"
             return await self._cmd_project(conv_id, arg)
-        if cmd == "/session":
+        if cmd in {"/s", "/session"}:
+            if arg == "l":
+                arg = "list"
             return await self._cmd_session(conv_id, arg)
         return f"❓ 未知命令：{cmd}，发送 /help 查看可用命令。"
 

@@ -45,6 +45,12 @@ export interface FeishuSession {
   createdAt: number
 }
 
+const HELP_TEXT =
+  "📋 可用命令：\n\n/n, /new      开启新对话\n/stop         停止当前执行\n/c, /compact  压缩当前上下文\n\n/m, /model    查看可用模型\n/m l          查看全部模型\n/m n          切换编号模型\n\n/a, /agent    查看当前模式\n/a <name>     切换指定模式\n\n/p, /project  查看最近项目\n/p l          查看全部项目\n/p n          切换编号项目\n\n/s, /session  查看最近会话\n/s l          查看全部会话\n/s n          切换编号会话\n\n/h, /help     显示帮助信息\n/help list    显示全部命令"
+
+const HELP_LIST_TEXT =
+  "📋 全部命令：\n\n/n, /new           开启新对话\n/stop              停止当前执行\n/c, /compact       压缩当前上下文\n\n/m, /model         查看可用模型\n/m l, /model list  查看全部模型\n/m n, /model n     切换编号模型\n\n/a, /agent         查看当前模式\n/a <name>          切换指定模式\n\n/p, /project       查看最近项目\n/p l, /project list 查看全部项目\n/p n, /project n   切换编号项目\n/project hide n    隐藏指定项目\n\n/s, /session       查看最近会话\n/s l, /session list 查看全部会话\n/s n, /session n   切换编号会话\n\n/approval          查看审批模式\n/approval <name>   切换审批模式\n\n/variant           查看当前变体\n/variant <name>    切换指定变体\n\n/h, /help          显示帮助信息\n/help list         显示全部命令"
+
 export const FeishuEvent = {
   StatusChanged: BusEvent.define(
     "feishu.status",
@@ -647,19 +653,17 @@ class FeishuManagerImpl {
       console.log("[feishu] text:", text)
 
       const isSlash = text.startsWith("/")
+      const parts = isSlash ? text.trim().split(/\s+/) : []
       const cmd = isSlash ? text.trim().split(/\s+/)[0].toLowerCase() : ""
 
-      if (cmd === "/help") {
-        await this.replyText(
-          messageId,
-          "📋 可用命令：\n\n/new             开启全新对话（无当前会话上下文）\n/stop            停止当前会话中的执行\n/compact         压缩当前会话上下文\n/model           查看可用 LLM 模型（每个 provider 最多显示前 5 个）\n/model list      查看所有可用 LLM 模型\n/model n         切换到编号 n 的模型（按全量模型编号）\n/agent           查看当前会话模式\n/agent <name>    切换到指定模式（如 build、plan、docs）\n/approval        查看当前审批模式\n/approval <name> 切换审批模式（如 auto、ask）\n/variant         查看当前变体\n/variant <name>  切换到指定变体\n/project         查看最近项目\n/project list    查看全部项目\n/project n       切换到编号 n 的项目\n/project hide n  隐藏项目（在桌面端或飞书端重新使用后自动恢复）\n/session         查看当前项目下的最近会话\n/session list    查看当前项目下全部会话\n/session n       切换到当前项目下编号 n 的会话\n/help            显示此帮助信息",
-        )
+      if (cmd === "/h" || cmd === "/help") {
+        await this.replyText(messageId, parts[1]?.toLowerCase() === "list" ? HELP_LIST_TEXT : HELP_TEXT)
         return
       }
 
       await this.autoUnhide()
 
-      if (isSlash && cmd !== "/stop" && cmd !== "/compact") {
+      if (isSlash && cmd !== "/stop" && cmd !== "/compact" && cmd !== "/c") {
         await this.handleCommand(text, messageId, chatId)
         return
       }
@@ -700,7 +704,7 @@ class FeishuManagerImpl {
         return
       }
 
-      if (cmd === "/compact") {
+      if (cmd === "/c" || cmd === "/compact") {
         const pendingQ = this._pendingQuestions[chatId]
         if (pendingQ) {
           await this.replyText(messageId, this.formatQuestionRequest(pendingQ))
@@ -1079,25 +1083,25 @@ class FeishuManagerImpl {
     const rest = parts.slice(1).join(" ")
 
     try {
-      if (command === "/new") {
+      if (command === "/n" || command === "/new") {
         await this.cmdNew(messageId, chatId)
-      } else if (command === "/model") {
-        await this.cmdModel(messageId, chatId, parts.slice(1))
-      } else if (command === "/agent") {
+      } else if (command === "/m" || command === "/model") {
+        const args = parts.slice(1)
+        if (args[0] === "l") args[0] = "list"
+        await this.cmdModel(messageId, chatId, args)
+      } else if (command === "/a" || command === "/agent") {
         await this.cmdAgent(messageId, chatId, rest)
       } else if (command === "/approval") {
         await this.cmdApproval(messageId, chatId, rest)
       } else if (command === "/variant") {
         await this.cmdVariant(messageId, chatId, rest)
-      } else if (command === "/project") {
-        await this.cmdProject(messageId, chatId, rest)
-      } else if (command === "/session") {
-        await this.cmdSession(messageId, chatId, rest)
-      } else if (command === "/help") {
-        await this.replyText(
-          messageId,
-          "📋 可用命令：\n\n/new             开启全新对话（无当前会话上下文）\n/stop            停止当前会话中的执行\n/compact         压缩当前会话上下文\n/model           查看可用 LLM 模型（每个 provider 最多显示前 5 个）\n/model list      查看所有可用 LLM 模型\n/model n         切换到编号 n 的模型（按全量模型编号）\n/agent           查看当前会话模式\n/agent <name>    切换到指定模式（如 build、plan、docs）\n/approval        查看当前审批模式\n/approval <name> 切换审批模式（如 auto、ask）\n/variant         查看当前变体\n/variant <name>  切换到指定变体\n/project         查看最近项目\n/project list    查看全部项目\n/project n       切换到编号 n 的项目\n/project hide n  隐藏项目（在桌面端或飞书端重新使用后自动恢复）\n/session         查看当前项目下的最近会话\n/session list    查看当前项目下全部会话\n/session n       切换到当前项目下编号 n 的会话\n/help            显示此帮助信息",
-        )
+      } else if (command === "/p" || command === "/project") {
+        const arg = rest === "l" ? "list" : rest.startsWith("h ") ? `hide ${rest.slice(2).trim()}` : rest
+        await this.cmdProject(messageId, chatId, arg)
+      } else if (command === "/s" || command === "/session") {
+        await this.cmdSession(messageId, chatId, rest === "l" ? "list" : rest)
+      } else if (command === "/h" || command === "/help") {
+        await this.replyText(messageId, rest.toLowerCase() === "list" ? HELP_LIST_TEXT : HELP_TEXT)
       } else {
         await this.replyText(messageId, `未知命令: ${command}\n发送 /help 查看可用命令。`)
       }
