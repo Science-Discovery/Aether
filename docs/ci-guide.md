@@ -363,6 +363,7 @@
 #### `generate.yml`
 
 - 类型：自动生成
+- 状态：⏸️ 暂停自动触发（当前仅 `workflow_dispatch`）
 - 所需 GitHub 配置：
   - 仓库设置：
     - 必须启用 GitHub Actions
@@ -377,12 +378,14 @@
     - 该 App 至少需要仓库 `Contents: Read and write` 权限，才能让 `.github/actions/setup-git-committer` 生成 token 并 `git push`
   - 其他前置条件：
     - 仓库需要接入名为 `blacksmith-4vcpu-ubuntu-2404` 的 runner；若未接入 Blacksmith，需要修改 workflow 的 `runs-on`
-- 触发：`push` 到 `dev`
+- 触发：`workflow_dispatch`（原 `push` 到 `dev` 已暂停）
 - 主要内容：
   - 执行 `./script/generate.ts`
   - 若有变更则自动 `commit` 并 `push`
 - 作用：
   - 保持生成代码、派生文件与源码一致
+- 备注：
+  - 当前自动触发已暂时关闭，改为仅手动触发；如需恢复，将 `on:` 改回 `push: branches: [dev]` 即可
 
 #### `docs-update.yml`
 
