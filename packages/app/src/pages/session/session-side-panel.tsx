@@ -38,6 +38,7 @@ import { FileTabContent } from "@/pages/session/file-tabs"
 import { createOpenSessionFileTab, createSessionTabs, getTabReorderIndex, type Sizing } from "@/pages/session/helpers"
 import { setSessionHandoff } from "@/pages/session/handoff"
 import { useSessionLayout } from "@/pages/session/session-layout"
+import { all, panel, tab } from "@/pages/session/session-side-panel-state"
 import { save } from "./download"
 import { fromDir, fromDrop, fromList, isExternal, send } from "./upload"
 import type { FileNode } from "@opencode-ai/sdk/v2"
@@ -327,24 +328,25 @@ export function SessionSidePanel(props: {
 
   const isDesktop = createMediaQuery("(min-width: 768px)")
 
-  const reviewOpen = createMemo(() =>
-    isDesktop() && (typeof props.reviewOpenOverride === "boolean" ? props.reviewOpenOverride : view().reviewPanel.opened()),
+  const state = createMemo(() =>
+    panel({
+      desktop: isDesktop(),
+      review_override: props.reviewOpenOverride,
+      file_override: props.fileOpenOverride,
+      review_open: view().reviewPanel.opened(),
+      file_open: layout.fileTree.opened(),
+      width_override: props.widthOverride,
+      session_width: layout.session.width(),
+      tree_width_override: props.treeWidthOverride,
+      tree_width: layout.fileTree.width(),
+    }),
   )
-  const fileOpen = createMemo(() =>
-    isDesktop() && (typeof props.fileOpenOverride === "boolean" ? props.fileOpenOverride : layout.fileTree.opened()),
-  )
-  const open = createMemo(() => reviewOpen() || fileOpen())
-  const reviewTab = createMemo(() => isDesktop())
-  const treePixelWidth = createMemo(() =>
-    typeof props.treeWidthOverride === "number" ? Math.max(0, props.treeWidthOverride) : layout.fileTree.width(),
-  )
-  const panelWidth = createMemo(() => {
-    if (typeof props.widthOverride === "number") return `${Math.max(0, props.widthOverride)}px`
-    if (!open()) return "0px"
-    if (reviewOpen()) return `calc(100% - ${layout.session.width()}px)`
-    return `${layout.fileTree.width()}px`
-  })
-  const treeWidth = createMemo(() => (fileOpen() ? `${treePixelWidth()}px` : "0px"))
+  const reviewOpen = createMemo(() => state().review)
+  const fileOpen = createMemo(() => state().file)
+  const open = createMemo(() => state().open)
+  const reviewTab = createMemo(() => state().review_tab)
+  const panelWidth = createMemo(() => state().panel_width)
+  const treeWidth = createMemo(() => state().tree_width)
 
   const diffFiles = createMemo(() => {
     const d = props.diffs()
@@ -426,13 +428,15 @@ export function SessionSidePanel(props: {
   const fileTreeTab = () => layout.fileTree.tab()
 
   const setFileTreeTabValue = (value: string) => {
-    if (value !== "changes" && value !== "all") return
-    layout.fileTree.setTab(value)
+    const next = tab({ current: fileTreeTab(), next: value })
+    if (next === fileTreeTab()) return
+    layout.fileTree.setTab(next)
   }
 
   const showAllFiles = () => {
-    if (fileTreeTab() !== "changes") return
-    layout.fileTree.setTab("all")
+    const next = all({ current: fileTreeTab() })
+    if (next === fileTreeTab()) return
+    layout.fileTree.setTab(next)
   }
 
   const [store, setStore] = createStore({
@@ -1212,7 +1216,7 @@ export function SessionSidePanel(props: {
                 <ResizeHandle
                   direction="horizontal"
                   edge="start"
-                  size={treePixelWidth()}
+                  size={typeof props.treeWidthOverride === "number" ? Math.max(0, props.treeWidthOverride) : layout.fileTree.width()}
                   min={200}
                   max={480}
                   onResize={(width) => {

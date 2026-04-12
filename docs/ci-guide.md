@@ -35,12 +35,30 @@
   - workflow 配置了并发控制：
     - `dev` 分支上的 run 使用独立 group，不会互相取消，避免默认分支历史出现“检查被新提交中断”的噪音
     - PR 和其他 ref 会按 `workflow + PR 编号/ref` 分组，新的 run 会取消旧的同组 run
+  - `ui-unit`
+    - checkout 仓库
+    - 调用复用 action `.github/actions/setup-bun`
+    - 执行 `bun --cwd packages/ui test:unit`
+    - 该命令实际跑的是 Vitest：通过 `packages/ui/script/vitest.ts` 定位 vitest 二进制文件，再用 Node 执行
+    - 测试文件匹配模式为 `src/**/*.vitest.ts(x)`
+    - 当前与 Web UI 变更视图直接相关的测试包括 `session-review.vitest.tsx`
+    - 测试环境通过 `src/test/setup.ts` 注册 happy-dom 与必要的 DOM API polyfill
+  - `ui-unit-windows`
+    - 运行在 GitHub Hosted `windows-2022`
+    - 先调用 `actions/setup-node@v4` 固定 Node `24`，再调用 `.github/actions/setup-bun`
+    - 执行 `bun --cwd packages/ui test:unit`
+    - 运行的仍是同一套 Vitest 测试，只是增加 Windows runner 覆盖
   - `app-unit`
     - checkout 仓库
-    - 调用复用 action `.github/actions/setup-bun`，解析 Bun 版本、恢复 `bun pm cache`、执行 `bun install`
+    - 调用复用 action `.github/actions/setup-bun`
     - 配置 git 身份
     - 执行 `bun --cwd packages/app test:unit`
-    - 该命令实际会跑 `packages/app` 下的 `bun test --preload ./happydom.ts ./src`
+    - 该命令会依次执行两套测试：
+      1. Bun 原生测试：`bun test --preload ./happydom.ts ./src`，覆盖 `src/**/*.test.ts(x)`
+      2. Vitest 组件测试：`bun run ./script/vitest.ts run --config ./vitest.config.ts`，覆盖 `src/**/*.vitest.ts(x)`
+    - 当前与 Web UI 变更视图直接相关的测试包括：
+      - Bun 测试：`session-side-panel-state.test.ts`
+      - Vitest 测试：`file-tree.vitest.tsx`、`session-side-panel.vitest.tsx`
   - `app-unit-windows`
     - 运行在 GitHub Hosted `windows-2022`
     - 先调用 `actions/setup-node@v4` 固定 Node `24`，再调用 `.github/actions/setup-bun`
@@ -52,6 +70,7 @@
     - 在 `packages/opencode` 下设置 `OPENCODE_EXPERIMENTAL_DISABLE_FILEWATCHER=true`
     - 执行 `bun test --timeout 30000`
     - 这条 job 设置了 `20` 分钟超时
+    - 当前与 Web UI 变更视图直接相关的测试包括 `test/session/summary.test.ts`，它直接覆盖 session baseline、`SessionSummary.diff()`、消息级 summary 与 `messageID` 语义
   - `opencode-unit-windows`
     - 运行在 GitHub Hosted `windows-2022`
     - 先调用 `actions/setup-node@v4` 固定 Node `24`，再调用 `.github/actions/setup-bun`
@@ -60,11 +79,15 @@
     - 执行 `bun test --timeout 30000`
     - 同样设置了 `20` 分钟超时
 - 作用：
-  - 为 `packages/app` 和 `packages/opencode` 提供 Linux 与 Windows 两个平台的持续单元测试校验
-  - 把较稳定的前端单测与核心包单测分开展示，便于区分问题来源
+  - 为 `packages/ui`、`packages/app` 和 `packages/opencode` 提供 Linux 与 Windows 两个平台的持续单元测试校验
+  - 把 UI 组件测试、前端页面测试和核心包测试分开展示，便于定位问题来源
+  - 让 app 包同时覆盖纯逻辑 Bun 测试和需要 Solid 编译/渲染环境的 Vitest 测试
 - 备注：
   - workflow 注释明确说明：
     - app E2E 当前也不纳入 required baseline，原因是 CI 中临时端口分配尚未稳定
+  - `packages/app/script/vitest.ts` 与 `packages/ui/script/vitest.ts` 都会优先查找标准 `node_modules/vitest/vitest.mjs`，找不到再回退到 `node_modules/.bun` 缓存目录；这是为了兼容 Bun 在不同平台上的依赖安装布局
+  - `packages/app/src/test/setup.ts` 与 `packages/ui/src/test/setup.ts` 也使用相同的双路径查找策略加载 `@happy-dom/global-registrator`
+  - `packages/app/tsconfig.json` 与 `packages/ui/tsconfig.json` 都显式排除了 `src/**/*.vitest.ts(x)` 和 `src/test`，避免 Vitest 类型污染主 typecheck 图
 
 #### `typecheck.yml`
 
@@ -1003,7 +1026,7 @@
 
 这个仓库的自动化体系有几个明显特点：
 
-- 传统 CI 比较克制，主门禁集中在测试、类型检查、UI 构建、Nix 求值
+- 传统 CI 比较克制，主门禁集中在测试（`ui/app/opencode` 三包、Linux/Windows 双平台）、类型检查、UI 构建、Nix 求值
 - 发布体系已收敛到 GitHub Release 主线，当前围绕 Electron 桌面版与纯浏览器版两类产物
 - 仓库治理自动化很多，尤其是 issue/PR 合规、重复检查、stale 清理、vouch 体系
 - AI 深度参与多个流程，包括 docs 更新、issue triage、duplicate 检查、日报生成和按需 review
