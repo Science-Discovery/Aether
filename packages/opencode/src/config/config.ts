@@ -1362,10 +1362,20 @@ export namespace Config {
   })
   export type DefaultSkill = z.infer<typeof DefaultSkill>
 
-  // Search upward from process.cwd() for .opencode/skills, calculated once at startup.
+  // Search for .opencode/skills, calculated once at startup.
   // This ensures the source skills dir is always the server's own project regardless of
   // which project the user is currently viewing.
+  // Priority: binary directory first (for packaged Mac/Win releases where skills are
+  // bundled next to the binary), then upward from process.cwd() (for dev/CLI usage).
   function findServerSkillsDirSync(): string | undefined {
+    // Check next to the binary first (handles compiled single-binary releases)
+    const binaryDir = path.dirname(process.execPath)
+    const binaryCandidate = path.join(binaryDir, ".opencode", "skills")
+    try {
+      if (statSync(binaryCandidate).isDirectory()) return binaryCandidate
+    } catch {}
+
+    // Fall back to searching upward from process.cwd() (dev environment)
     let dir = process.cwd()
     while (true) {
       const candidate = path.join(dir, ".opencode", "skills")
