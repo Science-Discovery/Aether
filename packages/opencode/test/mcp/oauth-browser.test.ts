@@ -12,10 +12,13 @@ mock.module("open", () => ({
     // Return a mock subprocess that emits an error if openShouldFail is true
     const subprocess = new EventEmitter()
     if (openShouldFail) {
-      // Emit error asynchronously like a real subprocess would
+      // Emit error asynchronously like a real subprocess would.
+      // Use 200ms to ensure Effect.callback has registered the error listener
+      // before the event fires — Windows timer resolution is ~15ms so 10ms
+      // races with the Effect scheduler on that platform.
       setTimeout(() => {
         subprocess.emit("error", new Error("spawn xdg-open ENOENT"))
-      }, 10)
+      }, 200)
     }
     return subprocess
   },
