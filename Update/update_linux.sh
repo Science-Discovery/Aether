@@ -135,6 +135,24 @@ has_dir() {
   return 1
 }
 
+dir_version() {
+  local dir name ver
+  dir="$1"
+  if [ -f "$dir/.aether_web_version" ]; then
+    ver="$(tr -d '[:space:]' <"$dir/.aether_web_version")"
+    if [ -n "$ver" ]; then
+      printf "%s" "$ver"
+      return 0
+    fi
+  fi
+  name="$(basename "$dir")"
+  if [[ "$name" =~ ^aether[-_]([0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z]+)*)$ ]]; then
+    printf "%s" "${BASH_REMATCH[1]}"
+    return 0
+  fi
+  printf ""
+}
+
 latest_dir() {
   local root best best_ver dir ver
   root="$1"
@@ -143,8 +161,7 @@ latest_dir() {
   shopt -s nullglob
   for dir in "$root"/aether_*; do
     [ -d "$dir" ] || continue
-    [ -f "$dir/.aether_web_version" ] || continue
-    ver="$(tr -d '[:space:]' <"$dir/.aether_web_version")"
+    ver="$(dir_version "$dir")"
     [ -n "$ver" ] || continue
     if [ -z "$best" ] || [ "$(cmp "$best_ver" "$ver")" = "lt" ]; then
       best="$dir"
@@ -156,15 +173,8 @@ latest_dir() {
 }
 
 active_dir() {
-  local root dir ver
+  local root
   root="$1"
-  if [ -f "$root/.aether_web_version" ]; then
-    ver="$(tr -d '[:space:]' <"$root/.aether_web_version")"
-    if [ -n "$ver" ] && [ -d "$root/aether_$ver" ]; then
-      printf "%s" "$root/aether_$ver"
-      return 0
-    fi
-  fi
   printf "%s" "$(latest_dir "$root")"
 }
 
@@ -180,8 +190,7 @@ prune_versions() {
   shopt -s nullglob
   for dir in "$root"/aether_*; do
     [ -d "$dir" ] || continue
-    [ -f "$dir/.aether_web_version" ] || continue
-    ver="$(tr -d '[:space:]' <"$dir/.aether_web_version")"
+    ver="$(dir_version "$dir")"
     [ -n "$ver" ] || continue
     items+=("$ver|$dir")
   done
@@ -418,18 +427,19 @@ cmp() {
 
 pick() {
   local dir ver best best_ver item
-  if [ -f "\$root/.aether_web_version" ]; then
-    ver="\$(tr -d '[:space:]' <"\$root/.aether_web_version")"
-    if [ -n "\$ver" ] && [ -f "\$root/aether_\$ver/Aether.sh" ]; then
-      printf "%s" "\$root/aether_\$ver"
-      return 0
-    fi
-  fi
   shopt -s nullglob
   for item in "\$root"/aether_*; do
     [ -d "\$item" ] || continue
-    [ -f "\$item/.aether_web_version" ] || continue
-    ver="\$(tr -d '[:space:]' <"\$item/.aether_web_version")"
+    ver=""
+    if [ -f "\$item/.aether_web_version" ]; then
+      ver="\$(tr -d '[:space:]' <"\$item/.aether_web_version")"
+    fi
+    if [ -z "\$ver" ]; then
+      dir="\$(basename "\$item")"
+      if [[ "\$dir" =~ ^aether[-_]([0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z]+)*)$ ]]; then
+        ver="\${BASH_REMATCH[1]}"
+      fi
+    fi
     [ -n "\$ver" ] || continue
     if [ -z "\${best:-}" ] || [ "\$(cmp "\$best_ver" "\$ver")" = "lt" ]; then
       best="\$item"
@@ -533,7 +543,7 @@ mv "$next" "$target" || exit "$run_err"
 
 chmod +x "$target/aether" "$target/Aether.sh" 2>/dev/null || true
 printf "%s\n" "$ver" > "$target/.aether_web_version"
-printf "%s\n" "$ver" > "$work/.aether_web_version"
+rm -f "$work/.aether_web_version" 2>/dev/null || true
 
 rm -rf "$work/current" 2>/dev/null || true
 

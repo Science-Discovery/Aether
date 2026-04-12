@@ -210,13 +210,6 @@ compute_sha512_base64() {
 installed() {
   local root name best_ver dir ver
   root="$1"
-  if [ -f "$root/.aether_web_version" ]; then
-    ver="$(tr -d '[:space:]' <"$root/.aether_web_version")"
-    if [ -n "$ver" ]; then
-      printf "%s" "$ver"
-      return 0
-    fi
-  fi
 
   name="$(basename "$root")"
   if [[ "$name" =~ ^aether[-_]([0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z]+)*)$ ]]; then
