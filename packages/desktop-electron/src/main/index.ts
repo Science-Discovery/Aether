@@ -374,9 +374,6 @@ async function getSidecarPort() {
 
 function sqliteFileExists() {
   const file = CHANNEL === "beta" ? "aether.db" : `aether-${CHANNEL}.db`
-  if (process.platform === "darwin" || process.platform === "win32") {
-    return existsSync(join(app.getPath("appData"), "opencode", file))
-  }
   const xdg = process.env.XDG_DATA_HOME
   const base = xdg && xdg.length > 0 ? xdg : join(homedir(), ".local", "share")
   return existsSync(join(base, "opencode", file))
