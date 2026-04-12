@@ -40,6 +40,7 @@ if [ -f "$ins" ]; then
   cp "$ins" "$out/aether_linux_installer.sh"
   chmod +x "$out/aether_linux_installer.sh"
 fi
+rm -f "$out/.aether_version"
 printf "%s\n" "$ver" >"$out/.aether_web_version"
 
 if [ -f "$out/aether" ]; then

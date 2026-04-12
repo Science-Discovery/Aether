@@ -42,7 +42,8 @@ if [ -f "$ins" ]; then
   chmod +x "$out/aether_darwin_installer.command"
 fi
 
-printf "%s\n" "$ver" >"$out/.aether_version"
+rm -f "$out/.aether_version"
+printf "%s\n" "$ver" >"$out/.aether_web_version"
 
 if [ -f "$out/aether" ]; then
   chmod +x "$out/aether"

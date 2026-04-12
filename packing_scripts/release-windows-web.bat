@@ -43,6 +43,7 @@ if exist "%INS%" (
   copy /y "%INS%" "%OUT%\aether_windows_installer.bat" >nul || exit /b 1
 )
 
+if exist "%OUT%\.aether_version" del /f /q "%OUT%\.aether_version" >nul 2>nul
 powershell -NoProfile -Command "& { [IO.File]::WriteAllText((Join-Path $env:OUT '.aether_web_version'), $env:VERSION) }" || exit /b 1
 
 powershell -NoProfile -Command "& { $crlf=[char]13+[char]10; $txt=@('Aether Web (Windows x64)','', 'Quick start', '1) Extract this ZIP and copy the folder aether-windows-x64 to a local path, for example: C:\Aether-Web', '2) In that folder, double click Aether.vbs', '', 'Updates', '- Use Aether''s in-app update flow to download and install newer versions.') -join $crlf; Set-Content -Path (Join-Path $env:OUT 'README_FIRST.txt') -Value ($txt + $crlf) -Encoding ascii }" || exit /b 1
