@@ -1,5 +1,5 @@
 import { mkdir, readFile, writeFile, rm, stat } from "fs/promises"
-import { join, basename } from "path"
+import { isAbsolute, join, basename } from "path"
 import { homedir } from "os"
 import { existsSync } from "fs"
 import z from "zod"
@@ -790,7 +790,8 @@ class FeishuManagerImpl {
 
           let promptText = text
           if (this.detectFileSendIntent(text)) {
-            promptText += `\n\n[系统提示：用户需要通过飞书接收文件附件，请在回复中包含该文件的完整绝对路径（格式如 /home/user/file.md），系统将自动将其作为附件发送给用户]`
+            promptText +=
+              "\n\n[系统提示：用户需要通过飞书接收文件附件，请在回复中包含该文件在当前系统上的完整绝对路径。Windows 示例：E:\\\\work\\\\demo\\\\file.md；macOS/Linux 示例：/Users/demo/file.md 或 /home/demo/file.md。系统将自动把该路径对应的文件作为附件发送给用户。]"
           }
           const intent = this.detectSummaryIntent(text)
           if (intent.isSummary) {
@@ -997,8 +998,26 @@ class FeishuManagerImpl {
 
   /** Extract existing absolute file paths mentioned in text (e.g. in AI response). */
   private extractFilePathsFromText(text: string): string[] {
-    const matches = text.match(/`?(\/[^\s`'"(){}<>]+\.[a-zA-Z0-9]+)`?/g) ?? []
-    return [...new Set(matches.map((m) => m.replace(/^`|`$/g, "").trim()).filter((p) => existsSync(p)))]
+    const files = [
+      ...this.extractPathTokens(text, /`([^`]+)`/g),
+      ...this.extractPathTokens(text, /([A-Za-z]:\\[^\s'"(){}<>]+|\/(?:[^\s`'"(){}<>]+\/?)+)/g),
+    ]
+    return [...new Set(files.filter((p) => this.isFilePath(p)))]
+  }
+
+  private extractPathTokens(text: string, pattern: RegExp): string[] {
+    const items: string[] = []
+    for (const match of text.matchAll(pattern)) {
+      const raw = (match[1] ?? match[0] ?? "").trim()
+      const file = raw.replace(/^[`'\"]+|[`'\",.;:!?]+$/g, "").trim()
+      if (file) items.push(file)
+    }
+    return items
+  }
+
+  private isFilePath(path: string): boolean {
+    if (!isAbsolute(path)) return false
+    return existsSync(path)
   }
 
   /** Map file extension to Feishu file_type. */
