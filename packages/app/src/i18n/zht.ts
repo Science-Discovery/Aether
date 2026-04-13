@@ -872,6 +872,8 @@ export const dict = {
   "session.review.noVcs.createGit.action": "建立 Git 儲存庫",
   "session.todo.progress": "已完成 {{done}} 個待辦事項（共 {{total}} 個）",
   "session.question.progress": "{{current}}/{{total}} 個問題",
+  "session.question.collapse": "收合",
+  "session.question.expand": "展開",
   "session.header.open.finder": "Finder",
   "session.header.open.fileExplorer": "檔案總管",
   "session.header.open.fileManager": "檔案管理員",
