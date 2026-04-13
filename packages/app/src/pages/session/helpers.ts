@@ -14,6 +14,7 @@ type TabsInput = {
   pathFromTab: (tab: string) => string | undefined
   normalizeTab: (tab: string) => string
   review?: Accessor<boolean>
+  branches?: Accessor<boolean>
   hasReview?: Accessor<boolean>
 }
 
@@ -21,6 +22,7 @@ export const getSessionKey = (dir: string | undefined, id: string | undefined) =
 
 export const createSessionTabs = (input: TabsInput) => {
   const review = input.review ?? (() => false)
+  const branches = input.branches ?? (() => false)
   const hasReview = input.hasReview ?? (() => false)
   const contextOpen = createMemo(() => input.tabs().active() === "context" || input.tabs().all().includes("context"))
   const openedTabs = createMemo(
@@ -30,7 +32,7 @@ export const createSessionTabs = (input: TabsInput) => {
         .tabs()
         .all()
         .flatMap((tab) => {
-          if (tab === "context" || tab === "review") return []
+          if (tab === "context" || tab === "review" || tab === "branches") return []
           const value = input.pathFromTab(tab) ? input.normalizeTab(tab) : tab
           if (seen.has(value)) return []
           seen.add(value)
@@ -43,6 +45,7 @@ export const createSessionTabs = (input: TabsInput) => {
   const activeTab = createMemo(() => {
     const active = input.tabs().active()
     if (active === "context") return active
+    if (active === "branches" && branches()) return active
     if (active === "review" && review()) return active
     if (active && input.pathFromTab(active)) return input.normalizeTab(active)
 
@@ -50,6 +53,7 @@ export const createSessionTabs = (input: TabsInput) => {
     if (first) return first
     if (contextOpen()) return "context"
     if (review() && hasReview()) return "review"
+    if (branches()) return "branches"
     return "empty"
   })
   const activeFileTab = createMemo(() => {

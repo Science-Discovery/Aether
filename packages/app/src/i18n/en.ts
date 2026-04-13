@@ -795,6 +795,9 @@ export const dict = {
     "How many file changes the review panel loads at a time. The same count is used by Load more.",
   "settings.general.row.reasoningSummaries.title": "Show reasoning summaries",
   "settings.general.row.reasoningSummaries.description": "Display model reasoning summaries in the timeline",
+  "settings.general.row.branchesTab.title": "Enable branches tab",
+  "settings.general.row.branchesTab.description":
+    "Show the experimental branch tree in the session side panel",
   "settings.general.row.shellToolPartsExpanded.title": "Expand shell tool parts",
   "settings.general.row.shellToolPartsExpanded.description":
     "Show shell tool parts expanded by default in the timeline",

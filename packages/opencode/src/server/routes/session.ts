@@ -158,6 +158,70 @@ export const SessionRoutes = lazy(() =>
       },
     )
     .get(
+      "/:sessionID/tree",
+      describeRoute({
+        summary: "Get session branch tree",
+        tags: ["Session"],
+        description:
+          "Retrieve the branch tree for the specified session. Legacy sessions return an explicit unsupported result.",
+        operationId: "session.tree",
+        responses: {
+          200: {
+            description: "Branch tree result",
+            content: {
+              "application/json": {
+                schema: resolver(Session.TreeResult),
+              },
+            },
+          },
+          ...errors(400, 404),
+        },
+      }),
+      validator(
+        "param",
+        z.object({
+          sessionID: Session.tree.schema,
+        }),
+      ),
+      async (c) => {
+        const sessionID = c.req.valid("param").sessionID
+        const result = await Session.tree(sessionID)
+        return c.json(result)
+      },
+    )
+    .get(
+      "/:sessionID/graph",
+      describeRoute({
+        summary: "Get session conversation graph",
+        tags: ["Session"],
+        description:
+          "Retrieve the message-level conversation graph for the specified session. Legacy sessions return an explicit unsupported result.",
+        operationId: "session.graph",
+        responses: {
+          200: {
+            description: "Conversation graph result",
+            content: {
+              "application/json": {
+                schema: resolver(Session.GraphResult),
+              },
+            },
+          },
+          ...errors(400, 404),
+        },
+      }),
+      validator(
+        "param",
+        z.object({
+          sessionID: Session.graph.schema,
+        }),
+      ),
+      async (c) => {
+        const sessionID = c.req.valid("param").sessionID
+        const result = await Session.graph(sessionID)
+        return c.json(result)
+      },
+    )
+    .get(
       "/:sessionID/todo",
       describeRoute({
         summary: "Get session todos",

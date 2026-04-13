@@ -29,6 +29,7 @@ import { useFile, type SelectedLineRange } from "@/context/file"
 import { useLanguage } from "@/context/language"
 import { useLayout } from "@/context/layout"
 import { usePlatform } from "@/context/platform"
+import { useSettings } from "@/context/settings"
 import { useSync } from "@/context/sync"
 import { useSDK } from "@/context/sdk"
 import { useServer } from "@/context/server"
@@ -37,6 +38,7 @@ import { createFileTabListSync } from "@/pages/session/file-tab-scroll"
 import { FileTabContent } from "@/pages/session/file-tabs"
 import { createOpenSessionFileTab, createSessionTabs, getTabReorderIndex, type Sizing } from "@/pages/session/helpers"
 import { setSessionHandoff } from "@/pages/session/handoff"
+import { BranchGraphPanel } from "@/pages/session/branch/branch-graph-panel"
 import { useSessionLayout } from "@/pages/session/session-layout"
 import { save } from "./download"
 import { fromDir, fromDrop, fromList, isExternal, send } from "./upload"
@@ -70,6 +72,7 @@ export function SessionSidePanel(props: {
   const dialog = useDialog()
   const sdk = useSDK()
   const platform = usePlatform()
+  const settings = useSettings()
   const server = useServer()
   const sync = useSync()
   const { params, sessionKey, tabs, view } = useSessionLayout()
@@ -411,17 +414,27 @@ export function SessionSidePanel(props: {
     setActive: tabs().setActive,
   })
 
+  const branchesEnabled = createMemo(
+    () =>
+      Boolean((sync.data.config.experimental as { branches_tab?: boolean } | undefined)?.branches_tab) ||
+      settings.general.branchesTab(),
+  )
+
   const tabState = createSessionTabs({
     tabs,
     pathFromTab: file.pathFromTab,
     normalizeTab,
     review: reviewTab,
+    branches: branchesEnabled,
     hasReview: props.canReview,
   })
   const contextOpen = tabState.contextOpen
   const openedTabs = tabState.openedTabs
   const activeTab = tabState.activeTab
   const activeFileTab = tabState.activeFileTab
+  const branchesLabel = createMemo(() =>
+    language.locale() === "zh" || language.locale() === "zht" ? "分支" : "Branches",
+  )
 
   const fileTreeTab = () => layout.fileTree.tab()
 
@@ -920,6 +933,13 @@ export function SessionSidePanel(props: {
                           </div>
                         </Tabs.Trigger>
                       </Show>
+                      <Show when={branchesEnabled()}>
+                        <Tabs.Trigger value="branches">
+                          <div class="flex items-center gap-1.5">
+                            <div>{branchesLabel()}</div>
+                          </div>
+                        </Tabs.Trigger>
+                      </Show>
                       <SortableProvider ids={openedTabs()}>
                         <For each={openedTabs()}>{(tab) => <SortableTab tab={tab} onTabClose={tabs().close} />}</For>
                       </SortableProvider>
@@ -969,6 +989,14 @@ export function SessionSidePanel(props: {
                         <div class="relative pt-2 flex-1 min-h-0 overflow-hidden">
                           <SessionContextTab />
                         </div>
+                      </Show>
+                    </Tabs.Content>
+                  </Show>
+
+                  <Show when={branchesEnabled()}>
+                    <Tabs.Content value="branches" class="flex flex-col h-full overflow-hidden contain-strict">
+                      <Show when={activeTab() === "branches" && params.id}>
+                        {(sessionID) => <BranchGraphPanel sessionID={sessionID()} />}
                       </Show>
                     </Tabs.Content>
                   </Show>

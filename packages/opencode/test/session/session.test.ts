@@ -5,7 +5,9 @@ import { Bus } from "../../src/bus"
 import { Log } from "../../src/util/log"
 import { Instance } from "../../src/project/instance"
 import { MessageV2 } from "../../src/session/message-v2"
+import { Database, eq } from "../../src/storage/db"
 import { MessageID, PartID } from "../../src/session/schema"
+import { SessionTable } from "../../src/session/session.sql"
 
 const projectRoot = path.join(__dirname, "../..")
 Log.init({ print: false })
@@ -139,4 +141,76 @@ describe("step-finish token propagation via Bus event", () => {
     },
     { timeout: 30000 },
   )
+})
+
+describe("session tree IDs", () => {
+  test("new root sessions get a treeID and forked children inherit it", async () => {
+    await Instance.provide({
+      directory: projectRoot,
+      fn: async () => {
+        const root = await Session.create({ title: "Root" })
+        const userMessageID = MessageID.ascending()
+        await Session.updateMessage({
+          id: userMessageID,
+          sessionID: root.id,
+          role: "user",
+          time: { created: Date.now() },
+          agent: "user",
+          model: { providerID: "test", modelID: "test" },
+          tools: {},
+          mode: "",
+        } as unknown as MessageV2.Info)
+        await Session.updatePart({
+          id: PartID.ascending(),
+          messageID: userMessageID,
+          sessionID: root.id,
+          type: "text",
+          text: "Root prompt",
+        })
+        await Session.updateMessage({
+          id: MessageID.ascending(),
+          sessionID: root.id,
+          role: "assistant",
+          parentID: userMessageID,
+          time: { created: Date.now(), completed: Date.now() },
+          providerID: "test",
+          modelID: "test",
+          mode: "build",
+          agent: "assistant",
+          path: { cwd: projectRoot, root: projectRoot },
+          cost: 0,
+          tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+        } as unknown as MessageV2.Info)
+
+        const child = await Session.fork({ sessionID: root.id, messageID: userMessageID })
+
+        expect(root.treeID).toBeDefined()
+        expect(child.treeID).toBe(root.treeID)
+        expect(child.parentID).toBe(root.id)
+        expect(child.forkParentSessionID).toBe(root.id)
+        expect(child.forkAfterUserMessageID).toBeUndefined()
+      },
+    })
+  })
+
+  test("forking a legacy session creates a new tree root on the child", async () => {
+    await Instance.provide({
+      directory: projectRoot,
+      fn: async () => {
+        const legacy = await Session.create({ title: "Legacy" })
+        Database.use((db) =>
+          db.update(SessionTable).set({ tree_id: null }).where(eq(SessionTable.id, legacy.id)).run(),
+        )
+
+        const refreshedLegacy = await Session.get(legacy.id)
+        const child = await Session.fork({ sessionID: refreshedLegacy.id })
+
+        expect(refreshedLegacy.treeID).toBeUndefined()
+        expect(child.treeID).toBeDefined()
+        expect(child.parentID).toBe(refreshedLegacy.id)
+        expect(child.forkParentSessionID).toBe(refreshedLegacy.id)
+        expect(child.treeID).not.toBe(refreshedLegacy.treeID)
+      },
+    })
+  })
 })

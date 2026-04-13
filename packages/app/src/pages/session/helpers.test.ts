@@ -178,4 +178,42 @@ describe("createSessionTabs", () => {
       dispose()
     })
   })
+
+  test("treats branches as a fixed fallback tab", () => {
+    createRoot((dispose) => {
+      const [state] = createStore({
+        active: "branches" as string | undefined,
+        all: [],
+      })
+      const tabs = createMemo(() => ({ active: () => state.active, all: () => state.all }))
+      const result = createSessionTabs({
+        tabs,
+        pathFromTab: () => undefined,
+        normalizeTab: (tab) => tab,
+        branches: () => true,
+      })
+
+      expect(result.activeTab()).toBe("branches")
+      expect(result.activeFileTab()).toBeUndefined()
+      expect(result.closableTab()).toBeUndefined()
+      dispose()
+    })
+
+    createRoot((dispose) => {
+      const [state] = createStore({
+        active: undefined as string | undefined,
+        all: [],
+      })
+      const tabs = createMemo(() => ({ active: () => state.active, all: () => state.all }))
+      const result = createSessionTabs({
+        tabs,
+        pathFromTab: () => undefined,
+        normalizeTab: (tab) => tab,
+        branches: () => true,
+      })
+
+      expect(result.activeTab()).toBe("branches")
+      dispose()
+    })
+  })
 })

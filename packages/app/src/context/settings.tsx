@@ -24,6 +24,7 @@ export interface Settings {
     releaseNotes: boolean
     followup: "queue" | "steer"
     reviewBatch: number
+    branchesTab: boolean
     showReasoningSummaries: boolean
     shellToolPartsExpanded: boolean
     editToolPartsExpanded: boolean
@@ -49,6 +50,7 @@ const defaultSettings: Settings = {
     releaseNotes: true,
     followup: "steer",
     reviewBatch: 10,
+    branchesTab: false,
     showReasoningSummaries: false,
     shellToolPartsExpanded: true,
     editToolPartsExpanded: false,
@@ -149,6 +151,10 @@ export const { use: useSettings, provider: SettingsProvider } = createSimpleCont
         reviewBatch: withFallback(() => store.general?.reviewBatch, defaultSettings.general.reviewBatch),
         setReviewBatch(value: number) {
           setStore("general", "reviewBatch", value)
+        },
+        branchesTab: withFallback(() => store.general?.branchesTab, defaultSettings.general.branchesTab),
+        setBranchesTab(value: boolean) {
+          setStore("general", "branchesTab", value)
         },
         showReasoningSummaries: withFallback(
           () => store.general?.showReasoningSummaries,

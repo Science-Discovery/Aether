@@ -1,0 +1,9 @@
+[2026-04-13T11:16:32.748Z] Error: EACCES: permission denied, rm 'F:\Desktop\ssh-file\Aether\packages\sdk\js\src\v2\gen'
+Stack:
+Error: EACCES: permission denied, rm 'F:\Desktop\ssh-file\Aether\packages\sdk\js\src\v2\gen'
+    at rmSync (unknown)
+    at <anonymous> (F:\Desktop\ssh-file\Aether\node_modules\.bun\@hey-api+openapi-ts@0.90.10+9d615e7f35ecb182\node_modules\@hey-api\openapi-ts\dist\src-YIQMkx2V.mjs:46:37)
+    at <anonymous> (F:\Desktop\ssh-file\Aether\node_modules\.bun\@hey-api+openapi-ts@0.90.10+9d615e7f35ecb182\node_modules\@hey-api\openapi-ts\dist\src-YIQMkx2V.mjs:299:9)
+    at async <anonymous> (F:\Desktop\ssh-file\Aether\node_modules\.bun\@hey-api+openapi-ts@0.90.10+9d615e7f35ecb182\node_modules\@hey-api\openapi-ts\dist\src-YIQMkx2V.mjs:397:18)
+    at async createClient (F:\Desktop\ssh-file\Aether\node_modules\.bun\@hey-api+openapi-ts@0.90.10+9d615e7f35ecb182\node_modules\@hey-api\openapi-ts\dist\src-YIQMkx2V.mjs:395:35)
+    at processTicksAndRejections (native:7:39)

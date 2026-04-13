@@ -1076,4 +1076,6 @@ export const dict = {
   "reading.toolbar.fitWidth": "适应宽度",
   "reading.toolbar.nightMode": "夜览模式",
   "reading.toolbar.continuousMode": "连续阅读",
+  "settings.general.row.branchesTab.title": "启用分支标签页",
+  "settings.general.row.branchesTab.description": "在会话侧栏中显示实验性的分支树视图",
 } satisfies Partial<Record<Keys, string>>

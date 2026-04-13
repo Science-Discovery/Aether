@@ -4,7 +4,7 @@ import type { MessageV2 } from "./message-v2"
 import type { Snapshot } from "../snapshot"
 import type { Permission } from "../permission"
 import type { ProjectID } from "../project/schema"
-import type { SessionID, MessageID, PartID } from "./schema"
+import type { SessionID, TreeID, MessageID, PartID } from "./schema"
 import type { WorkspaceID } from "../control-plane/schema"
 import { Timestamps } from "../storage/schema.sql"
 import type { ReadingMode } from "../reading-mode/types"
@@ -22,6 +22,9 @@ export const SessionTable = sqliteTable(
       .references(() => ProjectTable.id, { onDelete: "cascade" }),
     workspace_id: text().$type<WorkspaceID>(),
     parent_id: text().$type<SessionID>(),
+    tree_id: text().$type<TreeID>(),
+    fork_parent_session_id: text().$type<SessionID>(),
+    fork_after_user_message_id: text().$type<MessageID>(),
     slug: text().notNull(),
     directory: text().notNull(),
     title: text().notNull(),
@@ -42,6 +45,9 @@ export const SessionTable = sqliteTable(
     index("session_project_idx").on(table.project_id),
     index("session_workspace_idx").on(table.workspace_id),
     index("session_parent_idx").on(table.parent_id),
+    index("session_tree_idx").on(table.tree_id),
+    index("session_fork_parent_idx").on(table.fork_parent_session_id),
+    index("session_fork_after_user_message_idx").on(table.fork_after_user_message_id),
   ],
 )
 
