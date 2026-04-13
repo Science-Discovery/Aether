@@ -335,6 +335,14 @@ class FeishuManagerImpl {
     return `${ctx.projectName}  ·  ${ctx.sessionTitle}  ·  ${mode}  ·  ${ctx.modelStr}\n————————\n`
   }
 
+  private async replyCmd(messageId: string, chatId: string, body: string): Promise<void> {
+    if (!body.trim()) {
+      await this.replyText(messageId, body)
+      return
+    }
+    await this.replyText(messageId, this.commandHeader(await this.commandCtx(chatId)) + body)
+  }
+
   private async setPref(chatId: string, patch: Record<string, any>): Promise<void> {
     const ctx = await this.commandCtx(chatId)
     await Instance.provide({
@@ -1140,8 +1148,7 @@ class FeishuManagerImpl {
     })
     this._chatSessions[chatId] = session.id
     await this.saveSessionMap()
-    const ctx = await this.commandCtx(chatId)
-    await this.replyText(messageId, this.commandHeader(ctx) + `✅ 已开启新对话\n💬 ${session.title}`)
+    await this.replyCmd(messageId, chatId, `✅ 已开启新对话\n💬 ${session.title}`)
   }
 
   /**
@@ -1157,12 +1164,12 @@ class FeishuManagerImpl {
     }
 
     if (args.length === 0) {
-      await this.replyText(messageId, this.commandHeader(ctx) + this.formatModelList(ctx, false))
+      await this.replyCmd(messageId, chatId, this.formatModelList(ctx, false))
       return
     }
 
     if (args[0] === "list") {
-      await this.replyText(messageId, this.commandHeader(ctx) + this.formatModelList(ctx, true))
+      await this.replyCmd(messageId, chatId, this.formatModelList(ctx, true))
       return
     }
 
@@ -1172,10 +1179,10 @@ class FeishuManagerImpl {
       await this.setPref(chatId, {
         model: { providerID: ProviderID.make(entry.providerID), modelID: ModelID.make(entry.modelID) },
       })
-      await this.replyText(
+      await this.replyCmd(
         messageId,
-        this.commandHeader(ctx) +
-          `✅ 已切换模型：${entry.providerID}/${entry.modelID}\n（仅对当前对话生效，/new 后将重置）`,
+        chatId,
+        `✅ 已切换模型：${entry.providerID}/${entry.modelID}\n（仅对当前对话生效，/new 后将重置）`,
       )
       return
     }
@@ -1185,31 +1192,22 @@ class FeishuManagerImpl {
       const [providerID, modelID] = arg.split("/", 2)
       const found = this._modelList.find((e) => e.providerID === providerID && e.modelID === modelID)
       if (!found) {
-        await this.replyText(
-          messageId,
-          this.commandHeader(ctx) + `❌ 未找到模型：${arg}\n请先发送 /model 查看可用模型。`,
-        )
+        await this.replyCmd(messageId, chatId, `❌ 未找到模型：${arg}\n请先发送 /model 查看可用模型。`)
         return
       }
       await this.setPref(chatId, { model: { providerID: ProviderID.make(providerID), modelID: ModelID.make(modelID) } })
-      await this.replyText(
-        messageId,
-        this.commandHeader(ctx) + `✅ 已切换模型：${arg}\n（仅对当前对话生效，/new 后将重置）`,
-      )
+      await this.replyCmd(messageId, chatId, `✅ 已切换模型：${arg}\n（仅对当前对话生效，/new 后将重置）`)
       return
     }
 
-    await this.replyText(messageId, this.commandHeader(ctx) + "❌ 无效参数，请输入编号、list 或 provider/model 格式。")
+    await this.replyCmd(messageId, chatId, "❌ 无效参数，请输入编号、list 或 provider/model 格式。")
   }
 
   private formatModelList(ctx: Awaited<ReturnType<typeof this.commandCtx>>, full: boolean): string {
     const prefModel = ctx.pref?.model
     const current = prefModel ?? this._connectedModel
-    const currentStr = current ? `${current.providerID}/${current.modelID}` : "（全局默认）"
 
     const lines: string[] = []
-    lines.push(`🤖 当前：${currentStr}`)
-    lines.push("")
     lines.push("📦 可用模型：")
 
     const byProvider = new Map<string, ModelEntry[]>()
@@ -1246,7 +1244,7 @@ class FeishuManagerImpl {
     const ctx = await this.commandCtx(chatId)
     const model = this.resolveModel(chatId)
     if (!model) {
-      await this.replyText(messageId, this.commandHeader(ctx) + "❌ 压缩当前会话前，请先使用 /model 选择模型。")
+      await this.replyCmd(messageId, chatId, "❌ 压缩当前会话前，请先使用 /model 选择模型。")
       return
     }
     await Instance.provide({
@@ -1270,7 +1268,7 @@ class FeishuManagerImpl {
         await SessionPrompt.loop({ sessionID: SessionID.make(ctx.sessionId) })
       },
     })
-    await this.replyText(messageId, this.commandHeader(ctx) + "✅ 已开始压缩当前会话上下文，请稍后查看结果。")
+    await this.replyCmd(messageId, chatId, "✅ 已开始压缩当前会话上下文，请稍后查看结果。")
   }
 
   /**
@@ -1290,26 +1288,23 @@ class FeishuManagerImpl {
         },
       })
     } catch {
-      await this.replyText(messageId, this.commandHeader(ctx) + "❌ 无法获取模式列表，请检查 Aether 服务是否正常。")
+      await this.replyCmd(messageId, chatId, "❌ 无法获取模式列表，请检查 Aether 服务是否正常。")
       return
     }
     const visible = agents.filter((a) => !a.hidden)
     const names = visible.map((a) => a.name)
     if (!arg) {
       const sample = names.slice(0, 10).join("、") || "（暂无可用模式）"
-      await this.replyText(messageId, this.commandHeader(ctx) + `🧠 当前模式：${current}\n可用模式：${sample}`)
+      await this.replyCmd(messageId, chatId, `🧠 可用模式：${sample}`)
       return
     }
     if (!names.includes(arg)) {
       const sample = names.slice(0, 10).join("、") || "（暂无可用模式）"
-      await this.replyText(messageId, this.commandHeader(ctx) + `❌ 未找到模式：${arg}\n可用模式：${sample}`)
+      await this.replyCmd(messageId, chatId, `❌ 未找到模式：${arg}\n可用模式：${sample}`)
       return
     }
     await this.setPref(chatId, { agent: arg })
-    await this.replyText(
-      messageId,
-      this.commandHeader(ctx) + `✅ 已切换模式：${arg}\n（仅对当前对话生效，/new 后将重置）`,
-    )
+    await this.replyCmd(messageId, chatId, `✅ 已切换模式：${arg}\n（仅对当前对话生效，/new 后将重置）`)
   }
 
   /**
@@ -1321,11 +1316,11 @@ class FeishuManagerImpl {
     const auto = ctx.pref?.autoAccept ?? false
     if (!arg) {
       const mode = auto ? "自动批准" : "手动审批"
-      await this.replyText(messageId, this.commandHeader(ctx) + `🔐 当前审批模式：${mode}\n可用模式：auto、ask`)
+      await this.replyCmd(messageId, chatId, `🔐 当前审批模式：${mode}\n可用模式：auto、ask`)
       return
     }
     if (arg !== "auto" && arg !== "ask") {
-      await this.replyText(messageId, this.commandHeader(ctx) + "❌ 仅支持 /approval auto 或 /approval ask")
+      await this.replyCmd(messageId, chatId, "❌ 仅支持 /approval auto 或 /approval ask")
       return
     }
     await this.setPref(chatId, { autoAccept: arg === "auto" })
@@ -1337,15 +1332,12 @@ class FeishuManagerImpl {
           directory: ctx.dir,
           fn: () => Permission.reply({ requestID: pending.id, reply: "always" }),
         })
-        await this.replyText(
-          messageId,
-          this.commandHeader(ctx) + "✅ 已开启自动接受权限，并已自动批准当前挂起的授权请求",
-        )
+        await this.replyCmd(messageId, chatId, "✅ 已开启自动接受权限，并已自动批准当前挂起的授权请求")
       } else {
-        await this.replyText(messageId, this.commandHeader(ctx) + "✅ 已开启自动接受权限\n（后续权限请求将自动批准）")
+        await this.replyCmd(messageId, chatId, "✅ 已开启自动接受权限\n（后续权限请求将自动批准）")
       }
     } else {
-      await this.replyText(messageId, this.commandHeader(ctx) + "✅ 已停止自动接受权限\n（后续权限请求将需要你确认）")
+      await this.replyCmd(messageId, chatId, "✅ 已停止自动接受权限\n（后续权限请求将需要你确认）")
     }
   }
 
@@ -1357,14 +1349,11 @@ class FeishuManagerImpl {
     const ctx = await this.commandCtx(chatId)
     const current = ctx.pref?.variant || "（默认）"
     if (!arg) {
-      await this.replyText(messageId, this.commandHeader(ctx) + `🔀 当前变体：${current}`)
+      await this.replyCmd(messageId, chatId, `🔀 当前变体：${current}`)
       return
     }
     await this.setPref(chatId, { variant: arg })
-    await this.replyText(
-      messageId,
-      this.commandHeader(ctx) + `✅ 已切换变体：${arg}\n（仅对当前对话生效，/new 后将重置）`,
-    )
+    await this.replyCmd(messageId, chatId, `✅ 已切换变体：${arg}\n（仅对当前对话生效，/new 后将重置）`)
   }
 
   /**
@@ -1376,7 +1365,7 @@ class FeishuManagerImpl {
   private async cmdProject(messageId: string, chatId: string, arg: string): Promise<void> {
     const allProjects = this.getProjects()
     if (allProjects.length === 0) {
-      await this.replyText(messageId, "❌ 无法获取项目列表，请检查 Aether 是否正常运行。")
+      await this.replyCmd(messageId, chatId, "❌ 无法获取项目列表，请检查 Aether 是否正常运行。")
       return
     }
 
@@ -1388,7 +1377,7 @@ class FeishuManagerImpl {
       const delArg = arg.slice(5).trim()
       const idx = parseInt(delArg, 10) - 1
       if (isNaN(idx) || idx < 0 || idx >= allProjects.length) {
-        await this.replyText(messageId, `❌ 用法：/project hide n（n 为 1~${allProjects.length}）`)
+        await this.replyCmd(messageId, chatId, `❌ 用法：/project hide n（n 为 1~${allProjects.length}）`)
         return
       }
       const target = allProjects[idx]
@@ -1396,14 +1385,13 @@ class FeishuManagerImpl {
       this._hiddenDirs[directory] = Date.now()
       await this.saveHiddenDirs()
       const name = this.projectName(target)
-      await this.replyText(messageId, `✅ 已隐藏：${name}\n（在桌面端或消息端重新使用后自动恢复）`)
+      await this.replyCmd(messageId, chatId, `✅ 已隐藏：${name}\n（在桌面端或消息端重新使用后自动恢复）`)
       return
     }
 
     // /project list — all projects including hidden
     if (arg === "list") {
-      const currentItem = allProjects.find((p) => this.projectDir(p) === currentDir) ?? allProjects[0]
-      const lines = [`📂 当前项目：${this.clip(this.projectName(currentItem), 24)}`, "", "📂 项目列表：", ""]
+      const lines = ["📂 项目列表：", ""]
       for (let i = 0; i < allProjects.length; i++) {
         const item = allProjects[i]
         const directory = this.projectDir(item)
@@ -1412,7 +1400,7 @@ class FeishuManagerImpl {
         lines.push(`${i + 1}. ${this.projectName(item)}${tag}${mark}`)
         lines.push(`   ${directory}`)
       }
-      await this.replyText(messageId, lines.join("\n"))
+      await this.replyCmd(messageId, chatId, lines.join("\n"))
       return
     }
 
@@ -1420,7 +1408,7 @@ class FeishuManagerImpl {
     if (arg) {
       const idx = parseInt(arg, 10) - 1
       if (isNaN(idx) || idx < 0 || idx >= allProjects.length) {
-        await this.replyText(messageId, `❌ 请输入 1~${allProjects.length} 之间的编号。`)
+        await this.replyCmd(messageId, chatId, `❌ 请输入 1~${allProjects.length} 之间的编号。`)
         return
       }
       const chosen = allProjects[idx]
@@ -1466,7 +1454,7 @@ class FeishuManagerImpl {
       const name = this.projectName(chosen)
       const note = created ? "已创建新会话" : `已进入该项目最新会话：${sessionTitle}`
       console.log("[feishu] /project switched:", chatId, "->", newDir)
-      await this.replyText(messageId, `✅ 已切换到：${name}\n   ${newDir}\n（${note}）`)
+      await this.replyCmd(messageId, chatId, `✅ 已切换到：${name}\n   ${newDir}\n（${note}）`)
       return
     }
 
@@ -1474,12 +1462,11 @@ class FeishuManagerImpl {
     if (visibleProjects.length === 0) {
       const hint =
         Object.keys(this._hiddenDirs).length > 0 ? `（有 ${Object.keys(this._hiddenDirs).length} 个项目已隐藏）` : ""
-      await this.replyText(messageId, `❌ 未找到任何项目。${hint}`)
+      await this.replyCmd(messageId, chatId, `❌ 未找到任何项目。${hint}`)
       return
     }
 
-    const currentItem2 = allProjects.find((p) => this.projectDir(p) === currentDir) ?? allProjects[0]
-    const lines = [`📂 当前项目：${this.clip(this.projectName(currentItem2), 24)}`, "", "📂 项目列表：", ""]
+    const lines = ["📂 项目列表：", ""]
     let count = 0
     for (let i = 0; i < allProjects.length && count < 10; i++) {
       const item = allProjects[i]
@@ -1495,7 +1482,7 @@ class FeishuManagerImpl {
     if (Object.keys(this._hiddenDirs).length > 0) {
       lines.push(`ℹ️ 已隐藏 ${Object.keys(this._hiddenDirs).length} 个项目（重新使用后自动恢复）`)
     }
-    await this.replyText(messageId, lines.join("\n"))
+    await this.replyCmd(messageId, chatId, lines.join("\n"))
   }
 
   private formatSessionTime(timestamp: number): string {
@@ -1521,9 +1508,7 @@ class FeishuManagerImpl {
     const currentId = this._chatSessions[chatId]
 
     if (arg === "list") {
-      const currentItem = items.find((i) => i.id === currentId)
-      const currentTitle = currentItem?.title ?? currentId?.slice(0, 8) ?? "无"
-      const lines = [`🗂 当前会话：${currentTitle}`, "", "🗂 会话列表：", ""]
+      const lines = ["🗂 会话列表：", ""]
       for (let i = 0; i < items.length; i++) {
         const item = items[i]
         const tag = item.id === currentId ? " ◀" : ""
@@ -1531,15 +1516,16 @@ class FeishuManagerImpl {
         lines.push(`   ${this.formatSessionTime(item.time.updated)}`)
       }
       if (!items.length) lines.push("（当前项目下还没有任何会话）")
-      await this.replyText(messageId, lines.join("\n"))
+      await this.replyCmd(messageId, chatId, lines.join("\n"))
       return
     }
 
     if (arg) {
       const idx = parseInt(arg, 10) - 1
       if (isNaN(idx) || idx < 0 || idx >= items.length) {
-        await this.replyText(
+        await this.replyCmd(
           messageId,
+          chatId,
           items.length ? `❌ 请输入 1~${items.length} 之间的数字。` : "❌ 当前项目下还没有任何会话。",
         )
         return
@@ -1547,8 +1533,9 @@ class FeishuManagerImpl {
       const chosen = items[idx]
       this._chatSessions[chatId] = chosen.id
       void this.clearRuntime(chatId)
-      await this.replyText(
+      await this.replyCmd(
         messageId,
+        chatId,
         `✅ 已切换到会话：${chosen.title}\n   更新时间：${this.formatSessionTime(chosen.time.updated)}`,
       )
       return
@@ -1561,12 +1548,11 @@ class FeishuManagerImpl {
         fn: () => Session.create({ title: `飞书对话 ${chatId.slice(-6)}` }),
       })
       this._chatSessions[chatId] = session.id
-      await this.replyText(messageId, "📂 当前项目下还没有任何会话，已自动创建一个新会话并切换。")
+      await this.replyCmd(messageId, chatId, "📂 当前项目下还没有任何会话，已自动创建一个新会话并切换。")
       return
     }
 
-    const currentItem = items.find((i) => i.id === currentId) ?? items[0]
-    const lines = [`🗂 当前会话：${currentItem.title}`, "", "🗂 会话列表：", ""]
+    const lines = ["🗂 会话列表：", ""]
     for (let i = 0; i < Math.min(items.length, 10); i++) {
       const item = items[i]
       const tag = item.id === currentId ? " ◀" : ""
@@ -1575,7 +1561,7 @@ class FeishuManagerImpl {
     }
     lines.push("")
     lines.push("💡 /s n 切换会话 | /s l 查看全部")
-    await this.replyText(messageId, lines.join("\n"))
+    await this.replyCmd(messageId, chatId, lines.join("\n"))
   }
 
   // ─────────────────────────────────────────────────────────────────────────
