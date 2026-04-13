@@ -1,0 +1,34 @@
+# Temporary CI allowlist for app E2E.
+# These specs have been locally verified to pass on the current Aether implementation.
+
+e2e/app/home.spec.ts
+e2e/app/navigation.spec.ts
+e2e/app/palette.spec.ts
+e2e/app/server-default.spec.ts
+e2e/app/session.spec.ts
+e2e/commands/input-focus.spec.ts
+e2e/commands/panels.spec.ts
+e2e/commands/tab-close.spec.ts
+e2e/files/file-open.spec.ts
+e2e/files/file-tree.spec.ts
+e2e/models/models-visibility.spec.ts
+e2e/projects/project-edit.spec.ts
+e2e/projects/projects-close.spec.ts
+e2e/projects/workspace-new-session.spec.ts
+e2e/projects/workspaces.spec.ts
+e2e/prompt/prompt-mention.spec.ts
+e2e/prompt/prompt-multiline.spec.ts
+e2e/prompt/prompt-shell.spec.ts
+e2e/prompt/prompt-slash-open.spec.ts
+e2e/prompt/prompt-slash-share.spec.ts
+e2e/prompt/prompt-slash-terminal.spec.ts
+e2e/session/session-child-navigation.spec.ts
+e2e/session/session-undo-redo.spec.ts
+e2e/session/session.spec.ts
+e2e/settings/settings-models.spec.ts
+e2e/settings/settings.spec.ts
+e2e/sidebar/sidebar.spec.ts
+e2e/status/status-popover.spec.ts
+e2e/terminal/terminal-tabs.spec.ts
+e2e/terminal/terminal.spec.ts
+e2e/thinking-level.spec.ts

@@ -174,6 +174,107 @@ jobs:
           OPENCODE_EXPERIMENTAL_DISABLE_FILEWATCHER: "true"
         run: bun test --timeout 30000
 
-  # App E2E is intentionally excluded from the current required CI baseline.
-  # The local E2E harness currently fails to acquire an ephemeral port in CI and needs
-  # its own stabilization pass before it can serve as a trustworthy correctness gate.
+  # App E2E is restored as its own job so runner/setup issues stay isolated from unit jobs.
+  e2e:
+    name: app e2e (${{ matrix.settings.name }})
+    strategy:
+      fail-fast: false
+      matrix:
+        settings:
+          - name: linux
+            host: ubuntu-latest
+          - name: windows
+            host: windows-2022
+    runs-on: ${{ matrix.settings.host }}
+    timeout-minutes: 35
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+      PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/.playwright-browsers
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Setup Bun
+        uses: ./.github/actions/setup-bun
+
+      - name: Read Playwright version
+        id: playwright-version
+        run: |
+          version=$(node -e 'console.log(require("./packages/app/package.json").devDependencies["@playwright/test"])')
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Playwright browsers
+        id: playwright-cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/.playwright-browsers
+          key: ${{ runner.os }}-${{ runner.arch }}-playwright-${{ steps.playwright-version.outputs.version }}-chromium
+
+      - name: Install Playwright system dependencies
+        if: runner.os == 'Linux'
+        working-directory: packages/app
+        run: bunx playwright install-deps chromium
+
+      - name: Install Playwright browsers
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        working-directory: packages/app
+        run: bunx playwright install chromium
+
+      - name: Run app e2e tests
+        working-directory: packages/app
+        run: |
+          specs=()
+          while IFS= read -r line; do
+            line="${line%%#*}"
+            line="${line#"${line%%[![:space:]]*}"}"
+            line="${line%"${line##*[![:space:]]}"}"
+            if [ -n "$line" ]; then
+              specs+=("$line")
+            fi
+          done < e2e/ci-specs.txt
+
+          bun test:e2e:local "${specs[@]}"
+        env:
+          CI: true
+          PLAYWRIGHT_JUNIT_OUTPUT: e2e/junit-${{ matrix.settings.name }}.xml
+
+      - name: Run app e2e serial specs
+        if: success()
+        working-directory: packages/app
+        run: |
+          specs=()
+          while IFS= read -r line; do
+            line="${line%%#*}"
+            line="${line#"${line%%[![:space:]]*}"}"
+            line="${line%"${line##*[![:space:]]}"}"
+            if [ -n "$line" ]; then
+              specs+=("$line")
+            fi
+          done < e2e/ci-specs-serial.txt
+
+          bun test:e2e:local --workers 1 "${specs[@]}"
+        env:
+          CI: true
+          PLAYWRIGHT_JUNIT_OUTPUT: e2e/junit-${{ matrix.settings.name }}-serial.xml
+
+      - name: Upload Playwright artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-${{ matrix.settings.name }}-${{ github.run_attempt }}
+          if-no-files-found: ignore
+          retention-days: 7
+          path: |
+            packages/app/e2e/junit-*.xml
+            packages/app/e2e/test-results
+            packages/app/e2e/playwright-report

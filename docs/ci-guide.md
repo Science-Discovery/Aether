@@ -16,7 +16,7 @@
 
 #### `test.yml`
 
-- 类型：CI / 单元测试
+- 类型：CI / 单元测试 + E2E 测试
 - 状态：活跃
 - 所需 GitHub 配置：
   - 仓库设置：
@@ -78,13 +78,33 @@
     - 在 `packages/opencode` 下设置 `OPENCODE_EXPERIMENTAL_DISABLE_FILEWATCHER=true`
     - 执行 `bun test --timeout 30000`
     - 同样设置了 `20` 分钟超时
+  - `e2e`
+    - 采用 Linux / Windows 矩阵，分别运行在 `ubuntu-latest` 与 `windows-2022`
+    - 先调用 `actions/setup-node@v4` 固定 Node `24`，再调用 `.github/actions/setup-bun`
+    - 读取 `packages/app/package.json` 中的 `@playwright/test` 版本，作为 Playwright 浏览器缓存 key 的一部分
+    - 缓存路径固定为仓库根 `.playwright-browsers`
+    - Linux 上额外执行 `bunx playwright install-deps chromium`
+    - 缓存未命中时执行 `bunx playwright install chromium`
+    - 通过 `packages/app/e2e/ci-specs.txt` 与 `packages/app/e2e/ci-specs-serial.txt` 两份临时白名单选择当前已核验通过的 spec
+    - 大多数已核验通过 spec 仍按 Playwright 的常规 CI 并发运行
+    - 只有少数已确认有并发敏感迹象的 spec 会通过 `bun test:e2e:local --workers 1 <spec...>` 单独串行运行
+    - 设置 `CI=true` 与 `PLAYWRIGHT_JUNIT_OUTPUT=e2e/junit-<os>.xml`
+    - 失败与成功都会上传 `packages/app/e2e/junit-*.xml`、`packages/app/e2e/test-results`、`packages/app/e2e/playwright-report`
+    - job 设置了 `35` 分钟超时
 - 作用：
   - 为 `packages/ui`、`packages/app` 和 `packages/opencode` 提供 Linux 与 Windows 两个平台的持续单元测试校验
   - 把 UI 组件测试、前端页面测试和核心包测试分开展示，便于定位问题来源
   - 让 app 包同时覆盖纯逻辑 Bun 测试和需要 Solid 编译/渲染环境的 Vitest 测试
+  - 为 `packages/app` 恢复独立的 E2E 校验入口，并把 runner / Playwright / 测试失败与 unit job 分离展示
 - 备注：
-  - workflow 注释明确说明：
-    - app E2E 当前也不纳入 required baseline，原因是 CI 中临时端口分配尚未稳定
+  - app E2E 已恢复到同一条 workflow 中，但仍作为独立 job 展示
+  - 当前 CI 不会直接执行全部 `50` 条 app E2E spec，而是先执行白名单中的 `37` 条已核验通过 spec
+  - 其中只有 `6` 条并发敏感 spec 单独串行，其余 `31` 条仍走常规并发
+  - 后续若出现失败，需要区分：
+    - runner / 浏览器安装问题
+    - 当前旧 E2E 套件自身问题
+    - 产品行为与测试假设不一致
+  - 这条 workflow 当前恢复的是“当前仓库已有 E2E 基线”，不是一次性整包同步 upstream 当前所有新 E2E
   - `packages/app/script/vitest.ts` 与 `packages/ui/script/vitest.ts` 都会优先查找标准 `node_modules/vitest/vitest.mjs`，找不到再回退到 `node_modules/.bun` 缓存目录；这是为了兼容 Bun 在不同平台上的依赖安装布局
   - `packages/app/src/test/setup.ts` 与 `packages/ui/src/test/setup.ts` 也使用相同的双路径查找策略加载 `@happy-dom/global-registrator`
   - `packages/app/tsconfig.json` 与 `packages/ui/tsconfig.json` 都显式排除了 `src/**/*.vitest.ts(x)` 和 `src/test`，避免 Vitest 类型污染主 typecheck 图

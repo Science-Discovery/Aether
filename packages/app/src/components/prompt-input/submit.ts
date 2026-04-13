@@ -17,6 +17,7 @@ import { useSDK } from "@/context/sdk"
 import { useServer } from "@/context/server"
 import { useSync } from "@/context/sync"
 import { useKnowledge } from "@/context/knowledge"
+import { promptProbe } from "@/testing/prompt"
 import { Identifier } from "@/utils/id"
 import { Worktree as WorktreeState } from "@/utils/worktree"
 import { buildRequestParts, type DataAttachment } from "./build-request-parts"
@@ -443,6 +444,7 @@ export function createPromptSubmit(input: PromptSubmitInput) {
 
     input.addToHistory(currentPrompt, mode)
     input.resetHistoryNavigation()
+    promptProbe.start()
 
     const projectDirectory = sdk.directory
     const isNewSession = !params.id
@@ -567,6 +569,7 @@ export function createPromptSubmit(input: PromptSubmitInput) {
       return
     }
 
+    promptProbe.submit({ sessionID: session.id, directory: sessionDirectory })
     input.onSubmit?.()
 
     if (mode === "shell") {

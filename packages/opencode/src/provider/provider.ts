@@ -154,6 +154,12 @@ export namespace Provider {
     )
   }
 
+  function e2eURL() {
+    const url = Env.get("OPENCODE_E2E_LLM_URL")
+    if (typeof url !== "string" || url === "") return
+    return url
+  }
+
   const BUNDLED_PROVIDERS: Record<string, (options: any) => SDK> = {
     "@ai-sdk/amazon-bedrock": createAmazonBedrock,
     "@ai-sdk/anthropic": createAnthropic,
@@ -1433,6 +1439,17 @@ export namespace Provider {
     const s = await state()
     const key = `${model.providerID}/${model.id}`
     if (s.models.has(key)) return s.models.get(key)!
+
+    const url = e2eURL()
+    if (url) {
+      const language = createOpenAICompatible({
+        name: model.providerID,
+        apiKey: "test-key",
+        baseURL: url,
+      }).chatModel(model.api.id) as LanguageModelV2
+      s.models.set(key, language)
+      return language
+    }
 
     const provider = s.providers[model.providerID]
     const sdk = await getSDK(model)

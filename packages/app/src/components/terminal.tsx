@@ -530,6 +530,10 @@ export const Terminal = (props: TerminalProps) => {
           if (disposed) return
           tries = 0
           probe.connect()
+          queueMicrotask(() => {
+            if (disposed) return
+            probe.settle()
+          })
           local.onConnect?.()
           scheduleSize(t.cols, t.rows)
         }

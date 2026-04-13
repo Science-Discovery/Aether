@@ -13,6 +13,7 @@ tmp
 dist
 ts-dist
 .turbo
+.playwright-browsers/
 **/.serena
 .serena/
 /result
