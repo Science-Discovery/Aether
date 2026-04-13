@@ -49,7 +49,8 @@ mkdir -p "$pkg"
 cp -R "$src"/. "$pkg"/
 
 # Write version file
-printf "%s\n" "$ver" > "$pkg/.aether_version"
+rm -f "$pkg/.aether_version"
+printf "%s\n" "$ver" > "$pkg/.aether_web_version"
 
 ins="$root/Update/aether_darwin_installer.command"
 if [ -f "$ins" ]; then
