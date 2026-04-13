@@ -1451,21 +1451,6 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                   <Icon name="plus" class="size-4.5" />
                 </Button>
               </TooltipKeybind>
-              <Tooltip placement="top" value={language.t("prompt.action.readingMode")}>
-                <Button
-                  data-action="prompt-reading-mode"
-                  type="button"
-                  variant="ghost"
-                  class="size-8 p-0"
-                  style={buttons()}
-                  onClick={() => dialog.show(() => <DialogReadingMode />)}
-                  disabled={store.mode !== "normal"}
-                  tabIndex={store.mode === "normal" ? undefined : -1}
-                  aria-label={language.t("prompt.action.readingMode")}
-                >
-                  <Icon name="glasses" class="size-4.5" />
-                </Button>
-              </Tooltip>
             </div>
           </div>
         </div>
