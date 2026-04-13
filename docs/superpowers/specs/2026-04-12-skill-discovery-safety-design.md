@@ -165,11 +165,14 @@ Add a new shared result shape for install and update preflight.
 
 Proposed shape:
 
+- `scan_id: string`
 - `risk: "low" | "medium" | "high"`
 - `summary: string`
 - `confirm_required: boolean`
 
 Internal-only detail may also include structured findings for logs and tests, but the UI contract stays minimal.
+
+`scan_id` is the bridge between preflight and execution. It identifies the reviewed target plus the material fingerprint used during scanning, so the app can reuse the same preflight result when the user confirms a high-risk action.
 
 ## Backend Design
 
@@ -216,6 +219,22 @@ Scanner should flag patterns such as:
 
 This is a static rule-based scan, not a model-only decision.
 
+### Safety Risk Rubric
+
+The scanner needs a deterministic baseline so planning and tests do not drift.
+
+- `low`
+  - no suspicious patterns found
+  - only expected package metadata, content files, or benign setup steps
+- `medium`
+  - potentially surprising behavior that is not directly destructive on its own
+  - examples: background process setup, broad file writes outside the skill directory, shell execution that is not obviously destructive
+- `high`
+  - strong indicators of destructive or clearly dangerous behavior
+  - examples: `rm -rf` style destructive deletion, credential exfiltration patterns, download-and-execute behavior, obfuscated script fragments intended to hide execution
+
+The implementation may refine rules later, but this rubric must be the planning baseline.
+
 ### Route Layer
 
 Keep existing routes intact and add an explicit scan route for preflight.
@@ -224,13 +243,44 @@ Proposed route:
 
 - `POST /skill/scan`
 
-Supported actions:
+Supported request actions:
 
-- install external skill
-- install registry skill
-- update installed skill
+- `install_registry`
+  - `{ action: "install_registry", registry: string, name: string }`
+- `install_external`
+  - `{ action: "install_external", package: string, scope: "project" | "global" }`
+- `update_registry`
+  - `{ action: "update_registry", registry: string, name: string }`
+- `update_external`
+  - `{ action: "update_external", name: string, source: string, scope: "project" }`
 
 The route returns the normalized scan result and any message needed for confirmation.
+
+Response shape:
+
+- `scan_id: string`
+- `risk: "low" | "medium" | "high"`
+- `summary: string`
+- `confirm_required: boolean`
+
+Install and update execution must accept a preflight reference so confirmation does not force the system to invent an incompatible second path.
+
+Execution contract:
+
+- existing install and update routes gain optional preflight fields:
+  - `scan_id?: string`
+  - `confirmed_high_risk?: boolean`
+- for `low` and `medium` risk:
+  - the client calls scan
+  - the client immediately calls install or update with `scan_id`
+- for `high` risk:
+  - the client calls scan
+  - the client shows the confirmation dialog
+  - if the user accepts, the client retries install or update with:
+    - `scan_id`
+    - `confirmed_high_risk: true`
+- the server validates that `scan_id` still matches the same target and scanned material fingerprint
+- if the scan is missing, stale, or mismatched, the server rejects execution and requires a fresh preflight scan
 
 ## Frontend Design
 
@@ -254,12 +304,12 @@ New interaction:
 
 1. user clicks install or update
 2. app calls `/skill/scan`
-3. if `risk` is `low` or `medium`, continue directly to install or update
+3. if `risk` is `low` or `medium`, continue directly to install or update with `scan_id`
 4. if `risk` is `high`, show a confirmation dialog with:
    - short risk summary
    - cancel button
    - continue install or continue update button
-5. if the user confirms, call the existing install or update route
+5. if the user confirms, call the existing install or update route with the same `scan_id` and `confirmed_high_risk: true`
 
 The confirmation dialog intentionally stays simple. It does not expose raw scan findings in this phase.
 
