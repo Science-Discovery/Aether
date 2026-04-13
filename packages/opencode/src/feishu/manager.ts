@@ -32,6 +32,21 @@ const CONFIG_FILE = join(FEISHU_DATA_DIR, "config.json")
 const SESSION_MAP_FILE = join(FEISHU_DATA_DIR, "sessions.json")
 const HIDDEN_DIRS_FILE = join(FEISHU_DATA_DIR, "hidden_projects.json")
 
+function localISOString(d = new Date()): string {
+  const offset = -d.getTimezoneOffset()
+  const sign = offset >= 0 ? "+" : "-"
+  const pad = (n: number) => String(Math.floor(Math.abs(n))).padStart(2, "0")
+  return (
+    d.getFullYear() + "-" +
+    pad(d.getMonth() + 1) + "-" +
+    pad(d.getDate()) + "T" +
+    pad(d.getHours()) + ":" +
+    pad(d.getMinutes()) + ":" +
+    pad(d.getSeconds()) +
+    sign + pad(offset / 60) + ":" + pad(offset % 60)
+  )
+}
+
 export type FeishuStatus = "idle" | "starting" | "connected" | "reconnecting" | "error"
 
 export interface FeishuConfig {
@@ -420,7 +435,7 @@ class FeishuManagerImpl {
       const boundHandleMessage = (data: any) => {
         const gap = this._lastWsEventTime ? `gap=${Date.now() - this._lastWsEventTime}ms` : "first"
         this._lastWsEventTime = Date.now()
-        console.log("[feishu] >>> event received!", gap, new Date().toISOString())
+        console.log("[feishu] >>> event received!", gap, localISOString())
         void this.enqueueMessage(data)
       }
 
@@ -482,7 +497,7 @@ class FeishuManagerImpl {
         if (ws) {
           console.log(
             `[feishu] pong config: pingInterval=${ws.pingInterval}ms reconnectInterval=${ws.reconnectInterval}ms reconnectNonce=${ws.reconnectNonce}ms`,
-            new Date().toISOString(),
+            localISOString(),
           )
         }
       }, 5_000)
@@ -496,7 +511,7 @@ class FeishuManagerImpl {
           : "never"
         console.log(
           `[feishu] alive ${Math.floor(aliveMs / 1000)}s | last message: ${lastEventDesc}`,
-          new Date().toISOString(),
+          localISOString(),
         )
       }, 60_000)
 
@@ -530,7 +545,7 @@ class FeishuManagerImpl {
       const close = ws.addEventListener?.bind(ws)
       if (typeof close === "function") {
         close("close", (code: number, reason: Buffer) => {
-          console.log(`[feishu] socket close code=${code} reason="${reason?.toString?.() || ""}"`, new Date().toISOString())
+          console.log(`[feishu] socket close code=${code} reason="${reason?.toString?.() || ""}"`, localISOString())
           this.onDisconnect("socket_close")
         })
         close("error", () => this.onDisconnect("socket_error"))
@@ -539,7 +554,7 @@ class FeishuManagerImpl {
       const add = ws.on?.bind(ws)
       if (typeof add === "function") {
         add("close", (code: number, reason: Buffer) => {
-          console.log(`[feishu] socket close code=${code} reason="${reason?.toString?.() || ""}"`, new Date().toISOString())
+          console.log(`[feishu] socket close code=${code} reason="${reason?.toString?.() || ""}"`, localISOString())
           this.onDisconnect("socket_close")
         })
         add("error", () => this.onDisconnect("socket_error"))
