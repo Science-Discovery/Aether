@@ -145,6 +145,9 @@ class FeishuManagerImpl {
   private _manualStop = false
   private _lastConfig: FeishuConfig | null = null
   private _starting = false
+  // ── 诊断用字段 ─────────────────────────────────────────────────────────────
+  private _lastWsEventTime: number = 0
+  private _aliveTimer: ReturnType<typeof setInterval> | null = null
   // ─────────────────────────────────────────────────────────────────────────
 
   private static readonly HEARTBEAT_MS = 30_000
@@ -415,7 +418,9 @@ class FeishuManagerImpl {
       console.log("[feishu] _doStart called")
 
       const boundHandleMessage = (data: any) => {
-        console.log("[feishu] >>> event received!")
+        const gap = this._lastWsEventTime ? `gap=${Date.now() - this._lastWsEventTime}ms` : "first"
+        this._lastWsEventTime = Date.now()
+        console.log("[feishu] >>> event received!", gap, new Date().toISOString())
         void this.enqueueMessage(data)
       }
 
@@ -470,6 +475,31 @@ class FeishuManagerImpl {
       this.status = "connected"
       Bus.publish(FeishuEvent.Connected, { appId: config.appId })
 
+      // 5s 后打印服务端 pong 下发的实际配置（pingInterval 等）
+      setTimeout(() => {
+        const wsClientAny = this.wsClient as any
+        const ws = wsClientAny?.wsConfig?.getWS?.()
+        if (ws) {
+          console.log(
+            `[feishu] pong config: pingInterval=${ws.pingInterval}ms reconnectInterval=${ws.reconnectInterval}ms reconnectNonce=${ws.reconnectNonce}ms`,
+            new Date().toISOString(),
+          )
+        }
+      }, 5_000)
+
+      // 每 60s 打一行存活日志，方便对照时间轴定位断连时间点
+      this._aliveTimer = setInterval(() => {
+        if (this._status !== "connected") return
+        const aliveMs = Date.now() - (this._session?.createdAt ?? Date.now())
+        const lastEventDesc = this._lastWsEventTime
+          ? `${Math.floor((Date.now() - this._lastWsEventTime) / 1000)}s ago`
+          : "never"
+        console.log(
+          `[feishu] alive ${Math.floor(aliveMs / 1000)}s | last message: ${lastEventDesc}`,
+          new Date().toISOString(),
+        )
+      }, 60_000)
+
       // Compute initial directory from first visible project
       const allProjects = this.getProjects()
       const visibleProjects = allProjects.filter((p) => !(this.projectDir(p) in this._hiddenDirs))
@@ -499,13 +529,19 @@ class FeishuManagerImpl {
       ws.__aetherBound = true
       const close = ws.addEventListener?.bind(ws)
       if (typeof close === "function") {
-        close("close", () => this.onDisconnect("socket_close"))
+        close("close", (code: number, reason: Buffer) => {
+          console.log(`[feishu] socket close code=${code} reason="${reason?.toString?.() || ""}"`, new Date().toISOString())
+          this.onDisconnect("socket_close")
+        })
         close("error", () => this.onDisconnect("socket_error"))
         return
       }
       const add = ws.on?.bind(ws)
       if (typeof add === "function") {
-        add("close", () => this.onDisconnect("socket_close"))
+        add("close", (code: number, reason: Buffer) => {
+          console.log(`[feishu] socket close code=${code} reason="${reason?.toString?.() || ""}"`, new Date().toISOString())
+          this.onDisconnect("socket_close")
+        })
         add("error", () => this.onDisconnect("socket_error"))
       }
     }
@@ -579,6 +615,10 @@ class FeishuManagerImpl {
 
   private async cleanupConnection(reset = true): Promise<void> {
     this.stopHeartbeat()
+    if (this._aliveTimer) {
+      clearInterval(this._aliveTimer)
+      this._aliveTimer = null
+    }
     if (this._reconnect) {
       clearTimeout(this._reconnect)
       this._reconnect = null
