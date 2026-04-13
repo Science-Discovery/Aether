@@ -509,8 +509,12 @@ class FeishuManagerImpl {
         const lastEventDesc = this._lastWsEventTime
           ? `${Math.floor((Date.now() - this._lastWsEventTime) / 1000)}s ago`
           : "never"
+        const wsClientAny = this.wsClient as any
+        const wsInstance = wsClientAny?.wsConfig?.getWSInstance?.()
+        const readyState = wsInstance?.readyState ?? -1
+        const readyStateStr = (["CONNECTING", "OPEN", "CLOSING", "CLOSED"] as const)[readyState] ?? `unknown(${readyState})`
         console.log(
-          `[feishu] alive ${Math.floor(aliveMs / 1000)}s | last message: ${lastEventDesc}`,
+          `[feishu] alive ${Math.floor(aliveMs / 1000)}s | last message: ${lastEventDesc} | ws: ${readyStateStr}`,
           localISOString(),
         )
       }, 60_000)
@@ -575,7 +579,7 @@ class FeishuManagerImpl {
   private onDisconnect(reason: string): void {
     if (this._manualStop) return
     if (this._status === "idle" || this._status === "error") return
-    console.warn("[feishu] disconnect detected:", reason)
+    console.warn("[feishu] disconnect detected:", reason, localISOString())
     this.stopHeartbeat()
     this.scheduleReconnect(reason)
   }
@@ -669,7 +673,7 @@ class FeishuManagerImpl {
 
   private async handleMessage(data: any): Promise<void> {
     try {
-      console.log("[feishu] handleMessage invoked")
+      console.log("[feishu] handleMessage invoked", localISOString())
       console.log("[feishu] received event:", JSON.stringify(data).slice(0, 500))
       const message = data?.message
       if (!message) {
@@ -707,7 +711,7 @@ class FeishuManagerImpl {
 
       text = text.replace(/@_\w+\s*/g, "").trim()
       if (!text) return
-      console.log("[feishu] text:", text)
+      console.log("[feishu] text:", text, localISOString())
 
       const isSlash = text.startsWith("/")
       const parts = isSlash ? text.trim().split(/\s+/) : []
@@ -881,12 +885,12 @@ class FeishuManagerImpl {
               })
             }
           }
-          console.log("[feishu] sending to aether, session:", sessionId)
+          console.log("[feishu] sending to aether, session:", sessionId, localISOString())
           const msg = await SessionPrompt.prompt({
             sessionID: SessionID.make(sessionId),
             parts: [{ type: "text", text: promptText }],
           })
-          console.log("[feishu] aether responded, parts:", msg?.parts?.length)
+          console.log("[feishu] aether responded, parts:", msg?.parts?.length, localISOString())
 
           const responseText = this.extractResponseText(msg)
           if (responseText) {
@@ -914,7 +918,7 @@ class FeishuManagerImpl {
                 : "—"
             const header = `${projectName}  ·  ${label}  ·  ${mode}  ·  ${modelStr}\n————————\n`
 
-            console.log("[feishu] replying:", responseText.slice(0, 100))
+            console.log("[feishu] replying:", responseText.slice(0, 100), localISOString())
             await this.replyText(messageId, header + responseText)
           } else {
             console.log("[feishu] no text in response")
