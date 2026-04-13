@@ -167,7 +167,6 @@ const readWebVersion = async () => {
 }
 
 const getDefaultUrl = () => {
-  if (import.meta.env.DEV) return getCurrentUrl()
   const lsDefault = readDefaultServerUrl()
   if (lsDefault) return lsDefault
   return getCurrentUrl()

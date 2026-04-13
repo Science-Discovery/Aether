@@ -1,5 +1,5 @@
 import type { Page } from "@playwright/test"
-import { runTerminal, waitTerminalReady } from "../actions"
+import { clickMenuItem, runTerminal, waitTerminalFocusIdle, waitTerminalReady } from "../actions"
 import { test, expect } from "../fixtures"
 import { dropdownMenuContentSelector, terminalSelector } from "../selectors"
 import { terminalToggleKey, workspacePersistKey } from "../utils"
@@ -18,7 +18,7 @@ async function open(page: Page) {
   const terminal = page.locator(terminalSelector)
   const visible = await terminal.isVisible().catch(() => false)
   if (!visible) await page.keyboard.press(terminalToggleKey)
-  await waitTerminalReady(page, { term: terminal })
+  await waitTerminalFocusIdle(page, { term: terminal })
 }
 
 async function store(page: Page, key: string) {
@@ -57,6 +57,7 @@ test("inactive terminal tab buffers persist across tab switches", async ({ page,
 
     await first.click()
     await expect(first).toHaveAttribute("aria-selected", "true")
+    await waitTerminalReady(page)
 
     await expect
       .poll(
@@ -75,6 +76,7 @@ test("inactive terminal tab buffers persist across tab switches", async ({ page,
 
     await second.click()
     await expect(second).toHaveAttribute("aria-selected", "true")
+    await waitTerminalReady(page)
     await expect
       .poll(
         async () => {
@@ -141,11 +143,12 @@ test("terminal tab can be renamed from the context menu", async ({ page, withPro
     await open(page)
 
     await expect(tab).toContainText(/Terminal 1/)
-    await tab.click({ button: "right" })
+    await waitTerminalFocusIdle(page)
+    await tab.click({ button: "right", force: true })
 
     const menu = page.locator(dropdownMenuContentSelector).first()
     await expect(menu).toBeVisible()
-    await menu.getByRole("menuitem", { name: /^Rename$/i }).click()
+    await clickMenuItem(menu, /^Rename$/i, { force: true })
     await expect(menu).toHaveCount(0)
 
     const input = page.locator('#terminal-panel input[type="text"]').first()

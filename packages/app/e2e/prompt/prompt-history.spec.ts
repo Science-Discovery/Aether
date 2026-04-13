@@ -1,10 +1,12 @@
 import type { ToolPart } from "@opencode-ai/sdk/v2/client"
 import type { Page } from "@playwright/test"
 import { test, expect } from "../fixtures"
-import { withSession } from "../actions"
+import { assistantText, sessionIDFromUrl, withSession } from "../actions"
 import { promptSelector } from "../selectors"
+import { createSdk } from "../utils"
 
 const text = (value: string | null) => (value ?? "").replace(/\u200B/g, "").trim()
+type Sdk = ReturnType<typeof createSdk>
 
 const isBash = (part: unknown): part is ToolPart => {
   if (!part || typeof part !== "object") return false
@@ -43,24 +45,11 @@ async function wait(page: Page, value: string) {
   await expect.poll(async () => text(await page.locator(promptSelector).textContent())).toBe(value)
 }
 
-async function reply(sdk: Parameters<typeof withSession>[0], sessionID: string, token: string) {
-  await expect
-    .poll(
-      async () => {
-        const messages = await sdk.session.messages({ sessionID, limit: 50 }).then((r) => r.data ?? [])
-        return messages
-          .filter((item) => item.info.role === "assistant")
-          .flatMap((item) => item.parts)
-          .filter((item) => item.type === "text")
-          .map((item) => item.text)
-          .join("\n")
-      },
-      { timeout: 90_000 },
-    )
-    .toContain(token)
+async function reply(sdk: Sdk, sessionID: string, token: string) {
+  await expect.poll(() => assistantText(sdk, sessionID), { timeout: 90_000 }).toContain(token)
 }
 
-async function shell(sdk: Parameters<typeof withSession>[0], sessionID: string, cmd: string, token: string) {
+async function shell(sdk: Sdk, sessionID: string, cmd: string, token: string) {
   await expect
     .poll(
       async () => {
@@ -79,51 +68,54 @@ async function shell(sdk: Parameters<typeof withSession>[0], sessionID: string, 
     .toContain(token)
 }
 
-test("prompt history restores unsent draft with arrow navigation", async ({ page, sdk, gotoSession }) => {
+test("prompt history restores unsent draft with arrow navigation", async ({ page, project, assistant }) => {
   test.setTimeout(120_000)
 
-  await withSession(sdk, `e2e prompt history ${Date.now()}`, async (session) => {
-    await gotoSession(session.id)
+  const firstToken = `E2E_HISTORY_ONE_${Date.now()}`
+  const secondToken = `E2E_HISTORY_TWO_${Date.now()}`
+  const first = `Reply with exactly: ${firstToken}`
+  const second = `Reply with exactly: ${secondToken}`
+  const draft = `draft ${Date.now()}`
 
-    const prompt = page.locator(promptSelector)
-    const firstToken = `E2E_HISTORY_ONE_${Date.now()}`
-    const secondToken = `E2E_HISTORY_TWO_${Date.now()}`
-    const first = `Reply with exactly: ${firstToken}`
-    const second = `Reply with exactly: ${secondToken}`
-    const draft = `draft ${Date.now()}`
+  await project.open()
+  await assistant.reply(firstToken)
+  const prompt = page.locator(promptSelector)
+  await prompt.click()
+  await page.keyboard.type(first)
+  await page.keyboard.press("Enter")
+  await wait(page, "")
+  await expect(page).toHaveURL(/\/session\/[^/?#]+/, { timeout: 30_000 })
+  const sessionID = sessionIDFromUrl(page.url())
+  if (!sessionID) throw new Error(`Failed to parse session id from url: ${page.url()}`)
+  project.trackSession(sessionID)
+  await reply(project.sdk, sessionID, firstToken)
 
-    await prompt.click()
-    await page.keyboard.type(first)
-    await page.keyboard.press("Enter")
-    await wait(page, "")
-    await reply(sdk, session.id, firstToken)
+  await assistant.reply(secondToken)
+  await prompt.click()
+  await page.keyboard.type(second)
+  await page.keyboard.press("Enter")
+  await wait(page, "")
+  await reply(project.sdk, sessionID, secondToken)
 
-    await prompt.click()
-    await page.keyboard.type(second)
-    await page.keyboard.press("Enter")
-    await wait(page, "")
-    await reply(sdk, session.id, secondToken)
+  await prompt.click()
+  await page.keyboard.type(draft)
+  await wait(page, draft)
 
-    await prompt.click()
-    await page.keyboard.type(draft)
-    await wait(page, draft)
+  // Clear the draft before navigating history (ArrowUp only works when prompt is empty)
+  await prompt.fill("")
+  await wait(page, "")
 
-    // Clear the draft before navigating history (ArrowUp only works when prompt is empty)
-    await prompt.fill("")
-    await wait(page, "")
+  await page.keyboard.press("ArrowUp")
+  await wait(page, second)
 
-    await page.keyboard.press("ArrowUp")
-    await wait(page, second)
+  await page.keyboard.press("ArrowUp")
+  await wait(page, first)
 
-    await page.keyboard.press("ArrowUp")
-    await wait(page, first)
+  await page.keyboard.press("ArrowDown")
+  await wait(page, second)
 
-    await page.keyboard.press("ArrowDown")
-    await wait(page, second)
-
-    await page.keyboard.press("ArrowDown")
-    await wait(page, "")
-  })
+  await page.keyboard.press("ArrowDown")
+  await wait(page, "")
 })
 
 test("shell history stays separate from normal prompt history", async ({ page, sdk, gotoSession }) => {
