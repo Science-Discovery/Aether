@@ -1,5 +1,6 @@
-import { describe, expect, test } from "bun:test"
-import { cases, rank, table } from "./benchmark"
+import { describe, expect, spyOn, test } from "bun:test"
+import { Provider } from "@/provider/provider"
+import { cases, rank, roster, subset, table } from "./benchmark"
 
 describe("rank", () => {
   test("prefers precise main results over noisy main hits", () => {
@@ -32,6 +33,70 @@ describe("rank", () => {
     })
     expect(result.breakdown.precision_main).toBeGreaterThan(30)
     expect(result.breakdown.must_not_penalty).toBeGreaterThan(10)
+  })
+
+  test("treats docs translation equivalents as full must-have hits", () => {
+    const query = cases.find((item) => item.id === "translate-en")
+    expect(query).toBeDefined()
+    const result = rank(query!, {
+      main: ["rtl-document-translation"],
+      more: [],
+      latency_ms: 3200,
+      faithfulness: 0,
+    })
+    expect(result.breakdown.recall_main).toBe(15)
+    expect(result.breakdown.precision_main).toBe(40)
+  })
+
+  test("treats paper translation equivalents as full must-have hits", () => {
+    const query = cases.find((item) => item.id === "translate-paper-en")
+    expect(query).toBeDefined()
+    const result = rank(query!, {
+      main: ["academic-translate"],
+      more: [],
+      latency_ms: 3200,
+      faithfulness: 0,
+    })
+    expect(result.breakdown.recall_main).toBe(15)
+    expect(result.breakdown.precision_main).toBe(40)
+  })
+
+  test("does not let docs and paper translation aliases satisfy each other", () => {
+    const docs = cases.find((item) => item.id === "translate-en")
+    const paper = cases.find((item) => item.id === "translate-paper-en")
+    expect(docs).toBeDefined()
+    expect(paper).toBeDefined()
+
+    expect(
+      rank(docs!, {
+        main: ["academic-translate"],
+        more: [],
+        latency_ms: 3200,
+        faithfulness: 0,
+      }).breakdown.recall_main,
+    ).toBe(0)
+
+    expect(
+      rank(paper!, {
+        main: ["rtl-document-translation"],
+        more: [],
+        latency_ms: 3200,
+        faithfulness: 0,
+      }).breakdown.recall_main,
+    ).toBe(0)
+  })
+
+  test("does not give full must-have credit to weak generic translation names", () => {
+    const query = cases.find((item) => item.id === "translate-en")
+    expect(query).toBeDefined()
+    const result = rank(query!, {
+      main: ["translator", "translation", "pdf-translator"],
+      more: [],
+      latency_ms: 3200,
+      faithfulness: 0,
+    })
+    expect(result.breakdown.recall_main).toBe(0)
+    expect(result.breakdown.precision_main).toBe(0)
   })
 })
 
@@ -69,8 +134,23 @@ describe("table", () => {
 })
 
 describe("cases", () => {
-  test("covers mixed chinese and english discovery intents across writing, automation, export, and slides", () => {
-    expect(cases.length).toBeGreaterThanOrEqual(22)
+  test("covers a detailed mixed chinese and english discovery matrix", () => {
+    expect(cases.length).toBeGreaterThanOrEqual(50)
+    expect(new Set(cases.map((item) => item.lang))).toEqual(new Set(["zh", "en"]))
+    expect(new Set(cases.map((item) => item.category))).toEqual(
+      new Set([
+        "academic_polish",
+        "translation",
+        "visualization",
+        "browser",
+        "document",
+        "slides",
+        "meta",
+        "paper_web",
+        "humanize",
+        "exact",
+      ]),
+    )
     expect(cases.map((item) => item.id)).toEqual(
       expect.arrayContaining([
         "paper-polish-zh",
@@ -95,7 +175,54 @@ describe("cases", () => {
         "pptx-en",
         "paper-web-en",
         "latex-en",
+        "plot-zh",
       ]),
     )
+  })
+})
+
+describe("subset", () => {
+  test("filters cases by language and category", () => {
+    const picked = subset({
+      lang: "zh",
+      category: ["visualization", "browser"],
+    })
+    expect(picked.length).toBeGreaterThan(0)
+    expect(new Set(picked.map((item) => item.lang))).toEqual(new Set(["zh"]))
+    expect(new Set(picked.map((item) => item.category))).toEqual(new Set(["visualization", "browser"]))
+  })
+})
+
+describe("roster", () => {
+  test("includes connected models from all providers", async () => {
+    const listSpy = spyOn(Provider, "list").mockResolvedValue({
+      opencode: {
+        id: "opencode",
+        name: "OpenCode",
+        models: {
+          "big-pickle": {
+            id: "big-pickle",
+            providerID: "opencode",
+          },
+        },
+      },
+      openrouter: {
+        id: "openrouter",
+        name: "OpenRouter",
+        models: {
+          "openai/gpt-5-chat": {
+            id: "openai/gpt-5-chat",
+            providerID: "openrouter",
+          },
+        },
+      },
+    } as any)
+
+    const rows = await roster()
+    expect(rows.map((item) => item.name)).toEqual(
+      expect.arrayContaining(["opencode/big-pickle", "openrouter/openai/gpt-5-chat"]),
+    )
+
+    listSpy.mockRestore()
   })
 })

@@ -1,6 +1,7 @@
 import { Catalog } from "./catalog"
 import { Provider } from "@/provider/provider"
 import { ModelID, ProviderID } from "@/provider/schema"
+import { work } from "@/util/queue"
 
 const pool = {
   "paper-polish": {
@@ -300,377 +301,680 @@ const pool = {
     summary_source: "skill_md" as const,
     terms: ["latex", "英文", "论文", "投稿"],
   },
+  "tex-to-md": {
+    id: "local/skills@tex-to-md",
+    name: "tex-to-md",
+    source: "local/skills",
+    rank: "semantic" as const,
+    body: "Convert LaTeX paper source into readable Markdown for review, summarization, and downstream editing.",
+    summary_source: "skill_md" as const,
+    terms: ["latex", "markdown", "论文", "转换"],
+  },
+  matlab: {
+    id: "local/skills@matlab",
+    name: "matlab",
+    source: "local/skills",
+    rank: "semantic" as const,
+    body: "MATLAB and GNU Octave numerical computing for data analysis, visualization, and scientific computing.",
+    summary_source: "skill_md" as const,
+    terms: ["科研", "可视化", "数值", "绘图"],
+  },
+  plotly: {
+    id: "local/skills@plotly",
+    name: "plotly",
+    source: "local/skills",
+    rank: "semantic" as const,
+    body: "Create scientific plotting, charting, and interactive data visualization outputs.",
+    summary_source: "skill_md" as const,
+    terms: ["科研", "绘图", "plotting", "visualization"],
+  },
+  "scientific-visualization": {
+    id: "local/skills@scientific-visualization",
+    name: "scientific-visualization",
+    source: "local/skills",
+    rank: "semantic" as const,
+    body: "Build publication-ready scientific figures, charts, and data visualizations.",
+    summary_source: "skill_md" as const,
+    terms: ["科研", "图表", "figure", "visualization"],
+  },
+  "figure-generation": {
+    id: "research/skills@figure-generation",
+    name: "figure-generation",
+    source: "research/skills",
+    rank: "semantic" as const,
+    body: "Create scientific figures, plots, and publication-ready charts for research workflows.",
+    summary_source: "skill_md" as const,
+    terms: ["科研", "figure", "plots", "charts"],
+  },
+  "motion-designer": {
+    id: "studio/skills@motion-designer",
+    name: "motion-designer",
+    source: "studio/skills",
+    rank: "semantic" as const,
+    body: "Design motion graphics and animated video specs for cinematic scenes and remotion workflows.",
+    summary_source: "skill_md" as const,
+    terms: ["motion", "graphics", "video", "animation"],
+  },
+  "natural-dialogue-techniques": {
+    id: "writer/skills@natural-dialogue-techniques",
+    name: "natural-dialogue-techniques",
+    source: "writer/skills",
+    rank: "semantic" as const,
+    body: "Provides techniques for natural dialogue that reveals character and advances plot in fiction scenes.",
+    summary_source: "skill_md" as const,
+    terms: ["dialogue", "character", "fiction", "plot"],
+  },
 } as const
 
 function pickItems(ids: Array<keyof typeof pool>) {
   return ids.map((id) => pool[id])
 }
 
+export type Lang = "zh" | "en"
+export type Category =
+  | "academic_polish"
+  | "translation"
+  | "visualization"
+  | "browser"
+  | "document"
+  | "slides"
+  | "meta"
+  | "paper_web"
+  | "humanize"
+  | "exact"
+
+export type Case = {
+  id: string
+  query: string
+  lang: Lang
+  category: Category
+  must_have: string[]
+  good_to_have: string[]
+  must_not_have: string[]
+  fixture: ReturnType<typeof pickItems>
+}
+
+const make = (input: Omit<Case, "fixture"> & { fixture: Array<keyof typeof pool> }) => ({
+  ...input,
+  fixture: pickItems(input.fixture),
+}) satisfies Case
+
+export const categories = [
+  "academic_polish",
+  "translation",
+  "visualization",
+  "browser",
+  "document",
+  "slides",
+  "meta",
+  "paper_web",
+  "humanize",
+  "exact",
+] satisfies Category[]
+
 export const cases = [
-  {
+  make({
     id: "paper-polish-zh",
     query: "找一下论文润色的skill",
+    lang: "zh",
+    category: "academic_polish",
     must_have: ["paper-polish", "professional-proofreader"],
     good_to_have: ["ai-proofreading", "copy-editing", "english-proofreading", "huashu-proofreading"],
     must_not_have: ["video-editing", "ui-ux-polish", "find-skills"],
-    fixture: pickItems([
-      "paper-polish",
-      "professional-proofreader",
-      "ai-proofreading",
-      "copy-editing",
-      "english-proofreading",
-      "huashu-proofreading",
-      "video-editing",
-      "ui-ux-polish",
-      "find-skills",
-      "code-polish",
-    ]),
-  },
-  {
-    id: "humanizer-zh",
-    query: "找一下更有人味的skill",
-    must_have: ["humanizer", "humanizer-cn", "writing-humanizer", "writing-humanizer-zh"],
-    good_to_have: ["humanize-academic-writing", "copywriting"],
-    must_not_have: ["video-editing", "paper-polish", "find-skills"],
-    fixture: pickItems([
-      "humanizer",
-      "humanizer-cn",
-      "writing-humanizer",
-      "writing-humanizer-zh",
-      "humanize-academic-writing",
-      "copywriting",
-      "paper-polish",
-      "video-editing",
-      "find-skills",
-    ]),
-  },
-  {
-    id: "updater-zh",
-    query: "找一下自动更新的skill",
-    must_have: ["skills-updater", "auto-updater", "find-skills"],
-    good_to_have: ["playwright-cli"],
-    must_not_have: ["paper-polish", "video-editing", "humanizer"],
-    fixture: pickItems([
-      "skills-updater",
-      "auto-updater",
-      "find-skills",
-      "playwright-cli",
-      "paper-polish",
-      "video-editing",
-      "humanizer",
-      "code-polish",
-    ]),
-  },
-  {
+    fixture: ["paper-polish", "professional-proofreader", "ai-proofreading", "copy-editing", "english-proofreading", "huashu-proofreading", "video-editing", "ui-ux-polish", "find-skills", "code-polish"],
+  }),
+  make({
     id: "paper-polish-en",
     query: "paper polish skill",
+    lang: "en",
+    category: "academic_polish",
     must_have: ["paper-polish", "professional-proofreader"],
     good_to_have: ["ai-proofreading", "copy-editing"],
     must_not_have: ["video-editing", "ui-ux-polish", "find-skills"],
-    fixture: pickItems([
-      "paper-polish",
-      "professional-proofreader",
-      "ai-proofreading",
-      "copy-editing",
-      "video-editing",
-      "ui-ux-polish",
-      "find-skills",
-      "code-polish",
-    ]),
-  },
-  {
+    fixture: ["paper-polish", "professional-proofreader", "ai-proofreading", "copy-editing", "video-editing", "ui-ux-polish", "find-skills", "code-polish"],
+  }),
+  make({
     id: "proofread-en",
     query: "proofread manuscript",
+    lang: "en",
+    category: "academic_polish",
     must_have: ["professional-proofreader", "english-proofreading"],
     good_to_have: ["ai-proofreading", "paper-polish", "copy-editing"],
     must_not_have: ["video-editing", "find-skills", "ui-ux-polish"],
-    fixture: pickItems([
-      "professional-proofreader",
-      "english-proofreading",
-      "ai-proofreading",
-      "paper-polish",
-      "copy-editing",
-      "video-editing",
-      "find-skills",
-      "ui-ux-polish",
-    ]),
-  },
-  {
-    id: "exact-skill",
-    query: "ai-proofreading",
-    must_have: ["ai-proofreading"],
-    good_to_have: ["english-proofreading"],
+    fixture: ["professional-proofreader", "english-proofreading", "ai-proofreading", "paper-polish", "copy-editing", "video-editing", "find-skills", "ui-ux-polish"],
+  }),
+  make({
+    id: "proofread-zh",
+    query: "帮我找个给英文稿件校对的 skill",
+    lang: "zh",
+    category: "academic_polish",
+    must_have: ["professional-proofreader", "english-proofreading"],
+    good_to_have: ["ai-proofreading", "copy-editing"],
     must_not_have: ["video-editing", "find-skills"],
-    fixture: pickItems(["ai-proofreading", "english-proofreading", "video-editing", "find-skills"]),
-  },
-  {
-    id: "humanizer-en",
-    query: "make this writing sound more human",
-    must_have: ["humanizer", "writing-humanizer"],
-    good_to_have: ["writing-rewrite", "copywriting", "humanizer-cn"],
-    must_not_have: ["video-editing", "paper-polish", "find-skills"],
-    fixture: pickItems([
-      "humanizer",
-      "writing-humanizer",
-      "writing-rewrite",
-      "copywriting",
-      "humanizer-cn",
-      "paper-polish",
-      "video-editing",
-      "find-skills",
-    ]),
-  },
-  {
-    id: "tool-search-zh",
-    query: "找一下搜索和安装skill的工具",
-    must_have: ["find-skills"],
-    good_to_have: ["skills-updater", "auto-updater"],
-    must_not_have: ["paper-polish", "video-editing", "humanizer"],
-    fixture: pickItems([
-      "find-skills",
-      "skills-updater",
-      "auto-updater",
-      "playwright-cli",
-      "paper-polish",
-      "video-editing",
-      "humanizer",
-    ]),
-  },
-  {
-    id: "translate-zh",
-    query: "找个翻译技术文档的skill",
-    must_have: ["docs-translation"],
-    good_to_have: ["paper-translation"],
-    must_not_have: ["subtitle-translation", "video-editing", "find-skills"],
-    fixture: pickItems([
-      "docs-translation",
-      "paper-translation",
-      "subtitle-translation",
-      "video-editing",
-      "find-skills",
-      "copywriting",
-    ]),
-  },
-  {
-    id: "translate-paper-zh",
-    query: "找一下翻译论文的skill",
-    must_have: ["paper-translation"],
-    good_to_have: ["docs-translation", "manuscript-review"],
-    must_not_have: ["subtitle-translation", "video-editing", "find-skills"],
-    fixture: pickItems([
-      "paper-translation",
-      "docs-translation",
-      "manuscript-review",
-      "subtitle-translation",
-      "video-editing",
-      "find-skills",
-    ]),
-  },
-  {
-    id: "translate-en",
-    query: "translate technical docs",
-    must_have: ["docs-translation"],
-    good_to_have: ["paper-translation"],
-    must_not_have: ["subtitle-translation", "video-editing", "find-skills"],
-    fixture: pickItems([
-      "docs-translation",
-      "paper-translation",
-      "subtitle-translation",
-      "video-editing",
-      "find-skills",
-      "copywriting",
-    ]),
-  },
-  {
-    id: "exact-updater",
-    query: "auto-updater",
-    must_have: ["auto-updater"],
-    good_to_have: ["skills-updater", "find-skills"],
-    must_not_have: ["paper-polish", "humanizer"],
-    fixture: pickItems([
-      "auto-updater",
-      "skills-updater",
-      "find-skills",
-      "paper-polish",
-      "humanizer",
-    ]),
-  },
-  {
-    id: "exact-humanizer-cn",
-    query: "humanizer-cn",
-    must_have: ["humanizer-cn"],
-    good_to_have: ["writing-humanizer-zh", "humanizer"],
-    must_not_have: ["paper-polish", "find-skills", "video-editing"],
-    fixture: pickItems([
-      "humanizer-cn",
-      "writing-humanizer-zh",
-      "humanizer",
-      "paper-polish",
-      "find-skills",
-      "video-editing",
-    ]),
-  },
-  {
-    id: "browser-zh",
-    query: "找个能自动操作浏览器点页面的 skill",
-    must_have: ["playwright-cli"],
-    good_to_have: [],
-    must_not_have: ["paper-polish", "md-to-pdf", "revealjs"],
-    fixture: pickItems([
-      "playwright-cli",
-      "find-skills",
-      "paper-polish",
-      "md-to-pdf",
-      "revealjs",
-      "code-polish",
-    ]),
-  },
-  {
-    id: "browser-en",
-    query: "browser automation cli",
-    must_have: ["playwright-cli"],
-    good_to_have: [],
-    must_not_have: ["paper-polish", "pptx-generator", "find-skills"],
-    fixture: pickItems([
-      "playwright-cli",
-      "find-skills",
-      "paper-polish",
-      "pptx-generator",
-      "md-to-pdf",
-      "code-polish",
-    ]),
-  },
-  {
-    id: "exact-playwright",
-    query: "playwright-cli",
-    must_have: ["playwright-cli"],
-    good_to_have: [],
-    must_not_have: ["paper-polish", "md-to-pdf", "find-skills"],
-    fixture: pickItems([
-      "playwright-cli",
-      "find-skills",
-      "paper-polish",
-      "md-to-pdf",
-      "pptx-generator",
-    ]),
-  },
-  {
-    id: "pdf-zh",
-    query: "把 markdown 导出成 pdf 的 skill",
-    must_have: ["md-to-pdf"],
-    good_to_have: ["pandoc", "minimax-pdf"],
-    must_not_have: ["revealjs", "pptx-generator", "find-skills"],
-    fixture: pickItems([
-      "md-to-pdf",
-      "pandoc",
-      "minimax-pdf",
-      "revealjs",
-      "pptx-generator",
-      "find-skills",
-      "playwright-cli",
-    ]),
-  },
-  {
-    id: "pdf-en",
-    query: "convert markdown to pdf",
-    must_have: ["md-to-pdf"],
-    good_to_have: ["pandoc", "minimax-pdf"],
-    must_not_have: ["revealjs", "pptx-generator", "find-skills"],
-    fixture: pickItems([
-      "md-to-pdf",
-      "pandoc",
-      "minimax-pdf",
-      "revealjs",
-      "pptx-generator",
-      "find-skills",
-      "playwright-cli",
-    ]),
-  },
-  {
-    id: "slides-zh",
-    query: "找个做 html 幻灯片的 skill",
-    must_have: ["frontend-slides", "revealjs"],
-    good_to_have: ["scientific-slides", "pptx-generator"],
-    must_not_have: ["md-to-pdf", "paper-polish", "find-skills"],
-    fixture: pickItems([
-      "frontend-slides",
-      "revealjs",
-      "scientific-slides",
-      "pptx-generator",
-      "paper-2-web",
-      "md-to-pdf",
-      "paper-polish",
-      "find-skills",
-    ]),
-  },
-  {
-    id: "slides-en",
-    query: "build interactive slides",
-    must_have: ["frontend-slides", "revealjs"],
-    good_to_have: ["scientific-slides", "pptx-generator"],
-    must_not_have: ["md-to-pdf", "paper-polish", "find-skills"],
-    fixture: pickItems([
-      "frontend-slides",
-      "revealjs",
-      "scientific-slides",
-      "pptx-generator",
-      "paper-2-web",
-      "md-to-pdf",
-      "paper-polish",
-      "find-skills",
-    ]),
-  },
-  {
-    id: "pptx-en",
-    query: "generate powerpoint deck",
-    must_have: ["pptx-generator"],
-    good_to_have: ["scientific-slides", "frontend-slides"],
-    must_not_have: ["md-to-pdf", "paper-polish", "find-skills"],
-    fixture: pickItems([
-      "pptx-generator",
-      "scientific-slides",
-      "frontend-slides",
-      "revealjs",
-      "md-to-pdf",
-      "paper-polish",
-      "find-skills",
-    ]),
-  },
-  {
-    id: "paper-web-en",
-    query: "turn a paper into a website",
-    must_have: ["paper-2-web"],
-    good_to_have: ["frontend-slides", "revealjs"],
-    must_not_have: ["md-to-pdf", "humanizer", "find-skills"],
-    fixture: pickItems([
-      "paper-2-web",
-      "frontend-slides",
-      "revealjs",
-      "scientific-slides",
-      "md-to-pdf",
-      "humanizer",
-      "find-skills",
-    ]),
-  },
-  {
+    fixture: ["professional-proofreader", "english-proofreading", "ai-proofreading", "copy-editing", "paper-polish", "find-skills"],
+  }),
+  make({
+    id: "abstract-polish-en",
+    query: "polish my paper abstract",
+    lang: "en",
+    category: "academic_polish",
+    must_have: ["paper-polish", "professional-proofreader"],
+    good_to_have: ["ai-proofreading", "manuscript-review"],
+    must_not_have: ["video-editing", "find-skills"],
+    fixture: ["paper-polish", "professional-proofreader", "ai-proofreading", "manuscript-review", "copy-editing", "find-skills"],
+  }),
+  make({
+    id: "journal-polish-zh",
+    query: "投稿前润色英文论文",
+    lang: "zh",
+    category: "academic_polish",
+    must_have: ["paper-polish", "professional-proofreader"],
+    good_to_have: ["english-proofreading", "latex-paper-en"],
+    must_not_have: ["video-editing", "find-skills"],
+    fixture: ["paper-polish", "professional-proofreader", "english-proofreading", "latex-paper-en", "copy-editing", "find-skills"],
+  }),
+  make({
     id: "latex-en",
     query: "improve an english latex paper",
+    lang: "en",
+    category: "academic_polish",
     must_have: ["latex-paper-en"],
     good_to_have: ["paper-polish", "professional-proofreader"],
     must_not_have: ["md-to-pdf", "revealjs", "find-skills"],
-    fixture: pickItems([
-      "latex-paper-en",
-      "paper-polish",
-      "professional-proofreader",
-      "ai-proofreading",
-      "md-to-pdf",
-      "revealjs",
-      "find-skills",
-    ]),
-  },
-] as const
+    fixture: ["latex-paper-en", "paper-polish", "professional-proofreader", "ai-proofreading", "md-to-pdf", "revealjs", "find-skills"],
+  }),
+  make({
+    id: "latex-exact-en",
+    query: "latex-paper-en",
+    lang: "en",
+    category: "exact",
+    must_have: ["latex-paper-en"],
+    good_to_have: ["paper-polish"],
+    must_not_have: ["find-skills", "revealjs"],
+    fixture: ["latex-paper-en", "paper-polish", "find-skills", "revealjs"],
+  }),
+  make({
+    id: "humanizer-zh",
+    query: "找一下更有人味的skill",
+    lang: "zh",
+    category: "humanize",
+    must_have: ["humanizer", "humanizer-cn", "writing-humanizer", "writing-humanizer-zh"],
+    good_to_have: ["humanize-academic-writing", "copywriting"],
+    must_not_have: ["video-editing", "paper-polish", "find-skills"],
+    fixture: ["humanizer", "humanizer-cn", "writing-humanizer", "writing-humanizer-zh", "humanize-academic-writing", "copywriting", "paper-polish", "video-editing", "find-skills"],
+  }),
+  make({
+    id: "humanizer-en",
+    query: "make this writing sound more human",
+    lang: "en",
+    category: "humanize",
+    must_have: ["humanizer", "writing-humanizer"],
+    good_to_have: ["writing-rewrite", "copywriting", "humanizer-cn"],
+    must_not_have: ["video-editing", "paper-polish", "find-skills"],
+    fixture: ["humanizer", "writing-humanizer", "writing-rewrite", "copywriting", "humanizer-cn", "paper-polish", "video-editing", "find-skills"],
+  }),
+  make({
+    id: "exact-humanizer-cn",
+    query: "humanizer-cn",
+    lang: "zh",
+    category: "exact",
+    must_have: ["humanizer-cn"],
+    good_to_have: ["writing-humanizer-zh", "humanizer"],
+    must_not_have: ["paper-polish", "find-skills", "video-editing"],
+    fixture: ["humanizer-cn", "writing-humanizer-zh", "humanizer", "paper-polish", "find-skills", "video-editing"],
+  }),
+  make({
+    id: "academic-humanize-zh",
+    query: "把学术写作改得更自然一些",
+    lang: "zh",
+    category: "humanize",
+    must_have: ["humanize-academic-writing"],
+    good_to_have: ["humanizer", "writing-humanizer"],
+    must_not_have: ["paper-polish", "find-skills", "video-editing"],
+    fixture: ["humanize-academic-writing", "humanizer", "writing-humanizer", "writing-rewrite", "paper-polish", "find-skills"],
+  }),
+  make({
+    id: "academic-humanize-en",
+    query: "humanize academic writing",
+    lang: "en",
+    category: "humanize",
+    must_have: ["humanize-academic-writing"],
+    good_to_have: ["humanizer", "writing-humanizer"],
+    must_not_have: ["video-editing", "find-skills"],
+    fixture: ["humanize-academic-writing", "humanizer", "writing-humanizer", "writing-rewrite", "paper-polish", "find-skills"],
+  }),
+  make({
+    id: "translate-zh",
+    query: "找个翻译技术文档的skill",
+    lang: "zh",
+    category: "translation",
+    must_have: ["docs-translation"],
+    good_to_have: ["paper-translation"],
+    must_not_have: ["subtitle-translation", "video-editing", "find-skills"],
+    fixture: ["docs-translation", "paper-translation", "subtitle-translation", "video-editing", "find-skills", "copywriting"],
+  }),
+  make({
+    id: "translate-en",
+    query: "translate technical docs",
+    lang: "en",
+    category: "translation",
+    must_have: ["docs-translation"],
+    good_to_have: ["paper-translation"],
+    must_not_have: ["subtitle-translation", "video-editing", "find-skills"],
+    fixture: ["docs-translation", "paper-translation", "subtitle-translation", "video-editing", "find-skills", "copywriting"],
+  }),
+  make({
+    id: "translate-paper-zh",
+    query: "找一下翻译论文的skill",
+    lang: "zh",
+    category: "translation",
+    must_have: ["paper-translation"],
+    good_to_have: ["docs-translation", "manuscript-review"],
+    must_not_have: ["subtitle-translation", "video-editing", "find-skills"],
+    fixture: ["paper-translation", "docs-translation", "manuscript-review", "subtitle-translation", "video-editing", "find-skills"],
+  }),
+  make({
+    id: "translate-paper-en",
+    query: "translate an academic manuscript",
+    lang: "en",
+    category: "translation",
+    must_have: ["paper-translation"],
+    good_to_have: ["docs-translation"],
+    must_not_have: ["subtitle-translation", "find-skills"],
+    fixture: ["paper-translation", "docs-translation", "manuscript-review", "subtitle-translation", "find-skills"],
+  }),
+  make({
+    id: "translate-abstract-en",
+    query: "translate my paper abstract to english",
+    lang: "en",
+    category: "translation",
+    must_have: ["paper-translation"],
+    good_to_have: ["docs-translation"],
+    must_not_have: ["subtitle-translation", "find-skills"],
+    fixture: ["paper-translation", "docs-translation", "subtitle-translation", "find-skills"],
+  }),
+  make({
+    id: "docs-localize-zh",
+    query: "把 API 文档翻译成本地化中文",
+    lang: "zh",
+    category: "translation",
+    must_have: ["docs-translation"],
+    good_to_have: ["paper-translation"],
+    must_not_have: ["subtitle-translation", "find-skills"],
+    fixture: ["docs-translation", "paper-translation", "subtitle-translation", "find-skills"],
+  }),
+  make({
+    id: "pdf-zh",
+    query: "把 markdown 导出成 pdf 的 skill",
+    lang: "zh",
+    category: "document",
+    must_have: ["md-to-pdf"],
+    good_to_have: ["pandoc", "minimax-pdf"],
+    must_not_have: ["revealjs", "pptx-generator", "find-skills"],
+    fixture: ["md-to-pdf", "pandoc", "minimax-pdf", "revealjs", "pptx-generator", "find-skills", "playwright-cli"],
+  }),
+  make({
+    id: "pdf-en",
+    query: "convert markdown to pdf",
+    lang: "en",
+    category: "document",
+    must_have: ["md-to-pdf"],
+    good_to_have: ["pandoc", "minimax-pdf"],
+    must_not_have: ["revealjs", "pptx-generator", "find-skills"],
+    fixture: ["md-to-pdf", "pandoc", "minimax-pdf", "revealjs", "pptx-generator", "find-skills", "playwright-cli"],
+  }),
+  make({
+    id: "tex-to-md-zh",
+    query: "把 latex 论文转成 markdown",
+    lang: "zh",
+    category: "document",
+    must_have: ["tex-to-md"],
+    good_to_have: ["pandoc"],
+    must_not_have: ["find-skills", "revealjs"],
+    fixture: ["tex-to-md", "pandoc", "latex-paper-en", "find-skills", "revealjs"],
+  }),
+  make({
+    id: "tex-to-md-en",
+    query: "convert latex paper to markdown",
+    lang: "en",
+    category: "document",
+    must_have: ["tex-to-md"],
+    good_to_have: ["pandoc"],
+    must_not_have: ["find-skills", "revealjs"],
+    fixture: ["tex-to-md", "pandoc", "latex-paper-en", "find-skills", "revealjs"],
+  }),
+  make({
+    id: "pandoc-docx-en",
+    query: "convert markdown to docx",
+    lang: "en",
+    category: "document",
+    must_have: ["pandoc"],
+    good_to_have: ["md-to-pdf"],
+    must_not_have: ["find-skills", "revealjs"],
+    fixture: ["pandoc", "md-to-pdf", "minimax-pdf", "find-skills", "revealjs"],
+  }),
+  make({
+    id: "document-convert-en",
+    query: "document conversion skill",
+    lang: "en",
+    category: "document",
+    must_have: ["pandoc", "tex-to-md"],
+    good_to_have: ["md-to-pdf"],
+    must_not_have: ["find-skills", "revealjs"],
+    fixture: ["pandoc", "tex-to-md", "md-to-pdf", "minimax-pdf", "find-skills", "revealjs"],
+  }),
+  make({
+    id: "exact-md-to-pdf",
+    query: "md-to-pdf",
+    lang: "en",
+    category: "exact",
+    must_have: ["md-to-pdf"],
+    good_to_have: ["pandoc"],
+    must_not_have: ["find-skills", "revealjs"],
+    fixture: ["md-to-pdf", "pandoc", "minimax-pdf", "find-skills", "revealjs"],
+  }),
+  make({
+    id: "slides-zh",
+    query: "找个做 html 幻灯片的 skill",
+    lang: "zh",
+    category: "slides",
+    must_have: ["frontend-slides", "revealjs"],
+    good_to_have: ["scientific-slides", "pptx-generator"],
+    must_not_have: ["md-to-pdf", "paper-polish", "find-skills"],
+    fixture: ["frontend-slides", "revealjs", "scientific-slides", "pptx-generator", "paper-2-web", "md-to-pdf", "paper-polish", "find-skills"],
+  }),
+  make({
+    id: "slides-en",
+    query: "build interactive slides",
+    lang: "en",
+    category: "slides",
+    must_have: ["frontend-slides", "revealjs"],
+    good_to_have: ["scientific-slides", "pptx-generator"],
+    must_not_have: ["md-to-pdf", "paper-polish", "find-skills"],
+    fixture: ["frontend-slides", "revealjs", "scientific-slides", "pptx-generator", "paper-2-web", "md-to-pdf", "paper-polish", "find-skills"],
+  }),
+  make({
+    id: "pptx-en",
+    query: "generate powerpoint deck",
+    lang: "en",
+    category: "slides",
+    must_have: ["pptx-generator"],
+    good_to_have: ["scientific-slides", "frontend-slides"],
+    must_not_have: ["md-to-pdf", "paper-polish", "find-skills"],
+    fixture: ["pptx-generator", "scientific-slides", "frontend-slides", "revealjs", "md-to-pdf", "paper-polish", "find-skills"],
+  }),
+  make({
+    id: "powerpoint-zh",
+    query: "生成 powerpoint 幻灯片",
+    lang: "zh",
+    category: "slides",
+    must_have: ["pptx-generator"],
+    good_to_have: ["scientific-slides", "frontend-slides"],
+    must_not_have: ["find-skills", "paper-polish"],
+    fixture: ["pptx-generator", "scientific-slides", "frontend-slides", "revealjs", "find-skills", "paper-polish"],
+  }),
+  make({
+    id: "slides-research-zh",
+    query: "做科研汇报 slides",
+    lang: "zh",
+    category: "slides",
+    must_have: ["scientific-slides"],
+    good_to_have: ["frontend-slides", "revealjs"],
+    must_not_have: ["md-to-pdf", "find-skills"],
+    fixture: ["scientific-slides", "frontend-slides", "revealjs", "pptx-generator", "md-to-pdf", "find-skills"],
+  }),
+  make({
+    id: "slides-conference-en",
+    query: "conference presentation slides",
+    lang: "en",
+    category: "slides",
+    must_have: ["scientific-slides"],
+    good_to_have: ["frontend-slides", "revealjs", "pptx-generator"],
+    must_not_have: ["find-skills", "md-to-pdf"],
+    fixture: ["scientific-slides", "frontend-slides", "revealjs", "pptx-generator", "find-skills", "md-to-pdf"],
+  }),
+  make({
+    id: "exact-revealjs",
+    query: "revealjs",
+    lang: "en",
+    category: "exact",
+    must_have: ["revealjs"],
+    good_to_have: ["frontend-slides"],
+    must_not_have: ["find-skills", "md-to-pdf"],
+    fixture: ["revealjs", "frontend-slides", "pptx-generator", "find-skills", "md-to-pdf"],
+  }),
+  make({
+    id: "paper-web-en",
+    query: "turn a paper into a website",
+    lang: "en",
+    category: "paper_web",
+    must_have: ["paper-2-web"],
+    good_to_have: ["frontend-slides", "revealjs"],
+    must_not_have: ["md-to-pdf", "humanizer", "find-skills"],
+    fixture: ["paper-2-web", "frontend-slides", "revealjs", "scientific-slides", "md-to-pdf", "humanizer", "find-skills"],
+  }),
+  make({
+    id: "paper-web-zh",
+    query: "把论文做成网站",
+    lang: "zh",
+    category: "paper_web",
+    must_have: ["paper-2-web"],
+    good_to_have: ["frontend-slides", "revealjs"],
+    must_not_have: ["humanizer", "find-skills"],
+    fixture: ["paper-2-web", "frontend-slides", "revealjs", "scientific-slides", "humanizer", "find-skills"],
+  }),
+  make({
+    id: "poster-from-paper-en",
+    query: "make a poster from a paper",
+    lang: "en",
+    category: "paper_web",
+    must_have: ["paper-2-web"],
+    good_to_have: ["scientific-slides", "frontend-slides"],
+    must_not_have: ["humanizer", "find-skills"],
+    fixture: ["paper-2-web", "scientific-slides", "frontend-slides", "revealjs", "humanizer", "find-skills"],
+  }),
+  make({
+    id: "plot-zh",
+    query: "科研绘图",
+    lang: "zh",
+    category: "visualization",
+    must_have: ["plotly", "scientific-visualization"],
+    good_to_have: ["figure-generation", "matlab"],
+    must_not_have: ["paper-polish", "find-skills", "humanizer"],
+    fixture: ["plotly", "scientific-visualization", "figure-generation", "matlab", "paper-polish", "find-skills", "humanizer"],
+  }),
+  make({
+    id: "plot-en",
+    query: "scientific plotting skill",
+    lang: "en",
+    category: "visualization",
+    must_have: ["plotly", "scientific-visualization"],
+    good_to_have: ["figure-generation", "matlab"],
+    must_not_have: ["motion-designer", "natural-dialogue-techniques", "find-skills"],
+    fixture: ["plotly", "scientific-visualization", "figure-generation", "matlab", "motion-designer", "natural-dialogue-techniques", "find-skills"],
+  }),
+  make({
+    id: "figure-en",
+    query: "publication figure generator",
+    lang: "en",
+    category: "visualization",
+    must_have: ["scientific-visualization", "figure-generation"],
+    good_to_have: ["plotly"],
+    must_not_have: ["motion-designer", "natural-dialogue-techniques", "find-skills"],
+    fixture: ["scientific-visualization", "figure-generation", "plotly", "motion-designer", "natural-dialogue-techniques", "find-skills"],
+  }),
+  make({
+    id: "chart-zh",
+    query: "科研图表可视化",
+    lang: "zh",
+    category: "visualization",
+    must_have: ["scientific-visualization", "plotly"],
+    good_to_have: ["figure-generation", "matlab"],
+    must_not_have: ["motion-designer", "natural-dialogue-techniques", "find-skills"],
+    fixture: ["scientific-visualization", "plotly", "figure-generation", "matlab", "motion-designer", "natural-dialogue-techniques", "find-skills"],
+  }),
+  make({
+    id: "publication-figure-zh",
+    query: "做投稿论文图",
+    lang: "zh",
+    category: "visualization",
+    must_have: ["scientific-visualization", "figure-generation"],
+    good_to_have: ["plotly"],
+    must_not_have: ["latex-paper-en", "tex-to-md", "find-skills"],
+    fixture: ["scientific-visualization", "figure-generation", "plotly", "latex-paper-en", "tex-to-md", "find-skills"],
+  }),
+  make({
+    id: "motion-graphics-trap-en",
+    query: "scientific plots for a paper",
+    lang: "en",
+    category: "visualization",
+    must_have: ["scientific-visualization", "plotly"],
+    good_to_have: ["figure-generation"],
+    must_not_have: ["motion-designer", "find-skills"],
+    fixture: ["scientific-visualization", "plotly", "figure-generation", "motion-designer", "find-skills"],
+  }),
+  make({
+    id: "story-plot-trap-en",
+    query: "research data plot",
+    lang: "en",
+    category: "visualization",
+    must_have: ["plotly", "scientific-visualization"],
+    good_to_have: ["figure-generation"],
+    must_not_have: ["natural-dialogue-techniques", "find-skills"],
+    fixture: ["plotly", "scientific-visualization", "figure-generation", "natural-dialogue-techniques", "find-skills"],
+  }),
+  make({
+    id: "exact-plotly",
+    query: "plotly",
+    lang: "en",
+    category: "exact",
+    must_have: ["plotly"],
+    good_to_have: ["scientific-visualization"],
+    must_not_have: ["find-skills", "motion-designer"],
+    fixture: ["plotly", "scientific-visualization", "figure-generation", "find-skills", "motion-designer"],
+  }),
+  make({
+    id: "browser-zh",
+    query: "找个能自动操作浏览器点页面的 skill",
+    lang: "zh",
+    category: "browser",
+    must_have: ["playwright-cli"],
+    good_to_have: [],
+    must_not_have: ["paper-polish", "md-to-pdf", "revealjs"],
+    fixture: ["playwright-cli", "find-skills", "paper-polish", "md-to-pdf", "revealjs", "code-polish"],
+  }),
+  make({
+    id: "browser-en",
+    query: "browser automation cli",
+    lang: "en",
+    category: "browser",
+    must_have: ["playwright-cli"],
+    good_to_have: [],
+    must_not_have: ["paper-polish", "pptx-generator", "find-skills"],
+    fixture: ["playwright-cli", "find-skills", "paper-polish", "pptx-generator", "md-to-pdf", "code-polish"],
+  }),
+  make({
+    id: "exact-playwright",
+    query: "playwright-cli",
+    lang: "en",
+    category: "exact",
+    must_have: ["playwright-cli"],
+    good_to_have: [],
+    must_not_have: ["paper-polish", "md-to-pdf", "find-skills"],
+    fixture: ["playwright-cli", "find-skills", "paper-polish", "md-to-pdf", "pptx-generator"],
+  }),
+  make({
+    id: "browser-click-en",
+    query: "click through a website automatically",
+    lang: "en",
+    category: "browser",
+    must_have: ["playwright-cli"],
+    good_to_have: [],
+    must_not_have: ["paper-polish", "find-skills"],
+    fixture: ["playwright-cli", "find-skills", "paper-polish", "md-to-pdf", "revealjs"],
+  }),
+  make({
+    id: "browser-inspect-zh",
+    query: "自动检查网页元素和交互",
+    lang: "zh",
+    category: "browser",
+    must_have: ["playwright-cli"],
+    good_to_have: [],
+    must_not_have: ["paper-polish", "find-skills"],
+    fixture: ["playwright-cli", "find-skills", "paper-polish", "md-to-pdf", "revealjs"],
+  }),
+  make({
+    id: "browser-e2e-en",
+    query: "run an end to end browser check",
+    lang: "en",
+    category: "browser",
+    must_have: ["playwright-cli"],
+    good_to_have: [],
+    must_not_have: ["paper-polish", "find-skills"],
+    fixture: ["playwright-cli", "find-skills", "paper-polish", "md-to-pdf", "pptx-generator"],
+  }),
+  make({
+    id: "updater-zh",
+    query: "找一下自动更新的skill",
+    lang: "zh",
+    category: "meta",
+    must_have: ["skills-updater", "auto-updater", "find-skills"],
+    good_to_have: ["playwright-cli"],
+    must_not_have: ["paper-polish", "video-editing", "humanizer"],
+    fixture: ["skills-updater", "auto-updater", "find-skills", "playwright-cli", "paper-polish", "video-editing", "humanizer", "code-polish"],
+  }),
+  make({
+    id: "exact-updater",
+    query: "auto-updater",
+    lang: "en",
+    category: "exact",
+    must_have: ["auto-updater"],
+    good_to_have: ["skills-updater", "find-skills"],
+    must_not_have: ["paper-polish", "humanizer"],
+    fixture: ["auto-updater", "skills-updater", "find-skills", "paper-polish", "humanizer"],
+  }),
+  make({
+    id: "tool-search-zh",
+    query: "找一下搜索和安装skill的工具",
+    lang: "zh",
+    category: "meta",
+    must_have: ["find-skills"],
+    good_to_have: ["skills-updater", "auto-updater"],
+    must_not_have: ["paper-polish", "video-editing", "humanizer"],
+    fixture: ["find-skills", "skills-updater", "auto-updater", "playwright-cli", "paper-polish", "video-editing", "humanizer"],
+  }),
+  make({
+    id: "meta-find-en",
+    query: "find a skill discovery tool",
+    lang: "en",
+    category: "meta",
+    must_have: ["find-skills"],
+    good_to_have: ["skills-updater", "auto-updater"],
+    must_not_have: ["paper-polish", "humanizer"],
+    fixture: ["find-skills", "skills-updater", "auto-updater", "playwright-cli", "paper-polish", "humanizer"],
+  }),
+  make({
+    id: "meta-update-en",
+    query: "update installed skills",
+    lang: "en",
+    category: "meta",
+    must_have: ["skills-updater", "auto-updater"],
+    good_to_have: ["find-skills"],
+    must_not_have: ["paper-polish", "humanizer"],
+    fixture: ["skills-updater", "auto-updater", "find-skills", "paper-polish", "humanizer"],
+  }),
+  make({
+    id: "meta-install-zh",
+    query: "安装和发现 skill 的工具",
+    lang: "zh",
+    category: "meta",
+    must_have: ["find-skills"],
+    good_to_have: ["skills-updater", "auto-updater"],
+    must_not_have: ["paper-polish", "humanizer"],
+    fixture: ["find-skills", "skills-updater", "auto-updater", "playwright-cli", "paper-polish", "humanizer"],
+  }),
+] satisfies Case[]
 
-type Case = (typeof cases)[number]
 type Mode = "rerank" | "live" | "both"
 type Score = {
   model: string
@@ -690,28 +994,41 @@ type Run = {
   more: string[]
   latency_ms: number
   faithfulness: number
+  error?: string
 }
 
 type Detail = {
   id: string
   query: string
+  lang: Lang
+  category: Category
   run: Run[]
   total: number
   breakdown: Score["breakdown"]
+  error?: string
 }
 
-type Row = Score & { avg_latency_ms: number }
+type Row = Score & {
+  avg_latency_ms: number
+  categories: Record<Category, number>
+}
 type Report = {
   mode: Exclude<Mode, "both">
+  models: string[]
   rows: Row[]
+  categories: Array<{ category: Category; winner?: string; score: number }>
   markdown: string
   winner?: string
   fail_examples: Array<{
     model: string
     case: string
+    category: Category
+    lang: Lang
+    reason: "wrong_main_result" | "must_have_missed" | "false_positive_main" | "low_faithfulness_summary" | "provider_error" | "timeout"
     main: string[]
     more: string[]
     total: number
+    error?: string
   }>
 }
 
@@ -740,18 +1057,48 @@ function faith(input: Case, main: Array<{ name: string; summary_zh?: string }>) 
   return hit / rows.length
 }
 
+const equiv = {
+  "docs-translation": new Set([
+    "docs-translation",
+    "rtl-document-translation",
+    "sync-translations",
+    "doc-i18n",
+    "i18n-localization",
+    "localization-l10n",
+  ]),
+  "paper-translation": new Set([
+    "paper-translation",
+    "academic-translate",
+    "arxiv-paper-translator",
+    "article-translator",
+  ]),
+} as const
+
+function canon(input: Case, name: string) {
+  if (input.category !== "translation") return name
+  for (const [key, values] of Object.entries(equiv)) {
+    if (values.has(name as never)) return key
+  }
+  return name
+}
+
+function uniq(input: Case, names: string[]) {
+  return [...new Set(names.map((name) => canon(input, name)))]
+}
+
 export function rank(input: Case, run: Run) {
-  const good = new Set<string>([...input.must_have, ...input.good_to_have])
-  const bad = new Set<string>(input.must_not_have)
-  const main = new Set(run.main)
-  const more = new Set(run.more)
-  const hit = run.main.filter((item) => good.has(item)).length
-  const blocked = run.main.filter((item) => bad.has(item)).length
-  const need = input.must_have.filter((item) => main.has(item)).length
-  const extra = [...more].filter((item) => good.has(item)).length
-  const precision_main = points(run.main.length ? hit / run.main.length : 0, 40)
-  const must_not_penalty = points(run.main.length ? 1 - blocked / run.main.length : 1, 20)
-  const recall_main = points(input.must_have.length ? need / input.must_have.length : 1, 15)
+  const good = new Set<string>(uniq(input, [...input.must_have, ...input.good_to_have]))
+  const bad = new Set<string>(uniq(input, input.must_not_have))
+  const main = uniq(input, run.main)
+  const more = uniq(input, run.more)
+  const need = uniq(input, input.must_have)
+  const hit = main.filter((item) => good.has(item)).length
+  const blocked = main.filter((item) => bad.has(item)).length
+  const found = need.filter((item) => main.includes(item)).length
+  const extra = more.filter((item) => good.has(item)).length
+  const precision_main = points(main.length ? hit / main.length : 0, 40)
+  const must_not_penalty = points(main.length ? 1 - blocked / main.length : 1, 20)
+  const recall_main = points(need.length ? found / need.length : 1, 15)
   const summary_faithfulness = points(run.faithfulness, 15)
   const latency = run.latency_ms <= 4_000 ? 5 : run.latency_ms <= 7_000 ? 3 : run.latency_ms <= 10_000 ? 1 : 0
   const stability = points(extra ? Math.min(1, 0.6 + extra / Math.max(1, input.good_to_have.length + input.must_have.length)) : 0.6, 5)
@@ -786,15 +1133,57 @@ function print(input: { providerID: ProviderID; modelID: ModelID }) {
   return `${input.providerID}/${input.modelID}`
 }
 
-async function models() {
+export function subset(input?: { category?: Category[]; lang?: Lang | "both" }) {
+  return cases.filter((item) => {
+    if (input?.lang && input.lang !== "both" && item.lang !== input.lang) return false
+    if (input?.category?.length && !input.category.includes(item.category)) return false
+    return true
+  })
+}
+
+export async function roster(input?: { models?: string[] }) {
+  const picked = input?.models?.map(parse).filter((item): item is NonNullable<typeof item> => !!item)
+  if (picked?.length) {
+    return picked
+      .map((item) => ({ ...item, name: print(item) }))
+      .toSorted((a, b) => a.name.localeCompare(b.name))
+  }
   const providers = await Provider.list()
   return Object.values(providers)
-    .filter((item) => item.id === "opencode")
     .flatMap((item) => Object.values(item.models))
     .map((item) => ({
       providerID: item.providerID,
       modelID: ModelID.make(item.id),
+      name: print({
+        providerID: item.providerID,
+        modelID: ModelID.make(item.id),
+      }),
     }))
+    .toSorted((a, b) => a.name.localeCompare(b.name))
+}
+
+function reason(input: Detail): Report["fail_examples"][number]["reason"] {
+  if (input.error) return input.error.includes("timeout") ? "timeout" : "provider_error"
+  if (input.breakdown.must_not_penalty < 20) return "false_positive_main"
+  if (input.breakdown.recall_main < 15) return "must_have_missed"
+  if (input.breakdown.summary_faithfulness < 15) return "low_faithfulness_summary"
+  return "wrong_main_result"
+}
+
+function summary(rows: Array<Row & { detail: Detail[] }>, active: Category[]) {
+  return active.map((category) => {
+    const picked = rows
+      .map((item) => ({
+        model: item.model,
+        score: item.categories[category] ?? 0,
+      }))
+      .toSorted((a, b) => b.score - a.score)
+    return {
+      category,
+      winner: picked[0]?.model,
+      score: picked[0]?.score ?? 0,
+    }
+  })
 }
 
 function markdown(mode: Exclude<Mode, "both">, input: Row[]) {
@@ -803,21 +1192,21 @@ function markdown(mode: Exclude<Mode, "both">, input: Row[]) {
     "",
     "| Rank | Model | Total | Precision | Must-Not | Recall | Faithful | Latency | Stability | Avg ms |",
     "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
-    ...input.map((item, idx) =>
-      [
-        `| ${idx + 1}`,
-        item.model,
-        item.total.toFixed(2),
-        item.breakdown.precision_main.toFixed(2),
-        item.breakdown.must_not_penalty.toFixed(2),
-        item.breakdown.recall_main.toFixed(2),
-        item.breakdown.summary_faithfulness.toFixed(2),
-        item.breakdown.latency.toFixed(2),
-        item.breakdown.stability.toFixed(2),
-        item.avg_latency_ms.toFixed(0),
-        "|",
-      ].join(" "),
+    ...input.map(
+      (item, idx) =>
+        `| ${idx + 1} | ${item.model} | ${item.total.toFixed(2)} | ${item.breakdown.precision_main.toFixed(2)} | ${item.breakdown.must_not_penalty.toFixed(2)} | ${item.breakdown.recall_main.toFixed(2)} | ${item.breakdown.summary_faithfulness.toFixed(2)} | ${item.breakdown.latency.toFixed(2)} | ${item.breakdown.stability.toFixed(2)} | ${item.avg_latency_ms.toFixed(0)} |`,
     ),
+  ].join("\n")
+}
+
+function note(input: Array<{ category: Category; winner?: string; score: number }>) {
+  return [
+    "",
+    "### Category Winners",
+    "",
+    "| Category | Winner | Score |",
+    "| --- | --- | ---: |",
+    ...input.map((item) => `| ${item.category} | ${item.winner ?? "-"} | ${item.score.toFixed(2)} |`),
   ].join("\n")
 }
 
@@ -827,6 +1216,7 @@ function fail(score: Array<Row & { detail: Detail[] }>) {
       item.detail
         .filter(
           (row) =>
+            !!row.error ||
             row.total < 100 ||
             row.breakdown.precision_main < 40 ||
             row.breakdown.must_not_penalty < 20 ||
@@ -836,75 +1226,107 @@ function fail(score: Array<Row & { detail: Detail[] }>) {
         .map((row) => ({
           model: item.model,
           case: row.id,
+          category: row.category,
+          lang: row.lang,
+          reason: reason(row),
           main: row.run[0]?.main ?? [],
           more: row.run[0]?.more ?? [],
           total: row.total,
+          error: row.error,
         })),
     )
     .toSorted((a, b) => a.total - b.total)
     .slice(0, 15)
 }
 
-async function probe(input: Case, model: { providerID: ProviderID; modelID: ModelID }, mode: Exclude<Mode, "both">) {
-  if (mode === "live") {
-    const out = await Catalog.search({ query: input.query, semantic: true }, model)
-    return {
-      main: out.main.map((row) => row.name),
-      more: out.more.map((row) => row.name),
-      latency_ms: out.meta.latency_ms ?? 0,
-      faithfulness: faith(input, out.main.map((row) => ({ name: row.name, summary_zh: row.summary_zh }))),
-    }
-  }
-
-  const out = await Catalog.bench(
-    {
-      query: input.query,
-      items: input.fixture.map((item) => ({
-        id: item.id,
-        name: item.name,
-        source: item.source,
-        rank: item.rank,
-        body: item.body,
-        summary_source: item.summary_source,
-      })),
-    },
-    model,
-  )
-  return {
-    main: out.main.map((row) => row.name),
-    more: out.more.map((row) => row.name),
-    latency_ms: out.meta.latency_ms ?? 0,
-    faithfulness: faith(input, out.main.map((row) => ({ name: row.name, summary_zh: row.summary_zh }))),
-  }
+function issues(input: Report["fail_examples"]) {
+  if (input.length === 0) return ""
+  return [
+    "",
+    "### Worst Failing Cases",
+    "",
+    "| Model | Case | Category | Lang | Reason | Total | Main |",
+    "| --- | --- | --- | --- | --- | ---: | --- |",
+    ...input.map(
+      (item) =>
+        `| ${item.model} | ${item.case} | ${item.category} | ${item.lang} | ${item.reason} | ${item.total.toFixed(2)} | ${item.main.join(", ") || "-"} |`,
+    ),
+  ].join("\n")
 }
 
-async function one(mode: Exclude<Mode, "both">, input?: { models?: string[]; runs?: number }) {
-  const list = (input?.models?.map(parse).filter((item): item is NonNullable<typeof item> => !!item) ?? await models())
-    .map((item) => ({ ...item, name: print(item) }))
+async function probe(input: Case, model: { providerID: ProviderID; modelID: ModelID }, mode: Exclude<Mode, "both">) {
+  const task: Promise<Run> =
+    mode === "live"
+      ? Catalog.search({ query: input.query, semantic: true }, model).then((out) => ({
+          main: out.main.map((row) => row.name),
+          more: out.more.map((row) => row.name),
+          latency_ms: out.meta.latency_ms ?? 0,
+          faithfulness: faith(input, out.main.map((row) => ({ name: row.name, summary_zh: row.summary_zh }))),
+        }))
+      : Catalog.bench(
+          {
+            query: input.query,
+            items: input.fixture.map((item) => ({
+              id: item.id,
+              name: item.name,
+              source: item.source,
+              rank: item.rank,
+              body: item.body,
+              summary_source: item.summary_source,
+            })),
+          },
+          model,
+        ).then((out) => ({
+          main: out.main.map((row) => row.name),
+          more: out.more.map((row) => row.name),
+          latency_ms: out.meta.latency_ms ?? 0,
+          faithfulness: faith(input, out.main.map((row) => ({ name: row.name, summary_zh: row.summary_zh }))),
+        }))
+
+  return task.catch((err) => ({
+    main: [],
+    more: [],
+    latency_ms: 0,
+    faithfulness: 0,
+    error: err instanceof Error ? err.message : String(err),
+  }))
+}
+
+async function one(input: {
+  mode: Exclude<Mode, "both">
+  models?: string[]
+  runs?: number
+  category?: Category[]
+  lang?: Lang | "both"
+  concurrency_model?: number
+  concurrency_case?: number
+  concurrency_live?: number
+}) {
+  const mode = input.mode
+  const list = await roster({ models: input.models })
+  const picked = subset({ category: input.category, lang: input.lang })
+  const active = [...new Set(picked.map((item) => item.category))]
   const runs = Math.max(1, input?.runs ?? 2)
+  const modelLimit = Math.max(1, input.concurrency_model ?? (mode === "live" ? 2 : 3))
+  const caseLimit = Math.max(1, mode === "live" ? (input.concurrency_live ?? 2) : (input.concurrency_case ?? 6))
   const score: Array<Row & { detail: Detail[] }> = []
+  const index = new Map(picked.map((item, idx) => [item.id, idx]))
 
-  for (const model of list) {
-    const detail = []
-    let total = 0
-    let latency = 0
-    let stability = 0
-
-    for (const item of cases) {
-      const tries = []
-      for (let i = 0; i < runs; i++) {
-        tries.push(await probe(item, model, mode))
-      }
-      const base = tries[0]!
+  await work(modelLimit, list, async (model) => {
+    const detail: Detail[] = []
+    await work(caseLimit, picked, async (item) => {
+      const run = []
+      for (let i = 0; i < runs; i++) run.push(await probe(item, model, mode))
+      const base = run[0]!
       const ranked = rank(item, base)
       const stable =
-        tries.length < 2
+        run.length < 2
           ? 5
           : points(
-              tries
+              run
                 .slice(1)
                 .map((next) => overlap(base.main, next.main))
-                .reduce((acc, item) => acc + item, 0) / Math.max(1, tries.length - 1),
+                .reduce((acc, next) => acc + next, 0) / Math.max(1, run.length - 1),
               5,
             )
       ranked.breakdown.stability = stable
@@ -915,49 +1337,79 @@ async function one(mode: Exclude<Mode, "both">, input?: { models?: string[]; run
         ranked.breakdown.summary_faithfulness +
         ranked.breakdown.latency +
         ranked.breakdown.stability
-      total += ranked.total
-      latency += tries.reduce((acc, item) => acc + item.latency_ms, 0) / tries.length
-      stability += stable
       detail.push({
         id: item.id,
         query: item.query,
-        run: tries,
+        lang: item.lang,
+        category: item.category,
+        run,
         total: ranked.total,
         breakdown: ranked.breakdown,
+        error: base.error,
       })
-    }
-
+    })
+    const sorted = detail.toSorted((a, b) => (index.get(a.id) ?? 0) - (index.get(b.id) ?? 0))
+    const count = Math.max(1, sorted.length)
     score.push({
       model: model.name,
-      total: Math.round((total / cases.length) * 100) / 100,
-      avg_latency_ms: Math.round(latency / cases.length),
+      total: Math.round((sorted.reduce((acc, item) => acc + item.total, 0) / count) * 100) / 100,
+      avg_latency_ms: Math.round(sorted.reduce((acc, item) => acc + (item.run[0]?.latency_ms ?? 0), 0) / count),
       breakdown: {
-        precision_main: Math.round((detail.reduce((acc, item: any) => acc + item.breakdown.precision_main, 0) / cases.length) * 100) / 100,
-        must_not_penalty: Math.round((detail.reduce((acc, item: any) => acc + item.breakdown.must_not_penalty, 0) / cases.length) * 100) / 100,
-        recall_main: Math.round((detail.reduce((acc, item: any) => acc + item.breakdown.recall_main, 0) / cases.length) * 100) / 100,
-        summary_faithfulness: Math.round((detail.reduce((acc, item: any) => acc + item.breakdown.summary_faithfulness, 0) / cases.length) * 100) / 100,
-        latency: Math.round((detail.reduce((acc, item: any) => acc + item.breakdown.latency, 0) / cases.length) * 100) / 100,
-        stability: Math.round((stability / cases.length) * 100) / 100,
+        precision_main: Math.round((sorted.reduce((acc, item) => acc + item.breakdown.precision_main, 0) / count) * 100) / 100,
+        must_not_penalty: Math.round((sorted.reduce((acc, item) => acc + item.breakdown.must_not_penalty, 0) / count) * 100) / 100,
+        recall_main: Math.round((sorted.reduce((acc, item) => acc + item.breakdown.recall_main, 0) / count) * 100) / 100,
+        summary_faithfulness: Math.round((sorted.reduce((acc, item) => acc + item.breakdown.summary_faithfulness, 0) / count) * 100) / 100,
+        latency: Math.round((sorted.reduce((acc, item) => acc + item.breakdown.latency, 0) / count) * 100) / 100,
+        stability: Math.round((sorted.reduce((acc, item) => acc + item.breakdown.stability, 0) / count) * 100) / 100,
       },
-      detail,
+      categories: categories.reduce(
+        (acc, category) => ({
+          ...acc,
+          [category]:
+            Math.round(
+              ((sorted.filter((item) => item.category === category).reduce((sum, item) => sum + item.total, 0) /
+                Math.max(
+                  1,
+                  sorted.filter((item) => item.category === category).length,
+                )) *
+                100) /
+                100,
+            ) || 0,
+        }),
+        {} as Record<Category, number>,
+      ),
+      detail: sorted,
     })
-  }
+  })
 
   const rows = table(score)
+  const cats = summary(rows, active)
+  const failing = fail(score)
   return {
     mode,
+    models: list.map((item) => item.name),
     rows,
-    markdown: markdown(mode, rows),
+    categories: cats,
+    markdown: [markdown(mode, rows), note(cats), issues(failing)].filter(Boolean).join("\n"),
     winner: rows[0]?.model,
-    fail_examples: fail(score),
+    fail_examples: failing,
   } satisfies Report
 }
 
-export async function run(input?: { models?: string[]; runs?: number; mode?: Mode }) {
-  const mode = input?.mode ?? "rerank"
+export async function run(input?: {
+  models?: string[]
+  runs?: number
+  mode?: Mode
+  category?: Category[]
+  lang?: Lang | "both"
+  concurrency_model?: number
+  concurrency_case?: number
+  concurrency_live?: number
+}) {
+  const mode = input?.mode ?? "both"
   if (mode === "both") {
-    const rerank = await one("rerank", input)
-    const live = await one("live", input)
+    const rerank = await one({ ...input, mode: "rerank" })
+    const live = await one({ ...input, mode: "live" })
     return {
       rerank,
       live,
@@ -965,5 +1417,5 @@ export async function run(input?: { models?: string[]; runs?: number; mode?: Mod
       winner: rerank.winner,
     }
   }
-  return one(mode, input)
+  return one({ ...input, mode })
 }

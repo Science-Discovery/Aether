@@ -1,5 +1,6 @@
 import { EOL } from "os"
 import { Skill } from "../../../skill"
+import { categories } from "../../../skill/benchmark"
 import { run } from "../../../skill/benchmark"
 import { bootstrap } from "../../bootstrap"
 import { cmd } from "../cmd"
@@ -36,9 +37,33 @@ export const SkillCommand = cmd({
             })
             .option("mode", {
               type: "string",
-              default: "rerank",
+              default: "both",
               choices: ["rerank", "live", "both"],
               describe: "benchmark fixed rerank fixtures, live search, or both",
+            })
+            .option("category", {
+              type: "array",
+              string: true,
+              choices: categories,
+              describe: "limit benchmark cases to selected categories",
+            })
+            .option("lang", {
+              type: "string",
+              default: "both",
+              choices: ["zh", "en", "both"],
+              describe: "limit benchmark cases by language",
+            })
+            .option("concurrency-model", {
+              type: "number",
+              describe: "parallel models to benchmark at once",
+            })
+            .option("concurrency-case", {
+              type: "number",
+              describe: "parallel rerank cases per model",
+            })
+            .option("concurrency-live", {
+              type: "number",
+              describe: "parallel live cases per model",
             })
             .option("json", {
               type: "boolean",
@@ -51,6 +76,11 @@ export const SkillCommand = cmd({
               models: args.model?.map(String),
               runs: args.runs,
               mode: args.mode as "rerank" | "live" | "both",
+              category: args.category?.map(String) as (typeof categories)[number][] | undefined,
+              lang: args.lang as "zh" | "en" | "both",
+              concurrency_model: args.concurrencyModel,
+              concurrency_case: args.concurrencyCase,
+              concurrency_live: args.concurrencyLive,
             })
             if (args.json) {
               process.stdout.write(JSON.stringify(out, null, 2) + EOL)
