@@ -19,10 +19,6 @@ import { useDialog } from "@opencode-ai/ui/context/dialog"
 import FileTree from "@/components/file-tree"
 import { SessionContextUsage } from "@/components/session-context-usage"
 import { DialogSelectFile } from "@/components/dialog-select-file"
-import { DialogPdfToMarkdown } from "@/components/dialog-pdf-to-markdown"
-import { DialogTranslateMarkdown } from "@/components/dialog-translate-markdown"
-import { DialogBatchPdfConvert } from "@/components/dialog-batch-pdf-convert"
-import { DialogBatchTranslateMarkdown } from "@/components/dialog-batch-translate-markdown"
 import { SessionContextTab, SortableTab, FileVisual } from "@/components/session"
 import { useCommand } from "@/context/command"
 import { useFile, type SelectedLineRange } from "@/context/file"
@@ -31,8 +27,6 @@ import { useLayout } from "@/context/layout"
 import { usePlatform } from "@/context/platform"
 import { useSync } from "@/context/sync"
 import { useSDK } from "@/context/sdk"
-import { useServer } from "@/context/server"
-import { registerOpenFileCallback, registerRefreshDirCallback, restoreActiveTasks } from "@/components/pdf-convert-progress"
 import { createFileTabListSync } from "@/pages/session/file-tab-scroll"
 import { FileTabContent } from "@/pages/session/file-tabs"
 import { createOpenSessionFileTab, createSessionTabs, getTabReorderIndex, type Sizing } from "@/pages/session/helpers"
@@ -71,7 +65,6 @@ export function SessionSidePanel(props: {
   const dialog = useDialog()
   const sdk = useSDK()
   const platform = usePlatform()
-  const server = useServer()
   const sync = useSync()
   const { params, sessionKey, tabs, view } = useSessionLayout()
 
@@ -80,46 +73,6 @@ export function SessionSidePanel(props: {
     if (params.id) void sync.session.diff(params.id, { force: true })
   }
 
-  const fetchApi = (urlPath: string, options: RequestInit = {}): Promise<Response> => {
-    const s = server.current?.http
-    const authHeader: Record<string, string> = s?.password
-      ? { Authorization: `Basic ${btoa(`${s.username ?? "opencode"}:${s.password}`)}` }
-      : {}
-    const headers: Record<string, string> = {
-      "Content-Type": "application/json",
-      ...authHeader,
-      ...(options.headers as Record<string, string> ?? {}),
-    }
-    const separator = urlPath.includes("?") ? "&" : "?"
-    const req = platform.fetch ?? fetch
-    return req(`${sdk.url}${urlPath}${separator}directory=${encodeURIComponent(sdk.directory)}`, {
-      ...options,
-      headers,
-    })
-  }
-
-  let restored = ""
-
-  createEffect(() => {
-    registerOpenFileCallback(async (filePath: string) => {
-      const parentDir = filePath.includes("/") ? filePath.slice(0, filePath.lastIndexOf("/")) : ""
-      await file.tree.refresh(parentDir)
-      const tab = file.tab(filePath)
-      tabs().open(tab)
-      tabs().setActive(tab)
-      await file.load(filePath, { force: true })
-    })
-
-    registerRefreshDirCallback((dirPath: string) => {
-      void file.tree.refresh(dirPath)
-    })
-
-    const s = server.current?.http
-    const key = [sdk.url, sdk.directory, s?.url ?? "", s?.username ?? "", s?.password ?? ""].join("\n")
-    if (restored === key) return
-    restored = key
-    void restoreActiveTasks(fetchApi, sdk.url, sdk.directory, s)
-  })
   function handleFileCreate(dir: string, type: "file" | "directory") {
     const title = type === "file" ? "新建文件" : "新建文件夹"
     const placeholder = type === "file" ? "文件名（如 notes.md）" : "文件夹名"
@@ -586,22 +539,6 @@ export function SessionSidePanel(props: {
   const handleMultiCut = (paths: string[]) => {
     setClipboard({ paths, mode: "cut" })
     showToast({ variant: "success", title: `已剪切 ${paths.length} 项` })
-  }
-
-  const handlePdfConvert = (paths: string[]) => {
-    if (paths.length === 1) {
-      dialog.showModeless(() => <DialogPdfToMarkdown pdfPath={paths[0]} />)
-    } else {
-      dialog.showModeless(() => <DialogBatchPdfConvert pdfPaths={paths} />)
-    }
-  }
-
-  const handleTranslateMarkdown = (paths: string[]) => {
-    if (paths.length === 1) {
-      dialog.showModeless(() => <DialogTranslateMarkdown mdPath={paths[0]} />)
-    } else {
-      dialog.showModeless(() => <DialogBatchTranslateMarkdown mdPaths={paths} />)
-    }
   }
 
   const handleFileDrop = async (paths: string[], targetDir: string) => {
@@ -1164,8 +1101,6 @@ export function SessionSidePanel(props: {
                           onFileDrop={handleFileDrop}
                           onUploadDrop={(event, dir) => void handleUploadDrop(event, dir)}
                           onUploadToDir={(dir, type) => void uploadToDir(dir, type)}
-                          onPdfConvert={handlePdfConvert}
-                          onTranslateMarkdown={handleTranslateMarkdown}
                         />
                       </Match>
                     </Switch>
@@ -1216,7 +1151,11 @@ export function SessionSidePanel(props: {
                 <ResizeHandle
                   direction="horizontal"
                   edge="start"
-                  size={typeof props.treeWidthOverride === "number" ? Math.max(0, props.treeWidthOverride) : layout.fileTree.width()}
+                  size={
+                    typeof props.treeWidthOverride === "number"
+                      ? Math.max(0, props.treeWidthOverride)
+                      : layout.fileTree.width()
+                  }
                   min={200}
                   max={480}
                   onResize={(width) => {

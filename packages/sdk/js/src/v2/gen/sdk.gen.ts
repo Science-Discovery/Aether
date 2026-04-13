@@ -14,14 +14,9 @@ import type {
   AuthSetErrors,
   AuthSetResponses,
   CommandListResponses,
-  Config as Config4,
+  Config as Config3,
   ConfigGetResponses,
   ConfigProvidersResponses,
-  ConfigSkillsAddDefaultsResponses,
-  ConfigSkillsDeleteResponses,
-  ConfigSkillsListResponses,
-  ConfigSkillsSaveResponses,
-  ConfigSkillsToggleResponses,
   ConfigUpdateErrors,
   ConfigUpdateResponses,
   EventSubscribeResponses,
@@ -36,49 +31,11 @@ import type {
   ExperimentalWorkspaceListResponses,
   ExperimentalWorkspaceRemoveErrors,
   ExperimentalWorkspaceRemoveResponses,
-  FileActiveTasksResponses,
-  FileAddToGitignoreErrors,
-  FileAddToGitignoreResponses,
-  FileCheckDirectoryErrors,
-  FileCheckDirectoryResponses,
-  FileCreateErrors,
-  FileCreateResponses,
-  FileDeleteErrors,
-  FileDeleteResponses,
-  FileDownloadErrors,
-  FileDownloadResponses,
   FileListResponses,
-  FileOpenErrors,
-  FileOpenInExplorerErrors,
-  FileOpenInExplorerResponses,
-  FileOpenResponses,
   FilePartInput,
   FilePartSource,
-  FilePdfPageCountErrors,
-  FilePdfPageCountResponses,
-  FilePdfPythonCheckResponses,
-  FilePdfToMarkdownCancelResponses,
-  FilePdfToMarkdownErrors,
-  FilePdfToMarkdownProgressResponses,
-  FilePdfToMarkdownResponses,
-  FilePickFolderResponses,
-  FileRawErrors,
-  FileRawResponses,
   FileReadResponses,
-  FileRenameErrors,
-  FileRenameResponses,
   FileStatusResponses,
-  FileSummarizeResponses,
-  FileTranslateMarkdownCancelResponses,
-  FileTranslateMarkdownCheckErrors,
-  FileTranslateMarkdownCheckResponses,
-  FileTranslateMarkdownErrors,
-  FileTranslateMarkdownProgressResponses,
-  FileTranslateMarkdownResponses,
-  FileUploadErrors,
-  FileUploadResponses,
-  FileWriteErrors,
-  FileWriteResponses,
   FindFilesResponses,
   FindSymbolsResponses,
   FindTextResponses,
@@ -89,36 +46,10 @@ import type {
   GlobalDisposeResponses,
   GlobalEventResponses,
   GlobalHealthResponses,
-  GlobalPingErrors,
-  GlobalPingResponses,
-  GlobalProxyGetResponses,
-  GlobalProxyUpdateErrors,
-  GlobalProxyUpdateResponses,
   GlobalSyncEventSubscribeResponses,
   GlobalUpgradeErrors,
   GlobalUpgradeResponses,
   InstanceDisposeResponses,
-  KnowledgeConfigGetResponses,
-  KnowledgeConfigSetResponses,
-  KnowledgeConfigUpdateErrors,
-  KnowledgeConfigUpdateResponses,
-  KnowledgeCreateErrors,
-  KnowledgeCreateResponses,
-  KnowledgeDeleteErrors,
-  KnowledgeDeleteResponses,
-  KnowledgeDocumentDeleteErrors,
-  KnowledgeDocumentDeleteResponses,
-  KnowledgeGetErrors,
-  KnowledgeGetResponses,
-  KnowledgeImportErrors,
-  KnowledgeImportResponses,
-  KnowledgeModelsListResponses,
-  KnowledgeSearchErrors,
-  KnowledgeSearchResponses,
-  KnowledgeStatsErrors,
-  KnowledgeStatsResponses,
-  KnowledgeSyncErrors,
-  KnowledgeSyncResponses,
   LspStatusResponses,
   McpAddErrors,
   McpAddResponses,
@@ -149,15 +80,11 @@ import type {
   PermissionRespondResponses,
   PermissionRuleset,
   ProjectCurrentResponses,
-  ProjectDirectoriesResponses,
   ProjectInitGitResponses,
   ProjectListResponses,
-  ProjectRecentResponses,
   ProjectUpdateErrors,
   ProjectUpdateResponses,
   ProviderAuthResponses,
-  ProviderConnectionErrors,
-  ProviderConnectionResponses,
   ProviderListResponses,
   ProviderOauthAuthorizeErrors,
   ProviderOauthAuthorizeResponses,
@@ -180,16 +107,6 @@ import type {
   QuestionRejectResponses,
   QuestionReplyErrors,
   QuestionReplyResponses,
-  ReadingModeAnnotationsGetErrors,
-  ReadingModeAnnotationsGetResponses,
-  ReadingModeAnnotationsUpdateErrors,
-  ReadingModeAnnotationsUpdateResponses,
-  ReadingModePdfGetErrors,
-  ReadingModePdfGetResponses,
-  ReadingModeSessionCreateErrors,
-  ReadingModeSessionCreateResponses,
-  ReadingModeSessionUpdateErrors,
-  ReadingModeSessionUpdateResponses,
   SessionAbortErrors,
   SessionAbortResponses,
   SessionChildrenErrors,
@@ -260,11 +177,6 @@ import type {
   TuiSubmitPromptResponses,
   VcsDiffResponses,
   VcsGetResponses,
-  WechatEventsResponses,
-  WechatSessionClearResponses,
-  WechatStartResponses,
-  WechatStatusResponses,
-  WechatStopResponses,
   WorktreeCreateErrors,
   WorktreeCreateInput,
   WorktreeCreateResponses,
@@ -320,63 +232,6 @@ class HeyApiRegistry<T> {
   }
 }
 
-export class Proxy extends HeyApiClient {
-  /**
-   * Get proxy configuration
-   *
-   * Get current process-level HTTP/HTTPS proxy configuration.
-   */
-  public get<ThrowOnError extends boolean = false>(options?: Options<never, ThrowOnError>) {
-    return (options?.client ?? this.client).get<GlobalProxyGetResponses, unknown, ThrowOnError>({
-      url: "/global/proxy",
-      ...options,
-    })
-  }
-
-  /**
-   * Update proxy configuration
-   *
-   * Update process-level HTTP/HTTPS proxy configuration.
-   */
-  public update<ThrowOnError extends boolean = false>(
-    parameters?: {
-      enabled?: boolean
-      http?: {
-        host: string
-        port: number
-      }
-      https?: {
-        host: string
-        port: number
-      }
-    },
-    options?: Options<never, ThrowOnError>,
-  ) {
-    const params = buildClientParams(
-      [parameters],
-      [
-        {
-          args: [
-            { in: "body", key: "enabled" },
-            { in: "body", key: "http" },
-            { in: "body", key: "https" },
-          ],
-        },
-      ],
-    )
-    return (options?.client ?? this.client).patch<GlobalProxyUpdateResponses, GlobalProxyUpdateErrors, ThrowOnError>({
-      url: "/global/proxy",
-      ...options,
-      ...params,
-      headers: {
-        "Content-Type": "application/json",
-        ...options?.headers,
-        ...params.headers,
-      },
-    })
-  }
-}
-
 export class SyncEvent extends HeyApiClient {
   /**
    * Subscribe to global sync events
@@ -411,7 +266,7 @@ export class Config extends HeyApiClient {
    */
   public update<ThrowOnError extends boolean = false>(
     parameters?: {
-      config?: Config4
+      config?: Config3
     },
     options?: Options<never, ThrowOnError>,
   ) {
@@ -439,41 +294,6 @@ export class Global extends HeyApiClient {
     return (options?.client ?? this.client).get<GlobalHealthResponses, unknown, ThrowOnError>({
       url: "/global/health",
       ...options,
-    })
-  }
-
-  /**
-   * Ping lease
-   *
-   * Refresh or release browser lease for web auto-exit detection.
-   */
-  public ping<ThrowOnError extends boolean = false>(
-    parameters?: {
-      id?: string
-      alive?: boolean
-    },
-    options?: Options<never, ThrowOnError>,
-  ) {
-    const params = buildClientParams(
-      [parameters],
-      [
-        {
-          args: [
-            { in: "body", key: "id" },
-            { in: "body", key: "alive" },
-          ],
-        },
-      ],
-    )
-    return (options?.client ?? this.client).post<GlobalPingResponses, GlobalPingErrors, ThrowOnError>({
-      url: "/global/ping",
-      ...options,
-      ...params,
-      headers: {
-        "Content-Type": "application/json",
-        ...options?.headers,
-        ...params.headers,
-      },
     })
   }
 
@@ -523,11 +343,6 @@ export class Global extends HeyApiClient {
         ...params.headers,
       },
     })
-  }
-
-  private _proxy?: Proxy
-  get proxy(): Proxy {
-    return (this._proxy ??= new Proxy({ client: this.client }))
   }
 
   private _syncEvent?: SyncEvent
@@ -623,66 +438,6 @@ export class Project extends HeyApiClient {
     )
     return (options?.client ?? this.client).get<ProjectListResponses, unknown, ThrowOnError>({
       url: "/project",
-      ...options,
-      ...params,
-    })
-  }
-
-  /**
-   * List recent projects and directories
-   *
-   * Returns the recent project feed used by the web app and WeChat bridge.
-   */
-  public recent<ThrowOnError extends boolean = false>(
-    parameters?: {
-      directory?: string
-      workspace?: string
-    },
-    options?: Options<never, ThrowOnError>,
-  ) {
-    const params = buildClientParams(
-      [parameters],
-      [
-        {
-          args: [
-            { in: "query", key: "directory" },
-            { in: "query", key: "workspace" },
-          ],
-        },
-      ],
-    )
-    return (options?.client ?? this.client).get<ProjectRecentResponses, unknown, ThrowOnError>({
-      url: "/project/recent",
-      ...options,
-      ...params,
-    })
-  }
-
-  /**
-   * List all known directories
-   *
-   * Returns all project worktrees plus unique session directories.
-   */
-  public directories<ThrowOnError extends boolean = false>(
-    parameters?: {
-      directory?: string
-      workspace?: string
-    },
-    options?: Options<never, ThrowOnError>,
-  ) {
-    const params = buildClientParams(
-      [parameters],
-      [
-        {
-          args: [
-            { in: "query", key: "directory" },
-            { in: "query", key: "workspace" },
-          ],
-        },
-      ],
-    )
-    return (options?.client ?? this.client).get<ProjectDirectoriesResponses, unknown, ThrowOnError>({
-      url: "/project/directories",
       ...options,
       ...params,
     })
@@ -1020,182 +775,6 @@ export class Pty extends HeyApiClient {
   }
 }
 
-export class Skills extends HeyApiClient {
-  /**
-   * List default skills
-   *
-   * List all default skills from the .opencode/skills/ directory.
-   */
-  public list<ThrowOnError extends boolean = false>(
-    parameters?: {
-      directory?: string
-      workspace?: string
-    },
-    options?: Options<never, ThrowOnError>,
-  ) {
-    const params = buildClientParams(
-      [parameters],
-      [
-        {
-          args: [
-            { in: "query", key: "directory" },
-            { in: "query", key: "workspace" },
-          ],
-        },
-      ],
-    )
-    return (options?.client ?? this.client).get<ConfigSkillsListResponses, unknown, ThrowOnError>({
-      url: "/config/skills",
-      ...options,
-      ...params,
-    })
-  }
-
-  /**
-   * Create or update a default skill
-   *
-   * Create or update a skill in .opencode/skills/.
-   */
-  public save<ThrowOnError extends boolean = false>(
-    parameters?: {
-      directory?: string
-      workspace?: string
-      name?: string
-      description?: string
-      content?: string
-      enabled?: boolean
-    },
-    options?: Options<never, ThrowOnError>,
-  ) {
-    const params = buildClientParams(
-      [parameters],
-      [
-        {
-          args: [
-            { in: "query", key: "directory" },
-            { in: "query", key: "workspace" },
-            { in: "body", key: "name" },
-            { in: "body", key: "description" },
-            { in: "body", key: "content" },
-            { in: "body", key: "enabled" },
-          ],
-        },
-      ],
-    )
-    return (options?.client ?? this.client).post<ConfigSkillsSaveResponses, unknown, ThrowOnError>({
-      url: "/config/skills",
-      ...options,
-      ...params,
-      headers: {
-        "Content-Type": "application/json",
-        ...options?.headers,
-        ...params.headers,
-      },
-    })
-  }
-
-  /**
-   * Delete a default skill
-   *
-   * Delete a skill from .opencode/skills/.
-   */
-  public delete<ThrowOnError extends boolean = false>(
-    parameters: {
-      name: string
-      directory?: string
-      workspace?: string
-    },
-    options?: Options<never, ThrowOnError>,
-  ) {
-    const params = buildClientParams(
-      [parameters],
-      [
-        {
-          args: [
-            { in: "path", key: "name" },
-            { in: "query", key: "directory" },
-            { in: "query", key: "workspace" },
-          ],
-        },
-      ],
-    )
-    return (options?.client ?? this.client).delete<ConfigSkillsDeleteResponses, unknown, ThrowOnError>({
-      url: "/config/skills/{name}",
-      ...options,
-      ...params,
-    })
-  }
-
-  /**
-   * Add default skills to project config
-   *
-   * Add the default skills from .opencode/skills/ to the project's opencode.jsonc skills.paths.
-   */
-  public addDefaults<ThrowOnError extends boolean = false>(
-    parameters?: {
-      directory?: string
-      workspace?: string
-    },
-    options?: Options<never, ThrowOnError>,
-  ) {
-    const params = buildClientParams(
-      [parameters],
-      [
-        {
-          args: [
-            { in: "query", key: "directory" },
-            { in: "query", key: "workspace" },
-          ],
-        },
-      ],
-    )
-    return (options?.client ?? this.client).post<ConfigSkillsAddDefaultsResponses, unknown, ThrowOnError>({
-      url: "/config/skills/defaults",
-      ...options,
-      ...params,
-    })
-  }
-
-  /**
-   * Toggle skill activation
-   *
-   * Enable or disable a default skill by name.
-   */
-  public toggle<ThrowOnError extends boolean = false>(
-    parameters?: {
-      directory?: string
-      workspace?: string
-      name?: string
-      enabled?: boolean
-    },
-    options?: Options<never, ThrowOnError>,
-  ) {
-    const params = buildClientParams(
-      [parameters],
-      [
-        {
-          args: [
-            { in: "query", key: "directory" },
-            { in: "query", key: "workspace" },
-            { in: "body", key: "name" },
-            { in: "body", key: "enabled" },
-          ],
-        },
-      ],
-    )
-    return (options?.client ?? this.client).post<ConfigSkillsToggleResponses, unknown, ThrowOnError>({
-      url: "/config/skills/toggle",
-      ...options,
-      ...params,
-      headers: {
-        "Content-Type": "application/json",
-        ...options?.headers,
-        ...params.headers,
-      },
-    })
-  }
-}
-
 export class Config2 extends HeyApiClient {
   /**
    * Get configuration
@@ -1236,7 +815,7 @@ export class Config2 extends HeyApiClient {
     parameters?: {
       directory?: string
       workspace?: string
-      config?: Config4
+      config?: Config3
     },
     options?: Options<never, ThrowOnError>,
   ) {
@@ -1292,11 +871,6 @@ export class Config2 extends HeyApiClient {
       ...options,
       ...params,
     })
-  }
-
-  private _skills?: Skills
-  get skills(): Skills {
-    return (this._skills ??= new Skills({ client: this.client }))
   }
 }
 
@@ -2314,12 +1888,6 @@ export class Session2 extends HeyApiClient {
       format?: OutputFormat
       system?: string
       variant?: string
-      knowledgeBase?: {
-        path?: string
-        paths?: Array<string>
-        apiKey?: string
-        baseURL?: string
-      }
       parts?: Array<TextPartInput | FilePartInput | AgentPartInput | SubtaskPartInput>
     },
     options?: Options<never, ThrowOnError>,
@@ -2340,7 +1908,6 @@ export class Session2 extends HeyApiClient {
             { in: "body", key: "format" },
             { in: "body", key: "system" },
             { in: "body", key: "variant" },
-            { in: "body", key: "knowledgeBase" },
             { in: "body", key: "parts" },
           ],
         },
@@ -2453,12 +2020,6 @@ export class Session2 extends HeyApiClient {
       format?: OutputFormat
       system?: string
       variant?: string
-      knowledgeBase?: {
-        path?: string
-        paths?: Array<string>
-        apiKey?: string
-        baseURL?: string
-      }
       parts?: Array<TextPartInput | FilePartInput | AgentPartInput | SubtaskPartInput>
     },
     options?: Options<never, ThrowOnError>,
@@ -2479,7 +2040,6 @@ export class Session2 extends HeyApiClient {
             { in: "body", key: "format" },
             { in: "body", key: "system" },
             { in: "body", key: "variant" },
-            { in: "body", key: "knowledgeBase" },
             { in: "body", key: "parts" },
           ],
         },
@@ -3126,980 +2686,9 @@ export class Provider extends HeyApiClient {
     })
   }
 
-  /**
-   * Get provider connection info
-   *
-   * Get resolved API key, base URL, and embedding models for a connected provider.
-   */
-  public connection<ThrowOnError extends boolean = false>(
-    parameters: {
-      providerID: string
-      directory?: string
-      workspace?: string
-    },
-    options?: Options<never, ThrowOnError>,
-  ) {
-    const params = buildClientParams(
-      [parameters],
-      [
-        {
-          args: [
-            { in: "path", key: "providerID" },
-            { in: "query", key: "directory" },
-            { in: "query", key: "workspace" },
-          ],
-        },
-      ],
-    )
-    return (options?.client ?? this.client).get<ProviderConnectionResponses, ProviderConnectionErrors, ThrowOnError>({
-      url: "/provider/{providerID}/connection",
-      ...options,
-      ...params,
-    })
-  }
-
   private _oauth?: Oauth
   get oauth(): Oauth {
     return (this._oauth ??= new Oauth({ client: this.client }))
-  }
-}
-
-export class File extends HeyApiClient {
-  /**
-   * List active conversion/translation tasks
-   *
-   * Returns all currently running PDF conversion and markdown translation tasks, allowing the frontend to restore progress bars after page reload.
-   */
-  public activeTasks<ThrowOnError extends boolean = false>(
-    parameters?: {
-      directory?: string
-      workspace?: string
-    },
-    options?: Options<never, ThrowOnError>,
-  ) {
-    const params = buildClientParams(
-      [parameters],
-      [
-        {
-          args: [
-            { in: "query", key: "directory" },
-            { in: "query", key: "workspace" },
-          ],
-        },
-      ],
-    )
-    return (options?.client ?? this.client).get<FileActiveTasksResponses, unknown, ThrowOnError>({
-      url: "/file/active-tasks",
-      ...options,
-      ...params,
-    })
-  }
-
-  /**
-   * Check directory
-   *
-   * Check whether a path exists and points to a directory.
-   */
-  public checkDirectory<ThrowOnError extends boolean = false>(
-    parameters: {
-      directory?: string
-      workspace?: string
-      path: string
-    },
-    options?: Options<never, ThrowOnError>,
-  ) {
-    const params = buildClientParams(
-      [parameters],
-      [
-        {
-          args: [
-            { in: "query", key: "directory" },
-            { in: "query", key: "workspace" },
-            { in: "query", key: "path" },
-          ],
-        },
-      ],
-    )
-    return (options?.client ?? this.client).get<FileCheckDirectoryResponses, FileCheckDirectoryErrors, ThrowOnError>({
-      url: "/file/check-directory",
-      ...options,
-      ...params,
-    })
-  }
-
-  /**
-   * Delete file or directory
-   *
-   * Delete a file or directory at the specified path within the project.
-   */
-  public delete<ThrowOnError extends boolean = false>(
-    parameters: {
-      directory?: string
-      workspace?: string
-      path: string
-    },
-    options?: Options<never, ThrowOnError>,
-  ) {
-    const params = buildClientParams(
-      [parameters],
-      [
-        {
-          args: [
-            { in: "query", key: "directory" },
-            { in: "query", key: "workspace" },
-            { in: "query", key: "path" },
-          ],
-        },
-      ],
-    )
-    return (options?.client ?? this.client).delete<FileDeleteResponses, FileDeleteErrors, ThrowOnError>({
-      url: "/file",
-      ...options,
-      ...params,
-    })
-  }
-
-  /**
-   * List files
-   *
-   * List files and directories in a specified path.
-   */
-  public list<ThrowOnError extends boolean = false>(
-    parameters: {
-      directory?: string
-      workspace?: string
-      path: string
-    },
-    options?: Options<never, ThrowOnError>,
-  ) {
-    const params = buildClientParams(
-      [parameters],
-      [
-        {
-          args: [
-            { in: "query", key: "directory" },
-            { in: "query", key: "workspace" },
-            { in: "query", key: "path" },
-          ],
-        },
-      ],
-    )
-    return (options?.client ?? this.client).get<FileListResponses, unknown, ThrowOnError>({
-      url: "/file",
-      ...options,
-      ...params,
-    })
-  }
-
-  /**
-   * Rename file or directory
-   *
-   * Rename a file or directory within the project.
-   */
-  public rename<ThrowOnError extends boolean = false>(
-    parameters?: {
-      directory?: string
-      workspace?: string
-      path?: string
-      name?: string
-    },
-    options?: Options<never, ThrowOnError>,
-  ) {
-    const params = buildClientParams(
-      [parameters],
-      [
-        {
-          args: [
-            { in: "query", key: "directory" },
-            { in: "query", key: "workspace" },
-            { in: "body", key: "path" },
-            { in: "body", key: "name" },
-          ],
-        },
-      ],
-    )
-    return (options?.client ?? this.client).patch<FileRenameResponses, FileRenameErrors, ThrowOnError>({
-      url: "/file",
-      ...options,
-      ...params,
-      headers: {
-        "Content-Type": "application/json",
-        ...options?.headers,
-        ...params.headers,
-      },
-    })
-  }
-
-  /**
-   * Create file or directory
-   *
-   * Create a new file or directory at the specified path within the project.
-   */
-  public create<ThrowOnError extends boolean = false>(
-    parameters?: {
-      directory?: string
-      workspace?: string
-      path?: string
-      type?: "file" | "directory"
-    },
-    options?: Options<never, ThrowOnError>,
-  ) {
-    const params = buildClientParams(
-      [parameters],
-      [
-        {
-          args: [
-            { in: "query", key: "directory" },
-            { in: "query", key: "workspace" },
-            { in: "body", key: "path" },
-            { in: "body", key: "type" },
-          ],
-        },
-      ],
-    )
-    return (options?.client ?? this.client).post<FileCreateResponses, FileCreateErrors, ThrowOnError>({
-      url: "/file",
-      ...options,
-      ...params,
-      headers: {
-        "Content-Type": "application/json",
-        ...options?.headers,
-        ...params.headers,
-      },
-    })
-  }
-
-  /**
-   * Read file
-   *
-   * Read the content of a specified file.
-   */
-  public read<ThrowOnError extends boolean = false>(
-    parameters: {
-      directory?: string
-      workspace?: string
-      path: string
-    },
-    options?: Options<never, ThrowOnError>,
-  ) {
-    const params = buildClientParams(
-      [parameters],
-      [
-        {
-          args: [
-            { in: "query", key: "directory" },
-            { in: "query", key: "workspace" },
-            { in: "query", key: "path" },
-          ],
-        },
-      ],
-    )
-    return (options?.client ?? this.client).get<FileReadResponses, unknown, ThrowOnError>({
-      url: "/file/content",
-      ...options,
-      ...params,
-    })
-  }
-
-  /**
-   * Write file
-   *
-   * Write content to a specified file within the project.
-   */
-  public write<ThrowOnError extends boolean = false>(
-    parameters?: {
-      directory?: string
-      workspace?: string
-      path?: string
-      content?: string
-      expectedChecksum?: string
-    },
-    options?: Options<never, ThrowOnError>,
-  ) {
-    const params = buildClientParams(
-      [parameters],
-      [
-        {
-          args: [
-            { in: "query", key: "directory" },
-            { in: "query", key: "workspace" },
-            { in: "body", key: "path" },
-            { in: "body", key: "content" },
-            { in: "body", key: "expectedChecksum" },
-          ],
-        },
-      ],
-    )
-    return (options?.client ?? this.client).put<FileWriteResponses, FileWriteErrors, ThrowOnError>({
-      url: "/file/content",
-      ...options,
-      ...params,
-      headers: {
-        "Content-Type": "application/json",
-        ...options?.headers,
-        ...params.headers,
-      },
-    })
-  }
-
-  /**
-   * Download file or directory
-   *
-   * Download a file directly or a directory as a zip archive.
-   */
-  public download<ThrowOnError extends boolean = false>(
-    parameters: {
-      directory?: string
-      workspace?: string
-      path: string
-    },
-    options?: Options<never, ThrowOnError>,
-  ) {
-    const params = buildClientParams(
-      [parameters],
-      [
-        {
-          args: [
-            { in: "query", key: "directory" },
-            { in: "query", key: "workspace" },
-            { in: "query", key: "path" },
-          ],
-        },
-      ],
-    )
-    return (options?.client ?? this.client).get<FileDownloadResponses, FileDownloadErrors, ThrowOnError>({
-      url: "/file/download",
-      ...options,
-      ...params,
-    })
-  }
-
-  /**
-   * Upload files or directories
-   *
-   * Upload one or more files or directories into the current project.
-   */
-  public upload<ThrowOnError extends boolean = false>(
-    parameters?: {
-      directory?: string
-      workspace?: string
-    },
-    options?: Options<never, ThrowOnError>,
-  ) {
-    const params = buildClientParams(
-      [parameters],
-      [
-        {
-          args: [
-            { in: "query", key: "directory" },
-            { in: "query", key: "workspace" },
-          ],
-        },
-      ],
-    )
-    return (options?.client ?? this.client).post<FileUploadResponses, FileUploadErrors, ThrowOnError>({
-      url: "/file/upload",
-      ...options,
-      ...params,
-    })
-  }
-
-  /**
-   * Generate directory summaries
-   *
-   * Generate .summary files for all directories in the project using LLM.
-   */
-  public summarize<ThrowOnError extends boolean = false>(
-    parameters?: {
-      query_directory?: string
-      workspace?: string
-      body_directory?: string
-      maxDepth?: number
-      force?: boolean
-    },
-    options?: Options<never, ThrowOnError>,
-  ) {
-    const params = buildClientParams(
-      [parameters],
-      [
-        {
-          args: [
-            {
-              in: "query",
-              key: "query_directory",
-              map: "directory",
-            },
-            { in: "query", key: "workspace" },
-            {
-              in: "body",
-              key: "body_directory",
-              map: "directory",
-            },
-            { in: "body", key: "maxDepth" },
-            { in: "body", key: "force" },
-          ],
-        },
-      ],
-    )
-    return (options?.client ?? this.client).post<FileSummarizeResponses, unknown, ThrowOnError>({
-      url: "/file/summarize",
-      ...options,
-      ...params,
-      headers: {
-        "Content-Type": "application/json",
-        ...options?.headers,
-        ...params.headers,
-      },
-    })
-  }
-
-  /**
-   * Open in explorer
-   *
-   * Open a file or directory in the system file explorer (server-side implementation).
-   */
-  public openInExplorer<ThrowOnError extends boolean = false>(
-    parameters?: {
-      directory?: string
-      workspace?: string
-      path?: string
-    },
-    options?: Options<never, ThrowOnError>,
-  ) {
-    const params = buildClientParams(
-      [parameters],
-      [
-        {
-          args: [
-            { in: "query", key: "directory" },
-            { in: "query", key: "workspace" },
-            { in: "body", key: "path" },
-          ],
-        },
-      ],
-    )
-    return (options?.client ?? this.client).post<FileOpenInExplorerResponses, FileOpenInExplorerErrors, ThrowOnError>({
-      url: "/file/open-in-explorer",
-      ...options,
-      ...params,
-      headers: {
-        "Content-Type": "application/json",
-        ...options?.headers,
-        ...params.headers,
-      },
-    })
-  }
-
-  /**
-   * Open file
-   *
-   * Open a file or directory with the system default application.
-   */
-  public open<ThrowOnError extends boolean = false>(
-    parameters?: {
-      directory?: string
-      workspace?: string
-      path?: string
-      app?: string
-    },
-    options?: Options<never, ThrowOnError>,
-  ) {
-    const params = buildClientParams(
-      [parameters],
-      [
-        {
-          args: [
-            { in: "query", key: "directory" },
-            { in: "query", key: "workspace" },
-            { in: "body", key: "path" },
-            { in: "body", key: "app" },
-          ],
-        },
-      ],
-    )
-    return (options?.client ?? this.client).post<FileOpenResponses, FileOpenErrors, ThrowOnError>({
-      url: "/file/open",
-      ...options,
-      ...params,
-      headers: {
-        "Content-Type": "application/json",
-        ...options?.headers,
-        ...params.headers,
-      },
-    })
-  }
-
-  /**
-   * Pick folder
-   *
-   * Open the native OS folder picker dialog and return the selected directory path.
-   */
-  public pickFolder<ThrowOnError extends boolean = false>(
-    parameters?: {
-      directory?: string
-      workspace?: string
-    },
-    options?: Options<never, ThrowOnError>,
-  ) {
-    const params = buildClientParams(
-      [parameters],
-      [
-        {
-          args: [
-            { in: "query", key: "directory" },
-            { in: "query", key: "workspace" },
-          ],
-        },
-      ],
-    )
-    return (options?.client ?? this.client).post<FilePickFolderResponses, unknown, ThrowOnError>({
-      url: "/file/pick-folder",
-      ...options,
-      ...params,
-    })
-  }
-
-  /**
-   * Add to .gitignore
-   *
-   * Add a file or directory path to the project's .gitignore file, creating it if necessary.
-   */
-  public addToGitignore<ThrowOnError extends boolean = false>(
-    parameters?: {
-      directory?: string
-      workspace?: string
-      path?: string
-      type?: "file" | "directory"
-    },
-    options?: Options<never, ThrowOnError>,
-  ) {
-    const params = buildClientParams(
-      [parameters],
-      [
-        {
-          args: [
-            { in: "query", key: "directory" },
-            { in: "query", key: "workspace" },
-            { in: "body", key: "path" },
-            { in: "body", key: "type" },
-          ],
-        },
-      ],
-    )
-    return (options?.client ?? this.client).post<FileAddToGitignoreResponses, FileAddToGitignoreErrors, ThrowOnError>({
-      url: "/file/gitignore",
-      ...options,
-      ...params,
-      headers: {
-        "Content-Type": "application/json",
-        ...options?.headers,
-        ...params.headers,
-      },
-    })
-  }
-
-  /**
-   * Get file status
-   *
-   * Get the git status of all files in the project.
-   */
-  public status<ThrowOnError extends boolean = false>(
-    parameters?: {
-      directory?: string
-      workspace?: string
-    },
-    options?: Options<never, ThrowOnError>,
-  ) {
-    const params = buildClientParams(
-      [parameters],
-      [
-        {
-          args: [
-            { in: "query", key: "directory" },
-            { in: "query", key: "workspace" },
-          ],
-        },
-      ],
-    )
-    return (options?.client ?? this.client).get<FileStatusResponses, unknown, ThrowOnError>({
-      url: "/file/status",
-      ...options,
-      ...params,
-    })
-  }
-
-  /**
-   * Get PDF page count
-   *
-   * Get total page count and expected output paths for a PDF file.
-   */
-  public pdfPageCount<ThrowOnError extends boolean = false>(
-    parameters: {
-      directory?: string
-      workspace?: string
-      path: string
-      outputDir?: string
-    },
-    options?: Options<never, ThrowOnError>,
-  ) {
-    const params = buildClientParams(
-      [parameters],
-      [
-        {
-          args: [
-            { in: "query", key: "directory" },
-            { in: "query", key: "workspace" },
-            { in: "query", key: "path" },
-            { in: "query", key: "outputDir" },
-          ],
-        },
-      ],
-    )
-    return (options?.client ?? this.client).get<FilePdfPageCountResponses, FilePdfPageCountErrors, ThrowOnError>({
-      url: "/file/pdf-page-count",
-      ...options,
-      ...params,
-    })
-  }
-
-  /**
-   * Check Python availability
-   *
-   * Check if Python + PyMuPDF + Pillow are available for PDF rendering.
-   */
-  public pdfPythonCheck<ThrowOnError extends boolean = false>(
-    parameters?: {
-      directory?: string
-      workspace?: string
-    },
-    options?: Options<never, ThrowOnError>,
-  ) {
-    const params = buildClientParams(
-      [parameters],
-      [
-        {
-          args: [
-            { in: "query", key: "directory" },
-            { in: "query", key: "workspace" },
-          ],
-        },
-      ],
-    )
-    return (options?.client ?? this.client).get<FilePdfPythonCheckResponses, unknown, ThrowOnError>({
-      url: "/file/pdf-python-check",
-      ...options,
-      ...params,
-    })
-  }
-
-  /**
-   * Start PDF to Markdown conversion
-   *
-   * Start an async PDF to Markdown conversion task.
-   */
-  public pdfToMarkdown<ThrowOnError extends boolean = false>(
-    parameters?: {
-      directory?: string
-      workspace?: string
-      path?: string
-      providerID?: string
-      modelID?: string
-      startPage?: number
-      endPage?: number
-      outputMode?: "merged" | "per-page"
-      conflictAction?: "replace" | "rename" | "cancel"
-      outputDir?: string
-    },
-    options?: Options<never, ThrowOnError>,
-  ) {
-    const params = buildClientParams(
-      [parameters],
-      [
-        {
-          args: [
-            { in: "query", key: "directory" },
-            { in: "query", key: "workspace" },
-            { in: "body", key: "path" },
-            { in: "body", key: "providerID" },
-            { in: "body", key: "modelID" },
-            { in: "body", key: "startPage" },
-            { in: "body", key: "endPage" },
-            { in: "body", key: "outputMode" },
-            { in: "body", key: "conflictAction" },
-            { in: "body", key: "outputDir" },
-          ],
-        },
-      ],
-    )
-    return (options?.client ?? this.client).post<FilePdfToMarkdownResponses, FilePdfToMarkdownErrors, ThrowOnError>({
-      url: "/file/pdf-to-markdown",
-      ...options,
-      ...params,
-      headers: {
-        "Content-Type": "application/json",
-        ...options?.headers,
-        ...params.headers,
-      },
-    })
-  }
-
-  /**
-   * Get conversion progress
-   *
-   * SSE endpoint for real-time PDF conversion progress.
-   */
-  public pdfToMarkdownProgress<ThrowOnError extends boolean = false>(
-    parameters: {
-      directory?: string
-      workspace?: string
-      taskID: string
-    },
-    options?: Options<never, ThrowOnError>,
-  ) {
-    const params = buildClientParams(
-      [parameters],
-      [
-        {
-          args: [
-            { in: "query", key: "directory" },
-            { in: "query", key: "workspace" },
-            { in: "query", key: "taskID" },
-          ],
-        },
-      ],
-    )
-    return (options?.client ?? this.client).sse.get<FilePdfToMarkdownProgressResponses, unknown, ThrowOnError>({
-      url: "/file/pdf-to-markdown/progress",
-      ...options,
-      ...params,
-    })
-  }
-
-  /**
-   * Cancel PDF conversion
-   *
-   * Cancel a running PDF to Markdown conversion task.
-   */
-  public pdfToMarkdownCancel<ThrowOnError extends boolean = false>(
-    parameters?: {
-      directory?: string
-      workspace?: string
-      taskID?: string
-    },
-    options?: Options<never, ThrowOnError>,
-  ) {
-    const params = buildClientParams(
-      [parameters],
-      [
-        {
-          args: [
-            { in: "query", key: "directory" },
-            { in: "query", key: "workspace" },
-            { in: "body", key: "taskID" },
-          ],
-        },
-      ],
-    )
-    return (options?.client ?? this.client).post<FilePdfToMarkdownCancelResponses, unknown, ThrowOnError>({
-      url: "/file/pdf-to-markdown/cancel",
-      ...options,
-      ...params,
-      headers: {
-        "Content-Type": "application/json",
-        ...options?.headers,
-        ...params.headers,
-      },
-    })
-  }
-
-  /**
-   * Serve raw file
-   *
-   * Serve a file's raw binary content with appropriate Content-Type.
-   */
-  public raw<ThrowOnError extends boolean = false>(
-    parameters: {
-      directory?: string
-      workspace?: string
-      path: string
-    },
-    options?: Options<never, ThrowOnError>,
-  ) {
-    const params = buildClientParams(
-      [parameters],
-      [
-        {
-          args: [
-            { in: "query", key: "directory" },
-            { in: "query", key: "workspace" },
-            { in: "query", key: "path" },
-          ],
-        },
-      ],
-    )
-    return (options?.client ?? this.client).get<FileRawResponses, FileRawErrors, ThrowOnError>({
-      url: "/file/raw",
-      ...options,
-      ...params,
-    })
-  }
-
-  /**
-   * Check markdown for translation
-   *
-   * Pre-check a markdown file before translation: detect _data.json, estimate chunks, check conflicts.
-   */
-  public translateMarkdownCheck<ThrowOnError extends boolean = false>(
-    parameters: {
-      directory?: string
-      workspace?: string
-      path: string
-      outputDir?: string
-    },
-    options?: Options<never, ThrowOnError>,
-  ) {
-    const params = buildClientParams(
-      [parameters],
-      [
-        {
-          args: [
-            { in: "query", key: "directory" },
-            { in: "query", key: "workspace" },
-            { in: "query", key: "path" },
-            { in: "query", key: "outputDir" },
-          ],
-        },
-      ],
-    )
-    return (options?.client ?? this.client).get<
-      FileTranslateMarkdownCheckResponses,
-      FileTranslateMarkdownCheckErrors,
-      ThrowOnError
-    >({
-      url: "/file/translate-markdown/check",
-      ...options,
-      ...params,
-    })
-  }
-
-  /**
-   * Start markdown translation
-   *
-   * Start an async markdown translation task.
-   */
-  public translateMarkdown<ThrowOnError extends boolean = false>(
-    parameters?: {
-      directory?: string
-      workspace?: string
-      path?: string
-      providerID?: string
-      modelID?: string
-      targetLanguage?: string
-      conflictAction?: "replace" | "rename" | "cancel"
-      outputDir?: string
-    },
-    options?: Options<never, ThrowOnError>,
-  ) {
-    const params = buildClientParams(
-      [parameters],
-      [
-        {
-          args: [
-            { in: "query", key: "directory" },
-            { in: "query", key: "workspace" },
-            { in: "body", key: "path" },
-            { in: "body", key: "providerID" },
-            { in: "body", key: "modelID" },
-            { in: "body", key: "targetLanguage" },
-            { in: "body", key: "conflictAction" },
-            { in: "body", key: "outputDir" },
-          ],
-        },
-      ],
-    )
-    return (options?.client ?? this.client).post<
-      FileTranslateMarkdownResponses,
-      FileTranslateMarkdownErrors,
-      ThrowOnError
-    >({
-      url: "/file/translate-markdown",
-      ...options,
-      ...params,
-      headers: {
-        "Content-Type": "application/json",
-        ...options?.headers,
-        ...params.headers,
-      },
-    })
-  }
-
-  /**
-   * Get translation progress
-   *
-   * SSE endpoint for real-time markdown translation progress.
-   */
-  public translateMarkdownProgress<ThrowOnError extends boolean = false>(
-    parameters: {
-      directory?: string
-      workspace?: string
-      taskID: string
-    },
-    options?: Options<never, ThrowOnError>,
-  ) {
-    const params = buildClientParams(
-      [parameters],
-      [
-        {
-          args: [
-            { in: "query", key: "directory" },
-            { in: "query", key: "workspace" },
-            { in: "query", key: "taskID" },
-          ],
-        },
-      ],
-    )
-    return (options?.client ?? this.client).sse.get<FileTranslateMarkdownProgressResponses, unknown, ThrowOnError>({
-      url: "/file/translate-markdown/progress",
-      ...options,
-      ...params,
-    })
-  }
-
-  /**
-   * Cancel markdown translation
-   *
-   * Cancel a running markdown translation task.
-   */
-  public translateMarkdownCancel<ThrowOnError extends boolean = false>(
-    parameters?: {
-      directory?: string
-      workspace?: string
-      taskID?: string
-    },
-    options?: Options<never, ThrowOnError>,
-  ) {
-    const params = buildClientParams(
-      [parameters],
-      [
-        {
-          args: [
-            { in: "query", key: "directory" },
-            { in: "query", key: "workspace" },
-            { in: "body", key: "taskID" },
-          ],
-        },
-      ],
-    )
-    return (options?.client ?? this.client).post<FileTranslateMarkdownCancelResponses, unknown, ThrowOnError>({
-      url: "/file/translate-markdown/cancel",
-      ...options,
-      ...params,
-      headers: {
-        "Content-Type": "application/json",
-        ...options?.headers,
-        ...params.headers,
-      },
-    })
   }
 }
 
@@ -4201,6 +2790,102 @@ export class Find extends HeyApiClient {
     )
     return (options?.client ?? this.client).get<FindSymbolsResponses, unknown, ThrowOnError>({
       url: "/find/symbol",
+      ...options,
+      ...params,
+    })
+  }
+}
+
+export class File extends HeyApiClient {
+  /**
+   * List files
+   *
+   * List files and directories in a specified path.
+   */
+  public list<ThrowOnError extends boolean = false>(
+    parameters: {
+      directory?: string
+      workspace?: string
+      path: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "query", key: "path" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<FileListResponses, unknown, ThrowOnError>({
+      url: "/file",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Read file
+   *
+   * Read the content of a specified file.
+   */
+  public read<ThrowOnError extends boolean = false>(
+    parameters: {
+      directory?: string
+      workspace?: string
+      path: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "query", key: "path" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<FileReadResponses, unknown, ThrowOnError>({
+      url: "/file/content",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Get file status
+   *
+   * Get the git status of all files in the project.
+   */
+  public status<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<FileStatusResponses, unknown, ThrowOnError>({
+      url: "/file/status",
       ...options,
       ...params,
     })
@@ -4961,861 +3646,6 @@ export class Tui extends HeyApiClient {
   }
 }
 
-export class Models extends HeyApiClient {
-  /**
-   * List embedding models
-   *
-   * 获取所有可用的嵌入模型列表
-   */
-  public list<ThrowOnError extends boolean = false>(
-    parameters?: {
-      directory?: string
-      workspace?: string
-    },
-    options?: Options<never, ThrowOnError>,
-  ) {
-    const params = buildClientParams(
-      [parameters],
-      [
-        {
-          args: [
-            { in: "query", key: "directory" },
-            { in: "query", key: "workspace" },
-          ],
-        },
-      ],
-    )
-    return (options?.client ?? this.client).get<KnowledgeModelsListResponses, unknown, ThrowOnError>({
-      url: "/knowledge/models",
-      ...options,
-      ...params,
-    })
-  }
-}
-
-export class Config3 extends HeyApiClient {
-  /**
-   * Get knowledge config
-   *
-   * 获取全局知识库配置
-   */
-  public get<ThrowOnError extends boolean = false>(
-    parameters?: {
-      directory?: string
-      workspace?: string
-    },
-    options?: Options<never, ThrowOnError>,
-  ) {
-    const params = buildClientParams(
-      [parameters],
-      [
-        {
-          args: [
-            { in: "query", key: "directory" },
-            { in: "query", key: "workspace" },
-          ],
-        },
-      ],
-    )
-    return (options?.client ?? this.client).get<KnowledgeConfigGetResponses, unknown, ThrowOnError>({
-      url: "/knowledge/config",
-      ...options,
-      ...params,
-    })
-  }
-
-  /**
-   * Set knowledge config
-   *
-   * 设置全局知识库配置，供 knowledge_search 工具使用
-   */
-  public set<ThrowOnError extends boolean = false>(
-    parameters?: {
-      directory?: string
-      workspace?: string
-      path?: string
-      apiKey?: string
-      baseURL?: string
-    },
-    options?: Options<never, ThrowOnError>,
-  ) {
-    const params = buildClientParams(
-      [parameters],
-      [
-        {
-          args: [
-            { in: "query", key: "directory" },
-            { in: "query", key: "workspace" },
-            { in: "body", key: "path" },
-            { in: "body", key: "apiKey" },
-            { in: "body", key: "baseURL" },
-          ],
-        },
-      ],
-    )
-    return (options?.client ?? this.client).post<KnowledgeConfigSetResponses, unknown, ThrowOnError>({
-      url: "/knowledge/config",
-      ...options,
-      ...params,
-      headers: {
-        "Content-Type": "application/json",
-        ...options?.headers,
-        ...params.headers,
-      },
-    })
-  }
-
-  /**
-   * Update knowledge base config
-   *
-   * 更新知识库嵌入模型配置，模型变更时会清空索引并等待重新同步
-   */
-  public update<ThrowOnError extends boolean = false>(
-    parameters: {
-      path: string
-      directory?: string
-      workspace?: string
-      embeddingProvider?: "openai" | "local" | "custom"
-      embeddingModel?: string
-      embeddingDimensions?: number
-      apiKey?: string
-      baseURL?: string
-    },
-    options?: Options<never, ThrowOnError>,
-  ) {
-    const params = buildClientParams(
-      [parameters],
-      [
-        {
-          args: [
-            { in: "path", key: "path" },
-            { in: "query", key: "directory" },
-            { in: "query", key: "workspace" },
-            { in: "body", key: "embeddingProvider" },
-            { in: "body", key: "embeddingModel" },
-            { in: "body", key: "embeddingDimensions" },
-            { in: "body", key: "apiKey" },
-            { in: "body", key: "baseURL" },
-          ],
-        },
-      ],
-    )
-    return (options?.client ?? this.client).patch<
-      KnowledgeConfigUpdateResponses,
-      KnowledgeConfigUpdateErrors,
-      ThrowOnError
-    >({
-      url: "/knowledge/{path}/config",
-      ...options,
-      ...params,
-      headers: {
-        "Content-Type": "application/json",
-        ...options?.headers,
-        ...params.headers,
-      },
-    })
-  }
-}
-
-export class Document extends HeyApiClient {
-  /**
-   * Delete document
-   *
-   * 从知识库中删除指定文档
-   */
-  public delete<ThrowOnError extends boolean = false>(
-    parameters: {
-      path: string
-      documentId: string
-      directory?: string
-      workspace?: string
-    },
-    options?: Options<never, ThrowOnError>,
-  ) {
-    const params = buildClientParams(
-      [parameters],
-      [
-        {
-          args: [
-            { in: "path", key: "path" },
-            { in: "path", key: "documentId" },
-            { in: "query", key: "directory" },
-            { in: "query", key: "workspace" },
-          ],
-        },
-      ],
-    )
-    return (options?.client ?? this.client).delete<
-      KnowledgeDocumentDeleteResponses,
-      KnowledgeDocumentDeleteErrors,
-      ThrowOnError
-    >({
-      url: "/knowledge/{path}/document/{documentId}",
-      ...options,
-      ...params,
-    })
-  }
-}
-
-export class Knowledge extends HeyApiClient {
-  /**
-   * Create knowledge base
-   *
-   * 创建新的知识库
-   */
-  public create<ThrowOnError extends boolean = false>(
-    parameters?: {
-      directory?: string
-      workspace?: string
-      path?: string
-      name?: string
-      embeddingProvider?: "openai" | "local" | "custom"
-      embeddingModel?: string
-      embeddingDimensions?: number
-      apiKey?: string
-      baseURL?: string
-      chunkSize?: number
-      chunkOverlap?: number
-    },
-    options?: Options<never, ThrowOnError>,
-  ) {
-    const params = buildClientParams(
-      [parameters],
-      [
-        {
-          args: [
-            { in: "query", key: "directory" },
-            { in: "query", key: "workspace" },
-            { in: "body", key: "path" },
-            { in: "body", key: "name" },
-            { in: "body", key: "embeddingProvider" },
-            { in: "body", key: "embeddingModel" },
-            { in: "body", key: "embeddingDimensions" },
-            { in: "body", key: "apiKey" },
-            { in: "body", key: "baseURL" },
-            { in: "body", key: "chunkSize" },
-            { in: "body", key: "chunkOverlap" },
-          ],
-        },
-      ],
-    )
-    return (options?.client ?? this.client).post<KnowledgeCreateResponses, KnowledgeCreateErrors, ThrowOnError>({
-      url: "/knowledge",
-      ...options,
-      ...params,
-      headers: {
-        "Content-Type": "application/json",
-        ...options?.headers,
-        ...params.headers,
-      },
-    })
-  }
-
-  /**
-   * Get knowledge base stats
-   *
-   * 获取知识库统计信息
-   */
-  public stats<ThrowOnError extends boolean = false>(
-    parameters: {
-      path: string
-      directory?: string
-      workspace?: string
-    },
-    options?: Options<never, ThrowOnError>,
-  ) {
-    const params = buildClientParams(
-      [parameters],
-      [
-        {
-          args: [
-            { in: "path", key: "path" },
-            { in: "query", key: "directory" },
-            { in: "query", key: "workspace" },
-          ],
-        },
-      ],
-    )
-    return (options?.client ?? this.client).get<KnowledgeStatsResponses, KnowledgeStatsErrors, ThrowOnError>({
-      url: "/knowledge/{path}/stats",
-      ...options,
-      ...params,
-    })
-  }
-
-  /**
-   * Delete knowledge base
-   *
-   * 删除知识库（仅删除索引，不删除原文件）
-   */
-  public delete<ThrowOnError extends boolean = false>(
-    parameters: {
-      path: string
-      directory?: string
-      workspace?: string
-    },
-    options?: Options<never, ThrowOnError>,
-  ) {
-    const params = buildClientParams(
-      [parameters],
-      [
-        {
-          args: [
-            { in: "path", key: "path" },
-            { in: "query", key: "directory" },
-            { in: "query", key: "workspace" },
-          ],
-        },
-      ],
-    )
-    return (options?.client ?? this.client).delete<KnowledgeDeleteResponses, KnowledgeDeleteErrors, ThrowOnError>({
-      url: "/knowledge/{path}",
-      ...options,
-      ...params,
-    })
-  }
-
-  /**
-   * Get knowledge base
-   *
-   * 获取知识库详细信息
-   */
-  public get<ThrowOnError extends boolean = false>(
-    parameters: {
-      path: string
-      directory?: string
-      workspace?: string
-    },
-    options?: Options<never, ThrowOnError>,
-  ) {
-    const params = buildClientParams(
-      [parameters],
-      [
-        {
-          args: [
-            { in: "path", key: "path" },
-            { in: "query", key: "directory" },
-            { in: "query", key: "workspace" },
-          ],
-        },
-      ],
-    )
-    return (options?.client ?? this.client).get<KnowledgeGetResponses, KnowledgeGetErrors, ThrowOnError>({
-      url: "/knowledge/{path}",
-      ...options,
-      ...params,
-    })
-  }
-
-  /**
-   * Import files into knowledge base
-   *
-   * 复制文件到知识库目录（不自动同步）
-   */
-  public import<ThrowOnError extends boolean = false>(
-    parameters: {
-      path: string
-      directory?: string
-      workspace?: string
-      paths?: Array<string>
-    },
-    options?: Options<never, ThrowOnError>,
-  ) {
-    const params = buildClientParams(
-      [parameters],
-      [
-        {
-          args: [
-            { in: "path", key: "path" },
-            { in: "query", key: "directory" },
-            { in: "query", key: "workspace" },
-            { in: "body", key: "paths" },
-          ],
-        },
-      ],
-    )
-    return (options?.client ?? this.client).post<KnowledgeImportResponses, KnowledgeImportErrors, ThrowOnError>({
-      url: "/knowledge/{path}/import",
-      ...options,
-      ...params,
-      headers: {
-        "Content-Type": "application/json",
-        ...options?.headers,
-        ...params.headers,
-      },
-    })
-  }
-
-  /**
-   * Sync knowledge base
-   *
-   * 同步知识库文件夹，处理新增的可支持文档，以 SSE 流式返回进度
-   */
-  public sync<ThrowOnError extends boolean = false>(
-    parameters: {
-      path: string
-      directory?: string
-      workspace?: string
-      apiKey?: string
-      baseURL?: string
-    },
-    options?: Options<never, ThrowOnError>,
-  ) {
-    const params = buildClientParams(
-      [parameters],
-      [
-        {
-          args: [
-            { in: "path", key: "path" },
-            { in: "query", key: "directory" },
-            { in: "query", key: "workspace" },
-            { in: "body", key: "apiKey" },
-            { in: "body", key: "baseURL" },
-          ],
-        },
-      ],
-    )
-    return (options?.client ?? this.client).sse.post<KnowledgeSyncResponses, KnowledgeSyncErrors, ThrowOnError>({
-      url: "/knowledge/{path}/sync",
-      ...options,
-      ...params,
-      headers: {
-        "Content-Type": "application/json",
-        ...options?.headers,
-        ...params.headers,
-      },
-    })
-  }
-
-  /**
-   * Search knowledge base
-   *
-   * 在知识库中搜索相关内容
-   */
-  public search<ThrowOnError extends boolean = false>(
-    parameters: {
-      path: string
-      directory?: string
-      workspace?: string
-      query?: string
-      topK?: number
-      apiKey?: string
-      baseURL?: string
-    },
-    options?: Options<never, ThrowOnError>,
-  ) {
-    const params = buildClientParams(
-      [parameters],
-      [
-        {
-          args: [
-            { in: "path", key: "path" },
-            { in: "query", key: "directory" },
-            { in: "query", key: "workspace" },
-            { in: "body", key: "query" },
-            { in: "body", key: "topK" },
-            { in: "body", key: "apiKey" },
-            { in: "body", key: "baseURL" },
-          ],
-        },
-      ],
-    )
-    return (options?.client ?? this.client).post<KnowledgeSearchResponses, KnowledgeSearchErrors, ThrowOnError>({
-      url: "/knowledge/{path}/search",
-      ...options,
-      ...params,
-      headers: {
-        "Content-Type": "application/json",
-        ...options?.headers,
-        ...params.headers,
-      },
-    })
-  }
-
-  private _models?: Models
-  get models(): Models {
-    return (this._models ??= new Models({ client: this.client }))
-  }
-
-  private _config?: Config3
-  get config(): Config3 {
-    return (this._config ??= new Config3({ client: this.client }))
-  }
-
-  private _document?: Document
-  get document(): Document {
-    return (this._document ??= new Document({ client: this.client }))
-  }
-}
-
-export class Session3 extends HeyApiClient {
-  /**
-   * Clear WeChat session
-   *
-   * Clear the saved WeChat session
-   */
-  public clear<ThrowOnError extends boolean = false>(
-    parameters?: {
-      directory?: string
-      workspace?: string
-    },
-    options?: Options<never, ThrowOnError>,
-  ) {
-    const params = buildClientParams(
-      [parameters],
-      [
-        {
-          args: [
-            { in: "query", key: "directory" },
-            { in: "query", key: "workspace" },
-          ],
-        },
-      ],
-    )
-    return (options?.client ?? this.client).delete<WechatSessionClearResponses, unknown, ThrowOnError>({
-      url: "/wechat/session",
-      ...options,
-      ...params,
-    })
-  }
-}
-
-export class Wechat extends HeyApiClient {
-  /**
-   * Start WeChat bridge
-   *
-   * Start the WeChat bridge service
-   */
-  public start<ThrowOnError extends boolean = false>(
-    parameters?: {
-      directory?: string
-      workspace?: string
-    },
-    options?: Options<never, ThrowOnError>,
-  ) {
-    const params = buildClientParams(
-      [parameters],
-      [
-        {
-          args: [
-            { in: "query", key: "directory" },
-            { in: "query", key: "workspace" },
-          ],
-        },
-      ],
-    )
-    return (options?.client ?? this.client).post<WechatStartResponses, unknown, ThrowOnError>({
-      url: "/wechat/start",
-      ...options,
-      ...params,
-    })
-  }
-
-  /**
-   * Stop WeChat bridge
-   *
-   * Stop the WeChat bridge service
-   */
-  public stop<ThrowOnError extends boolean = false>(
-    parameters?: {
-      directory?: string
-      workspace?: string
-    },
-    options?: Options<never, ThrowOnError>,
-  ) {
-    const params = buildClientParams(
-      [parameters],
-      [
-        {
-          args: [
-            { in: "query", key: "directory" },
-            { in: "query", key: "workspace" },
-          ],
-        },
-      ],
-    )
-    return (options?.client ?? this.client).post<WechatStopResponses, unknown, ThrowOnError>({
-      url: "/wechat/stop",
-      ...options,
-      ...params,
-    })
-  }
-
-  /**
-   * Get WeChat status
-   *
-   * Get the current WeChat bridge status
-   */
-  public status<ThrowOnError extends boolean = false>(
-    parameters?: {
-      directory?: string
-      workspace?: string
-    },
-    options?: Options<never, ThrowOnError>,
-  ) {
-    const params = buildClientParams(
-      [parameters],
-      [
-        {
-          args: [
-            { in: "query", key: "directory" },
-            { in: "query", key: "workspace" },
-          ],
-        },
-      ],
-    )
-    return (options?.client ?? this.client).get<WechatStatusResponses, unknown, ThrowOnError>({
-      url: "/wechat/status",
-      ...options,
-      ...params,
-    })
-  }
-
-  /**
-   * Subscribe to WeChat events
-   *
-   * Get real-time WeChat events via SSE
-   */
-  public events<ThrowOnError extends boolean = false>(
-    parameters?: {
-      directory?: string
-      workspace?: string
-    },
-    options?: Options<never, ThrowOnError>,
-  ) {
-    const params = buildClientParams(
-      [parameters],
-      [
-        {
-          args: [
-            { in: "query", key: "directory" },
-            { in: "query", key: "workspace" },
-          ],
-        },
-      ],
-    )
-    return (options?.client ?? this.client).sse.get<WechatEventsResponses, unknown, ThrowOnError>({
-      url: "/wechat/events",
-      ...options,
-      ...params,
-    })
-  }
-
-  private _session?: Session3
-  get session(): Session3 {
-    return (this._session ??= new Session3({ client: this.client }))
-  }
-}
-
-export class Session4 extends HeyApiClient {
-  /**
-   * Create reading mode session
-   */
-  public create<ThrowOnError extends boolean = false>(
-    parameters?: {
-      directory?: string
-      workspace?: string
-    },
-    options?: Options<never, ThrowOnError>,
-  ) {
-    const params = buildClientParams(
-      [parameters],
-      [
-        {
-          args: [
-            { in: "query", key: "directory" },
-            { in: "query", key: "workspace" },
-          ],
-        },
-      ],
-    )
-    return (options?.client ?? this.client).post<
-      ReadingModeSessionCreateResponses,
-      ReadingModeSessionCreateErrors,
-      ThrowOnError
-    >({
-      url: "/reading-mode/session",
-      ...options,
-      ...params,
-    })
-  }
-
-  /**
-   * Update reading mode session settings
-   */
-  public update<ThrowOnError extends boolean = false>(
-    parameters: {
-      sessionID: string
-      directory?: string
-      workspace?: string
-      settings?: {
-        translatePrompt?: string
-        questionPrompt?: string
-        firstReadPrompt?: string
-        contextPageRange?: 0 | 1 | 2
-        autoFirstRead?: boolean
-      }
-      firstReadCompleted?: boolean
-    },
-    options?: Options<never, ThrowOnError>,
-  ) {
-    const params = buildClientParams(
-      [parameters],
-      [
-        {
-          args: [
-            { in: "path", key: "sessionID" },
-            { in: "query", key: "directory" },
-            { in: "query", key: "workspace" },
-            { in: "body", key: "settings" },
-            { in: "body", key: "firstReadCompleted" },
-          ],
-        },
-      ],
-    )
-    return (options?.client ?? this.client).patch<
-      ReadingModeSessionUpdateResponses,
-      ReadingModeSessionUpdateErrors,
-      ThrowOnError
-    >({
-      url: "/reading-mode/session/{sessionID}",
-      ...options,
-      ...params,
-      headers: {
-        "Content-Type": "application/json",
-        ...options?.headers,
-        ...params.headers,
-      },
-    })
-  }
-}
-
-export class Annotations extends HeyApiClient {
-  /**
-   * Get reading mode annotations
-   */
-  public get<ThrowOnError extends boolean = false>(
-    parameters: {
-      directory?: string
-      workspace?: string
-      sessionID: string
-    },
-    options?: Options<never, ThrowOnError>,
-  ) {
-    const params = buildClientParams(
-      [parameters],
-      [
-        {
-          args: [
-            { in: "query", key: "directory" },
-            { in: "query", key: "workspace" },
-            { in: "query", key: "sessionID" },
-          ],
-        },
-      ],
-    )
-    return (options?.client ?? this.client).get<
-      ReadingModeAnnotationsGetResponses,
-      ReadingModeAnnotationsGetErrors,
-      ThrowOnError
-    >({
-      url: "/reading-mode/annotations",
-      ...options,
-      ...params,
-    })
-  }
-
-  /**
-   * Update reading mode annotations
-   */
-  public update<ThrowOnError extends boolean = false>(
-    parameters?: {
-      directory?: string
-      workspace?: string
-      sessionID?: string
-      data?: unknown
-    },
-    options?: Options<never, ThrowOnError>,
-  ) {
-    const params = buildClientParams(
-      [parameters],
-      [
-        {
-          args: [
-            { in: "query", key: "directory" },
-            { in: "query", key: "workspace" },
-            { in: "body", key: "sessionID" },
-            { in: "body", key: "data" },
-          ],
-        },
-      ],
-    )
-    return (options?.client ?? this.client).put<
-      ReadingModeAnnotationsUpdateResponses,
-      ReadingModeAnnotationsUpdateErrors,
-      ThrowOnError
-    >({
-      url: "/reading-mode/annotations",
-      ...options,
-      ...params,
-      headers: {
-        "Content-Type": "application/json",
-        ...options?.headers,
-        ...params.headers,
-      },
-    })
-  }
-}
-
-export class Pdf extends HeyApiClient {
-  /**
-   * Get stored PDF file
-   */
-  public get<ThrowOnError extends boolean = false>(
-    parameters: {
-      directory?: string
-      workspace?: string
-      sessionID: string
-    },
-    options?: Options<never, ThrowOnError>,
-  ) {
-    const params = buildClientParams(
-      [parameters],
-      [
-        {
-          args: [
-            { in: "query", key: "directory" },
-            { in: "query", key: "workspace" },
-            { in: "query", key: "sessionID" },
-          ],
-        },
-      ],
-    )
-    return (options?.client ?? this.client).get<ReadingModePdfGetResponses, ReadingModePdfGetErrors, ThrowOnError>({
-      url: "/reading-mode/pdf",
-      ...options,
-      ...params,
-    })
-  }
-}
-
-export class ReadingMode extends HeyApiClient {
-  private _session?: Session4
-  get session(): Session4 {
-    return (this._session ??= new Session4({ client: this.client }))
-  }
-
-  private _annotations?: Annotations
-  get annotations(): Annotations {
-    return (this._annotations ??= new Annotations({ client: this.client }))
-  }
-
-  private _pdf?: Pdf
-  get pdf(): Pdf {
-    return (this._pdf ??= new Pdf({ client: this.client }))
-  }
-}
-
 export class Instance extends HeyApiClient {
   /**
    * Dispose instance
@@ -6220,14 +4050,14 @@ export class OpencodeClient extends HeyApiClient {
     return (this._provider ??= new Provider({ client: this.client }))
   }
 
-  private _file?: File
-  get file(): File {
-    return (this._file ??= new File({ client: this.client }))
-  }
-
   private _find?: Find
   get find(): Find {
     return (this._find ??= new Find({ client: this.client }))
+  }
+
+  private _file?: File
+  get file(): File {
+    return (this._file ??= new File({ client: this.client }))
   }
 
   private _event?: Event
@@ -6243,21 +4073,6 @@ export class OpencodeClient extends HeyApiClient {
   private _tui?: Tui
   get tui(): Tui {
     return (this._tui ??= new Tui({ client: this.client }))
-  }
-
-  private _knowledge?: Knowledge
-  get knowledge(): Knowledge {
-    return (this._knowledge ??= new Knowledge({ client: this.client }))
-  }
-
-  private _wechat?: Wechat
-  get wechat(): Wechat {
-    return (this._wechat ??= new Wechat({ client: this.client }))
-  }
-
-  private _readingMode?: ReadingMode
-  get readingMode(): ReadingMode {
-    return (this._readingMode ??= new ReadingMode({ client: this.client }))
   }
 
   private _instance?: Instance

@@ -19,7 +19,6 @@ import { Tooltip } from "@opencode-ai/ui/tooltip"
 import { Markdown } from "@opencode-ai/ui/markdown"
 import { CodeEditor } from "@/components/code-editor"
 import { PdfViewerShell } from "@/components/pdf-viewer-shell-official"
-import { registerOpenFileCallback, registerRefreshDirCallback, restoreActiveTasks } from "@/components/pdf-convert-progress"
 import { useSDK } from "@/context/sdk"
 import { selectionFromLines, useFile, type FileSelection, type SelectedLineRange } from "@/context/file"
 import { useComments } from "@/context/comments"
@@ -34,8 +33,6 @@ import { draftState, editorValue } from "@/pages/session/file-tab-state"
 import { createSessionTabs } from "@/pages/session/helpers"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { DialogDraftConflict } from "@/components/dialog-draft-conflict"
-import { DialogPdfToMarkdown } from "@/components/dialog-pdf-to-markdown"
-import { DialogTranslateMarkdown } from "@/components/dialog-translate-markdown"
 import { upsertSessionList } from "@/utils/session-store"
 
 function FileCommentMenu(props: {
@@ -82,7 +79,9 @@ function readingModeText(language: ReturnType<typeof useLanguage>, key: string) 
     case "resume.title":
       return zh ? "继续阅读模式" : "Continue reading mode"
     case "resume.description":
-      return zh ? "这份 PDF 已经有阅读会话。你想继续之前的阅读对话，还是新建一条阅读会话？" : "This PDF already has a reading session. Continue the existing reading conversation or create a new one?"
+      return zh
+        ? "这份 PDF 已经有阅读会话。你想继续之前的阅读对话，还是新建一条阅读会话？"
+        : "This PDF already has a reading session. Continue the existing reading conversation or create a new one?"
     case "resume.continue":
       return zh ? "继续已有阅读" : "Continue existing reading"
     case "resume.new":
@@ -120,7 +119,7 @@ export function FileTabContent(props: { tab: string }) {
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
       ...authHeader,
-      ...(options.headers as Record<string, string> ?? {}),
+      ...((options.headers as Record<string, string>) ?? {}),
     }
     const separator = urlPath.includes("?") ? "&" : "?"
     return fetch(`${baseUrl}${urlPath}${separator}directory=${encodeURIComponent(sdk.directory)}`, {
@@ -289,12 +288,7 @@ export function FileTabContent(props: { tab: string }) {
     const p = path()
     if (!p) return
     if (needsConfirm()) {
-      dialog.show(() => (
-        <DialogDraftConflict
-          onAccept={() => void acceptConflict(p)}
-          onDiscard={discardDraft}
-        />
-      ))
+      dialog.show(() => <DialogDraftConflict onAccept={() => void acceptConflict(p)} onDiscard={discardDraft} />)
       return
     }
     setIsSaving(true)
@@ -307,12 +301,7 @@ export function FileTabContent(props: { tab: string }) {
           done(p)
           return
         }
-        dialog.show(() => (
-          <DialogDraftConflict
-            onAccept={() => void acceptConflict(p)}
-            onDiscard={discardDraft}
-          />
-        ))
+        dialog.show(() => <DialogDraftConflict onAccept={() => void acceptConflict(p)} onDiscard={discardDraft} />)
         return
       }
       showToast({
@@ -332,23 +321,6 @@ export function FileTabContent(props: { tab: string }) {
     normalizeTab: (tab) => (tab.startsWith("file://") ? file.tab(tab) : tab),
   }).activeFileTab
 
-  // Register the callback that opens files after PDF conversion completes.
-  registerOpenFileCallback(async (filePath: string) => {
-    const parentDir = filePath.includes("/") ? filePath.slice(0, filePath.lastIndexOf("/")) : ""
-    await file.tree.refresh(parentDir)
-    const tab = file.tab(filePath)
-    tabs().open(tab)
-    tabs().setActive(tab)
-    await file.load(filePath, { force: true })
-  })
-
-  // Register the directory refresh callback after each conversion finishes.
-  registerRefreshDirCallback((dirPath: string) => {
-    void file.tree.refresh(dirPath)
-  })
-
-  // Restore conversion progress from any active backend tasks during page load.
-  void restoreActiveTasks(fetchApi, sdk.url, sdk.directory)
   let scroll: HTMLDivElement | undefined
   let scrollFrame: number | undefined
   let restoreFrame: number | undefined
@@ -407,12 +379,6 @@ export function FileTabContent(props: { tab: string }) {
     return `Basic ${btoa(`${http.username ?? "opencode"}:${http.password}`)}`
   })
 
-  const openPdfToMarkdown = () => {
-    const p = path()
-    if (!p) return
-    dialog.show(() => <DialogPdfToMarkdown pdfPath={p} />)
-  }
-
   const openPdfInReadingMode = async () => {
     const p = path()
     const currentServer = server.current
@@ -420,22 +386,24 @@ export function FileTabContent(props: { tab: string }) {
 
     try {
       const authHeaders: Record<string, string> = currentServer.http.password
-        ? { Authorization: `Basic ${btoa(`${currentServer.http.username ?? "opencode"}:${currentServer.http.password}`)}` }
+        ? {
+            Authorization: `Basic ${btoa(`${currentServer.http.username ?? "opencode"}:${currentServer.http.password}`)}`,
+          }
         : {}
 
       const openFromFile = async (forceNew = false) => {
         const response = await fetch(
           `${currentServer.http.url}/reading-mode/session/from-file?directory=${encodeURIComponent(sdk.directory)}`,
           {
-          method: "POST",
-          headers: {
-            ...authHeaders,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            path: p,
-            forceNew,
-          }),
+            method: "POST",
+            headers: {
+              ...authHeaders,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              path: p,
+              forceNew,
+            }),
           },
         )
 
@@ -535,7 +503,7 @@ export function FileTabContent(props: { tab: string }) {
     return file.get(p)
   })
   const contents = createMemo(() => state()?.content?.content ?? "")
-  
+
   const isTextFile = createMemo(() => {
     const content = state()?.content
     if (!content) return true
@@ -834,7 +802,10 @@ export function FileTabContent(props: { tab: string }) {
       let el: Element | null = node.parentElement
       let inMath = false
       while (el && el !== scrollEl) {
-        if (el.classList?.contains("katex")) { inMath = true; break }
+        if (el.classList?.contains("katex")) {
+          inMath = true
+          break
+        }
         el = el.parentElement
       }
       if (inMath) continue
@@ -960,7 +931,6 @@ export function FileTabContent(props: { tab: string }) {
             authHeader={pdfAuthHeader()}
             mode="compact"
             class="size-full"
-            onPdfToMarkdown={openPdfToMarkdown}
             onOpenReadingMode={openPdfInReadingMode}
           />
         </div>
@@ -1016,19 +986,6 @@ export function FileTabContent(props: { tab: string }) {
             path: path(),
             current: state()?.content,
             onLoad: queueRestore,
-            actions: isPDF() ? () => (
-              <button
-                type="button"
-                class="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-12-medium text-text-base hover:bg-surface-raised-base-hover transition-colors cursor-pointer"
-                onClick={() => {
-                  const p = path()
-                  if (!p) return
-                  dialog.showModeless(() => <DialogPdfToMarkdown pdfPath={p} />)
-                }}
-              >
-                转换为 Markdown
-              </button>
-            ) : undefined,
             onError: (args: { kind: "image" | "audio" | "svg" }) => {
               if (args.kind !== "svg") return
               showToast({
@@ -1072,19 +1029,6 @@ export function FileTabContent(props: { tab: string }) {
                 onClick={runPython}
                 disabled={isRunning()}
               />
-            </Show>
-            <Show when={!isEditing() && isMarkdown()}>
-              <button
-                type="button"
-                class="flex items-center justify-center rounded-md px-2 h-5 text-xs text-text-weak hover:bg-surface-raised-base-hover transition-colors cursor-pointer leading-none"
-                onClick={() => {
-                  const p = path()
-                  if (!p) return
-                  dialog.showModeless(() => <DialogTranslateMarkdown mdPath={p} />)
-                }}
-              >
-                翻译为中文
-              </button>
             </Show>
             <Show when={isTextFile()}>
               <Tooltip placement="top" gutter={4} value={wordWrap() ? "关闭自动换行" : "开启自动换行"}>
@@ -1194,6 +1138,3 @@ export function FileTabContent(props: { tab: string }) {
     </Tabs.Content>
   )
 }
-
-
-
