@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { brief, extractPage, limit, merge, parseCheck, parseFind, seed, splitPackage } from "./catalog"
+import { brief, extractPage, limit, merge, parseCheck, parseFind, queries, splitPackage } from "./catalog"
 
 const FIND = `
 \u001b[38;5;102mInstall with\u001b[0m npx skills add <owner/repo@skill>
@@ -138,6 +138,47 @@ describe("brief", () => {
     expect(out).not.toContain("真人")
   })
 
+  test("keeps academic paper assistant summaries out of translation buckets", () => {
+    const out = brief({
+      id: "latex-paper-en",
+      name: "latex-paper-en",
+      provider: "external",
+      source: "local/skills",
+      description:
+        "English LaTeX academic paper assistant for existing .tex projects. Use this skill whenever the user wants to compile, lint, audit, or improve an English LaTeX conference or journal paper. Trigger even when the user mentions grammar cleanup, translation, title optimization, figure checks, or experiment-section review.",
+    })
+    expect(out).toContain("学术论文")
+    expect(out).not.toContain("翻译")
+  })
+
+  test("classifies academic translate skills into manuscript translation buckets", () => {
+    const out = brief({
+      id: "academic-translate",
+      name: "academic-translate",
+      provider: "external",
+      source: "canyangliunian/agent-skills",
+      description: "Translate academic papers and manuscripts while preserving scholarly terminology.",
+    })
+    expect(out).toContain("翻译")
+    expect(out).toContain("学术论文")
+    expect(out).not.toContain("代码整理")
+  })
+
+  test("classifies academic translate skill_md bodies into translation instead of code buckets", () => {
+    const out = brief(
+      {
+        id: "academic-translate",
+        name: "academic-translate",
+        provider: "external",
+        source: "canyangliunian/agent-skills",
+      },
+      "学术翻译专家 版本：v2.7 validate-glossary.py 升级 Table Guard 翻译即重写 完整翻译所有内容 学术规范 术语一致性",
+    )
+    expect(out).toContain("翻译")
+    expect(out).toContain("学术论文")
+    expect(out).not.toContain("代码整理")
+  })
+
   test("uses conservative generic text for unknown skills", () => {
     expect(
       brief({
@@ -195,28 +236,29 @@ describe("limit", () => {
   })
 })
 
-describe("seed", () => {
-  test("expands chinese polish intent into english keywords", () => {
-    const result = seed("找一下润色的skill")
-    expect(result).toContain("polish")
-    expect(result).toContain("proofread")
-    expect(result).toContain("editing")
-    expect(result).toContain("rewrite")
-    expect(result).toContain("humanizer")
+describe("queries", () => {
+  test("plans broad english probes for chinese paper polish intent", () => {
+    const result = queries("找一下润色论文的skill", {
+      phrases: [],
+      keywords: [],
+    })
+    expect(result).toEqual(expect.arrayContaining(["paper polish", "proofread manuscript", "proofread paper"]))
   })
 
-  test("expands chinese human-like writing intent", () => {
-    const result = seed("更有人味一点")
-    expect(result).toContain("humanizer")
-    expect(result).toContain("human-like")
-    expect(result).toContain("natural")
+  test("plans broad english probes for scientific visualization intent", () => {
+    const result = queries("科研绘图skill", {
+      phrases: [],
+      keywords: [],
+    })
+    expect(result).toEqual(expect.arrayContaining(["scientific visualization", "scientific plotting", "figure generation"]))
+    expect(result).not.toEqual(expect.arrayContaining(["find skills"]))
   })
 
-  test("expands chinese updater intent", () => {
-    const result = seed("找一下自动更新的skill")
-    expect(result).toContain("update")
-    expect(result).toContain("updater")
-    expect(result).toContain("refresh")
-    expect(result).toContain("sync")
+  test("keeps explicit meta discovery queries focused on meta tooling", () => {
+    const result = queries("找一下搜索和安装skill的工具", {
+      phrases: [],
+      keywords: [],
+    })
+    expect(result).toEqual(expect.arrayContaining(["skill discovery"]))
   })
 })

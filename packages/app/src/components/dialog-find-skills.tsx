@@ -3,6 +3,7 @@ import { Dialog } from "@opencode-ai/ui/dialog"
 import { Icon } from "@opencode-ai/ui/icon"
 import { Tag } from "@opencode-ai/ui/tag"
 import { TextField } from "@opencode-ai/ui/text-field"
+import { TextShimmer } from "@opencode-ai/ui/text-shimmer"
 import { showToast } from "@opencode-ai/ui/toast"
 import { createMemo, createResource, createSignal, createEffect, For, Match, Show, Switch, onCleanup } from "solid-js"
 import { createStore } from "solid-js/store"
@@ -26,6 +27,7 @@ type Item = {
   update_available?: boolean
   summary_zh?: string
   summary_source?: "skills_summary" | "skill_md"
+  why_recommended?: string
   relevance?: "high" | "medium" | "low"
   tier?: "main" | "more"
 }
@@ -36,6 +38,16 @@ type Search = {
   meta: {
     model?: string
     latency_ms?: number
+    local?: {
+      status: "success" | "timeout" | "error" | "pending"
+      count?: number
+      message?: string
+    }
+    external?: {
+      status: "success" | "timeout" | "error" | "pending"
+      count?: number
+      message?: string
+    }
   }
 }
 
@@ -282,6 +294,31 @@ export function DialogFindSkills(props: { directory: string }) {
   })
 
   const loading = createMemo(() => (submitted() ? searching() : base.loading))
+  const supplementing = createMemo(() => !!submitted() && searching() && semantic())
+  const tip = createMemo(() => {
+    if (!submitted()) return "当前显示已安装技能；点击检查更新获取最新状态"
+    if (supplementing()) return "本地结果已显示，正在补充外网查找"
+    if (searching()) return "正在搜索已安装与可用 Skills"
+    const state = hits().meta.external?.status
+    if (state === "timeout") {
+      return list().main.length || list().more.length
+        ? "外网 Skill 搜索超时，当前显示本地与已获取结果"
+        : "外网 Skill 搜索超时，当前没有可显示结果"
+    }
+    if (state === "error") {
+      return list().main.length || list().more.length
+        ? "外网 Skill 搜索失败，当前显示本地与已获取结果"
+        : "外网 Skill 搜索失败，当前没有可显示结果"
+    }
+    return "已完成本地与外网 Skill 搜索"
+  })
+  const empty = createMemo(() => {
+    if (!submitted()) return "暂无可显示的 Skills"
+    const state = hits().meta.external?.status
+    if (state === "timeout") return "外网 Skill 搜索超时，且没有找到本地匹配结果"
+    if (state === "error") return "外网 Skill 搜索失败，且没有找到本地匹配结果"
+    return "没有找到匹配的 Skills"
+  })
 
   const refresh = async () => {
     const result = await client().skill.installed()
@@ -533,6 +570,14 @@ export function DialogFindSkills(props: { directory: string }) {
             </Show>
 
             <Show when={submitted()}>
+              <Show when={item.why_recommended}>
+                <div class="text-12-medium text-text-strong leading-5 whitespace-pre-wrap break-words">
+                  {item.why_recommended}
+                </div>
+              </Show>
+            </Show>
+
+            <Show when={submitted()}>
               <div class="text-12-regular text-text-weak leading-5 whitespace-pre-wrap break-words">
                 {semantic() && !item.summary_zh ? "正在读取 SKILL.md..." : item.summary_zh ?? "暂无简介"}
               </div>
@@ -661,11 +706,12 @@ export function DialogFindSkills(props: { directory: string }) {
 
         <div class="flex items-center justify-between text-12-regular text-text-weak px-1">
           <span>
-            {submitted()
-              ? semantic()
-                ? "正在补充语义扩展与外部查找"
-                : "提交搜索时会做语义扩展与外部查找"
-              : "当前显示已安装技能；点击检查更新获取最新状态"}
+            <Show
+              when={supplementing()}
+              fallback={<span>{tip()}</span>}
+            >
+              <TextShimmer text={tip()} />
+            </Show>
           </span>
           <Show when={submitted()}>
             <span>查询：{submitted()}</span>
@@ -680,9 +726,7 @@ export function DialogFindSkills(props: { directory: string }) {
             <div class="text-12-regular text-danger px-1">{error()}</div>
           </Match>
           <Match when={list().main.length === 0 && list().more.length === 0}>
-            <div class="text-12-regular text-text-weak px-1">
-              {submitted() ? "没有找到匹配的 Skills" : "暂无可显示的 Skills"}
-            </div>
+            <div class="text-12-regular text-text-weak px-1">{empty()}</div>
           </Match>
           <Match when={true}>
             <div class="flex flex-col gap-3 overflow-y-auto max-h-[26rem] pr-0.5">

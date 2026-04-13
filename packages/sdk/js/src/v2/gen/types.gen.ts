@@ -4636,11 +4636,14 @@ export type SkillSearchResponses = {
       version?: string
       package?: string
       source?: string
+      probe?: string
+      probe_index?: number
       installed?: boolean
       scope?: "project" | "global"
       update_available?: boolean
       summary_zh?: string
       summary_source?: "skills_summary" | "skill_md"
+      why_recommended?: string
       relevance?: "high" | "medium" | "low"
       tier?: "main" | "more"
     }>
@@ -4656,17 +4659,30 @@ export type SkillSearchResponses = {
       version?: string
       package?: string
       source?: string
+      probe?: string
+      probe_index?: number
       installed?: boolean
       scope?: "project" | "global"
       update_available?: boolean
       summary_zh?: string
       summary_source?: "skills_summary" | "skill_md"
+      why_recommended?: string
       relevance?: "high" | "medium" | "low"
       tier?: "main" | "more"
     }>
     meta: {
       model?: string
       latency_ms?: number
+      local?: {
+        status: "success" | "timeout" | "error" | "pending"
+        count?: number
+        message?: string
+      }
+      external?: {
+        status: "success" | "timeout" | "error" | "pending"
+        count?: number
+        message?: string
+      }
     }
   }
 }
@@ -4698,11 +4714,14 @@ export type SkillInstalledResponses = {
     version?: string
     package?: string
     source?: string
+    probe?: string
+    probe_index?: number
     installed?: boolean
     scope?: "project" | "global"
     update_available?: boolean
     summary_zh?: string
     summary_source?: "skills_summary" | "skill_md"
+    why_recommended?: string
     relevance?: "high" | "medium" | "low"
     tier?: "main" | "more"
   }>
@@ -4775,11 +4794,14 @@ export type SkillCheckResponses = {
     version?: string
     package?: string
     source?: string
+    probe?: string
+    probe_index?: number
     installed?: boolean
     scope?: "project" | "global"
     update_available?: boolean
     summary_zh?: string
     summary_source?: "skills_summary" | "skill_md"
+    why_recommended?: string
     relevance?: "high" | "medium" | "low"
     tier?: "main" | "more"
   }>

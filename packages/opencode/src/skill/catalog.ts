@@ -11,15 +11,23 @@ import { Provider } from "@/provider/provider"
 import { Instance } from "@/project/instance"
 import { Config } from "@/config/config"
 import { ModelID, ProviderID } from "@/provider/schema"
+import { Skill } from "@/skill"
 
 const Rank = z.enum(["exact", "semantic"])
 const Relevance = z.enum(["high", "medium", "low"])
 const Tier = z.enum(["main", "more"])
 const Scope = z.enum(["project", "global"])
 const ProviderKind = z.enum(["registry", "external"])
+const Role = z.enum(["direct", "supporting", "meta", "unrelated"])
 const SummarySource = z.enum(["skills_summary", "skill_md"])
 const DescribeSource = z.enum(["skills_summary", "skill_md", "fallback"])
 const InstallStatus = z.enum(["queued", "running", "success", "error"])
+const SearchStatus = z.enum(["success", "timeout", "error", "pending"])
+const SearchSource = z.object({
+  status: SearchStatus,
+  count: z.number().optional(),
+  message: z.string().optional(),
+})
 
 export const SearchResult = z.object({
   id: z.string(),
@@ -33,11 +41,14 @@ export const SearchResult = z.object({
   version: z.string().optional(),
   package: z.string().optional(),
   source: z.string().optional(),
+  probe: z.string().optional(),
+  probe_index: z.number().optional(),
   installed: z.boolean().default(false),
   scope: Scope.optional(),
   update_available: z.boolean().optional(),
   summary_zh: z.string().optional(),
   summary_source: SummarySource.optional(),
+  why_recommended: z.string().optional(),
   relevance: Relevance.optional(),
   tier: Tier.optional(),
 })
@@ -49,16 +60,24 @@ export const SearchOutput = z.object({
   meta: z.object({
     model: z.string().optional(),
     latency_ms: z.number().optional(),
+    local: SearchSource.optional(),
+    external: SearchSource.optional(),
   }),
 })
 export type SearchOutput = z.infer<typeof SearchOutput>
 
 type FindResult = {
   package: string
-  installs: string
+  installs?: string
   source: string
   name: string
   url: string
+}
+type FindState = z.infer<typeof SearchStatus>
+type FindOutput = {
+  status: FindState
+  items: FindResult[]
+  message?: string
 }
 
 export const Installed = SearchResult.omit({ rank: true }).extend({
@@ -157,10 +176,19 @@ const ExternalLock = z.object({
   skills: z.record(z.string(), ExternalLockEntry),
 })
 
-const Terms = z.object({
-  intent: z.string().optional().default(""),
-  phrases: z.array(z.string()).max(3).default([]),
-  keywords: z.array(z.string()).max(8).default([]),
+const Plan = z.object({
+  goal: z.string().optional().default(""),
+  domain: z.string().optional().default(""),
+  action: z.string().optional().default(""),
+  artifact: z.string().optional().default(""),
+  tags: z.array(z.string()).max(8).default([]),
+  native: z.array(z.string()).max(6).default([]),
+  direct: z.array(z.string()).max(6).default([]),
+  supporting: z.array(z.string()).max(6).default([]),
+  broad: z.array(z.string()).max(6).default([]),
+  probes: z.array(z.string()).max(6).default([]),
+  avoid: z.array(z.string()).max(6).default([]),
+  meta: z.boolean().default(false),
 })
 
 const Review = z.object({
@@ -169,6 +197,8 @@ const Review = z.object({
       z.object({
         id: z.string(),
         relevance: Relevance,
+        role: Role,
+        why_recommended: z.string().trim().optional().default(""),
         summary_zh: z.string().trim().optional().default(""),
       }),
     )
@@ -182,9 +212,13 @@ type Text = Awaited<ReturnType<typeof Process.text>>
 type Page = { text: string; source: z.infer<typeof SummarySource> }
 type Job = z.infer<typeof InstallJob> & { directory: string; work: () => Promise<void> }
 type SearchModel = { providerID: ProviderID; modelID: ModelID }
+type LocalInfo = Awaited<ReturnType<typeof Skill.all>>[number]
+type SearchPlan = z.infer<typeof Plan>
 type Reviewed = {
   id: string
   relevance: z.infer<typeof Relevance>
+  role: z.infer<typeof Role>
+  why_recommended?: string
   summary_zh?: string
   summary_source?: z.infer<typeof SummarySource>
 }
@@ -206,9 +240,13 @@ export const BenchInput = z.object({
 
 const REGISTRY_MS = 1_500
 const CLI_MS = 2_000
-const FIND_MS = 4_500
+const FIND_MS = 15_000
+const WEB_MS = 6_000
 const PAGE_MS = 2_500
 const SUMMARY_TTL = 86_400_000
+const SEARCH_TTL = 30_000
+const UA =
+  "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36"
 const SEARCH_MODELS = [
   "opencode/big-pickle",
   "opencode/qwen3.6-plus-free",
@@ -218,6 +256,10 @@ const SEARCH_MODELS = [
 ] as const
 const memo = new Map<string, { at: number; result: z.infer<typeof DescribeResult> }>()
 const pending = new Map<string, Promise<z.infer<typeof DescribeResult>>>()
+const findMemo = new Map<string, { at: number; result: FindOutput }>()
+const findPending = new Map<string, Promise<FindOutput>>()
+const webMemo = new Map<string, { at: number; result: FindOutput }>()
+const webPending = new Map<string, Promise<FindOutput>>()
 const pageMemo = new Map<string, { at: number; result: Page | undefined }>()
 const pagePending = new Map<string, Promise<Page | undefined>>()
 const slots = new Map<number, { queue: Array<() => void>; count: number }>()
@@ -225,6 +267,22 @@ const task = new Map<string, Job>()
 const wait: string[] = []
 const list = new Map<string, string[]>()
 let active = 0
+
+export function resetForTest() {
+  memo.clear()
+  pending.clear()
+  findMemo.clear()
+  findPending.clear()
+  webMemo.clear()
+  webPending.clear()
+  pageMemo.clear()
+  pagePending.clear()
+  slots.clear()
+  task.clear()
+  wait.splice(0, wait.length)
+  list.clear()
+  active = 0
+}
 
 export function limit<T>(ms: number, fallback: T, run: () => Promise<T>) {
   return Promise.race([
@@ -243,10 +301,10 @@ export async function exec(cmd: string[], ms = CLI_MS): Promise<Text> {
     kill: "SIGKILL",
     timeout: 0,
   })
-    .catch(() => ({
+    .catch((err) => ({
       code: 1,
       stdout: Buffer.alloc(0),
-      stderr: Buffer.alloc(0),
+      stderr: Buffer.from(err instanceof Error ? err.message : String(err)),
       text: "",
     }))
     .finally(() => clearTimeout(id))
@@ -421,34 +479,209 @@ async function language(input?: SearchModel) {
   return { model, language: out }
 }
 
-export function seed(query: string) {
-  const map: Record<string, string[]> = {
-    update: ["updater", "refresh", "sync", "maintenance", "check"],
-    auto: ["automatic", "automation"],
-    skill: ["skills", "plugin"],
-    install: ["add", "download", "setup"],
+const cue = {
+  academic: {
+    test: /(学术|科研|研究|论文|期刊|会议|投稿|答辩|academic|research|scientific|scholarly|journal|conference|thesis)/i,
+    probes: ["academic", "research", "scientific"],
+    label: "学术研究",
+  },
+  manuscript: {
+    test: /(论文|稿件|摘要|引言|latex|manuscript|paper|abstract|introduction|citation)/i,
+    probes: ["paper", "manuscript", "latex"],
+    label: "论文写作",
+  },
+  polish: {
+    test: /(润色|校对|修改|proofread|proofreading|polish|editing|editorial|grammar)/i,
+    probes: ["polish", "proofread", "editing"],
+    label: "润色校对",
+  },
+  human: {
+    test: /(人味|自然表达|更自然|自然一些|自然点|更像人|去ai|改写|真人|humanize|humanizer|human sounding|more human|human|natural writing|natural language|rewrite|tone)/i,
+    probes: ["humanize writing", "natural writing", "rewrite"],
+    label: "自然改写",
+  },
+  translate: {
+    test: /(翻译|translate|translation|translator|localize|localization|localisation|localized|bilingual)/i,
+    probes: ["translate", "translation"],
+    label: "翻译转换",
+  },
+  convert: {
+    test: /(转换|转成|导出|convert|conversion|markdown|to markdown|to pdf|to md|to docx)/i,
+    probes: ["convert", "markdown conversion"],
+    label: "内容转换",
+  },
+  visualization: {
+    test:
+      /(绘图|作图|画图|可视化|图表|曲线|\bfigure(?:s)?\b|\bchart(?:s)?\b|\bgraph(?:s)?\b|\bdiagram(?:s)?\b|\bplots\b|\bplotting\b|\bplotly\b|\bvisualization\b)/i,
+    probes: ["visualization", "plotting", "chart", "figure"],
+    label: "图表可视化",
+  },
+  browser: {
+    test: /(浏览器|网页|页面|元素|交互|点击|playwright|browser|automation|website|web page|page|element|interaction|click through|click|inspect|web testing|ui checks)/i,
+    probes: ["browser automation", "playwright", "page interaction"],
+    label: "浏览器自动化",
+  },
+  slides: {
+    test: /(幻灯片|演示|slides|presentation|deck|powerpoint|ppt|reveal)/i,
+    probes: ["slides", "presentation"],
+    label: "演示文稿",
+  },
+  pdf: {
+    test: /(pdf|导出|打印|markdown to pdf|docx export)/i,
+    probes: ["pdf export", "markdown pdf"],
+    label: "文档导出",
+  },
+  docs: {
+    test: /(文档|document|documents|documentation|docs|api guide|technical docs)/i,
+    probes: ["technical docs", "documentation"],
+    label: "技术文档",
+  },
+  update: {
+    test: /(更新|同步|刷新|update|updater|refresh|sync|maintenance)/i,
+    probes: ["skill updater", "auto updater"],
+    label: "更新维护",
+  },
+  meta: {
+    test: /(技能|skill|skills|插件|plugin|plugins|marketplace|find skills|discover skills|install skills)/i,
+    probes: ["find skills", "skill discovery", "install skills"],
+    label: "技能发现",
+  },
+  code: {
+    test: /(代码|重构|格式化|lint|refactor|code|coding|devtool)/i,
+    probes: ["code tools", "refactor"],
+    label: "代码处理",
+  },
+  media: {
+    test: /(视频|音频|字幕|多媒体|video|audio|subtitle|caption|multimedia)/i,
+    probes: ["video editing", "subtitle"],
+    label: "多媒体处理",
+  },
+} as const
+
+function mark(input: string) {
+  return Object.entries(cue).reduce((out, [key, value]) => {
+    if (value.test.test(input)) out.add(key)
+    return out
+  }, new Set<string>())
+}
+
+function meta(tags: Set<string>) {
+  if (tags.has("update") && ![...tags].some((item) => !["meta", "update"].includes(item))) return true
+  if (tags.has("meta") && ![...tags].some((item) => item !== "meta")) return true
+  return false
+}
+
+function infer(query: string): SearchPlan {
+  const tags = mark(query)
+  const english = /(英文|english)/i.test(query)
+  const wantMeta = meta(tags)
+  const kept = [...tags].filter((item) => wantMeta || item !== "meta")
+  const direct = [
+    ...(latin(query) ? [clean(query)] : []),
+    ...(tags.has("manuscript") && tags.has("polish")
+      ? [
+          "paper polish",
+          "proofread manuscript",
+          "proofread paper",
+          "professional proofreader",
+          ...(english ? ["english proofreading"] : []),
+        ]
+      : []),
+    ...(tags.has("academic") && tags.has("visualization")
+      ? ["scientific visualization", "scientific plotting", "figure generation"]
+      : []),
+    ...(tags.has("translate") && tags.has("manuscript")
+      ? [
+          "paper translation",
+          "paper translator",
+          "manuscript translation",
+          "manuscript translator",
+          "academic translation",
+          "academic translator",
+        ]
+      : []),
+    ...(tags.has("translate") && tags.has("docs")
+      ? [
+          "technical docs translation",
+          "docs translation",
+          "document translation",
+          "documentation translation",
+          "documentation localization",
+          "technical translator",
+        ]
+      : []),
+    ...(tags.has("human") && tags.has("academic") ? ["academic writing humanizer"] : []),
+    ...(tags.has("browser") ? ["browser automation", "playwright"] : []),
+    ...(tags.has("slides") && tags.has("academic") ? ["scientific slides", "research presentation"] : []),
+    ...(tags.has("pdf") ? ["pdf export", "markdown pdf"] : []),
+    ...(wantMeta ? (tags.has("update") ? ["auto updater", "skill updater"] : ["find skills", "skill discovery"]) : []),
+  ].filter(Boolean)
+  const supporting = [
+    ...(tags.has("human") ? ["humanize writing", "natural writing"] : []),
+    ...(tags.has("docs") ? ["technical docs", "documentation"] : []),
+    ...(tags.has("slides") && !tags.has("academic") ? ["presentation skills"] : []),
+    ...kept.flatMap((item) => {
+      if (["academic", "manuscript", "translate"].includes(item)) return []
+      if (item === "polish" && tags.has("manuscript")) return []
+      if (wantMeta && ["meta", "update"].includes(item)) return []
+      return cue[item as keyof typeof cue]?.probes ?? []
+    }),
+  ].filter(Boolean)
+  const broad = kept.flatMap((item) => {
+    if (!["academic", "manuscript", "translate"].includes(item)) return []
+    return cue[item as keyof typeof cue]?.probes ?? []
+  })
+  const probes = [...direct, ...supporting, ...broad].filter((item, idx, arr) => item && arr.indexOf(item) === idx)
+  return {
+    goal: query,
+    domain: tags.has("academic") ? "academic" : tags.has("docs") ? "documentation" : "general",
+    action: tags.has("translate")
+      ? tags.has("academic") && tags.has("manuscript") && tags.has("polish")
+        ? "polish"
+        : "translate"
+      : tags.has("convert")
+        ? "convert"
+        : tags.has("polish")
+        ? "polish"
+        : tags.has("human")
+          ? "humanize"
+          : tags.has("visualization")
+            ? "visualize"
+            : tags.has("browser")
+              ? "automate"
+              : tags.has("slides")
+                ? "present"
+                : tags.has("pdf")
+                  ? "export"
+                  : tags.has("update")
+                    ? "update"
+                    : wantMeta
+                      ? "discover"
+                      : "",
+    artifact: tags.has("manuscript")
+      ? "manuscript"
+      : tags.has("visualization")
+        ? "figures"
+        : tags.has("slides")
+          ? "slides"
+          : tags.has("pdf")
+            ? "documents"
+            : tags.has("browser")
+              ? "browser"
+              : tags.has("docs")
+                ? "documentation"
+                : wantMeta
+                  ? "skills"
+                  : "",
+    tags: kept.filter((item, idx, arr) => arr.indexOf(item) === idx).slice(0, 8),
+    native: latin(query) ? [] : [query.trim()].filter(Boolean).slice(0, 6),
+    direct: direct.filter((item, idx, arr) => arr.indexOf(item) === idx).slice(0, 6),
+    supporting: supporting.filter((item, idx, arr) => arr.indexOf(item) === idx).slice(0, 6),
+    broad: broad.filter((item, idx, arr) => arr.indexOf(item) === idx).slice(0, 6),
+    probes: probes.filter((item, idx, arr) => item && arr.indexOf(item) === idx).slice(0, 6),
+    avoid: wantMeta ? [] : ["meta"],
+    meta: wantMeta,
   }
-  const words = tokens(query).flatMap((part) => map[part] ?? [])
-  const text = query.toLowerCase()
-  const alias: Array<[string, string[]]> = [
-    ["润色", ["polish", "proofread", "editing", "rewrite", "humanizer"]],
-    ["改写", ["rewrite", "editing", "polish"]],
-    ["改论文", ["paper", "polish", "latex", "proofread"]],
-    ["论文", ["paper", "latex", "manuscript"]],
-    ["更新", ["update", "updater", "refresh", "sync", "check"]],
-    ["自动更新", ["auto updater", "update", "updater", "refresh", "sync"]],
-    ["技能", ["skills", "find", "install"]],
-    ["skill", ["skills", "find", "install"]],
-    ["有人味", ["humanizer", "natural", "human-like", "writing"]],
-    ["人味", ["humanizer", "human-like", "natural"]],
-    ["写作", ["writing", "rewrite", "editing"]],
-    ["翻译", ["translate", "translation"]],
-    ["总结", ["summarize", "summary"]],
-  ]
-  return [
-    ...words,
-    ...alias.flatMap(([key, value]) => (text.includes(key) ? value : [])),
-  ]
 }
 
 function score(query: string, text: string) {
@@ -460,79 +693,356 @@ function score(query: string, text: string) {
   return tokens(q).every((part) => t.includes(part)) ? ("semantic" as const) : undefined
 }
 
-function kind(input: string) {
-  const text = clean(input)
-  const out = new Set<string>()
-  if (/\b(paper|latex|manuscript|submission|academic|journal|conference|scholarly)\b/.test(text)) out.add("paper")
-  if (/\b(proofread|proofreading|copy editing|copyediting|copy edit|grammar|editorial|reviewing|review)\b/.test(text)) out.add("proof")
-  if (/\b(human|humanizer|humanize|human like|humanlike|natural language|natural writing|rewrite|rewriting)\b/.test(text)) out.add("human")
-  if (/\b(video|media|multimedia|clip|audio|footage|render|subtitle|captions?)\b/.test(text)) out.add("media")
-  if (/\b(find|search|install|plugin|marketplace)\b|discover skills|skills cli/.test(text)) out.add("tool")
-  if (/\b(update|updater|refresh|sync|maintenance|auto update|autoupdate)\b|check updates?\b/.test(text)) out.add("updater")
-  if (/\b(ui|ux|interface)\b|design system/.test(text)) out.add("ui")
-  if (/\b(code|refactor|lint|format|coding)\b/.test(text)) out.add("code")
-  if (/\b(translate|translation)\b/.test(text)) out.add("translate")
-  return out
+function hit(query: string, text: string, extra: string[]) {
+  return [query, ...extra]
+    .flatMap((term, idx) => {
+      const rank = score(term, text)
+      if (!rank) return []
+      return [{
+        term,
+        rank,
+        idx,
+        size: tokens(term).filter(useful).length,
+      }]
+    })
+    .toSorted((a, b) => {
+      const left = (a.rank === "exact" ? 100 : 0) + a.size * 10 - a.idx
+      const right = (b.rank === "exact" ? 100 : 0) + b.size * 10 - b.idx
+      return right - left
+    })[0]
 }
 
-function intent(query: string) {
-  const want = kind([query, ...seed(query)].join(" "))
-  if (want.has("translate")) return "translate" as const
-  if (want.has("paper") || want.has("proof")) return "paper" as const
-  if (want.has("human")) return "human" as const
-  if (want.has("tool") || want.has("updater")) return "tool" as const
+function useful(input: string) {
+  const skip = new Set(["skill", "skills", "find", "install", "plugin", "plugins", "marketplace", "tool", "tools"])
+  return tokens(input).some((item) => !skip.has(item))
 }
 
-function blocked(query: string, item: SearchResult, body?: string) {
-  const want = intent(query)
-  if (!want) return false
-  const have = kind([item.name, item.source, item.registry, item.description, body].filter(Boolean).join(" "))
-  if (want === "paper") return have.has("media") || have.has("ui") || have.has("tool") || have.has("updater") || have.has("translate")
-  if (want === "human") return have.has("media") || have.has("ui") || have.has("tool") || have.has("updater")
-  if (want === "translate") return have.has("media") || have.has("ui") || have.has("tool") || have.has("updater")
-  return have.has("paper") || have.has("proof") || have.has("media") || have.has("ui") || have.has("human")
+function latin(input: string) {
+  return /^[\x00-\x7f\s-]+$/.test(input) && /[a-z]/i.test(input)
 }
 
-function relate(query: string, item: SearchResult, body?: string): z.infer<typeof Relevance> {
-  const want = intent(query)
-  const have = kind([item.name, item.source, item.registry, item.description, body].filter(Boolean).join(" "))
+function arrange(
+  input: string,
+  extra: {
+    phrases?: string[]
+    keywords?: string[]
+    probes?: string[]
+    native?: string[]
+    direct?: string[]
+    supporting?: string[]
+    broad?: string[]
+  },
+  full = false,
+) {
+  const fallback = infer(input)
+  const native = extra.native ?? fallback.native
+  const direct = extra.direct ?? fallback.direct
+  const supporting = extra.supporting ?? ("probes" in extra ? extra.probes ?? [] : [...(extra.phrases ?? []), ...(extra.keywords ?? [])])
+  const broad = extra.broad ?? fallback.broad
+  const list = [
+    { text: input, source: "input" as const, band: "direct" as const },
+    ...native.map((item) => ({ text: item, source: "probe" as const, band: "native" as const })),
+    ...direct.map((item) => ({ text: item, source: "probe" as const, band: "direct" as const })),
+    ...supporting.map((item) => ({ text: item, source: "probe" as const, band: "supporting" as const })),
+    ...broad.map((item) => ({ text: item, source: "probe" as const, band: "broad" as const })),
+  ]
+    .flatMap((item) => {
+      const raw = item.text.trim()
+      const norm = clean(item.text)
+      return [
+        ...(latin(raw) && /[-_./@]/.test(raw) ? [{ ...item, text: raw }] : []),
+        ...(norm ? [{ ...item, text: norm }] : []),
+      ]
+    })
+    .filter((item) => item.text)
+    .filter((item) => item.source === "probe" || useful(item.text))
+  const hasLatin = list.some((item) => latin(item.text))
+  const rows = hasLatin ? list.filter((item) => latin(item.text) || item.band === "native" || item.source === "input") : list
+  const wide = rows.some((item) => item.text.includes(" "))
+  const kept = rows
+    .filter((item) => {
+      if (!wide || item.text.includes(" ") || item.source === "probe") return true
+      return !rows.some((other) => other.text.includes(" ") && clean(other.text).includes(item.text))
+    })
+    .filter((item, idx, arr) => arr.findIndex((other) => other.text === item.text) === idx)
+  return kept
+    .toSorted((a, b) => {
+      const base = tokens(input).filter(useful)
+      const leftMatch = tokens(a.text).filter((item) => base.includes(item)).length
+      const rightMatch = tokens(b.text).filter((item) => base.includes(item)).length
+      const leftUseful = tokens(a.text).filter(useful).length
+      const rightUseful = tokens(b.text).filter(useful).length
+      const leftBand = a.band === "direct" ? 40 : a.band === "native" ? 34 : a.band === "supporting" ? 10 : -30
+      const rightBand = b.band === "direct" ? 40 : b.band === "native" ? 34 : b.band === "supporting" ? 10 : -30
+      const left = (clean(a.text) === clean(input) ? 100 : 0) +
+        (a.source === "input" ? 10 : 0) +
+        (latin(a.text) && /[-_./@]/.test(a.text) ? 12 : 0) +
+        leftBand +
+        leftMatch * 20 +
+        leftUseful * 8 -
+        (tokens(a.text).length - leftUseful) * 6 +
+        Math.min(a.text.length, 24)
+      const right = (clean(b.text) === clean(input) ? 100 : 0) +
+        (b.source === "input" ? 10 : 0) +
+        (latin(b.text) && /[-_./@]/.test(b.text) ? 12 : 0) +
+        rightBand +
+        rightMatch * 20 +
+        rightUseful * 8 -
+        (tokens(b.text).length - rightUseful) * 6 +
+        Math.min(b.text.length, 24)
+      if (left !== right) return right - left
+      return a.text.localeCompare(b.text)
+    })
+    .filter((item, idx, arr) => full || item.band !== "broad" || arr.filter((next) => next.band !== "broad").length < 3)
+    .map((item) => item.text)
+    .slice(0, 6)
+}
 
-  if (want === "paper") {
-    if (have.has("paper") || have.has("proof")) return "high"
-    if (have.has("human") || have.has("code")) return "medium"
-    if (have.has("media") || have.has("tool") || have.has("ui") || have.has("translate")) return "low"
+export function queries(
+  input: string,
+  extra: {
+    phrases?: string[]
+    keywords?: string[]
+    probes?: string[]
+    native?: string[]
+    direct?: string[]
+    supporting?: string[]
+    broad?: string[]
+  },
+) {
+  return arrange(input, extra)
+}
+
+function allQueries(
+  input: string,
+  extra: {
+    phrases?: string[]
+    keywords?: string[]
+    probes?: string[]
+    native?: string[]
+    direct?: string[]
+    supporting?: string[]
+    broad?: string[]
+  },
+) {
+  return arrange(input, extra, true)
+}
+
+async function discover(query: string, plan: SearchPlan, st: Awaited<ReturnType<typeof state>>, searches: string[], extra: string[]) {
+  const runs = await Promise.all(searches.map(async (item) => ({ probe: item, out: await find(item, FIND_MS) })))
+  const found = fold(runs.map((item) => item.out))
+  const items = runs
+    .flatMap((run) => run.out.items.map((item) => ({ item, probe: run.probe })))
+    .map(({ item, probe }) => externalResult(query, item, st, [...extra, ...searches], probe))
+    .filter((item): item is SearchResult => !!item)
+  return { found, items }
+}
+
+async function discoverWeb(query: string, plan: SearchPlan, st: Awaited<ReturnType<typeof state>>, searches: string[], extra: string[]) {
+  const runs = await Promise.all(searches.map(async (item) => ({ probe: item, out: await webFind(item, WEB_MS) })))
+  const found = fold(runs.map((item) => item.out))
+  const items = runs
+    .flatMap((run) => run.out.items.map((item) => ({ item, probe: run.probe })))
+    .map(({ item, probe }) => externalResult(query, item, st, [...extra, ...searches], probe))
+    .filter((item): item is SearchResult => !!item)
+    .filter((item) => {
+      const next = role(query, plan, item)
+      if (next === "direct" || next === "supporting") return true
+      return next === "meta" && plan.meta
+    })
+  return { found, items }
+}
+
+function blend(query: string, next: SearchPlan) {
+  const base = infer(query)
+  return {
+    ...next,
+    goal: next.goal || base.goal,
+    domain: next.domain && next.domain !== "general" ? next.domain : base.domain,
+    action: next.action || base.action,
+    artifact: next.artifact || base.artifact,
+    tags: [...next.tags, ...base.tags].filter((item, idx, arr) => arr.indexOf(item) === idx).slice(0, 8),
+    native: [...next.native, ...base.native].filter((item, idx, arr) => arr.indexOf(item) === idx).slice(0, 6),
+    direct: [...next.direct, ...base.direct].filter((item, idx, arr) => arr.indexOf(item) === idx).slice(0, 6),
+    supporting: [...next.supporting, ...base.supporting]
+      .filter((item, idx, arr) => arr.indexOf(item) === idx)
+      .slice(0, 6),
+    broad: [...next.broad, ...base.broad].filter((item, idx, arr) => arr.indexOf(item) === idx).slice(0, 6),
+    probes: [...next.probes, ...next.native, ...next.direct, ...next.supporting, ...next.broad, ...base.probes, ...base.native, ...base.direct, ...base.supporting, ...base.broad]
+      .filter((item, idx, arr) => arr.indexOf(item) === idx)
+      .slice(0, 6),
+    avoid: [...next.avoid, ...base.avoid].filter((item, idx, arr) => arr.indexOf(item) === idx).slice(0, 6),
+    meta: next.meta || base.meta,
+  } satisfies SearchPlan
+}
+
+function same(plan: SearchPlan, item: SearchResult, body?: string) {
+  const hit = match(plan, item, body)
+  return hit.tags
+}
+
+function profile(item: SearchResult, body?: string) {
+  return infer(
+    [
+      item.name,
+      item.description,
+      clip((body ?? "").replace(/\s+/g, " ").trim(), 320),
+    ]
+      .filter(Boolean)
+      .join(" "),
+  )
+}
+
+function match(plan: SearchPlan, item: SearchResult, body?: string) {
+  const next = profile(item, body)
+  return {
+    next,
+    tags: plan.tags.filter((tag) => next.tags.includes(tag)),
+    domain: !!plan.domain && plan.domain !== "general" && plan.domain === next.domain,
+    action: !!plan.action && plan.action === next.action,
+    artifact: !!plan.artifact && plan.artifact === next.artifact,
   }
+}
 
-  if (want === "human") {
-    if (have.has("human")) return "high"
-    if (have.has("proof") || have.has("paper")) return "medium"
-    if (have.has("media") || have.has("tool") || have.has("ui")) return "low"
+function target(plan: SearchPlan) {
+  if (plan.action === "translate" && plan.artifact === "manuscript") return "论文翻译"
+  if (plan.action === "translate" && plan.artifact === "documentation") return "文档翻译"
+  if (plan.action === "translate") return "翻译转换"
+  if (plan.action === "visualize" || plan.artifact === "figures") return "图表可视化"
+  if (plan.action === "polish" || plan.artifact === "manuscript") return "论文处理"
+  if (plan.action === "humanize") return "自然改写"
+  if (plan.action === "automate" || plan.artifact === "browser") return "浏览器自动化"
+  if (plan.action === "present" || plan.artifact === "slides") return "演示文稿"
+  if (plan.action === "export" || plan.artifact === "documents") return "文档导出"
+  if (plan.meta) return "技能发现"
+  return "当前任务"
+}
+
+function translateDirect(item: SearchResult) {
+  const text = [item.name, item.package, item.source].filter(Boolean).join(" ")
+  return /(translate|translator|translation|locali[sz]ation|i18n|l10n|bilingual|multilingual)/i.test(text)
+}
+
+function reviewHelper(item: SearchResult) {
+  const text = [item.name, item.package, item.source].filter(Boolean).join(" ")
+  return /(review|proofread|proof[- ]?read|polish|editing?|editor|audit)/i.test(text)
+}
+
+function polishDirect(item: SearchResult, body?: string) {
+  const text = [item.name, item.package, item.source].filter(Boolean).join(" ")
+  return /(proofread|proof[- ]?read|proofreader|polish|copy[- ]?edit|editing|grammar|refiner)/i.test(text)
+}
+
+function polishSupport(item: SearchResult, body?: string) {
+  const text = [item.name, item.package, item.source, item.description, body].filter(Boolean).join(" ")
+  return /(review|manuscript|paper|submission|journal|research|academic)/i.test(text)
+}
+
+function translateKeep(item: SearchResult) {
+  const text = clean([item.name, item.package, item.source].filter(Boolean).join(" "))
+  if (["translation", "translator"].includes(text)) return false
+  return !/(guide|review|provenance)/i.test(text)
+}
+
+function translateCue(plan: SearchPlan, item: SearchResult, body?: string) {
+  const text = [item.name, item.package, item.source, item.description, body, item.probe].filter(Boolean).join(" ")
+  if (plan.artifact === "manuscript") return /(academic|paper|manuscript|article|arxiv)/i.test(text)
+  if (plan.artifact === "documentation") return /(doc|document|documentation|locali[sz]ation|i18n|l10n)/i.test(text)
+  return /(translate|translation|translator)/i.test(text)
+}
+
+function translateSignal(plan: SearchPlan, item: SearchResult, body?: string) {
+  if (!translateDirect(item) || !translateKeep(item)) return false
+  const fit = match(plan, item, body)
+  if (fit.action && fit.artifact) return true
+  if (!item.probe) return false
+  const probe = infer(item.probe)
+  if (probe.action !== "translate") return false
+  if (plan.artifact && probe.artifact === plan.artifact) return true
+  if (translateCue(plan, item, body)) return true
+  if (!plan.artifact && fit.action) return true
+  return !!plan.domain && probe.domain === plan.domain && (!!fit.action || probe.artifact === plan.artifact)
+}
+
+function proofreadQuery(query: string) {
+  return /(校对|proofread|proofreading|proofreader|grammar)/i.test(query)
+}
+
+function proofTool(item: SearchResult) {
+  const text = [item.name, item.package, item.source].filter(Boolean).join(" ")
+  return /(proofread|proof[- ]?read|proofreader|grammar)/i.test(text)
+}
+
+function role(query: string, plan: SearchPlan, item: SearchResult, body?: string): z.infer<typeof Role> {
+  if (direct(query, item)) return "direct"
+  const fit = match(plan, item, body)
+  if (!plan.meta && (fit.next.meta || fit.next.tags.includes("update") || fit.next.tags.includes("meta")) && !fit.action && !fit.artifact) {
+    return "meta"
   }
+  const strict = !!plan.domain && plan.domain !== "general"
+  if (
+    plan.action === "polish" &&
+    item.rank === "exact" &&
+    proofTool(item) &&
+    (plan.artifact === "manuscript" || proofreadQuery(query) || /(英文|english)/i.test(query))
+  ) return "direct"
+  if (plan.action === "polish" && proofreadQuery(query) && item.rank === "exact" && polishDirect(item, body)) return "direct"
+  if (plan.action === "polish" && polishDirect(item, body) && !fit.artifact && !fit.domain) return same(plan, item, body).length >= 1 ? "supporting" : "unrelated"
+  if (plan.action === "polish" && polishSupport(item, body) && !polishDirect(item, body)) return fit.artifact || fit.domain ? "supporting" : "unrelated"
+  if (plan.action === "polish" && polishDirect(item, body) && (fit.artifact || fit.domain)) return "direct"
+  if (plan.action === "translate" && reviewHelper(item) && !translateDirect(item)) return fit.artifact || fit.domain ? "supporting" : "unrelated"
+  if (plan.action === "translate" && translateSignal(plan, item, body)) return "direct"
+  if (plan.action === "translate" && fit.action && fit.artifact) return "direct"
+  if (fit.action && fit.artifact && (!strict || fit.domain)) return "direct"
+  if (fit.action && !plan.artifact && (fit.domain || (!strict && fit.tags.length >= 1))) return "direct"
+  if (fit.artifact && !plan.action && (fit.domain || (!strict && fit.tags.length >= 1))) return "direct"
+  if (fit.artifact && fit.domain && fit.tags.length >= 2) return "supporting"
+  if (fit.action || fit.artifact) return "supporting"
+  if (fit.domain && fit.tags.length >= 2) return "supporting"
+  return fit.next.meta || fit.next.tags.includes("update") || fit.next.tags.includes("meta") ? "meta" : "unrelated"
+}
 
-  if (want === "translate") {
-    if (have.has("translate")) return "high"
-    if (have.has("paper") || have.has("proof")) return "medium"
-    if (have.has("media") || have.has("tool") || have.has("ui")) return "low"
+function reason(query: string, plan: SearchPlan, item: SearchResult, body?: string, next?: z.infer<typeof Role>) {
+  if (direct(query, item)) return "直接匹配当前搜索目标。"
+  const roleName = next ?? role(query, plan, item, body)
+  if (roleName === "meta") {
+    if (plan.meta) return "直接面向技能搜索、安装或更新流程。"
+    return "更像技能发现或安装工具，不是直接完成当前任务的技能。"
   }
-
-  if (want === "tool") {
-    if (have.has("tool") || have.has("updater")) return "high"
-    if (have.has("code")) return "medium"
-    if (have.has("paper") || have.has("proof") || have.has("media") || have.has("ui") || have.has("human")) return "low"
+  if (roleName === "supporting") {
+    const fit = match(plan, item, body)
+    const head = item.installed ? "已安装，且" : ""
+    if (fit.action && fit.artifact) return `${head}与${target(plan)}高度相关，但更偏相邻工作流。`
+    if (fit.action || fit.artifact) return `${head}与${target(plan)}相关，但更偏相邻工作流。`
+    if (fit.domain) return `${head}与当前领域相关，但更偏相邻工作流。`
+    return item.installed ? "已安装，可辅助当前目标。" : "与当前目标相关，但更偏辅助流程。"
   }
+  const fit = match(plan, item, body)
+  const head = item.installed ? "已安装，且" : ""
+  if (fit.action && fit.artifact) return `${head}直接匹配${target(plan)}目标。`
+  if (fit.action) return `${head}动作上贴合${target(plan)}目标。`
+  if (fit.artifact) return `${head}产物上贴合${target(plan)}目标。`
+  if (fit.domain) return `${head}与当前领域相关，但更偏相邻工作流。`
+  return item.installed ? "已安装，可直接用于当前目标。" : "与当前目标相关。"
+}
 
-  if (item.rank === "exact") return "high"
-  if (item.rank === "semantic") return "medium"
+function relate(query: string, plan: SearchPlan, item: SearchResult, body?: string): z.infer<typeof Relevance> {
+  const kind = role(query, plan, item, body)
+  if (kind === "direct") return "high"
+  if (kind === "supporting") return "medium"
+  if (kind === "meta" && plan.meta) return item.rank === "exact" ? "high" : "medium"
+  if (item.rank === "exact") return "medium"
   return "low"
 }
 
 function level(
   query: string,
+  plan: SearchPlan,
   item: SearchResult,
   body?: string,
   review?: z.infer<typeof Relevance>,
 ): z.infer<typeof Relevance> {
-  const base = relate(query, item, body)
+  const base = relate(query, plan, item, body)
   if (!review) return base
   if (base === "high") return "high"
   if (base === "low") return "low"
@@ -540,15 +1050,22 @@ function level(
 }
 
 export function split(query: string, item: SearchResult, body?: string, relevance?: z.infer<typeof Relevance>) {
-  if (blocked(query, item, body)) return
-  const rank = relevance ?? item.relevance ?? relate(query, item, body)
-  if (item.provider === "external" && !body) return item.rank === "exact" ? ("more" as const) : undefined
+  const plan = infer(query)
+  const kind = role(query, plan, item, body)
+  if (kind === "unrelated") return
+  if (kind === "meta" && !plan.meta) return
+  const rank = relevance ?? item.relevance ?? relate(query, plan, item, body)
+  if (item.provider === "external" && !body && kind !== "direct") return item.rank === "exact" ? ("more" as const) : undefined
+  if (kind === "direct") return "main" as const
+  if (kind === "supporting") return "more" as const
+  if (kind === "meta") return rank === "high" ? ("main" as const) : ("more" as const)
   if (rank === "high") return "main" as const
   if (rank === "medium") return "more" as const
 }
 
 async function refine(
   query: string,
+  plan: SearchPlan,
   coarse: SearchResult[],
   pages: Array<{ item: SearchResult; page?: Page }>,
   model?: SearchModel,
@@ -556,7 +1073,7 @@ async function refine(
 ) {
   const order = new Set(merge(query, coarse))
   const body = new Map(pages.map((item) => [item.item.id, item.page]))
-  const rated = await review(query, pages.filter((entry) => entry.page), model)
+  const rated = await review(query, plan, pages.filter((entry) => entry.page || entry.item.provider === "external"), model)
   const map = new Map(rated.map((item) => [item.id, item]))
   const refined = coarse.reduce<SearchResult[]>((acc, item) => {
     if (item.provider === "registry") {
@@ -566,13 +1083,14 @@ async function refine(
       acc.push({
         ...item,
         relevance,
+        why_recommended: reason(query, plan, item, item.description),
         tier,
       })
       return acc
     }
     const page = body.get(item.id)
     const next = map.get(item.id)
-    const relevance = level(query, item, page?.text, next?.relevance)
+    const relevance = level(query, plan, item, page?.text, next?.relevance)
     const tier = split(query, item, page?.text, relevance)
     if (!tier) return acc
     acc.push({
@@ -580,6 +1098,7 @@ async function refine(
       relevance,
       summary_zh: next?.summary_zh,
       summary_source: page?.source,
+      why_recommended: next?.why_recommended ?? reason(query, plan, item, page?.text, next?.role),
       tier,
     })
     return acc
@@ -588,11 +1107,52 @@ async function refine(
     const left = a.relevance === "high" ? 2 : a.relevance === "medium" ? 1 : 0
     const right = b.relevance === "high" ? 2 : b.relevance === "medium" ? 1 : 0
     if (left !== right) return right - left
+    const leftDirect = direct(query, a) ? 1 : 0
+    const rightDirect = direct(query, b) ? 1 : 0
+    if (leftDirect !== rightDirect) return rightDirect - leftDirect
+    if (plan.tags.length > 0 || plan.meta) {
+      const leftCover = cover(query, a)
+      const rightCover = cover(query, b)
+      if (leftCover !== rightCover) return rightCover - leftCover
+      const leftFresh = a.provider === "external" && !a.installed ? 1 : 0
+      const rightFresh = b.provider === "external" && !b.installed ? 1 : 0
+      if (leftFresh !== rightFresh) return rightFresh - leftFresh
+    }
     return [...order].indexOf(a.id) - [...order].indexOf(b.id)
   })
+  const precise = sorted.some((item) => named(query, item))
+  const main = sorted
+    .filter((item) => item.tier === "main")
+    .filter((item) => !precise || named(query, item))
+  const more = sorted
+    .filter((item) => item.tier === "more" || (precise && item.tier === "main" && !named(query, item)))
+  const edge = main
+    .filter((item) => item.provider === "external" && !item.installed)
+    .flatMap((item) => (item.probe_index === undefined ? [] : [item.probe_index]))
+    .sort((a, b) => a - b)[0]
+  const parked = edge === undefined || plan.artifact !== "manuscript"
+    ? []
+    : main.filter(
+        (item) =>
+          item.installed &&
+          !named(query, item) &&
+          item.probe_index !== undefined &&
+          item.probe_index > edge,
+      )
+  const lead = edge === undefined ? main : main.filter((item) => !parked.includes(item))
+  const seen = new Set<string>()
+  const keep = (item: SearchResult) => {
+    const key = clean(item.name)
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  }
+  const rise = plan.action !== "translate" || lead.some((item) => translateSignal(plan, item, body.get(item.id)?.text))
+    ? undefined
+    : more.find((item) => item.provider === "external" && !item.installed && translateSignal(plan, item, body.get(item.id)?.text))
   return {
-    main: sorted.filter((item) => item.tier === "main"),
-    more: sorted.filter((item) => item.tier === "more"),
+    main: (rise ? [rise, ...lead.filter((item) => item.id !== rise.id)] : lead).filter(keep),
+    more: (rise ? [...parked, ...more.filter((item) => item.id !== rise.id)] : [...parked, ...more]).filter(keep),
     meta: {
       model: printModel(model),
       latency_ms: Date.now() - start,
@@ -605,6 +1165,35 @@ function rank(input: SearchResult) {
   const local = input.provider === "registry" ? 20 : 0
   const installed = input.installed ? 10 : 0
   return exact + local + installed
+}
+
+function named(query: string, item: SearchResult) {
+  return clean(item.name) === clean(query)
+}
+
+function direct(query: string, item: SearchResult) {
+  return named(query, item)
+}
+
+function width(plan: SearchPlan) {
+  if (plan.action === "polish" && plan.artifact === "manuscript") return 4
+  return 3
+}
+
+function primary(query: string, plan: SearchPlan) {
+  const list = queries(query, plan)
+  if (latin(query) || plan.native.length === 0) return list.slice(0, width(plan))
+  return [...queries(query, { native: plan.native, direct: [], supporting: [], broad: [] }), ...list]
+    .filter((item, idx, arr) => arr.indexOf(item) === idx)
+    .slice(0, Math.min(width(plan) + 1, 6))
+}
+
+function cover(query: string, item: SearchResult) {
+  const text = clean([item.name, item.package, item.source, item.registry, item.description].filter(Boolean).join(" "))
+  return allQueries(query, infer(query)).reduce((best, probe) => {
+    const next = tokens(probe).filter((part) => text.includes(part)).length
+    return next > best ? next : best
+  }, 0)
 }
 
 function registryDir() {
@@ -684,11 +1273,7 @@ async function state() {
 }
 
 async function semantic(query: string, model?: SearchModel) {
-  const fallback = {
-    intent: query,
-    phrases: [],
-    keywords: [...new Set(seed(query))].slice(0, 8),
-  }
+  const fallback = infer(query)
   return limit(1200, fallback, async () =>
     {
       const resolved = await language(model)
@@ -697,12 +1282,12 @@ async function semantic(query: string, model?: SearchModel) {
       return generateObject({
         model: resolved.language,
         temperature: 0.2,
-        schema: Terms,
+        schema: Plan,
         messages: [
           {
             role: "system",
             content:
-              "Expand skill search queries into concise phrases and keywords. Prefer synonyms, related actions, and common package terms.",
+              "You are planning a goal-directed skill search. Extract the user's goal, action, artifact, and domain. Then produce a bilingual retrieval plan: native probes in the user's language or wording, direct English discovery probes for the exact task, supporting probes for adjacent workflow language, and broad probes only for fallback recall. Native probes should preserve the user's original intent phrasing instead of translating everything away. Also return 0-6 tags that describe the real task, plus whether the user explicitly wants meta tools for finding or installing skills. Prefer direct-task skills over meta tools unless the user is clearly asking for skill discovery, installation, or updating.",
           },
           {
             role: "user",
@@ -714,9 +1299,70 @@ async function semantic(query: string, model?: SearchModel) {
   )
 }
 
-async function find(query: string, ms = CLI_MS) {
-  const out = await exec(["npx", "-y", "skills", "find", query], ms)
-  return parseFind(out.text)
+async function find(query: string, ms = CLI_MS): Promise<FindOutput> {
+  const cached = findMemo.get(query)
+  if (cached && Date.now() - cached.at < SEARCH_TTL) return cached.result
+  const inflight = findPending.get(query)
+  if (inflight) return inflight
+
+  const run = exec(["npx", "-y", "skills", "find", query], ms)
+    .then((out) => {
+      const text = out.text.trim()
+      const message = out.stderr.toString().trim() || text || undefined
+      if ((text || message)?.includes("No skills found")) {
+        return {
+          status: "success" as const,
+          items: [],
+        }
+      }
+      if (out.code === 0) {
+        return {
+          status: "success" as const,
+          items: parseFind(text),
+        }
+      }
+      return {
+        status: message?.includes("aborted") ? ("timeout" as const) : ("error" as const),
+        items: [],
+        message,
+      }
+    })
+    .finally(() => findPending.delete(query))
+
+  findPending.set(query, run)
+  const result = await run
+  findMemo.set(query, { at: Date.now(), result })
+  return result
+}
+
+async function webFind(query: string, ms = WEB_MS): Promise<FindOutput> {
+  const cached = webMemo.get(query)
+  if (cached && Date.now() - cached.at < SEARCH_TTL) return cached.result
+  const inflight = webPending.get(query)
+  if (inflight) return inflight
+  const url = new URL("https://search.brave.com/search")
+  url.searchParams.set("q", `site:skills.sh ${query}`)
+  const run = fetch(url, {
+    headers: {
+      "user-agent": UA,
+    },
+    signal: AbortSignal.timeout(ms),
+  })
+    .then((res) => (res.ok ? res.text() : Promise.reject(new Error(`Failed to fetch ${url}`))))
+    .then((text) => ({
+      status: "success" as const,
+      items: parseWeb(text),
+    }))
+    .catch((err: Error) => ({
+      status: err.name === "TimeoutError" || err.name === "AbortError" ? ("timeout" as const) : ("error" as const),
+      items: [],
+      message: err.message,
+    }))
+    .finally(() => webPending.delete(query))
+  webPending.set(query, run)
+  const result = await run
+  webMemo.set(query, { at: Date.now(), result })
+  return result
 }
 
 async function checkExternal() {
@@ -787,28 +1433,61 @@ function entryText(item: RegistryItem) {
   return [item.name, item.description, ...(item.tags ?? [])].join(" ")
 }
 
-function localResult(
+function registryResult(
   query: string,
   item: RegistryItem,
   st: Awaited<ReturnType<typeof state>>,
   extra: string[],
 ): SearchResult | undefined {
   const text = entryText(item)
-  const hit = [query, ...extra]
-    .map((term) => score(term, text))
-    .find((term): term is z.infer<typeof Rank> => !!term)
-  if (!hit) return
+  const matched = hit(query, text, extra)
+  if (!matched) return
   const installed = !!st.lock.skills[item.name]
   return {
     id: `${item.registry}#${item.name}`,
     provider: "registry",
-    rank: hit,
+    rank: matched.rank,
     name: item.name,
     description: item.description,
     registry: item.registry,
     version: item.version,
+    probe: matched.term,
+    probe_index: matched.idx,
     installed,
     scope: installed ? "project" : undefined,
+  }
+}
+
+function localText(item: Installed, info?: LocalInfo) {
+  return [item.name, item.source, item.registry, item.package, info?.description].filter(Boolean).join(" ")
+}
+
+function localResult(
+  query: string,
+  item: Installed,
+  info: LocalInfo | undefined,
+  extra: string[],
+  semantic = false,
+): SearchResult | undefined {
+  const text = localText(item, info)
+  const matched = hit(query, text, extra.filter(useful))
+  let rank: SearchResult["rank"] | undefined = matched?.rank
+  if (!rank && semantic) {
+    const plan = infer(query)
+    const preview = {
+      ...item,
+      rank: "semantic" as const,
+      description: item.description ?? info?.description,
+    }
+    rank = relate(query, plan, preview, info?.description) === "low" ? undefined : "semantic"
+  }
+  if (!rank) return
+  return {
+    ...item,
+    rank,
+    probe: matched?.term,
+    probe_index: matched?.idx,
+    description: item.description ?? info?.description,
   }
 }
 
@@ -817,25 +1496,60 @@ function externalResult(
   item: FindResult,
   st: Awaited<ReturnType<typeof state>>,
   extra: string[],
+  probe?: string,
 ): SearchResult | undefined {
   const text = [item.name, item.source].join(" ")
-  const hit = [query, ...extra]
-    .map((term) => score(term, text))
-    .find((term): term is z.infer<typeof Rank> => !!term)
-  if (!hit) return
+  const matched = hit(query, text, extra) ??
+    (probe
+      ? {
+          term: probe,
+          rank: "semantic" as const,
+          idx: Math.max(0, extra.indexOf(probe)),
+        }
+      : undefined)
+  if (!matched) return
   const project = st.ext?.skills[item.name]
   const global = st.global.has(item.name)
   return {
     id: item.package,
     provider: "external",
-    rank: hit,
+    rank: matched.rank,
     name: item.name,
     installs: item.installs,
     package: item.package,
     source: item.source,
+    probe: matched.term,
+    probe_index: matched.idx,
     url: item.url,
     installed: !!project || global,
     scope: project ? "project" : global ? "global" : undefined,
+  }
+}
+
+function fold(list: FindOutput[]) {
+  const items = list
+    .flatMap((item) => item.items)
+    .reduce((acc, item) => acc.set(item.package, item), new Map<string, FindResult>())
+  const hit = list.some((item) => item.status === "success")
+  if (hit) {
+    return {
+      status: "success" as const,
+      items: [...items.values()],
+    }
+  }
+  const timeout = list.find((item) => item.status === "timeout")
+  if (timeout) {
+    return {
+      status: "timeout" as const,
+      items: [],
+      message: timeout.message,
+    }
+  }
+  const error = list.find((item) => item.status === "error")
+  return {
+    status: error ? ("error" as const) : ("success" as const),
+    items: [],
+    message: error?.message,
   }
 }
 
@@ -860,18 +1574,39 @@ async function page(key: string, url?: string) {
 }
 
 export function brief(input: z.input<typeof DescribeInput>, body?: string) {
-  const all = clean([input.name, input.source, input.registry, input.description, body].filter(Boolean).join(" "))
-  const guess = ([
-    [/(video|media)/, "这个 skill 主要用于视频或多媒体内容的编辑与处理。"],
-    [/(paper|latex|manuscript|submission|review)/, "这个 skill 主要用于学术论文或 LaTeX 文稿的润色、修改和审阅。"],
-    [/(proofread|proofreading|copy editing|copyediting|copy edit|grammar)/, "这个 skill 主要用于英文文本的校对、语法修改和措辞润色。"],
-    [/(humanizer|human like|humanlike|natural language|natural writing|rewrite)/, "这个 skill 主要用于把文本改写得更自然、更像真人表达。"],
-    [/(find|search|install|skills|plugin)/, "用于搜索、发现并安装其他技能"],
-    [/(ui|ux)/, "用于界面细节优化与体验打磨"],
-    [/(code)/, "用于代码整理、优化或修订"],
-  ] as const)
-    .find(([rule]) => rule.test(all))
-    ?.[1]
+  const all = [input.name, input.source, input.registry, input.description, body].filter(Boolean).join(" ")
+  const tags = mark(all)
+  const plan = infer([input.name, input.description, clip((body ?? "").replace(/\s+/g, " ").trim(), 320)].filter(Boolean).join(" "))
+  const manuscript =
+    plan.artifact === "manuscript" || /(学术|academic|paper|manuscript|论文|稿件|摘要|arxiv)/i.test(all)
+  const docs = plan.artifact === "documentation" || /(docs|document|documentation|文档|本地化|api)/i.test(all)
+  const translated = plan.action === "translate" || (tags.has("translate") && !tags.has("polish") && !tags.has("convert"))
+  const guess =
+    (tags.has("media") && "这个 skill 主要用于视频或多媒体内容的编辑与处理。") ||
+    ((plan.action === "visualize" || plan.artifact === "figures") && "这个 skill 主要用于科研图表与科学可视化的生成。") ||
+    (translated &&
+      manuscript &&
+      "这个 skill 主要用于学术论文的翻译与术语保真。") ||
+    (plan.domain === "academic" &&
+      plan.artifact === "manuscript" &&
+      plan.action === "convert" &&
+      "这个 skill 主要用于学术论文内容的转换、整理或审阅辅助。") ||
+    (plan.domain === "academic" &&
+      plan.artifact === "manuscript" &&
+      plan.action === "polish" &&
+      "这个 skill 主要用于学术论文或 LaTeX 文稿的润色、修改和校对。") ||
+    (plan.domain === "academic" &&
+      plan.artifact === "manuscript" &&
+      "这个 skill 主要用于学术论文内容的转换、整理或审阅辅助。") ||
+    (plan.action === "polish" && "这个 skill 主要用于英文文本的校对、语法修改和措辞润色。") ||
+    (plan.action === "humanize" && "这个 skill 主要用于把文本改写得更自然、更像真人表达。") ||
+    (translated && docs && "这个 skill 主要用于技术文档的翻译与本地化。") ||
+    (plan.action === "convert" && "这个 skill 主要用于文档内容的转换、整理与导出。") ||
+    (plan.action === "automate" && "这个 skill 主要用于浏览器自动化、页面检查与交互测试。") ||
+    (plan.action === "present" && "这个 skill 主要用于演示文稿或幻灯片内容的生成。") ||
+    (plan.action === "export" && "这个 skill 主要用于文档导出或 PDF 生成。") ||
+    (plan.meta && plan.action !== "visualize" && plan.domain !== "academic" && "这个 skill 主要用于搜索、发现并安装其他技能。") ||
+    (tags.has("code") && "这个 skill 主要用于代码整理、优化或修订。")
   const line = clip((body ?? input.description ?? "").replace(/\s+/g, " ").trim(), 120)
   if (guess) return guess.startsWith("这个 skill") ? guess : `这个 skill 主要${guess}。`
   if (line) return `这个 skill 主要围绕 ${line}`
@@ -879,15 +1614,20 @@ export function brief(input: z.input<typeof DescribeInput>, body?: string) {
   return `这是一个名为 ${input.name} 的 skill。当前只拿到了基础信息，建议先看详情。`
 }
 
-async function review(query: string, list: Array<{ item: SearchResult; page?: Page }>, model?: SearchModel) {
+async function review(query: string, plan: SearchPlan, list: Array<{ item: SearchResult; page?: Page }>, model?: SearchModel) {
   const fallback = list.map((entry) => ({
     id: entry.item.id,
-    relevance: relate(query, entry.item, entry.page?.text),
-    summary_zh: entry.page?.text ? brief(entry.item, entry.page.text) : undefined,
+    relevance: relate(query, plan, entry.item, entry.page?.text),
+    role: role(query, plan, entry.item, entry.page?.text),
+    why_recommended: reason(query, plan, entry.item, entry.page?.text),
+    summary_zh: entry.page?.text || entry.item.description || entry.item.probe
+      ? brief(entry.item, entry.page?.text ?? entry.item.description ?? entry.item.probe)
+      : undefined,
     summary_source: entry.page?.source,
   })) satisfies Reviewed[]
 
   if (list.length === 0) return fallback
+  if (list.every((entry) => !entry.page?.text && !entry.item.description && !entry.item.probe)) return fallback
 
   const resolved = await language(model)
   if (!resolved.language) return fallback
@@ -902,18 +1642,26 @@ async function review(query: string, list: Array<{ item: SearchResult; page?: Pa
         {
           role: "system",
           content:
-            "你是一个技能市场检索重排器。给定用户查询和若干 skill 的真实内容，请为每个 skill 输出 high/medium/low 相关度，并用简体中文写一句不超过 40 字的简介。只能依据提供材料，不要猜测没有出现的功能。",
+            "你是一个技能市场检索重排器。给定用户查询和若干 skill 的真实内容，请为每个 skill 输出 high/medium/low 相关度，并用简体中文写一句不超过 40 字的简介。只能依据提供材料，不要猜测没有出现的功能。额外要求：同时判断该 skill 是 direct（直接完成任务）、supporting（支持工作流）、meta（搜索/安装/更新其他技能的元工具）还是 unrelated。除非用户明确在找技能发现或更新工具，否则 meta 不应排在 direct 前面。再输出一句中文 why_recommended，说明它为什么适合或不适合当前目标。",
         },
         {
           role: "user",
           content: [
             `查询：${query}`,
+            `目标：${plan.goal}`,
+            `动作：${plan.action}`,
+            `产物：${plan.artifact}`,
+            `领域：${plan.domain}`,
+            `标签：${plan.tags.join(", ")}`,
+            `允许元工具：${plan.meta ? "yes" : "no"}`,
             ...list.map((entry) =>
               [
                 `ID: ${entry.item.id}`,
                 `Name: ${entry.item.name}`,
                 `Source: ${entry.item.source ?? entry.item.registry ?? "unknown"}`,
-                `Material: ${entry.page?.text ?? entry.item.description ?? ""}`,
+                `Probe: ${entry.item.probe ?? ""}`,
+                `Description: ${entry.item.description ?? ""}`,
+                `Material: ${entry.page?.text ?? ""}`,
               ].join("\n"),
             ),
           ].join("\n\n"),
@@ -927,6 +1675,8 @@ async function review(query: string, list: Array<{ item: SearchResult; page?: Pa
       return {
         ...item,
         relevance: next.relevance,
+        role: next.role,
+        why_recommended: next.why_recommended || item.why_recommended,
         summary_zh: next.summary_zh || item.summary_zh,
       }
     })
@@ -986,6 +1736,31 @@ export function parseFind(input: string) {
       source: info.source,
       name: info.skill,
       url: next.replace(/^└\s+/, ""),
+    })
+  }
+  return out
+}
+
+export function parseWeb(input: string) {
+  const out: FindResult[] = []
+  const seen = new Set<string>()
+  const list = [...stripAnsi(input).matchAll(/https:\/\/skills\.sh\/[^\s"'<>]+/g)].map((item) => item[0]!)
+  for (const raw of list) {
+    const url = raw.replace(/[),.\]]+$/, "")
+    const parts = new URL(url).pathname.split("/").filter(Boolean)
+    if (parts.length < 2) continue
+    if (["trending", "new", "top", "search", "f"].includes(parts[0]!)) continue
+    const name = parts.at(-1)!
+    const source = parts.slice(0, -1).join("/")
+    if (!name || !source) continue
+    const pkg = `${source}@${name}`
+    if (seen.has(pkg)) continue
+    seen.add(pkg)
+    out.push({
+      package: pkg,
+      source,
+      name,
+      url,
     })
   }
   return out
@@ -1070,63 +1845,144 @@ export namespace Catalog {
     return [...registry, ...external, ...global]
   }
 
+  async function localInstalled(query: string, extra: string[], semantic = false) {
+    const [list, info] = await Promise.all([current(), Skill.all()])
+    const map = new Map(info.map((item) => [item.name, item]))
+    const rows = list.reduce<Array<{ item: SearchResult; page?: Page }>>((acc, item) => {
+        const skill = map.get(item.name)
+        const next = localResult(query, item, skill, extra, semantic)
+        if (!next) return acc
+        acc.push({
+          item: next,
+          page: skill?.description || skill?.content
+            ? ({
+                text: skill.description ?? skill.content,
+                source: "skill_md",
+              } satisfies Page)
+            : undefined,
+        })
+        return acc
+      }, [])
+    return {
+      items: rows.map((item) => item.item),
+      pages: rows,
+    }
+  }
+
   export async function search(input: z.input<typeof SearchInput>, model?: SearchModel) {
     const start = Date.now()
     const params = SearchInput.parse(input)
     const query = params.query.trim()
     const current = await pick(model)
-    if (!query) return { main: [], more: [], meta: { model: printModel(current), latency_ms: Date.now() - start } }
-
-    const expanded =
-      params.semantic === false ? { intent: query, phrases: [], keywords: [] } : await semantic(query, current)
-    const extra = [...expanded.phrases, ...expanded.keywords].filter((item) => clean(item) !== clean(query))
-    const st = await state()
-    const local = await registry().then((items) =>
-      items
-        .map((item) => localResult(query, item, st, extra))
-        .filter((item): item is SearchResult => !!item),
-    )
-
-    const searches = [query, ...extra]
-      .filter((item, idx, arr): item is string => !!item && arr.indexOf(item) === idx)
-      .slice(0, 4)
-    const external = (
-      await Promise.all(searches.map((item) => find(item, params.semantic === false ? CLI_MS : FIND_MS)))
-    )
-      .flat()
-      .reduce((acc, item) => acc.set(item.package, item), new Map<string, FindResult>())
-    const extraResults = [...external.values()]
-      .map((item) => externalResult(query, item, st, extra))
-      .filter((item): item is SearchResult => !!item)
-
-    const all = [...local, ...extraResults]
-    const order = new Set(merge(query, all))
-    const coarse = all.toSorted((a, b) => [...order].indexOf(a.id) - [...order].indexOf(b.id))
-    if (params.semantic === false) {
+    if (!query) {
       return {
-        main: coarse.map((item) => ({ ...item, tier: "main" as const })),
+        main: [],
         more: [],
         meta: {
           model: printModel(current),
           latency_ms: Date.now() - start,
+          local: { status: "success", count: 0 },
+          external: { status: "pending", count: 0 },
         },
       } satisfies SearchOutput
     }
 
-    const picked = coarse.filter((item) => item.provider === "external").slice(0, 12)
-    const pages = await Promise.all(
-      picked.map(async (item) => ({
-        item,
-        page: await page(item.url ?? item.id, item.url),
-      })),
+    const plan = params.semantic === false ? infer(query) : blend(query, await semantic(query, current))
+    const extra = queries(query, plan).filter((item) => clean(item) !== clean(query))
+    const st = await state()
+    const local = await localInstalled(query, extra, params.semantic !== false)
+    const remote = await registry().then((items) =>
+      items
+        .map((item) => registryResult(query, item, st, extra))
+        .filter((item): item is SearchResult => !!item),
     )
-    return refine(query, coarse, pages, current, start)
+    const exact = [...local.items, ...remote].some((item) => direct(query, item))
+    if (params.semantic === false) {
+      const all = [...local.items, ...remote]
+      const order = new Set(merge(query, all))
+      const coarse = all.toSorted((a, b) => [...order].indexOf(a.id) - [...order].indexOf(b.id))
+      const result = await refine(query, plan, coarse, local.pages, undefined, start)
+      return {
+        ...result,
+        meta: {
+          model: printModel(current),
+          latency_ms: Date.now() - start,
+          local: { status: "success", count: local.items.length },
+          external: { status: "pending", count: remote.length },
+        },
+      } satisfies SearchOutput
+    }
+    if (exact) {
+      const result = await refine(query, plan, [...local.items, ...remote], local.pages, current, start)
+      return {
+        ...result,
+        meta: {
+          ...result.meta,
+          local: { status: "success", count: local.items.length },
+          external: { status: "success", count: remote.length },
+        },
+      } satisfies SearchOutput
+    }
+
+    const searches = primary(query, plan)
+    const first = await discover(query, plan, st, searches, extra)
+    const fallback = allQueries(query, plan)
+      .filter((item) => !searches.includes(item))
+      .filter((item, idx, arr) => arr.indexOf(item) === idx)
+      .slice(0, 3)
+    const weak = first.items.length === 0 ||
+      first.items.every((item) => {
+        const next = role(query, plan, item)
+        if (next === "direct" || next === "supporting") return false
+        if (next === "meta" && plan.meta) return false
+        return true
+      })
+    const second = weak && fallback.length > 0 ? await discover(query, plan, st, fallback, [...extra, ...searches]) : undefined
+    const webSearches = [...searches, ...fallback].filter((item, idx, arr) => arr.indexOf(item) === idx).slice(0, 4)
+    const found = fold([first.found, ...(second ? [second.found] : [])])
+    const extraResults = [...first.items, ...(second?.items ?? [])]
+    const needWeb = extraResults.length === 0 ||
+      extraResults.every((item) => {
+        const next = role(query, plan, item)
+        if (next === "direct" || next === "supporting") return false
+        return next !== "meta" || !plan.meta
+      })
+    const web = needWeb && webSearches.length > 0 ? await discoverWeb(query, plan, st, webSearches, [...extra, ...searches, ...fallback]) : undefined
+    const merged = fold([first.found, ...(second ? [second.found] : []), ...(web ? [web.found] : [])])
+
+    const all = [...local.items, ...remote, ...extraResults, ...(web?.items ?? [])]
+    const order = new Set(merge(query, all))
+    const coarse = all.toSorted((a, b) => [...order].indexOf(a.id) - [...order].indexOf(b.id))
+    const picked = coarse.filter((item) => item.provider === "external" && !!item.url).slice(0, 12)
+    const pages = [
+      ...local.pages,
+      ...(await Promise.all(
+        picked.map(async (item) => ({
+          item,
+          page: await page(item.url ?? item.id, item.url),
+        })),
+      )),
+    ]
+    const result = await refine(query, plan, coarse, pages, current, start)
+    return {
+      ...result,
+      meta: {
+        ...result.meta,
+        local: { status: "success", count: local.items.length },
+        external: {
+          status: merged.status,
+          count: remote.length + extraResults.length + (web?.items.length ?? 0),
+          message: merged.message,
+        },
+      },
+    } satisfies SearchOutput
   }
 
   export async function bench(input: z.input<typeof BenchInput>, model?: SearchModel) {
     const start = Date.now()
     const params = BenchInput.parse(input)
     const current = await pick(model)
+    const plan = await semantic(params.query, current)
     const coarse = params.items.map((item) => ({
       id: item.id,
       provider: "external" as const,
@@ -1140,7 +1996,7 @@ export namespace Catalog {
       item: coarse[idx]!,
       page: item.body ? { text: item.body, source: item.summary_source ?? "skill_md" } : undefined,
     }))
-    return refine(params.query, coarse, pages, current, start)
+    return refine(params.query, plan, coarse, pages, current, start)
   }
 
   export async function installed() {
