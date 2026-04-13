@@ -136,26 +136,26 @@ export const SettingsProviders: Component = () => {
   }
 
   const disconnect = async (providerID: string, name: string) => {
-    if (isConfigCustom(providerID)) {
-      await globalSDK.client.auth.remove({ providerID }).catch(() => undefined)
+    await globalSDK.client.auth.remove({ providerID }).catch(() => undefined)
+
+    const hasConfig = !!globalSync.data.config.provider?.[providerID]
+    if (hasConfig) {
       await disableProvider(providerID, name)
       return
     }
-    await globalSDK.client.auth
-      .remove({ providerID })
-      .then(async () => {
-        await globalSDK.client.global.dispose()
-        showToast({
-          variant: "success",
-          icon: "circle-check",
-          title: language.t("provider.disconnect.toast.disconnected.title", { provider: name }),
-          description: language.t("provider.disconnect.toast.disconnected.description", { provider: name }),
-        })
-      })
-      .catch((err: unknown) => {
-        const message = err instanceof Error ? err.message : String(err)
-        showToast({ title: language.t("common.requestFailed"), description: message })
-      })
+
+    try {
+      await globalSDK.client.global.dispose()
+      await globalSync.bootstrap()
+    } catch (err) {
+      console.error("Failed to refresh after provider disconnect", err)
+    }
+    showToast({
+      variant: "success",
+      icon: "circle-check",
+      title: language.t("provider.disconnect.toast.disconnected.title", { provider: name }),
+      description: language.t("provider.disconnect.toast.disconnected.description", { provider: name }),
+    })
   }
 
   return (

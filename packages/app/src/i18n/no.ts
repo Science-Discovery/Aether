@@ -221,6 +221,7 @@ export const dict = {
   "common.loading": "Laster",
   "common.loading.ellipsis": "...",
   "common.cancel": "Avbryt",
+  "common.continue": "Fortsett",
   "common.connect": "Koble til",
   "common.disconnect": "Koble fra",
   "common.submit": "Send inn",
