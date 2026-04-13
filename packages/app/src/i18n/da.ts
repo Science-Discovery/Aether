@@ -883,6 +883,8 @@ export const dict = {
   "session.review.noVcs.createGit.action": "Opret Git-repository",
   "session.todo.progress": "{{done}} af {{total}} opgaver fuldført",
   "session.question.progress": "{{current}} af {{total}} spørgsmål",
+  "session.question.collapse": "Skjul",
+  "session.question.expand": "Udvid",
   "session.header.open.finder": "Finder",
   "session.header.open.fileExplorer": "Stifinder",
   "session.header.open.fileManager": "Filhåndtering",

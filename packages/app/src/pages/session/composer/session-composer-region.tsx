@@ -142,7 +142,12 @@ export function SessionComposerRegion(props: {
         <Show when={props.state.questionRequest()} keyed>
           {(request) => (
             <div>
-              <SessionQuestionDock request={request} onSubmit={props.onResponseSubmit} />
+              <SessionQuestionDock
+                request={request}
+                onSubmit={props.onResponseSubmit}
+                collapseLabel={language.t("session.question.collapse")}
+                expandLabel={language.t("session.question.expand")}
+              />
             </div>
           )}
         </Show>
@@ -262,7 +267,9 @@ export function SessionComposerRegion(props: {
                         class="shrink-0 rounded-md px-1 py-0.5 text-12-medium text-text-weak transition hover:bg-surface-hover hover:text-text-strong"
                         onClick={() => readingMode?.setPendingQuestion(null)}
                         aria-label={language.t("common.clear")}
-                      >x</button>
+                      >
+                        x
+                      </button>
                     </div>
                   </div>
                 )}
@@ -285,4 +292,3 @@ export function SessionComposerRegion(props: {
     </div>
   )
 }
-

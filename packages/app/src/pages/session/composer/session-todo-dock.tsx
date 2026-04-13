@@ -221,16 +221,13 @@ export function SessionTodoDock(props: {
 function TodoList(props: { todos: Todo[]; open: boolean }) {
   const [store, setStore] = createStore({
     stuck: false,
-    scrolling: false,
   })
   let scrollRef!: HTMLDivElement
-  let timer: number | undefined
 
   const inProgress = createMemo(() => props.todos.findIndex((todo) => todo.status === "in_progress"))
 
   const ensure = () => {
     if (!props.open) return
-    if (store.scrolling) return
     if (!scrollRef || scrollRef.offsetParent === null) return
 
     const el = scrollRef.querySelector("[data-in-progress]")
@@ -261,11 +258,6 @@ function TodoList(props: { todos: Todo[]; open: boolean }) {
     }),
   )
 
-  onCleanup(() => {
-    if (!timer) return
-    window.clearTimeout(timer)
-  })
-
   return (
     <div class="relative">
       <div
@@ -274,13 +266,6 @@ function TodoList(props: { todos: Todo[]; open: boolean }) {
         style={{ "overflow-anchor": "none" }}
         onScroll={(e) => {
           setStore("stuck", e.currentTarget.scrollTop > 0)
-          setStore("scrolling", true)
-          if (timer) window.clearTimeout(timer)
-          timer = window.setTimeout(() => {
-            setStore("scrolling", false)
-            if (inProgress() < 0) return
-            requestAnimationFrame(ensure)
-          }, 250)
         }}
       >
         <Index each={props.todos}>
