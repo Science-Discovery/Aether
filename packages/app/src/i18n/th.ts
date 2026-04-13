@@ -879,6 +879,8 @@ export const dict = {
   "session.review.noVcs.createGit.action": "สร้าง Git repository",
   "session.todo.progress": "เสร็จสิ้น {{done}} จาก {{total}} รายการ",
   "session.question.progress": "{{current}} จาก {{total}} คำถาม",
+  "session.question.collapse": "ย่อ",
+  "session.question.expand": "ขยาย",
   "session.header.open.finder": "Finder",
   "session.header.open.fileExplorer": "File Explorer",
   "session.header.open.fileManager": "File Manager",
