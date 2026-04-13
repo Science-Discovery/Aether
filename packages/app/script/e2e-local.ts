@@ -71,13 +71,14 @@ const serverEnv = {
   OPENCODE_E2E_PROJECT_DIR: repoDir,
   OPENCODE_E2E_SESSION_TITLE: "E2E Session",
   OPENCODE_E2E_MESSAGE: "Seeded for UI e2e",
-  OPENCODE_E2E_MODEL: "opencode/gpt-5-nano",
+  OPENCODE_E2E_MODEL: process.env.OPENCODE_E2E_MODEL ?? "opencode/gpt-5-nano",
   OPENCODE_CLIENT: "app",
   OPENCODE_STRICT_CONFIG_DEPS: "true",
 } satisfies Record<string, string>
 
 const runnerEnv = {
   ...serverEnv,
+  PLAYWRIGHT_BROWSERS_PATH: process.env.PLAYWRIGHT_BROWSERS_PATH ?? path.join(repoDir, ".playwright-browsers"),
   PLAYWRIGHT_SERVER_HOST: "127.0.0.1",
   PLAYWRIGHT_SERVER_PORT: String(serverPort),
   VITE_OPENCODE_SERVER_HOST: "127.0.0.1",
@@ -87,23 +88,51 @@ const runnerEnv = {
 
 let seed: ReturnType<typeof Bun.spawn> | undefined
 let runner: ReturnType<typeof Bun.spawn> | undefined
-let server: { stop: () => Promise<void> | void } | undefined
+let server: { stop: (close?: boolean) => Promise<void> | void } | undefined
 let inst: { Instance: { disposeAll: () => Promise<void> | void } } | undefined
 let cleaned = false
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
+
+async function terminate(proc: ReturnType<typeof Bun.spawn> | undefined, label: string) {
+  if (!proc) return
+  if (proc.exitCode !== null) {
+    await proc.exited.catch(() => undefined)
+    return
+  }
+
+  proc.kill("SIGTERM")
+  const soft = await Promise.race([proc.exited.then(() => true).catch(() => true), sleep(5_000).then(() => false)])
+  if (soft) return
+
+  console.warn(`e2e-local cleanup timeout: ${label} ignored SIGTERM, escalating to SIGKILL`)
+  proc.kill("SIGKILL")
+  await Promise.race([proc.exited.catch(() => undefined), sleep(2_000)])
+}
+
+async function bound(job: Promise<unknown> | unknown, label: string, ms = 10_000) {
+  return await Promise.race([
+    Promise.resolve(job),
+    sleep(ms).then(() => {
+      console.warn(`e2e-local cleanup timeout: ${label} exceeded ${ms}ms`)
+    }),
+  ])
+}
 
 const cleanup = async () => {
   if (cleaned) return
   cleaned = true
 
-  if (seed && seed.exitCode === null) seed.kill("SIGTERM")
-  if (runner && runner.exitCode === null) runner.kill("SIGTERM")
+  await Promise.allSettled([terminate(runner, "runner"), terminate(seed, "seed")])
 
-  const jobs = [
-    inst?.Instance.disposeAll(),
-    server?.stop(),
-    keepSandbox ? undefined : fs.rm(sandbox, { recursive: true, force: true }),
-  ].filter(Boolean)
-  await Promise.allSettled(jobs)
+  await Promise.allSettled([
+    inst ? bound(inst.Instance.disposeAll(), "Instance.disposeAll()") : undefined,
+    server ? bound(server.stop(true), "server.stop(true)") : undefined,
+  ])
+
+  if (!keepSandbox) {
+    await bound(fs.rm(sandbox, { recursive: true, force: true }), "fs.rm(sandbox)")
+  }
 }
 
 const shutdown = (code: number, reason: string) => {
@@ -158,7 +187,7 @@ try {
 
     const servermod = await import("../../opencode/src/server/server")
     inst = await import("../../opencode/src/project/instance")
-    server = servermod.Server.listen({ port: serverPort, hostname: "127.0.0.1" })
+    server = await servermod.Server.listen({ port: serverPort, hostname: "127.0.0.1" })
     console.log(`opencode server listening on http://127.0.0.1:${serverPort}`)
 
     await waitForHealth(`http://127.0.0.1:${serverPort}/global/health`)

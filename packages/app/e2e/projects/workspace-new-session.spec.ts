@@ -6,7 +6,6 @@ import {
   sessionIDFromUrl,
   setWorkspacesEnabled,
   waitDir,
-  waitSession,
   waitSessionSaved,
   waitSlug,
 } from "../actions"
@@ -19,6 +18,33 @@ function item(space: { slug: string; raw: string }) {
 
 function button(space: { slug: string; raw: string }) {
   return `${workspaceNewSessionSelector(space.slug)}, ${workspaceNewSessionSelector(space.raw)}`
+}
+
+async function waitStableSession(page: Page, timeout = 15_000) {
+  let prev = ""
+  let next = ""
+  await expect
+    .poll(
+      () => {
+        const current = sessionIDFromUrl(page.url()) ?? ""
+        if (!current) {
+          prev = ""
+          next = ""
+          return ""
+        }
+        if (current !== prev) {
+          prev = current
+          next = ""
+          return ""
+        }
+        next = current
+        return current
+      },
+      { timeout },
+    )
+    .not.toBe("")
+  if (!next) throw new Error(`Failed to observe a stable session id from url: ${page.url()}`)
+  return next
 }
 
 async function waitWorkspaceReady(page: Page, space: { slug: string; raw: string }) {
@@ -45,8 +71,9 @@ async function openWorkspaceNewSession(page: Page, space: { slug: string; raw: s
   await expect(next).toBeVisible()
   await next.click({ force: true })
 
-  await waitSession(page, { directory: space.directory })
-  await expect.poll(() => sessionIDFromUrl(page.url()) ?? "").toBe("")
+  await waitDir(page, space.directory)
+  await expect(page.locator(promptSelector).first()).toBeVisible({ timeout: 45_000 })
+  return waitStableSession(page)
 }
 
 async function createSessionFromWorkspace(
@@ -61,10 +88,7 @@ async function createSessionFromWorkspace(
   await prompt.fill(text)
   await page.keyboard.press("Enter")
 
-  await expect.poll(() => sessionIDFromUrl(page.url()) ?? "", { timeout: 15_000 }).not.toBe("")
-  const sessionID = sessionIDFromUrl(page.url())
-  if (!sessionID) throw new Error(`Failed to parse session id from url: ${page.url()}`)
-
+  const sessionID = await waitStableSession(page)
   await waitSessionSaved(space.directory, sessionID)
   await createSdk(space.directory)
     .session.abort({ sessionID })

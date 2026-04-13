@@ -366,7 +366,7 @@ export async function seedProjects(page: Page, input: { directory: string; extra
   )
 }
 
-export async function createTestProject() {
+export async function createTestProject(input?: { serverUrl?: string }) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "opencode-e2e-project-"))
   const id = `e2e-${path.basename(root)}`
 
@@ -375,13 +375,14 @@ export async function createTestProject() {
   execSync("git init", { cwd: root, stdio: "ignore" })
   await fs.writeFile(path.join(root, ".git", "opencode"), id)
   execSync("git config core.fsmonitor false", { cwd: root, stdio: "ignore" })
+  execSync("git config commit.gpgsign false", { cwd: root, stdio: "ignore" })
   execSync("git add -A", { cwd: root, stdio: "ignore" })
   execSync('git -c user.name="e2e" -c user.email="e2e@example.com" commit -m "init" --allow-empty', {
     cwd: root,
     stdio: "ignore",
   })
 
-  return resolveDirectory(root)
+  return resolveDirectory(root, input?.serverUrl)
 }
 
 export async function cleanupTestProject(directory: string) {
@@ -430,22 +431,22 @@ export async function waitSlug(page: Page, skip: string[] = []) {
   return next
 }
 
-export async function resolveSlug(slug: string) {
+export async function resolveSlug(slug: string, input?: { serverUrl?: string }) {
   const directory = base64Decode(slug)
   if (!directory) throw new Error(`Failed to decode workspace slug: ${slug}`)
-  const resolved = await resolveDirectory(directory)
+  const resolved = await resolveDirectory(directory, input?.serverUrl)
   return { directory: resolved, slug: base64Encode(resolved), raw: slug }
 }
 
-export async function waitDir(page: Page, directory: string) {
-  const target = await resolveDirectory(directory)
+export async function waitDir(page: Page, directory: string, input?: { serverUrl?: string }) {
+  const target = await resolveDirectory(directory, input?.serverUrl)
   await expect
     .poll(
       async () => {
         await assertHealthy(page, "waitDir")
         const slug = slugFromUrl(page.url())
         if (!slug) return ""
-        return resolveSlug(slug)
+        return resolveSlug(slug, input)
           .then((item) => item.directory)
           .catch(() => "")
       },
@@ -455,22 +456,33 @@ export async function waitDir(page: Page, directory: string) {
   return { directory: target, slug: base64Encode(target) }
 }
 
-export async function waitSession(page: Page, input: { directory: string; sessionID?: string }) {
-  const target = await resolveDirectory(input.directory)
+export async function waitSession(
+  page: Page,
+  input: {
+    directory: string
+    sessionID?: string
+    serverUrl?: string
+    allowAnySession?: boolean
+  },
+) {
+  const target = await resolveDirectory(input.directory, input.serverUrl)
   await expect
     .poll(
       async () => {
         await assertHealthy(page, "waitSession")
         const slug = slugFromUrl(page.url())
         if (!slug) return false
-        const resolved = await resolveSlug(slug).catch(() => undefined)
+        const resolved = await resolveSlug(slug, { serverUrl: input.serverUrl }).catch(() => undefined)
         if (!resolved || resolved.directory !== target) return false
-        if (input.sessionID && sessionIDFromUrl(page.url()) !== input.sessionID) return false
+        const current = sessionIDFromUrl(page.url())
+        if (input.sessionID && current !== input.sessionID) return false
+        if (!input.sessionID && !input.allowAnySession && current) return false
 
         const state = await probeSession(page)
         if (input.sessionID && (!state || state.sessionID !== input.sessionID)) return false
+        if (!input.sessionID && !input.allowAnySession && state?.sessionID) return false
         if (state?.dir) {
-          const dir = await resolveDirectory(state.dir).catch(() => state.dir ?? "")
+          const dir = await resolveDirectory(state.dir, input.serverUrl).catch(() => state.dir ?? "")
           if (dir !== target) return false
         }
 
@@ -486,9 +498,9 @@ export async function waitSession(page: Page, input: { directory: string; sessio
   return { directory: target, slug: base64Encode(target) }
 }
 
-export async function waitSessionSaved(directory: string, sessionID: string, timeout = 30_000) {
-  const sdk = createSdk(directory)
-  const target = await resolveDirectory(directory)
+export async function waitSessionSaved(directory: string, sessionID: string, timeout = 30_000, serverUrl?: string) {
+  const sdk = createSdk(directory, serverUrl)
+  const target = await resolveDirectory(directory, serverUrl)
 
   await expect
     .poll(
@@ -498,7 +510,7 @@ export async function waitSessionSaved(directory: string, sessionID: string, tim
           .then((x) => x.data)
           .catch(() => undefined)
         if (!data?.directory) return ""
-        return resolveDirectory(data.directory).catch(() => data.directory)
+        return resolveDirectory(data.directory, serverUrl).catch(() => data.directory)
       },
       { timeout },
     )
@@ -663,8 +675,9 @@ export async function cleanupSession(input: {
   sessionID: string
   directory?: string
   sdk?: ReturnType<typeof createSdk>
+  serverUrl?: string
 }) {
-  const sdk = input.sdk ?? (input.directory ? createSdk(input.directory) : undefined)
+  const sdk = input.sdk ?? (input.directory ? createSdk(input.directory, input.serverUrl) : undefined)
   if (!sdk) throw new Error("cleanupSession requires sdk or directory")
   await waitSessionIdle(sdk, input.sessionID, 5_000).catch(() => undefined)
   const current = await status(sdk, input.sessionID).catch(() => undefined)

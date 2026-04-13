@@ -1,0 +1,9 @@
+# Temporary CI serial allowlist for specs that showed concurrency sensitivity
+# during local verification.
+
+e2e/files/file-viewer.spec.ts
+e2e/prompt/prompt-async.spec.ts
+e2e/prompt/prompt-history.spec.ts
+e2e/prompt/prompt.spec.ts
+e2e/terminal/terminal-init.spec.ts
+e2e/terminal/terminal-reconnect.spec.ts
