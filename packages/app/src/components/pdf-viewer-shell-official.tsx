@@ -50,7 +50,6 @@ export type PdfViewerShellProps = {
   layoutSwapped?: boolean
   onPageChange?: (page: number) => void
   onDocumentInfo?: (info: { totalPages: number }) => void
-  onPdfToMarkdown?: () => void
   onOpenReadingMode?: () => void
   onOpenSettings?: () => void
   onTextSelectionAction?: (input: { action: "copy" | "translate" | "ask"; page: number; text: string }) => void
@@ -62,10 +61,15 @@ type ViewerMessage =
   | { channel: "aether-pdf-viewer"; type: "ready" }
   | { channel: "aether-pdf-viewer"; type: "pagechange"; page: number }
   | { channel: "aether-pdf-viewer"; type: "documentinfo"; totalPages: number }
-  | { channel: "aether-pdf-viewer"; type: "pdf2md" }
   | { channel: "aether-pdf-viewer"; type: "openreadingmode" }
   | { channel: "aether-pdf-viewer"; type: "opensettings" }
-  | { channel: "aether-pdf-viewer"; type: "textselectionaction"; action: "copy" | "translate" | "ask"; page: number; text: string }
+  | {
+      channel: "aether-pdf-viewer"
+      type: "textselectionaction"
+      action: "copy" | "translate" | "ask"
+      page: number
+      text: string
+    }
   | {
       channel: "aether-pdf-viewer"
       type: "imageselectionaction"
@@ -91,14 +95,13 @@ export const PdfViewerShell: Component<PdfViewerShellProps> = (props) => {
     mode: props.mode,
     nightMode: nightMode(),
     layoutSwapped: !!props.layoutSwapped,
-      features: {
-        pdf2md: !!props.onPdfToMarkdown && props.mode === "compact",
-        readingMode: !!props.onOpenReadingMode && props.mode === "compact",
-        settings: !!props.onOpenSettings && props.mode === "full",
-        textSelectionActions: !!props.onTextSelectionAction && props.mode === "full",
-        imageSelectionActions: !!props.onImageSelectionAction && props.mode === "full",
-      },
-    }))
+    features: {
+      readingMode: !!props.onOpenReadingMode && props.mode === "compact",
+      settings: !!props.onOpenSettings && props.mode === "full",
+      textSelectionActions: !!props.onTextSelectionAction && props.mode === "full",
+      imageSelectionActions: !!props.onImageSelectionAction && props.mode === "full",
+    },
+  }))
 
   const post = (message: unknown) => {
     const frame = iframeRef?.contentWindow
@@ -161,11 +164,6 @@ export const PdfViewerShell: Component<PdfViewerShellProps> = (props) => {
       return
     }
 
-    if (event.data.type === "pdf2md") {
-      props.onPdfToMarkdown?.()
-      return
-    }
-
     if (event.data.type === "openreadingmode") {
       props.onOpenReadingMode?.()
       return
@@ -209,13 +207,7 @@ export const PdfViewerShell: Component<PdfViewerShellProps> = (props) => {
 
   return (
     <div class={`pdf-viewer-shell ${props.class ?? ""}`}>
-      <iframe
-        ref={iframeRef}
-        src={viewerSrc()}
-        class="pdf-viewer-shell__frame"
-        title="PDF Viewer"
-        loading="eager"
-      />
+      <iframe ref={iframeRef} src={viewerSrc()} class="pdf-viewer-shell__frame" title="PDF Viewer" loading="eager" />
     </div>
   )
 }

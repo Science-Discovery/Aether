@@ -33,7 +33,6 @@ body.aether-pdf-viewer #toolbarViewerMiddle {
   gap: 6px;
 }
 
-body.aether-pdf-viewer #aetherPdf2md,
 body.aether-pdf-viewer #aetherNightMode,
 body.aether-pdf-viewer #aetherCaptureRegion,
 body.aether-pdf-viewer #aetherReadingSettings,
@@ -50,31 +49,6 @@ body.aether-pdf-viewer {
   --aether-swap-right-icon: url("/pdfjs-ref/web/images/aether-swap-layout-right.svg");
   --aether-swap-left-icon: url("/pdfjs-ref/web/images/aether-swap-layout-left.svg");
   --aether-reading-mode-icon: url("/pdfjs-ref/web/images/aether-reading-mode.svg");
-}
-
-body.aether-pdf-viewer #aetherPdf2md {
-  width: auto;
-  max-width: none;
-  min-width: 78px;
-  padding-inline: 10px;
-  background-color: var(--dropdown-btn-bg-color);
-  border: 1px solid var(--toolbar-border-color);
-  border-radius: 2px;
-  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.04);
-}
-
-body.aether-pdf-viewer #aetherPdf2md::before {
-  content: none;
-}
-
-body.aether-pdf-viewer #aetherPdf2md > span {
-  position: static;
-  width: auto;
-  height: auto;
-  overflow: visible;
-  padding: 0;
-  text-indent: 0;
-  white-space: nowrap;
 }
 
 body.aether-pdf-viewer #aetherSwapLayout {
@@ -120,11 +94,6 @@ body.aether-pdf-viewer #aetherOpenReadingMode::before {
 body.aether-pdf-viewer #aetherSwapLayout[data-direction="left"]::before {
   -webkit-mask-image: var(--aether-swap-left-icon);
   mask-image: var(--aether-swap-left-icon);
-}
-
-body.aether-pdf-viewer #aetherPdf2md:hover,
-body.aether-pdf-viewer #aetherPdf2md:focus-visible {
-  background-color: var(--button-hover-color);
 }
 
 body.aether-pdf-viewer #aetherNightMode::before {

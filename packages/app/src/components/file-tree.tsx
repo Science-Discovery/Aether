@@ -243,10 +243,6 @@ export default function FileTree(props: {
   onUploadDrop?: (event: DragEvent, targetDir: string) => void
   /** Upload files to a specific directory via picker */
   onUploadToDir?: (dir: string, type: "file" | "directory") => void
-  /** PDF 转 Markdown（单文件或批量） */
-  onPdfConvert?: (paths: string[]) => void
-  /** Markdown 翻译为中文（单文件或批量） */
-  onTranslateMarkdown?: (paths: string[]) => void
 
   _filter?: Filter
   _marks?: Set<string>
@@ -449,27 +445,6 @@ export default function FileTree(props: {
             return sel && sel.size > 1 && sel.has(node.path)
           }
 
-          const isPdf = () => node.type === "file" && node.name.toLowerCase().endsWith(".pdf")
-          const isMarkdown = () => node.type === "file" && /\.(md|markdown)$/i.test(node.name)
-
-          const allSelectedArePdf = () => {
-            const sel = props.selectedPaths
-            if (!sel || sel.size < 2) return false
-            for (const p of sel) {
-              if (!p.toLowerCase().endsWith(".pdf")) return false
-            }
-            return true
-          }
-
-          const allSelectedAreMarkdown = () => {
-            const sel = props.selectedPaths
-            if (!sel || sel.size < 2) return false
-            for (const p of sel) {
-              if (!/\.(md|markdown)$/i.test(p)) return false
-            }
-            return true
-          }
-
           const multiContextMenu = (trigger: () => JSXElement) => (
             <ContextMenu>
               <ContextMenu.Trigger as="div" class="w-full">
@@ -510,30 +485,6 @@ export default function FileTree(props: {
                   >
                     <ContextMenu.ItemLabel>下载（{props.selectedPaths?.size ?? 0} 项）</ContextMenu.ItemLabel>
                   </ContextMenu.Item>
-                  <Show when={allSelectedArePdf() && props.onPdfConvert}>
-                    <ContextMenu.Separator />
-                    <ContextMenu.Item
-                      onSelect={() => {
-                        const paths = [...(props.selectedPaths ?? [])]
-                        props.onPdfConvert?.(paths)
-                      }}
-                    >
-                      <ContextMenu.ItemLabel>
-                        转换为 Markdown（{props.selectedPaths?.size ?? 0} 项）
-                      </ContextMenu.ItemLabel>
-                    </ContextMenu.Item>
-                  </Show>
-                  <Show when={allSelectedAreMarkdown() && props.onTranslateMarkdown}>
-                    <ContextMenu.Separator />
-                    <ContextMenu.Item
-                      onSelect={() => {
-                        const paths = [...(props.selectedPaths ?? [])]
-                        props.onTranslateMarkdown?.(paths)
-                      }}
-                    >
-                      <ContextMenu.ItemLabel>翻译为中文（{props.selectedPaths?.size ?? 0} 项）</ContextMenu.ItemLabel>
-                    </ContextMenu.Item>
-                  </Show>
                   <ContextMenu.Separator />
                   <ContextMenu.Item
                     onSelect={() => {
@@ -643,18 +594,6 @@ export default function FileTree(props: {
                       }}
                     >
                       <ContextMenu.ItemLabel>在文件资源管理器中显示</ContextMenu.ItemLabel>
-                    </ContextMenu.Item>
-                  </Show>
-                  <Show when={isPdf() && props.onPdfConvert}>
-                    <ContextMenu.Separator />
-                    <ContextMenu.Item onSelect={() => props.onPdfConvert?.([node.path])}>
-                      <ContextMenu.ItemLabel>转换为 Markdown</ContextMenu.ItemLabel>
-                    </ContextMenu.Item>
-                  </Show>
-                  <Show when={isMarkdown() && props.onTranslateMarkdown}>
-                    <ContextMenu.Separator />
-                    <ContextMenu.Item onSelect={() => props.onTranslateMarkdown?.([node.path])}>
-                      <ContextMenu.ItemLabel>翻译为中文</ContextMenu.ItemLabel>
                     </ContextMenu.Item>
                   </Show>
                   <ContextMenu.Separator />
@@ -856,8 +795,6 @@ export default function FileTree(props: {
                           onFileDrop={props.onFileDrop}
                           onUploadDrop={props.onUploadDrop}
                           onUploadToDir={props.onUploadToDir}
-                          onPdfConvert={props.onPdfConvert}
-                          onTranslateMarkdown={props.onTranslateMarkdown}
                           _filter={filter()}
                           _marks={marks()}
                           _deeps={deeps()}
