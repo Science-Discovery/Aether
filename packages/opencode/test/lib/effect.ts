@@ -41,10 +41,14 @@ const make = <R, E>(testLayer: Layer.Layer<R, E>, liveLayer: Layer.Layer<R, E>) 
   return { effect, live }
 }
 
-const testEnv = Layer.mergeAll(TestConsole.layer, TestClock.layer())
-const liveEnv = TestConsole.layer
+const env = TestConsole.layer
+const clock = Layer.mergeAll(TestConsole.layer, TestClock.layer())
 
-export const it = make(testEnv, liveEnv)
+export const it = make(env, env)
+export const clockIt = make(clock, env)
 
 export const testEffect = <R, E>(layer: Layer.Layer<R, E>) =>
-  make(Layer.provideMerge(layer, testEnv), Layer.provideMerge(layer, liveEnv))
+  make(Layer.provideMerge(layer, env), Layer.provideMerge(layer, env))
+
+export const testClockEffect = <R, E>(layer: Layer.Layer<R, E>) =>
+  make(Layer.provideMerge(layer, clock), Layer.provideMerge(layer, env))
