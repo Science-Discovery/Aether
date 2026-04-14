@@ -162,7 +162,6 @@ class FeishuManagerImpl {
   private _starting = false
   // ── 诊断用字段 ─────────────────────────────────────────────────────────────
   private _lastWsEventTime: number = 0
-  private _aliveTimer: ReturnType<typeof setInterval> | null = null
   // ─────────────────────────────────────────────────────────────────────────
 
   private static readonly HEARTBEAT_MS = 30_000
@@ -502,23 +501,6 @@ class FeishuManagerImpl {
         }
       }, 5_000)
 
-      // 每 60s 打一行存活日志，方便对照时间轴定位断连时间点
-      this._aliveTimer = setInterval(() => {
-        if (this._status !== "connected") return
-        const aliveMs = Date.now() - (this._session?.createdAt ?? Date.now())
-        const lastEventDesc = this._lastWsEventTime
-          ? `${Math.floor((Date.now() - this._lastWsEventTime) / 1000)}s ago`
-          : "never"
-        const wsClientAny = this.wsClient as any
-        const wsInstance = wsClientAny?.wsConfig?.getWSInstance?.()
-        const readyState = wsInstance?.readyState ?? -1
-        const readyStateStr = (["CONNECTING", "OPEN", "CLOSING", "CLOSED"] as const)[readyState] ?? `unknown(${readyState})`
-        console.log(
-          `[feishu] alive ${Math.floor(aliveMs / 1000)}s | last message: ${lastEventDesc} | ws: ${readyStateStr}`,
-          localISOString(),
-        )
-      }, 60_000)
-
       // Compute initial directory from first visible project
       const allProjects = this.getProjects()
       const visibleProjects = allProjects.filter((p) => !(this.projectDir(p) in this._hiddenDirs))
@@ -634,10 +616,6 @@ class FeishuManagerImpl {
 
   private async cleanupConnection(reset = true): Promise<void> {
     this.stopHeartbeat()
-    if (this._aliveTimer) {
-      clearInterval(this._aliveTimer)
-      this._aliveTimer = null
-    }
     if (this._reconnect) {
       clearTimeout(this._reconnect)
       this._reconnect = null
