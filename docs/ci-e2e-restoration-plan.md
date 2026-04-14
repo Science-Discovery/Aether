@@ -137,6 +137,27 @@
 - `packages/app/e2e/terminal/terminal-tabs.spec.ts`
 - `packages/app/e2e/session/session-undo-redo.spec.ts`
 
+### E. 已落地但待补验证的定向 prompt 迁移
+
+为消除当前 CI 中串行 prompt spec 对真实 LLM 文本输出的依赖，已在不调整 workflow、白名单拆分、`e2e-local.ts` 与 `provider.ts` 的前提下，定向改写：
+
+- `packages/app/e2e/prompt/prompt.spec.ts`
+- `packages/app/e2e/prompt/prompt-async.spec.ts`
+- `packages/app/e2e/prompt/prompt-history.spec.ts`
+- `packages/app/e2e/actions.ts`（仅补 `assistantText()` helper）
+
+当前策略是：
+
+- 仅把这三条已暴露 flaky 的 prompt spec 切到现有 `project` / `assistant` mock-backed harness
+- 保持测试原有用户场景与断言主题不变
+- 不扩散到其它单测与非 LLM 输出相关 e2e
+
+当前验证现状：
+
+- `packages/app` 下 `bun typecheck` 已通过
+- 本地定向执行这三条 spec 时，运行阻塞在宿主机 Vite watcher 上限：`ENOSPC: System limit for number of file watchers reached`
+- 因此这批修改仍待在 watcher 资源正常的环境中补跑确认
+
 ## 当前验证矩阵
 
 ### 总量
