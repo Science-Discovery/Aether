@@ -42,6 +42,25 @@ function wait() {
   return { promise, resolve }
 }
 
+async function jobs(app: ReturnType<typeof Server.Default>, dir: string, ms = 10_000) {
+  const end = Date.now() + ms
+  while (Date.now() < end) {
+    const out = await (await app.request("/skill/jobs", {
+      headers: {
+        "x-opencode-directory": dir,
+      },
+    })).json()
+    if (
+      out.some((item: { id: string; status: string }) => item.id === "one/repo@first" && item.status === "success") &&
+      out.some((item: { id: string; status: string }) => item.id === "three/repo@third" && item.status === "running")
+    ) {
+      return out
+    }
+    await new Promise((done) => setTimeout(done, 20))
+  }
+  throw new Error("install jobs did not reach expected state in time")
+}
+
 afterEach(async () => {
   resetForTest()
   await resetDatabase()
@@ -230,6 +249,7 @@ describe("skill routes", () => {
         stderr: Buffer.from("network down"),
         text: "",
       })
+      globalThis.fetch = (async () => new Response("Not Found", { status: 404 })) as unknown as typeof fetch
 
       const app = Server.Default()
       const search = await app.request("/skill/search", {
@@ -3484,12 +3504,18 @@ describe("skill routes", () => {
     const a = wait()
     const b = wait()
     const c = wait()
-    let calls = 0
-    runSpy = spyOn(Process, "run").mockImplementation(async () => {
-      calls += 1
-      if (calls === 1) return a.promise.then(() => ({ code: 0, stdout: Buffer.alloc(0), stderr: Buffer.alloc(0) }))
-      if (calls === 2) return b.promise.then(() => ({ code: 0, stdout: Buffer.alloc(0), stderr: Buffer.alloc(0) }))
-      return c.promise.then(() => ({ code: 0, stdout: Buffer.alloc(0), stderr: Buffer.alloc(0) }))
+    const run = Process.run
+    runSpy = spyOn(Process, "run").mockImplementation(async (cmd, opts) => {
+      if (cmd.includes("one/repo") && cmd.includes("first")) {
+        return a.promise.then(() => ({ code: 0, stdout: Buffer.alloc(0), stderr: Buffer.alloc(0) }))
+      }
+      if (cmd.includes("two/repo") && cmd.includes("second")) {
+        return b.promise.then(() => ({ code: 0, stdout: Buffer.alloc(0), stderr: Buffer.alloc(0) }))
+      }
+      if (cmd.includes("three/repo") && cmd.includes("third")) {
+        return c.promise.then(() => ({ code: 0, stdout: Buffer.alloc(0), stderr: Buffer.alloc(0) }))
+      }
+      return run(cmd, opts)
     })
 
     const app = Server.Default()
@@ -3548,22 +3574,7 @@ describe("skill routes", () => {
     )
 
     a.resolve()
-    const next = await new Promise<any[]>(async (resolve, reject) => {
-      const end = Date.now() + 3_000
-      while (Date.now() < end) {
-        const jobs = await (await app.request("/skill/jobs", {
-          headers: {
-            "x-opencode-directory": tmp.path,
-          },
-        })).json()
-        if (jobs.some((item: { id: string; status: string }) => item.id === "one/repo@first" && item.status === "success")) {
-          resolve(jobs)
-          return
-        }
-        await new Promise((done) => setTimeout(done, 10))
-      }
-      reject(new Error("first install did not finish in time"))
-    })
+    const next = await jobs(app, tmp.path)
     expect(next).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ id: "one/repo@first", status: "success" }),

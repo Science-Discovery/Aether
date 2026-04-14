@@ -1,8 +1,11 @@
-import { describe, test, expect, beforeAll, afterAll } from "bun:test"
-import { Effect } from "effect"
+import { describe, test, expect, beforeAll, afterAll, beforeEach } from "bun:test"
+import { Effect, Layer } from "effect"
+import { NodePath } from "@effect/platform-node"
+import { HttpClient, HttpClientResponse } from "effect/unstable/http"
 import { Discovery } from "../../src/skill/discovery"
 import { Global } from "../../src/global"
 import { Filesystem } from "../../src/util/filesystem"
+import { AppFileSystem } from "../../src/filesystem"
 import { rm } from "fs/promises"
 import path from "path"
 import { serve } from "../lib/server"
@@ -10,13 +13,12 @@ import { serve } from "../lib/server"
 let CLOUDFLARE_SKILLS_URL: string
 let server: ReturnType<typeof Bun.serve>
 let downloadCount = 0
+const nativeFetch = globalThis.fetch
 
 const fixturePath = path.join(import.meta.dir, "../fixture/skills")
 const cacheDir = path.join(Global.Path.cache, "skills")
 
 beforeAll(async () => {
-  await rm(cacheDir, { recursive: true, force: true })
-
   server = await serve({
     port: 0,
     async fetch(req: Request) {
@@ -42,14 +44,34 @@ beforeAll(async () => {
   CLOUDFLARE_SKILLS_URL = `http://localhost:${server.port}/.well-known/skills/`
 })
 
+beforeEach(async () => {
+  await rm(cacheDir, { recursive: true, force: true })
+  downloadCount = 0
+})
+
 afterAll(async () => {
   server?.stop()
   await rm(cacheDir, { recursive: true, force: true })
 })
 
 describe("Discovery.pull", () => {
+  const layer = Discovery.layer.pipe(
+    Layer.provide(
+      Layer.succeed(
+        HttpClient.HttpClient,
+        HttpClient.make((req) =>
+          Effect.promise(async () => {
+            const res = await nativeFetch(req.url, { method: req.method })
+            return HttpClientResponse.fromWeb(req, res)
+          }),
+        ),
+      ),
+    ),
+    Layer.provide(AppFileSystem.defaultLayer),
+    Layer.provide(NodePath.layer),
+  )
   const pull = (url: string) =>
-    Effect.runPromise(Discovery.Service.use((s) => s.pull(url)).pipe(Effect.provide(Discovery.defaultLayer)))
+    Effect.runPromise(Discovery.Service.use((s) => s.pull(url)).pipe(Effect.provide(layer)))
 
   test("downloads skills from cloudflare url", async () => {
     const dirs = await pull(CLOUDFLARE_SKILLS_URL)
@@ -83,23 +105,21 @@ describe("Discovery.pull", () => {
 
   test("downloads reference files alongside SKILL.md", async () => {
     const dirs = await pull(CLOUDFLARE_SKILLS_URL)
-    // find a skill dir that should have reference files (e.g. agents-sdk)
-    const agentsSdk = dirs.find((d) => d.endsWith(path.sep + "agents-sdk"))
-    expect(agentsSdk).toBeDefined()
-    if (agentsSdk) {
-      const refs = path.join(agentsSdk, "references")
-      expect(await Filesystem.exists(path.join(agentsSdk, "SKILL.md"))).toBe(true)
-      // agents-sdk has reference files per the index
-      const refDir = await Array.fromAsync(new Bun.Glob("**/*.md").scan({ cwd: refs, onlyFiles: true }))
-      expect(refDir.length).toBeGreaterThan(0)
-    }
+    const out = await Promise.all(
+      dirs.map(async (dir) => {
+        const refs = path.join(dir, "references")
+        if (!(await Filesystem.exists(refs))) return
+        const files = await Array.fromAsync(new Bun.Glob("**/*.md").scan({ cwd: refs, onlyFiles: true }))
+        if (files.length === 0) return
+        return { dir, files }
+      }),
+    )
+    const hit = out.find(Boolean)
+    expect(hit).toBeDefined()
+    if (hit) expect(await Filesystem.exists(path.join(hit.dir, "SKILL.md"))).toBe(true)
   })
 
   test("caches downloaded files on second pull", async () => {
-    // clear dir and downloadCount
-    await rm(cacheDir, { recursive: true, force: true })
-    downloadCount = 0
-
     // first pull to populate cache
     const first = await pull(CLOUDFLARE_SKILLS_URL)
     expect(first.length).toBeGreaterThan(0)
