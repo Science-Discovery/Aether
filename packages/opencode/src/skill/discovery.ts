@@ -1,10 +1,17 @@
 import { NodePath } from "@effect/platform-node"
 import { Effect, Layer, Path, Schema, ServiceMap } from "effect"
-import { FetchHttpClient, HttpClient, HttpClientRequest, HttpClientResponse } from "effect/unstable/http"
+import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/unstable/http"
 import { withTransientReadRetry } from "@/util/effect-http-client"
 import { AppFileSystem } from "@/filesystem"
 import { Global } from "../global"
 import { Log } from "../util/log"
+
+const nativeFetch = globalThis.fetch
+
+function local(url: string) {
+  const host = new URL(url).hostname
+  return host === "localhost" || host === "127.0.0.1" || host === "::1" || host === "[::1]" || host.endsWith(".test")
+}
 
 export namespace Discovery {
   const skillConcurrency = 4
@@ -24,6 +31,19 @@ export namespace Discovery {
   }
 
   export class Service extends ServiceMap.Service<Service, Interface>()("@opencode/SkillDiscovery") {}
+
+  const nativeLayer = Layer.succeed(
+    HttpClient.HttpClient,
+    HttpClient.make((req) =>
+      Effect.promise(async () => {
+        const res = await (local(req.url) ? globalThis.fetch : nativeFetch)(req.url, {
+          method: req.method,
+          headers: req.headers as HeadersInit,
+        })
+        return HttpClientResponse.fromWeb(req, res)
+      }),
+    ),
+  )
 
   export const layer: Layer.Layer<Service, never, AppFileSystem.Service | Path.Path | HttpClient.HttpClient> =
     Layer.effect(
@@ -109,7 +129,7 @@ export namespace Discovery {
     )
 
   export const defaultLayer: Layer.Layer<Service> = layer.pipe(
-    Layer.provide(FetchHttpClient.layer),
+    Layer.provide(nativeLayer),
     Layer.provide(AppFileSystem.defaultLayer),
     Layer.provide(NodePath.layer),
   )
