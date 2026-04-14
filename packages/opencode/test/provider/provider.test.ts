@@ -56,7 +56,101 @@ test("provider loaded from config with apiKey option", async () => {
     directory: tmp.path,
     fn: async () => {
       const providers = await Provider.list()
+      const connected = await Provider.connected()
       expect(providers[ProviderID.anthropic]).toBeDefined()
+      expect(connected).toContain(ProviderID.anthropic)
+    },
+  })
+})
+
+test("opencode public provider is connected without saved auth", async () => {
+  await using tmp = await tmpdir({
+    init: async (dir) => {
+      await Bun.write(
+        path.join(dir, "opencode.json"),
+        JSON.stringify({
+          $schema: "https://opencode.ai/config.json",
+        }),
+      )
+    },
+  })
+  await Instance.provide({
+    directory: tmp.path,
+    fn: async () => {
+      const providers = await Provider.list()
+      const connected = await Provider.connected()
+      expect(providers[ProviderID.opencode]).toBeDefined()
+      expect(connected).toContain(ProviderID.opencode)
+    },
+  })
+})
+
+test("preset provider with baseURL override is not connected without credentials", async () => {
+  await using tmp = await tmpdir({
+    init: async (dir) => {
+      await Bun.write(
+        path.join(dir, "opencode.json"),
+        JSON.stringify({
+          $schema: "https://opencode.ai/config.json",
+          provider: {
+            openai: {
+              options: {
+                baseURL: "https://proxy.example.com/v1",
+              },
+            },
+          },
+        }),
+      )
+    },
+  })
+  await Instance.provide({
+    directory: tmp.path,
+    fn: async () => {
+      const providers = await Provider.list()
+      const connected = await Provider.connected()
+      expect(providers[ProviderID.openai]).toBeDefined()
+      expect(connected).not.toContain(ProviderID.openai)
+    },
+  })
+})
+
+test("custom config provider with models is connected without api key", async () => {
+  await using tmp = await tmpdir({
+    init: async (dir) => {
+      await Bun.write(
+        path.join(dir, "opencode.json"),
+        JSON.stringify({
+          $schema: "https://opencode.ai/config.json",
+          provider: {
+            "local-llm": {
+              name: "Local LLM",
+              npm: "@ai-sdk/openai-compatible",
+              options: {
+                baseURL: "http://localhost:11434/v1",
+              },
+              models: {
+                llama: {
+                  name: "Llama",
+                  limit: {
+                    context: 128000,
+                    output: 4096,
+                  },
+                },
+              },
+            },
+          },
+        }),
+      )
+    },
+  })
+  await Instance.provide({
+    directory: tmp.path,
+    fn: async () => {
+      const providers = await Provider.list()
+      const connected = await Provider.connected()
+      const providerID = ProviderID.make("local-llm")
+      expect(providers[providerID]).toBeDefined()
+      expect(connected).toContain(providerID)
     },
   })
 })
