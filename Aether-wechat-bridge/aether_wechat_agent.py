@@ -408,6 +408,12 @@ class AetherAgent(Agent):
                 break
         return rows
 
+    async def _resolve_session(self, session_id: str, directory: str) -> dict:
+        if not session_id:
+            return {}
+        items = await self._list_sessions(directory)
+        return next((item for item in items if item.get("id") == session_id), {})
+
     async def _format_header(
         self, session_id: str, directory: str, conv_id: str = ""
     ) -> str:
@@ -578,9 +584,10 @@ class AetherAgent(Agent):
                 )
             chosen = items[idx]
             self._sessions[conv_id] = chosen["id"]
-            title = chosen.get("title") or chosen["id"][:8]
+            info = await self._resolve_session(chosen["id"], directory)
+            title = info.get("title") or chosen["id"][:8]
             logger.info(f"[/session] {conv_id} -> {chosen['id']}")
-            return f"✅ 已切换到会话：{title}\n   更新时间：{self._format_session_time(chosen.get('time', {}).get('updated'))}"
+            return f"✅ 已切换到会话：{title}\n   更新时间：{self._format_session_time((info or chosen).get('time', {}).get('updated'))}"
 
         if not items:
             session_id = await self._create_session(directory=directory)
@@ -876,8 +883,7 @@ class AetherAgent(Agent):
             logger.info(f"[/project] {conv_id} -> {new_dir}")
             note = "已创建新会话"
             if not created:
-                items = await self._list_sessions(new_dir)
-                item = next((row for row in items if row.get("id") == session_id), None)
+                item = await self._resolve_session(session_id, new_dir)
                 title = (item or {}).get("title") or session_id[:8]
                 note = f"已进入该项目最新会话：{title}"
             return f"✅ 已切换到：{name}\n   {new_dir}\n（{note}）"

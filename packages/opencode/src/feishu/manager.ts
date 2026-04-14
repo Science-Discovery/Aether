@@ -1357,7 +1357,7 @@ class FeishuManagerImpl {
   }
 
   /**
-   * /project            — list top-10 non-hidden projects (current marked ◀)
+   * /project            — list top-10 visible projects with full-list numbering (current marked ◀)
    * /project list       — list ALL projects including hidden ones
    * /project <n>        — switch to project n
    * /project hide <n>   — hide project n
@@ -1452,13 +1452,14 @@ class FeishuManagerImpl {
       await this.saveSessionMap()
 
       const name = this.projectName(chosen)
-      const note = created ? "已创建新会话" : `已进入该项目最新会话：${sessionTitle}`
+      const ctx = await this.commandCtx(chatId)
+      const note = created ? "已创建新会话" : `已进入该项目最新会话：${ctx.sessionTitle}`
       console.log("[feishu] /project switched:", chatId, "->", newDir)
       await this.replyCmd(messageId, chatId, `✅ 已切换到：${name}\n   ${newDir}\n（${note}）`)
       return
     }
 
-    // /project — list top-10 non-hidden projects
+    // /project — list top-10 visible projects with full-list numbering
     if (visibleProjects.length === 0) {
       const hint =
         Object.keys(this._hiddenDirs).length > 0 ? `（有 ${Object.keys(this._hiddenDirs).length} 个项目已隐藏）` : ""
@@ -1533,10 +1534,11 @@ class FeishuManagerImpl {
       const chosen = items[idx]
       this._chatSessions[chatId] = chosen.id
       void this.clearRuntime(chatId)
+      const ctx = await this.commandCtx(chatId)
       await this.replyCmd(
         messageId,
         chatId,
-        `✅ 已切换到会话：${chosen.title}\n   更新时间：${this.formatSessionTime(chosen.time.updated)}`,
+        `✅ 已切换到会话：${ctx.sessionTitle}\n   更新时间：${this.formatSessionTime(chosen.time.updated)}`,
       )
       return
     }
