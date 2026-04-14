@@ -1,6 +1,6 @@
-# OpenCode Desktop
+# Aether Desktop
 
-Native OpenCode desktop app, built with Tauri v2.
+Native Aether desktop app, built with Tauri v2.
 
 ## Development
 
