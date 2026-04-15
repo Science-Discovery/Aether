@@ -185,8 +185,8 @@ export function SessionTodoDock(props: {
               data-collapsed={store.collapsed ? "true" : "false"}
               icon="chevron-down"
               size="normal"
-              variant="ghost"
-              style={{ transform: `rotate(${turn() * 180}deg)` }}
+              variant="primary"
+              style={{ transform: `rotate(${turn() * 180}deg)`, opacity: 0.6 }}
               onMouseDown={(event) => {
                 event.preventDefault()
                 event.stopPropagation()

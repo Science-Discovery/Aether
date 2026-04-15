@@ -418,11 +418,10 @@ export const SessionQuestionDock: Component<{
           </div>
           <IconButton
             data-slot="question-collapse-button"
-            data-collapsed={store.collapsed ? "true" : "false"}
             icon="chevron-down"
             size="normal"
-            variant="ghost"
-            style={{ transform: `rotate(${store.collapsed ? 180 : 0}deg)` }}
+            variant="primary"
+            style={{ transform: `rotate(${store.collapsed ? 180 : 0}deg)`, opacity: 0.6 }}
             onMouseDown={(event) => {
               event.preventDefault()
               event.stopPropagation()
