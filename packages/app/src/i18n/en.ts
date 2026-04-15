@@ -231,6 +231,7 @@ export const dict = {
   "common.loading.ellipsis": "...",
   "common.cancel": "Cancel",
   "common.open": "Open",
+  "common.continue": "Continue",
   "common.connect": "Connect",
   "common.disconnect": "Disconnect",
   "common.submit": "Submit",

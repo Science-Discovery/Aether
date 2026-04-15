@@ -59,7 +59,7 @@ export const ProviderRoutes = lazy(() =>
         return c.json({
           all: Object.values(providers),
           default: mapValues(providers, (item) => Provider.sort(Object.values(item.models))[0].id),
-          connected: Object.keys(connected),
+          connected: await Provider.connected(),
         })
       },
     )

@@ -987,6 +987,7 @@ export namespace Provider {
     }
 
     const providers: Record<ProviderID, Info> = {} as Record<ProviderID, Info>
+    const connected = new Set<ProviderID>()
     const languages = new Map<string, LanguageModelV2>()
     const modelLoaders: {
       [providerID: string]: CustomModelLoader
@@ -1002,6 +1003,23 @@ export namespace Provider {
     log.info("init")
 
     const configProviders = Object.entries(config.provider ?? {})
+    const live = (providerID: ProviderID) => {
+      connected.add(providerID)
+    }
+    const hasConfigKey = (provider: (typeof configProviders)[number][1]) => {
+      const key = provider.options?.apiKey
+      return typeof key === "string" && key.trim() !== ""
+    }
+    const isConfigCustom = (provider: (typeof configProviders)[number][1]) => {
+      if (!provider.models || Object.keys(provider.models).length === 0) return false
+      if (
+        provider.npm === "@ai-sdk/openai-compatible" ||
+        provider.npm === "@ai-sdk/anthropic" ||
+        provider.npm === "@ai-sdk/google"
+      )
+        return true
+      return typeof provider.options?.baseURL === "string" && provider.options.baseURL.trim() !== ""
+    }
 
     function mergeProvider(providerID: ProviderID, provider: Partial<Info>) {
       const existing = providers[providerID]
@@ -1130,12 +1148,14 @@ export namespace Provider {
         source: "env",
         key: provider.env.length === 1 ? apiKey : undefined,
       })
+      live(providerID)
     }
 
     // load apikeys
     for (const [id, provider] of Object.entries(await Auth.all())) {
       const providerID = ProviderID.make(id)
       if (disabled.has(providerID)) continue
+      live(providerID)
       if (provider.type === "api") {
         mergeProvider(providerID, {
           source: "api",
@@ -1158,6 +1178,7 @@ export namespace Provider {
         const opts = options ?? {}
         const patch: Partial<Info> = providers[providerID] ? { options: opts } : { source: "custom", options: opts }
         mergeProvider(providerID, patch)
+        live(providerID)
       }
     }
 
@@ -1177,6 +1198,7 @@ export namespace Provider {
         const opts = result.options ?? {}
         const patch: Partial<Info> = providers[providerID] ? { options: opts } : { source: "custom", options: opts }
         mergeProvider(providerID, patch)
+        if (result.autoload) live(providerID)
       }
     }
 
@@ -1188,12 +1210,16 @@ export namespace Provider {
       if (provider.name) partial.name = provider.name
       if (provider.options) partial.options = provider.options
       mergeProvider(providerID, partial)
+      if (hasConfigKey(provider) || isConfigCustom(provider)) {
+        live(providerID)
+      }
     }
 
     for (const [id, provider] of Object.entries(providers)) {
       const providerID = ProviderID.make(id)
       if (!isProviderAllowed(providerID)) {
         delete providers[providerID]
+        connected.delete(providerID)
         continue
       }
 
@@ -1229,6 +1255,7 @@ export namespace Provider {
 
       if (Object.keys(provider.models).length === 0) {
         delete providers[providerID]
+        connected.delete(providerID)
         continue
       }
 
@@ -1250,6 +1277,7 @@ export namespace Provider {
     return {
       models: languages,
       providers,
+      connected,
       sdk,
       modelLoaders,
       varsLoaders,
@@ -1258,6 +1286,10 @@ export namespace Provider {
 
   export async function list() {
     return state().then((state) => state.providers)
+  }
+
+  export async function connected() {
+    return state().then((state) => [...state.connected].filter((id) => !!state.providers[id]))
   }
 
   async function getSDK(model: Model) {

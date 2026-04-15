@@ -321,7 +321,12 @@ export function DialogConnectProvider(props: { provider: string }) {
   })
 
   async function complete() {
-    await globalSDK.client.global.dispose()
+    try {
+      await globalSDK.client.global.dispose()
+      await globalSync.bootstrap()
+    } catch (err) {
+      console.error("Failed to refresh after provider connect", err)
+    }
     dialog.close()
     showToast({
       variant: "success",

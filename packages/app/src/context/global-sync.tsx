@@ -416,6 +416,10 @@ function createGlobalSync() {
     } finally {
       bootingRoot = false
     }
+    const dirs = Object.keys(children.children)
+    if (dirs.length > 0) {
+      await Promise.all(dirs.map(bootstrapInstance))
+    }
   }
 
   onMount(() => {
@@ -480,6 +484,9 @@ function createGlobalSync() {
     setGlobalStore("reload", "pending")
     return globalSDK.client.global.config
       .update({ config })
+      .then(async () => {
+        await globalSDK.client.global.dispose()
+      })
       .then(bootstrap)
       .then(() => {
         queue.refresh()

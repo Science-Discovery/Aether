@@ -141,10 +141,16 @@ export const SettingsProviders: Component = () => {
       await disableProvider(providerID, name)
       return
     }
+
     await globalSDK.client.auth
       .remove({ providerID })
       .then(async () => {
-        await globalSDK.client.global.dispose()
+        try {
+          await globalSDK.client.global.dispose()
+          await globalSync.bootstrap()
+        } catch (err) {
+          console.error("Failed to refresh after provider disconnect", err)
+        }
         showToast({
           variant: "success",
           icon: "circle-check",
