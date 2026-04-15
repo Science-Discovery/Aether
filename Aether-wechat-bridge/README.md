@@ -21,6 +21,8 @@ cd aether-wechat-bridge
 pip install -r requirements.txt
 ```
 
+需要 `Node.js >= 22` 和 `bun`，用于发送微信文件附件。
+
 ## 使用方法
 
 ### 第一步：配置 API 密钥
@@ -62,7 +64,7 @@ pip install -r requirements.txt
 ```bash
 在aether可执行文件下执行：
 chmod +x aether
-./aether serve 
+./aether serve
 ```
 
 ### 第三步：运行微信桥接
@@ -75,12 +77,12 @@ python aether_wechat_agent.py
 
 ## 环境变量配置
 
-| 变量 | 说明 | 默认值 |
-|------|------|--------|
-| `AETHER_URL` | Aether 服务地址 | `http://127.0.0.1:4096` |
-| `AETHER_WORK_DIR` | 工作目录 | 当前目录 |
-| `AETHER_MODEL` | 默认模型 | 配置文件中的模型 |
-| `AETHER_AGENT` | 默认 Agent | `build` |
+| 变量              | 说明            | 默认值                  |
+| ----------------- | --------------- | ----------------------- |
+| `AETHER_URL`      | Aether 服务地址 | `http://127.0.0.1:4096` |
+| `AETHER_WORK_DIR` | 工作目录        | 当前目录                |
+| `AETHER_MODEL`    | 默认模型        | 配置文件中的模型        |
+| `AETHER_AGENT`    | 默认 Agent      | `build`                 |
 
 示例：
 
@@ -99,7 +101,6 @@ python aether_wechat_agent.py
 2. **消息限制**：微信消息有长度限制，超长回复会被自动拆分
 3. **API 费用**：使用 AI 模型会产生费用，请注意用量
 4. **仅供学习**：本项目基于 iLink Bot API，仅供学习交流使用
-
 
 ### 文件操作卡住/无响应
 
@@ -124,15 +125,15 @@ python aether_wechat_agent.py
 
 **权限说明**：
 
-| 权限 | 说明 |
-|------|------|
+| 权限                 | 说明                 |
+| -------------------- | -------------------- |
 | `external_directory` | 访问工作目录外的目录 |
-| `edit` | 编辑文件 |
-| `bash` | 执行 shell 命令 |
-| `read` | 读取文件 |
-| `write` | 创建/写入文件 |
-| `glob` | 搜索文件 |
-| `grep` | 搜索文件内容 |
+| `edit`               | 编辑文件             |
+| `bash`               | 执行 shell 命令      |
+| `read`               | 读取文件             |
+| `write`              | 创建/写入文件        |
+| `glob`               | 搜索文件             |
+| `grep`               | 搜索文件内容         |
 
 **手动批准待处理权限**：
 

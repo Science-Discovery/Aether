@@ -12,6 +12,7 @@ Aether WeChat Bridge - 将 Aether AI 接入微信
 """
 
 import asyncio
+import subprocess
 import os
 import re
 import sys
@@ -26,6 +27,7 @@ for _s in (sys.stdout, sys.stderr):
 import json
 import base64
 import logging
+import shutil
 from pathlib import Path
 from typing import Optional
 from datetime import datetime
@@ -34,7 +36,18 @@ from urllib.parse import quote
 
 import httpx
 
+# 环境变量
+QRCODE_FILE = os.getenv("AETHER_WECHAT_QRCODE_FILE", "")
+SESSION_FILE = os.getenv("AETHER_WECHAT_SESSION_FILE", "")
+
 # 设置日志
+_log_dir = (
+    Path(SESSION_FILE).parent
+    if SESSION_FILE
+    else Path.home() / ".config" / "aether-wechat"
+)
+_log_dir.mkdir(parents=True, exist_ok=True)
+_log_file = _log_dir / "bridge.log"
 logging.basicConfig(level=logging.INFO, format="[%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
 # 确保日志 handler 的输出流也使用 UTF-8（basicConfig 可能绑定了旧的 stderr 引用）
@@ -44,6 +57,12 @@ for _h in logging.root.handlers:
             _h.stream.reconfigure(encoding="utf-8", errors="replace")
         except Exception:
             pass
+try:
+    _fh = logging.FileHandler(_log_file, encoding="utf-8")
+    _fh.setFormatter(logging.Formatter("[%(asctime)s] [%(levelname)s] %(message)s"))
+    logging.root.addHandler(_fh)
+except Exception:
+    pass
 
 # SDK imports
 from wechat_agent_sdk import Agent, ChatRequest, ChatResponse, WeChatBot
@@ -103,10 +122,6 @@ async def _request_qrcode_with_fallback(self) -> dict:
 
 _orig_request_qrcode = ILinkBotClient.request_qrcode
 ILinkBotClient.request_qrcode = _request_qrcode_with_fallback
-
-# 环境变量
-QRCODE_FILE = os.getenv("AETHER_WECHAT_QRCODE_FILE", "")
-SESSION_FILE = os.getenv("AETHER_WECHAT_SESSION_FILE", "")
 
 
 def output_qrcode_base64(qrcode_url: str) -> str:
@@ -268,6 +283,10 @@ class AetherAgent(Agent):
         self._hidden_dirs: dict[str, int] = {}  # worktree → 隐藏时的时间戳(ms)
         self._project_names: dict[str, str] = {}
         self._session_info: dict[str, dict] = {}
+        self._last_user_text: dict[str, str] = {}
+        self._last_result: dict[str, dict] = {}
+        self._bot_transport = None
+        self._sender_script = str(Path(__file__).with_name("send_file.ts"))
 
     async def on_start(self) -> None:
         """初始化 HTTP 客户端"""
@@ -962,6 +981,245 @@ class AetherAgent(Agent):
         elif self._message_sender:
             await self._message_sender(text)
 
+    _FILE_INTENT_KEYWORDS = [
+        "发给我",
+        "发来",
+        "源文件",
+        "原文件",
+        "发过来",
+        "原始文件",
+        "发文件",
+        "send me",
+        "send file",
+    ]
+
+    _BLOCKED_EXTENSIONS = frozenset(
+        [
+            ".env",
+            ".pem",
+            ".key",
+            ".p12",
+            ".pfx",
+            ".jks",
+            ".keystore",
+            ".secret",
+            ".credentials",
+            ".sqlite",
+            ".sqlite3",
+            ".db",
+            ".ldb",
+        ]
+    )
+
+    _BLOCKED_NAMES = frozenset(
+        [
+            ".env",
+            ".env.local",
+            ".env.production",
+            ".env.development",
+            ".credentials",
+            ".secret",
+        ]
+    )
+
+    _MAX_FILES_PER_TURN = 5
+    _MAX_FILE_SIZE = 30 * 1024 * 1024
+
+    def _detect_file_intent(self, text: str) -> bool:
+        lower = text.lower()
+        return any(kw in lower for kw in self._FILE_INTENT_KEYWORDS)
+
+    def _file_prompt(self, text: str) -> str:
+        if not self._detect_file_intent(text):
+            return text
+        return (
+            text
+            + "\n\n[系统提示：用户需要通过微信接收文件附件，请在回复中包含该文件在当前系统上的完整绝对路径。"
+            + "Windows 示例：E:\\\\work\\\\demo\\\\file.jpg；macOS 示例：/Users/demo/file.jpg；"
+            + "Linux 示例：/home/demo/file.jpg。系统会尝试把该绝对路径对应的文件作为附件发送给用户。]"
+        )
+
+    def _extract_read_files(self, result: dict) -> list[str]:
+        parts = result.get("parts", [])
+        files: list[str] = []
+        for part in parts:
+            if part.get("type") != "tool":
+                continue
+            state = part.get("state", {})
+            if state.get("status") != "completed":
+                continue
+            if part.get("tool") == "read":
+                fp = (state.get("input") or {}).get("filePath")
+                if fp:
+                    files.append(fp)
+        return list(dict.fromkeys(files))
+
+    def _extract_paths_from_text(self, text: str) -> list[str]:
+        tokens: list[str] = []
+        for m in re.finditer(r"`([^`]+)`", text):
+            tokens.append(m.group(1).strip())
+        for m in re.finditer(r"[A-Za-z]:\\[^\r\n`]+", text):
+            raw = m.group(0).strip()
+            if raw:
+                tokens.append(raw)
+        for m in re.finditer(r"/(?:[^\s`'\"(){}<>[\];，。、\\]+/?)+", text):
+            raw = m.group(0).strip()
+            if raw:
+                tokens.append(raw)
+        seen: dict[str, None] = {}
+        out: list[str] = []
+        for t in tokens:
+            for sep in ["，", "。", "；", "：", ",", ";"]:
+                if sep in t:
+                    t = t.split(sep, 1)[0]
+            t = t.rstrip(".,;:!?，。；：！？）】》」')\"")
+            if not t or t in seen:
+                continue
+            if not Path(t).is_file():
+                logger.info(f"[file] skip non-file token: {t}")
+                continue
+            seen[t] = None
+            out.append(t)
+        if out:
+            logger.info(f"[file] extracted paths: {out}")
+        return out
+
+    def _validate_file(self, filepath: str, directory: str) -> str | None:
+        try:
+            p = Path(filepath).resolve()
+        except Exception:
+            logger.info(f"[file] validate resolve failed: {filepath}")
+            return None
+        if not p.is_file():
+            logger.info(f"[file] validate not file: {p}")
+            return None
+        try:
+            if p.stat().st_size > self._MAX_FILE_SIZE:
+                logger.info(f"[file] validate too large: {p}")
+                return None
+        except OSError:
+            logger.info(f"[file] validate stat failed: {p}")
+            return None
+        if p.suffix.lower() in self._BLOCKED_EXTENSIONS:
+            logger.info(f"[file] validate blocked extension: {p}")
+            return None
+        if p.name.lower() in self._BLOCKED_NAMES:
+            logger.info(f"[file] validate blocked name: {p}")
+            return None
+        try:
+            p.relative_to(Path(directory).resolve())
+        except ValueError:
+            logger.info(
+                f"[file] validate outside directory: {p} not in {Path(directory).resolve()}"
+            )
+            return None
+        logger.info(f"[file] validate ok: {p}")
+        return str(p)
+
+    async def _send_file_to_conv(self, conv_id: str, filepath: str) -> bool:
+        if not self._bot_transport:
+            return False
+        try:
+            token = getattr(self._bot_transport._client, "token", "")
+            base_url = getattr(
+                self._bot_transport._client, "_base_url", DEFAULT_API_BASE
+            )
+            if not token:
+                logger.warning(f"[file] missing token for send: {filepath}")
+                return False
+            bun = shutil.which("bun")
+            if not bun:
+                logger.warning(f"[file] bun not found, skip send: {filepath}")
+                return False
+            ctx = self._wechat_ctx.get(conv_id, "")
+            if not ctx:
+                logger.warning(f"[file] missing context token for send: {filepath}")
+                return False
+            script = Path(self._sender_script)
+            if not script.is_file():
+                logger.warning(f"[file] sender script missing: {script}")
+                return False
+            cmd = [
+                bun,
+                str(script),
+                "--chat-id",
+                conv_id,
+                "--file",
+                filepath,
+                "--token",
+                token,
+                "--base-url",
+                base_url,
+                "--cdn-base-url",
+                "https://novac2c.cdn.weixin.qq.com/c2c",
+                "--context-token",
+                ctx,
+            ]
+            sub_env = (
+                {**os.environ, "BRIDGE_LOG": str(_log_file)}
+                if _log_file
+                else os.environ
+            )
+            out = await asyncio.to_thread(
+                subprocess.run,
+                cmd,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=120,
+                check=False,
+                env=sub_env,
+            )
+            if out.returncode != 0:
+                detail = (out.stderr or out.stdout or "unknown error").strip()
+                logger.warning(f"[file] send failed: {filepath} -> {detail}")
+                return False
+            logger.info(f"[file] 已发送: {filepath}")
+            return True
+        except subprocess.TimeoutExpired:
+            logger.warning(f"[file] send timeout: {filepath}")
+            return False
+        except Exception as e:
+            logger.warning(f"[file] 发送失败: {filepath} -> {e}")
+            return False
+
+    async def _try_send_files(
+        self, conv_id: str, session_id: str, directory: str, response_text: str
+    ) -> None:
+        result = self._last_result.get(conv_id)
+        candidates: list[str] = []
+        if result:
+            candidates = self._extract_read_files(result)
+            if candidates:
+                logger.info(f"[file] read candidates: {candidates}")
+        if not candidates and response_text:
+            candidates = self._extract_paths_from_text(response_text)
+        logger.info(f"[file] final candidates: {candidates}")
+        if not candidates:
+            logger.info("[file] no candidates")
+            return
+        safe: list[str] = []
+        for fp in candidates[: self._MAX_FILES_PER_TURN]:
+            validated = self._validate_file(fp, directory)
+            if validated:
+                safe.append(validated)
+        logger.info(f"[file] safe candidates: {safe}")
+        if not safe:
+            logger.info("[file] no safe candidates")
+            return
+        sent = 0
+        for fp in safe:
+            ok = await self._send_file_to_conv(conv_id, fp)
+            if ok:
+                sent += 1
+        if sent == 0 and safe:
+            paths_text = chr(10).join(safe[:3])
+            await self._send_to_conv(
+                conv_id,
+                f"已识别 {len(safe)} 个文件，但通过微信发送失败。文件路径：{chr(10)}{paths_text}",
+            )
+
     async def _background_dispatch(
         self, conv_id: str, session_id: str, directory: str, task, q
     ) -> None:
@@ -974,6 +1232,11 @@ class AetherAgent(Agent):
             else:
                 response = await self._wait_for_response_polling(
                     conv_id, session_id, directory, task
+                )
+            user_text = self._last_user_text.get(conv_id, "")
+            if self._detect_file_intent(user_text):
+                await self._try_send_files(
+                    conv_id, session_id, directory, response.text
                 )
             await self._send_to_conv(conv_id, response.text)
         except asyncio.CancelledError:
@@ -1027,6 +1290,8 @@ class AetherAgent(Agent):
         ctx_token = (request.raw or {}).get("context_token", "")
         if ctx_token:
             self._wechat_ctx[conv_id] = ctx_token
+
+        self._last_user_text[conv_id] = user_text
 
         if request.group_id and request.is_at_bot:
             logger.info(f"[群聊] {request.sender_name}: {user_text}")
@@ -1094,6 +1359,17 @@ class AetherAgent(Agent):
                 )
             )
             self._tasks[conv_id] = task
+
+            if self._detect_file_intent(user_text):
+                sse_task = asyncio.create_task(
+                    self._monitor_sse(conv_id, session_id, directory, task, q)
+                )
+                self._sse_tasks[conv_id] = sse_task
+                asyncio.create_task(
+                    self._background_dispatch(conv_id, session_id, directory, task, q)
+                )
+                return ChatResponse(text="")
+
             sse_task = asyncio.create_task(
                 self._monitor_sse(conv_id, session_id, directory, task, q)
             )
@@ -1261,6 +1537,7 @@ class AetherAgent(Agent):
 
         try:
             result = await task
+            self._last_result[conv_id] = result
             return ChatResponse(
                 text=await self._wrap_message(
                     result.get("formatted", "操作已完成"),
@@ -1333,6 +1610,7 @@ class AetherAgent(Agent):
         self._pending_permissions.pop(conv_id, None)
         try:
             result = await task
+            self._last_result[conv_id] = result
             return ChatResponse(
                 text=await self._wrap_message(
                     result.get("formatted", "操作已完成"),
@@ -1670,7 +1948,7 @@ class AetherAgent(Agent):
 
     async def _send_message(self, session_id: str, text: str, directory="") -> dict:
         payload = {
-            "parts": [{"type": "text", "text": text}],
+            "parts": [{"type": "text", "text": self._file_prompt(text)}],
         }
 
         resp = await self._client.post(
@@ -1886,6 +2164,7 @@ async def main():
     )
     # 把微信客户端传给 agent，让后台任务能直接投递消息
     agent._wechat_client = bot._transport._client
+    agent._bot_transport = bot._transport
 
     try:
         await bot.run(log=print)

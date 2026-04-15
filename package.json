@@ -87,7 +87,9 @@
     "@opencode-ai/plugin": "workspace:*",
     "@opencode-ai/script": "workspace:*",
     "@opencode-ai/sdk": "workspace:*",
-    "typescript": "catalog:"
+    "@tencent-weixin/openclaw-weixin": "2.1.8",
+    "typescript": "catalog:",
+    "wechat-ilink-client": "0.1.0"
   },
   "repository": {
     "type": "git",
