@@ -1,5 +1,5 @@
 import { useParams } from "@solidjs/router"
-import { createEffect, createMemo, createSignal, For, Show, type Accessor, type JSX } from "solid-js"
+import { createEffect, createMemo, createSignal, For, on, Show, type Accessor, type JSX, untrack } from "solid-js"
 import { createStore } from "solid-js/store"
 import { createSortable } from "@thisbeyond/solid-dnd"
 import { createMediaQuery } from "@solid-primitives/media"
@@ -55,6 +55,8 @@ export type WorkspaceSidebarContext = {
   isBusy: (directory: string) => boolean
   workspaceExpanded: (directory: string, local: boolean) => boolean
   setWorkspaceExpanded: (directory: string, value: boolean) => void
+  sessionExpanded: (sessionID: string) => boolean
+  setSessionExpanded: (sessionID: string, value: boolean) => void
   showResetWorkspaceDialog: (root: string, directory: string) => void
   showDeleteWorkspaceDialog: (root: string, directory: string) => void
   setScrollContainerRef: (el: HTMLDivElement | undefined, mobile?: boolean) => void
@@ -333,70 +335,135 @@ const ArchivedSessionList = (props: {
 
 const WorkspaceSessionList = (props: {
   slug: Accessor<string>
+  currentSessionID: Accessor<string | undefined>
   mobile?: boolean
   popover?: boolean
   ctx: WorkspaceSidebarContext
   showNew: Accessor<boolean>
   loading: Accessor<boolean>
-  sessions: Accessor<Session[]>
+  rootSessions: Accessor<Session[]>
+  allSessions: Accessor<Session[]>
   children: Accessor<Map<string, string[]>>
   hasMore: Accessor<boolean>
   loadMore: () => Promise<void>
   language: ReturnType<typeof useLanguage>
-}): JSX.Element => (
-  <nav class="flex flex-col gap-1">
-    <Show when={props.showNew()}>
-      <NewSessionItem
-        slug={props.slug()}
-        mobile={props.mobile}
-        sidebarExpanded={props.ctx.sidebarExpanded}
-        clearHoverProjectSoon={props.ctx.clearHoverProjectSoon}
-        setHoverSession={props.ctx.setHoverSession}
-      />
-    </Show>
-    <Show when={props.loading()}>
-      <SessionSkeleton />
-    </Show>
-    <For each={props.sessions()}>
-      {(session) => (
-        <SessionItem
-          session={session}
-          list={props.sessions()}
-          navList={props.ctx.navList}
+}) => {
+  const sessionByID = createMemo(() => {
+    const map = new Map<string, Session>()
+    for (const session of props.allSessions()) {
+      if (!session?.id) continue
+      map.set(session.id, session)
+    }
+    return map
+  })
+
+  const childrenFor = (sessionID: string) =>
+    (props.children().get(sessionID) ?? [])
+      .map((childID) => sessionByID().get(childID))
+      .filter((session): session is Session => !!session)
+
+  createEffect(
+    on(
+      () => [props.currentSessionID(), sessionByID()] as const,
+      ([currentSessionID, sessions]) => {
+        if (!currentSessionID) return
+        const current = sessions.get(currentSessionID)
+        if (!current) return
+
+        const visited = new Set<string>()
+        let cursor = current.parentID
+        while (cursor && !visited.has(cursor)) {
+          visited.add(cursor)
+          const expanded = untrack(() => props.ctx.sessionExpanded(cursor!))
+          if (!expanded) props.ctx.setSessionExpanded(cursor, true)
+          cursor = sessions.get(cursor)?.parentID
+        }
+      },
+    ),
+  )
+
+  function SessionNode(nodeProps: { session: Session; depth: number; chain: Set<string> }): JSX.Element {
+    const nextChain = new Set(nodeProps.chain)
+    nextChain.add(nodeProps.session.id)
+    const childSessions = createMemo(() =>
+      childrenFor(nodeProps.session.id).filter((child) => !nextChain.has(child.id)),
+    )
+    const hasChildren = createMemo(() => childSessions().length > 0)
+    const expanded = createMemo(() => !hasChildren() || props.ctx.sessionExpanded(nodeProps.session.id))
+
+    return (
+      <>
+        <div class="relative min-w-0" style={{ "padding-left": `${nodeProps.depth * 12}px` }}>
+          <Show when={nodeProps.depth > 0}>
+            <div class="absolute left-0 top-1 bottom-1 w-px bg-border-weaker-base" />
+          </Show>
+          <SessionItem
+            session={nodeProps.session}
+            list={props.allSessions()}
+            navList={props.ctx.navList}
+            slug={props.slug()}
+            mobile={props.mobile}
+            popover={props.popover}
+            children={props.children()}
+            sidebarExpanded={props.ctx.sidebarExpanded}
+            sidebarHovering={props.ctx.sidebarHovering}
+            nav={props.ctx.nav}
+            hoverSession={props.ctx.hoverSession}
+            setHoverSession={props.ctx.setHoverSession}
+            clearHoverProjectSoon={props.ctx.clearHoverProjectSoon}
+            prefetchSession={props.ctx.prefetchSession}
+            archiveSession={props.ctx.archiveSession}
+            deleteSession={props.ctx.deleteSession}
+            renameSession={props.ctx.renameSession}
+            hasChildren={hasChildren()}
+            expanded={expanded()}
+            onToggleChildren={() => props.ctx.setSessionExpanded(nodeProps.session.id, !expanded())}
+          />
+        </div>
+        <Show when={expanded()}>
+          <For each={childSessions()}>
+            {(child) => <SessionNode session={child} depth={nodeProps.depth + 1} chain={nextChain} />}
+          </For>
+        </Show>
+      </>
+    )
+  }
+
+  return (
+    <nav class="flex flex-col gap-1">
+      <Show when={props.showNew()}>
+        <NewSessionItem
           slug={props.slug()}
           mobile={props.mobile}
-          popover={props.popover}
-          children={props.children()}
           sidebarExpanded={props.ctx.sidebarExpanded}
-          sidebarHovering={props.ctx.sidebarHovering}
-          nav={props.ctx.nav}
-          hoverSession={props.ctx.hoverSession}
-          setHoverSession={props.ctx.setHoverSession}
           clearHoverProjectSoon={props.ctx.clearHoverProjectSoon}
-          prefetchSession={props.ctx.prefetchSession}
-          archiveSession={props.ctx.archiveSession}
-          deleteSession={props.ctx.deleteSession}
-          renameSession={props.ctx.renameSession}
+          setHoverSession={props.ctx.setHoverSession}
         />
-      )}
-    </For>
-    <Show when={props.hasMore()}>
-      <div class="relative w-full py-1">
-        <Button
-          variant="ghost"
-          class="flex w-full text-left justify-start text-14-regular text-text-weak pl-9 pr-10"
-          size="large"
-          onClick={(e: MouseEvent) => {
-            props.loadMore()
-            ;(e.currentTarget as HTMLButtonElement).blur()
-          }}
-        >
-          {props.language.t("common.loadMore")}
-        </Button>
-      </div>
-    </Show>
-  </nav>
-)
+      </Show>
+      <Show when={props.loading()}>
+        <SessionSkeleton />
+      </Show>
+      <For each={props.rootSessions()}>
+        {(session) => <SessionNode session={session} depth={0} chain={new Set()} />}
+      </For>
+      <Show when={props.hasMore()}>
+        <div class="relative w-full py-1">
+          <Button
+            variant="ghost"
+            class="flex w-full text-left justify-start text-14-regular text-text-weak pl-9 pr-10"
+            size="large"
+            onClick={(e: MouseEvent) => {
+              props.loadMore()
+              ;(e.currentTarget as HTMLButtonElement).blur()
+            }}
+          >
+            {props.language.t("common.loadMore")}
+          </Button>
+        </div>
+      </Show>
+    </nav>
+  )
+}
 
 export const SortableWorkspace = (props: {
   ctx: WorkspaceSidebarContext
@@ -535,12 +602,14 @@ export const SortableWorkspace = (props: {
         <Collapsible.Content>
           <WorkspaceSessionList
             slug={slug}
+            currentSessionID={() => params.id}
             mobile={props.mobile}
             popover={props.popover}
             ctx={props.ctx}
             showNew={showNew}
             loading={loading}
-            sessions={sessions}
+            rootSessions={sessions}
+            allSessions={() => workspaceStore.session}
             children={children}
             hasMore={hasMore}
             loadMore={loadMore}
@@ -567,6 +636,7 @@ export const LocalWorkspace = (props: {
   mobile?: boolean
   popover?: boolean
 }): JSX.Element => {
+  const params = useParams()
   const globalSync = useGlobalSync()
   const language = useLanguage()
   const workspace = createMemo(() => {
@@ -592,12 +662,14 @@ export const LocalWorkspace = (props: {
     >
       <WorkspaceSessionList
         slug={slug}
+        currentSessionID={() => params.id}
         mobile={props.mobile}
         popover={props.popover}
         ctx={props.ctx}
         showNew={() => false}
         loading={loading}
-        sessions={sessions}
+        rootSessions={sessions}
+        allSessions={() => workspace().store.session}
         children={children}
         hasMore={hasMore}
         loadMore={loadMore}

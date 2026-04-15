@@ -20,20 +20,22 @@ export function ConversationGraphList(props: {
   nodes: ConversationGraphNode[]
   edges: ConversationGraphEdge[]
   laneCount: number
+  rowHeight: number
+  labelClass: string
+  labelStyle?: Record<string, string>
   onSelect: (node: ConversationGraphNode) => void
   onFork: (node: ConversationGraphNode) => void
   onRename: (node: ConversationGraphNode) => void
 }) {
   const language = useLanguage()
-  const rowHeight = 44
   const laneGap = 18
   const railPadding = 18
   const railWidth = createMemo(() => railPadding * 2 + Math.max(0, props.laneCount - 1) * laneGap + 16)
-  const height = createMemo(() => Math.max(rowHeight, props.nodes.length * rowHeight))
+  const height = createMemo(() => Math.max(props.rowHeight, props.nodes.length * props.rowHeight))
 
   const nodeByID = createMemo(() => new Map(props.nodes.map((node) => [node.id, node] as const)))
   const xForLane = (lane: number) => railPadding + lane * laneGap
-  const yForRow = (row: number) => row * rowHeight + rowHeight / 2
+  const yForRow = (row: number) => row * props.rowHeight + props.rowHeight / 2
 
   const edgePath = (edge: ConversationGraphEdge) => {
     const from = nodeByID().get(edge.from)
@@ -57,7 +59,7 @@ export function ConversationGraphList(props: {
     <div class="relative h-full min-h-0 overflow-auto">
       <div class="relative min-w-0" style={{ height: `${height()}px` }}>
         <svg
-          class="pointer-events-none absolute left-0 top-0"
+          class="pointer-events-none absolute left-0 top-0 z-20"
           width={railWidth()}
           height={height()}
           viewBox={`0 0 ${railWidth()} ${height()}`}
@@ -116,7 +118,7 @@ export function ConversationGraphList(props: {
                   "hover:bg-background-stronger": !node.isCurrentTarget,
                 }}
                 style={{
-                  height: `${rowHeight}px`,
+                  height: `${props.rowHeight}px`,
                   "padding-left": `${railWidth() + 12}px`,
                   "padding-right": "8px",
                 }}
@@ -130,7 +132,8 @@ export function ConversationGraphList(props: {
               >
                 <div class="min-w-0 flex-1">
                   <div
-                    class="truncate text-12-medium"
+                    class={`truncate ${props.labelClass}`}
+                    style={props.labelStyle}
                     classList={{
                       "text-text-strong": node.isCurrentTarget || node.isCurrentPath,
                       "text-text-base": !node.isCurrentTarget && !node.isCurrentPath,

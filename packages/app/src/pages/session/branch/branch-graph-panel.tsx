@@ -3,16 +3,43 @@ import type { Session, SessionGraphNode, SessionGraphResult } from "@opencode-ai
 import { useLanguage } from "@/context/language"
 import { usePrompt } from "@/context/prompt"
 import { useSDK } from "@/context/sdk"
+import { useSettings } from "@/context/settings"
 import { useSync } from "@/context/sync"
 import { Dialog } from "@opencode-ai/ui/dialog"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
+import { DropdownMenu } from "@opencode-ai/ui/dropdown-menu"
+import { Icon } from "@opencode-ai/ui/icon"
 import { showToast } from "@opencode-ai/ui/toast"
-import { Match, Show, Switch, createEffect, createMemo, createSignal, onCleanup, untrack } from "solid-js"
+import { For, Match, Show, Switch, createEffect, createMemo, createSignal, onCleanup, untrack } from "solid-js"
 import { produce } from "solid-js/store"
 import { extractPromptFromParts } from "@/utils/prompt"
 import { base64Encode } from "@opencode-ai/util/encode"
 import { buildConversationGraphView, type ConversationGraph, type ConversationGraphNode as ViewNode } from "./conversation-graph-model"
 import { ConversationGraphList } from "./conversation-graph-list"
+
+const FONT_SIZE_CLASS_MAP = {
+  xs: "text-12-medium",
+  sm: "text-12-medium",
+  md: "text-12-medium",
+  lg: "text-12-medium",
+  xl: "text-12-medium",
+} as const
+
+const FONT_SIZE_STYLE_MAP = {
+  xs: { "font-size": "10px", "line-height": "14px" },
+  sm: { "font-size": "11px", "line-height": "16px" },
+  md: { "font-size": "12px", "line-height": "18px" },
+  lg: { "font-size": "14px", "line-height": "21px" },
+  xl: { "font-size": "16px", "line-height": "24px" },
+} as const
+
+const ROW_DENSITY_HEIGHT_MAP = {
+  xcompact: 24,
+  compact: 36,
+  normal: 44,
+  relaxed: 52,
+  xrelaxed: 60,
+} as const
 
 function mergeSessionsByID(existing: Session[], incoming: Session[]) {
   const merged = new Map(existing.map((session) => [session.id, session] as const))
@@ -26,6 +53,7 @@ export function BranchGraphPanel(props: { sessionID: string }) {
   const language = useLanguage()
   const sdk = useSDK()
   const prompt = usePrompt()
+  const settings = useSettings()
   const sync = useSync()
   const dialog = useDialog()
   const zh = createMemo(() => language.locale() === "zh" || language.locale() === "zht")
@@ -33,6 +61,11 @@ export function BranchGraphPanel(props: { sessionID: string }) {
   const [compact, setCompact] = createSignal(false)
   const [graph, setGraph] = createSignal<SessionGraphResult>()
   const [errorMessage, setErrorMessage] = createSignal<string>()
+  const fontSize = createMemo(() => settings.general.branchGraphFontSize())
+  const rowDensity = createMemo(() => settings.general.branchGraphRowDensity())
+  const rowHeight = createMemo(() => ROW_DENSITY_HEIGHT_MAP[rowDensity()])
+  const labelClass = createMemo(() => FONT_SIZE_CLASS_MAP[fontSize()])
+  const labelStyle = createMemo(() => FONT_SIZE_STYLE_MAP[fontSize()])
 
   createEffect(() => {
     const sessionID = props.sessionID
@@ -243,12 +276,93 @@ export function BranchGraphPanel(props: { sessionID: string }) {
             </div>
 
             <Show when={graph()?.kind === "graph"}>
-              <button
-                class="shrink-0 rounded-md border border-border-weak-base px-2 py-1 text-[11px] text-text-weak transition-colors hover:bg-background-stronger"
-                onClick={() => setCompact((value) => !value)}
-              >
-                {compact() ? (zh() ? "完整" : "Full") : zh() ? "简略" : "Compact"}
-              </button>
+              <div class="flex shrink-0 items-center gap-2">
+                <button
+                  class="rounded-md border border-border-weak-base px-2 py-1 text-[11px] text-text-weak transition-colors hover:bg-background-stronger"
+                  onClick={() => setCompact((value) => !value)}
+                >
+                  {compact() ? (zh() ? "完整" : "Full") : zh() ? "简略" : "Compact"}
+                </button>
+
+                <DropdownMenu placement="bottom-end">
+                  <DropdownMenu.Trigger class="rounded-md border border-border-weak-base px-2 py-1 text-[11px] text-text-weak transition-colors hover:bg-background-stronger">
+                    {zh() ? "显示" : "Display"}
+                  </DropdownMenu.Trigger>
+                  <DropdownMenu.Portal>
+                    <DropdownMenu.Content class="min-w-40">
+                      <DropdownMenu.Group>
+                        <DropdownMenu.GroupLabel>{zh() ? "字号" : "Font size"}</DropdownMenu.GroupLabel>
+                        <DropdownMenu.RadioGroup
+                          value={fontSize()}
+                          onChange={(value) => {
+                            if (value === "xs" || value === "sm" || value === "md" || value === "lg" || value === "xl") {
+                              settings.general.setBranchGraphFontSize(value)
+                            }
+                          }}
+                        >
+                          <For
+                            each={[
+                              { value: "xs", label: zh() ? "特小" : "X-Small" },
+                              { value: "sm", label: zh() ? "小" : "Small" },
+                              { value: "md", label: zh() ? "标准" : "Default" },
+                              { value: "lg", label: zh() ? "大" : "Large" },
+                              { value: "xl", label: zh() ? "特大" : "X-Large" },
+                            ]}
+                          >
+                            {(item) => (
+                              <DropdownMenu.RadioItem value={item.value}>
+                                <DropdownMenu.ItemLabel>{item.label}</DropdownMenu.ItemLabel>
+                                <DropdownMenu.ItemIndicator>
+                                  <Icon name="check-small" size="small" class="text-icon-weak" />
+                                </DropdownMenu.ItemIndicator>
+                              </DropdownMenu.RadioItem>
+                            )}
+                          </For>
+                        </DropdownMenu.RadioGroup>
+                      </DropdownMenu.Group>
+
+                      <DropdownMenu.Separator />
+
+                      <DropdownMenu.Group>
+                        <DropdownMenu.GroupLabel>{zh() ? "行距" : "Row spacing"}</DropdownMenu.GroupLabel>
+                        <DropdownMenu.RadioGroup
+                          value={rowDensity()}
+                          onChange={(value) => {
+                            if (
+                              value === "xcompact" ||
+                              value === "compact" ||
+                              value === "normal" ||
+                              value === "relaxed" ||
+                              value === "xrelaxed"
+                            ) {
+                              settings.general.setBranchGraphRowDensity(value)
+                            }
+                          }}
+                        >
+                          <For
+                            each={[
+                              { value: "xcompact", label: zh() ? "极紧凑" : "Ultra compact" },
+                              { value: "compact", label: zh() ? "紧凑" : "Compact" },
+                              { value: "normal", label: zh() ? "标准" : "Default" },
+                              { value: "relaxed", label: zh() ? "宽松" : "Relaxed" },
+                              { value: "xrelaxed", label: zh() ? "极宽松" : "Ultra relaxed" },
+                            ]}
+                          >
+                            {(item) => (
+                              <DropdownMenu.RadioItem value={item.value}>
+                                <DropdownMenu.ItemLabel>{item.label}</DropdownMenu.ItemLabel>
+                                <DropdownMenu.ItemIndicator>
+                                  <Icon name="check-small" size="small" class="text-icon-weak" />
+                                </DropdownMenu.ItemIndicator>
+                              </DropdownMenu.RadioItem>
+                            )}
+                          </For>
+                        </DropdownMenu.RadioGroup>
+                      </DropdownMenu.Group>
+                    </DropdownMenu.Content>
+                  </DropdownMenu.Portal>
+                </DropdownMenu>
+              </div>
             </Show>
           </div>
         </div>
@@ -267,6 +381,9 @@ export function BranchGraphPanel(props: { sessionID: string }) {
                   nodes={nextView().nodes}
                   edges={nextView().edges}
                   laneCount={nextView().laneCount}
+                  rowHeight={rowHeight()}
+                  labelClass={labelClass()}
+                  labelStyle={labelStyle()}
                   onSelect={openNode}
                   onFork={(node) => void forkFromNode(node)}
                   onRename={(node) => renameTitle(node)}

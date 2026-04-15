@@ -170,6 +170,167 @@ export namespace Session {
     return lastCompletedUserMessageID
   }
 
+  function collectCompletedUserMessageIDs(messages: MessageV2.WithParts[]) {
+    const successfulAssistants = latestSuccessfulAssistantByParent(messages)
+    const result: MessageID[] = []
+    for (const message of messages) {
+      if (message.info.role !== "user") continue
+      if (!successfulAssistants.has(message.info.id)) continue
+      result.push(message.info.id)
+    }
+    return result
+  }
+
+  async function resolveForkParent(input: {
+    session: Pick<Info, "id" | "forkParentSessionID" | "forkAfterUserMessageID">
+    messages: MessageV2.WithParts[]
+    anchorUserMessageID?: MessageID
+  }) {
+    let resolvedSession = input.session
+    let resolvedCompletedUserMessages = collectCompletedUserMessageIDs(input.messages)
+    let resolvedAnchorUserMessageID = input.anchorUserMessageID
+
+    const visited = new Set<string>([resolvedSession.id])
+
+    while (resolvedSession.forkParentSessionID) {
+      const parentSessionID = resolvedSession.forkParentSessionID
+      if (visited.has(parentSessionID)) break
+      visited.add(parentSessionID)
+
+      if (!resolvedSession.forkAfterUserMessageID) break
+
+      const parentMessages = await messages({ sessionID: parentSessionID }).catch(() => undefined)
+      if (!parentMessages) break
+      const parentCompletedUserMessages = collectCompletedUserMessageIDs(parentMessages)
+      const sharedAnchorIndex = parentCompletedUserMessages.findIndex(
+        (id) => id === resolvedSession.forkAfterUserMessageID,
+      )
+      if (sharedAnchorIndex < 0) break
+      const sharedTurnCount = sharedAnchorIndex + 1
+
+      const anchorIndexInCurrent =
+        resolvedAnchorUserMessageID === undefined
+          ? -1
+          : resolvedCompletedUserMessages.findIndex((id) => id === resolvedAnchorUserMessageID)
+      if (resolvedAnchorUserMessageID !== undefined && anchorIndexInCurrent < 0) break
+      if (anchorIndexInCurrent >= sharedTurnCount) break
+
+      resolvedAnchorUserMessageID =
+        anchorIndexInCurrent >= 0 ? parentCompletedUserMessages[anchorIndexInCurrent] : undefined
+
+      const parentSession = await get(parentSessionID).catch(() => undefined)
+      if (!parentSession) {
+        return {
+          parentSessionID,
+          forkAfterUserMessageID: resolvedAnchorUserMessageID,
+        } as const
+      }
+
+      resolvedSession = parentSession
+      resolvedCompletedUserMessages = parentCompletedUserMessages
+    }
+
+    return {
+      parentSessionID: resolvedSession.id,
+      forkAfterUserMessageID: resolvedAnchorUserMessageID,
+    } as const
+  }
+
+  async function normalizeForkParentLink(input: {
+    session: Pick<Info, "forkParentSessionID" | "forkAfterUserMessageID">
+    getSession: (sessionID: SessionID) => Promise<Info | undefined>
+    getCompletedUserMessages: (sessionID: SessionID) => Promise<MessageID[]>
+  }) {
+    let parentSessionID = input.session.forkParentSessionID
+    let anchorUserMessageID = input.session.forkAfterUserMessageID
+
+    const visited = new Set<string>()
+
+    while (parentSessionID && anchorUserMessageID) {
+      if (visited.has(parentSessionID)) break
+      visited.add(parentSessionID)
+
+      const parent = await input.getSession(parentSessionID)
+      if (!parent?.forkParentSessionID || !parent.forkAfterUserMessageID) break
+
+      const parentCompleted = await input.getCompletedUserMessages(parentSessionID)
+      const sharedAnchorIndex = parentCompleted.findIndex((id) => id === parent.forkAfterUserMessageID)
+      if (sharedAnchorIndex < 0) break
+      const sharedTurnCount = sharedAnchorIndex + 1
+
+      const anchorIndexInParent = parentCompleted.findIndex((id) => id === anchorUserMessageID)
+      if (anchorIndexInParent < 0 || anchorIndexInParent >= sharedTurnCount) break
+
+      const grandParentID = parent.forkParentSessionID
+      const grandParentCompleted = await input.getCompletedUserMessages(grandParentID)
+      parentSessionID = grandParentID
+      anchorUserMessageID = grandParentCompleted[anchorIndexInParent]
+    }
+
+    return {
+      parentSessionID,
+      anchorUserMessageID,
+    } as const
+  }
+
+  async function repairTreeForkParents(input: { projectID: ProjectID; treeID: TreeID }) {
+    const rows = Database.use((db) =>
+      db
+        .select()
+        .from(SessionTable)
+        .where(and(eq(SessionTable.project_id, input.projectID), eq(SessionTable.tree_id, input.treeID)))
+        .orderBy(asc(SessionTable.time_created), asc(SessionTable.id))
+        .all(),
+    )
+    if (rows.length === 0) return
+
+    const sessions = rows.map(fromRow)
+    const sessionByID = new Map(sessions.map((session) => [session.id, session] as const))
+    const completedBySessionID = new Map<SessionID, MessageID[]>()
+
+    const getSession = async (sessionID: SessionID) => sessionByID.get(sessionID) ?? (await get(sessionID).catch(() => undefined))
+    const getCompletedUserMessages = async (sessionID: SessionID) => {
+      const cached = completedBySessionID.get(sessionID)
+      if (cached) return cached
+      const history = await messages({ sessionID }).catch(() => [])
+      const completed = collectCompletedUserMessageIDs(history)
+      completedBySessionID.set(sessionID, completed)
+      return completed
+    }
+
+    for (const session of sessions) {
+      if (!session.forkParentSessionID) continue
+
+      const normalized = await normalizeForkParentLink({
+        session,
+        getSession,
+        getCompletedUserMessages,
+      })
+      if (!normalized.parentSessionID) continue
+
+      const needsParentFix =
+        session.parentID !== normalized.parentSessionID || session.forkParentSessionID !== normalized.parentSessionID
+      const needsAnchorFix = session.forkAfterUserMessageID !== normalized.anchorUserMessageID
+      if (!needsParentFix && !needsAnchorFix) continue
+
+      const patched: Partial<Info> = {
+        parentID: normalized.parentSessionID,
+        forkParentSessionID: normalized.parentSessionID,
+        forkAfterUserMessageID: normalized.anchorUserMessageID,
+      }
+      SyncEvent.run(Event.Updated, {
+        sessionID: session.id,
+        info: patched,
+      })
+      const current = sessionByID.get(session.id)
+      if (current) {
+        current.parentID = patched.parentID
+        current.forkParentSessionID = patched.forkParentSessionID
+        current.forkAfterUserMessageID = patched.forkAfterUserMessageID
+      }
+    }
+  }
+
   export const Info = z
     .object({
       id: SessionID.zod,
@@ -416,15 +577,27 @@ export namespace Session {
     async (input) => {
       const original = await get(input.sessionID)
       if (!original) throw new Error("session not found")
-      const title = getForkedTitle(original.title)
+      if (original.treeID) {
+        await repairTreeForkParents({
+          projectID: original.projectID,
+          treeID: original.treeID,
+        })
+      }
+      const source = (await get(input.sessionID).catch(() => undefined)) ?? original
+      const title = getForkedTitle(source.title)
       const msgs = await messages({ sessionID: input.sessionID })
-      const forkAfterUserMessageID = resolveForkAnchorUserMessageID(msgs, input.messageID)
+      const forkAnchorUserMessageID = resolveForkAnchorUserMessageID(msgs, input.messageID)
+      const resolvedForkParent = await resolveForkParent({
+        session: source,
+        messages: msgs,
+        anchorUserMessageID: forkAnchorUserMessageID,
+      })
       const session = await createNext({
         directory: Instance.directory,
-        workspaceID: original.workspaceID,
-        parentID: original.id,
-        forkParentSessionID: original.id,
-        forkAfterUserMessageID,
+        workspaceID: source.workspaceID,
+        parentID: resolvedForkParent.parentSessionID,
+        forkParentSessionID: resolvedForkParent.parentSessionID,
+        forkAfterUserMessageID: resolvedForkParent.forkAfterUserMessageID,
         title,
       })
       const idMap = new Map<string, MessageID>()
@@ -806,6 +979,10 @@ export namespace Session {
         message: "This session predates the branch tree system and does not expose a branch tree.",
       }
     }
+    await repairTreeForkParents({
+      projectID: session.projectID,
+      treeID: session.treeID,
+    })
     const treeID = session.treeID
 
     const rows = Database.use((db) =>
@@ -891,6 +1068,10 @@ export namespace Session {
         message: "This session predates the conversation graph system and does not expose a graph.",
       }
     }
+    await repairTreeForkParents({
+      projectID: currentSession.projectID,
+      treeID: currentSession.treeID,
+    })
     const treeID = currentSession.treeID
 
     const treeSessions = Database.use((db) =>

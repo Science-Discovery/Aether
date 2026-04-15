@@ -25,6 +25,8 @@ export interface Settings {
     followup: "queue" | "steer"
     reviewBatch: number
     branchesTab: boolean
+    branchGraphFontSize: "xs" | "sm" | "md" | "lg" | "xl"
+    branchGraphRowDensity: "xcompact" | "compact" | "normal" | "relaxed" | "xrelaxed"
     showReasoningSummaries: boolean
     shellToolPartsExpanded: boolean
     editToolPartsExpanded: boolean
@@ -51,6 +53,8 @@ const defaultSettings: Settings = {
     followup: "steer",
     reviewBatch: 10,
     branchesTab: false,
+    branchGraphFontSize: "md",
+    branchGraphRowDensity: "normal",
     showReasoningSummaries: false,
     shellToolPartsExpanded: true,
     editToolPartsExpanded: false,
@@ -155,6 +159,20 @@ export const { use: useSettings, provider: SettingsProvider } = createSimpleCont
         branchesTab: withFallback(() => store.general?.branchesTab, defaultSettings.general.branchesTab),
         setBranchesTab(value: boolean) {
           setStore("general", "branchesTab", value)
+        },
+        branchGraphFontSize: withFallback(
+          () => store.general?.branchGraphFontSize,
+          defaultSettings.general.branchGraphFontSize,
+        ),
+        setBranchGraphFontSize(value: "xs" | "sm" | "md" | "lg" | "xl") {
+          setStore("general", "branchGraphFontSize", value)
+        },
+        branchGraphRowDensity: withFallback(
+          () => store.general?.branchGraphRowDensity,
+          defaultSettings.general.branchGraphRowDensity,
+        ),
+        setBranchGraphRowDensity(value: "xcompact" | "compact" | "normal" | "relaxed" | "xrelaxed") {
+          setStore("general", "branchGraphRowDensity", value)
         },
         showReasoningSummaries: withFallback(
           () => store.general?.showReasoningSummaries,

@@ -56,7 +56,7 @@ export function BranchTreeList(props: {
   return (
     <div class="relative h-full min-h-0 overflow-auto no-scrollbar">
       <svg
-        class="pointer-events-none absolute left-0 top-0 z-0"
+        class="pointer-events-none absolute left-0 top-0 z-20"
         width={railWidth()}
         height={svgHeight()}
         viewBox={`0 0 ${railWidth()} ${svgHeight()}`}
