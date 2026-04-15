@@ -1,2 +1,2 @@
-wechat-agent-sdk[qr]>=0.1.0
+wechat-agent-sdk[qr]>=0.2.1
 httpx[socks]>=0.27.0
