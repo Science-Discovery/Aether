@@ -9,6 +9,7 @@ import { Flag } from "@/flag/flag"
 import { Log } from "@/util/log"
 import { Filesystem } from "@/util/filesystem"
 import { Global } from "@/global"
+import { CFG, LEGACY_CFG } from "@/persist/naming"
 
 const log = Log.create({ service: "tui.migrate" })
 
@@ -32,13 +33,13 @@ interface MigrateInput {
 }
 
 /**
- * Migrates tui-specific keys (theme, keybinds, tui) from opencode.json files
+ * Migrates tui-specific keys (theme, keybinds, tui) from aether/opencode config files
  * into dedicated tui.json files. Migration is performed per-directory and
  * skips only locations where a tui.json already exists.
  */
 export async function migrateTuiConfig(input: MigrateInput) {
-  const opencode = await opencodeFiles(input)
-  for (const file of opencode) {
+  const files = await configFiles(input)
+  for (const file of files) {
     const source = await Filesystem.readText(file).catch((error) => {
       log.warn("failed to read config for tui migration", { path: file, error })
       return undefined
@@ -134,16 +135,23 @@ async function backupAndStripLegacy(file: string, source: string) {
     })
 }
 
-async function opencodeFiles(input: { directories: string[]; managed: string }) {
+async function configFiles(input: { directories: string[]; managed: string }) {
   const project = Flag.OPENCODE_DISABLE_PROJECT_CONFIG
     ? []
-    : await ConfigPaths.projectFiles("opencode", Instance.directory, Instance.worktree)
-  const files = [...project, ...ConfigPaths.fileInDirectory(Global.Path.config, "opencode")]
+    : [
+        ...(await ConfigPaths.projectFiles(CFG, Instance.directory, Instance.worktree)),
+        ...(await ConfigPaths.projectFiles(LEGACY_CFG, Instance.directory, Instance.worktree)),
+      ]
+  const files = [
+    ...project,
+    ...ConfigPaths.fileInDirectory(Global.Path.config, CFG),
+    ...ConfigPaths.fileInDirectory(Global.Path.config, LEGACY_CFG),
+  ]
   for (const dir of unique(input.directories)) {
-    files.push(...ConfigPaths.fileInDirectory(dir, "opencode"))
+    files.push(...ConfigPaths.fileInDirectory(dir, CFG), ...ConfigPaths.fileInDirectory(dir, LEGACY_CFG))
   }
   if (Flag.OPENCODE_CONFIG) files.push(Flag.OPENCODE_CONFIG)
-  files.push(...ConfigPaths.fileInDirectory(input.managed, "opencode"))
+  files.push(...ConfigPaths.fileInDirectory(input.managed, CFG), ...ConfigPaths.fileInDirectory(input.managed, LEGACY_CFG))
 
   const existing = await Promise.all(
     unique(files).map(async (file) => {

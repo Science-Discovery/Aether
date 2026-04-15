@@ -7,7 +7,7 @@ import { setTimeout as sleep } from "node:timers/promises"
 import { afterAll } from "bun:test"
 
 // Set XDG env vars FIRST, before any src/ imports
-const dir = path.join(os.tmpdir(), "opencode-test-data-" + process.pid)
+const dir = path.join(os.tmpdir(), "aether-test-data-" + process.pid)
 await fs.mkdir(dir, { recursive: true })
 afterAll(async () => {
   const { Database } = await import("../src/storage/db")
@@ -47,9 +47,9 @@ process.env["OPENCODE_TEST_MANAGED_CONFIG_DIR"] = testManagedConfigDir
 process.env["OPENCODE_DISABLE_DEFAULT_PLUGINS"] = "true"
 
 // Write the cache version file to prevent global/index.ts from clearing the cache
-const cacheDir = path.join(dir, "cache", "opencode")
+const cacheDir = path.join(dir, "cache", "aether")
 await fs.mkdir(cacheDir, { recursive: true })
-await fs.writeFile(path.join(cacheDir, "version"), "14")
+await fs.writeFile(path.join(cacheDir, "version"), "21")
 
 // Clear provider and server auth env vars to ensure clean test state
 delete process.env["ANTHROPIC_API_KEY"]
@@ -78,8 +78,11 @@ delete process.env["OPENCODE_SERVER_USERNAME"]
 process.env["OPENCODE_DB"] = ":memory:"
 
 // Now safe to import from src/
+const { Global } = await import("../src/global")
 const { Log } = await import("../src/util/log")
 const { initProjectors } = await import("../src/server/projectors")
+
+await Global.ensureDirs()
 
 Log.init({
   print: false,

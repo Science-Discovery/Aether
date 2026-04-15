@@ -42,6 +42,7 @@ import { createStore, produce } from "solid-js/store"
 import { Global } from "@/global"
 import { Filesystem } from "@/util/filesystem"
 import { useTuiConfig } from "./tui-config"
+import { LEGACY_PROJECT, PROJECT } from "@/persist/naming"
 
 type ThemeColors = {
   primary: RGBA
@@ -438,7 +439,7 @@ async function getCustomThemes() {
     Global.Path.config,
     ...(await Array.fromAsync(
       Filesystem.up({
-        targets: [".opencode"],
+        targets: [PROJECT, LEGACY_PROJECT],
         start: process.cwd(),
       }),
     )),

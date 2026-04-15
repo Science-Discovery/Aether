@@ -22,6 +22,7 @@ import { Skill } from "../skill"
 import { Effect, ServiceMap, Layer } from "effect"
 import { InstanceState } from "@/effect/instance-state"
 import { makeRuntime } from "@/effect/run-service"
+import { LEGACY_PROJECT, PROJECT } from "@/persist/naming"
 
 export namespace Agent {
   export const Info = z
@@ -132,7 +133,8 @@ export namespace Agent {
                   },
                   edit: {
                     "*": "deny",
-                    [path.join(".opencode", "plans", "*.md")]: "allow",
+                    [path.join(PROJECT, "plans", "*.md")]: "allow",
+                    [path.join(LEGACY_PROJECT, "plans", "*.md")]: "allow",
                     [path.relative(Instance.worktree, path.join(Global.Path.data, path.join("plans", "*.md")))]:
                       "allow",
                   },

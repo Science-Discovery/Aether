@@ -33,6 +33,8 @@ import { DbCommand } from "./cli/cmd/db"
 import { JsonMigration } from "./storage/json-migration"
 import { Database } from "./storage/db"
 import { LegacyDB } from "./storage/legacy-db"
+import { Global } from "./global"
+import { ensureUser } from "./persist/migrate"
 
 process.on("unhandledRejection", (e) => {
   Log.Default.error("rejection", {
@@ -64,6 +66,8 @@ let cli = yargs(hideBin(process.argv))
     choices: ["DEBUG", "INFO", "WARN", "ERROR"],
   })
   .middleware(async (opts) => {
+    await ensureUser()
+    await Global.ensureDirs()
     await Log.init({
       print: process.argv.includes("--print-logs"),
       dev: Installation.isLocal(),

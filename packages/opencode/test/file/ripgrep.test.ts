@@ -51,4 +51,19 @@ describe("file.ripgrep", () => {
 
     expect(hits).toEqual([])
   })
+
+  test("tree ignores .aether metadata directories", async () => {
+    await using tmp = await tmpdir({
+      init: async (dir) => {
+        await fs.mkdir(path.join(dir, ".aether"), { recursive: true })
+        await Bun.write(path.join(dir, ".aether", "theme.json"), "{}")
+        await fs.mkdir(path.join(dir, "src"), { recursive: true })
+        await Bun.write(path.join(dir, "src", "index.ts"), "export {}")
+      },
+    })
+
+    const tree = await Ripgrep.tree({ cwd: tmp.path })
+    expect(tree.includes(".aether")).toBe(false)
+    expect(tree.includes("src")).toBe(true)
+  })
 })

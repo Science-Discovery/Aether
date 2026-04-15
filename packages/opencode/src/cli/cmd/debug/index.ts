@@ -9,6 +9,7 @@ import { ScrapCommand } from "./scrap"
 import { SkillCommand } from "./skill"
 import { SnapshotCommand } from "./snapshot"
 import { AgentCommand } from "./agent"
+import { status } from "@/persist/migrate"
 
 export const DebugCommand = cmd({
   command: "debug",
@@ -40,9 +41,13 @@ export const DebugCommand = cmd({
 const PathsCommand = cmd({
   command: "paths",
   describe: "show global paths (data, config, cache, state)",
-  handler() {
+  async handler() {
     for (const [key, value] of Object.entries(Global.Path)) {
       console.log(key.padEnd(10), value)
     }
+    const info = await status()
+    console.log("legacy".padEnd(10), JSON.stringify(info.legacy))
+    console.log("marker".padEnd(10), info.marker)
+    console.log("migrated".padEnd(10), String(info.marker_exists))
   },
 })

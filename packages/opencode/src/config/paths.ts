@@ -6,6 +6,7 @@ import { NamedError } from "@opencode-ai/util/error"
 import { Filesystem } from "@/util/filesystem"
 import { Flag } from "@/flag/flag"
 import { Global } from "@/global"
+import { LEGACY_PROJECT, PROJECT } from "@/persist/naming"
 
 export namespace ConfigPaths {
   export async function projectFiles(name: string, directory: string, worktree: string) {
@@ -29,7 +30,7 @@ export namespace ConfigPaths {
       ...(!Flag.OPENCODE_DISABLE_PROJECT_CONFIG
         ? await Array.fromAsync(
             Filesystem.up({
-              targets: [".opencode"],
+              targets: [PROJECT, LEGACY_PROJECT],
               start: directory,
               stop: worktree,
             }),
@@ -37,14 +38,14 @@ export namespace ConfigPaths {
         : []),
       ...(await Array.fromAsync(
         Filesystem.up({
-          targets: [".opencode"],
+          targets: [PROJECT, LEGACY_PROJECT],
           start: Global.Path.home,
           stop: Global.Path.home,
         }),
       )),
       ...(await Array.fromAsync(
         Filesystem.up({
-          targets: [".opencode"],
+          targets: [PROJECT, LEGACY_PROJECT],
           start: binaryDir,
           stop: binaryDir,
         }),
