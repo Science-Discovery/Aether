@@ -89,6 +89,9 @@ export type SessionItemProps = {
   unarchiveSession?: (session: Session) => Promise<void>
   deleteSession?: (session: Session) => Promise<void>
   renameSession?: (session: Session, title: string) => Promise<void>
+  selectMode?: Accessor<boolean>
+  selected?: Accessor<boolean>
+  onToggleSelect?: (session: Session) => void
 }
 
 const sessionHref = (slug: string, session: Session, hash?: string) =>
@@ -111,6 +114,9 @@ const SessionRow = (props: {
   warmPress: () => void
   warmFocus: () => void
   cancelHoverPrefetch: () => void
+  selectMode?: Accessor<boolean>
+  selected?: Accessor<boolean>
+  onToggleSelect?: () => void
 }): JSX.Element => (
   <A
     href={sessionHref(props.slug, props.session)}
@@ -119,7 +125,12 @@ const SessionRow = (props: {
     onPointerEnter={props.warmHover}
     onPointerLeave={props.cancelHoverPrefetch}
     onFocus={props.warmFocus}
-    onClick={() => {
+    onClick={(e) => {
+      if (props.selectMode?.()) {
+        e.preventDefault()
+        props.onToggleSelect?.()
+        return
+      }
       props.setHoverSession(undefined)
       if (props.sidebarOpened()) return
       props.clearHoverProjectSoon()
@@ -129,20 +140,45 @@ const SessionRow = (props: {
       class="shrink-0 size-6 flex items-center justify-center"
       style={{ color: props.tint() ?? "var(--icon-interactive-base)" }}
     >
-      <Switch fallback={<Icon name="dash" size="small" class="text-icon-weak" />}>
-        <Match when={props.isWorking()}>
-          <Spinner class="size-[15px]" />
-        </Match>
-        <Match when={props.hasPermissions()}>
-          <div class="size-1.5 rounded-full bg-surface-warning-strong" />
-        </Match>
-        <Match when={props.hasError()}>
-          <div class="size-1.5 rounded-full bg-text-diff-delete-base" />
-        </Match>
-        <Match when={props.unseenCount() > 0}>
-          <div class="size-1.5 rounded-full bg-text-interactive-base" />
-        </Match>
-      </Switch>
+      <Show
+        when={props.selectMode?.()}
+        fallback={
+          <Switch fallback={<Icon name="dash" size="small" class="text-icon-weak" />}>
+            <Match when={props.isWorking()}>
+              <Spinner class="size-[15px]" />
+            </Match>
+            <Match when={props.hasPermissions()}>
+              <div class="size-1.5 rounded-full bg-surface-warning-strong" />
+            </Match>
+            <Match when={props.hasError()}>
+              <div class="size-1.5 rounded-full bg-text-diff-delete-base" />
+            </Match>
+            <Match when={props.unseenCount() > 0}>
+              <div class="size-1.5 rounded-full bg-text-interactive-base" />
+            </Match>
+          </Switch>
+        }
+      >
+        <div
+          class={`size-3.5 rounded-sm border flex items-center justify-center transition-colors ${
+            props.selected?.()
+              ? "bg-text-interactive-base border-text-interactive-base"
+              : "border-icon-weak bg-transparent"
+          }`}
+        >
+          <Show when={props.selected?.()}>
+            <svg viewBox="0 0 12 12" fill="none" width="8" height="8" xmlns="http://www.w3.org/2000/svg">
+              <path
+                d="M2 6.5L4.5 9L10 3"
+                stroke="white"
+                stroke-width="1.5"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+            </svg>
+          </Show>
+        </div>
+      </Show>
     </div>
     <Show when={props.session.readingMode}>
       <span class="shrink-0 rounded bg-surface-raised-base px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-text-muted">
@@ -346,6 +382,9 @@ export const SessionItem = (props: SessionItemProps): JSX.Element => {
       warmPress={() => warm(2, "high")}
       warmFocus={() => warm(2, "high")}
       cancelHoverPrefetch={cancelHoverPrefetch}
+      selectMode={props.selectMode}
+      selected={props.selected}
+      onToggleSelect={() => props.onToggleSelect?.(props.session)}
     />
   )
 
@@ -427,7 +466,7 @@ export const SessionItem = (props: SessionItemProps): JSX.Element => {
             </Show>
           </div>
 
-          <Show when={!renaming()}>
+          <Show when={!renaming() && !props.selectMode?.()}>
             <div
               class={`absolute ${props.dense ? "top-0.5 right-0.5" : "top-1 right-1"} flex items-center gap-0.5 transition-opacity`}
               classList={{
