@@ -29,6 +29,14 @@ import { LspTool } from "./lsp"
 import { Truncate } from "./truncate"
 import { ApplyPatchTool } from "./apply_patch"
 import { SummarizeDirsTool } from "./summarize-dirs"
+import {
+  MemoryListTool,
+  MemoryReadTool,
+  MemorySearchTool,
+  MemoryWriteTool,
+  SessionReadTool,
+  SessionSearchTool,
+} from "./memory"
 import { Glob } from "../util/glob"
 import { pathToFileURL } from "url"
 import { Effect, Layer, ServiceMap } from "effect"
@@ -132,6 +140,11 @@ export namespace ToolRegistry {
           SkillTool,
           ApplyPatchTool,
           SummarizeDirsTool,
+          MemoryWriteTool,
+          MemoryReadTool,
+          MemoryListTool,
+          MemorySearchTool,
+          ...(cfg.memory?.cross_session_search_enabled === false ? [] : [SessionSearchTool, SessionReadTool]),
           KnowledgeTool,
           ...(Flag.OPENCODE_EXPERIMENTAL_LSP_TOOL ? [LspTool] : []),
           ...(cfg.experimental?.batch_tool === true ? [BatchTool] : []),

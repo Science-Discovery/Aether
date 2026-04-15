@@ -52,6 +52,7 @@ import { Truncate } from "@/tool/truncate"
 import { Knowledge } from "../knowledge"
 import { decodeDataUrl } from "@/util/data-url"
 import { Process } from "@/util/process"
+import { Memory } from "@/memory"
 
 // @ts-ignore
 globalThis.AI_SDK_LOG_WARNINGS = false
@@ -306,6 +307,33 @@ export namespace SessionPrompt {
 
     let step = 0
     const session = await Session.get(sessionID)
+    // Capture memory snapshot once per session; do not refresh it inside the turn loop.
+    const memory = await Memory.snapshot({ session_id: sessionID })
+    const attachMemoryReceipt = async (messageID: MessageID, events: Memory.Event[]) => {
+      if (!events.length) return
+      await Session.updatePart({
+        id: PartID.ascending(),
+        sessionID,
+        messageID,
+        type: "text",
+        synthetic: true,
+        text: Memory.format(events),
+        metadata: {
+          memory_receipt: true,
+        },
+      })
+    }
+    const flushToMessage = async (messageID?: MessageID) => {
+      const events = Memory.flush(sessionID)
+      if (!events.length) return
+      if (!messageID) {
+        // Keep receipts queued until we have a concrete assistant message to attach to.
+        Memory.enqueue(sessionID, events)
+        return
+      }
+      await attachMemoryReceipt(messageID, events)
+    }
+
     while (true) {
       await SessionStatus.set(sessionID, { type: "busy" })
       log.info("loop", { step, sessionID })
@@ -688,6 +716,7 @@ export namespace SessionPrompt {
       const system = [
         ...(await SystemPrompt.environment(model)),
         ...(skills ? [skills] : []),
+        memory.prompt,
         ...(await InstructionPrompt.system()),
       ]
       const format = lastUser.format ?? { type: "text" }
@@ -721,6 +750,14 @@ export namespace SessionPrompt {
       // If structured output was captured, save it and exit immediately
       // This takes priority because the StructuredOutput tool was called successfully
       if (structuredOutput !== undefined) {
+        const set = await Memory.settings()
+        if (set.memory_reflection_enabled) {
+          await Memory.reflect({
+            session_id: sessionID,
+            mode: "strong",
+          })
+        }
+        await flushToMessage(processor.message.id)
         processor.message.structured = structuredOutput
         processor.message.finish = processor.message.finish ?? "stop"
         await Session.updateMessage(processor.message)
@@ -731,6 +768,15 @@ export namespace SessionPrompt {
       const modelFinished = processor.message.finish && !["tool-calls", "unknown"].includes(processor.message.finish)
 
       if (modelFinished && !processor.message.error) {
+        const set = await Memory.settings()
+        if (set.memory_reflection_enabled) {
+          await Memory.reflect({
+            session_id: sessionID,
+            mode: "strong",
+          })
+        }
+        await flushToMessage(processor.message.id)
+
         if (format.type === "json_schema") {
           // Model stopped without calling StructuredOutput tool
           processor.message.error = new MessageV2.StructuredOutputError({
@@ -754,6 +800,23 @@ export namespace SessionPrompt {
       }
       continue
     }
+
+    const memorySettings = await Memory.settings()
+    if (memorySettings.memory_reflection_enabled) {
+      await Memory.reflect({
+        session_id: sessionID,
+        mode: "light",
+      })
+    }
+    const latestAssistant = await (async () => {
+      for await (const item of MessageV2.stream(sessionID)) {
+        if (item.info.role !== "assistant") continue
+        return item.info.id
+      }
+      return undefined
+    })()
+    await flushToMessage(latestAssistant)
+
     SessionCompaction.prune({ sessionID })
     for await (const item of MessageV2.stream(sessionID)) {
       if (item.info.role === "user") continue

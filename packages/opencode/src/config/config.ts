@@ -1207,6 +1207,22 @@ export namespace Config {
             .describe("Token buffer for compaction. Leaves enough window to avoid overflow during compaction."),
         })
         .optional(),
+      memory: z
+        .object({
+          cross_session_search_enabled: z
+            .boolean()
+            .optional()
+            .describe("Enable cross-session search and recall tools (default: true)"),
+          cross_session_search_scope: z
+            .enum(["current_project", "global"])
+            .optional()
+            .describe("Default scope for cross-session search: current project or global (default: current_project)"),
+          memory_reflection_enabled: z
+            .boolean()
+            .optional()
+            .describe("Enable memory reflection/consolidation passes (default: true)"),
+        })
+        .optional(),
       experimental: z
         .object({
           disable_paste_summary: z.boolean().optional(),

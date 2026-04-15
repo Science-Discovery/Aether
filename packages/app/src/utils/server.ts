@@ -15,7 +15,28 @@ type Kb = {
   apiKey?: string
   baseURL?: string
 }
+type MemoryScope = "current_project" | "global"
+type MemorySettings = {
+  cross_session_search_enabled: boolean
+  cross_session_search_scope: MemoryScope
+  memory_reflection_enabled: boolean
+}
+type MemoryStore = {
+  store: "user" | "memory"
+  file: string
+  limit: number
+  used: number
+  usage: number
+  entries: string[]
+}
 export type AppClient = Base & {
+  memory: {
+    get(): Req<{
+      settings: MemorySettings
+      user: MemoryStore
+      memory: MemoryStore
+    }>
+  }
   config: Base["config"] & {
     skills: {
       list(): Req<Skill[]>
@@ -118,6 +139,30 @@ export function addPreferenceMethods(client: AppClient, baseUrl: string, auth?: 
         headers,
         body: JSON.stringify(body),
       })
+      const data = await resp.json()
+      return { data }
+    },
+  }
+  return client
+}
+
+export function addMemoryMethods(
+  client: AppClient,
+  baseUrl: string,
+  auth?: Record<string, string>,
+  opts?: { directory?: string; experimental_workspaceID?: string },
+): AppClient {
+  const headers: Record<string, string> = { "Content-Type": "application/json", ...auth }
+  if (opts?.directory) {
+    const isNonASCII = /[^\x00-\x7F]/.test(opts.directory)
+    headers["x-opencode-directory"] = isNonASCII ? encodeURIComponent(opts.directory) : opts.directory
+  }
+  if (opts?.experimental_workspaceID) {
+    headers["x-opencode-workspace"] = opts.experimental_workspaceID
+  }
+  client.memory = {
+    async get() {
+      const resp = await fetch(`${baseUrl}/memory`, { headers })
       const data = await resp.json()
       return { data }
     },

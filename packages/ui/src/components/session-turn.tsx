@@ -102,6 +102,18 @@ function partState(part: PartType, showReasoningSummaries: boolean) {
   return
 }
 
+function isCopyableAssistantText(part: PartType) {
+  if (part.type !== "text") return false
+  if (!part.text?.trim()) return false
+  const synthetic = "synthetic" in part && part.synthetic === true
+  if (!synthetic) return true
+  const metadata = ("metadata" in part ? part.metadata : undefined) as Record<string, unknown> | undefined
+  if (metadata?.memory_receipt === true) {
+    return false
+  }
+  return false
+}
+
 function clean(value: string) {
   return value
     .replace(/`([^`]+)`/g, "$1")
@@ -300,7 +312,7 @@ export function SessionTurn(
       const parts = list(data.store.part?.[message.id], emptyParts)
       for (let j = parts.length - 1; j >= 0; j--) {
         const part = parts[j]
-        if (!part || part.type !== "text" || !part.text?.trim()) continue
+        if (!part || !isCopyableAssistantText(part)) continue
         return part.id
       }
     }
