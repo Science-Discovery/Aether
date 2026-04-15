@@ -1131,7 +1131,6 @@ class AetherAgent(Agent):
             if not bun:
                 logger.warning(f"[file] bun not found, skip send: {filepath}")
                 return False
-            account = getattr(self._bot_transport, "account_id", "aether") or "aether"
             ctx = self._wechat_ctx.get(conv_id, "")
             if not ctx:
                 logger.warning(f"[file] missing context token for send: {filepath}")
@@ -1156,9 +1155,6 @@ class AetherAgent(Agent):
                 "--context-token",
                 ctx,
             ]
-            logger.info(
-                f"[file] sending via tencent bun path: {filepath} base_url={base_url} account={account}"
-            )
             sub_env = (
                 {**os.environ, "BRIDGE_LOG": str(_log_file)}
                 if _log_file
@@ -1177,7 +1173,7 @@ class AetherAgent(Agent):
             )
             if out.returncode != 0:
                 detail = (out.stderr or out.stdout or "unknown error").strip()
-                logger.warning(f"[file] node send failed: {filepath} -> {detail}")
+                logger.warning(f"[file] send failed: {filepath} -> {detail}")
                 return False
             logger.info(f"[file] 已发送: {filepath}")
             return True

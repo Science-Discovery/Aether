@@ -18,11 +18,10 @@
 
 ```bash
 cd aether-wechat-bridge
-bun add @tencent-weixin/openclaw-weixin
 pip install -r requirements.txt
 ```
 
-需要 `Node.js >= 22` 和 `bun`，用于通过腾讯官方包 `@tencent-weixin/openclaw-weixin` 发送可下载文件附件。
+需要 `Node.js >= 22` 和 `bun`，用于发送微信文件附件。
 
 ## 使用方法
 

@@ -1,17 +1,9 @@
 import crypto from "node:crypto"
-import { appendFile } from "node:fs/promises"
 import { readFile } from "node:fs/promises"
 import path from "node:path"
 import process from "node:process"
 
 const args = process.argv.slice(2)
-
-const LOG = process.env.BRIDGE_LOG || ""
-
-const log = (msg: string) => {
-  process.stderr.write(`${msg}\n`)
-  if (LOG) appendFile(LOG, `${new Date().toISOString()} [send_file] ${msg}\n`).catch(() => {})
-}
 
 const mime = {
   ".pdf": "application/pdf",
@@ -87,7 +79,6 @@ const cvNum = ((2 & 0xff) << 16) | ((1 & 0xff) << 8) | (8 & 0xff)
 
 const post = async (url: string, body: unknown, token?: string) => {
   const text = JSON.stringify(body)
-  log(`POST ${url} body=${text.slice(0, 2000)}`)
   const res = await fetch(url, {
     method: "POST",
     headers: {
@@ -102,9 +93,6 @@ const post = async (url: string, body: unknown, token?: string) => {
     body: text,
   })
   const raw = await res.text()
-  log(
-    `RESP ${res.status} headers=${JSON.stringify(Object.fromEntries(res.headers.entries()))} body=${raw.slice(0, 2000)}`,
-  )
   if (!res.ok) throw new Error(`${res.status}: ${raw}`)
   return raw ? JSON.parse(raw) : {}
 }
@@ -114,9 +102,6 @@ const upload = async (opts: Record<string, string>, filePath: string) => {
   const key = crypto.randomBytes(16)
   const filekey = crypto.randomBytes(16).toString("hex")
   const file = mediaType(filePath)
-  log(
-    `upload: file=${filePath} kind=${file.kind} rawsize=${buf.length} cipher=${aesSize(buf.length)} key_hex=${key.toString("hex")} filekey=${filekey}`,
-  )
 
   const uploadUrlResp = await post(
     `${req(opts, "base-url").replace(/\/$/, "")}/ilink/bot/getuploadurl`,
@@ -133,15 +118,12 @@ const upload = async (opts: Record<string, string>, filePath: string) => {
     },
     req(opts, "token"),
   )
-  log(`getuploadurl resp: upload_full_url=${uploadUrlResp.upload_full_url} upload_param=${uploadUrlResp.upload_param}`)
 
   const target =
     uploadUrlResp.upload_full_url?.trim() ||
     `${req(opts, "cdn-base-url")}/upload?encrypted_query_param=${encodeURIComponent(uploadUrlResp.upload_param)}&filekey=${encodeURIComponent(filekey)}`
-  log(`cdn upload target: ${target}`)
 
   const ciphertext = enc(buf, key)
-  log(`cdn upload: ciphertext size=${ciphertext.length}`)
 
   const res = await fetch(target, {
     method: "POST",
@@ -149,17 +131,11 @@ const upload = async (opts: Record<string, string>, filePath: string) => {
     body: new Uint8Array(ciphertext),
   })
   const raw = await res.text()
-  log(
-    `cdn resp: status=${res.status} x-encrypted-param=${res.headers.get("x-encrypted-param")} body=${raw.slice(0, 500)}`,
-  )
   if (res.status !== 200) throw new Error(`cdn ${res.status}: ${raw}`)
   const param = res.headers.get("x-encrypted-param")
   if (!param) throw new Error("CDN upload response missing x-encrypted-param header")
 
   const aesBase64 = Buffer.from(key.toString("hex"), "utf-8").toString("base64")
-  log(
-    `aes_key for sendmessage: hex=${key.toString("hex")} base64(hex_as_utf8)=${aesBase64} base64(raw)=${key.toString("base64")}`,
-  )
 
   return {
     file,
@@ -210,7 +186,6 @@ const send = async (opts: Record<string, string>, media: Awaited<ReturnType<type
     },
     base_info: { channel_version: VERSION },
   }
-  log(`sendmessage body: ${JSON.stringify(body)}`)
 
   await post(`${req(opts, "base-url").replace(/\/$/, "")}/ilink/bot/sendmessage`, body, req(opts, "token"))
 }
@@ -218,17 +193,12 @@ const send = async (opts: Record<string, string>, media: Awaited<ReturnType<type
 const main = async () => {
   const opts = parse()
   const filePath = path.resolve(req(opts, "file"))
-  log(
-    `starting: file=${filePath} chat-id=${req(opts, "chat-id")} base-url=${req(opts, "base-url")} context-token=present=${Boolean(opts["context-token"])}`,
-  )
   const media = await upload(opts, filePath)
   await send(opts, media)
-  log(`done: file=${filePath}`)
   process.stdout.write(JSON.stringify({ ok: true, filePath }) + "\n")
 }
 
 main().catch((err) => {
-  log(`error: ${err instanceof Error ? err.stack || err.message : String(err)}`)
   process.stderr.write(`${err instanceof Error ? err.stack || err.message : String(err)}\n`)
   process.exit(1)
 })
