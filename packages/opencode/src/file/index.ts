@@ -828,7 +828,7 @@ export namespace File {
             }
           }
 
-          const content = (await Filesystem.readText(full).catch(() => "")).trim()
+          const content = await Filesystem.readText(full).catch(() => "")
 
           if (Instance.project.vcs === "git") {
             let diff = (
