@@ -24,5 +24,8 @@ psCmd2 = "powershell -NoProfile -ExecutionPolicy Bypass -Command """ & _
     """"
 CreateObject("WScript.Shell").Run psCmd2, 0, True
 
-CreateObject("WScript.Shell").Run "cmd /c """ & exePath & """ web >> """ & logPath & """ 2>&1", 0, False
+Dim wsh
+Set wsh = CreateObject("WScript.Shell")
+wsh.CurrentDirectory = scriptDir
+wsh.Run "cmd /c set NO_COLOR=1 && aether.exe web >> aether-log.txt 2>&1", 0, False
 
