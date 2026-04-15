@@ -32,6 +32,21 @@ const CONFIG_FILE = join(FEISHU_DATA_DIR, "config.json")
 const SESSION_MAP_FILE = join(FEISHU_DATA_DIR, "sessions.json")
 const HIDDEN_DIRS_FILE = join(FEISHU_DATA_DIR, "hidden_projects.json")
 
+function localISOString(d = new Date()): string {
+  const offset = -d.getTimezoneOffset()
+  const sign = offset >= 0 ? "+" : "-"
+  const pad = (n: number) => String(Math.floor(Math.abs(n))).padStart(2, "0")
+  return (
+    d.getFullYear() + "-" +
+    pad(d.getMonth() + 1) + "-" +
+    pad(d.getDate()) + "T" +
+    pad(d.getHours()) + ":" +
+    pad(d.getMinutes()) + ":" +
+    pad(d.getSeconds()) +
+    sign + pad(offset / 60) + ":" + pad(offset % 60)
+  )
+}
+
 export type FeishuStatus = "idle" | "starting" | "connected" | "reconnecting" | "error"
 
 export interface FeishuConfig {
@@ -145,6 +160,8 @@ class FeishuManagerImpl {
   private _manualStop = false
   private _lastConfig: FeishuConfig | null = null
   private _starting = false
+  // ── 诊断用字段 ─────────────────────────────────────────────────────────────
+  private _lastWsEventTime: number = 0
   // ─────────────────────────────────────────────────────────────────────────
 
   private static readonly HEARTBEAT_MS = 30_000
@@ -415,7 +432,9 @@ class FeishuManagerImpl {
       console.log("[feishu] _doStart called")
 
       const boundHandleMessage = (data: any) => {
-        console.log("[feishu] >>> event received!")
+        const gap = this._lastWsEventTime ? `gap=${Date.now() - this._lastWsEventTime}ms` : "first"
+        this._lastWsEventTime = Date.now()
+        console.log("[feishu] >>> event received!", gap, localISOString())
         void this.enqueueMessage(data)
       }
 
@@ -470,6 +489,18 @@ class FeishuManagerImpl {
       this.status = "connected"
       Bus.publish(FeishuEvent.Connected, { appId: config.appId })
 
+      // 5s 后打印服务端 pong 下发的实际配置（pingInterval 等）
+      setTimeout(() => {
+        const wsClientAny = this.wsClient as any
+        const ws = wsClientAny?.wsConfig?.getWS?.()
+        if (ws) {
+          console.log(
+            `[feishu] pong config: pingInterval=${ws.pingInterval}ms reconnectInterval=${ws.reconnectInterval}ms reconnectNonce=${ws.reconnectNonce}ms`,
+            localISOString(),
+          )
+        }
+      }, 5_000)
+
       // Compute initial directory from first visible project
       const allProjects = this.getProjects()
       const visibleProjects = allProjects.filter((p) => !(this.projectDir(p) in this._hiddenDirs))
@@ -499,13 +530,19 @@ class FeishuManagerImpl {
       ws.__aetherBound = true
       const close = ws.addEventListener?.bind(ws)
       if (typeof close === "function") {
-        close("close", () => this.onDisconnect("socket_close"))
+        close("close", (code: number, reason: Buffer) => {
+          console.log(`[feishu] socket close code=${code} reason="${reason?.toString?.() || ""}"`, localISOString())
+          this.onDisconnect("socket_close")
+        })
         close("error", () => this.onDisconnect("socket_error"))
         return
       }
       const add = ws.on?.bind(ws)
       if (typeof add === "function") {
-        add("close", () => this.onDisconnect("socket_close"))
+        add("close", (code: number, reason: Buffer) => {
+          console.log(`[feishu] socket close code=${code} reason="${reason?.toString?.() || ""}"`, localISOString())
+          this.onDisconnect("socket_close")
+        })
         add("error", () => this.onDisconnect("socket_error"))
       }
     }
@@ -524,7 +561,7 @@ class FeishuManagerImpl {
   private onDisconnect(reason: string): void {
     if (this._manualStop) return
     if (this._status === "idle" || this._status === "error") return
-    console.warn("[feishu] disconnect detected:", reason)
+    console.warn("[feishu] disconnect detected:", reason, localISOString())
     this.stopHeartbeat()
     this.scheduleReconnect(reason)
   }
@@ -614,7 +651,7 @@ class FeishuManagerImpl {
 
   private async handleMessage(data: any): Promise<void> {
     try {
-      console.log("[feishu] handleMessage invoked")
+      console.log("[feishu] handleMessage invoked", localISOString())
       console.log("[feishu] received event:", JSON.stringify(data).slice(0, 500))
       const message = data?.message
       if (!message) {
@@ -652,7 +689,7 @@ class FeishuManagerImpl {
 
       text = text.replace(/@_\w+\s*/g, "").trim()
       if (!text) return
-      console.log("[feishu] text:", text)
+      console.log("[feishu] text:", text, localISOString())
 
       const isSlash = text.startsWith("/")
       const parts = isSlash ? text.trim().split(/\s+/) : []
@@ -826,12 +863,12 @@ class FeishuManagerImpl {
               })
             }
           }
-          console.log("[feishu] sending to aether, session:", sessionId)
+          console.log("[feishu] sending to aether, session:", sessionId, localISOString())
           const msg = await SessionPrompt.prompt({
             sessionID: SessionID.make(sessionId),
             parts: [{ type: "text", text: promptText }],
           })
-          console.log("[feishu] aether responded, parts:", msg?.parts?.length)
+          console.log("[feishu] aether responded, parts:", msg?.parts?.length, localISOString())
 
           const responseText = this.extractResponseText(msg)
           if (responseText) {
@@ -859,7 +896,7 @@ class FeishuManagerImpl {
                 : "—"
             const header = `${projectName}  ·  ${label}  ·  ${mode}  ·  ${modelStr}\n————————\n`
 
-            console.log("[feishu] replying:", responseText.slice(0, 100))
+            console.log("[feishu] replying:", responseText.slice(0, 100), localISOString())
             await this.replyText(messageId, header + responseText)
           } else {
             console.log("[feishu] no text in response")
