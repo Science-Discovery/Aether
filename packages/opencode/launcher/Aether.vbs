@@ -14,13 +14,13 @@ CreateObject("WScript.Shell").Run psCmd, 0, True
 Dim logPath
 logPath = scriptDir & "\aether-log.txt"
 
-' Truncate log to last 1000 lines on each startup
+' Truncate log to last 2000 lines on each startup
 Dim psCmd2
 psCmd2 = "powershell -NoProfile -ExecutionPolicy Bypass -Command """ & _
     "$f='" & logPath & "';" & _
     "if(Test-Path $f){" & _
         "$lines=Get-Content $f -Encoding UTF8 -ErrorAction SilentlyContinue;" & _
-        "if($lines -ne $null -and $lines.Count -gt 1000){$lines[-1000..-1]|Set-Content $f -Encoding UTF8}}" & _
+        "if($lines -ne $null -and $lines.Count -gt 2000){$lines[-2000..-1]|Set-Content $f -Encoding UTF8}}" & _
     """"
 CreateObject("WScript.Shell").Run psCmd2, 0, True
 
