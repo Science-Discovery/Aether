@@ -4,16 +4,24 @@ import { existsSync } from "fs"
 import { Filesystem } from "../util/filesystem"
 import { Identifier } from "../id/id"
 import type { KnowledgeIndex, KnowledgeBaseConfig } from "./types"
+import { KB, LEGACY_KB } from "@/persist/naming"
 
-const KB_FOLDER = ".opencode-kb"
 const INDEX_FILE = "index.json"
 const EMBEDDING_FILE = "embedding.bin"
 const DOC_EXT = new Set([".pdf", ".md", ".markdown", ".txt", ".tex", ".rst", ".json", ".yml", ".yaml", ".csv"])
 
 export namespace Storage {
+  function next(dir: string) {
+    return path.join(dir, KB)
+  }
+
+  function prev(dir: string) {
+    return path.join(dir, LEGACY_KB)
+  }
+
   // 获取知识库元数据文件夹路径
   export function kbPath(dir: string): string {
-    return path.join(dir, KB_FOLDER)
+    return next(dir)
   }
 
   // 获取索引文件路径
@@ -28,8 +36,8 @@ export namespace Storage {
 
   // 检查是否是知识库
   export async function isKnowledgeBase(dir: string): Promise<boolean> {
-    const idx = indexPath(dir)
-    return Filesystem.exists(idx)
+    if (await Filesystem.exists(indexPath(dir))) return true
+    return Filesystem.exists(path.join(prev(dir), INDEX_FILE))
   }
 
   // 初始化知识库
@@ -57,7 +65,7 @@ export namespace Storage {
       },
     }
 
-    // 创建 .opencode-kb 目录
+    // 创建 .aether-kb 目录
     if (!existsSync(kbDir)) {
       await mkdir(kbDir, { recursive: true })
     }
@@ -74,10 +82,10 @@ export namespace Storage {
   // 加载索引
   export async function loadIndex(dir: string): Promise<KnowledgeIndex | null> {
     const idx = indexPath(dir)
-    if (!(await Filesystem.exists(idx))) {
-      return null
-    }
-    return Filesystem.readJson<KnowledgeIndex>(idx)
+    if (await Filesystem.exists(idx)) return Filesystem.readJson<KnowledgeIndex>(idx)
+    const legacy = path.join(prev(dir), INDEX_FILE)
+    if (!(await Filesystem.exists(legacy))) return null
+    return Filesystem.readJson<KnowledgeIndex>(legacy)
   }
 
   // 保存索引
@@ -118,7 +126,9 @@ export namespace Storage {
     const embPath = embeddingPath(dir)
     const file = Bun.file(embPath)
     if (!(await file.exists()) || file.size === 0) {
-      return null
+      const legacy = Bun.file(path.join(prev(dir), EMBEDDING_FILE))
+      if (!(await legacy.exists()) || legacy.size === 0) return null
+      return new Float32Array(await legacy.arrayBuffer())
     }
     const buffer = await file.arrayBuffer()
     return new Float32Array(buffer)
@@ -218,7 +228,7 @@ export namespace Storage {
     async function scan(currentDir: string) {
       const entries = await readdir(currentDir, { withFileTypes: true })
       for (const entry of entries) {
-        if (entry.name === KB_FOLDER) continue // 跳过 .opencode-kb
+        if (entry.name === KB || entry.name === LEGACY_KB) continue
         const fullPath = path.join(currentDir, entry.name)
         if (entry.isDirectory()) {
           await scan(fullPath)
@@ -246,7 +256,7 @@ export namespace Storage {
     }
   }
 
-  // 删除知识库（仅删除 .opencode-kb 目录）
+  // 删除知识库（仅删除 .aether-kb 目录）
   export async function deleteKnowledgeBase(dir: string): Promise<void> {
     const kbDir = kbPath(dir)
     if (existsSync(kbDir)) {

@@ -1,6 +1,5 @@
 import { mkdir, readFile, writeFile, rm, stat } from "fs/promises"
 import { isAbsolute, join, basename } from "path"
-import { homedir } from "os"
 import { existsSync } from "fs"
 import z from "zod"
 import * as lark from "@larksuiteoapi/node-sdk"
@@ -21,16 +20,29 @@ import { Agent } from "@/agent/agent"
 import { SessionPreference } from "@/session/preference"
 import { Question } from "@/question"
 import { Permission } from "@/permission"
+import { legacyPlatformDir, platformDir } from "@/persist/naming"
 
-const FEISHU_DATA_DIR =
-  process.platform === "darwin"
-    ? join(homedir(), "Library", "Application Support", "opencode", "feishu")
-    : process.platform === "win32"
-      ? join(process.env.APPDATA || homedir(), "opencode", "feishu")
-      : join(homedir(), ".local", "share", "opencode", "feishu")
-const CONFIG_FILE = join(FEISHU_DATA_DIR, "config.json")
-const SESSION_MAP_FILE = join(FEISHU_DATA_DIR, "sessions.json")
-const HIDDEN_DIRS_FILE = join(FEISHU_DATA_DIR, "hidden_projects.json")
+function dir() {
+  return platformDir("feishu")
+}
+
+function oldDir() {
+  return legacyPlatformDir("feishu")
+}
+
+function file(name: string) {
+  return join(dir(), name)
+}
+
+function old(name: string) {
+  return join(oldDir(), name)
+}
+
+function readPath(name: "config.json" | "sessions.json" | "hidden_projects.json") {
+  const next = file(name)
+  const prev = old(name)
+  return existsSync(next) || !existsSync(prev) ? next : prev
+}
 
 function localISOString(d = new Date()): string {
   const offset = -d.getTimezoneOffset()
@@ -1666,9 +1678,9 @@ class FeishuManagerImpl {
 
   async clearSession(): Promise<void> {
     try {
-      await rm(CONFIG_FILE, { force: true })
-      await rm(SESSION_MAP_FILE, { force: true })
-      await rm(HIDDEN_DIRS_FILE, { force: true })
+      await rm(file("config.json"), { force: true })
+      await rm(file("sessions.json"), { force: true })
+      await rm(file("hidden_projects.json"), { force: true })
       this._session = null
       this.sessionMap = {}
       this._hiddenDirs = {}
@@ -1677,8 +1689,9 @@ class FeishuManagerImpl {
 
   async loadConfig(): Promise<FeishuConfig | null> {
     try {
-      if (existsSync(CONFIG_FILE)) {
-        const data = await readFile(CONFIG_FILE, "utf-8")
+      const next = readPath("config.json")
+      if (existsSync(next)) {
+        const data = await readFile(next, "utf-8")
         return JSON.parse(data)
       }
     } catch {}
@@ -1686,14 +1699,15 @@ class FeishuManagerImpl {
   }
 
   private async saveConfig(config: FeishuConfig): Promise<void> {
-    await mkdir(FEISHU_DATA_DIR, { recursive: true })
-    await writeFile(CONFIG_FILE, JSON.stringify(config, null, 2))
+    await mkdir(dir(), { recursive: true })
+    await writeFile(file("config.json"), JSON.stringify(config, null, 2))
   }
 
   private async loadSessionMap(): Promise<SessionMap> {
     try {
-      if (existsSync(SESSION_MAP_FILE)) {
-        const data = await readFile(SESSION_MAP_FILE, "utf-8")
+      const next = readPath("sessions.json")
+      if (existsSync(next)) {
+        const data = await readFile(next, "utf-8")
         return JSON.parse(data)
       }
     } catch {}
@@ -1701,14 +1715,15 @@ class FeishuManagerImpl {
   }
 
   private async saveSessionMap(): Promise<void> {
-    await mkdir(FEISHU_DATA_DIR, { recursive: true })
-    await writeFile(SESSION_MAP_FILE, JSON.stringify(this.sessionMap, null, 2))
+    await mkdir(dir(), { recursive: true })
+    await writeFile(file("sessions.json"), JSON.stringify(this.sessionMap, null, 2))
   }
 
   private async loadHiddenDirs(): Promise<Record<string, number>> {
     try {
-      if (existsSync(HIDDEN_DIRS_FILE)) {
-        const data = await readFile(HIDDEN_DIRS_FILE, "utf-8")
+      const next = readPath("hidden_projects.json")
+      if (existsSync(next)) {
+        const data = await readFile(next, "utf-8")
         return JSON.parse(data)
       }
     } catch {}
@@ -1716,8 +1731,8 @@ class FeishuManagerImpl {
   }
 
   private async saveHiddenDirs(): Promise<void> {
-    await mkdir(FEISHU_DATA_DIR, { recursive: true })
-    await writeFile(HIDDEN_DIRS_FILE, JSON.stringify(this._hiddenDirs, null, 2))
+    await mkdir(dir(), { recursive: true })
+    await writeFile(file("hidden_projects.json"), JSON.stringify(this._hiddenDirs, null, 2))
   }
 
   async loadSession(): Promise<FeishuSession | null> {

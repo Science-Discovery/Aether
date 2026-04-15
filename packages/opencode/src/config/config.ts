@@ -39,6 +39,15 @@ import { Filesystem } from "@/util/filesystem"
 import matter from "gray-matter"
 import { Process } from "@/util/process"
 import { Lock } from "@/util/lock"
+import {
+  CFG,
+  LEGACY_CFG,
+  LEGACY_PROJECT,
+  PROJECT,
+  configFiles,
+  legacyManagedDir,
+  managedDir as persistManagedDir,
+} from "@/persist/naming"
 
 export namespace Config {
   const ModelId = z.string().meta({ $ref: "https://models.dev/model-schema.json#/$defs/Model" })
@@ -48,21 +57,18 @@ export namespace Config {
   // Managed settings directory for enterprise deployments (highest priority, admin-controlled)
   // These settings override all user and project settings
   function systemManagedConfigDir(): string {
-    switch (process.platform) {
-      case "darwin":
-        return "/Library/Application Support/opencode"
-      case "win32":
-        return path.join(process.env.ProgramData || "C:\\ProgramData", "opencode")
-      default:
-        return "/etc/opencode"
-    }
+    return persistManagedDir()
+  }
+
+  function legacySystemManagedConfigDir(): string {
+    return legacyManagedDir()
   }
 
   export function managedConfigDir() {
     return process.env.OPENCODE_TEST_MANAGED_CONFIG_DIR || systemManagedConfigDir()
   }
 
-  const managedDir = managedConfigDir()
+  const managedDirs = unique([managedConfigDir(), legacySystemManagedConfigDir()])
 
   // Custom merge function that concatenates array fields instead of replacing them
   function mergeConfigConcatArrays(target: Info, source: Info): Info {
@@ -123,8 +129,10 @@ export namespace Config {
 
     // Project config overrides global and remote config.
     if (!Flag.OPENCODE_DISABLE_PROJECT_CONFIG) {
-      for (const file of await ConfigPaths.projectFiles("opencode", Instance.directory, Instance.worktree)) {
-        result = mergeConfigConcatArrays(result, await loadFile(file))
+      for (const name of [CFG, LEGACY_CFG]) {
+        for (const file of await ConfigPaths.projectFiles(name, Instance.directory, Instance.worktree)) {
+          result = mergeConfigConcatArrays(result, await loadFile(file))
+        }
       }
     }
 
@@ -142,8 +150,8 @@ export namespace Config {
     const deps = []
 
     for (const dir of unique(directories)) {
-      if (dir.endsWith(".opencode") || dir === Flag.OPENCODE_CONFIG_DIR) {
-        for (const file of ["opencode.jsonc", "opencode.json"]) {
+      if (dir.endsWith(PROJECT) || dir.endsWith(LEGACY_PROJECT) || dir === Flag.OPENCODE_CONFIG_DIR) {
+        for (const file of [...configFiles(CFG), ...configFiles(LEGACY_CFG)]) {
           log.debug(`loading config from ${path.join(dir, file)}`)
           result = mergeConfigConcatArrays(result, await loadFile(path.join(dir, file)))
           // to satisfy the type checker
@@ -208,9 +216,10 @@ export namespace Config {
     // Kept separate from directories array to avoid write operations when installing plugins
     // which would fail on system directories requiring elevated permissions
     // This way it only loads config file and not skills/plugins/commands
-    if (existsSync(managedDir)) {
-      for (const file of ["opencode.jsonc", "opencode.json"]) {
-        result = mergeConfigConcatArrays(result, await loadFile(path.join(managedDir, file)))
+    for (const dir of managedDirs) {
+      if (!existsSync(dir)) continue
+      for (const file of [...configFiles(CFG), ...configFiles(LEGACY_CFG)]) {
+        result = mergeConfigConcatArrays(result, await loadFile(path.join(dir, file)))
       }
     }
 
@@ -401,7 +410,14 @@ export namespace Config {
       })
       if (!md) continue
 
-      const patterns = ["/.opencode/command/", "/.opencode/commands/", "/command/", "/commands/"]
+      const patterns = [
+        "/.aether/command/",
+        "/.aether/commands/",
+        "/.opencode/command/",
+        "/.opencode/commands/",
+        "/command/",
+        "/commands/",
+      ]
       const file = rel(item, patterns) ?? path.basename(item)
       const name = trim(file)
 
@@ -440,7 +456,14 @@ export namespace Config {
       })
       if (!md) continue
 
-      const patterns = ["/.opencode/agent/", "/.opencode/agents/", "/agent/", "/agents/"]
+      const patterns = [
+        "/.aether/agent/",
+        "/.aether/agents/",
+        "/.opencode/agent/",
+        "/.opencode/agents/",
+        "/agent/",
+        "/agents/",
+      ]
       const file = rel(item, patterns) ?? path.basename(item)
       const agentName = trim(file)
 
@@ -1236,13 +1259,21 @@ export namespace Config {
 
   export type Info = z.output<typeof Info>
 
+  function globalFiles(name: string) {
+    return [`${name}.json`, `${name}.jsonc`].map((file) => path.join(Global.Path.config, file))
+  }
+
+  function has(files: string[]) {
+    return files.some((file) => existsSync(file))
+  }
+
   export const global = lazy(async () => {
-    let result: Info = pipe(
-      {},
-      mergeDeep(await loadFile(path.join(Global.Path.config, "config.json"))),
-      mergeDeep(await loadFile(path.join(Global.Path.config, "opencode.json"))),
-      mergeDeep(await loadFile(path.join(Global.Path.config, "opencode.jsonc"))),
-    )
+    let result: Info = pipe({}, mergeDeep(await loadFile(path.join(Global.Path.config, "config.json"))))
+    const next = globalFiles(CFG)
+    const prev = globalFiles(LEGACY_CFG)
+    for (const file of has(next) ? next : prev) {
+      result = mergeDeep(result, await loadFile(file))
+    }
 
     const legacy = path.join(Global.Path.config, "config")
     if (existsSync(legacy)) {
@@ -1370,18 +1401,22 @@ export namespace Config {
   function findServerSkillsDirSync(): string | undefined {
     // Check next to the binary first (handles compiled single-binary releases)
     const binaryDir = path.dirname(process.execPath)
-    const binaryCandidate = path.join(binaryDir, ".opencode", "skills")
-    try {
-      if (statSync(binaryCandidate).isDirectory()) return binaryCandidate
-    } catch {}
+    for (const root of [PROJECT, LEGACY_PROJECT]) {
+      const candidate = path.join(binaryDir, root, "skills")
+      try {
+        if (statSync(candidate).isDirectory()) return candidate
+      } catch {}
+    }
 
     // Fall back to searching upward from process.cwd() (dev environment)
     let dir = process.cwd()
     while (true) {
-      const candidate = path.join(dir, ".opencode", "skills")
-      try {
-        if (statSync(candidate).isDirectory()) return candidate
-      } catch {}
+      for (const root of [PROJECT, LEGACY_PROJECT]) {
+        const candidate = path.join(dir, root, "skills")
+        try {
+          if (statSync(candidate).isDirectory()) return candidate
+        } catch {}
+      }
       const parent = path.dirname(dir)
       if (parent === dir) break
       dir = parent
@@ -1430,7 +1465,7 @@ export namespace Config {
 
   export async function saveDefaultSkill(name: string, description: string, content: string): Promise<void> {
     const skillsDir = getDefaultSkillsDir()
-    if (!skillsDir) throw new Error("No .opencode directory found")
+    if (!skillsDir) throw new Error("No .aether directory found")
     const skillDir = path.join(skillsDir, name)
     await fs.mkdir(skillDir, { recursive: true })
     const skillFile = path.join(skillDir, "SKILL.md")
@@ -1440,7 +1475,7 @@ export namespace Config {
 
   export async function deleteDefaultSkill(name: string): Promise<void> {
     const skillsDir = getDefaultSkillsDir()
-    if (!skillsDir) throw new Error("No .opencode directory found")
+    if (!skillsDir) throw new Error("No .aether directory found")
     const skillDir = path.join(skillsDir, name)
     await fs.rm(skillDir, { recursive: true, force: true })
   }
@@ -1450,8 +1485,8 @@ export namespace Config {
     const sourceSkillsDir = getDefaultSkillsDir()
     if (!sourceSkillsDir) return []
 
-    // Target: the currently viewed project (.opencode/skills/ under Instance.directory)
-    const targetSkillsDir = path.join(Instance.directory, ".opencode", "skills")
+    // Target: the currently viewed project (.aether/skills/ under Instance.directory)
+    const targetSkillsDir = path.join(Instance.directory, PROJECT, "skills")
     await fs.mkdir(targetSkillsDir, { recursive: true })
 
     // Copy each skill directory from source to target
@@ -1482,13 +1517,16 @@ export namespace Config {
   }
 
   function globalConfigFile() {
-    const candidates = ["opencode.jsonc", "opencode.json", "config.json"].map((file) =>
-      path.join(Global.Path.config, file),
-    )
-    for (const file of candidates) {
+    const next = globalFiles(CFG)
+    for (const file of next) {
       if (existsSync(file)) return file
     }
-    return candidates[0]
+    const cfg = path.join(Global.Path.config, "config.json")
+    if (existsSync(cfg)) return cfg
+    const prev = globalFiles(LEGACY_CFG)
+    if (existsSync(prev[0])) return next[0]
+    if (existsSync(prev[1])) return next[1]
+    return next[0]
   }
 
   function isRecord(value: unknown): value is Record<string, unknown> {
@@ -1548,12 +1586,21 @@ export namespace Config {
 
   export async function updateGlobal(config: Info) {
     const filepath = globalConfigFile()
-    const before = await Filesystem.readText(filepath).catch((err: any) => {
-      if (err.code === "ENOENT") return "{}"
-      throw new JsonError({ path: filepath }, { cause: err })
-    })
+    const found = existsSync(filepath)
+    const before = found
+      ? await Filesystem.readText(filepath).catch((err: any) => {
+          if (err.code === "ENOENT") return "{}"
+          throw new JsonError({ path: filepath }, { cause: err })
+        })
+      : undefined
 
     const next = await (async () => {
+      if (!before) {
+        const merged = mergeDeep(await global(), config)
+        await Filesystem.writeJson(filepath, merged)
+        return merged
+      }
+
       if (!filepath.endsWith(".jsonc")) {
         const existing = parseConfig(before, filepath)
         const merged = mergeDeep(existing, config)

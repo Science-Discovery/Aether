@@ -9,6 +9,7 @@ import { Instance } from "@/project/instance"
 import { Flag } from "@/flag/flag"
 import { Log } from "@/util/log"
 import { Global } from "@/global"
+import { LEGACY_PROJECT, PROJECT } from "@/persist/naming"
 
 export namespace TuiConfig {
   const log = Log.create({ service: "tui.config" })
@@ -54,7 +55,7 @@ export namespace TuiConfig {
     }
 
     for (const dir of unique(directories)) {
-      if (!dir.endsWith(".opencode") && dir !== Flag.OPENCODE_CONFIG_DIR) continue
+      if (!dir.endsWith(PROJECT) && !dir.endsWith(LEGACY_PROJECT) && dir !== Flag.OPENCODE_CONFIG_DIR) continue
       for (const file of ConfigPaths.fileInDirectory(dir, "tui")) {
         result = mergeInfo(result, await loadFile(file))
       }

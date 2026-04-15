@@ -17,6 +17,7 @@ const managedConfigDir = process.env.OPENCODE_TEST_MANAGED_CONFIG_DIR!
 
 afterEach(async () => {
   await fs.rm(managedConfigDir, { force: true, recursive: true }).catch(() => {})
+  Config.global.reset()
 })
 
 async function writeManagedSettings(settings: object, filename = "opencode.json") {
@@ -26,6 +27,18 @@ async function writeManagedSettings(settings: object, filename = "opencode.json"
 
 async function writeConfig(dir: string, config: object, name = "opencode.json") {
   await Filesystem.write(path.join(dir, name), JSON.stringify(config))
+}
+
+async function withGlobal(dir: string, fn: () => Promise<void>) {
+  const prev = Global.Path.config
+  ;(Global.Path as { config: string }).config = dir
+  Config.global.reset()
+  try {
+    await fn()
+  } finally {
+    ;(Global.Path as { config: string }).config = prev
+    Config.global.reset()
+  }
 }
 
 async function check(map: (dir: string) => string) {
@@ -147,6 +160,96 @@ test("loads JSONC config file", async () => {
       expect(config.model).toBe("test/model")
       expect(config.username).toBe("testuser")
     },
+  })
+})
+
+test("falls back to legacy global config when new config files are absent", async () => {
+  await using tmp = await tmpdir()
+  await withGlobal(tmp.path, async () => {
+    await writeConfig(
+      tmp.path,
+      {
+        provider: {
+          openai: {
+            options: {
+              baseURL: "https://legacy.example.com/v1",
+            },
+          },
+        },
+      },
+      "opencode.json",
+    )
+
+    const cfg = await Config.getGlobal()
+    expect(cfg.provider?.openai?.options?.baseURL).toBe("https://legacy.example.com/v1")
+  })
+})
+
+test("prefers new global config files over legacy ones when both exist", async () => {
+  await using tmp = await tmpdir()
+  await withGlobal(tmp.path, async () => {
+    await writeConfig(
+      tmp.path,
+      {
+        model: "legacy/model",
+      },
+      "opencode.json",
+    )
+    await writeConfig(
+      tmp.path,
+      {
+        model: "aether/model",
+      },
+      "aether.json",
+    )
+
+    const cfg = await Config.getGlobal()
+    expect(cfg.model).toBe("aether/model")
+  })
+})
+
+test("updateGlobal preserves legacy provider baseURL when creating a new aether config file", async () => {
+  await using tmp = await tmpdir()
+  await withGlobal(tmp.path, async () => {
+    await writeConfig(
+      tmp.path,
+      {
+        provider: {
+          openai: {
+            options: {
+              baseURL: "https://legacy.example.com/v1",
+            },
+          },
+        },
+      },
+      "opencode.json",
+    )
+
+    await Config.updateGlobal({
+      model: "test/model",
+    })
+
+    expect(await Bun.file(path.join(tmp.path, "aether.json")).json()).toEqual({
+      $schema: "https://opencode.ai/config.json",
+      model: "test/model",
+      provider: {
+        openai: {
+          options: {
+            baseURL: "https://legacy.example.com/v1",
+          },
+        },
+      },
+    })
+    expect(await Bun.file(path.join(tmp.path, "opencode.json")).json()).toEqual({
+      $schema: "https://opencode.ai/config.json",
+      provider: {
+        openai: {
+          options: {
+            baseURL: "https://legacy.example.com/v1",
+          },
+        },
+      },
+    })
   })
 })
 

@@ -1,15 +1,13 @@
 import fs from "fs/promises"
-import { xdgData, xdgCache, xdgConfig, xdgState } from "xdg-basedir"
 import path from "path"
 import os from "os"
 import { Filesystem } from "../util/filesystem"
+import { Persist } from "@/persist/naming"
 
-const app = "opencode"
-
-const data = path.join(xdgData!, app)
-const cache = path.join(xdgCache!, app)
-const config = path.join(xdgConfig!, app)
-const state = path.join(xdgState!, app)
+const data = Persist.current.data
+const cache = Persist.current.cache
+const config = Persist.current.config
+const state = Persist.current.state
 
 export namespace Global {
   export const Path = {
@@ -24,31 +22,33 @@ export namespace Global {
     config,
     state,
   }
-}
 
-await Promise.all([
-  fs.mkdir(Global.Path.data, { recursive: true }),
-  fs.mkdir(Global.Path.config, { recursive: true }),
-  fs.mkdir(Global.Path.state, { recursive: true }),
-  fs.mkdir(Global.Path.log, { recursive: true }),
-  fs.mkdir(Global.Path.bin, { recursive: true }),
-])
+  export async function ensureDirs() {
+    await Promise.all([
+      fs.mkdir(Path.data, { recursive: true }),
+      fs.mkdir(Path.config, { recursive: true }),
+      fs.mkdir(Path.state, { recursive: true }),
+      fs.mkdir(Path.log, { recursive: true }),
+      fs.mkdir(Path.bin, { recursive: true }),
+    ])
+
+    const version = await Filesystem.readText(path.join(Path.cache, "version")).catch(() => "0")
+    if (version === CACHE_VERSION) return
+
+    try {
+      const rows = await fs.readdir(Path.cache)
+      await Promise.all(
+        rows.map((row) =>
+          fs.rm(path.join(Path.cache, row), {
+            recursive: true,
+            force: true,
+          }),
+        ),
+      )
+    } catch {}
+
+    await Filesystem.write(path.join(Path.cache, "version"), CACHE_VERSION)
+  }
+}
 
 const CACHE_VERSION = "21"
-
-const version = await Filesystem.readText(path.join(Global.Path.cache, "version")).catch(() => "0")
-
-if (version !== CACHE_VERSION) {
-  try {
-    const contents = await fs.readdir(Global.Path.cache)
-    await Promise.all(
-      contents.map((item) =>
-        fs.rm(path.join(Global.Path.cache, item), {
-          recursive: true,
-          force: true,
-        }),
-      ),
-    )
-  } catch (e) {}
-  await Filesystem.write(path.join(Global.Path.cache, "version"), CACHE_VERSION)
-}

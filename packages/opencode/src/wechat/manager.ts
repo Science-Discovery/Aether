@@ -2,7 +2,6 @@ import { spawn, ChildProcess } from "child_process"
 import { createInterface } from "readline"
 import { mkdir, readFile, writeFile, rm } from "fs/promises"
 import { join, dirname } from "path"
-import { homedir } from "os"
 import { existsSync, readFileSync, unlinkSync } from "fs"
 import z from "zod"
 import { BusEvent } from "@/bus/bus-event"
@@ -13,17 +12,29 @@ import { Database } from "@/storage/db"
 import { MessageTable, PartTable } from "@/session/session.sql"
 import { desc, inArray } from "drizzle-orm"
 import { Config } from "@/config/config"
+import { legacyPlatformDir, platformDir } from "@/persist/naming"
 
-const WECHAT_DATA_DIR =
-  process.platform === "darwin"
-    ? join(homedir(), "Library", "Application Support", "opencode", "wechat")
-    : process.platform === "win32"
-      ? join(process.env.APPDATA || homedir(), "opencode", "wechat")
-      : join(homedir(), ".local", "share", "opencode", "wechat")
-const QRCODE_FILE = join(WECHAT_DATA_DIR, "qrcode.txt")
-const SESSION_FILE = join(WECHAT_DATA_DIR, "session.json")
-const PID_FILE = join(WECHAT_DATA_DIR, "pid.txt")
-const LOCK_FILE = join(WECHAT_DATA_DIR, "lock.json")
+function dir() {
+  return platformDir("wechat")
+}
+
+function oldDir() {
+  return legacyPlatformDir("wechat")
+}
+
+function file(name: string) {
+  return join(dir(), name)
+}
+
+function old(name: string) {
+  return join(oldDir(), name)
+}
+
+function readPath(name: "session.json" | "accounts.json") {
+  const next = file(name)
+  const prev = old(name)
+  return existsSync(next) || !existsSync(prev) ? next : prev
+}
 
 export type WeChatStatus = "idle" | "starting" | "qrcode" | "connected" | "error"
 
@@ -106,20 +117,20 @@ class WeChatManagerImpl {
   /** Read the current lock holder from disk. Returns null if no valid lock. */
   get lockHolder(): string | null {
     try {
-      if (!existsSync(LOCK_FILE)) return null
-      const raw = readFileSync(LOCK_FILE, "utf-8")
+      if (!existsSync(file("lock.json"))) return null
+      const raw = readFileSync(file("lock.json"), "utf-8")
       const lock = JSON.parse(raw) as { clientId: string; pid: number; updatedAt?: number }
       try {
         process.kill(lock.pid, 0)
       } catch {
         try {
-          unlinkSync(LOCK_FILE)
+          unlinkSync(file("lock.json"))
         } catch {}
         return null
       }
       if (this.isLockExpired(lock)) {
         try {
-          unlinkSync(LOCK_FILE)
+          unlinkSync(file("lock.json"))
         } catch {}
         return null
       }
@@ -131,10 +142,10 @@ class WeChatManagerImpl {
 
   /** Try to acquire the exclusive file-based lock. Returns true if acquired or already held by this id. */
   async tryLock(clientId: string): Promise<boolean> {
-    await mkdir(WECHAT_DATA_DIR, { recursive: true })
+    await mkdir(dir(), { recursive: true })
     const current = this.lockHolder
     if (!current || current === clientId) {
-      await writeFile(LOCK_FILE, JSON.stringify({ clientId, pid: process.pid, updatedAt: Date.now() }))
+      await writeFile(file("lock.json"), JSON.stringify({ clientId, pid: process.pid, updatedAt: Date.now() }))
       return true
     }
     return false
@@ -142,17 +153,17 @@ class WeChatManagerImpl {
 
   /** Force-acquire the lock, removing any existing holder. */
   async forceLock(clientId: string): Promise<void> {
-    await mkdir(WECHAT_DATA_DIR, { recursive: true })
+    await mkdir(dir(), { recursive: true })
     try {
-      await rm(LOCK_FILE, { force: true })
+      await rm(file("lock.json"), { force: true })
     } catch {}
-    await writeFile(LOCK_FILE, JSON.stringify({ clientId, pid: process.pid, updatedAt: Date.now() }))
+    await writeFile(file("lock.json"), JSON.stringify({ clientId, pid: process.pid, updatedAt: Date.now() }))
   }
 
   /** Release the lock if held by this client. */
   async unlock(clientId: string): Promise<void> {
     if (this.lockHolder === clientId) {
-      await rm(LOCK_FILE, { force: true })
+      await rm(file("lock.json"), { force: true })
     }
   }
 
@@ -160,7 +171,7 @@ class WeChatManagerImpl {
   async ping(clientId: string): Promise<{ ok: boolean; stolen: boolean }> {
     const current = this.lockHolder
     if (current === clientId) {
-      await writeFile(LOCK_FILE, JSON.stringify({ clientId, pid: process.pid, updatedAt: Date.now() }))
+      await writeFile(file("lock.json"), JSON.stringify({ clientId, pid: process.pid, updatedAt: Date.now() }))
       return { ok: true, stolen: false }
     }
     return { ok: false, stolen: current !== null }
@@ -241,7 +252,7 @@ class WeChatManagerImpl {
       }
     }
 
-    await mkdir(WECHAT_DATA_DIR, { recursive: true })
+    await mkdir(dir(), { recursive: true })
 
     try {
       const aetherUrl = Server.url?.toString() || "http://127.0.0.1:4096"
@@ -291,8 +302,8 @@ class WeChatManagerImpl {
       this.process = spawn(py, [script], {
         env: {
           ...process.env,
-          AETHER_WECHAT_QRCODE_FILE: QRCODE_FILE,
-          AETHER_WECHAT_SESSION_FILE: SESSION_FILE,
+          AETHER_WECHAT_QRCODE_FILE: file("qrcode.txt"),
+          AETHER_WECHAT_SESSION_FILE: file("session.json"),
           PYTHONUNBUFFERED: "1",
           AETHER_URL: aetherUrl,
           AETHER_USERNAME: Flag.OPENCODE_SERVER_USERNAME || "",
@@ -302,7 +313,7 @@ class WeChatManagerImpl {
         stdio: ["ignore", "pipe", "pipe"],
       })
 
-      await writeFile(PID_FILE, String(this.process.pid))
+      await writeFile(file("pid.txt"), String(this.process.pid))
 
       const stdout = createInterface({ input: this.process.stdout! })
       const stderr = createInterface({ input: this.process.stderr! })
@@ -343,7 +354,7 @@ class WeChatManagerImpl {
       }
       this.process = null
       try {
-        await rm(PID_FILE, { force: true })
+        await rm(file("pid.txt"), { force: true })
       } catch {}
     }
 
@@ -353,7 +364,7 @@ class WeChatManagerImpl {
 
     // 只删 session.json，保留 accounts.json（SDK token），下次连接无需重新扫码
     try {
-      await rm(SESSION_FILE, { force: true })
+      await rm(file("session.json"), { force: true })
     } catch {}
   }
 
@@ -492,7 +503,8 @@ class WeChatManagerImpl {
       // Production: next to binary
       join(dirname(process.execPath), "wechat-bridge", target),
       // User installation
-      join(homedir(), ".local", "share", "opencode", "wechat-bridge", target),
+      join(platformDir("wechat-bridge"), target),
+      join(legacyPlatformDir("wechat-bridge"), target),
     ]
 
     // Development: search upward from cwd for Aether-wechat-bridge/
@@ -536,9 +548,9 @@ class WeChatManagerImpl {
     const match = line.match(/data:image\/[^;]+;base64,[A-Za-z0-9+/=]+/)
     if (match) return match[0]
 
-    if (existsSync(QRCODE_FILE)) {
+    if (existsSync(file("qrcode.txt"))) {
       try {
-        return readFile(QRCODE_FILE, "utf-8").then((d) => d.trim()) as unknown as string
+        return readFile(file("qrcode.txt"), "utf-8").then((d) => d.trim()) as unknown as string
       } catch {}
     }
 
@@ -566,19 +578,20 @@ class WeChatManagerImpl {
     } else {
       this.status = "idle"
     }
-    rm(PID_FILE, { force: true }).catch(() => {})
+    rm(file("pid.txt"), { force: true }).catch(() => {})
   }
 
   private async saveSession() {
     if (this._session) {
-      await writeFile(SESSION_FILE, JSON.stringify(this._session, null, 2))
+      await writeFile(file("session.json"), JSON.stringify(this._session, null, 2))
     }
   }
 
   async loadSession(): Promise<WeChatSession | null> {
     try {
-      if (existsSync(SESSION_FILE)) {
-        const data = await readFile(SESSION_FILE, "utf-8")
+      const next = readPath("session.json")
+      if (existsSync(next)) {
+        const data = await readFile(next, "utf-8")
         return JSON.parse(data)
       }
     } catch {}
@@ -587,9 +600,9 @@ class WeChatManagerImpl {
 
   async clearSession(): Promise<void> {
     try {
-      await rm(SESSION_FILE, { force: true })
+      await rm(file("session.json"), { force: true })
       // Also clear the SDK token stored by JsonFileStorage in the same directory
-      await rm(join(WECHAT_DATA_DIR, "accounts.json"), { force: true })
+      await rm(file("accounts.json"), { force: true })
       this._session = null
     } catch {}
   }
