@@ -1,5 +1,5 @@
 import { For, createEffect, createMemo, on, onCleanup, Show, Index, type JSX, createSignal } from "solid-js"
-import { createStore, produce } from "solid-js/store"
+import { createStore, produce, reconcile } from "solid-js/store"
 import { useNavigate } from "@solidjs/router"
 import { useMutation } from "@tanstack/solid-query"
 import { Button } from "@opencode-ai/ui/button"
@@ -21,6 +21,7 @@ import { Popover as KobaltePopover } from "@kobalte/core/popover"
 import { shouldMarkBoundaryGesture, normalizeWheelDelta } from "@/pages/session/message-gesture"
 import { SessionContextUsage } from "@/components/session-context-usage"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
+import { useI18n } from "@opencode-ai/ui/context"
 import { useLanguage } from "@/context/language"
 import { useSessionKey } from "@/pages/session/session-layout"
 import { useGlobalSDK } from "@/context/global-sdk"
@@ -34,6 +35,7 @@ import { parseCommentNote, readCommentMetadata, readReadingQuoteMetadata, type R
 import { makeTimer } from "@solid-primitives/timer"
 import { createChatFind, ChatFindBar } from "@/pages/session/chat-find"
 import { countSessionDescendants } from "@/utils/session-tree"
+import { Persist, persisted } from "@/utils/persist"
 
 type MessageComment = {
   path: string
@@ -277,8 +279,15 @@ export function MessageTimeline(props: {
   const settings = useSettings()
   const dialog = useDialog()
   const language = useLanguage()
+  const uiI18n = useI18n()
   const { params, sessionKey } = useSessionKey()
   const platform = usePlatform()
+  const [assistantCollapse, setAssistantCollapse] = persisted(
+    Persist.workspace(sdk.directory, "session-assistant-collapse", ["session-assistant-collapse.v1"]),
+    createStore({
+      bySession: {} as Record<string, Record<string, true>>,
+    }),
+  )
 
   const rendered = createMemo(() => props.renderedUserMessages.map((message) => message.id))
   const sessionID = createMemo(() => params.id)
@@ -344,6 +353,60 @@ export function MessageTimeline(props: {
   const shareEnabled = createMemo(() => sync.data.config.share !== "disabled")
   const parentID = createMemo(() => info()?.parentID)
   const showHeader = createMemo(() => !!(titleValue() || parentID()))
+  const collapsibleTurnIDs = createMemo(() => {
+    const visible = new Set(rendered())
+    const pendingParents = new Set(
+      sessionMessages()
+        .filter((item): item is AssistantMessage => item.role === "assistant" && typeof item.time.completed !== "number")
+        .map((item) => item.parentID)
+        .filter((parentID): parentID is string => !!parentID),
+    )
+    const seen = new Set<string>()
+    const result: string[] = []
+
+    for (const item of sessionMessages()) {
+      if (item.role !== "assistant") continue
+      const parentID = item.parentID
+      if (!parentID || pendingParents.has(parentID) || !visible.has(parentID) || seen.has(parentID)) continue
+      seen.add(parentID)
+      result.push(parentID)
+    }
+
+    return result
+  })
+  const collapsedTurnMap = createMemo(() => {
+    const id = sessionID()
+    if (!id) return {}
+    return assistantCollapse.bySession[id] ?? {}
+  })
+  const isAssistantCollapsed = (messageID: string) => !!collapsedTurnMap()[messageID]
+  const setAssistantCollapsed = (messageID: string, value: boolean) => {
+    const id = sessionID()
+    if (!id) return
+    if (value) {
+      setAssistantCollapse("bySession", id, messageID, true)
+      return
+    }
+    setAssistantCollapse("bySession", id, produce((draft) => {
+      if (!draft || !draft[messageID]) return
+      delete draft[messageID]
+    }))
+  }
+  const allAssistantCollapsed = createMemo(() => {
+    const ids = collapsibleTurnIDs()
+    return ids.length > 0 && ids.every((messageID) => isAssistantCollapsed(messageID))
+  })
+  const collapseAllAssistant = () => {
+    const id = sessionID()
+    if (!id) return
+    const next = Object.fromEntries(collapsibleTurnIDs().map((messageID) => [messageID, true] as const))
+    setAssistantCollapse("bySession", id, reconcile(next))
+  }
+  const expandAllAssistant = () => {
+    const id = sessionID()
+    if (!id) return
+    setAssistantCollapse("bySession", id, reconcile({}))
+  }
   const stageCfg = { init: 1, batch: 3 }
   const staging = createTimelineStaging({
     sessionKey,
@@ -874,6 +937,24 @@ export function MessageTimeline(props: {
                                   </DropdownMenu.ItemLabel>
                                 </DropdownMenu.Item>
                               </Show>
+                              <Show when={collapsibleTurnIDs().length > 0}>
+                                <DropdownMenu.Item
+                                  onSelect={() => {
+                                    setTitle("menuOpen", false)
+                                    if (allAssistantCollapsed()) {
+                                      expandAllAssistant()
+                                      return
+                                    }
+                                    collapseAllAssistant()
+                                  }}
+                                >
+                                  <DropdownMenu.ItemLabel>
+                                    {allAssistantCollapsed()
+                                      ? uiI18n.t("ui.sessionReview.expandAll")
+                                      : uiI18n.t("ui.sessionReview.collapseAll")}
+                                  </DropdownMenu.ItemLabel>
+                                </DropdownMenu.Item>
+                              </Show>
                               <DropdownMenu.Item onSelect={() => void archiveSession(id())}>
                                 <DropdownMenu.ItemLabel>{language.t("common.archive")}</DropdownMenu.ItemLabel>
                               </DropdownMenu.Item>
@@ -1051,11 +1132,15 @@ export function MessageTimeline(props: {
                     <div
                       id={props.anchor(messageID)}
                       data-message-id={messageID}
+                      data-assistant-collapsed={isAssistantCollapsed(messageID) ? "true" : undefined}
                       classList={{
                         "min-w-0 w-full max-w-full": true,
                         "md:max-w-200 2xl:max-w-[1000px]": props.centered,
                       }}
-                      style={{ "content-visibility": "auto", "contain-intrinsic-size": "auto 500px" }}
+                      style={{
+                        "content-visibility": "auto",
+                        "contain-intrinsic-size": isAssistantCollapsed(messageID) ? "auto 20px" : "auto 500px",
+                      }}
                     >
                       <Show when={commentCount() > 0 || readingQuoteCount() > 0}>
                         <div class="w-full px-4 md:px-5 pb-2">
@@ -1134,6 +1219,8 @@ export function MessageTimeline(props: {
                         messageID={messageID}
                         messages={sessionMessages()}
                         actions={props.actions}
+                        assistantCollapsed={isAssistantCollapsed(messageID)}
+                        onAssistantCollapsedChange={(collapsed) => setAssistantCollapsed(messageID, collapsed)}
                         active={active()}
                         status={active() ? sessionStatus() : undefined}
                         showReasoningSummaries={settings.general.showReasoningSummaries()}

@@ -149,6 +149,8 @@ export function SessionTurn(
     editToolDefaultOpen?: boolean
     active?: boolean
     status?: SessionStatus
+    assistantCollapsed?: boolean
+    onAssistantCollapsedChange?: (collapsed: boolean) => void
     onUserInteracted?: () => void
     classes?: {
       root?: string
@@ -369,6 +371,10 @@ export function SessionTurn(
     if (showReasoningSummaries()) return assistantVisible() === 0
     return true
   })
+  const assistantCollapsed = createMemo(() => props.assistantCollapsed ?? false)
+  const canCollapseAssistant = createMemo(() => assistantMessages().length > 0 && !working())
+  const assistantExpandLabel = createMemo(() => i18n.t("ui.message.expand"))
+  const collapseAssistant = () => props.onAssistantCollapsedChange?.(true)
 
   const autoScroll = createAutoScroll({
     working,
@@ -377,11 +383,16 @@ export function SessionTurn(
   })
 
   return (
-    <div data-component="session-turn" class={props.classes?.root}>
+    <div
+      data-component="session-turn"
+      data-assistant-collapsed={assistantCollapsed() ? "true" : undefined}
+      class={props.classes?.root}
+    >
       <div
         ref={autoScroll.scrollRef}
         onScroll={autoScroll.handleScroll}
         data-slot="session-turn-content"
+        data-assistant-collapsed={assistantCollapsed() ? "true" : undefined}
         class={props.classes?.content}
       >
         <div onClick={autoScroll.handleInteraction}>
@@ -390,18 +401,36 @@ export function SessionTurn(
               ref={autoScroll.contentRef}
               data-message={message()!.id}
               data-slot="session-turn-message-container"
+              data-assistant-collapsed={assistantCollapsed() ? "true" : undefined}
               class={props.classes?.container}
             >
               <div data-slot="session-turn-message-content" aria-live="off">
                 <Message message={message()!} parts={parts()} actions={props.actions} />
               </div>
-              <Show when={divider()}>
+              <Show when={divider() && !assistantCollapsed()}>
                 <div data-slot="session-turn-compaction">
                   <MessageDivider label={divider()} />
                 </div>
               </Show>
+              <Show when={assistantCollapsed() && canCollapseAssistant()}>
+                <button
+                  type="button"
+                  data-slot="session-turn-assistant-toggle"
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    props.onAssistantCollapsedChange?.(false)
+                  }}
+                  aria-label={assistantExpandLabel()}
+                >
+                  <MessageDivider label={assistantExpandLabel()} />
+                </button>
+              </Show>
               <Show when={assistantMessages().length > 0}>
-                <div data-slot="session-turn-assistant-content" aria-hidden={working()}>
+                <div
+                  data-slot="session-turn-assistant-content"
+                  aria-hidden={working()}
+                  hidden={assistantCollapsed()}
+                >
                   <AssistantParts
                     messages={assistantMessages()}
                     showAssistantCopyPartID={assistantCopyPartID()}
@@ -410,10 +439,12 @@ export function SessionTurn(
                     showReasoningSummaries={showReasoningSummaries()}
                     shellToolDefaultOpen={props.shellToolDefaultOpen}
                     editToolDefaultOpen={props.editToolDefaultOpen}
+                    canCollapseAssistant={canCollapseAssistant()}
+                    onAssistantCollapse={collapseAssistant}
                   />
                 </div>
               </Show>
-              <Show when={showThinking()}>
+              <Show when={showThinking() && !assistantCollapsed()}>
                 <div data-slot="session-turn-thinking">
                   <TextShimmer text={i18n.t("ui.sessionTurn.status.thinking")} />
                   <Show when={!showReasoningSummaries()}>
@@ -427,7 +458,7 @@ export function SessionTurn(
                 </div>
               </Show>
               <SessionRetry status={status()} show={active()} />
-              <Show when={edited() > 0 && !working()}>
+              <Show when={edited() > 0 && !working() && !assistantCollapsed()}>
                 <div data-slot="session-turn-diffs">
                   <Collapsible open={open()} onOpenChange={(value) => setState("open", value)} variant="ghost">
                     <Collapsible.Trigger>
@@ -525,7 +556,7 @@ export function SessionTurn(
                   </Collapsible>
                 </div>
               </Show>
-              <Show when={error()}>
+              <Show when={error() && !assistantCollapsed()}>
                 <Card variant="error" class="error-card">
                   {errorText()}
                 </Card>
