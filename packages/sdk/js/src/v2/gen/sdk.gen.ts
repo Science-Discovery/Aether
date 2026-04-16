@@ -211,6 +211,8 @@ import type {
   ReadingModeSessionUpdateResponses,
   SessionAbortErrors,
   SessionAbortResponses,
+  SessionArchiveErrors,
+  SessionArchiveResponses,
   SessionChildrenErrors,
   SessionChildrenResponses,
   SessionCommandErrors,
@@ -252,6 +254,8 @@ import type {
   SessionTodoResponses,
   SessionTreeErrors,
   SessionTreeResponses,
+  SessionUnarchiveErrors,
+  SessionUnarchiveResponses,
   SessionUnrevertErrors,
   SessionUnrevertResponses,
   SessionUnshareErrors,
@@ -2073,70 +2077,6 @@ export class Session2 extends HeyApiClient {
   }
 
   /**
-   * Archive session subtree
-   *
-   * Archive a session. Child branches are detached into an archived subtree root.
-   */
-  public archive<ThrowOnError extends boolean = false>(
-    parameters: {
-      sessionID: string
-      directory?: string
-      workspace?: string
-    },
-    options?: Options<never, ThrowOnError>,
-  ) {
-    const params = buildClientParams(
-      [parameters],
-      [
-        {
-          args: [
-            { in: "path", key: "sessionID" },
-            { in: "query", key: "directory" },
-            { in: "query", key: "workspace" },
-          ],
-        },
-      ],
-    )
-    return (options?.client ?? this.client).post<SessionGetResponses, SessionGetErrors, ThrowOnError>({
-      url: "/session/{sessionID}/archive",
-      ...options,
-      ...params,
-    })
-  }
-
-  /**
-   * Unarchive session subtree
-   *
-   * Restore an archived session subtree as an independent active root.
-   */
-  public unarchive<ThrowOnError extends boolean = false>(
-    parameters: {
-      sessionID: string
-      directory?: string
-      workspace?: string
-    },
-    options?: Options<never, ThrowOnError>,
-  ) {
-    const params = buildClientParams(
-      [parameters],
-      [
-        {
-          args: [
-            { in: "path", key: "sessionID" },
-            { in: "query", key: "directory" },
-            { in: "query", key: "workspace" },
-          ],
-        },
-      ],
-    )
-    return (options?.client ?? this.client).post<SessionGetResponses, SessionGetErrors, ThrowOnError>({
-      url: "/session/{sessionID}/unarchive",
-      ...options,
-      ...params,
-    })
-  }
-
-  /**
    * Get session children
    *
    * Retrieve all child sessions that were forked from the specified parent session.
@@ -2259,6 +2199,70 @@ export class Session2 extends HeyApiClient {
     )
     return (options?.client ?? this.client).get<SessionTodoResponses, SessionTodoErrors, ThrowOnError>({
       url: "/session/{sessionID}/todo",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Archive session subtree
+   *
+   * Archive a session. Child branches are detached into an archived subtree root.
+   */
+  public archive<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<SessionArchiveResponses, SessionArchiveErrors, ThrowOnError>({
+      url: "/session/{sessionID}/archive",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Unarchive session subtree
+   *
+   * Restore an archived session subtree as an independent active root.
+   */
+  public unarchive<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<SessionUnarchiveResponses, SessionUnarchiveErrors, ThrowOnError>({
+      url: "/session/{sessionID}/unarchive",
       ...options,
       ...params,
     })

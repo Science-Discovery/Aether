@@ -962,6 +962,7 @@ export type Session = {
   directory: string
   parentID?: string
   treeID?: string
+  forkIndex?: number
   forkParentSessionID?: string
   forkAfterUserMessageID?: string
   summary?: {
@@ -1150,6 +1151,7 @@ export type SyncEventSessionUpdated = {
       directory: string | null
       parentID: string | null
       treeID: string | null
+      forkIndex: number | null
       forkParentSessionID: string | null
       forkAfterUserMessageID: string | null
       summary: {
@@ -1909,6 +1911,7 @@ export type GlobalSession = {
   directory: string
   parentID?: string
   treeID?: string
+  forkIndex?: number
   forkParentSessionID?: string
   forkAfterUserMessageID?: string
   summary?: {
@@ -3454,7 +3457,7 @@ export type ExperimentalSessionListData = {
      */
     archived?: boolean
     /**
-     * Archive filtering mode: exclude(default), include(all), only(archived only)
+     * Archive filtering mode: exclude(default), include(all), only(archived only).
      */
     archivedMode?: "exclude" | "include" | "only"
   }
@@ -3835,6 +3838,74 @@ export type SessionTodoResponses = {
 }
 
 export type SessionTodoResponse = SessionTodoResponses[keyof SessionTodoResponses]
+
+export type SessionArchiveData = {
+  body?: never
+  path: {
+    sessionID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/session/{sessionID}/archive"
+}
+
+export type SessionArchiveErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type SessionArchiveError = SessionArchiveErrors[keyof SessionArchiveErrors]
+
+export type SessionArchiveResponses = {
+  /**
+   * Archived session subtree root
+   */
+  200: Session
+}
+
+export type SessionArchiveResponse = SessionArchiveResponses[keyof SessionArchiveResponses]
+
+export type SessionUnarchiveData = {
+  body?: never
+  path: {
+    sessionID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/session/{sessionID}/unarchive"
+}
+
+export type SessionUnarchiveErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type SessionUnarchiveError = SessionUnarchiveErrors[keyof SessionUnarchiveErrors]
+
+export type SessionUnarchiveResponses = {
+  /**
+   * Unarchived session subtree root
+   */
+  200: Session
+}
+
+export type SessionUnarchiveResponse = SessionUnarchiveResponses[keyof SessionUnarchiveResponses]
 
 export type SessionInitData = {
   body?: {
