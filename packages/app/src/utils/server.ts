@@ -100,6 +100,10 @@ export function createSdkForServer({
   return createOpencodeClient({
     ...config,
     baseUrl: server.url,
+    headers: {
+      ...auth,
+      ...(config.headers ?? {}),
+    },
   }) as unknown as AppClient
 }
 

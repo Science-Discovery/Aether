@@ -12,6 +12,9 @@ export OPENCODE_CHANNEL=prod
 export OPENCODE_UPDATER_CHANNEL=latest
 export RUST_TARGET=aarch64-apple-darwin
 
+echo "Preparing desktop resources..."
+bun ./scripts/prepare.ts
+
 bun run build
 npx electron-builder --mac dmg --arm64 --publish never --config electron-builder.config.ts
 
