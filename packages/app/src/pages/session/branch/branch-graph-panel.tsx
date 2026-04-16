@@ -320,9 +320,12 @@ export function BranchGraphPanel(props: { sessionID: string }) {
     })
   }
 
-  const openNode = (node: Pick<SessionGraphNode, "sessionID" | "userMessageID">) => {
+  const openNode = async (node: Pick<SessionGraphNode, "sessionID" | "userMessageID">) => {
     if (!params.dir || !node.sessionID) return
     const hash = node.userMessageID ? `#message-${node.userMessageID}` : ""
+    if (node.sessionID !== props.sessionID) {
+      await sync.session.sync(node.sessionID, { force: true }).catch(() => undefined)
+    }
     navigate(`/${params.dir}/session/${node.sessionID}${hash}`)
   }
 

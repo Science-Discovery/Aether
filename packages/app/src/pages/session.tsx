@@ -50,6 +50,7 @@ import {
   createOpenReviewFile,
   createSessionTabs,
   createSizing,
+  shouldProtectSessionRevert,
   type Sizing,
   focusTerminalById,
   shouldFocusTerminalOnKeyDown,
@@ -1931,6 +1932,7 @@ function SessionPageContent(props: SessionPageProps = {}) {
       await halt(input.sessionID)
         .then(() => sdk.client.session.revert(input))
         .then((result) => {
+          sync.session.invalidate(input.sessionID)
           if (result.data) merge(result.data)
         })
         .catch((err) => {
@@ -1972,6 +1974,7 @@ function SessionPageContent(props: SessionPageProps = {}) {
 
       await task
         .then((result) => {
+          sync.session.invalidate(sessionID)
           if (result.data) merge(result.data)
         })
         .catch((err) => {
@@ -2009,7 +2012,24 @@ function SessionPageContent(props: SessionPageProps = {}) {
 
   const revert = (input: { sessionID: string; messageID: string }) => {
     if (reverting()) return
-    return revertMutation.mutateAsync(input)
+    const session = info()
+    if (!session || session.id !== input.sessionID) {
+      return revertMutation.mutateAsync(input)
+    }
+
+    return sdk.client.session
+      .graph({ sessionID: input.sessionID })
+      .then((result) => {
+        const protectedRevert = shouldProtectSessionRevert({
+          session,
+          messages: messages(),
+          selectedMessageID: input.messageID,
+          graph: result.data,
+        })
+        if (protectedRevert) return fork(input)
+        return revertMutation.mutateAsync(input)
+      })
+      .catch(() => revertMutation.mutateAsync(input))
   }
 
   const restore = (id: string) => {
@@ -2153,51 +2173,53 @@ function SessionPageContent(props: SessionPageProps = {}) {
               }}
             >
               <div class="flex-1 min-h-0 overflow-hidden">
-                <Switch>
-                  <Match when={params.id}>
-                    <Show when={messagesReady()}>
-                      <MessageTimeline
-                        mobileChanges={mobileChanges()}
-                        mobileFallback={reviewContent({
-                          diffStyle: "unified",
-                          classes: {
-                            root: "pb-8",
-                            header: "px-4",
-                            container: "px-4",
-                          },
-                          loadingClass: "px-4 py-4 text-text-weak",
-                          emptyClass: "h-full pb-64 -mt-4 flex flex-col items-center justify-center text-center gap-6",
-                        })}
-                        actions={actions}
-                        scroll={ui.scroll}
-                        onResumeScroll={resumeScroll}
-                        setScrollRef={setScrollRef}
-                        onScheduleScrollState={scheduleScrollState}
-                        onAutoScrollHandleScroll={autoScroll.handleScroll}
-                        onMarkScrollGesture={markScrollGesture}
-                        hasScrollGesture={hasScrollGesture}
-                        onUserScroll={markUserScroll}
-                        onTurnBackfillScroll={historyWindow.onScrollerScroll}
-                        onAutoScrollInteraction={autoScroll.handleInteraction}
-                        centered={centered()}
-                        setContentRef={(el) => {
-                          content = el
-                          autoScroll.contentRef(el)
+                  <Switch>
+                    <Match when={params.id}>
+                      <Show when={params.id} keyed>
+                        <Show when={messagesReady()}>
+                          <MessageTimeline
+                            mobileChanges={mobileChanges()}
+                            mobileFallback={reviewContent({
+                              diffStyle: "unified",
+                              classes: {
+                                root: "pb-8",
+                                header: "px-4",
+                                container: "px-4",
+                              },
+                              loadingClass: "px-4 py-4 text-text-weak",
+                              emptyClass: "h-full pb-64 -mt-4 flex flex-col items-center justify-center text-center gap-6",
+                            })}
+                            actions={actions}
+                            scroll={ui.scroll}
+                            onResumeScroll={resumeScroll}
+                            setScrollRef={setScrollRef}
+                            onScheduleScrollState={scheduleScrollState}
+                            onAutoScrollHandleScroll={autoScroll.handleScroll}
+                            onMarkScrollGesture={markScrollGesture}
+                            hasScrollGesture={hasScrollGesture}
+                            onUserScroll={markUserScroll}
+                            onTurnBackfillScroll={historyWindow.onScrollerScroll}
+                            onAutoScrollInteraction={autoScroll.handleInteraction}
+                            centered={centered()}
+                            setContentRef={(el) => {
+                              content = el
+                              autoScroll.contentRef(el)
 
-                          const root = scroller
-                          if (root) scheduleScrollState(root)
-                        }}
-                        turnStart={historyWindow.turnStart()}
-                        historyMore={historyMore()}
-                        historyLoading={historyLoading()}
-                        onLoadEarlier={() => {
-                          void historyWindow.loadAndReveal()
-                        }}
-                        renderedUserMessages={historyWindow.renderedUserMessages()}
-                        anchor={anchor}
-                      />
-                    </Show>
-                  </Match>
+                              const root = scroller
+                              if (root) scheduleScrollState(root)
+                            }}
+                            turnStart={historyWindow.turnStart()}
+                            historyMore={historyMore()}
+                            historyLoading={historyLoading()}
+                            onLoadEarlier={() => {
+                              void historyWindow.loadAndReveal()
+                            }}
+                            renderedUserMessages={historyWindow.renderedUserMessages()}
+                            anchor={anchor}
+                          />
+                        </Show>
+                      </Show>
+                    </Match>
                   <Match when={true}>
                     <NewSessionView worktree={newSessionWorktree()} />
                   </Match>
@@ -2315,51 +2337,53 @@ function SessionPageContent(props: SessionPageProps = {}) {
             }}
           >
           <div class="flex-1 min-h-0 overflow-hidden">
-            <Switch>
-              <Match when={params.id}>
-                <Show when={messagesReady()}>
-                  <MessageTimeline
-                    mobileChanges={mobileChanges()}
-                    mobileFallback={reviewContent({
-                      diffStyle: "unified",
-                      classes: {
-                        root: "pb-8",
-                        header: "px-4",
-                        container: "px-4",
-                      },
-                      loadingClass: "px-4 py-4 text-text-weak",
-                      emptyClass: "h-full pb-64 -mt-4 flex flex-col items-center justify-center text-center gap-6",
-                    })}
-                    actions={actions}
-                    scroll={ui.scroll}
-                    onResumeScroll={resumeScroll}
-                    setScrollRef={setScrollRef}
-                    onScheduleScrollState={scheduleScrollState}
-                    onAutoScrollHandleScroll={autoScroll.handleScroll}
-                    onMarkScrollGesture={markScrollGesture}
-                    hasScrollGesture={hasScrollGesture}
-                    onUserScroll={markUserScroll}
-                    onTurnBackfillScroll={historyWindow.onScrollerScroll}
-                    onAutoScrollInteraction={autoScroll.handleInteraction}
-                    centered={centered()}
-                    setContentRef={(el) => {
-                      content = el
-                      autoScroll.contentRef(el)
+              <Switch>
+                <Match when={params.id}>
+                  <Show when={params.id} keyed>
+                    <Show when={messagesReady()}>
+                      <MessageTimeline
+                        mobileChanges={mobileChanges()}
+                        mobileFallback={reviewContent({
+                          diffStyle: "unified",
+                          classes: {
+                            root: "pb-8",
+                            header: "px-4",
+                            container: "px-4",
+                          },
+                          loadingClass: "px-4 py-4 text-text-weak",
+                          emptyClass: "h-full pb-64 -mt-4 flex flex-col items-center justify-center text-center gap-6",
+                        })}
+                        actions={actions}
+                        scroll={ui.scroll}
+                        onResumeScroll={resumeScroll}
+                        setScrollRef={setScrollRef}
+                        onScheduleScrollState={scheduleScrollState}
+                        onAutoScrollHandleScroll={autoScroll.handleScroll}
+                        onMarkScrollGesture={markScrollGesture}
+                        hasScrollGesture={hasScrollGesture}
+                        onUserScroll={markUserScroll}
+                        onTurnBackfillScroll={historyWindow.onScrollerScroll}
+                        onAutoScrollInteraction={autoScroll.handleInteraction}
+                        centered={centered()}
+                        setContentRef={(el) => {
+                          content = el
+                          autoScroll.contentRef(el)
 
-                      const root = scroller
-                      if (root) scheduleScrollState(root)
-                    }}
-                    turnStart={historyWindow.turnStart()}
-                    historyMore={historyMore()}
-                    historyLoading={historyLoading()}
-                    onLoadEarlier={() => {
-                      void historyWindow.loadAndReveal()
-                    }}
-                    renderedUserMessages={historyWindow.renderedUserMessages()}
-                    anchor={anchor}
-                  />
-                </Show>
-              </Match>
+                          const root = scroller
+                          if (root) scheduleScrollState(root)
+                        }}
+                        turnStart={historyWindow.turnStart()}
+                        historyMore={historyMore()}
+                        historyLoading={historyLoading()}
+                        onLoadEarlier={() => {
+                          void historyWindow.loadAndReveal()
+                        }}
+                        renderedUserMessages={historyWindow.renderedUserMessages()}
+                        anchor={anchor}
+                      />
+                    </Show>
+                  </Show>
+                </Match>
               <Match when={true}>
                 <NewSessionView worktree={newSessionWorktree()} />
               </Match>
