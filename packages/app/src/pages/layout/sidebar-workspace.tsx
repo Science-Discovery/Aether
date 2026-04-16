@@ -323,7 +323,7 @@ const SessionTreeNodes = (props: {
             clearHoverProjectSoon={props.ctx.clearHoverProjectSoon}
             prefetchSession={props.ctx.prefetchSession}
             archiveSession={archiveSession()}
-            unarchiveSession={props.unarchiveSession}
+            unarchiveSession={nodeProps.depth === 0 ? props.unarchiveSession : undefined}
             deleteSession={props.ctx.deleteSession}
             renameSession={props.ctx.renameSession}
             hasChildren={hasChildren()}
@@ -393,12 +393,11 @@ const ArchivedSessionList = (props: {
   }
 
   const unarchiveSession = async (session: Session) => {
-    await globalSDK.client.session.update({
+    await globalSDK.client.session.unarchive({
       directory: session.directory,
       sessionID: session.id,
-      time: { archived: 0 },
     })
-    await globalSync.project.loadSessions(props.directory)
+    await globalSync.project.loadSessions(props.directory, { force: true })
     if (open()) await load()
     if (session.id === params.id) {
       props.ctx.setHoverSession(undefined)

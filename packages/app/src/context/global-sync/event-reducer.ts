@@ -119,6 +119,9 @@ export function applyDirectoryEvent(input: {
     case "session.updated": {
       const info = (event.properties as { info: Session }).info
       const result = Binary.search(input.store.session, info.id, (s) => s.id)
+      const previous = result.found ? input.store.session[result.index] : undefined
+      const wasRootVisible = !!previous && !previous.parentID && !previous.time?.archived
+      const isRootVisible = !info.parentID && !info.time?.archived
       if (info.time.archived) {
         if (result.found) {
           input.setStore(
@@ -129,12 +132,16 @@ export function applyDirectoryEvent(input: {
           )
         }
         cleanupSessionCaches(input.setStore, info.id, input.setSessionTodo)
-        if (info.parentID) break
-        input.setStore("sessionTotal", (value) => Math.max(0, value - 1))
+        if (wasRootVisible) {
+          input.setStore("sessionTotal", (value) => Math.max(0, value - 1))
+        }
         break
       }
       if (result.found) {
         input.setStore("session", result.index, reconcile(info))
+        if (wasRootVisible !== isRootVisible) {
+          input.setStore("sessionTotal", (value) => Math.max(0, value + (isRootVisible ? 1 : -1)))
+        }
         break
       }
       const next = input.store.session.slice()
@@ -142,6 +149,9 @@ export function applyDirectoryEvent(input: {
       const trimmed = trimSessions(next, { limit: input.store.limit, permission: input.store.permission })
       input.setStore("session", reconcile(trimmed, { key: "id" }))
       cleanupDroppedSessionCaches(input.store, input.setStore, trimmed, input.setSessionTodo)
+      if (isRootVisible) {
+        input.setStore("sessionTotal", (value) => value + 1)
+      }
       break
     }
     case "session.deleted": {

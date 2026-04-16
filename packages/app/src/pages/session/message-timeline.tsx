@@ -24,6 +24,7 @@ import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { useLanguage } from "@/context/language"
 import { useSessionKey } from "@/pages/session/session-layout"
 import { useGlobalSDK } from "@/context/global-sdk"
+import { useGlobalSync } from "@/context/global-sync"
 import { usePlatform } from "@/context/platform"
 import { useSettings } from "@/context/settings"
 import { useSDK } from "@/context/sdk"
@@ -32,6 +33,7 @@ import { messageAgentColor } from "@/utils/agent"
 import { parseCommentNote, readCommentMetadata, readReadingQuoteMetadata, type ReadingQuote } from "@/utils/comment-note"
 import { makeTimer } from "@solid-primitives/timer"
 import { createChatFind, ChatFindBar } from "@/pages/session/chat-find"
+import { countSessionDescendants } from "@/utils/session-tree"
 
 type MessageComment = {
   path: string
@@ -269,6 +271,7 @@ export function MessageTimeline(props: {
 
   const navigate = useNavigate()
   const globalSDK = useGlobalSDK()
+  const globalSync = useGlobalSync()
   const sdk = useSDK()
   const sync = useSync()
   const settings = useSettings()
@@ -499,18 +502,52 @@ export function MessageTimeline(props: {
     if (!session) return
 
     const sessions = sync.data.session ?? []
+    const descendantCount = countSessionDescendants(sessions, sessionID)
     const index = sessions.findIndex((s) => s.id === sessionID)
     const nextSession = index === -1 ? undefined : (sessions[index + 1] ?? sessions[index - 1])
 
+    if (descendantCount > 0) {
+      const confirmed = await new Promise<boolean>((resolve) => {
+        dialog.show(() => (
+          <Dialog title={language.t("common.archive")} fit>
+            <div class="flex flex-col gap-4 pl-6 pr-2.5 pb-3">
+              <span class="text-14-regular text-text-strong">
+                {`"${session.title}" has ${descendantCount} child session${descendantCount > 1 ? "s" : ""}. They will be archived together.`}
+              </span>
+              <div class="flex justify-end gap-2">
+                <Button
+                  variant="ghost"
+                  size="large"
+                  onClick={() => {
+                    dialog.close()
+                    resolve(false)
+                  }}
+                >
+                  {language.t("common.cancel")}
+                </Button>
+                <Button
+                  variant="primary"
+                  size="large"
+                  onClick={() => {
+                    dialog.close()
+                    resolve(true)
+                  }}
+                >
+                  {language.t("common.archive")}
+                </Button>
+              </div>
+            </div>
+          </Dialog>
+        ))
+      })
+      if (!confirmed) return
+    }
+
     await sdk.client.session
-      .update({ sessionID, time: { archived: Date.now() } })
-      .then(() => {
-        sync.set(
-          produce((draft) => {
-            const index = draft.session.findIndex((s) => s.id === sessionID)
-            if (index !== -1) draft.session.splice(index, 1)
-          }),
-        )
+      .archive({ sessionID })
+      .then(async () => {
+        sync.session.invalidate(sessionID)
+        await globalSync.project.loadSessions(session.directory, { force: true })
         navigateAfterSessionRemoval(sessionID, session.parentID, nextSession?.id)
       })
       .catch((err) => {

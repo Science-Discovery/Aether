@@ -382,6 +382,52 @@ export namespace Session {
     }
   }
 
+  async function collectSessionSubtree(input: { projectID: ProjectID; rootSessionID: SessionID }) {
+    const rows = Database.use((db) =>
+      db
+        .select()
+        .from(SessionTable)
+        .where(eq(SessionTable.project_id, input.projectID))
+        .orderBy(asc(SessionTable.time_created), asc(SessionTable.id))
+        .all(),
+    )
+
+    const sessions = rows.map(fromRow)
+    const sessionsByID = new Map(sessions.map((session) => [session.id, session] as const))
+    const childrenByParent = new Map<SessionID, Info[]>()
+
+    for (const session of sessions) {
+      if (!session.parentID) continue
+      const siblings = childrenByParent.get(session.parentID)
+      if (siblings) siblings.push(session)
+      else childrenByParent.set(session.parentID, [session])
+    }
+
+    const root = sessionsByID.get(input.rootSessionID)
+    if (!root) throw new NotFoundError({ message: `Session not found: ${input.rootSessionID}` })
+
+    const subtree: Info[] = []
+    const queue: SessionID[] = [input.rootSessionID]
+    const visited = new Set<SessionID>()
+
+    while (queue.length > 0) {
+      const sessionID = queue.shift()
+      if (!sessionID || visited.has(sessionID)) continue
+      visited.add(sessionID)
+
+      const session = sessionsByID.get(sessionID)
+      if (!session) continue
+      subtree.push(session)
+
+      for (const child of childrenByParent.get(sessionID) ?? []) {
+        if (visited.has(child.id)) continue
+        queue.push(child.id)
+      }
+    }
+
+    return subtree
+  }
+
   export const Info = z
     .object({
       id: SessionID.zod,
@@ -815,6 +861,86 @@ export namespace Session {
       SyncEvent.run(Event.Updated, { sessionID: input.sessionID, info: { time: { archived } } })
     },
   )
+
+  export const archive = fn(SessionID.zod, async (sessionID) => {
+    const session = await get(sessionID)
+    const archivedAt = Date.now()
+    const subtree = await collectSessionSubtree({
+      projectID: session.projectID,
+      rootSessionID: sessionID,
+    })
+
+    if (!session.parentID) {
+      for (const item of subtree) {
+        SyncEvent.run(Event.Updated, {
+          sessionID: item.id,
+          info: {
+            time: {
+              archived: archivedAt,
+              updated: archivedAt,
+            },
+          },
+        })
+      }
+      return get(sessionID)
+    }
+
+    const subtreeIDs = new Set(subtree.map((item) => item.id))
+    const detachedTreeID = TreeID.descending()
+
+    for (const item of subtree) {
+      const patch = {
+        treeID: detachedTreeID,
+        time: {
+          archived: archivedAt,
+          updated: archivedAt,
+        },
+      } as any
+
+      if (item.id === sessionID) {
+        patch.parentID = null
+        patch.forkParentSessionID = null
+        patch.forkAfterUserMessageID = null
+      } else if (item.forkParentSessionID && !subtreeIDs.has(item.forkParentSessionID)) {
+        patch.forkParentSessionID = null
+        patch.forkAfterUserMessageID = null
+      }
+
+      SyncEvent.run(Event.Updated, {
+        sessionID: item.id,
+        info: patch,
+      })
+    }
+
+    return get(sessionID)
+  })
+
+  export const unarchive = fn(SessionID.zod, async (sessionID) => {
+    const session = await get(sessionID)
+    if (session.parentID) {
+      throw new Error("Only archived subtree roots can be unarchived")
+    }
+
+    const updatedAt = Date.now()
+    const subtree = await collectSessionSubtree({
+      projectID: session.projectID,
+      rootSessionID: sessionID,
+    })
+
+    for (const item of subtree) {
+      SyncEvent.run(Event.Updated, {
+        sessionID: item.id,
+        info: {
+          time: {
+            archived: null,
+            updated: updatedAt,
+          },
+        },
+      })
+    }
+
+    return get(sessionID)
+  })
 
   export const setPermission = fn(
     z.object({

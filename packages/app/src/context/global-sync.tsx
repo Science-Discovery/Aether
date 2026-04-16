@@ -237,13 +237,14 @@ function createGlobalSync() {
     return recentTask
   }
 
-  async function loadSessions(directory: string) {
+  async function loadSessions(directory: string, opts?: { force?: boolean }) {
     directory = normalizeDir(directory)
     const pending = sessionLoads.get(directory)
     if (pending) return pending
 
     children.pin(directory)
     const [store, setStore] = children.child(directory, { bootstrap: false })
+    if (opts?.force) sessionMeta.delete(directory)
     const meta = sessionMeta.get(directory)
     if (meta && meta.limit >= store.limit) {
       const next = trimSessions(store.session, {

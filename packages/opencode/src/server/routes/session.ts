@@ -357,6 +357,66 @@ export const SessionRoutes = lazy(() =>
       },
     )
     .post(
+      "/:sessionID/archive",
+      describeRoute({
+        summary: "Archive session subtree",
+        description: "Archive a session. Child branches are detached into an archived subtree root.",
+        operationId: "session.archive",
+        responses: {
+          200: {
+            description: "Archived session subtree root",
+            content: {
+              "application/json": {
+                schema: resolver(Session.Info),
+              },
+            },
+          },
+          ...errors(400, 404),
+        },
+      }),
+      validator(
+        "param",
+        z.object({
+          sessionID: SessionID.zod,
+        }),
+      ),
+      async (c) => {
+        const sessionID = c.req.valid("param").sessionID
+        const session = await Session.archive(sessionID)
+        return c.json(session)
+      },
+    )
+    .post(
+      "/:sessionID/unarchive",
+      describeRoute({
+        summary: "Unarchive session subtree",
+        description: "Restore an archived session subtree as an independent active root.",
+        operationId: "session.unarchive",
+        responses: {
+          200: {
+            description: "Unarchived session subtree root",
+            content: {
+              "application/json": {
+                schema: resolver(Session.Info),
+              },
+            },
+          },
+          ...errors(400, 404),
+        },
+      }),
+      validator(
+        "param",
+        z.object({
+          sessionID: SessionID.zod,
+        }),
+      ),
+      async (c) => {
+        const sessionID = c.req.valid("param").sessionID
+        const session = await Session.unarchive(sessionID)
+        return c.json(session)
+      },
+    )
+    .post(
       "/:sessionID/init",
       describeRoute({
         summary: "Initialize session",

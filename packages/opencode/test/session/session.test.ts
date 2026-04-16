@@ -290,6 +290,92 @@ describe("session tree IDs", () => {
       },
     })
   })
+
+  test("archiving a child leaf detaches it into an archived root", async () => {
+    await Instance.provide({
+      directory: projectRoot,
+      fn: async () => {
+        const root = await Session.create({ title: "Root" })
+        const child = await Session.fork({ sessionID: root.id })
+        const originalTreeID = root.treeID
+
+        await Session.archive(child.id)
+
+        const archivedChild = await Session.get(child.id)
+        expect(archivedChild.parentID).toBeUndefined()
+        expect(archivedChild.time.archived).toBeDefined()
+        expect(archivedChild.treeID).toBeDefined()
+        expect(archivedChild.treeID).not.toBe(originalTreeID)
+        expect(archivedChild.forkParentSessionID).toBeUndefined()
+        expect(archivedChild.forkAfterUserMessageID).toBeUndefined()
+      },
+    })
+  })
+
+  test("archiving a child subtree detaches and archives all descendants together", async () => {
+    await Instance.provide({
+      directory: projectRoot,
+      fn: async () => {
+        const root = await Session.create({ title: "Root" })
+        const child = await Session.fork({ sessionID: root.id })
+        const grandchild = await Session.fork({ sessionID: child.id })
+
+        await Session.archive(child.id)
+
+        const archivedChild = await Session.get(child.id)
+        const archivedGrandchild = await Session.get(grandchild.id)
+        expect(archivedChild.parentID).toBeUndefined()
+        expect(archivedChild.time.archived).toBeDefined()
+        expect(archivedGrandchild.parentID).toBe(child.id)
+        expect(archivedGrandchild.time.archived).toBeDefined()
+        expect(archivedGrandchild.treeID).toBe(archivedChild.treeID)
+      },
+    })
+  })
+
+  test("archiving a root keeps the existing tree structure", async () => {
+    await Instance.provide({
+      directory: projectRoot,
+      fn: async () => {
+        const root = await Session.create({ title: "Root" })
+        const child = await Session.fork({ sessionID: root.id })
+        const originalTreeID = root.treeID
+
+        await Session.archive(root.id)
+
+        const archivedRoot = await Session.get(root.id)
+        const archivedChild = await Session.get(child.id)
+        expect(archivedRoot.parentID).toBeUndefined()
+        expect(archivedRoot.treeID).toBe(originalTreeID)
+        expect(archivedRoot.time.archived).toBeDefined()
+        expect(archivedChild.parentID).toBe(root.id)
+        expect(archivedChild.treeID).toBe(originalTreeID)
+        expect(archivedChild.time.archived).toBeDefined()
+      },
+    })
+  })
+
+  test("unarchiving a detached archived subtree restores it as an independent root", async () => {
+    await Instance.provide({
+      directory: projectRoot,
+      fn: async () => {
+        const root = await Session.create({ title: "Root" })
+        const child = await Session.fork({ sessionID: root.id })
+        const grandchild = await Session.fork({ sessionID: child.id })
+
+        await Session.archive(child.id)
+        await Session.unarchive(child.id)
+
+        const restoredChild = await Session.get(child.id)
+        const restoredGrandchild = await Session.get(grandchild.id)
+        expect(restoredChild.parentID).toBeUndefined()
+        expect(restoredChild.time.archived).toBeUndefined()
+        expect(restoredGrandchild.parentID).toBe(child.id)
+        expect(restoredGrandchild.time.archived).toBeUndefined()
+        expect(restoredGrandchild.treeID).toBe(restoredChild.treeID)
+      },
+    })
+  })
 })
 
 describe("workspace compatibility", () => {

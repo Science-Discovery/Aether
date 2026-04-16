@@ -622,15 +622,8 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
         more: createMemo(() => current()[0].session.length >= current()[0].limit),
         archive: async (sessionID: string) => {
           const directory = sdk.directory
-          const client = sdk.client
-          const [, setStore] = globalSync.child(directory)
-          await client.session.update({ sessionID, time: { archived: Date.now() } })
-          setStore(
-            produce((draft) => {
-              const match = Binary.search(draft.session, sessionID, (s) => s.id)
-              if (match.found) draft.session.splice(match.index, 1)
-            }),
-          )
+          await sdk.client.session.archive({ sessionID })
+          await globalSync.project.loadSessions(directory, { force: true })
         },
       },
       absolute,
