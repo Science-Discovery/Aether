@@ -22,6 +22,7 @@ export async function loadRootSessionsWithFallback(input: RootLoadArgs) {
 export async function loadDescendantsForRoots(input: {
   directory: string
   roots: Session[]
+  includeArchived?: boolean
   tree: (query: { directory: string; sessionID: string }) => Promise<{
     data?:
       | {
@@ -32,6 +33,7 @@ export async function loadDescendantsForRoots(input: {
   }>
   children: (query: { directory: string; sessionID: string }) => Promise<{ data?: Session[] }>
 }) {
+  const includeArchived = input.includeArchived ?? false
   const descendants = new Map<string, Session>()
   const legacyRoots: Session[] = []
 
@@ -46,7 +48,7 @@ export async function loadDescendantsForRoots(input: {
         for (const session of payload.sessions) {
           if (!session?.id) continue
           if (session.id === root.id) continue
-          if (session.time?.archived) continue
+          if (!includeArchived && session.time?.archived) continue
           descendants.set(session.id, session)
         }
         continue
@@ -79,7 +81,7 @@ export async function loadDescendantsForRoots(input: {
 
     for (const child of children) {
       if (!child?.id) continue
-      if (child.time?.archived) continue
+      if (!includeArchived && child.time?.archived) continue
       descendants.set(child.id, child)
       if (!visited.has(child.id)) queue.push(child.id)
     }

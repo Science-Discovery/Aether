@@ -3453,6 +3453,10 @@ export type ExperimentalSessionListData = {
      * Include archived sessions (default false)
      */
     archived?: boolean
+    /**
+     * Archive filtering mode: exclude(default), include(all), only(archived only)
+     */
+    archivedMode?: "exclude" | "include" | "only"
   }
   url: "/experimental/session"
 }

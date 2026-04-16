@@ -1631,6 +1631,7 @@ export class Session extends HeyApiClient {
       search?: string
       limit?: number
       archived?: boolean
+      archivedMode?: "exclude" | "include" | "only"
     },
     options?: Options<never, ThrowOnError>,
   ) {
@@ -1647,6 +1648,7 @@ export class Session extends HeyApiClient {
             { in: "query", key: "search" },
             { in: "query", key: "limit" },
             { in: "query", key: "archived" },
+            { in: "query", key: "archivedMode" },
           ],
         },
       ],

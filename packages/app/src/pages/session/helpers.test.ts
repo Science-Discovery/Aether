@@ -216,4 +216,27 @@ describe("createSessionTabs", () => {
       dispose()
     })
   })
+
+  test("preserves the last fixed tab across active reset", () => {
+    createRoot((dispose) => {
+      const [state, setState] = createStore({
+        active: "branches" as string | undefined,
+        all: [] as string[],
+      })
+      const tabs = createMemo(() => ({ active: () => state.active, all: () => state.all }))
+      const result = createSessionTabs({
+        tabs,
+        pathFromTab: () => undefined,
+        normalizeTab: (tab) => tab,
+        review: () => true,
+        hasReview: () => true,
+        branches: () => true,
+      })
+
+      expect(result.activeTab()).toBe("branches")
+      setState("active", undefined)
+      expect(result.activeTab()).toBe("branches")
+      dispose()
+    })
+  })
 })

@@ -6,7 +6,7 @@ import type { ConversationGraphEdge, ConversationGraphNode } from "./conversatio
 
 const LANE_COLORS = ["#3b82f6", "#10b981", "#f97316", "#d946ef", "#14b8a6", "#f43f5e", "#eab308"]
 
-const colorForLane = (lane: number) => LANE_COLORS[lane % LANE_COLORS.length]
+const colorForIndex = (index: number) => LANE_COLORS[index % LANE_COLORS.length]
 
 function formatNodeTitle(input: { label: string; providerID?: string; modelID?: string; mode?: string; time: number }) {
   const details = [input.mode, input.providerID && input.modelID ? `${input.providerID}/${input.modelID}` : undefined]
@@ -42,12 +42,12 @@ export function ConversationGraphList(props: {
     const to = nodeByID().get(edge.to)
     if (!from || !to) return ""
 
-    const x1 = xForLane(from.lane)
+    const x1 = xForLane(from.displayLane)
     const y1 = yForRow(from.displayRow)
-    const x2 = xForLane(to.lane)
+    const x2 = xForLane(to.displayLane)
     const y2 = yForRow(to.displayRow)
 
-    if (from.lane === to.lane) {
+    if (from.displayLane === to.displayLane) {
       return `M ${x1} ${y1} L ${x2} ${y2}`
     }
 
@@ -70,7 +70,7 @@ export function ConversationGraphList(props: {
               <path
                 d={edgePath(edge)}
                 fill="none"
-                stroke={edge.isCurrentPath ? colorForLane(nodeByID().get(edge.to)?.lane ?? 0) : "#4b5563"}
+                stroke={edge.isCurrentPath ? colorForIndex(nodeByID().get(edge.to)?.colorIndex ?? 0) : "#4b5563"}
                 stroke-width={edge.isCurrentPath ? "2.5" : "2"}
                 stroke-dasharray={edge.style === "dashed" ? "4 4" : undefined}
                 opacity={edge.isCurrentPath ? "1" : "0.9"}
@@ -81,9 +81,9 @@ export function ConversationGraphList(props: {
 
           <For each={props.nodes}>
             {(node) => {
-              const x = createMemo(() => xForLane(node.lane))
+              const x = createMemo(() => xForLane(node.displayLane))
               const y = createMemo(() => yForRow(node.displayRow))
-              const color = createMemo(() => colorForLane(node.lane))
+              const color = createMemo(() => colorForIndex(node.colorIndex))
               const radius = createMemo(() => (node.isCurrentTarget ? 5.5 : 4.5))
 
               return (

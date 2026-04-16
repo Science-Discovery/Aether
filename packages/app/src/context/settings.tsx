@@ -27,6 +27,7 @@ export interface Settings {
     branchesTab: boolean
     branchGraphFontSize: "xs" | "sm" | "md" | "lg" | "xl"
     branchGraphRowDensity: "xcompact" | "compact" | "normal" | "relaxed" | "xrelaxed"
+    branchGraphOrderMode: "sequence" | "time"
     showReasoningSummaries: boolean
     shellToolPartsExpanded: boolean
     editToolPartsExpanded: boolean
@@ -55,6 +56,7 @@ const defaultSettings: Settings = {
     branchesTab: false,
     branchGraphFontSize: "md",
     branchGraphRowDensity: "normal",
+    branchGraphOrderMode: "sequence",
     showReasoningSummaries: false,
     shellToolPartsExpanded: true,
     editToolPartsExpanded: false,
@@ -173,6 +175,13 @@ export const { use: useSettings, provider: SettingsProvider } = createSimpleCont
         ),
         setBranchGraphRowDensity(value: "xcompact" | "compact" | "normal" | "relaxed" | "xrelaxed") {
           setStore("general", "branchGraphRowDensity", value)
+        },
+        branchGraphOrderMode: withFallback(
+          () => store.general?.branchGraphOrderMode,
+          defaultSettings.general.branchGraphOrderMode,
+        ),
+        setBranchGraphOrderMode(value: "sequence" | "time") {
+          setStore("general", "branchGraphOrderMode", value)
         },
         showReasoningSummaries: withFallback(
           () => store.general?.showReasoningSummaries,

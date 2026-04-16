@@ -10,7 +10,23 @@ import { Config } from "../config/config"
 import { Flag } from "../flag/flag"
 import { Installation } from "../installation"
 
-import { Database, NotFoundError, eq, and, gte, isNull, desc, like, inArray, lt, asc } from "../storage/db"
+import {
+  Database,
+  NotFoundError,
+  eq,
+  and,
+  or,
+  ne,
+  gte,
+  isNull,
+  isNotNull,
+  desc,
+  like,
+  inArray,
+  lt,
+  asc,
+  sql,
+} from "../storage/db"
 import { SyncEvent } from "../sync"
 import type { SQL } from "../storage/db"
 import { SessionTable } from "./session.sql"
@@ -564,7 +580,7 @@ export namespace Session {
         directory: Instance.directory,
         title: input?.title,
         permission: input?.permission,
-        workspaceID: input?.workspaceID,
+        workspaceID: input?.workspaceID ?? WorkspaceContext.workspaceID,
       })
     },
   )
@@ -594,7 +610,7 @@ export namespace Session {
       })
       const session = await createNext({
         directory: Instance.directory,
-        workspaceID: source.workspaceID,
+        workspaceID: source.workspaceID ?? WorkspaceContext.workspaceID,
         parentID: resolvedForkParent.parentSessionID,
         forkParentSessionID: resolvedForkParent.parentSessionID,
         forkAfterUserMessageID: resolvedForkParent.forkAfterUserMessageID,
@@ -644,6 +660,7 @@ export namespace Session {
     directory: string
     permission?: Permission.Ruleset
   }) {
+    const workspaceID = input.workspaceID ?? WorkspaceContext.workspaceID
     const treeID = await (async () => {
       if (input.treeID) return input.treeID
       if (!input.parentID) return TreeID.descending()
@@ -657,7 +674,7 @@ export namespace Session {
       version: Installation.VERSION,
       projectID: Instance.project.id,
       directory: input.directory,
-      workspaceID: input.workspaceID,
+      workspaceID,
       parentID: input.parentID,
       treeID,
       forkParentSessionID: input.forkParentSessionID,
@@ -746,7 +763,11 @@ export namespace Session {
       time: z.number().optional(),
     }),
     async (input) => {
-      SyncEvent.run(Event.Updated, { sessionID: input.sessionID, info: { time: { archived: input.time } } })
+      const archived =
+        typeof input.time === "number" && input.time <= 0
+          ? null
+          : input.time
+      SyncEvent.run(Event.Updated, { sessionID: input.sessionID, info: { time: { archived } } })
     },
   )
 
@@ -857,12 +878,19 @@ export namespace Session {
   }) {
     const project = Instance.project
     const conditions = [eq(SessionTable.project_id, project.id)]
+    const directoryFilter = (directory: string) => {
+      const resolved = Filesystem.resolve(directory)
+      if (process.platform !== "win32") return eq(SessionTable.directory, resolved)
+      const normalized = resolved.replace(/\\/g, "/").toLowerCase()
+      return sql`lower(replace(${SessionTable.directory}, '\\', '/')) = ${normalized}`
+    }
 
     if (WorkspaceContext.workspaceID) {
-      conditions.push(eq(SessionTable.workspace_id, WorkspaceContext.workspaceID))
+      // Backward compatibility: legacy sessions were created before workspace_id existed.
+      conditions.push(or(eq(SessionTable.workspace_id, WorkspaceContext.workspaceID), isNull(SessionTable.workspace_id))!)
     }
     if (input?.directory) {
-      conditions.push(eq(SessionTable.directory, Filesystem.resolve(input.directory)))
+      conditions.push(directoryFilter(input.directory))
     }
     if (input?.roots) {
       conditions.push(isNull(SessionTable.parent_id))
@@ -897,12 +925,21 @@ export namespace Session {
     cursor?: number
     search?: string
     limit?: number
+    archivedMode?: "exclude" | "include" | "only"
     archived?: boolean
   }) {
     const conditions: SQL[] = []
+    const directoryFilter = (directory: string) => {
+      const resolved = Filesystem.resolve(directory)
+      if (process.platform !== "win32") return eq(SessionTable.directory, resolved)
+      const normalized = resolved.replace(/\\/g, "/").toLowerCase()
+      return sql`lower(replace(${SessionTable.directory}, '\\', '/')) = ${normalized}`
+    }
+    const archivedMode =
+      input?.archivedMode ?? (input?.archived === true ? ("include" as const) : ("exclude" as const))
 
     if (input?.directory) {
-      conditions.push(eq(SessionTable.directory, Filesystem.resolve(input.directory)))
+      conditions.push(directoryFilter(input.directory))
     }
     if (input?.roots) {
       conditions.push(isNull(SessionTable.parent_id))
@@ -916,8 +953,10 @@ export namespace Session {
     if (input?.search) {
       conditions.push(like(SessionTable.title, `%${input.search}%`))
     }
-    if (!input?.archived) {
-      conditions.push(isNull(SessionTable.time_archived))
+    if (archivedMode === "exclude") {
+      conditions.push(or(isNull(SessionTable.time_archived), eq(SessionTable.time_archived, 0))!)
+    } else if (archivedMode === "only") {
+      conditions.push(and(isNotNull(SessionTable.time_archived), ne(SessionTable.time_archived, 0))!)
     }
 
     const limit = input?.limit ?? 100

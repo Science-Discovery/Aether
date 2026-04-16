@@ -63,54 +63,146 @@ export function BranchGraphPanel(props: { sessionID: string }) {
   const [errorMessage, setErrorMessage] = createSignal<string>()
   const fontSize = createMemo(() => settings.general.branchGraphFontSize())
   const rowDensity = createMemo(() => settings.general.branchGraphRowDensity())
+  const orderMode = createMemo(() => settings.general.branchGraphOrderMode())
   const rowHeight = createMemo(() => ROW_DENSITY_HEIGHT_MAP[rowDensity()])
   const labelClass = createMemo(() => FONT_SIZE_CLASS_MAP[fontSize()])
   const labelStyle = createMemo(() => FONT_SIZE_STYLE_MAP[fontSize()])
+  const graphContentSignature = createMemo(() => {
+    const sessionID = props.sessionID
+    if (!sessionID) return ""
+    const messages = sync.data.message[sessionID] ?? []
+    if (messages.length === 0) return `${sessionID}|empty`
+
+    const messageSignature = messages
+      .map((message) =>
+        message.role === "assistant"
+          ? `${message.id}:${message.time.created}:${message.time.completed ?? ""}:${message.finish ?? ""}:${message.error ? "err" : "ok"}`
+          : `${message.id}:${message.time.created}`,
+      )
+      .join(",")
+    const partSignature = messages
+      .map((message) =>
+        `${message.id}:${(sync.data.part[message.id] ?? [])
+          .map((part) => {
+            const textLength =
+              "text" in part && typeof part.text === "string"
+                ? part.text.length
+                : "snapshot" in part && typeof part.snapshot === "string"
+                  ? part.snapshot.length
+                  : 0
+            const status =
+              "state" in part &&
+              part.state &&
+              typeof part.state === "object" &&
+              "status" in part.state &&
+              typeof part.state.status === "string"
+                ? part.state.status
+                : ""
+            const timeEnd =
+              "time" in part &&
+              part.time &&
+              typeof part.time === "object" &&
+              "end" in part.time &&
+              typeof part.time.end === "number"
+                ? part.time.end
+                : ""
+            return `${part.id}:${part.type}:${textLength}:${status}:${timeEnd}`
+          })
+          .join(".")}`,
+      )
+      .join("|")
+
+    return `${sessionID}|${messageSignature}|${partSignature}`
+  })
+
+  let refreshTimer: ReturnType<typeof setTimeout> | undefined
+  let lastLoadedSignature = ""
+  let requestVersion = 0
+
+  const clearRefreshTimer = () => {
+    if (!refreshTimer) return
+    clearTimeout(refreshTimer)
+    refreshTimer = undefined
+  }
+
+  const loadGraph = async (input: { sessionID: string; syncSessions: boolean; silent: boolean }) => {
+    const version = ++requestVersion
+
+    if (!input.silent) {
+      setLoading(true)
+      setErrorMessage(undefined)
+    }
+
+    try {
+      const result = await sdk.client.session.graph({ sessionID: input.sessionID })
+      const payload = result.data as SessionGraphResult | undefined
+      if (!payload) throw new Error("Missing conversation graph response")
+      if (version !== requestVersion) return
+
+      setGraph(payload)
+      lastLoadedSignature = untrack(() => graphContentSignature())
+
+      if (payload.kind === "graph" && input.syncSessions) {
+        const sessionIDs = [...new Set(payload.nodes.map((node) => node.sessionID))]
+        const loadedSessions = (
+          await Promise.all(
+            sessionIDs.map((targetSessionID) => sdk.client.session.get({ sessionID: targetSessionID }).catch(() => undefined)),
+          )
+        )
+          .map((item) => item?.data)
+          .filter(Boolean) as Session[]
+
+        if (loadedSessions.length > 0) {
+          sync.set("session", mergeSessionsByID(untrack(() => sync.data.session), loadedSessions))
+        }
+
+        await Promise.all(sessionIDs.map((targetSessionID) => sync.session.sync(targetSessionID).catch(() => undefined)))
+      }
+    } catch (error) {
+      console.error("Failed to load conversation graph", error)
+      if (version !== requestVersion) return
+      if (!input.silent) {
+        setGraph(undefined)
+        setErrorMessage(error instanceof Error ? error.message : String(error))
+      }
+    } finally {
+      if (version === requestVersion && !input.silent) {
+        setLoading(false)
+      }
+    }
+  }
 
   createEffect(() => {
     const sessionID = props.sessionID
     if (!sessionID) return
-    let cancelled = false
 
-    void (async () => {
-      setLoading(true)
-      setErrorMessage(undefined)
-      try {
-        const result = await sdk.client.session.graph({ sessionID })
-        const payload = result.data as SessionGraphResult | undefined
-        if (!payload) throw new Error("Missing conversation graph response")
-        if (cancelled) return
-
-        setGraph(payload)
-
-        if (payload.kind === "graph") {
-          const sessionIDs = [...new Set(payload.nodes.map((node) => node.sessionID))]
-          const loadedSessions = (
-            await Promise.all(
-              sessionIDs.map((targetSessionID) => sdk.client.session.get({ sessionID: targetSessionID }).catch(() => undefined)),
-            )
-          )
-            .map((item) => item?.data)
-            .filter(Boolean) as Session[]
-
-          if (loadedSessions.length > 0) {
-            sync.set("session", mergeSessionsByID(untrack(() => sync.data.session), loadedSessions))
-          }
-
-          await Promise.all(sessionIDs.map((targetSessionID) => sync.session.sync(targetSessionID).catch(() => undefined)))
-        }
-      } catch (error) {
-        console.error("Failed to load conversation graph", error)
-        if (cancelled) return
-        setGraph(undefined)
-        setErrorMessage(error instanceof Error ? error.message : String(error))
-      } finally {
-        if (!cancelled) setLoading(false)
-      }
-    })()
+    lastLoadedSignature = ""
+    clearRefreshTimer()
+    void loadGraph({ sessionID, syncSessions: true, silent: false })
 
     onCleanup(() => {
-      cancelled = true
+      requestVersion += 1
+      clearRefreshTimer()
+    })
+  })
+
+  createEffect(() => {
+    const sessionID = props.sessionID
+    const signature = graphContentSignature()
+    const payload = graph()
+    if (!sessionID || !signature) return
+    if (!payload || payload.kind !== "graph") return
+    if (payload.current.sessionID !== sessionID) return
+    if (signature === lastLoadedSignature) return
+
+    clearRefreshTimer()
+    refreshTimer = setTimeout(() => {
+      refreshTimer = undefined
+      void loadGraph({ sessionID, syncSessions: false, silent: true })
+    }, 220)
+
+    onCleanup(() => {
+      clearRefreshTimer()
     })
   })
 
@@ -120,6 +212,7 @@ export function BranchGraphPanel(props: { sessionID: string }) {
     return buildConversationGraphView({
       graph: payload as ConversationGraph,
       compact: compact(),
+      orderMode: orderMode(),
     })
   })
 
@@ -129,6 +222,22 @@ export function BranchGraphPanel(props: { sessionID: string }) {
 
   const fullHint = createMemo(() =>
     zh() ? "按消息顺序展示当前对话图。" : "This conversation graph is ordered by turn time.",
+  )
+
+  const graphHint = createMemo(() =>
+    orderMode() === "sequence"
+      ? zh()
+        ? "节点按对话序列优先排序，同序列按时间；点击可跳回对应对话。"
+        : "Turns are ordered by sequence first, then time. Click a node to jump back to that turn."
+      : hint(),
+  )
+
+  const graphFullHint = createMemo(() =>
+    orderMode() === "sequence"
+      ? zh()
+        ? "当前对话图按序列优先展示。"
+        : "This conversation graph is ordered by sequence first."
+      : fullHint(),
   )
 
   const legacyHint = createMemo(() =>
@@ -269,9 +378,9 @@ export function BranchGraphPanel(props: { sessionID: string }) {
                   {`${language.t("common.loading")}${language.t("common.loading.ellipsis")}`}
                 </Match>
                 <Match when={graph()?.kind === "legacy"}>{legacyHint()}</Match>
-                <Match when={graph()?.kind === "graph" && (view()?.nodes.length ?? 0) > 1}>{fullHint()}</Match>
+                <Match when={graph()?.kind === "graph" && (view()?.nodes.length ?? 0) > 1}>{graphFullHint()}</Match>
                 <Match when={errorMessage()}>{errorMessage()}</Match>
-                <Match when={true}>{hint()}</Match>
+                <Match when={true}>{graphHint()}</Match>
               </Switch>
             </div>
 
@@ -283,6 +392,29 @@ export function BranchGraphPanel(props: { sessionID: string }) {
                 >
                   {compact() ? (zh() ? "完整" : "Full") : zh() ? "简略" : "Compact"}
                 </button>
+
+                <div class="flex overflow-hidden rounded-md border border-border-weak-base">
+                  <button
+                    class="px-2 py-1 text-[11px] transition-colors"
+                    classList={{
+                      "bg-background-stronger text-text-strong": orderMode() === "sequence",
+                      "text-text-weak hover:bg-background-stronger": orderMode() !== "sequence",
+                    }}
+                    onClick={() => settings.general.setBranchGraphOrderMode("sequence")}
+                  >
+                    {zh() ? "序列优先" : "Sequence"}
+                  </button>
+                  <button
+                    class="border-l border-border-weak-base px-2 py-1 text-[11px] transition-colors"
+                    classList={{
+                      "bg-background-stronger text-text-strong": orderMode() === "time",
+                      "text-text-weak hover:bg-background-stronger": orderMode() !== "time",
+                    }}
+                    onClick={() => settings.general.setBranchGraphOrderMode("time")}
+                  >
+                    {zh() ? "时间优先" : "Time"}
+                  </button>
+                </div>
 
                 <DropdownMenu placement="bottom-end">
                   <DropdownMenu.Trigger class="rounded-md border border-border-weak-base px-2 py-1 text-[11px] text-text-weak transition-colors hover:bg-background-stronger">
@@ -393,7 +525,7 @@ export function BranchGraphPanel(props: { sessionID: string }) {
             <Match when={true}>
               <div class="flex h-full items-center justify-center px-6 text-center text-12-regular text-text-weak">
                 <Show when={!loading()} fallback={`${language.t("common.loading")}${language.t("common.loading.ellipsis")}`}>
-                  {errorMessage() ?? hint()}
+                  {errorMessage() ?? graphHint()}
                 </Show>
               </div>
             </Match>

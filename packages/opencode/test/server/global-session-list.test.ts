@@ -4,6 +4,7 @@ import { Project } from "../../src/project/project"
 import { Session } from "../../src/session"
 import { Log } from "../../src/util/log"
 import { tmpdir } from "../fixture/fixture"
+import { Filesystem } from "../../src/util/filesystem"
 
 Log.init({ print: false })
 
@@ -39,7 +40,7 @@ describe("Session.listGlobal", () => {
     expect(secondItem?.project?.worktree).toBe(secondProject?.worktree)
   })
 
-  test("excludes archived sessions by default", async () => {
+  test("supports archived include/only modes and legacy archived=true compatibility", async () => {
     await using tmp = await tmpdir({ git: true })
 
     const archived = await Instance.provide({
@@ -61,6 +62,24 @@ describe("Session.listGlobal", () => {
     const allIds = allSessions.map((session) => session.id)
 
     expect(allIds).toContain(archived.id)
+
+    const includeByMode = [...Session.listGlobal({ limit: 200, archivedMode: "include" })]
+    expect(includeByMode.map((session) => session.id)).toContain(archived.id)
+
+    const onlyArchived = [...Session.listGlobal({ limit: 200, archivedMode: "only" })]
+    const onlyArchivedIDs = onlyArchived.map((session) => session.id)
+    expect(onlyArchivedIDs).toContain(archived.id)
+    expect(onlyArchivedIDs.length).toBeGreaterThan(0)
+
+    const explicitExclude = [...Session.listGlobal({ limit: 200, archivedMode: "exclude" })]
+    expect(explicitExclude.map((session) => session.id)).not.toContain(archived.id)
+
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => Session.setArchived({ sessionID: archived.id, time: 0 }),
+    })
+    const afterUnarchive = [...Session.listGlobal({ limit: 200, archivedMode: "exclude" })]
+    expect(afterUnarchive.map((session) => session.id)).toContain(archived.id)
   })
 
   test("supports cursor pagination", async () => {
@@ -85,5 +104,21 @@ describe("Session.listGlobal", () => {
 
     expect(ids).toContain(first.id)
     expect(ids).not.toContain(second.id)
+  })
+
+  test("directory filter is case-insensitive on Windows", async () => {
+    if (process.platform !== "win32") return
+    await using tmp = await tmpdir({ git: true })
+
+    const created = await Instance.provide({
+      directory: tmp.path,
+      fn: async () => Session.create({ title: "global-directory-case-insensitive" }),
+    })
+
+    const lower = Filesystem.resolve(tmp.path).toLowerCase()
+    const listed = [...Session.listGlobal({ directory: lower, limit: 200, archivedMode: "include" })]
+    const ids = new Set(listed.map((session) => session.id))
+
+    expect(ids.has(created.id)).toBe(true)
   })
 })

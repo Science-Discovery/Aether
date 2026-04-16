@@ -24,6 +24,7 @@ export const createSessionTabs = (input: TabsInput) => {
   const review = input.review ?? (() => false)
   const branches = input.branches ?? (() => false)
   const hasReview = input.hasReview ?? (() => false)
+  let preferredFixedTab: "context" | "review" | "branches" | undefined
   const contextOpen = createMemo(() => input.tabs().active() === "context" || input.tabs().all().includes("context"))
   const openedTabs = createMemo(
     () => {
@@ -44,13 +45,25 @@ export const createSessionTabs = (input: TabsInput) => {
   )
   const activeTab = createMemo(() => {
     const active = input.tabs().active()
-    if (active === "context") return active
-    if (active === "branches" && branches()) return active
-    if (active === "review" && review()) return active
+    if (active === "context") {
+      preferredFixedTab = "context"
+      return active
+    }
+    if (active === "branches" && branches()) {
+      preferredFixedTab = "branches"
+      return active
+    }
+    if (active === "review" && review()) {
+      preferredFixedTab = "review"
+      return active
+    }
     if (active && input.pathFromTab(active)) return input.normalizeTab(active)
 
     const first = openedTabs()[0]
     if (first) return first
+    if (preferredFixedTab === "context" && contextOpen()) return "context"
+    if (preferredFixedTab === "branches" && branches()) return "branches"
+    if (preferredFixedTab === "review" && review() && hasReview()) return "review"
     if (contextOpen()) return "context"
     if (review() && hasReview()) return "review"
     if (branches()) return "branches"

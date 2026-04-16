@@ -8,6 +8,8 @@ import { MessageV2 } from "../../src/session/message-v2"
 import { Database, eq } from "../../src/storage/db"
 import { MessageID, PartID } from "../../src/session/schema"
 import { SessionTable } from "../../src/session/session.sql"
+import { WorkspaceContext } from "../../src/control-plane/workspace-context"
+import { Filesystem } from "../../src/util/filesystem"
 
 const projectRoot = path.join(__dirname, "../..")
 Log.init({ print: false })
@@ -210,6 +212,78 @@ describe("session tree IDs", () => {
         expect(child.parentID).toBe(refreshedLegacy.id)
         expect(child.forkParentSessionID).toBe(refreshedLegacy.id)
         expect(child.treeID).not.toBe(refreshedLegacy.treeID)
+      },
+    })
+  })
+})
+
+describe("workspace compatibility", () => {
+  test("Session.list in workspace context includes legacy sessions with NULL workspace_id", async () => {
+    await Instance.provide({
+      directory: projectRoot,
+      fn: async () => {
+        const wsA = `ws_a_${Date.now()}` as any
+        const wsB = `ws_b_${Date.now()}` as any
+
+        const legacy = await Session.create({ title: "legacy-visible-in-workspace" })
+        const inA = await WorkspaceContext.provide({
+          workspaceID: wsA,
+          fn: () => Session.create({ title: "workspace-a-only" }),
+        })
+        const inB = await WorkspaceContext.provide({
+          workspaceID: wsB,
+          fn: () => Session.create({ title: "workspace-b-only" }),
+        })
+
+        const listedInA = await WorkspaceContext.provide({
+          workspaceID: wsA,
+          fn: async () => [...Session.list({ directory: projectRoot, roots: true, limit: 500 })],
+        })
+        const ids = new Set(listedInA.map((item) => item.id))
+
+        expect(ids.has(legacy.id)).toBe(true)
+        expect(ids.has(inA.id)).toBe(true)
+        expect(ids.has(inB.id)).toBe(false)
+      },
+    })
+  })
+
+  test("Session.create and Session.fork fallback to WorkspaceContext.workspaceID", async () => {
+    await Instance.provide({
+      directory: projectRoot,
+      fn: async () => {
+        const workspaceID = `ws_fallback_${Date.now()}` as any
+
+        const created = await WorkspaceContext.provide({
+          workspaceID,
+          fn: () => Session.create({ title: "workspace-create-fallback" }),
+        })
+        expect(created.workspaceID).toBe(workspaceID)
+
+        const legacyRoot = await Session.create({ title: "legacy-root-for-fork-fallback" })
+        expect(legacyRoot.workspaceID).toBeUndefined()
+
+        const forked = await WorkspaceContext.provide({
+          workspaceID,
+          fn: () => Session.fork({ sessionID: legacyRoot.id }),
+        })
+        expect(forked.workspaceID).toBe(workspaceID)
+      },
+    })
+  })
+
+  test("Session.list matches directory case-insensitively on Windows", async () => {
+    if (process.platform !== "win32") return
+    await Instance.provide({
+      directory: projectRoot,
+      fn: async () => {
+        const canonical = Filesystem.resolve(projectRoot)
+        const session = await Session.create({ title: "directory-case-insensitive-list" })
+        const lower = canonical.toLowerCase()
+
+        const listed = [...Session.list({ directory: lower, roots: true, limit: 500 })]
+        const ids = new Set(listed.map((item) => item.id))
+        expect(ids.has(session.id)).toBe(true)
       },
     })
   })
