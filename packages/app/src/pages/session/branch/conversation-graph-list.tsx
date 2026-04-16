@@ -17,6 +17,7 @@ function formatNodeTitle(input: { label: string; providerID?: string; modelID?: 
 }
 
 export function ConversationGraphList(props: {
+  currentSessionID: string
   nodes: ConversationGraphNode[]
   edges: ConversationGraphEdge[]
   laneCount: number
@@ -135,8 +136,8 @@ export function ConversationGraphList(props: {
                     class={`truncate ${props.labelClass}`}
                     style={props.labelStyle}
                     classList={{
-                      "text-text-strong": node.isCurrentTarget || node.isCurrentPath,
-                      "text-text-base": !node.isCurrentTarget && !node.isCurrentPath,
+                      "text-text-strong": node.sessionID === props.currentSessionID,
+                      "text-text-weaker": node.sessionID !== props.currentSessionID,
                       italic: node.kind === "bud",
                     }}
                   >

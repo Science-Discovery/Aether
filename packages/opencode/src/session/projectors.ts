@@ -42,6 +42,7 @@ export function toPartialRow(info: DeepPartial<Session.Info>) {
     workspace_id: grab(info, "workspaceID"),
     parent_id: grab(info, "parentID"),
     tree_id: grab(info, "treeID"),
+    fork_index: grab(info, "forkIndex"),
     fork_parent_session_id: grab(info, "forkParentSessionID"),
     fork_after_user_message_id: grab(info, "forkAfterUserMessageID"),
     slug: grab(info, "slug"),

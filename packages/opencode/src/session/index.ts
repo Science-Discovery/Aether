@@ -59,6 +59,7 @@ export namespace Session {
 
   const parentTitlePrefix = "New session - "
   const childTitlePrefix = "Child session - "
+  const forkTitlePattern = /^(.*) \(fork #(\d+)\)$/
 
   function createDefaultTitle(isChild = false) {
     return (isChild ? childTitlePrefix : parentTitlePrefix) + new Date().toISOString()
@@ -96,6 +97,7 @@ export namespace Session {
       directory: row.directory,
       parentID: row.parent_id ?? undefined,
       treeID: row.tree_id ?? undefined,
+      forkIndex: row.fork_index ?? undefined,
       forkParentSessionID: row.fork_parent_session_id ?? undefined,
       forkAfterUserMessageID: row.fork_after_user_message_id ?? undefined,
       title: row.title,
@@ -127,6 +129,7 @@ export namespace Session {
       workspace_id: info.workspaceID,
       parent_id: info.parentID,
       tree_id: info.treeID,
+      fork_index: info.forkIndex,
       fork_parent_session_id: info.forkParentSessionID,
       fork_after_user_message_id: info.forkAfterUserMessageID,
       slug: info.slug,
@@ -148,14 +151,46 @@ export namespace Session {
     }
   }
 
-  function getForkedTitle(title: string): string {
-    const match = title.match(/^(.+) \(fork #(\d+)\)$/)
-    if (match) {
-      const base = match[1]
-      const num = parseInt(match[2], 10)
-      return `${base} (fork #${num + 1})`
+  function getForkTitleBase(title: string): string {
+    const match = title.match(forkTitlePattern)
+    return match ? match[1] : title
+  }
+
+  function parseForkIndexFromTitle(title: string): number | undefined {
+    const match = title.match(forkTitlePattern)
+    if (!match) return
+    const parsed = parseInt(match[2], 10)
+    return Number.isFinite(parsed) ? parsed : undefined
+  }
+
+  async function getNextForkIndex(input: { projectID: ProjectID; treeID: TreeID }) {
+    const rows = Database.use((db) =>
+      db
+        .select({
+          forkIndex: SessionTable.fork_index,
+          title: SessionTable.title,
+        })
+        .from(SessionTable)
+        .where(and(eq(SessionTable.project_id, input.projectID), eq(SessionTable.tree_id, input.treeID)))
+        .all(),
+    )
+
+    let maxForkIndex = 0
+    for (const row of rows) {
+      if (typeof row.forkIndex === "number") {
+        maxForkIndex = Math.max(maxForkIndex, row.forkIndex)
+      }
+      const fromTitle = parseForkIndexFromTitle(row.title)
+      if (typeof fromTitle === "number") {
+        maxForkIndex = Math.max(maxForkIndex, fromTitle)
+      }
     }
-    return `${title} (fork #1)`
+
+    return maxForkIndex + 1
+  }
+
+  function getForkedTitle(title: string, forkIndex: number): string {
+    return `${getForkTitleBase(title)} (fork #${forkIndex})`
   }
 
   function latestSuccessfulAssistantByParent(messages: MessageV2.WithParts[]) {
@@ -356,6 +391,7 @@ export namespace Session {
       directory: z.string(),
       parentID: SessionID.zod.optional(),
       treeID: TreeID.zod.optional(),
+      forkIndex: z.number().int().positive().optional(),
       forkParentSessionID: SessionID.zod.optional(),
       forkAfterUserMessageID: MessageID.zod.optional(),
       summary: z
@@ -600,7 +636,12 @@ export namespace Session {
         })
       }
       const source = (await get(input.sessionID).catch(() => undefined)) ?? original
-      const title = getForkedTitle(source.title)
+      const targetTreeID = source.treeID ?? TreeID.descending()
+      const forkIndex = await getNextForkIndex({
+        projectID: source.projectID,
+        treeID: targetTreeID,
+      })
+      const title = getForkedTitle(source.title, forkIndex)
       const msgs = await messages({ sessionID: input.sessionID })
       const forkAnchorUserMessageID = resolveForkAnchorUserMessageID(msgs, input.messageID)
       const resolvedForkParent = await resolveForkParent({
@@ -612,6 +653,8 @@ export namespace Session {
         directory: Instance.directory,
         workspaceID: source.workspaceID ?? WorkspaceContext.workspaceID,
         parentID: resolvedForkParent.parentSessionID,
+        treeID: targetTreeID,
+        forkIndex,
         forkParentSessionID: resolvedForkParent.parentSessionID,
         forkAfterUserMessageID: resolvedForkParent.forkAfterUserMessageID,
         title,
@@ -654,6 +697,7 @@ export namespace Session {
     title?: string
     parentID?: SessionID
     treeID?: TreeID
+    forkIndex?: number
     forkParentSessionID?: SessionID
     forkAfterUserMessageID?: MessageID
     workspaceID?: WorkspaceID
@@ -677,6 +721,7 @@ export namespace Session {
       workspaceID,
       parentID: input.parentID,
       treeID,
+      forkIndex: input.forkIndex,
       forkParentSessionID: input.forkParentSessionID,
       forkAfterUserMessageID: input.forkAfterUserMessageID,
       title: input.title ?? createDefaultTitle(!!input.parentID),

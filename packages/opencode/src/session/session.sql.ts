@@ -23,6 +23,7 @@ export const SessionTable = sqliteTable(
     workspace_id: text().$type<WorkspaceID>(),
     parent_id: text().$type<SessionID>(),
     tree_id: text().$type<TreeID>(),
+    fork_index: integer(),
     fork_parent_session_id: text().$type<SessionID>(),
     fork_after_user_message_id: text().$type<MessageID>(),
     slug: text().notNull(),

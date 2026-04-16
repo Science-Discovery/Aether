@@ -246,6 +246,13 @@ export function BranchGraphPanel(props: { sessionID: string }) {
       : "This is a legacy session. The new conversation graph is unavailable, but the existing fork flow still works.",
   )
 
+  const currentBranchTitle = createMemo(() => {
+    const session = sync.session.get(props.sessionID)
+    const title = session?.title?.trim()
+    if (title) return title
+    return zh() ? "未命名分支" : "Untitled branch"
+  })
+
   const renameTitle = (node: Pick<ViewNode, "sessionID">) => {
     const session = sync.session.get(node.sessionID)
     const initial = session?.title ?? ""
@@ -373,24 +380,24 @@ export function BranchGraphPanel(props: { sessionID: string }) {
   return (
     <div class="h-full min-h-0 overflow-hidden bg-background-base">
       <div class="flex h-full min-h-0 flex-col">
-        <div class="border-b border-border-weaker-base px-4 py-3">
-          <div class="flex items-center justify-between gap-3">
-            <div class="min-w-0 text-12-regular text-text-weak">
+        <div class="border-b border-border-weaker-base px-4 py-1.5">
+          <div class="flex items-center justify-between gap-2">
+            <div
+              class="min-w-0 flex-1 truncate text-12-medium text-text-strong"
+              title={loading() && !graph() ? undefined : currentBranchTitle()}
+            >
               <Switch>
                 <Match when={loading() && !graph()}>
                   {`${language.t("common.loading")}${language.t("common.loading.ellipsis")}`}
                 </Match>
-                <Match when={graph()?.kind === "legacy"}>{legacyHint()}</Match>
-                <Match when={graph()?.kind === "graph" && (view()?.nodes.length ?? 0) > 1}>{graphFullHint()}</Match>
-                <Match when={errorMessage()}>{errorMessage()}</Match>
-                <Match when={true}>{graphHint()}</Match>
+                <Match when={true}>{currentBranchTitle()}</Match>
               </Switch>
             </div>
 
             <Show when={graph()?.kind === "graph"}>
               <div class="flex shrink-0 items-center gap-2">
                 <button
-                  class="rounded-md border border-border-weak-base px-2 py-1 text-[11px] text-text-weak transition-colors hover:bg-background-stronger"
+                  class="rounded-md border border-border-weak-base px-2 py-px text-[11px] text-text-weak transition-colors hover:bg-background-stronger"
                   onClick={() => setCompact((value) => !value)}
                 >
                   {compact() ? (zh() ? "完整" : "Full") : zh() ? "简略" : "Compact"}
@@ -398,7 +405,7 @@ export function BranchGraphPanel(props: { sessionID: string }) {
 
                 <div class="flex overflow-hidden rounded-md border border-border-weak-base">
                   <button
-                    class="px-2 py-1 text-[11px] transition-colors"
+                    class="px-2 py-px text-[11px] transition-colors"
                     classList={{
                       "bg-background-stronger text-text-strong": orderMode() === "sequence",
                       "text-text-weak hover:bg-background-stronger": orderMode() !== "sequence",
@@ -408,7 +415,7 @@ export function BranchGraphPanel(props: { sessionID: string }) {
                     {zh() ? "序列优先" : "Sequence"}
                   </button>
                   <button
-                    class="border-l border-border-weak-base px-2 py-1 text-[11px] transition-colors"
+                    class="border-l border-border-weak-base px-2 py-px text-[11px] transition-colors"
                     classList={{
                       "bg-background-stronger text-text-strong": orderMode() === "time",
                       "text-text-weak hover:bg-background-stronger": orderMode() !== "time",
@@ -420,7 +427,7 @@ export function BranchGraphPanel(props: { sessionID: string }) {
                 </div>
 
                 <DropdownMenu placement="bottom-end">
-                  <DropdownMenu.Trigger class="rounded-md border border-border-weak-base px-2 py-1 text-[11px] text-text-weak transition-colors hover:bg-background-stronger">
+                  <DropdownMenu.Trigger class="rounded-md border border-border-weak-base px-2 py-px text-[11px] text-text-weak transition-colors hover:bg-background-stronger">
                     {zh() ? "显示" : "Display"}
                   </DropdownMenu.Trigger>
                   <DropdownMenu.Portal>
@@ -513,6 +520,7 @@ export function BranchGraphPanel(props: { sessionID: string }) {
             <Match when={(view()?.nodes.length ?? 0) > 0 && view()}>
               {(nextView) => (
                 <ConversationGraphList
+                  currentSessionID={props.sessionID}
                   nodes={nextView().nodes}
                   edges={nextView().edges}
                   laneCount={nextView().laneCount}

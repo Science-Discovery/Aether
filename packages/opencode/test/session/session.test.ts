@@ -212,6 +212,81 @@ describe("session tree IDs", () => {
         expect(child.parentID).toBe(refreshedLegacy.id)
         expect(child.forkParentSessionID).toBe(refreshedLegacy.id)
         expect(child.treeID).not.toBe(refreshedLegacy.treeID)
+        expect(child.title).toBe("Legacy (fork #1)")
+        expect(child.forkIndex).toBe(1)
+      },
+    })
+  })
+
+  test("fork titles stay unique within a tree across nested forks", async () => {
+    await Instance.provide({
+      directory: projectRoot,
+      fn: async () => {
+        const root = await Session.create({ title: "Root" })
+        const fork1 = await Session.fork({ sessionID: root.id })
+        const fork2 = await Session.fork({ sessionID: fork1.id })
+        const fork3 = await Session.fork({ sessionID: fork1.id })
+        const fork4 = await Session.fork({ sessionID: root.id })
+
+        expect(fork1.title).toBe("Root (fork #1)")
+        expect(fork2.title).toBe("Root (fork #2)")
+        expect(fork3.title).toBe("Root (fork #3)")
+        expect(fork4.title).toBe("Root (fork #4)")
+        expect(fork1.forkIndex).toBe(1)
+        expect(fork2.forkIndex).toBe(2)
+        expect(fork3.forkIndex).toBe(3)
+        expect(fork4.forkIndex).toBe(4)
+      },
+    })
+  })
+
+  test("fork titles use the current renamed title while keeping tree-unique numbering", async () => {
+    await Instance.provide({
+      directory: projectRoot,
+      fn: async () => {
+        const root = await Session.create({ title: "Root" })
+        await Session.fork({ sessionID: root.id })
+        const renamedBranch = await Session.fork({ sessionID: root.id })
+
+        await Session.setTitle({
+          sessionID: renamedBranch.id,
+          title: "Weather test",
+        })
+
+        const child = await Session.fork({ sessionID: renamedBranch.id })
+
+        expect((await Session.get(renamedBranch.id)).title).toBe("Weather test")
+        expect(child.title).toBe("Weather test (fork #3)")
+        expect(child.forkIndex).toBe(3)
+      },
+    })
+  })
+
+  test("new forks bootstrap numbering from historical fork titles without rewriting old rows", async () => {
+    await Instance.provide({
+      directory: projectRoot,
+      fn: async () => {
+        const root = await Session.create({ title: "Root" })
+        const child1 = await Session.fork({ sessionID: root.id })
+        const child2 = await Session.fork({ sessionID: root.id })
+
+        Database.use((db) =>
+          db
+            .update(SessionTable)
+            .set({ fork_index: null })
+            .where(eq(SessionTable.tree_id, root.treeID!))
+            .run(),
+        )
+
+        expect((await Session.get(child1.id)).forkIndex).toBeUndefined()
+        expect((await Session.get(child2.id)).forkIndex).toBeUndefined()
+
+        const child3 = await Session.fork({ sessionID: root.id })
+
+        expect(child1.title).toBe("Root (fork #1)")
+        expect(child2.title).toBe("Root (fork #2)")
+        expect(child3.title).toBe("Root (fork #3)")
+        expect(child3.forkIndex).toBe(3)
       },
     })
   })
