@@ -2,24 +2,20 @@ import { execFileSync, spawn } from "node:child_process"
 import { EventEmitter } from "node:events"
 import {
   chmodSync,
-  copyFileSync,
-  existsSync,
   mkdirSync,
   readFileSync,
-  rmSync,
-  statSync,
   unlinkSync,
   writeFileSync,
 } from "node:fs"
-import { homedir, tmpdir } from "node:os"
+import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import readline from "node:readline"
 import { fileURLToPath } from "node:url"
 import { app } from "electron"
 import treeKill from "tree-kill"
 
-import { CHANNEL, WSL_ENABLED_KEY } from "./constants"
-import { clearDb, copyDb, ensureDesktopPersist, pidFiles } from "./persist"
+import { WSL_ENABLED_KEY } from "./constants"
+import { ensureDesktopPersist, pidFiles } from "./persist"
 import { userDataDir } from "./paths"
 import { store } from "./store"
 
@@ -207,41 +203,7 @@ export function serve(hostname: string, port: number, password: string, proxy: P
     ...proxyEnv,
   }
 
-  prepareProdMigration()
-
   return spawnCommand(args, env)
-}
-
-function dataRoot() {
-  return process.env.XDG_DATA_HOME || join(homedir(), ".local", "share")
-}
-
-function newer(src: string, dst: string) {
-  if (!existsSync(src)) return false
-  if (!existsSync(dst)) return true
-  return statSync(src).mtimeMs > statSync(dst).mtimeMs
-}
-
-function prepareProdMigration() {
-  if (!app.isPackaged) return
-  if (CHANNEL !== "prod") return
-
-  const root = dataRoot()
-  const legacy = join(root, "opencode")
-  const current = join(root, "aether")
-  const src = join(legacy, "opencode-prod.db")
-  const seeded = join(legacy, "aether-prod.db")
-  const dst = join(current, "aether-prod.db")
-
-  if (!existsSync(src)) return
-
-  const changed = newer(src, seeded) ? copyDb(src, seeded) : false
-  if (!changed && existsSync(seeded) && !newer(seeded, dst)) return
-
-  if (newer(seeded, dst)) {
-    clearDb(dst)
-    console.log(`[cli] Refreshed migration source: ${seeded}`)
-  }
 }
 
 export function spawnCommand(args: string, extraEnv: Record<string, string>) {
