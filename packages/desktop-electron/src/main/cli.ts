@@ -1,14 +1,24 @@
 import { execFileSync, spawn } from "node:child_process"
 import { EventEmitter } from "node:events"
-import { chmodSync, readFileSync, unlinkSync, writeFileSync } from "node:fs"
-import { tmpdir } from "node:os"
+import {
+  chmodSync,
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs"
+import { homedir, tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import readline from "node:readline"
 import { fileURLToPath } from "node:url"
 import { app } from "electron"
 import treeKill from "tree-kill"
 
-import { WSL_ENABLED_KEY } from "./constants"
+import { CHANNEL, WSL_ENABLED_KEY } from "./constants"
 import { store } from "./store"
 
 const CLI_INSTALL_DIR = ".opencode/bin"
@@ -192,7 +202,64 @@ export function serve(hostname: string, port: number, password: string, proxy: P
     ...proxyEnv,
   }
 
+  prepareProdMigration()
+
   return spawnCommand(args, env)
+}
+
+function dataRoot() {
+  return process.env.XDG_DATA_HOME || join(homedir(), ".local", "share")
+}
+
+function newer(src: string, dst: string) {
+  if (!existsSync(src)) return false
+  if (!existsSync(dst)) return true
+  return statSync(src).mtimeMs > statSync(dst).mtimeMs
+}
+
+function syncDb(src: string, dst: string) {
+  if (!existsSync(src)) return false
+  if (!newer(src, dst)) return false
+  mkdirSync(dirname(dst), { recursive: true })
+  copyFileSync(src, dst)
+  for (const ext of ["-wal", "-shm"]) {
+    const from = `${src}${ext}`
+    const to = `${dst}${ext}`
+    if (!existsSync(from)) {
+      rmSync(to, { force: true })
+      continue
+    }
+    copyFileSync(from, to)
+  }
+  return true
+}
+
+function clearDb(dst: string) {
+  rmSync(dst, { force: true })
+  rmSync(`${dst}-wal`, { force: true })
+  rmSync(`${dst}-shm`, { force: true })
+}
+
+function prepareProdMigration() {
+  if (!app.isPackaged) return
+  if (CHANNEL !== "prod") return
+
+  const root = dataRoot()
+  const legacy = join(root, "opencode")
+  const current = join(root, "aether")
+  const src = join(legacy, "opencode-prod.db")
+  const seeded = join(legacy, "aether-prod.db")
+  const dst = join(current, "aether-prod.db")
+
+  if (!existsSync(src)) return
+
+  const changed = syncDb(src, seeded)
+  if (!changed && existsSync(seeded) && !newer(seeded, dst)) return
+
+  if (newer(seeded, dst)) {
+    clearDb(dst)
+    console.log(`[cli] Refreshed migration source: ${seeded}`)
+  }
 }
 
 export function spawnCommand(args: string, extraEnv: Record<string, string>) {

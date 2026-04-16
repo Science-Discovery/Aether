@@ -1,8 +1,6 @@
 import { randomUUID } from "node:crypto"
 import { EventEmitter } from "node:events"
-import { existsSync } from "node:fs"
 import { createServer } from "node:net"
-import { homedir } from "node:os"
 import { join } from "node:path"
 import type { Event } from "electron"
 import { app, BrowserWindow, dialog } from "electron"
@@ -145,8 +143,6 @@ function setInitStep(step: InitStep) {
 }
 
 async function initialize() {
-  const needsMigration = !sqliteFileExists()
-  const sqliteDone = needsMigration ? defer<void>() : undefined
   let overlay: BrowserWindow | null = null
 
   const port = await getSidecarPort()
@@ -186,12 +182,7 @@ async function initialize() {
       setInitStep({ phase: "sqlite_waiting" })
       if (overlay) sendSqliteMigrationProgress(overlay, progress)
       if (mainWindow) sendSqliteMigrationProgress(mainWindow, progress)
-      if (progress.type === "Done") sqliteDone?.resolve()
     })
-
-    if (needsMigration) {
-      await Promise.race([sqliteDone!.promise, probe])
-    }
 
     await probe
 
@@ -203,12 +194,10 @@ async function initialize() {
     deepLinks: pendingDeepLinks,
   }
 
-  if (needsMigration) {
-    const show = await Promise.race([loadingTask.then(() => false), delay(1_000).then(() => true)])
-    if (show) {
-      overlay = createLoadingWindow(globals)
-      await delay(1_000)
-    }
+  const show = await Promise.race([loadingTask.then(() => false), delay(1_000).then(() => true)])
+  if (show) {
+    overlay = createLoadingWindow(globals)
+    await delay(1_000)
   }
 
   await loadingTask
@@ -370,13 +359,6 @@ async function getSidecarPort() {
       server.close(() => resolve(port))
     })
   })
-}
-
-function sqliteFileExists() {
-  const file = CHANNEL === "beta" ? "aether.db" : `aether-${CHANNEL}.db`
-  const xdg = process.env.XDG_DATA_HOME
-  const base = xdg && xdg.length > 0 ? xdg : join(homedir(), ".local", "share")
-  return existsSync(join(base, "opencode", file))
 }
 
 function setupAutoUpdater() {
