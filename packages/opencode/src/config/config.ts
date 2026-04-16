@@ -1230,6 +1230,30 @@ export namespace Config {
             .describe("Token buffer for compaction. Leaves enough window to avoid overflow during compaction."),
         })
         .optional(),
+      memory: z
+        .object({
+          cross_session_search_enabled: z
+            .boolean()
+            .optional()
+            .describe("Enable cross-session search tools (default: true)"),
+          cross_session_search_scope: z
+            .enum(["current_project", "global"])
+            .optional()
+            .describe("Default cross-session search scope (default: current_project)"),
+          memory_reflection_enabled: z
+            .boolean()
+            .optional()
+            .describe("Enable memory reflection/consolidation passes (default: true)"),
+          user_profile_enabled: z
+            .boolean()
+            .optional()
+            .describe("Enable USER profile memory store behavior (default: true)"),
+          user_profile_include_inferred: z
+            .boolean()
+            .optional()
+            .describe("Allow inferred profile generation/injection (default: true)"),
+        })
+        .optional(),
       experimental: z
         .object({
           disable_paste_summary: z.boolean().optional(),
@@ -1305,6 +1329,39 @@ export namespace Config {
     return load(text, { path: filepath })
   }
 
+  function stripDeprecatedConfigKeys(input: unknown, source: string) {
+    if (!input || typeof input !== "object" || Array.isArray(input)) return input
+    const copy = { ...(input as Record<string, unknown>) }
+    let changed = false
+
+    const hadLegacyUI = "theme" in copy || "keybinds" in copy || "tui" in copy
+    if (hadLegacyUI) {
+      delete copy.theme
+      delete copy.keybinds
+      delete copy.tui
+      changed = true
+      log.warn("tui keys in opencode config are deprecated; move them to tui.json", { path: source })
+    }
+
+    const memory = copy.memory
+    if (memory && typeof memory === "object" && !Array.isArray(memory)) {
+      const nextMemory = { ...(memory as Record<string, unknown>) }
+      const removed = [
+        "memory_management_model",
+        "user_profile_history_extract_enabled",
+        "user_profile_history_extract_limit",
+      ].filter((key) => key in nextMemory)
+      if (removed.length > 0) {
+        for (const key of removed) delete nextMemory[key]
+        copy.memory = nextMemory
+        changed = true
+        log.warn("deprecated memory config keys are ignored", { path: source, keys: removed })
+      }
+    }
+
+    return changed ? copy : input
+  }
+
   async function load(text: string, options: { path: string } | { dir: string; source: string }) {
     const original = text
     const source = "path" in options ? options.path : options.source
@@ -1314,17 +1371,7 @@ export namespace Config {
       "path" in options ? options.path : { source: options.source, dir: options.dir },
     )
 
-    const normalized = (() => {
-      if (!data || typeof data !== "object" || Array.isArray(data)) return data
-      const copy = { ...(data as Record<string, unknown>) }
-      const hadLegacy = "theme" in copy || "keybinds" in copy || "tui" in copy
-      if (!hadLegacy) return copy
-      delete copy.theme
-      delete copy.keybinds
-      delete copy.tui
-      log.warn("tui keys in opencode config are deprecated; move them to tui.json", { path: source })
-      return copy
-    })()
+    const normalized = stripDeprecatedConfigKeys(data, source)
 
     const parsed = Info.safeParse(normalized)
     if (parsed.success) {
@@ -1575,7 +1622,8 @@ export namespace Config {
       })
     }
 
-    const parsed = Info.safeParse(data)
+    const normalized = stripDeprecatedConfigKeys(data, filepath)
+    const parsed = Info.safeParse(normalized)
     if (parsed.success) return parsed.data
 
     throw new InvalidError({

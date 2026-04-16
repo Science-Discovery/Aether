@@ -1681,6 +1681,28 @@ export type Config = {
      */
     reserved?: number
   }
+  memory?: {
+    /**
+     * Enable cross-session search and recall tools (default: true)
+     */
+    cross_session_search_enabled?: boolean
+    /**
+     * Default scope for cross-session search: current project or global (default: current_project)
+     */
+    cross_session_search_scope?: "current_project" | "global"
+    /**
+     * Enable reflection/consolidation passes (default: true)
+     */
+    memory_reflection_enabled?: boolean
+    /**
+     * Master switch for USER profile behavior.
+     */
+    user_profile_enabled?: boolean
+    /**
+     * Enable inferred profile generation/injection.
+     */
+    user_profile_include_inferred?: boolean
+  }
   experimental?: {
     disable_paste_summary?: boolean
     /**

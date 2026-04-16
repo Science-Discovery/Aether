@@ -9,6 +9,7 @@ import { SettingsKeybinds } from "./settings-keybinds"
 import { SettingsProviders } from "./settings-providers"
 import { SettingsModels } from "./settings-models"
 import { SettingsKnowledge } from "./settings-knowledge"
+import { SettingsMemory } from "./settings-memory"
 
 export const DialogSettings: Component = () => {
   const language = useLanguage()
@@ -50,6 +51,10 @@ export const DialogSettings: Component = () => {
                       <Icon name="brain" />
                       Knowledge
                     </Tabs.Trigger>
+                    <Tabs.Trigger value="memory">
+                      <Icon name="brain" />
+                      {language.t("settings.tab.memory")}
+                    </Tabs.Trigger>
                   </div>
                 </div>
               </div>
@@ -73,6 +78,9 @@ export const DialogSettings: Component = () => {
         </Tabs.Content>
         <Tabs.Content value="knowledge" class="no-scrollbar">
           <SettingsKnowledge />
+        </Tabs.Content>
+        <Tabs.Content value="memory" class="no-scrollbar">
+          <SettingsMemory />
         </Tabs.Content>
       </Tabs>
     </Dialog>

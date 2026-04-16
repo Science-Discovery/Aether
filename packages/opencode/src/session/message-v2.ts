@@ -700,12 +700,15 @@ export namespace MessageV2 {
           parts: [],
         }
         for (const part of msg.parts) {
-          if (part.type === "text")
+          if (part.type === "text") {
+            // Memory receipt tails are audit text for users, not model context.
+            if (part.metadata?.memory_receipt === true) continue
             assistantMessage.parts.push({
               type: "text",
               text: part.text,
               ...(differentModel ? {} : { providerMetadata: part.metadata }),
             })
+          }
           if (part.type === "step-start")
             assistantMessage.parts.push({
               type: "step-start",
