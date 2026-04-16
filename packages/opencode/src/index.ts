@@ -32,7 +32,6 @@ import { SessionCommand } from "./cli/cmd/session"
 import { DbCommand } from "./cli/cmd/db"
 import { JsonMigration } from "./storage/json-migration"
 import { Database } from "./storage/db"
-import { LegacyDB } from "./storage/legacy-db"
 import { Global } from "./global"
 import { ensureUser } from "./persist/migrate"
 
@@ -86,26 +85,6 @@ let cli = yargs(hideBin(process.argv))
       version: Installation.VERSION,
       args: process.argv.slice(2),
     })
-
-    const legacy = await LegacyDB.status()
-    if (legacy.should_merge) {
-      try {
-        await LegacyDB.copySource()
-        await LegacyDB.setMergeState({
-          state: "done",
-          updated: Date.now(),
-        })
-      } catch (error) {
-        await LegacyDB.setMergeState({
-          state: "error",
-          updated: Date.now(),
-          error: error instanceof Error ? error.message : String(error),
-        })
-      }
-    }
-    if (legacy.has_legacy) {
-      process.stderr.write(`发现旧库: ${legacy.legacy_count} 个；缺少 aether-prod.db 时会自动复制最新数据库。` + EOL)
-    }
 
     const marker = Database.currentPath()
     const seeded = marker !== ":memory:" && (await Filesystem.exists(marker))

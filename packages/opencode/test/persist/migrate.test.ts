@@ -10,6 +10,10 @@ async function clean(dir: string) {
   await fs.rm(dir, { recursive: true, force: true }).catch(() => {})
 }
 
+async function touch(file: string, time: number) {
+  await fs.utimes(file, time / 1000, time / 1000)
+}
+
 describe("persist.migrate", () => {
   beforeEach(async () => {
     reset()
@@ -62,6 +66,44 @@ describe("persist.migrate", () => {
     await ensureUser()
 
     expect(await Bun.file(path.join(Persist.current.data, "auth.json")).json()).toEqual({ token: "new" })
+  })
+
+  test("copies only aether databases when legacy aether files already exist", async () => {
+    await fs.mkdir(Persist.legacy.data, { recursive: true })
+    await Bun.write(path.join(Persist.legacy.data, "aether-local.db"), "new-db")
+    await Bun.write(path.join(Persist.legacy.data, "aether-local.db-wal"), "new-wal")
+    await Bun.write(path.join(Persist.legacy.data, "opencode-prod.db"), "old-db")
+
+    await ensureUser()
+
+    expect(await Bun.file(path.join(Persist.current.data, "aether-local.db")).text()).toBe("new-db")
+    expect(await Bun.file(path.join(Persist.current.data, "aether-local.db-wal")).text()).toBe("new-wal")
+    expect(await Bun.file(path.join(Persist.current.data, "aether-prod.db")).exists()).toBeFalse()
+    expect(await Bun.file(path.join(Persist.current.data, "opencode-prod.db")).exists()).toBeFalse()
+    expect(await Bun.file(path.join(Persist.legacy.data, "aether-local.db")).text()).toBe("new-db")
+    expect(await Bun.file(path.join(Persist.legacy.data, "opencode-prod.db")).text()).toBe("old-db")
+  })
+
+  test("seeds aether prod from the latest legacy opencode database without copying opencode names", async () => {
+    await fs.mkdir(Persist.legacy.data, { recursive: true })
+    const old = path.join(Persist.legacy.data, "opencode-dev.db")
+    const next = path.join(Persist.legacy.data, "opencode-beta.db")
+    await Bun.write(old, "old-db")
+    await Bun.write(next, "next-db")
+    await Bun.write(`${next}-wal`, "next-wal")
+    await Bun.write(`${next}-shm`, "next-shm")
+    await touch(old, 1000)
+    await touch(next, 2000)
+
+    await ensureUser()
+
+    expect(await Bun.file(path.join(Persist.current.data, "aether-prod.db")).text()).toBe("next-db")
+    expect(await Bun.file(path.join(Persist.current.data, "aether-prod.db-wal")).text()).toBe("next-wal")
+    expect(await Bun.file(path.join(Persist.current.data, "aether-prod.db-shm")).text()).toBe("next-shm")
+    expect(await Bun.file(path.join(Persist.current.data, "opencode-dev.db")).exists()).toBeFalse()
+    expect(await Bun.file(path.join(Persist.current.data, "opencode-beta.db")).exists()).toBeFalse()
+    expect(await Bun.file(old).text()).toBe("old-db")
+    expect(await Bun.file(next).text()).toBe("next-db")
   })
 
   test("copies project skills from .opencode to .aether once", async () => {

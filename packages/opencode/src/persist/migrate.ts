@@ -1,6 +1,7 @@
 import fs from "fs/promises"
 import path from "path"
 import { setTimeout as sleep } from "node:timers/promises"
+import { Flag } from "@/flag/flag"
 import { Filesystem } from "@/util/filesystem"
 import { CFG, LEGACY_CFG, Persist, legacyPlatformDir, platformDir } from "./naming"
 
@@ -25,12 +26,48 @@ async function exists(file: string) {
   return !!(await stat(file))
 }
 
+function lock(err: unknown) {
+  return typeof err === "object" && err !== null && "code" in err && ["EBUSY", "EPERM"].includes(String(err.code))
+}
+
+async function copy(src: string, dst: string) {
+  if (process.platform !== "win32") {
+    await fs.copyFile(src, dst)
+    return
+  }
+
+  for (let n = 0; n < 10; n++) {
+    try {
+      await fs.copyFile(src, dst)
+      return
+    } catch (err) {
+      if (!lock(err) || n >= 9) throw err
+      Bun.gc(true)
+      await sleep(100)
+    }
+  }
+}
+
+function aetherdb(name: string) {
+  return /^aether.*\.db$/i.test(name)
+}
+
+function opencodedb(name: string) {
+  return /^opencode.*\.db$/i.test(name)
+}
+
+function target() {
+  const file = Flag.OPENCODE_DB
+  if (!file || file === ":memory:") return "aether-prod.db"
+  return path.basename(file)
+}
+
 async function atomic(src: string, dst: string) {
   if (!(await exists(src))) return "skipped" as const
   if (await exists(dst)) return "skipped" as const
   await fs.mkdir(path.dirname(dst), { recursive: true })
   const tmp = `${dst}.tmp-${process.pid}-${Date.now()}`
-  await fs.copyFile(src, tmp)
+  await copy(src, tmp)
   await fs.rename(tmp, dst).catch(async (err) => {
     await fs.rm(tmp, { force: true }).catch(() => {})
     throw err
@@ -66,7 +103,7 @@ async function copyDir(state: State, src: string, dst: string, label: string) {
 
 async function copyDb(state: State) {
   const rows = await fs.readdir(Persist.legacy.data, { withFileTypes: true }).catch(() => [])
-  const dbs = rows.filter((row) => row.isFile() && /\.db$/i.test(row.name)).map((row) => row.name)
+  const dbs = rows.filter((row) => row.isFile() && aetherdb(row.name)).map((row) => row.name)
   for (const name of dbs) {
     const src = path.join(Persist.legacy.data, name)
     const dst = path.join(Persist.current.data, name)
@@ -74,6 +111,34 @@ async function copyDb(state: State) {
     await copyFile(state, `${src}-wal`, `${dst}-wal`, `data/${name}-wal`)
     await copyFile(state, `${src}-shm`, `${dst}-shm`, `data/${name}-shm`)
   }
+}
+
+async function seedDb(state: State) {
+  const rows = await fs.readdir(Persist.legacy.data, { withFileTypes: true }).catch(() => [])
+  if (rows.some((row) => row.isFile() && aetherdb(row.name))) return
+
+  const name = target()
+  const dst = path.join(Persist.current.data, name)
+  if (await exists(dst)) return
+
+  const files = await Promise.all(
+    rows
+      .filter((row) => row.isFile() && opencodedb(row.name))
+      .map(async (row) => {
+        const file = path.join(Persist.legacy.data, row.name)
+        return {
+          name: row.name,
+          file,
+          time: (await stat(file))?.mtimeMs ?? 0,
+        }
+      }),
+  )
+  const pick = files.sort((a, b) => b.time - a.time || a.name.localeCompare(b.name))[0]
+  if (!pick) return
+
+  await copyFile(state, pick.file, dst, `data/${name}`)
+  await copyFile(state, `${pick.file}-wal`, `${dst}-wal`, `data/${name}-wal`)
+  await copyFile(state, `${pick.file}-shm`, `${dst}-shm`, `data/${name}-shm`)
 }
 
 async function copyRoots(state: State) {
@@ -84,6 +149,7 @@ async function copyRoots(state: State) {
   ])
 
   await copyDb(state)
+  await seedDb(state)
 
   await Promise.all([
     copyFile(state, path.join(Persist.legacy.data, "auth.json"), path.join(Persist.current.data, "auth.json"), "data/auth.json"),
