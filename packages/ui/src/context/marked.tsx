@@ -376,6 +376,10 @@ registerCustomTheme("OpenCode", () => {
   } as unknown as ThemeRegistrationResolved)
 })
 
+const katexMacros: Record<string, string> = {
+  "\\slashed": "\\not\\!#1",
+}
+
 function renderMathInText(text: string): string {
   let result = text
 
@@ -386,6 +390,7 @@ function renderMathInText(text: string): string {
       return katex.renderToString(math, {
         displayMode: true,
         throwOnError: false,
+        macros: katexMacros,
       })
     } catch {
       return `$$${math}$$`
@@ -399,6 +404,7 @@ function renderMathInText(text: string): string {
       return katex.renderToString(math, {
         displayMode: false,
         throwOnError: false,
+        macros: katexMacros,
       })
     } catch {
       return `$${math}$`
@@ -488,6 +494,7 @@ export const { use: useMarked, provider: MarkedProvider } = createSimpleContext(
       markedKatex({
         throwOnError: false,
         nonStandard: true,
+        macros: katexMacros,
       }),
       markedShiki({
         async highlight(code, lang) {
