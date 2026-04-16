@@ -4,6 +4,7 @@ import { existsSync, readdirSync, readFileSync } from "node:fs"
 import { homedir } from "node:os"
 import { join } from "node:path"
 import { CHANNEL } from "./constants"
+import { LEGACY_SETTINGS_STORE, storeName } from "./persist-names"
 import { getStore, store } from "./store"
 
 const TAURI_MIGRATED_KEY = "tauriMigrated"
@@ -32,10 +33,9 @@ function tauriAppId() {
 }
 
 // Migrate a single Tauri .dat file into the corresponding electron-store.
-// `opencode.settings.dat` is special: it maps to the `opencode.settings` store
-// (the electron-store name without the `.dat` extension). All other .dat files
-// keep their full filename as the electron-store name so they match what the
-// renderer already passes via IPC (e.g. `"default.dat"`, `"opencode.global.dat"`).
+// `opencode.settings.dat` is special: it maps to the current settings store.
+// All other .dat files keep their full filename shape so the renderer-facing
+// store API can continue to pass names like `"default.dat"`.
 function migrateFile(datPath: string, filename: string) {
   let data: Record<string, unknown>
   try {
@@ -45,11 +45,8 @@ function migrateFile(datPath: string, filename: string) {
     return
   }
 
-  // opencode.settings.dat → the electron settings store ("opencode.settings").
-  // All other .dat files keep their full filename as the store name so they match
-  // what the renderer passes via IPC (e.g. "default.dat", "opencode.global.dat").
-  const storeName = filename === "opencode.settings.dat" ? "opencode.settings" : filename
-  const target = getStore(storeName)
+  const name = filename === "opencode.settings.dat" ? LEGACY_SETTINGS_STORE : storeName(filename)
+  const target = getStore(name)
   const migrated: string[] = []
   const skipped: string[] = []
 
@@ -63,7 +60,7 @@ function migrateFile(datPath: string, filename: string) {
     migrated.push(key)
   }
 
-  log.log("tauri migration: migrated", filename, "→", storeName, { migrated, skipped })
+  log.log("tauri migration: migrated", filename, "→", name, { migrated, skipped })
 }
 
 export function migrate() {

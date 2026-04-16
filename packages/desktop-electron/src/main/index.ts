@@ -1,23 +1,9 @@
 import { randomUUID } from "node:crypto"
 import { EventEmitter } from "node:events"
 import { createServer } from "node:net"
-import { join } from "node:path"
 import type { Event } from "electron"
 import { app, BrowserWindow, dialog } from "electron"
 import pkg from "electron-updater"
-
-const APP_NAMES: Record<string, string> = {
-  dev: "OpenCode Dev",
-  beta: "OpenCode Beta",
-  prod: "OpenCode",
-}
-const APP_IDS: Record<string, string> = {
-  dev: "ai.opencode.desktop.dev",
-  beta: "ai.opencode.desktop.beta",
-  prod: "ai.opencode.desktop",
-}
-app.setName(app.isPackaged ? APP_NAMES[CHANNEL] : "OpenCode Dev")
-app.setPath("userData", join(app.getPath("appData"), app.isPackaged ? APP_IDS[CHANNEL] : "ai.opencode.desktop.dev"))
 const { autoUpdater } = pkg
 
 import type { InitStep, ServerReadyData, SqliteMigrationProgress, WslConfig } from "../preload/types"
@@ -29,6 +15,8 @@ import { registerIpcHandlers, sendDeepLinks, sendMenuCommand, sendSqliteMigratio
 import { initLogging } from "./logging"
 import { parseMarkdown } from "./markdown"
 import { createMenu } from "./menu"
+import "./paths"
+import { ensureDesktopPersist } from "./persist"
 import {
   getDefaultServerUrl,
   getProxyConfig,
@@ -150,6 +138,7 @@ async function initialize() {
   const url = `http://${hostname}:${port}`
   const password = randomUUID()
 
+  ensureDesktopPersist()
   logger.log("killing stale sidecar processes")
   await killStaleSidecar()
   logger.log("spawning sidecar", { url })

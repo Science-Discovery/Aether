@@ -19,6 +19,8 @@ import { app } from "electron"
 import treeKill from "tree-kill"
 
 import { CHANNEL, WSL_ENABLED_KEY } from "./constants"
+import { clearDb, copyDb, ensureDesktopPersist, pidFiles } from "./persist"
+import { userDataDir } from "./paths"
 import { store } from "./store"
 
 const CLI_INSTALL_DIR = ".opencode/bin"
@@ -144,31 +146,34 @@ export function syncCli() {
 
 export function saveSidecarPid(pid: number) {
   try {
-    writeFileSync(join(app.getPath("userData"), "sidecar.pid"), String(pid), "utf8")
+    mkdirSync(userDataDir(), { recursive: true })
+    writeFileSync(join(userDataDir(), "sidecar.pid"), String(pid), "utf8")
   } catch {
     // ignore
   }
 }
 
 export async function killStaleSidecar(): Promise<void> {
-  const pidFile = join(app.getPath("userData"), "sidecar.pid")
-  let pid: number
-  try {
-    pid = Number.parseInt(readFileSync(pidFile, "utf8").trim(), 10)
-    if (Number.isNaN(pid)) return
-  } catch {
-    return
-  }
-  await Promise.race([
-    new Promise<void>((resolve) => {
-      treeKill(pid, "SIGKILL", () => resolve())
-    }),
-    new Promise<void>((resolve) => setTimeout(resolve, 3000)),
-  ])
-  try {
-    unlinkSync(pidFile)
-  } catch {
-    // ignore
+  ensureDesktopPersist()
+  for (const file of pidFiles()) {
+    let pid: number
+    try {
+      pid = Number.parseInt(readFileSync(file, "utf8").trim(), 10)
+      if (Number.isNaN(pid)) continue
+    } catch {
+      continue
+    }
+    await Promise.race([
+      new Promise<void>((resolve) => {
+        treeKill(pid, "SIGKILL", () => resolve())
+      }),
+      new Promise<void>((resolve) => setTimeout(resolve, 3000)),
+    ])
+    try {
+      unlinkSync(file)
+    } catch {
+      // ignore
+    }
   }
 }
 
@@ -217,29 +222,6 @@ function newer(src: string, dst: string) {
   return statSync(src).mtimeMs > statSync(dst).mtimeMs
 }
 
-function syncDb(src: string, dst: string) {
-  if (!existsSync(src)) return false
-  if (!newer(src, dst)) return false
-  mkdirSync(dirname(dst), { recursive: true })
-  copyFileSync(src, dst)
-  for (const ext of ["-wal", "-shm"]) {
-    const from = `${src}${ext}`
-    const to = `${dst}${ext}`
-    if (!existsSync(from)) {
-      rmSync(to, { force: true })
-      continue
-    }
-    copyFileSync(from, to)
-  }
-  return true
-}
-
-function clearDb(dst: string) {
-  rmSync(dst, { force: true })
-  rmSync(`${dst}-wal`, { force: true })
-  rmSync(`${dst}-shm`, { force: true })
-}
-
 function prepareProdMigration() {
   if (!app.isPackaged) return
   if (CHANNEL !== "prod") return
@@ -253,7 +235,7 @@ function prepareProdMigration() {
 
   if (!existsSync(src)) return
 
-  const changed = syncDb(src, seeded)
+  const changed = newer(src, seeded) ? copyDb(src, seeded) : false
   if (!changed && existsSync(seeded) && !newer(seeded, dst)) return
 
   if (newer(seeded, dst)) {
@@ -264,6 +246,7 @@ function prepareProdMigration() {
 
 export function spawnCommand(args: string, extraEnv: Record<string, string>) {
   console.log(`[cli] Spawning command with args: ${args}`)
+  ensureDesktopPersist()
   const base = Object.fromEntries(
     Object.entries(process.env).filter((entry): entry is [string, string] => typeof entry[1] === "string"),
   )
@@ -272,7 +255,7 @@ export function spawnCommand(args: string, extraEnv: Record<string, string>) {
     OPENCODE_EXPERIMENTAL_ICON_DISCOVERY: "true",
     OPENCODE_EXPERIMENTAL_FILEWATCHER: "true",
     OPENCODE_CLIENT: "desktop",
-    XDG_STATE_HOME: app.getPath("userData"),
+    XDG_STATE_HOME: userDataDir(),
     ...extraEnv,
   }
 
