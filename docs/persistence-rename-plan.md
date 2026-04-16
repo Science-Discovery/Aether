@@ -1046,3 +1046,466 @@ marker 的作用：
 4. 最后处理 Electron 和 CLI 安装路径
 
 按这个顺序实施，能够在最小风险下完成 Aether 与 OpenCode 的运行时持久化脱钩。
+
+## 16. 进度更新（截至 2026-04-17）
+
+本节用于补充记录当前代码实际已经落地的内容，以及与上文原定方案之间的偏差。为避免覆盖原计划，本节只做增量说明。
+
+说明：
+
+- “已合入远端”指当前 `origin/refactor/new-name` 上已经存在的实现。
+- “当前工作区”指我当前读取到的本地工作区状态，其中包含尚未提交的 Electron 持久化相关改动。
+- `⚠` 表示该实现与上文原计划不完全一致，或存在需要继续收口的地方。
+
+### 16.1 `packages/opencode` / Web / CLI：已合入远端的进展
+
+以下内容已在当前分支远端或已合入的共享后端代码中实际生效。
+
+#### 统一命名层与路径常量
+
+- 已新增 `packages/opencode/src/persist/naming.ts`，统一定义：
+  - `APP = "aether"`
+  - `LEGACY_APP = "opencode"`
+  - `PROJECT = ".aether"`
+  - `LEGACY_PROJECT = ".opencode"`
+  - `KB = ".aether-kb"`
+  - `LEGACY_KB = ".opencode-kb"`
+  - `CFG = "aether"`
+  - `LEGACY_CFG = "opencode"`
+- 已统一提供：
+  - `Persist.current` / `Persist.legacy`
+  - `platformDir()` / `legacyPlatformDir()`
+  - `managedDir()` / `legacyManagedDir()`
+
+对应代码：`packages/opencode/src/persist/naming.ts`
+
+#### 全局路径初始化已改为显式流程
+
+- `packages/opencode/src/global/index.ts` 已不再在 import 时创建目录。
+- 目录创建与 cache version 清理已收口到 `Global.ensureDirs()`。
+- `Global.Path.data/config/state/cache/log/bin` 已切到 `Persist.current.*`，即新的 `aether` 根目录。
+
+对应代码：`packages/opencode/src/global/index.ts`
+
+这意味着 §6.3 中“先 rename 迁移、再创建目录”的阻塞性前置改造已经实际完成。
+
+#### 启动顺序已改造
+
+- `packages/opencode/src/index.ts` 的 yargs middleware 当前顺序为：
+  1. `ensureUser()`
+  2. `Global.ensureDirs()`
+  3. `Log.init()`
+  4. `LegacyDB.status()` / `LegacyDB.copySource()`
+  5. `JsonMigration.run()`
+
+对应代码：`packages/opencode/src/index.ts`
+
+这说明“用户级 rename 迁移先于新目录初始化、先于 LegacyDB 合并、先于 JSON→SQLite 迁移”这一主线已落地。
+
+#### 用户级迁移层已落地
+
+- 已新增 `packages/opencode/src/persist/migrate.ts`。
+- 已实现 `ensureUser()`、`status()`、`reset()`。
+- 已实现跨进程锁：
+  - 锁文件名：`.migrate.lock`
+  - 带陈旧锁回收（5 分钟超时）
+- 已实现迁移 marker：
+  - 文件名：`migration-v1.json`
+  - 当前记录字段：`copied`、`skipped`、`time`
+
+对应代码：`packages/opencode/src/persist/migrate.ts`
+
+#### 用户级迁移已覆盖的资产
+
+当前 `ensureUser()` 实际会做以下 copy-on-first-use：
+
+- `data/`
+  - 所有旧根目录下匹配 `*.db` 的数据库文件
+  - 对应的 `-wal` / `-shm`
+  - `auth.json`
+  - `mcp-auth.json`
+  - `reading-mode/`
+  - `storage/`
+- `config/`
+  - `config.json`
+  - `opencode.json -> aether.json`
+  - `opencode.jsonc -> aether.jsonc`
+  - `AGENTS.md`
+  - `tui.json`
+  - `tui.jsonc`
+- `state/`
+  - `model.json`
+  - `kv.json`
+  - `prompt-history.jsonl`
+  - `prompt-stash.jsonl`
+  - `frecency.jsonl`
+  - `legacy-db.json`
+  - `legacy-db-merge.json`
+- 特例目录
+  - `wechat/session.json`
+  - `wechat/accounts.json`
+  - `feishu/config.json`
+  - `feishu/sessions.json`
+  - `feishu/hidden_projects.json`
+  - `wechat-bridge/` 整目录
+
+对应代码：`packages/opencode/src/persist/migrate.ts`
+
+这意味着之前测试里暴露出来的“旧全局 `opencode.json*` 中 provider baseURL 不会被实体化复制”问题，已经通过用户级迁移补上。
+
+#### 全局配置读写语义已修正
+
+- `Config.global()` 现在会：
+  - 先读 `config.json`
+  - 再判断新命名文件 `aether.json` / `aether.jsonc` 是否存在
+  - 若存在，只读取新命名文件
+  - 若不存在，回退读取旧命名文件 `opencode.json` / `opencode.jsonc`
+- `updateGlobal()` 现在在首次创建新配置文件时，会先以 `await global()` 的聚合结果为基底，再 merge 本次 patch。
+
+对应代码：`packages/opencode/src/config/config.ts`
+
+这意味着此前已经修掉：
+
+- 旧 `opencode.json*` 中的预置 provider `baseURL` 首次写配置时丢失
+- 新旧全局配置同时存在时，旧文件继续覆盖新文件
+
+#### 项目级命名兼容已部分落地
+
+- `ConfigPaths.directories()` 已同时向上搜索 `.aether` 与 `.opencode`。
+- 项目配置加载已同时搜索：
+  - `aether.jsonc`
+  - `aether.json`
+  - `opencode.jsonc`
+  - `opencode.json`
+- `.aether` / `.opencode` 目录中的 agent、command、mode、plugin 配置已同时参与读取。
+- `session/index.ts` 新写入的 plan 路径已切到 `.aether/plans`。
+- `agent/agent.ts` 权限规则已同时允许 `.aether/plans/*.md` 与 `.opencode/plans/*.md`。
+- `knowledge/storage.ts` 新写入目录已切到 `.aether-kb`，读取时会回退 `.opencode-kb`。
+- `file/ripgrep.ts` 已同时忽略 `.opencode` 与 `.aether`。
+
+对应代码：
+
+- `packages/opencode/src/config/paths.ts`
+- `packages/opencode/src/config/config.ts`
+- `packages/opencode/src/session/index.ts`
+- `packages/opencode/src/agent/agent.ts`
+- `packages/opencode/src/knowledge/storage.ts`
+- `packages/opencode/src/file/ripgrep.ts`
+
+#### WeChat / Feishu 路径命名兼容已部分落地
+
+- WeChat 和 Feishu 的路径计算都已从模块顶层旧常量改为通过 `platformDir()` / `legacyPlatformDir()` 计算。
+- 读取时都会优先使用新路径，不存在时回退旧路径。
+- 写入路径统一落到新路径。
+
+对应代码：
+
+- `packages/opencode/src/wechat/manager.ts`
+- `packages/opencode/src/feishu/manager.ts`
+
+#### 已存在的测试覆盖
+
+当前仓库里已经有与本轮命名迁移直接相关的自动化测试：
+
+- `packages/opencode/test/persist/migrate.test.ts`
+- `packages/opencode/test/config/config.test.ts`
+- `packages/opencode/test/config/tui.test.ts`
+- `packages/opencode/test/file/ripgrep.test.ts`
+- `packages/opencode/test/storage/db.test.ts`
+- `packages/opencode/test/storage/legacy-db.test.ts`
+
+其中已覆盖：
+
+- 旧用户级路径复制到新路径
+- 新路径已存在时不覆盖
+- 全局 `aether.json*` / `opencode.json*` 优先级
+- `updateGlobal()` 首次写入保留 legacy provider `baseURL`
+- `.aether` / `.opencode` 的搜索兼容
+- `tui` 迁移行为
+
+### 16.2 `packages/opencode`：与原计划不一致或尚未完全收口的点
+
+以下内容需要特别标记，因为它们与上文原计划存在差异，或者虽已有代码但未完全达到原计划要求。
+
+#### ⚠ 数据库 rename 迁移当前复制的是所有 `*.db`，不是仅 `aether*.db`
+
+原计划 §8.1 明确要求：
+
+- rename 迁移只处理 `aether*.db`
+- `opencode*.db` 交给 `LegacyDB` 处理
+
+但当前 `persist/migrate.ts` 的 `copyDb()` 是通过 `/\\.db$/i` 枚举旧根目录下所有数据库文件，因此会把旧根目录中的所有 `*.db` 都尝试复制到新根目录。
+
+对应代码：`packages/opencode/src/persist/migrate.ts`
+
+这与原定的“rename 迁移与 LegacyDB 合并职责正交”存在偏差，后续仍需再收口。
+
+#### ⚠ marker 信息比原计划简化
+
+原计划 §10.2 建议 marker 至少记录：
+
+- 迁移版本
+- 来源根目录
+- 已复制资产
+- 跳过项
+- 失败项
+
+当前实际 marker 只包含：
+
+- `copied`
+- `skipped`
+- `time`
+
+对应代码：`packages/opencode/src/persist/migrate.ts`
+
+目前这不影响幂等复制，但调试信息仍然弱于原计划。
+
+#### ⚠ `ensureProject()` 仍保留在代码中，但运行时已不再调用
+
+当前 `persist/migrate.ts` 里仍保留了 `ensureProject()`，其行为是：
+
+- 若 `.aether/skills` 不存在、`.opencode/skills` 存在
+- 则将 `.opencode/skills` 整目录复制到 `.aether/skills`
+
+并且该行为有对应测试：`packages/opencode/test/persist/migrate.test.ts`
+
+但目前仓库内已没有运行时调用 `ensureProject()` 的入口，因此这一项目级自动复制逻辑处于“函数与测试仍在、主流程未接入”的状态。
+
+对应代码：
+
+- `packages/opencode/src/persist/migrate.ts`
+- `packages/opencode/test/persist/migrate.test.ts`
+
+这与用户后来明确确认的“统一 boot 阶段只处理全局/用户级，不处理项目级”是一致的；但与本文 §7.3 中关于 `skills/` 首次启动 copy 的原始描述不一致。
+
+#### ⚠ `tui` 迁移仍然是运行时懒触发，且会修改旧配置文件
+
+原计划后续讨论里已经明确：
+
+- 暂不在本轮继续展开 boot 阻塞方案
+- 项目级先采用双读兼容
+- 不应对旧用户文件做原地改写
+
+但当前实际实现中：
+
+- `TuiConfig.get()` 仍会在运行时调用 `migrateTuiConfig()`
+- 当发现 `opencode.json*` 或 `aether.json*` 中存在 `theme` / `keybinds` / `tui` 字段时
+  - 会生成新的 `tui.json`
+  - 会生成 `*.tui-migration.bak`
+  - 并会回写原始配置文件，删除 legacy tui 字段
+
+对应代码：
+
+- `packages/opencode/src/config/tui.ts`
+- `packages/opencode/src/config/migrate-tui-config.ts`
+
+这与本文 §5.1 的“旧路径只读，不改名，不删除，不覆盖”不一致；也与后续用户确认的“项目级先只做兼容，不做自动迁移”不一致。
+
+#### ⚠ 系统级 managed config 当前是“双目录并读”，不是“优先存在目录”
+
+原计划 §7.4 中的写法是：
+
+- `systemManagedConfigDir()` 返回第一个存在的目录
+- 若都不存在则返回新名字
+
+当前实际实现是：
+
+- `managedDirs = unique([managedConfigDir(), legacySystemManagedConfigDir()])`
+- 遍历所有存在的目录
+- 每个目录中同时读取 `aether.json*` 与 `opencode.json*`
+
+对应代码：`packages/opencode/src/config/config.ts`
+
+这仍然符合“不自动迁移，只做双读兼容”的总体方向，但具体实现形态与原文举例不同。
+
+### 16.3 Electron：已合入远端的进展
+
+截至当前远端分支，Electron 方向已经有两项和命名迁移直接相关的修复进入代码。
+
+#### packaged sidecar 连通性已修复
+
+- `packages/app/src/utils/server.ts` 里的 `createSdkForServer()` 已开始透传 Basic Auth headers。
+- 这修复了 packaged Electron 与本地 sidecar 之间的鉴权连通性问题。
+
+对应代码：`packages/app/src/utils/server.ts`
+
+#### packaged prod 的数据库过渡已补了一层预处理
+
+- `packages/desktop-electron/src/main/cli.ts` 新增了 `prepareProdMigration()`。
+- 在 packaged + `prod` channel 下，会先检查：
+  - 旧 XDG data 根中的 `opencode/opencode-prod.db`
+  - 并视情况补刷成旧根中的 `opencode/aether-prod.db`
+  - 再让共享后端的 `ensureUser()` 把它迁到新根 `aether/aether-prod.db`
+
+对应代码：`packages/desktop-electron/src/main/cli.ts`
+
+这解决的是 Electron packaged prod 用户从旧数据库命名过渡到新数据库命名时的缺口。
+
+### 16.4 Electron：当前工作区已完成但尚未提交的进展
+
+以下内容我已在当前工作区代码中读到，但它们不在当前 `HEAD` 提交里，而是本地尚未提交的 Electron 持久化改动。
+
+#### Electron `userData` 命名层已实际引入
+
+- 新增 `packages/desktop-electron/src/main/paths.ts`
+- 已定义：
+  - `ai.aether.desktop.dev`
+  - `ai.aether.desktop.beta`
+  - `ai.aether.desktop`
+- 同时保留 legacy：
+  - `ai.opencode.desktop.dev`
+  - `ai.opencode.desktop.beta`
+  - `ai.opencode.desktop`
+- `app.setPath("userData", userDataDir())` 已切到新的 `ai.aether.desktop*`
+- `app.setName(...)` 也已切到 `Aether*`
+
+对应代码：`packages/desktop-electron/src/main/paths.ts`
+
+#### Electron store 命名层已实际引入
+
+- 新增 `packages/desktop-electron/src/main/persist-names.ts`
+- 已定义：
+  - `SETTINGS_STORE = "aether.settings"`
+  - `LEGACY_SETTINGS_STORE = "opencode.settings"`
+- 已提供：
+  - `storeName()`
+  - `legacyStoreName()`
+- 规则已经覆盖：
+  - `opencode.settings -> aether.settings`
+  - `opencode.global.dat -> aether.global.dat`
+  - `opencode.workspace.foo.dat -> aether.workspace.foo.dat`
+  - `default.dat` 保持不变
+
+对应代码：
+
+- `packages/desktop-electron/src/main/persist-names.ts`
+- `packages/desktop-electron/src/main/persist-names.test.ts`
+
+#### Electron `userData` 复制层已实际引入
+
+- 新增 `packages/desktop-electron/src/main/persist.ts`
+- 已实现 `ensureDesktopPersist()`，当前会：
+  - 创建新的 `userData` 目录
+  - 将旧 `default.dat` 复制到新 `userData`
+  - 将以下任一来源的 sidecar state 子树复制到 `<newUserData>/aether`
+    - `<newUserData>/opencode`
+    - `<oldUserData>/aether`
+    - `<oldUserData>/opencode`
+- 已实现 `ensureStoreFile()`，会在真正创建 electron-store 前尝试从新旧 `userData` 中的旧 store 名复制到新 store 名。
+- 已统一 `sidecar.pid` 的探测范围为新旧两个 `userData`。
+
+对应代码：
+
+- `packages/desktop-electron/src/main/persist.ts`
+- `packages/desktop-electron/src/main/store.ts`
+
+#### Electron 主进程已开始使用新的持久化辅助层
+
+当前工作区里：
+
+- `src/main/index.ts`
+  - 已 `import "./paths"`
+  - 启动初始化前会调用 `ensureDesktopPersist()`
+- `src/main/store.ts`
+  - 创建 `electron-store` 前会先跑 `ensureDesktopPersist()` 与 `ensureStoreFile()`
+- `src/main/cli.ts`
+  - 已改为通过 `userDataDir()` 写 `sidecar.pid`
+  - 启动前会调用 `ensureDesktopPersist()`
+
+这意味着 Electron 主进程自己的 `userData` 命名迁移已经开始接入启动链。
+
+### 16.5 Electron：当前仍未落地或未完全对齐 Web 的部分
+
+以下内容截至当前仍未真正完成，Electron 仍未在用户体验和持久化行为上完全对齐 Web 版本。
+
+#### Electron 启动状态机尚未纳入“重命名迁移”语义
+
+- `packages/desktop-electron/src/main/index.ts` 当前仍只有：
+  - `server_waiting`
+  - `sqlite_waiting`
+  - `done`
+- 尚无：
+  - rename migration checking
+  - rename migration in progress
+  - restart required
+
+因此 Electron 还没有把“路径命名迁移”显式纳入初始化状态机。
+
+#### `migrate()` 仍未启用
+
+- `packages/desktop-electron/src/main/migrate.ts` 仍然存在
+- 但 `index.ts` 中 `migrate()` 依然是注释掉的
+
+对应代码：
+
+- `packages/desktop-electron/src/main/migrate.ts`
+- `packages/desktop-electron/src/main/index.ts`
+
+不过需要注意，当前工作区已经不再依赖 `migrate()` 处理 store 重命名，相关逻辑正在转移到 `persist.ts` / `persist-names.ts`。
+
+#### `sqliteFileExists()` 的原计划修复当前并未以该函数形式落地
+
+原计划 §9.2 中建议尽快修复 `sqliteFileExists()`。
+
+当前实际情况是：
+
+- 远端当前 `packages/desktop-electron/src/main/index.ts` 中已看不到该函数
+- JSON→SQLite 进度条显示现在依赖 sidecar stdout/stderr 中的 `sqlite-migration:*` 事件
+
+因此，原计划中的这条“即时修复”已经被后续架构演进绕开，不再以 `sqliteFileExists()` 的形式存在。
+
+#### Electron renderer / WebView 本地存储命名仍然是旧名
+
+当前 `packages/app` 中仍有一批 Electron/前端本地存储键名保留旧命名：
+
+- `packages/app/src/entry.tsx`
+  - `opencode.settings.dat:defaultServerUrl`
+  - `opencode.settings.dat:proxy`
+- `packages/app/src/utils/persist.ts`
+  - `GLOBAL_STORAGE = "opencode.global.dat"`
+  - `LOCAL_PREFIX = "opencode."`
+
+这意味着即使 Electron 主进程 store 文件命名已开始迁移，renderer 侧 localStorage / 持久化命名仍未完成对齐。
+
+#### CLI 安装路径与 sidecar 二进制命名仍然保留旧名
+
+当前 `packages/desktop-electron/src/main/cli.ts` 里仍然是：
+
+- `CLI_INSTALL_DIR = ".opencode/bin"`
+- `CLI_BINARY_NAME = "opencode"`
+- sidecar 二进制仍然解析为 `opencode-cli`
+- WSL 安装脚本仍然写死 `~/.opencode/bin/opencode`
+
+这部分仍然属于 §12 阶段四里尚未收口的遗留项。
+
+#### Electron 仍未实现与 Web 一致的“迁移期间禁止使用 + 完成后要求重启”
+
+目前：
+
+- Web / CLI 共享后端侧也尚未接入 boot gate 和 API 总闸门
+- Electron loading window 目前只覆盖 sidecar 启动和 SQLite 迁移
+- 尚未覆盖 rename migration 的阻塞展示
+- 尚未在迁移完成后强制提示用户重启
+
+这与用户后续提出的更严格要求仍然有距离，目前暂未进入实施范围。
+
+### 16.6 当前阶段判断
+
+综合上面的实际代码状态，可以把当前进度概括为：
+
+1. `packages/opencode` 的用户级全局持久化命名迁移主线已经落地，Web/CLI 路径已经从 `opencode` 切到了 `aether`，并具备 copy-on-first-use 能力。
+2. 全局配置迁移中最关键的正确性问题，即旧 `opencode.json*` 中 provider `baseURL` 的保留，已经修正。
+3. 项目级路径当前主要停留在“兼容读取、写新路径”的阶段，未统一纳入启动期迁移；其中 `tui` 仍是明显例外。
+4. Electron 远端已完成 packaged sidecar 连通性和 packaged prod 数据库过渡补丁。
+5. Electron 当前工作区已经开始进入 `userData` / store 名称迁移阶段，但 renderer 存储键、CLI 安装路径、重启交互和启动状态机仍未完全对齐 Web。
+
+### 16.7 后续更新文档时应继续关注的点
+
+后续如果继续推进命名迁移，建议优先检查并在本节继续增量补充以下事项：
+
+- `persist/migrate.ts` 中数据库筛选是否收口回 `aether*.db`
+- `tui` 迁移是否停止对旧配置文件的原地修改
+- Electron renderer 存储键是否切到 `aether.*`
+- Electron `CLI_INSTALL_DIR` / `CLI_BINARY_NAME` / sidecar 名称是否完成命名切换
+- Electron 是否引入 rename migration 的初始化状态与重启提示
+- 是否补上 Electron 方向的真实文件系统迁移测试
