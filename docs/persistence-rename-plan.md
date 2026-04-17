@@ -437,7 +437,7 @@ export namespace Global {
 ```
 1. persist/migrate.ensureUser()   ← rename 迁移（旧目录 → 新目录）
 2. Global.ensureDirs()            ← 创建新目录结构
-3. LegacyDB.status() + copySource() ← 已有的 opencode*.db → aether-prod.db 合并
+3. JsonMigration.run()            ← 首次 SQLite 迁移（仅当前目标库不存在时）
 4. Database.Client() 初始化
 ```
 
@@ -669,31 +669,29 @@ export function systemManagedConfigDirs(): string[] {
 
 数据库不能按普通文件简单处理，因为当前启用了 WAL。
 
-### 8.1 rename 迁移与 LegacyDB 合并的职责划分
+### 8.1 rename 迁移与 legacy db seed 的职责划分
 
-当前仓库中已存在一套完整的 legacy database 合并流程（`packages/opencode/src/storage/legacy-db.ts`），在 `src/index.ts:86-138` 的 yargs middleware 中执行。这套逻辑的作用是：将同一 data 目录下的非当前 channel 的 `.db` 文件合并到 `aether-prod.db`。
+当前工作区中，数据库启动期迁移已经收口为 `persist/migrate.ensureUser()` 内的两条互斥分支：
 
-两套逻辑的职责必须正交：
-
-| 职责 | rename 迁移 (`persist/migrate.ts`) | LegacyDB 合并 (`storage/legacy-db.ts`) |
-|------|-----------------------------------|-----------------------------------------|
-| 目标 | 跨目录搬迁（`opencode/` → `aether/`） | 同目录内的命名变体合并 |
-| 处理的文件 | **只处理 `aether*.db` 系列**（`aether.db`、`aether-*.db`、及对应的 `-wal`、`-shm`） | 处理所有 `.db` 文件（含 `opencode*.db`） |
-| 不处理的文件 | `opencode*.db`（留给 LegacyDB 处理） | — |
+| 分支 | 目标 | 处理的文件 | 不处理的文件 |
+|------|------|------------|--------------|
+| `copyDb()` | 跨目录搬迁（`opencode/` → `aether/`） | **只处理 `aether*.db` 系列**（`aether.db`、`aether-*.db`、及对应的 `-wal`、`-shm`） | `opencode*.db` |
+| `seedDb()` | 为“只有 `opencode*.db` 的旧用户”在新目录生成目标库 | 从旧目录只读扫描 `opencode*.db`，按旧 `LegacyDB.copySource()` 的“最新库优先”语义选源，直接生成新目录中的目标库（默认 `aether-prod.db`） | 不把任何 `opencode*.db` 原名复制到新目录 |
 
 关键原因：
-- `Database.knownPaths()`（`storage/db.ts:65-67`）用 `/^aether.*\.db$/i` 正则扫描，只匹配 `aether*` 开头的数据库。
-- `LegacyDB.scan()`（`storage/legacy-db.ts:127-140`）用 `isdb()` 判断（只看 `.db` 后缀），范围更广。
-- 如果 rename 迁移复制了 `opencode*.db` 到新目录，`LegacyDB.scan()` 会捕获它们但 `Database.knownPaths()` 不会，导致不一致。
+- `Database.knownPaths()`（`storage/db.ts:65-67`）只扫描 `aether*` 开头的数据库。
+- 如果把 `opencode*.db` 复制到新目录，会重新引入“`LegacyDB` 看得到、`Database.knownPaths()` 看不到”的不一致。
+- 对于旧目录里已经存在 `aether*.db` 的用户，应只复制这些已经完成命名迁移的数据库，不再理会残留的 `opencode*.db`。
 
 执行顺序（写入 `src/index.ts` middleware）：
 
 ```
-1. persist/migrate.ensureUser()     ← rename 迁移（只复制 aether*.db 系列）
-2. Global.ensureDirs()              ← 确保新目录存在
-3. LegacyDB.status() + copySource() ← 已有的 opencode*.db → aether-prod.db 合并
-4. JsonMigration.run()              ← JSON → SQLite 迁移（如果是首次使用 SQLite）
-5. Database.Client() 初始化
+1. persist/migrate.ensureUser() ← 启动期数据库迁移
+   - 旧目录有 `aether*.db`：只复制这些库到新目录
+   - 旧目录没有 `aether*.db`：只读扫描 `opencode*.db`，直接在新目录 seed 目标库
+2. Global.ensureDirs()         ← 确保新目录存在
+3. JsonMigration.run()         ← JSON → SQLite 迁移（如果当前目标库仍不存在）
+4. Database.Client() 初始化
 ```
 
 ### 8.2 rename 迁移规则
@@ -712,8 +710,9 @@ export function systemManagedConfigDirs(): string[] {
 ### 8.3 注意事项
 
 - 判断是否需要迁移时，必须以”目标数据库文件是否存在”为准（§5.1 第 3 条），不能只看新 `data` 目录是否已存在。
-- rename 迁移只负责 `aether*.db` 系列文件。历史 `opencode*.db` 由 LegacyDB 流程全权负责。
+- rename 迁移只负责 `aether*.db` 系列文件；旧命名 `opencode*.db` 仅在 `seedDb()` 中被只读扫描并作为数据源使用。
 - Windows 上 `.db` 文件可能被其他进程锁定，`legacy-db.ts:72-88` 的 `copy()` 函数已包含重试逻辑，rename 迁移应复用或参考此逻辑。
+- 严禁在旧目录中补写 `aether-prod.db`、重命名旧库或删除旧库；旧目录必须保持只读。
 
 ## 9. 迁移时机
 
@@ -722,23 +721,24 @@ export function systemManagedConfigDirs(): string[] {
 首次启动顺序，写入 `packages/opencode/src/index.ts` 的 yargs middleware 中：
 
 1. 启动程序（yargs 解析命令行参数）
-2. `Log.init()`（初始化日志）
-3. **`persist/migrate.ensureUser()`**
+2. **`persist/migrate.ensureUser()`**
    - 解析新旧路径（通过 `persist/naming.ts`）
    - 获取跨进程迁移锁
    - 检测旧 data/config/state 目录是否存在
    - 逐文件执行 copy-on-first-use（§7.1 清单 + §8.1 数据库规则）
+   - 若旧目录已存在 `aether*.db`，只复制这些数据库
+   - 若旧目录仅有 `opencode*.db`，则只读选源并直接在新目录生成目标库
    - 处理 WeChat/Feishu 特例目录（§7.1 迁移矩阵）
    - 写入迁移 marker
    - 释放锁
-4. **`Global.ensureDirs()`**（创建新目录结构 + cache version 清理）
-5. **`LegacyDB.status()` + `LegacyDB.copySource()`**（已有的 opencode*.db → aether-prod.db 合并）
-6. **`JsonMigration.run()`**（JSON → SQLite 全量迁移，仅首次使用 SQLite 时触发）
-7. 打开数据库（`Database.Client()`）
-8. 启动服务
-9. 打开 Web UI 或继续 CLI 流程
+3. **`Global.ensureDirs()`**（创建新目录结构 + cache version 清理）
+4. **`Log.init()`**（初始化日志）
+5. **`JsonMigration.run()`**（JSON → SQLite 全量迁移，仅首次使用 SQLite 且当前目标库仍缺失时触发）
+6. 打开数据库（`Database.Client()`）
+7. 启动服务
+8. 打开 Web UI 或继续 CLI 流程
 
-关键约束：步骤 3 和 4 的顺序**不可交换** — 如果先执行 `ensureDirs()` 创建了空的新目录，`ensureUser()` 中对每个文件的存在性检查仍然能正常工作（§5.1 第 3 条：以文件为准不以目录为准），但为了避免不必要的混淆，仍应保持 rename 迁移优先的顺序。
+关键约束：步骤 2 和 3 的顺序**不可交换** — 如果先执行 `ensureDirs()` 创建了空的新目录，`ensureUser()` 中对每个文件的存在性检查仍然能正常工作（§5.1 第 3 条：以文件为准不以目录为准），但为了避免不必要的混淆，仍应保持 rename 迁移优先的顺序。
 
 ### 9.2 Electron
 
@@ -1095,12 +1095,11 @@ marker 的作用：
   1. `ensureUser()`
   2. `Global.ensureDirs()`
   3. `Log.init()`
-  4. `LegacyDB.status()` / `LegacyDB.copySource()`
-  5. `JsonMigration.run()`
+  4. `JsonMigration.run()`
 
 对应代码：`packages/opencode/src/index.ts`
 
-这说明“用户级 rename 迁移先于新目录初始化、先于 LegacyDB 合并、先于 JSON→SQLite 迁移”这一主线已落地。
+这说明“用户级 rename 迁移先于新目录初始化、先于 JSON→SQLite 迁移”这一主线已落地；旧 `LegacyDB` 自动补库已不再参与 boot 主链。
 
 #### 用户级迁移层已落地
 
@@ -1120,8 +1119,9 @@ marker 的作用：
 当前 `ensureUser()` 实际会做以下 copy-on-first-use：
 
 - `data/`
-  - 所有旧根目录下匹配 `*.db` 的数据库文件
+  - 旧根目录下匹配 `aether*.db` 的数据库文件
   - 对应的 `-wal` / `-shm`
+  - 若旧根目录中不存在任何 `aether*.db`，则从旧根目录的 `opencode*.db` 中按“最新库优先”语义只读选源，并直接在新根目录生成目标库（默认 `aether-prod.db`）及其 `-wal` / `-shm`
   - `auth.json`
   - `mcp-auth.json`
   - `reading-mode/`
@@ -1218,6 +1218,8 @@ marker 的作用：
 
 - 旧用户级路径复制到新路径
 - 新路径已存在时不覆盖
+- 旧目录已有 `aether*.db` 时只复制这些库，不再理会 `opencode*.db`
+- 旧目录仅有 `opencode*.db` 时，只在新目录生成目标库，不把 `opencode*.db` 原名带进新目录
 - 全局 `aether.json*` / `opencode.json*` 优先级
 - `updateGlobal()` 首次写入保留 legacy provider `baseURL`
 - `.aether` / `.opencode` 的搜索兼容
@@ -1227,18 +1229,21 @@ marker 的作用：
 
 以下内容需要特别标记，因为它们与上文原计划存在差异，或者虽已有代码但未完全达到原计划要求。
 
-#### ⚠ 数据库 rename 迁移当前复制的是所有 `*.db`，不是仅 `aether*.db`
+#### ✅ 数据库职责已按讨论收口
 
-原计划 §8.1 明确要求：
+当前 `persist/migrate.ts` 中：
 
-- rename 迁移只处理 `aether*.db`
-- `opencode*.db` 交给 `LegacyDB` 处理
+- `copyDb()` 已只处理 `aether*.db`
+- `seedDb()` 仅在旧目录中不存在任何 `aether*.db` 时，才从旧目录的 `opencode*.db` 中只读选源
+- 新目录中不再落任何 `opencode*.db`
+- boot 主链已不再自动调用 `LegacyDB.status()` / `LegacyDB.copySource()`
 
-但当前 `persist/migrate.ts` 的 `copyDb()` 是通过 `/\\.db$/i` 枚举旧根目录下所有数据库文件，因此会把旧根目录中的所有 `*.db` 都尝试复制到新根目录。
+对应代码：
 
-对应代码：`packages/opencode/src/persist/migrate.ts`
+- `packages/opencode/src/persist/migrate.ts`
+- `packages/opencode/src/index.ts`
 
-这与原定的“rename 迁移与 LegacyDB 合并职责正交”存在偏差，后续仍需再收口。
+这意味着此前文档中标记的“数据库 rename 迁移当前复制所有 `*.db`”问题已经被修正。
 
 #### ⚠ marker 信息比原计划简化
 
@@ -1329,17 +1334,11 @@ marker 的作用：
 
 对应代码：`packages/app/src/utils/server.ts`
 
-#### packaged prod 的数据库过渡已补了一层预处理
+#### packaged prod 的旧目录预处理已被新方案取代
 
-- `packages/desktop-electron/src/main/cli.ts` 新增了 `prepareProdMigration()`。
-- 在 packaged + `prod` channel 下，会先检查：
-  - 旧 XDG data 根中的 `opencode/opencode-prod.db`
-  - 并视情况补刷成旧根中的 `opencode/aether-prod.db`
-  - 再让共享后端的 `ensureUser()` 把它迁到新根 `aether/aether-prod.db`
+此前远端曾通过 `prepareProdMigration()` 在 packaged + `prod` 下先向旧 XDG data 根补写 `opencode/aether-prod.db`，再让共享后端迁入新根。
 
-对应代码：`packages/desktop-electron/src/main/cli.ts`
-
-这解决的是 Electron packaged prod 用户从旧数据库命名过渡到新数据库命名时的缺口。
+当前工作区已移除这条路径，改为统一依赖共享后端在 `ensureUser()` 中直接从旧目录只读选源、写入新目录目标库。这样可以满足“旧目录严格只读”的约束。
 
 ### 16.4 Electron：当前工作区已完成但尚未提交的进展
 
@@ -1497,15 +1496,16 @@ marker 的作用：
 2. 全局配置迁移中最关键的正确性问题，即旧 `opencode.json*` 中 provider `baseURL` 的保留，已经修正。
 3. 项目级路径当前主要停留在“兼容读取、写新路径”的阶段，未统一纳入启动期迁移；其中 `tui` 仍是明显例外。
 4. Electron 远端已完成 packaged sidecar 连通性和 packaged prod 数据库过渡补丁。
-5. Electron 当前工作区已经开始进入 `userData` / store 名称迁移阶段，但 renderer 存储键、CLI 安装路径、重启交互和启动状态机仍未完全对齐 Web。
+5. 当前工作区中，数据库迁移链已经改为“旧目录只读 + 新目录直接 seed 目标库”，Electron packaged `prod` 不再需要向旧目录补写过渡库。
+6. Electron 当前工作区已经开始进入 `userData` / store 名称迁移阶段，但 renderer 存储键、CLI 安装路径、重启交互和启动状态机仍未完全对齐 Web。
 
 ### 16.7 后续更新文档时应继续关注的点
 
 后续如果继续推进命名迁移，建议优先检查并在本节继续增量补充以下事项：
 
-- `persist/migrate.ts` 中数据库筛选是否收口回 `aether*.db`
 - `tui` 迁移是否停止对旧配置文件的原地修改
 - Electron renderer 存储键是否切到 `aether.*`
 - Electron `CLI_INSTALL_DIR` / `CLI_BINARY_NAME` / sidecar 名称是否完成命名切换
 - Electron 是否引入 rename migration 的初始化状态与重启提示
 - 是否补上 Electron 方向的真实文件系统迁移测试
+- `LegacyDB` 的手动诊断/修复路由是否需要按新的 boot 语义继续收口或重命名
