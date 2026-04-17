@@ -182,17 +182,17 @@ body.aether-pdf-viewer #viewerContainer {
 }
 
 body.aether-pdf-viewer[data-night-mode="on"] #viewerContainer {
-  background: #0f1012;
+  background: #2a2c30;
 }
 
 body.aether-pdf-viewer[data-night-mode="on"] .pdfViewer .page,
 body.aether-pdf-viewer[data-night-mode="on"] .pdfViewer .dummyPage {
-  background: #050608;
-  box-shadow: 0 1px 4px rgb(0 0 0 / 0.55);
+  background: #2a2c30;
+  box-shadow: 0 1px 4px rgb(0 0 0 / 0.4);
 }
 
 body.aether-pdf-viewer[data-night-mode="on"] .pdfViewer .page canvas {
-  filter: invert(1);
+  filter: invert(0.85) brightness(1.2) contrast(1.05);
 }
 
 body.aether-pdf-viewer[data-night-mode="on"] .textLayer,
