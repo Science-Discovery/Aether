@@ -4,10 +4,15 @@
 
 ## 概览
 
-Aether 下载服务分为两部分：
+Aether 下载服务分为三个渠道：
 
-- 管理员上传接口：发布某个平台的新版本安装包，并刷新 `latest` 下载别名
-- 下载接口：客户端按版本或按 `latest` 拉取 manifest 和安装包
+- **公开渠道** (`/download/`)：正式发布，支持版本化目录、manifest、OSS 推送
+- **私有测试渠道** (`/api/download2/`)：开发者测试产物，需鉴权，与公开渠道隔离
+- **手动安装渠道** (`/manual/`)：前端"手动安装"链接指向此渠道，仅存储 `latest` 安装包，无需鉴权
+
+每个渠道都有独立的管理员上传接口和独立的存储目录。
+
+**重要**：公开渠道和手动安装渠道要求配置 `DOWNLOAD_OSS_PUBLIC_BASE_URL`，下载时通过 302 重定向到 OSS。未配置时下载接口会返回错误。
 
 当前支持的平台：
 
@@ -23,10 +28,17 @@ Aether 下载服务分为两部分：
 https://aether.aiphys.cn/download
 ```
 
-管理员上传接口：
+管理员 OSS 直传接口（公开渠道）：
 
 ```text
-POST https://aether.aiphys.cn/api/download/admin/upload
+POST https://aether.aiphys.cn/api/download/admin/presign   # 获取预签名 URL
+POST https://aether.aiphys.cn/api/download/admin/commit     # 提交元数据，触发服务端处理
+```
+
+管理员 OSS 直传接口（手动安装渠道）：
+
+```text
+POST https://aether.aiphys.cn/api/manual/admin/presign      # 获取预签名 URL
 ```
 
 开发者私有测试下载接口：
@@ -39,6 +51,12 @@ GET https://aether.aiphys.cn/api/download2/...
 
 ```text
 POST https://aether.aiphys.cn/api/download2/admin/upload
+```
+
+手动安装包下载接口：
+
+```text
+GET https://aether.aiphys.cn/manual/latest/<filename>
 ```
 
 版本目录约定：
@@ -54,17 +72,210 @@ POST https://aether.aiphys.cn/api/download2/admin/upload
 - `/download/1.3.3/mac-arm64.yml`
 - `/download/1.3.3/aether-darwin-arm64.dmg`
 
-## 上传接口
+## 公开渠道 OSS 直传上传
 
-### 请求
+服务端配置了 `ALIYUN_OSS_*` 环境变量后，大文件从客户端直传 OSS，不经过服务器中转，速度更快、节省服务器带宽。
+
+流程分为三步：
+
+1. **presign** — 获取各平台文件的 OSS 预签名 PUT URL
+2. **upload** — 客户端并行直传文件到 OSS
+3. **commit** — 通知服务端完成本地写入、manifest 生成、版本记录等后续处理
+
+### Step 1: 获取预签名 URL
 
 - Method: `POST`
-- Content-Type: `multipart/form-data`
-- 鉴权方式二选一：
-  - 表单字段 `password`
-  - 请求头 `x-download-admin-password`
+- URL: `https://aether.aiphys.cn/api/download/admin/presign`
+- Content-Type: `application/json`
+- 鉴权：请求头 `x-download-admin-password`
 
-### 必填字段
+请求体示例：
+
+```json
+{
+  "mac": { "version": "1.3.3" },
+  "windows": { "version": "1.3.3" },
+  "linux": { "version": "1.3.3" }
+}
+```
+
+响应示例：
+
+```json
+{
+  "ok": true,
+  "platforms": {
+    "mac": {
+      "archive": {
+        "objectKey": "1.3.3/aether-darwin-arm64.dmg",
+        "url": "https://aether-asset.oss-cn-beijing.aliyuncs.com/1.3.3/aether-darwin-arm64.dmg?x-oss-signature-version=...",
+        "contentType": "application/x-apple-diskimage"
+      },
+      "installer": {
+        "objectKey": "1.3.3/update_darwin.command",
+        "url": "https://aether-asset.oss-cn-beijing.aliyuncs.com/1.3.3/update_darwin.command?x-oss-signature-version=...",
+        "contentType": "text/x-shellscript; charset=utf-8"
+      }
+    },
+    "windows": { ... },
+    "linux": { ... }
+  },
+  "expiresInSeconds": 1800
+}
+```
+
+### Step 2: 直传文件到 OSS
+
+使用预签名 URL 将文件 PUT 到 OSS：
+
+```bash
+# 并行上传三个平台的主包
+curl -X PUT \
+  -H 'Content-Type: application/x-apple-diskimage' \
+  --data-binary @aether-darwin-arm64.dmg \
+  '<mac archive presigned url>' &
+
+curl -X PUT \
+  -H 'Content-Type: application/zip' \
+  --data-binary @aether-windows-x64.zip \
+  '<windows archive presigned url>' &
+
+curl -X PUT \
+  -H 'Content-Type: application/zip' \
+  --data-binary @aether-linux-x64.zip \
+  '<linux archive presigned url>' &
+
+wait
+```
+
+### Step 3: 提交元数据
+
+所有文件上传到 OSS 后，调用 commit 接口通知服务端完成后续处理。
+
+- Method: `POST`
+- URL: `https://aether.aiphys.cn/api/download/admin/commit`
+- Content-Type: `application/json`
+- 鉴权：请求头 `x-download-admin-password`
+
+请求体示例：
+
+```json
+{
+  "mac": { "version": "1.3.3", "hasInstaller": true },
+  "windows": { "version": "1.3.3", "hasInstaller": true },
+  "linux": { "version": "1.3.3", "hasInstaller": true },
+  "releaseDate": "2026-04-13T00:00:00.000Z"
+}
+```
+
+字段说明：
+
+| 字段 | 必填 | 说明 |
+| --- | --- | --- |
+| `<platform>.version` | 是 | 该平台的版本号 |
+| `<platform>.hasInstaller` | 否 | 是否上传了安装脚本，默认 `false` |
+| `releaseDate` | 否 | ISO 时间字符串，不传由服务端生成 |
+
+响应格式与公开上传接口相同。
+
+服务端处理流程：
+
+1. 从 OSS 下载各平台的安装包（走内网，速度快）
+2. 计算安装包的 `sha512` 和 `size`
+3. 生成 manifest 并写入本地和 OSS
+4. 将安装包和安装脚本写入本地 `downloads/{version}/` 和 `downloads/latest/`
+5. 更新 `downloads/latest-versions.json`
+
+## 手动安装渠道 OSS 直传上传
+
+手动安装渠道的文件直传到 OSS 后即生效，无需 commit 步骤（用户下载时直接 302 重定向到 OSS）。
+
+流程分为两步：
+
+1. **presign** — 获取各平台文件的 OSS 预签名 PUT URL
+2. **upload** — 客户端并行直传文件到 OSS
+
+### Step 1: 获取预签名 URL
+
+- Method: `POST`
+- URL: `https://aether.aiphys.cn/api/manual/admin/presign`
+- Content-Type: `application/json`
+- 鉴权：请求头 `x-download-admin-password`
+
+请求体示例：
+
+```json
+{
+  "platforms": ["mac", "windows", "linux"]
+}
+```
+
+响应示例：
+
+```json
+{
+  "ok": true,
+  "platforms": {
+    "mac": {
+      "objectKey": "manual/latest/aether-darwin-arm64.dmg",
+      "url": "https://aether-asset.oss-cn-beijing.aliyuncs.com/manual/latest/aether-darwin-arm64.dmg?x-oss-signature-version=...",
+      "contentType": "application/x-apple-diskimage"
+    },
+    "windows": {
+      "objectKey": "manual/latest/aether-windows-x64.zip",
+      "url": "...",
+      "contentType": "application/zip"
+    },
+    "linux": {
+      "objectKey": "manual/latest/aether-linux-x64.zip",
+      "url": "...",
+      "contentType": "application/zip"
+    }
+  },
+  "expiresInSeconds": 1800
+}
+```
+
+### Step 2: 直传文件到 OSS
+
+```bash
+curl -X PUT \
+  -H 'Content-Type: application/x-apple-diskimage' \
+  --data-binary @aether-darwin-arm64.dmg \
+  '<mac presigned url>' &
+
+curl -X PUT \
+  -H 'Content-Type: application/zip' \
+  --data-binary @aether-windows-x64.zip \
+  '<windows presigned url>' &
+
+curl -X PUT \
+  -H 'Content-Type: application/zip' \
+  --data-binary @aether-linux-x64.zip \
+  '<linux presigned url>' &
+
+wait
+```
+
+上传完成后，用户即可通过 `/manual/latest/<filename>` 下载。
+
+## 开发者私有测试上传接口
+
+该接口用于上传"仅供开发者测试"的最新产物，不会更新公开下载版本。
+
+- Method: `POST`
+- URL: `https://aether.aiphys.cn/api/download2/admin/upload`
+- Content-Type: `multipart/form-data`
+- 鉴权：请求头 `x-download-admin-password` 或表单字段 `password`
+
+写入行为：
+
+1. 只覆盖 `downloads2/latest/`
+2. 不写入 `downloads2/<version>/`
+3. 不影响公开 `/download/latest/...` 的版本解析结果
+4. 上传成功后应通过 `/api/download2/latest/...` 访问测试产物
+
+### 文件字段
 
 至少上传一个平台文件。每个已上传平台都必须带对应版本号。
 
@@ -82,69 +293,7 @@ POST https://aether.aiphys.cn/api/download2/admin/upload
 | `winInstaller` | Windows 可选更新脚本文件，发布为 `update_windows.bat` |
 | `linuxInstaller` | Linux 可选更新脚本文件，发布为 `update_linux.sh` |
 
-### macOS 额外可选字段
-
-| 字段 | 含义 |
-| --- | --- |
-| `macNotesUrl` | 可选发布说明地址，写入 manifest 的 `notes_url` |
-| `releaseDate` | 可选发布时间，ISO 时间字符串；不传时由服务端生成 |
-
-### 兼容别名
-
-服务端兼容以下字段别名：
-
-| 主字段 | 兼容别名 |
-| --- | --- |
-| `macos` | `darwin`、`mac`、`macPackage`、`aether-darwin-arm64.dmg` |
-| `macInstaller` | `macCommand`、`installer`、`command`、`update_darwin.command` |
-| `winInstaller` | `windowsInstaller`、`update_windows.bat` |
-| `linuxInstaller` | `update_linux.sh` |
-| `macNotesUrl` | `notesUrl`、`notes_url` |
-| `macVersion` | `darwinVersion`、`mac_version` |
-| `windowsVersion` | `winVersion`、`windows_version` |
-| `linuxVersion` | `linux_version` |
-
 ### 上传示例
-
-上传 mac 主包、可选更新脚本和发布说明：
-
-```bash
-curl -X POST https://aether.aiphys.cn/api/download/admin/upload \
-  -H 'x-download-admin-password: <your-password>' \
-  -F 'macVersion=1.3.3' \
-  -F 'macos=@aether-darwin-arm64.dmg' \
-  -F 'macInstaller=@update_darwin.command' \
-  -F 'macNotesUrl=https://aether.aiphys.cn/release-notes/1.3.3'
-```
-
-一次上传多个平台：
-
-```bash
-curl -X POST https://aether.aiphys.cn/api/download/admin/upload \
-  -F 'password=<your-password>' \
-  -F 'macVersion=1.3.3' \
-  -F 'macos=@aether-darwin-arm64.dmg' \
-  -F 'macInstaller=@update_darwin.command' \
-  -F 'linuxVersion=1.3.4' \
-  -F 'linux=@aether-linux-x64.zip' \
-  -F 'linuxInstaller=@update_linux.sh' \
-  -F 'windowsVersion=1.3.5' \
-  -F 'windows=@aether-windows-x64.zip' \
-  -F 'winInstaller=@update_windows.bat'
-```
-
-## 开发者私有测试上传接口
-
-该接口用于上传“仅供开发者测试”的最新产物，不会更新公开下载版本。
-
-请求格式、字段、鉴权方式与 `/api/download/admin/upload` 相同，但写入行为不同：
-
-1. 只覆盖 `downloads2/latest/`
-2. 不写入 `downloads2/<version>/`
-3. 不影响公开 `/download/latest/...` 的版本解析结果
-4. 上传成功后应通过 `/api/download2/latest/...` 访问测试产物
-
-上传示例：
 
 ```bash
 curl -X POST https://aether.aiphys.cn/api/download2/admin/upload \
@@ -154,23 +303,44 @@ curl -X POST https://aether.aiphys.cn/api/download2/admin/upload \
   -F 'macInstaller=@update_darwin.command'
 ```
 
-## 上传成功后的行为
+### 上传响应
 
-每个已上传平台，服务端会执行以下操作：
+成功时返回的链接指向 `/api/download2/latest/...`，示例：
 
-1. 将安装包写入 `downloads/<version>/`
-2. 刷新 `/download/latest/...` 对应的最新下载别名
-3. 计算安装包的 `sha512` 和 `size`
-4. 生成并覆盖对应平台的 manifest
-5. 如果上传了对应平台的安装脚本字段，额外将脚本发布到对应版本，并同步刷新 `latest` 别名
+```json
+{
+  "ok": true,
+  "releaseDate": "2026-04-08T10:00:00.000Z",
+  "files": [
+    {
+      "platform": "mac",
+      "version": "1.4.1-dev",
+      "latestUrl": "/api/download2/latest/aether-darwin-arm64.dmg",
+      "latestManifestUrl": "/api/download2/latest/mac-arm64.yml",
+      "sha512": "<base64-sha512>",
+      "size": 93444053,
+      "latestInstallerUrl": "/api/download2/latest/update_darwin.command"
+    }
+  ]
+}
+```
 
-补充说明：
+## 手动安装包下载接口
 
-- 当前 GitHub Release 与 web 初始分发包默认不再携带 `update_*` 脚本；这些字段主要供下载服务托管 installer 在运行时拉取的更新脚本使用
-- 当前上传实现仍会写入 `downloads/latest/` 作为镜像目录
-- 但客户端下载 `latest` 时，应将其视为“当前最新公开版本”的路由别名，而不是依赖某个固定物理目录
-- 如需测试“已上传 latest 但暂不公开发布”的产物，开发者可使用 `/api/download2/...`；该路由直接读取 `downloads2/`，并要求提供 `x-download-admin-password` 请求头或 `?password=` 参数
-- 如需上传仅供开发者测试的 `latest` 产物，可使用 `/api/download2/admin/upload`；该接口只覆盖 `downloads2/latest/`
+该接口供前端"手动安装"链接使用，无需鉴权。
+
+下载路径：
+
+```text
+/manual/latest/aether-darwin-arm64.dmg
+/manual/latest/aether-windows-x64.zip
+/manual/latest/aether-linux-x64.zip
+```
+
+说明：
+
+- 通过 302 重定向到 OSS 公开地址
+- 下载成功后自动上报 analytics 事件（`download_channel = 'manual'`）
 
 ## 开发者私有测试下载接口
 
@@ -193,65 +363,20 @@ curl -X POST https://aether.aiphys.cn/api/download2/admin/upload \
 
 - `/api/download2/latest/...` 直接读取 `downloads2/latest/`，与生产 `downloads/` 目录隔离
 - `/api/download2/<version>/...` 按 `downloads2/<version>/` 目录读取文件
-- 兼容 `/api/download/<filename>` 的旧地址形式，例如 `/api/download2/latest-web-mac.yml`
-
-### 开发者私有测试上传响应
-
-成功时返回的链接指向 `/api/download2/latest/...`，示例：
-
-```json
-{
-  "ok": true,
-  "releaseDate": "2026-04-08T10:00:00.000Z",
-  "files": [
-    {
-      "platform": "mac",
-      "version": "1.4.1-dev",
-      "latestUrl": "/api/download2/latest/aether-darwin-arm64.dmg",
-      "latestManifestUrl": "/api/download2/latest/mac-arm64.yml",
-      "sha512": "<base64-sha512>",
-      "size": 93444053,
-      "latestInstallerUrl": "/api/download2/latest/update_darwin.command",
-      "notesUrl": null
-    }
-  ]
-}
-```
-
-## 上传响应
-
-成功时返回 `200 OK`，响应体示例：
-
-```json
-{
-  "ok": true,
-  "releaseDate": "2026-04-02T07:12:00.000Z",
-  "files": [
-    {
-      "platform": "mac",
-      "version": "1.3.3",
-      "url": "/download/1.3.3/aether-darwin-arm64.dmg",
-      "latestUrl": "/download/latest/aether-darwin-arm64.dmg",
-      "manifestUrl": "/download/1.3.3/mac-arm64.yml",
-      "latestManifestUrl": "/download/latest/mac-arm64.yml",
-      "sha512": "<base64-sha512>",
-      "size": 93444053,
-      "installerUrl": "/download/1.3.3/update_darwin.command",
-      "latestInstallerUrl": "/download/latest/update_darwin.command",
-      "notesUrl": "https://aether.aiphys.cn/release-notes/1.3.3"
-    }
-  ]
-}
-```
-
-说明：
-
-- `url` / `manifestUrl` 指向指定版本目录
-- `latestUrl` / `latestManifestUrl` 指向 `latest` 别名，服务端会解析到当前最新版本
-- `installerUrl` 与 `latestInstallerUrl` 在未上传对应平台安装脚本时为 `null`
-- `notesUrl` 在未提供时为 `null`
 
 ## 下载接口
+
+### 下载模式
+
+公开渠道和手动安装渠道要求配置 `DOWNLOAD_OSS_PUBLIC_BASE_URL`，通过 302 重定向到 OSS 对象地址。未配置时返回错误。
+
+例如：
+
+- `/download/latest/aether-darwin-arm64.dmg` 会先解析 `latest` 到具体版本（如 `1.4.1`），再重定向到 `https://<bucket-endpoint>/1.4.1/aether-darwin-arm64.dmg`
+- `/download/1.3.3/aether-windows-x64.zip` 会重定向到 `https://<bucket-endpoint>/1.3.3/aether-windows-x64.zip`
+- `/manual/latest/aether-darwin-arm64.dmg` 会重定向到 `https://<bucket-endpoint>/manual/latest/aether-darwin-arm64.dmg`
+
+私有测试渠道始终从本地文件系统读取，不经过 OSS 重定向。
 
 ### 最新通道
 
@@ -264,13 +389,10 @@ curl -X POST https://aether.aiphys.cn/api/download2/admin/upload \
 对应安装包：
 
 - `/download/latest/aether-darwin-arm64.dmg`
-- `/download/latest/aether-windows-x64.zip`
-- `/download/latest/aether-linux-x64.zip`
-
-如果服务端托管了更新脚本，installer 还会额外访问：
-
 - `/download/latest/update_darwin.command`
+- `/download/latest/aether-windows-x64.zip`
 - `/download/latest/update_windows.bat`
+- `/download/latest/aether-linux-x64.zip`
 - `/download/latest/update_linux.sh`
 
 解析规则：
@@ -290,28 +412,11 @@ curl -X POST https://aether.aiphys.cn/api/download2/admin/upload \
 对应安装包：
 
 - `/download/<version>/aether-darwin-arm64.dmg`
-- `/download/<version>/aether-windows-x64.zip`
-- `/download/<version>/aether-linux-x64.zip`
-
-如果服务端托管了更新脚本，installer 还会额外访问：
-
 - `/download/<version>/update_darwin.command`
+- `/download/<version>/aether-windows-x64.zip`
 - `/download/<version>/update_windows.bat`
+- `/download/<version>/aether-linux-x64.zip`
 - `/download/<version>/update_linux.sh`
-
-### 兼容旧地址
-
-以下旧地址仍然可用，默认映射到 `latest` 别名：
-
-- `/download/latest-web-mac.yml`
-- `/download/latest-web-windows.yml`
-- `/download/latest-web-linux.yml`
-- `/download/aether-darwin-arm64.dmg`
-- `/download/update_darwin.command`
-- `/download/aether-windows-x64.zip`
-- `/download/update_windows.bat`
-- `/download/aether-linux-x64.zip`
-- `/download/update_linux.sh`
 
 ## macOS Manifest 协议
 
@@ -321,7 +426,7 @@ mac 客户端应优先读取：
 /download/latest/mac-arm64.yml
 ```
 
-这里的 `latest` 同样表示“解析到当前最新公开版本的 manifest”，不是要求客户端访问某个固定目录。
+这里的 `latest` 同样表示"解析到当前最新公开版本的 manifest"，不是要求客户端访问某个固定目录。
 
 或：
 
@@ -340,7 +445,6 @@ package:
 installer:
   url: update_darwin.command
   size: 4096
-notes_url: 'https://aether.aiphys.cn/release-notes/1.3.3'
 files:
   - url: aether-darwin-arm64.dmg
     sha512: <base64-sha512>
@@ -358,7 +462,6 @@ releaseDate: '2026-04-02T07:12:00.000Z'
 | `package.size` | 主安装包字节数 |
 | `installer.url` | 可选更新脚本文件名 |
 | `installer.size` | 可选更新脚本字节数 |
-| `notes_url` | 可选发布说明地址 |
 | `files[0]` | 向后兼容字段，内容与 `package` 对应 |
 | `releaseDate` | 发布时间 |
 
@@ -369,21 +472,66 @@ releaseDate: '2026-04-02T07:12:00.000Z'
 - 如果 `package` 不存在，可回退读取 `files[0]`
 - `package.url` 和 `installer.url` 可能是相对路径，客户端应按 manifest 所在目录解析
 
+## 上传响应
+
+公开渠道 commit 成功时返回 `200 OK`，响应体示例：
+
+```json
+{
+  "ok": true,
+  "releaseDate": "2026-04-02T07:12:00.000Z",
+  "files": [
+    {
+      "platform": "mac",
+      "version": "1.3.3",
+      "url": "/download/1.3.3/aether-darwin-arm64.dmg",
+      "latestUrl": "/download/latest/aether-darwin-arm64.dmg",
+      "manifestUrl": "/download/1.3.3/mac-arm64.yml",
+      "latestManifestUrl": "/download/latest/mac-arm64.yml",
+      "sha512": "<base64-sha512>",
+      "size": 93444053,
+      "installerUrl": "/download/1.3.3/update_darwin.command",
+      "latestInstallerUrl": "/download/latest/update_darwin.command"
+    }
+  ]
+}
+```
+
+OSS 上传失败时的响应示例：
+
+```json
+{
+  "ok": true,
+  "releaseDate": "2026-04-02T07:12:00.000Z",
+  "ossWarnings": [
+    { "objectKey": "1.3.3/aether-darwin-arm64.dmg", "error": "OSS upload failed: 403 ..." }
+  ],
+  "files": [...]
+}
+```
+
+说明：
+
+- `url` / `manifestUrl` 指向指定版本目录
+- `latestUrl` / `latestManifestUrl` 指向 `latest` 别名，服务端会解析到当前最新版本
+- `installerUrl` 与 `latestInstallerUrl` 在未上传对应平台安装脚本时为 `null`
+- `ossWarnings` 仅在部分文件上传失败时出现
+
 ## 错误响应
 
 常见错误：
 
 | HTTP 状态码 | 含义 |
 | --- | --- |
-| `400` | 请求格式错误、缺少版本号、版本格式非法、`releaseDate` 非法、`macNotesUrl` 非法 |
+| `400` | 请求格式错误、缺少版本号、版本格式非法、`releaseDate` 非法 |
 | `403` | 管理员密码错误 |
-| `500` | 服务端未配置 `DOWNLOAD_ADMIN_PASSWORD` |
+| `500` | 服务端未配置 `DOWNLOAD_ADMIN_PASSWORD` 或 `DOWNLOAD_OSS_PUBLIC_BASE_URL` |
 
 错误响应示例：
 
 ```json
 {
-  "error": "Invalid mac notesUrl"
+  "error": "Invalid releaseDate"
 }
 ```
 
@@ -403,5 +551,10 @@ releaseDate: '2026-04-02T07:12:00.000Z'
 
 ## 相关代码
 
-- [upload.ts](/root/aether-site/src/pages/api/download/admin/upload.ts)
+- [presign.ts](/root/aether-site/src/pages/api/download/admin/presign.ts)（公开渠道 OSS 直传预签名）
+- [commit.ts](/root/aether-site/src/pages/api/download/admin/commit.ts)（公开渠道 OSS 直传提交）
+- [presign.ts](/root/aether-site/src/pages/api/manual/admin/presign.ts)（手动安装渠道 OSS 直传预签名）
+- [upload.ts](/root/aether-site/src/pages/api/download2/admin/upload.ts)（私有测试渠道上传）
+- [download-upload.ts](/root/aether-site/src/lib/server/download-upload.ts)
 - [downloads.ts](/root/aether-site/src/lib/server/downloads.ts)
+- [oss.ts](/root/aether-site/src/lib/server/oss.ts)

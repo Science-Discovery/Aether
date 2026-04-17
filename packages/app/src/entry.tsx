@@ -239,12 +239,10 @@ const start = () => {
     void ping()
   }
   window.addEventListener("pagehide", hide)
-  window.addEventListener("beforeunload", hide)
   document.addEventListener("visibilitychange", focus)
   return () => {
     clearInterval(timer)
     window.removeEventListener("pagehide", hide)
-    window.removeEventListener("beforeunload", hide)
     document.removeEventListener("visibilitychange", focus)
   }
 }
@@ -256,6 +254,58 @@ const detectOS = (): string => {
   return "linux"
 }
 
+let fallbackPath = ""
+
+const webCheck = async () => {
+  const os = detectOS()
+  const res = await req(`/global/web-update/check?os=${os}`)
+  const data = await res.json()
+  if (typeof data.checkError === "string" && data.checkError) throw new Error(data.checkError)
+  return {
+    os,
+    currentVersion: typeof data.currentVersion === "string" ? data.currentVersion.trim() : "",
+    version: typeof data.remoteVersion === "string" ? data.remoteVersion.trim() : "",
+    updateAvailable: !!data.updateAvailable,
+    downloaded: !!data.downloaded,
+    workDir: typeof data.workDir === "string" ? data.workDir.trim() : "",
+    requiresConfirmation: !!data.workDirFallback,
+  }
+}
+
+const consent = (input: { requiresConfirmation: boolean; workDir: string }) => {
+  if (!input.requiresConfirmation) return false
+  const target = input.workDir || "the default location"
+  if (fallbackPath === target) return true
+  const ok = window.confirm(
+    `Aether is not installed in a standard location. The update will be installed to:\n\n${target}\n\nContinue?`,
+  )
+  if (ok) {
+    fallbackPath = target
+    return true
+  }
+  throw new Error("Update cancelled")
+}
+
+const webDownload = async (input: { os: string; version: string }, acceptFallback: boolean) => {
+  const res = await req("/global/web-update/download", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ os: input.os, version: input.version, acceptFallback }),
+  })
+  const data = await res.json()
+  if (!data.success) throw new Error(data.error)
+}
+
+const webInstall = async (input: { os: string; version: string }, acceptFallback: boolean) => {
+  const res = await req("/global/web-update/install", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ os: input.os, version: input.version, acceptFallback }),
+  })
+  const data = await res.json()
+  if (!data.success) throw new Error(data.error)
+}
+
 const platform: Platform = {
   platform: "web",
   version: undefined,
@@ -265,38 +315,28 @@ const platform: Platform = {
   restart,
   notify,
   checkUpdate: async () => {
-    const os = detectOS()
-    const res = await req(`/global/web-update/check?os=${os}`)
-    const data = await res.json()
-    if (typeof data.checkError === "string" && data.checkError) throw new Error(data.checkError)
-    return { updateAvailable: data.updateAvailable, version: data.remoteVersion, downloaded: !!data.downloaded }
+    const data = await webCheck()
+    return {
+      updateAvailable: data.updateAvailable,
+      currentVersion: data.currentVersion,
+      version: data.version,
+      downloaded: data.downloaded,
+      requiresConfirmation: data.requiresConfirmation,
+    }
   },
   downloadUpdate: async () => {
-    const os = detectOS()
-    const checkRes = await req(`/global/web-update/check?os=${os}`)
-    const checkData = await checkRes.json()
-    if (typeof checkData.checkError === "string" && checkData.checkError) throw new Error(checkData.checkError)
-    if (!checkData.updateAvailable) return
-    const dlRes = await req("/global/web-update/download", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ os, version: checkData.remoteVersion }),
-    })
-    const dlData = await dlRes.json()
-    if (!dlData.success) throw new Error(dlData.error)
+    const data = await webCheck()
+    if (!data.updateAvailable) return
+    await webDownload(data, consent(data))
   },
   update: async () => {
-    const os = detectOS()
-    const checkRes = await req(`/global/web-update/check?os=${os}`)
-    const checkData = await checkRes.json()
-    if (typeof checkData.checkError === "string" && checkData.checkError) throw new Error(checkData.checkError)
-    const installRes = await req("/global/web-update/install", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ os, version: checkData.remoteVersion }),
-    })
-    const installData = await installRes.json()
-    if (!installData.success) throw new Error(installData.error)
+    const data = await webCheck()
+    if (!data.updateAvailable) return
+    const acceptFallback = consent(data)
+    if (!data.downloaded) {
+      await webDownload(data, acceptFallback)
+    }
+    await webInstall(data, acceptFallback)
   },
   getDefaultServer: async () => {
     const stored = readDefaultServerUrl()
@@ -338,7 +378,7 @@ const platform: Platform = {
 const boot = async () => {
   if (!(root instanceof HTMLElement)) return
   platform.version = (await readWebVersion()) || undefined
-  const stop = start()
+  let stop = start()
   await sync()
   const server: ServerConnection.Http = { type: "http", http: { url: getCurrentUrl() } }
   render(
@@ -355,7 +395,13 @@ const boot = async () => {
     ),
     root,
   )
-  window.addEventListener("unload", stop, { once: true })
+  window.addEventListener("pagehide", () => {
+    stop()
+  })
+  window.addEventListener("pageshow", (e) => {
+    if (!e.persisted) return
+    stop = start()
+  })
 }
 
 void boot()

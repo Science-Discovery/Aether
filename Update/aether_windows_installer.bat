@@ -345,6 +345,10 @@ for /f "usebackq delims=" %%i in (`powershell -NoProfile -Command "$a=$env:A; $b
 exit /b 0
 
 :work
+if defined AETHER_WORK_DIR (
+  set "%~1=%AETHER_WORK_DIR%"
+  exit /b 0
+)
 set "DIR=%~dp0"
 if "%DIR:~-1%"=="\" set "DIR=%DIR:~0,-1%"
 for %%i in ("%DIR%") do set "NAME=%%~nxi"
