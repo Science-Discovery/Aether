@@ -7,6 +7,8 @@ import { base64Encode } from "@opencode-ai/util/encode"
 import { getFilename } from "@opencode-ai/util/path"
 import { Button } from "@opencode-ai/ui/button"
 import { Collapsible } from "@opencode-ai/ui/collapsible"
+import { Dialog } from "@opencode-ai/ui/dialog"
+import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { DropdownMenu } from "@opencode-ai/ui/dropdown-menu"
 import { Icon } from "@opencode-ai/ui/icon"
 import { IconButton } from "@opencode-ai/ui/icon-button"
@@ -19,6 +21,72 @@ import { useGlobalSDK } from "@/context/global-sdk"
 import { useLanguage } from "@/context/language"
 import { NewSessionItem, SessionItem, SessionSkeleton } from "./sidebar-items"
 import { childMapByParent, sortedRootSessions, workspaceKey } from "./helpers"
+
+function createBatchSelect(
+  sessions: Accessor<Session[]>,
+  archiveSession: (s: Session) => Promise<void>,
+  deleteSession: (s: Session) => Promise<void>,
+  dialog: ReturnType<typeof useDialog>,
+  language: ReturnType<typeof useLanguage>,
+) {
+  const [selectMode, setSelectMode] = createSignal(false)
+  const [selectedIds, setSelectedIds] = createSignal<Set<string>>(new Set<string>())
+
+  const enterSelect = () => setSelectMode(true)
+  const cancelSelect = () => {
+    setSelectMode(false)
+    setSelectedIds(new Set<string>())
+  }
+  const toggleSelect = (session: Session) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(session.id)) next.delete(session.id)
+      else next.add(session.id)
+      return next
+    })
+  }
+  const selectAll = () => setSelectedIds(new Set(sessions().map((s) => s.id)))
+  const deselectAll = () => setSelectedIds(new Set<string>())
+
+  const batchArchive = async () => {
+    const ids = selectedIds()
+    await Promise.all(sessions().filter((s) => ids.has(s.id)).map((s) => archiveSession(s)))
+    cancelSelect()
+  }
+
+  const batchDelete = () => {
+    const targets = sessions().filter((s) => selectedIds().has(s.id))
+    const count = targets.length
+    if (count === 0) return
+    dialog.show(() => (
+      <Dialog title={language.t("session.delete.title")} fit>
+        <div class="flex flex-col gap-4 pl-6 pr-2.5 pb-3">
+          <span class="text-14-regular text-text-strong">
+            {language.t("session.batch.delete.confirm", { count })}
+          </span>
+          <div class="flex justify-end gap-2">
+            <Button variant="ghost" size="large" onClick={() => dialog.close()}>
+              {language.t("common.cancel")}
+            </Button>
+            <Button
+              variant="primary"
+              size="large"
+              onClick={async () => {
+                await Promise.all(targets.map((s) => deleteSession(s)))
+                dialog.close()
+                cancelSelect()
+              }}
+            >
+              {language.t("session.batch.delete", { count })}
+            </Button>
+          </div>
+        </div>
+      </Dialog>
+    ))
+  }
+
+  return { selectMode, selectedIds, enterSelect, cancelSelect, toggleSelect, selectAll, deselectAll, batchArchive, batchDelete }
+}
 
 type InlineEditorComponent = (props: {
   id: string
@@ -159,6 +227,7 @@ const WorkspaceActions = (props: {
   setHoverSession: WorkspaceSidebarContext["setHoverSession"]
   clearHoverProjectSoon: WorkspaceSidebarContext["clearHoverProjectSoon"]
   navigateToNewSession: () => void
+  onEnterSelect: () => void
 }): JSX.Element => (
   <div
     class="absolute right-1 top-1/2 -translate-y-1/2 flex items-center gap-0.5 transition-opacity"
@@ -202,6 +271,14 @@ const WorkspaceActions = (props: {
             }}
           >
             <DropdownMenu.ItemLabel>{props.language.t("common.rename")}</DropdownMenu.ItemLabel>
+          </DropdownMenu.Item>
+          <DropdownMenu.Item
+            onSelect={() => {
+              props.setMenuOpen(false)
+              props.onEnterSelect()
+            }}
+          >
+            <DropdownMenu.ItemLabel>{props.language.t("session.select")}</DropdownMenu.ItemLabel>
           </DropdownMenu.Item>
           <DropdownMenu.Item
             disabled={props.local() || props.busy()}
@@ -343,60 +420,122 @@ const WorkspaceSessionList = (props: {
   hasMore: Accessor<boolean>
   loadMore: () => Promise<void>
   language: ReturnType<typeof useLanguage>
-}): JSX.Element => (
-  <nav class="flex flex-col gap-1">
-    <Show when={props.showNew()}>
-      <NewSessionItem
-        slug={props.slug()}
-        mobile={props.mobile}
-        sidebarExpanded={props.ctx.sidebarExpanded}
-        clearHoverProjectSoon={props.ctx.clearHoverProjectSoon}
-        setHoverSession={props.ctx.setHoverSession}
-      />
-    </Show>
-    <Show when={props.loading()}>
-      <SessionSkeleton />
-    </Show>
-    <For each={props.sessions()}>
-      {(session) => (
-        <SessionItem
-          session={session}
-          list={props.sessions()}
-          navList={props.ctx.navList}
-          slug={props.slug()}
-          mobile={props.mobile}
-          popover={props.popover}
-          children={props.children()}
-          sidebarExpanded={props.ctx.sidebarExpanded}
-          sidebarHovering={props.ctx.sidebarHovering}
-          nav={props.ctx.nav}
-          hoverSession={props.ctx.hoverSession}
-          setHoverSession={props.ctx.setHoverSession}
-          clearHoverProjectSoon={props.ctx.clearHoverProjectSoon}
-          prefetchSession={props.ctx.prefetchSession}
-          archiveSession={props.ctx.archiveSession}
-          deleteSession={props.ctx.deleteSession}
-          renameSession={props.ctx.renameSession}
-        />
-      )}
-    </For>
-    <Show when={props.hasMore()}>
-      <div class="relative w-full py-1">
-        <Button
-          variant="ghost"
-          class="flex w-full text-left justify-start text-14-regular text-text-weak pl-9 pr-10"
-          size="large"
-          onClick={(e: MouseEvent) => {
-            props.loadMore()
-            ;(e.currentTarget as HTMLButtonElement).blur()
-          }}
-        >
-          {props.language.t("common.loadMore")}
-        </Button>
-      </div>
-    </Show>
-  </nav>
-)
+  selectMode: Accessor<boolean>
+  selectedIds: Accessor<Set<string>>
+  onToggleSelect: (session: Session) => void
+  onSelectAll: () => void
+  onDeselectAll: () => void
+  onBatchArchive: () => Promise<void>
+  onBatchDelete: () => void
+  onCancelSelect: () => void
+}): JSX.Element => {
+  const selectedCount = createMemo(() => props.selectedIds().size)
+  const allSelected = createMemo(
+    () => props.sessions().length > 0 && props.selectedIds().size === props.sessions().length,
+  )
+
+  return (
+    <div class="flex flex-col gap-1">
+      <Show when={props.selectMode()}>
+        <div class="flex items-center gap-1 pl-2 pr-1 py-0.5">
+          <Button
+            variant="ghost"
+            size="small"
+            class="text-12-regular text-text-weak px-1 h-6 shrink-0"
+            onClick={() => (allSelected() ? props.onDeselectAll() : props.onSelectAll())}
+          >
+            {allSelected() ? props.language.t("session.deselectAll") : props.language.t("session.selectAll")}
+          </Button>
+          <div class="flex-1" />
+          <Show when={selectedCount() > 0}>
+            <Tooltip value={props.language.t("session.batch.delete", { count: selectedCount() })} placement="top">
+              <IconButton
+                icon="trash"
+                variant="ghost"
+                class="size-6 rounded-md"
+                aria-label={props.language.t("session.batch.delete", { count: selectedCount() })}
+                onClick={props.onBatchDelete}
+              />
+            </Tooltip>
+            <Tooltip value={props.language.t("session.batch.archive", { count: selectedCount() })} placement="top">
+              <IconButton
+                icon="archive"
+                variant="ghost"
+                class="size-6 rounded-md"
+                aria-label={props.language.t("session.batch.archive", { count: selectedCount() })}
+                onClick={() => void props.onBatchArchive()}
+              />
+            </Tooltip>
+          </Show>
+          <Tooltip value={props.language.t("session.cancelSelect")} placement="top">
+            <IconButton
+              icon="close"
+              variant="ghost"
+              class="size-6 rounded-md"
+              aria-label={props.language.t("session.cancelSelect")}
+              onClick={props.onCancelSelect}
+            />
+          </Tooltip>
+        </div>
+      </Show>
+      <nav class="flex flex-col gap-1">
+        <Show when={props.showNew() && !props.selectMode()}>
+          <NewSessionItem
+            slug={props.slug()}
+            mobile={props.mobile}
+            sidebarExpanded={props.ctx.sidebarExpanded}
+            clearHoverProjectSoon={props.ctx.clearHoverProjectSoon}
+            setHoverSession={props.ctx.setHoverSession}
+          />
+        </Show>
+        <Show when={props.loading()}>
+          <SessionSkeleton />
+        </Show>
+        <For each={props.sessions()}>
+          {(session) => (
+            <SessionItem
+              session={session}
+              list={props.sessions()}
+              navList={props.ctx.navList}
+              slug={props.slug()}
+              mobile={props.mobile}
+              popover={props.popover}
+              children={props.children()}
+              sidebarExpanded={props.ctx.sidebarExpanded}
+              sidebarHovering={props.ctx.sidebarHovering}
+              nav={props.ctx.nav}
+              hoverSession={props.ctx.hoverSession}
+              setHoverSession={props.ctx.setHoverSession}
+              clearHoverProjectSoon={props.ctx.clearHoverProjectSoon}
+              prefetchSession={props.ctx.prefetchSession}
+              archiveSession={props.ctx.archiveSession}
+              deleteSession={props.ctx.deleteSession}
+              renameSession={props.ctx.renameSession}
+              selectMode={props.selectMode}
+              selected={() => props.selectedIds().has(session.id)}
+              onToggleSelect={props.onToggleSelect}
+            />
+          )}
+        </For>
+        <Show when={props.hasMore() && !props.selectMode()}>
+          <div class="relative w-full py-1">
+            <Button
+              variant="ghost"
+              class="flex w-full text-left justify-start text-14-regular text-text-weak pl-9 pr-10"
+              size="large"
+              onClick={(e: MouseEvent) => {
+                props.loadMore()
+                ;(e.currentTarget as HTMLButtonElement).blur()
+              }}
+            >
+              {props.language.t("common.loadMore")}
+            </Button>
+          </div>
+        </Show>
+      </nav>
+    </div>
+  )
+}
 
 export const SortableWorkspace = (props: {
   ctx: WorkspaceSidebarContext
@@ -409,6 +548,7 @@ export const SortableWorkspace = (props: {
   const params = useParams()
   const globalSync = useGlobalSync()
   const language = useLanguage()
+  const dialog = useDialog()
   const sortable = createSortable(props.directory)
   const [workspaceStore, setWorkspaceStore] = globalSync.child(props.directory, { bootstrap: false })
   const [menu, setMenu] = createStore({
@@ -439,6 +579,9 @@ export const SortableWorkspace = (props: {
     setWorkspaceStore("limit", (limit) => (limit ?? 0) + 5)
     await globalSync.project.loadSessions(props.directory)
   }
+
+  const { selectMode, selectedIds, enterSelect, cancelSelect, toggleSelect, selectAll, deselectAll, batchArchive, batchDelete } =
+    createBatchSelect(sessions, props.ctx.archiveSession, props.ctx.deleteSession, dialog, language)
 
   const workspaceEditActive = createMemo(() => props.ctx.editorOpen(`workspace:${props.directory}`))
   const header = () => (
@@ -527,6 +670,7 @@ export const SortableWorkspace = (props: {
                 setHoverSession={props.ctx.setHoverSession}
                 clearHoverProjectSoon={props.ctx.clearHoverProjectSoon}
                 navigateToNewSession={() => props.ctx.createSession(props.directory)}
+                onEnterSelect={enterSelect}
               />
             </div>
           </div>
@@ -545,6 +689,14 @@ export const SortableWorkspace = (props: {
             hasMore={hasMore}
             loadMore={loadMore}
             language={language}
+            selectMode={selectMode}
+            selectedIds={selectedIds}
+            onToggleSelect={toggleSelect}
+            onSelectAll={selectAll}
+            onDeselectAll={deselectAll}
+            onBatchArchive={batchArchive}
+            onBatchDelete={batchDelete}
+            onCancelSelect={cancelSelect}
           />
           <ArchivedSessionList
             directory={props.directory}
@@ -569,6 +721,7 @@ export const LocalWorkspace = (props: {
 }): JSX.Element => {
   const globalSync = useGlobalSync()
   const language = useLanguage()
+  const dialog = useDialog()
   const workspace = createMemo(() => {
     const [store, setStore] = globalSync.child(props.project.worktree)
     return { store, setStore }
@@ -584,6 +737,9 @@ export const LocalWorkspace = (props: {
     workspace().setStore("limit", (limit) => (limit ?? 0) + 5)
     await globalSync.project.loadSessions(props.project.worktree)
   }
+
+  const { selectMode, selectedIds, cancelSelect, toggleSelect, selectAll, deselectAll, batchArchive, batchDelete } =
+    createBatchSelect(sessions, props.ctx.archiveSession, props.ctx.deleteSession, dialog, language)
 
   return (
     <div
@@ -602,6 +758,14 @@ export const LocalWorkspace = (props: {
         hasMore={hasMore}
         loadMore={loadMore}
         language={language}
+        selectMode={selectMode}
+        selectedIds={selectedIds}
+        onToggleSelect={toggleSelect}
+        onSelectAll={selectAll}
+        onDeselectAll={deselectAll}
+        onBatchArchive={batchArchive}
+        onBatchDelete={batchDelete}
+        onCancelSelect={cancelSelect}
       />
       <ArchivedSessionList
         directory={props.project.worktree}

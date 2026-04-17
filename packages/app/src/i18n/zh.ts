@@ -888,6 +888,14 @@ export const dict = {
   "session.delete.confirm": '删除会话 "{{name}}"？',
   "session.delete.button": "删除会话",
 
+  "session.select": "选择",
+  "session.selectAll": "全选",
+  "session.deselectAll": "取消全选",
+  "session.cancelSelect": "取消",
+  "session.batch.archive": "归档 ({{count}})",
+  "session.batch.delete": "删除 ({{count}})",
+  "session.batch.delete.confirm": "删除 {{count}} 个会话？",
+
   "workspace.new": "新建工作区",
   "workspace.type.local": "本地",
   "workspace.type.sandbox": "沙盒",

@@ -999,6 +999,14 @@ export const dict = {
   "session.delete.confirm": 'Delete session "{{name}}"?',
   "session.delete.button": "Delete session",
 
+  "session.select": "Select",
+  "session.selectAll": "Select all",
+  "session.deselectAll": "Deselect all",
+  "session.cancelSelect": "Cancel",
+  "session.batch.archive": "Archive ({{count}})",
+  "session.batch.delete": "Delete ({{count}})",
+  "session.batch.delete.confirm": "Delete {{count}} sessions?",
+
   "workspace.new": "New workspace",
   "workspace.type.local": "local",
   "workspace.type.sandbox": "sandbox",

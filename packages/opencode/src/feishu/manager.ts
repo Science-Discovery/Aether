@@ -846,9 +846,9 @@ class FeishuManagerImpl {
           console.log("[feishu] using model:", model ?? "(default)")
 
           let promptText = text
-          if (this.detectFileSendIntent(text)) {
+          if (this.mightWantFile(text)) {
             promptText +=
-              "\n\n[系统提示：用户需要通过飞书接收文件附件，请在回复中包含该文件在当前系统上的完整绝对路径。Windows 示例：E:\\\\work\\\\demo\\\\file.md；macOS/Linux 示例：/Users/demo/file.md 或 /home/demo/file.md。系统将自动把该路径对应的文件作为附件发送给用户。]"
+              "\n\n[系统提示：如果用户的意图是获取某个文件，请在回复中包含该文件在当前系统上的完整绝对路径。Windows 示例：E:\\\\work\\\\demo\\\\file.md；macOS/Linux 示例：/Users/demo/file.md 或 /home/demo/file.md。系统将自动把该路径对应的文件作为附件发送给用户。如果用户无需获取文件，请忽略本提示，正常回复即可。]"
           }
           const intent = this.detectSummaryIntent(text)
           if (intent.isSummary) {
@@ -914,16 +914,14 @@ class FeishuManagerImpl {
             console.log("[feishu] no text in response")
           }
 
-          if (this.detectFileSendIntent(text)) {
-            let filesToSend = this.extractReadFiles(msg)
-            if (filesToSend.length === 0 && responseText) {
-              filesToSend = this.extractFilePathsFromText(responseText)
-            }
-            if (filesToSend.length > 0) {
-              console.log("[feishu] sending", filesToSend.length, "requested file(s)")
-              for (const filePath of filesToSend.slice(0, 5)) {
-                await this.replyFile(messageId, filePath)
-              }
+          let filesToSend = this.extractReadFiles(msg)
+          if (filesToSend.length === 0 && responseText) {
+            filesToSend = this.extractFilePathsFromText(responseText).slice(0, 1)
+          }
+          if (filesToSend.length > 0) {
+            console.log("[feishu] sending", filesToSend.length, "requested file(s)")
+            for (const filePath of filesToSend.slice(0, 5)) {
+              await this.replyFile(messageId, filePath)
             }
           }
         },
@@ -1032,6 +1030,14 @@ class FeishuManagerImpl {
     return textParts.map((p: any) => p.text).join("\n")
   }
 
+  /** Coarse filter: does this message possibly involve a file request? */
+  private mightWantFile(text: string): boolean {
+    const lower = text.toLowerCase()
+    return ["文件", "file", "发", "给我", "附件", "代码", "doc", "word", "excel", "pdf", "下载", "export", "ppt", "md", "markdown"].some((w) =>
+      lower.includes(w),
+    )
+  }
+
   /** Extract file paths that were read by the AI during this turn (from ToolParts). */
   private extractReadFiles(msg: any): string[] {
     if (!msg?.parts) return []
@@ -1043,14 +1049,6 @@ class FeishuManagerImpl {
       }
     }
     return [...new Set(files)]
-  }
-
-  /** Detect if the user is explicitly asking to receive a file. */
-  private detectFileSendIntent(text: string): boolean {
-    const lower = text.toLowerCase()
-    return ["发给我", "发来", "源文件", "原文件", "发过来", "原始文件", "send me", "send file"].some((w) =>
-      lower.includes(w),
-    )
   }
 
   /** Extract existing absolute file paths mentioned in text (e.g. in AI response). */
