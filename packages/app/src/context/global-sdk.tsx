@@ -3,7 +3,7 @@ import { createSimpleContext } from "@opencode-ai/ui/context"
 import { createGlobalEmitter } from "@solid-primitives/event-bus"
 import { batch, onCleanup } from "solid-js"
 import z from "zod"
-import { type AppClient, addPreferenceMethods, createSdkForServer } from "@/utils/server"
+import { type AppClient, addMemoryMethods, addPreferenceMethods, createSdkForServer } from "@/utils/server"
 import { useLanguage } from "./language"
 import { usePlatform } from "./platform"
 import { useServer } from "./server"
@@ -229,6 +229,19 @@ export const { use: useGlobalSDK, provider: GlobalSDKProvider } = createSimpleCo
           Authorization: `Basic ${btoa(`${server.current.http.username ?? "opencode"}:${server.current.http.password}`)}`,
         }
       })(),
+      { throwOnError: true },
+    )
+    addMemoryMethods(
+      sdk,
+      server.current.http.url,
+      (() => {
+        if (!server.current.http.password) return
+        return {
+          Authorization: `Basic ${btoa(`${server.current.http.username ?? "opencode"}:${server.current.http.password}`)}`,
+        }
+      })(),
+      {},
+      { throwOnError: true },
     )
 
     return {
@@ -250,6 +263,20 @@ export const { use: useGlobalSDK, provider: GlobalSDKProvider } = createSimpleCo
             if (!s.http.password) return
             return { Authorization: `Basic ${btoa(`${s.http.username ?? "opencode"}:${s.http.password}`)}` }
           })(),
+          { throwOnError: opts.throwOnError },
+        )
+        addMemoryMethods(
+          c,
+          s.http.url,
+          (() => {
+            if (!s.http.password) return
+            return { Authorization: `Basic ${btoa(`${s.http.username ?? "opencode"}:${s.http.password}`)}` }
+          })(),
+          {
+            directory: opts.directory,
+            experimental_workspaceID: opts.experimental_workspaceID,
+          },
+          { throwOnError: opts.throwOnError },
         )
         return c
       },

@@ -15,7 +15,79 @@ type Kb = {
   apiKey?: string
   baseURL?: string
 }
+type MemoryScope = "current_project" | "global"
+type MemorySettings = {
+  cross_session_search_enabled: boolean
+  cross_session_search_scope: MemoryScope
+  memory_reflection_enabled: boolean
+  user_profile_enabled: boolean
+  user_profile_include_inferred: boolean
+}
+type MemoryStore = {
+  store: "user" | "memory"
+  file: string
+  limit: number
+  used: number
+  usage: number
+  entries: string[]
+}
+
+type RequestHelperOptions = {
+  throwOnError?: boolean
+}
+
+function errorMessage(input: unknown) {
+  if (typeof input === "string" && input.trim()) return input
+  if (input && typeof input === "object") {
+    const source = input as Record<string, unknown>
+    if (typeof source.message === "string" && source.message.trim()) return source.message
+    if (typeof source.error === "string" && source.error.trim()) return source.error
+    if (source.error && typeof source.error === "object") {
+      const nested = source.error as Record<string, unknown>
+      if (typeof nested.message === "string" && nested.message.trim()) return nested.message
+    }
+  }
+  return
+}
+
+async function requestJSON<T>(url: string, init: RequestInit, options?: RequestHelperOptions): Req<T> {
+  let resp: Response
+  try {
+    resp = await fetch(url, init)
+  } catch (error) {
+    if (options?.throwOnError) throw error
+    return {}
+  }
+
+  const text = await resp.text()
+  let payload: unknown
+  if (text) {
+    try {
+      payload = JSON.parse(text)
+    } catch {
+      payload = text
+    }
+  } else {
+    payload = {}
+  }
+
+  if (!resp.ok) {
+    if (options?.throwOnError) {
+      throw new Error(errorMessage(payload) ?? `HTTP ${resp.status}`)
+    }
+    return {}
+  }
+
+  return { data: payload as T }
+}
 export type AppClient = Base & {
+  memory: {
+    get(): Req<{
+      settings: MemorySettings
+      user: MemoryStore
+      memory: MemoryStore
+    }>
+  }
   config: Base["config"] & {
     skills: {
       list(): Req<Skill[]>
@@ -101,29 +173,57 @@ export function createSdkForServer({
     ...config,
     baseUrl: server.url,
     headers: {
-      ...auth,
       ...(config.headers ?? {}),
+      ...(auth ?? {}),
     },
   }) as unknown as AppClient
 }
 
-export function addPreferenceMethods(client: AppClient, baseUrl: string, auth?: Record<string, string>): AppClient {
+export function addPreferenceMethods(
+  client: AppClient,
+  baseUrl: string,
+  auth?: Record<string, string>,
+  options?: RequestHelperOptions,
+): AppClient {
   const headers: Record<string, string> = { "Content-Type": "application/json", ...auth }
   client.session.preference = {
     async get(input) {
-      const resp = await fetch(`${baseUrl}/session/${input.sessionID}/preference`, { headers })
-      const data = await resp.json()
-      return { data }
+      return requestJSON(`${baseUrl}/session/${input.sessionID}/preference`, { headers }, options)
     },
     async update(input) {
       const { sessionID, ...body } = input
-      const resp = await fetch(`${baseUrl}/session/${sessionID}/preference`, {
-        method: "PATCH",
-        headers,
-        body: JSON.stringify(body),
-      })
-      const data = await resp.json()
-      return { data }
+      return requestJSON(
+        `${baseUrl}/session/${sessionID}/preference`,
+        {
+          method: "PATCH",
+          headers,
+          body: JSON.stringify(body),
+        },
+        options,
+      )
+    },
+  }
+  return client
+}
+
+export function addMemoryMethods(
+  client: AppClient,
+  baseUrl: string,
+  auth?: Record<string, string>,
+  opts?: { directory?: string; experimental_workspaceID?: string },
+  options?: RequestHelperOptions,
+): AppClient {
+  const headers: Record<string, string> = { "Content-Type": "application/json", ...auth }
+  if (opts?.directory) {
+    const isNonASCII = /[^\x00-\x7F]/.test(opts.directory)
+    headers["x-opencode-directory"] = isNonASCII ? encodeURIComponent(opts.directory) : opts.directory
+  }
+  if (opts?.experimental_workspaceID) {
+    headers["x-opencode-workspace"] = opts.experimental_workspaceID
+  }
+  client.memory = {
+    async get() {
+      return requestJSON(`${baseUrl}/memory`, { headers }, options)
     },
   }
   return client

@@ -763,6 +763,7 @@ export const dict = {
   "settings.section.server": "Server",
   "settings.tab.general": "General",
   "settings.tab.shortcuts": "Shortcuts",
+  "settings.tab.memory": "Memory",
   "settings.desktop.section.wsl": "WSL",
   "settings.desktop.wsl.title": "WSL integration",
   "settings.desktop.wsl.description": "Run the Aether server inside WSL on Windows.",
@@ -774,6 +775,39 @@ export const dict = {
   "settings.general.section.feed": "Feed",
   "settings.general.section.display": "Display",
   "settings.general.section.network": "Network",
+  "settings.memory.title": "Memory",
+  "settings.memory.description":
+    "The main agent decides durable USER/MEMORY writes directly. Configure recall/reflection behavior and inspect read-only stores here.",
+  "settings.memory.section.memory": "Memory",
+  "settings.memory.section.userProfile": "User Profile",
+  "settings.memory.section.stores": "Memory stores (read-only)",
+  "settings.memory.row.crossSessionEnabled.title": "Enable cross-session search",
+  "settings.memory.row.crossSessionEnabled.description":
+    "Allow recalling relevant information from past sessions when needed.",
+  "settings.memory.row.scope.title": "Default cross-session scope",
+  "settings.memory.row.scope.description": "Choose whether recall searches the current project or all projects.",
+  "settings.memory.row.reflection.title": "Enable reflection",
+  "settings.memory.row.reflection.description":
+    "Allow automatic memory consolidation after writes and before snapshots. Strong reflection can also be triggered explicitly.",
+  "settings.memory.scope.currentProject": "Current project",
+  "settings.memory.scope.global": "Global",
+  "settings.memory.row.userProfileEnabled.title": "Enable user profile",
+  "settings.memory.row.userProfileEnabled.description":
+    "Turn the USER profile system on or off. Disabled means USER is not read, written, or injected.",
+  "settings.memory.row.includeInferred.title": "Include inferred profile",
+  "settings.memory.row.includeInferred.description":
+    "When off, inferred entries are neither generated, written, nor injected.",
+  "settings.memory.userProfile.disabledHint":
+    "User Profile is currently disabled. Enable it to view and use USER.md content.",
+  "settings.memory.userProfile.group.explicit": "Explicit",
+  "settings.memory.userProfile.group.inferred": "Inferred",
+  "settings.memory.userProfile.emptyValid": "No valid user-profile entries yet.",
+  "settings.memory.store.memory": "MEMORY store",
+  "settings.memory.store.userProfile": "USER profile store",
+  "settings.memory.action.refresh": "Refresh",
+  "settings.memory.loading": "Loading memory stores...",
+  "settings.memory.empty": "No memory data available yet.",
+  "settings.memory.error.loadFailed": "Failed to load memory stores: {{message}}",
 
   "settings.general.row.defaultModel.title": "Default model",
   "settings.general.row.defaultModel.description": "Model used for new conversations when no other model is selected",
