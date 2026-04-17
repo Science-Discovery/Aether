@@ -1065,9 +1065,17 @@ class FeishuManagerImpl {
   }
 
   private extractResponseText(msg: any): string | null {
-    if (!msg?.parts) return null
+    if (!msg?.parts) {
+      const error = msg?.info?.error
+      if (error) return `AI 服务错误: ${error?.data?.message || error?.name || "未知错误"}`
+      return null
+    }
     const textParts = msg.parts.filter((p: any) => p.type === "text")
-    if (textParts.length === 0) return null
+    if (textParts.length === 0) {
+      const error = msg?.info?.error
+      if (error) return `AI 服务错误: ${error?.data?.message || error?.name || "未知错误"}`
+      return null
+    }
     return textParts.map((p: any) => p.text).join("\n")
   }
 
