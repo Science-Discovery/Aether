@@ -1,4 +1,5 @@
 import { Component, createSignal, onMount, Show } from "solid-js"
+import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { Dialog } from "@opencode-ai/ui/dialog"
 import { Button } from "@opencode-ai/ui/button"
 import { Icon } from "@opencode-ai/ui/icon"
@@ -7,58 +8,44 @@ import { usePlatform } from "@/context/platform"
 
 type UpdateState = "checking" | "up-to-date" | "available" | "downloading" | "downloaded" | "installing" | "error"
 
-const detectOS = (): string => {
-  const ua = navigator.userAgent.toLowerCase()
-  if (ua.includes("mac")) return "darwin"
-  if (ua.includes("win")) return "windows"
-  return "linux"
-}
-
 const Spinner = () => <div class="size-4 animate-spin rounded-full border-2 border-icon-weak border-t-icon-base" />
 
+const ProgressBar = () => (
+  <div class="h-1.5 w-full overflow-hidden rounded-full bg-surface-weak">
+    <div class="h-full w-full animate-pulse rounded-full bg-icon-base" />
+  </div>
+)
+
 export const DialogUpdate: Component = () => {
+  const dialog = useDialog()
   const language = useLanguage()
   const platform = usePlatform()
 
   const [state, setState] = createSignal<UpdateState>("checking")
   const [remoteVersion, setRemoteVersion] = createSignal("")
-  const [downloadedVersion, setDownloadedVersion] = createSignal("")
+  const [currentVersion, setCurrentVersion] = createSignal("")
   const [errorMessage, setErrorMessage] = createSignal("")
 
-  const currentVersion = () => downloadedVersion() || platform.version || ""
-
-  const fetchApi = async (path: string, init?: RequestInit) => {
-    const res = await fetch(new URL(path, window.location.origin), init)
-    if (!res.ok) throw new Error(`Request failed: ${res.status}`)
-    return res
+  const current = () => currentVersion() || platform.version || ""
+  const cancelled = (err: unknown) => err instanceof Error && err.message === "Update cancelled"
+  const sync = async () => {
+    if (!platform.checkUpdate) throw new Error("Updates are not supported on this platform")
+    const data = await platform.checkUpdate()
+    if (data.currentVersion?.trim()) setCurrentVersion(data.currentVersion.trim())
+    setRemoteVersion(data.version?.trim() ?? "")
+    return data
   }
 
   const checkVersion = async () => {
     setState("checking")
     setErrorMessage("")
     try {
-      const os = detectOS()
-      const res = await fetchApi(`/global/web-update/check?os=${os}`)
-      const data = await res.json()
-      const current = typeof data.currentVersion === "string" ? data.currentVersion.trim() : ""
-      const remote = typeof data.remoteVersion === "string" ? data.remoteVersion.trim() : ""
-      if (current) setDownloadedVersion(current)
-      setRemoteVersion(remote)
-      if (typeof data.checkError === "string" && data.checkError) {
-        setState("error")
-        setErrorMessage(data.checkError)
-        return
-      }
-      if (data.error) {
-        setState("error")
-        setErrorMessage(data.error)
-        return
-      }
+      const data = await sync()
       if (!data.updateAvailable) {
         setState("up-to-date")
         return
       }
-      setState(data.downloaded ? "downloaded" : "downloading")
+      setState(data.downloaded ? "downloaded" : "available")
     } catch (e) {
       setState("error")
       setErrorMessage(e instanceof Error ? e.message : String(e))
@@ -66,48 +53,42 @@ export const DialogUpdate: Component = () => {
   }
 
   const downloadUpdate = async () => {
+    if (!platform.downloadUpdate) return
     setState("downloading")
     setErrorMessage("")
     try {
-      const os = detectOS()
-      const res = await fetchApi("/global/web-update/download", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ os, version: remoteVersion() }),
-      })
-      const data = await res.json()
-      if (!data.success) {
-        setState("error")
-        setErrorMessage(data.error)
+      await platform.downloadUpdate()
+      const data = await sync()
+      if (!data.updateAvailable) {
+        setState("up-to-date")
         return
       }
-      setState("downloaded")
+      setState(data.downloaded ? "downloaded" : "available")
     } catch (e) {
+      if (cancelled(e)) {
+        setState("available")
+        return
+      }
       setState("error")
       setErrorMessage(e instanceof Error ? e.message : String(e))
     }
   }
 
   const installUpdate = async () => {
+    if (!platform.update) return
     setState("installing")
     setErrorMessage("")
     try {
-      const os = detectOS()
-      const res = await fetchApi("/global/web-update/install", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ os }),
-      })
-      const data = await res.json()
-      if (!data.success) {
-        setState("error")
-        setErrorMessage(data.error)
-        return
-      }
+      await platform.update()
+      await platform.restart()
       setTimeout(() => {
-        window.close()
+        dialog.close()
       }, 1200)
     } catch (e) {
+      if (cancelled(e)) {
+        setState("downloaded")
+        return
+      }
       setState("error")
       setErrorMessage(e instanceof Error ? e.message : String(e))
     }
@@ -128,7 +109,7 @@ export const DialogUpdate: Component = () => {
         <div class="flex flex-col gap-4">
           <div class="flex justify-between items-center">
             <span class="text-13-regular text-text-weak">{language.t("update.currentVersion")}</span>
-            <span class="text-13-medium text-text-strong">{currentVersion() ? `v${currentVersion()}` : "-"}</span>
+            <span class="text-13-medium text-text-strong">{current() ? `v${current()}` : "-"}</span>
           </div>
           <div class="flex justify-between items-center">
             <span class="text-13-regular text-text-weak">{language.t("update.remoteVersion")}</span>
@@ -154,16 +135,24 @@ export const DialogUpdate: Component = () => {
           </Show>
 
           <Show when={state() === "available"}>
-            <div class="flex items-center gap-2 text-13-regular text-text-strong">
-              <Icon name="arrow-down-to-line" class="size-4" />
-              <span>{language.t("update.available")}</span>
+            <div class="flex flex-col gap-2">
+              <div class="flex items-center gap-2 text-13-regular text-text-strong">
+                <Icon name="arrow-down-to-line" class="size-4" />
+                <span>{language.t("update.available")}</span>
+              </div>
+              <Button size="small" variant="primary" onClick={downloadUpdate}>
+                {language.t("update.download")}
+              </Button>
             </div>
           </Show>
 
           <Show when={state() === "downloading"}>
-            <div class="flex items-center gap-2 text-13-regular text-text-weak">
-              <Spinner />
-              <span>{language.t("update.downloading")}</span>
+            <div class="flex flex-col gap-2">
+              <div class="flex items-center gap-2 text-13-regular text-text-weak">
+                <Spinner />
+                <span>{language.t("update.downloading")}</span>
+              </div>
+              <ProgressBar />
             </div>
           </Show>
 
@@ -186,6 +175,7 @@ export const DialogUpdate: Component = () => {
                 <Spinner />
                 <span>{language.t("update.installing")}</span>
               </div>
+              <ProgressBar />
               <div class="text-12-regular text-text-weak">{language.t("update.installHint")}</div>
             </div>
           </Show>

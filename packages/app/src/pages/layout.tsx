@@ -31,7 +31,7 @@ import { createStore, produce, reconcile } from "solid-js/store"
 import { DragDropProvider, DragDropSensors, DragOverlay, SortableProvider, closestCenter } from "@thisbeyond/solid-dnd"
 import type { DragEvent } from "@thisbeyond/solid-dnd"
 import { useProviders } from "@/hooks/use-providers"
-import { showToast, Toast, toaster } from "@opencode-ai/ui/toast"
+import { showToast, showPromiseToast, Toast, toaster } from "@opencode-ai/ui/toast"
 import { useGlobalSDK } from "@/context/global-sdk"
 import { clearWorkspaceTerminals } from "@/context/terminal"
 import { dropSessionCaches, pickSessionCacheEvictions } from "@/context/global-sync/session-cache"
@@ -385,10 +385,23 @@ export default function Layout(props: ParentProps) {
 
   const useUpdatePolling = () =>
     onMount(() => {
-      if (!platform.checkUpdate || !platform.update || !platform.restart) return
+      if (!platform.checkUpdate || !platform.update) return
 
       let toastId: number | undefined
       let interval: ReturnType<typeof setInterval> | undefined
+      const install = async () => {
+        showPromiseToast(
+          (async () => {
+            await platform.update!()
+            await platform.restart!()
+          })(),
+          {
+            loading: language.t("update.installing"),
+            success: () => language.t("update.installHint"),
+            error: (err) => (err instanceof Error ? err.message : String(err)),
+          },
+        )
+      }
 
       const showUpdateToast = (version?: string) => {
         if (toastId !== undefined) return
@@ -404,10 +417,7 @@ export default function Layout(props: ParentProps) {
                 ? [
                     {
                       label: language.t("update.install"),
-                      onClick: async () => {
-                        await platform.update!()
-                        await platform.restart!()
-                      },
+                      onClick: install,
                     },
                     {
                       label: language.t("toast.update.action.notYet"),
@@ -417,10 +427,7 @@ export default function Layout(props: ParentProps) {
                 : [
                     {
                       label: language.t("toast.update.action.installRestart"),
-                      onClick: async () => {
-                        await platform.update!()
-                        await platform.restart!()
-                      },
+                      onClick: install,
                     },
                     {
                       label: language.t("toast.update.action.notYet"),
@@ -431,9 +438,9 @@ export default function Layout(props: ParentProps) {
       }
 
       const pollUpdate = () =>
-        platform.checkUpdate!().then(async ({ updateAvailable, version, downloaded }) => {
+        platform.checkUpdate!().then(async ({ updateAvailable, version, downloaded, requiresConfirmation }) => {
           if (!updateAvailable) return
-          if (platform.platform === "web" && platform.downloadUpdate && !downloaded) {
+          if (platform.platform === "web" && platform.downloadUpdate && !downloaded && !requiresConfirmation) {
             await platform.downloadUpdate().catch(() => undefined)
             const next = await platform.checkUpdate!().catch(() => undefined)
             if (!next?.updateAvailable || !next.downloaded) return

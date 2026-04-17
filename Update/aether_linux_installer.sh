@@ -490,6 +490,10 @@ normalize_work() {
 }
 
 workdir() {
+  if [ -n "${AETHER_WORK_DIR:-}" ]; then
+    printf "%s" "$AETHER_WORK_DIR"
+    return 0
+  fi
   local dir
   dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
   if [[ "$(basename "$dir")" == aether_* ]]; then

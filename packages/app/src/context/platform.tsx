@@ -9,8 +9,10 @@ type OpenFilePickerOptions = { title?: string; multiple?: boolean; accept?: stri
 type SaveFilePickerOptions = { title?: string; defaultPath?: string }
 type UpdateStatus = {
   updateAvailable: boolean
+  currentVersion?: string
   version?: string
   downloaded?: boolean
+  requiresConfirmation?: boolean
 }
 
 export type Platform = {

@@ -7,7 +7,7 @@ import { Switch } from "@opencode-ai/ui/switch"
 import { TextField } from "@opencode-ai/ui/text-field"
 import { Tooltip } from "@opencode-ai/ui/tooltip"
 import { useTheme, type ColorScheme } from "@opencode-ai/ui/theme/context"
-import { showToast } from "@opencode-ai/ui/toast"
+import { showToast, showPromiseToast } from "@opencode-ai/ui/toast"
 import { useGlobalSync } from "@/context/global-sync"
 import { useLanguage } from "@/context/language"
 import { useModels } from "@/context/models"
@@ -133,6 +133,19 @@ export const SettingsGeneral: Component = () => {
   const check = () => {
     if (!platform.checkUpdate) return
     setStore("checking", true)
+    const install = async () => {
+      showPromiseToast(
+        (async () => {
+          await platform.update!()
+          await platform.restart!()
+        })(),
+        {
+          loading: language.t("update.installing"),
+          success: () => language.t("update.installHint"),
+          error: (err) => (err instanceof Error ? err.message : String(err)),
+        },
+      )
+    }
 
     void platform
       .checkUpdate()
@@ -148,14 +161,11 @@ export const SettingsGeneral: Component = () => {
         }
 
         const actions =
-          platform.update && platform.restart
+          platform.update
             ? [
                 {
                   label: language.t("update.install"),
-                  onClick: async () => {
-                    await platform.update!()
-                    await platform.restart!()
-                  },
+                  onClick: install,
                 },
                 {
                   label: language.t("toast.update.action.notYet"),

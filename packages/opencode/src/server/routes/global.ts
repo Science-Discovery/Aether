@@ -4,6 +4,7 @@ import { streamSSE } from "hono/streaming"
 import z from "zod"
 import path from "path"
 import fs from "fs/promises"
+import { tmpdir } from "os"
 import { spawn } from "child_process"
 import { BusEvent } from "@/bus/bus-event"
 import { SyncEvent } from "@/sync"
@@ -65,13 +66,10 @@ const UPDATE_PKG_EXT: Record<string, string> = {
   windows: ".zip",
 }
 
-async function downloadedReady(os: string, ver: string) {
-  const script = await findInstallerScript(os)
-  if (!script) return false
+async function downloadedReady(os: string, ver: string, work: string) {
   const file = UPDATE_SCRIPT[os]
   if (!file) return false
   const ext = UPDATE_PKG_EXT[os] ?? ".dmg"
-  const work = computeWorkDir(script)
   const dl = path.join(work, "downloads")
   const upd = path.join(dl, versioned(file, ver))
   try {
@@ -105,30 +103,55 @@ function compareVer(a: string, b: string) {
 
 function getWorkDir(): string | null {
   const dir = getAppRoot()
-  const base = path.basename(dir)
-  if (base === "Aether") return dir
+  const base = path.basename(dir).toLowerCase()
+  if (base === "aether") return dir
   if (!base.startsWith("aether_")) return null
   const root = path.dirname(dir)
-  if (path.basename(root) !== "Aether") return null
+  if (path.basename(root).toLowerCase() !== "aether") return null
   return root
 }
 
-async function findInstallerScript(os: string): Promise<string | null> {
-  const name = INSTALLER_SCRIPT[os]
-  if (!name) return null
-  const dir = getWorkDir()
-  if (!dir) return null
-  const file = path.join(dir, name)
-  try {
-    await fs.access(file)
-    return file
-  } catch {
-    return null
+function getFallbackWorkDir(os: string): string | null {
+  const home = process.env.HOME || process.env.USERPROFILE || ""
+  if (!home) return null
+  if (os === "darwin") return path.join(home, "Applications", "aether")
+  if (os === "linux") return path.join(home, ".local", "share", "applications", "aether")
+  if (os === "windows") {
+    const base = process.env.LOCALAPPDATA || path.join(home, "AppData", "Local")
+    return path.join(base, "Programs", "aether")
   }
+  return null
 }
 
-function computeWorkDir(scriptPath: string): string {
-  return path.dirname(path.resolve(scriptPath))
+function resolveWorkDir(os: string): { path: string; isFallback: boolean } | null {
+  const current = getWorkDir()
+  if (current) return { path: current, isFallback: false }
+  const fb = getFallbackWorkDir(os)
+  if (!fb) return null
+  return { path: fb, isFallback: true }
+}
+
+async function fetchInstallerScript(os: string): Promise<string | null> {
+  const name = INSTALLER_SCRIPT[os]
+  if (!name) return null
+  const url = `${WEB_UPDATE_BASE}/installer/${name}`
+  const dest = path.join(tmpdir(), `aether-installer-${name}`)
+  try {
+    const res = await fetch(url)
+    if (!res.ok) {
+      log.error("failed to fetch installer script", { url, status: res.status })
+      return null
+    }
+    const buf = Buffer.from(await res.arrayBuffer())
+    await fs.writeFile(dest, buf)
+    if (os !== "windows") {
+      await fs.chmod(dest, 0o755).catch(() => undefined)
+    }
+    return dest
+  } catch (e) {
+    log.error("error fetching installer script", { url, error: e instanceof Error ? e.message : String(e) })
+    return null
+  }
 }
 
 function getAppRoot(): string {
@@ -153,6 +176,9 @@ async function readWebCurrentVersion() {
 
 async function webCheck(os: z.infer<typeof WebUpdateOS>) {
   const currentVersion = await readWebCurrentVersion()
+  const resolved = resolveWorkDir(os)
+  const workDir = resolved?.path ?? ""
+  const workDirFallback = resolved?.isFallback ?? false
   const ymlPath = INSTALLER_YML[os]
   const metaUrl = `${WEB_UPDATE_BASE}/${ymlPath}`
   try {
@@ -163,6 +189,8 @@ async function webCheck(os: z.infer<typeof WebUpdateOS>) {
         remoteVersion: "",
         updateAvailable: false,
         downloaded: false,
+        workDir,
+        workDirFallback,
         checkError: `Failed to fetch version metadata: ${res.status}`,
       }
     }
@@ -175,16 +203,20 @@ async function webCheck(os: z.infer<typeof WebUpdateOS>) {
         remoteVersion: "",
         updateAvailable: false,
         downloaded: false,
+        workDir,
+        workDirFallback,
         checkError: "Could not parse remote version from metadata",
       }
     }
     const updateAvailable = compareVer(currentVersion, remoteVersion) < 0
-    const downloaded = updateAvailable ? await downloadedReady(os, remoteVersion) : false
+    const downloaded = updateAvailable && workDir ? await downloadedReady(os, remoteVersion, workDir) : false
     return {
       currentVersion,
       remoteVersion,
       updateAvailable,
       downloaded,
+      workDir,
+      workDirFallback,
       checkError: undefined,
     }
   } catch (e) {
@@ -194,6 +226,8 @@ async function webCheck(os: z.infer<typeof WebUpdateOS>) {
       remoteVersion: "",
       updateAvailable: false,
       downloaded: false,
+      workDir,
+      workDirFallback,
       checkError: `Failed to check update: ${message}`,
     }
   }
@@ -623,6 +657,8 @@ export const GlobalRoutes = lazy(() =>
                     remoteVersion: z.string(),
                     updateAvailable: z.boolean(),
                     downloaded: z.boolean(),
+                    workDir: z.string(),
+                    workDirFallback: z.boolean(),
                     checkError: z.string().optional(),
                   }),
                 ),
@@ -669,21 +705,35 @@ export const GlobalRoutes = lazy(() =>
         z.object({
           os: WebUpdateOS,
           version: z.string().min(1),
+          acceptFallback: z.boolean().optional(),
         }),
       ),
       async (c) => {
-        const { os, version } = c.req.valid("json")
-        const scriptPath = await findInstallerScript(os)
+        const { os, version, acceptFallback } = c.req.valid("json")
+        const resolved = resolveWorkDir(os)
+        if (!resolved) {
+          return c.json({ success: false as const, error: "Could not determine aether work directory" })
+        }
+        if (resolved.isFallback && !acceptFallback) {
+          return c.json({
+            success: false as const,
+            error: `Aether is not installed in the expected location. Install to fallback path requires confirmation: ${resolved.path}`,
+          })
+        }
+        const workDir = resolved.path
+        try {
+          await fs.mkdir(workDir, { recursive: true })
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : String(e)
+          return c.json({ success: false as const, error: `Failed to create work directory ${workDir}: ${msg}` })
+        }
+        const scriptPath = await fetchInstallerScript(os)
         if (!scriptPath) {
-          return c.json({ success: false as const, error: `Installer script not found for ${os}` })
+          return c.json({ success: false as const, error: `Failed to fetch installer script for ${os}` })
         }
         const upd = UPDATE_SCRIPT[os]
         if (!upd) return c.json({ success: false as const, error: `Update script not configured for ${os}` })
-        try {
-          await fs.chmod(scriptPath, 0o755)
-        } catch {}
-        const workDir = computeWorkDir(scriptPath)
-        if (await downloadedReady(os, version)) {
+        if (await downloadedReady(os, version, workDir)) {
           return c.json({ success: true as const, path: path.join(workDir, "downloads", versioned(upd, version)) })
         }
         const currentVersion = readWebCurrentVersion()
@@ -696,7 +746,10 @@ export const GlobalRoutes = lazy(() =>
           const exitCode = await new Promise<number>((resolve, reject) => {
             const cmd = os === "windows" ? "cmd" : "bash"
             const cmdArgs = os === "windows" ? ["/c", scriptPath, "auto", cur] : [scriptPath, "auto", cur]
-            const child = spawn(cmd, cmdArgs, { cwd: workDir })
+            const child = spawn(cmd, cmdArgs, {
+              cwd: workDir,
+              env: { ...process.env, AETHER_WORK_DIR: workDir },
+            })
             child.on("close", (code: number | null) => resolve(code ?? 1))
             child.on("error", reject)
           })
@@ -722,7 +775,7 @@ export const GlobalRoutes = lazy(() =>
             return ""
           }
           const pkg = await pick()
-          if (!pkg) return c.json({ success: false as const, error: `No dmg found in ${dl}` })
+          if (!pkg) return c.json({ success: false as const, error: `No update package found in ${dl}` })
           log.info("installer auto result", { exitCode, workDir, script: scriptInDownloads, pkg })
           if (exitCode === 20) {
             return c.json({ success: false as const, error: "Already up to date" })
@@ -765,15 +818,28 @@ export const GlobalRoutes = lazy(() =>
         z.object({
           os: WebUpdateOS,
           version: z.string().min(1).optional(),
+          acceptFallback: z.boolean().optional(),
         }),
       ),
       async (c) => {
-        const { os, version } = c.req.valid("json")
-        const scriptPath = await findInstallerScript(os)
-        if (!scriptPath) {
-          return c.json({ success: false as const, error: `Installer script not found for ${os}` })
+        const { os, version, acceptFallback } = c.req.valid("json")
+        const resolved = resolveWorkDir(os)
+        if (!resolved) {
+          return c.json({ success: false as const, error: "Could not determine aether work directory" })
         }
-        const workDir = computeWorkDir(scriptPath)
+        if (resolved.isFallback && !acceptFallback) {
+          return c.json({
+            success: false as const,
+            error: `Aether is not installed in the expected location. Install to fallback path requires confirmation: ${resolved.path}`,
+          })
+        }
+        const workDir = resolved.path
+        try {
+          await fs.mkdir(workDir, { recursive: true })
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : String(e)
+          return c.json({ success: false as const, error: `Failed to create work directory ${workDir}: ${msg}` })
+        }
         const file = UPDATE_SCRIPT[os]
         if (!file) return c.json({ success: false as const, error: `Update script not configured for ${os}` })
         const dl = path.join(workDir, "downloads")
