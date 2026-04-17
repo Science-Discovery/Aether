@@ -1074,23 +1074,7 @@ class FeishuManagerImpl {
   /** Coarse filter: does this message possibly involve a file request? */
   private mightWantFile(text: string): boolean {
     const lower = text.toLowerCase()
-    return [
-      "文件",
-      "file",
-      "发",
-      "给我",
-      "附件",
-      "代码",
-      "doc",
-      "word",
-      "excel",
-      "pdf",
-      "下载",
-      "export",
-      "ppt",
-      "md",
-      "markdown",
-    ].some((w) => lower.includes(w))
+    return ["发给我", "发来", "文件给我", "发过来", "发文件", "send me", "send file"].some((w) => lower.includes(w))
   }
 
   /** Extract file paths that were read by the AI during this turn (from ToolParts). */
