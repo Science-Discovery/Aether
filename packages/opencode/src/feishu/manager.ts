@@ -965,7 +965,24 @@ class FeishuManagerImpl {
       this.evictProcessedIds()
     }
 
-    if (this._processingChat === chatId) {
+    const shouldBlock = (() => {
+      if (this._processingChat !== chatId) return false
+      const message = data?.message
+      if (!message || message.message_type !== "text") return true
+      let content: any
+      try {
+        content = JSON.parse(message.content)
+      } catch {
+        return true
+      }
+      const text = (content.text || "").replace(/@_\w+\s*/g, "").trim()
+      if (!text) return true
+      if (!text.startsWith("/")) return true
+      const cmd = text.trim().split(/\s+/)[0].toLowerCase()
+      return cmd === "/c" || cmd === "/compact"
+    })()
+
+    if (shouldBlock) {
       const mid = data?.message?.message_id
       if (mid) {
         void this.replyText(
