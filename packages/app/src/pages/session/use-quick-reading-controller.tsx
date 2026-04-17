@@ -2,6 +2,7 @@
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { showToast } from "@opencode-ai/ui/toast"
 import { useGlobalSync } from "@/context/global-sync"
+import { useMaybeConversationQuote } from "@/context/conversation-quote"
 import { useFile } from "@/context/file"
 import { useLanguage } from "@/context/language"
 import { useLocal } from "@/context/local"
@@ -29,6 +30,7 @@ export function useQuickReadingController(options: Options) {
   const globalSync = useGlobalSync()
   const language = useLanguage()
   const local = useLocal()
+  const conversationQuote = useMaybeConversationQuote()
   const quickReading = useQuickReadingMode()
   const sdk = useSDK()
   const server = useServer()
@@ -126,6 +128,7 @@ export function useQuickReadingController(options: Options) {
     if (input.action === "ask") {
       const sessionID = params.id
       if (!sessionID) return
+      conversationQuote?.clearPendingQuestion()
       quickReading.setPendingQuestion({
         kind: "text-question",
         sessionID,
@@ -184,6 +187,7 @@ export function useQuickReadingController(options: Options) {
     if (input.action === "ask") {
       const sessionID = params.id
       if (!sessionID) return
+      conversationQuote?.clearPendingQuestion()
       quickReading.setPendingQuestion({
         kind: "image-question",
         sessionID,

@@ -5,6 +5,7 @@ import { ResizeHandle } from "@opencode-ai/ui/resize-handle"
 import { OfficialReadingPdfViewer } from "./reading-pdf-viewer-official"
 import { ReadingFirstReadGate } from "./reading-first-read-gate-pdf"
 import { DialogReadingModeSettings } from "@/components/dialog-reading-mode-settings"
+import { useMaybeConversationQuote } from "@/context/conversation-quote"
 import { DEFAULT_PROMPT } from "@/context/prompt"
 import { useGlobalSync } from "@/context/global-sync"
 import { useLanguage } from "@/context/language"
@@ -36,6 +37,7 @@ export const ReadingModePanel: Component<{
   const local = useLocal()
   const language = useLanguage()
   const dialog = useDialog()
+  const conversationQuote = useMaybeConversationQuote()
   const size = props.sizing ?? createSizing()
 
   const pdfUrl = createMemo(() => `${sdk.url}/reading-mode/pdf?sessionID=${encodeURIComponent(props.sessionID)}`)
@@ -82,6 +84,7 @@ export const ReadingModePanel: Component<{
     if (!text) return
 
     if (input.action === "ask") {
+      conversationQuote?.clearPendingQuestion()
       rm.setPendingQuestion({
         kind: "text-question",
         page: input.page,
@@ -168,6 +171,7 @@ export const ReadingModePanel: Component<{
     if (!input.imageDataUrl) return
 
     if (input.action === "ask") {
+      conversationQuote?.clearPendingQuestion()
       rm.setPendingQuestion({
         kind: "image-question",
         page: input.page,

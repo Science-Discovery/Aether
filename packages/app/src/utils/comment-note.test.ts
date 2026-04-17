@@ -1,5 +1,11 @@
-import { describe, expect, test } from "bun:test"
-import { createReadingQuoteMetadata, readReadingQuoteMetadata, summarizeReadingQuoteText } from "./comment-note"
+﻿import { describe, expect, test } from "bun:test"
+import {
+  createConversationQuoteMetadata,
+  createReadingQuoteMetadata,
+  readConversationQuoteMetadata,
+  readReadingQuoteMetadata,
+  summarizeReadingQuoteText,
+} from "./comment-note"
 
 describe("reading quote metadata", () => {
   test("round-trips text quotes", () => {
@@ -50,6 +56,28 @@ describe("reading quote metadata", () => {
 
   test("summarizes long text", () => {
     const summary = summarizeReadingQuoteText("a".repeat(40), 12)
-    expect(summary).toBe("aaaaaaaaaaa…")
+    expect(summary).toBe("aaaaaaaaa...")
+  })
+})
+
+describe("conversation quote metadata", () => {
+  test("round-trips assistant quote metadata", () => {
+    const metadata = createConversationQuoteMetadata({
+      kind: "conversation-quote",
+      source: "assistant",
+      action: "ask",
+      sourceMessageID: "message-123",
+      summary: "short summary",
+      fullText: "full quoted assistant text",
+    })
+
+    expect(readConversationQuoteMetadata(metadata)).toEqual({
+      kind: "conversation-quote",
+      source: "assistant",
+      action: "ask",
+      sourceMessageID: "message-123",
+      summary: "short summary",
+      fullText: "full quoted assistant text",
+    })
   })
 })

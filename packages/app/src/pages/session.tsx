@@ -41,6 +41,7 @@ import { useSDK } from "@/context/sdk"
 import { useSettings } from "@/context/settings"
 import { useSync } from "@/context/sync"
 import { useTerminal } from "@/context/terminal"
+import { ConversationQuoteProvider } from "@/context/conversation-quote"
 import { QuickReadingModeProvider, useQuickReadingMode } from "@/context/quick-reading-mode"
 import { QuickReadingFirstReadGate } from "@/components/quick-reading/quick-reading-first-read-gate"
 import { QuickReadingPanel } from "@/components/quick-reading/quick-reading-panel"
@@ -2216,6 +2217,7 @@ function SessionPageContent(props: SessionPageProps = {}) {
                             }}
                             renderedUserMessages={historyWindow.renderedUserMessages()}
                             anchor={anchor}
+                            onFocusInput={focusInput}
                           />
                         </Show>
                       </Show>
@@ -2380,6 +2382,7 @@ function SessionPageContent(props: SessionPageProps = {}) {
                         }}
                         renderedUserMessages={historyWindow.renderedUserMessages()}
                         anchor={anchor}
+                        onFocusInput={focusInput}
                       />
                     </Show>
                   </Show>
@@ -2498,9 +2501,11 @@ function SessionPageContent(props: SessionPageProps = {}) {
 
 export default function Page(props: SessionPageProps = {}) {
   return (
-    <QuickReadingModeProvider>
-      <SessionPageContent {...props} />
-    </QuickReadingModeProvider>
+    <ConversationQuoteProvider>
+      <QuickReadingModeProvider>
+        <SessionPageContent {...props} />
+      </QuickReadingModeProvider>
+    </ConversationQuoteProvider>
   )
 }
 

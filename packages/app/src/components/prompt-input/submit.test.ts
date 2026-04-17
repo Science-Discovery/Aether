@@ -38,6 +38,16 @@ let quickReadingPendingQuestion:
       createdAt: number
     }
   | null = null
+let conversationQuotePendingQuestion:
+  | {
+      kind: "assistant-text-question"
+      sessionID: string
+      sourceMessageID: string
+      text: string
+      summary: string
+      createdAt: number
+    }
+  | null = null
 let readingPendingQuestion:
   | {
       kind: "text-question" | "image-question"
@@ -261,6 +271,20 @@ beforeAll(async () => {
     }),
   }))
 
+  mock.module("@/context/conversation-quote", () => ({
+    useMaybeConversationQuote: () => ({
+      store: {
+        pendingQuestion: conversationQuotePendingQuestion,
+      },
+      setPendingQuestion: (question: typeof conversationQuotePendingQuestion) => {
+        conversationQuotePendingQuestion = question
+      },
+      clearPendingQuestion: () => {
+        conversationQuotePendingQuestion = null
+      },
+    }),
+  }))
+
   mock.module("@/context/reading-mode", () => ({
     useMaybeReadingMode: () => ({
       store: {
@@ -321,6 +345,7 @@ beforeEach(() => {
   selected = "/repo/worktree-a"
   variant = undefined
   quickReadingPendingQuestion = null
+  conversationQuotePendingQuestion = null
   readingPendingQuestion = null
   fetchResponder = async () => new Response("{}")
   for (const key of Object.keys(storedSessions)) delete storedSessions[key]
@@ -452,6 +477,65 @@ describe("prompt submit worktree selection", () => {
 
     expect(storedSessions["/repo/worktree-a"]).toEqual([{ id: "session-1", title: "New session 1" }])
     expect(optimisticSeeded).toEqual([true])
+  })
+
+  test("conversation quote ask does not fetch reading context and clears pending on success", async () => {
+    params = { id: "session-1" }
+    conversationQuotePendingQuestion = {
+      kind: "assistant-text-question",
+      sessionID: "session-1",
+      sourceMessageID: "message-123",
+      text: "quoted assistant text",
+      summary: "quoted assistant text",
+      createdAt: Date.now(),
+    }
+
+    const submit = createPromptSubmit({
+      info: () => ({ id: "session-1" }),
+      imageAttachments: () => [],
+      commentCount: () => 0,
+      autoAccept: () => false,
+      mode: () => "normal",
+      working: () => false,
+      editor: () => undefined,
+      queueScroll: () => undefined,
+      promptLength: (value) => value.reduce((sum, part) => sum + ("content" in part ? part.content.length : 0), 0),
+      addToHistory: () => undefined,
+      resetHistoryNavigation: () => undefined,
+      setMode: () => undefined,
+      setPopover: () => undefined,
+      onSubmit: () => undefined,
+    })
+
+    const event = { preventDefault: () => undefined } as unknown as Event
+    await submit.handleSubmit(event)
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(fetchCalls).toEqual([])
+    expect(promptAsyncCalls).toHaveLength(1)
+    expect(promptAsyncCalls[0].parts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: "text",
+          synthetic: true,
+          text: expect.stringContaining("[Quoted assistant content]"),
+        }),
+        expect.objectContaining({
+          type: "text",
+          synthetic: true,
+          ignored: true,
+          metadata: expect.objectContaining({
+            opencodeConversationQuote: expect.objectContaining({
+              kind: "conversation-quote",
+              source: "assistant",
+              action: "ask",
+              sourceMessageID: "message-123",
+            }),
+          }),
+        }),
+      ]),
+    )
+    expect(conversationQuotePendingQuestion).toBeNull()
   })
 
   test("quick-reading text ask does not fetch reading context and clears pending on success", async () => {
