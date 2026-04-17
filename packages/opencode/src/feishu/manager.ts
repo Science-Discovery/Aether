@@ -49,13 +49,21 @@ function localISOString(d = new Date()): string {
   const sign = offset >= 0 ? "+" : "-"
   const pad = (n: number) => String(Math.floor(Math.abs(n))).padStart(2, "0")
   return (
-    d.getFullYear() + "-" +
-    pad(d.getMonth() + 1) + "-" +
-    pad(d.getDate()) + "T" +
-    pad(d.getHours()) + ":" +
-    pad(d.getMinutes()) + ":" +
+    d.getFullYear() +
+    "-" +
+    pad(d.getMonth() + 1) +
+    "-" +
+    pad(d.getDate()) +
+    "T" +
+    pad(d.getHours()) +
+    ":" +
+    pad(d.getMinutes()) +
+    ":" +
     pad(d.getSeconds()) +
-    sign + pad(offset / 60) + ":" + pad(offset % 60)
+    sign +
+    pad(offset / 60) +
+    ":" +
+    pad(offset % 60)
   )
 }
 
@@ -165,6 +173,8 @@ class FeishuManagerImpl {
   private _pendingQuestions: Record<string, Question.Request> = {}
   private _pendingPermissions: Record<string, Permission.Request> = {}
   private _queues = new Map<string, Promise<void>>()
+  private _processingChat: string | null = null
+  private _processedIds = new Map<string, number>()
   private _heartbeat: ReturnType<typeof setInterval> | null = null
   private _heartbeatFails = 0
   private _reconnect: ReturnType<typeof setTimeout> | null = null
@@ -662,6 +672,8 @@ class FeishuManagerImpl {
   }
 
   private async handleMessage(data: any): Promise<void> {
+    const chatIdForTracking = data?.message?.chat_id
+    if (chatIdForTracking) this._processingChat = chatIdForTracking
     try {
       console.log("[feishu] handleMessage invoked", localISOString())
       console.log("[feishu] received event:", JSON.stringify(data).slice(0, 500))
@@ -937,12 +949,33 @@ class FeishuManagerImpl {
       } catch (e2) {
         console.error("[feishu] failed to send error reply:", e2)
       }
+    } finally {
+      if (this._processingChat === chatIdForTracking) this._processingChat = null
     }
   }
 
   private enqueueMessage(data: any): Promise<void> {
     const chatId = data?.message?.chat_id
     if (!chatId) return this.handleMessage(data)
+
+    const messageId = data?.message?.message_id ?? ""
+    if (messageId) {
+      if (this._processedIds.has(messageId)) return Promise.resolve()
+      this._processedIds.set(messageId, Date.now())
+      this.evictProcessedIds()
+    }
+
+    if (this._processingChat === chatId) {
+      const mid = data?.message?.message_id
+      if (mid) {
+        void this.replyText(
+          mid,
+          "当前会话正在生成回复，请等待当前对话结束后再发送；如需立即开始新问题，请先 /new 或切换 /session n。如需停止本会话请输入 /stop",
+        )
+      }
+      return Promise.resolve()
+    }
+
     const prev = this._queues.get(chatId) ?? Promise.resolve()
     const next = prev
       .catch(() => {})
@@ -952,6 +985,14 @@ class FeishuManagerImpl {
       })
     this._queues.set(chatId, next)
     return next
+  }
+
+  private evictProcessedIds(): void {
+    const now = Date.now()
+    const maxAge = 300_000
+    for (const [id, ts] of this._processedIds) {
+      if (now - ts > maxAge) this._processedIds.delete(id)
+    }
   }
 
   /** Detect if the user is asking for a chat summary and extract time range. */
@@ -1033,9 +1074,23 @@ class FeishuManagerImpl {
   /** Coarse filter: does this message possibly involve a file request? */
   private mightWantFile(text: string): boolean {
     const lower = text.toLowerCase()
-    return ["文件", "file", "发", "给我", "附件", "代码", "doc", "word", "excel", "pdf", "下载", "export", "ppt", "md", "markdown"].some((w) =>
-      lower.includes(w),
-    )
+    return [
+      "文件",
+      "file",
+      "发",
+      "给我",
+      "附件",
+      "代码",
+      "doc",
+      "word",
+      "excel",
+      "pdf",
+      "下载",
+      "export",
+      "ppt",
+      "md",
+      "markdown",
+    ].some((w) => lower.includes(w))
   }
 
   /** Extract file paths that were read by the AI during this turn (from ToolParts). */
