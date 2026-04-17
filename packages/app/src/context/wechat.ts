@@ -294,7 +294,7 @@ export function forceTakeover(modelStr?: string) {
 export function initWechat() {
   if (initialized) return
   initialized = true
-  window.addEventListener("beforeunload", () => {
+  window.addEventListener("pagehide", () => {
     if (!clientId) return
     try {
       const { url } = api()

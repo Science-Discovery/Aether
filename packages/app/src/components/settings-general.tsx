@@ -8,6 +8,7 @@ import { TextField } from "@opencode-ai/ui/text-field"
 import { Tooltip } from "@opencode-ai/ui/tooltip"
 import { useTheme, type ColorScheme } from "@opencode-ai/ui/theme/context"
 import { showToast, showPromiseToast } from "@opencode-ai/ui/toast"
+import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { useGlobalSync } from "@/context/global-sync"
 import { useLanguage } from "@/context/language"
 import { useModels } from "@/context/models"
@@ -63,6 +64,7 @@ const playDemoSound = (id: string | undefined) => {
 }
 
 export const SettingsGeneral: Component = () => {
+  const dialog = useDialog()
   const theme = useTheme()
   const language = useLanguage()
   const platform = usePlatform()
@@ -134,6 +136,11 @@ export const SettingsGeneral: Component = () => {
     if (!platform.checkUpdate) return
     setStore("checking", true)
     const install = async () => {
+      if (platform.platform === "web") {
+        const x = await import("@/components/dialog-update")
+        dialog.show(() => <x.DialogUpdate auto="install" />)
+        return
+      }
       showPromiseToast(
         (async () => {
           await platform.update!()

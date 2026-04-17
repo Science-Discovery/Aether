@@ -7,6 +7,9 @@ import { useLanguage } from "@/context/language"
 import { usePlatform } from "@/context/platform"
 
 type UpdateState = "checking" | "up-to-date" | "available" | "downloading" | "downloaded" | "installing" | "error"
+type Props = {
+  auto?: "download" | "install"
+}
 
 const Spinner = () => <div class="size-4 animate-spin rounded-full border-2 border-icon-weak border-t-icon-base" />
 
@@ -16,7 +19,14 @@ const ProgressBar = () => (
   </div>
 )
 
-export const DialogUpdate: Component = () => {
+const paint = () =>
+  new Promise<void>((resolve) => {
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => resolve())
+    })
+  })
+
+export const DialogUpdate: Component<Props> = (props) => {
   const dialog = useDialog()
   const language = useLanguage()
   const platform = usePlatform()
@@ -57,6 +67,7 @@ export const DialogUpdate: Component = () => {
     setState("downloading")
     setErrorMessage("")
     try {
+      await paint()
       await platform.downloadUpdate()
       const data = await sync()
       if (!data.updateAvailable) {
@@ -79,6 +90,7 @@ export const DialogUpdate: Component = () => {
     setState("installing")
     setErrorMessage("")
     try {
+      await paint()
       await platform.update()
       await platform.restart()
       setTimeout(() => {
@@ -94,8 +106,40 @@ export const DialogUpdate: Component = () => {
     }
   }
 
+  const start = async () => {
+    const data = await sync()
+    if (!data.updateAvailable) {
+      setState("up-to-date")
+      return
+    }
+    if (!props.auto) {
+      setState(data.downloaded ? "downloaded" : "available")
+      return
+    }
+    if (props.auto === "download") {
+      if (data.downloaded) {
+        setState("downloaded")
+        return
+      }
+      await downloadUpdate()
+      return
+    }
+    if (data.downloaded) {
+      setState("downloaded")
+      await installUpdate()
+      return
+    }
+    await downloadUpdate()
+    if (state() === "downloaded") {
+      await installUpdate()
+    }
+  }
+
   onMount(() => {
-    void checkVersion()
+    void start().catch((e) => {
+      setState("error")
+      setErrorMessage(e instanceof Error ? e.message : String(e))
+    })
   })
 
   return (

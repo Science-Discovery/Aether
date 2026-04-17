@@ -239,12 +239,10 @@ const start = () => {
     void ping()
   }
   window.addEventListener("pagehide", hide)
-  window.addEventListener("beforeunload", hide)
   document.addEventListener("visibilitychange", focus)
   return () => {
     clearInterval(timer)
     window.removeEventListener("pagehide", hide)
-    window.removeEventListener("beforeunload", hide)
     document.removeEventListener("visibilitychange", focus)
   }
 }
@@ -380,7 +378,7 @@ const platform: Platform = {
 const boot = async () => {
   if (!(root instanceof HTMLElement)) return
   platform.version = (await readWebVersion()) || undefined
-  const stop = start()
+  let stop = start()
   await sync()
   const server: ServerConnection.Http = { type: "http", http: { url: getCurrentUrl() } }
   render(
@@ -397,7 +395,13 @@ const boot = async () => {
     ),
     root,
   )
-  window.addEventListener("unload", stop, { once: true })
+  window.addEventListener("pagehide", () => {
+    stop()
+  })
+  window.addEventListener("pageshow", (e) => {
+    if (!e.persisted) return
+    stop = start()
+  })
 }
 
 void boot()

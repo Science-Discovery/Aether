@@ -390,6 +390,11 @@ export default function Layout(props: ParentProps) {
       let toastId: number | undefined
       let interval: ReturnType<typeof setInterval> | undefined
       const install = async () => {
+        if (platform.platform === "web") {
+          const x = await import("@/components/dialog-update")
+          dialog.show(() => <x.DialogUpdate auto="install" />)
+          return
+        }
         showPromiseToast(
           (async () => {
             await platform.update!()
