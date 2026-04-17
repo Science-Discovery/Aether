@@ -1223,7 +1223,7 @@ export namespace Session {
 
   function extractUserLabel(message: MessageV2.WithParts) {
     const text = message.parts
-      .filter((part): part is MessageV2.TextPart => part.type === "text" && !part.synthetic && !part.ignored)
+      .filter((part): part is MessageV2.TextPart => part.type === "text" && !part.synthetic)
       .map((part) => part.text.trim())
       .filter(Boolean)
       .join("\n")

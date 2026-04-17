@@ -52,7 +52,7 @@ function messageFingerprint(message: Message, parts: Part[] | undefined) {
 function firstVisibleUserText(message: Message, partsByMessage: Record<string, Part[] | undefined>) {
   if (message.role !== "user") return
   const text = (partsByMessage[message.id] ?? [])
-    .filter((part): part is TextPart => isTextPart(part) && !part.synthetic && !part.ignored)
+    .filter((part): part is TextPart => isTextPart(part) && !part.synthetic)
     .map((part) => normalizeText(part.text))
     .filter(Boolean)
     .join(" ")
