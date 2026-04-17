@@ -171,6 +171,20 @@ jobs:
       - name: Setup Bun
         uses: ./.github/actions/setup-bun
 
+      - name: Setup ripgrep
+        shell: pwsh
+        run: |
+          $bin = Join-Path ($env:ChocolateyInstall ?? "C:\ProgramData\chocolatey") "bin"
+          $env:Path = "$bin;$env:Path"
+
+          if (-not (Get-Command rg.exe -CommandType Application -ErrorAction SilentlyContinue)) {
+            choco install ripgrep -y --no-progress
+            $env:Path = "$bin;$env:Path"
+          }
+
+          $rg = (Get-Command rg.exe -CommandType Application -ErrorAction Stop).Source
+          "OPENCODE_RIPGREP_PATH=$rg" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
       - name: Configure git identity
         run: |
           git config --global user.email "bot@opencode.ai"

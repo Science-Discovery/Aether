@@ -47,9 +47,9 @@ const testManagedConfigDir = path.join(dir, "managed")
 process.env["OPENCODE_TEST_MANAGED_CONFIG_DIR"] = testManagedConfigDir
 process.env["OPENCODE_DISABLE_DEFAULT_PLUGINS"] = "true"
 
-const rg = (() => {
+const rg = process.env.OPENCODE_RIPGREP_PATH || (() => {
   try {
-    const cmd = process.platform === "win32" ? "where" : "which"
+    const cmd = process.platform === "win32" ? "where.exe" : "which"
     const out = execFileSync(cmd, ["rg"], { encoding: "utf8" })
     return out
       .split(/\r?\n/)
