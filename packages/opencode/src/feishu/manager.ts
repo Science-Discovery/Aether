@@ -413,7 +413,7 @@ class FeishuManagerImpl {
     if (!create) return
     const session = await Instance.provide({
       directory: dir,
-      fn: () => Session.create({ title: `飞书对话 ${chatId.slice(-6)}` }),
+      fn: () => Session.create({ title: `飞书对话 - ${new Date().toISOString()}` }),
     })
     this._chatSessions[chatId] = session.id
     return session.id
@@ -893,7 +893,7 @@ class FeishuManagerImpl {
         console.log("[feishu] creating new session...")
         const session = await Instance.provide({
           directory: effectiveDir,
-          fn: () => Session.create({ title: `飞书对话 ${chatId.slice(-6)}` }),
+          fn: () => Session.create({ title: `飞书对话 - ${new Date().toISOString()}` }),
         })
         sessionId = session.id
         console.log("[feishu] session created:", sessionId)
@@ -1245,7 +1245,7 @@ class FeishuManagerImpl {
     const dir = this.effectiveDir(chatId)
     const session = await Instance.provide({
       directory: dir,
-      fn: () => Session.create({ title: `飞书对话 ${chatId.slice(-6)}` }),
+      fn: () => Session.create({ title: `飞书对话 - ${new Date().toISOString()}` }),
     })
     this._chatSessions[chatId] = session.id
     await this.saveSessionMap()
@@ -1544,7 +1544,7 @@ class FeishuManagerImpl {
               created: false,
             }
           } else {
-            const session = await Session.create({ title: `飞书对话 ${chatId.slice(-6)}` })
+            const session = await Session.create({ title: `飞书对话 - ${new Date().toISOString()}` })
             return { sessionId: session.id, sessionTitle: session.title, created: true }
           }
         },
@@ -1648,7 +1648,7 @@ class FeishuManagerImpl {
     if (!items.length) {
       const session = await Instance.provide({
         directory: effectiveDir,
-        fn: () => Session.create({ title: `飞书对话 ${chatId.slice(-6)}` }),
+        fn: () => Session.create({ title: `飞书对话 - ${new Date().toISOString()}` }),
       })
       this._chatSessions[chatId] = session.id
       await this.replyCmd(messageId, chatId, "📂 当前项目下还没有任何会话，已自动创建一个新会话并切换。")

@@ -30,7 +30,7 @@ import logging
 import shutil
 from pathlib import Path
 from typing import Optional
-from datetime import datetime
+from datetime import datetime, timezone
 from io import BytesIO
 from urllib.parse import quote
 
@@ -488,11 +488,15 @@ class AetherAgent(Agent):
         self, directory: str, fresh: bool = False
     ) -> tuple[str, bool]:
         if fresh:
-            return await self._create_session(directory=directory), True
+            return await self._create_session(
+                directory=directory, title=self._platform_title()
+            ), True
         items = await self._list_sessions(directory)
         if items:
             return items[0]["id"], False
-        return await self._create_session(directory=directory), True
+        return await self._create_session(
+            directory=directory, title=self._platform_title()
+        ), True
 
     async def _list_agents(self) -> list[dict]:
         resp = await self._client.get(f"{self.base_url}/agent")
@@ -609,7 +613,9 @@ class AetherAgent(Agent):
             return f"✅ 已切换到会话：{title}\n   更新时间：{self._format_session_time((info or chosen).get('time', {}).get('updated'))}"
 
         if not items:
-            session_id = await self._create_session(directory=directory)
+            session_id = await self._create_session(
+                directory=directory, title=self._platform_title()
+            )
             self._sessions[conv_id] = session_id
             logger.info(f"[/session] 为 {conv_id} 创建新会话 {session_id[:8]}...")
             return "📂 当前项目下还没有任何会话，已自动创建一个新会话并切换。"
@@ -642,7 +648,9 @@ class AetherAgent(Agent):
             self._session_list.pop(conv_id, None)
             self._clear_runtime(conv_id)
             directory = self._conv_dirs.get(conv_id) or self.directory
-            session_id = await self._create_session(directory)
+            session_id = await self._create_session(
+                directory, title=self._platform_title()
+            )
             self._sessions[conv_id] = session_id
             if old:
                 logger.info(f"[/new] 清除会话 {old[:8]}... for {conv_id}")
@@ -1934,12 +1942,23 @@ class AetherAgent(Agent):
             return "reject"
         return None
 
-    async def _create_session(self, directory: str = "") -> str:
+    def _platform_title(self) -> str:
+        ts = (
+            datetime.now(timezone.utc)
+            .isoformat(timespec="milliseconds")
+            .replace("+00:00", "Z")
+        )
+        return f"微信对话 - {ts}"
+
+    async def _create_session(self, directory: str = "", title: str = "") -> str:
         headers = (
             {"x-opencode-directory": quote(directory, safe="")} if directory else {}
         )
+        payload: dict = {}
+        if title:
+            payload["title"] = title
         resp = await self._client.post(
-            f"{self.base_url}/session", json={}, headers=headers
+            f"{self.base_url}/session", json=payload, headers=headers
         )
         resp.raise_for_status()
         return resp.json()["id"]
