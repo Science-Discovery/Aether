@@ -5,7 +5,7 @@ import { Icon } from "@opencode-ai/ui/icon"
 import { useGlobalSDK } from "@/context/global-sdk"
 import { useLanguage } from "@/context/language"
 import { useSettings } from "@/context/settings"
-import { For, Match, Show, Switch, createEffect, createMemo, createSignal } from "solid-js"
+import { For, Match, Show, Switch, createEffect, createMemo, createSignal, onCleanup, onMount } from "solid-js"
 import { buildConversationGraphView, type ConversationGraph, type ConversationGraphOrderMode } from "./conversation-graph-model"
 import { ConversationGraphList } from "./conversation-graph-list"
 
@@ -34,8 +34,19 @@ const ROW_DENSITY_HEIGHT_MAP = {
 } as const
 
 const graphCache = new Map<string, SessionGraphResult>()
+const DEFAULT_COMPACT = false
+const DEFAULT_PANEL_HEIGHT = 480
+const MIN_PANEL_HEIGHT = 240
+const MAX_PANEL_HEIGHT = 720
+const COMPACT_STORAGE_KEY = "aether.sidebar-branch-view.compact"
+const HEIGHT_STORAGE_KEY = "aether.sidebar-branch-view.height"
 
-export function SidebarBranchView(props: { sessionID: string; currentSessionID: string; directory: string }) {
+export function SidebarBranchView(props: {
+  sessionID: string
+  currentSessionID: string
+  directory: string
+  refreshKey?: string
+}) {
   const params = useParams()
   const navigate = useNavigate()
   const globalSDK = useGlobalSDK()
@@ -43,10 +54,11 @@ export function SidebarBranchView(props: { sessionID: string; currentSessionID: 
   const language = useLanguage()
   const zh = createMemo(() => language.locale() === "zh" || language.locale() === "zht")
   const [controlsOpen, setControlsOpen] = createSignal(false)
-  const [compact, setCompact] = createSignal(true)
+  const [compact, setCompact] = createSignal(DEFAULT_COMPACT)
   const [loading, setLoading] = createSignal(false)
   const [graph, setGraph] = createSignal<SessionGraphResult>()
   const [errorMessage, setErrorMessage] = createSignal<string>()
+  const [panelHeight, setPanelHeight] = createSignal(DEFAULT_PANEL_HEIGHT)
   const fontSize = createMemo(() => settings.general.branchGraphFontSize())
   const rowDensity = createMemo(() => settings.general.branchGraphRowDensity())
   const orderMode = createMemo(() => settings.general.branchGraphOrderMode())
@@ -61,6 +73,61 @@ export function SidebarBranchView(props: { sessionID: string; currentSessionID: 
   )
 
   let requestVersion = 0
+  let activePointerID: number | undefined
+  let dragStartY = 0
+  let dragStartHeight = DEFAULT_PANEL_HEIGHT
+
+  const clampHeight = (height: number) => Math.max(MIN_PANEL_HEIGHT, Math.min(MAX_PANEL_HEIGHT, Math.round(height)))
+
+  const persistHeight = (height: number) => {
+    try {
+      window.localStorage.setItem(HEIGHT_STORAGE_KEY, String(height))
+    } catch {}
+  }
+
+  const stopDragging = () => {
+    activePointerID = undefined
+    document.body.style.removeProperty("cursor")
+    document.body.style.removeProperty("user-select")
+  }
+
+  const onPointerMove = (event: PointerEvent) => {
+    if (activePointerID !== event.pointerId) return
+    const nextHeight = clampHeight(dragStartHeight + (event.clientY - dragStartY))
+    setPanelHeight(nextHeight)
+  }
+
+  const onPointerUp = (event: PointerEvent) => {
+    if (activePointerID !== event.pointerId) return
+    persistHeight(panelHeight())
+    stopDragging()
+  }
+
+  onMount(() => {
+    try {
+      const storedCompact = window.localStorage.getItem(COMPACT_STORAGE_KEY)
+      if (storedCompact === "true") setCompact(true)
+      if (storedCompact === "false") setCompact(false)
+    } catch {}
+
+    try {
+      const stored = Number(window.localStorage.getItem(HEIGHT_STORAGE_KEY))
+      if (Number.isFinite(stored) && stored > 0) {
+        setPanelHeight(clampHeight(stored))
+      }
+    } catch {}
+
+    window.addEventListener("pointermove", onPointerMove)
+    window.addEventListener("pointerup", onPointerUp)
+    window.addEventListener("pointercancel", onPointerUp)
+  })
+
+  onCleanup(() => {
+    window.removeEventListener("pointermove", onPointerMove)
+    window.removeEventListener("pointerup", onPointerUp)
+    window.removeEventListener("pointercancel", onPointerUp)
+    stopDragging()
+  })
 
   const loadGraph = async (sessionID: string) => {
     const version = ++requestVersion
@@ -94,7 +161,14 @@ export function SidebarBranchView(props: { sessionID: string; currentSessionID: 
   createEffect(() => {
     const sessionID = props.sessionID
     if (!sessionID) return
+    props.refreshKey
     void loadGraph(sessionID)
+  })
+
+  createEffect(() => {
+    try {
+      window.localStorage.setItem(COMPACT_STORAGE_KEY, String(compact()))
+    } catch {}
   })
 
   const view = createMemo(() => {
@@ -113,6 +187,14 @@ export function SidebarBranchView(props: { sessionID: string; currentSessionID: 
     navigate(`/${params.dir}/session/${node.sessionID}${hash}`)
   }
 
+  const startResize = (event: PointerEvent) => {
+    activePointerID = event.pointerId
+    dragStartY = event.clientY
+    dragStartHeight = panelHeight()
+    document.body.style.cursor = "row-resize"
+    document.body.style.userSelect = "none"
+  }
+
   return (
     <div class="overflow-hidden rounded-md border border-border-weaker-base bg-background-stronger">
       <div class="border-b border-border-weaker-base px-2 py-1">
@@ -121,7 +203,7 @@ export function SidebarBranchView(props: { sessionID: string; currentSessionID: 
           class="flex w-full items-center justify-between gap-2 text-left text-[11px] text-text-weak transition-colors hover:text-text-base"
           onClick={() => setControlsOpen((value) => !value)}
         >
-          <span>{zh() ? "视图调整" : "View options"}</span>
+          <span>{zh() ? "对话树" : "Conversation tree"}</span>
           <Icon name={controlsOpen() ? "chevron-down" : "chevron-right"} size="small" class="text-icon-weak" />
         </button>
 
@@ -239,7 +321,7 @@ export function SidebarBranchView(props: { sessionID: string; currentSessionID: 
         </Show>
       </div>
 
-      <div class="min-h-0 overflow-hidden" style={{ height: "min(320px, 40vh)" }}>
+      <div class="min-h-0 overflow-hidden" style={{ height: `${panelHeight()}px` }}>
         <Switch>
           <Match when={graph()?.kind === "legacy"}>
             <div class="flex h-full items-center justify-center px-4 text-center text-11-regular text-text-weak">
@@ -271,6 +353,13 @@ export function SidebarBranchView(props: { sessionID: string; currentSessionID: 
             </div>
           </Match>
         </Switch>
+      </div>
+
+      <div
+        class="group flex h-3 cursor-row-resize items-center justify-center border-t border-border-weaker-base bg-background-base/30 transition-colors hover:bg-background-base/60"
+        onPointerDown={startResize}
+      >
+        <div class="h-px w-10 bg-border-weak-base transition-colors group-hover:bg-border-base" />
       </div>
     </div>
   )

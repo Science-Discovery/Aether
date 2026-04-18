@@ -72,10 +72,10 @@ export function ConversationGraphList(props: {
               <path
                 d={edgePath(edge)}
                 fill="none"
-                stroke={edge.isCurrentPath ? colorForIndex(nodeByID().get(edge.to)?.colorIndex ?? 0) : "#4b5563"}
-                stroke-width={edge.isCurrentPath ? "2.5" : "2"}
+                stroke={edge.isCurrentPath ? colorForIndex(nodeByID().get(edge.to)?.colorIndex ?? 0) : "#6b7280"}
+                stroke-width={edge.isCurrentPath ? "3" : "1.25"}
                 stroke-dasharray={edge.style === "dashed" ? "4 4" : undefined}
-                opacity={edge.isCurrentPath ? "1" : "0.9"}
+                opacity={edge.isCurrentPath ? "1" : "0.4"}
                 stroke-linecap="round"
               />
             )}
@@ -135,7 +135,10 @@ export function ConversationGraphList(props: {
                 <div class="min-w-0 flex-1">
                   <div
                     class={`truncate ${props.labelClass}`}
-                    style={props.labelStyle}
+                    style={{
+                      ...props.labelStyle,
+                      "font-weight": node.sessionID === props.currentSessionID ? "700" : undefined,
+                    }}
                     classList={{
                       "text-text-strong": node.sessionID === props.currentSessionID,
                       "text-text-weaker": node.sessionID !== props.currentSessionID,

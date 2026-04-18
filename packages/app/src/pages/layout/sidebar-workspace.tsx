@@ -60,6 +60,10 @@ export type WorkspaceSidebarContext = {
   setWorkspaceExpanded: (directory: string, value: boolean) => void
   sessionExpanded: (sessionID: string) => boolean
   setSessionExpanded: (sessionID: string, value: boolean) => void
+  conversationTreeOpen: (rootSessionID: string) => boolean
+  setConversationTreeOpen: (rootSessionID: string, value: boolean) => void
+  conversationTreeLastFocus: (rootSessionID: string) => string | undefined
+  setConversationTreeLastFocus: (rootSessionID: string, sessionID: string) => void
   showResetWorkspaceDialog: (root: string, directory: string) => void
   showDeleteWorkspaceDialog: (root: string, directory: string) => void
   setScrollContainerRef: (el: HTMLDivElement | undefined, mobile?: boolean) => void
@@ -287,6 +291,8 @@ const SessionTreeNodes = (props: {
     return cursor.id
   }
 
+  const [visibleConversationTreeRoot, setVisibleConversationTreeRoot] = createSignal<string | undefined>()
+
   createEffect(
     on(
       () => [props.currentSessionID(), sessionByID(), conversationTreeEnabled()] as const,
@@ -298,12 +304,11 @@ const SessionTreeNodes = (props: {
         if (treeEnabled) {
           const rootID = rootSessionIDFor(currentSessionID)
           if (!rootID) return
-          for (const root of props.rootSessions()) {
-            const expanded = root.id === rootID
-            if (untrack(() => props.ctx.sessionExpanded(root.id)) !== expanded) {
-              props.ctx.setSessionExpanded(root.id, expanded)
-            }
+          if (untrack(() => props.ctx.conversationTreeOpen(rootID))) {
+            setVisibleConversationTreeRoot(rootID)
+            return
           }
+          setVisibleConversationTreeRoot(undefined)
           return
         }
 
@@ -319,6 +324,25 @@ const SessionTreeNodes = (props: {
     ),
   )
 
+  createEffect(
+    on(
+      () => [props.currentSessionID(), conversationTreeEnabled(), sessionByID()] as const,
+      ([currentSessionID, treeEnabled]) => {
+        if (!treeEnabled || !currentSessionID) return
+        const rootID = rootSessionIDFor(currentSessionID)
+        if (!rootID) return
+        props.ctx.setConversationTreeLastFocus(rootID, currentSessionID)
+      },
+    ),
+  )
+
+  createEffect(() => {
+    const visibleRoot = visibleConversationTreeRoot()
+    if (!visibleRoot) return
+    if (props.rootSessions().some((root) => root.id === visibleRoot)) return
+    setVisibleConversationTreeRoot(undefined)
+  })
+
   function SessionNode(nodeProps: { session: Session; depth: number; chain: Set<string> }): JSX.Element {
     const nextChain = new Set(nodeProps.chain)
     nextChain.add(nodeProps.session.id)
@@ -332,21 +356,42 @@ const SessionTreeNodes = (props: {
       if (nodeProps.session.id === props.currentSessionID()) return true
       return (nodeProps.session.time.updated ?? 0) > (nodeProps.session.time.created ?? 0)
     })
-    const expanded = createMemo(() =>
-      !(conversationTreeEnabled() ? hasBranchView() : hasChildren()) || props.ctx.sessionExpanded(nodeProps.session.id),
-    )
+    const expanded = createMemo(() => {
+      if (!(conversationTreeEnabled() ? hasBranchView() : hasChildren())) return true
+      if (!conversationTreeEnabled()) return props.ctx.sessionExpanded(nodeProps.session.id)
+      return visibleConversationTreeRoot() === nodeProps.session.id
+    })
     const graphSessionID = createMemo(() => {
       const currentSessionID = props.currentSessionID()
-      if (currentSessionID && rootSessionIDFor(currentSessionID) === nodeProps.session.id) return currentSessionID
+      const lastFocus = props.ctx.conversationTreeLastFocus(nodeProps.session.id)
+      if (currentSessionID && rootSessionIDFor(currentSessionID) === nodeProps.session.id) {
+        if (currentSessionID !== nodeProps.session.id) return currentSessionID
+        if (lastFocus && rootSessionIDFor(lastFocus) === nodeProps.session.id) return lastFocus
+        return currentSessionID
+      }
+      if (lastFocus && rootSessionIDFor(lastFocus) === nodeProps.session.id) return lastFocus
       return nodeProps.session.id
+    })
+    const graphRefreshKey = createMemo(() => {
+      const rootID = nodeProps.session.id
+      const rows = props
+        .allSessions()
+        .filter((session) => rootSessionIDFor(session.id) === rootID)
+        .map((session) => `${session.id}:${session.time.updated ?? 0}`)
+      return rows.sort().join("|")
     })
 
     const toggleBranchView = () => {
       const next = !expanded()
-      for (const root of props.rootSessions()) {
-        props.ctx.setSessionExpanded(root.id, false)
+      if (next) {
+        props.ctx.setConversationTreeOpen(nodeProps.session.id, true)
+        setVisibleConversationTreeRoot(nodeProps.session.id)
+        return
       }
-      if (next) props.ctx.setSessionExpanded(nodeProps.session.id, true)
+      props.ctx.setConversationTreeOpen(nodeProps.session.id, false)
+      if (visibleConversationTreeRoot() === nodeProps.session.id) {
+        setVisibleConversationTreeRoot(undefined)
+      }
     }
 
     return (
@@ -357,6 +402,7 @@ const SessionTreeNodes = (props: {
           </Show>
           <SessionItem
             session={nodeProps.session}
+            targetSession={conversationTreeEnabled() ? sessionByID().get(graphSessionID()) ?? nodeProps.session : nodeProps.session}
             list={props.allSessions()}
             navList={props.ctx.navList}
             slug={props.slug()}
@@ -385,6 +431,7 @@ const SessionTreeNodes = (props: {
               sessionID={graphSessionID()}
               currentSessionID={props.currentSessionID() ?? nodeProps.session.id}
               directory={nodeProps.session.directory}
+              refreshKey={graphRefreshKey()}
             />
           </div>
         </Show>

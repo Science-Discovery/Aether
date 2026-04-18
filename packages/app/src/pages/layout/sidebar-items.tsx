@@ -71,6 +71,7 @@ export const ProjectIcon = (props: { project: LocalProject; class?: string; noti
 
 export type SessionItemProps = {
   session: Session
+  targetSession?: Session
   list: Session[]
   navList?: Accessor<Session[]>
   slug: string
@@ -99,6 +100,7 @@ const sessionHref = (slug: string, session: Session, hash?: string) =>
 
 const SessionRow = (props: {
   session: Session
+  targetSession: Session
   slug: string
   mobile?: boolean
   dense?: boolean
@@ -119,7 +121,7 @@ const SessionRow = (props: {
   onToggleChildren?: () => void
 }): JSX.Element => (
   <A
-    href={sessionHref(props.slug, props.session)}
+    href={sessionHref(props.slug, props.targetSession)}
     class={`flex items-center justify-between gap-3 min-w-0 text-left w-full focus:outline-none transition-[padding] ${props.mobile ? "pr-14" : ""} group-hover/session:pr-14 group-focus-within/session:pr-14 group-active/session:pr-14 ${props.dense ? "py-0.5" : "py-1"}`}
     onPointerDown={props.warmPress}
     onPointerEnter={props.warmHover}
@@ -361,6 +363,7 @@ export const SessionItem = (props: SessionItemProps): JSX.Element => {
   const item = (
     <SessionRow
       session={props.session}
+      targetSession={props.targetSession ?? props.session}
       slug={props.slug}
       mobile={props.mobile}
       dense={props.dense}

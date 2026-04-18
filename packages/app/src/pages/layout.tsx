@@ -103,6 +103,8 @@ export default function Layout(props: ParentProps) {
       workspaceBranchName: {} as Record<string, Record<string, string>>,
       workspaceExpanded: {} as Record<string, boolean>,
       sessionExpanded: {} as Record<string, boolean>,
+      conversationTreeOpenByRoot: {} as Record<string, boolean>,
+      conversationTreeLastFocusByRoot: {} as Record<string, string>,
       gettingStartedDismissed: false,
     }),
   )
@@ -2155,6 +2157,11 @@ export default function Layout(props: ParentProps) {
     setWorkspaceExpanded: (directory, value) => setStore("workspaceExpanded", directory, value),
     sessionExpanded: (sessionID) => store.sessionExpanded[sessionID] ?? true,
     setSessionExpanded: (sessionID, value) => setStore("sessionExpanded", sessionID, value),
+    conversationTreeOpen: (rootSessionID) => store.conversationTreeOpenByRoot[rootSessionID] ?? false,
+    setConversationTreeOpen: (rootSessionID, value) => setStore("conversationTreeOpenByRoot", rootSessionID, value),
+    conversationTreeLastFocus: (rootSessionID) => store.conversationTreeLastFocusByRoot[rootSessionID],
+    setConversationTreeLastFocus: (rootSessionID, sessionID) =>
+      setStore("conversationTreeLastFocusByRoot", rootSessionID, sessionID),
     showResetWorkspaceDialog: (root, directory) =>
       dialog.show(() => <DialogResetWorkspace root={root} directory={directory} />),
     showDeleteWorkspaceDialog: (root, directory) =>
