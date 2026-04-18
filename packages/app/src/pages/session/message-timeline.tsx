@@ -285,6 +285,9 @@ export function MessageTimeline(props: {
   renderedUserMessages: UserMessage[]
   anchor: (id: string) => string
   onFocusInput?: () => void
+  conversationTreeEnabled?: boolean
+  conversationTreeOpen?: boolean
+  onToggleConversationTree?: () => void
 }) {
   let touchGesture: number | undefined
   let timelineRoot: HTMLDivElement | undefined
@@ -386,6 +389,15 @@ export function MessageTimeline(props: {
   const shareEnabled = createMemo(() => sync.data.config.share !== "disabled")
   const parentID = createMemo(() => info()?.parentID)
   const showHeader = createMemo(() => !!(titleValue() || parentID()))
+  const conversationTreeMenuLabel = createMemo(() =>
+    language.locale() === "zh" || language.locale() === "zht"
+      ? props.conversationTreeOpen
+        ? "关闭对话树"
+        : "打开对话树"
+      : props.conversationTreeOpen
+        ? "Close conversation tree"
+        : "Open conversation tree",
+  )
   const collapsibleTurnIDs = createMemo(() => {
     const visible = new Set(rendered())
     const pendingParents = new Set(
@@ -1198,6 +1210,16 @@ export function MessageTimeline(props: {
                                       ? uiI18n.t("ui.sessionReview.expandAll")
                                       : uiI18n.t("ui.sessionReview.collapseAll")}
                                   </DropdownMenu.ItemLabel>
+                                </DropdownMenu.Item>
+                              </Show>
+                              <Show when={props.conversationTreeEnabled && props.onToggleConversationTree}>
+                                <DropdownMenu.Item
+                                  onSelect={() => {
+                                    setTitle("menuOpen", false)
+                                    props.onToggleConversationTree?.()
+                                  }}
+                                >
+                                  <DropdownMenu.ItemLabel>{conversationTreeMenuLabel()}</DropdownMenu.ItemLabel>
                                 </DropdownMenu.Item>
                               </Show>
                               <DropdownMenu.Item onSelect={() => void archiveSession(id())}>

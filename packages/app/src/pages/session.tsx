@@ -27,6 +27,7 @@ import { Tabs } from "@opencode-ai/ui/tabs"
 import { createAutoScroll } from "@opencode-ai/ui/hooks"
 import { previewSelectedLines } from "@opencode-ai/ui/pierre/selection-bridge"
 import { Button } from "@opencode-ai/ui/button"
+import { IconButton } from "@opencode-ai/ui/icon-button"
 import { showToast } from "@opencode-ai/ui/toast"
 import { base64Encode, checksum } from "@opencode-ai/util/encode"
 import { useLocation, useNavigate, useSearchParams } from "@solidjs/router"
@@ -57,6 +58,7 @@ import {
   shouldFocusTerminalOnKeyDown,
 } from "@/pages/session/helpers"
 import { MessageTimeline } from "@/pages/session/message-timeline"
+import { BranchGraphPanel } from "@/pages/session/branch/branch-graph-panel"
 import { type DiffStyle, SessionReviewTab, type SessionReviewTabProps } from "@/pages/session/review-tab"
 import { useSessionLayout } from "@/pages/session/session-layout"
 import { syncSessionModel } from "@/pages/session/session-model-helpers"
@@ -528,6 +530,42 @@ function SessionPageContent(props: SessionPageProps = {}) {
     return pdfWidth > 0 ? `calc(100% - ${layout.fileTree.width()}px - ${pdfWidth}px)` : `calc(100% - ${layout.fileTree.width()}px)`
   })
   const centered = createMemo(() => isDesktop() && !desktopReviewOpen())
+  const conversationTreeEnabled = createMemo(
+    () =>
+      Boolean((sync.data.config.experimental as { branches_tab?: boolean } | undefined)?.branches_tab) ||
+      settings.general.branchesTab(),
+  )
+  const [conversationTreeOpen, setConversationTreeOpen] = createSignal(false)
+  const conversationTreeTitle = createMemo(() =>
+    language.locale() === "zh" || language.locale() === "zht" ? "对话树" : "Conversation tree",
+  )
+  const conversationTreeDrawer = () => (
+    <Show when={conversationTreeEnabled() && params.id && conversationTreeOpen()}>
+      <div
+        classList={{
+          "absolute inset-y-0 right-0 z-30 h-full overflow-hidden border-l border-border-weaker-base bg-background-stronger shadow-2xl transition-transform duration-[240ms] ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none":
+            true,
+        }}
+        style={{ width: "clamp(300px, 34vw, 420px)", transform: "translateX(100%)" }}
+      >
+        <div class="flex h-full min-h-0 flex-col">
+          <div class="flex shrink-0 items-center justify-between gap-3 border-b border-border-weaker-base px-3 py-2">
+            <div class="min-w-0 truncate text-13-medium text-text-strong">{conversationTreeTitle()}</div>
+            <IconButton
+              icon="close-small"
+              variant="ghost"
+              class="size-6 rounded-md"
+              aria-label={language.locale() === "zh" || language.locale() === "zht" ? "关闭对话树" : "Close conversation tree"}
+              onClick={() => setConversationTreeOpen(false)}
+            />
+          </div>
+          <div class="min-h-0 flex-1 overflow-hidden">
+            <BranchGraphPanel sessionID={params.id!} />
+          </div>
+        </div>
+      </div>
+    </Show>
+  )
   const readingSessionResizeSize = createMemo(() => {
     if (propReadingModeActive()) return Math.max(0, props.readingSessionResizeSize ?? 0)
     if (quickReadingModeActive()) return quickReadingLayout.chatPixelWidth()
@@ -2174,109 +2212,118 @@ function SessionPageContent(props: SessionPageProps = {}) {
               }}
             >
               <div class="flex-1 min-h-0 overflow-hidden">
-                  <Switch>
-                    <Match when={params.id}>
-                      <Show when={params.id} keyed>
-                        <Show when={messagesReady()}>
-                          <MessageTimeline
-                            mobileChanges={mobileChanges()}
-                            mobileFallback={reviewContent({
-                              diffStyle: "unified",
-                              classes: {
-                                root: "pb-8",
-                                header: "px-4",
-                                container: "px-4",
-                              },
-                              loadingClass: "px-4 py-4 text-text-weak",
-                              emptyClass: "h-full pb-64 -mt-4 flex flex-col items-center justify-center text-center gap-6",
-                            })}
-                            actions={actions}
-                            scroll={ui.scroll}
-                            onResumeScroll={resumeScroll}
-                            setScrollRef={setScrollRef}
-                            onScheduleScrollState={scheduleScrollState}
-                            onAutoScrollHandleScroll={autoScroll.handleScroll}
-                            onMarkScrollGesture={markScrollGesture}
-                            hasScrollGesture={hasScrollGesture}
-                            onUserScroll={markUserScroll}
-                            onTurnBackfillScroll={historyWindow.onScrollerScroll}
-                            onAutoScrollInteraction={autoScroll.handleInteraction}
-                            centered={centered()}
-                            setContentRef={(el) => {
-                              content = el
-                              autoScroll.contentRef(el)
+                <div class="flex h-full min-w-0 flex-col overflow-hidden">
+                  <div class="flex-1 min-h-0 overflow-hidden">
+                    <Switch>
+                      <Match when={params.id}>
+                        <Show when={params.id} keyed>
+                          <Show when={messagesReady()}>
+                            <MessageTimeline
+                              mobileChanges={mobileChanges()}
+                              mobileFallback={reviewContent({
+                                diffStyle: "unified",
+                                classes: {
+                                  root: "pb-8",
+                                  header: "px-4",
+                                  container: "px-4",
+                                },
+                                loadingClass: "px-4 py-4 text-text-weak",
+                                emptyClass: "h-full pb-64 -mt-4 flex flex-col items-center justify-center text-center gap-6",
+                              })}
+                              actions={actions}
+                              scroll={ui.scroll}
+                              onResumeScroll={resumeScroll}
+                              setScrollRef={setScrollRef}
+                              onScheduleScrollState={scheduleScrollState}
+                              onAutoScrollHandleScroll={autoScroll.handleScroll}
+                              onMarkScrollGesture={markScrollGesture}
+                              hasScrollGesture={hasScrollGesture}
+                              onUserScroll={markUserScroll}
+                              onTurnBackfillScroll={historyWindow.onScrollerScroll}
+                              onAutoScrollInteraction={autoScroll.handleInteraction}
+                              centered={centered()}
+                              setContentRef={(el) => {
+                                content = el
+                                autoScroll.contentRef(el)
 
-                              const root = scroller
-                              if (root) scheduleScrollState(root)
-                            }}
-                            turnStart={historyWindow.turnStart()}
-                            historyMore={historyMore()}
-                            historyLoading={historyLoading()}
-                            onLoadEarlier={() => {
-                              void historyWindow.loadAndReveal()
-                            }}
-                            renderedUserMessages={historyWindow.renderedUserMessages()}
-                            anchor={anchor}
-                            onFocusInput={focusInput}
-                          />
+                                const root = scroller
+                                if (root) scheduleScrollState(root)
+                              }}
+                              turnStart={historyWindow.turnStart()}
+                              historyMore={historyMore()}
+                              historyLoading={historyLoading()}
+                              onLoadEarlier={() => {
+                                void historyWindow.loadAndReveal()
+                              }}
+                              renderedUserMessages={historyWindow.renderedUserMessages()}
+                              anchor={anchor}
+                              onFocusInput={focusInput}
+                              conversationTreeEnabled={conversationTreeEnabled()}
+                              conversationTreeOpen={conversationTreeOpen()}
+                              onToggleConversationTree={() => setConversationTreeOpen((open) => !open)}
+                            />
+                          </Show>
                         </Show>
-                      </Show>
-                    </Match>
-                  <Match when={true}>
-                    <NewSessionView worktree={newSessionWorktree()} />
-                  </Match>
-                </Switch>
+                      </Match>
+                      <Match when={true}>
+                        <NewSessionView worktree={newSessionWorktree()} />
+                      </Match>
+                    </Switch>
+                  </div>
+
+                  <SessionComposerRegion
+                    state={composer}
+                    ready={!store.deferRender && messagesReady()}
+                    centered={centered()}
+                    inputRef={(el) => {
+                      inputRef = el
+                    }}
+                    newSessionWorktree={newSessionWorktree()}
+                    onNewSessionWorktreeReset={() => setStore("newSessionWorktree", "main")}
+                    onSubmit={() => {
+                      comments.clear()
+                      resumeScroll()
+                    }}
+                    onResponseSubmit={resumeScroll}
+                    followup={
+                      params.id
+                        ? {
+                            queue: queueEnabled,
+                            items: followupDock(),
+                            sending: sendingFollowup(),
+                            edit: editingFollowup(),
+                            onQueue: queueFollowup,
+                            onAbort: () => {
+                              const id = params.id
+                              if (!id) return
+                              setFollowup("paused", id, true)
+                            },
+                            onSend: (id) => {
+                              void sendFollowup(params.id!, id, { manual: true })
+                            },
+                            onEdit: editFollowup,
+                            onEditLoaded: clearFollowupEdit,
+                          }
+                        : undefined
+                    }
+                    revert={
+                      rolled().length > 0
+                        ? {
+                            items: rolled(),
+                            restoring: restoring(),
+                            disabled: reverting(),
+                            onRestore: restore,
+                          }
+                        : undefined
+                    }
+                    setPromptDockRef={(el) => {
+                      promptDock = el
+                    }}
+                  />
+                </div>
               </div>
 
-              <SessionComposerRegion
-                state={composer}
-                ready={!store.deferRender && messagesReady()}
-                centered={centered()}
-                inputRef={(el) => {
-                  inputRef = el
-                }}
-                newSessionWorktree={newSessionWorktree()}
-                onNewSessionWorktreeReset={() => setStore("newSessionWorktree", "main")}
-                onSubmit={() => {
-                  comments.clear()
-                  resumeScroll()
-                }}
-                onResponseSubmit={resumeScroll}
-                followup={
-                  params.id
-                    ? {
-                        queue: queueEnabled,
-                        items: followupDock(),
-                        sending: sendingFollowup(),
-                        edit: editingFollowup(),
-                        onQueue: queueFollowup,
-                        onAbort: () => {
-                          const id = params.id
-                          if (!id) return
-                          setFollowup("paused", id, true)
-                        },
-                        onSend: (id) => {
-                          void sendFollowup(params.id!, id, { manual: true })
-                        },
-                        onEdit: editFollowup,
-                        onEditLoaded: clearFollowupEdit,
-                      }
-                    : undefined
-                }
-                revert={
-                  rolled().length > 0
-                    ? {
-                        items: rolled(),
-                        restoring: restoring(),
-                        disabled: reverting(),
-                        onRestore: restore,
-                      }
-                    : undefined
-                }
-                setPromptDockRef={(el) => {
-                  promptDock = el
-                }}
-              />
+              {conversationTreeDrawer()}
               <Show
                 when={
                   readingModeActive() &&
@@ -2338,110 +2385,119 @@ function SessionPageContent(props: SessionPageProps = {}) {
               order: String(sessionPanelOrder()),
             }}
           >
-          <div class="flex-1 min-h-0 overflow-hidden">
-              <Switch>
-                <Match when={params.id}>
-                  <Show when={params.id} keyed>
-                    <Show when={messagesReady()}>
-                      <MessageTimeline
-                        mobileChanges={mobileChanges()}
-                        mobileFallback={reviewContent({
-                          diffStyle: "unified",
-                          classes: {
-                            root: "pb-8",
-                            header: "px-4",
-                            container: "px-4",
+            <div class="flex-1 min-h-0 overflow-hidden">
+              <div class="flex h-full min-w-0 flex-col overflow-hidden">
+                <div class="flex-1 min-h-0 overflow-hidden">
+                  <Switch>
+                    <Match when={params.id}>
+                      <Show when={params.id} keyed>
+                        <Show when={messagesReady()}>
+                          <MessageTimeline
+                            mobileChanges={mobileChanges()}
+                            mobileFallback={reviewContent({
+                              diffStyle: "unified",
+                              classes: {
+                                root: "pb-8",
+                                header: "px-4",
+                                container: "px-4",
+                              },
+                              loadingClass: "px-4 py-4 text-text-weak",
+                              emptyClass: "h-full pb-64 -mt-4 flex flex-col items-center justify-center text-center gap-6",
+                            })}
+                            actions={actions}
+                            scroll={ui.scroll}
+                            onResumeScroll={resumeScroll}
+                            setScrollRef={setScrollRef}
+                            onScheduleScrollState={scheduleScrollState}
+                            onAutoScrollHandleScroll={autoScroll.handleScroll}
+                            onMarkScrollGesture={markScrollGesture}
+                            hasScrollGesture={hasScrollGesture}
+                            onUserScroll={markUserScroll}
+                            onTurnBackfillScroll={historyWindow.onScrollerScroll}
+                            onAutoScrollInteraction={autoScroll.handleInteraction}
+                            centered={centered()}
+                            setContentRef={(el) => {
+                              content = el
+                              autoScroll.contentRef(el)
+
+                              const root = scroller
+                              if (root) scheduleScrollState(root)
+                            }}
+                            turnStart={historyWindow.turnStart()}
+                            historyMore={historyMore()}
+                            historyLoading={historyLoading()}
+                            onLoadEarlier={() => {
+                              void historyWindow.loadAndReveal()
+                            }}
+                            renderedUserMessages={historyWindow.renderedUserMessages()}
+                            anchor={anchor}
+                            onFocusInput={focusInput}
+                            conversationTreeEnabled={conversationTreeEnabled()}
+                            conversationTreeOpen={conversationTreeOpen()}
+                            onToggleConversationTree={() => setConversationTreeOpen((open) => !open)}
+                          />
+                        </Show>
+                      </Show>
+                    </Match>
+                    <Match when={true}>
+                      <NewSessionView worktree={newSessionWorktree()} />
+                    </Match>
+                  </Switch>
+                </div>
+
+                <SessionComposerRegion
+                  state={composer}
+                  ready={!store.deferRender && messagesReady()}
+                  centered={centered()}
+                  inputRef={(el) => {
+                    inputRef = el
+                  }}
+                  newSessionWorktree={newSessionWorktree()}
+                  onNewSessionWorktreeReset={() => setStore("newSessionWorktree", "main")}
+                  onSubmit={() => {
+                    comments.clear()
+                    resumeScroll()
+                  }}
+                  onResponseSubmit={resumeScroll}
+                  followup={
+                    params.id
+                      ? {
+                          queue: queueEnabled,
+                          items: followupDock(),
+                          sending: sendingFollowup(),
+                          edit: editingFollowup(),
+                          onQueue: queueFollowup,
+                          onAbort: () => {
+                            const id = params.id
+                            if (!id) return
+                            setFollowup("paused", id, true)
                           },
-                          loadingClass: "px-4 py-4 text-text-weak",
-                          emptyClass: "h-full pb-64 -mt-4 flex flex-col items-center justify-center text-center gap-6",
-                        })}
-                        actions={actions}
-                        scroll={ui.scroll}
-                        onResumeScroll={resumeScroll}
-                        setScrollRef={setScrollRef}
-                        onScheduleScrollState={scheduleScrollState}
-                        onAutoScrollHandleScroll={autoScroll.handleScroll}
-                        onMarkScrollGesture={markScrollGesture}
-                        hasScrollGesture={hasScrollGesture}
-                        onUserScroll={markUserScroll}
-                        onTurnBackfillScroll={historyWindow.onScrollerScroll}
-                        onAutoScrollInteraction={autoScroll.handleInteraction}
-                        centered={centered()}
-                        setContentRef={(el) => {
-                          content = el
-                          autoScroll.contentRef(el)
-
-                          const root = scroller
-                          if (root) scheduleScrollState(root)
-                        }}
-                        turnStart={historyWindow.turnStart()}
-                        historyMore={historyMore()}
-                        historyLoading={historyLoading()}
-                        onLoadEarlier={() => {
-                          void historyWindow.loadAndReveal()
-                        }}
-                        renderedUserMessages={historyWindow.renderedUserMessages()}
-                        anchor={anchor}
-                        onFocusInput={focusInput}
-                      />
-                    </Show>
-                  </Show>
-                </Match>
-              <Match when={true}>
-                <NewSessionView worktree={newSessionWorktree()} />
-              </Match>
-            </Switch>
-          </div>
-
-          <SessionComposerRegion
-            state={composer}
-            ready={!store.deferRender && messagesReady()}
-            centered={centered()}
-            inputRef={(el) => {
-              inputRef = el
-            }}
-            newSessionWorktree={newSessionWorktree()}
-            onNewSessionWorktreeReset={() => setStore("newSessionWorktree", "main")}
-            onSubmit={() => {
-              comments.clear()
-              resumeScroll()
-            }}
-            onResponseSubmit={resumeScroll}
-            followup={
-              params.id
-                ? {
-                    queue: queueEnabled,
-                    items: followupDock(),
-                    sending: sendingFollowup(),
-                    edit: editingFollowup(),
-                    onQueue: queueFollowup,
-                    onAbort: () => {
-                      const id = params.id
-                      if (!id) return
-                      setFollowup("paused", id, true)
-                    },
-                    onSend: (id) => {
-                      void sendFollowup(params.id!, id, { manual: true })
-                    },
-                    onEdit: editFollowup,
-                    onEditLoaded: clearFollowupEdit,
+                          onSend: (id) => {
+                            void sendFollowup(params.id!, id, { manual: true })
+                          },
+                          onEdit: editFollowup,
+                          onEditLoaded: clearFollowupEdit,
+                        }
+                      : undefined
                   }
-                : undefined
-            }
-            revert={
-              rolled().length > 0
-                ? {
-                    items: rolled(),
-                    restoring: restoring(),
-                    disabled: reverting(),
-                    onRestore: restore,
+                  revert={
+                    rolled().length > 0
+                      ? {
+                          items: rolled(),
+                          restoring: restoring(),
+                          disabled: reverting(),
+                          onRestore: restore,
+                        }
+                      : undefined
                   }
-                : undefined
-            }
-            setPromptDockRef={(el) => {
-              promptDock = el
-            }}
-          />
+                  setPromptDockRef={(el) => {
+                    promptDock = el
+                  }}
+                />
+              </div>
+            </div>
+
+            {conversationTreeDrawer()}
 
           <Show when={desktopReviewOpen()}>
             <div onPointerDown={() => size.start()}>
