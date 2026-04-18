@@ -1,8 +1,11 @@
 import { describe, expect, test } from "bun:test"
+import fs from "fs"
 import { rm } from "fs/promises"
+import os from "os"
 import path from "path"
 import { Global } from "../../src/global"
 import { Installation } from "../../src/installation"
+import { init } from "../../src/storage/db.bun"
 import { Database } from "../../src/storage/db"
 
 describe("Database.Path", () => {
@@ -42,6 +45,18 @@ describe("Database.Path", () => {
       expect(list.every((file) => /^aether.*\.db$/i.test(path.basename(file)))).toBeTrue()
     } finally {
       await Promise.all([rm(one, { force: true }), rm(two, { force: true }), rm(old, { force: true })])
+    }
+  })
+
+  test("init creates parent dir for file databases", async () => {
+    const root = await fs.promises.mkdtemp(path.join(os.tmpdir(), "aether-db-"))
+    const file = path.join(root, "deep", "aether.db")
+    try {
+      const db = init(file)
+      db.$client.close()
+      expect(await Bun.file(file).exists()).toBeTrue()
+    } finally {
+      await rm(root, { recursive: true, force: true })
     }
   })
 })
