@@ -1,0 +1,277 @@
+import { useNavigate, useParams } from "@solidjs/router"
+import type { SessionGraphResult } from "@opencode-ai/sdk/v2"
+import { DropdownMenu } from "@opencode-ai/ui/dropdown-menu"
+import { Icon } from "@opencode-ai/ui/icon"
+import { useGlobalSDK } from "@/context/global-sdk"
+import { useLanguage } from "@/context/language"
+import { useSettings } from "@/context/settings"
+import { For, Match, Show, Switch, createEffect, createMemo, createSignal } from "solid-js"
+import { buildConversationGraphView, type ConversationGraph, type ConversationGraphOrderMode } from "./conversation-graph-model"
+import { ConversationGraphList } from "./conversation-graph-list"
+
+const FONT_SIZE_CLASS_MAP = {
+  xs: "text-12-medium",
+  sm: "text-12-medium",
+  md: "text-12-medium",
+  lg: "text-12-medium",
+  xl: "text-12-medium",
+} as const
+
+const FONT_SIZE_STYLE_MAP = {
+  xs: { "font-size": "10px", "line-height": "14px" },
+  sm: { "font-size": "11px", "line-height": "16px" },
+  md: { "font-size": "12px", "line-height": "18px" },
+  lg: { "font-size": "14px", "line-height": "21px" },
+  xl: { "font-size": "16px", "line-height": "24px" },
+} as const
+
+const ROW_DENSITY_HEIGHT_MAP = {
+  xcompact: 24,
+  compact: 36,
+  normal: 44,
+  relaxed: 52,
+  xrelaxed: 60,
+} as const
+
+const graphCache = new Map<string, SessionGraphResult>()
+
+export function SidebarBranchView(props: { sessionID: string; currentSessionID: string; directory: string }) {
+  const params = useParams()
+  const navigate = useNavigate()
+  const globalSDK = useGlobalSDK()
+  const settings = useSettings()
+  const language = useLanguage()
+  const zh = createMemo(() => language.locale() === "zh" || language.locale() === "zht")
+  const [controlsOpen, setControlsOpen] = createSignal(false)
+  const [compact, setCompact] = createSignal(true)
+  const [loading, setLoading] = createSignal(false)
+  const [graph, setGraph] = createSignal<SessionGraphResult>()
+  const [errorMessage, setErrorMessage] = createSignal<string>()
+  const fontSize = createMemo(() => settings.general.branchGraphFontSize())
+  const rowDensity = createMemo(() => settings.general.branchGraphRowDensity())
+  const orderMode = createMemo(() => settings.general.branchGraphOrderMode())
+  const rowHeight = createMemo(() => ROW_DENSITY_HEIGHT_MAP[rowDensity()])
+  const labelClass = createMemo(() => FONT_SIZE_CLASS_MAP[fontSize()])
+  const labelStyle = createMemo(() => FONT_SIZE_STYLE_MAP[fontSize()])
+  const sdk = createMemo(() =>
+    globalSDK.createClient({
+      directory: props.directory,
+      throwOnError: true,
+    }),
+  )
+
+  let requestVersion = 0
+
+  const loadGraph = async (sessionID: string) => {
+    const version = ++requestVersion
+    const cacheKey = `${props.directory}:${sessionID}`
+    const cached = graphCache.get(cacheKey)
+    if (cached) {
+      setGraph(cached)
+      setErrorMessage(undefined)
+    } else {
+      setLoading(true)
+      setErrorMessage(undefined)
+    }
+
+    try {
+      const result = await sdk().session.graph({ sessionID })
+      const payload = result.data as SessionGraphResult | undefined
+      if (!payload) throw new Error("Missing conversation graph response")
+      if (version !== requestVersion) return
+      graphCache.set(cacheKey, payload)
+      setGraph(payload)
+      setErrorMessage(undefined)
+    } catch (error) {
+      if (version !== requestVersion) return
+      setGraph(undefined)
+      setErrorMessage(error instanceof Error ? error.message : String(error))
+    } finally {
+      if (version === requestVersion) setLoading(false)
+    }
+  }
+
+  createEffect(() => {
+    const sessionID = props.sessionID
+    if (!sessionID) return
+    void loadGraph(sessionID)
+  })
+
+  const view = createMemo(() => {
+    const payload = graph()
+    if (!payload || payload.kind !== "graph") return
+    return buildConversationGraphView({
+      graph: payload as ConversationGraph,
+      compact: compact(),
+      orderMode: orderMode() as ConversationGraphOrderMode,
+    })
+  })
+
+  const openNode = async (node: { sessionID: string; userMessageID?: string }) => {
+    if (!params.dir || !node.sessionID) return
+    const hash = node.userMessageID ? `#message-${node.userMessageID}` : ""
+    navigate(`/${params.dir}/session/${node.sessionID}${hash}`)
+  }
+
+  return (
+    <div class="overflow-hidden rounded-md border border-border-weaker-base bg-background-stronger">
+      <div class="border-b border-border-weaker-base px-2 py-1">
+        <button
+          type="button"
+          class="flex w-full items-center justify-between gap-2 text-left text-[11px] text-text-weak transition-colors hover:text-text-base"
+          onClick={() => setControlsOpen((value) => !value)}
+        >
+          <span>{zh() ? "视图调整" : "View options"}</span>
+          <Icon name={controlsOpen() ? "chevron-down" : "chevron-right"} size="small" class="text-icon-weak" />
+        </button>
+
+        <Show when={controlsOpen()}>
+          <div class="mt-2 flex flex-wrap items-center gap-2">
+            <button
+              class="rounded-md border border-border-weak-base px-2 py-px text-[11px] text-text-weak transition-colors hover:bg-background-base"
+              onClick={() => setCompact((value) => !value)}
+            >
+              {compact() ? (zh() ? "完整" : "Full") : zh() ? "简略" : "Compact"}
+            </button>
+
+            <div class="flex overflow-hidden rounded-md border border-border-weak-base">
+              <button
+                class="px-2 py-px text-[11px] transition-colors"
+                classList={{
+                  "bg-background-base text-text-strong": orderMode() === "sequence",
+                  "text-text-weak hover:bg-background-base": orderMode() !== "sequence",
+                }}
+                onClick={() => settings.general.setBranchGraphOrderMode("sequence")}
+              >
+                {zh() ? "序列优先" : "Sequence"}
+              </button>
+              <button
+                class="border-l border-border-weak-base px-2 py-px text-[11px] transition-colors"
+                classList={{
+                  "bg-background-base text-text-strong": orderMode() === "time",
+                  "text-text-weak hover:bg-background-base": orderMode() !== "time",
+                }}
+                onClick={() => settings.general.setBranchGraphOrderMode("time")}
+              >
+                {zh() ? "时间优先" : "Time"}
+              </button>
+            </div>
+
+            <DropdownMenu placement="bottom-start">
+              <DropdownMenu.Trigger class="rounded-md border border-border-weak-base px-2 py-px text-[11px] text-text-weak transition-colors hover:bg-background-base">
+                {zh() ? "显示" : "Display"}
+              </DropdownMenu.Trigger>
+              <DropdownMenu.Portal>
+                <DropdownMenu.Content class="min-w-40">
+                  <DropdownMenu.Group>
+                    <DropdownMenu.GroupLabel>{zh() ? "字号" : "Font size"}</DropdownMenu.GroupLabel>
+                    <DropdownMenu.RadioGroup
+                      value={fontSize()}
+                      onChange={(value) => {
+                        if (value === "xs" || value === "sm" || value === "md" || value === "lg" || value === "xl") {
+                          settings.general.setBranchGraphFontSize(value)
+                        }
+                      }}
+                    >
+                      <For
+                        each={[
+                          { value: "xs", label: zh() ? "特小" : "X-Small" },
+                          { value: "sm", label: zh() ? "小" : "Small" },
+                          { value: "md", label: zh() ? "标准" : "Default" },
+                          { value: "lg", label: zh() ? "大" : "Large" },
+                          { value: "xl", label: zh() ? "特大" : "X-Large" },
+                        ]}
+                      >
+                        {(item) => (
+                          <DropdownMenu.RadioItem value={item.value}>
+                            <DropdownMenu.ItemLabel>{item.label}</DropdownMenu.ItemLabel>
+                            <DropdownMenu.ItemIndicator>
+                              <Icon name="check-small" size="small" class="text-icon-weak" />
+                            </DropdownMenu.ItemIndicator>
+                          </DropdownMenu.RadioItem>
+                        )}
+                      </For>
+                    </DropdownMenu.RadioGroup>
+                  </DropdownMenu.Group>
+
+                  <DropdownMenu.Separator />
+
+                  <DropdownMenu.Group>
+                    <DropdownMenu.GroupLabel>{zh() ? "行距" : "Row spacing"}</DropdownMenu.GroupLabel>
+                    <DropdownMenu.RadioGroup
+                      value={rowDensity()}
+                      onChange={(value) => {
+                        if (
+                          value === "xcompact" ||
+                          value === "compact" ||
+                          value === "normal" ||
+                          value === "relaxed" ||
+                          value === "xrelaxed"
+                        ) {
+                          settings.general.setBranchGraphRowDensity(value)
+                        }
+                      }}
+                    >
+                      <For
+                        each={[
+                          { value: "xcompact", label: zh() ? "极紧凑" : "Ultra compact" },
+                          { value: "compact", label: zh() ? "紧凑" : "Compact" },
+                          { value: "normal", label: zh() ? "标准" : "Default" },
+                          { value: "relaxed", label: zh() ? "宽松" : "Relaxed" },
+                          { value: "xrelaxed", label: zh() ? "极宽松" : "Ultra relaxed" },
+                        ]}
+                      >
+                        {(item) => (
+                          <DropdownMenu.RadioItem value={item.value}>
+                            <DropdownMenu.ItemLabel>{item.label}</DropdownMenu.ItemLabel>
+                            <DropdownMenu.ItemIndicator>
+                              <Icon name="check-small" size="small" class="text-icon-weak" />
+                            </DropdownMenu.ItemIndicator>
+                          </DropdownMenu.RadioItem>
+                        )}
+                      </For>
+                    </DropdownMenu.RadioGroup>
+                  </DropdownMenu.Group>
+                </DropdownMenu.Content>
+              </DropdownMenu.Portal>
+            </DropdownMenu>
+          </div>
+        </Show>
+      </div>
+
+      <div class="min-h-0 overflow-hidden" style={{ height: "min(320px, 40vh)" }}>
+        <Switch>
+          <Match when={graph()?.kind === "legacy"}>
+            <div class="flex h-full items-center justify-center px-4 text-center text-11-regular text-text-weak">
+              {zh() ? "旧会话不支持新的分支视图。" : "Legacy sessions do not support the new branch view."}
+            </div>
+          </Match>
+          <Match when={(view()?.nodes.length ?? 0) > 0 && view()}>
+            {(nextView) => (
+              <ConversationGraphList
+                currentSessionID={props.currentSessionID}
+                nodes={nextView().nodes}
+                edges={nextView().edges}
+                laneCount={nextView().laneCount}
+                rowHeight={rowHeight()}
+                labelClass={labelClass()}
+                labelStyle={labelStyle()}
+                onSelect={openNode}
+                onFork={() => {}}
+                onRename={() => {}}
+                showRowActions={false}
+              />
+            )}
+          </Match>
+          <Match when={true}>
+            <div class="flex h-full items-center justify-center px-4 text-center text-11-regular text-text-weak">
+              <Show when={!loading()} fallback={`${language.t("common.loading")}${language.t("common.loading.ellipsis")}`}>
+                {errorMessage() ?? (zh() ? "暂无可展示的分支视图。" : "No branch view available.")}
+              </Show>
+            </div>
+          </Match>
+        </Switch>
+      </div>
+    </div>
+  )
+}

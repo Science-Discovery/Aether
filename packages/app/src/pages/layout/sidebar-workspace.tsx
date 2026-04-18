@@ -18,8 +18,10 @@ import { useGlobalSync } from "@/context/global-sync"
 import { useGlobalSDK } from "@/context/global-sdk"
 import { loadDescendantsForRoots } from "@/context/global-sync/session-load"
 import { useLanguage } from "@/context/language"
+import { useSettings } from "@/context/settings"
 import { NewSessionItem, SessionItem, SessionSkeleton } from "./sidebar-items"
 import { childMapByParent, sortedRootSessions, workspaceKey } from "./helpers"
+import { SidebarBranchView } from "@/pages/session/branch/sidebar-branch-view"
 
 type InlineEditorComponent = (props: {
   id: string
@@ -257,6 +259,8 @@ const SessionTreeNodes = (props: {
   archiveSession?: (session: Session) => Promise<void>
   unarchiveSession?: (session: Session) => Promise<void>
 }) => {
+  const settings = useSettings()
+  const conversationTreeEnabled = createMemo(() => settings.general.branchesTab())
   const archiveSession = createMemo(() => props.archiveSession ?? props.ctx.archiveSession)
   const sessionByID = createMemo(() => {
     const map = new Map<string, Session>()
@@ -272,13 +276,36 @@ const SessionTreeNodes = (props: {
       .map((childID) => sessionByID().get(childID))
       .filter((session): session is Session => !!session)
 
+  const rootSessionIDFor = (sessionID: string) => {
+    let cursor = sessionByID().get(sessionID)
+    if (!cursor) return
+    while (cursor.parentID) {
+      const parent = sessionByID().get(cursor.parentID)
+      if (!parent) break
+      cursor = parent
+    }
+    return cursor.id
+  }
+
   createEffect(
     on(
-      () => [props.currentSessionID(), sessionByID()] as const,
-      ([currentSessionID, sessions]) => {
+      () => [props.currentSessionID(), sessionByID(), conversationTreeEnabled()] as const,
+      ([currentSessionID, sessions, treeEnabled]) => {
         if (!currentSessionID) return
         const current = sessions.get(currentSessionID)
         if (!current) return
+
+        if (treeEnabled) {
+          const rootID = rootSessionIDFor(currentSessionID)
+          if (!rootID) return
+          for (const root of props.rootSessions()) {
+            const expanded = root.id === rootID
+            if (untrack(() => props.ctx.sessionExpanded(root.id)) !== expanded) {
+              props.ctx.setSessionExpanded(root.id, expanded)
+            }
+          }
+          return
+        }
 
         const visited = new Set<string>()
         let cursor = current.parentID
@@ -299,7 +326,28 @@ const SessionTreeNodes = (props: {
       childrenFor(nodeProps.session.id).filter((child) => !nextChain.has(child.id)),
     )
     const hasChildren = createMemo(() => childSessions().length > 0)
-    const expanded = createMemo(() => !hasChildren() || props.ctx.sessionExpanded(nodeProps.session.id))
+    const hasBranchView = createMemo(() => {
+      if (!conversationTreeEnabled()) return hasChildren()
+      if (hasChildren()) return true
+      if (nodeProps.session.id === props.currentSessionID()) return true
+      return (nodeProps.session.time.updated ?? 0) > (nodeProps.session.time.created ?? 0)
+    })
+    const expanded = createMemo(() =>
+      !(conversationTreeEnabled() ? hasBranchView() : hasChildren()) || props.ctx.sessionExpanded(nodeProps.session.id),
+    )
+    const graphSessionID = createMemo(() => {
+      const currentSessionID = props.currentSessionID()
+      if (currentSessionID && rootSessionIDFor(currentSessionID) === nodeProps.session.id) return currentSessionID
+      return nodeProps.session.id
+    })
+
+    const toggleBranchView = () => {
+      const next = !expanded()
+      for (const root of props.rootSessions()) {
+        props.ctx.setSessionExpanded(root.id, false)
+      }
+      if (next) props.ctx.setSessionExpanded(nodeProps.session.id, true)
+    }
 
     return (
       <>
@@ -326,12 +374,21 @@ const SessionTreeNodes = (props: {
             unarchiveSession={nodeProps.depth === 0 ? props.unarchiveSession : undefined}
             deleteSession={props.ctx.deleteSession}
             renameSession={props.ctx.renameSession}
-            hasChildren={hasChildren()}
+            hasChildren={conversationTreeEnabled() ? hasBranchView() : hasChildren()}
             expanded={expanded()}
-            onToggleChildren={() => props.ctx.setSessionExpanded(nodeProps.session.id, !expanded())}
+            onToggleChildren={conversationTreeEnabled() ? toggleBranchView : () => props.ctx.setSessionExpanded(nodeProps.session.id, !expanded())}
           />
         </div>
-        <Show when={expanded()}>
+        <Show when={expanded() && conversationTreeEnabled() && hasBranchView()}>
+          <div class="pl-8 pr-2 pb-2">
+            <SidebarBranchView
+              sessionID={graphSessionID()}
+              currentSessionID={props.currentSessionID() ?? nodeProps.session.id}
+              directory={nodeProps.session.directory}
+            />
+          </div>
+        </Show>
+        <Show when={expanded() && !conversationTreeEnabled()}>
           <For each={childSessions()}>
             {(child) => <SessionNode session={child} depth={nodeProps.depth + 1} chain={nextChain} />}
           </For>
@@ -340,9 +397,7 @@ const SessionTreeNodes = (props: {
     )
   }
 
-  return (
-    <For each={props.rootSessions()}>{(session) => <SessionNode session={session} depth={0} chain={new Set()} />}</For>
-  )
+  return <For each={props.rootSessions()}>{(session) => <SessionNode session={session} depth={0} chain={new Set()} />}</For>
 }
 
 const ArchivedSessionList = (props: {

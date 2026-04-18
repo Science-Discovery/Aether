@@ -797,7 +797,7 @@ export const dict = {
   "settings.general.row.reasoningSummaries.description": "Display model reasoning summaries in the timeline",
   "settings.general.row.branchesTab.title": "Enable conversation tree",
   "settings.general.row.branchesTab.description":
-    "Show the experimental conversation tree view in the session page",
+    "Show the conversation tree inline in the session list sidebar",
   "settings.general.row.shellToolPartsExpanded.title": "Expand shell tool parts",
   "settings.general.row.shellToolPartsExpanded.description":
     "Show shell tool parts expanded by default in the timeline",

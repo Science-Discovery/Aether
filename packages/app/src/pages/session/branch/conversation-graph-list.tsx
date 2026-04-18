@@ -27,6 +27,7 @@ export function ConversationGraphList(props: {
   onSelect: (node: ConversationGraphNode) => void
   onFork: (node: ConversationGraphNode) => void
   onRename: (node: ConversationGraphNode) => void
+  showRowActions?: boolean
 }) {
   const language = useLanguage()
   const laneGap = 18
@@ -145,32 +146,34 @@ export function ConversationGraphList(props: {
                   </div>
                 </div>
 
-                <div class="shrink-0 opacity-0 transition-opacity group-hover/graph-row:opacity-100 group-focus-within/graph-row:opacity-100">
-                  <DropdownMenu placement="bottom-end">
-                    <DropdownMenu.Trigger
-                      as={IconButton}
-                      icon="dot-grid"
-                      variant="ghost"
-                      class="size-6 rounded-md"
-                      aria-label={language.t("common.moreOptions")}
-                      onClick={(event: MouseEvent) => event.stopPropagation()}
-                      onPointerDown={(event: PointerEvent) => event.stopPropagation()}
-                    />
-                    <DropdownMenu.Portal>
-                      <DropdownMenu.Content onClick={(event: MouseEvent) => event.stopPropagation()}>
-                        <DropdownMenu.Item onSelect={() => props.onSelect(node)}>
-                          <DropdownMenu.ItemLabel>{language.t("notification.action.goToSession")}</DropdownMenu.ItemLabel>
-                        </DropdownMenu.Item>
-                        <DropdownMenu.Item disabled={!node.userMessageID} onSelect={() => props.onFork(node)}>
-                          <DropdownMenu.ItemLabel>{language.t("command.session.fork")}</DropdownMenu.ItemLabel>
-                        </DropdownMenu.Item>
-                        <DropdownMenu.Item onSelect={() => props.onRename(node)}>
-                          <DropdownMenu.ItemLabel>{language.t("common.rename")}</DropdownMenu.ItemLabel>
-                        </DropdownMenu.Item>
-                      </DropdownMenu.Content>
-                    </DropdownMenu.Portal>
-                  </DropdownMenu>
-                </div>
+                <Show when={props.showRowActions ?? true}>
+                  <div class="shrink-0 opacity-0 transition-opacity group-hover/graph-row:opacity-100 group-focus-within/graph-row:opacity-100">
+                    <DropdownMenu placement="bottom-end">
+                      <DropdownMenu.Trigger
+                        as={IconButton}
+                        icon="dot-grid"
+                        variant="ghost"
+                        class="size-6 rounded-md"
+                        aria-label={language.t("common.moreOptions")}
+                        onClick={(event: MouseEvent) => event.stopPropagation()}
+                        onPointerDown={(event: PointerEvent) => event.stopPropagation()}
+                      />
+                      <DropdownMenu.Portal>
+                        <DropdownMenu.Content onClick={(event: MouseEvent) => event.stopPropagation()}>
+                          <DropdownMenu.Item onSelect={() => props.onSelect(node)}>
+                            <DropdownMenu.ItemLabel>{language.t("notification.action.goToSession")}</DropdownMenu.ItemLabel>
+                          </DropdownMenu.Item>
+                          <DropdownMenu.Item disabled={!node.userMessageID} onSelect={() => props.onFork(node)}>
+                            <DropdownMenu.ItemLabel>{language.t("command.session.fork")}</DropdownMenu.ItemLabel>
+                          </DropdownMenu.Item>
+                          <DropdownMenu.Item onSelect={() => props.onRename(node)}>
+                            <DropdownMenu.ItemLabel>{language.t("common.rename")}</DropdownMenu.ItemLabel>
+                          </DropdownMenu.Item>
+                        </DropdownMenu.Content>
+                      </DropdownMenu.Portal>
+                    </DropdownMenu>
+                  </div>
+                </Show>
               </div>
             )}
           </For>

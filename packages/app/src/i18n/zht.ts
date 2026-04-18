@@ -931,6 +931,6 @@ export const dict = {
   "error.childStore.persistedProjectIconCreateFailed": "建立持續性專案圖示失敗",
   "error.childStore.storeCreateFailed": "建立儲存區失敗",
   "terminal.connectionLost.abnormalClose": "WebSocket 異常關閉：{{code}}",
-  "settings.general.row.branchesTab.title": "啟用分支標籤頁",
-  "settings.general.row.branchesTab.description": "在會話側欄中顯示實驗性的分支樹視圖",
+  "settings.general.row.branchesTab.title": "啟用對話樹",
+  "settings.general.row.branchesTab.description": "在會話清單側欄中內聯顯示對話樹視圖",
 } satisfies Partial<Record<Keys, string>>

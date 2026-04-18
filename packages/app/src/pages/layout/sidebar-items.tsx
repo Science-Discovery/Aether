@@ -163,7 +163,7 @@ const SessionRow = (props: {
             event.stopPropagation()
             props.onToggleChildren?.()
           }}
-          aria-label={props.expanded ? "Collapse child sessions" : "Expand child sessions"}
+          aria-label={props.expanded ? "Collapse conversation tree" : "Expand conversation tree"}
           aria-expanded={props.expanded}
         >
           <Icon name={props.expanded ? "dash" : "plus-small"} size="small" class="text-icon-weak" />
@@ -447,7 +447,7 @@ export const SessionItem = (props: SessionItemProps): JSX.Element => {
                         event.stopPropagation()
                         props.onToggleChildren?.()
                       }}
-                      aria-label={expanded() ? "Collapse child sessions" : "Expand child sessions"}
+                      aria-label={expanded() ? "Collapse conversation tree" : "Expand conversation tree"}
                       aria-expanded={expanded()}
                     >
                       <Icon name={expanded() ? "dash" : "plus-small"} size="small" class="text-icon-weak" />

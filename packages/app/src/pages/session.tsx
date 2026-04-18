@@ -58,7 +58,6 @@ import {
   shouldFocusTerminalOnKeyDown,
 } from "@/pages/session/helpers"
 import { MessageTimeline } from "@/pages/session/message-timeline"
-import { BranchGraphPanel } from "@/pages/session/branch/branch-graph-panel"
 import { type DiffStyle, SessionReviewTab, type SessionReviewTabProps } from "@/pages/session/review-tab"
 import { useSessionLayout } from "@/pages/session/session-layout"
 import { syncSessionModel } from "@/pages/session/session-model-helpers"
@@ -530,42 +529,6 @@ function SessionPageContent(props: SessionPageProps = {}) {
     return pdfWidth > 0 ? `calc(100% - ${layout.fileTree.width()}px - ${pdfWidth}px)` : `calc(100% - ${layout.fileTree.width()}px)`
   })
   const centered = createMemo(() => isDesktop() && !desktopReviewOpen())
-  const conversationTreeEnabled = createMemo(
-    () =>
-      Boolean((sync.data.config.experimental as { branches_tab?: boolean } | undefined)?.branches_tab) ||
-      settings.general.branchesTab(),
-  )
-  const [conversationTreeOpen, setConversationTreeOpen] = createSignal(false)
-  const conversationTreeTitle = createMemo(() =>
-    language.locale() === "zh" || language.locale() === "zht" ? "对话树" : "Conversation tree",
-  )
-  const conversationTreeDrawer = () => (
-    <Show when={conversationTreeEnabled() && params.id && conversationTreeOpen()}>
-      <div
-        classList={{
-          "absolute inset-y-0 right-0 z-30 h-full overflow-hidden border-l border-border-weaker-base bg-background-stronger shadow-2xl transition-transform duration-[240ms] ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none":
-            true,
-        }}
-        style={{ width: "clamp(300px, 34vw, 420px)", transform: "translateX(100%)" }}
-      >
-        <div class="flex h-full min-h-0 flex-col">
-          <div class="flex shrink-0 items-center justify-between gap-3 border-b border-border-weaker-base px-3 py-2">
-            <div class="min-w-0 truncate text-13-medium text-text-strong">{conversationTreeTitle()}</div>
-            <IconButton
-              icon="close-small"
-              variant="ghost"
-              class="size-6 rounded-md"
-              aria-label={language.locale() === "zh" || language.locale() === "zht" ? "关闭对话树" : "Close conversation tree"}
-              onClick={() => setConversationTreeOpen(false)}
-            />
-          </div>
-          <div class="min-h-0 flex-1 overflow-hidden">
-            <BranchGraphPanel sessionID={params.id!} />
-          </div>
-        </div>
-      </div>
-    </Show>
-  )
   const readingSessionResizeSize = createMemo(() => {
     if (propReadingModeActive()) return Math.max(0, props.readingSessionResizeSize ?? 0)
     if (quickReadingModeActive()) return quickReadingLayout.chatPixelWidth()
@@ -2258,9 +2221,6 @@ function SessionPageContent(props: SessionPageProps = {}) {
                               renderedUserMessages={historyWindow.renderedUserMessages()}
                               anchor={anchor}
                               onFocusInput={focusInput}
-                              conversationTreeEnabled={conversationTreeEnabled()}
-                              conversationTreeOpen={conversationTreeOpen()}
-                              onToggleConversationTree={() => setConversationTreeOpen((open) => !open)}
                             />
                           </Show>
                         </Show>
@@ -2322,8 +2282,6 @@ function SessionPageContent(props: SessionPageProps = {}) {
                   />
                 </div>
               </div>
-
-              {conversationTreeDrawer()}
               <Show
                 when={
                   readingModeActive() &&
@@ -2432,9 +2390,6 @@ function SessionPageContent(props: SessionPageProps = {}) {
                             renderedUserMessages={historyWindow.renderedUserMessages()}
                             anchor={anchor}
                             onFocusInput={focusInput}
-                            conversationTreeEnabled={conversationTreeEnabled()}
-                            conversationTreeOpen={conversationTreeOpen()}
-                            onToggleConversationTree={() => setConversationTreeOpen((open) => !open)}
                           />
                         </Show>
                       </Show>
@@ -2496,9 +2451,6 @@ function SessionPageContent(props: SessionPageProps = {}) {
                 />
               </div>
             </div>
-
-            {conversationTreeDrawer()}
-
           <Show when={desktopReviewOpen()}>
             <div onPointerDown={() => size.start()}>
               <ResizeHandle
