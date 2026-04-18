@@ -36,6 +36,12 @@ import { detectDataJson, chunkByContent, chunksFromDataJson } from "../../markdo
 import fs from "fs/promises"
 import { linux, missing, windows, wsl, wslPath } from "../pick-folder"
 
+export type ServerEnv = {
+  Variables: {
+    cors?: string[]
+  }
+}
+
 const encode = (input: string) =>
   encodeURIComponent(input).replace(/['()*]/g, (part) => `%${part.charCodeAt(0).toString(16).toUpperCase()}`)
 
@@ -88,6 +94,32 @@ function bytes(input: string | undefined, size: number) {
   }
 }
 
+function origin(input: string | undefined, list?: string[]) {
+  if (!input) return
+  if (input.startsWith("http://localhost:")) return input
+  if (input.startsWith("http://127.0.0.1:")) return input
+  if (input === "tauri://localhost" || input === "http://tauri.localhost" || input === "https://tauri.localhost") {
+    return input
+  }
+  if (/^https:\/\/([a-z0-9-]+\.)*opencode\.ai$/.test(input)) {
+    return input
+  }
+  if (list?.includes(input)) {
+    return input
+  }
+}
+
+function raw(input: string | undefined, list?: string[]) {
+  const value = origin(input, list)
+  if (!value) return
+  return {
+    "Access-Control-Allow-Credentials": "true",
+    "Access-Control-Allow-Origin": value,
+    "Access-Control-Expose-Headers": "Accept-Ranges, Content-Length, Content-Range, ETag, Last-Modified",
+    Vary: "Origin",
+  }
+}
+
 const requireDirectory = async (input: string) => {
   try {
     const dir = resolvePath(input)
@@ -100,7 +132,7 @@ const requireDirectory = async (input: string) => {
 }
 
 export const FileRoutes = lazy(() =>
-  new Hono()
+  new Hono<ServerEnv>()
     .get(
       "/file/active-tasks",
       describeRoute({
@@ -1240,6 +1272,7 @@ export const FileRoutes = lazy(() =>
       validator("query", z.object({ path: z.string() })),
       async (c) => {
         try {
+          const cors = raw(c.req.header("origin"), c.get("cors") as string[] | undefined)
           const abs = resolveFile(c.req.valid("query").path)
           const stat = await fs.stat(abs)
           if (!stat.isFile()) {
@@ -1260,6 +1293,7 @@ export const FileRoutes = lazy(() =>
               status: 416,
               headers: {
                 ...base,
+                ...cors,
                 "Content-Range": `bytes */${Number(stat.size)}`,
               },
             })
@@ -1270,6 +1304,7 @@ export const FileRoutes = lazy(() =>
               return new Response(null, {
                 headers: {
                   ...base,
+                  ...cors,
                   "Content-Length": String(Number(stat.size)),
                 },
               })
@@ -1277,6 +1312,7 @@ export const FileRoutes = lazy(() =>
             return new Response(Bun.file(abs), {
               headers: {
                 ...base,
+                ...cors,
                 "Content-Length": String(Number(stat.size)),
               },
             })
@@ -1287,6 +1323,7 @@ export const FileRoutes = lazy(() =>
               status: 206,
               headers: {
                 ...base,
+                ...cors,
                 "Content-Length": String(range.end - range.start + 1),
                 "Content-Range": `bytes ${range.start}-${range.end}/${Number(stat.size)}`,
               },
@@ -1297,6 +1334,7 @@ export const FileRoutes = lazy(() =>
             status: 206,
             headers: {
               ...base,
+              ...cors,
               "Content-Length": String(range.end - range.start + 1),
               "Content-Range": `bytes ${range.start}-${range.end}/${Number(stat.size)}`,
             },

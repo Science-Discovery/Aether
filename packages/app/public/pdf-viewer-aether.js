@@ -5,6 +5,7 @@
   const ORIGIN = window.location.origin;
   const C_MAP_URL = "/pdfjs-ref/web/cmaps/";
   const STANDARD_FONT_DATA_URL = "/pdfjs-ref/web/standard_fonts/";
+  const RANGE_CHUNK_SIZE = 65536;
   const DEFAULT_SCALE = {
     full: "auto",
     compact: "page-width",
@@ -797,6 +798,10 @@
     const loadOpts = {
       url: config.src,
       httpHeaders: config.authHeader ? { Authorization: config.authHeader } : undefined,
+      rangeChunkSize: RANGE_CHUNK_SIZE,
+      disableRange: false,
+      disableStream: true,
+      disableAutoFetch: true,
       useWorkerFetch: false,
       cMapUrl: C_MAP_URL,
       cMapPacked: true,

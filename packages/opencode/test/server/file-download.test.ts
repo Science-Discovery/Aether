@@ -71,6 +71,31 @@ describe("file endpoints", () => {
     expect(await res.text()).toBe("hello")
   })
 
+  test("serves raw file ranges with inline cors headers", async () => {
+    await using tmp = await tmpdir({
+      init: async (dir) => {
+        await Bun.write(path.join(dir, "range.txt"), "hello world")
+      },
+    })
+
+    const app = Server.createApp({ cors: ["https://assets.example.com"] })
+    const res = await app.request(`/file/raw?path=${encodeURIComponent("range.txt")}`, {
+      headers: {
+        origin: "https://assets.example.com",
+        "x-opencode-directory": tmp.path,
+        range: "bytes=0-4",
+      },
+    })
+
+    expect(res.status).toBe(206)
+    expect(res.headers.get("Access-Control-Allow-Origin")).toBe("https://assets.example.com")
+    expect(res.headers.get("Access-Control-Allow-Credentials")).toBe("true")
+    expect(res.headers.get("Access-Control-Expose-Headers")).toContain("Content-Range")
+    expect(res.headers.get("Vary")).toContain("Origin")
+    expect(res.headers.get("Content-Range")).toBe("bytes 0-4/11")
+    expect(await res.text()).toBe("hello")
+  })
+
   test("rejects raw path traversal", async () => {
     await using tmp = await tmpdir()
     const app = Server.Default()
