@@ -984,10 +984,8 @@ class AetherAgent(Agent):
     _FILE_INTENT_KEYWORDS = [
         "发给我",
         "发来",
-        "源文件",
-        "原文件",
+        "文件给我",
         "发过来",
-        "原始文件",
         "发文件",
         "send me",
         "send file",

@@ -49,13 +49,21 @@ function localISOString(d = new Date()): string {
   const sign = offset >= 0 ? "+" : "-"
   const pad = (n: number) => String(Math.floor(Math.abs(n))).padStart(2, "0")
   return (
-    d.getFullYear() + "-" +
-    pad(d.getMonth() + 1) + "-" +
-    pad(d.getDate()) + "T" +
-    pad(d.getHours()) + ":" +
-    pad(d.getMinutes()) + ":" +
+    d.getFullYear() +
+    "-" +
+    pad(d.getMonth() + 1) +
+    "-" +
+    pad(d.getDate()) +
+    "T" +
+    pad(d.getHours()) +
+    ":" +
+    pad(d.getMinutes()) +
+    ":" +
     pad(d.getSeconds()) +
-    sign + pad(offset / 60) + ":" + pad(offset % 60)
+    sign +
+    pad(offset / 60) +
+    ":" +
+    pad(offset % 60)
   )
 }
 
@@ -164,7 +172,16 @@ class FeishuManagerImpl {
   // ── Pending interaction state ─────────────────────────────────────────────
   private _pendingQuestions: Record<string, Question.Request> = {}
   private _pendingPermissions: Record<string, Permission.Request> = {}
-  private _queues = new Map<string, Promise<void>>()
+  private _activePrompt = new Map<
+    string,
+    {
+      sessionId: string
+      messageId: string
+      directory: string
+    }
+  >()
+  private _processedIds = new Map<string, number>()
+  private _busUnsubs: (() => void)[] = []
   private _heartbeat: ReturnType<typeof setInterval> | null = null
   private _heartbeatFails = 0
   private _reconnect: ReturnType<typeof setTimeout> | null = null
@@ -318,6 +335,7 @@ class FeishuManagerImpl {
   private async clearRuntime(chatId: string): Promise<void> {
     delete this._pendingQuestions[chatId]
     delete this._pendingPermissions[chatId]
+    this._activePrompt.delete(chatId)
   }
 
   private async commandCtx(chatId: string): Promise<{
@@ -492,6 +510,42 @@ class FeishuManagerImpl {
       }
       GlobalBus.on("event", this._globalBusListener)
 
+      const onQuestion = (event: { directory?: string; payload: any }) => {
+        if (event.payload?.type !== "question.asked") return
+        const q = event.payload.properties as Question.Request
+        for (const [chatId, info] of this._activePrompt) {
+          if (info.sessionId === q.sessionID) {
+            this._pendingQuestions[chatId] = q
+            void this.replyText(info.messageId, this.formatQuestionRequest(q))
+            return
+          }
+        }
+      }
+      GlobalBus.on("event", onQuestion)
+      this._busUnsubs.push(() => GlobalBus.off("event", onQuestion))
+
+      const onPermission = (event: { directory?: string; payload: any }) => {
+        if (event.payload?.type !== "permission.asked") return
+        const p = event.payload.properties as Permission.Request
+        for (const [chatId, info] of this._activePrompt) {
+          if (info.sessionId === p.sessionID) {
+            const pref = SessionPreference.get(info.sessionId)
+            if (pref?.autoAccept) {
+              void Instance.provide({
+                directory: info.directory,
+                fn: () => Permission.reply({ requestID: p.id, reply: "always" }),
+              })
+              return
+            }
+            this._pendingPermissions[chatId] = p
+            void this.replyText(info.messageId, this.formatPermissionRequest(p))
+            return
+          }
+        }
+      }
+      GlobalBus.on("event", onPermission)
+      this._busUnsubs.push(() => GlobalBus.off("event", onPermission))
+
       this._session = {
         connected: true,
         appId: config.appId,
@@ -652,7 +706,9 @@ class FeishuManagerImpl {
     this._modelList = []
     this._pendingQuestions = {}
     this._pendingPermissions = {}
-    this._queues.clear()
+    this._activePrompt.clear()
+    for (const unsub of this._busUnsubs) unsub()
+    this._busUnsubs = []
     if (!reset) return
     this._connectedModel = null
     this._chatDirs = {}
@@ -729,24 +785,16 @@ class FeishuManagerImpl {
 
       if (cmd === "/stop") {
         const hasPending = chatId in this._pendingQuestions || chatId in this._pendingPermissions
-        const currentSid = this._chatSessions[chatId]
-        if (!currentSid) {
+        const active = this._activePrompt.get(chatId)
+        if (!active && !hasPending) {
           await this.replyText(messageId, "没有任务在执行")
           return
         }
-        const busy = await Instance.provide({
-          directory: effectiveDir,
-          fn: () => SessionStatus.get(SessionID.make(currentSid)),
-        }).catch(() => ({ type: "idle" as const }))
-        if (busy.type !== "busy" && !hasPending) {
-          await this.replyText(messageId, "没有任务在执行")
-          return
-        }
-        if (busy.type === "busy") {
+        if (active) {
           try {
             await Instance.provide({
-              directory: effectiveDir,
-              fn: () => SessionPrompt.cancel(SessionID.make(currentSid)),
+              directory: active.directory,
+              fn: () => SessionPrompt.cancel(SessionID.make(active.sessionId)),
             })
           } catch {}
         }
@@ -766,19 +814,13 @@ class FeishuManagerImpl {
           await this.replyText(messageId, this.formatPermissionRequest(pendingP))
           return
         }
-        const currentSid = this._chatSessions[chatId]
-        if (currentSid) {
-          const busy = await Instance.provide({
-            directory: effectiveDir,
-            fn: () => SessionStatus.get(SessionID.make(currentSid)),
-          }).catch(() => null)
-          if (busy?.type === "busy") {
-            await this.replyText(
-              messageId,
-              "当前会话正在生成回复，请等待当前对话结束后再发送；如需立即开始新问题，请先 /new 或切换 /session n。如需停止本会话请输入 /stop",
-            )
-            return
-          }
+        const active = this._activePrompt.get(chatId)
+        if (active) {
+          await this.replyText(
+            messageId,
+            "当前会话正在生成回复，请等待当前对话结束后再发送；如需立即开始新问题，请先 /new 或切换 /session n。如需停止本会话请输入 /stop",
+          )
+          return
         }
         if (!(chatId in this._chatSessions)) {
           await this.replyText(messageId, "没有任务在执行")
@@ -795,137 +837,25 @@ class FeishuManagerImpl {
 
       const pendingQ = this._pendingQuestions[chatId]
       if (pendingQ) {
-        await this.replyText(messageId, this.formatQuestionRequest(pendingQ))
+        await this.handleQuestionReply(chatId, messageId, text, pendingQ)
         return
       }
       const pendingP = this._pendingPermissions[chatId]
       if (pendingP) {
-        await this.replyText(messageId, this.formatPermissionRequest(pendingP))
+        await this.handlePermissionReply(chatId, messageId, text, pendingP)
         return
       }
-      const currentSid = this._chatSessions[chatId]
-      if (currentSid) {
-        const busy = await Instance.provide({
-          directory: effectiveDir,
-          fn: () => SessionStatus.get(SessionID.make(currentSid)),
-        }).catch(() => null)
-        if (busy?.type === "busy") {
-          await this.replyText(
-            messageId,
-            "当前会话正在生成回复，请等待当前对话结束后再发送；如需立即开始新问题，请先 /new 或切换 /session n。如需停止本会话请输入 /stop",
-          )
-          return
-        }
+
+      const active = this._activePrompt.get(chatId)
+      if (active) {
+        await this.replyText(
+          messageId,
+          "当前会话正在生成回复，请等待当前对话结束后再发送；如需立即开始新问题，请先 /new 或切换 /session n。如需停止本会话请输入 /stop",
+        )
+        return
       }
 
-      await Instance.provide({
-        directory: effectiveDir,
-        fn: async () => {
-          const sessionKey = `${chatId}:${rootId}`
-          let sessionId = this._chatSessions[chatId] ?? this.sessionMap[sessionKey]
-
-          if (!sessionId) {
-            const recent = [...Session.list({ directory: effectiveDir, roots: true, limit: 1 })]
-            if (recent.length > 0) {
-              sessionId = recent[0].id
-              console.log("[feishu] reusing existing session:", sessionId)
-            } else {
-              console.log("[feishu] creating new session...")
-              const session = await Session.create({
-                title: `飞书对话 ${chatId.slice(-6)}`,
-              })
-              sessionId = session.id
-              console.log("[feishu] session created:", sessionId)
-            }
-            this._chatSessions[chatId] = sessionId
-            this.sessionMap[sessionKey] = sessionId
-            await this.saveSessionMap()
-          }
-
-          const model = this.resolveModel(chatId)
-          console.log("[feishu] using model:", model ?? "(default)")
-
-          let promptText = text
-          if (this.mightWantFile(text)) {
-            promptText +=
-              "\n\n[系统提示：如果用户的意图是获取某个文件，请在回复中包含该文件在当前系统上的完整绝对路径。Windows 示例：E:\\\\work\\\\demo\\\\file.md；macOS/Linux 示例：/Users/demo/file.md 或 /home/demo/file.md。系统将自动把该路径对应的文件作为附件发送给用户。如果用户无需获取文件，请忽略本提示，正常回复即可。]"
-          }
-          const intent = this.detectSummaryIntent(text)
-          if (intent.isSummary) {
-            console.log("[feishu] summary intent detected, fetching chat history...")
-            const history = await this.fetchChatHistory(chatId, { today: intent.today, count: intent.count })
-            if (history) {
-              promptText = `${text}\n\n以下是群聊记录，请据此进行总结：\n\n${history}`
-            } else {
-              await this.replyText(
-                messageId,
-                "⚠️ 未能获取群聊记录（可能需要在飞书开放平台开启 im:message.group_msg 权限）",
-              )
-              return
-            }
-          }
-
-          const pref = sessionId ? SessionPreference.get(sessionId) : undefined
-          if (pref?.autoAccept) {
-            const session = await Session.get(SessionID.make(sessionId))
-            if (!session.permission?.some((r) => r.permission === "*" && r.action === "allow")) {
-              await Session.setPermission({
-                sessionID: SessionID.make(sessionId),
-                permission: [{ permission: "*", pattern: "*", action: "allow" }],
-              })
-            }
-          }
-          console.log("[feishu] sending to aether, session:", sessionId, localISOString())
-          const msg = await SessionPrompt.prompt({
-            sessionID: SessionID.make(sessionId),
-            parts: [{ type: "text", text: promptText }],
-          })
-          console.log("[feishu] aether responded, parts:", msg?.parts?.length, localISOString())
-
-          const responseText = this.extractResponseText(msg)
-          if (responseText) {
-            const projectItem = this.getProjects().find(
-              (p) => this.normDir(this.projectDir(p)) === this.normDir(effectiveDir),
-            )
-            const projectName = this.clip(
-              projectItem
-                ? this.projectName(projectItem)
-                : (effectiveDir.replace(/\\/g, "/").replace(/\/+$/, "").split("/").at(-1) ?? effectiveDir),
-              24,
-            )
-            const sessionInfo = [...Session.list({ directory: effectiveDir, roots: true, limit: 100 })].find(
-              (s) => s.id === sessionId,
-            )
-            const label = this.clip(sessionInfo?.title ?? sessionId.slice(0, 8), 24)
-            const pref = SessionPreference.get(sessionId)
-            const modeName = pref?.agent ?? "build"
-            const mode = modeName.charAt(0).toUpperCase() + modeName.slice(1)
-            const model = this.resolveModel(chatId)
-            const modelStr = model
-              ? `${model.providerID}/${model.modelID}`
-              : this._connectedModel
-                ? `${this._connectedModel.providerID}/${this._connectedModel.modelID}`
-                : "—"
-            const header = `${projectName}  ·  ${label}  ·  ${mode}  ·  ${modelStr}\n————————\n`
-
-            console.log("[feishu] replying:", responseText.slice(0, 100), localISOString())
-            await this.replyText(messageId, header + responseText)
-          } else {
-            console.log("[feishu] no text in response")
-          }
-
-          let filesToSend = this.extractReadFiles(msg)
-          if (filesToSend.length === 0 && responseText) {
-            filesToSend = this.extractFilePathsFromText(responseText).slice(0, 1)
-          }
-          if (filesToSend.length > 0) {
-            console.log("[feishu] sending", filesToSend.length, "requested file(s)")
-            for (const filePath of filesToSend.slice(0, 5)) {
-              await this.replyFile(messageId, filePath)
-            }
-          }
-        },
-      })
+      await this.startPrompt(chatId, messageId, text, effectiveDir, rootId)
     } catch (err) {
       console.error("[feishu] handleMessage error:", err)
       try {
@@ -940,18 +870,136 @@ class FeishuManagerImpl {
     }
   }
 
-  private enqueueMessage(data: any): Promise<void> {
-    const chatId = data?.message?.chat_id
-    if (!chatId) return this.handleMessage(data)
-    const prev = this._queues.get(chatId) ?? Promise.resolve()
-    const next = prev
-      .catch(() => {})
-      .then(() => this.handleMessage(data))
-      .finally(() => {
-        if (this._queues.get(chatId) === next) this._queues.delete(chatId)
+  private async startPrompt(
+    chatId: string,
+    messageId: string,
+    text: string,
+    effectiveDir: string,
+    rootId: string,
+  ): Promise<void> {
+    this._activePrompt.set(chatId, { sessionId: "", messageId, directory: effectiveDir })
+    const sessionKey = `${chatId}:${rootId}`
+    let sessionId = this._chatSessions[chatId] ?? this.sessionMap[sessionKey]
+
+    if (!sessionId) {
+      const recent = await Instance.provide({
+        directory: effectiveDir,
+        fn: () => [...Session.list({ directory: effectiveDir, roots: true, limit: 1 })],
       })
-    this._queues.set(chatId, next)
-    return next
+      if (recent.length > 0) {
+        sessionId = recent[0].id
+        console.log("[feishu] reusing existing session:", sessionId)
+      } else {
+        console.log("[feishu] creating new session...")
+        const session = await Instance.provide({
+          directory: effectiveDir,
+          fn: () => Session.create({ title: `飞书对话 ${chatId.slice(-6)}` }),
+        })
+        sessionId = session.id
+        console.log("[feishu] session created:", sessionId)
+      }
+      this._chatSessions[chatId] = sessionId
+      this.sessionMap[sessionKey] = sessionId
+      await this.saveSessionMap()
+    }
+
+    this._activePrompt.set(chatId, { sessionId, messageId, directory: effectiveDir })
+
+    const model = this.resolveModel(chatId)
+    console.log("[feishu] using model:", model ?? "(default)")
+
+    let promptText = text
+    if (this.mightWantFile(text)) {
+      promptText +=
+        "\n\n[系统提示：如果用户的意图是获取某个文件，请在回复中包含该文件在当前系统上的完整绝对路径。Windows 示例：E:\\\\work\\\\demo\\\\file.md；macOS/Linux 示例：/Users/demo/file.md 或 /home/demo/file.md。系统将自动把该路径对应的文件作为附件发送给用户。如果用户无需获取文件，请忽略本提示，正常回复即可。]"
+    }
+    const intent = this.detectSummaryIntent(text)
+    if (intent.isSummary) {
+      console.log("[feishu] summary intent detected, fetching chat history...")
+      const history = await this.fetchChatHistory(chatId, { today: intent.today, count: intent.count })
+      if (history) {
+        promptText = `${text}\n\n以下是群聊记录，请据此进行总结：\n\n${history}`
+      } else {
+        await this.replyText(messageId, "⚠️ 未能获取群聊记录（可能需要在飞书开放平台开启 im:message.group_msg 权限）")
+        return
+      }
+    }
+
+    const pref = sessionId ? SessionPreference.get(sessionId) : undefined
+    if (pref?.autoAccept) {
+      const session = await Instance.provide({
+        directory: effectiveDir,
+        fn: () => Session.get(SessionID.make(sessionId)),
+      })
+      if (!session.permission?.some((r) => r.permission === "*" && r.action === "allow")) {
+        await Instance.provide({
+          directory: effectiveDir,
+          fn: () =>
+            Session.setPermission({
+              sessionID: SessionID.make(sessionId),
+              permission: [{ permission: "*", pattern: "*", action: "allow" }],
+            }),
+        })
+      }
+    }
+
+    console.log("[feishu] sending to aether, session:", sessionId, localISOString())
+
+    try {
+      const msg = await Instance.provide({
+        directory: effectiveDir,
+        fn: () =>
+          SessionPrompt.prompt({
+            sessionID: SessionID.make(sessionId),
+            parts: [{ type: "text", text: promptText }],
+          }),
+      })
+      console.log("[feishu] aether responded, parts:", msg?.parts?.length, localISOString())
+
+      const responseText = this.extractResponseText(msg)
+      if (responseText) {
+        const header = await this.formatHeader(chatId)
+        console.log("[feishu] replying:", responseText.slice(0, 100), localISOString())
+        await this.replyText(messageId, header + responseText)
+      } else {
+        console.log("[feishu] no text in response")
+      }
+
+      let filesToSend = this.extractReadFiles(msg)
+      if (filesToSend.length === 0 && responseText) {
+        filesToSend = this.extractFilePathsFromText(responseText).slice(0, 1)
+      }
+      if (filesToSend.length > 0) {
+        console.log("[feishu] sending", filesToSend.length, "requested file(s)")
+        for (const filePath of filesToSend.slice(0, 5)) {
+          await this.replyFile(messageId, filePath)
+        }
+      }
+    } catch (err) {
+      console.error("[feishu] prompt error:", err)
+      const errMsg = err instanceof Error ? err.message : String(err)
+      await this.replyText(messageId, `处理消息时出错: ${errMsg}`).catch(() => {})
+    } finally {
+      this._activePrompt.delete(chatId)
+    }
+  }
+
+  private enqueueMessage(data: any): Promise<void> {
+    const messageId = data?.message?.message_id ?? ""
+    if (messageId) {
+      if (this._processedIds.has(messageId)) return Promise.resolve()
+      this._processedIds.set(messageId, Date.now())
+      this.evictProcessedIds()
+    }
+    return this.handleMessage(data)
+  }
+
+  private evictProcessedIds(): void {
+    const now = Date.now()
+    const maxAge = 300_000
+    for (const [id, ts] of this._processedIds) {
+      if (now - ts > maxAge) this._processedIds.delete(id)
+    }
   }
 
   /** Detect if the user is asking for a chat summary and extract time range. */
@@ -1024,18 +1072,24 @@ class FeishuManagerImpl {
   }
 
   private extractResponseText(msg: any): string | null {
-    if (!msg?.parts) return null
+    if (!msg?.parts) {
+      const error = msg?.info?.error
+      if (error) return `AI 服务错误: ${error?.data?.message || error?.name || "未知错误"}`
+      return null
+    }
     const textParts = msg.parts.filter((p: any) => p.type === "text")
-    if (textParts.length === 0) return null
+    if (textParts.length === 0) {
+      const error = msg?.info?.error
+      if (error) return `AI 服务错误: ${error?.data?.message || error?.name || "未知错误"}`
+      return null
+    }
     return textParts.map((p: any) => p.text).join("\n")
   }
 
   /** Coarse filter: does this message possibly involve a file request? */
   private mightWantFile(text: string): boolean {
     const lower = text.toLowerCase()
-    return ["文件", "file", "发", "给我", "附件", "代码", "doc", "word", "excel", "pdf", "下载", "export", "ppt", "md", "markdown"].some((w) =>
-      lower.includes(w),
-    )
+    return ["发给我", "发来", "文件给我", "发过来", "发文件", "send me", "send file"].some((w) => lower.includes(w))
   }
 
   /** Extract file paths that were read by the AI during this turn (from ToolParts). */
@@ -1615,6 +1669,129 @@ class FeishuManagerImpl {
 
   // ─────────────────────────────────────────────────────────────────────────
 
+  private async formatHeader(chatId: string): Promise<string> {
+    const active = this._activePrompt.get(chatId)
+    const sessionId = active?.sessionId ?? this._chatSessions[chatId] ?? ""
+    const effectiveDir = active?.directory ?? this.effectiveDir(chatId)
+    const projectItem = this.getProjects().find((p) => this.normDir(this.projectDir(p)) === this.normDir(effectiveDir))
+    const projectName = this.clip(
+      projectItem
+        ? this.projectName(projectItem)
+        : (effectiveDir.replace(/\\/g, "/").replace(/\/+$/, "").split("/").at(-1) ?? effectiveDir),
+      24,
+    )
+    const label = sessionId ? this.clip(await this.sessionTitle(sessionId, effectiveDir), 24) : "—"
+    const pref = sessionId ? SessionPreference.get(sessionId) : undefined
+    const modeName = pref?.agent ?? "build"
+    const mode = modeName.charAt(0).toUpperCase() + modeName.slice(1)
+    const model = this.resolveModel(chatId)
+    const modelStr = model
+      ? `${model.providerID}/${model.modelID}`
+      : this._connectedModel
+        ? `${this._connectedModel.providerID}/${this._connectedModel.modelID}`
+        : "—"
+    return `${projectName}  ·  ${label}  ·  ${mode}  ·  ${modelStr}\n————————\n`
+  }
+
+  private async sessionTitle(sessionId: string, directory: string): Promise<string> {
+    const info = await Instance.provide({
+      directory,
+      fn: () => [...Session.list({ directory, roots: true, limit: 100 })].find((s) => s.id === sessionId),
+    })
+    return info?.title ?? sessionId.slice(0, 8)
+  }
+
+  private parseQuestionAnswers(text: string, questions: Question.Info[]): string[][] | null {
+    const trimmed = text.trim()
+    if (!trimmed) return null
+    const answers: string[][] = []
+    for (const info of questions) {
+      const options = info.options ?? []
+      if (options.length > 0 && trimmed.match(/^\d+$/)) {
+        const idx = parseInt(trimmed) - 1
+        if (idx >= 0 && idx < options.length) {
+          answers.push([options[idx].label])
+          continue
+        }
+        if (!info.custom) return null
+      } else if (options.length > 0 && !info.custom) {
+        const match = options.find((o) => o.label === trimmed)
+        if (!match) return null
+        answers.push([match.label])
+        continue
+      }
+      answers.push([trimmed])
+    }
+    return answers
+  }
+
+  private async handleQuestionReply(
+    chatId: string,
+    messageId: string,
+    text: string,
+    pending: Question.Request,
+  ): Promise<void> {
+    const answers = this.parseQuestionAnswers(text, pending.questions)
+    if (!answers) {
+      await this.replyText(messageId, "未识别，请回复答案或数字编号。\n\n" + this.formatQuestionRequest(pending))
+      return
+    }
+    const active = this._activePrompt.get(chatId)
+    delete this._pendingQuestions[chatId]
+    try {
+      await Instance.provide({
+        directory: active?.directory ?? this.effectiveDir(chatId),
+        fn: () => Question.reply({ requestID: pending.id, answers }),
+      })
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      this._pendingQuestions[chatId] = pending
+      await this.replyText(messageId, `❌ 提交答案失败: ${msg}\n请重新发送您的答案。`)
+      return
+    }
+    await this.replyText(messageId, "已提交回答，请等待当前对话继续处理。")
+  }
+
+  private parsePermissionReply(text: string): Permission.Reply | null {
+    const trimmed = text.trim()
+    if (trimmed === "1") return "once"
+    if (trimmed === "2") return "always"
+    if (trimmed === "3") return "reject"
+    return null
+  }
+
+  private async handlePermissionReply(
+    chatId: string,
+    messageId: string,
+    text: string,
+    pending: Permission.Request,
+  ): Promise<void> {
+    const reply = this.parsePermissionReply(text)
+    if (!reply) {
+      await this.replyText(messageId, "未识别，请回复数字编号。\n\n" + this.formatPermissionRequest(pending))
+      return
+    }
+    const active = this._activePrompt.get(chatId)
+    delete this._pendingPermissions[chatId]
+    try {
+      await Instance.provide({
+        directory: active?.directory ?? this.effectiveDir(chatId),
+        fn: () => Permission.reply({ requestID: pending.id, reply }),
+      })
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      this._pendingPermissions[chatId] = pending
+      await this.replyText(messageId, `❌ 提交授权失败: ${msg}\n请重新发送您的选择。`)
+      return
+    }
+    const notice = {
+      once: "已收到授权：允许一次，继续处理中。",
+      always: "已收到授权：始终允许，继续处理中。",
+      reject: "已收到你的选择：拒绝，正在继续处理。",
+    }[reply]
+    await this.replyText(messageId, notice)
+  }
+
   private formatQuestionRequest(q: Question.Request): string {
     const parts = ["🤔 Agent 需要您回答：", ""]
     for (let i = 0; i < q.questions.length; i++) {
@@ -1664,6 +1841,22 @@ class FeishuManagerImpl {
       })
     } catch (err) {
       console.error("[feishu] reply error:", err)
+    }
+  }
+
+  private async sendToChat(chatId: string, text: string): Promise<void> {
+    if (!this.larkClient) return
+    try {
+      await this.larkClient.im.message.create({
+        params: { receive_id_type: "chat_id" },
+        data: {
+          receive_id: chatId,
+          msg_type: "text",
+          content: JSON.stringify({ text }),
+        },
+      })
+    } catch (err) {
+      console.error("[feishu] send error:", err)
     }
   }
 
