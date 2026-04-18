@@ -803,12 +803,7 @@
       standardFontDataUrl: STANDARD_FONT_DATA_URL,
     };
 
-    await app.open(config.src);
-    const doc = await window.pdfjsLib.getDocument(loadOpts).promise;
-    if (doc?._pdfInfo) {
-      doc._pdfInfo.fingerprints = [config.src];
-    }
-    await app.load(doc);
+    await app.open(config.src, loadOpts);
   }
 
   async function applyConfig(nextConfig) {

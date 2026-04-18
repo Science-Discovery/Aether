@@ -389,13 +389,23 @@ export function FileTabContent(props: { tab: string }) {
     return ext === "py" || ext === "pyw"
   })
 
+  const state = createMemo(() => {
+    const p = path()
+    if (!p) return
+    return file.get(p)
+  })
+  const meta = createMemo(() => state()?.metadata)
+  const contents = createMemo(() => state()?.content?.content ?? "")
+  const isImageFile = createMemo(() => meta()?.previewKind === "image")
+
   const isPDF = createMemo(() => {
+    if (meta()?.previewKind === "pdf") return true
     const p = path()
     if (!p) return false
     return p.split(".").pop()?.toLowerCase() === "pdf"
   })
 
-  const pdfPreviewUrl = createMemo(() => {
+  const rawPreviewUrl = createMemo(() => {
     const p = path()
     if (!p) return ""
     return `${sdk.url}/file/raw?path=${encodeURIComponent(p)}&directory=${encodeURIComponent(sdk.directory)}`
@@ -529,14 +539,9 @@ export function FileTabContent(props: { tab: string }) {
       setIsRunning(false)
     }
   }
-  const state = createMemo(() => {
-    const p = path()
-    if (!p) return
-    return file.get(p)
-  })
-  const contents = createMemo(() => state()?.content?.content ?? "")
-  
   const isTextFile = createMemo(() => {
+    const info = meta()
+    if (info) return info.previewKind === "text"
     const content = state()?.content
     if (!content) return true
     if (content.type === "binary") return false
@@ -952,11 +957,18 @@ export function FileTabContent(props: { tab: string }) {
   }
 
   const renderFile = (source: string) => {
+    if (isImageFile()) {
+      return (
+        <div class="flex h-full min-h-0 items-center justify-center p-6" data-file-content>
+          <img src={rawPreviewUrl()} alt={path() ?? "image"} class="max-h-full max-w-full object-contain" />
+        </div>
+      )
+    }
     if (isPDF()) {
       return (
         <div class="relative h-full min-h-0 overflow-hidden" data-file-content>
           <PdfViewerShell
-            src={pdfPreviewUrl()}
+            src={rawPreviewUrl()}
             authHeader={pdfAuthHeader()}
             mode="compact"
             class="size-full"
@@ -978,6 +990,18 @@ export function FileTabContent(props: { tab: string }) {
       return (
         <div class="relative px-6 pb-40 select-text" data-file-content>
           <pre class="text-sm font-mono leading-relaxed whitespace-pre-wrap break-words text-text-base">{source}</pre>
+        </div>
+      )
+    }
+    if (!isTextFile()) {
+      return (
+        <div class="flex h-full min-h-0 items-center justify-center px-6 py-10 text-center" data-file-content>
+          <div class="space-y-2">
+            <div class="text-sm font-medium text-text-base">该文件暂不支持内联文本预览</div>
+            <div class="text-xs text-text-weak">
+              {meta()?.mimeType ?? state()?.content?.mimeType ?? "application/octet-stream"}
+            </div>
+          </div>
         </div>
       )
     }
@@ -1194,6 +1218,4 @@ export function FileTabContent(props: { tab: string }) {
     </Tabs.Content>
   )
 }
-
-
 

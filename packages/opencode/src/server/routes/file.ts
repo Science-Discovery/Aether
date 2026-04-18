@@ -12,7 +12,7 @@ import { errors } from "../error"
 import { $ } from "bun"
 import { spawn } from "bun"
 import path from "path"
-import type { Stats } from "fs"
+import { createReadStream, type Stats } from "fs"
 import { parsePDF } from "../../knowledge/document"
 import {
   startConversion,
@@ -24,6 +24,7 @@ import {
 } from "../../pdf-converter"
 import { generateTaskID, computeOutputPaths } from "../../pdf-converter/util"
 import { checkPythonAvailable } from "../../pdf-converter/pdf-renderer"
+import { Filesystem } from "../../util/filesystem"
 import {
   startTranslation,
   getTranslateTask,
@@ -52,6 +53,40 @@ const ascii = (input: string) => {
 const attachment = (name: string) => `attachment; filename="${ascii(name)}"; filename*=UTF-8''${encode(name)}`
 
 const resolvePath = (input: string) => (path.isAbsolute(input) ? input : path.join(Instance.directory, input))
+const resolveFile = (input: string) => {
+  const resolved = resolvePath(input)
+  if (!Instance.containsPath(resolved)) throw new Error("Access denied: path escapes project directory")
+  return resolved
+}
+
+const etag = (stat: Stats) => `W/"${Number(stat.size)}-${stat.mtimeMs}"`
+
+function bytes(input: string | undefined, size: number) {
+  if (!input) return
+  const match = input.match(/^bytes=(\d*)-(\d*)$/)
+  if (!match) return "invalid" as const
+  const left = match[1]
+  const right = match[2]
+  if (!left && !right) return "invalid" as const
+
+  if (!left) {
+    const len = Number(right)
+    if (!Number.isInteger(len) || len <= 0) return "invalid" as const
+    const start = Math.max(size - len, 0)
+    return { start, end: size - 1 }
+  }
+
+  const start = Number(left)
+  const end = right ? Number(right) : size - 1
+  if (!Number.isInteger(start) || !Number.isInteger(end) || start < 0 || end < start || start >= size) {
+    return "invalid" as const
+  }
+
+  return {
+    start,
+    end: Math.min(end, size - 1),
+  }
+}
 
 const requireDirectory = async (input: string) => {
   try {
@@ -322,6 +357,44 @@ export const FileRoutes = lazy(() =>
 
         const content = await File.list(path)
         return c.json(content)
+      },
+    )
+    .get(
+      "/file/metadata",
+      describeRoute({
+        summary: "Read file metadata",
+        description: "Read lightweight metadata for a file or directory without loading file contents.",
+        operationId: "file.metadata",
+        responses: {
+          200: {
+            description: "File metadata",
+            content: {
+              "application/json": {
+                schema: resolver(File.Metadata),
+              },
+            },
+          },
+          ...errors(400, 404),
+        },
+      }),
+      validator(
+        "query",
+        z.object({
+          path: z.string(),
+        }),
+      ),
+      async (c) => {
+        try {
+          return c.json(await File.metadata(c.req.valid("query").path))
+        } catch (err) {
+          if (err instanceof Error && /ENOENT/.test(err.message)) {
+            return c.json({ error: "File not found" }, 404)
+          }
+          if (err instanceof Error && /Access denied/.test(err.message)) {
+            return c.json({ error: err.message }, 400)
+          }
+          throw err
+        }
       },
     )
     .get(
@@ -1150,40 +1223,93 @@ export const FileRoutes = lazy(() =>
         return c.json({ ok })
       },
     )
-    // ====== 原始文件内容（用于 <img src> 等二进制文件） ======
+    // ====== 原始文件内容（用于 <img src> / PDF 预览等） ======
     .get(
       "/file/raw",
       describeRoute({
         summary: "Serve raw file",
-        description: "Serve a file's raw binary content with appropriate Content-Type.",
+        description: "Serve a file's raw bytes with support for range requests.",
         operationId: "file.raw",
         responses: {
           200: { description: "File content" },
+          206: { description: "Partial file content" },
+          416: { description: "Invalid range" },
           ...errors(400, 404),
         },
       }),
       validator("query", z.object({ path: z.string() })),
       async (c) => {
-        const filePath = c.req.valid("query").path
-        const absPath = path.isAbsolute(filePath) ? filePath : path.join(Instance.directory, filePath)
-        const file = Bun.file(absPath)
-        if (!(await file.exists())) {
-          return c.json({ error: "File not found" }, 404)
+        try {
+          const abs = resolveFile(c.req.valid("query").path)
+          const stat = await fs.stat(abs)
+          if (!stat.isFile()) {
+            return c.json({ error: "Path must point to a file" }, 400)
+          }
+
+          const type = Filesystem.mimeType(abs)
+          const base = {
+            "Accept-Ranges": "bytes",
+            "Cache-Control": "max-age=3600",
+            "Content-Type": type,
+            ETag: etag(stat),
+            "Last-Modified": stat.mtime.toUTCString(),
+          }
+          const range = bytes(c.req.header("range"), Number(stat.size))
+          if (range === "invalid") {
+            return new Response(null, {
+              status: 416,
+              headers: {
+                ...base,
+                "Content-Range": `bytes */${Number(stat.size)}`,
+              },
+            })
+          }
+
+          if (!range) {
+            if (c.req.method === "HEAD") {
+              return new Response(null, {
+                headers: {
+                  ...base,
+                  "Content-Length": String(Number(stat.size)),
+                },
+              })
+            }
+            return new Response(Bun.file(abs), {
+              headers: {
+                ...base,
+                "Content-Length": String(Number(stat.size)),
+              },
+            })
+          }
+
+          if (c.req.method === "HEAD") {
+            return new Response(null, {
+              status: 206,
+              headers: {
+                ...base,
+                "Content-Length": String(range.end - range.start + 1),
+                "Content-Range": `bytes ${range.start}-${range.end}/${Number(stat.size)}`,
+              },
+            })
+          }
+
+          return new Response(createReadStream(abs, { start: range.start, end: range.end }) as any, {
+            status: 206,
+            headers: {
+              ...base,
+              "Content-Length": String(range.end - range.start + 1),
+              "Content-Range": `bytes ${range.start}-${range.end}/${Number(stat.size)}`,
+            },
+          })
+        } catch (err) {
+          if (err instanceof Error && /ENOENT/.test(err.message)) {
+            return c.json({ error: "File not found" }, 404)
+          }
+          if (err instanceof Error && /Access denied/.test(err.message)) {
+            return c.json({ error: err.message }, 400)
+          }
+          throw err
         }
-        const ext = absPath.split(".").pop()?.toLowerCase() ?? ""
-        const mimeMap: Record<string, string> = {
-          png: "image/png",
-          jpg: "image/jpeg",
-          jpeg: "image/jpeg",
-          gif: "image/gif",
-          svg: "image/svg+xml",
-          webp: "image/webp",
-          pdf: "application/pdf",
-        }
-        const contentType = mimeMap[ext] || "application/octet-stream"
-        return new Response(file, {
-          headers: { "Content-Type": contentType, "Cache-Control": "max-age=3600" },
-        })
       },
     )
     // ====== Markdown 翻译路由 ======

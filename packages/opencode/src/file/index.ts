@@ -48,6 +48,22 @@ export namespace File {
     })
   export type Node = z.infer<typeof Node>
 
+  export const Metadata = z
+    .object({
+      path: z.string(),
+      name: z.string(),
+      kind: z.enum(["file", "directory"]),
+      size: z.number().int().nonnegative(),
+      mimeType: z.string(),
+      previewKind: z.enum(["text", "image", "pdf", "binary", "directory"]),
+      inline: z.boolean(),
+      range: z.boolean(),
+    })
+    .meta({
+      ref: "FileMetadata",
+    })
+  export type Metadata = z.infer<typeof Metadata>
+
   export const Content = z
     .object({
       type: z.enum(["text", "binary"]),
@@ -299,6 +315,23 @@ export namespace File {
   const isBinaryByExtension = (file: string) => binary.has(ext(file))
   const isImage = (mimeType: string) => mimeType.startsWith("image/")
   const getImageMimeType = (file: string) => mime[ext(file)] || "image/" + ext(file)
+  const isPdf = (file: string, mimeType?: string) =>
+    path.extname(file).toLowerCase() === ".pdf" || mimeType?.toLowerCase() === "application/pdf"
+  const isInline = (file: string, mimeType: string) =>
+    isTextByExtension(file) ||
+    isTextByName(file) ||
+    mimeType.startsWith("text/") ||
+    mimeType === "application/json" ||
+    mimeType.endsWith("+json")
+
+  function preview(file: string, mimeType: string, kind: "file" | "directory"): Metadata["previewKind"] {
+    if (kind === "directory") return "directory"
+    if (isPdf(file, mimeType)) return "pdf"
+    if (isImageByExtension(file) || isImage(mimeType)) return "image"
+    if (isInline(file, mimeType)) return "text"
+    if (isBinaryByExtension(file)) return "binary"
+    return shouldEncode(mimeType) ? "binary" : "text"
+  }
 
   function shouldEncode(mimeType: string) {
     const type = mimeType.toLowerCase()
@@ -582,6 +615,28 @@ export namespace File {
     await fs.promises.mkdir(targetDir, { recursive: true })
     await fs.promises.rename(resolvedOld, newPath)
     return newPath
+  }
+
+  export async function metadata(filePath: string): Promise<Metadata> {
+    const resolved = path.join(Instance.directory, filePath)
+    if (!Instance.containsPath(resolved)) {
+      throw new Error("Access denied: path escapes project directory")
+    }
+
+    const stat = await fs.promises.stat(resolved)
+    const kind = stat.isDirectory() ? "directory" : "file"
+    const mimeType = kind === "directory" ? "inode/directory" : Filesystem.mimeType(resolved)
+    const previewKind = preview(filePath, mimeType, kind)
+    return {
+      path: filePath,
+      name: path.basename(resolved),
+      kind,
+      size: Number(stat.size),
+      mimeType,
+      previewKind,
+      inline: previewKind === "text",
+      range: kind === "file",
+    }
   }
 
   export interface Interface {
