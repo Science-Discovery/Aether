@@ -230,13 +230,17 @@ HELP_LIST_TEXT = """📋 全部命令：
 
 /approval
   查看审批模式
+/approval n
+  按编号切换审批模式（1=auto, 2=ask）
 /approval <name>
-  切换审批模式（name 可选：auto、ask）
+  按名称切换审批模式（name 可选：auto、ask）
 
-/variant
-  查看当前变体
-/variant <name>
-  切换到指定变体（name 为变体名）
+/thinkinglevel
+  查看当前模型可用的思考等级
+/thinkinglevel n
+  按编号切换思考等级
+/thinkinglevel <name>
+  按名称切换思考等级
 
 /h, /help
   显示常用命令
@@ -671,8 +675,8 @@ class AetherAgent(Agent):
             return self._cmd_set_model(conv_id, arg)
         if cmd in {"/a", "/agent"}:
             return await self._cmd_agent(conv_id, arg)
-        if cmd == "/variant":
-            return await self._cmd_variant(conv_id, arg)
+        if cmd == "/thinkinglevel":
+            return await self._cmd_thinking(conv_id, arg)
         if cmd == "/approval":
             return await self._cmd_approval(conv_id, arg)
         if cmd in {"/p", "/project"}:
@@ -754,48 +758,131 @@ class AetherAgent(Agent):
         pref = await self._get_preference(session_id, directory) if session_id else None
         current = (pref or {}).get("agent") or self.default_agent
         if not arg:
-            sample = "、".join(names[:10]) or "（暂无可用模式）"
-            return f"🧠 当前模式：{current}\n可用模式：{sample}"
-        if arg not in names:
-            sample = "、".join(names[:10]) or "（暂无可用模式）"
-            return f"❌ 未找到模式：{arg}\n可用模式：{sample}"
+            if not names:
+                return "❌ 暂无可用模式。"
+            lines = ["🧠 可用模式：", ""]
+            for i, name in enumerate(names, start=1):
+                tag = " ★（当前）" if name == current else ""
+                lines.append(f"  {i}. {name}{tag}")
+            lines.extend(["", "💡 /a 编号或名称 切换模式"])
+            return chr(10).join(lines)
+        pick = None
+        if arg.isdigit():
+            n = int(arg)
+            if n < 1 or n > len(names):
+                return f"❌ 编号超出范围，请输入 1~{len(names)} 之间的数字。"
+            pick = names[n - 1]
+        else:
+            pick = arg if arg in names else None
+        if not pick:
+            return f"❌ 未找到模式：{arg}，发送 /a 查看可用模式。"
         if session_id:
-            await self._set_preference(session_id, directory, agent=arg)
-        logger.info(f"[/agent] {conv_id} -> {arg}")
-        return f"✅ 已切换模式：{arg}\n（仅对当前对话生效，/new 后将重置）"
+            await self._set_preference(session_id, directory, agent=pick)
+        logger.info(f"[/agent] {conv_id} -> {pick}")
+        return f"✅ 已切换模式：{pick}\n（仅对当前对话生效，/new 后将重置）"
 
-    async def _cmd_variant(self, conv_id: str, arg: str) -> str:
+    async def _list_thinking(
+        self, conv_id: str
+    ) -> tuple[list[str], Optional[str], bool]:
         session_id = self._sessions.get(conv_id)
         directory = self._conv_dirs.get(conv_id) or self.directory
         pref = await self._get_preference(session_id, directory) if session_id else None
-        current = (pref or {}).get("variant") or "（默认）"
+        pref_model = (pref or {}).get("model") if pref else None
+        current_model = (
+            f"{pref_model['providerID']}/{pref_model['modelID']}"
+            if pref_model
+            else self.default_model
+        )
+        if not current_model or "/" not in current_model:
+            return [], (pref or {}).get("variant"), False
+        provider_id, model_id = current_model.split("/", 1)
+        headers = (
+            {"x-opencode-directory": quote(directory, safe="")} if directory else {}
+        )
+        try:
+            resp = await self._client.get(f"{self.base_url}/provider", headers=headers)
+            resp.raise_for_status()
+            data = resp.json()
+        except Exception as e:
+            logger.error(f"获取思考等级失败: {e}")
+            return [], (pref or {}).get("variant"), True
+        for provider in data.get("all", []):
+            if provider.get("id") != provider_id:
+                continue
+            model = (provider.get("models") or {}).get(model_id) or {}
+            names = list((model.get("variants") or {}).keys())
+            return names, (pref or {}).get("variant"), True
+        return [], (pref or {}).get("variant"), True
+
+    async def _cmd_thinking(self, conv_id: str, arg: str) -> str:
+        names, current, ok = await self._list_thinking(conv_id)
+        if not ok:
+            return "❌ 请先使用 /m 选择模型后再切换思考等级。"
+        items = ["默认", *names]
         if not arg:
-            return f"🔀 当前变体：{current}"
+            lines = ["🔀 可用思考等级：", ""]
+            for i, name in enumerate(items, start=1):
+                tag = (
+                    " ★（当前）"
+                    if (name == "默认" and not current) or name == current
+                    else ""
+                )
+                lines.append(f"  {i}. {name}{tag}")
+            lines.extend(["", "💡 /thinkinglevel 编号或名称 切换思考等级"])
+            return chr(10).join(lines)
+        pick = None
+        if arg.isdigit():
+            n = int(arg)
+            if n < 1 or n > len(items):
+                return f"❌ 编号超出范围，请输入 1~{len(items)} 之间的数字。"
+            pick = items[n - 1]
+        else:
+            pick = arg if arg in items else "默认" if arg == "default" else None
+        if not pick:
+            return f"❌ 未找到思考等级：{arg}，发送 /thinkinglevel 查看可用思考等级。"
+        session_id = self._sessions.get(conv_id)
+        directory = self._conv_dirs.get(conv_id) or self.directory
         if session_id:
-            await self._set_preference(session_id, directory, variant=arg)
-        logger.info(f"[/variant] {conv_id} -> {arg}")
-        return f"✅ 已切换变体：{arg}\n（仅对当前对话生效，/new 后将重置）"
+            await self._set_preference(
+                session_id, directory, variant=None if pick == "默认" else pick
+            )
+        logger.info(f"[/thinkinglevel] {conv_id} -> {pick}")
+        return f"✅ 已切换思考等级：{pick}\n（仅对当前对话生效，/new 后将重置）"
 
     async def _cmd_approval(self, conv_id: str, arg: str) -> str:
         session_id = self._sessions.get(conv_id)
         directory = self._conv_dirs.get(conv_id) or self.directory
         pref = await self._get_preference(session_id, directory) if session_id else None
         auto = (pref or {}).get("autoAccept")
+        names = ["auto", "ask"]
         if not arg:
-            mode = "自动批准" if auto else "手动审批"
-            return f"🔐 当前审批模式：{mode}\n可用模式：auto、ask"
-        if arg not in {"auto", "ask"}:
-            return "❌ 仅支持 /approval auto 或 /approval ask"
+            lines = [
+                "🔐 可用审批模式：",
+                "",
+                f"  1. auto（自动批准）{' ★（当前）' if auto else ''}",
+                f"  2. ask（手动审批）{' ★（当前）' if not auto else ''}",
+                "",
+                "💡 /approval 编号或名称 切换审批模式",
+            ]
+            return chr(10).join(lines)
+        pick = None
+        if arg.isdigit():
+            n = int(arg)
+            pick = names[n - 1] if 1 <= n <= 2 else None
+        else:
+            pick = arg if arg in {"auto", "ask"} else None
+        if not pick:
+            return "❌ 仅支持 1(auto) 或 2(ask)。"
         if session_id:
             await self._set_preference(
-                session_id, directory, autoAccept=(arg == "auto")
+                session_id, directory, autoAccept=(pick == "auto")
             )
-        logger.info(f"[/approval] {conv_id} -> {arg}")
-        if arg == "auto" and conv_id in self._pending_permissions:
+        logger.info(f"[/approval] {conv_id} -> {pick}")
+        if pick == "auto" and conv_id in self._pending_permissions:
             await self._handle_permission_reply(conv_id, "2")
         return (
             "✅ 已开启自动接受权限\n（后续权限请求将自动批准）"
-            if arg == "auto"
+            if pick == "auto"
             else "✅ 已停止自动接受权限\n（后续权限请求将需要你确认）"
         )
 

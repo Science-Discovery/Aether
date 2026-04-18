@@ -90,10 +90,10 @@ export interface FeishuSession {
 }
 
 const HELP_TEXT =
-  "📋 可用命令：\n\n/n, /new      开启新对话\n/stop         停止当前执行\n/c, /compact  压缩当前上下文\n\n/m, /model    查看可用模型\n/m l          查看全部模型\n/m n          切换编号模型\n\n/a, /agent    查看当前模式\n/a <name>     切换指定模式\n\n/p, /project  查看最近项目\n/p l          查看全部项目\n/p n          切换编号项目\n\n/s, /session  查看最近会话\n/s l          查看全部会话\n/s n          切换编号会话\n\n/h, /help     显示帮助信息\n/help list    显示全部命令"
+  "📋 可用命令：\n\n/n, /new            开启新对话\n/stop               停止当前执行\n/c, /compact        压缩当前上下文\n\n/m, /model          查看可用模型\n/m l                查看全部模型\n/m n                切换编号模型\n\n/a, /agent          查看当前模式\n/a n | /a <name>    切换指定模式\n\n/thinkinglevel      查看思考等级\n/thinkinglevel n    切换编号思考等级\n\n/approval           查看审批模式\n/approval n         切换编号审批模式\n\n/p, /project        查看最近项目\n/p l                查看全部项目\n/p n                切换编号项目\n\n/s, /session        查看最近会话\n/s l                查看全部会话\n/s n                切换编号会话\n\n/h, /help           显示帮助信息\n/help list          显示全部命令"
 
 const HELP_LIST_TEXT =
-  "📋 全部命令：\n\n/n, /new\n  开启新对话，清空当前会话上下文\n\n/stop\n  停止当前执行中的任务\n\n/c, /compact\n  压缩当前会话上下文\n\n/m, /model\n  查看可用模型\n/m l, /model list\n  查看全部模型（l = list）\n/m n, /model n\n  切换到编号 n 的模型（n 为全量模型编号）\n\n/a, /agent\n  查看当前模式\n/a <name>, /agent <name>\n  切换模式（如 build、plan、docs）\n\n/p, /project\n  查看最近项目\n/p l, /project list\n  查看全部项目（l = list）\n/p n, /project n\n  切换到编号 n 的项目\n/project hide n\n  隐藏编号 n 的项目，重新在桌面端或消息端使用后自动恢复\n\n/s, /session\n  查看最近会话\n/s l, /session list\n  查看当前项目下全部会话（l = list）\n/s n, /session n\n  切换到当前项目下编号 n 的会话\n\n/approval\n  查看审批模式\n/approval <name>\n  切换审批模式（name 可选：auto、ask）\n\n/variant\n  查看当前变体\n/variant <name>\n  切换到指定变体（name 为变体名）\n\n/h, /help\n  显示常用命令\n/help list\n  显示全部命令"
+  "📋 全部命令：\n\n/n, /new\n  开启新对话，清空当前会话上下文\n\n/stop\n  停止当前执行中的任务\n\n/c, /compact\n  压缩当前会话上下文\n\n/m, /model\n  查看可用模型\n/m l, /model list\n  查看全部模型（l = list）\n/m n, /model n\n  切换到编号 n 的模型（n 为全量模型编号）\n\n/a, /agent\n  查看当前模式\n/a n, /agent n\n  按编号切换模式\n/a <name>, /agent <name>\n  按名称切换模式（如 build、plan、docs）\n\n/thinkinglevel\n  查看当前模型可用的思考等级\n/thinkinglevel n\n  按编号切换思考等级\n/thinkinglevel <name>\n  按名称切换思考等级\n\n/approval\n  查看审批模式\n/approval n\n  按编号切换审批模式（1=auto, 2=ask）\n/approval <name>\n  切换审批模式（name 可选：auto、ask）\n\n/p, /project\n  查看最近项目\n/p l, /project list\n  查看全部项目（l = list）\n/p n, /project n\n  切换到编号 n 的项目\n/project hide n\n  隐藏编号 n 的项目，重新在桌面端或消息端使用后自动恢复\n\n/s, /session\n  查看最近会话\n/s l, /session list\n  查看当前项目下全部会话（l = list）\n/s n, /session n\n  切换到当前项目下编号 n 的会话\n\n/h, /help\n  显示常用命令\n/help list\n  显示全部命令"
 
 export const FeishuEvent = {
   StatusChanged: BusEvent.define(
@@ -1224,8 +1224,8 @@ class FeishuManagerImpl {
         await this.cmdAgent(messageId, chatId, rest)
       } else if (command === "/approval") {
         await this.cmdApproval(messageId, chatId, rest)
-      } else if (command === "/variant") {
-        await this.cmdVariant(messageId, chatId, rest)
+      } else if (command === "/thinkinglevel") {
+        await this.cmdThinkingLevel(messageId, chatId, rest)
       } else if (command === "/p" || command === "/project") {
         const arg = rest === "l" ? "list" : rest.startsWith("h ") ? `hide ${rest.slice(2).trim()}` : rest
         await this.cmdProject(messageId, chatId, arg)
@@ -1349,6 +1349,22 @@ class FeishuManagerImpl {
     return lines.join("\n")
   }
 
+  private async thinking(chatId: string) {
+    const ctx = await this.commandCtx(chatId)
+    const model = this.resolveModel(chatId)
+    if (!model) return { names: [], current: ctx.pref?.variant }
+    const all = await Instance.provide({
+      directory: ctx.dir,
+      fn: () => Provider.list(),
+    })
+    const info = all[model.providerID]
+    const item = info?.models?.[model.modelID] as { variants?: Record<string, unknown> } | undefined
+    return {
+      names: Object.keys(item?.variants ?? {}),
+      current: ctx.pref?.variant,
+    }
+  }
+
   /** /compact — compress the current session context */
   private async cmdCompact(messageId: string, chatId: string): Promise<void> {
     const ctx = await this.commandCtx(chatId)
@@ -1404,17 +1420,34 @@ class FeishuManagerImpl {
     const visible = agents.filter((a) => !a.hidden)
     const names = visible.map((a) => a.name)
     if (!arg) {
-      const sample = names.slice(0, 10).join("、") || "（暂无可用模式）"
-      await this.replyCmd(messageId, chatId, `🧠 可用模式：${sample}`)
+      if (names.length === 0) {
+        await this.replyCmd(messageId, chatId, "❌ 暂无可用模式。")
+        return
+      }
+      const lines = ["🧠 可用模式：", ""]
+      names.forEach((name, i) => {
+        lines.push(`  ${i + 1}. ${name}${name === current ? " ★（当前）" : ""}`)
+      })
+      lines.push("", "💡 /a 编号或名称 切换模式")
+      await this.replyCmd(messageId, chatId, lines.join("\n"))
       return
     }
-    if (!names.includes(arg)) {
-      const sample = names.slice(0, 10).join("、") || "（暂无可用模式）"
-      await this.replyCmd(messageId, chatId, `❌ 未找到模式：${arg}\n可用模式：${sample}`)
+    const n = parseInt(arg, 10)
+    const next = /^\d+$/.test(arg)
+      ? n >= 1 && n <= names.length
+        ? names[n - 1]
+        : undefined
+      : names.find((name) => name === arg)
+    if (!next) {
+      if (/^\d+$/.test(arg)) {
+        await this.replyCmd(messageId, chatId, `❌ 编号超出范围，请输入 1~${names.length} 之间的数字。`)
+        return
+      }
+      await this.replyCmd(messageId, chatId, `❌ 未找到模式：${arg}，发送 /a 查看可用模式。`)
       return
     }
-    await this.setPref(chatId, { agent: arg })
-    await this.replyCmd(messageId, chatId, `✅ 已切换模式：${arg}\n（仅对当前对话生效，/new 后将重置）`)
+    await this.setPref(chatId, { agent: next })
+    await this.replyCmd(messageId, chatId, `✅ 已切换模式：${next}\n（仅对当前对话生效，/new 后将重置）`)
   }
 
   /**
@@ -1424,17 +1457,27 @@ class FeishuManagerImpl {
   private async cmdApproval(messageId: string, chatId: string, arg: string): Promise<void> {
     const ctx = await this.commandCtx(chatId)
     const auto = ctx.pref?.autoAccept ?? false
+    const names = ["auto", "ask"] as const
     if (!arg) {
-      const mode = auto ? "自动批准" : "手动审批"
-      await this.replyCmd(messageId, chatId, `🔐 当前审批模式：${mode}\n可用模式：auto、ask`)
+      const lines = [
+        "🔐 可用审批模式：",
+        "",
+        `  1. auto（自动批准）${auto ? " ★（当前）" : ""}`,
+        `  2. ask（手动审批）${auto ? "" : " ★（当前）"}`,
+        "",
+        "💡 /approval 编号或名称 切换审批模式",
+      ]
+      await this.replyCmd(messageId, chatId, lines.join("\n"))
       return
     }
-    if (arg !== "auto" && arg !== "ask") {
-      await this.replyCmd(messageId, chatId, "❌ 仅支持 /approval auto 或 /approval ask")
+    const n = parseInt(arg, 10)
+    const next = /^\d+$/.test(arg) ? names[n - 1] : names.find((name) => name === arg)
+    if (!next) {
+      await this.replyCmd(messageId, chatId, "❌ 仅支持 1(auto) 或 2(ask)。")
       return
     }
-    await this.setPref(chatId, { autoAccept: arg === "auto" })
-    if (arg === "auto") {
+    await this.setPref(chatId, { autoAccept: next === "auto" })
+    if (next === "auto") {
       const pending = this._pendingPermissions[chatId]
       if (pending) {
         delete this._pendingPermissions[chatId]
@@ -1451,19 +1494,40 @@ class FeishuManagerImpl {
     }
   }
 
-  /**
-   * /variant        — show current variant
-   * /variant <name> — switch to named variant
-   */
-  private async cmdVariant(messageId: string, chatId: string, arg: string): Promise<void> {
-    const ctx = await this.commandCtx(chatId)
-    const current = ctx.pref?.variant || "（默认）"
-    if (!arg) {
-      await this.replyCmd(messageId, chatId, `🔀 当前变体：${current}`)
+  private async cmdThinkingLevel(messageId: string, chatId: string, arg: string): Promise<void> {
+    const model = this.resolveModel(chatId)
+    if (!model) {
+      await this.replyCmd(messageId, chatId, "❌ 请先使用 /m 选择模型后再切换思考等级。")
       return
     }
-    await this.setPref(chatId, { variant: arg })
-    await this.replyCmd(messageId, chatId, `✅ 已切换变体：${arg}\n（仅对当前对话生效，/new 后将重置）`)
+    const info = await this.thinking(chatId)
+    const names = ["默认", ...info.names]
+    if (!arg) {
+      const lines = ["🔀 可用思考等级：", ""]
+      names.forEach((name, i) => {
+        const active = name === "默认" ? !info.current : name === info.current
+        lines.push(`  ${i + 1}. ${name}${active ? " ★（当前）" : ""}`)
+      })
+      lines.push("", "💡 /thinkinglevel 编号或名称 切换思考等级")
+      await this.replyCmd(messageId, chatId, lines.join("\n"))
+      return
+    }
+    const n = parseInt(arg, 10)
+    const next = /^\d+$/.test(arg)
+      ? n >= 1 && n <= names.length
+        ? names[n - 1]
+        : undefined
+      : names.find((name) => name === arg || (name === "默认" && arg === "default"))
+    if (!next) {
+      if (/^\d+$/.test(arg)) {
+        await this.replyCmd(messageId, chatId, `❌ 编号超出范围，请输入 1~${names.length} 之间的数字。`)
+        return
+      }
+      await this.replyCmd(messageId, chatId, `❌ 未找到思考等级：${arg}，发送 /thinkinglevel 查看可用思考等级。`)
+      return
+    }
+    await this.setPref(chatId, { variant: next === "默认" ? undefined : next })
+    await this.replyCmd(messageId, chatId, `✅ 已切换思考等级：${next}\n（仅对当前对话生效，/new 后将重置）`)
   }
 
   /**
