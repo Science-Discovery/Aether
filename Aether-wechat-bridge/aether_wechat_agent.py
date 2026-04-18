@@ -1390,6 +1390,16 @@ class AetherAgent(Agent):
 
         except httpx.HTTPStatusError as e:
             logger.error(f"HTTP 错误: {e.response.status_code}")
+            try:
+                body = e.response.json()
+                if (
+                    body.get("name") == "NotFoundError"
+                    and isinstance(body.get("data", {}).get("message"), str)
+                    and body["data"]["message"].startswith("Session not found:")
+                ):
+                    return ChatResponse(text="会话已不存在")
+            except Exception:
+                pass
             return ChatResponse(text="服务暂时不可用，请稍后重试")
         except httpx.RequestError as e:
             logger.error(f"连接错误: {e}")
@@ -1978,6 +1988,23 @@ class AetherAgent(Agent):
         resp.raise_for_status()
         body = resp.text.strip()
         if not body:
+            check = await self._client.get(
+                f"{self.base_url}/session/{session_id}",
+                headers={"x-opencode-directory": quote(directory, safe="")}
+                if directory
+                else {},
+            )
+            if check.status_code == 404:
+                try:
+                    d = check.json()
+                    if (
+                        d.get("name") == "NotFoundError"
+                        and isinstance(d.get("data", {}).get("message"), str)
+                        and d["data"]["message"].startswith("Session not found:")
+                    ):
+                        return {"formatted": "会话已不存在"}
+                except Exception:
+                    pass
             return {"formatted": "❌ 服务端返回空响应，请检查模型是否有效"}
         try:
             return self._extract_response(resp.json())

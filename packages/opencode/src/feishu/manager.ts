@@ -20,7 +20,16 @@ import { Agent } from "@/agent/agent"
 import { SessionPreference } from "@/session/preference"
 import { Question } from "@/question"
 import { Permission } from "@/permission"
+import { NotFoundError } from "@/storage/db"
 import { legacyPlatformDir, platformDir } from "@/persist/naming"
+
+function isSessionNotFound(err: unknown): boolean {
+  return (
+    NotFoundError.isInstance(err) &&
+    typeof err.data?.message === "string" &&
+    err.data.message.startsWith("Session not found:")
+  )
+}
 
 function dir() {
   return platformDir("feishu")
@@ -861,7 +870,7 @@ class FeishuManagerImpl {
       try {
         const messageId = data?.message?.message_id
         if (messageId) {
-          const errMsg = err instanceof Error ? err.message : String(err)
+          const errMsg = isSessionNotFound(err) ? "会话已不存在" : err instanceof Error ? err.message : String(err)
           await this.replyText(messageId, `处理消息时出错: ${errMsg}`)
         }
       } catch (e2) {
@@ -977,7 +986,7 @@ class FeishuManagerImpl {
       }
     } catch (err) {
       console.error("[feishu] prompt error:", err)
-      const errMsg = err instanceof Error ? err.message : String(err)
+      const errMsg = isSessionNotFound(err) ? "会话已不存在" : err instanceof Error ? err.message : String(err)
       await this.replyText(messageId, `处理消息时出错: ${errMsg}`).catch(() => {})
     } finally {
       this._activePrompt.delete(chatId)
