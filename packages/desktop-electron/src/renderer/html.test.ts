@@ -5,8 +5,10 @@ import { fileURLToPath } from "node:url"
 
 const dir = dirname(fileURLToPath(import.meta.url))
 const root = resolve(dir, "../..")
+const appPublic = resolve(root, "../app/public")
 
 const html = async (name: string) => Bun.file(join(dir, name)).text()
+const publicAsset = async (name: string) => Bun.file(join(appPublic, name)).text()
 
 /**
  * Electron loads renderer HTML via `win.loadFile()` which uses the `file://`
@@ -58,5 +60,32 @@ describe("electron vite publicDir", () => {
     const resolved = resolve(root, rendererRoot![1], pub![1])
     expect(existsSync(resolved)).toBe(true)
     expect(existsSync(join(resolved, "oc-theme-preload.js"))).toBe(true)
+  })
+})
+
+describe("pdf viewer public assets", () => {
+  test("pdf-viewer.html uses relative local resource paths", async () => {
+    const content = await publicAsset("pdf-viewer.html")
+    const srcs = [...content.matchAll(/\bsrc=["']([^"']+)["']/g)].map((m) => m[1])
+    const hrefs = [...content.matchAll(/<link[^>]+href=["']([^"']+)["']/g)].map((m) => m[1])
+
+    for (const src of srcs) {
+      expect(src).not.toMatch(/^\/[^/]/)
+    }
+    for (const href of hrefs) {
+      expect(href).not.toMatch(/^\/[^/]/)
+    }
+  })
+
+  test("pdf-viewer-aether.js does not use root-relative pdfjs paths", async () => {
+    const content = await publicAsset("pdf-viewer-aether.js")
+    expect(content).not.toContain('"/pdfjs-ref/')
+    expect(content).not.toContain("'/pdfjs-ref/")
+  })
+
+  test("pdf-viewer-aether.css does not use root-relative asset paths", async () => {
+    const content = await publicAsset("pdf-viewer-aether.css")
+    expect(content).not.toContain('url("/pdfjs-ref/')
+    expect(content).not.toContain("url('/pdfjs-ref/")
   })
 })

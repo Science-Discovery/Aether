@@ -5,6 +5,7 @@ export namespace Identifier {
   const prefixes = {
     event: "evt",
     session: "ses",
+    tree: "tre",
     message: "msg",
     permission: "per",
     question: "que",

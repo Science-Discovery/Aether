@@ -1,3 +1,4 @@
+import type { AssistantMessage, Message, Session, SessionGraphNode, SessionGraphResult } from "@opencode-ai/sdk/v2"
 import { batch, createMemo, onCleanup, onMount, type Accessor } from "solid-js"
 import { createStore } from "solid-js/store"
 import { same } from "@/utils/same"
@@ -14,6 +15,7 @@ type TabsInput = {
   pathFromTab: (tab: string) => string | undefined
   normalizeTab: (tab: string) => string
   review?: Accessor<boolean>
+  branches?: Accessor<boolean>
   hasReview?: Accessor<boolean>
 }
 
@@ -21,7 +23,9 @@ export const getSessionKey = (dir: string | undefined, id: string | undefined) =
 
 export const createSessionTabs = (input: TabsInput) => {
   const review = input.review ?? (() => false)
+  const branches = input.branches ?? (() => false)
   const hasReview = input.hasReview ?? (() => false)
+  let preferredFixedTab: "context" | "review" | "branches" | undefined
   const contextOpen = createMemo(() => input.tabs().active() === "context" || input.tabs().all().includes("context"))
   const openedTabs = createMemo(
     () => {
@@ -30,7 +34,7 @@ export const createSessionTabs = (input: TabsInput) => {
         .tabs()
         .all()
         .flatMap((tab) => {
-          if (tab === "context" || tab === "review") return []
+          if (tab === "context" || tab === "review" || tab === "branches") return []
           const value = input.pathFromTab(tab) ? input.normalizeTab(tab) : tab
           if (seen.has(value)) return []
           seen.add(value)
@@ -42,14 +46,28 @@ export const createSessionTabs = (input: TabsInput) => {
   )
   const activeTab = createMemo(() => {
     const active = input.tabs().active()
-    if (active === "context") return active
-    if (active === "review" && review()) return active
+    if (active === "context") {
+      preferredFixedTab = "context"
+      return active
+    }
+    if (active === "branches" && branches()) {
+      preferredFixedTab = "branches"
+      return active
+    }
+    if (active === "review" && review()) {
+      preferredFixedTab = "review"
+      return active
+    }
     if (active && input.pathFromTab(active)) return input.normalizeTab(active)
 
     const first = openedTabs()[0]
     if (first) return first
+    if (preferredFixedTab === "context" && contextOpen()) return "context"
+    if (preferredFixedTab === "branches" && branches()) return "branches"
+    if (preferredFixedTab === "review" && review() && hasReview()) return "review"
     if (contextOpen()) return "context"
     if (review() && hasReview()) return "review"
+    if (branches()) return "branches"
     return "empty"
   })
   const activeFileTab = createMemo(() => {
@@ -196,3 +214,101 @@ export const createSizing = () => {
 }
 
 export type Sizing = ReturnType<typeof createSizing>
+
+const isCompletedAssistantMessage = (message: Message): message is AssistantMessage =>
+  message.role === "assistant" && typeof message.time.completed === "number" && !message.error
+
+export const collectCompletedTurnUserMessageIDs = (messages: Message[]) => {
+  const completedParentIDs = new Set(
+    messages.filter(isCompletedAssistantMessage).map((message) => message.parentID),
+  )
+  return messages
+    .filter((message): message is Extract<Message, { role: "user" }> => message.role === "user")
+    .filter((message) => completedParentIDs.has(message.id))
+    .map((message) => message.id)
+}
+
+export const getSelectedTurnBoundaryIndex = (messages: Message[], selectedMessageID: string) => {
+  const completedUserMessageIDs = new Set(collectCompletedTurnUserMessageIDs(messages))
+  let completedCount = 0
+
+  for (const message of messages) {
+    if (message.role !== "user") continue
+    if (completedUserMessageIDs.has(message.id)) completedCount += 1
+    if (message.id === selectedMessageID) return completedCount
+  }
+}
+
+const getCurrentPathTurnNodes = (graph: Extract<SessionGraphResult, { kind: "graph" }>) => {
+  const nodesByID = new Map(graph.nodes.map((node) => [node.id, node] as const))
+  return graph.current.pathNodeIDs
+    .map((nodeID) => nodesByID.get(nodeID))
+    .filter((node): node is SessionGraphNode => !!node && node.kind === "turn")
+}
+
+export const getInheritedTurnCount = (input: {
+  sessionID: string
+  graph: Extract<SessionGraphResult, { kind: "graph" }>
+}) => {
+  let count = 0
+  for (const node of getCurrentPathTurnNodes(input.graph)) {
+    if (node.sessionID === input.sessionID) break
+    count += 1
+  }
+  return count
+}
+
+export const hasProtectedDescendantBranch = (input: {
+  sessionID: string
+  graph: Extract<SessionGraphResult, { kind: "graph" }>
+  fromTurnIndex: number
+}) => {
+  if (input.fromTurnIndex <= 0) return false
+
+  const pathTurnNodes = getCurrentPathTurnNodes(input.graph)
+  if (pathTurnNodes.length === 0) return false
+
+  const nodesByID = new Map(input.graph.nodes.map((node) => [node.id, node] as const))
+  const outgoingByNodeID = new Map<string, typeof input.graph.edges>()
+
+  for (const edge of input.graph.edges) {
+    const edges = outgoingByNodeID.get(edge.from)
+    if (edges) edges.push(edge)
+    else outgoingByNodeID.set(edge.from, [edge])
+  }
+
+  for (const node of pathTurnNodes.slice(input.fromTurnIndex - 1)) {
+    for (const edge of outgoingByNodeID.get(node.id) ?? []) {
+      if (edge.kind === "continuation") continue
+      const target = nodesByID.get(edge.to)
+      if (!target) continue
+      if (target.sessionID !== input.sessionID) return true
+    }
+  }
+
+  return false
+}
+
+export const shouldProtectSessionRevert = (input: {
+  session: Pick<Session, "id" | "forkParentSessionID">
+  messages: Message[]
+  selectedMessageID: string
+  graph?: SessionGraphResult
+}) => {
+  const targetTurnIndex = getSelectedTurnBoundaryIndex(input.messages, input.selectedMessageID)
+  if (!targetTurnIndex || !input.graph || input.graph.kind !== "graph") return false
+
+  if (input.session.forkParentSessionID) {
+    const inheritedTurnCount = getInheritedTurnCount({
+      sessionID: input.session.id,
+      graph: input.graph,
+    })
+    if (targetTurnIndex <= inheritedTurnCount) return true
+  }
+
+  return hasProtectedDescendantBranch({
+    sessionID: input.session.id,
+    graph: input.graph,
+    fromTurnIndex: targetTurnIndex,
+  })
+}

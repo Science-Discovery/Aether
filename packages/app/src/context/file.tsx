@@ -355,6 +355,7 @@ export const { use: useFile, provider: FileProvider } = createSimpleContext({
     }
     const scrollTop = (input: string) => withPath(input, (file) => view().scrollTop(file))
     const scrollLeft = (input: string) => withPath(input, (file) => view().scrollLeft(file))
+    const pdfPage = (input: string) => withPath(input, (file) => view().pdfPage(file))
     const selectedLines = (input: string) => withPath(input, (file) => view().selectedLines(file))
     const wordWrap = (input: string) => withPath(input, (file) => view().wordWrap(file))
     const isEditing = (input: string) => withPath(input, (file) => view().isEditing(file))
@@ -362,6 +363,7 @@ export const { use: useFile, provider: FileProvider } = createSimpleContext({
     const draftBase = (input: string) => withPath(input, (file) => view().draftBase(file))
     const setScrollTop = (input: string, top: number) => withPath(input, (file) => view().setScrollTop(file, top))
     const setScrollLeft = (input: string, left: number) => withPath(input, (file) => view().setScrollLeft(file, left))
+    const setPdfPage = (input: string, page: number) => withPath(input, (file) => view().setPdfPage(file, page))
     const setSelectedLines = (input: string, range: SelectedLineRange | null) =>
       withPath(input, (file) => view().setSelectedLines(file, range))
     const setWordWrap = (input: string, wrap: boolean) => withPath(input, (file) => view().setWordWrap(file, wrap))
@@ -400,8 +402,10 @@ export const { use: useFile, provider: FileProvider } = createSimpleContext({
       load,
       scrollTop,
       scrollLeft,
+      pdfPage,
       setScrollTop,
       setScrollLeft,
+      setPdfPage,
       selectedLines,
       setSelectedLines,
       wordWrap,

@@ -23,7 +23,7 @@ function formatTime(date: Date): string {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}-${pad(date.getHours())}:${pad(date.getMinutes())}`
 }
 
-export const DialogFork: Component = () => {
+export const DialogFork: Component<{ sessionID?: string }> = (props) => {
   const params = useParams()
   const navigate = useNavigate()
   const sync = useSync()
@@ -31,12 +31,13 @@ export const DialogFork: Component = () => {
   const prompt = usePrompt()
   const dialog = useDialog()
   const language = useLanguage()
+  const sessionID = createMemo(() => props.sessionID ?? params.id)
 
   const messages = createMemo((): ForkableMessage[] => {
-    const sessionID = params.id
-    if (!sessionID) return []
+    const id = sessionID()
+    if (!id) return []
 
-    const msgs = sync.data.message[sessionID] ?? []
+    const msgs = sync.data.message[id] ?? []
     const result: ForkableMessage[] = []
 
     for (const message of msgs) {
@@ -59,8 +60,8 @@ export const DialogFork: Component = () => {
   const handleSelect = (item: ForkableMessage | undefined) => {
     if (!item) return
 
-    const sessionID = params.id
-    if (!sessionID) return
+    const id = sessionID()
+    if (!id) return
 
     const parts = sync.data.part[item.id] ?? []
     const restored = extractPromptFromParts(parts, {
@@ -70,7 +71,7 @@ export const DialogFork: Component = () => {
     const dir = base64Encode(sdk.directory)
 
     sdk.client.session
-      .fork({ sessionID, messageID: item.id })
+      .fork({ sessionID: id, messageID: item.id })
       .then((forked) => {
         if (!forked.data) {
           showToast({ title: language.t("common.requestFailed") })

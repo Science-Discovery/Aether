@@ -345,6 +345,30 @@ export const SettingsGeneral: Component = () => {
         </SettingsRow>
 
         <SettingsRow
+          title={
+            language.locale() === "zh"
+              ? "启用对话树"
+              : language.locale() === "zht"
+                ? "啟用對話樹"
+                : language.t("settings.general.row.branchesTab.title")
+          }
+          description={
+            language.locale() === "zh"
+              ? "在会话页中显示实验性的对话树视图"
+              : language.locale() === "zht"
+                ? "在會話頁中顯示實驗性的對話樹視圖"
+                : language.t("settings.general.row.branchesTab.description")
+          }
+        >
+          <div data-action="settings-feed-branches-tab">
+            <Switch
+              checked={settings.general.branchesTab()}
+              onChange={(checked) => settings.general.setBranchesTab(checked)}
+            />
+          </div>
+        </SettingsRow>
+
+        <SettingsRow
           title={language.t("settings.general.row.shellToolPartsExpanded.title")}
           description={language.t("settings.general.row.shellToolPartsExpanded.description")}
         >

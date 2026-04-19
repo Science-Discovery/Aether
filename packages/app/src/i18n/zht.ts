@@ -89,6 +89,8 @@ export const dict = {
   "command.session.fork.description": "從先前的訊息建立新工作階段",
   "command.session.share": "分享工作階段",
   "command.session.share.description": "分享此工作階段並將連結複製到剪貼簿",
+  "command.session.readingMode": "\u95b1\u8b80\u6a21\u5f0f",
+  "command.session.readingMode.description": "\u6253\u958b\u7d93\u5178\u95b1\u8b80\u6a21\u5f0f",
   "command.session.unshare": "取消分享工作階段",
   "command.session.unshare.description": "停止分享此工作階段",
 
@@ -929,4 +931,6 @@ export const dict = {
   "error.childStore.persistedProjectIconCreateFailed": "建立持續性專案圖示失敗",
   "error.childStore.storeCreateFailed": "建立儲存區失敗",
   "terminal.connectionLost.abnormalClose": "WebSocket 異常關閉：{{code}}",
+  "settings.general.row.branchesTab.title": "啟用對話樹",
+  "settings.general.row.branchesTab.description": "在會話清單側欄中內聯顯示對話樹視圖",
 } satisfies Partial<Record<Keys, string>>

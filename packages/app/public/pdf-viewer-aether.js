@@ -2,9 +2,10 @@
 
 (function () {
   const CHANNEL = "aether-pdf-viewer";
-  const ORIGIN = window.location.origin;
-  const C_MAP_URL = "/pdfjs-ref/web/cmaps/";
-  const STANDARD_FONT_DATA_URL = "/pdfjs-ref/web/standard_fonts/";
+  const IS_FILE_PROTOCOL = window.location.protocol === "file:";
+  const ORIGIN = IS_FILE_PROTOCOL ? "*" : window.location.origin;
+  const C_MAP_URL = "./pdfjs-ref/web/cmaps/";
+  const STANDARD_FONT_DATA_URL = "./pdfjs-ref/web/standard_fonts/";
   const DEFAULT_SCALE = {
     full: "auto",
     compact: "page-width",
@@ -27,6 +28,21 @@
   let captureBox = null;
   let captureModeActive = false;
   let captureDrag = null;
+  let toolbarOverflowFrame = 0;
+
+  function showViewerError(error) {
+    const message = error instanceof Error ? error.message : String(error || "Unknown PDF viewer error");
+    const body = document.createElement("body");
+    body.className = "aether-pdf-viewer-error";
+    body.style.margin = "0";
+    body.style.padding = "24px";
+    body.style.background = "#1f1f23";
+    body.style.color = "#f4f4f5";
+    body.style.fontFamily = "ui-monospace, SFMono-Regular, Consolas, monospace";
+    body.style.whiteSpace = "pre-wrap";
+    body.textContent = `PDF viewer failed to load.\n\n${message}`;
+    document.documentElement.replaceChild(body, document.body);
+  }
 
   function post(type, payload) {
     window.parent?.postMessage({ channel: CHANNEL, type, ...(payload || {}) }, ORIGIN);
@@ -47,6 +63,101 @@
     return window.PDFViewerApplicationConstants?.SidebarView?.OUTLINE ?? 2;
   }
 
+  function isQuickReadingFullMode(config) {
+    return !!(
+      config &&
+      config.mode === "full" &&
+      config.features &&
+      config.features.quickReadingExit
+    );
+  }
+
+  function getElementMarginWidth(element) {
+    if (!element) return 0;
+    const styles = window.getComputedStyle(element);
+    const rect = element.getBoundingClientRect();
+    return (
+      rect.width +
+      (parseFloat(styles.marginLeft) || 0) +
+      (parseFloat(styles.marginRight) || 0)
+    );
+  }
+
+  function setElementHidden(element, hidden) {
+    if (!element) return;
+    element.hidden = !!hidden;
+  }
+
+  function syncQuickReadingToolbarOverflow() {
+    const config = currentConfig;
+    const settingsPrimary = document.getElementById("aetherReadingSettings");
+    const swapPrimary = document.getElementById("aetherSwapLayout");
+    const settingsSecondary = document.getElementById("aetherReadingSettingsSecondary");
+    const swapSecondary = document.getElementById("aetherSwapLayoutSecondary");
+
+    if (!isQuickReadingFullMode(config)) {
+      setElementHidden(settingsSecondary, true);
+      setElementHidden(swapSecondary, true);
+      return;
+    }
+
+    const toolbarContainer = document.getElementById("toolbarContainer");
+    const toolbarLeft = document.getElementById("toolbarViewerLeft");
+    const toolbarRight = document.getElementById("toolbarViewerRight");
+    const toolbarMiddle = document.getElementById("toolbarViewerMiddle");
+
+    if (!toolbarContainer || !toolbarLeft || !toolbarRight || !toolbarMiddle) {
+      setElementHidden(settingsSecondary, true);
+      setElementHidden(swapSecondary, true);
+      return;
+    }
+
+    const canShowSettings = !!(config.features && config.features.settings);
+
+    setElementHidden(settingsPrimary, !canShowSettings);
+    setElementHidden(swapPrimary, false);
+    setElementHidden(settingsSecondary, true);
+    setElementHidden(swapSecondary, true);
+
+    const availableWidth =
+      toolbarContainer.getBoundingClientRect().width -
+      toolbarLeft.getBoundingClientRect().width -
+      toolbarRight.getBoundingClientRect().width -
+      24;
+
+    const currentWidth = Array.from(toolbarMiddle.children).reduce(function (sum, child) {
+      if (!(child instanceof HTMLElement) || child.hidden) return sum;
+      return sum + getElementMarginWidth(child);
+    }, 0);
+
+    if (currentWidth <= availableWidth) return;
+
+    setElementHidden(swapPrimary, true);
+    setElementHidden(swapSecondary, false);
+
+    const widthAfterSwap = Array.from(toolbarMiddle.children).reduce(function (sum, child) {
+      if (!(child instanceof HTMLElement) || child.hidden) return sum;
+      return sum + getElementMarginWidth(child);
+    }, 0);
+
+    if (widthAfterSwap <= availableWidth) return;
+
+    if (canShowSettings) {
+      setElementHidden(settingsPrimary, true);
+      setElementHidden(settingsSecondary, false);
+    }
+  }
+
+  function scheduleToolbarOverflowSync() {
+    if (toolbarOverflowFrame) {
+      cancelAnimationFrame(toolbarOverflowFrame);
+    }
+    toolbarOverflowFrame = requestAnimationFrame(function () {
+      toolbarOverflowFrame = 0;
+      syncQuickReadingToolbarOverflow();
+    });
+  }
+
   function sanitizeConfig(input) {
     const mode = input?.mode === "compact" ? "compact" : "full";
     return {
@@ -65,6 +176,8 @@
       features: {
         pdf2md: !!input?.features?.pdf2md,
         readingMode: !!input?.features?.readingMode,
+        quickReadingExit: !!input?.features?.quickReadingExit,
+        firstRead: !!input?.features?.firstRead,
         settings: !!input?.features?.settings,
         textSelectionActions: !!input?.features?.textSelectionActions,
         imageSelectionActions: !!input?.features?.imageSelectionActions,
@@ -523,7 +636,15 @@
     const readingMode = document.getElementById("aetherOpenReadingMode");
     if (readingMode) {
       readingMode.hidden = !(config.mode === "compact" && config.features.readingMode);
-      readingMode.title = "Open in Reading Mode";
+      readingMode.title = "Open in Quick Reading Mode";
+      readingMode.setAttribute("aria-label", readingMode.title);
+    }
+
+    const exitQuickReading = document.getElementById("aetherExitQuickReading");
+    if (exitQuickReading) {
+      exitQuickReading.hidden = !(config.mode === "full" && config.features.quickReadingExit);
+      exitQuickReading.title = "Exit quick reading mode";
+      exitQuickReading.setAttribute("aria-label", exitQuickReading.title);
     }
 
     const captureRegion = document.getElementById("aetherCaptureRegion");
@@ -533,11 +654,25 @@
       captureRegion.setAttribute("aria-pressed", captureModeActive ? "true" : "false");
     }
 
+    const firstRead = document.getElementById("aetherFirstRead");
+    if (firstRead) {
+      firstRead.hidden = !(config.mode === "full" && config.features.firstRead);
+      firstRead.title = "AI pre-read";
+      firstRead.setAttribute("aria-label", firstRead.title);
+    }
+
     const readingSettings = document.getElementById("aetherReadingSettings");
     if (readingSettings) {
       readingSettings.hidden = !(config.mode === "full" && config.features.settings);
       readingSettings.title = "Reading settings";
       readingSettings.setAttribute("aria-label", readingSettings.title);
+    }
+
+    const readingSettingsSecondary = document.getElementById("aetherReadingSettingsSecondary");
+    if (readingSettingsSecondary) {
+      readingSettingsSecondary.hidden = true;
+      readingSettingsSecondary.title = "Reading settings";
+      readingSettingsSecondary.setAttribute("aria-label", readingSettingsSecondary.title);
     }
 
     const nightMode = document.getElementById("aetherNightMode");
@@ -556,6 +691,14 @@
       swapLayout.dataset.direction = config.layoutSwapped ? "left" : "right";
     }
 
+    const swapLayoutSecondary = document.getElementById("aetherSwapLayoutSecondary");
+    if (swapLayoutSecondary) {
+      swapLayoutSecondary.hidden = true;
+      swapLayoutSecondary.title = swapLayout?.title || "Swap layout";
+      swapLayoutSecondary.setAttribute("aria-label", swapLayoutSecondary.title);
+      swapLayoutSecondary.dataset.direction = swapLayout?.dataset.direction || "right";
+    }
+
     if (config.mode === "compact" && outerContainer) {
       outerContainer.classList.remove("sidebarOpen", "sidebarMoving", "sidebarResizing");
     }
@@ -567,6 +710,8 @@
     if (!(config.mode === "full" && config.features.imageSelectionActions) && captureModeActive) {
       setCaptureMode(false);
     }
+
+    scheduleToolbarOverflowSync();
   }
 
   function rememberSidebarState(isOpen) {
@@ -678,6 +823,13 @@
       });
     }
 
+    const exitQuickReading = document.getElementById("aetherExitQuickReading");
+    if (exitQuickReading) {
+      exitQuickReading.addEventListener("click", function () {
+        post("exitquickreading");
+      });
+    }
+
     const nightMode = document.getElementById("aetherNightMode");
     if (nightMode) {
       nightMode.addEventListener("click", function () {
@@ -694,6 +846,14 @@
       });
     }
 
+    const firstRead = document.getElementById("aetherFirstRead");
+    if (firstRead) {
+      firstRead.addEventListener("click", function () {
+        post("startfirstread");
+        window.PDFViewerApplication?.secondaryToolbar?.close?.();
+      });
+    }
+
     const readingSettings = document.getElementById("aetherReadingSettings");
     if (readingSettings) {
       readingSettings.addEventListener("click", function () {
@@ -701,10 +861,26 @@
       });
     }
 
+    const readingSettingsSecondary = document.getElementById("aetherReadingSettingsSecondary");
+    if (readingSettingsSecondary) {
+      readingSettingsSecondary.addEventListener("click", function () {
+        post("opensettings");
+        window.PDFViewerApplication?.secondaryToolbar?.close?.();
+      });
+    }
+
     const swapLayout = document.getElementById("aetherSwapLayout");
     if (swapLayout) {
       swapLayout.addEventListener("click", function () {
         post("swaplayout");
+      });
+    }
+
+    const swapLayoutSecondary = document.getElementById("aetherSwapLayoutSecondary");
+    if (swapLayoutSecondary) {
+      swapLayoutSecondary.addEventListener("click", function () {
+        post("swaplayout");
+        window.PDFViewerApplication?.secondaryToolbar?.close?.();
       });
     }
 
@@ -759,6 +935,7 @@
       if (captureModeActive) setCaptureMode(false);
     });
     window.addEventListener("resize", function () {
+      scheduleToolbarOverflowSync();
       if (!selectionState) return;
       scheduleSelectionUiUpdate();
     });
@@ -792,6 +969,7 @@
     app.eventBus.on("documentloaded", function onDocumentLoaded() {
       app.eventBus.off("documentloaded", onDocumentLoaded);
       applyDocumentDefaults(config);
+      scheduleToolbarOverflowSync();
     });
 
     const loadOpts = {
@@ -803,7 +981,6 @@
       standardFontDataUrl: STANDARD_FONT_DATA_URL,
     };
 
-    await app.open(config.src);
     const doc = await window.pdfjsLib.getDocument(loadOpts).promise;
     if (doc?._pdfInfo) {
       doc._pdfInfo.fingerprints = [config.src];
@@ -814,14 +991,23 @@
   async function applyConfig(nextConfig) {
     currentConfig = sanitizeConfig(nextConfig);
     applyChrome(currentConfig);
-    await openDocument(currentConfig);
+    try {
+      await openDocument(currentConfig);
+    } catch (error) {
+      console.error("[aether-pdf-viewer] failed to open document", {
+        config: currentConfig,
+        error,
+      });
+      showViewerError(error);
+      throw error;
+    }
   }
 
   window.addEventListener(
     "message",
     async function (event) {
-      if (event.origin !== ORIGIN) return;
       if (event.data?.channel !== CHANNEL) return;
+      if (!IS_FILE_PROTOCOL && event.origin !== ORIGIN) return;
 
       if (event.data.type === "config") {
         await applyConfig(event.data.config);
@@ -854,8 +1040,10 @@
   );
 
   window.onerror = function () {
-    const message = document.createElement("body");
-    message.innerText = "An error occurred while loading the file. Please open it again.";
-    document.documentElement.replaceChild(message, document.body);
+    showViewerError("An error occurred while loading the file. Please open it again.");
+  };
+
+  window.onunhandledrejection = function (event) {
+    showViewerError(event.reason);
   };
 })();

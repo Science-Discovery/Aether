@@ -1,6 +1,11 @@
 import { describe, expect, test } from "bun:test"
 import type { Message, Part } from "@opencode-ai/sdk/v2/client"
-import { applyOptimisticAdd, applyOptimisticRemove, mergeOptimisticPage } from "./sync"
+import {
+  applyOptimisticAdd,
+  applyOptimisticRemove,
+  invalidateSessionMessageCacheMeta,
+  mergeOptimisticPage,
+} from "./sync"
 
 type Text = Extract<Part, { type: "text" }>
 
@@ -119,5 +124,37 @@ describe("sync optimistic reducers", () => {
       { id: "prt_1", type: "text", text: "server" },
       { id: "prt_2", type: "text", text: "prt_2" },
     ])
+  })
+
+  test("invalidateSessionMessageCacheMeta clears cached paging state for one session only", () => {
+    const draft = {
+      limit: {
+        "dir\nses_1": 80,
+        "dir\nses_2": 40,
+      },
+      cursor: {
+        "dir\nses_1": "cursor-1",
+        "dir\nses_2": "cursor-2",
+      },
+      complete: {
+        "dir\nses_1": true,
+        "dir\nses_2": false,
+      },
+      loading: {
+        "dir\nses_1": true,
+        "dir\nses_2": false,
+      },
+    }
+
+    invalidateSessionMessageCacheMeta(draft, { directory: "dir", sessionID: "ses_1" })
+
+    expect(draft.limit["dir\nses_1"]).toBeUndefined()
+    expect(draft.cursor["dir\nses_1"]).toBeUndefined()
+    expect(draft.complete["dir\nses_1"]).toBeUndefined()
+    expect(draft.loading["dir\nses_1"]).toBeUndefined()
+    expect(draft.limit["dir\nses_2"]).toBe(40)
+    expect(draft.cursor["dir\nses_2"]).toBe("cursor-2")
+    expect(draft.complete["dir\nses_2"]).toBe(false)
+    expect(draft.loading["dir\nses_2"]).toBe(false)
   })
 })

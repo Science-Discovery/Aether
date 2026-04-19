@@ -71,6 +71,7 @@ export const ProjectIcon = (props: { project: LocalProject; class?: string; noti
 
 export type SessionItemProps = {
   session: Session
+  targetSession?: Session
   list: Session[]
   navList?: Accessor<Session[]>
   slug: string
@@ -89,6 +90,9 @@ export type SessionItemProps = {
   unarchiveSession?: (session: Session) => Promise<void>
   deleteSession?: (session: Session) => Promise<void>
   renameSession?: (session: Session, title: string) => Promise<void>
+  hasChildren?: boolean
+  expanded?: boolean
+  onToggleChildren?: () => void
 }
 
 const sessionHref = (slug: string, session: Session, hash?: string) =>
@@ -96,6 +100,7 @@ const sessionHref = (slug: string, session: Session, hash?: string) =>
 
 const SessionRow = (props: {
   session: Session
+  targetSession: Session
   slug: string
   mobile?: boolean
   dense?: boolean
@@ -111,9 +116,12 @@ const SessionRow = (props: {
   warmPress: () => void
   warmFocus: () => void
   cancelHoverPrefetch: () => void
+  hasChildren: boolean
+  expanded: boolean
+  onToggleChildren?: () => void
 }): JSX.Element => (
   <A
-    href={sessionHref(props.slug, props.session)}
+    href={sessionHref(props.slug, props.targetSession)}
     class={`flex items-center justify-between gap-3 min-w-0 text-left w-full focus:outline-none transition-[padding] ${props.mobile ? "pr-14" : ""} group-hover/session:pr-14 group-focus-within/session:pr-14 group-active/session:pr-14 ${props.dense ? "py-0.5" : "py-1"}`}
     onPointerDown={props.warmPress}
     onPointerEnter={props.warmHover}
@@ -129,20 +137,40 @@ const SessionRow = (props: {
       class="shrink-0 size-6 flex items-center justify-center"
       style={{ color: props.tint() ?? "var(--icon-interactive-base)" }}
     >
-      <Switch fallback={<Icon name="dash" size="small" class="text-icon-weak" />}>
-        <Match when={props.isWorking()}>
-          <Spinner class="size-[15px]" />
-        </Match>
-        <Match when={props.hasPermissions()}>
-          <div class="size-1.5 rounded-full bg-surface-warning-strong" />
-        </Match>
-        <Match when={props.hasError()}>
-          <div class="size-1.5 rounded-full bg-text-diff-delete-base" />
-        </Match>
-        <Match when={props.unseenCount() > 0}>
-          <div class="size-1.5 rounded-full bg-text-interactive-base" />
-        </Match>
-      </Switch>
+      <Show
+        when={props.hasChildren}
+        fallback={
+          <Switch fallback={<Icon name="dash" size="small" class="text-icon-weak" />}>
+            <Match when={props.isWorking()}>
+              <Spinner class="size-[15px]" />
+            </Match>
+            <Match when={props.hasPermissions()}>
+              <div class="size-1.5 rounded-full bg-surface-warning-strong" />
+            </Match>
+            <Match when={props.hasError()}>
+              <div class="size-1.5 rounded-full bg-text-diff-delete-base" />
+            </Match>
+            <Match when={props.unseenCount() > 0}>
+              <div class="size-1.5 rounded-full bg-text-interactive-base" />
+            </Match>
+          </Switch>
+        }
+      >
+        <button
+          type="button"
+          class="size-6 inline-flex items-center justify-center rounded-sm text-icon-weak hover:bg-surface-raised-base-hover"
+          onPointerDown={(event) => event.stopPropagation()}
+          onClick={(event) => {
+            event.preventDefault()
+            event.stopPropagation()
+            props.onToggleChildren?.()
+          }}
+          aria-label={props.expanded ? "Collapse conversation tree" : "Expand conversation tree"}
+          aria-expanded={props.expanded}
+        >
+          <Icon name={props.expanded ? "dash" : "plus-small"} size="small" class="text-icon-weak" />
+        </button>
+      </Show>
     </div>
     <Show when={props.session.readingMode}>
       <span class="shrink-0 rounded bg-surface-raised-base px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-text-muted">
@@ -328,9 +356,14 @@ export const SessionItem = (props: SessionItemProps): JSX.Element => {
     const text = parts.find((part): part is TextPart => part?.type === "text" && !part.synthetic && !part.ignored)
     return text?.text
   }
+
+  const hasChildren = createMemo(() => props.hasChildren ?? (props.children.get(props.session.id)?.length ?? 0) > 0)
+  const expanded = createMemo(() => props.expanded ?? true)
+
   const item = (
     <SessionRow
       session={props.session}
+      targetSession={props.targetSession ?? props.session}
       slug={props.slug}
       mobile={props.mobile}
       dense={props.dense}
@@ -346,6 +379,9 @@ export const SessionItem = (props: SessionItemProps): JSX.Element => {
       warmPress={() => warm(2, "high")}
       warmFocus={() => warm(2, "high")}
       cancelHoverPrefetch={cancelHoverPrefetch}
+      hasChildren={hasChildren()}
+      expanded={expanded()}
+      onToggleChildren={props.onToggleChildren}
     />
   )
 
@@ -401,7 +437,25 @@ export const SessionItem = (props: SessionItemProps): JSX.Element => {
             >
               <div class={`flex items-center gap-3 min-w-0 ${props.dense ? "py-0.5" : "py-1"}`}>
                 <div class="shrink-0 size-6 flex items-center justify-center">
-                  <Icon name="dash" size="small" class="text-icon-weak" />
+                  <Show
+                    when={hasChildren()}
+                    fallback={<Icon name="dash" size="small" class="text-icon-weak" />}
+                  >
+                    <button
+                      type="button"
+                      class="size-6 inline-flex items-center justify-center rounded-sm text-icon-weak hover:bg-surface-raised-base-hover"
+                      onPointerDown={(event) => event.stopPropagation()}
+                      onClick={(event) => {
+                        event.preventDefault()
+                        event.stopPropagation()
+                        props.onToggleChildren?.()
+                      }}
+                      aria-label={expanded() ? "Collapse conversation tree" : "Expand conversation tree"}
+                      aria-expanded={expanded()}
+                    >
+                      <Icon name={expanded() ? "dash" : "plus-small"} size="small" class="text-icon-weak" />
+                    </button>
+                  </Show>
                 </div>
                 <input
                   ref={renameInputRef}

@@ -1,0 +1,229 @@
+<testsuites id="" name="" tests="68" failures="0" skipped="3" errors="0" time="113.44479500000001">
+<testsuite name="app/home.spec.ts" timestamp="2026-04-18T08:45:13.591Z" hostname="chromium" tests="2" failures="0" skipped="0" time="10.125" errors="0">
+<testcase name="home renders and shows core entrypoints" classname="app/home.spec.ts" time="4.847">
+</testcase>
+<testcase name="server picker dialog opens from home" classname="app/home.spec.ts" time="5.278">
+</testcase>
+</testsuite>
+<testsuite name="app/navigation.spec.ts" timestamp="2026-04-18T08:45:13.591Z" hostname="chromium" tests="1" failures="0" skipped="0" time="9.25" errors="0">
+<testcase name="project route redirects to /session" classname="app/navigation.spec.ts" time="9.25">
+</testcase>
+</testsuite>
+<testsuite name="app/palette.spec.ts" timestamp="2026-04-18T08:45:13.591Z" hostname="chromium" tests="2" failures="0" skipped="0" time="13.567" errors="0">
+<testcase name="search palette opens and closes" classname="app/palette.spec.ts" time="10.269">
+</testcase>
+<testcase name="search palette also opens with cmd+p" classname="app/palette.spec.ts" time="3.298">
+</testcase>
+</testsuite>
+<testsuite name="app/server-default.spec.ts" timestamp="2026-04-18T08:45:13.591Z" hostname="chromium" tests="1" failures="0" skipped="0" time="10.51" errors="0">
+<testcase name="can set a default server on web" classname="app/server-default.spec.ts" time="10.51">
+</testcase>
+</testsuite>
+<testsuite name="app/session.spec.ts" timestamp="2026-04-18T08:45:13.591Z" hostname="chromium" tests="1" failures="0" skipped="0" time="9.846" errors="0">
+<testcase name="can open an existing session and type into the prompt" classname="app/session.spec.ts" time="9.846">
+</testcase>
+</testsuite>
+<testsuite name="commands/input-focus.spec.ts" timestamp="2026-04-18T08:45:13.591Z" hostname="chromium" tests="1" failures="0" skipped="0" time="3.672" errors="0">
+<testcase name="ctrl+l focuses the prompt" classname="commands/input-focus.spec.ts" time="3.672">
+</testcase>
+</testsuite>
+<testsuite name="commands/panels.spec.ts" timestamp="2026-04-18T08:45:13.591Z" hostname="chromium" tests="1" failures="0" skipped="0" time="3.168" errors="0">
+<testcase name="review panel can be toggled via keybind" classname="commands/panels.spec.ts" time="3.168">
+</testcase>
+</testsuite>
+<testsuite name="commands/tab-close.spec.ts" timestamp="2026-04-18T08:45:13.591Z" hostname="chromium" tests="1" failures="0" skipped="0" time="68.701" errors="0">
+<testcase name="mod+w closes the active file tab" classname="commands/tab-close.spec.ts" time="68.701">
+<system-out>
+<![CDATA[
+[[ATTACHMENT|test-results/commands-tab-close-mod-w-closes-the-active-file-tab-chromium/test-failed-1.png]]
+
+[[ATTACHMENT|test-results/commands-tab-close-mod-w-closes-the-active-file-tab-chromium/video.webm]]
+
+[[ATTACHMENT|test-results/commands-tab-close-mod-w-closes-the-active-file-tab-chromium/error-context.md]]
+
+[[ATTACHMENT|test-results/commands-tab-close-mod-w-closes-the-active-file-tab-chromium-retry1/trace.zip]]
+]]>
+</system-out>
+</testcase>
+</testsuite>
+<testsuite name="files/file-open.spec.ts" timestamp="2026-04-18T08:45:13.591Z" hostname="chromium" tests="1" failures="0" skipped="0" time="4.023" errors="0">
+<testcase name="can open a file tab from the search palette" classname="files/file-open.spec.ts" time="4.023">
+</testcase>
+</testsuite>
+<testsuite name="files/file-tree.spec.ts" timestamp="2026-04-18T08:45:13.591Z" hostname="chromium" tests="1" failures="0" skipped="0" time="9.878" errors="0">
+<testcase name="file tree can expand folders and open a file" classname="files/file-tree.spec.ts" time="9.878">
+</testcase>
+</testsuite>
+<testsuite name="models/models-visibility.spec.ts" timestamp="2026-04-18T08:45:13.591Z" hostname="chromium" tests="1" failures="0" skipped="0" time="8.612" errors="0">
+<testcase name="hiding a model removes it from the model picker" classname="models/models-visibility.spec.ts" time="8.612">
+</testcase>
+</testsuite>
+<testsuite name="projects/project-edit.spec.ts" timestamp="2026-04-18T08:45:13.591Z" hostname="chromium" tests="1" failures="0" skipped="0" time="4.935" errors="0">
+<testcase name="dialog edit project updates name and startup script" classname="projects/project-edit.spec.ts" time="4.935">
+</testcase>
+</testsuite>
+<testsuite name="projects/projects-close.spec.ts" timestamp="2026-04-18T08:45:13.591Z" hostname="chromium" tests="1" failures="0" skipped="0" time="4.389" errors="0">
+<testcase name="closing active project navigates to another open project" classname="projects/projects-close.spec.ts" time="4.389">
+</testcase>
+</testsuite>
+<testsuite name="projects/workspace-new-session.spec.ts" timestamp="2026-04-18T08:45:13.591Z" hostname="chromium" tests="1" failures="0" skipped="0" time="10.609" errors="0">
+<testcase name="new sessions from sidebar workspace actions stay in selected workspace" classname="projects/workspace-new-session.spec.ts" time="10.609">
+</testcase>
+</testsuite>
+<testsuite name="projects/workspaces.spec.ts" timestamp="2026-04-18T08:45:13.591Z" hostname="chromium" tests="7" failures="0" skipped="0" time="38.862" errors="0">
+<testcase name="can enable and disable workspaces from project menu" classname="projects/workspaces.spec.ts" time="4.621">
+</testcase>
+<testcase name="can create a workspace" classname="projects/workspaces.spec.ts" time="4.823">
+</testcase>
+<testcase name="non-git projects keep workspace mode disabled" classname="projects/workspaces.spec.ts" time="4.258">
+</testcase>
+<testcase name="can rename a workspace" classname="projects/workspaces.spec.ts" time="5.436">
+</testcase>
+<testcase name="can reset a workspace" classname="projects/workspaces.spec.ts" time="5.364">
+</testcase>
+<testcase name="can delete a workspace" classname="projects/workspaces.spec.ts" time="8.004">
+</testcase>
+<testcase name="can reorder workspaces by drag and drop" classname="projects/workspaces.spec.ts" time="6.356">
+</testcase>
+</testsuite>
+<testsuite name="prompt/prompt-mention.spec.ts" timestamp="2026-04-18T08:45:13.591Z" hostname="chromium" tests="1" failures="0" skipped="0" time="4.064" errors="0">
+<testcase name="smoke @mention inserts file pill token" classname="prompt/prompt-mention.spec.ts" time="4.064">
+</testcase>
+</testsuite>
+<testsuite name="prompt/prompt-multiline.spec.ts" timestamp="2026-04-18T08:45:13.591Z" hostname="chromium" tests="1" failures="0" skipped="0" time="2.972" errors="0">
+<testcase name="shift+enter inserts a newline without submitting" classname="prompt/prompt-multiline.spec.ts" time="2.972">
+</testcase>
+</testsuite>
+<testsuite name="prompt/prompt-shell.spec.ts" timestamp="2026-04-18T08:45:13.591Z" hostname="chromium" tests="1" failures="0" skipped="0" time="5.558" errors="0">
+<testcase name="shell mode runs a command in the project directory" classname="prompt/prompt-shell.spec.ts" time="5.558">
+</testcase>
+</testsuite>
+<testsuite name="prompt/prompt-slash-open.spec.ts" timestamp="2026-04-18T08:45:13.591Z" hostname="chromium" tests="1" failures="0" skipped="0" time="3.434" errors="0">
+<testcase name="smoke /open opens file picker dialog" classname="prompt/prompt-slash-open.spec.ts" time="3.434">
+</testcase>
+</testsuite>
+<testsuite name="prompt/prompt-slash-share.spec.ts" timestamp="2026-04-18T08:45:13.591Z" hostname="chromium" tests="1" failures="0" skipped="1" time="0.318" errors="0">
+<testcase name="/share and /unshare update session share state" classname="prompt/prompt-slash-share.spec.ts" time="0.318">
+<properties>
+<property name="skip" value="Share is disabled in this environment (OPENCODE_DISABLE_SHARE).">
+</property>
+</properties>
+<skipped>
+</skipped>
+</testcase>
+</testsuite>
+<testsuite name="prompt/prompt-slash-terminal.spec.ts" timestamp="2026-04-18T08:45:13.591Z" hostname="chromium" tests="1" failures="0" skipped="0" time="3.465" errors="0">
+<testcase name="/terminal toggles the terminal panel" classname="prompt/prompt-slash-terminal.spec.ts" time="3.465">
+</testcase>
+</testsuite>
+<testsuite name="session/session-child-navigation.spec.ts" timestamp="2026-04-18T08:45:13.591Z" hostname="chromium" tests="1" failures="0" skipped="0" time="29.195" errors="0">
+<testcase name="task tool child-session link does not trigger stale show errors" classname="session/session-child-navigation.spec.ts" time="29.195">
+</testcase>
+</testsuite>
+<testsuite name="session/session-undo-redo.spec.ts" timestamp="2026-04-18T08:45:13.591Z" hostname="chromium" tests="3" failures="0" skipped="0" time="18.277" errors="0">
+<testcase name="slash undo sets revert and restores prior prompt" classname="session/session-undo-redo.spec.ts" time="5.353">
+</testcase>
+<testcase name="slash redo clears revert and restores latest state" classname="session/session-undo-redo.spec.ts" time="5.669">
+</testcase>
+<testcase name="slash undo/redo traverses multi-step revert stack" classname="session/session-undo-redo.spec.ts" time="7.255">
+</testcase>
+</testsuite>
+<testsuite name="session/session.spec.ts" timestamp="2026-04-18T08:45:13.591Z" hostname="chromium" tests="4" failures="0" skipped="1" time="12.293" errors="0">
+<testcase name="session can be renamed via header menu" classname="session/session.spec.ts" time="4.365">
+</testcase>
+<testcase name="session can be archived via header menu" classname="session/session.spec.ts" time="3.426">
+</testcase>
+<testcase name="session can be deleted via header menu" classname="session/session.spec.ts" time="4.199">
+</testcase>
+<testcase name="session can be shared and unshared via header button" classname="session/session.spec.ts" time="0.303">
+<properties>
+<property name="skip" value="Share is disabled in this environment (OPENCODE_DISABLE_SHARE).">
+</property>
+</properties>
+<skipped>
+</skipped>
+</testcase>
+</testsuite>
+<testsuite name="settings/settings-models.spec.ts" timestamp="2026-04-18T08:45:13.591Z" hostname="chromium" tests="2" failures="0" skipped="0" time="15.973" errors="0">
+<testcase name="hiding a model removes it from the model picker" classname="settings/settings-models.spec.ts" time="7.562">
+</testcase>
+<testcase name="showing a hidden model restores it to the model picker" classname="settings/settings-models.spec.ts" time="8.411">
+</testcase>
+</testsuite>
+<testsuite name="settings/settings.spec.ts" timestamp="2026-04-18T08:45:13.591Z" hostname="chromium" tests="15" failures="0" skipped="0" time="57.877" errors="0">
+<testcase name="smoke settings dialog opens, switches tabs, closes" classname="settings/settings.spec.ts" time="3.749">
+</testcase>
+<testcase name="changing language updates settings labels" classname="settings/settings.spec.ts" time="4.448">
+</testcase>
+<testcase name="changing color scheme persists in localStorage" classname="settings/settings.spec.ts" time="4.262">
+</testcase>
+<testcase name="changing theme persists in localStorage" classname="settings/settings.spec.ts" time="5.422">
+</testcase>
+<testcase name="legacy oc-1 theme migrates to oc-2" classname="settings/settings.spec.ts" time="2.615">
+</testcase>
+<testcase name="changing font persists in localStorage and updates CSS variable" classname="settings/settings.spec.ts" time="4.304">
+</testcase>
+<testcase name="color scheme and font rehydrate after reload" classname="settings/settings.spec.ts" time="5.223">
+</testcase>
+<testcase name="toggling notification agent switch updates localStorage" classname="settings/settings.spec.ts" time="3.393">
+</testcase>
+<testcase name="toggling notification permissions switch updates localStorage" classname="settings/settings.spec.ts" time="3.327">
+</testcase>
+<testcase name="toggling notification errors switch updates localStorage" classname="settings/settings.spec.ts" time="3.424">
+</testcase>
+<testcase name="changing sound agent selection persists in localStorage" classname="settings/settings.spec.ts" time="3.423">
+</testcase>
+<testcase name="selecting none disables agent sound" classname="settings/settings.spec.ts" time="3.678">
+</testcase>
+<testcase name="changing permissions and errors sounds updates localStorage" classname="settings/settings.spec.ts" time="4.065">
+</testcase>
+<testcase name="toggling updates startup switch updates localStorage" classname="settings/settings.spec.ts" time="3.24">
+</testcase>
+<testcase name="toggling release notes switch updates localStorage" classname="settings/settings.spec.ts" time="3.304">
+</testcase>
+</testsuite>
+<testsuite name="sidebar/sidebar.spec.ts" timestamp="2026-04-18T08:45:13.591Z" hostname="chromium" tests="2" failures="0" skipped="0" time="11.32" errors="0">
+<testcase name="sidebar can be collapsed and expanded" classname="sidebar/sidebar.spec.ts" time="3.046">
+</testcase>
+<testcase name="sidebar collapsed state persists across navigation and reload" classname="sidebar/sidebar.spec.ts" time="8.274">
+</testcase>
+</testsuite>
+<testsuite name="status/status-popover.spec.ts" timestamp="2026-04-18T08:45:13.591Z" hostname="chromium" tests="7" failures="0" skipped="0" time="23.183" errors="0">
+<testcase name="status popover opens and shows tabs" classname="status/status-popover.spec.ts" time="3.414">
+</testcase>
+<testcase name="status popover servers tab shows current server" classname="status/status-popover.spec.ts" time="3.27">
+</testcase>
+<testcase name="status popover can switch to mcp tab" classname="status/status-popover.spec.ts" time="3.149">
+</testcase>
+<testcase name="status popover can switch to lsp tab" classname="status/status-popover.spec.ts" time="3.444">
+</testcase>
+<testcase name="status popover can switch to plugins tab" classname="status/status-popover.spec.ts" time="3.038">
+</testcase>
+<testcase name="status popover closes on escape" classname="status/status-popover.spec.ts" time="3.251">
+</testcase>
+<testcase name="status popover closes when clicking outside" classname="status/status-popover.spec.ts" time="3.617">
+</testcase>
+</testsuite>
+<testsuite name="terminal/terminal-tabs.spec.ts" timestamp="2026-04-18T08:45:13.591Z" hostname="chromium" tests="3" failures="0" skipped="0" time="20.157" errors="0">
+<testcase name="inactive terminal tab buffers persist across tab switches" classname="terminal/terminal-tabs.spec.ts" time="8.501">
+</testcase>
+<testcase name="closing the active terminal tab falls back to the previous tab" classname="terminal/terminal-tabs.spec.ts" time="5.69">
+</testcase>
+<testcase name="terminal tab can be renamed from the context menu" classname="terminal/terminal-tabs.spec.ts" time="5.966">
+</testcase>
+</testsuite>
+<testsuite name="terminal/terminal.spec.ts" timestamp="2026-04-18T08:45:13.591Z" hostname="chromium" tests="1" failures="0" skipped="0" time="3.045" errors="0">
+<testcase name="terminal panel can be toggled" classname="terminal/terminal.spec.ts" time="3.045">
+</testcase>
+</testsuite>
+<testsuite name="thinking-level.spec.ts" timestamp="2026-04-18T08:45:13.591Z" hostname="chromium" tests="1" failures="0" skipped="1" time="2.663" errors="0">
+<testcase name="smoke model variant cycle updates label" classname="thinking-level.spec.ts" time="2.663">
+<properties>
+<property name="skip" value="current model has no variants">
+</property>
+</properties>
+<skipped>
+</skipped>
+</testcase>
+</testsuite>
+</testsuites>

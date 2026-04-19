@@ -5,6 +5,7 @@ import { ResizeHandle } from "@opencode-ai/ui/resize-handle"
 import { OfficialReadingPdfViewer } from "./reading-pdf-viewer-official"
 import { ReadingFirstReadGate } from "./reading-first-read-gate-pdf"
 import { DialogReadingModeSettings } from "@/components/dialog-reading-mode-settings"
+import { useMaybeConversationQuote } from "@/context/conversation-quote"
 import { DEFAULT_PROMPT } from "@/context/prompt"
 import { useGlobalSync } from "@/context/global-sync"
 import { useLanguage } from "@/context/language"
@@ -14,6 +15,7 @@ import { useSDK } from "@/context/sdk"
 import { useSync } from "@/context/sync"
 import { sendFollowupDraft, type FollowupDraft } from "@/components/prompt-input/submit"
 import { Identifier } from "@/utils/id"
+import { createReadingQuoteMetadata, summarizeReadingQuoteText } from "@/utils/comment-note"
 import { formatServerError } from "@/utils/server-errors"
 import { createSizing, type Sizing } from "@/pages/session/helpers"
 
@@ -35,6 +37,7 @@ export const ReadingModePanel: Component<{
   const local = useLocal()
   const language = useLanguage()
   const dialog = useDialog()
+  const conversationQuote = useMaybeConversationQuote()
   const size = props.sizing ?? createSizing()
 
   const pdfUrl = createMemo(() => `${sdk.url}/reading-mode/pdf?sessionID=${encodeURIComponent(props.sessionID)}`)
@@ -81,6 +84,7 @@ export const ReadingModePanel: Component<{
     if (!text) return
 
     if (input.action === "ask") {
+      conversationQuote?.clearPendingQuestion()
       rm.setPendingQuestion({
         kind: "text-question",
         page: input.page,
@@ -126,6 +130,20 @@ export const ReadingModePanel: Component<{
           text: translatePromptText(meta.settings.translatePrompt, text),
           synthetic: true,
         },
+        {
+          text: "",
+          synthetic: true,
+          ignored: true,
+          metadata: createReadingQuoteMetadata({
+            mode: "classic",
+            action: "translate",
+            contentType: "text",
+            pdfFileName: meta.pdfFileName,
+            page: input.page,
+            summary: summarizeReadingQuoteText(text),
+            fullText: text,
+          }),
+        },
       ],
     }
 
@@ -153,6 +171,7 @@ export const ReadingModePanel: Component<{
     if (!input.imageDataUrl) return
 
     if (input.action === "ask") {
+      conversationQuote?.clearPendingQuestion()
       rm.setPendingQuestion({
         kind: "image-question",
         page: input.page,

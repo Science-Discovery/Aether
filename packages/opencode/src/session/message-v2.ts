@@ -27,6 +27,17 @@ export namespace MessageV2 {
     return mime.startsWith("image/") || mime === "application/pdf"
   }
 
+  function shouldPassFilePartToModel(mime: string) {
+    return isMedia(mime)
+  }
+
+  function normalizeDataUrlMime(url: string, mime: string) {
+    if (!url.startsWith("data:")) return url
+    const comma = url.indexOf(",")
+    if (comma === -1) return url
+    return `data:${mime};base64,${url.slice(comma + 1)}`
+  }
+
   export const OutputLengthError = NamedError.create("MessageOutputLengthError", z.object({}))
   export const AbortedError = NamedError.create("MessageAbortedError", z.object({ message: z.string() }))
   export const StructuredOutputError = NamedError.create(
@@ -651,7 +662,12 @@ export namespace MessageV2 {
             })
           // text/plain and directory files are converted into text parts, ignore them
           if (part.type === "file" && part.mime !== "text/plain" && part.mime !== "application/x-directory") {
-            if (options?.stripMedia && isMedia(part.mime)) {
+            if (!shouldPassFilePartToModel(part.mime)) {
+              userMessage.parts.push({
+                type: "text",
+                text: `[Attached unsupported file omitted: ${part.filename ?? "file"} (${part.mime})]`,
+              })
+            } else if (options?.stripMedia && isMedia(part.mime)) {
               userMessage.parts.push({
                 type: "text",
                 text: `[Attached ${part.mime}: ${part.filename ?? "file"}]`,
@@ -659,7 +675,7 @@ export namespace MessageV2 {
             } else {
               userMessage.parts.push({
                 type: "file",
-                url: part.url,
+                url: normalizeDataUrlMime(part.url, part.mime),
                 mediaType: part.mime,
                 filename: part.filename,
               })
@@ -786,7 +802,7 @@ export namespace MessageV2 {
                 },
                 ...media.map((attachment) => ({
                   type: "file" as const,
-                  url: attachment.url,
+                  url: normalizeDataUrlMime(attachment.url, attachment.mime),
                   mediaType: attachment.mime,
                 })),
               ],

@@ -1,0 +1,34 @@
+<testsuites id="" name="" tests="10" failures="0" skipped="0" errors="0" time="71.95164799999999">
+<testsuite name="files/file-viewer.spec.ts" timestamp="2026-04-18T08:48:06.527Z" hostname="chromium" tests="3" failures="0" skipped="0" time="21.023" errors="0">
+<testcase name="smoke file viewer renders real file content" classname="files/file-viewer.spec.ts" time="10.734">
+</testcase>
+<testcase name="cmd+f opens text viewer search while prompt is focused" classname="files/file-viewer.spec.ts" time="5.262">
+</testcase>
+<testcase name="cmd+f opens text viewer search while prompt is not focused" classname="files/file-viewer.spec.ts" time="5.027">
+</testcase>
+</testsuite>
+<testsuite name="prompt/prompt-async.spec.ts" timestamp="2026-04-18T08:48:06.527Z" hostname="chromium" tests="2" failures="0" skipped="0" time="13.807" errors="0">
+<testcase name="prompt succeeds when sync message endpoint is unreachable" classname="prompt/prompt-async.spec.ts" time="10.114">
+</testcase>
+<testcase name="failed prompt send restores the composer input" classname="prompt/prompt-async.spec.ts" time="3.693">
+</testcase>
+</testsuite>
+<testsuite name="prompt/prompt-history.spec.ts" timestamp="2026-04-18T08:48:06.527Z" hostname="chromium" tests="2" failures="0" skipped="0" time="17.698" errors="0">
+<testcase name="prompt history restores unsent draft with arrow navigation" classname="prompt/prompt-history.spec.ts" time="5.514">
+</testcase>
+<testcase name="shell history stays separate from normal prompt history" classname="prompt/prompt-history.spec.ts" time="12.184">
+</testcase>
+</testsuite>
+<testsuite name="prompt/prompt.spec.ts" timestamp="2026-04-18T08:48:06.527Z" hostname="chromium" tests="1" failures="0" skipped="0" time="3.961" errors="0">
+<testcase name="can send a prompt and receive a reply" classname="prompt/prompt.spec.ts" time="3.961">
+</testcase>
+</testsuite>
+<testsuite name="terminal/terminal-init.spec.ts" timestamp="2026-04-18T08:48:06.527Z" hostname="chromium" tests="1" failures="0" skipped="0" time="3.118" errors="0">
+<testcase name="smoke terminal mounts and can create a second tab" classname="terminal/terminal-init.spec.ts" time="3.118">
+</testcase>
+</testsuite>
+<testsuite name="terminal/terminal-reconnect.spec.ts" timestamp="2026-04-18T08:48:06.527Z" hostname="chromium" tests="1" failures="0" skipped="0" time="6.238" errors="0">
+<testcase name="terminal reconnects without replacing the pty" classname="terminal/terminal-reconnect.spec.ts" time="6.238">
+</testcase>
+</testsuite>
+</testsuites>

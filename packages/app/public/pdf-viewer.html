@@ -27,13 +27,13 @@ See https://github.com/adobe-type-tools/cmap-resources
     <meta name="google" content="notranslate">
     <title>Aether PDF Viewer</title>
 
-    <link rel="stylesheet" href="/pdfjs-ref/web/viewer.css">
-    <link rel="stylesheet" href="/pdf-viewer-aether.css">
-    <link rel="resource" type="application/l10n" href="/pdfjs-ref/web/locale/locale.properties">
-    <script src="/pdfjs-ref/build/pdf.js"></script>
-    <script src="/pdfjs-ref/build/pdf.worker.js"></script>
-    <script src="/pdfjs-ref/web/viewer.js"></script>
-    <script src="/pdf-viewer-aether.js"></script>
+    <link rel="stylesheet" href="./pdfjs-ref/web/viewer.css">
+    <link rel="stylesheet" href="./pdf-viewer-aether.css">
+    <link rel="resource" type="application/l10n" href="./pdfjs-ref/web/locale/locale.properties">
+    <script src="./pdfjs-ref/build/pdf.js"></script>
+    <script src="./pdfjs-ref/build/pdf.worker.js"></script>
+    <script src="./pdfjs-ref/web/viewer.js"></script>
+    <script src="./pdf-viewer-aether.js"></script>
 
   </head>
 
@@ -235,6 +235,15 @@ See https://github.com/adobe-type-tools/cmap-resources
             <button id="documentProperties" class="secondaryToolbarButton" title="Document Properties…" tabindex="69" data-l10n-id="document_properties" aria-controls="documentPropertiesDialog">
               <span data-l10n-id="document_properties_label">Document Properties…</span>
             </button>
+            <button id="aetherFirstRead" class="secondaryToolbarButton" title="AI pre-read" hidden>
+              <span>AI pre-read</span>
+            </button>
+            <button id="aetherReadingSettingsSecondary" class="secondaryToolbarButton" title="Reading settings" hidden>
+              <span>Reading settings</span>
+            </button>
+            <button id="aetherSwapLayoutSecondary" class="secondaryToolbarButton" title="Swap layout" hidden>
+              <span>Swap layout</span>
+            </button>
           </div>
         </div>  <!-- secondaryToolbar -->
 
@@ -321,6 +330,9 @@ See https://github.com/adobe-type-tools/cmap-resources
                 <button id="aetherNightMode" class="toolbarButton" title="Enable night mode">
                   <span>Night mode</span>
                 </button>
+                <button id="aetherExitQuickReading" class="toolbarButton" title="Exit quick reading mode" hidden>
+                  <span>Exit quick read</span>
+                </button>
                 <button id="aetherCaptureRegion" class="toolbarButton" title="Capture region" hidden>
                   <span>Capture region</span>
                 </button>
@@ -333,8 +345,8 @@ See https://github.com/adobe-type-tools/cmap-resources
                 <button id="aetherPdf2md" class="toolbarButton" title="Convert PDF to Markdown" hidden>
                   <span>PDF2md</span>
                 </button>
-                <button id="aetherOpenReadingMode" class="toolbarButton" title="Open in Reading Mode" hidden>
-                  <span>Reading</span>
+                <button id="aetherOpenReadingMode" class="toolbarButton" title="Open in Quick Reading Mode" hidden>
+                  <span>Quick read</span>
                 </button>
               </div>
             </div>

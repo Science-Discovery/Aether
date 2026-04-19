@@ -1209,6 +1209,7 @@ export namespace Config {
         .optional(),
       experimental: z
         .object({
+          branches_tab: z.boolean().optional(),
           disable_paste_summary: z.boolean().optional(),
           batch_tool: z.boolean().optional().describe("Enable the batch tool"),
           openTelemetry: z

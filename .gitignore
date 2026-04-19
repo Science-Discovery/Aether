@@ -13,6 +13,7 @@ tmp
 dist
 ts-dist
 .turbo
+.playwright-browsers/
 **/.serena
 .serena/
 /result
@@ -37,3 +38,7 @@ __pycache__/
 *.pyc
 */__pycache__/
 .opencode/skills/aether-issue-pr
+nul
+Update/test_installer_init_flow.sh
+
+.aether/*

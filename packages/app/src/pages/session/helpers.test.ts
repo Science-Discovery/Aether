@@ -1,13 +1,19 @@
+import type { Message, SessionGraphResult } from "@opencode-ai/sdk/v2"
 import { describe, expect, test } from "bun:test"
 import { createMemo, createRoot } from "solid-js"
 import { createStore } from "solid-js/store"
 import {
+  collectCompletedTurnUserMessageIDs,
   createOpenReviewFile,
   createOpenSessionFileTab,
   createSessionTabs,
   focusTerminalById,
   getTabReorderIndex,
+  getInheritedTurnCount,
+  getSelectedTurnBoundaryIndex,
+  hasProtectedDescendantBranch,
   shouldFocusTerminalOnKeyDown,
+  shouldProtectSessionRevert,
 } from "./helpers"
 
 describe("createOpenReviewFile", () => {
@@ -177,5 +183,253 @@ describe("createSessionTabs", () => {
       expect(result.closableTab()).toBeUndefined()
       dispose()
     })
+  })
+
+  test("treats branches as a fixed fallback tab", () => {
+    createRoot((dispose) => {
+      const [state] = createStore({
+        active: "branches" as string | undefined,
+        all: [],
+      })
+      const tabs = createMemo(() => ({ active: () => state.active, all: () => state.all }))
+      const result = createSessionTabs({
+        tabs,
+        pathFromTab: () => undefined,
+        normalizeTab: (tab) => tab,
+        branches: () => true,
+      })
+
+      expect(result.activeTab()).toBe("branches")
+      expect(result.activeFileTab()).toBeUndefined()
+      expect(result.closableTab()).toBeUndefined()
+      dispose()
+    })
+
+    createRoot((dispose) => {
+      const [state] = createStore({
+        active: undefined as string | undefined,
+        all: [],
+      })
+      const tabs = createMemo(() => ({ active: () => state.active, all: () => state.all }))
+      const result = createSessionTabs({
+        tabs,
+        pathFromTab: () => undefined,
+        normalizeTab: (tab) => tab,
+        branches: () => true,
+      })
+
+      expect(result.activeTab()).toBe("branches")
+      dispose()
+    })
+  })
+
+  test("preserves the last fixed tab across active reset", () => {
+    createRoot((dispose) => {
+      const [state, setState] = createStore({
+        active: "branches" as string | undefined,
+        all: [] as string[],
+      })
+      const tabs = createMemo(() => ({ active: () => state.active, all: () => state.all }))
+      const result = createSessionTabs({
+        tabs,
+        pathFromTab: () => undefined,
+        normalizeTab: (tab) => tab,
+        review: () => true,
+        hasReview: () => true,
+        branches: () => true,
+      })
+
+      expect(result.activeTab()).toBe("branches")
+      setState("active", undefined)
+      expect(result.activeTab()).toBe("branches")
+      dispose()
+    })
+  })
+})
+
+const user = (id: string, created: number, sessionID = "session-root"): Message => ({
+  id,
+  sessionID,
+  role: "user",
+  time: { created },
+  agent: "test",
+  model: { providerID: "provider", modelID: "model" },
+})
+
+const assistant = (id: string, parentID: string, created: number, completed: number, sessionID = "session-root"): Message => ({
+  id,
+  sessionID,
+  role: "assistant",
+  time: { created, completed },
+  parentID,
+  modelID: "model",
+  providerID: "provider",
+  mode: "build",
+  agent: "test",
+  path: { cwd: "/", root: "/" },
+  cost: 0,
+  tokens: {
+    input: 0,
+    output: 0,
+    reasoning: 0,
+    cache: { read: 0, write: 0 },
+  },
+})
+
+const graph = (input: {
+  currentSessionID: string
+  nodes: Extract<SessionGraphResult, { kind: "graph" }>["nodes"]
+  edges: Extract<SessionGraphResult, { kind: "graph" }>["edges"]
+  pathNodeIDs: string[]
+}): Extract<SessionGraphResult, { kind: "graph" }> => ({
+  kind: "graph",
+  treeID: "tree-1",
+  current: {
+    sessionID: input.currentSessionID,
+    pathNodeIDs: input.pathNodeIDs,
+    latestNodeID: input.pathNodeIDs[input.pathNodeIDs.length - 1],
+  },
+  nodes: input.nodes,
+  edges: input.edges,
+})
+
+describe("chat-tree revert protection helpers", () => {
+  test("collects completed user turns and selected boundary index", () => {
+    const messages = [
+      user("u1", 1),
+      assistant("a1", "u1", 2, 3),
+      user("u2", 4),
+      assistant("a2", "u2", 5, 6),
+      user("u3", 7),
+    ]
+
+    expect(collectCompletedTurnUserMessageIDs(messages)).toEqual(["u1", "u2"])
+    expect(getSelectedTurnBoundaryIndex(messages, "u1")).toBe(1)
+    expect(getSelectedTurnBoundaryIndex(messages, "u2")).toBe(2)
+    expect(getSelectedTurnBoundaryIndex(messages, "u3")).toBe(2)
+  })
+
+  test("counts inherited turns on a branch path", () => {
+    const payload = graph({
+      currentSessionID: "session-child",
+      pathNodeIDs: ["n1", "n2", "n3"],
+      nodes: [
+        { id: "n1", kind: "turn", sessionID: "session-root", lane: 0, row: 0, time: 1, label: "1", userMessageID: "u1", origin: "tree" },
+        { id: "n2", kind: "turn", sessionID: "session-root", lane: 0, row: 1, time: 2, label: "2", userMessageID: "u2", origin: "tree" },
+        { id: "n3", kind: "turn", sessionID: "session-child", lane: 1, row: 2, time: 3, label: "3", userMessageID: "u3", origin: "tree" },
+      ],
+      edges: [
+        { id: "n1->n2", from: "n1", to: "n2", kind: "continuation", style: "solid" },
+        { id: "n2->n3", from: "n2", to: "n3", kind: "branch", style: "solid" },
+      ],
+    })
+
+    expect(getInheritedTurnCount({ sessionID: "session-child", graph: payload })).toBe(2)
+  })
+
+  test("detects descendant branches from the selected turn onward", () => {
+    const payload = graph({
+      currentSessionID: "session-root",
+      pathNodeIDs: ["n1", "n2", "n3"],
+      nodes: [
+        { id: "n1", kind: "turn", sessionID: "session-root", lane: 0, row: 0, time: 1, label: "1", userMessageID: "u1", origin: "tree" },
+        { id: "n2", kind: "turn", sessionID: "session-root", lane: 0, row: 1, time: 2, label: "2", userMessageID: "u2", origin: "tree" },
+        { id: "n3", kind: "turn", sessionID: "session-root", lane: 0, row: 2, time: 3, label: "3", userMessageID: "u3", origin: "tree" },
+        { id: "n4", kind: "turn", sessionID: "session-child", lane: 1, row: 3, time: 4, label: "branch", userMessageID: "u4", origin: "tree" },
+      ],
+      edges: [
+        { id: "n1->n2", from: "n1", to: "n2", kind: "continuation", style: "solid" },
+        { id: "n2->n3", from: "n2", to: "n3", kind: "continuation", style: "solid" },
+        { id: "n2->n4", from: "n2", to: "n4", kind: "branch", style: "solid" },
+      ],
+    })
+
+    expect(hasProtectedDescendantBranch({ sessionID: "session-root", graph: payload, fromTurnIndex: 1 })).toBe(true)
+    expect(hasProtectedDescendantBranch({ sessionID: "session-root", graph: payload, fromTurnIndex: 2 })).toBe(true)
+    expect(hasProtectedDescendantBranch({ sessionID: "session-root", graph: payload, fromTurnIndex: 3 })).toBe(false)
+  })
+
+  test("protects inherited-prefix revert on branch sessions", () => {
+    const messages = [
+      user("u1", 1, "session-child"),
+      assistant("a1", "u1", 2, 3, "session-child"),
+      user("u2", 4, "session-child"),
+      assistant("a2", "u2", 5, 6, "session-child"),
+      user("u3", 7, "session-child"),
+      assistant("a3", "u3", 8, 9, "session-child"),
+    ]
+    const payload = graph({
+      currentSessionID: "session-child",
+      pathNodeIDs: ["n1", "n2", "n3"],
+      nodes: [
+        { id: "n1", kind: "turn", sessionID: "session-root", lane: 0, row: 0, time: 1, label: "1", userMessageID: "root-1", origin: "tree" },
+        { id: "n2", kind: "turn", sessionID: "session-root", lane: 0, row: 1, time: 2, label: "2", userMessageID: "root-2", origin: "tree" },
+        { id: "n3", kind: "turn", sessionID: "session-child", lane: 1, row: 2, time: 3, label: "3", userMessageID: "child-3", origin: "tree" },
+      ],
+      edges: [
+        { id: "n1->n2", from: "n1", to: "n2", kind: "continuation", style: "solid" },
+        { id: "n2->n3", from: "n2", to: "n3", kind: "branch", style: "solid" },
+      ],
+    })
+
+    expect(
+      shouldProtectSessionRevert({
+        session: { id: "session-child", forkParentSessionID: "session-root" },
+        messages,
+        selectedMessageID: "u1",
+        graph: payload,
+      }),
+    ).toBe(true)
+    expect(
+      shouldProtectSessionRevert({
+        session: { id: "session-child", forkParentSessionID: "session-root" },
+        messages,
+        selectedMessageID: "u3",
+        graph: payload,
+      }),
+    ).toBe(false)
+  })
+
+  test("protects root revert when a later branch already depends on it", () => {
+    const messages = [
+      user("u1", 1),
+      assistant("a1", "u1", 2, 3),
+      user("u2", 4),
+      assistant("a2", "u2", 5, 6),
+      user("u3", 7),
+      assistant("a3", "u3", 8, 9),
+    ]
+    const payload = graph({
+      currentSessionID: "session-root",
+      pathNodeIDs: ["n1", "n2", "n3"],
+      nodes: [
+        { id: "n1", kind: "turn", sessionID: "session-root", lane: 0, row: 0, time: 1, label: "1", userMessageID: "u1", origin: "tree" },
+        { id: "n2", kind: "turn", sessionID: "session-root", lane: 0, row: 1, time: 2, label: "2", userMessageID: "u2", origin: "tree" },
+        { id: "n3", kind: "turn", sessionID: "session-root", lane: 0, row: 2, time: 3, label: "3", userMessageID: "u3", origin: "tree" },
+        { id: "n4", kind: "bud", sessionID: "session-child", lane: 1, row: 3, time: 4, label: "...", origin: "external" },
+      ],
+      edges: [
+        { id: "n1->n2", from: "n1", to: "n2", kind: "continuation", style: "solid" },
+        { id: "n2->n3", from: "n2", to: "n3", kind: "continuation", style: "solid" },
+        { id: "n2->n4", from: "n2", to: "n4", kind: "bud", style: "dashed" },
+      ],
+    })
+
+    expect(
+      shouldProtectSessionRevert({
+        session: { id: "session-root", forkParentSessionID: undefined },
+        messages,
+        selectedMessageID: "u2",
+        graph: payload,
+      }),
+    ).toBe(true)
+    expect(
+      shouldProtectSessionRevert({
+        session: { id: "session-root", forkParentSessionID: undefined },
+        messages,
+        selectedMessageID: "u3",
+        graph: payload,
+      }),
+    ).toBe(false)
   })
 })

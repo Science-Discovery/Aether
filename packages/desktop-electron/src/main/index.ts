@@ -146,7 +146,6 @@ function setInitStep(step: InitStep) {
 
 async function initialize() {
   const needsMigration = !sqliteFileExists()
-  const sqliteDone = needsMigration ? defer<void>() : undefined
   let overlay: BrowserWindow | null = null
 
   const port = await getSidecarPort()
@@ -176,12 +175,7 @@ async function initialize() {
       setInitStep({ phase: "sqlite_waiting" })
       if (overlay) sendSqliteMigrationProgress(overlay, progress)
       if (mainWindow) sendSqliteMigrationProgress(mainWindow, progress)
-      if (progress.type === "Done") sqliteDone?.resolve()
     })
-
-    if (needsMigration) {
-      await sqliteDone?.promise
-    }
 
     await Promise.race([
       health.wait,

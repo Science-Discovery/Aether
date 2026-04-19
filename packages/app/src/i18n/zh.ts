@@ -113,6 +113,8 @@ export const dict = {
   "command.session.fork.description": "从之前的消息创建新会话",
   "command.session.share": "分享会话",
   "command.session.share.description": "分享此会话并将链接复制到剪贴板",
+  "command.session.readingMode": "\u9605\u8bfb\u6a21\u5f0f",
+  "command.session.readingMode.description": "\u6253\u5f00\u7ecf\u5178\u9605\u8bfb\u6a21\u5f0f",
   "command.session.unshare": "取消分享会话",
   "command.session.unshare.description": "停止分享此会话",
 
@@ -1074,4 +1076,6 @@ export const dict = {
   "reading.toolbar.fitWidth": "适应宽度",
   "reading.toolbar.nightMode": "夜览模式",
   "reading.toolbar.continuousMode": "连续阅读",
+  "settings.general.row.branchesTab.title": "启用对话树",
+  "settings.general.row.branchesTab.description": "在会话列表侧栏中内联显示对话树视图",
 } satisfies Partial<Record<Keys, string>>

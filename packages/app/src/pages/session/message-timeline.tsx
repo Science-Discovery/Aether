@@ -1,5 +1,5 @@
-import { For, createEffect, createMemo, on, onCleanup, Show, Index, type JSX, createSignal } from "solid-js"
-import { createStore, produce } from "solid-js/store"
+﻿import { For, createEffect, createMemo, on, onCleanup, Show, Index, type JSX, createSignal, batch } from "solid-js"
+import { createStore, produce, reconcile } from "solid-js/store"
 import { useNavigate } from "@solidjs/router"
 import { useMutation } from "@tanstack/solid-query"
 import { Button } from "@opencode-ai/ui/button"
@@ -19,19 +19,35 @@ import { Binary } from "@opencode-ai/util/binary"
 import { getFilename } from "@opencode-ai/util/path"
 import { Popover as KobaltePopover } from "@kobalte/core/popover"
 import { shouldMarkBoundaryGesture, normalizeWheelDelta } from "@/pages/session/message-gesture"
+import { resolveSelectionAnchorRect } from "@/pages/session/selection-anchor"
 import { SessionContextUsage } from "@/components/session-context-usage"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
+import { useI18n } from "@opencode-ai/ui/context"
 import { useLanguage } from "@/context/language"
 import { useSessionKey } from "@/pages/session/session-layout"
 import { useGlobalSDK } from "@/context/global-sdk"
+import { useGlobalSync } from "@/context/global-sync"
 import { usePlatform } from "@/context/platform"
 import { useSettings } from "@/context/settings"
 import { useSDK } from "@/context/sdk"
 import { useSync } from "@/context/sync"
+import { useConversationQuote } from "@/context/conversation-quote"
+import { useMaybeQuickReadingMode } from "@/context/quick-reading-mode"
+import { useMaybeReadingMode } from "@/context/reading-mode"
 import { messageAgentColor } from "@/utils/agent"
-import { parseCommentNote, readCommentMetadata } from "@/utils/comment-note"
+import {
+  parseCommentNote,
+  readCommentMetadata,
+  readConversationQuoteMetadata,
+  readReadingQuoteMetadata,
+  summarizeReadingQuoteText,
+  type ConversationQuote,
+  type ReadingQuote,
+} from "@/utils/comment-note"
 import { makeTimer } from "@solid-primitives/timer"
 import { createChatFind, ChatFindBar } from "@/pages/session/chat-find"
+import { countSessionDescendants } from "@/utils/session-tree"
+import { Persist, persisted } from "@/utils/persist"
 
 type MessageComment = {
   path: string
@@ -41,6 +57,9 @@ type MessageComment = {
     endLine: number
   }
 }
+
+type MessageReadingQuote = ReadingQuote
+type MessageConversationQuote = ConversationQuote
 
 const emptyMessages: MessageType[] = []
 const idle = { type: "idle" as const }
@@ -68,6 +87,52 @@ const messageComments = (parts: Part[]): MessageComment[] =>
       },
     ]
   })
+
+const messageReadingQuotes = (parts: Part[]): MessageReadingQuote[] =>
+  parts.flatMap((part) => {
+    if (part.type !== "text" || !(part as TextPart).synthetic) return []
+    const next = readReadingQuoteMetadata(part.metadata)
+    return next && next.contentType === "text" ? [next] : []
+  })
+
+const messageConversationQuotes = (parts: Part[]): MessageConversationQuote[] =>
+  parts.flatMap((part) => {
+    if (part.type !== "text" || !(part as TextPart).synthetic) return []
+    const next = readConversationQuoteMetadata(part.metadata)
+    return next ? [next] : []
+  })
+
+function DialogReadingQuoteTextContent(props: { quote: MessageReadingQuote }) {
+  return (
+    <Dialog title="PDF Quote" class="w-[min(720px,calc(100vw-32px))] max-w-[calc(100vw-32px)]">
+      <div class="flex max-h-[70vh] min-w-0 w-full max-w-full flex-col gap-3 overflow-hidden p-4">
+        <div class="min-w-0 break-words text-14-medium text-text-strong">
+          {`${props.quote.pdfFileName} - p.${props.quote.page} - ${props.quote.action === "ask" ? "Ask" : "Translate"}`}
+        </div>
+        <div class="text-12-regular text-text-weak">
+          {props.quote.action === "ask" ? "Quoted content used for Ask" : "Quoted content used for Translate"}
+        </div>
+        <div class="min-w-0 w-full max-w-full overflow-auto rounded-md border border-border-weak-base bg-background-stronger px-3 py-3">
+          <div class="min-w-0 w-full max-w-full whitespace-pre-wrap break-words text-13-regular text-text-strong [overflow-wrap:anywhere]">
+            {props.quote.fullText || props.quote.summary}
+          </div>
+        </div>
+      </div>
+    </Dialog>
+  )
+}
+
+function DialogConversationQuoteTextContent(props: { quote: MessageConversationQuote }) {
+  return (
+    <Dialog title="AI Reply Quote" class="w-[min(720px,calc(100vw-32px))] max-w-[calc(100vw-32px)]">
+      <div class="max-h-[70vh] min-w-0 w-full max-w-full overflow-auto px-4 pb-4">
+        <div class="min-w-0 w-full max-w-full whitespace-pre-wrap break-words text-13-regular text-text-strong [overflow-wrap:anywhere]">
+          {props.quote.fullText}
+        </div>
+      </div>
+    </Dialog>
+  )
+}
 
 const boundaryTarget = (root: HTMLElement, target: EventTarget | null) => {
   const current = target instanceof Element ? target : undefined
@@ -116,7 +181,7 @@ type TimelineStageInput = {
  * Defer-mounts small timeline windows so revealing older turns does not
  * block first paint with a large DOM mount.
  *
- * Once staging completes for a session it never re-stages — backfill and
+ * Once staging completes for a session it never re-stages; backfill and
  * new messages render immediately.
  */
 function createTimelineStaging(input: TimelineStageInput) {
@@ -219,19 +284,43 @@ export function MessageTimeline(props: {
   onLoadEarlier: () => void
   renderedUserMessages: UserMessage[]
   anchor: (id: string) => string
+  onFocusInput?: () => void
 }) {
   let touchGesture: number | undefined
+  let timelineRoot: HTMLDivElement | undefined
   let log: HTMLDivElement | undefined
+  let selectionAskButton: HTMLButtonElement | undefined
 
   const navigate = useNavigate()
   const globalSDK = useGlobalSDK()
+  const globalSync = useGlobalSync()
   const sdk = useSDK()
   const sync = useSync()
   const settings = useSettings()
   const dialog = useDialog()
   const language = useLanguage()
+  const uiI18n = useI18n()
+  const conversationQuote = useConversationQuote()
+  const quickReadingMode = useMaybeQuickReadingMode()
+  const readingMode = useMaybeReadingMode()
   const { params, sessionKey } = useSessionKey()
   const platform = usePlatform()
+  const [selectionAsk, setSelectionAsk] = createStore({
+    open: false,
+    sourceMessageID: "",
+    text: "",
+    summary: "",
+    anchorTop: 0,
+    anchorLeft: 0,
+    top: 0,
+    left: 0,
+  })
+  const [assistantCollapse, setAssistantCollapse] = persisted(
+    Persist.workspace(sdk.directory, "session-assistant-collapse", ["session-assistant-collapse.v1"]),
+    createStore({
+      bySession: {} as Record<string, Record<string, true>>,
+    }),
+  )
 
   const rendered = createMemo(() => props.renderedUserMessages.map((message) => message.id))
   const sessionID = createMemo(() => params.id)
@@ -297,6 +386,61 @@ export function MessageTimeline(props: {
   const shareEnabled = createMemo(() => sync.data.config.share !== "disabled")
   const parentID = createMemo(() => info()?.parentID)
   const showHeader = createMemo(() => !!(titleValue() || parentID()))
+  const collapsibleTurnIDs = createMemo(() => {
+    const visible = new Set(rendered())
+    const pendingParents = new Set(
+      sessionMessages()
+        .filter((item): item is AssistantMessage => item.role === "assistant" && typeof item.time.completed !== "number")
+        .map((item) => item.parentID)
+        .filter((parentID): parentID is string => !!parentID),
+    )
+    const seen = new Set<string>()
+    const result: string[] = []
+
+    for (const item of sessionMessages()) {
+      if (item.role !== "assistant") continue
+      const parentID = item.parentID
+      if (!parentID || pendingParents.has(parentID) || !visible.has(parentID) || seen.has(parentID)) continue
+      seen.add(parentID)
+      result.push(parentID)
+    }
+
+    return result
+  })
+  const collapsedTurnMap = createMemo(() => {
+    const id = sessionID()
+    if (!id) return {}
+    return assistantCollapse.bySession[id] ?? {}
+  })
+  const isAssistantCollapsed = (messageID: string) => !!collapsedTurnMap()[messageID]
+  const setAssistantCollapsed = (messageID: string, value: boolean) => {
+    const id = sessionID()
+    if (!id) return
+    const current = assistantCollapse.bySession[id] ?? {}
+    if (value) {
+      setAssistantCollapse("bySession", id, reconcile({ ...current, [messageID]: true }))
+      return
+    }
+    if (!current[messageID]) return
+    const next = { ...current }
+    delete next[messageID]
+    setAssistantCollapse("bySession", id, reconcile(next))
+  }
+  const allAssistantCollapsed = createMemo(() => {
+    const ids = collapsibleTurnIDs()
+    return ids.length > 0 && ids.every((messageID) => isAssistantCollapsed(messageID))
+  })
+  const collapseAllAssistant = () => {
+    const id = sessionID()
+    if (!id) return
+    const next = Object.fromEntries(collapsibleTurnIDs().map((messageID) => [messageID, true] as const))
+    setAssistantCollapse("bySession", id, reconcile(next))
+  }
+  const expandAllAssistant = () => {
+    const id = sessionID()
+    if (!id) return
+    setAssistantCollapse("bySession", id, reconcile({}))
+  }
   const stageCfg = { init: 1, batch: 3 }
   const staging = createTimelineStaging({
     sessionKey,
@@ -345,6 +489,217 @@ export function MessageTimeline(props: {
     if (err instanceof Error) return err.message
     return language.t("common.requestFailed")
   }
+
+  const clearSelectionAsk = () =>
+    setSelectionAsk({
+      open: false,
+      sourceMessageID: "",
+      text: "",
+      summary: "",
+      anchorTop: 0,
+      anchorLeft: 0,
+      top: 0,
+      left: 0,
+    })
+
+  const positionSelectionAsk = (input?: { top: number; left: number }) => {
+    const top = input?.top ?? selectionAsk.anchorTop
+    const left = input?.left ?? selectionAsk.anchorLeft
+    const buttonRect = selectionAskButton?.getBoundingClientRect()
+    const rootRect = timelineRoot?.getBoundingClientRect()
+    const buttonWidth = buttonRect?.width ?? 52
+    const buttonHeight = buttonRect?.height ?? 34
+    const rootWidth = rootRect?.width ?? window.innerWidth
+    const rootTop = rootRect?.top ?? 0
+    const rootLeft = rootRect?.left ?? 0
+
+    setSelectionAsk({
+      top: Math.max(12, top - rootTop - buttonHeight - 10),
+      left: Math.min(
+        rootWidth - buttonWidth - 12,
+        Math.max(12, left - rootLeft - buttonWidth / 2),
+      ),
+    })
+  }
+
+  const selectionParentElement = (node: Node | null) =>
+    node instanceof Element ? node : node?.parentElement ?? undefined
+
+  const selectionTextRects = (input: { range: Range; container: HTMLElement }) => {
+    const textRects: Array<{
+      top: number
+      left: number
+      right: number
+      bottom: number
+      width: number
+      height: number
+    }> = []
+
+    const walker = document.createTreeWalker(input.container, NodeFilter.SHOW_TEXT, {
+      acceptNode(node) {
+        if (!(node instanceof Text) || !node.data.trim()) return NodeFilter.FILTER_REJECT
+        if (!input.range.intersectsNode(node)) return NodeFilter.FILTER_REJECT
+        return NodeFilter.FILTER_ACCEPT
+      },
+    })
+
+    let current = walker.nextNode()
+    while (current) {
+      const textNode = current as Text
+      const nodeRange = document.createRange()
+      nodeRange.selectNodeContents(textNode)
+
+      const overlap = document.createRange()
+      if (input.range.compareBoundaryPoints(Range.START_TO_START, nodeRange) > 0) {
+        overlap.setStart(input.range.startContainer, input.range.startOffset)
+      } else {
+        overlap.setStart(textNode, 0)
+      }
+
+      if (input.range.compareBoundaryPoints(Range.END_TO_END, nodeRange) < 0) {
+        overlap.setEnd(input.range.endContainer, input.range.endOffset)
+      } else {
+        overlap.setEnd(textNode, textNode.data.length)
+      }
+
+      textRects.push(
+        ...Array.from(overlap.getClientRects()).map((rect) => ({
+          top: rect.top,
+          left: rect.left,
+          right: rect.right,
+          bottom: rect.bottom,
+          width: rect.width,
+          height: rect.height,
+        })),
+      )
+
+      current = walker.nextNode()
+    }
+
+    return textRects
+  }
+
+  const resolveAssistantSelection = () => {
+    const root = log
+    const selection = window.getSelection()
+    if (!root || !selection || selection.rangeCount === 0 || selection.isCollapsed) return
+
+    const rawText = selection.toString()
+    const text = rawText.trim()
+    if (!text) return
+
+    const anchor = selectionParentElement(selection.anchorNode)
+    const focus = selectionParentElement(selection.focusNode)
+    const anchorContainer = anchor?.closest('[data-slot="session-turn-assistant-content"]')
+    const focusContainer = focus?.closest('[data-slot="session-turn-assistant-content"]')
+    if (!(anchorContainer instanceof HTMLElement) || anchorContainer !== focusContainer) return
+    if (!root.contains(anchorContainer)) return
+
+    const sourceMessageID = anchorContainer.closest("[data-message-id]")?.getAttribute("data-message-id")
+    if (!sourceMessageID) return
+
+    const range = selection.getRangeAt(0)
+    const containerRect = anchorContainer.getBoundingClientRect()
+    const targetRect =
+      resolveSelectionAnchorRect({
+        rects: selectionTextRects({ range, container: anchorContainer }),
+        containerWidth: containerRect.width,
+        fallbackRect: (() => {
+          const rect = range.getBoundingClientRect()
+          return {
+            top: rect.top,
+            left: rect.left,
+            right: rect.right,
+            bottom: rect.bottom,
+            width: rect.width,
+            height: rect.height,
+          }
+        })(),
+      }) ?? range.getBoundingClientRect()
+    if (!Number.isFinite(targetRect.top) || !Number.isFinite(targetRect.left)) return
+
+    const anchorLeft = (targetRect.left + targetRect.right) / 2
+    const anchorTop = targetRect.top
+
+    setSelectionAsk({
+      open: true,
+      sourceMessageID,
+      text,
+      summary: summarizeReadingQuoteText(text),
+      anchorTop,
+      anchorLeft,
+      top: anchorTop,
+      left: anchorLeft,
+    })
+
+    requestAnimationFrame(() => {
+      positionSelectionAsk({ top: anchorTop, left: anchorLeft })
+    })
+  }
+
+  const submitAssistantQuoteSelection = () => {
+    if (!selectionAsk.open || !params.id) return
+    const sessionID = params.id
+    batch(() => {
+      conversationQuote.setPendingQuestion({
+        kind: "assistant-text-question",
+        sessionID,
+        sourceMessageID: selectionAsk.sourceMessageID,
+        text: selectionAsk.text,
+        summary: selectionAsk.summary,
+        createdAt: Date.now(),
+      })
+      quickReadingMode?.setPendingQuestion(null)
+      readingMode?.setPendingQuestion(null)
+    })
+    window.getSelection()?.removeAllRanges()
+    clearSelectionAsk()
+    props.onFocusInput?.()
+  }
+
+  createEffect(() => {
+    if (props.mobileChanges) {
+      clearSelectionAsk()
+      return
+    }
+
+    const handleSelectionChange = () => {
+      const selection = window.getSelection()
+      if (!selection || selection.rangeCount === 0 || selection.isCollapsed || !selection.toString().trim()) {
+        clearSelectionAsk()
+      }
+    }
+    const handlePointerUp = () => {
+      queueMicrotask(() => {
+        resolveAssistantSelection()
+      })
+    }
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target instanceof Element ? event.target : undefined
+      if (target?.closest('[data-component="conversation-quote-ask-button"]')) return
+      clearSelectionAsk()
+    }
+    const handleViewportChange = () => clearSelectionAsk()
+
+    document.addEventListener("selectionchange", handleSelectionChange)
+    document.addEventListener("pointerup", handlePointerUp)
+    document.addEventListener("pointerdown", handlePointerDown)
+    window.addEventListener("resize", handleViewportChange)
+    window.addEventListener("scroll", handleViewportChange, true)
+
+    onCleanup(() => {
+      document.removeEventListener("selectionchange", handleSelectionChange)
+      document.removeEventListener("pointerup", handlePointerUp)
+      document.removeEventListener("pointerdown", handlePointerDown)
+      window.removeEventListener("resize", handleViewportChange)
+      window.removeEventListener("scroll", handleViewportChange, true)
+    })
+  })
+
+  createEffect(() => {
+    if (!selectionAsk.open) return
+    positionSelectionAsk()
+  })
 
   const shareMutation = useMutation(() => ({
     mutationFn: (id: string) => globalSDK.client.session.share({ sessionID: id, directory: sdk.directory }),
@@ -455,18 +810,52 @@ export function MessageTimeline(props: {
     if (!session) return
 
     const sessions = sync.data.session ?? []
+    const descendantCount = countSessionDescendants(sessions, sessionID)
     const index = sessions.findIndex((s) => s.id === sessionID)
     const nextSession = index === -1 ? undefined : (sessions[index + 1] ?? sessions[index - 1])
 
+    if (descendantCount > 0) {
+      const confirmed = await new Promise<boolean>((resolve) => {
+        dialog.show(() => (
+          <Dialog title={language.t("common.archive")} fit>
+            <div class="flex flex-col gap-4 pl-6 pr-2.5 pb-3">
+              <span class="text-14-regular text-text-strong">
+                {`"${session.title}" has ${descendantCount} child session${descendantCount > 1 ? "s" : ""}. They will be archived together.`}
+              </span>
+              <div class="flex justify-end gap-2">
+                <Button
+                  variant="ghost"
+                  size="large"
+                  onClick={() => {
+                    dialog.close()
+                    resolve(false)
+                  }}
+                >
+                  {language.t("common.cancel")}
+                </Button>
+                <Button
+                  variant="primary"
+                  size="large"
+                  onClick={() => {
+                    dialog.close()
+                    resolve(true)
+                  }}
+                >
+                  {language.t("common.archive")}
+                </Button>
+              </div>
+            </div>
+          </Dialog>
+        ))
+      })
+      if (!confirmed) return
+    }
+
     await sdk.client.session
-      .update({ sessionID, time: { archived: Date.now() } })
-      .then(() => {
-        sync.set(
-          produce((draft) => {
-            const index = draft.session.findIndex((s) => s.id === sessionID)
-            if (index !== -1) draft.session.splice(index, 1)
-          }),
-        )
+      .archive({ sessionID })
+      .then(async () => {
+        sync.session.invalidate(sessionID)
+        await globalSync.project.loadSessions(session.directory, { force: true })
         navigateAfterSessionRemoval(sessionID, session.parentID, nextSession?.id)
       })
       .catch((err) => {
@@ -576,7 +965,7 @@ export function MessageTimeline(props: {
       when={!props.mobileChanges}
       fallback={<div class="relative h-full overflow-hidden">{props.mobileFallback}</div>}
     >
-      <div class="relative w-full h-full min-w-0">
+      <div ref={timelineRoot} class="relative w-full h-full min-w-0">
         <Show when={find.open()}>
           <ChatFindBar find={find} text={findText()} />
         </Show>
@@ -793,6 +1182,24 @@ export function MessageTimeline(props: {
                                   </DropdownMenu.ItemLabel>
                                 </DropdownMenu.Item>
                               </Show>
+                              <Show when={collapsibleTurnIDs().length > 0}>
+                                <DropdownMenu.Item
+                                  onSelect={() => {
+                                    setTitle("menuOpen", false)
+                                    if (allAssistantCollapsed()) {
+                                      expandAllAssistant()
+                                      return
+                                    }
+                                    collapseAllAssistant()
+                                  }}
+                                >
+                                  <DropdownMenu.ItemLabel>
+                                    {allAssistantCollapsed()
+                                      ? uiI18n.t("ui.sessionReview.expandAll")
+                                      : uiI18n.t("ui.sessionReview.collapseAll")}
+                                  </DropdownMenu.ItemLabel>
+                                </DropdownMenu.Item>
+                              </Show>
                               <DropdownMenu.Item onSelect={() => void archiveSession(id())}>
                                 <DropdownMenu.ItemLabel>{language.t("common.archive")}</DropdownMenu.ItemLabel>
                               </DropdownMenu.Item>
@@ -910,6 +1317,7 @@ export function MessageTimeline(props: {
               </div>
             </Show>
             <div
+              ref={log}
               role="log"
               data-slot="session-turn-list"
               class="flex flex-col items-start justify-start pb-16 transition-[margin]"
@@ -949,18 +1357,56 @@ export function MessageTimeline(props: {
                           c.selection?.endLine === b[i].selection?.endLine,
                       ),
                   })
+                  const readingQuotes = createMemo(() => messageReadingQuotes(sync.data.part[messageID] ?? []), [], {
+                    equals: (a, b) =>
+                      a.length === b.length &&
+                      a.every(
+                        (quote, i) =>
+                          quote.mode === b[i].mode &&
+                          quote.action === b[i].action &&
+                          quote.contentType === b[i].contentType &&
+                          quote.pdfFileName === b[i].pdfFileName &&
+                          quote.page === b[i].page &&
+                          quote.summary === b[i].summary &&
+                          quote.fullText === b[i].fullText &&
+                          quote.imageDataUrl === b[i].imageDataUrl,
+                      ),
+                  })
+                  const conversationQuotes = createMemo(
+                    () => messageConversationQuotes(sync.data.part[messageID] ?? []),
+                    [],
+                    {
+                      equals: (a, b) =>
+                        a.length === b.length &&
+                        a.every(
+                          (quote, i) =>
+                            quote.kind === b[i].kind &&
+                            quote.source === b[i].source &&
+                            quote.action === b[i].action &&
+                            quote.sourceMessageID === b[i].sourceMessageID &&
+                            quote.summary === b[i].summary &&
+                            quote.fullText === b[i].fullText,
+                        ),
+                    },
+                  )
                   const commentCount = createMemo(() => comments().length)
+                  const readingQuoteCount = createMemo(() => readingQuotes().length)
+                  const conversationQuoteCount = createMemo(() => conversationQuotes().length)
                   return (
                     <div
                       id={props.anchor(messageID)}
                       data-message-id={messageID}
+                      data-assistant-collapsed={isAssistantCollapsed(messageID) ? "true" : undefined}
                       classList={{
                         "min-w-0 w-full max-w-full": true,
                         "md:max-w-200 2xl:max-w-[1000px]": props.centered,
                       }}
-                      style={{ "content-visibility": "auto", "contain-intrinsic-size": "auto 500px" }}
+                      style={{
+                        "content-visibility": "auto",
+                        "contain-intrinsic-size": isAssistantCollapsed(messageID) ? "auto 20px" : "auto 500px",
+                      }}
                     >
-                      <Show when={commentCount() > 0}>
+                      <Show when={commentCount() > 0 || readingQuoteCount() > 0 || conversationQuoteCount() > 0}>
                         <div class="w-full px-4 md:px-5 pb-2">
                           <div class="ml-auto max-w-[82%] overflow-x-auto no-scrollbar">
                             <div class="flex w-max min-w-full justify-end gap-2">
@@ -996,6 +1442,61 @@ export function MessageTimeline(props: {
                                   )
                                 }}
                               </Index>
+                              <Index each={readingQuotes()}>
+                                {(quoteAccessor: () => MessageReadingQuote) => {
+                                  const quote = createMemo(() => quoteAccessor())
+                                  return (
+                                    <Show when={quote()}>
+                                      {(q) => (
+                                        <button
+                                          type="button"
+                                          class="shrink-0 max-w-[260px] rounded-[6px] border border-border-weak-base bg-background-stronger px-2.5 py-2 text-left transition hover:bg-background-base"
+                                          onClick={() => {
+                                            dialog.show(() => <DialogReadingQuoteTextContent quote={q()} />)
+                                          }}
+                                        >
+                                          <div class="flex items-center gap-1.5 min-w-0 text-11-medium text-text-strong">
+                                            <FileIcon
+                                              node={{ path: q().pdfFileName, type: "file" }}
+                                              class="size-3.5 shrink-0"
+                                            />
+                                            <span class="truncate">{q().pdfFileName}</span>
+                                          </div>
+                                          <div class="pt-1 text-11-medium text-text-weak">
+                                            {`p.${q().page} · ${q().action === "ask" ? "Ask" : "Translate"}`}
+                                          </div>
+                                          <div class="pt-1 text-12-regular text-text-strong whitespace-pre-wrap break-words line-clamp-3">
+                                            {q().summary}
+                                          </div>
+                                        </button>
+                                      )}
+                                    </Show>
+                                  )
+                                }}
+                              </Index>
+                              <Index each={conversationQuotes()}>
+                                {(quoteAccessor: () => MessageConversationQuote) => {
+                                  const quote = createMemo(() => quoteAccessor())
+                                  return (
+                                    <Show when={quote()}>
+                                      {(q) => (
+                                        <button
+                                          type="button"
+                                          class="shrink-0 max-w-[260px] rounded-[6px] border border-border-weak-base bg-background-stronger px-2.5 py-2 text-left transition hover:bg-background-base"
+                                          onClick={() => {
+                                            dialog.show(() => <DialogConversationQuoteTextContent quote={q()} />)
+                                          }}
+                                        >
+                                          <div class="pt-1 text-11-medium text-text-weak">Ask</div>
+                                          <div class="pt-1 text-12-regular text-text-strong whitespace-pre-wrap break-words line-clamp-3">
+                                            {q().summary}
+                                          </div>
+                                        </button>
+                                      )}
+                                    </Show>
+                                  )
+                                }}
+                              </Index>
                             </div>
                           </div>
                         </div>
@@ -1005,6 +1506,8 @@ export function MessageTimeline(props: {
                         messageID={messageID}
                         messages={sessionMessages()}
                         actions={props.actions}
+                        assistantCollapsed={isAssistantCollapsed(messageID)}
+                        onAssistantCollapsedChange={(collapsed) => setAssistantCollapsed(messageID, collapsed)}
                         active={active()}
                         status={active() ? sessionStatus() : undefined}
                         showReasoningSummaries={settings.general.showReasoningSummaries()}
@@ -1023,6 +1526,25 @@ export function MessageTimeline(props: {
             </div>
           </div>
         </ScrollView>
+        <Show when={selectionAsk.open}>
+          <button
+            ref={selectionAskButton}
+            type="button"
+            data-component="conversation-quote-ask-button"
+            class="absolute z-50 rounded-full border border-border-weak-base bg-background-stronger px-3 py-1.5 text-12-medium text-text-strong shadow-lg transition hover:bg-background-base"
+            style={{
+              top: `${selectionAsk.top}px`,
+              left: `${selectionAsk.left}px`,
+            }}
+            onPointerDown={(event) => {
+              event.preventDefault()
+              event.stopPropagation()
+            }}
+            onClick={() => submitAssistantQuoteSelection()}
+          >
+            Ask
+          </button>
+        </Show>
       </div>
     </Show>
   )

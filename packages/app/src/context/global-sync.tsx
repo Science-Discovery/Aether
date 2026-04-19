@@ -21,7 +21,7 @@ import { createChildStoreManager } from "./global-sync/child-store"
 import { applyDirectoryEvent, applyGlobalEvent, cleanupDroppedSessionCaches } from "./global-sync/event-reducer"
 import { createRefreshQueue } from "./global-sync/queue"
 import { clearSessionPrefetchDirectory } from "./global-sync/session-prefetch"
-import { estimateRootSessionTotal, loadRootSessionsWithFallback } from "./global-sync/session-load"
+import { estimateRootSessionTotal, loadDescendantsForRoots, loadRootSessionsWithFallback } from "./global-sync/session-load"
 import { trimSessions } from "./global-sync/session-trim"
 import type { ProjectMeta } from "./global-sync/types"
 import { SESSION_RECENT_LIMIT } from "./global-sync/types"
@@ -237,13 +237,14 @@ function createGlobalSync() {
     return recentTask
   }
 
-  async function loadSessions(directory: string) {
+  async function loadSessions(directory: string, opts?: { force?: boolean }) {
     directory = normalizeDir(directory)
     const pending = sessionLoads.get(directory)
     if (pending) return pending
 
     children.pin(directory)
     const [store, setStore] = children.child(directory, { bootstrap: false })
+    if (opts?.force) sessionMeta.delete(directory)
     const meta = sessionMeta.get(directory)
     if (meta && meta.limit >= store.limit) {
       const next = trimSessions(store.session, {
@@ -264,25 +265,31 @@ function createGlobalSync() {
       limit,
       list: (query) => globalSDK.client.session.list(query),
     })
-      .then((x) => {
-        const nonArchived = (x.data ?? [])
+      .then(async (x) => {
+        const nonArchivedRoots = (x.data ?? [])
           .filter((s) => !!s?.id)
           .filter((s) => !s.time?.archived)
           .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+        const descendants = await loadDescendantsForRoots({
+          directory,
+          roots: nonArchivedRoots,
+          tree: (query) => globalSDK.client.session.tree(query),
+          children: (query) => globalSDK.client.session.children(query),
+        })
+        const nonArchived = [...nonArchivedRoots, ...descendants].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
         const limit = store.limit
-        const childSessions = store.session.filter((s) => !!s.parentID)
-        // Preserve root sessions that arrived via SSE while this API call was in-flight.
+        // Preserve sessions that arrived via SSE while this API call was in-flight.
         // Without this, reconcile() would overwrite them since the API snapshot predates their creation.
         const apiIds = new Set(nonArchived.map((s) => s.id))
-        const sseSessions = store.session.filter((s) => !s.parentID && !s.time?.archived && !apiIds.has(s.id))
-        const sessions = trimSessions([...nonArchived, ...sseSessions, ...childSessions], {
+        const sseSessions = store.session.filter((s) => !s.time?.archived && !apiIds.has(s.id))
+        const sessions = trimSessions([...nonArchived, ...sseSessions], {
           limit,
           permission: store.permission,
         })
         setStore(
           "sessionTotal",
           estimateRootSessionTotal({
-            count: nonArchived.length,
+            count: nonArchivedRoots.length,
             limit: x.limit,
             limited: x.limited,
           }),

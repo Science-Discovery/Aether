@@ -15,6 +15,17 @@ export const SessionID = Schema.String.pipe(
 
 export type SessionID = Schema.Schema.Type<typeof SessionID>
 
+export const TreeID = Schema.String.pipe(
+  Schema.brand("TreeID"),
+  withStatics((s) => ({
+    make: (id: string) => s.makeUnsafe(id),
+    descending: (id?: string) => s.makeUnsafe(Identifier.descending("tree", id)),
+    zod: Identifier.schema("tree").pipe(z.custom<Schema.Schema.Type<typeof s>>()),
+  })),
+)
+
+export type TreeID = Schema.Schema.Type<typeof TreeID>
+
 export const MessageID = Schema.String.pipe(
   Schema.brand("MessageID"),
   withStatics((s) => ({

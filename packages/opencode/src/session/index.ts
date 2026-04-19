@@ -10,7 +10,23 @@ import { Config } from "../config/config"
 import { Flag } from "../flag/flag"
 import { Installation } from "../installation"
 
-import { Database, NotFoundError, eq, and, gte, isNull, desc, like, inArray, lt } from "../storage/db"
+import {
+  Database,
+  NotFoundError,
+  eq,
+  and,
+  or,
+  ne,
+  gte,
+  isNull,
+  isNotNull,
+  desc,
+  like,
+  inArray,
+  lt,
+  asc,
+  sql,
+} from "../storage/db"
 import { SyncEvent } from "../sync"
 import type { SQL } from "../storage/db"
 import { SessionTable } from "./session.sql"
@@ -28,7 +44,7 @@ import { Snapshot } from "@/snapshot"
 import { WorkspaceContext } from "../control-plane/workspace-context"
 import { ProjectID } from "../project/schema"
 import { WorkspaceID } from "../control-plane/schema"
-import { SessionID, MessageID, PartID } from "./schema"
+import { SessionID, TreeID, MessageID, PartID } from "./schema"
 
 import type { Provider } from "@/provider/provider"
 import { ModelID, ProviderID } from "@/provider/schema"
@@ -43,6 +59,7 @@ export namespace Session {
 
   const parentTitlePrefix = "New session - "
   const childTitlePrefix = "Child session - "
+  const forkTitlePattern = /^(.*) \(fork #(\d+)\)$/
 
   function createDefaultTitle(isChild = false) {
     return (isChild ? childTitlePrefix : parentTitlePrefix) + new Date().toISOString()
@@ -79,6 +96,10 @@ export namespace Session {
       workspaceID: row.workspace_id ?? undefined,
       directory: row.directory,
       parentID: row.parent_id ?? undefined,
+      treeID: row.tree_id ?? undefined,
+      forkIndex: row.fork_index ?? undefined,
+      forkParentSessionID: row.fork_parent_session_id ?? undefined,
+      forkAfterUserMessageID: row.fork_after_user_message_id ?? undefined,
       title: row.title,
       version: row.version,
       summary,
@@ -107,6 +128,10 @@ export namespace Session {
       project_id: info.projectID,
       workspace_id: info.workspaceID,
       parent_id: info.parentID,
+      tree_id: info.treeID,
+      fork_index: info.forkIndex,
+      fork_parent_session_id: info.forkParentSessionID,
+      fork_after_user_message_id: info.forkAfterUserMessageID,
       slug: info.slug,
       directory: info.directory,
       title: info.title,
@@ -126,14 +151,281 @@ export namespace Session {
     }
   }
 
-  function getForkedTitle(title: string): string {
-    const match = title.match(/^(.+) \(fork #(\d+)\)$/)
-    if (match) {
-      const base = match[1]
-      const num = parseInt(match[2], 10)
-      return `${base} (fork #${num + 1})`
+  function getForkTitleBase(title: string): string {
+    const match = title.match(forkTitlePattern)
+    return match ? match[1] : title
+  }
+
+  function parseForkIndexFromTitle(title: string): number | undefined {
+    const match = title.match(forkTitlePattern)
+    if (!match) return
+    const parsed = parseInt(match[2], 10)
+    return Number.isFinite(parsed) ? parsed : undefined
+  }
+
+  async function getNextForkIndex(input: { projectID: ProjectID; treeID: TreeID }) {
+    const rows = Database.use((db) =>
+      db
+        .select({
+          forkIndex: SessionTable.fork_index,
+          title: SessionTable.title,
+        })
+        .from(SessionTable)
+        .where(and(eq(SessionTable.project_id, input.projectID), eq(SessionTable.tree_id, input.treeID)))
+        .all(),
+    )
+
+    let maxForkIndex = 0
+    for (const row of rows) {
+      if (typeof row.forkIndex === "number") {
+        maxForkIndex = Math.max(maxForkIndex, row.forkIndex)
+      }
+      const fromTitle = parseForkIndexFromTitle(row.title)
+      if (typeof fromTitle === "number") {
+        maxForkIndex = Math.max(maxForkIndex, fromTitle)
+      }
     }
-    return `${title} (fork #1)`
+
+    return maxForkIndex + 1
+  }
+
+  function getForkedTitle(title: string, forkIndex: number): string {
+    return `${getForkTitleBase(title)} (fork #${forkIndex})`
+  }
+
+  function latestSuccessfulAssistantByParent(messages: MessageV2.WithParts[]) {
+    const result = new Map<MessageID, MessageV2.Assistant>()
+    for (const message of messages) {
+      if (message.info.role !== "assistant") continue
+      if (message.info.error) continue
+      if (typeof message.info.time.completed !== "number") continue
+      result.set(message.info.parentID, message.info)
+    }
+    return result
+  }
+
+  function resolveForkAnchorUserMessageID(messages: MessageV2.WithParts[], selectedMessageID?: MessageID) {
+    const successfulAssistants = latestSuccessfulAssistantByParent(messages)
+    let lastCompletedUserMessageID: MessageID | undefined
+
+    for (const message of messages) {
+      if (message.info.role !== "user") continue
+      if (selectedMessageID && message.info.id === selectedMessageID) {
+        return lastCompletedUserMessageID
+      }
+      if (successfulAssistants.has(message.info.id)) {
+        lastCompletedUserMessageID = message.info.id
+      }
+    }
+
+    return lastCompletedUserMessageID
+  }
+
+  function collectCompletedUserMessageIDs(messages: MessageV2.WithParts[]) {
+    const successfulAssistants = latestSuccessfulAssistantByParent(messages)
+    const result: MessageID[] = []
+    for (const message of messages) {
+      if (message.info.role !== "user") continue
+      if (!successfulAssistants.has(message.info.id)) continue
+      result.push(message.info.id)
+    }
+    return result
+  }
+
+  async function resolveForkParent(input: {
+    session: Pick<Info, "id" | "forkParentSessionID" | "forkAfterUserMessageID">
+    messages: MessageV2.WithParts[]
+    anchorUserMessageID?: MessageID
+  }) {
+    let resolvedSession = input.session
+    let resolvedCompletedUserMessages = collectCompletedUserMessageIDs(input.messages)
+    let resolvedAnchorUserMessageID = input.anchorUserMessageID
+
+    const visited = new Set<string>([resolvedSession.id])
+
+    while (resolvedSession.forkParentSessionID) {
+      const parentSessionID = resolvedSession.forkParentSessionID
+      if (visited.has(parentSessionID)) break
+      visited.add(parentSessionID)
+
+      if (!resolvedSession.forkAfterUserMessageID) break
+
+      const parentMessages = await messages({ sessionID: parentSessionID }).catch(() => undefined)
+      if (!parentMessages) break
+      const parentCompletedUserMessages = collectCompletedUserMessageIDs(parentMessages)
+      const sharedAnchorIndex = parentCompletedUserMessages.findIndex(
+        (id) => id === resolvedSession.forkAfterUserMessageID,
+      )
+      if (sharedAnchorIndex < 0) break
+      const sharedTurnCount = sharedAnchorIndex + 1
+
+      const anchorIndexInCurrent =
+        resolvedAnchorUserMessageID === undefined
+          ? -1
+          : resolvedCompletedUserMessages.findIndex((id) => id === resolvedAnchorUserMessageID)
+      if (resolvedAnchorUserMessageID !== undefined && anchorIndexInCurrent < 0) break
+      if (anchorIndexInCurrent >= sharedTurnCount) break
+
+      resolvedAnchorUserMessageID =
+        anchorIndexInCurrent >= 0 ? parentCompletedUserMessages[anchorIndexInCurrent] : undefined
+
+      const parentSession = await get(parentSessionID).catch(() => undefined)
+      if (!parentSession) {
+        return {
+          parentSessionID,
+          forkAfterUserMessageID: resolvedAnchorUserMessageID,
+        } as const
+      }
+
+      resolvedSession = parentSession
+      resolvedCompletedUserMessages = parentCompletedUserMessages
+    }
+
+    return {
+      parentSessionID: resolvedSession.id,
+      forkAfterUserMessageID: resolvedAnchorUserMessageID,
+    } as const
+  }
+
+  async function normalizeForkParentLink(input: {
+    session: Pick<Info, "forkParentSessionID" | "forkAfterUserMessageID">
+    getSession: (sessionID: SessionID) => Promise<Info | undefined>
+    getCompletedUserMessages: (sessionID: SessionID) => Promise<MessageID[]>
+  }) {
+    let parentSessionID = input.session.forkParentSessionID
+    let anchorUserMessageID = input.session.forkAfterUserMessageID
+
+    const visited = new Set<string>()
+
+    while (parentSessionID && anchorUserMessageID) {
+      if (visited.has(parentSessionID)) break
+      visited.add(parentSessionID)
+
+      const parent = await input.getSession(parentSessionID)
+      if (!parent?.forkParentSessionID || !parent.forkAfterUserMessageID) break
+
+      const parentCompleted = await input.getCompletedUserMessages(parentSessionID)
+      const sharedAnchorIndex = parentCompleted.findIndex((id) => id === parent.forkAfterUserMessageID)
+      if (sharedAnchorIndex < 0) break
+      const sharedTurnCount = sharedAnchorIndex + 1
+
+      const anchorIndexInParent = parentCompleted.findIndex((id) => id === anchorUserMessageID)
+      if (anchorIndexInParent < 0 || anchorIndexInParent >= sharedTurnCount) break
+
+      const grandParentID = parent.forkParentSessionID
+      const grandParentCompleted = await input.getCompletedUserMessages(grandParentID)
+      parentSessionID = grandParentID
+      anchorUserMessageID = grandParentCompleted[anchorIndexInParent]
+    }
+
+    return {
+      parentSessionID,
+      anchorUserMessageID,
+    } as const
+  }
+
+  async function repairTreeForkParents(input: { projectID: ProjectID; treeID: TreeID }) {
+    const rows = Database.use((db) =>
+      db
+        .select()
+        .from(SessionTable)
+        .where(and(eq(SessionTable.project_id, input.projectID), eq(SessionTable.tree_id, input.treeID)))
+        .orderBy(asc(SessionTable.time_created), asc(SessionTable.id))
+        .all(),
+    )
+    if (rows.length === 0) return
+
+    const sessions = rows.map(fromRow)
+    const sessionByID = new Map(sessions.map((session) => [session.id, session] as const))
+    const completedBySessionID = new Map<SessionID, MessageID[]>()
+
+    const getSession = async (sessionID: SessionID) => sessionByID.get(sessionID) ?? (await get(sessionID).catch(() => undefined))
+    const getCompletedUserMessages = async (sessionID: SessionID) => {
+      const cached = completedBySessionID.get(sessionID)
+      if (cached) return cached
+      const history = await messages({ sessionID }).catch(() => [])
+      const completed = collectCompletedUserMessageIDs(history)
+      completedBySessionID.set(sessionID, completed)
+      return completed
+    }
+
+    for (const session of sessions) {
+      if (!session.forkParentSessionID) continue
+
+      const normalized = await normalizeForkParentLink({
+        session,
+        getSession,
+        getCompletedUserMessages,
+      })
+      if (!normalized.parentSessionID) continue
+
+      const needsParentFix =
+        session.parentID !== normalized.parentSessionID || session.forkParentSessionID !== normalized.parentSessionID
+      const needsAnchorFix = session.forkAfterUserMessageID !== normalized.anchorUserMessageID
+      if (!needsParentFix && !needsAnchorFix) continue
+
+      const patched: Partial<Info> = {
+        parentID: normalized.parentSessionID,
+        forkParentSessionID: normalized.parentSessionID,
+        forkAfterUserMessageID: normalized.anchorUserMessageID,
+      }
+      SyncEvent.run(Event.Updated, {
+        sessionID: session.id,
+        info: patched,
+      })
+      const current = sessionByID.get(session.id)
+      if (current) {
+        current.parentID = patched.parentID
+        current.forkParentSessionID = patched.forkParentSessionID
+        current.forkAfterUserMessageID = patched.forkAfterUserMessageID
+      }
+    }
+  }
+
+  async function collectSessionSubtree(input: { projectID: ProjectID; rootSessionID: SessionID }) {
+    const rows = Database.use((db) =>
+      db
+        .select()
+        .from(SessionTable)
+        .where(eq(SessionTable.project_id, input.projectID))
+        .orderBy(asc(SessionTable.time_created), asc(SessionTable.id))
+        .all(),
+    )
+
+    const sessions = rows.map(fromRow)
+    const sessionsByID = new Map(sessions.map((session) => [session.id, session] as const))
+    const childrenByParent = new Map<SessionID, Info[]>()
+
+    for (const session of sessions) {
+      if (!session.parentID) continue
+      const siblings = childrenByParent.get(session.parentID)
+      if (siblings) siblings.push(session)
+      else childrenByParent.set(session.parentID, [session])
+    }
+
+    const root = sessionsByID.get(input.rootSessionID)
+    if (!root) throw new NotFoundError({ message: `Session not found: ${input.rootSessionID}` })
+
+    const subtree: Info[] = []
+    const queue: SessionID[] = [input.rootSessionID]
+    const visited = new Set<SessionID>()
+
+    while (queue.length > 0) {
+      const sessionID = queue.shift()
+      if (!sessionID || visited.has(sessionID)) continue
+      visited.add(sessionID)
+
+      const session = sessionsByID.get(sessionID)
+      if (!session) continue
+      subtree.push(session)
+
+      for (const child of childrenByParent.get(sessionID) ?? []) {
+        if (visited.has(child.id)) continue
+        queue.push(child.id)
+      }
+    }
+
+    return subtree
   }
 
   export const Info = z
@@ -144,6 +436,10 @@ export namespace Session {
       workspaceID: WorkspaceID.zod.optional(),
       directory: z.string(),
       parentID: SessionID.zod.optional(),
+      treeID: TreeID.zod.optional(),
+      forkIndex: z.number().int().positive().optional(),
+      forkParentSessionID: SessionID.zod.optional(),
+      forkAfterUserMessageID: MessageID.zod.optional(),
       summary: z
         .object({
           additions: z.number(),
@@ -200,6 +496,87 @@ export namespace Session {
       ref: "Session",
     })
   export type Info = z.output<typeof Info>
+
+  export const TreeResult = z
+    .discriminatedUnion("kind", [
+      z.object({
+        kind: z.literal("tree"),
+        treeID: TreeID.zod,
+        sessions: Info.array(),
+      }),
+      z.object({
+        kind: z.literal("legacy"),
+        message: z.string(),
+      }),
+    ])
+    .meta({
+      ref: "SessionTreeResult",
+    })
+  export type TreeResult = z.output<typeof TreeResult>
+
+  export const GraphNode = z
+    .object({
+      id: z.string(),
+      kind: z.union([z.literal("turn"), z.literal("bud")]),
+      sessionID: SessionID.zod,
+      lane: z.number().int().min(0),
+      row: z.number().int().min(0),
+      time: z.number(),
+      label: z.string(),
+      userMessageID: MessageID.zod.optional(),
+      providerID: ProviderID.zod.optional(),
+      modelID: ModelID.zod.optional(),
+      mode: z.string().optional(),
+      origin: z.union([z.literal("tree"), z.literal("external")]),
+    })
+    .meta({
+      ref: "SessionGraphNode",
+    })
+  export type GraphNode = z.output<typeof GraphNode>
+
+  export const GraphEdge = z
+    .object({
+      id: z.string(),
+      from: z.string(),
+      to: z.string(),
+      kind: z.union([z.literal("continuation"), z.literal("branch"), z.literal("bud")]),
+      style: z.union([z.literal("solid"), z.literal("dashed")]),
+    })
+    .meta({
+      ref: "SessionGraphEdge",
+    })
+  export type GraphEdge = z.output<typeof GraphEdge>
+
+  export const GraphCurrent = z
+    .object({
+      sessionID: SessionID.zod,
+      pathNodeIDs: z.string().array(),
+      latestNodeID: z.string().optional(),
+      targetNodeID: z.string().optional(),
+    })
+    .meta({
+      ref: "SessionGraphCurrent",
+    })
+  export type GraphCurrent = z.output<typeof GraphCurrent>
+
+  export const GraphResult = z
+    .discriminatedUnion("kind", [
+      z.object({
+        kind: z.literal("graph"),
+        treeID: TreeID.zod,
+        current: GraphCurrent,
+        nodes: GraphNode.array(),
+        edges: GraphEdge.array(),
+      }),
+      z.object({
+        kind: z.literal("legacy"),
+        message: z.string(),
+      }),
+    ])
+    .meta({
+      ref: "SessionGraphResult",
+    })
+  export type GraphResult = z.output<typeof GraphResult>
 
   export const ProjectInfo = z
     .object({
@@ -285,7 +662,7 @@ export namespace Session {
         directory: Instance.directory,
         title: input?.title,
         permission: input?.permission,
-        workspaceID: input?.workspaceID,
+        workspaceID: input?.workspaceID ?? WorkspaceContext.workspaceID,
       })
     },
   )
@@ -298,13 +675,36 @@ export namespace Session {
     async (input) => {
       const original = await get(input.sessionID)
       if (!original) throw new Error("session not found")
-      const title = getForkedTitle(original.title)
+      if (original.treeID) {
+        await repairTreeForkParents({
+          projectID: original.projectID,
+          treeID: original.treeID,
+        })
+      }
+      const source = (await get(input.sessionID).catch(() => undefined)) ?? original
+      const targetTreeID = source.treeID ?? TreeID.descending()
+      const forkIndex = await getNextForkIndex({
+        projectID: source.projectID,
+        treeID: targetTreeID,
+      })
+      const title = getForkedTitle(source.title, forkIndex)
+      const msgs = await messages({ sessionID: input.sessionID })
+      const forkAnchorUserMessageID = resolveForkAnchorUserMessageID(msgs, input.messageID)
+      const resolvedForkParent = await resolveForkParent({
+        session: source,
+        messages: msgs,
+        anchorUserMessageID: forkAnchorUserMessageID,
+      })
       const session = await createNext({
         directory: Instance.directory,
-        workspaceID: original.workspaceID,
+        workspaceID: source.workspaceID ?? WorkspaceContext.workspaceID,
+        parentID: resolvedForkParent.parentSessionID,
+        treeID: targetTreeID,
+        forkIndex,
+        forkParentSessionID: resolvedForkParent.parentSessionID,
+        forkAfterUserMessageID: resolvedForkParent.forkAfterUserMessageID,
         title,
       })
-      const msgs = await messages({ sessionID: input.sessionID })
       const idMap = new Map<string, MessageID>()
 
       for (const msg of msgs) {
@@ -342,18 +742,34 @@ export namespace Session {
     id?: SessionID
     title?: string
     parentID?: SessionID
+    treeID?: TreeID
+    forkIndex?: number
+    forkParentSessionID?: SessionID
+    forkAfterUserMessageID?: MessageID
     workspaceID?: WorkspaceID
     directory: string
     permission?: Permission.Ruleset
   }) {
+    const workspaceID = input.workspaceID ?? WorkspaceContext.workspaceID
+    const treeID = await (async () => {
+      if (input.treeID) return input.treeID
+      if (!input.parentID) return TreeID.descending()
+      const parent = await get(input.parentID)
+      return parent.treeID ?? TreeID.descending()
+    })()
+
     const result: Info = {
       id: SessionID.descending(input.id),
       slug: Slug.create(),
       version: Installation.VERSION,
       projectID: Instance.project.id,
       directory: input.directory,
-      workspaceID: input.workspaceID,
+      workspaceID,
       parentID: input.parentID,
+      treeID,
+      forkIndex: input.forkIndex,
+      forkParentSessionID: input.forkParentSessionID,
+      forkAfterUserMessageID: input.forkAfterUserMessageID,
       title: input.title ?? createDefaultTitle(!!input.parentID),
       permission: input.permission,
       time: {
@@ -438,9 +854,93 @@ export namespace Session {
       time: z.number().optional(),
     }),
     async (input) => {
-      SyncEvent.run(Event.Updated, { sessionID: input.sessionID, info: { time: { archived: input.time } } })
+      const archived =
+        typeof input.time === "number" && input.time <= 0
+          ? null
+          : input.time
+      SyncEvent.run(Event.Updated, { sessionID: input.sessionID, info: { time: { archived } } })
     },
   )
+
+  export const archive = fn(SessionID.zod, async (sessionID) => {
+    const session = await get(sessionID)
+    const archivedAt = Date.now()
+    const subtree = await collectSessionSubtree({
+      projectID: session.projectID,
+      rootSessionID: sessionID,
+    })
+
+    if (!session.parentID) {
+      for (const item of subtree) {
+        SyncEvent.run(Event.Updated, {
+          sessionID: item.id,
+          info: {
+            time: {
+              archived: archivedAt,
+              updated: archivedAt,
+            },
+          },
+        })
+      }
+      return get(sessionID)
+    }
+
+    const subtreeIDs = new Set(subtree.map((item) => item.id))
+    const detachedTreeID = TreeID.descending()
+
+    for (const item of subtree) {
+      const patch = {
+        treeID: detachedTreeID,
+        time: {
+          archived: archivedAt,
+          updated: archivedAt,
+        },
+      } as any
+
+      if (item.id === sessionID) {
+        patch.parentID = null
+        patch.forkParentSessionID = null
+        patch.forkAfterUserMessageID = null
+      } else if (item.forkParentSessionID && !subtreeIDs.has(item.forkParentSessionID)) {
+        patch.forkParentSessionID = null
+        patch.forkAfterUserMessageID = null
+      }
+
+      SyncEvent.run(Event.Updated, {
+        sessionID: item.id,
+        info: patch,
+      })
+    }
+
+    return get(sessionID)
+  })
+
+  export const unarchive = fn(SessionID.zod, async (sessionID) => {
+    const session = await get(sessionID)
+    if (session.parentID) {
+      throw new Error("Only archived subtree roots can be unarchived")
+    }
+
+    const updatedAt = Date.now()
+    const subtree = await collectSessionSubtree({
+      projectID: session.projectID,
+      rootSessionID: sessionID,
+    })
+
+    for (const item of subtree) {
+      SyncEvent.run(Event.Updated, {
+        sessionID: item.id,
+        info: {
+          time: {
+            archived: null,
+            updated: updatedAt,
+          },
+        },
+      })
+    }
+
+    return get(sessionID)
+  })
 
   export const setPermission = fn(
     z.object({
@@ -549,12 +1049,19 @@ export namespace Session {
   }) {
     const project = Instance.project
     const conditions = [eq(SessionTable.project_id, project.id)]
+    const directoryFilter = (directory: string) => {
+      const resolved = Filesystem.resolve(directory)
+      if (process.platform !== "win32") return eq(SessionTable.directory, resolved)
+      const normalized = resolved.replace(/\\/g, "/").toLowerCase()
+      return sql`lower(replace(${SessionTable.directory}, '\\', '/')) = ${normalized}`
+    }
 
     if (WorkspaceContext.workspaceID) {
-      conditions.push(eq(SessionTable.workspace_id, WorkspaceContext.workspaceID))
+      // Backward compatibility: legacy sessions were created before workspace_id existed.
+      conditions.push(or(eq(SessionTable.workspace_id, WorkspaceContext.workspaceID), isNull(SessionTable.workspace_id))!)
     }
     if (input?.directory) {
-      conditions.push(eq(SessionTable.directory, Filesystem.resolve(input.directory)))
+      conditions.push(directoryFilter(input.directory))
     }
     if (input?.roots) {
       conditions.push(isNull(SessionTable.parent_id))
@@ -589,12 +1096,21 @@ export namespace Session {
     cursor?: number
     search?: string
     limit?: number
+    archivedMode?: "exclude" | "include" | "only"
     archived?: boolean
   }) {
     const conditions: SQL[] = []
+    const directoryFilter = (directory: string) => {
+      const resolved = Filesystem.resolve(directory)
+      if (process.platform !== "win32") return eq(SessionTable.directory, resolved)
+      const normalized = resolved.replace(/\\/g, "/").toLowerCase()
+      return sql`lower(replace(${SessionTable.directory}, '\\', '/')) = ${normalized}`
+    }
+    const archivedMode =
+      input?.archivedMode ?? (input?.archived === true ? ("include" as const) : ("exclude" as const))
 
     if (input?.directory) {
-      conditions.push(eq(SessionTable.directory, Filesystem.resolve(input.directory)))
+      conditions.push(directoryFilter(input.directory))
     }
     if (input?.roots) {
       conditions.push(isNull(SessionTable.parent_id))
@@ -608,8 +1124,10 @@ export namespace Session {
     if (input?.search) {
       conditions.push(like(SessionTable.title, `%${input.search}%`))
     }
-    if (!input?.archived) {
-      conditions.push(isNull(SessionTable.time_archived))
+    if (archivedMode === "exclude") {
+      conditions.push(or(isNull(SessionTable.time_archived), eq(SessionTable.time_archived, 0))!)
+    } else if (archivedMode === "only") {
+      conditions.push(and(isNotNull(SessionTable.time_archived), ne(SessionTable.time_archived, 0))!)
     }
 
     const limit = input?.limit ?? 100
@@ -661,6 +1179,384 @@ export namespace Session {
         .all(),
     )
     return rows.map(fromRow)
+  })
+
+  export const tree = fn(SessionID.zod, async (sessionID): Promise<TreeResult> => {
+    const session = await get(sessionID)
+    if (!session.treeID) {
+      return {
+        kind: "legacy",
+        message: "This session predates the branch tree system and does not expose a branch tree.",
+      }
+    }
+    await repairTreeForkParents({
+      projectID: session.projectID,
+      treeID: session.treeID,
+    })
+    const treeID = session.treeID
+
+    const rows = Database.use((db) =>
+      db
+        .select()
+        .from(SessionTable)
+        .where(and(eq(SessionTable.project_id, session.projectID), eq(SessionTable.tree_id, treeID)))
+        .orderBy(asc(SessionTable.time_created), asc(SessionTable.id))
+        .all(),
+    )
+
+    return {
+      kind: "tree",
+      treeID,
+      sessions: rows.map(fromRow),
+    }
+  })
+
+  type CompletedTurn = {
+    sessionID: SessionID
+    userMessageID: MessageID
+    time: number
+    label: string
+    providerID?: ProviderID
+    modelID?: ModelID
+    mode?: string
+  }
+
+  function extractUserLabel(message: MessageV2.WithParts) {
+    const text = message.parts
+      .filter((part): part is MessageV2.TextPart => part.type === "text" && !part.synthetic)
+      .map((part) => part.text.trim())
+      .filter(Boolean)
+      .join("\n")
+      .trim()
+    return text || "(no text)"
+  }
+
+  function collectCompletedTurns(messages: MessageV2.WithParts[]): CompletedTurn[] {
+    const assistantsByParent = new Map<MessageID, MessageV2.Assistant>()
+    for (const message of messages) {
+      if (message.info.role !== "assistant") continue
+      if (message.info.error) continue
+      if (typeof message.info.time.completed !== "number") continue
+      assistantsByParent.set(message.info.parentID, message.info)
+    }
+
+    const result: CompletedTurn[] = []
+    for (const message of messages) {
+      if (message.info.role !== "user") continue
+      const assistant = assistantsByParent.get(message.info.id)
+      if (!assistant) continue
+      result.push({
+        sessionID: message.info.sessionID,
+        userMessageID: message.info.id,
+        time: message.info.time.created,
+        label: extractUserLabel(message),
+        providerID: assistant.providerID,
+        modelID: assistant.modelID,
+        mode: assistant.mode,
+      })
+    }
+    return result
+  }
+
+  function turnKey(sessionID: SessionID, userMessageID: MessageID) {
+    return `${sessionID}:${userMessageID}`
+  }
+
+  function turnNodeID(sessionID: SessionID, userMessageID: MessageID) {
+    return `turn:${sessionID}:${userMessageID}`
+  }
+
+  function budNodeID(sessionID: SessionID) {
+    return `bud:${sessionID}`
+  }
+
+  export const graph = fn(SessionID.zod, async (sessionID): Promise<GraphResult> => {
+    const currentSession = await get(sessionID)
+    if (!currentSession.treeID) {
+      return {
+        kind: "legacy",
+        message: "This session predates the conversation graph system and does not expose a graph.",
+      }
+    }
+    await repairTreeForkParents({
+      projectID: currentSession.projectID,
+      treeID: currentSession.treeID,
+    })
+    const treeID = currentSession.treeID
+
+    const treeSessions = Database.use((db) =>
+      db
+        .select()
+        .from(SessionTable)
+        .where(and(eq(SessionTable.project_id, currentSession.projectID), eq(SessionTable.tree_id, treeID)))
+        .orderBy(asc(SessionTable.time_created), asc(SessionTable.id))
+        .all()
+        .map(fromRow),
+    )
+
+    const treeSessionIDs = new Set(treeSessions.map((session) => session.id))
+    const sessionsByID = new Map(treeSessions.map((session) => [session.id, session] as const))
+    const externalSessions = new Map<SessionID, Info>()
+
+    for (const session of treeSessions) {
+      const parentID = session.forkParentSessionID
+      if (!parentID || treeSessionIDs.has(parentID) || externalSessions.has(parentID)) continue
+      try {
+        externalSessions.set(parentID, await get(parentID))
+      } catch {
+        // Ignore missing external parents. The graph will degrade to the child path only.
+      }
+    }
+
+    const messagesBySession = new Map<SessionID, MessageV2.WithParts[]>()
+    const turnsBySession = new Map<SessionID, CompletedTurn[]>()
+
+    const loadTurns = async (targetSessionID: SessionID) => {
+      if (turnsBySession.has(targetSessionID)) return turnsBySession.get(targetSessionID)!
+      const history = await messages({ sessionID: targetSessionID })
+      messagesBySession.set(targetSessionID, history)
+      const turns = collectCompletedTurns(history)
+      turnsBySession.set(targetSessionID, turns)
+      return turns
+    }
+
+    await Promise.all([...treeSessionIDs].map(loadTurns))
+    await Promise.all([...externalSessions.keys()].map(loadTurns))
+
+    const childrenByParent = new Map<SessionID, Info[]>()
+    for (const session of treeSessions) {
+      const parentID = session.forkParentSessionID
+      if (!parentID || !treeSessionIDs.has(parentID)) continue
+      const siblings = childrenByParent.get(parentID)
+      if (siblings) siblings.push(session)
+      else childrenByParent.set(parentID, [session])
+    }
+    for (const [parentID, siblings] of childrenByParent) {
+      siblings.sort((a, b) => a.time.created - b.time.created || a.id.localeCompare(b.id))
+      childrenByParent.set(parentID, siblings)
+    }
+
+    const laneBySessionID = new Map<SessionID, number>()
+    let nextLane = 0
+    const rootLikeSessions = treeSessions.filter(
+      (session) => !session.forkParentSessionID || !treeSessionIDs.has(session.forkParentSessionID),
+    )
+    const assignLane = (targetSessionID: SessionID) => {
+      if (!laneBySessionID.has(targetSessionID)) {
+        laneBySessionID.set(targetSessionID, nextLane++)
+      }
+      for (const child of childrenByParent.get(targetSessionID) ?? []) {
+        assignLane(child.id)
+      }
+    }
+    for (const session of rootLikeSessions) assignLane(session.id)
+
+    const nodes = new Map<string, GraphNode>()
+    const edges = new Map<string, GraphEdge>()
+    const pathBySessionID = new Map<SessionID, string[]>()
+    const nodeByTurnKey = new Map<string, string>()
+    const turnByNodeID = new Map<string, CompletedTurn>()
+    const externalPrefixCache = new Map<string, string[]>()
+
+    const upsertNode = (node: Omit<GraphNode, "row">) => {
+      const existing = nodes.get(node.id)
+      if (existing) return existing
+      const next: GraphNode = { ...node, row: -1 }
+      nodes.set(node.id, next)
+      return next
+    }
+
+    const upsertEdge = (edge: GraphEdge) => {
+      if (!edges.has(edge.id)) edges.set(edge.id, edge)
+    }
+
+    const compareTurnsForEdge = (fromNodeID: string | undefined, nextTurn: CompletedTurn) => {
+      if (!fromNodeID) return "solid" as const
+      const previousTurn = turnByNodeID.get(fromNodeID)
+      if (!previousTurn?.providerID || !previousTurn.modelID || !nextTurn.providerID || !nextTurn.modelID) {
+        return "solid" as const
+      }
+      return previousTurn.providerID === nextTurn.providerID && previousTurn.modelID === nextTurn.modelID
+        ? ("solid" as const)
+        : ("dashed" as const)
+    }
+
+    const materializeExternalPrefix = async (parentSessionID: SessionID, lane: number, count: number) => {
+      const cacheKey = `${parentSessionID}:${lane}:${count}`
+      const cached = externalPrefixCache.get(cacheKey)
+      if (cached) return cached
+
+      const turns = (await loadTurns(parentSessionID)).slice(0, count)
+      const result: string[] = []
+
+      for (const turn of turns) {
+        const nodeID = turnNodeID(turn.sessionID, turn.userMessageID)
+        upsertNode({
+          id: nodeID,
+          kind: "turn",
+          sessionID: turn.sessionID,
+          userMessageID: turn.userMessageID,
+          lane,
+          time: turn.time,
+          label: turn.label,
+          providerID: turn.providerID,
+          modelID: turn.modelID,
+          mode: turn.mode,
+          origin: "external",
+        })
+        nodeByTurnKey.set(turnKey(turn.sessionID, turn.userMessageID), nodeID)
+        turnByNodeID.set(nodeID, turn)
+
+        const previous = result.at(-1)
+        if (previous) {
+          upsertEdge({
+            id: `${previous}->${nodeID}`,
+            from: previous,
+            to: nodeID,
+            kind: "continuation",
+            style: compareTurnsForEdge(previous, turn),
+          })
+        }
+        result.push(nodeID)
+      }
+
+      externalPrefixCache.set(cacheKey, result)
+      return result
+    }
+
+    const materializeSession = async (targetSessionID: SessionID): Promise<string[]> => {
+      const existing = pathBySessionID.get(targetSessionID)
+      if (existing) return existing
+
+      const session = sessionsByID.get(targetSessionID)
+      if (!session) return []
+
+      const lane = laneBySessionID.get(targetSessionID) ?? 0
+      const turns = await loadTurns(targetSessionID)
+
+      let prefixNodeIDs: string[] = []
+      let anchorNodeID: string | undefined
+      let sharedTurnCount = 0
+
+      if (session.forkParentSessionID) {
+        if (treeSessionIDs.has(session.forkParentSessionID)) {
+          const parentPath = await materializeSession(session.forkParentSessionID)
+          const parentTurns = await loadTurns(session.forkParentSessionID)
+          const anchorIndex = session.forkAfterUserMessageID
+            ? parentTurns.findIndex((turn) => turn.userMessageID === session.forkAfterUserMessageID)
+            : -1
+          sharedTurnCount = anchorIndex >= 0 ? anchorIndex + 1 : 0
+          prefixNodeIDs = parentPath.slice(0, sharedTurnCount)
+          anchorNodeID = prefixNodeIDs.at(-1)
+        } else {
+          const parentTurns = await loadTurns(session.forkParentSessionID)
+          const anchorIndex = session.forkAfterUserMessageID
+            ? parentTurns.findIndex((turn) => turn.userMessageID === session.forkAfterUserMessageID)
+            : -1
+          sharedTurnCount = anchorIndex >= 0 ? anchorIndex + 1 : 0
+          prefixNodeIDs = await materializeExternalPrefix(session.forkParentSessionID, lane, sharedTurnCount)
+          anchorNodeID = prefixNodeIDs.at(-1)
+        }
+      }
+
+      const ownTurns = turns.slice(sharedTurnCount)
+      const ownNodeIDs: string[] = []
+      let previousNodeID = anchorNodeID
+
+      for (const turn of ownTurns) {
+        const nodeID = turnNodeID(turn.sessionID, turn.userMessageID)
+        upsertNode({
+          id: nodeID,
+          kind: "turn",
+          sessionID: turn.sessionID,
+          userMessageID: turn.userMessageID,
+          lane,
+          time: turn.time,
+          label: turn.label,
+          providerID: turn.providerID,
+          modelID: turn.modelID,
+          mode: turn.mode,
+          origin: "tree",
+        })
+        nodeByTurnKey.set(turnKey(turn.sessionID, turn.userMessageID), nodeID)
+        turnByNodeID.set(nodeID, turn)
+
+        if (previousNodeID) {
+          upsertEdge({
+            id: `${previousNodeID}->${nodeID}`,
+            from: previousNodeID,
+            to: nodeID,
+            kind: previousNodeID === anchorNodeID && !!session.forkParentSessionID ? "branch" : "continuation",
+            style: compareTurnsForEdge(previousNodeID, turn),
+          })
+        }
+
+        ownNodeIDs.push(nodeID)
+        previousNodeID = nodeID
+      }
+
+      const path =
+        session.forkParentSessionID && ownNodeIDs.length === 0
+          ? (() => {
+              if (!anchorNodeID) return prefixNodeIDs
+              const budID = budNodeID(targetSessionID)
+              const node = upsertNode({
+                id: budID,
+                kind: "bud",
+                sessionID: targetSessionID,
+                lane,
+                time: session.time.created,
+                label: "",
+                origin: "tree",
+              })
+              upsertEdge({
+                id: `${anchorNodeID}->${budID}`,
+                from: anchorNodeID,
+                to: budID,
+                kind: "bud",
+                style: "solid",
+              })
+              return [...prefixNodeIDs, node.id]
+            })()
+          : [...prefixNodeIDs, ...ownNodeIDs]
+
+      pathBySessionID.set(targetSessionID, path)
+      return path
+    }
+
+    for (const session of rootLikeSessions) {
+      await materializeSession(session.id)
+    }
+    for (const session of treeSessions) {
+      await materializeSession(session.id)
+    }
+
+    const sortedNodes = [...nodes.values()].sort((a, b) => {
+      if (a.time !== b.time) return a.time - b.time
+      if (a.lane !== b.lane) return a.lane - b.lane
+      return a.id.localeCompare(b.id)
+    })
+    sortedNodes.forEach((node, index) => {
+      node.row = index
+    })
+
+    const currentPathNodeIDs = pathBySessionID.get(currentSession.id) ?? []
+    const currentTargetNodeID = currentPathNodeIDs.at(-1)
+    const currentLatestNodeID =
+      currentTargetNodeID && nodes.get(currentTargetNodeID)?.kind === "turn" ? currentTargetNodeID : undefined
+
+    return {
+      kind: "graph",
+      treeID,
+      current: {
+        sessionID: currentSession.id,
+        pathNodeIDs: currentPathNodeIDs,
+        latestNodeID: currentLatestNodeID,
+        targetNodeID: currentTargetNodeID,
+      },
+      nodes: sortedNodes,
+      edges: [...edges.values()],
+    }
   })
 
   export const remove = fn(SessionID.zod, async (sessionID) => {

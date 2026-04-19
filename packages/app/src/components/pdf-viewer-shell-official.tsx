@@ -41,6 +41,16 @@ function setSharedNightMode(next: boolean) {
   notifyNightMode()
 }
 
+function isFileProtocol() {
+  return typeof window !== "undefined" && window.location.protocol === "file:"
+}
+
+function viewerMessageTargetOrigin() {
+  // Chromium treats file:// documents as opaque origins for postMessage.
+  // Use "*" and validate the message source explicitly on receipt.
+  return isFileProtocol() ? "*" : window.location.origin
+}
+
 export type PdfViewerShellProps = {
   src: string
   authHeader?: string
@@ -52,6 +62,8 @@ export type PdfViewerShellProps = {
   onDocumentInfo?: (info: { totalPages: number }) => void
   onPdfToMarkdown?: () => void
   onOpenReadingMode?: () => void
+  onExitQuickReading?: () => void
+  onStartFirstRead?: () => void
   onOpenSettings?: () => void
   onTextSelectionAction?: (input: { action: "copy" | "translate" | "ask"; page: number; text: string }) => void
   onImageSelectionAction?: (input: { action: "copy" | "translate" | "ask"; page: number; imageDataUrl: string }) => void
@@ -64,6 +76,8 @@ type ViewerMessage =
   | { channel: "aether-pdf-viewer"; type: "documentinfo"; totalPages: number }
   | { channel: "aether-pdf-viewer"; type: "pdf2md" }
   | { channel: "aether-pdf-viewer"; type: "openreadingmode" }
+  | { channel: "aether-pdf-viewer"; type: "exitquickreading" }
+  | { channel: "aether-pdf-viewer"; type: "startfirstread" }
   | { channel: "aether-pdf-viewer"; type: "opensettings" }
   | { channel: "aether-pdf-viewer"; type: "textselectionaction"; action: "copy" | "translate" | "ask"; page: number; text: string }
   | {
@@ -79,21 +93,29 @@ type ViewerMessage =
 export const PdfViewerShell: Component<PdfViewerShellProps> = (props) => {
   bindNightModeSync()
   let iframeRef: HTMLIFrameElement | undefined
-  let ready = false
   let lastReportedPage: number | undefined
   let lastConfigKey = ""
+  const [ready, setReady] = createSignal(false)
   const [nightMode, setNightMode] = createSignal(sharedNightMode)
 
-  const viewerSrc = createMemo(() => "/pdf-viewer.html")
+  const viewerSrc = createMemo(() => {
+    if (typeof window !== "undefined" && window.location.protocol === "file:") {
+      return "./pdf-viewer.html"
+    }
+    return "/pdf-viewer.html"
+  })
   const config = createMemo(() => ({
     src: props.src,
     authHeader: props.authHeader,
     mode: props.mode,
+    page: props.page,
     nightMode: nightMode(),
     layoutSwapped: !!props.layoutSwapped,
       features: {
         pdf2md: !!props.onPdfToMarkdown && props.mode === "compact",
         readingMode: !!props.onOpenReadingMode && props.mode === "compact",
+        quickReadingExit: !!props.onExitQuickReading && props.mode === "full",
+        firstRead: !!props.onStartFirstRead && props.mode === "full",
         settings: !!props.onOpenSettings && props.mode === "full",
         textSelectionActions: !!props.onTextSelectionAction && props.mode === "full",
         imageSelectionActions: !!props.onImageSelectionAction && props.mode === "full",
@@ -103,12 +125,12 @@ export const PdfViewerShell: Component<PdfViewerShellProps> = (props) => {
   const post = (message: unknown) => {
     const frame = iframeRef?.contentWindow
     if (!frame) return
-    frame.postMessage(message, window.location.origin)
+    frame.postMessage(message, viewerMessageTargetOrigin())
   }
 
   const sendConfig = () => {
     const nextConfig = config()
-    if (!nextConfig.src || !ready) return
+    if (!nextConfig.src || !ready()) return
     const key = JSON.stringify(nextConfig)
     if (key === lastConfigKey) return
     lastConfigKey = key
@@ -126,7 +148,7 @@ export const PdfViewerShell: Component<PdfViewerShellProps> = (props) => {
 
   createEffect(() => {
     const page = props.page
-    if (!ready || page === undefined) return
+    if (!ready() || page === undefined) return
     if (page === lastReportedPage) return
     post({
       channel: "aether-pdf-viewer",
@@ -139,12 +161,12 @@ export const PdfViewerShell: Component<PdfViewerShellProps> = (props) => {
   onCleanup(() => nightModeSubscribers.delete(setNightMode))
 
   const onMessage = (event: MessageEvent<ViewerMessage>) => {
-    if (event.origin !== window.location.origin) return
     if (event.source !== iframeRef?.contentWindow) return
     if (event.data?.channel !== "aether-pdf-viewer") return
+    if (!isFileProtocol() && event.origin !== window.location.origin) return
 
     if (event.data.type === "ready") {
-      ready = true
+      setReady(true)
       lastConfigKey = ""
       sendConfig()
       return
@@ -168,6 +190,16 @@ export const PdfViewerShell: Component<PdfViewerShellProps> = (props) => {
 
     if (event.data.type === "openreadingmode") {
       props.onOpenReadingMode?.()
+      return
+    }
+
+    if (event.data.type === "exitquickreading") {
+      props.onExitQuickReading?.()
+      return
+    }
+
+    if (event.data.type === "startfirstread") {
+      props.onStartFirstRead?.()
       return
     }
 
@@ -215,6 +247,10 @@ export const PdfViewerShell: Component<PdfViewerShellProps> = (props) => {
         class="pdf-viewer-shell__frame"
         title="PDF Viewer"
         loading="eager"
+        onLoad={() => {
+          setReady(false)
+          lastReportedPage = undefined
+        }}
       />
     </div>
   )
