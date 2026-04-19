@@ -16,6 +16,9 @@ type TerminalProbeControl = {
 
 export type E2EWindow = Window & {
   __opencode_e2e?: {
+    update?: {
+      polling?: "mute" | "allow"
+    }
     model?: {
       enabled?: boolean
       current?: ModelProbeState
