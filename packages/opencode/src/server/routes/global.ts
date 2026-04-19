@@ -187,11 +187,17 @@ async function resolveUpdateStatus(os: z.infer<typeof WebUpdateOS>, ver: string,
     return { status: "available" as const, error: "" }
   }
   if (state.version !== ver) {
-    return { status: "recovery" as const, error: "A previous update attempt targeted a different version. Restart the update from scratch." }
+    return {
+      status: "recovery" as const,
+      error: "A previous update attempt targeted a different version. Restart the update from scratch.",
+    }
   }
   if (state.status === "downloaded") {
     if (ready) return { status: "downloaded" as const, error: state.error ?? "" }
-    return { status: "recovery" as const, error: "Downloaded update files are incomplete. Restart the update from scratch." }
+    return {
+      status: "recovery" as const,
+      error: "Downloaded update files are incomplete. Restart the update from scratch.",
+    }
   }
   if (state.status === "downloading") {
     if (state.server === UPDATE_RUN) return { status: "downloading" as const, error: state.error ?? "" }
@@ -220,7 +226,12 @@ function versioned(name: string, ver: string) {
 }
 
 function compareVer(a: string, b: string) {
-  const norm = (v: string) => v.replace(/^v/i, "").split("-")[0].split(".").map((x) => Number.parseInt(x || "0", 10) || 0)
+  const norm = (v: string) =>
+    v
+      .replace(/^v/i, "")
+      .split("-")[0]
+      .split(".")
+      .map((x) => Number.parseInt(x || "0", 10) || 0)
   const x = norm(a)
   const y = norm(b)
   const len = Math.max(x.length, y.length, 3)
@@ -859,12 +870,6 @@ export const GlobalRoutes = lazy(() =>
         if (!resolved) {
           return c.json({ success: false as const, error: "Could not determine aether work directory" })
         }
-        if (resolved.isFallback && !acceptFallback) {
-          return c.json({
-            success: false as const,
-            error: `Aether is not installed in the expected location. Install to fallback path requires confirmation: ${resolved.path}`,
-          })
-        }
         const workDir = resolved.path
         const upd = UPDATE_SCRIPT[os]
         if (!upd) return c.json({ success: false as const, error: `Update script not configured for ${os}` })
@@ -918,7 +923,10 @@ export const GlobalRoutes = lazy(() =>
           try {
             await fs.access(scriptInDownloads)
           } catch {
-            await writeUpdateState(workDir, updateState(version, "error", `Downloaded update script missing: ${scriptInDownloads}`))
+            await writeUpdateState(
+              workDir,
+              updateState(version, "error", `Downloaded update script missing: ${scriptInDownloads}`),
+            )
             return c.json({ success: false as const, error: `Downloaded update script missing: ${scriptInDownloads}` })
           }
           try {
@@ -943,7 +951,9 @@ export const GlobalRoutes = lazy(() =>
           return c.json({ success: false as const, error: `Installer exited with code ${exitCode}` })
         } catch (e) {
           const message = e instanceof Error ? e.message : String(e)
-          await writeUpdateState(workDir, updateState(version, "error", `Download failed: ${message}`)).catch(() => undefined)
+          await writeUpdateState(workDir, updateState(version, "error", `Download failed: ${message}`)).catch(
+            () => undefined,
+          )
           return c.json({ success: false as const, error: `Download failed: ${message}` })
         }
       },
@@ -985,12 +995,6 @@ export const GlobalRoutes = lazy(() =>
         if (!resolved) {
           return c.json({ success: false as const, error: "Could not determine aether work directory" })
         }
-        if (resolved.isFallback && !acceptFallback) {
-          return c.json({
-            success: false as const,
-            error: `Aether is not installed in the expected location. Install to fallback path requires confirmation: ${resolved.path}`,
-          })
-        }
         const workDir = resolved.path
         try {
           await fs.mkdir(workDir, { recursive: true })
@@ -1015,9 +1019,10 @@ export const GlobalRoutes = lazy(() =>
         try {
           await fs.access(run)
         } catch {
-          await writeUpdateState(workDir, updateState(version ?? "latest", "error", `Update script not found: ${run}`)).catch(
-            () => undefined,
-          )
+          await writeUpdateState(
+            workDir,
+            updateState(version ?? "latest", "error", `Update script not found: ${run}`),
+          ).catch(() => undefined)
           return c.json({ success: false as const, error: `Update script not found: ${run}` })
         }
         const next = version || (await readUpdateState(workDir))?.version || "latest"
@@ -1050,9 +1055,10 @@ export const GlobalRoutes = lazy(() =>
           return c.json({ success: true as const })
         } catch (e) {
           const message = e instanceof Error ? e.message : String(e)
-          await writeUpdateState(workDir, updateState(next, "error", `Failed to execute update script: ${message}`)).catch(
-            () => undefined,
-          )
+          await writeUpdateState(
+            workDir,
+            updateState(next, "error", `Failed to execute update script: ${message}`),
+          ).catch(() => undefined)
           return c.json({ success: false as const, error: `Failed to execute update script: ${message}` })
         }
       },

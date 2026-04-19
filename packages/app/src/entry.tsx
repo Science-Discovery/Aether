@@ -254,8 +254,6 @@ const detectOS = (): string => {
   return "linux"
 }
 
-let fallbackPath = ""
-
 const webCheck = async () => {
   const os = detectOS()
   const res = await req(`/global/web-update/check?os=${os}`)
@@ -279,20 +277,6 @@ const webCheck = async () => {
     workDir: typeof data.workDir === "string" ? data.workDir.trim() : "",
     requiresConfirmation: !!data.workDirFallback,
   }
-}
-
-const consent = (input: { requiresConfirmation: boolean; workDir: string }) => {
-  if (!input.requiresConfirmation) return false
-  const target = input.workDir || "the default location"
-  if (fallbackPath === target) return true
-  const ok = window.confirm(
-    `Aether is not installed in a standard location. The update will be installed to:\n\n${target}\n\nContinue?`,
-  )
-  if (ok) {
-    fallbackPath = target
-    return true
-  }
-  throw new Error("Update cancelled")
 }
 
 const webDownload = async (input: { os: string; version: string }, acceptFallback: boolean, force = false) => {
@@ -339,36 +323,34 @@ const platform: Platform = {
     const data = await webCheck()
     if (!data.updateAvailable) return
     if (data.status === "recovery") throw new Error(data.updateError || "Update needs to restart from scratch")
-    await webDownload(data, consent(data))
+    await webDownload(data, true)
   },
   update: async () => {
     const data = await webCheck()
     if (!data.updateAvailable) return
-    const acceptFallback = consent(data)
     if (data.status === "recovery") {
-      await webDownload(data, acceptFallback, true)
+      await webDownload(data, true, true)
       const next = await webCheck()
       if (!next.updateAvailable || next.status !== "downloaded") {
         throw new Error(next.updateError || "Update restart did not finish downloading")
       }
-      await webInstall(next, acceptFallback)
+      await webInstall(next, true)
       return
     }
     if (!data.downloaded) {
-      await webDownload(data, acceptFallback)
+      await webDownload(data, true)
     }
-    await webInstall(data, acceptFallback)
+    await webInstall(data, true)
   },
   recoverUpdate: async () => {
     const data = await webCheck()
     if (!data.updateAvailable) return
-    const acceptFallback = consent(data)
-    await webDownload(data, acceptFallback, true)
+    await webDownload(data, true, true)
     const next = await webCheck()
     if (!next.updateAvailable || next.status !== "downloaded") {
       throw new Error(next.updateError || "Update restart did not finish downloading")
     }
-    await webInstall(next, acceptFallback)
+    await webInstall(next, true)
   },
   getDefaultServer: async () => {
     const stored = readDefaultServerUrl()
