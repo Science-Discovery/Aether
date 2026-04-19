@@ -8,6 +8,7 @@ base="$(basename "$self")"
 work="$(dirname "$self")"
 launch=""
 launch_note=""
+copy_note=""
 restart="0"
 prune="0"
 
@@ -211,77 +212,27 @@ prune_versions() {
 }
 
 write_launch() {
-  local root target
-  root="$1"
+  local final target
+  final="$1"
 build_app() {
-    local dir app bin
+    local dir app bin cmd
     dir="$1"
     app="$dir/Aether.app"
     bin="$app/Contents/MacOS/Aether"
+    cmd="$final/Aether.command"
     rm -rf "$app"
     mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
     cat >"$bin" <<EOF
 #!/usr/bin/env bash
 set -euo pipefail
 
-root="$root"
-cmp() {
-  local a="\${1#v}"
-  local b="\${2#v}"
-  a="\${a%%-*}"
-  b="\${b%%-*}"
-  local aa bb i x y
-  IFS=. read -r -a aa <<<"\$a"
-  IFS=. read -r -a bb <<<"\$b"
-  for i in 0 1 2 3; do
-    x="\${aa[\$i]:-0}"
-    y="\${bb[\$i]:-0}"
-    x=\$((10#\$x))
-    y=\$((10#\$y))
-    if [ "\$x" -lt "\$y" ]; then
-      echo lt
-      return 0
-    fi
-    if [ "\$x" -gt "\$y" ]; then
-      echo gt
-      return 0
-    fi
-  done
-  echo eq
-}
-
-pick() {
-  local dir ver best best_ver item
-  shopt -s nullglob
-  for item in "\$root"/aether_*; do
-    [ -d "\$item" ] || continue
-    ver=""
-    if [ -f "\$item/.aether_web_version" ]; then
-      ver="\$(tr -d '[:space:]' <"\$item/.aether_web_version")"
-    fi
-    if [ -z "\$ver" ]; then
-      dir="\$(basename "\$item")"
-      if [[ "\$dir" =~ ^aether[-_]([0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z]+)*)$ ]]; then
-        ver="\${BASH_REMATCH[1]}"
-      fi
-    fi
-    [ -n "\$ver" ] || continue
-    if [ -z "\${best:-}" ] || [ "\$(cmp "\$best_ver" "\$ver")" = "lt" ]; then
-      best="\$item"
-      best_ver="\$ver"
-    fi
-  done
-  shopt -u nullglob
-  printf "%s" "\${best:-}"
-}
-
-app="\$(pick)"
-if [ -n "\$app" ] && [ -f "\$app/Aether.command" ]; then
-  nohup "\$app/Aether.command" >/dev/null 2>&1 &
+cmd="$cmd"
+if [ -f "\$cmd" ]; then
+  nohup "\$cmd" >/dev/null 2>&1 &
   exit 0
 fi
 
-echo "No active version found under: $root"
+echo "Launch target not found: $cmd"
 exit 1
 EOF
     chmod +x "$bin"
@@ -326,14 +277,48 @@ EOF
   launch_note="无法写入 /Applications，已回退到 $launch。手动复制该 App 到 /Applications后，从 app 启动器中运行Aether，或在\"$HOME/Applications\"文件夹中双击Aether.app运行。"
 }
 
+stop() {
+  local dir="$1"
+  [ -n "$dir" ] || return 0
+  pkill -f "$dir/Aether.command" >/dev/null 2>&1 || true
+  pkill -f "$dir/aether web" >/dev/null 2>&1 || true
+  pkill -f "$dir/aether serve" >/dev/null 2>&1 || true
+}
+
+boot() {
+  local dir="$1"
+  [ -x "$dir/Aether.command" ] || return 1
+  nohup "$dir/Aether.command" >/dev/null 2>&1 &
+}
+
+mirror_dir() {
+  local cur root dst tmp
+  cur="${AETHER_CURRENT_DIR:-}"
+  [ -n "$cur" ] || return 1
+  root="$(cd "$cur/.." && pwd)"
+  dst="$root/aether_$ver"
+  if [ -d "$dst" ]; then
+    dst="${dst}_new"
+  fi
+  tmp="${dst}.copy"
+  rm -rf "$tmp" "$dst"
+  mkdir -p "$tmp" || return 1
+  ditto "$target" "$tmp" || {
+    rm -rf "$tmp"
+    return 1
+  }
+  mv "$tmp" "$dst" || {
+    rm -rf "$tmp"
+    return 1
+  }
+  printf "%s" "$dst"
+}
+
 if [ "$base" != "downloads" ]; then
   fail "规范错误：update_darwin.command 必须放在 .../aether/downloads 目录。当前: $self"
 fi
 if [ "$(basename "$work")" != "aether" ]; then
   fail "规范错误：工作目录必须是 .../aether。当前: $work"
-fi
-if [ ! -f "$work/aether_darwin_installer.command" ]; then
-  fail "规范错误：缺少 .../aether/aether_darwin_installer.command"
 fi
 
 echo "[0/4] 工作目录: $work"
@@ -404,20 +389,31 @@ fi
 printf "%s\n" "$ver" >"$target/.aether_web_version"
 rm -f "$work/.aether_web_version" >/dev/null 2>&1 || true
 
-rm -rf "$work/current" >/dev/null 2>&1 || true
-write_launch "$work"
-prune_versions "$work" 5 "$target"
+  rm -rf "$work/current" >/dev/null 2>&1 || true
+  prune_versions "$work" 5 "$target"
+
+  copy_target=""
+  if copy_target="$(mirror_dir || true)" && [ -n "$copy_target" ]; then
+    copy_note="已复制新版本到当前软件目录附近：$copy_target"
+  fi
+  final_target="$target"
+  if [ -n "$copy_target" ]; then
+    final_target="$copy_target"
+  fi
+  write_launch "$final_target"
 
 if [ "$restart" = "1" ]; then
-  if [ -n "$old" ]; then
-    pkill -f "$old/Aether.command" >/dev/null 2>&1 || true
-    pkill -f "$old/aether web" >/dev/null 2>&1 || true
-    pkill -f "$old/aether serve" >/dev/null 2>&1 || true
+  stop "$old"
+  stop "$target"
+  stop "${AETHER_CURRENT_DIR:-}"
+  stop "$copy_target"
+  if [ -n "$copy_target" ]; then
+    if ! boot "$copy_target" && ! boot "$target"; then
+      fail "重启失败：无法启动 $target/Aether.command"
+    fi
+  elif ! boot "$target"; then
+    fail "重启失败：无法启动 $target/Aether.command"
   fi
-  pkill -f "$target/Aether.command" >/dev/null 2>&1 || true
-  pkill -f "$target/aether web" >/dev/null 2>&1 || true
-  pkill -f "$target/aether serve" >/dev/null 2>&1 || true
-  nohup "$target/Aether.command" >/dev/null 2>&1 &
 fi
 
 if [ "$prune" -gt 0 ]; then
@@ -429,7 +425,13 @@ fi
 echo "[4/4] 完成"
 echo "当前版本: $ver"
 echo "版本目录: $target"
+if [ -n "$copy_target" ]; then
+  echo "复制目录: $copy_target"
+fi
 echo "启动入口: $launch"
 if [ -n "$launch_note" ]; then
   echo "$launch_note"
+fi
+if [ -n "$copy_note" ]; then
+  echo "$copy_note"
 fi

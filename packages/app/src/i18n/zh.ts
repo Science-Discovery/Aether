@@ -484,6 +484,9 @@ export const dict = {
   "update.install": "更新并重启",
   "update.installing": "正在安装...",
   "update.installHint": "安装更新会关闭 Aether。",
+  "update.recover": "重新开始更新",
+  "update.recovering": "正在重新开始更新...",
+  "update.recoverHint": "之前的更新流程留下了不完整文件，需要从头重新下载并安装。",
   "update.checkFailed": "检查失败",
   "update.retry": "重试",
 

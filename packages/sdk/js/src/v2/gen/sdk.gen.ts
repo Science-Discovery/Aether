@@ -59,6 +59,8 @@ import type {
   FileEnsureDirectoryErrors,
   FileEnsureDirectoryResponses,
   FileListResponses,
+  FileMetadataErrors,
+  FileMetadataResponses,
   FileOpenErrors,
   FileOpenInExplorerErrors,
   FileOpenInExplorerResponses,
@@ -450,6 +452,7 @@ export class WebUpdate extends HeyApiClient {
       os?: "darwin" | "linux" | "windows"
       version?: string
       acceptFallback?: boolean
+      force?: boolean
     },
     options?: Options<never, ThrowOnError>,
   ) {
@@ -461,6 +464,7 @@ export class WebUpdate extends HeyApiClient {
             { in: "body", key: "os" },
             { in: "body", key: "version" },
             { in: "body", key: "acceptFallback" },
+            { in: "body", key: "force" },
           ],
         },
       ],
@@ -1647,6 +1651,7 @@ export class Session extends HeyApiClient {
       cursor?: number
       search?: string
       limit?: number
+      archivedMode?: "exclude" | "include" | "only"
       archived?: boolean
     },
     options?: Options<never, ThrowOnError>,
@@ -3888,6 +3893,38 @@ export class File extends HeyApiClient {
   }
 
   /**
+   * Read file metadata
+   *
+   * Read lightweight metadata for a file or directory without loading file contents.
+   */
+  public metadata<ThrowOnError extends boolean = false>(
+    parameters: {
+      directory?: string
+      workspace?: string
+      path: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "query", key: "path" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<FileMetadataResponses, FileMetadataErrors, ThrowOnError>({
+      url: "/file/metadata",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
    * Read file
    *
    * Read the content of a specified file.
@@ -4472,7 +4509,7 @@ export class File extends HeyApiClient {
   /**
    * Serve raw file
    *
-   * Serve a file's raw binary content with appropriate Content-Type.
+   * Serve a file's raw bytes with support for range requests.
    */
   public raw<ThrowOnError extends boolean = false>(
     parameters: {

@@ -2179,6 +2179,17 @@ export type FileNode = {
   ignored: boolean
 }
 
+export type FileMetadata = {
+  path: string
+  name: string
+  kind: "file" | "directory"
+  size: number
+  mimeType: string
+  previewKind: "text" | "image" | "pdf" | "binary" | "directory"
+  inline: boolean
+  range: boolean
+}
+
 export type FileContent = {
   type: "text" | "binary"
   content: string
@@ -2549,8 +2560,10 @@ export type GlobalWebUpdateCheckResponses = {
     remoteVersion: string
     updateAvailable: boolean
     downloaded: boolean
+    status: "available" | "downloading" | "downloaded" | "installing" | "recovery"
     workDir: string
     workDirFallback: boolean
+    updateError?: string
     checkError?: string
   }
 }
@@ -2562,6 +2575,7 @@ export type GlobalWebUpdateDownloadData = {
     os: "darwin" | "linux" | "windows"
     version: string
     acceptFallback?: boolean
+    force?: boolean
   }
   path?: never
   query?: never
@@ -5556,6 +5570,39 @@ export type FileCreateResponses = {
 
 export type FileCreateResponse = FileCreateResponses[keyof FileCreateResponses]
 
+export type FileMetadataData = {
+  body?: never
+  path?: never
+  query: {
+    directory?: string
+    workspace?: string
+    path: string
+  }
+  url: "/file/metadata"
+}
+
+export type FileMetadataErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type FileMetadataError = FileMetadataErrors[keyof FileMetadataErrors]
+
+export type FileMetadataResponses = {
+  /**
+   * File metadata
+   */
+  200: FileMetadata
+}
+
+export type FileMetadataResponse = FileMetadataResponses[keyof FileMetadataResponses]
+
 export type FileReadData = {
   body?: never
   path?: never
@@ -6054,6 +6101,10 @@ export type FileRawErrors = {
    * Not found
    */
   404: NotFoundError
+  /**
+   * Invalid range
+   */
+  416: unknown
 }
 
 export type FileRawError = FileRawErrors[keyof FileRawErrors]
@@ -6063,6 +6114,10 @@ export type FileRawResponses = {
    * File content
    */
   200: unknown
+  /**
+   * Partial file content
+   */
+  206: unknown
 }
 
 export type FileTranslateMarkdownCheckData = {

@@ -39,8 +39,28 @@ const PingInput = z.object({
 })
 
 const WebUpdateOS = z.enum(["darwin", "linux", "windows"])
+const WebUpdateStatus = z.enum(["available", "downloading", "downloaded", "installing", "recovery"])
+const WebUpdateState = z.object({
+  status: z.enum(["downloading", "downloaded", "installing", "error"]),
+  version: z.string().min(1),
+  server: z.string().min(1),
+  at: z.number().int(),
+  error: z.string().optional(),
+})
 
 const WEB_UPDATE_BASE = "https://aether.aiphys.cn/download"
+const UPDATE_PKG_PREFIX: Record<string, string> = {
+  darwin: "aether-darwin",
+  linux: "aether-linux-x64",
+  windows: "aether-windows-x64",
+}
+const UPDATE_RUN = (() => {
+  try {
+    return crypto.randomUUID()
+  } catch {
+    return `${Date.now()}-${Math.random().toString(36).slice(2)}`
+  }
+})()
 
 const INSTALLER_YML: Record<string, string> = {
   darwin: "latest/mac-arm64.yml",
@@ -66,10 +86,63 @@ const UPDATE_PKG_EXT: Record<string, string> = {
   windows: ".zip",
 }
 
+function updateStatePath(work: string) {
+  return path.join(work, "downloads", "web-update-state.json")
+}
+
+function updateState(version: string, status: z.infer<typeof WebUpdateState>["status"], error?: string) {
+  return {
+    version,
+    status,
+    server: UPDATE_RUN,
+    at: Date.now(),
+    ...(error?.trim() ? { error: error.trim() } : {}),
+  }
+}
+
+async function readUpdateState(work: string) {
+  try {
+    const text = await fs.readFile(updateStatePath(work), "utf-8")
+    const parsed = WebUpdateState.safeParse(JSON.parse(text))
+    if (!parsed.success) return null
+    return parsed.data
+  } catch {
+    return null
+  }
+}
+
+async function writeUpdateState(work: string, state: z.infer<typeof WebUpdateState>) {
+  const file = updateStatePath(work)
+  await fs.mkdir(path.dirname(file), { recursive: true })
+  await fs.writeFile(file, `${JSON.stringify(state, null, 2)}\n`, "utf-8")
+}
+
+async function clearUpdateState(work: string) {
+  await fs.rm(updateStatePath(work), { force: true }).catch(() => undefined)
+}
+
+function updateScriptPrefix(name: string) {
+  const idx = name.lastIndexOf(".")
+  return `${idx < 0 ? name : name.slice(0, idx)}-`
+}
+
+function packageMatch(os: string, ver: string, name: string) {
+  const ext = UPDATE_PKG_EXT[os] ?? ".dmg"
+  const prefix = UPDATE_PKG_PREFIX[os] ?? "aether"
+  return name.startsWith(prefix) && name.includes(ver) && name.toLowerCase().endsWith(ext)
+}
+
+async function packagePath(os: string, ver: string, work: string) {
+  const dl = path.join(work, "downloads")
+  const files = await fs.readdir(dl).catch(() => [])
+  const list = files.filter((x) => packageMatch(os, ver, x)).sort()
+  if (list.length === 0) return ""
+  return path.join(dl, list[list.length - 1])
+}
+
 async function downloadedReady(os: string, ver: string, work: string) {
   const file = UPDATE_SCRIPT[os]
   if (!file) return false
-  const ext = UPDATE_PKG_EXT[os] ?? ".dmg"
   const dl = path.join(work, "downloads")
   const upd = path.join(dl, versioned(file, ver))
   try {
@@ -77,8 +150,67 @@ async function downloadedReady(os: string, ver: string, work: string) {
   } catch {
     return false
   }
+  const pkg = await packagePath(os, ver, work)
+  if (!pkg) return false
+  try {
+    await fs.access(pkg)
+    return true
+  } catch {
+    return false
+  }
+}
+
+async function resetUpdate(os: string, ver: string, work: string) {
+  const dl = path.join(work, "downloads")
+  const file = UPDATE_SCRIPT[os]
+  const ext = UPDATE_PKG_EXT[os] ?? ".dmg"
+  const prefix = UPDATE_PKG_PREFIX[os] ?? "aether"
   const files = await fs.readdir(dl).catch(() => [])
-  return files.some((x) => x.toLowerCase().endsWith(ext) && x.includes(ver))
+  const list = files.filter(
+    (x) =>
+      (x.startsWith(prefix) && x.toLowerCase().endsWith(ext)) ||
+      (file ? x.startsWith(updateScriptPrefix(file)) && x.endsWith(path.extname(file)) : false) ||
+      x === "last-result.yml" ||
+      x === "web-update-state.json",
+  )
+  await Promise.all(list.map((x) => fs.rm(path.join(dl, x), { force: true }).catch(() => undefined)))
+  await fs.rm(path.join(work, `.aether_${ver}.next`), { force: true, recursive: true }).catch(() => undefined)
+  await fs.rm(path.join(work, `aether_${ver}`), { force: true, recursive: true }).catch(() => undefined)
+  await clearUpdateState(work)
+}
+
+async function resolveUpdateStatus(os: z.infer<typeof WebUpdateOS>, ver: string, work: string) {
+  const state = await readUpdateState(work)
+  const ready = await downloadedReady(os, ver, work)
+  if (!state) {
+    if (ready) return { status: "downloaded" as const, error: "" }
+    return { status: "available" as const, error: "" }
+  }
+  if (state.version !== ver) {
+    return { status: "recovery" as const, error: "A previous update attempt targeted a different version. Restart the update from scratch." }
+  }
+  if (state.status === "downloaded") {
+    if (ready) return { status: "downloaded" as const, error: state.error ?? "" }
+    return { status: "recovery" as const, error: "Downloaded update files are incomplete. Restart the update from scratch." }
+  }
+  if (state.status === "downloading") {
+    if (state.server === UPDATE_RUN) return { status: "downloading" as const, error: state.error ?? "" }
+    return {
+      status: "recovery" as const,
+      error: state.error ?? "The previous download did not finish. Restart the update from scratch.",
+    }
+  }
+  if (state.status === "installing") {
+    if (state.server === UPDATE_RUN) return { status: "installing" as const, error: state.error ?? "" }
+    return {
+      status: "recovery" as const,
+      error: state.error ?? "The previous install did not finish. Restart the update from scratch.",
+    }
+  }
+  return {
+    status: "recovery" as const,
+    error: state.error ?? "The previous update failed. Restart the update from scratch.",
+  }
 }
 
 function versioned(name: string, ver: string) {
@@ -189,8 +321,10 @@ async function webCheck(os: z.infer<typeof WebUpdateOS>) {
         remoteVersion: "",
         updateAvailable: false,
         downloaded: false,
+        status: "available" as const,
         workDir,
         workDirFallback,
+        updateError: undefined,
         checkError: `Failed to fetch version metadata: ${res.status}`,
       }
     }
@@ -203,20 +337,26 @@ async function webCheck(os: z.infer<typeof WebUpdateOS>) {
         remoteVersion: "",
         updateAvailable: false,
         downloaded: false,
+        status: "available" as const,
         workDir,
         workDirFallback,
+        updateError: undefined,
         checkError: "Could not parse remote version from metadata",
       }
     }
     const updateAvailable = compareVer(currentVersion, remoteVersion) < 0
-    const downloaded = updateAvailable && workDir ? await downloadedReady(os, remoteVersion, workDir) : false
+    if (!updateAvailable && workDir) await clearUpdateState(workDir)
+    const state = updateAvailable && workDir ? await resolveUpdateStatus(os, remoteVersion, workDir) : null
+    const downloaded = state?.status === "downloaded"
     return {
       currentVersion,
       remoteVersion,
       updateAvailable,
       downloaded,
+      status: state?.status ?? "available",
       workDir,
       workDirFallback,
+      updateError: state?.error || undefined,
       checkError: undefined,
     }
   } catch (e) {
@@ -226,8 +366,10 @@ async function webCheck(os: z.infer<typeof WebUpdateOS>) {
       remoteVersion: "",
       updateAvailable: false,
       downloaded: false,
+      status: "available" as const,
       workDir,
       workDirFallback,
+      updateError: undefined,
       checkError: `Failed to check update: ${message}`,
     }
   }
@@ -657,8 +799,10 @@ export const GlobalRoutes = lazy(() =>
                     remoteVersion: z.string(),
                     updateAvailable: z.boolean(),
                     downloaded: z.boolean(),
+                    status: WebUpdateStatus,
                     workDir: z.string(),
                     workDirFallback: z.boolean(),
+                    updateError: z.string().optional(),
                     checkError: z.string().optional(),
                   }),
                 ),
@@ -706,10 +850,11 @@ export const GlobalRoutes = lazy(() =>
           os: WebUpdateOS,
           version: z.string().min(1),
           acceptFallback: z.boolean().optional(),
+          force: z.boolean().optional(),
         }),
       ),
       async (c) => {
-        const { os, version, acceptFallback } = c.req.valid("json")
+        const { os, version, acceptFallback, force } = c.req.valid("json")
         const resolved = resolveWorkDir(os)
         if (!resolved) {
           return c.json({ success: false as const, error: "Could not determine aether work directory" })
@@ -721,6 +866,22 @@ export const GlobalRoutes = lazy(() =>
           })
         }
         const workDir = resolved.path
+        const upd = UPDATE_SCRIPT[os]
+        if (!upd) return c.json({ success: false as const, error: `Update script not configured for ${os}` })
+        const state = await resolveUpdateStatus(os, version, workDir)
+        if (force) await resetUpdate(os, version, workDir)
+        if (!force && state.status === "downloaded") {
+          return c.json({ success: true as const, path: path.join(workDir, "downloads", versioned(upd, version)) })
+        }
+        if (!force && state.status === "downloading") {
+          return c.json({ success: false as const, error: "Update download is already in progress" })
+        }
+        if (!force && state.status === "installing") {
+          return c.json({ success: false as const, error: "Update install is already in progress" })
+        }
+        if (!force && state.status === "recovery") {
+          return c.json({ success: false as const, error: state.error || "Update needs to restart from scratch" })
+        }
         try {
           await fs.mkdir(workDir, { recursive: true })
         } catch (e) {
@@ -731,24 +892,22 @@ export const GlobalRoutes = lazy(() =>
         if (!scriptPath) {
           return c.json({ success: false as const, error: `Failed to fetch installer script for ${os}` })
         }
-        const upd = UPDATE_SCRIPT[os]
-        if (!upd) return c.json({ success: false as const, error: `Update script not configured for ${os}` })
-        if (await downloadedReady(os, version, workDir)) {
-          return c.json({ success: true as const, path: path.join(workDir, "downloads", versioned(upd, version)) })
-        }
         const currentVersion = readWebCurrentVersion()
         log.info("running installer auto mode", { os, script: scriptPath, version, workDir })
         try {
           const cur = await currentVersion
           if (compareVer(cur, version) >= 0) {
+            await clearUpdateState(workDir)
             return c.json({ success: false as const, error: "No upgrade needed" })
           }
+          await writeUpdateState(workDir, updateState(version, "downloading"))
           const exitCode = await new Promise<number>((resolve, reject) => {
             const cmd = os === "windows" ? "cmd" : "bash"
             const cmdArgs = os === "windows" ? ["/c", scriptPath, "auto", cur] : [scriptPath, "auto", cur]
             const child = spawn(cmd, cmdArgs, {
               cwd: workDir,
               env: { ...process.env, AETHER_WORK_DIR: workDir },
+              windowsHide: os === "windows",
             })
             child.on("close", (code: number | null) => resolve(code ?? 1))
             child.on("error", reject)
@@ -759,33 +918,32 @@ export const GlobalRoutes = lazy(() =>
           try {
             await fs.access(scriptInDownloads)
           } catch {
+            await writeUpdateState(workDir, updateState(version, "error", `Downloaded update script missing: ${scriptInDownloads}`))
             return c.json({ success: false as const, error: `Downloaded update script missing: ${scriptInDownloads}` })
           }
           try {
             await fs.chmod(scriptInDownloads, 0o755)
           } catch {}
 
-          const pick = async () => {
-            const files = await fs.readdir(dl)
-            const ext = UPDATE_PKG_EXT[os] ?? ".dmg"
-            const list = files.filter((x) => x.toLowerCase().endsWith(ext) && x.includes(version)).sort()
-            if (list.length > 0) return path.join(dl, list[list.length - 1])
-            const any = files.filter((x) => x.toLowerCase().endsWith(ext)).sort()
-            if (any.length > 0) return path.join(dl, any[any.length - 1])
-            return ""
+          const pkg = await packagePath(os, version, workDir)
+          if (!pkg) {
+            await writeUpdateState(workDir, updateState(version, "error", `No update package found in ${dl}`))
+            return c.json({ success: false as const, error: `No update package found in ${dl}` })
           }
-          const pkg = await pick()
-          if (!pkg) return c.json({ success: false as const, error: `No update package found in ${dl}` })
           log.info("installer auto result", { exitCode, workDir, script: scriptInDownloads, pkg })
           if (exitCode === 20) {
+            await clearUpdateState(workDir)
             return c.json({ success: false as const, error: "Already up to date" })
           }
           if (exitCode === 10) {
+            await writeUpdateState(workDir, updateState(version, "downloaded"))
             return c.json({ success: true as const, path: scriptInDownloads, package: pkg })
           }
+          await writeUpdateState(workDir, updateState(version, "error", `Installer exited with code ${exitCode}`))
           return c.json({ success: false as const, error: `Installer exited with code ${exitCode}` })
         } catch (e) {
           const message = e instanceof Error ? e.message : String(e)
+          await writeUpdateState(workDir, updateState(version, "error", `Download failed: ${message}`)).catch(() => undefined)
           return c.json({ success: false as const, error: `Download failed: ${message}` })
         }
       },
@@ -857,23 +1015,44 @@ export const GlobalRoutes = lazy(() =>
         try {
           await fs.access(run)
         } catch {
+          await writeUpdateState(workDir, updateState(version ?? "latest", "error", `Update script not found: ${run}`)).catch(
+            () => undefined,
+          )
           return c.json({ success: false as const, error: `Update script not found: ${run}` })
+        }
+        const next = version || (await readUpdateState(workDir))?.version || "latest"
+        const state = version ? await resolveUpdateStatus(os, version, workDir) : null
+        if (version && state?.status !== "downloaded") {
+          const msg = state?.error || "Update files are not ready. Restart the update from scratch."
+          await writeUpdateState(workDir, updateState(version, "error", msg)).catch(() => undefined)
+          return c.json({ success: false as const, error: msg })
         }
         try {
           await fs.chmod(run, 0o755)
         } catch {}
         log.info("launching update script", { os, updater: run, workDir, version })
         try {
+          await writeUpdateState(workDir, updateState(next, "installing"))
           const args = version ? [run, version] : [run]
           if (os === "darwin" || os === "linux" || os === "windows") args.push("--restart")
+          const env = resolved.isFallback ? { ...process.env, AETHER_CURRENT_DIR: getAppRoot() } : process.env
           const child =
             os === "windows"
-              ? spawn("cmd", ["/c", ...args], { detached: true, stdio: "ignore", cwd: path.join(workDir, "downloads") })
-              : spawn("bash", args, { detached: true, stdio: "ignore", cwd: path.join(workDir, "downloads") })
+              ? spawn("cmd", ["/c", ...args], {
+                  detached: true,
+                  stdio: "ignore",
+                  cwd: path.join(workDir, "downloads"),
+                  env,
+                  windowsHide: true,
+                })
+              : spawn("bash", args, { detached: true, stdio: "ignore", cwd: path.join(workDir, "downloads"), env })
           child.unref()
           return c.json({ success: true as const })
         } catch (e) {
           const message = e instanceof Error ? e.message : String(e)
+          await writeUpdateState(workDir, updateState(next, "error", `Failed to execute update script: ${message}`)).catch(
+            () => undefined,
+          )
           return c.json({ success: false as const, error: `Failed to execute update script: ${message}` })
         }
       },
