@@ -468,7 +468,7 @@ export default function Layout(props: ParentProps) {
 
         if (interval !== undefined) return
         void pollUpdate()
-        interval = setInterval(pollUpdate, 10 * 60 * 1000)
+        interval = setInterval(pollUpdate, 24 * 60 * 60 * 1000)
       })
 
       onCleanup(() => {
