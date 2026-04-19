@@ -108,6 +108,14 @@ export function createSdkForServer({
 }
 
 export function addPreferenceMethods(client: AppClient, baseUrl: string, auth?: Record<string, string>): AppClient {
+  const pref = client.session.preference as
+    | {
+        get?: unknown
+        update?: unknown
+      }
+    | undefined
+  if (typeof pref?.get === "function" && typeof pref.update === "function") return client
+
   const headers: Record<string, string> = { "Content-Type": "application/json", ...auth }
   client.session.preference = {
     async get(input) {
