@@ -221,6 +221,10 @@ export const ExperimentalRoutes = lazy(() =>
             .meta({ description: "Return sessions updated before this timestamp (milliseconds since epoch)" }),
           search: z.string().optional().meta({ description: "Filter sessions by title (case-insensitive)" }),
           limit: z.coerce.number().optional().meta({ description: "Maximum number of sessions to return" }),
+          archivedMode: z
+            .enum(["exclude", "include", "only"])
+            .optional()
+            .meta({ description: "Archive filtering mode (exclude/include/only). Takes precedence over archived." }),
           archived: z.coerce.boolean().optional().meta({ description: "Include archived sessions (default false)" }),
         }),
       ),
@@ -235,6 +239,7 @@ export const ExperimentalRoutes = lazy(() =>
           cursor: query.cursor,
           search: query.search,
           limit: limit + 1,
+          archivedMode: query.archivedMode,
           archived: query.archived,
         })) {
           sessions.push(session)

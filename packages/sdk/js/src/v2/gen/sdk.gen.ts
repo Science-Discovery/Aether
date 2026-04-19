@@ -1663,6 +1663,7 @@ export class Session extends HeyApiClient {
             { in: "query", key: "cursor" },
             { in: "query", key: "search" },
             { in: "query", key: "limit" },
+            { in: "query", key: "archivedMode" },
             { in: "query", key: "archived" },
           ],
         },

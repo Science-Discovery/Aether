@@ -539,7 +539,18 @@ const ArchivedSessionList = (props: {
   const [rootSessions, setRootSessions] = createSignal<Session[]>([])
   const [sessions, setSessions] = createSignal<Session[]>([])
   const [loading, setLoading] = createSignal(false)
+  const [workspaceStore] = globalSync.child(props.directory, { bootstrap: false })
   const children = createMemo(() => childMapByParent(sessions()))
+  const archivedTreeCtx = {
+    ...props.ctx,
+    conversationTreeOpen: (rootSessionID: string) => props.ctx.conversationTreeOpen(`archived:${rootSessionID}`),
+    setConversationTreeOpen: (rootSessionID: string, value: boolean) =>
+      props.ctx.setConversationTreeOpen(`archived:${rootSessionID}`, value),
+    conversationTreeLastFocus: (rootSessionID: string) =>
+      props.ctx.conversationTreeLastFocus(`archived:${rootSessionID}`),
+    setConversationTreeLastFocus: (rootSessionID: string, sessionID: string) =>
+      props.ctx.setConversationTreeLastFocus(`archived:${rootSessionID}`, sessionID),
+  } satisfies WorkspaceSidebarContext
 
   const load = async () => {
     setLoading(true)
@@ -548,7 +559,7 @@ const ArchivedSessionList = (props: {
         directory: props.directory,
         archivedMode: "only",
         roots: true,
-      })
+      } as any)
       const roots = ((result.data ?? []) as unknown as Session[]).sort(sortByUpdatedDesc)
       const descendants = await loadDescendantsForRoots({
         directory: props.directory,
@@ -570,6 +581,23 @@ const ArchivedSessionList = (props: {
     setOpen(next)
     if (next) void load()
   }
+
+  const refreshKey = createMemo(() =>
+    (workspaceStore.session ?? [])
+      .map((session) => `${session.id}:${session.time?.updated ?? 0}:${session.time?.archived ?? 0}`)
+      .sort()
+      .join("|"),
+  )
+
+  createEffect(
+    on(
+      () => [open(), workspaceStore.sessionTotal, refreshKey()] as const,
+      ([isOpen]) => {
+        if (!isOpen) return
+        void load()
+      },
+    ),
+  )
 
   const unarchiveSession = async (session: Session) => {
     await globalSDK.client.session.unarchive({
@@ -605,7 +633,7 @@ const ArchivedSessionList = (props: {
             currentSessionID={() => params.id}
             mobile={props.mobile}
             popover={props.popover}
-            ctx={props.ctx}
+            ctx={archivedTreeCtx}
             rootSessions={rootSessions}
             allSessions={sessions}
             children={children}
