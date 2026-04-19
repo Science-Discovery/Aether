@@ -227,9 +227,17 @@ build_app() {
 set -euo pipefail
 
 cmd="$cmd"
-if [ -f "\$cmd" ]; then
+if [ -x "\$cmd" ]; then
+  if open "\$cmd"; then
+    exit 0
+  fi
   nohup "\$cmd" >/dev/null 2>&1 &
-  exit 0
+  pid="\$!"
+  sleep 1
+  if kill -0 "\$pid" >/dev/null 2>&1; then
+    exit 0
+  fi
+  exec "\$cmd"
 fi
 
 echo "Launch target not found: $cmd"
