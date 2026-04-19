@@ -1035,15 +1035,17 @@ export const GlobalRoutes = lazy(() =>
           await writeUpdateState(workDir, updateState(next, "installing"))
           const args = version ? [run, version] : [run]
           if (os === "darwin" || os === "linux" || os === "windows") args.push("--restart")
+          const env = resolved.isFallback ? { ...process.env, AETHER_CURRENT_DIR: getAppRoot() } : process.env
           const child =
             os === "windows"
               ? spawn("cmd", ["/c", ...args], {
                   detached: true,
                   stdio: "ignore",
                   cwd: path.join(workDir, "downloads"),
+                  env,
                   windowsHide: true,
                 })
-              : spawn("bash", args, { detached: true, stdio: "ignore", cwd: path.join(workDir, "downloads") })
+              : spawn("bash", args, { detached: true, stdio: "ignore", cwd: path.join(workDir, "downloads"), env })
           child.unref()
           return c.json({ success: true as const })
         } catch (e) {

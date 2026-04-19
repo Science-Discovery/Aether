@@ -12,6 +12,9 @@ for %%i in ("%SELF%\..") do set "WORK=%%~fi"
 set "PRUNE=0"
 set "LAUNCH="
 set "NOTE="
+set "COPY_NOTE="
+set "MIRROR="
+set "START="
 set "CUR="
 set "CMP="
 set "RV="
@@ -23,10 +26,6 @@ if /I not "%BASE%"=="downloads" (
 for %%i in ("%WORK%") do set "WORK_NAME=%%~nxi"
 if /I not "%WORK_NAME%"=="aether" (
   echo Spec error: work directory must be ...\aether. Current: %WORK%
-  exit /b 1
-)
-if not exist "%WORK%\aether_windows_installer.bat" (
-  echo Spec error: missing ...\aether\aether_windows_installer.bat
   exit /b 1
 )
 
@@ -43,11 +42,16 @@ echo [1/4] Package: %PKG_NAME%
 echo       Target version: %VER%
 
 call :installed "%WORK%" CUR
+call :active_dir
 if defined CUR (
   call :cmp "%CUR%" "%VER%"
   if /I "!CMP!"=="eq" (
-    echo [2/4] Version %VER% is already installed. Skipping install.
-    exit /b 0
+    if defined OLD set "TARGET=%OLD%"
+    if not defined OLD if exist "%WORK%\aether_%VER%" set "TARGET=%WORK%\aether_%VER%"
+    if exist "%TARGET%" (
+      echo [2/4] Version %VER% is already installed. Skipping install.
+      goto :post_install
+    )
   )
 )
 
@@ -74,18 +78,21 @@ robocopy "%SRC%" "%NEXT%" /MIR /NFL /NDL /NJH /NJS /NP >nul
 set "RC=%ERRORLEVEL%"
 if %RC% GEQ 8 goto :fail
 
-call :active_dir
 if exist "%TARGET%" rmdir /s /q "%TARGET%" >nul 2>nul
 move "%NEXT%" "%TARGET%" >nul || goto :fail
 
+:post_install
 echo %VER%>"%TARGET%\.aether_web_version"
 if exist "%WORK%\.aether_web_version" del /f /q "%WORK%\.aether_web_version" >nul 2>nul
 
 if exist "%WORK%\current" rmdir "%WORK%\current" >nul 2>nul
 if exist "%WORK%\current" rmdir /s /q "%WORK%\current" >nul 2>nul
 
-call :write_launch
 call :prune_versions || goto :fail
+call :mirror
+if not errorlevel 1 if defined MIRROR set "START=%MIRROR%"
+if not defined START set "START=%TARGET%"
+call :write_launch "%START%"
 
 if "%RESTART%"=="1" call :restart
 
@@ -94,14 +101,16 @@ call :print_prune
 echo [4/4] Done
 echo Current version: %VER%
 echo Version directory: %TARGET%
+if defined MIRROR echo Mirror directory: %MIRROR%
 echo Launch entry: %LAUNCH%
 if defined NOTE echo %NOTE%
+if defined COPY_NOTE echo %COPY_NOTE%
 
 call :clean_tmp
 exit /b 0
 
 :write_launch
-set "CMD=%TARGET%\Aether.vbs"
+set "CMD=%~1\Aether.vbs"
 set "OUT=%TEMP%\aether-launch-%RANDOM%%RANDOM%.txt"
 if exist "%OUT%" del /f /q "%OUT%" >nul 2>nul
 powershell -NoProfile -Command "$cmd=$env:CMD; $out=$env:OUT; $w=New-Object -ComObject WScript.Shell; $desk=[Environment]::GetFolderPath('DesktopDirectory'); if(-not $desk){ $desk=$w.SpecialFolders.Item('Desktop') }; $menu=[Environment]::GetFolderPath('Programs'); if(-not $menu){ $menu=Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs' }; $desk2=[Environment]::GetFolderPath('CommonDesktopDirectory'); $menu2=[Environment]::GetFolderPath('CommonPrograms'); $all=@($desk,$menu,$desk2,$menu2) | Where-Object { $_ } | Select-Object -Unique; foreach($dir in $all){ $lnk=Join-Path $dir 'Aether.lnk'; try { if(Test-Path $lnk){ Remove-Item -LiteralPath $lnk -Force -ErrorAction Stop } } catch {} }; $mk={ param($path,$target) try { $dir=Split-Path -Parent $path; if($dir -and -not (Test-Path $dir)){ New-Item -ItemType Directory -Path $dir -Force | Out-Null }; if(Test-Path $path){ Remove-Item -LiteralPath $path -Force -ErrorAction SilentlyContinue }; $s=$w.CreateShortcut($path); $s.TargetPath=$target; $s.WorkingDirectory=(Split-Path -Parent $target); $s.Save(); if(-not (Test-Path $path)){ return $false }; $hit=$w.CreateShortcut($path); return $hit.TargetPath -eq $target } catch { return $false } }; $launch=''; $note=''; $desk_ok=$false; $menu_ok=$false; $desk2_ok=$false; $menu2_ok=$false; if($desk){ $desk_ok=& $mk (Join-Path $desk 'Aether.lnk') $cmd }; if($menu){ $menu_ok=& $mk (Join-Path $menu 'Aether.lnk') $cmd }; if($desk2){ $desk2_ok=& $mk (Join-Path $desk2 'Aether.lnk') $cmd }; if($menu2){ $menu2_ok=& $mk (Join-Path $menu2 'Aether.lnk') $cmd }; if($desk_ok){ $launch=Join-Path $desk 'Aether.lnk'; $note='Double-click Aether.vbs on your desktop to run it.' } elseif($desk2_ok){ $launch=Join-Path $desk2 'Aether.lnk'; $note='Double-click Aether.vbs on your desktop to run it.' } elseif($menu_ok){ $launch=Join-Path $menu 'Aether.lnk'; $note='Run Aether.vbs from the Start Menu.' } elseif($menu2_ok){ $launch=Join-Path $menu2 'Aether.lnk'; $note='Run Aether.vbs from the Start Menu.' } else { $launch=$cmd; $note='Shortcut creation failed. Open File Explorer, find this path, and double-click the file to run it.' }; [IO.File]::WriteAllLines($out, @($launch,$note))"
@@ -126,10 +135,38 @@ if "%PRUNE%"=="0" (
 echo [3/4] Keeping the latest 5 versions; removed %PRUNE% older version directories.
 exit /b 0
 
+:mirror
+if not defined AETHER_CURRENT_DIR exit /b 1
+for %%i in ("%AETHER_CURRENT_DIR%\..") do set "MROOT=%%~fi"
+if not defined MROOT exit /b 1
+set "MIRROR=%MROOT%\aether_%VER%"
+if exist "%MIRROR%" set "MIRROR=%MROOT%\aether_%VER%_new"
+set "MCOPY=%MIRROR%.copy"
+if exist "%MCOPY%" rmdir /s /q "%MCOPY%" >nul 2>nul
+if exist "%MIRROR%" rmdir /s /q "%MIRROR%" >nul 2>nul
+mkdir "%MCOPY%" >nul 2>nul || (
+  set "COPY_NOTE=Warning: failed to prepare mirror directory near %AETHER_CURRENT_DIR%"
+  exit /b 1
+)
+robocopy "%TARGET%" "%MCOPY%" /MIR /NFL /NDL /NJH /NJS /NP >nul
+set "RC=%ERRORLEVEL%"
+if %RC% GEQ 8 (
+  set "COPY_NOTE=Warning: failed to copy the new version near %AETHER_CURRENT_DIR%"
+  if exist "%MCOPY%" rmdir /s /q "%MCOPY%" >nul 2>nul
+  exit /b 1
+)
+move "%MCOPY%" "%MIRROR%" >nul || (
+  set "COPY_NOTE=Warning: failed to finalize the copied version near %AETHER_CURRENT_DIR%"
+  if exist "%MCOPY%" rmdir /s /q "%MCOPY%" >nul 2>nul
+  exit /b 1
+)
+set "COPY_NOTE=Copied the new version near the current app location: %MIRROR%"
+exit /b 0
+
 :restart
-powershell -NoProfile -Command "& { $names=@('aether.exe','wscript.exe','cscript.exe','node.exe','bun.exe'); $roots=@(); if($env:OLD){ $roots += [IO.Path]::GetFullPath($env:OLD) }; if($env:TARGET){ $roots += [IO.Path]::GetFullPath($env:TARGET) }; $roots += (Get-ChildItem -Path $env:WORK -Directory -Filter 'aether_*' -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName }); $roots=$roots | Where-Object { $_ } | Select-Object -Unique; Get-CimInstance Win32_Process | Where-Object { $n=$_.Name.ToLowerInvariant(); if($names -notcontains $n){ return $false }; $cmd=$_.CommandLine; $exe=$_.ExecutablePath; foreach($r in $roots){ if(($cmd -and $cmd -like ('*' + $r + '*')) -or ($exe -and $exe -like ($r + '*'))){ return $true } }; return $false } | Sort-Object ProcessId -Descending | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue } }"
+powershell -NoProfile -Command "& { $names=@('aether.exe','wscript.exe','cscript.exe','node.exe','bun.exe'); $roots=@(); if($env:OLD){ $roots += [IO.Path]::GetFullPath($env:OLD) }; if($env:TARGET){ $roots += [IO.Path]::GetFullPath($env:TARGET) }; if($env:AETHER_CURRENT_DIR){ $roots += [IO.Path]::GetFullPath($env:AETHER_CURRENT_DIR) }; if($env:MIRROR){ $roots += [IO.Path]::GetFullPath($env:MIRROR) }; $roots += (Get-ChildItem -Path $env:WORK -Directory -Filter 'aether_*' -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName }); $roots=$roots | Where-Object { $_ } | Select-Object -Unique; Get-CimInstance Win32_Process | Where-Object { $n=$_.Name.ToLowerInvariant(); if($names -notcontains $n){ return $false }; $cmd=$_.CommandLine; $exe=$_.ExecutablePath; foreach($r in $roots){ if(($cmd -and $cmd -like ('*' + $r + '*')) -or ($exe -and $exe -like ($r + '*'))){ return $true } }; return $false } | Sort-Object ProcessId -Descending | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue } }"
 timeout /t 1 /nobreak >nul
-start "" "%TARGET%\Aether.vbs"
+start "" "%START%\Aether.vbs"
 exit /b 0
 
 :active_dir

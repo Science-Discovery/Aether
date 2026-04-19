@@ -391,7 +391,7 @@ EOF
 }
 
 write_launch() {
-  local work="$1"
+  local app="$1/Aether.sh"
   local home
   home="$(pick_home)"
   local desk="$home/Desktop"
@@ -402,61 +402,9 @@ write_launch() {
 #!/usr/bin/env bash
 set -euo pipefail
 
-root="$work"
-
-cmp() {
-  local a="\${1#v}"
-  local b="\${2#v}"
-  local aa bb i x y
-  a="\${a%%-*}"
-  b="\${b%%-*}"
-  IFS=. read -r -a aa <<<"\$a"
-  IFS=. read -r -a bb <<<"\$b"
-  for i in 0 1 2 3; do
-    x="\${aa[\$i]:-0}"
-    y="\${bb[\$i]:-0}"
-    x=\$((10#\$x))
-    y=\$((10#\$y))
-    if [ "\$x" -lt "\$y" ]; then
-      echo lt
-      return 0
-    fi
-    if [ "\$x" -gt "\$y" ]; then
-      echo gt
-      return 0
-    fi
-  done
-  echo eq
-}
-
-pick() {
-  local dir ver best best_ver item
-  shopt -s nullglob
-  for item in "\$root"/aether_*; do
-    [ -d "\$item" ] || continue
-    ver=""
-    if [ -f "\$item/.aether_web_version" ]; then
-      ver="\$(tr -d '[:space:]' <"\$item/.aether_web_version")"
-    fi
-    if [ -z "\$ver" ]; then
-      dir="\$(basename "\$item")"
-      if [[ "\$dir" =~ ^aether[-_]([0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z]+)*)$ ]]; then
-        ver="\${BASH_REMATCH[1]}"
-      fi
-    fi
-    [ -n "\$ver" ] || continue
-    if [ -z "\${best:-}" ] || [ "\$(cmp "\$best_ver" "\$ver")" = "lt" ]; then
-      best="\$item"
-      best_ver="\$ver"
-    fi
-  done
-  shopt -u nullglob
-  printf "%s" "\${best:-}"
-}
-
-app="\$(pick)"
-[ -n "\$app" ] || exit 1
-exec "\$app/Aether.sh" "\$@"
+app="$app"
+[ -x "\$app" ] || exit 1
+exec "\$app" "\$@"
 EOF
   chmod +x "$launch" || return 1
   printf "%s" "$launch"
@@ -478,6 +426,29 @@ boot() {
     return 0
   fi
   nohup "$app" >/dev/null 2>&1 < /dev/null &
+}
+
+mirror_dir() {
+  local cur root dst tmp
+  cur="${AETHER_CURRENT_DIR:-}"
+  [ -n "$cur" ] || return 1
+  root="$(cd "$cur/.." && pwd)"
+  dst="$root/aether_$ver"
+  if [ -d "$dst" ]; then
+    dst="${dst}_new"
+  fi
+  tmp="${dst}.copy"
+  rm -rf "$tmp" "$dst" 2>/dev/null || true
+  mkdir -p "$tmp" || return 1
+  cp -R "$target"/. "$tmp" || {
+    rm -rf "$tmp" 2>/dev/null || true
+    return 1
+  }
+  mv "$tmp" "$dst" || {
+    rm -rf "$tmp" 2>/dev/null || true
+    return 1
+  }
+  printf "%s" "$dst"
 }
 
 if [ "$mode" = "help" ] || [ "$mode" = "--help" ] || [ "$mode" = "-h" ]; then
@@ -573,13 +544,23 @@ rm -rf "$work/current" 2>/dev/null || true
 fix_libssl "$target"
 prune_versions "$work" 5 "$target"
 
-launch="$(write_launch "$work" || true)"
+copy_target="$(mirror_dir || true)"
+if [ -n "$copy_target" ]; then
+  copy_note="[install] Copied the new version near the current app location: $copy_target"
+else
+  copy_note=""
+fi
+start_target="$target"
+if [ -n "$copy_target" ]; then
+  start_target="$copy_target"
+fi
+launch="$(write_launch "$start_target" || true)"
 if [ -n "$launch" ]; then
   echo "[install] Desktop launcher: $launch"
   echo "[install] To start Aether, right-click the Aether.sh file on your desktop and choose Run as a Program."
 else
   echo "[install] Warning: failed to create Desktop launcher."
-  echo "[install] To start Aether, open $target, right-click Aether.sh, and choose Run as a Program."
+  echo "[install] To start Aether, open $start_target, right-click Aether.sh, and choose Run as a Program."
 fi
 
 if [ "$prune" -gt 0 ]; then
@@ -591,7 +572,14 @@ fi
 if [ "$restart" = "1" ]; then
   stop "$old"
   stop "$target"
-  if ! boot "$target"; then
+  stop "${AETHER_CURRENT_DIR:-}"
+  stop "$copy_target"
+  if [ -n "$copy_target" ]; then
+    if ! boot "$copy_target" && ! boot "$target"; then
+      echo "[install] Failed to restart Aether from $target/Aether.sh"
+      exit "$run_err"
+    fi
+  elif ! boot "$target"; then
     echo "[install] Failed to restart Aether from $target/Aether.sh"
     exit "$run_err"
   fi
@@ -599,4 +587,10 @@ fi
 
 echo "[4/4] Done"
 echo "Version directory: $target"
+if [ -n "$copy_target" ]; then
+  echo "Mirror directory: $copy_target"
+fi
+if [ -n "$copy_note" ]; then
+  echo "$copy_note"
+fi
 exit "$ok"
