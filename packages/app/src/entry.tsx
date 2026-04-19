@@ -261,12 +261,21 @@ const webCheck = async () => {
   const res = await req(`/global/web-update/check?os=${os}`)
   const data = await res.json()
   if (typeof data.checkError === "string" && data.checkError) throw new Error(data.checkError)
+  const status =
+    data.status === "downloading" ||
+    data.status === "downloaded" ||
+    data.status === "installing" ||
+    data.status === "recovery"
+      ? data.status
+      : "available"
   return {
     os,
     currentVersion: typeof data.currentVersion === "string" ? data.currentVersion.trim() : "",
     version: typeof data.remoteVersion === "string" ? data.remoteVersion.trim() : "",
     updateAvailable: !!data.updateAvailable,
     downloaded: !!data.downloaded,
+    status,
+    updateError: typeof data.updateError === "string" ? data.updateError.trim() : "",
     workDir: typeof data.workDir === "string" ? data.workDir.trim() : "",
     requiresConfirmation: !!data.workDirFallback,
   }
@@ -286,11 +295,11 @@ const consent = (input: { requiresConfirmation: boolean; workDir: string }) => {
   throw new Error("Update cancelled")
 }
 
-const webDownload = async (input: { os: string; version: string }, acceptFallback: boolean) => {
+const webDownload = async (input: { os: string; version: string }, acceptFallback: boolean, force = false) => {
   const res = await req("/global/web-update/download", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ os: input.os, version: input.version, acceptFallback }),
+    body: JSON.stringify({ os: input.os, version: input.version, acceptFallback, force }),
   })
   const data = await res.json()
   if (!data.success) throw new Error(data.error)
@@ -321,22 +330,45 @@ const platform: Platform = {
       currentVersion: data.currentVersion,
       version: data.version,
       downloaded: data.downloaded,
+      status: data.status,
+      updateError: data.updateError,
       requiresConfirmation: data.requiresConfirmation,
     }
   },
   downloadUpdate: async () => {
     const data = await webCheck()
     if (!data.updateAvailable) return
+    if (data.status === "recovery") throw new Error(data.updateError || "Update needs to restart from scratch")
     await webDownload(data, consent(data))
   },
   update: async () => {
     const data = await webCheck()
     if (!data.updateAvailable) return
     const acceptFallback = consent(data)
+    if (data.status === "recovery") {
+      await webDownload(data, acceptFallback, true)
+      const next = await webCheck()
+      if (!next.updateAvailable || next.status !== "downloaded") {
+        throw new Error(next.updateError || "Update restart did not finish downloading")
+      }
+      await webInstall(next, acceptFallback)
+      return
+    }
     if (!data.downloaded) {
       await webDownload(data, acceptFallback)
     }
     await webInstall(data, acceptFallback)
+  },
+  recoverUpdate: async () => {
+    const data = await webCheck()
+    if (!data.updateAvailable) return
+    const acceptFallback = consent(data)
+    await webDownload(data, acceptFallback, true)
+    const next = await webCheck()
+    if (!next.updateAvailable || next.status !== "downloaded") {
+      throw new Error(next.updateError || "Update restart did not finish downloading")
+    }
+    await webInstall(next, acceptFallback)
   },
   getDefaultServer: async () => {
     const stored = readDefaultServerUrl()

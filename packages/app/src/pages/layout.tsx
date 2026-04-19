@@ -443,13 +443,17 @@ export default function Layout(props: ParentProps) {
       }
 
       const pollUpdate = () =>
-        platform.checkUpdate!().then(async ({ updateAvailable, version, downloaded, requiresConfirmation }) => {
+        platform.checkUpdate!().then(async ({ updateAvailable, version, downloaded, requiresConfirmation, status }) => {
           if (!updateAvailable) return
-          if (platform.platform === "web" && platform.downloadUpdate && !downloaded && !requiresConfirmation) {
+          if (platform.platform === "web" && platform.downloadUpdate && status === "available" && !requiresConfirmation) {
             await platform.downloadUpdate().catch(() => undefined)
             const next = await platform.checkUpdate!().catch(() => undefined)
             if (!next?.updateAvailable || !next.downloaded) return
             showUpdateToast(next.version)
+            return
+          }
+          if (platform.platform === "web" && status === "recovery") {
+            showUpdateToast(version)
             return
           }
           if (!downloaded && platform.platform === "web") return

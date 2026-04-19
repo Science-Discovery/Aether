@@ -12,11 +12,15 @@ arg=""
 tmp=""
 next=""
 prune="0"
+restart="0"
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
     install|help|-h|--help)
       mode="$1"
+      ;;
+    --restart)
+      restart="1"
       ;;
     *)
       if [ -z "$arg" ]; then
@@ -458,6 +462,24 @@ EOF
   printf "%s" "$launch"
 }
 
+stop() {
+  local dir="$1"
+  [ -n "$dir" ] || return 0
+  pkill -f "$dir/Aether.sh" >/dev/null 2>&1 || true
+  pkill -f "$dir/aether web" >/dev/null 2>&1 || true
+  pkill -f "$dir/aether serve" >/dev/null 2>&1 || true
+}
+
+boot() {
+  local app="$1/Aether.sh"
+  [ -x "$app" ] || return 1
+  if command -v setsid >/dev/null 2>&1; then
+    setsid "$app" >/dev/null 2>&1 < /dev/null &
+    return 0
+  fi
+  nohup "$app" >/dev/null 2>&1 < /dev/null &
+}
+
 if [ "$mode" = "help" ] || [ "$mode" = "--help" ] || [ "$mode" = "-h" ]; then
   help
   exit "$ok"
@@ -536,6 +558,7 @@ if [ -z "$src" ]; then
 fi
 
 echo "[2/4] Extracting and installing to: $target"
+old="$(active_dir "$work")"
 rm -rf "$next" "$target" 2>/dev/null || true
 mkdir -p "$next" || exit "$run_err"
 cp -R "$src"/. "$next" || exit "$run_err"
@@ -563,6 +586,15 @@ if [ "$prune" -gt 0 ]; then
   echo "[3/4] Keeping the latest 5 versions; removed $prune older version directories."
 else
   echo "[3/4] Keeping the latest 5 versions; no older version directories needed removal."
+fi
+
+if [ "$restart" = "1" ]; then
+  stop "$old"
+  stop "$target"
+  if ! boot "$target"; then
+    echo "[install] Failed to restart Aether from $target/Aether.sh"
+    exit "$run_err"
+  fi
 fi
 
 echo "[4/4] Done"

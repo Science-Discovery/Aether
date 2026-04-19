@@ -7,11 +7,14 @@ type PickerPaths = string | string[] | null
 type OpenDirectoryPickerOptions = { title?: string; multiple?: boolean }
 type OpenFilePickerOptions = { title?: string; multiple?: boolean; accept?: string[]; extensions?: string[] }
 type SaveFilePickerOptions = { title?: string; defaultPath?: string }
+type UpdateStage = "available" | "downloading" | "downloaded" | "installing" | "recovery"
 type UpdateStatus = {
   updateAvailable: boolean
   currentVersion?: string
   version?: string
   downloaded?: boolean
+  status?: UpdateStage
+  updateError?: string
   requiresConfirmation?: boolean
 }
 
@@ -63,6 +66,9 @@ export type Platform = {
 
   /** Install updates */
   update?(): Promise<void>
+
+  /** Restart update from scratch */
+  recoverUpdate?(): Promise<void>
 
   /** Fetch override */
   fetch?: typeof fetch
