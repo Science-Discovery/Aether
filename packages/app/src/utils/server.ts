@@ -109,13 +109,19 @@ export function createSdkForServer({
 
 export function addPreferenceMethods(client: AppClient, baseUrl: string, auth?: Record<string, string>): AppClient {
   const headers: Record<string, string> = { "Content-Type": "application/json", ...auth }
-  client.session.preference = {
-    async get(input) {
+  ;(client.session as Base["session"] & AppClient["session"]).preference = {
+    async get(input: { sessionID: string }) {
       const resp = await fetch(`${baseUrl}/session/${input.sessionID}/preference`, { headers })
       const data = await resp.json()
       return { data }
     },
-    async update(input) {
+    async update(input: {
+      sessionID: string
+      agent?: string
+      model?: { providerID: string; modelID: string }
+      variant?: string
+      autoAccept?: boolean
+    }) {
       const { sessionID, ...body } = input
       const resp = await fetch(`${baseUrl}/session/${sessionID}/preference`, {
         method: "PATCH",
@@ -125,6 +131,6 @@ export function addPreferenceMethods(client: AppClient, baseUrl: string, auth?: 
       const data = await resp.json()
       return { data }
     },
-  }
+  } as AppClient["session"]["preference"]
   return client
 }
