@@ -20,6 +20,38 @@ function getMimeType(filePath: string): string {
   const ext = nodePath.extname(filePath).toLowerCase()
   return MIME_TYPES[ext] ?? "application/octet-stream"
 }
+const WEB_CACHE = "public, max-age=31536000, immutable"
+const WEB_REVALIDATE = "no-cache"
+
+function webEtag(size: number, mtimeMs: number) {
+  return `W/"${size}-${mtimeMs}"`
+}
+
+function hashed(path: string) {
+  return path.startsWith("/assets/") && /-[A-Za-z0-9_-]{8,}\./.test(nodePath.basename(path))
+}
+
+async function webHeaders(reqPath: string, filePath: string) {
+  const stat = await Bun.file(filePath).stat()
+  return {
+    "content-type": getMimeType(filePath),
+    "cache-control": hashed(reqPath) ? WEB_CACHE : WEB_REVALIDATE,
+    etag: webEtag(Number(stat.size), stat.mtimeMs),
+    "last-modified": stat.mtime.toUTCString(),
+  }
+}
+
+async function webResponse(req: Request, reqPath: string, filePath: string) {
+  const file = Bun.file(filePath)
+  const headers = await webHeaders(reqPath, filePath)
+  if (req.headers.get("if-none-match") === headers.etag) {
+    return new Response(null, {
+      status: 304,
+      headers,
+    })
+  }
+  return new Response(file, { headers })
+}
 import { BusEvent } from "@/bus/bus-event"
 import { Bus } from "@/bus"
 import { createHash } from "node:crypto"
@@ -655,12 +687,13 @@ export namespace Server {
         const localFilePath = nodePath.join(webDir, reqPath === "/" ? "index.html" : reqPath)
         const localFile = Bun.file(localFilePath)
         if (await localFile.exists()) {
-          return new Response(localFile, { headers: { "content-type": getMimeType(localFilePath) } })
+          return webResponse(c.req.raw, reqPath, localFilePath)
         }
         // SPA fallback: serve index.html for unknown paths
-        const indexFile = Bun.file(nodePath.join(webDir, "index.html"))
+        const indexPath = nodePath.join(webDir, "index.html")
+        const indexFile = Bun.file(indexPath)
         if (await indexFile.exists()) {
-          return new Response(indexFile, { headers: { "content-type": "text/html" } })
+          return webResponse(c.req.raw, "/", indexPath)
         }
 
         // Fall back to remote proxy
