@@ -181,6 +181,7 @@ HELP_TEXT = """📋 可用命令：
 /p, /project  查看最近项目
 /p l          查看全部项目
 /p n          切换编号项目
+/p <path>     切换到指定路径
 
 /s, /session  查看最近会话
 /s l          查看全部会话
@@ -218,6 +219,8 @@ HELP_LIST_TEXT = """📋 全部命令：
   查看全部项目（l = list）
 /p n, /project n
   切换到编号 n 的项目
+/p <path>, /project <path>
+  切换到指定路径（如 /p E:\\work\\foo 或 /p /home/user/foo）
 /project hide n
   隐藏编号 n 的项目，重新在桌面端或消息端使用后自动恢复
 
@@ -274,6 +277,7 @@ class AetherAgent(Agent):
         self._conv_dirs: dict[str, str] = {}
         self._pending_questions: dict[str, dict] = {}
         self._pending_permissions: dict[str, dict] = {}
+        self._pending_confirm_create: dict[str, dict] = {}
         self._tasks: dict[str, object] = {}
         self._sse_tasks: dict[str, object] = {}
         self._accumulated_text: dict[str, str] = {}
@@ -352,11 +356,29 @@ class AetherAgent(Agent):
             return ""
         if re.fullmatch(r"/+", text):
             return "/"
-        if re.fullmatch(r"[A-Za-z]:/?", text):
-            return f"{text[0].lower()}:/"
-        if re.fullmatch(r"[A-Za-z]:/+", text):
-            return f"{text[0].lower()}:/"
+        if len(text) >= 2 and text[1] == ":" and text[0].isalpha():
+            text = text[0].lower() + text[1:]
+        if re.fullmatch(r"[a-z]:/?$", text):
+            return f"{text[0]}:/"
         return text.rstrip("/")
+
+    def _is_absolute_path(self, text: str) -> bool:
+        normed = self._norm_dir(text)
+        if not normed or normed == "/":
+            return False
+        if normed.startswith("/"):
+            return True
+        if re.match(r"[a-z]:/", normed):
+            return True
+        return False
+
+    def _is_root_dir(self, text: str) -> bool:
+        normed = self._norm_dir(text)
+        if normed == "/":
+            return True
+        if re.fullmatch(r"[a-z]:/$", normed):
+            return True
+        return False
 
     def _project_name(self, item: dict) -> str:
         directory = self._project_dir(item)
@@ -926,6 +948,8 @@ class AetherAgent(Agent):
         return self._cmd_set_model(conv_id, model_str)
 
     async def _cmd_project(self, conv_id: str, arg: str) -> str:
+        if arg and self._is_absolute_path(arg):
+            return await self._cmd_project_by_path(conv_id, arg)
         all_projects = await self._get_projects()
         if not all_projects:
             return "❌ 无法获取项目列表，请检查 Aether 服务是否正常。"
@@ -986,21 +1010,7 @@ class AetherAgent(Agent):
                 return f"❌ 请输入 1~{len(all_projects)} 之间的数字。"
             chosen = all_projects[idx]
             new_dir = self._project_dir(chosen)
-            self._conv_dirs[conv_id] = new_dir
-            session_id, created = await self._ensure_session(new_dir)
-            self._sessions[conv_id] = session_id
-            self._session_list.pop(conv_id, None)
-            if new_dir in self._hidden_dirs:
-                del self._hidden_dirs[new_dir]
-                self._save_hidden_dirs()
-            name = self._project_name(chosen)
-            logger.info(f"[/project] {conv_id} -> {new_dir}")
-            note = "已创建新会话"
-            if not created:
-                item = await self._resolve_session(session_id, new_dir)
-                title = (item or {}).get("title") or session_id[:8]
-                note = f"已进入该项目最新会话：{title}"
-            return f"✅ 已切换到：{name}\n   {new_dir}\n（{note}）"
+            return await self._switch_to_project(conv_id, new_dir)
 
         # /project（列表）
         if not projects:
@@ -1018,12 +1028,84 @@ class AetherAgent(Agent):
             lines.append(f"{idx}. {self._project_name(item)}{tag}")
             lines.append(f"   {directory}")
         lines.append("")
-        lines.append("💡 /p n 切换 | /p l 查看全部")
+        lines.append("💡 /p n 切换 | /p l 查看全部 | /p <path> 指定路径")
         if self._hidden_dirs:
             lines.append(
                 f"ℹ️ 已隐藏 {len(self._hidden_dirs)} 个项目（重新使用后自动恢复）"
             )
         return chr(10).join(lines)
+
+    async def _cmd_project_by_path(self, conv_id: str, raw_path: str) -> str:
+        normed = self._norm_dir(raw_path)
+        if self._is_root_dir(normed):
+            return "❌ 路径不合法：不能使用根目录。"
+
+        all_projects = await self._get_projects()
+        existing = next(
+            (p for p in all_projects if self._project_dir(p) == normed), None
+        )
+        dir_exists = Path(normed).exists()
+
+        if existing:
+            if not dir_exists:
+                Path(normed).mkdir(parents=True, exist_ok=True)
+            return await self._switch_to_project(conv_id, normed)
+
+        if dir_exists:
+            return await self._switch_to_new_project(conv_id, normed)
+
+        self._pending_confirm_create[conv_id] = {"path": normed}
+        return f"📂 路径不存在：{normed}\n回复 y 确认创建该文件夹并初始化项目，回复 n 取消。"
+
+    async def _confirm_create_project(self, conv_id: str, yes: bool) -> str:
+        pending = self._pending_confirm_create.pop(conv_id, None)
+        if not pending:
+            return "没有待确认的创建请求。"
+        if not yes:
+            return "已取消创建。"
+        normed = pending["path"]
+        Path(normed).mkdir(parents=True, exist_ok=True)
+        return await self._switch_to_new_project(conv_id, normed)
+
+    async def _switch_to_project(self, conv_id: str, new_dir: str) -> str:
+        self._conv_dirs[conv_id] = new_dir
+        if new_dir in self._hidden_dirs:
+            del self._hidden_dirs[new_dir]
+            self._save_hidden_dirs()
+        session_id, created = await self._ensure_session(new_dir)
+        self._sessions[conv_id] = session_id
+        self._session_list.pop(conv_id, None)
+        name = await self._get_project_name(new_dir)
+        logger.info(f"[/project] {conv_id} -> {new_dir}")
+        note = "已创建新会话"
+        if not created:
+            item = await self._resolve_session(session_id, new_dir)
+            title = (item or {}).get("title") or session_id[:8]
+            note = f"已进入该项目最新会话：{title}"
+        return f"✅ 已切换到：{name}\n   {new_dir}\n（{note}）"
+
+    async def _switch_to_new_project(self, conv_id: str, new_dir: str) -> str:
+        self._conv_dirs[conv_id] = new_dir
+        session_id, created = await self._ensure_session(new_dir)
+        self._sessions[conv_id] = session_id
+        self._session_list.pop(conv_id, None)
+        headers = {"x-opencode-directory": quote(new_dir, safe="")}
+        try:
+            resp = await self._client.post(
+                f"{self.base_url}/project/git/init", headers=headers
+            )
+            resp.raise_for_status()
+            logger.info(f"[/project] git initialized for {new_dir}")
+        except Exception as e:
+            logger.warning(f"初始化 git 失败: {e}")
+        name = self._base(new_dir)
+        logger.info(f"[/project] created+switched {conv_id} -> {new_dir}")
+        note = "已创建新会话"
+        if not created:
+            item = await self._resolve_session(session_id, new_dir)
+            title = (item or {}).get("title") or session_id[:8]
+            note = f"已进入该项目最新会话：{title}"
+        return f"✅ 已切换到：{name}\n   {new_dir}\n（{note}）"
 
     def _cmd_set_model(self, conv_id: str, model_str: str) -> str:
         if "/" not in model_str:
@@ -1043,6 +1125,7 @@ class AetherAgent(Agent):
         return f"✅ 已切换模型：{model_str}\n（仅对当前对话生效，/new 后将重置）"
 
     def _clear_runtime(self, conv_id: str) -> None:
+        self._pending_confirm_create.pop(conv_id, None)
         pending = self._pending_questions.pop(conv_id, None)
         if pending:
             task = pending.get("task")
@@ -1408,6 +1491,20 @@ class AetherAgent(Agent):
                     slash_reply, session_id, directory, conv_id
                 )
             return ChatResponse(text=slash_reply)
+
+        if conv_id in self._pending_confirm_create:
+            lower = user_text.strip().lower()
+            if lower in {"y", "yes", "确认"}:
+                reply = await self._confirm_create_project(conv_id, True)
+            elif lower in {"n", "no", "取消"}:
+                reply = await self._confirm_create_project(conv_id, False)
+            else:
+                reply = "请回复 y 确认创建或 n 取消。"
+            session_id = self._sessions.get(conv_id)
+            directory = self._conv_dirs.get(conv_id) or self.directory
+            if session_id:
+                reply = await self._wrap_message(reply, session_id, directory, conv_id)
+            return ChatResponse(text=reply)
 
         if conv_id in self._pending_questions:
             return await self._handle_question_reply(conv_id, user_text)

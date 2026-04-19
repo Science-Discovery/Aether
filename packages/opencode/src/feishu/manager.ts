@@ -7,6 +7,7 @@ import { BusEvent } from "@/bus/bus-event"
 import { Bus } from "@/bus"
 import { GlobalBus } from "@/bus/global"
 import { Instance } from "@/project/instance"
+import { InstanceBootstrap } from "@/project/bootstrap"
 import { Project } from "@/project/project"
 import { Session } from "@/session"
 import { SessionPrompt } from "@/session/prompt"
@@ -90,10 +91,10 @@ export interface FeishuSession {
 }
 
 const HELP_TEXT =
-  "📋 可用命令：\n\n/n, /new            开启新对话\n/stop               停止当前执行\n/c, /compact        压缩当前上下文\n\n/m, /model          查看可用模型\n/m l                查看全部模型\n/m n                切换编号模型\n\n/a, /agent          查看当前模式\n/a n | /a <name>    切换指定模式\n\n/thinkinglevel      查看思考等级\n/thinkinglevel n    切换编号思考等级\n\n/approval           查看审批模式\n/approval n         切换编号审批模式\n\n/p, /project        查看最近项目\n/p l                查看全部项目\n/p n                切换编号项目\n\n/s, /session        查看最近会话\n/s l                查看全部会话\n/s n                切换编号会话\n\n/h, /help           显示帮助信息\n/help list          显示全部命令"
+  "📋 可用命令：\n\n/n, /new            开启新对话\n/stop               停止当前执行\n/c, /compact        压缩当前上下文\n\n/m, /model          查看可用模型\n/m l                查看全部模型\n/m n                切换编号模型\n\n/a, /agent          查看当前模式\n/a n | /a <name>    切换指定模式\n\n/thinkinglevel      查看思考等级\n/thinkinglevel n    切换编号思考等级\n\n/approval           查看审批模式\n/approval n         切换编号审批模式\n\n/p, /project        查看最近项目\n/p l                查看全部项目\n/p n                切换编号项目\n/p <path>           切换到指定路径\n\n/s, /session        查看最近会话\n/s l                查看全部会话\n/s n                切换编号会话\n\n/h, /help           显示帮助信息\n/help list          显示全部命令"
 
 const HELP_LIST_TEXT =
-  "📋 全部命令：\n\n/n, /new\n  开启新对话，清空当前会话上下文\n\n/stop\n  停止当前执行中的任务\n\n/c, /compact\n  压缩当前会话上下文\n\n/m, /model\n  查看可用模型\n/m l, /model list\n  查看全部模型（l = list）\n/m n, /model n\n  切换到编号 n 的模型（n 为全量模型编号）\n\n/a, /agent\n  查看当前模式\n/a n, /agent n\n  按编号切换模式\n/a <name>, /agent <name>\n  按名称切换模式（如 build、plan、docs）\n\n/thinkinglevel\n  查看当前模型可用的思考等级\n/thinkinglevel n\n  按编号切换思考等级\n/thinkinglevel <name>\n  按名称切换思考等级\n\n/approval\n  查看审批模式\n/approval n\n  按编号切换审批模式（1=auto, 2=ask）\n/approval <name>\n  切换审批模式（name 可选：auto、ask）\n\n/p, /project\n  查看最近项目\n/p l, /project list\n  查看全部项目（l = list）\n/p n, /project n\n  切换到编号 n 的项目\n/project hide n\n  隐藏编号 n 的项目，重新在桌面端或消息端使用后自动恢复\n\n/s, /session\n  查看最近会话\n/s l, /session list\n  查看当前项目下全部会话（l = list）\n/s n, /session n\n  切换到当前项目下编号 n 的会话\n\n/h, /help\n  显示常用命令\n/help list\n  显示全部命令"
+  "📋 全部命令：\n\n/n, /new\n  开启新对话，清空当前会话上下文\n\n/stop\n  停止当前执行中的任务\n\n/c, /compact\n  压缩当前会话上下文\n\n/m, /model\n  查看可用模型\n/m l, /model list\n  查看全部模型（l = list）\n/m n, /model n\n  切换到编号 n 的模型（n 为全量模型编号）\n\n/a, /agent\n  查看当前模式\n/a n, /agent n\n  按编号切换模式\n/a <name>, /agent <name>\n  按名称切换模式（如 build、plan、docs）\n\n/thinkinglevel\n  查看当前模型可用的思考等级\n/thinkinglevel n\n  按编号切换思考等级\n/thinkinglevel <name>\n  按名称切换思考等级\n\n/approval\n  查看审批模式\n/approval n\n  按编号切换审批模式（1=auto, 2=ask）\n/approval <name>\n  切换审批模式（name 可选：auto、ask）\n\n/p, /project\n  查看最近项目\n/p l, /project list\n  查看全部项目（l = list）\n/p n, /project n\n  切换到编号 n 的项目\n/p <path>, /project <path>\n  切换到指定路径（如 /p E:\\work\\foo 或 /p /home/user/foo）\n/project hide n\n  隐藏编号 n 的项目，重新在桌面端或消息端使用后自动恢复\n\n/s, /session\n  查看最近会话\n/s l, /session list\n  查看当前项目下全部会话（l = list）\n/s n, /session n\n  切换到当前项目下编号 n 的会话\n\n/h, /help\n  显示常用命令\n/help list\n  显示全部命令"
 
 export const FeishuEvent = {
   StatusChanged: BusEvent.define(
@@ -181,6 +182,7 @@ class FeishuManagerImpl {
   // ── Pending interaction state ─────────────────────────────────────────────
   private _pendingQuestions: Record<string, Question.Request> = {}
   private _pendingPermissions: Record<string, Permission.Request> = {}
+  private _pendingConfirmCreate: Record<string, { path: string }> = {}
   private _activePrompt = new Map<
     string,
     {
@@ -234,14 +236,24 @@ class FeishuManagerImpl {
     const text = (dir || "").replace(/\\/g, "/")
     if (!text) return ""
     if (/^\/+$/.test(text)) return "/"
-    if (/^[A-Za-z]:\/?$/.test(text)) return `${text[0].toLowerCase()}:/`
+    if (/^[A-Za-z]:/.test(text)) {
+      const lower = `${text[0].toLowerCase()}${text.slice(1)}`
+      if (/^[a-z]:\/?$/.test(lower)) return `${lower[0]}:/`
+      return lower.replace(/\/+$/, "")
+    }
     return text.replace(/\/+$/, "")
+  }
+
+  private isAbsolutePath(p: string): boolean {
+    const n = this.normDir(p)
+    if (!n || n === "/") return false
+    return n.startsWith("/") || /^[a-z]:/.test(n)
   }
 
   private isRootDir(dir: string): boolean {
     const text = this.normDir(dir)
     if (text === "/") return true
-    return /^[a-z]:\//.test(text) && text.length <= 3
+    return /^[a-z]:/.test(text) && text.length <= 3
   }
 
   private projectDir(item: Project.RecentInfo): string {
@@ -344,6 +356,7 @@ class FeishuManagerImpl {
   private async clearRuntime(chatId: string): Promise<void> {
     delete this._pendingQuestions[chatId]
     delete this._pendingPermissions[chatId]
+    delete this._pendingConfirmCreate[chatId]
     this._activePrompt.delete(chatId)
   }
 
@@ -715,6 +728,7 @@ class FeishuManagerImpl {
     this._modelList = []
     this._pendingQuestions = {}
     this._pendingPermissions = {}
+    this._pendingConfirmCreate = {}
     this._activePrompt.clear()
     for (const unsub of this._busUnsubs) unsub()
     this._busUnsubs = []
@@ -840,6 +854,19 @@ class FeishuManagerImpl {
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err)
           await this.replyText(messageId, `命令执行出错: ${msg}`)
+        }
+        return
+      }
+
+      const pendingConfirm = this._pendingConfirmCreate[chatId]
+      if (pendingConfirm) {
+        const lower = text.trim().toLowerCase()
+        if (lower === "y" || lower === "yes" || lower === "确认") {
+          await this.confirmCreateProject(chatId, messageId, true)
+        } else if (lower === "n" || lower === "no" || lower === "取消") {
+          await this.confirmCreateProject(chatId, messageId, false)
+        } else {
+          await this.replyText(messageId, "请回复 y 确认创建或 n 取消。")
         }
         return
       }
@@ -1537,6 +1564,10 @@ class FeishuManagerImpl {
    * /project hide <n>   — hide project n
    */
   private async cmdProject(messageId: string, chatId: string, arg: string): Promise<void> {
+    if (arg && this.isAbsolutePath(arg)) {
+      await this.cmdProjectByPath(messageId, chatId, arg)
+      return
+    }
     const allProjects = this.getProjects()
     if (allProjects.length === 0) {
       await this.replyCmd(messageId, chatId, "❌ 无法获取项目列表，请检查 Aether 是否正常运行。")
@@ -1587,49 +1618,7 @@ class FeishuManagerImpl {
       }
       const chosen = allProjects[idx]
       const newDir = this.projectDir(chosen)
-
-      // Clear session mapping for this chat so next message uses the new project
-      for (const key of Object.keys(this.sessionMap)) {
-        if (key.startsWith(`${chatId}:`)) delete this.sessionMap[key]
-      }
-      this._chatDirs[chatId] = newDir
-      void this.clearRuntime(chatId)
-
-      // Auto-unhide if it was hidden
-      if (newDir in this._hiddenDirs) {
-        delete this._hiddenDirs[newDir]
-        await this.saveHiddenDirs()
-      }
-
-      // Find or create a session in the new project
-      const {
-        sessionId: newSessionId,
-        sessionTitle,
-        created,
-      } = await Instance.provide({
-        directory: newDir,
-        fn: async () => {
-          const recent = [...Session.list({ directory: newDir, roots: true, limit: 1 })]
-          if (recent.length > 0) {
-            return {
-              sessionId: recent[0].id,
-              sessionTitle: recent[0].title ?? recent[0].id.slice(0, 8),
-              created: false,
-            }
-          } else {
-            const session = await Session.create({ title: `飞书对话 - ${new Date().toISOString()}` })
-            return { sessionId: session.id, sessionTitle: session.title, created: true }
-          }
-        },
-      })
-      this._chatSessions[chatId] = newSessionId
-      await this.saveSessionMap()
-
-      const name = this.projectName(chosen)
-      const ctx = await this.commandCtx(chatId)
-      const note = created ? "已创建新会话" : `已进入该项目最新会话：${ctx.sessionTitle}`
-      console.log("[feishu] /project switched:", chatId, "->", newDir)
-      await this.replyCmd(messageId, chatId, `✅ 已切换到：${name}\n   ${newDir}\n（${note}）`)
+      await this.switchToProject(messageId, chatId, newDir)
       return
     }
 
@@ -1653,7 +1642,7 @@ class FeishuManagerImpl {
       count++
     }
     lines.push("")
-    lines.push("💡 /p n 切换 | /p l 查看全部")
+    lines.push("💡 /p n 切换 | /p l 查看全部 | /p <path> 指定路径")
     if (Object.keys(this._hiddenDirs).length > 0) {
       lines.push(`ℹ️ 已隐藏 ${Object.keys(this._hiddenDirs).length} 个项目（重新使用后自动恢复）`)
     }
@@ -1663,6 +1652,144 @@ class FeishuManagerImpl {
   private formatSessionTime(timestamp: number): string {
     const d = new Date(timestamp)
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`
+  }
+
+  private async cmdProjectByPath(messageId: string, chatId: string, rawPath: string): Promise<void> {
+    const normed = this.normDir(rawPath)
+    if (this.isRootDir(normed)) {
+      await this.replyCmd(messageId, chatId, "❌ 路径不合法：不能使用根目录。")
+      return
+    }
+
+    const allProjects = this.getProjects()
+    const existing = allProjects.find((p) => this.projectDir(p) === normed)
+    const dirExists = existsSync(normed)
+
+    if (existing) {
+      if (!dirExists) {
+        await mkdir(normed, { recursive: true })
+      }
+      const newDir = this.projectDir(existing)
+      await this.switchToProject(messageId, chatId, newDir)
+      return
+    }
+
+    if (dirExists) {
+      await this.switchToNewProject(messageId, chatId, normed)
+      return
+    }
+
+    this._pendingConfirmCreate[chatId] = { path: normed }
+    await this.replyCmd(
+      messageId,
+      chatId,
+      `📂 路径不存在：${normed}\n回复 y 确认创建该文件夹并初始化项目，回复 n 取消。`,
+    )
+  }
+
+  private async confirmCreateProject(chatId: string, messageId: string, yes: boolean): Promise<void> {
+    const pending = this._pendingConfirmCreate[chatId]
+    if (!pending) return
+    delete this._pendingConfirmCreate[chatId]
+
+    if (!yes) {
+      await this.replyCmd(messageId, chatId, "已取消创建。")
+      return
+    }
+
+    await mkdir(pending.path, { recursive: true })
+    await this.switchToNewProject(messageId, chatId, pending.path)
+  }
+
+  private async switchToProject(messageId: string, chatId: string, newDir: string): Promise<void> {
+    for (const key of Object.keys(this.sessionMap)) {
+      if (key.startsWith(`${chatId}:`)) delete this.sessionMap[key]
+    }
+    this._chatDirs[chatId] = newDir
+    void this.clearRuntime(chatId)
+
+    if (newDir in this._hiddenDirs) {
+      delete this._hiddenDirs[newDir]
+      await this.saveHiddenDirs()
+    }
+
+    const {
+      sessionId: newSessionId,
+      sessionTitle,
+      created,
+    } = await Instance.provide({
+      directory: newDir,
+      fn: async () => {
+        const recent = [...Session.list({ directory: newDir, roots: true, limit: 1 })]
+        if (recent.length > 0) {
+          return {
+            sessionId: recent[0].id,
+            sessionTitle: recent[0].title ?? recent[0].id.slice(0, 8),
+            created: false,
+          }
+        }
+        const session = await Session.create({ title: `飞书对话 - ${new Date().toISOString()}` })
+        return { sessionId: session.id, sessionTitle: session.title, created: true }
+      },
+    })
+    this._chatSessions[chatId] = newSessionId
+    await this.saveSessionMap()
+
+    const name = this.baseName(newDir)
+    const note = created ? "已创建新会话" : `已进入该项目最新会话：${sessionTitle}`
+    console.log("[feishu] /project switched:", chatId, "->", newDir)
+    await this.replyCmd(messageId, chatId, `✅ 已切换到：${name}\n   ${newDir}\n（${note}）`)
+  }
+
+  private async switchToNewProject(messageId: string, chatId: string, newDir: string): Promise<void> {
+    for (const key of Object.keys(this.sessionMap)) {
+      if (key.startsWith(`${chatId}:`)) delete this.sessionMap[key]
+    }
+    this._chatDirs[chatId] = newDir
+    void this.clearRuntime(chatId)
+
+    const { project } = await Project.fromDirectory(newDir)
+    if (project.vcs !== "git") {
+      const initialized = await Project.initGit({ directory: newDir, project })
+      await Instance.reload({
+        directory: newDir,
+        worktree: newDir,
+        project: initialized,
+        init: InstanceBootstrap,
+      })
+    }
+
+    const {
+      sessionId: newSessionId,
+      sessionTitle,
+      created,
+    } = await Instance.provide({
+      directory: newDir,
+      init: InstanceBootstrap,
+      fn: async () => {
+        const recent = [...Session.list({ directory: newDir, roots: true, limit: 1 })]
+        if (recent.length > 0) {
+          return {
+            sessionId: recent[0].id,
+            sessionTitle: recent[0].title ?? recent[0].id.slice(0, 8),
+            created: false,
+          }
+        }
+        const session = await Session.create({ title: `飞书对话 - ${new Date().toISOString()}` })
+        return { sessionId: session.id, sessionTitle: session.title, created: true }
+      },
+    })
+    this._chatSessions[chatId] = newSessionId
+    await this.saveSessionMap()
+
+    const name = this.baseName(newDir)
+    const note = created ? "已创建新会话" : `已进入该项目最新会话：${sessionTitle}`
+    console.log("[feishu] /project created+switched:", chatId, "->", newDir)
+    await this.replyCmd(messageId, chatId, `✅ 已切换到：${name}\n   ${newDir}\n（${note}）`)
+  }
+
+  private baseName(dir: string): string {
+    return dir.replace(/\\/g, "/").replace(/\/+$/, "").split("/").at(-1) || dir
   }
 
   /**
