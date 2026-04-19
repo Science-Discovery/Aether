@@ -12,7 +12,7 @@ concurrency:
 permissions:
   contents: read
   issues: write
-  pull-requests: read
+  pull-requests: write
 
 jobs:
   guard:
@@ -85,12 +85,24 @@ jobs:
               })
             }
 
+            const note = async (body) => {
+              try {
+                await sync(body)
+              } catch (err) {
+                core.warning(`Failed to sync guard comment: ${err.message}`)
+              }
+            }
+
             const admins = new Set(read(".github/cicd-admins.txt").map((x) => x.toLowerCase()))
             const user = pr.user.login.toLowerCase()
 
             if (admins.has(user)) {
               core.info(`Skipping guard for CI/CD admin ${pr.user.login}`)
-              await clear()
+              try {
+                await clear()
+              } catch (err) {
+                core.warning(`Failed to clear guard comment: ${err.message}`)
+              }
               return
             }
 
@@ -120,7 +132,11 @@ jobs:
             }
 
             if (hit.length === 0) {
-              await clear()
+              try {
+                await clear()
+              } catch (err) {
+                core.warning(`Failed to clear guard comment: ${err.message}`)
+              }
               return
             }
 
@@ -136,5 +152,5 @@ jobs:
               "This guard reads the protected list from `.github/cicd-protected-files.txt`.",
             ].join("\n")
 
-            await sync(body)
+            await note(body)
             core.setFailed(`Blocked CI/CD-related changes: ${hit.join(", ")}`)
