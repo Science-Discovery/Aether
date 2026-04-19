@@ -795,6 +795,8 @@ export const dict = {
   "settings.general.row.followup.description": "Choose whether follow-up prompts steer immediately or wait in a queue",
   "settings.general.row.followup.option.queue": "Queue",
   "settings.general.row.followup.option.steer": "Steer",
+  "settings.general.row.branchesTab.title": "Enable conversation tree",
+  "settings.general.row.branchesTab.description": "Show the conversation tree inline in the session list sidebar",
   "settings.general.row.reviewBatch.title": "Review page size",
   "settings.general.row.reviewBatch.description":
     "How many file changes the review panel loads at a time. The same count is used by Load more.",
