@@ -30,7 +30,7 @@ import logging
 import shutil
 from pathlib import Path
 from typing import Optional
-from datetime import datetime
+from datetime import datetime, timezone
 from io import BytesIO
 from urllib.parse import quote
 
@@ -181,6 +181,7 @@ HELP_TEXT = """📋 可用命令：
 /p, /project  查看最近项目
 /p l          查看全部项目
 /p n          切换编号项目
+/p <path>     切换到指定路径
 
 /s, /session  查看最近会话
 /s l          查看全部会话
@@ -218,6 +219,8 @@ HELP_LIST_TEXT = """📋 全部命令：
   查看全部项目（l = list）
 /p n, /project n
   切换到编号 n 的项目
+/p <path>, /project <path>
+  切换到指定路径（如 /p E:\\work\\foo 或 /p /home/user/foo）
 /project hide n
   隐藏编号 n 的项目，重新在桌面端或消息端使用后自动恢复
 
@@ -230,13 +233,17 @@ HELP_LIST_TEXT = """📋 全部命令：
 
 /approval
   查看审批模式
+/approval n
+  按编号切换审批模式（1=auto, 2=ask）
 /approval <name>
-  切换审批模式（name 可选：auto、ask）
+  按名称切换审批模式（name 可选：auto、ask）
 
-/variant
-  查看当前变体
-/variant <name>
-  切换到指定变体（name 为变体名）
+/thinkinglevel
+  查看当前模型可用的思考等级
+/thinkinglevel n
+  按编号切换思考等级
+/thinkinglevel <name>
+  按名称切换思考等级
 
 /h, /help
   显示常用命令
@@ -270,6 +277,7 @@ class AetherAgent(Agent):
         self._conv_dirs: dict[str, str] = {}
         self._pending_questions: dict[str, dict] = {}
         self._pending_permissions: dict[str, dict] = {}
+        self._pending_confirm_create: dict[str, dict] = {}
         self._tasks: dict[str, object] = {}
         self._sse_tasks: dict[str, object] = {}
         self._accumulated_text: dict[str, str] = {}
@@ -348,11 +356,29 @@ class AetherAgent(Agent):
             return ""
         if re.fullmatch(r"/+", text):
             return "/"
-        if re.fullmatch(r"[A-Za-z]:/?", text):
-            return f"{text[0].lower()}:/"
-        if re.fullmatch(r"[A-Za-z]:/+", text):
-            return f"{text[0].lower()}:/"
+        if len(text) >= 2 and text[1] == ":" and text[0].isalpha():
+            text = text[0].lower() + text[1:]
+        if re.fullmatch(r"[a-z]:/?$", text):
+            return f"{text[0]}:/"
         return text.rstrip("/")
+
+    def _is_absolute_path(self, text: str) -> bool:
+        normed = self._norm_dir(text)
+        if not normed or normed == "/":
+            return False
+        if normed.startswith("/"):
+            return True
+        if re.match(r"[a-z]:/", normed):
+            return True
+        return False
+
+    def _is_root_dir(self, text: str) -> bool:
+        normed = self._norm_dir(text)
+        if normed == "/":
+            return True
+        if re.fullmatch(r"[a-z]:/$", normed):
+            return True
+        return False
 
     def _project_name(self, item: dict) -> str:
         directory = self._project_dir(item)
@@ -488,11 +514,15 @@ class AetherAgent(Agent):
         self, directory: str, fresh: bool = False
     ) -> tuple[str, bool]:
         if fresh:
-            return await self._create_session(directory=directory), True
+            return await self._create_session(
+                directory=directory, title=self._platform_title()
+            ), True
         items = await self._list_sessions(directory)
         if items:
             return items[0]["id"], False
-        return await self._create_session(directory=directory), True
+        return await self._create_session(
+            directory=directory, title=self._platform_title()
+        ), True
 
     async def _list_agents(self) -> list[dict]:
         resp = await self._client.get(f"{self.base_url}/agent")
@@ -609,7 +639,9 @@ class AetherAgent(Agent):
             return f"✅ 已切换到会话：{title}\n   更新时间：{self._format_session_time((info or chosen).get('time', {}).get('updated'))}"
 
         if not items:
-            session_id = await self._create_session(directory=directory)
+            session_id = await self._create_session(
+                directory=directory, title=self._platform_title()
+            )
             self._sessions[conv_id] = session_id
             logger.info(f"[/session] 为 {conv_id} 创建新会话 {session_id[:8]}...")
             return "📂 当前项目下还没有任何会话，已自动创建一个新会话并切换。"
@@ -642,7 +674,9 @@ class AetherAgent(Agent):
             self._session_list.pop(conv_id, None)
             self._clear_runtime(conv_id)
             directory = self._conv_dirs.get(conv_id) or self.directory
-            session_id = await self._create_session(directory)
+            session_id = await self._create_session(
+                directory, title=self._platform_title()
+            )
             self._sessions[conv_id] = session_id
             if old:
                 logger.info(f"[/new] 清除会话 {old[:8]}... for {conv_id}")
@@ -663,8 +697,8 @@ class AetherAgent(Agent):
             return self._cmd_set_model(conv_id, arg)
         if cmd in {"/a", "/agent"}:
             return await self._cmd_agent(conv_id, arg)
-        if cmd == "/variant":
-            return await self._cmd_variant(conv_id, arg)
+        if cmd == "/thinkinglevel":
+            return await self._cmd_thinking(conv_id, arg)
         if cmd == "/approval":
             return await self._cmd_approval(conv_id, arg)
         if cmd in {"/p", "/project"}:
@@ -746,48 +780,131 @@ class AetherAgent(Agent):
         pref = await self._get_preference(session_id, directory) if session_id else None
         current = (pref or {}).get("agent") or self.default_agent
         if not arg:
-            sample = "、".join(names[:10]) or "（暂无可用模式）"
-            return f"🧠 当前模式：{current}\n可用模式：{sample}"
-        if arg not in names:
-            sample = "、".join(names[:10]) or "（暂无可用模式）"
-            return f"❌ 未找到模式：{arg}\n可用模式：{sample}"
+            if not names:
+                return "❌ 暂无可用模式。"
+            lines = ["🧠 可用模式：", ""]
+            for i, name in enumerate(names, start=1):
+                tag = " ★（当前）" if name == current else ""
+                lines.append(f"  {i}. {name}{tag}")
+            lines.extend(["", "💡 /a 编号或名称 切换模式"])
+            return chr(10).join(lines)
+        pick = None
+        if arg.isdigit():
+            n = int(arg)
+            if n < 1 or n > len(names):
+                return f"❌ 编号超出范围，请输入 1~{len(names)} 之间的数字。"
+            pick = names[n - 1]
+        else:
+            pick = arg if arg in names else None
+        if not pick:
+            return f"❌ 未找到模式：{arg}，发送 /a 查看可用模式。"
         if session_id:
-            await self._set_preference(session_id, directory, agent=arg)
-        logger.info(f"[/agent] {conv_id} -> {arg}")
-        return f"✅ 已切换模式：{arg}\n（仅对当前对话生效，/new 后将重置）"
+            await self._set_preference(session_id, directory, agent=pick)
+        logger.info(f"[/agent] {conv_id} -> {pick}")
+        return f"✅ 已切换模式：{pick}\n（仅对当前对话生效，/new 后将重置）"
 
-    async def _cmd_variant(self, conv_id: str, arg: str) -> str:
+    async def _list_thinking(
+        self, conv_id: str
+    ) -> tuple[list[str], Optional[str], bool]:
         session_id = self._sessions.get(conv_id)
         directory = self._conv_dirs.get(conv_id) or self.directory
         pref = await self._get_preference(session_id, directory) if session_id else None
-        current = (pref or {}).get("variant") or "（默认）"
+        pref_model = (pref or {}).get("model") if pref else None
+        current_model = (
+            f"{pref_model['providerID']}/{pref_model['modelID']}"
+            if pref_model
+            else self.default_model
+        )
+        if not current_model or "/" not in current_model:
+            return [], (pref or {}).get("variant"), False
+        provider_id, model_id = current_model.split("/", 1)
+        headers = (
+            {"x-opencode-directory": quote(directory, safe="")} if directory else {}
+        )
+        try:
+            resp = await self._client.get(f"{self.base_url}/provider", headers=headers)
+            resp.raise_for_status()
+            data = resp.json()
+        except Exception as e:
+            logger.error(f"获取思考等级失败: {e}")
+            return [], (pref or {}).get("variant"), True
+        for provider in data.get("all", []):
+            if provider.get("id") != provider_id:
+                continue
+            model = (provider.get("models") or {}).get(model_id) or {}
+            names = list((model.get("variants") or {}).keys())
+            return names, (pref or {}).get("variant"), True
+        return [], (pref or {}).get("variant"), True
+
+    async def _cmd_thinking(self, conv_id: str, arg: str) -> str:
+        names, current, ok = await self._list_thinking(conv_id)
+        if not ok:
+            return "❌ 请先使用 /m 选择模型后再切换思考等级。"
+        items = ["默认", *names]
         if not arg:
-            return f"🔀 当前变体：{current}"
+            lines = ["🔀 可用思考等级：", ""]
+            for i, name in enumerate(items, start=1):
+                tag = (
+                    " ★（当前）"
+                    if (name == "默认" and not current) or name == current
+                    else ""
+                )
+                lines.append(f"  {i}. {name}{tag}")
+            lines.extend(["", "💡 /thinkinglevel 编号或名称 切换思考等级"])
+            return chr(10).join(lines)
+        pick = None
+        if arg.isdigit():
+            n = int(arg)
+            if n < 1 or n > len(items):
+                return f"❌ 编号超出范围，请输入 1~{len(items)} 之间的数字。"
+            pick = items[n - 1]
+        else:
+            pick = arg if arg in items else "默认" if arg == "default" else None
+        if not pick:
+            return f"❌ 未找到思考等级：{arg}，发送 /thinkinglevel 查看可用思考等级。"
+        session_id = self._sessions.get(conv_id)
+        directory = self._conv_dirs.get(conv_id) or self.directory
         if session_id:
-            await self._set_preference(session_id, directory, variant=arg)
-        logger.info(f"[/variant] {conv_id} -> {arg}")
-        return f"✅ 已切换变体：{arg}\n（仅对当前对话生效，/new 后将重置）"
+            await self._set_preference(
+                session_id, directory, variant=None if pick == "默认" else pick
+            )
+        logger.info(f"[/thinkinglevel] {conv_id} -> {pick}")
+        return f"✅ 已切换思考等级：{pick}\n（仅对当前对话生效，/new 后将重置）"
 
     async def _cmd_approval(self, conv_id: str, arg: str) -> str:
         session_id = self._sessions.get(conv_id)
         directory = self._conv_dirs.get(conv_id) or self.directory
         pref = await self._get_preference(session_id, directory) if session_id else None
         auto = (pref or {}).get("autoAccept")
+        names = ["auto", "ask"]
         if not arg:
-            mode = "自动批准" if auto else "手动审批"
-            return f"🔐 当前审批模式：{mode}\n可用模式：auto、ask"
-        if arg not in {"auto", "ask"}:
-            return "❌ 仅支持 /approval auto 或 /approval ask"
+            lines = [
+                "🔐 可用审批模式：",
+                "",
+                f"  1. auto（自动批准）{' ★（当前）' if auto else ''}",
+                f"  2. ask（手动审批）{' ★（当前）' if not auto else ''}",
+                "",
+                "💡 /approval 编号或名称 切换审批模式",
+            ]
+            return chr(10).join(lines)
+        pick = None
+        if arg.isdigit():
+            n = int(arg)
+            pick = names[n - 1] if 1 <= n <= 2 else None
+        else:
+            pick = arg if arg in {"auto", "ask"} else None
+        if not pick:
+            return "❌ 仅支持 1(auto) 或 2(ask)。"
         if session_id:
             await self._set_preference(
-                session_id, directory, autoAccept=(arg == "auto")
+                session_id, directory, autoAccept=(pick == "auto")
             )
-        logger.info(f"[/approval] {conv_id} -> {arg}")
-        if arg == "auto" and conv_id in self._pending_permissions:
+        logger.info(f"[/approval] {conv_id} -> {pick}")
+        if pick == "auto" and conv_id in self._pending_permissions:
             await self._handle_permission_reply(conv_id, "2")
         return (
             "✅ 已开启自动接受权限\n（后续权限请求将自动批准）"
-            if arg == "auto"
+            if pick == "auto"
             else "✅ 已停止自动接受权限\n（后续权限请求将需要你确认）"
         )
 
@@ -831,6 +948,8 @@ class AetherAgent(Agent):
         return self._cmd_set_model(conv_id, model_str)
 
     async def _cmd_project(self, conv_id: str, arg: str) -> str:
+        if arg and self._is_absolute_path(arg):
+            return await self._cmd_project_by_path(conv_id, arg)
         all_projects = await self._get_projects()
         if not all_projects:
             return "❌ 无法获取项目列表，请检查 Aether 服务是否正常。"
@@ -891,21 +1010,7 @@ class AetherAgent(Agent):
                 return f"❌ 请输入 1~{len(all_projects)} 之间的数字。"
             chosen = all_projects[idx]
             new_dir = self._project_dir(chosen)
-            self._conv_dirs[conv_id] = new_dir
-            session_id, created = await self._ensure_session(new_dir)
-            self._sessions[conv_id] = session_id
-            self._session_list.pop(conv_id, None)
-            if new_dir in self._hidden_dirs:
-                del self._hidden_dirs[new_dir]
-                self._save_hidden_dirs()
-            name = self._project_name(chosen)
-            logger.info(f"[/project] {conv_id} -> {new_dir}")
-            note = "已创建新会话"
-            if not created:
-                item = await self._resolve_session(session_id, new_dir)
-                title = (item or {}).get("title") or session_id[:8]
-                note = f"已进入该项目最新会话：{title}"
-            return f"✅ 已切换到：{name}\n   {new_dir}\n（{note}）"
+            return await self._switch_to_project(conv_id, new_dir)
 
         # /project（列表）
         if not projects:
@@ -923,12 +1028,84 @@ class AetherAgent(Agent):
             lines.append(f"{idx}. {self._project_name(item)}{tag}")
             lines.append(f"   {directory}")
         lines.append("")
-        lines.append("💡 /p n 切换 | /p l 查看全部")
+        lines.append("💡 /p n 切换 | /p l 查看全部 | /p <path> 指定路径")
         if self._hidden_dirs:
             lines.append(
                 f"ℹ️ 已隐藏 {len(self._hidden_dirs)} 个项目（重新使用后自动恢复）"
             )
         return chr(10).join(lines)
+
+    async def _cmd_project_by_path(self, conv_id: str, raw_path: str) -> str:
+        normed = self._norm_dir(raw_path)
+        if self._is_root_dir(normed):
+            return "❌ 路径不合法：不能使用根目录。"
+
+        all_projects = await self._get_projects()
+        existing = next(
+            (p for p in all_projects if self._project_dir(p) == normed), None
+        )
+        dir_exists = Path(normed).exists()
+
+        if existing:
+            if not dir_exists:
+                Path(normed).mkdir(parents=True, exist_ok=True)
+            return await self._switch_to_project(conv_id, normed)
+
+        if dir_exists:
+            return await self._switch_to_new_project(conv_id, normed)
+
+        self._pending_confirm_create[conv_id] = {"path": normed}
+        return f"📂 路径不存在：{normed}\n回复 y 确认创建该文件夹并初始化项目，回复 n 取消。"
+
+    async def _confirm_create_project(self, conv_id: str, yes: bool) -> str:
+        pending = self._pending_confirm_create.pop(conv_id, None)
+        if not pending:
+            return "没有待确认的创建请求。"
+        if not yes:
+            return "已取消创建。"
+        normed = pending["path"]
+        Path(normed).mkdir(parents=True, exist_ok=True)
+        return await self._switch_to_new_project(conv_id, normed)
+
+    async def _switch_to_project(self, conv_id: str, new_dir: str) -> str:
+        self._conv_dirs[conv_id] = new_dir
+        if new_dir in self._hidden_dirs:
+            del self._hidden_dirs[new_dir]
+            self._save_hidden_dirs()
+        session_id, created = await self._ensure_session(new_dir)
+        self._sessions[conv_id] = session_id
+        self._session_list.pop(conv_id, None)
+        name = await self._get_project_name(new_dir)
+        logger.info(f"[/project] {conv_id} -> {new_dir}")
+        note = "已创建新会话"
+        if not created:
+            item = await self._resolve_session(session_id, new_dir)
+            title = (item or {}).get("title") or session_id[:8]
+            note = f"已进入该项目最新会话：{title}"
+        return f"✅ 已切换到：{name}\n   {new_dir}\n（{note}）"
+
+    async def _switch_to_new_project(self, conv_id: str, new_dir: str) -> str:
+        self._conv_dirs[conv_id] = new_dir
+        session_id, created = await self._ensure_session(new_dir)
+        self._sessions[conv_id] = session_id
+        self._session_list.pop(conv_id, None)
+        headers = {"x-opencode-directory": quote(new_dir, safe="")}
+        try:
+            resp = await self._client.post(
+                f"{self.base_url}/project/git/init", headers=headers
+            )
+            resp.raise_for_status()
+            logger.info(f"[/project] git initialized for {new_dir}")
+        except Exception as e:
+            logger.warning(f"初始化 git 失败: {e}")
+        name = self._base(new_dir)
+        logger.info(f"[/project] created+switched {conv_id} -> {new_dir}")
+        note = "已创建新会话"
+        if not created:
+            item = await self._resolve_session(session_id, new_dir)
+            title = (item or {}).get("title") or session_id[:8]
+            note = f"已进入该项目最新会话：{title}"
+        return f"✅ 已切换到：{name}\n   {new_dir}\n（{note}）"
 
     def _cmd_set_model(self, conv_id: str, model_str: str) -> str:
         if "/" not in model_str:
@@ -948,6 +1125,7 @@ class AetherAgent(Agent):
         return f"✅ 已切换模型：{model_str}\n（仅对当前对话生效，/new 后将重置）"
 
     def _clear_runtime(self, conv_id: str) -> None:
+        self._pending_confirm_create.pop(conv_id, None)
         pending = self._pending_questions.pop(conv_id, None)
         if pending:
             task = pending.get("task")
@@ -1314,6 +1492,20 @@ class AetherAgent(Agent):
                 )
             return ChatResponse(text=slash_reply)
 
+        if conv_id in self._pending_confirm_create:
+            lower = user_text.strip().lower()
+            if lower in {"y", "yes", "确认"}:
+                reply = await self._confirm_create_project(conv_id, True)
+            elif lower in {"n", "no", "取消"}:
+                reply = await self._confirm_create_project(conv_id, False)
+            else:
+                reply = "请回复 y 确认创建或 n 取消。"
+            session_id = self._sessions.get(conv_id)
+            directory = self._conv_dirs.get(conv_id) or self.directory
+            if session_id:
+                reply = await self._wrap_message(reply, session_id, directory, conv_id)
+            return ChatResponse(text=reply)
+
         if conv_id in self._pending_questions:
             return await self._handle_question_reply(conv_id, user_text)
 
@@ -1382,6 +1574,16 @@ class AetherAgent(Agent):
 
         except httpx.HTTPStatusError as e:
             logger.error(f"HTTP 错误: {e.response.status_code}")
+            try:
+                body = e.response.json()
+                if (
+                    body.get("name") == "NotFoundError"
+                    and isinstance(body.get("data", {}).get("message"), str)
+                    and body["data"]["message"].startswith("Session not found:")
+                ):
+                    return ChatResponse(text="会话已不存在")
+            except Exception:
+                pass
             return ChatResponse(text="服务暂时不可用，请稍后重试")
         except httpx.RequestError as e:
             logger.error(f"连接错误: {e}")
@@ -1934,12 +2136,23 @@ class AetherAgent(Agent):
             return "reject"
         return None
 
-    async def _create_session(self, directory: str = "") -> str:
+    def _platform_title(self) -> str:
+        ts = (
+            datetime.now(timezone.utc)
+            .isoformat(timespec="milliseconds")
+            .replace("+00:00", "Z")
+        )
+        return f"微信对话 - {ts}"
+
+    async def _create_session(self, directory: str = "", title: str = "") -> str:
         headers = (
             {"x-opencode-directory": quote(directory, safe="")} if directory else {}
         )
+        payload: dict = {}
+        if title:
+            payload["title"] = title
         resp = await self._client.post(
-            f"{self.base_url}/session", json={}, headers=headers
+            f"{self.base_url}/session", json=payload, headers=headers
         )
         resp.raise_for_status()
         return resp.json()["id"]
@@ -1959,6 +2172,23 @@ class AetherAgent(Agent):
         resp.raise_for_status()
         body = resp.text.strip()
         if not body:
+            check = await self._client.get(
+                f"{self.base_url}/session/{session_id}",
+                headers={"x-opencode-directory": quote(directory, safe="")}
+                if directory
+                else {},
+            )
+            if check.status_code == 404:
+                try:
+                    d = check.json()
+                    if (
+                        d.get("name") == "NotFoundError"
+                        and isinstance(d.get("data", {}).get("message"), str)
+                        and d["data"]["message"].startswith("Session not found:")
+                    ):
+                        return {"formatted": "会话已不存在"}
+                except Exception:
+                    pass
             return {"formatted": "❌ 服务端返回空响应，请检查模型是否有效"}
         try:
             return self._extract_response(resp.json())
