@@ -3509,6 +3509,10 @@ export type ExperimentalSessionListData = {
      */
     limit?: number
     /**
+     * Archive filtering mode (exclude/include/only). Takes precedence over archived.
+     */
+    archivedMode?: "exclude" | "include" | "only"
+    /**
      * Include archived sessions (default false)
      */
     archived?: boolean
