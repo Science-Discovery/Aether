@@ -496,6 +496,9 @@ export const dict = {
   "update.install": "Update & Restart",
   "update.installing": "Installing...",
   "update.installHint": "Installing the update will close Aether.",
+  "update.recover": "Restart Update",
+  "update.recovering": "Restarting update...",
+  "update.recoverHint": "A previous update attempt left incomplete files. Restart the whole update flow from scratch.",
   "update.checkFailed": "Check failed",
   "update.retry": "Retry",
 
