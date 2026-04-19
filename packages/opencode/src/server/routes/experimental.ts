@@ -12,6 +12,7 @@ import { zodToJsonSchema } from "zod-to-json-schema"
 import { errors } from "../error"
 import { lazy } from "../../util/lazy"
 import { WorkspaceRoutes } from "./workspace"
+import { SshRoutes } from "./ssh"
 
 export const ExperimentalRoutes = lazy(() =>
   new Hono()
@@ -90,6 +91,7 @@ export const ExperimentalRoutes = lazy(() =>
       },
     )
     .route("/workspace", WorkspaceRoutes())
+    .route("/ssh", SshRoutes())
     .post(
       "/worktree",
       describeRoute({

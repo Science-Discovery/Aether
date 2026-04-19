@@ -2,11 +2,25 @@ import { createSimpleContext } from "@opencode-ai/ui/context"
 import { type Accessor, batch, createEffect, createMemo, onCleanup } from "solid-js"
 import { createStore } from "solid-js/store"
 import { Persist, persisted } from "@/utils/persist"
+import { disconnectSsh } from "@/utils/remote-ssh"
 import { useCheckServerHealth } from "@/utils/server-health"
 
 type StoredProject = { worktree: string; expanded: boolean }
-type StoredServer = string | ServerConnection.HttpBase | ServerConnection.Http
+type StoredServer =
+  | string
+  | ServerConnection.HttpBase
+  | ServerConnection.Http
+  | ServerConnection.Sidecar
+  | ServerConnection.Ssh
 const HEALTH_POLL_INTERVAL_MS = 10_000
+
+function ident() {
+  try {
+    return crypto.randomUUID()
+  } catch {
+    return `${Date.now()}-${Math.random().toString(36).slice(2)}`
+  }
+}
 
 export function normalizeServerUrl(input: string) {
   const trimmed = input.trim()
@@ -18,6 +32,7 @@ export function normalizeServerUrl(input: string) {
 export function serverName(conn?: ServerConnection.Any, ignoreDisplayName = false) {
   if (!conn) return ""
   if (conn.displayName && !ignoreDisplayName) return conn.displayName
+  if (conn.type === "ssh") return conn.host
   return conn.http.url.replace(/^https?:\/\//, "").replace(/\/+$/, "")
 }
 
@@ -65,7 +80,11 @@ export namespace ServerConnection {
   // Remote server desktop can SSH into
   export type Ssh = {
     type: "ssh"
+    id: string
     host: string
+    command: string
+    installDir: string
+    owner?: HttpBase
     // SSH client exposes an HTTP server for the app to use as a proxy
     http: HttpBase
   } & Base
@@ -84,7 +103,7 @@ export namespace ServerConnection {
         return Key.make("sidecar")
       }
       case "ssh":
-        return Key.make(`ssh:${conn.host}`)
+        return Key.make(`ssh:${conn.id}`)
     }
   }
 
@@ -101,39 +120,66 @@ export const { use: useServer, provider: ServerProvider } = createSimpleContext(
       Persist.global("server", ["server.v3"]),
       createStore({
         list: [] as StoredServer[],
+        active: undefined as ServerConnection.Key | undefined,
         projects: {} as Record<string, StoredProject[]>,
         lastProject: {} as Record<string, string>,
       }),
     )
 
-    const url = (x: StoredServer) => (typeof x === "string" ? x : "type" in x ? x.http.url : x.url)
+    const normalize = (value: StoredServer): ServerConnection.Any => {
+      if (typeof value === "string") {
+        return {
+          type: "http",
+          http: { url: value },
+        }
+      }
+      if (!("type" in value)) {
+        return {
+          type: "http",
+          http: value,
+        }
+      }
+      if (value.type !== "ssh") return value
+      return {
+        ...value,
+        id: value.id || ident(),
+      }
+    }
+
+    const keyOf = (value: StoredServer) => ServerConnection.key(normalize(value))
 
     const allServers = createMemo((): Array<ServerConnection.Any> => {
       const servers = [
         ...(props.servers ?? []),
-        ...store.list.map((value) =>
-          typeof value === "string"
-            ? {
-                type: "http" as const,
-                http: { url: value },
-              }
-            : value,
-        ),
+        ...store.list.map(normalize),
       ]
 
       const deduped = new Map(
         servers.map((value) => {
-          const conn: ServerConnection.Any = "type" in value ? value : { type: "http", http: value }
-          return [ServerConnection.key(conn), conn]
+          return [ServerConnection.key(value), value]
         }),
       )
 
       return [...deduped.values()]
     })
 
+    createEffect(() => {
+      if (!ready()) return
+      const next = store.list.map((value) => normalize(value))
+      if (next.every((value, idx) => JSON.stringify(value) === JSON.stringify(store.list[idx]))) return
+      setStore("list", next)
+    })
+
     const [state, setState] = createStore({
-      active: props.defaultServer,
       healthy: undefined as boolean | undefined,
+    })
+
+    const active = createMemo<ServerConnection.Key>(() => {
+      const saved = store.active ?? props.defaultServer
+      if (allServers().some((item) => ServerConnection.key(item) === saved)) return saved
+      const first = allServers()[0]
+      if (first) return ServerConnection.key(first)
+      return props.defaultServer
     })
 
     const healthy = () => state.healthy
@@ -164,37 +210,52 @@ export const { use: useServer, provider: ServerProvider } = createSimpleContext(
     }
 
     function setActive(input: ServerConnection.Key) {
-      if (state.active !== input) setState("active", input)
+      const prev = current()
+      if (prev?.type === "ssh" && active() !== input && prev.owner) {
+        void disconnectSsh(prev.owner, prev.id).catch(() => undefined)
+      }
+      if (store.active !== input) setStore("active", input)
     }
 
-    function add(input: ServerConnection.Http) {
-      const url_ = normalizeServerUrl(input.http.url)
-      if (!url_) return
-      const conn = { ...input, http: { ...input.http, url: url_ } }
+    function upsert(input: ServerConnection.Any) {
+      const conn =
+        input.type === "http" || input.type === "sidecar"
+          ? ({ ...input, http: { ...input.http, url: normalizeServerUrl(input.http.url) ?? input.http.url } } as ServerConnection.Any)
+          : ({
+              ...input,
+              id: input.id || ident(),
+              http: { ...input.http, url: normalizeServerUrl(input.http.url) ?? input.http.url },
+            } as ServerConnection.Any)
+      if ((conn.type === "http" || conn.type === "sidecar") && !conn.http.url) return
       return batch(() => {
-        const existing = store.list.findIndex((x) => url(x) === url_)
+        const key = ServerConnection.key(conn)
+        const existing = store.list.findIndex((x) => keyOf(x) === key)
         if (existing !== -1) {
           setStore("list", existing, conn)
         } else {
           setStore("list", store.list.length, conn)
         }
-        setState("active", ServerConnection.key(conn))
+        setStore("active", key)
         return conn
       })
     }
 
+    function add(input: ServerConnection.Http) {
+      return upsert(input)
+    }
+
     function remove(key: ServerConnection.Key) {
-      const list = store.list.filter((x) => url(x) !== key)
+      const list = store.list.filter((x) => keyOf(x) !== key)
       batch(() => {
         setStore("list", list)
-        if (state.active === key) {
+        if (active() === key) {
           const next = list[0]
-          setState("active", next ? ServerConnection.Key.make(url(next)) : props.defaultServer)
+          setStore("active", next ? keyOf(next) : props.defaultServer)
         }
       })
     }
 
-    const isReady = createMemo(() => ready() && !!state.active)
+    const isReady = createMemo(() => ready() && !!active())
 
     const check = (conn: ServerConnection.Any) => checkServerHealth(conn.http).then((x) => x.healthy)
 
@@ -206,10 +267,17 @@ export const { use: useServer, provider: ServerProvider } = createSimpleContext(
       onCleanup(startHealthPolling(current_))
     })
 
-    const origin = createMemo(() => projectsKey(state.active))
+    createEffect(() => {
+      if (!ready()) return
+      const next = active()
+      if (store.active === next) return
+      setStore("active", next)
+    })
+
+    const origin = createMemo(() => projectsKey(active()))
     const projectsList = createMemo(() => store.projects[origin()] ?? [])
     const current: Accessor<ServerConnection.Any | undefined> = createMemo(
-      () => allServers().find((s) => ServerConnection.key(s) === state.active) ?? allServers()[0],
+      () => allServers().find((s) => ServerConnection.key(s) === active()) ?? allServers()[0],
     )
     const isLocal = createMemo(() => {
       const c = current()
@@ -221,7 +289,7 @@ export const { use: useServer, provider: ServerProvider } = createSimpleContext(
       healthy,
       isLocal,
       get key() {
-        return state.active
+        return active()
       },
       get name() {
         return serverName(current())
@@ -234,6 +302,7 @@ export const { use: useServer, provider: ServerProvider } = createSimpleContext(
       },
       setActive,
       add,
+      upsert,
       remove,
       projects: {
         list: projectsList,

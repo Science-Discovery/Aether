@@ -7,21 +7,35 @@ import { IconButton } from "@opencode-ai/ui/icon-button"
 import { List } from "@opencode-ai/ui/list"
 import { TextField } from "@opencode-ai/ui/text-field"
 import { useMutation } from "@tanstack/solid-query"
-import { showToast } from "@opencode-ai/ui/toast"
+import { showPromiseToast, showToast } from "@opencode-ai/ui/toast"
 import { useNavigate } from "@solidjs/router"
-import { createEffect, createMemo, createResource, onCleanup, Show } from "solid-js"
+import { batch, createEffect, createMemo, createResource, onCleanup, Show } from "solid-js"
 import { createStore, reconcile } from "solid-js/store"
 import { ServerHealthIndicator, ServerRow } from "@/components/server/server-row"
 import { useLanguage } from "@/context/language"
 import { usePlatform } from "@/context/platform"
 import { normalizeServerUrl, ServerConnection, useServer } from "@/context/server"
+import { remoteHref } from "@/pages/layout/remote-landing"
 import { type ServerHealth, useCheckServerHealth } from "@/utils/server-health"
+import { bootstrapSsh } from "@/utils/remote-ssh"
 
 const DEFAULT_USERNAME = "opencode"
+const DEFAULT_INSTALL_DIR = "~/.opencode/bin"
+
+function showSshToast(promise: Promise<Awaited<ReturnType<typeof bootstrapSsh>>>, host: string) {
+  return showPromiseToast(promise, {
+    loading: <span>正在连接 {host}，并准备远端服务…</span>,
+    success: (data) => <span>已连接 {host}，远端版本 {data.version.chosen} 已就绪。</span>,
+    error: (err) => <span>{err instanceof Error ? err.message : String(err)}</span>,
+  })
+}
 
 interface ServerFormProps {
+  kind: "http" | "ssh"
   value: string
   name: string
+  host: string
+  installDir: string
   username: string
   password: string
   placeholder: string
@@ -30,6 +44,8 @@ interface ServerFormProps {
   status: boolean | undefined
   onChange: (value: string) => void
   onNameChange: (value: string) => void
+  onHostChange: (value: string) => void
+  onInstallDirChange: (value: string) => void
   onUsernameChange: (value: string) => void
   onPasswordChange: (value: string) => void
   onSubmit: () => void
@@ -126,7 +142,7 @@ function ServerForm(props: ServerFormProps) {
         <div class="flex-1 min-w-0 [&_[data-slot=input-wrapper]]:relative">
           <TextField
             type="text"
-            label={language.t("dialog.server.add.url")}
+            label={props.kind === "ssh" ? "SSH Command" : language.t("dialog.server.add.url")}
             placeholder={props.placeholder}
             value={props.value}
             autofocus
@@ -146,26 +162,52 @@ function ServerForm(props: ServerFormProps) {
           onChange={props.onNameChange}
           onKeyDown={keyDown}
         />
-        <div class="grid grid-cols-2 gap-2 min-w-0">
-          <TextField
-            type="text"
-            label={language.t("dialog.server.add.username")}
-            placeholder={language.t("dialog.server.add.usernamePlaceholder")}
-            value={props.username}
-            disabled={props.busy}
-            onChange={props.onUsernameChange}
-            onKeyDown={keyDown}
-          />
-          <TextField
-            type="password"
-            label={language.t("dialog.server.add.password")}
-            placeholder={language.t("dialog.server.add.passwordPlaceholder")}
-            value={props.password}
-            disabled={props.busy}
-            onChange={props.onPasswordChange}
-            onKeyDown={keyDown}
-          />
-        </div>
+        <Show
+          when={props.kind === "ssh"}
+          fallback={
+            <div class="grid grid-cols-2 gap-2 min-w-0">
+              <TextField
+                type="text"
+                label={language.t("dialog.server.add.username")}
+                placeholder={language.t("dialog.server.add.usernamePlaceholder")}
+                value={props.username}
+                disabled={props.busy}
+                onChange={props.onUsernameChange}
+                onKeyDown={keyDown}
+              />
+              <TextField
+                type="password"
+                label={language.t("dialog.server.add.password")}
+                placeholder={language.t("dialog.server.add.passwordPlaceholder")}
+                value={props.password}
+                disabled={props.busy}
+                onChange={props.onPasswordChange}
+                onKeyDown={keyDown}
+              />
+            </div>
+          }
+        >
+          <div class="grid grid-cols-2 gap-2 min-w-0">
+            <TextField
+              type="text"
+              label="Host"
+              placeholder="user@host"
+              value={props.host}
+              disabled={props.busy}
+              onChange={props.onHostChange}
+              onKeyDown={keyDown}
+            />
+            <TextField
+              type="text"
+              label="Install Dir"
+              placeholder={DEFAULT_INSTALL_DIR}
+              value={props.installDir}
+              disabled={props.busy}
+              onChange={props.onInstallDirChange}
+              onKeyDown={keyDown}
+            />
+          </div>
+        </Show>
       </div>
     </div>
   )
@@ -183,8 +225,11 @@ export function DialogSelectServer() {
   const [store, setStore] = createStore({
     status: {} as Record<ServerConnection.Key, ServerHealth | undefined>,
     addServer: {
+      kind: "http" as "http" | "ssh",
       url: "",
       name: "",
+      host: "",
+      installDir: DEFAULT_INSTALL_DIR,
       username: DEFAULT_USERNAME,
       password: "",
       error: "",
@@ -192,9 +237,12 @@ export function DialogSelectServer() {
       status: undefined as boolean | undefined,
     },
     editServer: {
+      kind: "http" as "http" | "ssh",
       id: undefined as string | undefined,
       value: "",
       name: "",
+      host: "",
+      installDir: DEFAULT_INSTALL_DIR,
       username: "",
       password: "",
       error: "",
@@ -204,8 +252,11 @@ export function DialogSelectServer() {
 
   const resetAdd = () => {
     setStore("addServer", {
+      kind: "http",
       url: "",
       name: "",
+      host: "",
+      installDir: DEFAULT_INSTALL_DIR,
       username: DEFAULT_USERNAME,
       password: "",
       error: "",
@@ -215,9 +266,12 @@ export function DialogSelectServer() {
   }
   const resetEdit = () => {
     setStore("editServer", {
+      kind: "http",
       id: undefined,
       value: "",
       name: "",
+      host: "",
+      installDir: DEFAULT_INSTALL_DIR,
       username: "",
       password: "",
       error: "",
@@ -227,6 +281,19 @@ export function DialogSelectServer() {
 
   const addMutation = useMutation(() => ({
     mutationFn: async (value: string) => {
+      if (store.addServer.kind === "ssh") {
+        const conn: ServerConnection.Ssh = {
+          type: "ssh",
+          id: crypto.randomUUID(),
+          displayName: store.addServer.name.trim() || undefined,
+          host: store.addServer.host.trim() || value.trim(),
+          command: value.trim(),
+          installDir: store.addServer.installDir.trim() || DEFAULT_INSTALL_DIR,
+          http: { url: "" },
+        }
+        await select(conn, true)
+        return
+      }
       const normalized = normalizeServerUrl(value)
       if (!normalized) {
         resetAdd()
@@ -253,6 +320,18 @@ export function DialogSelectServer() {
 
   const editMutation = useMutation(() => ({
     mutationFn: async (input: { original: ServerConnection.Any; value: string }) => {
+      if (input.original.type === "ssh") {
+        const conn: ServerConnection.Ssh = {
+          ...input.original,
+          displayName: store.editServer.name.trim() || undefined,
+          host: store.editServer.host.trim() || input.original.host,
+          command: input.value.trim(),
+          installDir: store.editServer.installDir.trim() || DEFAULT_INSTALL_DIR,
+        }
+        server.upsert(conn)
+        resetEdit()
+        return
+      }
       if (input.original.type !== "http") return
       const normalized = normalizeServerUrl(input.value)
       if (!normalized) {
@@ -285,7 +364,7 @@ export function DialogSelectServer() {
         return
       }
       if (normalized === input.original.http.url) {
-        server.add(conn)
+        server.upsert(conn)
       } else {
         replaceServer(input.original, conn)
       }
@@ -296,7 +375,7 @@ export function DialogSelectServer() {
 
   const replaceServer = (original: ServerConnection.Http, next: ServerConnection.Http) => {
     const active = server.key
-    const newConn = server.add(next)
+    const newConn = server.upsert(next)
     if (!newConn) return
     const nextActive = active === ServerConnection.key(original) ? ServerConnection.key(newConn) : active
     if (nextActive) server.setActive(nextActive)
@@ -336,6 +415,7 @@ export function DialogSelectServer() {
     const results: Record<ServerConnection.Key, ServerHealth> = {}
     await Promise.all(
       items().map(async (conn) => {
+        if (!conn.http.url) return
         results[ServerConnection.key(conn)] = await checkServerHealth(conn.http)
       }),
     )
@@ -350,10 +430,51 @@ export function DialogSelectServer() {
   })
 
   async function select(conn: ServerConnection.Any, persist?: boolean) {
-    if (!persist && store.status[ServerConnection.key(conn)]?.healthy === false) return
+    if (!persist && conn.type !== "ssh" && store.status[ServerConnection.key(conn)]?.healthy === false) return
+    if (conn.type === "ssh") {
+      const current = server.current?.http
+      if (!current?.url) {
+        showToast({
+          variant: "error",
+          title: language.t("common.requestFailed"),
+          description: "No active backend available for SSH bootstrap",
+        })
+        return
+      }
+      const task = bootstrapSsh(current, {
+        savedHostID: conn.id,
+        host: conn.host,
+        command: conn.command,
+        installDir: conn.installDir,
+      })
+      showSshToast(task, conn.host)
+      const next = await task.catch((err) => {
+        const text = err instanceof Error ? err.message : String(err)
+        showToast({
+          variant: "error",
+          title: "SSH bootstrap failed",
+          description: text,
+        })
+        return
+      })
+      if (!next) return
+      const saved: ServerConnection.Ssh = {
+        ...conn,
+        owner: current,
+        http: next.endpoint,
+      }
+      dialog.close()
+      batch(() => {
+        server.upsert(saved)
+        server.projects.open(next.landing.rootDirectory)
+        server.projects.touch(next.landing.directory)
+      })
+      navigate(remoteHref(next.landing))
+      return
+    }
     dialog.close()
     if (persist && conn.type === "http") {
-      server.add(conn)
+      server.upsert(conn)
       navigate("/")
       return
     }
@@ -364,6 +485,7 @@ export function DialogSelectServer() {
   const handleAddChange = (value: string) => {
     if (addMutation.isPending) return
     setStore("addServer", { url: value, error: "" })
+    if (store.addServer.kind === "ssh") return
     void previewStatus(value, store.addServer.username, store.addServer.password, (next) =>
       setStore("addServer", { status: next }),
     )
@@ -372,6 +494,16 @@ export function DialogSelectServer() {
   const handleAddNameChange = (value: string) => {
     if (addMutation.isPending) return
     setStore("addServer", { name: value, error: "" })
+  }
+
+  const handleAddHostChange = (value: string) => {
+    if (addMutation.isPending) return
+    setStore("addServer", { host: value, error: "" })
+  }
+
+  const handleAddInstallDirChange = (value: string) => {
+    if (addMutation.isPending) return
+    setStore("addServer", { installDir: value, error: "" })
   }
 
   const handleAddUsernameChange = (value: string) => {
@@ -393,6 +525,7 @@ export function DialogSelectServer() {
   const handleEditChange = (value: string) => {
     if (editMutation.isPending) return
     setStore("editServer", { value, error: "" })
+    if (store.editServer.kind === "ssh") return
     void previewStatus(value, store.editServer.username, store.editServer.password, (next) =>
       setStore("editServer", { status: next }),
     )
@@ -401,6 +534,16 @@ export function DialogSelectServer() {
   const handleEditNameChange = (value: string) => {
     if (editMutation.isPending) return
     setStore("editServer", { name: value, error: "" })
+  }
+
+  const handleEditHostChange = (value: string) => {
+    if (editMutation.isPending) return
+    setStore("editServer", { host: value, error: "" })
+  }
+
+  const handleEditInstallDirChange = (value: string) => {
+    if (editMutation.isPending) return
+    setStore("editServer", { installDir: value, error: "" })
   }
 
   const handleEditUsernameChange = (value: string) => {
@@ -427,7 +570,7 @@ export function DialogSelectServer() {
 
   const editing = createMemo(() => {
     if (!store.editServer.id) return
-    return items().find((x) => x.type === "http" && x.http.url === store.editServer.id)
+    return items().find((x) => ServerConnection.key(x) === store.editServer.id)
   })
 
   const resetForm = () => {
@@ -435,12 +578,15 @@ export function DialogSelectServer() {
     resetEdit()
   }
 
-  const startAdd = () => {
+  const startAdd = (kind: "http" | "ssh" = "http") => {
     resetEdit()
     setStore("addServer", {
+      kind,
       showForm: true,
       url: "",
       name: "",
+      host: "",
+      installDir: DEFAULT_INSTALL_DIR,
       username: DEFAULT_USERNAME,
       password: "",
       error: "",
@@ -448,14 +594,17 @@ export function DialogSelectServer() {
     })
   }
 
-  const startEdit = (conn: ServerConnection.Http) => {
+  const startEdit = (conn: ServerConnection.Any) => {
     resetAdd()
     setStore("editServer", {
-      id: conn.http.url,
-      value: conn.http.url,
+      kind: conn.type === "ssh" ? "ssh" : "http",
+      id: ServerConnection.key(conn),
+      value: conn.type === "ssh" ? conn.command : conn.http.url,
       name: conn.displayName ?? "",
-      username: conn.http.username ?? "",
-      password: conn.http.password ?? "",
+      host: conn.type === "ssh" ? conn.host : "",
+      installDir: conn.type === "ssh" ? conn.installDir : DEFAULT_INSTALL_DIR,
+      username: conn.type === "http" ? conn.http.username ?? "" : "",
+      password: conn.type === "http" ? conn.http.password ?? "" : "",
       error: "",
       status: store.status[ServerConnection.key(conn)]?.healthy,
     })
@@ -478,6 +627,7 @@ export function DialogSelectServer() {
   const isFormMode = createMemo(() => mode() !== "list")
   const isAddMode = createMemo(() => mode() === "add")
   const formBusy = createMemo(() => (isAddMode() ? addMutation.isPending : editMutation.isPending))
+  const formKind = createMemo(() => (isAddMode() ? store.addServer.kind : store.editServer.kind))
 
   const formTitle = createMemo(() => {
     if (!isFormMode()) return language.t("dialog.server.title")
@@ -510,15 +660,20 @@ export function DialogSelectServer() {
           fallback={
             <ServerForm
               value={isAddMode() ? store.addServer.url : store.editServer.value}
+              kind={formKind()}
               name={isAddMode() ? store.addServer.name : store.editServer.name}
+              host={isAddMode() ? store.addServer.host : store.editServer.host}
+              installDir={isAddMode() ? store.addServer.installDir : store.editServer.installDir}
               username={isAddMode() ? store.addServer.username : store.editServer.username}
               password={isAddMode() ? store.addServer.password : store.editServer.password}
-              placeholder={language.t("dialog.server.add.placeholder")}
+              placeholder={formKind() === "ssh" ? `ssh -i "~/.ssh/id_ed25519" user@host` : language.t("dialog.server.add.placeholder")}
               busy={formBusy()}
               error={isAddMode() ? store.addServer.error : store.editServer.error}
               status={isAddMode() ? store.addServer.status : store.editServer.status}
               onChange={isAddMode() ? handleAddChange : handleEditChange}
               onNameChange={isAddMode() ? handleAddNameChange : handleEditNameChange}
+              onHostChange={isAddMode() ? handleAddHostChange : handleEditHostChange}
+              onInstallDirChange={isAddMode() ? handleAddInstallDirChange : handleEditInstallDirChange}
               onUsernameChange={isAddMode() ? handleAddUsernameChange : handleEditUsernameChange}
               onPasswordChange={isAddMode() ? handleAddPasswordChange : handleEditPasswordChange}
               onSubmit={submitForm}
@@ -534,7 +689,7 @@ export function DialogSelectServer() {
             noInitialSelection
             emptyMessage={language.t("dialog.server.empty")}
             items={sortedItems}
-            key={(x) => x.http.url}
+            key={(x) => ServerConnection.key(x)}
             onSelect={(x) => {
               if (x) select(x)
             }}
@@ -543,6 +698,7 @@ export function DialogSelectServer() {
           >
             {(i) => {
               const key = ServerConnection.key(i)
+              const blocked = () => i.type !== "ssh" && store.status[key]?.healthy === false
               return (
                 <div class="flex items-center gap-3 min-w-0 flex-1 w-full group/item">
                   <div class="flex flex-col h-full items-start w-5">
@@ -550,7 +706,7 @@ export function DialogSelectServer() {
                   </div>
                   <ServerRow
                     conn={i}
-                    dimmed={store.status[key]?.healthy === false}
+                    dimmed={blocked()}
                     status={store.status[key]}
                     class="flex items-center gap-3 min-w-0 flex-1"
                     badge={
@@ -567,7 +723,7 @@ export function DialogSelectServer() {
                       <Icon name="check" class="h-6" />
                     </Show>
 
-                    <Show when={i.type === "http"}>
+                    <Show when={i.type === "http" || i.type === "ssh"}>
                       <DropdownMenu>
                         <DropdownMenu.Trigger
                           as={IconButton}
@@ -581,7 +737,6 @@ export function DialogSelectServer() {
                           <DropdownMenu.Content class="mt-1">
                             <DropdownMenu.Item
                               onSelect={() => {
-                                if (i.type !== "http") return
                                 startEdit(i)
                               }}
                             >
@@ -623,15 +778,20 @@ export function DialogSelectServer() {
           <Show
             when={isFormMode()}
             fallback={
-              <Button
-                variant="secondary"
-                icon="plus-small"
-                size="large"
-                onClick={startAdd}
-                class="py-1.5 pl-1.5 pr-3 flex items-center gap-1.5"
-              >
-                {language.t("dialog.server.add.button")}
-              </Button>
+              <div class="flex items-center gap-2">
+                <Button
+                  variant="secondary"
+                  icon="plus-small"
+                  size="large"
+                  onClick={() => startAdd("http")}
+                  class="py-1.5 pl-1.5 pr-3 flex items-center gap-1.5"
+                >
+                  {language.t("dialog.server.add.button")}
+                </Button>
+                <Button variant="secondary" size="large" onClick={() => startAdd("ssh")} class="py-1.5 px-3">
+                  SSH
+                </Button>
+              </div>
             }
           >
             <Button variant="primary" size="large" onClick={submitForm} disabled={formBusy()} class="px-3 py-1.5">

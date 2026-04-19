@@ -5,7 +5,7 @@ import { Popover } from "@opencode-ai/ui/popover"
 import { Switch } from "@opencode-ai/ui/switch"
 import { Tabs } from "@opencode-ai/ui/tabs"
 import { useMutation } from "@tanstack/solid-query"
-import { showToast } from "@opencode-ai/ui/toast"
+import { showPromiseToast, showToast } from "@opencode-ai/ui/toast"
 import { useNavigate } from "@solidjs/router"
 import { type Accessor, createEffect, createMemo, createSignal, For, type JSXElement, onCleanup, Show } from "solid-js"
 import { createStore, reconcile } from "solid-js/store"
@@ -15,9 +15,19 @@ import { usePlatform } from "@/context/platform"
 import { useSDK } from "@/context/sdk"
 import { normalizeServerUrl, ServerConnection, useServer } from "@/context/server"
 import { useSync } from "@/context/sync"
+import { remoteHref } from "@/pages/layout/remote-landing"
+import { bootstrapSsh } from "@/utils/remote-ssh"
 import { useCheckServerHealth, type ServerHealth } from "@/utils/server-health"
 
 const pollMs = 10_000
+
+function showSshToast(promise: Promise<Awaited<ReturnType<typeof bootstrapSsh>>>, host: string) {
+  return showPromiseToast(promise, {
+    loading: <span>正在连接 {host}，并准备远端服务…</span>,
+    success: (data) => <span>已连接 {host}，远端版本 {data.version.chosen} 已就绪。</span>,
+    error: (err) => <span>{err instanceof Error ? err.message : String(err)}</span>,
+  })
+}
 
 const pluginEmptyMessage = (value: string, file: string): JSXElement => {
   const parts = value.split(file)
@@ -199,6 +209,47 @@ export function StatusPopover() {
     return serverHealthy && !anyMcpIssue
   })
 
+  async function activate(conn: ServerConnection.Any) {
+    if (conn.type !== "ssh") {
+      navigate("/")
+      queueMicrotask(() => server.setActive(ServerConnection.key(conn)))
+      return
+    }
+    const current = server.current?.http
+    if (!current?.url) {
+      showToast({
+        variant: "error",
+        title: language.t("common.requestFailed"),
+        description: "No active backend available for SSH bootstrap",
+      })
+      return
+    }
+    const task = bootstrapSsh(current, {
+      savedHostID: conn.id,
+      host: conn.host,
+      command: conn.command,
+      installDir: conn.installDir,
+    })
+    showSshToast(task, conn.host)
+    const next = await task.catch((err) => {
+      showToast({
+        variant: "error",
+        title: "SSH bootstrap failed",
+        description: err instanceof Error ? err.message : String(err),
+      })
+      return
+    })
+    if (!next) return
+    server.upsert({
+      ...conn,
+      owner: current,
+      http: next.endpoint,
+    })
+    server.projects.open(next.landing.rootDirectory)
+    server.projects.touch(next.landing.directory)
+    navigate(remoteHref(next.landing))
+  }
+
   return (
     <Popover
       open={shown()}
@@ -264,7 +315,7 @@ export function StatusPopover() {
                 <For each={sortedServers()}>
                   {(s) => {
                     const key = ServerConnection.key(s)
-                    const isBlocked = () => health[key]?.healthy === false
+                    const isBlocked = () => s.type !== "ssh" && health[key]?.healthy === false
                     return (
                       <button
                         type="button"
@@ -276,8 +327,7 @@ export function StatusPopover() {
                         aria-disabled={isBlocked()}
                         onClick={() => {
                           if (isBlocked()) return
-                          navigate("/")
-                          queueMicrotask(() => server.setActive(key))
+                          void activate(s)
                         }}
                       >
                         <ServerHealthIndicator health={health[key]} />

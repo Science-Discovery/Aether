@@ -9,7 +9,7 @@ import { Spinner } from "@opencode-ai/ui/spinner"
 import { showToast } from "@opencode-ai/ui/toast"
 import { Tooltip, TooltipKeybind } from "@opencode-ai/ui/tooltip"
 import { getFilename } from "@opencode-ai/util/path"
-import { createEffect, createMemo, For, onCleanup, Show } from "solid-js"
+import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js"
 import { createStore } from "solid-js/store"
 import { Portal } from "solid-js/web"
 import { useCommand } from "@/context/command"
@@ -272,8 +272,13 @@ export function SessionHeader() {
       .catch((err: unknown) => showRequestError(language, err))
   }
 
-  const centerMount = createMemo(() => document.getElementById("opencode-titlebar-center"))
-  const rightMount = createMemo(() => document.getElementById("opencode-titlebar-right"))
+  const [centerMount, setCenterMount] = createSignal<HTMLElement>()
+  const [rightMount, setRightMount] = createSignal<HTMLElement>()
+
+  onMount(() => {
+    setCenterMount(document.getElementById("opencode-titlebar-center") ?? undefined)
+    setRightMount(document.getElementById("opencode-titlebar-right") ?? undefined)
+  })
 
   return (
     <>
