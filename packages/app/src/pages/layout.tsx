@@ -81,6 +81,7 @@ import {
   drainPendingDeepLinks,
 } from "./layout/deep-links"
 import { createInlineEditorController } from "./layout/inline-editor"
+import { countSessionDescendants } from "@/utils/session-tree"
 import {
   LocalWorkspace,
   SortableWorkspace,
@@ -101,6 +102,9 @@ export default function Layout(props: ParentProps) {
       workspaceName: {} as Record<string, string>,
       workspaceBranchName: {} as Record<string, Record<string, string>>,
       workspaceExpanded: {} as Record<string, boolean>,
+      sessionExpanded: {} as Record<string, boolean>,
+      conversationTreeOpenByRoot: {} as Record<string, boolean>,
+      conversationTreeLastFocusByRoot: {} as Record<string, string>,
       gettingStartedDismissed: false,
     }),
   )
@@ -411,34 +415,34 @@ export default function Layout(props: ParentProps) {
       const showUpdateToast = (version?: string) => {
         if (toastId !== undefined) return
         toastId = showToast({
-            persistent: true,
-            placement: "top-center",
-            guarded: true,
-            icon: "download",
-            title: language.t("toast.update.title"),
-            description: `${language.t("toast.update.description", { version: version ?? "" })} ${language.t("update.installHint")}`,
-            actions:
-              platform.platform === "web"
-                ? [
-                    {
-                      label: language.t("update.install"),
-                      onClick: install,
-                    },
-                    {
-                      label: language.t("toast.update.action.notYet"),
-                      onClick: "dismiss",
-                    },
-                  ]
-                : [
-                    {
-                      label: language.t("toast.update.action.installRestart"),
-                      onClick: install,
-                    },
-                    {
-                      label: language.t("toast.update.action.notYet"),
-                      onClick: "dismiss",
-                    },
-                  ],
+          persistent: true,
+          placement: "top-center",
+          guarded: true,
+          icon: "download",
+          title: language.t("toast.update.title"),
+          description: `${language.t("toast.update.description", { version: version ?? "" })} ${language.t("update.installHint")}`,
+          actions:
+            platform.platform === "web"
+              ? [
+                  {
+                    label: language.t("update.install"),
+                    onClick: install,
+                  },
+                  {
+                    label: language.t("toast.update.action.notYet"),
+                    onClick: "dismiss",
+                  },
+                ]
+              : [
+                  {
+                    label: language.t("toast.update.action.installRestart"),
+                    onClick: install,
+                  },
+                  {
+                    label: language.t("toast.update.action.notYet"),
+                    onClick: "dismiss",
+                  },
+                ],
         })
       }
 
@@ -1064,24 +1068,57 @@ export default function Layout(props: ParentProps) {
   }
 
   async function archiveSession(session: Session) {
-    const [store, setStore] = globalSync.child(session.directory)
+    const [store] = globalSync.child(session.directory)
     const sessions = store.session ?? []
+    const descendantCount = countSessionDescendants(sessions, session.id)
     const index = sessions.findIndex((s) => s.id === session.id)
     const nextSession = sessions[index + 1] ?? sessions[index - 1]
 
-    await globalSDK.client.session.update({
+    if (descendantCount > 0) {
+      const confirmed = await new Promise<boolean>((resolve) => {
+        dialog.show(() => (
+          <Dialog title={language.t("common.archive")} fit>
+            <div class="flex flex-col gap-4 pl-6 pr-2.5 pb-3">
+              <span class="text-14-regular text-text-strong">
+                {`"${session.title}" has ${descendantCount} child session${descendantCount > 1 ? "s" : ""}. They will be archived together.`}
+              </span>
+              <div class="flex justify-end gap-2">
+                <Button
+                  variant="ghost"
+                  size="large"
+                  onClick={() => {
+                    dialog.close()
+                    resolve(false)
+                  }}
+                >
+                  {language.t("common.cancel")}
+                </Button>
+                <Button
+                  variant="primary"
+                  size="large"
+                  onClick={() => {
+                    dialog.close()
+                    resolve(true)
+                  }}
+                >
+                  {language.t("common.archive")}
+                </Button>
+              </div>
+            </div>
+          </Dialog>
+        ))
+      })
+      if (!confirmed) return
+    }
+
+    await globalSDK.client.session.archive({
       directory: session.directory,
       sessionID: session.id,
-      time: { archived: Date.now() },
     })
-    setStore(
-      produce((draft) => {
-        const match = Binary.search(draft.session, session.id, (s) => s.id)
-        if (match.found) draft.session.splice(match.index, 1)
-      }),
-    )
     if (session.id === params.id) {
-      if (nextSession) {
+      if (session.parentID) {
+        navigate(`/${params.dir}/session/${session.parentID}`)
+      } else if (nextSession) {
         navigate(`/${params.dir}/session/${nextSession.id}`)
       } else {
         navigate(`/${params.dir}/session`)
@@ -2133,6 +2170,13 @@ export default function Layout(props: ParentProps) {
     isBusy,
     workspaceExpanded: (directory, local) => store.workspaceExpanded[directory] ?? local,
     setWorkspaceExpanded: (directory, value) => setStore("workspaceExpanded", directory, value),
+    sessionExpanded: (sessionID) => store.sessionExpanded[sessionID] ?? true,
+    setSessionExpanded: (sessionID, value) => setStore("sessionExpanded", sessionID, value),
+    conversationTreeOpen: (rootSessionID) => store.conversationTreeOpenByRoot[rootSessionID] ?? false,
+    setConversationTreeOpen: (rootSessionID, value) => setStore("conversationTreeOpenByRoot", rootSessionID, value),
+    conversationTreeLastFocus: (rootSessionID) => store.conversationTreeLastFocusByRoot[rootSessionID],
+    setConversationTreeLastFocus: (rootSessionID, sessionID) =>
+      setStore("conversationTreeLastFocusByRoot", rootSessionID, sessionID),
     showResetWorkspaceDialog: (root, directory) =>
       dialog.show(() => <DialogResetWorkspace root={root} directory={directory} />),
     showDeleteWorkspaceDialog: (root, directory) =>

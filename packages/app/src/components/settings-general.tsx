@@ -362,6 +362,18 @@ export const SettingsGeneral: Component = () => {
         </SettingsRow>
 
         <SettingsRow
+          title={language.t("settings.general.row.branchesTab.title")}
+          description={language.t("settings.general.row.branchesTab.description")}
+        >
+          <div data-action="settings-feed-branches-tab">
+            <Switch
+              checked={settings.general.branchesTab()}
+              onChange={(checked) => settings.general.setBranchesTab(checked)}
+            />
+          </div>
+        </SettingsRow>
+
+        <SettingsRow
           title={language.t("settings.general.row.shellToolPartsExpanded.title")}
           description={language.t("settings.general.row.shellToolPartsExpanded.description")}
         >

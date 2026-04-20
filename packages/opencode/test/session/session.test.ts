@@ -5,7 +5,9 @@ import { Bus } from "../../src/bus"
 import { Log } from "../../src/util/log"
 import { Instance } from "../../src/project/instance"
 import { MessageV2 } from "../../src/session/message-v2"
+import { Database, eq } from "../../src/storage/db"
 import { MessageID, PartID } from "../../src/session/schema"
+import { SessionTable } from "../../src/session/session.sql"
 
 const projectRoot = path.join(__dirname, "../..")
 Log.init({ print: false })
@@ -139,4 +141,237 @@ describe("step-finish token propagation via Bus event", () => {
     },
     { timeout: 30000 },
   )
+})
+
+describe("session tree IDs", () => {
+  test("new root sessions get a treeID and forked children inherit it", async () => {
+    await Instance.provide({
+      directory: projectRoot,
+      fn: async () => {
+        const root = await Session.create({ title: "Root" })
+        const userMessageID = MessageID.ascending()
+        await Session.updateMessage({
+          id: userMessageID,
+          sessionID: root.id,
+          role: "user",
+          time: { created: Date.now() },
+          agent: "user",
+          model: { providerID: "test", modelID: "test" },
+          tools: {},
+          mode: "",
+        } as unknown as MessageV2.Info)
+        await Session.updatePart({
+          id: PartID.ascending(),
+          messageID: userMessageID,
+          sessionID: root.id,
+          type: "text",
+          text: "Root prompt",
+        })
+        await Session.updateMessage({
+          id: MessageID.ascending(),
+          sessionID: root.id,
+          role: "assistant",
+          parentID: userMessageID,
+          time: { created: Date.now(), completed: Date.now() },
+          providerID: "test",
+          modelID: "test",
+          mode: "build",
+          agent: "assistant",
+          path: { cwd: projectRoot, root: projectRoot },
+          cost: 0,
+          tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+        } as unknown as MessageV2.Info)
+
+        const child = await Session.fork({ sessionID: root.id, messageID: userMessageID })
+
+        expect(root.treeID).toBeDefined()
+        expect(child.treeID).toBe(root.treeID)
+        expect(child.parentID).toBe(root.id)
+        expect(child.forkParentSessionID).toBe(root.id)
+        expect(child.forkAfterUserMessageID).toBeUndefined()
+      },
+    })
+  })
+
+  test("forking a legacy session creates a new tree root on the child", async () => {
+    await Instance.provide({
+      directory: projectRoot,
+      fn: async () => {
+        const legacy = await Session.create({ title: "Legacy" })
+        Database.use((db) =>
+          db.update(SessionTable).set({ tree_id: null }).where(eq(SessionTable.id, legacy.id)).run(),
+        )
+
+        const refreshedLegacy = await Session.get(legacy.id)
+        const child = await Session.fork({ sessionID: refreshedLegacy.id })
+
+        expect(refreshedLegacy.treeID).toBeUndefined()
+        expect(child.treeID).toBeDefined()
+        expect(child.parentID).toBe(refreshedLegacy.id)
+        expect(child.forkParentSessionID).toBe(refreshedLegacy.id)
+        expect(child.treeID).not.toBe(refreshedLegacy.treeID)
+        expect(child.title).toBe("Legacy (fork #1)")
+        expect(child.forkIndex).toBe(1)
+      },
+    })
+  })
+
+  test("fork titles stay unique within a tree across nested forks", async () => {
+    await Instance.provide({
+      directory: projectRoot,
+      fn: async () => {
+        const root = await Session.create({ title: "Root" })
+        const fork1 = await Session.fork({ sessionID: root.id })
+        const fork2 = await Session.fork({ sessionID: fork1.id })
+        const fork3 = await Session.fork({ sessionID: fork1.id })
+        const fork4 = await Session.fork({ sessionID: root.id })
+
+        expect(fork1.title).toBe("Root (fork #1)")
+        expect(fork2.title).toBe("Root (fork #2)")
+        expect(fork3.title).toBe("Root (fork #3)")
+        expect(fork4.title).toBe("Root (fork #4)")
+        expect(fork1.forkIndex).toBe(1)
+        expect(fork2.forkIndex).toBe(2)
+        expect(fork3.forkIndex).toBe(3)
+        expect(fork4.forkIndex).toBe(4)
+      },
+    })
+  })
+
+  test("fork titles use the current renamed title while keeping tree-unique numbering", async () => {
+    await Instance.provide({
+      directory: projectRoot,
+      fn: async () => {
+        const root = await Session.create({ title: "Root" })
+        await Session.fork({ sessionID: root.id })
+        const renamedBranch = await Session.fork({ sessionID: root.id })
+
+        await Session.setTitle({
+          sessionID: renamedBranch.id,
+          title: "Weather test",
+        })
+
+        const child = await Session.fork({ sessionID: renamedBranch.id })
+
+        expect((await Session.get(renamedBranch.id)).title).toBe("Weather test")
+        expect(child.title).toBe("Weather test (fork #3)")
+        expect(child.forkIndex).toBe(3)
+      },
+    })
+  })
+
+  test("new forks bootstrap numbering from historical fork titles without rewriting old rows", async () => {
+    await Instance.provide({
+      directory: projectRoot,
+      fn: async () => {
+        const root = await Session.create({ title: "Root" })
+        const child1 = await Session.fork({ sessionID: root.id })
+        const child2 = await Session.fork({ sessionID: root.id })
+
+        Database.use((db) =>
+          db
+            .update(SessionTable)
+            .set({ fork_index: null })
+            .where(eq(SessionTable.tree_id, root.treeID!))
+            .run(),
+        )
+
+        expect((await Session.get(child1.id)).forkIndex).toBeUndefined()
+        expect((await Session.get(child2.id)).forkIndex).toBeUndefined()
+
+        const child3 = await Session.fork({ sessionID: root.id })
+
+        expect(child1.title).toBe("Root (fork #1)")
+        expect(child2.title).toBe("Root (fork #2)")
+        expect(child3.title).toBe("Root (fork #3)")
+        expect(child3.forkIndex).toBe(3)
+      },
+    })
+  })
+
+  test("archiving a child leaf detaches it into an archived root", async () => {
+    await Instance.provide({
+      directory: projectRoot,
+      fn: async () => {
+        const root = await Session.create({ title: "Root" })
+        const child = await Session.fork({ sessionID: root.id })
+        const originalTreeID = root.treeID
+
+        await Session.archive(child.id)
+
+        const archivedChild = await Session.get(child.id)
+        expect(archivedChild.parentID).toBeUndefined()
+        expect(archivedChild.time.archived).toBeDefined()
+        expect(archivedChild.treeID).toBeDefined()
+        expect(archivedChild.treeID).not.toBe(originalTreeID)
+        expect(archivedChild.forkParentSessionID).toBeUndefined()
+        expect(archivedChild.forkAfterUserMessageID).toBeUndefined()
+      },
+    })
+  })
+
+  test("archiving a child subtree detaches and archives all descendants together", async () => {
+    await Instance.provide({
+      directory: projectRoot,
+      fn: async () => {
+        const root = await Session.create({ title: "Root" })
+        const child = await Session.fork({ sessionID: root.id })
+        const grandchild = await Session.fork({ sessionID: child.id })
+
+        await Session.archive(child.id)
+
+        const archivedChild = await Session.get(child.id)
+        const archivedGrandchild = await Session.get(grandchild.id)
+        expect(archivedChild.parentID).toBeUndefined()
+        expect(archivedChild.time.archived).toBeDefined()
+        expect(archivedGrandchild.parentID).toBe(child.id)
+        expect(archivedGrandchild.time.archived).toBeDefined()
+        expect(archivedGrandchild.treeID).toBe(archivedChild.treeID)
+      },
+    })
+  })
+
+  test("archiving a root keeps the existing tree structure", async () => {
+    await Instance.provide({
+      directory: projectRoot,
+      fn: async () => {
+        const root = await Session.create({ title: "Root" })
+        const child = await Session.fork({ sessionID: root.id })
+        const originalTreeID = root.treeID
+
+        await Session.archive(root.id)
+
+        const archivedRoot = await Session.get(root.id)
+        const archivedChild = await Session.get(child.id)
+        expect(archivedRoot.parentID).toBeUndefined()
+        expect(archivedRoot.treeID).toBe(originalTreeID)
+        expect(archivedRoot.time.archived).toBeDefined()
+        expect(archivedChild.parentID).toBe(root.id)
+        expect(archivedChild.treeID).toBe(originalTreeID)
+        expect(archivedChild.time.archived).toBeDefined()
+      },
+    })
+  })
+
+  test("unarchiving a detached archived subtree restores it as an independent root", async () => {
+    await Instance.provide({
+      directory: projectRoot,
+      fn: async () => {
+        const root = await Session.create({ title: "Root" })
+        const child = await Session.fork({ sessionID: root.id })
+        const grandchild = await Session.fork({ sessionID: child.id })
+
+        await Session.archive(child.id)
+        await Session.unarchive(child.id)
+
+        const restoredChild = await Session.get(child.id)
+        const restoredGrandchild = await Session.get(grandchild.id)
+        expect(restoredChild.parentID).toBeUndefined()
+        expect(restoredChild.time.archived).toBeUndefined()
+        expect(restoredGrandchild.parentID).toBe(child.id)
+        expect(restoredGrandchild.time.archived).toBeUndefined()
+        expect(restoredGrandchild.treeID).toBe(restoredChild.treeID)
+      },
+    })
+  })
 })

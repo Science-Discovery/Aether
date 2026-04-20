@@ -47,6 +47,7 @@ import {
   createOpenReviewFile,
   createSessionTabs,
   createSizing,
+  shouldProtectSessionRevert,
   type Sizing,
   focusTerminalById,
   shouldFocusTerminalOnKeyDown,
@@ -1863,6 +1864,7 @@ export default function Page(props: {
       await halt(input.sessionID)
         .then(() => sdk.client.session.revert(input))
         .then((result) => {
+          sync.session.invalidate(input.sessionID)
           if (result.data) merge(result.data)
         })
         .catch((err) => {
@@ -1904,6 +1906,7 @@ export default function Page(props: {
 
       await task
         .then((result) => {
+          sync.session.invalidate(sessionID)
           if (result.data) merge(result.data)
         })
         .catch((err) => {
@@ -1941,7 +1944,24 @@ export default function Page(props: {
 
   const revert = (input: { sessionID: string; messageID: string }) => {
     if (reverting()) return
-    return revertMutation.mutateAsync(input)
+    const session = info()
+    if (!session || session.id !== input.sessionID) {
+      return revertMutation.mutateAsync(input)
+    }
+
+    return sdk.client.session
+      .graph({ sessionID: input.sessionID })
+      .then((result) => {
+        const protectedRevert = shouldProtectSessionRevert({
+          session,
+          messages: messages(),
+          selectedMessageID: input.messageID,
+          graph: result.data,
+        })
+        if (protectedRevert) return fork(input)
+        return revertMutation.mutateAsync(input)
+      })
+      .catch(() => revertMutation.mutateAsync(input))
   }
 
   const restore = (id: string) => {

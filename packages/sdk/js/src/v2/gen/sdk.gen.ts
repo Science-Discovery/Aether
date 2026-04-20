@@ -218,6 +218,8 @@ import type {
   ReadingModeSessionUpdateResponses,
   SessionAbortErrors,
   SessionAbortResponses,
+  SessionArchiveErrors,
+  SessionArchiveResponses,
   SessionChildrenErrors,
   SessionChildrenResponses,
   SessionCommandErrors,
@@ -232,6 +234,8 @@ import type {
   SessionForkResponses,
   SessionGetErrors,
   SessionGetResponses,
+  SessionGraphErrors,
+  SessionGraphResponses,
   SessionInitErrors,
   SessionInitResponses,
   SessionListResponses,
@@ -259,6 +263,10 @@ import type {
   SessionSummarizeResponses,
   SessionTodoErrors,
   SessionTodoResponses,
+  SessionTreeErrors,
+  SessionTreeResponses,
+  SessionUnarchiveErrors,
+  SessionUnarchiveResponses,
   SessionUnrevertErrors,
   SessionUnrevertResponses,
   SessionUnshareErrors,
@@ -443,6 +451,8 @@ export class WebUpdate extends HeyApiClient {
     parameters?: {
       os?: "darwin" | "linux" | "windows"
       version?: string
+      acceptFallback?: boolean
+      force?: boolean
     },
     options?: Options<never, ThrowOnError>,
   ) {
@@ -453,6 +463,8 @@ export class WebUpdate extends HeyApiClient {
           args: [
             { in: "body", key: "os" },
             { in: "body", key: "version" },
+            { in: "body", key: "acceptFallback" },
+            { in: "body", key: "force" },
           ],
         },
       ],
@@ -482,6 +494,7 @@ export class WebUpdate extends HeyApiClient {
     parameters?: {
       os?: "darwin" | "linux" | "windows"
       version?: string
+      acceptFallback?: boolean
     },
     options?: Options<never, ThrowOnError>,
   ) {
@@ -492,6 +505,7 @@ export class WebUpdate extends HeyApiClient {
           args: [
             { in: "body", key: "os" },
             { in: "body", key: "version" },
+            { in: "body", key: "acceptFallback" },
           ],
         },
       ],
@@ -1637,6 +1651,7 @@ export class Session extends HeyApiClient {
       cursor?: number
       search?: string
       limit?: number
+      archivedMode?: "exclude" | "include" | "only"
       archived?: boolean
     },
     options?: Options<never, ThrowOnError>,
@@ -1653,6 +1668,7 @@ export class Session extends HeyApiClient {
             { in: "query", key: "cursor" },
             { in: "query", key: "search" },
             { in: "query", key: "limit" },
+            { in: "query", key: "archivedMode" },
             { in: "query", key: "archived" },
           ],
         },
@@ -2200,6 +2216,70 @@ export class Session2 extends HeyApiClient {
   }
 
   /**
+   * Get session branch tree
+   *
+   * Retrieve the branch tree for the specified session. Legacy sessions return an explicit unsupported result.
+   */
+  public tree<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<SessionTreeResponses, SessionTreeErrors, ThrowOnError>({
+      url: "/session/{sessionID}/tree",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Get session conversation graph
+   *
+   * Retrieve the message-level conversation graph for the specified session. Legacy sessions return an explicit unsupported result.
+   */
+  public graph<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<SessionGraphResponses, SessionGraphErrors, ThrowOnError>({
+      url: "/session/{sessionID}/graph",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
    * Get session todos
    *
    * Retrieve the todo list associated with a specific session, showing tasks and action items.
@@ -2226,6 +2306,70 @@ export class Session2 extends HeyApiClient {
     )
     return (options?.client ?? this.client).get<SessionTodoResponses, SessionTodoErrors, ThrowOnError>({
       url: "/session/{sessionID}/todo",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Archive session subtree
+   *
+   * Archive a session. Child branches are detached into an archived subtree root.
+   */
+  public archive<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<SessionArchiveResponses, SessionArchiveErrors, ThrowOnError>({
+      url: "/session/{sessionID}/archive",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Unarchive session subtree
+   *
+   * Restore an archived session subtree as an independent active root.
+   */
+  public unarchive<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<SessionUnarchiveResponses, SessionUnarchiveErrors, ThrowOnError>({
+      url: "/session/{sessionID}/unarchive",
       ...options,
       ...params,
     })

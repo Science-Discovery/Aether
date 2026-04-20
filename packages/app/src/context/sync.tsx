@@ -165,6 +165,22 @@ function setOptimisticRemove(setStore: (...args: unknown[]) => void, input: Opti
   })
 }
 
+export function invalidateSessionMessageCacheMeta(
+  draft: {
+    limit: Record<string, number>
+    cursor: Record<string, string | undefined>
+    complete: Record<string, boolean>
+    loading: Record<string, boolean>
+  },
+  input: { directory: string; sessionID: string },
+) {
+  const key = keyFor(input.directory, input.sessionID)
+  delete draft.limit[key]
+  delete draft.cursor[key]
+  delete draft.complete[key]
+  delete draft.loading[key]
+}
+
 export const { use: useSync, provider: SyncProvider } = createSimpleContext({
   name: "Sync",
   init: () => {
@@ -576,6 +592,15 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
             })
           },
         },
+        invalidate(sessionID: string, directory = sdk.directory) {
+          clearSessionPrefetch(directory, [sessionID])
+          clearOptimistic(directory, sessionID)
+          setMeta(
+            produce((draft) => {
+              invalidateSessionMessageCacheMeta(draft, { directory, sessionID })
+            }),
+          )
+        },
         evict(sessionID: string, directory = sdk.directory) {
           const [, setStore] = globalSync.child(directory)
           seenFor(directory).delete(sessionID)
@@ -596,16 +621,7 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
         },
         more: createMemo(() => current()[0].session.length >= current()[0].limit),
         archive: async (sessionID: string) => {
-          const directory = sdk.directory
-          const client = sdk.client
-          const [, setStore] = globalSync.child(directory)
-          await client.session.update({ sessionID, time: { archived: Date.now() } })
-          setStore(
-            produce((draft) => {
-              const match = Binary.search(draft.session, sessionID, (s) => s.id)
-              if (match.found) draft.session.splice(match.index, 1)
-            }),
-          )
+          await sdk.client.session.archive({ sessionID })
         },
       },
       absolute,

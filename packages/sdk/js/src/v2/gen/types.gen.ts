@@ -1009,6 +1009,10 @@ export type Session = {
   workspaceID?: string
   directory: string
   parentID?: string
+  treeID?: string
+  forkIndex?: number
+  forkParentSessionID?: string
+  forkAfterUserMessageID?: string
   summary?: {
     additions: number
     deletions: number
@@ -1199,6 +1203,10 @@ export type SyncEventSessionUpdated = {
       workspaceID: string | null
       directory: string | null
       parentID: string | null
+      treeID: string | null
+      forkIndex: number | null
+      forkParentSessionID: string | null
+      forkAfterUserMessageID: string | null
       summary: {
         additions: number
         deletions: number
@@ -1954,6 +1962,10 @@ export type GlobalSession = {
   workspaceID?: string
   directory: string
   parentID?: string
+  treeID?: string
+  forkIndex?: number
+  forkParentSessionID?: string
+  forkAfterUserMessageID?: string
   summary?: {
     additions: number
     deletions: number
@@ -2007,6 +2019,60 @@ export type McpResource = {
   mimeType?: string
   client: string
 }
+
+export type SessionTreeResult =
+  | {
+      kind: "tree"
+      treeID: string
+      sessions: Array<Session>
+    }
+  | {
+      kind: "legacy"
+      message: string
+    }
+
+export type SessionGraphCurrent = {
+  sessionID: string
+  pathNodeIDs: Array<string>
+  latestNodeID?: string
+  targetNodeID?: string
+}
+
+export type SessionGraphNode = {
+  id: string
+  kind: "turn" | "bud"
+  sessionID: string
+  lane: number
+  row: number
+  time: number
+  label: string
+  userMessageID?: string
+  providerID?: string
+  modelID?: string
+  mode?: string
+  origin: "tree" | "external"
+}
+
+export type SessionGraphEdge = {
+  id: string
+  from: string
+  to: string
+  kind: "continuation" | "branch" | "bud"
+  style: "solid" | "dashed"
+}
+
+export type SessionGraphResult =
+  | {
+      kind: "graph"
+      treeID: string
+      current: SessionGraphCurrent
+      nodes: Array<SessionGraphNode>
+      edges: Array<SessionGraphEdge>
+    }
+  | {
+      kind: "legacy"
+      message: string
+    }
 
 export type TextPartInput = {
   id?: string
@@ -2494,6 +2560,10 @@ export type GlobalWebUpdateCheckResponses = {
     remoteVersion: string
     updateAvailable: boolean
     downloaded: boolean
+    status: "available" | "downloading" | "downloaded" | "installing" | "recovery"
+    workDir: string
+    workDirFallback: boolean
+    updateError?: string
     checkError?: string
   }
 }
@@ -2504,6 +2574,8 @@ export type GlobalWebUpdateDownloadData = {
   body?: {
     os: "darwin" | "linux" | "windows"
     version: string
+    acceptFallback?: boolean
+    force?: boolean
   }
   path?: never
   query?: never
@@ -2540,6 +2612,7 @@ export type GlobalWebUpdateInstallData = {
   body?: {
     os: "darwin" | "linux" | "windows"
     version?: string
+    acceptFallback?: boolean
   }
   path?: never
   query?: never
@@ -3450,6 +3523,10 @@ export type ExperimentalSessionListData = {
      */
     limit?: number
     /**
+     * Archive filtering mode (exclude/include/only). Takes precedence over archived.
+     */
+    archivedMode?: "exclude" | "include" | "only"
+    /**
      * Include archived sessions (default false)
      */
     archived?: boolean
@@ -3730,6 +3807,74 @@ export type SessionChildrenResponses = {
 
 export type SessionChildrenResponse = SessionChildrenResponses[keyof SessionChildrenResponses]
 
+export type SessionTreeData = {
+  body?: never
+  path: {
+    sessionID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/session/{sessionID}/tree"
+}
+
+export type SessionTreeErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type SessionTreeError = SessionTreeErrors[keyof SessionTreeErrors]
+
+export type SessionTreeResponses = {
+  /**
+   * Branch tree result
+   */
+  200: SessionTreeResult
+}
+
+export type SessionTreeResponse = SessionTreeResponses[keyof SessionTreeResponses]
+
+export type SessionGraphData = {
+  body?: never
+  path: {
+    sessionID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/session/{sessionID}/graph"
+}
+
+export type SessionGraphErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type SessionGraphError = SessionGraphErrors[keyof SessionGraphErrors]
+
+export type SessionGraphResponses = {
+  /**
+   * Conversation graph result
+   */
+  200: SessionGraphResult
+}
+
+export type SessionGraphResponse = SessionGraphResponses[keyof SessionGraphResponses]
+
 export type SessionTodoData = {
   body?: never
   path: {
@@ -3763,6 +3908,74 @@ export type SessionTodoResponses = {
 }
 
 export type SessionTodoResponse = SessionTodoResponses[keyof SessionTodoResponses]
+
+export type SessionArchiveData = {
+  body?: never
+  path: {
+    sessionID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/session/{sessionID}/archive"
+}
+
+export type SessionArchiveErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type SessionArchiveError = SessionArchiveErrors[keyof SessionArchiveErrors]
+
+export type SessionArchiveResponses = {
+  /**
+   * Archived session subtree root
+   */
+  200: Session
+}
+
+export type SessionArchiveResponse = SessionArchiveResponses[keyof SessionArchiveResponses]
+
+export type SessionUnarchiveData = {
+  body?: never
+  path: {
+    sessionID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/session/{sessionID}/unarchive"
+}
+
+export type SessionUnarchiveErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type SessionUnarchiveError = SessionUnarchiveErrors[keyof SessionUnarchiveErrors]
+
+export type SessionUnarchiveResponses = {
+  /**
+   * Unarchived session subtree root
+   */
+  200: Session
+}
+
+export type SessionUnarchiveResponse = SessionUnarchiveResponses[keyof SessionUnarchiveResponses]
 
 export type SessionInitData = {
   body?: {

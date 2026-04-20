@@ -24,6 +24,10 @@ export interface Settings {
     releaseNotes: boolean
     followup: "queue" | "steer"
     reviewBatch: number
+    branchesTab: boolean
+    branchGraphFontSize: "xs" | "sm" | "md" | "lg" | "xl"
+    branchGraphRowDensity: "xcompact" | "compact" | "normal" | "relaxed" | "xrelaxed"
+    branchGraphOrderMode: "sequence" | "time"
     showReasoningSummaries: boolean
     shellToolPartsExpanded: boolean
     editToolPartsExpanded: boolean
@@ -49,6 +53,10 @@ const defaultSettings: Settings = {
     releaseNotes: true,
     followup: "steer",
     reviewBatch: 10,
+    branchesTab: false,
+    branchGraphFontSize: "md",
+    branchGraphRowDensity: "normal",
+    branchGraphOrderMode: "sequence",
     showReasoningSummaries: false,
     shellToolPartsExpanded: true,
     editToolPartsExpanded: false,
@@ -149,6 +157,31 @@ export const { use: useSettings, provider: SettingsProvider } = createSimpleCont
         reviewBatch: withFallback(() => store.general?.reviewBatch, defaultSettings.general.reviewBatch),
         setReviewBatch(value: number) {
           setStore("general", "reviewBatch", value)
+        },
+        branchesTab: withFallback(() => store.general?.branchesTab, defaultSettings.general.branchesTab),
+        setBranchesTab(value: boolean) {
+          setStore("general", "branchesTab", value)
+        },
+        branchGraphFontSize: withFallback(
+          () => store.general?.branchGraphFontSize,
+          defaultSettings.general.branchGraphFontSize,
+        ),
+        setBranchGraphFontSize(value: "xs" | "sm" | "md" | "lg" | "xl") {
+          setStore("general", "branchGraphFontSize", value)
+        },
+        branchGraphRowDensity: withFallback(
+          () => store.general?.branchGraphRowDensity,
+          defaultSettings.general.branchGraphRowDensity,
+        ),
+        setBranchGraphRowDensity(value: "xcompact" | "compact" | "normal" | "relaxed" | "xrelaxed") {
+          setStore("general", "branchGraphRowDensity", value)
+        },
+        branchGraphOrderMode: withFallback(
+          () => store.general?.branchGraphOrderMode,
+          defaultSettings.general.branchGraphOrderMode,
+        ),
+        setBranchGraphOrderMode(value: "sequence" | "time") {
+          setStore("general", "branchGraphOrderMode", value)
         },
         showReasoningSummaries: withFallback(
           () => store.general?.showReasoningSummaries,
