@@ -116,6 +116,24 @@ export function CodeEditor(props: {
     ".cm-scroller": {
       fontFamily: "var(--font-mono, 'Fira Code', Consolas, monospace)",
       overflow: "auto",
+      scrollbarWidth: "thin",
+      scrollbarColor: "var(--border-weak-base) transparent",
+    },
+    ".cm-scroller::-webkit-scrollbar": {
+      width: "12px",
+      height: "12px",
+    },
+    ".cm-scroller::-webkit-scrollbar-track": {
+      backgroundColor: "transparent",
+    },
+    ".cm-scroller::-webkit-scrollbar-thumb": {
+      border: "4px solid transparent",
+      borderRadius: "9999px",
+      backgroundClip: "padding-box",
+      backgroundColor: "var(--border-weak-base)",
+    },
+    ".cm-scroller::-webkit-scrollbar-thumb:hover": {
+      backgroundColor: "var(--border-strong-base)",
     },
     ".cm-line": {
       color: "var(--syntax-punctuation)",
