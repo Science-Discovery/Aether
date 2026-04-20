@@ -567,6 +567,9 @@ async function seedStorage(
       const win = window as E2EWindow
       win.__opencode_e2e = {
         ...win.__opencode_e2e,
+        update: {
+          polling: "mute",
+        },
         model: {
           enabled: true,
         },
@@ -641,6 +644,9 @@ async function seedStorage(
       const win = window as E2EWindow
       win.__opencode_e2e = {
         ...win.__opencode_e2e,
+        update: {
+          polling: "mute",
+        },
         model: { enabled: true },
         prompt: { enabled: true },
         terminal: { enabled: true, terminals: {} },

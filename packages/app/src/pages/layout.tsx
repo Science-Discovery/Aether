@@ -53,6 +53,7 @@ import { createAim } from "@/utils/aim"
 import { setNavigate } from "@/utils/notification-click"
 import { Worktree as WorktreeState } from "@/utils/worktree"
 import { setSessionHandoff } from "@/pages/session/handoff"
+import type { E2EWindow } from "@/testing/terminal"
 
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { useTheme, type ColorScheme } from "@opencode-ai/ui/theme/context"
@@ -447,22 +448,31 @@ export default function Layout(props: ParentProps) {
       }
 
       const pollUpdate = () =>
-        platform.checkUpdate!().then(async ({ updateAvailable, version, downloaded, requiresConfirmation, status }) => {
-          if (!updateAvailable) return
-          if (platform.platform === "web" && platform.downloadUpdate && status === "available" && !requiresConfirmation) {
-            await platform.downloadUpdate().catch(() => undefined)
-            const next = await platform.checkUpdate!().catch(() => undefined)
-            if (!next?.updateAvailable || !next.downloaded) return
-            showUpdateToast(next.version)
+        (() => {
+          if (
+            platform.platform === "web" &&
+            typeof window !== "undefined" &&
+            (window as E2EWindow).__opencode_e2e?.update?.polling === "mute"
+          ) {
             return
           }
-          if (platform.platform === "web" && status === "recovery") {
+          return platform.checkUpdate!().then(async ({ updateAvailable, version, downloaded, status }) => {
+            if (!updateAvailable) return
+            if (platform.platform === "web" && platform.downloadUpdate && status === "available") {
+              await platform.downloadUpdate().catch(() => undefined)
+              const next = await platform.checkUpdate!().catch(() => undefined)
+              if (!next?.updateAvailable || !next.downloaded) return
+              showUpdateToast(next.version)
+              return
+            }
+            if (platform.platform === "web" && status === "recovery") {
+              showUpdateToast(version)
+              return
+            }
+            if (!downloaded && platform.platform === "web") return
             showUpdateToast(version)
-            return
-          }
-          if (!downloaded && platform.platform === "web") return
-          showUpdateToast(version)
-        })
+          })
+        })()
 
       createEffect(() => {
         if (!settings.ready()) return
@@ -2708,12 +2718,7 @@ export default function Layout(props: ParentProps) {
         {import.meta.env.DEV && <DebugBar />}
       </div>
       <Toast.Region regionId="bottom-right" data-placement="bottom-right" />
-      <Toast.Region
-        regionId="top-center"
-        data-placement="top-center"
-        swipeDirection="right"
-        swipeThreshold={100000}
-      />
+      <Toast.Region regionId="top-center" data-placement="top-center" swipeDirection="right" swipeThreshold={100000} />
     </div>
   )
 }
