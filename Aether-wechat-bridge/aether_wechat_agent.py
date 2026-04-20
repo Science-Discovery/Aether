@@ -65,8 +65,18 @@ except Exception:
     pass
 
 # SDK imports
-from wechat_agent_sdk import Agent, ChatRequest, ChatResponse, WeChatBot
-from wechat_agent_sdk.api.client import ILinkBotClient, DEFAULT_API_BASE
+from wechat_agent_sdk import (
+    Agent,
+    ChatRequest,
+    ChatResponse,
+    WeChatBot,
+    LoginRequiredError,
+)
+from wechat_agent_sdk.api.client import (
+    ILinkBotClient,
+    DEFAULT_API_BASE,
+    SessionExpiredError,
+)
 from wechat_agent_sdk.api.auth import login_with_qrcode
 from wechat_agent_sdk.account.storage import JsonFileStorage
 
@@ -1322,6 +1332,8 @@ class AetherAgent(Agent):
                 conv_id,
                 "--file",
                 filepath,
+                "--stdin",
+                "1",
                 "--token",
                 token,
                 "--base-url",
@@ -1331,6 +1343,11 @@ class AetherAgent(Agent):
                 "--context-token",
                 ctx,
             ]
+            try:
+                file_buf = Path(filepath).read_bytes()
+            except OSError as e:
+                logger.warning(f"[file] read failed in python: {filepath} -> {e}")
+                return False
             sub_env = (
                 {**os.environ, "BRIDGE_LOG": str(_log_file)}
                 if _log_file
@@ -1339,16 +1356,18 @@ class AetherAgent(Agent):
             out = await asyncio.to_thread(
                 subprocess.run,
                 cmd,
+                input=file_buf,
                 capture_output=True,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
                 timeout=120,
                 check=False,
                 env=sub_env,
             )
             if out.returncode != 0:
-                detail = (out.stderr or out.stdout or "unknown error").strip()
+                detail = (
+                    (out.stderr or out.stdout or b"unknown error")
+                    .decode("utf-8", errors="replace")
+                    .strip()
+                )
                 logger.warning(f"[file] send failed: {filepath} -> {detail}")
                 return False
             logger.info(f"[file] 已发送: {filepath}")
@@ -2313,7 +2332,7 @@ async def custom_login(client: ILinkBotClient, log=print) -> str:
 
 
 class CustomWeChatBot(WeChatBot):
-    """自定义 Bot，覆盖登录方法"""
+    """自定义 Bot，覆盖登录方法与 run 添加自动重连"""
 
     async def login(self, log=print) -> str:
         transport = self._transport
@@ -2321,10 +2340,8 @@ class CustomWeChatBot(WeChatBot):
         if stored_token:
             transport._client.token = stored_token
             log(f"[weixin] 使用已保存的 token")
-            # 通知 Aether 已连接
             print(f"[登录成功] user: unknown (已保存的账号)")
             sys.stdout.flush()
-            # 保存会话到文件
             if SESSION_FILE:
                 try:
                     session_data = {
@@ -2343,6 +2360,66 @@ class CustomWeChatBot(WeChatBot):
         token = await custom_login(transport._client, log=log)
         await transport._storage.save_token(transport.account_id, token)
         return token
+
+    async def run(self, log=print, auto_login=True) -> None:
+        if self._transport.needs_login:
+            if auto_login:
+                await self.login(log=log)
+            else:
+                raise LoginRequiredError("No token.")
+
+        while True:
+            await self._transport.connect()
+            await self._agent.on_start()
+            self._running = True
+            self._semaphore = asyncio.Semaphore(self._max_concurrent)
+            self._setup_message_sender()
+            log(f"[weixin] Bot 已启动 (account={self._transport.account_id})")
+
+            try:
+                async for raw_msg in self._transport.messages():
+                    if not self._running:
+                        return
+                    task = asyncio.create_task(self._handle_message_guarded(raw_msg))
+                    self._tasks.add(task)
+                    task.add_done_callback(self._tasks.discard)
+            except SessionExpiredError:
+                log("[weixin] 会话已过期，准备重新登录...")
+                if self._tasks:
+                    await asyncio.gather(*self._tasks, return_exceptions=True)
+                self._tasks.clear()
+                await self._agent.on_stop()
+                self._running = False
+                if SESSION_FILE:
+                    try:
+                        Path(SESSION_FILE).write_text(
+                            json.dumps(
+                                {"connected": False, "reason": "session_expired"},
+                                ensure_ascii=False,
+                            )
+                        )
+                    except Exception:
+                        pass
+                self._transport._client.token = ""
+                await self._transport._storage.save_token(
+                    self._transport.account_id, ""
+                )
+                await self._transport.disconnect()
+                log("[weixin] 正在重新登录...")
+                await self.login(log=log)
+                if hasattr(self._agent, "_wechat_client"):
+                    self._agent._wechat_client = self._transport._client
+                if hasattr(self._agent, "_bot_transport"):
+                    self._agent._bot_transport = self._transport
+                continue
+            except asyncio.CancelledError:
+                return
+            finally:
+                if self._running:
+                    if self._tasks:
+                        await asyncio.gather(*self._tasks, return_exceptions=True)
+                    self._tasks.clear()
+                    await self.stop()
 
 
 async def _resolve_default_directory(base_url: str) -> str:
