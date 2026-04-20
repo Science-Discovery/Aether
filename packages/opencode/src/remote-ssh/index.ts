@@ -9,6 +9,9 @@ import z from "zod"
 const IDLE_MS = 60_000
 const BOOT_MS = 120_000
 const SSH_MS = 15_000
+const LEASE_MS = 45_000
+const PING_MS = 10_000
+const LOCAL_PORT = 14_096
 const MAX_LOG = 400
 const INSTALLER = "https://aether.aiphys.cn/download/installer/aether_linux_installer.sh"
 const REMOTE_ROOT = ".local/share/applications/aether"
@@ -54,6 +57,7 @@ type Runtime = z.infer<typeof BootstrapOutput> & {
   argv: string[]
   child?: Process.Child
   idle?: ReturnType<typeof setTimeout>
+  ping?: ReturnType<typeof setInterval>
   pidfile: string
   status: z.infer<typeof status>
   logs: string[]
@@ -62,6 +66,14 @@ type Runtime = z.infer<typeof BootstrapOutput> & {
 const runs = new Map<string, Runtime>()
 const waits = new Map<string, Promise<z.infer<typeof BootstrapOutput>>>()
 const SSH_OPTS = ["-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "-o", "StrictHostKeyChecking=accept-new"]
+const EXITS = {
+  SIGHUP: 129,
+  SIGINT: 130,
+  SIGTERM: 143,
+} as const
+
+let hooked = false
+let exiting = false
 
 function line(list: string[], value: string) {
   const text = value.trim()
@@ -77,17 +89,19 @@ function shell(value: string) {
 function port() {
   return new Promise<number>((resolve, reject) => {
     const srv = createServer()
-    srv.listen(0, "127.0.0.1", () => {
+    srv.listen(LOCAL_PORT, "127.0.0.1", () => {
       const addr = srv.address()
       if (!addr || typeof addr === "string") {
         srv.close()
-        reject(new Error("Failed to allocate port"))
+        reject(new Error(`Failed to reserve local SSH port ${LOCAL_PORT}`))
         return
       }
       const out = addr.port
       srv.close((err) => (err ? reject(err) : resolve(out)))
     })
-    srv.once("error", reject)
+    srv.once("error", (err) => {
+      reject(new Error(`Local SSH port ${LOCAL_PORT} is unavailable: ${err instanceof Error ? err.message : String(err)}`))
+    })
   })
 }
 
@@ -198,6 +212,71 @@ function bin(home: string, ver: string) {
   return `${root(home)}/aether_${ver}/aether`
 }
 
+export function launch(bin: string, pidfile: string, port: number, home: string) {
+  return [
+    "set -eu",
+    `bin=${shell(bin)}`,
+    `pidfile=${shell(pidfile)}`,
+    "if [ ! -x \"$bin\" ]; then",
+    "  echo \"aether install succeeded but binary is missing: $bin\" >&2",
+    "  exit 1",
+    "fi",
+    "cleanup() {",
+    "  rm -f \"$pidfile\"",
+    "  if [ -z \"${pid:-}\" ]; then",
+    "    return",
+    "  fi",
+    "  kill \"$pid\" 2>/dev/null || true",
+    "  wait \"$pid\" 2>/dev/null || true",
+    "}",
+    "trap cleanup EXIT HUP INT TERM",
+    `cd ${shell(home)}`,
+    "\"$bin\" --print-logs --log-level WARN serve --hostname 127.0.0.1 --port " +
+      port +
+      " --remote-runtime --remote-lease-ttl " +
+      LEASE_MS +
+      " &",
+    "pid=$!",
+    "echo \"$pid\" > \"$pidfile\"",
+    "wait \"$pid\"",
+  ].join("\n")
+}
+
+export function halt(child?: Pick<Process.Child, "exitCode" | "signalCode" | "kill">) {
+  if (!child) return false
+  if (child.exitCode !== null || child.signalCode !== null) return false
+  child.kill("SIGTERM")
+  return true
+}
+
+function drain() {
+  for (const run of runs.values()) {
+    if (run.idle) clearTimeout(run.idle)
+    if (run.ping) clearInterval(run.ping)
+    run.idle = undefined
+    run.ping = undefined
+    if (!halt(run.child)) continue
+    line(run.logs, "stopping local ssh tunnel on process exit")
+  }
+}
+
+function quit(sig?: keyof typeof EXITS) {
+  if (exiting) return
+  exiting = true
+  drain()
+  if (!sig) return
+  process.exit(EXITS[sig])
+}
+
+function hook() {
+  if (hooked) return
+  hooked = true
+  process.once("exit", () => quit())
+  process.once("SIGHUP", () => quit("SIGHUP"))
+  process.once("SIGINT", () => quit("SIGINT"))
+  process.once("SIGTERM", () => quit("SIGTERM"))
+}
+
 async function remote(argv: string[], args: string[], logs: string[]) {
   const out = await Process.run(["ssh", ...SSH_OPTS, ...argv, ...args], { nothrow: true, timeout: SSH_MS })
   const text = `${out.stdout.toString()}${out.stderr.toString()}`
@@ -233,6 +312,43 @@ async function remoteKill(argv: string[], pidfile: string, logs: string[]) {
   ).catch((err) => {
     line(logs, err instanceof Error ? err.message : String(err))
   })
+}
+
+async function touch(url: string, id: string, alive: boolean, logs: string[]) {
+  const res = await fetch(new URL("/global/ping", url), {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ id, alive }),
+  }).catch((err) => {
+    throw new Error(err instanceof Error ? err.message : String(err))
+  })
+  if (!res.ok) throw new Error(`Remote lease update failed: ${res.status}`)
+  if (!alive) line(logs, "remote lease released")
+}
+
+function stopPing(run: Runtime, alive?: boolean) {
+  if (run.ping) clearInterval(run.ping)
+  run.ping = undefined
+  line(run.logs, alive === false ? "remote lease loop stopping" : "remote lease loop paused")
+  if (alive === undefined) return
+  void touch(run.endpoint.url, run.runtimeID, alive, run.logs).catch((err) => {
+    line(run.logs, err instanceof Error ? err.message : String(err))
+  })
+}
+
+function startPing(run: Runtime) {
+  if (run.ping) return
+  line(run.logs, "remote lease loop started")
+  const beat = () =>
+    touch(run.endpoint.url, run.runtimeID, true, run.logs).catch((err) => {
+      line(run.logs, err instanceof Error ? err.message : String(err))
+    })
+  void beat()
+  run.ping = setInterval(() => {
+    void beat()
+  }, PING_MS)
 }
 
 async function probe(argv: string[], logs: string[]) {
@@ -296,6 +412,7 @@ function attach(savedHostID: string, idle?: boolean) {
     clearTimeout(run.idle)
     run.idle = undefined
   }
+  startPing(run)
   return BootstrapOutput.parse({
     savedHostID: run.savedHostID,
     runtimeID: run.runtimeID,
@@ -313,6 +430,7 @@ function watch(run: Runtime) {
   stdout?.on("data", (buf) => line(run.logs, Buffer.from(buf).toString()))
   stderr?.on("data", (buf) => line(run.logs, Buffer.from(buf).toString()))
   run.child?.once("exit", () => {
+    stopPing(run)
     if (run.status === "cleaning_up") return
     run.status = "failed"
   })
@@ -322,6 +440,8 @@ async function cleanup(savedHostID: string) {
   const run = runs.get(savedHostID)
   if (!run) return
   run.status = "cleaning_up"
+  stopPing(run, false)
+  if (run.idle) clearTimeout(run.idle)
   run.idle = undefined
   await remoteKill(run.argv, run.pidfile, run.logs)
   if (run.child) await Process.stop(run.child).catch(() => undefined)
@@ -331,6 +451,8 @@ async function cleanup(savedHostID: string) {
 export async function disconnect(savedHostID: string) {
   const run = runs.get(savedHostID)
   if (!run) return false
+  stopPing(run)
+  if (run.idle) clearTimeout(run.idle)
   run.idle = setTimeout(() => {
     void cleanup(savedHostID)
   }, IDLE_MS)
@@ -378,20 +500,7 @@ async function boot(input: z.infer<typeof BootstrapInput>) {
   line(logs, `remote pidfile: ${pidfile}`)
   line(logs, `remote port: ${meta.port}`)
   line(logs, `local port: ${local}`)
-  const script = [
-    "set -eu",
-    `bin=${shell(cmd)}`,
-    `pidfile=${shell(pidfile)}`,
-    "if [ ! -x \"$bin\" ]; then",
-    "  echo \"aether install succeeded but binary is missing: $bin\" >&2",
-    "  exit 1",
-    "fi",
-    `cd ${shell(meta.home)}`,
-    "\"$bin\" --print-logs --log-level WARN serve --hostname 127.0.0.1 --port " + meta.port + " &",
-    "pid=$!",
-    "echo \"$pid\" > \"$pidfile\"",
-    "wait \"$pid\"",
-  ].join("\n")
+  const script = launch(cmd, pidfile, meta.port, meta.home)
   const url = `http://127.0.0.1:${local}`
   const run: Runtime = {
     savedHostID: input.savedHostID,
@@ -413,6 +522,7 @@ async function boot(input: z.infer<typeof BootstrapInput>) {
     },
   )
   run.child = child
+  hook()
   runs.set(input.savedHostID, run)
   watch(run)
   const stop = Date.now() + BOOT_MS
@@ -425,6 +535,7 @@ async function boot(input: z.infer<typeof BootstrapInput>) {
     if (!ok) continue
     run.status = "ready"
     run.landing = await info(url, logs)
+    startPing(run)
     return BootstrapOutput.parse({
       savedHostID: input.savedHostID,
       runtimeID,

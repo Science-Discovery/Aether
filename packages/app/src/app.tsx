@@ -49,6 +49,7 @@ import Layout from "@/pages/layout"
 import { ErrorPage } from "./pages/error"
 import { useCheckServerHealth } from "./utils/server-health"
 import { LegacyDBGuard } from "@/components/legacy-db-guard"
+import { bootstrapSsh } from "@/utils/remote-ssh"
 
 const HomeRoute = lazy(() => import("@/pages/home"))
 const Session = lazy(() => import("@/pages/session"))
@@ -179,6 +180,8 @@ function ConnectionGate(props: ParentProps<{ disableHealthCheck?: boolean }>) {
   const checkServerHealth = useCheckServerHealth()
 
   const [checkMode, setCheckMode] = createSignal<"blocking" | "background">("blocking")
+  let last = 0
+  const SSH_MS = 10_000
 
   // performs repeated health check with a grace period for
   // non-http connections, otherwise fails instantly
@@ -187,7 +190,35 @@ function ConnectionGate(props: ParentProps<{ disableHealthCheck?: boolean }>) {
       ? true
       : Effect.gen(function* () {
           if (!server.current) return true
-          const { http, type } = server.current
+          let conn = server.current
+
+          if (conn.type === "ssh") {
+            const ssh = conn
+            if (Date.now() - last < SSH_MS) return false
+            const owner = ssh.owner ?? server.list.find((item) => item.type !== "ssh")?.http
+            if (!owner?.url) return false
+            last = Date.now()
+            const next = yield* Effect.promise(() =>
+              bootstrapSsh(owner, {
+                savedHostID: ssh.id,
+                host: ssh.host,
+                command: ssh.command,
+                installDir: ssh.installDir,
+              }).catch(() => undefined),
+            )
+            if (!next) return false
+            const saved: ServerConnection.Ssh = {
+              ...ssh,
+              owner,
+              http: next.endpoint,
+            }
+            server.upsert(saved)
+            server.projects.open(next.landing.rootDirectory)
+            server.projects.touch(next.landing.directory)
+            conn = saved
+          }
+
+          const { http, type } = conn
 
           while (true) {
             const res = yield* Effect.promise(() => checkServerHealth(http))

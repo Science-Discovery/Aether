@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { bins, pick, split } from "../src/remote-ssh"
+import { bins, halt, launch, pick, split } from "../src/remote-ssh"
 import * as mod from "../src/remote-ssh"
 
 describe("remote ssh command split", () => {
@@ -53,5 +53,47 @@ describe("remote ssh command split", () => {
       source: "fallback",
       install: true,
     })
+  })
+
+  test("cleans up remote backend when ssh session exits", () => {
+    const text = launch("/opt/aether", "/tmp/aether.pid", 4312, "/home/rocky")
+    expect(text).toContain("trap cleanup EXIT HUP INT TERM")
+    expect(text).toContain("rm -f \"$pidfile\"")
+    expect(text).toContain("kill \"$pid\" 2>/dev/null || true")
+    expect(text).toContain("wait \"$pid\" 2>/dev/null || true")
+    expect(text).toContain("cd '/home/rocky'")
+    expect(text).toContain(
+      "\"$bin\" --print-logs --log-level WARN serve --hostname 127.0.0.1 --port 4312 --remote-runtime --remote-lease-ttl 45000 &",
+    )
+  })
+
+  test("stops active local ssh child on shutdown", () => {
+    const calls: string[] = []
+    expect(
+      halt({
+        exitCode: null,
+        signalCode: null,
+        kill(sig: NodeJS.Signals | number) {
+          calls.push(String(sig))
+          return true
+        },
+      }),
+    ).toBe(true)
+    expect(calls).toEqual(["SIGTERM"])
+  })
+
+  test("does not stop exited local ssh child on shutdown", () => {
+    const calls: string[] = []
+    expect(
+      halt({
+        exitCode: 0,
+        signalCode: null,
+        kill(sig: NodeJS.Signals | number) {
+          calls.push(String(sig))
+          return true
+        },
+      }),
+    ).toBe(false)
+    expect(calls).toEqual([])
   })
 })
