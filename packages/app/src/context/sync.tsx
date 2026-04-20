@@ -621,9 +621,7 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
         },
         more: createMemo(() => current()[0].session.length >= current()[0].limit),
         archive: async (sessionID: string) => {
-          const directory = sdk.directory
           await sdk.client.session.archive({ sessionID })
-          await globalSync.project.loadSessions(directory, { force: true })
         },
       },
       absolute,

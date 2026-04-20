@@ -22,7 +22,7 @@ import { loadDescendantsForRoots } from "@/context/global-sync/session-load"
 import { useLanguage } from "@/context/language"
 import { useSettings } from "@/context/settings"
 import { NewSessionItem, SessionItem, SessionSkeleton } from "./sidebar-items"
-import { childMapByParent, sortedRootSessions, workspaceKey } from "./helpers"
+import { childMapByParent, errorMessage, sortedRootSessions, workspaceKey } from "./helpers"
 import { SidebarBranchView } from "@/pages/session/branch/sidebar-branch-view"
 
 function createBatchSelect(
@@ -339,6 +339,7 @@ const SessionTreeNodes = (props: {
   children: Accessor<Map<string, string[]>>
   archiveSession?: (session: Session) => Promise<void>
   unarchiveSession?: (session: Session) => Promise<void>
+  deleteSession?: (session: Session) => Promise<void>
 }) => {
   const settings = useSettings()
   const conversationTreeEnabled = createMemo(() => settings.general.branchesTab())
@@ -495,7 +496,7 @@ const SessionTreeNodes = (props: {
             prefetchSession={props.ctx.prefetchSession}
             archiveSession={archiveSession()}
             unarchiveSession={nodeProps.depth === 0 ? props.unarchiveSession : undefined}
-            deleteSession={props.ctx.deleteSession}
+            deleteSession={props.deleteSession ?? props.ctx.deleteSession}
             renameSession={props.ctx.renameSession}
             hasChildren={conversationTreeEnabled() ? hasBranchView() : hasChildren()}
             expanded={expanded()}
@@ -539,6 +540,7 @@ const ArchivedSessionList = (props: {
   const [rootSessions, setRootSessions] = createSignal<Session[]>([])
   const [sessions, setSessions] = createSignal<Session[]>([])
   const [loading, setLoading] = createSignal(false)
+  const hasLoaded = createMemo(() => rootSessions().length > 0 || sessions().length > 0)
   const [workspaceStore] = globalSync.child(props.directory, { bootstrap: false })
   const children = createMemo(() => childMapByParent(sessions()))
   const archivedTreeCtx = {
@@ -551,6 +553,22 @@ const ArchivedSessionList = (props: {
     setConversationTreeLastFocus: (rootSessionID: string, sessionID: string) =>
       props.ctx.setConversationTreeLastFocus(`archived:${rootSessionID}`, sessionID),
   } satisfies WorkspaceSidebarContext
+
+  const removeSessionSubtree = (sessionID: string) => {
+    const ids = new Set<string>()
+    const queue = [sessionID]
+    while (queue.length > 0) {
+      const current = queue.shift()!
+      if (ids.has(current)) continue
+      ids.add(current)
+      for (const childID of children().get(current) ?? []) {
+        queue.push(childID)
+      }
+    }
+    if (ids.size === 0) return
+    setRootSessions((prev) => prev.filter((session) => !ids.has(session.id)))
+    setSessions((prev) => prev.filter((session) => !ids.has(session.id)))
+  }
 
   const load = async () => {
     setLoading(true)
@@ -584,14 +602,17 @@ const ArchivedSessionList = (props: {
 
   const refreshKey = createMemo(() =>
     (workspaceStore.session ?? [])
-      .map((session) => `${session.id}:${session.time?.updated ?? 0}:${session.time?.archived ?? 0}`)
+      .map(
+        (session) =>
+          `${session.id}:${session.parentID ?? ""}:${session.treeID ?? ""}:${session.time?.archived ?? 0}`,
+      )
       .sort()
       .join("|"),
   )
 
   createEffect(
     on(
-      () => [open(), workspaceStore.sessionTotal, refreshKey()] as const,
+      () => [open(), refreshKey()] as const,
       ([isOpen]) => {
         if (!isOpen) return
         void load()
@@ -604,10 +625,18 @@ const ArchivedSessionList = (props: {
       directory: session.directory,
       sessionID: session.id,
     })
-    await globalSync.project.loadSessions(props.directory, { force: true })
-    if (open()) await load()
+    removeSessionSubtree(session.id)
     if (session.id === params.id) {
       props.ctx.setHoverSession(undefined)
+    }
+  }
+
+  const deleteSession = async (session: Session) => {
+    try {
+      await props.ctx.deleteSession(session)
+      removeSessionSubtree(session.id)
+    } catch (err) {
+      throw new Error(errorMessage(err, props.language.t("common.requestFailed")))
     }
   }
 
@@ -624,10 +653,10 @@ const ArchivedSessionList = (props: {
         <span class="truncate">{props.language.t("common.archive")}</span>
       </Button>
       <Show when={open()}>
-        <Show when={loading()}>
+        <Show when={loading() && !hasLoaded()}>
           <SessionSkeleton />
         </Show>
-        <nav class="flex flex-col gap-1">
+        <nav class="relative flex flex-col gap-1">
           <SessionTreeNodes
             slug={props.slug}
             currentSessionID={() => params.id}
@@ -639,7 +668,11 @@ const ArchivedSessionList = (props: {
             children={children}
             archiveSession={async () => {}}
             unarchiveSession={unarchiveSession}
+            deleteSession={deleteSession}
           />
+          <Show when={loading() && hasLoaded()}>
+            <div class="pointer-events-none absolute inset-0 bg-background-base/5" />
+          </Show>
         </nav>
       </Show>
     </div>

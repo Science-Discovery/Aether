@@ -5,17 +5,10 @@ import { Icon } from "@opencode-ai/ui/icon"
 import { useGlobalSDK } from "@/context/global-sdk"
 import { useLanguage } from "@/context/language"
 import { useSettings } from "@/context/settings"
+import { errorMessage as formatErrorMessage } from "@/pages/layout/helpers"
 import { For, Match, Show, Switch, createEffect, createMemo, createSignal, onCleanup, onMount } from "solid-js"
 import { buildConversationGraphView, type ConversationGraph, type ConversationGraphOrderMode } from "./conversation-graph-model"
 import { ConversationGraphList } from "./conversation-graph-list"
-
-const FONT_SIZE_CLASS_MAP = {
-  xs: "text-12-medium",
-  sm: "text-12-medium",
-  md: "text-12-medium",
-  lg: "text-12-medium",
-  xl: "text-12-medium",
-} as const
 
 const FONT_SIZE_STYLE_MAP = {
   xs: { "font-size": "10px", "line-height": "14px" },
@@ -63,7 +56,7 @@ export function SidebarBranchView(props: {
   const rowDensity = createMemo(() => settings.general.branchGraphRowDensity())
   const orderMode = createMemo(() => settings.general.branchGraphOrderMode())
   const rowHeight = createMemo(() => ROW_DENSITY_HEIGHT_MAP[rowDensity()])
-  const labelClass = createMemo(() => FONT_SIZE_CLASS_MAP[fontSize()])
+  const labelClass = "text-12-medium"
   const labelStyle = createMemo(() => FONT_SIZE_STYLE_MAP[fontSize()])
   const sdk = createMemo(() =>
     globalSDK.createClient({
@@ -131,7 +124,8 @@ export function SidebarBranchView(props: {
 
   const loadGraph = async (sessionID: string) => {
     const version = ++requestVersion
-    const cacheKey = `${props.directory}:${sessionID}`
+    const refreshKey = props.refreshKey ?? ""
+    const cacheKey = `${props.directory}:${sessionID}:${refreshKey}`
     const cached = graphCache.get(cacheKey)
     if (cached) {
       setGraph(cached)
@@ -152,7 +146,7 @@ export function SidebarBranchView(props: {
     } catch (error) {
       if (version !== requestVersion) return
       setGraph(undefined)
-      setErrorMessage(error instanceof Error ? error.message : String(error))
+      setErrorMessage(formatErrorMessage(error, zh() ? "暂无可展示的分支视图。" : "No branch view available."))
     } finally {
       if (version === requestVersion) setLoading(false)
     }
@@ -336,7 +330,7 @@ export function SidebarBranchView(props: {
                 edges={nextView().edges}
                 laneCount={nextView().laneCount}
                 rowHeight={rowHeight()}
-                labelClass={labelClass()}
+                labelClass={labelClass}
                 labelStyle={labelStyle()}
                 onSelect={openNode}
                 onFork={() => {}}

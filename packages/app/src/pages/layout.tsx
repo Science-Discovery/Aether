@@ -1115,7 +1115,6 @@ export default function Layout(props: ParentProps) {
       directory: session.directory,
       sessionID: session.id,
     })
-    await globalSync.project.loadSessions(session.directory, { force: true })
     if (session.id === params.id) {
       if (session.parentID) {
         navigate(`/${params.dir}/session/${session.parentID}`)
