@@ -4,6 +4,7 @@ import { createMediaQuery } from "@solid-primitives/media"
 import { Tabs } from "@opencode-ai/ui/tabs"
 import { IconButton } from "@opencode-ai/ui/icon-button"
 import { Icon } from "@opencode-ai/ui/icon"
+import { ScrollView } from "@opencode-ai/ui/scroll-view"
 import { TooltipKeybind, Tooltip } from "@opencode-ai/ui/tooltip"
 import { ResizeHandle } from "@opencode-ai/ui/resize-handle"
 import { Mark } from "@opencode-ai/ui/logo"
@@ -1031,33 +1032,35 @@ export function SessionSidePanel(props: {
                     {language.t("session.files.all")}
                   </Tabs.Trigger>
                 </Tabs.List>
-                <Tabs.Content value="changes" class="bg-background-stronger px-3 py-0">
-                  <Switch>
-                    <Match when={props.hasReview() || !props.diffsReady()}>
-                      <Show
-                        when={props.diffsReady()}
-                        fallback={
-                          <div class="px-2 py-2 text-12-regular text-text-weak">
-                            {language.t("common.loading")}
-                            {language.t("common.loading.ellipsis")}
-                          </div>
-                        }
-                      >
-                        <FileTree
-                          path=""
-                          class="pt-3"
-                          allowed={diffFiles()}
-                          kinds={kinds()}
-                          draggable={false}
-                          active={props.activeDiff}
-                          onFileClick={(node) => props.focusReviewDiff(node.path)}
-                        />
-                      </Show>
-                    </Match>
-                    <Match when={true}>{empty(props.empty())}</Match>
-                  </Switch>
+                <Tabs.Content value="changes" class="bg-background-stronger py-0 overflow-hidden">
+                  <ScrollView class="h-full px-3">
+                    <Switch>
+                      <Match when={props.hasReview() || !props.diffsReady()}>
+                        <Show
+                          when={props.diffsReady()}
+                          fallback={
+                            <div class="px-2 py-2 text-12-regular text-text-weak">
+                              {language.t("common.loading")}
+                              {language.t("common.loading.ellipsis")}
+                            </div>
+                          }
+                        >
+                          <FileTree
+                            path=""
+                            class="pt-3"
+                            allowed={diffFiles()}
+                            kinds={kinds()}
+                            draggable={false}
+                            active={props.activeDiff}
+                            onFileClick={(node) => props.focusReviewDiff(node.path)}
+                          />
+                        </Show>
+                      </Match>
+                      <Match when={true}>{empty(props.empty())}</Match>
+                    </Switch>
+                  </ScrollView>
                 </Tabs.Content>
-                <Tabs.Content value="all" class="bg-background-stronger px-3 py-0 flex flex-col @container">
+                <Tabs.Content value="all" class="bg-background-stronger pl-3 py-0 flex flex-col @container overflow-hidden">
                   <div class="flex items-center gap-1 py-1.5 border-b border-border-weak-base">
                     <DropdownMenu>
                       <Tooltip value="上传文件或文件夹到项目">
@@ -1124,14 +1127,44 @@ export function SessionSidePanel(props: {
                       </button>
                     </Tooltip>
                   </div>
-                  <div
-                    ref={box}
-                    class="relative flex-1 min-h-0 overflow-auto"
-                    onDragEnter={handleRootDragEnter}
-                    onDragLeave={handleRootDragLeave}
-                    onDragOver={handleRootDragOver}
-                    onDrop={(event) => void handleRootDrop(event)}
-                  >
+                  <div class="relative flex-1 min-h-0">
+                    <ScrollView class="h-full">
+                      <div
+                        ref={box}
+                        class="relative min-h-full pr-3"
+                        onDragEnter={handleRootDragEnter}
+                        onDragLeave={handleRootDragLeave}
+                        onDragOver={handleRootDragOver}
+                        onDrop={(event) => void handleRootDrop(event)}
+                      >
+                        <Switch>
+                          <Match when={nofiles()}>{empty(language.t("session.files.empty"))}</Match>
+                          <Match when={true}>
+                            <FileTree
+                              path=""
+                              class="pt-3"
+                              modified={diffFiles()}
+                              kinds={kinds()}
+                              selectedPaths={selectedPaths()}
+                              onFileClick={handleFileClickWithMultiSelect}
+                              onFileCreate={handleFileCreate}
+                              onFileDelete={handleFileDelete}
+                              onFileRename={handleFileRename}
+                              onFileDownload={handleFileDownload}
+                              onMultiDelete={handleMultiDelete}
+                              onMultiDownload={handleMultiDownload}
+                              onMultiCopy={handleMultiCopy}
+                              onMultiCut={handleMultiCut}
+                              onFileDrop={handleFileDrop}
+                              onUploadDrop={(event, dir) => void handleUploadDrop(event, dir)}
+                              onUploadToDir={(dir, type) => void uploadToDir(dir, type)}
+                              onPdfConvert={handlePdfConvert}
+                              onTranslateMarkdown={handleTranslateMarkdown}
+                            />
+                          </Match>
+                        </Switch>
+                      </div>
+                    </ScrollView>
                     <div
                       classList={{
                         "absolute inset-2 rounded-lg border-2 border-dashed border-border-base bg-surface-raised-base/60 pointer-events-none transition-opacity": true,
@@ -1140,35 +1173,9 @@ export function SessionSidePanel(props: {
                       }}
                     >
                       <div class="h-full flex items-center justify-center px-6 text-center text-12-medium text-text-base">
-                        拖拽文件或文件夹到这里，上传到当前项目
+                        {language.t("session.files.dragToUpload")}
                       </div>
                     </div>
-                    <Switch>
-                      <Match when={nofiles()}>{empty(language.t("session.files.empty"))}</Match>
-                      <Match when={true}>
-                        <FileTree
-                          path=""
-                          class="pt-3"
-                          modified={diffFiles()}
-                          kinds={kinds()}
-                          selectedPaths={selectedPaths()}
-                          onFileClick={handleFileClickWithMultiSelect}
-                          onFileCreate={handleFileCreate}
-                          onFileDelete={handleFileDelete}
-                          onFileRename={handleFileRename}
-                          onFileDownload={handleFileDownload}
-                          onMultiDelete={handleMultiDelete}
-                          onMultiDownload={handleMultiDownload}
-                          onMultiCopy={handleMultiCopy}
-                          onMultiCut={handleMultiCut}
-                          onFileDrop={handleFileDrop}
-                          onUploadDrop={(event, dir) => void handleUploadDrop(event, dir)}
-                          onUploadToDir={(dir, type) => void uploadToDir(dir, type)}
-                          onPdfConvert={handlePdfConvert}
-                          onTranslateMarkdown={handleTranslateMarkdown}
-                        />
-                      </Match>
-                    </Switch>
                   </div>
                   <input
                     ref={fileInput}

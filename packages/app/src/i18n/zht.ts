@@ -512,6 +512,7 @@ export const dict = {
   "session.files.selectToOpen": "選取要開啟的檔案",
   "session.files.all": "所有檔案",
   "session.files.empty": "沒有檔案",
+  "session.files.dragToUpload": "Drag files or folders here to upload them to the current project",
   "session.files.binaryContent": "二進位檔案（無法顯示內容）",
   "session.messages.renderEarlier": "顯示更早的訊息",
   "session.messages.loadingEarlier": "正在載入更早的訊息...",

@@ -464,6 +464,7 @@ export const dict = {
   "session.files.selectToOpen": "開くファイルを選択",
   "session.files.all": "すべてのファイル",
   "session.files.empty": "ファイルなし",
+  "session.files.dragToUpload": "Drag files or folders here to upload them to the current project",
   "session.files.binaryContent": "バイナリファイル（内容を表示できません）",
   "session.messages.renderEarlier": "以前のメッセージを表示",
   "session.messages.loadingEarlier": "以前のメッセージを読み込み中...",

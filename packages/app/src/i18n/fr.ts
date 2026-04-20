@@ -472,6 +472,7 @@ export const dict = {
   "session.files.selectToOpen": "Sélectionnez un fichier à ouvrir",
   "session.files.all": "Tous les fichiers",
   "session.files.empty": "Aucun fichier",
+  "session.files.dragToUpload": "Drag files or folders here to upload them to the current project",
   "session.files.binaryContent": "Fichier binaire (le contenu ne peut pas être affiché)",
   "session.messages.renderEarlier": "Afficher les messages précédents",
   "session.messages.loadingEarlier": "Chargement des messages précédents...",
