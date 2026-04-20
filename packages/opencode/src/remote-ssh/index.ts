@@ -3,6 +3,7 @@ import { Installation } from "@/installation"
 import { randomUUID } from "node:crypto"
 import { createServer } from "node:net"
 import { setTimeout as sleep } from "node:timers/promises"
+import semver from "semver"
 import z from "zod"
 
 const IDLE_MS = 60_000
@@ -10,8 +11,7 @@ const BOOT_MS = 120_000
 const SSH_MS = 15_000
 const MAX_LOG = 400
 const INSTALLER = "https://aether.aiphys.cn/download/installer/aether_linux_installer.sh"
-const REMOTE_VER = "0.5.1"
-const REMOTE_BIN = ".local/share/applications/aether/aether_0.5.1/aether"
+const REMOTE_ROOT = ".local/share/applications/aether"
 
 const status = z.enum(["validating", "installing", "starting", "tunneling", "ready", "failed", "cleaning_up"])
 
@@ -150,11 +150,52 @@ function parse(input: string) {
   return argv.slice(1)
 }
 
-function release(version: string) {
-  return {
-    chosen: Installation.isLocal() ? REMOTE_VER : version,
-    source: "exact" as const,
+function compare(a: string, b: string) {
+  const x = semver.coerce(a)
+  const y = semver.coerce(b)
+  if (x && y) return semver.compare(x, y)
+  if (x) return 1
+  if (y) return -1
+  return a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" })
+}
+
+export function bins(input: string) {
+  return [...new Set(input.split(/\r?\n/).flatMap((x) => {
+    const text = x.trim()
+    if (!text) return []
+    if (text.startsWith("aether_")) return [text.slice("aether_".length)]
+    return [text]
+  }))].sort((a, b) => compare(b, a))
+}
+
+export function pick(want: string, list: string[]) {
+  if (!list.length) {
+    return {
+      chosen: want,
+      source: want ? ("exact" as const) : ("fallback" as const),
+      install: true,
+    }
   }
+  if (want && list.includes(want)) {
+    return {
+      chosen: want,
+      source: "exact" as const,
+      install: false,
+    }
+  }
+  return {
+    chosen: list[0],
+    source: "fallback" as const,
+    install: false,
+  }
+}
+
+function root(home: string) {
+  return `${home}/${REMOTE_ROOT}`
+}
+
+function bin(home: string, ver: string) {
+  return `${root(home)}/aether_${ver}/aether`
 }
 
 async function remote(argv: string[], args: string[], logs: string[]) {
@@ -207,6 +248,26 @@ export function installDir(home: string, input: string) {
   if (input === "~") return home
   if (input.startsWith("~/")) return `${home}/${input.slice(2)}`
   return input
+}
+
+async function vers(argv: string[], home: string, logs: string[]) {
+  const out = await remoteShell(
+    argv,
+    [
+      "set -eu",
+      `root=${shell(root(home))}`,
+      "if [ ! -d \"$root\" ]; then",
+      "  exit 0",
+      "fi",
+      "for dir in \"$root\"/aether_*; do",
+      "  [ -d \"$dir\" ] || continue",
+      "  [ -x \"$dir/aether\" ] || continue",
+      "  basename \"$dir\"",
+      "done",
+    ].join("\n"),
+    logs,
+  )
+  return bins(out)
 }
 
 async function info(url: string, logs: string[]) {
@@ -280,14 +341,38 @@ async function boot(input: z.infer<typeof BootstrapInput>) {
   const logs: string[] = []
   line(logs, `bootstrap start for ${input.savedHostID}`)
   const argv = parse(input.command)
-  const ver = release(Installation.VERSION)
-  line(logs, `version: ${ver.chosen} (${ver.source})`)
+  const want = Installation.isLocal() ? "" : Installation.VERSION
   const meta = await probe(argv, logs)
   const local = await port()
   const dir = installDir(meta.home, input.installDir)
-  const cmd = `${meta.home}/${REMOTE_BIN}`
   const runtimeID = randomUUID()
   const pidfile = `${dir}/aether-ssh-${runtimeID}.pid`
+  let list = await vers(argv, meta.home, logs)
+  line(logs, `installed remote versions: ${list.length ? list.join(", ") : "none"}`)
+  if (!list.length) {
+    line(logs, "no remote backend found, installing latest backend")
+    await remoteShell(
+      argv,
+      [
+        "set -eu",
+        `tmp=${shell(`${dir}/aether_linux_installer.sh`)}`,
+        "mkdir -p \"$(dirname \"$tmp\")\"",
+        `curl -fsSL ${shell(INSTALLER)} -o \"$tmp\"`,
+        "chmod +x \"$tmp\"",
+        "\"$tmp\"",
+      ].join("\n"),
+      logs,
+    )
+    list = await vers(argv, meta.home, logs)
+    line(logs, `installed remote versions after install: ${list.length ? list.join(", ") : "none"}`)
+  }
+  const ver = pick(want, list)
+  if (!ver.chosen) throw new Error("Remote backend is missing after install")
+  const cmd = bin(meta.home, ver.chosen)
+  line(logs, `version: ${ver.chosen} (${ver.source})`)
+  if (want && ver.chosen !== want) {
+    line(logs, `remote backend ${ver.chosen} does not match local ${want}; update remotely by hand if needed`)
+  }
   line(logs, `requested install dir: ${dir}`)
   line(logs, `remote binary: ${cmd}`)
   line(logs, `remote pidfile: ${pidfile}`)
@@ -297,13 +382,6 @@ async function boot(input: z.infer<typeof BootstrapInput>) {
     "set -eu",
     `bin=${shell(cmd)}`,
     `pidfile=${shell(pidfile)}`,
-    "if [ ! -x \"$bin\" ]; then",
-    `  tmp=${shell(`${dir}/aether_linux_installer.sh`)}`,
-    "  mkdir -p \"$(dirname \"$tmp\")\"",
-    `  curl -fsSL ${shell(INSTALLER)} -o \"$tmp\"`,
-    "  chmod +x \"$tmp\"",
-    "  \"$tmp\"",
-    "fi",
     "if [ ! -x \"$bin\" ]; then",
     "  echo \"aether install succeeded but binary is missing: $bin\" >&2",
     "  exit 1",
