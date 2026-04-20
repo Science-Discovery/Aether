@@ -693,6 +693,9 @@ class AetherAgent(Agent):
             logger.info(f"[/new] 为 {conv_id} 创建新会话 {session_id[:8]}...")
             return "✅ 已开启新对话，上下文已清空。"
         if cmd in {"/c", "/compact"}:
+            pending = await self._sync_pending_for_slash(conv_id)
+            if pending:
+                return pending
             return await self._cmd_compact(conv_id)
         if cmd in {"/m", "/model"}:
             if arg == "l":
@@ -722,6 +725,38 @@ class AetherAgent(Agent):
                 arg = "list"
             return await self._cmd_session(conv_id, arg)
         return f"❓ 未知命令：{cmd}\n发送 /help 查看常用命令，/help list 查看全部命令。"
+
+    async def _sync_pending_for_slash(self, conv_id: str) -> Optional[str]:
+        if conv_id in self._pending_questions:
+            pending = self._pending_questions[conv_id]
+            return self._format_question_request(
+                {"questions": pending.get("questions", [])}
+            )
+        if conv_id in self._pending_permissions:
+            return self._format_permission_request(
+                self._pending_permissions[conv_id]["permission"]
+            )
+        directory = self._conv_dirs.get(conv_id) or self.directory
+        session_id = self._sessions.get(conv_id)
+        if not session_id:
+            return "没有任务在执行"
+        pending = await self._sync_pending(conv_id, session_id, directory)
+        if pending:
+            return pending
+        if await self._is_session_busy(session_id, directory):
+            return (
+                "当前会话正在生成回复，请等待当前对话结束后再发送；"
+                "如需立即开始新问题，请先 /new 或切换 /session n。"
+                "如需停止本会话请输入 /stop"
+            )
+        task = self._tasks.get(conv_id)
+        if task and isinstance(task, asyncio.Task) and not task.done():
+            return (
+                "当前会话正在生成回复，请等待当前对话结束后再发送；"
+                "如需立即开始新问题，请先 /new 或切换 /session n。"
+                "如需停止本会话请输入 /stop"
+            )
+        return None
 
     async def _cmd_list_models(self, conv_id: str, full: bool = False) -> str:
         try:
