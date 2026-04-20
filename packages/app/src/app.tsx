@@ -7,12 +7,14 @@ import { File } from "@opencode-ai/ui/file"
 import { Font } from "@opencode-ai/ui/font"
 import { Splash } from "@opencode-ai/ui/logo"
 import { ThemeProvider } from "@opencode-ai/ui/theme/context"
+import { showToast } from "@opencode-ai/ui/toast"
 import { MetaProvider } from "@solidjs/meta"
 import { type BaseRouterProps, Navigate, Route, Router } from "@solidjs/router"
 import { QueryClient, QueryClientProvider } from "@tanstack/solid-query"
 import { type Duration, Effect } from "effect"
 import {
   type Component,
+  createEffect,
   createMemo,
   createResource,
   createSignal,
@@ -178,10 +180,19 @@ const effectMinDuration =
 function ConnectionGate(props: ParentProps<{ disableHealthCheck?: boolean }>) {
   const server = useServer()
   const checkServerHealth = useCheckServerHealth()
+  const language = useLanguage()
 
   const [checkMode, setCheckMode] = createSignal<"blocking" | "background">("blocking")
   let last = 0
   const SSH_MS = 10_000
+  const SSH_FAILS = 2
+  const SSH_RETRY = [2_000, 5_000, 10_000, 20_000, 30_000]
+  let sshKey = ""
+  let sshFail = 0
+  let sshTry = 0
+  let sshBusy = false
+  let sshTimer: ReturnType<typeof setTimeout> | undefined
+  let sshShown = false
 
   // performs repeated health check with a grace period for
   // non-http connections, otherwise fails instantly
@@ -232,6 +243,107 @@ function ConnectionGate(props: ParentProps<{ disableHealthCheck?: boolean }>) {
           Effect.runPromise,
         ),
   )
+
+  const clearSsh = () => {
+    if (!sshTimer) return
+    clearTimeout(sshTimer)
+    sshTimer = undefined
+  }
+
+  const retrySsh = async (conn: ServerConnection.Ssh) => {
+    if (sshBusy) return
+    const active = ServerConnection.key(conn)
+    const base = conn.owner ?? server.list.find((item) => item.type !== "ssh")?.http
+    if (!base?.url) return
+    sshBusy = true
+    if (!sshShown) {
+      sshShown = true
+      showToast({
+        title: language.t("app.server.sshReconnect.title", { host: conn.host }),
+        description: language.t("app.server.sshReconnect.description"),
+      })
+    }
+    try {
+      const out = await bootstrapSsh(base, {
+        savedHostID: conn.id,
+        host: conn.host,
+        command: conn.command,
+        installDir: conn.installDir,
+      }).catch(() => undefined)
+      if (!out) return
+      sshTry = 0
+      sshFail = 0
+      sshShown = false
+      if (server.current && ServerConnection.key(server.current) !== active) return
+      server.upsert({
+        ...conn,
+        owner: base,
+        http: out.endpoint,
+      })
+      server.projects.open(out.landing.rootDirectory)
+      server.projects.touch(out.landing.directory)
+      healthCheckActions.refetch()
+      showToast({
+        variant: "success",
+        title: language.t("app.server.sshReconnect.success.title", { host: conn.host }),
+        description: language.t("app.server.sshReconnect.success.description", { version: out.version.chosen }),
+      })
+    } finally {
+      sshBusy = false
+    }
+  }
+
+  createEffect(() => {
+    const conn = server.current
+    const ok = server.healthy()
+    const checked = server.checkedAt()
+    const key = conn ? ServerConnection.key(conn) : ""
+
+    void checked
+
+    if (key !== sshKey) {
+      sshKey = key
+      sshFail = 0
+      sshTry = 0
+      sshBusy = false
+      sshShown = false
+      clearSsh()
+    }
+
+    if (conn?.type !== "ssh") {
+      sshFail = 0
+      sshTry = 0
+      sshShown = false
+      clearSsh()
+      return
+    }
+
+    if (ok === true) {
+      sshFail = 0
+      sshTry = 0
+      sshShown = false
+      clearSsh()
+      return
+    }
+
+    if (ok !== false) return
+    sshFail += 1
+    if (sshFail < SSH_FAILS || sshBusy || sshTimer) return
+    const wait = SSH_RETRY[Math.min(sshTry, SSH_RETRY.length - 1)]!
+    showToast({
+      title: language.t("app.server.sshReconnect.retry.title", { seconds: Math.ceil(wait / 1000) }),
+      description: language.t("app.server.sshReconnect.retry.description", { host: conn.host }),
+    })
+    sshTimer = setTimeout(() => {
+      sshTimer = undefined
+      sshTry += 1
+      void retrySsh(conn)
+    }, wait)
+  })
+
+  onCleanup(() => {
+    clearSsh()
+  })
 
   return (
     <Show

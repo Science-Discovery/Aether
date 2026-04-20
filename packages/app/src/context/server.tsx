@@ -172,6 +172,7 @@ export const { use: useServer, provider: ServerProvider } = createSimpleContext(
 
     const [state, setState] = createStore({
       healthy: undefined as boolean | undefined,
+      checkedAt: 0,
     })
 
     const active = createMemo<ServerConnection.Key>(() => {
@@ -183,6 +184,7 @@ export const { use: useServer, provider: ServerProvider } = createSimpleContext(
     })
 
     const healthy = () => state.healthy
+    const checkedAt = () => state.checkedAt
 
     function startHealthPolling(conn: ServerConnection.Any) {
       let alive = true
@@ -194,7 +196,10 @@ export const { use: useServer, provider: ServerProvider } = createSimpleContext(
         void check(conn)
           .then((next) => {
             if (!alive) return
-            setState("healthy", next)
+            setState({
+              healthy: next,
+              checkedAt: Date.now(),
+            })
           })
           .finally(() => {
             busy = false
@@ -263,7 +268,10 @@ export const { use: useServer, provider: ServerProvider } = createSimpleContext(
       const current_ = current()
       if (!current_) return
 
-      setState("healthy", undefined)
+      setState({
+        healthy: undefined,
+        checkedAt: Date.now(),
+      })
       onCleanup(startHealthPolling(current_))
     })
 
@@ -287,6 +295,7 @@ export const { use: useServer, provider: ServerProvider } = createSimpleContext(
     return {
       ready: isReady,
       healthy,
+      checkedAt,
       isLocal,
       get key() {
         return active()

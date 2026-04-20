@@ -387,6 +387,12 @@ export const dict = {
   "app.server.unreachable": "Could not reach {{server}}",
   "app.server.retrying": "Retrying automatically...",
   "app.server.otherServers": "Other servers",
+  "app.server.sshReconnect.title": "Reconnecting remote host {{host}}",
+  "app.server.sshReconnect.description": "The remote connection dropped. Trying to restore the session.",
+  "app.server.sshReconnect.success.title": "Remote connection restored for {{host}}",
+  "app.server.sshReconnect.success.description": "Remote service {{version}} is ready again.",
+  "app.server.sshReconnect.retry.title": "Remote connection lost, retrying in {{seconds}}s",
+  "app.server.sshReconnect.retry.description": "Target host: {{host}}",
 
   "dialog.server.title": "Servers",
   "dialog.server.description": "Switch which Aether server this app connects to.",
