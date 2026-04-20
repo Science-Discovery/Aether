@@ -97,8 +97,7 @@ const post = async (url: string, body: unknown, token?: string) => {
   return raw ? JSON.parse(raw) : {}
 }
 
-const upload = async (opts: Record<string, string>, filePath: string) => {
-  const buf = await readFile(filePath)
+const upload = async (opts: Record<string, string>, filePath: string, buf: Buffer) => {
   const key = crypto.randomBytes(16)
   const filekey = crypto.randomBytes(16).toString("hex")
   const file = mediaType(filePath)
@@ -190,10 +189,22 @@ const send = async (opts: Record<string, string>, media: Awaited<ReturnType<type
   await post(`${req(opts, "base-url").replace(/\/$/, "")}/ilink/bot/sendmessage`, body, req(opts, "token"))
 }
 
+const readData = async (opts: Record<string, string>) => {
+  if (opts["stdin"] === "1") {
+    const chunks: Buffer[] = []
+    for await (const chunk of process.stdin) {
+      chunks.push(typeof chunk === "string" ? Buffer.from(chunk) : chunk)
+    }
+    return Buffer.concat(chunks)
+  }
+  return await readFile(req(opts, "file"))
+}
+
 const main = async () => {
   const opts = parse()
   const filePath = path.resolve(req(opts, "file"))
-  const media = await upload(opts, filePath)
+  const buf = await readData(opts)
+  const media = await upload(opts, filePath, buf)
   await send(opts, media)
   process.stdout.write(JSON.stringify({ ok: true, filePath }) + "\n")
 }
