@@ -343,6 +343,7 @@ export const dict = {
   "dialog.server.menu.delete": "ลบ",
   "dialog.server.current": "เซิร์ฟเวอร์ปัจจุบัน",
   "dialog.server.status.default": "ค่าเริ่มต้น",
+  "dialog.server.group.ssh": "SSH ระยะไกล",
 
   "dialog.project.edit.title": "แก้ไขโปรเจกต์",
   "dialog.project.edit.name": "ชื่อ",

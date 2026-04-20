@@ -315,6 +315,7 @@ export const dict = {
   "dialog.server.menu.delete": "حذف",
   "dialog.server.current": "الخادم الحالي",
   "dialog.server.status.default": "افتراضي",
+  "dialog.server.group.ssh": "SSH عن بُعد",
   "dialog.project.edit.title": "تحرير المشروع",
   "dialog.project.edit.name": "الاسم",
   "dialog.project.edit.icon": "أيقونة",

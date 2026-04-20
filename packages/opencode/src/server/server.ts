@@ -22,7 +22,6 @@ function getMimeType(filePath: string): string {
 }
 const WEB_CACHE = "public, max-age=31536000, immutable"
 const WEB_REVALIDATE = "no-cache"
-
 function webEtag(size: number, mtimeMs: number) {
   return `W/"${size}-${mtimeMs}"`
 }

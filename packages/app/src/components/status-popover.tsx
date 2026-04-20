@@ -17,6 +17,7 @@ import { normalizeServerUrl, ServerConnection, useServer } from "@/context/serve
 import { useSync } from "@/context/sync"
 import { remoteHref } from "@/pages/layout/remote-landing"
 import { bootstrapSsh } from "@/utils/remote-ssh"
+import { splitServers, sortServers } from "@/utils/server-list"
 import { useCheckServerHealth, type ServerHealth } from "@/utils/server-health"
 
 const pollMs = 10_000
@@ -39,28 +40,6 @@ const pluginEmptyMessage = (value: string, file: string): JSXElement => {
       {parts.slice(1).join(file)}
     </>
   )
-}
-
-const listServersByHealth = (
-  list: ServerConnection.Any[],
-  active: ServerConnection.Key | undefined,
-  status: Record<ServerConnection.Key, ServerHealth | undefined>,
-) => {
-  if (!list.length) return list
-  const order = new Map(list.map((url, index) => [url, index] as const))
-  const rank = (value?: ServerHealth) => {
-    if (value?.healthy === true) return 0
-    if (value?.healthy === false) return 2
-    return 1
-  }
-
-  return list.slice().sort((a, b) => {
-    if (ServerConnection.key(a) === active) return -1
-    if (ServerConnection.key(b) === active) return 1
-    const diff = rank(status[ServerConnection.key(a)]) - rank(status[ServerConnection.key(b)])
-    if (diff !== 0) return diff
-    return (order.get(a) ?? 0) - (order.get(b) ?? 0)
-  })
 }
 
 const useServerHealth = (servers: Accessor<ServerConnection.Any[]>, enabled: Accessor<boolean>) => {
@@ -189,7 +168,8 @@ export function StatusPopover() {
     return [current, ...list.filter((item) => ServerConnection.key(item) !== ServerConnection.key(current))]
   })
   const health = useServerHealth(servers, shown)
-  const sortedServers = createMemo(() => listServersByHealth(servers(), server.key, health))
+  const sortedServers = createMemo(() => sortServers(servers(), server.key, health))
+  const groupedServers = createMemo(() => splitServers(sortedServers()))
   const toggleMcp = useMcpToggleMutation()
   const defaultServer = useDefaultServerKey(platform.getDefaultServer)
   const mcpNames = createMemo(() => Object.keys(sync.data.mcp ?? {}).sort((a, b) => a.localeCompare(b)))
@@ -312,48 +292,59 @@ export function StatusPopover() {
           <Tabs.Content value="servers">
             <div class="flex flex-col px-2 pb-2">
               <div class="flex flex-col p-3 bg-background-base rounded-sm min-h-14">
-                <For each={sortedServers()}>
-                  {(s) => {
-                    const key = ServerConnection.key(s)
-                    const isBlocked = () => s.type !== "ssh" && health[key]?.healthy === false
-                    return (
-                      <button
-                        type="button"
-                        class="flex items-center gap-2 w-full h-8 pl-3 pr-1.5 py-1.5 rounded-md transition-colors text-left"
-                        classList={{
-                          "hover:bg-surface-raised-base-hover": !isBlocked(),
-                          "cursor-not-allowed": isBlocked(),
+                <For each={groupedServers()}>
+                  {(group) => (
+                    <div class="flex flex-col">
+                      <Show when={group.category === "ssh"}>
+                        <div class="px-3 py-1 text-11-medium text-text-weak uppercase tracking-wide">
+                          {language.t("dialog.server.group.ssh")}
+                        </div>
+                      </Show>
+                      <For each={group.items}>
+                        {(s) => {
+                          const key = ServerConnection.key(s)
+                          const isBlocked = () => s.type !== "ssh" && health[key]?.healthy === false
+                          return (
+                            <button
+                              type="button"
+                              class="flex items-center gap-2 w-full h-8 pl-3 pr-1.5 py-1.5 rounded-md transition-colors text-left"
+                              classList={{
+                                "hover:bg-surface-raised-base-hover": !isBlocked(),
+                                "cursor-not-allowed": isBlocked(),
+                              }}
+                              aria-disabled={isBlocked()}
+                              onClick={() => {
+                                if (isBlocked()) return
+                                void activate(s)
+                              }}
+                            >
+                              <ServerHealthIndicator health={health[key]} />
+                              <ServerRow
+                                conn={s}
+                                dimmed={isBlocked()}
+                                status={health[key]}
+                                class="flex items-center gap-2 w-full min-w-0"
+                                nameClass="text-14-regular text-text-base truncate"
+                                versionClass="text-12-regular text-text-weak truncate"
+                                badge={
+                                  <Show when={key === defaultServer.key()}>
+                                    <span class="text-11-regular text-text-base bg-surface-base px-1.5 py-0.5 rounded-md">
+                                      {language.t("common.default")}
+                                    </span>
+                                  </Show>
+                                }
+                              >
+                                <div class="flex-1" />
+                                <Show when={server.current && key === ServerConnection.key(server.current)}>
+                                  <Icon name="check" size="small" class="text-icon-weak shrink-0" />
+                                </Show>
+                              </ServerRow>
+                            </button>
+                          )
                         }}
-                        aria-disabled={isBlocked()}
-                        onClick={() => {
-                          if (isBlocked()) return
-                          void activate(s)
-                        }}
-                      >
-                        <ServerHealthIndicator health={health[key]} />
-                        <ServerRow
-                          conn={s}
-                          dimmed={isBlocked()}
-                          status={health[key]}
-                          class="flex items-center gap-2 w-full min-w-0"
-                          nameClass="text-14-regular text-text-base truncate"
-                          versionClass="text-12-regular text-text-weak truncate"
-                          badge={
-                            <Show when={key === defaultServer.key()}>
-                              <span class="text-11-regular text-text-base bg-surface-base px-1.5 py-0.5 rounded-md">
-                                {language.t("common.default")}
-                              </span>
-                            </Show>
-                          }
-                        >
-                          <div class="flex-1" />
-                          <Show when={server.current && key === ServerConnection.key(server.current)}>
-                            <Icon name="check" size="small" class="text-icon-weak shrink-0" />
-                          </Show>
-                        </ServerRow>
-                      </button>
-                    )
-                  }}
+                      </For>
+                    </div>
+                  )}
                 </For>
 
                 <Button

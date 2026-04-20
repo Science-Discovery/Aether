@@ -329,6 +329,7 @@ export const dict = {
   "dialog.server.menu.delete": "Löschen",
   "dialog.server.current": "Aktueller Server",
   "dialog.server.status.default": "Standard",
+  "dialog.server.group.ssh": "SSH-Remote",
   "dialog.project.edit.title": "Projekt bearbeiten",
   "dialog.project.edit.name": "Name",
   "dialog.project.edit.icon": "Icon",

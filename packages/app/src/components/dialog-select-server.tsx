@@ -17,6 +17,7 @@ import { usePlatform } from "@/context/platform"
 import { normalizeServerUrl, ServerConnection, useServer } from "@/context/server"
 import { remoteHref } from "@/pages/layout/remote-landing"
 import { type ServerHealth, useCheckServerHealth } from "@/utils/server-health"
+import { serverGroups, serverGroup, sortServers } from "@/utils/server-list"
 import { bootstrapSsh } from "@/utils/remote-ssh"
 
 const DEFAULT_USERNAME = "opencode"
@@ -393,22 +394,8 @@ export function DialogSelectServer() {
   const current = createMemo(() => items().find((x) => ServerConnection.key(x) === server.key) ?? items()[0])
 
   const sortedItems = createMemo(() => {
-    const list = items()
-    if (!list.length) return list
-    const active = current()
-    const order = new Map(list.map((url, index) => [url, index] as const))
-    const rank = (value?: ServerHealth) => {
-      if (value?.healthy === true) return 0
-      if (value?.healthy === false) return 2
-      return 1
-    }
-    return list.slice().sort((a, b) => {
-      if (a === active) return -1
-      if (b === active) return 1
-      const diff = rank(store.status[ServerConnection.key(a)]) - rank(store.status[ServerConnection.key(b)])
-      if (diff !== 0) return diff
-      return (order.get(a) ?? 0) - (order.get(b) ?? 0)
-    })
+    current()
+    return sortServers(items(), server.key, store.status)
   })
 
   async function refreshHealth() {
@@ -690,6 +677,11 @@ export function DialogSelectServer() {
             emptyMessage={language.t("dialog.server.empty")}
             items={sortedItems}
             key={(x) => ServerConnection.key(x)}
+            groupBy={serverGroup}
+            sortGroupsBy={(a, b) => serverGroups.indexOf(a.category as "other" | "ssh") - serverGroups.indexOf(b.category as "other" | "ssh")}
+            groupHeader={(group) =>
+              group.category === "ssh" ? language.t("dialog.server.group.ssh") : <div class="h-0" aria-hidden="true" />
+            }
             onSelect={(x) => {
               if (x) select(x)
             }}

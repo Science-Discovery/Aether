@@ -342,6 +342,7 @@ export const dict = {
   "dialog.server.menu.delete": "Slet",
   "dialog.server.current": "Nuværende server",
   "dialog.server.status.default": "Standard",
+  "dialog.server.group.ssh": "SSH-fjernserver",
 
   "dialog.project.edit.title": "Rediger projekt",
   "dialog.project.edit.name": "Navn",

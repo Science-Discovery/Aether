@@ -426,6 +426,7 @@ export const dict = {
   "dialog.server.menu.delete": "删除",
   "dialog.server.current": "当前服务器",
   "dialog.server.status.default": "默认",
+  "dialog.server.group.ssh": "SSH 远程",
 
   "dialog.project.edit.title": "编辑项目",
   "dialog.project.edit.name": "名称",

@@ -361,6 +361,7 @@ export const dict = {
   "dialog.server.menu.delete": "刪除",
   "dialog.server.current": "目前伺服器",
   "dialog.server.status.default": "預設",
+  "dialog.server.group.ssh": "SSH 遠端",
 
   "dialog.project.edit.title": "編輯專案",
   "dialog.project.edit.name": "名稱",

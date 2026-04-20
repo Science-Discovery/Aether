@@ -355,6 +355,7 @@ export const dict = {
   "dialog.server.menu.delete": "Sil",
   "dialog.server.current": "Mevcut Sunucu",
   "dialog.server.status.default": "Varsayılan",
+  "dialog.server.group.ssh": "Uzak SSH",
 
   "dialog.project.edit.title": "Projeyi düzenle",
   "dialog.project.edit.name": "Ad",

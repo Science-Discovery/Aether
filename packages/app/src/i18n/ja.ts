@@ -322,6 +322,7 @@ export const dict = {
   "dialog.server.menu.delete": "削除",
   "dialog.server.current": "現在のサーバー",
   "dialog.server.status.default": "デフォルト",
+  "dialog.server.group.ssh": "SSH リモート",
   "dialog.project.edit.title": "プロジェクトを編集",
   "dialog.project.edit.name": "名前",
   "dialog.project.edit.icon": "アイコン",

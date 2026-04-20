@@ -344,6 +344,7 @@ export const dict = {
   "dialog.server.menu.delete": "Izbriši",
   "dialog.server.current": "Trenutni server",
   "dialog.server.status.default": "Podrazumijevano",
+  "dialog.server.group.ssh": "SSH udaljeni",
 
   "dialog.project.edit.title": "Uredi projekat",
   "dialog.project.edit.name": "Naziv",
