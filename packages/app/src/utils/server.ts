@@ -108,7 +108,29 @@ export function createSdkForServer({
 }
 
 export function addPreferenceMethods(client: AppClient, baseUrl: string, auth?: Record<string, string>): AppClient {
-  void baseUrl
-  void auth
+  const headers: Record<string, string> = { "Content-Type": "application/json", ...auth }
+  const pref = {
+    get: (input: { sessionID: string }) =>
+      fetch(`${baseUrl}/session/${input.sessionID}/preference`, { headers })
+        .then((r) => r.json())
+        .then((data) => ({ data })),
+    update: (input: {
+      sessionID: string
+      agent?: string
+      model?: { providerID: string; modelID: string }
+      variant?: string
+      autoAccept?: boolean
+    }) => {
+      const { sessionID, ...body } = input
+      return fetch(`${baseUrl}/session/${sessionID}/preference`, {
+        method: "PATCH",
+        headers,
+        body: JSON.stringify(body),
+      })
+        .then((r) => r.json())
+        .then((data) => ({ data }))
+    },
+  }
+  Object.defineProperty(client.session, "preference", { value: pref, writable: true, configurable: true })
   return client
 }
