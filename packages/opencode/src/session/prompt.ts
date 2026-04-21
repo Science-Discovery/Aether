@@ -53,6 +53,8 @@ import { Knowledge } from "../knowledge"
 import { decodeDataUrl } from "@/util/data-url"
 import { Process } from "@/util/process"
 import { Memory } from "@/memory"
+import { SKILL_NUDGE_INTERVAL, SKILL_REVIEW_MARKER, spawnBackgroundReview } from "./skill-evolution"
+import { Config } from "../config/config"
 
 // @ts-ignore
 globalThis.AI_SDK_LOG_WARNINGS = false
@@ -81,6 +83,10 @@ export namespace SessionPrompt {
       }
     },
   )
+
+  // mirrors Hermes _iters_since_skill: plain module-level map keyed by sessionID.
+  // Lives outside the per-session runtime state so cancel() never touches it.
+  const _skillCounters = new Map<string, number>()
 
   export function assertNotBusy(sessionID: SessionID) {
     const match = state()[sessionID]
@@ -295,7 +301,15 @@ export namespace SessionPrompt {
     let structuredOutput: unknown | undefined
 
     let step = 0
+    let _finalResponse = false // mirrors Hermes final_response
     const session = await Session.get(sessionID)
+    // Only skip review triggering for sessions that ARE the background review itself
+    // mirrors Hermes: review_agent._skill_nudge_interval = 0
+    const isSkillReviewSession = session.title === SKILL_REVIEW_MARKER
+    // mirrors Hermes: _iters_since_skill is an instance variable on AIAgent
+    if (!_skillCounters.has(sessionID)) _skillCounters.set(sessionID, 0)
+    const cfg = await Config.get()
+    const skillNudgeInterval = cfg.skills?.creation_nudge_interval ?? SKILL_NUDGE_INTERVAL
     // Prepare the session memory pool once. Only active recalled memory is injected later.
     await Memory.start({ session_id: sessionID })
     const attachMemoryReceipt = async (messageID: MessageID, events: Memory.Event[]) => {
@@ -610,7 +624,8 @@ export namespace SessionPrompt {
         })
         throw error
       }
-      const maxSteps = agent.steps ?? Infinity
+      // mirrors Hermes: review agent capped at max_iterations=8 to prevent runaway
+      const maxSteps = isSkillReviewSession ? 8 : (agent.steps ?? Infinity)
       const isLastStep = step >= maxSteps
       msgs = await insertReminders({
         messages: msgs,
@@ -694,7 +709,7 @@ export namespace SessionPrompt {
       const memory = await Memory.activePrompt({ session_id: sessionID })
 
       // Build system prompt, adding structured output instruction if needed
-      const skills = await SystemPrompt.skills(agent)
+      const skills = await SystemPrompt.skills(agent, new Set(Object.keys(tools)), new Set())
       const system = [
         ...(await SystemPrompt.environment(model)),
         ...(skills ? [skills] : []),
@@ -729,6 +744,24 @@ export namespace SessionPrompt {
         toolChoice: format.type === "json_schema" ? "required" : undefined,
       })
 
+      // mirrors Hermes _iters_since_skill counter (run_agent.py L7864-7868, L9107-9111)
+      // Only count when: not a review session, skill_manage is available, and LLM made tool calls
+      const hadToolCalls = processor.message.finish === "tool-calls"
+      const skillManageAvailable = "skill_manage" in tools
+      if (!isSkillReviewSession && skillManageAvailable && hadToolCalls) {
+        const assistantParts = await MessageV2.parts(processor.message.id)
+        const calledSkillManage = assistantParts.some(
+          (p) => p.type === "tool" && (p as MessageV2.ToolPart).tool === "skill_manage",
+        )
+        if (calledSkillManage) {
+          // mirrors Hermes L7868: reset to 0 inside _execute_tool_calls
+          // then L9110: +1 unconditionally after → net result is 1, not 0
+          _skillCounters.set(sessionID, 0)
+        }
+        _skillCounters.set(sessionID, (_skillCounters.get(sessionID) ?? 0) + 1)  // always +1 per step, mirrors Hermes L9110
+        console.log(`[skill counter] count=${_skillCounters.get(sessionID)} threshold=${skillNudgeInterval}`)
+      }
+
       // If structured output was captured, save it and exit immediately
       // This takes priority because the StructuredOutput tool was called successfully
       if (structuredOutput !== undefined) {
@@ -753,9 +786,13 @@ export namespace SessionPrompt {
           await Session.updateMessage(processor.message)
           break
         }
+        _finalResponse = true
       }
 
-      if (result === "stop") break
+      if (result === "stop") {
+        _finalResponse = true
+        break
+      }
       if (result === "compact") {
         await SessionCompaction.create({
           sessionID,
@@ -777,6 +814,36 @@ export namespace SessionPrompt {
     await flushMemoryReceipt(latestAssistantID)
 
     SessionCompaction.prune({ sessionID })
+
+    // mirrors Hermes: post-loop trigger check (run_agent.py L11828-11856)
+    // Conditions: _iters_since_skill >= threshold AND skill_manage available AND final_response AND not interrupted
+    const _shouldReviewSkills =
+      !isSkillReviewSession &&
+      skillNudgeInterval > 0 &&
+      (_skillCounters.get(sessionID) ?? 0) >= skillNudgeInterval &&
+      _finalResponse &&
+      !abort.aborted
+
+    console.log(`[skill review check] count=${_skillCounters.get(sessionID)} threshold=${skillNudgeInterval} finalResponse=${_finalResponse} aborted=${abort.aborted} isReview=${isSkillReviewSession} should=${_shouldReviewSkills}`)
+
+    if (_shouldReviewSkills) {
+      _skillCounters.set(sessionID, 0)  // reset immediately, mirrors Hermes L11833
+      const msgs = await MessageV2.filterCompacted(MessageV2.stream(sessionID))
+      const lastUser = msgs.findLast((m) => m.info.role === "user")
+      if (lastUser && lastUser.info.role === "user") {
+        const userInfo = lastUser.info as MessageV2.User
+        spawnBackgroundReview({
+          sessionID,
+          agentName: userInfo.agent ?? "build",
+          model: {
+            providerID: userInfo.model?.providerID ?? "",
+            modelID: userInfo.model?.modelID ?? "",
+          },
+          messages: msgs,
+        })
+      }
+    }
+
     for await (const item of MessageV2.stream(sessionID)) {
       if (item.info.role === "user") continue
       return item

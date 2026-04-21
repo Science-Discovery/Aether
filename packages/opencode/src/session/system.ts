@@ -13,6 +13,7 @@ import type { Provider } from "@/provider/provider"
 import type { Agent } from "@/agent/agent"
 import { Permission } from "@/permission"
 import { Skill } from "@/skill"
+import { SKILLS_GUIDANCE } from "./skill-evolution"
 
 export namespace SystemPrompt {
   export function provider(model: Provider.Model) {
@@ -52,10 +53,10 @@ export namespace SystemPrompt {
     ]
   }
 
-  export async function skills(agent: Agent.Info) {
+  export async function skills(agent: Agent.Info, availableTools?: Set<string>, availableToolsets?: Set<string>) {
     if (Permission.disabled(["skill"], agent.permission).has("skill")) return
 
-    const list = await Skill.available(agent)
+    const list = await Skill.available(agent, availableTools ?? new Set(), availableToolsets ?? new Set())
 
     return [
       "Skills provide specialized instructions and workflows for specific tasks.",
@@ -63,6 +64,8 @@ export namespace SystemPrompt {
       // the agents seem to ingest the information about skills a bit better if we present a more verbose
       // version of them here and a less verbose version in tool description, rather than vice versa.
       Skill.fmt(list, { verbose: true }),
+      "",
+      SKILLS_GUIDANCE,
     ].join("\n")
   }
 }

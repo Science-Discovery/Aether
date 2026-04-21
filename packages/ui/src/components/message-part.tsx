@@ -324,6 +324,11 @@ export function getToolInfo(tool: string, input: any = {}): ToolInfo {
         icon: "brain",
         title: input.name || i18n.t("ui.tool.skill"),
       }
+    case "skill_manage":
+      return {
+        icon: "brain",
+        title: (input.action ? `${input.action}: ` : "") + (input.name || "skill_manage"),
+      }
     default:
       return {
         icon: "mcp",

@@ -521,6 +521,11 @@ export const RunCommand = cmd({
             }
           }
 
+          if ((event as any).type === "skill.saved") {
+            const actions = (event as any).properties.actions as string[]
+            UI.println(`💾 ${actions.join(" · ")}`)
+          }
+
           if (event.type === "session.error") {
             const props = event.properties
             if (props.sessionID !== sessionID || !props.error) continue
