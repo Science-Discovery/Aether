@@ -7,6 +7,7 @@ import { Effect, Layer, ServiceMap } from "effect"
 import { NamedError } from "@opencode-ai/util/error"
 import type { Agent } from "@/agent/agent"
 import { Bus } from "@/bus"
+import { InstanceState } from "@/effect/instance-state"
 import { makeRuntime } from "@/effect/run-service"
 import { Flag } from "@/flag/flag"
 import { Global } from "@/global"
@@ -82,7 +83,7 @@ export namespace Skill {
 
   // ── Conditions matching (mirrors Hermes build_skills_system_prompt filtering) ──
 
-  function matchesConditions(skill: Info, tools: Set<string>, toolsets: Set<string>): boolean {
+  export function matchesConditions(skill: Info, tools: Set<string>, toolsets: Set<string>): boolean {
     const c = skill.conditions
     if (!c) return true
     // requires_tools: ALL listed tools must be available
@@ -96,34 +97,9 @@ export namespace Skill {
     return true
   }
 
-  // ── Module-level two-layer cache (mirrors Hermes _SKILLS_PROMPT_CACHE) ────
-
   type RawState = { skills: Record<string, Info>; dirs: Set<string> }
 
   let _discovery: Discovery.Interface | null = null
-
-  // mirrors Hermes _SKILLS_PROMPT_CACHE / _SKILLS_PROMPT_CACHE_MAX
-  const _skillsPromptCache = new Map<string, Info[]>()
-  const SKILLS_PROMPT_CACHE_MAX = 8
-
-  function makeSkillsCacheKey(tools: Set<string>, toolsets: Set<string>): string {
-    return JSON.stringify([Array.from(tools).sort(), Array.from(toolsets).sort()])
-  }
-
-  function skillsCacheGet(key: string): Info[] | undefined {
-    const val = _skillsPromptCache.get(key)
-    if (val === undefined) return undefined
-    _skillsPromptCache.delete(key)
-    _skillsPromptCache.set(key, val)
-    return val
-  }
-
-  function skillsCacheSet(key: string, val: Info[]): void {
-    _skillsPromptCache.delete(key)
-    _skillsPromptCache.set(key, val)
-    while (_skillsPromptCache.size > SKILLS_PROMPT_CACHE_MAX)
-      _skillsPromptCache.delete(_skillsPromptCache.keys().next().value!)
-  }
 
   // ── Layer 2: Disk snapshot (mirrors Hermes _load_skills_snapshot) ─────────
 
@@ -351,13 +327,9 @@ export namespace Skill {
     return dirs
   }
 
-  // mirrors Hermes build_skills_system_prompt: snapshot → full scan, no extra in-process cache.
-  // Called on every LRU miss so mtime/size validation always runs, picking up manual file edits.
-  async function loadSkillsData(): Promise<RawState> {
+  async function loadSkillsData(directory: string, worktree: string): Promise<RawState> {
     if (!_discovery) throw new Error("Skill service not initialized — layer not started")
 
-    const directory = Instance.directory
-    const worktree = Instance.worktree
     const cfg = await Config.get()
     const disabled = new Set(cfg.skills?.disabled ?? [])
 
@@ -382,7 +354,7 @@ export namespace Skill {
 
     // Cold path: full filesystem scan
     const all: RawState = { skills: {}, dirs: new Set() }
-    await loadSkillsFromDirs(all, _discovery, directory, worktree)
+    await loadSkillsFromDirs(all, _discovery!, directory, worktree)
 
     // Write snapshot before applying disabled filter (snapshot stores unfiltered, mirrors Hermes)
     await writeSkillsSnapshot(manifest, Object.values(all.skills))
@@ -397,14 +369,11 @@ export namespace Skill {
     return all
   }
 
-  // ── Public invalidation (mirrors Hermes clear_skills_system_prompt_cache) ─
-
-  export async function clearSkillsPromptCache(clearSnapshot = false): Promise<void> {
-    _skillsPromptCache.clear()
-    if (clearSnapshot) {
-      await fs.unlink(skillsPromptSnapshotPath()).catch(() => {})
-    }
-    log.info("skills cache cleared", { clearSnapshot })
+  async function loadSkills(state: RawState, discovery: Discovery.Interface, directory: string, worktree: string) {
+    const data = await loadSkillsData(directory, worktree)
+    state.skills = data.skills
+    state.dirs = data.dirs
+    log.info("init", { count: Object.keys(state.skills).length })
   }
 
   // ── Effect Service ────────────────────────────────────────────────────────
@@ -413,11 +382,8 @@ export namespace Skill {
     readonly get: (name: string) => Effect.Effect<Info | undefined>
     readonly all: () => Effect.Effect<Info[]>
     readonly dirs: () => Effect.Effect<string[]>
-    readonly available: (
-      agent?: Agent.Info,
-      availableTools?: Set<string>,
-      availableToolsets?: Set<string>,
-    ) => Effect.Effect<Info[]>
+    readonly available: (agent?: Agent.Info) => Effect.Effect<Info[]>
+    readonly invalidate: () => Effect.Effect<void>
   }
 
   export class Service extends ServiceMap.Service<Service, Interface>()("@opencode/Skill") {}
@@ -427,54 +393,53 @@ export namespace Skill {
     Effect.gen(function* () {
       const discovery = yield* Discovery.Service
       _discovery = discovery
+      const state = yield* InstanceState.make(
+        Effect.fn("Skill.state")((ctx) =>
+          Effect.gen(function* () {
+            const s: RawState = { skills: {}, dirs: new Set() }
+            yield* Effect.promise(() => loadSkills(s, discovery, ctx.directory, ctx.worktree))
+            return s
+          }),
+        ),
+      )
 
       const get = Effect.fn("Skill.get")(function* (name: string) {
-        const data = yield* Effect.promise(() => loadSkillsData())
-        return data.skills[name]
+        const s = yield* InstanceState.get(state)
+        return s.skills[name]
       })
 
       const all = Effect.fn("Skill.all")(function* () {
-        const data = yield* Effect.promise(() => loadSkillsData())
-        return Object.values(data.skills)
+        const s = yield* InstanceState.get(state)
+        return Object.values(s.skills)
       })
 
       const dirs = Effect.fn("Skill.dirs")(function* () {
-        const data = yield* Effect.promise(() => loadSkillsData())
-        return Array.from(data.dirs)
+        const s = yield* InstanceState.get(state)
+        return Array.from(s.dirs)
       })
 
-      const available = Effect.fn("Skill.available")(function* (
-        agent?: Agent.Info,
-        availableTools: Set<string> = new Set(),
-        availableToolsets: Set<string> = new Set(),
-      ) {
-        // Layer 1: in-process LRU cache — mirrors Hermes _SKILLS_PROMPT_CACHE
-        const key = makeSkillsCacheKey(availableTools, availableToolsets)
-        let filtered = skillsCacheGet(key)
-
-        if (!filtered) {
-          // LRU miss: load from disk snapshot (mtime/size validated) or full scan — mirrors Hermes
-          const data = yield* Effect.promise(() => loadSkillsData())
-          filtered = Object.values(data.skills)
-            .filter(
-              (skill) =>
-                skillMatchesPlatform(skill.platforms) &&
-                matchesConditions(skill, availableTools, availableToolsets),
-            )
-            .toSorted((a, b) => a.name.localeCompare(b.name))
-          skillsCacheSet(key, filtered)
-        }
-
-        // Agent permission filter — Aether-specific, applied after cache
-        if (!agent) return filtered
-        return filtered.filter(
-          (skill) => Permission.evaluate("skill", skill.name, agent.permission).action !== "deny",
-        )
+      const available = Effect.fn("Skill.available")(function* (agent?: Agent.Info) {
+        const s = yield* InstanceState.get(state)
+        const list = Object.values(s.skills).toSorted((a, b) => a.name.localeCompare(b.name))
+        if (!agent) return list
+        return list.filter((skill) => Permission.evaluate("skill", skill.name, agent.permission).action !== "deny")
       })
 
-      return Service.of({ get, all, dirs, available })
+      const invalidate = Effect.fn("Skill.invalidate")(function* () {
+        yield* InstanceState.invalidate(state)
+      })
+
+      return Service.of({ get, all, dirs, available, invalidate })
     }),
   )
+
+  export async function clearSkillsPromptCache(clearSnapshot = false): Promise<void> {
+    await runPromise((skill) => skill.invalidate())
+    if (clearSnapshot) {
+      await fs.unlink(skillsPromptSnapshotPath()).catch(() => {})
+    }
+    log.info("skills cache cleared", { clearSnapshot })
+  }
 
   export const defaultLayer: Layer.Layer<Service> = layer.pipe(Layer.provide(Discovery.defaultLayer))
 
@@ -512,7 +477,7 @@ export namespace Skill {
     return runPromise((skill) => skill.dirs())
   }
 
-  export async function available(agent?: Agent.Info, availableTools?: Set<string>, availableToolsets?: Set<string>) {
-    return runPromise((skill) => skill.available(agent, availableTools, availableToolsets))
+  export async function available(agent?: Agent.Info) {
+    return runPromise((skill) => skill.available(agent))
   }
 }

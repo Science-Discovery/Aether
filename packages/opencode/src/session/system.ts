@@ -56,7 +56,10 @@ export namespace SystemPrompt {
   export async function skills(agent: Agent.Info, availableTools?: Set<string>, availableToolsets?: Set<string>) {
     if (Permission.disabled(["skill"], agent.permission).has("skill")) return
 
-    const list = await Skill.available(agent, availableTools ?? new Set(), availableToolsets ?? new Set())
+    const all = await Skill.available(agent)
+    const list = availableTools !== undefined
+      ? all.filter((skill) => Skill.matchesConditions(skill, availableTools, availableToolsets ?? new Set()))
+      : all
 
     return [
       "Skills provide specialized instructions and workflows for specific tasks.",
