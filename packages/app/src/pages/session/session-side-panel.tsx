@@ -1128,9 +1128,8 @@ export function SessionSidePanel(props: {
                     </Tooltip>
                   </div>
                   <div class="relative flex-1 min-h-0">
-                    <ScrollView class="h-full">
+                    <ScrollView class="h-full" viewportRef={(el) => (box = el)}>
                       <div
-                        ref={box}
                         class="relative min-h-full pr-3"
                         onDragEnter={handleRootDragEnter}
                         onDragLeave={handleRootDragLeave}
