@@ -84,7 +84,7 @@ import { ProjectRoutes } from "./routes/project"
 import { SessionRoutes } from "./routes/session"
 import { PtyRoutes } from "./routes/pty"
 import { McpRoutes } from "./routes/mcp"
-import { FileRoutes } from "./routes/file"
+import { FileRoutes, type ServerEnv } from "./routes/file"
 import { ConfigRoutes } from "./routes/config"
 import { ExperimentalRoutes } from "./routes/experimental"
 import { ProviderRoutes } from "./routes/provider"
@@ -125,10 +125,27 @@ export namespace Server {
 
   export const Default = lazy(() => createApp({}))
 
-  export const createApp = (opts: { cors?: string[]; onBrowserConnectionChange?: (count: number) => void }): Hono => {
+  export const createApp = (opts: { cors?: string[]; onBrowserConnectionChange?: (count: number) => void }): Hono<ServerEnv> => {
     SessionPreference.clear()
-    const app = new Hono()
+    const app = new Hono<ServerEnv>()
     let sseConnectionCount = 0
+    const corsware = cors({
+      credentials: true,
+      origin(input) {
+        if (!input) return
+        if (input.startsWith("http://localhost:")) return input
+        if (input.startsWith("http://127.0.0.1:")) return input
+        if (input === "tauri://localhost" || input === "http://tauri.localhost" || input === "https://tauri.localhost") {
+          return input
+        }
+        if (/^https:\/\/([a-z0-9-]+\.)*opencode\.ai$/.test(input)) {
+          return input
+        }
+        if (opts?.cors?.includes(input)) {
+          return input
+        }
+      },
+    })
     return app
       .onError((err, c) => {
         log.error("failed", {
@@ -175,33 +192,13 @@ export namespace Server {
           timer.stop()
         }
       })
-      .use(
-        cors({
-          credentials: true,
-          origin(input) {
-            if (!input) return
-
-            if (input.startsWith("http://localhost:")) return input
-            if (input.startsWith("http://127.0.0.1:")) return input
-            if (
-              input === "tauri://localhost" ||
-              input === "http://tauri.localhost" ||
-              input === "https://tauri.localhost"
-            )
-              return input
-
-            // *.opencode.ai (https only, adjust if needed)
-            if (/^https:\/\/([a-z0-9-]+\.)*opencode\.ai$/.test(input)) {
-              return input
-            }
-            if (opts?.cors?.includes(input)) {
-              return input
-            }
-
-            return
-          },
-        }),
-      )
+      .use((c, next) => {
+        if (c.req.path === "/file/raw") {
+          c.set("cors", opts.cors)
+          return next()
+        }
+        return corsware(c, next)
+      })
       .route("/global", GlobalRoutes())
       .put(
         "/auth/:providerID",
