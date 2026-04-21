@@ -5,6 +5,7 @@ import z from "zod"
 import { Tool } from "./tool"
 import { Global } from "../global"
 import { Skill } from "../skill"
+import { scanSkill, assertAllowed } from "./skill-guard"
 
 const SKILLS_DIR = path.join(Global.Path.data, "skills")
 
@@ -142,6 +143,12 @@ export const SkillManageTool = Tool.define("skill_manage", async () => {
           if (exists) throw new Error(`Skill "${name}" already exists. Use edit or patch to update it.`)
           const fileContent = buildContent(name, params.description.trim(), params.content)
           await atomicWrite(skillFile, fileContent)
+          try {
+            assertAllowed(await scanSkill(skillDir))
+          } catch (err) {
+            await fs.rm(skillDir, { recursive: true, force: true })
+            throw err
+          }
           await Skill.clearSkillsPromptCache()
           return { title: `Created skill: ${name}`, output: `Skill "${name}" created at ${skillFile}`, metadata: { skillDir } }
         }
@@ -149,8 +156,16 @@ export const SkillManageTool = Tool.define("skill_manage", async () => {
         case "edit": {
           if (!params.description?.trim()) throw new Error("description is required for edit")
           if (!params.content?.trim()) throw new Error("content is required for edit")
+          const oldContent = await fs.readFile(skillFile, "utf8").catch(() => null)
           const fileContent = buildContent(name, params.description.trim(), params.content)
           await atomicWrite(skillFile, fileContent)
+          try {
+            assertAllowed(await scanSkill(skillDir))
+          } catch (err) {
+            if (oldContent !== null) await atomicWrite(skillFile, oldContent)
+            else await fs.rm(skillDir, { recursive: true, force: true })
+            throw err
+          }
           await Skill.clearSkillsPromptCache()
           return { title: `Updated skill: ${name}`, output: `Skill "${name}" updated at ${skillFile}`, metadata: { skillDir } }
         }
@@ -168,6 +183,12 @@ export const SkillManageTool = Tool.define("skill_manage", async () => {
             )
           }
           await atomicWrite(skillFile, patched)
+          try {
+            assertAllowed(await scanSkill(skillDir))
+          } catch (err) {
+            await atomicWrite(skillFile, raw)
+            throw err
+          }
           await Skill.clearSkillsPromptCache()
           return { title: `Patched skill: ${name}`, output: `Skill "${name}" patched successfully`, metadata: { skillDir } }
         }
@@ -185,7 +206,15 @@ export const SkillManageTool = Tool.define("skill_manage", async () => {
           if (params.content === undefined) throw new Error("content is required for write_file")
           validateWithinDir(skillDir, params.relative_path)
           const targetPath = path.join(skillDir, params.relative_path)
+          const originalFileContent = await fs.readFile(targetPath, "utf8").catch(() => null)
           await atomicWrite(targetPath, params.content)
+          try {
+            assertAllowed(await scanSkill(skillDir))
+          } catch (err) {
+            if (originalFileContent !== null) await atomicWrite(targetPath, originalFileContent)
+            else await fs.unlink(targetPath).catch(() => {})
+            throw err
+          }
           return { title: `Wrote file in skill: ${name}`, output: `File written: ${targetPath}`, metadata: { targetPath } }
         }
 

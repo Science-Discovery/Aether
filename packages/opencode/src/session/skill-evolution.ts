@@ -59,7 +59,7 @@ export function buildReviewPrompt(messages: MessageV2.WithParts[]): string {
       } else if (part.type === "tool") {
         const toolPart = part as MessageV2.ToolPart
         if (toolPart.state.status === "completed") {
-          lines.push(`[Tool call: ${toolPart.tool}] → ${toolPart.state.output?.slice(0, 200) ?? ""}`)
+          lines.push(`[Tool call: ${toolPart.tool}] → ${toolPart.state.output ?? ""}`)
         }
       }
     }
@@ -106,8 +106,12 @@ export async function spawnBackgroundReview(input: {
     const actions: string[] = []
     for (const msg of childMessages) {
       for (const part of msg.parts) {
+        if (part.type === "text" && !("synthetic" in part && part.synthetic)) {
+          console.log(`[skill review] agent text: ${(part as MessageV2.TextPart).text}`)
+        }
         if (part.type !== "tool") continue
         const toolPart = part as MessageV2.ToolPart
+        console.log(`[skill review] tool call: ${toolPart.tool} status=${toolPart.state.status}`)
         if (toolPart.tool !== "skill_manage") continue
         if (toolPart.state.status !== "completed") continue
         const out = toolPart.state.output

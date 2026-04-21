@@ -750,9 +750,11 @@ export namespace SessionPrompt {
       const skillManageAvailable = "skill_manage" in tools
       if (!isSkillReviewSession && skillManageAvailable && hadToolCalls) {
         const assistantParts = await MessageV2.parts(processor.message.id)
-        const calledSkillManage = assistantParts.some(
-          (p) => p.type === "tool" && (p as MessageV2.ToolPart).tool === "skill_manage",
-        )
+        const toolNames = assistantParts
+          .filter((p) => p.type === "tool")
+          .map((p) => (p as MessageV2.ToolPart).tool)
+        console.log(`[tools] step=${step} tools=[${toolNames.join(", ")}]`)
+        const calledSkillManage = toolNames.includes("skill_manage")
         if (calledSkillManage) {
           // mirrors Hermes L7868: reset to 0 inside _execute_tool_calls
           // then L9110: +1 unconditionally after → net result is 1, not 0

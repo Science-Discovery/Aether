@@ -62,11 +62,17 @@ export namespace SystemPrompt {
       : all
 
     return [
-      "Skills provide specialized instructions and workflows for specific tasks.",
-      "Use the skill tool to load a skill when a task matches its description.",
+      "## Skills (mandatory)",
+      "Before replying, scan the skills below. If a skill matches or is even partially relevant to your task, you MUST follow its instructions.",
+      "Err on the side of using a skill — it is always better to have context you don't need than to miss critical steps, pitfalls, or established workflows.",
+      "Skills encode the user's preferred approach, conventions, and quality standards — follow them even for tasks you already know how to do.",
       // the agents seem to ingest the information about skills a bit better if we present a more verbose
       // version of them here and a less verbose version in tool description, rather than vice versa.
       Skill.fmt(list, { verbose: true }),
+      "",
+      "If a skill has issues, fix it with skill_manage(action='patch').",
+      "After difficult/iterative tasks, offer to save as a skill.",
+      "If a skill you loaded was missing steps, had wrong commands, or needed pitfalls you discovered, update it before finishing.",
       "",
       SKILLS_GUIDANCE,
     ].join("\n")
