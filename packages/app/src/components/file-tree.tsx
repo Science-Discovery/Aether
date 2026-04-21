@@ -171,6 +171,7 @@ const FileTreeNode = (
       draggable={local.draggable}
       onDragStart={(event: DragEvent) => {
         if (!local.draggable) return
+        if (event.currentTarget instanceof HTMLButtonElement) event.currentTarget.blur()
         const sel = local.selectedPaths
         if (sel && sel.size > 1 && sel.has(local.node.path)) {
           // Drag all selected files
@@ -884,7 +885,11 @@ export default function FileTree(props: {
                       marks={marks()}
                       as="button"
                       type="button"
-                      onClick={(e: MouseEvent) => props.onFileClick?.(node, e)}
+                      onClick={(e: MouseEvent) => {
+                        // Mouse focus can scroll the file-tree viewport to the top when selection updates.
+                        if (e.detail > 0 && e.currentTarget instanceof HTMLButtonElement) e.currentTarget.blur()
+                        props.onFileClick?.(node, e)
+                      }}
                     >
                       <div class="w-4 shrink-0" />
                       <Switch>
