@@ -108,7 +108,23 @@ export function createSdkForServer({
 }
 
 export function addPreferenceMethods(client: AppClient, baseUrl: string, auth?: Record<string, string>): AppClient {
-  void baseUrl
-  void auth
+  const headers: Record<string, string> = { "Content-Type": "application/json", ...auth }
+  client.session.preference = {
+    async get(input) {
+      const resp = await fetch(`${baseUrl}/session/${input.sessionID}/preference`, { headers })
+      const data = await resp.json()
+      return { data }
+    },
+    async update(input) {
+      const { sessionID, ...body } = input
+      const resp = await fetch(`${baseUrl}/session/${sessionID}/preference`, {
+        method: "PATCH",
+        headers,
+        body: JSON.stringify(body),
+      })
+      const data = await resp.json()
+      return { data }
+    },
+  }
   return client
 }

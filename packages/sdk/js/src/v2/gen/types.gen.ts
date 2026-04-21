@@ -362,23 +362,6 @@ export type EventCommandExecuted = {
   }
 }
 
-export type EventSessionPreferenceUpdated = {
-  type: "session.preference.updated"
-  properties: {
-    sessionID: string
-    preference: {
-      sessionID: string
-      agent?: string
-      model?: {
-        providerID: string
-        modelID: string
-      }
-      variant?: string
-      autoAccept?: boolean
-    }
-  }
-}
-
 export type FileDiff = {
   file: string
   before: string
@@ -577,37 +560,6 @@ export type EventWechatError = {
   properties: {
     code: string
     message: string
-  }
-}
-
-export type EventFeishuStatus = {
-  type: "feishu.status"
-  properties: {
-    status: "idle" | "starting" | "connected" | "reconnecting" | "error"
-    message?: string
-  }
-}
-
-export type EventFeishuConnected = {
-  type: "feishu.connected"
-  properties: {
-    appId: string
-  }
-}
-
-export type EventFeishuError = {
-  type: "feishu.error"
-  properties: {
-    code: string
-    message: string
-  }
-}
-
-export type EventFeishuReconnecting = {
-  type: "feishu.reconnecting"
-  properties: {
-    attempt: number
-    delay: number
   }
 }
 
@@ -1009,10 +961,6 @@ export type Session = {
   workspaceID?: string
   directory: string
   parentID?: string
-  treeID?: string
-  forkIndex?: number
-  forkParentSessionID?: string
-  forkAfterUserMessageID?: string
   summary?: {
     additions: number
     deletions: number
@@ -1111,7 +1059,6 @@ export type Event =
   | EventMcpToolsChanged
   | EventMcpBrowserOpenFailed
   | EventCommandExecuted
-  | EventSessionPreferenceUpdated
   | EventSessionDiff
   | EventSessionError
   | EventVcsBranchUpdated
@@ -1127,10 +1074,6 @@ export type Event =
   | EventWechatQrcode
   | EventWechatConnected
   | EventWechatError
-  | EventFeishuStatus
-  | EventFeishuConnected
-  | EventFeishuError
-  | EventFeishuReconnecting
   | EventMessageUpdated
   | EventMessageRemoved
   | EventMessagePartUpdated
@@ -1203,10 +1146,6 @@ export type SyncEventSessionUpdated = {
       workspaceID: string | null
       directory: string | null
       parentID: string | null
-      treeID: string | null
-      forkIndex: number | null
-      forkParentSessionID: string | null
-      forkAfterUserMessageID: string | null
       summary: {
         additions: number
         deletions: number
@@ -1962,10 +1901,6 @@ export type GlobalSession = {
   workspaceID?: string
   directory: string
   parentID?: string
-  treeID?: string
-  forkIndex?: number
-  forkParentSessionID?: string
-  forkAfterUserMessageID?: string
   summary?: {
     additions: number
     deletions: number
@@ -2019,60 +1954,6 @@ export type McpResource = {
   mimeType?: string
   client: string
 }
-
-export type SessionTreeResult =
-  | {
-      kind: "tree"
-      treeID: string
-      sessions: Array<Session>
-    }
-  | {
-      kind: "legacy"
-      message: string
-    }
-
-export type SessionGraphCurrent = {
-  sessionID: string
-  pathNodeIDs: Array<string>
-  latestNodeID?: string
-  targetNodeID?: string
-}
-
-export type SessionGraphNode = {
-  id: string
-  kind: "turn" | "bud"
-  sessionID: string
-  lane: number
-  row: number
-  time: number
-  label: string
-  userMessageID?: string
-  providerID?: string
-  modelID?: string
-  mode?: string
-  origin: "tree" | "external"
-}
-
-export type SessionGraphEdge = {
-  id: string
-  from: string
-  to: string
-  kind: "continuation" | "branch" | "bud"
-  style: "solid" | "dashed"
-}
-
-export type SessionGraphResult =
-  | {
-      kind: "graph"
-      treeID: string
-      current: SessionGraphCurrent
-      nodes: Array<SessionGraphNode>
-      edges: Array<SessionGraphEdge>
-    }
-  | {
-      kind: "legacy"
-      message: string
-    }
 
 export type TextPartInput = {
   id?: string
@@ -2177,17 +2058,6 @@ export type FileNode = {
   type: "file" | "directory"
   symlinkTarget?: string
   ignored: boolean
-}
-
-export type FileMetadata = {
-  path: string
-  name: string
-  kind: "file" | "directory"
-  size: number
-  mimeType: string
-  previewKind: "text" | "image" | "pdf" | "binary" | "directory"
-  inline: boolean
-  range: boolean
 }
 
 export type FileContent = {
@@ -2397,24 +2267,6 @@ export type GlobalHealthResponses = {
 
 export type GlobalHealthResponse = GlobalHealthResponses[keyof GlobalHealthResponses]
 
-export type GlobalWebUpdateCurrentData = {
-  body?: never
-  path?: never
-  query?: never
-  url: "/global/web-update/current"
-}
-
-export type GlobalWebUpdateCurrentResponses = {
-  /**
-   * Current local web version
-   */
-  200: {
-    currentVersion: string
-  }
-}
-
-export type GlobalWebUpdateCurrentResponse = GlobalWebUpdateCurrentResponses[keyof GlobalWebUpdateCurrentResponses]
-
 export type GlobalPingData = {
   body?: {
     id: string
@@ -2534,115 +2386,6 @@ export type GlobalDisposeResponses = {
 }
 
 export type GlobalDisposeResponse = GlobalDisposeResponses[keyof GlobalDisposeResponses]
-
-export type GlobalWebUpdateCheckData = {
-  body?: never
-  path?: never
-  query?: never
-  url: "/global/web-update/check"
-}
-
-export type GlobalWebUpdateCheckErrors = {
-  /**
-   * Bad request
-   */
-  400: BadRequestError
-}
-
-export type GlobalWebUpdateCheckError = GlobalWebUpdateCheckErrors[keyof GlobalWebUpdateCheckErrors]
-
-export type GlobalWebUpdateCheckResponses = {
-  /**
-   * Version check result
-   */
-  200: {
-    currentVersion: string
-    remoteVersion: string
-    updateAvailable: boolean
-    downloaded: boolean
-    status: "available" | "downloading" | "downloaded" | "installing" | "recovery"
-    workDir: string
-    workDirFallback: boolean
-    updateError?: string
-    checkError?: string
-  }
-}
-
-export type GlobalWebUpdateCheckResponse = GlobalWebUpdateCheckResponses[keyof GlobalWebUpdateCheckResponses]
-
-export type GlobalWebUpdateDownloadData = {
-  body?: {
-    os: "darwin" | "linux" | "windows"
-    version: string
-    acceptFallback?: boolean
-    force?: boolean
-  }
-  path?: never
-  query?: never
-  url: "/global/web-update/download"
-}
-
-export type GlobalWebUpdateDownloadErrors = {
-  /**
-   * Bad request
-   */
-  400: BadRequestError
-}
-
-export type GlobalWebUpdateDownloadError = GlobalWebUpdateDownloadErrors[keyof GlobalWebUpdateDownloadErrors]
-
-export type GlobalWebUpdateDownloadResponses = {
-  /**
-   * Download result
-   */
-  200:
-    | {
-        success: true
-        path: string
-      }
-    | {
-        success: false
-        error: string
-      }
-}
-
-export type GlobalWebUpdateDownloadResponse = GlobalWebUpdateDownloadResponses[keyof GlobalWebUpdateDownloadResponses]
-
-export type GlobalWebUpdateInstallData = {
-  body?: {
-    os: "darwin" | "linux" | "windows"
-    version?: string
-    acceptFallback?: boolean
-  }
-  path?: never
-  query?: never
-  url: "/global/web-update/install"
-}
-
-export type GlobalWebUpdateInstallErrors = {
-  /**
-   * Bad request
-   */
-  400: BadRequestError
-}
-
-export type GlobalWebUpdateInstallError = GlobalWebUpdateInstallErrors[keyof GlobalWebUpdateInstallErrors]
-
-export type GlobalWebUpdateInstallResponses = {
-  /**
-   * Install result
-   */
-  200:
-    | {
-        success: true
-      }
-    | {
-        success: false
-        error: string
-      }
-}
-
-export type GlobalWebUpdateInstallResponse = GlobalWebUpdateInstallResponses[keyof GlobalWebUpdateInstallResponses]
 
 export type GlobalUpgradeData = {
   body?: {
@@ -3523,10 +3266,6 @@ export type ExperimentalSessionListData = {
      */
     limit?: number
     /**
-     * Archive filtering mode (exclude/include/only). Takes precedence over archived.
-     */
-    archivedMode?: "exclude" | "include" | "only"
-    /**
      * Include archived sessions (default false)
      */
     archived?: boolean
@@ -3807,74 +3546,6 @@ export type SessionChildrenResponses = {
 
 export type SessionChildrenResponse = SessionChildrenResponses[keyof SessionChildrenResponses]
 
-export type SessionTreeData = {
-  body?: never
-  path: {
-    sessionID: string
-  }
-  query?: {
-    directory?: string
-    workspace?: string
-  }
-  url: "/session/{sessionID}/tree"
-}
-
-export type SessionTreeErrors = {
-  /**
-   * Bad request
-   */
-  400: BadRequestError
-  /**
-   * Not found
-   */
-  404: NotFoundError
-}
-
-export type SessionTreeError = SessionTreeErrors[keyof SessionTreeErrors]
-
-export type SessionTreeResponses = {
-  /**
-   * Branch tree result
-   */
-  200: SessionTreeResult
-}
-
-export type SessionTreeResponse = SessionTreeResponses[keyof SessionTreeResponses]
-
-export type SessionGraphData = {
-  body?: never
-  path: {
-    sessionID: string
-  }
-  query?: {
-    directory?: string
-    workspace?: string
-  }
-  url: "/session/{sessionID}/graph"
-}
-
-export type SessionGraphErrors = {
-  /**
-   * Bad request
-   */
-  400: BadRequestError
-  /**
-   * Not found
-   */
-  404: NotFoundError
-}
-
-export type SessionGraphError = SessionGraphErrors[keyof SessionGraphErrors]
-
-export type SessionGraphResponses = {
-  /**
-   * Conversation graph result
-   */
-  200: SessionGraphResult
-}
-
-export type SessionGraphResponse = SessionGraphResponses[keyof SessionGraphResponses]
-
 export type SessionTodoData = {
   body?: never
   path: {
@@ -3908,74 +3579,6 @@ export type SessionTodoResponses = {
 }
 
 export type SessionTodoResponse = SessionTodoResponses[keyof SessionTodoResponses]
-
-export type SessionArchiveData = {
-  body?: never
-  path: {
-    sessionID: string
-  }
-  query?: {
-    directory?: string
-    workspace?: string
-  }
-  url: "/session/{sessionID}/archive"
-}
-
-export type SessionArchiveErrors = {
-  /**
-   * Bad request
-   */
-  400: BadRequestError
-  /**
-   * Not found
-   */
-  404: NotFoundError
-}
-
-export type SessionArchiveError = SessionArchiveErrors[keyof SessionArchiveErrors]
-
-export type SessionArchiveResponses = {
-  /**
-   * Archived session subtree root
-   */
-  200: Session
-}
-
-export type SessionArchiveResponse = SessionArchiveResponses[keyof SessionArchiveResponses]
-
-export type SessionUnarchiveData = {
-  body?: never
-  path: {
-    sessionID: string
-  }
-  query?: {
-    directory?: string
-    workspace?: string
-  }
-  url: "/session/{sessionID}/unarchive"
-}
-
-export type SessionUnarchiveErrors = {
-  /**
-   * Bad request
-   */
-  400: BadRequestError
-  /**
-   * Not found
-   */
-  404: NotFoundError
-}
-
-export type SessionUnarchiveError = SessionUnarchiveErrors[keyof SessionUnarchiveErrors]
-
-export type SessionUnarchiveResponses = {
-  /**
-   * Unarchived session subtree root
-   */
-  200: Session
-}
-
-export type SessionUnarchiveResponse = SessionUnarchiveResponses[keyof SessionUnarchiveResponses]
 
 export type SessionInitData = {
   body?: {
@@ -4707,100 +4310,6 @@ export type PermissionRespondResponses = {
 
 export type PermissionRespondResponse = PermissionRespondResponses[keyof PermissionRespondResponses]
 
-export type SessionPreferenceGetData = {
-  body?: never
-  path: {
-    sessionID: string
-  }
-  query?: {
-    directory?: string
-    workspace?: string
-  }
-  url: "/session/{sessionID}/preference"
-}
-
-export type SessionPreferenceGetErrors = {
-  /**
-   * Bad request
-   */
-  400: BadRequestError
-  /**
-   * Not found
-   */
-  404: NotFoundError
-}
-
-export type SessionPreferenceGetError = SessionPreferenceGetErrors[keyof SessionPreferenceGetErrors]
-
-export type SessionPreferenceGetResponses = {
-  /**
-   * Session preference
-   */
-  200: {
-    sessionID: string
-    agent?: string
-    model?: {
-      providerID: string
-      modelID: string
-    }
-    variant?: string
-    autoAccept?: boolean
-  } | null
-}
-
-export type SessionPreferenceGetResponse = SessionPreferenceGetResponses[keyof SessionPreferenceGetResponses]
-
-export type SessionPreferenceUpdateData = {
-  body?: {
-    agent?: string
-    model?: {
-      providerID: string
-      modelID: string
-    }
-    variant?: string
-    autoAccept?: boolean
-  }
-  path: {
-    sessionID: string
-  }
-  query?: {
-    directory?: string
-    workspace?: string
-  }
-  url: "/session/{sessionID}/preference"
-}
-
-export type SessionPreferenceUpdateErrors = {
-  /**
-   * Bad request
-   */
-  400: BadRequestError
-  /**
-   * Not found
-   */
-  404: NotFoundError
-}
-
-export type SessionPreferenceUpdateError = SessionPreferenceUpdateErrors[keyof SessionPreferenceUpdateErrors]
-
-export type SessionPreferenceUpdateResponses = {
-  /**
-   * Preference updated
-   */
-  200: {
-    sessionID: string
-    agent?: string
-    model?: {
-      providerID: string
-      modelID: string
-    }
-    variant?: string
-    autoAccept?: boolean
-  }
-}
-
-export type SessionPreferenceUpdateResponse = SessionPreferenceUpdateResponses[keyof SessionPreferenceUpdateResponses]
-
 export type PermissionReplyData = {
   body?: {
     reply: "once" | "always" | "reject"
@@ -5179,145 +4688,6 @@ export type ProviderOauthCallbackResponses = {
 
 export type ProviderOauthCallbackResponse = ProviderOauthCallbackResponses[keyof ProviderOauthCallbackResponses]
 
-export type DatabaseLegacyStatusData = {
-  body?: never
-  path?: never
-  query?: {
-    directory?: string
-    workspace?: string
-  }
-  url: "/database/legacy/status"
-}
-
-export type DatabaseLegacyStatusResponses = {
-  /**
-   * Legacy database scan status
-   */
-  200: {
-    directory: string
-    target: string
-    has_legacy: boolean
-    message: string
-    dismissed: boolean
-    should_merge: boolean
-    source_count: number
-    legacy_count: number
-    files: Array<{
-      name: string
-      path: string
-      channel: string
-      mtime: number
-    }>
-    naming: {
-      [key: string]: number
-    }
-    versions: {
-      [key: string]: number
-    }
-  }
-}
-
-export type DatabaseLegacyStatusResponse = DatabaseLegacyStatusResponses[keyof DatabaseLegacyStatusResponses]
-
-export type DatabaseLegacyMergeStateData = {
-  body?: never
-  path?: never
-  query?: {
-    directory?: string
-    workspace?: string
-  }
-  url: "/database/legacy/merge/state"
-}
-
-export type DatabaseLegacyMergeStateResponses = {
-  /**
-   * Merge state
-   */
-  200: {
-    state: "idle" | "running" | "done" | "error"
-    updated: number
-    error?: string
-    details?: Array<string>
-  }
-}
-
-export type DatabaseLegacyMergeStateResponse =
-  DatabaseLegacyMergeStateResponses[keyof DatabaseLegacyMergeStateResponses]
-
-export type DatabaseLegacyMergeStateResetData = {
-  body?: never
-  path?: never
-  query?: {
-    directory?: string
-    workspace?: string
-  }
-  url: "/database/legacy/merge/state/reset"
-}
-
-export type DatabaseLegacyMergeStateResetResponses = {
-  /**
-   * Reset merge state
-   */
-  200: {
-    state: "idle" | "running" | "done" | "error"
-    updated: number
-    error?: string
-    details?: Array<string>
-  }
-}
-
-export type DatabaseLegacyMergeStateResetResponse =
-  DatabaseLegacyMergeStateResetResponses[keyof DatabaseLegacyMergeStateResetResponses]
-
-export type DatabaseLegacyMergeData = {
-  body?: never
-  path?: never
-  query?: {
-    directory?: string
-    workspace?: string
-  }
-  url: "/database/legacy/merge"
-}
-
-export type DatabaseLegacyMergeResponses = {
-  /**
-   * Copy result
-   */
-  200: {
-    status: {
-      directory: string
-      target: string
-      has_legacy: boolean
-      message: string
-      dismissed: boolean
-      should_merge: boolean
-      source_count: number
-      legacy_count: number
-      files: Array<{
-        name: string
-        path: string
-        channel: string
-        mtime: number
-      }>
-      naming: {
-        [key: string]: number
-      }
-      versions: {
-        [key: string]: number
-      }
-    }
-    mode: "noop" | "copy"
-    merge_state: {
-      state: "idle" | "running" | "done" | "error"
-      updated: number
-      error?: string
-      details?: Array<string>
-    }
-  }
-}
-
-export type DatabaseLegacyMergeResponse = DatabaseLegacyMergeResponses[keyof DatabaseLegacyMergeResponses]
-
 export type FileActiveTasksData = {
   body?: never
   path?: never
@@ -5570,39 +4940,6 @@ export type FileCreateResponses = {
 
 export type FileCreateResponse = FileCreateResponses[keyof FileCreateResponses]
 
-export type FileMetadataData = {
-  body?: never
-  path?: never
-  query: {
-    directory?: string
-    workspace?: string
-    path: string
-  }
-  url: "/file/metadata"
-}
-
-export type FileMetadataErrors = {
-  /**
-   * Bad request
-   */
-  400: BadRequestError
-  /**
-   * Not found
-   */
-  404: NotFoundError
-}
-
-export type FileMetadataError = FileMetadataErrors[keyof FileMetadataErrors]
-
-export type FileMetadataResponses = {
-  /**
-   * File metadata
-   */
-  200: FileMetadata
-}
-
-export type FileMetadataResponse = FileMetadataResponses[keyof FileMetadataResponses]
-
 export type FileReadData = {
   body?: never
   path?: never
@@ -5732,39 +5069,6 @@ export type FileUploadResponses = {
 }
 
 export type FileUploadResponse = FileUploadResponses[keyof FileUploadResponses]
-
-export type FileEnsureDirectoryData = {
-  body?: {
-    path: string
-  }
-  path?: never
-  query?: {
-    directory?: string
-    workspace?: string
-  }
-  url: "/file/ensure-directory"
-}
-
-export type FileEnsureDirectoryErrors = {
-  /**
-   * Bad request
-   */
-  400: BadRequestError
-}
-
-export type FileEnsureDirectoryError = FileEnsureDirectoryErrors[keyof FileEnsureDirectoryErrors]
-
-export type FileEnsureDirectoryResponses = {
-  /**
-   * Directory ensured
-   */
-  200: {
-    ok: boolean
-    path: string
-  }
-}
-
-export type FileEnsureDirectoryResponse = FileEnsureDirectoryResponses[keyof FileEnsureDirectoryResponses]
 
 export type FileSummarizeData = {
   body?: {
@@ -6101,10 +5405,6 @@ export type FileRawErrors = {
    * Not found
    */
   404: NotFoundError
-  /**
-   * Invalid range
-   */
-  416: unknown
 }
 
 export type FileRawError = FileRawErrors[keyof FileRawErrors]
@@ -6114,10 +5414,6 @@ export type FileRawResponses = {
    * File content
    */
   200: unknown
-  /**
-   * Partial file content
-   */
-  206: unknown
 }
 
 export type FileTranslateMarkdownCheckData = {
@@ -7472,28 +6768,6 @@ export type WechatStopResponses = {
 
 export type WechatStopResponse = WechatStopResponses[keyof WechatStopResponses]
 
-export type WechatPingData = {
-  body?: never
-  path?: never
-  query?: {
-    directory?: string
-    workspace?: string
-  }
-  url: "/wechat/ping"
-}
-
-export type WechatPingResponses = {
-  /**
-   * Ping result
-   */
-  200: {
-    ok: boolean
-    stolen: boolean
-  }
-}
-
-export type WechatPingResponse = WechatPingResponses[keyof WechatPingResponses]
-
 export type WechatStatusData = {
   body?: never
   path?: never
@@ -7562,117 +6836,6 @@ export type WechatSessionClearResponses = {
 
 export type WechatSessionClearResponse = WechatSessionClearResponses[keyof WechatSessionClearResponses]
 
-export type FeishuStartData = {
-  body?: never
-  path?: never
-  query?: {
-    directory?: string
-    workspace?: string
-  }
-  url: "/feishu/start"
-}
-
-export type FeishuStartResponses = {
-  /**
-   * Bridge started
-   */
-  200: {
-    success: boolean
-    code?: string
-    message?: string
-    status?: string
-    appId?: string
-  }
-}
-
-export type FeishuStartResponse = FeishuStartResponses[keyof FeishuStartResponses]
-
-export type FeishuStopData = {
-  body?: never
-  path?: never
-  query?: {
-    directory?: string
-    workspace?: string
-  }
-  url: "/feishu/stop"
-}
-
-export type FeishuStopResponses = {
-  /**
-   * Bridge stopped
-   */
-  200: {
-    success: boolean
-  }
-}
-
-export type FeishuStopResponse = FeishuStopResponses[keyof FeishuStopResponses]
-
-export type FeishuStatusData = {
-  body?: never
-  path?: never
-  query?: {
-    directory?: string
-    workspace?: string
-  }
-  url: "/feishu/status"
-}
-
-export type FeishuStatusResponses = {
-  /**
-   * Status
-   */
-  200: {
-    status: "idle" | "starting" | "connected" | "reconnecting" | "error"
-    appId: string | null
-    hasConfig: boolean
-    error: {
-      code: string
-      message: string
-    } | null
-  }
-}
-
-export type FeishuStatusResponse = FeishuStatusResponses[keyof FeishuStatusResponses]
-
-export type FeishuEventsData = {
-  body?: never
-  path?: never
-  query?: {
-    directory?: string
-    workspace?: string
-  }
-  url: "/feishu/events"
-}
-
-export type FeishuEventsResponses = {
-  /**
-   * Event stream
-   */
-  200: unknown
-}
-
-export type FeishuSessionClearData = {
-  body?: never
-  path?: never
-  query?: {
-    directory?: string
-    workspace?: string
-  }
-  url: "/feishu/session"
-}
-
-export type FeishuSessionClearResponses = {
-  /**
-   * Session cleared
-   */
-  200: {
-    success: boolean
-  }
-}
-
-export type FeishuSessionClearResponse = FeishuSessionClearResponses[keyof FeishuSessionClearResponses]
-
 export type ReadingModeSessionCreateData = {
   body?: never
   path?: never
@@ -7701,129 +6864,6 @@ export type ReadingModeSessionCreateResponses = {
 
 export type ReadingModeSessionCreateResponse =
   ReadingModeSessionCreateResponses[keyof ReadingModeSessionCreateResponses]
-
-export type ReadingModeSessionFromFileData = {
-  body?: {
-    path: string
-    settings?: {
-      translatePrompt?: string
-      questionPrompt?: string
-      firstReadPrompt?: string
-      contextPageRange?: 0 | 1 | 2
-      autoFirstRead?: boolean
-    }
-    forceNew?: boolean
-  }
-  path?: never
-  query?: {
-    directory?: string
-    workspace?: string
-  }
-  url: "/reading-mode/session/from-file"
-}
-
-export type ReadingModeSessionFromFileErrors = {
-  /**
-   * Bad request
-   */
-  400: BadRequestError
-  /**
-   * Not found
-   */
-  404: NotFoundError
-}
-
-export type ReadingModeSessionFromFileError = ReadingModeSessionFromFileErrors[keyof ReadingModeSessionFromFileErrors]
-
-export type ReadingModeSessionFromFileResponses = {
-  /**
-   * Existing or newly created reading mode session
-   */
-  200: {
-    action: "existing" | "created"
-    session: Session
-  }
-}
-
-export type ReadingModeSessionFromFileResponse =
-  ReadingModeSessionFromFileResponses[keyof ReadingModeSessionFromFileResponses]
-
-export type ReadingModePageTextData = {
-  body?: {
-    sessionID: string
-    startPage: number
-    endPage: number
-  }
-  path?: never
-  query?: {
-    directory?: string
-    workspace?: string
-  }
-  url: "/reading-mode/page-text"
-}
-
-export type ReadingModePageTextErrors = {
-  /**
-   * Bad request
-   */
-  400: BadRequestError
-  /**
-   * Not found
-   */
-  404: NotFoundError
-}
-
-export type ReadingModePageTextError = ReadingModePageTextErrors[keyof ReadingModePageTextErrors]
-
-export type ReadingModePageTextResponses = {
-  /**
-   * Extracted page text
-   */
-  200: {
-    pageCount: number
-    pages: Array<{
-      pageNumber: number
-      text: string
-    }>
-    combinedText: string
-  }
-}
-
-export type ReadingModePageTextResponse = ReadingModePageTextResponses[keyof ReadingModePageTextResponses]
-
-export type ReadingModePagePdfData = {
-  body?: {
-    sessionID: string
-    startPage: number
-    endPage: number
-  }
-  path?: never
-  query?: {
-    directory?: string
-    workspace?: string
-  }
-  url: "/reading-mode/page-pdf"
-}
-
-export type ReadingModePagePdfErrors = {
-  /**
-   * Bad request
-   */
-  400: BadRequestError
-  /**
-   * Not found
-   */
-  404: NotFoundError
-}
-
-export type ReadingModePagePdfError = ReadingModePagePdfErrors[keyof ReadingModePagePdfErrors]
-
-export type ReadingModePagePdfResponses = {
-  /**
-   * PDF binary for the requested page range
-   */
-  200: unknown
-}
 
 export type ReadingModeAnnotationsGetData = {
   body?: never

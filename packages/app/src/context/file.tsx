@@ -50,78 +50,6 @@ function errorMessage(error: unknown, fallback: string) {
   return fallback
 }
 
-const image = new Set([
-  "png",
-  "jpg",
-  "jpeg",
-  "gif",
-  "bmp",
-  "webp",
-  "ico",
-  "tif",
-  "tiff",
-  "svg",
-  "svgz",
-  "avif",
-  "apng",
-  "jxl",
-  "heic",
-  "heif",
-  "raw",
-  "cr2",
-  "nef",
-  "arw",
-  "dng",
-  "orf",
-  "raf",
-  "pef",
-  "x3f",
-])
-
-const binary = new Set([
-  "pdf",
-  "exe",
-  "dll",
-  "pdb",
-  "bin",
-  "so",
-  "dylib",
-  "wav",
-  "mp3",
-  "ogg",
-  "flac",
-  "aac",
-  "m4a",
-  "mp4",
-  "avi",
-  "mov",
-  "webm",
-  "mkv",
-  "zip",
-  "tar",
-  "gz",
-  "bz2",
-  "7z",
-  "rar",
-  "xz",
-  "ttf",
-  "otf",
-  "woff",
-  "woff2",
-  "db",
-  "sqlite",
-  "wasm",
-])
-
-const preview = (file: string) => {
-  const ext = file.split(".").pop()?.toLowerCase() ?? ""
-  if (!ext) return "text" as const
-  if (ext === "pdf") return "pdf" as const
-  if (image.has(ext)) return "image" as const
-  if (binary.has(ext)) return "binary" as const
-  return "text" as const
-}
-
 export const { use: useFile, provider: FileProvider } = createSimpleContext({
   name: "File",
   gate: false,
@@ -316,15 +244,14 @@ export const { use: useFile, provider: FileProvider } = createSimpleContext({
       )
     }
 
-    const setLoaded = (file: string, next: { content?: FileState["content"]; metadata?: FileState["metadata"] }) => {
+    const setLoaded = (file: string, content: FileState["content"]) => {
       setStore(
         "file",
         file,
         produce((draft) => {
           draft.loaded = true
           draft.loading = false
-          draft.content = next.content
-          draft.metadata = next.metadata
+          draft.content = content
         }),
       )
     }
@@ -361,15 +288,15 @@ export const { use: useFile, provider: FileProvider } = createSimpleContext({
 
       setLoading(file)
 
-      const promise = (preview(file) === "text"
-        ? sdk.client.file.read({ path: file }).then((x) => ({ content: x.data }))
-        : sdk.client.file.metadata({ path: file }).then((x) => ({ metadata: x.data })))
-        .then((next) => {
+      const promise = sdk.client.file
+        .read({ path: file })
+        .then((x) => {
           if (scope() !== directory) return
-          setLoaded(file, next)
+          const content = x.data
+          setLoaded(file, content)
 
-          if (!("content" in next) || !next.content) return
-          touchFileContent(file, approxBytes(next.content))
+          if (!content) return
+          touchFileContent(file, approxBytes(content))
           evictContent(new Set([file]))
         })
         .catch((e) => {

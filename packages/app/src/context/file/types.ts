@@ -1,4 +1,4 @@
-import type { FileContent, FileMetadata } from "@opencode-ai/sdk/v2"
+import type { FileContent } from "@opencode-ai/sdk/v2"
 
 export type FileSelection = {
   startLine: number
@@ -30,7 +30,6 @@ export type FileState = {
   loaded?: boolean
   loading?: boolean
   error?: string
-  metadata?: FileMetadata
   content?: FileContent
 }
 
