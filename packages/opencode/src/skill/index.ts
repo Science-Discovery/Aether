@@ -1,7 +1,6 @@
 import fs from "fs/promises"
 import os from "os"
 import path from "path"
-import { pathToFileURL } from "url"
 import z from "zod"
 import { Effect, Layer, ServiceMap } from "effect"
 import { NamedError } from "@opencode-ai/util/error"
@@ -453,7 +452,6 @@ export namespace Skill {
           "  <skill>",
           `    <name>${skill.name}</name>`,
           `    <description>${skill.description}</description>`,
-          `    <location>${pathToFileURL(skill.location).href}</location>`,
           "  </skill>",
         ]),
         "</available_skills>",
