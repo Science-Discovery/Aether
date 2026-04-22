@@ -5,7 +5,7 @@ import { Popover } from "@opencode-ai/ui/popover"
 import { Switch } from "@opencode-ai/ui/switch"
 import { Tabs } from "@opencode-ai/ui/tabs"
 import { useMutation } from "@tanstack/solid-query"
-import { showPromiseToast, showToast } from "@opencode-ai/ui/toast"
+import { showToast, toaster } from "@opencode-ai/ui/toast"
 import { useNavigate } from "@solidjs/router"
 import { type Accessor, createEffect, createMemo, createSignal, For, type JSXElement, onCleanup, Show } from "solid-js"
 import { createStore, reconcile } from "solid-js/store"
@@ -13,7 +13,7 @@ import { ServerHealthIndicator, ServerRow } from "@/components/server/server-row
 import { useLanguage } from "@/context/language"
 import { usePlatform } from "@/context/platform"
 import { useSDK } from "@/context/sdk"
-import { normalizeServerUrl, ServerConnection, useServer } from "@/context/server"
+import { normalizeServerUrl, ServerConnection, serverName, useServer } from "@/context/server"
 import { useSync } from "@/context/sync"
 import { remoteHref } from "@/pages/layout/remote-landing"
 import { bootstrapSsh } from "@/utils/remote-ssh"
@@ -21,12 +21,33 @@ import { splitServers, sortServers } from "@/utils/server-list"
 import { useCheckServerHealth, type ServerHealth } from "@/utils/server-health"
 
 const pollMs = 10_000
+const waitMs = 300
 
 function showSshToast(promise: Promise<Awaited<ReturnType<typeof bootstrapSsh>>>, host: string) {
-  return showPromiseToast(promise, {
-    loading: <span>正在连接 {host}，并准备远端服务…</span>,
-    success: (data) => <span>已连接 {host}，远端版本 {data.version.chosen} 已就绪。</span>,
-    error: (err) => <span>{err instanceof Error ? err.message : String(err)}</span>,
+  let done = false
+  let id: number | undefined
+  const timer = setTimeout(() => {
+    if (done) return
+    id = showToast({
+      variant: "loading",
+      title: "正在启动远端后端",
+      description: `正在切换到 ${host}，请稍候。`,
+      persistent: true,
+    })
+  }, waitMs)
+  const clear = () => {
+    done = true
+    clearTimeout(timer)
+    if (id !== undefined) toaster.dismiss(id)
+  }
+  promise.then(clear, clear)
+}
+
+function switchToast(conn: ServerConnection.Any) {
+  showToast({
+    variant: "success",
+    title: "已切换后端服务器",
+    description: `当前使用 ${serverName(conn)}`,
   })
 }
 
@@ -190,9 +211,14 @@ export function StatusPopover() {
   })
 
   async function activate(conn: ServerConnection.Any) {
+    const key = ServerConnection.key(conn)
+    if (key === server.key) return
     if (conn.type !== "ssh") {
       navigate("/")
-      queueMicrotask(() => server.setActive(ServerConnection.key(conn)))
+      queueMicrotask(() => {
+        server.setActive(key)
+        switchToast(conn)
+      })
       return
     }
     const current = server.current?.http
@@ -225,6 +251,7 @@ export function StatusPopover() {
       owner: current,
       http: next.endpoint,
     })
+    switchToast(conn)
     server.projects.open(next.landing.rootDirectory)
     server.projects.touch(next.landing.directory)
     navigate(remoteHref(next.landing))

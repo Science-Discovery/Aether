@@ -30,6 +30,17 @@ const handoff = new Map<string, State>()
 
 const handoffKey = (dir: string, id: string) => `${dir}\n${id}`
 
+const payload = (state: State) => {
+  const body: Record<string, unknown> = {}
+  if (state.agent) body.agent = state.agent
+  if (state.model) body.model = state.model
+  if (state.variant !== undefined) body.variant = state.variant ?? null
+  if (state.autoAccept !== undefined) body.autoAccept = state.autoAccept
+  return body
+}
+
+const hash = (state: State) => JSON.stringify(payload(state))
+
 const migrate = (value: unknown) => {
   if (!value || typeof value !== "object") return { session: {} }
 
@@ -174,6 +185,7 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
     }
 
     const fallback = createMemo<ModelKey | undefined>(() => configuredModel() ?? recentModel() ?? defaultModel())
+    const synced = new Map<string, string>()
 
     const agent = {
       list,
@@ -275,17 +287,22 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
 
     const syncPreferenceToServer = (session: string, state: State) => {
       if (!sdk.client.session.preference) return
-      const body: Record<string, unknown> = {}
-      if (state.agent) body.agent = state.agent
-      if (state.model) body.model = state.model
-      if (state.variant !== undefined) body.variant = state.variant ?? null
-      if (state.autoAccept !== undefined) body.autoAccept = state.autoAccept
-      sdk.client.session.preference.update({ sessionID: session, ...body }).catch(() => {})
+      const key = hash(state)
+      if (synced.get(session) === key) return
+      synced.set(session, key)
+      sdk.client.session.preference.update({ sessionID: session, ...payload(state) }).catch(() => {
+        if (synced.get(session) === key) synced.delete(session)
+      })
     }
 
     createEffect(() => {
       const session = id()
       if (!session) return
+      const local = saved.session[session]
+      if (local) {
+        syncPreferenceToServer(session, local)
+        return
+      }
       if (saved.session[session] !== undefined) return
       sdk.client.session.preference
         .get({ sessionID: session })
@@ -301,6 +318,7 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
           if (serverPref.variant !== undefined) state.variant = serverPref.variant ?? null
           if (serverPref.autoAccept !== undefined) state.autoAccept = serverPref.autoAccept
           if (Object.keys(state).length > 0) {
+            synced.set(session, hash(state))
             setSaved("session", session, state)
           }
         })
@@ -340,6 +358,7 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
           if (sm === pm || (sm && pm && sm.providerID === pm.providerID && sm.modelID === pm.modelID)) return
         }
         if (Object.keys(state).length > 0) {
+          synced.set(session, hash({ ...(saved.session[session] ?? {}), ...state }))
           setSaved("session", session, { ...(saved.session[session] ?? {}), ...state })
         }
       })

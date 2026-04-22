@@ -7,14 +7,14 @@ import { IconButton } from "@opencode-ai/ui/icon-button"
 import { List } from "@opencode-ai/ui/list"
 import { TextField } from "@opencode-ai/ui/text-field"
 import { useMutation } from "@tanstack/solid-query"
-import { showPromiseToast, showToast } from "@opencode-ai/ui/toast"
+import { showToast, toaster } from "@opencode-ai/ui/toast"
 import { useNavigate } from "@solidjs/router"
 import { batch, createEffect, createMemo, createResource, onCleanup, Show } from "solid-js"
 import { createStore, reconcile } from "solid-js/store"
 import { ServerHealthIndicator, ServerRow } from "@/components/server/server-row"
 import { useLanguage } from "@/context/language"
 import { usePlatform } from "@/context/platform"
-import { normalizeServerUrl, ServerConnection, useServer } from "@/context/server"
+import { normalizeServerUrl, ServerConnection, serverName, useServer } from "@/context/server"
 import { remoteHref } from "@/pages/layout/remote-landing"
 import { type ServerHealth, useCheckServerHealth } from "@/utils/server-health"
 import { serverGroups, serverGroup, sortServers } from "@/utils/server-list"
@@ -22,12 +22,33 @@ import { bootstrapSsh } from "@/utils/remote-ssh"
 
 const DEFAULT_USERNAME = "opencode"
 const DEFAULT_INSTALL_DIR = "~/.opencode/bin"
+const WAIT_MS = 700
 
 function showSshToast(promise: Promise<Awaited<ReturnType<typeof bootstrapSsh>>>, host: string) {
-  return showPromiseToast(promise, {
-    loading: <span>正在连接 {host}，并准备远端服务…</span>,
-    success: (data) => <span>已连接 {host}，远端版本 {data.version.chosen} 已就绪。</span>,
-    error: (err) => <span>{err instanceof Error ? err.message : String(err)}</span>,
+  let done = false
+  let id: number | undefined
+  const timer = setTimeout(() => {
+    if (done) return
+    id = showToast({
+      variant: "loading",
+      title: "正在启动远端后端",
+      description: `正在切换到 ${host}，请稍候。`,
+      persistent: true,
+    })
+  }, WAIT_MS)
+  const clear = () => {
+    done = true
+    clearTimeout(timer)
+    if (id !== undefined) toaster.dismiss(id)
+  }
+  promise.then(clear, clear)
+}
+
+function switchToast(conn: ServerConnection.Any) {
+  showToast({
+    variant: "success",
+    title: "已切换后端服务器",
+    description: `当前使用 ${serverName(conn)}`,
   })
 }
 
@@ -417,7 +438,9 @@ export function DialogSelectServer() {
   })
 
   async function select(conn: ServerConnection.Any, persist?: boolean) {
-    if (!persist && conn.type !== "ssh" && store.status[ServerConnection.key(conn)]?.healthy === false) return
+    const key = ServerConnection.key(conn)
+    if (!persist && key === server.key) return
+    if (!persist && conn.type !== "ssh" && store.status[key]?.healthy === false) return
     if (conn.type === "ssh") {
       const current = server.current?.http
       if (!current?.url) {
@@ -456,17 +479,22 @@ export function DialogSelectServer() {
         server.projects.open(next.landing.rootDirectory)
         server.projects.touch(next.landing.directory)
       })
+      switchToast(saved)
       navigate(remoteHref(next.landing))
       return
     }
     dialog.close()
     if (persist && conn.type === "http") {
       server.upsert(conn)
+      switchToast(conn)
       navigate("/")
       return
     }
     navigate("/")
-    queueMicrotask(() => server.setActive(ServerConnection.key(conn)))
+    queueMicrotask(() => {
+      server.setActive(key)
+      switchToast(conn)
+    })
   }
 
   const handleAddChange = (value: string) => {

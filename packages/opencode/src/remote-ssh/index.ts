@@ -1,5 +1,7 @@
 import { Process } from "@/util/process"
 import { Installation } from "@/installation"
+import { Bus } from "@/bus"
+import { TuiEvent } from "@/cli/cmd/tui/event"
 import { randomUUID } from "node:crypto"
 import { createServer } from "node:net"
 import { setTimeout as sleep } from "node:timers/promises"
@@ -80,6 +82,17 @@ function line(list: string[], value: string) {
   if (!text) return
   list.push(text)
   if (list.length > MAX_LOG) list.splice(0, list.length - MAX_LOG)
+}
+
+function toast(logs: string[], message: string, variant: "info" | "success" | "warning" | "error" = "info") {
+  void Bus.publish(TuiEvent.ToastShow, {
+    title: "Remote SSH",
+    message,
+    variant,
+    duration: 8000,
+  }).catch((err) => {
+    line(logs, `failed to show toast: ${err instanceof Error ? err.message : String(err)}`)
+  })
 }
 
 function shell(value: string) {
@@ -462,9 +475,11 @@ export async function disconnect(savedHostID: string) {
 async function boot(input: z.infer<typeof BootstrapInput>) {
   const logs: string[] = []
   line(logs, `bootstrap start for ${input.savedHostID}`)
+  toast(logs, `Connecting to ${input.host}`)
   const argv = parse(input.command)
   const want = Installation.isLocal() ? "" : Installation.VERSION
   const meta = await probe(argv, logs)
+  toast(logs, "SSH connection established")
   const local = await port()
   const dir = installDir(meta.home, input.installDir)
   const runtimeID = randomUUID()
@@ -473,6 +488,7 @@ async function boot(input: z.infer<typeof BootstrapInput>) {
   line(logs, `installed remote versions: ${list.length ? list.join(", ") : "none"}`)
   if (!list.length) {
     line(logs, "no remote backend found, installing latest backend")
+    toast(logs, "No remote backend found; downloading installer")
     await remoteShell(
       argv,
       [
@@ -481,12 +497,22 @@ async function boot(input: z.infer<typeof BootstrapInput>) {
         "mkdir -p \"$(dirname \"$tmp\")\"",
         `curl -fsSL ${shell(INSTALLER)} -o \"$tmp\"`,
         "chmod +x \"$tmp\"",
+      ].join("\n"),
+      logs,
+    )
+    toast(logs, "Installer downloaded; installing remote backend")
+    await remoteShell(
+      argv,
+      [
+        "set -eu",
+        `tmp=${shell(`${dir}/aether_linux_installer.sh`)}`,
         "\"$tmp\"",
       ].join("\n"),
       logs,
     )
     list = await vers(argv, meta.home, logs)
     line(logs, `installed remote versions after install: ${list.length ? list.join(", ") : "none"}`)
+    toast(logs, "Remote backend installation finished", "success")
   }
   const ver = pick(want, list)
   if (!ver.chosen) throw new Error("Remote backend is missing after install")
@@ -525,6 +551,7 @@ async function boot(input: z.infer<typeof BootstrapInput>) {
   hook()
   runs.set(input.savedHostID, run)
   watch(run)
+  toast(logs, "Remote backend starting")
   const stop = Date.now() + BOOT_MS
   while (Date.now() < stop) {
     await sleep(500)
@@ -536,6 +563,7 @@ async function boot(input: z.infer<typeof BootstrapInput>) {
     run.status = "ready"
     run.landing = await info(url, logs)
     startPing(run)
+    toast(logs, "Remote backend is ready", "success")
     return BootstrapOutput.parse({
       savedHostID: input.savedHostID,
       runtimeID,
@@ -561,7 +589,9 @@ export async function bootstrap(input: z.infer<typeof BootstrapInput>) {
       const run = runs.get(input.savedHostID)
       const logs = run?.logs ?? []
       const msg = err instanceof Error ? err.message : String(err)
+      const text = msg.split(/\r?\n/)[0]?.slice(0, 180) || "unknown error"
       line(logs, msg)
+      toast(logs, `Remote SSH setup failed: ${text}`, "error")
       await cleanup(input.savedHostID)
       throw new Error([msg, ...logs].join("\n"))
     })
