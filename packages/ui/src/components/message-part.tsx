@@ -2381,6 +2381,30 @@ ToolRegistry.register({
   },
 })
 
+ToolRegistry.register({
+  name: "skill_manage",
+  render(props) {
+    const action = createMemo(() => props.input.action || "")
+    const name = createMemo(() => props.input.name || "skill_manage")
+    const running = createMemo(() => props.status === "pending" || props.status === "running")
+
+    const title = createMemo(() => (action() ? `${action()}: ${name()}` : name()))
+    const titleContent = () => <TextShimmer text={title()} active={running()} />
+
+    const trigger = () => (
+      <div data-slot="basic-tool-tool-info-structured">
+        <div data-slot="basic-tool-tool-info-main">
+          <span data-slot="basic-tool-tool-title" class="capitalize agent-title">
+            {titleContent()}
+          </span>
+        </div>
+      </div>
+    )
+
+    return <BasicTool icon="brain" status={props.status} trigger={trigger()} hideDetails />
+  },
+})
+
 // Knowledge search tool - displays sources as clickable links
 ToolRegistry.register({
   name: "knowledge_search",

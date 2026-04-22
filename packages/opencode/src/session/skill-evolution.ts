@@ -99,19 +99,17 @@ export async function spawnBackgroundReview(input: {
       parts: [{ type: "text", text: reviewPrompt }],
     })
 
-    console.log(`[skill review] prompt completed, scanning for skill_manage calls...`)
-
     // mirrors Hermes: scan child session messages for successful skill_manage calls
     const childMessages = await MessageV2.filterCompacted(MessageV2.stream(childSession.id))
     const actions: string[] = []
+    let reviewText = ""
     for (const msg of childMessages) {
       for (const part of msg.parts) {
         if (part.type === "text" && !("synthetic" in part && part.synthetic)) {
-          console.log(`[skill review] agent text: ${(part as MessageV2.TextPart).text}`)
+          reviewText = (part as MessageV2.TextPart).text.trim()
         }
         if (part.type !== "tool") continue
         const toolPart = part as MessageV2.ToolPart
-        console.log(`[skill review] tool call: ${toolPart.tool} status=${toolPart.state.status}`)
         if (toolPart.tool !== "skill_manage") continue
         if (toolPart.state.status !== "completed") continue
         const out = toolPart.state.output
@@ -122,11 +120,12 @@ export async function spawnBackgroundReview(input: {
     }
 
     if (actions.length > 0) {
-      console.log(`[skill review] saved skills: ${actions.join(", ")}`)
+      console.log(`[skill review] ${reviewText || ""}`)
+      console.log(`[skill review] 💾 ${actions.join(", ")}`)
       await Bus.publish(Event.SkillSaved, { sessionID, actions })
       log.info("skill review saved", { actions })
     } else {
-      console.log(`[skill review] nothing to save`)
+      console.log(`[skill review] ${reviewText || "nothing to save"}`)
     }
   } catch (err) {
     console.log(`[skill review] error: ${err}`)

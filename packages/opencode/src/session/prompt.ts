@@ -710,6 +710,8 @@ export namespace SessionPrompt {
 
       // Build system prompt, adding structured output instruction if needed
       const skills = await SystemPrompt.skills(agent, new Set(Object.keys(tools)), new Set())
+      const _skillNames = skills ? [...skills.matchAll(/<name>(.*?)<\/name>/g)].map((m) => m[1]) : []
+      console.log(`[skills] ${_skillNames.length > 0 ? _skillNames.join(", ") : "(none)"}`)
       const system = [
         ...(await SystemPrompt.environment(model)),
         ...(skills ? [skills] : []),
