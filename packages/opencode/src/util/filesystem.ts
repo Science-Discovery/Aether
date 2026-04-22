@@ -117,17 +117,20 @@ export namespace Filesystem {
   // Also resolves symlinks so that callers using the result as a cache key
   // always get the same canonical path for a given physical directory.
   export function resolve(p: string): string {
+    if (process.platform === "win32" && /^[/\\]{2}[^/\\]/.test(p)) return normalizePath(pathResolve(p))
     // Foreign paths are returned as-is so callers get a non-existent path and
     // fail gracefully, rather than mangling into a platform-relative path.
     // Linux/WSL: Windows drive-letter paths are not valid.
     if (process.platform !== "win32" && /^[a-zA-Z]:[/\\]/.test(p)) return p
     // Windows: Unix absolute paths that don't encode a Windows drive are not valid.
     if (process.platform === "win32" && p.startsWith("/") && windowsPath(p) === p) return p
-    const resolved = pathResolve(windowsPath(p))
+    const win = windowsPath(p)
+    const converted = process.platform === "win32" && p.startsWith("/") && win !== p
+    const resolved = pathResolve(win)
     try {
       return normalizePath(realpathSync(resolved))
     } catch (e) {
-      if (isEnoent(e)) return normalizePath(resolved)
+      if (isEnoent(e)) return converted ? p : normalizePath(resolved)
       throw e
     }
   }
@@ -138,7 +141,9 @@ export namespace Filesystem {
       p
         .replace(/^\/([a-zA-Z]):(?:[\\/]|$)/, (_, drive) => `${drive.toUpperCase()}:/`)
         // Git Bash for Windows paths are typically /<drive>/...
-        .replace(/^\/([a-zA-Z])(?:\/|$)/, (_, drive) => `${drive.toUpperCase()}:/`)
+        .replace(/^\/([a-zA-Z])(?:\/|$)/, (all, drive) =>
+          existsSync(`${drive.toUpperCase()}:/`) ? `${drive.toUpperCase()}:/` : all,
+        )
         // Cygwin git paths are typically /cygdrive/<drive>/...
         .replace(/^\/cygdrive\/([a-zA-Z])(?:\/|$)/, (_, drive) => `${drive.toUpperCase()}:/`)
         // WSL paths are typically /mnt/<drive>/...

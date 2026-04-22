@@ -442,6 +442,17 @@ describe("filesystem", () => {
   })
 
   describe("resolve()", () => {
+    test("returns foreign Unix absolute paths unchanged on Windows", () => {
+      if (process.platform !== "win32") return
+      expect(Filesystem.resolve("/usr/bin")).toBe("/usr/bin")
+    })
+
+    test("resolves UNC-like paths on Windows", () => {
+      if (process.platform !== "win32") return
+      const p = "//server/share/folder"
+      expect(Filesystem.resolve(p)).toBe(Filesystem.normalizePath(path.resolve(p)))
+    })
+
     test("resolves slash-prefixed drive paths on Windows", async () => {
       if (process.platform !== "win32") return
       await using tmp = await tmpdir()
@@ -463,6 +474,16 @@ describe("filesystem", () => {
       const drive = tmp.path[0].toLowerCase()
       const rest = tmp.path.slice(2).replaceAll("\\", "/")
       expect(Filesystem.resolve(`/${drive}${rest}`)).toBe(Filesystem.normalizePath(tmp.path))
+    })
+
+    test("returns slash-drive path unchanged when target does not exist on Windows", async () => {
+      if (process.platform !== "win32") return
+      await using tmp = await tmpdir()
+      const drive = tmp.path[0].toLowerCase()
+      const miss = `${tmp.path}\\does-not-exist-${Date.now()}`
+      const rest = miss.slice(2).replaceAll("\\", "/")
+      const p = `/${drive}${rest}`
+      expect(Filesystem.resolve(p)).toBe(p)
     })
 
     test("resolves Git Bash and MSYS2 drive roots on Windows", async () => {
