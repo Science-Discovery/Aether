@@ -11,9 +11,10 @@ import { useServer } from "@/context/server"
 import { useProviders } from "@/hooks/use-providers"
 import {
   inferKnowledgeProviderID,
-  labelEmbeddingModel,
+  labelResolvedEmbeddingModel,
   labelProvider,
-  listEmbeddingModels,
+  type ProviderConnection,
+  type ResolvedEmbeddingModel,
   toEmbeddingProvider,
 } from "@/utils/knowledge-embedding"
 import { DialogSelectDirectory } from "./dialog-select-directory"
@@ -34,7 +35,9 @@ export const KnowledgeDialog: Component = () => {
   const [editModel, setEditModel] = createSignal("")
   const [editApiKey, setEditApiKey] = createSignal("")
   const [editBaseURL, setEditBaseURL] = createSignal("")
+  const [editProviderType, setEditProviderType] = createSignal<"openai" | "local" | "custom">("local")
   const [editModelOptions, setEditModelOptions] = createSignal<string[]>([])
+  const [editResolvedModels, setEditResolvedModels] = createSignal<ResolvedEmbeddingModel[]>([])
   const [editLoadingModels, setEditLoadingModels] = createSignal(false)
   const [useManualEditModel, setUseManualEditModel] = createSignal(false)
   const [addPath, setAddPath] = createSignal("")
@@ -57,8 +60,10 @@ export const KnowledgeDialog: Component = () => {
   const [newModel, setNewModel] = createSignal("")
   const [newApiKey, setNewApiKey] = createSignal("")
   const [newBaseURL, setNewBaseURL] = createSignal("")
+  const [addProviderType, setAddProviderType] = createSignal<"openai" | "local" | "custom">("local")
 
   const [embeddingModelOptions, setEmbeddingModelOptions] = createSignal<string[]>([])
+  const [addResolvedModels, setAddResolvedModels] = createSignal<ResolvedEmbeddingModel[]>([])
   const [loadingModels, setLoadingModels] = createSignal(false)
   const [useManualModel, setUseManualModel] = createSignal(false)
   let addRun = 0
@@ -77,24 +82,23 @@ export const KnowledgeDialog: Component = () => {
       headers: { "Content-Type": "application/json", ...authHeader },
     })
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
-    return resp.json() as Promise<{ apiKey: string; baseURL: string; embeddingModels: string[] }>
+    return resp.json() as Promise<ProviderConnection>
   }
 
-  const setAddModels = (id: string, extra: string[] = [], pick?: string) => {
-    const list = Array.from(
-      new Set([
-        ...listEmbeddingModels(
-          id,
-          connected(),
-          knowledge.models(),
-        ),
-        ...extra,
-      ]),
-    )
-    setEmbeddingModelOptions(list)
+  const setAddModels = (id: string, extra: ResolvedEmbeddingModel[] = [], pick?: string) => {
+    const list =
+      id === "local"
+        ? knowledge
+            .models()
+            .filter((item) => item.provider === "local")
+            .map((item) => item.id)
+        : Array.from(new Set(extra.map((item) => item.id)))
+    const next = pick && !list.includes(pick) ? [pick, ...list] : list
+    setAddResolvedModels(extra)
+    setEmbeddingModelOptions(next)
 
     if (pick) {
-      if (list.includes(pick)) {
+      if (next.includes(pick)) {
         setUseManualModel(false)
         setNewModel(pick)
         return
@@ -104,9 +108,9 @@ export const KnowledgeDialog: Component = () => {
       return
     }
 
-    if (list.length > 0) {
+    if (next.length > 0) {
       setUseManualModel(false)
-      setNewModel(list[0]!)
+      setNewModel(next[0]!)
       return
     }
 
@@ -114,21 +118,20 @@ export const KnowledgeDialog: Component = () => {
     setNewModel("")
   }
 
-  const setEditModels = (id: string, extra: string[] = [], pick?: string) => {
-    const list = Array.from(
-      new Set([
-        ...listEmbeddingModels(
-          id,
-          connected(),
-          knowledge.models(),
-        ),
-        ...extra,
-      ]),
-    )
-    setEditModelOptions(list)
+  const setEditModels = (id: string, extra: ResolvedEmbeddingModel[] = [], pick?: string) => {
+    const list =
+      id === "local"
+        ? knowledge
+            .models()
+            .filter((item) => item.provider === "local")
+            .map((item) => item.id)
+        : Array.from(new Set(extra.map((item) => item.id)))
+    const next = pick && !list.includes(pick) ? [pick, ...list] : list
+    setEditResolvedModels(extra)
+    setEditModelOptions(next)
 
     if (pick) {
-      if (list.includes(pick)) {
+      if (next.includes(pick)) {
         setUseManualEditModel(false)
         setEditModel(pick)
         return
@@ -138,9 +141,9 @@ export const KnowledgeDialog: Component = () => {
       return
     }
 
-    if (list.length > 0) {
+    if (next.length > 0) {
       setUseManualEditModel(false)
-      setEditModel(list[0]!)
+      setEditModel(next[0]!)
       return
     }
 
@@ -152,6 +155,7 @@ export const KnowledgeDialog: Component = () => {
     if (!id) return
     const cur = ++addRun
     setSelectedProviderID(id)
+    setAddProviderType(id === "local" ? "local" : toEmbeddingProvider(id))
     setLoadingModels(id !== "local")
     setNewApiKey("")
     setNewBaseURL("")
@@ -164,6 +168,7 @@ export const KnowledgeDialog: Component = () => {
     try {
       const data = await fetchProviderConnection(id)
       if (cur !== addRun) return
+      setAddProviderType(data.embeddingProvider)
       if (data.baseURL) setNewBaseURL(data.baseURL)
       if (data.apiKey) setNewApiKey(data.apiKey)
       setAddModels(id, data.embeddingModels, pick)
@@ -178,6 +183,7 @@ export const KnowledgeDialog: Component = () => {
     if (!id) return
     const cur = ++editRun
     setEditProviderID(id)
+    setEditProviderType(id === "local" ? "local" : toEmbeddingProvider(id))
     setEditLoadingModels(id !== "local")
     setEditApiKey("")
     setEditBaseURL("")
@@ -190,6 +196,7 @@ export const KnowledgeDialog: Component = () => {
     try {
       const data = await fetchProviderConnection(id)
       if (cur !== editRun) return
+      setEditProviderType(data.embeddingProvider)
       if (data.baseURL) setEditBaseURL(data.baseURL)
       if (data.apiKey) setEditApiKey(data.apiKey)
       setEditModels(id, data.embeddingModels, pick)
@@ -240,7 +247,7 @@ export const KnowledgeDialog: Component = () => {
       setError("Please select or enter an embedding model")
       return
     }
-    if (toEmbeddingProvider(selectedProviderID()) === "custom" && !newBaseURL()) {
+    if (addProviderType() === "custom" && !newBaseURL()) {
       setError("Could not resolve provider API URL. Please check your provider configuration.")
       return
     }
@@ -251,7 +258,7 @@ export const KnowledgeDialog: Component = () => {
         path: newPath(),
         name: newName(),
         providerID: selectedProviderID(),
-        embeddingProvider: toEmbeddingProvider(selectedProviderID()),
+        embeddingProvider: addProviderType(),
         embeddingModel: newModel(),
         apiKey: newApiKey(),
         baseURL: newBaseURL(),
@@ -276,7 +283,10 @@ export const KnowledgeDialog: Component = () => {
         model: newModel(),
         apiKey: newApiKey(),
         baseURL: newBaseURL(),
-        dimensions: knowledge.models().find((item) => item.id === newModel())?.dimensions ?? 1536,
+        dimensions:
+          addResolvedModels().find((item) => item.id === newModel())?.dimensions ??
+          knowledge.models().find((item) => item.id === newModel())?.dimensions ??
+          1536,
       })
 
       if (result.errors && result.errors.length > 0) {
@@ -333,11 +343,7 @@ export const KnowledgeDialog: Component = () => {
     const kb = knowledge.knowledgeBases().find((item) => item.id === id)
     if (!kb) return
     setEditId(id)
-    const providerID = inferKnowledgeProviderID(
-      kb,
-      connected(),
-      knowledge.models(),
-    )
+    const providerID = inferKnowledgeProviderID(kb, connected(), knowledge.models())
     if (providerID) {
       await handleEditProviderSelect(providerID, kb.embeddingModel)
     } else {
@@ -381,11 +387,7 @@ export const KnowledgeDialog: Component = () => {
       setError("Please select or enter an embedding model")
       return
     }
-    if (toEmbeddingProvider(editProviderID()) === "openai" && !editApiKey()) {
-      setError("Please enter your OpenAI API key")
-      return
-    }
-    if (toEmbeddingProvider(editProviderID()) === "custom" && (!editApiKey() || !editBaseURL())) {
+    if (editProviderType() === "custom" && (!editApiKey() || !editBaseURL())) {
       setError("Please enter custom API URL and API Key")
       return
     }
@@ -393,7 +395,7 @@ export const KnowledgeDialog: Component = () => {
     setSyncing(true)
     try {
       await knowledge.updateEmbeddingConfig(id, {
-        embeddingProvider: toEmbeddingProvider(editProviderID()),
+        embeddingProvider: editProviderType(),
         embeddingModel: editModel(),
         apiKey: editApiKey(),
         baseURL: editBaseURL(),
@@ -586,6 +588,11 @@ export const KnowledgeDialog: Component = () => {
 
                           <div class="grid grid-cols-1 gap-2">
                             <label class="text-12-regular text-text-base">Embedding Model</label>
+                            <Show when={editProviderType() === "custom"}>
+                              <span class="text-12-regular text-text-weak">
+                                The current provider may not support these models. Check your provider docs.
+                              </span>
+                            </Show>
                             <Show when={editLoadingModels()}>
                               <span class="text-12-regular text-text-weak italic">Loading models...</span>
                             </Show>
@@ -597,7 +604,13 @@ export const KnowledgeDialog: Component = () => {
                                 label={(id) =>
                                   id === "__manual__"
                                     ? "Enter manually..."
-                                    : labelEmbeddingModel(id, editProviderID(), connected(), knowledge.models())
+                                    : labelResolvedEmbeddingModel(
+                                        id,
+                                        editResolvedModels(),
+                                        editProviderID(),
+                                        connected(),
+                                        knowledge.models(),
+                                      )
                                 }
                                 onSelect={(id) => {
                                   if (id === "__manual__") {
@@ -612,7 +625,9 @@ export const KnowledgeDialog: Component = () => {
                                 class="w-full"
                               />
                             </Show>
-                            <Show when={!editLoadingModels() && (editModelOptions().length === 0 || useManualEditModel())}>
+                            <Show
+                              when={!editLoadingModels() && (editModelOptions().length === 0 || useManualEditModel())}
+                            >
                               <input
                                 type="text"
                                 value={editModel()}
@@ -624,9 +639,7 @@ export const KnowledgeDialog: Component = () => {
 
                           <Show
                             when={
-                              !!editProviderID() &&
-                              (toEmbeddingProvider(editProviderID()) === "openai" ||
-                                toEmbeddingProvider(editProviderID()) === "custom")
+                              !!editProviderID() && (editProviderType() === "openai" || editProviderType() === "custom")
                             }
                           >
                             <div class="grid grid-cols-1 gap-2">
@@ -640,7 +653,7 @@ export const KnowledgeDialog: Component = () => {
                             </div>
                           </Show>
 
-                          <Show when={!!editProviderID() && toEmbeddingProvider(editProviderID()) === "custom"}>
+                          <Show when={!!editProviderID() && editProviderType() === "custom"}>
                             <div class="grid grid-cols-1 gap-2">
                               <label class="text-12-regular text-text-base">API URL</label>
                               <input
@@ -786,6 +799,11 @@ export const KnowledgeDialog: Component = () => {
             <Show when={selectedProviderID()}>
               <div class="flex flex-col gap-2">
                 <label class="text-13-medium text-text-strong">Embedding Model</label>
+                <Show when={addProviderType() === "custom"}>
+                  <span class="text-12-regular text-text-weak">
+                    The current provider may not support the models below. Check your provider documentation.
+                  </span>
+                </Show>
                 <Show when={loadingModels()}>
                   <span class="text-13-regular text-text-weak italic">Loading models...</span>
                 </Show>
@@ -797,7 +815,13 @@ export const KnowledgeDialog: Component = () => {
                     label={(id) =>
                       id === "__manual__"
                         ? "Enter manually..."
-                        : labelEmbeddingModel(id, selectedProviderID(), connected(), knowledge.models())
+                        : labelResolvedEmbeddingModel(
+                            id,
+                            addResolvedModels(),
+                            selectedProviderID(),
+                            connected(),
+                            knowledge.models(),
+                          )
                     }
                     onSelect={(id) => {
                       if (id === "__manual__") {
