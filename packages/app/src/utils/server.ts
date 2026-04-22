@@ -2,7 +2,6 @@ import { createOpencodeClient } from "@opencode-ai/sdk/v2/client"
 import type { ServerConnection } from "@/context/server"
 
 type Base = ReturnType<typeof createOpencodeClient>
-type Req<T> = Promise<{ data?: T }>
 type Skill = {
   name: string
   description: string
@@ -18,24 +17,26 @@ type Kb = {
 export type AppClient = Base & {
   config: Base["config"] & {
     skills: {
-      list(): Req<Skill[]>
-      toggle(input: { name: string; enabled: boolean }): Req<{ ok: boolean }>
-      addDefaults(input?: { directory?: string }): Req<{ added: string[] }>
+      list(): Promise<{ data?: Skill[] }>
+      toggle(input: { name: string; enabled: boolean }): Promise<{ data?: { ok: boolean } }>
+      addDefaults(input?: { directory?: string }): Promise<{ data?: { added: string[] } }>
     }
   }
   file: Base["file"] & {
-    create(input: { path: string; type: "file" | "directory" }): Req<{ ok: boolean }>
-    delete(input: { path: string }): Req<{ ok: boolean }>
-    rename(input: { path: string; name: string }): Req<{ ok: boolean; path: string }>
-    write(input: { path: string; content: string }): Req<{ ok: boolean }>
-    summarize(input?: { directory?: string; maxDepth?: number; force?: boolean }): Req<{ count: number }>
-    open(input: { path: string; app?: string }): Req<{ ok: boolean }>
-    openInExplorer(input: { path: string }): Req<{ ok: boolean }>
-    pickFolder(): Req<{ path: string | null }>
-    addToGitignore(input: { path: string; type: "file" | "directory" }): Req<{
-      ok: boolean
-      created: boolean
-      alreadyExists: boolean
+    create(input: { path: string; type: "file" | "directory" }): Promise<{ data?: { ok: boolean } }>
+    delete(input: { path: string }): Promise<{ data?: { ok: boolean } }>
+    rename(input: { path: string; name: string }): Promise<{ data?: { ok: boolean; path: string } }>
+    write(input: { path: string; content: string }): Promise<{ data?: { ok: boolean } }>
+    summarize(input?: { directory?: string; maxDepth?: number; force?: boolean }): Promise<{ data?: { count: number } }>
+    open(input: { path: string; app?: string }): Promise<{ data?: { ok: boolean } }>
+    openInExplorer(input: { path: string }): Promise<{ data?: { ok: boolean } }>
+    pickFolder(): Promise<{ data?: { path: string | null } }>
+    addToGitignore(input: { path: string; type: "file" | "directory" }): Promise<{
+      data?: {
+        ok: boolean
+        created: boolean
+        alreadyExists: boolean
+      }
     }>
   }
   session: Base["session"] & {
@@ -58,29 +59,7 @@ export type AppClient = Base & {
       variant?: string
       knowledgeBase?: Kb
       parts: unknown[]
-    }): Req<unknown>
-    preference: {
-      get(input: { sessionID: string }): Req<{
-        sessionID: string
-        agent?: string
-        model?: { providerID: string; modelID: string }
-        variant?: string
-        autoAccept?: boolean
-      } | null>
-      update(input: {
-        sessionID: string
-        agent?: string
-        model?: { providerID: string; modelID: string }
-        variant?: string
-        autoAccept?: boolean
-      }): Req<{
-        sessionID: string
-        agent?: string
-        model?: { providerID: string; modelID: string }
-        variant?: string
-        autoAccept?: boolean
-      } | null>
-    }
+    }): Promise<{ data?: unknown }>
   }
 }
 
@@ -105,32 +84,4 @@ export function createSdkForServer({
       ...(config.headers ?? {}),
     },
   }) as unknown as AppClient
-}
-
-export function addPreferenceMethods(client: AppClient, baseUrl: string, auth?: Record<string, string>): AppClient {
-  const headers: Record<string, string> = { "Content-Type": "application/json", ...auth }
-  const pref = {
-    get: (input: { sessionID: string }) =>
-      fetch(`${baseUrl}/session/${input.sessionID}/preference`, { headers })
-        .then((r) => r.json())
-        .then((data) => ({ data })),
-    update: (input: {
-      sessionID: string
-      agent?: string
-      model?: { providerID: string; modelID: string }
-      variant?: string
-      autoAccept?: boolean
-    }) => {
-      const { sessionID, ...body } = input
-      return fetch(`${baseUrl}/session/${sessionID}/preference`, {
-        method: "PATCH",
-        headers,
-        body: JSON.stringify(body),
-      })
-        .then((r) => r.json())
-        .then((data) => ({ data }))
-    },
-  }
-  Object.defineProperty(client.session, "preference", { value: pref, writable: true, configurable: true })
-  return client
 }

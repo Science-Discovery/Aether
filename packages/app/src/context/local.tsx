@@ -273,6 +273,8 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
       setStore("draft", state)
     }
 
+    const sseEcho = new Set<string>()
+
     const syncPreferenceToServer = (session: string, state: State) => {
       if (!sdk.client.session.preference) return
       const body: Record<string, unknown> = {}
@@ -286,6 +288,10 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
     createEffect(() => {
       const session = id()
       if (!session) return
+      if (sseEcho.has(session)) {
+        sseEcho.delete(session)
+        return
+      }
       const local = saved.session[session]
       if (local) {
         syncPreferenceToServer(session, local)
@@ -331,7 +337,20 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
         if (pref.model) state.model = pref.model
         if (pref.variant) state.variant = pref.variant
         if (pref.autoAccept !== undefined) state.autoAccept = pref.autoAccept
+        const prev = saved.session[session]
+        const eq = (a?: string | null, b?: string | null) => (a ?? null) === (b ?? null)
+        if (
+          prev &&
+          eq(state.agent, prev.agent) &&
+          eq(state.variant, prev.variant) &&
+          state.autoAccept === prev.autoAccept
+        ) {
+          const sm = state.model
+          const pm = prev.model
+          if (sm === pm || (sm && pm && sm.providerID === pm.providerID && sm.modelID === pm.modelID)) return
+        }
         if (Object.keys(state).length > 0) {
+          sseEcho.add(session)
           setSaved("session", session, { ...(saved.session[session] ?? {}), ...state })
         }
       })
