@@ -362,6 +362,20 @@ export function applyDirectoryEvent(input: {
       )
       break
     }
+    case "session.preference.updated": {
+      const props = event.properties as {
+        sessionID: string
+        preference: {
+          sessionID: string
+          agent?: string
+          model?: { providerID: string; modelID: string }
+          variant?: string
+          autoAccept?: boolean
+        }
+      }
+      input.setStore("preference", props.sessionID, reconcile(props.preference))
+      break
+    }
     case "lsp.updated": {
       input.loadLsp()
       break
