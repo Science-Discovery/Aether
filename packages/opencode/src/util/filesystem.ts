@@ -117,6 +117,12 @@ export namespace Filesystem {
   // Also resolves symlinks so that callers using the result as a cache key
   // always get the same canonical path for a given physical directory.
   export function resolve(p: string): string {
+    // Foreign paths are returned as-is so callers get a non-existent path and
+    // fail gracefully, rather than mangling into a platform-relative path.
+    // Linux/WSL: Windows drive-letter paths are not valid.
+    if (process.platform !== "win32" && /^[a-zA-Z]:[/\\]/.test(p)) return p
+    // Windows: Unix absolute paths that don't encode a Windows drive are not valid.
+    if (process.platform === "win32" && p.startsWith("/") && windowsPath(p) === p) return p
     const resolved = pathResolve(windowsPath(p))
     try {
       return normalizePath(realpathSync(resolved))

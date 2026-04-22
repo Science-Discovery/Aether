@@ -333,11 +333,13 @@ export namespace Skill {
     const disabled = new Set(cfg.skills?.disabled ?? [])
 
     const scanDirs = await getAllSkillsDirs(directory, worktree)
+    console.log(`[skill cache] scan dirs: ${scanDirs.join(", ") || "(none)"}`)
     const manifest = await buildSkillsManifest(scanDirs)
 
     // Layer 2: disk snapshot validated by mtime/size — catches manual file edits
     const snapped = await loadSkillsSnapshot(manifest)
     if (snapped) {
+      console.log(`[skill cache] snapshot hit, count=${snapped.length}`)
       log.info("skills loaded from snapshot", { count: snapped.length })
       const s: RawState = { skills: {}, dirs: new Set() }
       for (const skill of snapped) {
@@ -352,6 +354,7 @@ export namespace Skill {
     }
 
     // Cold path: full filesystem scan
+    console.log(`[skill cache] snapshot miss, full scan`)
     const all: RawState = { skills: {}, dirs: new Set() }
     await loadSkillsFromDirs(all, _discovery!, directory, worktree)
 
@@ -369,6 +372,7 @@ export namespace Skill {
   }
 
   async function loadSkills(state: RawState, discovery: Discovery.Interface, directory: string, worktree: string) {
+    console.log(`[skill cache] memory miss, loading from disk (dir=${directory})`)
     const data = await loadSkillsData(directory, worktree)
     state.skills = data.skills
     state.dirs = data.dirs
@@ -418,6 +422,8 @@ export namespace Skill {
       })
 
       const available = Effect.fn("Skill.available")(function* (agent?: Agent.Info) {
+        const cached = yield* InstanceState.has(state)
+        if (cached) console.log(`[skill cache] memory hit`)
         const s = yield* InstanceState.get(state)
         const list = Object.values(s.skills).toSorted((a, b) => a.name.localeCompare(b.name))
         if (!agent) return list
