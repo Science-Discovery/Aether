@@ -1217,7 +1217,7 @@ export const SessionRoutes = lazy(() =>
               modelID: ModelID.zod,
             })
             .optional(),
-          variant: z.string().optional(),
+          variant: z.string().nullable().optional(),
           autoAccept: z.boolean().optional(),
         }),
       ),

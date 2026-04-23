@@ -146,6 +146,8 @@ export const { use: usePermission, provider: PermissionProvider } = createSimple
 
     function isAutoAccepting(sessionID: string, directory?: string) {
       const child = directory ? globalSync.child(directory, { bootstrap: false })[0] : current()
+      const prefValue = (child.preference as Record<string, { autoAccept?: boolean }>)[sessionID]?.autoAccept
+      if (prefValue !== undefined) return prefValue
       return autoRespondsPermission(store.autoAccept, [...child.session], { sessionID }, directory, child.preference)
     }
 
@@ -155,6 +157,8 @@ export const { use: usePermission, provider: PermissionProvider } = createSimple
 
     function shouldAutoRespond(permission: PermissionRequest, directory?: string) {
       const child = directory ? globalSync.child(directory, { bootstrap: false })[0] : current()
+      const prefValue = (child.preference as Record<string, { autoAccept?: boolean }>)[permission.sessionID]?.autoAccept
+      if (prefValue !== undefined) return prefValue
       return autoRespondsPermission(store.autoAccept, [...child.session], permission, directory, child.preference)
     }
 

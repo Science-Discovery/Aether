@@ -273,14 +273,12 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
       setStore("draft", state)
     }
 
-    const sseEcho = new Set<string>()
-
     const syncPreferenceToServer = (session: string, state: State) => {
       if (!sdk.client.session.preference) return
       const body: Record<string, unknown> = {}
       if (state.agent) body.agent = state.agent
       if (state.model) body.model = state.model
-      if (state.variant != null) body.variant = state.variant
+      if (state.variant !== undefined) body.variant = state.variant ?? null
       if (state.autoAccept !== undefined) body.autoAccept = state.autoAccept
       sdk.client.session.preference.update({ sessionID: session, ...body }).catch(() => {})
     }
@@ -288,15 +286,7 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
     createEffect(() => {
       const session = id()
       if (!session) return
-      if (sseEcho.has(session)) {
-        sseEcho.delete(session)
-        return
-      }
-      const local = saved.session[session]
-      if (local) {
-        syncPreferenceToServer(session, local)
-        return
-      }
+      if (saved.session[session] !== undefined) return
       sdk.client.session.preference
         .get({ sessionID: session })
         .then((resp) => {
@@ -308,7 +298,7 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
           const state: State = {}
           if (serverPref.agent) state.agent = serverPref.agent
           if (serverPref.model) state.model = serverPref.model
-          if (serverPref.variant) state.variant = serverPref.variant
+          if (serverPref.variant !== undefined) state.variant = serverPref.variant ?? null
           if (serverPref.autoAccept !== undefined) state.autoAccept = serverPref.autoAccept
           if (Object.keys(state).length > 0) {
             setSaved("session", session, state)
@@ -335,7 +325,7 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
         const state: State = {}
         if (pref.agent) state.agent = pref.agent
         if (pref.model) state.model = pref.model
-        if (pref.variant) state.variant = pref.variant
+        if (pref.variant !== undefined) state.variant = pref.variant ?? null
         if (pref.autoAccept !== undefined) state.autoAccept = pref.autoAccept
         const prev = saved.session[session]
         const eq = (a?: string | null, b?: string | null) => (a ?? null) === (b ?? null)
@@ -350,7 +340,6 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
           if (sm === pm || (sm && pm && sm.providerID === pm.providerID && sm.modelID === pm.modelID)) return
         }
         if (Object.keys(state).length > 0) {
-          sseEcho.add(session)
           setSaved("session", session, { ...(saved.session[session] ?? {}), ...state })
         }
       })
@@ -386,9 +375,9 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
             type: "model",
             agent: agent.current()?.name,
             model: item ?? null,
-            variant: selected(),
+            variant: null,
           })
-          write({ model: item })
+          write({ model: item, variant: null })
           if (!item) return
           models.setVisibility(item, true)
           if (!options?.recent) return
