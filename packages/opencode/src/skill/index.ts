@@ -1,4 +1,5 @@
 import fs from "fs/promises"
+import { createHash } from "crypto"
 import os from "os"
 import path from "path"
 import z from "zod"
@@ -16,7 +17,6 @@ import { Config } from "../config/config"
 import { ConfigMarkdown } from "../config/markdown"
 import { Glob } from "../util/glob"
 import { Log } from "../util/log"
-import { Instance } from "../project/instance"
 import { Discovery } from "./discovery"
 
 export namespace Skill {
@@ -103,11 +103,37 @@ export namespace Skill {
   // ── Layer 2: Disk snapshot (mirrors Hermes _load_skills_snapshot) ─────────
 
   // mirrors Hermes _SKILLS_SNAPSHOT_VERSION
-  const SKILLS_SNAPSHOT_VERSION = 1
+  const SKILLS_SNAPSHOT_VERSION = 2
 
-  // mirrors Hermes _skills_prompt_snapshot_path()
-  function skillsPromptSnapshotPath(): string {
-    return path.join(Global.Path.cache, ".skills_prompt_snapshot.json")
+  type Scope = "global" | "project"
+  type Source = {
+    dir: string
+    pattern: string
+    dot?: boolean
+    scope: Scope
+    order: number
+  }
+  type SnapshotSkill = Info & { order: number }
+  type ScanState = { skills: Record<string, SnapshotSkill>; dirs: Set<string> }
+
+  function globalSnapshotPath(): string {
+    return path.join(Global.Path.cache, ".skills_prompt_snapshot.global.json")
+  }
+
+  function projectSnapshotDir(): string {
+    return path.join(Global.Path.cache, "skills-prompt")
+  }
+
+  function projectSnapshotPath(directory: string, worktree: string): string {
+    const base = path.basename(directory) || "project"
+    const slug =
+      base
+        .toLowerCase()
+        .replace(/[^a-z0-9._-]+/g, "-")
+        .replace(/^-+|-+$/g, "")
+        .slice(0, 48) || "project"
+    const key = createHash("sha1").update(`${process.platform}|${directory}|${worktree}`).digest("hex")
+    return path.join(projectSnapshotDir(), `${slug}.${key}.json`)
   }
 
   type SnapshotManifest = Record<string, [number, number]> // filepath -> [mtimeMs, size]
@@ -145,21 +171,29 @@ export namespace Skill {
   }
 
   // mirrors Hermes _load_skills_snapshot
-  async function loadSkillsSnapshot(manifest: SnapshotManifest): Promise<Info[] | null> {
+  async function loadSkillsSnapshot(snapshotPath: string, manifest: SnapshotManifest): Promise<SnapshotSkill[] | null> {
     try {
-      const raw = await fs.readFile(skillsPromptSnapshotPath(), "utf8")
+      const raw = await fs.readFile(snapshotPath, "utf8")
       const snap = JSON.parse(raw)
       if (snap?.version !== SKILLS_SNAPSHOT_VERSION) return null
       if (!manifestsMatch(manifest, snap.manifest ?? {})) return null
-      return snap.skills as Info[]
+      if (!Array.isArray(snap.skills)) return null
+      return snap.skills.map((skill: unknown, i: number) => {
+        const parsed = Info.parse(skill)
+        const order = typeof (skill as any).order === "number" ? (skill as any).order : i
+        return { ...parsed, order }
+      })
     } catch {
       return null
     }
   }
 
   // mirrors Hermes _write_skills_snapshot
-  async function writeSkillsSnapshot(manifest: SnapshotManifest, skills: Info[]): Promise<void> {
-    const snapshotPath = skillsPromptSnapshotPath()
+  async function writeSkillsSnapshot(
+    snapshotPath: string,
+    manifest: SnapshotManifest,
+    skills: SnapshotSkill[],
+  ): Promise<void> {
     const tmp = snapshotPath + ".tmp." + Date.now()
     try {
       await fs.mkdir(path.dirname(snapshotPath), { recursive: true })
@@ -177,14 +211,17 @@ export namespace Skill {
     if (!hermes || typeof hermes !== "object") return undefined
     const c: Conditions = {}
     if (Array.isArray(hermes.requires_tools) && hermes.requires_tools.length) c.requires_tools = hermes.requires_tools
-    if (Array.isArray(hermes.requires_toolsets) && hermes.requires_toolsets.length) c.requires_toolsets = hermes.requires_toolsets
-    if (Array.isArray(hermes.fallback_for_tools) && hermes.fallback_for_tools.length) c.fallback_for_tools = hermes.fallback_for_tools
-    if (Array.isArray(hermes.fallback_for_toolsets) && hermes.fallback_for_toolsets.length) c.fallback_for_toolsets = hermes.fallback_for_toolsets
+    if (Array.isArray(hermes.requires_toolsets) && hermes.requires_toolsets.length)
+      c.requires_toolsets = hermes.requires_toolsets
+    if (Array.isArray(hermes.fallback_for_tools) && hermes.fallback_for_tools.length)
+      c.fallback_for_tools = hermes.fallback_for_tools
+    if (Array.isArray(hermes.fallback_for_toolsets) && hermes.fallback_for_toolsets.length)
+      c.fallback_for_toolsets = hermes.fallback_for_toolsets
     return Object.keys(c).length ? c : undefined
   }
 
   // mirrors Hermes _parse_skill_file + _build_snapshot_entry
-  const parseSkillFile = async (state: RawState, match: string) => {
+  const parseSkillFile = async (state: ScanState, match: string, order: number) => {
     const md = await ConfigMarkdown.parse(match).catch(async (err) => {
       const message = ConfigMarkdown.FrontmatterError.isInstance(err)
         ? err.data.message
@@ -222,57 +259,72 @@ export namespace Skill {
       content: md.content,
       conditions,
       platforms,
+      order,
     }
   }
 
-  const scan = async (state: RawState, root: string, pattern: string, opts?: { dot?: boolean; scope?: string }) => {
-    return Glob.scan(pattern, {
-      cwd: root,
+  const scan = async (state: ScanState, src: Source) => {
+    return Glob.scan(src.pattern, {
+      cwd: src.dir,
       absolute: true,
       include: "file",
       symlink: true,
-      dot: opts?.dot,
+      dot: src.dot,
     })
-      .then((matches) => Promise.all(matches.map((match) => parseSkillFile(state, match))))
+      .then((matches) => Promise.all(matches.map((match) => parseSkillFile(state, match, src.order))))
       .catch((error) => {
-        if (!opts?.scope) throw error
-        log.error(`failed to scan ${opts.scope} skills`, { dir: root, error })
+        log.error(`failed to scan ${src.scope} skills`, { dir: src.dir, error })
       })
   }
 
-  async function loadSkillsFromDirs(
-    state: RawState,
-    discovery: Discovery.Interface,
-    directory: string,
-    worktree: string,
-  ) {
-    // scan skills created via skill_manage (stored in data dir)
-    const managedSkillsDir = path.join(Global.Path.data, "skills")
-    if (await Filesystem.isDir(managedSkillsDir)) {
-      await scan(state, managedSkillsDir, SKILL_PATTERN, { scope: "managed" })
+  function scope(dir: string, directory: string, worktree: string): Scope {
+    if (Filesystem.contains(directory, dir)) return "project"
+    if (Filesystem.contains(worktree, dir)) return "project"
+    return "global"
+  }
+
+  function mergeSkills(global: SnapshotSkill[], project: SnapshotSkill[]) {
+    const skills: Record<string, Info> = {}
+    for (const item of [...global, ...project].toSorted((a, b) => a.order - b.order)) {
+      skills[item.name] = {
+        name: item.name,
+        description: item.description,
+        location: item.location,
+        content: item.content,
+        conditions: item.conditions,
+        platforms: item.platforms,
+      }
+    }
+    return skills
+  }
+
+  async function buildSources(directory: string, worktree: string, cfg: Awaited<ReturnType<typeof Config.get>>) {
+    if (!_discovery) throw new Error("Skill service not initialized — layer not started")
+    const list: Source[] = []
+    let order = 0
+    const add = (scope: Scope, dir: string, pattern: string, dot?: boolean) => {
+      list.push({ scope, dir, pattern, dot, order })
+      order += 1
     }
 
-    if (!Flag.OPENCODE_DISABLE_EXTERNAL_SKILLS) {
-      for (const dir of EXTERNAL_DIRS) {
-        const root = path.join(Global.Path.home, dir)
-        if (!(await Filesystem.isDir(root))) continue
-        await scan(state, root, EXTERNAL_SKILL_PATTERN, { dot: true, scope: "global" })
-      }
+    const managed = path.join(Global.Path.data, "skills")
+    if (await Filesystem.isDir(managed)) add("global", managed, SKILL_PATTERN)
 
-      for await (const root of Filesystem.up({
-        targets: EXTERNAL_DIRS,
-        start: directory,
-        stop: worktree,
-      })) {
-        await scan(state, root, EXTERNAL_SKILL_PATTERN, { dot: true, scope: "project" })
+    if (!Flag.OPENCODE_DISABLE_EXTERNAL_SKILLS) {
+      for (const item of EXTERNAL_DIRS) {
+        const dir = path.join(Global.Path.home, item)
+        if (!(await Filesystem.isDir(dir))) continue
+        add("global", dir, EXTERNAL_SKILL_PATTERN, true)
+      }
+      for await (const dir of Filesystem.up({ targets: EXTERNAL_DIRS, start: directory, stop: worktree })) {
+        add("project", dir, EXTERNAL_SKILL_PATTERN, true)
       }
     }
 
     for (const dir of await Config.directories()) {
-      await scan(state, dir, OPENCODE_SKILL_PATTERN)
+      add(scope(dir, directory, worktree), dir, OPENCODE_SKILL_PATTERN)
     }
 
-    const cfg = await Config.get()
     for (const item of cfg.skills?.paths ?? []) {
       const expanded = item.startsWith("~/") ? path.join(os.homedir(), item.slice(2)) : item
       const dir = path.isAbsolute(expanded) ? expanded : path.join(directory, expanded)
@@ -280,50 +332,30 @@ export namespace Skill {
         log.warn("skill path not found", { path: dir })
         continue
       }
-      await scan(state, dir, SKILL_PATTERN)
+      const next = path.isAbsolute(expanded) ? scope(dir, directory, worktree) : "project"
+      add(next, dir, SKILL_PATTERN)
     }
 
     for (const url of cfg.skills?.urls ?? []) {
-      for (const dir of await Effect.runPromise(discovery.pull(url))) {
-        state.dirs.add(dir)
-        await scan(state, dir, SKILL_PATTERN)
+      for (const dir of await Effect.runPromise(_discovery.pull(url))) {
+        add("global", dir, SKILL_PATTERN)
       }
     }
 
-    log.info("init", { count: Object.keys(state.skills).length })
+    return list
   }
 
-  // mirrors Hermes get_all_skills_dirs — collects all dirs for manifest building
-  async function getAllSkillsDirs(directory: string, worktree: string): Promise<string[]> {
-    const dirs: string[] = []
-
-    // managed skills dir (written by skill_manage tool)
-    const managedSkillsDir = path.join(Global.Path.data, "skills")
-    if (await Filesystem.isDir(managedSkillsDir)) dirs.push(managedSkillsDir)
-
-    if (!Flag.OPENCODE_DISABLE_EXTERNAL_SKILLS) {
-      for (const dir of EXTERNAL_DIRS) {
-        const root = path.join(Global.Path.home, dir)
-        if (await Filesystem.isDir(root)) dirs.push(root)
-      }
-      for await (const root of Filesystem.up({ targets: EXTERNAL_DIRS, start: directory, stop: worktree })) {
-        dirs.push(root)
-      }
+  async function scanSources(sources: Source[], scope: Scope) {
+    const state: ScanState = { skills: {}, dirs: new Set() }
+    for (const item of sources) {
+      if (item.scope !== scope) continue
+      await scan(state, item)
     }
+    return state
+  }
 
-    for (const dir of await Config.directories()) dirs.push(dir)
-
-    const cfg = await Config.get()
-    for (const item of cfg.skills?.paths ?? []) {
-      const expanded = item.startsWith("~/") ? path.join(os.homedir(), item.slice(2)) : item
-      const dir = path.isAbsolute(expanded) ? expanded : path.join(directory, expanded)
-      if (await Filesystem.isDir(dir)) dirs.push(dir)
-    }
-
-    const urlCacheDir = path.join(Global.Path.cache, "skills")
-    if (await Filesystem.isDir(urlCacheDir)) dirs.push(urlCacheDir)
-
-    return dirs
+  function manifestDirs(sources: Source[], scope: Scope) {
+    return Array.from(new Set(sources.filter((item) => item.scope === scope).map((item) => item.dir)))
   }
 
   async function loadSkillsData(directory: string, worktree: string): Promise<RawState> {
@@ -332,50 +364,79 @@ export namespace Skill {
     const cfg = await Config.get()
     const disabled = new Set(cfg.skills?.disabled ?? [])
 
-    const scanDirs = await getAllSkillsDirs(directory, worktree)
-    console.log(`[skill cache] scan dirs: ${scanDirs.join(", ") || "(none)"}`)
-    const manifest = await buildSkillsManifest(scanDirs)
+    const sources = await buildSources(directory, worktree, cfg)
+    const globalDirs = manifestDirs(sources, "global")
+    const projectDirs = manifestDirs(sources, "project")
+    console.log(`[skill cache] scan dirs (global): ${globalDirs.join(", ") || "(none)"}`)
+    console.log(`[skill cache] scan dirs (project): ${projectDirs.join(", ") || "(none)"}`)
 
-    // Layer 2: disk snapshot validated by mtime/size — catches manual file edits
-    const snapped = await loadSkillsSnapshot(manifest)
-    if (snapped) {
-      console.log(`[skill cache] snapshot hit, count=${snapped.length}`)
-      log.info("skills loaded from snapshot", { count: snapped.length })
-      const s: RawState = { skills: {}, dirs: new Set() }
-      for (const skill of snapped) {
-        if (disabled.has(skill.name)) {
-          log.info("skill disabled by config", { name: skill.name })
-          continue
-        }
-        s.skills[skill.name] = skill
-        s.dirs.add(path.dirname(skill.location))
-      }
-      return s
-    }
+    const globalManifest = await buildSkillsManifest(globalDirs)
+    const projectManifest = await buildSkillsManifest(projectDirs)
+    const globalPath = globalSnapshotPath()
+    const projectPath = projectSnapshotPath(directory, worktree)
 
-    // Cold path: full filesystem scan
-    console.log(`[skill cache] snapshot miss, full scan`)
-    const all: RawState = { skills: {}, dirs: new Set() }
-    await loadSkillsFromDirs(all, _discovery!, directory, worktree)
+    const cachedGlobal = await loadSkillsSnapshot(globalPath, globalManifest)
+    const globalSkills =
+      cachedGlobal ??
+      (await (async () => {
+        console.log(`[skill cache] snapshot miss (global), full scan`)
+        const scanned = await scanSources(sources, "global")
+        const list = Object.values(scanned.skills)
+        await writeSkillsSnapshot(globalPath, globalManifest, list)
+        return list
+      })())
+    if (cachedGlobal) console.log(`[skill cache] snapshot hit (global), count=${cachedGlobal.length}`)
 
-    // Write snapshot before applying disabled filter (snapshot stores unfiltered, mirrors Hermes)
-    await writeSkillsSnapshot(manifest, Object.values(all.skills))
+    const cachedProject = await loadSkillsSnapshot(projectPath, projectManifest)
+    const project =
+      cachedProject ??
+      (await (async () => {
+        console.log(`[skill cache] snapshot miss (project), full scan`)
+        const scanned = await scanSources(sources, "project")
+        const list = Object.values(scanned.skills)
+        await writeSkillsSnapshot(projectPath, projectManifest, list)
+        return list
+      })())
+    if (cachedProject) console.log(`[skill cache] snapshot hit (project), count=${cachedProject.length}`)
 
+    const merged = mergeSkills(globalSkills, project)
     for (const name of disabled) {
-      if (all.skills[name]) {
-        delete all.skills[name]
-        log.info("skill disabled by config", { name })
-      }
+      if (!merged[name]) continue
+      delete merged[name]
+      log.info("skill disabled by config", { name })
     }
 
-    return all
+    return {
+      skills: merged,
+      dirs: new Set(Object.values(merged).map((item) => path.dirname(item.location))),
+    }
   }
 
-  async function loadSkills(state: RawState, discovery: Discovery.Interface, directory: string, worktree: string) {
+  function stats(state: RawState) {
+    const list = Object.values(state.skills)
+    const bytes = list.reduce(
+      (acc, item) =>
+        acc +
+        Buffer.byteLength(item.name) +
+        Buffer.byteLength(item.description) +
+        Buffer.byteLength(item.location) +
+        Buffer.byteLength(item.content),
+      0,
+    )
+    return {
+      skills: list.length,
+      dirs: state.dirs.size,
+      bytes,
+    }
+  }
+
+  async function loadSkills(state: RawState, directory: string, worktree: string) {
     console.log(`[skill cache] memory miss, loading from disk (dir=${directory})`)
     const data = await loadSkillsData(directory, worktree)
     state.skills = data.skills
     state.dirs = data.dirs
+    const stat = stats(state)
+    console.log(`[skill cache] stats skills=${stat.skills} dirs=${stat.dirs} bytes=${stat.bytes}`)
     log.info("init", { count: Object.keys(state.skills).length })
   }
 
@@ -400,7 +461,7 @@ export namespace Skill {
         Effect.fn("Skill.state")((ctx) =>
           Effect.gen(function* () {
             const s: RawState = { skills: {}, dirs: new Set() }
-            yield* Effect.promise(() => loadSkills(s, discovery, ctx.directory, ctx.worktree))
+            yield* Effect.promise(() => loadSkills(s, ctx.directory, ctx.worktree))
             return s
           }),
         ),
@@ -441,7 +502,9 @@ export namespace Skill {
   export async function clearSkillsPromptCache(clearSnapshot = false): Promise<void> {
     await runPromise((skill) => skill.invalidate())
     if (clearSnapshot) {
-      await fs.unlink(skillsPromptSnapshotPath()).catch(() => {})
+      await fs.unlink(globalSnapshotPath()).catch(() => {})
+      await fs.rm(projectSnapshotDir(), { recursive: true, force: true }).catch(() => {})
+      await fs.unlink(path.join(Global.Path.cache, ".skills_prompt_snapshot.json")).catch(() => {})
     }
     log.info("skills cache cleared", { clearSnapshot })
   }

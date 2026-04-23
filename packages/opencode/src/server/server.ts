@@ -375,9 +375,6 @@ export namespace Server {
           }
         })()
         const directory = Filesystem.resolve(decoded)
-        if (decoded !== directory) {
-          console.log(`[path] raw="${decoded}" resolved="${directory}"`)
-        }
 
         return WorkspaceContext.provide({
           workspaceID: rawWorkspaceID ? WorkspaceID.make(rawWorkspaceID) : undefined,
