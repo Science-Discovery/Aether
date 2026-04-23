@@ -520,6 +520,7 @@ export const dict = {
   "session.files.selectToOpen": "Odaberi datoteku za otvaranje",
   "session.files.all": "Sve datoteke",
   "session.files.empty": "Nema datoteka",
+  "session.files.dragToUpload": "Drag files or folders here to upload them to the current project",
   "session.files.binaryContent": "Binarna datoteka (sadržaj se ne može prikazati)",
 
   "session.messages.renderEarlier": "Prikaži ranije poruke",

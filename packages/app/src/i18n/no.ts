@@ -521,6 +521,7 @@ export const dict = {
   "session.files.selectToOpen": "Velg en fil å åpne",
   "session.files.all": "Alle filer",
   "session.files.empty": "Ingen filer",
+  "session.files.dragToUpload": "Drag files or folders here to upload them to the current project",
   "session.files.binaryContent": "Binær fil (innhold kan ikke vises)",
 
   "session.messages.renderEarlier": "Vis tidligere meldinger",

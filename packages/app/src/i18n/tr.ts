@@ -525,6 +525,7 @@ export const dict = {
   "session.files.selectToOpen": "Açmak için bir dosya seçin",
   "session.files.all": "Tüm dosyalar",
   "session.files.empty": "Dosya yok",
+  "session.files.dragToUpload": "Drag files or folders here to upload them to the current project",
   "session.files.binaryContent": "İkili dosya (içerik görüntülenemiyor)",
 
   "session.messages.renderEarlier": "Önceki mesajları göster",
