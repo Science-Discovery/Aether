@@ -319,6 +319,19 @@ async function readWebCurrentVersion() {
 
 async function webCheck(os: z.infer<typeof WebUpdateOS>) {
   const currentVersion = await readWebCurrentVersion()
+  if (Installation.isLocal()) {
+    return {
+      currentVersion,
+      remoteVersion: "",
+      updateAvailable: false,
+      downloaded: false,
+      status: "available" as const,
+      workDir: "",
+      workDirFallback: false,
+      updateError: undefined,
+      checkError: "Local build, skipping update check",
+    }
+  }
   const resolved = resolveWorkDir(os)
   const workDir = resolved?.path ?? ""
   const workDirFallback = resolved?.isFallback ?? false
@@ -866,6 +879,9 @@ export const GlobalRoutes = lazy(() =>
       ),
       async (c) => {
         const { os, version, acceptFallback, force } = c.req.valid("json")
+        if (Installation.isLocal()) {
+          return c.json({ success: false as const, error: "Local build, update is not available" })
+        }
         const resolved = resolveWorkDir(os)
         if (!resolved) {
           return c.json({ success: false as const, error: "Could not determine aether work directory" })
@@ -923,11 +939,35 @@ export const GlobalRoutes = lazy(() =>
           try {
             await fs.access(scriptInDownloads)
           } catch {
-            await writeUpdateState(
-              workDir,
-              updateState(version, "error", `Downloaded update script missing: ${scriptInDownloads}`),
-            )
-            return c.json({ success: false as const, error: `Downloaded update script missing: ${scriptInDownloads}` })
+            log.info("update script missing after installer, fetching as fallback")
+            try {
+              const ymlPath = INSTALLER_YML[os]
+              const manifestBase = `${WEB_UPDATE_BASE}/${ymlPath.substring(0, ymlPath.lastIndexOf("/") + 1)}`
+              const updUrl = `${manifestBase}${upd}`
+              const updRes = await fetch(updUrl)
+              if (!updRes.ok) throw new Error(`HTTP ${updRes.status}`)
+              const updBuf = Buffer.from(await updRes.arrayBuffer())
+              await fs.mkdir(dl, { recursive: true })
+              await fs.writeFile(scriptInDownloads, updBuf)
+              if (os !== "windows") {
+                await fs.chmod(scriptInDownloads, 0o755).catch(() => undefined)
+              }
+              log.info("update script fetched as fallback", { path: scriptInDownloads })
+            } catch (fallbackErr) {
+              const fallbackMsg = fallbackErr instanceof Error ? fallbackErr.message : String(fallbackErr)
+              await writeUpdateState(
+                workDir,
+                updateState(
+                  version,
+                  "error",
+                  `Downloaded update script missing: ${scriptInDownloads} (fallback fetch also failed: ${fallbackMsg})`,
+                ),
+              )
+              return c.json({
+                success: false as const,
+                error: `Downloaded update script missing: ${scriptInDownloads} (fallback fetch also failed: ${fallbackMsg})`,
+              })
+            }
           }
           try {
             await fs.chmod(scriptInDownloads, 0o755)
@@ -991,6 +1031,9 @@ export const GlobalRoutes = lazy(() =>
       ),
       async (c) => {
         const { os, version, acceptFallback } = c.req.valid("json")
+        if (Installation.isLocal()) {
+          return c.json({ success: false as const, error: "Local build, update is not available" })
+        }
         const resolved = resolveWorkDir(os)
         if (!resolved) {
           return c.json({ success: false as const, error: "Could not determine aether work directory" })
