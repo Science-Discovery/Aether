@@ -16,6 +16,8 @@ import { Installation } from "@/installation"
 import { Log } from "../../util/log"
 import { lazy } from "../../util/lazy"
 import { Config } from "../../config/config"
+import { ConfigPaths } from "../../config/paths"
+import { Global } from "@/global"
 import { errors } from "../error"
 import { Lease } from "../lease"
 
@@ -55,7 +57,7 @@ const WebUpdateState = z.object({
   error: z.string().optional(),
 })
 
-const WEB_UPDATE_BASE = "https://aether.aiphys.cn/download"
+const WEB_UPDATE_BASE_DEFAULT = "https://aether.aiphys.cn/download"
 const UPDATE_PKG_PREFIX: Record<string, string> = {
   darwin: "aether-darwin",
   linux: "aether-linux-x64",
@@ -97,6 +99,33 @@ const UPDATE_PKG_EXT: Record<string, string> = {
   darwin: ".dmg",
   linux: ".zip",
   windows: ".zip",
+}
+
+const UpdateConfig = z.object({
+  updateBaseUrl: z.string().optional(),
+})
+
+async function readUpdateConfig() {
+  const configDir = Global.Path.config
+  for (const ext of ["jsonc", "json"]) {
+    const file = path.join(configDir, `update-config.${ext}`)
+    const text = await fs.readFile(file, "utf-8").catch(() => undefined)
+    if (!text) continue
+    const data = ConfigPaths.parseText(text, file, "empty").catch(() => undefined)
+    if (!data) continue
+    const parsed = UpdateConfig.safeParse(await data)
+    if (parsed.success) return parsed.data
+  }
+  return null
+}
+
+let cachedBaseUrl: string | undefined
+
+async function getUpdateBase() {
+  if (cachedBaseUrl) return cachedBaseUrl
+  const cfg = await readUpdateConfig()
+  cachedBaseUrl = cfg?.updateBaseUrl?.trim() || WEB_UPDATE_BASE_DEFAULT
+  return cachedBaseUrl
 }
 
 function updateStatePath(work: string) {
@@ -161,9 +190,10 @@ function abs(url: string, val: string) {
   return `${url.slice(0, url.lastIndexOf("/"))}/${val}`
 }
 
-function manifestUrl(os: z.infer<typeof WebUpdateOS>, version?: string) {
-  if (!version) return `${WEB_UPDATE_BASE}/${INSTALLER_YML[os]}`
-  return `${WEB_UPDATE_BASE}/${version}/${UPDATE_YML[os]}`
+async function manifestUrl(os: z.infer<typeof WebUpdateOS>, version?: string) {
+  const base = await getUpdateBase()
+  if (!version) return `${base}/${INSTALLER_YML[os]}`
+  return `${base}/${version}/${UPDATE_YML[os]}`
 }
 
 function parseManifest(text: string) {
@@ -243,7 +273,7 @@ function parseManifest(text: string) {
 }
 
 async function fetchManifest(os: z.infer<typeof WebUpdateOS>, version?: string) {
-  const url = manifestUrl(os, version)
+  const url = await manifestUrl(os, version)
   const res = await fetch(url)
   if (!res.ok) {
     return { ok: false as const, url, error: `Failed to fetch version metadata: ${res.status}` }
@@ -449,7 +479,7 @@ function resolveWorkDir(os: string): { path: string; isFallback: boolean } | nul
 async function fetchInstallerScript(os: string): Promise<string | null> {
   const name = INSTALLER_SCRIPT[os]
   if (!name) return null
-  const url = `${WEB_UPDATE_BASE}/installer/${name}`
+  const url = `${await getUpdateBase()}/installer/${name}`
   const dest = path.join(tmpdir(), `aether-installer-${name}`)
   try {
     const res = await fetch(url)
