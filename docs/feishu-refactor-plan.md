@@ -128,7 +128,7 @@
 - `/new`
 - `/model`
 - `/agent`
-- `/approval`
+- `/autoaccept`
 - `/variant`
 - `/project`
 - `/session`
