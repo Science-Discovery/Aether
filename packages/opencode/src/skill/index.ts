@@ -12,6 +12,7 @@ import { makeRuntime } from "@/effect/run-service"
 import { Flag } from "@/flag/flag"
 import { Global } from "@/global"
 import { Permission } from "@/permission"
+import { Instance } from "@/project/instance"
 import { Filesystem } from "@/util/filesystem"
 import { Config } from "../config/config"
 import { ConfigMarkdown } from "../config/markdown"
@@ -500,13 +501,21 @@ export namespace Skill {
   )
 
   export async function clearSkillsPromptCache(clearSnapshot = false): Promise<void> {
-    await runPromise((skill) => skill.invalidate())
+    const dirs = Instance.dirs()
+    await Promise.all(
+      dirs.map((dir) =>
+        Instance.provide({
+          directory: dir,
+          fn: () => runPromise((skill) => skill.invalidate()),
+        }),
+      ),
+    )
     if (clearSnapshot) {
       await fs.unlink(globalSnapshotPath()).catch(() => {})
       await fs.rm(projectSnapshotDir(), { recursive: true, force: true }).catch(() => {})
       await fs.unlink(path.join(Global.Path.cache, ".skills_prompt_snapshot.json")).catch(() => {})
     }
-    log.info("skills cache cleared", { clearSnapshot })
+    log.info("skills cache cleared", { clearSnapshot, instances: dirs.length, dirs })
   }
 
   export const defaultLayer: Layer.Layer<Service> = layer.pipe(Layer.provide(Discovery.defaultLayer))
