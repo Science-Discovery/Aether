@@ -1145,6 +1145,10 @@ export namespace Config {
         .record(z.string(), Provider)
         .optional()
         .describe("Custom provider configurations and model overrides"),
+      provider_remove: z
+        .array(z.string())
+        .optional()
+        .describe("Remove these provider configs entirely from the config file"),
       mcp: z
         .record(
           z.string(),
@@ -1381,7 +1385,10 @@ export namespace Config {
   export async function update(config: Info) {
     const filepath = path.join(Instance.directory, "config.json")
     const existing = await loadFile(filepath)
-    await Filesystem.writeJson(filepath, mergeDeep(existing, config))
+    const merged = mergeDeep(existing, config)
+    applyProviderReplace(merged, existing, config)
+    delete merged.provider_remove
+    await Filesystem.writeJson(filepath, merged)
     await Instance.dispose()
   }
 
@@ -1533,6 +1540,21 @@ export namespace Config {
     return !!value && typeof value === "object" && !Array.isArray(value)
   }
 
+  function applyProviderReplace(merged: Info, existing: Info, config: Info) {
+    if (!config.provider && !config.provider_remove) return
+    merged.provider = merged.provider ?? {}
+    if (config.provider) {
+      for (const [id, value] of Object.entries(config.provider)) {
+        merged.provider[id] = value
+      }
+    }
+    if (config.provider_remove) {
+      for (const id of config.provider_remove) {
+        delete merged.provider[id]
+      }
+    }
+  }
+
   function patchJsonc(input: string, patch: unknown, path: string[] = []): string {
     if (!isRecord(patch)) {
       const edits = modify(input, path, patch, {
@@ -1544,8 +1566,12 @@ export namespace Config {
       return applyEdits(input, edits)
     }
 
+    const fmt = { formattingOptions: { insertSpaces: true, tabSize: 2 } }
     return Object.entries(patch).reduce((result, [key, value]) => {
-      if (value === undefined) return result
+      if (value === undefined) {
+        const edits = modify(result, [...path, key], undefined, fmt)
+        return applyEdits(result, edits)
+      }
       return patchJsonc(result, value, [...path, key])
     }, input)
   }
@@ -1597,6 +1623,8 @@ export namespace Config {
     const next = await (async () => {
       if (!before) {
         const merged = mergeDeep(await global(), config)
+        applyProviderReplace(merged, await global(), config)
+        delete merged.provider_remove
         await Filesystem.writeJson(filepath, merged)
         return merged
       }
@@ -1604,13 +1632,28 @@ export namespace Config {
       if (!filepath.endsWith(".jsonc")) {
         const existing = parseConfig(before, filepath)
         const merged = mergeDeep(existing, config)
+        applyProviderReplace(merged, existing, config)
+        delete merged.provider_remove
         await Filesystem.writeJson(filepath, merged)
         return merged
       }
 
-      const updated = patchJsonc(before, config)
-      const merged = parseConfig(updated, filepath)
-      await Filesystem.write(filepath, updated)
+      const fmt = { formattingOptions: { insertSpaces: true, tabSize: 2 } }
+      let result = patchJsonc(before, { ...config, provider: undefined, provider_remove: undefined })
+      if (config.provider) {
+        for (const [id, value] of Object.entries(config.provider)) {
+          const edits = modify(result, ["provider", id], value, fmt)
+          result = applyEdits(result, edits)
+        }
+      }
+      if (config.provider_remove) {
+        for (const id of config.provider_remove) {
+          const edits = modify(result, ["provider", id], undefined, fmt)
+          result = applyEdits(result, edits)
+        }
+      }
+      const merged = parseConfig(result, filepath)
+      await Filesystem.write(filepath, result)
       return merged
     })()
 
