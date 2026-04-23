@@ -54,17 +54,23 @@ export namespace SessionPreference {
 
   export async function update(patch: Patch): Promise<Info> {
     const prev = store.get(patch.sessionID)
+    const modelChanged =
+      patch.model &&
+      (patch.model.providerID !== prev?.model?.providerID || patch.model.modelID !== prev?.model?.modelID)
     const merged: Info = {
       sessionID: patch.sessionID,
       agent: patch.agent ?? prev?.agent,
       model: patch.model ?? prev?.model,
-      variant: patch.variant === null ? undefined : (patch.variant ?? prev?.variant),
+      variant: patch.variant === null ? undefined : modelChanged ? undefined : (patch.variant ?? prev?.variant),
       autoAccept: patch.autoAccept ?? prev?.autoAccept,
     }
     store.set(patch.sessionID, merged)
     log.info("update", { sessionID: patch.sessionID })
 
-    Bus.publish(PreferenceUpdated, { sessionID: patch.sessionID, preference: merged })
+    Bus.publish(PreferenceUpdated, {
+      sessionID: patch.sessionID,
+      preference: { ...merged, variant: merged.variant ?? null },
+    })
 
     if (patch.autoAccept !== undefined && patch.autoAccept !== prev?.autoAccept) {
       const { Session } = await import(".")
