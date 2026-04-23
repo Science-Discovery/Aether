@@ -241,18 +241,18 @@ HELP_LIST_TEXT = """📋 全部命令：
 /s n, /session n
   切换到当前项目下编号 n 的会话
 
-/approval
+/autoaccept
   查看审批模式
-/approval n
+/autoaccept n
   按编号切换审批模式（1=auto, 2=ask）
-/approval <name>
+/autoaccept <name>
   按名称切换审批模式（name 可选：auto、ask）
 
-/thinkinglevel
+/variant
   查看当前模型可用的思考等级
-/thinkinglevel n
+/variant n
   按编号切换思考等级
-/thinkinglevel <name>
+/variant <name>
   按名称切换思考等级
 
 /h, /help
@@ -601,7 +601,7 @@ class AetherAgent(Agent):
             return False
         try:
             await self._reply_permission(permission["id"], "always", directory)
-            logger.info(f"[/approval] 自动接受授权 {permission['id']} for {conv_id}")
+            logger.info(f"[/autoaccept] 自动接受授权 {permission['id']} for {conv_id}")
             return True
         except Exception as e:
             logger.warning(f"自动接受授权失败: {e}")
@@ -710,10 +710,10 @@ class AetherAgent(Agent):
             return self._cmd_set_model(conv_id, arg)
         if cmd in {"/a", "/agent"}:
             return await self._cmd_agent(conv_id, arg)
-        if cmd == "/thinkinglevel":
-            return await self._cmd_thinking(conv_id, arg)
-        if cmd == "/approval":
-            return await self._cmd_approval(conv_id, arg)
+        if cmd == "/variant":
+            return await self._cmd_variant(conv_id, arg)
+        if cmd == "/autoaccept":
+            return await self._cmd_autoaccept(conv_id, arg)
         if cmd in {"/p", "/project"}:
             if arg == "l":
                 arg = "list"
@@ -881,7 +881,7 @@ class AetherAgent(Agent):
             return names, (pref or {}).get("variant"), True
         return [], (pref or {}).get("variant"), True
 
-    async def _cmd_thinking(self, conv_id: str, arg: str) -> str:
+    async def _cmd_variant(self, conv_id: str, arg: str) -> str:
         names, current, ok = await self._list_thinking(conv_id)
         if not ok:
             return "❌ 请先使用 /m 选择模型后再切换思考等级。"
@@ -895,7 +895,7 @@ class AetherAgent(Agent):
                     else ""
                 )
                 lines.append(f"  {i}. {name}{tag}")
-            lines.extend(["", "💡 /thinkinglevel 编号或名称 切换思考等级"])
+            lines.extend(["", "💡 /variant 编号或名称 切换思考等级"])
             return chr(10).join(lines)
         pick = None
         if arg.isdigit():
@@ -906,17 +906,17 @@ class AetherAgent(Agent):
         else:
             pick = arg if arg in items else "默认" if arg == "default" else None
         if not pick:
-            return f"❌ 未找到思考等级：{arg}，发送 /thinkinglevel 查看可用思考等级。"
+            return f"❌ 未找到思考等级：{arg}，发送 /variant 查看可用思考等级。"
         session_id = self._sessions.get(conv_id)
         directory = self._conv_dirs.get(conv_id) or self.directory
         if session_id:
             await self._set_preference(
                 session_id, directory, variant=None if pick == "默认" else pick
             )
-        logger.info(f"[/thinkinglevel] {conv_id} -> {pick}")
+        logger.info(f"[/variant] {conv_id} -> {pick}")
         return f"✅ 已切换思考等级：{pick}\n（仅对当前对话生效，/new 后将重置）"
 
-    async def _cmd_approval(self, conv_id: str, arg: str) -> str:
+    async def _cmd_autoaccept(self, conv_id: str, arg: str) -> str:
         session_id = self._sessions.get(conv_id)
         directory = self._conv_dirs.get(conv_id) or self.directory
         pref = await self._get_preference(session_id, directory) if session_id else None
@@ -929,7 +929,7 @@ class AetherAgent(Agent):
                 f"  1. auto（自动批准）{' ★（当前）' if auto else ''}",
                 f"  2. ask（手动审批）{' ★（当前）' if not auto else ''}",
                 "",
-                "💡 /approval 编号或名称 切换审批模式",
+                "💡 /autoaccept 编号或名称 切换审批模式",
             ]
             return chr(10).join(lines)
         pick = None
@@ -944,7 +944,7 @@ class AetherAgent(Agent):
             await self._set_preference(
                 session_id, directory, autoAccept=(pick == "auto")
             )
-        logger.info(f"[/approval] {conv_id} -> {pick}")
+        logger.info(f"[/autoaccept] {conv_id} -> {pick}")
         if pick == "auto" and conv_id in self._pending_permissions:
             await self._handle_permission_reply(conv_id, "2")
         return (

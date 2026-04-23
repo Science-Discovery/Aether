@@ -702,7 +702,7 @@ class TestSlashCommandsUntouched(unittest.TestCase):
             "/model list",
             "/agent build",
             "/variant",
-            "/approval auto",
+            "/autoaccept auto",
             "/project",
             "/project list",
             "/session",

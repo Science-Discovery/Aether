@@ -91,10 +91,10 @@ export interface FeishuSession {
 }
 
 const HELP_TEXT =
-  "📋 可用命令：\n\n/n, /new            开启新对话\n/stop               停止当前执行\n/c, /compact        压缩当前上下文\n\n/m, /model          查看可用模型\n/m l                查看全部模型\n/m n                切换编号模型\n\n/a, /agent          查看当前模式\n/a n | /a <name>    切换指定模式\n\n/thinkinglevel      查看思考等级\n/thinkinglevel n    切换编号思考等级\n\n/approval           查看审批模式\n/approval n         切换编号审批模式\n\n/p, /project        查看最近项目\n/p l                查看全部项目\n/p n                切换编号项目\n/p <path>           切换到指定路径\n\n/s, /session        查看最近会话\n/s l                查看全部会话\n/s n                切换编号会话\n\n/h, /help           显示帮助信息\n/help list          显示全部命令"
+  "📋 可用命令：\n\n/n, /new            开启新对话\n/stop               停止当前执行\n/c, /compact        压缩当前上下文\n\n/m, /model          查看可用模型\n/m l                查看全部模型\n/m n                切换编号模型\n\n/a, /agent          查看当前模式\n/a n | /a <name>    切换指定模式\n\n/variant            查看思考等级\n/variant n          切换编号思考等级\n\n/autoaccept         查看审批模式\n/autoaccept n       切换编号审批模式\n\n/p, /project        查看最近项目\n/p l                查看全部项目\n/p n                切换编号项目\n/p <path>           切换到指定路径\n\n/s, /session        查看最近会话\n/s l                查看全部会话\n/s n                切换编号会话\n\n/h, /help           显示帮助信息\n/help list          显示全部命令"
 
 const HELP_LIST_TEXT =
-  "📋 全部命令：\n\n/n, /new\n  开启新对话，清空当前会话上下文\n\n/stop\n  停止当前执行中的任务\n\n/c, /compact\n  压缩当前会话上下文\n\n/m, /model\n  查看可用模型\n/m l, /model list\n  查看全部模型（l = list）\n/m n, /model n\n  切换到编号 n 的模型（n 为全量模型编号）\n\n/a, /agent\n  查看当前模式\n/a n, /agent n\n  按编号切换模式\n/a <name>, /agent <name>\n  按名称切换模式（如 build、plan、docs）\n\n/thinkinglevel\n  查看当前模型可用的思考等级\n/thinkinglevel n\n  按编号切换思考等级\n/thinkinglevel <name>\n  按名称切换思考等级\n\n/approval\n  查看审批模式\n/approval n\n  按编号切换审批模式（1=auto, 2=ask）\n/approval <name>\n  切换审批模式（name 可选：auto、ask）\n\n/p, /project\n  查看最近项目\n/p l, /project list\n  查看全部项目（l = list）\n/p n, /project n\n  切换到编号 n 的项目\n/p <path>, /project <path>\n  切换到指定路径（如 /p E:\\work\\foo 或 /p /home/user/foo）\n/project hide n\n  隐藏编号 n 的项目，重新在桌面端或消息端使用后自动恢复\n\n/s, /session\n  查看最近会话\n/s l, /session list\n  查看当前项目下全部会话（l = list）\n/s n, /session n\n  切换到当前项目下编号 n 的会话\n\n/h, /help\n  显示常用命令\n/help list\n  显示全部命令"
+  "📋 全部命令：\n\n/n, /new\n  开启新对话，清空当前会话上下文\n\n/stop\n  停止当前执行中的任务\n\n/c, /compact\n  压缩当前会话上下文\n\n/m, /model\n  查看可用模型\n/m l, /model list\n  查看全部模型（l = list）\n/m n, /model n\n  切换到编号 n 的模型（n 为全量模型编号）\n\n/a, /agent\n  查看当前模式\n/a n, /agent n\n  按编号切换模式\n/a <name>, /agent <name>\n  按名称切换模式（如 build、plan、docs）\n\n/variant\n  查看当前模型可用的思考等级\n/variant n\n  按编号切换思考等级\n/variant <name>\n  按名称切换思考等级\n\n/autoaccept\n  查看审批模式\n/autoaccept n\n  按编号切换审批模式（1=auto, 2=ask）\n/autoaccept <name>\n  切换审批模式（name 可选：auto、ask）\n\n/p, /project\n  查看最近项目\n/p l, /project list\n  查看全部项目（l = list）\n/p n, /project n\n  切换到编号 n 的项目\n/p <path>, /project <path>\n  切换到指定路径（如 /p E:\\work\\foo 或 /p /home/user/foo）\n/project hide n\n  隐藏编号 n 的项目，重新在桌面端或消息端使用后自动恢复\n\n/s, /session\n  查看最近会话\n/s l, /session list\n  查看当前项目下全部会话（l = list）\n/s n, /session n\n  切换到当前项目下编号 n 的会话\n\n/h, /help\n  显示常用命令\n/help list\n  显示全部命令"
 
 export const FeishuEvent = {
   StatusChanged: BusEvent.define(
@@ -1249,10 +1249,10 @@ class FeishuManagerImpl {
         await this.cmdModel(messageId, chatId, args)
       } else if (command === "/a" || command === "/agent") {
         await this.cmdAgent(messageId, chatId, rest)
-      } else if (command === "/approval") {
-        await this.cmdApproval(messageId, chatId, rest)
-      } else if (command === "/thinkinglevel") {
-        await this.cmdThinkingLevel(messageId, chatId, rest)
+      } else if (command === "/autoaccept") {
+        await this.cmdAutoAccept(messageId, chatId, rest)
+      } else if (command === "/variant") {
+        await this.cmdVariant(messageId, chatId, rest)
       } else if (command === "/p" || command === "/project") {
         const arg = rest === "l" ? "list" : rest.startsWith("h ") ? `hide ${rest.slice(2).trim()}` : rest
         await this.cmdProject(messageId, chatId, arg)
@@ -1478,10 +1478,10 @@ class FeishuManagerImpl {
   }
 
   /**
-   * /approval        — show current approval mode
-   * /approval <name> — switch approval mode (auto, ask)
+   * /autoaccept        — show current approval mode
+   * /autoaccept <name> — switch approval mode (auto, ask)
    */
-  private async cmdApproval(messageId: string, chatId: string, arg: string): Promise<void> {
+  private async cmdAutoAccept(messageId: string, chatId: string, arg: string): Promise<void> {
     const ctx = await this.commandCtx(chatId)
     const auto = ctx.pref?.autoAccept ?? false
     const names = ["auto", "ask"] as const
@@ -1492,7 +1492,7 @@ class FeishuManagerImpl {
         `  1. auto（自动批准）${auto ? " ★（当前）" : ""}`,
         `  2. ask（手动审批）${auto ? "" : " ★（当前）"}`,
         "",
-        "💡 /approval 编号或名称 切换审批模式",
+        "💡 /autoaccept 编号或名称 切换审批模式",
       ]
       await this.replyCmd(messageId, chatId, lines.join("\n"))
       return
@@ -1521,7 +1521,7 @@ class FeishuManagerImpl {
     }
   }
 
-  private async cmdThinkingLevel(messageId: string, chatId: string, arg: string): Promise<void> {
+  private async cmdVariant(messageId: string, chatId: string, arg: string): Promise<void> {
     const model = this.resolveModel(chatId)
     if (!model) {
       await this.replyCmd(messageId, chatId, "❌ 请先使用 /m 选择模型后再切换思考等级。")
@@ -1535,7 +1535,7 @@ class FeishuManagerImpl {
         const active = name === "默认" ? !info.current : name === info.current
         lines.push(`  ${i + 1}. ${name}${active ? " ★（当前）" : ""}`)
       })
-      lines.push("", "💡 /thinkinglevel 编号或名称 切换思考等级")
+      lines.push("", "💡 /variant 编号或名称 切换思考等级")
       await this.replyCmd(messageId, chatId, lines.join("\n"))
       return
     }
@@ -1550,7 +1550,7 @@ class FeishuManagerImpl {
         await this.replyCmd(messageId, chatId, `❌ 编号超出范围，请输入 1~${names.length} 之间的数字。`)
         return
       }
-      await this.replyCmd(messageId, chatId, `❌ 未找到思考等级：${arg}，发送 /thinkinglevel 查看可用思考等级。`)
+      await this.replyCmd(messageId, chatId, `❌ 未找到思考等级：${arg}，发送 /variant 查看可用思考等级。`)
       return
     }
     await this.setPref(chatId, { variant: next === "默认" ? undefined : next })
