@@ -465,7 +465,7 @@ export default function Layout(props: ParentProps) {
               showUpdateToast(next.version)
               return
             }
-            if (platform.platform === "web" && status === "recovery") {
+            if (platform.platform === "web" && status === "failed") {
               showUpdateToast(version)
               return
             }
