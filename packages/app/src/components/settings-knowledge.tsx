@@ -8,9 +8,10 @@ import { useGlobalSDK } from "@/context/global-sdk"
 import { useServer } from "@/context/server"
 import { useProviders } from "@/hooks/use-providers"
 import {
-  labelEmbeddingModel,
+  labelResolvedEmbeddingModel,
   labelProvider,
-  listEmbeddingModels,
+  type ProviderConnection,
+  type ResolvedEmbeddingModel,
   toEmbeddingProvider,
 } from "@/utils/knowledge-embedding"
 import { DialogSelectDirectory } from "./dialog-select-directory"
@@ -33,10 +34,12 @@ export const SettingsKnowledge: Component = () => {
   const [newModel, setNewModel] = createSignal("")
   const [newApiKey, setNewApiKey] = createSignal("")
   const [newBaseURL, setNewBaseURL] = createSignal("")
+  const [newProviderType, setNewProviderType] = createSignal<"openai" | "local" | "custom">("local")
   const [newChunkSize, setNewChunkSize] = createSignal(500)
   const [newChunkOverlap, setNewChunkOverlap] = createSignal(50)
 
   const [embeddingModelOptions, setEmbeddingModelOptions] = createSignal<string[]>([])
+  const [resolvedModels, setResolvedModels] = createSignal<ResolvedEmbeddingModel[]>([])
   const [loadingModels, setLoadingModels] = createSignal(false)
   const [useManualModel, setUseManualModel] = createSignal(false)
   let run = 0
@@ -66,24 +69,23 @@ export const SettingsKnowledge: Component = () => {
       headers: { "Content-Type": "application/json", ...authHeader },
     })
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
-    return resp.json() as Promise<{ apiKey: string; baseURL: string; embeddingModels: string[] }>
+    return resp.json() as Promise<ProviderConnection>
   }
 
-  const setModels = (id: string, extra: string[] = [], pick?: string) => {
-    const list = Array.from(
-      new Set([
-        ...listEmbeddingModels(
-          id,
-          connected(),
-          knowledge.models(),
-        ),
-        ...extra,
-      ]),
-    )
-    setEmbeddingModelOptions(list)
+  const setModels = (id: string, extra: ResolvedEmbeddingModel[] = [], pick?: string) => {
+    const list =
+      id === "local"
+        ? knowledge
+            .models()
+            .filter((item) => item.provider === "local")
+            .map((item) => item.id)
+        : Array.from(new Set(extra.map((item) => item.id)))
+    const next = pick && !list.includes(pick) ? [pick, ...list] : list
+    setResolvedModels(extra)
+    setEmbeddingModelOptions(next)
 
     if (pick) {
-      if (list.includes(pick)) {
+      if (next.includes(pick)) {
         setUseManualModel(false)
         setNewModel(pick)
         return
@@ -93,9 +95,9 @@ export const SettingsKnowledge: Component = () => {
       return
     }
 
-    if (list.length > 0) {
+    if (next.length > 0) {
       setUseManualModel(false)
-      setNewModel(list[0]!)
+      setNewModel(next[0]!)
       return
     }
 
@@ -107,6 +109,7 @@ export const SettingsKnowledge: Component = () => {
     if (!id) return
     const cur = ++run
     setSelectedProviderID(id)
+    setNewProviderType(id === "local" ? "local" : toEmbeddingProvider(id))
     setLoadingModels(id !== "local")
     setNewApiKey("")
     setNewBaseURL("")
@@ -119,6 +122,7 @@ export const SettingsKnowledge: Component = () => {
     try {
       const data = await fetchProviderConnection(id)
       if (cur !== run) return
+      setNewProviderType(data.embeddingProvider)
       if (data.baseURL) setNewBaseURL(data.baseURL)
       if (data.apiKey) setNewApiKey(data.apiKey)
       setModels(id, data.embeddingModels, pick)
@@ -161,7 +165,7 @@ export const SettingsKnowledge: Component = () => {
       setError("Please select or enter an embedding model")
       return
     }
-    if (toEmbeddingProvider(selectedProviderID()) === "custom" && !newBaseURL()) {
+    if (newProviderType() === "custom" && !newBaseURL()) {
       setError("Could not resolve provider API URL. Please check your provider configuration.")
       return
     }
@@ -172,7 +176,7 @@ export const SettingsKnowledge: Component = () => {
         path: newPath(),
         name: newName(),
         providerID: selectedProviderID(),
-        embeddingProvider: toEmbeddingProvider(selectedProviderID()),
+        embeddingProvider: newProviderType(),
         embeddingModel: newModel(),
         apiKey: newApiKey(),
         baseURL: newBaseURL(),
@@ -203,7 +207,10 @@ export const SettingsKnowledge: Component = () => {
         model: newModel(),
         apiKey: newApiKey(),
         baseURL: newBaseURL(),
-        dimensions: knowledge.models().find((item) => item.id === newModel())?.dimensions ?? 1536,
+        dimensions:
+          resolvedModels().find((item) => item.id === newModel())?.dimensions ??
+          knowledge.models().find((item) => item.id === newModel())?.dimensions ??
+          1536,
       })
 
       setShowAddForm(false)
@@ -303,7 +310,10 @@ export const SettingsKnowledge: Component = () => {
                         <Button
                           variant="ghost"
                           size="small"
-                          onClick={(e: MouseEvent) => { e.stopPropagation(); handleSync(kb.id) }}
+                          onClick={(e: MouseEvent) => {
+                            e.stopPropagation()
+                            handleSync(kb.id)
+                          }}
                           disabled={isSyncing()}
                           class="h-7 px-2"
                         >
@@ -312,7 +322,10 @@ export const SettingsKnowledge: Component = () => {
                         <Button
                           variant="ghost"
                           size="small"
-                          onClick={(e: MouseEvent) => { e.stopPropagation(); handleRemove(kb.id) }}
+                          onClick={(e: MouseEvent) => {
+                            e.stopPropagation()
+                            handleRemove(kb.id)
+                          }}
                           class="h-7 px-2 text-text-error"
                         >
                           <Icon name="trash" class="size-3.5" />
@@ -397,9 +410,14 @@ export const SettingsKnowledge: Component = () => {
 
               {/* Embedding Model */}
               <Show when={selectedProviderID()}>
-                <div class="flex flex-wrap items-center justify-between gap-4 min-h-16 py-3 border-b border-border-weak-base">
-                  <div class="flex flex-col min-w-0 flex-1">
+                <div class="flex flex-col gap-3 py-3 border-b border-border-weak-base">
+                  <div class="flex flex-col min-w-0">
                     <span class="text-14-medium text-text-strong">Embedding Model</span>
+                    <Show when={newProviderType() === "custom"}>
+                      <span class="text-12-regular text-text-weak">
+                        The current provider may not support the models below. Check your provider documentation.
+                      </span>
+                    </Show>
                   </div>
                   <Show when={loadingModels()}>
                     <span class="text-13-regular text-text-weak italic">Loading models...</span>
@@ -412,11 +430,19 @@ export const SettingsKnowledge: Component = () => {
                       label={(id) =>
                         id === "__manual__"
                           ? "Enter manually..."
-                          : labelEmbeddingModel(id, selectedProviderID(), connected(), knowledge.models())
+                          : labelResolvedEmbeddingModel(
+                              id,
+                              resolvedModels(),
+                              selectedProviderID(),
+                              connected(),
+                              knowledge.models(),
+                            )
                       }
                       onSelect={(id) => {
-                        if (id === "__manual__") { setUseManualModel(true); setNewModel("") }
-                        else if (id) setNewModel(id)
+                        if (id === "__manual__") {
+                          setUseManualModel(true)
+                          setNewModel("")
+                        } else if (id) setNewModel(id)
                       }}
                       variant="secondary"
                       size="small"
@@ -479,7 +505,9 @@ export const SettingsKnowledge: Component = () => {
               <div class="flex justify-between items-center text-12-regular text-text-base">
                 <span>Processing documents...</span>
                 <div class="flex items-center gap-2">
-                  <span>{progress().current} / {progress().total}</span>
+                  <span>
+                    {progress().current} / {progress().total}
+                  </span>
                   <Button
                     variant="ghost"
                     size="small"

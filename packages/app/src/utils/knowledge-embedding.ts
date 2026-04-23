@@ -8,6 +8,23 @@ type Model = {
   family?: string
 }
 
+export type ResolvedEmbeddingModel = {
+  id: string
+  name: string
+  dimensions?: number
+  provider?: string
+  source: "runtime" | "config" | "remote" | "whitelist"
+}
+
+export type ProviderConnection = {
+  providerID: string
+  name: string
+  embeddingProvider: "openai" | "custom"
+  apiKey: string
+  baseURL: string
+  embeddingModels: ResolvedEmbeddingModel[]
+}
+
 function trim(url?: string) {
   return (url ?? "").trim().replace(/\/+$/, "")
 }
@@ -52,6 +69,18 @@ export function labelEmbeddingModel(id: string, providerID: string, list: Provid
 
   const provider = list.find((item) => item.id === providerID)
   return provider?.models[id]?.name ?? id
+}
+
+export function labelResolvedEmbeddingModel(
+  id: string,
+  resolved: ResolvedEmbeddingModel[],
+  providerID: string,
+  list: Provider[],
+  local: EmbeddingModel[],
+) {
+  const match = resolved.find((item) => item.id === id)
+  if (match?.provider) return `${match.provider}/${match.id}`
+  return match?.name ?? labelEmbeddingModel(id, providerID, list, local)
 }
 
 export function hasEmbeddingModels(id: string, list: Provider[], local: EmbeddingModel[]) {
