@@ -6,6 +6,7 @@ import path from "path"
 import fs from "fs/promises"
 import { tmpdir } from "os"
 import { spawn } from "child_process"
+import { createHash } from "crypto"
 import { BusEvent } from "@/bus/bus-event"
 import { SyncEvent } from "@/sync"
 import { GlobalBus } from "@/bus/global"
@@ -39,12 +40,18 @@ const PingInput = z.object({
 })
 
 const WebUpdateOS = z.enum(["darwin", "linux", "windows"])
-const WebUpdateStatus = z.enum(["available", "downloading", "downloaded", "installing", "recovery"])
+const WebUpdateStatus = z.enum(["available", "downloading", "downloaded", "installing", "failed"])
 const WebUpdateState = z.object({
-  status: z.enum(["downloading", "downloaded", "installing", "error"]),
+  status: z.enum(["downloading", "downloaded", "installing", "installed", "failed"]),
   version: z.string().min(1),
   server: z.string().min(1),
   at: z.number().int(),
+  current_version: z.string().min(1).optional(),
+  manifest_url: z.string().min(1).optional(),
+  package_path: z.string().min(1).optional(),
+  package_sha512: z.string().min(1).optional(),
+  package_size: z.number().int().positive().optional(),
+  script_path: z.string().min(1).optional(),
   error: z.string().optional(),
 })
 
@@ -66,6 +73,12 @@ const INSTALLER_YML: Record<string, string> = {
   darwin: "latest/mac-arm64.yml",
   linux: "latest/linux-x64.yml",
   windows: "latest/windows-x64.yml",
+}
+
+const UPDATE_YML: Record<string, string> = {
+  darwin: "mac-arm64.yml",
+  linux: "linux-x64.yml",
+  windows: "windows-x64.yml",
 }
 
 const INSTALLER_SCRIPT: Record<string, string> = {
@@ -90,12 +103,18 @@ function updateStatePath(work: string) {
   return path.join(work, "downloads", "web-update-state.json")
 }
 
-function updateState(version: string, status: z.infer<typeof WebUpdateState>["status"], error?: string) {
+function updateState(
+  version: string,
+  status: z.infer<typeof WebUpdateState>["status"],
+  error?: string,
+  extra?: Partial<z.infer<typeof WebUpdateState>>,
+) {
   return {
     version,
     status,
     server: UPDATE_RUN,
     at: Date.now(),
+    ...(extra ?? {}),
     ...(error?.trim() ? { error: error.trim() } : {}),
   }
 }
@@ -126,6 +145,129 @@ function updateScriptPrefix(name: string) {
   return `${idx < 0 ? name : name.slice(0, idx)}-`
 }
 
+function cleanYaml(val: string) {
+  return val.trim().replace(/^['"]|['"]$/g, "")
+}
+
+function origin(url: string) {
+  const next = new URL(url)
+  return `${next.protocol}//${next.host}`
+}
+
+function abs(url: string, val: string) {
+  if (!val) return ""
+  if (val.startsWith("http://") || val.startsWith("https://")) return val
+  if (val.startsWith("/")) return `${origin(url)}${val}`
+  return `${url.slice(0, url.lastIndexOf("/"))}/${val}`
+}
+
+function manifestUrl(os: z.infer<typeof WebUpdateOS>, version?: string) {
+  if (!version) return `${WEB_UPDATE_BASE}/${INSTALLER_YML[os]}`
+  return `${WEB_UPDATE_BASE}/${version}/${UPDATE_YML[os]}`
+}
+
+function parseManifest(text: string) {
+  let sec = ""
+  let ver = ""
+  let pkg = ""
+  let sha = ""
+  let note = ""
+  let ins = ""
+  let size = 0
+  let file = false
+  for (const raw of text.split(/\r?\n/)) {
+    const line = raw.trim()
+    if (!line) continue
+    if (line.startsWith("version:")) {
+      ver = cleanYaml(line.slice("version:".length))
+      continue
+    }
+    if (line.startsWith("notes_url:")) {
+      note = cleanYaml(line.slice("notes_url:".length))
+      continue
+    }
+    if (/^package:\s*$/.test(line)) {
+      sec = "package"
+      file = false
+      continue
+    }
+    if (/^installer:\s*$/.test(line)) {
+      sec = "installer"
+      file = false
+      continue
+    }
+    if (/^files:\s*$/.test(line)) {
+      sec = "files"
+      file = false
+      continue
+    }
+    if (/^[^\s-].*:\s*$/.test(raw)) {
+      sec = ""
+      file = false
+      continue
+    }
+    if (sec === "package") {
+      if (/^url:\s*/.test(line)) {
+        pkg = cleanYaml(line.slice("url:".length))
+        continue
+      }
+      if (/^sha512:\s*/.test(line)) {
+        sha = cleanYaml(line.slice("sha512:".length))
+        continue
+      }
+      if (/^size:\s*/.test(line)) {
+        size = Number.parseInt(cleanYaml(line.slice("size:".length)), 10) || 0
+        continue
+      }
+    }
+    if (sec === "installer" && /^url:\s*/.test(line)) {
+      ins = cleanYaml(line.slice("url:".length))
+      continue
+    }
+    if (sec !== "files") continue
+    if (/^-\s*url:\s*/.test(line)) {
+      if (!pkg) pkg = cleanYaml(line.replace(/^-\s*url:\s*/, ""))
+      file = !pkg || pkg === cleanYaml(line.replace(/^-\s*url:\s*/, ""))
+      continue
+    }
+    if (!file) continue
+    if (/^sha512:\s*/.test(line) && !sha) {
+      sha = cleanYaml(line.slice("sha512:".length))
+      continue
+    }
+    if (/^size:\s*/.test(line) && !size) {
+      size = Number.parseInt(cleanYaml(line.slice("size:".length)), 10) || 0
+    }
+  }
+  return { ver, pkg, sha, size, ins, note }
+}
+
+async function fetchManifest(os: z.infer<typeof WebUpdateOS>, version?: string) {
+  const url = manifestUrl(os, version)
+  const res = await fetch(url)
+  if (!res.ok) {
+    return { ok: false as const, url, error: `Failed to fetch version metadata: ${res.status}` }
+  }
+  const text = await res.text()
+  const data = parseManifest(text)
+  if (!data.ver) {
+    return { ok: false as const, url, error: "Could not parse remote version from metadata" }
+  }
+  if (!data.pkg || !data.sha || !data.size) {
+    return { ok: false as const, url, error: "Update manifest must include package url, sha512, and size" }
+  }
+  return {
+    ok: true as const,
+    url,
+    version: data.ver,
+    package_url: abs(url, data.pkg),
+    package_sha512: data.sha,
+    package_size: data.size,
+    installer_url: data.ins ? abs(url, data.ins) : "",
+    notes_url: data.note ? abs(url, data.note) : "",
+  }
+}
+
 function packageMatch(os: string, ver: string, name: string) {
   const ext = UPDATE_PKG_EXT[os] ?? ".dmg"
   const prefix = UPDATE_PKG_PREFIX[os] ?? "aether"
@@ -140,81 +282,111 @@ async function packagePath(os: string, ver: string, work: string) {
   return path.join(dl, list[list.length - 1])
 }
 
-async function downloadedReady(os: string, ver: string, work: string) {
+async function pkgHash(file: string) {
+  return createHash("sha512")
+    .update(await fs.readFile(file))
+    .digest("base64")
+}
+
+async function verifyDownload(
+  os: z.infer<typeof WebUpdateOS>,
+  meta: Extract<Awaited<ReturnType<typeof fetchManifest>>, { ok: true }>,
+  work: string,
+) {
   const file = UPDATE_SCRIPT[os]
-  if (!file) return false
+  if (!file) return { ok: false as const, error: `Update script not configured for ${os}` }
   const dl = path.join(work, "downloads")
-  const upd = path.join(dl, versioned(file, ver))
+  const script = path.join(dl, versioned(file, meta.version))
   try {
-    await fs.access(upd)
+    await fs.access(script)
   } catch {
-    return false
+    return { ok: false as const, error: `Downloaded update script missing: ${script}` }
   }
-  const pkg = await packagePath(os, ver, work)
-  if (!pkg) return false
+  const pkg = await packagePath(os, meta.version, work)
+  if (!pkg) return { ok: false as const, error: `No update package found in ${dl}` }
   try {
-    await fs.access(pkg)
-    return true
+    const stat = await fs.stat(pkg)
+    if (stat.size !== meta.package_size) {
+      return { ok: false as const, error: `Downloaded package size mismatch for ${pkg}` }
+    }
+    const sha = await pkgHash(pkg)
+    if (sha !== meta.package_sha512) {
+      return { ok: false as const, error: `Downloaded package checksum mismatch for ${pkg}` }
+    }
+    return { ok: true as const, script, package: pkg }
   } catch {
-    return false
+    return { ok: false as const, error: `Failed to validate downloaded package: ${pkg}` }
   }
 }
 
 async function resetUpdate(os: string, ver: string, work: string) {
   const dl = path.join(work, "downloads")
   const file = UPDATE_SCRIPT[os]
-  const ext = UPDATE_PKG_EXT[os] ?? ".dmg"
-  const prefix = UPDATE_PKG_PREFIX[os] ?? "aether"
-  const files = await fs.readdir(dl).catch(() => [])
-  const list = files.filter(
-    (x) =>
-      (x.startsWith(prefix) && x.toLowerCase().endsWith(ext)) ||
-      (file ? x.startsWith(updateScriptPrefix(file)) && x.endsWith(path.extname(file)) : false) ||
-      x === "last-result.yml" ||
-      x === "web-update-state.json",
-  )
-  await Promise.all(list.map((x) => fs.rm(path.join(dl, x), { force: true }).catch(() => undefined)))
+  const state = await readUpdateState(work)
+  const files = new Set<string>()
+  if (state?.package_path) files.add(state.package_path)
+  if (state?.script_path) files.add(state.script_path)
+  if (file) files.add(path.join(dl, versioned(file, ver)))
+  const pkg = await packagePath(os, ver, work)
+  if (pkg) files.add(pkg)
+  files.add(path.join(dl, "last-result.yml"))
+  files.add(path.join(dl, "web-update-state.json"))
+  if (state?.version === ver) {
+    files.add(path.join(dl, `manifest-${ver}.yml`))
+  }
+  await Promise.all(Array.from(files).map((x) => fs.rm(x, { force: true }).catch(() => undefined)))
   await fs.rm(path.join(work, `.aether_${ver}.next`), { force: true, recursive: true }).catch(() => undefined)
   await fs.rm(path.join(work, `aether_${ver}`), { force: true, recursive: true }).catch(() => undefined)
   await clearUpdateState(work)
 }
 
-async function resolveUpdateStatus(os: z.infer<typeof WebUpdateOS>, ver: string, work: string) {
+async function resolveUpdateStatus(
+  os: z.infer<typeof WebUpdateOS>,
+  cur: string,
+  meta: Extract<Awaited<ReturnType<typeof fetchManifest>>, { ok: true }>,
+  work: string,
+) {
   const state = await readUpdateState(work)
-  const ready = await downloadedReady(os, ver, work)
   if (!state) {
-    if (ready) return { status: "downloaded" as const, error: "" }
     return { status: "available" as const, error: "" }
   }
-  if (state.version !== ver) {
+  if (state.version !== meta.version) {
     return {
-      status: "recovery" as const,
+      status: "failed" as const,
       error: "A previous update attempt targeted a different version. Restart the update from scratch.",
     }
   }
+  if (state.status === "installed") {
+    return { status: "installed" as const, error: state.error ?? "" }
+  }
+  if (state.status === "installing" && compareVer(cur, state.version) >= 0) {
+    return { status: "installed" as const, error: state.error ?? "" }
+  }
+  const chk = await verifyDownload(os, meta, work)
   if (state.status === "downloaded") {
-    if (ready) return { status: "downloaded" as const, error: state.error ?? "" }
+    if (chk.ok) return { status: "downloaded" as const, error: state.error ?? "", ...chk }
     return {
-      status: "recovery" as const,
-      error: "Downloaded update files are incomplete. Restart the update from scratch.",
+      status: "failed" as const,
+      error: chk.error,
     }
   }
   if (state.status === "downloading") {
+    if (chk.ok) return { status: "downloaded" as const, error: state.error ?? "", ...chk }
     if (state.server === UPDATE_RUN) return { status: "downloading" as const, error: state.error ?? "" }
     return {
-      status: "recovery" as const,
+      status: "failed" as const,
       error: state.error ?? "The previous download did not finish. Restart the update from scratch.",
     }
   }
   if (state.status === "installing") {
     if (state.server === UPDATE_RUN) return { status: "installing" as const, error: state.error ?? "" }
     return {
-      status: "recovery" as const,
+      status: "failed" as const,
       error: state.error ?? "The previous install did not finish. Restart the update from scratch.",
     }
   }
   return {
-    status: "recovery" as const,
+    status: "failed" as const,
     error: state.error ?? "The previous update failed. Restart the update from scratch.",
   }
 }
@@ -335,11 +507,9 @@ async function webCheck(os: z.infer<typeof WebUpdateOS>) {
   const resolved = resolveWorkDir(os)
   const workDir = resolved?.path ?? ""
   const workDirFallback = resolved?.isFallback ?? false
-  const ymlPath = INSTALLER_YML[os]
-  const metaUrl = `${WEB_UPDATE_BASE}/${ymlPath}`
   try {
-    const res = await fetch(metaUrl)
-    if (!res.ok) {
+    const meta = await fetchManifest(os)
+    if (!meta.ok) {
       return {
         currentVersion,
         remoteVersion: "",
@@ -349,35 +519,23 @@ async function webCheck(os: z.infer<typeof WebUpdateOS>) {
         workDir,
         workDirFallback,
         updateError: undefined,
-        checkError: `Failed to fetch version metadata: ${res.status}`,
+        checkError: meta.error,
       }
     }
-    const text = await res.text()
-    const match = text.match(/^version:\s*(.+)$/m)
-    const remoteVersion = (match?.[1]?.trim() ?? "").replace(/^['"]|['"]$/g, "")
-    if (!remoteVersion) {
-      return {
-        currentVersion,
-        remoteVersion: "",
-        updateAvailable: false,
-        downloaded: false,
-        status: "available" as const,
-        workDir,
-        workDirFallback,
-        updateError: undefined,
-        checkError: "Could not parse remote version from metadata",
-      }
-    }
+    const remoteVersion = meta.version
     const updateAvailable = compareVer(currentVersion, remoteVersion) < 0
     if (!updateAvailable && workDir) await clearUpdateState(workDir)
-    const state = updateAvailable && workDir ? await resolveUpdateStatus(os, remoteVersion, workDir) : null
+    const state = updateAvailable && workDir ? await resolveUpdateStatus(os, currentVersion, meta, workDir) : null
+    if (state?.status === "installed" && workDir) {
+      await clearUpdateState(workDir)
+    }
     const downloaded = state?.status === "downloaded"
     return {
       currentVersion,
       remoteVersion,
       updateAvailable,
       downloaded,
-      status: state?.status ?? "available",
+      status: state?.status === "installed" ? "available" : (state?.status ?? "available"),
       workDir,
       workDirFallback,
       updateError: state?.error || undefined,
@@ -473,6 +631,18 @@ async function streamEvents(c: Context, subscribe: (q: AsyncQueue<string | null>
       stop()
     }
   })
+}
+
+export const WebUpdateTest = {
+  fetchManifest,
+  parseManifest,
+  readUpdateState,
+  resetUpdate,
+  resolveUpdateStatus,
+  updateState,
+  verifyDownload,
+  versioned,
+  writeUpdateState,
 }
 
 export const GlobalRoutes = lazy(() =>
@@ -889,10 +1059,13 @@ export const GlobalRoutes = lazy(() =>
         const workDir = resolved.path
         const upd = UPDATE_SCRIPT[os]
         if (!upd) return c.json({ success: false as const, error: `Update script not configured for ${os}` })
-        const state = await resolveUpdateStatus(os, version, workDir)
+        const meta = await fetchManifest(os, version)
+        if (!meta.ok) return c.json({ success: false as const, error: meta.error })
+        const cur = await readWebCurrentVersion()
+        const state = await resolveUpdateStatus(os, cur, meta, workDir)
         if (force) await resetUpdate(os, version, workDir)
         if (!force && state.status === "downloaded") {
-          return c.json({ success: true as const, path: path.join(workDir, "downloads", versioned(upd, version)) })
+          return c.json({ success: true as const, path: state.script })
         }
         if (!force && state.status === "downloading") {
           return c.json({ success: false as const, error: "Update download is already in progress" })
@@ -900,7 +1073,7 @@ export const GlobalRoutes = lazy(() =>
         if (!force && state.status === "installing") {
           return c.json({ success: false as const, error: "Update install is already in progress" })
         }
-        if (!force && state.status === "recovery") {
+        if (!force && state.status === "failed") {
           return c.json({ success: false as const, error: state.error || "Update needs to restart from scratch" })
         }
         try {
@@ -913,15 +1086,21 @@ export const GlobalRoutes = lazy(() =>
         if (!scriptPath) {
           return c.json({ success: false as const, error: `Failed to fetch installer script for ${os}` })
         }
-        const currentVersion = readWebCurrentVersion()
         log.info("running installer auto mode", { os, script: scriptPath, version, workDir })
         try {
-          const cur = await currentVersion
           if (compareVer(cur, version) >= 0) {
             await clearUpdateState(workDir)
             return c.json({ success: false as const, error: "No upgrade needed" })
           }
-          await writeUpdateState(workDir, updateState(version, "downloading"))
+          await writeUpdateState(
+            workDir,
+            updateState(version, "downloading", undefined, {
+              current_version: cur,
+              manifest_url: meta.url,
+              package_sha512: meta.package_sha512,
+              package_size: meta.package_size,
+            }),
+          )
           const exitCode = await new Promise<number>((resolve, reject) => {
             const cmd = os === "windows" ? "cmd" : "bash"
             const cmdArgs = os === "windows" ? ["/c", scriptPath, "auto", cur] : [scriptPath, "auto", cur]
@@ -933,65 +1112,56 @@ export const GlobalRoutes = lazy(() =>
             child.on("close", (code: number | null) => resolve(code ?? 1))
             child.on("error", reject)
           })
-
-          const dl = path.join(workDir, "downloads")
-          const scriptInDownloads = path.join(dl, versioned(upd, version))
-          try {
-            await fs.access(scriptInDownloads)
-          } catch {
-            log.info("update script missing after installer, fetching as fallback")
-            try {
-              const ymlPath = INSTALLER_YML[os]
-              const manifestBase = `${WEB_UPDATE_BASE}/${ymlPath.substring(0, ymlPath.lastIndexOf("/") + 1)}`
-              const updUrl = `${manifestBase}${upd}`
-              const updRes = await fetch(updUrl)
-              if (!updRes.ok) throw new Error(`HTTP ${updRes.status}`)
-              const updBuf = Buffer.from(await updRes.arrayBuffer())
-              await fs.mkdir(dl, { recursive: true })
-              await fs.writeFile(scriptInDownloads, updBuf)
-              if (os !== "windows") {
-                await fs.chmod(scriptInDownloads, 0o755).catch(() => undefined)
-              }
-              log.info("update script fetched as fallback", { path: scriptInDownloads })
-            } catch (fallbackErr) {
-              const fallbackMsg = fallbackErr instanceof Error ? fallbackErr.message : String(fallbackErr)
-              await writeUpdateState(
-                workDir,
-                updateState(
-                  version,
-                  "error",
-                  `Downloaded update script missing: ${scriptInDownloads} (fallback fetch also failed: ${fallbackMsg})`,
-                ),
-              )
-              return c.json({
-                success: false as const,
-                error: `Downloaded update script missing: ${scriptInDownloads} (fallback fetch also failed: ${fallbackMsg})`,
-              })
-            }
-          }
-          try {
-            await fs.chmod(scriptInDownloads, 0o755)
-          } catch {}
-
-          const pkg = await packagePath(os, version, workDir)
-          if (!pkg) {
-            await writeUpdateState(workDir, updateState(version, "error", `No update package found in ${dl}`))
-            return c.json({ success: false as const, error: `No update package found in ${dl}` })
-          }
-          log.info("installer auto result", { exitCode, workDir, script: scriptInDownloads, pkg })
           if (exitCode === 20) {
             await clearUpdateState(workDir)
             return c.json({ success: false as const, error: "Already up to date" })
           }
-          if (exitCode === 10) {
-            await writeUpdateState(workDir, updateState(version, "downloaded"))
-            return c.json({ success: true as const, path: scriptInDownloads, package: pkg })
+          const chk = await verifyDownload(os, meta, workDir)
+          if (!chk.ok) {
+            await writeUpdateState(
+              workDir,
+              updateState(version, "failed", chk.error, {
+                current_version: cur,
+                manifest_url: meta.url,
+                package_sha512: meta.package_sha512,
+                package_size: meta.package_size,
+              }),
+            )
+            return c.json({ success: false as const, error: chk.error })
           }
-          await writeUpdateState(workDir, updateState(version, "error", `Installer exited with code ${exitCode}`))
+          try {
+            await fs.chmod(chk.script, 0o755)
+          } catch {}
+          log.info("installer auto result", { exitCode, workDir, script: chk.script, package: chk.package })
+          if (exitCode === 10) {
+            await writeUpdateState(
+              workDir,
+              updateState(version, "downloaded", undefined, {
+                current_version: cur,
+                manifest_url: meta.url,
+                package_path: chk.package,
+                package_sha512: meta.package_sha512,
+                package_size: meta.package_size,
+                script_path: chk.script,
+              }),
+            )
+            return c.json({ success: true as const, path: chk.script, package: chk.package })
+          }
+          await writeUpdateState(
+            workDir,
+            updateState(version, "failed", `Installer exited with code ${exitCode}`, {
+              current_version: cur,
+              manifest_url: meta.url,
+              package_path: chk.package,
+              package_sha512: meta.package_sha512,
+              package_size: meta.package_size,
+              script_path: chk.script,
+            }),
+          )
           return c.json({ success: false as const, error: `Installer exited with code ${exitCode}` })
         } catch (e) {
           const message = e instanceof Error ? e.message : String(e)
-          await writeUpdateState(workDir, updateState(version, "error", `Download failed: ${message}`)).catch(
+          await writeUpdateState(workDir, updateState(version, "failed", `Download failed: ${message}`)).catch(
             () => undefined,
           )
           return c.json({ success: false as const, error: `Download failed: ${message}` })
@@ -1047,6 +1217,12 @@ export const GlobalRoutes = lazy(() =>
         }
         const file = UPDATE_SCRIPT[os]
         if (!file) return c.json({ success: false as const, error: `Update script not configured for ${os}` })
+        const next = version || (await readUpdateState(workDir))?.version || "latest"
+        const meta = version ? await fetchManifest(os, version) : null
+        if (version) {
+          if (!meta) return c.json({ success: false as const, error: "Update metadata is unavailable" })
+          if (!meta.ok) return c.json({ success: false as const, error: meta.error })
+        }
         const dl = path.join(workDir, "downloads")
         const upd = version ? path.join(dl, versioned(file, version)) : path.join(dl, file)
         let run = upd
@@ -1064,15 +1240,15 @@ export const GlobalRoutes = lazy(() =>
         } catch {
           await writeUpdateState(
             workDir,
-            updateState(version ?? "latest", "error", `Update script not found: ${run}`),
+            updateState(version ?? "latest", "failed", `Update script not found: ${run}`),
           ).catch(() => undefined)
           return c.json({ success: false as const, error: `Update script not found: ${run}` })
         }
-        const next = version || (await readUpdateState(workDir))?.version || "latest"
-        const state = version ? await resolveUpdateStatus(os, version, workDir) : null
+        const cur = await readWebCurrentVersion()
+        const state = version && meta?.ok ? await resolveUpdateStatus(os, cur, meta, workDir) : null
         if (version && state?.status !== "downloaded") {
           const msg = state?.error || "Update files are not ready. Restart the update from scratch."
-          await writeUpdateState(workDir, updateState(version, "error", msg)).catch(() => undefined)
+          await writeUpdateState(workDir, updateState(version, "failed", msg)).catch(() => undefined)
           return c.json({ success: false as const, error: msg })
         }
         try {
@@ -1080,7 +1256,17 @@ export const GlobalRoutes = lazy(() =>
         } catch {}
         log.info("launching update script", { os, updater: run, workDir, version })
         try {
-          await writeUpdateState(workDir, updateState(next, "installing"))
+          await writeUpdateState(
+            workDir,
+            updateState(next, "installing", undefined, {
+              current_version: cur,
+              manifest_url: meta?.ok ? meta.url : undefined,
+              package_path: state && "package" in state ? state.package : undefined,
+              package_sha512: meta?.ok ? meta.package_sha512 : undefined,
+              package_size: meta?.ok ? meta.package_size : undefined,
+              script_path: run,
+            }),
+          )
           const args = version ? [run, version] : [run]
           if (os === "darwin" || os === "linux" || os === "windows") args.push("--restart")
           const env = resolved.isFallback ? { ...process.env, AETHER_CURRENT_DIR: getAppRoot() } : process.env
@@ -1100,7 +1286,7 @@ export const GlobalRoutes = lazy(() =>
           const message = e instanceof Error ? e.message : String(e)
           await writeUpdateState(
             workDir,
-            updateState(next, "error", `Failed to execute update script: ${message}`),
+            updateState(next, "failed", `Failed to execute update script: ${message}`),
           ).catch(() => undefined)
           return c.json({ success: false as const, error: `Failed to execute update script: ${message}` })
         }

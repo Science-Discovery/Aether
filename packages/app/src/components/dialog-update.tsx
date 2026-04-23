@@ -7,7 +7,16 @@ import { Icon } from "@opencode-ai/ui/icon"
 import { useLanguage } from "@/context/language"
 import { usePlatform } from "@/context/platform"
 
-type View = "checking" | "up-to-date" | "available" | "downloading" | "downloaded" | "installing" | "recovery" | "recovering" | "error"
+type View =
+  | "checking"
+  | "up-to-date"
+  | "available"
+  | "downloading"
+  | "downloaded"
+  | "installing"
+  | "failed"
+  | "recovering"
+  | "error"
 type Props = {
   auto?: "download" | "install"
 }
@@ -67,8 +76,8 @@ export const DialogUpdate: Component<Props> = (props) => {
       setStore("state", "installing")
       return data
     }
-    if (data.status === "recovery") {
-      setStore("state", "recovery")
+    if (data.status === "failed") {
+      setStore("state", "failed")
       return data
     }
     setStore("state", "available")
@@ -99,7 +108,7 @@ export const DialogUpdate: Component<Props> = (props) => {
         setStore("state", "available")
         return
       }
-      setStore("state", "recovery")
+      setStore("state", "failed")
       setStore("error", err instanceof Error ? err.message : String(err))
     }
   }
@@ -120,7 +129,7 @@ export const DialogUpdate: Component<Props> = (props) => {
         setStore("state", "downloaded")
         return
       }
-      setStore("state", "recovery")
+      setStore("state", "failed")
       setStore("error", err instanceof Error ? err.message : String(err))
     }
   }
@@ -138,10 +147,10 @@ export const DialogUpdate: Component<Props> = (props) => {
       }, 1200)
     } catch (err) {
       if (cancelled(err)) {
-        setStore("state", "recovery")
+        setStore("state", "failed")
         return
       }
-      setStore("state", "recovery")
+      setStore("state", "failed")
       setStore("error", err instanceof Error ? err.message : String(err))
     }
   }
@@ -256,7 +265,7 @@ export const DialogUpdate: Component<Props> = (props) => {
             </div>
           </Show>
 
-          <Show when={store.state === "recovery"}>
+          <Show when={store.state === "failed"}>
             <div class="flex flex-col gap-2">
               <div class="flex items-center gap-2 text-13-regular text-text-dimmed-red">
                 <Icon name="warning" class="size-4" />

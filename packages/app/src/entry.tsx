@@ -263,7 +263,7 @@ const webCheck = async () => {
     data.status === "downloading" ||
     data.status === "downloaded" ||
     data.status === "installing" ||
-    data.status === "recovery"
+    data.status === "failed"
       ? data.status
       : "available"
   return {
@@ -322,21 +322,13 @@ const platform: Platform = {
   downloadUpdate: async () => {
     const data = await webCheck()
     if (!data.updateAvailable) return
-    if (data.status === "recovery") throw new Error(data.updateError || "Update needs to restart from scratch")
+    if (data.status === "failed") throw new Error(data.updateError || "Update needs to restart from scratch")
     await webDownload(data, true)
   },
   update: async () => {
     const data = await webCheck()
     if (!data.updateAvailable) return
-    if (data.status === "recovery") {
-      await webDownload(data, true, true)
-      const next = await webCheck()
-      if (!next.updateAvailable || next.status !== "downloaded") {
-        throw new Error(next.updateError || "Update restart did not finish downloading")
-      }
-      await webInstall(next, true)
-      return
-    }
+    if (data.status === "failed") return platform.recoverUpdate?.()
     if (!data.downloaded) {
       await webDownload(data, true)
     }

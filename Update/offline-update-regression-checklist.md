@@ -7,15 +7,18 @@ Short manual checks for desktop update recovery.
 Cover offline web update behavior across Windows and Linux.
 
 Focus on these regressions:
+
 - No flashing terminal windows during Windows download, install, and relaunch
 - Partial downloads never enable install
 - In-progress manual download state survives while the same app/server process stays alive
 - Failed update or install offers a restart-from-scratch recovery path
 - Linux downloaded zip plus script installs and relaunches into the new version
+- Download completion requires matching package size and checksum from manifest metadata
 
 ## Environment/setup
 
 Prepare:
+
 - A build with the offline web update flow enabled
 - Test machines for Windows and Linux
 - An update target that is newer than the installed app
@@ -23,6 +26,7 @@ Prepare:
 - Access to app logs if the UI result is unclear
 
 Before each run:
+
 - Start from a known app version
 - Clear any old downloaded update artifacts unless the scenario says otherwise
 - Confirm the update UI detects the newer version
@@ -35,6 +39,7 @@ Before each run:
 - [ ] Watch for any terminal or console windows during download, install, and relaunch
 
 Expected:
+
 - No terminal window flashes at any step
 - Update completes through the normal UI flow
 - App relaunches into the new version
@@ -47,10 +52,12 @@ Expected:
 - [ ] Restart the update flow as prompted
 
 Expected:
+
 - Install never becomes available for the partial download
 - UI does not treat the partial artifact as a valid ready-to-install update
 - Recovery path offers restart/update again
 - Restarted download can complete normally and then enable install
+- Mismatched package size or checksum is treated as a failed update state
 
 ### 3. Verify in-memory manual download persistence
 
@@ -59,6 +66,7 @@ Expected:
 - [ ] Revisit the update flow
 
 Expected:
+
 - State is remembered within the same live process
 - Reopen shows recovery or resume guidance, not install
 - UI does not present the interrupted download as complete
@@ -70,9 +78,10 @@ Expected:
 - [ ] Use the offered recovery action
 
 Expected:
+
 - Failure state is visible and understandable
 - A restart-from-scratch path is available
-- Recovery clears the broken state enough to retry cleanly
+- Recovery clears only the current target version artifacts and retries cleanly
 - Retried flow can proceed to a successful install
 
 ### 5. Verify Linux install from downloaded artifacts
@@ -82,6 +91,7 @@ Expected:
 - [ ] Let the app restart
 
 Expected:
+
 - Installer uses the downloaded zip and script successfully
 - Install completes without requiring a fresh download
 - App restarts into the new version
