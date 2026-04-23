@@ -38,7 +38,10 @@ function parseFrontmatter(content: string): { meta: Record<string, string>; body
     const colon = line.indexOf(":")
     if (colon === -1) continue
     const key = line.slice(0, colon).trim()
-    const val = line.slice(colon + 1).trim().replace(/^['"]|['"]$/g, "")
+    const val = line
+      .slice(colon + 1)
+      .trim()
+      .replace(/^['"]|['"]$/g, "")
     if (key) meta[key] = val
   }
   return { meta, body }
@@ -90,9 +93,7 @@ const parameters = z.object({
   action: z
     .enum(["create", "edit", "patch", "delete", "write_file", "remove_file"])
     .describe("Action to perform on a skill"),
-  name: z
-    .string()
-    .describe("Skill name (directory name under the skills folder). Required for all actions."),
+  name: z.string().describe("Skill name (directory name under the skills folder). Required for all actions."),
   description: z
     .string()
     .optional()
@@ -103,10 +104,7 @@ const parameters = z.object({
     .describe("Full skill body (markdown, without frontmatter) for create/edit; file content for write_file."),
   old_str: z.string().optional().describe("Exact text to replace (patch action)"),
   new_str: z.string().optional().describe("Replacement text (patch action)"),
-  relative_path: z
-    .string()
-    .optional()
-    .describe("Path relative to the skill directory for write_file/remove_file"),
+  relative_path: z.string().optional().describe("Path relative to the skill directory for write_file/remove_file"),
 })
 
 export const SkillManageTool = Tool.define("skill_manage", async () => {
@@ -125,7 +123,9 @@ export const SkillManageTool = Tool.define("skill_manage", async () => {
       "Skills are stored under ~/.local/share/aether/skills/<name>/SKILL.md",
     ].join("\n"),
     parameters,
-    async execute(params: z.infer<typeof parameters>): Promise<{ title: string; output: string; metadata: Record<string, string> }> {
+    async execute(
+      params: z.infer<typeof parameters>,
+    ): Promise<{ title: string; output: string; metadata: Record<string, string> }> {
       const { action, name } = params
 
       if (!name || !/^[a-zA-Z0-9_-]+$/.test(name)) {
@@ -137,68 +137,118 @@ export const SkillManageTool = Tool.define("skill_manage", async () => {
 
       switch (action) {
         case "create": {
-          if (!params.description?.trim()) throw new Error("description is required for create")
-          if (!params.content?.trim()) throw new Error("content is required for create")
-          const exists = await fs.access(skillFile).then(() => true, () => false)
-          if (exists) throw new Error(`Skill "${name}" already exists. Use edit or patch to update it.`)
-          const fileContent = buildContent(name, params.description.trim(), params.content)
-          await atomicWrite(skillFile, fileContent)
+          Skill.markBegin(skillFile)
           try {
-            assertAllowed(await scanSkill(skillDir))
+            if (!params.description?.trim()) throw new Error("description is required for create")
+            if (!params.content?.trim()) throw new Error("content is required for create")
+            const exists = await fs.access(skillFile).then(
+              () => true,
+              () => false,
+            )
+            if (exists) throw new Error(`Skill "${name}" already exists. Use edit or patch to update it.`)
+            const fileContent = buildContent(name, params.description.trim(), params.content)
+            await atomicWrite(skillFile, fileContent)
+            try {
+              assertAllowed(await scanSkill(skillDir))
+            } catch (err) {
+              await fs.rm(skillDir, { recursive: true, force: true })
+              throw err
+            }
+            await Skill.clearSkillsPromptCache()
+            Skill.markClear()
+            Skill.markDone(skillFile)
+            return {
+              title: `Created skill: ${name}`,
+              output: `Skill "${name}" created at ${skillFile}`,
+              metadata: { skillDir },
+            }
           } catch (err) {
-            await fs.rm(skillDir, { recursive: true, force: true })
+            Skill.markDrop(skillFile)
             throw err
           }
-          await Skill.clearSkillsPromptCache()
-          return { title: `Created skill: ${name}`, output: `Skill "${name}" created at ${skillFile}`, metadata: { skillDir } }
         }
 
         case "edit": {
-          if (!params.description?.trim()) throw new Error("description is required for edit")
-          if (!params.content?.trim()) throw new Error("content is required for edit")
-          const oldContent = await fs.readFile(skillFile, "utf8").catch(() => null)
-          const fileContent = buildContent(name, params.description.trim(), params.content)
-          await atomicWrite(skillFile, fileContent)
+          Skill.markBegin(skillFile)
           try {
-            assertAllowed(await scanSkill(skillDir))
+            if (!params.description?.trim()) throw new Error("description is required for edit")
+            if (!params.content?.trim()) throw new Error("content is required for edit")
+            const oldContent = await fs.readFile(skillFile, "utf8").catch(() => null)
+            const fileContent = buildContent(name, params.description.trim(), params.content)
+            await atomicWrite(skillFile, fileContent)
+            try {
+              assertAllowed(await scanSkill(skillDir))
+            } catch (err) {
+              if (oldContent !== null) await atomicWrite(skillFile, oldContent)
+              else await fs.rm(skillDir, { recursive: true, force: true })
+              throw err
+            }
+            await Skill.clearSkillsPromptCache()
+            Skill.markClear()
+            Skill.markDone(skillFile)
+            return {
+              title: `Updated skill: ${name}`,
+              output: `Skill "${name}" updated at ${skillFile}`,
+              metadata: { skillDir },
+            }
           } catch (err) {
-            if (oldContent !== null) await atomicWrite(skillFile, oldContent)
-            else await fs.rm(skillDir, { recursive: true, force: true })
+            Skill.markDrop(skillFile)
             throw err
           }
-          await Skill.clearSkillsPromptCache()
-          return { title: `Updated skill: ${name}`, output: `Skill "${name}" updated at ${skillFile}`, metadata: { skillDir } }
         }
 
         case "patch": {
-          if (params.old_str === undefined) throw new Error("old_str is required for patch")
-          if (params.new_str === undefined) throw new Error("new_str is required for patch")
-          const raw = await fs.readFile(skillFile, "utf8").catch(() => {
-            throw new Error(`Skill "${name}" not found`)
-          })
-          const patched = fuzzyReplace(raw, params.old_str, params.new_str)
-          if (patched === null) {
-            throw new Error(
-              `Could not find the specified old_str in skill "${name}". The text may have already been changed.`,
-            )
-          }
-          await atomicWrite(skillFile, patched)
+          Skill.markBegin(skillFile)
           try {
-            assertAllowed(await scanSkill(skillDir))
+            if (params.old_str === undefined) throw new Error("old_str is required for patch")
+            if (params.new_str === undefined) throw new Error("new_str is required for patch")
+            const raw = await fs.readFile(skillFile, "utf8").catch(() => {
+              throw new Error(`Skill "${name}" not found`)
+            })
+            const patched = fuzzyReplace(raw, params.old_str, params.new_str)
+            if (patched === null) {
+              throw new Error(
+                `Could not find the specified old_str in skill "${name}". The text may have already been changed.`,
+              )
+            }
+            await atomicWrite(skillFile, patched)
+            try {
+              assertAllowed(await scanSkill(skillDir))
+            } catch (err) {
+              await atomicWrite(skillFile, raw)
+              throw err
+            }
+            await Skill.clearSkillsPromptCache()
+            Skill.markClear()
+            Skill.markDone(skillFile)
+            return {
+              title: `Patched skill: ${name}`,
+              output: `Skill "${name}" patched successfully`,
+              metadata: { skillDir },
+            }
           } catch (err) {
-            await atomicWrite(skillFile, raw)
+            Skill.markDrop(skillFile)
             throw err
           }
-          await Skill.clearSkillsPromptCache()
-          return { title: `Patched skill: ${name}`, output: `Skill "${name}" patched successfully`, metadata: { skillDir } }
         }
 
         case "delete": {
-          const exists = await fs.access(skillDir).then(() => true, () => false)
-          if (!exists) throw new Error(`Skill "${name}" not found`)
-          await fs.rm(skillDir, { recursive: true, force: true })
-          await Skill.clearSkillsPromptCache()
-          return { title: `Deleted skill: ${name}`, output: `Skill "${name}" deleted`, metadata: {} }
+          Skill.markBegin(skillFile)
+          try {
+            const exists = await fs.access(skillDir).then(
+              () => true,
+              () => false,
+            )
+            if (!exists) throw new Error(`Skill "${name}" not found`)
+            await fs.rm(skillDir, { recursive: true, force: true })
+            await Skill.clearSkillsPromptCache()
+            Skill.markClear()
+            Skill.markDone(skillFile)
+            return { title: `Deleted skill: ${name}`, output: `Skill "${name}" deleted`, metadata: {} }
+          } catch (err) {
+            Skill.markDrop(skillFile)
+            throw err
+          }
         }
 
         case "write_file": {
@@ -215,7 +265,11 @@ export const SkillManageTool = Tool.define("skill_manage", async () => {
             else await fs.unlink(targetPath).catch(() => {})
             throw err
           }
-          return { title: `Wrote file in skill: ${name}`, output: `File written: ${targetPath}`, metadata: { targetPath } }
+          return {
+            title: `Wrote file in skill: ${name}`,
+            output: `File written: ${targetPath}`,
+            metadata: { targetPath },
+          }
         }
 
         case "remove_file": {

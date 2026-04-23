@@ -4,6 +4,9 @@ import os from "os"
 import path from "path"
 import z from "zod"
 import { Effect, Layer, ServiceMap } from "effect"
+// @ts-ignore
+import { createWrapper } from "@parcel/watcher/wrapper"
+import type ParcelWatcher from "@parcel/watcher"
 import { NamedError } from "@opencode-ai/util/error"
 import type { Agent } from "@/agent/agent"
 import { Bus } from "@/bus"
@@ -14,11 +17,14 @@ import { Global } from "@/global"
 import { Permission } from "@/permission"
 import { Instance } from "@/project/instance"
 import { Filesystem } from "@/util/filesystem"
+import { lazy } from "@/util/lazy"
 import { Config } from "../config/config"
 import { ConfigMarkdown } from "../config/markdown"
 import { Glob } from "../util/glob"
 import { Log } from "../util/log"
 import { Discovery } from "./discovery"
+
+declare const OPENCODE_LIBC: string | undefined
 
 export namespace Skill {
   const log = Log.create({ service: "skill" })
@@ -26,6 +32,48 @@ export namespace Skill {
   const EXTERNAL_SKILL_PATTERN = "skills/**/SKILL.md"
   const OPENCODE_SKILL_PATTERN = "{skill,skills}/**/SKILL.md"
   const SKILL_PATTERN = "**/SKILL.md"
+  const WATCH_WAIT = 300
+  const WATCH_MAX = 2000
+  const MARK_TTL = 1500
+  const WATCH_COOLDOWN = 500
+
+  const marks = new Map<string, number>()
+  let cooldown = 0
+
+  function key(file: string) {
+    const k = path.resolve(file).replace(/\\/g, "/")
+    return process.platform === "win32" ? k.toLowerCase() : k
+  }
+
+  export function markBegin(file: string) {
+    marks.set(key(file), Number.POSITIVE_INFINITY)
+  }
+
+  export function markDone(file: string, ttl = MARK_TTL) {
+    marks.set(key(file), Date.now() + ttl)
+  }
+
+  export function markDrop(file: string) {
+    marks.delete(key(file))
+  }
+
+  function marked(file: string) {
+    const now = Date.now()
+    const exp = marks.get(key(file))
+    if (exp === undefined) return false
+    if (exp === Number.POSITIVE_INFINITY) return true
+    if (exp > now) return true
+    marks.delete(key(file))
+    return false
+  }
+
+  export function markClear() {
+    cooldown = Date.now()
+  }
+
+  function cooling() {
+    return Date.now() - cooldown < WATCH_COOLDOWN
+  }
 
   // ── Condition declarations (mirrors Hermes extract_skill_conditions) ──────
 
@@ -100,6 +148,39 @@ export namespace Skill {
   type RawState = { skills: Record<string, Info>; dirs: Set<string> }
 
   let _discovery: Discovery.Interface | null = null
+
+  function libc() {
+    if (process.platform !== "linux") return
+    if (process.env.OPENCODE_LIBC) return process.env.OPENCODE_LIBC
+    if (typeof OPENCODE_LIBC !== "undefined" && OPENCODE_LIBC) return OPENCODE_LIBC
+    const report = process.report?.getReport?.()
+    const header =
+      typeof report === "object" && report && "header" in report && typeof report.header === "object" && report.header
+        ? report.header
+        : undefined
+    return typeof header === "object" &&
+      header &&
+      "glibcVersionRuntime" in header &&
+      typeof header.glibcVersionRuntime === "string"
+      ? "glibc"
+      : "musl"
+  }
+
+  const watcher = lazy((): typeof import("@parcel/watcher") | undefined => {
+    try {
+      const abi = libc()
+      const binding = require(`@parcel/watcher-${process.platform}-${process.arch}${abi ? `-${abi}` : ""}`)
+      return createWrapper(binding) as typeof import("@parcel/watcher")
+    } catch {
+      return
+    }
+  })
+
+  function backend() {
+    if (process.platform === "win32") return "windows"
+    if (process.platform === "darwin") return "fs-events"
+    if (process.platform === "linux") return "inotify"
+  }
 
   // ── Layer 2: Disk snapshot (mirrors Hermes _load_skills_snapshot) ─────────
 
@@ -359,6 +440,19 @@ export namespace Skill {
     return Array.from(new Set(sources.filter((item) => item.scope === scope).map((item) => item.dir)))
   }
 
+  function inDir(file: string, dirs: string[]) {
+    return dirs.some((dir) => Filesystem.contains(dir, file))
+  }
+
+  async function watchDirs(directory: string, worktree: string) {
+    const cfg = await Config.get()
+    const sources = await buildSources(directory, worktree, cfg)
+    return {
+      global: manifestDirs(sources, "global"),
+      project: manifestDirs(sources, "project"),
+    }
+  }
+
   async function loadSkillsData(directory: string, worktree: string): Promise<RawState> {
     if (!_discovery) throw new Error("Skill service not initialized — layer not started")
 
@@ -371,8 +465,14 @@ export namespace Skill {
     console.log(`[skill cache] scan dirs (global): ${globalDirs.join(", ") || "(none)"}`)
     console.log(`[skill cache] scan dirs (project): ${projectDirs.join(", ") || "(none)"}`)
 
+    const t0 = performance.now()
     const globalManifest = await buildSkillsManifest(globalDirs)
+    const t1 = performance.now()
     const projectManifest = await buildSkillsManifest(projectDirs)
+    const t2 = performance.now()
+    console.log(
+      `[skill perf] manifest ms global=${Math.round(t1 - t0)} project=${Math.round(t2 - t1)} total=${Math.round(t2 - t0)}`,
+    )
     const globalPath = globalSnapshotPath()
     const projectPath = projectSnapshotPath(directory, worktree)
 
@@ -463,6 +563,91 @@ export namespace Skill {
           Effect.gen(function* () {
             const s: RawState = { skills: {}, dirs: new Set() }
             yield* Effect.promise(() => loadSkills(s, ctx.directory, ctx.worktree))
+
+            const bind = watcher()
+            const back = backend()
+            if (!bind || !back) return s
+
+            const set = yield* Effect.promise(() => watchDirs(ctx.directory, ctx.worktree))
+            const dirs = Array.from(new Set([...set.global, ...set.project]))
+            if (dirs.length === 0) return s
+
+            const subs: ParcelWatcher.AsyncSubscription[] = []
+            const files = new Set<string>()
+            let timer: ReturnType<typeof setTimeout> | undefined
+            let start = 0
+
+            const flush = async () => {
+              const t0 = performance.now()
+              if (timer) clearTimeout(timer)
+              timer = undefined
+              start = 0
+              const list = [...files].filter((file) => path.basename(file) === "SKILL.md")
+              files.clear()
+              if (list.length === 0) return
+
+              const seen = list.filter((file) => !marked(file))
+              console.log(
+                `[skill watch] batch files=${list.length} active=${seen.length} ms=${Math.round(performance.now() - t0)}`,
+              )
+              if (seen.length === 0) return
+              if (cooling()) return
+
+              const t1 = performance.now()
+              if (seen.some((file) => inDir(file, set.global))) {
+                cooldown = Date.now()
+                await clearSkillsPromptCache(false)
+                console.log(
+                  `[skill watch] invalidate scope=global instances=${Instance.dirs().length} files=${seen.length} ms=${Math.round(performance.now() - t1)}`,
+                )
+                return
+              }
+
+              if (seen.some((file) => inDir(file, set.project))) {
+                cooldown = Date.now()
+                await Instance.provide({
+                  directory: ctx.directory,
+                  fn: () => runPromise((skill) => skill.invalidate()),
+                })
+                console.log(
+                  `[skill watch] invalidate scope=project instances=1 files=${seen.length} ms=${Math.round(performance.now() - t1)} dir=${ctx.directory}`,
+                )
+              }
+            }
+
+            const queue = (file: string) => {
+              files.add(file)
+              const now = Date.now()
+              if (!start) start = now
+              if (now - start >= WATCH_MAX) {
+                void flush()
+                return
+              }
+              if (timer) clearTimeout(timer)
+              timer = setTimeout(() => {
+                void flush()
+              }, WATCH_WAIT)
+            }
+
+            for (const dir of dirs) {
+              const sub = yield* Effect.promise(() =>
+                bind.subscribe(
+                  dir,
+                  (_err, evts) => {
+                    for (const evt of evts) queue(evt.path)
+                  },
+                  { backend: back },
+                ),
+              )
+              subs.push(sub)
+            }
+
+            yield* Effect.addFinalizer(() =>
+              Effect.promise(async () => {
+                if (timer) clearTimeout(timer)
+                await Promise.allSettled(subs.map((sub) => sub.unsubscribe()))
+              }),
+            )
             return s
           }),
         ),
@@ -486,8 +671,16 @@ export namespace Skill {
       const available = Effect.fn("Skill.available")(function* (agent?: Agent.Info) {
         const cached = yield* InstanceState.has(state)
         if (cached) console.log(`[skill cache] memory hit`)
+        const t0 = cached ? performance.now() : undefined
         const s = yield* InstanceState.get(state)
+        const t1 = t0 === undefined ? undefined : performance.now()
         const list = Object.values(s.skills).toSorted((a, b) => a.name.localeCompare(b.name))
+        if (t0 !== undefined && t1 !== undefined) {
+          const t2 = performance.now()
+          console.log(
+            `[skill perf] memory ms get=${Math.round(t1 - t0)} sort=${Math.round(t2 - t1)} total=${Math.round(t2 - t0)}`,
+          )
+        }
         if (!agent) return list
         return list.filter((skill) => Permission.evaluate("skill", skill.name, agent.permission).action !== "deny")
       })
