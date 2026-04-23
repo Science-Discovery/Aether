@@ -81,6 +81,7 @@ const baseState = (input: Partial<State> = {}) =>
     limit: 10,
     message: {},
     part: {},
+    preference: {} as State["preference"],
     ...input,
   }) as State
 
@@ -550,5 +551,172 @@ describe("applyDirectoryEvent", () => {
 
     expect(pushes).toEqual(["/tmp"])
     expect(lspLoads).toBe(1)
+  })
+
+  describe("session.preference.updated", () => {
+    test("writes all four preference fields into store", () => {
+      const sessionID = "ses_1"
+      const [store, setStore] = createStore(baseState())
+
+      applyDirectoryEvent({
+        event: {
+          type: "session.preference.updated",
+          properties: {
+            sessionID,
+            preference: {
+              sessionID,
+              agent: "plan",
+              model: { providerID: "anthropic", modelID: "claude-3" },
+              variant: "high",
+              autoAccept: true,
+            },
+          },
+        },
+        store,
+        setStore,
+        push() {},
+        directory: "/tmp",
+        loadLsp() {},
+      })
+
+      expect(store.preference[sessionID]).toEqual({
+        sessionID,
+        agent: "plan",
+        model: { providerID: "anthropic", modelID: "claude-3" },
+        variant: "high",
+        autoAccept: true,
+      })
+    })
+
+    test("overwrites previous preference for same session", () => {
+      const sessionID = "ses_1"
+      const [store, setStore] = createStore(
+        baseState({
+          preference: {
+            [sessionID]: {
+              sessionID,
+              agent: "build",
+              model: { providerID: "openai", modelID: "gpt-4" },
+              variant: "low",
+              autoAccept: false,
+            },
+          },
+        }),
+      )
+
+      applyDirectoryEvent({
+        event: {
+          type: "session.preference.updated",
+          properties: {
+            sessionID,
+            preference: {
+              sessionID,
+              agent: "plan",
+              variant: "high",
+              autoAccept: true,
+            },
+          },
+        },
+        store,
+        setStore,
+        push() {},
+        directory: "/tmp",
+        loadLsp() {},
+      })
+
+      expect(store.preference[sessionID].agent).toBe("plan")
+      expect(store.preference[sessionID].variant).toBe("high")
+      expect(store.preference[sessionID].autoAccept).toBe(true)
+    })
+
+    test("does not affect preference of other sessions", () => {
+      const sesA = "ses_a"
+      const sesB = "ses_b"
+      const [store, setStore] = createStore(
+        baseState({
+          preference: {
+            [sesA]: {
+              sessionID: sesA,
+              agent: "build",
+            },
+          },
+        }),
+      )
+
+      applyDirectoryEvent({
+        event: {
+          type: "session.preference.updated",
+          properties: {
+            sessionID: sesB,
+            preference: {
+              sessionID: sesB,
+              agent: "docs",
+            },
+          },
+        },
+        store,
+        setStore,
+        push() {},
+        directory: "/tmp",
+        loadLsp() {},
+      })
+
+      expect(store.preference[sesA].agent).toBe("build")
+      expect(store.preference[sesB].agent).toBe("docs")
+    })
+
+    test("handles partial preference with only agent", () => {
+      const sessionID = "ses_1"
+      const [store, setStore] = createStore(baseState())
+
+      applyDirectoryEvent({
+        event: {
+          type: "session.preference.updated",
+          properties: {
+            sessionID,
+            preference: {
+              sessionID,
+              agent: "docs",
+            },
+          },
+        },
+        store,
+        setStore,
+        push() {},
+        directory: "/tmp",
+        loadLsp() {},
+      })
+
+      expect(store.preference[sessionID].agent).toBe("docs")
+      expect(store.preference[sessionID].model).toBeUndefined()
+      expect(store.preference[sessionID].variant).toBeUndefined()
+      expect(store.preference[sessionID].autoAccept).toBeUndefined()
+    })
+
+    test("handles preference with only autoAccept", () => {
+      const sessionID = "ses_1"
+      const [store, setStore] = createStore(baseState())
+
+      applyDirectoryEvent({
+        event: {
+          type: "session.preference.updated",
+          properties: {
+            sessionID,
+            preference: {
+              sessionID,
+              autoAccept: true,
+            },
+          },
+        },
+        store,
+        setStore,
+        push() {},
+        directory: "/tmp",
+        loadLsp() {},
+      })
+
+      expect(store.preference[sessionID].autoAccept).toBe(true)
+      expect(store.preference[sessionID].agent).toBeUndefined()
+    })
   })
 })
