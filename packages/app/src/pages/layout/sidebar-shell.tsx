@@ -135,24 +135,15 @@ export const SidebarContent = (props: {
           <Show
             when={auth.isAuthenticated && auth.account}
             fallback={
-              <DropdownMenu>
-                <Tooltip placement={placement()} value={language.t("auth.account.loginOrRegister")}>
-                  <DropdownMenu.Trigger
-                    as={IconButton}
-                    icon="user"
-                    variant="ghost"
-                    size="large"
-                    aria-label={language.t("auth.login.submit")}
-                  />
-                </Tooltip>
-                <DropdownMenu.Portal>
-                  <DropdownMenu.Content class="mt-1">
-                    <DropdownMenu.Item onSelect={openLogin}>
-                      <DropdownMenu.ItemLabel>{language.t("auth.login.submit")}</DropdownMenu.ItemLabel>
-                    </DropdownMenu.Item>
-                  </DropdownMenu.Content>
-                </DropdownMenu.Portal>
-              </DropdownMenu>
+              <Tooltip placement={placement()} value={language.t("auth.login.submit")}>
+                <IconButton
+                  icon="user"
+                  variant="ghost"
+                  size="large"
+                  onClick={openLogin}
+                  aria-label={language.t("auth.login.submit")}
+                />
+              </Tooltip>
             }
           >
             {(account) => (
