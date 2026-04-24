@@ -155,6 +155,7 @@ export namespace Database {
     if (Path === ":memory:") return callback()
 
     const lock = `${Path}.init.lock`
+    mkdirSync(path.dirname(lock), { recursive: true })
     const started = Date.now()
     let warned = false
 
