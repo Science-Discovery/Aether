@@ -328,19 +328,34 @@ export function SidebarBranchView(props: {
           </Match>
           <Match when={(view()?.nodes.length ?? 0) > 0 && view()}>
             {(nextView) => (
-              <ConversationGraphList
-                currentSessionID={props.currentSessionID}
-                nodes={nextView().nodes}
-                edges={nextView().edges}
-                laneCount={nextView().laneCount}
-                rowHeight={rowHeight()}
-                labelClass={labelClass}
-                labelStyle={labelStyle()}
-                onSelect={openNode}
-                onFork={() => {}}
-                onRename={() => {}}
-                showRowActions={false}
-              />
+              <div class="flex flex-col">
+                <ConversationGraphList
+                  currentSessionID={props.currentSessionID}
+                  nodes={nextView().nodes}
+                  edges={nextView().edges}
+                  laneCount={nextView().laneCount}
+                  rowHeight={rowHeight()}
+                  labelClass={labelClass}
+                  labelStyle={labelStyle()}
+                  onSelect={openNode}
+                  onFork={() => {}}
+                  onRename={() => {}}
+                  showRowActions={false}
+                />
+                <Show when={compact()}>
+                  <button
+                    type="button"
+                    class="flex items-center justify-center border-t border-border-weaker-base px-3 py-2 text-text-weak transition-colors hover:bg-background-base hover:text-text-strong"
+                    aria-label={zh() ? "切换到完整视图" : "Switch to full view"}
+                    onClick={() => setCompact(false)}
+                  >
+                    <div class="flex flex-col items-center leading-none">
+                      <Icon name="chevron-right" size="small" class="translate-y-[3px] rotate-90" />
+                      <Icon name="chevron-right" size="small" class="-mt-2 translate-y-px rotate-90" />
+                    </div>
+                  </button>
+                </Show>
+              </div>
             )}
           </Match>
           <Match when={true}>
