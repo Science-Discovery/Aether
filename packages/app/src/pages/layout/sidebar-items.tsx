@@ -101,6 +101,43 @@ export type SessionItemProps = {
 const sessionHref = (slug: string, session: Session, hash?: string) =>
   `/${slug}/session/${session.id}${session.readingMode ? "/reading" : ""}${hash ?? ""}`
 
+const TreeToggle = (props: {
+  expanded: boolean
+  isWorking: boolean
+  hasPermissions: boolean
+  hasError: boolean
+  unseenCount: number
+  onToggle?: () => void
+}) => (
+  <button
+    type="button"
+    class="size-6 inline-flex items-center justify-center rounded-sm text-icon-weak hover:bg-surface-raised-base-hover"
+    onPointerDown={(event) => event.stopPropagation()}
+    onClick={(event) => {
+      event.preventDefault()
+      event.stopPropagation()
+      props.onToggle?.()
+    }}
+    aria-label={props.expanded ? "Collapse conversation tree" : "Expand conversation tree"}
+    aria-expanded={props.expanded}
+  >
+    <Switch fallback={<Icon name={props.expanded ? "dash" : "plus-small"} size="small" class="text-icon-weak" />}>
+      <Match when={props.isWorking}>
+        <Spinner class="size-[15px]" />
+      </Match>
+      <Match when={props.hasPermissions}>
+        <div class="size-1.5 rounded-full bg-surface-warning-strong" />
+      </Match>
+      <Match when={props.hasError}>
+        <div class="size-1.5 rounded-full bg-text-diff-delete-base" />
+      </Match>
+      <Match when={props.unseenCount > 0}>
+        <div class="size-1.5 rounded-full bg-text-interactive-base" />
+      </Match>
+    </Switch>
+  </button>
+)
+
 const SessionRow = (props: {
   session: Session
   targetSession: Session
@@ -170,20 +207,14 @@ const SessionRow = (props: {
               </Switch>
             }
           >
-            <button
-              type="button"
-              class="size-6 inline-flex items-center justify-center rounded-sm text-icon-weak hover:bg-surface-raised-base-hover"
-              onPointerDown={(event) => event.stopPropagation()}
-              onClick={(event) => {
-                event.preventDefault()
-                event.stopPropagation()
-                props.onToggleChildren?.()
-              }}
-              aria-label={props.expanded ? "Collapse conversation tree" : "Expand conversation tree"}
-              aria-expanded={props.expanded}
-            >
-              <Icon name={props.expanded ? "dash" : "plus-small"} size="small" class="text-icon-weak" />
-            </button>
+            <TreeToggle
+              expanded={props.expanded}
+              isWorking={props.isWorking()}
+              hasPermissions={props.hasPermissions()}
+              hasError={props.hasError()}
+              unseenCount={props.unseenCount()}
+              onToggle={props.onToggleChildren}
+            />
           </Show>
         }
       >
@@ -465,7 +496,10 @@ export const SessionItem = (props: SessionItemProps): JSX.Element => {
                     messageLabel={messageLabel}
                     onMessageSelect={(message) => {
                       if (!isActive())
-                        layout.pendingMessage.set(`${base64Encode(props.session.directory)}/${props.session.id}`, message.id)
+                        layout.pendingMessage.set(
+                          `${base64Encode(props.session.directory)}/${props.session.id}`,
+                          message.id,
+                        )
 
                       navigate(sessionHref(props.slug, props.session, `#message-${message.id}`))
                     }}
@@ -479,24 +513,15 @@ export const SessionItem = (props: SessionItemProps): JSX.Element => {
                   <Show
                     when={props.selectMode?.()}
                     fallback={
-                      <Show
-                        when={hasChildren()}
-                        fallback={<Icon name="dash" size="small" class="text-icon-weak" />}
-                      >
-                        <button
-                          type="button"
-                          class="size-6 inline-flex items-center justify-center rounded-sm text-icon-weak hover:bg-surface-raised-base-hover"
-                          onPointerDown={(event) => event.stopPropagation()}
-                          onClick={(event) => {
-                            event.preventDefault()
-                            event.stopPropagation()
-                            props.onToggleChildren?.()
-                          }}
-                          aria-label={expanded() ? "Collapse conversation tree" : "Expand conversation tree"}
-                          aria-expanded={expanded()}
-                        >
-                          <Icon name={expanded() ? "dash" : "plus-small"} size="small" class="text-icon-weak" />
-                        </button>
+                      <Show when={hasChildren()} fallback={<Icon name="dash" size="small" class="text-icon-weak" />}>
+                        <TreeToggle
+                          expanded={expanded()}
+                          isWorking={isWorking()}
+                          hasPermissions={hasPermissions()}
+                          hasError={hasError()}
+                          unseenCount={unseenCount()}
+                          onToggle={props.onToggleChildren}
+                        />
                       </Show>
                     }
                   >
