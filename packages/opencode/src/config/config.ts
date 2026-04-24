@@ -741,6 +741,7 @@ export namespace Config {
           webfetch: PermissionAction.optional(),
           websearch: PermissionAction.optional(),
           codesearch: PermissionAction.optional(),
+          cron: PermissionRule.optional(),
           lsp: PermissionRule.optional(),
           doom_loop: PermissionAction.optional(),
           skill: PermissionRule.optional(),
@@ -1272,6 +1273,11 @@ export namespace Config {
             .min(0)
             .optional()
             .describe("Token buffer for compaction. Leaves enough window to avoid overflow during compaction."),
+        })
+        .optional(),
+      cron: z
+        .object({
+          enabled: z.boolean().optional().describe("Enable cron job execution (default: true)"),
         })
         .optional(),
       experimental: z
