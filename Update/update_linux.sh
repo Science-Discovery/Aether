@@ -7,6 +7,17 @@ dl_err=31
 run_err=33
 arg_err=50
 
+case "$(uname -m)" in
+  aarch64|arm64) arch="arm64" ;;
+  x86_64|amd64) arch="x64" ;;
+  *)
+    echo "Unsupported Linux architecture: $(uname -m)"
+    exit "$arg_err"
+    ;;
+esac
+
+pkg_base="aether-linux-$arch"
+
 mode="install"
 arg=""
 tmp=""
@@ -48,7 +59,7 @@ Behavior:
   - Marks the latest installed version in .aether_web_version
 
 Package name pattern:
-  aether-linux-x64-<version>.*
+  $pkg_base-<version>.*
 
 Exit codes:
   0   install finished successfully
@@ -242,7 +253,7 @@ list_ssl() {
     if command -v ldconfig >/dev/null 2>&1; then
       ldconfig -p 2>/dev/null | awk '/libssl\.so\./{print $NF}'
     fi
-    for p in /lib /usr/lib /lib64 /usr/lib64 /usr/local/lib /usr/local/lib64 /lib/x86_64-linux-gnu /usr/lib/x86_64-linux-gnu; do
+    for p in /lib /usr/lib /lib64 /usr/lib64 /usr/local/lib /usr/local/lib64 /lib/x86_64-linux-gnu /usr/lib/x86_64-linux-gnu /lib/aarch64-linux-gnu /usr/lib/aarch64-linux-gnu; do
       [ -d "$p" ] || continue
       find "$p" -maxdepth 2 -type f -name 'libssl.so.*' 2>/dev/null
     done
@@ -254,7 +265,7 @@ list_crypto() {
     if command -v ldconfig >/dev/null 2>&1; then
       ldconfig -p 2>/dev/null | awk '/libcrypto\.so\./{print $NF}'
     fi
-    for p in /lib /usr/lib /lib64 /usr/lib64 /usr/local/lib /usr/local/lib64 /lib/x86_64-linux-gnu /usr/lib/x86_64-linux-gnu; do
+    for p in /lib /usr/lib /lib64 /usr/lib64 /usr/local/lib /usr/local/lib64 /lib/x86_64-linux-gnu /usr/lib/x86_64-linux-gnu /lib/aarch64-linux-gnu /usr/lib/aarch64-linux-gnu; do
       [ -d "$p" ] || continue
       find "$p" -maxdepth 2 -type f -name 'libcrypto.so.*' 2>/dev/null
     done
@@ -482,7 +493,7 @@ next="$work/.aether_$ver.next"
 echo "[0/4] Work directory: $work"
 
 shopt -s nullglob
-arr=("$dl"/aether-linux-x64-"$ver".*)
+arr=("$dl"/"$pkg_base"-"$ver".*)
 shopt -u nullglob
 if [ "${#arr[@]}" -eq 0 ]; then
   echo "[install] Package not found for version $ver in $dl"

@@ -58,11 +58,6 @@ const WebUpdateState = z.object({
 })
 
 const WEB_UPDATE_BASE_DEFAULT = "https://aether.aiphys.cn/download"
-const UPDATE_PKG_PREFIX: Record<string, string> = {
-  darwin: "aether-darwin",
-  linux: "aether-linux-x64",
-  windows: "aether-windows-x64",
-}
 const UPDATE_RUN = (() => {
   try {
     return crypto.randomUUID()
@@ -71,15 +66,15 @@ const UPDATE_RUN = (() => {
   }
 })()
 
-const INSTALLER_YML: Record<string, string> = {
+const INSTALLER_YML: Record<string, string | ((arch: string) => string)> = {
   darwin: "latest/mac-arm64.yml",
-  linux: "latest/linux-x64.yml",
+  linux: (arch) => `latest/linux-${arch}.yml`,
   windows: "latest/windows-x64.yml",
 }
 
-const UPDATE_YML: Record<string, string> = {
+const UPDATE_YML: Record<string, string | ((arch: string) => string)> = {
   darwin: "mac-arm64.yml",
-  linux: "linux-x64.yml",
+  linux: (arch) => `linux-${arch}.yml`,
   windows: "windows-x64.yml",
 }
 
@@ -190,10 +185,19 @@ function abs(url: string, val: string) {
   return `${url.slice(0, url.lastIndexOf("/"))}/${val}`
 }
 
+function arch() {
+  return process.arch === "arm64" ? "arm64" : "x64"
+}
+
+function yml(map: Record<string, string | ((arch: string) => string)>, os: z.infer<typeof WebUpdateOS>) {
+  const item = map[os]
+  return typeof item === "function" ? item(arch()) : item
+}
+
 async function manifestUrl(os: z.infer<typeof WebUpdateOS>, version?: string) {
   const base = await getUpdateBase()
-  if (!version) return `${base}/${INSTALLER_YML[os]}`
-  return `${base}/${version}/${UPDATE_YML[os]}`
+  if (!version) return `${base}/${yml(INSTALLER_YML, os)}`
+  return `${base}/${version}/${yml(UPDATE_YML, os)}`
 }
 
 function parseManifest(text: string) {
@@ -300,7 +304,7 @@ async function fetchManifest(os: z.infer<typeof WebUpdateOS>, version?: string) 
 
 function packageMatch(os: string, ver: string, name: string) {
   const ext = UPDATE_PKG_EXT[os] ?? ".dmg"
-  const prefix = UPDATE_PKG_PREFIX[os] ?? "aether"
+  const prefix = os === "linux" ? `aether-linux-${arch()}` : os === "windows" ? "aether-windows-x64" : "aether-darwin"
   return name.startsWith(prefix) && name.includes(ver) && name.toLowerCase().endsWith(ext)
 }
 
@@ -665,6 +669,8 @@ async function streamEvents(c: Context, subscribe: (q: AsyncQueue<string | null>
 
 export const WebUpdateTest = {
   fetchManifest,
+  manifestUrl,
+  packageMatch,
   parseManifest,
   readUpdateState,
   resetUpdate,

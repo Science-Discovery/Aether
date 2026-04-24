@@ -3,7 +3,6 @@
 set -euo pipefail
 
 base="https://aether.aiphys.cn/api/download2"
-latest="latest/linux-x64.yml"
 auth_name="x-download-admin-password"
 auth_value="ZkTi123456"
 default="$HOME/.local/share/applications/aether"
@@ -24,6 +23,19 @@ sum_err=32
 run_err=33
 dir_err=40
 arg_err=50
+
+case "$(uname -m)" in
+  aarch64|arm64) arch="arm64" ;;
+  x86_64|amd64) arch="x64" ;;
+  *)
+    echo "Unsupported Linux architecture: $(uname -m)"
+    exit "$arg_err"
+    ;;
+esac
+
+plat="linux-$arch"
+pkg_base="aether-$plat"
+latest="latest/$plat.yml"
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -82,7 +94,7 @@ keep="3"
 openssl_mode=""
 openssl_checked=0
 openssl_lib=""
-lib_roots="/usr/lib/x86_64-linux-gnu /usr/lib64 /usr/lib /lib/x86_64-linux-gnu /lib64 /lib"
+lib_roots="/usr/lib/$arch-linux-gnu /lib/$arch-linux-gnu /usr/lib/x86_64-linux-gnu /lib/x86_64-linux-gnu /usr/lib/aarch64-linux-gnu /lib/aarch64-linux-gnu /usr/lib64 /usr/lib /lib64 /lib"
 
 lib_exact() {
   local name="$1"
@@ -243,7 +255,7 @@ cache_paths() {
   else
     pkg_ext=".$pkg_ext"
   fi
-  pkg_file="$dl/aether-linux-x64-$ver$pkg_ext"
+  pkg_file="$dl/$pkg_base-$ver$pkg_ext"
   ins_file=""
   if [ -n "$ins_url" ] && [ -n "$ins_name" ]; then
     ins_ext="${ins_name##*.}"
@@ -641,7 +653,7 @@ grab() {
   else
     pkg_ext=".$pkg_ext"
   fi
-  pkg_file="$dl/aether-linux-x64-$ver$pkg_ext"
+  pkg_file="$dl/$pkg_base-$ver$pkg_ext"
 
   need_pkg=1
   if [ -f "$pkg_file" ]; then
@@ -712,7 +724,7 @@ prune() {
   local arr n cut i list item
 
   shopt -s nullglob
-  arr=("$dl"/aether-linux-x64-*.*)
+  arr=("$dl"/"$pkg_base"-*.*)
   shopt -u nullglob
   n="${#arr[@]}"
   if [ "$n" -gt "$keep" ]; then
@@ -757,7 +769,7 @@ Usage:
 
 Remote manifests:
   $base/$latest
-  $base/1.2.3/linux-x64.yml
+  $base/1.2.3/$plat.yml
 
 Downloaders:
   curl (preferred), wget, or busybox wget
@@ -952,7 +964,7 @@ if [ "$mode" = "manual" ]; then
     echo "Work directory failed."
     exit "$dir_err"
   }
-  manifest_url="$base/$req/linux-x64.yml"
+  manifest_url="$base/$req/$plat.yml"
   if ! manifest "$manifest_url" version; then
     code="$?"
     if [ "$code" = "$miss" ]; then
