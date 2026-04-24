@@ -32,6 +32,7 @@ const WHITELIST_BY_VENDOR: Record<string, typeof EMBEDDING_WHITELIST> = {
   qwen: [{ id: "text-embedding-v4", dimensions: 1024, provider: "Qwen" }],
   dashscope: [{ id: "text-embedding-v4", dimensions: 1024, provider: "Qwen" }],
   alibaba: [{ id: "text-embedding-v4", dimensions: 1024, provider: "Qwen" }],
+  "alibaba-cn": [{ id: "text-embedding-v4", dimensions: 1024, provider: "Qwen" }],
   google: [
     { id: "gemini-embedding-001", dimensions: 768, provider: "Google" },
     { id: "gemini-embedding-2-preview", dimensions: 768, provider: "Google" },
