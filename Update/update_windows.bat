@@ -89,8 +89,14 @@ if exist "%WORK%\current" rmdir "%WORK%\current" >nul 2>nul
 if exist "%WORK%\current" rmdir /s /q "%WORK%\current" >nul 2>nul
 
 call :prune_versions || goto :fail
-call :mirror
+call :in_work "%WORK%"
+if errorlevel 1 (
+  call :mirror
+) else (
+  set "COPY_NOTE=Current app already runs inside WorkDir; skipped mirror."
+)
 if not errorlevel 1 if defined MIRROR set "START=%MIRROR%"
+if defined MIRROR call :prune_mirror
 if not defined START set "START=%TARGET%"
 call :write_launch "%START%"
 
@@ -102,6 +108,7 @@ echo [4/4] Done
 echo Current version: %VER%
 echo Version directory: %TARGET%
 if defined MIRROR echo Mirror directory: %MIRROR%
+if defined MPRUNE if not "%MPRUNE%"=="0" echo Mirror cleanup: removed %MPRUNE% older version directories.
 echo Launch entry: %LAUNCH%
 if defined NOTE echo %NOTE%
 if defined COPY_NOTE echo %COPY_NOTE%
@@ -140,7 +147,7 @@ if not defined AETHER_CURRENT_DIR exit /b 1
 for %%i in ("%AETHER_CURRENT_DIR%\..") do set "MROOT=%%~fi"
 if not defined MROOT exit /b 1
 set "MIRROR=%MROOT%\aether_%VER%"
-if exist "%MIRROR%" set "MIRROR=%MROOT%\aether_%VER%_new"
+if exist "%MIRROR%" call :stamp TS & set "MIRROR=%MROOT%\aether_%VER%_!TS!"
 set "MCOPY=%MIRROR%.copy"
 if exist "%MCOPY%" rmdir /s /q "%MCOPY%" >nul 2>nul
 if exist "%MIRROR%" rmdir /s /q "%MIRROR%" >nul 2>nul
@@ -162,6 +169,16 @@ move "%MCOPY%" "%MIRROR%" >nul || (
 )
 set "COPY_NOTE=Copied the new version near the current app location: %MIRROR%"
 exit /b 0
+
+:stamp
+for /f "usebackq delims=" %%i in (`powershell -NoProfile -Command "Get-Date -Format 'yyyyMMddHHmm'"`) do set "%~1=%%i"
+exit /b 0
+
+:in_work
+set "CHK=%~1"
+if not defined AETHER_CURRENT_DIR exit /b 1
+for /f "usebackq delims=" %%i in (`powershell -NoProfile -Command "$cur=[IO.Path]::GetFullPath($env:AETHER_CURRENT_DIR); $root=[IO.Path]::GetFullPath($env:CHK); if($cur -eq $root -or $cur.StartsWith($root + [IO.Path]::DirectorySeparatorChar)){ exit 0 } exit 1"`) do rem
+exit /b %ERRORLEVEL%
 
 :restart
 powershell -NoProfile -Command "& { $names=@('aether.exe','wscript.exe','cscript.exe','node.exe','bun.exe'); $roots=@(); if($env:OLD){ $roots += [IO.Path]::GetFullPath($env:OLD) }; if($env:TARGET){ $roots += [IO.Path]::GetFullPath($env:TARGET) }; if($env:AETHER_CURRENT_DIR){ $roots += [IO.Path]::GetFullPath($env:AETHER_CURRENT_DIR) }; if($env:MIRROR){ $roots += [IO.Path]::GetFullPath($env:MIRROR) }; $roots += (Get-ChildItem -Path $env:WORK -Directory -Filter 'aether_*' -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName }); $roots=$roots | Where-Object { $_ } | Select-Object -Unique; Get-CimInstance Win32_Process | Where-Object { $n=$_.Name.ToLowerInvariant(); if($names -notcontains $n){ return $false }; $cmd=$_.CommandLine; $exe=$_.ExecutablePath; foreach($r in $roots){ if(($cmd -and $cmd -like ('*' + $r + '*')) -or ($exe -and $exe -like ($r + '*'))){ return $true } }; return $false } | Sort-Object ProcessId -Descending | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue } }"
@@ -226,4 +243,12 @@ exit /b 0
 :prune_versions
 for /f "usebackq delims=" %%i in (`powershell -NoProfile -Command "& { $root=$env:WORK; $keep=5; $hold=[IO.Path]::GetFullPath($env:TARGET); $items=Get-ChildItem -Path $root -Directory -Filter 'aether_*' -ErrorAction SilentlyContinue | ForEach-Object { $ver=''; if(Test-Path (Join-Path $_.FullName '.aether_web_version')){ $ver=(Get-Content (Join-Path $_.FullName '.aether_web_version') -TotalCount 1).Trim() }; if(-not $ver -and $_.Name -match '^aether[-_]([0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z]+)*)$'){ $ver=$matches[1] }; if($ver){ [PSCustomObject]@{ Dir=$_.FullName; Ver=$ver } } } | Where-Object { $_ } | Sort-Object @{Expression={ [version](($_.Ver -replace '^v','').Split('-')[0]) }} -Descending; $keepers=New-Object System.Collections.Generic.List[string]; foreach($dir in @($hold)){ if($dir -and ($items | Where-Object { $_.Dir -eq $dir }) -and -not $keepers.Contains($dir)){ $keepers.Add($dir) } }; foreach($item in $items){ if($keepers.Count -ge $keep){ break }; if(-not $keepers.Contains($item.Dir)){ $keepers.Add($item.Dir) } }; $gone=0; foreach($item in $items){ if($keepers.Contains($item.Dir)){ continue }; Remove-Item $item.Dir -Recurse -Force -ErrorAction SilentlyContinue; if(-not (Test-Path $item.Dir)){ $gone++ } }; Write-Output $gone }"`) do set "PRUNE=%%i"
 if not defined PRUNE set "PRUNE=0"
+exit /b 0
+
+:prune_mirror
+if not defined AETHER_CURRENT_DIR exit /b 0
+for %%i in ("%AETHER_CURRENT_DIR%\..") do set "PROOT=%%~fi"
+if not defined PROOT exit /b 0
+for /f "usebackq delims=" %%i in (`powershell -NoProfile -Command "& { $root=$env:PROOT; $keep=5; $hold=''; if($env:MIRROR){ $hold=[IO.Path]::GetFullPath($env:MIRROR) }; $items=Get-ChildItem -Path $root -Directory -Filter 'aether_*' -ErrorAction SilentlyContinue | ForEach-Object { $ver=''; if(Test-Path (Join-Path $_.FullName '.aether_web_version')){ $ver=(Get-Content (Join-Path $_.FullName '.aether_web_version') -TotalCount 1).Trim() }; if(-not $ver -and $_.Name -match '^aether[-_]([0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z]+)*)($|_[0-9]{12}$)'){ $ver=$matches[1] }; if($ver){ [PSCustomObject]@{ Dir=$_.FullName; Ver=$ver } } } | Where-Object { $_ } | Sort-Object @{Expression={ [version](($_.Ver -replace '^v','').Split('-')[0]) }} -Descending; $keepers=New-Object System.Collections.Generic.List[string]; foreach($dir in @($hold)){ if($dir -and ($items | Where-Object { $_.Dir -eq $dir }) -and -not $keepers.Contains($dir)){ $keepers.Add($dir) } }; foreach($item in $items){ if($keepers.Count -ge $keep){ break }; if(-not $keepers.Contains($item.Dir)){ $keepers.Add($item.Dir) } }; $gone=0; foreach($item in $items){ if($keepers.Contains($item.Dir)){ continue }; Remove-Item $item.Dir -Recurse -Force -ErrorAction SilentlyContinue; if(-not (Test-Path $item.Dir)){ $gone++ } }; Write-Output $gone }"`) do set "MPRUNE=%%i"
+if not defined MPRUNE set "MPRUNE=0"
 exit /b 0

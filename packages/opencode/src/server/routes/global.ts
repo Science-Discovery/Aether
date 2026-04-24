@@ -446,34 +446,12 @@ function compareVer(a: string, b: string) {
   return 0
 }
 
-function getWorkDir(): string | null {
-  const dir = getAppRoot()
-  const base = path.basename(dir).toLowerCase()
-  if (base === "aether") return dir
-  if (!base.startsWith("aether_")) return null
-  const root = path.dirname(dir)
-  if (path.basename(root).toLowerCase() !== "aether") return null
-  return root
-}
-
-function getFallbackWorkDir(os: string): string | null {
+function getWorkDir(os: string): string | null {
   const home = process.env.HOME || process.env.USERPROFILE || ""
   if (!home) return null
-  if (os === "darwin") return path.join(home, "Applications", "aether")
-  if (os === "linux") return path.join(home, ".local", "share", "applications", "aether")
-  if (os === "windows") {
-    const base = process.env.LOCALAPPDATA || path.join(home, "AppData", "Local")
-    return path.join(base, "Programs", "aether")
-  }
+  if (os === "darwin" || os === "linux") return path.join(home, ".local", "share", "aether", "update")
+  if (os === "windows") return path.join(home, ".local", "share", "aether", "update")
   return null
-}
-
-function resolveWorkDir(os: string): { path: string; isFallback: boolean } | null {
-  const current = getWorkDir()
-  if (current) return { path: current, isFallback: false }
-  const fb = getFallbackWorkDir(os)
-  if (!fb) return null
-  return { path: fb, isFallback: true }
 }
 
 async function fetchInstallerScript(os: string): Promise<string | null> {
@@ -529,14 +507,11 @@ async function webCheck(os: z.infer<typeof WebUpdateOS>) {
       downloaded: false,
       status: "available" as const,
       workDir: "",
-      workDirFallback: false,
       updateError: undefined,
       checkError: "Local build, skipping update check",
     }
   }
-  const resolved = resolveWorkDir(os)
-  const workDir = resolved?.path ?? ""
-  const workDirFallback = resolved?.isFallback ?? false
+  const workDir = getWorkDir(os) ?? ""
   try {
     const meta = await fetchManifest(os)
     if (!meta.ok) {
@@ -547,7 +522,6 @@ async function webCheck(os: z.infer<typeof WebUpdateOS>) {
         downloaded: false,
         status: "available" as const,
         workDir,
-        workDirFallback,
         updateError: undefined,
         checkError: meta.error,
       }
@@ -567,7 +541,6 @@ async function webCheck(os: z.infer<typeof WebUpdateOS>) {
       downloaded,
       status: state?.status === "installed" ? "available" : (state?.status ?? "available"),
       workDir,
-      workDirFallback,
       updateError: state?.error || undefined,
       checkError: undefined,
     }
@@ -580,7 +553,6 @@ async function webCheck(os: z.infer<typeof WebUpdateOS>) {
       downloaded: false,
       status: "available" as const,
       workDir,
-      workDirFallback,
       updateError: undefined,
       checkError: `Failed to check update: ${message}`,
     }
@@ -665,6 +637,7 @@ async function streamEvents(c: Context, subscribe: (q: AsyncQueue<string | null>
 
 export const WebUpdateTest = {
   fetchManifest,
+  getWorkDir,
   parseManifest,
   readUpdateState,
   resetUpdate,
@@ -1025,7 +998,6 @@ export const GlobalRoutes = lazy(() =>
                     downloaded: z.boolean(),
                     status: WebUpdateStatus,
                     workDir: z.string(),
-                    workDirFallback: z.boolean(),
                     updateError: z.string().optional(),
                     checkError: z.string().optional(),
                   }),
@@ -1073,20 +1045,18 @@ export const GlobalRoutes = lazy(() =>
         z.object({
           os: WebUpdateOS,
           version: z.string().min(1),
-          acceptFallback: z.boolean().optional(),
           force: z.boolean().optional(),
         }),
       ),
       async (c) => {
-        const { os, version, acceptFallback, force } = c.req.valid("json")
+        const { os, version, force } = c.req.valid("json")
         if (Installation.isLocal()) {
           return c.json({ success: false as const, error: "Local build, update is not available" })
         }
-        const resolved = resolveWorkDir(os)
-        if (!resolved) {
+        const workDir = getWorkDir(os)
+        if (!workDir) {
           return c.json({ success: false as const, error: "Could not determine aether work directory" })
         }
-        const workDir = resolved.path
         const upd = UPDATE_SCRIPT[os]
         if (!upd) return c.json({ success: false as const, error: `Update script not configured for ${os}` })
         const meta = await fetchManifest(os, version)
@@ -1226,19 +1196,17 @@ export const GlobalRoutes = lazy(() =>
         z.object({
           os: WebUpdateOS,
           version: z.string().min(1).optional(),
-          acceptFallback: z.boolean().optional(),
         }),
       ),
       async (c) => {
-        const { os, version, acceptFallback } = c.req.valid("json")
+        const { os, version } = c.req.valid("json")
         if (Installation.isLocal()) {
           return c.json({ success: false as const, error: "Local build, update is not available" })
         }
-        const resolved = resolveWorkDir(os)
-        if (!resolved) {
+        const workDir = getWorkDir(os)
+        if (!workDir) {
           return c.json({ success: false as const, error: "Could not determine aether work directory" })
         }
-        const workDir = resolved.path
         try {
           await fs.mkdir(workDir, { recursive: true })
         } catch (e) {
@@ -1299,7 +1267,7 @@ export const GlobalRoutes = lazy(() =>
           )
           const args = version ? [run, version] : [run]
           if (os === "darwin" || os === "linux" || os === "windows") args.push("--restart")
-          const env = resolved.isFallback ? { ...process.env, AETHER_CURRENT_DIR: getAppRoot() } : process.env
+          const env = { ...process.env, AETHER_CURRENT_DIR: getAppRoot(), AETHER_WORK_DIR: workDir }
           const child =
             os === "windows"
               ? spawn("cmd", ["/c", ...args], {

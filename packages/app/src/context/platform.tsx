@@ -15,7 +15,6 @@ type UpdateStatus = {
   downloaded?: boolean
   status?: UpdateStage
   updateError?: string
-  requiresConfirmation?: boolean
 }
 
 export type Platform = {

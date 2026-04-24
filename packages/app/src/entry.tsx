@@ -275,25 +275,24 @@ const webCheck = async () => {
     status,
     updateError: typeof data.updateError === "string" ? data.updateError.trim() : "",
     workDir: typeof data.workDir === "string" ? data.workDir.trim() : "",
-    requiresConfirmation: !!data.workDirFallback,
   }
 }
 
-const webDownload = async (input: { os: string; version: string }, acceptFallback: boolean, force = false) => {
+const webDownload = async (input: { os: string; version: string }, force = false) => {
   const res = await req("/global/web-update/download", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ os: input.os, version: input.version, acceptFallback, force }),
+    body: JSON.stringify({ os: input.os, version: input.version, force }),
   })
   const data = await res.json()
   if (!data.success) throw new Error(data.error)
 }
 
-const webInstall = async (input: { os: string; version: string }, acceptFallback: boolean) => {
+const webInstall = async (input: { os: string; version: string }) => {
   const res = await req("/global/web-update/install", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ os: input.os, version: input.version, acceptFallback }),
+    body: JSON.stringify({ os: input.os, version: input.version }),
   })
   const data = await res.json()
   if (!data.success) throw new Error(data.error)
@@ -316,33 +315,32 @@ const platform: Platform = {
       downloaded: data.downloaded,
       status: data.status,
       updateError: data.updateError,
-      requiresConfirmation: data.requiresConfirmation,
     }
   },
   downloadUpdate: async () => {
     const data = await webCheck()
     if (!data.updateAvailable) return
     if (data.status === "failed") throw new Error(data.updateError || "Update needs to restart from scratch")
-    await webDownload(data, true)
+    await webDownload(data)
   },
   update: async () => {
     const data = await webCheck()
     if (!data.updateAvailable) return
     if (data.status === "failed") return platform.recoverUpdate?.()
     if (!data.downloaded) {
-      await webDownload(data, true)
+      await webDownload(data)
     }
-    await webInstall(data, true)
+    await webInstall(data)
   },
   recoverUpdate: async () => {
     const data = await webCheck()
     if (!data.updateAvailable) return
-    await webDownload(data, true, true)
+    await webDownload(data, true)
     const next = await webCheck()
     if (!next.updateAvailable || next.status !== "downloaded") {
       throw new Error(next.updateError || "Update restart did not finish downloading")
     }
-    await webInstall(next, true)
+    await webInstall(next)
   },
   getDefaultServer: async () => {
     const stored = readDefaultServerUrl()

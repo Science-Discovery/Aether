@@ -105,4 +105,15 @@ notes_url: notes.md
 
     expect(state.status).toBe("installed")
   })
+
+  test("getWorkDir uses fixed hidden share directory", () => {
+    const home = process.env.HOME
+    process.env.HOME = "/tmp/aether-home"
+
+    expect(WebUpdateTest.getWorkDir("darwin")).toBe("/tmp/aether-home/.local/share/aether/update")
+    expect(WebUpdateTest.getWorkDir("linux")).toBe("/tmp/aether-home/.local/share/aether/update")
+    expect(WebUpdateTest.getWorkDir("windows")).toBe("/tmp/aether-home/.local/share/aether/update")
+
+    process.env.HOME = home
+  })
 })

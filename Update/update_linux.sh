@@ -237,6 +237,43 @@ prune_versions() {
   done
 }
 
+stamp() {
+  date +"%Y%m%d%H%M"
+}
+
+mirror_root() {
+  local cur
+  cur="${AETHER_CURRENT_DIR:-}"
+  [ -n "$cur" ] || return 1
+  cd "$cur/.." && pwd
+}
+
+in_work() {
+  local cur root
+  cur="${AETHER_CURRENT_DIR:-}"
+  root="$1"
+  [ -n "$cur" ] || return 1
+  [ -n "$root" ] || return 1
+  cur="$(cd "$cur" && pwd)"
+  root="$(cd "$root" && pwd)"
+  case "$cur" in
+    "$root"|"$root"/*) return 0 ;;
+  esac
+  return 1
+}
+
+mirror_target() {
+  local root dst now
+  root="$1"
+  dst="$root/aether_$ver"
+  if [ ! -e "$dst" ]; then
+    printf "%s" "$dst"
+    return 0
+  fi
+  now="$(stamp)"
+  printf "%s" "$root/aether_${ver}_$now"
+}
+
 list_ssl() {
   {
     if command -v ldconfig >/dev/null 2>&1; then
@@ -429,14 +466,10 @@ boot() {
 }
 
 mirror_dir() {
-  local cur root dst tmp
-  cur="${AETHER_CURRENT_DIR:-}"
-  [ -n "$cur" ] || return 1
-  root="$(cd "$cur/.." && pwd)"
-  dst="$root/aether_$ver"
-  if [ -d "$dst" ]; then
-    dst="${dst}_new"
-  fi
+  local root dst tmp
+  root="$(mirror_root || true)"
+  [ -n "$root" ] || return 1
+  dst="$(mirror_target "$root")"
   tmp="${dst}.copy"
   rm -rf "$tmp" "$dst" 2>/dev/null || true
   mkdir -p "$tmp" || return 1
@@ -544,9 +577,17 @@ rm -rf "$work/current" 2>/dev/null || true
 fix_libssl "$target"
 prune_versions "$work" 5 "$target"
 
-copy_target="$(mirror_dir || true)"
-if [ -n "$copy_target" ]; then
+copy_target=""
+mirror_prune=""
+if in_work "$work"; then
+  copy_note="[install] Current app already runs inside WorkDir; skipped mirror."
+elif copy_target="$(mirror_dir || true)" && [ -n "$copy_target" ]; then
   copy_note="[install] Copied the new version near the current app location: $copy_target"
+  mirror_root_dir="$(mirror_root || true)"
+  if [ -n "$mirror_root_dir" ]; then
+    prune_versions "$mirror_root_dir" 5 "$copy_target"
+    mirror_prune="$prune"
+  fi
 else
   copy_note=""
 fi
@@ -589,6 +630,9 @@ echo "[4/4] Done"
 echo "Version directory: $target"
 if [ -n "$copy_target" ]; then
   echo "Mirror directory: $copy_target"
+fi
+if [ -n "$mirror_prune" ] && [ "$mirror_prune" -gt 0 ]; then
+  echo "Mirror cleanup: removed $mirror_prune older version directories."
 fi
 if [ -n "$copy_note" ]; then
   echo "$copy_note"

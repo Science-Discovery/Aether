@@ -211,6 +211,43 @@ prune_versions() {
   done
 }
 
+stamp() {
+  date +"%Y%m%d%H%M"
+}
+
+mirror_root() {
+  local cur
+  cur="${AETHER_CURRENT_DIR:-}"
+  [ -n "$cur" ] || return 1
+  cd "$cur/.." && pwd
+}
+
+in_work() {
+  local cur root
+  cur="${AETHER_CURRENT_DIR:-}"
+  root="$1"
+  [ -n "$cur" ] || return 1
+  [ -n "$root" ] || return 1
+  cur="$(cd "$cur" && pwd)"
+  root="$(cd "$root" && pwd)"
+  case "$cur" in
+    "$root"|"$root"/*) return 0 ;;
+  esac
+  return 1
+}
+
+mirror_target() {
+  local root dst now
+  root="$1"
+  dst="$root/aether_$ver"
+  if [ ! -e "$dst" ]; then
+    printf "%s" "$dst"
+    return 0
+  fi
+  now="$(stamp)"
+  printf "%s" "$root/aether_${ver}_$now"
+}
+
 write_launch() {
   local final target
   final="$1"
@@ -300,14 +337,10 @@ boot() {
 }
 
 mirror_dir() {
-  local cur root dst tmp
-  cur="${AETHER_CURRENT_DIR:-}"
-  [ -n "$cur" ] || return 1
-  root="$(cd "$cur/.." && pwd)"
-  dst="$root/aether_$ver"
-  if [ -d "$dst" ]; then
-    dst="${dst}_new"
-  fi
+  local root dst tmp
+  root="$(mirror_root || true)"
+  [ -n "$root" ] || return 1
+  dst="$(mirror_target "$root")"
   tmp="${dst}.copy"
   rm -rf "$tmp" "$dst"
   mkdir -p "$tmp" || return 1
@@ -397,18 +430,27 @@ fi
 printf "%s\n" "$ver" >"$target/.aether_web_version"
 rm -f "$work/.aether_web_version" >/dev/null 2>&1 || true
 
-  rm -rf "$work/current" >/dev/null 2>&1 || true
-  prune_versions "$work" 5 "$target"
+rm -rf "$work/current" >/dev/null 2>&1 || true
+prune_versions "$work" 5 "$target"
 
-  copy_target=""
-  if copy_target="$(mirror_dir || true)" && [ -n "$copy_target" ]; then
-    copy_note="已复制新版本到当前软件目录附近：$copy_target"
+copy_target=""
+copy_note=""
+mirror_prune=""
+if in_work "$work"; then
+  copy_note="当前运行位置已在 WorkDir 中，已跳过 mirror"
+elif copy_target="$(mirror_dir || true)" && [ -n "$copy_target" ]; then
+  copy_note="已复制新版本到当前软件目录附近：$copy_target"
+  mirror_root_dir="$(mirror_root || true)"
+  if [ -n "$mirror_root_dir" ]; then
+    prune_versions "$mirror_root_dir" 5 "$copy_target"
+    mirror_prune="$prune"
   fi
-  final_target="$target"
-  if [ -n "$copy_target" ]; then
-    final_target="$copy_target"
-  fi
-  write_launch "$final_target"
+fi
+final_target="$target"
+if [ -n "$copy_target" ]; then
+  final_target="$copy_target"
+fi
+write_launch "$final_target"
 
 if [ "$restart" = "1" ]; then
   stop "$old"
@@ -435,6 +477,9 @@ echo "当前版本: $ver"
 echo "版本目录: $target"
 if [ -n "$copy_target" ]; then
   echo "复制目录: $copy_target"
+fi
+if [ -n "$mirror_prune" ] && [ "$mirror_prune" -gt 0 ]; then
+  echo "镜像目录清理: 已清理 $mirror_prune 个旧版本目录"
 fi
 echo "启动入口: $launch"
 if [ -n "$launch_note" ]; then
