@@ -68,6 +68,21 @@ describe("persist.migrate", () => {
     expect(await Bun.file(path.join(Persist.current.data, "auth.json")).json()).toEqual({ token: "new" })
   })
 
+  test("does not copy legacy database sidecars when the target database already exists", async () => {
+    await fs.mkdir(Persist.legacy.data, { recursive: true })
+    await fs.mkdir(Persist.current.data, { recursive: true })
+    await Bun.write(path.join(Persist.legacy.data, "aether-local.db"), "legacy-db")
+    await Bun.write(path.join(Persist.legacy.data, "aether-local.db-wal"), "legacy-wal")
+    await Bun.write(path.join(Persist.legacy.data, "aether-local.db-shm"), "legacy-shm")
+    await Bun.write(path.join(Persist.current.data, "aether-local.db"), "current-db")
+
+    await ensureUser()
+
+    expect(await Bun.file(path.join(Persist.current.data, "aether-local.db")).text()).toBe("current-db")
+    expect(await Bun.file(path.join(Persist.current.data, "aether-local.db-wal")).exists()).toBeFalse()
+    expect(await Bun.file(path.join(Persist.current.data, "aether-local.db-shm")).exists()).toBeFalse()
+  })
+
   test("copies only aether databases when legacy aether files already exist", async () => {
     await fs.mkdir(Persist.legacy.data, { recursive: true })
     await Bun.write(path.join(Persist.legacy.data, "aether-local.db"), "new-db")

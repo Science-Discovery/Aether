@@ -3,7 +3,7 @@ import { createSimpleContext } from "@opencode-ai/ui/context"
 import { createGlobalEmitter } from "@solid-primitives/event-bus"
 import { batch, onCleanup } from "solid-js"
 import z from "zod"
-import { type AppClient, addCronMethods, createSdkForServer } from "@/utils/server"
+import { type AppClient, addCronMethods, addMemoryMethods, addPreferenceMethods, createSdkForServer } from "@/utils/server"
 import { useLanguage } from "./language"
 import { usePlatform } from "./platform"
 import { useServer } from "./server"
@@ -226,6 +226,8 @@ export const { use: useGlobalSDK, provider: GlobalSDKProvider } = createSimpleCo
       fetch: platform.fetch,
       throwOnError: true,
     })
+    addPreferenceMethods(sdk, server.current.http.url, authHeader(server.current.http), { throwOnError: true })
+    addMemoryMethods(sdk, server.current.http.url, authHeader(server.current.http), {}, { throwOnError: true })
     addCronMethods(sdk, server.current.http.url, authHeader(server.current.http), { throwOnError: true })
 
     return {
@@ -240,7 +242,23 @@ export const { use: useGlobalSDK, provider: GlobalSDKProvider } = createSimpleCo
           fetch: platform.fetch,
           ...opts,
         })
-        addCronMethods(c, s.http.url, authHeader(s.http), { throwOnError: opts.throwOnError })
+        addPreferenceMethods(c, s.http.url, authHeader(s.http), { throwOnError: opts.throwOnError })
+        addMemoryMethods(
+          c,
+          s.http.url,
+          authHeader(s.http),
+          {
+            directory: opts.directory,
+            experimental_workspaceID: opts.experimental_workspaceID,
+          },
+          { throwOnError: opts.throwOnError },
+        )
+        addCronMethods(
+          c,
+          s.http.url,
+          authHeader(s.http),
+          { throwOnError: opts.throwOnError },
+        )
         return c
       },
     }

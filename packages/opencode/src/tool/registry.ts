@@ -30,6 +30,14 @@ import { Truncate } from "./truncate"
 import { ApplyPatchTool } from "./apply_patch"
 import { SummarizeDirsTool } from "./summarize-dirs"
 import {
+  MemoryListTool,
+  MemoryReadTool,
+  MemoryReflectTool,
+  MemoryReloadTool,
+  MemorySearchTool,
+  MemoryWriteTool,
+} from "./memory"
+import {
   CronCreateTool,
   CronDeleteTool,
   CronGetTool,
@@ -142,6 +150,12 @@ export namespace ToolRegistry {
           SkillTool,
           ApplyPatchTool,
           SummarizeDirsTool,
+          MemoryWriteTool,
+          MemoryReadTool,
+          MemoryListTool,
+          MemorySearchTool,
+          MemoryReloadTool,
+          MemoryReflectTool,
           CronListTool,
           CronGetTool,
           CronCreateTool,

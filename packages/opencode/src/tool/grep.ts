@@ -10,11 +10,15 @@ import { Instance } from "../project/instance"
 import path from "path"
 import { assertExternalDirectory } from "./external-directory"
 import { resolveInput } from "./path"
+import { assertNotMemoryStoragePath, isMemoryStoragePath, memoryStorageExcludeGlobs } from "./memory-file-guard"
 
 const MAX_LINE_LENGTH = 2000
 
 export const GrepTool = Tool.define("grep", {
-  description: DESCRIPTION,
+  description: [
+    DESCRIPTION,
+    "Aether memory rule: do not use this tool to search USER.md or MEMORY.md memory files. Use memory_search for memory recall.",
+  ].join("\n\n"),
   parameters: z.object({
     pattern: z.string().describe("The regex pattern to search for in file contents"),
     path: z.string().optional().describe("The directory to search in. Defaults to the current working directory."),
@@ -37,6 +41,7 @@ export const GrepTool = Tool.define("grep", {
     })
 
     const searchPath = resolveInput(Instance.directory, params.path ?? Instance.directory)
+    assertNotMemoryStoragePath("grep", searchPath)
     await assertExternalDirectory(ctx, searchPath, { kind: "directory" })
 
     const rgPath = await Ripgrep.filepath()
@@ -44,6 +49,7 @@ export const GrepTool = Tool.define("grep", {
     if (params.include) {
       args.push("--glob", params.include)
     }
+    for (const glob of memoryStorageExcludeGlobs(searchPath)) args.push("--glob", glob)
     args.push(searchPath)
 
     const proc = Process.spawn([rgPath, ...args], {
@@ -92,6 +98,7 @@ export const GrepTool = Tool.define("grep", {
 
       const stats = Filesystem.stat(filePath)
       if (!stats) continue
+      if (isMemoryStoragePath(filePath)) continue
 
       matches.push({
         path: filePath,

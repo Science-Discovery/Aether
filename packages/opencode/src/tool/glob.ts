@@ -7,9 +7,13 @@ import { Ripgrep } from "../file/ripgrep"
 import { Instance } from "../project/instance"
 import { assertExternalDirectory } from "./external-directory"
 import { resolveInput } from "./path"
+import { assertNotMemoryStoragePath, isMemoryStoragePath, memoryStorageExcludeGlobs } from "./memory-file-guard"
 
 export const GlobTool = Tool.define("glob", {
-  description: DESCRIPTION,
+  description: [
+    DESCRIPTION,
+    "Aether memory rule: do not use this tool to find USER.md or MEMORY.md memory files. Use memory_search for memory recall.",
+  ].join("\n\n"),
   parameters: z.object({
     pattern: z.string().describe("The glob pattern to match files against"),
     path: z
@@ -31,6 +35,7 @@ export const GlobTool = Tool.define("glob", {
     })
 
     const search = resolveInput(Instance.directory, params.path ?? Instance.directory)
+    assertNotMemoryStoragePath("glob", search)
     await assertExternalDirectory(ctx, search, { kind: "directory" })
 
     const limit = 100
@@ -38,7 +43,7 @@ export const GlobTool = Tool.define("glob", {
     let truncated = false
     for await (const file of Ripgrep.files({
       cwd: search,
-      glob: [params.pattern],
+      glob: [params.pattern, ...memoryStorageExcludeGlobs(search)],
       signal: ctx.abort,
     })) {
       if (files.length >= limit) {
@@ -46,6 +51,7 @@ export const GlobTool = Tool.define("glob", {
         break
       }
       const full = path.resolve(search, file)
+      if (isMemoryStoragePath(full)) continue
       const stats = Filesystem.stat(full)?.mtime.getTime() ?? 0
       files.push({
         path: full,

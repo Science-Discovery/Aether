@@ -600,6 +600,25 @@ export namespace MessageV2 {
       return false
     })()
 
+    const providerMetadata = (metadata: Record<string, any> | undefined) => {
+      if (!metadata) return undefined
+      const entries = Object.entries(metadata).filter(([, value]) => {
+        return value && typeof value === "object" && !Array.isArray(value)
+      })
+      if (entries.length === 0) return undefined
+      return Object.fromEntries(entries)
+    }
+
+    const providerMetadataProp = (metadata: Record<string, any> | undefined) => {
+      const value = providerMetadata(metadata)
+      return value ? { providerMetadata: value } : {}
+    }
+
+    const callProviderMetadataProp = (metadata: Record<string, any> | undefined) => {
+      const value = providerMetadata(metadata)
+      return value ? { callProviderMetadata: value } : {}
+    }
+
     const toModelOutput = (output: unknown) => {
       if (typeof output === "string") {
         return { type: "text", value: output }
@@ -700,12 +719,15 @@ export namespace MessageV2 {
           parts: [],
         }
         for (const part of msg.parts) {
-          if (part.type === "text")
+          if (part.type === "text") {
+            // Memory receipt tails are audit text for users, not model context.
+            if (part.metadata?.memory_receipt === true) continue
             assistantMessage.parts.push({
               type: "text",
               text: part.text,
-              ...(differentModel ? {} : { providerMetadata: part.metadata }),
+              ...(differentModel ? {} : providerMetadataProp(part.metadata)),
             })
+          }
           if (part.type === "step-start")
             assistantMessage.parts.push({
               type: "step-start",
@@ -739,7 +761,7 @@ export namespace MessageV2 {
                 toolCallId: part.callID,
                 input: part.state.input,
                 output,
-                ...(differentModel ? {} : { callProviderMetadata: part.metadata }),
+                ...(differentModel ? {} : callProviderMetadataProp(part.metadata)),
               })
             }
             if (part.state.status === "error")
@@ -749,7 +771,7 @@ export namespace MessageV2 {
                 toolCallId: part.callID,
                 input: part.state.input,
                 errorText: part.state.error,
-                ...(differentModel ? {} : { callProviderMetadata: part.metadata }),
+                ...(differentModel ? {} : callProviderMetadataProp(part.metadata)),
               })
             // Handle pending/running tool calls to prevent dangling tool_use blocks
             // Anthropic/Claude APIs require every tool_use to have a corresponding tool_result
@@ -760,14 +782,14 @@ export namespace MessageV2 {
                 toolCallId: part.callID,
                 input: part.state.input,
                 errorText: "[Tool execution was interrupted]",
-                ...(differentModel ? {} : { callProviderMetadata: part.metadata }),
+                ...(differentModel ? {} : callProviderMetadataProp(part.metadata)),
               })
           }
           if (part.type === "reasoning") {
             assistantMessage.parts.push({
               type: "reasoning",
               text: part.text,
-              ...(differentModel ? {} : { providerMetadata: part.metadata }),
+              ...(differentModel ? {} : providerMetadataProp(part.metadata)),
             })
           }
         }
