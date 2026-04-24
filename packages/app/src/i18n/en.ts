@@ -481,6 +481,8 @@ export const dict = {
 
   "toast.update.title": "Update available",
   "toast.update.description": "A new version of Aether ({{version}}) is now available to install.",
+  "toast.update.failed.title": "Update failed",
+  "toast.update.failed.description": "Aether could not finish updating to {{version}}.",
   "toast.update.action.installRestart": "Install and restart",
   "toast.update.action.notYet": "Not yet",
 
@@ -499,6 +501,10 @@ export const dict = {
   "update.recover": "Restart Update",
   "update.recovering": "Restarting update...",
   "update.recoverHint": "A previous update attempt left incomplete files. Restart the whole update flow from scratch.",
+  "update.retryMirror": "Retry Mirror",
+  "update.retryingMirror": "Retrying mirror...",
+  "update.mirrorHint":
+    "The new version is already installed in the work directory, but copying it next to the current app failed. Retry the mirror step.",
   "update.checkFailed": "Check failed",
   "update.retry": "Retry",
 

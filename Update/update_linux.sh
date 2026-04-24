@@ -13,6 +13,8 @@ tmp=""
 next=""
 prune="0"
 restart="0"
+res=""
+mirror_only="${AETHER_MIRROR_ONLY:-0}"
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -65,6 +67,31 @@ clean() {
   if [ -n "$next" ] && [ -d "$next" ]; then
     rm -rf "$next"
   fi
+}
+
+flat() {
+  printf "%s" "$1" | tr '\r\n' '  '
+}
+
+write_result() {
+  [ -n "$res" ] || return 0
+  mkdir -p "$(dirname "$res")" 2>/dev/null || true
+  {
+    printf 'status=%s\n' "$(flat "$1")"
+    printf 'version=%s\n' "$(flat "$ver")"
+    printf 'action=%s\n' "$(flat "${2:-}")"
+    printf 'error=%s\n' "$(flat "${3:-}")"
+    printf 'at=%s\n' "$(date +%s)"
+  } >"$res"
+}
+
+fail() {
+  local msg="$1"
+  local action="${2:-recover}"
+  write_result "failed" "$action" "$msg"
+  echo "$msg"
+  clean
+  exit "$run_err"
 }
 
 pick_home() {
@@ -511,62 +538,56 @@ dl="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 work="$(cd "$dl/.." && pwd)"
 target="$work/aether_$ver"
 next="$work/.aether_$ver.next"
+res="${AETHER_UPDATE_RESULT:-$work/downloads/web-update-result.env}"
+
+rm -f "$res" 2>/dev/null || true
 
 echo "[0/4] Work directory: $work"
 
 shopt -s nullglob
 arr=("$dl"/aether-linux-x64-"$ver".*)
 shopt -u nullglob
-if [ "${#arr[@]}" -eq 0 ]; then
-  echo "[install] Package not found for version $ver in $dl"
-  exit "$dl_err"
+if [ "$mirror_only" != "1" ] && [ "${#arr[@]}" -eq 0 ]; then
+  fail "[install] Package not found for version $ver in $dl"
 fi
 
-pkg="${arr[0]}"
+pkg="${arr[0]:-}"
 tmp="$(mktemp -d "${TMPDIR:-/tmp}/aether-install.XXXXXX")"
 ex="$tmp/extract"
-mkdir -p "$ex" || exit "$run_err"
+mkdir -p "$ex" || fail "[install] Failed to prepare extract directory"
 
 echo "[1/4] Package: $(basename "$pkg")"
 echo "      Target version: $ver"
 
-case "$pkg" in
-  *.zip)
-    unzip -o "$pkg" -d "$ex" || {
-      echo "[install] Failed to extract $pkg"
-      exit "$run_err"
-    }
-    ;;
-  *.tar.gz|*.tgz)
-    tar -xzf "$pkg" -C "$ex" || {
-      echo "[install] Failed to extract $pkg"
-      exit "$run_err"
-    }
-    ;;
-  *.tar.bz2)
-    tar -xjf "$pkg" -C "$ex" || {
-      echo "[install] Failed to extract $pkg"
-      exit "$run_err"
-    }
-    ;;
-  *)
-    echo "[install] Unknown package format: $pkg"
-    exit "$run_err"
-    ;;
-esac
-
-src="$(pick_src "$ex")"
-if [ -z "$src" ]; then
-  echo "[install] Missing app files (aether/Aether.sh) in package"
-  exit "$run_err"
-fi
-
-echo "[2/4] Extracting and installing to: $target"
 old="$(active_dir "$work")"
-rm -rf "$next" "$target" 2>/dev/null || true
-mkdir -p "$next" || exit "$run_err"
-cp -R "$src"/. "$next" || exit "$run_err"
-mv "$next" "$target" || exit "$run_err"
+if [ "$mirror_only" = "1" ]; then
+  [ -d "$target" ] || fail "[install] Installed version directory not found for mirror retry: $target"
+  echo "[2/4] Reusing installed version at: $target"
+else
+  case "$pkg" in
+    *.zip)
+      unzip -o "$pkg" -d "$ex" || fail "[install] Failed to extract $pkg"
+      ;;
+    *.tar.gz|*.tgz)
+      tar -xzf "$pkg" -C "$ex" || fail "[install] Failed to extract $pkg"
+      ;;
+    *.tar.bz2)
+      tar -xjf "$pkg" -C "$ex" || fail "[install] Failed to extract $pkg"
+      ;;
+    *)
+      fail "[install] Unknown package format: $pkg"
+      ;;
+  esac
+
+  src="$(pick_src "$ex")"
+  [ -n "$src" ] || fail "[install] Missing app files (aether/Aether.sh) in package"
+
+  echo "[2/4] Extracting and installing to: $target"
+  rm -rf "$next" "$target" 2>/dev/null || true
+  mkdir -p "$next" || fail "[install] Failed to prepare version directory: $next"
+  cp -R "$src"/. "$next" || fail "[install] Failed to copy files into $next"
+  mv "$next" "$target" || fail "[install] Failed to finalize install into $target"
+fi
 
 chmod +x "$target/aether" "$target/Aether.sh" 2>/dev/null || true
 printf "%s\n" "$ver" > "$target/.aether_web_version"
@@ -589,7 +610,7 @@ elif copy_target="$(mirror_dir || true)" && [ -n "$copy_target" ]; then
     mirror_prune="$prune"
   fi
 else
-  copy_note=""
+  fail "[install] Failed to copy the new version near ${AETHER_CURRENT_DIR:-the current app}" mirror
 fi
 start_target="$target"
 if [ -n "$copy_target" ]; then
@@ -617,14 +638,14 @@ if [ "$restart" = "1" ]; then
   stop "$copy_target"
   if [ -n "$copy_target" ]; then
     if ! boot "$copy_target" && ! boot "$target"; then
-      echo "[install] Failed to restart Aether from $target/Aether.sh"
-      exit "$run_err"
+      fail "[install] Failed to restart Aether from $target/Aether.sh"
     fi
   elif ! boot "$target"; then
-    echo "[install] Failed to restart Aether from $target/Aether.sh"
-    exit "$run_err"
+    fail "[install] Failed to restart Aether from $target/Aether.sh"
   fi
 fi
+
+write_result "installed"
 
 echo "[4/4] Done"
 echo "Version directory: $target"

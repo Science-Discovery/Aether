@@ -469,6 +469,8 @@ export const dict = {
   "toast.session.listFailed.title": "无法加载 {{project}} 的会话",
   "toast.update.title": "有可用更新",
   "toast.update.description": "Aether 有新版本 ({{version}}) 可安装。",
+  "toast.update.failed.title": "更新失败",
+  "toast.update.failed.description": "Aether 未能完成到 {{version}} 的更新。",
   "toast.update.action.installRestart": "安装并重启",
   "toast.update.action.notYet": "稍后",
 
@@ -487,6 +489,10 @@ export const dict = {
   "update.recover": "重新开始更新",
   "update.recovering": "正在重新开始更新...",
   "update.recoverHint": "之前的更新流程留下了不完整文件，需要从头重新下载并安装。",
+  "update.retryMirror": "重试镜像",
+  "update.retryingMirror": "正在重试镜像...",
+  "update.mirrorHint":
+    "新版本已经成功安装到后台目录，但复制到你的软件文件夹失败，请重试镜像步骤，或复制以下信息直接在对话框中向 AI 咨询解决方案：",
   "update.checkFailed": "检查失败",
   "update.retry": "重试",
 

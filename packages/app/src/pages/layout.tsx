@@ -25,7 +25,7 @@ import { DropdownMenu } from "@opencode-ai/ui/dropdown-menu"
 import { Dialog } from "@opencode-ai/ui/dialog"
 import { getFilename } from "@opencode-ai/util/path"
 import { Session, type Message } from "@opencode-ai/sdk/v2/client"
-import { usePlatform } from "@/context/platform"
+import { type UpdateAction, usePlatform } from "@/context/platform"
 import { useSettings } from "@/context/settings"
 import { createStore, produce, reconcile } from "solid-js/store"
 import { DragDropProvider, DragDropSensors, DragOverlay, SortableProvider, closestCenter } from "@thisbeyond/solid-dnd"
@@ -394,6 +394,18 @@ export default function Layout(props: ParentProps) {
 
       let toastId: number | undefined
       let interval: ReturnType<typeof setInterval> | undefined
+      const dismissToast = () => {
+        if (toastId === undefined) return
+        toaster.dismiss(toastId)
+        toastId = undefined
+      }
+      const action = (err: unknown, next?: UpdateAction) => {
+        if (next) return next
+        if (!(err instanceof Error)) return
+        const hit = (err as Error & { updateAction?: unknown }).updateAction
+        if (hit === "recover" || hit === "mirror") return hit
+      }
+      const message = (err: unknown) => (err instanceof Error ? err.message : String(err))
       const install = async () => {
         if (platform.platform === "web") {
           const x = await import("@/components/dialog-update")
@@ -414,7 +426,7 @@ export default function Layout(props: ParentProps) {
       }
 
       const showUpdateToast = (version?: string) => {
-        if (toastId !== undefined) return
+        dismissToast()
         toastId = showToast({
           persistent: true,
           placement: "top-center",
@@ -447,6 +459,54 @@ export default function Layout(props: ParentProps) {
         })
       }
 
+      const run = (next?: UpdateAction) => {
+        const task = next === "mirror" ? platform.retryUpdateMirror?.() : platform.recoverUpdate?.()
+        if (!task) return
+        dismissToast()
+        showPromiseToast(task, {
+          loading: language.t(next === "mirror" ? "update.retryingMirror" : "update.recovering"),
+          success: () => language.t("update.installHint"),
+          error: (err) => message(err),
+        })
+      }
+
+      const showErrorToast = (err: unknown, version?: string, next?: UpdateAction) => {
+        const kind = action(err, next)
+        dismissToast()
+        toastId = showToast({
+          persistent: true,
+          placement: "top-center",
+          guarded: true,
+          variant: "error",
+          icon: "warning",
+          title: language.t(kind ? "toast.update.failed.title" : "update.checkFailed"),
+          description: kind
+            ? `${language.t("toast.update.failed.description", { version: version ?? "" })} ${message(err)}`
+            : message(err),
+          actions: kind
+            ? [
+                {
+                  label: language.t(kind === "mirror" ? "update.retryMirror" : "update.recover"),
+                  onClick: () => run(kind),
+                },
+                {
+                  label: language.t("toast.update.action.notYet"),
+                  onClick: "dismiss",
+                },
+              ]
+            : [
+                {
+                  label: language.t("update.retry"),
+                  onClick: () => void pollUpdate(),
+                },
+                {
+                  label: language.t("toast.update.action.notYet"),
+                  onClick: "dismiss",
+                },
+              ],
+        })
+      }
+
       const pollUpdate = () =>
         (() => {
           if (
@@ -456,22 +516,39 @@ export default function Layout(props: ParentProps) {
           ) {
             return
           }
-          return platform.checkUpdate!().then(async ({ updateAvailable, version, downloaded, status }) => {
-            if (!updateAvailable) return
-            if (platform.platform === "web" && platform.downloadUpdate && status === "available") {
-              await platform.downloadUpdate().catch(() => undefined)
-              const next = await platform.checkUpdate!().catch(() => undefined)
-              if (!next?.updateAvailable || !next.downloaded) return
-              showUpdateToast(next.version)
-              return
-            }
-            if (platform.platform === "web" && status === "failed") {
+          return platform.checkUpdate!()
+            .then(async ({ updateAvailable, version, downloaded, status, updateError, updateAction }) => {
+              if (!updateAvailable) return
+              if (platform.platform === "web" && platform.downloadUpdate && status === "available") {
+                try {
+                  await platform.downloadUpdate()
+                } catch (err) {
+                  showErrorToast(err, version)
+                  return
+                }
+                const next = await platform.checkUpdate!().catch((err) => {
+                  showErrorToast(err, version)
+                  return
+                })
+                if (!next?.updateAvailable) return
+                if (next.status === "failed") {
+                  showErrorToast(next.updateError || "Update failed", next.version, next.updateAction)
+                  return
+                }
+                if (!next.downloaded) return
+                showUpdateToast(next.version)
+                return
+              }
+              if (platform.platform === "web" && status === "failed") {
+                showErrorToast(updateError || "Update failed", version, updateAction)
+                return
+              }
+              if (!downloaded && platform.platform === "web") return
               showUpdateToast(version)
-              return
-            }
-            if (!downloaded && platform.platform === "web") return
-            showUpdateToast(version)
-          })
+            })
+            .catch((err) => {
+              showErrorToast(err)
+            })
         })()
 
       createEffect(() => {
@@ -490,8 +567,8 @@ export default function Layout(props: ParentProps) {
       })
 
       onCleanup(() => {
-        if (interval === undefined) return
-        clearInterval(interval)
+        if (interval !== undefined) clearInterval(interval)
+        dismissToast()
       })
     })
 

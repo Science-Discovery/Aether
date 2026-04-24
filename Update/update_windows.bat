@@ -18,6 +18,9 @@ set "START="
 set "CUR="
 set "CMP="
 set "RV="
+set "RESULT=%AETHER_UPDATE_RESULT%"
+if not defined RESULT set "RESULT=%WORK%\downloads\web-update-result.env"
+set "MIRROR_ONLY=%AETHER_MIRROR_ONLY%"
 
 if /I not "%BASE%"=="downloads" (
   echo Spec error: update_windows.bat must be placed in ...\aether\downloads. Current: %SELF%
@@ -31,11 +34,16 @@ if /I not "%WORK_NAME%"=="aether" (
 
 echo [0/4] Work directory: %WORK%
 
+if exist "%RESULT%" del /f /q "%RESULT%" >nul 2>nul
+
 call :pick_pkg "%SELF%" "%WANT%"
-if errorlevel 1 (
+if not "%MIRROR_ONLY%"=="1" if errorlevel 1 (
   echo No usable zip found in ...\aether\downloads; filename must include a version
+  call :write_result "failed" "recover" "No usable zip found in ...\aether\downloads; filename must include a version"
   exit /b 1
 )
+
+if "%VER%"=="" set "VER=%WANT%"
 
 set "TARGET=%WORK%\aether_%VER%"
 echo [1/4] Package: %PKG_NAME%
@@ -61,25 +69,51 @@ set "NEXT=%WORK%\.aether_%VER%.next"
 set "SRC_FILE=%TMP%\src.txt"
 
 call :clean_tmp
-mkdir "%EX%" || exit /b 1
-mkdir "%NEXT%" || exit /b 1
+if "%MIRROR_ONLY%"=="1" (
+  if not exist "%TARGET%" (
+    set "MSG=Installed version directory not found for mirror retry: %TARGET%"
+    call :write_result "failed" "recover" "%MSG%"
+    echo %MSG%
+    goto :fail
+  )
+  echo [2/4] Reusing installed version at: %TARGET%
+) else (
+  mkdir "%EX%" || (
+    call :write_result "failed" "recover" "Failed to prepare extract directory"
+    goto :fail
+  )
+  mkdir "%NEXT%" || (
+    call :write_result "failed" "recover" "Failed to prepare next version directory"
+    goto :fail
+  )
 
-powershell -NoProfile -Command "& { Expand-Archive -Path $env:PKG -DestinationPath $env:EX -Force; $hit=Get-ChildItem -Path $env:EX -Filter 'aether.exe' -File -Recurse | Where-Object { Test-Path (Join-Path $_.DirectoryName 'Aether.vbs') } | Sort-Object { $_.DirectoryName.Length } | Select-Object -First 1; if(-not $hit){ throw 'missing app files' }; [IO.File]::WriteAllText($env:SRC_FILE, $hit.DirectoryName) }" || goto :fail
+  powershell -NoProfile -Command "& { Expand-Archive -Path $env:PKG -DestinationPath $env:EX -Force; $hit=Get-ChildItem -Path $env:EX -Filter 'aether.exe' -File -Recurse | Where-Object { Test-Path (Join-Path $_.DirectoryName 'Aether.vbs') } | Sort-Object { $_.DirectoryName.Length } | Select-Object -First 1; if(-not $hit){ throw 'missing app files' }; [IO.File]::WriteAllText($env:SRC_FILE, $hit.DirectoryName) }" || (
+    call :write_result "failed" "recover" "Failed to extract %PKG%"
+    goto :fail
+  )
 
-set "SRC="
-if exist "%SRC_FILE%" set /p SRC=<"%SRC_FILE%"
-if "%SRC%"=="" (
-  echo Package contents missing aether.exe or Aether.vbs
-  goto :fail
+  set "SRC="
+  if exist "%SRC_FILE%" set /p SRC=<"%SRC_FILE%"
+  if "%SRC%"=="" (
+    call :write_result "failed" "recover" "Package contents missing aether.exe or Aether.vbs"
+    echo Package contents missing aether.exe or Aether.vbs
+    goto :fail
+  )
+
+  echo [2/4] Extracting and installing to: %TARGET%
+  robocopy "%SRC%" "%NEXT%" /MIR /NFL /NDL /NJH /NJS /NP >nul
+  set "RC=%ERRORLEVEL%"
+  if %RC% GEQ 8 (
+    call :write_result "failed" "recover" "Failed to copy files into %NEXT%"
+    goto :fail
+  )
+
+  if exist "%TARGET%" rmdir /s /q "%TARGET%" >nul 2>nul
+  move "%NEXT%" "%TARGET%" >nul || (
+    call :write_result "failed" "recover" "Failed to finalize install into %TARGET%"
+    goto :fail
+  )
 )
-
-echo [2/4] Extracting and installing to: %TARGET%
-robocopy "%SRC%" "%NEXT%" /MIR /NFL /NDL /NJH /NJS /NP >nul
-set "RC=%ERRORLEVEL%"
-if %RC% GEQ 8 goto :fail
-
-if exist "%TARGET%" rmdir /s /q "%TARGET%" >nul 2>nul
-move "%NEXT%" "%TARGET%" >nul || goto :fail
 
 :post_install
 echo %VER%>"%TARGET%\.aether_web_version"
@@ -91,7 +125,13 @@ if exist "%WORK%\current" rmdir /s /q "%WORK%\current" >nul 2>nul
 call :prune_versions || goto :fail
 call :in_work "%WORK%"
 if errorlevel 1 (
-  call :mirror
+  call :mirror || (
+    set "MSG=!COPY_NOTE!"
+    if not defined MSG set "MSG=Failed to mirror the new version near %AETHER_CURRENT_DIR%"
+    call :write_result "failed" "mirror" "!MSG!"
+    echo !MSG!
+    goto :fail
+  )
 ) else (
   set "COPY_NOTE=Current app already runs inside WorkDir; skipped mirror."
 )
@@ -101,6 +141,8 @@ if not defined START set "START=%TARGET%"
 call :write_launch "%START%"
 
 if "%RESTART%"=="1" call :restart
+
+call :write_result "installed" "" ""
 
 call :print_prune
 
@@ -132,6 +174,14 @@ if exist "%OUT%" (
 )
 :write_launch_done
 if exist "%OUT%" del /f /q "%OUT%" >nul 2>nul
+exit /b 0
+
+:write_result
+set "RESULT_STATUS=%~1"
+set "RESULT_ACTION=%~2"
+set "RESULT_ERROR=%~3"
+if not defined RESULT exit /b 0
+powershell -NoProfile -Command "$file=$env:RESULT; $dir=Split-Path -Parent $file; if($dir){ [IO.Directory]::CreateDirectory($dir) | Out-Null }; $err=$env:RESULT_ERROR; if($null -eq $err){ $err='' }; $err=$err -replace \"`r|`n\", ' '; $lines=@(('status=' + $env:RESULT_STATUS),('version=' + $env:VER),('action=' + $env:RESULT_ACTION),('error=' + $err),('at=' + [DateTimeOffset]::UtcNow.ToUnixTimeSeconds())); [IO.File]::WriteAllLines($file, $lines)" >nul
 exit /b 0
 
 :print_prune
