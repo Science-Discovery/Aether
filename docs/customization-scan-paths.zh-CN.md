@@ -87,6 +87,137 @@
 4. 若启用 `OPENCODE_DISABLE_EXTERNAL_SKILLS=true`，则 `.claude` / `.agents` 外部 skill 来源整体失效。
    需要注意级联关系：`OPENCODE_DISABLE_CLAUDE_CODE` 是总开关，为 true 时会隐式激活 `OPENCODE_DISABLE_CLAUDE_CODE_SKILLS`，进而隐式激活 `OPENCODE_DISABLE_EXTERNAL_SKILLS`，所以设置 `OPENCODE_DISABLE_CLAUDE_CODE=true` 也等同于关闭外部 skills。
 
+### 2.4 运行时加载与缓存机制
+
+扫描路径只回答“哪些地方有可能被发现”。运行时还必须回答另一个问题：程序启动后，文件系统里发生变化时，Aether 会不会马上重新扫描、重新加载？
+
+结论是：**Aether 当前没有针对 skill 目录的热更新监听**。skill 的“发现结果”会按当前工作目录缓存在内存里；文件系统变化本身不会自动清掉这份缓存。
+
+为了理解这一点，需要先区分几个运行时概念：
+
+| 名称 | 含义 | 和 skills 的关系 |
+| --- | --- | --- |
+| `Instance.directory` | 当前请求、会话或 CLI 命令所在的工作目录。服务端会根据请求里的 `directory`、请求头里的目录，或默认的 `process.cwd()` 建立当前 instance。 | skill 缓存以它为 key。同一个目录会复用同一份 skill 列表；不同目录会各自初始化、各自缓存。 |
+| `Instance.worktree` | 当前项目的工作区根目录，通常是 git worktree 根。 | 扫描项目内 `.claude/skills` 和 `.agents/skills` 时，会从 `Instance.directory` 向上查找到 `Instance.worktree` 为止。 |
+| `loadSkills(state, discovery, directory, worktree)` | skill 模块中真正执行扫描的函数。 | 它按 2.2 的顺序扫描所有来源，解析每个 `SKILL.md`，并把结果写入内存状态。 |
+| `state.skills` | skill 模块的内存表，形如 `skill 名 -> skill 信息`。 | 每条记录保存 `name`、`description`、`location`、`content`。其中 `location` 是 `SKILL.md` 的绝对路径，`content` 是扫描当时读到的正文快照。 |
+| `state.dirs` | 当前已发现 skill 所在目录的集合。 | 后续会被 agent 权限初始化逻辑使用，让 skill 目录里的资源文件更容易被读取。 |
+| `InstanceState` | 按 `Instance.directory` 缓存运行时状态的通用机制。 | skill 模块把 `state.skills` 和 `state.dirs` 放进 `InstanceState`。因此同一个目录里，第一次需要 skills 时会扫描；之后再读 skills 时通常只读缓存。 |
+| `Skill.all()` | 返回当前目录的全部 skills。 | 如果当前目录还没有 skill 缓存，会触发首次扫描；如果已有缓存，则只读缓存，不重新扫描文件系统。 |
+| `Skill.available(agent)` | 返回当前 agent 可用的 skills。 | 如果当前目录还没有 skill 缓存，会触发首次扫描；如果已有缓存，则先读缓存，再按该 agent 的 skill 权限过滤。系统提示和 `skill` 工具描述都用它。 |
+| `Skill.get(name)` | 从当前目录的 skill 表里按名字取一个 skill。 | 如果当前目录还没有 skill 缓存，会触发首次扫描；如果已有缓存，则不会因为文件系统刚新增了同名或新名 skill 而重新扫描。 |
+| `Skill.dirs()` | 返回当前目录的 skill 目录列表。 | 如果当前目录还没有 skill 缓存，会触发首次扫描；如果已有缓存，则只读缓存。主要用于权限系统允许读取 skill 附带资源。 |
+| `SkillTool.execute()` | agent 真正调用内置 `skill` 工具时执行的逻辑。 | 它先用 `Skill.get(name)` 找缓存记录，再按缓存记录里的 `location` 重新读取该 `SKILL.md` 的正文。 |
+| `Discovery.pull(url)` | 处理 `config.skills.urls` 的远端下载逻辑。 | 它会拉取远端 `index.json`，把远端 skill 文件下载到 `Global.Path.cache/skills/<skill-name>`，然后让 `loadSkills()` 扫描这个缓存目录。 |
+
+这意味着，程序里有两类“加载”必须分开看：
+
+1. **发现并登记 skill 列表**：扫描路径、解析 frontmatter、确定 `name` / `description` / `location` / `content`、处理同名覆盖和禁用。这一步会被缓存。
+2. **真正调用某个 skill 工具时注入正文**：agent 调用 `skill({ name })` 后，程序会根据缓存中的 `location` 再读一次这个 `SKILL.md` 的正文。这一步可以读到已登记 skill 的最新正文。
+
+### 2.5 一个 skill 从被扫描到使用完成的完整链路
+
+无论 skill 来自哪一种路径，最终都会收敛到同一套运行时流程。也就是说，`~/.claude/skills/foo/SKILL.md`、项目内 `.aether/skills/foo/SKILL.md`、`config.skills.paths` 下的 `foo/SKILL.md`、远端 URL 下载到缓存后的 `foo/SKILL.md`，只要被扫描到，后续处理逻辑都是一样的。
+
+完整链路如下：
+
+| 阶段 | 发生了什么 | 结果 |
+| --- | --- | --- |
+| 1. 建立当前 instance | 请求、会话或 CLI 命令进入后，Aether 确定当前 `Instance.directory` 和 `Instance.worktree`。 | 后续所有 skill 扫描和缓存都绑定到这个目录上下文。 |
+| 2. 某个入口第一次需要 skills | 常见入口包括：构建系统提示里的 `<available_skills>`、初始化 `skill` 工具描述、调用 `/skill` API、构建 skill-as-command、初始化 agent 的 skill 目录权限白名单。 | 程序开始读取当前目录对应的 skill 状态。 |
+| 3. 查询 `InstanceState` | skill 模块通过 `InstanceState.get()` 按 `Instance.directory` 查缓存。 | 如果这个目录已有缓存，直接复用；如果没有，进入首次扫描。 |
+| 4. 扫描所有 skill 来源 | `loadSkills()` 按 2.2 的顺序扫描外部目录、配置目录、`skills.paths`、`skills.urls`。 | 得到一批候选 `SKILL.md` 文件。 |
+| 5. 解析 `SKILL.md` | 每个候选文件由 `ConfigMarkdown.parse()` 解析 frontmatter 和正文。 | 只有 frontmatter 至少满足 `name` 和 `description` 的文件会被登记为有效 skill。 |
+| 6. 写入内存表 | 有效 skill 被写入 `state.skills[name]`。 | 每条记录包含 `name`、`description`、`location`、`content`。 |
+| 7. 处理同名覆盖 | 如果两个 skill 的 frontmatter `name` 相同，后扫描到的记录覆盖先扫描到的记录。 | 最终缓存表里每个 `name` 只保留一条记录。 |
+| 8. 处理禁用项 | 所有来源扫描完后，再读取 `config.skills.disabled`，按名字从 `state.skills` 里删除。 | 被禁用的 skill 不会进入后续可用列表。 |
+| 9. 缓存扫描结果 | 完整的 `state.skills` 和 `state.dirs` 被保存在当前目录的 `InstanceState` 中。 | 后续同目录读取 skills 时不再重新扫描文件系统。 |
+| 10. 暴露给模型 | `SystemPrompt.skills(agent)` 调用 `Skill.available(agent)`，把可用 skill 的 `name`、`description`、`location` 写入系统提示；`SkillTool.init()` 也用 `Skill.available(agent)` 生成工具描述。 | 模型知道“有哪些 skills 可以用”，但还没有拿到完整正文。 |
+| 11. 模型决定调用 skill 工具 | 当模型判断任务匹配某个 skill 时，会调用内置工具 `skill({ name })`。 | 程序进入 `SkillTool.execute()`。 |
+| 12. 从缓存取目标 skill | `SkillTool.execute()` 调用 `Skill.get(name)`，从缓存的 `state.skills` 里取这个名字。 | 如果缓存里没有这个名字，则报错并列出当前缓存里有哪些 skill。 |
+| 13. 检查文件是否仍存在 | 程序检查缓存记录里的 `location` 是否还能访问。 | 如果文件已经被删除或不可访问，会报 “Skill not found”。注意：缓存列表里可能仍有旧名字，但调用时会失败。 |
+| 14. 重新读取正文 | 程序重新解析 `location` 指向的 `SKILL.md`，取最新正文；如果解析失败，则回退到扫描时缓存的旧 `content`。 | 已登记 skill 的正文修改，通常可以在下一次 `skill` 工具调用时生效。 |
+| 15. 申请 skill 权限 | 程序通过权限系统请求 `permission: "skill"`，匹配目标 skill 名。 | 权限允许后才继续返回 skill 内容；权限拒绝则不会把 skill 内容注入上下文。 |
+| 16. 枚举 skill 附带文件 | 程序在 skill 所在目录下采样最多 10 个非 `SKILL.md` 文件。 | 输出里会提示 `scripts/`、`references/` 等资源路径以 skill 基础目录为准。 |
+| 17. 返回工具输出 | 工具返回 `<skill_content name="...">`，其中包含 skill 正文、base directory、采样文件列表。 | 这段输出进入对话上下文，模型之后就可以按 skill 的完整说明继续工作。 |
+
+这里还要特别区分 `skill` 工具路径和 skill-as-command 路径：
+
+| 使用方式 | 用户/模型看到的形式 | 走不走 `SkillTool.execute()` | 正文来源 | 运行中修改正文后是否立刻生效 |
+| --- | --- | --- | --- | --- |
+| 内置 `skill` 工具 | 模型调用 `skill({ name: "foo" })` | 走 | 先通过缓存找到 `location`，再重新读取 `SKILL.md` 正文 | 通常生效，因为执行时会重新读正文 |
+| skill-as-command | 用户输入 `/foo`，其中 `foo` 来自 skill 名 | 不走 | `Command.state` 构建命令表时使用扫描时缓存的 `skill.content` | 不会立刻生效，需要重新扫描后命令模板才更新 |
+
+skill-as-command 的存在容易造成误解。它只是 command 层把已发现的 skill 补充注册成同名 slash command；它不改变 skill 本身的发现、缓存和覆盖规则。执行 `/foo` 时，程序走的是 command 模板展开流程，而不是 `skill` 工具的执行流程，因此不会像 `skill({ name: "foo" })` 那样重新读取 `SKILL.md` 正文。
+
+### 2.6 什么时候会放弃旧缓存并重新扫描
+
+对用户来说，判断规则可以概括为：
+
+1. **第一次访问某个目录的 skills**：会扫描。
+2. **访问一个还没有缓存过的新目录**：会扫描。
+3. **当前目录的 instance 被 dispose / reload 后再次访问 skills**：会扫描。
+4. **仅仅新增、修改、删除 `SKILL.md` 文件**：不会自动扫描。
+5. **修改已登记 skill 的正文并通过 `skill` 工具调用**：不需要重新扫描也可能读到新正文，因为工具执行阶段会重新读缓存 `location` 对应的文件。
+
+更具体地说：
+
+| 用户可感知场景 | 是否会重新扫描 skills | 说明 |
+| --- | --- | --- |
+| 第一次在某个目录里发送会触发 skill 列表的请求 | 会 | 当前 `Instance.directory` 还没有 skill 缓存，第一次访问会跑 `loadSkills()`。 |
+| 在 Web/App/TUI 中切换到一个从未访问过的项目目录 | 会 | 新目录对应新的 `Instance.directory`，没有旧缓存。 |
+| 切回之前访问过、且未被清理的目录 | 不会 | 之前的 `InstanceState` 仍在内存里，会复用旧 skill 列表。 |
+| 重启 Aether 服务端、桌面端、TUI worker 或 CLI 进程 | 会 | 运行时内存消失，下次访问时重新初始化。 |
+| 服务端调用 `/instance/dispose` | 会，但发生在下次访问当前目录时 | 该接口清理当前 `Instance.directory` 的 instance 状态。清理后，下次需要 skills 才重新扫描。 |
+| 服务端调用 `/global/dispose` | 会，但发生在下次访问各目录时 | 该接口清理所有目录的 instance 状态。 |
+| PATCH `/config` 更新当前项目配置 | 会 | `Config.update()` 写入当前目录的 `config.json` 后调用 `Instance.dispose()`。 |
+| PATCH `/global` 更新全局配置 | 会，但清理是异步触发 | `Config.updateGlobal()` 会触发 `Instance.disposeAll()`，用于让全局配置变化影响所有目录。 |
+| `/config/skills/toggle` 启用或禁用默认 skill | 会，但清理是异步触发 | 该接口最终更新全局 `skills.disabled`，走 `Config.updateGlobal()`。 |
+| `/config/skills/defaults` 复制了至少一个默认 skill 到当前项目 | 会 | `addDefaultSkills()` 只有实际复制了新 skill 时才调用 `Instance.dispose()`。 |
+| `/config/skills/defaults` 没有复制任何新 skill | 不会 | 没有新目录被复制，函数不会清理 instance。 |
+| `/config/skills` 保存或更新默认 skill 文件 | 不会 | `saveDefaultSkill()` 只写 `SKILL.md`，不清理当前 instance。若这个 skill 已在缓存中，通过 `skill` 工具调用时可能读到新正文；但列表、描述、名字不会刷新。 |
+| DELETE `/config/skills/:name` 删除默认 skill 文件 | 不会 | `deleteDefaultSkill()` 只删文件，不清理当前 instance。缓存列表可能仍显示旧 skill，但调用时会因文件不存在失败。 |
+| 手动在任意扫描路径下新增 `SKILL.md` | 不会自动扫描 | 新文件还没有进入 `state.skills`，需要 dispose / reload / 重启 / 切到未缓存目录后才会被发现。 |
+| 手动修改已发现 skill 的正文 | 不会重新扫描列表；通过 `skill` 工具调用时通常能读到新正文 | 因为 `SkillTool.execute()` 会重新读取缓存 `location` 指向的文件正文。 |
+| 手动修改已发现 skill 的 `name` | 不会自动生效 | 缓存键仍是旧 `name`；新名字不会可用，直到重新扫描。 |
+| 手动修改已发现 skill 的 `description` | 不会自动更新系统提示和工具描述 | `description` 是扫描时缓存的 frontmatter 字段。 |
+| 手动修改 `skills.paths` 或 `skills.urls` 配置文件，但没有通过配置 API 触发 dispose | 不会自动生效 | 配置内容和 skill 扫描结果都已经缓存在当前 instance 中。 |
+| git 初始化导致项目 worktree 信息变化 | 会 | 项目状态变化时相关路径会调用 `Instance.reload()`，随后重新建立 instance。 |
+| 飞书集成中切换到新项目且触发项目初始化 | 会 | 对非 git 项目初始化后会调用 `Instance.reload()`。 |
+
+需要注意两个细节：
+
+1. `Instance.dispose()` / `Instance.disposeAll()` / `Instance.reload()` 本身只是清掉旧状态；真正重新扫描发生在清理之后，下一次有代码调用 `Skill.all()`、`Skill.available()`、`Skill.get()` 或 `Skill.dirs()` 时。
+2. `Config.updateGlobal()` 触发的 `Instance.disposeAll()` 是异步的。一般用户会感知为“全局配置更新后后续请求会刷新”，但严格说，接口返回和清理完成之间可能有很短的时间差。
+
+### 2.7 运行中修改 skills 的具体效果
+
+把 2.4 到 2.6 合在一起，可以得到下面这些直接结论：
+
+| 运行中发生的变化 | 当前已缓存 instance 能否立刻看到 | 具体原因 |
+| --- | --- | --- |
+| 新增一个 skill | 不能 | 新文件没有进入缓存的 `state.skills`。需要重新扫描。 |
+| 删除一个已发现 skill | 列表可能仍显示；调用会失败 | 缓存里还保留旧记录，但 `SkillTool.execute()` 会检查 `location` 是否存在。 |
+| 修改已发现 skill 的正文 | 通过 `skill` 工具调用通常能看到；通过 skill-as-command 不能立刻看到 | `skill` 工具执行时会重新读正文；skill-as-command 使用扫描时缓存的 `content`。 |
+| 修改已发现 skill 的 `description` | 不能立刻看到 | 系统提示和工具描述里的描述来自扫描时缓存。 |
+| 修改已发现 skill 的 `name` | 新名字不能立刻使用 | 缓存的索引键仍是旧名字。 |
+| 修改 `skills.disabled` | 需要重新扫描后才稳定生效 | 禁用逻辑只在 `loadSkills()` 最后执行。 |
+| 修改 `skills.paths` | 需要重新扫描后才稳定生效 | 额外路径只在 `loadSkills()` 中读取。 |
+| 修改 `skills.urls` | 需要重新扫描后才会重新拉取远端 index | 远端发现逻辑只在 `loadSkills()` 中执行。 |
+| 修改远端 skill 文件内容 | 不一定会更新 | 远端文件下载到本地缓存；如果目标文件已存在，下载逻辑会直接复用，不覆盖。 |
+
+因此，对于用户最关心的两个问题，可以明确回答：
+
+1. **运行过程中加入新的 skills，Aether 能否检测到并使用？**
+   - 当前已缓存目录下，不能自动检测。
+   - 需要重新扫描，方式包括重启、切到未缓存目录、调用 dispose / reload、或通过会触发 dispose 的配置更新路径。
+   - 重新扫描后，只要新 `SKILL.md` 位于支持的扫描路径中，frontmatter 有合法 `name` 和 `description`，且没有被 `skills.disabled` 禁用，就可以被发现并使用。
+
+2. **运行过程中修改已有 skill，Aether 能否使用修改后的版本？**
+   - 如果只是修改正文，并且模型通过内置 `skill` 工具调用这个已登记 skill，通常可以读到修改后的正文。
+   - 如果修改的是 `name`、`description`、禁用状态、扫描路径，或通过 `/skill-name` 这种 skill-as-command 使用，则需要重新扫描。
+   - 如果修改后 `SKILL.md` 解析失败，`skill` 工具会回退到扫描时缓存的旧正文。
+
 ## 3. Commands
 
 核心实现：
@@ -369,6 +500,7 @@ markdown 命令文件在 `loadCommand()` 中通过 patterns 列表提取相对�
 1. `skills` 是四类能力里兼容最丰富的一类，既支持外部生态目录，也支持 `.aether` / `.opencode`、本地附加路径和远端 URL。
 2. skill 的主键是 frontmatter 的 `name`，不是目录名，也不是文件夹名。
 3. `SKILL.md` 正文会同时作为 skill content 保留；后续若被自动暴露为 command，则正文会变成该 command 的模板。
+4. 上表只说明“哪些路径会在扫描时被纳入候选”。运行中是否会自动看到新增、删除、修改后的 skill，取决于 2.4 到 2.7 描述的 `InstanceState` 缓存与 instance dispose / reload 机制。当前没有 skill 目录文件监听热更新。
 
 ### 7.2 Commands 兼容矩阵
 
@@ -459,6 +591,11 @@ markdown 命令文件在 `loadCommand()` 中通过 patterns 列表提取相对�
 | `packages/opencode/src/config/markdown.ts` | 解析 `.md` frontmatter | skills, commands, subagents |
 | `packages/opencode/src/skill/index.ts` | skill 主发现器、去重、禁用、可用性过滤 | skills |
 | `packages/opencode/src/skill/discovery.ts` | 远端 `skills.urls` 下载与缓存 | skills |
+| `packages/opencode/src/effect/instance-state.ts` | 按当前 `Instance.directory` 缓存运行时状态，并在 instance dispose / reload 时失效 | skills, commands, subagents 等运行时状态 |
+| `packages/opencode/src/project/instance.ts` | 建立当前目录 instance，提供 `directory` / `worktree` 上下文，并实现 `dispose` / `reload` / `disposeAll` | skills, commands, subagents, rules |
+| `packages/opencode/src/server/server.ts` | 服务端请求入口；根据请求目录建立 instance，并提供 `/instance/dispose` | skills |
+| `packages/opencode/src/server/routes/config.ts` | 配置与默认 skills API；不同接口对 skill 缓存的清理行为不同 | skills |
+| `packages/opencode/src/server/routes/global.ts` | 全局配置与 `/global/dispose`；可触发所有 instance 状态清理 | skills |
 | `packages/opencode/src/command/index.ts` | 运行时命令表装配，整合 builtin/config/MCP/skill | commands |
 | `packages/opencode/src/command/template/initialize.txt` | `/init` 内建命令模板，提醒纳入 Cursor/Copilot rules | rules |
 | `packages/opencode/src/agent/agent.ts` | 内建 agents、配置 agent 覆盖、自定义 subagent、生效权限 | subagents, rules |
