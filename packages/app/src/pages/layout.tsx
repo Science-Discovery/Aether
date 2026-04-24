@@ -67,6 +67,7 @@ import { Titlebar } from "@/components/titlebar"
 import { useServer } from "@/context/server"
 import { bindWechatResolver, initWechat } from "@/context/wechat"
 import { useLanguage, type Locale } from "@/context/language"
+import { actionOf, messageOf } from "@/utils/web-update"
 import {
   displayName,
   effectiveWorkspaceOrder,
@@ -399,13 +400,6 @@ export default function Layout(props: ParentProps) {
         toaster.dismiss(toastId)
         toastId = undefined
       }
-      const action = (err: unknown, next?: UpdateAction) => {
-        if (next) return next
-        if (!(err instanceof Error)) return
-        const hit = (err as Error & { updateAction?: unknown }).updateAction
-        if (hit === "recover" || hit === "mirror") return hit
-      }
-      const message = (err: unknown) => (err instanceof Error ? err.message : String(err))
       const install = async () => {
         if (platform.platform === "web") {
           const x = await import("@/components/dialog-update")
@@ -466,12 +460,12 @@ export default function Layout(props: ParentProps) {
         showPromiseToast(task, {
           loading: language.t(next === "mirror" ? "update.retryingMirror" : "update.recovering"),
           success: () => language.t("update.installHint"),
-          error: (err) => message(err),
+          error: (err) => messageOf(err),
         })
       }
 
       const showErrorToast = (err: unknown, version?: string, next?: UpdateAction) => {
-        const kind = action(err, next)
+        const kind = actionOf(err, next)
         dismissToast()
         toastId = showToast({
           persistent: true,
@@ -481,8 +475,8 @@ export default function Layout(props: ParentProps) {
           icon: "warning",
           title: language.t(kind ? "toast.update.failed.title" : "update.checkFailed"),
           description: kind
-            ? `${language.t("toast.update.failed.description", { version: version ?? "" })} ${message(err)}`
-            : message(err),
+            ? `${language.t("toast.update.failed.description", { version: version ?? "" })} ${messageOf(err)}`
+            : messageOf(err),
           actions: kind
             ? [
                 {

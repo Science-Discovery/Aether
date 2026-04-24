@@ -6,6 +6,7 @@ import { Button } from "@opencode-ai/ui/button"
 import { Icon } from "@opencode-ai/ui/icon"
 import { useLanguage } from "@/context/language"
 import { type UpdateAction, usePlatform } from "@/context/platform"
+import { actionOf, messageOf, viewOf } from "@/utils/web-update"
 
 type View =
   | "checking"
@@ -50,15 +51,10 @@ export const DialogUpdate: Component<Props> = (props) => {
 
   const current = () => store.currentVersion || platform.version || ""
   const cancelled = (err: unknown) => err instanceof Error && err.message === "Update cancelled"
-  const action = (err: unknown) => {
-    if (!(err instanceof Error)) return ""
-    const next = (err as Error & { updateAction?: unknown }).updateAction
-    return next === "recover" || next === "mirror" ? next : ""
-  }
   const fail = (err: unknown, next: UpdateAction | "" = "") => {
     setStore("state", "failed")
-    setStore("error", err instanceof Error ? err.message : String(err))
-    setStore("action", action(err) || next)
+    setStore("error", messageOf(err))
+    setStore("action", actionOf(err) || next)
   }
   const close = () => {
     setTimeout(() => {
@@ -79,17 +75,7 @@ export const DialogUpdate: Component<Props> = (props) => {
 
   const apply = async () => {
     const data = await sync()
-    setStore(
-      "state",
-      !data.updateAvailable
-        ? "up-to-date"
-        : data.status === "downloading" ||
-            data.status === "downloaded" ||
-            data.status === "installing" ||
-            data.status === "failed"
-          ? data.status
-          : "available",
-    )
+    setStore("state", viewOf(data))
     return data
   }
 
@@ -100,7 +86,7 @@ export const DialogUpdate: Component<Props> = (props) => {
       await apply()
     } catch (err) {
       setStore("state", "error")
-      setStore("error", err instanceof Error ? err.message : String(err))
+      setStore("error", messageOf(err))
     }
   }
 
@@ -187,7 +173,7 @@ export const DialogUpdate: Component<Props> = (props) => {
   onMount(() => {
     void start().catch((err) => {
       setStore("state", "error")
-      setStore("error", err instanceof Error ? err.message : String(err))
+      setStore("error", messageOf(err))
     })
   })
 

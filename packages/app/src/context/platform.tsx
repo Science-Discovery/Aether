@@ -9,7 +9,7 @@ type OpenFilePickerOptions = { title?: string; multiple?: boolean; accept?: stri
 type SaveFilePickerOptions = { title?: string; defaultPath?: string }
 type UpdateStage = "available" | "downloading" | "downloaded" | "installing" | "failed"
 export type UpdateAction = "recover" | "mirror"
-type UpdateStatus = {
+export type UpdateStatus = {
   updateAvailable: boolean
   currentVersion?: string
   version?: string

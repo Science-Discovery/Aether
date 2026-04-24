@@ -2,9 +2,10 @@
 
 import { render } from "solid-js/web"
 import { AppBaseProviders, AppInterface } from "@/app"
-import { type Platform, PlatformProvider, type UpdateAction } from "@/context/platform"
+import { type Platform, PlatformProvider } from "@/context/platform"
 import { dict as en } from "@/i18n/en"
 import { dict as zh } from "@/i18n/zh"
+import { createWebUpdate } from "@/utils/web-update"
 import { handleNotificationClick } from "@/utils/notification-click"
 import { ServerConnection } from "./context/server"
 
@@ -253,141 +254,7 @@ const detectOS = (): string => {
   if (ua.includes("win")) return "windows"
   return "linux"
 }
-
-const cmp = (a: string, b: string) => {
-  const norm = (v: string) =>
-    v
-      .replace(/^v/i, "")
-      .split("-")[0]
-      .split(".")
-      .map((x) => Number.parseInt(x || "0", 10) || 0)
-  const x = norm(a)
-  const y = norm(b)
-  const len = Math.max(x.length, y.length, 3)
-  for (let i = 0; i < len; i++) {
-    const p = x[i] ?? 0
-    const q = y[i] ?? 0
-    if (p < q) return -1
-    if (p > q) return 1
-  }
-  return 0
-}
-
-const wait = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))
-
-const action = (value: unknown): UpdateAction | undefined => {
-  if (value === "recover" || value === "mirror") return value
-  return
-}
-
-const issue = (message: string, next?: UpdateAction) => {
-  const err = new Error(message) as Error & { updateAction?: UpdateAction }
-  err.updateAction = next
-  return err
-}
-
-type WebUpdate = {
-  os: string
-  currentVersion: string
-  version: string
-  updateAvailable: boolean
-  downloaded: boolean
-  status: "available" | "downloading" | "downloaded" | "installing" | "failed"
-  updateError: string
-  updateAction?: UpdateAction
-  workDir: string
-}
-
-const waitUpdate = async (ver: string) => {
-  let last: Error | undefined
-  for (let i = 0; i < 45; i++) {
-    const data = await webCheck().catch((err) => {
-      last = err instanceof Error ? err : new Error(String(err))
-      return
-    })
-    if (data) {
-      if (data.status === "failed") {
-        throw issue(data.updateError || "Update failed", data.updateAction)
-      }
-      if (data.currentVersion && cmp(data.currentVersion, ver) >= 0) return
-    }
-    await wait(1000)
-  }
-  throw last ?? issue("Timed out while waiting for the update to finish")
-}
-
-const webCheck = async (): Promise<WebUpdate> => {
-  const os = detectOS()
-  const res = await req(`/global/web-update/check?os=${os}`)
-  const data = await res.json()
-  if (typeof data.checkError === "string" && data.checkError) throw new Error(data.checkError)
-  const status =
-    data.status === "downloading" ||
-    data.status === "downloaded" ||
-    data.status === "installing" ||
-    data.status === "failed"
-      ? data.status
-      : "available"
-  return {
-    os,
-    currentVersion: typeof data.currentVersion === "string" ? data.currentVersion.trim() : "",
-    version: typeof data.remoteVersion === "string" ? data.remoteVersion.trim() : "",
-    updateAvailable: !!data.updateAvailable,
-    downloaded: !!data.downloaded,
-    status,
-    updateError: typeof data.updateError === "string" ? data.updateError.trim() : "",
-    updateAction: action(data.updateAction),
-    workDir: typeof data.workDir === "string" ? data.workDir.trim() : "",
-  }
-}
-
-const postUpdate = async (path: string, body: Record<string, unknown>) => {
-  const res = await req(path, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  })
-  const data = await res.json()
-  if (!data.success) throw issue(data.error, action(data.action))
-}
-
-const webDownload = async (input: Pick<WebUpdate, "os" | "version">, force = false) => {
-  await postUpdate("/global/web-update/download", { os: input.os, version: input.version, force })
-}
-
-const webInstall = async (input: Pick<WebUpdate, "os" | "version">) => {
-  await postUpdate("/global/web-update/install", { os: input.os, version: input.version })
-}
-
-const webMirror = async (input: Pick<WebUpdate, "os" | "version">) => {
-  await postUpdate("/global/web-update/mirror", { os: input.os, version: input.version })
-}
-
-const currentUpdate = async () => {
-  const data = await webCheck()
-  if (!data.updateAvailable) return
-  return data
-}
-
-const readyUpdate = async (force = false, error = "Update did not finish downloading") => {
-  const data = await currentUpdate()
-  if (!data) return
-  if (data.status === "failed") {
-    throw issue(data.updateError || "Update needs to restart from scratch", data.updateAction)
-  }
-  if (!force && data.downloaded) return data
-  await webDownload(data, force)
-  const next = await currentUpdate()
-  if (!next || next.status !== "downloaded") {
-    throw issue(next?.updateError || error, next?.updateAction)
-  }
-  return next
-}
-
-const finishUpdate = async (data: Pick<WebUpdate, "os" | "version">) => {
-  await webInstall(data)
-  await waitUpdate(data.version)
-}
+const web = createWebUpdate(req, detectOS)
 
 const platform: Platform = {
   platform: "web",
@@ -398,7 +265,7 @@ const platform: Platform = {
   restart,
   notify,
   checkUpdate: async () => {
-    const data = await webCheck()
+    const data = await web.check()
     return {
       updateAvailable: data.updateAvailable,
       currentVersion: data.currentVersion,
@@ -409,39 +276,18 @@ const platform: Platform = {
       updateAction: data.updateAction,
     }
   },
-  downloadUpdate: async () => {
-    const data = await currentUpdate()
-    if (!data) return
-    if (data.status === "failed") {
-      throw issue(data.updateError || "Update needs to restart from scratch", data.updateAction)
-    }
-    await webDownload(data)
-  },
+  downloadUpdate: web.downloadUpdate,
   update: async () => {
-    const data = await currentUpdate()
-    if (!data) return
-    if (data.status === "failed") {
-      if (data.updateAction === "mirror") return platform.retryUpdateMirror?.()
+    const result = await web.update()
+    if (result?.kind === "mirror") {
+      return platform.retryUpdateMirror?.()
+    }
+    if (result?.kind === "recover") {
       return platform.recoverUpdate?.()
     }
-    const next = data.downloaded ? data : await readyUpdate()
-    if (!next) return
-    await finishUpdate(next)
   },
-  recoverUpdate: async () => {
-    const data = await readyUpdate(true, "Update restart did not finish downloading")
-    if (!data) return
-    await finishUpdate(data)
-  },
-  retryUpdateMirror: async () => {
-    const data = await currentUpdate()
-    if (!data) return
-    if (data.status !== "failed" || data.updateAction !== "mirror") {
-      throw issue(data.updateError || "Mirror retry is not available", data.updateAction)
-    }
-    await webMirror(data)
-    await waitUpdate(data.version)
-  },
+  recoverUpdate: web.recoverUpdate,
+  retryUpdateMirror: web.retryUpdateMirror,
   getDefaultServer: async () => {
     const stored = readDefaultServerUrl()
     return stored ? ServerConnection.Key.make(stored) : null
