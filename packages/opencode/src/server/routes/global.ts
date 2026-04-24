@@ -213,6 +213,99 @@ async function readResult(work: string) {
   }
 }
 
+const failRes = (error: string, action?: z.infer<typeof WebUpdateAction>) => {
+  if (action) return { success: false as const, error, action }
+  return { success: false as const, error }
+}
+
+async function failState(
+  work: string,
+  version: string,
+  error: string,
+  extra?: Partial<z.infer<typeof WebUpdateState>>,
+) {
+  await writeUpdateState(work, updateState(version, "failed", error, extra)).catch(() => undefined)
+  return failRes(error, extra?.action)
+}
+
+async function mkdirp(dir: string) {
+  try {
+    await fs.mkdir(dir, { recursive: true })
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e)
+    return `Failed to create work directory ${dir}: ${msg}`
+  }
+}
+
+async function chmodSafe(file: string) {
+  try {
+    await fs.chmod(file, 0o755)
+  } catch {}
+}
+
+async function runPath(work: string, file: string, version?: string) {
+  const dl = path.join(work, "downloads")
+  if (version) return path.join(dl, versioned(file, version))
+  const files = await fs.readdir(dl).catch(() => [])
+  const idx = file.lastIndexOf(".")
+  const stem = idx < 0 ? file : file.slice(0, idx)
+  const ext = idx < 0 ? "" : file.slice(idx)
+  const list = files.filter((x) => x.startsWith(`${stem}-`) && x.endsWith(ext)).sort()
+  if (list.length > 0) return path.join(dl, list[list.length - 1])
+  return path.join(dl, file)
+}
+
+function runEnv(work: string, extra?: Record<string, string>) {
+  return {
+    ...process.env,
+    AETHER_CURRENT_DIR: getAppRoot(),
+    AETHER_WORK_DIR: work,
+    AETHER_UPDATE_RESULT: resultPath(work),
+    ...(extra ?? {}),
+  }
+}
+
+async function spawnAuto(os: z.infer<typeof WebUpdateOS>, script: string, cur: string, work: string) {
+  return await new Promise<number>((resolve, reject) => {
+    const cmd = os === "windows" ? "cmd" : "bash"
+    const args = os === "windows" ? ["/c", script, "auto", cur] : [script, "auto", cur]
+    const child = spawn(cmd, args, {
+      cwd: work,
+      env: { ...process.env, AETHER_WORK_DIR: work },
+      windowsHide: os === "windows",
+    })
+    child.on("close", (code: number | null) => resolve(code ?? 1))
+    child.on("error", reject)
+  })
+}
+
+function spawnRun(
+  os: z.infer<typeof WebUpdateOS>,
+  run: string,
+  work: string,
+  version?: string,
+  extra?: Record<string, string>,
+) {
+  const args = version ? [run, version] : [run]
+  if (os === "darwin" || os === "linux" || os === "windows") args.push("--restart")
+  const child =
+    os === "windows"
+      ? spawn("cmd", ["/c", ...args], {
+          detached: true,
+          stdio: "ignore",
+          cwd: path.join(work, "downloads"),
+          env: runEnv(work, extra),
+          windowsHide: true,
+        })
+      : spawn("bash", args, {
+          detached: true,
+          stdio: "ignore",
+          cwd: path.join(work, "downloads"),
+          env: runEnv(work, extra),
+        })
+  child.unref()
+}
+
 function updateScriptPrefix(name: string) {
   const idx = name.lastIndexOf(".")
   return `${idx < 0 ? name : name.slice(0, idx)}-`
@@ -1141,16 +1234,16 @@ export const GlobalRoutes = lazy(() =>
       async (c) => {
         const { os, version, force } = c.req.valid("json")
         if (Installation.isLocal()) {
-          return c.json({ success: false as const, error: "Local build, update is not available" })
+          return c.json(failRes("Local build, update is not available"))
         }
         const workDir = getWorkDir(os)
         if (!workDir) {
-          return c.json({ success: false as const, error: "Could not determine aether work directory" })
+          return c.json(failRes("Could not determine aether work directory"))
         }
         const upd = UPDATE_SCRIPT[os]
-        if (!upd) return c.json({ success: false as const, error: `Update script not configured for ${os}` })
+        if (!upd) return c.json(failRes(`Update script not configured for ${os}`))
         const meta = await fetchManifest(os, version)
-        if (!meta.ok) return c.json({ success: false as const, error: meta.error })
+        if (!meta.ok) return c.json(failRes(meta.error))
         const cur = await readWebCurrentVersion()
         const state = await resolveUpdateStatus(os, cur, meta, workDir)
         if (force) await resetUpdate(os, version, workDir)
@@ -1158,33 +1251,25 @@ export const GlobalRoutes = lazy(() =>
           return c.json({ success: true as const, path: state.script })
         }
         if (!force && state.status === "downloading") {
-          return c.json({ success: false as const, error: "Update download is already in progress" })
+          return c.json(failRes("Update download is already in progress"))
         }
         if (!force && state.status === "installing") {
-          return c.json({ success: false as const, error: "Update install is already in progress" })
+          return c.json(failRes("Update install is already in progress"))
         }
         if (!force && state.status === "failed") {
-          return c.json({
-            success: false as const,
-            error: state.error || "Update needs to restart from scratch",
-            action: state.action ?? "recover",
-          })
+          return c.json(failRes(state.error || "Update needs to restart from scratch", state.action ?? "recover"))
         }
-        try {
-          await fs.mkdir(workDir, { recursive: true })
-        } catch (e) {
-          const msg = e instanceof Error ? e.message : String(e)
-          return c.json({ success: false as const, error: `Failed to create work directory ${workDir}: ${msg}` })
-        }
+        const dirErr = await mkdirp(workDir)
+        if (dirErr) return c.json(failRes(dirErr))
         const scriptPath = await fetchInstallerScript(os)
         if (!scriptPath) {
-          return c.json({ success: false as const, error: `Failed to fetch installer script for ${os}` })
+          return c.json(failRes(`Failed to fetch installer script for ${os}`))
         }
         log.info("running installer auto mode", { os, script: scriptPath, version, workDir })
         try {
           if (compareVer(cur, version) >= 0) {
             await clearUpdateState(workDir)
-            return c.json({ success: false as const, error: "No upgrade needed" })
+            return c.json(failRes("No upgrade needed"))
           }
           await writeUpdateState(
             workDir,
@@ -1195,26 +1280,15 @@ export const GlobalRoutes = lazy(() =>
               package_size: meta.package_size,
             }),
           )
-          const exitCode = await new Promise<number>((resolve, reject) => {
-            const cmd = os === "windows" ? "cmd" : "bash"
-            const cmdArgs = os === "windows" ? ["/c", scriptPath, "auto", cur] : [scriptPath, "auto", cur]
-            const child = spawn(cmd, cmdArgs, {
-              cwd: workDir,
-              env: { ...process.env, AETHER_WORK_DIR: workDir },
-              windowsHide: os === "windows",
-            })
-            child.on("close", (code: number | null) => resolve(code ?? 1))
-            child.on("error", reject)
-          })
+          const exitCode = await spawnAuto(os, scriptPath, cur, workDir)
           if (exitCode === 20) {
             await clearUpdateState(workDir)
-            return c.json({ success: false as const, error: "Already up to date" })
+            return c.json(failRes("Already up to date"))
           }
           const chk = await verifyDownload(os, meta, workDir)
           if (!chk.ok) {
-            await writeUpdateState(
-              workDir,
-              updateState(version, "failed", chk.error, {
+            return c.json(
+              await failState(workDir, version, chk.error, {
                 current_version: cur,
                 manifest_url: meta.url,
                 package_sha512: meta.package_sha512,
@@ -1222,11 +1296,8 @@ export const GlobalRoutes = lazy(() =>
                 action: "recover",
               }),
             )
-            return c.json({ success: false as const, error: chk.error, action: "recover" as const })
           }
-          try {
-            await fs.chmod(chk.script, 0o755)
-          } catch {}
+          await chmodSafe(chk.script)
           log.info("installer auto result", { exitCode, workDir, script: chk.script, package: chk.package })
           if (exitCode === 10) {
             await writeUpdateState(
@@ -1242,9 +1313,8 @@ export const GlobalRoutes = lazy(() =>
             )
             return c.json({ success: true as const, path: chk.script, package: chk.package })
           }
-          await writeUpdateState(
-            workDir,
-            updateState(version, "failed", `Installer exited with code ${exitCode}`, {
+          return c.json(
+            await failState(workDir, version, `Installer exited with code ${exitCode}`, {
               current_version: cur,
               manifest_url: meta.url,
               package_path: chk.package,
@@ -1254,18 +1324,9 @@ export const GlobalRoutes = lazy(() =>
               action: "recover",
             }),
           )
-          return c.json({
-            success: false as const,
-            error: `Installer exited with code ${exitCode}`,
-            action: "recover" as const,
-          })
         } catch (e) {
           const message = e instanceof Error ? e.message : String(e)
-          await writeUpdateState(
-            workDir,
-            updateState(version, "failed", `Download failed: ${message}`, { action: "recover" }),
-          ).catch(() => undefined)
-          return c.json({ success: false as const, error: `Download failed: ${message}`, action: "recover" as const })
+          return c.json(await failState(workDir, version, `Download failed: ${message}`, { action: "recover" }))
         }
       },
     )
@@ -1302,64 +1363,37 @@ export const GlobalRoutes = lazy(() =>
       async (c) => {
         const { os, version } = c.req.valid("json")
         if (Installation.isLocal()) {
-          return c.json({ success: false as const, error: "Local build, update is not available" })
+          return c.json(failRes("Local build, update is not available"))
         }
         const workDir = getWorkDir(os)
         if (!workDir) {
-          return c.json({ success: false as const, error: "Could not determine aether work directory" })
+          return c.json(failRes("Could not determine aether work directory"))
         }
-        try {
-          await fs.mkdir(workDir, { recursive: true })
-        } catch (e) {
-          const msg = e instanceof Error ? e.message : String(e)
-          return c.json({ success: false as const, error: `Failed to create work directory ${workDir}: ${msg}` })
-        }
+        const dirErr = await mkdirp(workDir)
+        if (dirErr) return c.json(failRes(dirErr))
         const file = UPDATE_SCRIPT[os]
-        if (!file) return c.json({ success: false as const, error: `Update script not configured for ${os}` })
+        if (!file) return c.json(failRes(`Update script not configured for ${os}`))
         const next = version || (await readUpdateState(workDir))?.version || "latest"
         const meta = version ? await fetchManifest(os, version) : null
         if (version) {
-          if (!meta) return c.json({ success: false as const, error: "Update metadata is unavailable" })
-          if (!meta.ok) return c.json({ success: false as const, error: meta.error })
+          if (!meta) return c.json(failRes("Update metadata is unavailable"))
+          if (!meta.ok) return c.json(failRes(meta.error))
         }
-        const dl = path.join(workDir, "downloads")
-        const upd = version ? path.join(dl, versioned(file, version)) : path.join(dl, file)
-        let run = upd
-        if (!version) {
-          const files = await fs.readdir(dl).catch(() => [])
-          const idx = file.lastIndexOf(".")
-          const stem = idx < 0 ? file : file.slice(0, idx)
-          const ext = idx < 0 ? "" : file.slice(idx)
-          const prefix = `${stem}-`
-          const list = files.filter((x) => x.startsWith(prefix) && x.endsWith(ext)).sort()
-          if (list.length > 0) run = path.join(dl, list[list.length - 1])
-        }
+        const run = await runPath(workDir, file, version)
         try {
           await fs.access(run)
         } catch {
-          await writeUpdateState(
-            workDir,
-            updateState(version ?? "latest", "failed", `Update script not found: ${run}`, { action: "recover" }),
-          ).catch(() => undefined)
-          return c.json({
-            success: false as const,
-            error: `Update script not found: ${run}`,
-            action: "recover" as const,
-          })
+          return c.json(
+            await failState(workDir, version ?? "latest", `Update script not found: ${run}`, { action: "recover" }),
+          )
         }
         const cur = await readWebCurrentVersion()
         const state = version && meta?.ok ? await resolveUpdateStatus(os, cur, meta, workDir) : null
         if (version && state?.status !== "downloaded") {
           const msg = state?.error || "Update files are not ready. Restart the update from scratch."
-          await writeUpdateState(
-            workDir,
-            updateState(version, "failed", msg, { action: state?.action ?? "recover" }),
-          ).catch(() => undefined)
-          return c.json({ success: false as const, error: msg, action: state?.action ?? "recover" })
+          return c.json(await failState(workDir, version, msg, { action: state?.action ?? "recover" }))
         }
-        try {
-          await fs.chmod(run, 0o755)
-        } catch {}
+        await chmodSafe(run)
         log.info("launching update script", { os, updater: run, workDir, version })
         try {
           await writeUpdateState(
@@ -1374,37 +1408,13 @@ export const GlobalRoutes = lazy(() =>
             }),
           )
           await fs.rm(resultPath(workDir), { force: true }).catch(() => undefined)
-          const args = version ? [run, version] : [run]
-          if (os === "darwin" || os === "linux" || os === "windows") args.push("--restart")
-          const env = {
-            ...process.env,
-            AETHER_CURRENT_DIR: getAppRoot(),
-            AETHER_WORK_DIR: workDir,
-            AETHER_UPDATE_RESULT: resultPath(workDir),
-          }
-          const child =
-            os === "windows"
-              ? spawn("cmd", ["/c", ...args], {
-                  detached: true,
-                  stdio: "ignore",
-                  cwd: path.join(workDir, "downloads"),
-                  env,
-                  windowsHide: true,
-                })
-              : spawn("bash", args, { detached: true, stdio: "ignore", cwd: path.join(workDir, "downloads"), env })
-          child.unref()
+          spawnRun(os, run, workDir, version)
           return c.json({ success: true as const })
         } catch (e) {
           const message = e instanceof Error ? e.message : String(e)
-          await writeUpdateState(
-            workDir,
-            updateState(next, "failed", `Failed to execute update script: ${message}`, { action: "recover" }),
-          ).catch(() => undefined)
-          return c.json({
-            success: false as const,
-            error: `Failed to execute update script: ${message}`,
-            action: "recover" as const,
-          })
+          return c.json(
+            await failState(workDir, next, `Failed to execute update script: ${message}`, { action: "recover" }),
+          )
         }
       },
     )
@@ -1441,67 +1451,41 @@ export const GlobalRoutes = lazy(() =>
       async (c) => {
         const { os, version } = c.req.valid("json")
         if (Installation.isLocal()) {
-          return c.json({ success: false as const, error: "Local build, update is not available" })
+          return c.json(failRes("Local build, update is not available"))
         }
         const workDir = getWorkDir(os)
         if (!workDir) {
-          return c.json({ success: false as const, error: "Could not determine aether work directory" })
+          return c.json(failRes("Could not determine aether work directory"))
         }
-        try {
-          await fs.mkdir(workDir, { recursive: true })
-        } catch (e) {
-          const msg = e instanceof Error ? e.message : String(e)
-          return c.json({ success: false as const, error: `Failed to create work directory ${workDir}: ${msg}` })
-        }
+        const dirErr = await mkdirp(workDir)
+        if (dirErr) return c.json(failRes(dirErr))
         const file = UPDATE_SCRIPT[os]
-        if (!file) return c.json({ success: false as const, error: `Update script not configured for ${os}` })
+        if (!file) return c.json(failRes(`Update script not configured for ${os}`))
         const state = await readUpdateState(workDir)
         const next = version || state?.version
         if (!next) {
-          return c.json({
-            success: false as const,
-            error: "No failed mirror step is available",
-            action: "recover" as const,
-          })
+          return c.json(failRes("No failed mirror step is available", "recover"))
         }
         if (state?.version !== next || state.action !== "mirror") {
-          return c.json({
-            success: false as const,
-            error: state?.error || "Mirror retry is not available for this update.",
-            action: state?.action ?? "recover",
-          })
+          return c.json(
+            failRes(state?.error || "Mirror retry is not available for this update.", state?.action ?? "recover"),
+          )
         }
-        const run = path.join(workDir, "downloads", versioned(file, next))
+        const run = await runPath(workDir, file, next)
         try {
           await fs.access(run)
         } catch {
-          await writeUpdateState(
-            workDir,
-            updateState(next, "failed", `Update script not found: ${run}`, { action: "recover" }),
-          ).catch(() => undefined)
-          return c.json({
-            success: false as const,
-            error: `Update script not found: ${run}`,
-            action: "recover" as const,
-          })
+          return c.json(await failState(workDir, next, `Update script not found: ${run}`, { action: "recover" }))
         }
         const dir = path.join(workDir, `aether_${next}`)
         try {
           await fs.access(dir)
         } catch {
-          await writeUpdateState(
-            workDir,
-            updateState(next, "failed", `Installed version directory is missing: ${dir}`, { action: "recover" }),
-          ).catch(() => undefined)
-          return c.json({
-            success: false as const,
-            error: `Installed version directory is missing: ${dir}`,
-            action: "recover" as const,
-          })
+          return c.json(
+            await failState(workDir, next, `Installed version directory is missing: ${dir}`, { action: "recover" }),
+          )
         }
-        try {
-          await fs.chmod(run, 0o755)
-        } catch {}
+        await chmodSafe(run)
         const cur = await readWebCurrentVersion()
         log.info("retrying update mirror", { os, updater: run, workDir, version: next })
         try {
@@ -1514,37 +1498,13 @@ export const GlobalRoutes = lazy(() =>
             }),
           )
           await fs.rm(resultPath(workDir), { force: true }).catch(() => undefined)
-          const args = [run, next, "--restart"]
-          const env = {
-            ...process.env,
-            AETHER_CURRENT_DIR: getAppRoot(),
-            AETHER_WORK_DIR: workDir,
-            AETHER_MIRROR_ONLY: "1",
-            AETHER_UPDATE_RESULT: resultPath(workDir),
-          }
-          const child =
-            os === "windows"
-              ? spawn("cmd", ["/c", ...args], {
-                  detached: true,
-                  stdio: "ignore",
-                  cwd: path.join(workDir, "downloads"),
-                  env,
-                  windowsHide: true,
-                })
-              : spawn("bash", args, { detached: true, stdio: "ignore", cwd: path.join(workDir, "downloads"), env })
-          child.unref()
+          spawnRun(os, run, workDir, next, { AETHER_MIRROR_ONLY: "1" })
           return c.json({ success: true as const })
         } catch (e) {
           const message = e instanceof Error ? e.message : String(e)
-          await writeUpdateState(
-            workDir,
-            updateState(next, "failed", `Failed to execute mirror retry: ${message}`, { action: "mirror" }),
-          ).catch(() => undefined)
-          return c.json({
-            success: false as const,
-            error: `Failed to execute mirror retry: ${message}`,
-            action: "mirror" as const,
-          })
+          return c.json(
+            await failState(workDir, next, `Failed to execute mirror retry: ${message}`, { action: "mirror" }),
+          )
         }
       },
     )

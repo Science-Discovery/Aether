@@ -507,49 +507,52 @@ export default function Layout(props: ParentProps) {
         })
       }
 
-      const pollUpdate = () =>
-        (() => {
-          if (
-            platform.platform === "web" &&
-            typeof window !== "undefined" &&
-            (window as E2EWindow).__opencode_e2e?.update?.polling === "mute"
-          ) {
+      const finishPoll = async (version?: string) => {
+        const next = await platform.checkUpdate!().catch((err) => {
+          showErrorToast(err, version)
+          return
+        })
+        if (!next?.updateAvailable) return
+        if (next.status === "failed") {
+          showErrorToast(next.updateError || "Update failed", next.version, next.updateAction)
+          return
+        }
+        if (!next.downloaded) return
+        showUpdateToast(next.version)
+      }
+
+      const pollUpdate = async () => {
+        if (
+          platform.platform === "web" &&
+          typeof window !== "undefined" &&
+          (window as E2EWindow).__opencode_e2e?.update?.polling === "mute"
+        ) {
+          return
+        }
+        try {
+          const { updateAvailable, version, downloaded, status, updateError, updateAction } =
+            await platform.checkUpdate!()
+          if (!updateAvailable) return
+          if (platform.platform === "web" && platform.downloadUpdate && status === "available") {
+            try {
+              await platform.downloadUpdate()
+            } catch (err) {
+              showErrorToast(err, version)
+              return
+            }
+            await finishPoll(version)
             return
           }
-          return platform.checkUpdate!()
-            .then(async ({ updateAvailable, version, downloaded, status, updateError, updateAction }) => {
-              if (!updateAvailable) return
-              if (platform.platform === "web" && platform.downloadUpdate && status === "available") {
-                try {
-                  await platform.downloadUpdate()
-                } catch (err) {
-                  showErrorToast(err, version)
-                  return
-                }
-                const next = await platform.checkUpdate!().catch((err) => {
-                  showErrorToast(err, version)
-                  return
-                })
-                if (!next?.updateAvailable) return
-                if (next.status === "failed") {
-                  showErrorToast(next.updateError || "Update failed", next.version, next.updateAction)
-                  return
-                }
-                if (!next.downloaded) return
-                showUpdateToast(next.version)
-                return
-              }
-              if (platform.platform === "web" && status === "failed") {
-                showErrorToast(updateError || "Update failed", version, updateAction)
-                return
-              }
-              if (!downloaded && platform.platform === "web") return
-              showUpdateToast(version)
-            })
-            .catch((err) => {
-              showErrorToast(err)
-            })
-        })()
+          if (platform.platform === "web" && status === "failed") {
+            showErrorToast(updateError || "Update failed", version, updateAction)
+            return
+          }
+          if (!downloaded && platform.platform === "web") return
+          showUpdateToast(version)
+        } catch (err) {
+          showErrorToast(err)
+        }
+      }
 
       createEffect(() => {
         if (!settings.ready()) return

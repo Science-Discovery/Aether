@@ -55,6 +55,16 @@ export const DialogUpdate: Component<Props> = (props) => {
     const next = (err as Error & { updateAction?: unknown }).updateAction
     return next === "recover" || next === "mirror" ? next : ""
   }
+  const fail = (err: unknown, next: UpdateAction | "" = "") => {
+    setStore("state", "failed")
+    setStore("error", err instanceof Error ? err.message : String(err))
+    setStore("action", action(err) || next)
+  }
+  const close = () => {
+    setTimeout(() => {
+      dialog.close()
+    }, 1200)
+  }
   const hint = () => (store.action === "mirror" ? language.t("update.mirrorHint") : language.t("update.recoverHint"))
   const label = () => (store.action === "mirror" ? language.t("update.retryMirror") : language.t("update.recover"))
   const sync = async () => {
@@ -69,27 +79,17 @@ export const DialogUpdate: Component<Props> = (props) => {
 
   const apply = async () => {
     const data = await sync()
-    if (!data.updateAvailable) {
-      setStore("state", "up-to-date")
-      return data
-    }
-    if (data.status === "downloading") {
-      setStore("state", "downloading")
-      return data
-    }
-    if (data.status === "downloaded") {
-      setStore("state", "downloaded")
-      return data
-    }
-    if (data.status === "installing") {
-      setStore("state", "installing")
-      return data
-    }
-    if (data.status === "failed") {
-      setStore("state", "failed")
-      return data
-    }
-    setStore("state", "available")
+    setStore(
+      "state",
+      !data.updateAvailable
+        ? "up-to-date"
+        : data.status === "downloading" ||
+            data.status === "downloaded" ||
+            data.status === "installing" ||
+            data.status === "failed"
+          ? data.status
+          : "available",
+    )
     return data
   }
 
@@ -117,9 +117,7 @@ export const DialogUpdate: Component<Props> = (props) => {
         setStore("state", "available")
         return
       }
-      setStore("state", "failed")
-      setStore("error", err instanceof Error ? err.message : String(err))
-      setStore("action", action(err))
+      fail(err)
     }
   }
 
@@ -131,64 +129,40 @@ export const DialogUpdate: Component<Props> = (props) => {
       await paint()
       await platform.update()
       await platform.restart()
-      setTimeout(() => {
-        dialog.close()
-      }, 1200)
+      close()
     } catch (err) {
       if (cancelled(err)) {
         setStore("state", "downloaded")
         return
       }
-      setStore("state", "failed")
-      setStore("error", err instanceof Error ? err.message : String(err))
-      setStore("action", action(err))
+      fail(err)
     }
   }
 
-  const recoverUpdate = async () => {
-    if (!platform.recoverUpdate) return
+  const recover = async (next: UpdateAction, task?: () => Promise<void>) => {
+    if (!task) return
     setStore("state", "recovering")
-    setStore("action", "recover")
-    if (!store.error) setStore("error", language.t("update.recoverHint"))
+    setStore("action", next)
+    if (!store.error)
+      setStore("error", next === "mirror" ? language.t("update.mirrorHint") : language.t("update.recoverHint"))
     try {
       await paint()
-      await platform.recoverUpdate()
+      await task()
       await platform.restart()
-      setTimeout(() => {
-        dialog.close()
-      }, 1200)
+      close()
     } catch (err) {
       if (cancelled(err)) {
         setStore("state", "failed")
         return
       }
-      setStore("state", "failed")
-      setStore("error", err instanceof Error ? err.message : String(err))
-      setStore("action", action(err) || "recover")
+      fail(err, next)
     }
   }
+
+  const recoverUpdate = async () => recover("recover", platform.recoverUpdate)
 
   const retryMirror = async () => {
-    if (!platform.retryUpdateMirror) return
-    setStore("state", "recovering")
-    setStore("action", "mirror")
-    if (!store.error) setStore("error", language.t("update.mirrorHint"))
-    try {
-      await paint()
-      await platform.retryUpdateMirror()
-      await platform.restart()
-      setTimeout(() => {
-        dialog.close()
-      }, 1200)
-    } catch (err) {
-      if (cancelled(err)) {
-        setStore("state", "failed")
-        return
-      }
-      setStore("state", "failed")
-      setStore("error", err instanceof Error ? err.message : String(err))
-      setStore("action", action(err) || "mirror")
-    }
+    await recover("mirror", platform.retryUpdateMirror)
   }
 
   const start = async () => {
