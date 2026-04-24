@@ -115,12 +115,14 @@ Skill 系统由三个主要部分构成：
 - 只清 Skill 的 `InstanceState`，不会销毁项目实例，也不会清其他模块状态
 - 默认 `clearSnapshot=false`，仅清内存；显式传 `true` 才删除磁盘快照
 
-> **限制：直接编辑 SKILL.md 文件不会自动刷新内存缓存。**
+> **当前实现：支持 watcher 驱动内存失效。**
 >
-> 通过 `skill_manage` 修改技能时，工具会主动调用 `clearSkillsPromptCache()` 使内存失效，一切正常。
-> 但如果直接用编辑器修改 SKILL.md，Layer 2 快照会在下次 manifest 校验时检测到 mtime 变化并更新，
-> 而 Layer 1 内存缓存**不会感知到文件变化**，当前进程仍然使用旧数据。
-> 需要重启 Aether 进程或切换项目目录才能强制刷新内存。
+> 直接编辑/复制/删除 `SKILL.md` 时，watcher 会批处理事件并按 scope 触发失效：
+>
+> - global 变更 → `clearSkillsPromptCache(false)`，清理所有 active 实例的 Skill 内存缓存
+> - project 变更 → 仅清理当前项目实例的 Skill 内存缓存
+>
+> 内存失效后，下次 `Skill.available()` 会重新加载数据；默认不删磁盘快照。
 
 ### 2.2 Layer 2：磁盘快照
 
@@ -160,6 +162,17 @@ Skill 系统由三个主要部分构成：
 | 6    | url skills                   | `config.skills.urls` 远程拉取                 |
 
 同名去重发生在加载阶段，以 `name` 字段为 key 写入 map，LLM 看到的列表中每个名字只有一个。
+
+### 2.4 Watcher 与风暴保护
+
+为兼顾正确性与性能，watcher 采用“事件触发失效、请求时重建”的策略：
+
+- watcher 生命周期与 Skill 数据缓存解耦（避免因数据失效反复拆装 watcher）
+- 事件先做 debounce/coalesce，再按 scope 触发失效
+- 设有 `WATCH_CAP` 队列上限，目录粘贴等风暴场景下会进入 backpressure 合并模式（保留 scope 正确性，放弃部分文件级细节）
+- 支持后端切换：`OPENCODE_SKILL_WATCHER_BACKEND=parcel|fs|poll`
+
+因此常态下继续走 memory fast-path，变更时由 watcher 推动失效，避免每次请求都做 manifest 校验。
 
 ---
 
