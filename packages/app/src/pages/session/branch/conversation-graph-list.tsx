@@ -99,7 +99,15 @@ export function ConversationGraphList(props: {
                     stroke-width={node.isCurrentPath ? "2.5" : "2"}
                   />
                   <Show when={node.isCurrentTarget && node.kind === "turn"}>
-                    <circle cx={x()} cy={y()} r="8" fill="transparent" stroke={color()} stroke-width="1.5" opacity="0.6" />
+                    <circle
+                      cx={x()}
+                      cy={y()}
+                      r="8"
+                      fill="transparent"
+                      stroke={color()}
+                      stroke-width="1.5"
+                      opacity="0.6"
+                    />
                   </Show>
                 </>
               )
@@ -137,7 +145,6 @@ export function ConversationGraphList(props: {
                     class={`truncate ${props.labelClass}`}
                     style={{
                       ...props.labelStyle,
-                      "font-weight": node.sessionID === props.currentSessionID ? "700" : undefined,
                     }}
                     classList={{
                       "text-text-strong": node.sessionID === props.currentSessionID,
@@ -164,7 +171,9 @@ export function ConversationGraphList(props: {
                       <DropdownMenu.Portal>
                         <DropdownMenu.Content onClick={(event: MouseEvent) => event.stopPropagation()}>
                           <DropdownMenu.Item onSelect={() => props.onSelect(node)}>
-                            <DropdownMenu.ItemLabel>{language.t("notification.action.goToSession")}</DropdownMenu.ItemLabel>
+                            <DropdownMenu.ItemLabel>
+                              {language.t("notification.action.goToSession")}
+                            </DropdownMenu.ItemLabel>
                           </DropdownMenu.Item>
                           <DropdownMenu.Item disabled={!node.userMessageID} onSelect={() => props.onFork(node)}>
                             <DropdownMenu.ItemLabel>{language.t("command.session.fork")}</DropdownMenu.ItemLabel>
