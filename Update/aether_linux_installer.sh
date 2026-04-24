@@ -884,16 +884,6 @@ if [ "$mode" = "init" ]; then
 fi
 
 if [ "$mode" = "auto" ]; then
-  [ -n "$arg" ] || {
-    echo "auto mode needs current version."
-    echo "Example: $(basename "$0") auto 1.2.3"
-    res="arg_error"
-    work="$(workdir)"
-    result
-    help
-    exit "$arg_err"
-  }
-  cur="$arg"
   work="$(workdir)"
   prep "$work" || {
     res="dir_error"
@@ -911,28 +901,18 @@ if [ "$mode" = "auto" ]; then
     exit "$meta_err"
   }
   echo "Latest version: $ver"
-  if [ "$(cmp "$cur" "$ver")" = "lt" ]; then
-    echo "Current version: $cur"
-    echo "Remote version: $ver"
-    grab || {
-      code="$?"
-      res="download_error"
-      [ "$code" = "$sum_err" ] && res="checksum_error"
-      result
-      echo
-      echo "Download failed."
-      exit "$code"
-    }
-    res="update_ready"
+  grab || {
+    code="$?"
+    res="download_error"
+    [ "$code" = "$sum_err" ] && res="checksum_error"
     result
-    exit "$ready"
-  fi
-  echo "Current version: $cur"
-  echo "Remote version: $ver"
-  echo "Already up to date."
-  res="up_to_date"
+    echo
+    echo "Download failed."
+    exit "$code"
+  }
+  res="update_ready"
   result
-  exit "$latest_ok"
+  exit "$ready"
 fi
 
 if [ "$mode" = "manual" ]; then

@@ -172,27 +172,14 @@ if not exist "%LOCALAPPDATA%\Aether_Database" mkdir "%LOCALAPPDATA%\Aether_Datab
 goto :done
 
 :auto
-if "%ARG%"=="" (
-  call :print_auto_arg
-  goto :bad
-)
-set "CUR=%ARG%"
 call :work WORK
 call :prep "%WORK%" || goto :dir_fail
 call :latest || goto :meta_fail
 call :print_latest
-call :cmp "%CUR%" "%VER%"
-if /I "%CMP%"=="lt" (
-  call :print_versions "%CUR%" "%VER%"
-  call :grab || goto :dl_fail
-  set "RES=update_ready"
-  call :result
-  exit /b %READY%
-)
-call :print_uptodate "%CUR%" "%VER%"
-set "RES=up_to_date"
+call :grab || goto :dl_fail
+set "RES=update_ready"
 call :result
-exit /b %LATEST_OK%
+exit /b %READY%
 
 :manual
 if "%ARG%"=="" (

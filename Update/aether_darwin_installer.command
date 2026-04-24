@@ -579,16 +579,6 @@ if [ "$mode" = "init" ]; then
 fi
 
 if [ "$mode" = "auto" ]; then
-  [ -n "$arg" ] || {
-    echo "auto 模式需要当前版本号。"
-    echo "示例: $(basename "$0") auto 1.2.3"
-    res="arg_error"
-    work="$(workdir)"
-    result
-    help
-    exit "$arg_err"
-  }
-  cur="$arg"
   work="$(workdir)"
   prep "$work" || {
     res="dir_error"
@@ -608,28 +598,18 @@ if [ "$mode" = "auto" ]; then
   echo
   echo "最新版本: $ver"
   echo
-  if [ "$(cmp "$cur" "$ver")" = "lt" ]; then
-    echo "当前版本: $cur"
-    echo "远端版本: $ver"
-    grab || {
-      code="$?"
-      res="download_error"
-      [ "$code" = "$sum_err" ] && res="checksum_error"
-      result
-      echo
-      echo "下载失败。"
-      exit "$code"
-    }
-    res="update_ready"
+  grab || {
+    code="$?"
+    res="download_error"
+    [ "$code" = "$sum_err" ] && res="checksum_error"
     result
-    exit "$ready"
-  fi
-  echo "当前版本: $cur"
-  echo "远端版本: $ver"
-  echo "已经是最新版本。"
-  res="up_to_date"
+    echo
+    echo "下载失败。"
+    exit "$code"
+  }
+  res="update_ready"
   result
-  exit "$latest_ok"
+  exit "$ready"
 fi
 
 if [ "$mode" = "manual" ]; then

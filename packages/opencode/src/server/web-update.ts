@@ -241,10 +241,10 @@ function runEnv(work: string, extra?: Record<string, string>) {
   }
 }
 
-async function spawnAuto(os: z.infer<typeof WebUpdateOS>, script: string, cur: string, work: string) {
+async function spawnAuto(os: z.infer<typeof WebUpdateOS>, script: string, work: string) {
   return await new Promise<number>((resolve, reject) => {
     const cmd = os === "windows" ? "cmd" : "bash"
-    const args = os === "windows" ? ["/c", script, "auto", cur] : [script, "auto", cur]
+    const args = os === "windows" ? ["/c", script, "auto"] : [script, "auto"]
     const child = spawn(cmd, args, {
       cwd: work,
       env: { ...process.env, AETHER_WORK_DIR: work },
@@ -648,20 +648,50 @@ function getAppRoot(): string {
   return path.dirname(process.execPath)
 }
 
+function findVersionParent(dir: string): string | null {
+  const name = path.basename(dir)
+  if (/^aether_/.test(name)) return path.dirname(dir)
+  const parent = path.dirname(dir)
+  if (parent === dir) return null
+  return findVersionParent(parent)
+}
+
+async function scanLocalVersions() {
+  const root = getAppRoot()
+  const parent = findVersionParent(root)
+  if (!parent) return []
+  const entries = await fs.readdir(parent).catch(() => [])
+  const versions: string[] = []
+  for (const entry of entries) {
+    const match = /^aether_(.+)$/.exec(entry)
+    if (match) {
+      const full = path.join(parent, entry)
+      const stat = await fs.stat(full).catch(() => null)
+      if (stat?.isDirectory()) versions.push(match[1])
+    }
+  }
+  return versions
+}
+
 export async function readWebCurrentVersion() {
   const file = path.join(getAppRoot(), ".aether_web_version")
-  const read = () =>
-    fs
-      .readFile(file, "utf-8")
-      .then((x) => x.trim())
-      .catch(() => "")
+  const marker = await fs
+    .readFile(file, "utf-8")
+    .then((x) => x.trim())
+    .catch(() => "")
 
-  const cached = await read()
-  if (cached) return cached
+  const local = await scanLocalVersions()
+  let best = local.length > 0 ? local[0] : ""
+  for (let i = 1; i < local.length; i++) {
+    if (compareVer(local[i], best) > 0) best = local[i]
+  }
+
+  if (marker && (!best || compareVer(marker, best) > 0)) return marker
+  if (best) return best
+
   const fallback = Installation.VERSION
   await fs.writeFile(file, `${fallback}\n`, "utf-8").catch(() => undefined)
-  const next = await read()
-  return next || fallback
+  return fallback
 }
 
 export async function webCheck(os: z.infer<typeof WebUpdateOS>) {
@@ -770,11 +800,7 @@ export async function downloadWebUpdate(input: z.infer<typeof WebUpdateDownloadI
         package_size: meta.package_size,
       }),
     )
-    const exitCode = await spawnAuto(os, scriptPath, cur, workDir)
-    if (exitCode === 20) {
-      await clearUpdateState(workDir)
-      return failRes("Already up to date")
-    }
+    const exitCode = await spawnAuto(os, scriptPath, workDir)
     const chk = await verifyDownload(os, meta, workDir)
     if (!chk.ok) {
       return await failState(workDir, version, chk.error, {
