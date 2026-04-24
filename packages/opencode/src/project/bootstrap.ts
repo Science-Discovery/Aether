@@ -1,3 +1,5 @@
+import fs from "fs/promises"
+import path from "path"
 import { Plugin } from "../plugin"
 import { Format } from "../format"
 import { LSP } from "../lsp"
@@ -12,9 +14,12 @@ import { Command } from "../command"
 import { Instance } from "./instance"
 import { Log } from "@/util/log"
 import { ShareNext } from "@/share/share-next"
+import { PROJECT } from "@/persist/naming"
 
 export async function InstanceBootstrap() {
   Log.Default.info("bootstrapping", { directory: Instance.directory })
+  const root = Instance.project.worktree === "/" ? Instance.directory : Instance.project.worktree
+  await fs.mkdir(path.join(root, PROJECT), { recursive: true })
   await Plugin.init()
   ShareNext.init()
   Format.init()
