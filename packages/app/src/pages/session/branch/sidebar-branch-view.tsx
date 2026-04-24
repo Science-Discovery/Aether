@@ -7,7 +7,11 @@ import { useLanguage } from "@/context/language"
 import { useSettings } from "@/context/settings"
 import { errorMessage as formatErrorMessage } from "@/pages/layout/helpers"
 import { For, Match, Show, Switch, createEffect, createMemo, createSignal, onCleanup, onMount } from "solid-js"
-import { buildConversationGraphView, type ConversationGraph, type ConversationGraphOrderMode } from "./conversation-graph-model"
+import {
+  buildConversationGraphView,
+  type ConversationGraph,
+  type ConversationGraphOrderMode,
+} from "./conversation-graph-model"
 import { ConversationGraphList } from "./conversation-graph-list"
 
 const FONT_SIZE_STYLE_MAP = {
@@ -28,7 +32,7 @@ const ROW_DENSITY_HEIGHT_MAP = {
 
 const graphCache = new Map<string, SessionGraphResult>()
 const DEFAULT_COMPACT = false
-const DEFAULT_PANEL_HEIGHT = 480
+const DEFAULT_PANEL_MAX_HEIGHT = 480
 const MIN_PANEL_HEIGHT = 240
 const MAX_PANEL_HEIGHT = 720
 const COMPACT_STORAGE_KEY = "aether.sidebar-branch-view.compact"
@@ -51,7 +55,7 @@ export function SidebarBranchView(props: {
   const [loading, setLoading] = createSignal(false)
   const [graph, setGraph] = createSignal<SessionGraphResult>()
   const [errorMessage, setErrorMessage] = createSignal<string>()
-  const [panelHeight, setPanelHeight] = createSignal(DEFAULT_PANEL_HEIGHT)
+  const [maxPanelHeight, setMaxPanelHeight] = createSignal(DEFAULT_PANEL_MAX_HEIGHT)
   const fontSize = createMemo(() => settings.general.branchGraphFontSize())
   const rowDensity = createMemo(() => settings.general.branchGraphRowDensity())
   const orderMode = createMemo(() => settings.general.branchGraphOrderMode())
@@ -68,7 +72,7 @@ export function SidebarBranchView(props: {
   let requestVersion = 0
   let activePointerID: number | undefined
   let dragStartY = 0
-  let dragStartHeight = DEFAULT_PANEL_HEIGHT
+  let dragStartHeight = DEFAULT_PANEL_MAX_HEIGHT
 
   const clampHeight = (height: number) => Math.max(MIN_PANEL_HEIGHT, Math.min(MAX_PANEL_HEIGHT, Math.round(height)))
 
@@ -87,12 +91,12 @@ export function SidebarBranchView(props: {
   const onPointerMove = (event: PointerEvent) => {
     if (activePointerID !== event.pointerId) return
     const nextHeight = clampHeight(dragStartHeight + (event.clientY - dragStartY))
-    setPanelHeight(nextHeight)
+    setMaxPanelHeight(nextHeight)
   }
 
   const onPointerUp = (event: PointerEvent) => {
     if (activePointerID !== event.pointerId) return
-    persistHeight(panelHeight())
+    persistHeight(maxPanelHeight())
     stopDragging()
   }
 
@@ -106,7 +110,7 @@ export function SidebarBranchView(props: {
     try {
       const stored = Number(window.localStorage.getItem(HEIGHT_STORAGE_KEY))
       if (Number.isFinite(stored) && stored > 0) {
-        setPanelHeight(clampHeight(stored))
+        setMaxPanelHeight(clampHeight(stored))
       }
     } catch {}
 
@@ -184,7 +188,7 @@ export function SidebarBranchView(props: {
   const startResize = (event: PointerEvent) => {
     activePointerID = event.pointerId
     dragStartY = event.clientY
-    dragStartHeight = panelHeight()
+    dragStartHeight = maxPanelHeight()
     document.body.style.cursor = "row-resize"
     document.body.style.userSelect = "none"
   }
@@ -315,7 +319,7 @@ export function SidebarBranchView(props: {
         </Show>
       </div>
 
-      <div class="min-h-0 overflow-hidden" style={{ height: `${panelHeight()}px` }}>
+      <div class="min-h-0 overflow-auto" style={{ "max-height": `${maxPanelHeight()}px` }}>
         <Switch>
           <Match when={graph()?.kind === "legacy"}>
             <div class="flex h-full items-center justify-center px-4 text-center text-11-regular text-text-weak">
@@ -341,7 +345,10 @@ export function SidebarBranchView(props: {
           </Match>
           <Match when={true}>
             <div class="flex h-full items-center justify-center px-4 text-center text-11-regular text-text-weak">
-              <Show when={!loading()} fallback={`${language.t("common.loading")}${language.t("common.loading.ellipsis")}`}>
+              <Show
+                when={!loading()}
+                fallback={`${language.t("common.loading")}${language.t("common.loading.ellipsis")}`}
+              >
                 {errorMessage() ?? (zh() ? "暂无可展示的分支视图。" : "No branch view available.")}
               </Show>
             </div>
