@@ -18,7 +18,7 @@ import { PROJECT } from "@/persist/naming"
 
 export async function InstanceBootstrap() {
   Log.Default.info("bootstrapping", { directory: Instance.directory })
-  const root = Instance.worktree === "/" ? Instance.directory : Instance.worktree
+  const root = Instance.project.worktree === "/" ? Instance.directory : Instance.project.worktree
   await fs.mkdir(path.join(root, PROJECT), { recursive: true })
   await Plugin.init()
   ShareNext.init()
