@@ -922,6 +922,9 @@ export const WebUpdateTest = {
   parseManifest,
   readResult,
   readUpdateState,
+  resetUpdateBase: () => {
+    cachedBaseUrl = undefined
+  },
   resetUpdate,
   resolveUpdateStatus,
   updateState,

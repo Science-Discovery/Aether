@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test"
 import { createHash } from "crypto"
 import fs from "fs/promises"
 import path from "path"
+import { Global } from "../../src/global"
 import { WebUpdateTest } from "../../src/server/routes/global"
 import { tmpdir } from "../fixture/fixture"
 
@@ -164,5 +165,51 @@ notes_url: notes.md
     expect(WebUpdateTest.getWorkDir("windows")).toBe("/tmp/aether-home/.local/share/aether/update")
 
     process.env.HOME = home
+  })
+
+  test("fetchManifest honors configured update base URL", async () => {
+    await using tmp = await tmpdir({
+      init: async (dir) => {
+        const cfg = path.join(dir, "config")
+        await fs.mkdir(cfg, { recursive: true })
+        await Bun.write(
+          path.join(cfg, "update-config.json"),
+          JSON.stringify({ updateBaseUrl: "https://mirror.example.com/base" }),
+        )
+        return cfg
+      },
+    })
+
+    const prev = Global.Path.config
+    const fetch = globalThis.fetch
+    Global.Path.config = tmp.extra
+    WebUpdateTest.resetUpdateBase()
+    globalThis.fetch = (async (..._args: Parameters<typeof fetch>) =>
+      new Response(
+        [
+          "version: 1.2.3",
+          "package:",
+          "  url: aether-linux-x64-1.2.3.zip",
+          "  sha512: abc123",
+          "  size: 42",
+          "installer:",
+          "  url: update_linux.sh",
+        ].join("\n"),
+        { status: 200 },
+      )) as unknown as typeof fetch
+
+    try {
+      const data = await WebUpdateTest.fetchManifest("linux", "1.2.3")
+      expect(data.ok).toBe(true)
+      if (data.ok) {
+        expect(data.url).toBe("https://mirror.example.com/base/1.2.3/linux-x64.yml")
+        expect(data.package_url).toBe("https://mirror.example.com/base/1.2.3/aether-linux-x64-1.2.3.zip")
+        expect(data.installer_url).toBe("https://mirror.example.com/base/1.2.3/update_linux.sh")
+      }
+    } finally {
+      globalThis.fetch = fetch
+      Global.Path.config = prev
+      WebUpdateTest.resetUpdateBase()
+    }
   })
 })

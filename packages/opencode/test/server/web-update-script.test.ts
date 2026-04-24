@@ -20,6 +20,10 @@ function run(cmd: string, args: string[], cwd: string, env: Record<string, strin
   throw new Error(`${cmd} ${args.join(" ")} failed\nstdout:\n${out.stdout}\nstderr:\n${out.stderr}`)
 }
 
+function fail(cmd: string, args: string[], cwd: string, env: Record<string, string | undefined>) {
+  return spawnSync(cmd, args, { cwd, env, encoding: "utf8" })
+}
+
 function lines(text: string) {
   return text
     .split(/\r?\n/)
@@ -207,6 +211,38 @@ describe("web update scripts", () => {
       expect((await dirs(work)).some((x) => /^aether_1\.2\.7_\d{12}$/.test(x))).toBe(false)
       const desk = await Bun.file(path.join(home, "Desktop", "Aether.sh")).text()
       expect(desk).toContain(path.join(work, "aether_1.2.7", "Aether.sh"))
+    },
+    { timeout: 30000 },
+  )
+
+  linux(
+    "linux script writes result file for failed mirror-only retry",
+    async () => {
+      await using tmp = await tmpdir()
+      const home = path.join(tmp.path, "home")
+      const work = path.join(tmp.path, "aether")
+      const dl = path.join(work, "downloads")
+      const script = path.join(dl, "update_linux.sh")
+      const result = path.join(tmp.path, "mirror-result.env")
+
+      await fs.mkdir(dl, { recursive: true })
+      await fs.mkdir(home, { recursive: true })
+      await cp(path.join(update, "update_linux.sh"), script)
+
+      const out = fail("bash", [script, "1.2.7"], dl, {
+        ...process.env,
+        HOME: home,
+        USERPROFILE: home,
+        AETHER_CURRENT_DIR: path.join(tmp.path, "live", "current"),
+        AETHER_MIRROR_ONLY: "1",
+        AETHER_UPDATE_RESULT: result,
+      })
+
+      expect(out.status).not.toBe(0)
+      const text = await Bun.file(result).text()
+      expect(text).toContain("status=failed")
+      expect(text).toContain("action=recover")
+      expect(text).toContain("Installed version directory not found for mirror retry")
     },
     { timeout: 30000 },
   )
