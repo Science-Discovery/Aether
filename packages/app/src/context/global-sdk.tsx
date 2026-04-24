@@ -3,7 +3,7 @@ import { createSimpleContext } from "@opencode-ai/ui/context"
 import { createGlobalEmitter } from "@solid-primitives/event-bus"
 import { batch, onCleanup } from "solid-js"
 import z from "zod"
-import { type AppClient, createSdkForServer } from "@/utils/server"
+import { type AppClient, addCronMethods, createSdkForServer } from "@/utils/server"
 import { useLanguage } from "./language"
 import { usePlatform } from "./platform"
 import { useServer } from "./server"
@@ -40,6 +40,12 @@ export const { use: useGlobalSDK, provider: GlobalSDKProvider } = createSimpleCo
 
     const currentServer = server.current
     if (!currentServer) throw new Error(language.t("error.globalSDK.noServerAvailable"))
+    const authHeader = (http: typeof currentServer.http) => {
+      if (!http.password) return
+      return {
+        Authorization: `Basic ${btoa(`${http.username ?? "opencode"}:${http.password}`)}`,
+      }
+    }
 
     const eventSdk = createSdkForServer({
       signal: abort.signal,
@@ -220,6 +226,7 @@ export const { use: useGlobalSDK, provider: GlobalSDKProvider } = createSimpleCo
       fetch: platform.fetch,
       throwOnError: true,
     })
+    addCronMethods(sdk, server.current.http.url, authHeader(server.current.http), { throwOnError: true })
 
     return {
       url: currentServer.http.url,
@@ -228,11 +235,13 @@ export const { use: useGlobalSDK, provider: GlobalSDKProvider } = createSimpleCo
       createClient(opts: Omit<Parameters<typeof createSdkForServer>[0], "server" | "fetch">) {
         const s = server.current
         if (!s) throw new Error(language.t("error.globalSDK.serverNotAvailable"))
-        return createSdkForServer({
+        const c = createSdkForServer({
           server: s.http,
           fetch: platform.fetch,
           ...opts,
         })
+        addCronMethods(c, s.http.url, authHeader(s.http), { throwOnError: opts.throwOnError })
+        return c
       },
     }
   },
