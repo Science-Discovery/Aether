@@ -36,9 +36,10 @@ import { useComments } from "@/context/comments"
 import { getSessionPrefetch, SESSION_PREFETCH_TTL } from "@/context/global-sync/session-prefetch"
 import { useGlobalSync } from "@/context/global-sync"
 import { useLanguage } from "@/context/language"
-import { useLayout } from "@/context/layout"
+import { sessionKeyForServer, useLayout } from "@/context/layout"
 import { usePrompt } from "@/context/prompt"
 import { useSDK } from "@/context/sdk"
+import { useServer } from "@/context/server"
 import { useSettings } from "@/context/settings"
 import { useSync } from "@/context/sync"
 import { useTerminal } from "@/context/terminal"
@@ -72,6 +73,7 @@ import { Identifier } from "@/utils/id"
 import { extractPromptFromParts } from "@/utils/prompt"
 import { same } from "@/utils/same"
 import { formatServerError } from "@/utils/server-errors"
+import { serverScopedKey } from "@/utils/server-scope"
 
 const emptyUserMessages: UserMessage[] = []
 const emptyFollowups: (FollowupDraft & { id: string })[] = []
@@ -357,6 +359,7 @@ function SessionPageContent(props: SessionPageProps = {}) {
   const location = useLocation()
   const navigate = useNavigate()
   const sdk = useSDK()
+  const server = useServer()
   const settings = useSettings()
   const prompt = usePrompt()
   const comments = useComments()
@@ -389,7 +392,7 @@ function SessionPageContent(props: SessionPageProps = {}) {
 
   const composer = createSessionComposerState()
 
-  const workspaceKey = createMemo(() => params.dir ?? "")
+  const workspaceKey = createMemo(() => sessionKeyForServer(params.dir, undefined, server.key))
   const workspaceTabs = createMemo(() => layout.tabs(workspaceKey))
   const propReadingPane = children(() => props.readingPane)
   const quickReadingRequested = createMemo(
@@ -1036,7 +1039,7 @@ function SessionPageContent(props: SessionPageProps = {}) {
       const stale = !cached
         ? false
         : (() => {
-            const info = getSessionPrefetch(sdk.directory, id)
+            const info = getSessionPrefetch(serverScopedKey(sdk.directory, server.key), id)
             if (!info) return true
             return Date.now() - info.at > SESSION_PREFETCH_TTL
           })()

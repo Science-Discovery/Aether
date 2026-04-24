@@ -8,8 +8,10 @@ import { FileProvider } from "@/context/file"
 import { PromptProvider } from "@/context/prompt"
 import { CommentsProvider } from "@/context/comments"
 import { useLayout } from "@/context/layout"
+import { useServer } from "@/context/server"
 import { useSessionLayout } from "@/pages/session/session-layout"
 import { createSizing } from "@/pages/session/helpers"
+import { serverScopedKey } from "@/utils/server-scope"
 import SessionPage from "./session"
 
 type LayoutVariant = "two-pane" | "tree" | "review" | "review-tree"
@@ -52,6 +54,7 @@ const CHAT_RATIO_BOUNDS: Partial<Record<LayoutVariant, { min: number; max: numbe
 
 const ReadingSession: Component = () => {
   const params = useParams<{ id: string }>()
+  const server = useServer()
   const layout = useLayout()
   const { view } = useSessionLayout()
   const [containerWidth, setContainerWidth] = createSignal(0)
@@ -67,7 +70,7 @@ const ReadingSession: Component = () => {
   let previousReviewOpen = false
   let previousFileTreeOpen = false
 
-  const storageKey = createMemo(() => `${LAYOUT_STORAGE_PREFIX}${params.id}`)
+  const storageKey = createMemo(() => serverScopedKey(`${LAYOUT_STORAGE_PREFIX}${params.id}`, server.key))
   const totalWidth = createMemo(() => {
     const width = containerWidth()
     if (width > 0) return width

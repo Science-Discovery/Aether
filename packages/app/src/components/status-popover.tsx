@@ -19,6 +19,7 @@ import { remoteHref } from "@/pages/layout/remote-landing"
 import { bootstrapSsh } from "@/utils/remote-ssh"
 import { splitServers, sortServers } from "@/utils/server-list"
 import { useCheckServerHealth, type ServerHealth } from "@/utils/server-health"
+import { switchServer } from "@/utils/server-switch"
 
 const pollMs = 10_000
 const waitMs = 300
@@ -214,10 +215,19 @@ export function StatusPopover() {
     const key = ServerConnection.key(conn)
     if (key === server.key) return
     if (conn.type !== "ssh") {
-      navigate("/")
-      queueMicrotask(() => {
-        server.setActive(key)
-        switchToast(conn)
+      switchServer({
+        note: () => ({
+          from: server.key,
+          to: key,
+          source: "status-popover",
+          path: location.pathname,
+        }),
+        path: () => location.pathname,
+        done: () => navigate("/"),
+        later: () => {
+          server.setActive(key)
+          switchToast(conn)
+        },
       })
       return
     }
@@ -246,15 +256,35 @@ export function StatusPopover() {
       return
     })
     if (!next) return
-    server.upsert({
+    const saved = {
       ...conn,
       owner: current,
       http: next.endpoint,
+    } satisfies ServerConnection.Ssh
+    const target = remoteHref(next.landing)
+    const detour = target === location.pathname ? "/" : target
+    server.upsert(saved, { active: false })
+    switchServer({
+      note: () => ({
+        from: server.key,
+        to: key,
+        source: "status-popover-ssh",
+        path: location.pathname,
+        next: target,
+        detour,
+      }),
+      path: () => location.pathname,
+      done: () => navigate(detour),
+      later: () => {
+        server.setActive(key)
+        switchToast(saved)
+        server.projects.open(next.landing.rootDirectory)
+        server.projects.touch(next.landing.directory)
+        if (detour !== target) {
+          navigate(target)
+        }
+      },
     })
-    switchToast(conn)
-    server.projects.open(next.landing.rootDirectory)
-    server.projects.touch(next.landing.directory)
-    navigate(remoteHref(next.landing))
   }
 
   return (

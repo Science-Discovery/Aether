@@ -739,7 +739,7 @@ function ServerKey(props: ParentProps) {
   const server = useServer()
   return (
     <Show when={server.key} keyed>
-      {props.children}
+      {(_key) => <>{props.children}</>}
     </Show>
   )
 }

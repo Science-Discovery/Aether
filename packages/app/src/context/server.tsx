@@ -222,7 +222,7 @@ export const { use: useServer, provider: ServerProvider } = createSimpleContext(
       if (store.active !== input) setStore("active", input)
     }
 
-    function upsert(input: ServerConnection.Any) {
+    function upsert(input: ServerConnection.Any, options?: { active?: boolean }) {
       const conn =
         input.type === "http" || input.type === "sidecar"
           ? ({ ...input, http: { ...input.http, url: normalizeServerUrl(input.http.url) ?? input.http.url } } as ServerConnection.Any)
@@ -240,7 +240,9 @@ export const { use: useServer, provider: ServerProvider } = createSimpleContext(
         } else {
           setStore("list", store.list.length, conn)
         }
-        setStore("active", key)
+        if (options?.active !== false) {
+          setStore("active", key)
+        }
         return conn
       })
     }

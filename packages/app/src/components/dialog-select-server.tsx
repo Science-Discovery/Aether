@@ -19,6 +19,7 @@ import { remoteHref } from "@/pages/layout/remote-landing"
 import { type ServerHealth, useCheckServerHealth } from "@/utils/server-health"
 import { serverGroups, serverGroup, sortServers } from "@/utils/server-list"
 import { bootstrapSsh } from "@/utils/remote-ssh"
+import { switchServer } from "@/utils/server-switch"
 
 const DEFAULT_USERNAME = "opencode"
 const DEFAULT_INSTALL_DIR = "~/.opencode/bin"
@@ -474,26 +475,66 @@ export function DialogSelectServer() {
         http: next.endpoint,
       }
       dialog.close()
-      batch(() => {
-        server.upsert(saved)
-        server.projects.open(next.landing.rootDirectory)
-        server.projects.touch(next.landing.directory)
+      const target = remoteHref(next.landing)
+      const detour = target === location.pathname ? "/" : target
+      server.upsert(saved, { active: false })
+      switchServer({
+        note: () => ({
+          from: server.key,
+          to: key,
+          source: "dialog-select-server-ssh",
+          path: location.pathname,
+          next: target,
+          detour,
+        }),
+        path: () => location.pathname,
+        done: () => navigate(detour),
+        later: () => {
+          server.setActive(key)
+          switchToast(saved)
+          server.projects.open(next.landing.rootDirectory)
+          server.projects.touch(next.landing.directory)
+          if (detour !== target) {
+            navigate(target)
+          }
+        },
       })
-      switchToast(saved)
-      navigate(remoteHref(next.landing))
       return
     }
     dialog.close()
     if (persist && conn.type === "http") {
-      server.upsert(conn)
-      switchToast(conn)
-      navigate("/")
+      server.upsert(conn, { active: false })
+      switchServer({
+        note: () => ({
+          from: server.key,
+          to: key,
+          persist: true,
+          source: "dialog-select-server",
+          path: location.pathname,
+        }),
+        path: () => location.pathname,
+        done: () => navigate("/"),
+        later: () => {
+          server.setActive(key)
+          switchToast(conn)
+        },
+      })
       return
     }
-    navigate("/")
-    queueMicrotask(() => {
-      server.setActive(key)
-      switchToast(conn)
+    switchServer({
+      note: () => ({
+        from: server.key,
+        to: key,
+        persist: false,
+        source: "dialog-select-server",
+        path: location.pathname,
+      }),
+      path: () => location.pathname,
+      done: () => navigate("/"),
+      later: () => {
+        server.setActive(key)
+        switchToast(conn)
+      },
     })
   }
 

@@ -25,6 +25,7 @@ import { Persist, persisted } from "@/utils/persist"
 import type { AppClient } from "@/utils/server"
 import type { InitError } from "../pages/error"
 import { useGlobalSDK } from "./global-sdk"
+import { useServer } from "./server"
 import { bootstrapDirectory, bootstrapGlobal } from "./global-sync/bootstrap"
 import { createChildStoreManager } from "./global-sync/child-store"
 import { applyDirectoryEvent, applyGlobalEvent, cleanupDroppedSessionCaches } from "./global-sync/event-reducer"
@@ -40,6 +41,7 @@ import type { ProjectMeta } from "./global-sync/types"
 import { SESSION_RECENT_LIMIT } from "./global-sync/types"
 import { isRoot, normalizeDir, sanitizeProject, sanitizeRecent } from "./global-sync/utils"
 import { formatServerError } from "@/utils/server-errors"
+import { serverScopedKey } from "@/utils/server-scope"
 
 type GlobalStore = {
   ready: boolean
@@ -58,6 +60,7 @@ type GlobalStore = {
 
 function createGlobalSync() {
   const globalSDK = useGlobalSDK()
+  const server = useServer()
   const language = useLanguage()
   const owner = getOwner()
   if (!owner) throw new Error("GlobalSync must be created within owner")
@@ -68,11 +71,11 @@ function createGlobalSync() {
   const sessionMeta = new Map<string, { limit: number }>()
 
   const [projectCache, setProjectCache, projectInit] = persisted(
-    Persist.global("globalSync.project", ["globalSync.project.v1"]),
+    Persist.global(serverScopedKey("globalSync.project", server.key)),
     createStore({ value: [] as Project[] }),
   )
   const [recentCache, setRecentCache, recentInit] = persisted(
-    Persist.global("globalSync.recent", ["globalSync.recent.v1"]),
+    Persist.global(serverScopedKey("globalSync.recent", server.key)),
     createStore({ value: [] as ProjectRecent[] }),
   )
 
@@ -215,8 +218,9 @@ function createGlobalSync() {
       queue.clear(directory)
       sessionMeta.delete(directory)
       sdkCache.delete(directory)
-      clearSessionPrefetchDirectory(directory)
+      clearSessionPrefetchDirectory(serverScopedKey(directory, server.key))
     },
+    server: server.key,
     translate: language.t,
   })
 

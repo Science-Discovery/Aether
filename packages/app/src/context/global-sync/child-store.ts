@@ -1,6 +1,7 @@
 import { createRoot, getOwner, onCleanup, runWithOwner, type Owner } from "solid-js"
 import { createStore, type SetStoreFunction, type Store } from "solid-js/store"
 import { Persist, persisted } from "@/utils/persist"
+import { serverScopedKey } from "@/utils/server-scope"
 import type { VcsInfo } from "@opencode-ai/sdk/v2/client"
 import {
   DIR_IDLE_TTL_MS,
@@ -22,6 +23,7 @@ export function createChildStoreManager(input: {
   isLoadingSessions: (directory: string) => boolean
   onBootstrap: (directory: string) => void
   onDispose: (directory: string) => void
+  server?: string
   translate: (key: string, vars?: Record<string, string | number>) => string
 }) {
   const children: Record<string, [Store<State>, SetStoreFunction<State>]> = {}
@@ -131,9 +133,10 @@ export function createChildStoreManager(input: {
     directory = normalizeDir(directory)
     if (!directory) console.error("No directory provided")
     if (!children[directory]) {
+      const storage = serverScopedKey(directory, input.server)
       const vcs = runWithOwner(input.owner, () =>
         persisted(
-          Persist.workspace(directory, "vcs", ["vcs.v1"]),
+          Persist.workspace(storage, "vcs"),
           createStore({ value: undefined as VcsInfo | undefined }),
         ),
       )
@@ -143,7 +146,7 @@ export function createChildStoreManager(input: {
 
       const meta = runWithOwner(input.owner, () =>
         persisted(
-          Persist.workspace(directory, "project", ["project.v1"]),
+          Persist.workspace(storage, "project"),
           createStore({ value: undefined as ProjectMeta | undefined }),
         ),
       )
@@ -152,7 +155,7 @@ export function createChildStoreManager(input: {
 
       const icon = runWithOwner(input.owner, () =>
         persisted(
-          Persist.workspace(directory, "icon", ["icon.v1"]),
+          Persist.workspace(storage, "icon"),
           createStore({ value: undefined as string | undefined }),
         ),
       )

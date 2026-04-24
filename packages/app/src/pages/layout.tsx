@@ -68,6 +68,7 @@ import { useServer } from "@/context/server"
 import { bindResolver, initMobile } from "@/context/mobile"
 import { useLanguage, type Locale } from "@/context/language"
 import { actionOf, messageOf } from "@/utils/web-update"
+import { serverScopedKey } from "@/utils/server-scope"
 import {
   displayName,
   effectiveWorkspaceOrder,
@@ -94,8 +95,9 @@ import { ProjectDragOverlay, SortableProject, type ProjectSidebarContext } from 
 import { SidebarContent } from "./layout/sidebar-shell"
 
 export default function Layout(props: ParentProps) {
+  const server = useServer()
   const [store, setStore, , ready] = persisted(
-    Persist.global("layout.page", ["layout.page.v1"]),
+    Persist.global(serverScopedKey("layout.page", server.key), ["layout.page"]),
     createStore({
       lastProjectSession: {} as { [directory: string]: { directory: string; id: string; at: number } },
       activeProject: undefined as string | undefined,
@@ -124,7 +126,6 @@ export default function Layout(props: ParentProps) {
   const layoutReady = createMemo(() => layout.ready())
   const platform = usePlatform()
   const settings = useSettings()
-  const server = useServer()
   bindResolver(() => {
     const s = server.current?.http
     const headers: HeadersInit = !s?.password
@@ -937,15 +938,16 @@ export default function Layout(props: ParentProps) {
 
   async function prefetchMessages(directory: string, sessionID: string, token: number) {
     const [store, setStore] = globalSync.child(directory, { bootstrap: false })
+    const cacheDir = serverScopedKey(directory, server.key)
 
     return runSessionPrefetch({
-      directory,
+      directory: cacheDir,
       sessionID,
       task: (rev) =>
         retry(() => globalSDK.client.session.messages({ directory, sessionID, limit: prefetchChunk }))
           .then((messages) => {
             if (prefetchToken.value !== token) return
-            if (!isSessionPrefetchCurrent(directory, sessionID, rev)) return
+            if (!isSessionPrefetchCurrent(cacheDir, sessionID, rev)) return
 
             const items = (messages.data ?? []).filter((x) => !!x?.info?.id)
             const next = items.map((x) => x.info).filter((m): m is Message => !!m?.id)
@@ -960,7 +962,7 @@ export default function Layout(props: ParentProps) {
             }
 
             if (stale.length > 0) {
-              clearSessionPrefetch(directory, stale)
+              clearSessionPrefetch(cacheDir, stale)
               for (const id of stale) {
                 globalSync.todo.set(id, undefined)
               }
@@ -972,7 +974,7 @@ export default function Layout(props: ParentProps) {
               sorted,
             )
 
-            if (!isSessionPrefetchCurrent(directory, sessionID, rev)) return
+            if (!isSessionPrefetchCurrent(cacheDir, sessionID, rev)) return
 
             batch(() => {
               if (stale.length > 0) {
@@ -984,7 +986,7 @@ export default function Layout(props: ParentProps) {
               }
 
               setStore("message", sessionID, reconcile(merged, { key: "id" }))
-              setSessionPrefetch({ directory, sessionID, ...meta })
+              setSessionPrefetch({ directory: cacheDir, sessionID, ...meta })
 
               for (const message of items) {
                 const currentParts = store.part[message.info.id] ?? []
@@ -1029,7 +1031,7 @@ export default function Layout(props: ParentProps) {
 
     const [store] = globalSync.child(directory, { bootstrap: false })
     const cached = untrack(() => {
-      const info = getSessionPrefetch(directory, session.id)
+      const info = getSessionPrefetch(serverScopedKey(directory, server.key), session.id)
       return shouldSkipSessionPrefetch({
         message: store.message[session.id] !== undefined,
         info,
@@ -1903,6 +1905,7 @@ export default function Layout(props: ParentProps) {
       directory,
       sessions.map((s) => s.id),
       platform,
+      server.key,
     )
     await globalSDK.client.instance.dispose({ directory }).catch(() => undefined)
 

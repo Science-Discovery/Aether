@@ -11,18 +11,8 @@ import { useSync } from "@/context/sync"
 import { createWorkingState } from "@/utils/working-state"
 import { childMapByParent } from "@/pages/layout/helpers"
 import { composerDriver, composerEnabled, composerEvent } from "@/testing/session-composer"
+import { todoState } from "./session-composer-state-helpers"
 import { sessionPermissionRequest, sessionQuestionRequest } from "./session-request-tree"
-
-export const todoState = (input: {
-  count: number
-  done: boolean
-  live: boolean
-}): "hide" | "clear" | "open" | "close" => {
-  if (input.count === 0) return "hide"
-  if (!input.live) return "clear"
-  if (!input.done) return "open"
-  return "close"
-}
 
 const idle = { type: "idle" as const }
 
