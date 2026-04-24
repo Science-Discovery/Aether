@@ -525,19 +525,6 @@ async function readWebCurrentVersion() {
 
 async function webCheck(os: z.infer<typeof WebUpdateOS>) {
   const currentVersion = await readWebCurrentVersion()
-  if (Installation.isLocal()) {
-    return {
-      currentVersion,
-      remoteVersion: "",
-      updateAvailable: false,
-      downloaded: false,
-      status: "available" as const,
-      workDir: "",
-      workDirFallback: false,
-      updateError: undefined,
-      checkError: "Local build, skipping update check",
-    }
-  }
   const resolved = resolveWorkDir(os)
   const workDir = resolved?.path ?? ""
   const workDirFallback = resolved?.isFallback ?? false
@@ -1085,9 +1072,6 @@ export const GlobalRoutes = lazy(() =>
       ),
       async (c) => {
         const { os, version, acceptFallback, force } = c.req.valid("json")
-        if (Installation.isLocal()) {
-          return c.json({ success: false as const, error: "Local build, update is not available" })
-        }
         const resolved = resolveWorkDir(os)
         if (!resolved) {
           return c.json({ success: false as const, error: "Could not determine aether work directory" })
@@ -1237,9 +1221,6 @@ export const GlobalRoutes = lazy(() =>
       ),
       async (c) => {
         const { os, version, acceptFallback } = c.req.valid("json")
-        if (Installation.isLocal()) {
-          return c.json({ success: false as const, error: "Local build, update is not available" })
-        }
         const resolved = resolveWorkDir(os)
         if (!resolved) {
           return c.json({ success: false as const, error: "Could not determine aether work directory" })
