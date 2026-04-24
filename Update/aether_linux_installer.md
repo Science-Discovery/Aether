@@ -34,16 +34,18 @@
 最新版本：
 
 - `https://aether.aiphys.cn/download/latest/linux-x64.yml`
+- `https://aether.aiphys.cn/download/latest/linux-arm64.yml`
 - `https://aether.aiphys.cn/download/latest/windows-x64.yml`
 
 指定版本：
 
 - `https://aether.aiphys.cn/download/<version>/linux-x64.yml`
+- `https://aether.aiphys.cn/download/<version>/linux-arm64.yml`
 - `https://aether.aiphys.cn/download/<version>/windows-x64.yml`
 
 说明：
 
-- Linux 路径这里按与 Windows/macOS 相同的命名模式实现，当前假设平台标识为 `linux-x64`
+- Linux 路径按当前机器架构自动选择 `linux-x64` 或 `linux-arm64`，命名模式与 Windows/macOS 保持一致。
 
 示例：
 

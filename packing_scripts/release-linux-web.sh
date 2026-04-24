@@ -4,30 +4,54 @@ set -euo pipefail
 root="$(cd "$(dirname "$0")/.." && pwd)"
 ver="${1:-$(cd "$root" && bun -e 'const p=await Bun.file("packages/opencode/package.json").json();console.log(p.version)')}"
 date="$(date -u +"%Y-%m-%dT%H:%M:%S.000Z")"
+arch="${2:-}"
+
+if [ -z "$arch" ]; then
+  case "$(uname -m)" in
+    aarch64|arm64) arch="arm64" ;;
+    x86_64|amd64) arch="x64" ;;
+    *)
+      echo "Unsupported Linux architecture: $(uname -m)"
+      exit 1
+      ;;
+  esac
+fi
+
+case "$arch" in
+  arm64) uv="aarch64-unknown-linux-gnu" ;;
+  x64) uv="x86_64-unknown-linux-gnu" ;;
+  *)
+    echo "Unsupported Linux architecture: $arch"
+    exit 1
+    ;;
+esac
+
+pkg="aether-linux-$arch"
+yml="latest-web-linux"
+[ "$arch" = "x64" ] || yml="$yml-$arch"
 
 pushd "$root/packages/opencode" >/dev/null
 bun install
 bun run build -- --single
 
-src="dist/aether-linux-x64/bin"
+src="dist/$pkg/bin"
 if [ ! -d "$src" ]; then
-  echo "Missing $src. Run this on linux x64."
+  echo "Missing $src. Run this on linux $arch."
   exit 1
 fi
 
-uv="$src/wechat-bridge/runtime/uv"
+uv_dir="$src/wechat-bridge/runtime/uv"
 
-if [ -d "$uv" ]; then
-  for dir in "$uv"/*; do
+if [ -d "$uv_dir" ]; then
+  for dir in "$uv_dir"/*; do
     [ -d "$dir" ] || continue
     case "$(basename "$dir")" in
-      *x86_64-unknown-linux-gnu*) ;;
+      *"$uv"*) ;;
       *) rm -rf "$dir" ;;
     esac
   done
 fi
 
-pkg="aether-linux-x64"
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 out="$tmp/$pkg"
@@ -52,17 +76,18 @@ if [ -f "$out/Aether.sh" ]; then
 fi
 
 cat >"$out/README_FIRST.txt" <<'EOF'
-Aether Web (Linux x64)
+Aether Web (Linux ARCH)
 
 Quick start
-1) Extract this ZIP and copy the folder aether-linux-x64 to a local path, for example: ~/Applications/Aether-Web
+1) Extract this ZIP and copy the folder PACKAGE to a local path, for example: ~/Applications/Aether-Web
 2) Open Terminal in that folder and run: ./Aether.sh
 
 Updates
 - Use Aether's in-app update flow to download and install newer versions.
 EOF
+sed -i "s/ARCH/$arch/g;s/PACKAGE/$pkg/g" "$out/README_FIRST.txt"
 
-zip="dist/aether-linux-x64.zip"
+zip="dist/$pkg.zip"
 zip_path="$PWD/$zip"
 rm -f "$zip"
 (cd "$tmp" && zip -r "$zip_path" "$pkg")
@@ -70,10 +95,10 @@ rm -f "$zip"
 sha="$(openssl dgst -sha512 -binary "$zip" | openssl base64 -A)"
 size="$(wc -c <"$zip" | tr -d '[:space:]')"
 
-cat >dist/latest-web-linux.yml <<EOF
+cat >"dist/$yml.yml" <<EOF
 version: $ver
 files:
-  - url: aether-linux-x64.zip
+  - url: $pkg.zip
     sha512: $sha
     size: $size
 releaseDate: '$date'
@@ -83,5 +108,5 @@ popd >/dev/null
 
 echo "Done"
 echo "Asset: packages/opencode/$zip"
-echo "YML:   packages/opencode/dist/latest-web-linux.yml"
+echo "YML:   packages/opencode/dist/$yml.yml"
 echo "Note:  ZIP includes folder $pkg and aether_linux_installer.sh"

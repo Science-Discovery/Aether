@@ -47,6 +47,8 @@
   `https://aether.aiphys.cn/download/latest/mac-arm64.yml`
 - Linux x64
   `https://aether.aiphys.cn/download/latest/linux-x64.yml`
+- Linux arm64
+  `https://aether.aiphys.cn/download/latest/linux-arm64.yml`
 
 指定版本 manifest：
 
@@ -56,6 +58,8 @@
   `https://aether.aiphys.cn/download/<version>/mac-arm64.yml`
 - Linux x64
   `https://aether.aiphys.cn/download/<version>/linux-x64.yml`
+- Linux arm64
+  `https://aether.aiphys.cn/download/<version>/linux-arm64.yml`
 
 推荐的版本目录示例：
 
@@ -65,13 +69,16 @@ download/
     windows-x64.yml
     mac-arm64.yml
     linux-x64.yml
+    linux-arm64.yml
   1.2.3/
     windows-x64.yml
     mac-arm64.yml
     linux-x64.yml
+    linux-arm64.yml
     aether-1.2.3-windows-x64.zip
     aether-1.2.3-mac-arm64.zip
     aether-1.2.3-linux-x64.tar.gz
+    aether-1.2.3-linux-arm64.tar.gz
     install-windows.bat
     install-darwin.command
     install-linux.sh
@@ -379,11 +386,12 @@ Aether 调用安装入口脚本后，推荐按以下顺序处理：
   `mac-arm64`
 - Linux x64
   `linux-x64`
+- Linux arm64
+  `linux-arm64`
 
 如果未来新增平台，例如：
 
 - `mac-x64`
-- `linux-arm64`
 - `windows-arm64`
 
 可沿用同一目录结构和同一 manifest 协议。

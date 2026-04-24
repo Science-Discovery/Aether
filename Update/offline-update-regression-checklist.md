@@ -4,7 +4,7 @@ Short manual checks for desktop update recovery.
 
 ## Scope
 
-Cover offline web update behavior across Windows and Linux.
+Cover offline web update behavior across Windows and Linux x64/arm64.
 
 Focus on these regressions:
 
@@ -12,7 +12,7 @@ Focus on these regressions:
 - Partial downloads never enable install
 - In-progress manual download state survives while the same app/server process stays alive
 - Failed update or install offers a restart-from-scratch recovery path
-- Linux downloaded zip plus script installs and relaunches into the new version
+- Linux x64 and arm64 downloaded zip plus script installs and relaunches into the new version
 - Download completion requires matching package size and checksum from manifest metadata
 
 ## Environment/setup

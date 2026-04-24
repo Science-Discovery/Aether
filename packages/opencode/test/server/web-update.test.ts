@@ -25,6 +25,19 @@ async function sha(file: string) {
 }
 
 describe("web update helpers", () => {
+  test("linux arm64 uses arm64 manifests and packages", async () => {
+    const desc = Object.getOwnPropertyDescriptor(process, "arch")
+    Object.defineProperty(process, "arch", { value: "arm64" })
+    try {
+      expect((await WebUpdateTest.manifestUrl("linux")).endsWith("/latest/linux-arm64.yml")).toBe(true)
+      expect((await WebUpdateTest.manifestUrl("linux", "1.2.3")).endsWith("/1.2.3/linux-arm64.yml")).toBe(true)
+      expect(WebUpdateTest.packageMatch("linux", "1.2.3", "aether-linux-arm64-1.2.3.zip")).toBe(true)
+      expect(WebUpdateTest.packageMatch("linux", "1.2.3", "aether-linux-x64-1.2.3.zip")).toBe(false)
+    } finally {
+      if (desc) Object.defineProperty(process, "arch", desc)
+    }
+  })
+
   test("parseManifest reads package metadata from files list", () => {
     const data = WebUpdateTest.parseManifest(`version: 1.2.3
 files:

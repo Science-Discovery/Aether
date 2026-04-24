@@ -80,6 +80,16 @@ jobs:
               packages/desktop-electron/dist/*.rpm
               packages/desktop-electron/dist/latest*.yml
               packages/desktop-electron/dist/*.blockmap
+          - id: linux-arm64
+            host: ubuntu-24.04-arm
+            rust_target: aarch64-unknown-linux-gnu
+            flag: --linux --arm64
+            files: |
+              packages/desktop-electron/dist/*.AppImage
+              packages/desktop-electron/dist/*.deb
+              packages/desktop-electron/dist/*.rpm
+              packages/desktop-electron/dist/latest*.yml
+              packages/desktop-electron/dist/*.blockmap
     runs-on: ${{ matrix.host }}
     steps:
       - uses: actions/checkout@v4
@@ -123,6 +133,11 @@ jobs:
           OPENCODE_CHANNEL: prod
           CSC_IDENTITY_AUTO_DISCOVERY: false
 
+      - name: Rename Linux arm64 update metadata
+        if: matrix.id == 'linux-arm64'
+        run: mv dist/latest-linux.yml dist/latest-linux-arm64.yml
+        working-directory: packages/desktop-electron
+
       - uses: actions/upload-artifact@v4
         with:
           name: release-electron-${{ matrix.id }}
@@ -155,24 +170,34 @@ jobs:
   build-web-linux:
     if: github.repository == 'Science-Discovery/Aether'
     needs: release
-    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x64
+            host: ubuntu-24.04
+            yml: latest-web-linux.yml
+          - arch: arm64
+            host: ubuntu-24.04-arm
+            yml: latest-web-linux-arm64.yml
+    runs-on: ${{ matrix.host }}
     steps:
       - uses: actions/checkout@v4
 
       - uses: ./.github/actions/setup-bun
 
       - name: Package browser build for Linux
-        run: ./packing_scripts/release-linux-web.sh ${{ needs.release.outputs.version }}
+        run: ./packing_scripts/release-linux-web.sh ${{ needs.release.outputs.version }} ${{ matrix.arch }}
         env:
           OPENCODE_VERSION: ${{ needs.release.outputs.version }}
           OPENCODE_CHANNEL: prod
 
       - uses: actions/upload-artifact@v4
         with:
-          name: release-web-linux
+          name: release-web-linux-${{ matrix.arch }}
           path: |
-            packages/opencode/dist/aether-linux-x64.zip
-            packages/opencode/dist/latest-web-linux.yml
+            packages/opencode/dist/aether-linux-${{ matrix.arch }}.zip
+            packages/opencode/dist/${{ matrix.yml }}
           if-no-files-found: error
 
   build-web-windows:
