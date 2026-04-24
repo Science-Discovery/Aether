@@ -53,7 +53,7 @@ const defaultSettings: Settings = {
     releaseNotes: true,
     followup: "steer",
     reviewBatch: 10,
-    branchesTab: false,
+    branchesTab: true,
     branchGraphFontSize: "lg",
     branchGraphRowDensity: "compact",
     branchGraphOrderMode: "time",
