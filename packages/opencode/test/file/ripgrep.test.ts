@@ -1,10 +1,35 @@
-import { describe, expect, test } from "bun:test"
+import { describe, expect, test, spyOn } from "bun:test"
 import fs from "fs/promises"
 import path from "path"
+import { Readable } from "stream"
 import { tmpdir } from "../fixture/fixture"
 import { Ripgrep } from "../../src/file/ripgrep"
+import * as ProcessModule from "../../src/util/process"
 
 describe("file.ripgrep", () => {
+  test("files tolerates clean-exit premature-close stream errors", async () => {
+    await Ripgrep.filepath()
+    const spawnSpy = spyOn(ProcessModule.Process, "spawn").mockImplementation(() => {
+      const stdout = Readable.from(
+        (async function* () {
+          yield "one.txt\ntwo.txt\n"
+          throw Object.assign(new Error("premature close"), { code: "ERR_STREAM_PREMATURE_CLOSE" })
+        })(),
+      )
+      return {
+        stdout,
+        exited: Promise.resolve(0),
+      } as any
+    })
+
+    try {
+      const files = await Array.fromAsync(Ripgrep.files({ cwd: process.cwd() }))
+      expect(files).toEqual(["one.txt", "two.txt"])
+    } finally {
+      spawnSpy.mockRestore()
+    }
+  })
+
   test("defaults to include hidden", async () => {
     await using tmp = await tmpdir({
       init: async (dir) => {

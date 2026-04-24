@@ -767,6 +767,7 @@ export const dict = {
   "settings.section.server": "Server",
   "settings.tab.general": "General",
   "settings.tab.shortcuts": "Shortcuts",
+  "settings.tab.memory": "Memory",
   "settings.tab.cron": "Cron",
   "settings.desktop.section.wsl": "WSL",
   "settings.desktop.wsl.title": "WSL integration",
@@ -779,6 +780,38 @@ export const dict = {
   "settings.general.section.feed": "Feed",
   "settings.general.section.display": "Display",
   "settings.general.section.network": "Network",
+  "settings.memory.title": "Memory",
+  "settings.memory.description":
+    "The main agent decides durable USER/MEMORY writes directly. Configure recall/reflection behavior and inspect read-only stores here.",
+  "settings.memory.section.memory": "Memory",
+  "settings.memory.section.userProfile": "User Profile",
+  "settings.memory.section.stores": "Memory stores (read-only)",
+  "settings.memory.row.enabled.title": "Enable memory",
+  "settings.memory.row.enabled.description": "Controls memory tools, active prompt recall, and the built-in daily reflection cron job.",
+  "settings.memory.row.reflection.title": "Enable reflection",
+  "settings.memory.row.reflection.description":
+    "Allow automatic memory consolidation after writes and before snapshots. Strong reflection can also be triggered explicitly.",
+  "settings.memory.row.userProfileEnabled.title": "Enable user profile",
+  "settings.memory.row.userProfileEnabled.description":
+    "Turn the USER profile system on or off. Disabled means USER is not read, written, or injected.",
+  "settings.memory.row.includeInferred.title": "Include inferred profile",
+  "settings.memory.row.includeInferred.description":
+    "When off, inferred entries are neither generated, written, nor injected.",
+  "settings.memory.userProfile.disabledHint":
+    "User Profile is currently disabled. Enable it to view and use USER.md content.",
+  "settings.memory.userProfile.group.explicit": "Explicit",
+  "settings.memory.userProfile.group.inferred": "Inferred",
+  "settings.memory.userProfile.emptyValid": "No valid user-profile entries yet.",
+  "settings.memory.store.activeSession": "Active session memory (L1)",
+  "settings.memory.store.activeSession.description": "Short-term memory currently plugged into this session prompt.",
+  "settings.memory.store.daily": "Daily memory",
+  "settings.memory.store.memory": "MEMORY store",
+  "settings.memory.store.userProfile": "USER profile store",
+  "settings.memory.action.refresh": "Refresh",
+  "settings.memory.loading": "Loading memory stores...",
+  "settings.memory.empty": "No memory data available yet.",
+  "settings.memory.error.loadFailed": "Failed to load memory stores: {{message}}",
+
   "settings.cron.title": "Cron",
   "settings.cron.description":
     "Inspect scheduled jobs, runtime state, and recent run history. Creation and editing are intentionally kept out of this first UI pass.",

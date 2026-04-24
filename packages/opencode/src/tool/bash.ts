@@ -18,6 +18,7 @@ import { cleanupNul } from "@/shell/guard"
 import { BashArity } from "@/permission/arity"
 import { Truncate } from "./truncate"
 import { Plugin } from "@/plugin"
+import { assertCommandDoesNotMentionMemoryStorage, assertNotMemoryStoragePath } from "./memory-file-guard"
 
 const MAX_METADATA_LENGTH = 30_000
 const DEFAULT_TIMEOUT = Flag.OPENCODE_EXPERIMENTAL_BASH_DEFAULT_TIMEOUT_MS || 2 * 60 * 1000
@@ -58,7 +59,12 @@ export const BashTool = Tool.define("bash", async () => {
   log.info("bash tool using shell", { shell })
 
   return {
-    description: DESCRIPTION.replaceAll("${directory}", Instance.directory)
+    description: [
+      DESCRIPTION,
+      "Aether memory rule: do not use bash to inspect USER.md or MEMORY.md memory files. Use memory_search for memory recall.",
+    ]
+      .join("\n\n")
+      .replaceAll("${directory}", Instance.directory)
       .replaceAll("${maxLines}", String(Truncate.MAX_LINES))
       .replaceAll("${maxBytes}", String(Truncate.MAX_BYTES)),
     parameters: z.object({
@@ -78,6 +84,8 @@ export const BashTool = Tool.define("bash", async () => {
     }),
     async execute(params, ctx) {
       const cwd = params.workdir || Instance.directory
+      assertNotMemoryStoragePath("bash", cwd)
+      assertCommandDoesNotMentionMemoryStorage("bash", params.command)
       if (params.timeout !== undefined && params.timeout < 0) {
         throw new Error(`Invalid timeout value: ${params.timeout}. Timeout must be a positive number.`)
       }

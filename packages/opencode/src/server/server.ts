@@ -105,6 +105,7 @@ import { WeChatRoutes } from "./routes/wechat"
 import { FeishuRoutes } from "./routes/feishu"
 import { ReadingModeRoutes } from "./routes/reading-mode"
 import { DatabaseRoutes } from "./routes/database"
+import { MemoryRoutes } from "./routes/memory"
 import { CronRoutes } from "./routes/cron"
 import { MDNS } from "./mdns"
 import { lazy } from "@/util/lazy"
@@ -320,6 +321,7 @@ export namespace Server {
       .route("/project", ProjectRoutes())
       .route("/pty", PtyRoutes())
       .route("/config", ConfigRoutes())
+      .route("/memory", MemoryRoutes())
       .route("/experimental", ExperimentalRoutes())
       .route("/session", SessionRoutes())
       .route("/permission", PermissionRoutes())
