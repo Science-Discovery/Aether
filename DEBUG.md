@@ -40,8 +40,8 @@ bun dev <path>   # 在指定目录运行
 ```
 
 注意：
-1. 要想在新文件夹中试用openresearch，需要开一个新窗口并先打开目标文件夹（如~/code/openresearch/test），然后在opencode项目(不是test项目)的终端运行bun dev ~/code/openresearch/test，此时会在opencode项目的终端显示opencode的对话框，在里面对话创建的代码文件会在test项目中出现。
 
+1. 要想在新文件夹中试用openresearch，需要开一个新窗口并先打开目标文件夹（如~/code/openresearch/test），然后在opencode项目(不是test项目)的终端运行bun dev ~/code/openresearch/test，此时会在opencode项目的终端显示opencode的对话框，在里面对话创建的代码文件会在test项目中出现。
 
 **Web UI 模式（需要两个终端）：**
 
@@ -192,3 +192,60 @@ opencode models   # 能看到 my-claude/claude-opus... 说明配置生效
 **429 频率限制：** Key 填错，或被旧的 `auth.json` 干扰，参考上方"清理旧的认证缓存"。
 
 **模型列表为空：** 检查环境变量 `OPENCODE_CONFIG` 路径是否正确。
+
+---
+
+## 本地打包指南
+
+### Web 版（CLI + 浏览器 UI）
+
+```bash
+cd packages/opencode
+OPENCODE_OFFLINE=1 bun run build -- --single
+```
+
+产物在 `packages/opencode/dist/aether-darwin-arm64/bin/`，直接运行：
+
+```bash
+cd packages/opencode/dist/aether-darwin-arm64/bin
+./aether web
+```
+
+### Electron 桌面端（3 步）
+
+#### 第 1 步：构建 CLI sidecar
+
+```bash
+cd packages/opencode
+OPENCODE_CHANNEL=prod OPENCODE_OFFLINE=1 bun run build -- --single
+```
+
+这一步产出 `dist/aether-darwin-arm64/bin/aether` 二进制文件。
+
+#### 第 2 步：准备 Electron 资源
+
+```bash
+cd ../desktop-electron
+OPENCODE_CHANNEL=prod bun ./scripts/prepare.ts
+```
+
+将上一步的 sidecar 复制到 Electron 的 `resources/` 目录。
+
+#### 第 3 步：构建并打包 Electron 应用
+
+```bash
+OPENCODE_CHANNEL=prod bun run build
+OPENCODE_CHANNEL=prod npx electron-builder --mac --arm64 --publish never --config electron-builder.config.ts
+```
+
+产物在 `packages/desktop-electron/dist/` 下，会生成 `.dmg` 文件。
+
+#### 开发调试（可选）
+
+如果只需本地调试、不打包发行版，第 2 步之后可以直接：
+
+```bash
+OPENCODE_CHANNEL=prod bun run dev
+```
+
+这样会用开发模式启动 Electron 窗口，支持热重载，方便看效果。
