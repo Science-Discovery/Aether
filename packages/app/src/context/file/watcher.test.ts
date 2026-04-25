@@ -106,6 +106,36 @@ describe("file watcher invalidation", () => {
     expect(refresh).toEqual(["src"])
   })
 
+  test("refreshes parent when directory node changes", () => {
+    const refresh: string[] = []
+
+    invalidateFromWatcher(
+      {
+        type: "file.watcher.updated",
+        properties: {
+          file: "src/skill",
+          event: "change",
+        },
+      },
+      {
+        normalize: (input) => input,
+        hasFile: () => false,
+        loadFile: () => {},
+        node: () => ({
+          path: "src/skill",
+          type: "directory",
+          name: "skill",
+          absolute: "/repo/src/skill",
+          ignored: false,
+        }),
+        isDirLoaded: (path) => path === "src/skill" || path === "src",
+        refreshDir: (path) => refresh.push(path),
+      },
+    )
+
+    expect(refresh).toEqual(["src/skill", "src"])
+  })
+
   test("ignores invalid or git watcher updates", () => {
     const refresh: string[] = []
 

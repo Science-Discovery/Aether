@@ -2,7 +2,8 @@ import { Cause, Effect, Layer, Scope, ServiceMap } from "effect"
 // @ts-ignore
 import { createWrapper } from "@parcel/watcher/wrapper"
 import type ParcelWatcher from "@parcel/watcher"
-import { readdir } from "fs/promises"
+import { watch as fsWatch } from "fs"
+import { readdir, stat } from "fs/promises"
 import path from "path"
 import z from "zod"
 import { Bus } from "@/bus"
@@ -52,7 +53,10 @@ export namespace FileWatcher {
       typeof report === "object" && report && "header" in report && typeof report.header === "object" && report.header
         ? report.header
         : undefined
-    return typeof header === "object" && header && "glibcVersionRuntime" in header && typeof header.glibcVersionRuntime === "string"
+    return typeof header === "object" &&
+      header &&
+      "glibcVersionRuntime" in header &&
+      typeof header.glibcVersionRuntime === "string"
       ? "glibc"
       : "musl"
   }
@@ -97,6 +101,30 @@ export namespace FileWatcher {
     if (process.platform === "win32") return "windows"
     if (process.platform === "darwin") return "fs-events"
     if (process.platform === "linux") return "inotify"
+  }
+
+  function withSlash(value: string) {
+    return value.replace(/\\/g, "/")
+  }
+
+  function ignored(file: string, root: string, ignore: string[]) {
+    const rel = withSlash(path.relative(root, file))
+    if (!rel || rel.startsWith("..") || path.isAbsolute(rel)) return false
+    for (const item of ignore) {
+      const cur = withSlash(item)
+      if (cur.startsWith("**/")) {
+        const cut = cur.slice(3)
+        if (rel === cut || rel.startsWith(`${cut}/`) || rel.includes(`/${cut}/`)) return true
+        continue
+      }
+      if (cur.endsWith("/**")) {
+        const cut = cur.slice(0, -3)
+        if (rel === cut || rel.startsWith(`${cut}/`)) return true
+        continue
+      }
+      if (rel === cur || rel.startsWith(`${cur}/`)) return true
+    }
+    return false
   }
 
   function protecteds(dir: string) {
@@ -236,6 +264,41 @@ export namespace FileWatcher {
             const cfg = yield* Effect.promise(() => Config.get())
             const cfgIgnores = cfg.watcher?.ignore ?? []
             const ignore = [...FileIgnore.PATTERNS, ...cfgIgnores, ...protecteds(Instance.directory)]
+
+            if (process.platform === "win32" && !Flag.OPENCODE_EXPERIMENTAL_FILEWATCHER_FORCE_PARCEL) {
+              log.info("watcher backend", { directory: Instance.directory, platform: process.platform, backend: "fs" })
+              if (!enabled) {
+                log.info("worktree watcher disabled", { directory: Instance.directory })
+                return
+              }
+              const watcher = fsWatch(
+                Instance.directory,
+                { recursive: true },
+                Instance.bind((raw, name) => {
+                  const file = name ? path.resolve(Instance.directory, name.toString()) : Instance.directory
+                  if (ignored(file, Instance.directory, ignore)) return
+                  const publish = (event: "add" | "change" | "unlink") => {
+                    Bus.publish(Event.Updated, { file, event })
+                  }
+                  if (raw !== "rename") {
+                    publish("change")
+                    return
+                  }
+                  void stat(file)
+                    .then(() => publish("add"))
+                    .catch(() => publish("unlink"))
+                }),
+              )
+              yield* Effect.addFinalizer(() =>
+                Effect.sync(() => {
+                  watcher.close()
+                }),
+              )
+              watcher.on("error", (error) => {
+                log.error("fs watcher error", { directory: Instance.directory, error })
+              })
+              return
+            }
 
             if (enabled) {
               if (backend !== "inotify") {

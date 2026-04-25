@@ -16,6 +16,12 @@ type WatcherOps = {
   refreshDir: (path: string) => void
 }
 
+function updir(file: string) {
+  const parts = file.split("/")
+  if (parts.length <= 1) return ""
+  return parts.slice(0, -1).join("/")
+}
+
 export function invalidateFromWatcher(event: WatcherEvent, ops: WatcherOps) {
   if (event.type !== "file.watcher.updated") return
   const props =
@@ -43,6 +49,8 @@ export function invalidateFromWatcher(event: WatcherEvent, ops: WatcherOps) {
     if (dir === undefined) return
     if (!ops.isDirLoaded(dir)) return
     ops.refreshDir(dir)
+    const up = updir(dir)
+    if (up !== dir && ops.isDirLoaded(up)) ops.refreshDir(up)
     return
   }
   if (kind !== "add" && kind !== "unlink") return
