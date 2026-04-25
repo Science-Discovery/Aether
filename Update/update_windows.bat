@@ -37,11 +37,13 @@ echo [0/4] Work directory: %WORK%
 if exist "%RESULT%" del /f /q "%RESULT%" >nul 2>nul
 
 call :pick_pkg "%SELF%" "%WANT%"
-if not "%MIRROR_ONLY%"=="1" if errorlevel 1 (
+if "%MIRROR_ONLY%"=="1" goto :pick_pkg_done
+if errorlevel 1 (
   echo No usable zip found in ...\aether\downloads; filename must include a version
   call :write_result "failed" "recover" "No usable zip found in ...\aether\downloads; filename must include a version"
   exit /b 1
 )
+:pick_pkg_done
 
 if "%VER%"=="" set "VER=%WANT%"
 
