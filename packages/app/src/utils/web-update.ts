@@ -182,9 +182,14 @@ export const createWebUpdate = (req: Req, detectOS: () => string) => {
       await download(data)
     },
     recoverUpdate: async () => {
-      const data = await ready(true, "Update restart did not finish downloading")
+      const data = await current()
       if (!data) return
-      await finish(data)
+      await download(data, true)
+      const next = await current()
+      if (!next || next.status !== "downloaded") {
+        throw issue(next?.updateError || "Update restart did not finish downloading", next?.updateAction)
+      }
+      await finish(next)
     },
     retryUpdateMirror: async () => {
       const data = await current()

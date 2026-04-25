@@ -250,11 +250,11 @@ function runEnv(work: string, extra?: Record<string, string>) {
   }
 }
 
-async function spawnAuto(os: z.infer<typeof WebUpdateOS>, script: string, work: string) {
+async function spawnAuto(os: z.infer<typeof WebUpdateOS>, script: string, work: string, cur: string) {
   const updateBase = await getUpdateBase()
   return await new Promise<number>((resolve, reject) => {
     const cmd = os === "windows" ? "cmd" : "bash"
-    const args = os === "windows" ? ["/c", script, "auto"] : [script, "auto"]
+    const args = os === "windows" ? ["/c", script, "auto", cur] : [script, "auto", cur]
     const child = spawn(cmd, args, {
       cwd: work,
       env: { ...process.env, AETHER_WORK_DIR: work, AETHER_UPDATE_BASE: updateBase },
@@ -813,7 +813,7 @@ export async function downloadWebUpdate(input: z.infer<typeof WebUpdateDownloadI
         package_size: meta.package_size,
       }),
     )
-    const exitCode = await spawnAuto(os, scriptPath, workDir)
+    const exitCode = await spawnAuto(os, scriptPath, workDir, cur)
     const chk = await verifyDownload(os, meta, workDir)
     if (!chk.ok) {
       return await failState(workDir, version, chk.error, {
