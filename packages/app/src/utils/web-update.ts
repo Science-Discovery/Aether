@@ -133,8 +133,8 @@ export const createWebUpdate = (req: Req, detectOS: () => string) => {
     await post(req, "/global/web-update/install", { os: input.os, version: input.version })
   }
 
-  const mirror = async (input: Pick<WebUpdate, "os" | "version">) => {
-    await post(req, "/global/web-update/mirror", { os: input.os, version: input.version })
+  const mirror = async (input: Pick<WebUpdate, "os" | "version">, mirrorRoot?: string) => {
+    await post(req, "/global/web-update/mirror", { os: input.os, version: input.version, mirrorRoot })
   }
 
   const ready = async (force = false, error = "Update did not finish downloading") => {
@@ -191,13 +191,13 @@ export const createWebUpdate = (req: Req, detectOS: () => string) => {
       }
       await finish(next)
     },
-    retryUpdateMirror: async () => {
+    retryUpdateMirror: async (mirrorRoot?: string) => {
       const data = await current()
       if (!data) return
       if (data.status !== "failed" || data.updateAction !== "mirror") {
         throw issue(data.updateError || "Mirror retry is not available", data.updateAction)
       }
-      await mirror(data)
+      await mirror(data, mirrorRoot)
       await waitFor(data.version)
     },
   }

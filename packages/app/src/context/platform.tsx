@@ -71,8 +71,8 @@ export type Platform = {
   /** Restart update from scratch */
   recoverUpdate?(): Promise<void>
 
-  /** Retry only the mirror step for web updates */
-  retryUpdateMirror?(): Promise<void>
+  /** Retry only the mirror step for web updates with optional mirror root override */
+  retryUpdateMirror?(mirrorRoot?: string): Promise<void>
 
   /** Fetch override */
   fetch?: typeof fetch

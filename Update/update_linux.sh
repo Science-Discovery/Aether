@@ -280,6 +280,10 @@ stamp() {
 }
 
 mirror_root() {
+  if [ -n "${AETHER_MIRROR_ROOT:-}" ]; then
+    cd "${AETHER_MIRROR_ROOT}" && pwd
+    return 0
+  fi
   local cur
   cur="${AETHER_CURRENT_DIR:-}"
   [ -n "$cur" ] || return 1

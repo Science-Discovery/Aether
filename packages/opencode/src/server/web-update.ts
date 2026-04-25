@@ -27,6 +27,7 @@ export const WebUpdateInstallInput = z.object({
 export const WebUpdateMirrorInput = z.object({
   os: WebUpdateOS,
   version: z.string().min(1).optional(),
+  mirrorRoot: z.string().min(1).optional(),
 })
 const WebUpdateState = z.object({
   status: z.enum(["downloading", "downloaded", "installing", "installed", "failed"]),
@@ -928,6 +929,7 @@ export async function installWebUpdate(input: z.infer<typeof WebUpdateInstallInp
 export async function retryWebUpdateMirror(input: z.infer<typeof WebUpdateMirrorInput>) {
   const os = input.os
   const version = input.version
+  const mirrorRoot = input.mirrorRoot
   const workDir = getWorkDir(os)
   if (!workDir) return failRes("Could not determine aether work directory")
   const dirErr = await mkdirp(workDir)
@@ -954,7 +956,7 @@ export async function retryWebUpdateMirror(input: z.infer<typeof WebUpdateMirror
   }
   await chmodSafe(run)
   const cur = await readWebCurrentVersion()
-  log.info("retrying update mirror", { os, updater: run, workDir, version: next })
+  log.info("retrying update mirror", { os, updater: run, workDir, version: next, mirrorRoot })
   try {
     await writeUpdateState(
       workDir,
@@ -965,7 +967,9 @@ export async function retryWebUpdateMirror(input: z.infer<typeof WebUpdateMirror
       }),
     )
     await fs.rm(resultPath(workDir), { force: true }).catch(() => undefined)
-    spawnRun(os, run, workDir, next, { AETHER_MIRROR_ONLY: "1" })
+    const extra: Record<string, string> = { AETHER_MIRROR_ONLY: "1" }
+    if (mirrorRoot) extra.AETHER_MIRROR_ROOT = mirrorRoot
+    spawnRun(os, run, workDir, next, extra)
     return { success: true as const }
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e)

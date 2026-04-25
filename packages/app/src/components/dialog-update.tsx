@@ -47,6 +47,7 @@ export const DialogUpdate: Component<Props> = (props) => {
     currentVersion: "",
     error: "",
     action: "" as UpdateAction | "",
+    mirrorRoot: "",
   })
 
   const current = () => store.currentVersion || platform.version || ""
@@ -148,7 +149,9 @@ export const DialogUpdate: Component<Props> = (props) => {
   const recoverUpdate = async () => recover("recover", platform.recoverUpdate)
 
   const retryMirror = async () => {
-    await recover("mirror", platform.retryUpdateMirror)
+    await recover("mirror", async () => {
+      await platform.retryUpdateMirror?.(store.mirrorRoot || undefined)
+    })
   }
 
   const start = async () => {
@@ -276,6 +279,18 @@ export const DialogUpdate: Component<Props> = (props) => {
                 <span>{store.error || hint()}</span>
               </div>
               <div class="text-12-regular text-text-weak">{hint()}</div>
+              <Show when={store.action === "mirror"}>
+                <div class="flex flex-col gap-1">
+                  <label class="text-12-regular text-text-weak">镜像目标目录</label>
+                  <input
+                    type="text"
+                    class="w-full rounded-md border border-border bg-bg-surface px-2 py-1 text-13-regular text-text-main outline-none focus:border-border-focus"
+                    placeholder="/Users/lx/Applications/aether"
+                    value={store.mirrorRoot}
+                    onInput={(e) => setStore("mirrorRoot", e.currentTarget.value)}
+                  />
+                </div>
+              </Show>
             </div>
             <Button size="small" variant="primary" onClick={store.action === "mirror" ? retryMirror : recoverUpdate}>
               {label()}
