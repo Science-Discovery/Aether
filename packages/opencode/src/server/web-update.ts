@@ -676,7 +676,7 @@ function getAppRoot(): string {
 
 function findVersionParent(dir: string): string | null {
   const name = path.basename(dir)
-  if (/^aether_/.test(name)) return path.dirname(dir)
+  if (/^aether[-_]/i.test(name)) return path.dirname(dir)
   const parent = path.dirname(dir)
   if (parent === dir) return null
   return findVersionParent(parent)
@@ -689,12 +689,15 @@ async function scanLocalVersions() {
   const entries = await fs.readdir(parent).catch(() => [])
   const versions: string[] = []
   for (const entry of entries) {
-    const match = /^aether_(.+)$/.exec(entry)
-    if (match) {
-      const full = path.join(parent, entry)
-      const stat = await fs.stat(full).catch(() => null)
-      if (stat?.isDirectory()) versions.push(match[1])
-    }
+    if (!/^aether[-_]/i.test(entry) || !/^aether[-_]\d+\.\d+\.\d+/.test(entry)) continue
+    const full = path.join(parent, entry)
+    const stat = await fs.stat(full).catch(() => null)
+    if (!stat?.isDirectory()) continue
+    const ver = await fs
+      .readFile(path.join(full, ".aether_web_version"), "utf-8")
+      .then((x) => x.trim())
+      .catch(() => "")
+    versions.push(ver || entry.replace(/^aether[-_]/i, ""))
   }
   return versions
 }
@@ -707,9 +710,9 @@ export async function readWebCurrentVersion() {
     .catch(() => "")
 
   const local = await scanLocalVersions()
-  let best = local.length > 0 ? local[0] : ""
-  for (let i = 1; i < local.length; i++) {
-    if (compareVer(local[i], best) > 0) best = local[i]
+  let best = ""
+  for (const v of local) {
+    if (compareVer(v, best) > 0) best = v
   }
 
   if (marker && (!best || compareVer(marker, best) > 0)) return normalizeVersion(marker)
