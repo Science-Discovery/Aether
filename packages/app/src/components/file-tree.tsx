@@ -4,6 +4,7 @@ import { encodeFilePath } from "@/context/file/path"
 import { usePlatform } from "@/context/platform"
 import { useSDK } from "@/context/sdk"
 import { useSessionLayout } from "@/pages/session/session-layout"
+import { useLanguage } from "@/context/language"
 import { Collapsible } from "@opencode-ai/ui/collapsible"
 import { ContextMenu } from "@opencode-ai/ui/context-menu"
 import { FileIcon } from "@opencode-ai/ui/file-icon"
@@ -259,6 +260,7 @@ export default function FileTree(props: {
   const platform = usePlatform()
   const sdk = useSDK()
   const { params } = useSessionLayout()
+  const language = useLanguage()
   const level = props.level ?? 0
   const draggable = () => props.draggable ?? true
 
@@ -560,17 +562,17 @@ export default function FileTree(props: {
                   {node.type === "directory" && (
                     <>
                       <ContextMenu.Item onSelect={() => props.onFileCreate?.(node.path, "file")}>
-                        <ContextMenu.ItemLabel>新建文件</ContextMenu.ItemLabel>
+                        <ContextMenu.ItemLabel>{language.t("fileTree.newFile")}</ContextMenu.ItemLabel>
                       </ContextMenu.Item>
                       <ContextMenu.Item onSelect={() => props.onFileCreate?.(node.path, "directory")}>
-                        <ContextMenu.ItemLabel>新建文件夹</ContextMenu.ItemLabel>
+                        <ContextMenu.ItemLabel>{language.t("fileTree.newFolder")}</ContextMenu.ItemLabel>
                       </ContextMenu.Item>
                       <ContextMenu.Separator />
                       <ContextMenu.Item onSelect={() => props.onUploadToDir?.(node.path, "file")}>
-                        <ContextMenu.ItemLabel>上传文件到此处</ContextMenu.ItemLabel>
+                        <ContextMenu.ItemLabel>{language.t("fileTree.uploadHere")}</ContextMenu.ItemLabel>
                       </ContextMenu.Item>
                       <ContextMenu.Item onSelect={() => props.onUploadToDir?.(node.path, "directory")}>
-                        <ContextMenu.ItemLabel>上传文件夹到此处</ContextMenu.ItemLabel>
+                        <ContextMenu.ItemLabel>{language.t("fileTree.uploadFolderHere")}</ContextMenu.ItemLabel>
                       </ContextMenu.Item>
                       <ContextMenu.Separator />
                     </>

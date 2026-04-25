@@ -33,7 +33,11 @@ import { usePlatform } from "@/context/platform"
 import { useSync } from "@/context/sync"
 import { useSDK } from "@/context/sdk"
 import { useServer } from "@/context/server"
-import { registerOpenFileCallback, registerRefreshDirCallback, restoreActiveTasks } from "@/components/pdf-convert-progress"
+import {
+  registerOpenFileCallback,
+  registerRefreshDirCallback,
+  restoreActiveTasks,
+} from "@/components/pdf-convert-progress"
 import { createFileTabListSync } from "@/pages/session/file-tab-scroll"
 import { FileTabContent } from "@/pages/session/file-tabs"
 import { createOpenSessionFileTab, createSessionTabs, getTabReorderIndex, type Sizing } from "@/pages/session/helpers"
@@ -89,7 +93,7 @@ export function SessionSidePanel(props: {
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
       ...authHeader,
-      ...(options.headers as Record<string, string> ?? {}),
+      ...((options.headers as Record<string, string>) ?? {}),
     }
     const separator = urlPath.includes("?") ? "&" : "?"
     const req = platform.fetch ?? fetch
@@ -315,13 +319,18 @@ export function SessionSidePanel(props: {
       const count = data?.count ?? 0
       showToast({
         variant: "success",
-        title: `已生成 ${count} 个目录摘要`,
+        title: language.t("filePanel.summarizeComplete", { count }),
       })
       file.tree.refresh("")
       refresh()
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
-      showToast({ variant: "error", icon: "circle-x", title: "生成摘要失败", description: message })
+      showToast({
+        variant: "error",
+        icon: "circle-x",
+        title: language.t("filePanel.summarizeFailed"),
+        description: message,
+      })
     } finally {
       setIsSummarizing(false)
     }
@@ -660,7 +669,7 @@ export function SessionSidePanel(props: {
     if (res.failed.length > 0) {
       showToast({
         variant: "error",
-        title: `上传完成：${done} 成功，${res.failed.length} 失败`,
+        title: language.t("filePanel.uploadComplete", { done, failed: res.failed.length }),
         description: res.failed[0]?.error,
       })
       return
@@ -668,14 +677,14 @@ export function SessionSidePanel(props: {
 
     showToast({
       variant: "success",
-      title: done > 0 ? `已上传 ${done} 个文件` : "已创建文件夹",
+      title: done > 0 ? language.t("filePanel.uploadedFiles", { count: done }) : language.t("filePanel.createdFolders"),
       description: extra || undefined,
     })
   }
 
   const upload = async (batch: Parameters<typeof send>[0]["batch"], dir: string) => {
     if (uploading()) {
-      showToast({ variant: "default", title: "上传仍在进行中" })
+      showToast({ variant: "default", title: language.t("filePanel.uploadInProgress") })
       return
     }
     if (batch.files.length === 0 && batch.dirs.length === 0) return
@@ -695,7 +704,7 @@ export function SessionSidePanel(props: {
     } catch (err) {
       showToast({
         variant: "error",
-        title: "上传失败",
+        title: language.t("filePanel.uploadFailed"),
         description: err instanceof Error ? err.message : String(err),
       })
     } finally {
@@ -1060,10 +1069,13 @@ export function SessionSidePanel(props: {
                     </Switch>
                   </ScrollView>
                 </Tabs.Content>
-                <Tabs.Content value="all" class="bg-background-stronger pl-3 py-0 flex flex-col @container overflow-hidden">
+                <Tabs.Content
+                  value="all"
+                  class="bg-background-stronger pl-3 py-0 flex flex-col @container overflow-hidden"
+                >
                   <div class="flex items-center gap-1 py-1.5 border-b border-border-weak-base">
                     <DropdownMenu>
-                      <Tooltip value="上传文件或文件夹到项目">
+                      <Tooltip value={language.t("filePanel.uploadTooltip")}>
                         <DropdownMenu.Trigger
                           as="button"
                           type="button"
@@ -1071,41 +1083,43 @@ export function SessionSidePanel(props: {
                           disabled={uploading()}
                         >
                           <Icon name="cloud-upload" size="small" />
-                          <span class="hidden @sm:block">{uploading() ? "上传中..." : "上传"}</span>
+                          <span class="hidden @sm:block">
+                            {uploading() ? language.t("filePanel.uploading") : language.t("filePanel.upload")}
+                          </span>
                         </DropdownMenu.Trigger>
                       </Tooltip>
                       <DropdownMenu.Portal>
                         <DropdownMenu.Content>
                           <DropdownMenu.Item onSelect={pickFiles} disabled={uploading()}>
-                            <DropdownMenu.ItemLabel>上传文件</DropdownMenu.ItemLabel>
+                            <DropdownMenu.ItemLabel>{language.t("filePanel.uploadFile")}</DropdownMenu.ItemLabel>
                           </DropdownMenu.Item>
                           <DropdownMenu.Item onSelect={() => void pickDir()} disabled={uploading()}>
-                            <DropdownMenu.ItemLabel>上传文件夹</DropdownMenu.ItemLabel>
+                            <DropdownMenu.ItemLabel>{language.t("filePanel.uploadFolder")}</DropdownMenu.ItemLabel>
                           </DropdownMenu.Item>
                         </DropdownMenu.Content>
                       </DropdownMenu.Portal>
                     </DropdownMenu>
-                    <Tooltip value="在项目根目录新建文件">
+                    <Tooltip value={language.t("filePanel.newFileTooltip")}>
                       <button
                         type="button"
                         class="flex items-center gap-1 px-2 py-1 rounded text-12-regular text-text-weak hover:text-text-base hover:bg-surface-raised-base-hover transition-colors"
                         onClick={() => handleFileCreate("", "file")}
                       >
                         <Icon name="plus-small" size="small" />
-                        <span class="hidden @sm:block">新建文件</span>
+                        <span class="hidden @sm:block">{language.t("filePanel.newFile")}</span>
                       </button>
                     </Tooltip>
-                    <Tooltip value="在项目根目录新建文件夹">
+                    <Tooltip value={language.t("filePanel.newFolderTooltip")}>
                       <button
                         type="button"
                         class="flex items-center gap-1 px-2 py-1 rounded text-12-regular text-text-weak hover:text-text-base hover:bg-surface-raised-base-hover transition-colors"
                         onClick={() => handleFileCreate("", "directory")}
                       >
                         <Icon name="folder-add-left" size="small" />
-                        <span class="hidden @sm:block">新建文件夹</span>
+                        <span class="hidden @sm:block">{language.t("filePanel.newFolder")}</span>
                       </button>
                     </Tooltip>
-                    <Tooltip value="为项目所有文件夹生成 .summary 摘要文件">
+                    <Tooltip value={language.t("filePanel.summarizeTooltip")}>
                       <button
                         type="button"
                         class="flex items-center gap-1 px-2 py-1 rounded text-12-regular text-text-weak hover:text-text-base hover:bg-surface-raised-base-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
@@ -1113,17 +1127,19 @@ export function SessionSidePanel(props: {
                         disabled={isSummarizing()}
                       >
                         <Icon name="bullet-list" size="small" />
-                        <span class="hidden @sm:block">{isSummarizing() ? "生成中..." : "生成摘要"}</span>
+                        <span class="hidden @sm:block">
+                          {isSummarizing() ? language.t("filePanel.summarizing") : language.t("filePanel.summarize")}
+                        </span>
                       </button>
                     </Tooltip>
-                    <Tooltip value="刷新项目文件列表">
+                    <Tooltip value={language.t("filePanel.refreshTooltip")}>
                       <button
                         type="button"
                         class="ml-auto flex items-center gap-1 px-2 py-1 rounded text-12-regular text-text-weak hover:text-text-base hover:bg-surface-raised-base-hover transition-colors"
                         onClick={handleRefresh}
                       >
                         <Icon name="arrow-down-to-line" size="small" />
-                        <span class="hidden @sm:block">刷新</span>
+                        <span class="hidden @sm:block">{language.t("filePanel.refresh")}</span>
                       </button>
                     </Tooltip>
                   </div>
@@ -1222,7 +1238,11 @@ export function SessionSidePanel(props: {
                 <ResizeHandle
                   direction="horizontal"
                   edge="start"
-                  size={typeof props.treeWidthOverride === "number" ? Math.max(0, props.treeWidthOverride) : layout.fileTree.width()}
+                  size={
+                    typeof props.treeWidthOverride === "number"
+                      ? Math.max(0, props.treeWidthOverride)
+                      : layout.fileTree.width()
+                  }
                   min={200}
                   max={480}
                   onResize={(width) => {
