@@ -553,10 +553,47 @@ async function resolveUpdateStatus(
   if (state.status === "installed") {
     return { status: "installed" as const, error: state.error ?? "", action: state.action }
   }
-  if (state.status === "installing" && compareVer(cur, state.version) >= 0) {
-    const chk = await verifyInstall(state.version, work)
-    if (chk.ok) return { status: "installed" as const, error: state.error ?? "", action: state.action }
-    return { status: "failed" as const, error: chk.error, action: "recover" as const }
+  if (state.status === "installing") {
+    const installChk = await verifyInstall(state.version, work)
+    if (installChk.ok) {
+      const cur = getAppRoot()
+      const isAether = await fs
+        .access(path.join(cur, "aether"))
+        .then(() => true)
+        .catch(() => false)
+      if (isAether) {
+        const mirrored = await fs
+          .access(path.join(path.dirname(cur), `aether_${state.version}`))
+          .then(() => true)
+          .catch(() => false)
+        if (!mirrored) {
+          return {
+            status: "failed" as const,
+            error: "安装成功但无法复制到当前运行位置附近，请重试镜像步骤。",
+            action: "mirror" as const,
+          }
+        }
+      }
+      return { status: "installed" as const, error: state.error ?? "", action: state.action }
+    }
+    if (compareVer(cur, state.version) >= 0) {
+      return { status: "failed" as const, error: installChk.error, action: "recover" as const }
+    }
+    if (Date.now() - state.at > INSTALL_TTL) {
+      return {
+        status: "failed" as const,
+        error: state.error ?? "The previous install took too long to finish. Restart the update from scratch.",
+        action: state.action ?? "recover",
+      }
+    }
+    if (state.server === UPDATE_RUN) {
+      return { status: "installing" as const, error: state.error ?? "", action: state.action }
+    }
+    return {
+      status: "failed" as const,
+      error: state.error ?? "The previous install did not finish. Restart the update from scratch.",
+      action: state.action ?? "recover",
+    }
   }
   const chk = await verifyDownload(os, meta, work)
   if (state.status === "downloaded") {
@@ -571,23 +608,6 @@ async function resolveUpdateStatus(
     return {
       status: "failed" as const,
       error: state.error ?? "The previous download did not finish. Restart the update from scratch.",
-      action: state.action ?? "recover",
-    }
-  }
-  if (state.status === "installing") {
-    if (Date.now() - state.at > INSTALL_TTL) {
-      return {
-        status: "failed" as const,
-        error: state.error ?? "The previous install took too long to finish. Restart the update from scratch.",
-        action: state.action ?? "recover",
-      }
-    }
-    if (state.server === UPDATE_RUN) {
-      return { status: "installing" as const, error: state.error ?? "", action: state.action }
-    }
-    return {
-      status: "failed" as const,
-      error: state.error ?? "The previous install did not finish. Restart the update from scratch.",
       action: state.action ?? "recover",
     }
   }
