@@ -986,7 +986,7 @@ export namespace File {
         const { cache } = yield* InstanceState.get(state)
 
         return yield* Effect.promise(async () => {
-          const query = input.query.trim()
+          const query = input.query.trim().replaceAll("\\", "/")
           const limit = input.limit ?? 100
           const kind = input.type ?? (input.dirs === false ? "file" : "all")
           log.info("search", { query, kind })
