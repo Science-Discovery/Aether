@@ -193,7 +193,7 @@ echo [3/4] Keeping the latest 5 versions; removed %PRUNE% older version director
 exit /b 0
 
 :mirror
-if defined AETHER_MIRROR_ROOT set "MROOT=%AETHER_MIRROR_ROOT%" & goto :mirror_have_root
+if defined AETHER_MIRROR_ROOT set "MROOT=%AETHER_MIRROR_ROOT%" & goto mirror_have_root
 if not defined AETHER_CURRENT_DIR exit /b 1
 for %%i in ("%AETHER_CURRENT_DIR%\..") do set "MROOT=%%~fi"
 :mirror_have_root
