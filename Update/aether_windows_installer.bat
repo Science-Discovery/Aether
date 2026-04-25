@@ -6,9 +6,11 @@ if defined AETHER_UPDATE_BASE (set "BASE=%AETHER_UPDATE_BASE%") else (set "BASE=
 set "LATEST=latest/windows-x64.yml"
 if not defined LOCALAPPDATA set "LOCALAPPDATA=%USERPROFILE%\AppData\Local"
 set "DEFAULT=%LOCALAPPDATA%\Programs\aether"
+set "WORK_DEFAULT=%USERPROFILE%\.local\share\aether\update\aether"
 set "MODE=init"
 set "ARG="
 set "PATH_ARG="
+set "MIRROR="
 set "NOHOLD=0"
 set "HOLD="
 
@@ -96,7 +98,8 @@ goto :bad
 
 :normalize
 set "IN=%~1"
-for %%i in ("%IN%") do set "BASE_NAME=%%~nxi"
+set "BASE_NAME="
+for %%i in ("%IN%") do set "BASE_NAME=%%~ni"
 if /I "%BASE_NAME%"=="aether" (
   set "%~2=%IN%"
 ) else (
@@ -107,30 +110,22 @@ exit /b 0
 :init
 echo Aether Windows Installer
 echo.
+set "WORK=%WORK_DEFAULT%"
 if defined PATH_ARG (
-  call :normalize "%PATH_ARG%" WORK
+  call :normalize "%PATH_ARG%" MIRROR
 ) else (
-  set "WORK=%DEFAULT%"
+  set "MIRROR=%DEFAULT%"
 )
-echo Install directory:
+echo Work directory:
 echo   %WORK%
-call :full WORK "%WORK%"
+echo Install directory:
+echo   %MIRROR%
 call :prep "%WORK%" || goto :dir_fail
-
-set "SELF=%~f0"
-set "DST=%WORK%\%~nx0"
-if /I not "%SELF%"=="%DST%" (
-  copy /y "%~f0" "%DST%" >nul || (
-    call :print_copy_fail "%WORK%"
-    goto :dir_fail
-  )
-)
-copy /y "%~f0" "%WORK%\aether_windows_installer.bat" >nul
 
 set "CUR="
 call :latest || goto :meta_fail
 call :print_latest
-call :installed "%WORK%" CUR
+call :installed "%MIRROR%" CUR
 if defined CUR (
   call :cmp "%CUR%" "%VER%"
   if /I "!CMP!"=="eq" (
@@ -159,15 +154,15 @@ if "%INS_FILE%"=="" (
 )
 
 call :print_init_run
-call "%INS_FILE%" "%VER%"
+set "AETHER_MIRROR_ROOT=%MIRROR%"
+set "AETHER_CURRENT_DIR=%MIRROR%\aether_%VER%"
+call "%INS_FILE%" "%VER%" --restart
 if errorlevel 1 (
   set "RES=run_error"
   call :result
   call :print_install_fail "%INS_FILE%"
   goto :run_fail
 )
-
-if not exist "%LOCALAPPDATA%\Aether_Database" mkdir "%LOCALAPPDATA%\Aether_Database" >nul 2>nul
 
 goto :done
 
@@ -322,7 +317,7 @@ if /I "%RES%"=="run_error" set "CODE=%RUN_ERR%"
 if /I "%RES%"=="dir_error" set "CODE=%DIR_ERR%"
 if /I "%RES%"=="arg_error" set "CODE=%ARG_ERR%"
 
-powershell -NoProfile -Command "$q={ param([string]$v) if([string]::IsNullOrEmpty($v)){ return '''''' }; return '''' + ($v -replace '''','''''''') + '''' }; $lines=@(('mode: ' + (& $q $env:MODE)),('status: ' + (& $q $env:RES)),('code: ' + $env:CODE),('current_version: ' + (& $q $env:CUR)),('target_version: ' + (& $q $env:VER)),('requested_version: ' + (& $q $env:REQ)),('work_dir: ' + (& $q $env:WORK)),('download_dir: ' + (& $q $env:DL)),('package_path: ' + (& $q $env:PKG_FILE)),('installer_path: ' + (& $q $env:INS_FILE)),('manifest_url: ' + (& $q $env:MANIFEST_URL)),('notes_url: ' + (& $q $env:NOTE_URL))); [IO.File]::WriteAllLines($env:RES_FILE, $lines)"
+powershell -NoProfile -Command "$q={ param([string]$v) if([string]::IsNullOrEmpty($v)){ return '''''' }; return '''' + ($v -replace '''','''''''') + '''' }; $lines=@(('mode: ' + (& $q $env:MODE)),('status: ' + (& $q $env:RES)),('code: ' + $env:CODE),('current_version: ' + (& $q $env:CUR)),('target_version: ' + (& $q $env:VER)),('requested_version: ' + (& $q $env:REQ)),('work_dir: ' + (& $q $env:WORK)),('download_dir: ' + (& $q $env:DL)),('package_path: ' + (& $q $env:PKG_FILE)),('installer_path: ' + (& $q $env:INS_FILE)),('manifest_url: ' + (& $q $env:MANIFEST_URL)),('notes_url: ' + (& $q $env:NOTE_URL)),('mirror_root: ' + (& $q $env:MIRROR))); [IO.File]::WriteAllLines($env:RES_FILE, $lines)"
 exit /b 0
 
 :cmp
@@ -352,14 +347,9 @@ if exist "%DIR%" exit /b 0
 mkdir "%DIR%" >nul 2>nul || exit /b 1
 exit /b 0
 
-:full
-for %%i in ("%~2") do set "%~1=%%~fi"
-exit /b 0
-
 :installed
 set "%~2="
 set "DIR=%~1"
-set "RV="
 for %%i in ("%DIR%") do set "NAME=%%~nxi"
 for /f "usebackq delims=" %%i in (`powershell -NoProfile -Command "$name=$env:NAME; if($name -match '^aether[-_]([0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z]+)*)$'){ [Console]::Write($matches[1]) }"`) do set "%~2=%%i"
 if defined %~2 exit /b 0
@@ -435,11 +425,6 @@ exit /b 0
 echo Install step failed while running: %~1
 exit /b 0
 
-:print_auto_arg
-echo auto mode needs current version.
-echo Example: %~nx0 auto 1.2.3
-exit /b 0
-
 :print_manual_arg
 echo manual mode needs a version.
 echo Example: %~nx0 manual 1.2.3
@@ -450,12 +435,7 @@ echo Requested version: %~1
 echo Resolved version:  %~2
 exit /b 0
 
-:print_copy_fail
-echo Failed to copy installer to %~1
-exit /b 0
-
 :abs
-set "SRC=%~2"
 set "VAL=%~3"
 if not defined VAL (
   set "%~1="
@@ -596,6 +576,14 @@ echo Usage:
 echo   %~nx0 [--no-pause] [--path ^<dir^>] init
 echo   %~nx0 [--no-pause] auto ^<current-version^>
 echo   %~nx0 [--no-pause] manual ^<target-version^>
+echo.
+echo init mode:
+echo   --path specifies the install target directory (default %DEFAULT%)
+echo   Work directory is fixed at %WORK_DEFAULT%
+echo   Downloads, installs, and mirrors to the target directory
+echo.
+echo auto mode:
+echo   Called by the main app; work directory via AETHER_WORK_DIR
 echo.
 echo Remote manifests:
 echo   %BASE%/%LATEST%

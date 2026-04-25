@@ -4,9 +4,11 @@ set -euo pipefail
 
 base="${AETHER_UPDATE_BASE:-https://aether.aiphys.cn/download}"
 default="$HOME/.local/share/applications/aether"
+work_default="$HOME/.local/share/aether/update/aether"
 mode="init"
 arg=""
 path_arg=""
+mirror=""
 hold=0
 nohold=0
 
@@ -413,6 +415,7 @@ result() {
     echo "installer_path: $(quote "$ins_file")"
     echo "manifest_url: $(quote "$manifest_url")"
     echo "notes_url: $(quote "$note_url")"
+    echo "mirror_root: $(quote "$mirror")"
   } >"$res_file"
 }
 
@@ -769,6 +772,14 @@ Usage:
   $(basename "$0") [--no-pause] auto <current-version>
   $(basename "$0") [--no-pause] manual <target-version>
 
+init mode:
+  --path specifies the install target directory (default $default)
+  Work directory is fixed at $work_default
+  Downloads, installs, and mirrors to the target directory
+
+auto mode:
+  Called by the main app; work directory via AETHER_WORK_DIR
+
 Remote manifests:
   $base/$latest
   $base/1.2.3/$plat.yml
@@ -802,9 +813,12 @@ fi
 if [ "$mode" = "init" ]; then
   echo "Aether Linux Installer"
   echo
-  work="$(normalize_work "${path_arg:-$default}")"
-  echo "Install directory:"
+  work="$work_default"
+  mirror="$(normalize_work "${path_arg:-$default}")"
+  echo "Work directory:"
   echo "  $work"
+  echo "Install directory:"
+  echo "  $mirror"
   prep "$work" || {
     res="dir_error"
     result
@@ -812,17 +826,6 @@ if [ "$mode" = "init" ]; then
     echo "Work directory failed."
     fail "$dir_err"
   }
-  local_self="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
-  local_dst="$work/$(basename "$0")"
-  if [ "$local_self" != "$local_dst" ]; then
-    cp "$0" "$local_dst" 2>/dev/null || {
-      res="dir_error"
-      result
-      echo
-      echo "Failed to copy installer to $work"
-      fail "$dir_err"
-    }
-  fi
   manifest_url="$base/$latest"
   manifest "$manifest_url" latest || {
     res="meta_error"
@@ -832,7 +835,7 @@ if [ "$mode" = "init" ]; then
     fail "$meta_err"
   }
   echo "Latest version: $ver"
-  cur="$(installed "$work")"
+  cur="$(installed "$mirror")"
   if [ -n "$cur" ] && [ "$(cmp "$cur" "$ver")" = "eq" ]; then
     res="up_to_date"
     result
@@ -870,7 +873,7 @@ if [ "$mode" = "init" ]; then
   echo
   if [ -n "$ins_file" ]; then
     echo "[init] Running installer script..."
-    if ! (cd "$work/downloads" && bash "$(basename "$ins_file")" install "$ver"); then
+    if ! (cd "$work/downloads" && AETHER_MIRROR_ROOT="$mirror" AETHER_CURRENT_DIR="$mirror/aether_$ver" bash "$(basename "$ins_file")" install "$ver" --restart); then
       res="run_error"
       result
       echo
@@ -885,9 +888,7 @@ if [ "$mode" = "init" ]; then
     fail "$run_err"
   fi
 
-  mkdir -p "$HOME/Aether_Database" 2>/dev/null || true
-
-  ensure_libssl "$work/aether_$ver"
+  ensure_libssl "$mirror/aether_$ver"
 
   desktop_hint
 
