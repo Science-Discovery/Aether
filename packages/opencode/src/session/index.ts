@@ -61,6 +61,10 @@ export namespace Session {
   const childTitlePrefix = "Child session - "
   const forkTitlePattern = /^(.*) \(fork #(\d+)\)$/
 
+  function isSubagentSession(session: Info) {
+    return !!session.parentID && !session.forkParentSessionID
+  }
+
   function createDefaultTitle(isChild = false) {
     return (isChild ? childTitlePrefix : parentTitlePrefix) + new Date().toISOString()
   }
@@ -339,7 +343,8 @@ export namespace Session {
     const sessionByID = new Map(sessions.map((session) => [session.id, session] as const))
     const completedBySessionID = new Map<SessionID, MessageID[]>()
 
-    const getSession = async (sessionID: SessionID) => sessionByID.get(sessionID) ?? (await get(sessionID).catch(() => undefined))
+    const getSession = async (sessionID: SessionID) =>
+      sessionByID.get(sessionID) ?? (await get(sessionID).catch(() => undefined))
     const getCompletedUserMessages = async (sessionID: SessionID) => {
       const cached = completedBySessionID.get(sessionID)
       if (cached) return cached
@@ -859,10 +864,7 @@ export namespace Session {
       time: z.number().optional(),
     }),
     async (input) => {
-      const archived =
-        typeof input.time === "number" && input.time <= 0
-          ? null
-          : input.time
+      const archived = typeof input.time === "number" && input.time <= 0 ? null : input.time
       SyncEvent.run(Event.Updated, { sessionID: input.sessionID, info: { time: { archived } } })
     },
   )
@@ -1094,8 +1096,7 @@ export namespace Session {
     archived?: boolean
   }) {
     const conditions: SQL[] = []
-    const archivedMode =
-      input?.archivedMode ?? (input?.archived === true ? ("include" as const) : ("exclude" as const))
+    const archivedMode = input?.archivedMode ?? (input?.archived === true ? ("include" as const) : ("exclude" as const))
 
     if (input?.directory) {
       conditions.push(eq(SessionTable.directory, Filesystem.resolve(input.directory)))
@@ -1166,7 +1167,7 @@ export namespace Session {
         .where(and(eq(SessionTable.project_id, project.id), eq(SessionTable.parent_id, parentID)))
         .all(),
     )
-    return rows.map(fromRow)
+    return rows.map(fromRow).filter((s) => !isSubagentSession(s))
   })
 
   export const tree = fn(SessionID.zod, async (sessionID): Promise<TreeResult> => {
@@ -1195,7 +1196,7 @@ export namespace Session {
     return {
       kind: "tree",
       treeID,
-      sessions: rows.map(fromRow),
+      sessions: rows.map(fromRow).filter((s) => !isSubagentSession(s)),
     }
   })
 
@@ -1272,7 +1273,7 @@ export namespace Session {
     })
     const treeID = currentSession.treeID
 
-    const treeSessions = Database.use((db) =>
+    const allTreeSessions = Database.use((db) =>
       db
         .select()
         .from(SessionTable)
@@ -1281,6 +1282,8 @@ export namespace Session {
         .all()
         .map(fromRow),
     )
+
+    const treeSessions = allTreeSessions.filter((s) => !isSubagentSession(s))
 
     const treeSessionIDs = new Set(treeSessions.map((session) => session.id))
     const sessionsByID = new Map(treeSessions.map((session) => [session.id, session] as const))
