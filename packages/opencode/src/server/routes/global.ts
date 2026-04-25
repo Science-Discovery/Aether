@@ -431,21 +431,26 @@ function versioned(name: string, ver: string) {
   return `${name.slice(0, idx)}-${ver}${name.slice(idx)}`
 }
 
+function normalizeVersion(v: string): string {
+  const parts = v
+    .replace(/^v/i, "")
+    .split("-")[0]
+    .split(".")
+    .map((x) => Number.parseInt(x || "0", 10) || 0)
+  while (parts.length < 4) parts.push(0)
+  return parts.slice(0, 4).join(".")
+}
+
 function compareVer(a: string, b: string) {
   const norm = (v: string) =>
-    v
-      .replace(/^v/i, "")
-      .split("-")[0]
+    normalizeVersion(v)
       .split(".")
       .map((x) => Number.parseInt(x || "0", 10) || 0)
   const x = norm(a)
   const y = norm(b)
-  const len = Math.max(x.length, y.length, 3)
-  for (let i = 0; i < len; i++) {
-    const p = x[i] ?? 0
-    const q = y[i] ?? 0
-    if (p < q) return -1
-    if (p > q) return 1
+  for (let i = 0; i < 4; i++) {
+    if (x[i] < y[i]) return -1
+    if (x[i] > y[i]) return 1
   }
   return 0
 }
@@ -516,11 +521,11 @@ async function readWebCurrentVersion() {
       .catch(() => "")
 
   const cached = await read()
-  if (cached) return cached
-  const fallback = Installation.VERSION
+  if (cached) return normalizeVersion(cached)
+  const fallback = normalizeVersion(Installation.VERSION)
   await fs.writeFile(file, `${fallback}\n`, "utf-8").catch(() => undefined)
   const next = await read()
-  return next || fallback
+  return next ? normalizeVersion(next) : fallback
 }
 
 async function webCheck(os: z.infer<typeof WebUpdateOS>) {
