@@ -385,8 +385,8 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
       return available[Math.floor(Math.random() * available.length)]
     }
 
-    function enrich(project: { worktree: string; expanded: boolean }) {
-      const [childStore] = globalSync.child(project.worktree, { bootstrap: false })
+    function enrich(project: LocalProject) {
+      const [childStore] = globalSync.child(project.worktree, { bootstrap: true })
       const projectID = childStore.project
       const metadata = projectID ? globalSync.project.get(projectID) : globalSync.project.fromDir(project.worktree)
       const local = childStore.projectMeta
@@ -395,6 +395,7 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
         ...(metadata ?? {}),
         ...project,
         id: metadata?.id ?? projectID ?? "global",
+        vcs: metadata?.vcs ?? project.vcs ?? (childStore.vcs ? "git" : undefined),
         name: local?.name ?? metadata?.name ?? getFilename(project.worktree),
         icon: {
           url: metadata?.icon?.url,

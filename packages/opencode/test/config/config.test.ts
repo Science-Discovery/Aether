@@ -11,6 +11,7 @@ import { Global } from "../../src/global"
 import { ProjectID } from "../../src/project/schema"
 import { Filesystem } from "../../src/util/filesystem"
 import { BunProc } from "../../src/bun"
+import { PROJECT } from "../../src/persist/naming"
 
 // Get managed config directory from environment (set in preload.ts)
 const managedConfigDir = process.env.OPENCODE_TEST_MANAGED_CONFIG_DIR!
@@ -836,6 +837,32 @@ test("does not try to install dependencies in read-only OPENCODE_CONFIG_DIR", as
     if (prev === undefined) delete process.env.OPENCODE_CONFIG_DIR
     else process.env.OPENCODE_CONFIG_DIR = prev
   }
+})
+
+test("skips dependency install for empty project config dir", async () => {
+  await using tmp = await tmpdir<string>({
+    init: async (dir) => {
+      const cfg = path.join(dir, PROJECT)
+      await fs.mkdir(cfg, { recursive: true })
+      return cfg
+    },
+  })
+
+  expect(await Config.needsInstall(tmp.extra)).toBe(false)
+  expect(await Filesystem.exists(path.join(tmp.extra, "package.json"))).toBe(false)
+})
+
+test("installs dependencies for project config local plugins", async () => {
+  await using tmp = await tmpdir<string>({
+    init: async (dir) => {
+      const cfg = path.join(dir, PROJECT)
+      await fs.mkdir(path.join(cfg, "plugin"), { recursive: true })
+      await Filesystem.write(path.join(cfg, "plugin", "test.ts"), "export default async () => ({})\n")
+      return cfg
+    },
+  })
+
+  expect(await Config.needsInstall(tmp.extra)).toBe(true)
 })
 
 test("installs dependencies in writable OPENCODE_CONFIG_DIR", async () => {

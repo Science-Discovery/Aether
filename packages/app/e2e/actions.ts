@@ -1003,6 +1003,7 @@ export async function setWorkspacesEnabled(page: Page, projectSlug: string, enab
     const menu = await openProjectMenu(page, projectSlug)
     const toggle = menu.locator(projectWorkspacesToggleSelector(projectSlug)).first()
     await expect(toggle).toBeVisible()
+    await expect(toggle).toBeEnabled()
     return toggle.click({ force: true, timeout })
   }
 

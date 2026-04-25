@@ -342,6 +342,41 @@ export namespace Config {
     }
   }
 
+  function project(dir: string) {
+    const base = path.basename(dir)
+    return base === PROJECT || base === LEGACY_PROJECT
+  }
+
+  async function declared(dir: string) {
+    for (const file of [...configFiles(CFG), ...configFiles(LEGACY_CFG)]) {
+      const loc = path.join(dir, file)
+      const text = await ConfigPaths.readFile(loc).catch(() => undefined)
+      if (!text) continue
+
+      const cfg = await ConfigPaths.parseText(text, loc).catch(() => undefined)
+      if (!cfg || typeof cfg !== "object" || Array.isArray(cfg)) continue
+
+      const plugin = (cfg as { plugin?: unknown }).plugin
+      if (!Array.isArray(plugin)) continue
+      if (plugin.some((item) => typeof item === "string" && item.trim())) return true
+    }
+    return false
+  }
+
+  async function consumer(dir: string, pkg: string) {
+    if (await Filesystem.exists(pkg)) return true
+
+    const hits = Glob.scanSync("{plugin,plugins,tool,tools}/*.{js,ts}", {
+      cwd: dir,
+      absolute: true,
+      dot: true,
+      symlink: true,
+    })
+    if (hits.length) return true
+
+    return declared(dir)
+  }
+
   export async function needsInstall(dir: string) {
     // Some config dirs may be read-only.
     // Installing deps there will fail; skip installation in that case.
@@ -351,11 +386,16 @@ export namespace Config {
       return false
     }
 
+    const pkg = path.join(dir, "package.json")
+    const pkgExists = await Filesystem.exists(pkg)
+    if (project(dir) && !pkgExists && !(await consumer(dir, pkg))) {
+      log.debug("config dir has no dependency consumers, skipping dependency install", { dir })
+      return false
+    }
+
     const nodeModules = path.join(dir, "node_modules")
     if (!existsSync(nodeModules)) return true
 
-    const pkg = path.join(dir, "package.json")
-    const pkgExists = await Filesystem.exists(pkg)
     if (!pkgExists) return true
 
     const parsed = await Filesystem.readJson<{ dependencies?: Record<string, string> }>(pkg).catch(() => null)
