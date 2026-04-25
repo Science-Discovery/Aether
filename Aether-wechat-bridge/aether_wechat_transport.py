@@ -167,13 +167,19 @@ class RelayAgent(Agent):
         )
 
         ctx_token = raw.get("context_token", "")
-        if ctx_token:
-            print(
-                f"[CTX] {json.dumps({'conv_id': conv_id, 'context_token': ctx_token})}"
-            )
-            sys.stdout.flush()
+        print(f"[CTX] {json.dumps({'conv_id': conv_id, 'context_token': ctx_token})}")
+        sys.stdout.flush()
 
-        logger.info(f"[relay] conv={conv_id} msg={message_id} text={text[:50]}")
+        if ctx_token:
+            logger.info(f"[relay] cached context_token for conv={conv_id}")
+        else:
+            logger.warning(
+                f"[relay] no context_token in raw for conv={conv_id}, raw keys: {list(raw.keys()) if raw else 'none'}"
+            )
+
+        logger.info(
+            f"[relay] conv={conv_id} msg={message_id} text={text[:50]} ctx={ctx_token[:8] if ctx_token else 'none'}"
+        )
 
         try:
             async with httpx.AsyncClient(timeout=30.0) as client:

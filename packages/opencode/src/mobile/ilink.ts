@@ -2,9 +2,11 @@ import crypto from "node:crypto"
 import { readFile, stat } from "node:fs/promises"
 import { basename, extname } from "node:path"
 
-const VERSION = "2.1.8"
+const VERSION = "1.0.2"
 const APP_ID = "bot"
-const cvNum = ((2 & 0xff) << 16) | ((1 & 0xff) << 8) | (8 & 0xff)
+const cvNum = ((1 & 0xff) << 16) | ((0 & 0xff) << 8) | (2 & 0xff)
+
+const MAX_TEXT_LENGTH = 2000
 
 const MIME_MAP: Record<string, string> = {
   ".pdf": "application/pdf",
@@ -28,13 +30,47 @@ const mediaType = (file: string) => {
 
 const uin = () => Buffer.from(String(crypto.randomBytes(4).readUInt32BE(0)), "utf-8").toString("base64")
 
-const id = () => `aether-wechat:${Date.now()}-${crypto.randomBytes(4).toString("hex")}`
+const clientId = () => `wechat-agent-sdk-${crypto.randomUUID().replace(/-/g, "").slice(0, 16)}`
 
 const aesSize = (n: number) => Math.ceil((n + 1) / 16) * 16
 
 const aesEnc = (buf: Buffer, key: Buffer) => {
   const cipher = crypto.createCipheriv("aes-128-ecb", key, null)
   return Buffer.concat([cipher.update(buf), cipher.final()])
+}
+
+function stripMarkdown(text: string): string {
+  if (!text) return text
+  text = text.replace(/```\w*\n(.*?)```/gs, "$1")
+  text = text.replace(/`([^`]+)`/g, "$1")
+  text = text.replace(/!\[([^\]]*)\]\([^)]+\)/g, "[图片: $1]")
+  text = text.replace(/\[([^\]]+)\]\(([^)]+)\)/g, "$1 ($2)")
+  text = text.replace(/^#{1,6}\s+/gm, "")
+  text = text.replace(/\*\*(.+?)\*\*/g, "$1")
+  text = text.replace(/__(.+?)__/g, "$1")
+  text = text.replace(/(?<!\w)\*([^*]+?)\*(?!\w)/g, "$1")
+  text = text.replace(/(?<!\w)_([^_]+?)_(?!\w)/g, "$1")
+  text = text.replace(/~~(.+?)~~/g, "$1")
+  text = text.replace(/^[-*_]{3,}\s*$/gm, "————")
+  return text.trim()
+}
+
+function splitText(text: string, max: number = MAX_TEXT_LENGTH): string[] {
+  if (text.length <= max) return [text]
+  const chunks: string[] = []
+  let remaining = text
+  while (remaining) {
+    if (remaining.length <= max) {
+      chunks.push(remaining)
+      break
+    }
+    let pos = remaining.lastIndexOf("\n\n", max)
+    if (pos === -1) pos = remaining.lastIndexOf("\n", max)
+    if (pos === -1) pos = max
+    chunks.push(remaining.slice(0, pos).trimEnd())
+    remaining = remaining.slice(pos).trimStart()
+  }
+  return chunks
 }
 
 async function post(url: string, body: unknown, token?: string) {
@@ -44,10 +80,7 @@ async function post(url: string, body: unknown, token?: string) {
     headers: {
       "Content-Type": "application/json",
       AuthorizationType: "ilink_bot_token",
-      "Content-Length": String(Buffer.byteLength(text, "utf-8")),
       "X-WECHAT-UIN": uin(),
-      "iLink-App-Id": APP_ID,
-      "iLink-App-ClientVersion": String(cvNum),
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },
     body: text,
@@ -57,6 +90,10 @@ async function post(url: string, body: unknown, token?: string) {
   return raw ? JSON.parse(raw) : {}
 }
 
+function baseInfo() {
+  return { channel_version: VERSION }
+}
+
 export async function sendText(
   baseUrl: string,
   token: string,
@@ -64,22 +101,26 @@ export async function sendText(
   text: string,
   ctx: string,
 ): Promise<void> {
-  await post(
-    `${baseUrl.replace(/\/$/, "")}/ilink/bot/sendmessage`,
-    {
-      msg: {
-        from_user_id: "",
-        to_user_id: convId,
-        client_id: id(),
-        message_type: 1,
-        message_state: 2,
-        text_item: { text },
-        context_token: ctx,
+  const plain = stripMarkdown(text)
+  const chunks = splitText(plain)
+  for (const chunk of chunks) {
+    await post(
+      `${baseUrl.replace(/\/$/, "")}/ilink/bot/sendmessage`,
+      {
+        msg: {
+          from_user_id: "",
+          to_user_id: convId,
+          client_id: clientId(),
+          message_type: 2,
+          message_state: 2,
+          item_list: [{ type: 1, text_item: { text: chunk } }],
+          context_token: ctx,
+        },
+        base_info: baseInfo(),
       },
-      base_info: { channel_version: VERSION },
-    },
-    token,
-  )
+      token,
+    )
+  }
 }
 
 export async function sendFile(
@@ -111,7 +152,7 @@ export async function sendFile(
       filesize: aesSize(buf.length),
       no_need_thumb: true,
       aeskey: key.toString("hex"),
-      base_info: { channel_version: VERSION },
+      base_info: baseInfo(),
     },
     token,
   )
@@ -168,13 +209,13 @@ export async function sendFile(
       msg: {
         from_user_id: "",
         to_user_id: convId,
-        client_id: id(),
+        client_id: clientId(),
         message_type: 2,
         message_state: 2,
         item_list: [item],
         context_token: ctx,
       },
-      base_info: { channel_version: VERSION },
+      base_info: baseInfo(),
     },
     token,
   )

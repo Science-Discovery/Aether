@@ -283,7 +283,9 @@ export function createMobileRoutes(platform: "feishu" | "wechat") {
         const rootId = body.rootId || body.root_id || messageId
         if (!chatId) return c.json({ ok: false })
         const effectiveMsgId = messageId || `${chatId}:${Date.now()}`
-        void manager.handleMessage(chatId, effectiveMsgId, text, rootId)
+        void manager.handleMessage(chatId, effectiveMsgId, text, rootId).catch((err) => {
+          console.error(`[${platform}] handleMessage unhandled error:`, err)
+        })
         return c.json({ ok: true })
       },
     )

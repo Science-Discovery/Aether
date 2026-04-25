@@ -456,11 +456,12 @@ export abstract class MobileManagerBase {
         const active = this._activePrompt.get(chatId)
         if (active) {
           await this.adapter.replyText(
-            messageId,
+            reply,
             "当前会话正在生成回复，请等待当前对话结束后再发送；如需立即开始新问题，请先 /new 或切换 /session n。如需停止本会话请输入 /stop",
           )
           return
         }
+
         if (!(chatId in this._chatSessions)) {
           await this.adapter.replyText(reply, "没有任务在执行")
           return
@@ -501,7 +502,7 @@ export abstract class MobileManagerBase {
       const active = this._activePrompt.get(chatId)
       if (active) {
         await this.adapter.replyText(
-          messageId,
+          reply,
           "当前会话正在生成回复，请等待当前对话结束后再发送；如需立即开始新问题，请先 /new 或切换 /session n。如需停止本会话请输入 /stop",
         )
         return

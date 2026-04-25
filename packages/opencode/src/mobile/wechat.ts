@@ -333,9 +333,13 @@ class WeChatManagerImpl extends MobileManagerBase {
         this._ilinkToken = payload.token || ""
         this._ilinkBaseUrl = payload.base_url || ""
         if (payload.cdn_base_url) this._ilinkCdnBaseUrl = payload.cdn_base_url
-        console.log("[wechat] iLink auth received, base_url:", this._ilinkBaseUrl)
+        console.log(
+          "[wechat] iLink auth received, token:",
+          this._ilinkToken.slice(0, 8) + "..., base_url:",
+          this._ilinkBaseUrl,
+        )
       } catch (e) {
-        console.error("[wechat] failed to parse [TOKEN]:", e)
+        console.error("[wechat] failed to parse [TOKEN]:", e, "line:", line.slice(0, 100))
       }
       return
     }
@@ -344,11 +348,14 @@ class WeChatManagerImpl extends MobileManagerBase {
         const payload = JSON.parse(line.slice(5).trim())
         const convId = payload.conv_id || payload.conversation_id || ""
         const ctx = payload.context_token || ""
-        if (convId && ctx) {
+        if (convId) {
           this._contextTokens[convId] = ctx
+          console.log("[wechat] [CTX] conv:", convId, "token:", ctx ? ctx.slice(0, 8) + "..." : "(empty)")
+        } else {
+          console.warn("[wechat] [CTX] missing conv_id, payload:", JSON.stringify(payload).slice(0, 100))
         }
       } catch (e) {
-        console.error("[wechat] failed to parse [CTX]:", e)
+        console.error("[wechat] failed to parse [CTX]:", e, "line:", line.slice(0, 100))
       }
       return
     }
@@ -451,37 +458,51 @@ class WeChatManagerImpl extends MobileManagerBase {
 
   public async sendToWeChat(convId: string, text: string): Promise<void> {
     if (!this._ilinkToken) {
-      console.error("[wechat] cannot send: no iLink token")
+      console.error("[wechat] cannot send: no iLink token (login may not have completed)")
       return
     }
     const ctx = this._contextTokens[convId]
     if (!ctx) {
-      console.error("[wechat] cannot send: no context token for", convId)
-      return
+      console.warn("[wechat] no context token for", convId, "— attempting send without it")
     }
     try {
-      await ilink.sendText(this._ilinkBaseUrl, this._ilinkToken, convId, text, ctx)
-      console.log("[wechat] sent text to", convId, text.slice(0, 50))
+      await ilink.sendText(this._ilinkBaseUrl, this._ilinkToken, convId, text, ctx || "")
+      console.log(
+        "[wechat] sent text to",
+        convId,
+        "ctx:",
+        ctx ? ctx.slice(0, 8) + "..." : "(none)",
+        "text:",
+        text.slice(0, 80),
+      )
     } catch (err) {
-      console.error("[wechat] sendText error:", err)
+      console.error(
+        "[wechat] sendText error:",
+        err,
+        "convId:",
+        convId,
+        "hasCtx:",
+        !!ctx,
+        "tokenLen:",
+        this._ilinkToken.length,
+      )
     }
   }
 
   public async sendFileToWeChat(convId: string, filePath: string): Promise<void> {
     if (!this._ilinkToken) {
-      console.error("[wechat] cannot send file: no iLink token")
+      console.error("[wechat] cannot send file: no iLink token (login may not have completed)")
       return
     }
     const ctx = this._contextTokens[convId]
     if (!ctx) {
-      console.error("[wechat] cannot send file: no context token for", convId)
-      return
+      console.warn("[wechat] no context token for file send to", convId, "— attempting send without it")
     }
     try {
-      await ilink.sendFile(this._ilinkBaseUrl, this._ilinkCdnBaseUrl, this._ilinkToken, convId, filePath, ctx)
-      console.log("[wechat] sent file to", convId, filePath)
+      await ilink.sendFile(this._ilinkBaseUrl, this._ilinkCdnBaseUrl, this._ilinkToken, convId, filePath, ctx || "")
+      console.log("[wechat] sent file to", convId, filePath, "ctx:", ctx ? ctx.slice(0, 8) + "..." : "(none)")
     } catch (err) {
-      console.error("[wechat] sendFile error:", err)
+      console.error("[wechat] sendFile error:", err, "convId:", convId, "filePath:", filePath, "hasCtx:", !!ctx)
     }
   }
 
