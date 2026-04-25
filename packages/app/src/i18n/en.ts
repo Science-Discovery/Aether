@@ -415,6 +415,16 @@ export const dict = {
   "context.usage.clickToView": "Click to view context",
   "context.usage.view": "View context usage",
 
+  "knowledgeBase.title": "Knowledge Base",
+  "knowledgeBase.helperText": "Select multiple, or none to disable knowledge base",
+  "knowledgeBase.label": "Knowledge Bases",
+  "knowledgeBase.none": "Knowledge base: None",
+  "knowledgeBase.withItems": "Knowledge base: {{items}}",
+  "knowledgeBase.moreTools": "More tools",
+  "knowledgeBase.defaultSkills": "Default Skills",
+  "knowledgeBase.wechatConnection": "WeChat Connection",
+  "knowledgeBase.feishuConnection": "Feishu Connection",
+
   "language.en": "English",
   "language.zh": "简体中文",
   "language.zht": "繁體中文",

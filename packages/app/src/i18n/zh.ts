@@ -414,6 +414,16 @@ export const dict = {
   "context.usage.clickToView": "点击查看上下文",
   "context.usage.view": "查看上下文用量",
 
+  "knowledgeBase.title": "知识库",
+  "knowledgeBase.helperText": "可选择多个，不选则不使用知识库",
+  "knowledgeBase.label": "知识库",
+  "knowledgeBase.none": "知识库：无",
+  "knowledgeBase.withItems": "知识库：{{items}}",
+  "knowledgeBase.moreTools": "更多工具",
+  "knowledgeBase.defaultSkills": "默认 Skills",
+  "knowledgeBase.wechatConnection": "微信连接",
+  "knowledgeBase.feishuConnection": "飞书连接",
+
   "language.en": "English",
   "language.zh": "简体中文",
   "language.zht": "繁體中文",

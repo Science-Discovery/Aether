@@ -1622,30 +1622,30 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                       variant: "ghost",
                       size: "normal",
                       class: "h-7 w-7 p-0 flex items-center justify-center text-icon-weak shrink-0",
-                      "aria-label": "更多工具",
+                      "aria-label": language.t("knowledgeBase.moreTools"),
                     }}
                     trigger={<Icon name="dot-grid" class="size-4" />}
                     class="p-1 flex flex-col gap-0.5 min-w-[120px]"
                   >
-                    <Tooltip placement="left" gutter={4} value="默认 Skills">
+                    <Tooltip placement="left" gutter={4} value={language.t("knowledgeBase.defaultSkills")}>
                       <Button
                         variant="ghost"
                         size="normal"
                         class="w-full h-7 px-2 flex items-center gap-2 text-icon-weak justify-start"
                         onClick={() => dialog.show(() => <DialogDefaultSkills />)}
-                        aria-label="默认 Skills"
+                        aria-label={language.t("knowledgeBase.defaultSkills")}
                       >
                         <Icon name="bullet-list" class="size-4 shrink-0" />
-                        <span class="text-13-regular text-text-base">默认 Skills</span>
+                        <span class="text-13-regular text-text-base">{language.t("knowledgeBase.defaultSkills")}</span>
                       </Button>
                     </Tooltip>
-                    <Tooltip placement="left" gutter={4} value="微信连接">
+                    <Tooltip placement="left" gutter={4} value={language.t("knowledgeBase.wechatConnection")}>
                       <Button
                         variant="ghost"
                         size="normal"
                         class="w-full h-7 px-2 flex items-center gap-2 text-icon-weak justify-start"
                         onClick={() => dialog.show(() => <DialogWeChat />)}
-                        aria-label="微信连接"
+                        aria-label={language.t("knowledgeBase.wechatConnection")}
                       >
                         <Icon
                           name="wechat"
@@ -1661,16 +1661,18 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                                   : "size-4 shrink-0 text-icon-weak"
                           }
                         />
-                        <span class="text-13-regular text-text-base">微信连接</span>
+                        <span class="text-13-regular text-text-base">
+                          {language.t("knowledgeBase.wechatConnection")}
+                        </span>
                       </Button>
                     </Tooltip>
-                    <Tooltip placement="left" gutter={4} value="飞书连接">
+                    <Tooltip placement="left" gutter={4} value={language.t("knowledgeBase.feishuConnection")}>
                       <Button
                         variant="ghost"
                         size="normal"
                         class="w-full h-7 px-2 flex items-center gap-2 text-icon-weak justify-start"
                         onClick={() => dialog.show(() => <DialogFeishu />)}
-                        aria-label="飞书连接"
+                        aria-label={language.t("knowledgeBase.feishuConnection")}
                       >
                         <Icon
                           name="feishu"
@@ -1684,7 +1686,9 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                                   : "size-4 shrink-0 text-icon-weak"
                           }
                         />
-                        <span class="text-13-regular text-text-base">飞书连接</span>
+                        <span class="text-13-regular text-text-base">
+                          {language.t("knowledgeBase.feishuConnection")}
+                        </span>
                       </Button>
                     </Tooltip>
                   </Popover>
