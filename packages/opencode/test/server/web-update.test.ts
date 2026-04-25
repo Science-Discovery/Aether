@@ -3,7 +3,7 @@ import { createHash } from "crypto"
 import fs from "fs/promises"
 import path from "path"
 import { Global } from "../../src/global"
-import { WebUpdateTest } from "../../src/server/routes/global"
+import { WebUpdateTest } from "../../src/server/web-update"
 import { tmpdir } from "../fixture/fixture"
 
 function meta(ver: string, sha: string, size: number): Parameters<typeof WebUpdateTest.verifyDownload>[1] {
@@ -32,6 +32,19 @@ async function result(dir: string, status: "installed" | "failed", version: stri
 }
 
 describe("web update helpers", () => {
+  test("linux arm64 uses arm64 manifests and packages", async () => {
+    const desc = Object.getOwnPropertyDescriptor(process, "arch")
+    Object.defineProperty(process, "arch", { value: "arm64" })
+    try {
+      expect((await WebUpdateTest.manifestUrl("linux")).endsWith("/latest/linux-arm64.yml")).toBe(true)
+      expect((await WebUpdateTest.manifestUrl("linux", "1.2.3")).endsWith("/1.2.3/linux-arm64.yml")).toBe(true)
+      expect(WebUpdateTest.packageMatch("linux", "1.2.3", "aether-linux-arm64-1.2.3.zip")).toBe(true)
+      expect(WebUpdateTest.packageMatch("linux", "1.2.3", "aether-linux-x64-1.2.3.zip")).toBe(false)
+    } finally {
+      if (desc) Object.defineProperty(process, "arch", desc)
+    }
+  })
+
   test("parseManifest reads package metadata from files list", () => {
     const data = WebUpdateTest.parseManifest(`version: 1.2.3
 files:
@@ -54,49 +67,61 @@ notes_url: notes.md
   })
 
   test("verifyDownload rejects partial package files", async () => {
-    await using tmp = await tmpdir({
-      init: async (dir) => {
-        const dl = path.join(dir, "downloads")
-        await fs.mkdir(dl, { recursive: true })
-        await Bun.write(path.join(dl, WebUpdateTest.versioned("update_linux.sh", "1.2.3")), "#!/usr/bin/env bash\n")
-        await Bun.write(path.join(dl, "aether-linux-x64-1.2.3.zip"), "short")
-      },
-    })
+    const desc = Object.getOwnPropertyDescriptor(process, "arch")
+    Object.defineProperty(process, "arch", { value: "x64" })
+    try {
+      await using tmp = await tmpdir({
+        init: async (dir) => {
+          const dl = path.join(dir, "downloads")
+          await fs.mkdir(dl, { recursive: true })
+          await Bun.write(path.join(dl, WebUpdateTest.versioned("update_linux.sh", "1.2.3")), "#!/usr/bin/env bash\n")
+          await Bun.write(path.join(dl, "aether-linux-x64-1.2.3.zip"), "short")
+        },
+      })
 
-    const file = path.join(tmp.path, "downloads", "aether-linux-x64-1.2.3.zip")
-    const hit = await WebUpdateTest.verifyDownload("linux", meta("1.2.3", await sha(file), 999), tmp.path)
+      const file = path.join(tmp.path, "downloads", "aether-linux-x64-1.2.3.zip")
+      const hit = await WebUpdateTest.verifyDownload("linux", meta("1.2.3", await sha(file), 999), tmp.path)
 
-    expect(hit.ok).toBe(false)
-    if (hit.ok) return
-    expect(hit.error).toContain("size mismatch")
+      expect(hit.ok).toBe(false)
+      if (hit.ok) return
+      expect(hit.error).toContain("size mismatch")
+    } finally {
+      if (desc) Object.defineProperty(process, "arch", desc)
+    }
   })
 
   test("resetUpdate only deletes current version artifacts", async () => {
-    await using tmp = await tmpdir({
-      init: async (dir) => {
-        const dl = path.join(dir, "downloads")
-        await fs.mkdir(dl, { recursive: true })
-        await Bun.write(path.join(dl, "aether-linux-x64-1.2.2.zip"), "keep")
-        await Bun.write(path.join(dl, "aether-linux-x64-1.2.3.zip"), "drop")
-        await Bun.write(path.join(dl, "update_linux-1.2.2.sh"), "keep")
-        await Bun.write(path.join(dl, "update_linux-1.2.3.sh"), "drop")
-        await Bun.write(path.join(dl, "last-result.yml"), "drop")
-        await WebUpdateTest.writeUpdateState(
-          dir,
-          WebUpdateTest.updateState("1.2.3", "failed", "bad", {
-            package_path: path.join(dl, "aether-linux-x64-1.2.3.zip"),
-            script_path: path.join(dl, "update_linux-1.2.3.sh"),
-          }),
-        )
-      },
-    })
+    const desc = Object.getOwnPropertyDescriptor(process, "arch")
+    Object.defineProperty(process, "arch", { value: "x64" })
+    try {
+      await using tmp = await tmpdir({
+        init: async (dir) => {
+          const dl = path.join(dir, "downloads")
+          await fs.mkdir(dl, { recursive: true })
+          await Bun.write(path.join(dl, "aether-linux-x64-1.2.2.zip"), "keep")
+          await Bun.write(path.join(dl, "aether-linux-x64-1.2.3.zip"), "drop")
+          await Bun.write(path.join(dl, "update_linux-1.2.2.sh"), "keep")
+          await Bun.write(path.join(dl, "update_linux-1.2.3.sh"), "drop")
+          await Bun.write(path.join(dl, "last-result.yml"), "drop")
+          await WebUpdateTest.writeUpdateState(
+            dir,
+            WebUpdateTest.updateState("1.2.3", "failed", "bad", {
+              package_path: path.join(dl, "aether-linux-x64-1.2.3.zip"),
+              script_path: path.join(dl, "update_linux-1.2.3.sh"),
+            }),
+          )
+        },
+      })
 
-    await WebUpdateTest.resetUpdate("linux", "1.2.3", tmp.path)
+      await WebUpdateTest.resetUpdate("linux", "1.2.3", tmp.path)
 
-    expect(await Bun.file(path.join(tmp.path, "downloads", "aether-linux-x64-1.2.2.zip")).exists()).toBe(true)
-    expect(await Bun.file(path.join(tmp.path, "downloads", "update_linux-1.2.2.sh")).exists()).toBe(true)
-    expect(await Bun.file(path.join(tmp.path, "downloads", "aether-linux-x64-1.2.3.zip")).exists()).toBe(false)
-    expect(await Bun.file(path.join(tmp.path, "downloads", "update_linux-1.2.3.sh")).exists()).toBe(false)
+      expect(await Bun.file(path.join(tmp.path, "downloads", "aether-linux-x64-1.2.2.zip")).exists()).toBe(true)
+      expect(await Bun.file(path.join(tmp.path, "downloads", "update_linux-1.2.2.sh")).exists()).toBe(true)
+      expect(await Bun.file(path.join(tmp.path, "downloads", "aether-linux-x64-1.2.3.zip")).exists()).toBe(false)
+      expect(await Bun.file(path.join(tmp.path, "downloads", "update_linux-1.2.3.sh")).exists()).toBe(false)
+    } finally {
+      if (desc) Object.defineProperty(process, "arch", desc)
+    }
   })
 
   test("resolveUpdateStatus promotes finished install to installed", async () => {
@@ -116,44 +141,66 @@ notes_url: notes.md
   })
 
   test("resolveUpdateStatus reports mirror retry failures from result file", async () => {
-    await using tmp = await tmpdir({
-      init: async (dir) => {
-        const dl = path.join(dir, "downloads")
-        await fs.mkdir(dl, { recursive: true })
-        await Bun.write(path.join(dl, WebUpdateTest.versioned("update_linux.sh", "1.2.3")), "#!/usr/bin/env bash\n")
-        await Bun.write(path.join(dl, "aether-linux-x64-1.2.3.zip"), "payload")
-        await WebUpdateTest.writeUpdateState(dir, WebUpdateTest.updateState("1.2.3", "installing"))
-        await result(dir, "failed", "1.2.3", "mirror", "mirror failed")
-      },
-    })
+    const desc = Object.getOwnPropertyDescriptor(process, "arch")
+    Object.defineProperty(process, "arch", { value: "x64" })
+    try {
+      await using tmp = await tmpdir({
+        init: async (dir) => {
+          const dl = path.join(dir, "downloads")
+          await fs.mkdir(dl, { recursive: true })
+          await Bun.write(path.join(dl, WebUpdateTest.versioned("update_linux.sh", "1.2.3")), "#!/usr/bin/env bash\n")
+          await Bun.write(path.join(dl, "aether-linux-x64-1.2.3.zip"), "payload")
+          await WebUpdateTest.writeUpdateState(dir, WebUpdateTest.updateState("1.2.3", "installing"))
+          await result(dir, "failed", "1.2.3", "mirror", "mirror failed")
+        },
+      })
 
-    const file = path.join(tmp.path, "downloads", "aether-linux-x64-1.2.3.zip")
-    const state = await WebUpdateTest.resolveUpdateStatus("linux", "1.2.2", meta("1.2.3", await sha(file), 7), tmp.path)
+      const file = path.join(tmp.path, "downloads", "aether-linux-x64-1.2.3.zip")
+      const state = await WebUpdateTest.resolveUpdateStatus(
+        "linux",
+        "1.2.2",
+        meta("1.2.3", await sha(file), 7),
+        tmp.path,
+      )
 
-    expect(state.status).toBe("failed")
-    if (state.status !== "failed") return
-    expect(state.action).toBe("mirror")
-    expect(state.error).toContain("mirror failed")
+      expect(state.status).toBe("failed")
+      if (state.status !== "failed") return
+      expect(state.action).toBe("mirror")
+      expect(state.error).toContain("mirror failed")
+    } finally {
+      if (desc) Object.defineProperty(process, "arch", desc)
+    }
   })
 
   test("resolveUpdateStatus rejects installs with missing version directory", async () => {
-    await using tmp = await tmpdir({
-      init: async (dir) => {
-        const dl = path.join(dir, "downloads")
-        await fs.mkdir(dl, { recursive: true })
-        await Bun.write(path.join(dl, WebUpdateTest.versioned("update_linux.sh", "1.2.3")), "#!/usr/bin/env bash\n")
-        await Bun.write(path.join(dl, "aether-linux-x64-1.2.3.zip"), "payload")
-        await WebUpdateTest.writeUpdateState(dir, WebUpdateTest.updateState("1.2.3", "installing"))
-      },
-    })
+    const desc = Object.getOwnPropertyDescriptor(process, "arch")
+    Object.defineProperty(process, "arch", { value: "x64" })
+    try {
+      await using tmp = await tmpdir({
+        init: async (dir) => {
+          const dl = path.join(dir, "downloads")
+          await fs.mkdir(dl, { recursive: true })
+          await Bun.write(path.join(dl, WebUpdateTest.versioned("update_linux.sh", "1.2.3")), "#!/usr/bin/env bash\n")
+          await Bun.write(path.join(dl, "aether-linux-x64-1.2.3.zip"), "payload")
+          await WebUpdateTest.writeUpdateState(dir, WebUpdateTest.updateState("1.2.3", "installing"))
+        },
+      })
 
-    const file = path.join(tmp.path, "downloads", "aether-linux-x64-1.2.3.zip")
-    const state = await WebUpdateTest.resolveUpdateStatus("linux", "1.2.3", meta("1.2.3", await sha(file), 7), tmp.path)
+      const file = path.join(tmp.path, "downloads", "aether-linux-x64-1.2.3.zip")
+      const state = await WebUpdateTest.resolveUpdateStatus(
+        "linux",
+        "1.2.3",
+        meta("1.2.3", await sha(file), 7),
+        tmp.path,
+      )
 
-    expect(state.status).toBe("failed")
-    if (state.status !== "failed") return
-    expect(state.action).toBe("recover")
-    expect(state.error).toContain("incomplete")
+      expect(state.status).toBe("failed")
+      if (state.status !== "failed") return
+      expect(state.action).toBe("recover")
+      expect(state.error).toContain("incomplete")
+    } finally {
+      if (desc) Object.defineProperty(process, "arch", desc)
+    }
   })
 
   test("getWorkDir uses fixed hidden share directory", () => {
@@ -168,6 +215,8 @@ notes_url: notes.md
   })
 
   test("fetchManifest honors configured update base URL", async () => {
+    const desc = Object.getOwnPropertyDescriptor(process, "arch")
+    Object.defineProperty(process, "arch", { value: "x64" })
     await using tmp = await tmpdir({
       init: async (dir) => {
         const cfg = path.join(dir, "config")
@@ -210,6 +259,7 @@ notes_url: notes.md
       globalThis.fetch = fetch
       Global.Path.config = prev
       WebUpdateTest.resetUpdateBase()
+      if (desc) Object.defineProperty(process, "arch", desc)
     }
   })
 })

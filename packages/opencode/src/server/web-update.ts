@@ -70,9 +70,13 @@ export const WebUpdateDownloadResponse = z.union([
 ])
 
 const WEB_UPDATE_BASE_DEFAULT = "https://aether.aiphys.cn/download"
+function arch() {
+  return process.arch === "arm64" ? "arm64" : "x64"
+}
+
 const UPDATE_PKG_PREFIX: Record<string, string> = {
   darwin: "aether-darwin",
-  linux: "aether-linux-x64",
+  linux: `aether-linux-${arch()}`,
   windows: "aether-windows-x64",
 }
 const UPDATE_RUN = (() => {
@@ -82,15 +86,20 @@ const UPDATE_RUN = (() => {
     return `${Date.now()}-${Math.random().toString(36).slice(2)}`
   }
 })()
-const INSTALLER_YML: Record<string, string> = {
+const INSTALLER_YML: Record<string, string | ((arch: string) => string)> = {
   darwin: "latest/mac-arm64.yml",
-  linux: "latest/linux-x64.yml",
+  linux: (a) => `latest/linux-${a}.yml`,
   windows: "latest/windows-x64.yml",
 }
-const UPDATE_YML: Record<string, string> = {
+const UPDATE_YML: Record<string, string | ((arch: string) => string)> = {
   darwin: "mac-arm64.yml",
-  linux: "linux-x64.yml",
+  linux: (a) => `linux-${a}.yml`,
   windows: "windows-x64.yml",
+}
+
+function yml(map: Record<string, string | ((arch: string) => string)>, os: z.infer<typeof WebUpdateOS>) {
+  const item = map[os]
+  return typeof item === "function" ? item(arch()) : item
 }
 const INSTALLER_SCRIPT: Record<string, string> = {
   darwin: "aether_darwin_installer.command",
@@ -242,12 +251,13 @@ function runEnv(work: string, extra?: Record<string, string>) {
 }
 
 async function spawnAuto(os: z.infer<typeof WebUpdateOS>, script: string, work: string) {
+  const updateBase = await getUpdateBase()
   return await new Promise<number>((resolve, reject) => {
     const cmd = os === "windows" ? "cmd" : "bash"
     const args = os === "windows" ? ["/c", script, "auto"] : [script, "auto"]
     const child = spawn(cmd, args, {
       cwd: work,
-      env: { ...process.env, AETHER_WORK_DIR: work },
+      env: { ...process.env, AETHER_WORK_DIR: work, AETHER_UPDATE_BASE: updateBase },
       windowsHide: os === "windows",
     })
     child.on("close", (code: number | null) => resolve(code ?? 1))
@@ -300,8 +310,8 @@ function abs(url: string, val: string) {
 
 function manifestUrl(os: z.infer<typeof WebUpdateOS>, version?: string) {
   return (base: string) => {
-    if (!version) return `${base}/${INSTALLER_YML[os]}`
-    return `${base}/${version}/${UPDATE_YML[os]}`
+    if (!version) return `${base}/${yml(INSTALLER_YML, os)}`
+    return `${base}/${version}/${yml(UPDATE_YML, os)}`
   }
 }
 
@@ -430,7 +440,7 @@ async function fetchManifest(os: z.infer<typeof WebUpdateOS>, version?: string) 
 
 function packageMatch(os: string, ver: string, name: string) {
   const ext = UPDATE_PKG_EXT[os] ?? ".dmg"
-  const prefix = UPDATE_PKG_PREFIX[os] ?? "aether"
+  const prefix = os === "linux" ? `aether-linux-${arch()}` : os === "windows" ? "aether-windows-x64" : "aether-darwin"
   return name.startsWith(prefix) && name.includes(ver) && name.toLowerCase().endsWith(ext)
 }
 
@@ -594,21 +604,26 @@ function versioned(name: string, ver: string) {
   return `${name.slice(0, idx)}-${ver}${name.slice(idx)}`
 }
 
+function normalizeVersion(v: string): string {
+  const parts = v
+    .replace(/^v/i, "")
+    .split("-")[0]
+    .split(".")
+    .map((x) => Number.parseInt(x || "0", 10) || 0)
+  while (parts.length < 4) parts.push(0)
+  return parts.slice(0, 4).join(".")
+}
+
 function compareVer(a: string, b: string) {
   const norm = (v: string) =>
-    v
-      .replace(/^v/i, "")
-      .split("-")[0]
+    normalizeVersion(v)
       .split(".")
       .map((x) => Number.parseInt(x || "0", 10) || 0)
   const x = norm(a)
   const y = norm(b)
-  const len = Math.max(x.length, y.length, 3)
-  for (let i = 0; i < len; i++) {
-    const p = x[i] ?? 0
-    const q = y[i] ?? 0
-    if (p < q) return -1
-    if (p > q) return 1
+  for (let i = 0; i < 4; i++) {
+    if (x[i] < y[i]) return -1
+    if (x[i] > y[i]) return 1
   }
   return 0
 }
@@ -632,8 +647,9 @@ async function fetchInstallerScript(os: string): Promise<string | null> {
       log.error("failed to fetch installer script", { url, status: res.status })
       return null
     }
-    const buf = Buffer.from(await res.arrayBuffer())
-    await fs.writeFile(dest, buf)
+    const text = await res.text()
+    const patched = patchInstallerScript(os, text)
+    await fs.writeFile(dest, patched)
     if (os !== "windows") {
       await fs.chmod(dest, 0o755).catch(() => undefined)
     }
@@ -642,6 +658,16 @@ async function fetchInstallerScript(os: string): Promise<string | null> {
     log.error("error fetching installer script", { url, error: e instanceof Error ? e.message : String(e) })
     return null
   }
+}
+
+function patchInstallerScript(os: string, text: string): string {
+  if (os === "windows") {
+    return text.replace(
+      /set\s+"BASE=(https:\/\/[^\s"]+)"/,
+      'if defined AETHER_UPDATE_BASE (set "BASE=%AETHER_UPDATE_BASE%") else (set "BASE=$1")',
+    )
+  }
+  return text.replace(/base="(https:\/\/[^\s"]+)"/, 'base="${AETHER_UPDATE_BASE:-$1}"')
 }
 
 function getAppRoot(): string {
@@ -686,29 +712,16 @@ export async function readWebCurrentVersion() {
     if (compareVer(local[i], best) > 0) best = local[i]
   }
 
-  if (marker && (!best || compareVer(marker, best) > 0)) return marker
-  if (best) return best
+  if (marker && (!best || compareVer(marker, best) > 0)) return normalizeVersion(marker)
+  if (best) return normalizeVersion(best)
 
-  const fallback = Installation.VERSION
+  const fallback = normalizeVersion(Installation.VERSION)
   await fs.writeFile(file, `${fallback}\n`, "utf-8").catch(() => undefined)
   return fallback
 }
 
 export async function webCheck(os: z.infer<typeof WebUpdateOS>) {
   const currentVersion = await readWebCurrentVersion()
-  if (Installation.isLocal()) {
-    return {
-      currentVersion,
-      remoteVersion: "",
-      updateAvailable: false,
-      downloaded: false,
-      status: "available" as const,
-      workDir: "",
-      updateAction: undefined,
-      updateError: undefined,
-      checkError: "Local build, skipping update check",
-    }
-  }
   const workDir = getWorkDir(os) ?? ""
   try {
     const meta = await fetchManifest(os)
@@ -763,7 +776,6 @@ export async function downloadWebUpdate(input: z.infer<typeof WebUpdateDownloadI
   const os = input.os
   const version = input.version
   const force = input.force
-  if (Installation.isLocal()) return failRes("Local build, update is not available")
   const workDir = getWorkDir(os)
   if (!workDir) return failRes("Could not determine aether work directory")
   const file = UPDATE_SCRIPT[os]
@@ -845,7 +857,6 @@ export async function downloadWebUpdate(input: z.infer<typeof WebUpdateDownloadI
 export async function installWebUpdate(input: z.infer<typeof WebUpdateInstallInput>) {
   const os = input.os
   const version = input.version
-  if (Installation.isLocal()) return failRes("Local build, update is not available")
   const workDir = getWorkDir(os)
   if (!workDir) return failRes("Could not determine aether work directory")
   const dirErr = await mkdirp(workDir)
@@ -896,7 +907,6 @@ export async function installWebUpdate(input: z.infer<typeof WebUpdateInstallInp
 export async function retryWebUpdateMirror(input: z.infer<typeof WebUpdateMirrorInput>) {
   const os = input.os
   const version = input.version
-  if (Installation.isLocal()) return failRes("Local build, update is not available")
   const workDir = getWorkDir(os)
   if (!workDir) return failRes("Could not determine aether work directory")
   const dirErr = await mkdirp(workDir)
@@ -945,6 +955,9 @@ export async function retryWebUpdateMirror(input: z.infer<typeof WebUpdateMirror
 export const WebUpdateTest = {
   fetchManifest,
   getWorkDir,
+  manifestUrl: async (os: z.infer<typeof WebUpdateOS>, version?: string) =>
+    manifestUrl(os, version)(await getUpdateBase()),
+  packageMatch,
   parseManifest,
   readResult,
   readUpdateState,

@@ -5,6 +5,7 @@ import { useGlobalSync } from "./global-sync"
 import { useGlobalSDK } from "./global-sdk"
 import { useServer } from "./server"
 import { usePlatform } from "./platform"
+import { getFilename } from "@opencode-ai/util/path"
 import { Project } from "@opencode-ai/sdk/v2"
 import { Persist, persisted, removePersisted } from "@/utils/persist"
 import { decode64 } from "@/utils/base64"
@@ -388,93 +389,21 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
       const [childStore] = globalSync.child(project.worktree, { bootstrap: false })
       const projectID = childStore.project
       const metadata = projectID ? globalSync.project.get(projectID) : globalSync.project.fromDir(project.worktree)
-
       const local = childStore.projectMeta
-      const localOverride =
-        local?.name !== undefined ||
-        local?.commands?.start !== undefined ||
-        local?.icon?.override !== undefined ||
-        local?.icon?.color !== undefined
-
-      const base = {
-        ...(metadata ?? {}),
-        ...project,
-        icon: {
-          url: metadata?.icon?.url,
-          override: metadata?.icon?.override ?? childStore.icon,
-          color: metadata?.icon?.color,
-        },
-      }
-
-      const isGlobal = projectID === "global" || (metadata?.id === undefined && localOverride)
-      if (!isGlobal) return base
 
       return {
-        ...base,
-        id: base.id ?? "global",
-        name: local?.name,
-        commands: local?.commands,
+        ...(metadata ?? {}),
+        ...project,
+        id: metadata?.id ?? projectID ?? "global",
+        name: local?.name ?? metadata?.name ?? getFilename(project.worktree),
         icon: {
-          url: base.icon?.url,
-          override: local?.icon?.override,
-          color: local?.icon?.color,
+          url: metadata?.icon?.url,
+          override: local?.icon?.override ?? metadata?.icon?.override ?? childStore.icon,
+          color: local?.icon?.color ?? metadata?.icon?.color,
         },
+        commands: local?.commands ?? metadata?.commands,
       }
     }
-
-    const roots = createMemo(() => {
-      const map = new Map<string, string>()
-      for (const project of globalSync.project.list()) {
-        const sandboxes = project.sandboxes ?? []
-        for (const sandbox of sandboxes) {
-          map.set(sandbox, project.worktree)
-        }
-      }
-      return map
-    })
-
-    const rootFor = (directory: string) => {
-      const map = roots()
-      if (map.size === 0) return directory
-
-      const visited = new Set<string>()
-      const chain = [directory]
-
-      while (chain.length) {
-        const current = chain[chain.length - 1]
-        if (!current) return directory
-
-        const next = map.get(current)
-        if (!next) return current
-
-        if (visited.has(next)) return directory
-        visited.add(next)
-        chain.push(next)
-      }
-
-      return directory
-    }
-
-    createEffect(() => {
-      const projects = server.projects.list()
-      const seen = new Set(projects.map((project) => project.worktree))
-
-      batch(() => {
-        for (const project of projects) {
-          const root = rootFor(project.worktree)
-          if (root === project.worktree) continue
-
-          server.projects.close(project.worktree)
-
-          if (!seen.has(root)) {
-            server.projects.open(root)
-            seen.add(root)
-          }
-
-          if (project.expanded) server.projects.expand(root)
-        }
-      })
-    })
 
     const enriched = createMemo(() => server.projects.list().map(enrich))
     const list = createMemo(() => {
@@ -564,10 +493,9 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
       projects: {
         list,
         open(directory: string) {
-          const root = rootFor(directory)
-          if (server.projects.list().find((x) => x.worktree === root)) return
-          globalSync.project.loadSessions(root)
-          server.projects.open(root)
+          if (server.projects.list().find((x) => x.worktree === directory)) return
+          globalSync.project.loadSessions(directory)
+          server.projects.open(directory)
         },
         close(directory: string) {
           server.projects.close(directory)
