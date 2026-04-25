@@ -9,6 +9,7 @@ import { useSDK } from "@/context/sdk"
 import { useServer } from "@/context/server"
 import { setFeishuStatus } from "@/context/feishu"
 import { useLocal } from "@/context/local"
+import { useLanguage } from "@/context/language"
 
 type FeishuStatus = "idle" | "loading" | "config" | "connected" | "reconnecting" | "error"
 
@@ -27,12 +28,13 @@ export const DialogFeishu: Component = () => {
   const sdk = useSDK()
   const server = useServer()
   const local = useLocal()
+  const language = useLanguage()
   const [status, setStatus] = createSignal<FeishuStatus>("idle")
   const [error, setError] = createSignal<{ code: string; message: string } | null>(null)
   const [appId, setAppId] = createSignal("")
   const [appSecret, setAppSecret] = createSignal("")
   const [connectedAppId, setConnectedAppId] = createSignal<string | null>(null)
-  const [loadingMsg, setLoadingMsg] = createSignal("Connecting to Feishu...")
+  const [loadingMsg, setLoadingMsg] = createSignal("")
   const [hasConfig, setHasConfig] = createSignal(false)
   const [steps, setSteps] = createStore({ 1: false, 2: false, 3: false, 4: false, 5: false })
 
@@ -45,7 +47,7 @@ export const DialogFeishu: Component = () => {
   const updateStatus = (s: FeishuStatus) => {
     setStatus(s)
     setFeishuStatus(s === "config" ? "idle" : s)
-    if (s !== "loading") setLoadingMsg("Connecting to Feishu...")
+    if (s !== "loading") setLoadingMsg("")
   }
 
   let abort: AbortController | null = null
@@ -63,7 +65,7 @@ export const DialogFeishu: Component = () => {
       retry = null
       if (status() === "connected" || status() === "loading") return
       updateStatus("reconnecting")
-      setLoadingMsg("Feishu event stream disconnected, reconnecting...")
+      setLoadingMsg(language.t("feishu.eventStreamDisconnected"))
       connectSSE()
       void fetchStatus()
     }, 3_000)
@@ -92,7 +94,7 @@ export const DialogFeishu: Component = () => {
 
   const startBridge = async (withConfig = false) => {
     updateStatus("loading")
-    setLoadingMsg("Connecting to Feishu...")
+    setLoadingMsg(language.t("feishu.connecting"))
     setError(null)
 
     // Connect SSE first so we don't miss any events
@@ -122,7 +124,7 @@ export const DialogFeishu: Component = () => {
           updateStatus("config")
           return
         }
-        setError({ code: data.code || "start_failed", message: data.message || "Failed to connect Feishu" })
+        setError({ code: data.code || "start_failed", message: data.message || language.t("feishu.failedToConnect") })
         updateStatus("error")
         return
       }
@@ -199,11 +201,11 @@ export const DialogFeishu: Component = () => {
                 updateStatus("connected")
               } else if (event.type === "feishu.reconnecting") {
                 updateStatus("reconnecting")
-                setLoadingMsg("Feishu connection interrupted, auto-reconnecting...")
+                setLoadingMsg(language.t("feishu.autoReconnecting"))
               } else if (event.type === "feishu.error") {
                 setError({
                   code: event.properties.code || "unknown",
-                  message: event.properties.message || "Unknown error",
+                  message: event.properties.message || language.t("feishu.unknownError"),
                 })
                 updateStatus("error")
               } else if (event.type === "feishu.status" && event.properties.status) {
@@ -235,27 +237,27 @@ export const DialogFeishu: Component = () => {
   })
 
   return (
-    <Dialog title="Feishu Connection" size="large" class="max-w-lg">
+    <Dialog title={language.t("feishu.connection")} size="large" class="max-w-lg">
       <div class="flex flex-col items-center gap-6 p-6">
         <Switch fallback={<div />}>
           <Match when={status() === "idle"}>
             <div class="flex flex-col items-center gap-4">
               <Icon name="feishu" size="large" class="size-16 text-icon-base" />
-              <p class="text-14-regular text-text-base text-center">Connect Feishu to use Aether AI in Feishu</p>
+              <p class="text-14-regular text-text-base text-center">{language.t("feishu.connectToUse")}</p>
               <Show
                 when={hasConfig()}
                 fallback={
                   <Button variant="primary" onClick={() => updateStatus("config")}>
-                    Configure Feishu App
+                    {language.t("feishu.configureApp")}
                   </Button>
                 }
               >
                 <div class="flex gap-2">
                   <Button variant="primary" onClick={() => startBridge()}>
-                    Connect Feishu
+                    {language.t("feishu.connectFeishu")}
                   </Button>
                   <Button variant="ghost" onClick={() => updateStatus("config")}>
-                    Reconfigure
+                    {language.t("feishu.reconfigure")}
                   </Button>
                 </div>
               </Show>
@@ -281,16 +283,16 @@ export const DialogFeishu: Component = () => {
                     type="password"
                     value={appSecret()}
                     onInput={(e) => setAppSecret(e.currentTarget.value)}
-                    placeholder="Enter App Secret"
+                    placeholder={language.t("feishu.enterAppSecret")}
                     class="w-full px-3 py-2 rounded-md border border-border-base bg-surface-base text-text-base text-13-regular focus:outline-none focus:border-border-focus"
                   />
                 </div>
                 <div class="flex justify-end gap-2">
                   <Button variant="ghost" onClick={() => updateStatus("idle")}>
-                    Cancel
+                    {language.t("feishu.cancel")}
                   </Button>
                   <Button variant="primary" disabled={!appId() || !appSecret()} onClick={() => startBridge(true)}>
-                    Connect
+                    {language.t("feishu.connect")}
                   </Button>
                 </div>
               </div>
@@ -298,15 +300,13 @@ export const DialogFeishu: Component = () => {
                 <Collapsible open={true} variant="ghost">
                   <Collapsible.Trigger class="flex items-center gap-2 w-full px-2 py-1.5 rounded-md hover:bg-surface-muted cursor-pointer">
                     <Collapsible.Arrow />
-                    <span class="text-13-medium text-text-strong">
-                      Follow these steps to configure the app on Feishu Open Platform [click to expand details]
-                    </span>
+                    <span class="text-13-medium text-text-strong">{language.t("feishu.stepsIntro")}</span>
                   </Collapsible.Trigger>
                   <Collapsible.Content class="flex flex-col gap-1">
                     <Collapsible open={steps[1]} onOpenChange={(v) => setSteps(1, v)} variant="ghost">
                       <Collapsible.Trigger class="flex items-center gap-2 w-full px-2 py-1.5 rounded-md hover:bg-surface-muted cursor-pointer">
                         <Collapsible.Arrow />
-                        <span class="text-13-medium text-text-strong">Step 1: Create an app</span>
+                        <span class="text-13-medium text-text-strong">{language.t("feishu.step1.title")}</span>
                       </Collapsible.Trigger>
                       <Collapsible.Content class="px-2 pb-2">
                         <ol class="text-13-regular text-text-weak list-decimal list-outside ml-4 space-y-1">
@@ -318,17 +318,17 @@ export const DialogFeishu: Component = () => {
                               rel="noopener"
                               class="text-text-link underline"
                             >
-                              Feishu Open Platform
+                              {language.t("feishu.openPlatform")}
                             </a>
                           </li>
-                          <li>Click "Create Enterprise Self-built App"</li>
-                          <li>Fill in the app name (e.g. "Aether AI") and description</li>
+                          <li>{language.t("feishu.step1.clickCreate")}</li>
+                          <li>{language.t("feishu.step1.fillName")}</li>
                           <li>
-                            After creation, go to "Credentials & Basic Info" to get the{" "}
-                            <strong class="text-text-base">App ID</strong>
+                            {language.t("feishu.step1.getCredentials")} <strong class="text-text-base">App ID</strong>
                             (format:
-                            <code class="text-12-regular bg-surface-muted px-1 rounded">cli_xxxxxxxxxxxxxxxx</code>) and{" "}
-                            <strong class="text-text-base">App Secret</strong>
+                            <code class="text-12-regular bg-surface-muted px-1 rounded">
+                              cli_xxxxxxxxxxxxxxxx
+                            </code>) {language.t("feishu.step1.and")} <strong class="text-text-base">App Secret</strong>
                           </li>
                         </ol>
                       </Collapsible.Content>
@@ -337,13 +337,13 @@ export const DialogFeishu: Component = () => {
                     <Collapsible open={steps[2]} onOpenChange={(v) => setSteps(2, v)} variant="ghost">
                       <Collapsible.Trigger class="flex items-center gap-2 w-full px-2 py-1.5 rounded-md hover:bg-surface-muted cursor-pointer">
                         <Collapsible.Arrow />
-                        <span class="text-13-medium text-text-strong">Step 2: Enable bot capability</span>
+                        <span class="text-13-medium text-text-strong">{language.t("feishu.step2.title")}</span>
                       </Collapsible.Trigger>
                       <Collapsible.Content class="px-2 pb-2">
                         <ol class="text-13-regular text-text-weak list-decimal list-outside ml-4 space-y-1">
-                          <li>Click the newly created app in the app list</li>
-                          <li>Find "Add app capability" in the left sidebar</li>
-                          <li>Find "Bot" and click "Add"</li>
+                          <li>{language.t("feishu.step2.clickApp")}</li>
+                          <li>{language.t("feishu.step2.findCapability")}</li>
+                          <li>{language.t("feishu.step2.addBot")}</li>
                         </ol>
                       </Collapsible.Content>
                     </Collapsible>
@@ -351,19 +351,19 @@ export const DialogFeishu: Component = () => {
                     <Collapsible open={steps[3]} onOpenChange={(v) => setSteps(3, v)} variant="ghost">
                       <Collapsible.Trigger class="flex items-center gap-2 w-full px-2 py-1.5 rounded-md hover:bg-surface-muted cursor-pointer">
                         <Collapsible.Arrow />
-                        <span class="text-13-medium text-text-strong">Step 3: Configure event subscriptions</span>
+                        <span class="text-13-medium text-text-strong">{language.t("feishu.step3.title")}</span>
                       </Collapsible.Trigger>
                       <Collapsible.Content class="px-2 pb-2">
                         <ol class="text-13-regular text-text-weak list-decimal list-outside ml-4 space-y-1">
-                          <li>Click "Events & Callbacks" → "Event Configuration" in the left sidebar</li>
+                          <li>{language.t("feishu.step3.clickEvents")}</li>
                           <li>
-                            Subscription method:{" "}
-                            <strong class="text-text-base">Use long connection to receive events</strong> (not webhook)
+                            <strong class="text-text-base">{language.t("feishu.step3.longConnection")}</strong>{" "}
+                            {language.t("feishu.step3.notWebhook")}
                           </li>
                           <li>
-                            Add event:
+                            {language.t("feishu.step3.addEvent")}
                             <code class="text-12-regular bg-surface-muted px-1 rounded">im.message.receive_v1</code>
-                            (receive messages)
+                            {language.t("feishu.step3.receiveMessages")}
                           </li>
                         </ol>
                       </Collapsible.Content>
@@ -372,35 +372,34 @@ export const DialogFeishu: Component = () => {
                     <Collapsible open={steps[4]} onOpenChange={(v) => setSteps(4, v)} variant="ghost">
                       <Collapsible.Trigger class="flex items-center gap-2 w-full px-2 py-1.5 rounded-md hover:bg-surface-muted cursor-pointer">
                         <Collapsible.Arrow />
-                        <span class="text-13-medium text-text-strong">Step 4: Configure permissions</span>
+                        <span class="text-13-medium text-text-strong">{language.t("feishu.step4.title")}</span>
                       </Collapsible.Trigger>
                       <Collapsible.Content class="px-2 pb-2">
                         <p class="text-13-regular text-text-weak mb-1.5">
-                          Click "Permission Management" in the left sidebar, search and enable the following
-                          permissions:
+                          {language.t("feishu.step4.searchPermissions")}
                         </p>
                         <ul class="text-13-regular text-text-weak space-y-1">
                           <li>
-                            <code class="text-12-regular bg-surface-muted px-1 rounded">im:message</code> — Get and send
-                            messages
+                            <code class="text-12-regular bg-surface-muted px-1 rounded">im:message</code> —
+                            {language.t("feishu.step4.imMessage")}
                           </li>
                           <li>
                             <code class="text-12-regular bg-surface-muted px-1 rounded">im:message:send_as_bot</code> —
-                            Send messages as bot
+                            {language.t("feishu.step4.imMessageSendAsBot")}
                           </li>
                           <li>
                             <code class="text-12-regular bg-surface-muted px-1 rounded">
                               im:message.p2p_msg:readonly
                             </code>{" "}
-                            — Read private chat messages
+                            — {language.t("feishu.step4.imMessageP2p")}
                           </li>
                           <li>
                             <code class="text-12-regular bg-surface-muted px-1 rounded">im:message.group_msg</code> —
-                            Read group chat message history (required for summary feature)
+                            {language.t("feishu.step4.imMessageGroupMsg")}
                           </li>
                           <li>
-                            <code class="text-12-regular bg-surface-muted px-1 rounded">im:resource</code> — Upload file
-                            resources (required for sending attachments)
+                            <code class="text-12-regular bg-surface-muted px-1 rounded">im:resource</code> —
+                            {language.t("feishu.step4.imResource")}
                           </li>
                         </ul>
                       </Collapsible.Content>
@@ -409,13 +408,13 @@ export const DialogFeishu: Component = () => {
                     <Collapsible open={steps[5]} onOpenChange={(v) => setSteps(5, v)} variant="ghost">
                       <Collapsible.Trigger class="flex items-center gap-2 w-full px-2 py-1.5 rounded-md hover:bg-surface-muted cursor-pointer">
                         <Collapsible.Arrow />
-                        <span class="text-13-medium text-text-strong">Step 5: Publish the app</span>
+                        <span class="text-13-medium text-text-strong">{language.t("feishu.step5.title")}</span>
                       </Collapsible.Trigger>
                       <Collapsible.Content class="px-2 pb-2">
                         <ol class="text-13-regular text-text-weak list-decimal list-outside ml-4 space-y-1">
-                          <li>Click "Version Management & Release" in the left sidebar</li>
-                          <li>Create a version and submit for review</li>
-                          <li>The app can be used after admin approval</li>
+                          <li>{language.t("feishu.step5.clickVersion")}</li>
+                          <li>{language.t("feishu.step5.createVersion")}</li>
+                          <li>{language.t("feishu.step5.adminApproval")}</li>
                         </ol>
                       </Collapsible.Content>
                     </Collapsible>
@@ -428,7 +427,7 @@ export const DialogFeishu: Component = () => {
           <Match when={status() === "loading"}>
             <div class="flex flex-col items-center gap-4">
               <div class="size-12 animate-spin rounded-full border-2 border-icon-weak border-t-icon-base" />
-              <p class="text-14-regular text-text-base">{loadingMsg()}</p>
+              <p class="text-14-regular text-text-base">{loadingMsg() || language.t("feishu.connecting")}</p>
             </div>
           </Match>
 
@@ -438,8 +437,10 @@ export const DialogFeishu: Component = () => {
                 <Icon name="arrow-right" size="large" class="text-icon-warning-base animate-spin" />
               </div>
               <div class="flex flex-col items-center gap-1">
-                <p class="text-16-medium text-text-strong">Reconnecting Feishu</p>
-                <p class="text-14-regular text-text-weak text-center max-w-xs">{loadingMsg()}</p>
+                <p class="text-16-medium text-text-strong">{language.t("feishu.reconnecting")}</p>
+                <p class="text-14-regular text-text-weak text-center max-w-xs">
+                  {loadingMsg() || language.t("feishu.autoReconnecting")}
+                </p>
               </div>
             </div>
           </Match>
@@ -450,24 +451,26 @@ export const DialogFeishu: Component = () => {
                 <Icon name="check-small" size="large" class="text-icon-success-base" />
               </div>
               <div class="flex flex-col items-center gap-1">
-                <p class="text-16-medium text-text-strong">Feishu Connected</p>
+                <p class="text-16-medium text-text-strong">{language.t("feishu.connected")}</p>
                 <Show when={connectedAppId()}>
                   <p class="text-14-regular text-text-weak">App: {connectedAppId()!.slice(0, 16)}...</p>
                 </Show>
               </div>
               <div class="w-full text-13-regular text-text-weak bg-surface-muted rounded-md p-3 space-y-1">
-                <p class="text-12-medium text-text-base">Usage</p>
-                <p>Private chat: send a message directly to the bot</p>
+                <p class="text-12-medium text-text-base">{language.t("feishu.usage")}</p>
+                <p>{language.t("feishu.privateChat")}</p>
                 <p>
-                  Group chat: you need to <strong class="text-text-base">@bot</strong> to trigger a reply
+                  {language.t("feishu.groupChat")}{" "}
+                  <strong class="text-text-base">{language.t("feishu.groupChatBot")}</strong>{" "}
+                  {language.t("feishu.groupChatTrigger")}
                 </p>
               </div>
               <div class="flex gap-2">
                 <Button variant="secondary" onClick={stopBridge}>
-                  Disconnect
+                  {language.t("feishu.disconnect")}
                 </Button>
                 <Button variant="ghost" onClick={logout}>
-                  Switch App
+                  {language.t("feishu.switchApp")}
                 </Button>
               </div>
             </div>
@@ -479,17 +482,17 @@ export const DialogFeishu: Component = () => {
                 <Icon name="warning" size="large" class="text-icon-error-base" />
               </div>
               <div class="flex flex-col items-center gap-1">
-                <p class="text-16-medium text-text-strong">Connection Failed</p>
+                <p class="text-16-medium text-text-strong">{language.t("feishu.connectionFailed")}</p>
                 <Show when={error()}>
                   <p class="text-14-regular text-text-weak text-center max-w-xs">{error()!.message}</p>
                 </Show>
               </div>
               <div class="flex gap-2">
                 <Button variant="secondary" onClick={() => dialog.close()}>
-                  Close
+                  {language.t("feishu.close")}
                 </Button>
                 <Button variant="primary" onClick={() => startBridge()}>
-                  Retry
+                  {language.t("feishu.retry")}
                 </Button>
               </div>
             </div>

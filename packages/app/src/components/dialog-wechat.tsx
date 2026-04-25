@@ -4,6 +4,7 @@ import { Dialog } from "@opencode-ai/ui/dialog"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { Component, Show, Switch, Match } from "solid-js"
 import { useModels } from "@/context/models"
+import { useLanguage } from "@/context/language"
 import {
   status,
   qrcode,
@@ -21,6 +22,7 @@ import {
 export const DialogWeChat: Component = () => {
   const dialog = useDialog()
   const models = useModels()
+  const language = useLanguage()
 
   const currentModelStr = () => {
     const m = models.recent.list()[0]
@@ -28,24 +30,22 @@ export const DialogWeChat: Component = () => {
   }
 
   return (
-    <Dialog title="WeChat Connection" class="max-w-md">
+    <Dialog title={language.t("wechat.connection")} class="max-w-md">
       <div class="flex flex-col items-center gap-6 p-6">
         <Switch fallback={<div />}>
           <Match when={locked()}>
             <div class="flex flex-col items-center gap-4">
               <Icon name="wechat" size="large" class="size-16 text-icon-weak" />
               <div class="flex flex-col items-center gap-1">
-                <p class="text-16-medium text-text-strong">WeChat is connected by another client</p>
-                <p class="text-14-regular text-text-weak text-center">
-                  Another page is currently using WeChat, please disconnect first
-                </p>
+                <p class="text-16-medium text-text-strong">{language.t("wechat.lockedByOther")}</p>
+                <p class="text-14-regular text-text-weak text-center">{language.t("wechat.disconnectOnOtherPage")}</p>
               </div>
               <div class="flex gap-2">
                 <Button variant="secondary" onClick={() => dialog.close()}>
-                  Close
+                  {language.t("wechat.close")}
                 </Button>
                 <Button variant="primary" onClick={() => forceTakeover(currentModelStr())}>
-                  Force Takeover
+                  {language.t("wechat.forceTakeover")}
                 </Button>
               </div>
             </div>
@@ -55,13 +55,11 @@ export const DialogWeChat: Component = () => {
             <div class="flex flex-col items-center gap-4">
               <Icon name="warning" size="large" class="size-16 text-icon-warning" />
               <div class="flex flex-col items-center gap-1">
-                <p class="text-16-medium text-text-strong">Connection Taken Over</p>
-                <p class="text-14-regular text-text-weak text-center">
-                  WeChat connection has been taken over by another client or service
-                </p>
+                <p class="text-16-medium text-text-strong">{language.t("wechat.connectionTakenOver")}</p>
+                <p class="text-14-regular text-text-weak text-center">{language.t("wechat.takenOverByOther")}</p>
               </div>
               <Button variant="primary" onClick={() => startBridge(true, currentModelStr())}>
-                Reconnect
+                {language.t("wechat.reconnect")}
               </Button>
             </div>
           </Match>
@@ -69,9 +67,9 @@ export const DialogWeChat: Component = () => {
           <Match when={status() === "idle"}>
             <div class="flex flex-col items-center gap-4">
               <Icon name="wechat" size="large" class="size-16 text-icon-base" />
-              <p class="text-14-regular text-text-base text-center">Connect WeChat to use Aether AI in WeChat</p>
+              <p class="text-14-regular text-text-base text-center">{language.t("wechat.connectToUse")}</p>
               <Button variant="primary" onClick={() => startBridge(true, currentModelStr())}>
-                Connect WeChat
+                {language.t("wechat.connectWechat")}
               </Button>
             </div>
           </Match>
@@ -79,10 +77,8 @@ export const DialogWeChat: Component = () => {
           <Match when={status() === "loading"}>
             <div class="flex flex-col items-center gap-4">
               <div class="size-12 animate-spin rounded-full border-2 border-icon-weak border-t-icon-base" />
-              <p class="text-14-regular text-text-base">{loadingMsg()}</p>
-              <p class="text-12-regular text-text-weak">
-                First-time use will auto-install the runtime, which may take a few minutes
-              </p>
+              <p class="text-14-regular text-text-base">{loadingMsg() || language.t("wechat.startingBridge")}</p>
+              <p class="text-12-regular text-text-weak">{language.t("wechat.autoInstall")}</p>
             </div>
           </Match>
 
@@ -95,9 +91,9 @@ export const DialogWeChat: Component = () => {
                   class="w-64 h-64 object-contain rounded-lg border border-border-base"
                 />
               </Show>
-              <p class="text-14-regular text-text-base">Please scan the QR code with WeChat to log in</p>
+              <p class="text-14-regular text-text-base">{language.t("wechat.scanQRCode")}</p>
               <Button variant="ghost" onClick={stopBridge}>
-                Cancel
+                {language.t("wechat.cancel")}
               </Button>
             </div>
           </Match>
@@ -105,9 +101,9 @@ export const DialogWeChat: Component = () => {
           <Match when={status() === "reconnecting"}>
             <div class="flex flex-col items-center gap-4">
               <div class="size-12 animate-spin rounded-full border-2 border-icon-weak border-t-icon-base" />
-              <p class="text-14-regular text-text-base">Reconnecting WeChat...</p>
+              <p class="text-14-regular text-text-base">{language.t("wechat.reconnectingWechat")}</p>
               <Button variant="ghost" onClick={stopBridge}>
-                Cancel
+                {language.t("wechat.cancel")}
               </Button>
             </div>
           </Match>
@@ -118,17 +114,17 @@ export const DialogWeChat: Component = () => {
                 <Icon name="check-small" size="large" class="text-icon-success-base" />
               </div>
               <div class="flex flex-col items-center gap-1">
-                <p class="text-16-medium text-text-strong">WeChat Connected</p>
+                <p class="text-16-medium text-text-strong">{language.t("wechat.connected")}</p>
                 <Show when={user()}>
                   <p class="text-14-regular text-text-weak">{user()!.name}</p>
                 </Show>
               </div>
               <div class="flex gap-2">
                 <Button variant="secondary" onClick={stopBridge}>
-                  Disconnect
+                  {language.t("wechat.disconnect")}
                 </Button>
                 <Button variant="ghost" onClick={logout}>
-                  Switch Account
+                  {language.t("wechat.switchAccount")}
                 </Button>
               </div>
             </div>
@@ -140,17 +136,17 @@ export const DialogWeChat: Component = () => {
                 <Icon name="warning" size="large" class="text-icon-error-base" />
               </div>
               <div class="flex flex-col items-center gap-1">
-                <p class="text-16-medium text-text-strong">Connection Failed</p>
+                <p class="text-16-medium text-text-strong">{language.t("wechat.connectionFailed")}</p>
                 <Show when={error()}>
                   <p class="text-14-regular text-text-weak text-center max-w-xs">{error()!.message}</p>
                 </Show>
               </div>
               <div class="flex gap-2">
                 <Button variant="secondary" onClick={() => dialog.close()}>
-                  Close
+                  {language.t("wechat.close")}
                 </Button>
                 <Button variant="primary" onClick={() => startBridge(true, currentModelStr())}>
-                  Retry
+                  {language.t("wechat.retry")}
                 </Button>
               </div>
             </div>
