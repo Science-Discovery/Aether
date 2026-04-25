@@ -205,13 +205,17 @@ notes_url: notes.md
 
   test("getWorkDir returns update/aether with basename=aether", () => {
     const home = process.env.HOME
+    const userProfile = process.env.USERPROFILE
     process.env.HOME = "/tmp/aether-home"
+    process.env.USERPROFILE = "/tmp/aether-home"
 
-    expect(WebUpdateTest.getWorkDir("darwin")).toBe("/tmp/aether-home/.local/share/aether/update/aether")
-    expect(WebUpdateTest.getWorkDir("linux")).toBe("/tmp/aether-home/.local/share/aether/update/aether")
-    expect(WebUpdateTest.getWorkDir("windows")).toBe("/tmp/aether-home/.local/share/aether/update/aether")
+    const expected = path.join("/tmp/aether-home", ".local", "share", "aether", "update", "aether")
+    expect(WebUpdateTest.getWorkDir("darwin")).toBe(expected)
+    expect(WebUpdateTest.getWorkDir("linux")).toBe(expected)
+    expect(WebUpdateTest.getWorkDir("windows")).toBe(expected)
 
     process.env.HOME = home
+    process.env.USERPROFILE = userProfile
   })
 
   test("fetchManifest honors configured update base URL", async () => {
