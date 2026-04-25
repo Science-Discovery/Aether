@@ -631,8 +631,12 @@ function compareVer(a: string, b: string) {
 function getWorkDir(os: string): string | null {
   const home = process.env.HOME || process.env.USERPROFILE || ""
   if (!home) return null
-  if (os === "darwin" || os === "linux") return path.join(home, ".local", "share", "aether", "update")
-  if (os === "windows") return path.join(home, ".local", "share", "aether", "update")
+  if (os === "darwin") return path.join(home, "Applications", "aether")
+  if (os === "linux") return path.join(home, ".local", "share", "aether", "aether")
+  if (os === "windows") {
+    const base = process.env.LOCALAPPDATA || path.join(home, "AppData", "Local")
+    return path.join(base, "Programs", "aether")
+  }
   return null
 }
 
