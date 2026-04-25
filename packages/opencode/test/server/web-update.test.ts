@@ -203,13 +203,13 @@ notes_url: notes.md
     }
   })
 
-  test("getWorkDir returns platform-specific aether directory", () => {
+  test("getWorkDir returns update/aether with basename=aether", () => {
     const home = process.env.HOME
     process.env.HOME = "/tmp/aether-home"
 
-    expect(WebUpdateTest.getWorkDir("darwin")).toBe("/tmp/aether-home/Applications/aether")
-    expect(WebUpdateTest.getWorkDir("linux")).toBe("/tmp/aether-home/.local/share/aether/aether")
-    expect(WebUpdateTest.getWorkDir("windows")).toBe("/tmp/aether-home/AppData/Local/Programs/aether")
+    expect(WebUpdateTest.getWorkDir("darwin")).toBe("/tmp/aether-home/.local/share/aether/update/aether")
+    expect(WebUpdateTest.getWorkDir("linux")).toBe("/tmp/aether-home/.local/share/aether/update/aether")
+    expect(WebUpdateTest.getWorkDir("windows")).toBe("/tmp/aether-home/.local/share/aether/update/aether")
 
     process.env.HOME = home
   })
