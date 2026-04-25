@@ -126,8 +126,9 @@ export function SessionSidePanel(props: {
     void restoreActiveTasks(fetchApi, sdk.url, sdk.directory, s)
   })
   function handleFileCreate(dir: string, type: "file" | "directory") {
-    const title = type === "file" ? "新建文件" : "新建文件夹"
-    const placeholder = type === "file" ? "文件名（如 notes.md）" : "文件夹名"
+    const title = type === "file" ? language.t("fileTree.newFile") : language.t("fileTree.newFolder")
+    const placeholder =
+      type === "file" ? language.t("fileTree.newFilePlaceholder") : language.t("fileTree.newFolderPlaceholder")
     dialog.show(() => {
       const [name, setName] = createSignal("")
       const doCreate = async () => {
@@ -142,7 +143,12 @@ export function SessionSidePanel(props: {
           if (!file.tree.state(dir)?.expanded) file.tree.expand(dir)
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err)
-          showToast({ variant: "error", icon: "circle-x", title: "创建失败", description: message })
+          showToast({
+            variant: "error",
+            icon: "circle-x",
+            title: language.t("fileTree.createFailed"),
+            description: message,
+          })
         }
       }
       return (
@@ -151,10 +157,10 @@ export function SessionSidePanel(props: {
           action={
             <div style={{ display: "flex", gap: "8px" }}>
               <button onClick={() => dialog.close()} style={{ padding: "4px 12px", cursor: "pointer" }}>
-                取消
+                {language.t("common.cancel")}
               </button>
               <button onClick={doCreate} style={{ padding: "4px 12px", cursor: "pointer", "font-weight": "bold" }}>
-                确认
+                {language.t("common.confirm")}
               </button>
             </div>
           }
@@ -179,7 +185,7 @@ export function SessionSidePanel(props: {
   }
 
   function handleFileDelete(node: FileNode) {
-    const label = node.type === "directory" ? "文件夹" : "文件"
+    const label = node.type === "directory" ? language.t("fileTree.folder") : language.t("fileTree.file")
     dialog.show(() => {
       const doDelete = async () => {
         dialog.close()
@@ -209,24 +215,29 @@ export function SessionSidePanel(props: {
           refresh()
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err)
-          showToast({ variant: "error", icon: "circle-x", title: "删除失败", description: message })
+          showToast({
+            variant: "error",
+            icon: "circle-x",
+            title: language.t("fileTree.deleteFailed"),
+            description: message,
+          })
         }
       }
       return (
         <Dialog
-          title={`删除${label}`}
-          description={`确认删除${label} "${node.name}"？此操作不可撤销。`}
+          title={language.t("fileTree.deleteTitle", { label })}
+          description={language.t("fileTree.deleteConfirmDesc", { label, name: node.name })}
           action={
             <div style={{ display: "flex", gap: "8px" }}>
               <button onClick={() => dialog.close()} style={{ padding: "4px 12px", cursor: "pointer" }}>
-                取消
+                {language.t("common.cancel")}
               </button>
               <button
                 autofocus
                 onClick={doDelete}
                 style={{ padding: "4px 12px", cursor: "pointer", "font-weight": "bold", color: "red" }}
               >
-                删除
+                {language.t("common.delete")}
               </button>
             </div>
           }
@@ -252,23 +263,28 @@ export function SessionSidePanel(props: {
           refresh()
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err)
-          showToast({ variant: "error", icon: "circle-x", title: "重命名失败", description: message })
+          showToast({
+            variant: "error",
+            icon: "circle-x",
+            title: language.t("fileTree.renameFailed"),
+            description: message,
+          })
         }
       }
       return (
         <Dialog
-          title="重命名"
+          title={language.t("fileTree.renameTitle")}
           action={
             <div style={{ display: "flex", gap: "8px" }}>
               <button onClick={() => dialog.close()} style={{ padding: "4px 12px", cursor: "pointer" }}>
-                取消
+                {language.t("common.cancel")}
               </button>
               <button
                 autofocus
                 onClick={doRename}
                 style={{ padding: "4px 12px", cursor: "pointer", "font-weight": "bold" }}
               >
-                确认
+                {language.t("common.confirm")}
               </button>
             </div>
           }
@@ -516,26 +532,26 @@ export function SessionSidePanel(props: {
         setSelectedPaths(new Set<string>())
         refresh()
         if (failed > 0) {
-          showToast({ variant: "error", title: `删除完成：${success} 成功，${failed} 失败` })
+          showToast({ variant: "error", title: language.t("fileTree.batchDeleteComplete", { success, failed }) })
         } else {
-          showToast({ variant: "success", title: `已删除 ${success} 项` })
+          showToast({ variant: "success", title: language.t("fileTree.batchDeleted", { count: success }) })
         }
       }
       return (
         <Dialog
-          title="批量删除"
-          description={`确认删除选中的 ${paths.length} 个文件/文件夹？此操作不可撤销。`}
+          title={language.t("fileTree.batchDeleteTitle")}
+          description={language.t("fileTree.batchDeleteDesc", { count: paths.length })}
           action={
             <div style={{ display: "flex", gap: "8px" }}>
               <button onClick={() => dialog.close()} style={{ padding: "4px 12px", cursor: "pointer" }}>
-                取消
+                {language.t("common.cancel")}
               </button>
               <button
                 autofocus
                 onClick={doDelete}
                 style={{ padding: "4px 12px", cursor: "pointer", "font-weight": "bold", color: "red" }}
               >
-                删除
+                {language.t("common.delete")}
               </button>
             </div>
           }
@@ -561,10 +577,10 @@ export function SessionSidePanel(props: {
       }
     }
     if (failed > 0) {
-      showToast({ variant: "error", title: `下载完成：${count} 成功，${failed} 失败` })
+      showToast({ variant: "error", title: language.t("fileTree.downloadCompleteWithFailures", { count, failed }) })
       return
     }
-    showToast({ variant: "success", title: `已下载 ${count} 项` })
+    showToast({ variant: "success", title: language.t("fileTree.downloadedItems", { count }) })
   }
 
   const handleFileDownload = async (node: FileNode) => {
@@ -575,11 +591,11 @@ export function SessionSidePanel(props: {
         path: node.path,
         fetch: platform.fetch,
       })
-      showToast({ variant: "success", title: `已开始下载 ${node.name}` })
+      showToast({ variant: "success", title: language.t("fileTree.multiDownloadStarted", { name: node.name }) })
     } catch (err) {
       showToast({
         variant: "error",
-        title: "下载失败",
+        title: language.t("fileTree.downloadFailed"),
         description: err instanceof Error ? err.message : String(err),
       })
     }
@@ -590,12 +606,12 @@ export function SessionSidePanel(props: {
 
   const handleMultiCopy = (paths: string[]) => {
     setClipboard({ paths, mode: "copy" })
-    showToast({ variant: "success", title: `已复制 ${paths.length} 项` })
+    showToast({ variant: "success", title: language.t("fileTree.copiedItems", { count: paths.length }) })
   }
 
   const handleMultiCut = (paths: string[]) => {
     setClipboard({ paths, mode: "cut" })
-    showToast({ variant: "success", title: `已剪切 ${paths.length} 项` })
+    showToast({ variant: "success", title: language.t("fileTree.cutItems", { count: paths.length }) })
   }
 
   const handlePdfConvert = (paths: string[]) => {
@@ -636,9 +652,9 @@ export function SessionSidePanel(props: {
     setSelectedPaths(new Set<string>())
     refresh()
     if (failed > 0) {
-      showToast({ variant: "error", title: `移动完成：${success} 成功，${failed} 失败` })
+      showToast({ variant: "error", title: language.t("fileTree.moveCompleteWithFailures", { success, failed }) })
     } else if (success > 0) {
-      showToast({ variant: "success", title: `已移动 ${success} 项` })
+      showToast({ variant: "success", title: language.t("fileTree.movedItems", { count: success }) })
     }
   }
 
@@ -659,12 +675,12 @@ export function SessionSidePanel(props: {
   const finishUpload = (res: Awaited<ReturnType<typeof send>>) => {
     const done = res.created + res.updated
     const extra = [
-      res.created ? `${res.created} 新建` : "",
-      res.updated ? `${res.updated} 覆盖` : "",
-      res.dirs ? `${res.dirs} 文件夹` : "",
+      res.created ? language.t("fileTree.createdLabel", { count: res.created }) : "",
+      res.updated ? language.t("fileTree.overwrittenLabel", { count: res.updated }) : "",
+      res.dirs ? language.t("fileTree.dirsLabel", { count: res.dirs }) : "",
     ]
       .filter(Boolean)
-      .join("，")
+      .join(", ")
 
     if (res.failed.length > 0) {
       showToast({
@@ -728,7 +744,7 @@ export function SessionSidePanel(props: {
         if (err instanceof DOMException && err.name === "AbortError") return
         showToast({
           variant: "error",
-          title: "选择文件夹失败",
+          title: language.t("fileTree.selectFolderFailed"),
           description: err instanceof Error ? err.message : String(err),
         })
       }
@@ -753,7 +769,7 @@ export function SessionSidePanel(props: {
           if (err instanceof DOMException && err.name === "AbortError") return
           showToast({
             variant: "error",
-            title: "选择文件夹失败",
+            title: language.t("fileTree.selectFolderFailed"),
             description: err instanceof Error ? err.message : String(err),
           })
           return

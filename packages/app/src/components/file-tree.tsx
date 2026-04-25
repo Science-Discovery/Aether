@@ -486,7 +486,9 @@ export default function FileTree(props: {
                       props.onMultiCopy?.(paths)
                     }}
                   >
-                    <ContextMenu.ItemLabel>复制（{props.selectedPaths?.size ?? 0} 项）</ContextMenu.ItemLabel>
+                    <ContextMenu.ItemLabel>
+                      {language.t("fileTree.multiCopy", { count: props.selectedPaths?.size ?? 0 })}
+                    </ContextMenu.ItemLabel>
                   </ContextMenu.Item>
                   <ContextMenu.Item
                     onSelect={() => {
@@ -494,16 +496,23 @@ export default function FileTree(props: {
                       props.onMultiCut?.(paths)
                     }}
                   >
-                    <ContextMenu.ItemLabel>剪切（{props.selectedPaths?.size ?? 0} 项）</ContextMenu.ItemLabel>
+                    <ContextMenu.ItemLabel>
+                      {language.t("fileTree.multiCut", { count: props.selectedPaths?.size ?? 0 })}
+                    </ContextMenu.ItemLabel>
                   </ContextMenu.Item>
                   <ContextMenu.Item
                     onSelect={() => {
                       const paths = [...(props.selectedPaths ?? [])]
                       navigator.clipboard.writeText(paths.join("\n"))
-                      showToast({ variant: "success", title: `已复制 ${paths.length} 个路径` })
+                      showToast({
+                        variant: "success",
+                        title: language.t("fileTree.copiedPaths", { count: paths.length }),
+                      })
                     }}
                   >
-                    <ContextMenu.ItemLabel>复制路径（{props.selectedPaths?.size ?? 0} 项）</ContextMenu.ItemLabel>
+                    <ContextMenu.ItemLabel>
+                      {language.t("fileTree.multiCopyPath", { count: props.selectedPaths?.size ?? 0 })}
+                    </ContextMenu.ItemLabel>
                   </ContextMenu.Item>
                   <ContextMenu.Item
                     onSelect={() => {
@@ -511,7 +520,9 @@ export default function FileTree(props: {
                       props.onMultiDownload?.(paths)
                     }}
                   >
-                    <ContextMenu.ItemLabel>下载（{props.selectedPaths?.size ?? 0} 项）</ContextMenu.ItemLabel>
+                    <ContextMenu.ItemLabel>
+                      {language.t("fileTree.multiDownload", { count: props.selectedPaths?.size ?? 0 })}
+                    </ContextMenu.ItemLabel>
                   </ContextMenu.Item>
                   <Show when={allSelectedArePdf() && props.onPdfConvert}>
                     <ContextMenu.Separator />
@@ -522,7 +533,7 @@ export default function FileTree(props: {
                       }}
                     >
                       <ContextMenu.ItemLabel>
-                        转换为 Markdown（{props.selectedPaths?.size ?? 0} 项）
+                        {language.t("fileTree.multiConvertToMarkdown", { count: props.selectedPaths?.size ?? 0 })}
                       </ContextMenu.ItemLabel>
                     </ContextMenu.Item>
                   </Show>
@@ -534,7 +545,9 @@ export default function FileTree(props: {
                         props.onTranslateMarkdown?.(paths)
                       }}
                     >
-                      <ContextMenu.ItemLabel>翻译为中文（{props.selectedPaths?.size ?? 0} 项）</ContextMenu.ItemLabel>
+                      <ContextMenu.ItemLabel>
+                        {language.t("fileTree.multiTranslateToChinese", { count: props.selectedPaths?.size ?? 0 })}
+                      </ContextMenu.ItemLabel>
                     </ContextMenu.Item>
                   </Show>
                   <ContextMenu.Separator />
@@ -545,7 +558,9 @@ export default function FileTree(props: {
                     }}
                     class="text-red-500 focus:text-red-500"
                   >
-                    <ContextMenu.ItemLabel>删除（{props.selectedPaths?.size ?? 0} 项）</ContextMenu.ItemLabel>
+                    <ContextMenu.ItemLabel>
+                      {language.t("fileTree.multiDelete", { count: props.selectedPaths?.size ?? 0 })}
+                    </ContextMenu.ItemLabel>
                   </ContextMenu.Item>
                 </ContextMenu.Content>
               </ContextMenu.Portal>
@@ -580,21 +595,21 @@ export default function FileTree(props: {
                   <ContextMenu.Item
                     onSelect={() => {
                       navigator.clipboard.writeText(node.path)
-                      showToast({ variant: "success", title: "已复制相对路径" })
+                      showToast({ variant: "success", title: language.t("fileTree.copiedRelativePath") })
                     }}
                   >
-                    <ContextMenu.ItemLabel>复制相对路径</ContextMenu.ItemLabel>
+                    <ContextMenu.ItemLabel>{language.t("fileTree.copyRelativePath")}</ContextMenu.ItemLabel>
                   </ContextMenu.Item>
                   <ContextMenu.Item
                     onSelect={() => {
                       navigator.clipboard.writeText(node.absolute)
-                      showToast({ variant: "success", title: "已复制路径" })
+                      showToast({ variant: "success", title: language.t("fileTree.copiedAbsolutePath") })
                     }}
                   >
-                    <ContextMenu.ItemLabel>复制路径</ContextMenu.ItemLabel>
+                    <ContextMenu.ItemLabel>{language.t("fileTree.copyAbsolutePath")}</ContextMenu.ItemLabel>
                   </ContextMenu.Item>
                   <ContextMenu.Item onSelect={() => props.onFileDownload?.(node)}>
-                    <ContextMenu.ItemLabel>下载</ContextMenu.ItemLabel>
+                    <ContextMenu.ItemLabel>{language.t("fileTree.download")}</ContextMenu.ItemLabel>
                   </ContextMenu.Item>
                   <ContextMenu.Item
                     onSelect={async () => {
@@ -605,20 +620,20 @@ export default function FileTree(props: {
 
                         showToast({
                           variant: "success",
-                          title: "已用默认应用打开",
+                          title: language.t("fileTree.openedInDefaultApp"),
                         })
                       } catch (err) {
                         console.error("Failed to open file:", err)
 
                         showToast({
                           variant: "error",
-                          title: "打开文件失败",
-                          description: "请尝试手动打开",
+                          title: language.t("fileTree.openFileFailed"),
+                          description: language.t("fileTree.tryManualOpen"),
                         })
                       }
                     }}
                   >
-                    <ContextMenu.ItemLabel>打开</ContextMenu.ItemLabel>
+                    <ContextMenu.ItemLabel>{language.t("fileTree.open")}</ContextMenu.ItemLabel>
                   </ContextMenu.Item>
                   <Show when={platform.platform === "web"}>
                     <ContextMenu.Separator />
@@ -631,7 +646,7 @@ export default function FileTree(props: {
 
                           showToast({
                             variant: "success",
-                            title: "已在文件资源管理器中显示",
+                            title: language.t("fileTree.shownInExplorer"),
                           })
                         } catch (err) {
                           console.error("Failed to open in explorer:", err)
@@ -639,25 +654,25 @@ export default function FileTree(props: {
                           await navigator.clipboard.writeText(node.absolute)
                           showToast({
                             variant: "error",
-                            title: "打开失败",
-                            description: "已复制路径到剪贴板，请手动打开",
+                            title: language.t("fileTree.openFailed"),
+                            description: language.t("fileTree.pathCopiedManualOpen"),
                           })
                         }
                       }}
                     >
-                      <ContextMenu.ItemLabel>在文件资源管理器中显示</ContextMenu.ItemLabel>
+                      <ContextMenu.ItemLabel>{language.t("fileTree.showInExplorer")}</ContextMenu.ItemLabel>
                     </ContextMenu.Item>
                   </Show>
                   <Show when={isPdf() && props.onPdfConvert}>
                     <ContextMenu.Separator />
                     <ContextMenu.Item onSelect={() => props.onPdfConvert?.([node.path])}>
-                      <ContextMenu.ItemLabel>转换为 Markdown</ContextMenu.ItemLabel>
+                      <ContextMenu.ItemLabel>{language.t("fileTree.convertToMarkdown")}</ContextMenu.ItemLabel>
                     </ContextMenu.Item>
                   </Show>
                   <Show when={isMarkdown() && props.onTranslateMarkdown}>
                     <ContextMenu.Separator />
                     <ContextMenu.Item onSelect={() => props.onTranslateMarkdown?.([node.path])}>
-                      <ContextMenu.ItemLabel>翻译为中文</ContextMenu.ItemLabel>
+                      <ContextMenu.ItemLabel>{language.t("fileTree.translateToChinese")}</ContextMenu.ItemLabel>
                     </ContextMenu.Item>
                   </Show>
                   <ContextMenu.Separator />
@@ -671,39 +686,39 @@ export default function FileTree(props: {
                         if (res.data?.alreadyExists) {
                           showToast({
                             variant: "default",
-                            title: "已在 .gitignore 中",
-                            description: `路径 "${node.path}" 已存在，无需重复添加`,
+                            title: language.t("fileTree.alreadyInGitignore"),
+                            description: language.t("fileTree.alreadyInGitignoreDesc", { path: node.path }),
                           })
                         } else if (res.data?.created) {
                           showToast({
                             variant: "success",
-                            title: "已创建 .gitignore 并添加",
-                            description: `"${node.path}" 已添加到新建的 .gitignore`,
+                            title: language.t("fileTree.createdGitignore"),
+                            description: language.t("fileTree.createdGitignoreDesc", { path: node.path }),
                           })
                         } else {
                           showToast({
                             variant: "success",
-                            title: "已添加到 .gitignore",
+                            title: language.t("fileTree.addedToGitignore"),
                           })
                         }
                       } catch (err) {
                         console.error("Failed to add to .gitignore:", err)
                         showToast({
                           variant: "error",
-                          title: "添加失败",
-                          description: "无法写入 .gitignore",
+                          title: language.t("fileTree.addToGitignoreFailed"),
+                          description: language.t("fileTree.cannotWriteGitignore"),
                         })
                       }
                     }}
                   >
-                    <ContextMenu.ItemLabel>忽略变更</ContextMenu.ItemLabel>
+                    <ContextMenu.ItemLabel>{language.t("fileTree.ignoreChanges")}</ContextMenu.ItemLabel>
                   </ContextMenu.Item>
                   <ContextMenu.Item onSelect={() => props.onFileRename?.(node)}>
-                    <ContextMenu.ItemLabel>重命名</ContextMenu.ItemLabel>
+                    <ContextMenu.ItemLabel>{language.t("common.rename")}</ContextMenu.ItemLabel>
                   </ContextMenu.Item>
                   <ContextMenu.Separator />
                   <ContextMenu.Item onSelect={() => props.onFileDelete?.(node)} class="text-red-500 focus:text-red-500">
-                    <ContextMenu.ItemLabel>删除</ContextMenu.ItemLabel>
+                    <ContextMenu.ItemLabel>{language.t("common.delete")}</ContextMenu.ItemLabel>
                   </ContextMenu.Item>
                 </ContextMenu.Content>
               </ContextMenu.Portal>

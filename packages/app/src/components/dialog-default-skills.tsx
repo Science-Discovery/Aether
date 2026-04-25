@@ -4,17 +4,10 @@ import { Switch } from "@opencode-ai/ui/switch"
 import { showToast } from "@opencode-ai/ui/toast"
 import { Dialog } from "@opencode-ai/ui/dialog"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
-import {
-  Component,
-  For,
-  Match,
-  Show,
-  Switch as SolidSwitch,
-  createResource,
-  createSignal,
-} from "solid-js"
+import { Component, For, Match, Show, Switch as SolidSwitch, createResource, createSignal } from "solid-js"
 import { useGlobalSDK } from "@/context/global-sdk"
 import { useSDK } from "@/context/sdk"
+import { useLanguage } from "@/context/language"
 
 type DefaultSkill = { name: string; description: string; content: string; enabled?: boolean }
 
@@ -22,10 +15,11 @@ export const DialogDefaultSkills: Component = () => {
   const globalSDK = useGlobalSDK()
   const sdk = useSDK()
   const dialog = useDialog()
+  const language = useLanguage()
 
   const [skills, { refetch }] = createResource<DefaultSkill[]>(async () => {
     const result = await globalSDK.client.config.skills.list()
-    return ((result.data as unknown) as DefaultSkill[]) ?? []
+    return (result.data as unknown as DefaultSkill[]) ?? []
   })
 
   const [adding, setAdding] = createSignal(false)
@@ -38,7 +32,12 @@ export const DialogDefaultSkills: Component = () => {
       await refetch()
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
-      showToast({ variant: "error", icon: "circle-x", title: "操作失败", description: message })
+      showToast({
+        variant: "error",
+        icon: "circle-x",
+        title: language.t("defaultSkills.operationFailed"),
+        description: message,
+      })
     } finally {
       setToggling(null)
     }
@@ -48,21 +47,30 @@ export const DialogDefaultSkills: Component = () => {
     setAdding(true)
     try {
       const result = await globalSDK.client.config.skills.addDefaults({ directory: sdk.directory })
-      const added = ((result.data as unknown) as { added: string[] }).added
+      const added = (result.data as unknown as { added: string[] }).added
       if (added.length > 0) {
         showToast({
           variant: "success",
           icon: "circle-check",
-          title: "Skills 已复制到项目",
-          description: `已复制：${added.join(", ")}`,
+          title: language.t("defaultSkills.skillsCopiedToProject"),
+          description: language.t("defaultSkills.copiedList", { list: added.join(", ") }),
         })
       } else {
-        showToast({ icon: "check", title: "已是最新", description: "默认 Skills 已全部存在于项目中" })
+        showToast({
+          icon: "check",
+          title: language.t("defaultSkills.alreadyUpToDate"),
+          description: language.t("defaultSkills.allSkillsExistInProject"),
+        })
       }
       dialog.close()
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
-      showToast({ variant: "error", icon: "circle-x", title: "添加失败", description: message })
+      showToast({
+        variant: "error",
+        icon: "circle-x",
+        title: language.t("defaultSkills.addFailed"),
+        description: message,
+      })
     } finally {
       setAdding(false)
     }
@@ -70,12 +78,12 @@ export const DialogDefaultSkills: Component = () => {
 
   return (
     <Dialog
-      title="默认 Skills"
+      title={language.t("knowledgeBase.defaultSkills")}
       action={
         <div class="flex items-center gap-1.5 -my-1">
           <Button variant="primary" size="small" disabled={adding()} onClick={handleAddToProject}>
             <Icon name="download" size="small" />
-            {adding() ? "添加中..." : "添加到项目"}
+            {adding() ? language.t("defaultSkills.addingToProject") : language.t("defaultSkills.addToProject")}
           </Button>
         </div>
       }
@@ -84,12 +92,10 @@ export const DialogDefaultSkills: Component = () => {
         {/* Skill list */}
         <SolidSwitch>
           <Match when={skills.loading}>
-            <div class="text-12-regular text-text-weak px-1">加载中...</div>
+            <div class="text-12-regular text-text-weak px-1">{language.t("defaultSkills.loading")}</div>
           </Match>
           <Match when={skills()?.length === 0}>
-            <div class="text-12-regular text-text-weak px-1">
-              暂无默认 Skills
-            </div>
+            <div class="text-12-regular text-text-weak px-1">{language.t("defaultSkills.noDefaultSkills")}</div>
           </Match>
           <Match when={true}>
             <div class="flex flex-col gap-1.5 overflow-y-auto max-h-80">
@@ -102,7 +108,9 @@ export const DialogDefaultSkills: Component = () => {
                         <span class="text-12-regular text-text-weak line-clamp-2">{skill.description}</span>
                       </Show>
                       <Show when={!skill.description}>
-                        <span class="text-12-regular text-text-subtle italic">暂无描述</span>
+                        <span class="text-12-regular text-text-subtle italic">
+                          {language.t("defaultSkills.noDescription")}
+                        </span>
                       </Show>
                     </div>
                     <div class="flex items-center shrink-0">

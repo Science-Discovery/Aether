@@ -17,7 +17,7 @@ const [status, setStatus] = createSignal<WeChatStatus>("idle")
 const [qrcode, setQrcode] = createSignal<string | null>(null)
 const [error, setError] = createSignal<{ code: string; message: string } | null>(null)
 const [user, setUser] = createSignal<{ id: string; name: string } | null>(null)
-const [loadingMsg, setLoadingMsg] = createSignal<string>("正在启动微信桥接...")
+const [loadingMsg, setLoadingMsg] = createSignal<string>("Starting WeChat bridge...")
 const [locked, setLocked] = createSignal(false)
 
 export { status, qrcode, error, user, loadingMsg, locked }
@@ -42,7 +42,7 @@ const api = () => {
 
 const updateStatus = (s: WeChatStatus) => {
   setStatus(s)
-  if (s !== "loading") setLoadingMsg("正在启动微信桥接...")
+  if (s !== "loading") setLoadingMsg("Starting WeChat bridge...")
 }
 
 function connectSSE() {
@@ -197,7 +197,7 @@ export async function fetchStatus() {
 
 export async function startBridge(auto = false, modelStr?: string, force = false) {
   updateStatus("loading")
-  setLoadingMsg("正在启动微信桥接...")
+  setLoadingMsg("Starting WeChat bridge...")
   setError(null)
   setLocked(false)
 
