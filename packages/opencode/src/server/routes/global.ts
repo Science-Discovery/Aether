@@ -496,8 +496,9 @@ async function fetchInstallerScript(os: string): Promise<string | null> {
       log.error("failed to fetch installer script", { url, status: res.status })
       return null
     }
-    const buf = Buffer.from(await res.arrayBuffer())
-    await fs.writeFile(dest, buf)
+    const text = await res.text()
+    const patched = patchInstallerScript(os, text)
+    await fs.writeFile(dest, patched)
     if (os !== "windows") {
       await fs.chmod(dest, 0o755).catch(() => undefined)
     }
@@ -508,8 +509,41 @@ async function fetchInstallerScript(os: string): Promise<string | null> {
   }
 }
 
+function patchInstallerScript(os: string, text: string): string {
+  if (os === "windows") {
+    return text.replace(
+      /set\s+"BASE=(https:\/\/[^\s"]+)"/,
+      'if defined AETHER_UPDATE_BASE (set "BASE=%AETHER_UPDATE_BASE%") else (set "BASE=$1")',
+    )
+  }
+  return text.replace(/base="(https:\/\/[^\s"]+)"/, 'base="${AETHER_UPDATE_BASE:-$1}"')
+}
+
 function getAppRoot(): string {
   return path.dirname(process.execPath)
+}
+
+async function detectInstalledVersion(): Promise<string> {
+  const work = getWorkDir()
+  if (!work) return ""
+  try {
+    const entries = await fs.readdir(work)
+    const dirs = entries.filter((x) => /^aether[-_]/i.test(x) && /^aether[-_]\d+\.\d+\.\d+/.test(x))
+    let best = ""
+    for (const dir of dirs) {
+      const verFile = path.join(work, dir, ".aether_web_version")
+      const ver = await fs
+        .readFile(verFile, "utf-8")
+        .then((x) => x.trim())
+        .catch(() => "")
+      const v = ver || dir.replace(/^aether[-_]/i, "")
+      if (!v) continue
+      if (compareVer(v, best) > 0) best = v
+    }
+    return best
+  } catch {
+    return ""
+  }
 }
 
 async function readWebCurrentVersion() {
@@ -522,7 +556,8 @@ async function readWebCurrentVersion() {
 
   const cached = await read()
   if (cached) return normalizeVersion(cached)
-  const fallback = normalizeVersion(Installation.VERSION)
+  const detected = await detectInstalledVersion()
+  const fallback = normalizeVersion(detected || Installation.VERSION)
   await fs.writeFile(file, `${fallback}\n`, "utf-8").catch(() => undefined)
   const next = await read()
   return next ? normalizeVersion(next) : fallback
@@ -1126,12 +1161,13 @@ export const GlobalRoutes = lazy(() =>
               package_size: meta.package_size,
             }),
           )
+          const updateBase = await getUpdateBase()
           const exitCode = await new Promise<number>((resolve, reject) => {
             const cmd = os === "windows" ? "cmd" : "bash"
             const cmdArgs = os === "windows" ? ["/c", scriptPath, "auto", cur] : [scriptPath, "auto", cur]
             const child = spawn(cmd, cmdArgs, {
               cwd: workDir,
-              env: { ...process.env, AETHER_WORK_DIR: workDir },
+              env: { ...process.env, AETHER_WORK_DIR: workDir, AETHER_UPDATE_BASE: updateBase },
               windowsHide: os === "windows",
             })
             child.on("close", (code: number | null) => resolve(code ?? 1))
