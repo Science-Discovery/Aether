@@ -9,15 +9,11 @@ import {
   waitSessionSaved,
   waitSlug,
 } from "../actions"
-import { promptSelector, workspaceItemSelector, workspaceNewSessionSelector } from "../selectors"
+import { promptSelector, workspaceItemSelector } from "../selectors"
 import { createSdk } from "../utils"
 
 function item(space: { slug: string; raw: string }) {
   return `${workspaceItemSelector(space.slug)}, ${workspaceItemSelector(space.raw)}`
-}
-
-function button(space: { slug: string; raw: string }) {
-  return `${workspaceNewSessionSelector(space.slug)}, ${workspaceNewSessionSelector(space.raw)}`
 }
 
 async function waitStableSession(page: Page, timeout = 15_000) {
@@ -65,11 +61,20 @@ async function openWorkspaceNewSession(page: Page, space: { slug: string; raw: s
   await waitWorkspaceReady(page, space)
 
   const row = page.locator(item(space)).first()
+  await expect(row).toBeVisible()
   await row.hover()
 
-  const next = page.locator(button(space)).first()
+  const next = row.locator('[data-action="workspace-new-session"]').first()
   await expect(next).toBeVisible()
-  await next.click({ force: true })
+  await expect
+    .poll(() =>
+      next.evaluate((node) => {
+        const style = getComputedStyle(node)
+        return `${style.pointerEvents}:${style.opacity}`
+      }),
+    )
+    .toBe("auto:1")
+  await next.click()
 
   await waitDir(page, space.directory)
   await expect(page.locator(promptSelector).first()).toBeVisible({ timeout: 45_000 })
