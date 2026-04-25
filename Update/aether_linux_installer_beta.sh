@@ -3,11 +3,12 @@
 set -euo pipefail
 
 base="https://aether.aiphys.cn/downloadbeta"
-latest="latest/linux-x64.yml"
 default="$HOME/.local/share/applications/aether"
+work_default="$HOME/.local/share/aether/update/aether"
 mode="init"
 arg=""
 path_arg=""
+mirror=""
 hold=0
 nohold=0
 
@@ -22,6 +23,19 @@ sum_err=32
 run_err=33
 dir_err=40
 arg_err=50
+
+case "$(uname -m)" in
+  aarch64|arm64) arch="arm64" ;;
+  x86_64|amd64) arch="x64" ;;
+  *)
+    echo "Unsupported Linux architecture: $(uname -m)"
+    exit "$arg_err"
+    ;;
+esac
+
+plat="linux-$arch"
+pkg_base="aether-$plat"
+latest="latest/$plat.yml"
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -80,7 +94,7 @@ keep="3"
 openssl_mode=""
 openssl_checked=0
 openssl_lib=""
-lib_roots="/usr/lib/x86_64-linux-gnu /usr/lib64 /usr/lib /lib/x86_64-linux-gnu /lib64 /lib"
+lib_roots="/usr/lib/$arch-linux-gnu /lib/$arch-linux-gnu /usr/lib/x86_64-linux-gnu /lib/x86_64-linux-gnu /usr/lib/aarch64-linux-gnu /lib/aarch64-linux-gnu /usr/lib64 /usr/lib /lib64 /lib"
 
 lib_exact() {
   local name="$1"
@@ -241,7 +255,7 @@ cache_paths() {
   else
     pkg_ext=".$pkg_ext"
   fi
-  pkg_file="$dl/aether-linux-x64-$ver$pkg_ext"
+  pkg_file="$dl/$pkg_base-$ver$pkg_ext"
   ins_file=""
   if [ -n "$ins_url" ] && [ -n "$ins_name" ]; then
     ins_ext="${ins_name##*.}"
@@ -401,6 +415,7 @@ result() {
     echo "installer_path: $(quote "$ins_file")"
     echo "manifest_url: $(quote "$manifest_url")"
     echo "notes_url: $(quote "$note_url")"
+    echo "mirror_root: $(quote "$mirror")"
   } >"$res_file"
 }
 
@@ -643,7 +658,7 @@ grab() {
   else
     pkg_ext=".$pkg_ext"
   fi
-  pkg_file="$dl/aether-linux-x64-$ver$pkg_ext"
+  pkg_file="$dl/$pkg_base-$ver$pkg_ext"
 
   need_pkg=1
   if [ -f "$pkg_file" ]; then
@@ -714,7 +729,7 @@ prune() {
   local arr n cut i list item
 
   shopt -s nullglob
-  arr=("$dl"/aether-linux-x64-*.*)
+  arr=("$dl"/"$pkg_base"-*.*)
   shopt -u nullglob
   n="${#arr[@]}"
   if [ "$n" -gt "$keep" ]; then
@@ -757,9 +772,17 @@ Usage:
   $(basename "$0") [--no-pause] auto <current-version>
   $(basename "$0") [--no-pause] manual <target-version>
 
+init mode:
+  --path specifies the install target directory (default $default)
+  Work directory is fixed at $work_default
+  Downloads, installs, and mirrors to the target directory
+
+auto mode:
+  Called by the main app; work directory via AETHER_WORK_DIR
+
 Remote manifests:
   $base/$latest
-  $base/1.2.3/linux-x64.yml
+  $base/1.2.3/$plat.yml
 
 Downloaders:
   curl (preferred), wget, or busybox wget
@@ -790,9 +813,12 @@ fi
 if [ "$mode" = "init" ]; then
   echo "Aether Linux Installer"
   echo
-  work="$(normalize_work "${path_arg:-$default}")"
-  echo "Install directory:"
+  work="$work_default"
+  mirror="$(normalize_work "${path_arg:-$default}")"
+  echo "Work directory:"
   echo "  $work"
+  echo "Install directory:"
+  echo "  $mirror"
   prep "$work" || {
     res="dir_error"
     result
@@ -800,17 +826,6 @@ if [ "$mode" = "init" ]; then
     echo "Work directory failed."
     fail "$dir_err"
   }
-  local_self="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
-  local_dst="$work/$(basename "$0")"
-  if [ "$local_self" != "$local_dst" ]; then
-    cp "$0" "$local_dst" 2>/dev/null || {
-      res="dir_error"
-      result
-      echo
-      echo "Failed to copy installer to $work"
-      fail "$dir_err"
-    }
-  fi
   manifest_url="$base/$latest"
   manifest "$manifest_url" latest || {
     res="meta_error"
@@ -820,7 +835,7 @@ if [ "$mode" = "init" ]; then
     fail "$meta_err"
   }
   echo "Latest version: $ver"
-  cur="$(installed "$work")"
+  cur="$(installed "$mirror")"
   if [ -n "$cur" ] && [ "$(cmp "$cur" "$ver")" = "eq" ]; then
     res="up_to_date"
     result
@@ -858,7 +873,7 @@ if [ "$mode" = "init" ]; then
   echo
   if [ -n "$ins_file" ]; then
     echo "[init] Running installer script..."
-    if ! (cd "$work/downloads" && bash "$(basename "$ins_file")" install "$ver"); then
+    if ! (cd "$work/downloads" && AETHER_MIRROR_ROOT="$mirror" AETHER_CURRENT_DIR="$mirror/aether_$ver" bash "$(basename "$ins_file")" install "$ver" --restart); then
       res="run_error"
       result
       echo
@@ -873,9 +888,7 @@ if [ "$mode" = "init" ]; then
     fail "$run_err"
   fi
 
-  mkdir -p "$HOME/Aether_Database" 2>/dev/null || true
-
-  ensure_libssl "$work/aether_$ver"
+  ensure_libssl "$mirror/aether_$ver"
 
   desktop_hint
 
@@ -934,7 +947,7 @@ if [ "$mode" = "manual" ]; then
     echo "Work directory failed."
     exit "$dir_err"
   }
-  manifest_url="$base/$req/linux-x64.yml"
+  manifest_url="$base/$req/$plat.yml"
   if ! manifest "$manifest_url" version; then
     code="$?"
     if [ "$code" = "$miss" ]; then

@@ -5,9 +5,11 @@ set -euo pipefail
 base="https://aether.aiphys.cn/downloadbeta"
 latest="latest/mac-arm64.yml"
 default="$HOME/Applications/aether"
+work_default="$HOME/.local/share/aether/update/aether"
 mode="init"
 arg=""
 path_arg=""
+mirror=""
 hold=0
 nohold=0
 
@@ -123,6 +125,7 @@ result() {
     echo "installer_path: $(quote "$ins_file")"
     echo "manifest_url: $(quote "$manifest_url")"
     echo "notes_url: $(quote "$note_url")"
+    echo "mirror_root: $(quote "$mirror")"
   } >"$res_file"
 }
 
@@ -458,6 +461,14 @@ Aether macOS 安装器
   $(basename "$0") [--no-pause] auto <current-version>
   $(basename "$0") [--no-pause] manual <target-version>
 
+init 模式:
+  --path 指定安装目标目录（默认 $default）
+  工作目录固定为 $work_default
+  下载后自动安装并 mirror 到目标目录
+
+auto 模式:
+  由主程序调用，工作目录通过 AETHER_WORK_DIR 指定
+
 远端清单:
   $base/$latest
   $base/1.2.3/mac-arm64.yml
@@ -487,9 +498,12 @@ fi
 if [ "$mode" = "init" ]; then
   echo "Aether macOS 安装器"
   echo
-  work="$(normalize_work "${path_arg:-$default}")"
-  echo "安装目录:"
+  work="$work_default"
+  mirror="$(normalize_work "${path_arg:-$default}")"
+  echo "工作目录:"
   echo "  $work"
+  echo "安装目录:"
+  echo "  $mirror"
   prep "$work" || {
     res="dir_error"
     result
@@ -497,17 +511,6 @@ if [ "$mode" = "init" ]; then
     echo "工作目录处理失败。"
     fail "$dir_err"
   }
-  local_self="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
-  local_dst="$work/$(basename "$0")"
-  if [ "$local_self" != "$local_dst" ]; then
-    cp "$0" "$local_dst" 2>/dev/null || {
-      res="dir_error"
-      result
-      echo
-      echo "复制安装器到 $work 失败"
-      fail "$dir_err"
-    }
-  fi
   manifest_url="$base/$latest"
   manifest "$manifest_url" latest || {
     res="meta_error"
@@ -519,7 +522,7 @@ if [ "$mode" = "init" ]; then
   echo
   echo "最新版本: $ver"
   echo
-  cur="$(installed "$work")"
+  cur="$(installed "$mirror")"
   if [ -n "$cur" ] && [ "$(cmp "$cur" "$ver")" = "eq" ]; then
     res="up_to_date"
     result
@@ -557,7 +560,7 @@ if [ "$mode" = "init" ]; then
   echo
   if [ -n "$ins_file" ]; then
     echo "[init] 正在运行安装脚本..."
-    if ! (cd "$work/downloads" && bash "$(basename "$ins_file")" "$ver"); then
+    if ! (cd "$work/downloads" && AETHER_MIRROR_ROOT="$mirror" AETHER_CURRENT_DIR="$mirror/aether_$ver" bash "$(basename "$ins_file")" "$ver" --restart); then
       res="run_error"
       result
       echo
@@ -571,8 +574,6 @@ if [ "$mode" = "init" ]; then
     echo "执行安装步骤失败：清单中缺少安装脚本。"
     fail "$run_err"
   fi
-
-  mkdir -p "$HOME/aether_Database" 2>/dev/null || true
 
   done_hold
   exit 0
