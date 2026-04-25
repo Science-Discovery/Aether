@@ -65,7 +65,7 @@ import { DialogEditProject } from "@/components/dialog-edit-project"
 import { DebugBar } from "@/components/debug-bar"
 import { Titlebar } from "@/components/titlebar"
 import { useServer } from "@/context/server"
-import { bindWechatResolver, initWechat } from "@/context/wechat"
+import { bindResolver, initMobile } from "@/context/mobile"
 import { useLanguage, type Locale } from "@/context/language"
 import { actionOf, messageOf } from "@/utils/web-update"
 import {
@@ -125,14 +125,15 @@ export default function Layout(props: ParentProps) {
   const platform = usePlatform()
   const settings = useSettings()
   const server = useServer()
-  bindWechatResolver(() => {
+  bindResolver(() => {
     const s = server.current?.http
     const headers: HeadersInit = !s?.password
       ? {}
       : { Authorization: `Basic ${btoa(`${s.username ?? "opencode"}:${s.password}`)}` }
     return { url: globalSDK.url, headers }
   })
-  initWechat()
+  initMobile("wechat")
+  initMobile("feishu")
   const notification = useNotification()
   const permission = usePermission()
   const navigate = useNavigate()

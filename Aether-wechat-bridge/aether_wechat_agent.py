@@ -1520,6 +1520,10 @@ class AetherAgent(Agent):
         ctx_token = (request.raw or {}).get("context_token", "")
         if ctx_token:
             self._wechat_ctx[conv_id] = ctx_token
+            print(
+                f"[CTX] {json.dumps({'conv_id': conv_id, 'context_token': ctx_token})}"
+            )
+            sys.stdout.flush()
 
         self._last_user_text[conv_id] = user_text
 
@@ -2334,6 +2338,12 @@ async def custom_login(client: ILinkBotClient, log=print) -> str:
             print(f"[登录成功] user: {user_id} ({user_name})")
             sys.stdout.flush()
 
+            # Output iLink auth info for TS manager
+            print(
+                f"[TOKEN] {json.dumps({'token': token, 'base_url': DEFAULT_API_BASE, 'cdn_base_url': 'https://novac2c.cdn.weixin.qq.com/c2c'})}"
+            )
+            sys.stdout.flush()
+
             # 保存会话到文件
             if SESSION_FILE:
                 try:
@@ -2376,6 +2386,10 @@ class CustomWeChatBot(WeChatBot):
             transport._client.token = stored_token
             log(f"[weixin] 使用已保存的 token")
             print(f"[登录成功] user: unknown (已保存的账号)")
+            sys.stdout.flush()
+            print(
+                f"[TOKEN] {json.dumps({'token': stored_token, 'base_url': DEFAULT_API_BASE, 'cdn_base_url': 'https://novac2c.cdn.weixin.qq.com/c2c'})}"
+            )
             sys.stdout.flush()
             if SESSION_FILE:
                 try:
