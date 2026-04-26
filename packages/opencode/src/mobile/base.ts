@@ -80,6 +80,9 @@ interface ModelEntry {
 
 type SessionMapKey = Record<string, string>
 
+const projectSnapshot: Project.RecentInfo[] = []
+const sessionSnapshots = new Map<string, Session.Info[]>()
+
 export interface MobileAdapter {
   platform: Platform
 
@@ -1025,23 +1028,31 @@ export abstract class MobileManagerBase {
       await this.cmdProjectByPath(targetId, chatId, arg)
       return
     }
-    const allProjects = this.getProjects()
-    if (allProjects.length === 0) {
+
+    const needRefresh = !arg || arg === "list"
+    if (needRefresh) {
+      projectSnapshot.length = 0
+      projectSnapshot.push(...this.getProjects())
+    }
+    if (!projectSnapshot.length && arg) {
+      projectSnapshot.length = 0
+      projectSnapshot.push(...this.getProjects())
+    }
+    if (!projectSnapshot.length) {
       await this.replyCmd(targetId, chatId, "❌ 无法获取项目列表，请检查 Aether 是否正常运行。")
       return
     }
 
-    const visibleProjects = allProjects.filter((p) => !(this.projectDir(p) in this._hiddenDirs))
     const currentDir = this.effectiveDir(chatId)
 
     if (arg.startsWith("hide ")) {
       const delArg = arg.slice(5).trim()
       const idx = parseInt(delArg, 10) - 1
-      if (isNaN(idx) || idx < 0 || idx >= allProjects.length) {
-        await this.replyCmd(targetId, chatId, `❌ 用法：/project hide n（n 为 1~${allProjects.length}）`)
+      if (isNaN(idx) || idx < 0 || idx >= projectSnapshot.length) {
+        await this.replyCmd(targetId, chatId, `❌ 用法：/project hide n（n 为 1~${projectSnapshot.length}）`)
         return
       }
-      const target = allProjects[idx]
+      const target = projectSnapshot[idx]
       const directory = this.projectDir(target)
       this._hiddenDirs[directory] = Date.now()
       await this.saveHiddenDirs()
@@ -1052,8 +1063,8 @@ export abstract class MobileManagerBase {
 
     if (arg === "list") {
       const lines = ["📂 项目列表：", ""]
-      for (let i = 0; i < allProjects.length; i++) {
-        const item = allProjects[i]
+      for (let i = 0; i < projectSnapshot.length; i++) {
+        const item = projectSnapshot[i]
         const directory = this.projectDir(item)
         const tag = directory === currentDir ? " ◀" : ""
         const mark = directory in this._hiddenDirs ? " [已隐藏]" : ""
@@ -1066,16 +1077,17 @@ export abstract class MobileManagerBase {
 
     if (arg) {
       const idx = parseInt(arg, 10) - 1
-      if (isNaN(idx) || idx < 0 || idx >= allProjects.length) {
-        await this.replyCmd(targetId, chatId, `❌ 请输入 1~${allProjects.length} 之间的编号。`)
+      if (isNaN(idx) || idx < 0 || idx >= projectSnapshot.length) {
+        await this.replyCmd(targetId, chatId, `❌ 请输入 1~${projectSnapshot.length} 之间的编号。`)
         return
       }
-      const chosen = allProjects[idx]
+      const chosen = projectSnapshot[idx]
       const newDir = this.projectDir(chosen)
       await this.switchToProject(targetId, chatId, newDir)
       return
     }
 
+    const visibleProjects = projectSnapshot.filter((p) => !(this.projectDir(p) in this._hiddenDirs))
     if (visibleProjects.length === 0) {
       const hint =
         Object.keys(this._hiddenDirs).length > 0 ? `（有 ${Object.keys(this._hiddenDirs).length} 个项目已隐藏）` : ""
@@ -1085,8 +1097,8 @@ export abstract class MobileManagerBase {
 
     const lines = ["📂 项目列表：", ""]
     let count = 0
-    for (let i = 0; i < allProjects.length && count < 10; i++) {
-      const item = allProjects[i]
+    for (let i = 0; i < projectSnapshot.length && count < 10; i++) {
+      const item = projectSnapshot[i]
       const directory = this.projectDir(item)
       if (directory in this._hiddenDirs) continue
       const tag = directory === currentDir ? " ◀" : ""
@@ -1238,14 +1250,31 @@ export abstract class MobileManagerBase {
 
   protected async cmdSession(targetId: string, chatId: string, arg: string): Promise<void> {
     const effectiveDir = this.effectiveDir(chatId)
-    let items: Session.Info[] = []
-    await Instance.provide({
-      directory: effectiveDir,
-      fn: async () => {
-        items = [...Session.list({ directory: effectiveDir, roots: true, limit: 100 })]
-      },
-    })
+    const dirKey = this.normDir(effectiveDir)
 
+    const needRefresh = !arg || arg === "list"
+    if (needRefresh) {
+      let fresh: Session.Info[] = []
+      await Instance.provide({
+        directory: effectiveDir,
+        fn: async () => {
+          fresh = [...Session.list({ directory: effectiveDir, roots: true, limit: 100 })]
+        },
+      })
+      sessionSnapshots.set(dirKey, fresh)
+    }
+    if (!sessionSnapshots.has(dirKey) && arg) {
+      let fresh: Session.Info[] = []
+      await Instance.provide({
+        directory: effectiveDir,
+        fn: async () => {
+          fresh = [...Session.list({ directory: effectiveDir, roots: true, limit: 100 })]
+        },
+      })
+      sessionSnapshots.set(dirKey, fresh)
+    }
+
+    const items = sessionSnapshots.get(dirKey) ?? []
     const currentId = this._chatSessions[chatId]
 
     if (arg === "list") {
