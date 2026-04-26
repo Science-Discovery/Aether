@@ -219,7 +219,6 @@ class WeChatManagerImpl extends MobileManagerBase {
     }
 
     this._error = null
-    this.status = "starting"
 
     const savedSession = await this.adapter.loadSession()
     if (savedSession?.connected && savedSession.user) {
@@ -230,37 +229,25 @@ class WeChatManagerImpl extends MobileManagerBase {
         this._cursor = state.cursor || ""
         this._wcSession = savedSession
 
-        void this.validateAndConnect()
-        return { success: true }
-      }
-    }
-
-    void this.loginAndPoll()
-    return { success: true }
-  }
-
-  private async validateAndConnect(): Promise<void> {
-    try {
-      const valid = await this.validateToken()
-      if (valid) {
         this.status = "connected"
-        Bus.publish(this.busEvents.Connected, { user: this._wcSession!.user })
+        Bus.publish(this.busEvents.Connected, { user: savedSession.user })
         this._pollRunning = true
         void this.pollLoop()
         this.subscribeBusEvents()
+        this._modelList = []
+        void this.buildModelList().then((list) => {
+          this._modelList = list
+        })
         const allProjects = this.getProjects()
         const visibleProjects = allProjects.filter((p) => !(this.projectDir(p) in this._hiddenDirs))
         this._initialDir = visibleProjects.length > 0 ? this.projectDir(visibleProjects[0]) : Instance.directory
-        return
+        return { success: true, status: "connected", user: savedSession.user }
       }
-
-      this._ilinkToken = ""
-      void this.loginAndPoll()
-    } catch (err) {
-      console.error("[wechat] validateAndConnect failed:", err)
-      this._ilinkToken = ""
-      void this.loginAndPoll()
     }
+
+    this.status = "starting"
+    void this.loginAndPoll()
+    return { success: true }
   }
 
   async retry(): Promise<{ success: boolean; message?: string; status?: string; user?: { id: string; name: string } }> {
@@ -278,70 +265,36 @@ class WeChatManagerImpl extends MobileManagerBase {
     return { success: true }
   }
 
-  private async validateToken(): Promise<boolean> {
-    try {
-      const result = await ilink.getUpdates(this._ilinkBaseUrl, this._ilinkToken, this._cursor, 2000)
-      if (result.expired) {
-        console.log("[wechat] saved token expired")
-        return false
-      }
-      console.log("[wechat] saved token valid")
-      return true
-    } catch (err: any) {
-      if (err?.name === "AbortError" || err?.message?.includes("timeout")) {
-        console.log("[wechat] validate token: poll timed out (no messages), token likely valid")
-        return true
-      }
-      console.log("[wechat] saved token invalid:", err?.message || String(err))
-      return false
-    }
-  }
-
   private async reconnect(): Promise<void> {
     this.status = "reconnecting"
     Bus.publish(this.busEvents.Reconnecting, { attempt: 1, delay: 0 })
 
-    for (let attempt = 0; attempt < 10 && this._status === "reconnecting"; attempt++) {
-      const delay = Math.min(3000 * Math.pow(1.5, attempt), 30000)
-      if (attempt > 0) {
-        Bus.publish(this.busEvents.Reconnecting, { attempt: attempt + 1, delay })
-        await new Promise((r) => setTimeout(r, delay))
-      }
-
-      const state = await this.loadILinkState()
-      if (state?.token) {
-        this._ilinkToken = state.token
-        this._ilinkBaseUrl = state.baseUrl || ILINK_BASE_URL
-        this._cursor = state.cursor || ""
-        const valid = await this.validateToken()
-        if (valid) {
-          this.status = "connected"
-          const session = await this.adapter.loadSession()
-          const user = session?.user || this._wcSession?.user || { id: "wechat-user", name: "微信用户" }
-          this._wcSession = { connected: true, user, createdAt: Date.now() }
-          Bus.publish(this.busEvents.Connected, { user })
-          await this.saveWcSession()
-          this._pollRunning = true
-          void this.pollLoop()
-          this.subscribeBusEvents()
-          this._modelList = []
-          void this.buildModelList().then((list) => {
-            this._modelList = list
-          })
-          const allProjects = this.getProjects()
-          const visibleProjects = allProjects.filter((p) => !(this.projectDir(p) in this._hiddenDirs))
-          this._initialDir = visibleProjects.length > 0 ? this.projectDir(visibleProjects[0]) : Instance.directory
-          return
-        }
-        this._ilinkToken = ""
-      }
-
-      console.warn(`[wechat] reconnect attempt ${attempt + 1} failed, retrying...`)
+    const state = await this.loadILinkState()
+    if (state?.token) {
+      this._ilinkToken = state.token
+      this._ilinkBaseUrl = state.baseUrl || ILINK_BASE_URL
+      this._cursor = state.cursor || ""
+      const session = await this.adapter.loadSession()
+      const user = session?.user || this._wcSession?.user || { id: "wechat-user", name: "微信用户" }
+      this._wcSession = { connected: true, user, createdAt: Date.now() }
+      Bus.publish(this.busEvents.Connected, { user })
+      await this.saveWcSession()
+      this.status = "connected"
+      this._pollRunning = true
+      void this.pollLoop()
+      this.subscribeBusEvents()
+      this._modelList = []
+      void this.buildModelList().then((list) => {
+        this._modelList = list
+      })
+      const allProjects = this.getProjects()
+      const visibleProjects = allProjects.filter((p) => !(this.projectDir(p) in this._hiddenDirs))
+      this._initialDir = visibleProjects.length > 0 ? this.projectDir(visibleProjects[0]) : Instance.directory
+      return
     }
 
-    this._error = { code: "reconnect_failed", message: "自动重连失败，请手动重试" }
-    this.status = "error"
-    Bus.publish(this.busEvents.Error, this._error)
+    this._ilinkToken = ""
+    void this.loginAndPoll()
   }
 
   private async loginAndPoll(): Promise<void> {
@@ -413,14 +366,7 @@ class WeChatManagerImpl extends MobileManagerBase {
       try {
         const result = await ilink.getUpdates(this._ilinkBaseUrl, this._ilinkToken, this._cursor)
         if (result.expired) {
-          console.warn("[wechat] got expired flag from poll, verifying token...")
-          const valid = await this.validateToken()
-          if (valid) {
-            console.log("[wechat] token still valid after expired flag, continuing poll")
-            failures = 0
-            continue
-          }
-          console.warn("[wechat] token confirmed expired, reconnecting...")
+          console.warn("[wechat] session expired during poll, reconnecting...")
           this._pollRunning = false
           this.status = "reconnecting"
           Bus.publish(this.busEvents.Reconnecting, { attempt: 1, delay: 0 })
