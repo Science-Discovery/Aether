@@ -22,6 +22,7 @@ import {
   logout,
   fetchStatus,
   forceTakeover,
+  retryBridge,
   setStatus,
   type MobilePlatform,
 } from "@/context/mobile"
@@ -73,6 +74,11 @@ export const DialogMobile: Component<Props> = (props) => {
 
   const doForceTakeover = () => {
     if (p() === "wechat") return forceTakeover("wechat", currentModelStr() as string | undefined)
+  }
+
+  const doRetry = () => {
+    if (p() === "wechat") return retryBridge("wechat")
+    return doStart()
   }
 
   onMount(() => {
@@ -386,7 +392,7 @@ export const DialogMobile: Component<Props> = (props) => {
                 <Button variant="secondary" onClick={() => dialog.close()}>
                   关闭
                 </Button>
-                <Button variant="primary" onClick={doStart}>
+                <Button variant="primary" onClick={doRetry}>
                   重试
                 </Button>
               </div>

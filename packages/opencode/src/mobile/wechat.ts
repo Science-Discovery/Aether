@@ -104,6 +104,7 @@ class WeChatManagerImpl extends MobileManagerBase {
       if (!existsSync(wcFile("lock.json"))) return null
       const raw = readFileSync(wcFile("lock.json"), "utf-8")
       const lock = JSON.parse(raw) as { clientId: string; pid: number; updatedAt?: number }
+      if (lock.pid === process.pid) return null
       try {
         process.kill(lock.pid, 0)
       } catch {
@@ -167,18 +168,34 @@ class WeChatManagerImpl extends MobileManagerBase {
   }
 
   async unlock(clientId: string): Promise<void> {
-    if (this.lockHolder === clientId) {
+    const current = this.lockHolder
+    if (!current || current === clientId) {
       await rm(wcFile("lock.json"), { force: true })
     }
   }
 
   async ping(clientId: string): Promise<{ ok: boolean; stolen: boolean }> {
-    const current = this.lockHolder
-    if (current === clientId) {
-      await writeFile(wcFile("lock.json"), JSON.stringify({ clientId, pid: process.pid, updatedAt: Date.now() }))
-      return { ok: true, stolen: false }
+    try {
+      if (!existsSync(wcFile("lock.json"))) return { ok: false, stolen: false }
+      const raw = readFileSync(wcFile("lock.json"), "utf-8")
+      const lock = JSON.parse(raw) as { clientId: string; pid: number; updatedAt?: number }
+      if (lock.pid === process.pid) {
+        await writeFile(wcFile("lock.json"), JSON.stringify({ clientId, pid: process.pid, updatedAt: Date.now() }))
+        return { ok: true, stolen: false }
+      }
+      try {
+        process.kill(lock.pid, 0)
+      } catch {
+        return { ok: false, stolen: false }
+      }
+      if (lock.updatedAt && Date.now() - lock.updatedAt > 30_000) {
+        await writeFile(wcFile("lock.json"), JSON.stringify({ clientId, pid: process.pid, updatedAt: Date.now() }))
+        return { ok: true, stolen: false }
+      }
+      return { ok: false, stolen: true }
+    } catch {
+      return { ok: false, stolen: false }
     }
-    return { ok: false, stolen: current !== null }
   }
 
   // ── Start: pure TS login + poll ────────────────────────────────────────────
@@ -194,8 +211,15 @@ class WeChatManagerImpl extends MobileManagerBase {
     user?: { id: string; name: string }
   }> {
     if (this._pollRunning) {
-      return { success: false, message: "WeChat bridge is already running" }
+      return { success: true, status: this._status, user: this._wcSession?.user }
     }
+
+    if (this._status !== "idle" && this._status !== "error") {
+      return { success: true, status: this._status }
+    }
+
+    this._error = null
+    this.status = "starting"
 
     const savedSession = await this.adapter.loadSession()
     if (savedSession?.connected && savedSession.user) {
@@ -206,27 +230,50 @@ class WeChatManagerImpl extends MobileManagerBase {
         this._cursor = state.cursor || ""
         this._wcSession = savedSession
 
-        const valid = await this.validateToken()
-        if (valid) {
-          this.status = "connected"
-          Bus.publish(this.busEvents.Connected, { user: savedSession.user })
-          this._pollRunning = true
-          void this.pollLoop()
-          this.subscribeBusEvents()
-          const allProjects = this.getProjects()
-          const visibleProjects = allProjects.filter((p) => !(this.projectDir(p) in this._hiddenDirs))
-          this._initialDir = visibleProjects.length > 0 ? this.projectDir(visibleProjects[0]) : Instance.directory
-          return { success: true, status: "connected", user: savedSession.user }
-        }
-
-        this._ilinkToken = ""
-        await this.saveILinkState()
+        void this.validateAndConnect()
+        return { success: true }
       }
     }
 
-    this.status = "starting"
-    this._error = null
+    void this.loginAndPoll()
+    return { success: true }
+  }
 
+  private async validateAndConnect(): Promise<void> {
+    try {
+      const valid = await this.validateToken()
+      if (valid) {
+        this.status = "connected"
+        Bus.publish(this.busEvents.Connected, { user: this._wcSession!.user })
+        this._pollRunning = true
+        void this.pollLoop()
+        this.subscribeBusEvents()
+        const allProjects = this.getProjects()
+        const visibleProjects = allProjects.filter((p) => !(this.projectDir(p) in this._hiddenDirs))
+        this._initialDir = visibleProjects.length > 0 ? this.projectDir(visibleProjects[0]) : Instance.directory
+        return
+      }
+
+      this._ilinkToken = ""
+      await this.saveILinkState()
+      void this.loginAndPoll()
+    } catch (err) {
+      console.error("[wechat] validateAndConnect failed:", err)
+      this._ilinkToken = ""
+      await this.saveILinkState()
+      void this.loginAndPoll()
+    }
+  }
+
+  async retry(): Promise<{ success: boolean; message?: string; status?: string; user?: { id: string; name: string } }> {
+    this._loginAbort?.abort()
+    this._loginAbort = null
+    this._pollRunning = false
+    this.unsubscribeBusEvents()
+    this._error = null
+    this._ilinkToken = ""
+    await this.saveILinkState()
+    this.status = "starting"
     void this.loginAndPoll()
     return { success: true }
   }
@@ -251,9 +298,15 @@ class WeChatManagerImpl extends MobileManagerBase {
   }
 
   private async reconnect(): Promise<void> {
-    try {
-      this.status = "reconnecting"
-      Bus.publish(this.busEvents.Reconnecting, { attempt: 1, delay: 0 })
+    this.status = "reconnecting"
+    Bus.publish(this.busEvents.Reconnecting, { attempt: 1, delay: 0 })
+
+    for (let attempt = 0; attempt < 10 && this._status === "reconnecting"; attempt++) {
+      const delay = Math.min(3000 * Math.pow(1.5, attempt), 30000)
+      if (attempt > 0) {
+        Bus.publish(this.busEvents.Reconnecting, { attempt: attempt + 1, delay })
+        await new Promise((r) => setTimeout(r, delay))
+      }
 
       const state = await this.loadILinkState()
       if (state?.token) {
@@ -284,14 +337,12 @@ class WeChatManagerImpl extends MobileManagerBase {
         await this.saveILinkState()
       }
 
-      await this.loginAndPoll()
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err)
-      console.error("[wechat] reconnect failed:", err)
-      this._error = { code: "reconnect_failed", message }
-      this.status = "error"
-      Bus.publish(this.busEvents.Error, this._error)
+      console.warn(`[wechat] reconnect attempt ${attempt + 1} failed, retrying...`)
     }
+
+    this._error = { code: "reconnect_failed", message: "自动重连失败，请手动重试" }
+    this.status = "error"
+    Bus.publish(this.busEvents.Error, this._error)
   }
 
   private async loginAndPoll(): Promise<void> {
@@ -363,9 +414,14 @@ class WeChatManagerImpl extends MobileManagerBase {
       try {
         const result = await ilink.getUpdates(this._ilinkBaseUrl, this._ilinkToken, this._cursor)
         if (result.expired) {
-          console.warn("[wechat] session expired during poll, reconnecting...")
-          this._ilinkToken = ""
-          await this.saveILinkState()
+          console.warn("[wechat] got expired flag from poll, verifying token...")
+          const valid = await this.validateToken()
+          if (valid) {
+            console.log("[wechat] token still valid after expired flag, continuing poll")
+            failures = 0
+            continue
+          }
+          console.warn("[wechat] token confirmed expired, reconnecting...")
           this._pollRunning = false
           this.status = "reconnecting"
           Bus.publish(this.busEvents.Reconnecting, { attempt: 1, delay: 0 })

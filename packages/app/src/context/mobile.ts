@@ -172,6 +172,12 @@ function connectSSE(p: MobilePlatform) {
               })
             } else if (type.endsWith(".status") && props.status) {
               const s = props.status === "starting" ? "loading" : (props.status as MobileStatus)
+              const cur = prev(p).status
+              if (
+                s === "idle" &&
+                (cur === "loading" || cur === "reconnecting" || cur === "qrcode" || cur === "connected")
+              )
+                continue
               const u: Partial<PlatformState> = { status: s }
               if (props.message) u.loadingMsg = props.message
               if (s === "connected") clearSseRetry(p)
@@ -401,7 +407,26 @@ export async function logout(p: MobilePlatform) {
   patch(p, { user: null, appId: null, hasConfig: false, status: "idle", qrcode: null })
 }
 
-export function forceTakeover(p: MobilePlatform, modelStr?: string) {
+export async function retryBridge(p: MobilePlatform) {
+  if (p !== "wechat") return startBridge(p)
+  patch(p, { status: "reconnecting", loadingMsg: "正在重新连接微信...", error: null })
+  connectSSE(p)
+  try {
+    const { url, headers } = api()
+    const res = await fetch(`${url}/mobile/wechat/retry`, {
+      method: "POST",
+      headers: { ...headers, "Content-Type": "application/json" },
+    })
+    const data = await res.json()
+    if (!data.success) {
+      patch("wechat", { error: { code: "retry_failed", message: data.message || "重连失败" }, status: "error" })
+    }
+  } catch (err) {
+    patch("wechat", { error: { code: "network_error", message: String(err) }, status: "error" })
+  }
+}
+
+export async function forceTakeover(p: MobilePlatform, modelStr?: string) {
   return startBridge(p, true, modelStr, true)
 }
 

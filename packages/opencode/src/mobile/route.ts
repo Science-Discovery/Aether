@@ -89,6 +89,25 @@ export function createMobileRoutes(platform: "feishu" | "wechat") {
       },
     )
     .post(
+      "/retry",
+      describeRoute({
+        summary: "Retry WeChat connection",
+        description: "Retry WeChat connection from error state",
+        operationId: "wechat.retry",
+        responses: {
+          200: {
+            description: "Retry initiated",
+            content: { "application/json": { schema: resolver(z.object({ success: z.boolean() })) } },
+          },
+        },
+      }),
+      async (c) => {
+        if (platform !== "wechat") return c.json({ success: false })
+        const result = await WeChatManager.retry()
+        return c.json(result)
+      },
+    )
+    .post(
       "/stop",
       describeRoute({
         summary: `Stop ${platform} bridge`,
