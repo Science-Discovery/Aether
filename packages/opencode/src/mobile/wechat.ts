@@ -233,7 +233,6 @@ class WeChatManagerImpl extends MobileManagerBase {
 
   private async validateToken(): Promise<boolean> {
     try {
-      console.log("[wechat] validating saved token...")
       const result = await ilink.getUpdates(this._ilinkBaseUrl, this._ilinkToken, this._cursor, 5000)
       if (result.expired) {
         console.log("[wechat] saved token expired")
@@ -241,9 +240,57 @@ class WeChatManagerImpl extends MobileManagerBase {
       }
       console.log("[wechat] saved token valid")
       return true
-    } catch (err) {
-      console.log("[wechat] saved token invalid:", err instanceof Error ? err.message : String(err))
+    } catch (err: any) {
+      if (err?.name === "AbortError" || err?.message?.includes("timeout")) {
+        console.log("[wechat] validate token: poll timed out (no messages), token likely valid")
+        return true
+      }
+      console.log("[wechat] saved token invalid:", err?.message || String(err))
       return false
+    }
+  }
+
+  private async reconnect(): Promise<void> {
+    try {
+      this.status = "reconnecting"
+      Bus.publish(this.busEvents.Reconnecting, { attempt: 1, delay: 0 })
+
+      const state = await this.loadILinkState()
+      if (state?.token) {
+        this._ilinkToken = state.token
+        this._ilinkBaseUrl = state.baseUrl || ILINK_BASE_URL
+        this._cursor = state.cursor || ""
+        const valid = await this.validateToken()
+        if (valid) {
+          this.status = "connected"
+          const session = await this.adapter.loadSession()
+          const user = session?.user || this._wcSession?.user || { id: "wechat-user", name: "微信用户" }
+          this._wcSession = { connected: true, user, createdAt: Date.now() }
+          Bus.publish(this.busEvents.Connected, { user })
+          await this.saveWcSession()
+          this._pollRunning = true
+          void this.pollLoop()
+          this.subscribeBusEvents()
+          this._modelList = []
+          void this.buildModelList().then((list) => {
+            this._modelList = list
+          })
+          const allProjects = this.getProjects()
+          const visibleProjects = allProjects.filter((p) => !(this.projectDir(p) in this._hiddenDirs))
+          this._initialDir = visibleProjects.length > 0 ? this.projectDir(visibleProjects[0]) : Instance.directory
+          return
+        }
+        this._ilinkToken = ""
+        await this.saveILinkState()
+      }
+
+      await this.loginAndPoll()
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      console.error("[wechat] reconnect failed:", err)
+      this._error = { code: "reconnect_failed", message }
+      this.status = "error"
+      Bus.publish(this.busEvents.Error, this._error)
     }
   }
 
@@ -316,13 +363,13 @@ class WeChatManagerImpl extends MobileManagerBase {
       try {
         const result = await ilink.getUpdates(this._ilinkBaseUrl, this._ilinkToken, this._cursor)
         if (result.expired) {
-          console.warn("[wechat] session expired, re-login...")
+          console.warn("[wechat] session expired during poll, reconnecting...")
           this._ilinkToken = ""
           await this.saveILinkState()
           this._pollRunning = false
-          this.status = "idle"
-          Bus.publish(this.busEvents.Error, { code: "session_expired", message: "微信会话过期" })
-          void this.loginAndPoll()
+          this.status = "reconnecting"
+          Bus.publish(this.busEvents.Reconnecting, { attempt: 1, delay: 0 })
+          void this.reconnect()
           return
         }
 

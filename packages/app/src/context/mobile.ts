@@ -155,7 +155,7 @@ function connectSSE(p: MobilePlatform) {
             if (type.endsWith(".qrcode") && props.image) {
               patch(p, { qrcode: props.image, status: "qrcode" })
             } else if (type.endsWith(".connected")) {
-              const u: Partial<PlatformState> = { status: "connected" }
+              const u: Partial<PlatformState> = { status: "connected", error: null }
               if (props.appId) u.appId = props.appId
               if (props.user) u.user = props.user
               patch(p, u)
