@@ -16,6 +16,7 @@ import { useAuth } from "@/context/auth"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { useLanguage } from "@/context/language"
 import { showToast } from "@opencode-ai/ui/toast"
+import { status as mobileStatus, type MobilePlatform } from "@/context/mobile"
 
 export const SidebarContent = (props: {
   mobile?: boolean
@@ -55,6 +56,12 @@ export const SidebarContent = (props: {
     void import("@/components/dialog-login").then((x) => {
       if (authDialogRun !== run) return
       dialog.show(() => <x.DialogLogin />)
+    })
+  }
+
+  function openMobile(platform: MobilePlatform) {
+    void import("@/components/dialog-mobile").then((x) => {
+      dialog.show(() => <x.DialogMobile platform={platform} />)
     })
   }
 
@@ -132,6 +139,37 @@ export const SidebarContent = (props: {
           </DragDropProvider>
         </div>
         <div class="shrink-0 w-full pt-3 pb-6 flex flex-col items-center gap-2">
+          <Tooltip placement={placement()} value={language.t("knowledgeBase.wechatConnection")}>
+            <IconButton
+              icon="wechat"
+              variant="ghost"
+              size="large"
+              onClick={() => openMobile("wechat")}
+              aria-label={language.t("knowledgeBase.wechatConnection")}
+              classList={{
+                "text-green-500": mobileStatus("wechat") === "connected",
+                "text-yellow-500 animate-pulse":
+                  mobileStatus("wechat") === "loading" ||
+                  mobileStatus("wechat") === "qrcode" ||
+                  mobileStatus("wechat") === "reconnecting",
+                "text-red-500": mobileStatus("wechat") === "error" || mobileStatus("wechat") === "stolen",
+              }}
+            />
+          </Tooltip>
+          <Tooltip placement={placement()} value={language.t("knowledgeBase.feishuConnection")}>
+            <IconButton
+              icon="feishu"
+              variant="ghost"
+              size="large"
+              onClick={() => openMobile("feishu")}
+              aria-label={language.t("knowledgeBase.feishuConnection")}
+              classList={{
+                "text-blue-500": mobileStatus("feishu") === "connected",
+                "text-yellow-500 animate-pulse": mobileStatus("feishu") === "loading",
+                "text-red-500": mobileStatus("feishu") === "error",
+              }}
+            />
+          </Tooltip>
           <Show
             when={auth.isAuthenticated && auth.account}
             fallback={

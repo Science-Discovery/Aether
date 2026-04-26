@@ -6,7 +6,6 @@ import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { Component, Show, Switch, Match, createSignal, onMount } from "solid-js"
 import { createStore } from "solid-js/store"
 import { useServer } from "@/context/server"
-import { useLocal } from "@/context/local"
 import { useModels } from "@/context/models"
 import {
   status,
@@ -41,7 +40,6 @@ const iconName = (p: MobilePlatform) => (p === "feishu" ? ("feishu" as const) : 
 export const DialogMobile: Component<Props> = (props) => {
   const dialog = useDialog()
   const server = useServer()
-  const local = useLocal()
   const models = useModels()
   const [inputAppId, setInputAppId] = createSignal("")
   const [inputAppSecret, setInputAppSecret] = createSignal("")
@@ -61,8 +59,8 @@ export const DialogMobile: Component<Props> = (props) => {
       const m = models.recent.list()[0]
       return m ? `${m.providerID}/${m.modelID}` : undefined
     }
-    const m = local.model.current()
-    return m ? { providerID: m.provider.id, modelID: m.id } : undefined
+    const m = models.recent.list()[0]
+    return m ? { providerID: m.providerID, modelID: m.modelID } : undefined
   }
 
   const doStart = () => {
