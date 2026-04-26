@@ -1621,7 +1621,6 @@ export namespace Config {
       copied.push(entry.name)
     }
 
-    if (copied.length > 0) await Instance.dispose()
     return copied
   }
 

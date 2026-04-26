@@ -49,6 +49,7 @@ export namespace Skill {
 
   const marks = new Map<string, number>()
   let cooldown = 0
+  let clearing: Promise<void> | undefined
 
   function key(file: string) {
     const k = path.resolve(file).replace(/\\/g, "/")
@@ -488,6 +489,58 @@ export namespace Skill {
     }
   }
 
+  function chain(start: string, stop: string) {
+    const out: string[] = []
+    let dir = start
+    while (true) {
+      out.push(dir)
+      if (dir === stop) break
+      const parent = path.dirname(dir)
+      if (parent === dir) break
+      dir = parent
+    }
+    return out
+  }
+
+  function merge(a: { global: string[]; project: string[] }, b: { global: string[]; project: string[] }) {
+    return {
+      global: Array.from(new Set([...a.global, ...b.global])),
+      project: Array.from(new Set([...a.project, ...b.project])),
+    }
+  }
+
+  async function watchCandidates(directory: string, worktree: string) {
+    const cfg = await Config.get()
+    const set = {
+      global: new Set<string>(),
+      project: new Set<string>(),
+    }
+    const add = (scope: Scope, dir: string) => {
+      set[scope].add(path.resolve(dir))
+    }
+    const names = [".aether", ".opencode", ".claude", ".agents"]
+    for (const dir of chain(directory, worktree)) {
+      for (const name of names) add("project", path.join(dir, name))
+    }
+    for (const name of names) add("global", path.join(Global.Path.home, name))
+    add("global", path.join(Global.Path.data, "skills"))
+
+    for (const item of cfg.skills?.paths ?? []) {
+      const expanded = item.startsWith("~/") ? path.join(os.homedir(), item.slice(2)) : item
+      const dir = path.isAbsolute(expanded) ? expanded : path.join(directory, expanded)
+      const next = path.isAbsolute(expanded) ? scope(dir, directory, worktree) : "project"
+      add(next, dir)
+    }
+
+    return {
+      dirs: {
+        global: [...set.global],
+        project: [...set.project],
+      },
+      sig: JSON.stringify(cfg.skills?.paths ?? []),
+    }
+  }
+
   async function loadSkillsData(directory: string, worktree: string): Promise<RawState> {
     if (!_discovery) throw new Error("Skill service not initialized — layer not started")
 
@@ -606,14 +659,19 @@ export namespace Skill {
       const watch = yield* InstanceState.make(
         Effect.fn("Skill.watch")((ctx) =>
           Effect.gen(function* () {
-            const set = yield* Effect.promise(() => watchDirs(ctx.directory, ctx.worktree))
-            const roots = Array.from(new Set([...set.global, ...set.project]))
+            const first = yield* Effect.promise(() => watchCandidates(ctx.directory, ctx.worktree))
+            let set = yield* Effect.promise(() =>
+              watchDirs(ctx.directory, ctx.worktree).then((dirs) => merge(dirs, first.dirs)),
+            )
+            let sig = first.sig
+            let roots = Array.from(new Set([...set.global, ...set.project]))
             const ws: WatchState = { alive: false, back: watchBack() }
-            if (roots.length === 0) return ws
 
             const close: Array<() => Promise<void>> = []
+            const seen = new Map<string, boolean>()
             const files = new Set<string>()
             let timer: ReturnType<typeof setTimeout> | undefined
+            let probe: ReturnType<typeof setInterval> | undefined
             let start = 0
             let globalDirty = false
             let projectDirty = false
@@ -628,9 +686,46 @@ export namespace Skill {
             const route = (file: string) => {
               if (inDir(file, set.global)) {
                 mark("global")
-                return
+                return "global" as const
               }
-              if (inDir(file, set.project)) mark("project")
+              if (inDir(file, set.project)) {
+                mark("project")
+                return "project" as const
+              }
+            }
+
+            const closeAll = async () => {
+              await Promise.allSettled(close.map((item) => item()))
+              close.length = 0
+            }
+
+            const refresh = async () => {
+              const next = await watchCandidates(ctx.directory, ctx.worktree)
+              if (next.sig === sig) return false
+              sig = next.sig
+              const cur = await watchDirs(ctx.directory, ctx.worktree)
+              set = merge(cur, next.dirs)
+              roots = Array.from(new Set([...set.global, ...set.project]))
+              return true
+            }
+
+            const sync = async () => {
+              let dirty = false
+              const list = Array.from(new Set([...set.global, ...set.project]))
+              for (const dir of list) {
+                const has = await Filesystem.isDir(dir)
+                const prev = seen.get(dir)
+                if (prev === undefined) {
+                  seen.set(dir, has)
+                  continue
+                }
+                if (prev === has) continue
+                seen.set(dir, has)
+                if (inDir(dir, set.global)) mark("global")
+                if (inDir(dir, set.project)) mark("project")
+                dirty = true
+              }
+              return dirty
             }
 
             const flush = async () => {
@@ -655,7 +750,7 @@ export namespace Skill {
                 dropped = 0
                 if (!hasGlobal && !hasProject) return
 
-                console.log(`\n${"─".repeat(40)} skill watch ${"─".repeat(40)}`)
+                console.log(`\n${"-".repeat(40)} skill watch ${"-".repeat(40)}`)
                 console.log(
                   `[skill watch] batch files=${list.length} active=${active.length} dropped=${dropped} globalDirty=${hasGlobal ? 1 : 0} projectDirty=${hasProject ? 1 : 0} ms=${Math.round(performance.now() - t0)}`,
                 )
@@ -720,15 +815,20 @@ export namespace Skill {
               const bind = watcher()
               const back = backend()
               if (!bind || !back) return false
-              const cb = Instance.bind((_err: Error | null, evts: ParcelWatcher.Event[]) => {
-                if (_err) {
-                  ws.alive = false
-                  console.log(`[skill watch] error backend=parcel message=${_err.message}`)
-                  return
-                }
-                for (const evt of evts) queue(evt.path)
-              })
+              if (roots.length === 0) return true
               for (const dir of roots) {
+                const cb = Instance.bind((_err: Error | null, evts: ParcelWatcher.Event[]) => {
+                  if (_err) {
+                    ws.alive = false
+                    console.log(`[skill watch] error backend=parcel message=${_err.message}`)
+                    return
+                  }
+                  for (const evt of evts) {
+                    const del =
+                      evt.type === "delete" && (path.basename(evt.path) === "SKILL.md" || roots.includes(evt.path))
+                    queue(evt.path, del ? route(evt.path) : undefined)
+                  }
+                })
                 const sub = await bind.subscribe(dir, cb, { backend: back })
                 close.push(() => sub.unsubscribe())
               }
@@ -738,6 +838,7 @@ export namespace Skill {
             }
 
             const setupFs = async () => {
+              if (roots.length === 0) return true
               for (const dir of roots) {
                 const fsw = fsWatch(
                   dir,
@@ -793,32 +894,49 @@ export namespace Skill {
               return true
             }
 
+            const backs = (): Back[] =>
+              ws.back === "parcel"
+                ? process.platform === "win32"
+                  ? (["parcel", "fs", "poll"] as Back[])
+                  : (["parcel", "poll"] as Back[])
+                : ws.back === "fs"
+                  ? (["fs", "poll"] as Back[])
+                  : (["poll"] as Back[])
+
+            const startWatch = async () => {
+              await closeAll()
+              const list = backs()
+              let prev: Back | undefined
+              for (const item of list) {
+                const ok = await setup(item)
+                if (!ok) {
+                  prev = item
+                  continue
+                }
+                ws.back = item
+                ws.alive = true
+                if (prev) console.log(`[skill watch] fallback from=${prev} to=${item}`)
+                return
+              }
+              ws.alive = false
+            }
+
+            const restart = async () => {
+              const cur = await watchDirs(ctx.directory, ctx.worktree)
+              const opts = await watchCandidates(ctx.directory, ctx.worktree)
+              sig = opts.sig
+              set = merge(cur, opts.dirs)
+              roots = Array.from(new Set([...set.global, ...set.project]))
+              await startWatch()
+            }
+
             const setup = async (back: Back) => {
               if (back === "parcel") return setupParcel().catch(() => false)
               if (back === "fs") return setupFs().catch(() => false)
               return setupPoll().catch(() => false)
             }
 
-            const list: Back[] =
-              ws.back === "parcel"
-                ? process.platform === "win32"
-                  ? ["parcel", "fs", "poll"]
-                  : ["parcel", "poll"]
-                : ws.back === "fs"
-                  ? process.platform === "win32"
-                    ? ["fs", "poll"]
-                    : ["fs", "poll"]
-                  : ["poll"]
-            let prev: Back | undefined
-            for (const item of list) {
-              const ok = yield* Effect.promise(() => setup(item))
-              if (!ok) {
-                prev = item
-                continue
-              }
-              if (prev) console.log(`[skill watch] fallback from=${prev} to=${item}`)
-              break
-            }
+            yield* Effect.promise(() => startWatch())
             if (!ws.alive) {
               console.log(`[skill watch] init failed roots=${roots.length} dir=${ctx.directory}`)
             }
@@ -827,11 +945,30 @@ export namespace Skill {
               `[skill watch] init backend=${ws.back} active=${ws.alive ? 1 : 0} roots=${roots.length} dir=${ctx.directory}`,
             )
 
+            let cfg = Date.now()
+            probe = setInterval(() => {
+              void (async () => {
+                try {
+                  const now = Date.now()
+                  const changed = now - cfg >= WATCH_ENSURE ? await refresh() : false
+                  if (changed) cfg = now
+                  const dirty = await sync()
+                  if (!changed && !dirty) return
+                  await restart()
+                  if (globalDirty) queue(undefined, "global")
+                  if (projectDirty) queue(undefined, "project")
+                } catch {
+                  ws.alive = false
+                }
+              })()
+            }, WATCH_POLL)
+
             yield* Effect.addFinalizer(() =>
               Effect.promise(async () => {
                 ws.alive = false
                 if (timer) clearTimeout(timer)
-                await Promise.allSettled(close.map((item) => item()))
+                if (probe) clearInterval(probe)
+                await closeAll()
               }),
             )
             return ws
@@ -909,27 +1046,39 @@ export namespace Skill {
   )
 
   export async function clearSkillsPromptCache(clearSnapshot = false): Promise<void> {
-    const dirs = Instance.dirs()
-    console.log(
-      `[skill cache] clear start snapshot=${clearSnapshot ? 1 : 0} instances=${dirs.length} dirs=${dirs.join(" | ") || "(none)"}`,
-    )
-    await Promise.all(
-      dirs.map((dir) =>
-        Instance.provide({
-          directory: dir,
-          fn: () => runPromise((skill) => skill.invalidate()),
-        }),
-      ),
-    )
-    if (clearSnapshot) {
-      await fs.unlink(globalSnapshotPath()).catch(() => {})
-      await fs.rm(projectSnapshotDir(), { recursive: true, force: true }).catch(() => {})
-      await fs.unlink(path.join(Global.Path.cache, ".skills_prompt_snapshot.json")).catch(() => {})
+    if (clearing) {
+      if (!clearSnapshot) return clearing
+      return clearing.then(() => clearSkillsPromptCache(true))
     }
-    console.log(
-      `[skill cache] clear done snapshot=${clearSnapshot ? 1 : 0} instances=${dirs.length} dirs=${dirs.join(" | ") || "(none)"}`,
-    )
-    log.info("skills cache cleared", { clearSnapshot, instances: dirs.length, dirs })
+    const run = (async () => {
+      const dirs = Instance.dirs()
+      console.log(
+        `[skill cache] clear start snapshot=${clearSnapshot ? 1 : 0} instances=${dirs.length} dirs=${dirs.join(" | ") || "(none)"}`,
+      )
+      await Promise.all(
+        dirs.map((dir) =>
+          Instance.provide({
+            directory: dir,
+            fn: () => runPromise((skill) => skill.invalidate()),
+          }),
+        ),
+      )
+      if (clearSnapshot) {
+        await fs.unlink(globalSnapshotPath()).catch(() => {})
+        await fs.rm(projectSnapshotDir(), { recursive: true, force: true }).catch(() => {})
+        await fs.unlink(path.join(Global.Path.cache, ".skills_prompt_snapshot.json")).catch(() => {})
+      }
+      console.log(
+        `[skill cache] clear done snapshot=${clearSnapshot ? 1 : 0} instances=${dirs.length} dirs=${dirs.join(" | ") || "(none)"}`,
+      )
+      log.info("skills cache cleared", { clearSnapshot, instances: dirs.length, dirs })
+    })()
+
+    const task = run.finally(() => {
+      if (clearing === task) clearing = undefined
+    })
+    clearing = task
+    return task
   }
 
   export const defaultLayer: Layer.Layer<Service> = layer.pipe(Layer.provide(Discovery.defaultLayer))

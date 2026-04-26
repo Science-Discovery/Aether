@@ -9,6 +9,11 @@
  *   T5  write non-SKILL.md file        → no spurious cache clear
  *   T6  modify global skill            → clearSkillsPromptCache clears ALL instances
  *   T7  modify project-A skill         → only project-A cleared; project-B memory untouched
+ *   T8  modify .aether project skill   → project-A refreshes new value
+ *   T9  add .aether project skill      → project-A discovers new skill
+ *   T10 delete .aether dir (project)   → only project-A cache clears
+ *   T11 delete .aether dir (global)    → ALL instances clear
+ *   T12 add .aether global skill       → ALL instances discover new skill
  *
  * Usage:
  *   bun run --cwd packages/opencode script/verify-skill-watch.ts
@@ -89,18 +94,18 @@ function skillMd(name: string, desc: string, body = "") {
   return `---\nname: ${name}\ndescription: ${desc}\n---\n\n${body || `# ${name}`}\n`
 }
 
-function skillPath(dir: string, skillName: string) {
-  return path.join(dir, ".claude", "skills", skillName, "SKILL.md")
+function skillPath(dir: string, skillName: string, root = ".claude") {
+  return path.join(dir, root, "skills", skillName, "SKILL.md")
 }
 
-async function writeSkill(dir: string, skillName: string, desc: string, body?: string) {
-  const p = skillPath(dir, skillName)
+async function writeSkill(dir: string, skillName: string, desc: string, body?: string, root = ".claude") {
+  const p = skillPath(dir, skillName, root)
   await fs.mkdir(path.dirname(p), { recursive: true })
   await fs.writeFile(p, skillMd(skillName, desc, body))
 }
 
-async function deleteSkill(dir: string, skillName: string) {
-  await fs.rm(path.dirname(skillPath(dir, skillName)), { recursive: true, force: true })
+async function deleteSkill(dir: string, skillName: string, root = ".claude") {
+  await fs.rm(path.dirname(skillPath(dir, skillName, root)), { recursive: true, force: true })
 }
 
 /**
@@ -148,6 +153,9 @@ await writeSkill(projectDir, "skill-modify", "version 1")
 await writeSkill(projectDir, "skill-delete", "will be deleted")
 await writeSkill(projectDir, "skill-debounce", "debounce-v1")
 await writeSkill(projectBDir, "skill-b", "skill-b v1") // project-B scope
+await writeSkill(homeDir, "global-aether", "global-aether v1", undefined, ".aether")
+await writeSkill(projectDir, "skill-aether", "aether-v1", undefined, ".aether")
+await writeSkill(projectBDir, "skill-aether-b", "aether-b-v1", undefined, ".aether")
 // skill-add does NOT exist yet
 
 // Warm project-A: initializes Instance + watcher (subscribes to projectDir/.claude AND homeDir/.claude)
@@ -180,9 +188,8 @@ const BETWEEN_MS = 600
 {
   await writeSkill(projectDir, "skill-modify", "version 2")
 
-  const { ok, elapsed, skills } = await waitFor(
-    projectDir,
-    (s) => s.some((x) => x.name === "skill-modify" && x.description === "version 2"),
+  const { ok, elapsed, skills } = await waitFor(projectDir, (s) =>
+    s.some((x) => x.name === "skill-modify" && x.description === "version 2"),
   )
 
   if (ok) {
@@ -191,6 +198,112 @@ const BETWEEN_MS = 600
   } else {
     const desc = skills.find((x) => x.name === "skill-modify")?.description ?? "(not found)"
     console.log(failMsg(`T1  modify skill description — still "${desc}" after ${TIMEOUT_MS}ms`))
+    failed++
+  }
+}
+
+await sleep(BETWEEN_MS)
+
+// ── T8: modify .aether project skill ──────────────────────────────────────────
+{
+  await writeSkill(projectDir, "skill-aether", "aether-v2", undefined, ".aether")
+
+  const { ok, elapsed, skills } = await waitFor(projectDir, (s) =>
+    s.some((x) => x.name === "skill-aether" && x.description === "aether-v2"),
+  )
+
+  if (ok) {
+    console.log(passMsg(`T8  modify .aether project skill          (${elapsed}ms)`))
+    passed++
+  } else {
+    const desc = skills.find((x) => x.name === "skill-aether")?.description ?? "(not found)"
+    console.log(failMsg(`T8  modify .aether project skill — still "${desc}" after ${TIMEOUT_MS}ms`))
+    failed++
+  }
+}
+
+await sleep(BETWEEN_MS)
+
+// ── T9: add .aether project skill ─────────────────────────────────────────────
+{
+  await writeSkill(projectDir, "skill-aether-add", "aether-add-v1", undefined, ".aether")
+
+  const { ok, elapsed } = await waitFor(projectDir, (s) => s.some((x) => x.name === "skill-aether-add"))
+
+  if (ok) {
+    console.log(passMsg(`T9  add .aether project skill             (${elapsed}ms)`))
+    passed++
+  } else {
+    console.log(failMsg(`T9  add .aether project skill — not visible after ${TIMEOUT_MS}ms`))
+    failed++
+  }
+}
+
+await sleep(BETWEEN_MS)
+
+// ── T10: delete project .aether directory; only project-A cache clears ────────
+{
+  await fs.rm(path.dirname(skillPath(projectBDir, "skill-aether-b", ".aether")), { recursive: true, force: true })
+  await fs.rm(path.join(projectDir, ".aether"), { recursive: true, force: true })
+
+  const resA = await waitFor(
+    projectDir,
+    (s) => !s.some((x) => x.name === "skill-aether") && !s.some((x) => x.name === "skill-aether-add"),
+  )
+
+  const skillsB = await Instance.provide({ directory: projectBDir, fn: () => Skill.all() })
+  const bHas = skillsB.some((x) => x.name === "skill-aether-b")
+
+  if (resA.ok && bHas) {
+    console.log(passMsg(`T10 delete project .aether dir            A=${resA.elapsed}ms B still has skill-aether-b`))
+    passed++
+  } else if (!resA.ok) {
+    console.log(failMsg(`T10 delete project .aether dir — project-A did not refresh within ${TIMEOUT_MS}ms`))
+    failed++
+  } else {
+    console.log(failMsg(`T10 delete project .aether dir — project-B cache was incorrectly cleared`))
+    failed++
+  }
+}
+
+await sleep(BETWEEN_MS)
+
+// ── T11: delete global .aether directory; all instances clear ─────────────────
+{
+  await fs.rm(path.join(homeDir, ".aether"), { recursive: true, force: true })
+
+  const resA = await waitFor(projectDir, (s) => !s.some((x) => x.name === "global-aether"))
+  const resB = await waitFor(projectBDir, (s) => !s.some((x) => x.name === "global-aether"), 1000)
+
+  if (resA.ok && resB.ok) {
+    console.log(passMsg(`T11 delete global .aether dir             A=${resA.elapsed}ms B=${resB.elapsed}ms`))
+    passed++
+  } else if (!resA.ok) {
+    console.log(failMsg(`T11 delete global .aether dir — project-A still has global-aether after ${TIMEOUT_MS}ms`))
+    failed++
+  } else {
+    console.log(failMsg(`T11 delete global .aether dir — project-B still has global-aether after 1000ms`))
+    failed++
+  }
+}
+
+await sleep(BETWEEN_MS)
+
+// ── T12: add global .aether skill; all instances discover it ──────────────────
+{
+  await writeSkill(homeDir, "global-aether-2", "global-aether-2 v1", undefined, ".aether")
+
+  const resA = await waitFor(projectDir, (s) => s.some((x) => x.name === "global-aether-2"))
+  const resB = await waitFor(projectBDir, (s) => s.some((x) => x.name === "global-aether-2"), TIMEOUT_MS)
+
+  if (resA.ok && resB.ok) {
+    console.log(passMsg(`T12 add global .aether skill              A=${resA.elapsed}ms B=${resB.elapsed}ms`))
+    passed++
+  } else if (!resA.ok) {
+    console.log(failMsg(`T12 add global .aether skill — project-A did not discover it within ${TIMEOUT_MS}ms`))
+    failed++
+  } else {
+    console.log(failMsg(`T12 add global .aether skill — project-B did not discover it within ${TIMEOUT_MS}ms`))
     failed++
   }
 }
@@ -241,9 +354,8 @@ await sleep(BETWEEN_MS)
   await sleep(50)
   await writeSkill(projectDir, "skill-debounce", "debounce-v3")
 
-  const { ok, elapsed, skills } = await waitFor(
-    projectDir,
-    (s) => s.some((x) => x.name === "skill-debounce" && x.description === "debounce-v3"),
+  const { ok, elapsed, skills } = await waitFor(projectDir, (s) =>
+    s.some((x) => x.name === "skill-debounce" && x.description === "debounce-v3"),
   )
 
   if (ok) {
@@ -272,11 +384,7 @@ await sleep(BETWEEN_MS)
     console.log(passMsg(`T5  non-SKILL.md write → list unchanged`))
     passed++
   } else {
-    console.log(
-      failMsg(
-        `T5  non-SKILL.md write → count changed: before=${before.length} after=${after.length}`,
-      ),
-    )
+    console.log(failMsg(`T5  non-SKILL.md write → count changed: before=${before.length} after=${after.length}`))
     failed++
   }
 }
@@ -292,9 +400,8 @@ await sleep(BETWEEN_MS)
   await writeSkill(homeDir, "global-skill", "global v2")
 
   // Wait for project-A to see the global change
-  const resA = await waitFor(
-    projectDir,
-    (s) => s.some((x) => x.name === "global-skill" && x.description === "global v2"),
+  const resA = await waitFor(projectDir, (s) =>
+    s.some((x) => x.name === "global-skill" && x.description === "global v2"),
   )
 
   // project-B's cache was also cleared by clearSkillsPromptCache; reload finds v2
@@ -305,11 +412,7 @@ await sleep(BETWEEN_MS)
   )
 
   if (resA.ok && resB.ok) {
-    console.log(
-      passMsg(
-        `T6  global scope → all instances cleared   A=${resA.elapsed}ms B=${resB.elapsed}ms`,
-      ),
-    )
+    console.log(passMsg(`T6  global scope → all instances cleared   A=${resA.elapsed}ms B=${resB.elapsed}ms`))
     passed++
   } else if (!resA.ok) {
     console.log(failMsg(`T6  global scope — project-A did not see "global v2" after ${TIMEOUT_MS}ms`))
@@ -344,9 +447,8 @@ await sleep(BETWEEN_MS)
   // Step 2: trigger project-A's watcher → project-scope flush → only A cleared
   await writeSkill(projectDir, "skill-modify", "version 3")
 
-  const resA = await waitFor(
-    projectDir,
-    (s) => s.some((x) => x.name === "skill-modify" && x.description === "version 3"),
+  const resA = await waitFor(projectDir, (s) =>
+    s.some((x) => x.name === "skill-modify" && x.description === "version 3"),
   )
 
   // Step 3: query project-B — must still have skill-b from its in-memory cache
@@ -354,11 +456,7 @@ await sleep(BETWEEN_MS)
   const bHasSkillB = skillsB.some((x) => x.name === "skill-b")
 
   if (resA.ok && bHasSkillB) {
-    console.log(
-      passMsg(
-        `T7  project scope → only project-A cleared  A=${resA.elapsed}ms B still has skill-b`,
-      ),
-    )
+    console.log(passMsg(`T7  project scope → only project-A cleared  A=${resA.elapsed}ms B still has skill-b`))
     passed++
   } else if (!resA.ok) {
     console.log(failMsg(`T7  project scope — project-A flush did not happen within ${TIMEOUT_MS}ms`))

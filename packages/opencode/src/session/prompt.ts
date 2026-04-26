@@ -371,7 +371,7 @@ export namespace SessionPrompt {
       }
 
       step++
-      console.log(`\n${"─".repeat(60)} step ${step} ${"─".repeat(60)}\n`)
+      console.log(`\n${"-".repeat(60)} step ${step} ${"-".repeat(60)}\n`)
       if (step === 1)
         ensureTitle({
           session,
@@ -753,9 +753,7 @@ export namespace SessionPrompt {
       const skillManageAvailable = "skill_manage" in tools
       if (!isSkillReviewSession && skillManageAvailable && hadToolCalls) {
         const assistantParts = await MessageV2.parts(processor.message.id)
-        const toolNames = assistantParts
-          .filter((p) => p.type === "tool")
-          .map((p) => (p as MessageV2.ToolPart).tool)
+        const toolNames = assistantParts.filter((p) => p.type === "tool").map((p) => (p as MessageV2.ToolPart).tool)
         console.log(`[tools] step=${step} tools=[${toolNames.join(", ")}]`)
         const calledSkillManage = toolNames.includes("skill_manage")
         if (calledSkillManage) {
@@ -763,7 +761,7 @@ export namespace SessionPrompt {
           // then L9110: +1 unconditionally after → net result is 1, not 0
           _skillCounters.set(sessionID, 0)
         }
-        _skillCounters.set(sessionID, (_skillCounters.get(sessionID) ?? 0) + 1)  // always +1 per step, mirrors Hermes L9110
+        _skillCounters.set(sessionID, (_skillCounters.get(sessionID) ?? 0) + 1) // always +1 per step, mirrors Hermes L9110
         console.log(`[skill counter] count=${_skillCounters.get(sessionID)} threshold=${skillNudgeInterval}`)
       }
 
@@ -829,10 +827,12 @@ export namespace SessionPrompt {
       _finalResponse &&
       !abort.aborted
 
-    console.log(`[skill review check] count=${_skillCounters.get(sessionID)} threshold=${skillNudgeInterval} finalResponse=${_finalResponse} aborted=${abort.aborted} isReview=${isSkillReviewSession} should=${_shouldReviewSkills}`)
+    console.log(
+      `[skill review check] count=${_skillCounters.get(sessionID)} threshold=${skillNudgeInterval} finalResponse=${_finalResponse} aborted=${abort.aborted} isReview=${isSkillReviewSession} should=${_shouldReviewSkills}`,
+    )
 
     if (_shouldReviewSkills) {
-      _skillCounters.set(sessionID, 0)  // reset immediately, mirrors Hermes L11833
+      _skillCounters.set(sessionID, 0) // reset immediately, mirrors Hermes L11833
       const msgs = await MessageV2.filterCompacted(MessageV2.stream(sessionID))
       const lastUser = msgs.findLast((m) => m.info.role === "user")
       if (lastUser && lastUser.info.role === "user") {
