@@ -37,6 +37,7 @@ export namespace FileWatcher {
     Limited: BusEvent.define(
       "file.watcher.limited",
       z.object({
+        dir: z.string(),
         reason: z.enum(["limit", "timeout", "error"]),
       }),
     ),
@@ -150,7 +151,9 @@ export namespace FileWatcher {
       reason: input.reason,
       detail,
     })
-    return Effect.promise(() => Bus.publish(Event.Limited, { reason: input.reason })).pipe(Effect.catchCause(() => Effect.void))
+    return Effect.promise(() => Bus.publish(Event.Limited, { dir: input.dir, reason: input.reason })).pipe(
+      Effect.catchCause(() => Effect.void),
+    )
   }
 
   export const hasNativeBinding = () => !!watcher()

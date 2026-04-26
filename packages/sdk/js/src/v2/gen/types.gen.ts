@@ -256,6 +256,7 @@ export type EventFileWatcherUpdated = {
 export type EventFileWatcherLimited = {
   type: "file.watcher.limited"
   properties: {
+    dir: string
     reason: "limit" | "timeout" | "error"
   }
 }

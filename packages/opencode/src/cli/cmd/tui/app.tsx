@@ -713,7 +713,7 @@ function App(props: { onSnapshot?: () => Promise<string[]> }) {
     toast.show({
       variant: "warning",
       title: "File watching off",
-      message,
+      message: `${message} (${evt.properties.dir})`,
       duration: 8000,
     })
   })

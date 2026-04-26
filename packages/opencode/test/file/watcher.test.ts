@@ -24,6 +24,7 @@ const watcherConfigLayer = ConfigProvider.layer(
 )
 
 type WatcherEvent = { file: string; event: "add" | "change" | "unlink" }
+type LimitedEvent = { dir: string; reason: "limit" | "timeout" | "error" }
 
 /** Run `body` with a live FileWatcher service. */
 function withWatcher<E>(directory: string, body: Effect.Effect<void, E>) {
@@ -87,6 +88,21 @@ function wait(directory: string, check: (evt: WatcherEvent) => boolean) {
       off = listen(directory, check, (evt) => {
         off()
         Deferred.doneUnsafe(deferred, Effect.succeed(evt))
+      })
+      return off
+    })
+    return { cleanup, deferred }
+  })
+}
+
+function waitLimited(check: (evt: LimitedEvent) => boolean) {
+  return Effect.gen(function* () {
+    const deferred = yield* Deferred.make<LimitedEvent>()
+    const cleanup = yield* Effect.sync(() => {
+      const off = Bus.subscribe(FileWatcher.Event.Limited, (evt) => {
+        if (!check(evt.properties)) return
+        off()
+        Deferred.doneUnsafe(deferred, Effect.succeed(evt.properties))
       })
       return off
     })
@@ -208,14 +224,34 @@ describeWatcher("FileWatcher", () => {
       Array.from({ length: 4096 }, (_, i) => fs.mkdir(path.join(tmp.path, `dir-${i}`), { recursive: true })),
     )
 
-    await withWatcherInit(
-      tmp.path,
-      noUpdate(
-        tmp.path,
-        (e) => e.file === file,
-        Effect.promise(() => fs.writeFile(file, "plain")),
-      ),
-    )
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const layer: Layer.Layer<FileWatcher.Service, never, never> = FileWatcher.layer.pipe(
+          Layer.provide(watcherConfigLayer),
+        )
+        const rt = ManagedRuntime.make(layer)
+        const sub = await Effect.runPromise(waitLimited((evt) => evt.dir === tmp.path))
+
+        try {
+          await rt.runPromise(FileWatcher.Service.use((s) => s.init()))
+          expect(await Effect.runPromise(Deferred.await(sub.deferred).pipe(Effect.timeout("5 seconds")))).toEqual({
+            dir: tmp.path,
+            reason: "limit",
+          })
+          await Effect.runPromise(
+            noUpdate(
+              tmp.path,
+              (e) => e.file === file,
+              Effect.promise(() => fs.writeFile(file, "plain")),
+            ),
+          )
+        } finally {
+          sub.cleanup()
+          await rt.dispose()
+        }
+      },
+    })
   })
 
   test("cleanup stops publishing events", async () => {
