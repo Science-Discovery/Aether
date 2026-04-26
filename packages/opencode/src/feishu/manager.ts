@@ -54,6 +54,62 @@ function readPath(name: "config.json" | "sessions.json" | "hidden_projects.json"
   return existsSync(next) || !existsSync(prev) ? next : prev
 }
 
+export type SlashRoute =
+  | { action: "help"; full: boolean }
+  | { action: "command"; cmd: string; rest: string }
+  | { action: "stop" }
+  | { action: "compact" }
+  | { action: "busy_reply"; reason: "prompt_active" | "pending_question" | "pending_permission" }
+  | { action: "compact_no_session" }
+  | { action: "stop_idle" }
+  | { action: "question_reply" }
+  | { action: "permission_reply" }
+  | { action: "normal_busy"; reason: "prompt_active" | "pending_question" | "pending_permission" }
+  | { action: "start_prompt" }
+
+export interface SlashRoutingState {
+  activePrompt: boolean
+  pendingQuestion: boolean
+  pendingPermission: boolean
+  hasSession: boolean
+}
+
+export function classifySlashCommand(text: string, state: SlashRoutingState): SlashRoute {
+  const isSlash = text.startsWith("/")
+  const cmd = isSlash ? text.trim().split(/\s+/)[0].toLowerCase() : ""
+
+  if (cmd === "/h" || cmd === "/help") {
+    const full = text.trim().split(/\s+/)[1]?.toLowerCase() === "list"
+    return { action: "help", full }
+  }
+
+  if (isSlash && cmd !== "/stop" && cmd !== "/compact" && cmd !== "/c") {
+    const parts = text.trim().split(/\s+/)
+    const rest = parts.slice(1).join(" ")
+    return { action: "command", cmd, rest }
+  }
+
+  if (cmd === "/stop") {
+    if (!state.activePrompt && !state.pendingQuestion && !state.pendingPermission) {
+      return { action: "stop_idle" }
+    }
+    return { action: "stop" }
+  }
+
+  if (cmd === "/c" || cmd === "/compact") {
+    if (state.pendingQuestion) return { action: "busy_reply", reason: "pending_question" }
+    if (state.pendingPermission) return { action: "busy_reply", reason: "pending_permission" }
+    if (state.activePrompt) return { action: "busy_reply", reason: "prompt_active" }
+    if (!state.hasSession) return { action: "compact_no_session" }
+    return { action: "compact" }
+  }
+
+  if (state.pendingQuestion) return { action: "normal_busy", reason: "pending_question" }
+  if (state.pendingPermission) return { action: "normal_busy", reason: "pending_permission" }
+  if (state.activePrompt) return { action: "normal_busy", reason: "prompt_active" }
+  return { action: "start_prompt" }
+}
+
 function localISOString(d = new Date()): string {
   const offset = -d.getTimezoneOffset()
   const sign = offset >= 0 ? "+" : "-"
@@ -782,18 +838,22 @@ class FeishuManagerImpl {
       if (!text) return
       console.log("[feishu] text:", text, localISOString())
 
-      const isSlash = text.startsWith("/")
-      const parts = isSlash ? text.trim().split(/\s+/) : []
-      const cmd = isSlash ? text.trim().split(/\s+/)[0].toLowerCase() : ""
+      const routingState: SlashRoutingState = {
+        activePrompt: !!this._activePrompt.get(chatId),
+        pendingQuestion: chatId in this._pendingQuestions,
+        pendingPermission: chatId in this._pendingPermissions,
+        hasSession: chatId in this._chatSessions,
+      }
+      const route = classifySlashCommand(text, routingState)
 
-      if (cmd === "/h" || cmd === "/help") {
-        await this.replyText(messageId, parts[1]?.toLowerCase() === "list" ? HELP_LIST_TEXT : HELP_TEXT)
+      if (route.action === "help") {
+        await this.replyText(messageId, route.full ? HELP_LIST_TEXT : HELP_TEXT)
         return
       }
 
       await this.autoUnhide()
 
-      if (isSlash && cmd !== "/stop" && cmd !== "/compact" && cmd !== "/c") {
+      if (route.action === "command") {
         await this.handleCommand(text, messageId, chatId)
         return
       }
@@ -806,13 +866,13 @@ class FeishuManagerImpl {
         void this.saveHiddenDirs()
       }
 
-      if (cmd === "/stop") {
-        const hasPending = chatId in this._pendingQuestions || chatId in this._pendingPermissions
+      if (route.action === "stop_idle") {
+        await this.replyText(messageId, "没有任务在执行")
+        return
+      }
+
+      if (route.action === "stop") {
         const active = this._activePrompt.get(chatId)
-        if (!active && !hasPending) {
-          await this.replyText(messageId, "没有任务在执行")
-          return
-        }
         if (active) {
           try {
             await Instance.provide({
@@ -826,29 +886,26 @@ class FeishuManagerImpl {
         return
       }
 
-      if (cmd === "/c" || cmd === "/compact") {
-        const pendingQ = this._pendingQuestions[chatId]
-        if (pendingQ) {
-          await this.replyText(messageId, this.formatQuestionRequest(pendingQ))
-          return
-        }
-        const pendingP = this._pendingPermissions[chatId]
-        if (pendingP) {
-          await this.replyText(messageId, this.formatPermissionRequest(pendingP))
-          return
-        }
-        const active = this._activePrompt.get(chatId)
-        if (active) {
+      if (route.action === "busy_reply") {
+        if (route.reason === "pending_question") {
+          await this.replyText(messageId, this.formatQuestionRequest(this._pendingQuestions[chatId]))
+        } else if (route.reason === "pending_permission") {
+          await this.replyText(messageId, this.formatPermissionRequest(this._pendingPermissions[chatId]))
+        } else {
           await this.replyText(
             messageId,
             "当前会话正在生成回复，请等待当前对话结束后再发送；如需立即开始新问题，请先 /new 或切换 /session n。如需停止本会话请输入 /stop",
           )
-          return
         }
-        if (!(chatId in this._chatSessions)) {
-          await this.replyText(messageId, "没有任务在执行")
-          return
-        }
+        return
+      }
+
+      if (route.action === "compact_no_session") {
+        await this.replyText(messageId, "没有任务在执行")
+        return
+      }
+
+      if (route.action === "compact") {
         try {
           await this.cmdCompact(messageId, chatId)
         } catch (err) {
@@ -871,23 +928,17 @@ class FeishuManagerImpl {
         return
       }
 
-      const pendingQ = this._pendingQuestions[chatId]
-      if (pendingQ) {
-        await this.handleQuestionReply(chatId, messageId, text, pendingQ)
-        return
-      }
-      const pendingP = this._pendingPermissions[chatId]
-      if (pendingP) {
-        await this.handlePermissionReply(chatId, messageId, text, pendingP)
-        return
-      }
-
-      const active = this._activePrompt.get(chatId)
-      if (active) {
-        await this.replyText(
-          messageId,
-          "当前会话正在生成回复，请等待当前对话结束后再发送；如需立即开始新问题，请先 /new 或切换 /session n。如需停止本会话请输入 /stop",
-        )
+      if (route.action === "normal_busy") {
+        if (route.reason === "pending_question") {
+          await this.handleQuestionReply(chatId, messageId, text, this._pendingQuestions[chatId])
+        } else if (route.reason === "pending_permission") {
+          await this.handlePermissionReply(chatId, messageId, text, this._pendingPermissions[chatId])
+        } else {
+          await this.replyText(
+            messageId,
+            "当前会话正在生成回复，请等待当前对话结束后再发送；如需立即开始新问题，请先 /new 或切换 /session n。如需停止本会话请输入 /stop",
+          )
+        }
         return
       }
 
