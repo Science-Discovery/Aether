@@ -408,6 +408,7 @@ class FeishuManagerImpl extends MobileManagerBase {
     this._feishuSession = null
     this._modelList = []
     this._pendingQuestions = {}
+    this._questionProgress = {}
     this._pendingPermissions = {}
     this._pendingConfirmCreate = {}
     this._activePrompt.clear()

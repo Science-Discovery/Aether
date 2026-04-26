@@ -105,6 +105,7 @@ export abstract class MobileManagerBase {
   protected _initialDir: string = ""
   protected _globalBusListener: ((event: { directory?: string; payload: any }) => void) | null = null
   protected _pendingQuestions: Record<string, Question.Request> = {}
+  protected _questionProgress: Record<string, { index: number; answers: string[][] }> = {}
   protected _pendingPermissions: Record<string, Permission.Request> = {}
   protected _pendingConfirmCreate: Record<string, { path: string }> = {}
   protected _activePrompt = new Map<string, { sessionId: string; messageId: string; directory: string }>()
@@ -306,6 +307,7 @@ export abstract class MobileManagerBase {
 
   protected async clearRuntime(chatId: string): Promise<void> {
     delete this._pendingQuestions[chatId]
+    delete this._questionProgress[chatId]
     delete this._pendingPermissions[chatId]
     delete this._pendingConfirmCreate[chatId]
     this._activePrompt.delete(chatId)
@@ -441,7 +443,8 @@ export abstract class MobileManagerBase {
       if (cmd === "/c" || cmd === "/compact") {
         const pendingQ = this._pendingQuestions[chatId]
         if (pendingQ) {
-          await this.adapter.replyText(reply, this.formatQuestionRequest(pendingQ))
+          const progress = this._questionProgress[chatId]
+          await this.adapter.replyText(reply, this.formatSingleQuestion(pendingQ, progress?.index ?? 0))
           return
         }
         const pendingP = this._pendingPermissions[chatId]
@@ -1336,24 +1339,30 @@ export abstract class MobileManagerBase {
     return info?.title ?? sessionId.slice(0, 8)
   }
 
-  protected formatQuestionRequest(q: Question.Request): string {
-    const parts = ["🤔 Agent 需要您回答：", ""]
+  protected formatQuestionOverview(q: Question.Request): string {
+    const parts = ["🤔 Agent 需要您回答以下问题：", ""]
     for (let i = 0; i < q.questions.length; i++) {
-      const info = q.questions[i]
-      if (q.questions.length > 1) parts.push(`【问题 ${i + 1}】${info.question}`)
-      else parts.push(info.question)
-      if (info.options?.length) {
-        parts.push("可选答案：")
-        for (let j = 0; j < info.options.length; j++) {
-          const opt = info.options[j]
-          const suffix = opt.description ? `：${opt.description}` : ""
-          parts.push(`  ${j + 1}. ${opt.label}${suffix}`)
-        }
+      parts.push(`${i + 1}. ${q.questions[i].header}`)
+    }
+    parts.push("")
+    parts.push("请逐个回答，我们将按顺序引导您。")
+    return parts.join("\n")
+  }
+
+  protected formatSingleQuestion(q: Question.Request, index: number): string {
+    const info = q.questions[index]
+    const parts = [`🤔 问题 ${index + 1}/${q.questions.length}：${info.question}`]
+    if (info.options?.length) {
+      parts.push("")
+      parts.push("可选答案：")
+      for (let j = 0; j < info.options.length; j++) {
+        const opt = info.options[j]
+        const suffix = opt.description ? `：${opt.description}` : ""
+        parts.push(`  ${j + 1}. ${opt.label}${suffix}`)
       }
     }
     parts.push("")
     parts.push("请直接回复答案（可输入数字编号；若题目允许自定义，也可直接输入文本）。")
-    parts.push("如需开始新问题，请先 /new 或切换 /session n。")
     return parts.join("\n")
   }
 
@@ -1373,28 +1382,20 @@ export abstract class MobileManagerBase {
     return parts.join("\n")
   }
 
-  private parseQuestionAnswers(text: string, questions: Question.Info[]): string[][] | null {
+  private parseSingleAnswer(text: string, info: Question.Info): string[] | null {
     const trimmed = text.trim()
     if (!trimmed) return null
-    const answers: string[][] = []
-    for (const info of questions) {
-      const options = info.options ?? []
-      if (options.length > 0 && trimmed.match(/^\d+$/)) {
-        const idx = parseInt(trimmed) - 1
-        if (idx >= 0 && idx < options.length) {
-          answers.push([options[idx].label])
-          continue
-        }
-        if (!info.custom) return null
-      } else if (options.length > 0 && !info.custom) {
-        const match = options.find((o) => o.label === trimmed)
-        if (!match) return null
-        answers.push([match.label])
-        continue
-      }
-      answers.push([trimmed])
+    const options = info.options ?? []
+    if (options.length > 0 && trimmed.match(/^\d+$/)) {
+      const idx = parseInt(trimmed) - 1
+      if (idx >= 0 && idx < options.length) return [options[idx].label]
+      if (!info.custom) return null
+    } else if (options.length > 0 && !info.custom) {
+      const match = options.find((o) => o.label === trimmed)
+      if (!match) return null
+      return [match.label]
     }
-    return answers
+    return [trimmed]
   }
 
   private async handleQuestionReply(
@@ -1403,25 +1404,40 @@ export abstract class MobileManagerBase {
     text: string,
     pending: Question.Request,
   ): Promise<void> {
-    const answers = this.parseQuestionAnswers(text, pending.questions)
-    if (!answers) {
-      await this.adapter.replyText(targetId, "未识别，请回复答案或数字编号。\n\n" + this.formatQuestionRequest(pending))
+    const progress = this._questionProgress[chatId]
+    if (!progress) return
+    const info = pending.questions[progress.index]
+    const answer = this.parseSingleAnswer(text, info)
+    if (!answer) {
+      await this.adapter.replyText(
+        targetId,
+        "未识别，请回复答案或数字编号。\n\n" + this.formatSingleQuestion(pending, progress.index),
+      )
+      return
+    }
+    progress.answers.push(answer)
+    progress.index += 1
+    if (progress.index < pending.questions.length) {
+      await this.adapter.replyText(targetId, `✅ 已收到问题 ${progress.index} 的回答。`)
+      await this.adapter.replyText(targetId, this.formatSingleQuestion(pending, progress.index))
       return
     }
     const active = this._activePrompt.get(chatId)
     delete this._pendingQuestions[chatId]
+    delete this._questionProgress[chatId]
     try {
       await Instance.provide({
         directory: active?.directory ?? this.effectiveDir(chatId),
-        fn: () => Question.reply({ requestID: pending.id, answers }),
+        fn: () => Question.reply({ requestID: pending.id, answers: progress.answers }),
       })
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
       this._pendingQuestions[chatId] = pending
+      this._questionProgress[chatId] = progress
       await this.adapter.replyText(targetId, `❌ 提交答案失败: ${msg}\n请重新发送您的答案。`)
       return
     }
-    await this.adapter.replyText(targetId, "已提交回答，请等待当前对话继续处理。")
+    await this.adapter.replyText(targetId, "✅ 所有问题已回答完毕，请等待当前对话继续处理。")
   }
 
   private parsePermissionReply(text: string): Permission.Reply | null {
@@ -1473,7 +1489,12 @@ export abstract class MobileManagerBase {
       for (const [chatId, info] of this._activePrompt) {
         if (info.sessionId === q.sessionID) {
           this._pendingQuestions[chatId] = q
-          void this.adapter.replyText(this.replyTarget(chatId, info.messageId), this.formatQuestionRequest(q))
+          this._questionProgress[chatId] = { index: 0, answers: [] }
+          const target = this.replyTarget(chatId, info.messageId)
+          if (q.questions.length > 1) {
+            void this.adapter.replyText(target, this.formatQuestionOverview(q))
+          }
+          void this.adapter.replyText(target, this.formatSingleQuestion(q, 0))
           return
         }
       }
