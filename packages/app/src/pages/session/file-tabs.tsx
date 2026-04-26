@@ -408,7 +408,8 @@ export function FileTabContent(props: { tab: string }) {
   const rawPreviewUrl = createMemo(() => {
     const p = path()
     if (!p) return ""
-    return `${sdk.url}/file/raw?path=${encodeURIComponent(p)}&directory=${encodeURIComponent(sdk.directory)}`
+    const version = state()?.version ?? 0
+    return `${sdk.url}/file/raw?path=${encodeURIComponent(p)}&directory=${encodeURIComponent(sdk.directory)}&v=${version}`
   })
 
   const pdfAuthHeader = createMemo(() => {
@@ -1218,4 +1219,3 @@ export function FileTabContent(props: { tab: string }) {
     </Tabs.Content>
   )
 }
-

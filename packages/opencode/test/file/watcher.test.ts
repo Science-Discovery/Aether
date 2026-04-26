@@ -10,6 +10,7 @@ import { Instance } from "../../src/project/instance"
 
 // Native @parcel/watcher bindings aren't reliably available in CI (missing on Linux, flaky on Windows)
 const describeWatcher = FileWatcher.hasNativeBinding() && !process.env.CI ? describe : describe.skip
+const testLinux = process.platform === "linux" ? test : test.skip
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -36,6 +37,24 @@ function withWatcher<E>(directory: string, body: Effect.Effect<void, E>) {
       try {
         await rt.runPromise(FileWatcher.Service.use((s) => s.init()))
         await Effect.runPromise(ready(directory))
+        await Effect.runPromise(body)
+      } finally {
+        await rt.dispose()
+      }
+    },
+  })
+}
+
+function withWatcherInit<E>(directory: string, body: Effect.Effect<void, E>) {
+  return Instance.provide({
+    directory,
+    fn: async () => {
+      const layer: Layer.Layer<FileWatcher.Service, never, never> = FileWatcher.layer.pipe(
+        Layer.provide(watcherConfigLayer),
+      )
+      const rt = ManagedRuntime.make(layer)
+      try {
+        await rt.runPromise(FileWatcher.Service.use((s) => s.init()))
         await Effect.runPromise(body)
       } finally {
         await rt.dispose()
@@ -178,6 +197,24 @@ describeWatcher("FileWatcher", () => {
         (e) => e.file === file && e.event === "add",
         Effect.promise(() => fs.writeFile(file, "plain")),
       ).pipe(Effect.tap((evt) => Effect.sync(() => expect(evt).toEqual({ file, event: "add" })))),
+    )
+  })
+
+  testLinux("skips worktree watcher when linux directory budget is exceeded", async () => {
+    await using tmp = await tmpdir()
+    const file = path.join(tmp.path, "plain.txt")
+
+    await Promise.all(
+      Array.from({ length: 4096 }, (_, i) => fs.mkdir(path.join(tmp.path, `dir-${i}`), { recursive: true })),
+    )
+
+    await withWatcherInit(
+      tmp.path,
+      noUpdate(
+        tmp.path,
+        (e) => e.file === file,
+        Effect.promise(() => fs.writeFile(file, "plain")),
+      ),
     )
   })
 

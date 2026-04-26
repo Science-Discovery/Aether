@@ -2,6 +2,7 @@ import { createStore, reconcile } from "solid-js/store"
 import { batch, createEffect, createMemo, onCleanup } from "solid-js"
 import { useParams } from "@solidjs/router"
 import { createSimpleContext } from "@opencode-ai/ui/context"
+import { showToast } from "@opencode-ai/ui/toast"
 import { useGlobalSDK } from "./global-sdk"
 import { useGlobalSync } from "./global-sync"
 import { usePlatform } from "@/context/platform"
@@ -287,6 +288,30 @@ export const { use: useNotification, provider: NotificationProvider } = createSi
 
     const unsub = globalSDK.event.listen((e) => {
       const event = e.details
+      if (event.type === "file.watcher.limited") {
+        showToast({
+          variant: "default",
+          title: language.t("toast.fileWatcherLimited.title"),
+          description: language.t(`toast.fileWatcherLimited.description.${event.properties.reason}`),
+          duration: 8000,
+        })
+        return
+      }
+      if (event.type === "tui.toast.show") {
+        const props = event.properties as {
+          title?: string
+          message: string
+          variant: "info" | "success" | "warning" | "error"
+          duration?: number
+        }
+        showToast({
+          variant: props.variant === "success" ? "success" : props.variant === "error" ? "error" : "default",
+          title: props.title ?? props.message,
+          description: props.title ? props.message : undefined,
+          duration: props.duration,
+        })
+        return
+      }
       if (event.type !== "session.idle" && event.type !== "session.error") return
 
       const directory = e.name

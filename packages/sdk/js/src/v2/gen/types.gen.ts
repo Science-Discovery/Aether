@@ -253,6 +253,13 @@ export type EventFileWatcherUpdated = {
   }
 }
 
+export type EventFileWatcherLimited = {
+  type: "file.watcher.limited"
+  properties: {
+    reason: "limit" | "timeout" | "error"
+  }
+}
+
 export type EventFileEdited = {
   type: "file.edited"
   properties: {
@@ -1102,6 +1109,7 @@ export type Event =
   | EventQuestionRejected
   | EventSessionCompacted
   | EventFileWatcherUpdated
+  | EventFileWatcherLimited
   | EventFileEdited
   | EventTodoUpdated
   | EventTuiPromptAppend
@@ -1671,6 +1679,10 @@ export type Config = {
   provider?: {
     [key: string]: ProviderConfig
   }
+  /**
+   * Remove these provider configs entirely from the config file
+   */
+  provider_remove?: Array<string>
   /**
    * MCP (Model Context Protocol) server configurations
    */
@@ -5082,9 +5094,18 @@ export type ProviderConnectionResponses = {
    * Provider connection info
    */
   200: {
+    providerID: string
+    name: string
+    embeddingProvider: "openai" | "custom"
     apiKey: string
     baseURL: string
-    embeddingModels: Array<string>
+    embeddingModels: Array<{
+      id: string
+      name: string
+      dimensions?: number
+      provider?: string
+      source: "runtime" | "config" | "remote" | "whitelist"
+    }>
   }
 }
 
