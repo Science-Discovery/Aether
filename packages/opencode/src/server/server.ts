@@ -125,7 +125,10 @@ export namespace Server {
 
   export const Default = lazy(() => createApp({}))
 
-  export const createApp = (opts: { cors?: string[]; onBrowserConnectionChange?: (count: number) => void }): Hono<ServerEnv> => {
+  export const createApp = (opts: {
+    cors?: string[]
+    onBrowserConnectionChange?: (count: number) => void
+  }): Hono<ServerEnv> => {
     SessionPreference.clear()
     const app = new Hono<ServerEnv>()
     let sseConnectionCount = 0
@@ -135,7 +138,11 @@ export namespace Server {
         if (!input) return
         if (input.startsWith("http://localhost:")) return input
         if (input.startsWith("http://127.0.0.1:")) return input
-        if (input === "tauri://localhost" || input === "http://tauri.localhost" || input === "https://tauri.localhost") {
+        if (
+          input === "tauri://localhost" ||
+          input === "http://tauri.localhost" ||
+          input === "https://tauri.localhost"
+        ) {
           return input
         }
         if (/^https:\/\/([a-z0-9-]+\.)*opencode\.ai$/.test(input)) {
@@ -753,7 +760,7 @@ export namespace Server {
     } as const
     const tryServe = (port: number) => {
       try {
-        return Bun.serve({ ...args, port })
+        return Bun.serve({ ...args, port, reusePort: true })
       } catch {
         return undefined
       }
@@ -779,6 +786,15 @@ export namespace Server {
     server.stop = async (closeActiveConnections?: boolean) => {
       if (shouldPublishMDNS) MDNS.unpublish()
       return originalStop(closeActiveConnections)
+    }
+
+    for (const signal of ["SIGINT", "SIGTERM"] as const) {
+      process.on(signal, () => {
+        server
+          .stop(true)
+          .catch(() => {})
+          .then(() => process.exit(0))
+      })
     }
 
     return server
