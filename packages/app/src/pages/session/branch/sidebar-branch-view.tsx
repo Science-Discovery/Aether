@@ -73,6 +73,7 @@ export function SidebarBranchView(props: {
   let activePointerID: number | undefined
   let dragStartY = 0
   let dragStartHeight = DEFAULT_PANEL_MAX_HEIGHT
+  let scrollContainer: HTMLDivElement | undefined
 
   const clampHeight = (height: number) => Math.max(MIN_PANEL_HEIGHT, Math.min(MAX_PANEL_HEIGHT, Math.round(height)))
 
@@ -176,6 +177,13 @@ export function SidebarBranchView(props: {
       graph: payload as ConversationGraph,
       compact: compact(),
       orderMode: orderMode() as ConversationGraphOrderMode,
+    })
+  })
+
+  createEffect(() => {
+    view()
+    queueMicrotask(() => {
+      if (scrollContainer) scrollContainer.scrollTop = scrollContainer.scrollHeight
     })
   })
 
@@ -319,7 +327,7 @@ export function SidebarBranchView(props: {
         </Show>
       </div>
 
-      <div class="min-h-0 overflow-auto" style={{ "max-height": `${maxPanelHeight()}px` }}>
+      <div ref={scrollContainer} class="min-h-0 overflow-auto" style={{ "max-height": `${maxPanelHeight()}px` }}>
         <Switch>
           <Match when={graph()?.kind === "legacy"}>
             <div class="flex h-full items-center justify-center px-4 text-center text-11-regular text-text-weak">
