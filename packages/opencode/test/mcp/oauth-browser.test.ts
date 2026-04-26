@@ -199,48 +199,7 @@ test("BrowserOpenFailed event is NOT published when open() succeeds", async () =
 
       // Verify NO BrowserOpenFailed event was published
       expect(events.length).toBe(0)
-      // Verify open() was still called
-      expect(openCalledWith).toBeDefined()
-    },
-  })
-})
-
-test("open() is called with the authorization URL", async () => {
-  await using tmp = await tmpdir({
-    init: async (dir) => {
-      await Bun.write(
-        `${dir}/opencode.json`,
-        JSON.stringify({
-          $schema: "https://opencode.ai/config.json",
-          mcp: {
-            "test-oauth-server-3": {
-              type: "remote",
-              url: "https://example.com/mcp",
-            },
-          },
-        }),
-      )
-    },
-  })
-
-  await Instance.provide({
-    directory: tmp.path,
-    fn: async () => {
-      openShouldFail = false
-      openCalledWith = undefined
-
-      // Run authenticate with a timeout to avoid waiting forever for the callback
-      const authPromise = MCP.authenticate("test-oauth-server-3").catch(() => undefined)
-
-      // Config.get() can be slow in tests; also covers the ~500ms open() error-detection window.
-      await new Promise((resolve) => setTimeout(resolve, 2_000))
-
-      // Stop the callback server and cancel any pending auth
-      await McpOAuthCallback.stop()
-
-      await authPromise
-
-      // Verify open was called with a URL
+      // Verify open() was still called with a valid authorization URL
       expect(openCalledWith).toBeDefined()
       expect(typeof openCalledWith).toBe("string")
       expect(openCalledWith!).toContain("https://")
