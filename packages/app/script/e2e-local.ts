@@ -90,6 +90,7 @@ let seed: ReturnType<typeof Bun.spawn> | undefined
 let runner: ReturnType<typeof Bun.spawn> | undefined
 let server: { stop: (close?: boolean) => Promise<void> | void } | undefined
 let inst: { Instance: { disposeAll: () => Promise<void> | void } } | undefined
+let db: { Database: { close: () => void } } | undefined
 let cleaned = false
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
@@ -110,11 +111,19 @@ async function terminate(proc: ReturnType<typeof Bun.spawn> | undefined, label: 
   await Promise.race([proc.exited.catch(() => undefined), sleep(2_000)])
 }
 
-async function bound(job: Promise<unknown> | unknown, label: string, ms = 10_000) {
+async function bound(job: () => Promise<unknown> | unknown, label: string, ms = 10_000) {
   return await Promise.race([
-    Promise.resolve(job),
+    Promise.resolve()
+      .then(job)
+      .then(() => true)
+      .catch((error) => {
+        console.warn(`e2e-local cleanup failed: ${label}`)
+        console.warn(error)
+        return false
+      }),
     sleep(ms).then(() => {
       console.warn(`e2e-local cleanup timeout: ${label} exceeded ${ms}ms`)
+      return false
     }),
   ])
 }
@@ -125,13 +134,24 @@ const cleanup = async () => {
 
   await Promise.allSettled([terminate(runner, "runner"), terminate(seed, "seed")])
 
-  await Promise.allSettled([
-    inst ? bound(inst.Instance.disposeAll(), "Instance.disposeAll()") : undefined,
-    server ? bound(server.stop(true), "server.stop(true)") : undefined,
-  ])
+  const stopped = server ? await bound(() => server.stop(true), "server.stop(true)", 30_000) : true
+  const disposed = inst ? await bound(() => inst.Instance.disposeAll(), "Instance.disposeAll()", 30_000) : true
+  const closed = db ? await bound(() => db.Database.close(), "Database.close()") : true
 
-  if (!keepSandbox) {
-    await bound(fs.rm(sandbox, { recursive: true, force: true }), "fs.rm(sandbox)")
+  if (!keepSandbox && stopped && disposed && closed) {
+    await bound(
+      () =>
+        fs.rm(sandbox, {
+          recursive: true,
+          force: true,
+          maxRetries: process.platform === "win32" ? 10 : 3,
+          retryDelay: process.platform === "win32" ? 500 : 100,
+        }),
+      "fs.rm(sandbox)",
+      30_000,
+    )
+  } else if (!keepSandbox) {
+    console.warn("e2e-local cleanup skipped sandbox removal because teardown did not finish")
   }
 }
 
@@ -187,6 +207,7 @@ try {
 
     const servermod = await import("../../opencode/src/server/server")
     inst = await import("../../opencode/src/project/instance")
+    db = await import("../../opencode/src/storage/db")
     server = await servermod.Server.listen({ port: serverPort, hostname: "127.0.0.1" })
     console.log(`opencode server listening on http://127.0.0.1:${serverPort}`)
 

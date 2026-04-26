@@ -986,7 +986,7 @@ export namespace File {
         const { cache } = yield* InstanceState.get(state)
 
         return yield* Effect.promise(async () => {
-          const query = input.query.trim()
+          const query = input.query.trim().replaceAll("\\", "/")
           const limit = input.limit ?? 100
           const kind = input.type ?? (input.dirs === false ? "file" : "all")
           log.info("search", { query, kind })
@@ -1003,7 +1003,13 @@ export namespace File {
             kind === "file" ? result.files : kind === "directory" ? result.dirs : [...result.files, ...result.dirs]
 
           const searchLimit = kind === "directory" && !preferHidden ? limit * 20 : limit
-          const sorted = fuzzysort.go(query, items, { limit: searchLimit }).map((item) => item.target)
+          const sorted = fuzzysort
+            .go(
+              query,
+              items.map((item) => ({ item, path: item.replaceAll("\\", "/") })),
+              { limit: searchLimit, key: "path" },
+            )
+            .map((item) => item.obj.item)
           const output = kind === "directory" ? sortHiddenLast(sorted, preferHidden).slice(0, limit) : sorted
 
           log.info("search", { query, kind, results: output.length })

@@ -14,11 +14,8 @@ e2e/files/file-tree.spec.ts
 e2e/models/models-visibility.spec.ts
 e2e/projects/project-edit.spec.ts
 e2e/projects/projects-close.spec.ts
-e2e/projects/workspace-new-session.spec.ts
-e2e/projects/workspaces.spec.ts
 e2e/prompt/prompt-mention.spec.ts
 e2e/prompt/prompt-multiline.spec.ts
-e2e/prompt/prompt-shell.spec.ts
 e2e/prompt/prompt-slash-open.spec.ts
 e2e/prompt/prompt-slash-share.spec.ts
 e2e/prompt/prompt-slash-terminal.spec.ts
@@ -29,6 +26,5 @@ e2e/settings/settings-models.spec.ts
 e2e/settings/settings.spec.ts
 e2e/sidebar/sidebar.spec.ts
 e2e/status/status-popover.spec.ts
-e2e/terminal/terminal-tabs.spec.ts
 e2e/terminal/terminal.spec.ts
 e2e/thinking-level.spec.ts

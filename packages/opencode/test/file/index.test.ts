@@ -740,6 +740,22 @@ describe("file/index Filesystem patterns", () => {
       })
     })
 
+    test("normalizes windows separators in query", async () => {
+      await using tmp = await setupSearchableRepo()
+      await fs.mkdir(path.join(tmp.path, "packages", "app"), { recursive: true })
+      await fs.writeFile(path.join(tmp.path, "packages", "app", "package.json"), "{}", "utf-8")
+
+      await Instance.provide({
+        directory: tmp.path,
+        fn: async () => {
+          await File.init()
+
+          const result = await File.search({ query: "packages\\app\\package.json", type: "file" })
+          expect(result.map((file) => file.replaceAll("\\", "/"))).toContain("packages/app/package.json")
+        },
+      })
+    })
+
     test("type filter returns only files", async () => {
       await using tmp = await setupSearchableRepo()
 

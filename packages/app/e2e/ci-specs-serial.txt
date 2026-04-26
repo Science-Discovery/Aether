@@ -2,8 +2,12 @@
 # during local verification.
 
 e2e/files/file-viewer.spec.ts
+e2e/projects/workspace-new-session.spec.ts
+e2e/projects/workspaces.spec.ts
 e2e/prompt/prompt-async.spec.ts
 e2e/prompt/prompt-history.spec.ts
+e2e/prompt/prompt-shell.spec.ts
 e2e/prompt/prompt.spec.ts
 e2e/terminal/terminal-init.spec.ts
+e2e/terminal/terminal-tabs.spec.ts
 e2e/terminal/terminal-reconnect.spec.ts

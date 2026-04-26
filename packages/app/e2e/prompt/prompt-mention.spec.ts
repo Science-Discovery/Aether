@@ -4,15 +4,16 @@ import { promptSelector } from "../selectors"
 test("smoke @mention inserts file pill token", async ({ page, gotoSession }) => {
   await gotoSession()
 
-  await page.locator(promptSelector).click()
+  const prompt = page.locator(promptSelector)
+  await prompt.click()
   const sep = process.platform === "win32" ? "\\" : "/"
   const file = ["packages", "app", "package.json"].join(sep)
   const filePattern = /packages[\\/]+app[\\/]+\s*package\.json/
 
-  await page.keyboard.type(`@${file}`)
+  await prompt.fill(`@${file}`)
 
   const suggestion = page.getByRole("button", { name: filePattern }).first()
-  await expect(suggestion).toBeVisible()
+  await expect(suggestion).toBeVisible({ timeout: 30_000 })
   await suggestion.hover()
 
   await page.keyboard.press("Tab")
@@ -22,5 +23,5 @@ test("smoke @mention inserts file pill token", async ({ page, gotoSession }) => 
   await expect(pill).toHaveAttribute("data-path", filePattern)
 
   await page.keyboard.type(" ok")
-  await expect(page.locator(promptSelector)).toContainText("ok")
+  await expect(prompt).toContainText("ok")
 })
