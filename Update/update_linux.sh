@@ -566,7 +566,11 @@ if [ "$mirror_only" != "1" ] && [ "${#arr[@]}" -eq 0 ]; then
   fail "[install] Package not found for version $ver in $dl"
 fi
 
-pkg="${arr[0]:-}"
+pkg=""
+for f in "${arr[@]}"; do
+  case "$f" in *.zip) pkg="$f"; break ;; esac
+done
+[ -n "$pkg" ] || pkg="${arr[0]:-}"
 tmp="$(mktemp -d "${TMPDIR:-/tmp}/aether-install.XXXXXX")"
 ex="$tmp/extract"
 mkdir -p "$ex" || fail "[install] Failed to prepare extract directory"

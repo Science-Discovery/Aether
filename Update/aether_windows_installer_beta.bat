@@ -436,15 +436,18 @@ echo Resolved version:  %~2
 exit /b 0
 
 :abs
+set "SRC=%~2"
 set "VAL=%~3"
 if not defined VAL (
   set "%~1="
+  set "SRC="
   exit /b 0
 )
 set "ABS_URL="
 for /f "usebackq delims=" %%i in (`powershell -NoProfile -Command "$src=$env:SRC; $val=$env:VAL; if([string]::IsNullOrEmpty($val)){  } else { try { ([Uri]::new(([Uri]$src), $val)).AbsoluteUri } catch {  } }"`) do set "ABS_URL=%%i"
 set "%~1=%ABS_URL%"
 set "ABS_URL="
+set "SRC="
 exit /b 0
 
 :fetch_meta

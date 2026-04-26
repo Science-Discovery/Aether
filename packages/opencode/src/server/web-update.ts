@@ -667,7 +667,7 @@ async function fetchInstallerScript(os: string): Promise<string | null> {
       return null
     }
     const text = await res.text()
-    const patched = patchInstallerScript(os, text)
+    const patched = patchInstallerScript(os, os === "windows" ? text : text.replace(/\r\n?/g, "\n"))
     await fs.writeFile(dest, patched)
     if (os !== "windows") {
       await fs.chmod(dest, 0o755).catch(() => undefined)

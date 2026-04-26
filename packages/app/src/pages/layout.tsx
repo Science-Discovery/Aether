@@ -453,15 +453,22 @@ export default function Layout(props: ParentProps) {
         })
       }
 
-      const run = (next?: UpdateAction) => {
+      const run = async (next?: UpdateAction) => {
         const task = next === "mirror" ? platform.retryUpdateMirror?.() : platform.recoverUpdate?.()
         if (!task) return
         dismissToast()
-        showPromiseToast(task, {
+        const promiseId = showPromiseToast(task, {
           loading: language.t(next === "mirror" ? "update.retryingMirror" : "update.recovering"),
           success: () => language.t("update.installHint"),
-          error: (err) => messageOf(err),
+          error: () => "",
         })
+        try {
+          await task
+        } catch (err) {
+          toaster.dismiss(promiseId)
+          const data = await platform.checkUpdate?.()
+          showErrorToast(err, data?.version, next)
+        }
       }
 
       const showErrorToast = (err: unknown, version?: string, next?: UpdateAction) => {
