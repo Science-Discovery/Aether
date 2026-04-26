@@ -371,6 +371,7 @@ export namespace SessionPrompt {
       }
 
       step++
+      console.log(`\n${"─".repeat(60)} step ${step} ${"─".repeat(60)}\n`)
       if (step === 1)
         ensureTitle({
           session,

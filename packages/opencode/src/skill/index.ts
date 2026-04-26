@@ -652,14 +652,16 @@ export namespace Skill {
                 const hasGlobal = dirtyGlobal || active.some((file) => inDir(file, set.global))
                 const hasProject = dirtyProject || active.some((file) => inDir(file, set.project))
 
+                dropped = 0
+                if (!hasGlobal && !hasProject) return
+
+                console.log(`\n${"─".repeat(40)} skill watch ${"─".repeat(40)}`)
                 console.log(
                   `[skill watch] batch files=${list.length} active=${active.length} dropped=${dropped} globalDirty=${hasGlobal ? 1 : 0} projectDirty=${hasProject ? 1 : 0} ms=${Math.round(performance.now() - t0)}`,
                 )
                 if (list.length > active.length) {
                   console.log(`[skill watch] skip reason=marked files=${list.length - active.length}`)
                 }
-                dropped = 0
-                if (!hasGlobal && !hasProject) return
                 if (cooling()) {
                   console.log(`[skill watch] skip reason=cooling`)
                   return
@@ -698,6 +700,9 @@ export namespace Skill {
                   files.add(file)
                 }
               }
+
+              // Nothing dirty — skip scheduling a flush
+              if (files.size === 0 && !globalDirty && !projectDirty) return
 
               const now = Date.now()
               if (!start) start = now
