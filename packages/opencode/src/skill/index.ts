@@ -811,9 +811,13 @@ export namespace Skill {
             const setupParcel = async () => {
               const bind = watcher()
               const back = backend()
-              if (!bind || !back) return false
+              if (!bind || !back) {
+                console.log(`[skill watch] parcel unavailable binding=${bind ? 1 : 0} backend=${String(back)}`)
+                return false
+              }
               if (roots.length === 0) return true
               for (const dir of roots) {
+                const has = await Filesystem.isDir(dir)
                 const cb = Instance.bind((_err: Error | null, evts: ParcelWatcher.Event[]) => {
                   if (_err) {
                     ws.alive = false
@@ -826,7 +830,11 @@ export namespace Skill {
                     queue(evt.path, del ? route(evt.path) : undefined)
                   }
                 })
-                const sub = await bind.subscribe(dir, cb, { backend: back })
+                const sub = await bind.subscribe(dir, cb, { backend: back }).catch((err) => {
+                  const msg = err instanceof Error ? err.message : String(err)
+                  console.log(`[skill watch] parcel subscribe failed dir=${dir} exists=${has ? 1 : 0} message=${msg}`)
+                  throw err
+                })
                 close.push(() => sub.unsubscribe())
               }
               ws.alive = true
@@ -867,15 +875,27 @@ export namespace Skill {
             const startWatch = async () => {
               await closeAll()
               const list = backs()
+              const mark = await Promise.all(roots.map(async (dir) => Filesystem.isDir(dir)))
+              const exist = mark.reduce((sum, item) => sum + (item ? 1 : 0), 0)
+              const miss = roots.filter((_dir, idx) => !mark[idx]).slice(0, 6)
+              const all = roots.map((dir, idx) => `${mark[idx] ? "ok" : "miss"}:${dir}`)
+              console.log(
+                `[skill watch] chain=${list.join("->")} roots=${roots.length} exists=${exist} missing=${roots.length - exist}`,
+              )
+              console.log(`[skill watch] roots all=${all.join(" | ")}`)
+              if (miss.length > 0) console.log(`[skill watch] missing sample=${miss.join(" | ")}`)
               let prev: Back | undefined
               for (const item of list) {
+                console.log(`[skill watch] try backend=${item}`)
                 const ok = await setup(item)
                 if (!ok) {
+                  console.log(`[skill watch] try failed backend=${item}`)
                   prev = item
                   continue
                 }
                 ws.back = item
                 ws.alive = true
+                console.log(`[skill watch] try ok backend=${item}`)
                 if (prev) console.log(`[skill watch] fallback from=${prev} to=${item}`)
                 return
               }
@@ -892,8 +912,14 @@ export namespace Skill {
             }
 
             const setup = async (back: Back) => {
-              if (back === "parcel") return setupParcel().catch(() => false)
-              return setupPoll().catch(() => false)
+              try {
+                if (back === "parcel") return await setupParcel()
+                return await setupPoll()
+              } catch (err) {
+                const msg = err instanceof Error ? err.message : String(err)
+                console.log(`[skill watch] setup error backend=${back} message=${msg}`)
+                return false
+              }
             }
 
             yield* Effect.promise(() => startWatch())
@@ -936,13 +962,15 @@ export namespace Skill {
         ),
       )
 
-      let ensure = 0
+      const ensure = new Map<string, number>()
 
       const ensureWatch = Effect.fn("Skill.ensureWatch")(
         function* () {
+          const dir = Instance.directory
           const now = Date.now()
-          if (now - ensure < WATCH_ENSURE) return
-          ensure = now
+          const prev = ensure.get(dir) ?? 0
+          if (now - prev < WATCH_ENSURE) return
+          ensure.set(dir, now)
           const has = yield* InstanceState.has(watch)
           if (!has) {
             yield* InstanceState.get(watch)
