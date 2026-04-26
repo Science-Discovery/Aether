@@ -196,6 +196,35 @@ jobs:
           OPENCODE_EXPERIMENTAL_DISABLE_FILEWATCHER: "true"
         run: bun test --timeout 30000
 
+  opencode-unit-macos:
+    name: opencode unit (macos)
+    runs-on: macos-14
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Bun
+        uses: ./.github/actions/setup-bun
+
+      - name: Setup ripgrep
+        run: |
+          if ! command -v rg >/dev/null 2>&1; then
+            brew install ripgrep
+          fi
+          echo "OPENCODE_RIPGREP_PATH=$(command -v rg)" >> "$GITHUB_ENV"
+
+      - name: Run opencode unit tests
+        working-directory: packages/opencode
+        env:
+          OPENCODE_EXPERIMENTAL_DISABLE_FILEWATCHER: "true"
+        run: bun test --timeout 30000
+
   # App E2E is restored as its own job so runner/setup issues stay isolated from unit jobs.
   e2e:
     name: app e2e (${{ matrix.settings.name }})

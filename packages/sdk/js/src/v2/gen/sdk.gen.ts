@@ -451,7 +451,6 @@ export class WebUpdate extends HeyApiClient {
     parameters?: {
       os?: "darwin" | "linux" | "windows"
       version?: string
-      acceptFallback?: boolean
       force?: boolean
     },
     options?: Options<never, ThrowOnError>,
@@ -463,7 +462,6 @@ export class WebUpdate extends HeyApiClient {
           args: [
             { in: "body", key: "os" },
             { in: "body", key: "version" },
-            { in: "body", key: "acceptFallback" },
             { in: "body", key: "force" },
           ],
         },
@@ -494,7 +492,6 @@ export class WebUpdate extends HeyApiClient {
     parameters?: {
       os?: "darwin" | "linux" | "windows"
       version?: string
-      acceptFallback?: boolean
     },
     options?: Options<never, ThrowOnError>,
   ) {
@@ -505,7 +502,6 @@ export class WebUpdate extends HeyApiClient {
           args: [
             { in: "body", key: "os" },
             { in: "body", key: "version" },
-            { in: "body", key: "acceptFallback" },
           ],
         },
       ],

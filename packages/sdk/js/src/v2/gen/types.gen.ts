@@ -2562,7 +2562,6 @@ export type GlobalWebUpdateCheckResponses = {
     downloaded: boolean
     status: "available" | "downloading" | "downloaded" | "installing" | "failed"
     workDir: string
-    workDirFallback: boolean
     updateError?: string
     checkError?: string
   }
@@ -2574,7 +2573,6 @@ export type GlobalWebUpdateDownloadData = {
   body?: {
     os: "darwin" | "linux" | "windows"
     version: string
-    acceptFallback?: boolean
     force?: boolean
   }
   path?: never
@@ -2612,7 +2610,6 @@ export type GlobalWebUpdateInstallData = {
   body?: {
     os: "darwin" | "linux" | "windows"
     version?: string
-    acceptFallback?: boolean
   }
   path?: never
   query?: never

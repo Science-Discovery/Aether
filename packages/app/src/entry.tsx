@@ -5,6 +5,7 @@ import { AppBaseProviders, AppInterface } from "@/app"
 import { type Platform, PlatformProvider } from "@/context/platform"
 import { dict as en } from "@/i18n/en"
 import { dict as zh } from "@/i18n/zh"
+import { createWebUpdate } from "@/utils/web-update"
 import { handleNotificationClick } from "@/utils/notification-click"
 import { ServerConnection } from "./context/server"
 
@@ -253,51 +254,7 @@ const detectOS = (): string => {
   if (ua.includes("win")) return "windows"
   return "linux"
 }
-
-const webCheck = async () => {
-  const os = detectOS()
-  const res = await req(`/global/web-update/check?os=${os}`)
-  const data = await res.json()
-  if (typeof data.checkError === "string" && data.checkError) throw new Error(data.checkError)
-  const status =
-    data.status === "downloading" ||
-    data.status === "downloaded" ||
-    data.status === "installing" ||
-    data.status === "failed"
-      ? data.status
-      : "available"
-  return {
-    os,
-    currentVersion: typeof data.currentVersion === "string" ? data.currentVersion.trim() : "",
-    version: typeof data.remoteVersion === "string" ? data.remoteVersion.trim() : "",
-    updateAvailable: !!data.updateAvailable,
-    downloaded: !!data.downloaded,
-    status,
-    updateError: typeof data.updateError === "string" ? data.updateError.trim() : "",
-    workDir: typeof data.workDir === "string" ? data.workDir.trim() : "",
-    requiresConfirmation: !!data.workDirFallback,
-  }
-}
-
-const webDownload = async (input: { os: string; version: string }, acceptFallback: boolean, force = false) => {
-  const res = await req("/global/web-update/download", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ os: input.os, version: input.version, acceptFallback, force }),
-  })
-  const data = await res.json()
-  if (!data.success) throw new Error(data.error)
-}
-
-const webInstall = async (input: { os: string; version: string }, acceptFallback: boolean) => {
-  const res = await req("/global/web-update/install", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ os: input.os, version: input.version, acceptFallback }),
-  })
-  const data = await res.json()
-  if (!data.success) throw new Error(data.error)
-}
+const web = createWebUpdate(req, detectOS)
 
 const platform: Platform = {
   platform: "web",
@@ -308,7 +265,7 @@ const platform: Platform = {
   restart,
   notify,
   checkUpdate: async () => {
-    const data = await webCheck()
+    const data = await web.check()
     return {
       updateAvailable: data.updateAvailable,
       currentVersion: data.currentVersion,
@@ -316,34 +273,21 @@ const platform: Platform = {
       downloaded: data.downloaded,
       status: data.status,
       updateError: data.updateError,
-      requiresConfirmation: data.requiresConfirmation,
+      updateAction: data.updateAction,
     }
   },
-  downloadUpdate: async () => {
-    const data = await webCheck()
-    if (!data.updateAvailable) return
-    if (data.status === "failed") throw new Error(data.updateError || "Update needs to restart from scratch")
-    await webDownload(data, true)
-  },
+  downloadUpdate: web.downloadUpdate,
   update: async () => {
-    const data = await webCheck()
-    if (!data.updateAvailable) return
-    if (data.status === "failed") return platform.recoverUpdate?.()
-    if (!data.downloaded) {
-      await webDownload(data, true)
+    const result = await web.update()
+    if (result?.kind === "mirror") {
+      return platform.retryUpdateMirror?.()
     }
-    await webInstall(data, true)
-  },
-  recoverUpdate: async () => {
-    const data = await webCheck()
-    if (!data.updateAvailable) return
-    await webDownload(data, true, true)
-    const next = await webCheck()
-    if (!next.updateAvailable || next.status !== "downloaded") {
-      throw new Error(next.updateError || "Update restart did not finish downloading")
+    if (result?.kind === "recover") {
+      return platform.recoverUpdate?.()
     }
-    await webInstall(next, true)
   },
+  recoverUpdate: web.recoverUpdate,
+  retryUpdateMirror: web.retryUpdateMirror,
   getDefaultServer: async () => {
     const stored = readDefaultServerUrl()
     return stored ? ServerConnection.Key.make(stored) : null

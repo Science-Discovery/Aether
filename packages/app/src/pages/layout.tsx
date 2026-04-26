@@ -25,7 +25,7 @@ import { DropdownMenu } from "@opencode-ai/ui/dropdown-menu"
 import { Dialog } from "@opencode-ai/ui/dialog"
 import { getFilename } from "@opencode-ai/util/path"
 import { Session, type Message } from "@opencode-ai/sdk/v2/client"
-import { usePlatform } from "@/context/platform"
+import { type UpdateAction, usePlatform } from "@/context/platform"
 import { useSettings } from "@/context/settings"
 import { createStore, produce, reconcile } from "solid-js/store"
 import { DragDropProvider, DragDropSensors, DragOverlay, SortableProvider, closestCenter } from "@thisbeyond/solid-dnd"
@@ -67,6 +67,7 @@ import { Titlebar } from "@/components/titlebar"
 import { useServer } from "@/context/server"
 import { bindWechatResolver, initWechat } from "@/context/wechat"
 import { useLanguage, type Locale } from "@/context/language"
+import { actionOf, messageOf } from "@/utils/web-update"
 import {
   displayName,
   effectiveWorkspaceOrder,
@@ -394,6 +395,11 @@ export default function Layout(props: ParentProps) {
 
       let toastId: number | undefined
       let interval: ReturnType<typeof setInterval> | undefined
+      const dismissToast = () => {
+        if (toastId === undefined) return
+        toaster.dismiss(toastId)
+        toastId = undefined
+      }
       const install = async () => {
         if (platform.platform === "web") {
           const x = await import("@/components/dialog-update")
@@ -414,7 +420,7 @@ export default function Layout(props: ParentProps) {
       }
 
       const showUpdateToast = (version?: string) => {
-        if (toastId !== undefined) return
+        dismissToast()
         toastId = showToast({
           persistent: true,
           placement: "top-center",
@@ -447,32 +453,100 @@ export default function Layout(props: ParentProps) {
         })
       }
 
-      const pollUpdate = () =>
-        (() => {
-          if (
-            platform.platform === "web" &&
-            typeof window !== "undefined" &&
-            (window as E2EWindow).__opencode_e2e?.update?.polling === "mute"
-          ) {
+      const run = (next?: UpdateAction) => {
+        const task = next === "mirror" ? platform.retryUpdateMirror?.() : platform.recoverUpdate?.()
+        if (!task) return
+        dismissToast()
+        showPromiseToast(task, {
+          loading: language.t(next === "mirror" ? "update.retryingMirror" : "update.recovering"),
+          success: () => language.t("update.installHint"),
+          error: (err) => messageOf(err),
+        })
+      }
+
+      const showErrorToast = (err: unknown, version?: string, next?: UpdateAction) => {
+        const kind = actionOf(err, next)
+        dismissToast()
+        toastId = showToast({
+          persistent: true,
+          placement: "top-center",
+          guarded: true,
+          variant: "error",
+          icon: "warning",
+          title: language.t(kind ? "toast.update.failed.title" : "update.checkFailed"),
+          description: kind
+            ? `${language.t("toast.update.failed.description", { version: version ?? "" })} ${messageOf(err)}`
+            : messageOf(err),
+          actions: kind
+            ? [
+                {
+                  label: language.t(kind === "mirror" ? "update.retryMirror" : "update.recover"),
+                  onClick: () => run(kind),
+                },
+                {
+                  label: language.t("toast.update.action.notYet"),
+                  onClick: "dismiss",
+                },
+              ]
+            : [
+                {
+                  label: language.t("update.retry"),
+                  onClick: () => void pollUpdate(),
+                },
+                {
+                  label: language.t("toast.update.action.notYet"),
+                  onClick: "dismiss",
+                },
+              ],
+        })
+      }
+
+      const finishPoll = async (version?: string) => {
+        const next = await platform.checkUpdate!().catch((err) => {
+          showErrorToast(err, version)
+          return
+        })
+        if (!next?.updateAvailable) return
+        if (next.status === "failed") {
+          showErrorToast(next.updateError || "Update failed", next.version, next.updateAction)
+          return
+        }
+        if (!next.downloaded) return
+        showUpdateToast(next.version)
+      }
+
+      const pollUpdate = async () => {
+        if (
+          platform.platform === "web" &&
+          typeof window !== "undefined" &&
+          (window as E2EWindow).__opencode_e2e?.update?.polling === "mute"
+        ) {
+          return
+        }
+        try {
+          const { updateAvailable, version, downloaded, status, updateError, updateAction } =
+            await platform.checkUpdate!()
+          if (!updateAvailable) return
+          if (platform.platform === "web" && platform.downloadUpdate && status === "available") {
+            try {
+              await platform.downloadUpdate()
+            } catch (err) {
+              showErrorToast(err, version)
+              return
+            }
+            await finishPoll(version)
             return
           }
-          return platform.checkUpdate!().then(async ({ updateAvailable, version, downloaded, status }) => {
-            if (!updateAvailable) return
-            if (platform.platform === "web" && platform.downloadUpdate && status === "available") {
-              await platform.downloadUpdate().catch(() => undefined)
-              const next = await platform.checkUpdate!().catch(() => undefined)
-              if (!next?.updateAvailable || !next.downloaded) return
-              showUpdateToast(next.version)
-              return
-            }
-            if (platform.platform === "web" && status === "failed") {
-              showUpdateToast(version)
-              return
-            }
-            if (!downloaded && platform.platform === "web") return
-            showUpdateToast(version)
-          })
-        })()
+          if (platform.platform === "web" && status === "failed") {
+            showErrorToast(updateError || "Update failed", version, updateAction)
+            return
+          }
+          if (!downloaded && platform.platform === "web") return
+          showUpdateToast(version)
+        } catch (err) {
+          showErrorToast(err)
+        }
+      }
 
       createEffect(() => {
         if (!settings.ready()) return
@@ -490,8 +564,8 @@ export default function Layout(props: ParentProps) {
       })
 
       onCleanup(() => {
-        if (interval === undefined) return
-        clearInterval(interval)
+        if (interval !== undefined) clearInterval(interval)
+        dismissToast()
       })
     })
 

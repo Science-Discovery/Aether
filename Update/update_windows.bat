@@ -18,6 +18,9 @@ set "START="
 set "CUR="
 set "CMP="
 set "RV="
+set "RESULT=%AETHER_UPDATE_RESULT%"
+if not defined RESULT set "RESULT=%WORK%\downloads\web-update-result.env"
+set "MIRROR_ONLY=%AETHER_MIRROR_ONLY%"
 
 if /I not "%BASE%"=="downloads" (
   echo Spec error: update_windows.bat must be placed in ...\aether\downloads. Current: %SELF%
@@ -31,11 +34,18 @@ if /I not "%WORK_NAME%"=="aether" (
 
 echo [0/4] Work directory: %WORK%
 
+if exist "%RESULT%" del /f /q "%RESULT%" >nul 2>nul
+
 call :pick_pkg "%SELF%" "%WANT%"
+if "%MIRROR_ONLY%"=="1" goto :pick_pkg_done
 if errorlevel 1 (
   echo No usable zip found in ...\aether\downloads; filename must include a version
+  call :write_result "failed" "recover" "No usable zip found in ...\aether\downloads; filename must include a version"
   exit /b 1
 )
+:pick_pkg_done
+
+if "%VER%"=="" set "VER=%WANT%"
 
 set "TARGET=%WORK%\aether_%VER%"
 echo [1/4] Package: %PKG_NAME%
@@ -61,25 +71,51 @@ set "NEXT=%WORK%\.aether_%VER%.next"
 set "SRC_FILE=%TMP%\src.txt"
 
 call :clean_tmp
-mkdir "%EX%" || exit /b 1
-mkdir "%NEXT%" || exit /b 1
+if "%MIRROR_ONLY%"=="1" (
+  if not exist "%TARGET%" (
+set "MSG=Installed version directory not found for mirror retry: %TARGET%"
+    call :write_result "failed" "recover" "!MSG!"
+    echo !MSG!
+    goto :fail
+  )
+  echo [2/4] Reusing installed version at: %TARGET%
+) else (
+  mkdir "%EX%" || (
+    call :write_result "failed" "recover" "Failed to prepare extract directory"
+    goto :fail
+  )
+  mkdir "%NEXT%" || (
+    call :write_result "failed" "recover" "Failed to prepare next version directory"
+    goto :fail
+  )
 
-powershell -NoProfile -Command "& { Expand-Archive -Path $env:PKG -DestinationPath $env:EX -Force; $hit=Get-ChildItem -Path $env:EX -Filter 'aether.exe' -File -Recurse | Where-Object { Test-Path (Join-Path $_.DirectoryName 'Aether.vbs') } | Sort-Object { $_.DirectoryName.Length } | Select-Object -First 1; if(-not $hit){ throw 'missing app files' }; [IO.File]::WriteAllText($env:SRC_FILE, $hit.DirectoryName) }" || goto :fail
+  powershell -NoProfile -Command "& { Expand-Archive -Path $env:PKG -DestinationPath $env:EX -Force; $hit=Get-ChildItem -Path $env:EX -Filter 'aether.exe' -File -Recurse | Where-Object { Test-Path (Join-Path $_.DirectoryName 'Aether.vbs') } | Sort-Object { $_.DirectoryName.Length } | Select-Object -First 1; if(-not $hit){ throw 'missing app files' }; [IO.File]::WriteAllText($env:SRC_FILE, $hit.DirectoryName) }" || (
+    call :write_result "failed" "recover" "Failed to extract %PKG%"
+    goto :fail
+  )
 
-set "SRC="
-if exist "%SRC_FILE%" set /p SRC=<"%SRC_FILE%"
-if "%SRC%"=="" (
-  echo Package contents missing aether.exe or Aether.vbs
-  goto :fail
-)
+  set "SRC="
+  if exist "%SRC_FILE%" set /p SRC=<"%SRC_FILE%"
+  if "!SRC!"=="" (
+    call :write_result "failed" "recover" "Package contents missing aether.exe or Aether.vbs"
+    echo Package contents missing aether.exe or Aether.vbs
+    goto :fail
+  )
 
 echo [2/4] Extracting and installing to: %TARGET%
-robocopy "%SRC%" "%NEXT%" /MIR /NFL /NDL /NJH /NJS /NP >nul
-set "RC=%ERRORLEVEL%"
-if %RC% GEQ 8 goto :fail
+  robocopy "!SRC!" "!NEXT!" /MIR /NFL /NDL /NJH /NJS /NP >nul
+  set "RC=!ERRORLEVEL!"
+  if !RC! GEQ 8 (
+    call :write_result "failed" "recover" "Failed to copy files into %NEXT%"
+    goto :fail
+  )
 
-if exist "%TARGET%" rmdir /s /q "%TARGET%" >nul 2>nul
-move "%NEXT%" "%TARGET%" >nul || goto :fail
+  if exist "%TARGET%" rmdir /s /q "%TARGET%" >nul 2>nul
+  move "%NEXT%" "%TARGET%" >nul || (
+    call :write_result "failed" "recover" "Failed to finalize install into %TARGET%"
+    goto :fail
+  )
+)
 
 :post_install
 echo %VER%>"%TARGET%\.aether_web_version"
@@ -89,12 +125,26 @@ if exist "%WORK%\current" rmdir "%WORK%\current" >nul 2>nul
 if exist "%WORK%\current" rmdir /s /q "%WORK%\current" >nul 2>nul
 
 call :prune_versions || goto :fail
-call :mirror
+call :in_work "%WORK%"
+if errorlevel 1 (
+  call :mirror || (
+    set "MSG=!COPY_NOTE!"
+    if not defined MSG set "MSG=Failed to mirror the new version near %AETHER_CURRENT_DIR%"
+    call :write_result "failed" "mirror" "!MSG!"
+    echo !MSG!
+    goto :fail
+  )
+) else (
+  set "COPY_NOTE=Current app already runs inside WorkDir; skipped mirror."
+)
 if not errorlevel 1 if defined MIRROR set "START=%MIRROR%"
+if defined MIRROR call :prune_mirror
 if not defined START set "START=%TARGET%"
 call :write_launch "%START%"
 
 if "%RESTART%"=="1" call :restart
+
+call :write_result "installed" "" ""
 
 call :print_prune
 
@@ -102,6 +152,7 @@ echo [4/4] Done
 echo Current version: %VER%
 echo Version directory: %TARGET%
 if defined MIRROR echo Mirror directory: %MIRROR%
+if defined MPRUNE if not "%MPRUNE%"=="0" echo Mirror cleanup: removed %MPRUNE% older version directories.
 echo Launch entry: %LAUNCH%
 if defined NOTE echo %NOTE%
 if defined COPY_NOTE echo %COPY_NOTE%
@@ -127,6 +178,14 @@ if exist "%OUT%" (
 if exist "%OUT%" del /f /q "%OUT%" >nul 2>nul
 exit /b 0
 
+:write_result
+set "RESULT_STATUS=%~1"
+set "RESULT_ACTION=%~2"
+set "RESULT_ERROR=%~3"
+if not defined RESULT exit /b 0
+powershell -NoProfile -Command "$file=$env:RESULT; $dir=Split-Path -Parent $file; if($dir){ [IO.Directory]::CreateDirectory($dir) | Out-Null }; $err=$env:RESULT_ERROR; if($null -eq $err){ $err='' }; $err=($err -replace [char]10,' ' -replace [char]13,' '); $lines=@(('status=' + $env:RESULT_STATUS),('version=' + $env:VER),('action=' + $env:RESULT_ACTION),('error=' + $err),('at=' + [DateTimeOffset]::UtcNow.ToUnixTimeSeconds())); [IO.File]::WriteAllLines($file, $lines)" >nul
+exit /b 0
+
 :print_prune
 if "%PRUNE%"=="0" (
   echo [3/4] Keeping the latest 5 versions; no older version directories needed removal.
@@ -136,11 +195,13 @@ echo [3/4] Keeping the latest 5 versions; removed %PRUNE% older version director
 exit /b 0
 
 :mirror
+if defined AETHER_MIRROR_ROOT set "MROOT=%AETHER_MIRROR_ROOT%" & goto mirror_have_root
 if not defined AETHER_CURRENT_DIR exit /b 1
 for %%i in ("%AETHER_CURRENT_DIR%\..") do set "MROOT=%%~fi"
+:mirror_have_root
 if not defined MROOT exit /b 1
 set "MIRROR=%MROOT%\aether_%VER%"
-if exist "%MIRROR%" set "MIRROR=%MROOT%\aether_%VER%_new"
+if exist "%MIRROR%" call :stamp TS & set "MIRROR=%MROOT%\aether_%VER%_!TS!"
 set "MCOPY=%MIRROR%.copy"
 if exist "%MCOPY%" rmdir /s /q "%MCOPY%" >nul 2>nul
 if exist "%MIRROR%" rmdir /s /q "%MIRROR%" >nul 2>nul
@@ -149,8 +210,8 @@ mkdir "%MCOPY%" >nul 2>nul || (
   exit /b 1
 )
 robocopy "%TARGET%" "%MCOPY%" /MIR /NFL /NDL /NJH /NJS /NP >nul
-set "RC=%ERRORLEVEL%"
-if %RC% GEQ 8 (
+set "RC=!ERRORLEVEL!"
+if !RC! GEQ 8 (
   set "COPY_NOTE=Warning: failed to copy the new version near %AETHER_CURRENT_DIR%"
   if exist "%MCOPY%" rmdir /s /q "%MCOPY%" >nul 2>nul
   exit /b 1
@@ -162,6 +223,17 @@ move "%MCOPY%" "%MIRROR%" >nul || (
 )
 set "COPY_NOTE=Copied the new version near the current app location: %MIRROR%"
 exit /b 0
+
+:stamp
+for /f "usebackq delims=" %%i in (`powershell -NoProfile -Command "Get-Date -Format 'yyyyMMddHHmm'"`) do set "%~1=%%i"
+exit /b 0
+
+:in_work
+set "CHK=%~1"
+if not defined AETHER_CURRENT_DIR exit /b 1
+for /f "usebackq delims=" %%i in (`powershell -NoProfile -Command "$cur=[IO.Path]::GetFullPath($env:AETHER_CURRENT_DIR); $root=[IO.Path]::GetFullPath($env:CHK); if($cur -eq $root -or $cur.StartsWith($root + [IO.Path]::DirectorySeparatorChar)){ Write-Output '1' } else { Write-Output '0' }"`) do set "IN_WORK=%%i"
+if "!IN_WORK!"=="1" exit /b 0
+exit /b 1
 
 :restart
 powershell -NoProfile -Command "& { $names=@('aether.exe','wscript.exe','cscript.exe','node.exe','bun.exe'); $roots=@(); if($env:OLD){ $roots += [IO.Path]::GetFullPath($env:OLD) }; if($env:TARGET){ $roots += [IO.Path]::GetFullPath($env:TARGET) }; if($env:AETHER_CURRENT_DIR){ $roots += [IO.Path]::GetFullPath($env:AETHER_CURRENT_DIR) }; if($env:MIRROR){ $roots += [IO.Path]::GetFullPath($env:MIRROR) }; $roots += (Get-ChildItem -Path $env:WORK -Directory -Filter 'aether_*' -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName }); $roots=$roots | Where-Object { $_ } | Select-Object -Unique; Get-CimInstance Win32_Process | Where-Object { $n=$_.Name.ToLowerInvariant(); if($names -notcontains $n){ return $false }; $cmd=$_.CommandLine; $exe=$_.ExecutablePath; foreach($r in $roots){ if(($cmd -and $cmd -like ('*' + $r + '*')) -or ($exe -and $exe -like ($r + '*'))){ return $true } }; return $false } | Sort-Object ProcessId -Descending | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue } }"
@@ -182,10 +254,10 @@ set "PKG="
 set "VER="
 set "PKG_NAME="
 if defined W (
-  set "PKG=%DIR%\aether-windows-x64-%W%.zip"
-  if exist "%PKG%" (
-    set "VER=%W%"
-    for %%i in ("%PKG%") do set "PKG_NAME=%%~nxi"
+  set "PKG=!DIR!\aether-windows-x64-!W!.zip"
+  if exist "!PKG!" (
+    set "VER=!W!"
+    for %%i in ("!PKG!") do set "PKG_NAME=%%~nxi"
     exit /b 0
   )
 )
@@ -226,4 +298,12 @@ exit /b 0
 :prune_versions
 for /f "usebackq delims=" %%i in (`powershell -NoProfile -Command "& { $root=$env:WORK; $keep=5; $hold=[IO.Path]::GetFullPath($env:TARGET); $items=Get-ChildItem -Path $root -Directory -Filter 'aether_*' -ErrorAction SilentlyContinue | ForEach-Object { $ver=''; if(Test-Path (Join-Path $_.FullName '.aether_web_version')){ $ver=(Get-Content (Join-Path $_.FullName '.aether_web_version') -TotalCount 1).Trim() }; if(-not $ver -and $_.Name -match '^aether[-_]([0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z]+)*)$'){ $ver=$matches[1] }; if($ver){ [PSCustomObject]@{ Dir=$_.FullName; Ver=$ver } } } | Where-Object { $_ } | Sort-Object @{Expression={ [version](($_.Ver -replace '^v','').Split('-')[0]) }} -Descending; $keepers=New-Object System.Collections.Generic.List[string]; foreach($dir in @($hold)){ if($dir -and ($items | Where-Object { $_.Dir -eq $dir }) -and -not $keepers.Contains($dir)){ $keepers.Add($dir) } }; foreach($item in $items){ if($keepers.Count -ge $keep){ break }; if(-not $keepers.Contains($item.Dir)){ $keepers.Add($item.Dir) } }; $gone=0; foreach($item in $items){ if($keepers.Contains($item.Dir)){ continue }; Remove-Item $item.Dir -Recurse -Force -ErrorAction SilentlyContinue; if(-not (Test-Path $item.Dir)){ $gone++ } }; Write-Output $gone }"`) do set "PRUNE=%%i"
 if not defined PRUNE set "PRUNE=0"
+exit /b 0
+
+:prune_mirror
+if not defined AETHER_CURRENT_DIR exit /b 0
+for %%i in ("%AETHER_CURRENT_DIR%\..") do set "PROOT=%%~fi"
+if not defined PROOT exit /b 0
+for /f "usebackq delims=" %%i in (`powershell -NoProfile -Command "& { $root=$env:PROOT; $keep=5; $hold=''; if($env:MIRROR){ $hold=[IO.Path]::GetFullPath($env:MIRROR) }; $items=Get-ChildItem -Path $root -Directory -Filter 'aether_*' -ErrorAction SilentlyContinue | ForEach-Object { $ver=''; if(Test-Path (Join-Path $_.FullName '.aether_web_version')){ $ver=(Get-Content (Join-Path $_.FullName '.aether_web_version') -TotalCount 1).Trim() }; if(-not $ver -and $_.Name -match '^aether[-_]([0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z]+)*)($|_[0-9]{12}$)'){ $ver=$matches[1] }; if($ver){ [PSCustomObject]@{ Dir=$_.FullName; Ver=$ver } } } | Where-Object { $_ } | Sort-Object @{Expression={ [version](($_.Ver -replace '^v','').Split('-')[0]) }} -Descending; $keepers=New-Object System.Collections.Generic.List[string]; foreach($dir in @($hold)){ if($dir -and ($items | Where-Object { $_.Dir -eq $dir }) -and -not $keepers.Contains($dir)){ $keepers.Add($dir) } }; foreach($item in $items){ if($keepers.Count -ge $keep){ break }; if(-not $keepers.Contains($item.Dir)){ $keepers.Add($item.Dir) } }; $gone=0; foreach($item in $items){ if($keepers.Contains($item.Dir)){ continue }; Remove-Item $item.Dir -Recurse -Force -ErrorAction SilentlyContinue; if(-not (Test-Path $item.Dir)){ $gone++ } }; Write-Output $gone }"`) do set "MPRUNE=%%i"
+if not defined MPRUNE set "MPRUNE=0"
 exit /b 0

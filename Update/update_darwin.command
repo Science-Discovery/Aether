@@ -11,14 +11,33 @@ launch_note=""
 copy_note=""
 restart="0"
 prune="0"
+res=""
+mirror_only="${AETHER_MIRROR_ONLY:-0}"
 
 if [ "${2:-}" = "--restart" ]; then
   restart="1"
 fi
 
 fail() {
+  write_result "failed" "${2:-recover}" "$1"
   echo "$1"
   exit 1
+}
+
+flat() {
+  printf "%s" "$1" | tr '\r\n' '  '
+}
+
+write_result() {
+  [ -n "$res" ] || return 0
+  mkdir -p "$(dirname "$res")" 2>/dev/null || true
+  {
+    printf 'status=%s\n' "$(flat "$1")"
+    printf 'version=%s\n' "$(flat "$ver")"
+    printf 'action=%s\n' "$(flat "${2:-}")"
+    printf 'error=%s\n' "$(flat "${3:-}")"
+    printf 'at=%s\n' "$(date +%s)"
+  } >"$res"
 }
 
 ver_from_name() {
@@ -211,6 +230,47 @@ prune_versions() {
   done
 }
 
+stamp() {
+  date +"%Y%m%d%H%M"
+}
+
+mirror_root() {
+  if [ -n "${AETHER_MIRROR_ROOT:-}" ]; then
+    cd "${AETHER_MIRROR_ROOT}" && pwd
+    return 0
+  fi
+  local cur
+  cur="${AETHER_CURRENT_DIR:-}"
+  [ -n "$cur" ] || return 1
+  cd "$cur/.." && pwd
+}
+
+in_work() {
+  local cur root
+  cur="${AETHER_CURRENT_DIR:-}"
+  root="$1"
+  [ -n "$cur" ] || return 1
+  [ -n "$root" ] || return 1
+  cur="$(cd "$cur" && pwd)"
+  root="$(cd "$root" && pwd)"
+  case "$cur" in
+    "$root"|"$root"/*) return 0 ;;
+  esac
+  return 1
+}
+
+mirror_target() {
+  local root dst now
+  root="$1"
+  dst="$root/aether_$ver"
+  if [ ! -e "$dst" ]; then
+    printf "%s" "$dst"
+    return 0
+  fi
+  now="$(stamp)"
+  printf "%s" "$root/aether_${ver}_$now"
+}
+
 write_launch() {
   local final target
   final="$1"
@@ -300,14 +360,10 @@ boot() {
 }
 
 mirror_dir() {
-  local cur root dst tmp
-  cur="${AETHER_CURRENT_DIR:-}"
-  [ -n "$cur" ] || return 1
-  root="$(cd "$cur/.." && pwd)"
-  dst="$root/aether_$ver"
-  if [ -d "$dst" ]; then
-    dst="${dst}_new"
-  fi
+  local root dst tmp
+  root="$(mirror_root || true)"
+  [ -n "$root" ] || return 1
+  dst="$(mirror_target "$root")"
   tmp="${dst}.copy"
   rm -rf "$tmp" "$dst"
   mkdir -p "$tmp" || return 1
@@ -329,13 +385,19 @@ if [ "$(basename "$work")" != "aether" ]; then
   fail "规范错误：工作目录必须是 .../aether。当前: $work"
 fi
 
+res="${AETHER_UPDATE_RESULT:-$work/downloads/web-update-result.env}"
+rm -f "$res" >/dev/null 2>&1 || true
+
 echo "[0/4] 工作目录: $work"
 
 pick="$(pick_pkg "$self" "$want" || true)"
-[ -n "$pick" ] || fail "未在 .../aether/downloads 找到可用 dmg（文件名需包含版本号）"
+[ -n "$pick" ] || {
+  [ "$mirror_only" = "1" ] || fail "未在 .../aether/downloads 找到可用 dmg（文件名需包含版本号）"
+}
 
 pkg="${pick%%|*}"
 ver="${pick##*|}"
+[ -n "$ver" ] || ver="$want"
 target="$work/aether_$ver"
 
 echo "[1/4] 安装包: $(basename "$pkg")"
@@ -351,31 +413,35 @@ cleanup() {
 }
 trap cleanup EXIT
 
-rm -rf "$next"
-mkdir -p "$next" "$mnt"
-
-hdiutil attach "$pkg" -nobrowse -readonly -mountpoint "$mnt" -quiet
-
-src="$mnt"
-if [ ! -f "$src/aether" ] || [ ! -f "$src/Aether.command" ]; then
-  shopt -s nullglob
-  dirs=("$mnt"/*/)
-  shopt -u nullglob
-  if [ "${#dirs[@]}" -eq 1 ] && [ -f "${dirs[0]}aether" ] && [ -f "${dirs[0]}Aether.command" ]; then
-    src="${dirs[0]%/}"
-  fi
-fi
-
-[ -f "$src/aether" ] || fail "安装包内容缺少 aether"
-[ -f "$src/Aether.command" ] || fail "安装包内容缺少 Aether.command"
-
-echo "[2/4] 解包并安装到: $target"
-ditto "$src" "$next"
-
 old="$(active_dir "$work")"
+if [ "$mirror_only" = "1" ]; then
+  [ -d "$target" ] || fail "镜像重试时未找到已安装版本目录：$target"
+  echo "[2/4] 复用已安装版本: $target"
+else
+  rm -rf "$next"
+  mkdir -p "$next" "$mnt" || fail "准备安装目录失败：$next"
 
-rm -rf "$target"
-mv "$next" "$target"
+  hdiutil attach "$pkg" -nobrowse -readonly -mountpoint "$mnt" -quiet || fail "挂载安装包失败：$pkg"
+
+  src="$mnt"
+  if [ ! -f "$src/aether" ] || [ ! -f "$src/Aether.command" ]; then
+    shopt -s nullglob
+    dirs=("$mnt"/*/)
+    shopt -u nullglob
+    if [ "${#dirs[@]}" -eq 1 ] && [ -f "${dirs[0]}aether" ] && [ -f "${dirs[0]}Aether.command" ]; then
+      src="${dirs[0]%/}"
+    fi
+  fi
+
+  [ -f "$src/aether" ] || fail "安装包内容缺少 aether"
+  [ -f "$src/Aether.command" ] || fail "安装包内容缺少 Aether.command"
+
+  echo "[2/4] 解包并安装到: $target"
+  ditto "$src" "$next" || fail "解包安装包失败：$pkg"
+
+  rm -rf "$target"
+  mv "$next" "$target" || fail "写入版本目录失败：$target"
+fi
 chflags nohidden "$target" >/dev/null 2>&1 || true
 
 shopt -s nullglob
@@ -397,18 +463,29 @@ fi
 printf "%s\n" "$ver" >"$target/.aether_web_version"
 rm -f "$work/.aether_web_version" >/dev/null 2>&1 || true
 
-  rm -rf "$work/current" >/dev/null 2>&1 || true
-  prune_versions "$work" 5 "$target"
+rm -rf "$work/current" >/dev/null 2>&1 || true
+prune_versions "$work" 5 "$target"
 
-  copy_target=""
-  if copy_target="$(mirror_dir || true)" && [ -n "$copy_target" ]; then
-    copy_note="已复制新版本到当前软件目录附近：$copy_target"
+copy_target=""
+copy_note=""
+mirror_prune=""
+if in_work "$work"; then
+  copy_note="当前运行位置已在 WorkDir 中，已跳过 mirror"
+elif copy_target="$(mirror_dir || true)" && [ -n "$copy_target" ]; then
+  copy_note="已复制新版本到当前软件目录附近：$copy_target"
+  mirror_root_dir="$(mirror_root || true)"
+  if [ -n "$mirror_root_dir" ]; then
+    prune_versions "$mirror_root_dir" 5 "$copy_target"
+    mirror_prune="$prune"
   fi
-  final_target="$target"
-  if [ -n "$copy_target" ]; then
-    final_target="$copy_target"
-  fi
-  write_launch "$final_target"
+else
+  fail "复制新版本到当前软件目录附近失败：${AETHER_CURRENT_DIR:-当前软件}" mirror
+fi
+final_target="$target"
+if [ -n "$copy_target" ]; then
+  final_target="$copy_target"
+fi
+write_launch "$final_target"
 
 if [ "$restart" = "1" ]; then
   stop "$old"
@@ -424,6 +501,8 @@ if [ "$restart" = "1" ]; then
   fi
 fi
 
+write_result "installed"
+
 if [ "$prune" -gt 0 ]; then
   echo "[3/4] 保留最近 5 个版本，已清理 $prune 个旧版本目录"
 else
@@ -435,6 +514,9 @@ echo "当前版本: $ver"
 echo "版本目录: $target"
 if [ -n "$copy_target" ]; then
   echo "复制目录: $copy_target"
+fi
+if [ -n "$mirror_prune" ] && [ "$mirror_prune" -gt 0 ]; then
+  echo "镜像目录清理: 已清理 $mirror_prune 个旧版本目录"
 fi
 echo "启动入口: $launch"
 if [ -n "$launch_note" ]; then

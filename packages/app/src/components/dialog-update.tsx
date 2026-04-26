@@ -5,7 +5,8 @@ import { Dialog } from "@opencode-ai/ui/dialog"
 import { Button } from "@opencode-ai/ui/button"
 import { Icon } from "@opencode-ai/ui/icon"
 import { useLanguage } from "@/context/language"
-import { usePlatform } from "@/context/platform"
+import { type UpdateAction, usePlatform } from "@/context/platform"
+import { actionOf, messageOf, viewOf } from "@/utils/web-update"
 
 type View =
   | "checking"
@@ -45,42 +46,37 @@ export const DialogUpdate: Component<Props> = (props) => {
     remoteVersion: "",
     currentVersion: "",
     error: "",
+    action: "" as UpdateAction | "",
+    mirrorRoot: "",
   })
 
   const current = () => store.currentVersion || platform.version || ""
   const cancelled = (err: unknown) => err instanceof Error && err.message === "Update cancelled"
+  const fail = (err: unknown, next: UpdateAction | "" = "") => {
+    setStore("state", "failed")
+    setStore("error", messageOf(err))
+    setStore("action", actionOf(err) || next)
+  }
+  const close = () => {
+    setTimeout(() => {
+      dialog.close()
+    }, 1200)
+  }
+  const hint = () => (store.action === "mirror" ? language.t("update.mirrorHint") : language.t("update.recoverHint"))
+  const label = () => (store.action === "mirror" ? language.t("update.retryMirror") : language.t("update.recover"))
   const sync = async () => {
     if (!platform.checkUpdate) throw new Error("Updates are not supported on this platform")
     const data = await platform.checkUpdate()
     setStore("currentVersion", data.currentVersion?.trim() ?? "")
     setStore("remoteVersion", data.version?.trim() ?? "")
     setStore("error", data.updateError?.trim() ?? "")
+    setStore("action", data.updateAction ?? "")
     return data
   }
 
   const apply = async () => {
     const data = await sync()
-    if (!data.updateAvailable) {
-      setStore("state", "up-to-date")
-      return data
-    }
-    if (data.status === "downloading") {
-      setStore("state", "downloading")
-      return data
-    }
-    if (data.status === "downloaded") {
-      setStore("state", "downloaded")
-      return data
-    }
-    if (data.status === "installing") {
-      setStore("state", "installing")
-      return data
-    }
-    if (data.status === "failed") {
-      setStore("state", "failed")
-      return data
-    }
-    setStore("state", "available")
+    setStore("state", viewOf(data))
     return data
   }
 
@@ -91,7 +87,7 @@ export const DialogUpdate: Component<Props> = (props) => {
       await apply()
     } catch (err) {
       setStore("state", "error")
-      setStore("error", err instanceof Error ? err.message : String(err))
+      setStore("error", messageOf(err))
     }
   }
 
@@ -108,8 +104,7 @@ export const DialogUpdate: Component<Props> = (props) => {
         setStore("state", "available")
         return
       }
-      setStore("state", "failed")
-      setStore("error", err instanceof Error ? err.message : String(err))
+      fail(err)
     }
   }
 
@@ -121,38 +116,42 @@ export const DialogUpdate: Component<Props> = (props) => {
       await paint()
       await platform.update()
       await platform.restart()
-      setTimeout(() => {
-        dialog.close()
-      }, 1200)
+      close()
     } catch (err) {
       if (cancelled(err)) {
         setStore("state", "downloaded")
         return
       }
-      setStore("state", "failed")
-      setStore("error", err instanceof Error ? err.message : String(err))
+      fail(err)
     }
   }
 
-  const recoverUpdate = async () => {
-    if (!platform.recoverUpdate) return
+  const recover = async (next: UpdateAction, task?: () => Promise<void>) => {
+    if (!task) return
     setStore("state", "recovering")
-    if (!store.error) setStore("error", language.t("update.recoverHint"))
+    setStore("action", next)
+    if (!store.error)
+      setStore("error", next === "mirror" ? language.t("update.mirrorHint") : language.t("update.recoverHint"))
     try {
       await paint()
-      await platform.recoverUpdate()
+      await task()
       await platform.restart()
-      setTimeout(() => {
-        dialog.close()
-      }, 1200)
+      close()
     } catch (err) {
       if (cancelled(err)) {
         setStore("state", "failed")
         return
       }
-      setStore("state", "failed")
-      setStore("error", err instanceof Error ? err.message : String(err))
+      fail(err, next)
     }
+  }
+
+  const recoverUpdate = async () => recover("recover", platform.recoverUpdate)
+
+  const retryMirror = async () => {
+    await recover("mirror", async () => {
+      await platform.retryUpdateMirror?.(store.mirrorRoot || undefined)
+    })
   }
 
   const start = async () => {
@@ -177,7 +176,7 @@ export const DialogUpdate: Component<Props> = (props) => {
   onMount(() => {
     void start().catch((err) => {
       setStore("state", "error")
-      setStore("error", err instanceof Error ? err.message : String(err))
+      setStore("error", messageOf(err))
     })
   })
 
@@ -256,11 +255,19 @@ export const DialogUpdate: Component<Props> = (props) => {
             <div class="flex flex-col gap-2">
               <div class="flex items-center gap-2 text-13-regular text-text-weak">
                 <Spinner />
-                <span>{language.t(store.state === "recovering" ? "update.recovering" : "update.installing")}</span>
+                <span>
+                  {language.t(
+                    store.state === "recovering"
+                      ? store.action === "mirror"
+                        ? "update.retryingMirror"
+                        : "update.recovering"
+                      : "update.installing",
+                  )}
+                </span>
               </div>
               <ProgressBar />
               <div class="text-12-regular text-text-weak">
-                {language.t(store.state === "recovering" ? "update.recoverHint" : "update.installHint")}
+                {store.state === "recovering" ? hint() : language.t("update.installHint")}
               </div>
             </div>
           </Show>
@@ -269,12 +276,24 @@ export const DialogUpdate: Component<Props> = (props) => {
             <div class="flex flex-col gap-2">
               <div class="flex items-center gap-2 text-13-regular text-text-dimmed-red">
                 <Icon name="warning" class="size-4" />
-                <span>{store.error || language.t("update.recoverHint")}</span>
+                <span>{store.error || hint()}</span>
               </div>
-              <div class="text-12-regular text-text-weak">{language.t("update.recoverHint")}</div>
+              <div class="text-12-regular text-text-weak">{hint()}</div>
+              <Show when={store.action === "mirror"}>
+                <div class="flex flex-col gap-1">
+                  <label class="text-12-regular text-text-weak">镜像目标目录</label>
+                  <input
+                    type="text"
+                    class="w-full rounded-md border border-border bg-bg-surface px-2 py-1 text-13-regular text-text-main outline-none focus:border-border-focus"
+                    placeholder="/Users/lx/Applications/aether"
+                    value={store.mirrorRoot}
+                    onInput={(e) => setStore("mirrorRoot", e.currentTarget.value)}
+                  />
+                </div>
+              </Show>
             </div>
-            <Button size="small" variant="primary" onClick={recoverUpdate}>
-              {language.t("update.recover")}
+            <Button size="small" variant="primary" onClick={store.action === "mirror" ? retryMirror : recoverUpdate}>
+              {label()}
             </Button>
           </Show>
 

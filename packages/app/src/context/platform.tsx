@@ -8,14 +8,15 @@ type OpenDirectoryPickerOptions = { title?: string; multiple?: boolean }
 type OpenFilePickerOptions = { title?: string; multiple?: boolean; accept?: string[]; extensions?: string[] }
 type SaveFilePickerOptions = { title?: string; defaultPath?: string }
 type UpdateStage = "available" | "downloading" | "downloaded" | "installing" | "failed"
-type UpdateStatus = {
+export type UpdateAction = "recover" | "mirror"
+export type UpdateStatus = {
   updateAvailable: boolean
   currentVersion?: string
   version?: string
   downloaded?: boolean
   status?: UpdateStage
   updateError?: string
-  requiresConfirmation?: boolean
+  updateAction?: UpdateAction
 }
 
 export type Platform = {
@@ -69,6 +70,9 @@ export type Platform = {
 
   /** Restart update from scratch */
   recoverUpdate?(): Promise<void>
+
+  /** Retry only the mirror step for web updates with optional mirror root override */
+  retryUpdateMirror?(mirrorRoot?: string): Promise<void>
 
   /** Fetch override */
   fetch?: typeof fetch

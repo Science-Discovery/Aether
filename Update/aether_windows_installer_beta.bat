@@ -2,7 +2,7 @@
 chcp 65001 >nul
 setlocal EnableExtensions EnableDelayedExpansion
 
-if defined AETHER_UPDATE_BASE (set "BASE=%AETHER_UPDATE_BASE%") else (set "BASE=https://aether.aiphys.cn/download")
+set "BASE=https://aether.aiphys.cn/downloadbeta"
 set "LATEST=latest/windows-x64.yml"
 if not defined LOCALAPPDATA set "LOCALAPPDATA=%USERPROFILE%\AppData\Local"
 set "DEFAULT=%LOCALAPPDATA%\Programs\aether"

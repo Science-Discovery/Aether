@@ -2,7 +2,7 @@
 
 set -euo pipefail
 
-base="${AETHER_UPDATE_BASE:-https://aether.aiphys.cn/download}"
+base="https://aether.aiphys.cn/downloadbeta"
 default="$HOME/.local/share/applications/aether"
 work_default="$HOME/.local/share/aether/update/aether"
 mode="init"
