@@ -292,11 +292,12 @@ export abstract class MobileManagerBase {
         }
       }
     }
-    if (!this._connectedModel) return undefined
-    return {
-      providerID: ProviderID.make(this._connectedModel.providerID),
-      modelID: ModelID.make(this._connectedModel.modelID),
-    }
+    return undefined
+  }
+
+  protected resolveModelStr(chatId: string): string {
+    const m = this.resolveModel(chatId)
+    return m ? `${m.providerID}/${m.modelID}` : "—"
   }
 
   protected effectiveDir(chatId: string): string {
@@ -340,12 +341,7 @@ export abstract class MobileManagerBase {
     } catch {}
     sessionTitle = this.clip(sessionTitle, 24)
     const modeName = pref?.agent ?? "build"
-    const model = this.resolveModel(chatId)
-    const modelStr = model
-      ? `${model.providerID}/${model.modelID}`
-      : this._connectedModel
-        ? `${this._connectedModel.providerID}/${this._connectedModel.modelID}`
-        : "—"
+    const modelStr = this.resolveModelStr(chatId)
     return { dir, sessionId, pref, projectName, sessionTitle, modeName, modelStr }
   }
 
@@ -598,6 +594,18 @@ export abstract class MobileManagerBase {
 
       const responseText = this.extractResponseText(msg)
       if (responseText) {
+        const msgModel =
+          msg?.info?.role === "assistant" ? { providerID: msg.info.providerID, modelID: msg.info.modelID } : undefined
+        if (msgModel && !SessionPreference.get(sessionId)?.model) {
+          await Instance.provide({
+            directory: effectiveDir,
+            fn: () =>
+              SessionPreference.update({
+                sessionID: SessionID.make(sessionId),
+                model: { providerID: ProviderID.make(msgModel.providerID), modelID: ModelID.make(msgModel.modelID) },
+              }),
+          })
+        }
         const header = await this.formatHeader(chatId)
         console.log(`[${this.adapter.platform}] replying:`, responseText.slice(0, 100), localISOString())
         await this.adapter.replyText(reply, header + responseText)
@@ -802,8 +810,7 @@ export abstract class MobileManagerBase {
   }
 
   protected formatModelList(ctx: Awaited<ReturnType<typeof this.commandCtx>>, full: boolean): string {
-    const prefModel = ctx.pref?.model
-    const current = prefModel ?? this._connectedModel
+    const current = ctx.pref?.model
 
     const lines: string[] = []
     lines.push("📦 可用模型：")
@@ -1317,12 +1324,7 @@ export abstract class MobileManagerBase {
     const pref = sessionId ? SessionPreference.get(sessionId) : undefined
     const modeName = pref?.agent ?? "build"
     const mode = modeName.charAt(0).toUpperCase() + modeName.slice(1)
-    const model = this.resolveModel(chatId)
-    const modelStr = model
-      ? `${model.providerID}/${model.modelID}`
-      : this._connectedModel
-        ? `${this._connectedModel.providerID}/${this._connectedModel.modelID}`
-        : "—"
+    const modelStr = this.resolveModelStr(chatId)
     return `${projectName}  ·  ${label}  ·  ${mode}  ·  ${modelStr}\n————————\n`
   }
 
