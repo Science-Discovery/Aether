@@ -280,7 +280,7 @@ class WeChatManagerImpl extends MobileManagerBase {
 
   private async validateToken(): Promise<boolean> {
     try {
-      const result = await ilink.getUpdates(this._ilinkBaseUrl, this._ilinkToken, this._cursor, 5000)
+      const result = await ilink.getUpdates(this._ilinkBaseUrl, this._ilinkToken, this._cursor, 2000)
       if (result.expired) {
         console.log("[wechat] saved token expired")
         return false
