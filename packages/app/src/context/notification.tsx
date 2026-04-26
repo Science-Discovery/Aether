@@ -298,21 +298,6 @@ export const { use: useNotification, provider: NotificationProvider } = createSi
         })
         return
       }
-      if (event.type === "tui.toast.show") {
-        const props = event.properties as {
-          title?: string
-          message: string
-          variant: "info" | "success" | "warning" | "error"
-          duration?: number
-        }
-        showToast({
-          variant: props.variant === "success" ? "success" : props.variant === "error" ? "error" : "default",
-          title: props.title ?? props.message,
-          description: props.title ? props.message : undefined,
-          duration: props.duration,
-        })
-        return
-      }
       if (event.type !== "session.idle" && event.type !== "session.error") return
 
       const directory = e.name
