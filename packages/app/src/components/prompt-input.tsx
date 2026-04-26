@@ -61,10 +61,8 @@ import { ImagePreview } from "@opencode-ai/ui/image-preview"
 import { FileIcon } from "@opencode-ai/ui/file-icon"
 import { KnowledgeButton } from "@/components/knowledge-button"
 import { DialogDefaultSkills } from "@/components/dialog-default-skills"
-import { DialogWeChat } from "@/components/dialog-wechat"
-import { status as wechatStatus } from "@/context/wechat"
-import { DialogFeishu } from "@/components/dialog-feishu"
-import { feishuStatus } from "@/context/feishu"
+import { DialogMobile } from "@/components/dialog-mobile"
+import { status as mobileStatus } from "@/context/mobile"
 
 interface PromptInputProps {
   class?: string
@@ -1644,19 +1642,19 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                         variant="ghost"
                         size="normal"
                         class="w-full h-7 px-2 flex items-center gap-2 text-icon-weak justify-start"
-                        onClick={() => dialog.show(() => <DialogWeChat />)}
-                        aria-label={language.t("knowledgeBase.wechatConnection")}
+                        onClick={() => dialog.show(() => <DialogMobile platform="wechat" />)}
+                        aria-label="微信连接"
                       >
                         <Icon
                           name="wechat"
                           class={
-                            wechatStatus() === "connected"
+                            mobileStatus("wechat") === "connected"
                               ? "size-4 shrink-0 text-green-500"
-                              : wechatStatus() === "loading" ||
-                                  wechatStatus() === "qrcode" ||
-                                  wechatStatus() === "reconnecting"
+                              : mobileStatus("wechat") === "loading" ||
+                                  mobileStatus("wechat") === "qrcode" ||
+                                  mobileStatus("wechat") === "reconnecting"
                                 ? "size-4 shrink-0 text-yellow-500 animate-pulse"
-                                : wechatStatus() === "error" || wechatStatus() === "stolen"
+                                : mobileStatus("wechat") === "error" || mobileStatus("wechat") === "stolen"
                                   ? "size-4 shrink-0 text-red-500"
                                   : "size-4 shrink-0 text-icon-weak"
                           }
@@ -1671,17 +1669,17 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                         variant="ghost"
                         size="normal"
                         class="w-full h-7 px-2 flex items-center gap-2 text-icon-weak justify-start"
-                        onClick={() => dialog.show(() => <DialogFeishu />)}
-                        aria-label={language.t("knowledgeBase.feishuConnection")}
+                        onClick={() => dialog.show(() => <DialogMobile platform="feishu" />)}
+                        aria-label="飞书连接"
                       >
                         <Icon
                           name="feishu"
                           class={
-                            feishuStatus() === "connected"
+                            mobileStatus("feishu") === "connected"
                               ? "size-4 shrink-0 text-blue-500"
-                              : feishuStatus() === "loading"
+                              : mobileStatus("feishu") === "loading"
                                 ? "size-4 shrink-0 text-yellow-500 animate-pulse"
-                                : feishuStatus() === "error"
+                                : mobileStatus("feishu") === "error"
                                   ? "size-4 shrink-0 text-red-500"
                                   : "size-4 shrink-0 text-icon-weak"
                           }
