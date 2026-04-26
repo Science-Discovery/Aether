@@ -6,11 +6,13 @@ import { Bus } from "@/bus"
 import { AsyncQueue } from "@/util/queue"
 import { FeishuManager } from "@/mobile/feishu"
 import type { FeishuConfig } from "@/mobile/feishu"
+import { QQManager } from "@/mobile/qq"
+import type { QQConfig } from "@/mobile/qq"
 import { WeChatManager } from "@/mobile/wechat"
 import type { MobileStatus } from "@/mobile/base"
 
-export function createMobileRoutes(platform: "feishu" | "wechat") {
-  const manager = platform === "feishu" ? FeishuManager : WeChatManager
+export function createMobileRoutes(platform: "feishu" | "qq" | "wechat") {
+  const manager = platform === "feishu" ? FeishuManager : platform === "qq" ? QQManager : WeChatManager
   const prefix = platform
 
   const statusValues = [
@@ -23,7 +25,7 @@ export function createMobileRoutes(platform: "feishu" | "wechat") {
   ] as const satisfies readonly MobileStatus[]
   const statusSchema = z.object({
     status: z.enum(statusValues),
-    ...(platform === "feishu"
+    ...(platform === "feishu" || platform === "qq"
       ? { appId: z.string().nullable(), hasConfig: z.boolean() }
       : {
           qrcode: z.string().nullable(),
@@ -39,7 +41,7 @@ export function createMobileRoutes(platform: "feishu" | "wechat") {
     code: z.string().optional(),
     message: z.string().optional(),
     status: z.string().optional(),
-    ...(platform === "feishu"
+    ...(platform === "feishu" || platform === "qq"
       ? { appId: z.string().optional() }
       : { user: z.object({ id: z.string(), name: z.string() }).optional(), clientId: z.string().optional() }),
   })
@@ -61,16 +63,14 @@ export function createMobileRoutes(platform: "feishu" | "wechat") {
       async (c) => {
         const body = await c.req.json().catch(() => ({}))
 
-        if (platform === "feishu") {
-          const config =
-            body?.appId && body?.appSecret
-              ? ({ appId: body.appId, appSecret: body.appSecret } as FeishuConfig)
-              : undefined
+        if (platform === "feishu" || platform === "qq") {
+          const mgr = platform === "feishu" ? FeishuManager : QQManager
+          const config = body?.appId && body?.appSecret ? { appId: body.appId, appSecret: body.appSecret } : undefined
           const model =
             body?.model?.providerID && body?.model?.modelID
               ? { providerID: body.model.providerID as string, modelID: body.model.modelID as string }
               : undefined
-          const result = await FeishuManager.start(config, model)
+          const result = await mgr.start(config, model)
           return c.json(result)
         } else {
           const clientId: string = body?.clientId || crypto.randomUUID()
@@ -151,6 +151,14 @@ export function createMobileRoutes(platform: "feishu" | "wechat") {
             hasConfig: !!config,
             error: FeishuManager.error,
           })
+        } else if (platform === "qq") {
+          const config = await QQManager.adapter.loadConfig()
+          return c.json({
+            status: QQManager.status,
+            appId: QQManager.session?.appId || null,
+            hasConfig: !!config,
+            error: QQManager.error,
+          })
         } else {
           const session = await WeChatManager.adapter.loadSession()
           return c.json({
@@ -197,6 +205,8 @@ export function createMobileRoutes(platform: "feishu" | "wechat") {
               q.push(
                 JSON.stringify({ type: `${prefix}.connected`, properties: { appId: FeishuManager.session.appId } }),
               )
+            } else if (platform === "qq" && QQManager.session?.appId) {
+              q.push(JSON.stringify({ type: `${prefix}.connected`, properties: { appId: QQManager.session.appId } }))
             } else if (platform === "wechat") {
               const session = await WeChatManager.adapter.loadSession()
               const user = WeChatManager.session?.user || session?.user

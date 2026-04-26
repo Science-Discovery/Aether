@@ -61,8 +61,6 @@ import { ImagePreview } from "@opencode-ai/ui/image-preview"
 import { FileIcon } from "@opencode-ai/ui/file-icon"
 import { KnowledgeButton } from "@/components/knowledge-button"
 import { DialogDefaultSkills } from "@/components/dialog-default-skills"
-import { DialogMobile } from "@/components/dialog-mobile"
-import { status as mobileStatus } from "@/context/mobile"
 
 interface PromptInputProps {
   class?: string
@@ -1612,84 +1610,17 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                   >
                     <KnowledgeButton />
                   </div>
-                  <Popover
-                    placement="top-end"
-                    gutter={4}
-                    triggerAs={Button}
-                    triggerProps={{
-                      variant: "ghost",
-                      size: "normal",
-                      class: "h-7 w-7 p-0 flex items-center justify-center text-icon-weak shrink-0",
-                      "aria-label": language.t("knowledgeBase.moreTools"),
-                    }}
-                    trigger={<Icon name="dot-grid" class="size-4" />}
-                    class="p-1 flex flex-col gap-0.5 min-w-[120px]"
-                  >
-                    <Tooltip placement="left" gutter={4} value={language.t("knowledgeBase.defaultSkills")}>
-                      <Button
-                        variant="ghost"
-                        size="normal"
-                        class="w-full h-7 px-2 flex items-center gap-2 text-icon-weak justify-start"
-                        onClick={() => dialog.show(() => <DialogDefaultSkills />)}
-                        aria-label={language.t("knowledgeBase.defaultSkills")}
-                      >
-                        <Icon name="bullet-list" class="size-4 shrink-0" />
-                        <span class="text-13-regular text-text-base">{language.t("knowledgeBase.defaultSkills")}</span>
-                      </Button>
-                    </Tooltip>
-                    <Tooltip placement="left" gutter={4} value={language.t("knowledgeBase.wechatConnection")}>
-                      <Button
-                        variant="ghost"
-                        size="normal"
-                        class="w-full h-7 px-2 flex items-center gap-2 text-icon-weak justify-start"
-                        onClick={() => dialog.show(() => <DialogMobile platform="wechat" />)}
-                        aria-label="微信连接"
-                      >
-                        <Icon
-                          name="wechat"
-                          class={
-                            mobileStatus("wechat") === "connected"
-                              ? "size-4 shrink-0 text-green-500"
-                              : mobileStatus("wechat") === "loading" ||
-                                  mobileStatus("wechat") === "qrcode" ||
-                                  mobileStatus("wechat") === "reconnecting"
-                                ? "size-4 shrink-0 text-yellow-500 animate-pulse"
-                                : mobileStatus("wechat") === "error" || mobileStatus("wechat") === "stolen"
-                                  ? "size-4 shrink-0 text-red-500"
-                                  : "size-4 shrink-0 text-icon-weak"
-                          }
-                        />
-                        <span class="text-13-regular text-text-base">
-                          {language.t("knowledgeBase.wechatConnection")}
-                        </span>
-                      </Button>
-                    </Tooltip>
-                    <Tooltip placement="left" gutter={4} value={language.t("knowledgeBase.feishuConnection")}>
-                      <Button
-                        variant="ghost"
-                        size="normal"
-                        class="w-full h-7 px-2 flex items-center gap-2 text-icon-weak justify-start"
-                        onClick={() => dialog.show(() => <DialogMobile platform="feishu" />)}
-                        aria-label="飞书连接"
-                      >
-                        <Icon
-                          name="feishu"
-                          class={
-                            mobileStatus("feishu") === "connected"
-                              ? "size-4 shrink-0 text-blue-500"
-                              : mobileStatus("feishu") === "loading"
-                                ? "size-4 shrink-0 text-yellow-500 animate-pulse"
-                                : mobileStatus("feishu") === "error"
-                                  ? "size-4 shrink-0 text-red-500"
-                                  : "size-4 shrink-0 text-icon-weak"
-                          }
-                        />
-                        <span class="text-13-regular text-text-base">
-                          {language.t("knowledgeBase.feishuConnection")}
-                        </span>
-                      </Button>
-                    </Tooltip>
-                  </Popover>
+                  <Tooltip placement="left" gutter={4} value={language.t("knowledgeBase.defaultSkills")}>
+                    <Button
+                      variant="ghost"
+                      size="normal"
+                      class="h-7 w-7 p-0 flex items-center justify-center text-icon-weak shrink-0"
+                      onClick={() => dialog.show(() => <DialogDefaultSkills />)}
+                      aria-label={language.t("knowledgeBase.defaultSkills")}
+                    >
+                      <Icon name="dot-grid" class="size-4" />
+                    </Button>
+                  </Tooltip>
                 </div>
               </div>
             </div>

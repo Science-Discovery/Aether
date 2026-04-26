@@ -1,6 +1,6 @@
 import { createSignal } from "solid-js"
 
-export type MobilePlatform = "feishu" | "wechat"
+export type MobilePlatform = "feishu" | "qq" | "wechat"
 
 export type MobileStatus =
   | "idle"
@@ -37,6 +37,7 @@ const defaults: PlatformState = {
 
 const [state, setState] = createSignal<Record<MobilePlatform, PlatformState>>({
   feishu: { ...defaults, loadingMsg: "正在连接飞书..." },
+  qq: { ...defaults, loadingMsg: "正在连接QQ..." },
   wechat: { ...defaults, loadingMsg: "正在启动微信桥接..." },
 })
 
@@ -60,7 +61,7 @@ const patch = (p: MobilePlatform, u: Partial<PlatformState>) => {
 }
 
 const updateStatus = (p: MobilePlatform, s: MobileStatus) => {
-  const msg = p === "feishu" ? "正在连接飞书..." : "正在启动微信桥接..."
+  const msg = p === "feishu" ? "正在连接飞书..." : p === "qq" ? "正在连接QQ..." : "正在启动微信桥接..."
   patch(p, { status: s, loadingMsg: s !== "loading" ? msg : prev(p).loadingMsg })
 }
 
@@ -80,9 +81,10 @@ interface MobileEvent {
   }
 }
 
-const sseControllers: Record<MobilePlatform, AbortController | null> = { feishu: null, wechat: null }
+const sseControllers: Record<MobilePlatform, AbortController | null> = { feishu: null, qq: null, wechat: null }
 const sseRetryTimers: Record<MobilePlatform, ReturnType<typeof setTimeout> | undefined> = {
   feishu: undefined,
+  qq: undefined,
   wechat: undefined,
 }
 const pingTimer: ReturnType<typeof setInterval> | undefined = undefined
@@ -163,7 +165,12 @@ function connectSSE(p: MobilePlatform) {
             } else if (type.endsWith(".reconnecting")) {
               updateStatus(p, "reconnecting")
               patch(p, {
-                loadingMsg: p === "feishu" ? "飞书连接中断，正在自动重连..." : "正在重新连接微信...",
+                loadingMsg:
+                  p === "feishu"
+                    ? "飞书连接中断，正在自动重连..."
+                    : p === "qq"
+                      ? "QQ连接中断，正在自动重连..."
+                      : "正在重新连接微信...",
               })
             } else if (type.endsWith(".error")) {
               patch(p, {
@@ -267,6 +274,7 @@ export async function fetchStatus(p: MobilePlatform) {
     }
     if (p === "wechat") patch("wechat", { locked: false })
     if (p === "feishu") patch("feishu", { hasConfig: data.hasConfig })
+    if (p === "qq") patch("qq", { hasConfig: data.hasConfig })
     if (data.status === "connected") {
       const u: Partial<PlatformState> = { status: "connected" }
       if (data.appId) u.appId = data.appId
@@ -285,6 +293,8 @@ export async function fetchStatus(p: MobilePlatform) {
       patch(p, { error: data.error, status: "error" })
     } else if (p === "feishu" && data.hasConfig) {
       patch("feishu", { status: "idle" })
+    } else if (p === "qq" && data.hasConfig) {
+      patch("qq", { status: "idle" })
     }
   } catch {}
 }
@@ -299,7 +309,7 @@ export async function startBridge(
 ) {
   patch(p, {
     status: "loading",
-    loadingMsg: p === "feishu" ? "正在连接飞书..." : "正在启动微信桥接...",
+    loadingMsg: p === "feishu" ? "正在连接飞书..." : p === "qq" ? "正在连接QQ..." : "正在启动微信桥接...",
     error: null,
     locked: false,
   })
@@ -313,7 +323,7 @@ export async function startBridge(
     const prefix = `/mobile/${p}`
     const body: any = {}
 
-    if (p === "feishu") {
+    if (p === "feishu" || p === "qq") {
       if (appIdVal && appSecretVal) {
         body.appId = appIdVal
         body.appSecret = appSecretVal
@@ -338,7 +348,7 @@ export async function startBridge(
         return
       }
       if (data.code === "config_missing") {
-        patch("feishu", { status: "config" })
+        patch(p === "feishu" ? "feishu" : p === "qq" ? "qq" : "feishu", { status: "config" })
         return
       }
       patch(p, {
@@ -408,7 +418,9 @@ export async function logout(p: MobilePlatform) {
 }
 
 export async function retryBridge(p: MobilePlatform) {
-  if (p !== "wechat") return startBridge(p)
+  if (p === "wechat") return startBridge(p)
+  if (p === "qq") return startBridge(p)
+  patch(p, { status: "reconnecting", loadingMsg: "正在重新连接飞书...", error: null })
   patch(p, { status: "reconnecting", loadingMsg: "正在重新连接微信...", error: null })
   connectSSE(p)
   try {

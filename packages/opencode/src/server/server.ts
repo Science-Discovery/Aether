@@ -334,6 +334,7 @@ export namespace Server {
       .route("/knowledge", KnowledgeRoutes())
       .route("/mobile/wechat", createMobileRoutes("wechat"))
       .route("/mobile/feishu", createMobileRoutes("feishu"))
+      .route("/mobile/qq", createMobileRoutes("qq"))
       .route("/reading-mode", ReadingModeRoutes())
       .post(
         "/instance/dispose",
