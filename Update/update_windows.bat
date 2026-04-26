@@ -73,7 +73,7 @@ set "SRC_FILE=%TMP%\src.txt"
 call :clean_tmp
 if "%MIRROR_ONLY%"=="1" (
   if not exist "%TARGET%" (
-set "MSG=Installed version directory not found for mirror retry: %TARGET%"
+    set "MSG=Installed version directory not found for mirror retry: %TARGET%"
     call :write_result "failed" "recover" "!MSG!"
     echo !MSG!
     goto :fail
@@ -118,7 +118,7 @@ echo [2/4] Extracting and installing to: %TARGET%
 )
 
 :post_install
-echo %VER%>"%TARGET%\.aether_web_version"
+>"%TARGET%\.aether_web_version" echo(%VER%
 if exist "%WORK%\.aether_web_version" del /f /q "%WORK%\.aether_web_version" >nul 2>nul
 
 if exist "%WORK%\current" rmdir "%WORK%\current" >nul 2>nul
@@ -137,7 +137,7 @@ if errorlevel 1 (
 ) else (
   set "COPY_NOTE=Current app already runs inside WorkDir; skipped mirror."
 )
-if not errorlevel 1 if defined MIRROR set "START=%MIRROR%"
+if defined MIRROR set "START=%MIRROR%"
 if defined MIRROR call :prune_mirror
 if not defined START set "START=%TARGET%"
 call :write_launch "%START%"

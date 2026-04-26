@@ -109,7 +109,7 @@ exit /b 0
 
 :init
 echo Aether Windows Installer
-echo.
+echo(
 set "WORK=%WORK_DEFAULT%"
 if defined PATH_ARG (
   call :normalize "%PATH_ARG%" MIRROR
@@ -380,9 +380,9 @@ if not exist "%INS_FILE%" exit /b 1
 exit /b 0
 
 :print_latest
-echo.
+echo(
 echo Latest version: %VER%
-echo.
+echo(
 exit /b 0
 
 :print_versions
@@ -391,19 +391,19 @@ echo Remote version: %~2
 exit /b 0
 
 :print_uptodate
-echo.
+echo(
 call :print_versions "%~1" "%~2"
 echo Already up to date.
 exit /b 0
 
 :print_downloaded
-echo.
+echo(
 echo Download finished.
 echo Version:   %VER%
 echo Package:   %PKG_FILE%
 echo Installer: %INS_FILE%
 echo Result:    %RES_FILE%
-echo.
+echo(
 exit /b 0
 
 :print_cached
@@ -436,15 +436,18 @@ echo Resolved version:  %~2
 exit /b 0
 
 :abs
+set "SRC=%~2"
 set "VAL=%~3"
 if not defined VAL (
   set "%~1="
+  set "SRC="
   exit /b 0
 )
 set "ABS_URL="
 for /f "usebackq delims=" %%i in (`powershell -NoProfile -Command "$src=$env:SRC; $val=$env:VAL; if([string]::IsNullOrEmpty($val)){  } else { try { ([Uri]::new(([Uri]$src), $val)).AbsoluteUri } catch {  } }"`) do set "ABS_URL=%%i"
 set "%~1=%ABS_URL%"
 set "ABS_URL="
+set "SRC="
 exit /b 0
 
 :fetch_meta
@@ -571,27 +574,27 @@ exit /b 0
 
 :help
 echo Aether Windows Installer
-echo.
+echo(
 echo Usage:
 echo   %~nx0 [--no-pause] [--path ^<dir^>] init
 echo   %~nx0 [--no-pause] auto ^<current-version^>
 echo   %~nx0 [--no-pause] manual ^<target-version^>
-echo.
+echo(
 echo init mode:
 echo   --path specifies the install target directory (default %DEFAULT%)
 echo   Work directory is fixed at %WORK_DEFAULT%
 echo   Downloads, installs, and mirrors to the target directory
-echo.
+echo(
 echo auto mode:
 echo   Called by the main app; work directory via AETHER_WORK_DIR
-echo.
+echo(
 echo Remote manifests:
 echo   %BASE%/%LATEST%
 echo   %BASE%/1.2.3/windows-x64.yml
-echo.
+echo(
 echo Result file:
 echo   work_dir\downloads\last-result.yml
-echo.
+echo(
 echo Exit codes:
 echo   0   init finished successfully
 echo   10  latest update downloaded and ready
@@ -615,7 +618,7 @@ exit /b %ARG_ERR%
 :meta_fail
 set "RES=meta_error"
 call :result
-echo.
+echo(
 echo Manifest check failed.
 if /I "%MODE%"=="init" goto :done_err
 exit /b %META_ERR%
@@ -625,7 +628,7 @@ set "RC=%ERRORLEVEL%"
 set "RES=download_error"
 if "%RC%"=="%SUM_ERR%" set "RES=checksum_error"
 call :result
-echo.
+echo(
 if "%RC%"=="%SUM_ERR%" (
   echo Checksum verification failed.
 ) else (
@@ -641,7 +644,7 @@ exit /b %RUN_ERR%
 :dir_fail
 set "RES=dir_error"
 call :result
-echo.
+echo(
 echo Work directory failed.
 if /I "%MODE%"=="init" goto :done_err
 exit /b %DIR_ERR%
@@ -656,6 +659,6 @@ exit /b 0
 
 :hold
 if not defined HOLD exit /b 0
-echo.
+echo(
 powershell -NoProfile -Command "& { if(-not [Environment]::UserInteractive){ exit 0 }; try { Write-Host 'Press Esc to close...'; while(([Console]::ReadKey($true)).Key -ne 'Escape') {} } catch { exit 0 } }"
 exit /b 0

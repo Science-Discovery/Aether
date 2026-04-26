@@ -368,11 +368,11 @@ grab() {
   fi
 
   if [ "$need_pkg" = "1" ]; then
-    echo "Downloading package:"
+    echo "正在下载安装包："
     echo "  $pkg_url"
     fetch_file "$pkg_url" "$pkg_file" || return "$dl_err"
   else
-    echo "Using cached package:"
+    echo "使用缓存的安装包："
     echo "  $pkg_file"
   fi
 
@@ -396,11 +396,11 @@ grab() {
     fi
 
     if [ "$need_ins" = "1" ]; then
-      echo "Downloading installer:"
+      echo "正在下载安装脚本："
       echo "  $ins_url"
       fetch_file "$ins_url" "$ins_file" || return "$dl_err"
     else
-      echo "Using cached installer:"
+      echo "使用缓存的安装脚本："
       echo "  $ins_file"
     fi
     chmod +x "$ins_file" 2>/dev/null || true
@@ -534,13 +534,13 @@ if [ "$mode" = "init" ]; then
     exit "$latest_ok"
   fi
   if cached_ready; then
-    echo "Using cached package:"
+    echo "使用缓存的安装包："
     echo "  $pkg_file"
-    echo "Using cached installer:"
+    echo "使用缓存的安装脚本："
     echo "  $ins_file"
   else
     grab || {
-      code="$?"
+      code=$?
       res="download_error"
       [ "$code" = "$sum_err" ] && res="checksum_error"
       result

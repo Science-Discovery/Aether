@@ -853,7 +853,7 @@ if [ "$mode" = "init" ]; then
     echo "  $ins_file"
   else
     grab || {
-      code="$?"
+      code=$?
       res="download_error"
       [ "$code" = "$sum_err" ] && res="checksum_error"
       result
@@ -915,7 +915,7 @@ if [ "$mode" = "auto" ]; then
   }
   echo "Latest version: $ver"
   grab || {
-    code="$?"
+    code=$?
     res="download_error"
     [ "$code" = "$sum_err" ] && res="checksum_error"
     result
@@ -949,7 +949,7 @@ if [ "$mode" = "manual" ]; then
   }
   manifest_url="$base/$req/$plat.yml"
   if ! manifest "$manifest_url" version; then
-    code="$?"
+    code=$?
     if [ "$code" = "$miss" ]; then
       ver="$req"
       res="version_missing"
@@ -965,7 +965,7 @@ if [ "$mode" = "manual" ]; then
   echo "Requested version: $req"
   echo "Resolved version:  $ver"
   grab || {
-    code="$?"
+    code=$?
     res="download_error"
     [ "$code" = "$sum_err" ] && res="checksum_error"
     result

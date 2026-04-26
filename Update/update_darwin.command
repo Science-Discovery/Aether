@@ -271,18 +271,16 @@ mirror_target() {
   printf "%s" "$root/aether_${ver}_$now"
 }
 
-write_launch() {
-  local final target
-  final="$1"
 build_app() {
-    local dir app bin cmd
-    dir="$1"
-    app="$dir/Aether.app"
-    bin="$app/Contents/MacOS/Aether"
-    cmd="$final/Aether.command"
-    rm -rf "$app"
-    mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
-    cat >"$bin" <<EOF
+  local dest final app bin cmd
+  dest="$1"
+  final="$2"
+  app="$dest/Aether.app"
+  bin="$app/Contents/MacOS/Aether"
+  cmd="$final/Aether.command"
+  rm -rf "$app"
+  mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
+  cat >"$bin" <<EOF
 #!/usr/bin/env bash
 set -euo pipefail
 
@@ -303,8 +301,8 @@ fi
 echo "Launch target not found: $cmd"
 exit 1
 EOF
-    chmod +x "$bin"
-    cat >"$app/Contents/Info.plist" <<'EOF'
+  chmod +x "$bin"
+  cat >"$app/Contents/Info.plist" <<'EOF'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -328,20 +326,23 @@ EOF
 </dict>
 </plist>
 EOF
-    xattr -cr "$app" >/dev/null 2>&1 || true
-  }
+  xattr -cr "$app" >/dev/null 2>&1 || true
+}
 
-  target="/Applications"
-  if build_app "$target" 2>/dev/null; then
-    launch="$target/Aether.app"
+write_launch() {
+  local final dest
+  final="$1"
+  dest="/Applications"
+  if build_app "$dest" "$final" 2>/dev/null; then
+    launch="$dest/Aether.app"
     launch_note="从 app 启动器中运行Aether。"
     return 0
   fi
 
-  target="$HOME/Applications"
-  mkdir -p "$target"
-  build_app "$target"
-  launch="$target/Aether.app"
+  dest="$HOME/Applications"
+  mkdir -p "$dest"
+  build_app "$dest" "$final"
+  launch="$dest/Aether.app"
   launch_note="无法写入 /Applications，已回退到 $launch。手动复制该 App 到 /Applications后，从 app 启动器中运行Aether，或在\"$HOME/Applications\"文件夹中双击Aether.app运行。"
 }
 
@@ -452,12 +453,12 @@ done
 shopt -u nullglob
 
 chmod +x "$target/aether" "$target/Aether.command"
-uv="$target/wechat-bridge/runtime/uv/uv-0.6.14-aarch64-apple-darwin/uv"
+uv="$(find "$target/wechat-bridge/runtime/uv" -name 'uv-*apple-darwin*/uv' -type f 2>/dev/null | head -1)"
 if [ -f "$uv" ]; then
   chmod +x "$uv"
 fi
 xattr -cr "$target/aether" "$target/Aether.command" >/dev/null 2>&1 || true
-if [ -f "$uv" ]; then
+if [ -n "$uv" ] && [ -f "$uv" ]; then
   xattr -cr "$uv" >/dev/null 2>&1 || true
 fi
 printf "%s\n" "$ver" >"$target/.aether_web_version"
