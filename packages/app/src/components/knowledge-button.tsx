@@ -5,18 +5,20 @@ import { Tooltip } from "@opencode-ai/ui/tooltip"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { KnowledgeDialog } from "./knowledge-dialog"
 import { useKnowledge } from "@/context/knowledge"
+import { useLanguage } from "@/context/language"
 
 export const KnowledgeButton: Component = () => {
   const knowledge = useKnowledge()
   const dialog = useDialog()
+  const language = useLanguage()
 
   const label = () => {
     const list = knowledge.activeKnowledgeBases()
     if (list.length === 0) {
-      return "知识库：无"
+      return language.t("knowledgeBase.none")
     }
     const text = list.map((kb) => `${kb.name}(${kb.pdfFileCount ?? kb.documentCount ?? 0})`).join(", ")
-    return `知识库：${text}`
+    return language.t("knowledgeBase.withItems", { items: text })
   }
 
   const handleClick = () => {

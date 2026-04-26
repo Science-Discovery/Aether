@@ -18,6 +18,7 @@ import {
   toEmbeddingProvider,
 } from "@/utils/knowledge-embedding"
 import { DialogSelectDirectory } from "./dialog-select-directory"
+import { useLanguage } from "@/context/language"
 
 export const KnowledgeDialog: Component = () => {
   const knowledge = useKnowledge()
@@ -25,6 +26,7 @@ export const KnowledgeDialog: Component = () => {
   const sdk = useGlobalSDK()
   const server = useServer()
   const providers = useProviders()
+  const language = useLanguage()
 
   const [syncing, setSyncing] = createSignal(false)
   const [error, setError] = createSignal("")
@@ -480,12 +482,12 @@ export const KnowledgeDialog: Component = () => {
   }
 
   return (
-    <Dialog title="Knowledge Base" class="max-w-lg">
+    <Dialog title={language.t("knowledgeBase.title")} class="max-w-lg">
       <div class="flex flex-col gap-4 p-4 max-h-[60vh] overflow-y-auto">
         <Show when={knowledge.knowledgeBases().length > 0}>
           <div class="flex flex-col gap-2">
-            <label class="text-13-medium text-text-strong">Knowledge Bases</label>
-            <p class="text-12-regular text-text-weak">可选择多个，不选则不使用知识库</p>
+            <label class="text-13-medium text-text-strong">{language.t("knowledgeBase.label")}</label>
+            <p class="text-12-regular text-text-weak">{language.t("knowledgeBase.helperText")}</p>
             <div class="flex flex-col gap-1">
               <For each={knowledge.knowledgeBases()}>
                 {(kb) => {

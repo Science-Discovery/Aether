@@ -72,6 +72,10 @@ vi.mock("@opencode-ai/ui/icon", () => ({ Icon: () => null }))
 vi.mock("@opencode-ai/ui/tooltip", () => ({ Tooltip: (props: { children?: unknown }) => props.children }))
 vi.mock("@/components/truncate-middle", () => ({ TruncateMiddle: (props: { text: string }) => props.text }))
 
+vi.mock("@/context/language", () => ({
+  useLanguage: () => ({ t: (key: string) => key }),
+}))
+
 import FileTree from "./file-tree"
 
 function node(path: string, type: "file" | "directory"): FileNode {
