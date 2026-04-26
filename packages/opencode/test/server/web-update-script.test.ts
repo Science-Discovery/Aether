@@ -117,7 +117,9 @@ async function stash(paths: string[]) {
 async function restore(items: Awaited<ReturnType<typeof stash>>) {
   for (const item of items) {
     if (item.data) {
-      await fs.mkdir(path.dirname(item.file), { recursive: true })
+      await fs.mkdir(path.dirname(item.file), { recursive: true }).catch((e: any) => {
+        if (e.code !== "EEXIST") throw e
+      })
       await fs.writeFile(item.file, item.data)
       continue
     }

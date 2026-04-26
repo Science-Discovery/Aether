@@ -73,9 +73,9 @@ set "SRC_FILE=%TMP%\src.txt"
 call :clean_tmp
 if "%MIRROR_ONLY%"=="1" (
   if not exist "%TARGET%" (
-    set "MSG=Installed version directory not found for mirror retry: %TARGET%"
-    call :write_result "failed" "recover" "%MSG%"
-    echo %MSG%
+set "MSG=Installed version directory not found for mirror retry: %TARGET%"
+    call :write_result "failed" "recover" "!MSG!"
+    echo !MSG!
     goto :fail
   )
   echo [2/4] Reusing installed version at: %TARGET%
@@ -96,15 +96,15 @@ if "%MIRROR_ONLY%"=="1" (
 
   set "SRC="
   if exist "%SRC_FILE%" set /p SRC=<"%SRC_FILE%"
-  if "%SRC%"=="" (
+  if "!SRC!"=="" (
     call :write_result "failed" "recover" "Package contents missing aether.exe or Aether.vbs"
     echo Package contents missing aether.exe or Aether.vbs
     goto :fail
   )
 
-  echo [2/4] Extracting and installing to: %TARGET%
-  robocopy "%SRC%" "%NEXT%" /MIR /NFL /NDL /NJH /NJS /NP >nul
-set "RC=!ERRORLEVEL!"
+echo [2/4] Extracting and installing to: %TARGET%
+  robocopy "!SRC!" "!NEXT!" /MIR /NFL /NDL /NJH /NJS /NP >nul
+  set "RC=!ERRORLEVEL!"
   if !RC! GEQ 8 (
     call :write_result "failed" "recover" "Failed to copy files into %NEXT%"
     goto :fail
@@ -183,7 +183,7 @@ set "RESULT_STATUS=%~1"
 set "RESULT_ACTION=%~2"
 set "RESULT_ERROR=%~3"
 if not defined RESULT exit /b 0
-powershell -NoProfile -Command "$file=$env:RESULT; $dir=Split-Path -Parent $file; if($dir){ [IO.Directory]::CreateDirectory($dir) | Out-Null }; $err=$env:RESULT_ERROR; if($null -eq $err){ $err='' }; $err=$err -replace \"`r|`n\", ' '; $lines=@(('status=' + $env:RESULT_STATUS),('version=' + $env:VER),('action=' + $env:RESULT_ACTION),('error=' + $err),('at=' + [DateTimeOffset]::UtcNow.ToUnixTimeSeconds())); [IO.File]::WriteAllLines($file, $lines)" >nul
+powershell -NoProfile -Command "$file=$env:RESULT; $dir=Split-Path -Parent $file; if($dir){ [IO.Directory]::CreateDirectory($dir) | Out-Null }; $err=$env:RESULT_ERROR; if($null -eq $err){ $err='' }; $err=($err -replace [char]10,' ' -replace [char]13,' '); $lines=@(('status=' + $env:RESULT_STATUS),('version=' + $env:VER),('action=' + $env:RESULT_ACTION),('error=' + $err),('at=' + [DateTimeOffset]::UtcNow.ToUnixTimeSeconds())); [IO.File]::WriteAllLines($file, $lines)" >nul
 exit /b 0
 
 :print_prune
@@ -211,8 +211,8 @@ mkdir "%MCOPY%" >nul 2>nul || (
 )
 robocopy "%TARGET%" "%MCOPY%" /MIR /NFL /NDL /NJH /NJS /NP >nul
 set "RC=!ERRORLEVEL!"
-  if !RC! GEQ 8 (
-    set "COPY_NOTE=Warning: failed to copy the new version near %AETHER_CURRENT_DIR%"
+if !RC! GEQ 8 (
+  set "COPY_NOTE=Warning: failed to copy the new version near %AETHER_CURRENT_DIR%"
   if exist "%MCOPY%" rmdir /s /q "%MCOPY%" >nul 2>nul
   exit /b 1
 )
@@ -231,8 +231,9 @@ exit /b 0
 :in_work
 set "CHK=%~1"
 if not defined AETHER_CURRENT_DIR exit /b 1
-for /f "usebackq delims=" %%i in (`powershell -NoProfile -Command "$cur=[IO.Path]::GetFullPath($env:AETHER_CURRENT_DIR); $root=[IO.Path]::GetFullPath($env:CHK); if($cur -eq $root -or $cur.StartsWith($root + [IO.Path]::DirectorySeparatorChar)){ exit 0 } exit 1"`) do rem
-exit /b %ERRORLEVEL%
+for /f "usebackq delims=" %%i in (`powershell -NoProfile -Command "$cur=[IO.Path]::GetFullPath($env:AETHER_CURRENT_DIR); $root=[IO.Path]::GetFullPath($env:CHK); if($cur -eq $root -or $cur.StartsWith($root + [IO.Path]::DirectorySeparatorChar)){ Write-Output '1' } else { Write-Output '0' }"`) do set "IN_WORK=%%i"
+if "!IN_WORK!"=="1" exit /b 0
+exit /b 1
 
 :restart
 powershell -NoProfile -Command "& { $names=@('aether.exe','wscript.exe','cscript.exe','node.exe','bun.exe'); $roots=@(); if($env:OLD){ $roots += [IO.Path]::GetFullPath($env:OLD) }; if($env:TARGET){ $roots += [IO.Path]::GetFullPath($env:TARGET) }; if($env:AETHER_CURRENT_DIR){ $roots += [IO.Path]::GetFullPath($env:AETHER_CURRENT_DIR) }; if($env:MIRROR){ $roots += [IO.Path]::GetFullPath($env:MIRROR) }; $roots += (Get-ChildItem -Path $env:WORK -Directory -Filter 'aether_*' -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName }); $roots=$roots | Where-Object { $_ } | Select-Object -Unique; Get-CimInstance Win32_Process | Where-Object { $n=$_.Name.ToLowerInvariant(); if($names -notcontains $n){ return $false }; $cmd=$_.CommandLine; $exe=$_.ExecutablePath; foreach($r in $roots){ if(($cmd -and $cmd -like ('*' + $r + '*')) -or ($exe -and $exe -like ($r + '*'))){ return $true } }; return $false } | Sort-Object ProcessId -Descending | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue } }"
@@ -253,10 +254,10 @@ set "PKG="
 set "VER="
 set "PKG_NAME="
 if defined W (
-  set "PKG=%DIR%\aether-windows-x64-%W%.zip"
-  if exist "%PKG%" (
-    set "VER=%W%"
-    for %%i in ("%PKG%") do set "PKG_NAME=%%~nxi"
+  set "PKG=!DIR!\aether-windows-x64-!W!.zip"
+  if exist "!PKG!" (
+    set "VER=!W!"
+    for %%i in ("!PKG!") do set "PKG_NAME=%%~nxi"
     exit /b 0
   )
 )
