@@ -149,7 +149,41 @@ if (!(root instanceof HTMLElement) && import.meta.env.DEV) {
   throw new Error(getRootNotFoundError())
 }
 
+const LAUNCH_SERVER_KEY = "opencode.launchServer"
+
+const resolveLaunchServer = () => {
+  if (typeof sessionStorage === "undefined") return null
+  const stored = sessionStorage.getItem(LAUNCH_SERVER_KEY)
+  if (stored) return stored
+
+  if (typeof location === "undefined") return null
+  const hash = location.hash
+  if (!hash || hash.length < 2) return null
+
+  try {
+    const params = new URLSearchParams(hash.slice(1))
+    const local = params.get("local")
+    const instance = params.get("instance")
+    if (local) {
+      const entry = instance ? `${local}|${instance}` : local
+      sessionStorage.setItem(LAUNCH_SERVER_KEY, entry)
+      history.replaceState(null, "", location.pathname + location.search)
+      return entry
+    }
+  } catch {}
+
+  return null
+}
+
+const parseLaunchServer = (raw: string | null) => {
+  if (!raw) return null
+  const parts = raw.split("|")
+  return { url: parts[0], instance: parts.length > 1 ? parts[1] : undefined }
+}
+
 const getCurrentUrl = () => {
+  const launch = parseLaunchServer(resolveLaunchServer())
+  if (launch) return launch.url
   if (location.hostname.includes("opencode.ai")) return "http://localhost:4096"
   if (import.meta.env.DEV)
     return `http://${import.meta.env.VITE_OPENCODE_SERVER_HOST ?? "localhost"}:${import.meta.env.VITE_OPENCODE_SERVER_PORT ?? "4096"}`
@@ -172,6 +206,8 @@ const readWebVersion = async () => {
 }
 
 const getDefaultUrl = () => {
+  const launch = parseLaunchServer(resolveLaunchServer())
+  if (launch) return launch.url
   const lsDefault = readDefaultServerUrl()
   if (lsDefault) return lsDefault
   return getCurrentUrl()
@@ -296,7 +332,11 @@ const platform: Platform = {
     const stored = readDefaultServerUrl()
     return stored ? ServerConnection.Key.make(stored) : null
   },
-  setDefaultServer: writeDefaultServerUrl,
+  setDefaultServer: (url) => {
+    const launch = parseLaunchServer(resolveLaunchServer())
+    if (launch && url === ServerConnection.Key.make(launch.url)) return
+    writeDefaultServerUrl(url)
+  },
   getProxyConfig: async () => {
     const local = readProxy()
     const fallback = local ?? {

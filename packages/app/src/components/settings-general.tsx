@@ -722,6 +722,7 @@ export const SettingsGeneral: Component = () => {
 
   const ServerSection = () => {
     const idleOptions = createMemo(() => [
+      { value: "30", label: "30s" },
       { value: "60", label: "1 min" },
       { value: "300", label: "5 min" },
       { value: "1800", label: "30 min" },
@@ -732,7 +733,7 @@ export const SettingsGeneral: Component = () => {
       const config = globalSync.data.config as Record<string, unknown>
       const server =
         typeof config.server === "object" && config.server ? (config.server as Record<string, unknown>) : {}
-      const val = String(typeof server.idleTimeout === "number" ? server.idleTimeout : 60)
+      const val = String(typeof server.idleTimeout === "number" ? server.idleTimeout : 30)
       return idleOptions().find((o) => o.value === val) ?? idleOptions()[0]
     })
 
@@ -742,7 +743,7 @@ export const SettingsGeneral: Component = () => {
       const config = globalSync.data.config as Record<string, unknown>
       const server =
         typeof config.server === "object" && config.server ? (config.server as Record<string, unknown>) : {}
-      const before = typeof server.idleTimeout === "number" ? server.idleTimeout : 60
+      const before = typeof server.idleTimeout === "number" ? server.idleTimeout : 30
       if (idleTimeout === before) return
       globalSync.set("config", (prev: unknown) => ({
         ...(prev as Record<string, unknown>),

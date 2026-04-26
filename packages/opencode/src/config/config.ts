@@ -1038,7 +1038,7 @@ export namespace Config {
         .min(0)
         .optional()
         .describe(
-          "Seconds to wait after all browser connections close before exiting (default: 60). Set to 0 to disable auto-exit.",
+          "Seconds to wait after all browser connections close before exiting (default: 30). Set to 0 to disable auto-exit.",
         ),
     })
     .strict()

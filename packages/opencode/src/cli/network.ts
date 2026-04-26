@@ -30,7 +30,7 @@ const options = {
   },
   "idle-timeout": {
     type: "number" as const,
-    describe: "seconds to wait after all browser connections close before exiting (default: 60, 0 to disable)",
+    describe: "seconds to wait after all browser connections close before exiting (default: 30, 0 to disable)",
   },
 }
 
@@ -60,7 +60,7 @@ export async function resolveNetworkOptions(args: NetworkOptions) {
   const configCors = config?.server?.cors ?? []
   const argsCors = Array.isArray(args.cors) ? args.cors : args.cors ? [args.cors] : []
   const cors = [...configCors, ...argsCors]
-  const idleTimeout = idleTimeoutExplicitlySet ? args["idle-timeout"] : (config?.server?.idleTimeout ?? 60)
+  const idleTimeout = idleTimeoutExplicitlySet ? args["idle-timeout"] : (config?.server?.idleTimeout ?? 30)
 
   return { hostname, port, mdns, mdnsDomain, cors, idleTimeout }
 }

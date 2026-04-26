@@ -184,7 +184,7 @@ import { Filesystem } from "@/util/filesystem"
 import { Snapshot } from "@/snapshot"
 import { QuestionRoutes } from "./routes/question"
 import { PermissionRoutes } from "./routes/permission"
-import { GlobalRoutes } from "./routes/global"
+import { GlobalRoutes, setGlobalEventConnectionCallback } from "./routes/global"
 import { KnowledgeRoutes } from "./routes/knowledge"
 import { createMobileRoutes } from "@/mobile/route"
 import { FeishuManager } from "@/mobile/feishu"
@@ -217,7 +217,7 @@ export namespace Server {
 
   export const createApp = (opts: {
     cors?: string[]
-    onBrowserConnectionChange?: (count: number) => void
+    onBrowserConnectionChange?: (count: number, globalCount: number) => void
   }): Hono<ServerEnv> => {
     SessionPreference.clear()
     void Cron.start().catch((error) => {
@@ -225,6 +225,11 @@ export namespace Server {
     })
     const app = new Hono<ServerEnv>()
     let sseConnectionCount = 0
+    let globalEventCount = 0
+    setGlobalEventConnectionCallback((globalCount: number) => {
+      globalEventCount = globalCount
+      opts.onBrowserConnectionChange?.(sseConnectionCount, globalEventCount)
+    })
     const corsware = cors({
       credentials: true,
       origin(input) {
@@ -770,7 +775,7 @@ export namespace Server {
           c.header("X-Accel-Buffering", "no")
           c.header("X-Content-Type-Options", "nosniff")
           sseConnectionCount++
-          opts.onBrowserConnectionChange?.(sseConnectionCount)
+          opts.onBrowserConnectionChange?.(sseConnectionCount, globalEventCount)
           return streamSSE(c, async (stream) => {
             stream.writeSSE({
               data: JSON.stringify({
@@ -794,7 +799,7 @@ export namespace Server {
               if (disconnected) return
               disconnected = true
               sseConnectionCount--
-              opts.onBrowserConnectionChange?.(sseConnectionCount)
+              opts.onBrowserConnectionChange?.(sseConnectionCount, globalEventCount)
             }
 
             let resolve!: () => void
@@ -890,6 +895,9 @@ export namespace Server {
 
   /** @deprecated do not use this dumb shit */
   export let url: URL
+  export let sseConnections = 0
+  export let globalSseConnections = 0
+  export let accelerateExit = false
 
   export function listen(opts: {
     port: number
@@ -897,9 +905,14 @@ export namespace Server {
     mdns?: boolean
     mdnsDomain?: string
     cors?: string[]
-    onBrowserConnectionChange?: (count: number) => void
+    onBrowserConnectionChange?: (count: number, globalCount: number) => void
   }) {
-    const app = createApp(opts)
+    const wrappedCallback = (count: number, globalCount: number) => {
+      Server.sseConnections = count
+      Server.globalSseConnections = globalCount ?? 0
+      opts.onBrowserConnectionChange?.(count, globalCount)
+    }
+    const app = createApp({ ...opts, onBrowserConnectionChange: wrappedCallback })
     const bp = basePath()
     const baseFetch =
       bp === "/"

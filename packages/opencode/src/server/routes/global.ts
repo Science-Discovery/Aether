@@ -13,6 +13,7 @@ import { lazy } from "../../util/lazy"
 import { Config } from "../../config/config"
 import { errors } from "../error"
 import { Lease } from "../lease"
+import { Server } from "../server"
 import {
   downloadWebUpdate,
   installWebUpdate,
@@ -33,6 +34,18 @@ export { WebUpdateTest } from "../web-update"
 const log = Log.create({ service: "server" })
 
 export const GlobalDisposedEvent = BusEvent.define("global.disposed", z.object({}))
+
+type ConnectionChangeCallback = (globalEventCount: number) => void
+let onGlobalEventConnectionChange: ConnectionChangeCallback | undefined
+let globalEventConnectionCount = 0
+
+export function setGlobalEventConnectionCallback(cb: ConnectionChangeCallback) {
+  onGlobalEventConnectionChange = cb
+}
+
+export function getGlobalEventConnectionCount() {
+  return globalEventConnectionCount
+}
 
 const ProxyTarget = z.object({
   host: z.string(),
@@ -76,8 +89,17 @@ function keepLoopbackNoProxy(value?: string) {
   return items.join(",")
 }
 
-async function streamEvents(c: Context, subscribe: (q: AsyncQueue<string | null>) => () => void) {
+async function streamEvents(
+  c: Context,
+  subscribe: (q: AsyncQueue<string | null>) => () => void,
+  trackGlobalEvent = false,
+) {
   return streamSSE(c, async (stream) => {
+    if (trackGlobalEvent) {
+      globalEventConnectionCount++
+      onGlobalEventConnectionChange?.(globalEventConnectionCount)
+    }
+
     const q = new AsyncQueue<string | null>()
     let done = false
 
@@ -90,7 +112,6 @@ async function streamEvents(c: Context, subscribe: (q: AsyncQueue<string | null>
       }),
     )
 
-    // Send heartbeat every 10s to prevent stalled proxy streams.
     const heartbeat = setInterval(() => {
       q.push(
         JSON.stringify({
@@ -108,6 +129,10 @@ async function streamEvents(c: Context, subscribe: (q: AsyncQueue<string | null>
       clearInterval(heartbeat)
       unsub()
       q.push(null)
+      if (trackGlobalEvent) {
+        globalEventConnectionCount--
+        onGlobalEventConnectionChange?.(globalEventConnectionCount)
+      }
       log.info("global event disconnected")
     }
 
@@ -223,6 +248,72 @@ export const GlobalRoutes = lazy(() =>
       },
     )
     .get(
+      "/status",
+      describeRoute({
+        summary: "Get server status",
+        description: "Get connection counts and exit state for the server.",
+        operationId: "global.status",
+        responses: {
+          200: {
+            description: "Server status",
+            content: {
+              "application/json": {
+                schema: resolver(
+                  z.object({
+                    healthy: z.boolean(),
+                    version: z.string(),
+                    connections: z.object({
+                      sse: z.number(),
+                      globalSse: z.number(),
+                      leaseActive: z.number(),
+                      leaseClosing: z.number(),
+                    }),
+                    accelerateExit: z.boolean(),
+                  }),
+                ),
+              },
+            },
+          },
+        },
+      }),
+      async (c) => {
+        return c.json({
+          healthy: true,
+          version: await readWebCurrentVersion(),
+          connections: {
+            sse: Server.sseConnections,
+            globalSse: Server.globalSseConnections,
+            leaseActive: Lease.activeCount(),
+            leaseClosing: Lease.closingCount(),
+          },
+          accelerateExit: Server.accelerateExit,
+        })
+      },
+    )
+    .post(
+      "/accelerate-exit",
+      describeRoute({
+        summary: "Accelerate server exit",
+        description:
+          "Signal the server to skip closing grace and exit faster. Only effective when no active connections remain.",
+        operationId: "global.accelerateExit",
+        responses: {
+          200: {
+            description: "Acceleration signal received",
+            content: {
+              "application/json": {
+                schema: resolver(z.object({ ok: z.literal(true) })),
+              },
+            },
+          },
+        },
+      }),
+      async (c) => {
+        Server.accelerateExit = true
+        return c.json({ ok: true })
+      },
+    )
+    .get(
       "/health",
       describeRoute({
         summary: "Get health",
@@ -290,7 +381,7 @@ export const GlobalRoutes = lazy(() =>
       async (c) => {
         const body = c.req.valid("json")
         if (body.alive === false) {
-          Lease.drop(body.id)
+          Lease.markClosing(body.id)
           return c.json({ ok: true as const })
         }
         Lease.touch(body.id)
@@ -328,13 +419,17 @@ export const GlobalRoutes = lazy(() =>
         c.header("X-Accel-Buffering", "no")
         c.header("X-Content-Type-Options", "nosniff")
 
-        return streamEvents(c, (q) => {
-          async function handler(event: any) {
-            q.push(JSON.stringify(event))
-          }
-          GlobalBus.on("event", handler)
-          return () => GlobalBus.off("event", handler)
-        })
+        return streamEvents(
+          c,
+          (q) => {
+            async function handler(event: any) {
+              q.push(JSON.stringify(event))
+            }
+            GlobalBus.on("event", handler)
+            return () => GlobalBus.off("event", handler)
+          },
+          true,
+        )
       },
     )
     .get(
