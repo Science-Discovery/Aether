@@ -156,6 +156,21 @@ export const SidebarContent = (props: {
               }}
             />
           </Tooltip>
+          <Tooltip placement={placement()} value={language.t("knowledgeBase.qqConnection")}>
+            <IconButton
+              icon="qq"
+              variant="ghost"
+              size="large"
+              onClick={() => openMobile("qq")}
+              aria-label={language.t("knowledgeBase.qqConnection")}
+              classList={{
+                "text-blue-500": mobileStatus("qq") === "connected",
+                "text-yellow-500 animate-pulse":
+                  mobileStatus("qq") === "loading" || mobileStatus("qq") === "reconnecting",
+                "text-red-500": mobileStatus("qq") === "error",
+              }}
+            />
+          </Tooltip>
           <Tooltip placement={placement()} value={language.t("knowledgeBase.feishuConnection")}>
             <IconButton
               icon="feishu"

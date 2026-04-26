@@ -25,7 +25,7 @@ import { legacyPlatformDir, platformDir } from "@/persist/naming"
 
 export type MobileStatus = "idle" | "starting" | "qrcode" | "connected" | "reconnecting" | "error"
 
-export type Platform = "feishu" | "wechat"
+export type Platform = "feishu" | "qq" | "wechat"
 
 function isSessionNotFound(err: unknown): boolean {
   return (

@@ -424,6 +424,7 @@ export const dict = {
   "knowledgeBase.moreTools": "More tools",
   "knowledgeBase.defaultSkills": "Default Skills",
   "knowledgeBase.wechatConnection": "WeChat Connection",
+  "knowledgeBase.qqConnection": "QQ Connection",
   "knowledgeBase.feishuConnection": "Feishu Connection",
   "defaultSkills.addingToProject": "Adding...",
   "defaultSkills.addToProject": "Add to Project",
