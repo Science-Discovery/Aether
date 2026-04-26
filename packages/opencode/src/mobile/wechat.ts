@@ -199,21 +199,28 @@ class WeChatManagerImpl extends MobileManagerBase {
 
     const savedSession = await this.adapter.loadSession()
     if (savedSession?.connected && savedSession.user) {
-      this._wcSession = savedSession
       const state = await this.loadILinkState()
       if (state?.token) {
         this._ilinkToken = state.token
         this._ilinkBaseUrl = state.baseUrl || ILINK_BASE_URL
         this._cursor = state.cursor || ""
-        this.status = "connected"
-        Bus.publish(this.busEvents.Connected, { user: savedSession.user })
-        this._pollRunning = true
-        void this.pollLoop()
-        this.subscribeBusEvents()
-        const allProjects = this.getProjects()
-        const visibleProjects = allProjects.filter((p) => !(this.projectDir(p) in this._hiddenDirs))
-        this._initialDir = visibleProjects.length > 0 ? this.projectDir(visibleProjects[0]) : Instance.directory
-        return { success: true, status: "connected", user: savedSession.user }
+        this._wcSession = savedSession
+
+        const valid = await this.validateToken()
+        if (valid) {
+          this.status = "connected"
+          Bus.publish(this.busEvents.Connected, { user: savedSession.user })
+          this._pollRunning = true
+          void this.pollLoop()
+          this.subscribeBusEvents()
+          const allProjects = this.getProjects()
+          const visibleProjects = allProjects.filter((p) => !(this.projectDir(p) in this._hiddenDirs))
+          this._initialDir = visibleProjects.length > 0 ? this.projectDir(visibleProjects[0]) : Instance.directory
+          return { success: true, status: "connected", user: savedSession.user }
+        }
+
+        this._ilinkToken = ""
+        await this.saveILinkState()
       }
     }
 
@@ -224,6 +231,22 @@ class WeChatManagerImpl extends MobileManagerBase {
     return { success: true }
   }
 
+  private async validateToken(): Promise<boolean> {
+    try {
+      console.log("[wechat] validating saved token...")
+      const result = await ilink.getUpdates(this._ilinkBaseUrl, this._ilinkToken, this._cursor, 5000)
+      if (result.expired) {
+        console.log("[wechat] saved token expired")
+        return false
+      }
+      console.log("[wechat] saved token valid")
+      return true
+    } catch (err) {
+      console.log("[wechat] saved token invalid:", err instanceof Error ? err.message : String(err))
+      return false
+    }
+  }
+
   private async loginAndPoll(): Promise<void> {
     try {
       this._loginAbort = new AbortController()
@@ -231,6 +254,7 @@ class WeChatManagerImpl extends MobileManagerBase {
       await mkdir(wcDir(), { recursive: true })
 
       this.status = "qrcode"
+      console.log("[wechat] requesting QR code from", this._ilinkBaseUrl)
       const qrInfo = await ilink.requestQRCode(this._ilinkBaseUrl)
       this._qrUuid = qrInfo.uuid
 
@@ -261,6 +285,7 @@ class WeChatManagerImpl extends MobileManagerBase {
       this._initialDir = visibleProjects.length > 0 ? this.projectDir(visibleProjects[0]) : Instance.directory
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
+      console.error("[wechat] loginAndPoll failed:", err)
       this._error = { code: "login_failed", message }
       this.status = "error"
       Bus.publish(this.busEvents.Error, this._error)
@@ -403,16 +428,10 @@ class WeChatManagerImpl extends MobileManagerBase {
     this._pollRunning = false
     this.unsubscribeBusEvents()
     if (this._cursor) await this.saveILinkState()
-    this._wcSession = null
     this._qrcode = null
-    this._ilinkToken = ""
-    this._cursor = ""
     this._contextTokens = {}
     this._seenIds.clear()
     this.status = "idle"
-    try {
-      await rm(wcFile("session.json"), { force: true })
-    } catch {}
   }
 
   override async clearSession(): Promise<void> {

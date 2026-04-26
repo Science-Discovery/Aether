@@ -90,13 +90,20 @@ async function post(url: string, body: unknown, token?: string, timeoutMs?: numb
   return raw ? JSON.parse(raw) : {}
 }
 
-async function get(url: string, params: Record<string, string>, token?: string, timeoutMs?: number) {
+async function get(
+  url: string,
+  params: Record<string, string>,
+  token?: string,
+  timeoutMs?: number,
+  extraHeaders?: Record<string, string>,
+) {
   const qs = new URLSearchParams(params).toString()
   const res = await fetch(`${url}?${qs}`, {
     headers: {
       AuthorizationType: "ilink_bot_token",
       "X-WECHAT-UIN": uin(),
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...extraHeaders,
     },
     signal: timeoutMs ? AbortSignal.timeout(timeoutMs) : undefined,
   })
@@ -135,7 +142,13 @@ export interface LoginStatusResult {
 
 export async function checkLoginStatus(baseUrl: string, uuid: string, token?: string): Promise<LoginStatusResult> {
   try {
-    const data = await get(`${baseUrl.replace(/\/$/, "")}/ilink/bot/get_qrcode_status`, { qrcode: uuid }, token, 10000)
+    const data = await get(
+      `${baseUrl.replace(/\/$/, "")}/ilink/bot/get_qrcode_status`,
+      { qrcode: uuid },
+      token,
+      10000,
+      { "iLink-App-ClientVersion": "1" },
+    )
     const status = (data.status || "pending") as string
     if (status === "confirmed") {
       const t = data.bot_token || ""
@@ -166,13 +179,19 @@ export interface PollResult {
 
 type dict = Record<string, any>
 
-export async function getUpdates(baseUrl: string, token: string, cursor: string): Promise<PollResult> {
+export async function getUpdates(
+  baseUrl: string,
+  token: string,
+  cursor: string,
+  timeoutMs?: number,
+): Promise<PollResult> {
+  const effectiveTimeout = timeoutMs ?? (POLL_TIMEOUT + 10) * 1000
   try {
     const data = await post(
       `${baseUrl.replace(/\/$/, "")}/ilink/bot/getupdates`,
       { get_updates_buf: cursor, base_info: baseInfo() },
       token,
-      (POLL_TIMEOUT + 10) * 1000,
+      effectiveTimeout,
     )
     const newCursor = data.get_updates_buf || cursor
     const msgs = data.msgs || []
