@@ -255,12 +255,10 @@ class WeChatManagerImpl extends MobileManagerBase {
       }
 
       this._ilinkToken = ""
-      await this.saveILinkState()
       void this.loginAndPoll()
     } catch (err) {
       console.error("[wechat] validateAndConnect failed:", err)
       this._ilinkToken = ""
-      await this.saveILinkState()
       void this.loginAndPoll()
     }
   }
@@ -272,7 +270,9 @@ class WeChatManagerImpl extends MobileManagerBase {
     this.unsubscribeBusEvents()
     this._error = null
     this._ilinkToken = ""
-    await this.saveILinkState()
+    try {
+      await rm(wcFile("ilink_state.json"), { force: true })
+    } catch {}
     this.status = "starting"
     void this.loginAndPoll()
     return { success: true }
@@ -334,7 +334,6 @@ class WeChatManagerImpl extends MobileManagerBase {
           return
         }
         this._ilinkToken = ""
-        await this.saveILinkState()
       }
 
       console.warn(`[wechat] reconnect attempt ${attempt + 1} failed, retrying...`)
@@ -484,7 +483,11 @@ class WeChatManagerImpl extends MobileManagerBase {
       const path = wcReadPath("ilink_state.json")
       if (existsSync(path)) {
         const data = await readFile(path, "utf-8")
-        return JSON.parse(data)
+        const state = JSON.parse(data) as ILinkState
+        if (state.token) return state
+        try {
+          await rm(path, { force: true })
+        } catch {}
       }
     } catch {}
     try {
@@ -530,7 +533,7 @@ class WeChatManagerImpl extends MobileManagerBase {
     this._loginAbort = null
     this._pollRunning = false
     this.unsubscribeBusEvents()
-    if (this._cursor) await this.saveILinkState()
+    if (this._cursor && this._ilinkToken) await this.saveILinkState()
     this._qrcode = null
     this._contextTokens = {}
     this._seenIds.clear()
