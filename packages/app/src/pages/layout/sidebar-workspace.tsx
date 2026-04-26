@@ -53,7 +53,11 @@ function createBatchSelect(
 
   const batchArchive = async () => {
     const ids = selectedIds()
-    await Promise.all(sessions().filter((s) => ids.has(s.id)).map((s) => archiveSession(s)))
+    await Promise.all(
+      sessions()
+        .filter((s) => ids.has(s.id))
+        .map((s) => archiveSession(s)),
+    )
     cancelSelect()
   }
 
@@ -64,9 +68,7 @@ function createBatchSelect(
     dialog.show(() => (
       <Dialog title={language.t("session.delete.title")} fit>
         <div class="flex flex-col gap-4 pl-6 pr-2.5 pb-3">
-          <span class="text-14-regular text-text-strong">
-            {language.t("session.batch.delete.confirm", { count })}
-          </span>
+          <span class="text-14-regular text-text-strong">{language.t("session.batch.delete.confirm", { count })}</span>
           <div class="flex justify-end gap-2">
             <Button variant="ghost" size="large" onClick={() => dialog.close()}>
               {language.t("common.cancel")}
@@ -88,7 +90,17 @@ function createBatchSelect(
     ))
   }
 
-  return { selectMode, selectedIds, enterSelect, cancelSelect, toggleSelect, selectAll, deselectAll, batchArchive, batchDelete }
+  return {
+    selectMode,
+    selectedIds,
+    enterSelect,
+    cancelSelect,
+    toggleSelect,
+    selectAll,
+    deselectAll,
+    batchArchive,
+    batchDelete,
+  }
 }
 
 type InlineEditorComponent = (props: {
@@ -369,8 +381,6 @@ const SessionTreeNodes = (props: {
     return cursor.id
   }
 
-  const [visibleConversationTreeRoot, setVisibleConversationTreeRoot] = createSignal<string | undefined>()
-
   createEffect(
     on(
       () => [props.currentSessionID(), sessionByID(), conversationTreeEnabled()] as const,
@@ -379,16 +389,7 @@ const SessionTreeNodes = (props: {
         const current = sessions.get(currentSessionID)
         if (!current) return
 
-        if (treeEnabled) {
-          const rootID = rootSessionIDFor(currentSessionID)
-          if (!rootID) return
-          if (untrack(() => props.ctx.conversationTreeOpen(rootID))) {
-            setVisibleConversationTreeRoot(rootID)
-            return
-          }
-          setVisibleConversationTreeRoot(undefined)
-          return
-        }
+        if (treeEnabled) return
 
         const visited = new Set<string>()
         let cursor = current.parentID
@@ -414,13 +415,6 @@ const SessionTreeNodes = (props: {
     ),
   )
 
-  createEffect(() => {
-    const visibleRoot = visibleConversationTreeRoot()
-    if (!visibleRoot) return
-    if (props.rootSessions().some((root) => root.id === visibleRoot)) return
-    setVisibleConversationTreeRoot(undefined)
-  })
-
   function SessionNode(nodeProps: { session: Session; depth: number; chain: Set<string> }): JSX.Element {
     const nextChain = new Set(nodeProps.chain)
     nextChain.add(nodeProps.session.id)
@@ -437,7 +431,7 @@ const SessionTreeNodes = (props: {
     const expanded = createMemo(() => {
       if (!(conversationTreeEnabled() ? hasBranchView() : hasChildren())) return true
       if (!conversationTreeEnabled()) return props.ctx.sessionExpanded(nodeProps.session.id)
-      return visibleConversationTreeRoot() === nodeProps.session.id
+      return props.ctx.conversationTreeOpen(nodeProps.session.id)
     })
     const graphSessionID = createMemo(() => {
       const currentSessionID = props.currentSessionID()
@@ -463,13 +457,9 @@ const SessionTreeNodes = (props: {
       const next = !expanded()
       if (next) {
         props.ctx.setConversationTreeOpen(nodeProps.session.id, true)
-        setVisibleConversationTreeRoot(nodeProps.session.id)
         return
       }
       props.ctx.setConversationTreeOpen(nodeProps.session.id, false)
-      if (visibleConversationTreeRoot() === nodeProps.session.id) {
-        setVisibleConversationTreeRoot(undefined)
-      }
     }
 
     return (
@@ -480,7 +470,9 @@ const SessionTreeNodes = (props: {
           </Show>
           <SessionItem
             session={nodeProps.session}
-            targetSession={conversationTreeEnabled() ? sessionByID().get(graphSessionID()) ?? nodeProps.session : nodeProps.session}
+            targetSession={
+              conversationTreeEnabled() ? (sessionByID().get(graphSessionID()) ?? nodeProps.session) : nodeProps.session
+            }
             list={props.allSessions()}
             navList={props.ctx.navList}
             slug={props.slug()}
@@ -500,7 +492,11 @@ const SessionTreeNodes = (props: {
             renameSession={props.ctx.renameSession}
             hasChildren={conversationTreeEnabled() ? hasBranchView() : hasChildren()}
             expanded={expanded()}
-            onToggleChildren={conversationTreeEnabled() ? toggleBranchView : () => props.ctx.setSessionExpanded(nodeProps.session.id, !expanded())}
+            onToggleChildren={
+              conversationTreeEnabled()
+                ? toggleBranchView
+                : () => props.ctx.setSessionExpanded(nodeProps.session.id, !expanded())
+            }
           />
         </div>
         <Show when={expanded() && conversationTreeEnabled() && hasBranchView()}>
@@ -522,7 +518,9 @@ const SessionTreeNodes = (props: {
     )
   }
 
-  return <For each={props.rootSessions()}>{(session) => <SessionNode session={session} depth={0} chain={new Set()} />}</For>
+  return (
+    <For each={props.rootSessions()}>{(session) => <SessionNode session={session} depth={0} chain={new Set()} />}</For>
+  )
 }
 
 const ArchivedSessionList = (props: {
@@ -603,8 +601,7 @@ const ArchivedSessionList = (props: {
   const refreshKey = createMemo(() =>
     (workspaceStore.session ?? [])
       .map(
-        (session) =>
-          `${session.id}:${session.parentID ?? ""}:${session.treeID ?? ""}:${session.time?.archived ?? 0}`,
+        (session) => `${session.id}:${session.parentID ?? ""}:${session.treeID ?? ""}:${session.time?.archived ?? 0}`,
       )
       .sort()
       .join("|"),
@@ -752,75 +749,75 @@ const WorkspaceSessionList = (props: {
         </div>
       </Show>
       <nav class="flex flex-col gap-1">
-      <Show when={props.showNew() && !props.selectMode()}>
-        <NewSessionItem
-          slug={props.slug()}
-          mobile={props.mobile}
-          sidebarExpanded={props.ctx.sidebarExpanded}
-          clearHoverProjectSoon={props.ctx.clearHoverProjectSoon}
-          setHoverSession={props.ctx.setHoverSession}
-        />
-      </Show>
-      <Show when={props.loading()}>
-        <SessionSkeleton />
-      </Show>
-      <Show
-        when={!props.selectMode()}
-        fallback={
-          <For each={props.rootSessions()}>
-            {(session) => (
-              <SessionItem
-                session={session}
-                list={props.rootSessions()}
-                navList={props.ctx.navList}
-                slug={props.slug()}
-                mobile={props.mobile}
-                popover={props.popover}
-                children={props.children()}
-                sidebarExpanded={props.ctx.sidebarExpanded}
-                sidebarHovering={props.ctx.sidebarHovering}
-                nav={props.ctx.nav}
-                hoverSession={props.ctx.hoverSession}
-                setHoverSession={props.ctx.setHoverSession}
-                clearHoverProjectSoon={props.ctx.clearHoverProjectSoon}
-                prefetchSession={props.ctx.prefetchSession}
-                archiveSession={props.ctx.archiveSession}
-                deleteSession={props.ctx.deleteSession}
-                renameSession={props.ctx.renameSession}
-                selectMode={props.selectMode}
-                selected={() => props.selectedIds().has(session.id)}
-                onToggleSelect={props.onToggleSelect}
-              />
-            )}
-          </For>
-        }
-      >
-        <SessionTreeNodes
-          slug={props.slug}
-          currentSessionID={props.currentSessionID}
-          mobile={props.mobile}
-          popover={props.popover}
-          ctx={props.ctx}
-          rootSessions={props.rootSessions}
-          allSessions={props.allSessions}
-          children={props.children}
-        />
-      </Show>
-      <Show when={props.hasMore() && !props.selectMode()}>
-        <div class="relative w-full py-1">
-          <Button
-            variant="ghost"
-            class="flex w-full text-left justify-start text-14-regular text-text-weak pl-9 pr-10"
-            size="large"
-            onClick={(e: MouseEvent) => {
-              props.loadMore()
-              ;(e.currentTarget as HTMLButtonElement).blur()
-            }}
-          >
-            {props.language.t("common.loadMore")}
-          </Button>
-        </div>
-      </Show>
+        <Show when={props.showNew() && !props.selectMode()}>
+          <NewSessionItem
+            slug={props.slug()}
+            mobile={props.mobile}
+            sidebarExpanded={props.ctx.sidebarExpanded}
+            clearHoverProjectSoon={props.ctx.clearHoverProjectSoon}
+            setHoverSession={props.ctx.setHoverSession}
+          />
+        </Show>
+        <Show when={props.loading()}>
+          <SessionSkeleton />
+        </Show>
+        <Show
+          when={!props.selectMode()}
+          fallback={
+            <For each={props.rootSessions()}>
+              {(session) => (
+                <SessionItem
+                  session={session}
+                  list={props.rootSessions()}
+                  navList={props.ctx.navList}
+                  slug={props.slug()}
+                  mobile={props.mobile}
+                  popover={props.popover}
+                  children={props.children()}
+                  sidebarExpanded={props.ctx.sidebarExpanded}
+                  sidebarHovering={props.ctx.sidebarHovering}
+                  nav={props.ctx.nav}
+                  hoverSession={props.ctx.hoverSession}
+                  setHoverSession={props.ctx.setHoverSession}
+                  clearHoverProjectSoon={props.ctx.clearHoverProjectSoon}
+                  prefetchSession={props.ctx.prefetchSession}
+                  archiveSession={props.ctx.archiveSession}
+                  deleteSession={props.ctx.deleteSession}
+                  renameSession={props.ctx.renameSession}
+                  selectMode={props.selectMode}
+                  selected={() => props.selectedIds().has(session.id)}
+                  onToggleSelect={props.onToggleSelect}
+                />
+              )}
+            </For>
+          }
+        >
+          <SessionTreeNodes
+            slug={props.slug}
+            currentSessionID={props.currentSessionID}
+            mobile={props.mobile}
+            popover={props.popover}
+            ctx={props.ctx}
+            rootSessions={props.rootSessions}
+            allSessions={props.allSessions}
+            children={props.children}
+          />
+        </Show>
+        <Show when={props.hasMore() && !props.selectMode()}>
+          <div class="relative w-full py-1">
+            <Button
+              variant="ghost"
+              class="flex w-full text-left justify-start text-14-regular text-text-weak pl-9 pr-10"
+              size="large"
+              onClick={(e: MouseEvent) => {
+                props.loadMore()
+                ;(e.currentTarget as HTMLButtonElement).blur()
+              }}
+            >
+              {props.language.t("common.loadMore")}
+            </Button>
+          </div>
+        </Show>
       </nav>
     </div>
   )
@@ -869,8 +866,17 @@ export const SortableWorkspace = (props: {
     await globalSync.project.loadSessions(props.directory)
   }
 
-  const { selectMode, selectedIds, enterSelect, cancelSelect, toggleSelect, selectAll, deselectAll, batchArchive, batchDelete } =
-    createBatchSelect(sessions, props.ctx.archiveSession, props.ctx.deleteSession, dialog, language)
+  const {
+    selectMode,
+    selectedIds,
+    enterSelect,
+    cancelSelect,
+    toggleSelect,
+    selectAll,
+    deselectAll,
+    batchArchive,
+    batchDelete,
+  } = createBatchSelect(sessions, props.ctx.archiveSession, props.ctx.deleteSession, dialog, language)
 
   const workspaceEditActive = createMemo(() => props.ctx.editorOpen(`workspace:${props.directory}`))
   const header = () => (

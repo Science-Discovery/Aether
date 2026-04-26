@@ -177,6 +177,7 @@ const SessionRow = (props: {
         return
       }
       props.setHoverSession(undefined)
+      if (props.hasChildren) props.onToggleChildren?.()
       if (props.sidebarOpened()) return
       props.clearHoverProjectSoon()
     }}
