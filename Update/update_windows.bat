@@ -104,8 +104,8 @@ if "%MIRROR_ONLY%"=="1" (
 
   echo [2/4] Extracting and installing to: %TARGET%
   robocopy "%SRC%" "%NEXT%" /MIR /NFL /NDL /NJH /NJS /NP >nul
-  set "RC=%ERRORLEVEL%"
-  if %RC% GEQ 8 (
+set "RC=!ERRORLEVEL!"
+  if !RC! GEQ 8 (
     call :write_result "failed" "recover" "Failed to copy files into %NEXT%"
     goto :fail
   )
@@ -210,9 +210,9 @@ mkdir "%MCOPY%" >nul 2>nul || (
   exit /b 1
 )
 robocopy "%TARGET%" "%MCOPY%" /MIR /NFL /NDL /NJH /NJS /NP >nul
-set "RC=%ERRORLEVEL%"
-if %RC% GEQ 8 (
-  set "COPY_NOTE=Warning: failed to copy the new version near %AETHER_CURRENT_DIR%"
+set "RC=!ERRORLEVEL!"
+  if !RC! GEQ 8 (
+    set "COPY_NOTE=Warning: failed to copy the new version near %AETHER_CURRENT_DIR%"
   if exist "%MCOPY%" rmdir /s /q "%MCOPY%" >nul 2>nul
   exit /b 1
 )
