@@ -1,4 +1,3 @@
-import { watch as fsWatch } from "fs"
 import fs from "fs/promises"
 import { createHash } from "crypto"
 import os from "os"
@@ -41,7 +40,7 @@ export namespace Skill {
   const MARK_TTL = 1500
   const WATCH_COOLDOWN = 500
 
-  type Back = "parcel" | "fs" | "poll"
+  type Back = "parcel" | "poll"
   type WatchState = {
     alive: boolean
     back: Back
@@ -196,9 +195,7 @@ export namespace Skill {
   function watchBack(): Back {
     const raw = process.env.OPENCODE_SKILL_WATCHER_BACKEND?.toLowerCase()
     if (raw === "parcel") return "parcel"
-    if (raw === "fs") return "fs"
     if (raw === "poll") return "poll"
-    if (process.platform === "win32") return "fs"
     return "parcel"
   }
 
@@ -837,35 +834,6 @@ export namespace Skill {
               return true
             }
 
-            const setupFs = async () => {
-              if (roots.length === 0) return true
-              for (const dir of roots) {
-                const fsw = fsWatch(
-                  dir,
-                  { recursive: process.platform === "win32" || process.platform === "darwin" },
-                  Instance.bind((_evt, name) => {
-                    if (!name) {
-                      if (inDir(dir, set.global)) queue(undefined, "global")
-                      if (inDir(dir, set.project)) queue(undefined, "project")
-                      return
-                    }
-                    const file = path.join(dir, name.toString())
-                    queue(file)
-                  }),
-                )
-                fsw.on("error", (err) => {
-                  ws.alive = false
-                  console.log(`[skill watch] error backend=fs message=${err.message}`)
-                })
-                close.push(async () => {
-                  fsw.close()
-                })
-              }
-              ws.alive = true
-              ws.back = "fs"
-              return true
-            }
-
             const setupPoll = async () => {
               let globalManifest = await buildSkillsManifest(set.global)
               let projectManifest = await buildSkillsManifest(set.project)
@@ -894,14 +862,7 @@ export namespace Skill {
               return true
             }
 
-            const backs = (): Back[] =>
-              ws.back === "parcel"
-                ? process.platform === "win32"
-                  ? (["parcel", "fs", "poll"] as Back[])
-                  : (["parcel", "poll"] as Back[])
-                : ws.back === "fs"
-                  ? (["fs", "poll"] as Back[])
-                  : (["poll"] as Back[])
+            const backs = (): Back[] => (ws.back === "parcel" ? (["parcel", "poll"] as Back[]) : (["poll"] as Back[]))
 
             const startWatch = async () => {
               await closeAll()
@@ -932,7 +893,6 @@ export namespace Skill {
 
             const setup = async (back: Back) => {
               if (back === "parcel") return setupParcel().catch(() => false)
-              if (back === "fs") return setupFs().catch(() => false)
               return setupPoll().catch(() => false)
             }
 
