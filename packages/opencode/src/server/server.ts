@@ -101,8 +101,6 @@ import { QuestionRoutes } from "./routes/question"
 import { PermissionRoutes } from "./routes/permission"
 import { GlobalRoutes } from "./routes/global"
 import { KnowledgeRoutes } from "./routes/knowledge"
-import { WeChatRoutes } from "./routes/wechat"
-import { FeishuRoutes } from "./routes/feishu"
 import { createMobileRoutes } from "@/mobile/route"
 import { ReadingModeRoutes } from "./routes/reading-mode"
 import { DatabaseRoutes } from "./routes/database"
@@ -334,8 +332,6 @@ export namespace Server {
       .route("/mcp", McpRoutes())
       .route("/tui", TuiRoutes())
       .route("/knowledge", KnowledgeRoutes())
-      .route("/wechat", WeChatRoutes())
-      .route("/feishu", FeishuRoutes())
       .route("/mobile/wechat", createMobileRoutes("wechat"))
       .route("/mobile/feishu", createMobileRoutes("feishu"))
       .route("/reading-mode", ReadingModeRoutes())

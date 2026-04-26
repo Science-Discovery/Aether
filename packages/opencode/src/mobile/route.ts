@@ -262,31 +262,4 @@ export function createMobileRoutes(platform: "feishu" | "wechat") {
         return c.json(result)
       },
     )
-    .post(
-      "/message",
-      describeRoute({
-        summary: `Relay ${platform} message`,
-        description: `Receive a message from the ${platform} bridge and process it in the TS manager`,
-        operationId: `${prefix}.message`,
-        responses: {
-          200: {
-            description: "Message processed",
-            content: { "application/json": { schema: resolver(z.object({ ok: z.boolean() })) } },
-          },
-        },
-      }),
-      async (c) => {
-        const body = await c.req.json().catch(() => ({}))
-        const chatId = body.chatId || body.conv_id || ""
-        const messageId = body.messageId || body.message_id || ""
-        const text = body.text || ""
-        const rootId = body.rootId || body.root_id || messageId
-        if (!chatId) return c.json({ ok: false })
-        const effectiveMsgId = messageId || `${chatId}:${Date.now()}`
-        void manager.handleMessage(chatId, effectiveMsgId, text, rootId).catch((err) => {
-          console.error(`[${platform}] handleMessage unhandled error:`, err)
-        })
-        return c.json({ ok: true })
-      },
-    )
 }

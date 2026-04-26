@@ -3,9 +3,8 @@ import { readFile, stat } from "node:fs/promises"
 import { basename, extname } from "node:path"
 
 const VERSION = "1.0.2"
-const APP_ID = "bot"
-const cvNum = ((1 & 0xff) << 16) | ((0 & 0xff) << 8) | (2 & 0xff)
-
+const POLL_TIMEOUT = 35
+const CDN_BASE_URL = "https://novac2c.cdn.weixin.qq.com/c2c"
 const MAX_TEXT_LENGTH = 2000
 
 const MIME_MAP: Record<string, string> = {
@@ -73,7 +72,7 @@ function splitText(text: string, max: number = MAX_TEXT_LENGTH): string[] {
   return chunks
 }
 
-async function post(url: string, body: unknown, token?: string) {
+async function post(url: string, body: unknown, token?: string, timeoutMs?: number) {
   const text = JSON.stringify(body)
   const res = await fetch(url, {
     method: "POST",
@@ -84,6 +83,22 @@ async function post(url: string, body: unknown, token?: string) {
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },
     body: text,
+    signal: timeoutMs ? AbortSignal.timeout(timeoutMs) : undefined,
+  })
+  const raw = await res.text()
+  if (!res.ok) throw new Error(`ilink ${res.status}: ${raw}`)
+  return raw ? JSON.parse(raw) : {}
+}
+
+async function get(url: string, params: Record<string, string>, token?: string, timeoutMs?: number) {
+  const qs = new URLSearchParams(params).toString()
+  const res = await fetch(`${url}?${qs}`, {
+    headers: {
+      AuthorizationType: "ilink_bot_token",
+      "X-WECHAT-UIN": uin(),
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    signal: timeoutMs ? AbortSignal.timeout(timeoutMs) : undefined,
   })
   const raw = await res.text()
   if (!res.ok) throw new Error(`ilink ${res.status}: ${raw}`)
@@ -93,6 +108,147 @@ async function post(url: string, body: unknown, token?: string) {
 function baseInfo() {
   return { channel_version: VERSION }
 }
+
+// ── Login ──────────────────────────────────────────────────────────────────────
+
+export interface QRInfo {
+  qr_url: string
+  uuid: string
+}
+
+export async function requestQRCode(baseUrl: string, token?: string): Promise<QRInfo> {
+  const data = await get(`${baseUrl.replace(/\/$/, "")}/ilink/bot/get_bot_qrcode`, { bot_type: "3" }, token, 10000)
+  const qr_url = data.qrcode_img_content || data.qrcode_url || data.qrcodeUrl || ""
+  const uuid = data.qrcode || data.uuid || ""
+  if (!qr_url || !uuid) throw new Error(`Failed to get QR code: ${JSON.stringify(data).slice(0, 200)}`)
+  return { qr_url, uuid }
+}
+
+export interface LoginStatusResult {
+  status: "pending" | "scanned" | "confirmed" | "expired" | "error"
+  token?: string
+  bot_id?: string
+  user_id?: string
+  base_url?: string
+  message?: string
+}
+
+export async function checkLoginStatus(baseUrl: string, uuid: string, token?: string): Promise<LoginStatusResult> {
+  try {
+    const data = await get(`${baseUrl.replace(/\/$/, "")}/ilink/bot/get_qrcode_status`, { qrcode: uuid }, token, 10000)
+    const status = (data.status || "pending") as string
+    if (status === "confirmed") {
+      const t = data.bot_token || ""
+      return {
+        status: "confirmed",
+        token: t,
+        bot_id: data.ilink_bot_id || "",
+        user_id: data.ilink_user_id || "",
+        base_url: data.baseurl || "",
+      }
+    }
+    if (status === "scaned" || status === "scanned") return { status: "scanned" }
+    if (status === "expired") return { status: "expired" }
+    if (status === "error") return { status: "error", message: data.message || "" }
+    return { status: "pending" }
+  } catch {
+    return { status: "pending" }
+  }
+}
+
+// ── Receive (long-poll) ────────────────────────────────────────────────────────
+
+export interface PollResult {
+  messages: dict[]
+  cursor: string
+  expired: boolean
+}
+
+type dict = Record<string, any>
+
+export async function getUpdates(baseUrl: string, token: string, cursor: string): Promise<PollResult> {
+  try {
+    const data = await post(
+      `${baseUrl.replace(/\/$/, "")}/ilink/bot/getupdates`,
+      { get_updates_buf: cursor, base_info: baseInfo() },
+      token,
+      (POLL_TIMEOUT + 10) * 1000,
+    )
+    const newCursor = data.get_updates_buf || cursor
+    const msgs = data.msgs || []
+    const ret = data.ret ?? 0
+    const errcode = data.errcode ?? 0
+    const expired = errcode === -14 || ret === -14
+    if (expired) return { messages: [], cursor: newCursor, expired: true }
+    return { messages: msgs, cursor: newCursor, expired: false }
+  } catch (err: any) {
+    if (err?.name === "AbortError" || err?.message?.includes("timeout")) {
+      return { messages: [], cursor, expired: false }
+    }
+    throw err
+  }
+}
+
+// ── Message parsing ────────────────────────────────────────────────────────────
+
+export interface ParsedMessage {
+  conversation_id: string
+  text: string
+  message_id: string
+  context_token: string
+  raw: dict
+}
+
+const ITEM_TEXT = 1
+const ITEM_IMAGE = 2
+const ITEM_VOICE = 3
+const ITEM_FILE = 4
+const ITEM_VIDEO = 5
+
+function extractText(itemList: dict[]): string {
+  const parts: string[] = []
+  for (const item of itemList) {
+    const t = item.type ?? 0
+    if (t === ITEM_TEXT) {
+      const text = (item.text_item ?? {}).text ?? ""
+      if (text) parts.push(text)
+      const ref = item.ref_msg
+      if (ref) {
+        const refItem = ref.message_item ?? {}
+        const refText = (refItem.text_item ?? {}).text ?? ""
+        if (refText) parts.push(`[引用: ${refText}]`)
+      }
+    } else if (t === ITEM_VOICE) {
+      const vt = (item.voice_item ?? {}).text ?? ""
+      parts.push(vt || "[语音]")
+    } else if (t === ITEM_IMAGE) {
+      parts.push("[图片]")
+    } else if (t === ITEM_VIDEO) {
+      parts.push("[视频]")
+    } else if (t === ITEM_FILE) {
+      const fn = (item.file_item ?? {}).file_name ?? ""
+      parts.push(fn ? `[文件: ${fn}]` : "[文件]")
+    }
+  }
+  return parts.join(" ")
+}
+
+export function parseMessage(raw: dict): ParsedMessage | null {
+  if ((raw.message_type ?? 0) === 2) return null
+  const itemList = raw.item_list ?? []
+  const fromUserId = raw.from_user_id ?? ""
+  if (!itemList && !fromUserId) return null
+  const text = extractText(itemList)
+  return {
+    conversation_id: fromUserId,
+    text,
+    message_id: String(raw.message_id ?? ""),
+    context_token: raw.context_token ?? "",
+    raw,
+  }
+}
+
+// ── Send text ──────────────────────────────────────────────────────────────────
 
 export async function sendText(
   baseUrl: string,
@@ -119,9 +275,12 @@ export async function sendText(
         base_info: baseInfo(),
       },
       token,
+      10000,
     )
   }
 }
+
+// ── Send file ──────────────────────────────────────────────────────────────────
 
 export async function sendFile(
   baseUrl: string,
@@ -155,6 +314,7 @@ export async function sendFile(
       base_info: baseInfo(),
     },
     token,
+    10000,
   )
 
   const target =
@@ -218,5 +378,6 @@ export async function sendFile(
       base_info: baseInfo(),
     },
     token,
+    30000,
   )
 }
