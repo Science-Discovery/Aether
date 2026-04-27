@@ -80,7 +80,7 @@ function winZip(src: string, out: string) {
 function dmg(src: string, out: string) {
   run(
     "hdiutil",
-    ["create", "-quiet", "-ov", "-fs", "HFS+", "-srcfolder", src, "-format", "UDZO", out],
+    ["create", "-quiet", "-ov", "-fs", "APFS", "-srcfolder", src, "-format", "UDZO", out],
     root,
     process.env,
   )
