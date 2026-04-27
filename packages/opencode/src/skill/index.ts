@@ -394,7 +394,7 @@ export namespace Skill {
 
   function scope(dir: string, directory: string, worktree: string): Scope {
     if (Filesystem.contains(directory, dir)) return "project"
-    if (Filesystem.contains(worktree, dir)) return "project"
+    if (worktree !== "/" && Filesystem.contains(worktree, dir)) return "project"
     return "global"
   }
 
@@ -431,7 +431,11 @@ export namespace Skill {
         if (!(await Filesystem.isDir(dir))) continue
         add("global", dir, EXTERNAL_SKILL_PATTERN, true)
       }
-      for await (const dir of Filesystem.up({ targets: EXTERNAL_DIRS, start: directory, stop: worktree })) {
+      for await (const dir of Filesystem.up({
+        targets: EXTERNAL_DIRS,
+        start: directory,
+        stop: worktree === "/" ? directory : worktree,
+      })) {
         add("project", dir, EXTERNAL_SKILL_PATTERN, true)
       }
     }
@@ -516,7 +520,7 @@ export namespace Skill {
       set[scope].add(path.resolve(dir))
     }
     const names = [".aether", ".opencode", ".claude", ".agents"]
-    for (const dir of chain(directory, worktree)) {
+    for (const dir of chain(directory, worktree === "/" ? directory : worktree)) {
       for (const name of names) add("project", path.join(dir, name))
     }
     for (const name of names) add("global", path.join(Global.Path.home, name))
@@ -816,8 +820,19 @@ export namespace Skill {
                 return false
               }
               if (roots.length === 0) return true
-              for (const dir of roots) {
-                const has = await Filesystem.isDir(dir)
+              const mark = await Promise.all(roots.map(async (dir) => Filesystem.isDir(dir)))
+              const ok = roots.filter((_dir, idx) => mark[idx])
+              const miss = roots.filter((_dir, idx) => !mark[idx])
+              if (miss.length > 0) {
+                console.log(`[skill watch] parcel skip missing roots=${miss.length} dirs=${miss.join(" | ")}`)
+              }
+              if (ok.length === 0) {
+                console.log(`[skill watch] parcel no existing roots`)
+                return false
+              }
+              const good: string[] = []
+              const bad: string[] = []
+              for (const dir of ok) {
                 const cb = Instance.bind((_err: Error | null, evts: ParcelWatcher.Event[]) => {
                   if (_err) {
                     ws.alive = false
@@ -832,11 +847,24 @@ export namespace Skill {
                 })
                 const sub = await bind.subscribe(dir, cb, { backend: back }).catch((err) => {
                   const msg = err instanceof Error ? err.message : String(err)
-                  console.log(`[skill watch] parcel subscribe failed dir=${dir} exists=${has ? 1 : 0} message=${msg}`)
-                  throw err
+                  bad.push(`${dir} => ${msg}`)
+                  console.log(`[skill watch] parcel subscribe failed dir=${dir} exists=1 message=${msg}`)
+                  return
                 })
+                if (!sub) continue
                 close.push(() => sub.unsubscribe())
+                good.push(dir)
               }
+              if (good.length === 0) {
+                console.log(`[skill watch] parcel subscribe summary ok=0 fail=${bad.length}`)
+                if (bad.length > 0) {
+                  console.log(`[skill watch] parcel subscribe fail dirs=${bad.join(" | ")}`)
+                }
+                return false
+              }
+              console.log(`[skill watch] parcel subscribe summary ok=${good.length} fail=${bad.length}`)
+              console.log(`[skill watch] parcel subscribe ok dirs=${good.join(" | ")}`)
+              if (bad.length > 0) console.log(`[skill watch] parcel subscribe fail dirs=${bad.join(" | ")}`)
               ws.alive = true
               ws.back = "parcel"
               return true

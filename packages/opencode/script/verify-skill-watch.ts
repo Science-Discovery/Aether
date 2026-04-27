@@ -135,10 +135,9 @@ async function waitFor(
 //   tmpRoot/project-b/.claude/skills/*/SKILL.md          ← project-B scope
 //
 // Instance strategy:
-//   project-A is warmed first → watcher started (watches project-A dirs + global home dir).
-//   project-B is warmed immediately after → WATCH_ENSURE=5000ms throttle prevents B from
-//   getting its own watcher. B's state IS loaded into memory. For global events, A's watcher
-//   calls clearSkillsPromptCache which invalidates B too. For project events, only A is touched.
+//   project-A and project-B are both warmed and each project initializes its own watcher.
+//   Per-directory ensure throttling keeps repeated checks cheap while allowing independent
+//   watcher startup for multiple active projects.
 
 const homeDir = path.join(tmpRoot, "home") // = Global.Path.home
 const projectDir = path.join(tmpRoot, "project") // project-A
@@ -158,22 +157,21 @@ await writeSkill(projectDir, "skill-aether", "aether-v1", undefined, ".aether")
 await writeSkill(projectBDir, "skill-aether-b", "aether-b-v1", undefined, ".aether")
 // skill-add does NOT exist yet
 
-// Warm project-A: initializes Instance + watcher (subscribes to projectDir/.claude AND homeDir/.claude)
+// Warm project-A: initializes Instance + watcher
 const initialA = await Instance.provide({ directory: projectDir, fn: () => Skill.all() })
 
-// Warm project-B immediately (within 5s → ensure throttle means no watcher for B;
-// state IS loaded into memory so clearSkillsPromptCache can reach B for global events)
+// Warm project-B immediately; watcher should initialize independently from project-A
 const initialB = await Instance.provide({ directory: projectBDir, fn: () => Skill.all() })
 
 console.log(`\n${BOLD}Skill watcher verification${RESET}  (timeout=${TIMEOUT_MS}ms per test)\n`)
 console.log(
   infoMsg(
-    `project-A initial: ${initialA.length} skill(s): ${initialA.map((s) => s.name).join(", ")} ${DIM}(watcher running)${RESET}`,
+    `project-A initial: ${initialA.length} skill(s): ${initialA.map((s) => s.name).join(", ")} ${DIM}(watcher expected)${RESET}`,
   ),
 )
 console.log(
   infoMsg(
-    `project-B initial: ${initialB.length} skill(s): ${initialB.map((s) => s.name).join(", ")} ${DIM}(no watcher — ensure throttle)${RESET}`,
+    `project-B initial: ${initialB.length} skill(s): ${initialB.map((s) => s.name).join(", ")} ${DIM}(watcher expected)${RESET}`,
   ),
 )
 console.log()
@@ -273,7 +271,7 @@ await sleep(BETWEEN_MS)
   await fs.rm(path.join(homeDir, ".aether"), { recursive: true, force: true })
 
   const resA = await waitFor(projectDir, (s) => !s.some((x) => x.name === "global-aether"))
-  const resB = await waitFor(projectBDir, (s) => !s.some((x) => x.name === "global-aether"), 1000)
+  const resB = await waitFor(projectBDir, (s) => !s.some((x) => x.name === "global-aether"), TIMEOUT_MS)
 
   if (resA.ok && resB.ok) {
     console.log(passMsg(`T11 delete global .aether dir             A=${resA.elapsed}ms B=${resB.elapsed}ms`))
@@ -282,7 +280,7 @@ await sleep(BETWEEN_MS)
     console.log(failMsg(`T11 delete global .aether dir — project-A still has global-aether after ${TIMEOUT_MS}ms`))
     failed++
   } else {
-    console.log(failMsg(`T11 delete global .aether dir — project-B still has global-aether after 1000ms`))
+    console.log(failMsg(`T11 delete global .aether dir — project-B still has global-aether after ${TIMEOUT_MS}ms`))
     failed++
   }
 }
