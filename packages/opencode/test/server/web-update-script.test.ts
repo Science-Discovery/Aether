@@ -80,7 +80,7 @@ function winZip(src: string, out: string) {
 function dmg(src: string, out: string) {
   run(
     "hdiutil",
-    ["create", "-quiet", "-ov", "-fs", "APFS", "-srcfolder", src, out],
+    ["create", "-quiet", "-ov", "-fs", "APFS", "-srcfolder", src, "-format", "UDRO", out],
     root,
     process.env,
   )
@@ -317,7 +317,9 @@ describe("web update scripts", () => {
       })
 
       expect(log).toContain("已跳过 mirror")
-      const file = path.join(home, "Applications", "Aether.app", "Contents", "MacOS", "Aether")
+      const launch = pick(log, "启动入口:")
+      expect(launch).toBeTruthy()
+      const file = path.join(launch!, "Contents", "MacOS", "Aether")
       const bin = await Bun.file(file).text()
       expect(bin).toContain(path.join(work, "aether_1.2.7", "Aether.command"))
     },
