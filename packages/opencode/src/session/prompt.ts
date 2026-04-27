@@ -678,9 +678,10 @@ export namespace SessionPrompt {
         })
       }
 
+      const assistantMsgID = MessageID.ascending()
       const processor = SessionProcessor.create({
         assistantMessage: (await Session.updateMessage({
-          id: MessageID.ascending(),
+          id: assistantMsgID,
           parentID: lastUser.id,
           role: "assistant",
           mode: agent.name,
@@ -759,6 +760,7 @@ export namespace SessionPrompt {
         system.push(STRUCTURED_OUTPUT_SYSTEM_PROMPT)
       }
 
+      const modelMessages = MessageV2.toModelMessages(msgs, model)
       const result = await processor.process({
         user: lastUser,
         agent,
@@ -767,7 +769,7 @@ export namespace SessionPrompt {
         sessionID,
         system,
         messages: [
-          ...MessageV2.toModelMessages(msgs, model),
+          ...modelMessages,
           ...(isLastStep
             ? [
                 {

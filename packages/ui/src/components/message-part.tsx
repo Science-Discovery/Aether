@@ -586,17 +586,14 @@ export function AssistantParts(props: {
   )
 
   const grouped = createMemo(
-    () =>
-      groupParts(
-        props.messages.flatMap((message) =>
-          list(data.store.part?.[message.id], emptyParts)
-            .filter((part) => renderable(part, props.showReasoningSummaries ?? true))
-            .map((part) => ({
-              messageID: message.id,
-              part,
-            })),
-        ),
-      ),
+    () => {
+      const allParts = props.messages.flatMap((message) => {
+        const parts = list(data.store.part?.[message.id], emptyParts)
+        const kept = parts.filter((part) => renderable(part, props.showReasoningSummaries ?? true))
+        return kept.map((part) => ({ messageID: message.id, part }))
+      })
+      return groupParts(allParts)
+    },
     [] as PartGroup[],
     { equals: sameGroups },
   )
