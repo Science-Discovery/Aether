@@ -1,9 +1,12 @@
+import path from "path"
 import z from "zod"
 import { BusEvent } from "@/bus/bus-event"
 import { Bus } from "@/bus"
 import { SessionID } from "./schema"
 import { ModelID, ProviderID } from "@/provider/schema"
 import { Log } from "@/util/log"
+import { Global } from "@/global"
+import { Filesystem } from "@/util/filesystem"
 
 const log = Log.create({ service: "session.preference" })
 
@@ -87,7 +90,29 @@ export namespace SessionPreference {
       }
     }
 
+    if (modelChanged && merged.model) {
+      void persistRecentModel(merged.model.providerID, merged.model.modelID)
+    }
+
     return merged
+  }
+
+  export async function inheritFor(newSessionID: string, candidateIDs: string[]): Promise<void> {
+    const id = SessionID.make(newSessionID)
+    for (const cid of candidateIDs) {
+      const pref = store.get(cid)
+      if (pref?.model) {
+        const { sessionID: _, ...data } = pref
+        await update({ sessionID: id, ...data })
+        return
+      }
+    }
+    const { Provider } = await import("@/provider/provider")
+    const fallback = await Provider.defaultModel()
+    await update({
+      sessionID: id,
+      model: { providerID: ProviderID.make(fallback.providerID), modelID: ModelID.make(fallback.modelID) },
+    })
   }
 
   export function remove(sessionID: string): void {
@@ -97,4 +122,16 @@ export namespace SessionPreference {
   export function clear(): void {
     store.clear()
   }
+}
+
+async function persistRecentModel(providerID: string, modelID: string): Promise<void> {
+  const filepath = path.join(Global.Path.state, "model.json")
+  const prev = await Filesystem.readJson<{ recent?: { providerID: string; modelID: string }[] }>(filepath)
+    .then((x) => (Array.isArray(x.recent) ? x.recent : []))
+    .catch(() => [])
+  const entry = { providerID, modelID }
+  const recent = [entry, ...prev.filter((r) => r.providerID !== providerID || r.modelID !== modelID)].slice(0, 5)
+  await Filesystem.writeJson(filepath, { recent }).catch((err) => {
+    log.error("persistRecentModel write failed", err)
+  })
 }

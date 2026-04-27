@@ -371,6 +371,17 @@ export abstract class MobileManagerBase {
     })
   }
 
+  protected async inheritPreference(newSessionId: string, dir: string): Promise<void> {
+    const candidates = await Instance.provide({
+      directory: dir,
+      fn: () => [...Session.list({ directory: dir, roots: true, limit: 20 })].map((s) => s.id),
+    })
+    await Instance.provide({
+      directory: dir,
+      fn: () => SessionPreference.inheritFor(newSessionId, candidates),
+    })
+  }
+
   protected async currentSession(chatId: string, create?: boolean): Promise<string | undefined> {
     const pinned = this._chatSessions[chatId]
     if (pinned) return pinned
@@ -388,6 +399,7 @@ export abstract class MobileManagerBase {
       directory: dir,
       fn: () => Session.create({ title: `${this.platformName()}对话 - ${new Date().toISOString()}` }),
     })
+    await this.inheritPreference(session.id, dir)
     this._chatSessions[chatId] = session.id
     return session.id
   }
@@ -549,6 +561,7 @@ export abstract class MobileManagerBase {
           fn: () => Session.create({ title: `${this.platformName()}对话 - ${new Date().toISOString()}` }),
         })
         sessionId = session.id
+        await this.inheritPreference(session.id, effectiveDir)
         console.log(`[${this.adapter.platform}] session created:`, sessionId)
       }
       this._chatSessions[chatId] = sessionId
@@ -764,6 +777,7 @@ export abstract class MobileManagerBase {
       directory: dir,
       fn: () => Session.create({ title: `${this.platformName()}对话 - ${new Date().toISOString()}` }),
     })
+    await this.inheritPreference(session.id, dir)
     this._chatSessions[chatId] = session.id
     await this.saveSessionMap()
     await this.replyCmd(targetId, chatId, `✅ 已开启新对话\n💬 ${session.title}`)
@@ -1192,6 +1206,7 @@ export abstract class MobileManagerBase {
         return { sessionId: session.id, sessionTitle: session.title, created: true }
       },
     })
+    if (created) await this.inheritPreference(newSessionId, newDir)
     this._chatSessions[chatId] = newSessionId
     await this.saveSessionMap()
 
@@ -1239,6 +1254,7 @@ export abstract class MobileManagerBase {
         return { sessionId: session.id, sessionTitle: session.title, created: true }
       },
     })
+    if (created) await this.inheritPreference(newSessionId, newDir)
     this._chatSessions[chatId] = newSessionId
     await this.saveSessionMap()
 
@@ -1317,6 +1333,7 @@ export abstract class MobileManagerBase {
         directory: effectiveDir,
         fn: () => Session.create({ title: `${this.platformName()}对话 - ${new Date().toISOString()}` }),
       })
+      await this.inheritPreference(session.id, effectiveDir)
       this._chatSessions[chatId] = session.id
       await this.replyCmd(targetId, chatId, "📂 当前项目下还没有任何会话，已自动创建一个新会话并切换。")
       return
