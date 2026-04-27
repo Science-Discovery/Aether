@@ -128,8 +128,11 @@ describe("Truncate", () => {
     })
 
     test("loads truncate effect in a fresh process", async () => {
-      const out = await Process.run([process.execPath, "run", path.join(ROOT, "src", "tool", "truncate.ts")], {
+      const cfg = path.join(ROOT, "..", "..", "bunfig.toml")
+      const out = await Process.run([process.execPath, "--config", cfg, "run", path.join(ROOT, "src", "tool", "truncate.ts")], {
+        abort: AbortSignal.timeout(15_000),
         cwd: ROOT,
+        timeout: 1_000,
       })
 
       expect(out.code).toBe(0)
