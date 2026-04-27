@@ -106,6 +106,7 @@ export abstract class MobileManagerBase {
   protected _chatSessions: Record<string, string> = {}
   protected _hiddenDirs: Record<string, number> = {}
   protected _initialDir: string = ""
+  protected _initialSessionId: string = ""
   protected _initialized: boolean = false
   protected _globalBusListener: ((event: { directory?: string; payload: any }) => void) | null = null
   protected _pendingQuestions: Record<string, Question.Request> = {}
@@ -259,14 +260,27 @@ export abstract class MobileManagerBase {
   protected async initSessions(): Promise<void> {
     const allProjects = this.getProjects()
     const visibleProjects = allProjects.filter((p) => !(this.projectDir(p) in this._hiddenDirs))
-    this._initialDir = visibleProjects.length > 0 ? this.projectDir(visibleProjects[0]) : Instance.directory
-    console.log(`[${this.adapter.platform}] initSessions: initial dir:`, this._initialDir)
+    if (visibleProjects.length === 0) {
+      this._initialDir = Instance.directory
+      this._initialSessionId = ""
+    } else {
+      this._initialDir = this.projectDir(visibleProjects[0])
+      const recent = await Instance.provide({
+        directory: this._initialDir,
+        fn: () => [...Session.list({ directory: this._initialDir, roots: true, limit: 1 })],
+      })
+      if (recent.length > 0 && !recent[0].time?.archived) {
+        this._initialSessionId = recent[0].id
+      } else {
+        this._initialSessionId = ""
+      }
+    }
+    console.log(`[${this.adapter.platform}] initSessions: dir=${this._initialDir} session=${this._initialSessionId}`)
 
     const staleKeys: string[] = []
     for (const [key, sessionId] of Object.entries(this.sessionMap)) {
       const parts = key.split(":")
       const chatId = parts[0]
-      const rootId = parts.slice(1).join(":")
       const dir = this._chatDirs[chatId] ?? this._initialDir
       try {
         const found = await Instance.provide({
@@ -295,7 +309,7 @@ export abstract class MobileManagerBase {
     }
 
     this._initialized = true
-    console.log(`[${this.adapter.platform}] initSessions: ready, sessionMap keys:`, Object.keys(this.sessionMap).length)
+    console.log(`[${this.adapter.platform}] initSessions: ready`)
   }
 
   // ── Model helpers ──────────────────────────────────────────────────────────
@@ -601,47 +615,11 @@ export abstract class MobileManagerBase {
     const reply = this.replyTarget(chatId, messageId)
     this._activePrompt.set(chatId, { sessionId: "", messageId, directory: effectiveDir })
     const sessionKey = `${chatId}:${rootId}`
-    let sessionId = this._chatSessions[chatId] ?? this.sessionMap[sessionKey]
+    let sessionId = this._chatSessions[chatId] ?? this.sessionMap[sessionKey] ?? this._initialSessionId
 
-    if (sessionId) {
-      try {
-        await Instance.provide({
-          directory: effectiveDir,
-          fn: () => Session.get(SessionID.make(sessionId)),
-        })
-      } catch {
-        console.log(`[${this.adapter.platform}] cached session no longer exists, clearing:`, sessionId)
-        delete this._chatSessions[chatId]
-        for (const key of Object.keys(this.sessionMap)) {
-          if (this.sessionMap[key] === sessionId) delete this.sessionMap[key]
-        }
-        await this.saveSessionMap()
-        sessionId = ""
-      }
-    }
-
-    if (!sessionId) {
-      const recent = await Instance.provide({
-        directory: effectiveDir,
-        fn: () => [...Session.list({ directory: effectiveDir, roots: true, limit: 1 })],
-      })
-      if (recent.length > 0) {
-        sessionId = recent[0].id
-        console.log(`[${this.adapter.platform}] reusing existing session:`, sessionId)
-      } else {
-        console.log(`[${this.adapter.platform}] creating new session...`)
-        const session = await Instance.provide({
-          directory: effectiveDir,
-          fn: () => Session.create({ title: `${this.platformName()}对话 - ${new Date().toISOString()}` }),
-        })
-        sessionId = session.id
-        await this.inheritPreference(session.id, effectiveDir)
-        console.log(`[${this.adapter.platform}] session created:`, sessionId)
-      }
-      this._chatSessions[chatId] = sessionId
-      this.sessionMap[sessionKey] = sessionId
-      await this.saveSessionMap()
-    }
+    this._chatSessions[chatId] = sessionId
+    this.sessionMap[sessionKey] = sessionId
+    await this.saveSessionMap()
 
     this._activePrompt.set(chatId, { sessionId, messageId, directory: effectiveDir })
 

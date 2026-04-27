@@ -3,7 +3,6 @@ import { existsSync } from "fs"
 import { basename } from "path"
 import * as lark from "@larksuiteoapi/node-sdk"
 import { Bus } from "@/bus"
-import { Instance } from "@/project/instance"
 import { MobileManagerBase } from "./base"
 import type { MobileAdapter, MobileStatus, ModelRef } from "./base"
 
@@ -267,7 +266,7 @@ class FeishuManagerImpl extends MobileManagerBase {
 
       const eventDispatcher = new lark.EventDispatcher({})
       eventDispatcher.register({
-        "im.message.receive_v1": Instance.bind(boundHandleMessage),
+        "im.message.receive_v1": boundHandleMessage,
       })
 
       this.wsClient = new lark.WSClient({
@@ -417,6 +416,7 @@ class FeishuManagerImpl extends MobileManagerBase {
     this._chatDirs = {}
     this._chatSessions = {}
     this._initialDir = ""
+    this._initialSessionId = ""
     this.status = "idle"
   }
 

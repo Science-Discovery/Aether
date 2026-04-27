@@ -517,6 +517,7 @@ class QQManagerImpl extends MobileManagerBase {
     this._chatDirs = {}
     this._chatSessions = {}
     this._initialDir = ""
+    this._initialSessionId = ""
     this.status = "idle"
   }
 
