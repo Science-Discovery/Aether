@@ -55,6 +55,7 @@ import { Process } from "@/util/process"
 import { Memory } from "@/memory"
 import { SKILL_NUDGE_INTERVAL, SKILL_REVIEW_MARKER, spawnBackgroundReview } from "./skill-evolution"
 import { Config } from "../config/config"
+import { SkillRefresh } from "./skill-refresh"
 
 // @ts-ignore
 globalThis.AI_SDK_LOG_WARNINGS = false
@@ -698,6 +699,38 @@ export namespace SessionPrompt {
       }
 
       await Plugin.trigger("experimental.chat.messages.transform", {}, { messages: msgs })
+
+      const patch = await SkillRefresh.patch(sessionID)
+      if (patch) {
+        const msg: MessageV2.User = {
+          id: MessageID.ascending(),
+          sessionID,
+          role: "user",
+          time: {
+            created: Date.now(),
+          },
+          agent: lastUser.agent,
+          model: lastUser.model,
+        }
+        await Session.updateMessage(msg)
+        const part = {
+          id: PartID.ascending(),
+          messageID: msg.id,
+          sessionID,
+          type: "text",
+          text: patch.text,
+          synthetic: true,
+          metadata: {
+            kind: "skill-refresh",
+            names: patch.names,
+          },
+        } satisfies MessageV2.TextPart
+        await Session.updatePart(part)
+        msgs.push({
+          info: msg,
+          parts: [part],
+        })
+      }
 
       const lastUserText = msgs
         .find((msg) => msg.info.id === lastUser.id)

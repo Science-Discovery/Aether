@@ -6,6 +6,7 @@ import { Tool } from "./tool"
 import { Global } from "../global"
 import { Skill } from "../skill"
 import { scanSkill, assertAllowed } from "./skill-guard"
+import { SkillDirty } from "../session/skill-dirty"
 
 const SKILLS_DIR = path.join(Global.Path.data, "skills")
 
@@ -125,8 +126,13 @@ export const SkillManageTool = Tool.define("skill_manage", async () => {
     parameters,
     async execute(
       params: z.infer<typeof parameters>,
+      ctx,
     ): Promise<{ title: string; output: string; metadata: Record<string, string> }> {
       const { action, name } = params
+      const mark = () => {
+        if (!ctx?.sessionID) return
+        SkillDirty.add(ctx.sessionID, [name])
+      }
 
       if (!name || !/^[a-zA-Z0-9_-]+$/.test(name)) {
         throw new Error(`Invalid skill name "${name}". Use only letters, digits, hyphens, underscores.`)
@@ -157,6 +163,7 @@ export const SkillManageTool = Tool.define("skill_manage", async () => {
             await Skill.clearSkillsPromptCache()
             Skill.markClear()
             Skill.markDone(skillFile)
+            mark()
             return {
               title: `Created skill: ${name}`,
               output: `Skill "${name}" created at ${skillFile}`,
@@ -186,6 +193,7 @@ export const SkillManageTool = Tool.define("skill_manage", async () => {
             await Skill.clearSkillsPromptCache()
             Skill.markClear()
             Skill.markDone(skillFile)
+            mark()
             return {
               title: `Updated skill: ${name}`,
               output: `Skill "${name}" updated at ${skillFile}`,
@@ -221,6 +229,7 @@ export const SkillManageTool = Tool.define("skill_manage", async () => {
             await Skill.clearSkillsPromptCache()
             Skill.markClear()
             Skill.markDone(skillFile)
+            mark()
             return {
               title: `Patched skill: ${name}`,
               output: `Skill "${name}" patched successfully`,
@@ -244,6 +253,7 @@ export const SkillManageTool = Tool.define("skill_manage", async () => {
             await Skill.clearSkillsPromptCache()
             Skill.markClear()
             Skill.markDone(skillFile)
+            mark()
             return { title: `Deleted skill: ${name}`, output: `Skill "${name}" deleted`, metadata: {} }
           } catch (err) {
             Skill.markDrop(skillFile)

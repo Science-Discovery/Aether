@@ -1500,6 +1500,7 @@ PART_MAPPING["text"] = function TextPartDisplay(props) {
     return last?.id === part().id
   })
   const showCopy = createMemo(() => {
+    if (part().metadata?.kind === "skill-refresh") return false
     if (props.message.role !== "assistant") return isLastTextPart()
     if (props.showAssistantCopyPartID === null) return false
     if (typeof props.showAssistantCopyPartID === "string") return props.showAssistantCopyPartID === part().id
@@ -1516,6 +1517,27 @@ PART_MAPPING["text"] = function TextPartDisplay(props) {
     await navigator.clipboard.writeText(content)
     setCopied(true)
     setTimeout(() => setCopied(false), 2000)
+  }
+
+  const patch = createMemo(() => {
+    const meta = part().metadata as Record<string, unknown> | undefined
+    if (meta?.kind !== "skill-refresh") return
+    if (!Array.isArray(meta.names)) return [] as string[]
+    return meta.names.filter((x): x is string => typeof x === "string" && x.length > 0)
+  })
+
+  if (patch()) {
+    return (
+      <BasicTool
+        icon="brain"
+        status="completed"
+        trigger={{
+          title: "Skill content updated",
+          subtitle: patch()!.length > 0 ? patch()!.join(", ") : undefined,
+        }}
+        hideDetails
+      />
+    )
   }
 
   return (
