@@ -13,6 +13,11 @@ on:
         required: false
         default: false
         type: boolean
+      upload_downloadbeta:
+        description: "Upload web artifacts to downloadbeta"
+        required: false
+        default: false
+        type: boolean
 
 concurrency: ${{ github.workflow }}-${{ github.ref }}-${{ inputs.version }}
 
@@ -235,6 +240,12 @@ jobs:
       - build-web-windows
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+        if: inputs.upload_downloadbeta
+
+      - uses: ./.github/actions/setup-bun
+        if: inputs.upload_downloadbeta
+
       - uses: actions/download-artifact@v4
         with:
           pattern: release-*
@@ -254,3 +265,11 @@ jobs:
           fi
 
           gh release upload "${{ needs.release.outputs.tag }}" "${files[@]}" --clobber
+
+      - name: Upload web artifacts to downloadbeta
+        if: inputs.upload_downloadbeta
+        env:
+          DOWNLOAD_BETA_BASE_URL: ${{ vars.DOWNLOAD_BETA_BASE_URL }}
+          DOWNLOAD_ADMIN_PASSWORD: ${{ secrets.DOWNLOAD_ADMIN_PASSWORD }}
+          DOWNLOAD_BETA_VERSION: ${{ needs.release.outputs.version }}
+        run: bun .github/scripts/upload-downloadbeta.ts
