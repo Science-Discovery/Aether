@@ -1,5 +1,5 @@
 import { test, expect } from "../fixtures"
-import { createTestProject, cleanupTestProject, openSidebar, clickMenuItem, openProjectMenu } from "../actions"
+import { createTestProject, cleanupTestProject, openSidebar, clickMenuItem, openProjectMenu, waitSession } from "../actions"
 import { projectSwitchSelector } from "../selectors"
 import { dirSlug } from "../utils"
 
@@ -18,7 +18,7 @@ test("closing active project navigates to another open project", async ({ page, 
         await expect(otherButton).toBeVisible()
         await otherButton.click()
 
-        await expect(page).toHaveURL(new RegExp(`/${otherSlug}/session`))
+        await waitSession(page, { directory: other })
 
         const menu = await openProjectMenu(page, otherSlug)
 
