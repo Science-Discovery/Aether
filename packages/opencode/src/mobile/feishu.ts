@@ -168,6 +168,10 @@ class FeishuManagerImpl extends MobileManagerBase {
     return "飞书"
   }
 
+  protected override scopeKey(chatId: string, rootId: string): string {
+    return `${chatId}:${rootId}`
+  }
+
   get session() {
     return this._feishuSession
   }
@@ -413,8 +417,7 @@ class FeishuManagerImpl extends MobileManagerBase {
     this._activePrompt.clear()
     if (!reset) return
     this._connectedModel = null
-    this._chatDirs = {}
-    this._chatSessions = {}
+    this._scopeDirs = {}
     this._initialDir = ""
     this._initialSessionId = ""
     this.status = "idle"

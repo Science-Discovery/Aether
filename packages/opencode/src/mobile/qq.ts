@@ -531,8 +531,7 @@ class QQManagerImpl extends MobileManagerBase {
     this._chatInfos = {}
     if (!reset) return
     this._connectedModel = null
-    this._chatDirs = {}
-    this._chatSessions = {}
+    this._scopeDirs = {}
     this._initialDir = ""
     this._initialSessionId = ""
     this.status = "idle"
