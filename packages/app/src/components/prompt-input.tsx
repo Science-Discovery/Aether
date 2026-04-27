@@ -1618,7 +1618,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                       onClick={() => dialog.show(() => <DialogDefaultSkills />)}
                       aria-label={language.t("knowledgeBase.defaultSkills")}
                     >
-                      <Icon name="dot-grid" class="size-4" />
+                      <Icon name="list-square" class="size-4" />
                     </Button>
                   </Tooltip>
                 </div>
