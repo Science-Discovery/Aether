@@ -75,6 +75,7 @@ type ViewerMessage =
     }
   | { channel: "aether-pdf-viewer"; type: "nightmode"; enabled: boolean }
   | { channel: "aether-pdf-viewer"; type: "swaplayout" }
+  | { channel: "aether-pdf-viewer"; type: "themechange" }
 
 export const PdfViewerShell: Component<PdfViewerShellProps> = (props) => {
   bindNightModeSync()
@@ -133,6 +134,24 @@ export const PdfViewerShell: Component<PdfViewerShellProps> = (props) => {
       type: "navigate",
       page,
     })
+  })
+
+  createEffect(() => {
+    const root = document.documentElement
+    const observer = new MutationObserver(() => {
+      if (!ready) return
+      post({
+        channel: "aether-pdf-viewer",
+        type: "themechange",
+      })
+    })
+
+    observer.observe(root, {
+      attributes: true,
+      attributeFilter: ["data-theme", "data-color-scheme"],
+    })
+
+    onCleanup(() => observer.disconnect())
   })
 
   nightModeSubscribers.add(setNightMode)
