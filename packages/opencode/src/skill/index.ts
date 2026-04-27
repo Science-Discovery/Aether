@@ -503,6 +503,16 @@ export namespace Skill {
     return out
   }
 
+  function uniq(list: string[]) {
+    const map = new Map<string, string>()
+    for (const dir of list) {
+      const key = process.platform === "win32" ? path.resolve(dir).toLowerCase() : path.resolve(dir)
+      if (map.has(key)) continue
+      map.set(key, dir)
+    }
+    return [...map.values()]
+  }
+
   function merge(a: { global: string[]; project: string[] }, b: { global: string[]; project: string[] }) {
     return {
       global: Array.from(new Set([...a.global, ...b.global])),
@@ -665,7 +675,7 @@ export namespace Skill {
               watchDirs(ctx.directory, ctx.worktree).then((dirs) => merge(dirs, first.dirs)),
             )
             let sig = first.sig
-            let roots = Array.from(new Set([...set.global, ...set.project]))
+            let roots = uniq([...set.global, ...set.project])
             const ws: WatchState = { alive: false, back: watchBack() }
 
             const close: Array<() => Promise<void>> = []
@@ -706,13 +716,13 @@ export namespace Skill {
               sig = next.sig
               const cur = await watchDirs(ctx.directory, ctx.worktree)
               set = merge(cur, next.dirs)
-              roots = Array.from(new Set([...set.global, ...set.project]))
+              roots = uniq([...set.global, ...set.project])
               return true
             }
 
             const sync = async () => {
               let dirty = false
-              const list = Array.from(new Set([...set.global, ...set.project]))
+              const list = uniq([...set.global, ...set.project])
               for (const dir of list) {
                 const has = await Filesystem.isDir(dir)
                 const prev = seen.get(dir)
@@ -935,7 +945,7 @@ export namespace Skill {
               const opts = await watchCandidates(ctx.directory, ctx.worktree)
               sig = opts.sig
               set = merge(cur, opts.dirs)
-              roots = Array.from(new Set([...set.global, ...set.project]))
+              roots = uniq([...set.global, ...set.project])
               await startWatch()
             }
 
