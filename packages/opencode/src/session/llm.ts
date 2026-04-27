@@ -102,6 +102,7 @@ export namespace LLM {
           model: input.model,
           sessionID: input.sessionID,
           providerOptions: provider.options,
+          messageCount: input.messages.length,
         })
     const options: Record<string, any> = pipe(
       base,

@@ -13,6 +13,12 @@ import { SessionSummary } from "./summary"
 export namespace SessionRevert {
   const log = Log.create({ service: "session.revert" })
 
+  const pending: Record<string, Promise<void>> = {}
+
+  export function awaitPending(sessionID: SessionID) {
+    return pending[sessionID] ?? Promise.resolve()
+  }
+
   export const RevertInput = z.object({
     sessionID: SessionID.zod,
     messageID: MessageID.zod,
@@ -21,7 +27,18 @@ export namespace SessionRevert {
   export type RevertInput = z.infer<typeof RevertInput>
 
   export async function revert(input: RevertInput) {
-    SessionPrompt.assertNotBusy(input.sessionID)
+    const done = Promise.withResolvers<void>()
+    pending[input.sessionID] = done.promise
+    try {
+      const result = await revertInner(input)
+      return result
+    } finally {
+      delete pending[input.sessionID]
+      done.resolve()
+    }
+  }
+
+  async function revertInner(input: RevertInput) {
     const all = await Session.messages({ sessionID: input.sessionID })
     let lastUser: MessageV2.User | undefined
     const session = await Session.get(input.sessionID)

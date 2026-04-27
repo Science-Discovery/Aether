@@ -661,7 +661,15 @@ export function Prompt(props: PromptProps) {
             ...nonTextParts.map(assign),
           ],
         })
-        .catch(() => {})
+        .catch((err) => {
+          if (err?.name === "BusyError") {
+            toast.show({
+              variant: "warning",
+              message: "Session is busy, please try again shortly",
+              duration: 3000,
+            })
+          }
+        })
     }
     history.append({
       ...store.prompt,

@@ -510,9 +510,7 @@ export namespace ProviderTransform {
           azureEfforts.unshift("minimal")
         }
         if (id.includes("gpt-5.4")) {
-          return Object.fromEntries(
-            azureEfforts.map((effort) => [effort, { reasoningEffort: effort }]),
-          )
+          return Object.fromEntries(azureEfforts.map((effort) => [effort, { reasoningEffort: effort }]))
         }
         return Object.fromEntries(
           azureEfforts.map((effort) => [
@@ -538,9 +536,7 @@ export namespace ProviderTransform {
             }
             return arr
           })
-          return Object.fromEntries(
-            openaiEfforts.map((effort) => [effort, { reasoningEffort: effort }]),
-          )
+          return Object.fromEntries(openaiEfforts.map((effort) => [effort, { reasoningEffort: effort }]))
         }
         const openaiEfforts = iife(() => {
           if (id.includes("codex")) {
@@ -769,6 +765,7 @@ export namespace ProviderTransform {
     model: Provider.Model
     sessionID: string
     providerOptions?: Record<string, any>
+    messageCount?: number
   }): Record<string, any> {
     const result: Record<string, any> = {}
 
@@ -805,7 +802,7 @@ export namespace ProviderTransform {
     }
 
     if (input.model.providerID === "openai" || input.providerOptions?.setCacheKey) {
-      result["promptCacheKey"] = input.sessionID
+      result["promptCacheKey"] = input.messageCount ? `${input.sessionID}:${input.messageCount}` : input.sessionID
     }
 
     if (input.model.api.npm === "@ai-sdk/google" || input.model.api.npm === "@ai-sdk/google-vertex") {
@@ -865,7 +862,7 @@ export namespace ProviderTransform {
       }
 
       if (input.model.providerID.startsWith("opencode")) {
-        result["promptCacheKey"] = input.sessionID
+        result["promptCacheKey"] = input.messageCount ? `${input.sessionID}:${input.messageCount}` : input.sessionID
         if (!input.model.api.id.includes("gpt-5.4")) {
           result["include"] = ["reasoning.encrypted_content"]
           result["reasoningSummary"] = "auto"
@@ -874,11 +871,11 @@ export namespace ProviderTransform {
     }
 
     if (input.model.providerID === "venice") {
-      result["promptCacheKey"] = input.sessionID
+      result["promptCacheKey"] = input.messageCount ? `${input.sessionID}:${input.messageCount}` : input.sessionID
     }
 
     if (input.model.providerID === "openrouter") {
-      result["prompt_cache_key"] = input.sessionID
+      result["prompt_cache_key"] = input.messageCount ? `${input.sessionID}:${input.messageCount}` : input.sessionID
     }
     if (input.model.api.npm === "@ai-sdk/gateway") {
       result["gateway"] = {
