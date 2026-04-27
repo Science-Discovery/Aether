@@ -193,28 +193,19 @@ export function createMobileRoutes(platform: "feishu" | "qq" | "wechat") {
           const q = new AsyncQueue<string | null>()
           let done = false
 
-          q.push(
-            JSON.stringify({
-              type: `${prefix}.status`,
-              properties: { status: manager.status },
-            }),
-          )
-
+          const initialProps: any = { status: manager.status }
           if (manager.status === "connected") {
             if (platform === "feishu" && FeishuManager.session?.appId) {
-              q.push(
-                JSON.stringify({ type: `${prefix}.connected`, properties: { appId: FeishuManager.session.appId } }),
-              )
+              initialProps.appId = FeishuManager.session.appId
             } else if (platform === "qq" && QQManager.session?.appId) {
-              q.push(JSON.stringify({ type: `${prefix}.connected`, properties: { appId: QQManager.session.appId } }))
+              initialProps.appId = QQManager.session.appId
             } else if (platform === "wechat") {
               const session = await WeChatManager.adapter.loadSession()
               const user = WeChatManager.session?.user || session?.user
-              if (user) {
-                q.push(JSON.stringify({ type: `${prefix}.connected`, properties: { user } }))
-              }
+              if (user) initialProps.user = user
             }
           }
+          q.push(JSON.stringify({ type: `${prefix}.status`, properties: initialProps }))
 
           if (platform === "wechat" && WeChatManager.status === "qrcode" && WeChatManager.qrcode) {
             q.push(JSON.stringify({ type: `${prefix}.qrcode`, properties: { image: WeChatManager.qrcode } }))

@@ -25,8 +25,16 @@ enum OpCode {
   Identify = 2,
   Resume = 6,
   Reconnect = 7,
+  InvalidSession = 9,
   Hello = 10,
   HeartbeatACK = 11,
+}
+
+type ChatType = "c2c" | "group"
+
+interface ChatInfo {
+  type: ChatType
+  openid: string
 }
 
 class QQAdapter implements MobileAdapter {
@@ -63,9 +71,20 @@ class QQAdapter implements MobileAdapter {
 
   async replyText(messageId: string, text: string): Promise<void> {
     if (!this._accessToken || !this._appId) return
+    const chatId = this.manager._currentChatId
+    const info = chatId ? this.manager._chatInfos[chatId] : undefined
+    if (!info) {
+      console.error("[qq] replyText: no chat info", chatId)
+      return
+    }
+
     try {
       const token = await this.getAccessToken()
-      await fetch(`https://api.sgroup.qq.com/v2/messages`, {
+      const url =
+        info.type === "c2c"
+          ? `https://api.sgroup.qq.com/v2/users/${info.openid}/messages`
+          : `https://api.sgroup.qq.com/v2/groups/${info.openid}/messages`
+      const resp = await fetch(url, {
         method: "POST",
         headers: { Authorization: `QQBot ${token}`, "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -74,6 +93,10 @@ class QQAdapter implements MobileAdapter {
           msg_id: messageId,
         }),
       })
+      if (!resp.ok) {
+        const body = await resp.text()
+        console.error("[qq] replyText failed:", resp.status, body)
+      }
     } catch (err) {
       console.error("[qq] reply error:", err)
     }
@@ -81,10 +104,14 @@ class QQAdapter implements MobileAdapter {
 
   async replyFile(messageId: string, filePath: string): Promise<void> {
     if (!this._accessToken || !this._appId) return
+    const chatId = this.manager._currentChatId
+    const info = chatId ? this.manager._chatInfos[chatId] : undefined
+    if (!info) return
+
     try {
       const { stat, readFile } = await import("fs/promises")
-      const info = await stat(filePath)
-      if (info.size > 30 * 1024 * 1024) return
+      const info2 = await stat(filePath)
+      if (info2.size > 30 * 1024 * 1024) return
       const filename = basename(filePath)
       const fileBuffer = await readFile(filePath)
       const token = await this.getAccessToken()
@@ -92,7 +119,11 @@ class QQAdapter implements MobileAdapter {
       const form = new FormData()
       form.append("file", new Blob([new Uint8Array(fileBuffer)]), filename)
 
-      const uploadResp = await fetch(`https://api.sgroup.qq.com/v2/files`, {
+      const uploadUrl =
+        info.type === "c2c"
+          ? `https://api.sgroup.qq.com/v2/users/${info.openid}/files`
+          : `https://api.sgroup.qq.com/v2/groups/${info.openid}/files`
+      const uploadResp = await fetch(uploadUrl, {
         method: "POST",
         headers: { Authorization: `QQBot ${token}` },
         body: form,
@@ -104,11 +135,15 @@ class QQAdapter implements MobileAdapter {
         return
       }
 
-      await fetch(`https://api.sgroup.qq.com/v2/messages`, {
+      const msgUrl =
+        info.type === "c2c"
+          ? `https://api.sgroup.qq.com/v2/users/${info.openid}/messages`
+          : `https://api.sgroup.qq.com/v2/groups/${info.openid}/messages`
+      await fetch(msgUrl, {
         method: "POST",
         headers: { Authorization: `QQBot ${token}`, "Content-Type": "application/json" },
         body: JSON.stringify({
-          msg_type: 3,
+          msg_type: 7,
           msg_id: messageId,
           media: { file_info: fileUuid },
         }),
@@ -123,9 +158,9 @@ class QQAdapter implements MobileAdapter {
     try {
       const next = this.manager.file("config.json")
       const prev = this.manager.readPath("config.json")
-      const path = existsSync(next) || !existsSync(prev) ? next : prev
-      if (existsSync(path)) {
-        const data = await readFile(path, "utf-8")
+      const configPath = existsSync(next) || !existsSync(prev) ? next : prev
+      if (existsSync(configPath)) {
+        const data = await readFile(configPath, "utf-8")
         return JSON.parse(data)
       }
     } catch {}
@@ -148,12 +183,16 @@ class QQAdapter implements MobileAdapter {
 class QQManagerImpl extends MobileManagerBase {
   private ws: WebSocket | null = null
   public _qqSession: QQSession | null = null
+  public _chatInfos: Record<string, ChatInfo> = {}
+  public _currentChatId: string = ""
   private _heartbeat: ReturnType<typeof setInterval> | null = null
   private _heartbeatInterval: number = 30000
   private _sessionId: string = ""
+  private _lastSeq: number | null = null
   private _reconnect: ReturnType<typeof setTimeout> | null = null
   private _reconnectCount = 0
   private _lastConfig: QQConfig | null = null
+  private _identified = false
 
   private static readonly RECONNECT_MAX_MS = 300_000
 
@@ -221,7 +260,7 @@ class QQManagerImpl extends MobileManagerBase {
       const token = await this.qqAdapter.getAccessToken()
       console.log("[qq] access token obtained")
 
-      const gatewayResp = await fetch("https://api.sgroup.qq.com/websocket/", {
+      const gatewayResp = await fetch("https://api.sgroup.qq.com/gateway", {
         headers: { Authorization: `QQBot ${token}` },
       })
       const gatewayData = (await gatewayResp.json()) as any
@@ -230,23 +269,30 @@ class QQManagerImpl extends MobileManagerBase {
       console.log("[qq] gateway url:", wssUrl)
 
       this.ws = new WebSocket(wssUrl)
+      this._identified = false
+      this._lastSeq = null
 
       this.ws.addEventListener("open", () => {
         console.log("[qq] ws open", localISOString())
       })
 
       this.ws.addEventListener("message", (event) => {
-        const payload = JSON.parse(event.data as string)
-        this.handleWsMessage(payload)
+        try {
+          const payload = JSON.parse(event.data as string)
+          this.handleWsMessage(payload)
+        } catch (err) {
+          console.error("[qq] ws message parse error:", err)
+        }
       })
 
       this.ws.addEventListener("close", (event) => {
         console.log("[qq] ws close:", event.code, event.reason, localISOString())
-        this.onDisconnect(`ws_close_${event.code}`)
+        if (this._identified) this.onDisconnect(`ws_close_${event.code}`)
       })
 
       this.ws.addEventListener("error", () => {
-        this.onDisconnect("ws_error")
+        console.log("[qq] ws error", localISOString())
+        if (this._identified) this.onDisconnect("ws_error")
       })
 
       await this.waitForIdentify()
@@ -291,6 +337,8 @@ class QQManagerImpl extends MobileManagerBase {
             clearTimeout(timeout)
             this.ws!.removeEventListener("message", handleMessage)
             this._sessionId = payload.d?.session_id ?? ""
+            this._identified = true
+            if (payload.s) this._lastSeq = payload.s
             resolve()
           } else if (payload.op === OpCode.Hello) {
             this._heartbeatInterval = payload.d?.heartbeat_interval ?? 30000
@@ -305,6 +353,10 @@ class QQManagerImpl extends MobileManagerBase {
                 },
               }),
             )
+          } else if (payload.op === OpCode.InvalidSession) {
+            clearTimeout(timeout)
+            this.ws!.removeEventListener("message", handleMessage)
+            reject(new Error("QQ 鉴权失败 (Invalid Session)"))
           } else if (payload.op === OpCode.Reconnect) {
             clearTimeout(timeout)
             this.ws!.removeEventListener("message", handleMessage)
@@ -318,6 +370,8 @@ class QQManagerImpl extends MobileManagerBase {
   }
 
   private handleWsMessage(payload: any): void {
+    if (payload.s) this._lastSeq = payload.s
+
     switch (payload.op) {
       case OpCode.Dispatch:
         this.handleDispatch(payload)
@@ -328,6 +382,10 @@ class QQManagerImpl extends MobileManagerBase {
       case OpCode.Reconnect:
         console.log("[qq] reconnect requested", localISOString())
         this.onDisconnect("reconnect_requested")
+        break
+      case OpCode.InvalidSession:
+        console.log("[qq] invalid session", localISOString())
+        this.onDisconnect("invalid_session")
         break
       case OpCode.Hello:
         this._heartbeatInterval = payload.d?.heartbeat_interval ?? 30000
@@ -347,48 +405,51 @@ class QQManagerImpl extends MobileManagerBase {
   }
 
   private handleC2CMessage(data: any): void {
-    const content = data?.content ?? data?.event?.content ?? ""
-    const messageId = data?.id ?? data?.msg_id ?? ""
+    const content = data?.content ?? ""
+    const messageId = data?.id ?? ""
     const openId = data?.author?.user_openid ?? ""
 
-    if (!messageId || !content) return
-    if (!this.enqueueMessage(openId, messageId)) return
+    if (!messageId || !openId) return
 
     const text = content.trim()
     if (!text) return
 
     const chatId = `c2c_${openId}`
+    this._chatInfos[chatId] = { type: "c2c", openid: openId }
+
+    if (!this.enqueueMessage(chatId, messageId)) return
+
+    this._currentChatId = chatId
     const rootId = messageId
     void this.handleMessage(chatId, messageId, text, rootId)
   }
 
   private handleGroupMessage(data: any): void {
-    const content = data?.content ?? data?.event?.content ?? ""
-    const messageId = data?.id ?? data?.msg_id ?? ""
-    const groupOpenId = data?.group_openid ?? data?.event?.group_openid ?? ""
+    const content = data?.content ?? ""
+    const messageId = data?.id ?? ""
+    const groupOpenId = data?.group_openid ?? ""
 
-    if (!messageId || !content) return
+    if (!messageId || !groupOpenId) return
 
     let text = content.trim()
     text = text.replace(/@\S+\s*/g, "").trim()
     if (!text) return
 
-    if (!this.enqueueMessage(groupOpenId, messageId)) return
-
     const chatId = `group_${groupOpenId}`
+    this._chatInfos[chatId] = { type: "group", openid: groupOpenId }
+
+    if (!this.enqueueMessage(chatId, messageId)) return
+
+    this._currentChatId = chatId
     const rootId = messageId
     void this.handleMessage(chatId, messageId, text, rootId)
-  }
-
-  protected override replyTarget(chatId: string, messageId: string): string {
-    return messageId
   }
 
   private startWsHeartbeat(): void {
     this.stopWsHeartbeat()
     this._heartbeat = setInterval(() => {
       if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-        this.ws.send(JSON.stringify({ op: OpCode.Heartbeat, d: this._sessionId }))
+        this.ws.send(JSON.stringify({ op: OpCode.Heartbeat, d: this._lastSeq }))
       }
     }, this._heartbeatInterval)
   }
@@ -451,6 +512,7 @@ class QQManagerImpl extends MobileManagerBase {
     this._pendingPermissions = {}
     this._pendingConfirmCreate = {}
     this._activePrompt.clear()
+    this._chatInfos = {}
     if (!reset) return
     this._connectedModel = null
     this._chatDirs = {}

@@ -182,11 +182,17 @@ function connectSSE(p: MobilePlatform) {
               const cur = prev(p).status
               if (
                 s === "idle" &&
-                (cur === "loading" || cur === "reconnecting" || cur === "qrcode" || cur === "connected")
+                (cur === "loading" ||
+                  cur === "reconnecting" ||
+                  cur === "qrcode" ||
+                  cur === "connected" ||
+                  cur === "config")
               )
                 continue
               const u: Partial<PlatformState> = { status: s }
               if (props.message) u.loadingMsg = props.message
+              if (props.appId) u.appId = props.appId
+              if (props.user) u.user = props.user
               if (s === "connected") clearSseRetry(p)
               patch(p, u)
             }

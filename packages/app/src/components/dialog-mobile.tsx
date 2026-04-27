@@ -172,6 +172,7 @@ export const DialogMobile: Component<Props> = (props) => {
                       type="text"
                       value={inputAppId()}
                       onInput={(e) => setInputAppId(e.currentTarget.value)}
+                      autocomplete="off"
                       placeholder={p() === "qq" ? "10xxxxxx" : "cli_xxxxxxxx"}
                       class="w-full px-3 py-2 rounded-md border border-border-base bg-surface-base text-text-base text-13-regular focus:outline-none focus:border-border-focus"
                     />
@@ -182,6 +183,7 @@ export const DialogMobile: Component<Props> = (props) => {
                       type="password"
                       value={inputAppSecret()}
                       onInput={(e) => setInputAppSecret(e.currentTarget.value)}
+                      autocomplete="new-password"
                       placeholder="输入 App Secret"
                       class="w-full px-3 py-2 rounded-md border border-border-base bg-surface-base text-text-base text-13-regular focus:outline-none focus:border-border-focus"
                     />
@@ -302,69 +304,14 @@ export const DialogMobile: Component<Props> = (props) => {
                     </Collapsible>
                   </Show>
                   <Show when={p() === "qq"}>
-                    <Collapsible open={true} variant="ghost">
-                      <Collapsible.Trigger class="flex items-center gap-2 w-full px-2 py-1.5 rounded-md hover:bg-surface-muted cursor-pointer">
-                        <Collapsible.Arrow />
-                        <span class="text-13-medium text-text-strong">
-                          按以下步骤在QQ开放平台配置机器人【点击展开每步细节】
-                        </span>
-                      </Collapsible.Trigger>
-                      <Collapsible.Content class="flex flex-col gap-1">
-                        <Collapsible open={steps[1]} onOpenChange={(v) => setSteps(1, v)} variant="ghost">
-                          <Collapsible.Trigger class="flex items-center gap-2 w-full px-2 py-1.5 rounded-md hover:bg-surface-muted cursor-pointer">
-                            <Collapsible.Arrow />
-                            <span class="text-13-medium text-text-strong">第一步：注册并创建机器人</span>
-                          </Collapsible.Trigger>
-                          <Collapsible.Content class="px-2 pb-2">
-                            <ol class="text-13-regular text-text-weak list-decimal list-outside ml-4 space-y-1">
-                              <li>
-                                打开{" "}
-                                <a
-                                  href="https://q.qq.com"
-                                  target="_blank"
-                                  rel="noopener"
-                                  class="text-text-link underline"
-                                >
-                                  QQ开放平台
-                                </a>
-                                ，选择个人或企业入驻
-                              </li>
-                              <li>点击「创建机器人」，填写资料</li>
-                              <li>
-                                获取 <strong class="text-text-base">AppID</strong> 和{" "}
-                                <strong class="text-text-base">AppSecret</strong>
-                              </li>
-                            </ol>
-                          </Collapsible.Content>
-                        </Collapsible>
-                        <Collapsible open={steps[2]} onOpenChange={(v) => setSteps(2, v)} variant="ghost">
-                          <Collapsible.Trigger class="flex items-center gap-2 w-full px-2 py-1.5 rounded-md hover:bg-surface-muted cursor-pointer">
-                            <Collapsible.Arrow />
-                            <span class="text-13-medium text-text-strong">第二步：配置开发场景</span>
-                          </Collapsible.Trigger>
-                          <Collapsible.Content class="px-2 pb-2">
-                            <ol class="text-13-regular text-text-weak list-decimal list-outside ml-4 space-y-1">
-                              <li>在开发基础设置页面获取 AppID 和 AppSecret</li>
-                              <li>配置沙箱环境（测试群/频道/单聊）</li>
-                              <li>将机器人添加至沙箱群或沙箱频道进行测试</li>
-                            </ol>
-                          </Collapsible.Content>
-                        </Collapsible>
-                        <Collapsible open={steps[3]} onOpenChange={(v) => setSteps(3, v)} variant="ghost">
-                          <Collapsible.Trigger class="flex items-center gap-2 w-full px-2 py-1.5 rounded-md hover:bg-surface-muted cursor-pointer">
-                            <Collapsible.Arrow />
-                            <span class="text-13-medium text-text-strong">第三步：发布上线</span>
-                          </Collapsible.Trigger>
-                          <Collapsible.Content class="px-2 pb-2">
-                            <ol class="text-13-regular text-text-weak list-decimal list-outside ml-4 space-y-1">
-                              <li>填写自测报告并提交审核</li>
-                              <li>审核通过后手动上线</li>
-                              <li>用户可在QQ客户端添加机器人</li>
-                            </ol>
-                          </Collapsible.Content>
-                        </Collapsible>
-                      </Collapsible.Content>
-                    </Collapsible>
+                    <p class="text-13-regular text-text-weak">
+                      打开{" "}
+                      <a href="https://q.qq.com" target="_blank" rel="noopener" class="text-text-link underline">
+                        QQ开放平台
+                      </a>
+                      ，点击「机器人」{"->"}「创建QQ机器人」，获取 <strong class="text-text-base">AppID</strong> 和{" "}
+                      <strong class="text-text-base">AppSecret</strong>
+                    </p>
                   </Show>
                 </div>
               </div>
@@ -424,7 +371,7 @@ export const DialogMobile: Component<Props> = (props) => {
                 <Show when={(p() === "feishu" || p() === "qq") && appId(p())}>
                   <p class="text-14-regular text-text-weak">App: {appId(p())!.slice(0, 16)}...</p>
                 </Show>
-                <Show when={user(p())}>
+                <Show when={user(p()) && user(p())!.name && user(p())!.name !== "Unknown"}>
                   <p class="text-14-regular text-text-weak">{user(p())!.name}</p>
                 </Show>
               </div>
