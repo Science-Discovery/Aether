@@ -526,6 +526,11 @@ export const RunCommand = cmd({
             UI.println(`💾 ${actions.join(" · ")}`)
           }
 
+          if ((event as any).type === "skill.reloaded") {
+            const names = (event as any).properties.names as string[]
+            UI.println(`🔄 reloaded skills: ${names.join(" · ")}`)
+          }
+
           if (event.type === "session.error") {
             const props = event.properties
             if (props.sessionID !== sessionID || !props.error) continue

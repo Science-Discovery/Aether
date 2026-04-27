@@ -5,6 +5,7 @@ import { MessageV2 } from "./message-v2"
 import { SessionID } from "./schema"
 import { Bus } from "@/bus"
 import { BusEvent } from "@/bus/bus-event"
+import { SkillDirty } from "./skill-dirty"
 import z from "zod"
 
 const log = Log.create({ service: "skill.evolution" })
@@ -102,6 +103,7 @@ export async function spawnBackgroundReview(input: {
     // mirrors Hermes: scan child session messages for successful skill_manage calls
     const childMessages = await MessageV2.filterCompacted(MessageV2.stream(childSession.id))
     const actions: string[] = []
+    const names = new Set<string>()
     let reviewText = ""
     for (const msg of childMessages) {
       for (const part of msg.parts) {
@@ -112,14 +114,22 @@ export async function spawnBackgroundReview(input: {
         const toolPart = part as MessageV2.ToolPart
         if (toolPart.tool !== "skill_manage") continue
         if (toolPart.state.status !== "completed") continue
+        const input = toolPart.state.input
+        if (input && typeof input === "object" && "name" in input && typeof input.name === "string") {
+          names.add(input.name)
+        }
         const out = toolPart.state.output
-        if (out && (out.includes("created") || out.includes("updated") || out.includes("patched"))) {
+        if (
+          out &&
+          (out.includes("created") || out.includes("updated") || out.includes("patched") || out.includes("deleted"))
+        ) {
           actions.push(toolPart.state.title)
         }
       }
     }
 
     if (actions.length > 0) {
+      SkillDirty.add(sessionID, [...names])
       console.log(`[skill review] ${reviewText || ""}`)
       console.log(`[skill review] 💾 ${actions.join(", ")}`)
       await Bus.publish(Event.SkillSaved, { sessionID, actions })
