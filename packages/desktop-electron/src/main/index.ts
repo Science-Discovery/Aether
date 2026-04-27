@@ -334,6 +334,24 @@ async function getSidecarPort() {
     if (!Number.isNaN(parsed)) return parsed
   }
 
+  const AETHER_PORT = 19527
+  const tryPort = (port: number) =>
+    new Promise<number | null>((resolve) => {
+      const server = createServer()
+      server.on("error", () => {
+        server.close()
+        resolve(null)
+      })
+      server.listen(port, "127.0.0.1", () => {
+        server.close(() => resolve(port))
+      })
+    })
+
+  for (let i = 0; i < 5; i++) {
+    const port = await tryPort(AETHER_PORT + i)
+    if (port !== null) return port
+  }
+
   return await new Promise<number>((resolve, reject) => {
     const server = createServer()
     server.on("error", reject)

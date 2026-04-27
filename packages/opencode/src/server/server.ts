@@ -758,6 +758,7 @@ export namespace Server {
       // Raise body limit to 1 GB to support large PDF uploads (default is 128 MB)
       maxRequestBodySize: 1024 * 1024 * 1024,
     } as const
+    const AETHER_PORT = 19527
     const tryServe = (port: number) => {
       try {
         return Bun.serve({ ...args, port, reusePort: true })
@@ -765,7 +766,15 @@ export namespace Server {
         return undefined
       }
     }
-    const server = opts.port === 0 ? (tryServe(4096) ?? tryServe(0)) : tryServe(opts.port)
+    const server =
+      opts.port === 0
+        ? (tryServe(AETHER_PORT) ??
+          tryServe(AETHER_PORT + 1) ??
+          tryServe(AETHER_PORT + 2) ??
+          tryServe(AETHER_PORT + 3) ??
+          tryServe(AETHER_PORT + 4) ??
+          tryServe(0))
+        : tryServe(opts.port)
     if (!server) throw new Error(`Failed to start server on port ${opts.port}`)
 
     url = new URL(`http://${opts.hostname}:${server.port}`)
