@@ -635,6 +635,49 @@ export namespace SessionPrompt {
         session,
       })
 
+      if (step === 1) {
+        SessionSummary.summarize({
+          sessionID: sessionID,
+          messageID: lastUser.id,
+        })
+      }
+
+      await Plugin.trigger("experimental.chat.messages.transform", {}, { messages: msgs })
+
+      const patch = await SkillRefresh.patch(sessionID)
+      if (patch) {
+        const msg: MessageV2.User = {
+          id: MessageID.ascending(),
+          sessionID,
+          role: "user",
+          time: {
+            created: Date.now(),
+          },
+          agent: lastUser.agent,
+          model: lastUser.model,
+          variant: lastUser.variant,
+        }
+        await Session.updateMessage(msg)
+        lastUser = msg
+        const part = {
+          id: PartID.ascending(),
+          messageID: msg.id,
+          sessionID,
+          type: "text",
+          text: patch.text,
+          synthetic: true,
+          metadata: {
+            kind: "skill-refresh",
+            names: patch.names,
+          },
+        } satisfies MessageV2.TextPart
+        await Session.updatePart(part)
+        msgs.push({
+          info: msg,
+          parts: [part],
+        })
+      }
+
       const processor = SessionProcessor.create({
         assistantMessage: (await Session.updateMessage({
           id: MessageID.ascending(),
@@ -665,7 +708,7 @@ export namespace SessionPrompt {
         model,
         abort,
       })
-      using _ = defer(() => InstructionPrompt.clear(processor.message.id))
+      using clean = defer(() => InstructionPrompt.clear(processor.message.id))
 
       // Check if user explicitly invoked an agent via @ in this turn
       const lastUserMsg = msgs.findLast((m) => m.info.role === "user")
@@ -688,47 +731,6 @@ export namespace SessionPrompt {
           onSuccess(output) {
             structuredOutput = output
           },
-        })
-      }
-
-      if (step === 1) {
-        SessionSummary.summarize({
-          sessionID: sessionID,
-          messageID: lastUser.id,
-        })
-      }
-
-      await Plugin.trigger("experimental.chat.messages.transform", {}, { messages: msgs })
-
-      const patch = await SkillRefresh.patch(sessionID)
-      if (patch) {
-        const msg: MessageV2.User = {
-          id: MessageID.ascending(),
-          sessionID,
-          role: "user",
-          time: {
-            created: Date.now(),
-          },
-          agent: lastUser.agent,
-          model: lastUser.model,
-        }
-        await Session.updateMessage(msg)
-        const part = {
-          id: PartID.ascending(),
-          messageID: msg.id,
-          sessionID,
-          type: "text",
-          text: patch.text,
-          synthetic: true,
-          metadata: {
-            kind: "skill-refresh",
-            names: patch.names,
-          },
-        } satisfies MessageV2.TextPart
-        await Session.updatePart(part)
-        msgs.push({
-          info: msg,
-          parts: [part],
         })
       }
 

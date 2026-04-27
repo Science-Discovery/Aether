@@ -992,12 +992,16 @@ export function UserMessageDisplay(props: {
 
   const textPart = createMemo(
     () =>
-      props.parts?.find(
-        (p) =>
-          p.type === "text" &&
-          !(p as TextPart).synthetic &&
-          !((p as TextPart).metadata as Record<string, unknown>)?.steer,
-      ) as TextPart | undefined,
+      props.parts?.find((p) => {
+        if (p.type !== "text") return false
+        const part = p as TextPart
+        if (part.synthetic) {
+          const meta = part.metadata as Record<string, unknown> | undefined
+          return meta?.kind === "skill-refresh"
+        }
+        const meta = part.metadata as Record<string, unknown> | undefined
+        return !meta?.steer
+      }) as TextPart | undefined,
   )
 
   const steerParts = createMemo(
@@ -1007,8 +1011,6 @@ export function UserMessageDisplay(props: {
       ) as TextPart[]) ?? [],
   )
 
-  const text = createMemo(() => textPart()?.text || "")
-
   const files = createMemo(() => (props.parts?.filter((p) => p.type === "file") as FilePart[]) ?? [])
 
   const attachments = createMemo(() => files().filter(attached))
@@ -1016,6 +1018,20 @@ export function UserMessageDisplay(props: {
   const inlineFiles = createMemo(() => files().filter(inline))
 
   const agents = createMemo(() => (props.parts?.filter((p) => p.type === "agent") as AgentPart[]) ?? [])
+
+  const refresh = createMemo(() => {
+    const part = textPart()
+    if (!part?.synthetic) return
+    const meta = part.metadata as Record<string, unknown> | undefined
+    if (meta?.kind !== "skill-refresh") return
+    if (!Array.isArray(meta.names)) return [] as string[]
+    return meta.names.filter((x): x is string => typeof x === "string" && x.length > 0)
+  })
+
+  const text = createMemo(() => {
+    if (refresh()) return ""
+    return textPart()?.text || ""
+  })
 
   const model = createMemo(() => {
     const providerID = props.message.model?.providerID
@@ -1076,6 +1092,17 @@ export function UserMessageDisplay(props: {
 
   return (
     <div data-component="user-message">
+      <Show when={refresh()}>
+        <BasicTool
+          icon="brain"
+          status="completed"
+          trigger={{
+            title: "Skill content updated",
+            subtitle: refresh()!.length > 0 ? refresh()!.join(", ") : undefined,
+          }}
+          hideDetails
+        />
+      </Show>
       <Show when={attachments().length > 0}>
         <div data-slot="user-message-attachments">
           <For each={attachments()}>
