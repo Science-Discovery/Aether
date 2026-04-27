@@ -182,7 +182,11 @@ function connectSSE(p: MobilePlatform) {
               const cur = prev(p).status
               if (
                 s === "idle" &&
-                (cur === "loading" || cur === "reconnecting" || cur === "qrcode" || cur === "connected")
+                (cur === "loading" ||
+                  cur === "reconnecting" ||
+                  cur === "qrcode" ||
+                  cur === "connected" ||
+                  cur === "config")
               )
                 continue
               const u: Partial<PlatformState> = { status: s }
