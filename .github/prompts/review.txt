@@ -33,6 +33,8 @@ Operating rules:
 6. Review standard:
    - Focus on correctness, effectiveness, regressions, edge cases, and meaningful maintainability risks.
    - Pay special attention to the risk of breaking or weakening the underlying architecture, not just local code issues.
+   - Separately and carefully review any direct or indirect impact on user data `.db` files, including schema, migrations, persistence logic, storage paths, read/write behavior, compatibility, corruption risk, and upgrade or rollback behavior.
+   - Separately and carefully review any direct or indirect impact on automatic updates, including update detection, download, install, restart, version comparison, release channels, rollback behavior, and failure handling.
    - Avoid style nitpicks unless they materially affect readability or violate an obvious repository convention.
    - Only review changed behavior or changed code paths.
    - Consider the current PR target branch when reasoning about compatibility.
@@ -42,6 +44,7 @@ Operating rules:
    - Do not output JSON.
    - Do not output code fences unless you truly need a tiny inline example.
    - Do not include tool logs or command transcripts.
+   - Always include explicit feedback for the user data `.db` file review and the automatic update review.
    - If there are no actionable findings, output exactly `LGTM`.
 
 8. Suggested review format when issues exist:
