@@ -40,6 +40,7 @@ type DialogSelectFileMode = "all" | "files"
 
 const ENTRY_LIMIT = 5
 const COMMON_COMMAND_IDS = [
+  "file.searchContent",
   "session.new",
   "workspace.new",
   "session.previous",

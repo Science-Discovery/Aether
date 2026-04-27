@@ -62,6 +62,29 @@ export namespace Ripgrep {
     }),
   })
 
+  const BinaryMatch = z.object({
+    type: z.literal("match"),
+    data: z.object({
+      path: z.object({
+        text: z.string(),
+      }),
+      lines: z.object({
+        bytes: z.string(),
+      }),
+      line_number: z.number(),
+      absolute_offset: z.number(),
+      submatches: z.array(
+        z.object({
+          match: z.object({
+            text: z.string(),
+          }),
+          start: z.number(),
+          end: z.number(),
+        }),
+      ),
+    }),
+  })
+
   const End = z.object({
     type: z.literal("end"),
     data: z.object({
@@ -85,13 +108,19 @@ export namespace Ripgrep {
     }),
   })
 
-  const Result = z.union([Begin, Match, End, Summary])
+  const Result = z.union([Begin, Match, BinaryMatch, End, Summary])
 
   export type Result = z.infer<typeof Result>
   export type Match = z.infer<typeof Match>
+  export type MatchData = z.infer<typeof Match>["data"]
   export type Begin = z.infer<typeof Begin>
   export type End = z.infer<typeof End>
   export type Summary = z.infer<typeof Summary>
+
+  function isTextMatch(item: Result): item is Match {
+    return item.type === "match" && "text" in item.data.lines
+  }
+
   const PLATFORM = {
     "arm64-darwin": { platform: "aarch64-apple-darwin", extension: "tar.gz" },
     "arm64-linux": {
@@ -406,18 +435,21 @@ export namespace Ripgrep {
   export async function search(input: {
     cwd: string
     pattern: string
-    glob?: string[]
+    include?: string[]
+    exclude?: string[]
     limit?: number
     follow?: boolean
-  }) {
+    case?: boolean
+    word?: boolean
+    regex?: boolean
+  }): Promise<MatchData[]> {
     const args = [`${await filepath()}`, "--json", "--hidden", "--glob=!.git/*"]
     if (input.follow) args.push("--follow")
-
-    if (input.glob) {
-      for (const g of input.glob) {
-        args.push(`--glob=${g}`)
-      }
-    }
+    if (!input.case) args.push("--ignore-case")
+    if (!input.regex) args.push("--fixed-strings")
+    if (input.word) args.push("--word-regexp")
+    for (const glob of input.include ?? []) args.push(`--glob=${glob}`)
+    for (const glob of input.exclude ?? []) args.push(`--glob=!${glob.startsWith("!") ? glob.slice(1) : glob}`)
 
     if (input.limit) {
       args.push(`--max-count=${input.limit}`)
@@ -431,6 +463,10 @@ export namespace Ripgrep {
       nothrow: true,
     })
     if (result.code === 1) {
+      return []
+    }
+
+    if (result.code === 2 && result.stderr.toString().includes("No files were searched")) {
       return []
     }
 
@@ -449,9 +485,8 @@ export namespace Ripgrep {
     // Parse JSON lines from ripgrep output
 
     return lines
-      .map((line) => JSON.parse(line))
-      .map((parsed) => Result.parse(parsed))
-      .filter((r) => r.type === "match")
-      .map((r) => r.data)
+      .map((line) => Result.parse(JSON.parse(line)))
+      .filter(isTextMatch)
+      .map((item) => item.data)
   }
 }

@@ -7690,6 +7690,44 @@
               "type": "string"
             },
             "required": true
+          },
+          {
+            "in": "query",
+            "name": "include",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "exclude",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "case",
+            "schema": {
+              "enum": ["true", "false"],
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "word",
+            "schema": {
+              "enum": ["true", "false"],
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "regex",
+            "schema": {
+              "enum": ["true", "false"],
+              "type": "string"
+            }
           }
         ],
         "summary": "Find text",

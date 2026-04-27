@@ -4873,6 +4873,11 @@ export class Find extends HeyApiClient {
       directory?: string
       workspace?: string
       pattern: string
+      include?: string
+      exclude?: string
+      case?: "true" | "false"
+      word?: "true" | "false"
+      regex?: "true" | "false"
     },
     options?: Options<never, ThrowOnError>,
   ) {
@@ -4884,6 +4889,11 @@ export class Find extends HeyApiClient {
             { in: "query", key: "directory" },
             { in: "query", key: "workspace" },
             { in: "query", key: "pattern" },
+            { in: "query", key: "include" },
+            { in: "query", key: "exclude" },
+            { in: "query", key: "case" },
+            { in: "query", key: "word" },
+            { in: "query", key: "regex" },
           ],
         },
       ],

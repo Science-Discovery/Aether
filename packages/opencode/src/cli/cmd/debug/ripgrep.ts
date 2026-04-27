@@ -67,9 +67,13 @@ const SearchCommand = cmd({
         demandOption: true,
         description: "Search pattern",
       })
-      .option("glob", {
+      .option("include", {
         type: "array",
-        description: "File glob patterns",
+        description: "Include file glob patterns",
+      })
+      .option("exclude", {
+        type: "array",
+        description: "Exclude file glob patterns",
       })
       .option("limit", {
         type: "number",
@@ -79,7 +83,8 @@ const SearchCommand = cmd({
     const results = await Ripgrep.search({
       cwd: process.cwd(),
       pattern: args.pattern,
-      glob: args.glob as string[] | undefined,
+      include: args.include as string[] | undefined,
+      exclude: args.exclude as string[] | undefined,
       limit: args.limit,
     })
     process.stdout.write(JSON.stringify(results, null, 2) + EOL)

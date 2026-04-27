@@ -57,6 +57,11 @@ const ascii = (input: string) => {
 }
 
 const attachment = (name: string) => `attachment; filename="${ascii(name)}"; filename*=UTF-8''${encode(name)}`
+const globs = (input?: string) =>
+  (input ?? "")
+    .split(/[\n,]/)
+    .map((item) => item.trim())
+    .filter(Boolean)
 
 const resolvePath = (input: string) => (path.isAbsolute(input) ? input : path.join(Instance.directory, input))
 const resolveFile = (input: string) => {
@@ -227,14 +232,24 @@ export const FileRoutes = lazy(() =>
         "query",
         z.object({
           pattern: z.string(),
+          include: z.string().optional(),
+          exclude: z.string().optional(),
+          case: z.enum(["true", "false"]).optional(),
+          word: z.enum(["true", "false"]).optional(),
+          regex: z.enum(["true", "false"]).optional(),
         }),
       ),
       async (c) => {
-        const pattern = c.req.valid("query").pattern
+        const query = c.req.valid("query")
         const result = await Ripgrep.search({
           cwd: Instance.directory,
-          pattern,
-          limit: 10,
+          pattern: query.pattern,
+          include: globs(query.include),
+          exclude: globs(query.exclude),
+          case: query.case === "true",
+          word: query.word === "true",
+          regex: query.regex === "true",
+          limit: 50,
         })
         return c.json(result)
       },

@@ -55,6 +55,8 @@ export const dict = {
   "command.session.new": "新建会话",
 
   "command.file.open": "打开文件",
+  "command.file.searchContent": "搜索文件内容",
+  "command.file.searchContent.description": "在当前工作区中搜索文件内容",
 
   "command.tab.close": "关闭标签页",
 
@@ -123,6 +125,16 @@ export const dict = {
   "palette.group.commands": "命令",
   "palette.group.files": "文件",
 
+  "dialog.searchContent.placeholder": "搜索文件内容",
+  "dialog.searchContent.advanced": "高级搜索",
+  "dialog.searchContent.advancedActive": "高级搜索条件已启用",
+  "dialog.searchContent.include": "包含文件",
+  "dialog.searchContent.include.placeholder": "*.ts, *.tsx",
+  "dialog.searchContent.exclude": "排除文件",
+  "dialog.searchContent.exclude.placeholder": "dist/**, *.snap",
+  "dialog.searchContent.case": "大小写敏感",
+  "dialog.searchContent.word": "全字匹配",
+  "dialog.searchContent.regex": "使用正则",
   "dialog.provider.search.placeholder": "搜索提供商",
   "dialog.provider.empty": "未找到提供商",
   "dialog.provider.group.popular": "热门",

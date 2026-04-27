@@ -511,6 +511,35 @@ export const { use: useFile, provider: FileProvider } = createSimpleContext({
       clearDraftMeta,
       searchFiles: (query: string) => search(query, "false"),
       searchFilesAndDirectories: (query: string) => search(query, "true"),
+      searchContent: (input: {
+        pattern: string
+        include?: string
+        exclude?: string
+        case?: boolean
+        word?: boolean
+        regex?: boolean
+      }) =>
+        sdk.client.find
+          .text({
+            pattern: input.pattern,
+            include: input.include,
+            exclude: input.exclude,
+            case: input.case ? "true" : "false",
+            word: input.word ? "true" : "false",
+            regex: input.regex ? "true" : "false",
+          })
+          .then((x) =>
+            (x.data ?? []).map((item) => ({
+              path: path.normalize(item.path.text),
+              line: item.line_number,
+              text: item.lines.text,
+              matches: item.submatches.map((part) => ({
+                start: part.start,
+                end: part.end,
+                text: part.match.text,
+              })),
+            })),
+          ),
       selectedPaths,
       setSelectedPaths,
       selectedText,

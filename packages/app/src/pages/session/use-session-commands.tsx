@@ -11,6 +11,7 @@ import { usePrompt } from "@/context/prompt"
 import { useSDK } from "@/context/sdk"
 import { useSync } from "@/context/sync"
 import { useTerminal } from "@/context/terminal"
+import { DialogSearchContent } from "@/components/dialog-search-content"
 import { DialogSelectFile } from "@/components/dialog-select-file"
 import { DialogSelectModel } from "@/components/dialog-select-model"
 import { DialogSelectMcp } from "@/components/dialog-select-mcp"
@@ -269,6 +270,14 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
         keybind: "mod+k,mod+p",
         slash: "open",
         onSelect: () => dialog.show(() => <DialogSelectFile onOpenFile={showAllFiles} />),
+      }),
+      fileCommand({
+        id: "file.searchContent",
+        title: language.t("command.file.searchContent"),
+        description: language.t("command.file.searchContent.description"),
+        keybind: "mod+shift+f",
+        slash: "grep",
+        onSelect: () => dialog.show(() => <DialogSearchContent onOpenFile={showAllFiles} />),
       }),
       fileCommand({
         id: "tab.close",
