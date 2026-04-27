@@ -62,7 +62,7 @@ export namespace Plugin {
             const { Server } = await import("../server/server")
 
             const client = createOpencodeClient({
-              baseUrl: "http://localhost:4096",
+              baseUrl: "http://localhost:19527",
               directory: ctx.directory,
               headers: Flag.OPENCODE_SERVER_PASSWORD
                 ? {
@@ -78,7 +78,7 @@ export namespace Plugin {
               worktree: ctx.worktree,
               directory: ctx.directory,
               get serverUrl(): URL {
-                return Server.url ?? new URL("http://localhost:4096")
+                return Server.url ?? new URL("http://localhost:19527")
               },
               $: Bun.$,
             }
