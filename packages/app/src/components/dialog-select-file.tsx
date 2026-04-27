@@ -59,6 +59,10 @@ const uniqueEntries = (items: Entry[]) => {
   return out
 }
 
+const defer = (run: () => void) => {
+  requestAnimationFrame(() => requestAnimationFrame(run))
+}
+
 const createCommandEntry = (option: CommandOption, category: string): Entry => ({
   id: "command:" + option.id,
   type: "command",
@@ -346,14 +350,16 @@ export function DialogSelectFile(props: { mode?: DialogSelectFileMode; onOpenFil
     state.cleanup = item.option?.onHighlight?.()
   }
 
-  const open = (path: string) => {
+  const open = async (path: string) => {
     const value = file.tab(path)
+    file.setSelectedPaths(new Set<string>([path]))
     tabs().open(value)
-    file.load(path)
+    void file.load(path)
     if (!view().reviewPanel.opened()) view().reviewPanel.open()
     layout.fileTree.setTab("all")
     props.onOpenFile?.(path)
     tabs().setActive(value)
+    defer(() => void file.tree.reveal(path))
   }
 
   const handleSelect = (item: Entry | undefined) => {
@@ -374,7 +380,7 @@ export function DialogSelectFile(props: { mode?: DialogSelectFileMode; onOpenFil
     }
 
     if (!item.path) return
-    open(item.path)
+    void open(item.path)
   }
 
   onCleanup(() => {

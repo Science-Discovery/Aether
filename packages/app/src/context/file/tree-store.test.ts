@@ -71,4 +71,27 @@ describe("file tree store refresh", () => {
     expect(tree.dirState("docs")?.expanded).toBe(true)
     expect(tree.dirState("src")?.expanded).toBe(true)
   })
+
+  test("reveal loads and expands ancestor dirs for a file path", async () => {
+    const data = new Map<string, Node[]>([
+      ["", [dir("docs")]],
+      ["docs", [dir("docs/api")]],
+      ["docs/api", [file("docs/api/spec.md")]],
+    ])
+
+    const tree = createFileTreeStore({
+      scope: () => "/repo",
+      normalizeDir: (input) => input.replace(/\/+$/, ""),
+      list: async (input) => data.get(input) ?? [],
+      onError: () => {},
+    })
+
+    await tree.revealPath("docs/api/spec.md")
+
+    expect(tree.children("").map((item) => item.path)).toEqual(["docs"])
+    expect(tree.children("docs").map((item) => item.path)).toEqual(["docs/api"])
+    expect(tree.children("docs/api").map((item) => item.path)).toEqual(["docs/api/spec.md"])
+    expect(tree.dirState("docs")?.expanded).toBe(true)
+    expect(tree.dirState("docs/api")?.expanded).toBe(true)
+  })
 })

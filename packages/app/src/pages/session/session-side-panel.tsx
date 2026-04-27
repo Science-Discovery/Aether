@@ -84,6 +84,10 @@ export function SessionSidePanel(props: {
     if (params.id) void sync.session.diff(params.id, { force: true })
   }
 
+  const defer = (run: () => void) => {
+    requestAnimationFrame(() => requestAnimationFrame(run))
+  }
+
   const fetchApi = (urlPath: string, options: RequestInit = {}): Promise<Response> => {
     const s = server.current?.http
     const authHeader: Record<string, string> = s?.password
@@ -106,12 +110,12 @@ export function SessionSidePanel(props: {
 
   createEffect(() => {
     registerOpenFileCallback(async (filePath: string) => {
-      const parentDir = filePath.includes("/") ? filePath.slice(0, filePath.lastIndexOf("/")) : ""
-      await file.tree.refresh(parentDir)
+      file.setSelectedPaths(new Set<string>([filePath]))
       const tab = file.tab(filePath)
       tabs().open(tab)
       tabs().setActive(tab)
       await file.load(filePath, { force: true })
+      defer(() => void file.tree.reveal(filePath))
     })
 
     registerRefreshDirCallback((dirPath: string) => {

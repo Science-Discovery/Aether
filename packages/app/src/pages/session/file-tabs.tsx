@@ -43,6 +43,10 @@ import { createReadingQuoteMetadata, summarizeReadingQuoteText } from "@/utils/c
 import { Identifier } from "@/utils/id"
 import { formatServerError } from "@/utils/server-errors"
 
+const defer = (run: () => void) => {
+  requestAnimationFrame(() => requestAnimationFrame(run))
+}
+
 function FileCommentMenu(props: {
   moreLabel: string
   editLabel: string
@@ -321,12 +325,12 @@ export function FileTabContent(props: { tab: string }) {
 
   // Register the callback that opens files after PDF conversion completes.
   registerOpenFileCallback(async (filePath: string) => {
-    const parentDir = filePath.includes("/") ? filePath.slice(0, filePath.lastIndexOf("/")) : ""
-    await file.tree.refresh(parentDir)
+    file.setSelectedPaths(new Set<string>([filePath]))
     const tab = file.tab(filePath)
     tabs().open(tab)
     tabs().setActive(tab)
     await file.load(filePath, { force: true })
+    defer(() => void file.tree.reveal(filePath))
   })
 
   // Register the directory refresh callback after each conversion finishes.

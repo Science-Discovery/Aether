@@ -474,8 +474,10 @@ export const { use: useFile, provider: FileProvider } = createSimpleContext({
       tree: {
         list: tree.listDir,
         refresh: tree.refreshDir,
+        reveal: tree.revealPath,
         state: tree.dirState,
         children: tree.children,
+        node: tree.node,
         expand: tree.expandDir,
         collapse: tree.collapseDir,
         toggle(input: string) {

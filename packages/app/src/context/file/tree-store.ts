@@ -167,6 +167,20 @@ export function createFileTreeStore(options: TreeStoreOptions) {
     ).then(() => {})
   }
 
+  const revealPath = async (input: string) => {
+    const path = options.normalizeDir(input)
+    const parts = path.split("/").slice(0, -1)
+
+    await listDir("")
+
+    let dir = ""
+    for (const part of parts) {
+      dir = dir ? `${dir}/${part}` : part
+      expandDir(dir)
+      await listDir(dir)
+    }
+  }
+
   const expandDir = (input: string) => {
     const dir = options.normalizeDir(input)
     ensureDir(dir)
@@ -202,6 +216,7 @@ export function createFileTreeStore(options: TreeStoreOptions) {
   return {
     listDir,
     refreshDir,
+    revealPath,
     expandDir,
     collapseDir,
     dirState,
