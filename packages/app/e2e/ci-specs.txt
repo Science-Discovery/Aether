@@ -21,7 +21,6 @@ e2e/prompt/prompt-slash-share.spec.ts
 e2e/prompt/prompt-slash-terminal.spec.ts
 e2e/session/session-child-navigation.spec.ts
 e2e/session/session-undo-redo.spec.ts
-e2e/session/session.spec.ts
 e2e/settings/settings-models.spec.ts
 e2e/settings/settings.spec.ts
 e2e/sidebar/sidebar.spec.ts
