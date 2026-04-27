@@ -2,6 +2,7 @@
 # during local verification.
 
 e2e/files/file-viewer.spec.ts
+e2e/files/file-tree.spec.ts
 e2e/projects/projects-close.spec.ts
 e2e/projects/workspace-new-session.spec.ts
 e2e/projects/workspaces.spec.ts
