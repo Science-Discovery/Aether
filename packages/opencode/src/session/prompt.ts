@@ -171,6 +171,7 @@ export namespace SessionPrompt {
   export type PromptInput = z.infer<typeof PromptInput>
 
   export const prompt = fn(PromptInput, async (input) => {
+    await SessionRevert.awaitPending(input.sessionID)
     const session = await Session.get(input.sessionID)
     await SessionRevert.cleanup(session)
 
@@ -1612,6 +1613,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
       }
     })
 
+    await SessionRevert.awaitPending(input.sessionID)
     const session = await Session.get(input.sessionID)
     if (session.revert) {
       await SessionRevert.cleanup(session)
