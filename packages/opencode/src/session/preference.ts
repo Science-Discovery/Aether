@@ -97,6 +97,24 @@ export namespace SessionPreference {
     return merged
   }
 
+  export async function inheritFor(newSessionID: string, candidateIDs: string[]): Promise<void> {
+    const id = SessionID.make(newSessionID)
+    for (const cid of candidateIDs) {
+      const pref = store.get(cid)
+      if (pref?.model) {
+        const { sessionID: _, ...data } = pref
+        await update({ sessionID: id, ...data })
+        return
+      }
+    }
+    const { Provider } = await import("@/provider/provider")
+    const fallback = await Provider.defaultModel()
+    await update({
+      sessionID: id,
+      model: { providerID: ProviderID.make(fallback.providerID), modelID: ModelID.make(fallback.modelID) },
+    })
+  }
+
   export function remove(sessionID: string): void {
     store.delete(sessionID)
   }
