@@ -37,8 +37,7 @@ export const SidebarContent = (props: {
   settingsLabel: Accessor<string>
   settingsKeybind: Accessor<string | undefined>
   onOpenSettings: () => void
-  updateLabel?: Accessor<string>
-  onOpenUpdate?: () => void
+
   helpLabel: Accessor<string>
   onOpenHelp: () => void
   renderPanel: () => JSX.Element
@@ -139,6 +138,45 @@ export const SidebarContent = (props: {
           </DragDropProvider>
         </div>
         <div class="shrink-0 w-full pt-3 pb-6 flex flex-col items-center gap-2">
+          <Show
+            when={auth.isAuthenticated && auth.account}
+            fallback={
+              <Tooltip placement={placement()} value={language.t("auth.login.submit")}>
+                <IconButton
+                  icon="user"
+                  variant="ghost"
+                  size="large"
+                  onClick={openLogin}
+                  aria-label={language.t("auth.login.submit")}
+                />
+              </Tooltip>
+            }
+          >
+            {(account) => (
+              <DropdownMenu>
+                <Tooltip placement={placement()} value={account().name || account().email}>
+                  <DropdownMenu.Trigger
+                    as={IconButton}
+                    icon="user"
+                    variant="ghost"
+                    size="large"
+                    aria-label={account().name || account().email}
+                  />
+                </Tooltip>
+                <DropdownMenu.Portal>
+                  <DropdownMenu.Content class="mt-1">
+                    <DropdownMenu.Item disabled>
+                      <DropdownMenu.ItemLabel class="text-text-weak">{account().email}</DropdownMenu.ItemLabel>
+                    </DropdownMenu.Item>
+                    <DropdownMenu.Separator />
+                    <DropdownMenu.Item onSelect={handleLogout}>
+                      <DropdownMenu.ItemLabel>{language.t("auth.logout.submit")}</DropdownMenu.ItemLabel>
+                    </DropdownMenu.Item>
+                  </DropdownMenu.Content>
+                </DropdownMenu.Portal>
+              </DropdownMenu>
+            )}
+          </Show>
           <Tooltip placement={placement()} value={language.t("knowledgeBase.wechatConnection")}>
             <IconButton
               icon="wechat"
@@ -185,56 +223,6 @@ export const SidebarContent = (props: {
               }}
             />
           </Tooltip>
-          <Show
-            when={auth.isAuthenticated && auth.account}
-            fallback={
-              <Tooltip placement={placement()} value={language.t("auth.login.submit")}>
-                <IconButton
-                  icon="user"
-                  variant="ghost"
-                  size="large"
-                  onClick={openLogin}
-                  aria-label={language.t("auth.login.submit")}
-                />
-              </Tooltip>
-            }
-          >
-            {(account) => (
-              <DropdownMenu>
-                <Tooltip placement={placement()} value={account().name || account().email}>
-                  <DropdownMenu.Trigger
-                    as={IconButton}
-                    icon="user"
-                    variant="ghost"
-                    size="large"
-                    aria-label={account().name || account().email}
-                  />
-                </Tooltip>
-                <DropdownMenu.Portal>
-                  <DropdownMenu.Content class="mt-1">
-                    <DropdownMenu.Item disabled>
-                      <DropdownMenu.ItemLabel class="text-text-weak">{account().email}</DropdownMenu.ItemLabel>
-                    </DropdownMenu.Item>
-                    <DropdownMenu.Separator />
-                    <DropdownMenu.Item onSelect={handleLogout}>
-                      <DropdownMenu.ItemLabel>{language.t("auth.logout.submit")}</DropdownMenu.ItemLabel>
-                    </DropdownMenu.Item>
-                  </DropdownMenu.Content>
-                </DropdownMenu.Portal>
-              </DropdownMenu>
-            )}
-          </Show>
-          <Show when={props.updateLabel && props.onOpenUpdate}>
-            <Tooltip placement={placement()} value={props.updateLabel!()}>
-              <IconButton
-                icon="download"
-                variant="ghost"
-                size="large"
-                onClick={props.onOpenUpdate}
-                aria-label={props.updateLabel!()}
-              />
-            </Tooltip>
-          </Show>
           <TooltipKeybind placement={placement()} title={props.settingsLabel()} keybind={props.settingsKeybind() ?? ""}>
             <IconButton
               icon="settings-gear"

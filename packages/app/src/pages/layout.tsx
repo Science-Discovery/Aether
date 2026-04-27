@@ -1492,14 +1492,6 @@ export default function Layout(props: ParentProps) {
     })
   }
 
-  function openUpdate() {
-    const run = ++dialogRun
-    void import("@/components/dialog-update").then((x) => {
-      if (dialogDead || dialogRun !== run) return
-      dialog.show(() => <x.DialogUpdate />)
-    })
-  }
-
   function projectRoot(directory: string) {
     const dirKey = workspaceKey(directory)
     const project = layout.projects
@@ -2639,12 +2631,6 @@ export default function Layout(props: ParentProps) {
       settingsLabel={() => language.t("sidebar.settings")}
       settingsKeybind={() => command.keybind("settings.open")}
       onOpenSettings={openSettings}
-      {...(platform.platform === "web"
-        ? {
-            updateLabel: () => language.t("sidebar.update"),
-            onOpenUpdate: openUpdate,
-          }
-        : {})}
       helpLabel={() => language.t("sidebar.help")}
       onOpenHelp={() => platform.openLink("https://aether.aiphys.cn/")}
       renderPanel={() =>
