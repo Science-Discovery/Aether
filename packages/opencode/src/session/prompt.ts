@@ -55,7 +55,6 @@ import { Process } from "@/util/process"
 import { Memory } from "@/memory"
 import { SKILL_NUDGE_INTERVAL, SKILL_REVIEW_MARKER, spawnBackgroundReview } from "./skill-evolution"
 import { Config } from "../config/config"
-import { SkillRefresh } from "./skill-refresh"
 
 // @ts-ignore
 globalThis.AI_SDK_LOG_WARNINGS = false
@@ -714,10 +713,8 @@ export namespace SessionPrompt {
       const skills = await SystemPrompt.skills(agent, new Set(Object.keys(tools)), new Set())
       const _skillNames = skills ? [...skills.matchAll(/<name>(.*?)<\/name>/g)].map((m) => m[1]) : []
       console.log(`[skills] ${_skillNames.length > 0 ? _skillNames.join(", ") : "(none)"}`)
-      const patch = await SkillRefresh.patch(sessionID)
       const system = [
         ...(await SystemPrompt.environment(model)),
-        ...(patch ? [patch] : []),
         ...(skills ? [skills] : []),
         ...(memory.prompt ? [memory.prompt] : []),
         ...(await InstructionPrompt.system()),
