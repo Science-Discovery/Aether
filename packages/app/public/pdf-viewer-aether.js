@@ -853,6 +853,7 @@
     "load",
     function () {
       applyTheme();
+      PDFViewerApplicationOptions.set("workerSrc", "/pdfjs-ref/build/pdf.worker.js");
       PDFViewerApplicationOptions.set("cMapUrl", C_MAP_URL);
       PDFViewerApplicationOptions.set("standardFontDataUrl", STANDARD_FONT_DATA_URL);
       PDFViewerApplication.initializedPromise.then(function () {
