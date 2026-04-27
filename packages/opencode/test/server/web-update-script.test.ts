@@ -317,9 +317,7 @@ describe("web update scripts", () => {
       })
 
       expect(log).toContain("已跳过 mirror")
-      const file = (await Bun.file(path.join("/Applications", "Aether.app", "Contents", "MacOS", "Aether")).exists())
-        ? path.join("/Applications", "Aether.app", "Contents", "MacOS", "Aether")
-        : path.join(home, "Applications", "Aether.app", "Contents", "MacOS", "Aether")
+      const file = path.join(home, "Applications", "Aether.app", "Contents", "MacOS", "Aether")
       const bin = await Bun.file(file).text()
       expect(bin).toContain(path.join(work, "aether_1.2.7", "Aether.command"))
     },
