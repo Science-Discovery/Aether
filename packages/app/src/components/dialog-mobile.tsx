@@ -426,7 +426,7 @@ export const DialogMobile: Component<Props> = (props) => {
                 <Show when={(p() === "feishu" || p() === "qq") && appId(p())}>
                   <p class="text-14-regular text-text-weak">App: {appId(p())!.slice(0, 16)}...</p>
                 </Show>
-                <Show when={user(p())}>
+                <Show when={user(p()) && user(p())!.name && user(p())!.name !== "Unknown"}>
                   <p class="text-14-regular text-text-weak">{user(p())!.name}</p>
                 </Show>
               </div>
