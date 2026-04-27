@@ -116,6 +116,7 @@ export abstract class MobileManagerBase {
   protected _busUnsubs: (() => void)[] = []
   protected _manualStop = false
   protected _starting = false
+  protected _ready = false
 
   abstract platformDir(): string
   abstract platformName(): string
@@ -382,6 +383,32 @@ export abstract class MobileManagerBase {
     })
   }
 
+  protected async initReady(chatId: string): Promise<void> {
+    const allProjects = this.getProjects()
+    const visibleProjects = allProjects.filter((p) => !(this.projectDir(p) in this._hiddenDirs))
+    const dir = visibleProjects.length > 0 ? this.projectDir(visibleProjects[0]) : Instance.directory
+    this._initialDir = dir
+    this._chatDirs[chatId] = dir
+    console.log(`[${this.adapter.platform}] initial dir:`, dir)
+
+    const recent = await Instance.provide({
+      directory: dir,
+      fn: () => [...Session.list({ directory: dir, roots: true, limit: 1 })],
+    })
+    if (recent.length > 0) {
+      this._chatSessions[chatId] = recent[0].id
+    } else {
+      const session = await Instance.provide({
+        directory: dir,
+        fn: () => Session.create({ title: `${this.platformName()}对话 - ${new Date().toISOString()}` }),
+      })
+      await this.inheritPreference(session.id, dir)
+      this._chatSessions[chatId] = session.id
+    }
+
+    this._ready = true
+  }
+
   protected async currentSession(chatId: string, create?: boolean): Promise<string | undefined> {
     const pinned = this._chatSessions[chatId]
     if (pinned) return pinned
@@ -407,6 +434,14 @@ export abstract class MobileManagerBase {
   // ── Message handling ────────────────────────────────────────────────────────
 
   async handleMessage(chatId: string, messageId: string, text: string, rootId: string): Promise<void> {
+    if (!this._ready) {
+      console.log(`[${this.adapter.platform}] initializing session before handling message`)
+      await this.initReady(chatId)
+      await this.adapter.replyText(
+        this.replyTarget(chatId, messageId),
+        (await this.formatHeader(chatId)) + "连接成功，可以开始对话了 👋",
+      )
+    }
     const reply = this.replyTarget(chatId, messageId)
     try {
       console.log(`[${this.adapter.platform}] handleMessage:`, text, localISOString())
@@ -439,7 +474,7 @@ export abstract class MobileManagerBase {
         const hasPending = chatId in this._pendingQuestions || chatId in this._pendingPermissions
         const active = this._activePrompt.get(chatId)
         if (!active && !hasPending) {
-          await this.adapter.replyText(reply, "没有任务在执行")
+          await this.replySession(chatId, reply, "没有任务在执行")
           return
         }
         if (active) {
@@ -451,7 +486,7 @@ export abstract class MobileManagerBase {
           } catch {}
         }
         await this.clearRuntime(chatId)
-        await this.adapter.replyText(reply, "✅ 已停止当前执行。")
+        await this.replySession(chatId, reply, "✅ 已停止当前执行。")
         return
       }
 
@@ -459,17 +494,18 @@ export abstract class MobileManagerBase {
         const pendingQ = this._pendingQuestions[chatId]
         if (pendingQ) {
           const progress = this._questionProgress[chatId]
-          await this.adapter.replyText(reply, this.formatSingleQuestion(pendingQ, progress?.index ?? 0))
+          await this.replySession(chatId, reply, this.formatSingleQuestion(pendingQ, progress?.index ?? 0))
           return
         }
         const pendingP = this._pendingPermissions[chatId]
         if (pendingP) {
-          await this.adapter.replyText(reply, this.formatPermissionRequest(pendingP))
+          await this.replySession(chatId, reply, this.formatPermissionRequest(pendingP))
           return
         }
         const active = this._activePrompt.get(chatId)
         if (active) {
-          await this.adapter.replyText(
+          await this.replySession(
+            chatId,
             reply,
             "当前会话正在生成回复，请等待当前对话结束后再发送；如需立即开始新问题，请先 /new 或切换 /session n。如需停止本会话请输入 /stop",
           )
@@ -477,14 +513,14 @@ export abstract class MobileManagerBase {
         }
 
         if (!(chatId in this._chatSessions)) {
-          await this.adapter.replyText(reply, "没有任务在执行")
+          await this.replySession(chatId, reply, "没有任务在执行")
           return
         }
         try {
           await this.cmdCompact(reply, chatId)
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err)
-          await this.adapter.replyText(reply, `命令执行出错: ${msg}`)
+          await this.replySession(chatId, reply, `命令执行出错: ${msg}`)
         }
         return
       }
@@ -497,7 +533,7 @@ export abstract class MobileManagerBase {
         } else if (lower === "n" || lower === "no" || lower === "取消") {
           await this.confirmCreateProject(chatId, reply, false)
         } else {
-          await this.adapter.replyText(reply, "请回复 y 确认创建或 n 取消。")
+          await this.replySession(chatId, reply, "请回复 y 确认创建或 n 取消。")
         }
         return
       }
@@ -515,7 +551,8 @@ export abstract class MobileManagerBase {
 
       const active = this._activePrompt.get(chatId)
       if (active) {
-        await this.adapter.replyText(
+        await this.replySession(
+          chatId,
           reply,
           "当前会话正在生成回复，请等待当前对话结束后再发送；如需立即开始新问题，请先 /new 或切换 /session n。如需停止本会话请输入 /stop",
         )
@@ -525,7 +562,8 @@ export abstract class MobileManagerBase {
       await this.startPrompt(chatId, messageId, text, effectiveDir, rootId)
     } catch (err) {
       if (err instanceof Session.BusyError) {
-        await this.adapter.replyText(
+        await this.replySession(
+          chatId,
           reply,
           "当前会话正在生成回复，请等待当前对话结束后再发送；如需立即开始新问题，请先 /new 或切换 /session n。如需停止本会话请输入 /stop",
         )
@@ -534,7 +572,7 @@ export abstract class MobileManagerBase {
       console.error(`[${this.adapter.platform}] handleMessage error:`, err)
       try {
         const errMsg = isSessionNotFound(err) ? "会话已不存在" : err instanceof Error ? err.message : String(err)
-        await this.adapter.replyText(reply, `处理消息时出错: ${errMsg}`)
+        await this.replySession(chatId, reply, `处理消息时出错: ${errMsg}`)
       } catch (e2) {
         console.error(`[${this.adapter.platform}] failed to send error reply:`, e2)
       }
@@ -634,7 +672,7 @@ export abstract class MobileManagerBase {
         }
         const header = await this.formatHeader(chatId)
         console.log(`[${this.adapter.platform}] replying:`, responseText.slice(0, 100), localISOString())
-        await this.adapter.replyText(reply, header + responseText)
+        await this.replySession(chatId, reply, responseText)
       } else {
         console.log(`[${this.adapter.platform}] no text in response`)
       }
@@ -651,17 +689,16 @@ export abstract class MobileManagerBase {
       }
     } catch (err) {
       if (err instanceof Session.BusyError) {
-        await this.adapter
-          .replyText(
-            reply,
-            "当前会话正在生成回复，请等待当前对话结束后再发送；如需立即开始新问题，请先 /new 或切换 /session n。如需停止本会话请输入 /stop",
-          )
-          .catch(() => {})
+        await this.replySession(
+          chatId,
+          reply,
+          "当前会话正在生成回复，请等待当前对话结束后再发送；如需立即开始新问题，请先 /new 或切换 /session n。如需停止本会话请输入 /stop",
+        ).catch(() => {})
         return
       }
       console.error(`[${this.adapter.platform}] prompt error:`, err)
       const errMsg = isSessionNotFound(err) ? "会话已不存在" : err instanceof Error ? err.message : String(err)
-      await this.adapter.replyText(reply, `处理消息时出错: ${errMsg}`).catch(() => {})
+      await this.replySession(chatId, reply, `处理消息时出错: ${errMsg}`).catch(() => {})
     } finally {
       this._activePrompt.delete(chatId)
     }
@@ -1393,6 +1430,11 @@ export abstract class MobileManagerBase {
     return `${projectName}  ·  ${label}  ·  ${mode}  ·  ${modelStr}\n————————\n`
   }
 
+  protected async replySession(chatId: string, targetId: string, body: string): Promise<void> {
+    const header = await this.formatHeader(chatId)
+    await this.adapter.replyText(targetId, header + body)
+  }
+
   private async sessionTitle(sessionId: string, directory: string): Promise<string> {
     const info = await Instance.provide({
       directory,
@@ -1471,7 +1513,8 @@ export abstract class MobileManagerBase {
     const info = pending.questions[progress.index]
     const answer = this.parseSingleAnswer(text, info)
     if (!answer) {
-      await this.adapter.replyText(
+      await this.replySession(
+        chatId,
         targetId,
         "未识别，请回复答案或数字编号。\n\n" + this.formatSingleQuestion(pending, progress.index),
       )
@@ -1480,8 +1523,8 @@ export abstract class MobileManagerBase {
     progress.answers.push(answer)
     progress.index += 1
     if (progress.index < pending.questions.length) {
-      await this.adapter.replyText(targetId, `✅ 已收到问题 ${progress.index} 的回答。`)
-      await this.adapter.replyText(targetId, this.formatSingleQuestion(pending, progress.index))
+      await this.replySession(chatId, targetId, `✅ 已收到问题 ${progress.index} 的回答。`)
+      await this.replySession(chatId, targetId, this.formatSingleQuestion(pending, progress.index))
       return
     }
     const active = this._activePrompt.get(chatId)
@@ -1496,10 +1539,10 @@ export abstract class MobileManagerBase {
       const msg = err instanceof Error ? err.message : String(err)
       this._pendingQuestions[chatId] = pending
       this._questionProgress[chatId] = progress
-      await this.adapter.replyText(targetId, `❌ 提交答案失败: ${msg}\n请重新发送您的答案。`)
+      await this.replySession(chatId, targetId, `❌ 提交答案失败: ${msg}\n请重新发送您的答案。`)
       return
     }
-    await this.adapter.replyText(targetId, "✅ 所有问题已回答完毕，请等待当前对话继续处理。")
+    await this.replySession(chatId, targetId, "✅ 所有问题已回答完毕，请等待当前对话继续处理。")
   }
 
   private parsePermissionReply(text: string): Permission.Reply | null {
@@ -1518,7 +1561,7 @@ export abstract class MobileManagerBase {
   ): Promise<void> {
     const reply = this.parsePermissionReply(text)
     if (!reply) {
-      await this.adapter.replyText(targetId, "未识别，请回复数字编号。\n\n" + this.formatPermissionRequest(pending))
+      await this.replySession(chatId, targetId, "未识别，请回复数字编号。\n\n" + this.formatPermissionRequest(pending))
       return
     }
     const active = this._activePrompt.get(chatId)
@@ -1531,7 +1574,7 @@ export abstract class MobileManagerBase {
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
       this._pendingPermissions[chatId] = pending
-      await this.adapter.replyText(targetId, `❌ 提交授权失败: ${msg}\n请重新发送您的选择。`)
+      await this.replySession(chatId, targetId, `❌ 提交授权失败: ${msg}\n请重新发送您的选择。`)
       return
     }
     const notice = {
@@ -1539,7 +1582,7 @@ export abstract class MobileManagerBase {
       always: "已收到授权：始终允许，继续处理中。",
       reject: "已收到你的选择：拒绝，正在继续处理。",
     }[reply]
-    await this.adapter.replyText(targetId, notice)
+    await this.replySession(chatId, targetId, notice)
   }
 
   // ── Bus subscription for question/permission ──────────────────────────────
@@ -1554,9 +1597,9 @@ export abstract class MobileManagerBase {
           this._questionProgress[chatId] = { index: 0, answers: [] }
           const target = this.replyTarget(chatId, info.messageId)
           if (q.questions.length > 1) {
-            void this.adapter.replyText(target, this.formatQuestionOverview(q))
+            void this.replySession(chatId, target, this.formatQuestionOverview(q))
           }
-          void this.adapter.replyText(target, this.formatSingleQuestion(q, 0))
+          void this.replySession(chatId, target, this.formatSingleQuestion(q, 0))
           return
         }
       }
@@ -1578,7 +1621,7 @@ export abstract class MobileManagerBase {
             return
           }
           this._pendingPermissions[chatId] = p
-          void this.adapter.replyText(this.replyTarget(chatId, info.messageId), this.formatPermissionRequest(p))
+          void this.replySession(chatId, this.replyTarget(chatId, info.messageId), this.formatPermissionRequest(p))
           return
         }
       }
