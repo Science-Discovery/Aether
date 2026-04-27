@@ -158,9 +158,9 @@ class QQAdapter implements MobileAdapter {
     try {
       const next = this.manager.file("config.json")
       const prev = this.manager.readPath("config.json")
-      const path = existsSync(next) || !existsSync(prev) ? next : prev
-      if (existsSync(path)) {
-        const data = await readFile(path, "utf-8")
+      const configPath = existsSync(next) || !existsSync(prev) ? next : prev
+      if (existsSync(configPath)) {
+        const data = await readFile(configPath, "utf-8")
         return JSON.parse(data)
       }
     } catch {}

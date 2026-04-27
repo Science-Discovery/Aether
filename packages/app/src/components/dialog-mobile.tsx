@@ -172,6 +172,7 @@ export const DialogMobile: Component<Props> = (props) => {
                       type="text"
                       value={inputAppId()}
                       onInput={(e) => setInputAppId(e.currentTarget.value)}
+                      autocomplete="off"
                       placeholder={p() === "qq" ? "10xxxxxx" : "cli_xxxxxxxx"}
                       class="w-full px-3 py-2 rounded-md border border-border-base bg-surface-base text-text-base text-13-regular focus:outline-none focus:border-border-focus"
                     />
@@ -182,6 +183,7 @@ export const DialogMobile: Component<Props> = (props) => {
                       type="password"
                       value={inputAppSecret()}
                       onInput={(e) => setInputAppSecret(e.currentTarget.value)}
+                      autocomplete="new-password"
                       placeholder="输入 App Secret"
                       class="w-full px-3 py-2 rounded-md border border-border-base bg-surface-base text-text-base text-13-regular focus:outline-none focus:border-border-focus"
                     />
