@@ -71,16 +71,7 @@ export namespace SessionPrompt {
 
   const state = Instance.state(
     () => {
-      const data: Record<
-        string,
-        {
-          abort: AbortController
-          callbacks: {
-            resolve(input: MessageV2.WithParts): void
-            reject(reason?: any): void
-          }[]
-        }
-      > = {}
+      const data: Record<string, { abort: AbortController }> = {}
       return data
     },
     async (current) => {
@@ -171,6 +162,7 @@ export namespace SessionPrompt {
   export type PromptInput = z.infer<typeof PromptInput>
 
   export const prompt = fn(PromptInput, async (input) => {
+    assertNotBusy(input.sessionID)
     await SessionRevert.awaitPending(input.sessionID)
     const session = await Session.get(input.sessionID)
     await SessionRevert.cleanup(session)
@@ -257,7 +249,6 @@ export namespace SessionPrompt {
     const controller = new AbortController()
     s[sessionID] = {
       abort: controller,
-      callbacks: [],
     }
     return controller.signal
   }
@@ -292,10 +283,7 @@ export namespace SessionPrompt {
 
     const abort = resume_existing ? resume(sessionID) : start(sessionID)
     if (!abort) {
-      return new Promise<MessageV2.WithParts>((resolve, reject) => {
-        const callbacks = state()[sessionID].callbacks
-        callbacks.push({ resolve, reject })
-      })
+      throw new Session.BusyError(sessionID)
     }
 
     await using _ = defer(() => cancel(sessionID))
@@ -663,25 +651,6 @@ export namespace SessionPrompt {
         })
       }
 
-      // Ephemerally wrap queued user messages with a reminder to stay on track
-      if (step > 1 && lastFinished) {
-        for (const msg of msgs) {
-          if (msg.info.role !== "user" || msg.info.id <= lastFinished.id) continue
-          for (const part of msg.parts) {
-            if (part.type !== "text" || part.ignored || part.synthetic) continue
-            if (!part.text.trim()) continue
-            part.text = [
-              "<system-reminder>",
-              "The user sent the following message:",
-              part.text,
-              "",
-              "Please address this message and continue with your tasks.",
-              "</system-reminder>",
-            ].join("\n")
-          }
-        }
-      }
-
       await Plugin.trigger("experimental.chat.messages.transform", {}, { messages: msgs })
 
       // Build system prompt, adding structured output instruction if needed
@@ -758,10 +727,6 @@ export namespace SessionPrompt {
     SessionCompaction.prune({ sessionID })
     for await (const item of MessageV2.stream(sessionID)) {
       if (item.info.role === "user") continue
-      const queued = state()[sessionID]?.callbacks ?? []
-      for (const q of queued) {
-        q.resolve(item)
-      }
       return item
     }
     throw new Error("Impossible")
@@ -1600,18 +1565,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
       throw new Session.BusyError(input.sessionID)
     }
 
-    using _ = defer(() => {
-      // If no queued callbacks, cancel (the default)
-      const callbacks = state()[input.sessionID]?.callbacks ?? []
-      if (callbacks.length === 0) {
-        cancel(input.sessionID)
-      } else {
-        // Otherwise, trigger the session loop to process queued items
-        loop({ sessionID: input.sessionID, resume_existing: true }).catch((error) => {
-          log.error("session loop failed to resume after shell command", { sessionID: input.sessionID, error })
-        })
-      }
-    })
+    await using _ = defer(() => cancel(input.sessionID))
 
     await SessionRevert.awaitPending(input.sessionID)
     const session = await Session.get(input.sessionID)

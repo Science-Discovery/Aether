@@ -524,6 +524,13 @@ export abstract class MobileManagerBase {
 
       await this.startPrompt(chatId, messageId, text, effectiveDir, rootId)
     } catch (err) {
+      if (err instanceof Session.BusyError) {
+        await this.adapter.replyText(
+          reply,
+          "当前会话正在生成回复，请等待当前对话结束后再发送；如需立即开始新问题，请先 /new 或切换 /session n。如需停止本会话请输入 /stop",
+        )
+        return
+      }
       console.error(`[${this.adapter.platform}] handleMessage error:`, err)
       try {
         const errMsg = isSessionNotFound(err) ? "会话已不存在" : err instanceof Error ? err.message : String(err)
@@ -643,6 +650,15 @@ export abstract class MobileManagerBase {
         }
       }
     } catch (err) {
+      if (err instanceof Session.BusyError) {
+        await this.adapter
+          .replyText(
+            reply,
+            "当前会话正在生成回复，请等待当前对话结束后再发送；如需立即开始新问题，请先 /new 或切换 /session n。如需停止本会话请输入 /stop",
+          )
+          .catch(() => {})
+        return
+      }
       console.error(`[${this.adapter.platform}] prompt error:`, err)
       const errMsg = isSessionNotFound(err) ? "会话已不存在" : err instanceof Error ? err.message : String(err)
       await this.adapter.replyText(reply, `处理消息时出错: ${errMsg}`).catch(() => {})
