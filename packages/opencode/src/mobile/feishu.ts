@@ -209,9 +209,14 @@ class FeishuManagerImpl extends MobileManagerBase {
 
   private async _doStart(config: FeishuConfig, model: ModelRef | null): Promise<void> {
     this._starting = true
+    this._initialized = false
     try {
-      this.statusMsg("starting", "正在连接飞书...")
+      this.statusMsg("starting", "正在初始化...")
       console.log("[feishu] _doStart called")
+
+      await this.initSessions()
+
+      this.statusMsg("starting", "正在连接飞书...")
 
       const boundHandleMessage = (data: any) => {
         const gap = this._lastWsEventTime ? `gap=${Date.now() - this._lastWsEventTime}ms` : "first"
@@ -287,11 +292,6 @@ class FeishuManagerImpl extends MobileManagerBase {
       this.startHeartbeat()
       this.status = "connected"
       Bus.publish(this.busEvents.Connected, { appId: config.appId })
-
-      const allProjects = this.getProjects()
-      const visibleProjects = allProjects.filter((p) => !(this.projectDir(p) in this._hiddenDirs))
-      this._initialDir = visibleProjects.length > 0 ? this.projectDir(visibleProjects[0]) : Instance.directory
-      console.log("[feishu] initial dir:", this._initialDir)
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       this._error = { code: "start_failed", message }

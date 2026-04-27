@@ -252,7 +252,11 @@ class QQManagerImpl extends MobileManagerBase {
 
   private async _doStart(config: QQConfig, model: ModelRef | null): Promise<void> {
     this._starting = true
+    this._initialized = false
     try {
+      this.statusMsg("starting", "正在初始化...")
+      await this.initSessions()
+
       this.statusMsg("starting", "正在连接QQ...")
       console.log("[qq] _doStart called")
 
@@ -307,11 +311,6 @@ class QQManagerImpl extends MobileManagerBase {
       this.startWsHeartbeat()
       this.status = "connected"
       Bus.publish(this.busEvents.Connected, { appId: config.appId })
-
-      const allProjects = this.getProjects()
-      const visibleProjects = allProjects.filter((p) => !(this.projectDir(p) in this._hiddenDirs))
-      this._initialDir = visibleProjects.length > 0 ? this.projectDir(visibleProjects[0]) : Instance.directory
-      console.log("[qq] initial dir:", this._initialDir)
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       this._error = { code: "start_failed", message }

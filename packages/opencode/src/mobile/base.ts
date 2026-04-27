@@ -106,6 +106,7 @@ export abstract class MobileManagerBase {
   protected _chatSessions: Record<string, string> = {}
   protected _hiddenDirs: Record<string, number> = {}
   protected _initialDir: string = ""
+  protected _initialized: boolean = false
   protected _globalBusListener: ((event: { directory?: string; payload: any }) => void) | null = null
   protected _pendingQuestions: Record<string, Question.Request> = {}
   protected _questionProgress: Record<string, { index: number; answers: string[][] }> = {}
@@ -116,7 +117,6 @@ export abstract class MobileManagerBase {
   protected _busUnsubs: (() => void)[] = []
   protected _manualStop = false
   protected _starting = false
-  protected _ready = false
 
   abstract platformDir(): string
   abstract platformName(): string
@@ -256,6 +256,48 @@ export abstract class MobileManagerBase {
     if (changed) await this.saveHiddenDirs()
   }
 
+  protected async initSessions(): Promise<void> {
+    const allProjects = this.getProjects()
+    const visibleProjects = allProjects.filter((p) => !(this.projectDir(p) in this._hiddenDirs))
+    this._initialDir = visibleProjects.length > 0 ? this.projectDir(visibleProjects[0]) : Instance.directory
+    console.log(`[${this.adapter.platform}] initSessions: initial dir:`, this._initialDir)
+
+    const staleKeys: string[] = []
+    for (const [key, sessionId] of Object.entries(this.sessionMap)) {
+      const parts = key.split(":")
+      const chatId = parts[0]
+      const rootId = parts.slice(1).join(":")
+      const dir = this._chatDirs[chatId] ?? this._initialDir
+      try {
+        const found = await Instance.provide({
+          directory: dir,
+          fn: () => Session.get(SessionID.make(sessionId)),
+        })
+        if (found.time?.archived) {
+          console.log(`[${this.adapter.platform}] initSessions: removing archived mapping:`, key, sessionId)
+          staleKeys.push(key)
+        }
+      } catch {
+        console.log(`[${this.adapter.platform}] initSessions: removing stale mapping:`, key, sessionId)
+        staleKeys.push(key)
+      }
+    }
+    for (const key of staleKeys) {
+      delete this.sessionMap[key]
+    }
+    if (staleKeys.length > 0) await this.saveSessionMap()
+
+    if (this._initialDir) {
+      await Instance.provide({
+        directory: this._initialDir,
+        fn: () => {},
+      })
+    }
+
+    this._initialized = true
+    console.log(`[${this.adapter.platform}] initSessions: ready, sessionMap keys:`, Object.keys(this.sessionMap).length)
+  }
+
   // ── Model helpers ──────────────────────────────────────────────────────────
 
   protected async buildModelList(): Promise<ModelEntry[]> {
@@ -383,32 +425,6 @@ export abstract class MobileManagerBase {
     })
   }
 
-  protected async initReady(chatId: string): Promise<void> {
-    const allProjects = this.getProjects()
-    const visibleProjects = allProjects.filter((p) => !(this.projectDir(p) in this._hiddenDirs))
-    const dir = visibleProjects.length > 0 ? this.projectDir(visibleProjects[0]) : Instance.directory
-    this._initialDir = dir
-    this._chatDirs[chatId] = dir
-    console.log(`[${this.adapter.platform}] initial dir:`, dir)
-
-    const recent = await Instance.provide({
-      directory: dir,
-      fn: () => [...Session.list({ directory: dir, roots: true, limit: 1 })],
-    })
-    if (recent.length > 0) {
-      this._chatSessions[chatId] = recent[0].id
-    } else {
-      const session = await Instance.provide({
-        directory: dir,
-        fn: () => Session.create({ title: `${this.platformName()}对话 - ${new Date().toISOString()}` }),
-      })
-      await this.inheritPreference(session.id, dir)
-      this._chatSessions[chatId] = session.id
-    }
-
-    this._ready = true
-  }
-
   protected async currentSession(chatId: string, create?: boolean): Promise<string | undefined> {
     const pinned = this._chatSessions[chatId]
     if (pinned) return pinned
@@ -434,15 +450,11 @@ export abstract class MobileManagerBase {
   // ── Message handling ────────────────────────────────────────────────────────
 
   async handleMessage(chatId: string, messageId: string, text: string, rootId: string): Promise<void> {
-    if (!this._ready) {
-      console.log(`[${this.adapter.platform}] initializing session before handling message`)
-      await this.initReady(chatId)
-      await this.adapter.replyText(
-        this.replyTarget(chatId, messageId),
-        (await this.formatHeader(chatId)) + "连接成功，可以开始对话了 👋",
-      )
-    }
     const reply = this.replyTarget(chatId, messageId)
+    if (!this._initialized) {
+      console.log(`[${this.adapter.platform}] handleMessage: skipping, sessions not initialized`)
+      return
+    }
     try {
       console.log(`[${this.adapter.platform}] handleMessage:`, text, localISOString())
 
@@ -590,6 +602,23 @@ export abstract class MobileManagerBase {
     this._activePrompt.set(chatId, { sessionId: "", messageId, directory: effectiveDir })
     const sessionKey = `${chatId}:${rootId}`
     let sessionId = this._chatSessions[chatId] ?? this.sessionMap[sessionKey]
+
+    if (sessionId) {
+      try {
+        await Instance.provide({
+          directory: effectiveDir,
+          fn: () => Session.get(SessionID.make(sessionId)),
+        })
+      } catch {
+        console.log(`[${this.adapter.platform}] cached session no longer exists, clearing:`, sessionId)
+        delete this._chatSessions[chatId]
+        for (const key of Object.keys(this.sessionMap)) {
+          if (this.sessionMap[key] === sessionId) delete this.sessionMap[key]
+        }
+        await this.saveSessionMap()
+        sessionId = ""
+      }
+    }
 
     if (!sessionId) {
       const recent = await Instance.provide({
