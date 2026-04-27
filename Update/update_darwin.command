@@ -453,7 +453,10 @@ done
 shopt -u nullglob
 
 chmod +x "$target/aether" "$target/Aether.command"
-uv="$(find "$target/wechat-bridge/runtime/uv" -name 'uv-*apple-darwin*/uv' -type f 2>/dev/null | head -1)"
+uv=""
+if [ -d "$target/wechat-bridge/runtime/uv" ]; then
+  uv="$(find "$target/wechat-bridge/runtime/uv" -name 'uv-*apple-darwin*/uv' -type f 2>/dev/null | head -1 || true)"
+fi
 if [ -f "$uv" ]; then
   chmod +x "$uv"
 fi
