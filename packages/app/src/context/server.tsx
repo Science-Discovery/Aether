@@ -1,8 +1,9 @@
 import { createSimpleContext } from "@opencode-ai/ui/context"
 import { type Accessor, batch, createEffect, createMemo, onCleanup } from "solid-js"
-import { createStore } from "solid-js/store"
+import { createStore, produce } from "solid-js/store"
 import { Persist, persisted } from "@/utils/persist"
 import { useCheckServerHealth } from "@/utils/server-health"
+import { closeList } from "./server-close"
 
 type StoredProject = { worktree: string; expanded: boolean }
 type StoredServer = string | ServerConnection.HttpBase | ServerConnection.Http
@@ -247,11 +248,18 @@ export const { use: useServer, provider: ServerProvider } = createSimpleContext(
         close(directory: string) {
           const key = origin()
           if (!key) return
-          const current = store.projects[key] ?? []
+          const out = closeList(store.projects[key] ?? [], store.lastProject[key], directory)
+          setStore("projects", key, out.next)
+          if (!out.edit) return
+          if (out.last) {
+            setStore("lastProject", key, out.last)
+            return
+          }
           setStore(
-            "projects",
-            key,
-            current.filter((x) => x.worktree !== directory),
+            "lastProject",
+            produce((draft) => {
+              delete draft[key]
+            }),
           )
         },
         expand(directory: string) {

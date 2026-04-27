@@ -232,9 +232,40 @@ function createGlobalSync() {
   }
 
   let recentTask: Promise<void> | undefined
+  const sep = "----------------------------------------"
+  let req = 0
+
+  function log(input: {
+    id?: number
+    dir: string
+    name: string
+    phase: "start" | "ok" | "fail"
+    ms?: number
+    err?: string
+  }) {
+    if (input.phase === "start") {
+      req += 1
+      console.log(`\n${sep} request ${sep}`)
+      console.log(`[request] id=${req} dir=${input.dir} name=${input.name} status=start`)
+      return req
+    }
+    const id = input.id ?? req
+    if (input.phase === "ok") {
+      console.log(`[request] id=${id} dir=${input.dir} name=${input.name} status=ok ms=${input.ms ?? 0}`)
+      console.log(`${sep} end ${sep}`)
+      return id
+    }
+    console.log(
+      `[request] id=${id} dir=${input.dir} name=${input.name} status=fail ms=${input.ms ?? 0} error=${input.err ?? ""}`,
+    )
+    console.log(`${sep} end ${sep}`)
+    return id
+  }
 
   function refreshRecent() {
     if (recentTask) return recentTask
+    const t0 = performance.now()
+    const id = log({ dir: "global", name: "project.recent", phase: "start" })
     recentTask = globalSDK.client.project
       .recent()
       .then((x) => {
@@ -243,8 +274,18 @@ function createGlobalSync() {
           .filter((item) => !!item.directory)
           .filter((item) => !isRoot(item.directory))
         setRecent(next)
+        log({ id, dir: "global", name: "project.recent", phase: "ok", ms: Math.round(performance.now() - t0) })
       })
       .catch((err) => {
+        const msg = err instanceof Error ? err.message : String(err)
+        log({
+          id,
+          dir: "global",
+          name: "project.recent",
+          phase: "fail",
+          ms: Math.round(performance.now() - t0),
+          err: msg,
+        })
         console.error("Failed to refresh recent projects", err)
       })
       .finally(() => {
@@ -257,6 +298,9 @@ function createGlobalSync() {
     directory = normalizeDir(directory)
     const pending = sessionLoads.get(directory)
     if (pending) return pending
+
+    const t0 = performance.now()
+    const id = log({ dir: directory, name: "session.list(roots+desc)", phase: "start" })
 
     children.pin(directory)
     const [store, setStore] = children.child(directory, { bootstrap: false })
@@ -321,8 +365,24 @@ function createGlobalSync() {
           setStore("session_status", reconcile(x.data!))
         })
         sessionMeta.set(directory, { limit })
+        log({
+          id,
+          dir: directory,
+          name: "session.list(roots+desc)",
+          phase: "ok",
+          ms: Math.round(performance.now() - t0),
+        })
       })
       .catch((err) => {
+        const msg = err instanceof Error ? err.message : String(err)
+        log({
+          id,
+          dir: directory,
+          name: "session.list(roots+desc)",
+          phase: "fail",
+          ms: Math.round(performance.now() - t0),
+          err: msg,
+        })
         console.error("Failed to load sessions", err)
         const project = getFilename(directory)
         showToast({

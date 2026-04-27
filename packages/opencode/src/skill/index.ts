@@ -677,6 +677,7 @@ export namespace Skill {
             let sig = first.sig
             let roots = uniq([...set.global, ...set.project])
             const ws: WatchState = { alive: false, back: watchBack() }
+            let sid = 0
 
             const close: Array<() => Promise<void>> = []
             const seen = new Map<string, boolean>()
@@ -911,33 +912,39 @@ export namespace Skill {
             const backs = (): Back[] => (ws.back === "parcel" ? (["parcel", "poll"] as Back[]) : (["poll"] as Back[]))
 
             const startWatch = async () => {
-              await closeAll()
-              const list = backs()
-              const mark = await Promise.all(roots.map(async (dir) => Filesystem.isDir(dir)))
-              const exist = mark.reduce((sum, item) => sum + (item ? 1 : 0), 0)
-              const miss = roots.filter((_dir, idx) => !mark[idx]).slice(0, 6)
-              const all = roots.map((dir, idx) => `${mark[idx] ? "ok" : "miss"}:${dir}`)
-              console.log(
-                `[skill watch] chain=${list.join("->")} roots=${roots.length} exists=${exist} missing=${roots.length - exist}`,
-              )
-              console.log(`[skill watch] roots all=${all.join(" | ")}`)
-              if (miss.length > 0) console.log(`[skill watch] missing sample=${miss.join(" | ")}`)
-              let prev: Back | undefined
-              for (const item of list) {
-                console.log(`[skill watch] try backend=${item}`)
-                const ok = await setup(item)
-                if (!ok) {
-                  console.log(`[skill watch] try failed backend=${item}`)
-                  prev = item
-                  continue
+              const id = ++sid
+              console.log(`\n========== SKILL WATCH BEGIN #${id} [dir=${ctx.directory}] ==========`)
+              try {
+                await closeAll()
+                const list = backs()
+                const mark = await Promise.all(roots.map(async (dir) => Filesystem.isDir(dir)))
+                const exist = mark.reduce((sum, item) => sum + (item ? 1 : 0), 0)
+                const miss = roots.filter((_dir, idx) => !mark[idx]).slice(0, 6)
+                const all = roots.map((dir, idx) => `${mark[idx] ? "ok" : "miss"}:${dir}`)
+                console.log(
+                  `[skill watch] chain=${list.join("->")} roots=${roots.length} exists=${exist} missing=${roots.length - exist}`,
+                )
+                console.log(`[skill watch] roots all=${all.join(" | ")}`)
+                if (miss.length > 0) console.log(`[skill watch] missing sample=${miss.join(" | ")}`)
+                let prev: Back | undefined
+                for (const item of list) {
+                  console.log(`[skill watch] try backend=${item}`)
+                  const ok = await setup(item)
+                  if (!ok) {
+                    console.log(`[skill watch] try failed backend=${item}`)
+                    prev = item
+                    continue
+                  }
+                  ws.back = item
+                  ws.alive = true
+                  console.log(`[skill watch] try ok backend=${item}`)
+                  if (prev) console.log(`[skill watch] fallback from=${prev} to=${item}`)
+                  return
                 }
-                ws.back = item
-                ws.alive = true
-                console.log(`[skill watch] try ok backend=${item}`)
-                if (prev) console.log(`[skill watch] fallback from=${prev} to=${item}`)
-                return
+                ws.alive = false
+              } finally {
+                console.log(`========== SKILL WATCH END   #${id} [dir=${ctx.directory}] ==========`)
               }
-              ws.alive = false
             }
 
             const restart = async () => {
