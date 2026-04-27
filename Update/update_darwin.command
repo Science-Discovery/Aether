@@ -453,12 +453,19 @@ done
 shopt -u nullglob
 
 chmod +x "$target/aether" "$target/Aether.command"
-uv="$(find "$target/wechat-bridge/runtime/uv" -name 'uv-*apple-darwin*/uv' -type f 2>/dev/null | head -1)"
+uv=""
+shopt -s nullglob
+for file in "$target"/wechat-bridge/runtime/uv/uv-*apple-darwin*/uv; do
+  [ -f "$file" ] || continue
+  uv="$file"
+  break
+done
+shopt -u nullglob
 if [ -f "$uv" ]; then
   chmod +x "$uv"
 fi
 xattr -cr "$target/aether" "$target/Aether.command" >/dev/null 2>&1 || true
-if [ -n "$uv" ] && [ -f "$uv" ]; then
+if [ -f "$uv" ]; then
   xattr -cr "$uv" >/dev/null 2>&1 || true
 fi
 printf "%s\n" "$ver" >"$target/.aether_web_version"
