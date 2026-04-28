@@ -29,6 +29,10 @@
   let captureModeActive = false;
   let captureDrag = null;
 
+  function applyTheme() {
+    window.applyOCThemePreload?.();
+  }
+
   function post(type, payload) {
     window.parent?.postMessage({ channel: CHANNEL, type, ...(payload || {}) }, ORIGIN);
   }
@@ -835,6 +839,11 @@
         if (window.PDFViewerApplication?.pdfDocument) {
           window.PDFViewerApplication.page = Math.round(page);
         }
+        return;
+      }
+
+      if (event.data.type === "themechange") {
+        applyTheme();
       }
     },
     false,
@@ -843,6 +852,8 @@
   window.addEventListener(
     "load",
     function () {
+      applyTheme();
+      PDFViewerApplicationOptions.set("workerSrc", "/pdfjs-ref/build/pdf.worker.js");
       PDFViewerApplicationOptions.set("cMapUrl", C_MAP_URL);
       PDFViewerApplicationOptions.set("standardFontDataUrl", STANDARD_FONT_DATA_URL);
       PDFViewerApplication.initializedPromise.then(function () {

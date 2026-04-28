@@ -50,6 +50,44 @@ body.aether-pdf-viewer {
   --aether-swap-right-icon: url("/pdfjs-ref/web/images/aether-swap-layout-right.svg");
   --aether-swap-left-icon: url("/pdfjs-ref/web/images/aether-swap-layout-left.svg");
   --aether-reading-mode-icon: url("/pdfjs-ref/web/images/aether-reading-mode.svg");
+  --main-color: var(--text-strong);
+  --body-bg-color: var(--background-base);
+  --progressBar-color: var(--border-selected);
+  --progressBar-indeterminate-bg-color: var(--surface-base-hover);
+  --progressBar-indeterminate-blend-color: var(--surface-interactive-base);
+  --toolbar-icon-bg-color: var(--text-base);
+  --toolbar-icon-hover-bg-color: var(--text-strong);
+  --sidebar-narrow-bg-color: color-mix(in srgb, var(--surface-raised-stronger-non-alpha) 88%, transparent);
+  --sidebar-toolbar-bg-color: var(--surface-raised-base);
+  --toolbar-bg-color: var(--surface-raised-stronger-non-alpha);
+  --toolbar-border-color: var(--border-base);
+  --toolbar-box-shadow: 0 1px 0 var(--toolbar-border-color);
+  --toolbarSidebar-box-shadow:
+    inset calc(-1px * var(--dir-factor)) 0 0 var(--border-weak-base),
+    0 1px 0 var(--border-weak-base);
+  --button-hover-color: var(--surface-base-hover);
+  --toggled-btn-color: var(--text-strong);
+  --toggled-btn-bg-color: var(--surface-base-active);
+  --dropdown-btn-bg-color: var(--surface-raised-base);
+  --separator-color: var(--border-base);
+  --field-color: var(--text-strong);
+  --field-bg-color: var(--input-base);
+  --field-border-color: var(--border-base);
+  --treeitem-color: var(--text-base);
+  --treeitem-hover-color: var(--text-strong);
+  --treeitem-selected-color: var(--text-strong);
+  --treeitem-selected-bg-color: var(--surface-base-active);
+  --sidebaritem-bg-color: var(--surface-base-hover);
+  --doorhanger-bg-color: var(--surface-raised-stronger-non-alpha);
+  --doorhanger-border-color: var(--border-base);
+  --doorhanger-hover-color: var(--text-strong);
+  --doorhanger-hover-bg-color: var(--surface-base-hover);
+  --doorhanger-separator-color: var(--border-weak-base);
+  --dialog-button-bg-color: var(--surface-raised-base);
+  --dialog-button-hover-bg-color: var(--surface-base-hover);
+  background-color: var(--background-base);
+  color: var(--text-base);
+  font-family: var(--font-family-sans);
 }
 
 body.aether-pdf-viewer #aetherPdf2md {
@@ -182,13 +220,13 @@ body.aether-pdf-viewer #viewerContainer {
 }
 
 body.aether-pdf-viewer[data-night-mode="on"] #viewerContainer {
-  background: #2a2c30;
+  background: var(--background-strong);
 }
 
 body.aether-pdf-viewer[data-night-mode="on"] .pdfViewer .page,
 body.aether-pdf-viewer[data-night-mode="on"] .pdfViewer .dummyPage {
-  background: #2a2c30;
-  box-shadow: 0 1px 4px rgb(0 0 0 / 0.4);
+  background: var(--background-strong);
+  box-shadow: var(--shadow-xs-border-base);
 }
 
 body.aether-pdf-viewer[data-night-mode="on"] .pdfViewer .page canvas {
@@ -222,12 +260,10 @@ body.aether-pdf-viewer #aetherSelectionMenu {
   align-items: center;
   gap: 4px;
   padding: 6px;
-  border: 1px solid rgb(255 255 255 / 0.08);
+  border: 1px solid var(--border-base);
   border-radius: 10px;
-  background: rgb(16 18 24 / 0.94);
-  box-shadow:
-    0 12px 28px rgb(0 0 0 / 0.32),
-    inset 0 1px 0 rgb(255 255 255 / 0.04);
+  background: color-mix(in srgb, var(--surface-raised-stronger-non-alpha) 94%, transparent);
+  box-shadow: var(--shadow-lg-border-base);
   backdrop-filter: blur(12px);
 }
 
@@ -239,11 +275,11 @@ body.aether-pdf-viewer #aetherSelectionHint {
   transform: translateX(-50%);
   max-width: min(320px, calc(100vw - 24px));
   padding: 7px 10px;
-  border: 1px solid rgb(255 255 255 / 0.08);
+  border: 1px solid var(--border-base);
   border-radius: 999px;
-  background: rgb(16 18 24 / 0.94);
-  box-shadow: 0 10px 24px rgb(0 0 0 / 0.28);
-  color: rgb(247 248 250 / 0.92);
+  background: color-mix(in srgb, var(--surface-raised-stronger-non-alpha) 94%, transparent);
+  box-shadow: var(--shadow-lg-border-base);
+  color: var(--text-strong);
   font-size: 12px;
   line-height: 1.2;
   text-align: center;
@@ -254,7 +290,7 @@ body.aether-pdf-viewer .aetherSelectionMenuButton {
   border: 0;
   border-radius: 8px;
   background: transparent;
-  color: rgb(247 248 250 / 0.92);
+  color: var(--text-strong);
   font: inherit;
   font-size: 12px;
   font-weight: 600;
@@ -266,7 +302,7 @@ body.aether-pdf-viewer .aetherSelectionMenuButton {
 body.aether-pdf-viewer .aetherSelectionMenuButton:hover,
 body.aether-pdf-viewer .aetherSelectionMenuButton:focus-visible {
   outline: none;
-  background: rgb(255 255 255 / 0.1);
+  background: var(--surface-base-hover);
 }
 
 body.aether-pdf-viewer #aetherCaptureOverlay {
@@ -284,16 +320,14 @@ body.aether-pdf-viewer #aetherCaptureOverlay[hidden] {
 body.aether-pdf-viewer #aetherCaptureShade {
   position: absolute;
   inset: 0;
-  background: rgb(3 6 14 / 0.14);
+  background: color-mix(in srgb, var(--background-base) 18%, transparent);
 }
 
 body.aether-pdf-viewer #aetherCaptureBox {
   position: absolute;
-  border: 1px solid rgb(104 184 255 / 0.95);
-  background: rgb(84 169 255 / 0.16);
-  box-shadow:
-    0 0 0 1px rgb(255 255 255 / 0.1),
-    0 8px 24px rgb(0 0 0 / 0.18);
+  border: 1px solid var(--border-selected);
+  background: color-mix(in srgb, var(--surface-interactive-base) 32%, transparent);
+  box-shadow: var(--shadow-xs-border-select);
   pointer-events: none;
 }
 

@@ -43,4 +43,14 @@ describe("theme preload", () => {
     expect(document.documentElement.dataset.theme).toBe("nightowl")
     expect(document.getElementById("oc-theme-preload")?.textContent).toContain("--background-base:#fff;")
   })
+
+  test("reapplies without duplicating preload style", () => {
+    localStorage.setItem("opencode-theme-id", "nightowl")
+    localStorage.setItem("opencode-theme-css-light", "--background-base:#fff;")
+
+    run()
+    ;(window as Window & { applyOCThemePreload?: () => void }).applyOCThemePreload?.()
+
+    expect(document.querySelectorAll("#oc-theme-preload")).toHaveLength(1)
+  })
 })
