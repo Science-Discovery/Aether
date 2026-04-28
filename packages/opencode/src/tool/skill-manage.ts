@@ -7,6 +7,7 @@ import { Global } from "../global"
 import { Skill } from "../skill"
 import { scanSkill, assertAllowed } from "./skill-guard"
 import { SkillDirty } from "../session/skill-dirty"
+import { snapshot, snapshotBeforeDelete, rollback as versionRollback, listVersions, formatHistory } from "./skill-versions"
 
 const SKILLS_DIR = path.join(Global.Path.data, "skills")
 
@@ -92,7 +93,7 @@ async function atomicWrite(filePath: string, content: string): Promise<void> {
 
 const parameters = z.object({
   action: z
-    .enum(["create", "edit", "patch", "delete", "write_file", "remove_file"])
+    .enum(["create", "edit", "patch", "delete", "write_file", "remove_file", "history", "rollback"])
     .describe("Action to perform on a skill"),
   name: z.string().describe("Skill name (directory name under the skills folder). Required for all actions."),
   description: z
@@ -106,20 +107,24 @@ const parameters = z.object({
   old_str: z.string().optional().describe("Exact text to replace (patch action)"),
   new_str: z.string().optional().describe("Replacement text (patch action)"),
   relative_path: z.string().optional().describe("Path relative to the skill directory for write_file/remove_file"),
+  version: z.string().optional().describe("Version label to rollback to, e.g. 'v002' or '2' (rollback action)"),
 })
 
 export const SkillManageTool = Tool.define("skill_manage", async () => {
   return {
     description: [
-      "Create, edit, patch, or delete skills (reusable procedural memories saved as SKILL.md files).",
+      "Create, edit, patch, delete, or version-manage skills (reusable procedural memories saved as SKILL.md files).",
       "",
       "Actions:",
       "  create       — Create a new skill with name, description, and content.",
-      "  edit         — Overwrite an existing skill's description and content.",
-      "  patch        — Replace a specific section (old_str → new_str) in a skill.",
+      "  edit         — Fully rewrite a skill (new description + new content). Use when the entire approach has changed.",
+      "  patch        — Replace a specific section (old_str → new_str). Use for targeted fixes.",
       "  delete       — Delete a skill and its entire directory.",
-      "  write_file   — Write an auxiliary file inside a skill directory.",
-      "  remove_file  — Remove an auxiliary file inside a skill directory.",
+      "  history      — List all saved versions of a skill.",
+      "  rollback     — Restore a skill to a previous version (requires 'version' param, e.g. 'v002').",
+      "",
+      "Every successful create/edit/patch automatically saves a version snapshot.",
+      "Use 'history' to browse versions and 'rollback' to recover from a bad evolution.",
       "",
       "Skills are stored under ~/.local/share/aether/skills/<name>/SKILL.md",
     ].join("\n"),
@@ -163,6 +168,7 @@ export const SkillManageTool = Tool.define("skill_manage", async () => {
             await Skill.clearSkillsPromptCache()
             Skill.markClear()
             Skill.markDone(skillFile)
+            await snapshot(skillDir, "create")
             mark()
             return {
               title: `Created skill: ${name}`,
@@ -193,6 +199,7 @@ export const SkillManageTool = Tool.define("skill_manage", async () => {
             await Skill.clearSkillsPromptCache()
             Skill.markClear()
             Skill.markDone(skillFile)
+            await snapshot(skillDir, "edit")
             mark()
             return {
               title: `Updated skill: ${name}`,
@@ -229,6 +236,7 @@ export const SkillManageTool = Tool.define("skill_manage", async () => {
             await Skill.clearSkillsPromptCache()
             Skill.markClear()
             Skill.markDone(skillFile)
+            await snapshot(skillDir, "patch")
             mark()
             return {
               title: `Patched skill: ${name}`,
@@ -290,6 +298,35 @@ export const SkillManageTool = Tool.define("skill_manage", async () => {
             throw new Error(`File not found: ${targetPath}`)
           })
           return { title: `Removed file in skill: ${name}`, output: `File removed: ${targetPath}`, metadata: {} }
+        }
+
+        case "history": {
+          const versions = await listVersions(skillDir)
+          return {
+            title: `Version history: ${name}`,
+            output: formatHistory(name, versions),
+            metadata: { count: String(versions.length) },
+          }
+        }
+
+        case "rollback": {
+          if (!params.version) throw new Error("version is required for rollback, e.g. 'v002' or '2'")
+          Skill.markBegin(skillFile)
+          try {
+            const { restoredFrom } = await versionRollback(skillDir, params.version)
+            await Skill.clearSkillsPromptCache()
+            Skill.markClear()
+            Skill.markDone(skillFile)
+            mark()
+            return {
+              title: `Rolled back skill: ${name}`,
+              output: `Skill "${name}" restored from ${restoredFrom}`,
+              metadata: { skillDir, restoredFrom },
+            }
+          } catch (err) {
+            Skill.markDrop(skillFile)
+            throw err
+          }
         }
 
         default:

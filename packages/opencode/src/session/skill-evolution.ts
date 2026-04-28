@@ -44,8 +44,10 @@ export const SKILLS_GUIDANCE = [
   "After completing a complex task (5+ tool calls), fixing a tricky error,",
   "or discovering a non-trivial workflow, save the approach as a skill with",
   "skill_manage so you can reuse it next time.",
-  "When using a skill and finding it outdated, incomplete, or wrong,",
-  "patch it immediately with skill_manage(action='patch') — don't wait to be asked.",
+  "When using a skill and finding it outdated, incomplete, or wrong, update it",
+  "immediately with skill_manage — don't wait to be asked.",
+  "Use action='patch' for targeted fixes (a step changed, add content, fix wording).",
+  "Use action='edit' when the entire approach has fundamentally changed and a full rewrite is needed.",
   "Skills that aren't maintained become liabilities.",
 ].join("\n")
 

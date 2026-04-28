@@ -6,6 +6,7 @@
 
 import fs from "fs/promises"
 import path from "path"
+import { isVersionsDir } from "./skill-versions"
 
 // ---------------------------------------------------------------------------
 // Trust / policy
@@ -261,6 +262,7 @@ async function checkStructure(skillDir: string): Promise<Finding[]> {
   async function walk(dir: string) {
     const entries = await fs.readdir(dir, { withFileTypes: true }).catch(() => [])
     for (const entry of entries) {
+      if (entry.isDirectory() && isVersionsDir(entry.name)) continue
       const full = path.join(dir, entry.name)
       const rel = path.relative(skillDir, full)
 
@@ -337,6 +339,7 @@ export async function scanSkill(skillDir: string, source = "agent-created"): Pro
   async function scanDir(dir: string) {
     const entries = await fs.readdir(dir, { withFileTypes: true }).catch(() => [])
     for (const entry of entries) {
+      if (entry.isDirectory() && isVersionsDir(entry.name)) continue
       const full = path.join(dir, entry.name)
       if (entry.isDirectory()) {
         await scanDir(full)
