@@ -220,6 +220,9 @@ class WeChatManagerImpl extends MobileManagerBase {
 
     this._error = null
 
+    this.sessionMap = await this.loadSessionMap()
+    this._hiddenDirs = await this.loadHiddenDirs()
+
     const savedSession = await this.adapter.loadSession()
     if (savedSession?.connected && savedSession.user) {
       const state = await this.loadILinkState()
@@ -232,15 +235,14 @@ class WeChatManagerImpl extends MobileManagerBase {
         this.status = "connected"
         Bus.publish(this.busEvents.Connected, { user: savedSession.user })
         this._pollRunning = true
+        this._initialized = false
+        await this.initSessions()
         void this.pollLoop()
         this.subscribeBusEvents()
         this._modelList = []
         void this.buildModelList().then((list) => {
           this._modelList = list
         })
-        const allProjects = this.getProjects()
-        const visibleProjects = allProjects.filter((p) => !(this.projectDir(p) in this._hiddenDirs))
-        this._initialDir = visibleProjects.length > 0 ? this.projectDir(visibleProjects[0]) : Instance.directory
         return { success: true, status: "connected", user: savedSession.user }
       }
     }
@@ -281,15 +283,14 @@ class WeChatManagerImpl extends MobileManagerBase {
       await this.saveWcSession()
       this.status = "connected"
       this._pollRunning = true
+      this._initialized = false
+      await this.initSessions()
       void this.pollLoop()
       this.subscribeBusEvents()
       this._modelList = []
       void this.buildModelList().then((list) => {
         this._modelList = list
       })
-      const allProjects = this.getProjects()
-      const visibleProjects = allProjects.filter((p) => !(this.projectDir(p) in this._hiddenDirs))
-      this._initialDir = visibleProjects.length > 0 ? this.projectDir(visibleProjects[0]) : Instance.directory
       return
     }
 
@@ -324,15 +325,14 @@ class WeChatManagerImpl extends MobileManagerBase {
       await this.saveILinkState()
 
       this._pollRunning = true
+      this._initialized = false
+      await this.initSessions()
       void this.pollLoop()
       this.subscribeBusEvents()
       this._modelList = []
       void this.buildModelList().then((list) => {
         this._modelList = list
       })
-      const allProjects = this.getProjects()
-      const visibleProjects = allProjects.filter((p) => !(this.projectDir(p) in this._hiddenDirs))
-      this._initialDir = visibleProjects.length > 0 ? this.projectDir(visibleProjects[0]) : Instance.directory
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       console.error("[wechat] loginAndPoll failed:", err)

@@ -102,22 +102,35 @@ class QQAdapter implements MobileAdapter {
     }
   }
 
+  private getFileType(filename: string): number {
+    const ext = (filename.split(".").pop() ?? "").toLowerCase()
+    if (["png", "jpg", "jpeg", "gif", "webp"].includes(ext)) return 1
+    if (["mp4", "avi", "mov", "mkv"].includes(ext)) return 2
+    if (["silk", "wav", "mp3", "flac", "ogg", "amr"].includes(ext)) return 3
+    return 4
+  }
+
   async replyFile(messageId: string, filePath: string): Promise<void> {
-    if (!this._accessToken || !this._appId) return
+    if (!this._appId) return
     const chatId = this.manager._currentChatId
     const info = chatId ? this.manager._chatInfos[chatId] : undefined
     if (!info) return
 
     try {
       const { stat, readFile } = await import("fs/promises")
-      const info2 = await stat(filePath)
-      if (info2.size > 30 * 1024 * 1024) return
+      const fstat = await stat(filePath)
+      if (fstat.size > 30 * 1024 * 1024) return
       const filename = basename(filePath)
+      const fileType = this.getFileType(filename)
+
+      if (info.type === "group" && fileType === 4) {
+        console.warn("[qq] file_type=4 (file) not supported in group chats")
+        return
+      }
+
       const fileBuffer = await readFile(filePath)
       const token = await this.getAccessToken()
-
-      const form = new FormData()
-      form.append("file", new Blob([new Uint8Array(fileBuffer)]), filename)
+      const base64Data = Buffer.from(fileBuffer).toString("base64")
 
       const uploadUrl =
         info.type === "c2c"
@@ -125,12 +138,16 @@ class QQAdapter implements MobileAdapter {
           : `https://api.sgroup.qq.com/v2/groups/${info.openid}/files`
       const uploadResp = await fetch(uploadUrl, {
         method: "POST",
-        headers: { Authorization: `QQBot ${token}` },
-        body: form,
+        headers: { Authorization: `QQBot ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          file_type: fileType,
+          srv_send_msg: false,
+          file_data: base64Data,
+        }),
       })
       const uploadData = (await uploadResp.json()) as any
-      const fileUuid = uploadData?.file_uuid ?? uploadData?.uuid
-      if (!fileUuid) {
+      const fileInfo = uploadData?.file_info
+      if (!fileInfo) {
         console.error("[qq] file upload failed:", JSON.stringify(uploadData))
         return
       }
@@ -145,10 +162,10 @@ class QQAdapter implements MobileAdapter {
         body: JSON.stringify({
           msg_type: 7,
           msg_id: messageId,
-          media: { file_info: fileUuid },
+          media: { file_info: fileInfo },
         }),
       })
-      console.log("[qq] sent file:", filename)
+      console.log("[qq] sent file:", filename, "type:", fileType, "chat:", info.type)
     } catch (err) {
       console.error("[qq] replyFile error:", filePath, err)
     }
@@ -252,7 +269,11 @@ class QQManagerImpl extends MobileManagerBase {
 
   private async _doStart(config: QQConfig, model: ModelRef | null): Promise<void> {
     this._starting = true
+    this._initialized = false
     try {
+      this.statusMsg("starting", "正在初始化...")
+      await this.initSessions()
+
       this.statusMsg("starting", "正在连接QQ...")
       console.log("[qq] _doStart called")
 
@@ -307,11 +328,6 @@ class QQManagerImpl extends MobileManagerBase {
       this.startWsHeartbeat()
       this.status = "connected"
       Bus.publish(this.busEvents.Connected, { appId: config.appId })
-
-      const allProjects = this.getProjects()
-      const visibleProjects = allProjects.filter((p) => !(this.projectDir(p) in this._hiddenDirs))
-      this._initialDir = visibleProjects.length > 0 ? this.projectDir(visibleProjects[0]) : Instance.directory
-      console.log("[qq] initial dir:", this._initialDir)
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       this._error = { code: "start_failed", message }
@@ -515,9 +531,9 @@ class QQManagerImpl extends MobileManagerBase {
     this._chatInfos = {}
     if (!reset) return
     this._connectedModel = null
-    this._chatDirs = {}
-    this._chatSessions = {}
+    this._scopeDirs = {}
     this._initialDir = ""
+    this._initialSessionId = ""
     this.status = "idle"
   }
 

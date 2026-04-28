@@ -3,7 +3,6 @@ import { existsSync } from "fs"
 import { basename } from "path"
 import * as lark from "@larksuiteoapi/node-sdk"
 import { Bus } from "@/bus"
-import { Instance } from "@/project/instance"
 import { MobileManagerBase } from "./base"
 import type { MobileAdapter, MobileStatus, ModelRef } from "./base"
 
@@ -169,6 +168,10 @@ class FeishuManagerImpl extends MobileManagerBase {
     return "飞书"
   }
 
+  protected override scopeKey(chatId: string, rootId: string): string {
+    return rootId ? `${chatId}:${rootId}` : chatId
+  }
+
   get session() {
     return this._feishuSession
   }
@@ -209,9 +212,14 @@ class FeishuManagerImpl extends MobileManagerBase {
 
   private async _doStart(config: FeishuConfig, model: ModelRef | null): Promise<void> {
     this._starting = true
+    this._initialized = false
     try {
-      this.statusMsg("starting", "正在连接飞书...")
+      this.statusMsg("starting", "正在初始化...")
       console.log("[feishu] _doStart called")
+
+      await this.initSessions()
+
+      this.statusMsg("starting", "正在连接飞书...")
 
       const boundHandleMessage = (data: any) => {
         const gap = this._lastWsEventTime ? `gap=${Date.now() - this._lastWsEventTime}ms` : "first"
@@ -223,7 +231,7 @@ class FeishuManagerImpl extends MobileManagerBase {
 
         const chatId = message.chat_id
         const messageId = message.message_id
-        const rootId = message.root_id || message.parent_id || messageId
+        const rootId = message.root_id || message.parent_id || ""
         const chatType = message.chat_type
 
         if (chatType === "group") {
@@ -262,7 +270,7 @@ class FeishuManagerImpl extends MobileManagerBase {
 
       const eventDispatcher = new lark.EventDispatcher({})
       eventDispatcher.register({
-        "im.message.receive_v1": Instance.bind(boundHandleMessage),
+        "im.message.receive_v1": boundHandleMessage,
       })
 
       this.wsClient = new lark.WSClient({
@@ -287,11 +295,6 @@ class FeishuManagerImpl extends MobileManagerBase {
       this.startHeartbeat()
       this.status = "connected"
       Bus.publish(this.busEvents.Connected, { appId: config.appId })
-
-      const allProjects = this.getProjects()
-      const visibleProjects = allProjects.filter((p) => !(this.projectDir(p) in this._hiddenDirs))
-      this._initialDir = visibleProjects.length > 0 ? this.projectDir(visibleProjects[0]) : Instance.directory
-      console.log("[feishu] initial dir:", this._initialDir)
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       this._error = { code: "start_failed", message }
@@ -414,9 +417,9 @@ class FeishuManagerImpl extends MobileManagerBase {
     this._activePrompt.clear()
     if (!reset) return
     this._connectedModel = null
-    this._chatDirs = {}
-    this._chatSessions = {}
+    this._scopeDirs = {}
     this._initialDir = ""
+    this._initialSessionId = ""
     this.status = "idle"
   }
 

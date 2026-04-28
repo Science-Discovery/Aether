@@ -102,10 +102,11 @@ export abstract class MobileManagerBase {
   protected _connectedModel: ModelRef | null = null
   protected _modelList: ModelEntry[] = []
   protected sessionMap: SessionMapKey = {}
-  protected _chatDirs: Record<string, string> = {}
-  protected _chatSessions: Record<string, string> = {}
+  protected _scopeDirs: Record<string, string> = {}
   protected _hiddenDirs: Record<string, number> = {}
   protected _initialDir: string = ""
+  protected _initialSessionId: string = ""
+  protected _initialized: boolean = false
   protected _globalBusListener: ((event: { directory?: string; payload: any }) => void) | null = null
   protected _pendingQuestions: Record<string, Question.Request> = {}
   protected _questionProgress: Record<string, { index: number; answers: string[][] }> = {}
@@ -119,6 +120,10 @@ export abstract class MobileManagerBase {
 
   abstract platformDir(): string
   abstract platformName(): string
+
+  protected scopeKey(chatId: string, rootId: string): string {
+    return chatId
+  }
 
   protected replyTarget(chatId: string, messageId: string): string {
     return messageId
@@ -255,6 +260,69 @@ export abstract class MobileManagerBase {
     if (changed) await this.saveHiddenDirs()
   }
 
+  protected async initSessions(): Promise<void> {
+    const allProjects = this.getProjects()
+    const visibleProjects = allProjects.filter((p) => !(this.projectDir(p) in this._hiddenDirs))
+    if (visibleProjects.length === 0) {
+      this._initialDir = Instance.directory
+      this._initialSessionId = ""
+    } else {
+      this._initialDir = this.projectDir(visibleProjects[0])
+      const recent = await Instance.provide({
+        directory: this._initialDir,
+        fn: () => [...Session.list({ directory: this._initialDir, roots: true, limit: 1 })],
+      })
+      if (recent.length > 0 && !recent[0].time?.archived) {
+        this._initialSessionId = recent[0].id
+      } else {
+        this._initialSessionId = ""
+      }
+    }
+    console.log(`[${this.adapter.platform}] initSessions: dir=${this._initialDir} session=${this._initialSessionId}`)
+
+    const staleKeys: string[] = []
+    const sessionToCanonicalScope: Record<string, string> = {}
+    for (const [key, sessionId] of Object.entries(this.sessionMap)) {
+      const canonical = sessionToCanonicalScope[sessionId]
+      if (canonical) {
+        if (key.length < canonical.length) {
+          staleKeys.push(canonical)
+          sessionToCanonicalScope[sessionId] = key
+        } else {
+          staleKeys.push(key)
+        }
+        continue
+      }
+      sessionToCanonicalScope[sessionId] = key
+      const dir = this._scopeDirs[key] ?? this._initialDir
+      try {
+        const found = await Instance.provide({
+          directory: dir,
+          fn: () => Session.get(SessionID.make(sessionId)),
+        })
+        if (found.time?.archived) {
+          staleKeys.push(key)
+        }
+      } catch {
+        staleKeys.push(key)
+      }
+    }
+    for (const key of staleKeys) {
+      delete this.sessionMap[key]
+    }
+    if (staleKeys.length > 0) await this.saveSessionMap()
+
+    if (this._initialDir) {
+      await Instance.provide({
+        directory: this._initialDir,
+        fn: () => {},
+      })
+    }
+
+    this._initialized = true
+    console.log(`[${this.adapter.platform}] initSessions: ready`)
+  }
+
   // ── Model helpers ──────────────────────────────────────────────────────────
 
   protected async buildModelList(): Promise<ModelEntry[]> {
@@ -285,8 +353,8 @@ export abstract class MobileManagerBase {
     }
   }
 
-  protected resolveModel(chatId: string): { providerID: ProviderID; modelID: ModelID } | undefined {
-    const sessionId = this._chatSessions[chatId]
+  protected resolveModel(scope: string): { providerID: ProviderID; modelID: ModelID } | undefined {
+    const sessionId = this.sessionMap[scope]
     if (sessionId) {
       const pref = SessionPreference.get(sessionId)
       if (pref?.model) {
@@ -299,24 +367,31 @@ export abstract class MobileManagerBase {
     return undefined
   }
 
-  protected resolveModelStr(chatId: string): string {
-    const m = this.resolveModel(chatId)
+  protected resolveModelStr(scope: string): string {
+    const m = this.resolveModel(scope)
     return m ? `${m.providerID}/${m.modelID}` : "—"
   }
 
-  protected effectiveDir(chatId: string): string {
-    return this._chatDirs[chatId] ?? (this._initialDir || Instance.directory)
+  protected effectiveDir(scope: string): string {
+    const scoped = this._scopeDirs[scope]
+    if (scoped) return scoped
+    if (this._initialDir) return this._initialDir
+    try {
+      return Instance.directory
+    } catch {
+      return ""
+    }
   }
 
-  protected async clearRuntime(chatId: string): Promise<void> {
-    delete this._pendingQuestions[chatId]
-    delete this._questionProgress[chatId]
-    delete this._pendingPermissions[chatId]
-    delete this._pendingConfirmCreate[chatId]
-    this._activePrompt.delete(chatId)
+  protected async clearRuntime(scope: string): Promise<void> {
+    delete this._pendingQuestions[scope]
+    delete this._questionProgress[scope]
+    delete this._pendingPermissions[scope]
+    delete this._pendingConfirmCreate[scope]
+    this._activePrompt.delete(scope)
   }
 
-  protected async commandCtx(chatId: string): Promise<{
+  protected async commandCtx(scope: string): Promise<{
     dir: string
     sessionId: string
     pref: ReturnType<typeof SessionPreference.get>
@@ -325,9 +400,9 @@ export abstract class MobileManagerBase {
     modeName: string
     modelStr: string
   }> {
-    const dir = this.effectiveDir(chatId)
-    const sessionId = await this.currentSession(chatId, true)
-    if (!sessionId) throw new Error("no session for chat: " + chatId)
+    const dir = this.effectiveDir(scope)
+    const sessionId = await this.currentSession(scope, true)
+    if (!sessionId) throw new Error("no session for scope: " + scope)
     const pref = SessionPreference.get(sessionId)
     const projectItem = this.getProjects().find((p) => this.normDir(this.projectDir(p)) === this.normDir(dir))
     const projectName = this.clip(
@@ -346,7 +421,7 @@ export abstract class MobileManagerBase {
     } catch {}
     sessionTitle = this.clip(sessionTitle, 24)
     const modeName = pref?.agent ?? "build"
-    const modelStr = this.resolveModelStr(chatId)
+    const modelStr = this.resolveModelStr(scope)
     return { dir, sessionId, pref, projectName, sessionTitle, modeName, modelStr }
   }
 
@@ -355,16 +430,16 @@ export abstract class MobileManagerBase {
     return `${ctx.projectName}  ·  ${ctx.sessionTitle}  ·  ${mode}  ·  ${ctx.modelStr}\n————————\n`
   }
 
-  protected async replyCmd(targetId: string, chatId: string, body: string): Promise<void> {
+  protected async replyCmd(targetId: string, scope: string, body: string): Promise<void> {
     if (!body.trim()) {
       await this.adapter.replyText(targetId, body)
       return
     }
-    await this.adapter.replyText(targetId, this.commandHeader(await this.commandCtx(chatId)) + body)
+    await this.adapter.replyText(targetId, this.commandHeader(await this.commandCtx(scope)) + body)
   }
 
-  protected async setPref(chatId: string, patch: Record<string, any>): Promise<void> {
-    const ctx = await this.commandCtx(chatId)
+  protected async setPref(scope: string, patch: Record<string, any>): Promise<void> {
+    const ctx = await this.commandCtx(scope)
     await Instance.provide({
       directory: ctx.dir,
       fn: () => SessionPreference.update({ sessionID: SessionID.make(ctx.sessionId), ...patch }),
@@ -382,16 +457,30 @@ export abstract class MobileManagerBase {
     })
   }
 
-  protected async currentSession(chatId: string, create?: boolean): Promise<string | undefined> {
-    const pinned = this._chatSessions[chatId]
-    if (pinned) return pinned
-    const dir = this.effectiveDir(chatId)
+  protected async currentSession(scope: string, create?: boolean): Promise<string | undefined> {
+    const pinned = this.sessionMap[scope]
+    if (pinned) {
+      try {
+        const found = await Instance.provide({
+          directory: this.effectiveDir(scope),
+          fn: () => Session.get(SessionID.make(pinned)),
+        })
+        if (!found.time?.archived) return pinned
+      } catch {
+        // pinned session not found in DB
+      }
+      delete this.sessionMap[scope]
+      await this.saveSessionMap()
+    }
+    const dir = this.effectiveDir(scope)
+    if (!dir) return
     const recent = await Instance.provide({
       directory: dir,
-      fn: () => [...Session.list({ directory: dir, roots: true, limit: 1 })],
+      fn: () => [...Session.list({ directory: dir, roots: true, limit: 10 })].filter((s) => !s.time?.archived),
     })
     if (recent[0]) {
-      this._chatSessions[chatId] = recent[0].id
+      this.sessionMap[scope] = recent[0].id
+      await this.saveSessionMap()
       return recent[0].id
     }
     if (!create) return
@@ -400,14 +489,20 @@ export abstract class MobileManagerBase {
       fn: () => Session.create({ title: `${this.platformName()}对话 - ${new Date().toISOString()}` }),
     })
     await this.inheritPreference(session.id, dir)
-    this._chatSessions[chatId] = session.id
+    this.sessionMap[scope] = session.id
+    await this.saveSessionMap()
     return session.id
   }
 
   // ── Message handling ────────────────────────────────────────────────────────
 
   async handleMessage(chatId: string, messageId: string, text: string, rootId: string): Promise<void> {
+    const scope = this.scopeKey(chatId, rootId)
     const reply = this.replyTarget(chatId, messageId)
+    if (!this._initialized) {
+      console.log(`[${this.adapter.platform}] handleMessage: skipping, sessions not initialized`)
+      return
+    }
     try {
       console.log(`[${this.adapter.platform}] handleMessage:`, text, localISOString())
 
@@ -423,11 +518,11 @@ export abstract class MobileManagerBase {
       await this.autoUnhide()
 
       if (isSlash && cmd !== "/stop" && cmd !== "/compact" && cmd !== "/c") {
-        await this.handleCommand(text, reply, chatId)
+        await this.handleCommand(text, reply, chatId, rootId)
         return
       }
 
-      const effectiveDir = this.effectiveDir(chatId)
+      const effectiveDir = this.effectiveDir(scope)
 
       if (effectiveDir in this._hiddenDirs) {
         delete this._hiddenDirs[effectiveDir]
@@ -436,10 +531,10 @@ export abstract class MobileManagerBase {
       }
 
       if (cmd === "/stop") {
-        const hasPending = chatId in this._pendingQuestions || chatId in this._pendingPermissions
-        const active = this._activePrompt.get(chatId)
+        const hasPending = scope in this._pendingQuestions || scope in this._pendingPermissions
+        const active = this._activePrompt.get(scope)
         if (!active && !hasPending) {
-          await this.adapter.replyText(reply, "没有任务在执行")
+          await this.replySession(scope, reply, "没有任务在执行")
           return
         }
         if (active) {
@@ -450,128 +545,115 @@ export abstract class MobileManagerBase {
             })
           } catch {}
         }
-        await this.clearRuntime(chatId)
-        await this.adapter.replyText(reply, "✅ 已停止当前执行。")
+        await this.clearRuntime(scope)
+        await this.replySession(scope, reply, "✅ 已停止当前执行。")
         return
       }
 
       if (cmd === "/c" || cmd === "/compact") {
-        const pendingQ = this._pendingQuestions[chatId]
+        const pendingQ = this._pendingQuestions[scope]
         if (pendingQ) {
-          const progress = this._questionProgress[chatId]
-          await this.adapter.replyText(reply, this.formatSingleQuestion(pendingQ, progress?.index ?? 0))
+          const progress = this._questionProgress[scope]
+          await this.replySession(scope, reply, this.formatSingleQuestion(pendingQ, progress?.index ?? 0))
           return
         }
-        const pendingP = this._pendingPermissions[chatId]
+        const pendingP = this._pendingPermissions[scope]
         if (pendingP) {
-          await this.adapter.replyText(reply, this.formatPermissionRequest(pendingP))
+          await this.replySession(scope, reply, this.formatPermissionRequest(pendingP))
           return
         }
-        const active = this._activePrompt.get(chatId)
+        const active = this._activePrompt.get(scope)
         if (active) {
-          await this.adapter.replyText(
+          await this.replySession(
+            scope,
             reply,
             "当前会话正在生成回复，请等待当前对话结束后再发送；如需立即开始新问题，请先 /new 或切换 /session n。如需停止本会话请输入 /stop",
           )
           return
         }
 
-        if (!(chatId in this._chatSessions)) {
-          await this.adapter.replyText(reply, "没有任务在执行")
+        if (!(scope in this.sessionMap)) {
+          await this.replySession(scope, reply, "没有任务在执行")
           return
         }
         try {
-          await this.cmdCompact(reply, chatId)
+          await this.cmdCompact(reply, scope)
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err)
-          await this.adapter.replyText(reply, `命令执行出错: ${msg}`)
+          await this.replySession(scope, reply, `命令执行出错: ${msg}`)
         }
         return
       }
 
-      const pendingConfirm = this._pendingConfirmCreate[chatId]
+      const pendingConfirm = this._pendingConfirmCreate[scope]
       if (pendingConfirm) {
         const lower = text.trim().toLowerCase()
         if (lower === "y" || lower === "yes" || lower === "确认") {
-          await this.confirmCreateProject(chatId, reply, true)
+          await this.confirmCreateProject(scope, reply, true)
         } else if (lower === "n" || lower === "no" || lower === "取消") {
-          await this.confirmCreateProject(chatId, reply, false)
+          await this.confirmCreateProject(scope, reply, false)
         } else {
-          await this.adapter.replyText(reply, "请回复 y 确认创建或 n 取消。")
+          await this.replySession(scope, reply, "请回复 y 确认创建或 n 取消。")
         }
         return
       }
 
-      const pendingQ = this._pendingQuestions[chatId]
+      const pendingQ = this._pendingQuestions[scope]
       if (pendingQ) {
-        await this.handleQuestionReply(chatId, reply, text, pendingQ)
+        await this.handleQuestionReply(scope, reply, text, pendingQ)
         return
       }
-      const pendingP = this._pendingPermissions[chatId]
+      const pendingP = this._pendingPermissions[scope]
       if (pendingP) {
-        await this.handlePermissionReply(chatId, reply, text, pendingP)
+        await this.handlePermissionReply(scope, reply, text, pendingP)
         return
       }
 
-      const active = this._activePrompt.get(chatId)
+      const active = this._activePrompt.get(scope)
       if (active) {
-        await this.adapter.replyText(
+        await this.replySession(
+          scope,
           reply,
           "当前会话正在生成回复，请等待当前对话结束后再发送；如需立即开始新问题，请先 /new 或切换 /session n。如需停止本会话请输入 /stop",
         )
         return
       }
 
-      await this.startPrompt(chatId, messageId, text, effectiveDir, rootId)
+      await this.startPrompt(scope, messageId, text, effectiveDir)
     } catch (err) {
+      if (err instanceof Session.BusyError) {
+        await this.replySession(
+          scope,
+          reply,
+          "当前会话正在生成回复，请等待当前对话结束后再发送；如需立即开始新问题，请先 /new 或切换 /session n。如需停止本会话请输入 /stop",
+        )
+        return
+      }
       console.error(`[${this.adapter.platform}] handleMessage error:`, err)
       try {
         const errMsg = isSessionNotFound(err) ? "会话已不存在" : err instanceof Error ? err.message : String(err)
-        await this.adapter.replyText(reply, `处理消息时出错: ${errMsg}`)
+        await this.replySession(scope, reply, `处理消息时出错: ${errMsg}`)
       } catch (e2) {
         console.error(`[${this.adapter.platform}] failed to send error reply:`, e2)
       }
     }
   }
 
-  protected async startPrompt(
-    chatId: string,
-    messageId: string,
-    text: string,
-    effectiveDir: string,
-    rootId: string,
-  ): Promise<void> {
-    const reply = this.replyTarget(chatId, messageId)
-    this._activePrompt.set(chatId, { sessionId: "", messageId, directory: effectiveDir })
-    const sessionKey = `${chatId}:${rootId}`
-    let sessionId = this._chatSessions[chatId] ?? this.sessionMap[sessionKey]
+  protected async startPrompt(scope: string, messageId: string, text: string, effectiveDir: string): Promise<void> {
+    const reply = this.replyTarget(scope, messageId)
+    this._activePrompt.set(scope, { sessionId: "", messageId, directory: effectiveDir })
 
+    let sessionId = await this.currentSession(scope, true)
     if (!sessionId) {
-      const recent = await Instance.provide({
-        directory: effectiveDir,
-        fn: () => [...Session.list({ directory: effectiveDir, roots: true, limit: 1 })],
-      })
-      if (recent.length > 0) {
-        sessionId = recent[0].id
-        console.log(`[${this.adapter.platform}] reusing existing session:`, sessionId)
-      } else {
-        console.log(`[${this.adapter.platform}] creating new session...`)
-        const session = await Instance.provide({
-          directory: effectiveDir,
-          fn: () => Session.create({ title: `${this.platformName()}对话 - ${new Date().toISOString()}` }),
-        })
-        sessionId = session.id
-        await this.inheritPreference(session.id, effectiveDir)
-        console.log(`[${this.adapter.platform}] session created:`, sessionId)
-      }
-      this._chatSessions[chatId] = sessionId
-      this.sessionMap[sessionKey] = sessionId
-      await this.saveSessionMap()
+      this._activePrompt.delete(scope)
+      await this.replySession(scope, reply, "无法获取或创建会话，请检查项目配置后重试。")
+      return
     }
+    const sid: string = sessionId
 
-    this._activePrompt.set(chatId, { sessionId, messageId, directory: effectiveDir })
+    this._activePrompt.set(scope, { sessionId: sid, messageId, directory: effectiveDir })
 
-    const model = this.resolveModel(chatId)
+    const model = this.resolveModel(scope)
     console.log(`[${this.adapter.platform}] using model:`, model ?? "(default)")
 
     let promptText = text
@@ -580,32 +662,32 @@ export abstract class MobileManagerBase {
         "\n\n[系统提示：如果用户的意图是获取某个文件，请在回复中包含该文件在当前系统上的完整绝对路径。Windows 示例：E:\\\\work\\\\demo\\\\file.md；macOS/Linux 示例：/Users/demo/file.md 或 /home/demo/file.md。系统将自动把该路径对应的文件作为附件发送给用户。如果用户无需获取文件，请忽略本提示，正常回复即可。]"
     }
 
-    const pref = sessionId ? SessionPreference.get(sessionId) : undefined
+    const pref = SessionPreference.get(sid)
     if (pref?.autoAccept) {
       const session = await Instance.provide({
         directory: effectiveDir,
-        fn: () => Session.get(SessionID.make(sessionId)),
+        fn: () => Session.get(SessionID.make(sid)),
       })
       if (!session.permission?.some((r) => r.permission === "*" && r.action === "allow")) {
         await Instance.provide({
           directory: effectiveDir,
           fn: () =>
             Session.setPermission({
-              sessionID: SessionID.make(sessionId),
+              sessionID: SessionID.make(sid),
               permission: [{ permission: "*", pattern: "*", action: "allow" }],
             }),
         })
       }
     }
 
-    console.log(`[${this.adapter.platform}] sending to aether, session:`, sessionId, localISOString())
+    console.log(`[${this.adapter.platform}] sending to aether, session:`, sid, localISOString())
 
     try {
       const msg = await Instance.provide({
         directory: effectiveDir,
         fn: () =>
           SessionPrompt.prompt({
-            sessionID: SessionID.make(sessionId),
+            sessionID: SessionID.make(sid),
             parts: [{ type: "text", text: promptText }],
           }),
       })
@@ -615,19 +697,19 @@ export abstract class MobileManagerBase {
       if (responseText) {
         const msgModel =
           msg?.info?.role === "assistant" ? { providerID: msg.info.providerID, modelID: msg.info.modelID } : undefined
-        if (msgModel && !SessionPreference.get(sessionId)?.model) {
+        if (msgModel && !SessionPreference.get(sid)?.model) {
           await Instance.provide({
             directory: effectiveDir,
             fn: () =>
               SessionPreference.update({
-                sessionID: SessionID.make(sessionId),
+                sessionID: SessionID.make(sid),
                 model: { providerID: ProviderID.make(msgModel.providerID), modelID: ModelID.make(msgModel.modelID) },
               }),
           })
         }
-        const header = await this.formatHeader(chatId)
+        const header = await this.formatHeader(scope)
         console.log(`[${this.adapter.platform}] replying:`, responseText.slice(0, 100), localISOString())
-        await this.adapter.replyText(reply, header + responseText)
+        await this.replySession(scope, reply, responseText)
       } else {
         console.log(`[${this.adapter.platform}] no text in response`)
       }
@@ -643,11 +725,42 @@ export abstract class MobileManagerBase {
         }
       }
     } catch (err) {
+      if (err instanceof Session.BusyError) {
+        await this.replySession(
+          scope,
+          reply,
+          "当前会话正在生成回复，请等待当前对话结束后再发送；如需立即开始新问题，请先 /new 或切换 /session n。如需停止本会话请输入 /stop",
+        ).catch(() => {})
+        return
+      }
       console.error(`[${this.adapter.platform}] prompt error:`, err)
+      if (isSessionNotFound(err)) {
+        delete this.sessionMap[scope]
+        await this.saveSessionMap()
+        const freshId = await this.currentSession(scope, true)
+        if (freshId && freshId !== sid) {
+          this._activePrompt.set(scope, { sessionId: freshId, messageId, directory: effectiveDir })
+          try {
+            const msg = await Instance.provide({
+              directory: effectiveDir,
+              fn: () =>
+                SessionPrompt.prompt({
+                  sessionID: SessionID.make(freshId),
+                  parts: [{ type: "text", text: promptText }],
+                }),
+            })
+            const responseText = this.extractResponseText(msg)
+            if (responseText) {
+              await this.replySession(scope, reply, responseText)
+            }
+            return
+          } catch {}
+        }
+      }
       const errMsg = isSessionNotFound(err) ? "会话已不存在" : err instanceof Error ? err.message : String(err)
-      await this.adapter.replyText(reply, `处理消息时出错: ${errMsg}`).catch(() => {})
+      await this.replySession(scope, reply, `处理消息时出错: ${errMsg}`).catch(() => {})
     } finally {
-      this._activePrompt.delete(chatId)
+      this._activePrompt.delete(scope)
     }
   }
 
@@ -727,29 +840,30 @@ export abstract class MobileManagerBase {
 
   // ── Command handlers ───────────────────────────────────────────────────────
 
-  protected async handleCommand(text: string, targetId: string, chatId: string): Promise<void> {
+  protected async handleCommand(text: string, targetId: string, chatId: string, rootId: string): Promise<void> {
+    const scope = this.scopeKey(chatId, rootId)
     const parts = text.trim().split(/\s+/)
     const command = parts[0].toLowerCase()
     const rest = parts.slice(1).join(" ")
 
     try {
       if (command === "/n" || command === "/new") {
-        await this.cmdNew(targetId, chatId)
+        await this.cmdNew(targetId, scope)
       } else if (command === "/m" || command === "/model") {
         const args = parts.slice(1)
         if (args[0] === "l") args[0] = "list"
-        await this.cmdModel(targetId, chatId, args)
+        await this.cmdModel(targetId, scope, args)
       } else if (command === "/a" || command === "/agent") {
-        await this.cmdAgent(targetId, chatId, rest)
+        await this.cmdAgent(targetId, scope, rest)
       } else if (command === "/autoaccept") {
-        await this.cmdAutoAccept(targetId, chatId, rest)
+        await this.cmdAutoAccept(targetId, scope, rest)
       } else if (command === "/variant") {
-        await this.cmdVariant(targetId, chatId, rest)
+        await this.cmdVariant(targetId, scope, rest)
       } else if (command === "/p" || command === "/project") {
         const arg = rest === "l" ? "list" : rest.startsWith("h ") ? `hide ${rest.slice(2).trim()}` : rest
-        await this.cmdProject(targetId, chatId, arg)
+        await this.cmdProject(targetId, scope, arg)
       } else if (command === "/s" || command === "/session") {
-        await this.cmdSession(targetId, chatId, rest === "l" ? "list" : rest)
+        await this.cmdSession(targetId, scope, rest === "l" ? "list" : rest)
       } else if (command === "/h" || command === "/help") {
         await this.adapter.replyText(targetId, rest.toLowerCase() === "list" ? HELP_LIST_TEXT : HELP_TEXT)
       } else {
@@ -765,49 +879,46 @@ export abstract class MobileManagerBase {
     }
   }
 
-  protected async cmdNew(targetId: string, chatId: string): Promise<void> {
-    for (const key of Object.keys(this.sessionMap)) {
-      if (key.startsWith(`${chatId}:`)) delete this.sessionMap[key]
-    }
-    delete this._chatSessions[chatId]
-    void this.clearRuntime(chatId)
+  protected async cmdNew(targetId: string, scope: string): Promise<void> {
+    delete this.sessionMap[scope]
+    void this.clearRuntime(scope)
 
-    const dir = this.effectiveDir(chatId)
+    const dir = this.effectiveDir(scope)
     const session = await Instance.provide({
       directory: dir,
       fn: () => Session.create({ title: `${this.platformName()}对话 - ${new Date().toISOString()}` }),
     })
     await this.inheritPreference(session.id, dir)
-    this._chatSessions[chatId] = session.id
+    this.sessionMap[scope] = session.id
     await this.saveSessionMap()
-    await this.replyCmd(targetId, chatId, `✅ 已开启新对话\n💬 ${session.title}`)
+    await this.replyCmd(targetId, scope, `✅ 已开启新对话\n💬 ${session.title}`)
   }
 
-  protected async cmdModel(targetId: string, chatId: string, args: string[]): Promise<void> {
-    const ctx = await this.commandCtx(chatId)
+  protected async cmdModel(targetId: string, scope: string, args: string[]): Promise<void> {
+    const ctx = await this.commandCtx(scope)
     if (this._modelList.length === 0) {
       this._modelList = await this.buildModelList()
     }
 
     if (args.length === 0) {
-      await this.replyCmd(targetId, chatId, this.formatModelList(ctx, false))
+      await this.replyCmd(targetId, scope, this.formatModelList(ctx, false))
       return
     }
 
     if (args[0] === "list") {
-      await this.replyCmd(targetId, chatId, this.formatModelList(ctx, true))
+      await this.replyCmd(targetId, scope, this.formatModelList(ctx, true))
       return
     }
 
     const n = parseInt(args[0], 10)
     if (!isNaN(n) && n >= 1 && n <= this._modelList.length) {
       const entry = this._modelList[n - 1]
-      await this.setPref(chatId, {
+      await this.setPref(scope, {
         model: { providerID: ProviderID.make(entry.providerID), modelID: ModelID.make(entry.modelID) },
       })
       await this.replyCmd(
         targetId,
-        chatId,
+        scope,
         `✅ 已切换模型：${entry.providerID}/${entry.modelID}\n（仅对当前对话生效，/new 后将重置）`,
       )
       return
@@ -818,15 +929,15 @@ export abstract class MobileManagerBase {
       const [providerID, modelID] = arg.split("/", 2)
       const found = this._modelList.find((e) => e.providerID === providerID && e.modelID === modelID)
       if (!found) {
-        await this.replyCmd(targetId, chatId, `❌ 未找到模型：${arg}\n请先发送 /model 查看可用模型。`)
+        await this.replyCmd(targetId, scope, `❌ 未找到模型：${arg}\n请先发送 /model 查看可用模型。`)
         return
       }
-      await this.setPref(chatId, { model: { providerID: ProviderID.make(providerID), modelID: ModelID.make(modelID) } })
-      await this.replyCmd(targetId, chatId, `✅ 已切换模型：${arg}\n（仅对当前对话生效，/new 后将重置）`)
+      await this.setPref(scope, { model: { providerID: ProviderID.make(providerID), modelID: ModelID.make(modelID) } })
+      await this.replyCmd(targetId, scope, `✅ 已切换模型：${arg}\n（仅对当前对话生效，/new 后将重置）`)
       return
     }
 
-    await this.replyCmd(targetId, chatId, "❌ 无效参数，请输入编号、list 或 provider/model 格式。")
+    await this.replyCmd(targetId, scope, "❌ 无效参数，请输入编号、list 或 provider/model 格式。")
   }
 
   protected formatModelList(ctx: Awaited<ReturnType<typeof this.commandCtx>>, full: boolean): string {
@@ -864,11 +975,11 @@ export abstract class MobileManagerBase {
     return lines.join("\n")
   }
 
-  protected async cmdCompact(targetId: string, chatId: string): Promise<void> {
-    const ctx = await this.commandCtx(chatId)
-    const model = this.resolveModel(chatId)
+  protected async cmdCompact(targetId: string, scope: string): Promise<void> {
+    const ctx = await this.commandCtx(scope)
+    const model = this.resolveModel(scope)
     if (!model) {
-      await this.replyCmd(targetId, chatId, "❌ 压缩当前会话前，请先使用 /model 选择模型。")
+      await this.replyCmd(targetId, scope, "❌ 压缩当前会话前，请先使用 /model 选择模型。")
       return
     }
     await Instance.provide({
@@ -892,11 +1003,11 @@ export abstract class MobileManagerBase {
         await SessionPrompt.loop({ sessionID: SessionID.make(ctx.sessionId) })
       },
     })
-    await this.replyCmd(targetId, chatId, "✅ 已开始压缩当前会话上下文，请稍后查看结果。")
+    await this.replyCmd(targetId, scope, "✅ 已开始压缩当前会话上下文，请稍后查看结果。")
   }
 
-  protected async cmdAgent(targetId: string, chatId: string, arg: string): Promise<void> {
-    const ctx = await this.commandCtx(chatId)
+  protected async cmdAgent(targetId: string, scope: string, arg: string): Promise<void> {
+    const ctx = await this.commandCtx(scope)
     let agents: { name: string; hidden?: boolean }[] = []
     let current: string = "build"
     try {
@@ -908,14 +1019,14 @@ export abstract class MobileManagerBase {
         },
       })
     } catch {
-      await this.replyCmd(targetId, chatId, "❌ 无法获取模式列表，请检查 Aether 服务是否正常。")
+      await this.replyCmd(targetId, scope, "❌ 无法获取模式列表，请检查 Aether 服务是否正常。")
       return
     }
     const visible = agents.filter((a) => !a.hidden)
     const names = visible.map((a) => a.name)
     if (!arg) {
       if (names.length === 0) {
-        await this.replyCmd(targetId, chatId, "❌ 暂无可用模式。")
+        await this.replyCmd(targetId, scope, "❌ 暂无可用模式。")
         return
       }
       const lines = ["🧠 可用模式：", ""]
@@ -923,7 +1034,7 @@ export abstract class MobileManagerBase {
         lines.push(`  ${i + 1}. ${name}${name === current ? " ★（当前）" : ""}`)
       })
       lines.push("", "💡 /a 编号或名称 切换模式")
-      await this.replyCmd(targetId, chatId, lines.join("\n"))
+      await this.replyCmd(targetId, scope, lines.join("\n"))
       return
     }
     const n = parseInt(arg, 10)
@@ -934,18 +1045,18 @@ export abstract class MobileManagerBase {
       : names.find((name) => name === arg)
     if (!next) {
       if (/^\d+$/.test(arg)) {
-        await this.replyCmd(targetId, chatId, `❌ 编号超出范围，请输入 1~${names.length} 之间的数字。`)
+        await this.replyCmd(targetId, scope, `❌ 编号超出范围，请输入 1~${names.length} 之间的数字。`)
         return
       }
-      await this.replyCmd(targetId, chatId, `❌ 未找到模式：${arg}，发送 /a 查看可用模式。`)
+      await this.replyCmd(targetId, scope, `❌ 未找到模式：${arg}，发送 /a 查看可用模式。`)
       return
     }
-    await this.setPref(chatId, { agent: next })
-    await this.replyCmd(targetId, chatId, `✅ 已切换模式：${next}\n（仅对当前对话生效，/new 后将重置）`)
+    await this.setPref(scope, { agent: next })
+    await this.replyCmd(targetId, scope, `✅ 已切换模式：${next}\n（仅对当前对话生效，/new 后将重置）`)
   }
 
-  protected async cmdAutoAccept(targetId: string, chatId: string, arg: string): Promise<void> {
-    const ctx = await this.commandCtx(chatId)
+  protected async cmdAutoAccept(targetId: string, scope: string, arg: string): Promise<void> {
+    const ctx = await this.commandCtx(scope)
     const auto = ctx.pref?.autoAccept ?? false
     const names = ["auto", "ask"] as const
     if (!arg) {
@@ -957,41 +1068,41 @@ export abstract class MobileManagerBase {
         "",
         "💡 /autoaccept 编号或名称 切换审批模式",
       ]
-      await this.replyCmd(targetId, chatId, lines.join("\n"))
+      await this.replyCmd(targetId, scope, lines.join("\n"))
       return
     }
     const n = parseInt(arg, 10)
     const next = /^\d+$/.test(arg) ? names[n - 1] : names.find((name) => name === arg)
     if (!next) {
-      await this.replyCmd(targetId, chatId, "❌ 仅支持 1(auto) 或 2(ask)。")
+      await this.replyCmd(targetId, scope, "❌ 仅支持 1(auto) 或 2(ask)。")
       return
     }
-    await this.setPref(chatId, { autoAccept: next === "auto" })
+    await this.setPref(scope, { autoAccept: next === "auto" })
     if (next === "auto") {
-      const pending = this._pendingPermissions[chatId]
+      const pending = this._pendingPermissions[scope]
       if (pending) {
-        delete this._pendingPermissions[chatId]
+        delete this._pendingPermissions[scope]
         await Instance.provide({
           directory: ctx.dir,
           fn: () => Permission.reply({ requestID: pending.id, reply: "always" }),
         })
-        await this.replyCmd(targetId, chatId, "✅ 已开启自动接受权限，并已自动批准当前挂起的授权请求")
+        await this.replyCmd(targetId, scope, "✅ 已开启自动接受权限，并已自动批准当前挂起的授权请求")
       } else {
-        await this.replyCmd(targetId, chatId, "✅ 已开启自动接受权限\n（后续权限请求将自动批准）")
+        await this.replyCmd(targetId, scope, "✅ 已开启自动接受权限\n（后续权限请求将自动批准）")
       }
     } else {
-      await this.replyCmd(targetId, chatId, "✅ 已停止自动接受权限\n（后续权限请求将需要你确认）")
+      await this.replyCmd(targetId, scope, "✅ 已停止自动接受权限\n（后续权限请求将需要你确认）")
     }
   }
 
-  protected async cmdVariant(targetId: string, chatId: string, arg: string): Promise<void> {
-    const model = this.resolveModel(chatId)
+  protected async cmdVariant(targetId: string, scope: string, arg: string): Promise<void> {
+    const model = this.resolveModel(scope)
     if (!model) {
-      await this.replyCmd(targetId, chatId, "❌ 请先使用 /m 选择模型后再切换思考等级。")
+      await this.replyCmd(targetId, scope, "❌ 请先使用 /m 选择模型后再切换思考等级。")
       return
     }
-    const ctx = await this.commandCtx(chatId)
-    const info = await this.thinking(chatId)
+    const ctx = await this.commandCtx(scope)
+    const info = await this.thinking(scope)
     const names = ["默认", ...info.names]
     if (!arg) {
       const lines = ["🔀 可用思考等级：", ""]
@@ -1000,7 +1111,7 @@ export abstract class MobileManagerBase {
         lines.push(`  ${i + 1}. ${name}${active ? " ★（当前）" : ""}`)
       })
       lines.push("", "💡 /variant 编号或名称 切换思考等级")
-      await this.replyCmd(targetId, chatId, lines.join("\n"))
+      await this.replyCmd(targetId, scope, lines.join("\n"))
       return
     }
     const n = parseInt(arg, 10)
@@ -1011,19 +1122,19 @@ export abstract class MobileManagerBase {
       : names.find((name) => name === arg || (name === "默认" && arg === "default"))
     if (!next) {
       if (/^\d+$/.test(arg)) {
-        await this.replyCmd(targetId, chatId, `❌ 编号超出范围，请输入 1~${names.length} 之间的数字。`)
+        await this.replyCmd(targetId, scope, `❌ 编号超出范围，请输入 1~${names.length} 之间的数字。`)
         return
       }
-      await this.replyCmd(targetId, chatId, `❌ 未找到思考等级：${arg}，发送 /variant 查看可用思考等级。`)
+      await this.replyCmd(targetId, scope, `❌ 未找到思考等级：${arg}，发送 /variant 查看可用思考等级。`)
       return
     }
-    await this.setPref(chatId, { variant: next === "默认" ? undefined : next })
-    await this.replyCmd(targetId, chatId, `✅ 已切换思考等级：${next}\n（仅对当前对话生效，/new 后将重置）`)
+    await this.setPref(scope, { variant: next === "默认" ? undefined : next })
+    await this.replyCmd(targetId, scope, `✅ 已切换思考等级：${next}\n（仅对当前对话生效，/new 后将重置）`)
   }
 
-  private async thinking(chatId: string) {
-    const ctx = await this.commandCtx(chatId)
-    const model = this.resolveModel(chatId)
+  private async thinking(scope: string) {
+    const ctx = await this.commandCtx(scope)
+    const model = this.resolveModel(scope)
     if (!model) return { names: [], current: ctx.pref?.variant }
     const all = await Instance.provide({
       directory: ctx.dir,
@@ -1037,9 +1148,9 @@ export abstract class MobileManagerBase {
     }
   }
 
-  protected async cmdProject(targetId: string, chatId: string, arg: string): Promise<void> {
+  protected async cmdProject(targetId: string, scope: string, arg: string): Promise<void> {
     if (arg && this.isAbsolutePath(arg)) {
-      await this.cmdProjectByPath(targetId, chatId, arg)
+      await this.cmdProjectByPath(targetId, scope, arg)
       return
     }
 
@@ -1053,17 +1164,17 @@ export abstract class MobileManagerBase {
       projectSnapshot.push(...this.getProjects())
     }
     if (!projectSnapshot.length) {
-      await this.replyCmd(targetId, chatId, "❌ 无法获取项目列表，请检查 Aether 是否正常运行。")
+      await this.replyCmd(targetId, scope, "❌ 无法获取项目列表，请检查 Aether 是否正常运行。")
       return
     }
 
-    const currentDir = this.effectiveDir(chatId)
+    const currentDir = this.effectiveDir(scope)
 
     if (arg.startsWith("hide ")) {
       const delArg = arg.slice(5).trim()
       const idx = parseInt(delArg, 10) - 1
       if (isNaN(idx) || idx < 0 || idx >= projectSnapshot.length) {
-        await this.replyCmd(targetId, chatId, `❌ 用法：/project hide n（n 为 1~${projectSnapshot.length}）`)
+        await this.replyCmd(targetId, scope, `❌ 用法：/project hide n（n 为 1~${projectSnapshot.length}）`)
         return
       }
       const target = projectSnapshot[idx]
@@ -1071,7 +1182,7 @@ export abstract class MobileManagerBase {
       this._hiddenDirs[directory] = Date.now()
       await this.saveHiddenDirs()
       const name = this.projectName(target)
-      await this.replyCmd(targetId, chatId, `✅ 已隐藏：${name}\n（在桌面端或消息端重新使用后自动恢复）`)
+      await this.replyCmd(targetId, scope, `✅ 已隐藏：${name}\n（在桌面端或消息端重新使用后自动恢复）`)
       return
     }
 
@@ -1085,19 +1196,19 @@ export abstract class MobileManagerBase {
         lines.push(`${i + 1}. ${this.projectName(item)}${tag}${mark}`)
         lines.push(`   ${directory}`)
       }
-      await this.replyCmd(targetId, chatId, lines.join("\n"))
+      await this.replyCmd(targetId, scope, lines.join("\n"))
       return
     }
 
     if (arg) {
       const idx = parseInt(arg, 10) - 1
       if (isNaN(idx) || idx < 0 || idx >= projectSnapshot.length) {
-        await this.replyCmd(targetId, chatId, `❌ 请输入 1~${projectSnapshot.length} 之间的编号。`)
+        await this.replyCmd(targetId, scope, `❌ 请输入 1~${projectSnapshot.length} 之间的编号。`)
         return
       }
       const chosen = projectSnapshot[idx]
       const newDir = this.projectDir(chosen)
-      await this.switchToProject(targetId, chatId, newDir)
+      await this.switchToProject(targetId, scope, newDir)
       return
     }
 
@@ -1105,7 +1216,7 @@ export abstract class MobileManagerBase {
     if (visibleProjects.length === 0) {
       const hint =
         Object.keys(this._hiddenDirs).length > 0 ? `（有 ${Object.keys(this._hiddenDirs).length} 个项目已隐藏）` : ""
-      await this.replyCmd(targetId, chatId, `❌ 未找到任何项目。${hint}`)
+      await this.replyCmd(targetId, scope, `❌ 未找到任何项目。${hint}`)
       return
     }
 
@@ -1125,13 +1236,13 @@ export abstract class MobileManagerBase {
     if (Object.keys(this._hiddenDirs).length > 0) {
       lines.push(`ℹ️ 已隐藏 ${Object.keys(this._hiddenDirs).length} 个项目（重新使用后自动恢复）`)
     }
-    await this.replyCmd(targetId, chatId, lines.join("\n"))
+    await this.replyCmd(targetId, scope, lines.join("\n"))
   }
 
-  private async cmdProjectByPath(targetId: string, chatId: string, rawPath: string): Promise<void> {
+  private async cmdProjectByPath(targetId: string, scope: string, rawPath: string): Promise<void> {
     const normed = this.normDir(rawPath)
     if (this.isRootDir(normed)) {
-      await this.replyCmd(targetId, chatId, "❌ 路径不合法：不能使用根目录。")
+      await this.replyCmd(targetId, scope, "❌ 路径不合法：不能使用根目录。")
       return
     }
 
@@ -1144,43 +1255,37 @@ export abstract class MobileManagerBase {
         await mkdir(normed, { recursive: true })
       }
       const newDir = this.projectDir(existing)
-      await this.switchToProject(targetId, chatId, newDir)
+      await this.switchToProject(targetId, scope, newDir)
       return
     }
 
     if (dirExists) {
-      await this.switchToNewProject(targetId, chatId, normed)
+      await this.switchToNewProject(targetId, scope, normed)
       return
     }
 
-    this._pendingConfirmCreate[chatId] = { path: normed }
-    await this.replyCmd(
-      targetId,
-      chatId,
-      `📂 路径不存在：${normed}\n回复 y 确认创建该文件夹并初始化项目，回复 n 取消。`,
-    )
+    this._pendingConfirmCreate[scope] = { path: normed }
+    await this.replyCmd(targetId, scope, `📂 路径不存在：${normed}\n回复 y 确认创建该文件夹并初始化项目，回复 n 取消。`)
   }
 
-  private async confirmCreateProject(chatId: string, targetId: string, yes: boolean): Promise<void> {
-    const pending = this._pendingConfirmCreate[chatId]
+  private async confirmCreateProject(scope: string, targetId: string, yes: boolean): Promise<void> {
+    const pending = this._pendingConfirmCreate[scope]
     if (!pending) return
-    delete this._pendingConfirmCreate[chatId]
+    delete this._pendingConfirmCreate[scope]
 
     if (!yes) {
-      await this.replyCmd(targetId, chatId, "已取消创建。")
+      await this.replyCmd(targetId, scope, "已取消创建。")
       return
     }
 
     await mkdir(pending.path, { recursive: true })
-    await this.switchToNewProject(targetId, chatId, pending.path)
+    await this.switchToNewProject(targetId, scope, pending.path)
   }
 
-  protected async switchToProject(targetId: string, chatId: string, newDir: string): Promise<void> {
-    for (const key of Object.keys(this.sessionMap)) {
-      if (key.startsWith(`${chatId}:`)) delete this.sessionMap[key]
-    }
-    this._chatDirs[chatId] = newDir
-    void this.clearRuntime(chatId)
+  protected async switchToProject(targetId: string, scope: string, newDir: string): Promise<void> {
+    delete this.sessionMap[scope]
+    this._scopeDirs[scope] = newDir
+    void this.clearRuntime(scope)
 
     if (newDir in this._hiddenDirs) {
       delete this._hiddenDirs[newDir]
@@ -1207,21 +1312,19 @@ export abstract class MobileManagerBase {
       },
     })
     if (created) await this.inheritPreference(newSessionId, newDir)
-    this._chatSessions[chatId] = newSessionId
+    this.sessionMap[scope] = newSessionId
     await this.saveSessionMap()
 
     const name = this.baseName(newDir)
     const note = created ? "已创建新会话" : `已进入该项目最新会话：${sessionTitle}`
-    console.log(`[${this.adapter.platform}] /project switched:`, chatId, "->", newDir)
-    await this.replyCmd(targetId, chatId, `✅ 已切换到：${name}\n   ${newDir}\n（${note}）`)
+    console.log(`[${this.adapter.platform}] /project switched:`, scope, "->", newDir)
+    await this.replyCmd(targetId, scope, `✅ 已切换到：${name}\n   ${newDir}\n（${note}）`)
   }
 
-  private async switchToNewProject(targetId: string, chatId: string, newDir: string): Promise<void> {
-    for (const key of Object.keys(this.sessionMap)) {
-      if (key.startsWith(`${chatId}:`)) delete this.sessionMap[key]
-    }
-    this._chatDirs[chatId] = newDir
-    void this.clearRuntime(chatId)
+  private async switchToNewProject(targetId: string, scope: string, newDir: string): Promise<void> {
+    delete this.sessionMap[scope]
+    this._scopeDirs[scope] = newDir
+    void this.clearRuntime(scope)
 
     const { project } = await Project.fromDirectory(newDir)
     if (project.vcs !== "git") {
@@ -1255,17 +1358,17 @@ export abstract class MobileManagerBase {
       },
     })
     if (created) await this.inheritPreference(newSessionId, newDir)
-    this._chatSessions[chatId] = newSessionId
+    this.sessionMap[scope] = newSessionId
     await this.saveSessionMap()
 
     const name = this.baseName(newDir)
     const note = created ? "已创建新会话" : `已进入该项目最新会话：${sessionTitle}`
-    console.log(`[${this.adapter.platform}] /project created+switched:`, chatId, "->", newDir)
-    await this.replyCmd(targetId, chatId, `✅ 已切换到：${name}\n   ${newDir}\n（${note}）`)
+    console.log(`[${this.adapter.platform}] /project created+switched:`, scope, "->", newDir)
+    await this.replyCmd(targetId, scope, `✅ 已切换到：${name}\n   ${newDir}\n（${note}）`)
   }
 
-  protected async cmdSession(targetId: string, chatId: string, arg: string): Promise<void> {
-    const effectiveDir = this.effectiveDir(chatId)
+  protected async cmdSession(targetId: string, scope: string, arg: string): Promise<void> {
+    const effectiveDir = this.effectiveDir(scope)
     const dirKey = this.normDir(effectiveDir)
 
     const needRefresh = !arg || arg === "list"
@@ -1291,7 +1394,7 @@ export abstract class MobileManagerBase {
     }
 
     const items = sessionSnapshots.get(dirKey) ?? []
-    const currentId = this._chatSessions[chatId]
+    const currentId = this.sessionMap[scope]
 
     if (arg === "list") {
       const lines = ["🗂 会话列表：", ""]
@@ -1302,7 +1405,7 @@ export abstract class MobileManagerBase {
         lines.push(`   ${this.formatSessionTime(item.time.updated)}`)
       }
       if (!items.length) lines.push("（当前项目下还没有任何会话）")
-      await this.replyCmd(targetId, chatId, lines.join("\n"))
+      await this.replyCmd(targetId, scope, lines.join("\n"))
       return
     }
 
@@ -1311,18 +1414,19 @@ export abstract class MobileManagerBase {
       if (isNaN(idx) || idx < 0 || idx >= items.length) {
         await this.replyCmd(
           targetId,
-          chatId,
+          scope,
           items.length ? `❌ 请输入 1~${items.length} 之间的数字。` : "❌ 当前项目下还没有任何会话。",
         )
         return
       }
       const chosen = items[idx]
-      this._chatSessions[chatId] = chosen.id
-      void this.clearRuntime(chatId)
-      const ctx = await this.commandCtx(chatId)
+      this.sessionMap[scope] = chosen.id
+      await this.saveSessionMap()
+      void this.clearRuntime(scope)
+      const ctx = await this.commandCtx(scope)
       await this.replyCmd(
         targetId,
-        chatId,
+        scope,
         `✅ 已切换到会话：${ctx.sessionTitle}\n   更新时间：${this.formatSessionTime(chosen.time.updated)}`,
       )
       return
@@ -1334,8 +1438,9 @@ export abstract class MobileManagerBase {
         fn: () => Session.create({ title: `${this.platformName()}对话 - ${new Date().toISOString()}` }),
       })
       await this.inheritPreference(session.id, effectiveDir)
-      this._chatSessions[chatId] = session.id
-      await this.replyCmd(targetId, chatId, "📂 当前项目下还没有任何会话，已自动创建一个新会话并切换。")
+      this.sessionMap[scope] = session.id
+      await this.saveSessionMap()
+      await this.replyCmd(targetId, scope, "📂 当前项目下还没有任何会话，已自动创建一个新会话并切换。")
       return
     }
 
@@ -1348,7 +1453,7 @@ export abstract class MobileManagerBase {
     }
     lines.push("")
     lines.push("💡 /s n 切换会话 | /s l 查看全部")
-    await this.replyCmd(targetId, chatId, lines.join("\n"))
+    await this.replyCmd(targetId, scope, lines.join("\n"))
   }
 
   private formatSessionTime(timestamp: number): string {
@@ -1358,10 +1463,10 @@ export abstract class MobileManagerBase {
 
   // ── Question/Permission handlers ───────────────────────────────────────────
 
-  protected async formatHeader(chatId: string): Promise<string> {
-    const active = this._activePrompt.get(chatId)
-    const sessionId = active?.sessionId ?? this._chatSessions[chatId] ?? ""
-    const effectiveDir = active?.directory ?? this.effectiveDir(chatId)
+  protected async formatHeader(scope: string): Promise<string> {
+    const active = this._activePrompt.get(scope)
+    const sessionId = active?.sessionId ?? this.sessionMap[scope] ?? ""
+    const effectiveDir = active?.directory ?? this.effectiveDir(scope)
     const projectItem = this.getProjects().find((p) => this.normDir(this.projectDir(p)) === this.normDir(effectiveDir))
     const projectName = this.clip(
       projectItem
@@ -1373,8 +1478,13 @@ export abstract class MobileManagerBase {
     const pref = sessionId ? SessionPreference.get(sessionId) : undefined
     const modeName = pref?.agent ?? "build"
     const mode = modeName.charAt(0).toUpperCase() + modeName.slice(1)
-    const modelStr = this.resolveModelStr(chatId)
+    const modelStr = this.resolveModelStr(scope)
     return `${projectName}  ·  ${label}  ·  ${mode}  ·  ${modelStr}\n————————\n`
+  }
+
+  protected async replySession(scope: string, targetId: string, body: string): Promise<void> {
+    const header = await this.formatHeader(scope)
+    await this.adapter.replyText(targetId, header + body)
   }
 
   private async sessionTitle(sessionId: string, directory: string): Promise<string> {
@@ -1445,17 +1555,18 @@ export abstract class MobileManagerBase {
   }
 
   private async handleQuestionReply(
-    chatId: string,
+    scope: string,
     targetId: string,
     text: string,
     pending: Question.Request,
   ): Promise<void> {
-    const progress = this._questionProgress[chatId]
+    const progress = this._questionProgress[scope]
     if (!progress) return
     const info = pending.questions[progress.index]
     const answer = this.parseSingleAnswer(text, info)
     if (!answer) {
-      await this.adapter.replyText(
+      await this.replySession(
+        scope,
         targetId,
         "未识别，请回复答案或数字编号。\n\n" + this.formatSingleQuestion(pending, progress.index),
       )
@@ -1464,26 +1575,26 @@ export abstract class MobileManagerBase {
     progress.answers.push(answer)
     progress.index += 1
     if (progress.index < pending.questions.length) {
-      await this.adapter.replyText(targetId, `✅ 已收到问题 ${progress.index} 的回答。`)
-      await this.adapter.replyText(targetId, this.formatSingleQuestion(pending, progress.index))
+      await this.replySession(scope, targetId, `✅ 已收到问题 ${progress.index} 的回答。`)
+      await this.replySession(scope, targetId, this.formatSingleQuestion(pending, progress.index))
       return
     }
-    const active = this._activePrompt.get(chatId)
-    delete this._pendingQuestions[chatId]
-    delete this._questionProgress[chatId]
+    const active = this._activePrompt.get(scope)
+    delete this._pendingQuestions[scope]
+    delete this._questionProgress[scope]
     try {
       await Instance.provide({
-        directory: active?.directory ?? this.effectiveDir(chatId),
+        directory: active?.directory ?? this.effectiveDir(scope),
         fn: () => Question.reply({ requestID: pending.id, answers: progress.answers }),
       })
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
-      this._pendingQuestions[chatId] = pending
-      this._questionProgress[chatId] = progress
-      await this.adapter.replyText(targetId, `❌ 提交答案失败: ${msg}\n请重新发送您的答案。`)
+      this._pendingQuestions[scope] = pending
+      this._questionProgress[scope] = progress
+      await this.replySession(scope, targetId, `❌ 提交答案失败: ${msg}\n请重新发送您的答案。`)
       return
     }
-    await this.adapter.replyText(targetId, "✅ 所有问题已回答完毕，请等待当前对话继续处理。")
+    await this.replySession(scope, targetId, "✅ 所有问题已回答完毕，请等待当前对话继续处理。")
   }
 
   private parsePermissionReply(text: string): Permission.Reply | null {
@@ -1495,27 +1606,27 @@ export abstract class MobileManagerBase {
   }
 
   private async handlePermissionReply(
-    chatId: string,
+    scope: string,
     targetId: string,
     text: string,
     pending: Permission.Request,
   ): Promise<void> {
     const reply = this.parsePermissionReply(text)
     if (!reply) {
-      await this.adapter.replyText(targetId, "未识别，请回复数字编号。\n\n" + this.formatPermissionRequest(pending))
+      await this.replySession(scope, targetId, "未识别，请回复数字编号。\n\n" + this.formatPermissionRequest(pending))
       return
     }
-    const active = this._activePrompt.get(chatId)
-    delete this._pendingPermissions[chatId]
+    const active = this._activePrompt.get(scope)
+    delete this._pendingPermissions[scope]
     try {
       await Instance.provide({
-        directory: active?.directory ?? this.effectiveDir(chatId),
+        directory: active?.directory ?? this.effectiveDir(scope),
         fn: () => Permission.reply({ requestID: pending.id, reply }),
       })
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
-      this._pendingPermissions[chatId] = pending
-      await this.adapter.replyText(targetId, `❌ 提交授权失败: ${msg}\n请重新发送您的选择。`)
+      this._pendingPermissions[scope] = pending
+      await this.replySession(scope, targetId, `❌ 提交授权失败: ${msg}\n请重新发送您的选择。`)
       return
     }
     const notice = {
@@ -1523,7 +1634,7 @@ export abstract class MobileManagerBase {
       always: "已收到授权：始终允许，继续处理中。",
       reject: "已收到你的选择：拒绝，正在继续处理。",
     }[reply]
-    await this.adapter.replyText(targetId, notice)
+    await this.replySession(scope, targetId, notice)
   }
 
   // ── Bus subscription for question/permission ──────────────────────────────
@@ -1532,15 +1643,15 @@ export abstract class MobileManagerBase {
     const onQuestion = (event: { directory?: string; payload: any }) => {
       if (event.payload?.type !== "question.asked") return
       const q = event.payload.properties as Question.Request
-      for (const [chatId, info] of this._activePrompt) {
+      for (const [scope, info] of this._activePrompt) {
         if (info.sessionId === q.sessionID) {
-          this._pendingQuestions[chatId] = q
-          this._questionProgress[chatId] = { index: 0, answers: [] }
-          const target = this.replyTarget(chatId, info.messageId)
+          this._pendingQuestions[scope] = q
+          this._questionProgress[scope] = { index: 0, answers: [] }
+          const target = this.replyTarget(scope, info.messageId)
           if (q.questions.length > 1) {
-            void this.adapter.replyText(target, this.formatQuestionOverview(q))
+            void this.replySession(scope, target, this.formatQuestionOverview(q))
           }
-          void this.adapter.replyText(target, this.formatSingleQuestion(q, 0))
+          void this.replySession(scope, target, this.formatSingleQuestion(q, 0))
           return
         }
       }
@@ -1551,7 +1662,7 @@ export abstract class MobileManagerBase {
     const onPermission = (event: { directory?: string; payload: any }) => {
       if (event.payload?.type !== "permission.asked") return
       const p = event.payload.properties as Permission.Request
-      for (const [chatId, info] of this._activePrompt) {
+      for (const [scope, info] of this._activePrompt) {
         if (info.sessionId === p.sessionID) {
           const pref = SessionPreference.get(info.sessionId)
           if (pref?.autoAccept) {
@@ -1561,8 +1672,8 @@ export abstract class MobileManagerBase {
             })
             return
           }
-          this._pendingPermissions[chatId] = p
-          void this.adapter.replyText(this.replyTarget(chatId, info.messageId), this.formatPermissionRequest(p))
+          this._pendingPermissions[scope] = p
+          void this.replySession(scope, this.replyTarget(scope, info.messageId), this.formatPermissionRequest(p))
           return
         }
       }
