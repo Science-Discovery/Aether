@@ -227,7 +227,7 @@ export const SkillManageTool = Tool.define("skill_manage", async () => {
             const patched = fuzzyReplace(raw, params.old_str, params.new_str)
             if (patched === null) {
               throw new Error(
-                `Could not find the specified old_str in skill "${name}". The text may have already been changed.`,
+                `Could not find old_str in skill "${name}". Current SKILL.md content:\n\n${raw}`,
               )
             }
             await atomicWrite(skillFile, patched)
