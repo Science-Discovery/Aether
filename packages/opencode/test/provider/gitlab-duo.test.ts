@@ -54,7 +54,7 @@ test("GitLab Duo: config instanceUrl option sets baseURL", async () => {
   await Instance.provide({
     directory: tmp.path,
     init: async () => {
-      Env.set("GITLAB_TOKEN", "test-token")
+      Env.set("GITLAB_TOKEN", "")
       Env.set("GITLAB_INSTANCE_URL", "https://gitlab.example.com")
     },
     fn: async () => {
