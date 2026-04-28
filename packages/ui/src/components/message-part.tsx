@@ -2433,9 +2433,27 @@ ToolRegistry.register({
     const action = createMemo(() => props.input.action || "")
     const name = createMemo(() => props.input.name || "skill_manage")
     const running = createMemo(() => props.status === "pending" || props.status === "running")
+    const isEvolution = createMemo(() => action() === "edit" || action() === "patch")
+
+    const [keepShimmer, setKeepShimmer] = createSignal(false)
+    let shimmerTimer: ReturnType<typeof setTimeout> | undefined
+    createEffect(() => {
+      if (running()) {
+        clearTimeout(shimmerTimer)
+        setKeepShimmer(true)
+      } else if (keepShimmer()) {
+        shimmerTimer = setTimeout(() => setKeepShimmer(false), 1500)
+      }
+    })
+    onCleanup(() => clearTimeout(shimmerTimer))
 
     const title = createMemo(() => (action() ? `${action()}: ${name()}` : name()))
-    const titleContent = () => <TextShimmer text={title()} active={running()} />
+    const titleContent = createMemo(() => {
+      if (keepShimmer() || isEvolution()) {
+        return <ToolStatusTitle active={keepShimmer()} activeText="Skill Evolution" doneText={title()} />
+      }
+      return <TextShimmer text={title()} active={false} />
+    })
 
     const trigger = () => (
       <div data-slot="basic-tool-tool-info-structured">
