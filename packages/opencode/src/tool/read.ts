@@ -12,6 +12,7 @@ import { assertExternalDirectory } from "./external-directory"
 import { InstructionPrompt } from "../session/instruction"
 import { Filesystem } from "../util/filesystem"
 import { resolveInput } from "./path"
+import { assertNotMemoryStoragePath } from "./memory-file-guard"
 
 const DEFAULT_READ_LIMIT = 2000
 const MAX_LINE_LENGTH = 2000
@@ -20,7 +21,10 @@ const MAX_BYTES = 50 * 1024
 const MAX_BYTES_LABEL = `${MAX_BYTES / 1024} KB`
 
 export const ReadTool = Tool.define("read", {
-  description: DESCRIPTION,
+  description: [
+    DESCRIPTION,
+    "Aether memory rule: do not use this tool to read USER.md or MEMORY.md memory files. Use memory_search for memory recall.",
+  ].join("\n\n"),
   parameters: z.object({
     filePath: z.string().describe("The absolute path to the file or directory to read"),
     offset: z.coerce.number().describe("The line number to start reading from (1-indexed)").optional(),
@@ -31,6 +35,7 @@ export const ReadTool = Tool.define("read", {
       throw new Error("offset must be greater than or equal to 1")
     }
     const filepath = resolveInput(Instance.directory, params.filePath)
+    assertNotMemoryStoragePath("read", filepath)
     const title = path.relative(Instance.worktree, filepath)
 
     const stat = Filesystem.stat(filepath)

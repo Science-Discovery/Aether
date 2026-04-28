@@ -142,6 +142,23 @@ describe("Cron core", () => {
     expect((error as Error).message).toContain("id is generated automatically")
   })
 
+  test("recover creates the built-in daily memory reflection job", async () => {
+    await Cron.recover()
+    const job = await Cron.getJob("builtin-memory-reflection-daily")
+
+    expect(job.definition.name).toBe("Daily memory reflection")
+    expect(job.definition.mode).toBe("direct")
+    expect(job.definition.schedule_type).toBe("cron")
+    expect(job.definition.schedule_value).toBe("0 3 * * *")
+    expect(job.definition.payload).toMatchObject({
+      action: "memory_reflect",
+      scope: "global",
+      dry_run: false,
+      trigger: "cron",
+    })
+    expect(job.state?.enabled).toBe(true)
+  })
+
   test("runJobNow executes a registered direct action and records success", async () => {
     const action = actionName("success")
     Cron.registerDirectAction(action, async () => ({

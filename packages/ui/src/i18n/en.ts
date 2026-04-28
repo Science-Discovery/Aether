@@ -49,6 +49,10 @@ export const dict: Record<string, string> = {
   "ui.sessionTurn.retry.geminiHot": "gemini is way too hot right now",
   "ui.sessionTurn.error.freeUsageExceeded": "Free usage exceeded",
   "ui.sessionTurn.error.addCredits": "Add credits",
+  "ui.memoryReceipt.updates": "Memory updates:",
+  "ui.memoryReceipt.failures": "Memory failures:",
+  "ui.memoryReceipt.moreUpdates": "... and {{count}} more memory updates",
+  "ui.memoryReceipt.moreFailures": "... and {{count}} more memory failures",
 
   "ui.sessionTurn.status.delegating": "Delegating work",
   "ui.sessionTurn.status.planning": "Planning next steps",

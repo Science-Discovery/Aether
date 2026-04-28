@@ -191,7 +191,7 @@ run log 当前不单独保存：
 ```json
 {
   "id": "01JS8Q7MKG7WQ1M7B64P73JYQE",
-  "name": "Nightly Health Check",
+  "name": "Nightly Memory Reflect",
   "enabled": true,
   "mode": "direct",
   "project_id": null,
@@ -200,7 +200,7 @@ run log 当前不单独保存：
   "schedule_value": "0 3 * * *",
   "timezone": "Asia/Shanghai",
   "payload": {
-    "action": "debug_noop"
+    "action": "memory_reflect"
   }
 }
 ```

@@ -9,6 +9,7 @@ import { SettingsKeybinds } from "./settings-keybinds"
 import { SettingsProviders } from "./settings-providers"
 import { SettingsModels } from "./settings-models"
 import { SettingsKnowledge } from "./settings-knowledge"
+import { SettingsMemory } from "./settings-memory"
 import { SettingsCron } from "./settings-cron"
 
 export const DialogSettings: Component = () => {
@@ -51,6 +52,10 @@ export const DialogSettings: Component = () => {
                       <Icon name="brain" />
                       Knowledge
                     </Tabs.Trigger>
+                    <Tabs.Trigger value="memory">
+                      <Icon name="brain" />
+                      {language.t("settings.tab.memory")}
+                    </Tabs.Trigger>
                     <Tabs.Trigger value="cron">
                       <Icon name="task" />
                       {language.t("settings.tab.cron")}
@@ -78,6 +83,9 @@ export const DialogSettings: Component = () => {
         </Tabs.Content>
         <Tabs.Content value="knowledge" class="no-scrollbar">
           <SettingsKnowledge />
+        </Tabs.Content>
+        <Tabs.Content value="memory" class="no-scrollbar">
+          <SettingsMemory />
         </Tabs.Content>
         <Tabs.Content value="cron" class="no-scrollbar">
           <SettingsCron />
