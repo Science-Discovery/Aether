@@ -250,6 +250,7 @@ export const FileRoutes = lazy(() =>
           word: query.word === "true",
           regex: query.regex === "true",
           limit: 50,
+          signal: c.req.raw.signal,
         })
         return c.json(result)
       },

@@ -6,11 +6,13 @@ import { List, type ListRef } from "@opencode-ai/ui/list"
 import { Switch } from "@opencode-ai/ui/switch"
 import { TextField } from "@opencode-ai/ui/text-field"
 import { getDirectory, getFilename } from "@opencode-ai/util/path"
-import { createEffect, createMemo, createSignal, For, Show } from "solid-js"
+import { createEffect, createMemo, createSignal, For, onCleanup, Show } from "solid-js"
 import { useFile } from "@/context/file"
+import { useGlobalSDK } from "@/context/global-sdk"
 import { useLanguage } from "@/context/language"
 import { useLayout } from "@/context/layout"
 import { useSessionLayout } from "@/pages/session/session-layout"
+import { decode64 } from "@/utils/base64"
 
 type Match = {
   start: number
@@ -52,9 +54,10 @@ const parts = (text: string, matches: Match[]) => {
 export function DialogSearchContent(props: { onOpenFile?: (path: string) => void }) {
   const dialog = useDialog()
   const file = useFile()
+  const globalSDK = useGlobalSDK()
   const language = useLanguage()
   const layout = useLayout()
-  const { tabs, view } = useSessionLayout()
+  const { params, tabs, view } = useSessionLayout()
   let list: ListRef | undefined
   const [query, setQuery] = createSignal("")
   const [adv, setAdv] = createSignal(false)
@@ -63,27 +66,56 @@ export function DialogSearchContent(props: { onOpenFile?: (path: string) => void
   const [cs, setCs] = createSignal(false)
   const [word, setWord] = createSignal(false)
   const [regex, setRegex] = createSignal(false)
+  let abort: AbortController | undefined
   const has = createMemo(() => !!inc().trim() || !!exc().trim() || cs() || word() || regex())
+  const dir = createMemo(() => decode64(params.dir) ?? "")
 
   const items = async (text: string) => {
     const pattern = text.trim()
     if (pattern.length < 2) return [] as Entry[]
-    return file.searchContent({
-      pattern,
-      include: inc(),
-      exclude: exc(),
-      case: cs(),
-      word: word(),
-      regex: regex(),
-    }).then((list) =>
+    const current = dir()
+    if (!current) return [] as Entry[]
+    abort?.abort()
+    const ctl = new AbortController()
+    abort = ctl
+    return globalSDK
+      .createClient({
+        directory: current,
+        throwOnError: true,
+      })
+      .find.text({
+        pattern,
+        include: inc(),
+        exclude: exc(),
+        case: cs() ? "true" : "false",
+        word: word() ? "true" : "false",
+        regex: regex() ? "true" : "false",
+      }, {
+        signal: ctl.signal,
+      })
+      .then((x) => (x.data ?? []).map((item) => ({
+        id: `${item.path.text}:${item.line_number}:${item.lines.text}`,
+        line: item.line_number,
+        matches: item.submatches.map((part) => ({
+          start: part.start,
+          end: part.end,
+        })),
+        path: file.normalize(item.path.text),
+        text: item.lines.text.trimEnd(),
+      })))
+      .then((list) =>
       list.map((item) => ({
         id: `${item.path}:${item.line}:${item.text}`,
         line: item.line,
         matches: item.matches,
         path: item.path,
-        text: item.text.trimEnd(),
+        text: item.text,
       })),
-    )
+      )
+      .catch((err: unknown) => {
+        if (err instanceof Error && err.name === "AbortError") return []
+        throw err
+      })
   }
 
   const open = (path: string, line: number) => {
@@ -109,6 +141,8 @@ export function DialogSearchContent(props: { onOpenFile?: (path: string) => void
     if (text.length < 2) return
     list?.setFilter(text)
   })
+
+  onCleanup(() => abort?.abort())
 
   return (
     <Dialog class="pt-3 pb-0 !max-h-[480px]" transition>

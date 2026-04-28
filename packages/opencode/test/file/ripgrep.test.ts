@@ -146,6 +146,26 @@ describe("file.ripgrep", () => {
     expect(hits).toEqual([])
   })
 
+  test("search aborts with signal", async () => {
+    await using tmp = await tmpdir({
+      init: async (dir) => {
+        const row = "needle " + "x".repeat(200) + "\n"
+        await Bun.write(path.join(dir, "match.txt"), row.repeat(200_000))
+      },
+    })
+
+    const ctl = new AbortController()
+    const task = Ripgrep.search({
+      cwd: tmp.path,
+      pattern: "needle",
+      regex: true,
+      signal: ctl.signal,
+    })
+    ctl.abort()
+
+    await expect(task).rejects.toMatchObject({ name: "AbortError" })
+  })
+
   test("tree ignores .aether metadata directories", async () => {
     await using tmp = await tmpdir({
       init: async (dir) => {
