@@ -608,7 +608,10 @@ export namespace Skill {
 
     return {
       skills: merged,
-      dirs: new Set(Object.values(merged).map((item) => path.dirname(item.location))),
+      dirs: new Set([
+        ...Object.keys(globalManifest).map((f) => path.dirname(f)),
+        ...Object.keys(projectManifest).map((f) => path.dirname(f)),
+      ]),
     }
   }
 
