@@ -2433,16 +2433,24 @@ ToolRegistry.register({
     const action = createMemo(() => props.input.action || "")
     const name = createMemo(() => props.input.name || "skill_manage")
     const running = createMemo(() => props.status === "pending" || props.status === "running")
-    const isEvolution = createMemo(() => action() === "edit" || action() === "patch")
+    const isEvolution = createMemo(() => action() === "create" || action() === "edit" || action() === "patch")
 
     const [keepShimmer, setKeepShimmer] = createSignal(false)
     let shimmerTimer: ReturnType<typeof setTimeout> | undefined
     createEffect(() => {
       if (running()) {
         clearTimeout(shimmerTimer)
-        setKeepShimmer(true)
+        if (isEvolution()) {
+          setKeepShimmer(true)
+        } else {
+          setKeepShimmer(false)
+        }
       } else if (keepShimmer()) {
-        shimmerTimer = setTimeout(() => setKeepShimmer(false), 1500)
+        if (isEvolution()) {
+          shimmerTimer = setTimeout(() => setKeepShimmer(false), 1500)
+        } else {
+          setKeepShimmer(false)
+        }
       }
     })
     onCleanup(() => clearTimeout(shimmerTimer))
