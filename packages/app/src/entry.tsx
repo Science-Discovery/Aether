@@ -403,6 +403,7 @@ const boot = async () => {
             defaultServer={ServerConnection.Key.make(getDefaultUrl())}
             servers={[server]}
             disableHealthCheck
+            basePath={import.meta.env.VITE_BASE_PATH}
           />
         </AppBaseProviders>
       </PlatformProvider>

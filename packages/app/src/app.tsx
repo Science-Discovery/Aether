@@ -61,9 +61,7 @@ const SessionRoute = () => (
   </SessionProviders>
 )
 
-const ReadingSessionRoute = () => (
-  <ReadingSession />
-)
+const ReadingSessionRoute = () => <ReadingSession />
 
 const SessionIndexRoute = () => <Navigate href="session" />
 
@@ -295,7 +293,9 @@ export function AppInterface(props: {
   servers?: Array<ServerConnection.Any>
   router?: Component<BaseRouterProps>
   disableHealthCheck?: boolean
+  basePath?: string
 }) {
+  const routerBase = props.basePath && props.basePath !== "/" ? props.basePath : undefined
   return (
     <ServerProvider defaultServer={props.defaultServer} servers={props.servers}>
       <ConnectionGate disableHealthCheck={props.disableHealthCheck}>
@@ -304,6 +304,7 @@ export function AppInterface(props: {
             <GlobalSyncProvider>
               <Dynamic
                 component={props.router ?? Router}
+                base={routerBase}
                 root={(routerProps) => <RouterRoot appChildren={props.children}>{routerProps.children}</RouterRoot>}
               >
                 <Route path="/" component={HomeRoute} />
