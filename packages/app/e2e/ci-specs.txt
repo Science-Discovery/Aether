@@ -10,7 +10,6 @@ e2e/commands/input-focus.spec.ts
 e2e/commands/panels.spec.ts
 e2e/commands/tab-close.spec.ts
 e2e/files/file-open.spec.ts
-e2e/files/file-tree.spec.ts
 e2e/models/models-visibility.spec.ts
 e2e/projects/project-edit.spec.ts
 e2e/prompt/prompt-mention.spec.ts
