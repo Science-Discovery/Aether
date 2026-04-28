@@ -13,6 +13,7 @@ import { DialogNewProject } from "@/components/dialog-new-project"
 import { DialogSelectServer } from "@/components/dialog-select-server"
 import { useServer } from "@/context/server"
 import { useGlobalSync } from "@/context/global-sync"
+import { displayPath } from "@opencode-ai/util/path"
 import { useLanguage } from "@/context/language"
 
 export default function Home() {
@@ -124,7 +125,7 @@ export default function Home() {
                     class="text-14-mono text-left justify-between px-3"
                     onClick={() => openProject(item.directory)}
                   >
-                    {item.directory.replace(homedir(), "~")}
+                    {displayPath(item.directory, homedir())}
                     <div class="text-14-regular text-text-weak">
                       {DateTime.fromMillis(item.time.activity).toRelative()}
                     </div>

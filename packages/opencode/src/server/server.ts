@@ -400,7 +400,7 @@ export namespace Server {
         }),
         async (c) => {
           return c.json({
-            home: process.platform === "win32" ? "/" : Global.Path.home,
+            home: Global.Path.home,
             state: Global.Path.state,
             config: Global.Path.config,
             worktree: Instance.worktree,
