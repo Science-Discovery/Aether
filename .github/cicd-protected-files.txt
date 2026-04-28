@@ -5,6 +5,9 @@
 .github/cicd-admins.txt
 .github/cicd-protected-files.txt
 
+# CI/CD documentation
+docs/ci-guide.md
+
 # GitHub workflows
 .github/publish-python-sdk.yml
 .github/workflows/cicd-guard.yml
@@ -34,6 +37,7 @@
 .github/pull_request_template.md
 .github/prompts/review.txt
 .github/scripts/extract-opencode-comment.mjs
+.github/scripts/upload-downloadbeta.ts
 .github/TEAM_MEMBERS
 .github/VOUCHED.td
 
@@ -48,6 +52,12 @@ packing_scripts/release-mac-web.sh
 packing_scripts/release-windows-web.bat
 packages/app/happydom.ts
 packages/app/package.json
+packages/app/script/e2e-local.ts
+packages/app/script/vitest.ts
+packages/app/src/test/setup.ts
+packages/ui/package.json
+packages/ui/script/vitest.ts
+packages/ui/src/test/setup.ts
 packages/desktop-electron/electron-builder.config.ts
 packages/desktop-electron/package.json
 packages/desktop-electron/scripts/copy-icons.ts
@@ -59,10 +69,16 @@ script/duplicate-pr.ts
 script/generate.ts
 script/github/close-issues.ts
 
+# UI unit tests called by .github/workflows/test.yml
+packages/ui/src/components/message-file.test.ts
+packages/ui/src/components/scroll-view.test.ts
+packages/ui/src/components/session-review.vitest.tsx
+
 # App unit tests called by .github/workflows/test.yml
 packages/app/src/addons/serialize.test.ts
 packages/app/src/components/dialog-custom-provider.test.ts
 packages/app/src/components/file-tree.test.ts
+packages/app/src/components/file-tree.vitest.tsx
 packages/app/src/components/pick-folder.test.ts
 packages/app/src/components/prompt-input/attachments.test.ts
 packages/app/src/components/prompt-input/build-request-parts.test.ts
@@ -70,6 +86,7 @@ packages/app/src/components/prompt-input/editor-dom.test.ts
 packages/app/src/components/prompt-input/history.test.ts
 packages/app/src/components/prompt-input/placeholder.test.ts
 packages/app/src/components/prompt-input/submit.test.ts
+packages/app/src/components/settings-cron.vitest.tsx
 packages/app/src/components/session/session-context-breakdown.test.ts
 packages/app/src/components/session/session-context-metrics.test.ts
 packages/app/src/components/titlebar-history.test.ts
@@ -103,6 +120,8 @@ packages/app/src/pages/session/file-tab-state.test.ts
 packages/app/src/pages/session/helpers.test.ts
 packages/app/src/pages/session/message-gesture.test.ts
 packages/app/src/pages/session/session-model-helpers.test.ts
+packages/app/src/pages/session/session-side-panel-state.test.ts
+packages/app/src/pages/session/session-side-panel.vitest.tsx
 packages/app/src/pages/session/terminal-panel.test.ts
 packages/app/src/pages/session/upload.test.ts
 packages/app/src/pages/session/use-session-hash-scroll.test.ts
@@ -118,6 +137,52 @@ packages/app/src/utils/server-health.test.ts
 packages/app/src/utils/terminal-writer.test.ts
 packages/app/src/utils/uuid.test.ts
 packages/app/src/utils/worktree.test.ts
+
+# App E2E tests called by .github/workflows/test.yml
+packages/app/e2e/actions.ts
+packages/app/e2e/app/home.spec.ts
+packages/app/e2e/app/navigation.spec.ts
+packages/app/e2e/app/palette.spec.ts
+packages/app/e2e/app/server-default.spec.ts
+packages/app/e2e/app/session.spec.ts
+packages/app/e2e/backend.ts
+packages/app/e2e/ci-specs-serial.txt
+packages/app/e2e/ci-specs.txt
+packages/app/e2e/commands/input-focus.spec.ts
+packages/app/e2e/commands/panels.spec.ts
+packages/app/e2e/commands/tab-close.spec.ts
+packages/app/e2e/files/file-open.spec.ts
+packages/app/e2e/files/file-tree.spec.ts
+packages/app/e2e/files/file-viewer.spec.ts
+packages/app/e2e/fixtures.ts
+packages/app/e2e/models/models-visibility.spec.ts
+packages/app/e2e/projects/project-edit.spec.ts
+packages/app/e2e/projects/projects-close.spec.ts
+packages/app/e2e/projects/workspace-new-session.spec.ts
+packages/app/e2e/projects/workspaces.spec.ts
+packages/app/e2e/prompt/prompt-async.spec.ts
+packages/app/e2e/prompt/prompt-history.spec.ts
+packages/app/e2e/prompt/prompt-mention.spec.ts
+packages/app/e2e/prompt/prompt-multiline.spec.ts
+packages/app/e2e/prompt/prompt-shell.spec.ts
+packages/app/e2e/prompt/prompt-slash-open.spec.ts
+packages/app/e2e/prompt/prompt-slash-share.spec.ts
+packages/app/e2e/prompt/prompt-slash-terminal.spec.ts
+packages/app/e2e/prompt/prompt.spec.ts
+packages/app/e2e/selectors.ts
+packages/app/e2e/session/session-child-navigation.spec.ts
+packages/app/e2e/session/session-undo-redo.spec.ts
+packages/app/e2e/session/session.spec.ts
+packages/app/e2e/settings/settings-models.spec.ts
+packages/app/e2e/settings/settings.spec.ts
+packages/app/e2e/sidebar/sidebar.spec.ts
+packages/app/e2e/status/status-popover.spec.ts
+packages/app/e2e/terminal/terminal-init.spec.ts
+packages/app/e2e/terminal/terminal-reconnect.spec.ts
+packages/app/e2e/terminal/terminal-tabs.spec.ts
+packages/app/e2e/terminal/terminal.spec.ts
+packages/app/e2e/thinking-level.spec.ts
+packages/app/e2e/utils.ts
 
 # Opencode unit tests called by .github/workflows/test.yml
 packages/opencode/src/pdf-converter/util.test.ts
@@ -149,6 +214,7 @@ packages/opencode/test/control-plane/session-proxy-middleware.test.ts
 packages/opencode/test/control-plane/sse.test.ts
 packages/opencode/test/control-plane/workspace-server-sse.test.ts
 packages/opencode/test/control-plane/workspace-sync.test.ts
+packages/opencode/test/cron/cron.test.ts
 packages/opencode/test/effect/cross-spawn-spawner.test.ts
 packages/opencode/test/effect/instance-state.test.ts
 packages/opencode/test/effect/run-service.test.ts
@@ -178,8 +244,10 @@ packages/opencode/test/patch/patch.test.ts
 packages/opencode/test/permission-task.test.ts
 packages/opencode/test/permission/arity.test.ts
 packages/opencode/test/permission/next.test.ts
+packages/opencode/test/persist/migrate.test.ts
 packages/opencode/test/plugin/auth-override.test.ts
 packages/opencode/test/plugin/codex.test.ts
+packages/opencode/test/project/bootstrap.test.ts
 packages/opencode/test/project/migrate-global.test.ts
 packages/opencode/test/project/project.test.ts
 packages/opencode/test/project/state.test.ts
@@ -198,20 +266,27 @@ packages/opencode/test/question/question.test.ts
 packages/opencode/test/server/file-download.test.ts
 packages/opencode/test/server/global-session-list.test.ts
 packages/opencode/test/server/project-init-git.test.ts
+packages/opencode/test/server/server-web-cache.test.ts
+packages/opencode/test/server/session-graph.test.ts
 packages/opencode/test/server/session-list.test.ts
 packages/opencode/test/server/session-messages.test.ts
 packages/opencode/test/server/session-select.test.ts
+packages/opencode/test/server/session-tree.test.ts
+packages/opencode/test/server/web-update-script.test.ts
+packages/opencode/test/server/web-update.test.ts
 packages/opencode/test/session/compaction.test.ts
 packages/opencode/test/session/instruction.test.ts
 packages/opencode/test/session/llm.test.ts
 packages/opencode/test/session/message-v2.test.ts
 packages/opencode/test/session/messages-pagination.test.ts
+packages/opencode/test/session/preference.test.ts
 packages/opencode/test/session/prompt.test.ts
 packages/opencode/test/session/retry.test.ts
 packages/opencode/test/session/revert-compact.test.ts
 packages/opencode/test/session/session.test.ts
 packages/opencode/test/session/structured-output-integration.test.ts
 packages/opencode/test/session/structured-output.test.ts
+packages/opencode/test/session/summary.test.ts
 packages/opencode/test/session/system.test.ts
 packages/opencode/test/share/share-next.test.ts
 packages/opencode/test/skill/discovery.test.ts
@@ -248,4 +323,3 @@ packages/opencode/test/util/process.test.ts
 packages/opencode/test/util/timeout.test.ts
 packages/opencode/test/util/which.test.ts
 packages/opencode/test/util/wildcard.test.ts
-

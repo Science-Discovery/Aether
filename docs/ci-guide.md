@@ -149,10 +149,10 @@
   - Repository variables：无
   - Repository secrets：无
   - 可选但常见的仓库配置：
-    - 如果希望把它作为合并门禁，需要在 `dev` 分支保护规则里把对应 check 设为 required
+    - 如果希望把它作为合并门禁，需要在对应目标分支保护规则里把对应 check 设为 required
 - 触发（当前）：
-  - `push` 到 `dev`
-  - `pull_request` 到 `dev`
+  - `push` 到 `main`、`beta`、`dev`
+  - `pull_request` 到 `main`、`beta`、`dev`
   - `workflow_dispatch`
   - 仅在 `packages/storybook/**`、`packages/ui/**`、锁文件或 workflow 本身变化时触发
 - 主要内容：
@@ -179,10 +179,10 @@
   - Repository variables：无
   - Repository secrets：无
   - 可选但常见的仓库配置：
-    - 如果希望把它作为合并门禁，需要在 `dev` 分支保护规则里把对应 check 设为 required
+    - 如果希望把它作为合并门禁，需要在对应目标分支保护规则里把对应 check 设为 required
 - 触发（当前）：
-  - `push` 到 `dev`
-  - `pull_request` 到 `dev`
+  - `push` 到 `main`、`beta`、`dev`
+  - `pull_request` 到 `main`、`beta`、`dev`
   - `workflow_dispatch`
 - 主要内容：
   - workflow 配置了基于 `workflow + ref` 的并发组，新 run 会取消旧 run
@@ -484,8 +484,6 @@
     - 该 App 至少需要仓库 `Contents: Read and write` 权限，才能把更新后的 `nix/hashes.json` 推回分支
 - 触发：
   - `workflow_dispatch`
-  - `push` 到 `dev`、`beta`
-  - 仅在 `bun.lock`、`package.json`、`flake.lock`、`nix/**`、`patches/**` 等变化时触发
 - 主要内容：
   - 在四个平台 runner 上分别计算 `node_modules` 哈希
   - 上传 hash artifact
@@ -494,8 +492,40 @@
 - 作用：
   - 维护 Nix 构建所需的依赖哈希
   - 保证多平台可复现构建
+- 备注：
+  - 当前已关闭 `push` 自动触发，只能在 GitHub Actions 页面手动运行
+  - 手动运行后仍会尝试自动提交并推送 `nix/hashes.json`，因此 GitHub App 变量、密钥和写权限仍然是必需前置条件
 
 ### 4. 仓库治理与社区流程
+
+#### `cicd-guard.yml`
+
+- 类型：PR 治理 / CI/CD 保护
+- 状态：活跃
+- 所需 GitHub 配置：
+  - 仓库设置：
+    - 必须启用 GitHub Actions
+    - 因 workflow 需要评论 PR 并把违规 PR 标红，`Settings -> Actions -> General -> Workflow permissions` 需要设为 `Read and write permissions`
+    - 如果组织限制了可用 action，需要放行 `actions/checkout@v4`、`actions/github-script@v8`
+  - Repository variables：无
+  - Repository secrets：无自定义项；使用系统自带 `GITHUB_TOKEN`
+  - 仓库内前置对象：
+    - `.github/cicd-admins.txt` 维护允许修改 CI/CD 相关文件的 GitHub 用户名
+    - `.github/cicd-protected-files.txt` 维护受保护文件列表
+- 触发（当前）：
+  - `pull_request_target` 到 `main`、`beta`、`dev`
+  - PR 事件类型为 `opened`、`reopened`、`synchronize`、`ready_for_review`
+- 主要内容：
+  - checkout 目标分支上的 guard 配置文件，而不是 PR 分支中的配置文件
+  - 读取 `.github/cicd-admins.txt`，如果 PR 作者在管理员名单中则直接放行
+  - 读取 `.github/cicd-protected-files.txt`，再通过 GitHub API 获取 PR 变更文件
+  - 如果非管理员 PR 修改了受保护文件：
+    - 创建或更新带 `<!-- cicd-guard -->` 标记的提醒评论
+    - 将 workflow 标为失败，阻止该 PR 悄悄修改 CI/CD 关键配置
+  - 如果未命中受保护文件，或此前违规后来修复，则清理旧的 guard 评论
+- 作用：
+  - 防止普通 PR 直接修改 workflow、复用 action、CI/CD 保护名单等敏感自动化配置
+  - 当前保护范围已覆盖面向 `main`、`beta`、`dev` 的 PR
 
 #### `duplicate-issues.yml`
 
