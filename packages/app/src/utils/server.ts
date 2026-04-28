@@ -2,6 +2,7 @@ import { createOpencodeClient } from "@opencode-ai/sdk/v2/client"
 import type { ServerConnection } from "@/context/server"
 
 type Base = ReturnType<typeof createOpencodeClient>
+type Req<T> = Promise<{ data?: T }>
 type Skill = {
   name: string
   description: string
@@ -14,7 +15,114 @@ type Kb = {
   apiKey?: string
   baseURL?: string
 }
+type CronMode = "direct" | "isolated_agent" | "session_agent" | "agent_message"
+type CronScheduleType = "cron" | "interval" | "once"
+type CronLastStatus = "success" | "failed" | "skipped" | "expired" | null
+type CronRunStatus = "success" | "failed" | "skipped"
+type CronTriggerReason = "scheduled" | "manual"
+type CronDefinition = {
+  id: string
+  name: string
+  enabled: boolean
+  mode: CronMode
+  project_id?: string | null
+  session_id?: string | null
+  schedule_type: CronScheduleType
+  schedule_value: string | number
+  timezone?: string | null
+  payload: Record<string, unknown>
+  [key: string]: unknown
+}
+type CronState = {
+  job_id: string
+  enabled: boolean
+  next_run_at: number | null
+  last_run_at: number | null
+  last_status: CronLastStatus
+  running: boolean
+  start_at: number | null
+  updated_at: number
+}
+type CronRun = {
+  run_id: string
+  job_id: string
+  started_at: number
+  finished_at: number
+  status: CronRunStatus
+  output_summary: string | null
+  mode: CronMode
+  project_id: string | null
+  session_id: string | null
+  created_session_id: string | null
+  payload_snapshot: Record<string, unknown>
+  trigger_reason: CronTriggerReason
+}
+type CronJobView = {
+  definition: CronDefinition
+  state: CronState | null
+}
+
+type RequestHelperOptions = {
+  throwOnError?: boolean
+}
+
+function errorMessage(input: unknown) {
+  if (typeof input === "string" && input.trim()) return input
+  if (input && typeof input === "object") {
+    const source = input as Record<string, unknown>
+    if (typeof source.message === "string" && source.message.trim()) return source.message
+    if (typeof source.error === "string" && source.error.trim()) return source.error
+    if (source.error && typeof source.error === "object") {
+      const nested = source.error as Record<string, unknown>
+      if (typeof nested.message === "string" && nested.message.trim()) return nested.message
+    }
+  }
+  return
+}
+
+async function requestJSON<T>(url: string, init: RequestInit, options?: RequestHelperOptions): Req<T> {
+  let resp: Response
+  try {
+    resp = await fetch(url, init)
+  } catch (error) {
+    if (options?.throwOnError) throw error
+    return {}
+  }
+
+  const text = await resp.text()
+  let payload: unknown
+  if (text) {
+    try {
+      payload = JSON.parse(text)
+    } catch {
+      payload = text
+    }
+  } else {
+    payload = {}
+  }
+
+  if (!resp.ok) {
+    if (options?.throwOnError) {
+      throw new Error(errorMessage(payload) ?? `HTTP ${resp.status}`)
+    }
+    return {}
+  }
+
+  return { data: payload as T }
+}
 export type AppClient = Base & {
+  cron: {
+    jobs: {
+      list(): Req<CronJobView[]>
+      get(input: { id: string }): Req<CronJobView>
+      run(input: { id: string }): Req<CronRun>
+      runs(input: { id: string; count?: number }): Req<CronRun[]>
+      delete(input: { id: string }): Req<{ ok: true; job_id: string; definition: CronDefinition }>
+    }
+    runs: {
+      get(input: { runID: string }): Req<CronRun | null>
+    }
+  }
   config: Base["config"] & {
     skills: {
       list(): Promise<{ data?: Skill[] }>
@@ -84,4 +192,55 @@ export function createSdkForServer({
       ...(config.headers ?? {}),
     },
   }) as unknown as AppClient
+}
+
+export function addCronMethods(
+  client: AppClient,
+  baseUrl: string,
+  auth?: Record<string, string>,
+  options?: RequestHelperOptions,
+): AppClient {
+  const headers: Record<string, string> = { "Content-Type": "application/json", ...auth }
+  client.cron = {
+    jobs: {
+      async list() {
+        return requestJSON(`${baseUrl}/cron/jobs`, { headers }, options)
+      },
+      async get(input: { id: string }) {
+        return requestJSON(`${baseUrl}/cron/jobs/${input.id}`, { headers }, options)
+      },
+      async run(input: { id: string }) {
+        return requestJSON(
+          `${baseUrl}/cron/jobs/${input.id}/run`,
+          {
+            method: "POST",
+            headers,
+          },
+          options,
+        )
+      },
+      async runs(input: { id: string; count?: number }) {
+        const search = new URLSearchParams()
+        if (input.count !== undefined) search.set("count", String(input.count))
+        const suffix = search.toString() ? `?${search}` : ""
+        return requestJSON(`${baseUrl}/cron/jobs/${input.id}/runs${suffix}`, { headers }, options)
+      },
+      async delete(input: { id: string }) {
+        return requestJSON(
+          `${baseUrl}/cron/jobs/${input.id}`,
+          {
+            method: "DELETE",
+            headers,
+          },
+          options,
+        )
+      },
+    },
+    runs: {
+      async get(input: { runID: string }) {
+        return requestJSON(`${baseUrl}/cron/runs/${input.runID}`, { headers }, options)
+      },
+    },
+  }
+  return client
 }

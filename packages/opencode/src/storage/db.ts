@@ -9,7 +9,7 @@ import { Log } from "../util/log"
 import { NamedError } from "@opencode-ai/util/error"
 import z from "zod"
 import path from "path"
-import { readFileSync, readdirSync, existsSync } from "fs"
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync } from "fs"
 import { Installation } from "../installation"
 import { Flag } from "../flag/flag"
 import { iife } from "@/util/iife"
@@ -144,37 +144,87 @@ export namespace Database {
     return sql.sort((a, b) => a.timestamp - b.timestamp)
   }
 
+  const lockBuffer = new SharedArrayBuffer(4)
+  const lockView = new Int32Array(lockBuffer)
+
+  function wait(ms: number) {
+    Atomics.wait(lockView, 0, 0, ms)
+  }
+
+  function withInitLock<T>(callback: () => T): T {
+    if (Path === ":memory:") return callback()
+
+    const lock = `${Path}.init.lock`
+    mkdirSync(path.dirname(lock), { recursive: true })
+    const started = Date.now()
+    let warned = false
+
+    while (true) {
+      try {
+        mkdirSync(lock)
+        break
+      } catch (error) {
+        const code = error && typeof error === "object" && "code" in error ? (error as { code?: string }).code : undefined
+        if (code !== "EEXIST") throw error
+
+        try {
+          const age = Date.now() - statSync(lock).mtimeMs
+          if (age > 30_000) {
+            rmSync(lock, { recursive: true, force: true })
+            continue
+          }
+        } catch {
+          continue
+        }
+
+        if (!warned && Date.now() - started > 5_000) {
+          warned = true
+          log.warn("waiting for database initialization lock", { path: Path, lock })
+        }
+        wait(50)
+      }
+    }
+
+    try {
+      return callback()
+    } finally {
+      rmSync(lock, { recursive: true, force: true })
+    }
+  }
+
   export const Client = lazy(() => {
     log.info("opening database", { path: Path })
 
-    const db = init(Path)
+    return withInitLock(() => {
+      const db = init(Path)
 
-    db.run("PRAGMA journal_mode = WAL")
-    db.run("PRAGMA synchronous = NORMAL")
-    db.run("PRAGMA busy_timeout = 5000")
-    db.run("PRAGMA cache_size = -64000")
-    db.run("PRAGMA foreign_keys = ON")
-    db.run("PRAGMA wal_checkpoint(PASSIVE)")
+      db.run("PRAGMA journal_mode = WAL")
+      db.run("PRAGMA synchronous = NORMAL")
+      db.run("PRAGMA busy_timeout = 5000")
+      db.run("PRAGMA cache_size = -64000")
+      db.run("PRAGMA foreign_keys = ON")
+      db.run("PRAGMA wal_checkpoint(PASSIVE)")
 
-    // Apply schema migrations
-    const entries =
-      typeof OPENCODE_MIGRATIONS !== "undefined"
-        ? OPENCODE_MIGRATIONS
-        : migrations(path.join(import.meta.dirname, "../../migration"))
-    if (entries.length > 0) {
-      log.info("applying migrations", {
-        count: entries.length,
-        mode: typeof OPENCODE_MIGRATIONS !== "undefined" ? "bundled" : "dev",
-      })
-      if (Flag.OPENCODE_SKIP_MIGRATIONS) {
-        for (const item of entries) {
-          item.sql = "select 1;"
+      // Apply schema migrations
+      const entries =
+        typeof OPENCODE_MIGRATIONS !== "undefined"
+          ? OPENCODE_MIGRATIONS
+          : migrations(path.join(import.meta.dirname, "../../migration"))
+      if (entries.length > 0) {
+        log.info("applying migrations", {
+          count: entries.length,
+          mode: typeof OPENCODE_MIGRATIONS !== "undefined" ? "bundled" : "dev",
+        })
+        if (Flag.OPENCODE_SKIP_MIGRATIONS) {
+          for (const item of entries) {
+            item.sql = "select 1;"
+          }
         }
+        migrate(db, entries)
       }
-      migrate(db, entries)
-    }
 
-    return db
+      return db
+    })
   })
 
   export function close() {

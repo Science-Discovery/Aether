@@ -107,10 +107,12 @@ import { QQManager } from "@/mobile/qq"
 import { WeChatManager } from "@/mobile/wechat"
 import { ReadingModeRoutes } from "./routes/reading-mode"
 import { DatabaseRoutes } from "./routes/database"
+import { CronRoutes } from "./routes/cron"
 import { MDNS } from "./mdns"
 import { lazy } from "@/util/lazy"
 import { initProjectors } from "./projectors"
 import { SessionPreference } from "@/session/preference"
+import { Cron } from "@/cron"
 
 // @ts-ignore This global is needed to prevent ai-sdk from logging warnings to stdout https://github.com/vercel/ai/blob/2dc67e0ef538307f21368db32d5a12345d98831b/packages/ai/src/logger/log-warnings.ts#L85
 globalThis.AI_SDK_LOG_WARNINGS = false
@@ -132,6 +134,9 @@ export namespace Server {
     onBrowserConnectionChange?: (count: number) => void
   }): Hono<ServerEnv> => {
     SessionPreference.clear()
+    void Cron.start().catch((error) => {
+      log.error("cron start failed", { error })
+    })
     const app = new Hono<ServerEnv>()
     let sseConnectionCount = 0
     const corsware = cors({
@@ -335,6 +340,7 @@ export namespace Server {
       .route("/mcp", McpRoutes())
       .route("/tui", TuiRoutes())
       .route("/knowledge", KnowledgeRoutes())
+      .route("/cron", CronRoutes())
       .route("/mobile/wechat", createMobileRoutes("wechat"))
       .route("/mobile/feishu", createMobileRoutes("feishu"))
       .route("/mobile/qq", createMobileRoutes("qq"))

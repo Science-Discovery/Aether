@@ -120,6 +120,7 @@
     "chokidar": "4.0.3",
     "clipboardy": "4.0.0",
     "cross-spawn": "^7.0.6",
+    "croner": "9.1.0",
     "decimal.js": "10.5.0",
     "diff": "catalog:",
     "drizzle-orm": "catalog:",

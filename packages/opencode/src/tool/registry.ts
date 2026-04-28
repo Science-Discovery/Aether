@@ -29,6 +29,16 @@ import { LspTool } from "./lsp"
 import { Truncate } from "./truncate"
 import { ApplyPatchTool } from "./apply_patch"
 import { SummarizeDirsTool } from "./summarize-dirs"
+import {
+  CronCreateTool,
+  CronDeleteTool,
+  CronGetTool,
+  CronListTool,
+  CronRunNowTool,
+  CronRunsTool,
+  CronSetGlobalEnabledTool,
+  CronUpdateTool,
+} from "./cron"
 import { Glob } from "../util/glob"
 import { pathToFileURL } from "url"
 import { Effect, Layer, ServiceMap } from "effect"
@@ -132,6 +142,14 @@ export namespace ToolRegistry {
           SkillTool,
           ApplyPatchTool,
           SummarizeDirsTool,
+          CronListTool,
+          CronGetTool,
+          CronCreateTool,
+          CronUpdateTool,
+          CronDeleteTool,
+          CronRunNowTool,
+          CronRunsTool,
+          CronSetGlobalEnabledTool,
           KnowledgeTool,
           ...(Flag.OPENCODE_EXPERIMENTAL_LSP_TOOL ? [LspTool] : []),
           ...(cfg.experimental?.batch_tool === true ? [BatchTool] : []),
