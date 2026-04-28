@@ -49,7 +49,7 @@ export const SettingsSkills: Component = () => {
     <div class="flex flex-col h-full overflow-y-auto no-scrollbar px-4 pb-10 sm:px-10 sm:pb-10">
       <div class="sticky top-0 z-10 bg-[linear-gradient(to_bottom,var(--surface-stronger-non-alpha)_calc(100%_-_24px),transparent)]">
         <div class="flex flex-col gap-1 pt-6 pb-8 max-w-[720px]">
-          <h2 class="text-16-medium text-text-strong">Skills</h2>
+          <h2 class="text-16-medium text-text-strong">Skill Evolution</h2>
           <p class="text-14-regular text-text-weak">
             Configure how the AI automatically captures and refines reusable skills.
           </p>

@@ -55,7 +55,7 @@ export const DialogSettings: Component = () => {
                     </Tabs.Trigger>
                     <Tabs.Trigger value="skills">
                       <Icon name="checklist" />
-                      Skills
+                      Skill Evolution
                     </Tabs.Trigger>
                     <Tabs.Trigger value="memory">
                       <Icon name="brain" />
