@@ -281,7 +281,19 @@ export abstract class MobileManagerBase {
     console.log(`[${this.adapter.platform}] initSessions: dir=${this._initialDir} session=${this._initialSessionId}`)
 
     const staleKeys: string[] = []
+    const sessionToCanonicalScope: Record<string, string> = {}
     for (const [key, sessionId] of Object.entries(this.sessionMap)) {
+      const canonical = sessionToCanonicalScope[sessionId]
+      if (canonical) {
+        if (key.length < canonical.length) {
+          staleKeys.push(canonical)
+          sessionToCanonicalScope[sessionId] = key
+        } else {
+          staleKeys.push(key)
+        }
+        continue
+      }
+      sessionToCanonicalScope[sessionId] = key
       const dir = this._scopeDirs[key] ?? this._initialDir
       try {
         const found = await Instance.provide({
@@ -289,11 +301,9 @@ export abstract class MobileManagerBase {
           fn: () => Session.get(SessionID.make(sessionId)),
         })
         if (found.time?.archived) {
-          console.log(`[${this.adapter.platform}] initSessions: removing archived mapping:`, key, sessionId)
           staleKeys.push(key)
         }
       } catch {
-        console.log(`[${this.adapter.platform}] initSessions: removing stale mapping:`, key, sessionId)
         staleKeys.push(key)
       }
     }
@@ -363,7 +373,14 @@ export abstract class MobileManagerBase {
   }
 
   protected effectiveDir(scope: string): string {
-    return this._scopeDirs[scope] ?? (this._initialDir || Instance.directory)
+    const scoped = this._scopeDirs[scope]
+    if (scoped) return scoped
+    if (this._initialDir) return this._initialDir
+    try {
+      return Instance.directory
+    } catch {
+      return ""
+    }
   }
 
   protected async clearRuntime(scope: string): Promise<void> {
@@ -442,11 +459,24 @@ export abstract class MobileManagerBase {
 
   protected async currentSession(scope: string, create?: boolean): Promise<string | undefined> {
     const pinned = this.sessionMap[scope]
-    if (pinned) return pinned
+    if (pinned) {
+      try {
+        const found = await Instance.provide({
+          directory: this.effectiveDir(scope),
+          fn: () => Session.get(SessionID.make(pinned)),
+        })
+        if (!found.time?.archived) return pinned
+      } catch {
+        // pinned session not found in DB
+      }
+      delete this.sessionMap[scope]
+      await this.saveSessionMap()
+    }
     const dir = this.effectiveDir(scope)
+    if (!dir) return
     const recent = await Instance.provide({
       directory: dir,
-      fn: () => [...Session.list({ directory: dir, roots: true, limit: 1 })],
+      fn: () => [...Session.list({ directory: dir, roots: true, limit: 10 })].filter((s) => !s.time?.archived),
     })
     if (recent[0]) {
       this.sessionMap[scope] = recent[0].id
@@ -612,12 +642,16 @@ export abstract class MobileManagerBase {
   protected async startPrompt(scope: string, messageId: string, text: string, effectiveDir: string): Promise<void> {
     const reply = this.replyTarget(scope, messageId)
     this._activePrompt.set(scope, { sessionId: "", messageId, directory: effectiveDir })
-    let sessionId = this.sessionMap[scope] ?? this._initialSessionId
 
-    this.sessionMap[scope] = sessionId
-    await this.saveSessionMap()
+    let sessionId = await this.currentSession(scope, true)
+    if (!sessionId) {
+      this._activePrompt.delete(scope)
+      await this.replySession(scope, reply, "无法获取或创建会话，请检查项目配置后重试。")
+      return
+    }
+    const sid: string = sessionId
 
-    this._activePrompt.set(scope, { sessionId, messageId, directory: effectiveDir })
+    this._activePrompt.set(scope, { sessionId: sid, messageId, directory: effectiveDir })
 
     const model = this.resolveModel(scope)
     console.log(`[${this.adapter.platform}] using model:`, model ?? "(default)")
@@ -628,32 +662,32 @@ export abstract class MobileManagerBase {
         "\n\n[系统提示：如果用户的意图是获取某个文件，请在回复中包含该文件在当前系统上的完整绝对路径。Windows 示例：E:\\\\work\\\\demo\\\\file.md；macOS/Linux 示例：/Users/demo/file.md 或 /home/demo/file.md。系统将自动把该路径对应的文件作为附件发送给用户。如果用户无需获取文件，请忽略本提示，正常回复即可。]"
     }
 
-    const pref = sessionId ? SessionPreference.get(sessionId) : undefined
+    const pref = SessionPreference.get(sid)
     if (pref?.autoAccept) {
       const session = await Instance.provide({
         directory: effectiveDir,
-        fn: () => Session.get(SessionID.make(sessionId)),
+        fn: () => Session.get(SessionID.make(sid)),
       })
       if (!session.permission?.some((r) => r.permission === "*" && r.action === "allow")) {
         await Instance.provide({
           directory: effectiveDir,
           fn: () =>
             Session.setPermission({
-              sessionID: SessionID.make(sessionId),
+              sessionID: SessionID.make(sid),
               permission: [{ permission: "*", pattern: "*", action: "allow" }],
             }),
         })
       }
     }
 
-    console.log(`[${this.adapter.platform}] sending to aether, session:`, sessionId, localISOString())
+    console.log(`[${this.adapter.platform}] sending to aether, session:`, sid, localISOString())
 
     try {
       const msg = await Instance.provide({
         directory: effectiveDir,
         fn: () =>
           SessionPrompt.prompt({
-            sessionID: SessionID.make(sessionId),
+            sessionID: SessionID.make(sid),
             parts: [{ type: "text", text: promptText }],
           }),
       })
@@ -663,12 +697,12 @@ export abstract class MobileManagerBase {
       if (responseText) {
         const msgModel =
           msg?.info?.role === "assistant" ? { providerID: msg.info.providerID, modelID: msg.info.modelID } : undefined
-        if (msgModel && !SessionPreference.get(sessionId)?.model) {
+        if (msgModel && !SessionPreference.get(sid)?.model) {
           await Instance.provide({
             directory: effectiveDir,
             fn: () =>
               SessionPreference.update({
-                sessionID: SessionID.make(sessionId),
+                sessionID: SessionID.make(sid),
                 model: { providerID: ProviderID.make(msgModel.providerID), modelID: ModelID.make(msgModel.modelID) },
               }),
           })
@@ -700,6 +734,29 @@ export abstract class MobileManagerBase {
         return
       }
       console.error(`[${this.adapter.platform}] prompt error:`, err)
+      if (isSessionNotFound(err)) {
+        delete this.sessionMap[scope]
+        await this.saveSessionMap()
+        const freshId = await this.currentSession(scope, true)
+        if (freshId && freshId !== sid) {
+          this._activePrompt.set(scope, { sessionId: freshId, messageId, directory: effectiveDir })
+          try {
+            const msg = await Instance.provide({
+              directory: effectiveDir,
+              fn: () =>
+                SessionPrompt.prompt({
+                  sessionID: SessionID.make(freshId),
+                  parts: [{ type: "text", text: promptText }],
+                }),
+            })
+            const responseText = this.extractResponseText(msg)
+            if (responseText) {
+              await this.replySession(scope, reply, responseText)
+            }
+            return
+          } catch {}
+        }
+      }
       const errMsg = isSessionNotFound(err) ? "会话已不存在" : err instanceof Error ? err.message : String(err)
       await this.replySession(scope, reply, `处理消息时出错: ${errMsg}`).catch(() => {})
     } finally {

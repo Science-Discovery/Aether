@@ -158,6 +158,15 @@ class FeishuManagerImpl extends MobileManagerBase {
     super(new FeishuAdapter({} as any))
     this.feishuAdapter = new FeishuAdapter(this)
     this.adapter = this.feishuAdapter
+    for (const sig of ["exit", "beforeExit", "SIGINT", "SIGTERM"] as const) {
+      process.on(sig, () => {
+        if (this.wsClient && typeof this.wsClient.close === "function") {
+          try {
+            this.wsClient.close()
+          } catch {}
+        }
+      })
+    }
   }
 
   override platformDir() {
@@ -169,7 +178,7 @@ class FeishuManagerImpl extends MobileManagerBase {
   }
 
   protected override scopeKey(chatId: string, rootId: string): string {
-    return `${chatId}:${rootId}`
+    return rootId ? `${chatId}:${rootId}` : chatId
   }
 
   get session() {
@@ -231,7 +240,7 @@ class FeishuManagerImpl extends MobileManagerBase {
 
         const chatId = message.chat_id
         const messageId = message.message_id
-        const rootId = message.root_id || message.parent_id || messageId
+        const rootId = message.root_id || message.parent_id || ""
         const chatType = message.chat_type
 
         if (chatType === "group") {
