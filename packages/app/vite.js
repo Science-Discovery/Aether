@@ -22,6 +22,35 @@ function readServePort() {
   return undefined
 }
 
+function stripGitBashPrefix(path) {
+  const idx = path.indexOf("/Git/")
+  if (idx !== -1) return "/" + path.slice(idx + 5)
+  const idx2 = path.indexOf("\\Git\\")
+  if (idx2 !== -1) return "/" + path.slice(idx2 + 5)
+  const idx3 = path.indexOf("/msys/")
+  if (idx3 !== -1) return "/" + path.slice(idx3 + 6)
+  const idx4 = path.indexOf("\\msys\\")
+  if (idx4 !== -1) return "/" + path.slice(idx4 + 6)
+  return null
+}
+
+function readBasePath() {
+  const raw = process.env.VITE_BASE_PATH
+  if (!raw) return "/"
+  if (/^[A-Za-z]:[\\/]/.test(raw)) {
+    const recovered = stripGitBashPrefix(raw)
+    if (recovered) {
+      console.warn(`[opencode] detected Git Bash path translation, corrected: "${raw}" → "${recovered}"`)
+      return recovered
+    }
+    console.error(
+      `[opencode] VITE_BASE_PATH "${raw}" is a Windows path, likely from Git Bash translation. Run from cmd.exe or set MSYS_NO_PATHCONV=1, or pass base path without leading slash: --basepath my/base/path`,
+    )
+    return "/"
+  }
+  return raw.startsWith("/") ? raw : `/${raw}`
+}
+
 const theme = fileURLToPath(new URL("./public/oc-theme-preload.js", import.meta.url))
 
 /**
@@ -32,9 +61,13 @@ export default [
     name: "opencode-desktop:config",
     config() {
       const port = readServePort()
+      const basePath = readBasePath()
       const env = port ? { VITE_OPENCODE_SERVER_PORT: port } : {}
       if (port) console.log(`[opencode] auto-detected backend port: ${port}`)
+      if (basePath !== "/") console.log(`[opencode] base path: ${basePath}`)
+      env.VITE_BASE_PATH = basePath
       return {
+        base: basePath,
         define: Object.fromEntries(Object.entries(env).map(([k, v]) => [`import.meta.env.${k}`, JSON.stringify(v)])),
         resolve: {
           alias: {
@@ -50,9 +83,10 @@ export default [
   },
   {
     name: "opencode-desktop:theme-preload",
+    enforce: "pre",
     transformIndexHtml(html) {
       return html.replace(
-        '<script id="oc-theme-preload-script" src="/oc-theme-preload.js"></script>',
+        /<script\s+id="oc-theme-preload-script"\s+src="[^"]*oc-theme-preload\.js"[^>]*><\/script>/,
         `<script id="oc-theme-preload-script">${readFileSync(theme, "utf8")}</script>`,
       )
     },
@@ -60,4 +94,3 @@ export default [
   tailwindcss(),
   solidPlugin(),
 ]
-
