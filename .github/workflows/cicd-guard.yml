@@ -2,7 +2,7 @@ name: cicd-guard
 
 on:
   pull_request_target:
-    branches: [dev]
+    branches: [main, beta, dev]
     types: [opened, reopened, synchronize, ready_for_review]
 
 concurrency:
