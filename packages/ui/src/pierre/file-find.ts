@@ -53,7 +53,7 @@ function installShortcuts() {
         return
       }
 
-      if (key !== "f") return
+      if (key !== "f" || event.shiftKey) return
 
       const active = current
       if (active && active.isOpen()) {
