@@ -226,6 +226,11 @@ export const dict = {
   "provider.disconnect.toast.disconnected.title": "{{provider}} 已断开连接",
   "provider.disconnect.toast.disconnected.description": "{{provider}} 模型已不再可用。",
 
+  "toast.fileWatcherLimited.title": "文件监听已关闭",
+  "toast.fileWatcherLimited.description.limit": "文件夹过多，无法启用实时文件监听。",
+  "toast.fileWatcherLimited.description.timeout": "工作区扫描超时，未能启动实时文件监听。",
+  "toast.fileWatcherLimited.description.error": "工作区扫描失败，未能启动实时文件监听。",
+
   "model.tag.free": "免费",
   "model.tag.latest": "最新",
   "model.provider.anthropic": "Anthropic",

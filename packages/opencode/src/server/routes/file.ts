@@ -1282,7 +1282,7 @@ export const FileRoutes = lazy(() =>
           const type = Filesystem.mimeType(abs)
           const base = {
             "Accept-Ranges": "bytes",
-            "Cache-Control": "max-age=3600",
+            "Cache-Control": "no-cache",
             "Content-Type": type,
             ETag: etag(stat),
             "Last-Modified": stat.mtime.toUTCString(),

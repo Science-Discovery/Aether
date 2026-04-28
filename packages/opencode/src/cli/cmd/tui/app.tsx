@@ -703,6 +703,21 @@ function App(props: { onSnapshot?: () => Promise<string[]> }) {
     })
   })
 
+  sdk.event.on("file.watcher.limited", (evt) => {
+    const message =
+      evt.properties.reason === "limit"
+        ? "Too many folders for live file watching."
+        : evt.properties.reason === "timeout"
+          ? "Workspace scan timed out before live watching started."
+          : "Workspace scan failed before live watching started."
+    toast.show({
+      variant: "warning",
+      title: "File watching off",
+      message: `${message} (${evt.properties.dir})`,
+      duration: 8000,
+    })
+  })
+
   sdk.event.on(TuiEvent.SessionSelect.type, (evt) => {
     route.navigate({
       type: "session",

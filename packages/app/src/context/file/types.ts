@@ -27,6 +27,7 @@ export type FileViewState = {
 export type FileState = {
   path: string
   name: string
+  version?: number
   loaded?: boolean
   loading?: boolean
   error?: string

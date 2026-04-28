@@ -391,6 +391,18 @@ export const { use: useFile, provider: FileProvider } = createSimpleContext({
       )
 
     const stop = sdk.event.listen((e) => {
+      if (e.details.type === "file.watcher.updated") {
+        const props =
+          typeof e.details.properties === "object" && e.details.properties
+            ? (e.details.properties as Record<string, unknown>)
+            : undefined
+        const raw = typeof props?.file === "string" ? props.file : undefined
+        const kind = typeof props?.event === "string" ? props.event : undefined
+        const file = raw ? path.normalize(raw) : ""
+        if (file && !file.startsWith(".git/") && kind !== "unlink" && store.file[file]) {
+          setStore("file", file, "version", (value) => (value ?? 0) + 1)
+        }
+      }
       invalidateFromWatcher(e.details, {
         normalize: path.normalize,
         hasFile: (file) => Boolean(store.file[file]),

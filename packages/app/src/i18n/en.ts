@@ -207,6 +207,11 @@ export const dict = {
   "provider.disconnect.toast.disconnected.title": "{{provider}} disconnected",
   "provider.disconnect.toast.disconnected.description": "{{provider}} models are no longer available.",
 
+  "toast.fileWatcherLimited.title": "File watching off",
+  "toast.fileWatcherLimited.description.limit": "Too many folders for live file watching.",
+  "toast.fileWatcherLimited.description.timeout": "Workspace scan timed out before live watching started.",
+  "toast.fileWatcherLimited.description.error": "Workspace scan failed before live watching started.",
+
   "model.tag.free": "Free",
   "model.tag.latest": "Latest",
   "model.provider.anthropic": "Anthropic",
