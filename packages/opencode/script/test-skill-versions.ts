@@ -1,5 +1,5 @@
 /**
- * Test script for skill versioning (skill-versions.ts)
+ * Test suite for skill-versions.ts (bundle format)
  * Run: bun packages/opencode/script/test-skill-versions.ts
  */
 
@@ -34,297 +34,575 @@ async function assertThrows(fn: () => Promise<unknown>, label: string) {
   }
 }
 
+async function assertThrowsMsg(fn: () => Promise<unknown>, substr: string, label: string) {
+  try {
+    await fn()
+    console.error(`  ✗ ${label} (expected throw, but did not)`)
+    failed++
+  } catch (e: any) {
+    if (String(e?.message ?? e).includes(substr)) {
+      console.log(`  ✓ ${label}`)
+      passed++
+    } else {
+      console.error(`  ✗ ${label} (threw but message "${e?.message}" missing "${substr}")`)
+      failed++
+    }
+  }
+}
+
 async function setup(): Promise<string> {
-  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "skill-ver-test-"))
-  await fs.mkdir(dir, { recursive: true })
-  return dir
-}
-
-async function writeSkill(skillDir: string, content: string) {
-  const file = path.join(skillDir, "SKILL.md")
-  await fs.mkdir(skillDir, { recursive: true })
-  await fs.writeFile(file, content, "utf8")
-}
-
-async function readSkill(skillDir: string): Promise<string> {
-  return fs.readFile(path.join(skillDir, "SKILL.md"), "utf8")
+  return fs.mkdtemp(path.join(os.tmpdir(), "skill-bundle-test-"))
 }
 
 async function cleanup(dir: string) {
   await fs.rm(dir, { recursive: true, force: true })
 }
 
+async function writeFile(dir: string, relPath: string, content: string | Buffer) {
+  const absPath = path.join(dir, relPath)
+  await fs.mkdir(path.dirname(absPath), { recursive: true })
+  if (typeof content === "string") await fs.writeFile(absPath, content, "utf8")
+  else await fs.writeFile(absPath, content)
+}
+
+async function readFile(dir: string, relPath: string): Promise<string> {
+  return fs.readFile(path.join(dir, relPath), "utf8")
+}
+
+async function fileExists(dir: string, relPath: string): Promise<boolean> {
+  return fs.access(path.join(dir, relPath)).then(() => true, () => false)
+}
+
+async function readBundle(skillDir: string, versionNum: number) {
+  const versions = await listVersions(skillDir)
+  const entry = versions.find((v) => v.version === versionNum)
+  if (!entry) throw new Error(`version v${versionNum} not found`)
+  const raw = await fs.readFile(path.join(skillDir, ".versions", entry.filename), "utf8")
+  return JSON.parse(raw) as { action: string; timestamp: string; files: Record<string, { content: string; encoding: string }> }
+}
+
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
-async function testBasicSnapshot() {
-  console.log("\n[1] Basic snapshot after create/edit/patch")
+// [1] Bundle file format
+async function testBundleFormat() {
+  console.log("\n[1] Bundle file format")
   const dir = await setup()
   try {
-    await writeSkill(dir, "---\nname: \"test\"\ndescription: \"d\"\n---\n\nv1 content")
+    await writeFile(dir, "SKILL.md", "initial content")
     await snapshot(dir, "create")
-
-    let versions = await listVersions(dir)
-    assert(versions.length === 1, "one version after create")
-    assert(versions[0].label === "v001", "label is v001")
-    assert(versions[0].action === "create", "action is create")
-
-    await writeSkill(dir, "---\nname: \"test\"\ndescription: \"d\"\n---\n\nv2 content")
-    await snapshot(dir, "edit")
-    versions = await listVersions(dir)
-    assert(versions.length === 2, "two versions after edit")
-    assert(versions[1].label === "v002", "second label is v002")
-    assert(versions[1].action === "edit", "action is edit")
-
-    await writeSkill(dir, "---\nname: \"test\"\ndescription: \"d\"\n---\n\nv3 content")
-    await snapshot(dir, "patch")
-    versions = await listVersions(dir)
-    assert(versions.length === 3, "three versions after patch")
-    assert(versions[2].action === "patch", "action is patch")
-  } finally {
-    await cleanup(dir)
-  }
-}
-
-async function testRollback() {
-  console.log("\n[2] Rollback to a previous version")
-  const dir = await setup()
-  try {
-    await writeSkill(dir, "v1 content")
-    await snapshot(dir, "create")
-
-    await writeSkill(dir, "v2 content")
-    await snapshot(dir, "edit")
-
-    await writeSkill(dir, "v3 bad content")
-    await snapshot(dir, "patch")
-
-    // rollback to v002
-    const { restoredFrom } = await rollback(dir, "v002")
-    assert(restoredFrom.includes("v002"), "restoredFrom references v002")
-
-    const current = await readSkill(dir)
-    assert(current === "v2 content", "SKILL.md restored to v2 content")
 
     const versions = await listVersions(dir)
-    assert(versions.length === 4, "4 versions after rollback")
-    assert(versions[3].action === "rollback-v002", "rollback snapshot has correct action label")
-    assert(versions[3].label === "v004", "rollback snapshot is v004")
+    assert(versions.length === 1, "one version created")
+    assert(versions[0]!.label === "v001", "label is v001")
+    assert(versions[0]!.action === "create", "action is create")
+    assert(versions[0]!.filename.endsWith(".bundle.json"), "file ends with .bundle.json")
+    assert(versions[0]!.filename.startsWith("v001_create_"), "filename starts with v001_create_")
+    assert(/\d{8}T\d{6}/.test(versions[0]!.timestamp), "timestamp matches YYYYMMDDThhmmss")
+
+    const bundle = await readBundle(dir, 1)
+    assert(bundle.action === "create", "bundle.action is create")
+    assert(typeof bundle.timestamp === "string", "bundle.timestamp exists")
+    assert(typeof bundle.files === "object", "bundle.files is object")
+    assert("SKILL.md" in bundle.files, "bundle contains SKILL.md")
+    assert(bundle.files["SKILL.md"]!.content === "initial content", "SKILL.md content correct")
+    assert(bundle.files["SKILL.md"]!.encoding === "utf8", "SKILL.md encoding is utf8")
   } finally {
     await cleanup(dir)
   }
 }
 
-async function testRollbackNumericLabel() {
-  console.log("\n[3] Rollback accepts numeric label '2' as well as 'v002'")
+// [2] Multi-file snapshot
+async function testMultiFileSnapshot() {
+  console.log("\n[2] Multi-file snapshot (SKILL.md + scripts + nested)")
   const dir = await setup()
   try {
-    await writeSkill(dir, "v1 content")
-    await snapshot(dir, "create")
-    await writeSkill(dir, "v2 content")
+    await writeFile(dir, "SKILL.md", "skill content")
+    await writeFile(dir, "scripts/run.sh", "#!/bin/bash\necho hello")
+    await writeFile(dir, "scripts/utils/helper.py", "def helper(): pass")
+    await writeFile(dir, "config.yaml", "key: value")
     await snapshot(dir, "edit")
-    await writeSkill(dir, "v3 content")
+
+    const bundle = await readBundle(dir, 1)
+    assert("SKILL.md" in bundle.files, "bundle has SKILL.md")
+    assert("scripts/run.sh" in bundle.files, "bundle has scripts/run.sh")
+    assert("scripts/utils/helper.py" in bundle.files, "bundle has scripts/utils/helper.py")
+    assert("config.yaml" in bundle.files, "bundle has config.yaml")
+    assert(!(".versions" in bundle.files), ".versions dir excluded from bundle")
+    assert(bundle.files["scripts/run.sh"]!.content === "#!/bin/bash\necho hello", "run.sh content correct")
+    assert(bundle.files["scripts/utils/helper.py"]!.content === "def helper(): pass", "nested file content correct")
+  } finally {
+    await cleanup(dir)
+  }
+}
+
+// [3] .versions dir excluded from snapshot
+async function testVersionsDirExcluded() {
+  console.log("\n[3] .versions/ is never included in bundle")
+  const dir = await setup()
+  try {
+    await writeFile(dir, "SKILL.md", "v1")
+    await snapshot(dir, "create")
+    await writeFile(dir, "SKILL.md", "v2")
+    await snapshot(dir, "edit") // now .versions has 1 file
+
+    const bundle = await readBundle(dir, 2)
+    const keys = Object.keys(bundle.files)
+    assert(!keys.some((k) => k.startsWith(".versions")), "no .versions keys in bundle")
+  } finally {
+    await cleanup(dir)
+  }
+}
+
+// [4] Version numbering and listVersions
+async function testVersionNumbering() {
+  console.log("\n[4] Version numbering and listVersions")
+  const dir = await setup()
+  try {
+    for (let i = 1; i <= 12; i++) {
+      await writeFile(dir, "SKILL.md", `content ${i}`)
+      await snapshot(dir, i === 1 ? "create" : "edit")
+    }
+    const versions = await listVersions(dir)
+    assert(versions.length === 12, "12 versions")
+    let ordered = true
+    for (let i = 1; i < versions.length; i++) {
+      if (versions[i]!.version <= versions[i - 1]!.version) ordered = false
+    }
+    assert(ordered, "versions sorted ascending")
+    assert(versions[0]!.label === "v001", "first is v001")
+    assert(versions[9]!.label === "v010", "tenth is v010 (3-digit pad)")
+    assert(versions[11]!.label === "v012", "twelfth is v012")
+  } finally {
+    await cleanup(dir)
+  }
+}
+
+// [5] formatHistory
+async function testFormatHistory() {
+  console.log("\n[5] formatHistory output")
+  const dir = await setup()
+  try {
+    assert(formatHistory("empty", []).includes("no version history"), "empty history message")
+
+    await writeFile(dir, "SKILL.md", "v1")
+    await snapshot(dir, "create")
+    await writeFile(dir, "SKILL.md", "v2")
+    await snapshot(dir, "patch")
+
+    const versions = await listVersions(dir)
+    const out = formatHistory("myskill", versions)
+    assert(out.includes("myskill"), "contains skill name")
+    assert(out.includes("v001"), "contains v001")
+    assert(out.includes("v002"), "contains v002")
+    assert(out.includes("create"), "contains create action")
+    assert(out.includes("patch"), "contains patch action")
+    assert(out.includes("← current"), "marks current version")
+    // newest first: v002 line appears before v001 line
+    assert(out.indexOf("v002") < out.indexOf("v001"), "newest version listed first")
+  } finally {
+    await cleanup(dir)
+  }
+}
+
+// [6] Rollback case ③ — both have file, different content → overwrite
+async function testRollbackOverwrite() {
+  console.log("\n[6] Rollback case ③: both have file, content differs → overwrite")
+  const dir = await setup()
+  try {
+    await writeFile(dir, "SKILL.md", "original SKILL")
+    await writeFile(dir, "scripts/run.sh", "original script")
+    await snapshot(dir, "create") // v001
+
+    await writeFile(dir, "SKILL.md", "modified SKILL")
+    await writeFile(dir, "scripts/run.sh", "modified script")
+    await snapshot(dir, "edit") // v002
+
+    await rollback(dir, "v001")
+
+    assert(await readFile(dir, "SKILL.md") === "original SKILL", "SKILL.md restored to v001 content")
+    assert(await readFile(dir, "scripts/run.sh") === "original script", "scripts/run.sh restored to v001 content")
+  } finally {
+    await cleanup(dir)
+  }
+}
+
+// [7] Rollback case ① — bundle has file, current doesn't → create
+async function testRollbackRestore() {
+  console.log("\n[7] Rollback case ①: bundle has file, current directory doesn't → restore")
+  const dir = await setup()
+  try {
+    await writeFile(dir, "SKILL.md", "skill")
+    await writeFile(dir, "scripts/run.sh", "the script")
+    await writeFile(dir, "templates/base.txt", "the template")
+    await snapshot(dir, "create") // v001
+
+    // Delete files after snapshot
+    await fs.unlink(path.join(dir, "scripts/run.sh"))
+    await fs.rmdir(path.join(dir, "scripts"))
+    await fs.unlink(path.join(dir, "templates/base.txt"))
+    await fs.rmdir(path.join(dir, "templates"))
+    await snapshot(dir, "edit") // v002 (without the deleted files)
+
+    await rollback(dir, "v001")
+
+    assert(await fileExists(dir, "scripts/run.sh"), "scripts/run.sh recreated")
+    assert(await readFile(dir, "scripts/run.sh") === "the script", "scripts/run.sh content correct")
+    assert(await fileExists(dir, "templates/base.txt"), "templates/base.txt recreated")
+    assert(await readFile(dir, "templates/base.txt") === "the template", "templates/base.txt content correct")
+  } finally {
+    await cleanup(dir)
+  }
+}
+
+// [8] Rollback case ② — current has file, bundle doesn't → delete
+async function testRollbackDelete() {
+  console.log("\n[8] Rollback case ②: current has file, bundle doesn't → delete")
+  const dir = await setup()
+  try {
+    await writeFile(dir, "SKILL.md", "skill")
+    await snapshot(dir, "create") // v001 — only SKILL.md
+
+    // Add extra files after snapshot
+    await writeFile(dir, "scripts/run.sh", "extra script")
+    await writeFile(dir, "config.yaml", "extra config")
+    await snapshot(dir, "write_file") // v002
+
+    await rollback(dir, "v001")
+
+    assert(!(await fileExists(dir, "scripts/run.sh")), "scripts/run.sh deleted")
+    assert(!(await fileExists(dir, "config.yaml")), "config.yaml deleted")
+    assert(await fileExists(dir, "SKILL.md"), "SKILL.md still present")
+  } finally {
+    await cleanup(dir)
+  }
+}
+
+// [9] Empty directory cleanup after rollback case ②
+async function testEmptyDirCleanup() {
+  console.log("\n[9] Empty directories removed after rollback case ②")
+  const dir = await setup()
+  try {
+    await writeFile(dir, "SKILL.md", "skill")
+    await snapshot(dir, "create") // v001
+
+    await writeFile(dir, "scripts/utils/helper.py", "helper")
+    await snapshot(dir, "write_file") // v002
+
+    await rollback(dir, "v001")
+
+    assert(!(await fileExists(dir, "scripts/utils/helper.py")), "nested file deleted")
+    assert(!(await fileExists(dir, "scripts/utils")), "empty nested dir removed")
+    assert(!(await fileExists(dir, "scripts")), "empty parent dir removed")
+  } finally {
+    await cleanup(dir)
+  }
+}
+
+// [10] Non-empty parent dir NOT removed
+async function testNonEmptyDirKept() {
+  console.log("\n[10] Non-empty parent directory kept after partial rollback")
+  const dir = await setup()
+  try {
+    await writeFile(dir, "SKILL.md", "skill")
+    await writeFile(dir, "scripts/keep.sh", "keeper")
+    await snapshot(dir, "create") // v001 — scripts/keep.sh exists
+
+    await writeFile(dir, "scripts/delete_me.sh", "gone")
+    await snapshot(dir, "write_file") // v002
+
+    await rollback(dir, "v001")
+
+    assert(await fileExists(dir, "scripts/keep.sh"), "scripts/keep.sh still present")
+    assert(!(await fileExists(dir, "scripts/delete_me.sh")), "scripts/delete_me.sh deleted")
+    assert(await fileExists(dir, "scripts"), "scripts/ dir kept (non-empty)")
+  } finally {
+    await cleanup(dir)
+  }
+}
+
+// [11] Rollback creates new snapshot
+async function testRollbackCreatesSnapshot() {
+  console.log("\n[11] Rollback automatically creates a new snapshot")
+  const dir = await setup()
+  try {
+    await writeFile(dir, "SKILL.md", "v1")
+    await snapshot(dir, "create")
+    await writeFile(dir, "SKILL.md", "v2 bad")
+    await snapshot(dir, "edit")
+
+    const beforeCount = (await listVersions(dir)).length
+    await rollback(dir, "v001")
+    const versions = await listVersions(dir)
+
+    assert(versions.length === beforeCount + 1, "version count increased by 1")
+    assert(versions[versions.length - 1]!.action === "rollback-v001", "new snapshot action is rollback-v001")
+
+    const bundle = await readBundle(dir, versions.length)
+    assert(bundle.files["SKILL.md"]?.content === "v1", "rollback snapshot captures restored state")
+  } finally {
+    await cleanup(dir)
+  }
+}
+
+// [12] Numeric label support
+async function testNumericLabel() {
+  console.log("\n[12] Rollback accepts numeric label '2' same as 'v002'")
+  const dir = await setup()
+  try {
+    await writeFile(dir, "SKILL.md", "v1")
+    await snapshot(dir, "create")
+    await writeFile(dir, "SKILL.md", "v2")
+    await snapshot(dir, "edit")
+    await writeFile(dir, "SKILL.md", "v3 bad")
     await snapshot(dir, "patch")
 
     await rollback(dir, "2")
-    const current = await readSkill(dir)
-    assert(current === "v2 content", "numeric rollback '2' restores correct content")
+    assert(await readFile(dir, "SKILL.md") === "v2", "numeric '2' rollback restores v2 content")
   } finally {
     await cleanup(dir)
   }
 }
 
+// [13] Double rollback
 async function testDoubleRollback() {
-  console.log("\n[4] Two consecutive rollbacks")
+  console.log("\n[13] Two consecutive rollbacks")
   const dir = await setup()
   try {
-    await writeSkill(dir, "v1 content")
-    await snapshot(dir, "create")
+    await writeFile(dir, "SKILL.md", "v1 original")
+    await snapshot(dir, "create") // v001
 
-    await writeSkill(dir, "v2 content")
-    await snapshot(dir, "edit")
+    await writeFile(dir, "SKILL.md", "v2 good")
+    await snapshot(dir, "edit") // v002
 
-    await writeSkill(dir, "v3 bad")
-    await snapshot(dir, "patch")
+    await writeFile(dir, "SKILL.md", "v3 bad")
+    await snapshot(dir, "patch") // v003
 
-    // first rollback: back to v002
-    await rollback(dir, "v002")
-    let versions = await listVersions(dir)
-    assert(versions[3].action === "rollback-v002", "first rollback label is rollback-v002")
+    await rollback(dir, "v002") // → v004_rollback-v002
+    assert(await readFile(dir, "SKILL.md") === "v2 good", "first rollback correct")
 
-    // continue evolving badly
-    await writeSkill(dir, "v5 bad again")
-    await snapshot(dir, "edit")
+    await writeFile(dir, "SKILL.md", "v5 also bad")
+    await snapshot(dir, "edit") // v005
 
-    // second rollback: back to v004 (which is the rollback-v002 state)
-    await rollback(dir, "v004")
-    versions = await listVersions(dir)
-    assert(versions.length === 6, "6 versions total after two rollbacks + one edit")
-    assert(versions[5].action === "rollback-v004", "second rollback label is rollback-v004")
-
-    const current = await readSkill(dir)
-    assert(current === "v2 content", "content after double rollback is v2 (the state v004 captured)")
+    await rollback(dir, "v004") // rollback to rollback
+    const versions = await listVersions(dir)
+    assert(versions[versions.length - 1]!.action === "rollback-v004", "second rollback label correct")
+    assert(await readFile(dir, "SKILL.md") === "v2 good", "content after double rollback is v2 state")
   } finally {
     await cleanup(dir)
   }
 }
 
-async function testSnapshotBeforeDelete() {
-  console.log("\n[5] snapshotBeforeDelete utility works standalone")
+// [14] Rollback to a rollback snapshot
+async function testRollbackToRollback() {
+  console.log("\n[14] Rollback to a snapshot that is itself a rollback")
   const dir = await setup()
   try {
-    await writeSkill(dir, "will be deleted")
+    await writeFile(dir, "SKILL.md", "original")
+    await writeFile(dir, "scripts/run.sh", "original script")
+    await snapshot(dir, "create") // v001
+
+    await writeFile(dir, "SKILL.md", "edited")
+    await snapshot(dir, "edit") // v002
+
+    await rollback(dir, "v001") // → v003_rollback-v001 (restores original + scripts/run.sh)
+
+    await writeFile(dir, "SKILL.md", "bad again")
+    await snapshot(dir, "patch") // v004
+
+    await rollback(dir, "v003") // rollback to the rollback snapshot
+
+    assert(await readFile(dir, "SKILL.md") === "original", "SKILL.md is original after rollback-to-rollback")
+    assert(await fileExists(dir, "scripts/run.sh"), "scripts/run.sh restored in rollback-to-rollback")
+    assert(await readFile(dir, "scripts/run.sh") === "original script", "scripts content correct")
+  } finally {
+    await cleanup(dir)
+  }
+}
+
+// [15] snapshotBeforeDelete
+async function testSnapshotBeforeDelete() {
+  console.log("\n[15] snapshotBeforeDelete")
+  const dir = await setup()
+  try {
+    await writeFile(dir, "SKILL.md", "about to delete")
+    await writeFile(dir, "scripts/run.sh", "script content")
     await snapshot(dir, "create")
     await snapshotBeforeDelete(dir)
 
     const versions = await listVersions(dir)
-    assert(versions.length === 2, "two versions after manual snapshotBeforeDelete call")
-    assert(versions[1].action === "delete", "second version action is delete")
-    const content = await fs.readFile(path.join(dir, ".versions", versions[1].filename), "utf8")
-    assert(content === "will be deleted", "snapshot content is correct")
+    assert(versions.length === 2, "two versions after snapshotBeforeDelete")
+    assert(versions[1]!.action === "delete", "second version action is 'delete'")
+
+    const bundle = await readBundle(dir, 2)
+    assert(bundle.files["SKILL.md"]?.content === "about to delete", "SKILL.md content in delete snapshot")
+    assert("scripts/run.sh" in bundle.files, "scripts/run.sh included in delete snapshot")
+    assert(bundle.files["scripts/run.sh"]?.content === "script content", "script content in delete snapshot")
   } finally {
     await cleanup(dir)
   }
 }
 
-async function testRollbackNotFound() {
-  console.log("\n[6] Rollback to non-existent version throws")
+// [16] write_file / remove_file actions produce correct bundle action labels
+async function testWriteFileRemoveFileActions() {
+  console.log("\n[16] write_file / remove_file action labels in bundle")
   const dir = await setup()
   try {
-    await writeSkill(dir, "content")
+    await writeFile(dir, "SKILL.md", "skill")
+    await snapshot(dir, "create") // v001
+
+    await writeFile(dir, "scripts/run.sh", "script")
+    await snapshot(dir, "write_file") // v002
+
+    await fs.unlink(path.join(dir, "scripts/run.sh"))
+    await snapshot(dir, "remove_file") // v003
+
+    const versions = await listVersions(dir)
+    assert(versions[1]!.action === "write_file", "v002 action is write_file")
+    assert(versions[2]!.action === "remove_file", "v003 action is remove_file")
+
+    const v2bundle = await readBundle(dir, 2)
+    assert("scripts/run.sh" in v2bundle.files, "write_file bundle includes scripts/run.sh")
+
+    const v3bundle = await readBundle(dir, 3)
+    assert(!("scripts/run.sh" in v3bundle.files), "remove_file bundle does not include scripts/run.sh")
+  } finally {
+    await cleanup(dir)
+  }
+}
+
+// [17] Error: invalid version label
+async function testErrorInvalidLabel() {
+  console.log("\n[17] Error cases")
+  const dir = await setup()
+  try {
+    await writeFile(dir, "SKILL.md", "content")
     await snapshot(dir, "create")
-    await assertThrows(() => rollback(dir, "v999"), "rollback to missing version throws")
+
+    await assertThrowsMsg(() => rollback(dir, "abc"), "Invalid version label", "invalid label 'abc' throws")
+    await assertThrowsMsg(() => rollback(dir, "v999"), "not found", "missing version throws with 'not found'")
+    await assertThrowsMsg(() => rollback(dir, "v999"), "v001", "error message lists available versions")
   } finally {
     await cleanup(dir)
   }
 }
 
-async function testRollbackNoHistory() {
-  console.log("\n[7] Rollback with no history throws")
+// [18] Error: rollback with no history
+async function testErrorNoHistory() {
+  console.log("\n[18] Rollback with no history throws")
   const dir = await setup()
   try {
-    await writeSkill(dir, "content")
+    await writeFile(dir, "SKILL.md", "content")
     await assertThrows(() => rollback(dir, "v001"), "rollback with no history throws")
   } finally {
     await cleanup(dir)
   }
 }
 
-async function testSnapshotOnMissingSkillFile() {
-  console.log("\n[8] Snapshot throws if SKILL.md does not exist")
+// [19] Error: snapshot with no files
+async function testErrorNoFiles() {
+  console.log("\n[19] Snapshot with empty skill dir throws")
   const dir = await setup()
   try {
-    await fs.mkdir(dir, { recursive: true })
-    // no SKILL.md written
-    await assertThrows(() => snapshot(dir, "create"), "snapshot throws when SKILL.md missing")
+    await assertThrowsMsg(() => snapshot(dir, "create"), "no files found", "empty dir snapshot throws")
   } finally {
     await cleanup(dir)
   }
 }
 
+// [20] Binary file handling
+async function testBinaryFiles() {
+  console.log("\n[20] Binary file stored as base64 and restored correctly")
+  const dir = await setup()
+  try {
+    await writeFile(dir, "SKILL.md", "skill with binary")
+    // create a buffer with null bytes (binary marker)
+    const binaryData = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00, 0x01, 0x02, 0x03, 0xFF, 0xFE])
+    await writeFile(dir, "assets/image.bin", binaryData)
+    await snapshot(dir, "create") // v001
+
+    const bundle = await readBundle(dir, 1)
+    assert(bundle.files["assets/image.bin"]?.encoding === "base64", "binary file stored as base64")
+    assert(
+      bundle.files["assets/image.bin"]?.content === binaryData.toString("base64"),
+      "base64 content matches original",
+    )
+
+    // Delete the file then rollback to restore it
+    await fs.unlink(path.join(dir, "assets/image.bin"))
+    await fs.rmdir(path.join(dir, "assets"))
+    await snapshot(dir, "edit") // v002 without binary
+
+    await rollback(dir, "v001")
+
+    const restored = await fs.readFile(path.join(dir, "assets/image.bin"))
+    assert(restored.equals(binaryData), "binary file restored byte-for-byte")
+  } finally {
+    await cleanup(dir)
+  }
+}
+
+// [21] isVersionsDir utility
+async function testIsVersionsDir() {
+  console.log("\n[21] isVersionsDir utility")
+  assert(isVersionsDir(".versions"), "'.versions' recognized")
+  assert(!isVersionsDir("SKILL.md"), "SKILL.md not a versions dir")
+  assert(!isVersionsDir(".version"), "'.version' not a versions dir")
+  assert(!isVersionsDir("versions"), "'versions' not a versions dir")
+  assert(!isVersionsDir("scripts"), "'scripts' not a versions dir")
+}
+
+// [22] Version pruning
 async function testVersionsPruning() {
-  console.log("\n[9] Versions pruned when exceeding MAX (using small limit via direct test)")
-  // We test pruning logic indirectly by checking the prune call removes oldest
-  // We can't set MAX_VERSIONS=3 directly, so we verify the file structure is clean
+  console.log("\n[22] Version count stays stable below MAX (smoke test)")
   const dir = await setup()
   try {
     for (let i = 1; i <= 5; i++) {
-      await writeSkill(dir, `content v${i}`)
+      await writeFile(dir, "SKILL.md", `content v${i}`)
       await snapshot(dir, i === 1 ? "create" : "edit")
     }
     const versions = await listVersions(dir)
-    assert(versions.length === 5, "5 versions stored without hitting prune limit")
-    assert(versions[0].label === "v001", "oldest is v001")
-    assert(versions[4].label === "v005", "newest is v005")
+    assert(versions.length === 5, "5 versions below MAX, all retained")
+    assert(versions[0]!.label === "v001", "oldest is v001")
+    assert(versions[4]!.label === "v005", "newest is v005")
   } finally {
     await cleanup(dir)
   }
 }
 
-async function testVersionOrdering() {
-  console.log("\n[10] Versions sorted by sequence number not filesystem order")
+// [23] All-in-one: complex multi-file lifecycle
+async function testComplexLifecycle() {
+  console.log("\n[23] Complex lifecycle: multi-file create → write → remove → rollback chain")
   const dir = await setup()
   try {
-    for (let i = 0; i < 12; i++) {
-      await writeSkill(dir, `content ${i}`)
-      await snapshot(dir, i === 0 ? "create" : "edit")
-    }
-    const versions = await listVersions(dir)
-    assert(versions.length === 12, "12 versions total")
-    // Verify sort: v001 < v002 < ... < v012
-    let ordered = true
-    for (let i = 1; i < versions.length; i++) {
-      if (versions[i].version <= versions[i - 1].version) ordered = false
-    }
-    assert(ordered, "versions sorted in ascending sequence order")
-    // v010 should be properly ordered (tests 3-digit pad sorting)
-    assert(versions[9].label === "v010", "v010 correctly padded and sorted")
-  } finally {
-    await cleanup(dir)
-  }
-}
-
-async function testFormatHistory() {
-  console.log("\n[11] formatHistory output")
-  const dir = await setup()
-  try {
-    await writeSkill(dir, "v1")
-    await snapshot(dir, "create")
-    await writeSkill(dir, "v2")
-    await snapshot(dir, "edit")
-
-    const versions = await listVersions(dir)
-    const output = formatHistory("myskill", versions)
-    assert(output.includes("myskill"), "output contains skill name")
-    assert(output.includes("v002"), "output contains v002")
-    assert(output.includes("v001"), "output contains v001")
-    assert(output.includes("current"), "output marks current version")
-    assert(output.includes("create"), "output shows create action")
-    assert(output.includes("edit"), "output shows edit action")
-
-    const emptyOutput = formatHistory("empty", [])
-    assert(emptyOutput.includes("no version history"), "empty history message shown")
-  } finally {
-    await cleanup(dir)
-  }
-}
-
-async function testIsVersionsDir() {
-  console.log("\n[12] isVersionsDir utility")
-  assert(isVersionsDir(".versions"), "'.versions' recognized")
-  assert(!isVersionsDir("SKILL.md"), "SKILL.md not recognized as versions dir")
-  assert(!isVersionsDir(".version"), "'.version' not recognized")
-  assert(!isVersionsDir("versions"), "'versions' not recognized")
-}
-
-async function testRollbackToRollback() {
-  console.log("\n[13] Rollback to a version that is itself a rollback snapshot")
-  const dir = await setup()
-  try {
-    await writeSkill(dir, "v1 original")
+    // v001: create with SKILL.md + script
+    await writeFile(dir, "SKILL.md", "skill v1")
+    await writeFile(dir, "scripts/run.sh", "run v1")
     await snapshot(dir, "create")
 
-    await writeSkill(dir, "v2 edited")
+    // v002: add config
+    await writeFile(dir, "config.yaml", "mode: prod")
+    await snapshot(dir, "write_file")
+
+    // v003: edit SKILL.md, modify script
+    await writeFile(dir, "SKILL.md", "skill v3")
+    await writeFile(dir, "scripts/run.sh", "run v3")
     await snapshot(dir, "edit")
 
-    await writeSkill(dir, "v3 bad")
-    await snapshot(dir, "patch")
+    // v004: remove script
+    await fs.unlink(path.join(dir, "scripts/run.sh"))
+    await fs.rmdir(path.join(dir, "scripts"))
+    await snapshot(dir, "remove_file")
 
-    // First rollback to v002
+    // rollback to v002 (SKILL.md=v1, script=v1, config=prod)
     await rollback(dir, "v002")
-    // v004_rollback-v002 now exists, SKILL.md = v2 content
 
-    // Edit again badly
-    await writeSkill(dir, "v5 also bad")
-    await snapshot(dir, "edit")
-
-    // Rollback to v004 (itself a rollback)
-    await rollback(dir, "v004")
-
-    const current = await readSkill(dir)
-    assert(current === "v2 edited", "rolling back to a rollback snapshot restores correct content")
+    assert(await readFile(dir, "SKILL.md") === "skill v1", "SKILL.md rolled back to v1")
+    assert(await readFile(dir, "scripts/run.sh") === "run v1", "scripts/run.sh restored")
+    assert(await readFile(dir, "config.yaml") === "mode: prod", "config.yaml present")
 
     const versions = await listVersions(dir)
-    assert(versions[versions.length - 1].action === "rollback-v004", "final snapshot named rollback-v004")
+    assert(versions.length === 5, "5 versions total (4 + 1 rollback snapshot)")
+    assert(versions[4]!.action === "rollback-v002", "last snapshot is rollback-v002")
   } finally {
     await cleanup(dir)
   }
@@ -333,20 +611,30 @@ async function testRollbackToRollback() {
 // ── Run all ───────────────────────────────────────────────────────────────────
 
 async function main() {
-  console.log("=== skill-versions test suite ===")
-  await testBasicSnapshot()
-  await testRollback()
-  await testRollbackNumericLabel()
-  await testDoubleRollback()
-  await testSnapshotBeforeDelete()
-  await testRollbackNotFound()
-  await testRollbackNoHistory()
-  await testSnapshotOnMissingSkillFile()
-  await testVersionsPruning()
-  await testVersionOrdering()
+  console.log("=== skill-versions bundle test suite ===")
+  await testBundleFormat()
+  await testMultiFileSnapshot()
+  await testVersionsDirExcluded()
+  await testVersionNumbering()
   await testFormatHistory()
-  await testIsVersionsDir()
+  await testRollbackOverwrite()
+  await testRollbackRestore()
+  await testRollbackDelete()
+  await testEmptyDirCleanup()
+  await testNonEmptyDirKept()
+  await testRollbackCreatesSnapshot()
+  await testNumericLabel()
+  await testDoubleRollback()
   await testRollbackToRollback()
+  await testSnapshotBeforeDelete()
+  await testWriteFileRemoveFileActions()
+  await testErrorInvalidLabel()
+  await testErrorNoHistory()
+  await testErrorNoFiles()
+  await testBinaryFiles()
+  await testIsVersionsDir()
+  await testVersionsPruning()
+  await testComplexLifecycle()
 
   console.log(`\n=== Results: ${passed} passed, ${failed} failed ===`)
   if (failed > 0) process.exit(1)

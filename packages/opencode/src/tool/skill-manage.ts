@@ -122,8 +122,12 @@ export const SkillManageTool = Tool.define("skill_manage", async () => {
       "  delete       — Delete a skill and its entire directory.",
       "  history      — List all saved versions of a skill.",
       "  rollback     — Restore a skill to a previous version (requires 'version' param, e.g. 'v002').",
+      "  write_file   — Write a supporting file inside the skill directory (scripts, configs, templates, etc.).",
+      "                 relative_path must NOT be 'SKILL.md' — use edit or patch for that.",
+      "  remove_file  — Remove a supporting file from the skill directory.",
+      "                 relative_path must NOT be 'SKILL.md' — use delete to remove the entire skill.",
       "",
-      "Every successful create/edit/patch automatically saves a version snapshot.",
+      "Every successful create/edit/patch/write_file/remove_file automatically saves a version snapshot.",
       "Use 'history' to browse versions and 'rollback' to recover from a bad evolution.",
       "",
       "Skills are stored under ~/.local/share/aether/skills/<name>/SKILL.md",
@@ -272,6 +276,7 @@ export const SkillManageTool = Tool.define("skill_manage", async () => {
         case "write_file": {
           if (!params.relative_path) throw new Error("relative_path is required for write_file")
           if (params.content === undefined) throw new Error("content is required for write_file")
+          if (params.relative_path === "SKILL.md") throw new Error("write_file cannot target SKILL.md. Call skill_manage again with action='edit' (full rewrite) or action='patch' (targeted replacement).")
           validateWithinDir(skillDir, params.relative_path)
           const targetPath = path.join(skillDir, params.relative_path)
           const originalFileContent = await fs.readFile(targetPath, "utf8").catch(() => null)
@@ -283,6 +288,7 @@ export const SkillManageTool = Tool.define("skill_manage", async () => {
             else await fs.unlink(targetPath).catch(() => {})
             throw err
           }
+          await snapshot(skillDir, "write_file")
           return {
             title: `Wrote file in skill: ${name}`,
             output: `File written: ${targetPath}`,
@@ -292,11 +298,13 @@ export const SkillManageTool = Tool.define("skill_manage", async () => {
 
         case "remove_file": {
           if (!params.relative_path) throw new Error("relative_path is required for remove_file")
+          if (params.relative_path === "SKILL.md") throw new Error("remove_file cannot target SKILL.md. To delete the entire skill use action='delete'.")
           validateWithinDir(skillDir, params.relative_path)
           const targetPath = path.join(skillDir, params.relative_path)
           await fs.unlink(targetPath).catch(() => {
             throw new Error(`File not found: ${targetPath}`)
           })
+          await snapshot(skillDir, "remove_file")
           return { title: `Removed file in skill: ${name}`, output: `File removed: ${targetPath}`, metadata: {} }
         }
 
