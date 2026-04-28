@@ -631,8 +631,7 @@ function normalizeVersion(v: string): string {
     .split("-")[0]
     .split(".")
     .map((x) => Number.parseInt(x || "0", 10) || 0)
-  while (parts.length < 4) parts.push(0)
-  return parts.slice(0, 4).join(".")
+  return parts.join(".")
 }
 
 function compareVer(a: string, b: string) {
@@ -642,9 +641,12 @@ function compareVer(a: string, b: string) {
       .map((x) => Number.parseInt(x || "0", 10) || 0)
   const x = norm(a)
   const y = norm(b)
-  for (let i = 0; i < 4; i++) {
-    if (x[i] < y[i]) return -1
-    if (x[i] > y[i]) return 1
+  const len = Math.max(x.length, y.length)
+  for (let i = 0; i < len; i++) {
+    const xi = x[i] ?? 0
+    const yi = y[i] ?? 0
+    if (xi < yi) return -1
+    if (xi > yi) return 1
   }
   return 0
 }
