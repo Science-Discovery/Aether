@@ -9,7 +9,16 @@ import type {
 } from "@opencode-ai/sdk/v2/client"
 import { showToast } from "@opencode-ai/ui/toast"
 import { getFilename } from "@opencode-ai/util/path"
-import { createContext, createMemo, getOwner, onCleanup, onMount, type ParentProps, untrack, useContext } from "solid-js"
+import {
+  createContext,
+  createMemo,
+  getOwner,
+  onCleanup,
+  onMount,
+  type ParentProps,
+  untrack,
+  useContext,
+} from "solid-js"
 import { createStore, produce, reconcile } from "solid-js/store"
 import { useLanguage } from "@/context/language"
 import { Persist, persisted } from "@/utils/persist"
@@ -21,7 +30,11 @@ import { createChildStoreManager } from "./global-sync/child-store"
 import { applyDirectoryEvent, applyGlobalEvent, cleanupDroppedSessionCaches } from "./global-sync/event-reducer"
 import { createRefreshQueue } from "./global-sync/queue"
 import { clearSessionPrefetchDirectory } from "./global-sync/session-prefetch"
-import { estimateRootSessionTotal, loadDescendantsForRoots, loadRootSessionsWithFallback } from "./global-sync/session-load"
+import {
+  estimateRootSessionTotal,
+  loadDescendantsForRoots,
+  loadRootSessionsWithFallback,
+} from "./global-sync/session-load"
 import { trimSessions } from "./global-sync/session-trim"
 import type { ProjectMeta } from "./global-sync/types"
 import { SESSION_RECENT_LIMIT } from "./global-sync/types"
@@ -118,7 +131,10 @@ function createGlobalSync() {
       cacheRecent()
       return
     }
-    setGlobalStore("recent", next.filter((item) => !isRoot(item.directory)))
+    setGlobalStore(
+      "recent",
+      next.filter((item) => !isRoot(item.directory)),
+    )
     cacheRecent()
   }
 
@@ -255,6 +271,9 @@ function createGlobalSync() {
         setStore("session", reconcile(next, { key: "id" }))
         cleanupDroppedSessionCaches(store, setStore, next, setSessionTodo)
       }
+      globalSDK.client.session.status().then((x) => {
+        setStore("session_status", reconcile(x.data!))
+      })
       children.unpin(directory)
       return
     }
@@ -276,7 +295,9 @@ function createGlobalSync() {
           tree: (query) => globalSDK.client.session.tree(query),
           children: (query) => globalSDK.client.session.children(query),
         })
-        const nonArchived = [...nonArchivedRoots, ...descendants].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+        const nonArchived = [...nonArchivedRoots, ...descendants].sort((a, b) =>
+          a.id < b.id ? -1 : a.id > b.id ? 1 : 0,
+        )
         const limit = store.limit
         // Preserve sessions that arrived via SSE while this API call was in-flight.
         // Without this, reconcile() would overwrite them since the API snapshot predates their creation.
@@ -296,6 +317,9 @@ function createGlobalSync() {
         )
         setStore("session", reconcile(sessions, { key: "id" }))
         cleanupDroppedSessionCaches(store, setStore, sessions, setSessionTodo)
+        globalSDK.client.session.status().then((x) => {
+          setStore("session_status", reconcile(x.data!))
+        })
         sessionMeta.set(directory, { limit })
       })
       .catch((err) => {
