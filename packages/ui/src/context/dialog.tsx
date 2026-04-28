@@ -31,42 +31,27 @@ const Context = createContext<ReturnType<typeof init>>()
 function init() {
   // 改为对话框堆栈，支持多个对话框同时显示
   const [stack, setStack] = createSignal<Active[]>([])
-  const timer = { current: undefined as ReturnType<typeof setTimeout> | undefined }
-  const lock = { value: false }
+  const timers = new Map<string, ReturnType<typeof setTimeout>>()
 
   onCleanup(() => {
-    if (timer.current === undefined) return
-    clearTimeout(timer.current)
-    timer.current = undefined
+    for (const timer of timers.values()) clearTimeout(timer)
+    timers.clear()
   })
 
   const close = () => {
     const currentStack = stack()
     const current = currentStack[currentStack.length - 1]
-    if (!current || lock.value) return
-    lock.value = true
+    if (!current || timers.has(current.id)) return
     current.onClose?.()
     current.setClosing(true)
 
     const id = current.id
-    if (timer.current !== undefined) {
-      clearTimeout(timer.current)
-      timer.current = undefined
-    }
-
-    timer.current = setTimeout(() => {
-      timer.current = undefined
+    const timer = setTimeout(() => {
+      timers.delete(id)
       current.dispose()
-      // 只移除最顶层的对话框
-      setStack(prev => {
-        if (prev.length === 0) return prev
-        if (prev[prev.length - 1].id === id) {
-          return prev.slice(0, -1)
-        }
-        return prev
-      })
-      lock.value = false
+      setStack((prev) => prev.filter((item) => item.id !== id))
     }, 100)
+    timers.set(id, timer)
   }
 
   createEffect(() => {
@@ -85,11 +70,6 @@ function init() {
   })
 
   const show = (element: DialogElement, owner: Owner, onClose?: () => void, options?: DialogOptions) => {
-    if (timer.current !== undefined) {
-      clearTimeout(timer.current)
-      timer.current = undefined
-    }
-    lock.value = false
     const modal = options?.modal !== false
 
     const id = Math.random().toString(36).slice(2)
