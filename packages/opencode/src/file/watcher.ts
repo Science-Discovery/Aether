@@ -2,6 +2,7 @@ import { Cause, Effect, Layer, Scope, ServiceMap } from "effect"
 // @ts-ignore
 import { createWrapper } from "@parcel/watcher/wrapper"
 import type ParcelWatcher from "@parcel/watcher"
+import { watch as fsWatch } from "fs"
 import { readdir, stat } from "fs/promises"
 import path from "path"
 import z from "zod"
@@ -349,7 +350,7 @@ export namespace FileWatcher {
               const watcher = fsWatch(
                 Instance.directory,
                 { recursive: true },
-                Instance.bind((raw, name) => {
+                Instance.bind((raw: string, name: string | Buffer | null) => {
                   const file = name ? path.resolve(Instance.directory, name.toString()) : Instance.directory
                   if (ignored(file, Instance.directory, ignore)) return
                   const publish = (event: "add" | "change" | "unlink") => {
@@ -369,7 +370,7 @@ export namespace FileWatcher {
                   watcher.close()
                 }),
               )
-              watcher.on("error", (error) => {
+              watcher.on("error", (error: unknown) => {
                 log.error("fs watcher error", { directory: Instance.directory, error })
               })
               return
