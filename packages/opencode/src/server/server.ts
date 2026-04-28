@@ -102,6 +102,9 @@ import { PermissionRoutes } from "./routes/permission"
 import { GlobalRoutes } from "./routes/global"
 import { KnowledgeRoutes } from "./routes/knowledge"
 import { createMobileRoutes } from "@/mobile/route"
+import { FeishuManager } from "@/mobile/feishu"
+import { QQManager } from "@/mobile/qq"
+import { WeChatManager } from "@/mobile/wechat"
 import { ReadingModeRoutes } from "./routes/reading-mode"
 import { DatabaseRoutes } from "./routes/database"
 import { MDNS } from "./mdns"
@@ -799,9 +802,8 @@ export namespace Server {
 
     for (const signal of ["SIGINT", "SIGTERM"] as const) {
       process.on(signal, () => {
-        server
-          .stop(true)
-          .catch(() => {})
+        Promise.all([FeishuManager.stop(), QQManager.stop(), WeChatManager.stop()].map((p) => p.catch(() => {})))
+          .then(() => server.stop(true).catch(() => {}))
           .then(() => process.exit(0))
       })
     }

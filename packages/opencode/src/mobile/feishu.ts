@@ -158,15 +158,6 @@ class FeishuManagerImpl extends MobileManagerBase {
     super(new FeishuAdapter({} as any))
     this.feishuAdapter = new FeishuAdapter(this)
     this.adapter = this.feishuAdapter
-    for (const sig of ["exit", "beforeExit", "SIGINT", "SIGTERM"] as const) {
-      process.on(sig, () => {
-        if (this.wsClient && typeof this.wsClient.close === "function") {
-          try {
-            this.wsClient.close()
-          } catch {}
-        }
-      })
-    }
   }
 
   override platformDir() {
