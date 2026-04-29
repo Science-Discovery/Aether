@@ -106,7 +106,16 @@ export function DialogEditProject(props: { project: LocalProject }) {
       const icon = { color: store.color, override: store.iconUrl || undefined }
 
       globalSync.project.meta(props.project.worktree, { name, icon, commands: { start: start || undefined } })
+      globalSync.project.icon(props.project.worktree, icon.override)
       dialog.close()
+
+      globalSDK.client.project
+        .updateDirectoryMeta({
+          body_directory: props.project.worktree,
+          name: name || undefined,
+          icon,
+        })
+        .catch(() => {})
 
       const hasProjectID = props.project.id && !props.project.id.startsWith("dir:")
       if (hasProjectID) {
@@ -115,16 +124,8 @@ export function DialogEditProject(props: { project: LocalProject }) {
             projectID: props.project.id!,
             directory: props.project.worktree,
             name,
-            icon,
+            icon: { color: icon.color },
             commands: start ? { start } : undefined,
-          })
-          .catch(() => {})
-      } else {
-        globalSDK.client.project
-          .updateDirectoryMeta({
-            body_directory: props.project.worktree,
-            name: name || undefined,
-            icon,
           })
           .catch(() => {})
       }

@@ -121,12 +121,11 @@ export namespace Project {
     return ["/bin", "/dist", "\\bin", "\\dist"].some((item) => next.endsWith(item))
   }
 
-  function rowIcon(row: { icon_url?: string | null; icon_color?: string | null; icon_override?: string | null }) {
-    if (!row.icon_url && !row.icon_color && !row.icon_override) return
+  function rowIcon(row: { icon_url?: string | null; icon_color?: string | null }) {
+    if (!row.icon_url && !row.icon_color) return
     return {
       url: row.icon_url ?? undefined,
       color: row.icon_color ?? undefined,
-      override: row.icon_override ?? undefined,
     } satisfies Info["icon"]
   }
 
@@ -601,9 +600,7 @@ export namespace Project {
             .update(ProjectTable)
             .set({
               ...(input.name !== undefined ? { name: input.name } : {}),
-              ...(input.icon
-                ? { icon_url: input.icon.url, icon_color: input.icon.color, icon_override: input.icon.override }
-                : {}),
+              ...(input.icon ? { icon_url: input.icon.url, icon_color: input.icon.color } : {}),
               ...(input.commands !== undefined ? { commands: input.commands } : {}),
               time_updated: Date.now(),
             })

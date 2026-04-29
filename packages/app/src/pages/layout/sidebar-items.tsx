@@ -29,6 +29,7 @@ export const ProjectIcon = (props: { project: LocalProject; class?: string; noti
   const globalSync = useGlobalSync()
   const notification = useNotification()
   const permission = usePermission()
+  const child = createMemo(() => globalSync.child(props.project.worktree, { bootstrap: false })[0])
   const dirs = createMemo(() => [props.project.worktree, ...(props.project.sandboxes ?? [])])
   const unseenCount = createMemo(() =>
     dirs().reduce((total, directory) => total + notification.project.unseenCount(directory), 0),
@@ -42,14 +43,21 @@ export const ProjectIcon = (props: { project: LocalProject; class?: string; noti
   )
   const notify = createMemo(() => props.notify && (hasPermissions() || unseenCount() > 0))
   const name = createMemo(() => props.project.name || getFilename(props.project.worktree))
+  const recent = createMemo(() => globalSync.project.recentFromDir(props.project.worktree))
+  const src = createMemo(() =>
+    props.project.id === OPENCODE_PROJECT_ID
+      ? "https://opencode.ai/favicon.svg"
+      : (child().projectMeta?.icon?.override ??
+        recent()?.icon?.override ??
+        child().icon ??
+        props.project.icon?.override),
+  )
   return (
     <div class={`relative size-8 shrink-0 rounded ${props.class ?? ""}`}>
       <div class="size-full rounded overflow-clip">
         <Avatar
           fallback={name()}
-          src={
-            props.project.id === OPENCODE_PROJECT_ID ? "https://opencode.ai/favicon.svg" : props.project.icon?.override
-          }
+          src={src()}
           {...getAvatarColors(props.project.icon?.color)}
           class="size-full rounded"
           classList={{ "badge-mask": notify() }}

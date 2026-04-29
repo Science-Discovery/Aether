@@ -275,16 +275,22 @@ function deepMerge(target: object, source: object) {
 }
 
 function safeAssign(target: object, key: string, value: unknown) {
-  const proto = Object.getPrototypeOf(target)
-  const descriptor =
-    Object.getOwnPropertyDescriptor(target, key) ?? (proto ? Object.getOwnPropertyDescriptor(proto, key) : undefined)
-  if (descriptor?.get && !descriptor.set) {
+  try {
+    const existing = (target as Record<string, unknown>)[key]
+    if (existing && typeof existing === "object" && value && typeof value === "object") {
+      try {
+        ;(target as Record<string, unknown>)[key] = value
+      } catch {
+        deepMerge(existing as object, value as object)
+        return
+      }
+    }
+    ;(target as Record<string, unknown>)[key] = value
+  } catch {
     const existing = (target as Record<string, unknown>)[key]
     if (existing && typeof existing === "object" && value && typeof value === "object")
       deepMerge(existing as object, value as object)
-    return
   }
-  ;(target as Record<string, unknown>)[key] = value
 }
 
 export function addPreferenceMethods(
