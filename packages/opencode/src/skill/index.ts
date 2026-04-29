@@ -559,7 +559,8 @@ export namespace Skill {
     if (!_discovery) throw new Error("Skill service not initialized — layer not started")
 
     const cfg = await Config.get()
-    const disabled = new Set(cfg.skills?.disabled ?? [])
+    const global = await Config.getGlobal()
+    const disabled = new Set(global.skills?.disabled ?? [])
 
     const sources = await buildSources(directory, worktree, cfg)
     const globalDirs = manifestDirs(sources, "global")

@@ -1554,7 +1554,7 @@ export namespace Config {
     if (!skillsDir) return []
     if (!(await Filesystem.isDir(skillsDir))) return []
 
-    const cfg = await get()
+    const cfg = await getGlobal()
     const disabled = new Set(cfg.skills?.disabled ?? [])
 
     const entries = await fs.readdir(skillsDir, { withFileTypes: true }).catch(() => [])
@@ -1591,7 +1591,7 @@ export namespace Config {
     const skillsDir = getManagedSkillsDir()
     if (!(await Filesystem.isDir(skillsDir))) return []
 
-    const cfg = await get()
+    const cfg = await getGlobal()
     const disabled = new Set(cfg.skills?.disabled ?? [])
 
     const entries = await fs.readdir(skillsDir, { withFileTypes: true }).catch(() => [])
@@ -1662,14 +1662,17 @@ export namespace Config {
   }
 
   export async function toggleSkill(name: string, enabled: boolean): Promise<void> {
-    const cfg = await get()
+    using _ = await Lock.write("config-skills-toggle")
+    const cfg = await getGlobal()
     const disabled = new Set(cfg.skills?.disabled ?? [])
     if (enabled) {
       disabled.delete(name)
     } else {
       disabled.add(name)
     }
-    await updateGlobal({ skills: { disabled: [...disabled] } } as any)
+    await updateGlobalInternal({ skills: { disabled: [...disabled] } } as any, { dispose: false })
+    const { Skill } = await import("@/skill")
+    await Skill.clearSkillsPromptCache(true)
   }
 
   function globalConfigFile() {
@@ -1760,7 +1763,7 @@ export namespace Config {
     })
   }
 
-  export async function updateGlobal(config: Info) {
+  async function updateGlobalInternal(config: Info, opts: { dispose: boolean }) {
     const filepath = globalConfigFile()
     const found = existsSync(filepath)
     const before = found
@@ -1809,19 +1812,25 @@ export namespace Config {
 
     global.reset()
 
-    void Instance.disposeAll()
-      .catch(() => undefined)
-      .finally(() => {
-        GlobalBus.emit("event", {
-          directory: "global",
-          payload: {
-            type: Event.Disposed.type,
-            properties: {},
-          },
+    if (opts.dispose) {
+      void Instance.disposeAll()
+        .catch(() => undefined)
+        .finally(() => {
+          GlobalBus.emit("event", {
+            directory: "global",
+            payload: {
+              type: Event.Disposed.type,
+              properties: {},
+            },
+          })
         })
-      })
+    }
 
     return next
+  }
+
+  export async function updateGlobal(config: Info) {
+    return updateGlobalInternal(config, { dispose: true })
   }
 
   export async function directories() {
