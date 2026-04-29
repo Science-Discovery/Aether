@@ -257,6 +257,18 @@ export function createSdkForServer({
   }) as unknown as AppClient
 }
 
+function safeAssign(target: object, key: string, value: unknown) {
+  const proto = Object.getPrototypeOf(target)
+  const descriptor =
+    Object.getOwnPropertyDescriptor(target, key) ?? (proto ? Object.getOwnPropertyDescriptor(proto, key) : undefined)
+  if (descriptor?.get && !descriptor.set) {
+    const existing = (target as Record<string, unknown>)[key]
+    if (existing && typeof existing === "object") Object.assign(existing as unknown as Record<string, unknown>, value)
+    return
+  }
+  ;(target as Record<string, unknown>)[key] = value
+}
+
 export function addPreferenceMethods(
   client: AppClient,
   baseUrl: string,
@@ -287,21 +299,7 @@ export function addPreferenceMethods(
       )
     },
   }
-  const session = client.session as unknown as Record<string, unknown>
-  const sessionProto = Object.getPrototypeOf(session) as Record<string, unknown> | null
-  const descriptor =
-    Object.getOwnPropertyDescriptor(session, "preference") ??
-    (sessionProto ? Object.getOwnPropertyDescriptor(sessionProto, "preference") : undefined)
-
-  if (descriptor?.get && !descriptor.set) {
-    const existing = session.preference
-    if (existing && typeof existing === "object") {
-      Object.assign(existing as Record<string, unknown>, preferenceMethods)
-    }
-    return client
-  }
-
-  ;(session as { preference: unknown }).preference = preferenceMethods as AppClient["session"]["preference"]
+  safeAssign(client.session, "preference", preferenceMethods)
   return client
 }
 
@@ -328,21 +326,7 @@ export function addMemoryMethods(
       return requestJSON(`${baseUrl}/memory${suffix}`, { headers }, options)
     },
   }
-  const mem = client as unknown as Record<string, unknown>
-  const memProto = Object.getPrototypeOf(mem) as Record<string, unknown> | null
-  const descriptor =
-    Object.getOwnPropertyDescriptor(mem, "memory") ??
-    (memProto ? Object.getOwnPropertyDescriptor(memProto, "memory") : undefined)
-
-  if (descriptor?.get && !descriptor.set) {
-    const existing = client.memory
-    if (existing && typeof existing === "object") {
-      Object.assign(existing as unknown as Record<string, unknown>, memoryMethods)
-    }
-    return client
-  }
-
-  client.memory = memoryMethods as AppClient["memory"]
+  safeAssign(client, "memory", memoryMethods)
   return client
 }
 
@@ -394,19 +378,6 @@ export function addCronMethods(
       },
     },
   }
-  const c = client as unknown as Record<string, unknown>
-  const cProto = Object.getPrototypeOf(c) as Record<string, unknown> | null
-  const descriptor =
-    Object.getOwnPropertyDescriptor(c, "cron") ?? (cProto ? Object.getOwnPropertyDescriptor(cProto, "cron") : undefined)
-
-  if (descriptor?.get && !descriptor.set) {
-    const existing = client.cron
-    if (existing && typeof existing === "object") {
-      Object.assign(existing as unknown as Record<string, unknown>, cronMethods)
-    }
-    return client
-  }
-
-  client.cron = cronMethods as AppClient["cron"]
+  safeAssign(client, "cron", cronMethods)
   return client
 }
