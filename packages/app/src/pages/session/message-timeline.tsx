@@ -240,6 +240,8 @@ export function MessageTimeline(props: {
   const [entry, setEntry] = createStore({
     session: "",
     done: false,
+    mode: {} as Record<string, "default" | "open" | "closed">,
+    prev: {} as Record<string, string[]>,
   })
 
   const rendered = createMemo(() => props.renderedUserMessages.map((message) => message.id))
@@ -332,6 +334,8 @@ export function MessageTimeline(props: {
     on(sessionID, (id) => {
       setEntry({ session: id ?? "", done: false })
       if (!id) return
+      setEntry("mode", id, "default")
+      setEntry("prev", id, [])
       setAssistantCollapse("bySession", id, reconcile({}))
     }),
   )
@@ -345,7 +349,30 @@ export function MessageTimeline(props: {
       id,
       reconcile(Object.fromEntries(ids.filter((item) => item !== tail).map((item) => [item, true] as const))),
     )
+    setEntry("prev", id, rendered().slice())
     setEntry("done", true)
+  })
+  createEffect(() => {
+    const id = sessionID()
+    if (!id || !loaded() || entry.session !== id || !entry.done) return
+    const prev = entry.prev[id] ?? []
+    const next = rendered()
+    if (prev.length === next.length && prev.every((item, idx) => item === next[idx])) return
+    setEntry("prev", id, next.slice())
+    if (next.length <= prev.length) return
+    const off = next.length - prev.length
+    if (!prev.every((item, idx) => item === next[idx + off])) return
+    const mode = entry.mode[id] ?? "default"
+    if (mode === "open") return
+    const seen = new Set(collapsibleTurnIDs())
+    const add = next.slice(0, off).filter((item) => seen.has(item))
+    if (add.length === 0) return
+    const curr = assistantCollapse.bySession[id] ?? {}
+    setAssistantCollapse(
+      "bySession",
+      id,
+      reconcile({ ...curr, ...Object.fromEntries(add.map((item) => [item, true] as const)) }),
+    )
   })
   const collapsedTurnMap = createMemo(() => {
     const id = sessionID()
@@ -373,6 +400,7 @@ export function MessageTimeline(props: {
   const collapseAllAssistant = () => {
     const id = sessionID()
     if (!id) return
+    setEntry("mode", id, "closed")
     setAssistantCollapse(
       "bySession",
       id,
@@ -382,6 +410,7 @@ export function MessageTimeline(props: {
   const expandAllAssistant = () => {
     const id = sessionID()
     if (!id) return
+    setEntry("mode", id, "open")
     setAssistantCollapse("bySession", id, reconcile({}))
   }
   const stageCfg = { init: 1, batch: 3 }
