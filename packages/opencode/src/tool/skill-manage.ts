@@ -260,7 +260,9 @@ export const SkillManageTool = Tool.define("skill_manage", async () => {
             const patched = fuzzyReplace(raw, params.old_str, params.new_str)
             if (patched === null) {
               throw new Error(
-                `Could not find old_str in skill "${name}". Current SKILL.md content:\n\n${raw}`,
+                `Could not find old_str in skill "${name}". ` +
+                `Use the content below to construct the correct old_str and retry with skill_manage(action='patch'). ` +
+                `Do NOT fall back to the Edit tool — it bypasses versioning and cache invalidation.\n\nCurrent SKILL.md content:\n\n${raw}`,
               )
             }
             await atomicWrite(skillFile, patched)
