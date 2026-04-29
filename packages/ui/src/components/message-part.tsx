@@ -2442,18 +2442,23 @@ ToolRegistry.register({
         action() === "remove_file",
     )
 
+    let seenRunning = props.status === "pending" || props.status === "running"
     const [keepShimmer, setKeepShimmer] = createSignal(false)
     let shimmerTimer: ReturnType<typeof setTimeout> | undefined
     createEffect(() => {
       if (running()) {
         clearTimeout(shimmerTimer)
+        seenRunning = true
         if (isEvolution()) {
           setKeepShimmer(true)
         } else {
           setKeepShimmer(false)
         }
-      } else if (keepShimmer()) {
+      } else if (seenRunning) {
+        seenRunning = false
         if (isEvolution()) {
+          setKeepShimmer(true)
+          clearTimeout(shimmerTimer)
           shimmerTimer = setTimeout(() => setKeepShimmer(false), 1500)
         } else {
           setKeepShimmer(false)
