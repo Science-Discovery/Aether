@@ -1670,12 +1670,15 @@ export default function Layout(props: ParentProps) {
     if (next === current) return
     const name = next === getFilename(project.worktree) ? "" : next
 
-    if (project.id && project.id !== "global") {
-      await globalSDK.client.project.update({ projectID: project.id, directory: project.worktree, name })
-      return
-    }
+    globalSync.project.meta(project.worktree, { name })
 
-    await globalSDK.client.project.updateDirectoryMeta({ body_directory: project.worktree, name: name || undefined })
+    if (project.id && !project.id.startsWith("dir:") && project.id !== "global") {
+      globalSDK.client.project.update({ projectID: project.id, directory: project.worktree, name }).catch(() => {})
+    } else {
+      globalSDK.client.project
+        .updateDirectoryMeta({ body_directory: project.worktree, name: name || undefined })
+        .catch(() => {})
+    }
   }
 
   const renameWorkspace = (directory: string, next: string, projectId?: string, branch?: string) => {
