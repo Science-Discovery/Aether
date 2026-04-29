@@ -57,13 +57,10 @@ export namespace SystemPrompt {
     if (Permission.disabled(["skill"], agent.permission).has("skill")) return
 
     const all = await Skill.available(agent)
-    const list = availableTools !== undefined
-      ? all.filter((skill) => Skill.matchesConditions(skill, availableTools, availableToolsets ?? new Set()))
-      : all
-
-    for (const skill of list) {
-      console.log(`[skill source] ${skill.name} → ${skill.location}`)
-    }
+    const list =
+      availableTools !== undefined
+        ? all.filter((skill) => Skill.matchesConditions(skill, availableTools, availableToolsets ?? new Set()))
+        : all
 
     return [
       "## Skills (mandatory)",
