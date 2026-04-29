@@ -44,14 +44,10 @@ export const ProjectIcon = (props: { project: LocalProject; class?: string; noti
   const notify = createMemo(() => props.notify && (hasPermissions() || unseenCount() > 0))
   const name = createMemo(() => props.project.name || getFilename(props.project.worktree))
   const recent = createMemo(() => globalSync.project.recentFromDir(props.project.worktree))
-  const src = createMemo(() =>
-    props.project.id === OPENCODE_PROJECT_ID
-      ? "https://opencode.ai/favicon.svg"
-      : (child().projectMeta?.icon?.override ??
-        recent()?.icon?.override ??
-        child().icon ??
-        props.project.icon?.override),
-  )
+  const src = createMemo(() => {
+    const override = child().projectMeta?.icon?.override ?? recent()?.icon?.override ?? props.project.icon?.override
+    return override ?? (props.project.id === OPENCODE_PROJECT_ID ? "https://opencode.ai/favicon.svg" : undefined)
+  })
   return (
     <div class={`relative size-8 shrink-0 rounded ${props.class ?? ""}`}>
       <div class="size-full rounded overflow-clip">
