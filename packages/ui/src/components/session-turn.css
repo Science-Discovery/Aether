@@ -7,6 +7,10 @@
   align-items: flex-start;
   justify-content: flex-start;
 
+  &[data-assistant-collapsed] {
+    height: auto;
+  }
+
   [data-slot="session-turn-content"] {
     flex-grow: 1;
     width: 100%;
@@ -14,6 +18,11 @@
     min-width: 0;
     overflow-y: auto;
     scrollbar-width: none;
+
+    &[data-assistant-collapsed] {
+      height: auto;
+      overflow: visible;
+    }
   }
 
   [data-slot="session-turn-content"]::-webkit-scrollbar {
@@ -28,6 +37,10 @@
     min-width: 0;
     gap: 18px;
     overflow-anchor: none;
+  }
+
+  [data-slot="session-turn-message-container"][data-assistant-collapsed] {
+    gap: 2px;
   }
 
   [data-slot="session-turn-message-content"] {
@@ -85,6 +98,21 @@
     flex-direction: column;
     align-self: stretch;
     gap: 12px;
+  }
+
+  [data-slot="session-turn-assistant-toggle"] {
+    width: 100%;
+    min-width: 0;
+    appearance: none;
+    border: 0;
+    background: transparent;
+    padding: 0;
+    text-align: left;
+    cursor: pointer;
+
+    [data-slot="compaction-part-divider"] {
+      padding: 1px 0;
+    }
   }
 
   [data-slot="session-turn-diffs"] {
@@ -228,5 +256,14 @@
 }
 
 [data-slot="session-turn-list"] {
-  gap: 48px;
+  gap: 0;
+
+  > * + * {
+    margin-top: 48px;
+  }
+
+  > * + *[data-assistant-collapsed],
+  > *[data-assistant-collapsed] + * {
+    margin-top: 8px;
+  }
 }
