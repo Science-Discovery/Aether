@@ -2,8 +2,18 @@ import fs from "fs/promises"
 import path from "path"
 
 const VERSIONS_DIR = ".versions"
-const MAX_VERSIONS = 1000
+const DEFAULT_MAX_VERSIONS = 1000
 const VERSION_REGEX = /^v(\d+)_([a-zA-Z0-9_-]+)_(\d{8}T\d{6})\.bundle\.json$/
+
+async function resolveMaxVersions(): Promise<number> {
+  try {
+    const { Config } = await import("../config/config")
+    const cfg = await Config.get()
+    const configured = cfg.skills?.max_versions
+    if (typeof configured === "number" && configured >= 1) return configured
+  } catch {}
+  return DEFAULT_MAX_VERSIONS
+}
 
 export interface VersionEntry {
   version: number
@@ -198,9 +208,10 @@ export async function rollback(skillDir: string, targetLabel: string): Promise<{
 
 async function prune(skillDir: string): Promise<void> {
   const versions = await listVersions(skillDir)
-  if (versions.length <= MAX_VERSIONS) return
+  const max = await resolveMaxVersions()
+  if (versions.length <= max) return
   const dir = versionsDir(skillDir)
-  const toDelete = versions.slice(0, versions.length - MAX_VERSIONS)
+  const toDelete = versions.slice(0, versions.length - max)
   await Promise.all(toDelete.map((v) => fs.unlink(path.join(dir, v.filename)).catch(() => {})))
 }
 

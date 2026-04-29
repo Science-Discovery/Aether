@@ -9,6 +9,7 @@ import { useLanguage } from "@/context/language"
 import { SettingsList } from "./settings-list"
 
 const SKILL_NUDGE_DEFAULT = 10
+const SKILL_MAX_VERSIONS_DEFAULT = 1000
 
 interface SettingsRowProps {
   title: string | JSX.Element
@@ -38,6 +39,11 @@ export const SettingsSkills: Component = () => {
     return (cfg.skills?.creation_nudge_interval as number | undefined) ?? SKILL_NUDGE_DEFAULT
   })
 
+  const currentMaxVersions = createMemo(() => {
+    const cfg = globalSync.data.config as any
+    return (cfg.skills?.max_versions as number | undefined) ?? SKILL_MAX_VERSIONS_DEFAULT
+  })
+
   const evolutionEnabled = createMemo(() => currentInterval() !== 0)
 
   const [skillsDir] = createResource<string>(async () => {
@@ -49,6 +55,18 @@ export const SettingsSkills: Component = () => {
     setSaving(true)
     try {
       await globalSync.updateConfig({ skills: { creation_nudge_interval: interval } } as any)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      showToast({ title: "Request failed", description: message })
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const updateMaxVersions = async (max: number) => {
+    setSaving(true)
+    try {
+      await globalSync.updateConfig({ skills: { max_versions: max } } as any)
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       showToast({ title: "Request failed", description: message })
@@ -140,6 +158,25 @@ export const SettingsSkills: Component = () => {
               />
             </SettingsRow>
           </Show>
+
+          <SettingsRow
+            title="Max Versions"
+            description="Maximum number of version snapshots kept per skill before older snapshots are pruned."
+          >
+            <input
+              type="number"
+              min={1}
+              value={currentMaxVersions()}
+              disabled={saving()}
+              onBlur={(e) => {
+                const val = parseInt(e.currentTarget.value, 10)
+                if (!isNaN(val) && val >= 1 && val !== currentMaxVersions()) {
+                  void updateMaxVersions(val)
+                }
+              }}
+              class="h-9 w-24 rounded-md border border-border-base bg-surface-base px-3 text-14-regular text-text-strong focus:outline-none focus:ring-2 focus:ring-border-focus disabled:opacity-50"
+            />
+          </SettingsRow>
 
           <div class="flex flex-col gap-2 py-3">
             <div class="flex flex-col gap-0.5">
