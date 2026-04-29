@@ -81,6 +81,7 @@ Aether Web (Linux ARCH)
 Quick start
 1) Extract this ZIP and copy the folder PACKAGE to a local path, for example: ~/Applications/Aether-Web
 2) Open Terminal in that folder and run: ./Aether.sh
+3) Optional base path: VITE_BASE_PATH=/aether ./Aether.sh
 
 Updates
 - Use Aether's in-app update flow to download and install newer versions.

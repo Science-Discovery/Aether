@@ -170,13 +170,20 @@ pkgRaw.version = Script.version
 await Bun.write(pkgPath, JSON.stringify(pkgRaw, null, 2) + "\n")
 
 // Build web app (packages/app) and embed alongside binary
+const base = process.env.VITE_BASE_PATH
 try {
   if (!skipWeb) {
     console.log("building web app...")
+    process.env.VITE_BASE_PATH = "./"
     await $`bun run --cwd ${path.resolve(dir, "../../packages/app")} build`
     console.log("web app built")
   }
 } finally {
+  if (base === undefined) {
+    delete process.env.VITE_BASE_PATH
+  } else {
+    process.env.VITE_BASE_PATH = base
+  }
   // Restore original version in package.json to avoid dirtying the working tree
   pkgRaw.version = originalVersion
   await Bun.write(pkgPath, JSON.stringify(pkgRaw, null, 2) + "\n")

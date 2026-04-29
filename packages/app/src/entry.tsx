@@ -2,6 +2,7 @@
 
 import { render } from "solid-js/web"
 import { AppBaseProviders, AppInterface } from "@/app"
+import { base } from "@/base-path"
 import { type Platform, PlatformProvider } from "@/context/platform"
 import { dict as en } from "@/i18n/en"
 import { dict as zh } from "@/i18n/zh"
@@ -339,7 +340,7 @@ const boot = async () => {
             defaultServer={ServerConnection.Key.make(getDefaultUrl())}
             servers={[server]}
             disableHealthCheck
-            basePath={import.meta.env.VITE_BASE_PATH}
+            basePath={base()}
           />
         </AppBaseProviders>
       </PlatformProvider>

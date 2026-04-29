@@ -1,4 +1,5 @@
 import { type Component, createEffect, createMemo, createSignal, onCleanup } from "solid-js"
+import { href } from "@/base-path"
 import "./pdf-viewer-shell.css"
 
 type ViewerMode = "full" | "compact"
@@ -85,7 +86,7 @@ export const PdfViewerShell: Component<PdfViewerShellProps> = (props) => {
   let lastConfigKey = ""
   const [nightMode, setNightMode] = createSignal(sharedNightMode)
 
-  const viewerSrc = createMemo(() => "/pdf-viewer.html")
+  const viewerSrc = createMemo(() => href("/pdf-viewer.html"))
   const config = createMemo(() => ({
     src: props.src,
     authHeader: props.authHeader,
