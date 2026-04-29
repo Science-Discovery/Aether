@@ -3,6 +3,7 @@ import path from "path"
 import os from "os"
 import { Filesystem } from "../util/filesystem"
 import { Persist } from "@/persist/naming"
+import { seedDefaultSkills } from "@/skill/seed"
 
 const data = Persist.current.data
 const cache = Persist.current.cache
@@ -31,6 +32,9 @@ export namespace Global {
       fs.mkdir(Path.log, { recursive: true }),
       fs.mkdir(Path.bin, { recursive: true }),
     ])
+
+    // Seed default skills after base dirs exist, before any early returns
+    await seedDefaultSkills()
 
     const version = await Filesystem.readText(path.join(Path.cache, "version")).catch(() => "0")
     if (version === CACHE_VERSION) return

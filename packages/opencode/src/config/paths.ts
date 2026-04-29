@@ -21,9 +21,6 @@ export namespace ConfigPaths {
   }
 
   export async function directories(directory: string, worktree: string) {
-    // Include the directory next to the binary so bundled default skills are found
-    // when running a compiled single binary (e.g. dist/.../bin/aether + dist/.../bin/.opencode/skills/)
-    const binaryDir = path.dirname(process.execPath)
     const stop = worktree === "/" ? directory : worktree
 
     return [
@@ -42,13 +39,6 @@ export namespace ConfigPaths {
           targets: [PROJECT, LEGACY_PROJECT],
           start: Global.Path.home,
           stop: Global.Path.home,
-        }),
-      )),
-      ...(await Array.fromAsync(
-        Filesystem.up({
-          targets: [PROJECT, LEGACY_PROJECT],
-          start: binaryDir,
-          stop: binaryDir,
         }),
       )),
       ...(Flag.OPENCODE_CONFIG_DIR ? [Flag.OPENCODE_CONFIG_DIR] : []),
