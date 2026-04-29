@@ -451,7 +451,7 @@ export const dict = {
   "defaultSkills.allSkillsExistInProject": "默认 Skills 已全部存在于项目中",
   "defaultSkills.addFailed": "添加失败",
   "defaultSkills.dragToResize": "向上拖动可扩大列表高度",
-  "evolvedSkills.title": "自进化技能",
+  "evolvedSkills.title": "自进化Skills",
   "evolvedSkills.loading": "加载中...",
   "evolvedSkills.empty": "暂无自进化技能",
   "evolvedSkills.noDescription": "暂无描述",
