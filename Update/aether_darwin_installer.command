@@ -511,6 +511,13 @@ if [ "$mode" = "init" ]; then
     echo "工作目录处理失败。"
     fail "$dir_err"
   }
+  prep "$mirror" || {
+    res="dir_error"
+    result
+    echo
+    echo "安装目录处理失败。"
+    fail "$dir_err"
+  }
   manifest_url="$base/$latest"
   manifest "$manifest_url" latest || {
     res="meta_error"
