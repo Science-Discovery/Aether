@@ -2731,6 +2731,42 @@ export type AuthSetResponses = {
 
 export type AuthSetResponse = AuthSetResponses[keyof AuthSetResponses]
 
+export type ProjectUpdateDirectoryMetaData = {
+  body?: {
+    directory: string
+    name?: string
+    icon?: {
+      url?: string
+      color?: string
+    }
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/project-directory-meta"
+}
+
+export type ProjectUpdateDirectoryMetaErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type ProjectUpdateDirectoryMetaError = ProjectUpdateDirectoryMetaErrors[keyof ProjectUpdateDirectoryMetaErrors]
+
+export type ProjectUpdateDirectoryMetaResponses = {
+  /**
+   * Updated directory metadata
+   */
+  200: ProjectRecent
+}
+
+export type ProjectUpdateDirectoryMetaResponse =
+  ProjectUpdateDirectoryMetaResponses[keyof ProjectUpdateDirectoryMetaResponses]
+
 export type ProjectListData = {
   body?: never
   path?: never
@@ -2825,42 +2861,6 @@ export type ProjectInitGitResponses = {
 }
 
 export type ProjectInitGitResponse = ProjectInitGitResponses[keyof ProjectInitGitResponses]
-
-export type ProjectUpdateDirectoryMetaData = {
-  body?: {
-    directory: string
-    name?: string
-    icon?: {
-      url?: string
-      color?: string
-    }
-  }
-  path?: never
-  query?: {
-    directory?: string
-    workspace?: string
-  }
-  url: "/project/directory-meta"
-}
-
-export type ProjectUpdateDirectoryMetaErrors = {
-  /**
-   * Bad request
-   */
-  400: BadRequestError
-}
-
-export type ProjectUpdateDirectoryMetaError = ProjectUpdateDirectoryMetaErrors[keyof ProjectUpdateDirectoryMetaErrors]
-
-export type ProjectUpdateDirectoryMetaResponses = {
-  /**
-   * Updated directory metadata
-   */
-  200: ProjectRecent
-}
-
-export type ProjectUpdateDirectoryMetaResponse =
-  ProjectUpdateDirectoryMetaResponses[keyof ProjectUpdateDirectoryMetaResponses]
 
 export type ProjectUpdateData = {
   body?: {

@@ -814,6 +814,62 @@ export class Auth extends HeyApiClient {
 
 export class Project extends HeyApiClient {
   /**
+   * Update directory metadata
+   *
+   * Update name and icon for a plain directory (no git project entry). Persisted in project_recent table.
+   */
+  public updateDirectoryMeta<ThrowOnError extends boolean = false>(
+    parameters?: {
+      query_directory?: string
+      workspace?: string
+      body_directory?: string
+      name?: string
+      icon?: {
+        url?: string
+        color?: string
+      }
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            {
+              in: "query",
+              key: "query_directory",
+              map: "directory",
+            },
+            { in: "query", key: "workspace" },
+            {
+              in: "body",
+              key: "body_directory",
+              map: "directory",
+            },
+            { in: "body", key: "name" },
+            { in: "body", key: "icon" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      ProjectUpdateDirectoryMetaResponses,
+      ProjectUpdateDirectoryMetaErrors,
+      ThrowOnError
+    >({
+      url: "/project-directory-meta",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
    * List all projects
    *
    * Get a list of projects that have been opened with OpenCode.
@@ -960,62 +1016,6 @@ export class Project extends HeyApiClient {
       url: "/project/git/init",
       ...options,
       ...params,
-    })
-  }
-
-  /**
-   * Update directory metadata
-   *
-   * Update name and icon for a plain directory (no git project entry). Persisted in project_recent table.
-   */
-  public updateDirectoryMeta<ThrowOnError extends boolean = false>(
-    parameters?: {
-      query_directory?: string
-      workspace?: string
-      body_directory?: string
-      name?: string
-      icon?: {
-        url?: string
-        color?: string
-      }
-    },
-    options?: Options<never, ThrowOnError>,
-  ) {
-    const params = buildClientParams(
-      [parameters],
-      [
-        {
-          args: [
-            {
-              in: "query",
-              key: "query_directory",
-              map: "directory",
-            },
-            { in: "query", key: "workspace" },
-            {
-              in: "body",
-              key: "body_directory",
-              map: "directory",
-            },
-            { in: "body", key: "name" },
-            { in: "body", key: "icon" },
-          ],
-        },
-      ],
-    )
-    return (options?.client ?? this.client).post<
-      ProjectUpdateDirectoryMetaResponses,
-      ProjectUpdateDirectoryMetaErrors,
-      ThrowOnError
-    >({
-      url: "/project/directory-meta",
-      ...options,
-      ...params,
-      headers: {
-        "Content-Type": "application/json",
-        ...options?.headers,
-        ...params.headers,
-      },
     })
   }
 
