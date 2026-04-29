@@ -541,27 +541,14 @@ export namespace Project {
             d.select().from(ProjectRecentTable).where(eq(ProjectRecentTable.key, recentKey)).get(),
           )
           if (recentRow) {
-            if (recentRow.name && !result.name) {
-              result.name = recentRow.name
-              yield* db((d) =>
-                d.update(ProjectTable).set({ name: recentRow.name }).where(eq(ProjectTable.id, data.id)).run(),
-              )
-            }
-            if (recentRow.icon_url && !result.icon?.url) {
-              result.icon = { ...result.icon, url: recentRow.icon_url }
-              yield* db((d) =>
-                d.update(ProjectTable).set({ icon_url: recentRow.icon_url }).where(eq(ProjectTable.id, data.id)).run(),
-              )
-            }
-            if (recentRow.icon_color && !result.icon?.color) {
-              result.icon = { ...result.icon, color: recentRow.icon_color }
-              yield* db((d) =>
-                d
-                  .update(ProjectTable)
-                  .set({ icon_color: recentRow.icon_color })
-                  .where(eq(ProjectTable.id, data.id))
-                  .run(),
-              )
+            const patch: Record<string, any> = {}
+            if (recentRow.name && !result.name) patch.name = recentRow.name
+            if (recentRow.icon_url && !result.icon?.url) patch.icon_url = recentRow.icon_url
+            if (recentRow.icon_color && !result.icon?.color) patch.icon_color = recentRow.icon_color
+            if (Object.keys(patch).length) {
+              yield* db((d) => d.update(ProjectTable).set(patch).where(eq(ProjectTable.id, data.id)).run())
+              result.name = patch.name ?? result.name
+              result.icon = { url: patch.icon_url ?? result.icon?.url, color: patch.icon_color ?? result.icon?.color }
             }
             yield* db((d) => d.delete(ProjectRecentTable).where(eq(ProjectRecentTable.key, recentKey)).run())
           }
