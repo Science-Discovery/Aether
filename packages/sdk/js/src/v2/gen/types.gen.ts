@@ -555,70 +555,6 @@ export type EventWorktreeFailed = {
   }
 }
 
-export type EventWechatStatus = {
-  type: "wechat.status"
-  properties: {
-    status: "idle" | "starting" | "qrcode" | "connected" | "error"
-    message?: string
-  }
-}
-
-export type EventWechatQrcode = {
-  type: "wechat.qrcode"
-  properties: {
-    image: string
-  }
-}
-
-export type EventWechatConnected = {
-  type: "wechat.connected"
-  properties: {
-    user: {
-      id: string
-      name: string
-    }
-  }
-}
-
-export type EventWechatError = {
-  type: "wechat.error"
-  properties: {
-    code: string
-    message: string
-  }
-}
-
-export type EventFeishuStatus = {
-  type: "feishu.status"
-  properties: {
-    status: "idle" | "starting" | "connected" | "reconnecting" | "error"
-    message?: string
-  }
-}
-
-export type EventFeishuConnected = {
-  type: "feishu.connected"
-  properties: {
-    appId: string
-  }
-}
-
-export type EventFeishuError = {
-  type: "feishu.error"
-  properties: {
-    code: string
-    message: string
-  }
-}
-
-export type EventFeishuReconnecting = {
-  type: "feishu.reconnecting"
-  properties: {
-    attempt: number
-    delay: number
-  }
-}
-
 export type OutputFormatText = {
   type: "text"
 }
@@ -1132,14 +1068,6 @@ export type Event =
   | EventPtyDeleted
   | EventWorktreeReady
   | EventWorktreeFailed
-  | EventWechatStatus
-  | EventWechatQrcode
-  | EventWechatConnected
-  | EventWechatError
-  | EventFeishuStatus
-  | EventFeishuConnected
-  | EventFeishuError
-  | EventFeishuReconnecting
   | EventMessageUpdated
   | EventMessageRemoved
   | EventMessagePartUpdated
@@ -1331,6 +1259,7 @@ export type PermissionConfig =
       webfetch?: PermissionActionConfig
       websearch?: PermissionActionConfig
       codesearch?: PermissionActionConfig
+      cron?: PermissionRuleConfig
       lsp?: PermissionRuleConfig
       doom_loop?: PermissionActionConfig
       skill?: PermissionRuleConfig
@@ -1757,25 +1686,22 @@ export type Config = {
   }
   memory?: {
     /**
-     * Enable cross-session search and recall tools (default: true)
+     * Enable memory tools, prompt recall, and memory reflection (default: true)
      */
-    cross_session_search_enabled?: boolean
+    enabled?: boolean
     /**
-     * Default scope for cross-session search: current project or global (default: current_project)
+     * Optional model override for LLM-based memory reflection
      */
-    cross_session_search_scope?: "current_project" | "global"
+    memory_reflection_model?: {
+      providerID: string
+      modelID: string
+    }
+  }
+  cron?: {
     /**
-     * Enable reflection/consolidation passes (default: true)
+     * Enable cron job execution (default: true)
      */
-    memory_reflection_enabled?: boolean
-    /**
-     * Master switch for USER profile behavior.
-     */
-    user_profile_enabled?: boolean
-    /**
-     * Enable inferred profile generation/injection.
-     */
-    user_profile_include_inferred?: boolean
+    enabled?: boolean
   }
   experimental?: {
     disable_paste_summary?: boolean
@@ -2597,6 +2523,7 @@ export type GlobalWebUpdateCheckResponses = {
     downloaded: boolean
     status: "available" | "downloading" | "downloaded" | "installing" | "failed"
     workDir: string
+    updateAction?: "recover" | "mirror"
     updateError?: string
     checkError?: string
   }
@@ -2636,6 +2563,7 @@ export type GlobalWebUpdateDownloadResponses = {
     | {
         success: false
         error: string
+        action?: "recover" | "mirror"
       }
 }
 
@@ -2671,10 +2599,48 @@ export type GlobalWebUpdateInstallResponses = {
     | {
         success: false
         error: string
+        action?: "recover" | "mirror"
       }
 }
 
 export type GlobalWebUpdateInstallResponse = GlobalWebUpdateInstallResponses[keyof GlobalWebUpdateInstallResponses]
+
+export type GlobalWebUpdateMirrorData = {
+  body?: {
+    os: "darwin" | "linux" | "windows"
+    version?: string
+    mirrorRoot?: string
+  }
+  path?: never
+  query?: never
+  url: "/global/web-update/mirror"
+}
+
+export type GlobalWebUpdateMirrorErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type GlobalWebUpdateMirrorError = GlobalWebUpdateMirrorErrors[keyof GlobalWebUpdateMirrorErrors]
+
+export type GlobalWebUpdateMirrorResponses = {
+  /**
+   * Mirror retry result
+   */
+  200:
+    | {
+        success: true
+      }
+    | {
+        success: false
+        error: string
+        action?: "recover" | "mirror"
+      }
+}
+
+export type GlobalWebUpdateMirrorResponse = GlobalWebUpdateMirrorResponses[keyof GlobalWebUpdateMirrorResponses]
 
 export type GlobalUpgradeData = {
   body?: {
@@ -2859,6 +2825,42 @@ export type ProjectInitGitResponses = {
 }
 
 export type ProjectInitGitResponse = ProjectInitGitResponses[keyof ProjectInitGitResponses]
+
+export type ProjectUpdateDirectoryMetaData = {
+  body?: {
+    directory: string
+    name?: string
+    icon?: {
+      url?: string
+      color?: string
+    }
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/project/directory-meta"
+}
+
+export type ProjectUpdateDirectoryMetaErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type ProjectUpdateDirectoryMetaError = ProjectUpdateDirectoryMetaErrors[keyof ProjectUpdateDirectoryMetaErrors]
+
+export type ProjectUpdateDirectoryMetaResponses = {
+  /**
+   * Updated directory metadata
+   */
+  200: ProjectRecent
+}
+
+export type ProjectUpdateDirectoryMetaResponse =
+  ProjectUpdateDirectoryMetaResponses[keyof ProjectUpdateDirectoryMetaResponses]
 
 export type ProjectUpdateData = {
   body?: {
@@ -3276,6 +3278,76 @@ export type ConfigProvidersResponses = {
 }
 
 export type ConfigProvidersResponse = ConfigProvidersResponses[keyof ConfigProvidersResponses]
+
+export type MemoryGetData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/memory"
+}
+
+export type MemoryGetResponses = {
+  /**
+   * Memory settings and store snapshots
+   */
+  200: {
+    settings: {
+      enabled: boolean
+      memory_reflection_model?: {
+        providerID: string
+        modelID: string
+      }
+    }
+    user: {
+      store: "user" | "memory"
+      enabled: boolean
+      file: string
+      limit: number
+      used: number
+      usage: number
+      entries: Array<string>
+      explicit_entries?: Array<string>
+      inferred_entries?: Array<string>
+      invalid_entries?: number
+    }
+    memory: {
+      store: "user" | "memory"
+      enabled: boolean
+      file: string
+      limit: number
+      used: number
+      usage: number
+      entries: Array<string>
+      explicit_entries?: Array<string>
+      inferred_entries?: Array<string>
+      invalid_entries?: number
+    }
+    daily: {
+      root: string
+      days: Array<{
+        date: string
+        file: string
+        entries: Array<string>
+        invalid_entries: number
+      }>
+    }
+    active?: {
+      session_id: string
+      prompt: string
+      entries: Array<{
+        source: "user" | "daily" | "session"
+        store?: "user" | "memory"
+        index: number
+        text: string
+      }>
+    }
+  }
+}
+
+export type MemoryGetResponse = MemoryGetResponses[keyof MemoryGetResponses]
 
 export type ToolIdsData = {
   body?: never
@@ -7464,6 +7536,452 @@ export type KnowledgeDocumentDeleteResponses = {
 
 export type KnowledgeDocumentDeleteResponse = KnowledgeDocumentDeleteResponses[keyof KnowledgeDocumentDeleteResponses]
 
+export type CronJobsListData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/cron/jobs"
+}
+
+export type CronJobsListResponses = {
+  /**
+   * Cron jobs with current state
+   */
+  200: Array<{
+    definition: {
+      id: string
+      name: string
+      enabled: boolean
+      mode: "direct" | "isolated_agent" | "session_agent" | "agent_message"
+      project_id?: string | null
+      session_id?: string | null
+      schedule_type: "cron" | "interval" | "once"
+      schedule_value: string | number
+      timezone?: string | null
+      payload: {
+        [key: string]: unknown
+      }
+      [key: string]:
+        | unknown
+        | string
+        | boolean
+        | "direct"
+        | "isolated_agent"
+        | "session_agent"
+        | "agent_message"
+        | string
+        | null
+        | string
+        | null
+        | "cron"
+        | "interval"
+        | "once"
+        | string
+        | number
+        | string
+        | null
+        | {
+            [key: string]: unknown
+          }
+        | undefined
+    }
+    state: {
+      job_id: string
+      enabled: boolean
+      next_run_at: number | null
+      last_run_at: number | null
+      last_status: "success" | "failed" | "skipped" | "expired" | null
+      running: boolean
+      start_at: number | null
+      updated_at: number
+    } | null
+  }>
+}
+
+export type CronJobsListResponse = CronJobsListResponses[keyof CronJobsListResponses]
+
+export type CronJobsCreateData = {
+  body?: {
+    [key: string]: unknown
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/cron/jobs"
+}
+
+export type CronJobsCreateResponses = {
+  /**
+   * Created cron job
+   */
+  200: {
+    definition: {
+      id: string
+      name: string
+      enabled: boolean
+      mode: "direct" | "isolated_agent" | "session_agent" | "agent_message"
+      project_id?: string | null
+      session_id?: string | null
+      schedule_type: "cron" | "interval" | "once"
+      schedule_value: string | number
+      timezone?: string | null
+      payload: {
+        [key: string]: unknown
+      }
+      [key: string]:
+        | unknown
+        | string
+        | boolean
+        | "direct"
+        | "isolated_agent"
+        | "session_agent"
+        | "agent_message"
+        | string
+        | null
+        | string
+        | null
+        | "cron"
+        | "interval"
+        | "once"
+        | string
+        | number
+        | string
+        | null
+        | {
+            [key: string]: unknown
+          }
+        | undefined
+    }
+    state: {
+      job_id: string
+      enabled: boolean
+      next_run_at: number | null
+      last_run_at: number | null
+      last_status: "success" | "failed" | "skipped" | "expired" | null
+      running: boolean
+      start_at: number | null
+      updated_at: number
+    } | null
+  }
+}
+
+export type CronJobsCreateResponse = CronJobsCreateResponses[keyof CronJobsCreateResponses]
+
+export type CronJobsDeleteData = {
+  body?: never
+  path: {
+    id: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/cron/jobs/{id}"
+}
+
+export type CronJobsDeleteResponses = {
+  /**
+   * Deleted cron job definition
+   */
+  200: {
+    ok: true
+    job_id: string
+    definition: {
+      id: string
+      name: string
+      enabled: boolean
+      mode: "direct" | "isolated_agent" | "session_agent" | "agent_message"
+      project_id?: string | null
+      session_id?: string | null
+      schedule_type: "cron" | "interval" | "once"
+      schedule_value: string | number
+      timezone?: string | null
+      payload: {
+        [key: string]: unknown
+      }
+      [key: string]:
+        | unknown
+        | string
+        | boolean
+        | "direct"
+        | "isolated_agent"
+        | "session_agent"
+        | "agent_message"
+        | string
+        | null
+        | string
+        | null
+        | "cron"
+        | "interval"
+        | "once"
+        | string
+        | number
+        | string
+        | null
+        | {
+            [key: string]: unknown
+          }
+        | undefined
+    }
+  }
+}
+
+export type CronJobsDeleteResponse = CronJobsDeleteResponses[keyof CronJobsDeleteResponses]
+
+export type CronJobsGetData = {
+  body?: never
+  path: {
+    id: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/cron/jobs/{id}"
+}
+
+export type CronJobsGetResponses = {
+  /**
+   * Cron job with current state
+   */
+  200: {
+    definition: {
+      id: string
+      name: string
+      enabled: boolean
+      mode: "direct" | "isolated_agent" | "session_agent" | "agent_message"
+      project_id?: string | null
+      session_id?: string | null
+      schedule_type: "cron" | "interval" | "once"
+      schedule_value: string | number
+      timezone?: string | null
+      payload: {
+        [key: string]: unknown
+      }
+      [key: string]:
+        | unknown
+        | string
+        | boolean
+        | "direct"
+        | "isolated_agent"
+        | "session_agent"
+        | "agent_message"
+        | string
+        | null
+        | string
+        | null
+        | "cron"
+        | "interval"
+        | "once"
+        | string
+        | number
+        | string
+        | null
+        | {
+            [key: string]: unknown
+          }
+        | undefined
+    }
+    state: {
+      job_id: string
+      enabled: boolean
+      next_run_at: number | null
+      last_run_at: number | null
+      last_status: "success" | "failed" | "skipped" | "expired" | null
+      running: boolean
+      start_at: number | null
+      updated_at: number
+    } | null
+  }
+}
+
+export type CronJobsGetResponse = CronJobsGetResponses[keyof CronJobsGetResponses]
+
+export type CronJobsUpdateData = {
+  body?: {
+    [key: string]: unknown
+  }
+  path: {
+    id: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/cron/jobs/{id}"
+}
+
+export type CronJobsUpdateResponses = {
+  /**
+   * Updated cron job
+   */
+  200: {
+    definition: {
+      id: string
+      name: string
+      enabled: boolean
+      mode: "direct" | "isolated_agent" | "session_agent" | "agent_message"
+      project_id?: string | null
+      session_id?: string | null
+      schedule_type: "cron" | "interval" | "once"
+      schedule_value: string | number
+      timezone?: string | null
+      payload: {
+        [key: string]: unknown
+      }
+      [key: string]:
+        | unknown
+        | string
+        | boolean
+        | "direct"
+        | "isolated_agent"
+        | "session_agent"
+        | "agent_message"
+        | string
+        | null
+        | string
+        | null
+        | "cron"
+        | "interval"
+        | "once"
+        | string
+        | number
+        | string
+        | null
+        | {
+            [key: string]: unknown
+          }
+        | undefined
+    }
+    state: {
+      job_id: string
+      enabled: boolean
+      next_run_at: number | null
+      last_run_at: number | null
+      last_status: "success" | "failed" | "skipped" | "expired" | null
+      running: boolean
+      start_at: number | null
+      updated_at: number
+    } | null
+  }
+}
+
+export type CronJobsUpdateResponse = CronJobsUpdateResponses[keyof CronJobsUpdateResponses]
+
+export type CronJobsRunData = {
+  body?: never
+  path: {
+    id: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/cron/jobs/{id}/run"
+}
+
+export type CronJobsRunResponses = {
+  /**
+   * Cron run result
+   */
+  200: {
+    run_id: string
+    job_id: string
+    started_at: number
+    finished_at: number
+    status: "success" | "failed" | "skipped"
+    output_summary: string | null
+    mode: "direct" | "isolated_agent" | "session_agent" | "agent_message"
+    project_id: string | null
+    session_id: string | null
+    created_session_id: string | null
+    payload_snapshot: {
+      [key: string]: unknown
+    }
+    trigger_reason: "scheduled" | "manual"
+  }
+}
+
+export type CronJobsRunResponse = CronJobsRunResponses[keyof CronJobsRunResponses]
+
+export type CronJobsRunsData = {
+  body?: never
+  path: {
+    id: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+    count?: number
+  }
+  url: "/cron/jobs/{id}/runs"
+}
+
+export type CronJobsRunsResponses = {
+  /**
+   * Recent cron runs
+   */
+  200: Array<{
+    run_id: string
+    job_id: string
+    started_at: number
+    finished_at: number
+    status: "success" | "failed" | "skipped"
+    output_summary: string | null
+    mode: "direct" | "isolated_agent" | "session_agent" | "agent_message"
+    project_id: string | null
+    session_id: string | null
+    created_session_id: string | null
+    payload_snapshot: {
+      [key: string]: unknown
+    }
+    trigger_reason: "scheduled" | "manual"
+  }>
+}
+
+export type CronJobsRunsResponse = CronJobsRunsResponses[keyof CronJobsRunsResponses]
+
+export type CronRunsGetData = {
+  body?: never
+  path: {
+    run_id: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/cron/runs/{run_id}"
+}
+
+export type CronRunsGetResponses = {
+  /**
+   * Single cron run
+   */
+  200: {
+    run_id: string
+    job_id: string
+    started_at: number
+    finished_at: number
+    status: "success" | "failed" | "skipped"
+    output_summary: string | null
+    mode: "direct" | "isolated_agent" | "session_agent" | "agent_message"
+    project_id: string | null
+    session_id: string | null
+    created_session_id: string | null
+    payload_snapshot: {
+      [key: string]: unknown
+    }
+    trigger_reason: "scheduled" | "manual"
+  } | null
+}
+
+export type CronRunsGetResponse = CronRunsGetResponses[keyof CronRunsGetResponses]
+
 export type WechatStartData = {
   body?: never
   path?: never
@@ -7471,7 +7989,7 @@ export type WechatStartData = {
     directory?: string
     workspace?: string
   }
-  url: "/wechat/start"
+  url: "/mobile/wechat/start"
 }
 
 export type WechatStartResponses = {
@@ -7487,10 +8005,32 @@ export type WechatStartResponses = {
       id: string
       name: string
     }
+    clientId?: string
   }
 }
 
 export type WechatStartResponse = WechatStartResponses[keyof WechatStartResponses]
+
+export type WechatRetryData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/mobile/wechat/retry"
+}
+
+export type WechatRetryResponses = {
+  /**
+   * Retry initiated
+   */
+  200: {
+    success: boolean
+  }
+}
+
+export type WechatRetryResponse = WechatRetryResponses[keyof WechatRetryResponses]
 
 export type WechatStopData = {
   body?: never
@@ -7499,7 +8039,7 @@ export type WechatStopData = {
     directory?: string
     workspace?: string
   }
-  url: "/wechat/stop"
+  url: "/mobile/wechat/stop"
 }
 
 export type WechatStopResponses = {
@@ -7513,28 +8053,6 @@ export type WechatStopResponses = {
 
 export type WechatStopResponse = WechatStopResponses[keyof WechatStopResponses]
 
-export type WechatPingData = {
-  body?: never
-  path?: never
-  query?: {
-    directory?: string
-    workspace?: string
-  }
-  url: "/wechat/ping"
-}
-
-export type WechatPingResponses = {
-  /**
-   * Ping result
-   */
-  200: {
-    ok: boolean
-    stolen: boolean
-  }
-}
-
-export type WechatPingResponse = WechatPingResponses[keyof WechatPingResponses]
-
 export type WechatStatusData = {
   body?: never
   path?: never
@@ -7542,7 +8060,7 @@ export type WechatStatusData = {
     directory?: string
     workspace?: string
   }
-  url: "/wechat/status"
+  url: "/mobile/wechat/status"
 }
 
 export type WechatStatusResponses = {
@@ -7550,12 +8068,14 @@ export type WechatStatusResponses = {
    * Status
    */
   200: {
-    status: "idle" | "starting" | "qrcode" | "connected" | "error"
+    status: "idle" | "starting" | "qrcode" | "connected" | "reconnecting" | "error"
     qrcode: string | null
     user: {
       id: string
       name: string
     } | null
+    locked: boolean | null
+    lockHolder: string | null
     error: {
       code: string
       message: string
@@ -7572,7 +8092,7 @@ export type WechatEventsData = {
     directory?: string
     workspace?: string
   }
-  url: "/wechat/events"
+  url: "/mobile/wechat/events"
 }
 
 export type WechatEventsResponses = {
@@ -7589,7 +8109,7 @@ export type WechatSessionClearData = {
     directory?: string
     workspace?: string
   }
-  url: "/wechat/session"
+  url: "/mobile/wechat/session"
 }
 
 export type WechatSessionClearResponses = {
@@ -7603,6 +8123,28 @@ export type WechatSessionClearResponses = {
 
 export type WechatSessionClearResponse = WechatSessionClearResponses[keyof WechatSessionClearResponses]
 
+export type WechatPingData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/mobile/wechat/ping"
+}
+
+export type WechatPingResponses = {
+  /**
+   * Ping result
+   */
+  200: {
+    ok: boolean
+    stolen: boolean
+  }
+}
+
+export type WechatPingResponse = WechatPingResponses[keyof WechatPingResponses]
+
 export type FeishuStartData = {
   body?: never
   path?: never
@@ -7610,7 +8152,7 @@ export type FeishuStartData = {
     directory?: string
     workspace?: string
   }
-  url: "/feishu/start"
+  url: "/mobile/feishu/start"
 }
 
 export type FeishuStartResponses = {
@@ -7628,6 +8170,27 @@ export type FeishuStartResponses = {
 
 export type FeishuStartResponse = FeishuStartResponses[keyof FeishuStartResponses]
 
+export type WechatRetry2Data = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/mobile/feishu/retry"
+}
+
+export type WechatRetry2Responses = {
+  /**
+   * Retry initiated
+   */
+  200: {
+    success: boolean
+  }
+}
+
+export type WechatRetry2Response = WechatRetry2Responses[keyof WechatRetry2Responses]
+
 export type FeishuStopData = {
   body?: never
   path?: never
@@ -7635,7 +8198,7 @@ export type FeishuStopData = {
     directory?: string
     workspace?: string
   }
-  url: "/feishu/stop"
+  url: "/mobile/feishu/stop"
 }
 
 export type FeishuStopResponses = {
@@ -7656,7 +8219,7 @@ export type FeishuStatusData = {
     directory?: string
     workspace?: string
   }
-  url: "/feishu/status"
+  url: "/mobile/feishu/status"
 }
 
 export type FeishuStatusResponses = {
@@ -7664,7 +8227,7 @@ export type FeishuStatusResponses = {
    * Status
    */
   200: {
-    status: "idle" | "starting" | "connected" | "reconnecting" | "error"
+    status: "idle" | "starting" | "qrcode" | "connected" | "reconnecting" | "error"
     appId: string | null
     hasConfig: boolean
     error: {
@@ -7683,7 +8246,7 @@ export type FeishuEventsData = {
     directory?: string
     workspace?: string
   }
-  url: "/feishu/events"
+  url: "/mobile/feishu/events"
 }
 
 export type FeishuEventsResponses = {
@@ -7700,7 +8263,7 @@ export type FeishuSessionClearData = {
     directory?: string
     workspace?: string
   }
-  url: "/feishu/session"
+  url: "/mobile/feishu/session"
 }
 
 export type FeishuSessionClearResponses = {
@@ -7713,6 +8276,182 @@ export type FeishuSessionClearResponses = {
 }
 
 export type FeishuSessionClearResponse = FeishuSessionClearResponses[keyof FeishuSessionClearResponses]
+
+export type WechatPing2Data = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/mobile/feishu/ping"
+}
+
+export type WechatPing2Responses = {
+  /**
+   * Ping result
+   */
+  200: {
+    ok: boolean
+    stolen: boolean
+  }
+}
+
+export type WechatPing2Response = WechatPing2Responses[keyof WechatPing2Responses]
+
+export type QqStartData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/mobile/qq/start"
+}
+
+export type QqStartResponses = {
+  /**
+   * Bridge started
+   */
+  200: {
+    success: boolean
+    code?: string
+    message?: string
+    status?: string
+    appId?: string
+  }
+}
+
+export type QqStartResponse = QqStartResponses[keyof QqStartResponses]
+
+export type WechatRetry3Data = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/mobile/qq/retry"
+}
+
+export type WechatRetry3Responses = {
+  /**
+   * Retry initiated
+   */
+  200: {
+    success: boolean
+  }
+}
+
+export type WechatRetry3Response = WechatRetry3Responses[keyof WechatRetry3Responses]
+
+export type QqStopData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/mobile/qq/stop"
+}
+
+export type QqStopResponses = {
+  /**
+   * Bridge stopped
+   */
+  200: {
+    success: boolean
+  }
+}
+
+export type QqStopResponse = QqStopResponses[keyof QqStopResponses]
+
+export type QqStatusData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/mobile/qq/status"
+}
+
+export type QqStatusResponses = {
+  /**
+   * Status
+   */
+  200: {
+    status: "idle" | "starting" | "qrcode" | "connected" | "reconnecting" | "error"
+    appId: string | null
+    hasConfig: boolean
+    error: {
+      code: string
+      message: string
+    } | null
+  }
+}
+
+export type QqStatusResponse = QqStatusResponses[keyof QqStatusResponses]
+
+export type QqEventsData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/mobile/qq/events"
+}
+
+export type QqEventsResponses = {
+  /**
+   * Event stream
+   */
+  200: unknown
+}
+
+export type QqSessionClearData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/mobile/qq/session"
+}
+
+export type QqSessionClearResponses = {
+  /**
+   * Session cleared
+   */
+  200: {
+    success: boolean
+  }
+}
+
+export type QqSessionClearResponse = QqSessionClearResponses[keyof QqSessionClearResponses]
+
+export type WechatPing3Data = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/mobile/qq/ping"
+}
+
+export type WechatPing3Responses = {
+  /**
+   * Ping result
+   */
+  200: {
+    ok: boolean
+    stolen: boolean
+  }
+}
+
+export type WechatPing3Response = WechatPing3Responses[keyof WechatPing3Responses]
 
 export type ReadingModeSessionCreateData = {
   body?: never

@@ -1675,7 +1675,7 @@ export default function Layout(props: ParentProps) {
       return
     }
 
-    globalSync.project.meta(project.worktree, { name })
+    await globalSDK.client.project.updateDirectoryMeta({ body_directory: project.worktree, name: name || undefined })
   }
 
   const renameWorkspace = (directory: string, next: string, projectId?: string, branch?: string) => {
