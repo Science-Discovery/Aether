@@ -135,6 +135,7 @@ export interface MessageProps {
   actions?: UserActions
   showAssistantCopyPartID?: string | null
   showReasoningSummaries?: boolean
+  onUserBubbleClick?: JSX.EventHandlerUnion<HTMLDivElement, MouseEvent>
 }
 
 export type SessionAction = (input: { sessionID: string; messageID: string }) => Promise<void> | void
@@ -151,6 +152,8 @@ export interface MessagePartProps {
   defaultOpen?: boolean
   showAssistantCopyPartID?: string | null
   turnDurationMs?: number
+  onAssistantCollapse?: () => void
+  canCollapseAssistant?: boolean
 }
 
 export type PartComponent = Component<MessagePartProps>
@@ -563,6 +566,8 @@ export function AssistantParts(props: {
   showReasoningSummaries?: boolean
   shellToolDefaultOpen?: boolean
   editToolDefaultOpen?: boolean
+  onAssistantCollapse?: () => void
+  canCollapseAssistant?: boolean
 }) {
   const data = useData()
   const emptyParts: PartType[] = []
@@ -643,6 +648,8 @@ export function AssistantParts(props: {
                         message={message()!}
                         showAssistantCopyPartID={props.showAssistantCopyPartID}
                         turnDurationMs={props.turnDurationMs}
+                        onAssistantCollapse={props.onAssistantCollapse}
+                        canCollapseAssistant={props.canCollapseAssistant}
                         defaultOpen={partDefaultOpen(item()!, props.shellToolDefaultOpen, props.editToolDefaultOpen)}
                       />
                     </Show>
@@ -766,7 +773,12 @@ export function Message(props: MessageProps) {
     <Switch>
       <Match when={props.message.role === "user" && props.message}>
         {(userMessage) => (
-          <UserMessageDisplay message={userMessage() as UserMessage} parts={props.parts} actions={props.actions} />
+          <UserMessageDisplay
+            message={userMessage() as UserMessage}
+            parts={props.parts}
+            actions={props.actions}
+            onBubbleClick={props.onUserBubbleClick}
+          />
         )}
       </Match>
       <Match when={props.message.role === "assistant" && props.message}>
@@ -957,7 +969,12 @@ function ContextToolGroup(props: { parts: ToolPart[]; busy?: boolean }) {
   )
 }
 
-export function UserMessageDisplay(props: { message: UserMessage; parts: PartType[]; actions?: UserActions }) {
+export function UserMessageDisplay(props: {
+  message: UserMessage
+  parts: PartType[]
+  actions?: UserActions
+  onBubbleClick?: JSX.EventHandlerUnion<HTMLDivElement, MouseEvent>
+}) {
   const data = useData()
   const dialog = useDialog()
   const i18n = useI18n()
@@ -1078,7 +1095,7 @@ export function UserMessageDisplay(props: { message: UserMessage; parts: PartTyp
       <Show when={text()}>
         <>
           <div data-slot="user-message-body">
-            <div data-slot="user-message-text">
+            <div data-slot="user-message-text" onClick={props.onBubbleClick}>
               <HighlightedText text={text()} references={inlineFiles()} agents={agents()} />
             </div>
           </div>
@@ -1209,6 +1226,8 @@ export function Part(props: MessagePartProps) {
         defaultOpen={props.defaultOpen}
         showAssistantCopyPartID={props.showAssistantCopyPartID}
         turnDurationMs={props.turnDurationMs}
+        onAssistantCollapse={props.onAssistantCollapse}
+        canCollapseAssistant={props.canCollapseAssistant}
       />
     </Show>
   )
@@ -1459,6 +1478,9 @@ PART_MAPPING["text"] = function TextPartDisplay(props) {
     if (typeof props.showAssistantCopyPartID === "string") return props.showAssistantCopyPartID === part().id
     return isLastTextPart()
   })
+  const showAssistantCollapseControl = createMemo(
+    () => props.message.role === "assistant" && !!props.onAssistantCollapse && !!props.canCollapseAssistant,
+  )
   const [copied, setCopied] = createSignal(false)
 
   const handleCopy = async () => {
@@ -1482,25 +1504,42 @@ PART_MAPPING["text"] = function TextPartDisplay(props) {
         </div>
         <Show when={showCopy()}>
           <div data-slot="text-part-copy-wrapper" data-interrupted={interrupted() ? "" : undefined}>
-            <Tooltip
-              value={copied() ? i18n.t("ui.message.copied") : i18n.t("ui.message.copyResponse")}
-              placement="top"
-              gutter={4}
-            >
-              <IconButton
-                icon={copied() ? "check" : "copy"}
-                size="normal"
-                variant="ghost"
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={handleCopy}
-                aria-label={copied() ? i18n.t("ui.message.copied") : i18n.t("ui.message.copyResponse")}
-              />
-            </Tooltip>
             <Show when={meta()}>
               <span data-slot="text-part-meta" class="text-12-regular text-text-weak cursor-default">
                 {meta()}
               </span>
             </Show>
+            <div data-slot="text-part-actions">
+              <Tooltip
+                value={copied() ? i18n.t("ui.message.copied") : i18n.t("ui.message.copyResponse")}
+                placement="top"
+                gutter={4}
+              >
+                <IconButton
+                  icon={copied() ? "check" : "copy"}
+                  size="normal"
+                  variant="ghost"
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={handleCopy}
+                  aria-label={copied() ? i18n.t("ui.message.copied") : i18n.t("ui.message.copyResponse")}
+                />
+              </Tooltip>
+              <Show when={showAssistantCollapseControl()}>
+                <Tooltip value={i18n.t("ui.message.collapse")} placement="top" gutter={4}>
+                  <IconButton
+                    icon="collapse"
+                    size="normal"
+                    variant="ghost"
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      props.onAssistantCollapse?.()
+                    }}
+                    aria-label={i18n.t("ui.message.collapse")}
+                  />
+                </Tooltip>
+              </Show>
+            </div>
           </div>
         </Show>
       </div>

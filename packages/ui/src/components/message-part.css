@@ -221,7 +221,9 @@
     display: flex;
     align-items: center;
     justify-content: flex-start;
-    gap: 10px;
+    gap: 6px;
+    width: fit-content;
+    max-width: 100%;
     opacity: 0;
     pointer-events: none;
     transition: opacity 0.15s ease;
@@ -235,6 +237,15 @@
 
   [data-slot="text-part-meta"] {
     user-select: none;
+    flex: 0 1 auto;
+    min-width: 0;
+  }
+
+  [data-slot="text-part-actions"] {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex: 0 0 auto;
   }
 
   [data-slot="text-part-copy-wrapper"][data-interrupted] {
