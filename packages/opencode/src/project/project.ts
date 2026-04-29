@@ -121,11 +121,12 @@ export namespace Project {
     return ["/bin", "/dist", "\\bin", "\\dist"].some((item) => next.endsWith(item))
   }
 
-  function rowIcon(row: { icon_url?: string | null; icon_color?: string | null }) {
-    if (!row.icon_url && !row.icon_color) return
+  function rowIcon(row: { icon_url?: string | null; icon_color?: string | null; icon_override?: string | null }) {
+    if (!row.icon_url && !row.icon_color && !row.icon_override) return
     return {
       url: row.icon_url ?? undefined,
       color: row.icon_color ?? undefined,
+      override: row.icon_override ?? undefined,
     } satisfies Info["icon"]
   }
 
@@ -599,10 +600,11 @@ export namespace Project {
           d
             .update(ProjectTable)
             .set({
-              name: input.name,
-              icon_url: input.icon?.url,
-              icon_color: input.icon?.color,
-              commands: input.commands,
+              ...(input.name !== undefined ? { name: input.name } : {}),
+              ...(input.icon
+                ? { icon_url: input.icon.url, icon_color: input.icon.color, icon_override: input.icon.override }
+                : {}),
+              ...(input.commands !== undefined ? { commands: input.commands } : {}),
               time_updated: Date.now(),
             })
             .where(eq(ProjectTable.id, input.projectID))
@@ -683,7 +685,7 @@ export namespace Project {
       const updateDirectoryMeta = Effect.fn("Project.updateDirectoryMeta")(function* (input: {
         directory: string
         name?: string
-        icon?: { url?: string; color?: string }
+        icon?: { url?: string; color?: string; override?: string }
       }) {
         const dir = norm(input.directory)
         const key = dirKey(dir)
@@ -698,6 +700,7 @@ export namespace Project {
               name: input.name ?? name(input.directory),
               icon_url: input.icon?.url ?? null,
               icon_color: input.icon?.color ?? null,
+              icon_override: input.icon?.override ?? null,
               activity_at: Date.now(),
               time_created: Date.now(),
               time_updated: Date.now(),
@@ -708,6 +711,7 @@ export namespace Project {
                 name: input.name ?? name(input.directory),
                 icon_url: input.icon?.url ?? null,
                 icon_color: input.icon?.color ?? null,
+                icon_override: input.icon?.override ?? null,
                 time_updated: Date.now(),
               },
             })

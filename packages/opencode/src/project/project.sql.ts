@@ -9,6 +9,7 @@ export const ProjectTable = sqliteTable("project", {
   name: text(),
   icon_url: text(),
   icon_color: text(),
+  icon_override: text(),
   ...Timestamps,
   time_initialized: integer(),
   sandboxes: text({ mode: "json" }).notNull().$type<string[]>(),
@@ -25,6 +26,7 @@ export const ProjectRecentTable = sqliteTable("project_recent", {
   name: text(),
   icon_url: text(),
   icon_color: text(),
+  icon_override: text(),
   activity_at: integer().notNull(),
   ...Timestamps,
 })

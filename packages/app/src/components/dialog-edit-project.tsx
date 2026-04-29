@@ -14,6 +14,34 @@ import { Avatar } from "@opencode-ai/ui/avatar"
 import { useLanguage } from "@/context/language"
 
 const AVATAR_COLOR_KEYS = ["pink", "mint", "orange", "purple", "cyan", "lime"] as const
+const ICON_SIZE = 128
+
+async function optimizeIcon(file: File) {
+  const src = await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(String(reader.result ?? ""))
+    reader.onerror = () => reject(reader.error ?? new Error("Failed to read icon"))
+    reader.readAsDataURL(file)
+  })
+
+  const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+    const img = new Image()
+    img.onload = () => resolve(img)
+    img.onerror = () => reject(new Error("Failed to load icon"))
+    img.src = src
+  })
+
+  const scale = Math.min(1, ICON_SIZE / Math.max(img.naturalWidth, img.naturalHeight, 1))
+  const width = Math.max(1, Math.round(img.naturalWidth * scale))
+  const height = Math.max(1, Math.round(img.naturalHeight * scale))
+  const canvas = document.createElement("canvas")
+  canvas.width = width
+  canvas.height = height
+  const ctx = canvas.getContext("2d")
+  if (!ctx) return src
+  ctx.drawImage(img, 0, 0, width, height)
+  return canvas.toDataURL("image/png")
+}
 
 export function DialogEditProject(props: { project: LocalProject }) {
   const dialog = useDialog()
@@ -35,14 +63,14 @@ export function DialogEditProject(props: { project: LocalProject }) {
 
   let iconInput: HTMLInputElement | undefined
 
-  function handleFileSelect(file: File) {
+  async function handleFileSelect(file: File) {
     if (!file.type.startsWith("image/")) return
-    const reader = new FileReader()
-    reader.onload = (e) => {
-      setStore("iconUrl", e.target?.result as string)
-      setStore("iconHover", false)
-    }
-    reader.readAsDataURL(file)
+    optimizeIcon(file)
+      .then((src) => {
+        setStore("iconUrl", src)
+        setStore("iconHover", false)
+      })
+      .catch(() => {})
   }
 
   function handleDrop(e: DragEvent) {
@@ -87,7 +115,7 @@ export function DialogEditProject(props: { project: LocalProject }) {
             projectID: props.project.id!,
             directory: props.project.worktree,
             name,
-            icon: { color: icon.color },
+            icon,
             commands: start ? { start } : undefined,
           })
           .catch(() => {})
@@ -96,7 +124,7 @@ export function DialogEditProject(props: { project: LocalProject }) {
           .updateDirectoryMeta({
             body_directory: props.project.worktree,
             name: name || undefined,
-            icon: { color: icon.color },
+            icon,
           })
           .catch(() => {})
       }
