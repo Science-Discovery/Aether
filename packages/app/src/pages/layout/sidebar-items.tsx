@@ -547,6 +547,7 @@ export const SessionItem = (props: SessionItemProps): JSX.Element => {
                   ref={renameInputRef}
                   value={renameValue()}
                   class="text-14-regular text-text-strong min-w-0 flex-1 bg-transparent outline-none border-b border-border-base"
+                  onFocus={(e) => e.currentTarget.select()}
                   onInput={(e) => setRenameValue(e.currentTarget.value)}
                   onKeyDown={(e) => {
                     e.stopPropagation()
@@ -656,6 +657,8 @@ export const SessionItem = (props: SessionItemProps): JSX.Element => {
           onCloseAutoFocus={(e) => {
             if (!renaming()) return
             e.preventDefault()
+            renameInputRef?.focus()
+            renameInputRef?.select()
           }}
         >
           <Show when={props.renameSession}>
