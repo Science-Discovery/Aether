@@ -236,13 +236,14 @@ stamp() {
 
 mirror_root() {
   if [ -n "${AETHER_MIRROR_ROOT:-}" ]; then
-    mkdir -p "${AETHER_MIRROR_ROOT}" || return 1
+    mkdir -p "${AETHER_MIRROR_ROOT}" 2>/dev/null || true
     cd "${AETHER_MIRROR_ROOT}" && pwd
     return 0
   fi
   local cur
   cur="${AETHER_CURRENT_DIR:-}"
   [ -n "$cur" ] || return 1
+  mkdir -p "$(dirname "$cur")" 2>/dev/null || true
   cd "$cur/.." && pwd
 }
 
@@ -252,8 +253,8 @@ in_work() {
   root="$1"
   [ -n "$cur" ] || return 1
   [ -n "$root" ] || return 1
-  cur="$(cd "$cur" 2>/dev/null && pwd)" || return 1
-  root="$(cd "$root" 2>/dev/null && pwd)" || return 1
+  cur="$(cd "$cur" && pwd)"
+  root="$(cd "$root" && pwd)"
   case "$cur" in
     "$root"|"$root"/*) return 0 ;;
   esac

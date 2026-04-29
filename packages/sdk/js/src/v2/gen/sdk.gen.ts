@@ -24,6 +24,14 @@ import type {
   ConfigSkillsToggleResponses,
   ConfigUpdateErrors,
   ConfigUpdateResponses,
+  CronJobsCreateResponses,
+  CronJobsDeleteResponses,
+  CronJobsGetResponses,
+  CronJobsListResponses,
+  CronJobsRunResponses,
+  CronJobsRunsResponses,
+  CronJobsUpdateResponses,
+  CronRunsGetResponses,
   DatabaseLegacyMergeResponses,
   DatabaseLegacyMergeStateResetResponses,
   DatabaseLegacyMergeStateResponses,
@@ -117,6 +125,8 @@ import type {
   GlobalWebUpdateDownloadResponses,
   GlobalWebUpdateInstallErrors,
   GlobalWebUpdateInstallResponses,
+  GlobalWebUpdateMirrorErrors,
+  GlobalWebUpdateMirrorResponses,
   InstanceDisposeResponses,
   KnowledgeConfigGetResponses,
   KnowledgeConfigSetResponses,
@@ -155,6 +165,7 @@ import type {
   McpLocalConfig,
   McpRemoteConfig,
   McpStatusResponses,
+  MemoryGetResponses,
   OutputFormat,
   Part as Part2,
   PartDeleteErrors,
@@ -173,6 +184,8 @@ import type {
   ProjectInitGitResponses,
   ProjectListResponses,
   ProjectRecentResponses,
+  ProjectUpdateDirectoryMetaErrors,
+  ProjectUpdateDirectoryMetaResponses,
   ProjectUpdateErrors,
   ProjectUpdateResponses,
   ProviderAuthResponses,
@@ -194,6 +207,11 @@ import type {
   PtyRemoveResponses,
   PtyUpdateErrors,
   PtyUpdateResponses,
+  QqEventsResponses,
+  QqSessionClearResponses,
+  QqStartResponses,
+  QqStatusResponses,
+  QqStopResponses,
   QuestionAnswer,
   QuestionListResponses,
   QuestionRejectErrors,
@@ -299,7 +317,12 @@ import type {
   VcsDiffResponses,
   VcsGetResponses,
   WechatEventsResponses,
+  WechatPing2Responses,
+  WechatPing3Responses,
   WechatPingResponses,
+  WechatRetry2Responses,
+  WechatRetry3Responses,
+  WechatRetryResponses,
   WechatSessionClearResponses,
   WechatStartResponses,
   WechatStatusResponses,
@@ -512,6 +535,47 @@ export class WebUpdate extends HeyApiClient {
       ThrowOnError
     >({
       url: "/global/web-update/install",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Retry web update mirror
+   *
+   * Retry only the mirror step for a failed web update install.
+   */
+  public mirror<ThrowOnError extends boolean = false>(
+    parameters?: {
+      os?: "darwin" | "linux" | "windows"
+      version?: string
+      mirrorRoot?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "body", key: "os" },
+            { in: "body", key: "version" },
+            { in: "body", key: "mirrorRoot" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      GlobalWebUpdateMirrorResponses,
+      GlobalWebUpdateMirrorErrors,
+      ThrowOnError
+    >({
+      url: "/global/web-update/mirror",
       ...options,
       ...params,
       headers: {
@@ -749,6 +813,62 @@ export class Auth extends HeyApiClient {
 }
 
 export class Project extends HeyApiClient {
+  /**
+   * Update directory metadata
+   *
+   * Update name and icon for a plain directory (no git project entry). Persisted in project_recent table.
+   */
+  public updateDirectoryMeta<ThrowOnError extends boolean = false>(
+    parameters?: {
+      query_directory?: string
+      workspace?: string
+      body_directory?: string
+      name?: string
+      icon?: {
+        url?: string
+        color?: string
+      }
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            {
+              in: "query",
+              key: "query_directory",
+              map: "directory",
+            },
+            { in: "query", key: "workspace" },
+            {
+              in: "body",
+              key: "body_directory",
+              map: "directory",
+            },
+            { in: "body", key: "name" },
+            { in: "body", key: "icon" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      ProjectUpdateDirectoryMetaResponses,
+      ProjectUpdateDirectoryMetaErrors,
+      ThrowOnError
+    >({
+      url: "/project-directory-meta",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
   /**
    * List all projects
    *
@@ -1448,6 +1568,38 @@ export class Config2 extends HeyApiClient {
   private _skills?: Skills
   get skills(): Skills {
     return (this._skills ??= new Skills({ client: this.client }))
+  }
+}
+
+export class Memory extends HeyApiClient {
+  /**
+   * Get memory stores
+   *
+   * Read effective memory settings, durable stores, and optional session active memory.
+   */
+  public get<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<MemoryGetResponses, unknown, ThrowOnError>({
+      url: "/memory",
+      ...options,
+      ...params,
+    })
   }
 }
 
@@ -6038,11 +6190,283 @@ export class Knowledge extends HeyApiClient {
   }
 }
 
+export class Jobs extends HeyApiClient {
+  /**
+   * List cron jobs
+   */
+  public list<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<CronJobsListResponses, unknown, ThrowOnError>({
+      url: "/cron/jobs",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Create cron job
+   */
+  public create<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      body?: {
+        [key: string]: unknown
+      }
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { key: "body", map: "body" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<CronJobsCreateResponses, unknown, ThrowOnError>({
+      url: "/cron/jobs",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Delete cron job
+   */
+  public delete<ThrowOnError extends boolean = false>(
+    parameters: {
+      id: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "id" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).delete<CronJobsDeleteResponses, unknown, ThrowOnError>({
+      url: "/cron/jobs/{id}",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Get cron job
+   */
+  public get<ThrowOnError extends boolean = false>(
+    parameters: {
+      id: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "id" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<CronJobsGetResponses, unknown, ThrowOnError>({
+      url: "/cron/jobs/{id}",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Update cron job
+   */
+  public update<ThrowOnError extends boolean = false>(
+    parameters: {
+      id: string
+      directory?: string
+      workspace?: string
+      body?: {
+        [key: string]: unknown
+      }
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "id" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { key: "body", map: "body" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).patch<CronJobsUpdateResponses, unknown, ThrowOnError>({
+      url: "/cron/jobs/{id}",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Run cron job now
+   */
+  public run<ThrowOnError extends boolean = false>(
+    parameters: {
+      id: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "id" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<CronJobsRunResponses, unknown, ThrowOnError>({
+      url: "/cron/jobs/{id}/run",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * List recent cron runs for a job
+   */
+  public runs<ThrowOnError extends boolean = false>(
+    parameters: {
+      id: string
+      directory?: string
+      workspace?: string
+      count?: number
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "id" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "query", key: "count" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<CronJobsRunsResponses, unknown, ThrowOnError>({
+      url: "/cron/jobs/{id}/runs",
+      ...options,
+      ...params,
+    })
+  }
+}
+
+export class Runs extends HeyApiClient {
+  /**
+   * Get cron run
+   */
+  public get<ThrowOnError extends boolean = false>(
+    parameters: {
+      run_id: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "run_id" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<CronRunsGetResponses, unknown, ThrowOnError>({
+      url: "/cron/runs/{run_id}",
+      ...options,
+      ...params,
+    })
+  }
+}
+
+export class Cron extends HeyApiClient {
+  private _jobs?: Jobs
+  get jobs(): Jobs {
+    return (this._jobs ??= new Jobs({ client: this.client }))
+  }
+
+  private _runs?: Runs
+  get runs(): Runs {
+    return (this._runs ??= new Runs({ client: this.client }))
+  }
+}
+
 export class Session3 extends HeyApiClient {
   /**
-   * Clear WeChat session
+   * Clear wechat session
    *
-   * Clear the saved WeChat session
+   * Clear the saved wechat configuration and session data
    */
   public clear<ThrowOnError extends boolean = false>(
     parameters?: {
@@ -6063,7 +6487,7 @@ export class Session3 extends HeyApiClient {
       ],
     )
     return (options?.client ?? this.client).delete<WechatSessionClearResponses, unknown, ThrowOnError>({
-      url: "/wechat/session",
+      url: "/mobile/wechat/session",
       ...options,
       ...params,
     })
@@ -6072,9 +6496,9 @@ export class Session3 extends HeyApiClient {
 
 export class Wechat extends HeyApiClient {
   /**
-   * Start WeChat bridge
+   * Start wechat bridge
    *
-   * Start the WeChat bridge service
+   * Start the wechat bridge service
    */
   public start<ThrowOnError extends boolean = false>(
     parameters?: {
@@ -6095,16 +6519,46 @@ export class Wechat extends HeyApiClient {
       ],
     )
     return (options?.client ?? this.client).post<WechatStartResponses, unknown, ThrowOnError>({
-      url: "/wechat/start",
+      url: "/mobile/wechat/start",
       ...options,
       ...params,
     })
   }
 
   /**
-   * Stop WeChat bridge
+   * Retry WeChat connection
    *
-   * Stop the WeChat bridge service
+   * Retry WeChat connection from error state
+   */
+  public retry<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<WechatRetryResponses, unknown, ThrowOnError>({
+      url: "/mobile/wechat/retry",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Stop wechat bridge
+   *
+   * Stop the wechat bridge service
    */
   public stop<ThrowOnError extends boolean = false>(
     parameters?: {
@@ -6125,7 +6579,67 @@ export class Wechat extends HeyApiClient {
       ],
     )
     return (options?.client ?? this.client).post<WechatStopResponses, unknown, ThrowOnError>({
-      url: "/wechat/stop",
+      url: "/mobile/wechat/stop",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Get wechat status
+   *
+   * Get the current wechat bridge status
+   */
+  public status<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<WechatStatusResponses, unknown, ThrowOnError>({
+      url: "/mobile/wechat/status",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Subscribe to wechat events
+   *
+   * Get real-time wechat events via SSE
+   */
+  public events<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).sse.get<WechatEventsResponses, unknown, ThrowOnError>({
+      url: "/mobile/wechat/events",
       ...options,
       ...params,
     })
@@ -6155,18 +6669,18 @@ export class Wechat extends HeyApiClient {
       ],
     )
     return (options?.client ?? this.client).post<WechatPingResponses, unknown, ThrowOnError>({
-      url: "/wechat/ping",
+      url: "/mobile/wechat/ping",
       ...options,
       ...params,
     })
   }
 
   /**
-   * Get WeChat status
+   * Retry WeChat connection
    *
-   * Get the current WeChat bridge status
+   * Retry WeChat connection from error state
    */
-  public status<ThrowOnError extends boolean = false>(
+  public retry2<ThrowOnError extends boolean = false>(
     parameters?: {
       directory?: string
       workspace?: string
@@ -6184,19 +6698,19 @@ export class Wechat extends HeyApiClient {
         },
       ],
     )
-    return (options?.client ?? this.client).get<WechatStatusResponses, unknown, ThrowOnError>({
-      url: "/wechat/status",
+    return (options?.client ?? this.client).post<WechatRetry2Responses, unknown, ThrowOnError>({
+      url: "/mobile/feishu/retry",
       ...options,
       ...params,
     })
   }
 
   /**
-   * Subscribe to WeChat events
+   * Ping WeChat lease
    *
-   * Get real-time WeChat events via SSE
+   * Renew the WeChat lock lease or detect if stolen by another client
    */
-  public events<ThrowOnError extends boolean = false>(
+  public ping2<ThrowOnError extends boolean = false>(
     parameters?: {
       directory?: string
       workspace?: string
@@ -6214,8 +6728,68 @@ export class Wechat extends HeyApiClient {
         },
       ],
     )
-    return (options?.client ?? this.client).sse.get<WechatEventsResponses, unknown, ThrowOnError>({
-      url: "/wechat/events",
+    return (options?.client ?? this.client).post<WechatPing2Responses, unknown, ThrowOnError>({
+      url: "/mobile/feishu/ping",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Retry WeChat connection
+   *
+   * Retry WeChat connection from error state
+   */
+  public retry3<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<WechatRetry3Responses, unknown, ThrowOnError>({
+      url: "/mobile/qq/retry",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Ping WeChat lease
+   *
+   * Renew the WeChat lock lease or detect if stolen by another client
+   */
+  public ping3<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<WechatPing3Responses, unknown, ThrowOnError>({
+      url: "/mobile/qq/ping",
       ...options,
       ...params,
     })
@@ -6229,9 +6803,9 @@ export class Wechat extends HeyApiClient {
 
 export class Session4 extends HeyApiClient {
   /**
-   * Clear Feishu session
+   * Clear feishu session
    *
-   * Clear the saved Feishu configuration and session data
+   * Clear the saved feishu configuration and session data
    */
   public clear<ThrowOnError extends boolean = false>(
     parameters?: {
@@ -6252,7 +6826,7 @@ export class Session4 extends HeyApiClient {
       ],
     )
     return (options?.client ?? this.client).delete<FeishuSessionClearResponses, unknown, ThrowOnError>({
-      url: "/feishu/session",
+      url: "/mobile/feishu/session",
       ...options,
       ...params,
     })
@@ -6261,9 +6835,9 @@ export class Session4 extends HeyApiClient {
 
 export class Feishu extends HeyApiClient {
   /**
-   * Start Feishu bridge
+   * Start feishu bridge
    *
-   * Start the Feishu bridge service with WebSocket connection
+   * Start the feishu bridge service
    */
   public start<ThrowOnError extends boolean = false>(
     parameters?: {
@@ -6284,16 +6858,16 @@ export class Feishu extends HeyApiClient {
       ],
     )
     return (options?.client ?? this.client).post<FeishuStartResponses, unknown, ThrowOnError>({
-      url: "/feishu/start",
+      url: "/mobile/feishu/start",
       ...options,
       ...params,
     })
   }
 
   /**
-   * Stop Feishu bridge
+   * Stop feishu bridge
    *
-   * Stop the Feishu bridge service
+   * Stop the feishu bridge service
    */
   public stop<ThrowOnError extends boolean = false>(
     parameters?: {
@@ -6314,16 +6888,16 @@ export class Feishu extends HeyApiClient {
       ],
     )
     return (options?.client ?? this.client).post<FeishuStopResponses, unknown, ThrowOnError>({
-      url: "/feishu/stop",
+      url: "/mobile/feishu/stop",
       ...options,
       ...params,
     })
   }
 
   /**
-   * Get Feishu status
+   * Get feishu status
    *
-   * Get the current Feishu bridge status
+   * Get the current feishu bridge status
    */
   public status<ThrowOnError extends boolean = false>(
     parameters?: {
@@ -6344,16 +6918,16 @@ export class Feishu extends HeyApiClient {
       ],
     )
     return (options?.client ?? this.client).get<FeishuStatusResponses, unknown, ThrowOnError>({
-      url: "/feishu/status",
+      url: "/mobile/feishu/status",
       ...options,
       ...params,
     })
   }
 
   /**
-   * Subscribe to Feishu events
+   * Subscribe to feishu events
    *
-   * Get real-time Feishu events via SSE
+   * Get real-time feishu events via SSE
    */
   public events<ThrowOnError extends boolean = false>(
     parameters?: {
@@ -6374,7 +6948,7 @@ export class Feishu extends HeyApiClient {
       ],
     )
     return (options?.client ?? this.client).sse.get<FeishuEventsResponses, unknown, ThrowOnError>({
-      url: "/feishu/events",
+      url: "/mobile/feishu/events",
       ...options,
       ...params,
     })
@@ -6387,6 +6961,165 @@ export class Feishu extends HeyApiClient {
 }
 
 export class Session5 extends HeyApiClient {
+  /**
+   * Clear qq session
+   *
+   * Clear the saved qq configuration and session data
+   */
+  public clear<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).delete<QqSessionClearResponses, unknown, ThrowOnError>({
+      url: "/mobile/qq/session",
+      ...options,
+      ...params,
+    })
+  }
+}
+
+export class Qq extends HeyApiClient {
+  /**
+   * Start qq bridge
+   *
+   * Start the qq bridge service
+   */
+  public start<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<QqStartResponses, unknown, ThrowOnError>({
+      url: "/mobile/qq/start",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Stop qq bridge
+   *
+   * Stop the qq bridge service
+   */
+  public stop<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<QqStopResponses, unknown, ThrowOnError>({
+      url: "/mobile/qq/stop",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Get qq status
+   *
+   * Get the current qq bridge status
+   */
+  public status<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<QqStatusResponses, unknown, ThrowOnError>({
+      url: "/mobile/qq/status",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Subscribe to qq events
+   *
+   * Get real-time qq events via SSE
+   */
+  public events<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).sse.get<QqEventsResponses, unknown, ThrowOnError>({
+      url: "/mobile/qq/events",
+      ...options,
+      ...params,
+    })
+  }
+
+  private _session?: Session5
+  get session(): Session5 {
+    return (this._session ??= new Session5({ client: this.client }))
+  }
+}
+
+export class Session6 extends HeyApiClient {
   /**
    * Create reading mode session
    */
@@ -6710,9 +7443,9 @@ export class ReadingMode extends HeyApiClient {
     })
   }
 
-  private _session?: Session5
-  get session(): Session5 {
-    return (this._session ??= new Session5({ client: this.client }))
+  private _session?: Session6
+  get session(): Session6 {
+    return (this._session ??= new Session6({ client: this.client }))
   }
 
   private _annotations?: Annotations
@@ -7090,6 +7823,11 @@ export class OpencodeClient extends HeyApiClient {
     return (this._config ??= new Config2({ client: this.client }))
   }
 
+  private _memory?: Memory
+  get memory(): Memory {
+    return (this._memory ??= new Memory({ client: this.client }))
+  }
+
   private _tool?: Tool
   get tool(): Tool {
     return (this._tool ??= new Tool({ client: this.client }))
@@ -7165,6 +7903,11 @@ export class OpencodeClient extends HeyApiClient {
     return (this._knowledge ??= new Knowledge({ client: this.client }))
   }
 
+  private _cron?: Cron
+  get cron(): Cron {
+    return (this._cron ??= new Cron({ client: this.client }))
+  }
+
   private _wechat?: Wechat
   get wechat(): Wechat {
     return (this._wechat ??= new Wechat({ client: this.client }))
@@ -7173,6 +7916,11 @@ export class OpencodeClient extends HeyApiClient {
   private _feishu?: Feishu
   get feishu(): Feishu {
     return (this._feishu ??= new Feishu({ client: this.client }))
+  }
+
+  private _qq?: Qq
+  get qq(): Qq {
+    return (this._qq ??= new Qq({ client: this.client }))
   }
 
   private _readingMode?: ReadingMode

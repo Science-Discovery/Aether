@@ -30,7 +30,7 @@ export function Avatar(props: AvatarProps) {
     "classList",
     "style",
   ])
-  const src = split.src // did this so i can zero it out to test fallback
+  const src = split.src
   return (
     <div
       {...rest}

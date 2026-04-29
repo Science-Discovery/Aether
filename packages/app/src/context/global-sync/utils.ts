@@ -55,13 +55,12 @@ export function sanitizeProject(project: Project) {
 }
 
 export function sanitizeRecent(item: ProjectRecent) {
-  if (!item.icon?.url && !item.icon?.override) return item
+  if (!item.icon?.url) return item
   return {
     ...item,
     icon: {
       ...item.icon,
       url: undefined,
-      override: undefined,
     },
   }
 }

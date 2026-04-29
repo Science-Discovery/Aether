@@ -120,7 +120,8 @@ echo Work directory:
 echo   %WORK%
 echo Install directory:
 echo   %MIRROR%
-call :prep "%WORK%" || goto :dir_fail
+call :prep "%WORK%" || goto :work_dir_fail
+call :prep "%MIRROR%" || goto :mirror_dir_fail
 
 set "CUR="
 call :latest || goto :meta_fail
@@ -168,8 +169,8 @@ goto :done
 
 :auto
 call :work WORK
-call :prep "%WORK%" || goto :dir_fail
-call :latest || goto :meta_fail
+call :prep "%WORK%" || goto :work_dir_fail
+  call :latest || goto :meta_fail
 call :print_latest
 call :grab || goto :dl_fail
 set "RES=update_ready"
@@ -184,7 +185,7 @@ if "%ARG%"=="" (
 set "CUR="
 set "REQ=%ARG%"
 call :work WORK
-call :prep "%WORK%" || goto :dir_fail
+call :prep "%WORK%" || goto :work_dir_fail
 call :version "%REQ%"
 set "RC=%ERRORLEVEL%"
 if "%RC%"=="%MISS%" (
@@ -641,11 +642,19 @@ exit /b %RC%
 if /I "%MODE%"=="init" goto :done_err
 exit /b %RUN_ERR%
 
-:dir_fail
+:work_dir_fail
 set "RES=dir_error"
 call :result
 echo(
 echo Work directory failed.
+if /I "%MODE%"=="init" goto :done_err
+exit /b %DIR_ERR%
+
+:mirror_dir_fail
+set "RES=dir_error"
+call :result
+echo(
+echo Install directory failed.
 if /I "%MODE%"=="init" goto :done_err
 exit /b %DIR_ERR%
 

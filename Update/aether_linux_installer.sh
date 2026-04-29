@@ -826,6 +826,13 @@ if [ "$mode" = "init" ]; then
     echo "Work directory failed."
     fail "$dir_err"
   }
+  prep "$mirror" || {
+    res="dir_error"
+    result
+    echo
+    echo "Install directory failed."
+    fail "$dir_err"
+  }
   manifest_url="$base/$latest"
   manifest "$manifest_url" latest || {
     res="meta_error"

@@ -1,0 +1,1 @@
+ALTER TABLE `project_recent` ADD `icon_override` text;

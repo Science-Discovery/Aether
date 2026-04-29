@@ -22,6 +22,10 @@ export const ProjectRecentTable = sqliteTable("project_recent", {
     .$type<ProjectID | null>()
     .references(() => ProjectTable.id, { onDelete: "cascade" }),
   directory: text().notNull(),
+  name: text(),
+  icon_url: text(),
+  icon_color: text(),
+  icon_override: text(),
   activity_at: integer().notNull(),
   ...Timestamps,
 })

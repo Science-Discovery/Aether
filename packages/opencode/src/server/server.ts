@@ -31,6 +31,32 @@ function hashed(path: string) {
   return path.startsWith("/assets/") && /-[A-Za-z0-9_-]{8,}\./.test(nodePath.basename(path))
 }
 
+function basePath() {
+  const raw = process.env.VITE_BASE_PATH?.trim()
+  if (!raw) return "/"
+  if (raw === "." || raw === "./") return "/"
+  if (/^[A-Za-z][A-Za-z0-9+.-]*:/.test(raw)) return "/"
+  if (/[?#\s"'<>]/.test(raw)) return "/"
+  const base = raw.startsWith("/") ? raw : `/${raw}`
+  return base.replace(/\/+$/, "") || "/"
+}
+
+function baseHref(base: string) {
+  return base === "/" ? "/" : `${base}/`
+}
+
+function baseStrip(path: string, base: string) {
+  if (base === "/") return path
+  if (path === base || path === `${base}/`) return "/"
+  if (path.startsWith(`${base}/`)) return path.slice(base.length)
+  return undefined
+}
+
+function baseInject(html: string, base: string) {
+  const tag = `<base href="${baseHref(base)}"><script>globalThis.__AETHER_BASE_PATH__=${JSON.stringify(base)}</script>`
+  return html.includes("<head>") ? html.replace("<head>", `<head>${tag}`) : `${tag}${html}`
+}
+
 async function webHeaders(reqPath: string, filePath: string) {
   const stat = await Bun.file(filePath).stat()
   return {
@@ -51,6 +77,25 @@ async function webResponse(req: Request, reqPath: string, filePath: string) {
     })
   }
   return new Response(file, { headers })
+}
+
+async function webIndex(req: Request, reqPath: string, filePath: string, base: string) {
+  const file = Bun.file(filePath)
+  const stat = await file.stat()
+  const html = baseInject(await file.text(), base)
+  const headers = {
+    "content-type": getMimeType(filePath),
+    "cache-control": WEB_REVALIDATE,
+    etag: webEtag(new TextEncoder().encode(html).byteLength, stat.mtimeMs),
+    "last-modified": stat.mtime.toUTCString(),
+  }
+  if (req.headers.get("if-none-match") === headers.etag) {
+    return new Response(null, {
+      status: 304,
+      headers,
+    })
+  }
+  return new Response(html, { headers })
 }
 import { BusEvent } from "@/bus/bus-event"
 import { Bus } from "@/bus"
@@ -81,6 +126,7 @@ import { WorkspaceID } from "../control-plane/schema"
 import { ProviderID } from "../provider/schema"
 import { WorkspaceRouterMiddleware } from "../control-plane/workspace-router-middleware"
 import { ProjectRoutes } from "./routes/project"
+import { Project } from "../project/project"
 import { SessionRoutes } from "./routes/session"
 import { PtyRoutes } from "./routes/pty"
 import { McpRoutes } from "./routes/mcp"
@@ -327,6 +373,48 @@ export namespace Server {
             workspace: z.string().optional(),
           }),
         ),
+      )
+      .post(
+        "/project-directory-meta",
+        describeRoute({
+          summary: "Update directory metadata",
+          description:
+            "Update name and icon for a plain directory (no git project entry). Persisted in project_recent table.",
+          operationId: "project.updateDirectoryMeta",
+          responses: {
+            200: {
+              description: "Updated directory metadata",
+              content: {
+                "application/json": {
+                  schema: resolver(Project.RecentInfo),
+                },
+              },
+            },
+            ...errors(400),
+          },
+        }),
+        validator(
+          "json",
+          z.object({
+            directory: z.string(),
+            name: z.string().optional(),
+            icon: z
+              .object({
+                url: z.string().optional(),
+                override: z.string().optional(),
+                color: z.string().optional(),
+              })
+              .optional(),
+          }),
+        ),
+        async (c) => {
+          const body = c.req.valid("json")
+          await Project.updateDirectoryMeta(body)
+          const list = Project.recentList()
+          const item = list.find((i) => i.kind === "directory" && i.directory === body.directory)
+          if (!item) return c.json(null, 404)
+          return c.json(item)
+        },
       )
       .route("/project", ProjectRoutes())
       .route("/pty", PtyRoutes())
@@ -700,19 +788,28 @@ export namespace Server {
       )
       .all("/*", async (c) => {
         const reqPath = c.req.path
+        const base = basePath()
 
         // Serve local web assets if available (next to the binary)
         const webDir = nodePath.join(nodePath.dirname(process.execPath), "web")
-        const localFilePath = nodePath.join(webDir, reqPath === "/" ? "index.html" : reqPath)
-        const localFile = Bun.file(localFilePath)
-        if (await localFile.exists()) {
-          return webResponse(c.req.raw, reqPath, localFilePath)
-        }
-        // SPA fallback: serve index.html for unknown paths
         const indexPath = nodePath.join(webDir, "index.html")
         const indexFile = Bun.file(indexPath)
+        const localPath = baseStrip(reqPath, base)
+        if ((await indexFile.exists()) && base !== "/" && (reqPath === "/" || reqPath === base)) {
+          return c.redirect(baseHref(base))
+        }
+        if ((await indexFile.exists()) && localPath === undefined) {
+          return c.text("Not found", 404)
+        }
+        const filePath = nodePath.join(webDir, localPath === "/" || localPath === undefined ? "index.html" : localPath)
+        const localFile = Bun.file(filePath)
+        if (await localFile.exists()) {
+          if (nodePath.basename(filePath) === "index.html") return webIndex(c.req.raw, localPath ?? "/", filePath, base)
+          return webResponse(c.req.raw, localPath ?? reqPath, filePath)
+        }
+        // SPA fallback: serve index.html for unknown paths
         if (await indexFile.exists()) {
-          return webResponse(c.req.raw, "/", indexPath)
+          return webIndex(c.req.raw, "/", indexPath, base)
         }
 
         // Fall back to remote proxy
