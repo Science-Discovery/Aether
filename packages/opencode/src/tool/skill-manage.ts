@@ -8,6 +8,9 @@ import { Skill } from "../skill"
 import { scanSkill, assertAllowed } from "./skill-guard"
 import { SkillDirty } from "../session/skill-dirty"
 import { snapshot, snapshotBeforeDelete, rollback as versionRollback, listVersions, formatHistory } from "./skill-versions"
+import { Log } from "../util/log"
+
+const log = Log.create({ service: "skill.manage" })
 
 const SKILLS_DIR = path.join(Global.Path.data, "skills")
 
@@ -91,7 +94,17 @@ async function atomicWrite(filePath: string, content: string): Promise<void> {
 
 // ── Tool ──────────────────────────────────────────────────────────────────────
 
-const parameters = z.object({
+const parameters = z.preprocess(
+  (raw: any) => {
+    if (!raw || typeof raw !== "object") return raw
+    const out = { ...raw }
+    // Normalize camelCase/alternate variants that some models generate
+    if (out.old_str === undefined) out.old_str = out.oldStr ?? out.oldString ?? out.old_string
+    if (out.new_str === undefined) out.new_str = out.newStr ?? out.newString ?? out.new_string
+    if (out.relative_path === undefined) out.relative_path = out.relativePath ?? out.relativeP
+    return out
+  },
+  z.object({
   action: z
     .enum(["create", "edit", "patch", "delete", "write_file", "remove_file", "history", "rollback"])
     .describe("Action to perform on a skill"),
@@ -108,7 +121,8 @@ const parameters = z.object({
   new_str: z.string().optional().describe("Replacement text (patch action)"),
   relative_path: z.string().optional().describe("Path relative to the skill directory for write_file/remove_file"),
   version: z.string().optional().describe("Version label to rollback to, e.g. 'v002' or '2' (rollback action)"),
-})
+  }),
+)
 
 export const SkillManageTool = Tool.define("skill_manage", async () => {
   return {
@@ -149,6 +163,19 @@ export const SkillManageTool = Tool.define("skill_manage", async () => {
 
       const skillDir = path.join(SKILLS_DIR, name)
       const skillFile = path.join(skillDir, "SKILL.md")
+
+      log.info("skill_manage called", {
+        action,
+        name,
+        has_description: params.description !== undefined,
+        has_content: params.content !== undefined,
+        has_old_str: params.old_str !== undefined,
+        old_str_len: params.old_str?.length,
+        has_new_str: params.new_str !== undefined,
+        new_str_len: params.new_str?.length,
+        relative_path: params.relative_path,
+        version: params.version,
+      })
 
       switch (action) {
         case "create": {
@@ -219,8 +246,14 @@ export const SkillManageTool = Tool.define("skill_manage", async () => {
         case "patch": {
           Skill.markBegin(skillFile)
           try {
-            if (params.old_str === undefined) throw new Error("old_str is required for patch")
-            if (params.new_str === undefined) throw new Error("new_str is required for patch")
+            if (params.old_str === undefined) {
+              log.error("patch called without old_str", { name, raw_params: JSON.stringify(params) })
+              throw new Error("old_str is required for patch")
+            }
+            if (params.new_str === undefined) {
+              log.error("patch called without new_str", { name, raw_params: JSON.stringify(params) })
+              throw new Error("new_str is required for patch")
+            }
             const raw = await fs.readFile(skillFile, "utf8").catch(() => {
               throw new Error(`Skill "${name}" not found`)
             })
