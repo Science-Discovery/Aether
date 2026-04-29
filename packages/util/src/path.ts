@@ -1,3 +1,9 @@
+export function displayPath(directory: string, home: string) {
+  const normDir = directory.replace(/\\/g, "/")
+  const normHome = home.replace(/\\/g, "/")
+  return normDir.startsWith(normHome) ? "~" + normDir.slice(normHome.length) : normDir
+}
+
 export function getFilename(path: string | undefined) {
   if (!path) return ""
   const trimmed = path.replace(/[\/\\]+$/, "")

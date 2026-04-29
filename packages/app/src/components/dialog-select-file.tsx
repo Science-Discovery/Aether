@@ -5,7 +5,7 @@ import { Icon } from "@opencode-ai/ui/icon"
 import { Keybind } from "@opencode-ai/ui/keybind"
 import { List } from "@opencode-ai/ui/list"
 import { base64Encode } from "@opencode-ai/util/encode"
-import { getDirectory, getFilename } from "@opencode-ai/util/path"
+import { displayPath, getDirectory, getFilename } from "@opencode-ai/util/path"
 import { useNavigate } from "@solidjs/router"
 import { createMemo, createSignal, Match, onCleanup, Show, Switch } from "solid-js"
 import { formatKeybind, useCommand, type CommandOption } from "@/context/command"
@@ -300,7 +300,7 @@ export function DialogSelectFile(props: { mode?: DialogSelectFileMode; onOpenFil
         : language.t("workspace.type.sandbox")
     const [store] = globalSync.child(directory, { bootstrap: false })
     const home = homedir()
-    const path = home ? directory.replace(home, "~") : directory
+    const path = displayPath(directory, home)
     const name = store.vcs?.branch ?? getFilename(directory)
     return `${kind} : ${name || path}`
   }

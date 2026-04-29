@@ -23,7 +23,7 @@ import { IconButton } from "@opencode-ai/ui/icon-button"
 import { Tooltip } from "@opencode-ai/ui/tooltip"
 import { DropdownMenu } from "@opencode-ai/ui/dropdown-menu"
 import { Dialog } from "@opencode-ai/ui/dialog"
-import { getFilename } from "@opencode-ai/util/path"
+import { displayPath, getFilename } from "@opencode-ai/util/path"
 import { Session, type Message } from "@opencode-ai/sdk/v2/client"
 import { type UpdateAction, usePlatform } from "@/context/platform"
 import { useSettings } from "@/context/settings"
@@ -2351,7 +2351,7 @@ export default function Layout(props: ParentProps) {
       if (!item) return false
       return item.vcs === "git" || layout.sidebar.workspaces(item.worktree)()
     })
-    const homedir = createMemo(() => globalSync.data.path.home)
+    const projectDisplayPath = createMemo(() => displayPath(worktree(), globalSync.data.path.home))
 
     return (
       <div
@@ -2407,16 +2407,14 @@ export default function Layout(props: ParentProps) {
                     <Tooltip
                       placement="bottom"
                       gutter={2}
-                      value={worktree()}
+                      value={worktree().replace(/\\/g, "/")}
                       class="shrink-0"
                       contentStyle={{
                         "max-width": "640px",
                         transform: "translate3d(52px, 0, 0)",
                       }}
                     >
-                      <span class="text-12-regular text-text-base truncate select-text">
-                        {worktree().replace(homedir(), "~")}
-                      </span>
+                      <span class="text-12-regular text-text-base truncate select-text">{projectDisplayPath()}</span>
                     </Tooltip>
                   </div>
 
