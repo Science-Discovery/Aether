@@ -400,6 +400,7 @@ export namespace Server {
             icon: z
               .object({
                 url: z.string().optional(),
+                override: z.string().optional(),
                 color: z.string().optional(),
               })
               .optional(),

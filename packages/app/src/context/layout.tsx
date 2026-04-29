@@ -390,17 +390,18 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
       const projectID = childStore.project
       const metadata = projectID ? globalSync.project.get(projectID) : globalSync.project.fromDir(project.worktree)
       const local = childStore.projectMeta
+      const recent = globalSync.project.recentFromDir(project.worktree)
 
       return {
         ...(metadata ?? {}),
         ...project,
         id: metadata?.id ?? projectID ?? "global",
         vcs: metadata?.vcs ?? project.vcs ?? (childStore.vcs ? "git" : undefined),
-        name: local?.name ?? metadata?.name ?? getFilename(project.worktree),
+        name: local?.name ?? recent?.name ?? metadata?.name ?? getFilename(project.worktree),
         icon: {
           url: metadata?.icon?.url,
-          override: local?.icon?.override ?? metadata?.icon?.override ?? childStore.icon,
-          color: local?.icon?.color ?? metadata?.icon?.color,
+          override: local?.icon?.override ?? recent?.icon?.override ?? childStore.icon,
+          color: local?.icon?.color ?? recent?.icon?.color ?? metadata?.icon?.color,
         },
         commands: local?.commands ?? metadata?.commands,
       }

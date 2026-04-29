@@ -476,6 +476,9 @@ function createGlobalSync() {
     fromDir(directory: string) {
       return byDir().get(normalizeDir(directory))
     },
+    recentFromDir(directory: string) {
+      return globalStore.recent.find((item) => normalizeDir(item.directory) === normalizeDir(directory))
+    },
     upsert(next: Project) {
       setProjects((draft) => {
         const index = draft.findIndex((item) => item.id === next.id)

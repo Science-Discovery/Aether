@@ -165,13 +165,17 @@ export namespace Project {
     const recentRows = Database.use((d) =>
       d.select().from(ProjectRecentTable).where(eq(ProjectRecentTable.kind, "directory")).all(),
     )
-    const metaByDir = new Map<string, { name?: string; icon_url?: string | null; icon_color?: string | null }>()
+    const metaByDir = new Map<
+      string,
+      { name?: string; icon_url?: string | null; icon_color?: string | null; icon_override?: string | null }
+    >()
     for (const row of recentRows) {
-      if (row.name || row.icon_url || row.icon_color) {
+      if (row.name || row.icon_url || row.icon_color || row.icon_override) {
         metaByDir.set(norm(row.directory), {
           name: row.name ?? undefined,
           icon_url: row.icon_url ?? undefined,
           icon_color: row.icon_color ?? undefined,
+          icon_override: row.icon_override ?? undefined,
         })
       }
     }
@@ -184,6 +188,12 @@ export namespace Project {
         const key = projectKey(known.id)
         const prev = map.get(key)
         const activity = Math.max(row.activity_at ?? 0, prev?.time?.activity ?? 0)
+        const meta = metaByDir.get(norm(row.directory))
+        const icon = known.icon
+          ? { ...known.icon, override: meta?.icon_override ?? known.icon.override }
+          : meta?.icon_override
+            ? { override: meta.icon_override }
+            : known.icon
         map.set(key, {
           id: key,
           kind: "project",
@@ -192,7 +202,7 @@ export namespace Project {
           worktree: known.worktree,
           vcs: known.vcs,
           name: known.name ?? name(known.worktree),
-          icon: known.icon,
+          icon,
           commands: known.commands,
           time: { activity, created: known.time.created, updated: known.time.updated },
         })
@@ -200,9 +210,14 @@ export namespace Project {
       }
       const meta = metaByDir.get(norm(row.directory))
       const dirName = meta?.name ?? name(row.directory)
-      const dirIcon =
+      const baseIcon =
         meta?.icon_url || meta?.icon_color
           ? rowIcon({ icon_url: meta?.icon_url ?? null, icon_color: meta?.icon_color ?? null })
+          : undefined
+      const dirIcon = baseIcon
+        ? { ...baseIcon, override: meta?.icon_override ?? undefined }
+        : meta?.icon_override
+          ? { override: meta.icon_override }
           : undefined
       map.set(dirID(row.directory), {
         id: dirID(row.directory),
@@ -550,7 +565,13 @@ export namespace Project {
               result.name = patch.name ?? result.name
               result.icon = { url: patch.icon_url ?? result.icon?.url, color: patch.icon_color ?? result.icon?.color }
             }
-            yield* db((d) => d.delete(ProjectRecentTable).where(eq(ProjectRecentTable.key, recentKey)).run())
+            yield* db((d) =>
+              d
+                .update(ProjectRecentTable)
+                .set({ name: null, icon_url: null, icon_color: null })
+                .where(eq(ProjectRecentTable.key, recentKey))
+                .run(),
+            )
           }
         }
 
@@ -599,10 +620,9 @@ export namespace Project {
           d
             .update(ProjectTable)
             .set({
-              name: input.name,
-              icon_url: input.icon?.url,
-              icon_color: input.icon?.color,
-              commands: input.commands,
+              ...(input.name !== undefined ? { name: input.name } : {}),
+              ...(input.icon ? { icon_url: input.icon.url, icon_color: input.icon.color } : {}),
+              ...(input.commands !== undefined ? { commands: input.commands } : {}),
               time_updated: Date.now(),
             })
             .where(eq(ProjectTable.id, input.projectID))
@@ -683,7 +703,7 @@ export namespace Project {
       const updateDirectoryMeta = Effect.fn("Project.updateDirectoryMeta")(function* (input: {
         directory: string
         name?: string
-        icon?: { url?: string; color?: string }
+        icon?: { url?: string; color?: string; override?: string }
       }) {
         const dir = norm(input.directory)
         const key = dirKey(dir)
@@ -698,6 +718,7 @@ export namespace Project {
               name: input.name ?? name(input.directory),
               icon_url: input.icon?.url ?? null,
               icon_color: input.icon?.color ?? null,
+              icon_override: input.icon?.override ?? null,
               activity_at: Date.now(),
               time_created: Date.now(),
               time_updated: Date.now(),
@@ -708,6 +729,7 @@ export namespace Project {
                 name: input.name ?? name(input.directory),
                 icon_url: input.icon?.url ?? null,
                 icon_color: input.icon?.color ?? null,
+                icon_override: input.icon?.override ?? null,
                 time_updated: Date.now(),
               },
             })
