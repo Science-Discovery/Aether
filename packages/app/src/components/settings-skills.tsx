@@ -118,9 +118,9 @@ export const SettingsSkills: Component = () => {
     <div class="flex flex-col h-full overflow-y-auto no-scrollbar px-4 pb-10 sm:px-10 sm:pb-10">
       <div class="sticky top-0 z-10 bg-[linear-gradient(to_bottom,var(--surface-stronger-non-alpha)_calc(100%_-_24px),transparent)]">
         <div class="flex flex-col gap-1 pt-6 pb-8 max-w-[720px]">
-          <h2 class="text-16-medium text-text-strong">Skill Evolution</h2>
+          <h2 class="text-16-medium text-text-strong">{language.t("settingsSkills.pageTitle")}</h2>
           <p class="text-14-regular text-text-weak">
-            Configure how the AI automatically captures and refines reusable skills.
+            {language.t("settingsSkills.pageTitleDescription")}
           </p>
         </div>
       </div>
@@ -128,8 +128,8 @@ export const SettingsSkills: Component = () => {
       <div class="flex flex-col gap-6 max-w-[720px]">
         <SettingsList>
           <SettingsRow
-            title="Skill Evolution"
-            description="Trigger a background skill review after N steps where the AI made tool calls."
+            title={language.t("settingsSkills.evolutionToggle")}
+            description={language.t("settingsSkills.evolutionToggleDescription")}
           >
             <Switch
               checked={evolutionEnabled()}
@@ -140,8 +140,8 @@ export const SettingsSkills: Component = () => {
 
           <Show when={evolutionEnabled()}>
             <SettingsRow
-              title="Review Interval"
-              description="Number of tool-calling steps between automatic skill reviews."
+              title={language.t("settingsSkills.reviewInterval")}
+              description={language.t("settingsSkills.reviewIntervalDescription")}
             >
               <input
                 type="number"
@@ -160,8 +160,8 @@ export const SettingsSkills: Component = () => {
           </Show>
 
           <SettingsRow
-            title="Max Versions"
-            description="Maximum number of version snapshots kept per skill before older snapshots are pruned."
+            title={language.t("settingsSkills.maxVersions")}
+            description={language.t("settingsSkills.maxVersionsDescription")}
           >
             <input
               type="number"
