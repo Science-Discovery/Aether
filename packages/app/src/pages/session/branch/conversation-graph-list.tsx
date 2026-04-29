@@ -31,7 +31,7 @@ export function ConversationGraphList(props: {
 }) {
   const language = useLanguage()
   const laneGap = 18
-  const railPadding = 18
+  const railPadding = 12
   const railWidth = createMemo(() => railPadding * 2 + Math.max(0, props.laneCount - 1) * laneGap + 16)
   const height = createMemo(() => Math.max(props.rowHeight, props.nodes.length * props.rowHeight))
 
