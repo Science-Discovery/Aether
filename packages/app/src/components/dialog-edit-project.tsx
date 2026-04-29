@@ -77,27 +77,29 @@ export function DialogEditProject(props: { project: LocalProject }) {
       const start = store.startup.trim()
       const icon = { color: store.color, override: store.iconUrl || undefined }
 
-      if (props.project.id && props.project.id !== "global") {
-        await globalSDK.client.project.update({
-          projectID: props.project.id,
-          directory: props.project.worktree,
-          name,
-          icon: { color: icon.color },
-          commands: start ? { start } : undefined,
-        })
-      } else {
-        await globalSDK.client.project.updateDirectoryMeta({
-          body_directory: props.project.worktree,
-          name: name || undefined,
-          icon: { color: icon.color },
-        })
-      }
-
-      globalSync.project.meta(props.project.worktree, {
-        icon,
-        commands: { start: start || undefined },
-      })
+      globalSync.project.meta(props.project.worktree, { name, icon, commands: { start: start || undefined } })
       dialog.close()
+
+      const hasProjectID = props.project.id && !props.project.id.startsWith("dir:")
+      if (hasProjectID) {
+        globalSDK.client.project
+          .update({
+            projectID: props.project.id!,
+            directory: props.project.worktree,
+            name,
+            icon: { color: icon.color },
+            commands: start ? { start } : undefined,
+          })
+          .catch(() => {})
+      } else {
+        globalSDK.client.project
+          .updateDirectoryMeta({
+            body_directory: props.project.worktree,
+            name: name || undefined,
+            icon: { color: icon.color },
+          })
+          .catch(() => {})
+      }
     },
   }))
 
