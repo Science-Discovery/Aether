@@ -280,6 +280,7 @@ function safeAssign(target: object, key: string, value: unknown) {
     if (existing && typeof existing === "object" && value && typeof value === "object") {
       try {
         ;(target as Record<string, unknown>)[key] = value
+        return
       } catch {
         deepMerge(existing as object, value as object)
         return
