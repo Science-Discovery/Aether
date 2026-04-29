@@ -7,6 +7,7 @@ import { Icon } from "@opencode-ai/ui/icon"
 import { createMemo, For, Show } from "solid-js"
 import { createStore } from "solid-js/store"
 import { useGlobalSync } from "@/context/global-sync"
+import { useGlobalSDK } from "@/context/global-sdk"
 import { type LocalProject, getAvatarColors } from "@/context/layout"
 import { getFilename } from "@opencode-ai/util/path"
 import { Avatar } from "@opencode-ai/ui/avatar"
@@ -17,6 +18,7 @@ const AVATAR_COLOR_KEYS = ["pink", "mint", "orange", "purple", "cyan", "lime"] a
 export function DialogEditProject(props: { project: LocalProject }) {
   const dialog = useDialog()
   const globalSync = useGlobalSync()
+  const globalSDK = useGlobalSDK()
   const language = useLanguage()
 
   const folderName = createMemo(() => getFilename(props.project.worktree))
@@ -73,13 +75,31 @@ export function DialogEditProject(props: { project: LocalProject }) {
     mutationFn: async () => {
       const name = store.name.trim() === folderName() ? "" : store.name.trim()
       const start = store.startup.trim()
+      const icon = { color: store.color, override: store.iconUrl || undefined }
 
-      globalSync.project.meta(props.project.worktree, {
-        name,
-        icon: { color: store.color, override: store.iconUrl || undefined },
-        commands: { start: start || undefined },
-      })
+      globalSync.project.meta(props.project.worktree, { name, icon, commands: { start: start || undefined } })
       dialog.close()
+
+      const hasProjectID = props.project.id && !props.project.id.startsWith("dir:")
+      if (hasProjectID) {
+        globalSDK.client.project
+          .update({
+            projectID: props.project.id!,
+            directory: props.project.worktree,
+            name,
+            icon: { color: icon.color },
+            commands: start ? { start } : undefined,
+          })
+          .catch(() => {})
+      } else {
+        globalSDK.client.project
+          .updateDirectoryMeta({
+            body_directory: props.project.worktree,
+            name: name || undefined,
+            icon: { color: icon.color },
+          })
+          .catch(() => {})
+      }
     },
   }))
 

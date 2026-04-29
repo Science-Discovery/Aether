@@ -257,6 +257,36 @@ export function createSdkForServer({
   }) as unknown as AppClient
 }
 
+function deepMerge(target: object, source: object) {
+  for (const key of Object.keys(source as Record<string, unknown>)) {
+    const srcVal = (source as Record<string, unknown>)[key]
+    const proto = Object.getPrototypeOf(target)
+    const descriptor =
+      Object.getOwnPropertyDescriptor(target, key) ?? (proto ? Object.getOwnPropertyDescriptor(proto, key) : undefined)
+    if (descriptor?.get && !descriptor.set) {
+      const existing = (target as Record<string, unknown>)[key]
+      if (existing && typeof existing === "object" && srcVal && typeof srcVal === "object") {
+        deepMerge(existing as object, srcVal as object)
+      }
+      continue
+    }
+    ;(target as Record<string, unknown>)[key] = srcVal
+  }
+}
+
+function safeAssign(target: object, key: string, value: unknown) {
+  const proto = Object.getPrototypeOf(target)
+  const descriptor =
+    Object.getOwnPropertyDescriptor(target, key) ?? (proto ? Object.getOwnPropertyDescriptor(proto, key) : undefined)
+  if (descriptor?.get && !descriptor.set) {
+    const existing = (target as Record<string, unknown>)[key]
+    if (existing && typeof existing === "object" && value && typeof value === "object")
+      deepMerge(existing as object, value as object)
+    return
+  }
+  ;(target as Record<string, unknown>)[key] = value
+}
+
 export function addPreferenceMethods(
   client: AppClient,
   baseUrl: string,
@@ -287,21 +317,7 @@ export function addPreferenceMethods(
       )
     },
   }
-  const session = client.session as unknown as Record<string, unknown>
-  const sessionProto = Object.getPrototypeOf(session) as Record<string, unknown> | null
-  const descriptor =
-    Object.getOwnPropertyDescriptor(session, "preference") ??
-    (sessionProto ? Object.getOwnPropertyDescriptor(sessionProto, "preference") : undefined)
-
-  if (descriptor?.get && !descriptor.set) {
-    const existing = session.preference
-    if (existing && typeof existing === "object") {
-      Object.assign(existing as Record<string, unknown>, preferenceMethods)
-    }
-    return client
-  }
-
-  ;(session as { preference: unknown }).preference = preferenceMethods as AppClient["session"]["preference"]
+  safeAssign(client.session, "preference", preferenceMethods)
   return client
 }
 
@@ -320,7 +336,7 @@ export function addMemoryMethods(
   if (opts?.experimental_workspaceID) {
     headers["x-opencode-workspace"] = opts.experimental_workspaceID
   }
-  client.memory = {
+  const memoryMethods = {
     async get(input?: { sessionID?: string }) {
       const params = new URLSearchParams()
       if (input?.sessionID) params.set("session_id", input.sessionID)
@@ -328,6 +344,7 @@ export function addMemoryMethods(
       return requestJSON(`${baseUrl}/memory${suffix}`, { headers }, options)
     },
   }
+  safeAssign(client, "memory", memoryMethods)
   return client
 }
 
@@ -338,7 +355,7 @@ export function addCronMethods(
   options?: RequestHelperOptions,
 ): AppClient {
   const headers: Record<string, string> = { "Content-Type": "application/json", ...auth }
-  client.cron = {
+  const cronMethods = {
     jobs: {
       async list() {
         return requestJSON(`${baseUrl}/cron/jobs`, { headers }, options)
@@ -379,5 +396,6 @@ export function addCronMethods(
       },
     },
   }
+  safeAssign(client, "cron", cronMethods)
   return client
 }

@@ -81,6 +81,7 @@ import { WorkspaceID } from "../control-plane/schema"
 import { ProviderID } from "../provider/schema"
 import { WorkspaceRouterMiddleware } from "../control-plane/workspace-router-middleware"
 import { ProjectRoutes } from "./routes/project"
+import { Project } from "../project/project"
 import { SessionRoutes } from "./routes/session"
 import { PtyRoutes } from "./routes/pty"
 import { McpRoutes } from "./routes/mcp"
@@ -326,6 +327,47 @@ export namespace Server {
             workspace: z.string().optional(),
           }),
         ),
+      )
+      .post(
+        "/project-directory-meta",
+        describeRoute({
+          summary: "Update directory metadata",
+          description:
+            "Update name and icon for a plain directory (no git project entry). Persisted in project_recent table.",
+          operationId: "project.updateDirectoryMeta",
+          responses: {
+            200: {
+              description: "Updated directory metadata",
+              content: {
+                "application/json": {
+                  schema: resolver(Project.RecentInfo),
+                },
+              },
+            },
+            ...errors(400),
+          },
+        }),
+        validator(
+          "json",
+          z.object({
+            directory: z.string(),
+            name: z.string().optional(),
+            icon: z
+              .object({
+                url: z.string().optional(),
+                color: z.string().optional(),
+              })
+              .optional(),
+          }),
+        ),
+        async (c) => {
+          const body = c.req.valid("json")
+          await Project.updateDirectoryMeta(body)
+          const list = Project.recentList()
+          const item = list.find((i) => i.kind === "directory" && i.directory === body.directory)
+          if (!item) return c.json(null, 404)
+          return c.json(item)
+        },
       )
       .route("/project", ProjectRoutes())
       .route("/pty", PtyRoutes())

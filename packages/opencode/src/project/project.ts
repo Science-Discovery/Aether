@@ -162,6 +162,20 @@ export namespace Project {
       for (const sandbox of item.sandboxes) byDir.set(norm(sandbox), item)
     }
 
+    const recentRows = Database.use((d) =>
+      d.select().from(ProjectRecentTable).where(eq(ProjectRecentTable.kind, "directory")).all(),
+    )
+    const metaByDir = new Map<string, { name?: string; icon_url?: string | null; icon_color?: string | null }>()
+    for (const row of recentRows) {
+      if (row.name || row.icon_url || row.icon_color) {
+        metaByDir.set(norm(row.directory), {
+          name: row.name ?? undefined,
+          icon_url: row.icon_url ?? undefined,
+          icon_color: row.icon_color ?? undefined,
+        })
+      }
+    }
+
     const map = new Map<string, RecentEntry>()
     for (const row of rawRecent(Database.Client().$client)) {
       if (skipDir(row.directory) || !row.session_count) continue
@@ -184,11 +198,18 @@ export namespace Project {
         })
         continue
       }
+      const meta = metaByDir.get(norm(row.directory))
+      const dirName = meta?.name ?? name(row.directory)
+      const dirIcon =
+        meta?.icon_url || meta?.icon_color
+          ? rowIcon({ icon_url: meta?.icon_url ?? null, icon_color: meta?.icon_color ?? null })
+          : undefined
       map.set(dirID(row.directory), {
         id: dirID(row.directory),
         kind: "directory",
         directory: row.directory,
-        name: name(row.directory),
+        name: dirName,
+        icon: dirIcon,
         time: { activity: row.activity_at ?? 0 },
       })
     }
@@ -245,6 +266,11 @@ export namespace Project {
     readonly recent: () => Effect.Effect<RecentInfo[]>
     readonly get: (id: ProjectID) => Effect.Effect<Info | undefined>
     readonly update: (input: UpdateInput) => Effect.Effect<Info>
+    readonly updateDirectoryMeta: (input: {
+      directory: string
+      name?: string
+      icon?: { url?: string; color?: string }
+    }) => Effect.Effect<void>
     readonly initGit: (input: { directory: string; project: Info }) => Effect.Effect<Info>
     readonly setInitialized: (id: ProjectID) => Effect.Effect<void>
     readonly sandboxes: (id: ProjectID) => Effect.Effect<string[]>
@@ -510,6 +536,22 @@ export namespace Project {
               .where(and(eq(SessionTable.project_id, ProjectID.global), eq(SessionTable.directory, data.worktree)))
               .run(),
           )
+          const recentKey = dirKey(data.worktree)
+          const recentRow = yield* db((d) =>
+            d.select().from(ProjectRecentTable).where(eq(ProjectRecentTable.key, recentKey)).get(),
+          )
+          if (recentRow) {
+            const patch: Record<string, any> = {}
+            if (recentRow.name && !result.name) patch.name = recentRow.name
+            if (recentRow.icon_url && !result.icon?.url) patch.icon_url = recentRow.icon_url
+            if (recentRow.icon_color && !result.icon?.color) patch.icon_color = recentRow.icon_color
+            if (Object.keys(patch).length) {
+              yield* db((d) => d.update(ProjectTable).set(patch).where(eq(ProjectTable.id, data.id)).run())
+              result.name = patch.name ?? result.name
+              result.icon = { url: patch.icon_url ?? result.icon?.url, color: patch.icon_color ?? result.icon?.color }
+            }
+            yield* db((d) => d.delete(ProjectRecentTable).where(eq(ProjectRecentTable.key, recentKey)).run())
+          }
         }
 
         yield* emitUpdated(result)
@@ -638,6 +680,42 @@ export namespace Project {
         yield* emitUpdated(fromRow(result))
       })
 
+      const updateDirectoryMeta = Effect.fn("Project.updateDirectoryMeta")(function* (input: {
+        directory: string
+        name?: string
+        icon?: { url?: string; color?: string }
+      }) {
+        const dir = norm(input.directory)
+        const key = dirKey(dir)
+        yield* db((d) =>
+          d
+            .insert(ProjectRecentTable)
+            .values({
+              key,
+              kind: "directory",
+              project_id: null,
+              directory: input.directory,
+              name: input.name ?? name(input.directory),
+              icon_url: input.icon?.url ?? null,
+              icon_color: input.icon?.color ?? null,
+              activity_at: Date.now(),
+              time_created: Date.now(),
+              time_updated: Date.now(),
+            })
+            .onConflictDoUpdate({
+              target: ProjectRecentTable.key,
+              set: {
+                name: input.name ?? name(input.directory),
+                icon_url: input.icon?.url ?? null,
+                icon_color: input.icon?.color ?? null,
+                time_updated: Date.now(),
+              },
+            })
+            .run(),
+        )
+        yield* emitRecentUpdated
+      })
+
       return Service.of({
         fromDirectory,
         discover,
@@ -645,6 +723,7 @@ export namespace Project {
         recent: recentList,
         get,
         update,
+        updateDirectoryMeta,
         initGit,
         setInitialized,
         sandboxes,
@@ -704,6 +783,14 @@ export namespace Project {
 
   export function update(input: UpdateInput) {
     return runPromise((svc) => svc.update(input))
+  }
+
+  export function updateDirectoryMeta(input: {
+    directory: string
+    name?: string
+    icon?: { url?: string; color?: string }
+  }) {
+    return runPromise((svc) => svc.updateDirectoryMeta(input))
   }
 
   export function sandboxes(id: ProjectID) {
