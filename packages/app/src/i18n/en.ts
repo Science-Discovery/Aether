@@ -458,6 +458,17 @@ export const dict = {
   "evolvedSkills.noDescription": "No description",
   "evolvedSkills.operationFailed": "Operation failed",
 
+  "settingsSkills.skillsLocation": "Skills Location",
+  "settingsSkills.skillsLocationDescription": "Local directory where evolved skills are stored.",
+  "settingsSkills.openFolder": "Open Folder",
+  "settingsSkills.openFolderFailed": "Failed to open folder",
+  "settingsSkills.pathCopiedManualOpen": "Path copied to clipboard. Please open it manually.",
+  "settingsSkills.pathCopied": "Path copied to clipboard",
+  "settingsSkills.copyFailed": "Failed to copy",
+  "settingsSkills.clickToCopy": "Click to copy path",
+  "settingsSkills.loadingPath": "Loading path...",
+  "settingsSkills.pathUnavailable": "Path unavailable",
+
   "filePanel.upload": "Upload",
   "filePanel.uploading": "Uploading...",
   "filePanel.uploadFile": "Upload File",

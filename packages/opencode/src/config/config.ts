@@ -1587,6 +1587,12 @@ export namespace Config {
     return path.join(Global.Path.data, "skills")
   }
 
+  export async function ensureManagedSkillsDir(): Promise<string> {
+    const dir = getManagedSkillsDir()
+    await fs.mkdir(dir, { recursive: true })
+    return dir
+  }
+
   export async function listManagedSkills(): Promise<DefaultSkill[]> {
     const skillsDir = getManagedSkillsDir()
     if (!(await Filesystem.isDir(skillsDir))) return []

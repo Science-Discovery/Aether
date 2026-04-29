@@ -457,6 +457,17 @@ export const dict = {
   "evolvedSkills.noDescription": "暂无描述",
   "evolvedSkills.operationFailed": "操作失败",
 
+  "settingsSkills.skillsLocation": "Skills 存放位置",
+  "settingsSkills.skillsLocationDescription": "自进化 Skills 在本地的存储目录。",
+  "settingsSkills.openFolder": "打开文件夹",
+  "settingsSkills.openFolderFailed": "打开文件夹失败",
+  "settingsSkills.pathCopiedManualOpen": "路径已复制到剪贴板，请手动打开。",
+  "settingsSkills.pathCopied": "路径已复制到剪贴板",
+  "settingsSkills.copyFailed": "复制失败",
+  "settingsSkills.clickToCopy": "点击复制路径",
+  "settingsSkills.loadingPath": "加载路径中...",
+  "settingsSkills.pathUnavailable": "路径不可用",
+
   "filePanel.upload": "上传",
   "filePanel.uploading": "上传中...",
   "filePanel.uploadFile": "上传文件",

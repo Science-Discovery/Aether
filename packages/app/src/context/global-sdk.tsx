@@ -3,7 +3,14 @@ import { createSimpleContext } from "@opencode-ai/ui/context"
 import { createGlobalEmitter } from "@solid-primitives/event-bus"
 import { batch, onCleanup } from "solid-js"
 import z from "zod"
-import { type AppClient, addCronMethods, addMemoryMethods, addPreferenceMethods, createSdkForServer } from "@/utils/server"
+import {
+  type AppClient,
+  addCronMethods,
+  addMemoryMethods,
+  addPreferenceMethods,
+  addSkillsExtraMethods,
+  createSdkForServer,
+} from "@/utils/server"
 import { useLanguage } from "./language"
 import { usePlatform } from "./platform"
 import { useServer } from "./server"
@@ -229,6 +236,7 @@ export const { use: useGlobalSDK, provider: GlobalSDKProvider } = createSimpleCo
     addPreferenceMethods(sdk, server.current.http.url, authHeader(server.current.http), { throwOnError: true })
     addMemoryMethods(sdk, server.current.http.url, authHeader(server.current.http), {}, { throwOnError: true })
     addCronMethods(sdk, server.current.http.url, authHeader(server.current.http), { throwOnError: true })
+    addSkillsExtraMethods(sdk, server.current.http.url, authHeader(server.current.http), { throwOnError: true })
 
     return {
       url: currentServer.http.url,
@@ -259,6 +267,7 @@ export const { use: useGlobalSDK, provider: GlobalSDKProvider } = createSimpleCo
           authHeader(s.http),
           { throwOnError: opts.throwOnError },
         )
+        addSkillsExtraMethods(c, s.http.url, authHeader(s.http), { throwOnError: opts.throwOnError })
         return c
       },
     }

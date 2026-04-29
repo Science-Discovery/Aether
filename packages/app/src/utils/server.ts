@@ -170,6 +170,7 @@ export type AppClient = Base & {
     skills: {
       list(): Req<Skill[]>
       listManaged(): Req<Skill[]>
+      getManagedDir(): Req<{ path: string }>
       toggle(input: { name: string; enabled: boolean }): Req<{ ok: boolean }>
       addDefaults(input?: { directory?: string }): Req<{ added: string[] }>
     }
@@ -370,6 +371,20 @@ export function addMemoryMethods(
     },
   }
   safeAssign(client, "memory", memoryMethods)
+  return client
+}
+
+export function addSkillsExtraMethods(
+  client: AppClient,
+  baseUrl: string,
+  auth?: Record<string, string>,
+  options?: RequestHelperOptions,
+): AppClient {
+  const headers: Record<string, string> = { "Content-Type": "application/json", ...auth }
+  const skills = client.config.skills as unknown as Record<string, unknown>
+  skills.getManagedDir = async () => {
+    return requestJSON(`${baseUrl}/config/skills/managed/dir`, { headers }, options)
+  }
   return client
 }
 

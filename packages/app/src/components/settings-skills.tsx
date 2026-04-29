@@ -1,7 +1,11 @@
-import { Component, Show, createMemo, createSignal, type JSX } from "solid-js"
+import { Component, Show, createMemo, createResource, createSignal, type JSX } from "solid-js"
 import { Switch } from "@opencode-ai/ui/switch"
+import { Button } from "@opencode-ai/ui/button"
+import { Icon } from "@opencode-ai/ui/icon"
 import { showToast } from "@opencode-ai/ui/toast"
 import { useGlobalSync } from "@/context/global-sync"
+import { useGlobalSDK } from "@/context/global-sdk"
+import { useLanguage } from "@/context/language"
 import { SettingsList } from "./settings-list"
 
 const SKILL_NUDGE_DEFAULT = 10
@@ -24,7 +28,10 @@ const SettingsRow: Component<SettingsRowProps> = (props) => (
 
 export const SettingsSkills: Component = () => {
   const globalSync = useGlobalSync()
+  const globalSDK = useGlobalSDK()
+  const language = useLanguage()
   const [saving, setSaving] = createSignal(false)
+  const [opening, setOpening] = createSignal(false)
 
   const currentInterval = createMemo(() => {
     const cfg = globalSync.data.config as any
@@ -32,6 +39,11 @@ export const SettingsSkills: Component = () => {
   })
 
   const evolutionEnabled = createMemo(() => currentInterval() !== 0)
+
+  const [skillsDir] = createResource<string>(async () => {
+    const result = await globalSDK.client.config.skills.getManagedDir()
+    return result.data?.path ?? ""
+  })
 
   const updateInterval = async (interval: number) => {
     setSaving(true)
@@ -42,6 +54,45 @@ export const SettingsSkills: Component = () => {
       showToast({ title: "Request failed", description: message })
     } finally {
       setSaving(false)
+    }
+  }
+
+  const openSkillsFolder = async () => {
+    const path = skillsDir()
+    if (!path || opening()) return
+    setOpening(true)
+    try {
+      await globalSDK.client.file.openInExplorer({ path })
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      try {
+        await navigator.clipboard.writeText(path)
+        showToast({
+          variant: "error",
+          title: language.t("settingsSkills.openFolderFailed"),
+          description: language.t("settingsSkills.pathCopiedManualOpen"),
+        })
+      } catch {
+        showToast({
+          variant: "error",
+          title: language.t("settingsSkills.openFolderFailed"),
+          description: message,
+        })
+      }
+    } finally {
+      setOpening(false)
+    }
+  }
+
+  const copyPath = async () => {
+    const path = skillsDir()
+    if (!path) return
+    try {
+      await navigator.clipboard.writeText(path)
+      showToast({ variant: "success", title: language.t("settingsSkills.pathCopied") })
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      showToast({ variant: "error", title: language.t("settingsSkills.copyFailed"), description: message })
     }
   }
 
@@ -89,6 +140,38 @@ export const SettingsSkills: Component = () => {
               />
             </SettingsRow>
           </Show>
+
+          <div class="flex flex-col gap-2 py-3">
+            <div class="flex flex-col gap-0.5">
+              <span class="text-14-medium text-text-strong">{language.t("settingsSkills.skillsLocation")}</span>
+              <span class="text-12-regular text-text-weak">
+                {language.t("settingsSkills.skillsLocationDescription")}
+              </span>
+            </div>
+            <div class="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={copyPath}
+                title={language.t("settingsSkills.clickToCopy")}
+                disabled={skillsDir.loading || !skillsDir()}
+                class="flex-1 min-w-0 h-9 rounded-md border border-border-base bg-surface-base px-3 text-12-regular text-text-strong text-left truncate font-mono hover:border-border-focus focus:outline-none focus:ring-2 focus:ring-border-focus disabled:opacity-50"
+              >
+                <Show when={!skillsDir.loading} fallback={language.t("settingsSkills.loadingPath")}>
+                  {skillsDir() || language.t("settingsSkills.pathUnavailable")}
+                </Show>
+              </button>
+              <Button
+                variant="secondary"
+                size="small"
+                onClick={openSkillsFolder}
+                disabled={opening() || skillsDir.loading || !skillsDir()}
+                class="h-9 px-3 shrink-0 gap-1.5"
+              >
+                <Icon name="folder" class="size-4" />
+                <span>{language.t("settingsSkills.openFolder")}</span>
+              </Button>
+            </div>
+          </div>
         </SettingsList>
       </div>
     </div>

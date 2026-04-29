@@ -102,6 +102,28 @@ export const ConfigRoutes = lazy(() =>
         return c.json(skills)
       },
     )
+    .get(
+      "/skills/managed/dir",
+      describeRoute({
+        summary: "Get managed skills directory",
+        description: "Get the absolute path of the managed skills directory.",
+        operationId: "config.skills.getManagedDir",
+        responses: {
+          200: {
+            description: "Managed skills directory path",
+            content: {
+              "application/json": {
+                schema: resolver(z.object({ path: z.string() })),
+              },
+            },
+          },
+        },
+      }),
+      async (c) => {
+        const path = await Config.ensureManagedSkillsDir()
+        return c.json({ path })
+      },
+    )
     .post(
       "/skills",
       describeRoute({

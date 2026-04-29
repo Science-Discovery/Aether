@@ -34,7 +34,13 @@ import {
 } from "../../markdown-translator"
 import { detectDataJson, chunkByContent, chunksFromDataJson } from "../../markdown-translator/chunker"
 import fs from "fs/promises"
+import { release } from "os"
 import { linux, missing, windows, wsl, wslPath } from "../pick-folder"
+
+const _isWSL = release().toUpperCase().includes("WSL")
+function isWSL(): boolean {
+  return _isWSL
+}
 
 export type ServerEnv = {
   Variables: {
@@ -780,9 +786,20 @@ export const FileRoutes = lazy(() =>
               await $`open -R ${inputPath}`.nothrow()
             }
           } else {
-            // Linux: xdg-open // todo
-            const dir = path.dirname(inputPath)
-            await $`xdg-open ${dir}`.nothrow()
+            // Linux / WSL
+            const target = stat.isDirectory() ? inputPath : path.dirname(inputPath)
+            if (isWSL()) {
+              // WSL: open Windows Explorer pointed at the WSL UNC path
+              const win = (await $`wslpath -w ${target}`.text()).trim()
+              if (stat.isDirectory()) {
+                await $`explorer.exe ${win}`.nothrow()
+              } else {
+                const winFile = (await $`wslpath -w ${inputPath}`.text()).trim()
+                await $`explorer.exe /select,${winFile}`.nothrow()
+              }
+            } else {
+              await $`xdg-open ${target}`.nothrow()
+            }
           }
 
           return c.json({ ok: true })
