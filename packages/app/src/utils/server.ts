@@ -257,13 +257,31 @@ export function createSdkForServer({
   }) as unknown as AppClient
 }
 
+function deepMerge(target: object, source: object) {
+  for (const key of Object.keys(source as Record<string, unknown>)) {
+    const srcVal = (source as Record<string, unknown>)[key]
+    const proto = Object.getPrototypeOf(target)
+    const descriptor =
+      Object.getOwnPropertyDescriptor(target, key) ?? (proto ? Object.getOwnPropertyDescriptor(proto, key) : undefined)
+    if (descriptor?.get && !descriptor.set) {
+      const existing = (target as Record<string, unknown>)[key]
+      if (existing && typeof existing === "object" && srcVal && typeof srcVal === "object") {
+        deepMerge(existing as object, srcVal as object)
+      }
+      continue
+    }
+    ;(target as Record<string, unknown>)[key] = srcVal
+  }
+}
+
 function safeAssign(target: object, key: string, value: unknown) {
   const proto = Object.getPrototypeOf(target)
   const descriptor =
     Object.getOwnPropertyDescriptor(target, key) ?? (proto ? Object.getOwnPropertyDescriptor(proto, key) : undefined)
   if (descriptor?.get && !descriptor.set) {
     const existing = (target as Record<string, unknown>)[key]
-    if (existing && typeof existing === "object") Object.assign(existing as unknown as Record<string, unknown>, value)
+    if (existing && typeof existing === "object" && value && typeof value === "object")
+      deepMerge(existing as object, value as object)
     return
   }
   ;(target as Record<string, unknown>)[key] = value
