@@ -1583,6 +1583,43 @@ export namespace Config {
     return skills
   }
 
+  export function getManagedSkillsDir(): string {
+    return path.join(Global.Path.data, "skills")
+  }
+
+  export async function listManagedSkills(): Promise<DefaultSkill[]> {
+    const skillsDir = getManagedSkillsDir()
+    if (!(await Filesystem.isDir(skillsDir))) return []
+
+    const cfg = await get()
+    const disabled = new Set(cfg.skills?.disabled ?? [])
+
+    const entries = await fs.readdir(skillsDir, { withFileTypes: true }).catch(() => [])
+    const skills: DefaultSkill[] = []
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue
+      const skillFile = path.join(skillsDir, entry.name, "SKILL.md")
+      const text = await Filesystem.readText(skillFile).catch(() => null)
+      if (text === null) {
+        skills.push({ name: entry.name, description: "", content: "", enabled: !disabled.has(entry.name) })
+        continue
+      }
+      try {
+        const parsed = matter(text)
+        const name = String(parsed.data.name ?? entry.name)
+        skills.push({
+          name,
+          description: String(parsed.data.description ?? ""),
+          content: parsed.content.trim(),
+          enabled: !disabled.has(name),
+        })
+      } catch {
+        skills.push({ name: entry.name, description: "", content: text, enabled: !disabled.has(entry.name) })
+      }
+    }
+    return skills
+  }
+
   export async function saveDefaultSkill(name: string, description: string, content: string): Promise<void> {
     const skillsDir = getDefaultSkillsDir()
     if (!skillsDir) throw new Error("No .aether directory found")

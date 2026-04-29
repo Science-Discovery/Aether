@@ -440,7 +440,10 @@ export namespace Skill {
       }
     }
 
+    const serverSkillsDir = Config.getDefaultSkillsDir()
+    const serverConfigDir = serverSkillsDir ? path.resolve(path.dirname(serverSkillsDir)) : null
     for (const dir of await Config.directories()) {
+      if (serverConfigDir && path.resolve(dir) === serverConfigDir) continue
       add(scope(dir, directory, worktree), dir, OPENCODE_SKILL_PATTERN)
     }
 

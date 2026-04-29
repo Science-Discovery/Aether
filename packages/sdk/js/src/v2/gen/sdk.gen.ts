@@ -19,6 +19,7 @@ import type {
   ConfigProvidersResponses,
   ConfigSkillsAddDefaultsResponses,
   ConfigSkillsDeleteResponses,
+  ConfigSkillsListManagedResponses,
   ConfigSkillsListResponses,
   ConfigSkillsSaveResponses,
   ConfigSkillsToggleResponses,
@@ -1317,6 +1318,36 @@ export class Skills extends HeyApiClient {
     )
     return (options?.client ?? this.client).get<ConfigSkillsListResponses, unknown, ThrowOnError>({
       url: "/config/skills",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * List managed skills
+   *
+   * List all skills from the managed skills directory (~/.local/share/aether/skills/).
+   */
+  public listManaged<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<ConfigSkillsListManagedResponses, unknown, ThrowOnError>({
+      url: "/config/skills/managed",
       ...options,
       ...params,
     })

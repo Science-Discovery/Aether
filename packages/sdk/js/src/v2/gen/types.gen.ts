@@ -3170,6 +3170,30 @@ export type ConfigSkillsListResponses = {
 
 export type ConfigSkillsListResponse = ConfigSkillsListResponses[keyof ConfigSkillsListResponses]
 
+export type ConfigSkillsListManagedData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/config/skills/managed"
+}
+
+export type ConfigSkillsListManagedResponses = {
+  /**
+   * List of managed skills
+   */
+  200: Array<{
+    name: string
+    description: string
+    content: string
+    enabled?: boolean
+  }>
+}
+
+export type ConfigSkillsListManagedResponse = ConfigSkillsListManagedResponses[keyof ConfigSkillsListManagedResponses]
+
 export type ConfigSkillsSaveData = {
   body?: {
     name: string

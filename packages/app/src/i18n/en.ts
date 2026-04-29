@@ -452,6 +452,11 @@ export const dict = {
   "defaultSkills.allSkillsExistInProject": "All default Skills already exist in the project",
   "defaultSkills.addFailed": "Failed to add",
   "defaultSkills.dragToResize": "Drag up to expand list height",
+  "evolvedSkills.title": "Evolved Skills",
+  "evolvedSkills.loading": "Loading...",
+  "evolvedSkills.empty": "No evolved skills yet",
+  "evolvedSkills.noDescription": "No description",
+  "evolvedSkills.operationFailed": "Operation failed",
 
   "filePanel.upload": "Upload",
   "filePanel.uploading": "Uploading...",

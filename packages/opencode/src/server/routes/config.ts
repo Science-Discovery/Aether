@@ -80,6 +80,28 @@ export const ConfigRoutes = lazy(() =>
         return c.json(skills)
       },
     )
+    .get(
+      "/skills/managed",
+      describeRoute({
+        summary: "List managed skills",
+        description: "List all skills from the managed skills directory (~/.local/share/aether/skills/).",
+        operationId: "config.skills.listManaged",
+        responses: {
+          200: {
+            description: "List of managed skills",
+            content: {
+              "application/json": {
+                schema: resolver(z.array(Config.DefaultSkill)),
+              },
+            },
+          },
+        },
+      }),
+      async (c) => {
+        const skills = await Config.listManagedSkills()
+        return c.json(skills)
+      },
+    )
     .post(
       "/skills",
       describeRoute({

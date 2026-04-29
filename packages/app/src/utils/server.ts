@@ -169,6 +169,7 @@ export type AppClient = Base & {
   config: Base["config"] & {
     skills: {
       list(): Req<Skill[]>
+      listManaged(): Req<Skill[]>
       toggle(input: { name: string; enabled: boolean }): Req<{ ok: boolean }>
       addDefaults(input?: { directory?: string }): Req<{ added: string[] }>
     }
