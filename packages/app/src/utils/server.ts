@@ -320,7 +320,7 @@ export function addMemoryMethods(
   if (opts?.experimental_workspaceID) {
     headers["x-opencode-workspace"] = opts.experimental_workspaceID
   }
-  client.memory = {
+  const memoryMethods = {
     async get(input?: { sessionID?: string }) {
       const params = new URLSearchParams()
       if (input?.sessionID) params.set("session_id", input.sessionID)
@@ -328,6 +328,21 @@ export function addMemoryMethods(
       return requestJSON(`${baseUrl}/memory${suffix}`, { headers }, options)
     },
   }
+  const mem = client as unknown as Record<string, unknown>
+  const memProto = Object.getPrototypeOf(mem) as Record<string, unknown> | null
+  const descriptor =
+    Object.getOwnPropertyDescriptor(mem, "memory") ??
+    (memProto ? Object.getOwnPropertyDescriptor(memProto, "memory") : undefined)
+
+  if (descriptor?.get && !descriptor.set) {
+    const existing = client.memory
+    if (existing && typeof existing === "object") {
+      Object.assign(existing as unknown as Record<string, unknown>, memoryMethods)
+    }
+    return client
+  }
+
+  client.memory = memoryMethods as AppClient["memory"]
   return client
 }
 
@@ -338,7 +353,7 @@ export function addCronMethods(
   options?: RequestHelperOptions,
 ): AppClient {
   const headers: Record<string, string> = { "Content-Type": "application/json", ...auth }
-  client.cron = {
+  const cronMethods = {
     jobs: {
       async list() {
         return requestJSON(`${baseUrl}/cron/jobs`, { headers }, options)
@@ -379,5 +394,19 @@ export function addCronMethods(
       },
     },
   }
+  const c = client as unknown as Record<string, unknown>
+  const cProto = Object.getPrototypeOf(c) as Record<string, unknown> | null
+  const descriptor =
+    Object.getOwnPropertyDescriptor(c, "cron") ?? (cProto ? Object.getOwnPropertyDescriptor(cProto, "cron") : undefined)
+
+  if (descriptor?.get && !descriptor.set) {
+    const existing = client.cron
+    if (existing && typeof existing === "object") {
+      Object.assign(existing as unknown as Record<string, unknown>, cronMethods)
+    }
+    return client
+  }
+
+  client.cron = cronMethods as AppClient["cron"]
   return client
 }
