@@ -500,7 +500,7 @@ const SessionTreeNodes = (props: {
           />
         </div>
         <Show when={expanded() && conversationTreeEnabled() && hasBranchView()}>
-          <div class="pl-8 pr-2 pb-2">
+          <div class="pl-2 pr-2 pb-2">
             <SidebarBranchView
               sessionID={graphSessionID()}
               currentSessionID={props.currentSessionID() ?? nodeProps.session.id}
