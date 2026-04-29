@@ -645,7 +645,9 @@ export namespace SessionPrompt {
       await Plugin.trigger("experimental.chat.messages.transform", {}, { messages: msgs })
 
       const patch = await SkillRefresh.patch(sessionID)
+      console.log(`[skill refresh] step=${step} hasPatch=${patch ? 1 : 0}`)
       if (patch) {
+        console.log(`[skill refresh] injecting synthetic user message step=${step} names=${patch.names.join(", ")}`)
         const msg: MessageV2.User = {
           id: MessageID.ascending(),
           sessionID,
@@ -793,6 +795,9 @@ export namespace SessionPrompt {
         const toolNames = assistantParts.filter((p) => p.type === "tool").map((p) => (p as MessageV2.ToolPart).tool)
         console.log(`[tools] step=${step} tools=[${toolNames.join(", ")}]`)
         const calledSkillManage = toolNames.includes("skill_manage")
+        console.log(
+          `[skill manage] step=${step} called=${calledSkillManage ? 1 : 0} count_before=${_skillCounters.get(sessionID) ?? 0}`,
+        )
         if (calledSkillManage) {
           // mirrors Hermes L7868: reset to 0 inside _execute_tool_calls
           // then L9110: +1 unconditionally after → net result is 1, not 0
@@ -801,6 +806,15 @@ export namespace SessionPrompt {
         _skillCounters.set(sessionID, (_skillCounters.get(sessionID) ?? 0) + 1) // always +1 per step, mirrors Hermes L9110
         console.log(`[skill counter] count=${_skillCounters.get(sessionID)} threshold=${skillNudgeInterval}`)
       }
+
+      const parts = await MessageV2.parts(processor.message.id)
+      const text = parts
+        .filter((p) => p.type === "text")
+        .map((p) => (p as MessageV2.TextPart).text.trim())
+        .join("\n")
+      console.log(
+        `[assistant] step=${step} finish=${processor.message.finish ?? "(none)"} error=${processor.message.error ? 1 : 0} parts=${parts.length} textChars=${text.length}`,
+      )
 
       // If structured output was captured, save it and exit immediately
       // This takes priority because the StructuredOutput tool was called successfully
@@ -888,6 +902,13 @@ export namespace SessionPrompt {
 
     for await (const item of MessageV2.stream(sessionID)) {
       if (item.info.role === "user") continue
+      const txt = item.parts
+        .filter((p) => p.type === "text")
+        .map((p) => (p as MessageV2.TextPart).text.trim())
+        .join("\n")
+      console.log(
+        `[final return] role=${item.info.role} id=${item.info.id} parts=${item.parts.length} textChars=${txt.length} finalResponse=${_finalResponse ? 1 : 0}`,
+      )
       return item
     }
     throw new Error("Impossible")

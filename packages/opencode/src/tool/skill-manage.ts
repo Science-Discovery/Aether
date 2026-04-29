@@ -7,7 +7,13 @@ import { Global } from "../global"
 import { Skill } from "../skill"
 import { scanSkill, assertAllowed } from "./skill-guard"
 import { SkillDirty } from "../session/skill-dirty"
-import { snapshot, snapshotBeforeDelete, rollback as versionRollback, listVersions, formatHistory } from "./skill-versions"
+import {
+  snapshot,
+  snapshotBeforeDelete,
+  rollback as versionRollback,
+  listVersions,
+  formatHistory,
+} from "./skill-versions"
 import { Log } from "../util/log"
 
 const log = Log.create({ service: "skill.manage" })
@@ -105,22 +111,22 @@ const parameters = z.preprocess(
     return out
   },
   z.object({
-  action: z
-    .enum(["create", "edit", "patch", "delete", "write_file", "remove_file", "history", "rollback"])
-    .describe("Action to perform on a skill"),
-  name: z.string().describe("Skill name (directory name under the skills folder). Required for all actions."),
-  description: z
-    .string()
-    .optional()
-    .describe("One-line skill description for the frontmatter. Required for create and edit."),
-  content: z
-    .string()
-    .optional()
-    .describe("Full skill body (markdown, without frontmatter) for create/edit; file content for write_file."),
-  old_str: z.string().optional().describe("Exact text to replace (patch action)"),
-  new_str: z.string().optional().describe("Replacement text (patch action)"),
-  relative_path: z.string().optional().describe("Path relative to the skill directory for write_file/remove_file"),
-  version: z.string().optional().describe("Version label to rollback to, e.g. 'v002' or '2' (rollback action)"),
+    action: z
+      .enum(["create", "edit", "patch", "delete", "write_file", "remove_file", "history", "rollback"])
+      .describe("Action to perform on a skill"),
+    name: z.string().describe("Skill name (directory name under the skills folder). Required for all actions."),
+    description: z
+      .string()
+      .optional()
+      .describe("One-line skill description for the frontmatter. Required for create and edit."),
+    content: z
+      .string()
+      .optional()
+      .describe("Full skill body (markdown, without frontmatter) for create/edit; file content for write_file."),
+    old_str: z.string().optional().describe("Exact text to replace (patch action)"),
+    new_str: z.string().optional().describe("Replacement text (patch action)"),
+    relative_path: z.string().optional().describe("Path relative to the skill directory for write_file/remove_file"),
+    version: z.string().optional().describe("Version label to rollback to, e.g. 'v002' or '2' (rollback action)"),
   }),
 )
 
@@ -152,12 +158,30 @@ export const SkillManageTool = Tool.define("skill_manage", async () => {
       ctx,
     ): Promise<{ title: string; output: string; metadata: Record<string, string> }> {
       const { action, name } = params
+      const t0 = Date.now()
+      const call = String(ctx?.callID ?? "")
+      const sig = [
+        action,
+        name,
+        params.description?.length ?? 0,
+        params.content?.length ?? 0,
+        params.old_str?.length ?? 0,
+        params.new_str?.length ?? 0,
+        params.relative_path ?? "",
+        params.version ?? "",
+      ].join("|")
       const mark = () => {
         if (!ctx?.sessionID) return
         SkillDirty.add(ctx.sessionID, [name])
+        console.log(
+          `[skill manage done] call=${call} action=${action} name=${name} sig=${sig} session=${ctx.sessionID} ms=${Date.now() - t0}`,
+        )
       }
 
+      console.log(`[skill manage start] call=${call} action=${action} name=${name} sig=${sig} ts=${t0}`)
+
       if (!name || !/^[a-zA-Z0-9_-]+$/.test(name)) {
+        console.log(`[skill manage fail] call=${call} action=${action} name=${name} sig=${sig} reason=invalid_name`)
         throw new Error(`Invalid skill name "${name}". Use only letters, digits, hyphens, underscores.`)
       }
 
@@ -261,8 +285,8 @@ export const SkillManageTool = Tool.define("skill_manage", async () => {
             if (patched === null) {
               throw new Error(
                 `Could not find old_str in skill "${name}". ` +
-                `Use the content below to construct the correct old_str and retry with skill_manage(action='patch'). ` +
-                `Do NOT fall back to the Edit tool — it bypasses versioning and cache invalidation.\n\nCurrent SKILL.md content:\n\n${raw}`,
+                  `Use the content below to construct the correct old_str and retry with skill_manage(action='patch'). ` +
+                  `Do NOT fall back to the Edit tool — it bypasses versioning and cache invalidation.\n\nCurrent SKILL.md content:\n\n${raw}`,
               )
             }
             await atomicWrite(skillFile, patched)
@@ -311,7 +335,10 @@ export const SkillManageTool = Tool.define("skill_manage", async () => {
         case "write_file": {
           if (!params.relative_path) throw new Error("relative_path is required for write_file")
           if (params.content === undefined) throw new Error("content is required for write_file")
-          if (params.relative_path === "SKILL.md") throw new Error("write_file cannot target SKILL.md. Call skill_manage again with action='edit' (full rewrite) or action='patch' (targeted replacement).")
+          if (params.relative_path === "SKILL.md")
+            throw new Error(
+              "write_file cannot target SKILL.md. Call skill_manage again with action='edit' (full rewrite) or action='patch' (targeted replacement).",
+            )
           validateWithinDir(skillDir, params.relative_path)
           const targetPath = path.join(skillDir, params.relative_path)
           const originalFileContent = await fs.readFile(targetPath, "utf8").catch(() => null)
@@ -333,7 +360,8 @@ export const SkillManageTool = Tool.define("skill_manage", async () => {
 
         case "remove_file": {
           if (!params.relative_path) throw new Error("relative_path is required for remove_file")
-          if (params.relative_path === "SKILL.md") throw new Error("remove_file cannot target SKILL.md. To delete the entire skill use action='delete'.")
+          if (params.relative_path === "SKILL.md")
+            throw new Error("remove_file cannot target SKILL.md. To delete the entire skill use action='delete'.")
           validateWithinDir(skillDir, params.relative_path)
           const targetPath = path.join(skillDir, params.relative_path)
           await fs.unlink(targetPath).catch(() => {
