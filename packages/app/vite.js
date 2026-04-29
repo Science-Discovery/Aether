@@ -37,6 +37,7 @@ function stripGitBashPrefix(path) {
 function readBasePath() {
   const raw = process.env.VITE_BASE_PATH
   if (!raw) return "/"
+  if (raw === "." || raw === "./") return "./"
   if (/^[A-Za-z]:[\\/]/.test(raw)) {
     const recovered = stripGitBashPrefix(raw)
     if (recovered) {
@@ -51,6 +52,11 @@ function readBasePath() {
   return raw.startsWith("/") ? raw : `/${raw}`
 }
 
+function readRouterBase(base) {
+  if (base === "./") return "/"
+  return base
+}
+
 const theme = fileURLToPath(new URL("./public/oc-theme-preload.js", import.meta.url))
 
 /**
@@ -62,10 +68,11 @@ export default [
     config() {
       const port = readServePort()
       const basePath = readBasePath()
+      const routerBase = readRouterBase(basePath)
       const env = port ? { VITE_OPENCODE_SERVER_PORT: port } : {}
       if (port) console.log(`[opencode] auto-detected backend port: ${port}`)
-      if (basePath !== "/") console.log(`[opencode] base path: ${basePath}`)
-      env.VITE_BASE_PATH = basePath
+      if (routerBase !== "/") console.log(`[opencode] base path: ${routerBase}`)
+      env.VITE_BASE_PATH = routerBase
       return {
         base: basePath,
         define: Object.fromEntries(Object.entries(env).map(([k, v]) => [`import.meta.env.${k}`, JSON.stringify(v)])),
