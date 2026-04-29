@@ -606,10 +606,6 @@ export namespace Skill {
       log.info("skill disabled by config", { name })
     }
 
-    for (const [name, skill] of Object.entries(merged)) {
-      console.log(`[skill source] ${name} → ${skill.location}`)
-    }
-
     return {
       skills: merged,
       dirs: new Set([

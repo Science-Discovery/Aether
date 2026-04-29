@@ -61,6 +61,10 @@ export namespace SystemPrompt {
       ? all.filter((skill) => Skill.matchesConditions(skill, availableTools, availableToolsets ?? new Set()))
       : all
 
+    for (const skill of list) {
+      console.log(`[skill source] ${skill.name} → ${skill.location}`)
+    }
+
     return [
       "## Skills (mandatory)",
       "Before replying, scan the skills below. If a skill matches or is even partially relevant to your task, you MUST follow its instructions.",
