@@ -3,8 +3,8 @@
 (function () {
   const CHANNEL = "aether-pdf-viewer";
   const ORIGIN = window.location.origin;
-  const C_MAP_URL = "/pdfjs-ref/web/cmaps/";
-  const STANDARD_FONT_DATA_URL = "/pdfjs-ref/web/standard_fonts/";
+  const C_MAP_URL = "pdfjs-ref/web/cmaps/";
+  const STANDARD_FONT_DATA_URL = "pdfjs-ref/web/standard_fonts/";
   const RANGE_CHUNK_SIZE = 65536;
   const DEFAULT_SCALE = {
     full: "auto",
@@ -853,7 +853,7 @@
     "load",
     function () {
       applyTheme();
-      PDFViewerApplicationOptions.set("workerSrc", "/pdfjs-ref/build/pdf.worker.js");
+      PDFViewerApplicationOptions.set("workerSrc", "pdfjs-ref/build/pdf.worker.js");
       PDFViewerApplicationOptions.set("cMapUrl", C_MAP_URL);
       PDFViewerApplicationOptions.set("standardFontDataUrl", STANDARD_FONT_DATA_URL);
       PDFViewerApplication.initializedPromise.then(function () {
