@@ -2,7 +2,9 @@
 
 (function () {
   const CHANNEL = "aether-pdf-viewer";
-  const ORIGIN = window.location.origin;
+  const IS_FILE_PROTOCOL = window.location.protocol === "file:";
+  const ORIGIN = IS_FILE_PROTOCOL ? "*" : window.location.origin;
+  const WORKER_SRC = "pdfjs-ref/build/pdf.worker.js";
   const C_MAP_URL = "pdfjs-ref/web/cmaps/";
   const STANDARD_FONT_DATA_URL = "pdfjs-ref/web/standard_fonts/";
   const RANGE_CHUNK_SIZE = 65536;
@@ -28,6 +30,20 @@
   let captureBox = null;
   let captureModeActive = false;
   let captureDrag = null;
+
+  function showViewerError(error) {
+    const message = error instanceof Error ? error.message : String(error || "Unknown PDF viewer error");
+    const body = document.createElement("body");
+    body.className = "aether-pdf-viewer-error";
+    body.style.margin = "0";
+    body.style.padding = "24px";
+    body.style.background = "#1f1f23";
+    body.style.color = "#f4f4f5";
+    body.style.fontFamily = "ui-monospace, SFMono-Regular, Consolas, monospace";
+    body.style.whiteSpace = "pre-wrap";
+    body.textContent = `PDF viewer failed to load.\n\n${message}`;
+    document.documentElement.replaceChild(body, document.body);
+  }
 
   const OC2_THEME = {
     light:
@@ -861,29 +877,39 @@
       url: config.src,
       httpHeaders: config.authHeader ? { Authorization: config.authHeader } : undefined,
       rangeChunkSize: RANGE_CHUNK_SIZE,
-      disableRange: false,
-      disableStream: true,
-      disableAutoFetch: true,
       useWorkerFetch: false,
       cMapUrl: C_MAP_URL,
       cMapPacked: true,
       standardFontDataUrl: STANDARD_FONT_DATA_URL,
     };
 
-    await app.open(config.src, loadOpts);
+    const doc = await window.pdfjsLib.getDocument(loadOpts).promise;
+    if (doc?._pdfInfo) {
+      doc._pdfInfo.fingerprints = [config.src];
+    }
+    await app.load(doc);
   }
 
   async function applyConfig(nextConfig) {
     currentConfig = sanitizeConfig(nextConfig);
     applyChrome(currentConfig);
-    await openDocument(currentConfig);
+    try {
+      await openDocument(currentConfig);
+    } catch (error) {
+      console.error("[aether-pdf-viewer] failed to open document", {
+        config: currentConfig,
+        error,
+      });
+      showViewerError(error);
+      throw error;
+    }
   }
 
   window.addEventListener(
     "message",
     async function (event) {
-      if (event.origin !== ORIGIN) return;
       if (event.data?.channel !== CHANNEL) return;
+      if (!IS_FILE_PROTOCOL && event.origin !== ORIGIN) return;
 
       if (event.data.type === "config") {
         await applyConfig(event.data.config);
@@ -911,7 +937,7 @@
     "load",
     function () {
       applyTheme();
-      PDFViewerApplicationOptions.set("workerSrc", "pdfjs-ref/build/pdf.worker.js");
+      PDFViewerApplicationOptions.set("workerSrc", WORKER_SRC);
       PDFViewerApplicationOptions.set("cMapUrl", C_MAP_URL);
       PDFViewerApplicationOptions.set("standardFontDataUrl", STANDARD_FONT_DATA_URL);
       PDFViewerApplication.initializedPromise.then(function () {
@@ -923,8 +949,10 @@
   );
 
   window.onerror = function () {
-    const message = document.createElement("body");
-    message.innerText = "An error occurred while loading the file. Please open it again.";
-    document.documentElement.replaceChild(message, document.body);
+    showViewerError("An error occurred while loading the file. Please open it again.");
+  };
+
+  window.onunhandledrejection = function (event) {
+    showViewerError(event.reason);
   };
 })();

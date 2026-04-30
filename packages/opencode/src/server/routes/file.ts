@@ -96,6 +96,7 @@ function bytes(input: string | undefined, size: number) {
 
 function origin(input: string | undefined, list?: string[]) {
   if (!input) return
+  if (input === "null") return input
   if (input.startsWith("http://localhost:")) return input
   if (input.startsWith("http://127.0.0.1:")) return input
   if (input === "tauri://localhost" || input === "http://tauri.localhost" || input === "https://tauri.localhost") {
@@ -113,6 +114,8 @@ function raw(input: string | undefined, list?: string[]) {
   const value = origin(input, list)
   if (!value) return
   return {
+    "Access-Control-Allow-Headers": "Authorization, Range, Content-Type",
+    "Access-Control-Allow-Methods": "GET, HEAD, OPTIONS",
     "Access-Control-Allow-Credentials": "true",
     "Access-Control-Allow-Origin": value,
     "Access-Control-Expose-Headers": "Accept-Ranges, Content-Length, Content-Range, ETag, Last-Modified",
@@ -1350,6 +1353,11 @@ export const FileRoutes = lazy(() =>
         }
       },
     )
+    .options("/file/raw", async (c) => {
+      const cors = raw(c.req.header("origin"), c.get("cors") as string[] | undefined)
+      if (!cors) return new Response(null, { status: 204 })
+      return new Response(null, { status: 204, headers: cors })
+    })
     // ====== Markdown 翻译路由 ======
     .get(
       "/file/translate-markdown/check",

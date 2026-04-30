@@ -190,6 +190,7 @@ export namespace Server {
       credentials: true,
       origin(input) {
         if (!input) return
+        if (input === "null") return input
         if (input.startsWith("http://localhost:")) return input
         if (input.startsWith("http://127.0.0.1:")) return input
         if (
