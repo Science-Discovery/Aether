@@ -16,6 +16,7 @@ import { Flag } from "@/flag/flag"
 import { Global } from "@/global"
 import { Permission } from "@/permission"
 import { Instance } from "@/project/instance"
+import { PROJECT } from "@/persist/naming"
 import { Filesystem } from "@/util/filesystem"
 import { lazy } from "@/util/lazy"
 import { Config } from "../config/config"
@@ -422,8 +423,10 @@ export namespace Skill {
       order += 1
     }
 
-    const managed = path.join(Global.Path.data, "skills")
-    if (await Filesystem.isDir(managed)) add("global", managed, SKILL_PATTERN)
+    const serverSkillsDir = Config.getDefaultSkillsDir()
+    if (serverSkillsDir && (await Filesystem.isDir(serverSkillsDir))) {
+      add("global", serverSkillsDir, SKILL_PATTERN)
+    }
 
     if (!Flag.OPENCODE_DISABLE_EXTERNAL_SKILLS) {
       for (const item of EXTERNAL_DIRS) {
@@ -440,10 +443,11 @@ export namespace Skill {
       }
     }
 
-    const serverSkillsDir = Config.getDefaultSkillsDir()
     const serverConfigDir = serverSkillsDir ? path.resolve(path.dirname(serverSkillsDir)) : null
-    for (const dir of await Config.directories()) {
+    const configDirs = await Config.directories()
+    for (const dir of configDirs) {
       if (serverConfigDir && path.resolve(dir) === serverConfigDir) continue
+      if (path.basename(dir) === PROJECT) continue
       add(scope(dir, directory, worktree), dir, OPENCODE_SKILL_PATTERN)
     }
 
@@ -461,6 +465,17 @@ export namespace Skill {
     for (const url of cfg.skills?.urls ?? []) {
       for (const dir of await Effect.runPromise(_discovery.pull(url))) {
         add("global", dir, SKILL_PATTERN)
+      }
+    }
+
+    for (const dir of configDirs) {
+      if (path.basename(dir) !== PROJECT) continue
+      add(scope(dir, directory, worktree), dir, OPENCODE_SKILL_PATTERN)
+    }
+    if (serverSkillsDir) {
+      const serverAetherDir = path.join(path.dirname(path.dirname(serverSkillsDir)), PROJECT)
+      if (await Filesystem.isDir(serverAetherDir)) {
+        add("global", serverAetherDir, OPENCODE_SKILL_PATTERN)
       }
     }
 
@@ -644,6 +659,11 @@ export namespace Skill {
     state.dirs = data.dirs
     const stat = stats(state)
     console.log(`[skill cache] stats skills=${stat.skills} dirs=${stat.dirs} bytes=${stat.bytes}`)
+    console.log(
+      `[skill locations] ${Object.values(data.skills)
+        .map((s) => `${s.name}=${s.location}`)
+        .join(" | ")}`,
+    )
     log.info("init", { count: Object.keys(state.skills).length })
   }
 

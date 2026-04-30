@@ -7,6 +7,7 @@ import { Global } from "../global"
 import { Skill } from "../skill"
 import { scanSkill, assertAllowed } from "./skill-guard"
 import { SkillDirty } from "../session/skill-dirty"
+import { PROJECT } from "@/persist/naming"
 import {
   snapshot,
   snapshotBeforeDelete,
@@ -18,7 +19,47 @@ import { Log } from "../util/log"
 
 const log = Log.create({ service: "skill.manage" })
 
-const SKILLS_DIR = path.join(Global.Path.data, "skills")
+const CONFIG_MARKERS = [".claude", ".agents", ".opencode", ".aether"]
+
+function shadowSkillDir(location: string, name: string): string {
+  for (const marker of CONFIG_MARKERS) {
+    const idx = location.indexOf(`${path.sep}${marker}${path.sep}`)
+    if (idx !== -1) {
+      const base = location.slice(0, idx)
+      return path.join(base, PROJECT, "skills", name)
+    }
+  }
+  return path.join(Global.Path.home, PROJECT, "skills", name)
+}
+
+async function dirExists(p: string): Promise<boolean> {
+  try {
+    return (await fs.stat(p)).isDirectory()
+  } catch {
+    return false
+  }
+}
+
+async function resolveSkillDir(name: string): Promise<{ skillDir: string; sourceLocation: string | null }> {
+  const info = await Skill.get(name)
+  if (!info) {
+    return {
+      skillDir: path.join(Global.Path.home, PROJECT, "skills", name),
+      sourceLocation: null,
+    }
+  }
+  return {
+    skillDir: shadowSkillDir(info.location, name),
+    sourceLocation: info.location,
+  }
+}
+
+async function copyToShadowIfNeeded(sourceLocation: string, targetDir: string): Promise<void> {
+  if (await dirExists(targetDir)) return
+  const sourceDir = path.dirname(sourceLocation)
+  if (path.resolve(sourceDir) === path.resolve(targetDir)) return
+  await fs.cp(sourceDir, targetDir, { recursive: true })
+}
 
 // ── Security ──────────────────────────────────────────────────────────────────
 
@@ -150,7 +191,9 @@ export const SkillManageTool = Tool.define("skill_manage", async () => {
       "Every successful create/edit/patch/write_file/remove_file automatically saves a version snapshot.",
       "Use 'history' to browse versions and 'rollback' to recover from a bad evolution.",
       "",
-      "Skills are stored under ~/.local/share/aether/skills/<name>/SKILL.md",
+      "Modifications are written to a sibling .aether/skills/<name>/ directory next to the skill's source dir.",
+      "Original skills (in .claude/, .agents/, .opencode/) are never modified.",
+      "On first evolution, the original skill directory is copied into .aether/, then patched there.",
     ].join("\n"),
     parameters,
     async execute(
@@ -185,7 +228,7 @@ export const SkillManageTool = Tool.define("skill_manage", async () => {
         throw new Error(`Invalid skill name "${name}". Use only letters, digits, hyphens, underscores.`)
       }
 
-      const skillDir = path.join(SKILLS_DIR, name)
+      const { skillDir, sourceLocation } = await resolveSkillDir(name)
       const skillFile = path.join(skillDir, "SKILL.md")
 
       log.info("skill_manage called", {
@@ -241,6 +284,7 @@ export const SkillManageTool = Tool.define("skill_manage", async () => {
           try {
             if (!params.description?.trim()) throw new Error("description is required for edit")
             if (!params.content?.trim()) throw new Error("content is required for edit")
+            if (sourceLocation) await copyToShadowIfNeeded(sourceLocation, skillDir)
             const oldContent = await fs.readFile(skillFile, "utf8").catch(() => null)
             const fileContent = buildContent(name, params.description.trim(), params.content)
             await atomicWrite(skillFile, fileContent)
@@ -278,6 +322,7 @@ export const SkillManageTool = Tool.define("skill_manage", async () => {
               log.error("patch called without new_str", { name, raw_params: JSON.stringify(params) })
               throw new Error("new_str is required for patch")
             }
+            if (sourceLocation) await copyToShadowIfNeeded(sourceLocation, skillDir)
             const raw = await fs.readFile(skillFile, "utf8").catch(() => {
               throw new Error(`Skill "${name}" not found`)
             })
@@ -315,11 +360,15 @@ export const SkillManageTool = Tool.define("skill_manage", async () => {
         case "delete": {
           Skill.markBegin(skillFile)
           try {
-            const exists = await fs.access(skillDir).then(
-              () => true,
-              () => false,
-            )
-            if (!exists) throw new Error(`Skill "${name}" not found`)
+            const exists = await dirExists(skillDir)
+            if (!exists) {
+              if (sourceLocation) {
+                throw new Error(
+                  `Skill "${name}" has not been evolved yet (only original at ${sourceLocation}). delete only removes evolved copies under .aether/.`,
+                )
+              }
+              throw new Error(`Skill "${name}" not found`)
+            }
             await fs.rm(skillDir, { recursive: true, force: true })
             await Skill.clearSkillsPromptCache()
             Skill.markClear()
@@ -339,6 +388,7 @@ export const SkillManageTool = Tool.define("skill_manage", async () => {
             throw new Error(
               "write_file cannot target SKILL.md. Call skill_manage again with action='edit' (full rewrite) or action='patch' (targeted replacement).",
             )
+          if (sourceLocation) await copyToShadowIfNeeded(sourceLocation, skillDir)
           validateWithinDir(skillDir, params.relative_path)
           const targetPath = path.join(skillDir, params.relative_path)
           const originalFileContent = await fs.readFile(targetPath, "utf8").catch(() => null)
@@ -362,6 +412,7 @@ export const SkillManageTool = Tool.define("skill_manage", async () => {
           if (!params.relative_path) throw new Error("relative_path is required for remove_file")
           if (params.relative_path === "SKILL.md")
             throw new Error("remove_file cannot target SKILL.md. To delete the entire skill use action='delete'.")
+          if (sourceLocation) await copyToShadowIfNeeded(sourceLocation, skillDir)
           validateWithinDir(skillDir, params.relative_path)
           const targetPath = path.join(skillDir, params.relative_path)
           await fs.unlink(targetPath).catch(() => {
@@ -384,6 +435,7 @@ export const SkillManageTool = Tool.define("skill_manage", async () => {
           if (!params.version) throw new Error("version is required for rollback, e.g. 'v002' or '2'")
           Skill.markBegin(skillFile)
           try {
+            if (sourceLocation) await copyToShadowIfNeeded(sourceLocation, skillDir)
             const { restoredFrom } = await versionRollback(skillDir, params.version)
             await Skill.clearSkillsPromptCache()
             Skill.markClear()
