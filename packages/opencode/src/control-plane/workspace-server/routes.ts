@@ -7,26 +7,36 @@ export function WorkspaceServerRoutes() {
     c.header("X-Accel-Buffering", "no")
     c.header("X-Content-Type-Options", "nosniff")
     return streamSSE(c, async (stream) => {
+      let resolve!: () => void
+      let resolved = false
+      const finish = () => {
+        if (resolved) return
+        resolved = true
+        clearInterval(heartbeat)
+        GlobalBus.off("event", handler)
+        resolve()
+      }
       const send = async (event: unknown) => {
         await stream.writeSSE({
           data: JSON.stringify(event),
         })
       }
       const handler = async (event: { directory?: string; payload: unknown }) => {
-        await send(event.payload)
+        try {
+          await send(event.payload)
+        } catch {
+          finish()
+        }
       }
       GlobalBus.on("event", handler)
       await send({ type: "server.connected", properties: {} })
       const heartbeat = setInterval(() => {
-        void send({ type: "server.heartbeat", properties: {} })
+        send({ type: "server.heartbeat", properties: {} }).catch(finish)
       }, 10_000)
 
-      await new Promise<void>((resolve) => {
-        stream.onAbort(() => {
-          clearInterval(heartbeat)
-          GlobalBus.off("event", handler)
-          resolve()
-        })
+      await new Promise<void>((r) => {
+        resolve = r
+        stream.onAbort(finish)
       })
     })
   })

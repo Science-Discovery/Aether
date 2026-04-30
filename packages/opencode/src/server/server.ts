@@ -757,7 +757,17 @@ export namespace Server {
               opts.onBrowserConnectionChange?.(sseConnectionCount)
             }
 
-            // Heartbeat every 3s: keeps proxy streams alive and detects browser close.
+            let resolve!: () => void
+            let resolved = false
+            const finish = () => {
+              if (resolved) return
+              resolved = true
+              clearInterval(heartbeat)
+              unsub()
+              onDisconnect()
+              resolve()
+              log.info("event disconnected")
+            }
             const heartbeat = setInterval(() => {
               stream
                 .writeSSE({
@@ -766,21 +776,12 @@ export namespace Server {
                     properties: {},
                   }),
                 })
-                .catch(() => {
-                  clearInterval(heartbeat)
-                  unsub()
-                  onDisconnect()
-                })
+                .catch(finish)
             }, 3_000)
 
-            await new Promise<void>((resolve) => {
-              stream.onAbort(() => {
-                clearInterval(heartbeat)
-                unsub()
-                resolve()
-                onDisconnect()
-                log.info("event disconnected")
-              })
+            await new Promise<void>((r) => {
+              resolve = r
+              stream.onAbort(finish)
             })
           })
         },
