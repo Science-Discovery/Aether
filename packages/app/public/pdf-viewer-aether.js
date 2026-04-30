@@ -126,6 +126,116 @@
     return window.PDFViewerApplicationConstants?.SidebarView?.OUTLINE ?? 2;
   }
 
+  function isQuickReadingFullMode(config) {
+    return !!(
+      config &&
+      config.mode === "full" &&
+      config.features &&
+      (config.features.firstRead || config.features.settings || config.features.textSelectionActions || config.features.imageSelectionActions)
+    );
+  }
+
+  function getElementMarginWidth(element) {
+    if (!element) return 0;
+    const styles = window.getComputedStyle(element);
+    const rect = element.getBoundingClientRect();
+    return rect.width + (parseFloat(styles.marginLeft) || 0) + (parseFloat(styles.marginRight) || 0);
+  }
+
+  function setElementHidden(element, hidden) {
+    if (!element) return;
+    element.hidden = !!hidden;
+  }
+
+  function syncQuickReadingToolbarOverflow() {
+    const config = currentConfig;
+    const firstReadPrimary = document.getElementById("aetherFirstReadPrimary");
+    const settingsPrimary = document.getElementById("aetherReadingSettings");
+    const swapPrimary = document.getElementById("aetherSwapLayout");
+    const firstReadSecondary = document.getElementById("aetherFirstRead");
+    const settingsSecondary = document.getElementById("aetherReadingSettingsSecondary");
+    const swapSecondary = document.getElementById("aetherSwapLayoutSecondary");
+
+    if (!isQuickReadingFullMode(config)) {
+      setElementHidden(firstReadSecondary, true);
+      setElementHidden(settingsSecondary, true);
+      setElementHidden(swapSecondary, true);
+      return;
+    }
+
+    const toolbarContainer = document.getElementById("toolbarContainer");
+    const toolbarLeft = document.getElementById("toolbarViewerLeft");
+    const toolbarRight = document.getElementById("toolbarViewerRight");
+    const toolbarMiddle = document.getElementById("toolbarViewerMiddle");
+
+    if (!toolbarContainer || !toolbarLeft || !toolbarRight || !toolbarMiddle) {
+      setElementHidden(firstReadSecondary, true);
+      setElementHidden(settingsSecondary, true);
+      setElementHidden(swapSecondary, true);
+      return;
+    }
+
+    const canShowFirstRead = !!(config.features && config.features.firstRead);
+    const canShowSettings = !!(config.features && config.features.settings);
+
+    setElementHidden(firstReadPrimary, !canShowFirstRead);
+    setElementHidden(settingsPrimary, !canShowSettings);
+    setElementHidden(swapPrimary, false);
+    setElementHidden(firstReadSecondary, true);
+    setElementHidden(settingsSecondary, true);
+    setElementHidden(swapSecondary, true);
+
+    const availableWidth =
+      toolbarContainer.getBoundingClientRect().width -
+      toolbarLeft.getBoundingClientRect().width -
+      toolbarRight.getBoundingClientRect().width -
+      24;
+
+    const currentWidth = Array.from(toolbarMiddle.children).reduce(function (sum, child) {
+      if (!(child instanceof HTMLElement) || child.hidden) return sum;
+      return sum + getElementMarginWidth(child);
+    }, 0);
+
+    if (currentWidth <= availableWidth) return;
+
+    if (canShowFirstRead) {
+      setElementHidden(firstReadPrimary, true);
+      setElementHidden(firstReadSecondary, false);
+    }
+
+    const widthAfterFirstRead = Array.from(toolbarMiddle.children).reduce(function (sum, child) {
+      if (!(child instanceof HTMLElement) || child.hidden) return sum;
+      return sum + getElementMarginWidth(child);
+    }, 0);
+
+    if (widthAfterFirstRead <= availableWidth) return;
+
+    setElementHidden(swapPrimary, true);
+    setElementHidden(swapSecondary, false);
+
+    const widthAfterSwap = Array.from(toolbarMiddle.children).reduce(function (sum, child) {
+      if (!(child instanceof HTMLElement) || child.hidden) return sum;
+      return sum + getElementMarginWidth(child);
+    }, 0);
+
+    if (widthAfterSwap <= availableWidth) return;
+
+    if (canShowSettings) {
+      setElementHidden(settingsPrimary, true);
+      setElementHidden(settingsSecondary, false);
+    }
+  }
+
+  function scheduleToolbarOverflowSync() {
+    if (window.__aetherToolbarOverflowFrame) {
+      cancelAnimationFrame(window.__aetherToolbarOverflowFrame);
+    }
+    window.__aetherToolbarOverflowFrame = requestAnimationFrame(function () {
+      window.__aetherToolbarOverflowFrame = 0;
+      syncQuickReadingToolbarOverflow();
+    });
+  }
+
   function sanitizeConfig(input) {
     const mode = input?.mode === "compact" ? "compact" : "full";
     return {
@@ -620,6 +730,13 @@
       firstRead.setAttribute("aria-label", firstRead.title);
     }
 
+    const firstReadSecondary = document.getElementById("aetherFirstRead");
+    if (firstReadSecondary) {
+      firstReadSecondary.hidden = true;
+      firstReadSecondary.title = "AI pre-read";
+      firstReadSecondary.setAttribute("aria-label", firstReadSecondary.title);
+    }
+
     const readingSettings = document.getElementById("aetherReadingSettings");
     if (readingSettings) {
       readingSettings.hidden = !(config.mode === "full" && config.features.settings);
@@ -643,6 +760,14 @@
       swapLayout.dataset.direction = config.layoutSwapped ? "left" : "right";
     }
 
+    const swapLayoutSecondary = document.getElementById("aetherSwapLayoutSecondary");
+    if (swapLayoutSecondary) {
+      swapLayoutSecondary.hidden = true;
+      swapLayoutSecondary.title = swapLayout?.title || "Swap layout";
+      swapLayoutSecondary.setAttribute("aria-label", swapLayoutSecondary.title);
+      swapLayoutSecondary.dataset.direction = swapLayout?.dataset.direction || "right";
+    }
+
     if (config.mode === "compact" && outerContainer) {
       outerContainer.classList.remove("sidebarOpen", "sidebarMoving", "sidebarResizing");
     }
@@ -654,6 +779,8 @@
     if (!(config.mode === "full" && config.features.imageSelectionActions) && captureModeActive) {
       setCaptureMode(false);
     }
+
+    scheduleToolbarOverflowSync();
   }
 
   function rememberSidebarState(isOpen) {
@@ -788,6 +915,14 @@
       });
     }
 
+    const firstReadSecondary = document.getElementById("aetherFirstRead");
+    if (firstReadSecondary) {
+      firstReadSecondary.addEventListener("click", function () {
+        post("startfirstread");
+        window.PDFViewerApplication?.secondaryToolbar?.close?.();
+      });
+    }
+
     const readingSettings = document.getElementById("aetherReadingSettings");
     if (readingSettings) {
       readingSettings.addEventListener("click", function () {
@@ -795,10 +930,26 @@
       });
     }
 
+    const readingSettingsSecondary = document.getElementById("aetherReadingSettingsSecondary");
+    if (readingSettingsSecondary) {
+      readingSettingsSecondary.addEventListener("click", function () {
+        post("opensettings");
+        window.PDFViewerApplication?.secondaryToolbar?.close?.();
+      });
+    }
+
     const swapLayout = document.getElementById("aetherSwapLayout");
     if (swapLayout) {
       swapLayout.addEventListener("click", function () {
         post("swaplayout");
+      });
+    }
+
+    const swapLayoutSecondary = document.getElementById("aetherSwapLayoutSecondary");
+    if (swapLayoutSecondary) {
+      swapLayoutSecondary.addEventListener("click", function () {
+        post("swaplayout");
+        window.PDFViewerApplication?.secondaryToolbar?.close?.();
       });
     }
 
@@ -853,6 +1004,7 @@
       if (captureModeActive) setCaptureMode(false);
     });
     window.addEventListener("resize", function () {
+      scheduleToolbarOverflowSync();
       if (!selectionState) return;
       scheduleSelectionUiUpdate();
     });
@@ -886,6 +1038,7 @@
     app.eventBus.on("documentloaded", function onDocumentLoaded() {
       app.eventBus.off("documentloaded", onDocumentLoaded);
       applyDocumentDefaults(config);
+      scheduleToolbarOverflowSync();
     });
 
     const loadOpts = {
