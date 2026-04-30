@@ -22,6 +22,7 @@ import { shouldMarkBoundaryGesture, normalizeWheelDelta } from "@/pages/session/
 import { SessionContextUsage } from "@/components/session-context-usage"
 import { useI18n } from "@opencode-ai/ui/context"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
+import { useLayout } from "@/context/layout"
 import { useLanguage } from "@/context/language"
 import { useSessionKey } from "@/pages/session/session-layout"
 import { useGlobalSDK } from "@/context/global-sdk"
@@ -230,6 +231,7 @@ export function MessageTimeline(props: {
   const sync = useSync()
   const settings = useSettings()
   const dialog = useDialog()
+  const layout = useLayout()
   const language = useLanguage()
   const uiI18n = useI18n()
   const { params, sessionKey } = useSessionKey()
@@ -396,6 +398,13 @@ export function MessageTimeline(props: {
   const allAssistantCollapsed = createMemo(() => {
     const ids = collapsibleTurnIDs()
     return ids.length > 0 && ids.every((messageID) => isAssistantCollapsed(messageID))
+  })
+  createEffect(() => {
+    const id = sessionID()
+    if (!id) return
+    const messageID = layout.pendingToggle.consume(sessionKey())
+    if (!messageID || !rendered().includes(messageID) || !collapsibleTurnIDs().includes(messageID)) return
+    setAssistantCollapsed(messageID, !isAssistantCollapsed(messageID))
   })
   const collapseAllAssistant = () => {
     const id = sessionID()
