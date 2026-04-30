@@ -12,9 +12,10 @@ import { Instance } from "../../project/instance"
 import { Installation } from "../../installation"
 import path from "path"
 import { Global } from "../../global"
-import { modify, applyEdits } from "jsonc-parser"
+import { modify, applyEdits, parse as parseJsonc } from "jsonc-parser"
 import { Filesystem } from "../../util/filesystem"
 import { Bus } from "../../bus"
+import { WolframMCP } from "../../mcp/wolfram"
 
 function getAuthStatusIcon(status: MCP.AuthStatus): string {
   switch (status) {
@@ -59,6 +60,7 @@ export const McpCommand = cmd({
       .command(McpListCommand)
       .command(McpAuthCommand)
       .command(McpLogoutCommand)
+      .command(McpInstallCommand)
       .command(McpDebugCommand)
       .demandCommand(),
   async handler() {},
@@ -425,6 +427,13 @@ async function addMcpToConfig(name: string, mcpConfig: Config.Mcp, configPath: s
   return configPath
 }
 
+async function hasMcpInConfig(name: string, configPath: string) {
+  if (!(await Filesystem.exists(configPath))) return false
+  const data = parseJsonc(await Filesystem.readText(configPath)) as Record<string, unknown> | undefined
+  const mcp = data?.mcp
+  return !!mcp && typeof mcp === "object" && name in mcp
+}
+
 export const McpAddCommand = cmd({
   command: "add",
   describe: "add an MCP server",
@@ -584,6 +593,128 @@ export const McpAddCommand = cmd({
         }
 
         prompts.outro("MCP server added successfully")
+      },
+    })
+  },
+})
+
+export const McpInstallCommand = cmd({
+  command: "install",
+  describe: "install a known MCP server",
+  builder: (yargs) => yargs.command(McpInstallWolframCommand).demandCommand(),
+  async handler() {},
+})
+
+export const McpInstallWolframCommand = cmd({
+  command: "wolfram",
+  describe: "install the Wolfram Language MCP server",
+  builder: (yargs) =>
+    yargs
+      .option("project", {
+        describe: "Install into the current project config instead of global Aether config",
+        type: "boolean",
+        default: false,
+      })
+      .option("name", {
+        describe: "MCP server name",
+        type: "string",
+        default: WolframMCP.NAME,
+      })
+      .option("server", {
+        describe: "Wolfram AgentTools server preset",
+        type: "string",
+        default: WolframMCP.SERVER,
+      })
+      .option("binary", {
+        describe: "Path to wolfram or WolframKernel",
+        type: "string",
+      })
+      .option("timeout", {
+        describe: "MCP startup and tool timeout in milliseconds",
+        type: "number",
+        default: WolframMCP.TIMEOUT,
+      })
+      .option("overwrite", {
+        describe: "Replace an existing MCP entry with the same name",
+        type: "boolean",
+        default: false,
+      })
+      .option("paclet-install", {
+        describe: "Install or verify Wolfram/AgentTools with wolframscript",
+        type: "boolean",
+        default: true,
+      })
+      .option("connect", {
+        describe: "Connect once after writing the config to verify the server",
+        type: "boolean",
+        default: true,
+      }),
+  async handler(args) {
+    await Instance.provide({
+      directory: process.cwd(),
+      async fn() {
+        UI.empty()
+        prompts.intro("Install Wolfram MCP")
+
+        const name = typeof args.name === "string" && args.name.trim() ? args.name.trim() : WolframMCP.NAME
+        const server = typeof args.server === "string" && args.server.trim() ? args.server.trim() : WolframMCP.SERVER
+        const timeout =
+          typeof args.timeout === "number" && Number.isFinite(args.timeout) ? args.timeout : WolframMCP.TIMEOUT
+        const file = await resolveConfigPath(args.project ? Instance.worktree : Global.Path.config, !args.project)
+
+        if ((await hasMcpInConfig(name, file)) && !args.overwrite) {
+          prompts.log.warn(`MCP server "${name}" already exists in ${file}`)
+          prompts.outro("Use --overwrite to replace it")
+          return
+        }
+
+        if (args.pacletInstall !== false) {
+          const spinner = prompts.spinner()
+          spinner.start("Installing Wolfram/AgentTools...")
+          const paclet = await WolframMCP.installPaclet()
+          if (!paclet.ok) {
+            spinner.stop("Wolfram/AgentTools install failed", 1)
+            prompts.log.error(paclet.error ?? "Unknown error")
+            prompts.outro("Install stopped")
+            return
+          }
+          spinner.stop("Wolfram/AgentTools is available")
+        }
+
+        let cfg: Config.Mcp
+        try {
+          cfg = WolframMCP.config({
+            binary: typeof args.binary === "string" ? args.binary : undefined,
+            server,
+            timeout,
+          })
+        } catch (error) {
+          prompts.log.error(error instanceof Error ? error.message : String(error))
+          prompts.outro("Install stopped")
+          return
+        }
+
+        await addMcpToConfig(name, cfg, file)
+        prompts.log.success(`MCP server "${name}" written to ${file}`)
+
+        if (args.connect === false) {
+          prompts.outro("Wolfram MCP installed")
+          return
+        }
+
+        const spinner = prompts.spinner()
+        spinner.start("Connecting to Wolfram MCP...")
+        const result = await MCP.add(name, cfg)
+        const status = (result.status as Record<string, MCP.Status>)[name] ?? (result.status as MCP.Status)
+        if (status.status === "connected") {
+          spinner.stop("Wolfram MCP connected")
+          prompts.outro("Wolfram MCP installed")
+          return
+        }
+
+        spinner.stop("Wolfram MCP did not connect", 1)
+        prompts.log.warn(status.status === "failed" ? status.error : status.status)
+        prompts.outro("Config was written; run `aether mcp list` after checking Wolfram")
       },
     })
   },
