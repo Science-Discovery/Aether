@@ -219,130 +219,6 @@ export function SidebarBranchView(props: {
 
   return (
     <div class="overflow-hidden rounded-md border border-border-weaker-base bg-background-stronger">
-      <div class="border-b border-border-weaker-base px-2 py-1">
-        <button
-          type="button"
-          class="flex w-full items-center justify-between gap-2 text-left text-[11px] text-text-weak transition-colors hover:text-text-base"
-          onClick={() => setControlsOpen((value) => !value)}
-        >
-          <span>{zh() ? "对话树" : "Conversation tree"}</span>
-          <Icon name={controlsOpen() ? "chevron-down" : "chevron-right"} size="small" class="text-icon-weak" />
-        </button>
-
-        <Show when={controlsOpen()}>
-          <div class="mt-2 flex flex-wrap items-center gap-2">
-            <button
-              class="rounded-md border border-border-weak-base px-2 py-px text-[11px] text-text-weak transition-colors hover:bg-background-base"
-              onClick={() => setCompact((value) => !value)}
-            >
-              {compact() ? (zh() ? "完整" : "Full") : zh() ? "简略" : "Compact"}
-            </button>
-
-            <div class="flex overflow-hidden rounded-md border border-border-weak-base">
-              <button
-                class="px-2 py-px text-[11px] transition-colors"
-                classList={{
-                  "bg-background-base text-text-strong": orderMode() === "sequence",
-                  "text-text-weak hover:bg-background-base": orderMode() !== "sequence",
-                }}
-                onClick={() => settings.general.setBranchGraphOrderMode("sequence")}
-              >
-                {zh() ? "序列优先" : "Sequence"}
-              </button>
-              <button
-                class="border-l border-border-weak-base px-2 py-px text-[11px] transition-colors"
-                classList={{
-                  "bg-background-base text-text-strong": orderMode() === "time",
-                  "text-text-weak hover:bg-background-base": orderMode() !== "time",
-                }}
-                onClick={() => settings.general.setBranchGraphOrderMode("time")}
-              >
-                {zh() ? "时间优先" : "Time"}
-              </button>
-            </div>
-
-            <DropdownMenu placement="bottom-start">
-              <DropdownMenu.Trigger class="rounded-md border border-border-weak-base px-2 py-px text-[11px] text-text-weak transition-colors hover:bg-background-base">
-                {zh() ? "显示" : "Display"}
-              </DropdownMenu.Trigger>
-              <DropdownMenu.Portal>
-                <DropdownMenu.Content class="min-w-40">
-                  <DropdownMenu.Group>
-                    <DropdownMenu.GroupLabel>{zh() ? "字号" : "Font size"}</DropdownMenu.GroupLabel>
-                    <DropdownMenu.RadioGroup
-                      value={fontSize()}
-                      onChange={(value) => {
-                        if (value === "xs" || value === "sm" || value === "md" || value === "lg" || value === "xl") {
-                          settings.general.setBranchGraphFontSize(value)
-                        }
-                      }}
-                    >
-                      <For
-                        each={[
-                          { value: "xs", label: zh() ? "特小" : "X-Small" },
-                          { value: "sm", label: zh() ? "小" : "Small" },
-                          { value: "md", label: zh() ? "标准" : "Default" },
-                          { value: "lg", label: zh() ? "大" : "Large" },
-                          { value: "xl", label: zh() ? "特大" : "X-Large" },
-                        ]}
-                      >
-                        {(item) => (
-                          <DropdownMenu.RadioItem value={item.value}>
-                            <DropdownMenu.ItemLabel>{item.label}</DropdownMenu.ItemLabel>
-                            <DropdownMenu.ItemIndicator>
-                              <Icon name="check-small" size="small" class="text-icon-weak" />
-                            </DropdownMenu.ItemIndicator>
-                          </DropdownMenu.RadioItem>
-                        )}
-                      </For>
-                    </DropdownMenu.RadioGroup>
-                  </DropdownMenu.Group>
-
-                  <DropdownMenu.Separator />
-
-                  <DropdownMenu.Group>
-                    <DropdownMenu.GroupLabel>{zh() ? "行距" : "Row spacing"}</DropdownMenu.GroupLabel>
-                    <DropdownMenu.RadioGroup
-                      value={rowDensity()}
-                      onChange={(value) => {
-                        if (
-                          value === "xcompact" ||
-                          value === "compact" ||
-                          value === "normal" ||
-                          value === "relaxed" ||
-                          value === "xrelaxed"
-                        ) {
-                          settings.general.setBranchGraphRowDensity(value)
-                        }
-                      }}
-                    >
-                      <For
-                        each={[
-                          { value: "xcompact", label: zh() ? "极紧凑" : "Ultra compact" },
-                          { value: "compact", label: zh() ? "紧凑" : "Compact" },
-                          { value: "normal", label: zh() ? "标准" : "Default" },
-                          { value: "relaxed", label: zh() ? "宽松" : "Relaxed" },
-                          { value: "xrelaxed", label: zh() ? "极宽松" : "Ultra relaxed" },
-                        ]}
-                      >
-                        {(item) => (
-                          <DropdownMenu.RadioItem value={item.value}>
-                            <DropdownMenu.ItemLabel>{item.label}</DropdownMenu.ItemLabel>
-                            <DropdownMenu.ItemIndicator>
-                              <Icon name="check-small" size="small" class="text-icon-weak" />
-                            </DropdownMenu.ItemIndicator>
-                          </DropdownMenu.RadioItem>
-                        )}
-                      </For>
-                    </DropdownMenu.RadioGroup>
-                  </DropdownMenu.Group>
-                </DropdownMenu.Content>
-              </DropdownMenu.Portal>
-            </DropdownMenu>
-          </div>
-        </Show>
-      </div>
-
       <div ref={scrollContainer} class="min-h-0 overflow-auto" style={{ "max-height": `${maxPanelHeight()}px` }}>
         <Switch>
           <Match when={graph()?.kind === "legacy"}>
@@ -393,6 +269,130 @@ export function SidebarBranchView(props: {
             </div>
           </Match>
         </Switch>
+      </div>
+
+      <Show when={controlsOpen()}>
+        <div class="flex flex-wrap items-center gap-2 border-t border-border-weaker-base px-2 py-2">
+          <button
+            class="rounded-md border border-border-weak-base px-2 py-px text-[11px] text-text-weak transition-colors hover:bg-background-base"
+            onClick={() => setCompact((value) => !value)}
+          >
+            {compact() ? (zh() ? "完整" : "Full") : zh() ? "简略" : "Compact"}
+          </button>
+
+          <div class="flex overflow-hidden rounded-md border border-border-weak-base">
+            <button
+              class="px-2 py-px text-[11px] transition-colors"
+              classList={{
+                "bg-background-base text-text-strong": orderMode() === "sequence",
+                "text-text-weak hover:bg-background-base": orderMode() !== "sequence",
+              }}
+              onClick={() => settings.general.setBranchGraphOrderMode("sequence")}
+            >
+              {zh() ? "序列优先" : "Sequence"}
+            </button>
+            <button
+              class="border-l border-border-weak-base px-2 py-px text-[11px] transition-colors"
+              classList={{
+                "bg-background-base text-text-strong": orderMode() === "time",
+                "text-text-weak hover:bg-background-base": orderMode() !== "time",
+              }}
+              onClick={() => settings.general.setBranchGraphOrderMode("time")}
+            >
+              {zh() ? "时间优先" : "Time"}
+            </button>
+          </div>
+
+          <DropdownMenu placement="top-start">
+            <DropdownMenu.Trigger class="rounded-md border border-border-weak-base px-2 py-px text-[11px] text-text-weak transition-colors hover:bg-background-base">
+              {zh() ? "显示" : "Display"}
+            </DropdownMenu.Trigger>
+            <DropdownMenu.Portal>
+              <DropdownMenu.Content class="min-w-40">
+                <DropdownMenu.Group>
+                  <DropdownMenu.GroupLabel>{zh() ? "字号" : "Font size"}</DropdownMenu.GroupLabel>
+                  <DropdownMenu.RadioGroup
+                    value={fontSize()}
+                    onChange={(value) => {
+                      if (value === "xs" || value === "sm" || value === "md" || value === "lg" || value === "xl") {
+                        settings.general.setBranchGraphFontSize(value)
+                      }
+                    }}
+                  >
+                    <For
+                      each={[
+                        { value: "xs", label: zh() ? "特小" : "X-Small" },
+                        { value: "sm", label: zh() ? "小" : "Small" },
+                        { value: "md", label: zh() ? "标准" : "Default" },
+                        { value: "lg", label: zh() ? "大" : "Large" },
+                        { value: "xl", label: zh() ? "特大" : "X-Large" },
+                      ]}
+                    >
+                      {(item) => (
+                        <DropdownMenu.RadioItem value={item.value}>
+                          <DropdownMenu.ItemLabel>{item.label}</DropdownMenu.ItemLabel>
+                          <DropdownMenu.ItemIndicator>
+                            <Icon name="check-small" size="small" class="text-icon-weak" />
+                          </DropdownMenu.ItemIndicator>
+                        </DropdownMenu.RadioItem>
+                      )}
+                    </For>
+                  </DropdownMenu.RadioGroup>
+                </DropdownMenu.Group>
+
+                <DropdownMenu.Separator />
+
+                <DropdownMenu.Group>
+                  <DropdownMenu.GroupLabel>{zh() ? "行距" : "Row spacing"}</DropdownMenu.GroupLabel>
+                  <DropdownMenu.RadioGroup
+                    value={rowDensity()}
+                    onChange={(value) => {
+                      if (
+                        value === "xcompact" ||
+                        value === "compact" ||
+                        value === "normal" ||
+                        value === "relaxed" ||
+                        value === "xrelaxed"
+                      ) {
+                        settings.general.setBranchGraphRowDensity(value)
+                      }
+                    }}
+                  >
+                    <For
+                      each={[
+                        { value: "xcompact", label: zh() ? "极紧凑" : "Ultra compact" },
+                        { value: "compact", label: zh() ? "紧凑" : "Compact" },
+                        { value: "normal", label: zh() ? "标准" : "Default" },
+                        { value: "relaxed", label: zh() ? "宽松" : "Relaxed" },
+                        { value: "xrelaxed", label: zh() ? "极宽松" : "Ultra relaxed" },
+                      ]}
+                    >
+                      {(item) => (
+                        <DropdownMenu.RadioItem value={item.value}>
+                          <DropdownMenu.ItemLabel>{item.label}</DropdownMenu.ItemLabel>
+                          <DropdownMenu.ItemIndicator>
+                            <Icon name="check-small" size="small" class="text-icon-weak" />
+                          </DropdownMenu.ItemIndicator>
+                        </DropdownMenu.RadioItem>
+                      )}
+                    </For>
+                  </DropdownMenu.RadioGroup>
+                </DropdownMenu.Group>
+              </DropdownMenu.Content>
+            </DropdownMenu.Portal>
+          </DropdownMenu>
+        </div>
+      </Show>
+
+      <div class="border-t border-border-weaker-base px-2 py-1">
+        <button
+          type="button"
+          class="flex w-full items-center justify-between gap-2 text-left text-[11px] text-text-weak transition-colors hover:text-text-base"
+          onClick={() => setControlsOpen((value) => !value)}
+        >
+          <span>{zh() ? "会话树" : "Conversation tree"}</span>
+          <Icon name={controlsOpen() ? "chevron-down" : "chevron-right"} size="small" class="text-icon-weak" />
+        </button>
       </div>
 
       <div
