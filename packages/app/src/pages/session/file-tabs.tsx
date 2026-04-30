@@ -35,7 +35,6 @@ import { createSessionTabs } from "@/pages/session/helpers"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { DialogDraftConflict } from "@/components/dialog-draft-conflict"
 import { DialogPdfToMarkdown } from "@/components/dialog-pdf-to-markdown"
-import { DialogTranslateMarkdown } from "@/components/dialog-translate-markdown"
 import { upsertSessionList } from "@/utils/session-store"
 
 function FileCommentMenu(props: {
@@ -417,12 +416,6 @@ export function FileTabContent(props: { tab: string }) {
     if (!http?.password) return undefined
     return `Basic ${btoa(`${http.username ?? "opencode"}:${http.password}`)}`
   })
-
-  const openPdfToMarkdown = () => {
-    const p = path()
-    if (!p) return
-    dialog.show(() => <DialogPdfToMarkdown pdfPath={p} />)
-  }
 
   const openPdfInReadingMode = async () => {
     const p = path()
@@ -973,7 +966,6 @@ export function FileTabContent(props: { tab: string }) {
             authHeader={pdfAuthHeader()}
             mode="compact"
             class="size-full"
-            onPdfToMarkdown={openPdfToMarkdown}
             onOpenReadingMode={openPdfInReadingMode}
           />
         </div>
@@ -1097,19 +1089,6 @@ export function FileTabContent(props: { tab: string }) {
                 onClick={runPython}
                 disabled={isRunning()}
               />
-            </Show>
-            <Show when={!isEditing() && isMarkdown()}>
-              <button
-                type="button"
-                class="flex items-center justify-center rounded-md px-2 h-5 text-xs text-text-weak hover:bg-surface-raised-base-hover transition-colors cursor-pointer leading-none"
-                onClick={() => {
-                  const p = path()
-                  if (!p) return
-                  dialog.showModeless(() => <DialogTranslateMarkdown mdPath={p} />)
-                }}
-              >
-                翻译为中文
-              </button>
             </Show>
             <Show when={isTextFile()}>
               <Tooltip placement="top" gutter={4} value={wordWrap() ? "关闭自动换行" : "开启自动换行"}>

@@ -101,9 +101,7 @@ vi.mock("@/components/file-tree", () => ({
 vi.mock("@/components/session-context-usage", () => ({ SessionContextUsage: () => null }))
 vi.mock("@/components/dialog-select-file", () => ({ DialogSelectFile: () => null }))
 vi.mock("@/components/dialog-pdf-to-markdown", () => ({ DialogPdfToMarkdown: () => null }))
-vi.mock("@/components/dialog-translate-markdown", () => ({ DialogTranslateMarkdown: () => null }))
 vi.mock("@/components/dialog-batch-pdf-convert", () => ({ DialogBatchPdfConvert: () => null }))
-vi.mock("@/components/dialog-batch-translate-markdown", () => ({ DialogBatchTranslateMarkdown: () => null }))
 vi.mock("@/components/session", () => ({
   SessionContextTab: () => null,
   SortableTab: () => null,
@@ -124,7 +122,9 @@ vi.mock("@/context/file", () => ({
     selectedLines: () => null,
     tree: {
       state: () => ({ loaded: true }),
-      children: () => [{ name: "note.ts", path: state.diffPath, absolute: state.diffPath, type: "file", ignored: false }],
+      children: () => [
+        { name: "note.ts", path: state.diffPath, absolute: state.diffPath, type: "file", ignored: false },
+      ],
       refresh: () => Promise.resolve(),
       expand: () => undefined,
     },
@@ -251,7 +251,9 @@ function mount(tab: "changes" | "all", focus: ReturnType<typeof vi.fn>) {
     () => (
       <SessionSidePanel
         canReview={() => true}
-        diffs={() => [{ file: state.diffPath, status: "modified", before: "", after: "x\n", additions: 1, deletions: 0 }]}
+        diffs={() => [
+          { file: state.diffPath, status: "modified", before: "", after: "x\n", additions: 1, deletions: 0 },
+        ]}
         diffsReady={() => true}
         empty={() => "empty"}
         onRefresh={() => undefined}

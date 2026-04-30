@@ -21,9 +21,7 @@ import FileTree from "@/components/file-tree"
 import { SessionContextUsage } from "@/components/session-context-usage"
 import { DialogSelectFile } from "@/components/dialog-select-file"
 import { DialogPdfToMarkdown } from "@/components/dialog-pdf-to-markdown"
-import { DialogTranslateMarkdown } from "@/components/dialog-translate-markdown"
 import { DialogBatchPdfConvert } from "@/components/dialog-batch-pdf-convert"
-import { DialogBatchTranslateMarkdown } from "@/components/dialog-batch-translate-markdown"
 import { SessionContextTab, SortableTab, FileVisual } from "@/components/session"
 import { useCommand } from "@/context/command"
 import { useFile, type SelectedLineRange } from "@/context/file"
@@ -622,14 +620,6 @@ export function SessionSidePanel(props: {
     }
   }
 
-  const handleTranslateMarkdown = (paths: string[]) => {
-    if (paths.length === 1) {
-      dialog.showModeless(() => <DialogTranslateMarkdown mdPath={paths[0]} />)
-    } else {
-      dialog.showModeless(() => <DialogBatchTranslateMarkdown mdPaths={paths} />)
-    }
-  }
-
   const handleFileDrop = async (paths: string[], targetDir: string) => {
     let success = 0
     let failed = 0
@@ -1190,7 +1180,6 @@ export function SessionSidePanel(props: {
                               onUploadDrop={(event, dir) => void handleUploadDrop(event, dir)}
                               onUploadToDir={(dir, type) => void uploadToDir(dir, type)}
                               onPdfConvert={handlePdfConvert}
-                              onTranslateMarkdown={handleTranslateMarkdown}
                             />
                           </Match>
                         </Switch>

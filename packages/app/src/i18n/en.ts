@@ -483,7 +483,6 @@ export const dict = {
   "fileTree.openFailed": "Failed to open",
   "fileTree.pathCopiedManualOpen": "Path copied to clipboard, please open manually",
   "fileTree.convertToMarkdown": "Convert to Markdown",
-  "fileTree.translateToChinese": "Translate to Chinese",
   "fileTree.ignoreChanges": "Ignore Changes",
   "fileTree.alreadyInGitignore": "Already in .gitignore",
   "fileTree.alreadyInGitignoreDesc": 'Path "{{path}}" already exists, no need to add again',
@@ -507,7 +506,6 @@ export const dict = {
   "fileTree.multiCopyPath": "Copy Path ({{count}} items)",
   "fileTree.multiDownload": "Download ({{count}} items)",
   "fileTree.multiConvertToMarkdown": "Convert to Markdown ({{count}} items)",
-  "fileTree.multiTranslateToChinese": "Translate to Chinese ({{count}} items)",
   "fileTree.multiDelete": "Delete ({{count}} items)",
   "fileTree.copiedPaths": "Copied {{count}} paths",
   "fileTree.multiDownloadStarted": "Started downloading {{name}}",
@@ -982,7 +980,8 @@ export const dict = {
   "settings.memory.section.userProfile": "User Profile",
   "settings.memory.section.stores": "Memory stores (read-only)",
   "settings.memory.row.enabled.title": "Enable memory",
-  "settings.memory.row.enabled.description": "Controls memory tools, active prompt recall, and the built-in daily reflection cron job.",
+  "settings.memory.row.enabled.description":
+    "Controls memory tools, active prompt recall, and the built-in daily reflection cron job.",
   "settings.memory.row.reflection.title": "Enable reflection",
   "settings.memory.row.reflection.description":
     "Allow automatic memory consolidation after writes and before snapshots. Strong reflection can also be triggered explicitly.",
