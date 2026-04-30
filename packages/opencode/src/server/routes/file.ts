@@ -1160,6 +1160,7 @@ export const FileRoutes = lazy(() =>
           let replayDone = false
           let cleanedUp = false
 
+          let resolve!: () => void
           const removeListener = () => {
             task.listeners.delete(listener)
           }
@@ -1168,6 +1169,10 @@ export const FileRoutes = lazy(() =>
             cleanedUp = true
             removeListener()
             if (hb) clearInterval(hb)
+          }
+          const finish = () => {
+            doCleanup(heartbeat)
+            resolve()
           }
 
           const listener = async (event: any) => {
@@ -1179,7 +1184,7 @@ export const FileRoutes = lazy(() =>
             try {
               await stream.writeSSE({ data: JSON.stringify(event) })
             } catch {
-              /* stream broken */
+              finish()
             }
           }
 
@@ -1197,7 +1202,7 @@ export const FileRoutes = lazy(() =>
             try {
               await stream.writeSSE({ data: JSON.stringify(event) })
             } catch {
-              /* stream broken */
+              finish()
             }
           }
 
@@ -1208,26 +1213,24 @@ export const FileRoutes = lazy(() =>
           }
 
           // 心跳保活
-          const heartbeat = setInterval(() => {
+          let heartbeat!: ReturnType<typeof setInterval>
+          heartbeat = setInterval(() => {
             stream
               .writeSSE({
                 data: JSON.stringify({ type: "heartbeat" }),
               })
-              .catch(() => doCleanup(heartbeat))
+              .catch(finish)
           }, 5_000)
 
-          await new Promise<void>((resolve) => {
-            stream.onAbort(() => {
-              doCleanup(heartbeat)
-              resolve()
-            })
+          await new Promise<void>((r) => {
+            resolve = r
+            stream.onAbort(finish)
 
             // 任务完成时也关闭
             const checkDone = setInterval(() => {
               if (task.status !== "running") {
                 clearInterval(checkDone)
-                doCleanup(heartbeat)
-                resolve()
+                finish()
               }
             }, 1000)
           })
@@ -1517,6 +1520,7 @@ export const FileRoutes = lazy(() =>
           const pendingEvents: any[] = []
           let replayDone = false
 
+          let resolve!: () => void
           let cleanedUp = false
           const removeListener = () => {
             task.listeners.delete(listener)
@@ -1527,6 +1531,10 @@ export const FileRoutes = lazy(() =>
             removeListener()
             if (hb) clearInterval(hb)
           }
+          const finish = () => {
+            doCleanup(heartbeat)
+            resolve()
+          }
 
           const listener = async (event: any) => {
             if (!replayDone) {
@@ -1536,7 +1544,7 @@ export const FileRoutes = lazy(() =>
             try {
               await stream.writeSSE({ data: JSON.stringify(event) })
             } catch {
-              /* stream broken */
+              finish()
             }
           }
 
@@ -1552,7 +1560,7 @@ export const FileRoutes = lazy(() =>
             try {
               await stream.writeSSE({ data: JSON.stringify(event) })
             } catch {
-              /* stream broken */
+              finish()
             }
           }
 
@@ -1561,25 +1569,23 @@ export const FileRoutes = lazy(() =>
             return
           }
 
-          const heartbeat = setInterval(() => {
+          let heartbeat!: ReturnType<typeof setInterval>
+          heartbeat = setInterval(() => {
             stream
               .writeSSE({
                 data: JSON.stringify({ type: "heartbeat" }),
               })
-              .catch(() => doCleanup(heartbeat))
+              .catch(finish)
           }, 5_000)
 
-          await new Promise<void>((resolve) => {
-            stream.onAbort(() => {
-              doCleanup(heartbeat)
-              resolve()
-            })
+          await new Promise<void>((r) => {
+            resolve = r
+            stream.onAbort(finish)
 
             const checkDone = setInterval(() => {
               if (task.status !== "running") {
                 clearInterval(checkDone)
-                doCleanup(heartbeat)
-                resolve()
+                finish()
               }
             }, 1000)
           })
