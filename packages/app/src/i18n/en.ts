@@ -982,7 +982,8 @@ export const dict = {
   "settings.memory.section.userProfile": "User Profile",
   "settings.memory.section.stores": "Memory stores (read-only)",
   "settings.memory.row.enabled.title": "Enable memory",
-  "settings.memory.row.enabled.description": "Controls memory tools, active prompt recall, and the built-in daily reflection cron job.",
+  "settings.memory.row.enabled.description":
+    "Controls memory tools, active prompt recall, and the built-in daily reflection cron job.",
   "settings.memory.row.reflection.title": "Enable reflection",
   "settings.memory.row.reflection.description":
     "Allow automatic memory consolidation after writes and before snapshots. Strong reflection can also be triggered explicitly.",
@@ -1129,6 +1130,7 @@ export const dict = {
   "font.option.robotoMono": "Roboto Mono",
   "font.option.sourceCodePro": "Source Code Pro",
   "font.option.ubuntuMono": "Ubuntu Mono",
+  "font.option.monaco": "Monaco",
   "font.option.geistMono": "Geist Mono",
   "sound.option.none": "None",
   "sound.option.alert01": "Alert 01",
