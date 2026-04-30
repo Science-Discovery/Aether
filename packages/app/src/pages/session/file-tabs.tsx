@@ -1,10 +1,8 @@
-﻿import { createEffect, createMemo, createSignal, Match, on, onCleanup, Show, Switch } from "solid-js"
+import { createEffect, createMemo, createSignal, Match, on, onCleanup, Show, Switch } from "solid-js"
 import { createStore } from "solid-js/store"
 import { Dynamic } from "solid-js/web"
-import { useNavigate } from "@solidjs/router"
-import type { Session } from "@opencode-ai/sdk/v2/client"
-import type { FileSearchHandle } from "@opencode-ai/ui/file"
 import { Button } from "@opencode-ai/ui/button"
+import type { FileSearchHandle } from "@opencode-ai/ui/file"
 import { useFileComponent } from "@opencode-ai/ui/context/file"
 import { cloneSelectedLineRange, previewSelectedLines } from "@opencode-ai/ui/pierre/selection-bridge"
 import { createLineCommentController } from "@opencode-ai/ui/line-comment-annotations"
@@ -13,7 +11,6 @@ import { DropdownMenu } from "@opencode-ai/ui/dropdown-menu"
 import { IconButton } from "@opencode-ai/ui/icon-button"
 import { Tabs } from "@opencode-ai/ui/tabs"
 import { ScrollView } from "@opencode-ai/ui/scroll-view"
-import { Dialog } from "@opencode-ai/ui/dialog"
 import { showToast } from "@opencode-ai/ui/toast"
 import { Tooltip } from "@opencode-ai/ui/tooltip"
 import { Markdown } from "@opencode-ai/ui/markdown"
@@ -36,7 +33,6 @@ import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { DialogDraftConflict } from "@/components/dialog-draft-conflict"
 import { DialogPdfToMarkdown } from "@/components/dialog-pdf-to-markdown"
 import { DialogTranslateMarkdown } from "@/components/dialog-translate-markdown"
-import { upsertSessionList } from "@/utils/session-store"
 
 function FileCommentMenu(props: {
   moreLabel: string
@@ -71,28 +67,7 @@ function FileCommentMenu(props: {
   )
 }
 
-type ReadingModeFromFileResponse = {
-  action: "existing" | "created"
-  session: Session
-}
-
-function readingModeText(language: ReturnType<typeof useLanguage>, key: string) {
-  const zh = language.locale() === "zh" || language.locale() === "zht"
-  switch (key) {
-    case "resume.title":
-      return zh ? "继续阅读模式" : "Continue reading mode"
-    case "resume.description":
-      return zh ? "这份 PDF 已经有阅读会话。你想继续之前的阅读对话，还是新建一条阅读会话？" : "This PDF already has a reading session. Continue the existing reading conversation or create a new one?"
-    case "resume.continue":
-      return zh ? "继续已有阅读" : "Continue existing reading"
-    case "resume.new":
-      return zh ? "新建阅读会话" : "Create new reading session"
-  }
-  return key
-}
-
 export function FileTabContent(props: { tab: string }) {
-  const navigate = useNavigate()
   const file = useFile()
   const comments = useComments()
   const language = useLanguage()
@@ -411,6 +386,16 @@ export function FileTabContent(props: { tab: string }) {
     const version = state()?.version ?? 0
     return `${sdk.url}/file/raw?path=${encodeURIComponent(p)}&directory=${encodeURIComponent(sdk.directory)}&v=${version}`
   })
+  const pdfPreviewPage = createMemo(() => {
+    const p = path()
+    if (!p) return 1
+    return file.pdfPage(p) ?? 1
+  })
+  const quickReadingOwnsPdfPage = createMemo(() => {
+    const p = path()
+    if (!p) return false
+    return view().quickReading.active() && view().quickReading.pdfPath() === p
+  })
 
   const pdfAuthHeader = createMemo(() => {
     const http = server.current?.http
@@ -426,98 +411,8 @@ export function FileTabContent(props: { tab: string }) {
 
   const openPdfInReadingMode = async () => {
     const p = path()
-    const currentServer = server.current
-    if (!p || !currentServer) return
-
-    try {
-      const authHeaders: Record<string, string> = currentServer.http.password
-        ? { Authorization: `Basic ${btoa(`${currentServer.http.username ?? "opencode"}:${currentServer.http.password}`)}` }
-        : {}
-
-      const openFromFile = async (forceNew = false) => {
-        const response = await fetch(
-          `${currentServer.http.url}/reading-mode/session/from-file?directory=${encodeURIComponent(sdk.directory)}`,
-          {
-          method: "POST",
-          headers: {
-            ...authHeaders,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            path: p,
-            forceNew,
-          }),
-          },
-        )
-
-        if (!response.ok) {
-          const text = await response.text()
-          throw new Error(text || `HTTP ${response.status}`)
-        }
-
-        return (await response.json()) as ReadingModeFromFileResponse
-      }
-
-      const goToReadingSession = (sessionID: string) => {
-        navigate(`/${encodeURIComponent(params.dir ?? "")}/session/${sessionID}/reading`)
-      }
-
-      const mergeReadingSession = (session: Session) => {
-        sync.set("session", (items: Session[]) => upsertSessionList(items, session))
-      }
-
-      const result = await openFromFile()
-      mergeReadingSession(result.session)
-      if (result.action === "existing") {
-        dialog.show(() => (
-          <Dialog title={readingModeText(language, "resume.title")} fit>
-            <div class="flex flex-col gap-4 p-4">
-              <p class="text-sm text-text-base">{readingModeText(language, "resume.description")}</p>
-              <div class="flex justify-end gap-2">
-                <Button
-                  variant="ghost"
-                  onClick={() => {
-                    void (async () => {
-                      try {
-                        const created = await openFromFile(true)
-                        mergeReadingSession(created.session)
-                        dialog.close()
-                        goToReadingSession(created.session.id)
-                      } catch (error) {
-                        showToast({
-                          variant: "error",
-                          title: "Failed to open reading mode",
-                          description: String((error as Error)?.message ?? error),
-                        })
-                      }
-                    })()
-                  }}
-                >
-                  {readingModeText(language, "resume.new")}
-                </Button>
-                <Button
-                  onClick={() => {
-                    dialog.close()
-                    goToReadingSession(result.session.id)
-                  }}
-                >
-                  {readingModeText(language, "resume.continue")}
-                </Button>
-              </div>
-            </div>
-          </Dialog>
-        ))
-        return
-      }
-
-      goToReadingSession(result.session.id)
-    } catch (e) {
-      showToast({
-        variant: "error",
-        title: "Failed to open reading mode",
-        description: String((e as Error)?.message ?? e),
-      })
-    }
+    if (!p || !params.id) return
+    view().quickReading.open(p, p.split("/").pop() ?? "document.pdf")
   }
 
   const [isRunning, setIsRunning] = createSignal(false)
@@ -973,6 +868,12 @@ export function FileTabContent(props: { tab: string }) {
             authHeader={pdfAuthHeader()}
             mode="compact"
             class="size-full"
+            page={quickReadingOwnsPdfPage() ? undefined : pdfPreviewPage()}
+            onPageChange={(page) => {
+              const p = path()
+              if (!p || quickReadingOwnsPdfPage()) return
+              file.setPdfPage(p, page)
+            }}
             onPdfToMarkdown={openPdfToMarkdown}
             onOpenReadingMode={openPdfInReadingMode}
           />

@@ -12,6 +12,7 @@ import { useLayout } from "@/context/layout"
 import { useLocal } from "@/context/local"
 import { usePermission } from "@/context/permission"
 import { DEFAULT_PROMPT, type ContextItem, type ImageAttachmentPart, type Prompt, usePrompt } from "@/context/prompt"
+import { useMaybeQuickReadingMode } from "@/context/quick-reading-mode"
 import { useMaybeReadingMode } from "@/context/reading-mode"
 import { useSDK } from "@/context/sdk"
 import { useServer } from "@/context/server"
@@ -282,6 +283,7 @@ export function createPromptSubmit(input: PromptSubmitInput) {
   const local = useLocal()
   const permission = usePermission()
   const prompt = usePrompt()
+  const quickReadingMode = useMaybeQuickReadingMode()
   const readingMode = useMaybeReadingMode()
   const layout = useLayout()
   const language = useLanguage()
@@ -531,6 +533,8 @@ export function createPromptSubmit(input: PromptSubmitInput) {
     const openPaths = input.openTabPaths?.() ?? []
     const selText = fileCtx.selectedText()
     const readingQuestion = readingMode?.store.pendingQuestion
+    const quickReadingPendingQuestion = quickReadingMode?.store.pendingQuestion ?? null
+    const quickReadingQuestion = quickReadingPendingQuestion?.sessionID === params.id ? quickReadingPendingQuestion : null
     const draft: FollowupDraft = {
       sessionID: session.id,
       sessionDirectory,
@@ -591,7 +595,7 @@ export function createPromptSubmit(input: PromptSubmitInput) {
       return
     }
 
-    if (!readingQuestion && text.startsWith("/")) {
+    if (!readingQuestion && !quickReadingQuestion && text.startsWith("/")) {
       const [cmdName, ...args] = text.split(" ")
       const commandName = cmdName.slice(1)
       const customCommand = sync.data.command.find((c) => c.name === commandName)
@@ -691,6 +695,98 @@ export function createPromptSubmit(input: PromptSubmitInput) {
       if (controller.signal.aborted) return false
       if (result.status === "failed") throw new Error(result.message)
       return true
+    }
+
+    if (mode === "normal" && quickReadingQuestion) {
+      const typedQuestion = text.trim()
+      const settings = quickReadingMode?.store.snapshot.settings
+      if (!typedQuestion || !settings) {
+        restoreCommentItems(commentItems)
+        restoreInput()
+        showToast({
+          title: language.t("prompt.toast.promptSendFailed.title"),
+          description: language.t("prompt.toast.promptSendFailed.description"),
+        })
+        return
+      }
+
+      const requestDraft: FollowupDraft = {
+        sessionID: session.id,
+        sessionDirectory,
+        prompt: [DEFAULT_PROMPT[0]!, ...images],
+        attachments:
+          quickReadingQuestion.kind === "image-question"
+            ? [
+                {
+                  filename: `pdf-region-page-${quickReadingQuestion.page}.png`,
+                  mime: "image/png",
+                  dataUrl: quickReadingQuestion.imageDataUrl,
+                },
+              ]
+            : undefined,
+        context,
+        agent,
+        model,
+        variant,
+        selectedPaths: openPaths.length > 0 ? openPaths : undefined,
+        extraTextParts: [
+          {
+            text: typedQuestion,
+            ignored: true,
+          },
+          {
+            text: fillReadingQuestionPrompt(settings.questionPrompt, {
+              selectedContent:
+                quickReadingQuestion.kind === "image-question"
+                  ? `The user selected a screenshot region from page ${quickReadingQuestion.page} of ${quickReadingQuestion.pdfFileName}.`
+                  : quickReadingQuestion.text,
+              userQuestion: typedQuestion,
+              contextPages: "",
+            }),
+            synthetic: true,
+          },
+        ],
+      }
+
+      void sendFollowupDraft({
+        client,
+        sync,
+        globalSync,
+        draft: requestDraft,
+        messageID,
+        optimisticBusy: sessionDirectory === projectDirectory,
+        before: waitForWorktree,
+        knowledgeBase:
+          knowledge.enabled() && knowledge.activeKnowledgeBases().length > 0
+            ? {
+                paths: knowledge.activeKnowledgeBases().map((kb) => kb.path),
+                apiKey: knowledge.activeKnowledgeBases()[0]!.apiKey,
+                baseURL: knowledge.activeKnowledgeBases()[0]!.baseURL,
+              }
+            : undefined,
+      })
+        .then((ok) => {
+          if (ok) {
+            quickReadingMode?.setPendingQuestion(null)
+            return
+          }
+          restoreCommentItems(commentItems)
+          restoreInput()
+        })
+        .catch((err) => {
+          pending.delete(session.id)
+          if (sessionDirectory === projectDirectory) {
+            sync.set("session_status", session.id, { type: "idle" })
+          }
+          showToast({
+            title: language.t("prompt.toast.promptSendFailed.title"),
+            description: errorMessage(err),
+          })
+          removeOptimisticMessage()
+          restoreCommentItems(commentItems)
+          restoreInput()
+        })
+      return
     }
 
     if (mode === "normal" && readingQuestion) {

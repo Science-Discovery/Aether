@@ -72,6 +72,7 @@ function createViewSession(dir: string, id: string | undefined) {
 
   const scrollTop = (path: string) => view.file[path]?.scrollTop
   const scrollLeft = (path: string) => view.file[path]?.scrollLeft
+  const pdfPage = (path: string) => view.file[path]?.pdfPage
   const selectedLines = (path: string) => view.file[path]?.selectedLines
   const wordWrap = (path: string) => view.file[path]?.wordWrap
   const isEditing = (path: string) => view.file[path]?.isEditing
@@ -107,6 +108,19 @@ function createViewSession(dir: string, id: string | undefined) {
         const file = draft.file[path] ?? (draft.file[path] = {})
         if (equalSelectedLines(file.selectedLines, next)) return
         file.selectedLines = next
+      }),
+    )
+    pruneView(path)
+  }
+
+  const setPdfPage = (path: string, page: number) => {
+    if (!Number.isFinite(page) || page < 1) return
+    const next = Math.round(page)
+    setView(
+      produce((draft) => {
+        const file = draft.file[path] ?? (draft.file[path] = {})
+        if (file.pdfPage === next) return
+        file.pdfPage = next
       }),
     )
     pruneView(path)
@@ -173,6 +187,7 @@ function createViewSession(dir: string, id: string | undefined) {
     ready,
     scrollTop,
     scrollLeft,
+    pdfPage,
     selectedLines,
     wordWrap,
     isEditing,
@@ -180,6 +195,7 @@ function createViewSession(dir: string, id: string | undefined) {
     draftBase,
     setScrollTop,
     setScrollLeft,
+    setPdfPage,
     setSelectedLines,
     setWordWrap,
     setIsEditing,

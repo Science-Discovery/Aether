@@ -144,6 +144,7 @@
       features: {
         pdf2md: !!input?.features?.pdf2md,
         readingMode: !!input?.features?.readingMode,
+        firstRead: !!input?.features?.firstRead,
         settings: !!input?.features?.settings,
         textSelectionActions: !!input?.features?.textSelectionActions,
         imageSelectionActions: !!input?.features?.imageSelectionActions,
@@ -612,6 +613,13 @@
       captureRegion.setAttribute("aria-pressed", captureModeActive ? "true" : "false");
     }
 
+    const firstRead = document.getElementById("aetherFirstReadPrimary");
+    if (firstRead) {
+      firstRead.hidden = !(config.mode === "full" && config.features.firstRead);
+      firstRead.title = "AI pre-read";
+      firstRead.setAttribute("aria-label", firstRead.title);
+    }
+
     const readingSettings = document.getElementById("aetherReadingSettings");
     if (readingSettings) {
       readingSettings.hidden = !(config.mode === "full" && config.features.settings);
@@ -770,6 +778,13 @@
     if (captureRegion) {
       captureRegion.addEventListener("click", function () {
         setCaptureMode(!captureModeActive);
+      });
+    }
+
+    const firstRead = document.getElementById("aetherFirstReadPrimary");
+    if (firstRead) {
+      firstRead.addEventListener("click", function () {
+        post("startfirstread");
       });
     }
 

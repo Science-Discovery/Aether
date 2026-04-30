@@ -36,6 +36,7 @@ body.aether-pdf-viewer #toolbarViewerMiddle {
 body.aether-pdf-viewer #aetherPdf2md,
 body.aether-pdf-viewer #aetherNightMode,
 body.aether-pdf-viewer #aetherCaptureRegion,
+body.aether-pdf-viewer #aetherFirstReadPrimary,
 body.aether-pdf-viewer #aetherReadingSettings,
 body.aether-pdf-viewer #aetherSwapLayout,
 body.aether-pdf-viewer #aetherOpenReadingMode {
@@ -127,6 +128,10 @@ body.aether-pdf-viewer #aetherCaptureRegion {
   min-width: 32px;
 }
 
+body.aether-pdf-viewer #aetherFirstReadPrimary {
+  min-width: 32px;
+}
+
 body.aether-pdf-viewer #aetherReadingSettings {
   min-width: 32px;
 }
@@ -134,6 +139,11 @@ body.aether-pdf-viewer #aetherReadingSettings {
 body.aether-pdf-viewer #aetherCaptureRegion::before {
   -webkit-mask-image: var(--aether-capture-region-icon);
   mask-image: var(--aether-capture-region-icon);
+}
+
+body.aether-pdf-viewer #aetherFirstReadPrimary::before {
+  -webkit-mask-image: var(--aether-reading-mode-icon);
+  mask-image: var(--aether-reading-mode-icon);
 }
 
 body.aether-pdf-viewer #aetherReadingSettings::before {
@@ -184,6 +194,10 @@ body.aether-pdf-viewer[data-mode="compact"] #aetherSwapLayout {
 }
 
 body.aether-pdf-viewer[data-mode="compact"] #aetherCaptureRegion {
+  display: none !important;
+}
+
+body.aether-pdf-viewer[data-mode="compact"] #aetherFirstReadPrimary {
   display: none !important;
 }
 

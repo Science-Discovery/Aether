@@ -41,6 +41,9 @@ import { useSDK } from "@/context/sdk"
 import { useSettings } from "@/context/settings"
 import { useSync } from "@/context/sync"
 import { useTerminal } from "@/context/terminal"
+import { QuickReadingFirstReadGate } from "@/components/quick-reading/quick-reading-first-read-gate"
+import { QuickReadingModeProvider, useQuickReadingMode } from "@/context/quick-reading-mode"
+import { QuickReadingPanel } from "@/components/quick-reading/quick-reading-panel"
 import { type FollowupDraft, sendFollowupDraft } from "@/components/prompt-input/submit"
 import { createSessionComposerState, SessionComposerRegion } from "@/pages/session/composer"
 import {
@@ -58,6 +61,8 @@ import { useSessionLayout } from "@/pages/session/session-layout"
 import { syncSessionModel } from "@/pages/session/session-model-helpers"
 import { SessionSidePanel } from "@/pages/session/session-side-panel"
 import { TerminalPanel } from "@/pages/session/terminal-panel"
+import { useQuickReadingController } from "@/pages/session/use-quick-reading-controller"
+import { useQuickReadingLayout } from "@/pages/session/use-quick-reading-layout"
 import { useSessionCommands } from "@/pages/session/use-session-commands"
 import { useSessionHashScroll } from "@/pages/session/use-session-hash-scroll"
 import { Identifier } from "@/utils/id"
@@ -318,7 +323,7 @@ function createSessionHistoryWindow(input: SessionHistoryWindowInput) {
   }
 }
 
-export default function Page(props: {
+type SessionPageProps = {
   readingPane?: any
   readingPanePosition?: "before" | "after"
   readingPaneWidth?: number
@@ -336,7 +341,9 @@ export default function Page(props: {
   readingFileTreeWidth?: number
   readingFileTreeResizable?: boolean
   readingSizing?: Sizing
-} = {}) {
+}
+
+function SessionPageContent(props: SessionPageProps = {}) {
   const globalSync = useGlobalSync()
   const layout = useLayout()
   const local = useLocal()
@@ -351,6 +358,7 @@ export default function Page(props: {
   const prompt = usePrompt()
   const comments = useComments()
   const terminal = useTerminal()
+  const quickReading = useQuickReadingMode()
   const [searchParams, setSearchParams] = useSearchParams<{ prompt?: string }>()
   const { params, sessionKey, tabs, view } = useSessionLayout()
 
@@ -380,7 +388,10 @@ export default function Page(props: {
 
   const workspaceKey = createMemo(() => params.dir ?? "")
   const workspaceTabs = createMemo(() => layout.tabs(workspaceKey))
-  const readingPane = children(() => props.readingPane)
+  const propReadingPane = children(() => props.readingPane)
+  const quickReadingRequested = createMemo(
+    () => !!params.id && !props.readingPane && view().quickReading.active() && !!view().quickReading.pdfPath(),
+  )
 
   createEffect(
     on(
@@ -420,30 +431,54 @@ export default function Page(props: {
 
   const isDesktop = createMediaQuery("(min-width: 768px)")
   const size = props.readingSizing ?? createSizing()
-  const readingModeActive = createMemo(() => isDesktop() && !!props.readingPane)
+  const propReadingModeActive = createMemo(() => isDesktop() && !!props.readingPane)
+  const quickReadingModeActive = createMemo(() => isDesktop() && quickReadingRequested())
+  const readingModeActive = createMemo(() => propReadingModeActive() || quickReadingModeActive())
+  const quickReadingReviewOpen = createMemo(() => isDesktop() && view().reviewPanel.opened())
+  const quickReadingFileTreeOpen = createMemo(() => isDesktop() && layout.fileTree.opened())
+  const quickReadingLayout = useQuickReadingLayout({
+    active: quickReadingModeActive,
+    reviewOpen: quickReadingReviewOpen,
+    fileTreeOpen: quickReadingFileTreeOpen,
+    layoutSwapped: () => quickReading.store.snapshot.layoutSwapped,
+  })
   const desktopReviewOpen = createMemo(() =>
-    isDesktop() && (readingModeActive() ? !!props.readingReviewOpen : view().reviewPanel.opened()),
+    isDesktop() && (propReadingModeActive() ? !!props.readingReviewOpen : view().reviewPanel.opened()),
   )
   const desktopFileTreeOpen = createMemo(() =>
-    isDesktop() && (readingModeActive() ? !!props.readingFileTreeOpen : layout.fileTree.opened()),
+    isDesktop() && (propReadingModeActive() ? !!props.readingFileTreeOpen : layout.fileTree.opened()),
   )
   const desktopSidePanelOpen = createMemo(() => desktopReviewOpen() || desktopFileTreeOpen())
   let rowRef: HTMLDivElement | undefined
   const [rowWidth, setRowWidth] = createSignal(0)
   const readingPaneWidth = createMemo(() => {
-    if (!isDesktop() || !props.readingPane) return 0
-    return Math.max(0, props.readingPaneWidth ?? 0)
+    if (!isDesktop()) return 0
+    if (propReadingModeActive()) return Math.max(0, props.readingPaneWidth ?? 0)
+    if (quickReadingModeActive()) return quickReadingLayout.pdfPixelWidth()
+    return 0
   })
   const readingCompositeMinWidth = createMemo(() =>
-    readingModeActive() ? Math.max(0, props.readingCompositeMinWidth ?? 0) : 0,
+    propReadingModeActive()
+      ? Math.max(0, props.readingCompositeMinWidth ?? 0)
+      : quickReadingModeActive()
+        ? Math.max(0, quickReadingLayout.compositeResizeBounds().min)
+        : 0,
   )
   const readingCompositeMaxWidth = createMemo(() => {
     if (!readingModeActive()) return 0
-    const fallback = rowWidth() > 0 ? rowWidth() : props.readingCompositeWidth ?? 0
+    const fallback = propReadingModeActive()
+      ? rowWidth() > 0
+        ? rowWidth()
+        : props.readingCompositeWidth ?? 0
+      : quickReadingLayout.compositeResizeBounds().max
     return Math.max(readingCompositeMinWidth(), props.readingCompositeMaxWidth ?? fallback)
   })
   const readingFileTreeWidth = createMemo(() =>
-    readingModeActive() ? Math.max(0, props.readingFileTreeWidth ?? 0) : layout.fileTree.width(),
+    propReadingModeActive()
+      ? Math.max(0, props.readingFileTreeWidth ?? 0)
+      : quickReadingModeActive()
+        ? quickReadingLayout.fileTreePixelWidth()
+        : layout.fileTree.width(),
   )
   const sidePanelMinWidth = createMemo(() => {
     let width = 0
@@ -457,11 +492,13 @@ export default function Page(props: {
   })
   const effectiveCompositeWidth = createMemo(() => {
     if (!readingModeActive()) return 0
-    const total = rowWidth()
-    const fallback = props.readingCompositeWidth ?? 0
+    const total = propReadingModeActive() ? rowWidth() : quickReadingLayout.rowWidth()
+    const fallback = propReadingModeActive() ? props.readingCompositeWidth ?? 0 : quickReadingLayout.compositePixelWidth()
     if (total <= 0) return Math.min(readingCompositeMaxWidth(), Math.max(readingCompositeMinWidth(), fallback))
     if (!desktopSidePanelOpen()) return total
-    const requested = props.readingCompositeWidth ?? Math.max(0, total - (props.readingSidePanelWidth ?? 0))
+    const requested = propReadingModeActive()
+      ? props.readingCompositeWidth ?? Math.max(0, total - (props.readingSidePanelWidth ?? 0))
+      : quickReadingLayout.compositePixelWidth()
     return Math.min(readingCompositeMaxWidth(), Math.max(readingCompositeMinWidth(), requested))
   })
   const effectiveSessionPanelWidth = createMemo(() => {
@@ -471,7 +508,10 @@ export default function Page(props: {
   const effectiveSidePanelWidth = createMemo(() => {
     if (!readingModeActive()) return undefined
     if (!desktopSidePanelOpen()) return 0
-    if (typeof props.readingSidePanelWidth === "number") return Math.max(0, props.readingSidePanelWidth)
+    if (propReadingModeActive() && typeof props.readingSidePanelWidth === "number") {
+      return Math.max(0, props.readingSidePanelWidth)
+    }
+    if (quickReadingModeActive()) return quickReadingLayout.sidePanelWidth()
     return Math.max(sidePanelMinWidth(), rowWidth() - effectiveCompositeWidth())
   })
   const sessionPanelWidth = createMemo(() => {
@@ -488,8 +528,32 @@ export default function Page(props: {
     return pdfWidth > 0 ? `calc(100% - ${layout.fileTree.width()}px - ${pdfWidth}px)` : `calc(100% - ${layout.fileTree.width()}px)`
   })
   const centered = createMemo(() => isDesktop() && !desktopReviewOpen())
-  const readingPaneOrder = createMemo(() => (props.readingPanePosition === "after" ? 1 : 0))
-  const sessionPanelOrder = createMemo(() => (props.readingPanePosition === "after" ? 0 : 1))
+  const readingSessionResizeSize = createMemo(() => {
+    if (propReadingModeActive()) return Math.max(0, props.readingSessionResizeSize ?? 0)
+    if (quickReadingModeActive()) return quickReadingLayout.chatPixelWidth()
+    return 0
+  })
+  const readingSessionResizeMin = createMemo(() => {
+    if (propReadingModeActive()) return Math.max(0, props.readingSessionResizeMin ?? 0)
+    if (quickReadingModeActive()) return quickReadingLayout.sessionResizeBounds().min
+    return 0
+  })
+  const readingSessionResizeMax = createMemo(() => {
+    if (propReadingModeActive()) return Math.max(readingSessionResizeMin(), props.readingSessionResizeMax ?? 0)
+    if (quickReadingModeActive()) return Math.max(readingSessionResizeMin(), quickReadingLayout.sessionResizeBounds().max)
+    return 0
+  })
+  const readingFileTreeResizable = createMemo(() => {
+    if (propReadingModeActive()) return props.readingFileTreeResizable
+    if (quickReadingModeActive()) return false
+    return undefined
+  })
+  const effectiveReadingPanePosition = createMemo<"before" | "after">(() => {
+    if (propReadingModeActive()) return props.readingPanePosition === "after" ? "after" : "before"
+    return quickReading.store.snapshot.layoutSwapped ? "after" : "before"
+  })
+  const readingPaneOrder = createMemo(() => (effectiveReadingPanePosition() === "after" ? 1 : 0))
+  const sessionPanelOrder = createMemo(() => (effectiveReadingPanePosition() === "after" ? 0 : 1))
 
   onMount(() => {
     const syncRowWidth = () => {
@@ -551,6 +615,14 @@ export default function Page(props: {
   const openedTabs = tabState.openedTabs
   const activeTab = tabState.activeTab
   const activeFileTab = tabState.activeFileTab
+  const activeFilePath = createMemo(() => {
+    const tab = activeFileTab()
+    if (!tab) return
+    return file.pathFromTab(tab)
+  })
+  const quickReadingController = useQuickReadingController({
+    activeFilePath,
+  })
   const revertMessageID = createMemo(() => info()?.revert?.messageID)
   const messages = createMemo(() => (params.id ? (sync.data.message[params.id] ?? []) : []))
   const messagesReady = createMemo(() => {
@@ -601,6 +673,35 @@ export default function Page(props: {
 
     const path = file.pathFromTab(tab)
     if (path) file.load(path)
+  })
+
+  const readingPane = createMemo(() => {
+    if (props.readingPane) return propReadingPane()
+    if (!quickReadingController.active()) return undefined
+
+    return (
+      <QuickReadingPanel
+        url={quickReadingController.pdfUrl()}
+        authHeader={quickReadingController.authHeader()}
+        width={readingPaneWidth()}
+        minWidth={quickReadingLayout.pdfMinWidth()}
+        maxWidth={Math.max(quickReadingLayout.pdfMinWidth(), quickReadingLayout.pdfMaxWidth())}
+        page={quickReadingController.page()}
+        layoutSwapped={quickReadingController.layoutSwapped()}
+        onPageChange={quickReadingController.handlePageChange}
+        onDocumentInfo={quickReadingController.handleDocumentInfo}
+        onTextSelectionAction={quickReadingController.handleTextSelectionAction}
+        onImageSelectionAction={quickReadingController.handleImageSelectionAction}
+        onSwapLayout={quickReadingController.toggleLayoutSwapped}
+        onStartFirstRead={quickReadingController.openFirstRead}
+        onOpenSettings={quickReadingController.openSettings}
+        onResizeWidth={quickReadingLayout.handleResizeWidth}
+        resizeHandleEnabled={
+          quickReadingLayout.layoutMode() !== "review-right" && quickReadingLayout.layoutMode() !== "review-tree-right"
+        }
+        sizing={size}
+      />
+    )
   })
 
   createEffect(
@@ -2057,7 +2158,23 @@ export default function Page(props: {
   return (
     <div class="relative bg-background-base size-full overflow-hidden flex flex-col">
       <SessionHeader />
-      <div ref={rowRef} class="flex-1 min-h-0 flex flex-col md:flex-row">
+      <Show when={params.id && quickReadingController.pdfPath() && quickReadingController.pdfFileName()}>
+        <QuickReadingFirstReadGate
+          open={quickReadingController.firstReadOpen()}
+          sessionID={params.id!}
+          pdfPath={quickReadingController.pdfPath()!}
+          pdfFileName={quickReadingController.pdfFileName()!}
+          totalPages={quickReadingController.totalPages()}
+          onOpenChange={quickReadingController.setFirstReadOpen}
+        />
+      </Show>
+      <div
+        ref={(el) => {
+          rowRef = el
+          quickReadingLayout.setRowRef(el)
+        }}
+        class="flex-1 min-h-0 flex flex-col md:flex-row"
+      >
         <Show when={!isDesktop() && !!params.id}>
           <Tabs value={store.mobileTab} class="h-auto">
             <Tabs.List>
@@ -2088,7 +2205,7 @@ export default function Page(props: {
             class="relative flex min-h-0 shrink-0 overflow-hidden"
             style={{ width: `${effectiveCompositeWidth()}px` }}
           >
-            <Show when={props.readingPanePosition !== "after"}>
+            <Show when={effectiveReadingPanePosition() !== "after"}>
               <div class="min-h-0 shrink-0" style={{ order: String(readingPaneOrder()) }}>
                 {readingPane()}
               </div>
@@ -2208,8 +2325,9 @@ export default function Page(props: {
               <Show
                 when={
                   readingModeActive() &&
-                  props.onReadingSessionResize &&
-                  (props.readingSessionResizeMax ?? 0) > (props.readingSessionResizeMin ?? 0)
+                  (propReadingModeActive()
+                    ? !!props.onReadingSessionResize && readingSessionResizeMax() > readingSessionResizeMin()
+                    : readingSessionResizeMax() > readingSessionResizeMin())
                 }
               >
                 <div class="absolute inset-y-0 right-0 z-10 w-0 overflow-visible" onPointerDown={() => size.start()}>
@@ -2217,21 +2335,22 @@ export default function Page(props: {
                   <ResizeHandle
                     direction="horizontal"
                     class="after:bg-border-base/90"
-                    size={Math.max(0, props.readingSessionResizeSize ?? 0)}
-                    min={Math.max(0, props.readingSessionResizeMin ?? 0)}
-                    max={Math.max(
-                      Math.max(0, props.readingSessionResizeMin ?? 0),
-                      props.readingSessionResizeMax ?? 0,
-                    )}
+                    size={readingSessionResizeSize()}
+                    min={readingSessionResizeMin()}
+                    max={readingSessionResizeMax()}
                     onResize={(width) => {
                       size.touch()
-                      props.onReadingSessionResize?.(width)
+                      if (propReadingModeActive()) {
+                        props.onReadingSessionResize?.(width)
+                        return
+                      }
+                      quickReadingLayout.handleSessionResize(width)
                     }}
                   />
                 </div>
               </Show>
             </div>
-            <Show when={props.readingPanePosition === "after"}>
+            <Show when={effectiveReadingPanePosition() === "after"}>
               <div class="min-h-0 shrink-0" style={{ order: String(readingPaneOrder()) }}>
                 {readingPane()}
               </div>
@@ -2247,7 +2366,11 @@ export default function Page(props: {
                   max={readingCompositeMaxWidth()}
                   onResize={(width) => {
                     size.touch()
-                    props.onReadingCompositeResize?.(width)
+                    if (propReadingModeActive()) {
+                      props.onReadingCompositeResize?.(width)
+                      return
+                    }
+                    quickReadingLayout.handleCompositeResize(width)
                   }}
                 />
               </div>
@@ -2392,7 +2515,7 @@ export default function Page(props: {
           reviewOpenOverride={readingModeActive() ? desktopReviewOpen() : undefined}
           fileOpenOverride={readingModeActive() ? desktopFileTreeOpen() : undefined}
           treeWidthOverride={readingModeActive() ? readingFileTreeWidth() : undefined}
-          fileTreeResizable={readingModeActive() ? props.readingFileTreeResizable : undefined}
+          fileTreeResizable={readingModeActive() ? readingFileTreeResizable() : undefined}
           canReview={canReview}
           diffs={reviewDiffs}
           diffsReady={reviewReady}
@@ -2411,5 +2534,13 @@ export default function Page(props: {
 
       <TerminalPanel />
     </div>
+  )
+}
+
+export default function Page(props: SessionPageProps = {}) {
+  return (
+    <QuickReadingModeProvider>
+      <SessionPageContent {...props} />
+    </QuickReadingModeProvider>
   )
 }
