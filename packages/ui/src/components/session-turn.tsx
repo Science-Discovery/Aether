@@ -455,12 +455,8 @@ export function SessionTurn(
                   <MessageDivider label={assistantExpandLabel()} />
                 </button>
               </Show>
-              <Show when={assistantMessages().length > 0}>
-                <div
-                  data-slot="session-turn-assistant-content"
-                  aria-hidden={working()}
-                  hidden={assistantCollapsed()}
-                >
+              <Show when={assistantMessages().length > 0 && !assistantCollapsed()}>
+                <div data-slot="session-turn-assistant-content" aria-hidden={working()}>
                   <AssistantParts
                     messages={assistantMessages()}
                     showAssistantCopyPartID={assistantCopyPartID()}
