@@ -26,7 +26,7 @@ export const pull = async (input: { url: string; dir: string; path: string; fetc
   const ascii = /^[\x00-\x7F]*$/.test(input.dir)
   const head = ascii ? input.dir : encodeURIComponent(input.dir)
   const req = input.fetch ?? fetch
-  const url = new URL("/file/download", input.url)
+  const url = new URL(`${input.url}/file/download`)
   url.searchParams.set("path", input.path)
   const res = await req(url, {
     headers: {
