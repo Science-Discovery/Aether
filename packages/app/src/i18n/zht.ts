@@ -644,8 +644,8 @@ export const dict = {
   "settings.general.row.followup.description": "選擇後續追問提示是立即引導還是進入佇列等待",
   "settings.general.row.followup.option.queue": "佇列",
   "settings.general.row.followup.option.steer": "引導",
-  "settings.general.row.branchesTab.title": "啟用對話樹",
-  "settings.general.row.branchesTab.description": "在會話清單側欄中內聯顯示對話樹視圖",
+  "settings.general.row.branchesTab.title": "啟用會話樹",
+  "settings.general.row.branchesTab.description": "在會話清單側欄中內聯顯示會話樹視圖",
   "settings.general.row.reasoningSummaries.title": "顯示推理摘要",
   "settings.general.row.reasoningSummaries.description": "在時間軸中顯示模型推理摘要",
 
