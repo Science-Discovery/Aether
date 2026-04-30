@@ -52,6 +52,45 @@ function baseStrip(path: string, base: string) {
   return undefined
 }
 
+const api = [
+  "/agent",
+  "/auth",
+  "/command",
+  "/config",
+  "/cron",
+  "/database",
+  "/doc",
+  "/event",
+  "/experimental",
+  "/file",
+  "/find",
+  "/formatter",
+  "/global",
+  "/instance",
+  "/knowledge",
+  "/log",
+  "/lsp",
+  "/mcp",
+  "/memory",
+  "/mobile",
+  "/path",
+  "/permission",
+  "/project",
+  "/project-directory-meta",
+  "/provider",
+  "/pty",
+  "/question",
+  "/reading-mode",
+  "/session",
+  "/skill",
+  "/tui",
+  "/vcs",
+]
+
+function routed(path: string) {
+  return api.some((route) => path === route || path.startsWith(`${route}/`))
+}
+
 function baseInject(html: string, base: string) {
   const tag = `<base href="${baseHref(base)}"><script>globalThis.__AETHER_BASE_PATH__=${JSON.stringify(base)}</script>`
   return html.includes("<head>") ? html.replace("<head>", `<head>${tag}`) : `${tag}${html}`
@@ -864,18 +903,14 @@ export namespace Server {
     const baseFetch =
       bp === "/"
         ? app.fetch
-        : async (req: Request): Promise<Response> => {
+        : async (req: Request, server: Bun.Server): Promise<Response> => {
             const url = new URL(req.url)
-            const path = url.pathname
-            if (path === "/" || path === bp) {
-              return new Response(null, { status: 302, headers: { Location: baseHref(bp) } })
-            }
-            const stripped = baseStrip(path, bp)
-            if (stripped !== undefined) {
+            const stripped = baseStrip(url.pathname, bp)
+            if (stripped !== undefined && routed(stripped)) {
               url.pathname = stripped
               req = new Request(url.toString(), req)
             }
-            return app.fetch(req)
+            return app.fetch(req, server)
           }
     const args = {
       hostname: opts.hostname,

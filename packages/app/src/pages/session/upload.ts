@@ -203,7 +203,7 @@ export const send = async (input: { url: string; dir: string; target: string; ba
   const ascii = /^[\x00-\x7F]*$/.test(input.dir)
   const head = ascii ? input.dir : encodeURIComponent(input.dir)
   const req = input.fetch ?? fetch
-  const res = await req(new URL(`${input.url}/file/upload`), {
+  const res = await req(new URL("file/upload", `${input.url.replace(/\/+$/, "")}/`), {
     method: "POST",
     headers: {
       "x-opencode-directory": head,
