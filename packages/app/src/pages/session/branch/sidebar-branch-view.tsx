@@ -1,9 +1,10 @@
-import { useNavigate, useParams } from "@solidjs/router"
+import { useLocation, useNavigate, useParams } from "@solidjs/router"
 import type { SessionGraphResult } from "@opencode-ai/sdk/v2"
 import { DropdownMenu } from "@opencode-ai/ui/dropdown-menu"
 import { Icon } from "@opencode-ai/ui/icon"
 import { useGlobalSDK } from "@/context/global-sdk"
 import { useLanguage } from "@/context/language"
+import { useLayout } from "@/context/layout"
 import { useSettings } from "@/context/settings"
 import { errorMessage as formatErrorMessage } from "@/pages/layout/helpers"
 import { For, Match, Show, Switch, createEffect, createMemo, createSignal, onCleanup, onMount } from "solid-js"
@@ -45,8 +46,10 @@ export function SidebarBranchView(props: {
   refreshKey?: string
 }) {
   const params = useParams()
+  const location = useLocation()
   const navigate = useNavigate()
   const globalSDK = useGlobalSDK()
+  const layout = useLayout()
   const settings = useSettings()
   const language = useLanguage()
   const zh = createMemo(() => language.locale() === "zh" || language.locale() === "zht")
@@ -190,7 +193,20 @@ export function SidebarBranchView(props: {
   const openNode = async (node: { sessionID: string; userMessageID?: string }) => {
     if (!params.dir || !node.sessionID) return
     const hash = node.userMessageID ? `#message-${node.userMessageID}` : ""
-    navigate(`/${params.dir}/session/${node.sessionID}${hash}`)
+    if (!node.userMessageID) {
+      navigate(`/${params.dir}/session/${node.sessionID}${hash}`)
+      return
+    }
+    if (props.currentSessionID !== node.sessionID || location.hash !== hash) {
+      navigate(`/${params.dir}/session/${node.sessionID}${hash}`)
+      return
+    }
+    if (!document.getElementById(`message-${node.userMessageID}`)) {
+      navigate(`/${params.dir}/session/${node.sessionID}${hash}`)
+      return
+    }
+    layout.pendingToggle.set(`${params.dir}/${node.sessionID}`, node.userMessageID)
+    return
   }
 
   const startResize = (event: PointerEvent) => {
