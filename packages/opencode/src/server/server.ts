@@ -790,22 +790,23 @@ export namespace Server {
         const reqPath = c.req.path
         const base = basePath()
 
+        // Redirect root or bare base path to base path with trailing slash
+        if (base !== "/" && (reqPath === "/" || reqPath === base)) {
+          return c.redirect(baseHref(base))
+        }
+
+        // Resolve local file path: strip base prefix if present, otherwise use path directly
+        const localPath = baseStrip(reqPath, base) ?? reqPath
+
         // Serve local web assets if available (next to the binary)
         const webDir = nodePath.join(nodePath.dirname(process.execPath), "web")
         const indexPath = nodePath.join(webDir, "index.html")
         const indexFile = Bun.file(indexPath)
-        const localPath = baseStrip(reqPath, base)
-        if ((await indexFile.exists()) && base !== "/" && (reqPath === "/" || reqPath === base)) {
-          return c.redirect(baseHref(base))
-        }
-        if ((await indexFile.exists()) && localPath === undefined) {
-          return c.text("Not found", 404)
-        }
-        const filePath = nodePath.join(webDir, localPath === "/" || localPath === undefined ? "index.html" : localPath)
+        const filePath = nodePath.join(webDir, localPath === "/" ? "index.html" : localPath)
         const localFile = Bun.file(filePath)
         if (await localFile.exists()) {
-          if (nodePath.basename(filePath) === "index.html") return webIndex(c.req.raw, localPath ?? "/", filePath, base)
-          return webResponse(c.req.raw, localPath ?? reqPath, filePath)
+          if (nodePath.basename(filePath) === "index.html") return webIndex(c.req.raw, localPath, filePath, base)
+          return webResponse(c.req.raw, localPath, filePath)
         }
         // SPA fallback: serve index.html for unknown paths
         if (await indexFile.exists()) {
@@ -813,7 +814,7 @@ export namespace Server {
         }
 
         // Fall back to remote proxy
-        const remote = new URL(reqPath, web)
+        const remote = new URL(localPath, web)
         const response = await proxy(remote.toString(), {
           ...c.req,
           headers: {
@@ -859,10 +860,27 @@ export namespace Server {
     onBrowserConnectionChange?: (count: number) => void
   }) {
     const app = createApp(opts)
+    const bp = basePath()
+    const baseFetch =
+      bp === "/"
+        ? app.fetch
+        : async (req: Request): Promise<Response> => {
+            const url = new URL(req.url)
+            const path = url.pathname
+            if (path === "/" || path === bp) {
+              return new Response(null, { status: 302, headers: { Location: baseHref(bp) } })
+            }
+            const stripped = baseStrip(path, bp)
+            if (stripped !== undefined) {
+              url.pathname = stripped
+              req = new Request(url.toString(), req)
+            }
+            return app.fetch(req)
+          }
     const args = {
       hostname: opts.hostname,
       idleTimeout: 0,
-      fetch: app.fetch,
+      fetch: baseFetch,
       websocket: websocket,
       // Raise body limit to 1 GB to support large PDF uploads (default is 128 MB)
       maxRequestBodySize: 1024 * 1024 * 1024,

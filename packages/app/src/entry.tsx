@@ -2,7 +2,7 @@
 
 import { render } from "solid-js/web"
 import { AppBaseProviders, AppInterface } from "@/app"
-import { base } from "@/base-path"
+import { base, href } from "@/base-path"
 import { type Platform, PlatformProvider } from "@/context/platform"
 import { dict as en } from "@/i18n/en"
 import { dict as zh } from "@/i18n/zh"
@@ -153,11 +153,12 @@ const getCurrentUrl = () => {
   if (location.hostname.includes("opencode.ai")) return "http://localhost:4096"
   if (import.meta.env.DEV)
     return `http://${import.meta.env.VITE_OPENCODE_SERVER_HOST ?? "localhost"}:${import.meta.env.VITE_OPENCODE_SERVER_PORT ?? "4096"}`
-  return location.origin
+  const bp = base()
+  return bp === "/" ? location.origin : `${location.origin}${bp}`
 }
 
 const readWebVersion = async () => {
-  return fetch(new URL("/global/web-update/current", getCurrentUrl()))
+  return fetch(new URL(href("/global/web-update/current"), location.origin))
     .then((res) => (res.ok ? res.json() : null))
     .then((data: unknown) => {
       if (!data || typeof data !== "object") return ""
@@ -175,7 +176,7 @@ const getDefaultUrl = () => {
 }
 
 const req = async (path: string, init?: RequestInit) => {
-  const res = await fetch(new URL(path, getCurrentUrl()), init)
+  const res = await fetch(new URL(href(path), location.origin), init)
   if (res.ok) return res
   throw new Error(`Request failed: ${res.status}`)
 }
@@ -216,7 +217,7 @@ const ping = async (alive = true) => {
 }
 
 const release = () => {
-  const url = new URL("/global/ping", getCurrentUrl()).toString()
+  const url = new URL(href("/global/ping"), location.origin).toString()
   const body = JSON.stringify({ id: lease, alive: false })
   if (navigator.sendBeacon) {
     const data = new Blob([body], { type: "application/json" })
