@@ -175,20 +175,21 @@ function useDirectorySearch(args: {
     const base = args.start()
     if (!base) return
 
+    const h = normalizePath(args.home())
+    const isWindowsDrive = /^[A-Za-z]:\//.test(h)
+
     const raw = normalizeDriveRoot(value)
     if (!raw) {
-      const h = args.home()
-      if (/^[A-Za-z]:\//.test(h)) return { directory: "/", path: "" }
-      return { directory: trimTrailing(h), path: "" }
+      if (isWindowsDrive) return { directory: "/", path: "" }
+      return { directory: trimTrailing(args.home()), path: "" }
     }
 
-    const h = args.home()
-    if (raw === "~") return { directory: trimTrailing(h || base), path: "" }
-    if (raw.startsWith("~/")) return { directory: trimTrailing(h || base), path: raw.slice(2) }
+    if (raw === "~") return { directory: trimTrailing(args.home() || base), path: "" }
+    if (raw.startsWith("~/")) return { directory: trimTrailing(args.home() || base), path: raw.slice(2) }
 
     const root = rootOf(raw)
     if (root) return { directory: trimTrailing(root), path: raw.slice(root.length) }
-    return { directory: trimTrailing(base), path: raw }
+    return { directory: trimTrailing(isWindowsDrive ? "/" : base), path: raw }
   }
 
   const dirs = async (dir: string) => {
