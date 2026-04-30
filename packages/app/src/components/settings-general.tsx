@@ -167,24 +167,23 @@ export const SettingsGeneral: Component = () => {
           return
         }
 
-        const actions =
-          platform.update
-            ? [
-                {
-                  label: language.t("update.install"),
-                  onClick: install,
-                },
-                {
-                  label: language.t("toast.update.action.notYet"),
-                  onClick: "dismiss" as const,
-                },
-              ]
-            : [
-                {
-                  label: language.t("toast.update.action.notYet"),
-                  onClick: "dismiss" as const,
-                },
-              ]
+        const actions = platform.update
+          ? [
+              {
+                label: language.t("update.install"),
+                onClick: install,
+              },
+              {
+                label: language.t("toast.update.action.notYet"),
+                onClick: "dismiss" as const,
+              },
+            ]
+          : [
+              {
+                label: language.t("toast.update.action.notYet"),
+                onClick: "dismiss" as const,
+              },
+            ]
 
         showToast({
           persistent: true,
@@ -290,6 +289,7 @@ export const SettingsGeneral: Component = () => {
               if (!option) return
               const model = option.value || undefined
               const before = globalSync.data.config.model
+              if (model === before) return
               globalSync.set("config", "model", model)
               globalSync.updateConfig({ model }).catch((err: unknown) => {
                 globalSync.set("config", "model", before)
@@ -318,6 +318,7 @@ export const SettingsGeneral: Component = () => {
               if (!option) return
               const small_model = option.value || undefined
               const before = globalSync.data.config.small_model
+              if (small_model === before) return
               globalSync.set("config", "small_model", small_model)
               globalSync.updateConfig({ small_model }).catch((err: unknown) => {
                 globalSync.set("config", "small_model", before)
