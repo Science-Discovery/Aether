@@ -232,6 +232,7 @@ export const SettingsGeneral: Component = () => {
     { value: "iosevka", label: "font.option.iosevka" },
     { value: "jetbrains-mono", label: "font.option.jetbrainsMono" },
     { value: "meslo-lgs", label: "font.option.mesloLgs" },
+    { value: "monaco", label: "font.option.monaco" },
     { value: "roboto-mono", label: "font.option.robotoMono" },
     { value: "source-code-pro", label: "font.option.sourceCodePro" },
     { value: "ubuntu-mono", label: "font.option.ubuntuMono" },

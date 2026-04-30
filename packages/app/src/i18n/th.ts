@@ -685,6 +685,7 @@ export const dict = {
   "font.option.robotoMono": "Roboto Mono",
   "font.option.sourceCodePro": "Source Code Pro",
   "font.option.ubuntuMono": "Ubuntu Mono",
+  "font.option.monaco": "Monaco",
   "font.option.geistMono": "Geist Mono",
   "sound.option.none": "ไม่มี",
   "sound.option.alert01": "เสียงเตือน 01",

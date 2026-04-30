@@ -590,8 +590,7 @@ export const dict = {
   "settings.general.row.appearance.title": "Erscheinungsbild",
   "settings.general.row.appearance.description": "Anpassen, wie Aether auf Ihrem Gerät aussieht",
   "settings.general.row.colorScheme.title": "Farbschema",
-  "settings.general.row.colorScheme.description":
-    "Wählen Sie, ob Aether dem System-, hellen oder dunklen Thema folgt",
+  "settings.general.row.colorScheme.description": "Wählen Sie, ob Aether dem System-, hellen oder dunklen Thema folgt",
   "settings.general.row.theme.title": "Thema",
   "settings.general.row.theme.description": "Das Thema von Aether anpassen.",
   "settings.general.row.font.title": "Schriftart",
@@ -637,6 +636,7 @@ export const dict = {
   "font.option.robotoMono": "Roboto Mono",
   "font.option.sourceCodePro": "Source Code Pro",
   "font.option.ubuntuMono": "Ubuntu Mono",
+  "font.option.monaco": "Monaco",
   "font.option.geistMono": "Geist Mono",
   "sound.option.none": "Keine",
   "sound.option.alert01": "Alarm 01",
