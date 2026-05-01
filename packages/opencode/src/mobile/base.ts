@@ -1720,6 +1720,7 @@ export abstract class MobileManagerBase {
     this._busUnsubs.push(() => GlobalBus.off("event", onPermission))
 
     this._globalBusListener = (event) => {
+      if (event.directory === "global") this._modelList = []
       const dir = event.directory ? this.normDir(event.directory) : null
       if (!dir || !(dir in this._hiddenDirs)) return
       delete this._hiddenDirs[dir]
