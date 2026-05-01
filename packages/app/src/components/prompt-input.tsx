@@ -1607,6 +1607,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                       <Icon name="shield" size="small" classList={{ "text-icon-success-base": accepting() }} />
                     </Button>
                   </TooltipKeybind>
+                  <SteerButton />
                   <div
                     style={{
                       opacity: buttonsSpring(),
@@ -1617,7 +1618,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                   >
                     <KnowledgeButton />
                   </div>
-                  <Tooltip placement="left" gutter={4} value={language.t("knowledgeBase.defaultSkills")}>
+                  <Tooltip placement="top" gutter={4} value={language.t("knowledgeBase.defaultSkills")}>
                     <Button
                       variant="ghost"
                       size="normal"
