@@ -465,6 +465,20 @@
     return String(text || "").replace(/\s+/g, " ").trim();
   }
 
+  function validRect(rect) {
+    return !!rect && (rect.width || rect.height) && Number.isFinite(rect.top) && Number.isFinite(rect.left);
+  }
+
+  function anchorRect(selection, range) {
+    const rects = Array.from(range.getClientRects()).filter(validRect);
+    if (!rects.length) {
+      const rect = range.getBoundingClientRect();
+      return validRect(rect) ? rect : null;
+    }
+    const forward = selection.focusNode === range.endContainer && selection.focusOffset === range.endOffset;
+    return forward ? rects[rects.length - 1] : rects[0];
+  }
+
   function getSelectionContext() {
     if (!selectionActionsEnabled()) return null;
 
@@ -482,10 +496,8 @@
 
     if (!startPageNumber || !endPageNumber) return null;
 
-    const rect = range.getBoundingClientRect();
-    if ((!rect.width && !rect.height) || !Number.isFinite(rect.top) || !Number.isFinite(rect.left)) {
-      return null;
-    }
+    const rect = anchorRect(selection, range);
+    if (!rect) return null;
 
     return {
       startPage: Math.min(startPageNumber, endPageNumber),
@@ -852,6 +864,21 @@
     }
   }
 
+  function closeSidebar(app) {
+    const outerContainer = document.getElementById("outerContainer");
+    withSidebarTrackingSuppressed(function () {
+      app?.pdfSidebar?.close?.();
+    });
+    outerContainer?.classList.remove("sidebarOpen", "sidebarMoving", "sidebarResizing");
+  }
+
+  function setSidebarView(app) {
+    if (!app?.pdfSidebar) return;
+    withSidebarTrackingSuppressed(function () {
+      app.pdfSidebar.switchView?.(outlineSidebarView());
+    });
+  }
+
   function hasOutline() {
     const outline = document.getElementById("outlineView");
     return !!outline && outline.children.length > 0;
@@ -889,23 +916,17 @@
   function applyDocumentDefaults(config) {
     const app = window.PDFViewerApplication;
     if (!app?.pdfViewer) return;
-    const outerContainer = document.getElementById("outerContainer");
 
     app.pdfCursorTools?.switchTool?.(0);
     app.pdfViewer.scrollMode = mapScrollMode(config.scrollMode);
     app.pdfViewer.spreadMode = 0;
     app.pdfViewer.currentScaleValue = config.scale;
+    setSidebarView(app);
 
     if (config.mode === "full") {
-      withSidebarTrackingSuppressed(function () {
-        app.pdfSidebar?.close?.();
-      });
-      outerContainer?.classList.remove("sidebarOpen", "sidebarMoving", "sidebarResizing");
+      closeSidebar(app);
     } else {
-      withSidebarTrackingSuppressed(function () {
-        app.pdfSidebar?.close?.();
-      });
-      outerContainer?.classList.remove("sidebarOpen", "sidebarMoving", "sidebarResizing");
+      closeSidebar(app);
     }
 
     applyPosition(config);
@@ -954,10 +975,8 @@
 
     eventBus.on("outlineloaded", function () {
       if (!currentConfig || currentConfig.mode !== "full") return;
-      withSidebarTrackingSuppressed(function () {
-        app.pdfSidebar?.close?.();
-      });
-      document.getElementById("outerContainer")?.classList.remove("sidebarOpen", "sidebarMoving", "sidebarResizing");
+      setSidebarView(app);
+      closeSidebar(app);
     });
 
     const pdf2md = document.getElementById("aetherPdf2md");
@@ -1139,9 +1158,11 @@
     };
     hideSelectionUi();
     applyChrome(config);
+    closeSidebar(app);
 
     if (app.pdfDocument) {
       await app.close();
+      closeSidebar(app);
     }
 
     app.eventBus.on("documentloaded", function onDocumentLoaded() {
@@ -1223,6 +1244,7 @@
     "load",
     function () {
       applyTheme();
+      PDFViewerApplicationOptions.set("sidebarViewOnLoad", 0);
       PDFViewerApplicationOptions.set("viewOnLoad", 1);
       PDFViewerApplicationOptions.set("workerSrc", WORKER_SRC);
       PDFViewerApplicationOptions.set("cMapUrl", C_MAP_URL);

@@ -3,6 +3,7 @@ import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { Dialog } from "@opencode-ai/ui/dialog"
 import { showToast } from "@opencode-ai/ui/toast"
 import { type Component, createEffect, createMemo, createSignal, onCleanup } from "solid-js"
+import { DialogPreReadLimit } from "@/components/dialog-pre-read-limit"
 import { type FollowupDraft, sendFollowupDraft } from "@/components/prompt-input/submit"
 import { useGlobalSync } from "@/context/global-sync"
 import { useLanguage } from "@/context/language"
@@ -49,7 +50,7 @@ function build(input: { prompt: string; start: number; end: number }) {
   return [
     input.prompt,
     "",
-    "You are performing the quick reading mode pre-read for the user.",
+    "You are performing the PDF pre-read for the user.",
     `The attached PDF contains pages ${input.start}-${input.end} from the user's current document.`,
     "Only use the attached PDF in this message as your source.",
     "Do not call tools. Do not search the workspace. Do not look for the original PDF file.",
@@ -71,11 +72,13 @@ function text(locale: string, key: string, params?: Record<string, string | numb
     case "order": return zh ? "起始页不能大于结束页。" : "Start page cannot be greater than end page."
     case "bounds": return zh ? `页码范围必须在 1-${params?.total ?? ""} 之间。` : `Page range must stay within 1-${params?.total ?? ""}.`
     case "confirm": return zh ? `当前选择共 ${params?.count ?? ""} 页，超过推荐的 ${params?.limit ?? PRE_READ_LIMIT} 页，预读可能更慢且效果不稳定。是否继续？` : `You selected ${params?.count ?? ""} pages, which exceeds the recommended ${params?.limit ?? PRE_READ_LIMIT}-page limit. Pre-read may be slower and less reliable. Continue?`
+    case "confirmTitle": return zh ? "确认预读范围" : "Confirm pre-read range"
     case "cancel": return zh ? "跳过本次" : "Skip this time"
     case "submit": return zh ? "开始预读" : "Start pre-read"
     case "submitting": return zh ? "准备中..." : "Preparing..."
     case "timeline": return zh ? `开始预读第 ${params?.start ?? ""}-${params?.end ?? ""} 页` : `Start pre-reading pages ${params?.start ?? ""}-${params?.end ?? ""}`
     case "preparing": return zh ? "正在准备预读..." : "Preparing pre-read..."
+    case "continue": return zh ? "继续预读" : "Continue"
   }
   return key
 }
@@ -144,23 +147,11 @@ const Gate: Component<{
     return blob
   }
 
-  const submit = async () => {
-    if (sending()) return
+  const queue = async (from: number, to: number) => {
     const model = local.model.current()
     const agent = local.agent.current()
     if (!model || !agent) {
       showToast({ variant: "error", title: language.t("common.requestFailed"), description: language.t("prompt.toast.modelAgentRequired.description") })
-      return
-    }
-    const from = start()
-    const to = end()
-    const err = issue()
-    if (err) {
-      setError(err)
-      return
-    }
-    const count = to - from + 1
-    if (count > PRE_READ_LIMIT && !window.confirm(text(language.locale(), "confirm", { count, limit: PRE_READ_LIMIT }))) {
       return
     }
     setSending(true)
@@ -206,6 +197,31 @@ const Gate: Component<{
       })
       setSending(false)
     }
+  }
+
+  const submit = async () => {
+    if (sending()) return
+    const from = start()
+    const to = end()
+    const err = issue()
+    if (err) {
+      setError(err)
+      return
+    }
+    const count = to - from + 1
+    if (count > PRE_READ_LIMIT) {
+      dialog.show(() => (
+        <DialogPreReadLimit
+          title={text(language.locale(), "confirmTitle")}
+          description={text(language.locale(), "confirm", { count, limit: PRE_READ_LIMIT })}
+          cancel={language.t("common.cancel")}
+          confirm={text(language.locale(), "continue")}
+          onConfirm={() => void queue(from, to)}
+        />
+      ))
+      return
+    }
+    await queue(from, to)
   }
 
   const dismiss = () => {

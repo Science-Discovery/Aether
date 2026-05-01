@@ -4,6 +4,7 @@ import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { Dialog } from "@opencode-ai/ui/dialog"
 import { showToast } from "@opencode-ai/ui/toast"
 import { type Component, createEffect, createMemo, createSignal, onCleanup } from "solid-js"
+import { DialogPreReadLimit } from "@/components/dialog-pre-read-limit"
 import { sendFollowupDraft, type FollowupDraft } from "@/components/prompt-input/submit"
 import { useGlobalSync } from "@/context/global-sync"
 import { useLanguage } from "@/context/language"
@@ -99,6 +100,8 @@ function firstReadLabel(
       return zh
         ? `\u5f53\u524d\u9009\u62e9\u5171 ${params?.count ?? ""} \u9875\uff0c\u8d85\u8fc7\u5efa\u8bae\u7684 ${params?.limit ?? PRE_READ_LIMIT} \u9875\uff0c\u9884\u8bfb\u53ef\u80fd\u66f4\u6162\u4e14\u6548\u679c\u4e0d\u7a33\u5b9a\u3002\u662f\u5426\u7ee7\u7eed\uff1f`
         : `You selected ${params?.count ?? ""} pages, which exceeds the recommended ${params?.limit ?? PRE_READ_LIMIT}-page limit. Pre-read may be slower and less reliable. Continue?`
+    case "reading.firstRead.confirmTitle":
+      return zh ? "\u786e\u8ba4\u9884\u8bfb\u8303\u56f4" : "Confirm pre-read range"
     case "reading.firstRead.start":
       return zh ? "\u5f00\u59cb\u9884\u8bfb" : "Start pre-read"
     case "reading.firstRead.starting":
@@ -113,6 +116,8 @@ function firstReadLabel(
         : "The current model does not support PDF input. Switch to a PDF-capable model."
     case "reading.firstRead.preparing":
       return zh ? "\u6b63\u5728\u51c6\u5907\u9884\u8bfb..." : "Preparing pre-read..."
+    case "reading.firstRead.continue":
+      return zh ? "\u7ee7\u7eed\u9884\u8bfb" : "Continue"
   }
   return language.t(key as never, params as never)
 }
@@ -177,9 +182,7 @@ const ReadingFirstReadDialog: Component<{
     return response.blob()
   }
 
-  const handleStart = async () => {
-    if (sending()) return
-
+  const queue = async (start: number, end: number) => {
     const currentModel = local.model.current()
     const currentAgent = local.agent.current()
     const variant = local.model.variant.current()
@@ -190,18 +193,6 @@ const ReadingFirstReadDialog: Component<{
         title: language.t("common.requestFailed"),
         description: language.t("prompt.toast.modelAgentRequired.description"),
       })
-      return
-    }
-
-    const start = startPage()
-    const end = endPage()
-    const validation = rangeError()
-    if (validation) {
-      setError(validation)
-      return
-    }
-    const count = end - start + 1
-    if (count > PRE_READ_LIMIT && !window.confirm(firstReadLabel(language, "reading.firstRead.confirm", { count, limit: PRE_READ_LIMIT }))) {
       return
     }
 
@@ -268,6 +259,31 @@ const ReadingFirstReadDialog: Component<{
         description: formatServerError(cause, language.t),
       })
     }
+  }
+
+  const handleStart = async () => {
+    if (sending()) return
+    const start = startPage()
+    const end = endPage()
+    const validation = rangeError()
+    if (validation) {
+      setError(validation)
+      return
+    }
+    const count = end - start + 1
+    if (count > PRE_READ_LIMIT) {
+      dialog.show(() => (
+        <DialogPreReadLimit
+          title={firstReadLabel(language, "reading.firstRead.confirmTitle")}
+          description={firstReadLabel(language, "reading.firstRead.confirm", { count, limit: PRE_READ_LIMIT })}
+          cancel={language.t("common.cancel")}
+          confirm={firstReadLabel(language, "reading.firstRead.continue")}
+          onConfirm={() => void queue(start, end)}
+        />
+      ))
+      return
+    }
+    await queue(start, end)
   }
 
   const handleDismiss = () => {
