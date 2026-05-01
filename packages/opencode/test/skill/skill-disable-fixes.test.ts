@@ -5,7 +5,7 @@ import { Config } from "../../src/config/config"
 import { Skill } from "../../src/skill"
 import { Global } from "../../src/global"
 import { Instance } from "../../src/project/instance"
-import { PROJECT } from "../../src/persist/naming"
+import { PROJECT, LEGACY_PROJECT } from "../../src/persist/naming"
 import { tmpdir } from "../fixture/fixture"
 
 afterEach(async () => {
@@ -162,6 +162,36 @@ describe("Fix 1: path-based disabled storage", () => {
     } finally {
       restoreConfig()
       clearSpy.mockRestore()
+    }
+  })
+
+  test("disabling .aether skill falls back to .opencode skill with same name", async () => {
+    await using projectTmp = await tmpdir({ git: true })
+    await using homeTmp = await tmpdir()
+    await using configTmp = await tmpdir()
+    const restoreHome = patchHome(homeTmp.path)
+    const restoreConfig = patchGlobalConfig(configTmp.path)
+    try {
+      const aetherSkillDir = path.join(projectTmp.path, PROJECT, "skills", "shared-skill")
+      const opencodeSkillDir = path.join(projectTmp.path, LEGACY_PROJECT, "skills", "shared-skill")
+      await makeSkill(aetherSkillDir, "shared-skill")
+      await makeSkill(opencodeSkillDir, "shared-skill")
+
+      // Disable only the .aether version
+      await writeAetherConfig(configTmp.path, { skills: { disabled: [aetherSkillDir] } })
+
+      await Instance.provide({
+        directory: projectTmp.path,
+        fn: async () => {
+          const all = await Skill.all()
+          const found = all.find((s) => s.name === "shared-skill")
+          expect(found).toBeDefined()
+          expect(found?.location).toContain(LEGACY_PROJECT)
+        },
+      })
+    } finally {
+      restoreHome()
+      restoreConfig()
     }
   })
 

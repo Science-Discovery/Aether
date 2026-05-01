@@ -219,7 +219,7 @@ export namespace Skill {
   // ── Layer 2: Disk snapshot (mirrors Hermes _load_skills_snapshot) ─────────
 
   // mirrors Hermes _SKILLS_SNAPSHOT_VERSION
-  const SKILLS_SNAPSHOT_VERSION = 2
+  const SKILLS_SNAPSHOT_VERSION = 3
 
   type Scope = "global" | "project"
   type Source = {
@@ -230,7 +230,7 @@ export namespace Skill {
     order: number
   }
   type SnapshotSkill = Info & { order: number }
-  type ScanState = { skills: Record<string, SnapshotSkill>; dirs: Set<string> }
+  type ScanState = { skills: Record<string, SnapshotSkill[]>; dirs: Set<string> }
 
   function globalSnapshotPath(): string {
     return path.join(Global.Path.cache, ".skills_prompt_snapshot.global.json")
@@ -353,14 +353,6 @@ export namespace Skill {
     const parsed = Info.pick({ name: true, description: true }).safeParse(md.data)
     if (!parsed.success) return
 
-    if (state.skills[parsed.data.name]) {
-      log.warn("duplicate skill name", {
-        name: parsed.data.name,
-        existing: state.skills[parsed.data.name].location,
-        duplicate: match,
-      })
-    }
-
     const conditions = extractSkillConditions((md.data as any)?.metadata?.hermes)
 
     const rawPlatforms = (md.data as any)?.platforms
@@ -368,7 +360,8 @@ export namespace Skill {
       Array.isArray(rawPlatforms) && rawPlatforms.length ? rawPlatforms.map(String) : undefined
 
     state.dirs.add(path.dirname(match))
-    state.skills[parsed.data.name] = {
+    if (!state.skills[parsed.data.name]) state.skills[parsed.data.name] = []
+    state.skills[parsed.data.name].push({
       name: parsed.data.name,
       description: parsed.data.description,
       location: match,
@@ -376,7 +369,7 @@ export namespace Skill {
       conditions,
       platforms,
       order,
-    }
+    })
   }
 
   const scan = async (state: ScanState, src: Source) => {
@@ -399,9 +392,10 @@ export namespace Skill {
     return "global"
   }
 
-  function mergeSkills(global: SnapshotSkill[], project: SnapshotSkill[]) {
+  function mergeSkills(global: SnapshotSkill[], project: SnapshotSkill[], disabled: Set<string>) {
     const skills: Record<string, Info> = {}
     for (const item of [...global, ...project].toSorted((a, b) => a.order - b.order)) {
+      if (disabled.has(path.dirname(item.location))) continue
       skills[item.name] = {
         name: item.name,
         description: item.description,
@@ -599,7 +593,7 @@ export namespace Skill {
       (await (async () => {
         console.log(`[skill cache] snapshot miss (global), full scan`)
         const scanned = await scanSources(sources, "global")
-        const list = Object.values(scanned.skills)
+        const list = Object.values(scanned.skills).flat()
         await writeSkillsSnapshot(globalPath, globalManifest, list)
         return list
       })())
@@ -611,19 +605,13 @@ export namespace Skill {
       (await (async () => {
         console.log(`[skill cache] snapshot miss (project), full scan`)
         const scanned = await scanSources(sources, "project")
-        const list = Object.values(scanned.skills)
+        const list = Object.values(scanned.skills).flat()
         await writeSkillsSnapshot(projectPath, projectManifest, list)
         return list
       })())
     if (cachedProject) console.log(`[skill cache] snapshot hit (project), count=${cachedProject.length}`)
 
-    const merged = mergeSkills(globalSkills, project)
-    for (const [name, skill] of Object.entries(merged)) {
-      if (disabled.has(path.dirname(skill.location))) {
-        delete merged[name]
-        log.info("skill disabled by config", { name, location: skill.location })
-      }
-    }
+    const merged = mergeSkills(globalSkills, project, disabled)
 
     return {
       skills: merged,
