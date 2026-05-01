@@ -8,6 +8,11 @@ import { networkInterfaces } from "os"
 import { Global } from "../../global"
 import nodePath from "path"
 import { Lease } from "../../server/lease"
+import { Instance } from "../../project/instance"
+import { FeishuManager } from "../../mobile/feishu"
+import { QQManager } from "../../mobile/qq"
+import { WeChatManager } from "../../mobile/wechat"
+import { Cron } from "../../cron"
 
 function getNetworkIPs() {
   const nets = networkInterfaces()
@@ -36,6 +41,22 @@ export const WebCommand = cmd({
   builder: (yargs) => withNetworkOptions(yargs),
   describe: "start opencode server and open web interface",
   handler: async (args) => {
+    async function gracefulShutdown(server: { stop: (close?: boolean) => Promise<void> }) {
+      const FORCE_EXIT_MS = 10_000
+      const timer = setTimeout(() => {
+        process.exit(0)
+      }, FORCE_EXIT_MS).unref()
+      await Promise.all([
+        Instance.disposeAll().catch(() => {}),
+        Cron.stop().catch(() => {}),
+        FeishuManager.stop().catch(() => {}),
+        QQManager.stop().catch(() => {}),
+        WeChatManager.stop().catch(() => {}),
+      ])
+      await server.stop(true).catch(() => {})
+      clearTimeout(timer)
+      process.exit(0)
+    }
     process.env.OPENCODE_EXPERIMENTAL_FILEWATCHER ??= "true"
     if (!Flag.OPENCODE_SERVER_PASSWORD) {
       UI.println(UI.Style.TEXT_WARNING_BOLD + "!  " + "OPENCODE_SERVER_PASSWORD is not set; server is unsecured.")
@@ -75,7 +96,7 @@ export const WebCommand = cmd({
                 return
               }
               clearInterval(connectionChecker)
-              process.exit(0)
+              void gracefulShutdown(server)
             }, IDLE_TIMEOUT_MS)
         }
       }, 1_000)
