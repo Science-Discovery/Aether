@@ -236,8 +236,15 @@ export const SkillManageTool = Tool.define("skill_manage", async () => {
 
       const globalCfg = await Config.getGlobal()
       if (Config.getDisabledPaths(globalCfg.skills?.disabled).has(skillDir)) {
-        console.log(`[skill manage fail] call=${call} action=${action} name=${name} sig=${sig} reason=disabled`)
-        throw new Error(`Skill "${name}" is currently disabled. Enable it first before making changes.`)
+        // Stale entry: the shadow dir no longer exists (skill was disabled then deleted).
+        // The same shadow path now belongs to a different source skill — clean it up.
+        if (!(await dirExists(skillDir))) {
+          console.log(`[skill manage] removing stale disabled entry path=${skillDir}`)
+          await Config.toggleSkill(skillDir, true)
+        } else {
+          console.log(`[skill manage fail] call=${call} action=${action} name=${name} sig=${sig} reason=disabled`)
+          throw new Error(`Skill "${name}" is currently disabled. Enable it first before making changes.`)
+        }
       }
 
       log.info("skill_manage called", {
