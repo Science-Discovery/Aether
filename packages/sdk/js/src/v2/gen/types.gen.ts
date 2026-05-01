@@ -1855,6 +1855,7 @@ export type Model = {
     [key: string]: string
   }
   release_date: string
+  disabled?: boolean
   variants?: {
     [key: string]: {
       [key: string]: unknown
@@ -5120,6 +5121,7 @@ export type ProviderListResponses = {
           }
           experimental?: boolean
           status?: "alpha" | "beta" | "deprecated"
+          disabled?: boolean
           options: {
             [key: string]: unknown
           }

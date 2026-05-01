@@ -3017,6 +3017,7 @@ export type ProviderListResponses = {
           }
           experimental?: boolean
           status?: "alpha" | "beta" | "deprecated"
+          disabled?: boolean
           options: {
             [key: string]: unknown
           }

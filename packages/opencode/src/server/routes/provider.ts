@@ -235,14 +235,16 @@ export const ProviderRoutes = lazy(() =>
           connected,
         )
         for (const [providerID, provider] of Object.entries(providers)) {
-          for (const modelID of Object.keys(provider.models)) {
-            if (disabledModels.has(`${providerID}/${modelID}`) || disabledModels.has(modelID))
-              delete provider.models[modelID]
+          for (const [modelID, model] of Object.entries(provider.models)) {
+            if (disabledModels.has(`${providerID}/${modelID}`) || disabledModels.has(modelID)) model.disabled = true
           }
         }
         return c.json({
           all: Object.values(providers),
-          default: mapValues(providers, (item) => Provider.sort(Object.values(item.models))[0].id),
+          default: mapValues(providers, (item) => {
+            const enabled = Object.values(item.models).filter((m) => !m.disabled)
+            return enabled.length > 0 ? Provider.sort(enabled)[0].id : ""
+          }),
           connected: await Provider.connected(),
         })
       },

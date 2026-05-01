@@ -79,6 +79,9 @@ export namespace Config {
     if (target.instructions && source.instructions) {
       merged.instructions = Array.from(new Set([...target.instructions, ...source.instructions]))
     }
+    if (target.disabled_models && source.disabled_models) {
+      merged.disabled_models = Array.from(new Set([...target.disabled_models, ...source.disabled_models]))
+    }
     return merged
   }
 
