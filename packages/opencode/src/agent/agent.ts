@@ -25,6 +25,24 @@ import { makeRuntime } from "@/effect/run-service"
 import { LEGACY_PROJECT, PROJECT } from "@/persist/naming"
 
 export namespace Agent {
+  const FallbackModelEntry = z.object({
+    model: z.string(),
+    variant: z.string().optional(),
+    temperature: z.number().optional(),
+    top_p: z.number().optional(),
+    thinking: z.object({ type: z.string(), budgetTokens: z.number().optional() }).optional(),
+    reasoningEffort: z.string().optional(),
+    maxTokens: z.number().optional(),
+  })
+  type FallbackModelEntry = z.infer<typeof FallbackModelEntry>
+
+  const ExitOption = z.object({
+    label: z.string(),
+    agent: z.string(),
+    description: z.string(),
+  })
+  type ExitOption = z.infer<typeof ExitOption>
+
   export const Info = z
     .object({
       name: z.string(),
@@ -44,8 +62,15 @@ export namespace Agent {
         .optional(),
       variant: z.string().optional(),
       prompt: z.string().optional(),
+      promptAppend: z.string().optional(),
       options: z.record(z.string(), z.any()),
       steps: z.number().int().positive().optional(),
+      fallbackModels: z.array(z.union([z.string(), FallbackModelEntry])).optional(),
+      mcp: z.record(z.string(), z.boolean()).optional(),
+      enterDescription: z.string().optional(),
+      exitDescription: z.string().optional(),
+      exitOptions: z.array(ExitOption).optional(),
+      outputDir: z.string().optional(),
     })
     .meta({
       ref: "Agent",
@@ -250,6 +275,7 @@ export namespace Agent {
             if (value.model) item.model = Provider.parseModel(value.model)
             item.variant = value.variant ?? item.variant
             item.prompt = value.prompt ?? item.prompt
+            item.promptAppend = value.prompt_append ?? item.promptAppend
             item.description = value.description ?? item.description
             item.temperature = value.temperature ?? item.temperature
             item.topP = value.top_p ?? item.topP
@@ -260,6 +286,12 @@ export namespace Agent {
             item.steps = value.steps ?? item.steps
             item.options = mergeDeep(item.options, value.options ?? {})
             item.permission = Permission.merge(item.permission, Permission.fromConfig(value.permission ?? {}))
+            item.fallbackModels = value.fallback_models ?? item.fallbackModels
+            item.mcp = value.mcp ?? item.mcp
+            item.enterDescription = value.enter_description ?? item.enterDescription
+            item.exitDescription = value.exit_description ?? item.exitDescription
+            item.exitOptions = value.exit_options ?? item.exitOptions
+            item.outputDir = value.output_dir ?? item.outputDir
           }
 
           // Ensure Truncate.GLOB is allowed unless explicitly configured

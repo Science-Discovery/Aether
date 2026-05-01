@@ -57,6 +57,8 @@ import { SKILL_NUDGE_INTERVAL, SKILL_REVIEW_MARKER, spawnBackgroundReview } from
 import { Config } from "../config/config"
 import { Skill } from "../skill"
 import { SkillRefresh } from "./skill-refresh"
+import { Global } from "@/global"
+import { PROJECT } from "@/persist/naming"
 
 // @ts-ignore
 globalThis.AI_SDK_LOG_WARNINGS = false
@@ -1616,6 +1618,40 @@ export namespace SessionPrompt {
           synthetic: true,
         })
       }
+
+      // Generic mode exit: switching from a custom primary agent to another
+      if (input.agent.exitDescription && input.agent.name !== "build" && input.agent.name !== "plan") {
+        const prevAgent = input.messages.findLast((msg) => msg.info.role === "assistant")
+        if (prevAgent && prevAgent.info.agent === input.agent.name) {
+          // Already in this mode, no switch needed
+        } else if (prevAgent && prevAgent.info.agent !== input.agent.name && prevAgent.info.agent !== "build") {
+          const switchMsg = `<system-reminder>
+Your operational mode has changed from ${prevAgent.info.agent} to ${input.agent.name}.
+You are now in ${input.agent.name} mode. Follow the instructions for this mode.
+</system-reminder>`
+          userMessage.parts.push({
+            id: PartID.ascending(),
+            messageID: userMessage.info.id,
+            sessionID: userMessage.info.sessionID,
+            type: "text",
+            text: switchMsg,
+            synthetic: true,
+          })
+        }
+      }
+
+      // Generic mode entry: entering a custom primary agent with promptAppend
+      if (input.agent.promptAppend && input.agent.mode === "primary") {
+        userMessage.parts.push({
+          id: PartID.ascending(),
+          messageID: userMessage.info.id,
+          sessionID: userMessage.info.sessionID,
+          type: "text",
+          text: input.agent.promptAppend,
+          synthetic: true,
+        })
+      }
+
       return input.messages
     }
 
@@ -1641,6 +1677,38 @@ export namespace SessionPrompt {
       return input.messages
     }
 
+    // Switching from a custom primary agent mode (with exitDescription) to another agent
+    if (assistantMessage?.info.agent && assistantMessage.info.agent !== input.agent.name) {
+      const prevAgent = await Agent.get(assistantMessage.info.agent)
+      if (prevAgent.exitDescription) {
+        let switchMsg = `<system-reminder>
+Your operational mode has changed from ${prevAgent.name} to ${input.agent.name}.
+`
+        if (prevAgent.outputDir) {
+          const session = input.session
+          const outDir = Instance.project.vcs
+            ? path.join(PROJECT, prevAgent.outputDir)
+            : path.relative(Instance.worktree, path.join(Global.Path.data, prevAgent.outputDir))
+          const outFile = path.join(outDir, [session.time.created, session.slug].join("-") + ".md")
+          const full = Instance.project.vcs ? path.join(Instance.worktree, outFile) : outFile
+          const exists = await Filesystem.exists(full)
+          if (exists) {
+            switchMsg += `A ${prevAgent.name} output file exists at ${outFile}. You should reference it.\n`
+          }
+        }
+        switchMsg += `</system-reminder>`
+        userMessage.parts.push({
+          id: PartID.ascending(),
+          messageID: userMessage.info.id,
+          sessionID: userMessage.info.sessionID,
+          type: "text",
+          text: switchMsg,
+          synthetic: true,
+        })
+        return input.messages
+      }
+    }
+
     // Entering plan mode
     if (input.agent.name === "plan" && assistantMessage?.info.agent !== "plan") {
       const plan = Session.plan(input.session)
@@ -1652,11 +1720,11 @@ export namespace SessionPrompt {
         sessionID: userMessage.info.sessionID,
         type: "text",
         text: `<system-reminder>
-Plan mode is active. The user indicated that they do not want you to execute yet -- you MUST NOT make any edits (with the exception of the plan file mentioned below), run any non-readonly tools (including changing configs or making commits), or otherwise make any changes to the system. This supersedes any other instructions you have received.
+Plan mode is active. The user indicated that they do not want you to execute yet -- you MUST NOT make any edits (with the exception of the plan file mentioned below), run any non-readonly tools (including changing configs and making commits), or otherwise make any changes to the system. This supersedes any other instructions you have received.
 
 ## Plan File Info:
 ${exists ? `A plan file already exists at ${plan}. You can read it and make incremental edits using the edit tool.` : `No plan file exists yet. You should create your plan at ${plan} using the write tool.`}
-You should build your plan incrementally by writing to or editing this file. NOTE that this is the only file you are allowed to edit - other than this you are only allowed to take READ-ONLY actions.
+You should build your plan incrementally by writing to or editing this file. NOTE that this is the only file you are allowed to edit - other than this you can only take READ-ONLY actions.
 
 ## Plan Workflow
 
@@ -1715,17 +1783,62 @@ Goal: Write your final plan to the plan file (the only file you can edit).
 
 ### Phase 5: Call plan_exit tool
 At the very end of your turn, once you have asked the user questions and are happy with your final plan file - you should always call plan_exit to indicate to the user that you are done planning.
-This is critical - your turn should only end with either asking the user a question or calling plan_exit. Do not stop unless it's for these 2 reasons.
+This is critical - your turn should only end with either asking the user a question or calling plan_exit. Do not stop unless it's for these 2 of these.
 
 **Important:** Use question tool to clarify requirements/approach, use plan_exit to request plan approval. Do NOT use question tool to ask "Is this plan okay?" - that's what plan_exit does.
 
-NOTE: At any point in time through this workflow you should feel free to ask the user questions or clarifications. Don't make large assumptions about user intent. The goal is to present a well researched plan to the user, and tie any loose ends before implementation begins.
+NOTE: At any point in time in this workflow you should feel free to ask the user questions or clarifications. Don't make large assumptions about user intent. The goal is to present a well researched plan to the user, and tie any loose ends before implementation begins.
 </system-reminder>`,
         synthetic: true,
       })
       userMessage.parts.push(part)
       return input.messages
     }
+
+    // Entering a custom primary agent mode (with enterDescription or promptAppend)
+    if (input.agent.enterDescription || input.agent.promptAppend) {
+      if (assistantMessage?.info.agent !== input.agent.name) {
+        // Inject promptAppend as a synthetic part
+        if (input.agent.promptAppend) {
+          userMessage.parts.push({
+            id: PartID.ascending(),
+            messageID: userMessage.info.id,
+            sessionID: userMessage.info.sessionID,
+            type: "text",
+            text: input.agent.promptAppend,
+            synthetic: true,
+          })
+        }
+
+        // If the agent has an output_dir, inject output file info
+        if (input.agent.outputDir) {
+          const session = input.session
+          const outDir = Instance.project.vcs
+            ? path.join(PROJECT, input.agent.outputDir)
+            : path.relative(Instance.worktree, path.join(Global.Path.data, input.agent.outputDir))
+          const outFile = path.join(outDir, [session.time.created, session.slug].join("-") + ".md")
+          const full = Instance.project.vcs ? path.join(Instance.worktree, outFile) : outFile
+          const exists = await Filesystem.exists(full)
+          if (!exists) await fs.mkdir(path.dirname(full), { recursive: true })
+          userMessage.parts.push({
+            id: PartID.ascending(),
+            messageID: userMessage.info.id,
+            sessionID: userMessage.info.sessionID,
+            type: "text",
+            text: `<system-reminder>
+${input.agent.name} mode is active.
+
+## Output File Info:
+${exists ? `A ${input.agent.name} output file already exists at ${outFile}. You can read it and make incremental edits.` : `No ${input.agent.name} output file exists yet. You should create your output at ${outFile} using the write tool.`}
+NOTE: This is the only file you are allowed to edit in this mode.
+</system-reminder>`,
+            synthetic: true,
+          })
+        }
+        return input.messages
+      }
+    }
+
     return input.messages
   }
 

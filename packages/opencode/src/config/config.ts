@@ -793,6 +793,24 @@ export namespace Config {
   })
   export type Skills = z.infer<typeof Skills>
 
+  const FallbackModelEntry = z.object({
+    model: z.string(),
+    variant: z.string().optional(),
+    temperature: z.number().optional(),
+    top_p: z.number().optional(),
+    thinking: z.object({ type: z.string(), budgetTokens: z.number().optional() }).optional(),
+    reasoningEffort: z.string().optional(),
+    maxTokens: z.number().optional(),
+  })
+  type FallbackModelEntry = z.infer<typeof FallbackModelEntry>
+
+  const ExitOption = z.object({
+    label: z.string(),
+    agent: z.string(),
+    description: z.string(),
+  })
+  type ExitOption = z.infer<typeof ExitOption>
+
   export const Agent = z
     .object({
       model: ModelId.optional(),
@@ -803,6 +821,10 @@ export namespace Config {
       temperature: z.number().optional(),
       top_p: z.number().optional(),
       prompt: z.string().optional(),
+      prompt_append: z
+        .string()
+        .optional()
+        .describe("Append to system prompt instead of replacing it. Supports file:// URIs."),
       tools: z.record(z.string(), z.boolean()).optional().describe("@deprecated Use 'permission' field instead"),
       disable: z.boolean().optional(),
       description: z.string().optional().describe("Description of when to use the agent"),
@@ -827,6 +849,21 @@ export namespace Config {
         .describe("Maximum number of agentic iterations before forcing text-only response"),
       maxSteps: z.number().int().positive().optional().describe("@deprecated Use 'steps' field instead."),
       permission: Permission.optional(),
+      fallback_models: z
+        .array(z.union([z.string(), FallbackModelEntry]))
+        .optional()
+        .describe("Fallback model chain for API errors. Mix strings and objects with per-model settings."),
+      mcp: z
+        .record(z.string(), z.boolean())
+        .optional()
+        .describe("MCP servers to activate when this agent mode is active. Key=MCP name, value=enabled."),
+      enter_description: z.string().optional().describe("Description shown for the xxx_enter mode-switch tool."),
+      exit_description: z.string().optional().describe("Description shown for the xxx_exit mode-switch tool."),
+      exit_options: z.array(ExitOption).optional().describe("Destinations offered when exiting this agent mode."),
+      output_dir: z
+        .string()
+        .optional()
+        .describe("Directory where this agent mode writes its output files (relative to project root)."),
     })
     .catchall(z.any())
     .transform((agent, ctx) => {
@@ -835,6 +872,7 @@ export namespace Config {
         "model",
         "variant",
         "prompt",
+        "prompt_append",
         "description",
         "temperature",
         "top_p",
@@ -847,6 +885,12 @@ export namespace Config {
         "permission",
         "disable",
         "tools",
+        "fallback_models",
+        "mcp",
+        "enter_description",
+        "exit_description",
+        "exit_options",
+        "output_dir",
       ])
 
       // Extract unknown properties into options

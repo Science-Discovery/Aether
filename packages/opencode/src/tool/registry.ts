@@ -15,6 +15,7 @@ import { InvalidTool } from "./invalid"
 import { SkillTool } from "./skill"
 import { SkillManageTool } from "./skill-manage"
 import { SKILL_NUDGE_INTERVAL } from "../session/skill-evolution"
+import { createModeEnterTool, createModeExitTool } from "./mode-switch"
 import type { Agent } from "../agent/agent"
 import { Tool } from "./tool"
 import { Config } from "../config/config"
@@ -135,6 +136,17 @@ export namespace ToolRegistry {
         const cfg = await Config.get()
         const question = ["app", "cli", "desktop"].includes(Flag.OPENCODE_CLIENT) || Flag.OPENCODE_ENABLE_QUESTION_TOOL
 
+        const modeTools: Tool.Info[] = []
+        for (const [name, agentCfg] of Object.entries(cfg.agent ?? {})) {
+          if (agentCfg.disable) continue
+          if (agentCfg.mode === "primary" || agentCfg.mode === "all") {
+            if (agentCfg.enter_description || agentCfg.exit_description) {
+              modeTools.push(createModeEnterTool(name))
+              modeTools.push(createModeExitTool(name))
+            }
+          }
+        }
+
         return [
           InvalidTool,
           ...(question ? [QuestionTool] : []),
@@ -171,6 +183,7 @@ export namespace ToolRegistry {
           ...(Flag.OPENCODE_EXPERIMENTAL_LSP_TOOL ? [LspTool] : []),
           ...(cfg.experimental?.batch_tool === true ? [BatchTool] : []),
           ...(Flag.OPENCODE_EXPERIMENTAL_PLAN_MODE && Flag.OPENCODE_CLIENT === "cli" ? [PlanExitTool] : []),
+          ...modeTools,
           ...custom,
         ]
       }
