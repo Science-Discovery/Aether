@@ -182,7 +182,10 @@ test("patch creates version snapshot inside .aether/<name>/.versions/", async ()
         expect(await exists(versionsDir)).toBe(true)
         const entries = await fs.readdir(versionsDir)
         const bundles = entries.filter((e) => e.endsWith(".bundle.json"))
-        expect(bundles.length).toBe(2)
+        // First patch: copies source → shadow and saves an "original" snapshot, then saves a "patch" snapshot.
+        // Second patch: saves another "patch" snapshot. Total = 3.
+        expect(bundles.length).toBe(3)
+        expect(bundles.some((b) => b.includes("_original_"))).toBe(true)
         expect(bundles.some((b) => b.includes("_patch_"))).toBe(true)
 
         const claudeVersions = path.join(tmp.path, ".claude", "skills", "snap-me", ".versions")
