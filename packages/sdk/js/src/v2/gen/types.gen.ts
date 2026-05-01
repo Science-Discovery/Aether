@@ -1233,6 +1233,10 @@ export type ServerConfig = {
    * Additional domains to allow for CORS
    */
   cors?: Array<string>
+  /**
+   * Seconds to wait after all browser connections close before exiting (default: 60). Set to 0 to disable auto-exit.
+   */
+  idleTimeout?: number
 }
 
 export type PermissionActionConfig = "ask" | "allow" | "deny"

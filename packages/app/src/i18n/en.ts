@@ -981,6 +981,11 @@ export const dict = {
   "settings.general.section.feed": "Feed",
   "settings.general.section.display": "Display",
   "settings.general.section.network": "Network",
+  "settings.general.section.server": "Server",
+  "settings.general.row.idleTimeout.title": "Auto-shutdown delay",
+  "settings.general.row.idleTimeout.description":
+    'How long to wait after all browser tabs close before shutting down the server. Set to "Never" to keep the server running permanently.',
+  "settings.general.row.idleTimeout.never": "Never",
   "settings.memory.title": "Memory",
   "settings.memory.description":
     "The main agent decides durable USER/MEMORY writes directly. Configure recall/reflection behavior and inspect read-only stores here.",

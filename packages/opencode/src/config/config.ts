@@ -1029,6 +1029,14 @@ export namespace Config {
       mdns: z.boolean().optional().describe("Enable mDNS service discovery"),
       mdnsDomain: z.string().optional().describe("Custom domain name for mDNS service (default: opencode.local)"),
       cors: z.array(z.string()).optional().describe("Additional domains to allow for CORS"),
+      idleTimeout: z
+        .number()
+        .int()
+        .min(0)
+        .optional()
+        .describe(
+          "Seconds to wait after all browser connections close before exiting (default: 60). Set to 0 to disable auto-exit.",
+        ),
     })
     .strict()
     .meta({
@@ -1277,7 +1285,10 @@ export namespace Config {
         .optional(),
       memory: z
         .object({
-          enabled: z.boolean().optional().describe("Enable memory tools, prompt recall, and memory reflection (default: true)"),
+          enabled: z
+            .boolean()
+            .optional()
+            .describe("Enable memory tools, prompt recall, and memory reflection (default: true)"),
           memory_reflection_model: z
             .object({
               providerID: z.string(),

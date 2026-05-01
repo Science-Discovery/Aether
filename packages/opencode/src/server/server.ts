@@ -962,7 +962,12 @@ export namespace Server {
 
     for (const signal of ["SIGINT", "SIGTERM"] as const) {
       process.on(signal, () => {
-        Promise.all([FeishuManager.stop(), QQManager.stop(), WeChatManager.stop()].map((p) => p.catch(() => {})))
+        setTimeout(() => process.exit(0), 10_000).unref()
+        Promise.all(
+          [Instance.disposeAll(), Cron.stop(), FeishuManager.stop(), QQManager.stop(), WeChatManager.stop()].map((p) =>
+            p.catch(() => {}),
+          ),
+        )
           .then(() => server.stop(true).catch(() => {}))
           .then(() => process.exit(0))
       })

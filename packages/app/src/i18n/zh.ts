@@ -871,6 +871,11 @@ export const dict = {
   "settings.general.section.feed": "动态",
   "settings.general.section.display": "显示",
   "settings.general.section.network": "网络",
+  "settings.general.section.server": "服务器",
+  "settings.general.row.idleTimeout.title": "自动关闭延迟",
+  "settings.general.row.idleTimeout.description":
+    '所有浏览器标签页关闭后，等待多长时间自动关闭服务器。选择"永不"可保持服务器始终运行。',
+  "settings.general.row.idleTimeout.never": "永不",
   "settings.general.row.defaultModel.title": "默认模型",
   "settings.general.row.defaultModel.description": "新对话未选择其他模型时使用的模型",
   "settings.general.row.defaultModel.none": "自动（提供商默认）",

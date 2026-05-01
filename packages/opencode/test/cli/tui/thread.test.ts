@@ -102,6 +102,8 @@ describe("tui thread", () => {
       "mdns-domain": "opencode.local",
       mdnsDomain: "opencode.local",
       cors: [],
+      "idle-timeout": undefined,
+      idleTimeout: undefined,
     }
     return TuiThreadCommand.handler(args)
   }
