@@ -41,7 +41,7 @@ export const WebCommand = cmd({
       UI.println(UI.Style.TEXT_WARNING_BOLD + "!  " + "OPENCODE_SERVER_PASSWORD is not set; server is unsecured.")
     }
     const opts = await resolveNetworkOptions(args)
-    const EXIT_GRACE_MS = 10_000
+    const IDLE_TIMEOUT_MS = (opts.idleTimeout ?? 60) * 1_000
     let sse = 0
     const server = Server.listen({
       ...opts,
@@ -53,30 +53,33 @@ export const WebCommand = cmd({
     // Auto-exit when all browser connections close (after at least one was open).
     // Polling server.pendingRequests is more reliable than SSE onAbort, because
     // Bun only detects TCP close when it next tries to write to the socket.
-    let everConnected = false
-    let exitTimer: ReturnType<typeof setTimeout> | null = null
-    const connectionChecker = setInterval(() => {
-      const active = (server as any).pendingRequests as number
-      if (active > 0 || sse > 0 || Lease.count() > 0) {
-        everConnected = true
-        if (exitTimer !== null) {
-          clearTimeout(exitTimer)
-          exitTimer = null
+    // Disable by setting idleTimeout to 0 (always-on daemon mode).
+    if (IDLE_TIMEOUT_MS > 0) {
+      let everConnected = false
+      let exitTimer: ReturnType<typeof setTimeout> | null = null
+      const connectionChecker = setInterval(() => {
+        const active = (server as any).pendingRequests as number
+        if (active > 0 || sse > 0 || Lease.count() > 0) {
+          everConnected = true
+          if (exitTimer !== null) {
+            clearTimeout(exitTimer)
+            exitTimer = null
+          }
+        } else if (everConnected) {
+          exitTimer =
+            exitTimer ??
+            setTimeout(() => {
+              const pending = (server as any).pendingRequests as number
+              if (pending > 0 || sse > 0 || Lease.count() > 0) {
+                exitTimer = null
+                return
+              }
+              clearInterval(connectionChecker)
+              process.exit(0)
+            }, IDLE_TIMEOUT_MS)
         }
-      } else if (everConnected) {
-        exitTimer =
-          exitTimer ??
-          setTimeout(() => {
-            const pending = (server as any).pendingRequests as number
-            if (pending > 0 || sse > 0 || Lease.count() > 0) {
-              exitTimer = null
-              return
-            }
-            clearInterval(connectionChecker)
-            process.exit(0)
-          }, EXIT_GRACE_MS)
-      }
-    }, 1_000)
+      }, 1_000)
+    }
     const portfile = nodePath.join(Global.Path.data, "serve-port")
     await Bun.write(portfile, String(server.port))
     UI.empty()
