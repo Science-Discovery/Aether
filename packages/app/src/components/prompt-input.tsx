@@ -60,6 +60,7 @@ import { promptPlaceholder } from "./prompt-input/placeholder"
 import { ImagePreview } from "@opencode-ai/ui/image-preview"
 import { FileIcon } from "@opencode-ai/ui/file-icon"
 import { KnowledgeButton } from "@/components/knowledge-button"
+import { createWorkingState } from "@/utils/working-state"
 import { SteerButton } from "@/components/steer-button"
 import { DialogDefaultSkills } from "@/components/dialog-default-skills"
 
@@ -250,7 +251,12 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
         type: "idle",
       },
   )
-  const working = createMemo(() => status()?.type !== "idle")
+  const pending = createMemo(() =>
+    (sync.data.message[params.id ?? ""] ?? []).findLast(
+      (msg) => msg.role === "assistant" && typeof msg.time.completed !== "number",
+    ),
+  )
+  const { working } = createWorkingState({ status: () => status(), pending: () => pending() })
   const tip = () => {
     if (working()) {
       return (

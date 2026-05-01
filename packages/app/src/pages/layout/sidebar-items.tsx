@@ -21,6 +21,7 @@ import { useNotification } from "@/context/notification"
 import { usePermission } from "@/context/permission"
 import { messageAgentColor } from "@/utils/agent"
 import { sessionPermissionRequest } from "../session/composer/session-request-tree"
+import { createWorkingState } from "@/utils/working-state"
 import { hasProjectPermissions } from "./helpers"
 
 const OPENCODE_PROJECT_ID = "4b0ea68d7af9a6031a7ffda7ad66e0cb83315750"
@@ -329,17 +330,16 @@ export const SessionItem = (props: SessionItemProps): JSX.Element => {
       return !permission.autoResponds(item, props.session.directory)
     })
   })
-  const isWorking = createMemo(() => {
-    if (hasPermissions()) return false
-    const status = sessionStore.session_status[props.session.id]
-    if (!status || status.type === "idle") return false
-    const pending = (sessionStore.message[props.session.id] ?? []).findLast(
-      (message) =>
-        message.role === "assistant" &&
-        typeof (message as { time?: { completed?: unknown } }).time?.completed !== "number",
-    )
-    return pending !== undefined || status.type === "busy" || status.type === "retry"
-  })
+  const isWorking = createWorkingState({
+    status: () => sessionStore.session_status[props.session.id],
+    pending: () =>
+      (sessionStore.message[props.session.id] ?? []).findLast(
+        (message) =>
+          message.role === "assistant" &&
+          typeof (message as { time?: { completed?: unknown } }).time?.completed !== "number",
+      ),
+    blocked: hasPermissions,
+  }).working
 
   const tint = createMemo(() => {
     return messageAgentColor(sessionStore.message[props.session.id], sessionStore.agent)
