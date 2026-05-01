@@ -180,7 +180,7 @@ export const DialogEvolvedSkills: Component = () => {
                         />
                         <span
                           class="text-11-regular text-text-subtle font-mono truncate flex-1"
-                          title={"fullPath" in group ? group.fullPath : group.label}
+                          title={"fullPath" in group ? (group.fullPath as string) : group.label}
                         >
                           {group.label}
                         </span>
