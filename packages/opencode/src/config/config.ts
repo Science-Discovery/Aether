@@ -1556,13 +1556,17 @@ export namespace Config {
     return _serverSkillsDir
   }
 
+  export function getDisabledPaths(disabled: string[] | undefined): Set<string> {
+    return new Set((disabled ?? []).filter((p) => path.isAbsolute(p)))
+  }
+
   export async function listDefaultSkills(): Promise<DefaultSkill[]> {
     const skillsDir = getDefaultSkillsDir()
     if (!skillsDir) return []
     if (!(await Filesystem.isDir(skillsDir))) return []
 
     const cfg = await getGlobal()
-    const disabled = new Set(cfg.skills?.disabled ?? [])
+    const disabled = getDisabledPaths(cfg.skills?.disabled)
 
     const entries = await fs.readdir(skillsDir, { withFileTypes: true }).catch(() => [])
     const skills: DefaultSkill[] = []
@@ -1607,7 +1611,7 @@ export namespace Config {
     if (!(await Filesystem.isDir(skillsDir))) return []
 
     const cfg = await getGlobal()
-    const disabled = new Set(cfg.skills?.disabled ?? [])
+    const disabled = getDisabledPaths(cfg.skills?.disabled)
 
     const entries = await fs.readdir(skillsDir, { withFileTypes: true }).catch(() => [])
     const skills: DefaultSkill[] = []
@@ -1639,7 +1643,19 @@ export namespace Config {
 
   export async function listEvolutionSkills(): Promise<DefaultSkill[]> {
     const global = await getGlobal()
-    const disabled = new Set(global.skills?.disabled ?? [])
+    const disabled = getDisabledPaths(global.skills?.disabled)
+
+    // Remove stale disabled entries whose directories no longer exist
+    const stale = (
+      await Promise.all([...disabled].map(async (p) => ({ p, exists: await Filesystem.isDir(p) })))
+    )
+      .filter((x) => !x.exists)
+      .map((x) => x.p)
+    if (stale.length > 0) {
+      const cleaned = (global.skills?.disabled ?? []).filter((p) => !stale.includes(p))
+      await updateGlobalInternal({ skills: { disabled: cleaned } } as any, { dispose: false })
+      stale.forEach((p) => disabled.delete(p))
+    }
 
     async function scanSkillsDir(skillsDir: string): Promise<DefaultSkill[]> {
       if (!(await Filesystem.isDir(skillsDir))) return []

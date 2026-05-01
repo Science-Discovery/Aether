@@ -231,17 +231,14 @@ export const SkillManageTool = Tool.define("skill_manage", async () => {
         throw new Error(`Invalid skill name "${name}". Use only letters, digits, hyphens, underscores.`)
       }
 
+      const { skillDir, sourceLocation } = await resolveSkillDir(name)
+      const skillFile = path.join(skillDir, "SKILL.md")
+
       const globalCfg = await Config.getGlobal()
-      const disabledNames = new Set(
-        (globalCfg.skills?.disabled ?? []).map((p) => path.basename(p)),
-      )
-      if (disabledNames.has(name)) {
+      if (Config.getDisabledPaths(globalCfg.skills?.disabled).has(skillDir)) {
         console.log(`[skill manage fail] call=${call} action=${action} name=${name} sig=${sig} reason=disabled`)
         throw new Error(`Skill "${name}" is currently disabled. Enable it first before making changes.`)
       }
-
-      const { skillDir, sourceLocation } = await resolveSkillDir(name)
-      const skillFile = path.join(skillDir, "SKILL.md")
 
       log.info("skill_manage called", {
         action,
