@@ -1551,9 +1551,21 @@ export namespace Config {
     }
     return undefined
   }
-  const _serverSkillsDir = findServerSkillsDirSync()
+
+  // Cached lazily on first call to allow env-var overrides set after module load.
+  let _serverSkillsDir: string | undefined | null = null
 
   export function getDefaultSkillsDir(): string | undefined {
+    // Test environments are identified by a .test. file in argv (bun test runner)
+    // or by OPENCODE_TEST_HOME being set. Skip bundled-skill discovery in both cases
+    // to prevent repo-level skills from polluting isolated test tmpdir instances.
+    if (
+      process.env.OPENCODE_TEST_HOME !== undefined ||
+      process.argv.some((a) => /\.test\.[jt]sx?$/.test(a))
+    )
+      return undefined
+    if (_serverSkillsDir !== null) return _serverSkillsDir
+    _serverSkillsDir = findServerSkillsDirSync() ?? undefined
     return _serverSkillsDir
   }
 
