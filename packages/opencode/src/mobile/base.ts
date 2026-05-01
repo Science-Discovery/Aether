@@ -934,9 +934,7 @@ export abstract class MobileManagerBase {
 
   protected async cmdModel(targetId: string, scope: string, args: string[]): Promise<void> {
     const ctx = await this.commandCtx(scope)
-    if (this._modelList.length === 0) {
-      this._modelList = await this.buildModelList()
-    }
+    this._modelList = await this.buildModelList()
 
     if (args.length === 0) {
       await this.replyCmd(targetId, scope, this.formatModelList(ctx, false))
@@ -1720,7 +1718,6 @@ export abstract class MobileManagerBase {
     this._busUnsubs.push(() => GlobalBus.off("event", onPermission))
 
     this._globalBusListener = (event) => {
-      if (event.directory === "global") this._modelList = []
       const dir = event.directory ? this.normDir(event.directory) : null
       if (!dir || !(dir in this._hiddenDirs)) return
       delete this._hiddenDirs[dir]
