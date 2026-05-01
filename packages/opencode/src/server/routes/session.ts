@@ -1158,6 +1158,57 @@ export const SessionRoutes = lazy(() =>
         return c.json(true)
       },
     )
+    .post(
+      "/:sessionID/steer",
+      describeRoute({
+        summary: "Add steer text",
+        description:
+          "Append a steer/supplement text to the last user message in a session, visible to the AI from the next iteration.",
+        operationId: "session.steer",
+        responses: {
+          200: {
+            description: "Steer text added",
+            content: {
+              "application/json": {
+                schema: resolver(z.object({ ok: z.boolean() })),
+              },
+            },
+          },
+          ...errors(400, 404),
+        },
+      }),
+      validator(
+        "param",
+        z.object({
+          sessionID: SessionID.zod,
+        }),
+      ),
+      validator(
+        "json",
+        z.object({
+          text: z.string().min(1),
+        }),
+      ),
+      async (c) => {
+        const sessionID = c.req.valid("param").sessionID
+        const text = c.req.valid("json").text
+        const msgs = await MessageV2.filterCompacted(MessageV2.stream(sessionID))
+        const lastUser = msgs.findLast((msg) => msg.info.role === "user")
+        if (!lastUser) {
+          return c.json({ ok: false }, 404)
+        }
+        const steerPrefix = "-用户补充："
+        const part = await Session.updatePart({
+          id: PartID.ascending(),
+          messageID: lastUser.info.id,
+          sessionID,
+          type: "text",
+          text: steerPrefix + text,
+          metadata: { steer: true },
+        })
+        return c.json(part)
+      },
+    )
     .get(
       "/:sessionID/preference",
       describeRoute({

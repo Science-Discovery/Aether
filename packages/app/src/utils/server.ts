@@ -209,6 +209,7 @@ export type AppClient = Base & {
       knowledgeBase?: Kb
       parts: unknown[]
     }): Req<unknown>
+    steer(input: { sessionID: string; text: string }): Req<unknown>
     preference: {
       get(input: { sessionID: string }): Req<{
         sessionID: string
@@ -325,6 +326,22 @@ export function addPreferenceMethods(
     },
   }
   safeAssign(client.session, "preference", preferenceMethods)
+
+  const steerMethods = {
+    async steer(input: { sessionID: string; text: string }) {
+      return requestJSON(
+        `${baseUrl}/session/${input.sessionID}/steer`,
+        {
+          method: "POST",
+          headers,
+          body: JSON.stringify({ text: input.text }),
+        },
+        options,
+      )
+    },
+  }
+  safeAssign(client.session, "steer", steerMethods.steer)
+
   return client
 }
 

@@ -552,6 +552,7 @@ export const dict = {
   "session.header.open.action": "Åbn {{app}}",
   "session.header.open.ariaLabel": "Åbn i {{app}}",
   "session.header.open.menu": "Åbningsmuligheder",
+  "session.header.open.folder": "Åbn mappe",
   "session.header.open.copyPath": "Kopier sti",
 
   "status.popover.trigger": "Status",
@@ -688,7 +689,6 @@ export const dict = {
   "font.option.robotoMono": "Roboto Mono",
   "font.option.sourceCodePro": "Source Code Pro",
   "font.option.ubuntuMono": "Ubuntu Mono",
-  "font.option.monaco": "Monaco",
   "font.option.geistMono": "Geist Mono",
   "sound.option.none": "Ingen",
   "sound.option.alert01": "Alarm 01",

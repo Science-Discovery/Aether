@@ -10,6 +10,7 @@ export interface TooltipProps extends ComponentProps<typeof KobalteTooltip> {
   contentStyle?: JSX.CSSProperties
   inactive?: boolean
   forceOpen?: boolean
+  ignoreSafeArea?: boolean
 }
 
 export interface TooltipKeybindProps extends Omit<TooltipProps, "value"> {
