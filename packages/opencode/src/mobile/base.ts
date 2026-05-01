@@ -283,6 +283,7 @@ export abstract class MobileManagerBase {
 
     const staleKeys: string[] = []
     const sessionToCanonicalScope: Record<string, string> = {}
+    const refreshed: { scope: string; newId: string }[] = []
     for (const [key, sessionId] of Object.entries(this.sessionMap)) {
       const canonical = sessionToCanonicalScope[sessionId]
       if (canonical) {
@@ -303,6 +304,14 @@ export abstract class MobileManagerBase {
         })
         if (found.time?.archived) {
           staleKeys.push(key)
+        } else {
+          const recent = await Instance.provide({
+            directory: dir,
+            fn: () => [...Session.list({ directory: dir, roots: true, limit: 1 })].filter((s) => !s.time?.archived),
+          })
+          if (recent[0] && recent[0].id !== sessionId) {
+            refreshed.push({ scope: key, newId: recent[0].id })
+          }
         }
       } catch {
         staleKeys.push(key)
@@ -311,7 +320,10 @@ export abstract class MobileManagerBase {
     for (const key of staleKeys) {
       delete this.sessionMap[key]
     }
-    if (staleKeys.length > 0) await this.saveSessionMap()
+    for (const { scope, newId } of refreshed) {
+      this.sessionMap[scope] = newId
+    }
+    if (staleKeys.length > 0 || refreshed.length > 0) await this.saveSessionMap()
 
     if (this._initialDir) {
       await Instance.provide({
@@ -462,26 +474,20 @@ export abstract class MobileManagerBase {
   }
 
   protected async currentSession(scope: string, create?: boolean): Promise<string | undefined> {
-    const pinned = this.sessionMap[scope]
-    if (pinned) {
-      try {
-        const found = await Instance.provide({
-          directory: this.effectiveDir(scope),
-          fn: () => Session.get(SessionID.make(pinned)),
-        })
-        if (!found.time?.archived) return pinned
-      } catch {
-        // pinned session not found in DB
-      }
-      delete this.sessionMap[scope]
-      await this.saveSessionMap()
-    }
     const dir = this.effectiveDir(scope)
     if (!dir) return
     const recent = await Instance.provide({
       directory: dir,
       fn: () => [...Session.list({ directory: dir, roots: true, limit: 10 })].filter((s) => !s.time?.archived),
     })
+    const pinned = this.sessionMap[scope]
+    if (pinned) {
+      const stillValid = recent.some((s) => s.id === pinned)
+      if (stillValid && recent[0]?.id === pinned) return pinned
+      if (!stillValid) {
+        delete this.sessionMap[scope]
+      }
+    }
     if (recent[0]) {
       this.sessionMap[scope] = recent[0].id
       await this.saveSessionMap()
