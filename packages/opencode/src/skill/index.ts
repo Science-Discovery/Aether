@@ -685,6 +685,15 @@ export namespace Skill {
       const watch = yield* InstanceState.make(
         Effect.fn("Skill.watch")((ctx) =>
           Effect.gen(function* () {
+            // Skip watcher in test environments: prevents parcel from accumulating
+            // 30+ subscriptions across test instances (Windows segfault) and
+            // avoids watcher callbacks firing between test files (macOS crash).
+            if (
+              process.env.OPENCODE_TEST_HOME !== undefined ||
+              process.argv.some((a) => /\.test\.[jt]sx?$/.test(a))
+            )
+              return { alive: false, back: "poll" } as WatchState
+
             const first = yield* Effect.promise(() => watchCandidates(ctx.directory, ctx.worktree))
             let set = yield* Effect.promise(() =>
               watchDirs(ctx.directory, ctx.worktree).then((dirs) => merge(dirs, first.dirs)),
@@ -794,7 +803,7 @@ export namespace Skill {
                   cooldown = Date.now()
                   await clearSkillsPromptCache("all")
                   console.log(
-                    `[skill watch] invalidate scope=global instances=${Instance.dirs().length} files=${active.length} ms=${Math.round(performance.now() - t1)}`,
+                    `[skill watch] invalidate scope=global instances=${Instance.dirs?.().length ?? 0} files=${active.length} ms=${Math.round(performance.now() - t1)}`,
                   )
                   return
                 }
@@ -1096,7 +1105,7 @@ export namespace Skill {
   export async function clearSkillsPromptCache(scope: "all" | string = "all"): Promise<void> {
     if (clearing) return clearing
     const run = (async () => {
-      const allDirs = Instance.dirs()
+      const allDirs = Instance.dirs?.() ?? []
       const dirs = scope === "all" ? allDirs : allDirs.filter((d) => d === scope)
       console.log(
         `[skill cache] clear start scope=${scope} instances=${dirs.length} dirs=${dirs.join(" | ") || "(none)"}`,
