@@ -18,6 +18,7 @@ metadata:
           ],
       },
   }
+category: "Skills"
 ---
 
 # ClawHub CLI

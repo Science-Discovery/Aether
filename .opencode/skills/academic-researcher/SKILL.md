@@ -10,6 +10,7 @@ license: MIT
 metadata:
   author: peking-university
   version: "4.0.0"
+category: "Research"
 ---
 
 # Academic Researcher

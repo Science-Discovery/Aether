@@ -1,6 +1,7 @@
 ---
 name: write-paper
 description: Write a complete academic paper in LaTeX format (.tex + .bib) from research project files. Use when the user asks to write, draft, or generate an academic paper, research paper, scientific paper, or LaTeX document based on project data, computational results, figures, derivations, or discussion files. Supports theoretical, computational, experimental, and review paper types with auto-detection of project structure and research type.
+category: "Research"
 ---
 
 # Write Academic Paper

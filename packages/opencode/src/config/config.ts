@@ -1515,14 +1515,15 @@ export namespace Config {
     name: z.string(),
     description: z.string(),
     content: z.string(),
+    category: z.string().optional(),
     enabled: z.boolean().optional(),
     file: z.string().optional(),
   })
   export type DefaultSkill = z.infer<typeof DefaultSkill>
 
-  // Search for .opencode/skills, calculated once at startup.
-  // This ensures the source skills dir is always the server's own project regardless of
-  // which project the user is currently viewing.
+  // Search for the bundled skills directory (.aether/skills preferred, .opencode/skills as fallback),
+  // calculated once at startup. This ensures the source skills dir is always the server's own
+  // project regardless of which project the user is currently viewing.
   // Priority: binary directory first (for packaged Mac/Win releases where skills are
   // bundled next to the binary), then upward from process.cwd() (for dev/CLI usage).
   function findServerSkillsDirSync(): string | undefined {
@@ -1586,6 +1587,7 @@ export namespace Config {
           name,
           description: String(parsed.data.description ?? ""),
           content: parsed.content.trim(),
+          category: parsed.data.category ? String(parsed.data.category) : undefined,
           enabled: !disabled.has(skillDir),
           file: skillDir,
         })
@@ -1631,6 +1633,7 @@ export namespace Config {
           name,
           description: String(parsed.data.description ?? ""),
           content: parsed.content.trim(),
+          category: parsed.data.category ? String(parsed.data.category) : undefined,
           enabled: !disabled.has(skillDir),
           file: skillDir,
         })
@@ -1677,6 +1680,7 @@ export namespace Config {
             name,
             description: String(parsed.data.description ?? ""),
             content: parsed.content.trim(),
+            category: parsed.data.category ? String(parsed.data.category) : undefined,
             enabled: !disabled.has(skillDir),
             file: skillDir,
           })

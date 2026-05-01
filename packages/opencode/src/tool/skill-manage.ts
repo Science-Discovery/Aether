@@ -101,8 +101,9 @@ function parseFrontmatter(content: string): { meta: Record<string, string>; body
   return { meta, body }
 }
 
-function buildContent(name: string, description: string, body: string): string {
-  return `---\nname: ${JSON.stringify(name)}\ndescription: ${JSON.stringify(description)}\n---\n\n${body.trimStart()}`
+function buildContent(name: string, description: string, body: string, category?: string): string {
+  const categoryLine = category?.trim() ? `\ncategory: ${JSON.stringify(category.trim())}` : ""
+  return `---\nname: ${JSON.stringify(name)}\ndescription: ${JSON.stringify(description)}${categoryLine}\n---\n\n${body.trimStart()}`
 }
 
 // ── Fuzzy patch ───────────────────────────────────────────────────────────────
@@ -162,6 +163,12 @@ const parameters = z.preprocess(
       .string()
       .optional()
       .describe("One-line skill description for the frontmatter. Required for create and edit."),
+    category: z
+      .string()
+      .optional()
+      .describe(
+        "Short category label for grouping skills (e.g. 'Git', 'Testing', 'Refactoring'). Required for create and edit — always infer one from the skill content if not obvious.",
+      ),
     content: z
       .string()
       .optional()
@@ -180,8 +187,8 @@ export const SkillManageTool = Tool.define("skill_manage", async () => {
       "Create, edit, patch, delete, or version-manage skills (reusable procedural memories saved as SKILL.md files).",
       "",
       "Actions:",
-      "  create       — Create a new skill with name, description, and content.",
-      "  edit         — Fully rewrite a skill (new description + new content). Use when the entire approach has changed.",
+      "  create       — Create a new skill with name, description, category, and content.",
+      "  edit         — Fully rewrite a skill (new description + category + new content). Use when the entire approach has changed.",
       "  patch        — Replace a specific section (old_str → new_str). Equivalent to the edit tool's oldString→newString, but for skill files. IMPORTANT: old_str must exactly match the file content — if the skill content is not already in context, read SKILL.md first. Never guess old_str.",
       "  delete       — Delete a skill and its entire directory.",
       "  history      — List all saved versions of a skill.",
@@ -271,7 +278,7 @@ export const SkillManageTool = Tool.define("skill_manage", async () => {
               () => false,
             )
             if (exists) throw new Error(`Skill "${name}" already exists. Use edit or patch to update it.`)
-            const fileContent = buildContent(name, params.description.trim(), params.content)
+            const fileContent = buildContent(name, params.description.trim(), params.content, params.category)
             await atomicWrite(skillFile, fileContent)
             try {
               assertAllowed(await scanSkill(skillDir))
@@ -302,7 +309,8 @@ export const SkillManageTool = Tool.define("skill_manage", async () => {
             if (!params.content?.trim()) throw new Error("content is required for edit")
             if (sourceLocation && (await copyToShadowIfNeeded(sourceLocation, skillDir))) await snapshot(skillDir, "original")
             const oldContent = await fs.readFile(skillFile, "utf8").catch(() => null)
-            const fileContent = buildContent(name, params.description.trim(), params.content)
+            const existingCategory = oldContent ? parseFrontmatter(oldContent).meta.category : undefined
+            const fileContent = buildContent(name, params.description.trim(), params.content, params.category ?? existingCategory)
             await atomicWrite(skillFile, fileContent)
             try {
               assertAllowed(await scanSkill(skillDir))

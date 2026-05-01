@@ -90,17 +90,21 @@ async function dirExists(p: string): Promise<boolean> {
 }
 
 async function findSourceDir(): Promise<string | null> {
-  // Production: look for .opencode/skills/ next to the executable
+  // Production: look for skills dir next to the executable, preferring .aether over .opencode
   const binaryDir = path.dirname(process.execPath)
-  const prodPath = path.join(binaryDir, ".opencode", "skills")
-  if (await dirExists(prodPath)) return prodPath
+  for (const root of [".aether", ".opencode"]) {
+    const candidate = path.join(binaryDir, root, "skills")
+    if (await dirExists(candidate)) return candidate
+  }
 
-  // Dev mode: walk up from process.cwd() to find .opencode/skills/ in the repo root
+  // Dev mode: walk up from process.cwd() to find the skills dir in the repo root
   if (isLocal()) {
     let dir = process.cwd()
     while (true) {
-      const candidate = path.join(dir, ".opencode", "skills")
-      if (await dirExists(candidate)) return candidate
+      for (const root of [".aether", ".opencode"]) {
+        const candidate = path.join(dir, root, "skills")
+        if (await dirExists(candidate)) return candidate
+      }
       const parent = path.dirname(dir)
       if (parent === dir) break
       dir = parent

@@ -1,6 +1,7 @@
 ---
 name: project-signpost
 description: "Generate and maintain hierarchical README navigation files for any project. Use when organizing a project's file structure for AI-assisted development, creating navigation signposts that help LLMs locate files efficiently through trigger-condition annotations. Supports three formats: top-level (subdirectories only), subfolder (files only), and hybrid (both). Includes templates and prompts for AI-generated summaries and trigger conditions."
+category: "Project"
 ---
 
 # Project Guideline — Hierarchical README Navigation System

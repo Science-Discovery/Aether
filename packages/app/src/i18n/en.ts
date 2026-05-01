@@ -457,6 +457,10 @@ export const dict = {
   "evolvedSkills.empty": "No evolved skills yet",
   "evolvedSkills.noDescription": "No description",
   "evolvedSkills.operationFailed": "Operation failed",
+  "evolvedSkills.sortByPath": "By Path",
+  "evolvedSkills.sortByCategory": "By Content",
+  "evolvedSkills.uncategorized": "Uncategorized",
+  "evolvedSkills.builtIn": "(Built-in)",
 
   "settingsSkills.pageTitle": "Skill Evolution",
   "settingsSkills.pageTitleDescription": "Configure how the AI automatically captures and refines reusable skills.",

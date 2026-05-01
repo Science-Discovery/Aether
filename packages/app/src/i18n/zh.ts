@@ -456,6 +456,10 @@ export const dict = {
   "evolvedSkills.empty": "暂无自进化技能",
   "evolvedSkills.noDescription": "暂无描述",
   "evolvedSkills.operationFailed": "操作失败",
+  "evolvedSkills.sortByPath": "按路径",
+  "evolvedSkills.sortByCategory": "按内容",
+  "evolvedSkills.uncategorized": "未分类",
+  "evolvedSkills.builtIn": "（内置）",
 
   "settingsSkills.pageTitle": "自动进化",
   "settingsSkills.pageTitleDescription": "配置 AI 自动捕捉和优化可复用 Skills 的方式。",

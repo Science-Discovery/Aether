@@ -1,6 +1,7 @@
 ---
 name: prepare-for-git-commit
 description: git commit操作的前期准备，包括代码、文档规范检查，以及commit message编写。当用户说"帮我commit"、"准备提交"、"git commit"、"提交代码"、"检查代码然后提交"时触发。
+category: "Git"
 ---
 
 # Prepare for Git Commit

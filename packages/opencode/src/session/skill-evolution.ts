@@ -38,6 +38,10 @@ export const SKILL_REVIEW_PROMPT = [
   "If a relevant skill already exists, update it with what you learned.",
   "Otherwise, create a new skill if the approach is reusable.",
   "If nothing is worth saving, just say 'Nothing to save.' and stop.",
+  "",
+  "When creating or editing a skill, always include a 'category' field — a short label that",
+  "groups related skills together (e.g. 'Git', 'Testing', 'Refactoring', 'Debugging', 'Build').",
+  "Infer it from the skill content if not obvious.",
 ].join("\n")
 
 export const SKILLS_GUIDANCE = [
@@ -48,6 +52,7 @@ export const SKILLS_GUIDANCE = [
   "immediately with skill_manage — don't wait to be asked.",
   "Use action='patch' for targeted fixes (a step changed, add content, fix wording).",
   "Use action='edit' when the entire approach has fundamentally changed and a full rewrite is needed.",
+  "Always include a 'category' field when creating or editing a skill (e.g. 'Git', 'Testing', 'Debugging').",
   "Skills that aren't maintained become liabilities.",
 ].join("\n")
 
