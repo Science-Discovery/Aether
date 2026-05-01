@@ -22,6 +22,7 @@ import { useKeyboard, useRenderer } from "@opentui/solid"
 import { Editor } from "@tui/util/editor"
 import { useExit } from "../../context/exit"
 import { Clipboard } from "../../util/clipboard"
+import { createWorkingState } from "../../util/working-state"
 import type { FilePart } from "@opencode-ai/sdk/v2"
 import { TuiEvent } from "../../event"
 import { iife } from "@/util/iife"
@@ -73,6 +74,12 @@ export function Prompt(props: PromptProps) {
   const dialog = useDialog()
   const toast = useToast()
   const status = createMemo(() => sync.data.session_status?.[props.sessionID ?? ""] ?? { type: "idle" })
+  const pending = createMemo(() =>
+    (sync.data.message[props.sessionID ?? ""] ?? []).findLast(
+      (msg) => msg.role === "assistant" && typeof msg.time?.completed !== "number",
+    ),
+  )
+  const { working } = createWorkingState({ status: () => status(), pending: () => pending() })
   const history = usePromptHistory()
   const stash = usePromptStash()
   const command = useCommandDialog()
@@ -218,7 +225,7 @@ export function Prompt(props: PromptProps) {
         keybind: "session_interrupt",
         category: "Session",
         hidden: true,
-        enabled: status().type !== "idle",
+        enabled: working(),
         onSelect: (dialog) => {
           if (autocomplete.visible) return
           if (!input.focused) return
@@ -1082,7 +1089,7 @@ export function Prompt(props: PromptProps) {
           />
         </box>
         <box flexDirection="row" justifyContent="space-between">
-          <Show when={status().type !== "idle"} fallback={<text />}>
+          <Show when={working()} fallback={<text />}>
             <box
               flexDirection="row"
               gap={1}

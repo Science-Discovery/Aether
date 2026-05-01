@@ -8,6 +8,7 @@ import { useLanguage } from "@/context/language"
 import { usePermission } from "@/context/permission"
 import { useSDK } from "@/context/sdk"
 import { useSync } from "@/context/sync"
+import { createWorkingState } from "@/utils/working-state"
 import { composerDriver, composerEnabled, composerEvent } from "@/testing/session-composer"
 import { sessionPermissionRequest, sessionQuestionRequest } from "./session-request-tree"
 
@@ -107,7 +108,13 @@ export function createSessionComposerState(options?: { closeMs?: number | (() =>
     return sync.data.session_status[id] ?? idle
   })
 
-  const busy = createMemo(() => status().type !== "idle")
+  const pending = createMemo(() =>
+    (sync.data.message[params.id ?? ""] ?? []).findLast(
+      (msg) => msg.role === "assistant" && typeof msg.time.completed !== "number",
+    ),
+  )
+
+  const { working: busy } = createWorkingState({ status: () => status(), pending: () => pending() })
   const live = createMemo(() => {
     if (test.on && test.live !== undefined) return test.live
     return busy() || blocked()
