@@ -336,16 +336,15 @@ export abstract class MobileManagerBase {
       let index = 1
       for (const [providerID, info] of Object.entries(providers)) {
         const modelValues = Object.entries(info.models)
-        const sortedIds = modelValues.map(([id]) => id)
-        const defaultModelId = sortedIds[0]
+        const defaultModelId = modelValues.filter(([_, m]) => !m.disabled).map(([id]) => id)[0]
         for (const [modelID, model] of modelValues) {
-          if ((model as any).disabled) continue
+          if (model.disabled) continue
           entries.push({
             index,
             providerID,
             providerName: info.name || providerID,
             modelID,
-            name: (model as any).name || modelID,
+            name: model.name || modelID,
             isDefault: modelID === defaultModelId,
           })
           index++

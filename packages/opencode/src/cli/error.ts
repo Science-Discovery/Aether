@@ -8,7 +8,8 @@ export function FormatError(input: unknown) {
   if (MCP.Failed.isInstance(input))
     return `MCP server "${input.data.name}" failed. Note, opencode does not support MCP authentication yet.`
   if (Provider.ModelNotFoundError.isInstance(input)) {
-    const { providerID, modelID, suggestions } = input.data
+    const { providerID, modelID, suggestions, disabled } = input.data
+    if (disabled) return `Model disabled: ${providerID}/${modelID}. Enable it in Settings > Models.`
     return [
       `Model not found: ${providerID}/${modelID}`,
       ...(Array.isArray(suggestions) && suggestions.length ? ["Did you mean: " + suggestions.join(", ")] : []),

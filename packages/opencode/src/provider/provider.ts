@@ -1467,7 +1467,7 @@ export namespace Provider {
       const suggestions = matches.map((m) => m.target)
       throw new ModelNotFoundError({ providerID, modelID, suggestions })
     }
-    if (info.disabled) throw new ModelNotFoundError({ providerID, modelID, suggestions: [] })
+    if (info.disabled) throw new ModelNotFoundError({ providerID, modelID, suggestions: [], disabled: true })
     return info
   }
 
@@ -1476,7 +1476,7 @@ export namespace Provider {
     const key = `${model.providerID}/${model.id}`
     if (s.models.has(key)) return s.models.get(key)!
     if (s.providers[model.providerID]?.models[model.id]?.disabled)
-      throw new ModelNotFoundError({ providerID: model.providerID, modelID: model.id, suggestions: [] })
+      throw new ModelNotFoundError({ providerID: model.providerID, modelID: model.id, suggestions: [], disabled: true })
 
     const url = e2eURL()
     if (url) {
@@ -1610,12 +1610,14 @@ export namespace Provider {
       const provider = providers[entry.providerID]
       if (!provider) continue
       if (!provider.models[entry.modelID]) continue
+      if (provider.models[entry.modelID].disabled) continue
       return { providerID: entry.providerID, modelID: entry.modelID }
     }
 
     const provider = Object.values(providers).find((p) => !cfg.provider || Object.keys(cfg.provider).includes(p.id))
     if (!provider) throw new Error("no providers found")
-    const [model] = sort(Object.values(provider.models))
+    const enabled = Object.values(provider.models).filter((m) => !m.disabled)
+    const [model] = sort(enabled)
     if (!model) throw new Error("no models found")
     return {
       providerID: provider.id,
@@ -1637,6 +1639,7 @@ export namespace Provider {
       providerID: ProviderID.zod,
       modelID: ModelID.zod,
       suggestions: z.array(z.string()).optional(),
+      disabled: z.boolean().optional(),
     }),
   )
 

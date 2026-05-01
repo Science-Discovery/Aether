@@ -367,11 +367,13 @@ export namespace SessionPrompt {
 
       const model = await Provider.getModel(lastUser.model.providerID, lastUser.model.modelID).catch((e) => {
         if (Provider.ModelNotFoundError.isInstance(e)) {
-          const hint = e.data.suggestions?.length ? ` Did you mean: ${e.data.suggestions.join(", ")}?` : ""
+          const msg = e.data.disabled
+            ? `Model disabled: ${e.data.providerID}/${e.data.modelID}. Enable it in Settings > Models.`
+            : `Model not found: ${e.data.providerID}/${e.data.modelID}.${e.data.suggestions?.length ? ` Did you mean: ${e.data.suggestions.join(", ")}?` : ""}`
           Bus.publish(Session.Event.Error, {
             sessionID,
             error: new NamedError.Unknown({
-              message: `Model not found: ${e.data.providerID}/${e.data.modelID}.${hint}`,
+              message: msg,
             }).toObject(),
           })
         }
@@ -1959,11 +1961,13 @@ NOTE: At any point in time through this workflow you should feel free to ask the
       await Provider.getModel(taskModel.providerID, taskModel.modelID)
     } catch (e) {
       if (Provider.ModelNotFoundError.isInstance(e)) {
-        const { providerID, modelID, suggestions } = e.data
-        const hint = suggestions?.length ? ` Did you mean: ${suggestions.join(", ")}?` : ""
+        const { providerID, modelID, suggestions, disabled } = e.data
+        const msg = disabled
+          ? `Model disabled: ${providerID}/${modelID}. Enable it in Settings > Models.`
+          : `Model not found: ${providerID}/${modelID}.${suggestions?.length ? ` Did you mean: ${suggestions.join(", ")}?` : ""}`
         Bus.publish(Session.Event.Error, {
           sessionID: input.sessionID,
-          error: new NamedError.Unknown({ message: `Model not found: ${providerID}/${modelID}.${hint}` }).toObject(),
+          error: new NamedError.Unknown({ message: msg }).toObject(),
         })
       }
       throw e
