@@ -15,6 +15,7 @@ import { SessionRevertDock } from "@/pages/session/composer/session-revert-dock"
 import { SessionTodoDock } from "@/pages/session/composer/session-todo-dock"
 import { getSessionHandoff, setSessionHandoff } from "@/pages/session/handoff"
 import { useSessionKey } from "@/pages/session/session-layout"
+import { formatReadingPageRange } from "@/utils/comment-note"
 
 export function SessionComposerRegion(props: {
   state: SessionComposerState
@@ -255,15 +256,17 @@ export function SessionComposerRegion(props: {
                     <div class="flex items-start justify-between gap-3">
                       <div class="min-w-0 flex-1">
                         <div class="text-11-medium uppercase tracking-wide text-text-weak">
-                          {"pdfFileName" in question ? `${question.pdfFileName} · p.${question.page}` : `PDF Quote - p.${question.page}`}
+                          {"pdfFileName" in question
+                            ? `${question.pdfFileName} · p.${formatReadingPageRange({ startPage: question.kind === "text-question" ? question.startPage : question.page, endPage: question.kind === "text-question" ? question.endPage : question.page })}`
+                            : `PDF Quote - p.${formatReadingPageRange({ startPage: question.kind === "text-question" ? question.startPage : question.page, endPage: question.kind === "text-question" ? question.endPage : question.page })}`}
                         </div>
-                        <Show when={question.kind === "image-question"}>
-                          <img
-                            src={question.kind === "image-question" ? question.imageDataUrl : undefined}
-                            alt={`Captured region from page ${question.page}`}
-                            class="mt-2 h-20 max-w-full rounded-md border border-border-weak-base bg-background-base object-contain"
-                          />
-                        </Show>
+                          <Show when={question.kind === "image-question"}>
+                            <img
+                              src={question.kind === "image-question" ? question.imageDataUrl : undefined}
+                              alt={`Captured region from page ${question.kind === "image-question" ? question.page : question.startPage}`}
+                              class="mt-2 h-20 max-w-full rounded-md border border-border-weak-base bg-background-base object-contain"
+                            />
+                          </Show>
                         <div class="mt-1 line-clamp-3 whitespace-pre-wrap break-words text-13-regular text-text-strong">
                           {question.text}
                         </div>

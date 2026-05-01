@@ -17,6 +17,7 @@ import { upsertSessionList } from "@/utils/session-store"
 import { formatServerError } from "@/utils/server-errors"
 
 const promptedSessions = new Set<string>()
+const PRE_READ_LIMIT = 50
 
 function mergeSession(sync: ReturnType<typeof useSync>, sessionID: string, next: Session | undefined) {
   if (!next) return
@@ -78,13 +79,10 @@ function firstReadLabel(
     case "reading.firstRead.title":
       return zh ? "AI \u9884\u8bfb" : "AI Pre-read"
     case "reading.firstRead.message.small":
-      return zh
-        ? `\u8fd9\u4efd PDF \u5171 ${params?.total ?? ""} \u9875\uff0c\u662f\u5426\u8ba9 AI \u5148\u9884\u8bfb\u5e76\u751f\u6210\u603b\u7ed3\uff1f`
-        : `This PDF has ${params?.total ?? ""} pages. Start AI pre-reading now?`
     case "reading.firstRead.message.large":
       return zh
-        ? `\u8fd9\u4efd PDF \u5171 ${params?.total ?? ""} \u9875\u3002\u8bf7\u5148\u9009\u62e9\u4e00\u4e2a\u8fde\u7eed\u9875\u8303\u56f4\uff0c\u518d\u53d1\u9001\u7ed9 AI \u8fdb\u884c\u9884\u8bfb\u3002\u5355\u6b21\u9884\u8bfb\u6700\u591a\u652f\u6301 30 \u9875\u3002`
-        : `This PDF has ${params?.total ?? ""} pages. Choose a continuous page range before sending it for AI pre-reading. A single pre-read supports at most 30 pages.`
+        ? `\u8fd9\u4efd PDF \u5171 ${params?.total ?? ""} \u9875\u3002\u8bf7\u5148\u9009\u62e9\u4e00\u4e2a\u8fde\u7eed\u9875\u8303\u56f4\uff0c\u518d\u53d1\u9001\u7ed9 AI \u8fdb\u884c\u9884\u8bfb\u3002\u9ed8\u8ba4\u5efa\u8bae\u5355\u6b21\u4e0d\u8d85\u8fc7 ${params?.limit ?? PRE_READ_LIMIT} \u9875\u3002`
+        : `This PDF has ${params?.total ?? ""} pages. Choose a continuous page range before sending it for AI pre-reading. The recommended limit is ${params?.limit ?? PRE_READ_LIMIT} pages per run.`
     case "reading.firstRead.range.start":
       return zh ? "\u8d77\u59cb\u9875" : "Start page"
     case "reading.firstRead.range.end":
@@ -97,8 +95,10 @@ function firstReadLabel(
       return zh
         ? `\u9875\u7801\u8303\u56f4\u5fc5\u987b\u5728 1-${params?.total ?? ""} \u4e4b\u95f4\u3002`
         : `Page range must stay within 1-${params?.total ?? ""}.`
-    case "reading.firstRead.range.limit":
-      return zh ? "\u5355\u6b21\u9884\u8bfb\u6700\u591a\u652f\u6301 30 \u9875\u3002" : "A single pre-read supports at most 30 pages."
+    case "reading.firstRead.confirm":
+      return zh
+        ? `\u5f53\u524d\u9009\u62e9\u5171 ${params?.count ?? ""} \u9875\uff0c\u8d85\u8fc7\u5efa\u8bae\u7684 ${params?.limit ?? PRE_READ_LIMIT} \u9875\uff0c\u9884\u8bfb\u53ef\u80fd\u66f4\u6162\u4e14\u6548\u679c\u4e0d\u7a33\u5b9a\u3002\u662f\u5426\u7ee7\u7eed\uff1f`
+        : `You selected ${params?.count ?? ""} pages, which exceeds the recommended ${params?.limit ?? PRE_READ_LIMIT}-page limit. Pre-read may be slower and less reliable. Continue?`
     case "reading.firstRead.start":
       return zh ? "\u5f00\u59cb\u9884\u8bfb" : "Start pre-read"
     case "reading.firstRead.starting":
@@ -133,8 +133,7 @@ const ReadingFirstReadDialog: Component<{
   const rm = useReadingMode()
 
   const meta = createMemo(() => sync.session.get(props.sessionID)?.readingMode ?? rm.store.sessionMeta ?? null)
-  const largeDocument = createMemo(() => props.totalPages > 30)
-  const defaultEndPage = createMemo(() => Math.min(props.totalPages, 30))
+  const defaultEndPage = createMemo(() => Math.min(props.totalPages, PRE_READ_LIMIT))
 
   const [startPage, setStartPage] = createSignal(1)
   const [endPage, setEndPage] = createSignal(defaultEndPage())
@@ -149,15 +148,14 @@ const ReadingFirstReadDialog: Component<{
   })
 
   const rangeError = createMemo(() => {
-    const start = largeDocument() ? startPage() : 1
-    const end = largeDocument() ? endPage() : props.totalPages
+    const start = startPage()
+    const end = endPage()
     if (!Number.isInteger(start) || !Number.isInteger(end)) return firstReadLabel(language, "reading.firstRead.range.invalid")
     if (start < 1 || end < 1) return firstReadLabel(language, "reading.firstRead.range.invalid")
     if (start > end) return firstReadLabel(language, "reading.firstRead.range.order")
     if (end > props.totalPages) {
       return firstReadLabel(language, "reading.firstRead.range.bounds", { total: props.totalPages })
     }
-    if (end - start + 1 > 30) return firstReadLabel(language, "reading.firstRead.range.limit")
     return undefined
   })
 
@@ -195,11 +193,15 @@ const ReadingFirstReadDialog: Component<{
       return
     }
 
-    const start = largeDocument() ? startPage() : 1
-    const end = largeDocument() ? endPage() : props.totalPages
+    const start = startPage()
+    const end = endPage()
     const validation = rangeError()
     if (validation) {
       setError(validation)
+      return
+    }
+    const count = end - start + 1
+    if (count > PRE_READ_LIMIT && !window.confirm(firstReadLabel(language, "reading.firstRead.confirm", { count, limit: PRE_READ_LIMIT }))) {
       return
     }
 
@@ -284,43 +286,39 @@ const ReadingFirstReadDialog: Component<{
   return (
     <Dialog
       title={firstReadLabel(language, "reading.firstRead.title")}
-      size={largeDocument() ? "large" : undefined}
-      fit={!largeDocument()}
-      class={largeDocument() ? undefined : "w-full max-w-[560px] mx-auto"}
+      size="large"
+      fit={false}
+      class="w-full max-w-[560px] mx-auto"
     >
       <div class="flex flex-col gap-4 p-4">
         <p class="text-sm text-text-base">
-          {largeDocument()
-            ? firstReadLabel(language, "reading.firstRead.message.large", { total: props.totalPages })
-            : firstReadLabel(language, "reading.firstRead.message.small", { total: props.totalPages })}
+          {firstReadLabel(language, "reading.firstRead.message.large", { total: props.totalPages, limit: PRE_READ_LIMIT })}
         </p>
 
-        {largeDocument() && (
-          <div class="grid grid-cols-2 gap-3">
-            <label class="flex flex-col gap-1">
-              <span class="text-xs text-text-muted">{firstReadLabel(language, "reading.firstRead.range.start")}</span>
-              <input
-                type="number"
-                min={1}
-                max={props.totalPages}
-                value={startPage()}
-                onInput={(event) => setStartPage(event.currentTarget.valueAsNumber || 0)}
-                class="rounded border border-border-base bg-surface-raised-base px-3 py-2 text-sm text-text-base focus:outline-none"
-              />
-            </label>
-            <label class="flex flex-col gap-1">
-              <span class="text-xs text-text-muted">{firstReadLabel(language, "reading.firstRead.range.end")}</span>
-              <input
-                type="number"
-                min={1}
-                max={props.totalPages}
-                value={endPage()}
-                onInput={(event) => setEndPage(event.currentTarget.valueAsNumber || 0)}
-                class="rounded border border-border-base bg-surface-raised-base px-3 py-2 text-sm text-text-base focus:outline-none"
-              />
-            </label>
-          </div>
-        )}
+        <div class="grid grid-cols-2 gap-3">
+          <label class="flex flex-col gap-1">
+            <span class="text-xs text-text-muted">{firstReadLabel(language, "reading.firstRead.range.start")}</span>
+            <input
+              type="number"
+              min={1}
+              max={props.totalPages}
+              value={startPage()}
+              onInput={(event) => setStartPage(event.currentTarget.valueAsNumber || 0)}
+              class="rounded border border-border-base bg-surface-raised-base px-3 py-2 text-sm text-text-base focus:outline-none"
+            />
+          </label>
+          <label class="flex flex-col gap-1">
+            <span class="text-xs text-text-muted">{firstReadLabel(language, "reading.firstRead.range.end")}</span>
+            <input
+              type="number"
+              min={1}
+              max={props.totalPages}
+              value={endPage()}
+              onInput={(event) => setEndPage(event.currentTarget.valueAsNumber || 0)}
+              class="rounded border border-border-base bg-surface-raised-base px-3 py-2 text-sm text-text-base focus:outline-none"
+            />
+          </label>
+        </div>
 
         {(error() || rangeError()) && (
           <div class="rounded bg-surface-raised-base p-2 text-sm text-red-400">{error() || rangeError()}</div>

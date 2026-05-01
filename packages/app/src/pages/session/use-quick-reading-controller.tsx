@@ -42,6 +42,7 @@ export function useQuickReadingController(options: Options) {
     setFirstReadOpen(false)
     quickReading.unbind()
     view().quickReading.close()
+    if (!view().reviewPanel.opened()) view().reviewPanel.open()
   }
 
   const focusPromptInput = () => {
@@ -112,7 +113,12 @@ export function useQuickReadingController(options: Options) {
     })
   }
 
-  const handleTextSelectionAction = async (input: { action: "copy" | "translate" | "ask"; page: number; text: string }) => {
+  const handleTextSelectionAction = async (input: {
+    action: "copy" | "translate" | "ask"
+    startPage: number
+    endPage: number
+    text: string
+  }) => {
     const text = input.text.trim()
     if (!text) return
     const binding = quickReading.store.binding
@@ -125,7 +131,8 @@ export function useQuickReadingController(options: Options) {
         sessionID,
         pdfPath: binding.pdfPath,
         pdfFileName: binding.pdfFileName,
-        page: input.page,
+        startPage: input.startPage,
+        endPage: input.endPage,
         text,
         createdAt: Date.now(),
       })
@@ -136,11 +143,15 @@ export function useQuickReadingController(options: Options) {
     if (input.action !== "translate") return
 
     const settings = quickReading.store.snapshot.settings
+    const label =
+      input.endPage > input.startPage
+        ? `pages ${input.startPage}-${input.endPage}`
+        : `page ${input.startPage}`
     await sendQuickReadingTranslate({
-      page: input.page,
+      page: input.startPage,
       extraTextParts: [
         {
-          text: `Translate selected text on page ${input.page} from ${binding.pdfFileName}`,
+          text: `Translate selected text on ${label} from ${binding.pdfFileName}`,
           ignored: true,
         },
         {
@@ -156,7 +167,8 @@ export function useQuickReadingController(options: Options) {
             action: "translate",
             contentType: "text",
             pdfFileName: binding.pdfFileName,
-            page: input.page,
+            startPage: input.startPage,
+            endPage: input.endPage,
             summary: summarizeReadingQuoteText(text),
             fullText: text,
           }),
@@ -216,7 +228,6 @@ export function useQuickReadingController(options: Options) {
     const active = view().quickReading.active()
     const pdfPath = view().quickReading.pdfPath()
     const pdfFileName = view().quickReading.pdfFileName()
-    const previewPage = pdfPath ? file.pdfPage(pdfPath) : undefined
     if (!sessionID || !active || !pdfPath || !pdfFileName) {
       if (quickReading.store.binding) quickReading.unbind()
       return
@@ -226,7 +237,6 @@ export function useQuickReadingController(options: Options) {
       return
     }
     quickReading.bind(sessionID, pdfPath, pdfFileName)
-    if (previewPage && previewPage > 0) quickReading.setPage(previewPage)
   })
 
   const active = createMemo(() => {
@@ -234,7 +244,8 @@ export function useQuickReadingController(options: Options) {
     return !!params.id && view().quickReading.active() && !!boundPath && options.activeFilePath() === boundPath && isPdfPath(boundPath)
   })
   const layoutSwapped = createMemo(() => quickReading.store.snapshot.layoutSwapped)
-  const page = createMemo(() => quickReading.store.snapshot.currentPage)
+  const page = createMemo(() => quickReading.store.view.page)
+  const location = createMemo(() => quickReading.store.view.location)
   const pdfUrl = createMemo(() => {
     const boundPath = quickReadingPdfPath()
     if (!boundPath) return ""
@@ -259,8 +270,10 @@ export function useQuickReadingController(options: Options) {
 
   const handlePageChange = (page: number) => {
     quickReading.setPage(page)
-    const boundPath = quickReadingPdfPath()
-    if (boundPath) file.setPdfPage(boundPath, page)
+  }
+
+  const handleLocationChange = (location: string) => {
+    quickReading.setLocation(location)
   }
 
   const handleDocumentInfo = ({ totalPages }: { totalPages: number }) => {
@@ -279,6 +292,7 @@ export function useQuickReadingController(options: Options) {
     pdfPath: quickReadingPdfPath,
     active,
     page,
+    location,
     layoutSwapped,
     pdfUrl,
     authHeader,
@@ -289,6 +303,7 @@ export function useQuickReadingController(options: Options) {
     handleImageSelectionAction,
     handleDocumentInfo,
     handlePageChange,
+    handleLocationChange,
     toggleLayoutSwapped,
     pdfFileName,
     totalPages,
@@ -302,9 +317,9 @@ export function useQuickReadingController(options: Options) {
           title: language.t("common.requestFailed"),
           description: "The PDF is still loading. Try pre-read again in a moment.",
         })
-        return
-      }
-      setFirstReadOpen(true)
-    },
+      return
+    }
+    setFirstReadOpen(true)
+  },
   }
 }

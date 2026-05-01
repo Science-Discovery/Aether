@@ -11,10 +11,17 @@ export const QuickReadingPanel: Component<{
   minWidth: number
   maxWidth: number
   page?: number
+  location?: string
   layoutSwapped: boolean
   onPageChange?: (page: number) => void
+  onLocationChange?: (location: string) => void
   onDocumentInfo?: (info: { totalPages: number }) => void
-  onTextSelectionAction?: (input: { action: "copy" | "translate" | "ask"; page: number; text: string }) => void
+  onTextSelectionAction?: (input: {
+    action: "copy" | "translate" | "ask"
+    startPage: number
+    endPage: number
+    text: string
+  }) => void
   onImageSelectionAction?: (input: { action: "copy" | "translate" | "ask"; page: number; imageDataUrl: string }) => void
   onSwapLayout?: () => void
   onExitQuickReading?: () => void
@@ -42,8 +49,10 @@ export const QuickReadingPanel: Component<{
             mode="full"
             class="size-full"
             page={props.page}
+            location={props.location}
             layoutSwapped={props.layoutSwapped}
             onPageChange={props.onPageChange}
+            onLocationChange={props.onLocationChange}
             onDocumentInfo={props.onDocumentInfo}
             onTextSelectionAction={props.onTextSelectionAction}
             onImageSelectionAction={props.onImageSelectionAction}

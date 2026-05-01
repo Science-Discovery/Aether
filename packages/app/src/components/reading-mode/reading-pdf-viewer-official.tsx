@@ -8,7 +8,12 @@ export const OfficialReadingPdfViewer: Component<{
   layoutSwapped?: boolean
   onSwapLayout?: () => void
   onOpenSettings?: () => void
-  onTextSelectionAction?: (input: { action: "copy" | "translate" | "ask"; page: number; text: string }) => void
+  onTextSelectionAction?: (input: {
+    action: "copy" | "translate" | "ask"
+    startPage: number
+    endPage: number
+    text: string
+  }) => void
   onImageSelectionAction?: (input: { action: "copy" | "translate" | "ask"; page: number; imageDataUrl: string }) => void
 }> = (props) => {
   const rm = useReadingMode()

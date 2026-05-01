@@ -30,7 +30,7 @@ import { useSettings } from "@/context/settings"
 import { useSDK } from "@/context/sdk"
 import { useSync } from "@/context/sync"
 import { messageAgentColor } from "@/utils/agent"
-import { parseCommentNote, readCommentMetadata, readReadingQuoteMetadata, type ReadingQuote } from "@/utils/comment-note"
+import { formatReadingPageRange, parseCommentNote, readCommentMetadata, readReadingQuoteMetadata, type ReadingQuote } from "@/utils/comment-note"
 import { makeTimer } from "@solid-primitives/timer"
 import { createChatFind, ChatFindBar } from "@/pages/session/chat-find"
 
@@ -84,7 +84,7 @@ function DialogReadingQuoteTextContent(props: { quote: MessageReadingQuote }) {
     <Dialog title="PDF Quote" class="w-[min(720px,calc(100vw-32px))] max-w-[calc(100vw-32px)]">
       <div class="flex max-h-[70vh] min-w-0 w-full max-w-full flex-col gap-3 overflow-hidden p-4">
         <div class="min-w-0 break-words text-14-medium text-text-strong">
-          {`${props.quote.pdfFileName} - p.${props.quote.page} - ${props.quote.action === "ask" ? "Ask" : "Translate"}`}
+          {`${props.quote.pdfFileName} - p.${formatReadingPageRange(props.quote)} - ${props.quote.action === "ask" ? "Ask" : "Translate"}`}
         </div>
         <div class="text-12-regular text-text-weak">
           {props.quote.action === "ask" ? "Quoted content used for Ask" : "Quoted content used for Translate"}
@@ -1115,7 +1115,8 @@ export function MessageTimeline(props: {
                           quote.action === b[i].action &&
                           quote.contentType === b[i].contentType &&
                           quote.pdfFileName === b[i].pdfFileName &&
-                          quote.page === b[i].page &&
+                          quote.startPage === b[i].startPage &&
+                          quote.endPage === b[i].endPage &&
                           quote.summary === b[i].summary &&
                           quote.fullText === b[i].fullText &&
                           quote.imageDataUrl === b[i].imageDataUrl,
@@ -1191,7 +1192,7 @@ export function MessageTimeline(props: {
                                             <span class="truncate">{q().pdfFileName}</span>
                                           </div>
                                           <div class="pt-1 text-11-medium text-text-weak">
-                                            {`p.${q().page} · ${q().action === "ask" ? "Ask" : "Translate"}`}
+                                            {`p.${formatReadingPageRange(q())} · ${q().action === "ask" ? "Ask" : "Translate"}`}
                                           </div>
                                           <div class="pt-1 text-12-regular text-text-strong whitespace-pre-wrap break-words line-clamp-3">
                                             {q().summary}

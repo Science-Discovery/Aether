@@ -58,18 +58,19 @@ function build(input: { prompt: string; start: number; end: number }) {
   ].join("\n")
 }
 
+const PRE_READ_LIMIT = 50
+
 function text(locale: string, key: string, params?: Record<string, string | number>) {
   const zh = locale === "zh" || locale === "zht"
   switch (key) {
     case "title": return zh ? "AI 预读" : "AI Pre-read"
-    case "small": return zh ? `这份 PDF 共 ${params?.total ?? ""} 页，是否让 AI 先预读并生成总结？` : `This PDF has ${params?.total ?? ""} pages. Start AI pre-reading now?`
-    case "large": return zh ? `这份 PDF 共 ${params?.total ?? ""} 页。请选择一个连续页范围，再发送给 AI 进行预读。单次预读最多支持 30 页。` : `This PDF has ${params?.total ?? ""} pages. Choose a continuous page range before sending it for AI pre-reading. A single pre-read supports at most 30 pages.`
+    case "range": return zh ? `这份 PDF 共 ${params?.total ?? ""} 页。请选择一个连续页范围后开始 AI 预读。默认建议单次不超过 ${params?.limit ?? PRE_READ_LIMIT} 页。` : `This PDF has ${params?.total ?? ""} pages. Choose a continuous page range before starting AI pre-reading. The recommended limit is ${params?.limit ?? PRE_READ_LIMIT} pages per run.`
     case "start": return zh ? "起始页" : "Start page"
     case "end": return zh ? "结束页" : "End page"
     case "invalid": return zh ? "请输入有效的页码范围。" : "Enter a valid page range."
     case "order": return zh ? "起始页不能大于结束页。" : "Start page cannot be greater than end page."
     case "bounds": return zh ? `页码范围必须在 1-${params?.total ?? ""} 之间。` : `Page range must stay within 1-${params?.total ?? ""}.`
-    case "limit": return zh ? "单次预读最多支持 30 页。" : "A single pre-read supports at most 30 pages."
+    case "confirm": return zh ? `当前选择共 ${params?.count ?? ""} 页，超过推荐的 ${params?.limit ?? PRE_READ_LIMIT} 页，预读可能更慢且效果不稳定。是否继续？` : `You selected ${params?.count ?? ""} pages, which exceeds the recommended ${params?.limit ?? PRE_READ_LIMIT}-page limit. Pre-read may be slower and less reliable. Continue?`
     case "cancel": return zh ? "跳过本次" : "Skip this time"
     case "submit": return zh ? "开始预读" : "Start pre-read"
     case "submitting": return zh ? "准备中..." : "Preparing..."
@@ -95,8 +96,7 @@ const Gate: Component<{
   const global = useGlobalSync()
   const local = useLocal()
   const quick = useQuickReadingMode()
-  const big = createMemo(() => props.totalPages > 30)
-  const last = createMemo(() => Math.min(props.totalPages, 30))
+  const last = createMemo(() => Math.min(props.totalPages, PRE_READ_LIMIT))
   const [start, setStart] = createSignal(1)
   const [end, setEnd] = createSignal(last())
   const [error, setError] = createSignal<string | null>(null)
@@ -110,13 +110,12 @@ const Gate: Component<{
   })
 
   const issue = createMemo(() => {
-    const from = big() ? start() : 1
-    const to = big() ? end() : props.totalPages
+    const from = start()
+    const to = end()
     if (!Number.isInteger(from) || !Number.isInteger(to)) return text(language.locale(), "invalid")
     if (from < 1 || to < 1) return text(language.locale(), "invalid")
     if (from > to) return text(language.locale(), "order")
     if (to > props.totalPages) return text(language.locale(), "bounds", { total: props.totalPages })
-    if (to - from + 1 > 30) return text(language.locale(), "limit")
     return undefined
   })
 
@@ -153,11 +152,15 @@ const Gate: Component<{
       showToast({ variant: "error", title: language.t("common.requestFailed"), description: language.t("prompt.toast.modelAgentRequired.description") })
       return
     }
-    const from = big() ? start() : 1
-    const to = big() ? end() : props.totalPages
+    const from = start()
+    const to = end()
     const err = issue()
     if (err) {
       setError(err)
+      return
+    }
+    const count = to - from + 1
+    if (count > PRE_READ_LIMIT && !window.confirm(text(language.locale(), "confirm", { count, limit: PRE_READ_LIMIT }))) {
       return
     }
     setSending(true)
@@ -186,7 +189,6 @@ const Gate: Component<{
       }
       const ok = await sendFollowupDraft({ client: sdk.client, sync, globalSync: global, draft, messageID: id, optimisticBusy: true })
       if (!ok) return
-      quick.setFirstReadDismissed(false)
       props.onQueued(id)
     } catch (cause) {
       const message = cause instanceof Error ? cause.message : String(cause)
@@ -208,7 +210,6 @@ const Gate: Component<{
 
   const dismiss = () => {
     if (sending()) return
-    quick.setFirstReadDismissed(true)
     closed = true
     props.onDismiss()
     dialog.close()
@@ -216,26 +217,23 @@ const Gate: Component<{
 
   onCleanup(() => {
     if (closed) return
-    quick.setFirstReadDismissed(true)
     props.onDismiss()
   })
 
   return (
-    <Dialog title={text(language.locale(), "title")} size={big() ? "large" : undefined} fit={!big()} class={big() ? undefined : "w-full max-w-[560px] mx-auto"}>
+    <Dialog title={text(language.locale(), "title")} size="large" fit={false} class="w-full max-w-[560px] mx-auto">
       <div class="flex flex-col gap-4 p-4">
-        <p class="text-sm text-text-base">{big() ? text(language.locale(), "large", { total: props.totalPages }) : text(language.locale(), "small", { total: props.totalPages })}</p>
-        {big() && (
-          <div class="grid grid-cols-2 gap-3">
-            <label class="flex flex-col gap-1">
-              <span class="text-xs text-text-muted">{text(language.locale(), "start")}</span>
-              <input type="number" min={1} max={props.totalPages} value={start()} onInput={(event) => setStart(event.currentTarget.valueAsNumber || 0)} class="rounded border border-border-base bg-surface-raised-base px-3 py-2 text-sm text-text-base focus:outline-none" />
-            </label>
-            <label class="flex flex-col gap-1">
-              <span class="text-xs text-text-muted">{text(language.locale(), "end")}</span>
-              <input type="number" min={1} max={props.totalPages} value={end()} onInput={(event) => setEnd(event.currentTarget.valueAsNumber || 0)} class="rounded border border-border-base bg-surface-raised-base px-3 py-2 text-sm text-text-base focus:outline-none" />
-            </label>
-          </div>
-        )}
+        <p class="text-sm text-text-base">{text(language.locale(), "range", { total: props.totalPages, limit: PRE_READ_LIMIT })}</p>
+        <div class="grid grid-cols-2 gap-3">
+          <label class="flex flex-col gap-1">
+            <span class="text-xs text-text-muted">{text(language.locale(), "start")}</span>
+            <input type="number" min={1} max={props.totalPages} value={start()} onInput={(event) => setStart(event.currentTarget.valueAsNumber || 0)} class="rounded border border-border-base bg-surface-raised-base px-3 py-2 text-sm text-text-base focus:outline-none" />
+          </label>
+          <label class="flex flex-col gap-1">
+            <span class="text-xs text-text-muted">{text(language.locale(), "end")}</span>
+            <input type="number" min={1} max={props.totalPages} value={end()} onInput={(event) => setEnd(event.currentTarget.valueAsNumber || 0)} class="rounded border border-border-base bg-surface-raised-base px-3 py-2 text-sm text-text-base focus:outline-none" />
+          </label>
+        </div>
         {(error() || issue()) && <div class="rounded bg-surface-raised-base p-2 text-sm text-red-400">{error() || issue()}</div>}
         <div class="flex justify-end gap-2">
           <Button variant="ghost" onClick={dismiss} disabled={sending()}>{text(language.locale(), "cancel")}</Button>
@@ -268,8 +266,6 @@ export const QuickReadingFirstReadGate: Component<{
     if (!id || status().type !== "idle") return
     const done = messages().some((item) => item.role === "assistant" && item.id > id && typeof item.time.completed === "number")
     if (!done) return
-    quick.setFirstReadCompleted(true)
-    quick.setFirstReadDismissed(false)
     setPending(undefined)
   })
 

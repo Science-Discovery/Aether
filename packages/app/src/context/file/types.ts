@@ -18,6 +18,7 @@ export type FileViewState = {
   scrollTop?: number
   scrollLeft?: number
   pdfPage?: number
+  pdfLocation?: string
   selectedLines?: SelectedLineRange | null
   wordWrap?: boolean
   isEditing?: boolean

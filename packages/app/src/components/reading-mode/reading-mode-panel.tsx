@@ -61,10 +61,13 @@ export const ReadingModePanel: Component<{
     })
   }
 
-  const translateLabel = (page: number) =>
+  const pageLabel = (startPage: number, endPage?: number) =>
+    endPage && endPage > startPage ? `${startPage}-${endPage}` : `${startPage}`
+
+  const translateLabel = (startPage: number, endPage?: number) =>
     language.locale() === "zh" || language.locale() === "zht"
-      ? `\u7ffb\u8bd1\u7b2c ${page} \u9875\u9009\u4e2d\u6587\u672c`
-      : `Translate selected text on page ${page}`
+      ? `\u7ffb\u8bd1\u7b2c ${pageLabel(startPage, endPage)} \u9875\u9009\u4e2d\u6587\u672c`
+      : `Translate selected text on page ${pageLabel(startPage, endPage)}`
 
   const translatePromptText = (prompt: string, text: string) => `${prompt}\n\n[Selected text]\n${text}`
 
@@ -76,14 +79,20 @@ export const ReadingModePanel: Component<{
   const translateImagePromptText = (prompt: string) =>
     `${prompt}\n\n[Selected image]\nPlease translate the content shown in the attached image.`
 
-  const handleTextSelectionAction = async (input: { action: "copy" | "translate" | "ask"; page: number; text: string }) => {
+  const handleTextSelectionAction = async (input: {
+    action: "copy" | "translate" | "ask"
+    startPage: number
+    endPage: number
+    text: string
+  }) => {
     const text = input.text.trim()
     if (!text) return
 
     if (input.action === "ask") {
       rm.setPendingQuestion({
         kind: "text-question",
-        page: input.page,
+        startPage: input.startPage,
+        endPage: input.endPage,
         text,
         createdAt: Date.now(),
       })
@@ -116,14 +125,14 @@ export const ReadingModePanel: Component<{
         providerID: currentModel.provider.id,
         modelID: currentModel.id,
       },
-      variant,
-      extraTextParts: [
-        {
-          text: translateLabel(input.page),
-          ignored: true,
-        },
-        {
-          text: translatePromptText(meta.settings.translatePrompt, text),
+        variant,
+        extraTextParts: [
+          {
+            text: translateLabel(input.startPage, input.endPage),
+            ignored: true,
+          },
+          {
+            text: translatePromptText(meta.settings.translatePrompt, text),
           synthetic: true,
         },
       ],

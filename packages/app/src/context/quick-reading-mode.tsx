@@ -1,6 +1,5 @@
 import { createContext, createEffect, useContext, type ParentProps } from "solid-js"
 import { createStore } from "solid-js/store"
-import { useParams } from "@solidjs/router"
 import { Persist, persisted } from "@/utils/persist"
 import { useSDK } from "@/context/sdk"
 
@@ -17,7 +16,8 @@ export type QuickReadingPendingQuestion =
       sessionID: string
       pdfPath: string
       pdfFileName: string
-      page: number
+      startPage: number
+      endPage: number
       text: string
       createdAt: number
     }
@@ -34,15 +34,12 @@ export type QuickReadingPendingQuestion =
   | null
 
 export type QuickReadingPersistedPdfState = {
-  currentPage: number
   totalPages: number
   layoutSwapped: boolean
-  settings: QuickReadingSettings
-  firstReadCompleted: boolean
-  firstReadDismissed: boolean
 }
 
 type PersistedState = {
+  settings?: QuickReadingSettings
   byPdfPath: Record<string, QuickReadingPersistedPdfState | undefined>
 }
 
@@ -54,11 +51,20 @@ type Binding =
     }
   | null
 
-type Snapshot = QuickReadingPersistedPdfState
+type Snapshot = QuickReadingPersistedPdfState & {
+  settings: QuickReadingSettings
+}
+
+type View = {
+  pdfPath?: string
+  page: number
+  location?: string
+}
 
 type Store = {
   binding: Binding
   snapshot: Snapshot
+  view: View
   pendingQuestion: QuickReadingPendingQuestion
   hydratedKey?: string
 }
@@ -68,12 +74,11 @@ type Ctx = {
   bind: (sessionID: string, pdfPath: string, pdfFileName: string) => void
   unbind: () => void
   setPage: (page: number) => void
+  setLocation: (location?: string) => void
   setTotalPages: (totalPages: number) => void
   setLayoutSwapped: (swapped: boolean) => void
   setPendingQuestion: (question: QuickReadingPendingQuestion) => void
   setSettings: (settings: QuickReadingSettings) => void
-  setFirstReadCompleted: (value: boolean) => void
-  setFirstReadDismissed: (value: boolean) => void
   clearTransientState: () => void
 }
 
@@ -87,6 +92,14 @@ const DEFAULT_SETTINGS: QuickReadingSettings = {
   autoFirstRead: true,
 }
 
+function createView(): View {
+  return {
+    pdfPath: undefined,
+    page: 1,
+    location: undefined,
+  }
+}
+
 function cloneSettings(input?: Partial<QuickReadingSettings> | null): QuickReadingSettings {
   return {
     translatePrompt: input?.translatePrompt ?? DEFAULT_SETTINGS.translatePrompt,
@@ -98,49 +111,45 @@ function cloneSettings(input?: Partial<QuickReadingSettings> | null): QuickReadi
 
 function createPdfState(): QuickReadingPersistedPdfState {
   return {
-    currentPage: 1,
     totalPages: 0,
     layoutSwapped: true,
-    settings: cloneSettings(),
-    firstReadCompleted: false,
-    firstReadDismissed: false,
   }
 }
 
 function normalizePdfState(input?: Partial<QuickReadingPersistedPdfState> | null): QuickReadingPersistedPdfState {
   const fallback = createPdfState()
   return {
-    currentPage:
-      typeof input?.currentPage === "number" && Number.isFinite(input.currentPage) && input.currentPage > 0
-        ? Math.round(input.currentPage)
-        : fallback.currentPage,
     totalPages:
       typeof input?.totalPages === "number" && Number.isFinite(input.totalPages) && input.totalPages >= 0
         ? Math.round(input.totalPages)
         : fallback.totalPages,
     layoutSwapped: typeof input?.layoutSwapped === "boolean" ? input.layoutSwapped : fallback.layoutSwapped,
-    settings: cloneSettings(input?.settings),
-    firstReadCompleted:
-      typeof input?.firstReadCompleted === "boolean" ? input.firstReadCompleted : fallback.firstReadCompleted,
-    firstReadDismissed:
-      typeof input?.firstReadDismissed === "boolean" ? input.firstReadDismissed : fallback.firstReadDismissed,
+  }
+}
+
+function legacySettings(store: PersistedState) {
+  for (const item of Object.values(store.byPdfPath)) {
+    if (!item || typeof item !== "object") continue
+    const settings = (item as QuickReadingPersistedPdfState & { settings?: QuickReadingSettings }).settings
+    if (settings) return cloneSettings(settings)
   }
 }
 
 const QuickReadingModeContext = createContext<Ctx>()
 
 export function QuickReadingModeProvider(props: ParentProps) {
-  const params = useParams<{ id?: string }>()
   const sdk = useSDK()
   const [persistedStore, setPersistedStore, , ready] = persisted(
-    Persist.scoped(sdk.directory, params.id, "quick-reading-mode.v1"),
+    Persist.scoped(sdk.directory, undefined, "quick-reading-mode.v2"),
     createStore<PersistedState>({
+      settings: cloneSettings(),
       byPdfPath: {},
     }),
   )
   const [store, setStore] = createStore<Store>({
     binding: null,
-    snapshot: createPdfState(),
+    snapshot: { ...createPdfState(), settings: cloneSettings() },
+    view: createView(),
     pendingQuestion: null,
     hydratedKey: undefined,
   })
@@ -150,6 +159,8 @@ export function QuickReadingModeProvider(props: ParentProps) {
     if (!binding) return
     return `${binding.sessionID}:${binding.pdfPath}`
   }
+
+  const shared = () => (ready() ? cloneSettings(persistedStore.settings ?? legacySettings(persistedStore)) : cloneSettings())
 
   const persistSnapshot = (pdfPath: string, snapshot: Snapshot) => {
     setPersistedStore("byPdfPath", pdfPath, normalizePdfState(snapshot))
@@ -164,11 +175,22 @@ export function QuickReadingModeProvider(props: ParentProps) {
 
   const bind = (sessionID: string, pdfPath: string, pdfFileName: string) => {
     const nextKey = `${sessionID}:${pdfPath}`
-    const nextSnapshot = ready() ? normalizePdfState(persistedStore.byPdfPath[pdfPath]) : createPdfState()
+    const nextSnapshot = {
+      ...(ready() ? normalizePdfState(persistedStore.byPdfPath[pdfPath]) : createPdfState()),
+      settings: shared(),
+    }
     setStore({
       binding: { sessionID, pdfPath, pdfFileName },
       snapshot: nextSnapshot,
-      hydratedKey: ready() ? nextKey : undefined,
+        view:
+          store.view.pdfPath === pdfPath
+            ? store.view
+            : {
+                pdfPath,
+                page: 1,
+                location: undefined,
+              },
+        hydratedKey: ready() ? nextKey : undefined,
     })
     if (ready() && !persistedStore.byPdfPath[pdfPath]) persistSnapshot(pdfPath, nextSnapshot)
   }
@@ -176,7 +198,7 @@ export function QuickReadingModeProvider(props: ParentProps) {
   const unbind = () => {
     setStore({
       binding: null,
-      snapshot: createPdfState(),
+      snapshot: { ...createPdfState(), settings: shared() },
       hydratedKey: undefined,
     })
   }
@@ -186,10 +208,20 @@ export function QuickReadingModeProvider(props: ParentProps) {
     const key = bindingKey()
     if (!binding || !key || !ready()) return
     if (store.hydratedKey === key) return
-    const nextSnapshot = normalizePdfState(persistedStore.byPdfPath[binding.pdfPath])
+    const nextSnapshot = {
+      ...normalizePdfState(persistedStore.byPdfPath[binding.pdfPath]),
+      settings: shared(),
+    }
     setStore("snapshot", nextSnapshot)
     setStore("hydratedKey", key)
     if (!persistedStore.byPdfPath[binding.pdfPath]) persistSnapshot(binding.pdfPath, nextSnapshot)
+  })
+
+  createEffect(() => {
+    if (!ready()) return
+    const settings = shared()
+    setStore("snapshot", "settings", settings)
+    if (!persistedStore.settings) setPersistedStore("settings", settings)
   })
 
   const ctx: Ctx = {
@@ -199,8 +231,12 @@ export function QuickReadingModeProvider(props: ParentProps) {
     setPage: (page) => {
       if (!Number.isFinite(page) || page < 1) return
       const next = Math.round(page)
-      if (store.snapshot.currentPage === next) return
-      updateSnapshot((current) => ({ ...current, currentPage: next }))
+      if (store.view.page === next) return
+      setStore("view", "page", next)
+    },
+    setLocation: (location) => {
+      if (store.view.location === location) return
+      setStore("view", "location", location)
     },
     setTotalPages: (totalPages) => {
       if (!Number.isFinite(totalPages) || totalPages < 0) return
@@ -215,15 +251,8 @@ export function QuickReadingModeProvider(props: ParentProps) {
     setPendingQuestion: (question) => setStore("pendingQuestion", question),
     setSettings: (settings) => {
       const next = cloneSettings(settings)
-      updateSnapshot((current) => ({ ...current, settings: next }))
-    },
-    setFirstReadCompleted: (value) => {
-      if (store.snapshot.firstReadCompleted === value) return
-      updateSnapshot((current) => ({ ...current, firstReadCompleted: value }))
-    },
-    setFirstReadDismissed: (value) => {
-      if (store.snapshot.firstReadDismissed === value) return
-      updateSnapshot((current) => ({ ...current, firstReadDismissed: value }))
+      setPersistedStore("settings", next)
+      updateSnapshot((current) => ({ ...current, settings: next }), false)
     },
     clearTransientState: () => setStore("pendingQuestion", null),
   }

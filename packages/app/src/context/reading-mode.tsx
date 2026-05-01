@@ -38,7 +38,8 @@ export type ReadingHighlight = {
 
 export type ReadingPendingQuestion = {
   kind: "text-question"
-  page: number
+  startPage: number
+  endPage: number
   text: string
   createdAt: number
 } | {

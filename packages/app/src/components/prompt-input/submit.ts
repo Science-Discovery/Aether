@@ -23,7 +23,7 @@ import { Identifier } from "@/utils/id"
 import { Worktree as WorktreeState } from "@/utils/worktree"
 import { buildRequestParts, type DataAttachment } from "./build-request-parts"
 import { setCursorPosition } from "./editor-dom"
-import { createReadingQuoteMetadata, summarizeReadingQuoteText } from "@/utils/comment-note"
+import { createReadingQuoteMetadata, formatReadingPageRange, summarizeReadingQuoteText } from "@/utils/comment-note"
 import { formatServerError } from "@/utils/server-errors"
 
 type PendingPrompt = {
@@ -89,9 +89,14 @@ function fillReadingQuestionPrompt(template: string, input: {
     .replaceAll("{context_pages}", input.contextPages)
 }
 
-function describeReadingSelection(input: { page: number; kind: "text-question" | "image-question"; text?: string }) {
+function describeReadingSelection(input: {
+  startPage: number
+  endPage?: number
+  kind: "text-question" | "image-question"
+  text?: string
+}) {
   if (input.kind === "image-question") {
-    return `用户选中的是一张来自 PDF 第 ${input.page} 页的截图区域，请结合截图与上下文回答。`
+    return `用户选中的是一张来自 PDF 第 ${formatReadingPageRange(input)} 页的截图区域，请结合截图与上下文回答。`
   }
   return input.text ?? ""
 }
@@ -109,7 +114,8 @@ function blobToDataUrl(blob: Blob) {
 }
 
 function resolveReadingContextRange(input: {
-  page: number
+  startPage: number
+  endPage?: number
   range: 0 | 1 | 2
   totalPages?: number
 }) {
@@ -117,10 +123,13 @@ function resolveReadingContextRange(input: {
     typeof input.totalPages === "number" && Number.isFinite(input.totalPages) && input.totalPages > 0
       ? Math.floor(input.totalPages)
       : undefined
-  const safePage = totalPages ? Math.min(totalPages, Math.max(1, input.page)) : Math.max(1, input.page)
+  const safeStart = totalPages ? Math.min(totalPages, Math.max(1, input.startPage)) : Math.max(1, input.startPage)
+  const safeEnd = totalPages
+    ? Math.min(totalPages, Math.max(safeStart, input.endPage ?? input.startPage))
+    : Math.max(safeStart, input.endPage ?? input.startPage)
   return {
-    startPage: Math.max(1, safePage - input.range),
-    endPage: totalPages ? Math.min(totalPages, safePage + input.range) : safePage + input.range,
+    startPage: Math.max(1, safeStart - input.range),
+    endPage: totalPages ? Math.min(totalPages, safeEnd + input.range) : safeEnd + input.range,
   }
 }
 
@@ -368,7 +377,8 @@ export function createPromptSubmit(input: PromptSubmitInput) {
 
   const fetchReadingContextPages = async (input: {
     sessionID: string
-    page: number
+    startPage: number
+    endPage?: number
     range: 0 | 1 | 2
     totalPages?: number
   }) => {
@@ -396,7 +406,8 @@ export function createPromptSubmit(input: PromptSubmitInput) {
 
   const fetchReadingContextPdf = async (input: {
     sessionID: string
-    page: number
+    startPage: number
+    endPage?: number
     range: 0 | 1 | 2
     totalPages?: number
   }) => {
@@ -736,11 +747,11 @@ export function createPromptSubmit(input: PromptSubmitInput) {
             ignored: true,
           },
           {
-            text: fillReadingQuestionPrompt(settings.questionPrompt, {
-              selectedContent:
-                quickReadingQuestion.kind === "image-question"
-                  ? `The user selected a screenshot region from page ${quickReadingQuestion.page} of ${quickReadingQuestion.pdfFileName}.`
-                  : quickReadingQuestion.text,
+              text: fillReadingQuestionPrompt(settings.questionPrompt, {
+                selectedContent:
+                  quickReadingQuestion.kind === "image-question"
+                    ? `The user selected a screenshot region from page ${quickReadingQuestion.page} of ${quickReadingQuestion.pdfFileName}.`
+                    : `The user selected text from pages ${formatReadingPageRange({ startPage: quickReadingQuestion.startPage, endPage: quickReadingQuestion.endPage })} of ${quickReadingQuestion.pdfFileName}.\n\n${quickReadingQuestion.text}`,
               userQuestion: typedQuestion,
               contextPages: "",
             }),
@@ -757,7 +768,8 @@ export function createPromptSubmit(input: PromptSubmitInput) {
                     action: "ask",
                     contentType: "text",
                     pdfFileName: quickReadingQuestion.pdfFileName,
-                    page: quickReadingQuestion.page,
+                    startPage: quickReadingQuestion.startPage,
+                    endPage: quickReadingQuestion.endPage,
                     summary: summarizeReadingQuoteText(quickReadingQuestion.text),
                     fullText: quickReadingQuestion.text,
                   }),
@@ -825,7 +837,8 @@ export function createPromptSubmit(input: PromptSubmitInput) {
       try {
         const contextInput = {
           sessionID: session.id,
-          page: readingQuestion.page,
+          startPage: readingQuestion.kind === "text-question" ? readingQuestion.startPage : readingQuestion.page,
+          endPage: readingQuestion.kind === "text-question" ? readingQuestion.endPage : readingQuestion.page,
           range: sessionMeta.settings.contextPageRange,
           totalPages: readingMode?.store.totalPages,
         } as const
@@ -871,7 +884,8 @@ export function createPromptSubmit(input: PromptSubmitInput) {
             {
               text: fillReadingQuestionPrompt(sessionMeta.settings.questionPrompt, {
                 selectedContent: describeReadingSelection({
-                  page: readingQuestion.page,
+                  startPage: readingQuestion.kind === "text-question" ? readingQuestion.startPage : readingQuestion.page,
+                  endPage: readingQuestion.kind === "text-question" ? readingQuestion.endPage : readingQuestion.page,
                   kind: readingQuestion.kind,
                   text: readingQuestion.kind === "text-question" ? readingQuestion.text : undefined,
                 }),
@@ -891,7 +905,8 @@ export function createPromptSubmit(input: PromptSubmitInput) {
                       action: "ask",
                       contentType: "text",
                       pdfFileName: sessionMeta.pdfFileName,
-                      page: readingQuestion.page,
+                      startPage: readingQuestion.startPage,
+                      endPage: readingQuestion.endPage,
                       summary: summarizeReadingQuoteText(readingQuestion.text),
                       fullText: readingQuestion.text,
                     }),
