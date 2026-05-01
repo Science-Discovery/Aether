@@ -60,6 +60,7 @@ import { promptPlaceholder } from "./prompt-input/placeholder"
 import { ImagePreview } from "@opencode-ai/ui/image-preview"
 import { FileIcon } from "@opencode-ai/ui/file-icon"
 import { KnowledgeButton } from "@/components/knowledge-button"
+import { SteerButton } from "@/components/steer-button"
 import { DialogDefaultSkills } from "@/components/dialog-default-skills"
 
 interface PromptInputProps {
@@ -1600,6 +1601,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                       <Icon name="shield" size="small" classList={{ "text-icon-success-base": accepting() }} />
                     </Button>
                   </TooltipKeybind>
+                  <SteerButton />
                   <div
                     style={{
                       opacity: buttonsSpring(),
@@ -1610,7 +1612,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                   >
                     <KnowledgeButton />
                   </div>
-                  <Tooltip placement="left" gutter={4} value={language.t("knowledgeBase.defaultSkills")}>
+                  <Tooltip placement="top" gutter={4} value={language.t("knowledgeBase.defaultSkills")}>
                     <Button
                       variant="ghost"
                       size="normal"

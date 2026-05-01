@@ -332,96 +332,98 @@ export function SessionHeader() {
                       </div>
                     }
                   >
-                    <div class="flex items-center">
-                      <div class="flex h-[24px] box-border items-center rounded-md border border-border-weak-base bg-surface-panel overflow-hidden">
-                        <Button
-                          variant="ghost"
-                          class="rounded-none h-full px-0.5 border-none shadow-none disabled:!cursor-default"
-                          classList={{
-                            "bg-surface-raised-base-active": opening(),
-                          }}
-                          onClick={() => openDir(current().id)}
-                          disabled={opening()}
-                          aria-label={language.t("session.header.open.ariaLabel", { app: current().label })}
-                        >
-                          <div class="flex size-5 shrink-0 items-center justify-center [&_[data-component=app-icon]]:size-5">
-                            <Show when={opening()} fallback={<AppIcon id={current().icon} />}>
-                              <Spinner class="size-3.5" style={{ color: tint() ?? "var(--icon-base)" }} />
-                            </Show>
-                          </div>
-                        </Button>
-                        <DropdownMenu
-                          gutter={4}
-                          placement="bottom-end"
-                          open={menu.open}
-                          onOpenChange={(open) => setMenu("open", open)}
-                        >
-                          <DropdownMenu.Trigger
-                            as={IconButton}
-                            icon="chevron-down"
+                    <Tooltip placement="bottom" value={language.t("session.header.open.folder")}>
+                      <div class="flex items-center">
+                        <div class="flex h-[24px] box-border items-center rounded-md border border-border-weak-base bg-surface-panel overflow-hidden">
+                          <Button
                             variant="ghost"
-                            disabled={opening()}
-                            class="rounded-none h-full w-[20px] p-0 border-none shadow-none data-[expanded]:bg-surface-raised-base-active disabled:!cursor-default"
+                            class="rounded-none h-full px-0.5 border-none shadow-none disabled:!cursor-default"
                             classList={{
                               "bg-surface-raised-base-active": opening(),
                             }}
-                            aria-label={language.t("session.header.open.menu")}
-                          />
-                          <DropdownMenu.Portal>
-                            <DropdownMenu.Content class="[&_[data-slot=dropdown-menu-item]]:pl-1 [&_[data-slot=dropdown-menu-radio-item]]:pl-1 [&_[data-slot=dropdown-menu-radio-item]+[data-slot=dropdown-menu-radio-item]]:mt-1">
-                              <DropdownMenu.Group>
-                                <DropdownMenu.GroupLabel class="!px-1 !py-1">
-                                  {language.t("session.header.openIn")}
-                                </DropdownMenu.GroupLabel>
-                                <DropdownMenu.RadioGroup
-                                  class="mt-1"
-                                  value={current().id}
-                                  onChange={(value) => {
-                                    if (!OPEN_APPS.includes(value as OpenApp)) return
-                                    selectApp(value as OpenApp)
+                            onClick={() => openDir(current().id)}
+                            disabled={opening()}
+                            aria-label={language.t("session.header.open.ariaLabel", { app: current().label })}
+                          >
+                            <div class="flex size-5 shrink-0 items-center justify-center [&_[data-component=app-icon]]:size-5">
+                              <Show when={opening()} fallback={<AppIcon id={current().icon} />}>
+                                <Spinner class="size-3.5" style={{ color: tint() ?? "var(--icon-base)" }} />
+                              </Show>
+                            </div>
+                          </Button>
+                          <DropdownMenu
+                            gutter={4}
+                            placement="bottom-end"
+                            open={menu.open}
+                            onOpenChange={(open) => setMenu("open", open)}
+                          >
+                            <DropdownMenu.Trigger
+                              as={IconButton}
+                              icon="chevron-down"
+                              variant="ghost"
+                              disabled={opening()}
+                              class="rounded-none h-full w-[20px] p-0 border-none shadow-none data-[expanded]:bg-surface-raised-base-active disabled:!cursor-default"
+                              classList={{
+                                "bg-surface-raised-base-active": opening(),
+                              }}
+                              aria-label={language.t("session.header.open.menu")}
+                            />
+                            <DropdownMenu.Portal>
+                              <DropdownMenu.Content class="[&_[data-slot=dropdown-menu-item]]:pl-1 [&_[data-slot=dropdown-menu-radio-item]]:pl-1 [&_[data-slot=dropdown-menu-radio-item]+[data-slot=dropdown-menu-radio-item]]:mt-1">
+                                <DropdownMenu.Group>
+                                  <DropdownMenu.GroupLabel class="!px-1 !py-1">
+                                    {language.t("session.header.openIn")}
+                                  </DropdownMenu.GroupLabel>
+                                  <DropdownMenu.RadioGroup
+                                    class="mt-1"
+                                    value={current().id}
+                                    onChange={(value) => {
+                                      if (!OPEN_APPS.includes(value as OpenApp)) return
+                                      selectApp(value as OpenApp)
+                                    }}
+                                  >
+                                    <For each={options()}>
+                                      {(o) => (
+                                        <DropdownMenu.RadioItem
+                                          value={o.id}
+                                          disabled={opening()}
+                                          onSelect={() => {
+                                            setMenu("open", false)
+                                            openDir(o.id)
+                                          }}
+                                        >
+                                          <div class="flex size-5 shrink-0 items-center justify-center [&_[data-component=app-icon]]:size-5">
+                                            <AppIcon id={o.icon} />
+                                          </div>
+                                          <DropdownMenu.ItemLabel>{o.label}</DropdownMenu.ItemLabel>
+                                          <DropdownMenu.ItemIndicator>
+                                            <Icon name="check-small" size="small" class="text-icon-weak" />
+                                          </DropdownMenu.ItemIndicator>
+                                        </DropdownMenu.RadioItem>
+                                      )}
+                                    </For>
+                                  </DropdownMenu.RadioGroup>
+                                </DropdownMenu.Group>
+                                <DropdownMenu.Separator />
+                                <DropdownMenu.Item
+                                  onSelect={() => {
+                                    setMenu("open", false)
+                                    copyPath()
                                   }}
                                 >
-                                  <For each={options()}>
-                                    {(o) => (
-                                      <DropdownMenu.RadioItem
-                                        value={o.id}
-                                        disabled={opening()}
-                                        onSelect={() => {
-                                          setMenu("open", false)
-                                          openDir(o.id)
-                                        }}
-                                      >
-                                        <div class="flex size-5 shrink-0 items-center justify-center [&_[data-component=app-icon]]:size-5">
-                                          <AppIcon id={o.icon} />
-                                        </div>
-                                        <DropdownMenu.ItemLabel>{o.label}</DropdownMenu.ItemLabel>
-                                        <DropdownMenu.ItemIndicator>
-                                          <Icon name="check-small" size="small" class="text-icon-weak" />
-                                        </DropdownMenu.ItemIndicator>
-                                      </DropdownMenu.RadioItem>
-                                    )}
-                                  </For>
-                                </DropdownMenu.RadioGroup>
-                              </DropdownMenu.Group>
-                              <DropdownMenu.Separator />
-                              <DropdownMenu.Item
-                                onSelect={() => {
-                                  setMenu("open", false)
-                                  copyPath()
-                                }}
-                              >
-                                <div class="flex size-5 shrink-0 items-center justify-center">
-                                  <Icon name="copy" size="small" class="text-icon-weak" />
-                                </div>
-                                <DropdownMenu.ItemLabel>
-                                  {language.t("session.header.open.copyPath")}
-                                </DropdownMenu.ItemLabel>
-                              </DropdownMenu.Item>
-                            </DropdownMenu.Content>
-                          </DropdownMenu.Portal>
-                        </DropdownMenu>
+                                  <div class="flex size-5 shrink-0 items-center justify-center">
+                                    <Icon name="copy" size="small" class="text-icon-weak" />
+                                  </div>
+                                  <DropdownMenu.ItemLabel>
+                                    {language.t("session.header.open.copyPath")}
+                                  </DropdownMenu.ItemLabel>
+                                </DropdownMenu.Item>
+                              </DropdownMenu.Content>
+                            </DropdownMenu.Portal>
+                          </DropdownMenu>
+                        </div>
                       </div>
-                    </div>
+                    </Tooltip>
                   </Show>
                 </div>
               </Show>
@@ -430,6 +432,7 @@ export function SessionHeader() {
                   <StatusPopover />
                 </Tooltip>
                 <TooltipKeybind
+                  placement="bottom"
                   title={language.t("command.terminal.toggle")}
                   keybind={command.keybind("terminal.toggle")}
                 >

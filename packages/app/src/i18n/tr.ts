@@ -282,6 +282,13 @@ export const dict = {
   "prompt.attachment.remove": "Eki kaldır",
   "prompt.action.send": "Gönder",
   "prompt.action.stop": "Durdur",
+  "prompt.action.steer": "Yönlendir",
+  "prompt.steer.placeholder": "Yönlendirme ekle...",
+  "prompt.steer.send": "Gönder",
+  "prompt.steer.toast.failed.title": "Yönlendirme başarısız",
+  "prompt.steer.toast.failed.description": "Yönlendirme mesajı eklenemedi",
+  "prompt.steer.toast.notBusy.title": "Oturum aktif değil",
+  "prompt.steer.toast.notBusy.description": "Yönlendirme yalnızca AI yanıt verirken çalışır",
 
   "prompt.toast.pasteUnsupported.title": "Desteklenmeyen ek",
   "prompt.toast.pasteUnsupported.description": "Buraya yalnızca resimler, PDF'ler veya metin dosyaları eklenebilir.",
@@ -562,6 +569,7 @@ export const dict = {
   "session.header.open.action": "{{app}} ile aç",
   "session.header.open.ariaLabel": "{{app}} ile aç",
   "session.header.open.menu": "Açma seçenekleri",
+  "session.header.open.folder": "Klasörü aç",
   "session.header.open.copyPath": "Yolu kopyala",
 
   "status.popover.trigger": "Durum",
@@ -703,7 +711,6 @@ export const dict = {
   "font.option.robotoMono": "Roboto Mono",
   "font.option.sourceCodePro": "Source Code Pro",
   "font.option.ubuntuMono": "Ubuntu Mono",
-  "font.option.monaco": "Monaco",
   "font.option.geistMono": "Geist Mono",
 
   "sound.option.none": "Yok",
