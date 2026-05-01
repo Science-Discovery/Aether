@@ -133,7 +133,6 @@ export function Prompt(props: PromptProps) {
     prompt: PromptInfo
     mode: "normal" | "shell"
     extmarkToPartIndex: Map<number, number>
-    interrupt: number
     placeholder: number
   }>({
     placeholder: Math.floor(Math.random() * PLACEHOLDERS.length),
@@ -143,7 +142,6 @@ export function Prompt(props: PromptProps) {
     },
     mode: "normal",
     extmarkToPartIndex: new Map(),
-    interrupt: 0,
   })
 
   createEffect(
@@ -196,6 +194,7 @@ export function Prompt(props: PromptProps) {
         keybind: "input_submit",
         category: "Prompt",
         hidden: true,
+        enabled: !working(),
         onSelect: (dialog) => {
           if (!input.focused) return
           submit()
@@ -220,7 +219,7 @@ export function Prompt(props: PromptProps) {
         },
       },
       {
-        title: "Interrupt session",
+        title: "Stop session",
         value: "session.interrupt",
         keybind: "session_interrupt",
         category: "Session",
@@ -229,25 +228,14 @@ export function Prompt(props: PromptProps) {
         onSelect: (dialog) => {
           if (autocomplete.visible) return
           if (!input.focused) return
-          // TODO: this should be its own command
           if (store.mode === "shell") {
             setStore("mode", "normal")
             return
           }
           if (!props.sessionID) return
-
-          setStore("interrupt", store.interrupt + 1)
-
-          setTimeout(() => {
-            setStore("interrupt", 0)
-          }, 5000)
-
-          if (store.interrupt >= 2) {
-            sdk.client.session.abort({
-              sessionID: props.sessionID,
-            })
-            setStore("interrupt", 0)
-          }
+          sdk.client.session.abort({
+            sessionID: props.sessionID,
+          })
           dialog.clear()
         },
       },
@@ -550,6 +538,7 @@ export function Prompt(props: PromptProps) {
 
   async function submit() {
     if (props.disabled) return
+    if (working()) return
     if (autocomplete?.visible) return
     if (!store.prompt.input) return
     const trimmed = store.prompt.input.trim()
@@ -879,6 +868,10 @@ export function Prompt(props: PromptProps) {
                   e.preventDefault()
                   return
                 }
+                if (working() && keybind.match("input_submit", e)) {
+                  e.preventDefault()
+                  return
+                }
                 // Check clipboard for images before terminal-handled paste runs.
                 // This helps terminals that forward Ctrl+V to the app; Windows
                 // Terminal 1.25+ usually handles Ctrl+V before this path.
@@ -1161,12 +1154,19 @@ export function Prompt(props: PromptProps) {
                   })()}
                 </box>
               </box>
-              <text fg={store.interrupt > 0 ? theme.primary : theme.text}>
-                esc{" "}
-                <span style={{ fg: store.interrupt > 0 ? theme.primary : theme.textMuted }}>
-                  {store.interrupt > 0 ? "again to interrupt" : "interrupt"}
-                </span>
-              </text>
+              <box
+                flexDirection="row"
+                gap={1}
+                onMouseUp={() => {
+                  if (!props.sessionID) return
+                  sdk.client.session.abort({ sessionID: props.sessionID })
+                }}
+              >
+                <text fg={theme.error}>
+                  ■ <span style={{ bold: true }}>stop</span>
+                </text>
+                <text fg={theme.textMuted}>esc</text>
+              </box>
             </box>
           </Show>
           <Show when={status().type !== "retry"}>
