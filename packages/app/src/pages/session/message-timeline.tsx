@@ -76,8 +76,7 @@ const messageReadingQuotes = (parts: Part[]): MessageReadingQuote[] =>
   parts.flatMap((part) => {
     if (part.type !== "text" || !(part as TextPart).synthetic) return []
     const next = readReadingQuoteMetadata(part.metadata)
-    if (!next) return []
-    return [next]
+    return next && next.contentType === "text" ? [next] : []
   })
 
 function DialogReadingQuoteTextContent(props: { quote: MessageReadingQuote }) {
@@ -90,13 +89,6 @@ function DialogReadingQuoteTextContent(props: { quote: MessageReadingQuote }) {
         <div class="text-12-regular text-text-weak">
           {props.quote.action === "ask" ? "Quoted content used for Ask" : "Quoted content used for Translate"}
         </div>
-        <Show when={props.quote.contentType === "image" && props.quote.imageDataUrl}>
-          <img
-            src={props.quote.imageDataUrl}
-            alt={`Captured region from page ${props.quote.page}`}
-            class="max-h-72 w-auto self-start rounded-md border border-border-weak-base bg-background-stronger object-contain"
-          />
-        </Show>
         <div class="min-w-0 w-full max-w-full overflow-auto rounded-md border border-border-weak-base bg-background-stronger px-3 py-3">
           <div class="min-w-0 w-full max-w-full whitespace-pre-wrap break-words text-13-regular text-text-strong [overflow-wrap:anywhere]">
             {props.quote.fullText || props.quote.summary}
@@ -1189,24 +1181,17 @@ export function MessageTimeline(props: {
                                       {(q) => (
                                         <button
                                           type="button"
-                                          class="shrink-0 max-w-[280px] rounded-[8px] border border-border-weak-base bg-background-stronger px-2.5 py-2 text-left transition hover:bg-background-base"
+                                          class="shrink-0 max-w-[260px] rounded-[6px] border border-border-weak-base bg-background-stronger px-2.5 py-2 text-left transition hover:bg-background-base"
                                           onClick={() => {
                                             dialog.show(() => <DialogReadingQuoteTextContent quote={q()} />)
                                           }}
                                         >
-                                          <Show when={q().contentType === "image" && q().imageDataUrl}>
-                                            <img
-                                              src={q().imageDataUrl}
-                                              alt={`Captured region from page ${q().page}`}
-                                              class="mb-2 h-20 max-w-full rounded-md border border-border-weak-base bg-background-base object-contain"
-                                            />
-                                          </Show>
                                           <div class="flex items-center gap-1.5 min-w-0 text-11-medium text-text-strong">
                                             <FileIcon node={{ path: q().pdfFileName, type: "file" }} class="size-3.5 shrink-0" />
                                             <span class="truncate">{q().pdfFileName}</span>
                                           </div>
                                           <div class="pt-1 text-11-medium text-text-weak">
-                                            {`${q().mode === "quick" ? "Quick" : "Reading"} · p.${q().page} · ${q().action === "ask" ? "Ask" : "Translate"}`}
+                                            {`p.${q().page} · ${q().action === "ask" ? "Ask" : "Translate"}`}
                                           </div>
                                           <div class="pt-1 text-12-regular text-text-strong whitespace-pre-wrap break-words line-clamp-3">
                                             {q().summary}

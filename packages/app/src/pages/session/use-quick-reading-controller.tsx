@@ -14,6 +14,7 @@ import { useSync } from "@/context/sync"
 import { type FollowupDraft, sendFollowupDraft } from "@/components/prompt-input/submit"
 import { useSessionLayout } from "@/pages/session/session-layout"
 import { Identifier } from "@/utils/id"
+import { createReadingQuoteMetadata, summarizeReadingQuoteText } from "@/utils/comment-note"
 import { formatServerError } from "@/utils/server-errors"
 
 type Options = {
@@ -145,6 +146,20 @@ export function useQuickReadingController(options: Options) {
         {
           text: `${settings.translatePrompt}\n\n[Selected text]\n${text}`,
           synthetic: true,
+        },
+        {
+          text: "",
+          synthetic: true,
+          ignored: true,
+          metadata: createReadingQuoteMetadata({
+            mode: "quick",
+            action: "translate",
+            contentType: "text",
+            pdfFileName: binding.pdfFileName,
+            page: input.page,
+            summary: summarizeReadingQuoteText(text),
+            fullText: text,
+          }),
         },
       ],
     })

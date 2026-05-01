@@ -746,24 +746,24 @@ export function createPromptSubmit(input: PromptSubmitInput) {
             }),
             synthetic: true,
           },
-          {
-            text: "",
-            synthetic: true,
-            ignored: true,
-            metadata: createReadingQuoteMetadata({
-              mode: "quick",
-              action: "ask",
-              contentType: quickReadingQuestion.kind === "image-question" ? "image" : "text",
-              pdfFileName: quickReadingQuestion.pdfFileName,
-              page: quickReadingQuestion.page,
-              summary:
-                quickReadingQuestion.kind === "image-question"
-                  ? `Captured region from ${quickReadingQuestion.pdfFileName}, page ${quickReadingQuestion.page}`
-                  : summarizeReadingQuoteText(quickReadingQuestion.text),
-              fullText: quickReadingQuestion.kind === "text-question" ? quickReadingQuestion.text : undefined,
-              imageDataUrl: quickReadingQuestion.kind === "image-question" ? quickReadingQuestion.imageDataUrl : undefined,
-            }),
-          },
+          ...(quickReadingQuestion.kind === "text-question"
+            ? [
+                {
+                  text: "",
+                  synthetic: true,
+                  ignored: true,
+                  metadata: createReadingQuoteMetadata({
+                    mode: "quick",
+                    action: "ask",
+                    contentType: "text",
+                    pdfFileName: quickReadingQuestion.pdfFileName,
+                    page: quickReadingQuestion.page,
+                    summary: summarizeReadingQuoteText(quickReadingQuestion.text),
+                    fullText: quickReadingQuestion.text,
+                  }),
+                },
+              ]
+            : []),
         ],
       }
 
@@ -880,24 +880,24 @@ export function createPromptSubmit(input: PromptSubmitInput) {
               }),
               synthetic: true,
             },
-            {
-              text: "",
-              synthetic: true,
-              ignored: true,
-              metadata: createReadingQuoteMetadata({
-                mode: "classic",
-                action: "ask",
-                contentType: readingQuestion.kind === "image-question" ? "image" : "text",
-                pdfFileName: sessionMeta.pdfFileName,
-                page: readingQuestion.page,
-                summary:
-                  readingQuestion.kind === "image-question"
-                    ? `Captured region from ${sessionMeta.pdfFileName}, page ${readingQuestion.page}`
-                    : summarizeReadingQuoteText(readingQuestion.text),
-                fullText: readingQuestion.kind === "text-question" ? readingQuestion.text : undefined,
-                imageDataUrl: readingQuestion.kind === "image-question" ? readingQuestion.imageDataUrl : undefined,
-              }),
-            },
+            ...(readingQuestion.kind === "text-question"
+              ? [
+                  {
+                    text: "",
+                    synthetic: true,
+                    ignored: true,
+                    metadata: createReadingQuoteMetadata({
+                      mode: "classic",
+                      action: "ask",
+                      contentType: "text",
+                      pdfFileName: sessionMeta.pdfFileName,
+                      page: readingQuestion.page,
+                      summary: summarizeReadingQuoteText(readingQuestion.text),
+                      fullText: readingQuestion.text,
+                    }),
+                  },
+                ]
+              : []),
           ],
         }
       } catch (err) {

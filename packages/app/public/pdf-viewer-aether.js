@@ -127,12 +127,7 @@
   }
 
   function isQuickReadingFullMode(config) {
-    return !!(
-      config &&
-      config.mode === "full" &&
-      config.features &&
-      (config.features.firstRead || config.features.settings || config.features.textSelectionActions || config.features.imageSelectionActions)
-    );
+    return !!(config && config.mode === "full" && config.features && config.features.quickReadingExit);
   }
 
   function getElementMarginWidth(element) {
@@ -149,7 +144,6 @@
 
   function syncQuickReadingToolbarOverflow() {
     const config = currentConfig;
-    const firstReadPrimary = document.getElementById("aetherFirstReadPrimary");
     const settingsPrimary = document.getElementById("aetherReadingSettings");
     const swapPrimary = document.getElementById("aetherSwapLayout");
     const firstReadSecondary = document.getElementById("aetherFirstRead");
@@ -175,13 +169,11 @@
       return;
     }
 
-    const canShowFirstRead = !!(config.features && config.features.firstRead);
     const canShowSettings = !!(config.features && config.features.settings);
 
-    setElementHidden(firstReadPrimary, !canShowFirstRead);
     setElementHidden(settingsPrimary, !canShowSettings);
     setElementHidden(swapPrimary, false);
-    setElementHidden(firstReadSecondary, true);
+    setElementHidden(firstReadSecondary, !(config.features && config.features.firstRead));
     setElementHidden(settingsSecondary, true);
     setElementHidden(swapSecondary, true);
 
@@ -197,18 +189,6 @@
     }, 0);
 
     if (currentWidth <= availableWidth) return;
-
-    if (canShowFirstRead) {
-      setElementHidden(firstReadPrimary, true);
-      setElementHidden(firstReadSecondary, false);
-    }
-
-    const widthAfterFirstRead = Array.from(toolbarMiddle.children).reduce(function (sum, child) {
-      if (!(child instanceof HTMLElement) || child.hidden) return sum;
-      return sum + getElementMarginWidth(child);
-    }, 0);
-
-    if (widthAfterFirstRead <= availableWidth) return;
 
     setElementHidden(swapPrimary, true);
     setElementHidden(swapSecondary, false);
@@ -254,6 +234,7 @@
       features: {
         pdf2md: !!input?.features?.pdf2md,
         readingMode: !!input?.features?.readingMode,
+        quickReadingExit: !!input?.features?.quickReadingExit,
         firstRead: !!input?.features?.firstRead,
         settings: !!input?.features?.settings,
         textSelectionActions: !!input?.features?.textSelectionActions,
@@ -713,7 +694,15 @@
     const readingMode = document.getElementById("aetherOpenReadingMode");
     if (readingMode) {
       readingMode.hidden = !(config.mode === "compact" && config.features.readingMode);
-      readingMode.title = "Open in Reading Mode";
+      readingMode.title = "Open in Quick Reading Mode";
+      readingMode.setAttribute("aria-label", readingMode.title);
+    }
+
+    const exitQuickReading = document.getElementById("aetherExitQuickReading");
+    if (exitQuickReading) {
+      exitQuickReading.hidden = !(config.mode === "full" && config.features.quickReadingExit);
+      exitQuickReading.title = "Exit quick reading mode";
+      exitQuickReading.setAttribute("aria-label", exitQuickReading.title);
     }
 
     const captureRegion = document.getElementById("aetherCaptureRegion");
@@ -723,18 +712,11 @@
       captureRegion.setAttribute("aria-pressed", captureModeActive ? "true" : "false");
     }
 
-    const firstRead = document.getElementById("aetherFirstReadPrimary");
+    const firstRead = document.getElementById("aetherFirstRead");
     if (firstRead) {
       firstRead.hidden = !(config.mode === "full" && config.features.firstRead);
       firstRead.title = "AI pre-read";
       firstRead.setAttribute("aria-label", firstRead.title);
-    }
-
-    const firstReadSecondary = document.getElementById("aetherFirstRead");
-    if (firstReadSecondary) {
-      firstReadSecondary.hidden = true;
-      firstReadSecondary.title = "AI pre-read";
-      firstReadSecondary.setAttribute("aria-label", firstReadSecondary.title);
     }
 
     const readingSettings = document.getElementById("aetherReadingSettings");
@@ -908,18 +890,18 @@
       });
     }
 
-    const firstRead = document.getElementById("aetherFirstReadPrimary");
+    const firstRead = document.getElementById("aetherFirstRead");
     if (firstRead) {
       firstRead.addEventListener("click", function () {
         post("startfirstread");
+        window.PDFViewerApplication?.secondaryToolbar?.close?.();
       });
     }
 
-    const firstReadSecondary = document.getElementById("aetherFirstRead");
-    if (firstReadSecondary) {
-      firstReadSecondary.addEventListener("click", function () {
-        post("startfirstread");
-        window.PDFViewerApplication?.secondaryToolbar?.close?.();
+    const exitQuickReading = document.getElementById("aetherExitQuickReading");
+    if (exitQuickReading) {
+      exitQuickReading.addEventListener("click", function () {
+        post("exitquickreading");
       });
     }
 

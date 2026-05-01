@@ -692,6 +692,7 @@ function SessionPageContent(props: SessionPageProps = {}) {
         onDocumentInfo={quickReadingController.handleDocumentInfo}
         onTextSelectionAction={quickReadingController.handleTextSelectionAction}
         onImageSelectionAction={quickReadingController.handleImageSelectionAction}
+        onExitQuickReading={quickReadingController.closeQuickReading}
         onSwapLayout={quickReadingController.toggleLayoutSwapped}
         onStartFirstRead={quickReadingController.openFirstRead}
         onOpenSettings={quickReadingController.openSettings}

@@ -61,6 +61,7 @@ export type PdfViewerShellProps = {
   onDocumentInfo?: (info: { totalPages: number }) => void
   onPdfToMarkdown?: () => void
   onOpenReadingMode?: () => void
+  onExitQuickReading?: () => void
   onStartFirstRead?: () => void
   onOpenSettings?: () => void
   onTextSelectionAction?: (input: { action: "copy" | "translate" | "ask"; page: number; text: string }) => void
@@ -74,6 +75,7 @@ type ViewerMessage =
   | { channel: "aether-pdf-viewer"; type: "documentinfo"; totalPages: number }
   | { channel: "aether-pdf-viewer"; type: "pdf2md" }
   | { channel: "aether-pdf-viewer"; type: "openreadingmode" }
+  | { channel: "aether-pdf-viewer"; type: "exitquickreading" }
   | { channel: "aether-pdf-viewer"; type: "startfirstread" }
   | { channel: "aether-pdf-viewer"; type: "opensettings" }
   | { channel: "aether-pdf-viewer"; type: "textselectionaction"; action: "copy" | "translate" | "ask"; page: number; text: string }
@@ -106,6 +108,7 @@ export const PdfViewerShell: Component<PdfViewerShellProps> = (props) => {
       features: {
         pdf2md: !!props.onPdfToMarkdown && props.mode === "compact",
         readingMode: !!props.onOpenReadingMode && props.mode === "compact",
+        quickReadingExit: !!props.onExitQuickReading && props.mode === "full",
         firstRead: !!props.onStartFirstRead && props.mode === "full",
         settings: !!props.onOpenSettings && props.mode === "full",
         textSelectionActions: !!props.onTextSelectionAction && props.mode === "full",
@@ -199,6 +202,11 @@ export const PdfViewerShell: Component<PdfViewerShellProps> = (props) => {
 
     if (event.data.type === "openreadingmode") {
       props.onOpenReadingMode?.()
+      return
+    }
+
+    if (event.data.type === "exitquickreading") {
+      props.onExitQuickReading?.()
       return
     }
 

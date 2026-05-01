@@ -17,6 +17,7 @@ export const QuickReadingPanel: Component<{
   onTextSelectionAction?: (input: { action: "copy" | "translate" | "ask"; page: number; text: string }) => void
   onImageSelectionAction?: (input: { action: "copy" | "translate" | "ask"; page: number; imageDataUrl: string }) => void
   onSwapLayout?: () => void
+  onExitQuickReading?: () => void
   onStartFirstRead?: () => void
   onOpenSettings?: () => void
   onResizeWidth?: (width: number) => void
@@ -46,6 +47,7 @@ export const QuickReadingPanel: Component<{
             onDocumentInfo={props.onDocumentInfo}
             onTextSelectionAction={props.onTextSelectionAction}
             onImageSelectionAction={props.onImageSelectionAction}
+            onExitQuickReading={props.onExitQuickReading}
             onStartFirstRead={props.onStartFirstRead}
             onSwapLayout={props.onSwapLayout}
             onOpenSettings={props.onOpenSettings}

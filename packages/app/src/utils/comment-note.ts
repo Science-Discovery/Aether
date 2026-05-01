@@ -50,7 +50,7 @@ export function summarizeReadingQuoteText(text: string, maxLength = 180) {
   const compact = text.replace(/\s+/g, " ").trim()
   if (!compact) return ""
   if (compact.length <= maxLength) return compact
-  return `${compact.slice(0, maxLength - 1)}…`
+  return `${compact.slice(0, Math.max(0, maxLength - 3))}...`
 }
 
 export function createReadingQuoteMetadata(input: ReadingQuote) {
