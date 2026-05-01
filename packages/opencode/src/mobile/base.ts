@@ -328,7 +328,10 @@ export abstract class MobileManagerBase {
 
   protected async buildModelList(): Promise<ModelEntry[]> {
     try {
-      const providers = await Provider.list()
+      const providers = await Instance.provide({
+        directory: this._initialDir,
+        fn: () => Provider.list(),
+      })
       const entries: ModelEntry[] = []
       let index = 1
       for (const [providerID, info] of Object.entries(providers)) {
