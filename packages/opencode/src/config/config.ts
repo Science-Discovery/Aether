@@ -1590,7 +1590,7 @@ export namespace Config {
   }
 
   export function getManagedSkillsDir(): string {
-    return path.join(Global.Path.data, "skills")
+    return path.join(Global.Path.home, PROJECT, "skills")
   }
 
   export async function ensureManagedSkillsDir(): Promise<string> {

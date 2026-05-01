@@ -120,8 +120,7 @@ export const ConfigRoutes = lazy(() =>
         },
       }),
       async (c) => {
-        const path = await Config.ensureManagedSkillsDir()
-        return c.json({ path })
+        return c.json({ path: Config.getManagedSkillsDir() })
       },
     )
     .post(
