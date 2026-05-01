@@ -1,11 +1,10 @@
 import { createMemo } from "solid-js"
 import { createStore } from "solid-js/store"
-import { DateTime } from "luxon"
-import { filter, firstBy, flat, groupBy, mapValues, pipe, uniqueBy, values } from "remeda"
 import { createSimpleContext } from "@opencode-ai/ui/context"
 import { useProviders } from "@/hooks/use-providers"
 import { useGlobalSync } from "@/context/global-sync"
 import { Persist, persisted } from "@/utils/persist"
+import { uniqueBy } from "remeda"
 
 export type ModelKey = { providerID: string; modelID: string }
 
@@ -50,47 +49,6 @@ export const { use: useModels, provider: ModelsProvider } = createSimpleContext(
       ),
     )
 
-    const release = createMemo(
-      () =>
-        new Map(
-          available().map((model) => {
-            const parsed = DateTime.fromISO(model.release_date)
-            return [modelKey({ providerID: model.provider.id, modelID: model.id }), parsed] as const
-          }),
-        ),
-    )
-
-    const latest = createMemo(() =>
-      pipe(
-        available(),
-        filter(
-          (x) =>
-            Math.abs(
-              (release().get(modelKey({ providerID: x.provider.id, modelID: x.id })) ?? DateTime.invalid("invalid"))
-                .diffNow()
-                .as("months"),
-            ) < 6,
-        ),
-        groupBy((x) => x.provider.id),
-        mapValues((models) =>
-          pipe(
-            models,
-            groupBy((x) => x.family),
-            values(),
-            (groups) =>
-              groups.flatMap((g) => {
-                const first = firstBy(g, [(x) => x.release_date, "desc"])
-                return first ? [{ modelID: first.id, providerID: first.provider.id }] : []
-              }),
-          ),
-        ),
-        values(),
-        flat(),
-      ),
-    )
-
-    const latestSet = createMemo(() => new Set(latest().map((x) => modelKey(x))))
-
     const disabledModelsSet = createMemo(() => {
       const list = globalSync.data.config.disabled_models ?? []
       return new Set(list)
@@ -116,11 +74,7 @@ export const { use: useModels, provider: ModelsProvider } = createSimpleContext(
 
     const visible = (model: ModelKey) => {
       const id = disabledModelID(model)
-      if (disabledModelsSet().has(id) || disabledModelsSet().has(model.modelID)) return false
-      if (latestSet().has(modelKey(model))) return true
-      const date = release().get(modelKey(model))
-      if (!date?.isValid) return true
-      return false
+      return !disabledModelsSet().has(id) && !disabledModelsSet().has(model.modelID)
     }
 
     const setVisibility = (model: ModelKey, state: boolean) => {
@@ -159,7 +113,7 @@ export const { use: useModels, provider: ModelsProvider } = createSimpleContext(
 
     const push = (model: ModelKey) => {
       const uniq = uniqueBy([model, ...store.recent], (x) => `${x.providerID}:${x.modelID}`)
-      if (uniq.length > RECENT_LIMIT) uniq.pop()
+      if (uniq.length > RECENT_LIMIT) uniq.length = RECENT_LIMIT
       setStore("recent", uniq)
     }
 
