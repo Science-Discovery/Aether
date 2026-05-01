@@ -219,10 +219,10 @@ export const ConfigRoutes = lazy(() =>
           },
         },
       }),
-      validator("json", z.object({ name: z.string(), enabled: z.boolean() })),
+      validator("json", z.object({ file: z.string(), enabled: z.boolean() })),
       async (c) => {
-        const { name, enabled } = c.req.valid("json")
-        await Config.toggleSkill(name, enabled)
+        const { file, enabled } = c.req.valid("json")
+        await Config.toggleSkill(file, enabled)
         return c.json({ ok: true })
       },
     )

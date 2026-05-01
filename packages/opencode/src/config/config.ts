@@ -1516,6 +1516,7 @@ export namespace Config {
     description: z.string(),
     content: z.string(),
     enabled: z.boolean().optional(),
+    file: z.string().optional(),
   })
   export type DefaultSkill = z.infer<typeof DefaultSkill>
 
@@ -1567,10 +1568,11 @@ export namespace Config {
     const skills: DefaultSkill[] = []
     for (const entry of entries) {
       if (!entry.isDirectory()) continue
-      const skillFile = path.join(skillsDir, entry.name, "SKILL.md")
+      const skillDir = path.join(skillsDir, entry.name)
+      const skillFile = path.join(skillDir, "SKILL.md")
       const text = await Filesystem.readText(skillFile).catch(() => null)
       if (text === null) {
-        skills.push({ name: entry.name, description: "", content: "", enabled: !disabled.has(entry.name) })
+        skills.push({ name: entry.name, description: "", content: "", enabled: !disabled.has(skillDir), file: skillDir })
         continue
       }
       try {
@@ -1580,10 +1582,11 @@ export namespace Config {
           name,
           description: String(parsed.data.description ?? ""),
           content: parsed.content.trim(),
-          enabled: !disabled.has(name),
+          enabled: !disabled.has(skillDir),
+          file: skillDir,
         })
       } catch {
-        skills.push({ name: entry.name, description: "", content: text, enabled: !disabled.has(entry.name) })
+        skills.push({ name: entry.name, description: "", content: text, enabled: !disabled.has(skillDir), file: skillDir })
       }
     }
     return skills
@@ -1610,10 +1613,11 @@ export namespace Config {
     const skills: DefaultSkill[] = []
     for (const entry of entries) {
       if (!entry.isDirectory()) continue
-      const skillFile = path.join(skillsDir, entry.name, "SKILL.md")
+      const skillDir = path.join(skillsDir, entry.name)
+      const skillFile = path.join(skillDir, "SKILL.md")
       const text = await Filesystem.readText(skillFile).catch(() => null)
       if (text === null) {
-        skills.push({ name: entry.name, description: "", content: "", enabled: !disabled.has(entry.name) })
+        skills.push({ name: entry.name, description: "", content: "", enabled: !disabled.has(skillDir), file: skillDir })
         continue
       }
       try {
@@ -1623,10 +1627,11 @@ export namespace Config {
           name,
           description: String(parsed.data.description ?? ""),
           content: parsed.content.trim(),
-          enabled: !disabled.has(name),
+          enabled: !disabled.has(skillDir),
+          file: skillDir,
         })
       } catch {
-        skills.push({ name: entry.name, description: "", content: text, enabled: !disabled.has(entry.name) })
+        skills.push({ name: entry.name, description: "", content: text, enabled: !disabled.has(skillDir), file: skillDir })
       }
     }
     return skills
@@ -1642,10 +1647,11 @@ export namespace Config {
       const result: DefaultSkill[] = []
       for (const entry of entries) {
         if (!entry.isDirectory()) continue
-        const skillFile = path.join(skillsDir, entry.name, "SKILL.md")
+        const skillDir = path.join(skillsDir, entry.name)
+        const skillFile = path.join(skillDir, "SKILL.md")
         const text = await Filesystem.readText(skillFile).catch(() => null)
         if (text === null) {
-          result.push({ name: entry.name, description: "", content: "", enabled: !disabled.has(entry.name) })
+          result.push({ name: entry.name, description: "", content: "", enabled: !disabled.has(skillDir), file: skillDir })
           continue
         }
         try {
@@ -1655,10 +1661,11 @@ export namespace Config {
             name,
             description: String(parsed.data.description ?? ""),
             content: parsed.content.trim(),
-            enabled: !disabled.has(name),
+            enabled: !disabled.has(skillDir),
+            file: skillDir,
           })
         } catch {
-          result.push({ name: entry.name, description: "", content: text, enabled: !disabled.has(entry.name) })
+          result.push({ name: entry.name, description: "", content: text, enabled: !disabled.has(skillDir), file: skillDir })
         }
       }
       return result
@@ -1741,18 +1748,22 @@ export namespace Config {
     return copied
   }
 
-  export async function toggleSkill(name: string, enabled: boolean): Promise<void> {
+  export async function toggleSkill(file: string, enabled: boolean): Promise<void> {
     using _ = await Lock.write("config-skills-toggle")
     const cfg = await getGlobal()
     const disabled = new Set(cfg.skills?.disabled ?? [])
     if (enabled) {
-      disabled.delete(name)
+      disabled.delete(file)
     } else {
-      disabled.add(name)
+      disabled.add(file)
     }
     await updateGlobalInternal({ skills: { disabled: [...disabled] } } as any, { dispose: false })
     const { Skill } = await import("@/skill")
-    await Skill.clearSkillsPromptCache(true)
+    const globalSkillsDir = getManagedSkillsDir()
+    const globalAetherDir = path.dirname(globalSkillsDir)
+    const aetherDir = path.dirname(path.dirname(file))
+    const scope = path.resolve(aetherDir) === path.resolve(globalAetherDir) ? "all" : path.dirname(aetherDir)
+    await Skill.clearSkillsPromptCache(scope)
   }
 
   function globalConfigFile() {

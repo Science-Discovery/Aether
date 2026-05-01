@@ -3266,7 +3266,7 @@ export type ConfigSkillsAddDefaultsResponse = ConfigSkillsAddDefaultsResponses[k
 
 export type ConfigSkillsToggleData = {
   body?: {
-    name: string
+    file: string
     enabled: boolean
   }
   path?: never

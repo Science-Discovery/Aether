@@ -1467,7 +1467,7 @@ export class Skills extends HeyApiClient {
     parameters?: {
       directory?: string
       workspace?: string
-      name?: string
+      file?: string
       enabled?: boolean
     },
     options?: Options<never, ThrowOnError>,
@@ -1479,7 +1479,7 @@ export class Skills extends HeyApiClient {
           args: [
             { in: "query", key: "directory" },
             { in: "query", key: "workspace" },
-            { in: "body", key: "name" },
+            { in: "body", key: "file" },
             { in: "body", key: "enabled" },
           ],
         },

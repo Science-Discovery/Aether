@@ -618,10 +618,11 @@ export namespace Skill {
     if (cachedProject) console.log(`[skill cache] snapshot hit (project), count=${cachedProject.length}`)
 
     const merged = mergeSkills(globalSkills, project)
-    for (const name of disabled) {
-      if (!merged[name]) continue
-      delete merged[name]
-      log.info("skill disabled by config", { name })
+    for (const [name, skill] of Object.entries(merged)) {
+      if (disabled.has(path.dirname(skill.location))) {
+        delete merged[name]
+        log.info("skill disabled by config", { name, location: skill.location })
+      }
     }
 
     return {
@@ -803,7 +804,7 @@ export namespace Skill {
                 const t1 = performance.now()
                 if (hasGlobal) {
                   cooldown = Date.now()
-                  await clearSkillsPromptCache(false)
+                  await clearSkillsPromptCache("all")
                   console.log(
                     `[skill watch] invalidate scope=global instances=${Instance.dirs().length} files=${active.length} ms=${Math.round(performance.now() - t1)}`,
                   )
@@ -1104,15 +1105,13 @@ export namespace Skill {
     }),
   )
 
-  export async function clearSkillsPromptCache(clearSnapshot = false): Promise<void> {
-    if (clearing) {
-      if (!clearSnapshot) return clearing
-      return clearing.then(() => clearSkillsPromptCache(true))
-    }
+  export async function clearSkillsPromptCache(scope: "all" | string = "all"): Promise<void> {
+    if (clearing) return clearing
     const run = (async () => {
-      const dirs = Instance.dirs()
+      const allDirs = Instance.dirs()
+      const dirs = scope === "all" ? allDirs : allDirs.filter((d) => d === scope)
       console.log(
-        `[skill cache] clear start snapshot=${clearSnapshot ? 1 : 0} instances=${dirs.length} dirs=${dirs.join(" | ") || "(none)"}`,
+        `[skill cache] clear start scope=${scope} instances=${dirs.length} dirs=${dirs.join(" | ") || "(none)"}`,
       )
       await Promise.all(
         dirs.map((dir) =>
@@ -1122,15 +1121,10 @@ export namespace Skill {
           }),
         ),
       )
-      if (clearSnapshot) {
-        await fs.unlink(globalSnapshotPath()).catch(() => {})
-        await fs.rm(projectSnapshotDir(), { recursive: true, force: true }).catch(() => {})
-        await fs.unlink(path.join(Global.Path.cache, ".skills_prompt_snapshot.json")).catch(() => {})
-      }
       console.log(
-        `[skill cache] clear done snapshot=${clearSnapshot ? 1 : 0} instances=${dirs.length} dirs=${dirs.join(" | ") || "(none)"}`,
+        `[skill cache] clear done scope=${scope} instances=${dirs.length} dirs=${dirs.join(" | ") || "(none)"}`,
       )
-      log.info("skills cache cleared", { clearSnapshot, instances: dirs.length, dirs })
+      log.info("skills cache cleared", { scope, instances: dirs.length, dirs })
     })()
 
     const task = run.finally(() => {

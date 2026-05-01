@@ -16,6 +16,7 @@ import {
   formatHistory,
 } from "./skill-versions"
 import { Log } from "../util/log"
+import { Config } from "../config/config"
 
 const log = Log.create({ service: "skill.manage" })
 
@@ -228,6 +229,15 @@ export const SkillManageTool = Tool.define("skill_manage", async () => {
       if (!name || !/^[a-zA-Z0-9_-]+$/.test(name)) {
         console.log(`[skill manage fail] call=${call} action=${action} name=${name} sig=${sig} reason=invalid_name`)
         throw new Error(`Invalid skill name "${name}". Use only letters, digits, hyphens, underscores.`)
+      }
+
+      const globalCfg = await Config.getGlobal()
+      const disabledNames = new Set(
+        (globalCfg.skills?.disabled ?? []).map((p) => path.basename(p)),
+      )
+      if (disabledNames.has(name)) {
+        console.log(`[skill manage fail] call=${call} action=${action} name=${name} sig=${sig} reason=disabled`)
+        throw new Error(`Skill "${name}" is currently disabled. Enable it first before making changes.`)
       }
 
       const { skillDir, sourceLocation } = await resolveSkillDir(name)

@@ -6,7 +6,7 @@ import { useGlobalSDK } from "@/context/global-sdk"
 import { useLanguage } from "@/context/language"
 import { useSDK } from "@/context/sdk"
 
-type ManagedSkill = { name: string; description: string; content: string; enabled?: boolean }
+type ManagedSkill = { name: string; description: string; content: string; enabled?: boolean; file?: string }
 
 export const DialogEvolvedSkills: Component = () => {
   const globalSDK = useGlobalSDK()
@@ -20,10 +20,10 @@ export const DialogEvolvedSkills: Component = () => {
 
   const [toggling, setToggling] = createSignal<string | null>(null)
 
-  async function handleToggle(name: string, enabled: boolean) {
-    setToggling(name)
+  async function handleToggle(file: string, enabled: boolean) {
+    setToggling(file)
     try {
-      await globalSDK.client.config.skills.toggle({ name, enabled })
+      await globalSDK.client.config.skills.toggle({ file, enabled })
       await refetch()
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
@@ -67,8 +67,8 @@ export const DialogEvolvedSkills: Component = () => {
                     <div class="flex items-center shrink-0">
                       <Switch
                         checked={skill.enabled !== false}
-                        disabled={toggling() === skill.name}
-                        onChange={(checked) => handleToggle(skill.name, checked)}
+                        disabled={toggling() === skill.file}
+                        onChange={(checked) => skill.file && handleToggle(skill.file, checked)}
                       />
                     </div>
                   </div>
