@@ -54,11 +54,12 @@ async function resolveSkillDir(name: string): Promise<{ skillDir: string; source
   }
 }
 
-async function copyToShadowIfNeeded(sourceLocation: string, targetDir: string): Promise<void> {
-  if (await dirExists(targetDir)) return
+async function copyToShadowIfNeeded(sourceLocation: string, targetDir: string): Promise<boolean> {
+  if (await dirExists(targetDir)) return false
   const sourceDir = path.dirname(sourceLocation)
-  if (path.resolve(sourceDir) === path.resolve(targetDir)) return
+  if (path.resolve(sourceDir) === path.resolve(targetDir)) return false
   await fs.cp(sourceDir, targetDir, { recursive: true })
+  return true
 }
 
 // ── Security ──────────────────────────────────────────────────────────────────
@@ -285,7 +286,7 @@ export const SkillManageTool = Tool.define("skill_manage", async () => {
           try {
             if (!params.description?.trim()) throw new Error("description is required for edit")
             if (!params.content?.trim()) throw new Error("content is required for edit")
-            if (sourceLocation) await copyToShadowIfNeeded(sourceLocation, skillDir)
+            if (sourceLocation && (await copyToShadowIfNeeded(sourceLocation, skillDir))) await snapshot(skillDir, "original")
             const oldContent = await fs.readFile(skillFile, "utf8").catch(() => null)
             const fileContent = buildContent(name, params.description.trim(), params.content)
             await atomicWrite(skillFile, fileContent)
@@ -323,7 +324,7 @@ export const SkillManageTool = Tool.define("skill_manage", async () => {
               log.error("patch called without new_str", { name, raw_params: JSON.stringify(params) })
               throw new Error("new_str is required for patch")
             }
-            if (sourceLocation) await copyToShadowIfNeeded(sourceLocation, skillDir)
+            if (sourceLocation && (await copyToShadowIfNeeded(sourceLocation, skillDir))) await snapshot(skillDir, "original")
             const raw = await fs.readFile(skillFile, "utf8").catch(() => {
               throw new Error(`Skill "${name}" not found`)
             })
@@ -389,7 +390,7 @@ export const SkillManageTool = Tool.define("skill_manage", async () => {
             throw new Error(
               "write_file cannot target SKILL.md. Call skill_manage again with action='edit' (full rewrite) or action='patch' (targeted replacement).",
             )
-          if (sourceLocation) await copyToShadowIfNeeded(sourceLocation, skillDir)
+          if (sourceLocation && (await copyToShadowIfNeeded(sourceLocation, skillDir))) await snapshot(skillDir, "original")
           validateWithinDir(skillDir, params.relative_path)
           const targetPath = path.join(skillDir, params.relative_path)
           const originalFileContent = await fs.readFile(targetPath, "utf8").catch(() => null)
@@ -413,7 +414,7 @@ export const SkillManageTool = Tool.define("skill_manage", async () => {
           if (!params.relative_path) throw new Error("relative_path is required for remove_file")
           if (params.relative_path === "SKILL.md")
             throw new Error("remove_file cannot target SKILL.md. To delete the entire skill use action='delete'.")
-          if (sourceLocation) await copyToShadowIfNeeded(sourceLocation, skillDir)
+          if (sourceLocation && (await copyToShadowIfNeeded(sourceLocation, skillDir))) await snapshot(skillDir, "original")
           validateWithinDir(skillDir, params.relative_path)
           const targetPath = path.join(skillDir, params.relative_path)
           await fs.unlink(targetPath).catch(() => {
@@ -436,7 +437,7 @@ export const SkillManageTool = Tool.define("skill_manage", async () => {
           if (!params.version) throw new Error("version is required for rollback, e.g. 'v002' or '2'")
           Skill.markBegin(skillFile)
           try {
-            if (sourceLocation) await copyToShadowIfNeeded(sourceLocation, skillDir)
+            if (sourceLocation && (await copyToShadowIfNeeded(sourceLocation, skillDir))) await snapshot(skillDir, "original")
             const { restoredFrom } = await versionRollback(skillDir, params.version)
             await Skill.clearSkillsPromptCache()
             Skill.markClear()
