@@ -268,6 +268,18 @@ export namespace Server {
         })
       })
       .use((c, next) => {
+        // WebSocket upgrade requests can't set Authorization headers in the browser.
+        // When deployed behind a reverse proxy, URL-embedded credentials (user:pass@host)
+        // are not forwarded. Instead, the client sends a "token" query parameter containing
+        // base64(username:password), which we convert to an Authorization header here
+        // so that basicAuth middleware can validate it normally.
+        const token = c.req.query("token")
+        if (token && !c.req.header("Authorization")) {
+          c.req.raw.headers.set("Authorization", `Basic ${token}`)
+        }
+        return next()
+      })
+      .use((c, next) => {
         // Allow CORS preflight requests to succeed without auth.
         // Browser clients sending Authorization headers will preflight with OPTIONS.
         if (c.req.method === "OPTIONS") return next()
@@ -450,7 +462,12 @@ export namespace Server {
           const body = c.req.valid("json")
           await Project.updateDirectoryMeta(body)
           const list = Project.recentList()
-          const item = list.find((i) => i.kind === "directory" && i.directory === body.directory)
+          const norm = (d: string) =>
+            d
+              .replace(/\\/g, "/")
+              .replace(/\/+$/, "")
+              .replace(/^([A-Za-z]):/, (m) => m[0].toLowerCase() + ":")
+          const item = list.find((i) => norm(i.directory) === norm(body.directory))
           if (!item) return c.json(null, 404)
           return c.json(item)
         },

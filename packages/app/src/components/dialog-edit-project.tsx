@@ -118,14 +118,11 @@ export function DialogEditProject(props: { project: LocalProject }) {
         .catch(() => {})
 
       const hasProjectID = props.project.id && !props.project.id.startsWith("dir:")
-      if (hasProjectID) {
+      if (hasProjectID && start) {
         globalSDK.client.project
           .update({
             projectID: props.project.id!,
-            directory: props.project.worktree,
-            name,
-            icon: { color: icon.color },
-            commands: start ? { start } : undefined,
+            commands: { start },
           })
           .catch(() => {})
       }
