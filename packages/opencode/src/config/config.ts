@@ -785,7 +785,7 @@ export namespace Config {
       .int()
       .min(1)
       .optional()
-      .describe("Maximum number of version snapshots kept per skill before older snapshots are pruned (default: 1000)"),
+      .describe("Maximum number of version snapshots kept per skill before older snapshots are pruned (default: 100)"),
   })
   export type Skills = z.infer<typeof Skills>
 
