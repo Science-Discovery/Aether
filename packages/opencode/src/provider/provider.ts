@@ -868,6 +868,7 @@ export namespace Provider {
         output: z.number(),
       }),
       status: z.enum(["alpha", "beta", "deprecated", "active"]),
+      disabled: z.boolean().optional(),
       options: z.record(z.string(), z.any()),
       headers: z.record(z.string(), z.string()),
       release_date: z.string(),
@@ -979,6 +980,7 @@ export namespace Provider {
 
     const disabled = new Set(config.disabled_providers ?? [])
     const enabled = config.enabled_providers ? new Set(config.enabled_providers) : null
+    const disabledModels = new Set(config.disabled_models ?? [])
 
     function isProviderAllowed(providerID: ProviderID): boolean {
       if (enabled && !enabled.has(providerID)) return false
@@ -1239,6 +1241,7 @@ export namespace Provider {
           (configProvider?.whitelist && !configProvider.whitelist.includes(modelID))
         )
           delete provider.models[modelID]
+        if (disabledModels.has(`${providerID}/${modelID}`) || disabledModels.has(modelID)) model.disabled = true
 
         model.variants = mapValues(ProviderTransform.variants(model), (v) => v)
 
@@ -1464,6 +1467,7 @@ export namespace Provider {
       const suggestions = matches.map((m) => m.target)
       throw new ModelNotFoundError({ providerID, modelID, suggestions })
     }
+    if (info.disabled) throw new ModelNotFoundError({ providerID, modelID, suggestions: [], disabled: true })
     return info
   }
 
@@ -1471,6 +1475,8 @@ export namespace Provider {
     const s = await state()
     const key = `${model.providerID}/${model.id}`
     if (s.models.has(key)) return s.models.get(key)!
+    if (s.providers[model.providerID]?.models[model.id]?.disabled)
+      throw new ModelNotFoundError({ providerID: model.providerID, modelID: model.id, suggestions: [], disabled: true })
 
     const url = e2eURL()
     if (url) {
@@ -1604,12 +1610,14 @@ export namespace Provider {
       const provider = providers[entry.providerID]
       if (!provider) continue
       if (!provider.models[entry.modelID]) continue
+      if (provider.models[entry.modelID].disabled) continue
       return { providerID: entry.providerID, modelID: entry.modelID }
     }
 
     const provider = Object.values(providers).find((p) => !cfg.provider || Object.keys(cfg.provider).includes(p.id))
     if (!provider) throw new Error("no providers found")
-    const [model] = sort(Object.values(provider.models))
+    const enabled = Object.values(provider.models).filter((m) => !m.disabled)
+    const [model] = sort(enabled)
     if (!model) throw new Error("no models found")
     return {
       providerID: provider.id,
@@ -1631,6 +1639,7 @@ export namespace Provider {
       providerID: ProviderID.zod,
       modelID: ModelID.zod,
       suggestions: z.array(z.string()).optional(),
+      disabled: z.boolean().optional(),
     }),
   )
 

@@ -1571,6 +1571,10 @@ export type Config = {
    */
   enabled_providers?: Array<string>
   /**
+   * Disable specific models in provider/model format, e.g. anthropic/claude-3-5-haiku
+   */
+  disabled_models?: Array<string>
+  /**
    * Model to use in the format of provider/model, eg anthropic/claude-2
    */
   model?: string
@@ -1851,6 +1855,7 @@ export type Model = {
     [key: string]: string
   }
   release_date: string
+  disabled?: boolean
   variants?: {
     [key: string]: {
       [key: string]: unknown
@@ -5116,6 +5121,7 @@ export type ProviderListResponses = {
           }
           experimental?: boolean
           status?: "alpha" | "beta" | "deprecated"
+          disabled?: boolean
           options: {
             [key: string]: unknown
           }

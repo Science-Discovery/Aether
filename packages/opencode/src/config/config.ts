@@ -79,6 +79,9 @@ export namespace Config {
     if (target.instructions && source.instructions) {
       merged.instructions = Array.from(new Set([...target.instructions, ...source.instructions]))
     }
+    if (target.disabled_models && source.disabled_models) {
+      merged.disabled_models = Array.from(new Set([...target.disabled_models, ...source.disabled_models]))
+    }
     return merged
   }
 
@@ -1152,6 +1155,10 @@ export namespace Config {
         .array(z.string())
         .optional()
         .describe("When set, ONLY these providers will be enabled. All other providers will be ignored"),
+      disabled_models: z
+        .array(z.string())
+        .optional()
+        .describe("Disable specific models in provider/model format, e.g. anthropic/claude-3-5-haiku"),
       model: ModelId.describe("Model to use in the format of provider/model, eg anthropic/claude-2").optional(),
       small_model: ModelId.describe(
         "Small model to use for tasks like title generation in the format of provider/model",

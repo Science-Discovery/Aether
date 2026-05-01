@@ -328,20 +328,23 @@ export abstract class MobileManagerBase {
 
   protected async buildModelList(): Promise<ModelEntry[]> {
     try {
-      const providers = await Provider.list()
+      const providers = await Instance.provide({
+        directory: this._initialDir,
+        fn: () => Provider.list(),
+      })
       const entries: ModelEntry[] = []
       let index = 1
       for (const [providerID, info] of Object.entries(providers)) {
         const modelValues = Object.entries(info.models)
-        const sortedIds = modelValues.map(([id]) => id)
-        const defaultModelId = sortedIds[0]
+        const defaultModelId = modelValues.filter(([_, m]) => !m.disabled).map(([id]) => id)[0]
         for (const [modelID, model] of modelValues) {
+          if (model.disabled) continue
           entries.push({
             index,
             providerID,
             providerName: info.name || providerID,
             modelID,
-            name: (model as any).name || modelID,
+            name: model.name || modelID,
             isDefault: modelID === defaultModelId,
           })
           index++
@@ -933,9 +936,7 @@ export abstract class MobileManagerBase {
 
   protected async cmdModel(targetId: string, scope: string, args: string[]): Promise<void> {
     const ctx = await this.commandCtx(scope)
-    if (this._modelList.length === 0) {
-      this._modelList = await this.buildModelList()
-    }
+    this._modelList = await this.buildModelList()
 
     if (args.length === 0) {
       await this.replyCmd(targetId, scope, this.formatModelList(ctx, false))
