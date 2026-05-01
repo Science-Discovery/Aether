@@ -1720,6 +1720,9 @@ export namespace Config {
       addSkills(await scanSkillsDir(path.join(dir, "skills")))
     }
 
+    // Default (bundled) skills as lowest-priority global fallback
+    addSkills(await listDefaultSkills())
+
     return skills
   }
 

@@ -63,6 +63,9 @@ export const DialogEvolvedSkills: Component = () => {
                           {language.t("evolvedSkills.noDescription")}
                         </span>
                       </Show>
+                      <Show when={skill.file}>
+                        <span class="text-11-regular text-text-subtle truncate font-mono" title={skill.file}>{skill.file}</span>
+                      </Show>
                     </div>
                     <div class="flex items-center shrink-0">
                       <Switch
