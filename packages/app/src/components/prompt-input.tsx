@@ -61,6 +61,7 @@ import { ImagePreview } from "@opencode-ai/ui/image-preview"
 import { FileIcon } from "@opencode-ai/ui/file-icon"
 import { KnowledgeButton } from "@/components/knowledge-button"
 import { createWorkingState } from "@/utils/working-state"
+import { SteerButton } from "@/components/steer-button"
 import { DialogDefaultSkills } from "@/components/dialog-default-skills"
 
 interface PromptInputProps {
