@@ -19,7 +19,7 @@
   let suppressSidebarTracking = false;
   let sidebarState = {
     initialized: false,
-    userClosed: false,
+    userClosed: true,
   };
   let selectionMenu = null;
   let selectionHint = null;
@@ -30,6 +30,7 @@
   let captureBox = null;
   let captureModeActive = false;
   let captureDrag = null;
+  let suppressBroadcastUntil = 0;
 
   function showViewerError(error) {
     const message = error instanceof Error ? error.message : String(error || "Unknown PDF viewer error");
@@ -126,26 +127,156 @@
     return window.PDFViewerApplicationConstants?.SidebarView?.OUTLINE ?? 2;
   }
 
+  function hasReadingTools(config) {
+    return !!(
+      config &&
+      config.features &&
+      (config.features.quickReadingExit ||
+        config.features.readingMode ||
+        config.features.firstRead ||
+        config.features.settings ||
+        config.features.imageSelectionActions ||
+        config.features.pdf2md)
+    );
+  }
+
+  function getElementMarginWidth(element) {
+    if (!element) return 0;
+    const styles = window.getComputedStyle(element);
+    const rect = element.getBoundingClientRect();
+    return rect.width + (parseFloat(styles.marginLeft) || 0) + (parseFloat(styles.marginRight) || 0);
+  }
+
+  function setElementHidden(element, hidden) {
+    if (!element) return;
+    element.hidden = !!hidden;
+  }
+
+  function syncQuickReadingToolbarOverflow() {
+    const config = currentConfig;
+    const pdf2mdPrimary = document.getElementById("aetherPdf2md");
+    const pdf2mdSecondary = document.getElementById("aetherPdf2mdSecondary");
+    const openReadingPrimary = document.getElementById("aetherOpenReadingMode");
+    const openReadingSecondary = document.getElementById("aetherOpenReadingModeSecondary");
+    const capturePrimary = document.getElementById("aetherCaptureRegion");
+    const captureSecondary = document.getElementById("aetherCaptureRegionSecondary");
+    const settingsPrimary = document.getElementById("aetherReadingSettings");
+    const swapPrimary = document.getElementById("aetherSwapLayout");
+    const firstReadSecondary = document.getElementById("aetherFirstRead");
+    const settingsSecondary = document.getElementById("aetherReadingSettingsSecondary");
+    const swapSecondary = document.getElementById("aetherSwapLayoutSecondary");
+
+    if (!hasReadingTools(config)) {
+      setElementHidden(pdf2mdPrimary, true);
+      setElementHidden(pdf2mdSecondary, true);
+      setElementHidden(openReadingSecondary, true);
+      setElementHidden(captureSecondary, true);
+      setElementHidden(firstReadSecondary, true);
+      setElementHidden(settingsSecondary, true);
+      setElementHidden(swapSecondary, true);
+      return;
+    }
+
+    const toolbarContainer = document.getElementById("toolbarContainer");
+    const toolbarLeft = document.getElementById("toolbarViewerLeft");
+    const toolbarRight = document.getElementById("toolbarViewerRight");
+    const toolbarMiddle = document.getElementById("toolbarViewerMiddle");
+
+    if (!toolbarContainer || !toolbarLeft || !toolbarRight || !toolbarMiddle) {
+      setElementHidden(pdf2mdPrimary, true);
+      setElementHidden(pdf2mdSecondary, !(config.features && config.features.pdf2md));
+      setElementHidden(openReadingSecondary, !(config.features && config.features.readingMode));
+      setElementHidden(captureSecondary, !(config.features && config.features.imageSelectionActions));
+      setElementHidden(firstReadSecondary, true);
+      setElementHidden(settingsSecondary, true);
+      setElementHidden(swapSecondary, true);
+      return;
+    }
+
+    const compact = config.mode === "compact";
+    const canShowSettings = !!(config.features && config.features.settings);
+
+    setElementHidden(pdf2mdPrimary, true);
+    setElementHidden(pdf2mdSecondary, !(config.features && config.features.pdf2md));
+    setElementHidden(openReadingSecondary, !(compact && config.features && config.features.readingMode));
+    setElementHidden(captureSecondary, !(compact && config.features && config.features.imageSelectionActions));
+    setElementHidden(settingsPrimary, compact || !canShowSettings);
+    setElementHidden(swapPrimary, compact || !(config.features && config.features.swapLayout));
+    setElementHidden(firstReadSecondary, !(config.features && config.features.firstRead));
+    setElementHidden(settingsSecondary, true);
+    setElementHidden(swapSecondary, true);
+
+    if (compact) return;
+
+    const availableWidth =
+      toolbarContainer.getBoundingClientRect().width -
+      toolbarLeft.getBoundingClientRect().width -
+      toolbarRight.getBoundingClientRect().width -
+      24;
+
+    const currentWidth = Array.from(toolbarMiddle.children).reduce(function (sum, child) {
+      if (!(child instanceof HTMLElement) || child.hidden) return sum;
+      return sum + getElementMarginWidth(child);
+    }, 0);
+
+    if (currentWidth <= availableWidth) return;
+
+    setElementHidden(swapPrimary, true);
+    setElementHidden(swapSecondary, false);
+
+    const widthAfterSwap = Array.from(toolbarMiddle.children).reduce(function (sum, child) {
+      if (!(child instanceof HTMLElement) || child.hidden) return sum;
+      return sum + getElementMarginWidth(child);
+    }, 0);
+
+    if (widthAfterSwap <= availableWidth) return;
+
+    if (canShowSettings) {
+      setElementHidden(settingsPrimary, true);
+      setElementHidden(settingsSecondary, false);
+    }
+  }
+
+  function scheduleToolbarOverflowSync() {
+    if (window.__aetherToolbarOverflowFrame) {
+      cancelAnimationFrame(window.__aetherToolbarOverflowFrame);
+    }
+    window.__aetherToolbarOverflowFrame = requestAnimationFrame(function () {
+      window.__aetherToolbarOverflowFrame = 0;
+      syncQuickReadingToolbarOverflow();
+    });
+  }
+
   function sanitizeConfig(input) {
     const mode = input?.mode === "compact" ? "compact" : "full";
+    const viewTheme =
+      input?.viewTheme === "night" || input?.viewTheme === "eye" || input?.viewTheme === "day"
+        ? input.viewTheme
+        : input?.nightMode
+          ? "night"
+          : "day";
     return {
       src: typeof input?.src === "string" ? input.src : "",
       authHeader: typeof input?.authHeader === "string" && input.authHeader ? input.authHeader : undefined,
       mode,
-      nightMode: !!input?.nightMode,
+      viewTheme,
       layoutSwapped: !!input?.layoutSwapped,
       page:
         typeof input?.page === "number" && Number.isFinite(input.page) && input.page > 0
           ? Math.round(input.page)
           : 1,
+      location: typeof input?.location === "string" && input.location ? input.location : undefined,
       scale: typeof input?.scale === "string" && input.scale ? input.scale : DEFAULT_SCALE[mode],
       scrollMode:
         input?.scrollMode === "horizontal" || input?.scrollMode === "wrapped" ? input.scrollMode : "vertical",
       features: {
         readingMode: !!input?.features?.readingMode,
+        quickReadingExit: !!input?.features?.quickReadingExit,
+        firstRead: !!input?.features?.firstRead,
         settings: !!input?.features?.settings,
         textSelectionActions: !!input?.features?.textSelectionActions,
         imageSelectionActions: !!input?.features?.imageSelectionActions,
+        swapLayout: !!input?.features?.swapLayout,
       },
     };
   }
@@ -153,7 +284,6 @@
   function selectionActionsEnabled() {
     return !!(
       currentConfig &&
-      currentConfig.mode === "full" &&
       currentConfig.features &&
       currentConfig.features.textSelectionActions
     );
@@ -162,7 +292,6 @@
   function imageSelectionActionsEnabled() {
     return !!(
       currentConfig &&
-      currentConfig.mode === "full" &&
       currentConfig.features &&
       currentConfig.features.imageSelectionActions
     );
@@ -310,7 +439,8 @@
     } else {
       post("textselectionaction", {
         action,
-        page: selectionState.page,
+        startPage: selectionState.startPage,
+        endPage: selectionState.endPage,
         text: selectionState.text,
       });
     }
@@ -334,6 +464,20 @@
     return String(text || "").replace(/\s+/g, " ").trim();
   }
 
+  function validRect(rect) {
+    return !!rect && (rect.width || rect.height) && Number.isFinite(rect.top) && Number.isFinite(rect.left);
+  }
+
+  function anchorRect(selection, range) {
+    const rects = Array.from(range.getClientRects()).filter(validRect);
+    if (!rects.length) {
+      const rect = range.getBoundingClientRect();
+      return validRect(rect) ? rect : null;
+    }
+    const forward = selection.focusNode === range.endContainer && selection.focusOffset === range.endOffset;
+    return forward ? rects[rects.length - 1] : rects[0];
+  }
+
   function getSelectionContext() {
     if (!selectionActionsEnabled()) return null;
 
@@ -350,17 +494,13 @@
     const endPageNumber = pageNumberFromElement(endPage);
 
     if (!startPageNumber || !endPageNumber) return null;
-    if (startPageNumber !== endPageNumber) {
-      return { error: "cross-page" };
-    }
 
-    const rect = range.getBoundingClientRect();
-    if ((!rect.width && !rect.height) || !Number.isFinite(rect.top) || !Number.isFinite(rect.left)) {
-      return null;
-    }
+    const rect = anchorRect(selection, range);
+    if (!rect) return null;
 
     return {
-      page: startPageNumber,
+      startPage: Math.min(startPageNumber, endPageNumber),
+      endPage: Math.max(startPageNumber, endPageNumber),
       text,
       rect,
     };
@@ -397,16 +537,12 @@
       return;
     }
 
-    if (context.error === "cross-page") {
-      showSelectionHint("Single-page text selections only", 2200);
-      return;
-    }
-
     ensureSelectionUi();
     hideSelectionHint();
     selectionState = {
       kind: "text",
-      page: context.page,
+      startPage: context.startPage,
+      endPage: context.endPage,
       text: context.text,
     };
     selectionMenu.hidden = false;
@@ -457,6 +593,17 @@
 
   function currentPointerPoint(event) {
     return { x: event.clientX, y: event.clientY };
+  }
+
+  function nextViewTheme(theme) {
+    switch (theme) {
+      case "night":
+        return "eye";
+      case "eye":
+        return "day";
+      default:
+        return "night";
+    }
   }
 
   function updateCaptureBox(start, current) {
@@ -588,14 +735,41 @@
 
   function applyChrome(config) {
     document.body.dataset.mode = config.mode;
-    document.body.dataset.nightMode = config.nightMode ? "on" : "off";
+    document.body.dataset.viewTheme = config.viewTheme;
     document.body.dataset.layoutSwapped = config.layoutSwapped ? "on" : "off";
     const outerContainer = document.getElementById("outerContainer");
 
+    const pdf2md = document.getElementById("aetherPdf2md");
+    if (pdf2md) {
+      pdf2md.hidden = true;
+      pdf2md.title = "Convert PDF to Markdown";
+    }
+
+    const pdf2mdSecondary = document.getElementById("aetherPdf2mdSecondary");
+    if (pdf2mdSecondary) {
+      pdf2mdSecondary.hidden = !config.features.pdf2md;
+      pdf2mdSecondary.title = "PDF to md";
+      pdf2mdSecondary.setAttribute("aria-label", pdf2mdSecondary.title);
+    }
     const readingMode = document.getElementById("aetherOpenReadingMode");
     if (readingMode) {
-      readingMode.hidden = !(config.mode === "compact" && config.features.readingMode);
-      readingMode.title = "Open in Reading Mode";
+      readingMode.hidden = !config.features.readingMode;
+      readingMode.title = "Open reading view";
+      readingMode.setAttribute("aria-label", readingMode.title);
+    }
+
+    const readingModeSecondary = document.getElementById("aetherOpenReadingModeSecondary");
+    if (readingModeSecondary) {
+      readingModeSecondary.hidden = config.mode !== "compact" || !config.features.readingMode;
+      readingModeSecondary.title = "Open reading view";
+      readingModeSecondary.setAttribute("aria-label", readingModeSecondary.title);
+    }
+
+    const exitQuickReading = document.getElementById("aetherExitQuickReading");
+    if (exitQuickReading) {
+      exitQuickReading.hidden = !config.features.quickReadingExit;
+      exitQuickReading.title = "Exit reading view";
+      exitQuickReading.setAttribute("aria-label", exitQuickReading.title);
     }
 
     const captureRegion = document.getElementById("aetherCaptureRegion");
@@ -605,27 +779,55 @@
       captureRegion.setAttribute("aria-pressed", captureModeActive ? "true" : "false");
     }
 
+    const captureRegionSecondary = document.getElementById("aetherCaptureRegionSecondary");
+    if (captureRegionSecondary) {
+      captureRegionSecondary.hidden = config.mode !== "compact" || !config.features.imageSelectionActions;
+      captureRegionSecondary.title = captureModeActive ? "Exit capture mode" : "Capture region";
+      captureRegionSecondary.setAttribute("aria-pressed", captureModeActive ? "true" : "false");
+    }
+
+    const firstRead = document.getElementById("aetherFirstRead");
+    if (firstRead) {
+      firstRead.hidden = !config.features.firstRead;
+      firstRead.title = "AI pre-read";
+      firstRead.setAttribute("aria-label", firstRead.title);
+    }
+
     const readingSettings = document.getElementById("aetherReadingSettings");
     if (readingSettings) {
-      readingSettings.hidden = !(config.mode === "full" && config.features.settings);
-      readingSettings.title = "Reading settings";
+      readingSettings.hidden = !config.features.settings;
+      readingSettings.title = "Reading view settings";
       readingSettings.setAttribute("aria-label", readingSettings.title);
     }
 
     const nightMode = document.getElementById("aetherNightMode");
     if (nightMode) {
-      nightMode.title = config.nightMode ? "Disable night mode" : "Enable night mode";
-      nightMode.classList.toggle("toggled", !!config.nightMode);
-      nightMode.setAttribute("aria-pressed", config.nightMode ? "true" : "false");
+      const labels = {
+        day: "Switch to night mode",
+        night: "Switch to eye comfort mode",
+        eye: "Switch to day mode",
+      };
+      nightMode.title = labels[config.viewTheme] || labels.day;
+      nightMode.classList.toggle("toggled", config.viewTheme !== "day");
+      nightMode.setAttribute("aria-pressed", config.viewTheme === "day" ? "false" : "true");
+      nightMode.dataset.theme = config.viewTheme;
     }
 
     const swapLayout = document.getElementById("aetherSwapLayout");
     if (swapLayout) {
-      swapLayout.hidden = config.mode !== "full";
+      swapLayout.hidden = !config.features.swapLayout;
       swapLayout.title = config.layoutSwapped ? "Move PDF to the left" : "Move PDF to the right";
       swapLayout.setAttribute("aria-label", swapLayout.title);
       swapLayout.setAttribute("aria-pressed", config.layoutSwapped ? "true" : "false");
       swapLayout.dataset.direction = config.layoutSwapped ? "left" : "right";
+    }
+
+    const swapLayoutSecondary = document.getElementById("aetherSwapLayoutSecondary");
+    if (swapLayoutSecondary) {
+      swapLayoutSecondary.hidden = !config.features.swapLayout;
+      swapLayoutSecondary.title = swapLayout?.title || "Swap layout";
+      swapLayoutSecondary.setAttribute("aria-label", swapLayoutSecondary.title);
+      swapLayoutSecondary.dataset.direction = swapLayout?.dataset.direction || "right";
     }
 
     if (config.mode === "compact" && outerContainer) {
@@ -639,6 +841,8 @@
     if (!(config.mode === "full" && config.features.imageSelectionActions) && captureModeActive) {
       setCaptureMode(false);
     }
+
+    scheduleToolbarOverflowSync();
   }
 
   function rememberSidebarState(isOpen) {
@@ -658,9 +862,53 @@
     }
   }
 
+  function closeSidebar(app) {
+    const outerContainer = document.getElementById("outerContainer");
+    withSidebarTrackingSuppressed(function () {
+      app?.pdfSidebar?.close?.();
+    });
+    outerContainer?.classList.remove("sidebarOpen", "sidebarMoving", "sidebarResizing");
+  }
+
+  function setSidebarView(app) {
+    if (!app?.pdfSidebar) return;
+    withSidebarTrackingSuppressed(function () {
+      app.pdfSidebar.switchView?.(outlineSidebarView());
+    });
+  }
+
   function hasOutline() {
     const outline = document.getElementById("outlineView");
     return !!outline && outline.children.length > 0;
+  }
+
+  function locationPage(location) {
+    if (typeof location !== "string" || !location) return;
+    const match = /(?:^|&)page=(\d+)/.exec(location.replace(/^#/, ""));
+    if (!match) return;
+    const page = Number(match[1]);
+    if (!Number.isFinite(page) || page < 1) return;
+    return Math.round(page);
+  }
+
+  function applyLocation(location) {
+    if (typeof location !== "string" || !location) return;
+    suppressBroadcastUntil = Date.now() + 500;
+    window.PDFViewerApplication?.pdfLinkService?.setHash?.(location);
+  }
+
+  function applyPosition(config) {
+    const app = window.PDFViewerApplication;
+    if (!app?.pdfViewer) return;
+    const location = config.location;
+    const page = locationPage(location);
+    if (location && (page === undefined || page === config.page)) {
+      applyLocation(location);
+      return;
+    }
+    if (config.page > 1) {
+      app.page = config.page;
+    }
   }
 
   function applyDocumentDefaults(config) {
@@ -671,28 +919,15 @@
     app.pdfViewer.scrollMode = mapScrollMode(config.scrollMode);
     app.pdfViewer.spreadMode = 0;
     app.pdfViewer.currentScaleValue = config.scale;
+    setSidebarView(app);
 
     if (config.mode === "full") {
-      if (hasOutline() && !sidebarState.userClosed) {
-        withSidebarTrackingSuppressed(function () {
-          app.pdfSidebar?.switchView?.(outlineSidebarView(), true);
-          app.pdfSidebar?.open?.();
-        });
-      } else {
-        withSidebarTrackingSuppressed(function () {
-          app.pdfSidebar?.close?.();
-        });
-      }
+      closeSidebar(app);
     } else {
-      withSidebarTrackingSuppressed(function () {
-        app.pdfSidebar?.close?.();
-      });
-      document.getElementById("outerContainer")?.classList.remove("sidebarOpen", "sidebarMoving", "sidebarResizing");
+      closeSidebar(app);
     }
 
-    if (config.page > 1) {
-      app.page = config.page;
-    }
+    applyPosition(config);
   }
 
   function bindEvents() {
@@ -706,14 +941,28 @@
 
     eventBus.on("pagechanging", function (evt) {
       if (!evt?.pageNumber) return;
+      if (Date.now() < suppressBroadcastUntil) return;
       hideSelectionUi();
       post("pagechange", { page: evt.pageNumber });
+    });
+
+    eventBus.on("updateviewarea", function (evt) {
+      if (Date.now() < suppressBroadcastUntil) return;
+      const location = evt?.location?.pdfOpenParams;
+      if (typeof location !== "string" || !location) return;
+      post("locationchange", { location: location.startsWith("#") ? location.slice(1) : location });
     });
 
     eventBus.on("pagesloaded", function (evt) {
       const totalPages = Number(evt?.pagesCount || window.PDFViewerApplication?.pdfDocument?.numPages || 0);
       if (!Number.isFinite(totalPages) || totalPages <= 0) return;
       post("documentinfo", { totalPages });
+      if (currentConfig) {
+        requestAnimationFrame(function () {
+          if (!currentConfig) return;
+          applyPosition(currentConfig);
+        });
+      }
     });
 
     eventBus.on("sidebarviewchanged", function (evt) {
@@ -724,18 +973,24 @@
 
     eventBus.on("outlineloaded", function () {
       if (!currentConfig || currentConfig.mode !== "full") return;
-      if (hasOutline() && !sidebarState.userClosed) {
-        withSidebarTrackingSuppressed(function () {
-          app.pdfSidebar?.switchView?.(outlineSidebarView(), true);
-          app.pdfSidebar?.open?.();
-        });
-      } else {
-        withSidebarTrackingSuppressed(function () {
-          app.pdfSidebar?.close?.();
-        });
-      }
+      setSidebarView(app);
+      closeSidebar(app);
     });
 
+    const pdf2md = document.getElementById("aetherPdf2md");
+    if (pdf2md) {
+      pdf2md.addEventListener("click", function () {
+        post("pdf2md");
+      });
+    }
+
+    const pdf2mdSecondary = document.getElementById("aetherPdf2mdSecondary");
+    if (pdf2mdSecondary) {
+      pdf2mdSecondary.addEventListener("click", function () {
+        post("pdf2md");
+        window.PDFViewerApplication?.secondaryToolbar?.close?.();
+      });
+    }
     const readingMode = document.getElementById("aetherOpenReadingMode");
     if (readingMode) {
       readingMode.addEventListener("click", function () {
@@ -743,12 +998,23 @@
       });
     }
 
+    const readingModeSecondary = document.getElementById("aetherOpenReadingModeSecondary");
+    if (readingModeSecondary) {
+      readingModeSecondary.addEventListener("click", function () {
+        post("openreadingmode");
+        window.PDFViewerApplication?.secondaryToolbar?.close?.();
+      });
+    }
+
     const nightMode = document.getElementById("aetherNightMode");
     if (nightMode) {
       nightMode.addEventListener("click", function () {
-        currentConfig = { ...(currentConfig || sanitizeConfig({})), nightMode: !currentConfig?.nightMode };
+        currentConfig = {
+          ...(currentConfig || sanitizeConfig({})),
+          viewTheme: nextViewTheme(currentConfig?.viewTheme),
+        };
         applyChrome(currentConfig);
-        post("nightmode", { enabled: currentConfig.nightMode });
+        post("viewtheme", { theme: currentConfig.viewTheme });
       });
     }
 
@@ -759,6 +1025,29 @@
       });
     }
 
+    const captureRegionSecondary = document.getElementById("aetherCaptureRegionSecondary");
+    if (captureRegionSecondary) {
+      captureRegionSecondary.addEventListener("click", function () {
+        setCaptureMode(!captureModeActive);
+        window.PDFViewerApplication?.secondaryToolbar?.close?.();
+      });
+    }
+
+    const firstRead = document.getElementById("aetherFirstRead");
+    if (firstRead) {
+      firstRead.addEventListener("click", function () {
+        post("startfirstread");
+        window.PDFViewerApplication?.secondaryToolbar?.close?.();
+      });
+    }
+
+    const exitQuickReading = document.getElementById("aetherExitQuickReading");
+    if (exitQuickReading) {
+      exitQuickReading.addEventListener("click", function () {
+        post("exitquickreading");
+      });
+    }
+
     const readingSettings = document.getElementById("aetherReadingSettings");
     if (readingSettings) {
       readingSettings.addEventListener("click", function () {
@@ -766,10 +1055,26 @@
       });
     }
 
+    const readingSettingsSecondary = document.getElementById("aetherReadingSettingsSecondary");
+    if (readingSettingsSecondary) {
+      readingSettingsSecondary.addEventListener("click", function () {
+        post("opensettings");
+        window.PDFViewerApplication?.secondaryToolbar?.close?.();
+      });
+    }
+
     const swapLayout = document.getElementById("aetherSwapLayout");
     if (swapLayout) {
       swapLayout.addEventListener("click", function () {
         post("swaplayout");
+      });
+    }
+
+    const swapLayoutSecondary = document.getElementById("aetherSwapLayoutSecondary");
+    if (swapLayoutSecondary) {
+      swapLayoutSecondary.addEventListener("click", function () {
+        post("swaplayout");
+        window.PDFViewerApplication?.secondaryToolbar?.close?.();
       });
     }
 
@@ -824,6 +1129,7 @@
       if (captureModeActive) setCaptureMode(false);
     });
     window.addEventListener("resize", function () {
+      scheduleToolbarOverflowSync();
       if (!selectionState) return;
       scheduleSelectionUiUpdate();
     });
@@ -845,18 +1151,21 @@
     currentKey = [config.src, config.authHeader || "", config.mode].join("|");
     sidebarState = {
       initialized: false,
-      userClosed: false,
+      userClosed: true,
     };
     hideSelectionUi();
     applyChrome(config);
+    closeSidebar(app);
 
     if (app.pdfDocument) {
       await app.close();
+      closeSidebar(app);
     }
 
     app.eventBus.on("documentloaded", function onDocumentLoaded() {
       app.eventBus.off("documentloaded", onDocumentLoaded);
       applyDocumentDefaults(config);
+      scheduleToolbarOverflowSync();
     });
 
     const loadOpts = {
@@ -907,8 +1216,17 @@
         if (!Number.isFinite(page) || page < 1) return;
         currentConfig = { ...(currentConfig || sanitizeConfig({})), page: Math.round(page) };
         if (window.PDFViewerApplication?.pdfDocument) {
+          suppressBroadcastUntil = Date.now() + 500;
           window.PDFViewerApplication.page = Math.round(page);
         }
+        return;
+      }
+
+      if (event.data.type === "location") {
+        const location = typeof event.data.location === "string" ? event.data.location : "";
+        if (!location) return;
+        currentConfig = { ...(currentConfig || sanitizeConfig({})), location };
+        applyLocation(location);
         return;
       }
 
@@ -923,6 +1241,8 @@
     "load",
     function () {
       applyTheme();
+      PDFViewerApplicationOptions.set("sidebarViewOnLoad", 0);
+      PDFViewerApplicationOptions.set("viewOnLoad", 1);
       PDFViewerApplicationOptions.set("workerSrc", WORKER_SRC);
       PDFViewerApplicationOptions.set("cMapUrl", C_MAP_URL);
       PDFViewerApplicationOptions.set("standardFontDataUrl", STANDARD_FONT_DATA_URL);

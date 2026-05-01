@@ -4,6 +4,7 @@ import { useSpring } from "@opencode-ai/ui/motion-spring"
 import { PromptInput } from "@/components/prompt-input"
 import { type FollowupDraft } from "@/components/prompt-input/submit"
 import { useLanguage } from "@/context/language"
+import { useMaybeQuickReadingMode } from "@/context/quick-reading-mode"
 import { useMaybeReadingMode } from "@/context/reading-mode"
 import { usePrompt } from "@/context/prompt"
 import { SessionFollowupDock } from "@/pages/session/composer/session-followup-dock"
@@ -14,6 +15,7 @@ import { SessionRevertDock } from "@/pages/session/composer/session-revert-dock"
 import { SessionTodoDock } from "@/pages/session/composer/session-todo-dock"
 import { getSessionHandoff, setSessionHandoff } from "@/pages/session/handoff"
 import { useSessionKey } from "@/pages/session/session-layout"
+import { formatReadingPageRange } from "@/utils/comment-note"
 
 export function SessionComposerRegion(props: {
   state: SessionComposerState
@@ -46,8 +48,13 @@ export function SessionComposerRegion(props: {
   const prompt = usePrompt()
   const language = useLanguage()
   const readingMode = useMaybeReadingMode()
+  const quickReadingMode = useMaybeQuickReadingMode()
   const route = useSessionKey()
-  const pendingQuestion = createMemo(() => readingMode?.store.pendingQuestion ?? null)
+  const pendingQuestion = createMemo(() => {
+    const quickPending = quickReadingMode?.store.pendingQuestion
+    if (quickPending?.sessionID === route.params.id) return quickPending
+    return readingMode?.store.pendingQuestion ?? null
+  })
 
   const handoffPrompt = createMemo(() => getSessionHandoff(route.sessionKey())?.prompt)
 
@@ -249,15 +256,17 @@ export function SessionComposerRegion(props: {
                     <div class="flex items-start justify-between gap-3">
                       <div class="min-w-0 flex-1">
                         <div class="text-11-medium uppercase tracking-wide text-text-weak">
-                          {`PDF Quote - p.${question.page}`}
+                          {"pdfFileName" in question
+                            ? `${question.pdfFileName} · p.${formatReadingPageRange({ startPage: question.kind === "text-question" ? question.startPage : question.page, endPage: question.kind === "text-question" ? question.endPage : question.page })}`
+                            : `PDF Quote - p.${formatReadingPageRange({ startPage: question.kind === "text-question" ? question.startPage : question.page, endPage: question.kind === "text-question" ? question.endPage : question.page })}`}
                         </div>
-                        <Show when={question.kind === "image-question"}>
-                          <img
-                            src={question.kind === "image-question" ? question.imageDataUrl : undefined}
-                            alt={`Captured region from page ${question.page}`}
-                            class="mt-2 h-20 max-w-full rounded-md border border-border-weak-base bg-background-base object-contain"
-                          />
-                        </Show>
+                          <Show when={question.kind === "image-question"}>
+                            <img
+                              src={question.kind === "image-question" ? question.imageDataUrl : undefined}
+                              alt={`Captured region from page ${question.kind === "image-question" ? question.page : question.startPage}`}
+                              class="mt-2 h-20 max-w-full rounded-md border border-border-weak-base bg-background-base object-contain"
+                            />
+                          </Show>
                         <div class="mt-1 line-clamp-3 whitespace-pre-wrap break-words text-13-regular text-text-strong">
                           {question.text}
                         </div>
@@ -265,7 +274,13 @@ export function SessionComposerRegion(props: {
                       <button
                         type="button"
                         class="shrink-0 rounded-md px-1 py-0.5 text-12-medium text-text-weak transition hover:bg-surface-hover hover:text-text-strong"
-                        onClick={() => readingMode?.setPendingQuestion(null)}
+                        onClick={() => {
+                          if ("pdfFileName" in question) {
+                            quickReadingMode?.setPendingQuestion(null)
+                            return
+                          }
+                          readingMode?.setPendingQuestion(null)
+                        }}
                         aria-label={language.t("common.clear")}
                       >
                         x

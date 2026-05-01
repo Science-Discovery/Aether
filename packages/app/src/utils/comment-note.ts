@@ -8,6 +8,18 @@ export type PromptComment = {
   origin?: "review" | "file"
 }
 
+export type ReadingQuote = {
+  mode: "classic" | "quick"
+  action: "ask" | "translate"
+  contentType: "text" | "image"
+  pdfFileName: string
+  startPage: number
+  endPage?: number
+  summary: string
+  fullText?: string
+  imageDataUrl?: string
+}
+
 function selection(selection: unknown) {
   if (!selection || typeof selection !== "object") return undefined
   const startLine = Number((selection as FileSelection).startLine)
@@ -33,6 +45,73 @@ export function createCommentMetadata(input: PromptComment) {
       origin: input.origin,
     },
   }
+}
+
+export function summarizeReadingQuoteText(text: string, maxLength = 180) {
+  const compact = text.replace(/\s+/g, " ").trim()
+  if (!compact) return ""
+  if (compact.length <= maxLength) return compact
+  return `${compact.slice(0, Math.max(0, maxLength - 3))}...`
+}
+
+export function formatReadingPageRange(input: { startPage: number; endPage?: number }) {
+  return input.endPage && input.endPage > input.startPage
+    ? `${input.startPage}-${input.endPage}`
+    : `${input.startPage}`
+}
+
+export function createReadingQuoteMetadata(input: ReadingQuote) {
+  return {
+    opencodeReadingQuote: {
+      mode: input.mode,
+      action: input.action,
+      contentType: input.contentType,
+      pdfFileName: input.pdfFileName,
+      startPage: input.startPage,
+      endPage: input.endPage,
+      summary: input.summary,
+      fullText: input.fullText,
+      imageDataUrl: input.imageDataUrl,
+    },
+  }
+}
+
+export function readReadingQuoteMetadata(value: unknown) {
+  if (!value || typeof value !== "object") return
+  const meta = (value as { opencodeReadingQuote?: unknown }).opencodeReadingQuote
+  if (!meta || typeof meta !== "object") return
+
+  const mode = (meta as { mode?: unknown }).mode
+  const action = (meta as { action?: unknown }).action
+  const contentType = (meta as { contentType?: unknown }).contentType
+  const pdfFileName = (meta as { pdfFileName?: unknown }).pdfFileName
+  const startPage = Number((meta as { startPage?: unknown }).startPage ?? (meta as { page?: unknown }).page)
+  const rawEndPage = (meta as { endPage?: unknown }).endPage
+  const summary = (meta as { summary?: unknown }).summary
+  const fullText = (meta as { fullText?: unknown }).fullText
+  const imageDataUrl = (meta as { imageDataUrl?: unknown }).imageDataUrl
+
+  if (mode !== "classic" && mode !== "quick") return
+  if (action !== "ask" && action !== "translate") return
+  if (contentType !== "text" && contentType !== "image") return
+  if (typeof pdfFileName !== "string" || !pdfFileName) return
+  if (!Number.isFinite(startPage) || startPage < 1) return
+  if (typeof summary !== "string") return
+
+  const endPage =
+    typeof rawEndPage === "number" && Number.isFinite(rawEndPage) && rawEndPage >= startPage ? rawEndPage : undefined
+
+  return {
+    mode,
+    action,
+    contentType,
+    pdfFileName,
+    startPage,
+    endPage,
+    summary,
+    fullText: typeof fullText === "string" ? fullText : undefined,
+    imageDataUrl: typeof imageDataUrl === "string" ? imageDataUrl : undefined,
+  } satisfies ReadingQuote
 }
 
 export function readCommentMetadata(value: unknown) {

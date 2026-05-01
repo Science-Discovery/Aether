@@ -1,10 +1,8 @@
-﻿import { createEffect, createMemo, createSignal, Match, on, onCleanup, Show, Switch } from "solid-js"
+import { createEffect, createMemo, createSignal, Match, on, onCleanup, Show, Switch } from "solid-js"
 import { createStore } from "solid-js/store"
 import { Dynamic } from "solid-js/web"
-import { useNavigate } from "@solidjs/router"
-import type { Session } from "@opencode-ai/sdk/v2/client"
-import type { FileSearchHandle } from "@opencode-ai/ui/file"
 import { Button } from "@opencode-ai/ui/button"
+import type { FileSearchHandle } from "@opencode-ai/ui/file"
 import { useFileComponent } from "@opencode-ai/ui/context/file"
 import { cloneSelectedLineRange, previewSelectedLines } from "@opencode-ai/ui/pierre/selection-bridge"
 import { createLineCommentController } from "@opencode-ai/ui/line-comment-annotations"
@@ -13,7 +11,6 @@ import { DropdownMenu } from "@opencode-ai/ui/dropdown-menu"
 import { IconButton } from "@opencode-ai/ui/icon-button"
 import { Tabs } from "@opencode-ai/ui/tabs"
 import { ScrollView } from "@opencode-ai/ui/scroll-view"
-import { Dialog } from "@opencode-ai/ui/dialog"
 import { showToast } from "@opencode-ai/ui/toast"
 import { Tooltip } from "@opencode-ai/ui/tooltip"
 import { Markdown } from "@opencode-ai/ui/markdown"
@@ -23,8 +20,12 @@ import { registerOpenFileCallback, registerRefreshDirCallback, restoreActiveTask
 import { useSDK } from "@/context/sdk"
 import { selectionFromLines, useFile, type FileSelection, type SelectedLineRange } from "@/context/file"
 import { useComments } from "@/context/comments"
+import { useGlobalSync } from "@/context/global-sync"
 import { useLanguage } from "@/context/language"
+import { useLocal } from "@/context/local"
 import { usePrompt } from "@/context/prompt"
+import { DEFAULT_PROMPT } from "@/context/prompt"
+import { useQuickReadingMode } from "@/context/quick-reading-mode"
 import { useServer } from "@/context/server"
 import { useSync } from "@/context/sync"
 import { useTerminal } from "@/context/terminal"
@@ -35,7 +36,12 @@ import { createSessionTabs } from "@/pages/session/helpers"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { DialogDraftConflict } from "@/components/dialog-draft-conflict"
 import { DialogPdfToMarkdown } from "@/components/dialog-pdf-to-markdown"
-import { upsertSessionList } from "@/utils/session-store"
+import { DialogQuickReadingSettings } from "@/components/quick-reading/dialog-quick-reading-settings"
+import { QuickReadingFirstReadGate } from "@/components/quick-reading/quick-reading-first-read-gate"
+import { sendFollowupDraft, type FollowupDraft } from "@/components/prompt-input/submit"
+import { createReadingQuoteMetadata, summarizeReadingQuoteText } from "@/utils/comment-note"
+import { Identifier } from "@/utils/id"
+import { formatServerError } from "@/utils/server-errors"
 
 function FileCommentMenu(props: {
   moreLabel: string
@@ -70,32 +76,14 @@ function FileCommentMenu(props: {
   )
 }
 
-type ReadingModeFromFileResponse = {
-  action: "existing" | "created"
-  session: Session
-}
-
-function readingModeText(language: ReturnType<typeof useLanguage>, key: string) {
-  const zh = language.locale() === "zh" || language.locale() === "zht"
-  switch (key) {
-    case "resume.title":
-      return zh ? "继续阅读模式" : "Continue reading mode"
-    case "resume.description":
-      return zh ? "这份 PDF 已经有阅读会话。你想继续之前的阅读对话，还是新建一条阅读会话？" : "This PDF already has a reading session. Continue the existing reading conversation or create a new one?"
-    case "resume.continue":
-      return zh ? "继续已有阅读" : "Continue existing reading"
-    case "resume.new":
-      return zh ? "新建阅读会话" : "Create new reading session"
-  }
-  return key
-}
-
 export function FileTabContent(props: { tab: string }) {
-  const navigate = useNavigate()
   const file = useFile()
   const comments = useComments()
+  const globalSync = useGlobalSync()
   const language = useLanguage()
+  const local = useLocal()
   const prompt = usePrompt()
+  const quickReading = useQuickReadingMode()
   const sync = useSync()
   const fileComponent = useFileComponent()
   const sdk = useSDK()
@@ -410,107 +398,223 @@ export function FileTabContent(props: { tab: string }) {
     const version = state()?.version ?? 0
     return `${sdk.url}/file/raw?path=${encodeURIComponent(p)}&directory=${encodeURIComponent(sdk.directory)}&v=${version}`
   })
-
+  const pdfPreviewPage = createMemo(() => {
+    const p = path()
+    if (!p) return 1
+    return file.pdfPage(p) ?? 1
+  })
+  const pdfPreviewLocation = createMemo(() => {
+    const p = path()
+    if (!p) return undefined
+    return file.pdfLocation(p)
+  })
   const pdfAuthHeader = createMemo(() => {
     const http = server.current?.http
     if (!http?.password) return undefined
     return `Basic ${btoa(`${http.username ?? "opencode"}:${http.password}`)}`
   })
 
+  const openPdfToMarkdown = () => {
+    const p = path()
+    if (!p) return
+    dialog.show(() => <DialogPdfToMarkdown pdfPath={p} />)
+  }
+
   const openPdfInReadingMode = async () => {
     const p = path()
-    const currentServer = server.current
-    if (!p || !currentServer) return
+    if (!p || !params.id) return
+    if (view().reviewPanel.opened()) view().reviewPanel.close()
+    view().quickReading.open(p, p.split("/").pop() ?? "document.pdf")
+  }
 
-    try {
-      const authHeaders: Record<string, string> = currentServer.http.password
-        ? { Authorization: `Basic ${btoa(`${currentServer.http.username ?? "opencode"}:${currentServer.http.password}`)}` }
-        : {}
+  const focusPromptInput = () => {
+    requestAnimationFrame(() => {
+      const el = document.querySelector('[data-component="prompt-input"]')
+      if (!(el instanceof HTMLElement)) return
+      el.focus()
+    })
+  }
 
-      const openFromFile = async (forceNew = false) => {
-        const response = await fetch(
-          `${currentServer.http.url}/reading-mode/session/from-file?directory=${encodeURIComponent(sdk.directory)}`,
-          {
-          method: "POST",
-          headers: {
-            ...authHeaders,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            path: p,
-            forceNew,
-          }),
-          },
-        )
+  const ensureQuickBinding = () => {
+    const p = path()
+    if (!p || !params.id) return
+    quickReading.bind(params.id, p, p.split("/").pop() ?? "document.pdf")
+    return {
+      path: p,
+      fileName: p.split("/").pop() ?? "document.pdf",
+      sessionID: params.id,
+    }
+  }
 
-        if (!response.ok) {
-          const text = await response.text()
-          throw new Error(text || `HTTP ${response.status}`)
-        }
-
-        return (await response.json()) as ReadingModeFromFileResponse
-      }
-
-      const goToReadingSession = (sessionID: string) => {
-        navigate(`/${encodeURIComponent(params.dir ?? "")}/session/${sessionID}/reading`)
-      }
-
-      const mergeReadingSession = (session: Session) => {
-        sync.set("session", (items: Session[]) => upsertSessionList(items, session))
-      }
-
-      const result = await openFromFile()
-      mergeReadingSession(result.session)
-      if (result.action === "existing") {
-        dialog.show(() => (
-          <Dialog title={readingModeText(language, "resume.title")} fit>
-            <div class="flex flex-col gap-4 p-4">
-              <p class="text-sm text-text-base">{readingModeText(language, "resume.description")}</p>
-              <div class="flex justify-end gap-2">
-                <Button
-                  variant="ghost"
-                  onClick={() => {
-                    void (async () => {
-                      try {
-                        const created = await openFromFile(true)
-                        mergeReadingSession(created.session)
-                        dialog.close()
-                        goToReadingSession(created.session.id)
-                      } catch (error) {
-                        showToast({
-                          variant: "error",
-                          title: "Failed to open reading mode",
-                          description: String((error as Error)?.message ?? error),
-                        })
-                      }
-                    })()
-                  }}
-                >
-                  {readingModeText(language, "resume.new")}
-                </Button>
-                <Button
-                  onClick={() => {
-                    dialog.close()
-                    goToReadingSession(result.session.id)
-                  }}
-                >
-                  {readingModeText(language, "resume.continue")}
-                </Button>
-              </div>
-            </div>
-          </Dialog>
-        ))
-        return
-      }
-
-      goToReadingSession(result.session.id)
-    } catch (e) {
+  const sendQuickTranslate = async (input: {
+    page: number
+    extraTextParts: FollowupDraft["extraTextParts"]
+    attachments?: FollowupDraft["attachments"]
+  }) => {
+    const sessionID = params.id
+    const model = local.model.current()
+    const agent = local.agent.current()
+    if (!sessionID || !model || !agent) {
       showToast({
         variant: "error",
-        title: "Failed to open reading mode",
-        description: String((e as Error)?.message ?? e),
+        title: language.t("common.requestFailed"),
+        description: language.t("prompt.toast.modelAgentRequired.description"),
       })
+      return
     }
+
+    await sendFollowupDraft({
+      client: sdk.client,
+      sync,
+      globalSync,
+      messageID: Identifier.ascending("message"),
+      optimisticBusy: true,
+      draft: {
+        sessionID,
+        sessionDirectory: sdk.directory,
+        prompt: DEFAULT_PROMPT,
+        attachments: input.attachments,
+        context: [],
+        agent: agent.name,
+        model: { providerID: model.provider.id, modelID: model.id },
+        variant: local.model.variant.current(),
+        extraTextParts: input.extraTextParts,
+      },
+    }).catch((cause) => {
+      showToast({
+        variant: "error",
+        title: language.t("common.requestFailed"),
+        description: formatServerError(cause, language.t),
+      })
+    })
+  }
+
+  const openQuickSettings = () => {
+    const binding = ensureQuickBinding()
+    if (!binding) return
+    dialog.show(() => <DialogQuickReadingSettings pdfFileName={binding.fileName} />)
+  }
+
+  const [firstReadOpen, setFirstReadOpen] = createSignal(false)
+  const [pdfPages, setPdfPages] = createStore<Record<string, number>>({})
+
+  const openQuickFirstRead = () => {
+    const binding = ensureQuickBinding()
+    if (!binding) return
+    const totalPages = pdfPages[binding.path] ?? 0
+    if (totalPages <= 0) {
+      showToast({
+        variant: "error",
+        title: language.t("common.requestFailed"),
+        description: "The PDF is still loading. Try pre-read again in a moment.",
+      })
+      return
+    }
+    quickReading.setTotalPages(totalPages)
+    setFirstReadOpen(true)
+  }
+
+  const handlePreviewTextSelection = async (input: {
+    action: "copy" | "translate" | "ask"
+    startPage: number
+    endPage: number
+    text: string
+  }) => {
+    const text = input.text.trim()
+    if (!text) return
+    const binding = ensureQuickBinding()
+    if (!binding) return
+    if (input.action === "ask") {
+      quickReading.setPendingQuestion({
+        kind: "text-question",
+        sessionID: binding.sessionID,
+        pdfPath: binding.path,
+        pdfFileName: binding.fileName,
+        startPage: input.startPage,
+        endPage: input.endPage,
+        text,
+        createdAt: Date.now(),
+      })
+      focusPromptInput()
+      return
+    }
+    if (input.action !== "translate") return
+    const range = input.endPage > input.startPage ? `pages ${input.startPage}-${input.endPage}` : `page ${input.startPage}`
+    const settings = quickReading.store.snapshot.settings
+    await sendQuickTranslate({
+      page: input.startPage,
+      extraTextParts: [
+        {
+          text: `Translate selected text on ${range} from ${binding.fileName}`,
+          ignored: true,
+        },
+        {
+          text: `${settings.translatePrompt}\n\n[Selected text]\n${text}`,
+          synthetic: true,
+        },
+        {
+          text: "",
+          synthetic: true,
+          ignored: true,
+          metadata: createReadingQuoteMetadata({
+            mode: "quick",
+            action: "translate",
+            contentType: "text",
+            pdfFileName: binding.fileName,
+            startPage: input.startPage,
+            endPage: input.endPage,
+            summary: summarizeReadingQuoteText(text),
+            fullText: text,
+          }),
+        },
+      ],
+    })
+  }
+
+  const handlePreviewImageSelection = async (input: {
+    action: "copy" | "translate" | "ask"
+    page: number
+    imageDataUrl: string
+  }) => {
+    if (!input.imageDataUrl) return
+    const binding = ensureQuickBinding()
+    if (!binding) return
+    if (input.action === "ask") {
+      quickReading.setPendingQuestion({
+        kind: "image-question",
+        sessionID: binding.sessionID,
+        pdfPath: binding.path,
+        pdfFileName: binding.fileName,
+        page: input.page,
+        text: `Captured region from ${binding.fileName}, page ${input.page}`,
+        imageDataUrl: input.imageDataUrl,
+        createdAt: Date.now(),
+      })
+      focusPromptInput()
+      return
+    }
+    if (input.action !== "translate") return
+    const settings = quickReading.store.snapshot.settings
+    await sendQuickTranslate({
+      page: input.page,
+      attachments: [
+        {
+          filename: `pdf-region-page-${input.page}.png`,
+          mime: "image/png",
+          dataUrl: input.imageDataUrl,
+        },
+      ],
+      extraTextParts: [
+        {
+          text: `Translate captured region on page ${input.page} from ${binding.fileName}`,
+          ignored: true,
+        },
+        {
+          text: `${settings.translatePrompt}\n\n[Selected image]\nPlease translate the content shown in the attached image.`,
+          synthetic: true,
+        },
+      ],
+    })
   }
 
   const [isRunning, setIsRunning] = createSignal(false)
@@ -959,14 +1063,48 @@ export function FileTabContent(props: { tab: string }) {
       )
     }
     if (isPDF()) {
+      const currentPath = path()
       return (
         <div class="relative h-full min-h-0 overflow-hidden" data-file-content>
-          <PdfViewerShell
-            src={rawPreviewUrl()}
-            authHeader={pdfAuthHeader()}
-            mode="compact"
-            class="size-full"
+          <Show when={!!params.id && !!currentPath}>
+            <QuickReadingFirstReadGate
+              open={firstReadOpen()}
+              sessionID={params.id!}
+              pdfPath={currentPath!}
+              pdfFileName={currentPath?.split("/").pop() ?? "document.pdf"}
+              totalPages={currentPath ? (pdfPages[currentPath] ?? 0) : 0}
+              onOpenChange={setFirstReadOpen}
+            />
+          </Show>
+            <PdfViewerShell
+              src={rawPreviewUrl()}
+              authHeader={pdfAuthHeader()}
+              mode="full"
+              class="size-full"
+              page={pdfPreviewPage()}
+              location={pdfPreviewLocation()}
+              onPageChange={(page) => {
+                const p = path()
+                if (!p) return
+                file.setPdfPage(p, page)
+              }}
+              onLocationChange={(location) => {
+                const p = path()
+                if (!p) return
+                file.setPdfLocation(p, location)
+              }}
+              onDocumentInfo={({ totalPages }) => {
+                const p = path()
+                if (!p) return
+              setPdfPages(p, totalPages)
+              if (quickReading.store.binding?.pdfPath === p) quickReading.setTotalPages(totalPages)
+            }}
+            onPdfToMarkdown={openPdfToMarkdown}
             onOpenReadingMode={openPdfInReadingMode}
+            onStartFirstRead={openQuickFirstRead}
+            onOpenSettings={openQuickSettings}
+            onTextSelectionAction={handlePreviewTextSelection}
+            onImageSelectionAction={handlePreviewImageSelection}
           />
         </div>
       )

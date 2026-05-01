@@ -111,6 +111,8 @@ export const dict = {
   "command.session.compact.description": "总结会话以减少上下文大小",
   "command.session.fork": "从消息分叉",
   "command.session.fork.description": "从之前的消息创建新会话",
+  "command.session.readingMode": "阅读模式",
+  "command.session.readingMode.description": "打开 PDF 阅读模式",
   "command.session.share": "分享会话",
   "command.session.share.description": "分享此会话并将链接复制到剪贴板",
   "command.session.unshare": "取消分享会话",

@@ -42,6 +42,9 @@ type SessionView = {
   reviewOpen?: string[]
   pendingMessage?: string
   pendingMessageAt?: number
+  quickReadingActive?: boolean
+  quickReadingPdfPath?: string
+  quickReadingPdfFileName?: string
   pendingToggle?: string
   pendingToggleAt?: number
 }
@@ -709,6 +712,7 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
         const s = createMemo(() => store.sessionView[key()] ?? { scroll: {} })
         const terminalOpened = createMemo(() => store.terminal?.opened ?? false)
         const reviewPanelOpened = createMemo(() => store.review?.panelOpened ?? true)
+        const quickReadingPdfPath = createMemo(() => s().quickReadingPdfPath)
 
         function setTerminalOpened(next: boolean) {
           const current = store.terminal
@@ -827,6 +831,59 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
               }
 
               this.closePath(path)
+            },
+          },
+          quickReading: {
+            active: createMemo(() => !!s().quickReadingActive),
+            pdfPath: quickReadingPdfPath,
+            pdfFileName: createMemo(() => s().quickReadingPdfFileName),
+            open(pdfPath: string, pdfFileName: string) {
+              const session = key()
+              const current = store.sessionView[session]
+              if (!current) {
+                setStore("sessionView", session, {
+                  scroll: {},
+                  quickReadingActive: true,
+                  quickReadingPdfPath: pdfPath,
+                  quickReadingPdfFileName: pdfFileName,
+                })
+                return
+              }
+
+              if (
+                current.quickReadingActive &&
+                current.quickReadingPdfPath === pdfPath &&
+                current.quickReadingPdfFileName === pdfFileName
+              ) {
+                return
+              }
+
+              setStore(
+                "sessionView",
+                session,
+                produce((draft) => {
+                  draft.quickReadingActive = true
+                  draft.quickReadingPdfPath = pdfPath
+                  draft.quickReadingPdfFileName = pdfFileName
+                }),
+              )
+            },
+            close() {
+              const session = key()
+              const current = store.sessionView[session]
+              if (!current?.quickReadingActive && !current?.quickReadingPdfPath && !current?.quickReadingPdfFileName) {
+                return
+              }
+
+              setStore(
+                "sessionView",
+                session,
+                produce((draft) => {
+                  delete draft.quickReadingActive
+                  delete draft.quickReadingPdfPath
+                  delete draft.quickReadingPdfFileName
+                }),
+              )
             },
           },
         }

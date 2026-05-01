@@ -12,6 +12,7 @@ import { useLayout } from "@/context/layout"
 import { useLocal } from "@/context/local"
 import { usePermission } from "@/context/permission"
 import { DEFAULT_PROMPT, type ContextItem, type ImageAttachmentPart, type Prompt, usePrompt } from "@/context/prompt"
+import { useMaybeQuickReadingMode } from "@/context/quick-reading-mode"
 import { useMaybeReadingMode } from "@/context/reading-mode"
 import { useSDK } from "@/context/sdk"
 import { useServer } from "@/context/server"
@@ -22,6 +23,7 @@ import { Identifier } from "@/utils/id"
 import { Worktree as WorktreeState } from "@/utils/worktree"
 import { buildRequestParts, type DataAttachment } from "./build-request-parts"
 import { setCursorPosition } from "./editor-dom"
+import { createReadingQuoteMetadata, formatReadingPageRange, summarizeReadingQuoteText } from "@/utils/comment-note"
 import { formatServerError } from "@/utils/server-errors"
 
 type PendingPrompt = {
@@ -87,9 +89,14 @@ function fillReadingQuestionPrompt(template: string, input: {
     .replaceAll("{context_pages}", input.contextPages)
 }
 
-function describeReadingSelection(input: { page: number; kind: "text-question" | "image-question"; text?: string }) {
+function describeReadingSelection(input: {
+  startPage: number
+  endPage?: number
+  kind: "text-question" | "image-question"
+  text?: string
+}) {
   if (input.kind === "image-question") {
-    return `用户选中的是一张来自 PDF 第 ${input.page} 页的截图区域，请结合截图与上下文回答。`
+    return `用户选中的是一张来自 PDF 第 ${formatReadingPageRange(input)} 页的截图区域，请结合截图与上下文回答。`
   }
   return input.text ?? ""
 }
@@ -107,7 +114,8 @@ function blobToDataUrl(blob: Blob) {
 }
 
 function resolveReadingContextRange(input: {
-  page: number
+  startPage: number
+  endPage?: number
   range: 0 | 1 | 2
   totalPages?: number
 }) {
@@ -115,10 +123,13 @@ function resolveReadingContextRange(input: {
     typeof input.totalPages === "number" && Number.isFinite(input.totalPages) && input.totalPages > 0
       ? Math.floor(input.totalPages)
       : undefined
-  const safePage = totalPages ? Math.min(totalPages, Math.max(1, input.page)) : Math.max(1, input.page)
+  const safeStart = totalPages ? Math.min(totalPages, Math.max(1, input.startPage)) : Math.max(1, input.startPage)
+  const safeEnd = totalPages
+    ? Math.min(totalPages, Math.max(safeStart, input.endPage ?? input.startPage))
+    : Math.max(safeStart, input.endPage ?? input.startPage)
   return {
-    startPage: Math.max(1, safePage - input.range),
-    endPage: totalPages ? Math.min(totalPages, safePage + input.range) : safePage + input.range,
+    startPage: Math.max(1, safeStart - input.range),
+    endPage: totalPages ? Math.min(totalPages, safeEnd + input.range) : safeEnd + input.range,
   }
 }
 
@@ -282,6 +293,7 @@ export function createPromptSubmit(input: PromptSubmitInput) {
   const local = useLocal()
   const permission = usePermission()
   const prompt = usePrompt()
+  const quickReadingMode = useMaybeQuickReadingMode()
   const readingMode = useMaybeReadingMode()
   const layout = useLayout()
   const language = useLanguage()
@@ -365,7 +377,8 @@ export function createPromptSubmit(input: PromptSubmitInput) {
 
   const fetchReadingContextPages = async (input: {
     sessionID: string
-    page: number
+    startPage: number
+    endPage?: number
     range: 0 | 1 | 2
     totalPages?: number
   }) => {
@@ -393,7 +406,8 @@ export function createPromptSubmit(input: PromptSubmitInput) {
 
   const fetchReadingContextPdf = async (input: {
     sessionID: string
-    page: number
+    startPage: number
+    endPage?: number
     range: 0 | 1 | 2
     totalPages?: number
   }) => {
@@ -531,6 +545,8 @@ export function createPromptSubmit(input: PromptSubmitInput) {
     const openPaths = input.openTabPaths?.() ?? []
     const selText = fileCtx.selectedText()
     const readingQuestion = readingMode?.store.pendingQuestion
+    const quickReadingPendingQuestion = quickReadingMode?.store.pendingQuestion ?? null
+    const quickReadingQuestion = quickReadingPendingQuestion?.sessionID === params.id ? quickReadingPendingQuestion : null
     const draft: FollowupDraft = {
       sessionID: session.id,
       sessionDirectory,
@@ -591,7 +607,7 @@ export function createPromptSubmit(input: PromptSubmitInput) {
       return
     }
 
-    if (!readingQuestion && text.startsWith("/")) {
+    if (!readingQuestion && !quickReadingQuestion && text.startsWith("/")) {
       const [cmdName, ...args] = text.split(" ")
       const commandName = cmdName.slice(1)
       const customCommand = sync.data.command.find((c) => c.name === commandName)
@@ -693,6 +709,117 @@ export function createPromptSubmit(input: PromptSubmitInput) {
       return true
     }
 
+    if (mode === "normal" && quickReadingQuestion) {
+      const typedQuestion = text.trim()
+      const settings = quickReadingMode?.store.snapshot.settings
+      if (!typedQuestion || !settings) {
+        restoreCommentItems(commentItems)
+        restoreInput()
+        showToast({
+          title: language.t("prompt.toast.promptSendFailed.title"),
+          description: language.t("prompt.toast.promptSendFailed.description"),
+        })
+        return
+      }
+
+      const requestDraft: FollowupDraft = {
+        sessionID: session.id,
+        sessionDirectory,
+        prompt: [DEFAULT_PROMPT[0]!, ...images],
+        attachments:
+          quickReadingQuestion.kind === "image-question"
+            ? [
+                {
+                  filename: `pdf-region-page-${quickReadingQuestion.page}.png`,
+                  mime: "image/png",
+                  dataUrl: quickReadingQuestion.imageDataUrl,
+                },
+              ]
+            : undefined,
+        context,
+        agent,
+        model,
+        variant,
+        selectedPaths: openPaths.length > 0 ? openPaths : undefined,
+        extraTextParts: [
+          {
+            text: typedQuestion,
+            ignored: true,
+          },
+          {
+              text: fillReadingQuestionPrompt(settings.questionPrompt, {
+                selectedContent:
+                  quickReadingQuestion.kind === "image-question"
+                    ? `The user selected a screenshot region from page ${quickReadingQuestion.page} of ${quickReadingQuestion.pdfFileName}.`
+                    : `The user selected text from pages ${formatReadingPageRange({ startPage: quickReadingQuestion.startPage, endPage: quickReadingQuestion.endPage })} of ${quickReadingQuestion.pdfFileName}.\n\n${quickReadingQuestion.text}`,
+              userQuestion: typedQuestion,
+              contextPages: "",
+            }),
+            synthetic: true,
+          },
+          ...(quickReadingQuestion.kind === "text-question"
+            ? [
+                {
+                  text: "",
+                  synthetic: true,
+                  ignored: true,
+                  metadata: createReadingQuoteMetadata({
+                    mode: "quick",
+                    action: "ask",
+                    contentType: "text",
+                    pdfFileName: quickReadingQuestion.pdfFileName,
+                    startPage: quickReadingQuestion.startPage,
+                    endPage: quickReadingQuestion.endPage,
+                    summary: summarizeReadingQuoteText(quickReadingQuestion.text),
+                    fullText: quickReadingQuestion.text,
+                  }),
+                },
+              ]
+            : []),
+        ],
+      }
+
+      void sendFollowupDraft({
+        client,
+        sync,
+        globalSync,
+        draft: requestDraft,
+        messageID,
+        optimisticBusy: sessionDirectory === projectDirectory,
+        before: waitForWorktree,
+        knowledgeBase:
+          knowledge.enabled() && knowledge.activeKnowledgeBases().length > 0
+            ? {
+                paths: knowledge.activeKnowledgeBases().map((kb) => kb.path),
+                apiKey: knowledge.activeKnowledgeBases()[0]!.apiKey,
+                baseURL: knowledge.activeKnowledgeBases()[0]!.baseURL,
+              }
+            : undefined,
+      })
+        .then((ok) => {
+          if (ok) {
+            quickReadingMode?.setPendingQuestion(null)
+            return
+          }
+          restoreCommentItems(commentItems)
+          restoreInput()
+        })
+        .catch((err) => {
+          pending.delete(session.id)
+          if (sessionDirectory === projectDirectory) {
+            sync.set("session_status", session.id, { type: "idle" })
+          }
+          showToast({
+            title: language.t("prompt.toast.promptSendFailed.title"),
+            description: errorMessage(err),
+          })
+          removeOptimisticMessage()
+          restoreCommentItems(commentItems)
+          restoreInput()
+        })
+      return
+    }
+
     if (mode === "normal" && readingQuestion) {
       const typedQuestion = text.trim()
       const sessionMeta = sync.session.get(session.id)?.readingMode ?? readingMode?.store.sessionMeta
@@ -710,7 +837,8 @@ export function createPromptSubmit(input: PromptSubmitInput) {
       try {
         const contextInput = {
           sessionID: session.id,
-          page: readingQuestion.page,
+          startPage: readingQuestion.kind === "text-question" ? readingQuestion.startPage : readingQuestion.page,
+          endPage: readingQuestion.kind === "text-question" ? readingQuestion.endPage : readingQuestion.page,
           range: sessionMeta.settings.contextPageRange,
           totalPages: readingMode?.store.totalPages,
         } as const
@@ -756,7 +884,8 @@ export function createPromptSubmit(input: PromptSubmitInput) {
             {
               text: fillReadingQuestionPrompt(sessionMeta.settings.questionPrompt, {
                 selectedContent: describeReadingSelection({
-                  page: readingQuestion.page,
+                  startPage: readingQuestion.kind === "text-question" ? readingQuestion.startPage : readingQuestion.page,
+                  endPage: readingQuestion.kind === "text-question" ? readingQuestion.endPage : readingQuestion.page,
                   kind: readingQuestion.kind,
                   text: readingQuestion.kind === "text-question" ? readingQuestion.text : undefined,
                 }),
@@ -765,6 +894,25 @@ export function createPromptSubmit(input: PromptSubmitInput) {
               }),
               synthetic: true,
             },
+            ...(readingQuestion.kind === "text-question"
+              ? [
+                  {
+                    text: "",
+                    synthetic: true,
+                    ignored: true,
+                    metadata: createReadingQuoteMetadata({
+                      mode: "classic",
+                      action: "ask",
+                      contentType: "text",
+                      pdfFileName: sessionMeta.pdfFileName,
+                      startPage: readingQuestion.startPage,
+                      endPage: readingQuestion.endPage,
+                      summary: summarizeReadingQuoteText(readingQuestion.text),
+                      fullText: readingQuestion.text,
+                    }),
+                  },
+                ]
+              : []),
           ],
         }
       } catch (err) {
