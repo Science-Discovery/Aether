@@ -13,6 +13,8 @@
 | usage 缺失显式化 | finish-step 中检查 usage，缺失标记为 missing/unsupported，覆盖 P0-D |
 | 错误分类与上下文标注 | `classify()` 分 5 类，错误记录带 provider/model/case 前缀，覆盖 R-4 |
 
+补充说明：本表描述的是 `packages/opencode/test/system/llm-p0.test.ts` 的真实 provider smoke 覆盖。它直接调用 `LLM.stream()`，不进入 `SessionPrompt` / `SessionProcessor` 的完整会话循环，因此不会在真实 endpoint 上做长上下文压测或自动压缩验证。context length 与压缩编排由 `packages/opencode/test/session/compaction-flow.test.ts` 使用本地 OpenAI-compatible fake endpoint 覆盖，避免真实长上下文成本和 flaky。
+
 ## 2. Provider SDK 路径覆盖
 
 测试 YAML 现已匹配 models.dev 真实定义，覆盖两条 SDK 路径：
@@ -59,6 +61,23 @@
 |----------|------|-------------|
 | xiaomi | mimo-v2.5 | unsupportedParts 保留 ImagePart, openai-compatible image 编码 |
 
+### 3.4 session/compaction-flow — context length 与压缩编排
+
+`packages/opencode/test/session/compaction-flow.test.ts` 不访问真实 provider，而是启动本地 OpenAI-compatible SSE stub，经由 `SessionPrompt.prompt()` 进入完整 session loop。它补足系统 smoke 没覆盖的会话编排层：
+
+| 覆盖点 | 验证方式 |
+|--------|----------|
+| usage 触发自动压缩 | fake endpoint 返回超过模型 `limit.context` 可用预算的 usage，验证创建 `compaction` part、执行 compaction agent、写入 `summary: true` assistant，并继续生成最终 assistant |
+| 禁用自动压缩 | `compaction.auto = false` 时，即使 usage 超阈值也不创建 compaction part |
+| 手动压缩 | `SessionCompaction.create({ auto: false })` 后只写 summary，不创建 synthetic continuation / replay turn |
+| provider context overflow | fake endpoint 返回 `context_length_exceeded`，验证创建 `overflow: true` compaction task |
+| overflow replay 与媒体剥离 | 压缩后重放导致 overflow 的用户 turn，并把 image file 转为 `[Attached image/png: ...]` 文本占位 |
+| compaction 自身溢出防循环 | compaction 请求也 overflow 时，summary assistant 写入 `ContextOverflowError`、`finish = "error"`，且不继续创建新的 compaction task |
+| 压缩后上下文裁剪 | 后续 turn 的模型输入包含 compaction summary 和新 prompt，不再包含被压缩前的旧 user prompt |
+| 工具调用第二轮 loop | fake endpoint 先返回 `todowrite` tool_call，验证工具执行完成、tool result 进入第二轮 LLM 输入、最终 assistant 正常结束 |
+
+这组测试依赖模型元数据里的 `limit.context` / `limit.output`。正式运行时这些字段来自 `models.dev` 数据：优先读取 `$XDG_CACHE_HOME/aether/models.json`，没有缓存时回退到 `packages/opencode/src/provider/models-snapshot.js`，也可被项目配置里的 `provider.<id>.models.<model>.limit` 覆盖。当前 snapshot 中 `moonshotai-cn/kimi-k2.6` 的 `limit` 为 `{ context: 262144, output: 262144 }`。
+
 ## 4. 仍存在的风险盲区
 
 ### 4.1 minimax-cn reasoning 输出 — 待验证
@@ -73,13 +92,17 @@ minimax-cn 使用 `@ai-sdk/anthropic` SDK，但 `ProviderTransform.options()` �
 
 minimax-cn 虽然使用 Anthropic SDK 形态，但不触发 `CUSTOM_LOADERS["anthropic"]`（因为 provider ID 是 "minimax-cn" 不是 "anthropic"）。Anthropic 官方 provider 的 `anthropic-beta` header 注入仍未被真实调用验证。
 
-### 4.3 SessionProcessor 工具调用循环 — 未覆盖
+### 4.3 真实 provider 的第二轮工具循环 — 未覆盖
 
-p1-tool 只验证 tool_call 事件形态，不回灌结果也不测第二轮 LLM 循环。
+`p1-tool` 只验证真实 provider 能产生 tool_call 事件形态，不回灌结果也不测第二轮真实 LLM 调用。第二轮工具循环已由 `test/session/compaction-flow.test.ts` 通过本地 fake endpoint 覆盖 session 编排，但仍没有对真实 provider 执行“tool_call → tool_result → 第二轮真实流式回复”的 smoke。
 
 ### 4.4 applyCaching 实际效果 — 间接覆盖
 
 minimax-cn 触发 Anthropic cache control 标记注入，但测试只验证 stream 完成，不验证 cache 标记是否被 minimax-cn 端点接受或生效。
+
+### 4.5 真实长上下文压力 — 未覆盖
+
+现有真实 provider 系统测试仍不做接近 `limit.context` 的长上下文请求，也不验证供应商真实 token 计数与本地 compaction 阈值完全一致。长上下文压测成本高、耗时长、容易受供应商限流和计费影响，建议继续作为单独 P2 手动测试，而不是并入 `test:system:llm:p0`。
 
 ## 5. Provider × 用例 覆盖矩阵
 
