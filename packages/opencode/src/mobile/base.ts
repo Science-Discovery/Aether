@@ -336,6 +336,7 @@ export abstract class MobileManagerBase {
         const sortedIds = modelValues.map(([id]) => id)
         const defaultModelId = sortedIds[0]
         for (const [modelID, model] of modelValues) {
+          if ((model as any).disabled) continue
           entries.push({
             index,
             providerID,

@@ -1241,8 +1241,7 @@ export namespace Provider {
           (configProvider?.whitelist && !configProvider.whitelist.includes(modelID))
         )
           delete provider.models[modelID]
-        if (disabledModels.has(`${providerID}/${modelID}`) || disabledModels.has(modelID))
-          delete provider.models[modelID]
+        if (disabledModels.has(`${providerID}/${modelID}`) || disabledModels.has(modelID)) model.disabled = true
 
         model.variants = mapValues(ProviderTransform.variants(model), (v) => v)
 
@@ -1468,6 +1467,7 @@ export namespace Provider {
       const suggestions = matches.map((m) => m.target)
       throw new ModelNotFoundError({ providerID, modelID, suggestions })
     }
+    if (info.disabled) throw new ModelNotFoundError({ providerID, modelID, suggestions: [] })
     return info
   }
 
@@ -1475,6 +1475,8 @@ export namespace Provider {
     const s = await state()
     const key = `${model.providerID}/${model.id}`
     if (s.models.has(key)) return s.models.get(key)!
+    if (s.providers[model.providerID]?.models[model.id]?.disabled)
+      throw new ModelNotFoundError({ providerID: model.providerID, modelID: model.id, suggestions: [] })
 
     const url = e2eURL()
     if (url) {
