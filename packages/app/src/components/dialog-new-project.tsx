@@ -128,14 +128,18 @@ function useDirectorySearch(args: {
   const scoped = (value: string) => {
     const base = args.start()
     if (!base) return
+    const h = normalizePath(args.home())
+    const isWindowsDrive = /^[A-Za-z]:\//.test(h)
     const raw = normalizeDriveRoot(value)
-    if (!raw) return { directory: trimTrailing(base), path: "" }
-    const h = args.home()
-    if (raw === "~") return { directory: trimTrailing(h || base), path: "" }
-    if (raw.startsWith("~/")) return { directory: trimTrailing(h || base), path: raw.slice(2) }
+    if (!raw) {
+      if (isWindowsDrive) return { directory: "/", path: "" }
+      return { directory: trimTrailing(args.home()), path: "" }
+    }
+    if (raw === "~") return { directory: trimTrailing(args.home() || base), path: "" }
+    if (raw.startsWith("~/")) return { directory: trimTrailing(args.home() || base), path: raw.slice(2) }
     const root = rootOf(raw)
     if (root) return { directory: trimTrailing(root), path: raw.slice(root.length) }
-    return { directory: trimTrailing(base), path: raw }
+    return { directory: trimTrailing(isWindowsDrive ? "/" : base), path: raw }
   }
 
   const dirs = async (dir: string) => {
@@ -230,7 +234,11 @@ function useDirectorySearch(args: {
 }
 
 // Resolve a typed input (e.g. "~/code/abc") to an absolute path candidate for creation
-function resolveNewPath(value: string, home: string, start: string): { parent: string; name: string; full: string } | undefined {
+function resolveNewPath(
+  value: string,
+  home: string,
+  start: string,
+): { parent: string; name: string; full: string } | undefined {
   const raw = normalizeDriveRoot(value.trim())
   if (!raw) return undefined
 
@@ -347,7 +355,9 @@ export function DialogNewProject(props: DialogNewProjectProps) {
                   setBrowsing(false)
                 }
               }}
-            >{language.t("dialog.newProject.browse")}</Button>
+            >
+              {language.t("dialog.newProject.browse")}
+            </Button>
           ),
         }}
         emptyMessage={language.t("dialog.directory.empty")}

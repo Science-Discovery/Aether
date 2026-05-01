@@ -557,6 +557,7 @@ export const dict = {
   "session.header.open.action": "Otvori {{app}}",
   "session.header.open.ariaLabel": "Otvori u {{app}}",
   "session.header.open.menu": "Opcije otvaranja",
+  "session.header.open.folder": "Otvori folder",
   "session.header.open.copyPath": "Kopiraj putanju",
 
   "status.popover.trigger": "Status",

@@ -797,7 +797,17 @@ export namespace Server {
               opts.onBrowserConnectionChange?.(sseConnectionCount)
             }
 
-            // Heartbeat every 3s: keeps proxy streams alive and detects browser close.
+            let resolve!: () => void
+            let resolved = false
+            const finish = () => {
+              if (resolved) return
+              resolved = true
+              clearInterval(heartbeat)
+              unsub()
+              onDisconnect()
+              resolve()
+              log.info("event disconnected")
+            }
             const heartbeat = setInterval(() => {
               stream
                 .writeSSE({
@@ -806,21 +816,12 @@ export namespace Server {
                     properties: {},
                   }),
                 })
-                .catch(() => {
-                  clearInterval(heartbeat)
-                  unsub()
-                  onDisconnect()
-                })
+                .catch(finish)
             }, 3_000)
 
-            await new Promise<void>((resolve) => {
-              stream.onAbort(() => {
-                clearInterval(heartbeat)
-                unsub()
-                resolve()
-                onDisconnect()
-                log.info("event disconnected")
-              })
+            await new Promise<void>((r) => {
+              resolve = r
+              stream.onAbort(finish)
             })
           })
         },
@@ -961,7 +962,12 @@ export namespace Server {
 
     for (const signal of ["SIGINT", "SIGTERM"] as const) {
       process.on(signal, () => {
-        Promise.all([FeishuManager.stop(), QQManager.stop(), WeChatManager.stop()].map((p) => p.catch(() => {})))
+        setTimeout(() => process.exit(0), 10_000).unref()
+        Promise.all(
+          [Instance.disposeAll(), Cron.stop(), FeishuManager.stop(), QQManager.stop(), WeChatManager.stop()].map((p) =>
+            p.catch(() => {}),
+          ),
+        )
           .then(() => server.stop(true).catch(() => {}))
           .then(() => process.exit(0))
       })

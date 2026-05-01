@@ -45,6 +45,8 @@ type SessionView = {
   quickReadingActive?: boolean
   quickReadingPdfPath?: string
   quickReadingPdfFileName?: string
+  pendingToggle?: string
+  pendingToggleAt?: number
 }
 
 type TabHandoff = {
@@ -655,6 +657,49 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
             produce((draft) => {
               delete draft.pendingMessage
               delete draft.pendingMessageAt
+            }),
+          )
+
+          if (Date.now() - at > PENDING_MESSAGE_TTL_MS) return
+          return message
+        },
+      },
+      pendingToggle: {
+        set(sessionKey: string, messageID: string) {
+          const at = Date.now()
+          touch(sessionKey)
+          const current = store.sessionView[sessionKey]
+          if (!current) {
+            setStore("sessionView", sessionKey, {
+              scroll: {},
+              pendingToggle: messageID,
+              pendingToggleAt: at,
+            })
+            prune(usage.active ?? sessionKey)
+            return
+          }
+
+          setStore(
+            "sessionView",
+            sessionKey,
+            produce((draft) => {
+              draft.pendingToggle = messageID
+              draft.pendingToggleAt = at
+            }),
+          )
+        },
+        consume(sessionKey: string) {
+          const current = store.sessionView[sessionKey]
+          const message = current?.pendingToggle
+          const at = current?.pendingToggleAt
+          if (!message || !at) return
+
+          setStore(
+            "sessionView",
+            sessionKey,
+            produce((draft) => {
+              delete draft.pendingToggle
+              delete draft.pendingToggleAt
             }),
           )
 

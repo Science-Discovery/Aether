@@ -258,6 +258,13 @@ export const dict = {
   "prompt.attachment.remove": "Supprimer la pièce jointe",
   "prompt.action.send": "Envoyer",
   "prompt.action.stop": "Arrêter",
+  "prompt.action.steer": "Guider",
+  "prompt.steer.placeholder": "Ajouter une guidance...",
+  "prompt.steer.send": "Envoyer",
+  "prompt.steer.toast.failed.title": "Guidage échoué",
+  "prompt.steer.toast.failed.description": "Impossible d'ajouter le message de guidage",
+  "prompt.steer.toast.notBusy.title": "Session inactive",
+  "prompt.steer.toast.notBusy.description": "Le guidage fonctionne uniquement pendant la réponse de l'IA",
   "prompt.toast.pasteUnsupported.title": "Pièce jointe non prise en charge",
   "prompt.toast.pasteUnsupported.description":
     "Seules les images, les PDF ou les fichiers texte peuvent être joints ici.",
@@ -505,6 +512,7 @@ export const dict = {
   "session.header.open.action": "Ouvrir {{app}}",
   "session.header.open.ariaLabel": "Ouvrir dans {{app}}",
   "session.header.open.menu": "Options d'ouverture",
+  "session.header.open.folder": "Ouvrir le dossier",
   "session.header.open.copyPath": "Copier le chemin",
   "status.popover.trigger": "Statut",
   "status.popover.ariaLabel": "Configurations des serveurs",
@@ -556,8 +564,7 @@ export const dict = {
   "sidebar.workspaces.enable": "Activer les espaces de travail",
   "sidebar.workspaces.disable": "Désactiver les espaces de travail",
   "sidebar.gettingStarted.title": "Commencer",
-  "sidebar.gettingStarted.line1":
-    "Aether inclut des modèles gratuits pour que vous puissiez commencer immédiatement.",
+  "sidebar.gettingStarted.line1": "Aether inclut des modèles gratuits pour que vous puissiez commencer immédiatement.",
   "sidebar.gettingStarted.line2":
     "Connectez n'importe quel fournisseur pour utiliser des modèles, y compris Claude, GPT, Gemini etc.",
   "sidebar.project.recentSessions": "Sessions récentes",

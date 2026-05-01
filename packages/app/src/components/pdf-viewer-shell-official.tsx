@@ -316,13 +316,7 @@ export const PdfViewerShell: Component<PdfViewerShellProps> = (props) => {
 
   return (
     <div class={`pdf-viewer-shell ${props.class ?? ""}`}>
-      <iframe
-        ref={iframeRef}
-        src={viewerSrc()}
-        class="pdf-viewer-shell__frame"
-        title="PDF Viewer"
-        loading="eager"
-      />
+      <iframe ref={iframeRef} src={viewerSrc()} class="pdf-viewer-shell__frame" title="PDF Viewer" loading="eager" />
     </div>
   )
 }

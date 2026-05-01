@@ -11,7 +11,8 @@ import { Project } from "@/project/project"
 import { Session } from "@/session"
 import { SessionPrompt } from "@/session/prompt"
 import { SessionCompaction } from "@/session/compaction"
-import { SessionID } from "@/session/schema"
+import { MessageV2 } from "@/session/message-v2"
+import { PartID, SessionID } from "@/session/schema"
 import { SessionStatus } from "@/session/status"
 import { Provider } from "@/provider/provider"
 import { ProviderID } from "@/provider/schema"
@@ -59,10 +60,10 @@ function localISOString(d = new Date()): string {
 }
 
 const HELP_TEXT =
-  "📋 可用命令：\n\n/n, /new            开启新对话\n/stop               停止当前执行\n/c, /compact        压缩当前上下文\n\n/m, /model          查看可用模型\n/m l                查看全部模型\n/m n                切换编号模型\n\n/a, /agent          查看当前模式\n/a n | /a <name>    切换指定模式\n\n/variant            查看思考等级\n/variant n          切换编号思考等级\n\n/autoaccept         查看审批模式\n/autoaccept n       切换编号审批模式\n\n/p, /project        查看最近项目\n/p l                查看全部项目\n/p n                切换编号项目\n/p <path>           切换到指定路径\n\n/s, /session        查看最近会话\n/s l                查看全部会话\n/s n                切换编号会话\n\n/h, /help           显示帮助信息\n/help list          显示全部命令"
+  "📋 可用命令：\n\n/n, /new            开启新对话\n/stop               停止当前执行\n/steer <text>       在AI回复时追加引导\n/c, /compact        压缩当前上下文\n\n/m, /model          查看可用模型\n/m l                查看全部模型\n/m n                切换编号模型\n\n/a, /agent          查看当前模式\n/a n | /a <name>    切换指定模式\n\n/variant            查看思考等级\n/variant n          切换编号思考等级\n\n/autoaccept         查看审批模式\n/autoaccept n       切换编号审批模式\n\n/p, /project        查看最近项目\n/p l                查看全部项目\n/p n                切换编号项目\n/p <path>           切换到指定路径\n\n/s, /session        查看最近会话\n/s l                查看全部会话\n/s n                切换编号会话\n\n/h, /help           显示帮助信息\n/help list          显示全部命令"
 
 const HELP_LIST_TEXT =
-  "📋 全部命令：\n\n/n, /new\n  开启新对话，清空当前会话上下文\n\n/stop\n  停止当前执行中的任务\n\n/c, /compact\n  压缩当前会话上下文\n\n/m, /model\n  查看可用模型\n/m l, /model list\n  查看全部模型（l = list）\n/m n, /model n\n  切换到编号 n 的模型（n 为全量模型编号）\n\n/a, /agent\n  查看当前模式\n/a n, /agent n\n  按编号切换模式\n/a <name>, /agent <name>\n  按名称切换模式（如 build、plan、docs）\n\n/variant\n  查看当前模型可用的思考等级\n/variant n\n  按编号切换思考等级\n/variant <name>\n  按名称切换思考等级\n\n/autoaccept\n  查看审批模式\n/autoaccept n\n  按编号切换审批模式（1=auto, 2=ask）\n/autoaccept <name>\n  切换审批模式（name 可选：auto、ask）\n\n/p, /project\n  查看最近项目\n/p l, /project list\n  查看全部项目（l = list）\n/p n, /project n\n  切换到编号 n 的项目\n/p <path>, /project <path>\n  切换到指定路径（如 /p E:\\work\\foo 或 /p /home/user/foo）\n/project hide n\n  隐藏编号 n 的项目，重新在桌面端或消息端使用后自动恢复\n\n/s, /session\n  查看最近会话\n/s l, /session list\n  查看当前项目下全部会话（l = list）\n/s n, /session n\n  切换到当前项目下编号 n 的会话\n\n/h, /help\n  显示常用命令\n/help list\n  显示全部命令"
+  "📋 全部命令：\n\n/n, /new\n  开启新对话，清空当前会话上下文\n\n/stop\n  停止当前执行中的任务\n\n/steer <text>\n  在AI正在回复时追加引导信息，影响下一轮处理\n\n/c, /compact\n  压缩当前会话上下文\n\n/m, /model\n  查看可用模型\n/m l, /model list\n  查看全部模型（l = list）\n/m n, /model n\n  切换到编号 n 的模型（n 为全量模型编号）\n\n/a, /agent\n  查看当前模式\n/a n, /agent n\n  按编号切换模式\n/a <name>, /agent <name>\n  按名称切换模式（如 build、plan、docs）\n\n/variant\n  查看当前模型可用的思考等级\n/variant n\n  按编号切换思考等级\n/variant <name>\n  按名称切换思考等级\n\n/autoaccept\n  查看审批模式\n/autoaccept n\n  按编号切换审批模式（1=auto, 2=ask）\n/autoaccept <name>\n  切换审批模式（name 可选：auto、ask）\n\n/p, /project\n  查看最近项目\n/p l, /project list\n  查看全部项目（l = list）\n/p n, /project n\n  切换到编号 n 的项目\n/p <path>, /project <path>\n  切换到指定路径（如 /p E:\\work\\foo 或 /p /home/user/foo）\n/project hide n\n  隐藏编号 n 的项目，重新在桌面端或消息端使用后自动恢复\n\n/s, /session\n  查看最近会话\n/s l, /session list\n  查看当前项目下全部会话（l = list）\n/s n, /session n\n  切换到当前项目下编号 n 的会话\n\n/h, /help\n  显示常用命令\n/help list\n  显示全部命令"
 
 export interface ModelRef {
   providerID: string
@@ -282,6 +283,7 @@ export abstract class MobileManagerBase {
 
     const staleKeys: string[] = []
     const sessionToCanonicalScope: Record<string, string> = {}
+    const refreshed: { scope: string; newId: string }[] = []
     for (const [key, sessionId] of Object.entries(this.sessionMap)) {
       const canonical = sessionToCanonicalScope[sessionId]
       if (canonical) {
@@ -302,6 +304,14 @@ export abstract class MobileManagerBase {
         })
         if (found.time?.archived) {
           staleKeys.push(key)
+        } else {
+          const recent = await Instance.provide({
+            directory: dir,
+            fn: () => [...Session.list({ directory: dir, roots: true, limit: 1 })].filter((s) => !s.time?.archived),
+          })
+          if (recent[0] && recent[0].id !== sessionId) {
+            refreshed.push({ scope: key, newId: recent[0].id })
+          }
         }
       } catch {
         staleKeys.push(key)
@@ -310,7 +320,10 @@ export abstract class MobileManagerBase {
     for (const key of staleKeys) {
       delete this.sessionMap[key]
     }
-    if (staleKeys.length > 0) await this.saveSessionMap()
+    for (const { scope, newId } of refreshed) {
+      this.sessionMap[scope] = newId
+    }
+    if (staleKeys.length > 0 || refreshed.length > 0) await this.saveSessionMap()
 
     if (this._initialDir) {
       await Instance.provide({
@@ -327,20 +340,23 @@ export abstract class MobileManagerBase {
 
   protected async buildModelList(): Promise<ModelEntry[]> {
     try {
-      const providers = await Provider.list()
+      const providers = await Instance.provide({
+        directory: this._initialDir,
+        fn: () => Provider.list(),
+      })
       const entries: ModelEntry[] = []
       let index = 1
       for (const [providerID, info] of Object.entries(providers)) {
         const modelValues = Object.entries(info.models)
-        const sortedIds = modelValues.map(([id]) => id)
-        const defaultModelId = sortedIds[0]
+        const defaultModelId = modelValues.filter(([_, m]) => !m.disabled).map(([id]) => id)[0]
         for (const [modelID, model] of modelValues) {
+          if (model.disabled) continue
           entries.push({
             index,
             providerID,
             providerName: info.name || providerID,
             modelID,
-            name: (model as any).name || modelID,
+            name: model.name || modelID,
             isDefault: modelID === defaultModelId,
           })
           index++
@@ -458,26 +474,20 @@ export abstract class MobileManagerBase {
   }
 
   protected async currentSession(scope: string, create?: boolean): Promise<string | undefined> {
-    const pinned = this.sessionMap[scope]
-    if (pinned) {
-      try {
-        const found = await Instance.provide({
-          directory: this.effectiveDir(scope),
-          fn: () => Session.get(SessionID.make(pinned)),
-        })
-        if (!found.time?.archived) return pinned
-      } catch {
-        // pinned session not found in DB
-      }
-      delete this.sessionMap[scope]
-      await this.saveSessionMap()
-    }
     const dir = this.effectiveDir(scope)
     if (!dir) return
     const recent = await Instance.provide({
       directory: dir,
       fn: () => [...Session.list({ directory: dir, roots: true, limit: 10 })].filter((s) => !s.time?.archived),
     })
+    const pinned = this.sessionMap[scope]
+    if (pinned) {
+      const stillValid = recent.some((s) => s.id === pinned)
+      if (stillValid && recent[0]?.id === pinned) return pinned
+      if (!stillValid) {
+        delete this.sessionMap[scope]
+      }
+    }
     if (recent[0]) {
       this.sessionMap[scope] = recent[0].id
       await this.saveSessionMap()
@@ -517,7 +527,7 @@ export abstract class MobileManagerBase {
 
       await this.autoUnhide()
 
-      if (isSlash && cmd !== "/stop" && cmd !== "/compact" && cmd !== "/c") {
+      if (isSlash && cmd !== "/stop" && cmd !== "/compact" && cmd !== "/c" && cmd !== "/steer") {
         await this.handleCommand(text, reply, chatId, rootId)
         return
       }
@@ -581,6 +591,42 @@ export abstract class MobileManagerBase {
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err)
           await this.replySession(scope, reply, `命令执行出错: ${msg}`)
+        }
+        return
+      }
+
+      if (cmd === "/steer") {
+        const steerText = text.trim().slice(6).trim()
+        if (!steerText) {
+          await this.replySession(scope, reply, "用法：/steer <引导文本>\n在AI正在回复时追加引导信息，影响下一轮处理。")
+          return
+        }
+        const active = this._activePrompt.get(scope)
+        if (!active) {
+          await this.replySession(scope, reply, "当前没有正在执行的对话，/steer 只能在AI正在回复时使用。")
+          return
+        }
+        try {
+          await Instance.provide({
+            directory: active.directory,
+            fn: async () => {
+              const msgs = await MessageV2.filterCompacted(MessageV2.stream(SessionID.make(active.sessionId)))
+              const lastUser = msgs.findLast((msg) => msg.info.role === "user")
+              if (!lastUser) throw new Error("no user message")
+              await Session.updatePart({
+                id: PartID.ascending(),
+                messageID: lastUser.info.id,
+                sessionID: SessionID.make(active.sessionId),
+                type: "text",
+                text: "-用户补充：" + steerText,
+                metadata: { steer: true },
+              })
+            },
+          })
+          await this.replySession(scope, reply, "✅ 已追加引导信息，AI将在下一轮处理中看到。")
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err)
+          await this.replySession(scope, reply, `❌ 追加引导失败: ${msg}`)
         }
         return
       }
@@ -896,9 +942,7 @@ export abstract class MobileManagerBase {
 
   protected async cmdModel(targetId: string, scope: string, args: string[]): Promise<void> {
     const ctx = await this.commandCtx(scope)
-    if (this._modelList.length === 0) {
-      this._modelList = await this.buildModelList()
-    }
+    this._modelList = await this.buildModelList()
 
     if (args.length === 0) {
       await this.replyCmd(targetId, scope, this.formatModelList(ctx, false))

@@ -22,6 +22,7 @@ import { useKeyboard, useRenderer } from "@opentui/solid"
 import { Editor } from "@tui/util/editor"
 import { useExit } from "../../context/exit"
 import { Clipboard } from "../../util/clipboard"
+import { createWorkingState } from "../../util/working-state"
 import type { FilePart } from "@opencode-ai/sdk/v2"
 import { TuiEvent } from "../../event"
 import { iife } from "@/util/iife"
@@ -73,6 +74,12 @@ export function Prompt(props: PromptProps) {
   const dialog = useDialog()
   const toast = useToast()
   const status = createMemo(() => sync.data.session_status?.[props.sessionID ?? ""] ?? { type: "idle" })
+  const pending = createMemo(() =>
+    (sync.data.message[props.sessionID ?? ""] ?? []).findLast(
+      (msg) => msg.role === "assistant" && typeof msg.time?.completed !== "number",
+    ),
+  )
+  const { working } = createWorkingState({ status: () => status(), pending: () => pending() })
   const history = usePromptHistory()
   const stash = usePromptStash()
   const command = useCommandDialog()
@@ -126,7 +133,6 @@ export function Prompt(props: PromptProps) {
     prompt: PromptInfo
     mode: "normal" | "shell"
     extmarkToPartIndex: Map<number, number>
-    interrupt: number
     placeholder: number
   }>({
     placeholder: Math.floor(Math.random() * PLACEHOLDERS.length),
@@ -136,7 +142,6 @@ export function Prompt(props: PromptProps) {
     },
     mode: "normal",
     extmarkToPartIndex: new Map(),
-    interrupt: 0,
   })
 
   createEffect(
@@ -189,6 +194,7 @@ export function Prompt(props: PromptProps) {
         keybind: "input_submit",
         category: "Prompt",
         hidden: true,
+        enabled: !working(),
         onSelect: (dialog) => {
           if (!input.focused) return
           submit()
@@ -213,34 +219,23 @@ export function Prompt(props: PromptProps) {
         },
       },
       {
-        title: "Interrupt session",
+        title: "Stop session",
         value: "session.interrupt",
         keybind: "session_interrupt",
         category: "Session",
         hidden: true,
-        enabled: status().type !== "idle",
+        enabled: working(),
         onSelect: (dialog) => {
           if (autocomplete.visible) return
           if (!input.focused) return
-          // TODO: this should be its own command
           if (store.mode === "shell") {
             setStore("mode", "normal")
             return
           }
           if (!props.sessionID) return
-
-          setStore("interrupt", store.interrupt + 1)
-
-          setTimeout(() => {
-            setStore("interrupt", 0)
-          }, 5000)
-
-          if (store.interrupt >= 2) {
-            sdk.client.session.abort({
-              sessionID: props.sessionID,
-            })
-            setStore("interrupt", 0)
-          }
+          sdk.client.session.abort({
+            sessionID: props.sessionID,
+          })
           dialog.clear()
         },
       },
@@ -543,6 +538,7 @@ export function Prompt(props: PromptProps) {
 
   async function submit() {
     if (props.disabled) return
+    if (working()) return
     if (autocomplete?.visible) return
     if (!store.prompt.input) return
     const trimmed = store.prompt.input.trim()
@@ -872,6 +868,10 @@ export function Prompt(props: PromptProps) {
                   e.preventDefault()
                   return
                 }
+                if (working() && keybind.match("input_submit", e)) {
+                  e.preventDefault()
+                  return
+                }
                 // Check clipboard for images before terminal-handled paste runs.
                 // This helps terminals that forward Ctrl+V to the app; Windows
                 // Terminal 1.25+ usually handles Ctrl+V before this path.
@@ -1082,7 +1082,7 @@ export function Prompt(props: PromptProps) {
           />
         </box>
         <box flexDirection="row" justifyContent="space-between">
-          <Show when={status().type !== "idle"} fallback={<text />}>
+          <Show when={working()} fallback={<text />}>
             <box
               flexDirection="row"
               gap={1}
@@ -1154,12 +1154,19 @@ export function Prompt(props: PromptProps) {
                   })()}
                 </box>
               </box>
-              <text fg={store.interrupt > 0 ? theme.primary : theme.text}>
-                esc{" "}
-                <span style={{ fg: store.interrupt > 0 ? theme.primary : theme.textMuted }}>
-                  {store.interrupt > 0 ? "again to interrupt" : "interrupt"}
-                </span>
-              </text>
+              <box
+                flexDirection="row"
+                gap={1}
+                onMouseUp={() => {
+                  if (!props.sessionID) return
+                  sdk.client.session.abort({ sessionID: props.sessionID })
+                }}
+              >
+                <text fg={theme.error}>
+                  ■ <span style={{ bold: true }}>stop</span>
+                </text>
+                <text fg={theme.textMuted}>esc</text>
+              </box>
             </box>
           </Show>
           <Show when={status().type !== "retry"}>

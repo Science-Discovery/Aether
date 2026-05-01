@@ -986,7 +986,20 @@ export function UserMessageDisplay(props: {
   const busy = () => state.busy
 
   const textPart = createMemo(
-    () => props.parts?.find((p) => p.type === "text" && !(p as TextPart).synthetic) as TextPart | undefined,
+    () =>
+      props.parts?.find(
+        (p) =>
+          p.type === "text" &&
+          !(p as TextPart).synthetic &&
+          !((p as TextPart).metadata as Record<string, unknown>)?.steer,
+      ) as TextPart | undefined,
+  )
+
+  const steerParts = createMemo(
+    () =>
+      (props.parts?.filter(
+        (p) => p.type === "text" && ((p as TextPart).metadata as Record<string, unknown>)?.steer,
+      ) as TextPart[]) ?? [],
   )
 
   const text = createMemo(() => textPart()?.text || "")
@@ -1097,6 +1110,15 @@ export function UserMessageDisplay(props: {
           <div data-slot="user-message-body">
             <div data-slot="user-message-text" onClick={props.onBubbleClick}>
               <HighlightedText text={text()} references={inlineFiles()} agents={agents()} />
+              <Show when={steerParts().length > 0}>
+                <For each={steerParts()}>
+                  {(sp) => (
+                    <div data-slot="user-message-steer" class="mt-1 text-13-regular text-text-weak opacity-80">
+                      {sp.text}
+                    </div>
+                  )}
+                </For>
+              </Show>
             </div>
           </div>
           <div data-slot="user-message-copy-wrapper">
@@ -2379,7 +2401,7 @@ ToolRegistry.register({
         const name = match[1]
         const filePath = match[2]
         // Avoid duplicates
-        if (!links.find(l => l.filePath === filePath)) {
+        if (!links.find((l) => l.filePath === filePath)) {
           links.push({ name, filePath })
         }
       }
@@ -2396,7 +2418,10 @@ ToolRegistry.register({
     const openPdf = (filePath: string, fileName: string) => {
       const apiUrl = `/knowledge/file?path=${encodeURIComponent(filePath)}`
       dialog.show(() => (
-        <div data-component="pdf-preview-dialog" class="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+        <div
+          data-component="pdf-preview-dialog"
+          class="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+        >
           <div class="relative w-[90vw] h-[90vh] bg-background-base rounded-lg shadow-xl overflow-hidden flex flex-col">
             <div class="flex items-center justify-between p-3 border-b border-border-base">
               <span class="text-14-medium text-text-strong">{fileName}</span>
@@ -2407,11 +2432,7 @@ ToolRegistry.register({
                 aria-label={i18n.t("ui.common.close")}
               />
             </div>
-            <iframe
-              src={apiUrl}
-              class="flex-1 w-full border-0"
-              title={fileName}
-            />
+            <iframe src={apiUrl} class="flex-1 w-full border-0" title={fileName} />
           </div>
         </div>
       ))

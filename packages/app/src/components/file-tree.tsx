@@ -247,8 +247,6 @@ export default function FileTree(props: {
   onUploadToDir?: (dir: string, type: "file" | "directory") => void
   /** PDF 转 Markdown（单文件或批量） */
   onPdfConvert?: (paths: string[]) => void
-  /** Markdown 翻译为中文（单文件或批量） */
-  onTranslateMarkdown?: (paths: string[]) => void
 
   _filter?: Filter
   _marks?: Set<string>
@@ -453,22 +451,12 @@ export default function FileTree(props: {
           }
 
           const isPdf = () => node.type === "file" && node.name.toLowerCase().endsWith(".pdf")
-          const isMarkdown = () => node.type === "file" && /\.(md|markdown)$/i.test(node.name)
 
           const allSelectedArePdf = () => {
             const sel = props.selectedPaths
             if (!sel || sel.size < 2) return false
             for (const p of sel) {
               if (!p.toLowerCase().endsWith(".pdf")) return false
-            }
-            return true
-          }
-
-          const allSelectedAreMarkdown = () => {
-            const sel = props.selectedPaths
-            if (!sel || sel.size < 2) return false
-            for (const p of sel) {
-              if (!/\.(md|markdown)$/i.test(p)) return false
             }
             return true
           }
@@ -534,19 +522,6 @@ export default function FileTree(props: {
                     >
                       <ContextMenu.ItemLabel>
                         {language.t("fileTree.multiConvertToMarkdown", { count: props.selectedPaths?.size ?? 0 })}
-                      </ContextMenu.ItemLabel>
-                    </ContextMenu.Item>
-                  </Show>
-                  <Show when={allSelectedAreMarkdown() && props.onTranslateMarkdown}>
-                    <ContextMenu.Separator />
-                    <ContextMenu.Item
-                      onSelect={() => {
-                        const paths = [...(props.selectedPaths ?? [])]
-                        props.onTranslateMarkdown?.(paths)
-                      }}
-                    >
-                      <ContextMenu.ItemLabel>
-                        {language.t("fileTree.multiTranslateToChinese", { count: props.selectedPaths?.size ?? 0 })}
                       </ContextMenu.ItemLabel>
                     </ContextMenu.Item>
                   </Show>
@@ -667,12 +642,6 @@ export default function FileTree(props: {
                     <ContextMenu.Separator />
                     <ContextMenu.Item onSelect={() => props.onPdfConvert?.([node.path])}>
                       <ContextMenu.ItemLabel>{language.t("fileTree.convertToMarkdown")}</ContextMenu.ItemLabel>
-                    </ContextMenu.Item>
-                  </Show>
-                  <Show when={isMarkdown() && props.onTranslateMarkdown}>
-                    <ContextMenu.Separator />
-                    <ContextMenu.Item onSelect={() => props.onTranslateMarkdown?.([node.path])}>
-                      <ContextMenu.ItemLabel>{language.t("fileTree.translateToChinese")}</ContextMenu.ItemLabel>
                     </ContextMenu.Item>
                   </Show>
                   <ContextMenu.Separator />
@@ -875,7 +844,6 @@ export default function FileTree(props: {
                           onUploadDrop={props.onUploadDrop}
                           onUploadToDir={props.onUploadToDir}
                           onPdfConvert={props.onPdfConvert}
-                          onTranslateMarkdown={props.onTranslateMarkdown}
                           _filter={filter()}
                           _marks={marks()}
                           _deeps={deeps()}

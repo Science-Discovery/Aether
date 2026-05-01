@@ -232,6 +232,7 @@ export const SettingsGeneral: Component = () => {
     { value: "iosevka", label: "font.option.iosevka" },
     { value: "jetbrains-mono", label: "font.option.jetbrainsMono" },
     { value: "meslo-lgs", label: "font.option.mesloLgs" },
+    { value: "monaco", label: "font.option.monaco" },
     { value: "roboto-mono", label: "font.option.robotoMono" },
     { value: "source-code-pro", label: "font.option.sourceCodePro" },
     { value: "ubuntu-mono", label: "font.option.ubuntuMono" },
@@ -719,6 +720,75 @@ export const SettingsGeneral: Component = () => {
     </div>
   )
 
+  const ServerSection = () => {
+    const idleOptions = createMemo(() => [
+      { value: "60", label: "1 min" },
+      { value: "300", label: "5 min" },
+      { value: "1800", label: "30 min" },
+      { value: "0", label: language.t("settings.general.row.idleTimeout.never") },
+    ])
+
+    const currentIdle = createMemo(() => {
+      const config = globalSync.data.config as Record<string, unknown>
+      const server =
+        typeof config.server === "object" && config.server ? (config.server as Record<string, unknown>) : {}
+      const val = String(typeof server.idleTimeout === "number" ? server.idleTimeout : 60)
+      return idleOptions().find((o) => o.value === val) ?? idleOptions()[0]
+    })
+
+    const onIdleChange = (option: { value: string } | undefined) => {
+      if (!option) return
+      const idleTimeout = Number(option.value)
+      const config = globalSync.data.config as Record<string, unknown>
+      const server =
+        typeof config.server === "object" && config.server ? (config.server as Record<string, unknown>) : {}
+      const before = typeof server.idleTimeout === "number" ? server.idleTimeout : 60
+      if (idleTimeout === before) return
+      globalSync.set("config", (prev: unknown) => ({
+        ...(prev as Record<string, unknown>),
+        server: { ...(((prev as Record<string, unknown>).server as Record<string, unknown>) ?? {}), idleTimeout },
+      }))
+      globalSync
+        .updateConfig({ server: { idleTimeout } } as Parameters<typeof globalSync.updateConfig>[0])
+        .catch((err: unknown) => {
+          globalSync.set("config", (prev: unknown) => ({
+            ...(prev as Record<string, unknown>),
+            server: {
+              ...(((prev as Record<string, unknown>).server as Record<string, unknown>) ?? {}),
+              idleTimeout: before,
+            },
+          }))
+          const message = err instanceof Error ? err.message : String(err)
+          showToast({ title: language.t("common.requestFailed"), description: message })
+        })
+    }
+
+    return (
+      <div class="flex flex-col gap-1">
+        <h3 class="text-14-medium text-text-strong pb-2">{language.t("settings.general.section.server")}</h3>
+        <SettingsList>
+          <SettingsRow
+            title={language.t("settings.general.row.idleTimeout.title")}
+            description={language.t("settings.general.row.idleTimeout.description")}
+          >
+            <Select
+              data-action="settings-idle-timeout"
+              options={idleOptions()}
+              current={currentIdle()}
+              value={(o) => o.value}
+              label={(o) => o.label}
+              onSelect={(o) => o && onIdleChange(o as { value: string })}
+              variant="secondary"
+              size="small"
+              triggerVariant="settings"
+              triggerStyle={{ "min-width": "180px" }}
+            />
+          </SettingsRow>
+        </SettingsList>
+      </div>
+    )
+  }
+
   const ProxySection = () => (
     <div class="flex flex-col gap-1">
       <h3 class="text-14-medium text-text-strong pb-2">{language.t("settings.general.section.network")}</h3>
@@ -834,6 +904,8 @@ export const SettingsGeneral: Component = () => {
         <NotificationsSection />
 
         <SoundsSection />
+
+        <ServerSection />
 
         <Show when={proxied()}>{(_) => <ProxySection />}</Show>
 

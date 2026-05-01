@@ -277,6 +277,13 @@ export const dict = {
   "prompt.attachment.remove": "Удалить вложение",
   "prompt.action.send": "Отправить",
   "prompt.action.stop": "Остановить",
+  "prompt.action.steer": "Направлять",
+  "prompt.steer.placeholder": "Добавить указание...",
+  "prompt.steer.send": "Отправить",
+  "prompt.steer.toast.failed.title": "Направление не удалось",
+  "prompt.steer.toast.failed.description": "Не удалось добавить направляющее сообщение",
+  "prompt.steer.toast.notBusy.title": "Сессия неактивна",
+  "prompt.steer.toast.notBusy.description": "Направление работает только когда AI отвечает",
 
   "prompt.toast.pasteUnsupported.title": "Неподдерживаемое вложение",
   "prompt.toast.pasteUnsupported.description": "Здесь можно прикрепить только изображения, PDF или текстовые файлы.",
@@ -555,6 +562,7 @@ export const dict = {
   "session.header.open.action": "Открыть {{app}}",
   "session.header.open.ariaLabel": "Открыть в {{app}}",
   "session.header.open.menu": "Варианты открытия",
+  "session.header.open.folder": "Открыть папку",
   "session.header.open.copyPath": "Копировать путь",
 
   "status.popover.trigger": "Статус",

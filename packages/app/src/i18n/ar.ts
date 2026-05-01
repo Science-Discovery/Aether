@@ -137,8 +137,7 @@ export const dict = {
   "provider.connect.oauth.code.invalid": "رمز التفويض غير صالح",
   "provider.connect.oauth.auto.visit.prefix": "قم بزيارة ",
   "provider.connect.oauth.auto.visit.link": "هذا الرابط",
-  "provider.connect.oauth.auto.visit.suffix":
-    " وأدخل الرمز أدناه لتوصيل حسابك واستخدام نماذج {{provider}} في Aether.",
+  "provider.connect.oauth.auto.visit.suffix": " وأدخل الرمز أدناه لتوصيل حسابك واستخدام نماذج {{provider}} في Aether.",
   "provider.connect.oauth.auto.confirmationCode": "رمز التأكيد",
   "provider.connect.toast.connected.title": "تم توصيل {{provider}}",
   "provider.connect.toast.connected.description": "نماذج {{provider}} متاحة الآن للاستخدام.",
@@ -496,6 +495,7 @@ export const dict = {
   "session.header.open.action": "فتح {{app}}",
   "session.header.open.ariaLabel": "فتح في {{app}}",
   "session.header.open.menu": "خيارات الفتح",
+  "session.header.open.folder": "فتح المجلد",
   "session.header.open.copyPath": "نسخ المسار",
   "status.popover.trigger": "الحالة",
   "status.popover.ariaLabel": "إعدادات الخوادم",

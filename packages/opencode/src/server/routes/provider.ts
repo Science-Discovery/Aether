@@ -219,6 +219,7 @@ export const ProviderRoutes = lazy(() =>
         const config = await Config.get()
         const disabled = new Set(config.disabled_providers ?? [])
         const enabled = config.enabled_providers ? new Set(config.enabled_providers) : undefined
+        const disabledModels = new Set(config.disabled_models ?? [])
 
         const allProviders = await ModelsDev.get()
         const filteredProviders: Record<string, (typeof allProviders)[string]> = {}
@@ -233,9 +234,17 @@ export const ProviderRoutes = lazy(() =>
           mapValues(filteredProviders, (x) => Provider.fromModelsDevProvider(x)),
           connected,
         )
+        for (const [providerID, provider] of Object.entries(providers)) {
+          for (const [modelID, model] of Object.entries(provider.models)) {
+            if (disabledModels.has(`${providerID}/${modelID}`) || disabledModels.has(modelID)) model.disabled = true
+          }
+        }
         return c.json({
           all: Object.values(providers),
-          default: mapValues(providers, (item) => Provider.sort(Object.values(item.models))[0].id),
+          default: mapValues(providers, (item) => {
+            const enabled = Object.values(item.models).filter((m) => !m.disabled)
+            return enabled.length > 0 ? Provider.sort(enabled)[0].id : ""
+          }),
           connected: await Provider.connected(),
         })
       },

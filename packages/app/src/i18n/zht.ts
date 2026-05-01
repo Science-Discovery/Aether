@@ -152,8 +152,7 @@ export const dict = {
   "provider.connect.oauth.code.invalid": "授權碼無效",
   "provider.connect.oauth.auto.visit.prefix": "造訪 ",
   "provider.connect.oauth.auto.visit.link": "此連結",
-  "provider.connect.oauth.auto.visit.suffix":
-    " 並輸入以下程式碼，以連線你的帳戶並在 Aether 中使用 {{provider}} 模型。",
+  "provider.connect.oauth.auto.visit.suffix": " 並輸入以下程式碼，以連線你的帳戶並在 Aether 中使用 {{provider}} 模型。",
   "provider.connect.oauth.auto.confirmationCode": "確認碼",
   "provider.connect.toast.connected.title": "{{provider}} 已連線",
   "provider.connect.toast.connected.description": "現在可以使用 {{provider}} 模型了。",
@@ -279,6 +278,13 @@ export const dict = {
   "prompt.attachment.remove": "移除附件",
   "prompt.action.send": "傳送",
   "prompt.action.stop": "停止",
+  "prompt.action.steer": "引導",
+  "prompt.steer.placeholder": "添加引導...",
+  "prompt.steer.send": "發送",
+  "prompt.steer.toast.failed.title": "引導失敗",
+  "prompt.steer.toast.failed.description": "添加引導消息失敗",
+  "prompt.steer.toast.notBusy.title": "會話未活躍",
+  "prompt.steer.toast.notBusy.description": "引導僅在 AI 正在回覆時可用",
 
   "prompt.toast.pasteUnsupported.title": "不支援的附件",
   "prompt.toast.pasteUnsupported.description": "此處僅能附加圖片、PDF 或文字檔案。",
@@ -550,6 +556,7 @@ export const dict = {
   "session.header.open.action": "開啟 {{app}}",
   "session.header.open.ariaLabel": "在 {{app}} 中開啟",
   "session.header.open.menu": "開啟選項",
+  "session.header.open.folder": "開啟資料夾",
   "session.header.open.copyPath": "複製路徑",
 
   "status.popover.trigger": "狀態",

@@ -270,7 +270,6 @@
       scrollMode:
         input?.scrollMode === "horizontal" || input?.scrollMode === "wrapped" ? input.scrollMode : "vertical",
       features: {
-        pdf2md: !!input?.features?.pdf2md,
         readingMode: !!input?.features?.readingMode,
         quickReadingExit: !!input?.features?.quickReadingExit,
         firstRead: !!input?.features?.firstRead,
@@ -752,7 +751,6 @@
       pdf2mdSecondary.title = "PDF to md";
       pdf2mdSecondary.setAttribute("aria-label", pdf2mdSecondary.title);
     }
-
     const readingMode = document.getElementById("aetherOpenReadingMode");
     if (readingMode) {
       readingMode.hidden = !config.features.readingMode;
@@ -993,7 +991,6 @@
         window.PDFViewerApplication?.secondaryToolbar?.close?.();
       });
     }
-
     const readingMode = document.getElementById("aetherOpenReadingMode");
     if (readingMode) {
       readingMode.addEventListener("click", function () {
