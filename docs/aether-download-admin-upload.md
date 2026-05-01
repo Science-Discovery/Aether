@@ -20,6 +20,7 @@ Aether 下载服务分为两个发布渠道：
 - macOS Apple Silicon
 - Windows x64
 - Linux x64
+- Linux ARM64
 
 ## 基础约定
 
@@ -93,7 +94,8 @@ POST https://aether.aiphys.cn/api/downloadbeta/admin/commit     # 提交元数�
 {
   "mac": { "version": "1.3.3" },
   "windows": { "version": "1.3.3" },
-  "linux": { "version": "1.3.3" }
+  "linux": { "version": "1.3.3" },
+  "linuxArm64": { "version": "1.3.3" }
 }
 ```
 
@@ -116,7 +118,19 @@ POST https://aether.aiphys.cn/api/downloadbeta/admin/commit     # 提交元数�
       }
     },
     "windows": { ... },
-    "linux": { ... }
+    "linux": { ... },
+    "linuxArm64": {
+      "archive": {
+        "objectKey": "1.3.3/aether-linux-arm64.zip",
+        "url": "https://aether-asset.oss-cn-beijing.aliyuncs.com/1.3.3/aether-linux-arm64.zip?x-oss-signature-version=...",
+        "contentType": "application/zip"
+      },
+      "installer": {
+        "objectKey": "1.3.3/update_linux_arm64.sh",
+        "url": "https://aether-asset.oss-cn-beijing.aliyuncs.com/1.3.3/update_linux_arm64.sh?x-oss-signature-version=...",
+        "contentType": "text/x-shellscript; charset=utf-8"
+      }
+    }
   },
   "expiresInSeconds": 1800
 }
@@ -162,6 +176,7 @@ wait
   "mac": { "version": "1.3.3" },
   "windows": { "version": "1.3.3" },
   "linux": { "version": "1.3.3" },
+  "linuxArm64": { "version": "1.3.3" },
   "releaseDate": "2026-04-13T00:00:00.000Z"
 }
 ```
@@ -208,7 +223,8 @@ wait
 {
   "mac": { "version": "1.3.3-beta.1" },
   "windows": { "version": "1.3.3-beta.1" },
-  "linux": { "version": "1.3.3-beta.1" }
+  "linux": { "version": "1.3.3-beta.1" },
+  "linuxArm64": { "version": "1.3.3-beta.1" }
 }
 ```
 
@@ -231,7 +247,19 @@ wait
       }
     },
     "windows": { ... },
-    "linux": { ... }
+    "linux": { ... },
+    "linuxArm64": {
+      "archive": {
+        "objectKey": "beta/1.3.3-beta.1/aether-linux-arm64.zip",
+        "url": "https://aether-asset.oss-cn-beijing.aliyuncs.com/beta/1.3.3-beta.1/aether-linux-arm64.zip?x-oss-signature-version=...",
+        "contentType": "application/zip"
+      },
+      "installer": {
+        "objectKey": "beta/1.3.3-beta.1/update_linux_arm64.sh",
+        "url": "https://aether-asset.oss-cn-beijing.aliyuncs.com/beta/1.3.3-beta.1/update_linux_arm64.sh?x-oss-signature-version=...",
+        "contentType": "text/x-shellscript; charset=utf-8"
+      }
+    }
   },
   "expiresInSeconds": 1800
 }
@@ -255,6 +283,7 @@ wait
   "mac": { "version": "1.3.3-beta.1" },
   "windows": { "version": "1.3.3-beta.1" },
   "linux": { "version": "1.3.3-beta.1" },
+  "linuxArm64": { "version": "1.3.3-beta.1" },
   "releaseDate": "2026-04-13T00:00:00.000Z"
 }
 ```
@@ -299,6 +328,7 @@ wait
 /download/latest/aether-darwin-arm64.dmg
 /download/latest/aether-windows-x64.zip
 /download/latest/aether-linux-x64.zip
+/download/latest/aether-linux-arm64.zip
 ```
 
 说明：
@@ -318,7 +348,9 @@ wait
 - `/download/latest/aether-darwin-arm64.dmg` 会先解析 `latest` 到具体版本（如 `1.4.1`），再重定向到 `https://<bucket-endpoint>/1.4.1/aether-darwin-arm64.dmg`
 - `/downloadbeta/latest/aether-darwin-arm64.dmg` 会先解析测试版 `latest` 到具体版本（如 `1.4.2-beta.1`），再重定向到 `https://<bucket-endpoint>/beta/1.4.2-beta.1/aether-darwin-arm64.dmg`
 - `/download/1.3.3/aether-windows-x64.zip` 会重定向到 `https://<bucket-endpoint>/1.3.3/aether-windows-x64.zip`
+- `/download/1.3.3/aether-linux-arm64.zip` 会重定向到 `https://<bucket-endpoint>/1.3.3/aether-linux-arm64.zip`
 - `/downloadbeta/1.3.3-beta.1/aether-windows-x64.zip` 会重定向到 `https://<bucket-endpoint>/beta/1.3.3-beta.1/aether-windows-x64.zip`
+- `/downloadbeta/1.3.3-beta.1/aether-linux-arm64.zip` 会重定向到 `https://<bucket-endpoint>/beta/1.3.3-beta.1/aether-linux-arm64.zip`
 
 ### 最新通道
 
@@ -327,6 +359,7 @@ wait
 - `/download/latest/mac-arm64.yml`
 - `/download/latest/windows-x64.yml`
 - `/download/latest/linux-x64.yml`
+- `/download/latest/linux-arm64.yml`
 
 对应安装包：
 
@@ -336,6 +369,8 @@ wait
 - `/download/latest/update_windows.bat`
 - `/download/latest/aether-linux-x64.zip`
 - `/download/latest/update_linux.sh`
+- `/download/latest/aether-linux-arm64.zip`
+- `/download/latest/update_linux_arm64.sh`
 
 解析规则：
 
@@ -348,12 +383,15 @@ wait
 - `/downloadbeta/latest/mac-arm64.yml`
 - `/downloadbeta/latest/windows-x64.yml`
 - `/downloadbeta/latest/linux-x64.yml`
+- `/downloadbeta/latest/linux-arm64.yml`
 - `/downloadbeta/latest/aether-darwin-arm64.dmg`
 - `/downloadbeta/latest/update_darwin.command`
 - `/downloadbeta/latest/aether-windows-x64.zip`
 - `/downloadbeta/latest/update_windows.bat`
 - `/downloadbeta/latest/aether-linux-x64.zip`
 - `/downloadbeta/latest/update_linux.sh`
+- `/downloadbeta/latest/aether-linux-arm64.zip`
+- `/downloadbeta/latest/update_linux_arm64.sh`
 
 ### 指定版本
 
@@ -362,6 +400,7 @@ wait
 - `/download/<version>/mac-arm64.yml`
 - `/download/<version>/windows-x64.yml`
 - `/download/<version>/linux-x64.yml`
+- `/download/<version>/linux-arm64.yml`
 
 对应安装包：
 
@@ -371,6 +410,8 @@ wait
 - `/download/<version>/update_windows.bat`
 - `/download/<version>/aether-linux-x64.zip`
 - `/download/<version>/update_linux.sh`
+- `/download/<version>/aether-linux-arm64.zip`
+- `/download/<version>/update_linux_arm64.sh`
 
 测试版渠道的指定版本路径同样只需把根路径替换为 `/downloadbeta`：
 

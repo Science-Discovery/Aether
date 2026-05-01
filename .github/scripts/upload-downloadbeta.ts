@@ -44,6 +44,10 @@ const items = {
     archive: "dist/aether-linux-x64.zip",
     installer: "Update/update_linux.sh",
   },
+  linuxArm64: {
+    archive: "dist/aether-linux-arm64.zip",
+    installer: "Update/update_linux.sh",
+  },
 } satisfies Record<string, Item>
 
 function fail(msg: string): never {
@@ -160,7 +164,8 @@ const done = await post(root, "/api/downloadbeta/admin/commit", pass, {
 
 if (!commit(done)) fail("Invalid commit response")
 if (Array.isArray(done.ossWarnings) && done.ossWarnings.length > 0) fail("Commit returned OSS warnings")
-if (!Array.isArray(done.files) || done.files.length < Object.keys(items).length) fail("Commit response is missing files")
+if (!Array.isArray(done.files) || done.files.length < Object.keys(items).length)
+  fail("Commit response is missing files")
 const links = done.files.map(urls)
 if (links.some((item) => item.length === 0) || !links.flat().every(beta)) {
   fail("Commit response includes non-beta URLs")
