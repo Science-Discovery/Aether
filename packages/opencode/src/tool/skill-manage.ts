@@ -174,12 +174,13 @@ const parameters = z.preprocess(
 export const SkillManageTool = Tool.define("skill_manage", async () => {
   return {
     description: [
+      "The sole tool for modifying skill files. Use instead of edit/write for any file under a skills/ directory.",
       "Create, edit, patch, delete, or version-manage skills (reusable procedural memories saved as SKILL.md files).",
       "",
       "Actions:",
       "  create       — Create a new skill with name, description, and content.",
       "  edit         — Fully rewrite a skill (new description + new content). Use when the entire approach has changed.",
-      "  patch        — Replace a specific section (old_str → new_str). Use for targeted fixes. IMPORTANT: old_str must exactly match the file content — if the skill content is not already in context, read SKILL.md first. Never guess old_str.",
+      "  patch        — Replace a specific section (old_str → new_str). Equivalent to the edit tool's oldString→newString, but for skill files. IMPORTANT: old_str must exactly match the file content — if the skill content is not already in context, read SKILL.md first. Never guess old_str.",
       "  delete       — Delete a skill and its entire directory.",
       "  history      — List all saved versions of a skill.",
       "  rollback     — Restore a skill to a previous version (requires 'version' param, e.g. 'v002').",

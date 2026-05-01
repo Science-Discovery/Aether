@@ -552,7 +552,6 @@ export namespace Skill {
       for (const name of names) add("project", path.join(dir, name))
     }
     for (const name of names) add("global", path.join(Global.Path.home, name))
-    add("global", path.join(Global.Path.data, "skills"))
 
     for (const item of cfg.skills?.paths ?? []) {
       const expanded = item.startsWith("~/") ? path.join(os.homedir(), item.slice(2)) : item

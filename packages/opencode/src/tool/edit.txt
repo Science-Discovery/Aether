@@ -1,4 +1,11 @@
-Performs exact string replacements in files. 
+Performs exact string replacements in files.
+
+NEVER use this tool on skill files — any file under a skills/ directory
+(.opencode/skills/, .claude/skills/, .agents/skills/, .aether/skills/).
+Use skill_manage instead, mapping operations as follows:
+  - Targeted replacement (oldString → newString): action=patch, old_str=<oldString>, new_str=<newString>
+  - Full SKILL.md rewrite: action=edit, content=<new body>
+  - Rewrite a supporting file: action=write_file, relative_path=<filename>, content=<content>
 
 Usage:
 - You must use your `Read` tool at least once in the conversation before editing. This tool will error if you attempt an edit without reading the file. 
