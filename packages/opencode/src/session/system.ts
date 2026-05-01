@@ -14,6 +14,7 @@ import type { Agent } from "@/agent/agent"
 import { Permission } from "@/permission"
 import { Skill } from "@/skill"
 import { SKILLS_GUIDANCE } from "./skill-evolution"
+import { Config } from "@/config/config"
 
 export namespace SystemPrompt {
   export function provider(model: Provider.Model) {
@@ -62,6 +63,9 @@ export namespace SystemPrompt {
         ? all.filter((skill) => Skill.matchesConditions(skill, availableTools, availableToolsets ?? new Set()))
         : all
 
+    const cfg = await Config.get()
+    const skillNudgeInterval = cfg.skills?.creation_nudge_interval ?? 10
+
     return [
       "## Skills (mandatory)",
       "Before replying, scan the skills below. If a skill matches or is even partially relevant to your task, you MUST follow its instructions.",
@@ -71,11 +75,13 @@ export namespace SystemPrompt {
       // version of them here and a less verbose version in tool description, rather than vice versa.
       Skill.fmt(list, { verbose: true }),
       "",
-      "If a skill has issues, fix it with skill_manage(action='patch').",
-      "After difficult/iterative tasks, offer to save as a skill.",
-      "If a skill you loaded was missing steps, had wrong commands, or needed pitfalls you discovered, update it before finishing.",
-      "",
-      SKILLS_GUIDANCE,
+      ...(skillNudgeInterval !== 0 ? [
+        "If a skill has issues, fix it with skill_manage(action='patch').",
+        "After difficult/iterative tasks, offer to save as a skill.",
+        "If a skill you loaded was missing steps, had wrong commands, or needed pitfalls you discovered, update it before finishing.",
+        "",
+        SKILLS_GUIDANCE,
+      ] : []),
     ].join("\n")
   }
 }
