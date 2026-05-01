@@ -1632,6 +1632,74 @@ export namespace Config {
     return skills
   }
 
+  export async function listEvolutionSkills(): Promise<DefaultSkill[]> {
+    const global = await getGlobal()
+    const disabled = new Set(global.skills?.disabled ?? [])
+
+    async function scanSkillsDir(skillsDir: string): Promise<DefaultSkill[]> {
+      if (!(await Filesystem.isDir(skillsDir))) return []
+      const entries = await fs.readdir(skillsDir, { withFileTypes: true }).catch(() => [])
+      const result: DefaultSkill[] = []
+      for (const entry of entries) {
+        if (!entry.isDirectory()) continue
+        const skillFile = path.join(skillsDir, entry.name, "SKILL.md")
+        const text = await Filesystem.readText(skillFile).catch(() => null)
+        if (text === null) {
+          result.push({ name: entry.name, description: "", content: "", enabled: !disabled.has(entry.name) })
+          continue
+        }
+        try {
+          const parsed = matter(text)
+          const name = String(parsed.data.name ?? entry.name)
+          result.push({
+            name,
+            description: String(parsed.data.description ?? ""),
+            content: parsed.content.trim(),
+            enabled: !disabled.has(name),
+          })
+        } catch {
+          result.push({ name: entry.name, description: "", content: text, enabled: !disabled.has(entry.name) })
+        }
+      }
+      return result
+    }
+
+    const seen = new Set<string>()
+    const skills: DefaultSkill[] = []
+
+    function addSkills(list: DefaultSkill[]) {
+      for (const skill of list) {
+        if (!seen.has(skill.name)) {
+          seen.add(skill.name)
+          skills.push(skill)
+        }
+      }
+    }
+
+    const dirs = await directories()
+    const projectAetherDir = path.join(Instance.directory, PROJECT)
+    const managedSkillsDir = getManagedSkillsDir()
+
+    // Current project's .aether/skills/ first (highest priority)
+    addSkills(await scanSkillsDir(path.join(projectAetherDir, "skills")))
+
+    // Explicitly include managed skills dir (~/.aether/skills/) as global fallback,
+    // in case ~/.aether/ wasn't present at startup so it's absent from cached dirs
+    addSkills(await scanSkillsDir(managedSkillsDir))
+
+    // Other global .aether/skills/ dirs from config directories (not inside Instance.directory,
+    // not already scanned via managedSkillsDir)
+    const managedAetherDir = path.dirname(managedSkillsDir)
+    for (const dir of dirs) {
+      if (path.basename(dir) !== PROJECT) continue
+      if (Filesystem.contains(Instance.directory, dir)) continue
+      if (path.resolve(dir) === path.resolve(managedAetherDir)) continue
+      addSkills(await scanSkillsDir(path.join(dir, "skills")))
+    }
+
+    return skills
+  }
+
   export async function saveDefaultSkill(name: string, description: string, content: string): Promise<void> {
     const skillsDir = getDefaultSkillsDir()
     if (!skillsDir) throw new Error("No .aether directory found")

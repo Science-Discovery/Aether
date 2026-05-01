@@ -4,15 +4,17 @@ import { Dialog } from "@opencode-ai/ui/dialog"
 import { Component, For, Match, Show, Switch as SolidSwitch, createResource, createSignal } from "solid-js"
 import { useGlobalSDK } from "@/context/global-sdk"
 import { useLanguage } from "@/context/language"
+import { useSDK } from "@/context/sdk"
 
 type ManagedSkill = { name: string; description: string; content: string; enabled?: boolean }
 
 export const DialogEvolvedSkills: Component = () => {
   const globalSDK = useGlobalSDK()
   const language = useLanguage()
+  const sdk = useSDK()
 
   const [skills, { refetch }] = createResource<ManagedSkill[]>(async () => {
-    const result = await globalSDK.client.config.skills.listManaged()
+    const result = await globalSDK.client.config.skills.listEvolution({ directory: sdk.directory })
     return (result.data as unknown as ManagedSkill[]) ?? []
   })
 

@@ -81,6 +81,28 @@ export const ConfigRoutes = lazy(() =>
       },
     )
     .get(
+      "/skills/evolution",
+      describeRoute({
+        summary: "List evolution skills",
+        description: "List skills from the current project's .aether/skills/ and all global .aether/skills/ directories.",
+        operationId: "config.skills.listEvolution",
+        responses: {
+          200: {
+            description: "List of evolution skills",
+            content: {
+              "application/json": {
+                schema: resolver(z.array(Config.DefaultSkill)),
+              },
+            },
+          },
+        },
+      }),
+      async (c) => {
+        const skills = await Config.listEvolutionSkills()
+        return c.json(skills)
+      },
+    )
+    .get(
       "/skills/managed",
       describeRoute({
         summary: "List managed skills",
