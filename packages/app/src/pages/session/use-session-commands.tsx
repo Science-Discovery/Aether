@@ -453,6 +453,9 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
         onSelect: async () => {
           const sessionID = params.id
           if (!sessionID) return
+          if (status().type !== "idle") {
+            await sdk.client.session.abort({ sessionID }).catch(() => {})
+          }
           const revertMessageID = info()?.revert?.messageID
           if (!revertMessageID) return
           const nextMessage = userMessages().find((x) => x.id > revertMessageID)

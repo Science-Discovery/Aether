@@ -1085,11 +1085,18 @@ export const SessionRoutes = lazy(() =>
       async (c) => {
         const sessionID = c.req.valid("param").sessionID
         log.info("revert", c.req.valid("json"))
-        const session = await SessionRevert.revert({
-          sessionID,
-          ...c.req.valid("json"),
-        })
-        return c.json(session)
+        try {
+          const session = await SessionRevert.revert({
+            sessionID,
+            ...c.req.valid("json"),
+          })
+          return c.json(session)
+        } catch (err) {
+          if (err instanceof Session.BusyError) {
+            return c.json({ error: "Session is busy", sessionID }, 409)
+          }
+          throw err
+        }
       },
     )
     .post(

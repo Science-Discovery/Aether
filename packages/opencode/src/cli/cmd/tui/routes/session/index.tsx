@@ -549,6 +549,10 @@ export function Session() {
       },
       onSelect: (dialog) => {
         dialog.clear()
+        const status = sync.data.session_status?.[route.sessionID]
+        if (status?.type !== "idle") {
+          sdk.client.session.abort({ sessionID: route.sessionID }).catch(() => {})
+        }
         const messageID = session()?.revert?.messageID
         if (!messageID) return
         const message = messages().find((x) => x.role === "user" && x.id > messageID)

@@ -2084,6 +2084,7 @@ function SessionPageContent(props: SessionPageProps = {}) {
 
   const restore = (id: string) => {
     if (!params.id || reverting()) return
+    if (busy(params.id)) return
     return restoreMutation.mutateAsync(id)
   }
 
