@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test"
+import fs from "fs/promises"
 import { tmpdir } from "../fixture/fixture"
 import { Instance } from "../../src/project/instance"
 import { Memory } from "../../src/memory"
@@ -43,6 +44,7 @@ function metaFile() {
 }
 
 async function writeMeta(meta: Meta) {
+  await fs.rm(metaFile(), { force: true, recursive: true })
   await Filesystem.write(metaFile(), JSON.stringify(meta, null, 2))
 }
 
@@ -1489,6 +1491,101 @@ describe("memory + user profile backend", () => {
         expect(item?.pin_count ?? 0).toBe(0)
         expect(typeof item?.last_selected_at).toBe("number")
         expect(item?.last_pin_at).toBeUndefined()
+      },
+    })
+  })
+
+  test("memory_search keeps USER hits when metadata write fails", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const userFile = (await Memory.read("user")).file
+        const target = "preference[explicit]: cobalt metadata write failure marker"
+        const entries = [
+          ...Array.from(
+            { length: 12 },
+            (_, idx) => `preference[explicit]: write-failure filler marker ${String(idx + 1).padStart(2, "0")}`,
+          ),
+          target,
+        ]
+        await Filesystem.write(userFile, ["# USER", ...entries.map((entry) => `- ${entry}`)].join("\n"))
+        await fs.rm(metaFile(), { force: true, recursive: true })
+        await fs.mkdir(metaFile(), { recursive: true })
+
+        const hits = await Memory.search({
+          session_id: "user_meta_write_failure",
+          query: "cobalt metadata",
+        })
+
+        expect(hits[0]?.text).toBe(target)
+        const prompt = await Memory.activePrompt({ session_id: "user_meta_write_failure" })
+        expect(prompt.prompt).toContain("cobalt metadata write failure")
+      },
+    })
+  })
+
+  test("USER metadata skips invalid entries without dropping valid ones", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const userFile = (await Memory.read("user")).file
+        const target = "preference[explicit]: silver valid metadata survives sibling parse failure"
+        const entries = [
+          ...Array.from(
+            { length: 12 },
+            (_, idx) => `preference[explicit]: invalid-meta filler marker ${String(idx + 1).padStart(2, "0")}`,
+          ),
+          target,
+        ]
+        await Filesystem.write(userFile, ["# USER", ...entries.map((entry) => `- ${entry}`)].join("\n"))
+        await fs.rm(metaFile(), { force: true, recursive: true })
+        await Filesystem.write(
+          metaFile(),
+          JSON.stringify(
+            {
+              broken: { selected_count: "bad" },
+              [Memory.metaKeyForTest(target)]: {
+                selected_count: 3,
+                pin_count: 4,
+                last_pin_at: Date.now(),
+                updated_at: Date.now(),
+              },
+            },
+            null,
+            2,
+          ),
+        )
+
+        const prompt = await Memory.activePrompt({ session_id: "user_meta_partial_parse" })
+        expect(section(prompt.prompt, "user_profile")).toContain("silver valid metadata")
+      },
+    })
+  })
+
+  test("concurrent USER metadata updates preserve selected count", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        await writeMeta({})
+        const userFile = (await Memory.read("user")).file
+        const target = "preference[explicit]: indigo concurrent metadata marker"
+        await Filesystem.write(userFile, ["# USER", `- ${target}`].join("\n"))
+
+        await Promise.all(
+          Array.from({ length: 4 }, (_, idx) =>
+            Memory.search({
+              session_id: `user_meta_concurrent_${idx}`,
+              query: "indigo concurrent",
+              pin: false,
+            }),
+          ),
+        )
+
+        const item = (await readMeta())[Memory.metaKeyForTest(target)]
+        expect(item?.selected_count).toBe(4)
       },
     })
   })
