@@ -4,13 +4,14 @@
 
 ## 1. 三层缓存
 
-- L1：active memory prompt。`USER.md` 中的稳定用户画像会以小上限 baseline 注入；daily/session 记忆只有被自动召回、`memory_search` 命中、或本轮 `memory_write` 写入后才进入模型 system prompt，整体约 4000 字符上限。
+- L1：active memory prompt。`USER.md` 中的稳定用户画像会以小上限 baseline 注入；baseline 先选 explicit，再选 inferred，并在同类内使用 `user-meta.json` 的使用反馈分数排序。daily/session 记忆只有被自动召回、`memory_search` 命中、或本轮 `memory_write` 写入后才进入模型 system prompt，整体约 4000 字符上限。
 - L2：session memory pool。会话启动时从磁盘准备；`USER.md` 用于 L1 baseline 与搜索，daily/session 记忆默认不注入，只由 `memory_search` 或自动召回使用。
-- L3：磁盘冷存储。包含 `USER.md`、daily memory、当前 session short-term memory、reflection run log。
+- L3：磁盘冷存储。包含 `USER.md`、USER sidecar metadata、daily memory、当前 session short-term memory、reflection run log。
 
 ## 2. 磁盘路径
 
 - 用户画像：`memory/user/USER.md`
+- 用户画像 metadata：`memory/user/user-meta.json`
 - 每日长期记忆：`memory/daily/YYYY-MM-DD/MEMORY.md`
 - 当前会话短期记忆：`memory/session/<session_id>/MEMORY.md`
 - 反思日志：`memory/reflection/run/<run_id>.json`
@@ -33,8 +34,9 @@ kind[source]: content
 
 - 会话启动时构建 L2 pool，并将 `USER.md` 画像以小上限注入 L1；daily/session 长期内容不全量注入。
 - 每轮模型调用前，会根据最新用户消息执行最多 5 条自动召回。
-- `memory_search` 支持常见分隔符拆分多个关键词，任意关键词命中即候选。
+- `memory_search` 会保留短语、拆分常见中英文分隔符、为中文片段生成低权重 2/3 字 n-gram，并按相关性分数排序，source priority 作为辅助信号。
 - 搜索命中会静默加入 L1，并在本 session 后续持续注入。
+- 搜索选中 USER 条目时会更新 `user-meta.json` 的 `selected_count`；默认 pin 后仍留在 active state 的 USER 条目才会更新 `pin_count`。`activePrompt()` 本身不写 metadata，也不自增 `prompt_count`。
 - `memory_reload` 会重新读取 L2，并清空 L1 active memory。
 
 ## 5. 写入与反思

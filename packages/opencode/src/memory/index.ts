@@ -27,20 +27,45 @@ const DAILY_MEMORY_LIMIT = 120_000
 const SESSION_ITEM_LIMIT = 2_000
 const ACTIVE_PROMPT_LIMIT = 4_000
 const USER_PROFILE_PROMPT_LIMIT = 1_600
+const USER_PROFILE_ENTRY_LIMIT = 12
+const USER_META_RECENCY_DAYS = 90
 const AUTO_RECALL_LIMIT = 5
 const RECENT_DAILY_LIMIT = 30
+const QUERY_TERM_LIMIT = 80
 
 const MEMORY_KINDS = new Set(["fact", "preference", "task"])
 const MEMORY_SOURCES = new Set(["explicit", "inferred"])
 
+const UserMetaSchema = z
+  .object({
+    selected_count: z.number().int().nonnegative().optional(),
+    pin_count: z.number().int().nonnegative().optional(),
+    last_selected_at: z.number().int().nonnegative().optional(),
+    last_pin_at: z.number().int().nonnegative().optional(),
+    updated_at: z.number().int().nonnegative().optional(),
+    prompt_count: z.number().int().nonnegative().optional(),
+    scope: z.string().optional(),
+    breadth: z.number().optional(),
+  })
+  .passthrough()
+const UserMetaMapSchema = z.record(z.string(), UserMetaSchema)
+
 type MemoryKind = "fact" | "preference" | "task"
 type MemorySource = "explicit" | "inferred"
+
+type UserMeta = z.infer<typeof UserMetaSchema>
+type UserMetaMap = z.infer<typeof UserMetaMapSchema>
 
 type ParsedTypedEntry = {
   kind: MemoryKind
   source: MemorySource
   content: string
   canonical: string
+}
+
+type Term = {
+  text: string
+  weight: number
 }
 
 type ReflectionObjectGenerator = (
@@ -144,6 +169,10 @@ function memoryPath(store: "user" | "memory") {
   return path.join(Global.Path.data, "memory", "daily")
 }
 
+function metaPath() {
+  return path.join(Global.Path.data, "memory", "user", "user-meta.json")
+}
+
 function dayKey(input = Date.now()) {
   const date = typeof input === "number" ? new Date(input) : input
   const local = new Date(date.getTime() - date.getTimezoneOffset() * 60_000)
@@ -166,23 +195,86 @@ function stableID(input: string) {
   return createHash("sha1").update(input).digest("hex").slice(0, 24)
 }
 
-function splitMemoryQuery(input: string) {
-  const seen = new Set<string>()
-  const raw = norm(input)
-  const tokens = raw
-    .split(/[\s,，;；/|、\n\r\t]+/u)
-    .map((token) => norm(token))
-    .filter(Boolean)
-  if (raw && !tokens.includes(raw)) tokens.unshift(raw)
+function metaKey(input: string) {
+  return stableID(norm(input).toLowerCase())
+}
 
-  const result: string[] = []
-  for (const token of tokens) {
-    const key = token.toLowerCase()
-    if (!key || seen.has(key)) continue
-    seen.add(key)
-    result.push(key)
+async function loadMeta(): Promise<UserMetaMap> {
+  const data = await Filesystem.readJson<unknown>(metaPath()).catch(() => undefined)
+  const parsed = UserMetaMapSchema.safeParse(data)
+  if (!parsed.success) return {}
+  return parsed.data
+}
+
+async function saveMeta(meta: UserMetaMap, entries: string[]) {
+  const keys = new Set(entries.map(metaKey))
+  const next = Object.fromEntries(Object.entries(meta).filter(([key]) => keys.has(key)))
+  await Filesystem.writeJson(metaPath(), next)
+  return next
+}
+
+function attachMeta(snapshot: Memory.PreparedSnapshot, meta: UserMetaMap) {
+  return {
+    ...snapshot,
+    entries: snapshot.entries.map((entry) =>
+      entry.source === "user" ? { ...entry, meta: meta[metaKey(entry.text)] } : entry,
+    ),
   }
-  return result
+}
+
+function scoreMeta(meta: UserMeta | undefined, now = Date.now()) {
+  if (!meta) return 0
+  const stamp = meta.last_pin_at ?? meta.last_selected_at
+  const days = stamp ? Math.max(0, (now - stamp) / 86_400_000) : USER_META_RECENCY_DAYS
+  const recent = stamp ? Math.max(0, 1 - days / USER_META_RECENCY_DAYS) * 2 : 0
+  return (
+    Math.log1p(meta.selected_count ?? 0) * 2 +
+    Math.log1p(meta.pin_count ?? 0) * 4 +
+    Math.max(0, Math.min(1, meta.breadth ?? 0)) * 3 +
+    recent
+  )
+}
+
+function splitMemoryQuery(input: string) {
+  const seen = new Map<string, number>()
+  const raw = norm(input)
+  const add = (text: string, weight: number) => {
+    const key = norm(text).toLowerCase()
+    if (!key) return
+    if (key.length === 1 && !/[\p{Script=Han}\d]/u.test(key)) return
+    seen.set(key, Math.max(seen.get(key) ?? 0, weight))
+  }
+  const gram = (text: string, size: number, weight: number) => {
+    if (text.length < size) return
+    for (let idx = 0; idx <= text.length - size; idx++) add(text.slice(idx, idx + size), weight)
+  }
+  const atoms = (text: string) => text.match(/[\p{Script=Han}]+|[a-zA-Z0-9_./:@-]+/gu) ?? []
+  const parts = raw
+    .split(/[\s,，;；|、\n\r\t]+/u)
+    .map((part) => norm(part))
+    .filter(Boolean)
+  if (raw) add(raw, 80)
+
+  for (const part of parts) {
+    add(part, part.length >= 4 ? 50 : 24)
+    for (const atom of atoms(part)) {
+      add(atom, atom.length >= 4 ? 36 : 20)
+      if (/^[\p{Script=Han}]+$/u.test(atom)) {
+        gram(atom, 3, 14)
+        gram(atom, 2, 8)
+        continue
+      }
+      for (const item of atom.split(/[./:@-]+/u)) add(item, item.length >= 4 ? 18 : 8)
+    }
+  }
+  return [...seen.entries()]
+    .map(([text, weight]) => ({ text, weight }))
+    .toSorted((a, b) => b.weight - a.weight || b.text.length - a.text.length)
+    .slice(0, QUERY_TERM_LIMIT)
+}
+
+function memoryScore(text: string, terms: Term[]) {
+  return terms.reduce((sum, term) => (text.includes(term.text) ? sum + term.weight : sum), 0)
 }
 
 function sessionScopeFilter(scope: "current_project" | "global") {
@@ -541,6 +633,7 @@ export namespace Memory {
     index: number
     text: string
     priority: number
+    meta?: UserMeta
   }
 
   export type PreparedSnapshot = {
@@ -704,6 +797,7 @@ export namespace Memory {
     index: number
     text: string
     priority: number
+    meta?: UserMeta
   }): PoolEntry {
     return {
       id: entryID(input.source, input.index, input.text),
@@ -712,6 +806,7 @@ export namespace Memory {
       index: input.index,
       text: input.text,
       priority: input.priority,
+      meta: input.meta,
     }
   }
 
@@ -728,10 +823,11 @@ export namespace Memory {
       }
     }
 
-    const [userStore, memoryStore, sessionStore] = await Promise.all([
+    const [userStore, memoryStore, sessionStore, meta] = await Promise.all([
       readUserStore(current),
       readMemoryStore(current),
       loadSessionMemoryRaw(input.session_id),
+      loadMeta(),
     ])
 
     const userEntries = userStore.entries
@@ -744,6 +840,7 @@ export namespace Memory {
           index: index + 1,
           text,
           priority: text.includes("[explicit]:") ? 700 : 500,
+          meta: meta[metaKey(text)],
         }),
       ),
       ...memoryStore.entries.map((text, index) =>
@@ -799,8 +896,10 @@ export namespace Memory {
         () => undefined,
       )
       if (fromStorage?.entries) {
-        cache.set(input.session_id, fromStorage)
-        return fromStorage
+        const snapshot = attachMeta(fromStorage, await loadMeta())
+        cache.set(input.session_id, snapshot)
+        await Storage.write(["memory", "snapshot", input.session_id], snapshot).catch(() => {})
+        return snapshot
       }
     }
 
@@ -831,11 +930,18 @@ export namespace Memory {
 
   function userProfileBaseline(snapshot: PreparedSnapshot) {
     const userEntries = snapshot.entries.filter((entry) => entry.source === "user")
-    const explicit = userEntries.filter((entry) => entry.text.includes("[explicit]:"))
-    const inferred = userEntries.filter((entry) => entry.text.includes("[inferred]:"))
+    const rank = (entries: PoolEntry[]) =>
+      entries.toSorted((a, b) => {
+        const score = scoreMeta(b.meta) - scoreMeta(a.meta)
+        if (score !== 0) return score
+        return a.index - b.index
+      })
+    const explicit = rank(userEntries.filter((entry) => entry.text.includes("[explicit]:")))
+    const inferred = rank(userEntries.filter((entry) => entry.text.includes("[inferred]:")))
     const selected: PoolEntry[] = []
     let used = 0
     for (const entry of [...explicit, ...inferred]) {
+      if (selected.length >= USER_PROFILE_ENTRY_LIMIT) break
       const next = `- ${entry.text}\n`.length
       if (selected.length > 0 && used + next > USER_PROFILE_PROMPT_LIMIT) continue
       selected.push(entry)
@@ -864,6 +970,52 @@ export namespace Memory {
     await Storage.write(["memory", "active", sessionID], state).catch(() => {})
   }
 
+  async function refreshMeta(sessionID: string, meta: UserMetaMap) {
+    const cache = frozenSnapshots()
+    const current =
+      cache.get(sessionID) ??
+      (await Storage.read<PreparedSnapshot>(["memory", "snapshot", sessionID]).catch(() => undefined))
+    if (!current?.entries) return
+    const snapshot = attachMeta(current, meta)
+    cache.set(sessionID, snapshot)
+    await Storage.write(["memory", "snapshot", sessionID], snapshot).catch(() => {})
+  }
+
+  async function bumpMeta(input: {
+    session_id: string
+    entries: PoolEntry[]
+    action: "select" | "pin"
+    snapshot?: PreparedSnapshot
+  }) {
+    const entries = input.entries.filter((entry) => entry.source === "user")
+    if (!entries.length) return
+    const snapshot = input.snapshot ?? (await prepare({ session_id: input.session_id }))
+    const meta = await loadMeta()
+    const now = Date.now()
+    const seen = new Set<string>()
+    for (const entry of entries) {
+      const key = metaKey(entry.text)
+      if (seen.has(key)) continue
+      seen.add(key)
+      const prev = meta[key] ?? {}
+      meta[key] =
+        input.action === "select"
+          ? {
+              ...prev,
+              selected_count: (prev.selected_count ?? 0) + 1,
+              last_selected_at: now,
+              updated_at: now,
+            }
+          : {
+              ...prev,
+              pin_count: (prev.pin_count ?? 0) + 1,
+              last_pin_at: now,
+              updated_at: now,
+            }
+    }
+    await refreshMeta(input.session_id, await saveMeta(meta, snapshot.user))
+  }
+
   async function pinEntries(input: {
     session_id: string
     entries: PoolEntry[]
@@ -887,6 +1039,13 @@ export namespace Memory {
       entries: pruneActive(snapshot, [...byID.values()]),
     }
     await saveActive(input.session_id, next)
+    const ids = new Set(next.entries.map((entry) => entry.id))
+    await bumpMeta({
+      session_id: input.session_id,
+      entries: input.entries.filter((entry) => ids.has(entry.id)),
+      action: "pin",
+      snapshot,
+    })
   }
 
   function buildPrompt(snapshot: PreparedSnapshot, activeEntries: ActiveEntry[]) {
@@ -900,6 +1059,7 @@ export namespace Memory {
       "Long-term memory is prepared in a session memory pool, but only this memory_context is currently plugged into the model prompt.",
       "Stable USER.md profile entries are included here within a small cap; daily/session memory requires memory_search or automatic recall before injection.",
       "Use memory_search when memory may be relevant. It is the only supported way to recall Aether memory.",
+      "When using memory_search, include the user's wording plus likely related keywords, synonyms, Chinese/English terms, paths, tool names, API names, and error strings when useful.",
       "Do not use read, glob, grep, bash, or other file tools to inspect Aether memory files such as USER.md or MEMORY.md.",
       "Search hits are silently added to active memory and will remain available for this session.",
       "Use memory_write for durable-looking user preferences, project facts, or tasks. Writes go to short-term session memory first; daily reflection can consolidate them into daily long-term memory and USER.md.",
@@ -960,22 +1120,29 @@ export namespace Memory {
   }) {
     const current = await settings()
     if (!current.enabled) return [] as MemorySearchHit[]
-    const tokens = splitMemoryQuery(input.query)
+    const terms = splitMemoryQuery(input.query)
     const max = Math.max(1, Math.min(20, input.limit ?? 10))
-    if (!tokens.length) return [] as MemorySearchHit[]
+    if (!terms.length) return [] as MemorySearchHit[]
     const snapshot = await prepare({ session_id: input.session_id })
-    const hits: PoolEntry[] = []
+    const hits: Array<{ entry: PoolEntry; score: number }> = []
     const seen = new Set<string>()
     for (const entry of snapshot.entries) {
       if (input.store && entry.store !== input.store) continue
       const text = entry.text.toLowerCase()
-      if (!tokens.some((token) => text.includes(token))) continue
+      const score = memoryScore(text, terms)
+      if (score === 0) continue
       if (seen.has(entry.id)) continue
       seen.add(entry.id)
-      hits.push(entry)
+      hits.push({ entry, score })
     }
-    hits.sort((a, b) => b.priority - a.priority || a.index - b.index)
-    const selected = hits.slice(0, max)
+    hits.sort((a, b) => b.score - a.score || b.entry.priority - a.entry.priority || a.entry.index - b.entry.index)
+    const selected = hits.slice(0, max).map((hit) => hit.entry)
+    await bumpMeta({
+      session_id: input.session_id,
+      entries: selected,
+      action: "select",
+      snapshot,
+    })
     if (input.pin !== false) {
       await pinEntries({
         session_id: input.session_id,
@@ -1468,6 +1635,10 @@ export namespace Memory {
       ...input,
       language: "stub-model" as Parameters<typeof generateObject>[0]["model"],
     })
+  }
+
+  export function metaKeyForTest(input: string) {
+    return metaKey(input)
   }
 
   export function format(events: Event[]) {

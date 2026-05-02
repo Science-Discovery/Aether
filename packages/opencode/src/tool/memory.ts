@@ -171,7 +171,7 @@ export const MemorySearchTool = Tool.define("memory_search", {
     "The pool is initialized from USER.md, recent daily memory, and current session short-term memory.",
     "This is the only supported tool for recalling Aether memory.",
     "Do not use read, glob, grep, bash, or other file tools to inspect Aether memory files.",
-    "Search accepts separated keywords; any keyword match is a candidate.",
+    "Search accepts phrases plus separated keywords; include related synonyms, Chinese/English terms, paths, tool names, API names, and error strings when useful.",
     "Hits are silently added to active memory and will remain injected for this session.",
   ].join("\n"),
   parameters: z.object({

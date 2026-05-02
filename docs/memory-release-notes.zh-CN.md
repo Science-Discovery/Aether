@@ -8,12 +8,14 @@
 - `memory_reflect` 调用 LLM，把 short-term memory 整理为 daily memory，并 patch `USER.md`。
 - 内置 daily reflection cron：`builtin-memory-reflection-daily`，默认每天 03:00 执行。
 - `USER.md` 与 daily memory 使用统一格式：`fact/preference/task[explicit/inferred]: ...`。
+- `USER.md` 继续作为人类可读真源；`memory/user/user-meta.json` 作为 sidecar metadata，用于记录 USER 条目的 selected/pin 使用反馈并改进 `<user_profile>` baseline 排序。
 - Settings > Memory 展示 L1 active memory、USER.md、最近 daily memory。
 
 ## 用户可见行为
 
 - 模型不会在新会话开始时收到完整长期记忆。
 - `memory_search` 命中后，对应条目会在当前 session 后续持续注入。
+- `memory_search` 命中 USER 条目时会记录选中反馈；只有默认 pin 后仍保留在 active state 的 USER 条目才记录 pin 反馈。
 - `memory_reload` 会刷新 L1/L2，适合用户手动编辑记忆文件后使用。
 - 每日 reflection 只处理当天产生或修改过的 short-term session memory；没有输入时跳过。
 - 总开关 `memory.enabled=false` 时，memory 工具、召回和内置 daily reflection cron 都被视为关闭。

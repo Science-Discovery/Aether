@@ -25,6 +25,35 @@ function todayKey() {
   return date.toISOString().slice(0, 10)
 }
 
+type Meta = Record<
+  string,
+  {
+    selected_count?: number
+    pin_count?: number
+    last_selected_at?: number
+    last_pin_at?: number
+    updated_at?: number
+    prompt_count?: number
+    breadth?: number
+  }
+>
+
+function metaFile() {
+  return path.join(Global.Path.data, "memory", "user", "user-meta.json")
+}
+
+async function writeMeta(meta: Meta) {
+  await Filesystem.write(metaFile(), JSON.stringify(meta, null, 2))
+}
+
+async function readMeta() {
+  return (await Bun.file(metaFile()).json()) as Meta
+}
+
+function section(text: string, name: string) {
+  return text.match(new RegExp(`<${name}>\\n([\\s\\S]*?)\\n</${name}>`))?.[1] ?? ""
+}
+
 function toolContext(input: { userText?: string } = {}) {
   return {
     sessionID: "ses_memory_guard",
@@ -481,6 +510,59 @@ describe("memory + user profile backend", () => {
     })
   })
 
+  test("memory_search matches Chinese n-gram query terms", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const file = `${(await Memory.read("memory")).file}/${todayKey()}/MEMORY.md`
+        await Filesystem.write(
+          file,
+          ["# MEMORY", "- preference[explicit]: 默认使用中文回答，先给结论再展开必要细节。"].join("\n"),
+        )
+
+        const hits = await Memory.search({
+          session_id: "search_chinese_ngrams",
+          query: "中文回答先结论",
+          pin: false,
+        })
+
+        expect(hits.some((hit) => hit.text.includes("先给结论"))).toBe(true)
+      },
+    })
+  })
+
+  test("memory_search ranks stronger relevance before weaker source priority", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const sessionID = "search_score_before_priority"
+        const file = `${(await Memory.read("memory")).file}/${todayKey()}/MEMORY.md`
+        await Filesystem.write(
+          file,
+          ["# MEMORY", "- fact[explicit]: Phoenix scheduler uses JSON cron plan routing."].join("\n"),
+        )
+        await Memory.write({
+          session_id: sessionID,
+          store: "memory",
+          action: "add",
+          value: "fact[explicit]: Phoenix short marker",
+          reason: "manual",
+        })
+
+        const hits = await Memory.search({
+          session_id: sessionID,
+          query: "Phoenix scheduler JSON cron",
+          pin: false,
+        })
+
+        expect(hits[0]?.text).toContain("scheduler uses JSON cron")
+        expect(hits[1]?.text).toContain("Phoenix short marker")
+      },
+    })
+  })
+
   test("USER profile baseline is injected without keyword search", async () => {
     await using tmp = await tmpdir({ git: true })
     await Instance.provide({
@@ -504,6 +586,154 @@ describe("memory + user profile backend", () => {
         expect(prompt.prompt).toContain("<user_profile>")
         expect(prompt.prompt).toContain("默认用中文回答")
         expect(prompt.prompt).not.toContain("Daily-only marker")
+      },
+    })
+  })
+
+  test("USER profile baseline keeps explicit then inferred file order without metadata", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        await writeMeta({})
+        const userFile = (await Memory.read("user")).file
+        await Filesystem.write(
+          userFile,
+          [
+            "# USER",
+            "- preference[explicit]: first explicit baseline marker",
+            "- fact[inferred]: inferred middle baseline marker",
+            "- task[explicit]: second explicit baseline marker",
+          ].join("\n"),
+        )
+
+        const prompt = await Memory.activePrompt({ session_id: "user_baseline_no_meta" })
+        const profile = section(prompt.prompt, "user_profile")
+
+        expect(profile.indexOf("first explicit")).toBeLessThan(profile.indexOf("second explicit"))
+        expect(profile.indexOf("second explicit")).toBeLessThan(profile.indexOf("inferred middle"))
+      },
+    })
+  })
+
+  test("USER profile baseline ranks later explicit entries with higher metadata", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const userFile = (await Memory.read("user")).file
+        const target = "preference[explicit]: sapphire baseline preference should outrank file order"
+        const entries = [
+          ...Array.from(
+            { length: 12 },
+            (_, idx) => `preference[explicit]: filler baseline marker ${String(idx + 1).padStart(2, "0")}`,
+          ),
+          target,
+        ]
+        await Filesystem.write(userFile, ["# USER", ...entries.map((entry) => `- ${entry}`)].join("\n"))
+        await writeMeta({
+          [Memory.metaKeyForTest(target)]: {
+            pin_count: 8,
+            selected_count: 3,
+            last_pin_at: Date.now(),
+            updated_at: Date.now(),
+          },
+        })
+
+        const prompt = await Memory.activePrompt({ session_id: "user_baseline_meta_rank" })
+        const profile = section(prompt.prompt, "user_profile")
+
+        expect(profile).toContain("sapphire baseline preference")
+      },
+    })
+  })
+
+  test("memory_search pins USER hits and refreshes same-session baseline metadata", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        await writeMeta({})
+        const userFile = (await Memory.read("user")).file
+        const target = "preference[explicit]: emerald same-session preference should surface after search"
+        const entries = [
+          ...Array.from(
+            { length: 12 },
+            (_, idx) => `preference[explicit]: same-session filler marker ${String(idx + 1).padStart(2, "0")}`,
+          ),
+          target,
+        ]
+        await Filesystem.write(userFile, ["# USER", ...entries.map((entry) => `- ${entry}`)].join("\n"))
+
+        const sessionID = "user_meta_search_pin"
+        let prompt = await Memory.activePrompt({ session_id: sessionID })
+        expect(section(prompt.prompt, "user_profile")).not.toContain("emerald same-session")
+
+        const hits = await Memory.search({ session_id: sessionID, query: "emerald same-session" })
+        expect(hits[0]?.text).toBe(target)
+
+        prompt = await Memory.activePrompt({ session_id: sessionID })
+        expect(section(prompt.prompt, "user_profile")).toContain("emerald same-session")
+
+        const meta = await readMeta()
+        const item = meta[Memory.metaKeyForTest(target)]
+        expect(item?.selected_count).toBe(1)
+        expect(item?.pin_count).toBe(1)
+        expect(typeof item?.last_selected_at).toBe("number")
+        expect(typeof item?.last_pin_at).toBe("number")
+      },
+    })
+  })
+
+  test("memory_search with pin false selects USER hits without pin count", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        await writeMeta({})
+        const userFile = (await Memory.read("user")).file
+        const target = "preference[explicit]: violet pin false preference marker"
+        await Filesystem.write(userFile, ["# USER", `- ${target}`].join("\n"))
+
+        const hits = await Memory.search({
+          session_id: "user_meta_pin_false",
+          query: "violet pin false",
+          pin: false,
+        })
+
+        expect(hits[0]?.text).toBe(target)
+        const item = (await readMeta())[Memory.metaKeyForTest(target)]
+        expect(item?.selected_count).toBe(1)
+        expect(item?.pin_count ?? 0).toBe(0)
+        expect(typeof item?.last_selected_at).toBe("number")
+        expect(item?.last_pin_at).toBeUndefined()
+      },
+    })
+  })
+
+  test("repeated activePrompt calls do not mutate USER metadata prompt count", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const userFile = (await Memory.read("user")).file
+        const target = "preference[explicit]: amber prompt count should stay diagnostic"
+        await Filesystem.write(userFile, ["# USER", `- ${target}`].join("\n"))
+        const before = {
+          [Memory.metaKeyForTest(target)]: {
+            selected_count: 2,
+            pin_count: 1,
+            prompt_count: 7,
+            last_pin_at: Date.now(),
+            updated_at: Date.now(),
+          },
+        }
+        await writeMeta(before)
+
+        await Memory.activePrompt({ session_id: "user_meta_prompt_count" })
+        await Memory.activePrompt({ session_id: "user_meta_prompt_count" })
+
+        expect(await readMeta()).toEqual(before)
       },
     })
   })
@@ -606,6 +836,7 @@ describe("memory + user profile backend", () => {
         expect(prompt.prompt.includes("memory_route")).toBe(false)
         expect(prompt.prompt.includes("Use memory_write")).toBe(true)
         expect(prompt.prompt.includes("Use memory_search")).toBe(true)
+        expect(prompt.prompt.includes("Chinese/English terms")).toBe(true)
         expect(prompt.prompt.includes("Use memory_reflect")).toBe(true)
         expect(prompt.prompt.includes("Priority order: current user instruction")).toBe(true)
       },
