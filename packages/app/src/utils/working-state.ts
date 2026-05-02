@@ -1,4 +1,4 @@
-import { createEffect, createMemo, createSignal, onCleanup } from "solid-js"
+import { createEffect, createMemo, createSignal } from "solid-js"
 import { makeTimer } from "@solid-primitives/timer"
 
 const GRACE_MS = 3000
@@ -27,7 +27,7 @@ export function createWorkingState(input: {
     }
   })
 
-  const working = createMemo(() => {
+  const visual = createMemo(() => {
     if (input.blocked?.()) return false
     const s = input.status()
     if (s?.type === "busy" || s?.type === "retry") return true
@@ -35,5 +35,10 @@ export function createWorkingState(input: {
     return false
   })
 
-  return { working, grace }
+  const interactive = createMemo(() => {
+    const s = input.status()
+    return s?.type === "busy" || s?.type === "retry"
+  })
+
+  return { visual, interactive, grace }
 }

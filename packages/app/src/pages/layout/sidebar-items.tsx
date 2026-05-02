@@ -339,7 +339,7 @@ export const SessionItem = (props: SessionItemProps): JSX.Element => {
           typeof (message as { time?: { completed?: unknown } }).time?.completed !== "number",
       ),
     blocked: hasPermissions,
-  }).working
+  }).visual
 
   const tint = createMemo(() => {
     return messageAgentColor(sessionStore.message[props.session.id], sessionStore.agent)
