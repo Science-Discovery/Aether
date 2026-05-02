@@ -717,9 +717,31 @@ export namespace Session {
         await SessionPreference.update({ sessionID: session.id, ...prefData })
       }
       const idMap = new Map<string, MessageID>()
+      const copyIDs = new Set<string>()
+      for (const msg of msgs) {
+        if (input.messageID && msg.info.id >= input.messageID) break
+        copyIDs.add(msg.info.id)
+      }
+      const completedCompactionTriggers = new Set<string>()
+      for (const msg of msgs) {
+        if (!copyIDs.has(msg.info.id)) continue
+        if (msg.info.role === "assistant" && msg.info.summary && msg.info.finish && !msg.info.error)
+          completedCompactionTriggers.add(msg.info.parentID)
+      }
+      const orphanedCompactionTriggers = new Set<string>()
+      for (const msg of msgs) {
+        if (!copyIDs.has(msg.info.id)) continue
+        if (
+          msg.info.role === "user" &&
+          msg.parts.some((part) => part.type === "compaction") &&
+          !completedCompactionTriggers.has(msg.info.id)
+        )
+          orphanedCompactionTriggers.add(msg.info.id)
+      }
 
       for (const msg of msgs) {
         if (input.messageID && msg.info.id >= input.messageID) break
+        if (orphanedCompactionTriggers.has(msg.info.id)) continue
         const newID = MessageID.ascending()
         idMap.set(msg.info.id, newID)
 
@@ -732,8 +754,16 @@ export namespace Session {
         })
 
         for (const part of msg.parts) {
+          const next =
+            part.type === "tool" && part.state.status === "completed" && part.state.time.compacted
+              ? (() => {
+                  const time = { ...part.state.time }
+                  delete time.compacted
+                  return { ...part, state: { ...part.state, time } }
+                })()
+              : part
           await updatePart({
-            ...part,
+            ...next,
             id: PartID.ascending(),
             messageID: cloned.id,
             sessionID: session.id,

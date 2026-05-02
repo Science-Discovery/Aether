@@ -158,6 +158,37 @@ export namespace SessionRevert {
         messageID: msg.info.id,
       })
     }
+    const completedCompactionTriggers = new Set<string>()
+    for (const msg of preserve) {
+      if (msg.info.role === "assistant" && msg.info.summary && msg.info.finish && !msg.info.error)
+        completedCompactionTriggers.add(msg.info.parentID)
+    }
+    const orphanedCompactionTriggers: MessageV2.WithParts[] = []
+    for (const msg of preserve) {
+      if (
+        msg.info.role === "user" &&
+        msg.parts.some((part) => part.type === "compaction") &&
+        !completedCompactionTriggers.has(msg.info.id)
+      )
+        orphanedCompactionTriggers.push(msg)
+    }
+    for (const msg of orphanedCompactionTriggers) {
+      preserve.splice(preserve.indexOf(msg), 1)
+      SyncEvent.run(MessageV2.Event.Removed, {
+        sessionID: sessionID,
+        messageID: msg.info.id,
+      })
+      if (msg === target) target = undefined
+    }
+    for (const msg of preserve) {
+      for (const part of msg.parts) {
+        if (part.type === "tool" && part.state.status === "completed" && part.state.time.compacted) {
+          const time = { ...part.state.time }
+          delete time.compacted
+          await Session.updatePart({ ...part, state: { ...part.state, time } })
+        }
+      }
+    }
     if (session.revert.partID && target) {
       const partID = session.revert.partID
       const removeStart = target.parts.findIndex((part) => part.id === partID)
