@@ -330,7 +330,7 @@ export const SessionItem = (props: SessionItemProps): JSX.Element => {
       return !permission.autoResponds(item, props.session.directory)
     })
   })
-  const isWorking = createWorkingState({
+  const selfWorking = createWorkingState({
     status: () => sessionStore.session_status[props.session.id],
     pending: () =>
       (sessionStore.message[props.session.id] ?? []).findLast(
@@ -339,7 +339,23 @@ export const SessionItem = (props: SessionItemProps): JSX.Element => {
           typeof (message as { time?: { completed?: unknown } }).time?.completed !== "number",
       ),
     blocked: hasPermissions,
-  }).working
+  }).visual
+  const childWorking = createMemo(() => {
+    const ids = props.children.get(props.session.id)
+    if (!ids?.length) return false
+    for (const id of ids) {
+      const status = sessionStore.session_status[id]
+      if (status?.type === "busy" || status?.type === "retry") return true
+      const pending = (sessionStore.message[id] ?? []).findLast(
+        (message) =>
+          message.role === "assistant" &&
+          typeof (message as { time?: { completed?: unknown } }).time?.completed !== "number",
+      )
+      if (pending) return true
+    }
+    return false
+  })
+  const isWorking = createMemo(() => selfWorking() || childWorking())
 
   const tint = createMemo(() => {
     return messageAgentColor(sessionStore.message[props.session.id], sessionStore.agent)

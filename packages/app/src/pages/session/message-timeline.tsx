@@ -1,4 +1,5 @@
 import { For, createEffect, createMemo, on, onCleanup, Show, Index, type JSX, createSignal } from "solid-js"
+import { createWorkingState } from "@/utils/working-state"
 import { createStore, produce, reconcile } from "solid-js/store"
 import { useNavigate } from "@solidjs/router"
 import { useMutation } from "@tanstack/solid-query"
@@ -31,7 +32,13 @@ import { useSettings } from "@/context/settings"
 import { useSDK } from "@/context/sdk"
 import { useSync } from "@/context/sync"
 import { messageAgentColor } from "@/utils/agent"
-import { formatReadingPageRange, parseCommentNote, readCommentMetadata, readReadingQuoteMetadata, type ReadingQuote } from "@/utils/comment-note"
+import {
+  formatReadingPageRange,
+  parseCommentNote,
+  readCommentMetadata,
+  readReadingQuoteMetadata,
+  type ReadingQuote,
+} from "@/utils/comment-note"
 import { makeTimer } from "@solid-primitives/timer"
 import { createChatFind, ChatFindBar } from "@/pages/session/chat-find"
 
@@ -297,7 +304,10 @@ export function MessageTimeline(props: {
     if (!id) return idle
     return sync.data.session_status[id] ?? idle
   })
-  const working = createMemo(() => !!pending() || sessionStatus().type !== "idle")
+  const { visual: working } = createWorkingState({
+    status: () => sessionStatus(),
+    pending: () => pending(),
+  })
   const tint = createMemo(() => messageAgentColor(sessionMessages(), sync.data.agent))
 
   const [timeoutDone, setTimeoutDone] = createSignal(true)
@@ -348,7 +358,9 @@ export function MessageTimeline(props: {
     const visible = new Set(rendered())
     const pending = new Set(
       sessionMessages()
-        .filter((item): item is AssistantMessage => item.role === "assistant" && typeof item.time.completed !== "number")
+        .filter(
+          (item): item is AssistantMessage => item.role === "assistant" && typeof item.time.completed !== "number",
+        )
         .map((item) => item.parentID)
         .filter((item): item is string => !!item),
     )
@@ -1197,7 +1209,10 @@ export function MessageTimeline(props: {
                                           }}
                                         >
                                           <div class="flex items-center gap-1.5 min-w-0 text-11-medium text-text-strong">
-                                            <FileIcon node={{ path: q().pdfFileName, type: "file" }} class="size-3.5 shrink-0" />
+                                            <FileIcon
+                                              node={{ path: q().pdfFileName, type: "file" }}
+                                              class="size-3.5 shrink-0"
+                                            />
                                             <span class="truncate">{q().pdfFileName}</span>
                                           </div>
                                           <div class="pt-1 text-11-medium text-text-weak">

@@ -114,7 +114,7 @@ export function createSessionComposerState(options?: { closeMs?: number | (() =>
     ),
   )
 
-  const { working: busy } = createWorkingState({ status: () => status(), pending: () => pending() })
+  const { visual: busy } = createWorkingState({ status: () => status(), pending: () => pending() })
   const live = createMemo(() => {
     if (test.on && test.live !== undefined) return test.live
     return busy() || blocked()

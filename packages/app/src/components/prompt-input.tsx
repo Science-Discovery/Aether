@@ -256,7 +256,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
       (msg) => msg.role === "assistant" && typeof msg.time.completed !== "number",
     ),
   )
-  const { working } = createWorkingState({ status: () => status(), pending: () => pending() })
+  const { interactive: working } = createWorkingState({ status: () => status(), pending: () => pending() })
   const tip = () => {
     if (working()) {
       return (
