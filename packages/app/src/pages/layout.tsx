@@ -1672,13 +1672,9 @@ export default function Layout(props: ParentProps) {
 
     globalSync.project.meta(project.worktree, { name })
 
-    if (project.id && !project.id.startsWith("dir:") && project.id !== "global") {
-      globalSDK.client.project.update({ projectID: project.id, directory: project.worktree, name }).catch(() => {})
-    } else {
-      globalSDK.client.project
-        .updateDirectoryMeta({ body_directory: project.worktree, name: name || undefined })
-        .catch(() => {})
-    }
+    globalSDK.client.project
+      .updateDirectoryMeta({ body_directory: project.worktree, name: name || undefined })
+      .catch(() => {})
   }
 
   const renameWorkspace = (directory: string, next: string, projectId?: string, branch?: string) => {

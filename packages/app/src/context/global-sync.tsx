@@ -477,7 +477,11 @@ function createGlobalSync() {
       return byDir().get(normalizeDir(directory))
     },
     recentFromDir(directory: string) {
-      return globalStore.recent.find((item) => normalizeDir(item.directory) === normalizeDir(directory))
+      const direct = globalStore.recent.find((item) => normalizeDir(item.directory) === normalizeDir(directory))
+      if (direct) return direct
+      const project = byDir().get(normalizeDir(directory))
+      if (project) return globalStore.recent.find((item) => item.projectID === project.id)
+      return undefined
     },
     upsert(next: Project) {
       setProjects((draft) => {

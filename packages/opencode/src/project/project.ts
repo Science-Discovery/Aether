@@ -162,9 +162,7 @@ export namespace Project {
       for (const sandbox of item.sandboxes) byDir.set(norm(sandbox), item)
     }
 
-    const recentRows = Database.use((d) =>
-      d.select().from(ProjectRecentTable).where(eq(ProjectRecentTable.kind, "directory")).all(),
-    )
+    const recentRows = Database.use((d) => d.select().from(ProjectRecentTable).all())
     const metaByDir = new Map<
       string,
       { name?: string; icon_url?: string | null; icon_color?: string | null; icon_override?: string | null }
@@ -185,7 +183,7 @@ export namespace Project {
       if (skipDir(row.directory) || !row.session_count) continue
       const known = byDir.get(norm(row.directory))
       if (known && known.id !== ProjectID.global) {
-        const key = projectKey(known.id)
+        const key = dirKey(norm(row.directory))
         const prev = map.get(key)
         const activity = Math.max(row.activity_at ?? 0, prev?.time?.activity ?? 0)
         const meta = metaByDir.get(norm(row.directory))
@@ -198,10 +196,10 @@ export namespace Project {
           id: key,
           kind: "project",
           projectID: known.id,
-          directory: known.worktree,
+          directory: row.directory,
           worktree: known.worktree,
           vcs: known.vcs,
-          name: known.name ?? name(known.worktree),
+          name: meta?.name ?? known.name ?? name(row.directory),
           icon,
           commands: known.commands,
           time: { activity, created: known.time.created, updated: known.time.updated },
@@ -364,9 +362,9 @@ export namespace Project {
       const touch = Effect.fn("Project.touch")(function* (input: { project: Info; directory: string }) {
         const now = Date.now()
         const isProject = input.project.id !== ProjectID.global && input.project.worktree !== "/"
-        const key = isProject ? projectKey(input.project.id) : dirKey(input.directory)
+        const key = dirKey(norm(input.directory))
         const kind = isProject ? "project" : "directory"
-        const directory = isProject ? input.project.worktree : input.directory
+        const directory = input.directory
 
         yield* db((d) =>
           d
@@ -557,18 +555,16 @@ export namespace Project {
           )
           if (recentRow) {
             const patch: Record<string, any> = {}
-            if (recentRow.name && !result.name) patch.name = recentRow.name
             if (recentRow.icon_url && !result.icon?.url) patch.icon_url = recentRow.icon_url
             if (recentRow.icon_color && !result.icon?.color) patch.icon_color = recentRow.icon_color
             if (Object.keys(patch).length) {
               yield* db((d) => d.update(ProjectTable).set(patch).where(eq(ProjectTable.id, data.id)).run())
-              result.name = patch.name ?? result.name
               result.icon = { url: patch.icon_url ?? result.icon?.url, color: patch.icon_color ?? result.icon?.color }
             }
             yield* db((d) =>
               d
                 .update(ProjectRecentTable)
-                .set({ name: null, icon_url: null, icon_color: null })
+                .set({ icon_url: null, icon_color: null })
                 .where(eq(ProjectRecentTable.key, recentKey))
                 .run(),
             )
