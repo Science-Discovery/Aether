@@ -12,6 +12,7 @@ import { Config } from "../config/config"
 import { Global } from "@/global"
 import { PROJECT } from "@/persist/naming"
 import { Filesystem } from "../util/filesystem"
+import { MCP } from "../mcp"
 
 async function getLastModel(sessionID: SessionID) {
   for await (const item of MessageV2.stream(sessionID)) {
@@ -30,6 +31,32 @@ function modeOutputDir(agentName: string, agentCfg: Config.Agent): string {
   return Instance.project.vcs
     ? path.join(PROJECT, dir)
     : path.relative(Instance.worktree, path.join(Global.Path.data, dir))
+}
+
+async function activateMcp(agentCfg: Config.Agent | undefined) {
+  if (!agentCfg?.mcp) return
+  for (const [name, enabled] of Object.entries(agentCfg.mcp)) {
+    if (!enabled) continue
+    try {
+      await MCP.connect(name)
+    } catch {
+      const { Log } = await import("../util/log")
+      Log.create({ service: "mode-switch" }).warn("failed to connect MCP", { name })
+    }
+  }
+}
+
+async function deactivateMcp(agentCfg: Config.Agent | undefined) {
+  if (!agentCfg?.mcp) return
+  for (const [name, enabled] of Object.entries(agentCfg.mcp)) {
+    if (!enabled) continue
+    try {
+      await MCP.disconnect(name)
+    } catch {
+      const { Log } = await import("../util/log")
+      Log.create({ service: "mode-switch" }).warn("failed to disconnect MCP", { name })
+    }
+  }
 }
 
 export function createModeEnterTool(agentName: string) {
@@ -60,6 +87,8 @@ export function createModeEnterTool(agentName: string) {
 
         const answer = answers[0]?.[0]
         if (answer === "No") throw new Question.RejectedError()
+
+        await activateMcp(cfg)
 
         const model = await getLastModel(ctx.sessionID)
         const session = await Session.get(ctx.sessionID)
@@ -147,6 +176,8 @@ export function createModeExitTool(agentName: string) {
 
         const chosen = exitOpts.find((opt) => opt.label === answer)
         if (!chosen) throw new Question.RejectedError()
+
+        await deactivateMcp(cfg)
 
         const model = await getLastModel(ctx.sessionID)
 
