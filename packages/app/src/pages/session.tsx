@@ -2055,6 +2055,11 @@ function SessionPageContent(props: SessionPageProps = {}) {
       return revertMutation.mutateAsync(input)
     }
 
+    if (busy(input.sessionID)) {
+      dialog.show(() => <DialogRevertConfirm reason="session-busy" onFork={() => fork(input)} />)
+      return
+    }
+
     return sdk.client.session
       .graph({ sessionID: input.sessionID })
       .then((result) => {

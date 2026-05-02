@@ -24,6 +24,10 @@ const reasonDescriptions: Record<RevertProtectionReason, { titleKey: string; des
     titleKey: "dialog.revert.protected.incompleteTurnInheritedPrefix.title",
     descKey: "dialog.revert.protected.incompleteTurnInheritedPrefix.description",
   },
+  "session-busy": {
+    titleKey: "dialog.revert.protected.sessionBusy.title",
+    descKey: "dialog.revert.protected.sessionBusy.description",
+  },
 }
 
 export const DialogRevertConfirm: Component<DialogRevertConfirmProps> = (props) => {
