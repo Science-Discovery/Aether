@@ -110,7 +110,7 @@ export function CodeEditor(props: {
       fontFamily: "var(--font-family-mono)",
       fontSize: "var(--font-size-small)",
       lineHeight: "24px",
-      padding: "0",
+      padding: "0 0 160px 0",
       caretColor: "var(--text-base)",
     },
     ".cm-scroller": {
@@ -140,13 +140,26 @@ export function CodeEditor(props: {
       fontFamily: "var(--font-family-mono)",
       fontSize: "var(--font-size-small)",
       lineHeight: "24px",
+      padding: "0 1ch !important",
     },
     ".cm-gutters": {
       backgroundColor: "var(--background-stronger)",
       color: "var(--text-weak)",
       fontFamily: "var(--font-family-mono)",
       fontSize: "var(--font-size-small)",
-      borderRight: "1px solid var(--border-base)",
+      borderRight: "none",
+    },
+    ".cm-gutterElement": {
+      padding: "0 1ch 0 2ch !important",
+      minWidth: "4ch !important",
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "flex-end",
+      boxSizing: "content-box",
+      borderRight: "2px solid transparent",
+    },
+    ".cm-foldGutter": {
+      display: "none !important",
     },
     ".cm-activeLineGutter": {
       backgroundColor: "var(--surface-base-hover)",
