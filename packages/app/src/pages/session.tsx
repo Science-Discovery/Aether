@@ -1,5 +1,6 @@
 import type { FileDiff, Project, UserMessage } from "@opencode-ai/sdk/v2"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
+import { DialogRevertConfirm } from "@/components/dialog-revert-confirm"
 import { useMutation } from "@tanstack/solid-query"
 import {
   batch,
@@ -51,6 +52,7 @@ import {
   createSessionTabs,
   createSizing,
   shouldProtectSessionRevert,
+  type RevertProtectionResult,
   type Sizing,
   focusTerminalById,
   shouldFocusTerminalOnKeyDown,
@@ -2056,16 +2058,23 @@ function SessionPageContent(props: SessionPageProps = {}) {
     return sdk.client.session
       .graph({ sessionID: input.sessionID })
       .then((result) => {
-        const protectedRevert = shouldProtectSessionRevert({
+        const protection: RevertProtectionResult = shouldProtectSessionRevert({
           session,
           messages: messages(),
           selectedMessageID: input.messageID,
           graph: result.data,
         })
-        if (protectedRevert) return fork(input)
-        return revertMutation.mutateAsync(input)
+        dialog.show(() => (
+          <DialogRevertConfirm
+            reason={protection.protected ? protection.reason : undefined}
+            onRevert={() => revertMutation.mutateAsync(input)}
+            onFork={() => fork(input)}
+          />
+        ))
       })
-      .catch(() => revertMutation.mutateAsync(input))
+      .catch(() => {
+        dialog.show(() => <DialogRevertConfirm onRevert={() => revertMutation.mutateAsync(input)} />)
+      })
   }
 
   const restore = (id: string) => {

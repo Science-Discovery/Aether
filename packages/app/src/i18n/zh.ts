@@ -348,6 +348,17 @@ export const dict = {
 
   "dialog.fork.empty": "没有可用于分叉的消息",
 
+  "dialog.revert.confirm.title": "确认重置到此位置？",
+  "dialog.revert.confirm.description": "将丢弃此位置之后的所有消息，并将文件恢复到较早的状态。此操作无法撤销。",
+  "dialog.revert.confirmAction": "重置",
+  "dialog.revert.forkAction": "分叉到新会话",
+  "dialog.revert.protected.inheritedPrefix.title": "无法重置到此位置",
+  "dialog.revert.protected.inheritedPrefix.description": "此消息属于父会话的对话历史。重置它会修改其他分支依赖的共享历史。可以从这里分叉，创建一个新分支。",
+  "dialog.revert.protected.descendantBranch.title": "无法重置到此位置",
+  "dialog.revert.protected.descendantBranch.description": "已有分支会话依赖此位置或之后的消息。重置会破坏该分支的连接。可以从这里分叉，创建一个新分支。",
+  "dialog.revert.protected.incompleteTurnInheritedPrefix.title": "无法重置到此位置",
+  "dialog.revert.protected.incompleteTurnInheritedPrefix.description": "助手尚未完成对此消息的回复，系统无法判断此轮次是否位于继承的对话历史内。为避免修改共享历史，建议分叉。可以从这里分叉，创建一个新分支。",
+
   "dialog.directory.search.placeholder": "搜索文件夹",
   "dialog.directory.empty": "该目录下无子文件夹",
   "dialog.directory.select": "选择文件夹",
