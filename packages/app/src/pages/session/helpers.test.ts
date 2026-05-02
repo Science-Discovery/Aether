@@ -318,7 +318,7 @@ describe("chat-tree revert protection helpers", () => {
         selectedMessageID: "u1",
         graph: payload,
       }),
-    ).toBe(true)
+    ).toEqual({ protected: true, reason: "inherited-prefix" })
     expect(
       shouldProtectSessionRevert({
         session: { id: "session-child", forkParentSessionID: "session-root" },
@@ -326,7 +326,7 @@ describe("chat-tree revert protection helpers", () => {
         selectedMessageID: "u3",
         graph: payload,
       }),
-    ).toBe(false)
+    ).toEqual({ protected: false })
   })
 
   test("protects root revert when a later branch already depends on it", () => {
@@ -361,7 +361,7 @@ describe("chat-tree revert protection helpers", () => {
         selectedMessageID: "u2",
         graph: payload,
       }),
-    ).toBe(true)
+    ).toEqual({ protected: true, reason: "descendant-branch" })
     expect(
       shouldProtectSessionRevert({
         session: { id: "session-root", forkParentSessionID: undefined },
@@ -369,6 +369,35 @@ describe("chat-tree revert protection helpers", () => {
         selectedMessageID: "u3",
         graph: payload,
       }),
-    ).toBe(false)
+    ).toEqual({ protected: false })
+  })
+
+  test("detects incomplete-turn-inherited-prefix protection", () => {
+    const inherited = [
+      user("u1", 1, "session-child"),
+      assistant("a1", "u1", 2, 3, "session-child"),
+      user("u2", 4, "session-child"),
+      assistant("a2", "u2", 5, 6, "session-child"),
+    ]
+    const ownIncomplete = [user("u3", 7, "session-child")]
+    const messages = [...inherited, ...ownIncomplete]
+    const payload = graph({
+      currentSessionID: "session-child",
+      pathNodeIDs: ["n1", "n2"],
+      nodes: [
+        { id: "n1", kind: "turn", sessionID: "session-root", lane: 0, row: 0, time: 1, label: "1", userMessageID: "root-1", origin: "tree" },
+        { id: "n2", kind: "turn", sessionID: "session-root", lane: 0, row: 1, time: 2, label: "2", userMessageID: "root-2", origin: "tree" },
+      ],
+      edges: [{ id: "n1->n2", from: "n1", to: "n2", kind: "continuation", style: "solid" }],
+    })
+
+    expect(
+      shouldProtectSessionRevert({
+        session: { id: "session-child", forkParentSessionID: "session-root" },
+        messages,
+        selectedMessageID: "u3",
+        graph: payload,
+      }),
+    ).toEqual({ protected: true, reason: "incomplete-turn-inherited-prefix" })
   })
 })

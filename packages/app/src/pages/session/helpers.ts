@@ -202,9 +202,7 @@ const isCompletedAssistantMessage = (message: Message): message is AssistantMess
   message.role === "assistant" && typeof message.time.completed === "number" && !message.error
 
 export const collectCompletedTurnUserMessageIDs = (messages: Message[]) => {
-  const completedParentIDs = new Set(
-    messages.filter(isCompletedAssistantMessage).map((message) => message.parentID),
-  )
+  const completedParentIDs = new Set(messages.filter(isCompletedAssistantMessage).map((message) => message.parentID))
   return messages
     .filter((message): message is Extract<Message, { role: "user" }> => message.role === "user")
     .filter((message) => completedParentIDs.has(message.id))
@@ -272,26 +270,50 @@ export const hasProtectedDescendantBranch = (input: {
   return false
 }
 
+export type RevertProtectionReason = "inherited-prefix" | "descendant-branch" | "incomplete-turn-inherited-prefix"
+
+export type RevertProtectionResult = { protected: false } | { protected: true; reason: RevertProtectionReason }
+
 export const shouldProtectSessionRevert = (input: {
   session: Pick<Session, "id" | "forkParentSessionID">
   messages: Message[]
   selectedMessageID: string
   graph?: SessionGraphResult
-}) => {
+}): RevertProtectionResult => {
   const targetTurnIndex = getSelectedTurnBoundaryIndex(input.messages, input.selectedMessageID)
-  if (!targetTurnIndex || !input.graph || input.graph.kind !== "graph") return false
+  if (!targetTurnIndex || !input.graph || input.graph.kind !== "graph") return { protected: false }
+
+  const isIncomplete = isIncompleteTurn(input.messages, input.selectedMessageID)
 
   if (input.session.forkParentSessionID) {
     const inheritedTurnCount = getInheritedTurnCount({
       sessionID: input.session.id,
       graph: input.graph,
     })
-    if (targetTurnIndex <= inheritedTurnCount) return true
+    if (targetTurnIndex <= inheritedTurnCount) {
+      const reason: RevertProtectionReason = isIncomplete ? "incomplete-turn-inherited-prefix" : "inherited-prefix"
+      return { protected: true, reason }
+    }
   }
 
-  return hasProtectedDescendantBranch({
-    sessionID: input.session.id,
-    graph: input.graph,
-    fromTurnIndex: targetTurnIndex,
-  })
+  if (
+    hasProtectedDescendantBranch({
+      sessionID: input.session.id,
+      graph: input.graph,
+      fromTurnIndex: targetTurnIndex,
+    })
+  ) {
+    return { protected: true, reason: "descendant-branch" }
+  }
+
+  return { protected: false }
+}
+
+const isIncompleteTurn = (messages: Message[], selectedMessageID: string) => {
+  const completed = new Set(collectCompletedTurnUserMessageIDs(messages))
+  for (const message of messages) {
+    if (message.role !== "user") continue
+    if (message.id === selectedMessageID) return !completed.has(message.id)
+  }
+  return false
 }
