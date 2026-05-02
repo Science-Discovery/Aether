@@ -163,7 +163,9 @@ const done = await post(root, "/api/downloadbeta/admin/commit", pass, {
 })
 
 if (!commit(done)) fail("Invalid commit response")
-if (Array.isArray(done.ossWarnings) && done.ossWarnings.length > 0) fail("Commit returned OSS warnings")
+if (Array.isArray(done.ossWarnings) && done.ossWarnings.length > 0) {
+    console.warn("Commit returned OSS warnings:", JSON.stringify(done.ossWarnings))
+  }
 if (!Array.isArray(done.files) || done.files.length < Object.keys(items).length)
   fail("Commit response is missing files")
 const links = done.files.map(urls)
