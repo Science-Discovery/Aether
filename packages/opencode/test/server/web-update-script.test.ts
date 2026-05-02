@@ -409,4 +409,40 @@ describe("web update scripts", () => {
     },
     { timeout: 30000 },
   )
+
+  windows(
+    "windows script fails mirror when current app location is unknown",
+    async () => {
+      const links = winLinks()
+      const prev = await stash(links)
+      try {
+        await using tmp = await tmpdir()
+        const work = path.join(tmp.path, "aether")
+        const dl = path.join(work, "downloads")
+        const src = path.join(tmp.path, "src-windows")
+        const out = path.join(dl, "aether-windows-x64-1.2.7.zip")
+        const script = path.join(dl, "update_windows.bat")
+
+        await fs.mkdir(dl, { recursive: true })
+        await winApp(src)
+        winZip(src, out)
+        await fs.copyFile(path.join(update, "update_windows.bat"), script)
+
+        const env = { ...process.env }
+        delete env.AETHER_CURRENT_DIR
+        delete env.AETHER_MIRROR_ROOT
+        const log = fail("cmd", ["/c", script, "1.2.7"], dl, env)
+        const text = `${log.stdout}${log.stderr}`
+
+        expect(log.status).not.toBe(0)
+        expect(text).toContain("Failed to mirror the new version near the current app")
+        expect(text).toContain("Update failed.")
+        expect(await Bun.file(path.join(work, "aether_1.2.7", "Aether.vbs")).exists()).toBe(true)
+        expect((await dirs(work)).some((x) => /^aether_1\.2\.7_\d{12}$/.test(x))).toBe(false)
+      } finally {
+        await restore(prev)
+      }
+    },
+    { timeout: 30000 },
+  )
 })

@@ -129,7 +129,8 @@ call :in_work "%WORK%"
 if errorlevel 1 (
   call :mirror || (
     set "MSG=!COPY_NOTE!"
-    if not defined MSG set "MSG=Failed to mirror the new version near %AETHER_CURRENT_DIR%"
+    if not defined MSG if defined AETHER_CURRENT_DIR set "MSG=Failed to mirror the new version near %AETHER_CURRENT_DIR%"
+    if not defined MSG set "MSG=Failed to mirror the new version near the current app"
     call :write_result "failed" "mirror" "!MSG!"
     echo !MSG!
     goto :fail
@@ -200,6 +201,10 @@ if not defined AETHER_CURRENT_DIR exit /b 1
 for %%i in ("%AETHER_CURRENT_DIR%\..") do set "MROOT=%%~fi"
 :mirror_have_root
 if not defined MROOT exit /b 1
+if not exist "%MROOT%" mkdir "%MROOT%" >nul 2>nul || (
+  set "COPY_NOTE=Warning: failed to prepare mirror root %MROOT%"
+  exit /b 1
+)
 set "MIRROR=%MROOT%\aether_%VER%"
 if exist "%MIRROR%" call :stamp TS & set "MIRROR=%MROOT%\aether_%VER%_!TS!"
 set "MCOPY=%MIRROR%.copy"
@@ -301,8 +306,10 @@ if not defined PRUNE set "PRUNE=0"
 exit /b 0
 
 :prune_mirror
+if defined AETHER_MIRROR_ROOT set "PROOT=%AETHER_MIRROR_ROOT%" & goto prune_mirror_have_root
 if not defined AETHER_CURRENT_DIR exit /b 0
 for %%i in ("%AETHER_CURRENT_DIR%\..") do set "PROOT=%%~fi"
+:prune_mirror_have_root
 if not defined PROOT exit /b 0
 for /f "usebackq delims=" %%i in (`powershell -NoProfile -Command "& { $root=$env:PROOT; $keep=5; $hold=''; if($env:MIRROR){ $hold=[IO.Path]::GetFullPath($env:MIRROR) }; $items=Get-ChildItem -Path $root -Directory -Filter 'aether_*' -ErrorAction SilentlyContinue | ForEach-Object { $ver=''; if(Test-Path (Join-Path $_.FullName '.aether_web_version')){ $ver=(Get-Content (Join-Path $_.FullName '.aether_web_version') -TotalCount 1).Trim() }; if(-not $ver -and $_.Name -match '^aether[-_]([0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z]+)*)($|_[0-9]{12}$)'){ $ver=$matches[1] }; if($ver){ [PSCustomObject]@{ Dir=$_.FullName; Ver=$ver } } } | Where-Object { $_ } | Sort-Object @{Expression={ [version](($_.Ver -replace '^v','').Split('-')[0]) }} -Descending; $keepers=New-Object System.Collections.Generic.List[string]; foreach($dir in @($hold)){ if($dir -and ($items | Where-Object { $_.Dir -eq $dir }) -and -not $keepers.Contains($dir)){ $keepers.Add($dir) } }; foreach($item in $items){ if($keepers.Count -ge $keep){ break }; if(-not $keepers.Contains($item.Dir)){ $keepers.Add($item.Dir) } }; $gone=0; foreach($item in $items){ if($keepers.Contains($item.Dir)){ continue }; Remove-Item $item.Dir -Recurse -Force -ErrorAction SilentlyContinue; if(-not (Test-Path $item.Dir)){ $gone++ } }; Write-Output $gone }"`) do set "MPRUNE=%%i"
 if not defined MPRUNE set "MPRUNE=0"
