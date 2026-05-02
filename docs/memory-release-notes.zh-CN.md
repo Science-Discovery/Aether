@@ -8,6 +8,7 @@
 - `memory_reflect` 调用 LLM，把 short-term memory 与 pending inbox 整理为 daily memory，并 patch `USER.md`；提示词和本地后处理都会压制重复和冲突画像。
 - 内置 daily reflection cron：`builtin-memory-reflection-daily`，默认每天 03:00 执行；如果 Aether 错过预定时间，下一次启动会后台补执行 overdue 的内置 reflection。
 - `USER.md` 与 daily memory 使用统一格式：`kind[source]: content`，其中 `kind=fact|preference|task`，`source=explicit|inferred`（daily 仅 explicit）。
+- `USER.md` 继续作为人类可读真源；`memory/user/user-meta.json` 作为 sidecar metadata，用于记录 USER 条目的 selected/pin 使用反馈并改进 `<user_profile>` baseline 排序。
 - scoped 条目使用实际格式 `kind[source]: scope(...): content`。
 - 条目支持 `scope(global)`、`scope(project-...)`、`scope(workspace-...)`、`scope(session-...)`，用于隔离项目/会话特定偏好。
 - Settings > Memory 展示 L1 active memory、pending inbox、USER.md、最近 daily memory。
@@ -18,6 +19,7 @@
 - 模型不会在新会话开始时收到完整长期记忆。
 - `memory_search` 命中后，对应条目会在当前 session 后续持续注入。
 - 新 session 可以搜索到 pending inbox 中尚未 reflection 的耐久倾向条目。
+- `memory_search` 命中 USER 条目时会记录选中反馈；只有默认 pin 后仍保留在 active state 的 USER 条目才记录 pin 反馈。
 - `memory_reload` 会刷新 L1/L2，适合用户手动编辑记忆文件后使用。
 - `memory_read` / `memory_list` 仅用于显式记忆管理；普通召回应通过 `memory_search` 完成，agent 不应 glob/read 整个记忆目录。
 - 每日 reflection 处理当天产生或修改过的 short-term session memory，以及 pending inbox；两者都没有输入时跳过。
