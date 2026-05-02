@@ -8,9 +8,9 @@
 
 These files are project-local working records for the Aether memory-system redesign. They are local-only by default and should not be pushed unless the user explicitly asks.
 
-- For recent memory-system changes, read `memory-improvement-log.zh-CN.md` first; `memory-improvement-log.en.md` is the English companion for AI handoff.
-- For unresolved memory-system questions, read `memory-open-questions.zh-CN.md` first; `memory-open-questions.en.md` is the English companion.
-- For implementation handoff batches, read `memory-work/README.zh-CN.md` or `memory-work/README.en.md`, then open the relevant timestamped subdirectory under `memory-work/`.
+- If present, for recent memory-system changes, read `memory-improvement-log.zh-CN.md` first; `memory-improvement-log.en.md` is the English companion for AI handoff.
+- If present, for unresolved memory-system questions, read `memory-open-questions.zh-CN.md` first; `memory-open-questions.en.md` is the English companion.
+- If present, for implementation handoff batches, read `memory-work/README.zh-CN.md` or `memory-work/README.en.md`, then open the relevant timestamped subdirectory under `memory-work/`.
 - Do not duplicate cross-batch overview files inside `memory-work/`; root-level `memory-improvement-log.*.md` and `memory-open-questions.*.md` are the overview layer.
 - When the user asks what can be handled next, inspect `memory-open-questions.zh-CN.md` and the latest `memory-work/*/open-questions.zh-CN.md` files.
 - When the user asks what changed recently, inspect `memory-improvement-log.zh-CN.md` and the latest relevant `memory-work/*/implementation.zh-CN.md` files.

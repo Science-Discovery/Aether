@@ -49,6 +49,7 @@ const UserMetaSchema = z
   })
   .passthrough()
 const UserMetaMapSchema = z.record(z.string(), UserMetaSchema)
+let metaQueue: Promise<void> = Promise.resolve()
 
 type MemoryKind = "fact" | "preference" | "task"
 type MemorySource = "explicit" | "inferred"
@@ -201,9 +202,14 @@ function metaKey(input: string) {
 
 async function loadMeta(): Promise<UserMetaMap> {
   const data = await Filesystem.readJson<unknown>(metaPath()).catch(() => undefined)
-  const parsed = UserMetaMapSchema.safeParse(data)
-  if (!parsed.success) return {}
-  return parsed.data
+  if (!data || typeof data !== "object" || Array.isArray(data)) return {}
+  return Object.fromEntries(
+    Object.entries(data).flatMap(([key, value]) => {
+      const parsed = UserMetaSchema.safeParse(value)
+      if (!parsed.success) return []
+      return [[key, parsed.data]]
+    }),
+  )
 }
 
 async function saveMeta(meta: UserMetaMap, entries: string[]) {
@@ -211,6 +217,12 @@ async function saveMeta(meta: UserMetaMap, entries: string[]) {
   const next = Object.fromEntries(Object.entries(meta).filter(([key]) => keys.has(key)))
   await Filesystem.writeJson(metaPath(), next)
   return next
+}
+
+async function editMeta(fn: () => Promise<void>) {
+  const task = metaQueue.then(fn, fn)
+  metaQueue = task.catch(() => {})
+  await task
 }
 
 function attachMeta(snapshot: Memory.PreparedSnapshot, meta: UserMetaMap) {
@@ -989,31 +1001,33 @@ export namespace Memory {
   }) {
     const entries = input.entries.filter((entry) => entry.source === "user")
     if (!entries.length) return
-    const snapshot = input.snapshot ?? (await prepare({ session_id: input.session_id }))
-    const meta = await loadMeta()
-    const now = Date.now()
-    const seen = new Set<string>()
-    for (const entry of entries) {
-      const key = metaKey(entry.text)
-      if (seen.has(key)) continue
-      seen.add(key)
-      const prev = meta[key] ?? {}
-      meta[key] =
-        input.action === "select"
-          ? {
-              ...prev,
-              selected_count: (prev.selected_count ?? 0) + 1,
-              last_selected_at: now,
-              updated_at: now,
-            }
-          : {
-              ...prev,
-              pin_count: (prev.pin_count ?? 0) + 1,
-              last_pin_at: now,
-              updated_at: now,
-            }
-    }
-    await refreshMeta(input.session_id, await saveMeta(meta, snapshot.user))
+    await editMeta(async () => {
+      const snapshot = input.snapshot ?? (await prepare({ session_id: input.session_id }))
+      const meta = await loadMeta()
+      const now = Date.now()
+      const seen = new Set<string>()
+      for (const entry of entries) {
+        const key = metaKey(entry.text)
+        if (seen.has(key)) continue
+        seen.add(key)
+        const prev = meta[key] ?? {}
+        meta[key] =
+          input.action === "select"
+            ? {
+                ...prev,
+                selected_count: (prev.selected_count ?? 0) + 1,
+                last_selected_at: now,
+                updated_at: now,
+              }
+            : {
+                ...prev,
+                pin_count: (prev.pin_count ?? 0) + 1,
+                last_pin_at: now,
+                updated_at: now,
+              }
+      }
+      await refreshMeta(input.session_id, await saveMeta(meta, snapshot.user))
+    }).catch(() => {})
   }
 
   async function pinEntries(input: {
