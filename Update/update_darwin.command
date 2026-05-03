@@ -287,6 +287,18 @@ build_app() {
 set -euo pipefail
 
 cmd="$cmd"
+portfile="\$HOME/Library/Application Support/aether/serve-port"
+port=""
+if [ -f "\$portfile" ]; then
+  port="\$(head -1 "\$portfile" 2>/dev/null || true)"
+fi
+if [ -n "\$port" ]; then
+  if curl -s -o /dev/null --max-time 2 "http://127.0.0.1:\$port/" >/dev/null 2>&1; then
+    open "http://127.0.0.1:\$port/"
+    exit 0
+  fi
+fi
+
 if [ -x "\$cmd" ]; then
   if open "\$cmd"; then
     exit 0
@@ -325,6 +337,17 @@ EOF
   <string>Aether</string>
   <key>LSMinimumSystemVersion</key>
   <string>11.0</string>
+  <key>CFBundleURLTypes</key>
+  <array>
+    <dict>
+      <key>CFBundleURLName</key>
+      <string>Aether</string>
+      <key>CFBundleURLSchemes</key>
+      <array>
+        <string>aether</string>
+      </array>
+    </dict>
+  </array>
 </dict>
 </plist>
 EOF

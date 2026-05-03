@@ -141,6 +141,7 @@ if defined MIRROR set "START=%MIRROR%"
 if defined MIRROR call :prune_mirror
 if not defined START set "START=%TARGET%"
 call :write_launch "%START%"
+call :register_protocol "%START%"
 
 if "%RESTART%"=="1" call :restart
 
@@ -306,4 +307,11 @@ for %%i in ("%AETHER_CURRENT_DIR%\..") do set "PROOT=%%~fi"
 if not defined PROOT exit /b 0
 for /f "usebackq delims=" %%i in (`powershell -NoProfile -Command "& { $root=$env:PROOT; $keep=5; $hold=''; if($env:MIRROR){ $hold=[IO.Path]::GetFullPath($env:MIRROR) }; $items=Get-ChildItem -Path $root -Directory -Filter 'aether_*' -ErrorAction SilentlyContinue | ForEach-Object { $ver=''; if(Test-Path (Join-Path $_.FullName '.aether_web_version')){ $ver=(Get-Content (Join-Path $_.FullName '.aether_web_version') -TotalCount 1).Trim() }; if(-not $ver -and $_.Name -match '^aether[-_]([0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z]+)*)($|_[0-9]{12}$)'){ $ver=$matches[1] }; if($ver){ [PSCustomObject]@{ Dir=$_.FullName; Ver=$ver } } } | Where-Object { $_ } | Sort-Object @{Expression={ [version](($_.Ver -replace '^v','').Split('-')[0]) }} -Descending; $keepers=New-Object System.Collections.Generic.List[string]; foreach($dir in @($hold)){ if($dir -and ($items | Where-Object { $_.Dir -eq $dir }) -and -not $keepers.Contains($dir)){ $keepers.Add($dir) } }; foreach($item in $items){ if($keepers.Count -ge $keep){ break }; if(-not $keepers.Contains($item.Dir)){ $keepers.Add($item.Dir) } }; $gone=0; foreach($item in $items){ if($keepers.Contains($item.Dir)){ continue }; Remove-Item $item.Dir -Recurse -Force -ErrorAction SilentlyContinue; if(-not (Test-Path $item.Dir)){ $gone++ } }; Write-Output $gone }"`) do set "MPRUNE=%%i"
 if not defined MPRUNE set "MPRUNE=0"
+exit /b 0
+
+:register_protocol
+set "PROT_DIR=%~1"
+set "PROT_HANDLER=%PROT_DIR%\aether-protocol-handler.vbs"
+if not exist "%PROT_HANDLER%" exit /b 0
+powershell -NoProfile -Command "& { $hkcu='HKCU:\Software\Classes\aether'; $handler=$env:PROT_HANDLER; if(-not (Test-Path $hkcu)){ New-Item -Path $hkcu -Force | Out-Null }; Set-ItemProperty -Path $hkcu -Name '(Default)' -Value 'URL:Aether Protocol' -Force; Set-ItemProperty -Path $hkcu -Name 'URL Protocol' -Value '' -Force; $cmd=$hkcu+'\shell\open\command'; if(-not (Test-Path $cmd)){ New-Item -Path $cmd -Force | Out-Null }; Set-ItemProperty -Path $cmd -Name '(Default)' -Value ('wscript.exe \"' + $handler + '\"') -Force }" >nul 2>nul
 exit /b 0
