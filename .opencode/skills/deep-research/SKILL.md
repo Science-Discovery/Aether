@@ -9,6 +9,7 @@ license: MIT
 metadata:
   author: awesome-llm-apps
   version: "1.0.0"
+category: "Research"
 ---
 
 # Deep Research

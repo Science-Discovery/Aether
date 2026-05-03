@@ -1,6 +1,7 @@
 ---
 name: skill-manager
 description: Scan, classify, analyze, and manage AgentSkills in a directory. Use when the user asks to scan skills, list skills, classify skills by function, analyze skill dependencies, generate skill reports, find duplicate skills, get skill recommendations, or manage a collection of skills. Triggers on phrases like "scan my skills", "analyze skills folder", "list all skills", "generate skill report", "what skills do I have", "skill inventory", "skill catalog".
+category: "Skills"
 ---
 
 # Skill Manager

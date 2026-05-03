@@ -324,6 +324,11 @@ export function getToolInfo(tool: string, input: any = {}): ToolInfo {
         icon: "brain",
         title: input.name || i18n.t("ui.tool.skill"),
       }
+    case "skill_manage":
+      return {
+        icon: "brain",
+        title: (input.action ? `${input.action}: ` : "") + (input.name || "skill_manage"),
+      }
     default:
       return {
         icon: "mcp",
@@ -581,17 +586,14 @@ export function AssistantParts(props: {
   )
 
   const grouped = createMemo(
-    () =>
-      groupParts(
-        props.messages.flatMap((message) =>
-          list(data.store.part?.[message.id], emptyParts)
-            .filter((part) => renderable(part, props.showReasoningSummaries ?? true))
-            .map((part) => ({
-              messageID: message.id,
-              part,
-            })),
-        ),
-      ),
+    () => {
+      const allParts = props.messages.flatMap((message) => {
+        const parts = list(data.store.part?.[message.id], emptyParts)
+        const kept = parts.filter((part) => renderable(part, props.showReasoningSummaries ?? true))
+        return kept.map((part) => ({ messageID: message.id, part }))
+      })
+      return groupParts(allParts)
+    },
     [] as PartGroup[],
     { equals: sameGroups },
   )
@@ -987,12 +989,16 @@ export function UserMessageDisplay(props: {
 
   const textPart = createMemo(
     () =>
-      props.parts?.find(
-        (p) =>
-          p.type === "text" &&
-          !(p as TextPart).synthetic &&
-          !((p as TextPart).metadata as Record<string, unknown>)?.steer,
-      ) as TextPart | undefined,
+      props.parts?.find((p) => {
+        if (p.type !== "text") return false
+        const part = p as TextPart
+        if (part.synthetic) {
+          const meta = part.metadata as Record<string, unknown> | undefined
+          return meta?.kind === "skill-refresh"
+        }
+        const meta = part.metadata as Record<string, unknown> | undefined
+        return !meta?.steer
+      }) as TextPart | undefined,
   )
 
   const steerParts = createMemo(
@@ -1002,8 +1008,6 @@ export function UserMessageDisplay(props: {
       ) as TextPart[]) ?? [],
   )
 
-  const text = createMemo(() => textPart()?.text || "")
-
   const files = createMemo(() => (props.parts?.filter((p) => p.type === "file") as FilePart[]) ?? [])
 
   const attachments = createMemo(() => files().filter(attached))
@@ -1011,6 +1015,20 @@ export function UserMessageDisplay(props: {
   const inlineFiles = createMemo(() => files().filter(inline))
 
   const agents = createMemo(() => (props.parts?.filter((p) => p.type === "agent") as AgentPart[]) ?? [])
+
+  const refresh = createMemo(() => {
+    const part = textPart()
+    if (!part?.synthetic) return
+    const meta = part.metadata as Record<string, unknown> | undefined
+    if (meta?.kind !== "skill-refresh") return
+    if (!Array.isArray(meta.names)) return [] as string[]
+    return meta.names.filter((x): x is string => typeof x === "string" && x.length > 0)
+  })
+
+  const text = createMemo(() => {
+    if (refresh()) return ""
+    return textPart()?.text || ""
+  })
 
   const model = createMemo(() => {
     const providerID = props.message.model?.providerID
@@ -1071,6 +1089,17 @@ export function UserMessageDisplay(props: {
 
   return (
     <div data-component="user-message">
+      <Show when={refresh()}>
+        <BasicTool
+          icon="brain"
+          status="completed"
+          trigger={{
+            title: "Skill content updated",
+            subtitle: refresh()!.length > 0 ? refresh()!.join(", ") : undefined,
+          }}
+          hideDetails
+        />
+      </Show>
       <Show when={attachments().length > 0}>
         <div data-slot="user-message-attachments">
           <For each={attachments()}>
@@ -1495,6 +1524,7 @@ PART_MAPPING["text"] = function TextPartDisplay(props) {
     return last?.id === part().id
   })
   const showCopy = createMemo(() => {
+    if (part().metadata?.kind === "skill-refresh") return false
     if (props.message.role !== "assistant") return isLastTextPart()
     if (props.showAssistantCopyPartID === null) return false
     if (typeof props.showAssistantCopyPartID === "string") return props.showAssistantCopyPartID === part().id
@@ -1511,6 +1541,27 @@ PART_MAPPING["text"] = function TextPartDisplay(props) {
     await navigator.clipboard.writeText(content)
     setCopied(true)
     setTimeout(() => setCopied(false), 2000)
+  }
+
+  const patch = createMemo(() => {
+    const meta = part().metadata as Record<string, unknown> | undefined
+    if (meta?.kind !== "skill-refresh") return
+    if (!Array.isArray(meta.names)) return [] as string[]
+    return meta.names.filter((x): x is string => typeof x === "string" && x.length > 0)
+  })
+
+  if (patch()) {
+    return (
+      <BasicTool
+        icon="brain"
+        status="completed"
+        trigger={{
+          title: "Skill content updated",
+          subtitle: patch()!.length > 0 ? patch()!.join(", ") : undefined,
+        }}
+        hideDetails
+      />
+    )
   }
 
   return (
@@ -2361,6 +2412,68 @@ ToolRegistry.register({
     const running = createMemo(() => props.status === "pending" || props.status === "running")
 
     const titleContent = () => <TextShimmer text={title()} active={running()} />
+
+    const trigger = () => (
+      <div data-slot="basic-tool-tool-info-structured">
+        <div data-slot="basic-tool-tool-info-main">
+          <span data-slot="basic-tool-tool-title" class="capitalize agent-title">
+            {titleContent()}
+          </span>
+        </div>
+      </div>
+    )
+
+    return <BasicTool icon="brain" status={props.status} trigger={trigger()} hideDetails />
+  },
+})
+
+ToolRegistry.register({
+  name: "skill_manage",
+  render(props) {
+    const action = createMemo(() => props.input.action || "")
+    const name = createMemo(() => props.input.name || "skill_manage")
+    const running = createMemo(() => props.status === "pending" || props.status === "running")
+    const isEvolution = createMemo(
+      () =>
+        action() === "create" ||
+        action() === "edit" ||
+        action() === "patch" ||
+        action() === "write_file" ||
+        action() === "remove_file",
+    )
+
+    let seenRunning = props.status === "pending" || props.status === "running"
+    const [keepShimmer, setKeepShimmer] = createSignal(false)
+    let shimmerTimer: ReturnType<typeof setTimeout> | undefined
+    createEffect(() => {
+      if (running()) {
+        clearTimeout(shimmerTimer)
+        seenRunning = true
+        if (isEvolution()) {
+          setKeepShimmer(true)
+        } else {
+          setKeepShimmer(false)
+        }
+      } else if (seenRunning) {
+        seenRunning = false
+        if (isEvolution()) {
+          setKeepShimmer(true)
+          clearTimeout(shimmerTimer)
+          shimmerTimer = setTimeout(() => setKeepShimmer(false), 1500)
+        } else {
+          setKeepShimmer(false)
+        }
+      }
+    })
+    onCleanup(() => clearTimeout(shimmerTimer))
+
+    const title = createMemo(() => (action() ? `${action()}: ${name()}` : name()))
+    const titleContent = createMemo(() => {
+      if (keepShimmer() || isEvolution()) {
+        return <ToolStatusTitle active={keepShimmer()} activeText="Skill Evolution" doneText={title()} />
+      }
+      return <TextShimmer text={title()} active={false} />
+    })
 
     const trigger = () => (
       <div data-slot="basic-tool-tool-info-structured">

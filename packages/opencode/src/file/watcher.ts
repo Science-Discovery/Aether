@@ -2,7 +2,8 @@ import { Cause, Effect, Layer, Scope, ServiceMap } from "effect"
 // @ts-ignore
 import { createWrapper } from "@parcel/watcher/wrapper"
 import type ParcelWatcher from "@parcel/watcher"
-import { readdir } from "fs/promises"
+import { watch as fsWatch } from "fs"
+import { readdir, stat } from "fs/promises"
 import path from "path"
 import z from "zod"
 import { Bus } from "@/bus"
@@ -23,6 +24,7 @@ declare const OPENCODE_LIBC: string | undefined
 export namespace FileWatcher {
   const log = Log.create({ service: "file.watcher" })
   const SUBSCRIBE_TIMEOUT_MS = 10_000
+  const WATCH_POLL = 1500
   const LINUX_DIR_LIMIT = 4096
   const LINUX_SCAN_TIMEOUT_MS = 2_000
 
@@ -52,7 +54,10 @@ export namespace FileWatcher {
       typeof report === "object" && report && "header" in report && typeof report.header === "object" && report.header
         ? report.header
         : undefined
-    return typeof header === "object" && header && "glibcVersionRuntime" in header && typeof header.glibcVersionRuntime === "string"
+    return typeof header === "object" &&
+      header &&
+      "glibcVersionRuntime" in header &&
+      typeof header.glibcVersionRuntime === "string"
       ? "glibc"
       : "musl"
   }
@@ -97,6 +102,30 @@ export namespace FileWatcher {
     if (process.platform === "win32") return "windows"
     if (process.platform === "darwin") return "fs-events"
     if (process.platform === "linux") return "inotify"
+  }
+
+  function withSlash(value: string) {
+    return value.replace(/\\/g, "/")
+  }
+
+  function ignored(file: string, root: string, ignore: string[]) {
+    const rel = withSlash(path.relative(root, file))
+    if (!rel || rel.startsWith("..") || path.isAbsolute(rel)) return false
+    for (const item of ignore) {
+      const cur = withSlash(item)
+      if (cur.startsWith("**/")) {
+        const cut = cur.slice(3)
+        if (rel === cut || rel.startsWith(`${cut}/`) || rel.includes(`/${cut}/`)) return true
+        continue
+      }
+      if (cur.endsWith("/**")) {
+        const cut = cur.slice(0, -3)
+        if (rel === cut || rel.startsWith(`${cut}/`)) return true
+        continue
+      }
+      if (rel === cur || rel.startsWith(`${cur}/`)) return true
+    }
+    return false
   }
 
   function protecteds(dir: string) {
@@ -186,10 +215,11 @@ export namespace FileWatcher {
               return
             }
 
-            const w = watcher()
-            if (!w) return
-
-            log.info("watcher backend", { directory: Instance.directory, platform: process.platform, backend })
+            log.info("watcher chain", {
+              directory: Instance.directory,
+              platform: process.platform,
+              chain: "parcel->poll",
+            })
 
             const subs: ParcelWatcher.AsyncSubscription[] = []
             yield* Effect.addFinalizer(() =>
@@ -208,11 +238,71 @@ export namespace FileWatcher {
               }
             })
 
+            const scan = async (root: string, ignore: string[]) => {
+              const next = new Map<string, string>()
+              const walk = async (dir: string): Promise<void> => {
+                const list = await readdir(dir, { withFileTypes: true }).catch(() => [])
+                await Promise.all(
+                  list.map(async (item) => {
+                    const file = path.join(dir, item.name)
+                    if (ignored(file, root, ignore)) return
+                    if (item.isDirectory()) {
+                      await walk(file)
+                      return
+                    }
+                    if (!item.isFile()) return
+                    const info = await stat(file).catch(() => undefined)
+                    if (!info) return
+                    next.set(file, `${Math.round(info.mtimeMs)}:${info.size}`)
+                  }),
+                )
+              }
+              await walk(root)
+              return next
+            }
+
+            const poll = (root: string, ignore: string[]) =>
+              Effect.gen(function* () {
+                let prev = yield* Effect.promise(() => scan(root, ignore))
+                let busy = false
+                const id = setInterval(() => {
+                  if (busy) return
+                  busy = true
+                  void (async () => {
+                    try {
+                      const next = await scan(root, ignore)
+                      for (const [file, cur] of next) {
+                        const old = prev.get(file)
+                        if (!old) {
+                          Bus.publish(Event.Updated, { file, event: "add" })
+                          continue
+                        }
+                        if (old !== cur) Bus.publish(Event.Updated, { file, event: "change" })
+                      }
+                      for (const file of prev.keys()) {
+                        if (!next.has(file)) Bus.publish(Event.Updated, { file, event: "unlink" })
+                      }
+                      prev = next
+                    } finally {
+                      busy = false
+                    }
+                  })()
+                }, WATCH_POLL)
+                yield* Effect.addFinalizer(() =>
+                  Effect.sync(() => {
+                    clearInterval(id)
+                  }),
+                )
+              })
+
             const subscribe = (dir: string, ignore: string[]) => {
+              const w = watcher()
+              if (!w) return Effect.succeed(false)
               const pending = w.subscribe(dir, cb, { ignore, backend })
               return Effect.gen(function* () {
                 const sub = yield* Effect.promise(() => pending)
                 subs.push(sub)
+                return true
               }).pipe(
                 Effect.timeout(SUBSCRIBE_TIMEOUT_MS),
                 Effect.catchCause((cause) => {
@@ -228,23 +318,72 @@ export namespace FileWatcher {
                     cause: Cause.pretty(cause),
                   })
                   pending.then((s) => s.unsubscribe()).catch(() => {})
-                  return Effect.void
+                  return Effect.succeed(false)
                 }),
               )
             }
+
+            const start = (dir: string, ignore: string[]) =>
+              Effect.gen(function* () {
+                const ok = yield* subscribe(dir, ignore)
+                if (ok) return
+                log.info("watcher fallback", {
+                  directory: Instance.directory,
+                  target: dir,
+                  platform: process.platform,
+                  from: "parcel",
+                  to: "poll",
+                })
+                yield* poll(dir, ignore)
+              })
 
             const cfg = yield* Effect.promise(() => Config.get())
             const cfgIgnores = cfg.watcher?.ignore ?? []
             const ignore = [...FileIgnore.PATTERNS, ...cfgIgnores, ...protecteds(Instance.directory)]
 
+            if (process.platform === "win32" && !Flag.OPENCODE_EXPERIMENTAL_FILEWATCHER_FORCE_PARCEL) {
+              log.info("watcher backend", { directory: Instance.directory, platform: process.platform, backend: "fs" })
+              if (!enabled) {
+                log.info("worktree watcher disabled", { directory: Instance.directory })
+                return
+              }
+              const watcher = fsWatch(
+                Instance.directory,
+                { recursive: true },
+                Instance.bind((raw: string, name: string | Buffer | null) => {
+                  const file = name ? path.resolve(Instance.directory, name.toString()) : Instance.directory
+                  if (ignored(file, Instance.directory, ignore)) return
+                  const publish = (event: "add" | "change" | "unlink") => {
+                    Bus.publish(Event.Updated, { file, event })
+                  }
+                  if (raw !== "rename") {
+                    publish("change")
+                    return
+                  }
+                  void stat(file)
+                    .then(() => publish("add"))
+                    .catch(() => publish("unlink"))
+                }),
+              )
+              yield* Effect.addFinalizer(() =>
+                Effect.sync(() => {
+                  watcher.close()
+                }),
+              )
+              watcher.on("error", (error: unknown) => {
+                log.error("fs watcher error", { directory: Instance.directory, error })
+              })
+              return
+            }
+
             if (enabled) {
               if (backend !== "inotify") {
-                yield* subscribe(Instance.directory, ignore)
+                yield* start(Instance.directory, ignore)
               }
               if (backend === "inotify") {
                 const scan = yield* Effect.promise(() => count(Instance.directory, ignore))
                 if (scan.ok) {
-                  yield* subscribe(Instance.directory, ignore)
+                  yield* start(Instance.directory, ignore)
                 }
                 if (!scan.ok) yield* warn({ dir: Instance.directory, seen: scan.seen, reason: scan.reason })
               }
@@ -265,7 +404,7 @@ export namespace FileWatcher {
                 const ignore = (yield* Effect.promise(() => readdir(vcsDir).catch(() => []))).filter(
                   (entry) => entry !== "HEAD",
                 )
-                yield* subscribe(vcsDir, ignore)
+                yield* start(vcsDir, ignore)
               }
             }
           },

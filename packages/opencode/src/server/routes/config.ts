@@ -80,6 +80,71 @@ export const ConfigRoutes = lazy(() =>
         return c.json(skills)
       },
     )
+    .get(
+      "/skills/evolution",
+      describeRoute({
+        summary: "List evolution skills",
+        description: "List skills from the current project's .aether/skills/ and all global .aether/skills/ directories.",
+        operationId: "config.skills.listEvolution",
+        responses: {
+          200: {
+            description: "List of evolution skills",
+            content: {
+              "application/json": {
+                schema: resolver(z.array(Config.DefaultSkill)),
+              },
+            },
+          },
+        },
+      }),
+      async (c) => {
+        const skills = await Config.listEvolutionSkills()
+        return c.json(skills)
+      },
+    )
+    .get(
+      "/skills/managed",
+      describeRoute({
+        summary: "List managed skills",
+        description: "List all skills from the managed skills directory (~/.local/share/aether/skills/).",
+        operationId: "config.skills.listManaged",
+        responses: {
+          200: {
+            description: "List of managed skills",
+            content: {
+              "application/json": {
+                schema: resolver(z.array(Config.DefaultSkill)),
+              },
+            },
+          },
+        },
+      }),
+      async (c) => {
+        const skills = await Config.listManagedSkills()
+        return c.json(skills)
+      },
+    )
+    .get(
+      "/skills/managed/dir",
+      describeRoute({
+        summary: "Get managed skills directory",
+        description: "Get the absolute path of the managed skills directory.",
+        operationId: "config.skills.getManagedDir",
+        responses: {
+          200: {
+            description: "Managed skills directory path",
+            content: {
+              "application/json": {
+                schema: resolver(z.object({ path: z.string() })),
+              },
+            },
+          },
+        },
+      }),
+      async (c) => {
+        return c.json({ path: Config.getManagedSkillsDir() })
+      },
+    )
     .post(
       "/skills",
       describeRoute({
@@ -154,10 +219,10 @@ export const ConfigRoutes = lazy(() =>
           },
         },
       }),
-      validator("json", z.object({ name: z.string(), enabled: z.boolean() })),
+      validator("json", z.object({ file: z.string(), enabled: z.boolean() })),
       async (c) => {
-        const { name, enabled } = c.req.valid("json")
-        await Config.toggleSkill(name, enabled)
+        const { file, enabled } = c.req.valid("json")
+        await Config.toggleSkill(file, enabled)
         return c.json({ ok: true })
       },
     )

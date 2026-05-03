@@ -9,6 +9,7 @@ import { createEffect, createMemo, createSignal, For, on, ParentProps, Show } fr
 import { createStore } from "solid-js/store"
 import { Dynamic } from "solid-js/web"
 import { AssistantParts, Message, MessageDivider, PART_MAPPING, type UserActions } from "./message-part"
+import { BasicTool } from "./basic-tool"
 import { Card } from "./card"
 import { Accordion } from "./accordion"
 import { StickyAccordionHeader } from "./sticky-accordion-header"
@@ -249,6 +250,51 @@ export function SessionTurn(
 
   const compaction = createMemo(() => parts().find((part) => part.type === "compaction"))
 
+  const isSkillRefresh = createMemo(() =>
+    parts().some(
+      (p) => p.type === "text" && (p as any).synthetic === true && (p as any).metadata?.kind === "skill-refresh",
+    ),
+  )
+
+  const nextSkillRefreshUser = createMemo(() => {
+    const idx = messageIndex()
+    if (idx < 0) return undefined
+    const messages = allMessages()
+    const nextUser = messages.slice(idx + 1).find((m) => m.role === "user")
+    if (!nextUser) return undefined
+    const nextParts = list(data.store.part?.[nextUser.id], emptyParts)
+    const hasRefresh = nextParts.some(
+      (p) => p.type === "text" && (p as any).synthetic === true && (p as any).metadata?.kind === "skill-refresh",
+    )
+    return hasRefresh ? nextUser : undefined
+  })
+
+  const nextSkillRefreshNames = createMemo<string[] | undefined>(() => {
+    const nextUser = nextSkillRefreshUser()
+    if (!nextUser) return undefined
+    const nextParts = list(data.store.part?.[nextUser.id], emptyParts)
+    const refreshPart = nextParts.find(
+      (p) => p.type === "text" && (p as any).synthetic === true && (p as any).metadata?.kind === "skill-refresh",
+    )
+    if (!refreshPart) return undefined
+    const meta = (refreshPart as any).metadata as Record<string, unknown>
+    if (!Array.isArray(meta.names)) return []
+    return meta.names.filter((x): x is string => typeof x === "string" && x.length > 0)
+  })
+
+  const nextSkillRefreshAssistantMessages = createMemo(
+    () => {
+      const nextUser = nextSkillRefreshUser()
+      if (!nextUser) return emptyAssistant
+      const messages = allMessages()
+      return messages.filter(
+        (item): item is AssistantMessage => item.role === "assistant" && item.parentID === nextUser.id,
+      )
+    },
+    emptyAssistant,
+    { equals: same },
+  )
+
   const diffs = createMemo(() => {
     const files = message()?.summary?.diffs
     if (!files?.length) return emptyDiffs
@@ -285,19 +331,10 @@ export function SessionTurn(
     () => {
       const msg = message()
       if (!msg) return emptyAssistant
-
       const messages = allMessages() ?? emptyMessages
-      const index = messageIndex()
-      if (index < 0) return emptyAssistant
-
-      const result: AssistantMessage[] = []
-      for (let i = index + 1; i < messages.length; i++) {
-        const item = messages[i]
-        if (!item) continue
-        if (item.role === "user") break
-        if (item.role === "assistant" && item.parentID === msg.id) result.push(item as AssistantMessage)
-      }
-      return result
+      return messages.filter(
+        (item): item is AssistantMessage => item.role === "assistant" && item.parentID === msg.id,
+      )
     },
     emptyAssistant,
     { equals: same },
@@ -383,7 +420,6 @@ export function SessionTurn(
     return { visible, tail, reason }
   })
   const assistantVisible = createMemo(() => assistantDerived().visible)
-  const assistantTailVisible = createMemo(() => assistantDerived().tail)
   const reasoningHeading = createMemo(() => assistantDerived().reason)
   const showThinking = createMemo(() => {
     if (!working() || !!error()) return false
@@ -429,20 +465,22 @@ export function SessionTurn(
               data-assistant-collapsed={assistantCollapsed() ? "true" : undefined}
               class={props.classes?.container}
             >
-              <div data-slot="session-turn-message-content" aria-live="off">
-                <Message
-                  message={message()!}
-                  parts={parts()}
-                  actions={props.actions}
-                  onUserBubbleClick={toggleAssistant}
-                />
-              </div>
+              <Show when={!isSkillRefresh()}>
+                <div data-slot="session-turn-message-content" aria-live="off">
+                  <Message
+                    message={message()!}
+                    parts={parts()}
+                    actions={props.actions}
+                    onUserBubbleClick={toggleAssistant}
+                  />
+                </div>
+              </Show>
               <Show when={divider() && !assistantCollapsed()}>
                 <div data-slot="session-turn-compaction">
                   <MessageDivider label={divider()} />
                 </div>
               </Show>
-              <Show when={assistantCollapsed() && canCollapseAssistant()}>
+              <Show when={assistantCollapsed() && canCollapseAssistant() && !isSkillRefresh()}>
                 <button
                   type="button"
                   data-slot="session-turn-assistant-toggle"
@@ -455,19 +493,50 @@ export function SessionTurn(
                   <MessageDivider label={assistantExpandLabel()} />
                 </button>
               </Show>
-              <Show when={assistantMessages().length > 0 && !assistantCollapsed()}>
+              <Show
+                when={
+                  !isSkillRefresh() &&
+                  !assistantCollapsed() &&
+                  (assistantMessages().length > 0 || nextSkillRefreshNames() !== undefined)
+                }
+              >
                 <div data-slot="session-turn-assistant-content" aria-hidden={working()}>
-                  <AssistantParts
-                    messages={assistantMessages()}
-                    showAssistantCopyPartID={assistantCopyPartID()}
-                    turnDurationMs={turnDurationMs()}
-                    working={working()}
-                    showReasoningSummaries={showReasoningSummaries()}
-                    shellToolDefaultOpen={props.shellToolDefaultOpen}
-                    editToolDefaultOpen={props.editToolDefaultOpen}
-                    canCollapseAssistant={canCollapseAssistant()}
-                    onAssistantCollapse={collapseAssistant}
-                  />
+                  <Show when={assistantMessages().length > 0}>
+                    <AssistantParts
+                      messages={assistantMessages()}
+                      showAssistantCopyPartID={assistantCopyPartID()}
+                      turnDurationMs={turnDurationMs()}
+                      working={working()}
+                      showReasoningSummaries={showReasoningSummaries()}
+                      shellToolDefaultOpen={props.shellToolDefaultOpen}
+                      editToolDefaultOpen={props.editToolDefaultOpen}
+                      canCollapseAssistant={canCollapseAssistant()}
+                      onAssistantCollapse={collapseAssistant}
+                    />
+                  </Show>
+                  <Show when={nextSkillRefreshNames() !== undefined}>
+                    <BasicTool
+                      icon="brain"
+                      status="completed"
+                      trigger={{
+                        title: "Skill content updated",
+                        subtitle:
+                          nextSkillRefreshNames()!.length > 0 ? nextSkillRefreshNames()!.join(", ") : undefined,
+                      }}
+                      hideDetails
+                    />
+                  </Show>
+                  <Show when={nextSkillRefreshAssistantMessages().length > 0}>
+                    <AssistantParts
+                      messages={nextSkillRefreshAssistantMessages()}
+                      showAssistantCopyPartID={assistantCopyPartID()}
+                      turnDurationMs={turnDurationMs()}
+                      working={working()}
+                      showReasoningSummaries={showReasoningSummaries()}
+                      shellToolDefaultOpen={props.shellToolDefaultOpen}
+                      editToolDefaultOpen={props.editToolDefaultOpen}
+                    />
+                  </Show>
                 </div>
               </Show>
               <Show when={showThinking() && !assistantCollapsed()}>

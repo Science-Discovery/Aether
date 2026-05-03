@@ -9,6 +9,7 @@ description: |
   a LaTeX file using the three-part structure (The referee wrote / Our reply / Changes).
   Triggers: "respond to reviewer", "reply to referee", "address reviewer comments", "revision
   response", "rebuttal letter", "point-by-point response".
+category: "Research"
 ---
 
 # Response to Referee

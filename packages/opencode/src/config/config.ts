@@ -774,6 +774,18 @@ export namespace Config {
       .optional()
       .describe("URLs to fetch skills from (e.g., https://example.com/.well-known/skills/)"),
     disabled: z.array(z.string()).optional().describe("List of skill names to deactivate"),
+    creation_nudge_interval: z
+      .number()
+      .int()
+      .min(0)
+      .optional()
+      .describe("LLM steps without skill_manage before background skill review triggers (default: 10, 0 to disable)"),
+    max_versions: z
+      .number()
+      .int()
+      .min(1)
+      .optional()
+      .describe("Maximum number of version snapshots kept per skill before older snapshots are pruned (default: 100)"),
   })
   export type Skills = z.infer<typeof Skills>
 
@@ -1503,13 +1515,15 @@ export namespace Config {
     name: z.string(),
     description: z.string(),
     content: z.string(),
+    category: z.string().optional(),
     enabled: z.boolean().optional(),
+    file: z.string().optional(),
   })
   export type DefaultSkill = z.infer<typeof DefaultSkill>
 
-  // Search for .opencode/skills, calculated once at startup.
-  // This ensures the source skills dir is always the server's own project regardless of
-  // which project the user is currently viewing.
+  // Search for the bundled skills directory (.aether/skills preferred, .opencode/skills as fallback),
+  // calculated once at startup. This ensures the source skills dir is always the server's own
+  // project regardless of which project the user is currently viewing.
   // Priority: binary directory first (for packaged Mac/Win releases where skills are
   // bundled next to the binary), then upward from process.cwd() (for dev/CLI usage).
   function findServerSkillsDirSync(): string | undefined {
@@ -1537,10 +1551,26 @@ export namespace Config {
     }
     return undefined
   }
-  const _serverSkillsDir = findServerSkillsDirSync()
+
+  // Cached lazily on first call to allow env-var overrides set after module load.
+  let _serverSkillsDir: string | undefined | null = null
 
   export function getDefaultSkillsDir(): string | undefined {
+    // Test environments are identified by a .test. file in argv (bun test runner)
+    // or by OPENCODE_TEST_HOME being set. Skip bundled-skill discovery in both cases
+    // to prevent repo-level skills from polluting isolated test tmpdir instances.
+    if (
+      process.env.OPENCODE_TEST_HOME !== undefined ||
+      process.argv.some((a) => /\.test\.[jt]sx?$/.test(a))
+    )
+      return undefined
+    if (_serverSkillsDir !== null) return _serverSkillsDir
+    _serverSkillsDir = findServerSkillsDirSync() ?? undefined
     return _serverSkillsDir
+  }
+
+  export function getDisabledPaths(disabled: string[] | undefined): Set<string> {
+    return new Set((disabled ?? []).filter((p) => path.isAbsolute(p)))
   }
 
   export async function listDefaultSkills(): Promise<DefaultSkill[]> {
@@ -1548,17 +1578,18 @@ export namespace Config {
     if (!skillsDir) return []
     if (!(await Filesystem.isDir(skillsDir))) return []
 
-    const cfg = await get()
-    const disabled = new Set(cfg.skills?.disabled ?? [])
+    const cfg = await getGlobal()
+    const disabled = getDisabledPaths(cfg.skills?.disabled)
 
     const entries = await fs.readdir(skillsDir, { withFileTypes: true }).catch(() => [])
     const skills: DefaultSkill[] = []
     for (const entry of entries) {
       if (!entry.isDirectory()) continue
-      const skillFile = path.join(skillsDir, entry.name, "SKILL.md")
+      const skillDir = path.join(skillsDir, entry.name)
+      const skillFile = path.join(skillDir, "SKILL.md")
       const text = await Filesystem.readText(skillFile).catch(() => null)
       if (text === null) {
-        skills.push({ name: entry.name, description: "", content: "", enabled: !disabled.has(entry.name) })
+        skills.push({ name: entry.name, description: "", content: "", enabled: !disabled.has(skillDir), file: skillDir })
         continue
       }
       try {
@@ -1568,12 +1599,146 @@ export namespace Config {
           name,
           description: String(parsed.data.description ?? ""),
           content: parsed.content.trim(),
-          enabled: !disabled.has(name),
+          category: parsed.data.category ? String(parsed.data.category) : undefined,
+          enabled: !disabled.has(skillDir),
+          file: skillDir,
         })
       } catch {
-        skills.push({ name: entry.name, description: "", content: text, enabled: !disabled.has(entry.name) })
+        skills.push({ name: entry.name, description: "", content: text, enabled: !disabled.has(skillDir), file: skillDir })
       }
     }
+    return skills
+  }
+
+  export function getManagedSkillsDir(): string {
+    return path.join(Global.Path.home, PROJECT, "skills")
+  }
+
+  export async function ensureManagedSkillsDir(): Promise<string> {
+    const dir = getManagedSkillsDir()
+    await fs.mkdir(dir, { recursive: true })
+    return dir
+  }
+
+  export async function listManagedSkills(): Promise<DefaultSkill[]> {
+    const skillsDir = getManagedSkillsDir()
+    if (!(await Filesystem.isDir(skillsDir))) return []
+
+    const cfg = await getGlobal()
+    const disabled = getDisabledPaths(cfg.skills?.disabled)
+
+    const entries = await fs.readdir(skillsDir, { withFileTypes: true }).catch(() => [])
+    const skills: DefaultSkill[] = []
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue
+      const skillDir = path.join(skillsDir, entry.name)
+      const skillFile = path.join(skillDir, "SKILL.md")
+      const text = await Filesystem.readText(skillFile).catch(() => null)
+      if (text === null) {
+        skills.push({ name: entry.name, description: "", content: "", enabled: !disabled.has(skillDir), file: skillDir })
+        continue
+      }
+      try {
+        const parsed = matter(text)
+        const name = String(parsed.data.name ?? entry.name)
+        skills.push({
+          name,
+          description: String(parsed.data.description ?? ""),
+          content: parsed.content.trim(),
+          category: parsed.data.category ? String(parsed.data.category) : undefined,
+          enabled: !disabled.has(skillDir),
+          file: skillDir,
+        })
+      } catch {
+        skills.push({ name: entry.name, description: "", content: text, enabled: !disabled.has(skillDir), file: skillDir })
+      }
+    }
+    return skills
+  }
+
+  export async function listEvolutionSkills(): Promise<DefaultSkill[]> {
+    const global = await getGlobal()
+    const disabled = getDisabledPaths(global.skills?.disabled)
+
+    // Remove stale disabled entries whose directories no longer exist
+    const stale = (
+      await Promise.all([...disabled].map(async (p) => ({ p, exists: await Filesystem.isDir(p) })))
+    )
+      .filter((x) => !x.exists)
+      .map((x) => x.p)
+    if (stale.length > 0) {
+      const cleaned = (global.skills?.disabled ?? []).filter((p) => !stale.includes(p))
+      await updateGlobalInternal({ skills: { disabled: cleaned } } as any, { dispose: false })
+      stale.forEach((p) => disabled.delete(p))
+    }
+
+    async function scanSkillsDir(skillsDir: string): Promise<DefaultSkill[]> {
+      if (!(await Filesystem.isDir(skillsDir))) return []
+      const entries = await fs.readdir(skillsDir, { withFileTypes: true }).catch(() => [])
+      const result: DefaultSkill[] = []
+      for (const entry of entries) {
+        if (!entry.isDirectory()) continue
+        const skillDir = path.join(skillsDir, entry.name)
+        const skillFile = path.join(skillDir, "SKILL.md")
+        const text = await Filesystem.readText(skillFile).catch(() => null)
+        if (text === null) {
+          result.push({ name: entry.name, description: "", content: "", enabled: !disabled.has(skillDir), file: skillDir })
+          continue
+        }
+        try {
+          const parsed = matter(text)
+          const name = String(parsed.data.name ?? entry.name)
+          result.push({
+            name,
+            description: String(parsed.data.description ?? ""),
+            content: parsed.content.trim(),
+            category: parsed.data.category ? String(parsed.data.category) : undefined,
+            enabled: !disabled.has(skillDir),
+            file: skillDir,
+          })
+        } catch {
+          result.push({ name: entry.name, description: "", content: text, enabled: !disabled.has(skillDir), file: skillDir })
+        }
+      }
+      return result
+    }
+
+    const seen = new Set<string>()
+    const skills: DefaultSkill[] = []
+
+    function addSkills(list: DefaultSkill[]) {
+      for (const skill of list) {
+        if (!seen.has(skill.name)) {
+          seen.add(skill.name)
+          skills.push(skill)
+        }
+      }
+    }
+
+    const dirs = await directories()
+    const projectAetherDir = path.join(Instance.directory, PROJECT)
+    const managedSkillsDir = getManagedSkillsDir()
+
+    // Current project's .aether/skills/ first (highest priority)
+    addSkills(await scanSkillsDir(path.join(projectAetherDir, "skills")))
+
+    // Explicitly include managed skills dir (~/.aether/skills/) as global fallback,
+    // in case ~/.aether/ wasn't present at startup so it's absent from cached dirs
+    addSkills(await scanSkillsDir(managedSkillsDir))
+
+    // Other global .aether/skills/ dirs from config directories (not inside Instance.directory,
+    // not already scanned via managedSkillsDir)
+    const managedAetherDir = path.dirname(managedSkillsDir)
+    for (const dir of dirs) {
+      if (path.basename(dir) !== PROJECT) continue
+      if (Filesystem.contains(Instance.directory, dir)) continue
+      if (path.resolve(dir) === path.resolve(managedAetherDir)) continue
+      addSkills(await scanSkillsDir(path.join(dir, "skills")))
+    }
+
+    // Default (bundled) skills as lowest-priority global fallback
+    addSkills(await listDefaultSkills())
+
     return skills
   }
 
@@ -1615,19 +1780,25 @@ export namespace Config {
       copied.push(entry.name)
     }
 
-    if (copied.length > 0) await Instance.dispose()
     return copied
   }
 
-  export async function toggleSkill(name: string, enabled: boolean): Promise<void> {
-    const cfg = await get()
+  export async function toggleSkill(file: string, enabled: boolean): Promise<void> {
+    using _ = await Lock.write("config-skills-toggle")
+    const cfg = await getGlobal()
     const disabled = new Set(cfg.skills?.disabled ?? [])
     if (enabled) {
-      disabled.delete(name)
+      disabled.delete(file)
     } else {
-      disabled.add(name)
+      disabled.add(file)
     }
-    await updateGlobal({ skills: { disabled: [...disabled] } } as any)
+    await updateGlobalInternal({ skills: { disabled: [...disabled] } } as any, { dispose: false })
+    const { Skill } = await import("@/skill")
+    const globalSkillsDir = getManagedSkillsDir()
+    const globalAetherDir = path.dirname(globalSkillsDir)
+    const aetherDir = path.dirname(path.dirname(file))
+    const scope = path.resolve(aetherDir) === path.resolve(globalAetherDir) ? "all" : path.dirname(aetherDir)
+    await Skill.clearSkillsPromptCache(scope)
   }
 
   function globalConfigFile() {
@@ -1718,7 +1889,7 @@ export namespace Config {
     })
   }
 
-  export async function updateGlobal(config: Info) {
+  async function updateGlobalInternal(config: Info, opts: { dispose: boolean }) {
     const filepath = globalConfigFile()
     const found = existsSync(filepath)
     const before = found
@@ -1767,19 +1938,25 @@ export namespace Config {
 
     global.reset()
 
-    void Instance.disposeAll()
-      .catch(() => undefined)
-      .finally(() => {
-        GlobalBus.emit("event", {
-          directory: "global",
-          payload: {
-            type: Event.Disposed.type,
-            properties: {},
-          },
+    if (opts.dispose) {
+      void Instance.disposeAll()
+        .catch(() => undefined)
+        .finally(() => {
+          GlobalBus.emit("event", {
+            directory: "global",
+            payload: {
+              type: Event.Disposed.type,
+              properties: {},
+            },
+          })
         })
-      })
+    }
 
     return next
+  }
+
+  export async function updateGlobal(config: Info) {
+    return updateGlobalInternal(config, { dispose: true })
   }
 
   export async function directories() {

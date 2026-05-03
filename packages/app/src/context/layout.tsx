@@ -478,9 +478,22 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
     })
 
     onMount(() => {
+      const sep = "----------------------------------------"
       Promise.all(
         server.projects.list().map((project) => {
-          return globalSync.project.loadSessions(project.worktree)
+          console.log(`\n${sep} request ${sep}`)
+          console.log(`[request] dir=${project.worktree} name=startup.loadSessions status=start`)
+          return globalSync.project
+            .loadSessions(project.worktree)
+            .then(() => {
+              console.log(`[request] dir=${project.worktree} name=startup.loadSessions status=ok`)
+              console.log(`${sep} end ${sep}`)
+            })
+            .catch((err) => {
+              const msg = err instanceof Error ? err.message : String(err)
+              console.log(`[request] dir=${project.worktree} name=startup.loadSessions status=fail error=${msg}`)
+              console.log(`${sep} end ${sep}`)
+            })
         }),
       )
     })

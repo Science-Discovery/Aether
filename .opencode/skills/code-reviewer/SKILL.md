@@ -8,6 +8,7 @@ license: MIT
 metadata:
   author: awesome-llm-apps
   version: "2.0.0"
+category: "Code Quality"
 ---
 
 # Code Reviewer

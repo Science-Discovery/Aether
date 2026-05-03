@@ -428,6 +428,27 @@ export const GlobalRoutes = lazy(() =>
         return c.json(next)
       },
     )
+    .get(
+      "/instances",
+      describeRoute({
+        summary: "List active instances",
+        description: "List all active OpenCode instance directories currently held in memory.",
+        operationId: "global.instances.list",
+        responses: {
+          200: {
+            description: "Active instance directories",
+            content: {
+              "application/json": {
+                schema: resolver(z.array(z.string())),
+              },
+            },
+          },
+        },
+      }),
+      async (c) => {
+        return c.json(Instance.dirs())
+      },
+    )
     .post(
       "/dispose",
       describeRoute({

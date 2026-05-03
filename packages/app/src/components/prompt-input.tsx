@@ -63,7 +63,7 @@ import { KnowledgeButton } from "@/components/knowledge-button"
 import { createWorkingState, type ChildrenSource } from "@/utils/working-state"
 import { childMapByParent } from "@/pages/layout/helpers"
 import { SteerButton } from "@/components/steer-button"
-import { DialogDefaultSkills } from "@/components/dialog-default-skills"
+import { DialogEvolvedSkills } from "@/components/dialog-evolved-skills"
 
 interface PromptInputProps {
   class?: string
@@ -1617,13 +1617,13 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                   >
                     <KnowledgeButton />
                   </div>
-                  <Tooltip placement="top" gutter={4} value={language.t("knowledgeBase.defaultSkills")}>
+                  <Tooltip placement="left" gutter={4} value={language.t("evolvedSkills.title")}>
                     <Button
                       variant="ghost"
                       size="normal"
                       class="h-7 w-7 p-0 flex items-center justify-center text-icon-weak shrink-0"
-                      onClick={() => dialog.show(() => <DialogDefaultSkills />)}
-                      aria-label={language.t("knowledgeBase.defaultSkills")}
+                      onClick={() => dialog.show(() => <DialogEvolvedSkills />)}
+                      aria-label={language.t("evolvedSkills.title")}
                     >
                       <Icon name="list-square" class="size-4" />
                     </Button>

@@ -53,6 +53,9 @@ import { Knowledge } from "../knowledge"
 import { decodeDataUrl } from "@/util/data-url"
 import { Process } from "@/util/process"
 import { Memory } from "@/memory"
+import { SKILL_NUDGE_INTERVAL, SKILL_REVIEW_MARKER, spawnBackgroundReview } from "./skill-evolution"
+import { Config } from "../config/config"
+import { SkillRefresh } from "./skill-refresh"
 
 // @ts-ignore
 globalThis.AI_SDK_LOG_WARNINGS = false
@@ -81,6 +84,10 @@ export namespace SessionPrompt {
       }
     },
   )
+
+  // mirrors Hermes _iters_since_skill: plain module-level map keyed by sessionID.
+  // Lives outside the per-session runtime state so cancel() never touches it.
+  const _skillCounters = new Map<string, number>()
 
   export function assertNotBusy(sessionID: SessionID) {
     const match = state()[sessionID]
@@ -295,7 +302,15 @@ export namespace SessionPrompt {
     let structuredOutput: unknown | undefined
 
     let step = 0
+    let _finalResponse = false // mirrors Hermes final_response
     const session = await Session.get(sessionID)
+    // Only skip review triggering for sessions that ARE the background review itself
+    // mirrors Hermes: review_agent._skill_nudge_interval = 0
+    const isSkillReviewSession = session.title === SKILL_REVIEW_MARKER
+    // mirrors Hermes: _iters_since_skill is an instance variable on AIAgent
+    if (!_skillCounters.has(sessionID)) _skillCounters.set(sessionID, 0)
+    const cfg = await Config.get()
+    const skillNudgeInterval = cfg.skills?.creation_nudge_interval ?? SKILL_NUDGE_INTERVAL
     // Prepare the session memory pool once. Only active recalled memory is injected later.
     await Memory.start({ session_id: sessionID })
     const attachMemoryReceipt = async (messageID: MessageID, events: Memory.Event[]) => {
@@ -357,6 +372,7 @@ export namespace SessionPrompt {
       }
 
       step++
+      console.log(`\n${"-".repeat(60)} step ${step} ${"-".repeat(60)}\n`)
       if (step === 1)
         ensureTitle({
           session,
@@ -610,7 +626,8 @@ export namespace SessionPrompt {
         })
         throw error
       }
-      const maxSteps = agent.steps ?? Infinity
+      // mirrors Hermes: review agent capped at max_iterations=8 to prevent runaway
+      const maxSteps = isSkillReviewSession ? 8 : (agent.steps ?? Infinity)
       const isLastStep = step >= maxSteps
       msgs = await insertReminders({
         messages: msgs,
@@ -618,9 +635,55 @@ export namespace SessionPrompt {
         session,
       })
 
+      if (step === 1) {
+        SessionSummary.summarize({
+          sessionID: sessionID,
+          messageID: lastUser.id,
+        })
+      }
+
+      await Plugin.trigger("experimental.chat.messages.transform", {}, { messages: msgs })
+
+      const patch = await SkillRefresh.patch(sessionID)
+      console.log(`[skill refresh] step=${step} hasPatch=${patch ? 1 : 0}`)
+      if (patch) {
+        console.log(`[skill refresh] injecting synthetic user message step=${step} names=${patch.names.join(", ")}`)
+        const msg: MessageV2.User = {
+          id: MessageID.ascending(),
+          sessionID,
+          role: "user",
+          time: {
+            created: Date.now(),
+          },
+          agent: lastUser.agent,
+          model: lastUser.model,
+          variant: lastUser.variant,
+        }
+        await Session.updateMessage(msg)
+        lastUser = msg
+        const part = {
+          id: PartID.ascending(),
+          messageID: msg.id,
+          sessionID,
+          type: "text",
+          text: patch.text,
+          synthetic: true,
+          metadata: {
+            kind: "skill-refresh",
+            names: patch.names,
+          },
+        } satisfies MessageV2.TextPart
+        await Session.updatePart(part)
+        msgs.push({
+          info: msg,
+          parts: [part],
+        })
+      }
+
+      const assistantMsgID = MessageID.ascending()
       const processor = SessionProcessor.create({
         assistantMessage: (await Session.updateMessage({
-          id: MessageID.ascending(),
+          id: assistantMsgID,
           parentID: lastUser.id,
           role: "assistant",
           mode: agent.name,
@@ -648,7 +711,7 @@ export namespace SessionPrompt {
         model,
         abort,
       })
-      using _ = defer(() => InstructionPrompt.clear(processor.message.id))
+      using clean = defer(() => InstructionPrompt.clear(processor.message.id))
 
       // Check if user explicitly invoked an agent via @ in this turn
       const lastUserMsg = msgs.findLast((m) => m.info.role === "user")
@@ -674,15 +737,6 @@ export namespace SessionPrompt {
         })
       }
 
-      if (step === 1) {
-        SessionSummary.summarize({
-          sessionID: sessionID,
-          messageID: lastUser.id,
-        })
-      }
-
-      await Plugin.trigger("experimental.chat.messages.transform", {}, { messages: msgs })
-
       const lastUserText = msgs
         .find((msg) => msg.info.id === lastUser.id)
         ?.parts.flatMap((part) => {
@@ -694,7 +748,9 @@ export namespace SessionPrompt {
       const memory = await Memory.activePrompt({ session_id: sessionID })
 
       // Build system prompt, adding structured output instruction if needed
-      const skills = await SystemPrompt.skills(agent)
+      const skills = await SystemPrompt.skills(agent, new Set(Object.keys(tools)), new Set())
+      const _skillNames = skills ? [...skills.matchAll(/<name>(.*?)<\/name>/g)].map((m) => m[1]) : []
+      console.log(`[skills] ${_skillNames.length > 0 ? _skillNames.join(", ") : "(none)"}`)
       const system = [
         ...(await SystemPrompt.environment(model)),
         ...(skills ? [skills] : []),
@@ -706,6 +762,7 @@ export namespace SessionPrompt {
         system.push(STRUCTURED_OUTPUT_SYSTEM_PROMPT)
       }
 
+      const modelMessages = MessageV2.toModelMessages(msgs, model)
       const result = await processor.process({
         user: lastUser,
         agent,
@@ -714,7 +771,7 @@ export namespace SessionPrompt {
         sessionID,
         system,
         messages: [
-          ...MessageV2.toModelMessages(msgs, model),
+          ...modelMessages,
           ...(isLastStep
             ? [
                 {
@@ -728,6 +785,36 @@ export namespace SessionPrompt {
         model,
         toolChoice: format.type === "json_schema" ? "required" : undefined,
       })
+
+      // mirrors Hermes _iters_since_skill counter (run_agent.py L7864-7868, L9107-9111)
+      // Only count when: not a review session, skill_manage is available, and LLM made tool calls
+      const hadToolCalls = processor.message.finish === "tool-calls"
+      const skillManageAvailable = "skill_manage" in tools
+      if (!isSkillReviewSession && skillManageAvailable && hadToolCalls) {
+        const assistantParts = await MessageV2.parts(processor.message.id)
+        const toolNames = assistantParts.filter((p) => p.type === "tool").map((p) => (p as MessageV2.ToolPart).tool)
+        console.log(`[tools] step=${step} tools=[${toolNames.join(", ")}]`)
+        const calledSkillManage = toolNames.includes("skill_manage")
+        console.log(
+          `[skill manage] step=${step} called=${calledSkillManage ? 1 : 0} count_before=${_skillCounters.get(sessionID) ?? 0}`,
+        )
+        if (calledSkillManage) {
+          // mirrors Hermes L7868: reset to 0 inside _execute_tool_calls
+          // then L9110: +1 unconditionally after → net result is 1, not 0
+          _skillCounters.set(sessionID, 0)
+        }
+        _skillCounters.set(sessionID, (_skillCounters.get(sessionID) ?? 0) + 1) // always +1 per step, mirrors Hermes L9110
+        console.log(`[skill counter] count=${_skillCounters.get(sessionID)} threshold=${skillNudgeInterval}`)
+      }
+
+      const parts = await MessageV2.parts(processor.message.id)
+      const text = parts
+        .filter((p) => p.type === "text")
+        .map((p) => (p as MessageV2.TextPart).text.trim())
+        .join("\n")
+      console.log(
+        `[assistant] step=${step} finish=${processor.message.finish ?? "(none)"} error=${processor.message.error ? 1 : 0} parts=${parts.length} textChars=${text.length}`,
+      )
 
       // If structured output was captured, save it and exit immediately
       // This takes priority because the StructuredOutput tool was called successfully
@@ -753,9 +840,13 @@ export namespace SessionPrompt {
           await Session.updateMessage(processor.message)
           break
         }
+        _finalResponse = true
       }
 
-      if (result === "stop") break
+      if (result === "stop") {
+        _finalResponse = true
+        break
+      }
       if (result === "compact") {
         await SessionCompaction.create({
           sessionID,
@@ -777,8 +868,47 @@ export namespace SessionPrompt {
     await flushMemoryReceipt(latestAssistantID)
 
     SessionCompaction.prune({ sessionID })
+
+    // mirrors Hermes: post-loop trigger check (run_agent.py L11828-11856)
+    // Conditions: _iters_since_skill >= threshold AND skill_manage available AND final_response AND not interrupted
+    const _shouldReviewSkills =
+      !isSkillReviewSession &&
+      skillNudgeInterval > 0 &&
+      (_skillCounters.get(sessionID) ?? 0) >= skillNudgeInterval &&
+      _finalResponse &&
+      !abort.aborted
+
+    console.log(
+      `[skill review check] count=${_skillCounters.get(sessionID)} threshold=${skillNudgeInterval} finalResponse=${_finalResponse} aborted=${abort.aborted} isReview=${isSkillReviewSession} should=${_shouldReviewSkills}`,
+    )
+
+    if (_shouldReviewSkills) {
+      _skillCounters.set(sessionID, 0) // reset immediately, mirrors Hermes L11833
+      const msgs = await MessageV2.filterCompacted(MessageV2.stream(sessionID))
+      const lastUser = msgs.findLast((m) => m.info.role === "user")
+      if (lastUser && lastUser.info.role === "user") {
+        const userInfo = lastUser.info as MessageV2.User
+        spawnBackgroundReview({
+          sessionID,
+          agentName: userInfo.agent ?? "build",
+          model: {
+            providerID: userInfo.model?.providerID ?? "",
+            modelID: userInfo.model?.modelID ?? "",
+          },
+          messages: msgs,
+        })
+      }
+    }
+
     for await (const item of MessageV2.stream(sessionID)) {
       if (item.info.role === "user") continue
+      const txt = item.parts
+        .filter((p) => p.type === "text")
+        .map((p) => (p as MessageV2.TextPart).text.trim())
+        .join("\n")
+      console.log(
+        `[final return] role=${item.info.role} id=${item.info.id} parts=${item.parts.length} textChars=${txt.length} finalResponse=${_finalResponse ? 1 : 0}`,
+      )
       return item
     }
     throw new Error("Impossible")

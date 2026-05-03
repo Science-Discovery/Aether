@@ -1,6 +1,7 @@
 ---
 name: arxiv-search
 description: Searches arXiv for preprints and academic papers, retrieves abstracts, and filters by topic. Use when the user asks to find research papers, search arXiv, look up preprints, find academic articles in physics, math, CS, biology, statistics, or related fields.
+category: "Research"
 ---
 
 # arXiv Search Skill

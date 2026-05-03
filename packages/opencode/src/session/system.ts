@@ -13,6 +13,8 @@ import type { Provider } from "@/provider/provider"
 import type { Agent } from "@/agent/agent"
 import { Permission } from "@/permission"
 import { Skill } from "@/skill"
+import { SKILLS_GUIDANCE } from "./skill-evolution"
+import { Config } from "@/config/config"
 
 export namespace SystemPrompt {
   export function provider(model: Provider.Model) {
@@ -52,17 +54,34 @@ export namespace SystemPrompt {
     ]
   }
 
-  export async function skills(agent: Agent.Info) {
+  export async function skills(agent: Agent.Info, availableTools?: Set<string>, availableToolsets?: Set<string>) {
     if (Permission.disabled(["skill"], agent.permission).has("skill")) return
 
-    const list = await Skill.available(agent)
+    const all = await Skill.available(agent)
+    const list =
+      availableTools !== undefined
+        ? all.filter((skill) => Skill.matchesConditions(skill, availableTools, availableToolsets ?? new Set()))
+        : all
+
+    const cfg = await Config.get()
+    const skillNudgeInterval = cfg.skills?.creation_nudge_interval ?? 10
 
     return [
-      "Skills provide specialized instructions and workflows for specific tasks.",
-      "Use the skill tool to load a skill when a task matches its description.",
+      "## Skills (mandatory)",
+      "Before replying, scan the skills below. If a skill matches or is even partially relevant to your task, you MUST follow its instructions.",
+      "Err on the side of using a skill — it is always better to have context you don't need than to miss critical steps, pitfalls, or established workflows.",
+      "Skills encode the user's preferred approach, conventions, and quality standards — follow them even for tasks you already know how to do.",
       // the agents seem to ingest the information about skills a bit better if we present a more verbose
       // version of them here and a less verbose version in tool description, rather than vice versa.
       Skill.fmt(list, { verbose: true }),
+      "",
+      ...(skillNudgeInterval !== 0 ? [
+        "If a skill has issues, fix it with skill_manage(action='patch').",
+        "After difficult/iterative tasks, offer to save as a skill.",
+        "If a skill you loaded was missing steps, had wrong commands, or needed pitfalls you discovered, update it before finishing.",
+        "",
+        SKILLS_GUIDANCE,
+      ] : []),
     ].join("\n")
   }
 }
