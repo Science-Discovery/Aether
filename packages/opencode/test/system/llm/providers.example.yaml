@@ -157,3 +157,63 @@ providers:
           temperature: true
           tool: true
           interleaved: reasoning_content
+
+  - id: maas
+    name: TatuCloud MaaS
+    type: openai-compatible
+    npm: "@ai-sdk/openai-compatible"
+    base_url: "https://maas.tatucloud.com/v1"
+    api_key_env: MAAS_API_KEY
+    models:
+      - id: qwen3.6-plus
+        capabilities:
+          reasoning: true
+          temperature: true
+          tool: true
+          interleaved: reasoning_content
+      - id: gpt-5.5
+        capabilities:
+          reasoning: true
+          temperature: true
+          tool: true
+          interleaved: reasoning_content
+      - id: deepseek-v4-pro
+        capabilities:
+          reasoning: true
+          temperature: true
+          tool: true
+          interleaved: reasoning_content
+
+  - id: maas-anthropic
+    name: TatuCloud MaaS (Anthropic)
+    type: anthropic
+    npm: "@ai-sdk/anthropic"
+    base_url: "https://maas.tatucloud.com/v1"
+    api_key_env: MAAS_API_KEY
+    models:
+      - id: claude-opus-4-7
+        capabilities:
+          reasoning: true
+          temperature: true
+          tool: true
+          vision: true
+      - id: claude-sonnet-4-6
+        capabilities:
+          reasoning: true
+          temperature: true
+          tool: true
+          vision: true
+
+  - id: maas-gemini
+    name: TatuCloud MaaS (Gemini)
+    type: google
+    npm: "@ai-sdk/google"
+    base_url: "https://maas.tatucloud.com/v1beta"
+    api_key_env: MAAS_API_KEY
+    models:
+      - id: gemini-3.1-pro-preview
+        capabilities:
+          reasoning: true
+          temperature: true
+          tool: true
+          vision: true

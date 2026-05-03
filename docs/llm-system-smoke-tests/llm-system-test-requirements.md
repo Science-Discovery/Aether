@@ -15,6 +15,30 @@ LLM 调用层是 Aether 的高变更面：上游 SDK、`models.dev` 元数据、
 
 它的定位与 `docs/plan.md` 中的"真实供应商 smoke 不作为常规 merge blocker"保持一致：默认手动触发，作为合并前的端到端确认手段，而非 CI 上的硬门禁。
 
+### 1.1 为什么必须保留真实 LLM smoke
+
+`packages/opencode/test/session/llm.test.ts` 已经覆盖了 `LLM.stream()` 的本地契约：它启动 fake endpoint，捕获请求路径、headers 和 body，验证 OpenAI-compatible / OpenAI Responses / Anthropic / Google 等 SDK 形态下的参数转换是否符合预期。这类测试确定、快速、无真实费用，适合进入常规测试矩阵。
+
+但本地契约测试无法证明真实 provider 今天仍然接受这组配置和请求形态。LLM 调用层的实际风险经常出现在 fake endpoint 之外：供应商 baseURL 规则变化、鉴权形态差异、模型 id 下线或别名漂移、OpenAI-compatible 方言不完全兼容、SDK 升级后真实流事件字段变化、usage / reasoning / tool-call 在真实流里的返回形态和本地模拟不一致。这些问题只有真实 HTTPS 请求完整跑到流结束态才能暴露。
+
+因此，LLM smoke test 的必要性不是重复验证 `LLM.stream()` 的内部组装逻辑，而是补上"真实供应商接受度"这一层证据。它指导本系统测试的设计必须满足以下约束：
+
+- 必须使用真实 provider 配置和真实 endpoint，不能用 mock、fake server 或 dry-run 替代。
+- 必须完整消费流式响应到 finish 事件，不能只验证请求能发出。
+- 必须按 provider / model / case 记录结构化结果，因为失败通常与某个供应商方言或模型能力绑定。
+- 必须默认手动触发且显式启用，因为它消耗真实额度、依赖外部网络和供应商稳定性。
+- 必须保持最小 smoke 范围，验证可用性和诊断信息，不演化成模型质量评测。
+
+### 1.2 与 `session/llm.test.ts` 的职责边界
+
+| 文件 | 入口 | 是否真实 provider | 主要断言 | 职责 |
+|------|------|------------------|----------|------|
+| `packages/opencode/test/session/llm.test.ts` | `LLM.stream()` + 本地 fake endpoint | 否 | 请求路径、headers、payload 转换、工具权限、`hasToolCalls()` | 固化本地 LLM 契约，保证 provider / transform 适配逻辑不回归 |
+| `packages/opencode/test/system/llm-p0.test.ts` | `LLM.stream()` + YAML provider 配置 | 是 | 真实流结束、非空输出、reasoning/tool-call 事件、usage 显式化、错误分类 | 验证真实 provider 能接受当前配置并完成一次流式调用 |
+| `docs/llm-system-smoke-tests/*` | 文档约束 | 不适用 | 需求、范围、覆盖矩阵、盲区 | 指导系统测试不要和本地契约测试混淆，也不要扩张成评测系统 |
+
+两组测试都经过 `LLM.stream()` 是有意的交集：本地契约测试看"我们准备发送什么"，真实 smoke 看"供应商现在是否接受并完成响应"。前者可以稳定阻止代码层回归，后者用来发现外部 provider / SDK / 方言的真实兼容性问题；二者互补，不能互相替代。
+
 ## 2. 验证目标（R-1 ~ R-4）
 
 - **R-1 客户端可创建**：给定 provider 类型、baseURL、API key、model id 与可选模型能力开关，系统测试必须完整走完"加载配置 → 创建内部 LLM 客户端 → 拿到模型实例"的链路。任何一步失败必须立刻报错并指出失败位置（配置缺失 / SDK 加载失败 / 认证失败 / 模型不存在）。
