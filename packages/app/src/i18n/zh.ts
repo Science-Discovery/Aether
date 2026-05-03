@@ -353,11 +353,17 @@ export const dict = {
   "dialog.revert.confirmAction": "重置",
   "dialog.revert.forkAction": "分叉到新会话",
   "dialog.revert.protected.inheritedPrefix.title": "无法重置到此位置",
-  "dialog.revert.protected.inheritedPrefix.description": "此消息属于父会话的对话历史。重置它会修改其他分支依赖的共享历史。可以从这里分叉，创建一个新分支。",
+  "dialog.revert.protected.inheritedPrefix.description":
+    "此消息属于父会话的对话历史。重置它会修改其他分支依赖的共享历史。可以从这里分叉，创建一个新分支。",
   "dialog.revert.protected.descendantBranch.title": "无法重置到此位置",
-  "dialog.revert.protected.descendantBranch.description": "已有分支会话依赖此位置或之后的消息。重置会破坏该分支的连接。可以从这里分叉，创建一个新分支。",
+  "dialog.revert.protected.descendantBranch.description":
+    "已有分支会话依赖此位置或之后的消息。重置会破坏该分支的连接。可以从这里分叉，创建一个新分支。",
   "dialog.revert.protected.incompleteTurnInheritedPrefix.title": "无法重置到此位置",
-  "dialog.revert.protected.incompleteTurnInheritedPrefix.description": "助手尚未完成对此消息的回复，系统无法判断此轮次是否位于继承的对话历史内。为避免修改共享历史，建议分叉。可以从这里分叉，创建一个新分支。",
+  "dialog.revert.protected.incompleteTurnInheritedPrefix.description":
+    "助手尚未完成对此消息的回复，系统无法判断此轮次是否位于继承的对话历史内。为避免修改共享历史，建议分叉。可以从这里分叉，创建一个新分支。",
+  "dialog.revert.protected.sessionBusy.title": "任务正在执行，无法重置",
+  "dialog.revert.protected.sessionBusy.description":
+    "会话中有任务正在执行，重置会丢弃正在进行的工作。请先停止任务，或从此处分叉到新会话。",
 
   "dialog.directory.search.placeholder": "搜索文件夹",
   "dialog.directory.empty": "该目录下无子文件夹",

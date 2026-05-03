@@ -27,6 +27,7 @@ export namespace SessionRevert {
   export type RevertInput = z.infer<typeof RevertInput>
 
   export async function revert(input: RevertInput) {
+    SessionPrompt.assertNotBusy(input.sessionID)
     const done = Promise.withResolvers<void>()
     pending[input.sessionID] = done.promise
     try {

@@ -6,6 +6,35 @@ import { useRoute } from "@tui/context/route"
 import { Clipboard } from "@tui/util/clipboard"
 import type { PromptInfo } from "@tui/component/prompt/history"
 import { strip } from "@tui/component/prompt/part"
+import { createWorkingState, type SessionStatus } from "@tui/util/working-state"
+import { useDialog } from "../../ui/dialog"
+
+function DialogBusyWarning(props: { sessionID: string; messageID: string; onFork: () => void }) {
+  const dialog = useDialog()
+
+  return (
+    <DialogSelect
+      title="Task is running"
+      options={[
+        {
+          title: "Cancel",
+          value: "cancel",
+          description: "close this dialog",
+          onSelect: () => dialog.clear(),
+        },
+        {
+          title: "Fork",
+          value: "session.fork",
+          description: "create a new session from this point",
+          onSelect: () => {
+            props.onFork()
+          },
+        },
+      ]}
+      skipFilter
+    />
+  )
+}
 
 export function DialogMessage(props: {
   messageID: string
@@ -14,8 +43,42 @@ export function DialogMessage(props: {
 }) {
   const sync = useSync()
   const sdk = useSDK()
+  const dialog = useDialog()
   const message = createMemo(() => sync.data.message[props.sessionID]?.find((x) => x.id === props.messageID))
   const route = useRoute()
+  const status = createMemo(() => sync.data.session_status?.[props.sessionID] ?? ({ type: "idle" } as SessionStatus))
+  const pending = createMemo(() =>
+    (sync.data.message[props.sessionID] ?? []).findLast(
+      (msg) => msg.role === "assistant" && typeof msg.time?.completed !== "number",
+    ),
+  )
+  const { working } = createWorkingState({ status: () => status(), pending: () => pending() })
+
+  async function forkFromMessage() {
+    const result = await sdk.client.session.fork({
+      sessionID: props.sessionID,
+      messageID: props.messageID,
+    })
+    const msg = message()
+    const initialPrompt = msg
+      ? (sync.data.part[msg.id] ?? []).reduce(
+          (agg, part) => {
+            if (part.type === "text") {
+              if (!part.synthetic) agg.input += part.text
+            }
+            if (part.type === "file") agg.parts.push(part)
+            return agg
+          },
+          { input: "", parts: [] as PromptInfo["parts"] },
+        )
+      : undefined
+    route.navigate({
+      sessionID: result.data!.id,
+      type: "session",
+      initialPrompt,
+    })
+    dialog.clear()
+  }
 
   return (
     <DialogSelect
@@ -24,16 +87,20 @@ export function DialogMessage(props: {
         {
           title: "Revert",
           value: "session.revert",
-          description: "undo messages and file changes",
-          onSelect: (dialog) => {
+          description: working() ? "task is running — stop first or fork instead" : "undo messages and file changes",
+          onSelect: () => {
+            if (working()) {
+              dialog.replace(() => (
+                <DialogBusyWarning sessionID={props.sessionID} messageID={props.messageID} onFork={forkFromMessage} />
+              ))
+              return
+            }
             const msg = message()
             if (!msg) return
-
             sdk.client.session.revert({
               sessionID: props.sessionID,
               messageID: msg.id,
             })
-
             if (props.setPrompt) {
               const parts = sync.data.part[msg.id]
               const promptInfo = parts.reduce(
@@ -48,7 +115,6 @@ export function DialogMessage(props: {
               )
               props.setPrompt(promptInfo)
             }
-
             dialog.clear()
           },
         },
@@ -56,18 +122,14 @@ export function DialogMessage(props: {
           title: "Copy",
           value: "message.copy",
           description: "message text to clipboard",
-          onSelect: async (dialog) => {
+          onSelect: async () => {
             const msg = message()
             if (!msg) return
-
             const parts = sync.data.part[msg.id]
             const text = parts.reduce((agg, part) => {
-              if (part.type === "text" && !part.synthetic) {
-                agg += part.text
-              }
+              if (part.type === "text" && !part.synthetic) agg += part.text
               return agg
             }, "")
-
             await Clipboard.copy(text)
             dialog.clear()
           },
@@ -76,33 +138,7 @@ export function DialogMessage(props: {
           title: "Fork",
           value: "session.fork",
           description: "create a new session",
-          onSelect: async (dialog) => {
-            const result = await sdk.client.session.fork({
-              sessionID: props.sessionID,
-              messageID: props.messageID,
-            })
-            const initialPrompt = (() => {
-              const msg = message()
-              if (!msg) return undefined
-              const parts = sync.data.part[msg.id]
-              return parts.reduce(
-                (agg, part) => {
-                  if (part.type === "text") {
-                    if (!part.synthetic) agg.input += part.text
-                  }
-                  if (part.type === "file") agg.parts.push(part)
-                  return agg
-                },
-                { input: "", parts: [] as PromptInfo["parts"] },
-              )
-            })()
-            route.navigate({
-              sessionID: result.data!.id,
-              type: "session",
-              initialPrompt,
-            })
-            dialog.clear()
-          },
+          onSelect: forkFromMessage,
         },
       ]}
     />
