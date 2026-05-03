@@ -638,6 +638,7 @@ if [ -n "$copy_target" ]; then
   start_target="$copy_target"
 fi
 launch="$(write_launch "$start_target" || true)"
+register_protocol "$start_target"
 if [ -n "$launch" ]; then
   echo "[install] Desktop launcher: $launch"
   echo "[install] To start Aether, right-click the Aether.sh file on your desktop and choose Run as a Program."
@@ -680,3 +681,27 @@ if [ -n "$copy_note" ]; then
   echo "$copy_note"
 fi
 exit "$ok"
+
+register_protocol() {
+  local target="$1"
+  local handler="$target/aether-protocol-handler.sh"
+  [ -f "$handler" ] || return 0
+  local apps="$HOME/.local/share/applications"
+  mkdir -p "$apps" || return 0
+  local desk="$apps/aether-url-handler.desktop"
+  cat > "$desk" <<DEOF
+[Desktop Entry]
+Type=Application
+Name=Aether URL Handler
+Exec=\"$handler\" %u
+MimeType=x-scheme-handler/aether;
+NoDisplay=true
+DEOF
+  chmod +x "$desk" || return 0
+  if command -v update-desktop-database >/dev/null 2>&1; then
+    update-desktop-database "$apps" 2>/dev/null || true
+  fi
+  if command -v xdg-mime >/dev/null 2>&1; then
+    xdg-mime default aether-url-handler.desktop x-scheme-handler/aether 2>/dev/null || true
+  fi
+}

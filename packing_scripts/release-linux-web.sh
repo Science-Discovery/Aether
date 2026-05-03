@@ -75,6 +75,10 @@ if [ -f "$out/Aether.sh" ]; then
   chmod +x "$out/Aether.sh"
 fi
 
+if [ -f "$out/aether-protocol-handler.sh" ]; then
+  chmod +x "$out/aether-protocol-handler.sh"
+fi
+
 cat >"$out/README_FIRST.txt" <<'EOF'
 Aether Web (Linux ARCH)
 
