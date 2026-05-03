@@ -3,7 +3,8 @@ import os from "os"
 import fuzzysort from "fuzzysort"
 import { Config } from "../config/config"
 import { mapValues, mergeDeep, omit, pickBy, sortBy } from "remeda"
-import { NoSuchModelError, type Provider as SDK } from "ai"
+import { NoSuchModelError, type LanguageModel } from "ai"
+import type { LanguageModelV3 } from "@ai-sdk/provider"
 import { Log } from "../util/log"
 import { BunProc } from "../bun"
 import { Hash } from "../util/hash"
@@ -28,7 +29,7 @@ import { createVertex } from "@ai-sdk/google-vertex"
 import { createVertexAnthropic } from "@ai-sdk/google-vertex/anthropic"
 import { createOpenAI } from "@ai-sdk/openai"
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible"
-import { createOpenRouter, type LanguageModelV2 } from "@openrouter/ai-sdk-provider"
+import { createOpenRouter } from "@openrouter/ai-sdk-provider"
 import { createOpenaiCompatible as createGitHubCopilotOpenAICompatible } from "./sdk/copilot"
 import { createXai } from "@ai-sdk/xai"
 import { createMistral } from "@ai-sdk/mistral"
@@ -183,6 +184,13 @@ export namespace Provider {
     const url = Env.get("OPENCODE_E2E_LLM_URL")
     if (typeof url !== "string" || url === "") return
     return url
+  }
+
+  type SDK = {
+    languageModel: (modelID: string) => LanguageModel
+    responses?: (modelID: string) => LanguageModel
+    chat?: (modelID: string) => LanguageModel
+    chatModel?: (modelID: string) => LanguageModel
   }
 
   const BUNDLED_PROVIDERS: Record<string, (options: any) => SDK> = {
@@ -1020,7 +1028,7 @@ export namespace Provider {
 
     const providers: Record<ProviderID, Info> = {} as Record<ProviderID, Info>
     const connected = new Set<ProviderID>()
-    const languages = new Map<string, LanguageModelV2>()
+    const languages = new Map<string, LanguageModel>()
     const modelLoaders: {
       [providerID: string]: CustomModelLoader
     } = {}
@@ -1516,7 +1524,7 @@ export namespace Provider {
     return info
   }
 
-  export async function getLanguage(model: Model): Promise<LanguageModelV2> {
+  export async function getLanguage(model: Model): Promise<LanguageModel> {
     const s = await state()
     const key = `${model.providerID}/${model.id}`
     if (s.models.has(key)) return s.models.get(key)!
@@ -1529,7 +1537,7 @@ export namespace Provider {
         name: model.providerID,
         apiKey: "test-key",
         baseURL: url,
-      }).chatModel(model.api.id) as LanguageModelV2
+      }).chatModel(model.api.id) as LanguageModelV3
       s.models.set(key, language)
       return language
     }

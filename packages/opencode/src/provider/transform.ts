@@ -341,7 +341,7 @@ export namespace ProviderTransform {
             if (item.type === "tool-approval-request" || item.type === "tool-approval-response") {
               return { ...item }
             }
-            return { ...part, providerOptions: remap(part.providerOptions) }
+            return { ...part, providerOptions: remap((part as any).providerOptions) }
           }),
         } as typeof msg
       })

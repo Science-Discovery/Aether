@@ -9,12 +9,16 @@ import { Provider } from "../../src/provider/provider"
 import { ProviderTransform } from "../../src/provider/transform"
 import { ModelsDev } from "../../src/provider/models"
 import { ProviderID, ModelID } from "../../src/provider/schema"
+import { Session } from "../../src/session"
+import { SessionPrompt } from "../../src/session/prompt"
 import { Filesystem } from "../../src/util/filesystem"
 import { tmpdir } from "../fixture/fixture"
 import type { Agent } from "../../src/agent/agent"
 import type { MessageV2 } from "../../src/session/message-v2"
 import { SessionID, MessageID } from "../../src/session/schema"
 import { serve } from "../lib/server"
+import { ToolRegistry } from "../../src/tool/registry"
+import { Tool } from "../../src/tool/tool"
 
 describe("session.llm.hasToolCalls", () => {
   test("returns false for empty messages array", () => {
@@ -190,6 +194,49 @@ function createChatStream(text: string) {
   })
 }
 
+function createToolCallStream(input: { id: string; name: string; args: Record<string, unknown>; finish: string }) {
+  const payload =
+    [
+      `data: ${JSON.stringify({
+        id: "chatcmpl-tool",
+        object: "chat.completion.chunk",
+        choices: [{ index: 0, delta: { role: "assistant" }, finish_reason: null }],
+      })}`,
+      `data: ${JSON.stringify({
+        id: "chatcmpl-tool",
+        object: "chat.completion.chunk",
+        choices: [
+          {
+            index: 0,
+            delta: {
+              tool_calls: [
+                {
+                  index: 0,
+                  id: input.id,
+                  type: "function",
+                  function: {
+                    name: input.name,
+                    arguments: JSON.stringify(input.args),
+                  },
+                },
+              ],
+            },
+            finish_reason: input.finish,
+          },
+        ],
+      })}`,
+      "data: [DONE]",
+    ].join("\n\n") + "\n\n"
+
+  const encoder = new TextEncoder()
+  return new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(encoder.encode(payload))
+      controller.close()
+    },
+  })
+}
+
 async function loadFixture(providerID: string, modelID: string) {
   const fixturePath = path.join(import.meta.dir, "../tool/fixtures/models-api.json")
   const data = await Filesystem.readJson<Record<string, ModelsDev.Provider>>(fixturePath)
@@ -227,6 +274,123 @@ function createEventResponse(chunks: unknown[], includeDone = false) {
 }
 
 describe("session.llm.stream", () => {
+  test("continues loop when provider returns stop with tool calls", async () => {
+    const server = state.server
+    if (!server) {
+      throw new Error("Server not initialized")
+    }
+
+    const providerID = "loopcheck"
+    const modelID = "loop-model"
+    const calls: string[] = []
+    const first = waitRequest(
+      "/chat/completions",
+      new Response(
+        createToolCallStream({
+          id: "call_loopcheck",
+          name: "loopcheck",
+          args: { value: "first" },
+          finish: "stop",
+        }),
+        {
+          status: 200,
+          headers: { "Content-Type": "text/event-stream" },
+        },
+      ),
+    )
+    const second = waitRequest(
+      "/chat/completions",
+      new Response(createChatStream("done"), {
+        status: 200,
+        headers: { "Content-Type": "text/event-stream" },
+      }),
+    )
+
+    await using tmp = await tmpdir({
+      git: true,
+      config: {
+        enabled_providers: [providerID],
+        provider: {
+          [providerID]: {
+            name: "Loop Check",
+            npm: "@ai-sdk/openai-compatible",
+            api: `${server.url.origin}/v1`,
+            models: {
+              [modelID]: {
+                name: "Loop Model",
+                tool_call: true,
+                temperature: false,
+                release_date: "2026-01-01",
+                modalities: { input: ["text"], output: ["text"] },
+                limit: { context: 100_000, output: 4_096 },
+              },
+            },
+            options: {
+              apiKey: "test-loop-key",
+              baseURL: `${server.url.origin}/v1`,
+            },
+          },
+        },
+        agent: {
+          build: {
+            model: `${providerID}/${modelID}`,
+            permission: {
+              loopcheck: "allow",
+            },
+          },
+        },
+      },
+    })
+
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        await ToolRegistry.register(
+          Tool.define("loopcheck", {
+            description: "Record a loop check.",
+            parameters: z.object({
+              value: z.string(),
+            }),
+            async execute(params) {
+              calls.push(params.value)
+              return {
+                title: "Loop checked",
+                output: `checked ${params.value}`,
+                metadata: {},
+              }
+            },
+          }),
+        )
+
+        const session = await Session.create({ title: "Loop check" })
+        const result = await SessionPrompt.prompt({
+          sessionID: session.id,
+          agent: "build",
+          parts: [{ type: "text", text: "call loopcheck then finish" }],
+        })
+
+        const one = await first
+        const two = await second
+        const messages = await Session.messages({ sessionID: session.id })
+        const assistants = messages.filter(
+          (msg): msg is MessageV2.WithParts & { info: MessageV2.Assistant } => msg.info.role === "assistant",
+        )
+        const final = result.info
+
+        expect(one.body.tools).toBeArray()
+        expect(two.body.messages).toBeArray()
+        expect(JSON.stringify(two.body.messages)).toContain("checked first")
+        expect(calls).toEqual(["first"])
+        expect(assistants).toHaveLength(2)
+        expect(assistants[0].info.finish).toBe("tool-calls")
+        if (final.role !== "assistant") throw new Error("expected assistant response")
+        expect(final.finish).toBe("stop")
+
+        await Session.remove(session.id)
+      },
+    })
+  })
+
   test("sends temperature, tokens, and reasoning options for openai-compatible models", async () => {
     const server = state.server
     if (!server) {
@@ -1017,7 +1181,7 @@ describe("session.llm.stream", () => {
         expect(body.model).toBe(resolved.api.id)
         expect(body.max_tokens).toBe(ProviderTransform.maxOutputTokens(resolved))
         expect(body.temperature).toBe(0.4)
-        expect(body.top_p).toBe(0.9)
+        expect(body.top_p).toBeUndefined()
       },
     })
   })
