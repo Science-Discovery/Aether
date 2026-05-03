@@ -341,6 +341,111 @@ describe("ProviderTransform.providerOptions", () => {
     })
   })
 
+  test("removes responses-only reasoning fields for chat completions models", () => {
+    const model = createModel({
+      providerID: "custom",
+      api: {
+        id: "gpt-5.5",
+        url: "https://api.custom.com",
+        npm: "@ai-sdk/openai-compatible",
+      },
+    })
+
+    expect(
+      ProviderTransform.providerOptions(model, {
+        reasoningEffort: "high",
+        reasoningSummary: "auto",
+        include: ["reasoning.encrypted_content"],
+      }),
+    ).toEqual({
+      custom: {
+        reasoningEffort: "high",
+      },
+    })
+  })
+
+  test("keeps responses-only reasoning fields for azure responses models", () => {
+    const model = createModel({
+      providerID: "azure",
+      api: {
+        id: "gpt-5",
+        url: "https://azure.com",
+        npm: "@ai-sdk/azure",
+      },
+    })
+
+    expect(
+      ProviderTransform.providerOptions(model, {
+        reasoningEffort: "high",
+        reasoningSummary: "auto",
+        include: ["reasoning.encrypted_content"],
+      }),
+    ).toEqual({
+      azure: {
+        reasoningEffort: "high",
+        reasoningSummary: "auto",
+        include: ["reasoning.encrypted_content"],
+      },
+    })
+  })
+
+  test("removes responses-only reasoning fields for azure chat completions models", () => {
+    const model = createModel({
+      providerID: "azure",
+      api: {
+        id: "gpt-5",
+        url: "https://azure.com",
+        npm: "@ai-sdk/azure",
+      },
+    })
+
+    expect(
+      ProviderTransform.providerOptions(
+        model,
+        {
+          reasoningEffort: "high",
+          reasoningSummary: "auto",
+          include: ["reasoning.encrypted_content"],
+        },
+        { useCompletionUrls: true },
+      ),
+    ).toEqual({
+      azure: {
+        reasoningEffort: "high",
+      },
+    })
+  })
+
+  test("removes responses-only reasoning fields for azure model-level chat completions models", () => {
+    const model = createModel({
+      providerID: "azure",
+      api: {
+        id: "gpt-5",
+        url: "https://azure.com",
+        npm: "@ai-sdk/azure",
+      },
+      options: {
+        useCompletionUrls: true,
+      },
+    })
+
+    expect(
+      ProviderTransform.providerOptions(
+        model,
+        {
+          reasoningEffort: "high",
+          reasoningSummary: "auto",
+          include: ["reasoning.encrypted_content"],
+        },
+        model.options,
+      ),
+    ).toEqual({
+      azure: {
+        reasoningEffort: "high",
+      },
+    })
+  })
+
   test("uses gateway model provider slug for gateway models", () => {
     const model = createModel({
       providerID: "vercel",
