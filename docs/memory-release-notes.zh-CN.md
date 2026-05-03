@@ -11,6 +11,7 @@
 - scoped 条目使用实际格式 `kind[source]: scope(...): content`。
 - 条目支持 `scope(global)`、`scope(project-...)`、`scope(workspace-...)`、`scope(session-...)`，用于隔离项目/会话特定偏好。
 - Settings > Memory 展示 L1 active memory、pending inbox、USER.md、最近 daily memory。
+- `GET /memory` 与 SDK `Memory.get({ session_id })` 支持读取 Settings > Memory 需要的当前 L1、pending inbox、USER.md、daily memory 与设置状态。
 
 ## 用户可见行为
 
@@ -18,6 +19,7 @@
 - `memory_search` 命中后，对应条目会在当前 session 后续持续注入。
 - 新 session 可以搜索到 pending inbox 中尚未 reflection 的耐久倾向条目。
 - `memory_reload` 会刷新 L1/L2，适合用户手动编辑记忆文件后使用。
+- `memory_read` / `memory_list` 仅用于显式记忆管理；普通召回应通过 `memory_search` 完成，agent 不应 glob/read 整个记忆目录。
 - 每日 reflection 处理当天产生或修改过的 short-term session memory，以及 pending inbox；两者都没有输入时跳过。
 - Reflection 会要求 LLM 对等价/近重复记忆做合并，对冲突记忆做 replace/remove；本地还会去重 daily memory，并把等价 inferred 用户画像升级为 explicit 而不是保留两条。
 - 总开关 `memory.enabled=false` 时，memory 工具、召回和内置 daily reflection cron 都被视为关闭。

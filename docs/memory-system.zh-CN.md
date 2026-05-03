@@ -42,6 +42,7 @@ kind[source]: scope(global|project-...|workspace-...|session-...): content
 - `memory_search` 支持常见分隔符拆分多个关键词，任意关键词命中即候选。
 - 搜索命中会静默加入 L1，并在本 session 后续持续注入。
 - `memory_reload` 会重新读取 L2，并清空 L1 active memory。
+- 普通文件工具不应读取记忆目录；agent 需要召回记忆时应使用 `memory_search`，需要管理记忆时才使用 `memory_read` / `memory_list`。
 
 ## 5. 写入与反思
 
@@ -53,6 +54,16 @@ kind[source]: scope(global|project-...|workspace-...|session-...): content
 - 本地后处理会去除等价的 daily memory，并防止 `USER.md` 中因为 explicit/inferred 来源不同而出现同内容重复；如果新增 explicit 条目与已有 inferred 条目等价，会将 inferred 升级为 explicit。
 - reflection 成功且非 dry-run 后会移除已经处理过的 pending inbox 条目。
 - daily cron 会每天触发一次 `memory_reflect`。没有当天 short-term memory 且没有 pending inbox 时跳过并写入 skipped run log。
+
+### Reflection 范围
+
+`memory_reflect` 支持三个范围：
+
+- `current_session`：只处理当前 session short-term memory，以及明确标记 `scope(session-<session_id>)` 的 inbox 条目。
+- `current_scope`：处理当前 project/workspace/session 可见的今日 short-term memory 与 inbox 条目。
+- `global`：处理今日所有 short-term memory 与全部 inbox 条目。
+
+未标记 scope 或 `scope(global)` 的 inbox 条目不会被 `current_session` reflection 消费，留给 global reflection 处理，避免一个 session 抢先清掉另一个 session 也需要的 pending memory。
 
 ## 6. 配置
 
@@ -72,7 +83,23 @@ kind[source]: scope(global|project-...|workspace-...|session-...): content
 - `user_profile_history_extract_enabled`
 - `user_profile_history_extract_limit`
 
-## 7. Cron 集成
+## 7. 工具与接口
+
+Agent 可用工具：
+
+- `memory_write`：写当前 session short-term memory；耐久倾向条目可镜像到 pending inbox。
+- `memory_search`：搜索 L2 pool，并将命中条目加入 L1。
+- `memory_reload`：重新加载 L2，并清空当前 L1 active memory。
+- `memory_reflect`：手动触发 reflection。
+- `memory_read`：显式记忆管理读取，不用于普通召回。
+- `memory_list`：显式记忆管理列表，不用于普通召回。
+
+HTTP/SDK：
+
+- `GET /memory` 返回 `settings`、`user`、`inbox`、`memory`、`daily`，传入 `session_id` 时额外返回当前 session 的 `active` L1 内容。
+- 生成的 SDK 使用 `Memory.get({ session_id })` 读取 Memory 设置页所需数据。
+
+## 8. Cron 集成
 
 服务启动时会确保存在可编辑、可删除后重建的内置 job：
 
@@ -94,7 +121,7 @@ kind[source]: scope(global|project-...|workspace-...|session-...): content
 
 如果 Aether 在预定时间未运行，服务下一次启动后会检查内置 reflection job 是否已经 overdue；若 memory 与 cron 均启用且任务不在运行中，会立刻在后台补执行一次 scheduled reflection。普通 cron job 仍保持启动恢复时不立即执行的保护。
 
-## 8. 前端展示
+## 9. 前端展示
 
 Settings > Memory 展示：
 
@@ -103,3 +130,10 @@ Settings > Memory 展示：
 - pending inbox。
 - `USER.md`，按 explicit/inferred 分组。
 - 最近 30 个有 daily memory 的日期，倒序展示。
+
+## 10. 当前限制
+
+- 不使用 embedding 或向量检索。
+- Reflection 依赖可用 LLM；没有候选 short-term memory 和 pending inbox 时不会调用 LLM。
+- 旧 scoped memory 与 `ABSTRACT.md` 不再参与新的 L2 pool。
+- 每个 session 的 L1 active memory 有约 4000 字符上限；过长条目会被截断或留在 L2/L3 中等待搜索。
