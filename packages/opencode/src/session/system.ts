@@ -13,7 +13,7 @@ import type { Provider } from "@/provider/provider"
 import type { Agent } from "@/agent/agent"
 import { Permission } from "@/permission"
 import { Skill } from "@/skill"
-import { SKILLS_GUIDANCE } from "./skill-evolution"
+import { buildSkillsGuidance } from "./skill-evolution"
 import { Config } from "@/config/config"
 
 export namespace SystemPrompt {
@@ -66,6 +66,27 @@ export namespace SystemPrompt {
     const cfg = await Config.get()
     const skillNudgeInterval = cfg.skills?.creation_nudge_interval ?? 10
 
+    let skillsGuidance = buildSkillsGuidance([])
+    if (skillNudgeInterval !== 0) {
+      try {
+        const [managed, evolution, defaults] = await Promise.all([
+          Config.listManagedSkills().catch(() => [] as Awaited<ReturnType<typeof Config.listManagedSkills>>),
+          Config.listEvolutionSkills().catch(() => [] as Awaited<ReturnType<typeof Config.listEvolutionSkills>>),
+          Config.listDefaultSkills().catch(() => [] as Awaited<ReturnType<typeof Config.listDefaultSkills>>),
+        ])
+        const existingCategories = [
+          ...new Set(
+            [...managed, ...evolution, ...defaults]
+              .map((s) => s.category?.trim())
+              .filter((c): c is string => Boolean(c)),
+          ),
+        ].sort()
+        skillsGuidance = buildSkillsGuidance(existingCategories)
+      } catch {
+        // fall back to guidance without category hints
+      }
+    }
+
     return [
       "## Skills (mandatory)",
       "Before replying, scan the skills below. If a skill matches or is even partially relevant to your task, you MUST follow its instructions.",
@@ -80,7 +101,7 @@ export namespace SystemPrompt {
         "After difficult/iterative tasks, offer to save as a skill.",
         "If a skill you loaded was missing steps, had wrong commands, or needed pitfalls you discovered, update it before finishing.",
         "",
-        SKILLS_GUIDANCE,
+        skillsGuidance,
       ] : []),
     ].join("\n")
   }

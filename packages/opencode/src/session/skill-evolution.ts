@@ -6,6 +6,7 @@ import { SessionID } from "./schema"
 import { Bus } from "@/bus"
 import { BusEvent } from "@/bus/bus-event"
 import { SkillDirty } from "./skill-dirty"
+import { Config } from "../config/config"
 import z from "zod"
 
 const log = Log.create({ service: "skill.evolution" })
@@ -28,7 +29,7 @@ export const SKILL_NUDGE_INTERVAL = 10
 // so it never recursively triggers another review.
 export const SKILL_REVIEW_MARKER = "__skill_review__"
 
-export const SKILL_REVIEW_PROMPT = [
+export const SKILL_REVIEW_PROMPT_BASE = [
   "Review the conversation above and consider saving or updating a skill if appropriate.",
   "",
   "Focus on: was a non-trivial approach used to complete a task that required trial and error,",
@@ -41,22 +42,49 @@ export const SKILL_REVIEW_PROMPT = [
   "",
   "When creating or editing a skill, always include a 'category' field — a short label that",
   "groups related skills together (e.g. 'Git', 'Testing', 'Refactoring', 'Debugging', 'Build').",
+  "Prefer reusing an existing category name rather than inventing a new one.",
   "Infer it from the skill content if not obvious.",
 ].join("\n")
 
-export const SKILLS_GUIDANCE = [
-  "After completing a complex task (5+ tool calls), fixing a tricky error,",
-  "or discovering a non-trivial workflow, save the approach as a skill with",
-  "skill_manage so you can reuse it next time.",
-  "When using a skill and finding it outdated, incomplete, or wrong, update it",
-  "immediately with skill_manage — don't wait to be asked.",
-  "Use action='patch' for targeted fixes (a step changed, add content, fix wording).",
-  "Use action='edit' when the entire approach has fundamentally changed and a full rewrite is needed.",
-  "Always include a 'category' field when creating or editing a skill (e.g. 'Git', 'Testing', 'Debugging').",
-  "Skills that aren't maintained become liabilities.",
-].join("\n")
+export function buildCategoryHint(existingCategories: string[]): string {
+  if (existingCategories.length === 0) return ""
+  return `Existing skill categories (prefer reusing these): ${existingCategories.join(", ")}.`
+}
 
-export function buildReviewPrompt(messages: MessageV2.WithParts[]): string {
+export function buildSkillsGuidance(existingCategories: string[]): string {
+  const categoryLine =
+    existingCategories.length > 0
+      ? `Always include a 'category' field. Prefer reusing an existing category: ${existingCategories.join(", ")}.`
+      : "Always include a 'category' field when creating or editing a skill (e.g. 'Git', 'Testing', 'Debugging')."
+  return [
+    "After completing a complex task (5+ tool calls), fixing a tricky error,",
+    "or discovering a non-trivial workflow, save the approach as a skill with",
+    "skill_manage so you can reuse it next time.",
+    "When using a skill and finding it outdated, incomplete, or wrong, update it",
+    "immediately with skill_manage — don't wait to be asked.",
+    "Use action='patch' for targeted fixes (a step changed, add content, fix wording).",
+    "Use action='edit' when the entire approach has fundamentally changed and a full rewrite is needed.",
+    categoryLine,
+    "Skills that aren't maintained become liabilities.",
+  ].join("\n")
+}
+
+export const SKILLS_GUIDANCE = buildSkillsGuidance([])
+
+export async function buildReviewPrompt(messages: MessageV2.WithParts[]): Promise<string> {
+  const [managed, evolution, defaults] = await Promise.all([
+    Config.listManagedSkills().catch(() => [] as Awaited<ReturnType<typeof Config.listManagedSkills>>),
+    Config.listEvolutionSkills().catch(() => [] as Awaited<ReturnType<typeof Config.listEvolutionSkills>>),
+    Config.listDefaultSkills().catch(() => [] as Awaited<ReturnType<typeof Config.listDefaultSkills>>),
+  ])
+  const existingCategories = [
+    ...new Set(
+      [...managed, ...evolution, ...defaults]
+        .map((s) => s.category?.trim())
+        .filter((c): c is string => Boolean(c)),
+    ),
+  ].sort()
+
   // Summarise the conversation into text so the review agent can read it
   const lines: string[] = ["<conversation_history>"]
   for (const msg of messages) {
@@ -72,7 +100,11 @@ export function buildReviewPrompt(messages: MessageV2.WithParts[]): string {
       }
     }
   }
-  lines.push("</conversation_history>", "", SKILL_REVIEW_PROMPT)
+  const categoryHint = buildCategoryHint(existingCategories)
+  const reviewPrompt = categoryHint
+    ? `${SKILL_REVIEW_PROMPT_BASE}\n${categoryHint}`
+    : SKILL_REVIEW_PROMPT_BASE
+  lines.push("</conversation_history>", "", reviewPrompt)
   return lines.join("\n")
 }
 
@@ -95,7 +127,7 @@ export async function spawnBackgroundReview(input: {
 
     console.log(`[skill review] started childSession=${childSession.id} model=${model.providerID}/${model.modelID}`)
 
-    const reviewPrompt = buildReviewPrompt(messages)
+    const reviewPrompt = await buildReviewPrompt(messages)
 
     await SessionPrompt.prompt({
       sessionID: childSession.id,
