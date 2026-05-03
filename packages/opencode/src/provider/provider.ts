@@ -278,11 +278,8 @@ export namespace Provider {
         autoload: false,
         async getModel(sdk: any, modelID: string, options?: Record<string, any>) {
           if (useLanguageModel(sdk)) return sdk.languageModel(modelID)
-          if (options?.["useCompletionUrls"]) {
-            return sdk.chat(modelID)
-          } else {
-            return sdk.responses(modelID)
-          }
+          if (options?.["useCompletionUrls"]) return sdk.chat(modelID)
+          return sdk.responses(modelID)
         },
         options: {},
         vars(_options) {
@@ -298,11 +295,8 @@ export namespace Provider {
         autoload: false,
         async getModel(sdk: any, modelID: string, options?: Record<string, any>) {
           if (useLanguageModel(sdk)) return sdk.languageModel(modelID)
-          if (options?.["useCompletionUrls"]) {
-            return sdk.chat(modelID)
-          } else {
-            return sdk.responses(modelID)
-          }
+          if (options?.["useCompletionUrls"]) return sdk.chat(modelID)
+          return sdk.responses(modelID)
         },
         options: {
           baseURL: resourceName ? `https://${resourceName}.cognitiveservices.azure.com/openai` : undefined,
