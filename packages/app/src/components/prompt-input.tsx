@@ -60,7 +60,8 @@ import { promptPlaceholder } from "./prompt-input/placeholder"
 import { ImagePreview } from "@opencode-ai/ui/image-preview"
 import { FileIcon } from "@opencode-ai/ui/file-icon"
 import { KnowledgeButton } from "@/components/knowledge-button"
-import { createWorkingState } from "@/utils/working-state"
+import { createWorkingState, type ChildrenSource } from "@/utils/working-state"
+import { childMapByParent } from "@/pages/layout/helpers"
 import { SteerButton } from "@/components/steer-button"
 import { DialogDefaultSkills } from "@/components/dialog-default-skills"
 
@@ -256,7 +257,16 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
       (msg) => msg.role === "assistant" && typeof msg.time.completed !== "number",
     ),
   )
-  const { interactive: working } = createWorkingState({ status: () => status(), pending: () => pending() })
+  const children = createMemo<ChildrenSource>(() => ({
+    childMap: () => childMapByParent(sync.data.session),
+    status: (id: string) => sync.data.session_status[id],
+  }))
+  const { interactive: working } = createWorkingState({
+    status: () => status(),
+    pending: () => pending(),
+    sessionID: () => params.id,
+    children: () => children(),
+  })
   const tip = () => {
     if (working()) {
       return (
@@ -1259,18 +1269,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault()
       if (event.repeat) return
-      if (
-        working() &&
-        prompt
-          .current()
-          .map((part) => ("content" in part ? part.content : ""))
-          .join("")
-          .trim().length === 0 &&
-        imageAttachments().length === 0 &&
-        commentCount() === 0
-      ) {
-        return
-      }
+      if (working()) return
       handleSubmit(event)
     }
   }

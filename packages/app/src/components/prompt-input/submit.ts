@@ -78,11 +78,14 @@ function buildAuthHeaders(input: { username?: string; password?: string; json?: 
   return headers
 }
 
-function fillReadingQuestionPrompt(template: string, input: {
-  selectedContent: string
-  userQuestion: string
-  contextPages: string
-}) {
+function fillReadingQuestionPrompt(
+  template: string,
+  input: {
+    selectedContent: string
+    userQuestion: string
+    contextPages: string
+  },
+) {
   return template
     .replaceAll("{selected_content}", input.selectedContent)
     .replaceAll("{user_question}", input.userQuestion)
@@ -435,13 +438,17 @@ export function createPromptSubmit(input: PromptSubmitInput) {
   const handleSubmit = async (event: Event) => {
     event.preventDefault()
 
+    if (input.working()) {
+      abort()
+      return
+    }
+
     const currentPrompt = prompt.current()
     const text = currentPrompt.map((part) => ("content" in part ? part.content : "")).join("")
     const images = input.imageAttachments().slice()
     const mode = input.mode()
 
     if (text.trim().length === 0 && images.length === 0 && input.commentCount() === 0) {
-      if (input.working()) abort()
       return
     }
 
@@ -546,7 +553,8 @@ export function createPromptSubmit(input: PromptSubmitInput) {
     const selText = fileCtx.selectedText()
     const readingQuestion = readingMode?.store.pendingQuestion
     const quickReadingPendingQuestion = quickReadingMode?.store.pendingQuestion ?? null
-    const quickReadingQuestion = quickReadingPendingQuestion?.sessionID === params.id ? quickReadingPendingQuestion : null
+    const quickReadingQuestion =
+      quickReadingPendingQuestion?.sessionID === params.id ? quickReadingPendingQuestion : null
     const draft: FollowupDraft = {
       sessionID: session.id,
       sessionDirectory,
@@ -747,11 +755,11 @@ export function createPromptSubmit(input: PromptSubmitInput) {
             ignored: true,
           },
           {
-              text: fillReadingQuestionPrompt(settings.questionPrompt, {
-                selectedContent:
-                  quickReadingQuestion.kind === "image-question"
-                    ? `The user selected a screenshot region from page ${quickReadingQuestion.page} of ${quickReadingQuestion.pdfFileName}.`
-                    : `The user selected text from pages ${formatReadingPageRange({ startPage: quickReadingQuestion.startPage, endPage: quickReadingQuestion.endPage })} of ${quickReadingQuestion.pdfFileName}.\n\n${quickReadingQuestion.text}`,
+            text: fillReadingQuestionPrompt(settings.questionPrompt, {
+              selectedContent:
+                quickReadingQuestion.kind === "image-question"
+                  ? `The user selected a screenshot region from page ${quickReadingQuestion.page} of ${quickReadingQuestion.pdfFileName}.`
+                  : `The user selected text from pages ${formatReadingPageRange({ startPage: quickReadingQuestion.startPage, endPage: quickReadingQuestion.endPage })} of ${quickReadingQuestion.pdfFileName}.\n\n${quickReadingQuestion.text}`,
               userQuestion: typedQuestion,
               contextPages: "",
             }),
@@ -884,7 +892,8 @@ export function createPromptSubmit(input: PromptSubmitInput) {
             {
               text: fillReadingQuestionPrompt(sessionMeta.settings.questionPrompt, {
                 selectedContent: describeReadingSelection({
-                  startPage: readingQuestion.kind === "text-question" ? readingQuestion.startPage : readingQuestion.page,
+                  startPage:
+                    readingQuestion.kind === "text-question" ? readingQuestion.startPage : readingQuestion.page,
                   endPage: readingQuestion.kind === "text-question" ? readingQuestion.endPage : readingQuestion.page,
                   kind: readingQuestion.kind,
                   text: readingQuestion.kind === "text-question" ? readingQuestion.text : undefined,
@@ -977,7 +986,7 @@ export function createPromptSubmit(input: PromptSubmitInput) {
       knowledgeBase:
         knowledge.enabled() && knowledge.activeKnowledgeBases().length > 0
           ? {
-              paths: knowledge.activeKnowledgeBases().map(kb => kb.path),
+              paths: knowledge.activeKnowledgeBases().map((kb) => kb.path),
               apiKey: knowledge.activeKnowledgeBases()[0]!.apiKey,
               baseURL: knowledge.activeKnowledgeBases()[0]!.baseURL,
             }

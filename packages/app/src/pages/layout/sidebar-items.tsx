@@ -21,8 +21,8 @@ import { useNotification } from "@/context/notification"
 import { usePermission } from "@/context/permission"
 import { messageAgentColor } from "@/utils/agent"
 import { sessionPermissionRequest } from "../session/composer/session-request-tree"
-import { createWorkingState } from "@/utils/working-state"
-import { hasProjectPermissions } from "./helpers"
+import { createWorkingState, type ChildrenSource } from "@/utils/working-state"
+import { childMapByParent, hasProjectPermissions } from "./helpers"
 
 const OPENCODE_PROJECT_ID = "4b0ea68d7af9a6031a7ffda7ad66e0cb83315750"
 
@@ -330,7 +330,7 @@ export const SessionItem = (props: SessionItemProps): JSX.Element => {
       return !permission.autoResponds(item, props.session.directory)
     })
   })
-  const selfWorking = createWorkingState({
+  const isWorking = createWorkingState({
     status: () => sessionStore.session_status[props.session.id],
     pending: () =>
       (sessionStore.message[props.session.id] ?? []).findLast(
@@ -339,23 +339,12 @@ export const SessionItem = (props: SessionItemProps): JSX.Element => {
           typeof (message as { time?: { completed?: unknown } }).time?.completed !== "number",
       ),
     blocked: hasPermissions,
+    sessionID: () => props.session.id,
+    children: () => ({
+      childMap: () => childMapByParent(sessionStore.session),
+      status: (id: string) => sessionStore.session_status[id],
+    }),
   }).visual
-  const childWorking = createMemo(() => {
-    const ids = props.children.get(props.session.id)
-    if (!ids?.length) return false
-    for (const id of ids) {
-      const status = sessionStore.session_status[id]
-      if (status?.type === "busy" || status?.type === "retry") return true
-      const pending = (sessionStore.message[id] ?? []).findLast(
-        (message) =>
-          message.role === "assistant" &&
-          typeof (message as { time?: { completed?: unknown } }).time?.completed !== "number",
-      )
-      if (pending) return true
-    }
-    return false
-  })
-  const isWorking = createMemo(() => selfWorking() || childWorking())
 
   const tint = createMemo(() => {
     return messageAgentColor(sessionStore.message[props.session.id], sessionStore.agent)
