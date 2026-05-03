@@ -2,9 +2,15 @@
 
 Date: 2026-04-22
 
+Status update: 2026-05-02. The implemented system adds `memory/inbox/MEMORY.md` as a pending cross-session layer. Durable-looking `memory_write` entries are still written to the current session file first, but may also be mirrored to inbox so new sessions can recall them immediately before daily reflection runs. Scope-specific conflicts are handled with inline `scope(project-...)`, `scope(workspace-...)`, or `scope(session-...)` prefixes instead of resurrecting deprecated scoped long-term files.
+
+Startup catch-up update: if Aether is closed at the scheduled daily reflection time, the next server startup checks the built-in memory reflection job state. When the job is overdue, enabled, and not running, Aether queues one background scheduled reflection immediately after cron recovery. This catch-up is intentionally limited to `builtin-memory-reflection-daily`; ordinary cron jobs keep the existing startup recovery protection and wait for the scheduler tick.
+
+Conflict-resolution update: reflection prompts now explicitly instruct the LLM to resolve duplicates and conflicts before writing durable memory. Explicit entries override inferred entries, narrower scoped entries override conflicting global entries, and partial conflicts should be merged by replacing only the contradicted facet. Local post-processing also deduplicates equivalent daily entries and prevents equivalent `USER.md` entries from being duplicated across `explicit`/`inferred` sources.
+
 ## Purpose
 
-Memory reflection turns short-term session memory into durable, searchable long-term memory without rewriting the short-term source files. It also keeps `USER.md` current as the global user memory file.
+Memory reflection turns short-term session memory and pending inbox memory into durable, searchable long-term memory without rewriting the short-term source files. It also keeps `USER.md` current as the global user memory file.
 
 The design intentionally avoids scoped project/workspace `MEMORY.md` as a long-term target. Long-term memory becomes global and date-based, while session memory remains append-only short-term input.
 
@@ -12,7 +18,7 @@ The design intentionally avoids scoped project/workspace `MEMORY.md` as a long-t
 
 The current memory system has three runtime layers:
 
-- L1 active memory: the prompt content directly injected into the current session. Stable `USER.md` profile entries are included as a small capped baseline; daily/session memory is injected only after search or automatic recall.
+- L1 active memory: the prompt content directly injected into the current session. Stable `USER.md` profile entries are included as a small capped baseline; inbox/daily/session memory is injected only after search or automatic recall.
 - L2 prepared pool: the session-local searchable memory pool used by `memory_search` and automatic recall.
 - L3 disk store: files under the Aether data memory directory.
 
@@ -30,6 +36,7 @@ Reflection uses these paths:
 
 ```text
 memory/session/<session_id>/MEMORY.md
+memory/inbox/MEMORY.md
 memory/daily/YYYY-MM-DD/MEMORY.md
 memory/user/USER.md
 memory/reflection/run/<run_id>.json
@@ -37,7 +44,9 @@ memory/reflection/run/<run_id>.json
 
 `memory/session/<session_id>/MEMORY.md` remains untouched by reflection. It is not archived, deleted, sidecar-marked, or rewritten.
 
-`memory/daily/YYYY-MM-DD/MEMORY.md` is the global daily long-term memory file. Reflection appends a new section on each successful run. Multiple runs on the same day append multiple sections.
+`memory/inbox/MEMORY.md` stores pending cross-session memory before daily reflection. Reflection consumes matching inbox entries and clears them after a successful non-dry-run reflection.
+
+`memory/daily/YYYY-MM-DD/MEMORY.md` is the global daily long-term memory file. The implemented file is a flat `# MEMORY` bullet list; each successful non-dry-run reflection merges new validated entries into that list and deduplicates equivalent entries.
 
 `memory/user/USER.md` is the global user memory file. Reflection updates it through validated patches.
 
@@ -123,7 +132,7 @@ cron trigger:   scope = global
 dry_run:        false
 ```
 
-`scope` controls which session short-term memory files are considered as candidates. Output remains global:
+`scope` controls which session short-term memory files and pending inbox entries are considered as candidates. Output remains global:
 
 ```text
 memory/daily/YYYY-MM-DD/MEMORY.md
@@ -192,24 +201,25 @@ When `memory.enabled=false`:
 
 ## Candidate Selection
 
-Daily reflection scans all session memory files:
+Daily reflection scans all session memory files and pending inbox memory:
 
 ```text
 memory/session/*/MEMORY.md
+memory/inbox/MEMORY.md
 ```
 
-The backend checks file metadata such as mtime and hash for every file, but only passes files modified today to the LLM. This satisfies daily scanning without repeatedly paying LLM tokens for unchanged short-term memory.
+The backend checks file metadata such as mtime and hash for session files, and only passes files modified today to the LLM. Pending inbox entries are included directly by scope filtering.
 
-If no candidate files were modified today:
+If no session candidate files were modified today and no inbox entries match the scope:
 
 - Do not call the LLM.
 - Write a reflection run log with status `skipped`.
 
 Manual reflection scopes:
 
-- `current_session`: only the current session short-term memory file.
-- `current_scope`: session memory files associated with the current effective project/workspace scope.
-- `global`: all session memory files modified today.
+- `current_session`: current session short-term memory file + inbox entries with `scope(session-<id>)`. Unscoped and `scope(global)` inbox entries are intentionally left for global reflection so one session cannot accidentally consume another session's same-text pending memory.
+- `current_scope`: session memory files associated with the current effective project/workspace scope + inbox entries visible in the same scope.
+- `global`: all session memory files modified today + all inbox entries.
 
 ## LLM Reflection Output
 
@@ -265,15 +275,14 @@ The backend validates every kind, source, operation, and content field before wr
 
 For daily memory:
 
-- Append a run section to `memory/daily/YYYY-MM-DD/MEMORY.md`.
-- Do not overwrite existing content.
-- Include timestamp and run id in the section header.
+- Merge validated new entries into `memory/daily/YYYY-MM-DD/MEMORY.md`.
+- Preserve existing entries and deduplicate equivalent content.
+- Keep run metadata in `memory/reflection/run/<run_id>.json`, not in the daily memory file.
 
 Example:
 
 ```md
-## 2026-04-22T03:00:00+08:00 reflection run 01K...
-
+# MEMORY
 - fact[explicit]: Aether memory reflection uses a global daily cron.
 - preference[explicit]: User wants short-term memory left untouched.
 - task[explicit]: Implement daily memory files and USER patches.
@@ -298,6 +307,7 @@ When building a new session L2 prepared pool, read:
 
 ```text
 memory/user/USER.md
+memory/inbox/MEMORY.md
 memory/session/<session_id>/MEMORY.md
 memory/daily/<recent 30 active dates>/MEMORY.md
 ```
@@ -316,6 +326,7 @@ memory/scope/<scopeKey>/ABSTRACT.md
 Settings > Memory should show:
 
 - Active session memory (L1), including active entries and prompt preview.
+- Pending inbox memory waiting for reflection.
 - USER memory grouped by `fact`, `preference`, and `task`, with source labels.
 - Daily memory for the most recent 30 active dates, grouped by date in reverse chronological order.
 
@@ -325,14 +336,19 @@ The old “include inferred profile” and “reflection enabled” controls sho
 
 ## Cron Integration
 
-Register `memory_reflect` as a cron direct action:
+Register `memory_reflect` as a cron direct action, and run it inside `Instance.provide`:
 
 ```ts
 registerDirectAction("memory_reflect", async (payload) => {
-  return Memory.reflect({
-    trigger: "cron",
-    scope: payload.scope ?? "global",
-    dry_run: payload.dry_run ?? false,
+  return Instance.provide({
+    directory: typeof payload.directory === "string" ? payload.directory : Global.Path.data,
+    init: InstanceBootstrap,
+    fn: () =>
+      Memory.reflect({
+        trigger: "cron",
+        scope: payload.scope ?? "global",
+        dry_run: payload.dry_run ?? false,
+      }),
   })
 })
 ```
@@ -395,7 +411,7 @@ Backend tests:
 - Existing built-in cron schedule/payload/name are not overwritten.
 - Cron direct action calls the same reflection pipeline.
 - Reflection skips LLM when no session memory was modified today.
-- Reflection appends daily memory entries in the unified format.
+- Reflection merges daily memory entries in the unified format.
 - Reflection applies validated USER patches.
 - Invalid USER patch kind/source is rejected.
 - L2 pool reads recent 30 active daily files and does not read scoped MEMORY.

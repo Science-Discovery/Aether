@@ -50,6 +50,14 @@ vi.mock("@/context/global-sdk", () => ({
                   usage: 0,
                   entries: [],
                 },
+                inbox: {
+                  store: "memory",
+                  file: "/tmp/memory/inbox/MEMORY.md",
+                  limit: 60000,
+                  used: 18,
+                  usage: 0.0003,
+                  entries: ["preference[explicit]: pending-test-note"],
+                },
                 memory: {
                   store: "memory",
                   file: "/tmp/memory/daily",
@@ -255,6 +263,17 @@ describe("settings memory", () => {
         enabled: false,
       }),
     })
+
+    off()
+  })
+
+  test("renders pending inbox memory returned by server", async () => {
+    const { host, off } = mount()
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(host.textContent).toContain("settings.memory.store.inbox")
+    expect(host.textContent).toContain("pending-test-note")
 
     off()
   })

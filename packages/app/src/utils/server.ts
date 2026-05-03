@@ -34,7 +34,7 @@ type ActiveMemory = {
   session_id: string
   prompt: string
   entries: Array<{
-    source: "user" | "daily" | "session"
+    source: "user" | "inbox" | "daily" | "session"
     store?: "user" | "memory"
     index: number
     text: string

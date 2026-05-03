@@ -1580,6 +1580,7 @@ export class Memory extends HeyApiClient {
   public get<ThrowOnError extends boolean = false>(
     parameters?: {
       directory?: string
+      session_id?: string
       workspace?: string
     },
     options?: Options<never, ThrowOnError>,
@@ -1590,6 +1591,7 @@ export class Memory extends HeyApiClient {
         {
           args: [
             { in: "query", key: "directory" },
+            { in: "query", key: "session_id" },
             { in: "query", key: "workspace" },
           ],
         },
