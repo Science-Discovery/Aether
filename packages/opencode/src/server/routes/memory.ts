@@ -7,6 +7,7 @@ import { Memory } from "@/memory"
 const MemoryResponse = z.object({
   settings: Memory.Settings,
   user: Memory.ReadStore,
+  inbox: Memory.ReadStore,
   memory: Memory.ReadStore,
   daily: Memory.DailyMemory,
   active: z
@@ -64,6 +65,7 @@ export const MemoryRoutes = lazy(() =>
       return c.json({
         settings: set,
         user: stores.user,
+        inbox: stores.inbox,
         memory: stores.memory,
         daily: stores.daily,
         ...(active ? { active } : {}),

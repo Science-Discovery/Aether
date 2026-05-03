@@ -229,6 +229,175 @@ describe("memory + user profile backend", () => {
     })
   })
 
+  test("durable-looking USER writes are immediately searchable from another session before reflection", async () => {
+    await using tmp = await tmpdir({
+      git: true,
+      config: {
+        memory: {
+          enabled: true,
+        },
+      } as Partial<Config.Info>,
+    })
+
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const written = await Memory.write({
+          session_id: "inbox_source_session",
+          store: "user",
+          action: "add",
+          value: "用户希望长期记住：默认称呼她为 Alice。",
+          reason: "manual",
+        })
+        expect(written.ok).toBe(true)
+
+        await Memory.start({ session_id: "inbox_other_session" })
+        const hits = await Memory.search({ session_id: "inbox_other_session", query: "Alice" })
+        expect(hits.some((hit) => hit.text.includes("Alice"))).toBe(true)
+      },
+    })
+  })
+
+  test("replace and remove update pending inbox entries before reflection", async () => {
+    await using tmp = await tmpdir({
+      git: true,
+      config: {
+        memory: {
+          enabled: true,
+        },
+      } as Partial<Config.Info>,
+    })
+
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        await Memory.write({
+          session_id: "inbox_edit_source",
+          store: "user",
+          action: "add",
+          value: "用户希望长期记住：inbox-edit-old-marker",
+          reason: "manual",
+        })
+        await Memory.write({
+          session_id: "inbox_edit_source",
+          store: "user",
+          action: "replace",
+          index: 1,
+          value: "用户希望长期记住：inbox-edit-new-marker",
+          reason: "manual",
+        })
+
+        await Memory.start({ session_id: "inbox_edit_other_after_replace" })
+        const oldAfterReplace = await Memory.search({
+          session_id: "inbox_edit_other_after_replace",
+          query: "inbox-edit-old-marker",
+        })
+        const newAfterReplace = await Memory.search({
+          session_id: "inbox_edit_other_after_replace",
+          query: "inbox-edit-new-marker",
+        })
+        expect(oldAfterReplace).toEqual([])
+        expect(newAfterReplace.some((hit) => hit.text.includes("inbox-edit-new-marker"))).toBe(true)
+
+        await Memory.write({
+          session_id: "inbox_edit_source",
+          store: "user",
+          action: "remove",
+          index: 1,
+          reason: "manual",
+        })
+
+        await Memory.start({ session_id: "inbox_edit_other_after_remove" })
+        const newAfterRemove = await Memory.search({
+          session_id: "inbox_edit_other_after_remove",
+          query: "inbox-edit-new-marker",
+        })
+        expect(newAfterRemove).toEqual([])
+      },
+    })
+  })
+
+  test("concurrent durable-looking writes keep all mirrored inbox entries", async () => {
+    await using tmp = await tmpdir({
+      git: true,
+      config: {
+        memory: {
+          enabled: true,
+        },
+      } as Partial<Config.Info>,
+    })
+
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const total = 24
+        await Promise.all(
+          Array.from({ length: total }, (_, index) =>
+            Memory.write({
+              session_id: "concurrent_inbox_source",
+              store: "user",
+              action: "add",
+              value: `用户希望长期记住：concurrent-inbox-marker-${index}`,
+              reason: "manual",
+            }),
+          ),
+        )
+
+        const stores = await Memory.list()
+        const hits = stores.inbox.entries.filter((entry) => entry.includes("concurrent-inbox-marker-"))
+        expect(hits).toHaveLength(total)
+        for (let i = 0; i < total; i++) {
+          expect(hits.some((entry) => entry.includes(`concurrent-inbox-marker-${i}`))).toBe(true)
+        }
+      },
+    })
+  })
+
+  test("scoped USER entries are visible only in matching project memory pools", async () => {
+    await using left = await tmpdir({ git: true })
+    await using right = await tmpdir({ git: true })
+
+    let leftProjectScope = ""
+    let userFile = ""
+
+    try {
+      await Instance.provide({
+        directory: left.path,
+        fn: async () => {
+          leftProjectScope = `project-${Instance.project.id}`
+          userFile = (await Memory.read("user")).file
+          await Filesystem.write(
+            userFile,
+            [
+              "# USER",
+              "- preference[explicit]: global-visible-marker should be visible everywhere.",
+              `- preference[explicit]: scope(${leftProjectScope}): project-scoped-marker should only appear on the left project.`,
+            ].join("\n"),
+          )
+
+          await Memory.start({ session_id: "left_scoped_session" })
+          const scopedHits = await Memory.search({ session_id: "left_scoped_session", query: "project-scoped-marker" })
+          expect(scopedHits.some((hit) => hit.text.includes("project-scoped-marker"))).toBe(true)
+        },
+      })
+
+      await Instance.provide({
+        directory: right.path,
+        fn: async () => {
+          expect(`project-${Instance.project.id}`).not.toBe(leftProjectScope)
+          await Memory.start({ session_id: "right_scoped_session" })
+          const globalHits = await Memory.search({ session_id: "right_scoped_session", query: "global-visible-marker" })
+          expect(globalHits.some((hit) => hit.text.includes("global-visible-marker"))).toBe(true)
+
+          const scopedHits = await Memory.search({ session_id: "right_scoped_session", query: "project-scoped-marker" })
+          expect(scopedHits).toEqual([])
+        },
+      })
+    } finally {
+      if (userFile) await Filesystem.write(userFile, "# USER\n")
+    }
+  })
+
   test("disables memory stores and writes when memory.enabled=false", async () => {
     await using tmp = await tmpdir({
       git: true,
@@ -451,6 +620,565 @@ describe("memory + user profile backend", () => {
         expect(Array.isArray(captured?.messages)).toBe(true)
         expect(captured?.system).toBeUndefined()
         expect(captured?.prompt).toBeUndefined()
+      },
+    })
+  })
+
+  test("global reflection reads pending inbox memory and clears it after success", async () => {
+    await using tmp = await tmpdir({
+      git: true,
+      config: {
+        model: "opencode/gpt-5-nano",
+        memory: {
+          enabled: true,
+        },
+      } as Partial<Config.Info>,
+    })
+
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const written = await Memory.write({
+          session_id: "reflect_inbox_source",
+          store: "user",
+          action: "add",
+          value: "用户希望长期记住：inbox-reflection-marker",
+          reason: "manual",
+        })
+        expect(written.ok).toBe(true)
+
+        let prompt = ""
+        Memory.setReflectionObjectGeneratorForTest(async (params) => {
+          const messages = (params as { messages?: Array<{ content?: string }> }).messages ?? []
+          prompt = messages.map((message) => message.content ?? "").join("\n")
+          return {
+            object: {
+              daily_memory: [],
+              user_patches: [],
+              summary: "inbox reflected",
+            },
+          }
+        })
+
+        try {
+          const result = await Memory.reflect({
+            scope: "global",
+          })
+          expect(result.status).toBe("success")
+        } finally {
+          Memory.resetReflectionObjectGeneratorForTest()
+        }
+
+        expect(prompt).toContain("Pending inbox memory")
+        expect(prompt).toContain("inbox-reflection-marker")
+
+        await Memory.start({ session_id: "reflect_inbox_other" })
+        const hits = await Memory.search({ session_id: "reflect_inbox_other", query: "inbox-reflection-marker" })
+        expect(hits).toEqual([])
+      },
+    })
+  })
+
+  test("global reflection removes cleared inbox entries from existing L1 active memory", async () => {
+    await using tmp = await tmpdir({
+      git: true,
+      config: {
+        model: "opencode/gpt-5-nano",
+        memory: {
+          enabled: true,
+        },
+      } as Partial<Config.Info>,
+    })
+
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const marker = "inbox-active-stale-marker"
+        const searchSession = "reflect_inbox_active_existing_session"
+        const written = await Memory.write({
+          session_id: "reflect_inbox_active_source",
+          store: "user",
+          action: "add",
+          value: `用户希望长期记住：${marker}`,
+          reason: "manual",
+        })
+        expect(written.ok).toBe(true)
+
+        await Memory.start({ session_id: searchSession })
+        await Memory.search({ session_id: searchSession, query: marker })
+        let prompt = await Memory.activePrompt({ session_id: searchSession })
+        expect(prompt.prompt).toContain(marker)
+
+        Memory.setReflectionObjectGeneratorForTest(async () => ({
+          object: {
+            daily_memory: [],
+            user_patches: [],
+            summary: "inbox reflected and active pruned",
+          },
+        }))
+
+        try {
+          const result = await Memory.reflect({
+            scope: "global",
+          })
+          expect(result.status).toBe("success")
+        } finally {
+          Memory.resetReflectionObjectGeneratorForTest()
+        }
+
+        prompt = await Memory.activePrompt({ session_id: searchSession })
+        expect(prompt.prompt).not.toContain(marker)
+        expect(prompt.active.some((entry) => entry.source === "inbox" && entry.text.includes(marker))).toBe(false)
+      },
+    })
+  })
+
+  test("current_session reflection does not consume same-text unscoped or global inbox entries from another session", async () => {
+    await using tmp = await tmpdir({
+      git: true,
+      config: {
+        model: "opencode/gpt-5-nano",
+        memory: {
+          enabled: true,
+        },
+      } as Partial<Config.Info>,
+    })
+
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const sessionID = "reflect_current_session_no_cross_session_inbox_cleanup"
+        const unscopedMarker = "reflect-current-session-unscoped-other-marker"
+        const globalMarker = "reflect-current-session-global-other-marker"
+
+        const unscopedWrite = await Memory.write({
+          session_id: "reflect_current_session_unscoped_other",
+          store: "user",
+          action: "add",
+          value: `用户希望长期记住：${unscopedMarker}`,
+          reason: "manual",
+        })
+        expect(unscopedWrite.ok).toBe(true)
+        const globalWrite = await Memory.write({
+          session_id: "reflect_current_session_global_other",
+          store: "user",
+          action: "add",
+          value: `scope(global): 用户希望长期记住：${globalMarker}`,
+          reason: "manual",
+        })
+        expect(globalWrite.ok).toBe(true)
+
+        await Memory.write({
+          session_id: sessionID,
+          store: "user",
+          action: "add",
+          value: `用户希望长期记住：${unscopedMarker}`,
+          reason: "manual",
+        })
+        await Memory.write({
+          session_id: sessionID,
+          store: "user",
+          action: "add",
+          value: `scope(global): 用户希望长期记住：${globalMarker}`,
+          reason: "manual",
+        })
+
+        const before = await Memory.list()
+        expect(before.inbox.entries.some((entry) => entry.includes(unscopedMarker))).toBe(true)
+        expect(before.inbox.entries.some((entry) => entry.includes(globalMarker))).toBe(true)
+
+        Memory.setReflectionObjectGeneratorForTest(async () => ({
+          object: {
+            daily_memory: [],
+            user_patches: [],
+            summary: "current session skipped cross-session inbox",
+          },
+        }))
+
+        try {
+          const result = await Memory.reflect({
+            session_id: sessionID,
+            scope: "current_session",
+          })
+          expect(result.status).toBe("success")
+        } finally {
+          Memory.resetReflectionObjectGeneratorForTest()
+        }
+
+        const after = await Memory.list()
+        expect(after.inbox.entries.some((entry) => entry.includes(unscopedMarker))).toBe(true)
+        expect(after.inbox.entries.some((entry) => entry.includes(globalMarker))).toBe(true)
+      },
+    })
+  })
+
+  test("current_session reflection consumes explicitly session-scoped inbox entries", async () => {
+    await using tmp = await tmpdir({
+      git: true,
+      config: {
+        model: "opencode/gpt-5-nano",
+        memory: {
+          enabled: true,
+        },
+      } as Partial<Config.Info>,
+    })
+
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const sessionID = "reflect_current_session_scoped_inbox"
+        const marker = "reflect-current-session-scoped-marker"
+        const writeResult = await Memory.write({
+          session_id: sessionID,
+          store: "user",
+          action: "add",
+          value: `scope(session-${sessionID}): 用户希望长期记住：${marker}`,
+          reason: "manual",
+        })
+        expect(writeResult.ok).toBe(true)
+
+        const before = await Memory.list()
+        expect(before.inbox.entries.some((entry) => entry.includes(marker))).toBe(true)
+
+        Memory.setReflectionObjectGeneratorForTest(async () => ({
+          object: {
+            daily_memory: [],
+            user_patches: [],
+            summary: "current session scoped inbox consumed",
+          },
+        }))
+
+        try {
+          const result = await Memory.reflect({
+            session_id: sessionID,
+            scope: "current_session",
+          })
+          expect(result.status).toBe("success")
+        } finally {
+          Memory.resetReflectionObjectGeneratorForTest()
+        }
+
+        const after = await Memory.list()
+        expect(after.inbox.entries.some((entry) => entry.includes(marker))).toBe(false)
+      },
+    })
+  })
+
+  test("memory_reflect asks LLM to resolve conflicts and deduplicates equivalent USER patches", async () => {
+    await using tmp = await tmpdir({
+      git: true,
+      config: {
+        model: "opencode/gpt-5-nano",
+        memory: {
+          enabled: true,
+        },
+      } as Partial<Config.Info>,
+    })
+
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const userFile = (await Memory.read("user")).file
+        await Filesystem.write(
+          userFile,
+          [
+            "# USER",
+            "- preference[inferred]: 用户默认希望中文回答。",
+            "- preference[explicit]: 默认用英文回答。",
+          ].join("\n"),
+        )
+
+        await Memory.write({
+          session_id: "reflect_conflict_session",
+          store: "user",
+          action: "add",
+          value: "用户明确纠正：默认用中文回答，不要默认英文回答。",
+          reason: "manual",
+        })
+
+        let system = ""
+        Memory.setReflectionObjectGeneratorForTest(async (params) => {
+          const messages = (params as { messages?: Array<{ role?: string; content?: string }> }).messages ?? []
+          system = messages
+            .filter((message) => message.role === "system")
+            .map((message) => message.content ?? "")
+            .join("\n")
+          return {
+            object: {
+              daily_memory: [],
+              user_patches: [
+                {
+                  op: "add",
+                  kind: "preference",
+                  source: "explicit",
+                  content: "用户默认希望中文回答。",
+                },
+                {
+                  op: "replace",
+                  match: "默认用英文回答",
+                  kind: "preference",
+                  source: "explicit",
+                  content: "默认用中文回答。",
+                },
+              ],
+              summary: "resolved conflict",
+            },
+          }
+        })
+
+        try {
+          const result = await Memory.reflect({
+            session_id: "reflect_conflict_session",
+            scope: "current_session",
+          })
+          expect(result.status).toBe("success")
+        } finally {
+          Memory.resetReflectionObjectGeneratorForTest()
+        }
+
+        expect(system).toContain("Resolve duplicates and conflicts before writing")
+        expect(system).toContain("replace or remove")
+
+        const user = await Memory.read("user")
+        expect(user.entries.filter((entry) => entry.includes("用户默认希望中文回答"))).toEqual([
+          "preference[explicit]: 用户默认希望中文回答。",
+        ])
+        expect(user.entries.some((entry) => entry.includes("默认用英文回答"))).toBe(false)
+      },
+    })
+  })
+
+  test("memory_reflect deduplicates equivalent daily memory entries", async () => {
+    await using tmp = await tmpdir({
+      git: true,
+      config: {
+        model: "opencode/gpt-5-nano",
+        memory: {
+          enabled: true,
+        },
+      } as Partial<Config.Info>,
+    })
+
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        await Memory.write({
+          session_id: "reflect_daily_duplicate_session",
+          store: "memory",
+          action: "add",
+          value: "Aether 使用 cron 进行反思。",
+          reason: "manual",
+        })
+
+        Memory.setReflectionObjectGeneratorForTest(async () => ({
+          object: {
+            daily_memory: [
+              {
+                kind: "fact",
+                content: "Aether 使用 cron 进行反思。",
+              },
+              {
+                kind: "fact",
+                content: "Aether使用cron进行反思",
+              },
+            ],
+            user_patches: [],
+            summary: "deduped daily",
+          },
+        }))
+
+        try {
+          const result = await Memory.reflect({
+            session_id: "reflect_daily_duplicate_session",
+            scope: "current_session",
+          })
+          expect(result.status).toBe("success")
+        } finally {
+          Memory.resetReflectionObjectGeneratorForTest()
+        }
+
+        const memory = await Memory.read("memory")
+        expect(memory.entries.filter((entry) => entry.includes("cron"))).toHaveLength(1)
+      },
+    })
+  })
+
+  test("memory_reflect keeps equivalent daily entries when scopes differ", async () => {
+    await using tmp = await tmpdir({
+      git: true,
+      config: {
+        model: "opencode/gpt-5-nano",
+        memory: {
+          enabled: true,
+        },
+      } as Partial<Config.Info>,
+    })
+
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const memoryFile = `${(await Memory.read("memory")).file}/${todayKey()}/MEMORY.md`
+        await Filesystem.write(memoryFile, ["# MEMORY", "- fact[explicit]: aether reflection marker"].join("\n"))
+        await Memory.write({
+          session_id: "reflect_daily_scope_session",
+          store: "memory",
+          action: "add",
+          value: "trigger reflection input for scoped daily dedupe test",
+          reason: "manual",
+        })
+
+        Memory.setReflectionObjectGeneratorForTest(async () => ({
+          object: {
+            daily_memory: [
+              {
+                kind: "fact",
+                content: "scope(project-dedup-test): aether reflection marker",
+              },
+            ],
+            user_patches: [],
+            summary: "keep scoped daily",
+          },
+        }))
+
+        try {
+          const result = await Memory.reflect({
+            session_id: "reflect_daily_scope_session",
+            scope: "current_session",
+          })
+          expect(result.status).toBe("success")
+        } finally {
+          Memory.resetReflectionObjectGeneratorForTest()
+        }
+
+        const memory = await Memory.read("memory")
+        const hits = memory.entries.filter((entry) => entry.includes("aether reflection marker"))
+        expect(hits).toHaveLength(2)
+        expect(hits.some((entry) => entry.includes("scope(project-dedup-test):"))).toBe(true)
+        expect(hits.some((entry) => entry === "fact[explicit]: aether reflection marker")).toBe(true)
+      },
+    })
+  })
+
+  test("memory_reflect USER patch dedupe is scope-aware while keeping explicit-over-inferred upgrade within same scope", async () => {
+    await using tmp = await tmpdir({
+      git: true,
+      config: {
+        model: "opencode/gpt-5-nano",
+        memory: {
+          enabled: true,
+        },
+      } as Partial<Config.Info>,
+    })
+
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const userFile = (await Memory.read("user")).file
+        await Filesystem.write(
+          userFile,
+          [
+            "# USER",
+            "- preference[inferred]: scope(project-alpha): use chinese",
+            "- preference[inferred]: scope(project-beta): use chinese",
+          ].join("\n"),
+        )
+
+        await Memory.write({
+          session_id: "reflect_user_scope_session",
+          store: "memory",
+          action: "add",
+          value: "scope(project-alpha): trigger reflection input",
+          reason: "manual",
+        })
+
+        Memory.setReflectionObjectGeneratorForTest(async () => ({
+          object: {
+            daily_memory: [],
+            user_patches: [
+              {
+                op: "add",
+                kind: "preference",
+                source: "explicit",
+                content: "scope(project-alpha): use chinese",
+              },
+            ],
+            summary: "scope aware user dedupe",
+          },
+        }))
+
+        try {
+          const result = await Memory.reflect({
+            session_id: "reflect_user_scope_session",
+            scope: "current_session",
+          })
+          expect(result.status).toBe("success")
+        } finally {
+          Memory.resetReflectionObjectGeneratorForTest()
+        }
+
+        const user = await Memory.read("user")
+        expect(user.entries).toContain("preference[explicit]: scope(project-alpha): use chinese")
+        expect(user.entries).toContain("preference[inferred]: scope(project-beta): use chinese")
+        expect(user.entries.some((entry) => entry === "preference[inferred]: scope(project-alpha): use chinese")).toBe(false)
+      },
+    })
+  })
+
+  test("memory_reflect final USER dedupe keeps explicit when same scope-aware key also has inferred", async () => {
+    await using tmp = await tmpdir({
+      git: true,
+      config: {
+        model: "opencode/gpt-5-nano",
+        memory: {
+          enabled: true,
+        },
+      } as Partial<Config.Info>,
+    })
+
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const userFile = (await Memory.read("user")).file
+        await Filesystem.write(
+          userFile,
+          [
+            "# USER",
+            "- preference[inferred]: scope(project-alpha): use chinese",
+            "- preference[explicit]: scope(project-alpha): use chinese",
+            "- preference[inferred]: scope(project-beta): use chinese",
+          ].join("\n"),
+        )
+
+        await Memory.write({
+          session_id: "reflect_user_explicit_wins_session",
+          store: "memory",
+          action: "add",
+          value: "scope(project-alpha): trigger explicit-vs-inferred-final-dedupe",
+          reason: "manual",
+        })
+
+        Memory.setReflectionObjectGeneratorForTest(async () => ({
+          object: {
+            daily_memory: [],
+            user_patches: [],
+            summary: "explicit wins in final user dedupe",
+          },
+        }))
+
+        try {
+          const result = await Memory.reflect({
+            session_id: "reflect_user_explicit_wins_session",
+            scope: "current_session",
+          })
+          expect(result.status).toBe("success")
+        } finally {
+          Memory.resetReflectionObjectGeneratorForTest()
+        }
+
+        const user = await Memory.read("user")
+        expect(user.entries).toContain("preference[explicit]: scope(project-alpha): use chinese")
+        expect(user.entries).toContain("preference[inferred]: scope(project-beta): use chinese")
+        expect(user.entries.some((entry) => entry === "preference[inferred]: scope(project-alpha): use chinese")).toBe(false)
       },
     })
   })
