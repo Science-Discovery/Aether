@@ -329,6 +329,98 @@ describe("session.llm.stream", () => {
     })
   })
 
+  test("strips reasoning summary options from chat completions requests", async () => {
+    const server = state.server
+    if (!server) {
+      throw new Error("Server not initialized")
+    }
+
+    const providerID = "alibaba"
+    const modelID = "qwen-plus"
+    const fixture = await loadFixture(providerID, modelID)
+    const model = fixture.model
+
+    const request = waitRequest(
+      "/chat/completions",
+      new Response(createChatStream("Hello"), {
+        status: 200,
+        headers: { "Content-Type": "text/event-stream" },
+      }),
+    )
+
+    await using tmp = await tmpdir({
+      init: async (dir) => {
+        await Bun.write(
+          path.join(dir, "opencode.json"),
+          JSON.stringify({
+            $schema: "https://opencode.ai/config.json",
+            enabled_providers: [providerID],
+            provider: {
+              [providerID]: {
+                options: {
+                  apiKey: "test-key",
+                  baseURL: `${server.url.origin}/v1`,
+                },
+              },
+            },
+          }),
+        )
+      },
+    })
+
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const resolved = await Provider.getModel(ProviderID.make(providerID), ModelID.make(model.id))
+        const sessionID = SessionID.make("session-test-chat-reasoning")
+        const agent = {
+          name: "test",
+          mode: "primary",
+          options: {
+            reasoningSummary: "auto",
+            include: ["reasoning.encrypted_content"],
+          },
+          permission: [{ permission: "*", pattern: "*", action: "allow" }],
+        } satisfies Agent.Info
+
+        const user = {
+          id: MessageID.make("user-chat-reasoning"),
+          sessionID,
+          role: "user",
+          time: { created: Date.now() },
+          agent: agent.name,
+          model: { providerID: ProviderID.make(providerID), modelID: resolved.id },
+          variant: "high",
+        } satisfies MessageV2.User
+
+        const stream = await LLM.stream({
+          user,
+          sessionID,
+          model: resolved,
+          agent,
+          system: ["You are a helpful assistant."],
+          abort: new AbortController().signal,
+          messages: [{ role: "user", content: "Hello" }],
+          tools: {},
+        })
+
+        for await (const _ of stream.fullStream) {
+        }
+
+        const capture = await request
+        const body = capture.body
+
+        expect(capture.url.pathname.endsWith("/chat/completions")).toBe(true)
+        expect(body.reasoningSummary).toBeUndefined()
+        expect(body.reasoning_summary).toBeUndefined()
+        expect(body.include).toBeUndefined()
+
+        const reasoning = (body.reasoningEffort as string | undefined) ?? (body.reasoning_effort as string | undefined)
+        expect(reasoning).toBe("high")
+      },
+    })
+  })
+
   test("keeps tools enabled by prompt permissions", async () => {
     const server = state.server
     if (!server) {

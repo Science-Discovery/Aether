@@ -931,7 +931,40 @@ export namespace ProviderTransform {
     amazon: "bedrock",
   }
 
-  export function providerOptions(model: Provider.Model, options: { [x: string]: any }) {
+  function copilotChat(model: Provider.Model) {
+    const match = /^gpt-(\d+)/.exec(model.api.id)
+    if (!match) return true
+    return Number(match[1]) < 5 || model.api.id.startsWith("gpt-5-mini")
+  }
+
+  function chat(model: Provider.Model, cfg?: Record<string, unknown>) {
+    if (model.api.npm === "@ai-sdk/openai-compatible") return true
+    if (model.api.npm === "@ai-sdk/azure") return cfg?.useCompletionUrls === true
+    if (model.api.npm === "@ai-sdk/github-copilot") return copilotChat(model)
+    return false
+  }
+
+  function scrub(options: Record<string, unknown>) {
+    const result = { ...options }
+    delete result.reasoningSummary
+    delete result.reasoning_summary
+
+    if (Array.isArray(result.include)) {
+      const include = result.include.filter((item) => item !== "reasoning.encrypted_content")
+      if (include.length > 0) result.include = include
+      else delete result.include
+    }
+
+    return result
+  }
+
+  export function providerOptions(
+    model: Provider.Model,
+    options: Record<string, unknown>,
+    cfg?: Record<string, unknown>,
+  ) {
+    const opts = chat(model, cfg) ? scrub(options) : options
+
     if (model.api.npm === "@ai-sdk/gateway") {
       // Gateway providerOptions are split across two namespaces:
       // - `gateway`: gateway-native routing/caching controls (order, only, byok, etc.)
@@ -941,8 +974,8 @@ export namespace ProviderTransform {
       const i = model.api.id.indexOf("/")
       const rawSlug = i > 0 ? model.api.id.slice(0, i) : undefined
       const slug = rawSlug ? (SLUG_OVERRIDES[rawSlug] ?? rawSlug) : undefined
-      const gateway = options.gateway
-      const rest = Object.fromEntries(Object.entries(options).filter(([k]) => k !== "gateway"))
+      const gateway = opts.gateway
+      const rest = Object.fromEntries(Object.entries(opts).filter(([k]) => k !== "gateway"))
       const has = Object.keys(rest).length > 0
 
       const result: Record<string, any> = {}
@@ -963,7 +996,7 @@ export namespace ProviderTransform {
     }
 
     const key = sdkKey(model.api.npm) ?? model.providerID
-    return { [key]: options }
+    return { [key]: opts }
   }
 
   export function maxOutputTokens(model: Provider.Model): number {
