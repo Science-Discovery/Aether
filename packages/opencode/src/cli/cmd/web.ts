@@ -41,6 +41,7 @@ export const WebCommand = cmd({
   builder: (yargs) => withNetworkOptions(yargs),
   describe: "start opencode server and open web interface",
   handler: async (args) => {
+    const AETHER_PORT = 19527
     async function gracefulShutdown(server: { stop: (close?: boolean) => Promise<void> }) {
       const FORCE_EXIT_MS = 10_000
       const timer = setTimeout(() => {
@@ -54,6 +55,7 @@ export const WebCommand = cmd({
         WeChatManager.stop().catch(() => {}),
       ])
       await server.stop(true).catch(() => {})
+      await Server.deleteSidecarPid()
       clearTimeout(timer)
       process.exit(0)
     }
@@ -106,6 +108,16 @@ export const WebCommand = cmd({
     UI.empty()
     UI.println(UI.logo("  "))
     UI.empty()
+
+    if (server.port !== AETHER_PORT && opts.port === 0) {
+      UI.println(
+        UI.Style.TEXT_WARNING_BOLD + "!  " + UI.Style.TEXT_NORMAL,
+        `Default port ${AETHER_PORT} is occupied, using fallback port ${server.port}.`,
+      )
+      UI.println(UI.Style.TEXT_NORMAL + "   A previous aether process may still be running. If this is unexpected,")
+      UI.println(UI.Style.TEXT_NORMAL + "   close it and restart aether to reclaim the default port.")
+      UI.empty()
+    }
 
     if (opts.hostname === "0.0.0.0") {
       // Show localhost for local access

@@ -3,15 +3,15 @@ import { join } from "node:path"
 import { CHANNEL } from "./constants"
 
 const APP_NAMES: Record<string, string> = {
-  dev: "Aether Dev",
-  beta: "Aether Beta",
-  prod: "Aether",
+  dev: "aether Dev",
+  beta: "aether Beta",
+  prod: "aether",
 }
 
 const APP_IDS: Record<string, string> = {
-  dev: "ai.aether.desktop.dev",
-  beta: "ai.aether.desktop.beta",
-  prod: "ai.aether.desktop",
+  dev: "aether.dev",
+  beta: "aether.beta",
+  prod: "aether",
 }
 
 const LEGACY_APP_IDS: Record<string, string> = {

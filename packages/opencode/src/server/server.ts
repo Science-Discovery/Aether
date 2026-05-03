@@ -908,6 +908,80 @@ export namespace Server {
   /** @deprecated do not use this dumb shit */
   export let url: URL
 
+  export const PID_FILE = nodePath.join(Global.Path.data, "sidecar.pid")
+
+  function isAetherProcess(pid: number): boolean {
+    if (process.platform === "win32") {
+      const result = Bun.spawnSync(["wmic", "process", "where", `ProcessId=${pid}`, "get", "Name", "/format:list"])
+      const output = (result.stdout as Buffer)?.toString() ?? ""
+      return /aether\.exe/i.test(output) || /opencode/i.test(output)
+    }
+    if (process.platform === "linux") {
+      const result = Bun.spawnSync(["cat", `/proc/${pid}/cmdline`])
+      const output = (result.stdout as Buffer)?.toString() ?? ""
+      return /aether|opencode/.test(output)
+    }
+    const result = Bun.spawnSync(["ps", "-p", String(pid), "-o", "comm="])
+    const output = (result.stdout as Buffer)?.toString().trim() ?? ""
+    return /aether|opencode/.test(output)
+  }
+
+  async function killStaleProcess() {
+    try {
+      const content = await Bun.file(PID_FILE).text()
+      const pid = Number.parseInt(content.trim(), 10)
+      if (Number.isNaN(pid)) {
+        await Bun.file(PID_FILE)
+          .delete()
+          .catch(() => {})
+        return
+      }
+      try {
+        process.kill(pid, 0)
+      } catch {
+        await Bun.file(PID_FILE)
+          .delete()
+          .catch(() => {})
+        return
+      }
+      if (!isAetherProcess(pid)) {
+        await Bun.file(PID_FILE)
+          .delete()
+          .catch(() => {})
+        return
+      }
+      if (process.platform === "win32") {
+        Bun.spawnSync(["taskkill", "/PID", String(pid), "/T", "/F"])
+      } else {
+        try {
+          process.kill(pid, "SIGKILL")
+        } catch {}
+      }
+      const deadline = Date.now() + 3000
+      while (Date.now() < deadline) {
+        await new Promise((r) => setTimeout(r, 500))
+        try {
+          process.kill(pid, 0)
+        } catch {
+          break
+        }
+      }
+      await Bun.file(PID_FILE)
+        .delete()
+        .catch(() => {})
+    } catch {}
+  }
+
+  async function writeSidecarPid() {
+    await Bun.write(PID_FILE, String(process.pid))
+  }
+
+  export async function deleteSidecarPid() {
+    await Bun.file(PID_FILE)
+      .delete()
+      .catch(() => {})
+  }
+
   export function listen(opts: {
     port: number
     hostname: string
@@ -916,6 +990,7 @@ export namespace Server {
     cors?: string[]
     onBrowserConnectionChange?: (count: number) => void
   }) {
+    void killStaleProcess()
     const app = createApp(opts)
     const bp = basePath()
     const baseFetch =
@@ -957,6 +1032,8 @@ export namespace Server {
         : tryServe(opts.port)
     if (!server) throw new Error(`Failed to start server on port ${opts.port}`)
 
+    void writeSidecarPid()
+
     url = new URL(`http://${opts.hostname}:${server.port}`)
 
     const shouldPublishMDNS =
@@ -986,6 +1063,7 @@ export namespace Server {
           ),
         )
           .then(() => server.stop(true).catch(() => {}))
+          .then(() => deleteSidecarPid())
           .then(() => process.exit(0))
       })
     }
