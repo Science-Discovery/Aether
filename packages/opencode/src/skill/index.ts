@@ -16,7 +16,7 @@ import { Flag } from "@/flag/flag"
 import { Global } from "@/global"
 import { Permission } from "@/permission"
 import { Instance } from "@/project/instance"
-import { PROJECT } from "@/persist/naming"
+import { LEGACY_PROJECT, PROJECT } from "@/persist/naming"
 import { Filesystem } from "@/util/filesystem"
 import { lazy } from "@/util/lazy"
 import { Config } from "../config/config"
@@ -29,7 +29,6 @@ declare const OPENCODE_LIBC: string | undefined
 
 export namespace Skill {
   const log = Log.create({ service: "skill" })
-  const EXTERNAL_DIRS = [".claude", ".agents"]
   const EXTERNAL_SKILL_PATTERN = "skills/**/SKILL.md"
   const OPENCODE_SKILL_PATTERN = "{skill,skills}/**/SKILL.md"
   const SKILL_PATTERN = "**/SKILL.md"
@@ -417,34 +416,79 @@ export namespace Skill {
       order += 1
     }
 
+    // ── Global tier (lowest priority) ─────────────────────────────────────
+    // 1. Server bundled skills dir + adjacent .aether dir (binary defaults)
     const serverSkillsDir = Config.getDefaultSkillsDir()
     if (serverSkillsDir && (await Filesystem.isDir(serverSkillsDir))) {
       add("global", serverSkillsDir, SKILL_PATTERN)
     }
+    if (serverSkillsDir) {
+      const serverAetherDir = path.join(path.dirname(path.dirname(serverSkillsDir)), PROJECT)
+      if (await Filesystem.isDir(serverAetherDir)) {
+        add("global", serverAetherDir, OPENCODE_SKILL_PATTERN)
+      }
+    }
 
+    // 2. XDG global config dir (~/.config/aether)
+    const serverConfigDir = serverSkillsDir ? path.resolve(path.dirname(serverSkillsDir)) : null
+    if (!serverConfigDir || path.resolve(Global.Path.config) !== serverConfigDir) {
+      add("global", Global.Path.config, OPENCODE_SKILL_PATTERN)
+    }
+
+    // 3–6. Global home dirs: ~/.agents < ~/.claude < ~/.opencode < ~/.aether
     if (!Flag.OPENCODE_DISABLE_EXTERNAL_SKILLS) {
-      for (const item of EXTERNAL_DIRS) {
-        const dir = path.join(Global.Path.home, item)
+      for (const name of [".agents", ".claude"]) {
+        const dir = path.join(Global.Path.home, name)
         if (!(await Filesystem.isDir(dir))) continue
         add("global", dir, EXTERNAL_SKILL_PATTERN, true)
       }
-      for await (const dir of Filesystem.up({
-        targets: EXTERNAL_DIRS,
-        start: directory,
-        stop: worktree === "/" ? directory : worktree,
-      })) {
-        add("project", dir, EXTERNAL_SKILL_PATTERN, true)
+    }
+    for (const name of [LEGACY_PROJECT, PROJECT]) {
+      const dir = path.join(Global.Path.home, name)
+      if (await Filesystem.isDir(dir)) {
+        add("global", dir, OPENCODE_SKILL_PATTERN)
       }
     }
 
-    const serverConfigDir = serverSkillsDir ? path.resolve(path.dirname(serverSkillsDir)) : null
-    const configDirs = await Config.directories()
-    for (const dir of configDirs) {
-      if (serverConfigDir && path.resolve(dir) === serverConfigDir) continue
-      if (path.basename(dir) === PROJECT) continue
-      add(scope(dir, directory, worktree), dir, OPENCODE_SKILL_PATTERN)
+    // ── Project tier: outer (worktree) → inner (directory) ────────────────
+    // Within each layer: .agents < .claude < .opencode < .aether
+    const stop = worktree === "/" ? directory : worktree
+    const layerChain: string[] = []
+    {
+      let cur = directory
+      while (true) {
+        layerChain.push(cur)
+        if (cur === stop) break
+        const parent = path.dirname(cur)
+        if (parent === cur) break
+        cur = parent
+      }
+    }
+    layerChain.reverse() // outer first, inner last (inner wins on conflict)
+
+    for (const layer of layerChain) {
+      if (!Flag.OPENCODE_DISABLE_EXTERNAL_SKILLS) {
+        for (const name of [".agents", ".claude"]) {
+          const dir = path.join(layer, name)
+          if (!(await Filesystem.isDir(dir))) continue
+          add("project", dir, EXTERNAL_SKILL_PATTERN, true)
+        }
+      }
+      if (!Flag.OPENCODE_DISABLE_PROJECT_CONFIG) {
+        for (const name of [LEGACY_PROJECT, PROJECT]) {
+          const dir = path.join(layer, name)
+          if (!(await Filesystem.isDir(dir))) continue
+          add("project", dir, OPENCODE_SKILL_PATTERN)
+        }
+      }
     }
 
+    // OPENCODE_CONFIG_DIR override (after layered dirs, before custom paths)
+    if (Flag.OPENCODE_CONFIG_DIR) {
+      add(scope(Flag.OPENCODE_CONFIG_DIR, directory, worktree), Flag.OPENCODE_CONFIG_DIR, OPENCODE_SKILL_PATTERN)
+    }
+
+    // ── Custom sources (highest priority) ─────────────────────────────────
     for (const item of cfg.skills?.paths ?? []) {
       const expanded = item.startsWith("~/") ? path.join(os.homedir(), item.slice(2)) : item
       const dir = path.isAbsolute(expanded) ? expanded : path.join(directory, expanded)
@@ -459,17 +503,6 @@ export namespace Skill {
     for (const url of cfg.skills?.urls ?? []) {
       for (const dir of await Effect.runPromise(_discovery.pull(url))) {
         add("global", dir, SKILL_PATTERN)
-      }
-    }
-
-    for (const dir of configDirs) {
-      if (path.basename(dir) !== PROJECT) continue
-      add(scope(dir, directory, worktree), dir, OPENCODE_SKILL_PATTERN)
-    }
-    if (serverSkillsDir) {
-      const serverAetherDir = path.join(path.dirname(path.dirname(serverSkillsDir)), PROJECT)
-      if (await Filesystem.isDir(serverAetherDir)) {
-        add("global", serverAetherDir, OPENCODE_SKILL_PATTERN)
       }
     }
 
