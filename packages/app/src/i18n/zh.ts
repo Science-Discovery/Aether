@@ -469,6 +469,8 @@ export const dict = {
   "defaultSkills.addFailed": "添加失败",
   "defaultSkills.dragToResize": "向上拖动可扩大列表高度",
   "evolvedSkills.title": "自进化Skills",
+  "evolvedSkills.disableEvolution": "取消自进化",
+  "evolvedSkills.enableEvolution": "恢复自进化",
   "evolvedSkills.loading": "加载中...",
   "evolvedSkills.empty": "暂无自进化技能",
   "evolvedSkills.noDescription": "暂无描述",

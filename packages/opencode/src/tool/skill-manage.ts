@@ -250,6 +250,15 @@ export const SkillManageTool = Tool.define("skill_manage", async () => {
       const { skillDir, sourceLocation } = await resolveSkillDir(name)
       const skillFile = path.join(skillDir, "SKILL.md")
 
+      const evolutionDisabled = new Set(globalCfg.skills?.evolution_disabled ?? [])
+      const EVOLUTION_WRITE_ACTIONS = ["create", "edit", "patch", "write_file", "remove_file", "delete"]
+      if (evolutionDisabled.has(skillDir) && EVOLUTION_WRITE_ACTIONS.includes(action)) {
+        console.log(`[skill manage fail] call=${call} action=${action} name=${name} sig=${sig} reason=evolution_disabled`)
+        throw new Error(
+          `Skill "${name}" has evolution disabled. To manually edit it, use the edit tool on ${skillDir}/SKILL.md instead.`,
+        )
+      }
+
       if (disabledPaths.has(skillDir)) {
         // Stale entry: the shadow dir no longer exists (skill was disabled then deleted).
         // The same shadow path now belongs to a different source skill — clean it up.

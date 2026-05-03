@@ -786,6 +786,10 @@ export namespace Config {
       .min(1)
       .optional()
       .describe("Maximum number of version snapshots kept per skill before older snapshots are pruned (default: 100)"),
+    evolution_disabled: z
+      .array(z.string())
+      .optional()
+      .describe("Skill directory paths excluded from background auto-evolution"),
   })
   export type Skills = z.infer<typeof Skills>
 
@@ -1517,6 +1521,7 @@ export namespace Config {
     content: z.string(),
     category: z.string().optional(),
     enabled: z.boolean().optional(),
+    evolution_enabled: z.boolean().optional(),
     file: z.string().optional(),
   })
   export type DefaultSkill = z.infer<typeof DefaultSkill>
@@ -1659,6 +1664,7 @@ export namespace Config {
   export async function listEvolutionSkills(): Promise<DefaultSkill[]> {
     const global = await getGlobal()
     const disabled = getDisabledPaths(global.skills?.disabled)
+    const evolutionDisabled = new Set(global.skills?.evolution_disabled ?? [])
 
     // Remove stale disabled entries whose directories no longer exist
     const stale = (
@@ -1682,7 +1688,7 @@ export namespace Config {
         const skillFile = path.join(skillDir, "SKILL.md")
         const text = await Filesystem.readText(skillFile).catch(() => null)
         if (text === null) {
-          result.push({ name: entry.name, description: "", content: "", enabled: !disabled.has(skillDir), file: skillDir })
+          result.push({ name: entry.name, description: "", content: "", enabled: !disabled.has(skillDir), evolution_enabled: !evolutionDisabled.has(skillDir), file: skillDir })
           continue
         }
         try {
@@ -1694,10 +1700,11 @@ export namespace Config {
             content: parsed.content.trim(),
             category: parsed.data.category ? String(parsed.data.category) : undefined,
             enabled: !disabled.has(skillDir),
+            evolution_enabled: !evolutionDisabled.has(skillDir),
             file: skillDir,
           })
         } catch {
-          result.push({ name: entry.name, description: "", content: text, enabled: !disabled.has(skillDir), file: skillDir })
+          result.push({ name: entry.name, description: "", content: text, enabled: !disabled.has(skillDir), evolution_enabled: !evolutionDisabled.has(skillDir), file: skillDir })
         }
       }
       return result
@@ -1799,6 +1806,18 @@ export namespace Config {
     const aetherDir = path.dirname(path.dirname(file))
     const scope = path.resolve(aetherDir) === path.resolve(globalAetherDir) ? "all" : path.dirname(aetherDir)
     await Skill.clearSkillsPromptCache(scope)
+  }
+
+  export async function toggleSkillEvolution(file: string, evolutionEnabled: boolean): Promise<void> {
+    using _ = await Lock.write("config-skills-toggle")
+    const cfg = await getGlobal()
+    const disabled = new Set(cfg.skills?.evolution_disabled ?? [])
+    if (evolutionEnabled) {
+      disabled.delete(file)
+    } else {
+      disabled.add(file)
+    }
+    await updateGlobalInternal({ skills: { evolution_disabled: [...disabled] } } as any, { dispose: false })
   }
 
   function globalConfigFile() {

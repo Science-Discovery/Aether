@@ -471,6 +471,8 @@ export const dict = {
   "defaultSkills.addFailed": "Failed to add",
   "defaultSkills.dragToResize": "Drag up to expand list height",
   "evolvedSkills.title": "Skills Evolution",
+  "evolvedSkills.disableEvolution": "Disable Evolution",
+  "evolvedSkills.enableEvolution": "Enable Evolution",
   "evolvedSkills.loading": "Loading...",
   "evolvedSkills.empty": "No evolved skills yet",
   "evolvedSkills.noDescription": "No description",

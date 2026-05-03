@@ -226,6 +226,26 @@ export const ConfigRoutes = lazy(() =>
         return c.json({ ok: true })
       },
     )
+    .post(
+      "/skills/toggle-evolution",
+      describeRoute({
+        summary: "Toggle skill evolution",
+        description: "Enable or disable background auto-evolution for a skill by file path.",
+        operationId: "config.skills.toggleEvolution",
+        responses: {
+          200: {
+            description: "Skill evolution toggled",
+            content: { "application/json": { schema: resolver(z.object({ ok: z.boolean() })) } },
+          },
+        },
+      }),
+      validator("json", z.object({ file: z.string(), evolutionEnabled: z.boolean() })),
+      async (c) => {
+        const { file, evolutionEnabled } = c.req.valid("json")
+        await Config.toggleSkillEvolution(file, evolutionEnabled)
+        return c.json({ ok: true })
+      },
+    )
     .get(
       "/providers",
       describeRoute({

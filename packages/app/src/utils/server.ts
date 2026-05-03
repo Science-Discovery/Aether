@@ -173,6 +173,7 @@ export type AppClient = Base & {
       listEvolution(input?: { directory?: string }): Req<Skill[]>
       getManagedDir(): Req<{ path: string }>
       toggle(input: { name: string; enabled: boolean }): Req<{ ok: boolean }>
+      toggleEvolution(input: { file: string; evolutionEnabled: boolean }): Req<{ ok: boolean }>
       addDefaults(input?: { directory?: string }): Req<{ added: string[] }>
     }
   }
@@ -391,6 +392,9 @@ export function addSkillsExtraMethods(
     if (input?.directory) params.set("directory", input.directory)
     const suffix = params.toString() ? `?${params}` : ""
     return requestJSON(`${baseUrl}/config/skills/evolution${suffix}`, { headers }, options)
+  }
+  skills.toggleEvolution = async (input: { file: string; evolutionEnabled: boolean }) => {
+    return requestJSON(`${baseUrl}/config/skills/toggle-evolution`, { method: "POST", headers, body: JSON.stringify(input) }, options)
   }
   return client
 }
