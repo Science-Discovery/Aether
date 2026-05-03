@@ -148,43 +148,75 @@ async function atomicWrite(filePath: string, content: string): Promise<void> {
 
 // ── Tool ──────────────────────────────────────────────────────────────────────
 
-const parameters = z.preprocess(
-  (raw: any) => {
-    if (!raw || typeof raw !== "object") return raw
-    const out = { ...raw }
-    // Normalize camelCase/alternate variants that some models generate
-    if (out.old_str === undefined) out.old_str = out.oldStr ?? out.oldString ?? out.old_string
-    if (out.new_str === undefined) out.new_str = out.newStr ?? out.newString ?? out.new_string
-    if (out.relative_path === undefined) out.relative_path = out.relativePath ?? out.relativeP
-    return out
-  },
-  z.object({
-    action: z
-      .enum(["create", "edit", "patch", "delete", "write_file", "remove_file", "history", "rollback"])
-      .describe("Action to perform on a skill"),
-    name: z.string().describe("Skill name (directory name under the skills folder). Required for all actions."),
-    description: z
-      .string()
-      .optional()
-      .describe("One-line skill description for the frontmatter. Required for create and edit."),
-    category: z
-      .string()
-      .optional()
-      .describe(
-        "Short category label for grouping skills (e.g. 'Git', 'Testing', 'Refactoring'). Required for create and edit — always infer one from the skill content if not obvious.",
+const preprocess = (raw: any) => {
+  if (!raw || typeof raw !== "object") return raw
+  const out = { ...raw }
+  // Normalize camelCase/alternate variants that some models generate
+  if (out.old_str === undefined) out.old_str = out.oldStr ?? out.oldString ?? out.old_string
+  if (out.new_str === undefined) out.new_str = out.newStr ?? out.newString ?? out.new_string
+  if (out.relative_path === undefined) out.relative_path = out.relativePath ?? out.relativeP
+  return out
+}
+
+function buildParameters(existingCategories: string[]) {
+  const categoryDesc =
+    existingCategories.length > 0
+      ? `Short category label for grouping skills. Prefer reusing an existing category: ${existingCategories.join(", ")}. Only use a new label if none of the existing ones fit.`
+      : "Short category label for grouping skills (e.g. 'Git', 'Testing', 'Refactoring'). Required for create and edit — always infer one from the skill content if not obvious."
+  return z.preprocess(
+    preprocess,
+    z.object({
+      action: z
+        .enum(["create", "edit", "patch", "delete", "write_file", "remove_file", "history", "rollback"])
+        .describe("Action to perform on a skill"),
+      name: z.string().describe("Skill name (directory name under the skills folder). Required for all actions."),
+      description: z
+        .string()
+        .optional()
+        .describe("One-line skill description for the frontmatter. Required for create and edit."),
+      category: z.string().optional().describe(categoryDesc),
+      content: z
+        .string()
+        .optional()
+        .describe("Full skill body (markdown, without frontmatter) for create/edit; file content for write_file."),
+      old_str: z.string().optional().describe("Exact text to replace (patch action)"),
+      new_str: z.string().optional().describe("Replacement text (patch action)"),
+      relative_path: z
+        .string()
+        .optional()
+        .describe("Path relative to the skill directory for write_file/remove_file"),
+      version: z
+        .string()
+        .optional()
+        .describe("Version label to rollback to, e.g. 'v002' or '2' (rollback action)"),
+    }),
+  )
+}
+
+type SkillManageParams = z.infer<ReturnType<typeof buildParameters>>
+
+async function getExistingCategories(): Promise<string[]> {
+  try {
+    const [managed, evolution, defaults] = await Promise.all([
+      Config.listManagedSkills().catch(() => [] as Awaited<ReturnType<typeof Config.listManagedSkills>>),
+      Config.listEvolutionSkills().catch(() => [] as Awaited<ReturnType<typeof Config.listEvolutionSkills>>),
+      Config.listDefaultSkills().catch(() => [] as Awaited<ReturnType<typeof Config.listDefaultSkills>>),
+    ])
+    return [
+      ...new Set(
+        [...managed, ...evolution, ...defaults]
+          .map((s) => s.category?.trim())
+          .filter((c): c is string => Boolean(c)),
       ),
-    content: z
-      .string()
-      .optional()
-      .describe("Full skill body (markdown, without frontmatter) for create/edit; file content for write_file."),
-    old_str: z.string().optional().describe("Exact text to replace (patch action)"),
-    new_str: z.string().optional().describe("Replacement text (patch action)"),
-    relative_path: z.string().optional().describe("Path relative to the skill directory for write_file/remove_file"),
-    version: z.string().optional().describe("Version label to rollback to, e.g. 'v002' or '2' (rollback action)"),
-  }),
-)
+    ].sort()
+  } catch {
+    return []
+  }
+}
 
 export const SkillManageTool = Tool.define("skill_manage", async () => {
+  const existingCategories = await getExistingCategories()
+  const parameters = buildParameters(existingCategories)
   return {
     description: [
       "The sole tool for modifying skill files. Use instead of edit/write for any file under a skills/ directory.",
@@ -211,7 +243,7 @@ export const SkillManageTool = Tool.define("skill_manage", async () => {
     ].join("\n"),
     parameters,
     async execute(
-      params: z.infer<typeof parameters>,
+      params: SkillManageParams,
       ctx,
     ): Promise<{ title: string; output: string; metadata: Record<string, string> }> {
       const { action, name } = params

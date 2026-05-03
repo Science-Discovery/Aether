@@ -306,9 +306,11 @@ describe("Fix 3: skill_manage disabled name check", () => {
 
   test("skill_manage blocks disabled skill: execute throws with clear message", async () => {
     await using configTmp = await tmpdir()
+    await using skillTmp = await tmpdir()
     const restoreConfig = patchGlobalConfig(configTmp.path)
     try {
-      const disabledPath = "/some/project/.aether/skills/blocked-skill"
+      const disabledPath = path.join(skillTmp.path, "blocked-skill")
+      await fs.mkdir(disabledPath, { recursive: true })
       await writeAetherConfig(configTmp.path, { skills: { disabled: [disabledPath] } })
 
       // Import and call skill_manage tool directly
@@ -333,9 +335,12 @@ describe("Fix 3: skill_manage disabled name check", () => {
 
   test("skill_manage allows non-disabled skill to proceed past the disabled check", async () => {
     await using configTmp = await tmpdir()
+    await using skillTmp = await tmpdir()
     const restoreConfig = patchGlobalConfig(configTmp.path)
     try {
-      await writeAetherConfig(configTmp.path, { skills: { disabled: ["/some/project/.aether/skills/other-skill"] } })
+      const otherSkillPath = path.join(skillTmp.path, "other-skill")
+      await fs.mkdir(otherSkillPath, { recursive: true })
+      await writeAetherConfig(configTmp.path, { skills: { disabled: [otherSkillPath] } })
 
       const { SkillManageTool } = await import("../../src/tool/skill-manage")
       const tool = await SkillManageTool.init()
