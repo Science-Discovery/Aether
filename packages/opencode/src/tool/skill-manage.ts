@@ -17,6 +17,10 @@ import {
 } from "./skill-versions"
 import { Log } from "../util/log"
 import { Config } from "../config/config"
+import { Bus } from "../bus"
+import { File } from "../file"
+import { FileWatcher } from "../file/watcher"
+import { FileTime } from "../file/time"
 
 const log = Log.create({ service: "skill.manage" })
 
@@ -250,6 +254,15 @@ export const SkillManageTool = Tool.define("skill_manage", async () => {
       const { skillDir, sourceLocation } = await resolveSkillDir(name)
       const skillFile = path.join(skillDir, "SKILL.md")
 
+      const evolutionDisabled = new Set(globalCfg.skills?.evolution_disabled ?? [])
+      const EVOLUTION_WRITE_ACTIONS = ["create", "edit", "patch", "write_file", "remove_file", "delete"]
+      if (evolutionDisabled.has(skillDir) && EVOLUTION_WRITE_ACTIONS.includes(action)) {
+        console.log(`[skill manage fail] call=${call} action=${action} name=${name} sig=${sig} reason=evolution_disabled`)
+        throw new Error(
+          `Skill "${name}" has evolution disabled. To manually edit it, use the edit tool on ${skillDir}/SKILL.md instead.`,
+        )
+      }
+
       if (disabledPaths.has(skillDir)) {
         // Stale entry: the shadow dir no longer exists (skill was disabled then deleted).
         // The same shadow path now belongs to a different source skill — clean it up.
@@ -294,6 +307,9 @@ export const SkillManageTool = Tool.define("skill_manage", async () => {
               await fs.rm(skillDir, { recursive: true, force: true })
               throw err
             }
+            Bus.publish(File.Event.Edited, { file: skillFile })
+            await Bus.publish(FileWatcher.Event.Updated, { file: skillFile, event: "add" })
+            if (ctx?.sessionID) await FileTime.read(ctx.sessionID, skillFile)
             await Skill.clearSkillsPromptCache()
             Skill.markClear()
             Skill.markDone(skillFile)
@@ -327,6 +343,9 @@ export const SkillManageTool = Tool.define("skill_manage", async () => {
               else await fs.rm(skillDir, { recursive: true, force: true })
               throw err
             }
+            Bus.publish(File.Event.Edited, { file: skillFile })
+            await Bus.publish(FileWatcher.Event.Updated, { file: skillFile, event: "change" })
+            if (ctx?.sessionID) await FileTime.read(ctx.sessionID, skillFile)
             await Skill.clearSkillsPromptCache()
             Skill.markClear()
             Skill.markDone(skillFile)
@@ -373,6 +392,9 @@ export const SkillManageTool = Tool.define("skill_manage", async () => {
               await atomicWrite(skillFile, raw)
               throw err
             }
+            Bus.publish(File.Event.Edited, { file: skillFile })
+            await Bus.publish(FileWatcher.Event.Updated, { file: skillFile, event: "change" })
+            if (ctx?.sessionID) await FileTime.read(ctx.sessionID, skillFile)
             await Skill.clearSkillsPromptCache()
             Skill.markClear()
             Skill.markDone(skillFile)
@@ -402,6 +424,8 @@ export const SkillManageTool = Tool.define("skill_manage", async () => {
               throw new Error(`Skill "${name}" not found`)
             }
             await fs.rm(skillDir, { recursive: true, force: true })
+            Bus.publish(File.Event.Edited, { file: skillFile })
+            await Bus.publish(FileWatcher.Event.Updated, { file: skillFile, event: "unlink" })
             await Skill.clearSkillsPromptCache()
             Skill.markClear()
             Skill.markDone(skillFile)
@@ -432,6 +456,9 @@ export const SkillManageTool = Tool.define("skill_manage", async () => {
             else await fs.unlink(targetPath).catch(() => {})
             throw err
           }
+          Bus.publish(File.Event.Edited, { file: targetPath })
+          await Bus.publish(FileWatcher.Event.Updated, { file: targetPath, event: originalFileContent !== null ? "change" : "add" })
+          if (ctx?.sessionID) await FileTime.read(ctx.sessionID, targetPath)
           await snapshot(skillDir, "write_file")
           return {
             title: `Wrote file in skill: ${name}`,
@@ -450,6 +477,8 @@ export const SkillManageTool = Tool.define("skill_manage", async () => {
           await fs.unlink(targetPath).catch(() => {
             throw new Error(`File not found: ${targetPath}`)
           })
+          Bus.publish(File.Event.Edited, { file: targetPath })
+          await Bus.publish(FileWatcher.Event.Updated, { file: targetPath, event: "unlink" })
           await snapshot(skillDir, "remove_file")
           return { title: `Removed file in skill: ${name}`, output: `File removed: ${targetPath}`, metadata: {} }
         }
@@ -469,6 +498,9 @@ export const SkillManageTool = Tool.define("skill_manage", async () => {
           try {
             if (sourceLocation && (await copyToShadowIfNeeded(sourceLocation, skillDir))) await snapshot(skillDir, "original")
             const { restoredFrom } = await versionRollback(skillDir, params.version)
+            Bus.publish(File.Event.Edited, { file: skillFile })
+            await Bus.publish(FileWatcher.Event.Updated, { file: skillFile, event: "change" })
+            if (ctx?.sessionID) await FileTime.read(ctx.sessionID, skillFile)
             await Skill.clearSkillsPromptCache()
             Skill.markClear()
             Skill.markDone(skillFile)

@@ -7,7 +7,7 @@ import { useGlobalSDK } from "@/context/global-sdk"
 import { useLanguage } from "@/context/language"
 import { useSDK } from "@/context/sdk"
 
-type ManagedSkill = { name: string; description: string; content: string; category?: string; enabled?: boolean; file?: string }
+type ManagedSkill = { name: string; description: string; content: string; category?: string; enabled?: boolean; evolution_enabled?: boolean; file?: string }
 type SortMode = "path" | "category"
 
 function parentDir(file: string): string {
@@ -34,6 +34,7 @@ export const DialogEvolvedSkills: Component = () => {
     return (result.data as unknown as ManagedSkill[]) ?? []
   })
   const [toggling, setToggling] = createSignal<string | null>(null)
+  const [togglingEvolution, setTogglingEvolution] = createSignal<string | null>(null)
 
   function toggleGroup(key: string) {
     setExpanded((prev) => {
@@ -42,6 +43,24 @@ export const DialogEvolvedSkills: Component = () => {
       else next.add(key)
       return next
     })
+  }
+
+  async function handleToggleEvolution(file: string, evolutionEnabled: boolean) {
+    setTogglingEvolution(file)
+    try {
+      await globalSDK.client.config.skills.toggleEvolution({ file, evolutionEnabled })
+      await refetch()
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      showToast({
+        variant: "error",
+        icon: "circle-x",
+        title: language.t("evolvedSkills.operationFailed"),
+        description: message,
+      })
+    } finally {
+      setTogglingEvolution(null)
+    }
   }
 
   async function handleToggle(file: string, enabled: boolean) {
@@ -120,7 +139,23 @@ export const DialogEvolvedSkills: Component = () => {
           </span>
         </Show>
       </div>
-      <div class="flex items-center shrink-0">
+      <div class="flex items-center gap-1.5 shrink-0">
+        <Show when={props.skill.file}>
+          <button
+            class={[
+              "px-2 py-0.5 rounded text-11-regular transition-colors disabled:opacity-40",
+              props.skill.evolution_enabled !== false
+                ? "text-text-weak hover:text-danger hover:bg-danger/10"
+                : "text-success hover:bg-success/10",
+            ].join(" ")}
+            disabled={togglingEvolution() === props.skill.file}
+            onClick={() => props.skill.file && handleToggleEvolution(props.skill.file, props.skill.evolution_enabled === false)}
+          >
+            {props.skill.evolution_enabled !== false
+              ? language.t("evolvedSkills.disableEvolution")
+              : language.t("evolvedSkills.enableEvolution")}
+          </button>
+        </Show>
         <Switch
           checked={props.skill.enabled !== false}
           disabled={toggling() === props.skill.file}
