@@ -630,6 +630,279 @@ describe("session.llm.stream", () => {
     })
   })
 
+  test("routes GPT-5.5 tool calls with reasoning effort to responses", async () => {
+    const server = state.server
+    if (!server) {
+      throw new Error("Server not initialized")
+    }
+
+    const providerID = "maas"
+    const modelID = "gpt-5.5"
+    const chunks = [
+      {
+        type: "response.created",
+        response: {
+          id: "resp-gpt-55-tools",
+          created_at: Math.floor(Date.now() / 1000),
+          model: modelID,
+          service_tier: null,
+        },
+      },
+      {
+        type: "response.output_item.added",
+        output_index: 0,
+        item: { type: "message", id: "item-gpt-55-tools" },
+      },
+      {
+        type: "response.output_text.delta",
+        item_id: "item-gpt-55-tools",
+        delta: "ok",
+        logprobs: null,
+      },
+      {
+        type: "response.output_item.done",
+        output_index: 0,
+        item: { type: "message", id: "item-gpt-55-tools" },
+      },
+      {
+        type: "response.completed",
+        response: {
+          incomplete_details: null,
+          usage: {
+            input_tokens: 1,
+            input_tokens_details: null,
+            output_tokens: 1,
+            output_tokens_details: null,
+          },
+          service_tier: null,
+        },
+      },
+    ]
+    const request = waitRequest("/responses", createEventResponse(chunks, true))
+
+    await using tmp = await tmpdir({
+      init: async (dir) => {
+        await Bun.write(
+          path.join(dir, "opencode.json"),
+          JSON.stringify({
+            $schema: "https://opencode.ai/config.json",
+            enabled_providers: [providerID],
+            provider: {
+              [providerID]: {
+                name: "OpenAI-compatible proxy",
+                npm: "@ai-sdk/openai-compatible",
+                api: `${server.url.origin}/v1`,
+                models: {
+                  [modelID]: {
+                    id: modelID,
+                    name: "GPT-5.5",
+                    reasoning: true,
+                    tool_call: true,
+                    temperature: false,
+                    release_date: "2026-04-01",
+                    modalities: { input: ["text"], output: ["text"] },
+                    limit: { context: 400_000, output: 128_000 },
+                  },
+                },
+                options: {
+                  apiKey: "test-openai-key",
+                  baseURL: `${server.url.origin}/v1`,
+                },
+              },
+            },
+          }),
+        )
+      },
+    })
+
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const resolved = await Provider.getModel(ProviderID.make(providerID), ModelID.make(modelID))
+        const sessionID = SessionID.make("session-test-maas-gpt-55-tools")
+        const agent = {
+          name: "test",
+          mode: "primary",
+          options: {},
+          permission: [{ permission: "*", pattern: "*", action: "allow" }],
+        } satisfies Agent.Info
+
+        const user = {
+          id: MessageID.make("user-maas-gpt-55-tools"),
+          sessionID,
+          role: "user",
+          time: { created: Date.now() },
+          agent: agent.name,
+          model: { providerID: ProviderID.make(providerID), modelID: resolved.id },
+          variant: "high",
+        } satisfies MessageV2.User
+
+        const stream = await LLM.stream({
+          user,
+          sessionID,
+          model: resolved,
+          agent,
+          system: ["You are a helpful assistant."],
+          abort: new AbortController().signal,
+          messages: [{ role: "user", content: "Use the lookup tool." }],
+          tools: {
+            lookup: tool({
+              description: "Look up a short value by key.",
+              inputSchema: z.object({
+                key: z.string(),
+              }),
+              execute: async () => ({ output: "ok" }),
+            }),
+          },
+          toolChoice: "required",
+        })
+
+        for await (const part of stream.fullStream) {
+          if (part.type === "error") throw part.error
+        }
+
+        const capture = await request
+
+        expect(capture.url.pathname.endsWith("/responses")).toBe(true)
+        expect(capture.body.model).toBe(modelID)
+        const tools = capture.body.tools as Array<{ function?: { name?: string }; name?: string }> | undefined
+        expect(tools?.some((item) => (item.function?.name ?? item.name) === "lookup")).toBe(true)
+        expect((capture.body.reasoning as { effort?: string } | undefined)?.effort).toBe("high")
+      },
+    })
+  })
+
+  test("routes custom GPT-5.5 tool calls to responses", async () => {
+    const server = state.server
+    if (!server) {
+      throw new Error("Server not initialized")
+    }
+
+    const providerID = "custom"
+    const modelID = "gpt-5.5"
+    const chunks = [
+      {
+        type: "response.created",
+        response: {
+          id: "resp-custom-gpt-55-tools",
+          created_at: Math.floor(Date.now() / 1000),
+          model: modelID,
+          service_tier: null,
+        },
+      },
+      {
+        type: "response.output_item.added",
+        output_index: 0,
+        item: { type: "message", id: "item-custom-gpt-55-tools" },
+      },
+      {
+        type: "response.output_text.delta",
+        item_id: "item-custom-gpt-55-tools",
+        delta: "ok",
+        logprobs: null,
+      },
+      {
+        type: "response.completed",
+        response: {
+          incomplete_details: null,
+          usage: {
+            input_tokens: 1,
+            input_tokens_details: null,
+            output_tokens: 1,
+            output_tokens_details: null,
+          },
+          service_tier: null,
+        },
+      },
+    ]
+    const request = waitRequest("/responses", createEventResponse(chunks, true))
+
+    await using tmp = await tmpdir({
+      init: async (dir) => {
+        await Bun.write(
+          path.join(dir, "opencode.json"),
+          JSON.stringify({
+            $schema: "https://opencode.ai/config.json",
+            enabled_providers: [providerID],
+            provider: {
+              [providerID]: {
+                name: "Custom",
+                npm: "@ai-sdk/openai-compatible",
+                options: {
+                  apiKey: "test-openai-key",
+                  baseURL: `${server.url.origin}/v1`,
+                },
+                models: {
+                  [modelID]: {
+                    name: "GPT-5.5",
+                  },
+                },
+              },
+            },
+          }),
+        )
+      },
+    })
+
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const resolved = await Provider.getModel(ProviderID.make(providerID), ModelID.make(modelID))
+        expect(resolved.api.npm).toBe("@ai-sdk/openai")
+
+        const sessionID = SessionID.make("session-test-custom-gpt-55-tools")
+        const agent = {
+          name: "test",
+          mode: "primary",
+          options: {},
+          permission: [{ permission: "*", pattern: "*", action: "allow" }],
+        } satisfies Agent.Info
+
+        const user = {
+          id: MessageID.make("user-custom-gpt-55-tools"),
+          sessionID,
+          role: "user",
+          time: { created: Date.now() },
+          agent: agent.name,
+          model: { providerID: ProviderID.make(providerID), modelID: resolved.id },
+          variant: "high",
+        } satisfies MessageV2.User
+
+        const stream = await LLM.stream({
+          user,
+          sessionID,
+          model: resolved,
+          agent,
+          system: ["You are a helpful assistant."],
+          abort: new AbortController().signal,
+          messages: [{ role: "user", content: "Use the lookup tool." }],
+          tools: {
+            lookup: tool({
+              description: "Look up a short value by key.",
+              inputSchema: z.object({
+                key: z.string(),
+              }),
+              execute: async () => ({ output: "ok" }),
+            }),
+          },
+          toolChoice: "required",
+        })
+
+        for await (const part of stream.fullStream) {
+          if (part.type === "error") throw part.error
+        }
+
+        const capture = await request
+
+        expect(capture.url.pathname.endsWith("/responses")).toBe(true)
+        expect(capture.body.model).toBe(modelID)
+        const tools = capture.body.tools as Array<{ function?: { name?: string }; name?: string }> | undefined
+        expect(tools?.some((item) => (item.function?.name ?? item.name) === "lookup")).toBe(true)
+        expect((capture.body.reasoning as { effort?: string } | undefined)?.effort).toBe("medium")
+      },
+    })
+  })
+
   test("sends messages API payload for Anthropic models", async () => {
     const server = state.server
     if (!server) {

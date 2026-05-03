@@ -30,6 +30,7 @@ type Item =
       tool: string
       input: unknown
       usage?: Usage
+      finish?: string
     }
   | {
       type: "error"
@@ -112,7 +113,7 @@ function tool(item: Extract<Item, { type: "tool" }>) {
         },
       }),
     ),
-    line(chunk({ finish: "tool_calls", usage: item.usage })),
+    line(chunk({ finish: item.finish ?? "tool_calls", usage: item.usage })),
   ]
 }
 
@@ -449,6 +450,50 @@ describe("session compaction flow", () => {
         expect(main(srv.hits).length).toBe(2)
         expect(bodies[1]).toContain("tool")
         expect(bodies[1]).toContain("todo-1")
+      },
+    })
+  })
+
+  test("continues tool loop when provider returns stop with tool calls", async () => {
+    const srv = await stub([
+      {
+        type: "tool",
+        tool: "todowrite",
+        input: {
+          todos: [
+            {
+              id: "todo-stop",
+              content: "write a test",
+              status: "pending",
+              priority: "medium",
+            },
+          ],
+        },
+        finish: "stop",
+        usage: { input: 10, output: 2 },
+      },
+      { type: "text", text: "tool complete after stop", usage: { input: 12, output: 2 } },
+    ])
+    await using tmp = await setup(srv.url)
+
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const session = await Session.create({})
+        const result = await SessionPrompt.prompt({
+          sessionID: session.id,
+          agent: "build",
+          model,
+          tools: { todowrite: true },
+          parts: [{ type: "text", text: "update todos" }],
+        })
+        const bodies = main(srv.hits).map((hit) => JSON.stringify(hit.body))
+
+        expect(result.info.role).toBe("assistant")
+        expect(texts([result])).toContain("tool complete after stop")
+        expect(main(srv.hits).length).toBe(2)
+        expect(bodies[1]).toContain("tool")
+        expect(bodies[1]).toContain("todo-stop")
       },
     })
   })

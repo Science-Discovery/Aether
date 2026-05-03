@@ -63,6 +63,31 @@ export namespace Provider {
     return Number(match[1]) >= 5 && !modelID.startsWith("gpt-5-mini")
   }
 
+  function openai(api?: string) {
+    if (!api) return false
+    try {
+      return new URL(api).hostname.toLowerCase() === "api.openai.com"
+    } catch {
+      return false
+    }
+  }
+
+  function gpt(id: string) {
+    return id.toLowerCase().split("/").at(-1)?.trim() ?? id.toLowerCase().trim()
+  }
+
+  function pkg(providerID: string, npm: string, id: string, api?: string) {
+    const mod = npm.trim()
+    if (mod !== "@ai-sdk/openai-compatible") return mod
+    const key = gpt(id)
+    if (/^gpt-5\.5($|-)/.test(key)) return "@ai-sdk/openai"
+    if (openai(api) && /^gpt-5(\.|-|$)/.test(key) && !key.includes("chat")) return "@ai-sdk/openai"
+    if (!providerID.startsWith("opencode")) return mod
+    if (key.includes("chat")) return mod
+    if (/^gpt-5(\.|-|$)/.test(key)) return "@ai-sdk/openai"
+    return mod
+  }
+
   function wrapSSE(res: Response, ms: number, ctl: AbortController) {
     if (typeof ms !== "number" || ms <= 0) return res
     if (!res.body) return res
@@ -204,6 +229,11 @@ export namespace Provider {
 
   function useLanguageModel(sdk: any) {
     return sdk.responses === undefined && sdk.chat === undefined
+  }
+
+  function language(sdk: any, model: Model) {
+    if (model.api.npm === "@ai-sdk/openai" && sdk.responses !== undefined) return sdk.responses(model.api.id)
+    return sdk.languageModel(model.api.id)
   }
 
   const CUSTOM_LOADERS: Record<string, CustomLoader> = {
@@ -889,6 +919,7 @@ export namespace Provider {
   export type Info = z.infer<typeof Info>
 
   function fromModelsDevModel(provider: ModelsDev.Provider, model: ModelsDev.Model): Model {
+    const api = model.provider?.api ?? PROVIDER_OVERRIDES[provider.id]?.api ?? provider.api!
     const m: Model = {
       id: ModelID.make(model.id),
       providerID: ProviderID.make(provider.id),
@@ -896,8 +927,13 @@ export namespace Provider {
       family: model.family,
       api: {
         id: model.id,
-        url: model.provider?.api ?? PROVIDER_OVERRIDES[provider.id]?.api ?? provider.api!,
-        npm: model.provider?.npm ?? PROVIDER_OVERRIDES[provider.id]?.npm ?? provider.npm ?? "@ai-sdk/openai-compatible",
+        url: api,
+        npm: pkg(
+          provider.id,
+          model.provider?.npm ?? PROVIDER_OVERRIDES[provider.id]?.npm ?? provider.npm ?? "@ai-sdk/openai-compatible",
+          model.id,
+          api,
+        ),
       },
       status: model.status ?? "active",
       headers: model.headers ?? {},
@@ -1073,11 +1109,20 @@ export namespace Provider {
           api: {
             id: model.id ?? existingModel?.api.id ?? modelID,
             npm:
-              model.provider?.npm ??
-              provider.npm ??
-              existingModel?.api.npm ??
-              modelsDev[providerID]?.npm ??
-              "@ai-sdk/openai-compatible",
+              pkg(
+                providerID,
+                model.provider?.npm ??
+                  provider.npm ??
+                  existingModel?.api.npm ??
+                  modelsDev[providerID]?.npm ??
+                  "@ai-sdk/openai-compatible",
+                model.id ?? existingModel?.api.id ?? modelID,
+                model.provider?.api ??
+                  provider.options?.baseURL ??
+                  provider?.api ??
+                  existingModel?.api.url ??
+                  modelsDev[providerID]?.api,
+              ),
             url: model.provider?.api ?? provider?.api ?? existingModel?.api.url ?? modelsDev[providerID]?.api,
           },
           status: model.status ?? existingModel?.status ?? "active",
@@ -1223,6 +1268,12 @@ export namespace Provider {
 
       for (const [modelID, model] of Object.entries(provider.models)) {
         model.api.id = model.api.id ?? model.id ?? modelID
+        model.api.npm = pkg(
+          providerID,
+          model.api.npm,
+          model.api.id,
+          configProvider?.models?.[modelID]?.provider?.api ?? configProvider?.options?.baseURL ?? model.api.url,
+        )
         if (
           modelID === "gpt-5-chat-latest" ||
           (providerID === ProviderID.openrouter && modelID === "openai/gpt-5-chat")
@@ -1487,11 +1538,11 @@ export namespace Provider {
     const sdk = await getSDK(model)
 
     try {
-      const language = s.modelLoaders[model.providerID]
+      const result = s.modelLoaders[model.providerID]
         ? await s.modelLoaders[model.providerID](sdk, model.api.id, { ...provider.options, ...model.options })
-        : sdk.languageModel(model.api.id)
-      s.models.set(key, language)
-      return language
+        : language(sdk, model)
+      s.models.set(key, result)
+      return result
     } catch (e) {
       if (e instanceof NoSuchModelError)
         throw new ModelNotFoundError(
