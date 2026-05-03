@@ -10,7 +10,7 @@ import type { MobileAdapter } from "./base"
 import * as ilink from "./ilink"
 import type { LoginStatusResult } from "./ilink"
 
-export type WeChatStatus = "idle" | "starting" | "qrcode" | "connected" | "error"
+export type WeChatStatus = "idle" | "starting" | "qrcode" | "connected" | "reconnecting" | "error"
 
 export interface WeChatSession {
   connected: boolean
@@ -271,6 +271,12 @@ class WeChatManagerImpl extends MobileManagerBase {
     this.status = "reconnecting"
     Bus.publish(this.busEvents.Reconnecting, { attempt: 1, delay: 0 })
 
+    if (!this._ilinkToken) {
+      this._ilinkToken = ""
+      void this.loginAndPoll()
+      return
+    }
+
     const state = await this.loadILinkState()
     if (state?.token) {
       this._ilinkToken = state.token
@@ -368,6 +374,11 @@ class WeChatManagerImpl extends MobileManagerBase {
         if (result.expired) {
           console.warn("[wechat] session expired during poll, reconnecting...")
           this._pollRunning = false
+          this._ilinkToken = ""
+          this._cursor = ""
+          try {
+            await rm(wcFile("ilink_state.json"), { force: true })
+          } catch {}
           this.status = "reconnecting"
           Bus.publish(this.busEvents.Reconnecting, { attempt: 1, delay: 0 })
           void this.reconnect()

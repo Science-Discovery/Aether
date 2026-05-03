@@ -90,6 +90,7 @@ const sseRetryTimers: Record<MobilePlatform, ReturnType<typeof setTimeout> | und
 const pingTimer: ReturnType<typeof setInterval> | undefined = undefined
 let clientId: string | null = null
 let pingInterval: ReturnType<typeof setInterval> | undefined
+let pingFails = 0
 
 type Resolver = () => { url: string; headers: HeadersInit }
 let resolve: Resolver | null = null
@@ -201,13 +202,17 @@ function connectSSE(p: MobilePlatform) {
       }
 
       const s = prev(p).status
-      if (s !== "idle" && s !== "error" && s !== "stolen") {
+      if (p === "wechat") {
+        if (s !== "idle" && s !== "error" && s !== "stolen") scheduleSseRetry(p)
+      } else if (s !== "idle" && s !== "error" && s !== "stolen") {
         updateStatus(p, "reconnecting")
         scheduleSseRetry(p)
       }
     } catch {
       const s = prev(p).status
-      if (s !== "idle" && s !== "error" && s !== "stolen") {
+      if (p === "wechat") {
+        if (s !== "idle" && s !== "error" && s !== "stolen") scheduleSseRetry(p)
+      } else if (s !== "idle" && s !== "error" && s !== "stolen") {
         updateStatus(p, "reconnecting")
         scheduleSseRetry(p)
       }
@@ -245,6 +250,7 @@ function startPing(p: MobilePlatform) {
         body: JSON.stringify({ clientId }),
       })
       const data = await res.json()
+      pingFails = 0
       if (data.stolen) {
         stopPing()
         if (sseControllers.wechat) {
@@ -255,6 +261,9 @@ function startPing(p: MobilePlatform) {
         patch("wechat", { status: "stolen" })
       }
     } catch {
+      pingFails += 1
+      if (pingFails < 3) return
+      pingFails = 0
       const s = prev("wechat").status
       if (s !== "idle" && s !== "stolen") patch("wechat", { status: "reconnecting" })
     }
@@ -424,7 +433,24 @@ export async function logout(p: MobilePlatform) {
 }
 
 export async function retryBridge(p: MobilePlatform) {
-  if (p === "wechat") return startBridge(p)
+  if (p === "wechat") {
+    patch("wechat", { status: "loading", loadingMsg: "正在重新连接微信...", error: null })
+    connectSSE("wechat")
+    try {
+      const { url, headers } = api()
+      const res = await fetch(`${url}/mobile/wechat/retry`, {
+        method: "POST",
+        headers: { ...headers, "Content-Type": "application/json" },
+      })
+      const data = await res.json()
+      if (!data.success) {
+        patch("wechat", { error: { code: "retry_failed", message: data.message || "重连失败" }, status: "error" })
+      }
+    } catch (err) {
+      patch("wechat", { error: { code: "network_error", message: String(err) }, status: "error" })
+    }
+    return
+  }
   if (p === "qq") return startBridge(p)
   patch(p, { status: "reconnecting", loadingMsg: "正在重新连接飞书...", error: null })
   patch(p, { status: "reconnecting", loadingMsg: "正在重新连接微信...", error: null })
