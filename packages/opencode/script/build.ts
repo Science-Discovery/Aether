@@ -300,6 +300,8 @@ for (const item of targets) {
   // Copy launcher
   if (item.os === "win32") {
     fs.copyFileSync(path.resolve(dir, "launcher/Aether.vbs"), `dist/${name}/bin/Aether.vbs`)
+    const phDest = `dist/${name}/bin/aether-protocol-handler.vbs`
+    fs.copyFileSync(path.resolve(dir, "launcher/aether-protocol-handler.vbs"), phDest)
   } else if (item.os === "darwin") {
     const dest = `dist/${name}/bin/Aether.command`
     fs.copyFileSync(path.resolve(dir, "launcher/Aether.command"), dest)
@@ -308,6 +310,9 @@ for (const item of targets) {
     const dest = `dist/${name}/bin/Aether.sh`
     fs.copyFileSync(path.resolve(dir, "launcher/Aether.sh"), dest)
     fs.chmodSync(dest, 0o755)
+    const phDest = `dist/${name}/bin/aether-protocol-handler.sh`
+    fs.copyFileSync(path.resolve(dir, "launcher/aether-protocol-handler.sh"), phDest)
+    fs.chmodSync(phDest, 0o755)
   }
 
   await Bun.file(`dist/${name}/package.json`).write(
