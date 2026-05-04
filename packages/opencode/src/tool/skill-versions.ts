@@ -8,7 +8,7 @@ const VERSION_REGEX = /^v(\d+)_([a-zA-Z0-9_-]+)_(\d{8}T\d{6})\.bundle\.json$/
 async function resolveMaxVersions(): Promise<number> {
   try {
     const { Config } = await import("../config/config")
-    const cfg = await Config.get()
+    const cfg = await Config.getGlobal()
     const configured = cfg.skills?.max_versions
     if (typeof configured === "number" && configured >= 1) return configured
   } catch {}
