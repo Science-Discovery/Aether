@@ -35,15 +35,17 @@ function convertToLineEnding(text: string, ending: "\n" | "\r\n"): string {
   return text.replaceAll("\n", "\r\n")
 }
 
+const editParameters = z.object({
+  filePath: z.string().describe("The absolute path to the file to modify"),
+  oldString: z.string().describe("The text to replace"),
+  newString: z.string().describe("The text to replace it with (must be different from oldString)"),
+  replaceAll: z.boolean().optional().describe("Replace all occurrences of oldString (default false)"),
+})
+
 export const EditTool = Tool.define("edit", async (initCtx) => ({
   description: (initCtx?.evolutionEnabled ?? true) ? DESCRIPTION : DESCRIPTION_NO_SKILL_GUARD,
-  parameters: z.object({
-    filePath: z.string().describe("The absolute path to the file to modify"),
-    oldString: z.string().describe("The text to replace"),
-    newString: z.string().describe("The text to replace it with (must be different from oldString)"),
-    replaceAll: z.boolean().optional().describe("Replace all occurrences of oldString (default false)"),
-  }),
-  async execute(params, ctx) {
+  parameters: editParameters,
+  async execute(params: z.infer<typeof editParameters>, ctx) {
     if (!params.filePath) {
       throw new Error("filePath is required")
     }
