@@ -74,6 +74,8 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
 
   const idle = { type: "idle" as const }
   const status = () => sync.data.session_status[params.id ?? ""] ?? idle
+  const pending = () => messages().findLast((msg) => msg.role === "assistant" && typeof msg.time.completed !== "number")
+  const busy = () => status().type !== "idle" || !!pending()
   const messages = () => {
     const id = params.id
     if (!id) return []
@@ -428,7 +430,7 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
         onSelect: async () => {
           const sessionID = params.id
           if (!sessionID) return
-          if (status().type !== "idle") {
+          if (busy()) {
             await sdk.client.session.abort({ sessionID }).catch(() => {})
           }
           const revert = info()?.revert?.messageID
