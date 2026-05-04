@@ -87,12 +87,24 @@ describe("tool.registry", () => {
         const toolsDir = path.join(opencodeDir, "tools")
         await fs.mkdir(toolsDir, { recursive: true })
 
+        const mod = path.join(opencodeDir, "node_modules", "cowsay")
+        await fs.mkdir(mod, { recursive: true })
+        await Bun.write(
+          path.join(mod, "package.json"),
+          JSON.stringify({
+            name: "cowsay",
+            type: "module",
+            exports: "./index.js",
+          }),
+        )
+        await Bun.write(path.join(mod, "index.js"), "export function say({ text }) { return `moo ${text}` }\n")
+
         await Bun.write(
           path.join(opencodeDir, "package.json"),
           JSON.stringify({
             name: "custom-tools",
             dependencies: {
-              "@opencode-ai/plugin": "^0.0.0",
+              "@opencode-ai/plugin": "*",
               cowsay: "^1.6.0",
             },
           }),
