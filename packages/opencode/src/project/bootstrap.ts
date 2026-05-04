@@ -15,6 +15,7 @@ import { Instance } from "./instance"
 import { Log } from "@/util/log"
 import { ShareNext } from "@/share/share-next"
 import { PROJECT } from "@/persist/naming"
+import { SessionSummary } from "../session/summary"
 
 export async function InstanceBootstrap() {
   Log.Default.info("bootstrapping", { directory: Instance.directory })
@@ -29,6 +30,7 @@ export async function InstanceBootstrap() {
   FileWatcher.init()
   Vcs.init()
   Snapshot.init()
+  SessionSummary.init()
 
   Bus.subscribe(Command.Event.Executed, async (payload) => {
     if (payload.properties.name === Command.Default.INIT) {
