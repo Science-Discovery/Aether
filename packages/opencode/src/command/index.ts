@@ -63,6 +63,7 @@ export namespace Command {
   export const Default = {
     INIT: "init",
     REVIEW: "review",
+    SKILL_SCAN_PATHS: "skill-scan-paths",
   } as const
 
   export interface Interface {
@@ -98,8 +99,16 @@ export namespace Command {
           subtask: true,
           hints: hints(PROMPT_REVIEW),
         }
+        commands[Default.SKILL_SCAN_PATHS] = {
+          name: Default.SKILL_SCAN_PATHS,
+          description: "print live skill scan paths",
+          source: "command",
+          template: "",
+          hints: [],
+        }
 
         for (const [name, command] of Object.entries(cfg.command ?? {})) {
+          if (name === Default.SKILL_SCAN_PATHS) continue
           commands[name] = {
             name,
             agent: command.agent,
