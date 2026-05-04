@@ -90,6 +90,7 @@ const sseRetryTimers: Record<MobilePlatform, ReturnType<typeof setTimeout> | und
 const pingTimer: ReturnType<typeof setInterval> | undefined = undefined
 let clientId: string | null = null
 let pingInterval: ReturnType<typeof setInterval> | undefined
+let pingFails = 0
 
 type Resolver = () => { url: string; headers: HeadersInit }
 let resolve: Resolver | null = null
@@ -201,13 +202,17 @@ function connectSSE(p: MobilePlatform) {
       }
 
       const s = prev(p).status
-      if (s !== "idle" && s !== "error" && s !== "stolen") {
+      if (p === "wechat") {
+        if (s !== "idle" && s !== "error" && s !== "stolen") scheduleSseRetry(p)
+      } else if (s !== "idle" && s !== "error" && s !== "stolen") {
         updateStatus(p, "reconnecting")
         scheduleSseRetry(p)
       }
     } catch {
       const s = prev(p).status
-      if (s !== "idle" && s !== "error" && s !== "stolen") {
+      if (p === "wechat") {
+        if (s !== "idle" && s !== "error" && s !== "stolen") scheduleSseRetry(p)
+      } else if (s !== "idle" && s !== "error" && s !== "stolen") {
         updateStatus(p, "reconnecting")
         scheduleSseRetry(p)
       }
@@ -245,6 +250,7 @@ function startPing(p: MobilePlatform) {
         body: JSON.stringify({ clientId }),
       })
       const data = await res.json()
+      pingFails = 0
       if (data.stolen) {
         stopPing()
         if (sseControllers.wechat) {
@@ -255,6 +261,9 @@ function startPing(p: MobilePlatform) {
         patch("wechat", { status: "stolen" })
       }
     } catch {
+      pingFails += 1
+      if (pingFails < 3) return
+      pingFails = 0
       const s = prev("wechat").status
       if (s !== "idle" && s !== "stolen") patch("wechat", { status: "reconnecting" })
     }

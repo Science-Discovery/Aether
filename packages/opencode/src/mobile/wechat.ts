@@ -10,7 +10,7 @@ import type { MobileAdapter } from "./base"
 import * as ilink from "./ilink"
 import type { LoginStatusResult } from "./ilink"
 
-export type WeChatStatus = "idle" | "starting" | "qrcode" | "connected" | "error"
+export type WeChatStatus = "idle" | "starting" | "qrcode" | "connected" | "reconnecting" | "error"
 
 export interface WeChatSession {
   connected: boolean
@@ -98,6 +98,7 @@ class WeChatManagerImpl extends MobileManagerBase {
   private _seenIds: Set<string> = new Set()
   private _qrUuid: string = ""
   private _loginAbort: AbortController | null = null
+  private _tokenKnownExpired: boolean = false
 
   get lockHolder(): string | null {
     try {
@@ -258,18 +259,31 @@ class WeChatManagerImpl extends MobileManagerBase {
     this._pollRunning = false
     this.unsubscribeBusEvents()
     this._error = null
-    this._ilinkToken = ""
-    try {
-      await rm(wcFile("ilink_state.json"), { force: true })
-    } catch {}
-    this.status = "starting"
-    void this.loginAndPoll()
-    return { success: true }
+
+    if (this._tokenKnownExpired) {
+      this._ilinkToken = ""
+      this._tokenKnownExpired = false
+      try {
+        await rm(wcFile("ilink_state.json"), { force: true })
+      } catch {}
+      this.status = "starting"
+      void this.loginAndPoll()
+      return { success: true }
+    }
+
+    this.status = "idle"
+    return this.start()
   }
 
   private async reconnect(): Promise<void> {
     this.status = "reconnecting"
     Bus.publish(this.busEvents.Reconnecting, { attempt: 1, delay: 0 })
+
+    if (!this._ilinkToken) {
+      this._ilinkToken = ""
+      void this.loginAndPoll()
+      return
+    }
 
     const state = await this.loadILinkState()
     if (state?.token) {
@@ -368,6 +382,12 @@ class WeChatManagerImpl extends MobileManagerBase {
         if (result.expired) {
           console.warn("[wechat] session expired during poll, reconnecting...")
           this._pollRunning = false
+          this._tokenKnownExpired = true
+          this._ilinkToken = ""
+          this._cursor = ""
+          try {
+            await rm(wcFile("ilink_state.json"), { force: true })
+          } catch {}
           this.status = "reconnecting"
           Bus.publish(this.busEvents.Reconnecting, { attempt: 1, delay: 0 })
           void this.reconnect()
