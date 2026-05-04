@@ -428,6 +428,31 @@ export const GlobalRoutes = lazy(() =>
         return c.json(next)
       },
     )
+    .patch(
+      "/config/skills",
+      describeRoute({
+        summary: "Update skills configuration",
+        description: "Update skills settings without triggering a full instance reload.",
+        operationId: "global.config.skills.update",
+        responses: {
+          200: {
+            description: "Successfully updated skills config",
+            content: {
+              "application/json": {
+                schema: resolver(Config.Skills),
+              },
+            },
+          },
+          ...errors(400),
+        },
+      }),
+      validator("json", Config.Skills),
+      async (c) => {
+        const skills = c.req.valid("json")
+        const next = await Config.updateSkillsConfig({ skills })
+        return c.json(next.skills ?? {})
+      },
+    )
     .get(
       "/instances",
       describeRoute({

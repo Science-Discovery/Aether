@@ -166,6 +166,11 @@ export type AppClient = Base & {
       get(input: { runID: string }): Req<CronRun | null>
     }
   }
+  global: Base["global"] & {
+    config: {
+      updateSkills(input: { creation_nudge_interval?: number; max_versions?: number }): Req<void>
+    }
+  }
   config: Base["config"] & {
     skills: {
       list(): Req<Skill[]>
@@ -395,6 +400,10 @@ export function addSkillsExtraMethods(
   }
   skills.toggleEvolution = async (input: { file: string; evolutionEnabled: boolean }) => {
     return requestJSON(`${baseUrl}/config/skills/toggle-evolution`, { method: "POST", headers, body: JSON.stringify(input) }, options)
+  }
+  const globalConfig = (client as any).global.config as Record<string, unknown>
+  globalConfig.updateSkills = async (input: { creation_nudge_interval?: number; max_versions?: number }) => {
+    return requestJSON(`${baseUrl}/global/config/skills`, { method: "PATCH", headers, body: JSON.stringify(input) }, options)
   }
   return client
 }

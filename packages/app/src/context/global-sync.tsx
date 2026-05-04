@@ -590,6 +590,13 @@ function createGlobalSync() {
       })
   }
 
+  const updateSkillsConfig = async (input: { creation_nudge_interval?: number; max_versions?: number }) => {
+    return globalSDK.client.global.config
+      .updateSkills(input)
+      .then(bootstrap)
+      .then(() => queue.refresh())
+  }
+
   return {
     data: globalStore,
     set,
@@ -603,6 +610,7 @@ function createGlobalSync() {
     peek: children.peek,
     bootstrap,
     updateConfig,
+    updateSkillsConfig,
     project: projectApi,
     todo: {
       set: setSessionTodo,

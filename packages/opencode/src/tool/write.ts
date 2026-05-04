@@ -4,6 +4,7 @@ import { Tool } from "./tool"
 import { LSP } from "../lsp"
 import { createTwoFilesPatch } from "diff"
 import DESCRIPTION from "./write.txt"
+import DESCRIPTION_NO_SKILL_GUARD from "./write-no-skill-guard.txt"
 import { Bus } from "../bus"
 import { File } from "../file"
 import { FileWatcher } from "../file/watcher"
@@ -17,8 +18,8 @@ import { assertExternalDirectory } from "./external-directory"
 const MAX_DIAGNOSTICS_PER_FILE = 20
 const MAX_PROJECT_DIAGNOSTICS_FILES = 5
 
-export const WriteTool = Tool.define("write", {
-  description: DESCRIPTION,
+export const WriteTool = Tool.define("write", async (initCtx) => ({
+  description: (initCtx?.evolutionEnabled ?? true) ? DESCRIPTION : DESCRIPTION_NO_SKILL_GUARD,
   parameters: z.object({
     content: z.string().describe("The content to write to the file"),
     filePath: z.string().describe("The absolute path to the file to write (must be absolute, not relative)"),
@@ -81,4 +82,4 @@ export const WriteTool = Tool.define("write", {
       output,
     }
   },
-})
+}))

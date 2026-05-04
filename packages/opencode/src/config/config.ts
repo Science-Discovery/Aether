@@ -1978,6 +1978,10 @@ export namespace Config {
     return updateGlobalInternal(config, { dispose: true })
   }
 
+  export async function updateSkillsConfig(config: Pick<Info, "skills">) {
+    return updateGlobalInternal(config, { dispose: false })
+  }
+
   export async function directories() {
     return state().then((x) => x.directories)
   }

@@ -9,6 +9,7 @@ import { Tool } from "./tool"
 import { LSP } from "../lsp"
 import { createTwoFilesPatch, diffLines } from "diff"
 import DESCRIPTION from "./edit.txt"
+import DESCRIPTION_NO_SKILL_GUARD from "./edit-no-skill-guard.txt"
 import { File } from "../file"
 import { FileWatcher } from "../file/watcher"
 import { Bus } from "../bus"
@@ -34,8 +35,8 @@ function convertToLineEnding(text: string, ending: "\n" | "\r\n"): string {
   return text.replaceAll("\n", "\r\n")
 }
 
-export const EditTool = Tool.define("edit", {
-  description: DESCRIPTION,
+export const EditTool = Tool.define("edit", async (initCtx) => ({
+  description: (initCtx?.evolutionEnabled ?? true) ? DESCRIPTION : DESCRIPTION_NO_SKILL_GUARD,
   parameters: z.object({
     filePath: z.string().describe("The absolute path to the file to modify"),
     oldString: z.string().describe("The text to replace"),
@@ -164,7 +165,7 @@ export const EditTool = Tool.define("edit", {
       output,
     }
   },
-})
+}))
 
 export type Replacer = (content: string, find: string) => Generator<string, void, unknown>
 

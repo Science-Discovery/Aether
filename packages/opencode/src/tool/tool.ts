@@ -12,6 +12,7 @@ export namespace Tool {
 
   export interface InitContext {
     agent?: Agent.Info
+    evolutionEnabled?: boolean
   }
 
   export type Context<M extends Metadata = Metadata> = {
