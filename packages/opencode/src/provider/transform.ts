@@ -75,7 +75,7 @@ export namespace ProviderTransform {
 
     if (model.api.id.includes("claude")) {
       const scrub = (id: string) => id.replace(/[^a-zA-Z0-9_-]/g, "_")
-      return msgs.map((msg) => {
+      msgs = msgs.map((msg) => {
         if (msg.role === "assistant" && Array.isArray(msg.content)) {
           return {
             ...msg,
@@ -99,6 +99,19 @@ export namespace ProviderTransform {
           }
         }
         return msg
+      })
+    }
+    if (model.api.npm === "@ai-sdk/anthropic" || model.api.npm === "@ai-sdk/google-vertex/anthropic") {
+      msgs = msgs.flatMap((msg) => {
+        if (msg.role !== "assistant" || !Array.isArray(msg.content)) return [msg]
+
+        const i = msg.content.findIndex((part) => part.type === "tool-call")
+        if (i === -1) return [msg]
+        if (!msg.content.slice(i).some((part) => part.type !== "tool-call")) return [msg]
+        return [
+          { ...msg, content: msg.content.filter((part) => part.type !== "tool-call") },
+          { ...msg, content: msg.content.filter((part) => part.type === "tool-call") },
+        ]
       })
     }
     if (
@@ -152,7 +165,28 @@ export namespace ProviderTransform {
       return result
     }
 
-    if (typeof model.capabilities.interleaved === "object" && model.capabilities.interleaved.field) {
+    if (model.api.id.toLowerCase().includes("deepseek")) {
+      msgs = msgs.map((msg) => {
+        if (msg.role !== "assistant") return msg
+        if (Array.isArray(msg.content)) {
+          if (msg.content.some((part) => part.type === "reasoning")) return msg
+          return { ...msg, content: [...msg.content, { type: "reasoning", text: "" }] }
+        }
+        return {
+          ...msg,
+          content: [
+            ...(msg.content ? [{ type: "text" as const, text: msg.content }] : []),
+            { type: "reasoning" as const, text: "" },
+          ],
+        }
+      })
+    }
+
+    if (
+      typeof model.capabilities.interleaved === "object" &&
+      model.capabilities.interleaved.field &&
+      model.api.npm !== "@openrouter/ai-sdk-provider"
+    ) {
       const field = model.capabilities.interleaved.field
       return msgs.map((msg) => {
         if (msg.role === "assistant" && Array.isArray(msg.content)) {
@@ -163,23 +197,16 @@ export namespace ProviderTransform {
           const filteredContent = msg.content.filter((part: any) => part.type !== "reasoning")
 
           // Include reasoning_content | reasoning_details directly on the message for all assistant messages
-          if (reasoningText) {
-            return {
-              ...msg,
-              content: filteredContent,
-              providerOptions: {
-                ...msg.providerOptions,
-                openaiCompatible: {
-                  ...(msg.providerOptions as any)?.openaiCompatible,
-                  [field]: reasoningText,
-                },
-              },
-            }
-          }
-
           return {
             ...msg,
             content: filteredContent,
+            providerOptions: {
+              ...msg.providerOptions,
+              openaiCompatible: {
+                ...(msg.providerOptions as any)?.openaiCompatible,
+                [field]: reasoningText,
+              },
+            },
           }
         }
 
@@ -314,7 +341,7 @@ export namespace ProviderTransform {
             if (item.type === "tool-approval-request" || item.type === "tool-approval-response") {
               return { ...item }
             }
-            return { ...part, providerOptions: remap(part.providerOptions) }
+            return { ...part, providerOptions: remap((part as any).providerOptions) }
           }),
         } as typeof msg
       })
@@ -830,13 +857,12 @@ export namespace ProviderTransform {
       }
     }
 
-    // Enable thinking for reasoning models on alibaba-cn (DashScope).
-    // DashScope's OpenAI-compatible API requires `enable_thinking: true` in the request body
-    // to return reasoning_content. Without it, models like kimi-k2.5, qwen-plus, qwen3, qwq,
-    // deepseek-r1, etc. never output thinking/reasoning tokens.
+    // Enable thinking for reasoning models on providers using DashScope-style OpenAI-compatible APIs.
+    // These APIs require `enable_thinking: true` in the request body to return reasoning_content.
+    // Without it, models never output thinking/reasoning tokens.
     // Note: kimi-k2-thinking is excluded as it returns reasoning_content by default.
     if (
-      input.model.providerID === "alibaba-cn" &&
+      ["alibaba-cn", "siliconflow-cn"].includes(input.model.providerID) &&
       input.model.capabilities.reasoning &&
       input.model.api.npm === "@ai-sdk/openai-compatible" &&
       !modelId.includes("kimi-k2-thinking")
@@ -995,7 +1021,11 @@ export namespace ProviderTransform {
       return result
     }
 
-    const key = sdkKey(model.api.npm) ?? model.providerID
+    const dot =
+      model.api.npm === "@ai-sdk/openai-compatible" ||
+      model.api.npm === "@ai-sdk/openai" ||
+      model.api.npm === "@ai-sdk/anthropic"
+    const key = sdkKey(model.api.npm) ?? (dot ? model.providerID.split(".")[0] : model.providerID)
     return { [key]: opts }
   }
 

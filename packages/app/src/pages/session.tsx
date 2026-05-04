@@ -840,8 +840,8 @@ function SessionPageContent(props: SessionPageProps = {}) {
     return task
   }
 
-  const refreshVcs = () => {
-    resetVcs()
+  const refreshVcs = (opts?: { silent?: boolean }) => {
+    if (!opts?.silent) resetVcs()
     const mode = untrack(vcsMode)
     if (!mode) return
     if (!untrack(wantsReview)) return
@@ -1103,6 +1103,7 @@ function SessionPageContent(props: SessionPageProps = {}) {
     ),
   )
 
+  let watcherVcsRefresh: number | undefined
   const stopVcs = sdk.event.listen((evt) => {
     if (evt.details.type !== "file.watcher.updated") return
     const props =
@@ -1111,9 +1112,28 @@ function SessionPageContent(props: SessionPageProps = {}) {
         : undefined
     const file = typeof props?.file === "string" ? props.file : undefined
     if (!file || file.startsWith(".git/")) return
-    refreshVcs()
+    // Diagnostic: enable with `localStorage.setItem("aether:debug:vcs-watcher", "1")`
+    // in DevTools to identify which files trigger /vcs/diff refetches during a
+    // streaming LLM response. Remove the guard once the root-cause writer is
+    // identified and patched on the backend.
+    if (typeof window !== "undefined" && window.localStorage?.getItem("aether:debug:vcs-watcher")) {
+      console.debug("[vcs-watcher] file.watcher.updated", { file, kind: props?.event })
+    }
+    // Debounce refreshVcs against bursts of file.watcher.updated events.
+    // We also pass `silent: true` so the existing diff/ready state stays
+    // visible during the in-flight refetch — without this, every burst
+    // resets vcs.diff/vcs.ready and the review panel flickers loading→data
+    // on each burst (visible during a streaming LLM response).
+    if (watcherVcsRefresh !== undefined) window.clearTimeout(watcherVcsRefresh)
+    watcherVcsRefresh = window.setTimeout(() => {
+      watcherVcsRefresh = undefined
+      refreshVcs({ silent: true })
+    }, 500)
   })
-  onCleanup(stopVcs)
+  onCleanup(() => {
+    stopVcs()
+    if (watcherVcsRefresh !== undefined) window.clearTimeout(watcherVcsRefresh)
+  })
 
   createEffect(
     on(

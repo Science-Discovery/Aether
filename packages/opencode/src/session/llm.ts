@@ -5,14 +5,15 @@ import {
   streamText,
   wrapLanguageModel,
   type ModelMessage,
-  type StreamTextResult,
   type Tool,
   type ToolSet,
   tool,
   jsonSchema,
+  type LanguageModelMiddleware,
 } from "ai"
+import type { LanguageModelV3Prompt } from "@ai-sdk/provider"
 import { mergeDeep, pipe } from "remeda"
-import { GitLabWorkflowLanguageModel } from "gitlab-ai-provider"
+import { GitLabWorkflowLanguageModel, type WorkflowToolExecutor } from "gitlab-ai-provider"
 import { ProviderTransform } from "@/provider/transform"
 import { Config } from "@/config/config"
 import { Instance } from "@/project/instance"
@@ -43,7 +44,40 @@ export namespace LLM {
     toolChoice?: "auto" | "required" | "none"
   }
 
-  export type StreamOutput = StreamTextResult<ToolSet, unknown>
+  export type StreamOutput = ReturnType<typeof streamText<ToolSet>>
+
+  const finish: LanguageModelMiddleware = {
+    specificationVersion: "v3",
+    async wrapStream(input) {
+      const result = await input.doStream()
+      let calls = false
+      return {
+        ...result,
+        stream: result.stream.pipeThrough(
+          new TransformStream({
+            transform(part, controller) {
+              if (part.type === "tool-call") calls = true
+              if (
+                part.type === "finish" &&
+                calls &&
+                (part.finishReason.unified === "stop" || part.finishReason.raw === "unknown")
+              ) {
+                controller.enqueue({
+                  ...part,
+                  finishReason: {
+                    ...part.finishReason,
+                    unified: "tool-calls",
+                  },
+                })
+                return
+              }
+              controller.enqueue(part)
+            },
+          }),
+        ),
+      }
+    },
+  }
 
   export async function stream(input: StreamInput) {
     const l = log
@@ -193,9 +227,8 @@ export namespace LLM {
     // from the workflow service are executed via opencode's tool system
     // and results sent back over the WebSocket.
     if (language instanceof GitLabWorkflowLanguageModel) {
-      const workflowModel = language
-      workflowModel.systemPrompt = system.join("\n")
-      workflowModel.toolExecutor = async (toolName, argsJson, _requestID) => {
+      language.systemPrompt = system.join("\n")
+      const exec: WorkflowToolExecutor = async (toolName, argsJson, _requestID) => {
         const t = tools[toolName]
         if (!t || !t.execute) {
           return { result: "", error: `Unknown tool: ${toolName}` }
@@ -212,10 +245,11 @@ export namespace LLM {
             metadata: typeof result === "object" ? result?.metadata : undefined,
             title: typeof result === "object" ? result?.title : undefined,
           }
-        } catch (e: any) {
-          return { result: "", error: e.message ?? String(e) }
+        } catch (e) {
+          return { result: "", error: e instanceof Error ? e.message : String(e) }
         }
       }
+      language.toolExecutor = exec
     }
 
     return streamText({
@@ -273,20 +307,35 @@ export namespace LLM {
       },
       maxRetries: input.retries ?? 0,
       messages,
-      model: wrapLanguageModel({
-        model: language,
-        middleware: [
-          {
-            async transformParams(args) {
-              if (args.type === "stream") {
-                // @ts-expect-error
-                args.params.prompt = ProviderTransform.message(args.params.prompt, input.model, options)
-              }
-              return args.params
-            },
-          },
-        ],
-      }),
+      // NOTE: AI SDK v6 wrapLanguageModel only accepts LanguageModelV3.
+      // Our local Copilot SDK still implements LanguageModelV2 (see
+      // packages/opencode/src/provider/sdk/copilot/**), so for those models
+      // we fall through to the bare language and lose ProviderTransform.message
+      // and the finish-reason rewrite. This is a known limitation of the
+      // partial AI SDK v6 backport; upgrading Copilot SDK to v3 is tracked
+      // separately (LLM-UP-012 in docs/llm-upstream-diff-report-2026-05-04.md).
+      model:
+        typeof language !== "string" && language.specificationVersion === "v3"
+          ? wrapLanguageModel({
+              model: language,
+              middleware: [
+                {
+                  specificationVersion: "v3",
+                  async transformParams(args) {
+                    if (args.type === "stream") {
+                      args.params.prompt = ProviderTransform.message(
+                        args.params.prompt,
+                        input.model,
+                        options,
+                      ) as LanguageModelV3Prompt
+                    }
+                    return args.params
+                  },
+                },
+                finish,
+              ],
+            })
+          : language,
       experimental_telemetry: {
         isEnabled: cfg.experimental?.openTelemetry,
         metadata: {

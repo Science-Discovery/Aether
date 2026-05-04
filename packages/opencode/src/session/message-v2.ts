@@ -12,6 +12,8 @@ import { MessageTable, PartTable, SessionTable } from "./session.sql"
 import { ProviderError } from "@/provider/error"
 import { iife } from "@/util/iife"
 import type { SystemError } from "bun"
+import type { JSONValue, SharedV3ProviderMetadata } from "@ai-sdk/provider"
+import type { ToolResultOutput } from "@ai-sdk/provider-utils"
 import type { Provider } from "@/provider/provider"
 import { ModelID, ProviderID } from "@/provider/schema"
 
@@ -343,6 +345,11 @@ export namespace MessageV2 {
     tool: z.string(),
     state: ToolState,
     metadata: z.record(z.string(), z.any()).optional(),
+    // True when the tool was executed within the provider's stream (e.g.
+    // Anthropic web_search, Copilot Responses tools). Such parts must be
+    // excluded from the outer-loop "any unresolved tool call?" check in
+    // SessionPrompt — they are already complete by stream end.
+    providerExecuted: z.boolean().optional(),
   }).meta({
     ref: "ToolPart",
   })
@@ -572,11 +579,24 @@ export namespace MessageV2 {
     }))
   }
 
-  export function toModelMessages(
+  type Output = string | { text: string; attachments?: Array<{ mime: string; url: string }> } | JSONValue
+
+  type ToolOutput = {
+    toolCallId: string
+    input: JSONValue
+    output: Output
+  }
+
+  const isAttachmentOutput = (output: Output): output is Extract<Output, { text: string }> => {
+    if (!output || typeof output !== "object" || Array.isArray(output)) return false
+    return typeof output.text === "string"
+  }
+
+  export async function toModelMessages(
     input: WithParts[],
     model: Provider.Model,
     options?: { stripMedia?: boolean },
-  ): ModelMessage[] {
+  ): Promise<ModelMessage[]> {
     const result: UIMessage[] = []
     const toolNames = new Set<string>()
     // Track media from tool results that need to be injected as user messages
@@ -600,7 +620,7 @@ export namespace MessageV2 {
       return false
     })()
 
-    const providerMetadata = (metadata: Record<string, any> | undefined) => {
+    const providerMetadata = (metadata: Record<string, any> | undefined): SharedV3ProviderMetadata | undefined => {
       if (!metadata) return undefined
       const entries = Object.entries(metadata).filter(([, value]) => {
         return value && typeof value === "object" && !Array.isArray(value)
@@ -619,26 +639,23 @@ export namespace MessageV2 {
       return value ? { callProviderMetadata: value } : {}
     }
 
-    const toModelOutput = (output: unknown) => {
+    const toModelOutput = (opts: ToolOutput): ToolResultOutput => {
+      const output = opts.output
       if (typeof output === "string") {
         return { type: "text", value: output }
       }
 
-      if (typeof output === "object") {
-        const outputObject = output as {
-          text: string
-          attachments?: Array<{ mime: string; url: string }>
-        }
-        const attachments = (outputObject.attachments ?? []).filter((attachment) => {
+      if (isAttachmentOutput(output)) {
+        const attachments = (output.attachments ?? []).filter((attachment) => {
           return attachment.url.startsWith("data:") && attachment.url.includes(",")
         })
 
         return {
           type: "content",
           value: [
-            { type: "text", text: outputObject.text },
+            { type: "text", text: output.text },
             ...attachments.map((attachment) => ({
-              type: "media",
+              type: "media" as const,
               mediaType: attachment.mime,
               data: iife(() => {
                 const commaIndex = attachment.url.indexOf(",")
@@ -649,7 +666,7 @@ export namespace MessageV2 {
         }
       }
 
-      return { type: "json", value: output as never }
+      return { type: "json", value: output }
     }
 
     for (const msg of input) {
@@ -786,10 +803,18 @@ export namespace MessageV2 {
               })
           }
           if (part.type === "reasoning") {
+            if (differentModel) {
+              if (part.text.trim().length > 0)
+                assistantMessage.parts.push({
+                  type: "text",
+                  text: part.text,
+                })
+              continue
+            }
             assistantMessage.parts.push({
               type: "reasoning",
               text: part.text,
-              ...(differentModel ? {} : providerMetadataProp(part.metadata)),
+              ...providerMetadataProp(part.metadata),
             })
           }
         }

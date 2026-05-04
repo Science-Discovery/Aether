@@ -105,6 +105,14 @@ const { McpOAuthCallback } = await import("../../src/mcp/oauth-callback")
 const { Instance } = await import("../../src/project/instance")
 const { tmpdir } = await import("../fixture/fixture")
 
+async function waitFor(predicate: () => boolean, timeoutMs = 10_000) {
+  const deadline = Date.now() + timeoutMs
+  while (!predicate()) {
+    if (Date.now() >= deadline) throw new Error("waitFor: condition not met within " + timeoutMs + "ms")
+    await new Promise((resolve) => setTimeout(resolve, 25))
+  }
+}
+
 test("BrowserOpenFailed event is published when open() throws", async () => {
   await using tmp = await tmpdir({
     init: async (dir) => {
@@ -133,13 +141,17 @@ test("BrowserOpenFailed event is published when open() throws", async () => {
         events.push(evt.properties)
       })
 
-      // Run authenticate with a timeout to avoid waiting forever for the callback
-      // Attach a handler immediately so callback shutdown rejections
-      // don't show up as unhandled between tests.
       const authPromise = MCP.authenticate("test-oauth-server").catch(() => undefined)
 
-      // Config.get() can be slow in tests, so give it plenty of time.
-      await new Promise((resolve) => setTimeout(resolve, 2_000))
+      // Wait until authenticate reaches open() — by then waitForCallback has
+      // registered in pendingAuths, so stop() can reject it cleanly. The old
+      // 2s hard sleep raced with slow CI runners and let stop() run before
+      // the registration, then waitForCallback's 5-min timeout outlived the
+      // bun-test 30s timeout.
+      await waitFor(() => openCalledWith !== undefined)
+      // Buffer for the subprocess error (10ms) and the post-open Effect.callback
+      // path to publish the BrowserOpenFailed event before we assert on it.
+      await new Promise((resolve) => setTimeout(resolve, 200))
 
       // Stop the callback server and cancel any pending auth
       await McpOAuthCallback.stop()
@@ -187,8 +199,11 @@ test("BrowserOpenFailed event is NOT published when open() succeeds", async () =
       // Run authenticate with a timeout to avoid waiting forever for the callback
       const authPromise = MCP.authenticate("test-oauth-server-2").catch(() => undefined)
 
-      // Config.get() can be slow in tests; also covers the ~500ms open() error-detection window.
-      await new Promise((resolve) => setTimeout(resolve, 2_000))
+      // Wait until authenticate reaches open() (see explanation in the first
+      // test) and let the post-open 500ms Effect.callback timer fire so a
+      // would-be BrowserOpenFailed publish has time to happen.
+      await waitFor(() => openCalledWith !== undefined)
+      await new Promise((resolve) => setTimeout(resolve, 700))
 
       // Stop the callback server and cancel any pending auth
       await McpOAuthCallback.stop()
