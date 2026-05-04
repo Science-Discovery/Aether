@@ -164,7 +164,7 @@ Navigation strategy:
 - Read a directory → check for <summary> → decide which subdirectories are relevant to the task
 - If the summary clearly indicates a directory is irrelevant, skip its subdirectories
 - If no <summary> is present, fall back to reading the entry list directly
-- Use the summarize_dirs tool if summaries are missing and you need to navigate a large codebase efficiently
+- Only use the summarize_dirs tool when the user explicitly asks to comprehensively explore or map out the entire codebase
 
 # Code References
 

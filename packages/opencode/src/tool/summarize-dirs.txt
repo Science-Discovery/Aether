@@ -1,15 +1,10 @@
 Generate .summary files for directories in the project.
 
-Each summary is a brief (2-4 sentence) description of the directory's purpose, its key files, and which subdirectories are most relevant for different tasks. Once generated, the Read tool automatically displays these summaries when listing directory contents, enabling efficient navigation of large codebases.
+Each summary is a navigation signpost (markdown table) describing the directory's purpose, key files, and relevant subdirectories. Once generated, the Read tool displays these summaries when listing directory contents.
 
-Use this tool when:
-- Starting work on an unfamiliar or large codebase
-- You want to enable efficient directory navigation for future sessions
-- Summaries are outdated after major refactoring
+IMPORTANT — This tool is expensive and should only be used when the user EXPLICITLY requests a comprehensive, top-to-bottom exploration of the entire codebase (e.g. "thoroughly explore this entire repo", "map out the full project structure", "generate summaries for the whole codebase"). Do NOT use it for targeted tasks, bug fixes, feature work, or general navigation — prefer Read, Grep, and Glob for those.
 
 Parameters:
 - directory: Root directory to start from (defaults to project root)
 - maxDepth: How many levels deep to recurse (1-5, default 3)
 - force: Set to true to regenerate summaries that already exist
-
-After running this tool, the Read tool will show a <summary> block before the entry list whenever you navigate into a directory, allowing you to decide whether to explore its subdirectories without reading all the files.
