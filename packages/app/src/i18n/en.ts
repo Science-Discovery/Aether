@@ -1174,6 +1174,9 @@ export const dict = {
   "settings.general.row.debugBar.title": "Show debug bar",
   "settings.general.row.debugBar.description":
     "Display the development performance debug bar in the bottom-right corner",
+  "settings.general.row.collapseMessages.title": "Collapse messages by default",
+  "settings.general.row.collapseMessages.description":
+    "Collapse all previous messages when opening a session, keeping only the latest expanded",
   "settings.general.row.shellToolPartsExpanded.title": "Expand shell tool parts",
   "settings.general.row.shellToolPartsExpanded.description":
     "Show shell tool parts expanded by default in the timeline",

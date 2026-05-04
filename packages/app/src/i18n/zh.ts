@@ -985,6 +985,8 @@ export const dict = {
   "settings.general.row.reasoningSummaries.description": "在时间线中显示模型推理摘要",
   "settings.general.row.debugBar.title": "显示调试栏",
   "settings.general.row.debugBar.description": "在右下角显示开发性能调试栏",
+  "settings.general.row.collapseMessages.title": "默认收起历史消息",
+  "settings.general.row.collapseMessages.description": "打开会话时自动收起除最新一条外的所有消息",
   "settings.general.row.shellToolPartsExpanded.title": "展开 shell 工具部分",
   "settings.general.row.shellToolPartsExpanded.description": "默认在时间线中展开 shell 工具部分",
   "settings.general.row.editToolPartsExpanded.title": "展开编辑工具部分",
