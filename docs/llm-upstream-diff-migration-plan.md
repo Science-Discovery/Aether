@@ -37,7 +37,7 @@
 - `packages/opencode/src/config/**` 中影响 provider/model/auth 加载的部分
 - `packages/opencode/test/session/llm.test.ts`
 - `packages/opencode/test/provider/**`
-- `packages/opencode/test/system/llm-p0.test.ts`
+- `packages/opencode/test/system/llm-p0.ts`
 - `packages/opencode/package.json`
 - `bun.lock` 或 package lock 中 AI SDK/provider SDK 相关依赖
 

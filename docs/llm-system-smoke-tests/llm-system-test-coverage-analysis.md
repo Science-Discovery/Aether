@@ -13,13 +13,13 @@
 | usage 缺失显式化 | finish-step 中检查 usage，缺失标记为 missing/unsupported，覆盖 P0-D |
 | 错误分类与上下文标注 | `classify()` 分 5 类，错误记录带 provider/model/case 前缀，覆盖 R-4 |
 
-补充说明：本表描述的是 `packages/opencode/test/system/llm-p0.test.ts` 的真实 provider smoke 覆盖。它直接调用 `LLM.stream()`，不进入 `SessionPrompt` / `SessionProcessor` 的完整会话循环，因此不会在真实 endpoint 上做长上下文压测或自动压缩验证。context length 与压缩编排由 `packages/opencode/test/session/compaction-flow.test.ts` 使用本地 OpenAI-compatible fake endpoint 覆盖，避免真实长上下文成本和 flaky。
+补充说明：本表描述的是 `packages/opencode/test/system/llm-p0.ts` 的真实 provider smoke 覆盖。它直接调用 `LLM.stream()`，不进入 `SessionPrompt` / `SessionProcessor` 的完整会话循环，因此不会在真实 endpoint 上做长上下文压测或自动压缩验证。context length 与压缩编排由 `packages/opencode/test/session/compaction-flow.test.ts` 使用本地 OpenAI-compatible fake endpoint 覆盖，避免真实长上下文成本和 flaky。
 
 ## 2. 与本地 LLM 契约测试的分工
 
-`packages/opencode/test/session/llm.test.ts` 和本系统 smoke 的入口都包含 `LLM.stream()`，但覆盖目的不同。这个重叠是刻意保留的：`session/llm.test.ts` 用本地 fake endpoint 精确检查 opencode 会发出什么请求；`system/llm-p0.test.ts` 用真实 endpoint 检查供应商是否真的接受这组请求并返回完整流。
+`packages/opencode/test/session/llm.test.ts` 和本系统 smoke 的入口都包含 `LLM.stream()`，但覆盖目的不同。这个重叠是刻意保留的：`session/llm.test.ts` 用本地 fake endpoint 精确检查 opencode 会发出什么请求；`system/llm-p0.ts` 用真实 endpoint 检查供应商是否真的接受这组请求并返回完整流。
 
-| 维度 | `test/session/llm.test.ts` | `test/system/llm-p0.test.ts` |
+| 维度 | `test/session/llm.test.ts` | `test/system/llm-p0.ts` |
 |------|----------------------------|------------------------------|
 | endpoint | 本地 fake server | 真实 provider endpoint |
 | 运行成本 | 无真实额度消耗，可作为常规测试 | 消耗真实额度，默认手动启用 |

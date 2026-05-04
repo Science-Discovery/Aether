@@ -34,7 +34,7 @@ LLM 调用层是 Aether 的高变更面：上游 SDK、`models.dev` 元数据、
 | 文件 | 入口 | 是否真实 provider | 主要断言 | 职责 |
 |------|------|------------------|----------|------|
 | `packages/opencode/test/session/llm.test.ts` | `LLM.stream()` + 本地 fake endpoint | 否 | 请求路径、headers、payload 转换、工具权限、`hasToolCalls()` | 固化本地 LLM 契约，保证 provider / transform 适配逻辑不回归 |
-| `packages/opencode/test/system/llm-p0.test.ts` | `LLM.stream()` + YAML provider 配置 | 是 | 真实流结束、非空输出、reasoning/tool-call 事件、usage 显式化、错误分类 | 验证真实 provider 能接受当前配置并完成一次流式调用 |
+| `packages/opencode/test/system/llm-p0.ts` | `LLM.stream()` + YAML provider 配置 | 是 | 真实流结束、非空输出、reasoning/tool-call 事件、usage 显式化、错误分类 | 验证真实 provider 能接受当前配置并完成一次流式调用 |
 | `docs/llm-system-smoke-tests/*` | 文档约束 | 不适用 | 需求、范围、覆盖矩阵、盲区 | 指导系统测试不要和本地契约测试混淆，也不要扩张成评测系统 |
 
 两组测试都经过 `LLM.stream()` 是有意的交集：本地契约测试看"我们准备发送什么"，真实 smoke 看"供应商现在是否接受并完成响应"。前者可以稳定阻止代码层回归，后者用来发现外部 provider / SDK / 方言的真实兼容性问题；二者互补，不能互相替代。

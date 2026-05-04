@@ -9,6 +9,7 @@ const env = { ...process.env }
 const providers = list("provider")
 const inputs = list("input")
 
+env.OPENCODE_SYSTEM_TEST = "1"
 if (providers.length > 0) env.OPENCODE_SYSTEM_TEST_PROVIDER = providers.join(",")
 if (inputs.length > 0) env.OPENCODE_SYSTEM_TEST_INPUT = inputs.join(",")
 if (process.argv.includes("--p1")) env.OPENCODE_SYSTEM_TEST_P1 = "1"
@@ -19,7 +20,7 @@ const proc = Bun.spawn(
     "test",
     "--timeout",
     env.OPENCODE_SYSTEM_TEST_TIMEOUT ?? "180000",
-    "test/system/llm-p0.test.ts",
+    "./test/system/llm-p0.ts",
   ],
   {
     cwd: path.join(import.meta.dir, "..", ".."),
