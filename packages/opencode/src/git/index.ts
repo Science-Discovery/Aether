@@ -48,6 +48,21 @@ export namespace Git {
     readonly deletions: number
   }
 
+  export type LogItem = {
+    readonly hash: string
+    readonly parents: readonly string[]
+    readonly author: string
+    readonly email: string
+    readonly date: number
+    readonly message: string
+  }
+
+  export type Ref = {
+    readonly name: string
+    readonly hash: string
+    readonly type: string
+  }
+
   export interface Result {
     readonly exitCode: number
     readonly text: () => string
@@ -71,6 +86,8 @@ export namespace Git {
     readonly status: (cwd: string) => Effect.Effect<Item[]>
     readonly diff: (cwd: string, ref: string) => Effect.Effect<Item[]>
     readonly stats: (cwd: string, ref: string) => Effect.Effect<Stat[]>
+    readonly log: (cwd: string, opts?: { max?: number }) => Effect.Effect<readonly LogItem[]>
+    readonly refs: (cwd: string, ...prefixes: string[]) => Effect.Effect<readonly Ref[]>
   }
 
   const kind = (code: string): Kind => {
@@ -125,7 +142,7 @@ export namespace Git {
           .filter(Boolean)
       })
 
-      const refs = Effect.fnUntraced(function* (cwd: string) {
+      const headRefs = Effect.fnUntraced(function* (cwd: string) {
         return yield* lines(["for-each-ref", "--format=%(refname:short)", "refs/heads"], { cwd })
       })
 
@@ -168,7 +185,7 @@ export namespace Git {
           }
         }
 
-        const list = yield* refs(cwd)
+        const list = yield* headRefs(cwd)
         const next = yield* configured(cwd, list)
         if (next) return next
         if (list.includes("main")) return { name: "main", ref: "main" } satisfies Base
@@ -243,6 +260,47 @@ export namespace Git {
         })
       })
 
+      const log = Effect.fn("Git.log")(function* (cwd: string, opts?: { max?: number }) {
+        const max = opts?.max ?? 300
+        const sep = "\x1F"
+        return (yield* lines(
+          [
+            "log",
+            `--format=%H${sep}%P${sep}%an${sep}%ae${sep}%at${sep}%s`,
+            "--max-count=" + String(max),
+            "--all",
+            "--topo-order",
+          ],
+          { cwd },
+        )).map((line) => {
+          const [hash, parents, author, email, date, ...rest] = line.split(sep)
+          return {
+            hash,
+            parents: parents ? parents.split(" ").filter(Boolean) : [],
+            author,
+            email,
+            date: parseInt(date, 10),
+            message: rest.join(sep),
+          } satisfies LogItem
+        })
+      })
+
+      const refs = Effect.fn("Git.refs")(function* (cwd: string, ...prefixes: string[]) {
+        const list = prefixes.length > 0 ? prefixes : ["refs/heads/", "refs/tags/", "refs/remotes/"]
+        const sep = "\x1F"
+        return (yield* lines(
+          ["for-each-ref", `--format=%(refname:short)${sep}%(objectname)${sep}%(objecttype)`, ...list],
+          { cwd },
+        )).map((line) => {
+          const idx = line.indexOf(sep)
+          const idx2 = line.indexOf(sep, idx + 1)
+          const name = line.slice(0, idx)
+          const hash = line.slice(idx + 1, idx2)
+          const type = line.slice(idx2 + 1)
+          return { name, hash, type } satisfies Ref
+        })
+      })
+
       return Service.of({
         run,
         branch,
@@ -254,6 +312,8 @@ export namespace Git {
         status,
         diff,
         stats,
+        log,
+        refs,
       })
     }),
   )
@@ -304,5 +364,13 @@ export namespace Git {
 
   export function stats(cwd: string, ref: string) {
     return runPromise((git) => git.stats(cwd, ref))
+  }
+
+  export function log(cwd: string, opts?: { max?: number }) {
+    return runPromise((git) => git.log(cwd, opts))
+  }
+
+  export function refs(cwd: string, ...prefixes: string[]) {
+    return runPromise((git) => git.refs(cwd, ...prefixes))
   }
 }

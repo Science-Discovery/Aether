@@ -319,6 +319,7 @@ import type {
   TuiSubmitPromptResponses,
   VcsDiffResponses,
   VcsGetResponses,
+  VcsGraphResponses,
   WechatEventsResponses,
   WechatPing2Responses,
   WechatPing3Responses,
@@ -7635,6 +7636,38 @@ export class Vcs extends HeyApiClient {
     )
     return (options?.client ?? this.client).get<VcsDiffResponses, unknown, ThrowOnError>({
       url: "/vcs/diff",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Get VCS graph data
+   *
+   * Retrieve git log and refs data for rendering the git graph visualization.
+   */
+  public graph<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      max?: number
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "query", key: "max" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<VcsGraphResponses, unknown, ThrowOnError>({
+      url: "/vcs/graph",
       ...options,
       ...params,
     })

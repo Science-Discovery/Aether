@@ -77,7 +77,7 @@ const emptyFollowups: (FollowupDraft & { id: string })[] = []
 const READING_CHAT_MIN_WIDTH = 360
 const READING_REVIEW_MIN_WIDTH = 320
 
-type ChangeMode = "git" | "branch" | "session" | "turn"
+type ChangeMode = "git" | "branch" | "session" | "turn" | "graph"
 type VcsMode = "git" | "branch"
 
 type SessionHistoryWindowInput = {
@@ -444,11 +444,11 @@ function SessionPageContent(props: SessionPageProps = {}) {
     fileTreeOpen: quickReadingFileTreeOpen,
     layoutSwapped: () => quickReading.store.snapshot.layoutSwapped,
   })
-  const desktopReviewOpen = createMemo(() =>
-    isDesktop() && (propReadingModeActive() ? !!props.readingReviewOpen : view().reviewPanel.opened()),
+  const desktopReviewOpen = createMemo(
+    () => isDesktop() && (propReadingModeActive() ? !!props.readingReviewOpen : view().reviewPanel.opened()),
   )
-  const desktopFileTreeOpen = createMemo(() =>
-    isDesktop() && (propReadingModeActive() ? !!props.readingFileTreeOpen : layout.fileTree.opened()),
+  const desktopFileTreeOpen = createMemo(
+    () => isDesktop() && (propReadingModeActive() ? !!props.readingFileTreeOpen : layout.fileTree.opened()),
   )
   const desktopSidePanelOpen = createMemo(() => desktopReviewOpen() || desktopFileTreeOpen())
   let rowRef: HTMLDivElement | undefined
@@ -471,7 +471,7 @@ function SessionPageContent(props: SessionPageProps = {}) {
     const fallback = propReadingModeActive()
       ? rowWidth() > 0
         ? rowWidth()
-        : props.readingCompositeWidth ?? 0
+        : (props.readingCompositeWidth ?? 0)
       : quickReadingLayout.compositeResizeBounds().max
     return Math.max(readingCompositeMinWidth(), props.readingCompositeMaxWidth ?? fallback)
   })
@@ -495,11 +495,13 @@ function SessionPageContent(props: SessionPageProps = {}) {
   const effectiveCompositeWidth = createMemo(() => {
     if (!readingModeActive()) return 0
     const total = propReadingModeActive() ? rowWidth() : quickReadingLayout.rowWidth()
-    const fallback = propReadingModeActive() ? props.readingCompositeWidth ?? 0 : quickReadingLayout.compositePixelWidth()
+    const fallback = propReadingModeActive()
+      ? (props.readingCompositeWidth ?? 0)
+      : quickReadingLayout.compositePixelWidth()
     if (total <= 0) return Math.min(readingCompositeMaxWidth(), Math.max(readingCompositeMinWidth(), fallback))
     if (!desktopSidePanelOpen()) return total
     const requested = propReadingModeActive()
-      ? props.readingCompositeWidth ?? Math.max(0, total - (props.readingSidePanelWidth ?? 0))
+      ? (props.readingCompositeWidth ?? Math.max(0, total - (props.readingSidePanelWidth ?? 0)))
       : quickReadingLayout.compositePixelWidth()
     return Math.min(readingCompositeMaxWidth(), Math.max(readingCompositeMinWidth(), requested))
   })
@@ -527,7 +529,9 @@ function SessionPageContent(props: SessionPageProps = {}) {
     if (desktopReviewOpen()) {
       return `${Math.max(360, layout.session.width() - pdfWidth)}px`
     }
-    return pdfWidth > 0 ? `calc(100% - ${layout.fileTree.width()}px - ${pdfWidth}px)` : `calc(100% - ${layout.fileTree.width()}px)`
+    return pdfWidth > 0
+      ? `calc(100% - ${layout.fileTree.width()}px - ${pdfWidth}px)`
+      : `calc(100% - ${layout.fileTree.width()}px)`
   })
   const centered = createMemo(() => isDesktop() && !desktopReviewOpen())
   const readingSessionResizeSize = createMemo(() => {
@@ -542,7 +546,8 @@ function SessionPageContent(props: SessionPageProps = {}) {
   })
   const readingSessionResizeMax = createMemo(() => {
     if (propReadingModeActive()) return Math.max(readingSessionResizeMin(), props.readingSessionResizeMax ?? 0)
-    if (quickReadingModeActive()) return Math.max(readingSessionResizeMin(), quickReadingLayout.sessionResizeBounds().max)
+    if (quickReadingModeActive())
+      return Math.max(readingSessionResizeMin(), quickReadingLayout.sessionResizeBounds().max)
     return 0
   })
   const readingFileTreeResizable = createMemo(() => {
@@ -860,7 +865,7 @@ function SessionPageContent(props: SessionPageProps = {}) {
   })
   const changesOptions = createMemo<ChangeMode[]>(() => {
     const list: ChangeMode[] = []
-    if (sync.project?.vcs === "git") list.push("git")
+    if (sync.project?.vcs === "git") list.push("git", "graph")
     if (
       sync.project?.vcs === "git" &&
       sync.data.vcs?.branch &&
@@ -878,12 +883,14 @@ function SessionPageContent(props: SessionPageProps = {}) {
   const reviewDiffs = createMemo(() => {
     if (store.changes === "git") return vcs.diff.git
     if (store.changes === "branch") return vcs.diff.branch
+    if (store.changes === "graph") return []
     if (store.changes === "session") return diffs()
     return turnDiffs()
   })
   const reviewCount = createMemo(() => {
     if (store.changes === "git") return vcs.diff.git.length
     if (store.changes === "branch") return vcs.diff.branch.length
+    if (store.changes === "graph") return 0
     if (store.changes === "session") return sessionCount()
     return turnDiffs().length
   })
@@ -891,6 +898,7 @@ function SessionPageContent(props: SessionPageProps = {}) {
   const reviewReady = createMemo(() => {
     if (store.changes === "git") return vcs.ready.git
     if (store.changes === "branch") return vcs.ready.branch
+    if (store.changes === "graph") return true
     if (store.changes === "session") return !hasSessionReview() || diffsReady()
     return true
   })
@@ -1353,6 +1361,7 @@ function SessionPageContent(props: SessionPageProps = {}) {
     const label = (option: ChangeMode) => {
       if (option === "git") return language.t("ui.sessionReview.title.git")
       if (option === "branch") return language.t("ui.sessionReview.title.branch")
+      if (option === "graph") return language.t("session.tab.gitGraph")
       if (option === "session") return language.t("ui.sessionReview.title")
       return language.t("ui.sessionReview.title.lastTurn")
     }
@@ -1362,7 +1371,16 @@ function SessionPageContent(props: SessionPageProps = {}) {
         options={changesOptions()}
         current={store.changes}
         label={label}
-        onSelect={(option) => option && setStore("changes", option)}
+        onSelect={(option) => {
+          if (!option) return
+          setStore("changes", option)
+          if (option === "graph") {
+            batch(() => {
+              tabs().open("git-graph")
+              tabs().setActive("git-graph")
+            })
+          }
+        }}
         variant="ghost"
         size="small"
         valueClass="text-14-medium"
@@ -1379,6 +1397,7 @@ function SessionPageContent(props: SessionPageProps = {}) {
   const reviewEmptyText = createMemo(() => {
     if (store.changes === "git") return language.t("session.review.noUncommittedChanges")
     if (store.changes === "branch") return language.t("session.review.noBranchChanges")
+    if (store.changes === "graph") return ""
     if (store.changes === "turn") return language.t("session.review.noChanges")
     return language.t(sessionEmptyKey())
   })
@@ -2402,122 +2421,122 @@ function SessionPageContent(props: SessionPageProps = {}) {
               order: String(sessionPanelOrder()),
             }}
           >
-          <div class="flex-1 min-h-0 overflow-hidden">
-            <Switch>
-              <Match when={params.id}>
-                <Show when={messagesReady()}>
-                  <MessageTimeline
-                    mobileChanges={mobileChanges()}
-                    mobileFallback={reviewContent({
-                      diffStyle: "unified",
-                      classes: {
-                        root: "pb-8",
-                        header: "px-4",
-                        container: "px-4",
-                      },
-                      loadingClass: "px-4 py-4 text-text-weak",
-                      emptyClass: "h-full pb-64 -mt-4 flex flex-col items-center justify-center text-center gap-6",
-                    })}
-                    actions={actions}
-                    scroll={ui.scroll}
-                    onResumeScroll={resumeScroll}
-                    setScrollRef={setScrollRef}
-                    onScheduleScrollState={scheduleScrollState}
-                    onAutoScrollHandleScroll={autoScroll.handleScroll}
-                    onMarkScrollGesture={markScrollGesture}
-                    hasScrollGesture={hasScrollGesture}
-                    onUserScroll={markUserScroll}
-                    onTurnBackfillScroll={historyWindow.onScrollerScroll}
-                    onAutoScrollInteraction={autoScroll.handleInteraction}
-                    centered={centered()}
-                    setContentRef={(el) => {
-                      content = el
-                      autoScroll.contentRef(el)
+            <div class="flex-1 min-h-0 overflow-hidden">
+              <Switch>
+                <Match when={params.id}>
+                  <Show when={messagesReady()}>
+                    <MessageTimeline
+                      mobileChanges={mobileChanges()}
+                      mobileFallback={reviewContent({
+                        diffStyle: "unified",
+                        classes: {
+                          root: "pb-8",
+                          header: "px-4",
+                          container: "px-4",
+                        },
+                        loadingClass: "px-4 py-4 text-text-weak",
+                        emptyClass: "h-full pb-64 -mt-4 flex flex-col items-center justify-center text-center gap-6",
+                      })}
+                      actions={actions}
+                      scroll={ui.scroll}
+                      onResumeScroll={resumeScroll}
+                      setScrollRef={setScrollRef}
+                      onScheduleScrollState={scheduleScrollState}
+                      onAutoScrollHandleScroll={autoScroll.handleScroll}
+                      onMarkScrollGesture={markScrollGesture}
+                      hasScrollGesture={hasScrollGesture}
+                      onUserScroll={markUserScroll}
+                      onTurnBackfillScroll={historyWindow.onScrollerScroll}
+                      onAutoScrollInteraction={autoScroll.handleInteraction}
+                      centered={centered()}
+                      setContentRef={(el) => {
+                        content = el
+                        autoScroll.contentRef(el)
 
-                      const root = scroller
-                      if (root) scheduleScrollState(root)
-                    }}
-                    turnStart={historyWindow.turnStart()}
-                    historyMore={historyMore()}
-                    historyLoading={historyLoading()}
-                    onLoadEarlier={() => {
-                      void historyWindow.loadAndReveal()
-                    }}
-                    renderedUserMessages={historyWindow.renderedUserMessages()}
-                    anchor={anchor}
-                  />
-                </Show>
-              </Match>
-              <Match when={true}>
-                <NewSessionView worktree={newSessionWorktree()} />
-              </Match>
-            </Switch>
-          </div>
-
-          <SessionComposerRegion
-            state={composer}
-            ready={!store.deferRender && messagesReady()}
-            centered={centered()}
-            inputRef={(el) => {
-              inputRef = el
-            }}
-            newSessionWorktree={newSessionWorktree()}
-            onNewSessionWorktreeReset={() => setStore("newSessionWorktree", "main")}
-            onSubmit={() => {
-              comments.clear()
-              resumeScroll()
-            }}
-            onResponseSubmit={resumeScroll}
-            followup={
-              params.id
-                ? {
-                    queue: queueEnabled,
-                    items: followupDock(),
-                    sending: sendingFollowup(),
-                    edit: editingFollowup(),
-                    onQueue: queueFollowup,
-                    onAbort: () => {
-                      const id = params.id
-                      if (!id) return
-                      setFollowup("paused", id, true)
-                    },
-                    onSend: (id) => {
-                      void sendFollowup(params.id!, id, { manual: true })
-                    },
-                    onEdit: editFollowup,
-                    onEditLoaded: clearFollowupEdit,
-                  }
-                : undefined
-            }
-            revert={
-              rolled().length > 0
-                ? {
-                    items: rolled(),
-                    restoring: restoring(),
-                    disabled: reverting(),
-                    onRestore: restore,
-                  }
-                : undefined
-            }
-            setPromptDockRef={(el) => {
-              promptDock = el
-            }}
-          />
-
-          <Show when={desktopReviewOpen()}>
-            <div onPointerDown={() => size.start()}>
-              <ResizeHandle
-                direction="horizontal"
-                size={layout.session.width()}
-                min={450}
-                max={typeof window === "undefined" ? 1000 : window.innerWidth * 0.45}
-                onResize={(width) => {
-                  size.touch()
-                  layout.session.resize(width)
-                }}
-              />
+                        const root = scroller
+                        if (root) scheduleScrollState(root)
+                      }}
+                      turnStart={historyWindow.turnStart()}
+                      historyMore={historyMore()}
+                      historyLoading={historyLoading()}
+                      onLoadEarlier={() => {
+                        void historyWindow.loadAndReveal()
+                      }}
+                      renderedUserMessages={historyWindow.renderedUserMessages()}
+                      anchor={anchor}
+                    />
+                  </Show>
+                </Match>
+                <Match when={true}>
+                  <NewSessionView worktree={newSessionWorktree()} />
+                </Match>
+              </Switch>
             </div>
-          </Show>
+
+            <SessionComposerRegion
+              state={composer}
+              ready={!store.deferRender && messagesReady()}
+              centered={centered()}
+              inputRef={(el) => {
+                inputRef = el
+              }}
+              newSessionWorktree={newSessionWorktree()}
+              onNewSessionWorktreeReset={() => setStore("newSessionWorktree", "main")}
+              onSubmit={() => {
+                comments.clear()
+                resumeScroll()
+              }}
+              onResponseSubmit={resumeScroll}
+              followup={
+                params.id
+                  ? {
+                      queue: queueEnabled,
+                      items: followupDock(),
+                      sending: sendingFollowup(),
+                      edit: editingFollowup(),
+                      onQueue: queueFollowup,
+                      onAbort: () => {
+                        const id = params.id
+                        if (!id) return
+                        setFollowup("paused", id, true)
+                      },
+                      onSend: (id) => {
+                        void sendFollowup(params.id!, id, { manual: true })
+                      },
+                      onEdit: editFollowup,
+                      onEditLoaded: clearFollowupEdit,
+                    }
+                  : undefined
+              }
+              revert={
+                rolled().length > 0
+                  ? {
+                      items: rolled(),
+                      restoring: restoring(),
+                      disabled: reverting(),
+                      onRestore: restore,
+                    }
+                  : undefined
+              }
+              setPromptDockRef={(el) => {
+                promptDock = el
+              }}
+            />
+
+            <Show when={desktopReviewOpen()}>
+              <div onPointerDown={() => size.start()}>
+                <ResizeHandle
+                  direction="horizontal"
+                  size={layout.session.width()}
+                  min={450}
+                  max={typeof window === "undefined" ? 1000 : window.innerWidth * 0.45}
+                  onResize={(width) => {
+                    size.touch()
+                    layout.session.resize(width)
+                  }}
+                />
+              </div>
+            </Show>
           </div>
         </Show>
 

@@ -2218,6 +2218,35 @@ export type VcsInfo = {
   default_branch?: string
 }
 
+export type TagRef = {
+  name: string
+  annotated: boolean
+}
+
+export type RemoteRef = {
+  name: string
+  remote: string | null
+}
+
+export type CommitLogItem = {
+  hash: string
+  parents: Array<string>
+  author: string
+  email: string
+  date: number
+  message: string
+  heads: Array<string>
+  tags: Array<TagRef>
+  remotes: Array<RemoteRef>
+}
+
+export type VcsGraphResult = {
+  commits: Array<CommitLogItem>
+  head: string | null
+  tags: Array<string>
+  moreAvailable: boolean
+}
+
 export type Command = {
   name: string
   description?: string
@@ -8826,6 +8855,26 @@ export type VcsDiffResponses = {
 }
 
 export type VcsDiffResponse = VcsDiffResponses[keyof VcsDiffResponses]
+
+export type VcsGraphData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+    max?: number
+  }
+  url: "/vcs/graph"
+}
+
+export type VcsGraphResponses = {
+  /**
+   * VCS graph data
+   */
+  200: VcsGraphResult
+}
+
+export type VcsGraphResponse = VcsGraphResponses[keyof VcsGraphResponses]
 
 export type CommandListData = {
   body?: never
