@@ -605,6 +605,34 @@ export namespace Server {
         },
       )
       .get(
+        "/vcs/graph",
+        describeRoute({
+          summary: "Get VCS graph data",
+          description: "Retrieve git log and refs data for rendering the git graph visualization.",
+          operationId: "vcs.graph",
+          responses: {
+            200: {
+              description: "VCS graph data",
+              content: {
+                "application/json": {
+                  schema: resolver(Vcs.GraphResult),
+                },
+              },
+            },
+          },
+        }),
+        validator(
+          "query",
+          z.object({
+            max: z.coerce.number().optional(),
+          }),
+        ),
+        async (c) => {
+          const query = c.req.valid("query")
+          return c.json(await Vcs.graph(query.max !== undefined ? { max: query.max } : undefined))
+        },
+      )
+      .get(
         "/command",
         describeRoute({
           summary: "List commands",

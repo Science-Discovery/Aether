@@ -79,7 +79,7 @@ const emptyFollowups: (FollowupDraft & { id: string })[] = []
 const READING_CHAT_MIN_WIDTH = 360
 const READING_REVIEW_MIN_WIDTH = 320
 
-type ChangeMode = "git" | "branch" | "session" | "turn"
+type ChangeMode = "git" | "branch" | "session" | "turn" | "graph"
 type VcsMode = "git" | "branch"
 
 type SessionHistoryWindowInput = {
@@ -867,7 +867,7 @@ function SessionPageContent(props: SessionPageProps = {}) {
   })
   const changesOptions = createMemo<ChangeMode[]>(() => {
     const list: ChangeMode[] = []
-    if (sync.project?.vcs === "git") list.push("git")
+    if (sync.project?.vcs === "git") list.push("git", "graph")
     if (
       sync.project?.vcs === "git" &&
       sync.data.vcs?.branch &&
@@ -885,12 +885,14 @@ function SessionPageContent(props: SessionPageProps = {}) {
   const reviewDiffs = createMemo(() => {
     if (store.changes === "git") return vcs.diff.git
     if (store.changes === "branch") return vcs.diff.branch
+    if (store.changes === "graph") return []
     if (store.changes === "session") return diffs()
     return turnDiffs()
   })
   const reviewCount = createMemo(() => {
     if (store.changes === "git") return vcs.diff.git.length
     if (store.changes === "branch") return vcs.diff.branch.length
+    if (store.changes === "graph") return 0
     if (store.changes === "session") return sessionCount()
     return turnDiffs().length
   })
@@ -898,6 +900,7 @@ function SessionPageContent(props: SessionPageProps = {}) {
   const reviewReady = createMemo(() => {
     if (store.changes === "git") return vcs.ready.git
     if (store.changes === "branch") return vcs.ready.branch
+    if (store.changes === "graph") return true
     if (store.changes === "session") return !hasSessionReview() || diffsReady()
     return true
   })
@@ -1380,6 +1383,7 @@ function SessionPageContent(props: SessionPageProps = {}) {
     const label = (option: ChangeMode) => {
       if (option === "git") return language.t("ui.sessionReview.title.git")
       if (option === "branch") return language.t("ui.sessionReview.title.branch")
+      if (option === "graph") return language.t("session.tab.gitGraph")
       if (option === "session") return language.t("ui.sessionReview.title")
       return language.t("ui.sessionReview.title.lastTurn")
     }
@@ -1389,7 +1393,16 @@ function SessionPageContent(props: SessionPageProps = {}) {
         options={changesOptions()}
         current={store.changes}
         label={label}
-        onSelect={(option) => option && setStore("changes", option)}
+        onSelect={(option) => {
+          if (!option) return
+          setStore("changes", option)
+          if (option === "graph") {
+            batch(() => {
+              tabs().open("git-graph")
+              tabs().setActive("git-graph")
+            })
+          }
+        }}
         variant="ghost"
         size="small"
         valueClass="text-14-medium"
@@ -1406,6 +1419,7 @@ function SessionPageContent(props: SessionPageProps = {}) {
   const reviewEmptyText = createMemo(() => {
     if (store.changes === "git") return language.t("session.review.noUncommittedChanges")
     if (store.changes === "branch") return language.t("session.review.noBranchChanges")
+    if (store.changes === "graph") return ""
     if (store.changes === "turn") return language.t("session.review.noChanges")
     return language.t(sessionEmptyKey())
   })
@@ -2317,11 +2331,11 @@ function SessionPageContent(props: SessionPageProps = {}) {
                         historyLoading={historyLoading()}
                         onLoadEarlier={() => {
                           void historyWindow.loadAndReveal()
-                            }}
-                            renderedUserMessages={historyWindow.renderedUserMessages()}
-                            anchor={anchor}
-                            onFocusInput={focusInput}
-                          />
+                        }}
+                        renderedUserMessages={historyWindow.renderedUserMessages()}
+                        anchor={anchor}
+                        onFocusInput={focusInput}
+                      />
                     </Show>
                   </Match>
                   <Match when={true}>
@@ -2488,11 +2502,11 @@ function SessionPageContent(props: SessionPageProps = {}) {
                       historyLoading={historyLoading()}
                       onLoadEarlier={() => {
                         void historyWindow.loadAndReveal()
-                        }}
-                        renderedUserMessages={historyWindow.renderedUserMessages()}
-                        anchor={anchor}
-                        onFocusInput={focusInput}
-                      />
+                      }}
+                      renderedUserMessages={historyWindow.renderedUserMessages()}
+                      anchor={anchor}
+                      onFocusInput={focusInput}
+                    />
                   </Show>
                 </Match>
                 <Match when={true}>

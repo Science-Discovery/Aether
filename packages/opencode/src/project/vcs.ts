@@ -130,7 +130,49 @@ export namespace Vcs {
     readonly branch: () => Effect.Effect<string | undefined>
     readonly defaultBranch: () => Effect.Effect<string | undefined>
     readonly diff: (mode: Mode) => Effect.Effect<Snapshot.FileDiff[]>
+    readonly graph: (opts?: { max?: number }) => Effect.Effect<GraphResult>
   }
+
+  export const TagRef = z
+    .object({
+      name: z.string(),
+      annotated: z.boolean(),
+    })
+    .meta({ ref: "TagRef" })
+  export type TagRef = z.infer<typeof TagRef>
+
+  export const RemoteRef = z
+    .object({
+      name: z.string(),
+      remote: z.string().nullable(),
+    })
+    .meta({ ref: "RemoteRef" })
+  export type RemoteRef = z.infer<typeof RemoteRef>
+
+  export const CommitLogItem = z
+    .object({
+      hash: z.string(),
+      parents: z.string().array(),
+      author: z.string(),
+      email: z.string(),
+      date: z.number(),
+      message: z.string(),
+      heads: z.string().array(),
+      tags: TagRef.array(),
+      remotes: RemoteRef.array(),
+    })
+    .meta({ ref: "CommitLogItem" })
+  export type CommitLogItem = z.infer<typeof CommitLogItem>
+
+  export const GraphResult = z
+    .object({
+      commits: CommitLogItem.array(),
+      head: z.string().nullable(),
+      tags: z.string().array(),
+      moreAvailable: z.boolean(),
+    })
+    .meta({ ref: "VcsGraphResult" })
+  export type GraphResult = z.infer<typeof GraphResult>
 
   interface State {
     current: string | undefined
@@ -207,6 +249,71 @@ export namespace Vcs {
           if (!ref) return []
           return yield* compare(fs, git, Instance.directory, ref)
         }),
+        graph: Effect.fn("Vcs.graph")(function* (opts?: { max?: number }) {
+          if (Instance.project.vcs !== "git") {
+            return { commits: [], head: null, tags: [], moreAvailable: false } satisfies GraphResult
+          }
+          const cwd = Instance.directory
+          const max = opts?.max ?? 300
+          const [commits, heads, tags, remotes, head] = yield* Effect.all(
+            [
+              git.log(cwd, { max: max + 1 }),
+              git.refs(cwd, "refs/heads/"),
+              git.refs(cwd, "refs/tags/"),
+              git.refs(cwd, "refs/remotes/"),
+              git.branch(cwd),
+            ],
+            { concurrency: 5 },
+          )
+
+          const moreAvailable = commits.length === max + 1
+          const items = moreAvailable ? commits.slice(0, max) : commits
+
+          const lookup = new Map<string, number>()
+          items.forEach((item, i) => lookup.set(item.hash, i))
+
+          const enriched = items.map((item, _i) => {
+            const commit: CommitLogItem = {
+              hash: item.hash,
+              parents: [...item.parents],
+              author: item.author,
+              email: item.email,
+              date: item.date,
+              message: item.message,
+              heads: [],
+              tags: [],
+              remotes: [],
+            }
+            return commit
+          })
+
+          for (const ref of heads) {
+            const idx = lookup.get(ref.hash)
+            if (idx !== undefined) enriched[idx].heads.push(ref.name)
+          }
+
+          for (const ref of tags) {
+            const idx = lookup.get(ref.hash)
+            if (idx !== undefined) {
+              enriched[idx].tags.push({ name: ref.name, annotated: ref.type === "tag" })
+            }
+          }
+
+          for (const ref of remotes) {
+            const idx = lookup.get(ref.hash)
+            if (idx !== undefined) {
+              const slash = ref.name.indexOf("/")
+              enriched[idx].remotes.push({
+                name: ref.name,
+                remote: slash !== -1 ? ref.name.slice(0, slash) : null,
+              })
+            }
+          }
+
+          const tagsList = [...new Set(tags.map((t) => t.name))]
+
+          return { commits: enriched, head: head ?? null, tags: tagsList, moreAvailable } satisfies GraphResult
+        }),
       })
     }),
   )
@@ -233,5 +340,9 @@ export namespace Vcs {
 
   export function diff(mode: Mode) {
     return runPromise((svc) => svc.diff(mode))
+  }
+
+  export function graph(opts?: { max?: number }) {
+    return runPromise((svc) => svc.graph(opts))
   }
 }

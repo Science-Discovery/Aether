@@ -19,10 +19,15 @@ import type {
   ConfigProvidersResponses,
   ConfigSkillsAddDefaultsResponses,
   ConfigSkillsDeleteResponses,
+  ConfigSkillsGetManagedDirResponses,
+  ConfigSkillsListEvolutionResponses,
   ConfigSkillsListManagedResponses,
   ConfigSkillsListResponses,
   ConfigSkillsSaveResponses,
+  ConfigSkillsToggleEvolutionResponses,
   ConfigSkillsToggleResponses,
+  ConfigSkillsUpdateIntervalResponses,
+  ConfigSkillsUpdateMaxVersionsResponses,
   ConfigUpdateErrors,
   ConfigUpdateResponses,
   CronJobsCreateResponses,
@@ -106,11 +111,14 @@ import type {
   FindTextResponses,
   FormatterStatusResponses,
   GlobalConfigGetResponses,
+  GlobalConfigSkillsUpdateErrors,
+  GlobalConfigSkillsUpdateResponses,
   GlobalConfigUpdateErrors,
   GlobalConfigUpdateResponses,
   GlobalDisposeResponses,
   GlobalEventResponses,
   GlobalHealthResponses,
+  GlobalInstancesListResponses,
   GlobalPingErrors,
   GlobalPingResponses,
   GlobalProxyGetResponses,
@@ -224,6 +232,8 @@ import type {
   ReadingModeAnnotationsUpdateErrors,
   ReadingModeAnnotationsUpdateResponses,
   ReadingModePagePdfErrors,
+  ReadingModePagePdfFromFileErrors,
+  ReadingModePagePdfFromFileResponses,
   ReadingModePagePdfResponses,
   ReadingModePageTextErrors,
   ReadingModePageTextResponses,
@@ -278,6 +288,8 @@ import type {
   SessionShellResponses,
   SessionStatusErrors,
   SessionStatusResponses,
+  SessionSteerErrors,
+  SessionSteerResponses,
   SessionSummarizeErrors,
   SessionSummarizeResponses,
   SessionTodoErrors,
@@ -317,6 +329,7 @@ import type {
   TuiSubmitPromptResponses,
   VcsDiffResponses,
   VcsGetResponses,
+  VcsGraphResponses,
   WechatEventsResponses,
   WechatPing2Responses,
   WechatPing3Responses,
@@ -602,6 +615,55 @@ export class SyncEvent extends HeyApiClient {
   }
 }
 
+export class Skills extends HeyApiClient {
+  /**
+   * Update skills configuration
+   *
+   * Update skills settings without triggering a full instance reload.
+   */
+  public update<ThrowOnError extends boolean = false>(
+    parameters?: {
+      paths?: Array<string>
+      urls?: Array<string>
+      disabled?: Array<string>
+      creation_nudge_interval?: number
+      max_versions?: number
+      evolution_disabled?: Array<string>
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "body", key: "paths" },
+            { in: "body", key: "urls" },
+            { in: "body", key: "disabled" },
+            { in: "body", key: "creation_nudge_interval" },
+            { in: "body", key: "max_versions" },
+            { in: "body", key: "evolution_disabled" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).patch<
+      GlobalConfigSkillsUpdateResponses,
+      GlobalConfigSkillsUpdateErrors,
+      ThrowOnError
+    >({
+      url: "/global/config/skills",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+}
+
 export class Config extends HeyApiClient {
   /**
    * Get global configuration
@@ -636,6 +698,25 @@ export class Config extends HeyApiClient {
         ...options?.headers,
         ...params.headers,
       },
+    })
+  }
+
+  private _skills?: Skills
+  get skills(): Skills {
+    return (this._skills ??= new Skills({ client: this.client }))
+  }
+}
+
+export class Instances extends HeyApiClient {
+  /**
+   * List active instances
+   *
+   * List all active OpenCode instance directories currently held in memory.
+   */
+  public list<ThrowOnError extends boolean = false>(options?: Options<never, ThrowOnError>) {
+    return (options?.client ?? this.client).get<GlobalInstancesListResponses, unknown, ThrowOnError>({
+      url: "/global/instances",
+      ...options,
     })
   }
 }
@@ -755,6 +836,11 @@ export class Global extends HeyApiClient {
   get config(): Config {
     return (this._config ??= new Config({ client: this.client }))
   }
+
+  private _instances?: Instances
+  get instances(): Instances {
+    return (this._instances ??= new Instances({ client: this.client }))
+  }
 }
 
 export class Auth extends HeyApiClient {
@@ -827,6 +913,7 @@ export class Project extends HeyApiClient {
       name?: string
       icon?: {
         url?: string
+        override?: string
         color?: string
       }
     },
@@ -1292,7 +1379,7 @@ export class Pty extends HeyApiClient {
   }
 }
 
-export class Skills extends HeyApiClient {
+export class Skills2 extends HeyApiClient {
   /**
    * List default skills
    *
@@ -1318,6 +1405,85 @@ export class Skills extends HeyApiClient {
     )
     return (options?.client ?? this.client).get<ConfigSkillsListResponses, unknown, ThrowOnError>({
       url: "/config/skills",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Create or update a default skill
+   *
+   * Create or update a skill in .aether/skills/.
+   */
+  public save<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      name?: string
+      description?: string
+      content?: string
+      category?: string
+      enabled?: boolean
+      evolution_enabled?: boolean
+      file?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "name" },
+            { in: "body", key: "description" },
+            { in: "body", key: "content" },
+            { in: "body", key: "category" },
+            { in: "body", key: "enabled" },
+            { in: "body", key: "evolution_enabled" },
+            { in: "body", key: "file" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<ConfigSkillsSaveResponses, unknown, ThrowOnError>({
+      url: "/config/skills",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * List evolution skills
+   *
+   * List skills from the current project's .aether/skills/ and all global .aether/skills/ directories.
+   */
+  public listEvolution<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<ConfigSkillsListEvolutionResponses, unknown, ThrowOnError>({
+      url: "/config/skills/evolution",
       ...options,
       ...params,
     })
@@ -1354,18 +1520,14 @@ export class Skills extends HeyApiClient {
   }
 
   /**
-   * Create or update a default skill
+   * Get managed skills directory
    *
-   * Create or update a skill in .aether/skills/.
+   * Get the absolute path of the managed skills directory.
    */
-  public save<ThrowOnError extends boolean = false>(
+  public getManagedDir<ThrowOnError extends boolean = false>(
     parameters?: {
       directory?: string
       workspace?: string
-      name?: string
-      description?: string
-      content?: string
-      enabled?: boolean
     },
     options?: Options<never, ThrowOnError>,
   ) {
@@ -1376,23 +1538,14 @@ export class Skills extends HeyApiClient {
           args: [
             { in: "query", key: "directory" },
             { in: "query", key: "workspace" },
-            { in: "body", key: "name" },
-            { in: "body", key: "description" },
-            { in: "body", key: "content" },
-            { in: "body", key: "enabled" },
           ],
         },
       ],
     )
-    return (options?.client ?? this.client).post<ConfigSkillsSaveResponses, unknown, ThrowOnError>({
-      url: "/config/skills",
+    return (options?.client ?? this.client).get<ConfigSkillsGetManagedDirResponses, unknown, ThrowOnError>({
+      url: "/config/skills/managed/dir",
       ...options,
       ...params,
-      headers: {
-        "Content-Type": "application/json",
-        ...options?.headers,
-        ...params.headers,
-      },
     })
   }
 
@@ -1487,6 +1640,119 @@ export class Skills extends HeyApiClient {
     )
     return (options?.client ?? this.client).post<ConfigSkillsToggleResponses, unknown, ThrowOnError>({
       url: "/config/skills/toggle",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Toggle skill evolution
+   *
+   * Enable or disable background auto-evolution for a skill by file path.
+   */
+  public toggleEvolution<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      file?: string
+      evolutionEnabled?: boolean
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "file" },
+            { in: "body", key: "evolutionEnabled" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<ConfigSkillsToggleEvolutionResponses, unknown, ThrowOnError>({
+      url: "/config/skills/toggle-evolution",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Update skill review interval
+   *
+   * Update the creation_nudge_interval without restarting instances.
+   */
+  public updateInterval<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      interval?: number
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "interval" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<ConfigSkillsUpdateIntervalResponses, unknown, ThrowOnError>({
+      url: "/config/skills/update-interval",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Update skill max versions
+   *
+   * Update the max_versions without restarting instances.
+   */
+  public updateMaxVersions<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      max?: number
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "max" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<ConfigSkillsUpdateMaxVersionsResponses, unknown, ThrowOnError>({
+      url: "/config/skills/update-max-versions",
       ...options,
       ...params,
       headers: {
@@ -1596,9 +1862,9 @@ export class Config2 extends HeyApiClient {
     })
   }
 
-  private _skills?: Skills
-  get skills(): Skills {
-    return (this._skills ??= new Skills({ client: this.client }))
+  private _skills?: Skills2
+  get skills(): Skills2 {
+    return (this._skills ??= new Skills2({ client: this.client }))
   }
 }
 
@@ -3225,6 +3491,45 @@ export class Session2 extends HeyApiClient {
       url: "/session/{sessionID}/unrevert",
       ...options,
       ...params,
+    })
+  }
+
+  /**
+   * Add steer text
+   *
+   * Append a steer/supplement text to the last user message in a session, visible to the AI from the next iteration.
+   */
+  public steer<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      directory?: string
+      workspace?: string
+      text?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "text" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<SessionSteerResponses, SessionSteerErrors, ThrowOnError>({
+      url: "/session/{sessionID}/steer",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
     })
   }
 
@@ -7474,6 +7779,49 @@ export class ReadingMode extends HeyApiClient {
     })
   }
 
+  /**
+   * Get a ranged PDF subdocument for a workspace file
+   */
+  public pagePdfFromFile<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      path?: string
+      startPage?: number
+      endPage?: number
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "path" },
+            { in: "body", key: "startPage" },
+            { in: "body", key: "endPage" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      ReadingModePagePdfFromFileResponses,
+      ReadingModePagePdfFromFileErrors,
+      ThrowOnError
+    >({
+      url: "/reading-mode/page-pdf-from-file",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
   private _session?: Session6
   get session(): Session6 {
     return (this._session ??= new Session6({ client: this.client }))
@@ -7612,6 +7960,38 @@ export class Vcs extends HeyApiClient {
     )
     return (options?.client ?? this.client).get<VcsDiffResponses, unknown, ThrowOnError>({
       url: "/vcs/diff",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Get VCS graph data
+   *
+   * Retrieve git log and refs data for rendering the git graph visualization.
+   */
+  public graph<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      max?: number
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "query", key: "max" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<VcsGraphResponses, unknown, ThrowOnError>({
+      url: "/vcs/graph",
       ...options,
       ...params,
     })

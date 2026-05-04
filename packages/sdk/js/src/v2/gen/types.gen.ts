@@ -167,6 +167,14 @@ export type EventSessionIdle = {
   }
 }
 
+export type EventSkillSaved = {
+  type: "skill.saved"
+  properties: {
+    sessionID: string
+    actions: Array<string>
+  }
+}
+
 export type QuestionOption = {
   /**
    * Display text (1-5 words, concise)
@@ -1041,6 +1049,7 @@ export type Event =
   | EventPermissionReplied
   | EventSessionStatus
   | EventSessionIdle
+  | EventSkillSaved
   | EventQuestionAsked
   | EventQuestionReplied
   | EventQuestionRejected
@@ -1541,6 +1550,18 @@ export type Config = {
      * List of skill names to deactivate
      */
     disabled?: Array<string>
+    /**
+     * LLM steps without skill_manage before background skill review triggers (default: 10, 0 to disable)
+     */
+    creation_nudge_interval?: number
+    /**
+     * Maximum number of version snapshots kept per skill before older snapshots are pruned (default: 100)
+     */
+    max_versions?: number
+    /**
+     * Skill directory paths excluded from background auto-evolution
+     */
+    evolution_disabled?: Array<string>
   }
   watcher?: {
     ignore?: Array<string>
@@ -1848,6 +1869,7 @@ export type Model = {
     output: number
   }
   status: "alpha" | "beta" | "deprecated" | "active"
+  disabled?: boolean
   options: {
     [key: string]: unknown
   }
@@ -1855,7 +1877,6 @@ export type Model = {
     [key: string]: string
   }
   release_date: string
-  disabled?: boolean
   variants?: {
     [key: string]: {
       [key: string]: unknown
@@ -2231,6 +2252,35 @@ export type VcsInfo = {
   default_branch?: string
 }
 
+export type TagRef = {
+  name: string
+  annotated: boolean
+}
+
+export type RemoteRef = {
+  name: string
+  remote: string | null
+}
+
+export type CommitLogItem = {
+  hash: string
+  parents: Array<string>
+  author: string
+  email: string
+  date: number
+  message: string
+  heads: Array<string>
+  tags: Array<TagRef>
+  remotes: Array<RemoteRef>
+}
+
+export type VcsGraphResult = {
+  commits: Array<CommitLogItem>
+  head: string | null
+  tags: Array<string>
+  moreAvailable: boolean
+}
+
 export type Command = {
   name: string
   description?: string
@@ -2489,6 +2539,98 @@ export type GlobalConfigUpdateResponses = {
 
 export type GlobalConfigUpdateResponse = GlobalConfigUpdateResponses[keyof GlobalConfigUpdateResponses]
 
+export type GlobalConfigSkillsUpdateData = {
+  body?: {
+    /**
+     * Additional paths to skill folders
+     */
+    paths?: Array<string>
+    /**
+     * URLs to fetch skills from (e.g., https://example.com/.well-known/skills/)
+     */
+    urls?: Array<string>
+    /**
+     * List of skill names to deactivate
+     */
+    disabled?: Array<string>
+    /**
+     * LLM steps without skill_manage before background skill review triggers (default: 10, 0 to disable)
+     */
+    creation_nudge_interval?: number
+    /**
+     * Maximum number of version snapshots kept per skill before older snapshots are pruned (default: 100)
+     */
+    max_versions?: number
+    /**
+     * Skill directory paths excluded from background auto-evolution
+     */
+    evolution_disabled?: Array<string>
+  }
+  path?: never
+  query?: never
+  url: "/global/config/skills"
+}
+
+export type GlobalConfigSkillsUpdateErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type GlobalConfigSkillsUpdateError = GlobalConfigSkillsUpdateErrors[keyof GlobalConfigSkillsUpdateErrors]
+
+export type GlobalConfigSkillsUpdateResponses = {
+  /**
+   * Successfully updated skills config
+   */
+  200: {
+    /**
+     * Additional paths to skill folders
+     */
+    paths?: Array<string>
+    /**
+     * URLs to fetch skills from (e.g., https://example.com/.well-known/skills/)
+     */
+    urls?: Array<string>
+    /**
+     * List of skill names to deactivate
+     */
+    disabled?: Array<string>
+    /**
+     * LLM steps without skill_manage before background skill review triggers (default: 10, 0 to disable)
+     */
+    creation_nudge_interval?: number
+    /**
+     * Maximum number of version snapshots kept per skill before older snapshots are pruned (default: 100)
+     */
+    max_versions?: number
+    /**
+     * Skill directory paths excluded from background auto-evolution
+     */
+    evolution_disabled?: Array<string>
+  }
+}
+
+export type GlobalConfigSkillsUpdateResponse =
+  GlobalConfigSkillsUpdateResponses[keyof GlobalConfigSkillsUpdateResponses]
+
+export type GlobalInstancesListData = {
+  body?: never
+  path?: never
+  query?: never
+  url: "/global/instances"
+}
+
+export type GlobalInstancesListResponses = {
+  /**
+   * Active instance directories
+   */
+  200: Array<string>
+}
+
+export type GlobalInstancesListResponse = GlobalInstancesListResponses[keyof GlobalInstancesListResponses]
+
 export type GlobalDisposeData = {
   body?: never
   path?: never
@@ -2746,6 +2888,7 @@ export type ProjectUpdateDirectoryMetaData = {
     name?: string
     icon?: {
       url?: string
+      override?: string
       color?: string
     }
   }
@@ -3164,42 +3307,24 @@ export type ConfigSkillsListResponses = {
     name: string
     description: string
     content: string
+    category?: string
     enabled?: boolean
+    evolution_enabled?: boolean
+    file?: string
   }>
 }
 
 export type ConfigSkillsListResponse = ConfigSkillsListResponses[keyof ConfigSkillsListResponses]
-
-export type ConfigSkillsListManagedData = {
-  body?: never
-  path?: never
-  query?: {
-    directory?: string
-    workspace?: string
-  }
-  url: "/config/skills/managed"
-}
-
-export type ConfigSkillsListManagedResponses = {
-  /**
-   * List of managed skills
-   */
-  200: Array<{
-    name: string
-    description: string
-    content: string
-    enabled?: boolean
-  }>
-}
-
-export type ConfigSkillsListManagedResponse = ConfigSkillsListManagedResponses[keyof ConfigSkillsListManagedResponses]
 
 export type ConfigSkillsSaveData = {
   body?: {
     name: string
     description: string
     content: string
+    category?: string
     enabled?: boolean
+    evolution_enabled?: boolean
+    file?: string
   }
   path?: never
   query?: {
@@ -3219,6 +3344,83 @@ export type ConfigSkillsSaveResponses = {
 }
 
 export type ConfigSkillsSaveResponse = ConfigSkillsSaveResponses[keyof ConfigSkillsSaveResponses]
+
+export type ConfigSkillsListEvolutionData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/config/skills/evolution"
+}
+
+export type ConfigSkillsListEvolutionResponses = {
+  /**
+   * List of evolution skills
+   */
+  200: Array<{
+    name: string
+    description: string
+    content: string
+    category?: string
+    enabled?: boolean
+    evolution_enabled?: boolean
+    file?: string
+  }>
+}
+
+export type ConfigSkillsListEvolutionResponse =
+  ConfigSkillsListEvolutionResponses[keyof ConfigSkillsListEvolutionResponses]
+
+export type ConfigSkillsListManagedData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/config/skills/managed"
+}
+
+export type ConfigSkillsListManagedResponses = {
+  /**
+   * List of managed skills
+   */
+  200: Array<{
+    name: string
+    description: string
+    content: string
+    category?: string
+    enabled?: boolean
+    evolution_enabled?: boolean
+    file?: string
+  }>
+}
+
+export type ConfigSkillsListManagedResponse = ConfigSkillsListManagedResponses[keyof ConfigSkillsListManagedResponses]
+
+export type ConfigSkillsGetManagedDirData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/config/skills/managed/dir"
+}
+
+export type ConfigSkillsGetManagedDirResponses = {
+  /**
+   * Managed skills directory path
+   */
+  200: {
+    path: string
+  }
+}
+
+export type ConfigSkillsGetManagedDirResponse =
+  ConfigSkillsGetManagedDirResponses[keyof ConfigSkillsGetManagedDirResponses]
 
 export type ConfigSkillsDeleteData = {
   body?: never
@@ -3287,6 +3489,79 @@ export type ConfigSkillsToggleResponses = {
 }
 
 export type ConfigSkillsToggleResponse = ConfigSkillsToggleResponses[keyof ConfigSkillsToggleResponses]
+
+export type ConfigSkillsToggleEvolutionData = {
+  body?: {
+    file: string
+    evolutionEnabled: boolean
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/config/skills/toggle-evolution"
+}
+
+export type ConfigSkillsToggleEvolutionResponses = {
+  /**
+   * Skill evolution toggled
+   */
+  200: {
+    ok: boolean
+  }
+}
+
+export type ConfigSkillsToggleEvolutionResponse =
+  ConfigSkillsToggleEvolutionResponses[keyof ConfigSkillsToggleEvolutionResponses]
+
+export type ConfigSkillsUpdateIntervalData = {
+  body?: {
+    interval: number
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/config/skills/update-interval"
+}
+
+export type ConfigSkillsUpdateIntervalResponses = {
+  /**
+   * Interval updated
+   */
+  200: {
+    ok: boolean
+  }
+}
+
+export type ConfigSkillsUpdateIntervalResponse =
+  ConfigSkillsUpdateIntervalResponses[keyof ConfigSkillsUpdateIntervalResponses]
+
+export type ConfigSkillsUpdateMaxVersionsData = {
+  body?: {
+    max: number
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/config/skills/update-max-versions"
+}
+
+export type ConfigSkillsUpdateMaxVersionsResponses = {
+  /**
+   * Max versions updated
+   */
+  200: {
+    ok: boolean
+  }
+}
+
+export type ConfigSkillsUpdateMaxVersionsResponse =
+  ConfigSkillsUpdateMaxVersionsResponses[keyof ConfigSkillsUpdateMaxVersionsResponses]
 
 export type ConfigProvidersData = {
   body?: never
@@ -4844,6 +5119,44 @@ export type PermissionRespondResponses = {
 
 export type PermissionRespondResponse = PermissionRespondResponses[keyof PermissionRespondResponses]
 
+export type SessionSteerData = {
+  body?: {
+    text: string
+  }
+  path: {
+    sessionID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/session/{sessionID}/steer"
+}
+
+export type SessionSteerErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type SessionSteerError = SessionSteerErrors[keyof SessionSteerErrors]
+
+export type SessionSteerResponses = {
+  /**
+   * Steer text added
+   */
+  200: {
+    ok: boolean
+  }
+}
+
+export type SessionSteerResponse = SessionSteerResponses[keyof SessionSteerResponses]
+
 export type SessionPreferenceGetData = {
   body?: never
   path: {
@@ -5145,7 +5458,6 @@ export type ProviderListResponses = {
           }
           experimental?: boolean
           status?: "alpha" | "beta" | "deprecated"
-          disabled?: boolean
           options: {
             [key: string]: unknown
           }
@@ -8639,6 +8951,40 @@ export type ReadingModePagePdfResponses = {
   200: unknown
 }
 
+export type ReadingModePagePdfFromFileData = {
+  body?: {
+    path: string
+    startPage: number
+    endPage: number
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/reading-mode/page-pdf-from-file"
+}
+
+export type ReadingModePagePdfFromFileErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type ReadingModePagePdfFromFileError = ReadingModePagePdfFromFileErrors[keyof ReadingModePagePdfFromFileErrors]
+
+export type ReadingModePagePdfFromFileResponses = {
+  /**
+   * PDF binary for the requested page range
+   */
+  200: unknown
+}
+
 export type ReadingModeAnnotationsGetData = {
   body?: never
   path?: never
@@ -8862,6 +9208,26 @@ export type VcsDiffResponses = {
 
 export type VcsDiffResponse = VcsDiffResponses[keyof VcsDiffResponses]
 
+export type VcsGraphData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+    max?: number
+  }
+  url: "/vcs/graph"
+}
+
+export type VcsGraphResponses = {
+  /**
+   * VCS graph data
+   */
+  200: VcsGraphResult
+}
+
+export type VcsGraphResponse = VcsGraphResponses[keyof VcsGraphResponses]
+
 export type CommandListData = {
   body?: never
   path?: never
@@ -8966,6 +9332,13 @@ export type AppSkillsResponses = {
     description: string
     location: string
     content: string
+    conditions?: {
+      requires_tools?: Array<string>
+      requires_toolsets?: Array<string>
+      fallback_for_tools?: Array<string>
+      fallback_for_toolsets?: Array<string>
+    }
+    platforms?: Array<string>
   }>
 }
 
