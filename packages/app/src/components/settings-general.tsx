@@ -363,6 +363,17 @@ export const SettingsGeneral: Component = () => {
           </div>
         </SettingsRow>
 
+        <Show when={import.meta.env.DEV}>
+          <SettingsRow
+            title={language.t("settings.general.row.debugBar.title")}
+            description={language.t("settings.general.row.debugBar.description")}
+          >
+            <div data-action="settings-debug-bar">
+              <Switch checked={settings.general.debugBar()} onChange={(checked) => settings.general.setDebugBar(checked)} />
+            </div>
+          </SettingsRow>
+        </Show>
+
         <SettingsRow
           title={language.t("settings.general.row.branchesTab.title")}
           description={language.t("settings.general.row.branchesTab.description")}
