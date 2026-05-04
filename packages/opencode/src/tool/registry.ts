@@ -235,12 +235,6 @@ export namespace ToolRegistry {
               }),
           ),
         )
-        console.log("[tool-gate] evolution=%s tools=[%s]", evolutionEnabled, result.map((t) => t.id).join(", "))
-        const editTool = result.find((t) => t.id === "edit")
-        if (editTool) {
-          console.log("[tool-gate] edit has skill guard:", editTool.description.includes("NEVER use this tool on skill files"))
-          console.log("[tool-gate] edit description (first 3 lines):\n" + editTool.description.split("\n").slice(0, 3).join("\n"))
-        }
         return result
       })
 
