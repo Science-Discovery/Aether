@@ -1,6 +1,6 @@
 # Skill 系统技术文档
 
-> 分支：`feat/skill-evolution`
+> 基线：`origin/dev`
 
 ---
 
@@ -13,6 +13,8 @@
 2. [Skills 优先级与覆盖（同名冲突）](#2-skills-优先级与覆盖同名冲突)
    - 2.1 [来源扫描顺序与优先级规则](#21-来源扫描顺序与优先级规则)
    - 2.2 [Disabled 列表](#22-disabled-列表)
+   - 2.3 [从发现到调用](#23-从发现到调用)
+   - 2.4 [重新扫描与正文刷新边界](#24-重新扫描与正文刷新边界)
 3. [Skills 自演化机制](#3-skills-自演化机制)
    - 3.1 [两条演化路径总览](#31-两条演化路径总览)
    - 3.2 [路径一：对话中实时演化](#32-路径一对话中实时演化)
@@ -27,15 +29,15 @@
 
 ### 1.1 完整加载流程
 
-每次需要读取 skills 列表时（对话开始、切换项目、skill 被修改后），系统执行以下流程：
+每次需要读取 skills 列表时（构建系统提示、初始化 `skill` 工具描述、调用 `Skill.all()` / `Skill.get()` / `Skill.dirs()`、skill 被修改后），系统执行以下流程：
 
 ```
-调用 Skill.available()
+调用 Skill.available() / Skill.all() / Skill.get() / Skill.dirs()
         │
         ▼
 ┌──────────────────────────────────────────────────────────────┐
-│  Layer 1：InstanceState（内存缓存，per 项目目录）              │
-│  key = 当前项目目录路径                                        │
+│  Layer 1：InstanceState（内存缓存，per Instance.directory）    │
+│  key = 当前 instance 的 directory                              │
 └──────────────────────────┬───────────────────────────────────┘
                            │
                     ┌──────▼──────┐
@@ -103,25 +105,28 @@
                            │
                            ▼
 ┌──────────────────────────────────────────────────────────────┐
-│  条件 & 平台过滤                                              │
-│  platforms 与当前操作系统不匹配 → 过滤                         │
-│  conditions 不满足当前工具集 → 过滤                           │
+│  结果存入 InstanceState                                       │
+│  state.skills = 合并后的 name → skill 信息                      │
+│  state.dirs = 当前 manifest 中所有 SKILL.md 所在目录             │
 └──────────────────────────┬───────────────────────────────────┘
                            │
                            ▼
 ┌──────────────────────────────────────────────────────────────┐
-│  结果存入 InstanceState                                       │
-│  本次对话后续调用走 Layer 1（内存命中，零 I/O）                 │
+│  调用方读取时再做可见性过滤                                     │
+│  Skill.available(agent)：按 agent permission 过滤 deny 项       │
+│  SystemPrompt.skills()：再按 metadata.hermes 条件过滤            │
+│  platforms 当前仅解析保存，不参与可用列表过滤                    │
 └──────────────────────────────────────────────────────────────┘
 ```
 
 **关键细节：**
 
 - `buildSources()` 给每个来源目录分配一个从 0 开始的递增整数 `order`，扫描到的每个 skill 携带其来源目录的 `order` 值进入后续合并逻辑。
-- `name` 和 `description` 是必填字段，缺少则忽略该文件并向会话总线发布解析错误事件。
+- `name` 和 `description` 是必填字段，缺少则忽略该文件；frontmatter 解析失败时才会向会话总线发布解析错误事件。
 - `conditions` 字段来自 frontmatter 中的 `metadata.hermes` 子结构，包含 `requires_tools`、`requires_toolsets`、`fallback_for_tools`、`fallback_for_toolsets` 四类条件。
-- 平台过滤：frontmatter 中的 `platforms` 字段（如 `[macos, linux]`）在注入系统提示前过滤；未设置 `platforms` 的 skill 对所有平台可见。
-- 系统提示中只暴露 skill 的 `name` 和 `description`，不暴露文件路径，防止 LLM 绕过 `skill_manage` 直接读写文件。
+- `conditions` 会在构建系统提示时根据当前工具集合过滤；`skill` 工具描述本身来自 `Skill.available(agent)`，只按 agent permission 过滤。
+- `platforms` 字段当前只被解析并保存在 skill 信息中，`Skill.available()` 和系统提示构建路径尚未实际按平台过滤。
+- 系统提示中只暴露 skill 的 `name` 和 `description`，不暴露文件路径，以降低 LLM 在未加载 skill 前直接读写文件的可能性；一旦通过 `skill` 工具加载，返回内容会包含 base directory 和辅助文件样例。
 
 ---
 
@@ -131,10 +136,10 @@
 
 **Layer 1：InstanceState（内存缓存）**
 
-`InstanceState` 以项目目录路径为 key，per 项目独立存储：
+`InstanceState` 以 `Instance.directory` 为 key，per directory 独立存储：
 
-- 同一项目：第一次调用触发加载，后续调用直接读内存，零 I/O
-- 切换项目：`Instance.dispose()` 自动释放旧实例缓存，新项目重新加载
+- 同一 directory：第一次调用触发加载，后续调用直接读内存，零 I/O
+- 切换 directory 或 dispose instance：旧 instance 缓存释放，新 directory 重新加载
 - 手动失效：`clearSkillsPromptCache()` 调用 `skill.invalidate()`，仅清 Skill 的 InstanceState，不影响其他模块
 
 **Layer 2：磁盘快照（跨进程持久化）**
@@ -142,8 +147,8 @@
 ```
 global 快照：  ~/.cache/aether/.skills_prompt_snapshot.global.json
 project 快照： ~/.cache/aether/skills-prompt/<slug>.<sha1>.json
-               slug = 项目目录名（清洗后取前 48 字符）
-               sha1 = SHA1("platform|directory|worktree")
+               slug = directory basename（清洗后取前 48 字符）
+               sha1 = SHA1("${process.platform}|${directory}|${worktree}")
 
 快照 JSON 结构：
   {
@@ -166,9 +171,10 @@ project 快照： ~/.cache/aether/skills-prompt/<slug>.<sha1>.json
 
 | 触发事件 | 失效操作 | 说明 |
 |----------|----------|------|
-| Watcher 检测到 global 目录变更 | 清所有实例内存缓存 | global 变更影响全部项目 |
-| Watcher 检测到 project 目录变更 | 清当前实例内存缓存 | 只影响当前项目 |
-| skill_manage 写入成功 | 清内存缓存 + 删磁盘快照 | 保证下次命令前数据最新 |
+| Watcher 检测到 global 目录变更 | 清所有 active instances 的 Skill 内存缓存 | global 变更影响全部 directory |
+| Watcher 检测到 project 目录变更 | 清当前 instance 的 Skill 内存缓存 | 只影响当前 directory |
+| `skill_manage` 修改 `SKILL.md` 成功 | 清 Skill 内存缓存 | 下次访问按 manifest 判断是否复用或重建磁盘快照 |
+| `skill_manage` 修改辅助文件成功 | 保存版本并发布文件事件 | 当前不主动清 skill 内存缓存；不改变已登记 skill 列表 |
 
 watcher 触发失效后，下次 `Skill.available()` 调用时才重新加载（按需重建），watcher 本身不参与数据重建。
 
@@ -183,10 +189,10 @@ Skill.watch() 初始化
         │
         ▼
 ┌──────────────────────────────────────────────────────────────┐
-│  扫描监听候选目录（global + project paths）                     │
-│  项目目录向上至 worktree 每层的 .aether/.opencode/             │
+│  扫描监听候选目录（buildSources 实际目录 + 额外候选根）          │
+│  directory 向上至 worktree 每层的 .aether/.opencode/           │
 │  .claude/.agents，home 目录同名子目录，skills.paths 自定义路径  │
-│  即使目录当前不存在也加入候选集（感知目录首次创建）              │
+│  即使目录当前不存在也加入候选集（感知目录首次创建/删除）          │
 └──────────────────────────┬───────────────────────────────────┘
                            │
                ┌───────────▼───────────────┐
@@ -202,9 +208,9 @@ Skill.watch() 初始化
                           │ fs 事件到达
                           ▼
 ┌──────────────────────────────────────────────────────────────┐
-│  事件进入 pending 集合                                         │
+│  SKILL.md 事件进入 pending 集合                                │
 │  同路径重复事件去重，仅保留最新状态                              │
-│  非 SKILL.md 的文件：仅标记 scope dirty，不入队                 │
+│  候选根目录新增/删除时标记 scope dirty                           │
 └──────────────────────────┬───────────────────────────────────┘
                            │
                ┌───────────▼──────────────────┐
@@ -279,6 +285,8 @@ Skill.watch() 初始化
 
 通过环境变量 `OPENCODE_SKILL_WATCHER_BACKEND=parcel|poll` 可强制切换后端。
 
+**事件边界：** watcher 主要响应 `SKILL.md` 的新增、删除、修改，以及候选根目录是否存在的变化。普通辅助文件（例如 `scripts/`、`references/` 下的文件）变更不会触发 skill 列表缓存失效；`skill_manage write_file/remove_file` 也只发布文件事件并保存版本快照。
+
 **可观测性：**
 
 watcher 在运行时输出 `[skill watch]` 前缀日志，可用于排查热更新异常：
@@ -297,24 +305,32 @@ watcher 在运行时输出 `[skill watch]` 前缀日志，可用于排查热更�
 
 ### 2.1 来源扫描顺序与优先级规则
 
-同名 skill 以来源目录的 `order` 编号决定胜出者：**order 越大优先级越高，高优先级覆盖低优先级**。
+不同来源目录中的同名 skill 以来源目录的 `order` 编号决定胜出者：**order 越大优先级越高，高优先级覆盖低优先级**。同一来源目录内如果出现多个同名 skill，它们拥有相同 `order`，最终覆盖结果取决于扫描返回顺序，不应依赖。
 
-优先级设计遵循两条规则：
-1. **项目级 > 全局级**：同类型来源中，项目内的版本始终覆盖全局版本
-2. **`.aether` > `.opencode` > `.claude`/`.agents`**：同一级别内，shadow 演化目录优先级最高
+当前优先级设计遵循三条规则：
 
-目标 order 分配（重构方向）：
+1. **同一层级内 `.aether` > `.opencode` > `.claude` > `.agents`**：同名时 shadow 演化目录优先级最高。
+2. **项目层级从 worktree 外层扫到当前 directory 内层**：越靠近当前 directory 的同名 skill 越容易胜出。
+3. **`skills.paths` 和 `skills.urls` 是最高优先级自定义来源**：它们在项目层级和 `OPENCODE_CONFIG_DIR` 之后追加。
 
-| order | 级别 | 来源类型 | 典型路径 |
-|-------|------|----------|----------|
-| 1 | 全局 | `.claude`/`.agents` 外部目录 | `~/.claude/skills/`、`~/.agents/skills/` |
-| 2 | 全局 | `.opencode` config 目录 | `~/.opencode/skills/` |
-| 3 | 全局 | `.aether` shadow 目录 | `~/.aether/skills/` |
-| 4 | 项目 | `.claude`/`.agents` 外部目录 | `/project/.claude/skills/` |
-| 5 | 项目 | `.opencode` config 目录 | `/project/.opencode/skills/` |
-| 6 | 项目 | `.aether` shadow 目录 | `/project/.aether/skills/` |
-| 7 | — | 用户自定义 `skills.paths` | 任意绝对/相对路径 |
-| 8 | — | URL 远程拉取 `skills.urls` | 远程地址 |
+当前 `buildSources()` order 分配顺序为：
+
+| 相对顺序 | scope | 来源类型 | 典型路径 / 匹配模式 |
+|----------|-------|----------|---------------------|
+| 1 | global | 默认 bundled skills | `Config.getDefaultSkillsDir()` 返回目录下的 `**/SKILL.md` |
+| 2 | global | 默认 skills 父级旁的 `.aether` 根 | `<default-parent>/.aether/{skill,skills}/**/SKILL.md` |
+| 3 | global | 全局配置目录 | `Global.Path.config/{skill,skills}/**/SKILL.md` |
+| 4 | global | home 外部 `.agents` | `~/.agents/skills/**/SKILL.md` |
+| 5 | global | home 外部 `.claude` | `~/.claude/skills/**/SKILL.md` |
+| 6 | global | home legacy `.opencode` | `~/.opencode/{skill,skills}/**/SKILL.md` |
+| 7 | global | home `.aether` | `~/.aether/{skill,skills}/**/SKILL.md` |
+| 8 | project | 每层 `.agents` | `<layer>/.agents/skills/**/SKILL.md`，从 worktree 外层到 directory 内层 |
+| 9 | project | 每层 `.claude` | `<layer>/.claude/skills/**/SKILL.md`，同层晚于 `.agents` |
+| 10 | project | 每层 `.opencode` | `<layer>/.opencode/{skill,skills}/**/SKILL.md`，同层晚于 `.claude` |
+| 11 | project | 每层 `.aether` | `<layer>/.aether/{skill,skills}/**/SKILL.md`，同层晚于 `.opencode` |
+| 12 | 按路径判定 | `OPENCODE_CONFIG_DIR` | `$OPENCODE_CONFIG_DIR/{skill,skills}/**/SKILL.md` |
+| 13 | 按路径判定 | `config.skills.paths` | 每个配置目录下 `**/SKILL.md` |
+| 14 | global | `config.skills.urls` | 下载到 `Global.Path.cache/skills/<name>/` 后扫描 `**/SKILL.md` |
 
 合并规则：
 
@@ -324,15 +340,17 @@ watcher 在运行时输出 `[skill watch]` 前缀日志，可用于排查热更�
 
 **实际效果：**
 
-- 项目 `.claude/skills/foo` 覆盖全局 `~/.claude/skills/foo`（order 4 > 1）
-- 项目 `.aether/skills/foo` 覆盖项目 `.claude/skills/foo`（order 6 > 4）—— shadow 遮蔽原始
-- 项目 `.aether/skills/foo` 覆盖全局 `~/.aether/skills/foo`（order 6 > 3）—— 项目级优先
+- 同一层级内，`.aether/skills/foo` 覆盖 `.opencode/skills/foo`，`.opencode` 覆盖 `.claude`，`.claude` 覆盖 `.agents`。
+- 当前 directory 下的 `.claude/skills/foo` 可以覆盖 worktree 根目录下的 `.aether/skills/foo`，因为 project 层级按外层到内层扫描。
+- `config.skills.paths` 中的同名 skill 会覆盖前面所有内置、home、project、`OPENCODE_CONFIG_DIR` 来源。
+- `config.skills.urls` 下载缓存中的同名 skill 在当前实现中晚于 `skills.paths`，因此拥有更高优先级。
+- 同一个 source 目录内不要放置多个同名 skill；当前实现没有为这种情况定义稳定的优先级规则。
 
 ---
 
 ### 2.2 Disabled 列表
 
-Disabled 列表存储于全局配置（`~/.aether/config.json`），值为被禁用的 skill **目录路径**列表（非 skill 名称）。使用目录路径而非名称，避免不同来源的同名 skill 互相误伤。
+Disabled 列表存储于全局配置，值为被禁用的 skill **目录绝对路径**列表（非 skill 名称）。使用目录路径而非名称，避免不同来源的同名 skill 互相误伤。
 
 **在加载阶段的使用（mergeSkills 内部）：**
 
@@ -342,7 +360,7 @@ mergeSkills 开始
         ▼
 ┌──────────────────────────────────────────────────────────────┐
 │  读取全局配置 skills.disabled 路径列表                         │
-│  构建 disabled Set（目录绝对路径的集合）                        │
+│  过滤出绝对路径，构建 disabled Set（目录绝对路径集合）           │
 └──────────────────────────┬───────────────────────────────────┘
                            │
                            ▼  按 order 升序遍历所有 skills
@@ -376,7 +394,7 @@ skill_manage 收到写入请求
         │
         ▼
 ┌──────────────────────────────────────────────────────────────┐
-│  读取全局配置，获取 disabled 路径列表                           │
+│  读取全局配置，过滤出 disabled 绝对路径列表                      │
 └──────────────────────────┬───────────────────────────────────┘
                            │
                ┌───────────▼──────────────────────────────────┐
@@ -412,8 +430,80 @@ skill_manage 收到写入请求
 **日常操作体验：**
 
 - 在设置界面中切换某个 skill 的启停状态，实际是将其 skill 目录的绝对路径加入或移出全局配置的 `skills.disabled` 数组。
+- 被禁用的是具体目录候选，不是名称；如果低优先级路径还有同名 skill，低优先级版本会作为 fallback 重新生效。
+- 非绝对路径 disabled 条目（例如旧式 `"foo"`）不会进入运行时 disabled Set，也不会影响 `mergeSkills()`。
 - 被禁用的 skill 在 `mergeSkills()` 阶段对 LLM 不可见，且无法通过 `skill_manage` 被修改。
-- 系统启动时会自动清理 `disabled` 列表中目录已不存在的 stale 条目（在 `listEvolutionSkills()` 执行时触发）。
+- `disabled` 列表中目录已不存在的 stale 条目会在 `listEvolutionSkills()` 执行时清理；`skill_manage` 遇到不存在的 shadow disabled 路径时也会移除该 stale 条目后继续写入。
+
+---
+
+### 2.3 从发现到调用
+
+扫描路径只决定候选 skill 能否进入运行时列表；真正使用 skill 时，还会经过系统提示、工具描述、权限和正文读取等入口。无论 skill 来自默认目录、home 目录、项目 `.aether/skills`、`skills.paths` 还是 `skills.urls` 下载缓存，被扫描后都会收敛到同一套运行时流程。
+
+| 入口 | 使用的 Skill API | 运行时效果 |
+|------|------------------|------------|
+| 系统提示 `SystemPrompt.skills()` | `Skill.available(agent)` | 先按 agent 的 `skill` permission 过滤，再按 `conditions` 过滤；提示里只写入 `name` 和 `description`。 |
+| 内置 `skill` 工具描述 | `Skill.available(agent)` | 工具 schema 中的可选名称列表来自当前 agent 可见 skill；这里不按 `conditions` 过滤。 |
+| 内置 `skill` 工具执行 | `Skill.get(name)` | 先从缓存定位 skill，再重新读取缓存 `location` 指向的 `SKILL.md` 正文；解析失败时回退到缓存正文。 |
+| skill-as-command | `Skill.all()` | `Command.state` 在命令表末尾把未被占用的 skill 名补成 slash command，模板使用扫描时缓存的 `skill.content`。 |
+| Agent 目录白名单 | `Skill.dirs()` | 将当前 manifest 中的 `SKILL.md` 所在目录加入文件访问白名单，便于读取 skill 附带的 `scripts/`、`references/` 等资源。 |
+| 服务端 skills 列表 | `Skill.all()` | 返回当前 instance 的完整 skill 列表，不做 agent permission 过滤。 |
+
+完整链路可以概括为：
+
+1. 请求或会话建立当前 `Instance.directory` / `Instance.worktree`。
+2. 某个入口第一次调用 `Skill.all()`、`Skill.available()`、`Skill.get()` 或 `Skill.dirs()`。
+3. `ensureWatch()` 确保当前 instance 的 skill watcher 已初始化。
+4. `InstanceState` 命中则直接复用内存缓存；未命中则进入磁盘快照或全量扫描。
+5. `buildSources()` 按 2.1 的顺序收集来源目录，分别构建 global / project manifest。
+6. manifest 命中时读取磁盘快照；未命中时扫描 `SKILL.md`、解析 frontmatter 和正文，并写入新快照。
+7. `mergeSkills()` 跳过 disabled 目录，再按 `order` 让高优先级同名 skill 覆盖低优先级候选。
+8. 合并结果写入当前目录的 `InstanceState`，后续同目录请求优先复用。
+9. 系统提示和 `skill` 工具描述只暴露 `name` / `description`；模型真正需要完整说明时调用 `skill({ name })`。
+10. `SkillTool.execute()` 申请 `permission: "skill"`，重新读取 `SKILL.md` 正文，并返回 `<skill_content>`、base directory 和最多 10 个非 `SKILL.md` 附带文件示例。
+
+这里需要特别区分内置 `skill` 工具和 skill-as-command：
+
+| 使用方式 | 典型形式 | 是否走 `SkillTool.execute()` | 正文来源 | 运行中只修改正文后的效果 |
+|----------|----------|-----------------------------|----------|--------------------------|
+| 内置 `skill` 工具 | 模型调用 `skill({ name: "foo" })` | 是 | 通过缓存找到 `location` 后重新解析 `SKILL.md` | 通常能读到最新正文；若最新文件解析失败，回退到缓存正文。 |
+| skill-as-command | 用户输入 `/foo` | 否 | `Command.state` 构建时缓存的 `skill.content` | 不会因为一次执行而重新读取正文；需要 command 状态重建，仅清 Skill 缓存不一定刷新已有命令表。 |
+
+skill-as-command 只是 command 层对已发现 skill 的补位注册：如果同名 command 已经存在，skill 不会覆盖它；它也不改变 skill 自身的发现、禁用和同名覆盖规则。
+
+还需要注意，skill-as-command 走的是普通 command 模板执行路径：会处理 `$1` / `$ARGUMENTS` 参数替换、`@file` 文件引用和 ``!`shell` `` 插值；它不会申请 `permission: "skill"`，也不会返回 `SkillTool.execute()` 中的 base directory 或辅助文件样例。
+
+### 2.4 重新扫描与正文刷新边界
+
+Skill 系统的刷新分两层：**列表刷新**和**正文刷新**。列表刷新会重新计算有哪些 skill、它们的 `name` / `description` / `location` / `conditions` / `platforms` 以及同名覆盖结果；正文刷新则只发生在内置 `skill` 工具执行时，针对已缓存的 `location` 重新读取 `SKILL.md` 内容。
+
+| 变化场景 | 是否重新扫描列表 | 当前实现中的结果 |
+|----------|------------------|------------------|
+| 首次访问某个 `Instance.directory` | 会 | 当前目录没有 Skill `InstanceState`，会执行加载流程。 |
+| watcher 检测到 global skill 目录变更 | 会，在下次访问时 | 清理所有 active instance 的 Skill 内存缓存，后续按需重建。 |
+| watcher 检测到 project skill 目录变更 | 会，在下次访问时 | 只清理当前 project instance 的 Skill 内存缓存。 |
+| 通过配置 API 切换 `skills.disabled` | 会，在下次访问时 | `Config.toggleSkill()` 会调用 `Skill.clearSkillsPromptCache()` 清理相关 scope。 |
+| `skill_manage create/edit/patch/delete/rollback` 修改 `SKILL.md` 类状态 | 会，在下次访问时 | 操作成功后主动清 Skill 内存缓存，并标记 `SkillDirty`。 |
+| `skill_manage write_file/remove_file` 修改辅助文件 | 不主动清列表缓存 | 会保存版本并发布文件事件，但不改变已登记的 skill 列表、描述或正文缓存。 |
+| 手动新增、删除或修改 `SKILL.md` | 会，取决于 watcher 是否捕获 | watcher 只负责失效；真正扫描发生在下一次 `Skill.*` 调用。 |
+| 只修改已登记 skill 的正文，并立即通过内置 `skill` 工具调用 | 不依赖列表重扫 | `SkillTool.execute()` 会按缓存 `location` 重新解析 `SKILL.md`，通常能读到最新正文。 |
+| 只修改已登记 skill 的 `name` 或 `description` | 需要列表重扫 | 清理前系统提示、工具描述和 skill-as-command 仍使用旧缓存。 |
+| 修改 `config.skills.paths` | 会，取决于 watcher / 配置刷新路径 | watcher 会周期性比较 `skills.paths` 签名并重建 roots；通过配置 API 更新也会清 instance。 |
+| 修改 `config.skills.urls` | 不保证立即生效 | URL 拉取发生在 skill 加载流程中；更稳定的刷新方式是配置 reload / dispose 或重启。 |
+
+因此，判断运行中变更是否生效时要看两个问题：
+
+1. 变更是否影响“列表”：新增 / 删除 skill、修改 `name`、修改 `description`、修改禁用状态、修改来源路径，都需要列表缓存失效后重新加载。
+2. 变更是否只影响“正文”：已登记 skill 的正文变化，在内置 `skill` 工具执行路径上通常可以立即读取；但系统提示、工具描述和 skill-as-command 都仍依赖扫描时的缓存内容。
+
+还有几个容易混淆的边界：
+
+- watcher 和 `Skill.clearSkillsPromptCache()` 只清内存缓存；磁盘快照不会被同步删除，下一次加载会根据 manifest 决定复用旧快照还是重建。
+- `conditions` 只在系统提示构建路径中过滤；`Skill.available()`、`skill` 工具描述和服务端 skills 列表不会按 `conditions` 过滤。
+- `platforms` 当前只被解析并保存在 `Skill.Info` 中，还没有接入系统提示或工具可用性过滤。
+- skill-as-command 使用 `Command.state` 构建时的 `skill.content`，不具备 `SkillTool.execute()` 的“执行时重新读正文”行为。
+- skill 目录会被加入 agent 的 `external_directory` 白名单，便于读取辅助资源；当前 edit/write 工具主要通过描述提示要求使用 `skill_manage`，`skill-file-guard.ts` 尚未实际接入这些写入工具。
 
 ---
 
@@ -444,7 +534,8 @@ Agent 主动判断有值得保存的经验         对话正常结束，且同�
                            │ 两路均通过 skill_manage 写入
                            ▼
 ┌──────────────────────────────────────────────────────────────┐
-│  skill 写入 shadow 目录，缓存失效，热更新生效                   │
+│  skill_manage 写入 .aether/skills shadow / managed 目录        │
+│  SKILL.md 变更会清 Skill 内存缓存，并通过 SkillDirty 刷新上下文 │
 └──────────────────────────────────────────────────────────────┘
 ```
 
@@ -452,10 +543,11 @@ Agent 主动判断有值得保存的经验         对话正常结束，且同�
 
 ### 3.2 路径一：对话中实时演化
 
-Agent 在执行任务的过程中，任何时候都可以主动调用 `skill_manage` 工具来创建或更新 skill。系统通过**引导性提示**（`SKILLS_GUIDANCE`）告知 Agent 何时应该这样做：
+当 `skill_manage` 工具在当前工具集中可用时，Agent 在执行任务的过程中可以主动调用它来创建或更新 skill。系统通过**引导性提示**（`SKILLS_GUIDANCE`）告知 Agent 何时应该这样做：
 
-> 完成复杂任务（5 步以上工具调用）、修复棘手错误、或发现非平凡工作流后，应立即将方案保存为 skill。  
-> 使用某个 skill 时如发现它已过时、不完整或有误，应立即用 patch/edit 更新，不要等被要求。
+> 完成复杂任务（5 步以上工具调用）、修复棘手错误、或发现非平凡工作流后，用 `skill_manage` 保存方案。
+> 使用某个 skill 时如发现它已过时、不完整或有误，应立即用 `patch` / `edit` 更新。
+> 创建或编辑 skill 时应包含 `category` 字段，并优先复用已有分类。
 
 **计数器机制（同时服务两条路径）：**
 
@@ -493,7 +585,7 @@ Agent 在执行任务的过程中，任何时候都可以主动调用 `skill_man
 效果：
 - Agent 每调用一次 `skill_manage`，计数器归 1 重新起算
 - 计数器累积到阈值时触发后台评审（见 3.3）
-- 将 `config.skills.creation_nudge_interval` 设为 0 可完全禁用后台评审
+- 将 `config.skills.creation_nudge_interval` 设为 0 会关闭 skill 自演化工具链：`skill_manage` 不再注册到工具集，后台评审不会触发，系统提示也不再追加自演化引导
 
 ---
 
@@ -533,7 +625,7 @@ Agent 在执行任务的过程中，任何时候都可以主动调用 `skill_man
                            ▼
 ┌──────────────────────────────────────────────────────────────┐
 │  向子 session 发送评审提示                                      │
-│  最多执行 8 个 LLM 步骤，输出完全静默，用户不可见                │
+│  由 SessionPrompt.prompt 正常执行，输出不直接写入父会话          │
 └──────────────────────────┬───────────────────────────────────┘
                            │
                            ▼
@@ -550,8 +642,8 @@ Agent 在执行任务的过程中，任何时候都可以主动调用 `skill_man
                      是 /    \ 否
                     /          \
                    ▼            ▼
-          调用 skill_manage   打印 "nothing to save"
-          create 或 patch     子 session 结束
+          调用 skill_manage   打印 "Nothing to save."
+          create/patch/edit   子 session 结束
                    │
                    ▼
 ┌──────────────────────────────────────────────────────────────┐
@@ -580,15 +672,15 @@ Agent 在执行任务的过程中，任何时候都可以主动调用 `skill_man
 
 ### 3.4 演化写入路径（Shadow 目录）
 
-**核心设计原则：原始 skill 文件永不被修改。**
+**核心设计原则：外部原始 skill 采用 copy-on-write，优先写入 `.aether/skills/`。**
 
-用户放在 `.claude/skills/`、`.agents/skills/`、`.opencode/skills/` 中的 skill 是"原始版本"。Agent 演化 skill 时，所有写入都发生在与原始来源平行的 `.aether/skills/` 目录中（称为 shadow 目录）。
+用户放在 `.claude/skills/`、`.agents/skills/`、`.opencode/skills/` 中的 skill 被视为外部原始版本。Agent 演化这些 skill 时，首次修改会先复制整个 skill 目录到同级 `.aether/skills/<name>/`，之后只修改 `.aether` shadow。若当前生效版本本来已经位于目标 `.aether/skills/<name>/`，则会在该目录中就地修改。
 
 **Shadow 目录的计算规则：**
 
 在原始路径中找到第一个配置目录标记（`.claude`、`.agents`、`.opencode`、`.aether`），
 取其**上级目录**作为基准，然后在该基准目录下新建 `.aether/skills/<name>/` 路径。
-原始配置目录本身不受影响，`.aether/` 是平行新建在旁边的独立目录。
+外部原始配置目录本身不受影响，`.aether/` 是平行新建在旁边的独立目录；若原始来源已经在目标 `.aether/skills/<name>/`，则不会复制，会直接修改该目录。
 
 ```
 场景一：项目内的外部配置目录
@@ -610,7 +702,7 @@ Agent 在执行任务的过程中，任何时候都可以主动调用 `skill_man
 **首次演化的流程（copy-on-write）：**
 
 ```
-skill_manage 请求修改或创建一个 skill
+skill_manage 请求修改一个已有 skill
         │
         ▼
 ┌──────────────────────────────────────────────────────────────┐
@@ -639,70 +731,78 @@ skill_manage 请求修改或创建一个 skill
                                     ▼
 ┌──────────────────────────────────────────────────────────────┐
 │  在 shadow 目录中执行本次修改操作                               │
-│  （create / edit / patch / write_file / 等）                  │
+│  （edit / patch / delete / rollback /                         │
+│    write_file / remove_file）                                 │
 └──────────────────────────┬───────────────────────────────────┘
                            │
                ┌───────────▼──────────────┐
                │  安全扫描（scanSkill）     │
-               │  检查写入内容是否有风险     │
+               │  create/edit/patch/        │
+               │  write_file 写入后检查风险 │
                └───────────┬──────────────┘
                     安全 /    \ 危险
                    /            \
                   ▼              ▼
 ┌──────────────────────────┐  回滚：
-│  clearSkillsPromptCache  │  还原文件内容，
-│  删除对应磁盘快照          │  或删除刚创建的目录，
-│  使内存缓存失效            │  向 Agent 报错（结束）
+│  SKILL.md 类操作清内存缓存 │  还原文件内容，
+│  并标记 SkillDirty        │  或删除刚创建的目录，
+│  辅助文件操作只保存版本快照 │  向 Agent 报错（结束）
 └──────────────┬───────────┘
                │
                ▼
 ┌──────────────────────────────────────────────────────────────┐
-│  markClear + markDone                                        │
-│  进入 500ms 冷却期，防止 watcher 自触发                        │
+│  SKILL.md 类操作 markClear + markDone                         │
+│  进入 500ms 冷却期；辅助文件操作不进入该 mark 冷却流程           │
 └──────────────────────────┬───────────────────────────────────┘
                            │
                            ▼
 ┌──────────────────────────────────────────────────────────────┐
 │  创建版本快照                                                  │
-│  action = create / edit / patch / …                          │
+│  action = create / edit / patch / write_file / remove_file /  │
+│           rollback-*（delete 当前不保存 delete 快照）          │
 └──────────────────────────┬───────────────────────────────────┘
                            │
                            ▼
                     返回成功结果
 ```
 
+`create` 是一个特殊分支：`resolveSkillDir()` 仍会计算目标 `.aether/skills/<name>/`，但不会先 `copyToShadowIfNeeded()`，也不会保存 `original` 快照；如果目标 `SKILL.md` 不存在，它会直接在 shadow/managed 目录中新建文件。
+
 **Shadow 目录优先级保证：**
 
-shadow 目录（`.aether/`）在 2.1 节的 order 排列中拥有同级别最高优先级（order 3/6），shadow 版本天然覆盖所有来自 `.claude/`、`.agents/`、`.opencode/` 的同名 skill。一旦 Agent 演化了某个 skill，用户在 `.claude/skills/` 中的原始版本被"遮蔽"，但原始文件本身丝毫未动，可随时回查或通过 rollback 还原。
+shadow 目录（`.aether/`）在同一层级内晚于 `.agents`、`.claude`、`.opencode` 扫描，因此通常会遮蔽这些外部原始版本。需要注意：当前 `config.skills.paths` 和 `config.skills.urls` 会在 `.aether` 项目层级之后追加；如果其中存在同名 skill，它们仍可能覆盖 shadow 版本。
 
 ---
 
 ### 3.5 版本管理
 
-每次 `skill_manage` 成功执行 `create`、`edit`、`patch`、`write_file`、`remove_file` 操作后，系统自动在 skill 目录内的 `.versions/` 文件夹中创建一个版本快照：
+`skill_manage` 成功执行 `create`、`edit`、`patch`、`write_file`、`remove_file`、`rollback` 时，会在 skill 目录内的 `.versions/` 文件夹中创建版本快照；修改已有外部 skill 并首次触发 copy-on-write 时，还会先保存一个 `original` 快照：
 
 ```
 .aether/skills/my-skill/
 ├── SKILL.md
 ├── helper-script.sh
 └── .versions/
-    ├── v001_original_2025-01-15T10:30:00.000Z.bundle.json
-    ├── v002_edit_2025-01-16T14:20:00.000Z.bundle.json
-    └── v003_patch_2025-01-17T09:15:00.000Z.bundle.json
+    ├── v001_original_20260504T103000.bundle.json
+    ├── v002_edit_20260504T104200.bundle.json
+    └── v003_patch_20260504T110915.bundle.json
 ```
 
-每个 `.bundle.json` 包含该时刻 skill 目录下所有文件的完整内容（`.versions/` 子目录本身除外）。版本数上限为 1000 条，超出后自动删除最早的版本。
+每个 `.bundle.json` 包含该时刻 skill 目录下所有文件的完整内容（`.versions/` 子目录本身除外）。文本内容按 `utf8` 保存，包含 null byte 的文件按 `base64` 保存。
+
+默认版本数上限为 100 条，可通过全局配置 `skills.max_versions` 调整。超出上限后，系统不会简单删除最早版本，而是保留最早的 origin、最近的一批 active 版本，以及按 binary-ruler 权重挑选的一批里程碑版本。
 
 **常用操作：**
 
 - `skill_manage(action='history', name='my-skill')` — 列出所有版本，显示版本号、操作类型、时间戳
 - `skill_manage(action='rollback', name='my-skill', version='v002')` — 将 skill 目录还原至指定版本的状态
+- `skill_manage(action='delete', name='my-skill')` — 删除当前 `.aether` 演化目录；如果 skill 只存在于外部原始目录，会报错并保留原始文件
 
 ---
 
 ### 3.6 安全扫描
 
-每次 `skill_manage` 向磁盘写入内容后（写入成功、扫描前），系统立即对写入目录执行安全扫描。扫描发现问题时，自动还原文件并将错误返回给 Agent。
+每次 `skill_manage` 执行 `create`、`edit`、`patch`、`write_file` 并向磁盘写入内容后，系统立即对写入目录执行安全扫描。扫描发现问题时，自动还原本次文件改动或删除刚创建的目录，并将错误返回给 Agent。`delete`、`remove_file` 和 `rollback` 当前不执行安全扫描；其中 `rollback` 会恢复历史 bundle 并再保存一个 `rollback-*` 快照，安全性取决于历史快照内容。
 
 扫描检测的威胁类型包括：
 
@@ -714,4 +814,4 @@ shadow 目录（`.aether/`）在 2.1 节的 order 排列中拥有同级别最高
 - **硬编码凭据**：API Key、私钥、Token 等
 - **不可见字符**：用于混淆指令的零宽字符等
 
-扫描范围限制：每个 skill 目录最多 50 个文件、总大小不超过 1024 KB、单个文件不超过 256 KB，二进制文件（`.exe`、`.dll`、`.so` 等）和包含路径穿越（`../`）的符号链接直接拒绝。
+扫描范围限制：每个 skill 目录最多 50 个文件、总大小不超过 1024 KB、单个文件不超过 256 KB；`.versions/` 目录会被跳过。二进制或可执行扩展（`.exe`、`.dll`、`.so`、`.dylib` 等）会被标记为 critical，指向 skill 目录外的符号链接也会被标记为 critical。`assertAllowed()` 对 `ask` 和 `block` 决策都会抛错，因此危险的 agent-created skill 当前会被阻断。
