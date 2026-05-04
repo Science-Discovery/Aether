@@ -117,7 +117,8 @@ function buildFormatTemplate(format: FormatType): string {
 
 export namespace FolderSummary {
   /** Generate and write .summary for a single directory */
-  export async function generate(dir: string, root: string): Promise<void> {
+  export async function generate(dir: string, root: string, abort?: AbortSignal): Promise<void> {
+    if (abort?.aborted) return
     log.info("generating summary", { dir })
 
     const entries = await fs.readdir(dir, { withFileTypes: true }).catch(() => [])
@@ -197,6 +198,7 @@ export namespace FolderSummary {
         messages: [{ role: "user", content: prompt }],
         maxOutputTokens: 1500,
         temperature: 0.2,
+        abortSignal: abort,
       })
       return result.text.trim()
     }
@@ -234,9 +236,10 @@ export namespace FolderSummary {
     root: string,
     maxDepth: number,
     force: boolean,
+    abort?: AbortSignal,
   ): Promise<string[]> {
     const results: string[] = []
-    await traverse(root, root, 0, maxDepth, force, results)
+    await traverse(root, root, 0, maxDepth, force, results, abort)
     return results
   }
 
@@ -247,14 +250,16 @@ export namespace FolderSummary {
     maxDepth: number,
     force: boolean,
     results: string[],
+    abort?: AbortSignal,
   ): Promise<void> {
     if (depth > maxDepth) return
+    if (abort?.aborted) return
 
     const summaryPath = path.join(dir, SUMMARY_FILE)
 
     if (force || !(await Filesystem.exists(summaryPath))) {
       try {
-        await generate(dir, root)
+        await generate(dir, root, abort)
         results.push(summaryPath)
       } catch (err) {
         log.error("failed to generate summary", { dir, error: err })
@@ -266,7 +271,8 @@ export namespace FolderSummary {
     for (const entry of entries) {
       if (!entry.isDirectory()) continue
       if (SKIP_DIRS.has(entry.name) || entry.name.startsWith(".")) continue
-      await traverse(path.join(dir, entry.name), root, depth + 1, maxDepth, force, results)
+      if (abort?.aborted) return
+      await traverse(path.join(dir, entry.name), root, depth + 1, maxDepth, force, results, abort)
     }
   }
 }

@@ -23,12 +23,12 @@ export const SummarizeDirsTool = Tool.define("summarize_dirs", {
       .optional()
       .describe("Regenerate summaries even if .summary already exists. Defaults to false."),
   }),
-  async execute(params, _ctx) {
+  async execute(params, ctx) {
     const root = params.directory ?? Instance.directory
     const maxDepth = params.maxDepth ?? 3
     const force = params.force ?? false
 
-    const generated = await FolderSummary.generateAll(root, maxDepth, force)
+    const generated = await FolderSummary.generateAll(root, maxDepth, force, ctx.abort)
 
     const title = `Summarized ${generated.length} director${generated.length === 1 ? "y" : "ies"}`
     const output =
