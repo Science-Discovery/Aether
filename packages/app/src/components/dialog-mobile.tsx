@@ -2,6 +2,7 @@ import { Button } from "@opencode-ai/ui/button"
 import { Icon } from "@opencode-ai/ui/icon"
 import { Dialog } from "@opencode-ai/ui/dialog"
 import { Collapsible } from "@opencode-ai/ui/collapsible"
+import { Switch as SwitchToggle } from "@opencode-ai/ui/switch"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { Component, Show, Switch, Match, createSignal, onMount } from "solid-js"
 import { createStore } from "solid-js/store"
@@ -25,6 +26,8 @@ import {
   retryBridge,
   rescanBridge,
   setStatus,
+  autoConnect,
+  setAutoConnect,
   type MobilePlatform,
   type MobileStatus,
 } from "@/context/mobile"
@@ -427,6 +430,9 @@ export const DialogMobile: Component<Props> = (props) => {
                   {p() === "wechat" ? language.t("wechat.rescan") : language.t(`${p()}.reconfigure`)}
                 </Button>
               </div>
+              <SwitchToggle checked={autoConnect(p())} onChange={(v) => setAutoConnect(p(), v)}>
+                {language.t("mobile.autoConnect")}
+              </SwitchToggle>
             </div>
           </Match>
 

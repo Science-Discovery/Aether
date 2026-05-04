@@ -162,6 +162,7 @@ function connectSSE(p: MobilePlatform) {
               if (props.appId) u.appId = props.appId
               if (props.user) u.user = props.user
               patch(p, u)
+              setAutoConnect(p, true)
               clearSseRetry(p)
             } else if (type.endsWith(".reconnecting")) {
               updateStatus(p, "reconnecting")
@@ -277,6 +278,24 @@ function stopPing() {
   }
 }
 
+const STORAGE_KEY = (p: MobilePlatform) => `opencode:mobile:autoConnect:${p}`
+
+const [autoConnectState, setAutoConnectState] = createSignal<Record<MobilePlatform, boolean>>({
+  feishu: localStorage.getItem(STORAGE_KEY("feishu")) === "true",
+  qq: localStorage.getItem(STORAGE_KEY("qq")) === "true",
+  wechat: localStorage.getItem(STORAGE_KEY("wechat")) === "true",
+})
+
+export function autoConnect(p: MobilePlatform) {
+  return autoConnectState()[p]
+}
+
+export function setAutoConnect(p: MobilePlatform, v: boolean) {
+  if (v) localStorage.setItem(STORAGE_KEY(p), "true")
+  else localStorage.removeItem(STORAGE_KEY(p))
+  setAutoConnectState((prev) => ({ ...prev, [p]: v }))
+}
+
 export async function fetchStatus(p: MobilePlatform) {
   const { url, headers } = api()
   try {
@@ -295,6 +314,7 @@ export async function fetchStatus(p: MobilePlatform) {
       if (data.appId) u.appId = data.appId
       if (data.user) u.user = data.user
       patch(p, u)
+      setAutoConnect(p, true)
       startPing(p)
       connectSSE(p)
     } else if (data.status === "qrcode" && data.qrcode) {
@@ -381,6 +401,7 @@ export async function startBridge(
 
     if (data.status === "connected" && data.user) {
       patch(p, { user: data.user, status: "connected" })
+      setAutoConnect(p, true)
       startPing(p)
       return
     }
@@ -392,6 +413,7 @@ export async function startBridge(
 }
 
 export async function stopBridge(p: MobilePlatform) {
+  setAutoConnect(p, false)
   const abort = sseControllers[p]
   if (abort) {
     abort.abort()
@@ -480,5 +502,9 @@ export function initMobile(p: MobilePlatform) {
       } catch {}
     })
   }
-  fetchStatus(p)
+  fetchStatus(p).then(() => {
+    if (autoConnect(p) && hasConfig(p) && status(p) === "idle") {
+      startBridge(p)
+    }
+  })
 }

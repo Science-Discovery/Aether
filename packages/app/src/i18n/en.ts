@@ -607,6 +607,7 @@ export const dict = {
   "wechat.retry": "Retry",
   "wechat.startingBridge": "Starting WeChat bridge...",
   "wechat.rescan": "Rescan",
+  "mobile.autoConnect": "Auto-connect on startup",
 
   "feishu.connection": "Feishu Connection",
   "feishu.connecting": "Connecting to Feishu...",
