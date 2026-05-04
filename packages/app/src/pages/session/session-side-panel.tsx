@@ -23,6 +23,7 @@ import { DialogSelectFile } from "@/components/dialog-select-file"
 import { DialogPdfToMarkdown } from "@/components/dialog-pdf-to-markdown"
 import { DialogBatchPdfConvert } from "@/components/dialog-batch-pdf-convert"
 import { SessionContextTab, SortableTab, FileVisual } from "@/components/session"
+import { GitGraphTab } from "@/pages/session/git-graph/tab"
 import { useCommand } from "@/context/command"
 import { useFile, type SelectedLineRange } from "@/context/file"
 import { useLanguage } from "@/context/language"
@@ -445,6 +446,7 @@ export function SessionSidePanel(props: {
     hasReview: props.canReview,
   })
   const contextOpen = tabState.contextOpen
+  const gitGraphOpen = tabState.gitGraphOpen
   const openedTabs = tabState.openedTabs
   const activeTab = tabState.activeTab
   const activeFileTab = tabState.activeFileTab
@@ -940,6 +942,31 @@ export function SessionSidePanel(props: {
                           </div>
                         </Tabs.Trigger>
                       </Show>
+                      <Show when={gitGraphOpen()}>
+                        <Tabs.Trigger
+                          value="git-graph"
+                          closeButton={
+                            <TooltipKeybind
+                              title={language.t("common.closeTab")}
+                              keybind={command.keybind("tab.close")}
+                              placement="bottom"
+                              gutter={10}
+                            >
+                              <IconButton
+                                icon="close-small"
+                                variant="ghost"
+                                class="h-5 w-5"
+                                onClick={() => tabs().close("git-graph")}
+                                aria-label={language.t("common.closeTab")}
+                              />
+                            </TooltipKeybind>
+                          }
+                          hideCloseButton
+                          onMiddleClick={() => tabs().close("git-graph")}
+                        >
+                          <div>{language.t("session.tab.gitGraph")}</div>
+                        </Tabs.Trigger>
+                      </Show>
                       <SortableProvider ids={openedTabs()}>
                         <For each={openedTabs()}>{(tab) => <SortableTab tab={tab} onTabClose={tabs().close} />}</For>
                       </SortableProvider>
@@ -989,6 +1016,14 @@ export function SessionSidePanel(props: {
                         <div class="relative pt-2 flex-1 min-h-0 overflow-hidden">
                           <SessionContextTab />
                         </div>
+                      </Show>
+                    </Tabs.Content>
+                  </Show>
+
+                  <Show when={gitGraphOpen()}>
+                    <Tabs.Content value="git-graph" class="flex flex-col h-full overflow-hidden contain-strict">
+                      <Show when={activeTab() === "git-graph"}>
+                        <GitGraphTab />
                       </Show>
                     </Tabs.Content>
                   </Show>
