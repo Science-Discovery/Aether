@@ -14,6 +14,7 @@ import { WriteTool } from "./write"
 import { InvalidTool } from "./invalid"
 import { SkillTool } from "./skill"
 import { SkillManageTool } from "./skill-manage"
+import { SKILL_NUDGE_INTERVAL } from "../session/skill-evolution"
 import type { Agent } from "../agent/agent"
 import { Tool } from "./tool"
 import { Config } from "../config/config"
@@ -130,7 +131,7 @@ export namespace ToolRegistry {
         }),
       )
 
-      async function all(custom: Tool.Info[]): Promise<Tool.Info[]> {
+      async function all(custom: Tool.Info[], evolutionEnabled: boolean): Promise<Tool.Info[]> {
         const cfg = await Config.get()
         const question = ["app", "cli", "desktop"].includes(Flag.OPENCODE_CLIENT) || Flag.OPENCODE_ENABLE_QUESTION_TOOL
 
@@ -149,7 +150,7 @@ export namespace ToolRegistry {
           WebSearchTool,
           CodeSearchTool,
           SkillTool,
-          SkillManageTool,
+          ...(evolutionEnabled ? [SkillManageTool] : []),
           ApplyPatchTool,
           SummarizeDirsTool,
           MemoryWriteTool,
@@ -186,7 +187,9 @@ export namespace ToolRegistry {
 
       const ids = Effect.fn("ToolRegistry.ids")(function* () {
         const state = yield* InstanceState.get(cache)
-        const tools = yield* Effect.promise(() => all(state.custom))
+        const globalCfg = yield* Effect.promise(() => Config.getGlobal())
+        const evolutionEnabled = (globalCfg.skills?.creation_nudge_interval ?? SKILL_NUDGE_INTERVAL) !== 0
+        const tools = yield* Effect.promise(() => all(state.custom, evolutionEnabled))
         return tools.map((t) => t.id)
       })
 
@@ -195,8 +198,10 @@ export namespace ToolRegistry {
         agent?: Agent.Info,
       ) {
         const state = yield* InstanceState.get(cache)
-        const allTools = yield* Effect.promise(() => all(state.custom))
-        return yield* Effect.promise(() =>
+        const globalCfg = yield* Effect.promise(() => Config.getGlobal())
+        const evolutionEnabled = (globalCfg.skills?.creation_nudge_interval ?? SKILL_NUDGE_INTERVAL) !== 0
+        const allTools = yield* Effect.promise(() => all(state.custom, evolutionEnabled))
+        const result = yield* Effect.promise(() =>
           Promise.all(
             allTools
               .filter((tool) => {
@@ -215,7 +220,7 @@ export namespace ToolRegistry {
               })
               .map(async (tool) => {
                 using _ = log.time(tool.id)
-                const next = await tool.init({ agent })
+                const next = await tool.init({ agent, evolutionEnabled })
                 const output = {
                   description: next.description,
                   parameters: next.parameters,
@@ -230,6 +235,7 @@ export namespace ToolRegistry {
               }),
           ),
         )
+        return result
       })
 
       return Service.of({ register, ids, tools })
