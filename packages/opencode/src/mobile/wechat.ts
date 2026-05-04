@@ -204,6 +204,7 @@ class WeChatManagerImpl extends MobileManagerBase {
   async start(
     model?: string,
     auto = false,
+    rescan = false,
   ): Promise<{
     success: boolean
     message?: string
@@ -225,7 +226,7 @@ class WeChatManagerImpl extends MobileManagerBase {
     this._hiddenDirs = await this.loadHiddenDirs()
 
     const savedSession = await this.adapter.loadSession()
-    if (savedSession?.connected && savedSession.user) {
+    if (!rescan && savedSession?.connected && savedSession.user) {
       const state = await this.loadILinkState()
       if (state?.token) {
         this._ilinkToken = state.token

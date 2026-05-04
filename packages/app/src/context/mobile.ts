@@ -287,7 +287,7 @@ export async function fetchStatus(p: MobilePlatform) {
       patch("wechat", { locked: true, user: data.user || prev("wechat").user })
       return
     }
-    if (p === "wechat") patch("wechat", { locked: false })
+    if (p === "wechat") patch("wechat", { locked: false, hasConfig: data.hasConfig })
     if (p === "feishu") patch("feishu", { hasConfig: data.hasConfig })
     if (p === "qq") patch("qq", { hasConfig: data.hasConfig })
     if (data.status === "connected") {
@@ -310,6 +310,8 @@ export async function fetchStatus(p: MobilePlatform) {
       patch("feishu", { status: "idle" })
     } else if (p === "qq" && data.hasConfig) {
       patch("qq", { status: "idle" })
+    } else if (p === "wechat" && data.hasConfig && data.status === "idle") {
+      patch("wechat", { status: "idle", user: data.user })
     }
   } catch {}
 }
@@ -321,6 +323,7 @@ export async function startBridge(
   force = false,
   appIdVal?: string,
   appSecretVal?: string,
+  rescan = false,
 ) {
   patch(p, {
     status: "loading",
@@ -347,6 +350,7 @@ export async function startBridge(
       body.clientId = clientId
       body.autoInstall = auto
       body.force = force
+      body.rescan = rescan
       if (modelStr) body.model = modelStr
     }
 
@@ -451,6 +455,12 @@ export async function retryBridge(p: MobilePlatform) {
   } catch (err) {
     patch("wechat", { error: { code: "network_error", message: String(err) }, status: "error" })
   }
+}
+
+export async function rescanBridge(p: MobilePlatform) {
+  if (p !== "wechat") return
+  await stopBridge("wechat")
+  return startBridge("wechat", true, undefined, false, undefined, undefined, true)
 }
 
 export async function forceTakeover(p: MobilePlatform, modelStr?: string) {

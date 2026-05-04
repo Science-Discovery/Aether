@@ -27,12 +27,15 @@ export function createMobileRoutes(platform: "feishu" | "qq" | "wechat") {
     status: z.enum(statusValues),
     ...(platform === "feishu" || platform === "qq"
       ? { appId: z.string().nullable(), hasConfig: z.boolean() }
-      : {
-          qrcode: z.string().nullable(),
-          user: z.object({ id: z.string(), name: z.string() }).nullable(),
-          locked: z.boolean().nullable(),
-          lockHolder: z.string().nullable(),
-        }),
+      : platform === "wechat"
+        ? {
+            qrcode: z.string().nullable(),
+            user: z.object({ id: z.string(), name: z.string() }).nullable(),
+            locked: z.boolean().nullable(),
+            lockHolder: z.string().nullable(),
+            hasConfig: z.boolean(),
+          }
+        : {}),
     error: z.object({ code: z.string(), message: z.string() }).nullable(),
   })
 
@@ -80,7 +83,7 @@ export function createMobileRoutes(platform: "feishu" | "qq" | "wechat") {
           } else if (!(await WeChatManager.tryLock(clientId))) {
             return c.json({ success: false, code: "locked", message: "微信已被其他客户端连接" })
           }
-          const result = await WeChatManager.start(body?.model, body?.autoInstall === true)
+          const result = await WeChatManager.start(body?.model, body?.autoInstall === true, body?.rescan === true)
           if (!result.success) {
             await WeChatManager.unlock(clientId)
           }
@@ -168,6 +171,7 @@ export function createMobileRoutes(platform: "feishu" | "qq" | "wechat") {
             error: WeChatManager.error,
             locked: WeChatManager.lockHolder !== null,
             lockHolder: WeChatManager.lockHolder,
+            hasConfig: !!session?.connected && !!session?.user,
           })
         }
       },

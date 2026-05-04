@@ -599,6 +599,7 @@ export const dict = {
   "wechat.connectionFailed": "连接失败",
   "wechat.retry": "重试",
   "wechat.startingBridge": "正在启动微信桥接...",
+  "wechat.rescan": "重新扫码",
 
   "feishu.connection": "飞书连接",
   "feishu.connecting": "正在连接飞书...",

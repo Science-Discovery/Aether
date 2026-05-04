@@ -23,6 +23,7 @@ import {
   fetchStatus,
   forceTakeover,
   retryBridge,
+  rescanBridge,
   setStatus,
   type MobilePlatform,
 } from "@/context/mobile"
@@ -124,7 +125,7 @@ export const DialogMobile: Component<Props> = (props) => {
               <Icon name={iconName(p())} size="large" class="size-16 text-icon-base" />
               <p class="text-14-regular text-text-base text-center">{language.t(`${p()}.connectToUse`)}</p>
               <Show
-                when={(p() === "feishu" || p() === "qq") && hasConfig(p())}
+                when={hasConfig(p())}
                 fallback={
                   p() === "feishu" || p() === "qq" ? (
                     <Button variant="primary" onClick={() => setStatus(p(), "config")}>
@@ -139,10 +140,17 @@ export const DialogMobile: Component<Props> = (props) => {
               >
                 <div class="flex gap-2">
                   <Button variant="primary" onClick={doStart}>
-                    {p() === "feishu" ? language.t("feishu.connectFeishu") : language.t("qq.connectQQ")}
+                    {p() === "feishu"
+                      ? language.t("feishu.connectFeishu")
+                      : p() === "qq"
+                        ? language.t("qq.connectQQ")
+                        : language.t("wechat.connectWechat")}
                   </Button>
-                  <Button variant="ghost" onClick={() => setStatus(p(), "config")}>
-                    {language.t(`${p()}.reconfigure`)}
+                  <Button
+                    variant="ghost"
+                    onClick={p() === "wechat" ? () => rescanBridge("wechat") : () => setStatus(p(), "config")}
+                  >
+                    {p() === "wechat" ? language.t("wechat.rescan") : language.t(`${p()}.reconfigure`)}
                   </Button>
                 </div>
               </Show>
