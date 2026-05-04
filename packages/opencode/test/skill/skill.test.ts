@@ -95,6 +95,42 @@ description: Skill for dirs test.
   }
 })
 
+test("returns live skill scan sources in priority order", async () => {
+  await using tmp = await tmpdir({
+    git: true,
+    config: {
+      skills: {
+        paths: ["team-skills"],
+      },
+    },
+    init: async (dir) => {
+      await Promise.all(
+        [".agents", ".claude", ".opencode", ".aether", "team-skills"].map((name) =>
+          fs.mkdir(path.join(dir, name), { recursive: true }),
+        ),
+      )
+    },
+  })
+
+  await Instance.provide({
+    directory: tmp.path,
+    fn: async () => {
+      const sources = await Skill.sources()
+      const local = sources
+        .filter((item) => item.dir.startsWith(tmp.path))
+        .map((item) => `${path.relative(tmp.path, item.dir)}:${item.pattern}`)
+
+      expect(local).toEqual([
+        ".agents:skills/**/SKILL.md",
+        ".claude:skills/**/SKILL.md",
+        ".opencode:{skill,skills}/**/SKILL.md",
+        ".aether:{skill,skills}/**/SKILL.md",
+        `team-skills:**/SKILL.md`,
+      ])
+    },
+  })
+})
+
 test("discovers multiple skills from .opencode/skill/ directory", async () => {
   await using tmp = await tmpdir({
     git: true,

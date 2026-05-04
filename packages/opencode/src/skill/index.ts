@@ -220,8 +220,8 @@ export namespace Skill {
   // mirrors Hermes _SKILLS_SNAPSHOT_VERSION
   const SKILLS_SNAPSHOT_VERSION = 3
 
-  type Scope = "global" | "project"
-  type Source = {
+  export type Scope = "global" | "project"
+  export type Source = {
     dir: string
     pattern: string
     dot?: boolean
@@ -694,6 +694,7 @@ export namespace Skill {
     readonly get: (name: string) => Effect.Effect<Info | undefined>
     readonly all: () => Effect.Effect<Info[]>
     readonly dirs: () => Effect.Effect<string[]>
+    readonly sources: () => Effect.Effect<Source[]>
     readonly available: (agent?: Agent.Info) => Effect.Effect<Info[]>
     readonly invalidate: () => Effect.Effect<void>
   }
@@ -1109,6 +1110,12 @@ export namespace Skill {
         return Array.from(s.dirs)
       })
 
+      const sources = Effect.fn("Skill.sources")(function* () {
+        return yield* Effect.promise(() =>
+          Config.get().then((cfg) => buildSources(Instance.directory, Instance.worktree, cfg)),
+        )
+      })
+
       const available = Effect.fn("Skill.available")(function* (agent?: Agent.Info) {
         yield* ensureWatch()
         const cached = yield* InstanceState.has(state)
@@ -1131,7 +1138,7 @@ export namespace Skill {
         yield* InstanceState.invalidate(state)
       })
 
-      return Service.of({ get, all, dirs, available, invalidate })
+      return Service.of({ get, all, dirs, sources, available, invalidate })
     }),
   )
 
@@ -1197,6 +1204,10 @@ export namespace Skill {
 
   export async function dirs() {
     return runPromise((skill) => skill.dirs())
+  }
+
+  export async function sources() {
+    return runPromise((skill) => skill.sources())
   }
 
   export async function available(agent?: Agent.Info) {
