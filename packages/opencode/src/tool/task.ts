@@ -12,6 +12,13 @@ import { defer } from "@/util/defer"
 import { Config } from "../config/config"
 import { Permission } from "@/permission"
 import { Provider } from "../provider/provider"
+import { Discipline, fromOverride } from "../session/discipline"
+
+interface TaskMetadata {
+  sessionId: string
+  mode: string
+  model: { modelID: string; providerID: string }
+}
 
 const parameters = z.object({
   description: z.string().describe("A short (3-5 words) description of the task"),
@@ -30,6 +37,52 @@ const parameters = z.object({
     )
     .optional(),
   command: z.string().describe("The command that triggered this task").optional(),
+  mode: z
+    .enum(["serial", "concurrent", "background"])
+    .describe(
+      "Execution mode. serial: block until result (default). concurrent: run alongside other concurrent tasks, await all together. background: spawn and continue immediately, retrieve result later via background_output.",
+    )
+    .default("serial")
+    .optional(),
+  delegation_depth: z
+    .number()
+    .int()
+    .min(0)
+    .max(3)
+    .describe("How many more delegation layers this sub-agent may spawn. 0 = no delegation (default).")
+    .default(0)
+    .optional(),
+  permission_override: z
+    .record(z.string(), z.string().array())
+    .describe(
+      "Dynamic permission overrides for this task. Keys are permission names, values are action + optional path patterns. Example: { edit: ['allow'], bash: ['deny'], task: ['deny'] }. Overrides are capped by parent permissions — sub-agent cannot gain permissions the parent lacks.",
+    )
+    .optional(),
+  max_steps: z
+    .number()
+    .int()
+    .min(1)
+    .max(50)
+    .describe("Maximum loop iterations for this sub-agent. Overrides agent's default steps.")
+    .optional(),
+  timeout_seconds: z
+    .number()
+    .int()
+    .min(30)
+    .max(600)
+    .describe("Maximum execution time in seconds. On timeout, partial results are saved.")
+    .default(300)
+    .optional(),
+  file_scope: z
+    .string()
+    .array()
+    .describe("Glob patterns restricting file operations. Example: ['src/auth/**', 'test/**']")
+    .optional(),
+  return_format: z
+    .enum(["text", "structured", "raw"])
+    .describe("Output format discipline. text=default, structured=JSON/Markdown, raw=full trace.")
+    .default("text")
+    .optional(),
 })
 
 async function resolveCategoryModel(category: string): Promise<Provider.Model | undefined> {
@@ -47,7 +100,6 @@ export const TaskTool = Tool.define("task", async (ctx) => {
   const cfg = await Config.get()
   const categories = cfg.category ?? {}
 
-  // Filter agents by permissions if agent provided
   const caller = ctx?.agent
   const accessibleAgents = caller
     ? agents.filter((a) => Permission.evaluate("task", a.name, caller.permission).action !== "deny")
@@ -73,7 +125,6 @@ export const TaskTool = Tool.define("task", async (ctx) => {
     async execute(params: z.infer<typeof parameters>, ctx) {
       const config = await Config.get()
 
-      // Skip permission check when user explicitly invoked via @ or command subtask
       if (!ctx.extra?.bypassAgentCheck) {
         await ctx.ask({
           permission: "task",
@@ -89,10 +140,24 @@ export const TaskTool = Tool.define("task", async (ctx) => {
       const agent = await Agent.get(params.subagent_type)
       if (!agent) throw new Error(`Unknown agent type: ${params.subagent_type} is not a valid agent type`)
 
-      const hasTaskPermission = agent.permission.some((rule) => rule.permission === "task")
-      const hasTodoWritePermission = agent.permission.some((rule) => rule.permission === "todowrite")
+      const discipline: Discipline = {
+        mode: params.mode ?? "serial",
+        delegation_depth: params.delegation_depth ?? 0,
+        permission_override: params.permission_override,
+        max_steps: params.max_steps,
+        timeout_seconds: params.timeout_seconds ?? 300,
+        file_scope: params.file_scope,
+        return_format: params.return_format ?? "text",
+      }
 
-      // Category model routing: if category specified and valid, override agent model
+      const depth = discipline.delegation_depth
+      const overrideRuleset = discipline.permission_override ? fromOverride(discipline.permission_override) : undefined
+      const callerPermission = caller?.permission ?? []
+      const effectivePermission = Permission.intersection(callerPermission, agent.permission, overrideRuleset)
+      if (depth === 0) {
+        effectivePermission.push({ permission: "task", pattern: "*", action: "deny" })
+      }
+
       const categoryModel = params.category ? await resolveCategoryModel(params.category) : undefined
       const catCfg = params.category ? cfg.category?.[params.category] : undefined
 
@@ -105,49 +170,63 @@ export const TaskTool = Tool.define("task", async (ctx) => {
         return await Session.create({
           parentID: ctx.sessionID,
           title: params.description + ` (@${agent.name} subagent)`,
-          permission: [
-            ...(hasTodoWritePermission
-              ? []
-              : [
-                  {
-                    permission: "todowrite" as const,
-                    pattern: "*" as const,
-                    action: "deny" as const,
-                  },
-                ]),
-            ...(hasTaskPermission
-              ? []
-              : [
-                  {
-                    permission: "task" as const,
-                    pattern: "*" as const,
-                    action: "deny" as const,
-                  },
-                ]),
-            ...(config.experimental?.primary_tools?.map((t) => ({
-              pattern: "*",
-              action: "allow" as const,
-              permission: t,
-            })) ?? []),
-          ],
+          permission: effectivePermission,
+          delegationDepth: depth,
+          maxSteps: discipline.max_steps ?? agent.steps,
+          fileScope: discipline.file_scope,
         })
       })
+
       const msg = await MessageV2.get({ sessionID: ctx.sessionID, messageID: ctx.messageID })
       if (msg.info.role !== "assistant") throw new Error("Not an assistant message")
 
-      const model = categoryModel
-        ? { modelID: categoryModel.id, providerID: categoryModel.providerID }
-        : (agent.model ?? {
-            modelID: msg.info.modelID,
-            providerID: msg.info.providerID,
-          })
+      const fallbackModel = agent.model ?? {
+        modelID: msg.info.modelID,
+        providerID: msg.info.providerID,
+      }
+
+      if (discipline.mode === "background") {
+        const { BackgroundTask } = await import("../session/background")
+        const taskID = await BackgroundTask.spawn({
+          session,
+          agent,
+          prompt: params.prompt,
+          categoryModel,
+          catCfg,
+          discipline,
+          parentSessionID: ctx.sessionID,
+          parentAbort: ctx.abort,
+          callerPermission,
+          fallbackModel,
+        })
+        const bgMetadata: TaskMetadata = {
+          sessionId: session.id as string,
+          mode: discipline.mode,
+          model: {
+            modelID: (categoryModel?.id ?? fallbackModel.modelID ?? "") as string,
+            providerID: (categoryModel?.providerID ?? fallbackModel.providerID ?? "") as string,
+          },
+        }
+        ctx.metadata({ title: params.description, metadata: bgMetadata })
+        return {
+          title: params.description,
+          metadata: bgMetadata,
+          output: [
+            `Background task started. task_id: ${taskID}`,
+            "Use the background_output tool to retrieve results when ready.",
+          ].join("\n"),
+        }
+      }
+
+      const model = categoryModel ? { modelID: categoryModel.id, providerID: categoryModel.providerID } : fallbackModel
 
       ctx.metadata({
         title: params.description,
         metadata: {
-          sessionId: session.id,
-          model,
-        },
+          sessionId: session.id as string,
+          mode: discipline.mode,
+          model: { modelID: model.modelID as string, providerID: model.providerID as string },
+        } as TaskMetadata,
       })
 
       const messageID = MessageID.ascending()
@@ -157,6 +236,7 @@ export const TaskTool = Tool.define("task", async (ctx) => {
       }
       ctx.abort.addEventListener("abort", cancel)
       using _ = defer(() => ctx.abort.removeEventListener("abort", cancel))
+
       const promptParts = await SessionPrompt.resolvePromptParts(params.prompt)
       if (catCfg?.prompt_append) {
         promptParts.push({
@@ -164,6 +244,17 @@ export const TaskTool = Tool.define("task", async (ctx) => {
           text: catCfg.prompt_append,
         })
       }
+      if (discipline.return_format === "structured") {
+        promptParts.push({
+          type: "text",
+          text: "IMPORTANT: Your final output must be in structured format (JSON or well-defined Markdown sections). Provide your answer in a clear, parseable structure.",
+        })
+      }
+
+      const disabledTools = Permission.disabled(
+        ["todowrite", "task", ...(config.experimental?.primary_tools ?? [])],
+        effectivePermission,
+      )
 
       const result = await SessionPrompt.prompt({
         messageID,
@@ -173,12 +264,9 @@ export const TaskTool = Tool.define("task", async (ctx) => {
           providerID: model.providerID,
         },
         agent: agent.name,
-        tools: {
-          ...(hasTodoWritePermission ? {} : { todowrite: false }),
-          ...(hasTaskPermission ? {} : { task: false }),
-          ...Object.fromEntries((config.experimental?.primary_tools ?? []).map((t) => [t, false])),
-        },
+        tools: Object.fromEntries([...disabledTools].map((t) => [t, false])),
         parts: promptParts,
+        maxSteps: discipline.max_steps ?? agent.steps,
       })
 
       const text = result.parts.findLast((x) => x.type === "text")?.text ?? ""
@@ -194,9 +282,10 @@ export const TaskTool = Tool.define("task", async (ctx) => {
       return {
         title: params.description,
         metadata: {
-          sessionId: session.id,
-          model,
-        },
+          sessionId: session.id as string,
+          mode: discipline.mode,
+          model: { modelID: model.modelID as string, providerID: model.providerID as string },
+        } as TaskMetadata,
         output,
       }
     },

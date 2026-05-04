@@ -108,6 +108,7 @@ export namespace SessionPrompt {
       .optional(),
     agent: z.string().optional(),
     noReply: z.boolean().optional(),
+    maxSteps: z.number().int().min(1).max(50).optional(),
     tools: z
       .record(z.string(), z.boolean())
       .optional()
@@ -405,9 +406,43 @@ export namespace SessionPrompt {
       })
       const task = tasks.pop()
 
-      // pending subtask
-      // TODO: centralize "invoke tool" logic
       if (task?.type === "subtask") {
+        const bgTasks = tasks
+          .filter((t) => t.type === "subtask")
+          .filter((t) => (t as MessageV2.SubtaskPart).discipline?.mode === "background") as MessageV2.SubtaskPart[]
+        for (const bg of bgTasks) {
+          const { BackgroundTask } = await import("./background")
+          const bgAgent = await Agent.get(bg.agent)
+          const bgPermission = Permission.intersection(session.permission ?? [], bgAgent.permission)
+          const bgCategoryModel = bg.model ? await Provider.getModel(bg.model.providerID, bg.model.modelID) : undefined
+          const bgSession = await Session.create({
+            parentID: sessionID,
+            title: bg.description + ` (@${bg.agent} subagent)`,
+            permission: bgPermission,
+            delegationDepth: bg.discipline?.delegation_depth ?? 0,
+            maxSteps: bg.discipline?.max_steps ?? bgAgent.steps,
+            fileScope: bg.discipline?.file_scope,
+          })
+          BackgroundTask.spawn({
+            session: bgSession,
+            agent: bgAgent,
+            prompt: bg.prompt,
+            categoryModel: bgCategoryModel,
+            discipline: bg.discipline ?? {
+              mode: "background",
+              delegation_depth: 0,
+              timeout_seconds: 300,
+              return_format: "text",
+            },
+            parentSessionID: sessionID,
+            parentAbort: abort,
+            callerPermission: session.permission ?? [],
+            fallbackModel: {
+              modelID: bgAgent.model?.modelID ?? model.id,
+              providerID: bgAgent.model?.providerID ?? model.providerID,
+            },
+          }).catch(() => {})
+        }
         const taskTool = await TaskTool.init()
         const taskModel = task.model ? await Provider.getModel(task.model.providerID, task.model.modelID) : model
         const assistantMessage = (await Session.updateMessage({
@@ -635,7 +670,7 @@ export namespace SessionPrompt {
         throw error
       }
       // mirrors Hermes: review agent capped at max_iterations=8 to prevent runaway
-      const maxSteps = isSkillReviewSession ? 8 : (agent.steps ?? Infinity)
+      const maxSteps = isSkillReviewSession ? 8 : (session.maxSteps ?? agent.steps ?? Infinity)
       const isLastStep = step >= maxSteps
       msgs = await insertReminders({
         messages: msgs,

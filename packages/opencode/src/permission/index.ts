@@ -11,6 +11,7 @@ import { Database, eq } from "@/storage/db"
 import { Log } from "@/util/log"
 import { Wildcard } from "@/util/wildcard"
 import { Deferred, Effect, Layer, Schema, ServiceMap } from "effect"
+import { minimatch } from "minimatch"
 import os from "os"
 import z from "zod"
 import { evaluate as evalRule } from "./evaluate"
@@ -293,7 +294,29 @@ export namespace Permission {
     return rulesets.flat()
   }
 
+  export function intersection(parent: Ruleset, child: Ruleset, override?: Ruleset): Ruleset {
+    const childEffective = merge(child, override ?? [])
+    const result: Ruleset = []
+    for (const rule of childEffective) {
+      const parentRule = evaluate(rule.permission, rule.pattern, parent)
+      if (parentRule.action === "deny") {
+        result.push({ permission: rule.permission, pattern: rule.pattern, action: "deny" })
+      } else {
+        result.push(rule)
+      }
+    }
+    for (const parentRule of parent) {
+      if (parentRule.action !== "deny") continue
+      const covered = result.some(
+        (r) => Wildcard.match(r.permission, parentRule.permission) && Wildcard.match(r.pattern, parentRule.pattern),
+      )
+      if (!covered) result.push(parentRule)
+    }
+    return result
+  }
+
   const EDIT_TOOLS = ["edit", "write", "apply_patch", "multiedit"]
+  const FILE_TOOLS = ["read", "edit", "write", "glob", "grep", "apply_patch", "multiedit"]
 
   export function disabled(tools: string[], ruleset: Ruleset): Set<string> {
     const result = new Set<string>()
@@ -304,6 +327,22 @@ export namespace Permission {
       if (rule.pattern === "*" && rule.action === "deny") result.add(tool)
     }
     return result
+  }
+
+  export function evaluateWithScope(
+    permission: string,
+    path: string,
+    ruleset: Ruleset,
+    scope?: string[],
+  ): Rule & { scopeMatch: boolean } {
+    const base = evaluate(permission, path, ruleset)
+    if (base.action === "deny") return { ...base, scopeMatch: false }
+    if (scope && FILE_TOOLS.includes(permission)) {
+      const normalized = path.replace(/^\/+/, "")
+      const matches = scope.some((s) => minimatch(normalized, s.replace(/^\/+/, "")))
+      if (!matches) return { permission, pattern: path, action: "deny", scopeMatch: false }
+    }
+    return { ...base, scopeMatch: true }
   }
 
   export const { runPromise } = makeRuntime(Service, layer)
