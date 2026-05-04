@@ -1,4 +1,4 @@
-import { For, createEffect, createMemo, on, onCleanup, Show, Index, type JSX, createSignal } from "solid-js"
+import { For, batch, createEffect, createMemo, on, onCleanup, Show, Index, type JSX, createSignal } from "solid-js"
 import { createWorkingState, type ChildrenSource } from "@/utils/working-state"
 import { childMapByParent } from "@/pages/layout/helpers"
 import { createStore, produce, reconcile } from "solid-js/store"
@@ -21,9 +21,11 @@ import { Binary } from "@opencode-ai/util/binary"
 import { getFilename } from "@opencode-ai/util/path"
 import { Popover as KobaltePopover } from "@kobalte/core/popover"
 import { shouldMarkBoundaryGesture, normalizeWheelDelta } from "@/pages/session/message-gesture"
+import { resolveSelectionAnchorRect } from "@/pages/session/selection-anchor"
 import { SessionContextUsage } from "@/components/session-context-usage"
 import { useI18n } from "@opencode-ai/ui/context"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
+import { useConversationQuote } from "@/context/conversation-quote"
 import { useLayout } from "@/context/layout"
 import { useLanguage } from "@/context/language"
 import { useSessionKey } from "@/pages/session/session-layout"
@@ -35,9 +37,12 @@ import { useSync } from "@/context/sync"
 import { messageAgentColor } from "@/utils/agent"
 import {
   formatReadingPageRange,
+  readConversationQuoteMetadata,
   parseCommentNote,
   readCommentMetadata,
   readReadingQuoteMetadata,
+  summarizeReadingQuoteText,
+  type ConversationQuote,
   type ReadingQuote,
 } from "@/utils/comment-note"
 import { makeTimer } from "@solid-primitives/timer"
@@ -53,6 +58,7 @@ type MessageComment = {
 }
 
 type MessageReadingQuote = ReadingQuote
+type MessageConversationQuote = ConversationQuote
 
 const emptyMessages: MessageType[] = []
 const idle = { type: "idle" as const }
@@ -88,6 +94,13 @@ const messageReadingQuotes = (parts: Part[]): MessageReadingQuote[] =>
     return next && next.contentType === "text" ? [next] : []
   })
 
+const messageConversationQuotes = (parts: Part[]): MessageConversationQuote[] =>
+  parts.flatMap((part) => {
+    if (part.type !== "text" || !(part as TextPart).synthetic) return []
+    const next = readConversationQuoteMetadata(part.metadata)
+    return next ? [next] : []
+  })
+
 function DialogReadingQuoteTextContent(props: { quote: MessageReadingQuote }) {
   return (
     <Dialog title="PDF Quote" class="w-[min(720px,calc(100vw-32px))] max-w-[calc(100vw-32px)]">
@@ -102,6 +115,18 @@ function DialogReadingQuoteTextContent(props: { quote: MessageReadingQuote }) {
           <div class="min-w-0 w-full max-w-full whitespace-pre-wrap break-words text-13-regular text-text-strong [overflow-wrap:anywhere]">
             {props.quote.fullText || props.quote.summary}
           </div>
+        </div>
+      </div>
+    </Dialog>
+  )
+}
+
+function DialogConversationQuoteTextContent(props: { quote: MessageConversationQuote }) {
+  return (
+    <Dialog title="AI Reply Quote" class="w-[min(720px,calc(100vw-32px))] max-w-[calc(100vw-32px)]">
+      <div class="max-h-[70vh] min-w-0 w-full max-w-full overflow-auto px-4 pb-4">
+        <div class="min-w-0 w-full max-w-full whitespace-pre-wrap break-words text-13-regular text-text-strong [overflow-wrap:anywhere]">
+          {props.quote.fullText}
         </div>
       </div>
     </Dialog>
@@ -258,9 +283,12 @@ export function MessageTimeline(props: {
   onLoadEarlier: () => void
   renderedUserMessages: UserMessage[]
   anchor: (id: string) => string
+  onFocusInput?: () => void
 }) {
   let touchGesture: number | undefined
+  let root: HTMLDivElement | undefined
   let log: HTMLDivElement | undefined
+  let ask: HTMLButtonElement | undefined
 
   const navigate = useNavigate()
   const globalSDK = useGlobalSDK()
@@ -271,6 +299,7 @@ export function MessageTimeline(props: {
   const layout = useLayout()
   const language = useLanguage()
   const uiI18n = useI18n()
+  const conversationQuote = useConversationQuote()
   const { params, sessionKey } = useSessionKey()
   const platform = usePlatform()
   const [assistantCollapse, setAssistantCollapse] = createStore({
@@ -281,6 +310,16 @@ export function MessageTimeline(props: {
     done: false,
     mode: {} as Record<string, "default" | "open" | "closed">,
     prev: {} as Record<string, string[]>,
+  })
+  const [selection, setSelection] = createStore({
+    open: false,
+    sourceMessageID: "",
+    text: "",
+    summary: "",
+    anchorTop: 0,
+    anchorLeft: 0,
+    top: 0,
+    left: 0,
   })
 
   const rendered = createMemo(() => props.renderedUserMessages.map((message) => message.id))
@@ -519,6 +558,180 @@ export function MessageTimeline(props: {
     return language.t("common.requestFailed")
   }
 
+  const clearSelectionAsk = () =>
+    setSelection({
+      open: false,
+      sourceMessageID: "",
+      text: "",
+      summary: "",
+      anchorTop: 0,
+      anchorLeft: 0,
+      top: 0,
+      left: 0,
+    })
+
+  const placeSelectionAsk = (input?: { top: number; left: number }) => {
+    const top = input?.top ?? selection.anchorTop
+    const left = input?.left ?? selection.anchorLeft
+    const buttonRect = ask?.getBoundingClientRect()
+    const rootRect = root?.getBoundingClientRect()
+    const buttonWidth = buttonRect?.width ?? 52
+    const buttonHeight = buttonRect?.height ?? 34
+    const rootWidth = rootRect?.width ?? window.innerWidth
+    const rootTop = rootRect?.top ?? 0
+    const rootLeft = rootRect?.left ?? 0
+    setSelection({
+      top: Math.max(12, top - rootTop - buttonHeight - 10),
+      left: Math.min(rootWidth - buttonWidth - 12, Math.max(12, left - rootLeft - buttonWidth / 2)),
+    })
+  }
+
+  const selectionParent = (node: Node | null) => (node instanceof Element ? node : node?.parentElement ?? undefined)
+
+  const selectionRects = (input: { range: Range; container: HTMLElement }) => {
+    const rects: Array<{
+      top: number
+      left: number
+      right: number
+      bottom: number
+      width: number
+      height: number
+    }> = []
+    const walker = document.createTreeWalker(input.container, NodeFilter.SHOW_TEXT, {
+      acceptNode(node) {
+        if (!(node instanceof Text) || !node.data.trim()) return NodeFilter.FILTER_REJECT
+        if (!input.range.intersectsNode(node)) return NodeFilter.FILTER_REJECT
+        return NodeFilter.FILTER_ACCEPT
+      },
+    })
+    let node = walker.nextNode()
+    while (node) {
+      const text = node as Text
+      const area = document.createRange()
+      area.selectNodeContents(text)
+      const overlap = document.createRange()
+      if (input.range.compareBoundaryPoints(Range.START_TO_START, area) > 0) overlap.setStart(input.range.startContainer, input.range.startOffset)
+      else overlap.setStart(text, 0)
+      if (input.range.compareBoundaryPoints(Range.END_TO_END, area) < 0) overlap.setEnd(input.range.endContainer, input.range.endOffset)
+      else overlap.setEnd(text, text.data.length)
+      rects.push(
+        ...Array.from(overlap.getClientRects()).map((rect) => ({
+          top: rect.top,
+          left: rect.left,
+          right: rect.right,
+          bottom: rect.bottom,
+          width: rect.width,
+          height: rect.height,
+        })),
+      )
+      node = walker.nextNode()
+    }
+    return rects
+  }
+
+  const resolveAssistantSelection = () => {
+    const selection = window.getSelection()
+    if (!log || !selection || selection.rangeCount === 0 || selection.isCollapsed) return
+    const text = selection.toString().trim()
+    if (!text) return
+
+    const anchor = selectionParent(selection.anchorNode)
+    const focus = selectionParent(selection.focusNode)
+    const anchorContainer = anchor?.closest('[data-slot="session-turn-assistant-content"]')
+    const focusContainer = focus?.closest('[data-slot="session-turn-assistant-content"]')
+    if (!(anchorContainer instanceof HTMLElement) || anchorContainer !== focusContainer) return
+    if (!log.contains(anchorContainer)) return
+
+    const sourceMessageID = anchorContainer.closest("[data-message-id]")?.getAttribute("data-message-id")
+    if (!sourceMessageID) return
+
+    const range = selection.getRangeAt(0)
+    const rect = range.getBoundingClientRect()
+    const target =
+      resolveSelectionAnchorRect({
+        rects: selectionRects({ range, container: anchorContainer }),
+        containerWidth: anchorContainer.getBoundingClientRect().width,
+        fallbackRect: {
+          top: rect.top,
+          left: rect.left,
+          right: rect.right,
+          bottom: rect.bottom,
+          width: rect.width,
+          height: rect.height,
+        },
+      }) ?? rect
+    if (!Number.isFinite(target.top) || !Number.isFinite(target.left)) return
+
+    const anchorLeft = (target.left + target.right) / 2
+    const anchorTop = target.top
+    setSelection({
+      open: true,
+      sourceMessageID,
+      text,
+      summary: summarizeReadingQuoteText(text),
+      anchorTop,
+      anchorLeft,
+      top: anchorTop,
+      left: anchorLeft,
+    })
+    requestAnimationFrame(() => placeSelectionAsk({ top: anchorTop, left: anchorLeft }))
+  }
+
+  const submitAssistantSelection = () => {
+    if (!selection.open || !params.id) return
+    const sessionID = params.id
+    batch(() => {
+      conversationQuote.setPendingQuestion({
+        kind: "assistant-text-question",
+        sessionID,
+        sourceMessageID: selection.sourceMessageID,
+        text: selection.text,
+        summary: selection.summary,
+        createdAt: Date.now(),
+      })
+    })
+    window.getSelection()?.removeAllRanges()
+    clearSelectionAsk()
+    props.onFocusInput?.()
+  }
+
+  createEffect(() => {
+    if (props.mobileChanges) {
+      clearSelectionAsk()
+      return
+    }
+    const handleSelectionChange = () => {
+      const active = window.getSelection()
+      if (!active || active.rangeCount === 0 || active.isCollapsed || !active.toString().trim()) clearSelectionAsk()
+    }
+    const handlePointerUp = () => {
+      queueMicrotask(() => resolveAssistantSelection())
+    }
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target instanceof Element ? event.target : undefined
+      if (target?.closest('[data-component="conversation-quote-ask-button"]')) return
+      clearSelectionAsk()
+    }
+    const handleViewportChange = () => clearSelectionAsk()
+    document.addEventListener("selectionchange", handleSelectionChange)
+    document.addEventListener("pointerup", handlePointerUp)
+    document.addEventListener("pointerdown", handlePointerDown)
+    window.addEventListener("resize", handleViewportChange)
+    window.addEventListener("scroll", handleViewportChange, true)
+    onCleanup(() => {
+      document.removeEventListener("selectionchange", handleSelectionChange)
+      document.removeEventListener("pointerup", handlePointerUp)
+      document.removeEventListener("pointerdown", handlePointerDown)
+      window.removeEventListener("resize", handleViewportChange)
+      window.removeEventListener("scroll", handleViewportChange, true)
+    })
+  })
+
+  createEffect(() => {
+    if (!selection.open) return
+    placeSelectionAsk()
+  })
+
   const shareMutation = useMutation(() => ({
     mutationFn: (id: string) => globalSDK.client.session.share({ sessionID: id, directory: sdk.directory }),
     onError: (err) => {
@@ -743,7 +956,7 @@ export function MessageTimeline(props: {
       when={!props.mobileChanges}
       fallback={<div class="relative h-full overflow-hidden">{props.mobileFallback}</div>}
     >
-      <div class="relative w-full h-full min-w-0">
+      <div ref={root} class="relative w-full h-full min-w-0">
         <Show when={find.open()}>
           <ChatFindBar find={find} text={findText()} />
         </Show>
@@ -1095,6 +1308,7 @@ export function MessageTimeline(props: {
               </div>
             </Show>
             <div
+              ref={log}
               role="log"
               data-slot="session-turn-list"
               class="flex flex-col items-start justify-start pb-16 transition-[margin]"
@@ -1150,8 +1364,22 @@ export function MessageTimeline(props: {
                           quote.imageDataUrl === b[i].imageDataUrl,
                       ),
                   })
+                  const conversationQuotes = createMemo(() => messageConversationQuotes(sync.data.part[messageID] ?? []), [], {
+                    equals: (a, b) =>
+                      a.length === b.length &&
+                      a.every(
+                        (quote, i) =>
+                          quote.kind === b[i].kind &&
+                          quote.source === b[i].source &&
+                          quote.action === b[i].action &&
+                          quote.sourceMessageID === b[i].sourceMessageID &&
+                          quote.summary === b[i].summary &&
+                          quote.fullText === b[i].fullText,
+                      ),
+                  })
                   const commentCount = createMemo(() => comments().length)
                   const readingQuoteCount = createMemo(() => readingQuotes().length)
+                  const conversationQuoteCount = createMemo(() => conversationQuotes().length)
                   return (
                     <div
                       id={props.anchor(messageID)}
@@ -1166,7 +1394,7 @@ export function MessageTimeline(props: {
                         "contain-intrinsic-size": isAssistantCollapsed(messageID) ? "auto 20px" : "auto 500px",
                       }}
                     >
-                      <Show when={commentCount() > 0 || readingQuoteCount() > 0}>
+                      <Show when={commentCount() > 0 || readingQuoteCount() > 0 || conversationQuoteCount() > 0}>
                         <div class="w-full px-4 md:px-5 pb-2">
                           <div class="ml-auto max-w-[82%] overflow-x-auto no-scrollbar">
                             <div class="flex w-max min-w-full justify-end gap-2">
@@ -1234,6 +1462,29 @@ export function MessageTimeline(props: {
                                   )
                                 }}
                               </Index>
+                              <Index each={conversationQuotes()}>
+                                {(quoteAccessor: () => MessageConversationQuote) => {
+                                  const quote = createMemo(() => quoteAccessor())
+                                  return (
+                                    <Show when={quote()}>
+                                      {(q) => (
+                                        <button
+                                          type="button"
+                                          class="shrink-0 max-w-[260px] rounded-[6px] border border-border-weak-base bg-background-stronger px-2.5 py-2 text-left transition hover:bg-background-base"
+                                          onClick={() => {
+                                            dialog.show(() => <DialogConversationQuoteTextContent quote={q()} />)
+                                          }}
+                                        >
+                                          <div class="pt-1 text-11-medium text-text-weak">Ask</div>
+                                          <div class="pt-1 text-12-regular text-text-strong whitespace-pre-wrap break-words line-clamp-3">
+                                            {q().summary}
+                                          </div>
+                                        </button>
+                                      )}
+                                    </Show>
+                                  )
+                                }}
+                              </Index>
                             </div>
                           </div>
                         </div>
@@ -1263,6 +1514,25 @@ export function MessageTimeline(props: {
             </div>
           </div>
         </ScrollView>
+        <Show when={selection.open}>
+          <button
+            ref={ask}
+            type="button"
+            data-component="conversation-quote-ask-button"
+            class="absolute z-50 rounded-full border border-border-weak-base bg-background-stronger px-3 py-1.5 text-12-medium text-text-strong shadow-lg transition hover:bg-background-base"
+            style={{
+              top: `${selection.top}px`,
+              left: `${selection.left}px`,
+            }}
+            onPointerDown={(event) => {
+              event.preventDefault()
+              event.stopPropagation()
+            }}
+            onClick={() => submitAssistantSelection()}
+          >
+            Ask
+          </button>
+        </Show>
       </div>
     </Show>
   )

@@ -3,6 +3,7 @@ import { createStore } from "solid-js/store"
 import { useSpring } from "@opencode-ai/ui/motion-spring"
 import { PromptInput } from "@/components/prompt-input"
 import { type FollowupDraft } from "@/components/prompt-input/submit"
+import { useMaybeConversationQuote } from "@/context/conversation-quote"
 import { useLanguage } from "@/context/language"
 import { useMaybeQuickReadingMode } from "@/context/quick-reading-mode"
 import { useMaybeReadingMode } from "@/context/reading-mode"
@@ -47,10 +48,13 @@ export function SessionComposerRegion(props: {
 }) {
   const prompt = usePrompt()
   const language = useLanguage()
+  const conversationQuote = useMaybeConversationQuote()
   const readingMode = useMaybeReadingMode()
   const quickReadingMode = useMaybeQuickReadingMode()
   const route = useSessionKey()
   const pendingQuestion = createMemo(() => {
+    const pending = conversationQuote?.store.pendingQuestion
+    if (pending?.sessionID === route.params.id) return pending
     const quickPending = quickReadingMode?.store.pendingQuestion
     if (quickPending?.sessionID === route.params.id) return quickPending
     return readingMode?.store.pendingQuestion ?? null
@@ -256,25 +260,31 @@ export function SessionComposerRegion(props: {
                     <div class="flex items-start justify-between gap-3">
                       <div class="min-w-0 flex-1">
                         <div class="text-11-medium uppercase tracking-wide text-text-weak">
-                          {"pdfFileName" in question
+                          {"sourceMessageID" in question
+                            ? "AI Reply Quote"
+                            : "pdfFileName" in question
                             ? `${question.pdfFileName} · p.${formatReadingPageRange({ startPage: question.kind === "text-question" ? question.startPage : question.page, endPage: question.kind === "text-question" ? question.endPage : question.page })}`
                             : `PDF Quote - p.${formatReadingPageRange({ startPage: question.kind === "text-question" ? question.startPage : question.page, endPage: question.kind === "text-question" ? question.endPage : question.page })}`}
                         </div>
-                          <Show when={question.kind === "image-question"}>
-                            <img
-                              src={question.kind === "image-question" ? question.imageDataUrl : undefined}
-                              alt={`Captured region from page ${question.kind === "image-question" ? question.page : question.startPage}`}
-                              class="mt-2 h-20 max-w-full rounded-md border border-border-weak-base bg-background-base object-contain"
-                            />
-                          </Show>
+                        <Show when={"kind" in question && question.kind === "image-question"}>
+                          <img
+                            src={"kind" in question && question.kind === "image-question" ? question.imageDataUrl : undefined}
+                            alt={`Captured region from page ${"kind" in question && question.kind === "image-question" ? question.page : 0}`}
+                            class="mt-2 h-20 max-w-full rounded-md border border-border-weak-base bg-background-base object-contain"
+                          />
+                        </Show>
                         <div class="mt-1 line-clamp-3 whitespace-pre-wrap break-words text-13-regular text-text-strong">
-                          {question.text}
+                          {"summary" in question ? question.summary : question.text}
                         </div>
                       </div>
                       <button
                         type="button"
                         class="shrink-0 rounded-md px-1 py-0.5 text-12-medium text-text-weak transition hover:bg-surface-hover hover:text-text-strong"
                         onClick={() => {
+                          if ("sourceMessageID" in question) {
+                            conversationQuote?.clearPendingQuestion()
+                            return
+                          }
                           if ("pdfFileName" in question) {
                             quickReadingMode?.setPendingQuestion(null)
                             return
