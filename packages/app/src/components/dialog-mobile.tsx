@@ -401,8 +401,8 @@ export const DialogMobile: Component<Props> = (props) => {
                 <Button variant="secondary" onClick={() => stopBridge(p())}>
                   {language.t(`${p()}.disconnect`)}
                 </Button>
-                <Button variant="ghost" onClick={() => logout(p())}>
-                  {p() === "wechat" ? language.t("wechat.switchAccount") : language.t(`${p()}.switchApp`)}
+                <Button variant="ghost" onClick={p() === "wechat" ? () => rescanBridge("wechat") : () => logout(p())}>
+                  {p() === "wechat" ? language.t("wechat.rescan") : language.t(`${p()}.switchApp`)}
                 </Button>
               </div>
             </div>
