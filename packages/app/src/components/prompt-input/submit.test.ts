@@ -20,19 +20,10 @@ const storedSessions: Record<string, Array<{ id: string; title?: string }>> = {}
 const promoted: Array<{ directory: string; sessionID: string }> = []
 const sentShell: string[] = []
 const syncedDirectories: string[] = []
-const promptAsyncCalls: Array<{ sessionID: string; parts: Array<Record<string, unknown>> }> = []
 
 let params: { id?: string } = {}
 let selected = "/repo/worktree-a"
 let variant: string | undefined
-let conversationQuotePendingQuestion: {
-  kind: "assistant-text-question"
-  sessionID: string
-  sourceMessageID: string
-  text: string
-  summary: string
-  createdAt: number
-} | null = null
 
 const promptValue: Prompt = [{ type: "text", content: "ls", start: 0, end: 2 }]
 
@@ -54,10 +45,7 @@ const clientFor = (directory: string) => {
         return { data: undefined }
       },
       prompt: async () => ({ data: undefined }),
-      promptAsync: async (input: { sessionID: string; parts: Array<Record<string, unknown>> }) => {
-        promptAsyncCalls.push(input)
-        return { data: undefined }
-      },
+      promptAsync: async () => ({ data: undefined }),
       command: async () => ({ data: undefined }),
       abort: async () => ({ data: undefined }),
     },
@@ -220,27 +208,6 @@ beforeAll(async () => {
     }),
   }))
 
-  mock.module("@/context/conversation-quote", () => ({
-    useMaybeConversationQuote: () => ({
-      store: {
-        get pendingQuestion() {
-          return conversationQuotePendingQuestion
-        },
-      },
-      clearPendingQuestion() {
-        conversationQuotePendingQuestion = null
-      },
-    }),
-  }))
-
-  mock.module("@/context/reading-mode", () => ({
-    useMaybeReadingMode: () => undefined,
-  }))
-
-  mock.module("@/context/quick-reading-mode", () => ({
-    useMaybeQuickReadingMode: () => undefined,
-  }))
-
   mock.module("@/context/server", () => ({
     useServer: () => ({
       current: undefined,
@@ -263,14 +230,12 @@ beforeEach(() => {
   enabledAutoAccept.length = 0
   optimistic.length = 0
   optimisticSeeded.length = 0
-  promptAsyncCalls.length = 0
   promoted.length = 0
   params = {}
   sentShell.length = 0
   syncedDirectories.length = 0
   selected = "/repo/worktree-a"
   variant = undefined
-  conversationQuotePendingQuestion = null
   for (const key of Object.keys(storedSessions)) delete storedSessions[key]
 })
 
@@ -400,63 +365,5 @@ describe("prompt submit worktree selection", () => {
 
     expect(storedSessions["/repo/worktree-a"]).toEqual([{ id: "session-1", title: "New session 1" }])
     expect(optimisticSeeded).toEqual([true])
-  })
-
-  test("submits assistant quote follow-up and clears pending question", async () => {
-    params = { id: "session-1" }
-    conversationQuotePendingQuestion = {
-      kind: "assistant-text-question",
-      sessionID: "session-1",
-      sourceMessageID: "message-123",
-      text: "quoted assistant text",
-      summary: "quoted assistant text",
-      createdAt: Date.now(),
-    }
-
-    const submit = createPromptSubmit({
-      info: () => ({ id: "session-1" }),
-      imageAttachments: () => [],
-      commentCount: () => 0,
-      autoAccept: () => false,
-      mode: () => "normal",
-      working: () => false,
-      editor: () => undefined,
-      queueScroll: () => undefined,
-      promptLength: (value) => value.reduce((sum, part) => sum + ("content" in part ? part.content.length : 0), 0),
-      addToHistory: () => undefined,
-      resetHistoryNavigation: () => undefined,
-      setMode: () => undefined,
-      setPopover: () => undefined,
-      onSubmit: () => undefined,
-    })
-
-    const event = { preventDefault: () => undefined } as unknown as Event
-    await submit.handleSubmit(event)
-    await new Promise((resolve) => setTimeout(resolve, 0))
-
-    expect(promptAsyncCalls).toHaveLength(1)
-    expect(promptAsyncCalls[0]!.parts).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          type: "text",
-          synthetic: true,
-          text: expect.stringContaining("[Quoted assistant content]"),
-        }),
-        expect.objectContaining({
-          type: "text",
-          synthetic: true,
-          ignored: true,
-          metadata: expect.objectContaining({
-            opencodeConversationQuote: expect.objectContaining({
-              kind: "conversation-quote",
-              source: "assistant",
-              action: "ask",
-              sourceMessageID: "message-123",
-            }),
-          }),
-        }),
-      ]),
-    )
-    expect(conversationQuotePendingQuestion).toBeNull()
   })
 })
