@@ -115,7 +115,7 @@ export function createSessionComposerState(options?: { closeMs?: number | (() =>
     ),
   )
 
-  const { visual: busy } = createWorkingState({
+  const { interactive: busy } = createWorkingState({
     status: () => status(),
     pending: () => pending(),
     sessionID: () => params.id,

@@ -338,13 +338,12 @@ export const SessionItem = (props: SessionItemProps): JSX.Element => {
           message.role === "assistant" &&
           typeof (message as { time?: { completed?: unknown } }).time?.completed !== "number",
       ),
-    blocked: hasPermissions,
     sessionID: () => props.session.id,
     children: () => ({
       childMap: () => childMapByParent(sessionStore.session),
       status: (id: string) => sessionStore.session_status[id],
     }),
-  }).visual
+  }).interactive
 
   const tint = createMemo(() => {
     return messageAgentColor(sessionStore.message[props.session.id], sessionStore.agent)
