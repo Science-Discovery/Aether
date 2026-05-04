@@ -983,6 +983,8 @@ export const dict = {
     "设置审查栏每次加载多少个文件变更，“加载更多”也会按这个数量继续加载。",
   "settings.general.row.reasoningSummaries.title": "显示推理摘要",
   "settings.general.row.reasoningSummaries.description": "在时间线中显示模型推理摘要",
+  "settings.general.row.collapseMessages.title": "默认收起历史消息",
+  "settings.general.row.collapseMessages.description": "打开会话时自动收起除最新一条外的所有消息",
   "settings.general.row.shellToolPartsExpanded.title": "展开 shell 工具部分",
   "settings.general.row.shellToolPartsExpanded.description": "默认在时间线中展开 shell 工具部分",
   "settings.general.row.editToolPartsExpanded.title": "展开编辑工具部分",

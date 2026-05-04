@@ -31,6 +31,7 @@ export interface Settings {
     showReasoningSummaries: boolean
     shellToolPartsExpanded: boolean
     editToolPartsExpanded: boolean
+    collapseMessages: boolean
   }
   updates: {
     startup: boolean
@@ -60,6 +61,7 @@ const defaultSettings: Settings = {
     showReasoningSummaries: false,
     shellToolPartsExpanded: true,
     editToolPartsExpanded: false,
+    collapseMessages: true,
   },
   updates: {
     startup: true,
@@ -204,6 +206,13 @@ export const { use: useSettings, provider: SettingsProvider } = createSimpleCont
         ),
         setEditToolPartsExpanded(value: boolean) {
           setStore("general", "editToolPartsExpanded", value)
+        },
+        collapseMessages: withFallback(
+          () => store.general?.collapseMessages,
+          defaultSettings.general.collapseMessages,
+        ),
+        setCollapseMessages(value: boolean) {
+          setStore("general", "collapseMessages", value)
         },
       },
       updates: {

@@ -431,13 +431,15 @@ export function MessageTimeline(props: {
   createEffect(() => {
     const id = sessionID()
     if (!id || !loaded() || entry.session !== id || entry.done) return
-    const ids = collapsibleTurnIDs()
-    const tail = ids[ids.length - 1]
-    setAssistantCollapse(
-      "bySession",
-      id,
-      reconcile(Object.fromEntries(ids.filter((item) => item !== tail).map((item) => [item, true] as const))),
-    )
+    if (settings.general.collapseMessages()) {
+      const ids = collapsibleTurnIDs()
+      const tail = ids[ids.length - 1]
+      setAssistantCollapse(
+        "bySession",
+        id,
+        reconcile(Object.fromEntries(ids.filter((item) => item !== tail).map((item) => [item, true] as const))),
+      )
+    }
     setEntry("prev", id, rendered().slice())
     setEntry("done", true)
   })
