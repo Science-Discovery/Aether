@@ -309,7 +309,7 @@ export function MessageTimeline(props: {
     childMap: () => childMapByParent(sync.data.session),
     status: (id: string) => sync.data.session_status[id],
   }))
-  const { visual: working } = createWorkingState({
+  const { interactive: working } = createWorkingState({
     status: () => sessionStatus(),
     pending: () => pending(),
     sessionID: () => sessionID(),

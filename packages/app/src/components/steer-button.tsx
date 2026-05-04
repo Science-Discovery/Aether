@@ -24,7 +24,10 @@ export const SteerButton: Component = () => {
     const id = params.id
     if (!id) return false
     const status = sync.data.session_status[id]
-    return status?.type !== "idle"
+    if (status?.type !== "idle") return true
+    return (sync.data.message[id] ?? []).some(
+      (msg) => msg.role === "assistant" && typeof msg.time.completed !== "number",
+    )
   }
 
   const popupStyle = () => {
