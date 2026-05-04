@@ -37,13 +37,47 @@ const ANCHOR_FILES = [
 ]
 
 const BINARY_EXTENSIONS = new Set([
-  ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".ico", ".svg", ".webp",
-  ".woff", ".woff2", ".ttf", ".eot", ".otf",
-  ".zip", ".tar", ".gz", ".bz2", ".7z", ".rar",
-  ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx",
-  ".exe", ".dll", ".so", ".dylib", ".o", ".a",
-  ".mp3", ".mp4", ".avi", ".mov", ".wav", ".flac",
-  ".db", ".sqlite", ".lock",
+  ".png",
+  ".jpg",
+  ".jpeg",
+  ".gif",
+  ".bmp",
+  ".ico",
+  ".svg",
+  ".webp",
+  ".woff",
+  ".woff2",
+  ".ttf",
+  ".eot",
+  ".otf",
+  ".zip",
+  ".tar",
+  ".gz",
+  ".bz2",
+  ".7z",
+  ".rar",
+  ".pdf",
+  ".doc",
+  ".docx",
+  ".xls",
+  ".xlsx",
+  ".ppt",
+  ".pptx",
+  ".exe",
+  ".dll",
+  ".so",
+  ".dylib",
+  ".o",
+  ".a",
+  ".mp3",
+  ".mp4",
+  ".avi",
+  ".mov",
+  ".wav",
+  ".flac",
+  ".db",
+  ".sqlite",
+  ".lock",
 ])
 
 type FormatType = "top-level" | "subfolder" | "hybrid"
@@ -117,7 +151,8 @@ function buildFormatTemplate(format: FormatType): string {
 
 export namespace FolderSummary {
   /** Generate and write .summary for a single directory */
-  export async function generate(dir: string, root: string): Promise<void> {
+  export async function generate(dir: string, root: string, abort?: AbortSignal): Promise<void> {
+    if (abort?.aborted) return
     log.info("generating summary", { dir })
 
     const entries = await fs.readdir(dir, { withFileTypes: true }).catch(() => [])
@@ -142,9 +177,7 @@ export namespace FolderSummary {
       const subEntries = await fs.readdir(subdirPath, { withFileTypes: true }).catch(() => [])
       const fileCount = subEntries.filter((e) => e.isFile()).length
       const anchorSnippet = await readAnchorSnippet(subdirPath, 500)
-      subdirSections.push(
-        `=== SUBDIR: ${dirName} (${fileCount} files) ===\n${anchorSnippet || "(no anchor file)"}`,
-      )
+      subdirSections.push(`=== SUBDIR: ${dirName} (${fileCount} files) ===\n${anchorSnippet || "(no anchor file)"}`)
     }
 
     // Gather file content
@@ -167,7 +200,7 @@ export namespace FolderSummary {
       "",
       "RULES:",
       '- "When to Dive In" / "When to Read": use "When you need to..." format, max 40 characters',
-      "- \"Summary\": one sentence, max 60 characters",
+      '- "Summary": one sentence, max 60 characters',
       "- Use appropriate emoji icons for categories",
       "- Include one row per entry listed below",
       "- Output ONLY the markdown content, no explanation or code fences",
@@ -197,6 +230,7 @@ export namespace FolderSummary {
         messages: [{ role: "user", content: prompt }],
         maxOutputTokens: 1500,
         temperature: 0.2,
+        abortSignal: abort,
       })
       return result.text.trim()
     }
@@ -234,9 +268,10 @@ export namespace FolderSummary {
     root: string,
     maxDepth: number,
     force: boolean,
+    abort?: AbortSignal,
   ): Promise<string[]> {
     const results: string[] = []
-    await traverse(root, root, 0, maxDepth, force, results)
+    await traverse(root, root, 0, maxDepth, force, results, abort)
     return results
   }
 
@@ -247,14 +282,16 @@ export namespace FolderSummary {
     maxDepth: number,
     force: boolean,
     results: string[],
+    abort?: AbortSignal,
   ): Promise<void> {
     if (depth > maxDepth) return
+    if (abort?.aborted) return
 
     const summaryPath = path.join(dir, SUMMARY_FILE)
 
     if (force || !(await Filesystem.exists(summaryPath))) {
       try {
-        await generate(dir, root)
+        await generate(dir, root, abort)
         results.push(summaryPath)
       } catch (err) {
         log.error("failed to generate summary", { dir, error: err })
@@ -266,7 +303,8 @@ export namespace FolderSummary {
     for (const entry of entries) {
       if (!entry.isDirectory()) continue
       if (SKIP_DIRS.has(entry.name) || entry.name.startsWith(".")) continue
-      await traverse(path.join(dir, entry.name), root, depth + 1, maxDepth, force, results)
+      if (abort?.aborted) return
+      await traverse(path.join(dir, entry.name), root, depth + 1, maxDepth, force, results, abort)
     }
   }
 }
