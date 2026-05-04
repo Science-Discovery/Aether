@@ -688,6 +688,7 @@ export const dict = {
   "font.option.iosevka": "Iosevka",
   "font.option.jetbrainsMono": "JetBrains Mono",
   "font.option.mesloLgs": "Meslo LGS",
+  "font.option.monaco": "Monaco",
   "font.option.robotoMono": "Roboto Mono",
   "font.option.sourceCodePro": "Source Code Pro",
   "font.option.ubuntuMono": "Ubuntu Mono",
