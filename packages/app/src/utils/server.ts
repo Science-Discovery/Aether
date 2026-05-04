@@ -166,11 +166,6 @@ export type AppClient = Base & {
       get(input: { runID: string }): Req<CronRun | null>
     }
   }
-  global: Base["global"] & {
-    config: {
-      updateSkills(input: { creation_nudge_interval?: number; max_versions?: number }): Req<void>
-    }
-  }
   config: Base["config"] & {
     skills: {
       list(): Req<Skill[]>
@@ -179,6 +174,8 @@ export type AppClient = Base & {
       getManagedDir(): Req<{ path: string }>
       toggle(input: { name: string; enabled: boolean }): Req<{ ok: boolean }>
       toggleEvolution(input: { file: string; evolutionEnabled: boolean }): Req<{ ok: boolean }>
+      updateInterval(input: { interval: number }): Req<{ ok: boolean }>
+      updateMaxVersions(input: { max: number }): Req<{ ok: boolean }>
       addDefaults(input?: { directory?: string }): Req<{ added: string[] }>
     }
   }
@@ -401,9 +398,11 @@ export function addSkillsExtraMethods(
   skills.toggleEvolution = async (input: { file: string; evolutionEnabled: boolean }) => {
     return requestJSON(`${baseUrl}/config/skills/toggle-evolution`, { method: "POST", headers, body: JSON.stringify(input) }, options)
   }
-  const globalConfig = (client as any).global.config as Record<string, unknown>
-  globalConfig.updateSkills = async (input: { creation_nudge_interval?: number; max_versions?: number }) => {
-    return requestJSON(`${baseUrl}/global/config/skills`, { method: "PATCH", headers, body: JSON.stringify(input) }, options)
+  skills.updateInterval = async (input: { interval: number }) => {
+    return requestJSON(`${baseUrl}/config/skills/update-interval`, { method: "POST", headers, body: JSON.stringify(input) }, options)
+  }
+  skills.updateMaxVersions = async (input: { max: number }) => {
+    return requestJSON(`${baseUrl}/config/skills/update-max-versions`, { method: "POST", headers, body: JSON.stringify(input) }, options)
   }
   return client
 }

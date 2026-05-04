@@ -54,7 +54,8 @@ export const SettingsSkills: Component = () => {
   const updateInterval = async (interval: number) => {
     setSaving(true)
     try {
-      await globalSync.updateSkillsConfig({ creation_nudge_interval: interval })
+      await globalSDK.client.config.skills.updateInterval({ interval })
+      await globalSync.bootstrap()
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       showToast({ title: "Request failed", description: message })
@@ -66,7 +67,8 @@ export const SettingsSkills: Component = () => {
   const updateMaxVersions = async (max: number) => {
     setSaving(true)
     try {
-      await globalSync.updateSkillsConfig({ max_versions: max })
+      await globalSDK.client.config.skills.updateMaxVersions({ max })
+      await globalSync.bootstrap()
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       showToast({ title: "Request failed", description: message })
