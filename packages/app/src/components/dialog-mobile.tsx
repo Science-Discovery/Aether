@@ -2,6 +2,7 @@ import { Button } from "@opencode-ai/ui/button"
 import { Icon } from "@opencode-ai/ui/icon"
 import { Dialog } from "@opencode-ai/ui/dialog"
 import { Collapsible } from "@opencode-ai/ui/collapsible"
+import { Switch as SwitchToggle } from "@opencode-ai/ui/switch"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { Component, Show, Switch, Match, createSignal, onMount } from "solid-js"
 import { createStore } from "solid-js/store"
@@ -23,8 +24,12 @@ import {
   fetchStatus,
   forceTakeover,
   retryBridge,
+  rescanBridge,
   setStatus,
+  autoConnect,
+  setAutoConnect,
   type MobilePlatform,
+  type MobileStatus,
 } from "@/context/mobile"
 
 interface Props {
@@ -42,6 +47,7 @@ export const DialogMobile: Component<Props> = (props) => {
   const [inputAppId, setInputAppId] = createSignal("")
   const [inputAppSecret, setInputAppSecret] = createSignal("")
   const [steps, setSteps] = createStore({ 1: false, 2: false, 3: false, 4: false, 5: false })
+  const [prevStatus, setPrevStatus] = createSignal<MobileStatus>("idle")
 
   const p = () => props.platform
 
@@ -124,7 +130,7 @@ export const DialogMobile: Component<Props> = (props) => {
               <Icon name={iconName(p())} size="large" class="size-16 text-icon-base" />
               <p class="text-14-regular text-text-base text-center">{language.t(`${p()}.connectToUse`)}</p>
               <Show
-                when={(p() === "feishu" || p() === "qq") && hasConfig(p())}
+                when={hasConfig(p())}
                 fallback={
                   p() === "feishu" || p() === "qq" ? (
                     <Button variant="primary" onClick={() => setStatus(p(), "config")}>
@@ -139,10 +145,21 @@ export const DialogMobile: Component<Props> = (props) => {
               >
                 <div class="flex gap-2">
                   <Button variant="primary" onClick={doStart}>
-                    {p() === "feishu" ? language.t("feishu.connectFeishu") : language.t("qq.connectQQ")}
+                    {p() === "feishu"
+                      ? language.t("feishu.connectFeishu")
+                      : p() === "qq"
+                        ? language.t("qq.connectQQ")
+                        : language.t("wechat.connectWechat")}
                   </Button>
-                  <Button variant="ghost" onClick={() => setStatus(p(), "config")}>
-                    {language.t(`${p()}.reconfigure`)}
+                  <Button
+                    variant="ghost"
+                    onClick={() => {
+                      setPrevStatus("idle")
+                      if (p() === "wechat") rescanBridge("wechat")
+                      else setStatus(p(), "config")
+                    }}
+                  >
+                    {p() === "wechat" ? language.t("wechat.rescan") : language.t(`${p()}.reconfigure`)}
                   </Button>
                 </div>
               </Show>
@@ -176,7 +193,7 @@ export const DialogMobile: Component<Props> = (props) => {
                     />
                   </div>
                   <div class="flex justify-end gap-2">
-                    <Button variant="ghost" onClick={() => setStatus(p(), "idle")}>
+                    <Button variant="ghost" onClick={() => setStatus(p(), prevStatus())}>
                       {language.t(`${p()}.cancel`)}
                     </Button>
                     <Button variant="primary" disabled={!inputAppId() || !inputAppSecret()} onClick={doStart}>
@@ -342,7 +359,16 @@ export const DialogMobile: Component<Props> = (props) => {
                   />
                 </Show>
                 <p class="text-14-regular text-text-base">{language.t("wechat.scanQRCode")}</p>
-                <Button variant="ghost" onClick={() => stopBridge("wechat")}>
+                <Button
+                  variant="ghost"
+                  onClick={() => {
+                    if (prevStatus() === "connected") {
+                      stopBridge("wechat").then(() => startBridge("wechat", true))
+                    } else {
+                      stopBridge("wechat")
+                    }
+                  }}
+                >
                   {language.t("wechat.cancel")}
                 </Button>
               </div>
@@ -393,10 +419,20 @@ export const DialogMobile: Component<Props> = (props) => {
                 <Button variant="secondary" onClick={() => stopBridge(p())}>
                   {language.t(`${p()}.disconnect`)}
                 </Button>
-                <Button variant="ghost" onClick={() => logout(p())}>
-                  {p() === "wechat" ? language.t("wechat.switchAccount") : language.t(`${p()}.switchApp`)}
+                <Button
+                  variant="ghost"
+                  onClick={() => {
+                    setPrevStatus(status(p()))
+                    if (p() === "wechat") rescanBridge("wechat")
+                    else setStatus(p(), "config")
+                  }}
+                >
+                  {p() === "wechat" ? language.t("wechat.rescan") : language.t(`${p()}.reconfigure`)}
                 </Button>
               </div>
+              <SwitchToggle checked={autoConnect(p())} onChange={(v) => setAutoConnect(p(), v)}>
+                {language.t("mobile.autoConnect")}
+              </SwitchToggle>
             </div>
           </Match>
 
