@@ -433,24 +433,7 @@ export async function logout(p: MobilePlatform) {
 }
 
 export async function retryBridge(p: MobilePlatform) {
-  if (p === "wechat") {
-    patch("wechat", { status: "loading", loadingMsg: "正在重新连接微信...", error: null })
-    connectSSE("wechat")
-    try {
-      const { url, headers } = api()
-      const res = await fetch(`${url}/mobile/wechat/retry`, {
-        method: "POST",
-        headers: { ...headers, "Content-Type": "application/json" },
-      })
-      const data = await res.json()
-      if (!data.success) {
-        patch("wechat", { error: { code: "retry_failed", message: data.message || "重连失败" }, status: "error" })
-      }
-    } catch (err) {
-      patch("wechat", { error: { code: "network_error", message: String(err) }, status: "error" })
-    }
-    return
-  }
+  if (p === "wechat") return startBridge(p)
   if (p === "qq") return startBridge(p)
   patch(p, { status: "reconnecting", loadingMsg: "正在重新连接飞书...", error: null })
   patch(p, { status: "reconnecting", loadingMsg: "正在重新连接微信...", error: null })
