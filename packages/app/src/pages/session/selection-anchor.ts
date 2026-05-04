@@ -1,0 +1,67 @@
+export type SelectionAnchorRect = {
+  top: number
+  left: number
+  right: number
+  bottom: number
+  width: number
+  height: number
+}
+
+const FIRST_LINE_TOLERANCE_PX = 4
+
+const rectFromEdges = (input: { top: number; left: number; right: number; bottom: number }): SelectionAnchorRect => ({
+  top: input.top,
+  left: input.left,
+  right: input.right,
+  bottom: input.bottom,
+  width: input.right - input.left,
+  height: input.bottom - input.top,
+})
+
+const isValidRect = (rect: SelectionAnchorRect) =>
+  Number.isFinite(rect.top) &&
+  Number.isFinite(rect.left) &&
+  Number.isFinite(rect.right) &&
+  Number.isFinite(rect.bottom) &&
+  Number.isFinite(rect.width) &&
+  Number.isFinite(rect.height) &&
+  rect.width > 0 &&
+  rect.height > 0
+
+const median = (values: number[]) => {
+  const sorted = [...values].sort((a, b) => a - b)
+  const middle = Math.floor(sorted.length / 2)
+  if (sorted.length % 2 === 0) return (sorted[middle - 1]! + sorted[middle]!) / 2
+  return sorted[middle]!
+}
+
+export function resolveSelectionAnchorRect(input: {
+  rects: SelectionAnchorRect[]
+  containerWidth: number
+  fallbackRect?: SelectionAnchorRect
+}) {
+  const rects = input.rects.filter(isValidRect)
+  const fallback = input.fallbackRect && isValidRect(input.fallbackRect) ? input.fallbackRect : undefined
+  if (rects.length === 0) return fallback
+
+  const top = Math.min(...rects.map((rect) => rect.top))
+  const lines = rects.filter((rect) => Math.abs(rect.top - top) <= FIRST_LINE_TOLERANCE_PX)
+  if (lines.length === 0) return fallback
+
+  const width = median(lines.map((rect) => rect.width))
+  const filtered = lines.filter((rect) => {
+    if (input.containerWidth > 0 && rect.width >= input.containerWidth * 0.9) return false
+    if (lines.length > 1 && width > 0 && rect.width >= width * 2.5) return false
+    return true
+  })
+
+  const anchor = filtered.length > 0 ? filtered : lines
+  if (anchor.length === 1) return anchor[0]
+
+  return rectFromEdges({
+    left: Math.min(...anchor.map((rect) => rect.left)),
+    right: Math.max(...anchor.map((rect) => rect.right)),
+    top: Math.min(...anchor.map((rect) => rect.top)),
+    bottom: Math.max(...anchor.map((rect) => rect.bottom)),
+  })
+}
