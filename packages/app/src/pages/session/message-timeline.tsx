@@ -520,6 +520,7 @@ export function MessageTimeline(props: {
   })
   const find = createChatFind({
     root: () => log,
+    panel: () => root,
     active: () => !props.mobileChanges,
   })
   const findText = createMemo(() => ({

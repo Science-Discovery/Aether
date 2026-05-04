@@ -5,6 +5,7 @@ import { Portal } from "solid-js/web"
 
 type Find = {
   root: () => HTMLElement | undefined
+  panel?: () => HTMLElement | undefined
   active?: () => boolean
 }
 
@@ -127,7 +128,8 @@ export function createChatFind(input: Find) {
   const place = () => {
     const root = input.root()
     if (!root) return
-    const box = root.getBoundingClientRect()
+    const anchor = input.panel?.() ?? root
+    const box = anchor.getBoundingClientRect()
     const raw = parseFloat(getComputedStyle(root).getPropertyValue("--session-title-height"))
     const head = Number.isNaN(raw) ? 0 : raw
     setState("pos", {
@@ -209,8 +211,15 @@ export function createChatFind(input: Find) {
       const k = event.key.toLowerCase()
 
       if (k === "f") {
-        if (!scope) return
-        if (editable(event.target)) return
+        if (!root || !document.contains(root)) return
+        const panel = root.closest("[data-chat-panel]")
+        const ae = document.activeElement
+        const inScope =
+          scope ||
+          (panel !== null && (owns(panel as HTMLElement, event.target) || owns(panel as HTMLElement, ae))) ||
+          !ae ||
+          ae === document.body
+        if (!inScope) return
         event.preventDefault()
         event.stopPropagation()
         focus()
