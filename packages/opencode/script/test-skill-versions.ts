@@ -608,6 +608,121 @@ async function testComplexLifecycle() {
   }
 }
 
+// [24] Binary Ruler: v001 永不被淘汰
+async function testBinaryRulerOriginPreserved() {
+  console.log("\n[24] Binary Ruler: v001 always retained past capacity")
+  const dir = await setup()
+  try {
+    // Use C=10 via env mock — we inject via a small wrapper instead
+    // Write 15 snapshots; prune uses DEFAULT (100), so no pruning yet.
+    // Force pruning by writing enough versions.
+    // To keep test fast, use C=10 by monkey-patching resolveMaxVersions indirectly:
+    // we can't easily override config here, so we write DEFAULT_MAX_VERSIONS+1 snapshots.
+    // Instead, write 12 versions and verify v001 is present at boundary with C=10 logic by
+    // calling the exported functions and checking listVersions directly.
+    // Since DEFAULT_MAX_VERSIONS=100, write 101 to trigger prune.
+    for (let i = 1; i <= 101; i++) {
+      await writeFile(dir, "SKILL.md", `content ${i}`)
+      await snapshot(dir, i === 1 ? "create" : "edit")
+    }
+    const versions = await listVersions(dir)
+    assert(versions.length <= 100, `count ${versions.length} <= 100 after 101 snapshots`)
+    assert(versions.some((v) => v.version === 1), "v001 always retained")
+  } finally {
+    await cleanup(dir)
+  }
+}
+
+// [25] Binary Ruler: 活跃区最新版本全部保留
+async function testBinaryRulerActiveZone() {
+  console.log("\n[25] Binary Ruler: active zone (latest 49) fully retained")
+  const dir = await setup()
+  try {
+    for (let i = 1; i <= 101; i++) {
+      await writeFile(dir, "SKILL.md", `content ${i}`)
+      await snapshot(dir, i === 1 ? "create" : "edit")
+    }
+    const versions = await listVersions(dir)
+    // With C=100, A=49: last 49 version numbers must all be present
+    const retained = new Set(versions.map((v) => v.version))
+    // latest 49: versions 53..101
+    let allActive = true
+    for (let n = 53; n <= 101; n++) {
+      if (!retained.has(n)) { allActive = false; break }
+    }
+    assert(allActive, "all 49 active-zone versions retained (v053-v101)")
+  } finally {
+    await cleanup(dir)
+  }
+}
+
+// [26] Binary Ruler: 奇数版本（权重=1）先被淘汰，2 的幂次版本长久保留
+async function testBinaryRulerMilestoneWeights() {
+  console.log("\n[26] Binary Ruler: odd versions evicted first, power-of-2 versions survive")
+  const dir = await setup()
+  try {
+    // With C=100, A=49, M=50: at N=105 the milestone zone has 55 candidates (v002-v056),
+    // keeps top 50 by weight → evicts the 5 oldest weight-1 versions: v003,v005,v007,v009,v011.
+    for (let i = 1; i <= 105; i++) {
+      await writeFile(dir, "SKILL.md", `content ${i}`)
+      await snapshot(dir, i === 1 ? "create" : "edit")
+    }
+    const versions = await listVersions(dir)
+    const retained = new Set(versions.map((v) => v.version))
+    // Power-of-2 milestones should all survive
+    for (const n of [2, 4, 8, 16, 32]) {
+      assert(retained.has(n), `v${String(n).padStart(3, "0")} (weight=${n}) retained in milestone zone`)
+    }
+    // The 5 oldest weight-1 odd versions should be evicted
+    for (const n of [3, 5, 7, 9, 11]) {
+      assert(!retained.has(n), `v${String(n).padStart(3, "0")} (odd, weight=1) evicted from milestone zone`)
+    }
+  } finally {
+    await cleanup(dir)
+  }
+}
+
+// [27] Binary Ruler: 总数始终不超 C
+async function testBinaryRulerCountBound() {
+  console.log("\n[27] Binary Ruler: version count never exceeds C=100")
+  const dir = await setup()
+  try {
+    for (let i = 1; i <= 150; i++) {
+      await writeFile(dir, "SKILL.md", `content ${i}`)
+      await snapshot(dir, i === 1 ? "create" : "edit")
+      const versions = await listVersions(dir)
+      if (versions.length > 100) {
+        assert(false, `count exceeded 100 at iteration ${i}: got ${versions.length}`)
+        return
+      }
+    }
+    assert(true, "count stayed <= 100 across 150 snapshots")
+  } finally {
+    await cleanup(dir)
+  }
+}
+
+// [28] Binary Ruler: rollback 后仍满足容量约束
+async function testBinaryRulerRollbackConstraint() {
+  console.log("\n[28] Binary Ruler: rollback still satisfies capacity constraint")
+  const dir = await setup()
+  try {
+    for (let i = 1; i <= 101; i++) {
+      await writeFile(dir, "SKILL.md", `content ${i}`)
+      await snapshot(dir, i === 1 ? "create" : "edit")
+    }
+    const before = await listVersions(dir)
+    assert(before.length <= 100, `before rollback: ${before.length} <= 100`)
+    // Rollback to v001 (always present)
+    await rollback(dir, "v001")
+    const after = await listVersions(dir)
+    assert(after.length <= 100, `after rollback: ${after.length} <= 100`)
+    assert(after[after.length - 1]!.action === "rollback-v001", "rollback snapshot created")
+  } finally {
+    await cleanup(dir)
+  }
+}
+
 // ── Run all ───────────────────────────────────────────────────────────────────
 
 async function main() {
@@ -635,6 +750,11 @@ async function main() {
   await testIsVersionsDir()
   await testVersionsPruning()
   await testComplexLifecycle()
+  await testBinaryRulerOriginPreserved()
+  await testBinaryRulerActiveZone()
+  await testBinaryRulerMilestoneWeights()
+  await testBinaryRulerCountBound()
+  await testBinaryRulerRollbackConstraint()
 
   console.log(`\n=== Results: ${passed} passed, ${failed} failed ===`)
   if (failed > 0) process.exit(1)
