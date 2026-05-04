@@ -26,6 +26,7 @@ import {
   rescanBridge,
   setStatus,
   type MobilePlatform,
+  type MobileStatus,
 } from "@/context/mobile"
 
 interface Props {
@@ -43,6 +44,7 @@ export const DialogMobile: Component<Props> = (props) => {
   const [inputAppId, setInputAppId] = createSignal("")
   const [inputAppSecret, setInputAppSecret] = createSignal("")
   const [steps, setSteps] = createStore({ 1: false, 2: false, 3: false, 4: false, 5: false })
+  const [prevStatus, setPrevStatus] = createSignal<MobileStatus>("idle")
 
   const p = () => props.platform
 
@@ -148,7 +150,11 @@ export const DialogMobile: Component<Props> = (props) => {
                   </Button>
                   <Button
                     variant="ghost"
-                    onClick={p() === "wechat" ? () => rescanBridge("wechat") : () => setStatus(p(), "config")}
+                    onClick={() => {
+                      setPrevStatus("idle")
+                      if (p() === "wechat") rescanBridge("wechat")
+                      else setStatus(p(), "config")
+                    }}
                   >
                     {p() === "wechat" ? language.t("wechat.rescan") : language.t(`${p()}.reconfigure`)}
                   </Button>
@@ -184,7 +190,7 @@ export const DialogMobile: Component<Props> = (props) => {
                     />
                   </div>
                   <div class="flex justify-end gap-2">
-                    <Button variant="ghost" onClick={() => setStatus(p(), "idle")}>
+                    <Button variant="ghost" onClick={() => setStatus(p(), prevStatus())}>
                       {language.t(`${p()}.cancel`)}
                     </Button>
                     <Button variant="primary" disabled={!inputAppId() || !inputAppSecret()} onClick={doStart}>
@@ -350,7 +356,16 @@ export const DialogMobile: Component<Props> = (props) => {
                   />
                 </Show>
                 <p class="text-14-regular text-text-base">{language.t("wechat.scanQRCode")}</p>
-                <Button variant="ghost" onClick={() => stopBridge("wechat")}>
+                <Button
+                  variant="ghost"
+                  onClick={() => {
+                    if (prevStatus() === "connected") {
+                      stopBridge("wechat").then(() => startBridge("wechat", true))
+                    } else {
+                      stopBridge("wechat")
+                    }
+                  }}
+                >
                   {language.t("wechat.cancel")}
                 </Button>
               </div>
@@ -401,8 +416,15 @@ export const DialogMobile: Component<Props> = (props) => {
                 <Button variant="secondary" onClick={() => stopBridge(p())}>
                   {language.t(`${p()}.disconnect`)}
                 </Button>
-                <Button variant="ghost" onClick={p() === "wechat" ? () => rescanBridge("wechat") : () => logout(p())}>
-                  {p() === "wechat" ? language.t("wechat.rescan") : language.t(`${p()}.switchApp`)}
+                <Button
+                  variant="ghost"
+                  onClick={() => {
+                    setPrevStatus(status(p()))
+                    if (p() === "wechat") rescanBridge("wechat")
+                    else setStatus(p(), "config")
+                  }}
+                >
+                  {p() === "wechat" ? language.t("wechat.rescan") : language.t(`${p()}.reconfigure`)}
                 </Button>
               </div>
             </div>
