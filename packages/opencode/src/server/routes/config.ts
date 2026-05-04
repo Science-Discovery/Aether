@@ -246,6 +246,46 @@ export const ConfigRoutes = lazy(() =>
         return c.json({ ok: true })
       },
     )
+    .post(
+      "/skills/update-interval",
+      describeRoute({
+        summary: "Update skill review interval",
+        description: "Update the creation_nudge_interval without restarting instances.",
+        operationId: "config.skills.updateInterval",
+        responses: {
+          200: {
+            description: "Interval updated",
+            content: { "application/json": { schema: resolver(z.object({ ok: z.boolean() })) } },
+          },
+        },
+      }),
+      validator("json", z.object({ interval: z.number().int().min(0) })),
+      async (c) => {
+        const { interval } = c.req.valid("json")
+        await Config.updateSkillsConfig({ skills: { creation_nudge_interval: interval } } as any)
+        return c.json({ ok: true })
+      },
+    )
+    .post(
+      "/skills/update-max-versions",
+      describeRoute({
+        summary: "Update skill max versions",
+        description: "Update the max_versions without restarting instances.",
+        operationId: "config.skills.updateMaxVersions",
+        responses: {
+          200: {
+            description: "Max versions updated",
+            content: { "application/json": { schema: resolver(z.object({ ok: z.boolean() })) } },
+          },
+        },
+      }),
+      validator("json", z.object({ max: z.number().int().min(1) })),
+      async (c) => {
+        const { max } = c.req.valid("json")
+        await Config.updateSkillsConfig({ skills: { max_versions: max } } as any)
+        return c.json({ ok: true })
+      },
+    )
     .get(
       "/providers",
       describeRoute({

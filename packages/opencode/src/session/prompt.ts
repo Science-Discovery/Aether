@@ -309,8 +309,6 @@ export namespace SessionPrompt {
     const isSkillReviewSession = session.title === SKILL_REVIEW_MARKER
     // mirrors Hermes: _iters_since_skill is an instance variable on AIAgent
     if (!_skillCounters.has(sessionID)) _skillCounters.set(sessionID, 0)
-    const cfg = await Config.get()
-    const skillNudgeInterval = cfg.skills?.creation_nudge_interval ?? SKILL_NUDGE_INTERVAL
     // Prepare the session memory pool once. Only active recalled memory is injected later.
     await Memory.start({ session_id: sessionID })
     const attachMemoryReceipt = async (messageID: MessageID, events: Memory.Event[]) => {
@@ -804,7 +802,7 @@ export namespace SessionPrompt {
           _skillCounters.set(sessionID, 0)
         }
         _skillCounters.set(sessionID, (_skillCounters.get(sessionID) ?? 0) + 1) // always +1 per step, mirrors Hermes L9110
-        console.log(`[skill counter] count=${_skillCounters.get(sessionID)} threshold=${skillNudgeInterval}`)
+        console.log(`[skill counter] count=${_skillCounters.get(sessionID)}`)
       }
 
       const parts = await MessageV2.parts(processor.message.id)
@@ -871,6 +869,8 @@ export namespace SessionPrompt {
 
     // mirrors Hermes: post-loop trigger check (run_agent.py L11828-11856)
     // Conditions: _iters_since_skill >= threshold AND skill_manage available AND final_response AND not interrupted
+    const globalCfg = await Config.getGlobal()
+    const skillNudgeInterval = globalCfg.skills?.creation_nudge_interval ?? SKILL_NUDGE_INTERVAL
     const _shouldReviewSkills =
       !isSkillReviewSession &&
       skillNudgeInterval > 0 &&

@@ -2,13 +2,13 @@ import fs from "fs/promises"
 import path from "path"
 
 const VERSIONS_DIR = ".versions"
-const DEFAULT_MAX_VERSIONS = 1000
+const DEFAULT_MAX_VERSIONS = 100
 const VERSION_REGEX = /^v(\d+)_([a-zA-Z0-9_-]+)_(\d{8}T\d{6})\.bundle\.json$/
 
 async function resolveMaxVersions(): Promise<number> {
   try {
     const { Config } = await import("../config/config")
-    const cfg = await Config.get()
+    const cfg = await Config.getGlobal()
     const configured = cfg.skills?.max_versions
     if (typeof configured === "number" && configured >= 1) return configured
   } catch {}
@@ -206,13 +206,36 @@ export async function rollback(skillDir: string, targetLabel: string): Promise<{
   return { restoredFrom: entry.filename }
 }
 
+function binaryRulerWeight(versionNumber: number): number {
+  return versionNumber & -versionNumber
+}
+
 async function prune(skillDir: string): Promise<void> {
   const versions = await listVersions(skillDir)
-  const max = await resolveMaxVersions()
-  if (versions.length <= max) return
+  const C = await resolveMaxVersions()
+  if (versions.length <= C) return
+
+  const A = Math.max(1, Math.floor((C - 1) * 0.5))
+  const M = Math.max(0, C - 1 - A)
+
+  const origin = versions[0]!
+  const activeStart = Math.max(1, versions.length - A)
+  const activeSet = new Set(versions.slice(activeStart).map((v) => v.version))
+  const milestones = versions.slice(1, activeStart)
+
+  milestones.sort((a, b) => {
+    const wa = binaryRulerWeight(a.version)
+    const wb = binaryRulerWeight(b.version)
+    return wa !== wb ? wb - wa : b.version - a.version
+  })
+  const keepMilestones = new Set(milestones.slice(0, M).map((v) => v.version))
+
   const dir = versionsDir(skillDir)
-  const toDelete = versions.slice(0, versions.length - max)
-  await Promise.all(toDelete.map((v) => fs.unlink(path.join(dir, v.filename)).catch(() => {})))
+  await Promise.all(
+    versions
+      .filter((v) => v.version !== origin.version && !activeSet.has(v.version) && !keepMilestones.has(v.version))
+      .map((v) => fs.unlink(path.join(dir, v.filename)).catch(() => {})),
+  )
 }
 
 export function formatHistory(skillName: string, versions: VersionEntry[]): string {
