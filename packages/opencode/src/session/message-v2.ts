@@ -226,6 +226,7 @@ export namespace MessageV2 {
       })
       .optional(),
     command: z.string().optional(),
+    category: z.string().optional(),
     discipline: z
       .object({
         mode: z.enum(["serial", "concurrent", "background"]).default("serial"),

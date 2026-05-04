@@ -25,4 +25,14 @@ describe("Discipline.fromOverride", () => {
     expect(result).toContainEqual({ permission: "glob", pattern: "src/**", action: "allow" })
     expect(result).toContainEqual({ permission: "glob", pattern: "test/**", action: "allow" })
   })
+
+  test("invalid action value is skipped", () => {
+    const result = fromOverride({ edit: ["maybe"], bash: ["deny"] })
+    expect(result).toEqual([{ permission: "bash", pattern: "*", action: "deny" }])
+  })
+
+  test("ask action is valid", () => {
+    const result = fromOverride({ bash: ["ask"] })
+    expect(result).toEqual([{ permission: "bash", pattern: "*", action: "ask" }])
+  })
 })

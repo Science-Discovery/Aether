@@ -47,15 +47,18 @@ export const Discipline = z.object({
 })
 export type Discipline = z.infer<typeof Discipline>
 
+const VALID_ACTIONS = new Set(["allow", "deny", "ask"])
+
 export function fromOverride(override: Record<string, string[]>): Permission.Ruleset {
   const ruleset: Permission.Ruleset = []
   for (const [permission, values] of Object.entries(override)) {
-    const action = values[0] as Permission.Action
+    const action = values[0]
+    if (!VALID_ACTIONS.has(action)) continue
     if (values.length === 1) {
-      ruleset.push({ permission, pattern: "*", action })
+      ruleset.push({ permission, pattern: "*", action: action as Permission.Action })
     } else {
       for (let i = 1; i < values.length; i++) {
-        ruleset.push({ permission, pattern: values[i], action })
+        ruleset.push({ permission, pattern: values[i], action: action as Permission.Action })
       }
     }
   }

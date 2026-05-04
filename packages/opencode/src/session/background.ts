@@ -1,8 +1,8 @@
 import { Session } from "."
+import { SessionID } from "./schema"
 import { Agent } from "../agent/agent"
 import { SessionPrompt } from "./prompt"
 import { Bus } from "../bus"
-import { BusEvent } from "../bus/bus-event"
 import { Config } from "../config/config"
 import { Permission } from "@/permission"
 import { Discipline } from "./discipline"
@@ -11,6 +11,7 @@ import { Instance } from "../project/instance"
 import { Log } from "@/util/log"
 import { ModelID, ProviderID } from "../provider/schema"
 import { MessageV2 } from "./message-v2"
+import { Concurrency } from "./concurrency"
 import z from "zod"
 
 export interface BackgroundResult {
@@ -35,10 +36,11 @@ export interface SpawnInput {
   categoryModel?: Provider.Model
   catCfg?: { prompt_append?: string }
   discipline: Discipline
-  parentSessionID: string
+  parentSessionID: SessionID
   parentAbort: AbortSignal
   callerPermission: Permission.Ruleset
   fallbackModel: { modelID: string; providerID: string }
+  maxConcurrent?: number
 }
 
 type State = {
@@ -57,21 +59,22 @@ export namespace BackgroundTask {
     },
   )
 
-  export const Event = {
-    Completed: BusEvent.define(
-      "session.background_task.completed",
-      z.object({
-        parentSessionID: z.string(),
-        taskID: z.string(),
-        status: z.string(),
-      }),
-    ),
+  function completeTask(taskID: string, result: BackgroundResult): boolean {
+    const st = state()
+    if (st.completed.has(taskID)) return false
+    st.completed.set(taskID, result)
+    Concurrency.release()
+    return true
   }
 
   export async function spawn(input: SpawnInput): Promise<string> {
     const { session, agent, prompt, categoryModel, catCfg, discipline, parentSessionID, parentAbort } = input
     const st = state()
     const timeoutMs = discipline.timeout_seconds * 1000
+
+    const config = await Config.get()
+    const maxConcurrent = input.maxConcurrent ?? config.concurrency?.maxConcurrent ?? 5
+    await Concurrency.awaitSlot(maxConcurrent, `${agent.model?.providerID ?? ""}/${agent.model?.modelID ?? ""}`)
 
     const childAbort = new AbortController()
 
@@ -161,9 +164,9 @@ export namespace BackgroundTask {
         stepsCompleted,
       }
 
-      st.completed.set(session.id, bgResult)
+      completeTask(session.id, bgResult)
 
-      Bus.publish(Event.Completed, {
+      Bus.publish(Session.Event.BackgroundTaskCompleted, {
         parentSessionID,
         taskID: session.id,
         status,
@@ -187,9 +190,9 @@ export namespace BackgroundTask {
           executionTime: timeoutMs,
           stepsCompleted: 0,
         }
-        st.completed.set(session.id, timeoutResult)
+        completeTask(session.id, timeoutResult)
       }
-    }, timeoutMs)
+    }, timeoutMs).unref()
 
     runTask().catch((e) => {
       log.info("runTask failed", { sessionID: session.id, error: String(e) })
@@ -208,7 +211,7 @@ export namespace BackgroundTask {
             executionTime: 0,
             stepsCompleted: 0,
           }
-          st.completed.set(session.id, cancelled)
+          completeTask(session.id, cancelled)
         }
       },
       { once: true },
@@ -223,25 +226,30 @@ export namespace BackgroundTask {
     if (completed) return completed
 
     return await new Promise<BackgroundResult>((resolve) => {
+      let done = false
       const check = setInterval(() => {
         const result = st.completed.get(taskID)
         if (result) {
           clearInterval(check)
+          clearTimeout(fallback)
+          done = true
           resolve(result)
         }
       }, 500)
-      setTimeout(() => {
-        clearInterval(check)
-        resolve({
-          taskID,
-          status: "error",
-          text: "",
-          error: { type: "unknown", message: "Timeout waiting for task result", retryable: true },
-          toolsUsed: [],
-          executionTime: 0,
-          stepsCompleted: 0,
-        })
-      }, 600000)
+      const fallback = setTimeout(() => {
+        if (!done) {
+          clearInterval(check)
+          resolve({
+            taskID,
+            status: "error",
+            text: "",
+            error: { type: "unknown", message: "Timeout waiting for task result", retryable: true },
+            toolsUsed: [],
+            executionTime: 0,
+            stepsCompleted: 0,
+          })
+        }
+      }, 600000).unref()
     })
   }
 

@@ -10,7 +10,7 @@ When to use the Task tool:
 
 When NOT to use the Task tool:
 - If you want to read a specific file path, use the Read or Glob tool instead of the Task tool, to find the match more quickly
-- If you are searching for a specific class definition like "class Foo", use the Glob tool instead, to find the match more quickly
+- If you are searching for a specific class definition like "class Foo", use the Glob tool instead of the Task tool, to find the match more quickly
 - If you are searching for code within a specific file or set of 2-3 files, use the Read tool instead of the Task tool, to find the match more quickly
 - Other tasks that are not related to the agent descriptions above
 
@@ -23,33 +23,39 @@ Usage notes:
 5. Clearly tell the agent whether you expect it to write code or just to do research (search, file reads, web fetches, etc.), since it is not aware of the user's intent. Tell it how to verify its work if possible (e.g., relevant test commands).
 6. If the agent description mentions that it should be used proactively, then you should try your best to use it without the user having to ask for it first. Use your judgement.
 
-Example usage (NOTE: The agents below are fictional examples for illustration only - use the actual agents listed above):
+Discipline parameters (control sub-agent behavior):
 
-<example_agent_descriptions>
-"code-reviewer": use this agent after you are done writing a significant piece of code
-"greeting-responder": use this agent when to respond to user greetings with a friendly joke
-</example_agent_description>
+- mode: Execution mode for this sub-agent.
+  - "serial" (default): Block until the sub-agent finishes, then continue. Use when you need the result before making your next decision.
+  - "concurrent": Start alongside other concurrent tasks in the same turn. All concurrent tasks run in parallel; you receive all results together. Use when you need multiple independent searches or analyses at the same time — e.g., searching three different code areas simultaneously.
+  - "background": Spawn the sub-agent and continue immediately without waiting. Retrieve the result later using the background_output tool with the task_id. Use when the sub-agent can work independently and you want to proceed with other work — e.g., running a code search while you continue writing.
 
-<example>
-user: "Please write a function that checks if a number is prime"
-assistant: Sure let me write a function that checks if a number is prime
-assistant: First let me use the Write tool to write a function that checks if a number is prime
-assistant: I'm going to use the Write tool to write the following code:
-<code>
-function isPrime(n) {
-  if (n <= 1) return false
-  for (let i = 2; i * i <= n; i++) {
-    if (n % i === 0) return false
-  }
-  return true
-}
-</code>
-<commentary>
-Since a significant piece of code was written and the task was completed, now use the code-reviewer agent to review the code
-</commentary>
-assistant: Now let me use the code-reviewer agent to review the code
-assistant: Uses the Task tool to launch the code-reviewer agent
-</example>
+- delegation_depth: How many more delegation layers this sub-agent may spawn. 0 (default) means it cannot delegate further (the task tool is denied). 1 means it can spawn one more layer of sub-agents. Use higher values only when the sub-agent truly needs its own helpers.
+
+- permission_override: Dynamic permission overrides for this sub-agent. Keys are tool names (edit, bash, task, etc.), values are ["action", optional path patterns]. Example: { edit: ["allow"], bash: ["deny"], task: ["deny"] }. Overrides are capped by your permissions — the sub-agent cannot gain permissions you lack.
+
+- max_steps: Maximum loop iterations for this sub-agent. Overrides the agent's default. Use to limit long-running agents.
+
+- timeout_seconds: Maximum execution time in seconds (default 300, max 600). On timeout, partial results are saved. Only meaningful for background mode; foreground agents use your own abort mechanism.
+
+- file_scope: Glob patterns restricting the sub-agent's file operations. Only files matching these patterns can be read, edited, or searched. Example: ["src/auth/**", "test/**"]. Use to confine a sub-agent to a specific area of the codebase.
+
+- return_format: Output format discipline.
+  - "text" (default): Return the sub-agent's final text output.
+  - "structured": Enforce structured output (JSON or well-defined Markdown). The sub-agent receives a prompt instruction requiring parseable output.
+
+When to use concurrent mode:
+- When you need to search multiple independent areas simultaneously (e.g., "search A, B, and C in parallel")
+- When the research skill instructs you to launch parallel searches
+- When no task depends on another's result
+
+When to use background mode:
+- When the sub-agent can work independently and you want to continue working
+- When you need to retrieve results later via background_output
+
+When NOT to use concurrent or background:
+- When you need the result to make your next decision (use serial/default)
+- When only one task is needed (serial is simpler and sufficient)
 
 <example>
 user: "Hello"

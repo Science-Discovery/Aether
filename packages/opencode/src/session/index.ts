@@ -660,6 +660,14 @@ export namespace Session {
       }),
     ),
     PreferenceUpdated: SessionPreference.PreferenceUpdated,
+    BackgroundTaskCompleted: BusEvent.define(
+      "session.background_task.completed",
+      z.object({
+        parentSessionID: SessionID.zod,
+        taskID: SessionID.zod,
+        status: z.string(),
+      }),
+    ),
   }
 
   export const create = fn(
