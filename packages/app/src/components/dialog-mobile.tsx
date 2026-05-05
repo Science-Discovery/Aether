@@ -60,13 +60,12 @@ export const DialogMobile: Component<Props> = (props) => {
   const server = useServer()
   const models = useModels()
   const language = useLanguage()
-  const savedCreds = () => loadMobileCreds(p())
-  const [inputAppId, setInputAppId] = createSignal(savedCreds()?.appId ?? "")
-  const [inputAppSecret, setInputAppSecret] = createSignal(savedCreds()?.appSecret ?? "")
+  const p = () => props.platform
+  const saved = loadMobileCreds(p())
+  const [inputAppId, setInputAppId] = createSignal(saved?.appId ?? "")
+  const [inputAppSecret, setInputAppSecret] = createSignal(saved?.appSecret ?? "")
   const [steps, setSteps] = createStore({ 1: false, 2: false, 3: false, 4: false, 5: false })
   const [prevStatus, setPrevStatus] = createSignal<MobileStatus>("idle")
-
-  const p = () => props.platform
 
   const authHeaders = (): HeadersInit => {
     const s = server.current?.http
