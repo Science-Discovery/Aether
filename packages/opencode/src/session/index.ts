@@ -1,4 +1,5 @@
 import { Slug } from "@opencode-ai/util/slug"
+import { createHash } from "node:crypto"
 import fs from "fs/promises"
 import path from "path"
 import { BusEvent } from "@/bus/bus-event"
@@ -28,7 +29,7 @@ import {
 } from "../storage/db"
 import { SyncEvent } from "../sync"
 import type { SQL } from "../storage/db"
-import { SessionTable } from "./session.sql"
+import { MessageTable, PartTable, SessionTable } from "./session.sql"
 import { ProjectTable } from "../project/project.sql"
 import { Storage } from "@/storage/storage"
 import { Log } from "../util/log"
@@ -582,6 +583,105 @@ export namespace Session {
       ref: "SessionGraphResult",
     })
   export type GraphResult = z.output<typeof GraphResult>
+
+  export const BackfillScope = z.enum(["current_project", "global"])
+  export type BackfillScope = z.output<typeof BackfillScope>
+
+  export const BackfillTurnState = z.enum([
+    "pending",
+    "scanned",
+    "generated",
+    "covered_by_parent",
+    "skipped_source",
+    "skipped_compaction_duplicate",
+    "summary_only",
+    "legacy_isolated",
+    "remote_unavailable",
+    "blocked_by_disabled",
+    "failed",
+  ])
+  export type BackfillTurnState = z.output<typeof BackfillTurnState>
+
+  export const BackfillTurn = z.object({
+    db_path: z.string(),
+    project_id: z.string(),
+    workspace_id: z.string().optional(),
+    directory: z.string(),
+    tree_id: TreeID.zod.optional(),
+    session_id: SessionID.zod,
+    user_message_id: MessageID.zod,
+    logical_origin: z.union([z.literal("root"), z.literal("branch_own"), z.literal("legacy")]),
+    created_at: z.number(),
+    day: z.string(),
+    label: z.string(),
+    user_text: z.string(),
+    fingerprint: z.string(),
+  })
+  export type BackfillTurn = z.output<typeof BackfillTurn>
+
+  export const BackfillTurnMark = z.object({
+    memory_version: z.string(),
+    logical_fingerprint: z.string(),
+    state: BackfillTurnState,
+    physical_refs: z.array(
+      z.object({
+        session_id: SessionID.zod,
+        user_message_id: MessageID.zod,
+      }),
+    ),
+    covered_by: z.string().optional(),
+    reason: z.string().optional(),
+  })
+  export type BackfillTurnMark = z.output<typeof BackfillTurnMark>
+
+  export const BackfillDatabase = z.object({
+    path: z.string(),
+    current: z.boolean(),
+    status: z.union([z.literal("reachable"), z.literal("unavailable")]),
+    session_count: z.number().int().nonnegative(),
+    reason: z.string().optional(),
+  })
+  export type BackfillDatabase = z.output<typeof BackfillDatabase>
+
+  export const BackfillTableStats = z.object({
+    session_count: z.number().int().nonnegative(),
+    message_count: z.number().int().nonnegative(),
+    part_count: z.number().int().nonnegative(),
+    fingerprint: z.string(),
+  })
+  export type BackfillTableStats = z.output<typeof BackfillTableStats>
+
+  export const BackfillReadonly = z.object({
+    before: z.record(z.string(), BackfillTableStats),
+    after: z.record(z.string(), BackfillTableStats),
+    unchanged: z.boolean(),
+  })
+  export type BackfillReadonly = z.output<typeof BackfillReadonly>
+
+  export const BackfillStats = z.object({
+    scope: BackfillScope,
+    databases: z.array(BackfillDatabase),
+    tree_sessions: z.number().int().nonnegative(),
+    legacy_sessions: z.number().int().nonnegative(),
+    archived_sessions: z.number().int().nonnegative(),
+    total_physical_turns: z.number().int().nonnegative(),
+    unique_logical_turns: z.number().int().nonnegative(),
+    skipped_shared_prefix_turns: z.number().int().nonnegative(),
+    skipped_source_turns: z.number().int().nonnegative(),
+    summary_only_turns: z.number().int().nonnegative(),
+    remote_unavailable: z.number().int().nonnegative(),
+    by_state: z.record(z.string(), z.number().int().nonnegative()),
+    readonly: BackfillReadonly,
+  })
+  export type BackfillStats = z.output<typeof BackfillStats>
+
+  export const BackfillCollection = z.object({
+    memory_version: z.string(),
+    turns: z.array(BackfillTurn),
+    marks: z.array(BackfillTurnMark),
+    stats: BackfillStats,
+  })
+  export type BackfillCollection = z.output<typeof BackfillCollection>
 
   export const ProjectInfo = z
     .object({
@@ -1579,6 +1679,391 @@ export namespace Session {
       edges: [...edges.values()],
     }
   })
+
+  type SourceTurn = {
+    sessionID: SessionID
+    userMessageID: MessageID
+    created: number
+    label: string
+    text: string
+    state: Extract<BackfillTurnState, "pending" | "skipped_source" | "skipped_compaction_duplicate" | "summary_only">
+    reason?: string
+  }
+
+  type SourceResult = {
+    databases: BackfillDatabase[]
+    turns: BackfillTurn[]
+    marks: BackfillTurnMark[]
+    stats: Omit<BackfillStats, "scope" | "databases" | "by_state" | "readonly">
+    before: Record<string, BackfillTableStats>
+    after: Record<string, BackfillTableStats>
+  }
+
+  function hash(input: unknown) {
+    return createHash("sha1").update(JSON.stringify(input)).digest("hex")
+  }
+
+  function day(input: number) {
+    const date = new Date(input)
+    const local = new Date(date.getTime() - date.getTimezoneOffset() * 60_000)
+    return local.toISOString().slice(0, 10)
+  }
+
+  function messageInfo(row: typeof MessageTable.$inferSelect): MessageV2.Info {
+    return {
+      id: row.id,
+      sessionID: row.session_id,
+      ...row.data,
+    } as MessageV2.Info
+  }
+
+  function partInfo(row: typeof PartTable.$inferSelect): MessageV2.Part {
+    return {
+      id: row.id,
+      sessionID: row.session_id,
+      messageID: row.message_id,
+      ...row.data,
+    } as MessageV2.Part
+  }
+
+  function tableStats(client: Database.Source["client"]): BackfillTableStats {
+    const sessions = client.select().from(SessionTable).orderBy(asc(SessionTable.id)).all()
+    const messages = client.select().from(MessageTable).orderBy(asc(MessageTable.id)).all()
+    const parts = client.select().from(PartTable).orderBy(asc(PartTable.id)).all()
+
+    return {
+      session_count: sessions.length,
+      message_count: messages.length,
+      part_count: parts.length,
+      fingerprint: hash({ sessions, messages, parts }),
+    }
+  }
+
+  function loadHistory(client: Database.Source["client"], sessionID: SessionID) {
+    const rows = client
+      .select()
+      .from(MessageTable)
+      .where(eq(MessageTable.session_id, sessionID))
+      .orderBy(asc(MessageTable.time_created), asc(MessageTable.id))
+      .all()
+    const ids = rows.map((row) => row.id)
+    const raw = ids.length
+      ? client
+          .select()
+          .from(PartTable)
+          .where(inArray(PartTable.message_id, ids))
+          .orderBy(asc(PartTable.time_created), asc(PartTable.id))
+          .all()
+      : []
+    const parts = new Map<MessageID, MessageV2.Part[]>()
+    for (const row of raw) {
+      const group = parts.get(row.message_id) ?? []
+      group.push(partInfo(row))
+      parts.set(row.message_id, group)
+    }
+    return rows.map((row) => ({
+      info: messageInfo(row),
+      parts: parts.get(row.id) ?? [],
+    })) satisfies MessageV2.WithParts[]
+  }
+
+  function sourceText(message: MessageV2.WithParts): Pick<SourceTurn, "text" | "state" | "reason"> {
+    if (message.parts.some((part) => part.type === "compaction")) {
+      return { text: "", state: "skipped_compaction_duplicate", reason: "compaction_control" }
+    }
+    if (message.parts.some((part) => part.type === "subtask")) {
+      return { text: "", state: "skipped_source", reason: "subtask_control" }
+    }
+
+    const raw = message.parts
+      .filter(
+        (part): part is MessageV2.TextPart =>
+          part.type === "text" && !part.synthetic && !part.ignored && !part.metadata?.memory_receipt,
+      )
+      .map((part) => part.text.trim())
+      .filter(Boolean)
+    if (raw.length) return { text: raw.join("\n"), state: "pending" }
+
+    const summary = message.parts
+      .filter(
+        (part): part is MessageV2.TextPart =>
+          part.type === "text" && !!part.synthetic && part.metadata?.summary_only === true,
+      )
+      .map((part) => part.text.trim())
+      .filter(Boolean)
+    if (summary.length) return { text: summary.join("\n"), state: "summary_only", reason: "summary_only" }
+
+    return { text: "", state: "skipped_source", reason: "no_user_text" }
+  }
+
+  function sourceTurns(messages: MessageV2.WithParts[]) {
+    const assistants = new Map<MessageID, MessageV2.Assistant>()
+    for (const message of messages) {
+      if (message.info.role !== "assistant") continue
+      if (message.info.error) continue
+      if (typeof message.info.time.completed !== "number") continue
+      assistants.set(message.info.parentID, message.info)
+    }
+
+    const turns: SourceTurn[] = []
+    for (const message of messages) {
+      if (message.info.role !== "user") continue
+      if (!assistants.has(message.info.id)) continue
+      const source = sourceText(message)
+      turns.push({
+        sessionID: message.info.sessionID,
+        userMessageID: message.info.id,
+        created: message.info.time.created,
+        label: extractUserLabel(message),
+        text: source.text,
+        state: source.state,
+        reason: source.reason,
+      })
+    }
+    return turns
+  }
+
+  function fingerprint(input: { db: string; session: Info; turn: SourceTurn }) {
+    return hash({
+      db: input.db,
+      tree_id: input.session.treeID,
+      session_id: input.session.treeID ? input.session.id : `${input.session.id}:legacy`,
+      user_message_id: input.turn.userMessageID,
+      created_at: input.turn.created,
+      text: input.turn.text || input.turn.label,
+    })
+  }
+
+  function collectSource(source: Database.Source, scope: BackfillScope, version: string): SourceResult {
+    const before: Record<string, BackfillTableStats> = {}
+    const after: Record<string, BackfillTableStats> = {}
+
+    try {
+      before[source.path] = tableStats(source.client)
+      const rows =
+        scope === "current_project"
+          ? source.current
+            ? source.client
+                .select()
+                .from(SessionTable)
+                .where(eq(SessionTable.project_id, Instance.project.id))
+                .orderBy(asc(SessionTable.time_created), asc(SessionTable.id))
+                .all()
+            : []
+          : source.client.select().from(SessionTable).orderBy(asc(SessionTable.time_created), asc(SessionTable.id)).all()
+
+      const sessions = rows.map(fromRow).filter((session) => !isSubagentSession(session))
+      const all = new Map(sessions.map((session) => [session.id, session] as const))
+      const turns = new Map<SessionID, SourceTurn[]>()
+      for (const session of sessions) turns.set(session.id, sourceTurns(loadHistory(source.client, session.id)))
+
+      const result: BackfillTurn[] = []
+      const marks: BackfillTurnMark[] = []
+      const paths = new Map<SessionID, string[]>()
+      const visiting = new Set<SessionID>()
+      let total = 0
+      let unique = 0
+      let shared = 0
+      let skipped = 0
+      let summary = 0
+      let remote = 0
+
+      for (const list of turns.values()) total += list.length
+
+      const mark = (item: BackfillTurnMark) => {
+        marks.push(item)
+        if (item.state === "skipped_source" || item.state === "skipped_compaction_duplicate") skipped++
+        if (item.state === "summary_only") summary++
+        if (item.state === "remote_unavailable") remote++
+      }
+
+      const materialize = (session: Info): string[] => {
+        const cached = paths.get(session.id)
+        if (cached) return cached
+        if (visiting.has(session.id)) return []
+        visiting.add(session.id)
+
+        const own = turns.get(session.id) ?? []
+        let prefix: string[] = []
+        let count = 0
+
+        if (session.forkParentSessionID) {
+          const parent = all.get(session.forkParentSessionID)
+          if (parent) {
+            const base = materialize(parent)
+            const parentTurns = turns.get(parent.id) ?? []
+            const index = session.forkAfterUserMessageID
+              ? parentTurns.findIndex((turn) => turn.userMessageID === session.forkAfterUserMessageID)
+              : -1
+            count = index >= 0 ? index + 1 : 0
+            prefix = base.slice(0, count)
+          } else {
+            remote++
+            marks.push({
+              memory_version: version,
+              logical_fingerprint: hash({ db: source.path, missing_parent: session.forkParentSessionID }),
+              state: "remote_unavailable",
+              physical_refs: [],
+              reason: "fork_parent_unavailable",
+            })
+          }
+        }
+
+        for (const [index, turn] of own.slice(0, count).entries()) {
+          shared++
+          mark({
+            memory_version: version,
+            logical_fingerprint: prefix[index] ?? fingerprint({ db: source.path, session, turn }),
+            state: "covered_by_parent",
+            physical_refs: [{ session_id: turn.sessionID, user_message_id: turn.userMessageID }],
+            covered_by: prefix[index],
+            reason: "shared_fork_prefix",
+          })
+        }
+
+        const ownIDs: string[] = []
+        for (const turn of own.slice(count)) {
+          const id = fingerprint({ db: source.path, session, turn })
+          const ref = { session_id: turn.sessionID, user_message_id: turn.userMessageID }
+          ownIDs.push(id)
+
+          if (turn.state === "skipped_source" || turn.state === "skipped_compaction_duplicate") {
+            mark({
+              memory_version: version,
+              logical_fingerprint: id,
+              state: turn.state,
+              physical_refs: [ref],
+              reason: turn.reason,
+            })
+            continue
+          }
+
+          const state = session.treeID ? turn.state : turn.state === "summary_only" ? "summary_only" : "legacy_isolated"
+          mark({
+            memory_version: version,
+            logical_fingerprint: id,
+            state,
+            physical_refs: [ref],
+            reason: state === "legacy_isolated" ? "legacy_session" : turn.reason,
+          })
+
+          unique++
+          result.push({
+            db_path: source.path,
+            project_id: session.projectID,
+            ...(session.workspaceID ? { workspace_id: session.workspaceID } : {}),
+            directory: session.directory,
+            tree_id: session.treeID,
+            session_id: session.id,
+            user_message_id: turn.userMessageID,
+            logical_origin: session.treeID ? (session.forkParentSessionID ? "branch_own" : "root") : "legacy",
+            created_at: turn.created,
+            day: day(turn.created),
+            label: turn.label,
+            user_text: turn.text,
+            fingerprint: id,
+          })
+        }
+
+        const path = [...prefix, ...ownIDs]
+        paths.set(session.id, path)
+        visiting.delete(session.id)
+        return path
+      }
+
+      for (const session of sessions) materialize(session)
+
+      after[source.path] = tableStats(source.client)
+      return {
+        databases: [{ path: source.path, current: source.current, status: "reachable", session_count: sessions.length }],
+        turns: result,
+        marks,
+        before,
+        after,
+        stats: {
+          tree_sessions: sessions.filter((session) => session.treeID).length,
+          legacy_sessions: sessions.filter((session) => !session.treeID).length,
+          archived_sessions: sessions.filter((session) => session.time.archived).length,
+          total_physical_turns: total,
+          unique_logical_turns: unique,
+          skipped_shared_prefix_turns: shared,
+          skipped_source_turns: skipped,
+          summary_only_turns: summary,
+          remote_unavailable: remote,
+        },
+      }
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error)
+      const stats = (() => {
+        try {
+          return tableStats(source.client)
+        } catch {
+          return undefined
+        }
+      })()
+      if (stats) after[source.path] = stats
+      return {
+        databases: [{ path: source.path, current: source.current, status: "unavailable", session_count: 0, reason }],
+        turns: [],
+        marks: [
+          {
+            memory_version: version,
+            logical_fingerprint: hash({ db: source.path, error: reason }),
+            state: "remote_unavailable",
+            physical_refs: [],
+            reason,
+          },
+        ],
+        before,
+        after,
+        stats: {
+          tree_sessions: 0,
+          legacy_sessions: 0,
+          archived_sessions: 0,
+          total_physical_turns: 0,
+          unique_logical_turns: 0,
+          skipped_shared_prefix_turns: 0,
+          skipped_source_turns: 0,
+          summary_only_turns: 0,
+          remote_unavailable: 1,
+        },
+      }
+    }
+  }
+
+  export function collectBackfill(input: { memory_version: string; scope?: BackfillScope }): BackfillCollection {
+    const scope = input.scope ?? "global"
+    const sources = Database.withSources((source) => collectSource(source, scope, input.memory_version))
+    const before = Object.assign({}, ...sources.map((source) => source.before)) as Record<string, BackfillTableStats>
+    const after = Object.assign({}, ...sources.map((source) => source.after)) as Record<string, BackfillTableStats>
+    const marks = sources.flatMap((source) => source.marks)
+    const byState = marks.reduce<Record<string, number>>((acc, mark) => {
+      acc[mark.state] = (acc[mark.state] ?? 0) + 1
+      return acc
+    }, {})
+    const unchanged = Object.entries(before).every(([key, value]) => after[key]?.fingerprint === value.fingerprint)
+
+    return {
+      memory_version: input.memory_version,
+      turns: sources.flatMap((source) => source.turns),
+      marks,
+      stats: {
+        scope,
+        databases: sources.flatMap((source) => source.databases),
+        tree_sessions: sources.reduce((sum, source) => sum + source.stats.tree_sessions, 0),
+        legacy_sessions: sources.reduce((sum, source) => sum + source.stats.legacy_sessions, 0),
+        archived_sessions: sources.reduce((sum, source) => sum + source.stats.archived_sessions, 0),
+        total_physical_turns: sources.reduce((sum, source) => sum + source.stats.total_physical_turns, 0),
+        unique_logical_turns: sources.reduce((sum, source) => sum + source.stats.unique_logical_turns, 0),
+        skipped_shared_prefix_turns: sources.reduce((sum, source) => sum + source.stats.skipped_shared_prefix_turns, 0),
+        skipped_source_turns: sources.reduce((sum, source) => sum + source.stats.skipped_source_turns, 0),
+        summary_only_turns: sources.reduce((sum, source) => sum + source.stats.summary_only_turns, 0),
+        remote_unavailable: sources.reduce((sum, source) => sum + source.stats.remote_unavailable, 0),
+        by_state: byState,
+        readonly: { before, after, unchanged },
+      },
+    }
+  }
 
   export const remove = fn(SessionID.zod, async (sessionID) => {
     try {

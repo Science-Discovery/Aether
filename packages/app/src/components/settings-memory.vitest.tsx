@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest"
+import { createRoot } from "solid-js"
 import { render } from "solid-js/web"
 
 const state = vi.hoisted(() => ({
@@ -7,6 +8,14 @@ const state = vi.hoisted(() => ({
   setPath: undefined as ((value: Record<string, unknown>) => void) | undefined,
   createClientCalls: [] as Array<Record<string, unknown>>,
   memoryGetCalls: [] as Array<Record<string, unknown> | undefined>,
+  memoryRunCalls: [] as Array<Record<string, unknown> | undefined>,
+  dialogShows: [] as unknown[],
+  dialogTexts: [] as string[],
+  runMode: "immediate" as "immediate" | "deferred",
+  pendingRuns: [] as Array<{
+    resolve: () => void
+    reject: (error?: unknown) => void
+  }>,
   params: { id: "session-active-01" as string | undefined },
   sessionsByDirectory: new Map<string, Array<{ id: string; workspaceID?: string }>>(),
   updateMode: "immediate" as "immediate" | "deferred",
@@ -19,11 +28,35 @@ const state = vi.hoisted(() => ({
   serverMemory: {
     enabled: true,
   } as Record<string, unknown>,
+  memoryRunResult: {
+    status: {
+      memory_version: "memory-v1-tree-backfill",
+      state: "completed",
+      refresh_required: false,
+      noop: false,
+      run_status: "success",
+    },
+    run: {
+      run_id: "run-01",
+      memory_version: "memory-v1-tree-backfill",
+      scope: "global",
+      dry_run: false,
+      status: "success",
+      started_at: 1,
+      finished_at: 2,
+      candidate_count: 3,
+      promoted_daily_count: 2,
+      promoted_user_count: 1,
+    },
+  } as Record<string, unknown>,
 }))
 
 vi.mock("@/context/language", () => ({
   useLanguage: () => ({
-    t: (key: string) => key,
+    t: (key: string, params?: Record<string, unknown>) => {
+      if (!params) return key
+      return [key, ...Object.values(params).map(String)].join(" ")
+    },
   }),
 }))
 
@@ -69,6 +102,20 @@ vi.mock("@/context/global-sdk", () => ({
                 },
               },
             }
+          },
+          refresh: {
+            run: async (input?: Record<string, unknown>) => {
+              state.memoryRunCalls.push(input)
+              if (state.runMode === "deferred") {
+                return await new Promise<{ data: Record<string, unknown> }>((resolve, reject) => {
+                  state.pendingRuns.push({
+                    resolve: () => resolve({ data: state.memoryRunResult }),
+                    reject: (error?: unknown) => reject(error ?? new Error("mock backfill failure")),
+                  })
+                })
+              }
+              return { data: state.memoryRunResult }
+            },
           },
         },
       }
@@ -144,11 +191,34 @@ vi.mock("@/context/global-sync", async () => {
 })
 
 vi.mock("@opencode-ai/ui/button", () => ({
-  Button: (props: { children?: unknown; onClick?: () => void }) => (
-    <button type="button" onClick={props.onClick}>
+  Button: (props: { children?: unknown; disabled?: boolean; onClick?: () => void }) => (
+    <button type="button" disabled={props.disabled} onClick={props.onClick}>
       {props.children}
     </button>
   ),
+}))
+
+vi.mock("@opencode-ai/ui/dialog", () => ({
+  Dialog: (props: { title?: unknown; children?: unknown }) => (
+    <section role="dialog">
+      <h1>{props.title}</h1>
+      <div>{props.children}</div>
+    </section>
+  ),
+}))
+
+vi.mock("@opencode-ai/ui/context/dialog", () => ({
+  useDialog: () => ({
+    show: (fn: () => unknown) => {
+      createRoot((done) => {
+        const node = fn()
+        state.dialogShows.push(node)
+        state.dialogTexts.push(node instanceof HTMLElement ? (node.textContent ?? "") : String(node))
+        done()
+      })
+    },
+    close: () => undefined,
+  }),
 }))
 
 vi.mock("@opencode-ai/ui/switch", () => ({
@@ -203,11 +273,37 @@ beforeEach(() => {
   state.updateCalls = []
   state.createClientCalls = []
   state.memoryGetCalls = []
+  state.memoryRunCalls = []
+  state.dialogShows = []
+  state.dialogTexts = []
+  state.runMode = "immediate"
+  state.pendingRuns = []
   state.updateMode = "immediate"
   state.pendingUpdates = []
   state.bootstrapCalls = 0
   state.serverMemory = {
     enabled: true,
+  }
+  state.memoryRunResult = {
+    status: {
+      memory_version: "memory-v1-tree-backfill",
+      state: "completed",
+      refresh_required: false,
+      noop: false,
+      run_status: "success",
+    },
+    run: {
+      run_id: "run-01",
+      memory_version: "memory-v1-tree-backfill",
+      scope: "global",
+      dry_run: false,
+      status: "success",
+      started_at: 1,
+      finished_at: 2,
+      candidate_count: 3,
+      promoted_daily_count: 2,
+      promoted_user_count: 1,
+    },
   }
   state.setMemory?.({
     enabled: true,
@@ -255,6 +351,158 @@ describe("settings memory", () => {
         enabled: false,
       }),
     })
+
+    off()
+  })
+
+  test("backfill button runs global incremental refresh and opens summary dialog", async () => {
+    const { host, off } = mount()
+
+    await Promise.resolve()
+
+    const button = [...host.querySelectorAll("button")].find((item) =>
+      item.textContent?.includes("settings.memory.action.backfill"),
+    ) as HTMLButtonElement | undefined
+    expect(button).toBeTruthy()
+    button?.click()
+
+    await Promise.resolve()
+    await Promise.resolve()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(state.memoryRunCalls).toEqual([{ scope: "global" }])
+    expect(state.memoryGetCalls.length).toBeGreaterThanOrEqual(2)
+    expect(state.dialogShows).toHaveLength(1)
+    const text = state.dialogTexts[0] ?? ""
+    expect(text).toContain("settings.memory.backfill.result.title")
+    expect(text).toContain("settings.memory.backfill.result.status.success")
+    expect(text).toContain("3")
+    expect(text).toContain("2")
+    expect(text).toContain("1")
+
+    off()
+  })
+
+  test("backfill summary translates noop status instead of showing raw backend enum", async () => {
+    state.memoryRunResult = {
+      status: {
+        memory_version: "memory-v1-tree-backfill",
+        state: "completed",
+        refresh_required: false,
+        noop: true,
+        run_status: "noop",
+      },
+      run: {
+        run_id: "run-noop",
+        memory_version: "memory-v1-tree-backfill",
+        scope: "global",
+        dry_run: false,
+        status: "noop",
+        started_at: 1,
+        finished_at: 2,
+        candidate_count: 0,
+        promoted_daily_count: 0,
+        promoted_user_count: 0,
+      },
+    }
+    const { host, off } = mount()
+
+    await Promise.resolve()
+
+    const button = [...host.querySelectorAll("button")].find((item) =>
+      item.textContent?.includes("settings.memory.action.backfill"),
+    ) as HTMLButtonElement | undefined
+    button?.click()
+
+    await Promise.resolve()
+    await Promise.resolve()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    const text = state.dialogTexts[0] ?? ""
+    expect(text).toContain("settings.memory.backfill.result.status.noop")
+    expect(text).not.toContain(" noop")
+
+    off()
+  })
+
+  test("backfill button is disabled when memory is disabled", async () => {
+    state.setMemory?.({
+      enabled: false,
+    })
+    const { host, off } = mount()
+
+    await Promise.resolve()
+
+    const button = [...host.querySelectorAll("button")].find((item) =>
+      item.textContent?.includes("settings.memory.action.backfill"),
+    ) as HTMLButtonElement | undefined
+    expect(button).toBeTruthy()
+    expect(button?.disabled).toBe(true)
+    button?.click()
+
+    await Promise.resolve()
+    await Promise.resolve()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(state.memoryRunCalls).toEqual([])
+
+    off()
+  })
+
+  test("backfill stays disabled across remount while background run is pending", async () => {
+    state.runMode = "deferred"
+    const first = mount()
+
+    await Promise.resolve()
+
+    const button = [...first.host.querySelectorAll("button")].find((item) =>
+      item.textContent?.includes("settings.memory.action.backfill"),
+    ) as HTMLButtonElement | undefined
+    expect(button).toBeTruthy()
+    button?.click()
+
+    await Promise.resolve()
+    expect(state.memoryRunCalls).toEqual([{ scope: "global" }])
+    expect(button?.disabled).toBe(true)
+    expect(first.host.textContent).toContain("settings.memory.backfill.runningHint")
+    expect(first.host.querySelector('[title="settings.memory.backfill.runningTooltip"]')).toBeTruthy()
+
+    first.off()
+    const second = mount()
+
+    await Promise.resolve()
+
+    const remounted = [...second.host.querySelectorAll("button")].find((item) =>
+      item.textContent?.includes("settings.memory.action.backfilling"),
+    ) as HTMLButtonElement | undefined
+    expect(remounted).toBeTruthy()
+    expect(remounted?.disabled).toBe(true)
+    expect(second.host.textContent).toContain("settings.memory.backfill.runningHint")
+    expect(second.host.querySelector('[title="settings.memory.backfill.runningTooltip"]')).toBeTruthy()
+
+    state.pendingRuns[0]?.resolve()
+    await Promise.resolve()
+    await Promise.resolve()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(remounted?.disabled).toBe(false)
+
+    second.off()
+  })
+
+  test("backfill action has no separate rescan button", async () => {
+    const { host, off } = mount()
+
+    await Promise.resolve()
+
+    const backfill = [...host.querySelectorAll("button")].filter((item) =>
+      item.textContent?.includes("settings.memory.action.backfill"),
+    )
+    const rescan = [...host.querySelectorAll("button")].filter((item) =>
+      item.textContent?.includes("settings.memory.action.rescan"),
+    )
+    expect(backfill).toHaveLength(1)
+    expect(rescan).toHaveLength(0)
 
     off()
   })

@@ -34,7 +34,7 @@ export namespace Database {
   export type Source = {
     path: string
     current: boolean
-    client: ReturnType<typeof Client>["$client"]
+    client: ReturnType<typeof Client>
   }
 
   export function getChannelPath() {
@@ -85,7 +85,7 @@ export namespace Database {
       callback({
         path: currentPath(),
         current: true,
-        client: Client().$client,
+        client: Client(),
       }),
     )
     for (const file of knownPaths()) {
@@ -95,7 +95,7 @@ export namespace Database {
           callback({
             path: file,
             current: false,
-            client: db.$client,
+            client: db,
           }),
         )
       } finally {
