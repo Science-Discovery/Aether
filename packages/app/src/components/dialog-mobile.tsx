@@ -32,6 +32,22 @@ import {
   type MobileStatus,
 } from "@/context/mobile"
 
+const CRED_KEY = (p: MobilePlatform) => `opencode:creds:mobile:${p}`
+
+function loadMobileCreds(p: MobilePlatform) {
+  try {
+    const raw = localStorage.getItem(CRED_KEY(p))
+    if (!raw) return null
+    return JSON.parse(raw) as { appId: string; appSecret: string }
+  } catch {
+    return null
+  }
+}
+
+function saveMobileCreds(p: MobilePlatform, appId: string, appSecret: string) {
+  localStorage.setItem(CRED_KEY(p), JSON.stringify({ appId, appSecret }))
+}
+
 interface Props {
   platform: MobilePlatform
 }
@@ -44,8 +60,9 @@ export const DialogMobile: Component<Props> = (props) => {
   const server = useServer()
   const models = useModels()
   const language = useLanguage()
-  const [inputAppId, setInputAppId] = createSignal("")
-  const [inputAppSecret, setInputAppSecret] = createSignal("")
+  const savedCreds = () => loadMobileCreds(p())
+  const [inputAppId, setInputAppId] = createSignal(savedCreds()?.appId ?? "")
+  const [inputAppSecret, setInputAppSecret] = createSignal(savedCreds()?.appSecret ?? "")
   const [steps, setSteps] = createStore({ 1: false, 2: false, 3: false, 4: false, 5: false })
   const [prevStatus, setPrevStatus] = createSignal<MobileStatus>("idle")
 
@@ -68,6 +85,7 @@ export const DialogMobile: Component<Props> = (props) => {
 
   const doStart = () => {
     if (p() === "feishu" || p() === "qq") {
+      saveMobileCreds(p(), inputAppId(), inputAppSecret())
       return startBridge(p(), false, undefined, false, inputAppId(), inputAppSecret())
     }
     return startBridge("wechat", true, currentModelStr() as string | undefined)
@@ -170,13 +188,20 @@ export const DialogMobile: Component<Props> = (props) => {
             <Show when={p() === "feishu" || p() === "qq"}>
               <div class="flex flex-col gap-4 w-full">
                 <div class="w-full flex flex-col gap-3">
+                  <div class="sr-only" aria-hidden="true">
+                    <input type="text" name="username" tabIndex={-1} autocomplete="username" />
+                    <input type="password" name="password" tabIndex={-1} autocomplete="current-password" />
+                  </div>
                   <div class="flex flex-col gap-1">
                     <label class="text-12-medium text-text-base">App ID</label>
                     <input
                       type="text"
+                      name={`mobile-appid-${p()}`}
                       value={inputAppId()}
                       onInput={(e) => setInputAppId(e.currentTarget.value)}
                       autocomplete="off"
+                      data-1p-ignore
+                      data-lpignore="true"
                       placeholder={p() === "qq" ? "10xxxxxx" : "cli_xxxxxxxx"}
                       class="w-full px-3 py-2 rounded-md border border-border-base bg-surface-base text-text-base text-13-regular focus:outline-none focus:border-border-focus"
                     />
@@ -185,9 +210,12 @@ export const DialogMobile: Component<Props> = (props) => {
                     <label class="text-12-medium text-text-base">App Secret</label>
                     <input
                       type="password"
+                      name={`mobile-secret-${p()}`}
                       value={inputAppSecret()}
                       onInput={(e) => setInputAppSecret(e.currentTarget.value)}
-                      autocomplete="new-password"
+                      autocomplete="off"
+                      data-1p-ignore
+                      data-lpignore="true"
                       placeholder={language.t(`${p()}.enterAppSecret`)}
                       class="w-full px-3 py-2 rounded-md border border-border-base bg-surface-base text-text-base text-13-regular focus:outline-none focus:border-border-focus"
                     />
