@@ -49,6 +49,39 @@ type DailyMemory = {
     invalid_entries: number
   }>
 }
+type RefreshScope = "current_project" | "global"
+type RefreshState = "pending" | "running" | "completed" | "blocked_by_disabled" | "failed"
+type RefreshRunStatus = "running" | "success" | "blocked" | "failed" | "noop"
+type RefreshStatus = {
+  memory_version: string
+  state: RefreshState
+  refresh_required: boolean
+  noop: boolean
+  run_status?: RefreshRunStatus
+  candidate_count?: number
+  promoted_daily_count?: number
+  promoted_user_count?: number
+  cache_refresh_error?: string
+  error?: string
+}
+type RefreshRun = {
+  run_id: string
+  memory_version: string
+  scope: RefreshScope
+  dry_run: boolean
+  status: RefreshRunStatus
+  started_at: number
+  finished_at?: number
+  candidate_count?: number
+  promoted_daily_count?: number
+  promoted_user_count?: number
+  cache_refresh_error?: string
+  error?: string
+}
+type RefreshResult = {
+  status: RefreshStatus
+  run?: RefreshRun
+}
 type CronMode = "direct" | "isolated_agent" | "session_agent" | "agent_message"
 type CronScheduleType = "cron" | "interval" | "once"
 type CronLastStatus = "success" | "failed" | "skipped" | "expired" | null
@@ -152,7 +185,11 @@ export type AppClient = Base & {
       memory: MemoryStore
       daily: DailyMemory
       active?: ActiveMemory
+      refresh?: RefreshStatus
     }>
+    refresh: {
+      run(input?: { scope?: RefreshScope; force?: boolean }): Req<RefreshResult>
+    }
   }
   cron: {
     jobs: {
@@ -372,6 +409,15 @@ export function addMemoryMethods(
       if (input?.sessionID) params.set("session_id", input.sessionID)
       const suffix = params.size ? `?${params.toString()}` : ""
       return requestJSON(`${baseUrl}/memory${suffix}`, { headers }, options)
+    },
+    refresh: {
+      async run(input?: { scope?: RefreshScope; force?: boolean }) {
+        const params = new URLSearchParams()
+        if (input?.scope) params.set("scope", input.scope)
+        if (input?.force) params.set("force", "true")
+        const suffix = params.size ? `?${params.toString()}` : ""
+        return requestJSON(`${baseUrl}/memory/refresh/run${suffix}`, { method: "POST", headers }, options)
+      },
     },
   }
   safeAssign(client, "memory", memoryMethods)
