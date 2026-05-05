@@ -32,19 +32,19 @@ const getBase = (): Configuration => ({
     },
     {
       from: "../../.opencode/skills",
-      to: ".opencode/skills",
+      to: ".aether/skills",
     },
     {
       from: "../../.opencode/agent",
-      to: ".opencode/agent",
+      to: ".aether/agent",
     },
     {
       from: "../../.opencode/command",
-      to: ".opencode/command",
+      to: ".aether/command",
     },
     {
       from: "../../.opencode/themes",
-      to: ".opencode/themes",
+      to: ".aether/themes",
     },
     {
       from: "../../Aether-wechat-bridge",
