@@ -56,40 +56,30 @@ export const MemoryWriteTool = Tool.define("memory_write", {
     "The written note is silently added to active memory and remains available in this session.",
   ].join("\n"),
   parameters: z.object({
-    store: Memory.Store.default("memory").describe("Intended future store for reflection; write still goes to session memory."),
+    store: z.literal("memory").optional().describe("Deprecated compatibility field. Omit it; writes always go to session memory."),
     action: z.enum(["add", "replace", "remove"]),
     value: z.string().optional().describe("Natural-language memory note."),
-    profile: z
-      .object({
-        type: z.enum(["fact", "preference", "task"]),
-        source: z.enum(["explicit", "inferred"]),
-        content: z.string(),
-      })
-      .optional()
-      .describe("Optional helper for user-profile-like notes. If provided with store=user, value is built automatically."),
     index: z.number().int().positive().optional(),
     match: z.string().optional(),
     reason: Memory.WriteReason.optional(),
-  }),
+  }).strict(),
   async execute(input, ctx) {
-    const value =
-      input.store === "user" && input.profile
-        ? `${input.profile.type}[${input.profile.source}]: ${input.profile.content}`
-        : input.value
     const result = await Memory.write({
       session_id: ctx.sessionID,
-      store: input.store,
+      store: "memory",
       action: input.action,
-      value,
+      value: input.value,
       index: input.index,
       match: input.match,
       reason: input.reason,
     })
 
     if (!result.ok) return blocked(result.events[0]?.summary ?? "Write blocked")
+    const deprecatedStore = input.store === "memory"
     return {
       title: "Memory updated",
       output: [
+        ...(deprecatedStore ? ["Warning: memory_write.store is deprecated; omit it. Writes always go to session memory.", ""] : []),
         "Store: session",
         `File: ${result.session.file}`,
         `Used: ${result.session.used}`,
@@ -99,7 +89,7 @@ export const MemoryWriteTool = Tool.define("memory_write", {
       metadata: {
         blocked: false,
         store: "session",
-        intended_store: input.store,
+        deprecated: deprecatedStore ? ["store"] : [],
         used: result.session.used,
         enabled: true,
       },

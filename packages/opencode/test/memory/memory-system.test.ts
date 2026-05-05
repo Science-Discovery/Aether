@@ -17,7 +17,7 @@ import { ReadTool } from "../../src/tool/read"
 import { GlobTool } from "../../src/tool/glob"
 import { GrepTool } from "../../src/tool/grep"
 import { BashTool } from "../../src/tool/bash"
-import { MemoryListTool, MemoryReadTool, MemorySearchTool } from "../../src/tool/memory"
+import { MemoryListTool, MemoryReadTool, MemorySearchTool, MemoryWriteTool } from "../../src/tool/memory"
 
 function todayKey() {
   const date = new Date()
@@ -111,6 +111,60 @@ describe("memory + user profile backend", () => {
           toolContext({ userText: "Please display the memory store." }),
         )
         expect(allowedRead.title).toBe("Memory store")
+      },
+    })
+  })
+
+  test("memory_write tool rejects legacy durable store arguments", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const tool = await MemoryWriteTool.init()
+
+        await expect(
+          tool.execute(
+            {
+              store: "user",
+              action: "add",
+              value: "Temporary scratch note for this session.",
+            } as any,
+            toolContext({ userText: "Please remember this globally." }),
+          ),
+        ).rejects.toThrow("invalid arguments")
+
+        await expect(
+          tool.execute(
+            {
+              store: "global",
+              action: "add",
+              value: "Temporary scratch note for this session.",
+            } as any,
+            toolContext({ userText: "Please write this to global memory." }),
+          ),
+        ).rejects.toThrow("invalid arguments")
+
+        const legacyMemoryStore = await tool.execute(
+          {
+            store: "memory",
+            action: "add",
+            value: "Legacy compatible scratch note.",
+          },
+          toolContext({ userText: "Please remember this." }),
+        )
+        expect(legacyMemoryStore.metadata.blocked).toBe(false)
+        expect(legacyMemoryStore.output).toContain("deprecated")
+        expect((legacyMemoryStore.metadata as any).deprecated).toEqual(["store"])
+
+        const result = await tool.execute(
+          {
+            action: "add",
+            value: "Temporary scratch note for this session.",
+          },
+          toolContext({ userText: "Please remember this." }),
+        )
+        expect(result.metadata.blocked).toBe(false)
+        expect((result.metadata as any).store).toBe("session")
       },
     })
   })
