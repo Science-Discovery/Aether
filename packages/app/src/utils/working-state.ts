@@ -57,8 +57,7 @@ export function createWorkingState(input: {
   const selfInteractive = createMemo(() => {
     const s = input.status()
     if (isBusy(s)) return true
-    if (grace()) return !!input.pending()
-    return false
+    return !!input.pending()
   })
 
   const descBusy = createMemo(() => {
