@@ -105,7 +105,6 @@ await Global.ensureDirs()
 
 Log.init({
   print: false,
-  dev: true,
   level: "DEBUG",
 })
 
