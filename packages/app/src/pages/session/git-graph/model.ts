@@ -58,16 +58,16 @@ const idx = (commits: CommitLogItem[]) => {
   return map
 }
 
-export function computeGraphLayout(commits: CommitLogItem[], head: string | null): GraphView {
+export function computeGraphLayout(commits: CommitLogItem[] | undefined | null, head: string | null): GraphView {
+  if (!commits || commits.length === 0) return { nodes: [], edges: [], lanes: 0 }
   const n = commits.length
-  if (n === 0) return { nodes: [], edges: [], lanes: 0 }
 
   const lookup = idx(commits)
   const slot = commits.map(() => ({ lane: -1, nextX: 0, parent: 0 }))
   const bag: { end: number }[] = []
 
   for (let i = 0; i < n; i++) {
-    while (slot[i].parent < commits[i].parents.length) {
+    while (slot[i].parent < (commits[i].parents?.length ?? 0)) {
       const parentHash = commits[i].parents[slot[i].parent]
       const parentRow = lookup.get(parentHash)
 
@@ -156,8 +156,8 @@ export function computeGraphLayout(commits: CommitLogItem[], head: string | null
 
   const edges: GraphEdge[] = []
   for (let i = 0; i < n; i++) {
-    for (let p = 0; p < commits[i].parents.length; p++) {
-      const parentRow = lookup.get(commits[i].parents[p])
+    for (let p = 0; p < (commits[i].parents?.length ?? 0); p++) {
+      const parentRow = lookup.get(commits[i].parents![p])
       if (parentRow === undefined) continue
       edges.push({
         fromRow: i,
