@@ -275,12 +275,12 @@ export namespace SessionPrompt {
     const match = s[sessionID]
     if (!match) {
       await SessionStatus.set(sessionID, { type: "idle" })
-      return
+    } else {
+      match.abort.abort()
+      delete s[sessionID]
+      await SessionStatus.set(sessionID, { type: "idle" })
     }
-    match.abort.abort()
-    delete s[sessionID]
-    await SessionStatus.set(sessionID, { type: "idle" })
-    return
+    await Session.recoverStuckParts(sessionID)
   }
 
   export const LoopInput = z.object({
