@@ -51,8 +51,6 @@ jobs:
 
   build-electron:
     # Electron build stays available, but is opt-in via workflow_dispatch input.
-    # To upload Electron artifacts again, also re-add build-electron under
-    # publish.needs below.
     if: github.repository == 'Science-Discovery/Aether' && inputs.release_electron
     needs: release
     strategy:
@@ -230,11 +228,17 @@ jobs:
           if-no-files-found: error
 
   publish:
-    if: github.repository == 'Science-Discovery/Aether'
+    if: >
+      always() &&
+      github.repository == 'Science-Discovery/Aether' &&
+      needs.release.result == 'success' &&
+      needs.build-web-mac.result == 'success' &&
+      needs.build-web-linux.result == 'success' &&
+      needs.build-web-windows.result == 'success' &&
+      (!inputs.release_electron || needs.build-electron.result == 'success')
     needs:
       - release
-      # Electron release artifacts are temporarily disabled in this workflow.
-      # - build-electron
+      - build-electron
       - build-web-mac
       - build-web-linux
       - build-web-windows

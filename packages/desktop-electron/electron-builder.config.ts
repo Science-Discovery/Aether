@@ -32,19 +32,19 @@ const getBase = (): Configuration => ({
     },
     {
       from: "../../.opencode/skills",
-      to: ".opencode/skills",
+      to: ".aether/skills",
     },
     {
       from: "../../.opencode/agent",
-      to: ".opencode/agent",
+      to: ".aether/agent",
     },
     {
       from: "../../.opencode/command",
-      to: ".opencode/command",
+      to: ".aether/command",
     },
     {
       from: "../../.opencode/themes",
-      to: ".opencode/themes",
+      to: ".aether/themes",
     },
     {
       from: "../../Aether-wechat-bridge",
@@ -70,7 +70,7 @@ const getBase = (): Configuration => ({
     target: ["dmg"],
   },
   protocols: {
-    name: "Aether",
+    name: "Aether Desktop",
     schemes: ["aether"],
   },
   win: {
@@ -98,28 +98,32 @@ function getConfig() {
       return {
         ...base,
         appId: "com.aether.desktop.dev",
-        productName: "Aether Dev",
-        rpm: { packageName: "aether-dev" },
+        productName: "Aether Desktop Dev",
+        protocols: { name: "Aether Desktop Dev", schemes: ["aether"] },
+        deb: { packageName: "aether-desktop-dev" },
+        rpm: { packageName: "aether-desktop-dev" },
       }
     }
     case "beta": {
       return {
         ...base,
         appId: "com.aether.desktop.beta",
-        productName: "Aether Beta",
-        protocols: { name: "Aether Beta", schemes: ["aether"] },
+        productName: "Aether Desktop Beta",
+        protocols: { name: "Aether Desktop Beta", schemes: ["aether"] },
         publish: { provider: "github", owner: "anomalyco", repo: "aether-beta", channel: "latest" },
-        rpm: { packageName: "aether-beta" },
+        deb: { packageName: "aether-desktop-beta" },
+        rpm: { packageName: "aether-desktop-beta" },
       }
     }
     case "prod": {
       return {
         ...base,
         appId: "com.aether.desktop",
-        productName: "Aether",
-        protocols: { name: "Aether", schemes: ["aether"] },
+        productName: "Aether Desktop",
+        protocols: { name: "Aether Desktop", schemes: ["aether"] },
         publish: { provider: "github", owner: "Science-Discovery", repo: "Aether", channel: updater },
-        rpm: { packageName: "aether" },
+        deb: { packageName: "aether-desktop" },
+        rpm: { packageName: "aether-desktop" },
       }
     }
   }

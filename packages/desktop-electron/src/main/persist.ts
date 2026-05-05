@@ -1,6 +1,6 @@
-import { cpSync, copyFileSync, existsSync, mkdirSync, rmSync } from "node:fs"
+import { copyFileSync, existsSync, mkdirSync, rmSync } from "node:fs"
 import { dirname, join } from "node:path"
-import { APP, LEGACY_APP, legacyStoreName, storeName } from "./persist-names"
+import { legacyStoreName, storeName } from "./persist-names"
 import { legacyUserDataDir, userDataDir } from "./paths"
 
 let ready = false
@@ -10,14 +10,6 @@ function copy(src: string, dst: string) {
   if (existsSync(dst)) return false
   mkdirSync(dirname(dst), { recursive: true })
   copyFileSync(src, dst)
-  return true
-}
-
-function copyDir(src: string, dst: string) {
-  if (!existsSync(src)) return false
-  if (existsSync(dst)) return false
-  mkdirSync(dirname(dst), { recursive: true })
-  cpSync(src, dst, { recursive: true })
   return true
 }
 
@@ -47,14 +39,6 @@ export function ensureStoreFile(name: string) {
   return next
 }
 
-function ensureState() {
-  const next = join(userDataDir(), APP)
-  if (existsSync(next)) return
-  for (const src of [join(userDataDir(), LEGACY_APP), join(legacyUserDataDir(), APP), join(legacyUserDataDir(), LEGACY_APP)]) {
-    if (copyDir(src, next)) return
-  }
-}
-
 function ensureDefault() {
   copy(join(legacyUserDataDir(), "default.dat"), join(userDataDir(), "default.dat"))
 }
@@ -63,7 +47,6 @@ export function ensureDesktopPersist() {
   if (ready) return
   mkdirSync(userDataDir(), { recursive: true })
   ensureDefault()
-  ensureState()
   ready = true
 }
 
