@@ -2,7 +2,7 @@
 set -euo pipefail
 
 dir="$(cd "$(dirname "$0")" && pwd)"
-portfile="$HOME/.local/share/aether/serve-port"
+portfile="${XDG_DATA_HOME:-$HOME/.local/share}/aether/serve-port"
 port=""
 if [ -f "$portfile" ]; then
   port="$(head -1 "$portfile" 2>/dev/null || true)"
