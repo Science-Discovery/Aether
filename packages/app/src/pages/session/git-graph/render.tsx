@@ -1,9 +1,7 @@
-import { For, Show, createMemo } from "solid-js"
-import { PALETTE, type GraphEdge, type GraphNode } from "./model"
+import { For, Show, createMemo, createSignal } from "solid-js"
+import { Portal } from "solid-js/web"
+import { PALETTE, ROW_HEIGHT, LANE_GAP, RAIL_PAD, type GraphEdge, type GraphNode } from "./model"
 
-const ROW_HEIGHT = 28
-const LANE_GAP = 16
-const RAIL_PAD = 12
 const DELTA = ROW_HEIGHT * 0.8
 
 const color = (idx: number) => PALETTE[idx % PALETTE.length]
@@ -23,6 +21,11 @@ const ago = (date: number) => {
   return `${Math.floor(diff / 604800)}w`
 }
 
+const formatDate = (date: number) => {
+  const d = new Date(date * 1000)
+  return d.toLocaleDateString() + " " + d.toLocaleTimeString()
+}
+
 const edgePath = (edge: GraphEdge) => {
   const x1 = xForLane(edge.fromLane)
   const y1 = yForRow(edge.fromRow)
@@ -37,12 +40,139 @@ const edgePath = (edge: GraphEdge) => {
   return `M ${x1} ${y1} C ${x1} ${y1 + d}, ${x2} ${y2 - d}, ${x2} ${y2}`
 }
 
-export function GitGraphList(props: { nodes: GraphNode[]; edges: GraphEdge[]; lanes: number }) {
+function TooltipContent(props: {
+  node: GraphNode
+  currentBranch: string | null
+  uncommitted?: { count: number; files: string[] }
+}) {
+  const c = color(props.node.colorIndex)
+
+  return (
+    <div
+      class="text-xs text-text-base"
+      style={{
+        "border-left": `3px solid ${c}`,
+        "max-width": "320px",
+      }}
+    >
+      <div class="font-mono text-11-regular text-text-weaker px-3 pt-2 pb-1">
+        {props.node.isUncommitted ? "Uncommitted Changes" : `Commit ${abbrev(props.node.hash)}`}
+      </div>
+
+      <Show when={props.currentBranch && !props.node.isUncommitted}>
+        <div class="px-3 pb-1 text-text-weaker">
+          {props.node.heads.includes(props.currentBranch!) ? (
+            <span>
+              Included in <span class="text-text-base font-medium">HEAD</span>
+            </span>
+          ) : (
+            <span>
+              <b>
+                <i>Not</i>
+              </b>{" "}
+              included in <span class="text-text-base font-medium">HEAD</span>
+            </span>
+          )}
+        </div>
+      </Show>
+
+      <Show when={props.node.isUncommitted && props.uncommitted}>
+        <div class="px-3 pb-1 text-text-weaker">
+          {props.uncommitted!.count} file{props.uncommitted!.count !== 1 ? "s" : ""} changed
+          <div class="mt-1 max-h-[120px] overflow-y-auto">
+            <For each={props.uncommitted!.files.slice(0, 20)}>
+              {(file) => <div class="truncate font-mono text-[10px]">{file}</div>}
+            </For>
+          </div>
+          <Show when={(props.uncommitted?.files.length ?? 0) > 20}>
+            <div class="text-text-weaker mt-0.5">...and {props.uncommitted!.files.length - 20} more</div>
+          </Show>
+        </div>
+      </Show>
+
+      <Show when={props.node.heads.length > 0}>
+        <div class="px-3 pb-1 text-text-weaker">
+          Branches:
+          <span class="text-text-base">
+            {props.node.heads.slice(0, 5).join(", ")}
+            {props.node.heads.length > 5 ? ` +${props.node.heads.length - 5} more` : ""}
+          </span>
+        </div>
+      </Show>
+
+      <Show when={props.node.tags.length > 0}>
+        <div class="px-3 pb-1 text-text-weaker">
+          Tags:
+          <span class="text-text-base">
+            {props.node.tags
+              .slice(0, 5)
+              .map((t) => t.name)
+              .join(", ")}
+            {props.node.tags.length > 5 ? ` +${props.node.tags.length - 5} more` : ""}
+          </span>
+        </div>
+      </Show>
+
+      <Show when={props.node.remotes.length > 0}>
+        <div class="px-3 pb-1 text-text-weaker">
+          Remotes:
+          <span class="text-text-base">
+            {props.node.remotes
+              .slice(0, 5)
+              .map((r) => r.name)
+              .join(", ")}
+            {props.node.remotes.length > 5 ? ` +${props.node.remotes.length - 5} more` : ""}
+          </span>
+        </div>
+      </Show>
+
+      <Show when={!props.node.isUncommitted}>
+        <div class="px-3 pb-1 text-text-weaker">
+          {props.node.author} · {formatDate(props.node.date)}
+        </div>
+        <div class="px-3 pb-2 text-text-base break-words whitespace-pre-wrap">{props.node.message}</div>
+      </Show>
+    </div>
+  )
+}
+
+export function GitGraphList(props: {
+  nodes: GraphNode[]
+  edges: GraphEdge[]
+  lanes: number
+  currentBranch: string | null | undefined
+  uncommitted?: { count: number; files: string[] }
+}) {
+  const [hovered, setHovered] = createSignal<GraphNode | null>(null)
+  const [tooltipX, setTooltipX] = createSignal(0)
+  const [tooltipY, setTooltipY] = createSignal(0)
+
   const railWidth = createMemo(() => props.lanes * LANE_GAP + RAIL_PAD * 2)
   const height = createMemo(() => Math.max(ROW_HEIGHT, props.nodes.length * ROW_HEIGHT))
 
+  const handleCircleEnter = (node: GraphNode, e: MouseEvent) => {
+    setHovered(node)
+    updatePos(e)
+  }
+
+  const updatePos = (e: MouseEvent) => {
+    const rect = (e.currentTarget as SVGCircleElement).getBoundingClientRect()
+    const gap = 6
+    const estimatedWidth = 330
+    const margin = 12
+
+    let x = rect.right + gap
+    if (x + estimatedWidth > window.innerWidth - margin) {
+      x = rect.left - estimatedWidth - gap
+    }
+    if (x < margin) x = margin
+
+    setTooltipX(x)
+    setTooltipY(rect.top + rect.height / 2)
+  }
+
   return (
-    <div class="relative h-full min-h-0 overflow-auto">
+    <div class="relative h-full min-h-0">
       <div class="relative min-w-0" style={{ height: `${height()}px` }}>
         <svg
           class="pointer-events-none absolute left-0 top-0 z-20"
@@ -74,13 +204,44 @@ export function GitGraphList(props: { nodes: GraphNode[]; edges: GraphEdge[]; la
               return (
                 <>
                   <Show when={node.isUncommitted}>
-                    <circle cx={cx()} cy={cy()} r={r()} fill="transparent" stroke="#808080" stroke-width="1.5" />
+                    <circle
+                      cx={cx()}
+                      cy={cy()}
+                      r={r()}
+                      fill="transparent"
+                      stroke="#808080"
+                      stroke-width="1.5"
+                      style="pointer-events:auto;cursor:pointer"
+                      onMouseEnter={(e) => handleCircleEnter(node, e)}
+                      onMouseMove={(e) => updatePos(e)}
+                      onMouseLeave={() => setHovered(null)}
+                    />
                   </Show>
                   <Show when={!node.isUncommitted && node.isHead}>
-                    <circle cx={cx()} cy={cy()} r={r()} fill="transparent" stroke={c()} stroke-width="2" />
+                    <circle
+                      cx={cx()}
+                      cy={cy()}
+                      r={r()}
+                      fill="transparent"
+                      stroke={c()}
+                      stroke-width="2"
+                      style="pointer-events:auto;cursor:pointer"
+                      onMouseEnter={(e) => handleCircleEnter(node, e)}
+                      onMouseMove={(e) => updatePos(e)}
+                      onMouseLeave={() => setHovered(null)}
+                    />
                   </Show>
                   <Show when={!node.isUncommitted && !node.isHead}>
-                    <circle cx={cx()} cy={cy()} r={r()} fill={c()} />
+                    <circle
+                      cx={cx()}
+                      cy={cy()}
+                      r={r()}
+                      fill={c()}
+                      style="pointer-events:auto;cursor:pointer"
+                      onMouseEnter={(e) => handleCircleEnter(node, e)}
+                      onMouseMove={(e) => updatePos(e)}
+                      onMouseLeave={() => setHovered(null)}
+                    />
                   </Show>
                 </>
               )
@@ -93,11 +254,16 @@ export function GitGraphList(props: { nodes: GraphNode[]; edges: GraphEdge[]; la
             {(node) => (
               <div
                 class="flex items-center gap-2 border-b border-border-weaker-base text-sm"
+                classList={{
+                  "bg-surface-base": hovered()?.hash === node.hash,
+                }}
                 style={{
                   height: `${ROW_HEIGHT}px`,
                   "padding-left": `${railWidth() + 8}px`,
                   "padding-right": "8px",
                 }}
+                onMouseEnter={() => setHovered(node)}
+                onMouseLeave={() => setHovered(null)}
               >
                 <Show when={node.heads.length > 0 || node.isHead}>
                   <span class="shrink-0 flex items-center gap-1">
@@ -112,7 +278,9 @@ export function GitGraphList(props: { nodes: GraphNode[]; edges: GraphEdge[]; la
                 </Show>
 
                 <span class="min-w-0 flex-1 truncate text-text-base">
-                  {node.isUncommitted ? "Uncommitted Changes" : node.message}
+                  {node.isUncommitted
+                    ? `Uncommitted Changes${props.uncommitted ? ` (${props.uncommitted.count})` : ""}`
+                    : node.message}
                 </span>
 
                 <Show when={!node.isUncommitted}>
@@ -127,6 +295,29 @@ export function GitGraphList(props: { nodes: GraphNode[]; edges: GraphEdge[]; la
           </For>
         </div>
       </div>
+
+      <Portal>
+        <Show when={hovered()}>
+          {(node) => (
+            <div
+              class="fixed z-[1000] pointer-events-none"
+              style={{
+                left: `${tooltipX()}px`,
+                top: `${tooltipY()}px`,
+                transform: "translateY(-50%)",
+              }}
+            >
+              <div class="rounded shadow-lg border border-border-weaker-base bg-surface-base overflow-hidden">
+                <TooltipContent
+                  node={node()}
+                  currentBranch={props.currentBranch ?? null}
+                  uncommitted={props.uncommitted}
+                />
+              </div>
+            </div>
+          )}
+        </Show>
+      </Portal>
     </div>
   )
 }

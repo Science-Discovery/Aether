@@ -8863,6 +8863,8 @@ export type VcsGraphData = {
     directory?: string
     workspace?: string
     max?: number
+    branch?: string
+    skip?: number
   }
   url: "/vcs/graph"
 }

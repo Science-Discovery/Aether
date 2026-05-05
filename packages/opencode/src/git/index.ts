@@ -86,7 +86,10 @@ export namespace Git {
     readonly status: (cwd: string) => Effect.Effect<Item[]>
     readonly diff: (cwd: string, ref: string) => Effect.Effect<Item[]>
     readonly stats: (cwd: string, ref: string) => Effect.Effect<Stat[]>
-    readonly log: (cwd: string, opts?: { max?: number }) => Effect.Effect<readonly LogItem[]>
+    readonly log: (
+      cwd: string,
+      opts?: { max?: number; branch?: string; skip?: number },
+    ) => Effect.Effect<readonly LogItem[]>
     readonly refs: (cwd: string, ...prefixes: string[]) => Effect.Effect<readonly Ref[]>
   }
 
@@ -260,19 +263,21 @@ export namespace Git {
         })
       })
 
-      const log = Effect.fn("Git.log")(function* (cwd: string, opts?: { max?: number }) {
+      const log = Effect.fn("Git.log")(function* (
+        cwd: string,
+        opts?: { max?: number; branch?: string; skip?: number },
+      ) {
         const max = opts?.max ?? 300
         const sep = "\x1F"
-        return (yield* lines(
-          [
-            "log",
-            `--format=%H${sep}%P${sep}%an${sep}%ae${sep}%at${sep}%s`,
-            "--max-count=" + String(max),
-            "--all",
-            "--topo-order",
-          ],
-          { cwd },
-        )).map((line) => {
+        const args = ["log", `--format=%H${sep}%P${sep}%an${sep}%ae${sep}%at${sep}%s`, "--max-count=" + String(max)]
+        if (opts?.skip) args.push("--skip=" + String(opts.skip))
+        if (opts?.branch && opts.branch !== "all") {
+          args.push(opts.branch)
+        } else {
+          args.push("--all")
+        }
+        args.push("--topo-order")
+        return (yield* lines(args, { cwd })).map((line) => {
           const [hash, parents, author, email, date, ...rest] = line.split(sep)
           return {
             hash,
@@ -366,7 +371,7 @@ export namespace Git {
     return runPromise((git) => git.stats(cwd, ref))
   }
 
-  export function log(cwd: string, opts?: { max?: number }) {
+  export function log(cwd: string, opts?: { max?: number; branch?: string; skip?: number }) {
     return runPromise((git) => git.log(cwd, opts))
   }
 

@@ -130,7 +130,7 @@ export namespace Vcs {
     readonly branch: () => Effect.Effect<string | undefined>
     readonly defaultBranch: () => Effect.Effect<string | undefined>
     readonly diff: (mode: Mode) => Effect.Effect<Snapshot.FileDiff[]>
-    readonly graph: (opts?: { max?: number }) => Effect.Effect<GraphResult>
+    readonly graph: (opts?: { max?: number; branch?: string; skip?: number }) => Effect.Effect<GraphResult>
   }
 
   export const TagRef = z
@@ -249,7 +249,7 @@ export namespace Vcs {
           if (!ref) return []
           return yield* compare(fs, git, Instance.directory, ref)
         }),
-        graph: Effect.fn("Vcs.graph")(function* (opts?: { max?: number }) {
+        graph: Effect.fn("Vcs.graph")(function* (opts?: { max?: number; branch?: string; skip?: number }) {
           if (Instance.project.vcs !== "git") {
             return { commits: [], head: null, tags: [], moreAvailable: false } satisfies GraphResult
           }
@@ -257,7 +257,7 @@ export namespace Vcs {
           const max = opts?.max ?? 300
           const [commits, heads, tags, remotes, head] = yield* Effect.all(
             [
-              git.log(cwd, { max: max + 1 }),
+              git.log(cwd, { max: max + 1, branch: opts?.branch, skip: opts?.skip }),
               git.refs(cwd, "refs/heads/"),
               git.refs(cwd, "refs/tags/"),
               git.refs(cwd, "refs/remotes/"),
@@ -342,7 +342,7 @@ export namespace Vcs {
     return runPromise((svc) => svc.diff(mode))
   }
 
-  export function graph(opts?: { max?: number }) {
+  export function graph(opts?: { max?: number; branch?: string; skip?: number }) {
     return runPromise((svc) => svc.graph(opts))
   }
 }

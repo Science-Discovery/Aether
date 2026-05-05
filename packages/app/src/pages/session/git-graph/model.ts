@@ -15,6 +15,10 @@ export const PALETTE = [
   "#ffcc00",
 ]
 
+export const ROW_HEIGHT = 28
+export const LANE_GAP = 16
+export const RAIL_PAD = 12
+
 export const UNCOMMITTED = "UNCOMMITTED"
 
 export type GraphNode = {
@@ -28,6 +32,8 @@ export type GraphNode = {
   author: string
   date: number
   heads: string[]
+  tags: { name: string; annotated: boolean }[]
+  remotes: { name: string; remote: string | null }[]
 }
 
 export type GraphEdge = {
@@ -151,6 +157,8 @@ export function computeGraphLayout(commits: CommitLogItem[], head: string | null
       author: c.author,
       date: c.date,
       heads: c.heads,
+      tags: c.tags,
+      remotes: c.remotes,
     }
   })
 
