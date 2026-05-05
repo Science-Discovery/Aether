@@ -1,4 +1,4 @@
-import { BrowserWindow, Menu, shell } from "electron"
+import { app, BrowserWindow, Menu, shell } from "electron"
 
 import { UPDATER_ENABLED } from "./constants"
 import { createMainWindow } from "./windows"
@@ -16,17 +16,13 @@ export function createMenu(deps: Deps) {
 
   const template: Electron.MenuItemConstructorOptions[] = [
     {
-      label: "OpenCode",
+      label: app.getName(),
       submenu: [
         { role: "about" },
         {
           label: "Check for Updates...",
           enabled: UPDATER_ENABLED,
           click: () => deps.checkForUpdates(),
-        },
-        {
-          label: "Install CLI...",
-          click: () => deps.installCli(),
         },
         {
           label: "Reload Webview",
