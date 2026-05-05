@@ -1755,7 +1755,6 @@ export namespace Session {
     const msgs = await MessageV2.filterCompacted(MessageV2.stream(sessionID))
     const now = Date.now()
     for (const msg of msgs) {
-      let needsMessageUpdate = false
       for (const part of msg.parts) {
         if (part.type === "tool" && part.state.status !== "completed" && part.state.status !== "error") {
           await updatePart({
@@ -1770,10 +1769,9 @@ export namespace Session {
               },
             },
           })
-          needsMessageUpdate = true
         }
       }
-      if (needsMessageUpdate && msg.info.role === "assistant" && msg.info.time.completed === undefined) {
+      if (msg.info.role === "assistant" && msg.info.time.completed === undefined) {
         await updateMessage({ ...msg.info, time: { ...msg.info.time, completed: now } })
       }
     }
