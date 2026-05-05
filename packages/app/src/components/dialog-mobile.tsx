@@ -68,6 +68,8 @@ export const DialogMobile: Component<Props> = (props) => {
 
   const doStart = () => {
     if (p() === "feishu" || p() === "qq") {
+      if (prevStatus() === "connected")
+        return stopBridge(p()).then(() => startBridge(p(), false, undefined, false, inputAppId(), inputAppSecret()))
       return startBridge(p(), false, undefined, false, inputAppId(), inputAppSecret())
     }
     return startBridge("wechat", true, currentModelStr() as string | undefined)
