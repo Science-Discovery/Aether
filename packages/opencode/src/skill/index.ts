@@ -606,15 +606,15 @@ export namespace Skill {
     const sources = await buildSources(directory, worktree, cfg)
     const globalDirs = manifestDirs(sources, "global")
     const projectDirs = manifestDirs(sources, "project")
-    console.log(`[skill cache] scan dirs (global): ${globalDirs.join(", ") || "(none)"}`)
-    console.log(`[skill cache] scan dirs (project): ${projectDirs.join(", ") || "(none)"}`)
+    log.debug(`[skill cache] scan dirs (global): ${globalDirs.join(", ") || "(none)"}`)
+    log.debug(`[skill cache] scan dirs (project): ${projectDirs.join(", ") || "(none)"}`)
 
     const t0 = performance.now()
     const globalManifest = await buildSkillsManifest(globalDirs)
     const t1 = performance.now()
     const projectManifest = await buildSkillsManifest(projectDirs)
     const t2 = performance.now()
-    console.log(
+    log.debug(
       `[skill perf] manifest ms global=${Math.round(t1 - t0)} project=${Math.round(t2 - t1)} total=${Math.round(t2 - t0)}`,
     )
     const globalPath = globalSnapshotPath()
@@ -624,25 +624,25 @@ export namespace Skill {
     const globalSkills =
       cachedGlobal ??
       (await (async () => {
-        console.log(`[skill cache] snapshot miss (global), full scan`)
+        log.debug(`[skill cache] snapshot miss (global), full scan`)
         const scanned = await scanSources(sources, "global")
         const list = Object.values(scanned.skills).flat()
         await writeSkillsSnapshot(globalPath, globalManifest, list)
         return list
       })())
-    if (cachedGlobal) console.log(`[skill cache] snapshot hit (global), count=${cachedGlobal.length}`)
+    if (cachedGlobal) log.debug(`[skill cache] snapshot hit (global), count=${cachedGlobal.length}`)
 
     const cachedProject = await loadSkillsSnapshot(projectPath, projectManifest)
     const project =
       cachedProject ??
       (await (async () => {
-        console.log(`[skill cache] snapshot miss (project), full scan`)
+        log.debug(`[skill cache] snapshot miss (project), full scan`)
         const scanned = await scanSources(sources, "project")
         const list = Object.values(scanned.skills).flat()
         await writeSkillsSnapshot(projectPath, projectManifest, list)
         return list
       })())
-    if (cachedProject) console.log(`[skill cache] snapshot hit (project), count=${cachedProject.length}`)
+    if (cachedProject) log.debug(`[skill cache] snapshot hit (project), count=${cachedProject.length}`)
 
     const merged = mergeSkills(globalSkills, project, disabled)
 
@@ -674,13 +674,13 @@ export namespace Skill {
   }
 
   async function loadSkills(state: RawState, directory: string, worktree: string) {
-    console.log(`[skill cache] memory miss, loading from disk (dir=${directory})`)
+    log.debug(`[skill cache] memory miss, loading from disk (dir=${directory})`)
     const data = await loadSkillsData(directory, worktree)
     state.skills = data.skills
     state.dirs = data.dirs
     const stat = stats(state)
-    console.log(`[skill cache] stats skills=${stat.skills} dirs=${stat.dirs} bytes=${stat.bytes}`)
-    console.log(
+    log.debug(`[skill cache] stats skills=${stat.skills} dirs=${stat.dirs} bytes=${stat.bytes}`)
+    log.debug(
       `[skill locations] ${Object.values(data.skills)
         .map((s) => `${s.name}=${s.location}`)
         .join(" | ")}`,
@@ -820,15 +820,15 @@ export namespace Skill {
                 dropped = 0
                 if (!hasGlobal && !hasProject) return
 
-                console.log(`\n${"-".repeat(40)} skill watch ${"-".repeat(40)}`)
-                console.log(
+                log.debug(`\n${"-".repeat(40)} skill watch ${"-".repeat(40)}`)
+                log.debug(
                   `[skill watch] batch files=${list.length} active=${active.length} dropped=${dropped} globalDirty=${hasGlobal ? 1 : 0} projectDirty=${hasProject ? 1 : 0} ms=${Math.round(performance.now() - t0)}`,
                 )
                 if (list.length > active.length) {
-                  console.log(`[skill watch] skip reason=marked files=${list.length - active.length}`)
+                  log.debug(`[skill watch] skip reason=marked files=${list.length - active.length}`)
                 }
                 if (cooling()) {
-                  console.log(`[skill watch] skip reason=cooling`)
+                  log.debug(`[skill watch] skip reason=cooling`)
                   return
                 }
 
@@ -836,7 +836,7 @@ export namespace Skill {
                 if (hasGlobal) {
                   cooldown = Date.now()
                   await clearSkillsPromptCache("all")
-                  console.log(
+                  log.debug(
                     `[skill watch] invalidate scope=global instances=${Instance.dirs?.().length ?? 0} files=${active.length} ms=${Math.round(performance.now() - t1)}`,
                   )
                   return
@@ -847,7 +847,7 @@ export namespace Skill {
                   directory: ctx.directory,
                   fn: () => runPromise((skill) => skill.invalidate()),
                 })
-                console.log(
+                log.debug(
                   `[skill watch] invalidate scope=project instances=1 files=${active.length} ms=${Math.round(performance.now() - t1)} dir=${ctx.directory}`,
                 )
               } finally {
@@ -885,7 +885,7 @@ export namespace Skill {
               const bind = watcher()
               const back = backend()
               if (!bind || !back) {
-                console.log(`[skill watch] parcel unavailable binding=${bind ? 1 : 0} backend=${String(back)}`)
+                log.debug(`[skill watch] parcel unavailable binding=${bind ? 1 : 0} backend=${String(back)}`)
                 return false
               }
               if (roots.length === 0) return true
@@ -893,10 +893,10 @@ export namespace Skill {
               const ok = roots.filter((_dir, idx) => mark[idx])
               const miss = roots.filter((_dir, idx) => !mark[idx])
               if (miss.length > 0) {
-                console.log(`[skill watch] parcel skip missing roots=${miss.length} dirs=${miss.join(" | ")}`)
+                log.debug(`[skill watch] parcel skip missing roots=${miss.length} dirs=${miss.join(" | ")}`)
               }
               if (ok.length === 0) {
-                console.log(`[skill watch] parcel no existing roots`)
+                log.debug(`[skill watch] parcel no existing roots`)
                 return false
               }
               const good: string[] = []
@@ -905,7 +905,7 @@ export namespace Skill {
                 const cb = Instance.bind((_err: Error | null, evts: ParcelWatcher.Event[]) => {
                   if (_err) {
                     ws.alive = false
-                    console.log(`[skill watch] error backend=parcel message=${_err.message}`)
+                    log.debug(`[skill watch] error backend=parcel message=${_err.message}`)
                     return
                   }
                   for (const evt of evts) {
@@ -917,7 +917,7 @@ export namespace Skill {
                 const sub = await bind.subscribe(dir, cb, { backend: back }).catch((err) => {
                   const msg = err instanceof Error ? err.message : String(err)
                   bad.push(`${dir} => ${msg}`)
-                  console.log(`[skill watch] parcel subscribe failed dir=${dir} exists=1 message=${msg}`)
+                  log.debug(`[skill watch] parcel subscribe failed dir=${dir} exists=1 message=${msg}`)
                   return
                 })
                 if (!sub) continue
@@ -925,15 +925,15 @@ export namespace Skill {
                 good.push(dir)
               }
               if (good.length === 0) {
-                console.log(`[skill watch] parcel subscribe summary ok=0 fail=${bad.length}`)
+                log.debug(`[skill watch] parcel subscribe summary ok=0 fail=${bad.length}`)
                 if (bad.length > 0) {
-                  console.log(`[skill watch] parcel subscribe fail dirs=${bad.join(" | ")}`)
+                  log.debug(`[skill watch] parcel subscribe fail dirs=${bad.join(" | ")}`)
                 }
                 return false
               }
-              console.log(`[skill watch] parcel subscribe summary ok=${good.length} fail=${bad.length}`)
-              console.log(`[skill watch] parcel subscribe ok dirs=${good.join(" | ")}`)
-              if (bad.length > 0) console.log(`[skill watch] parcel subscribe fail dirs=${bad.join(" | ")}`)
+              log.debug(`[skill watch] parcel subscribe summary ok=${good.length} fail=${bad.length}`)
+              log.debug(`[skill watch] parcel subscribe ok dirs=${good.join(" | ")}`)
+              if (bad.length > 0) log.debug(`[skill watch] parcel subscribe fail dirs=${bad.join(" | ")}`)
               ws.alive = true
               ws.back = "parcel"
               return true
@@ -971,7 +971,7 @@ export namespace Skill {
 
             const startWatch = async () => {
               const id = ++sid
-              console.log(`\n========== SKILL WATCH BEGIN #${id} [dir=${ctx.directory}] ==========`)
+              log.debug(`\n========== SKILL WATCH BEGIN #${id} [dir=${ctx.directory}] ==========`)
               try {
                 await closeAll()
                 const list = backs()
@@ -979,29 +979,29 @@ export namespace Skill {
                 const exist = mark.reduce((sum, item) => sum + (item ? 1 : 0), 0)
                 const miss = roots.filter((_dir, idx) => !mark[idx]).slice(0, 6)
                 const all = roots.map((dir, idx) => `${mark[idx] ? "ok" : "miss"}:${dir}`)
-                console.log(
+                log.debug(
                   `[skill watch] chain=${list.join("->")} roots=${roots.length} exists=${exist} missing=${roots.length - exist}`,
                 )
-                console.log(`[skill watch] roots all=${all.join(" | ")}`)
-                if (miss.length > 0) console.log(`[skill watch] missing sample=${miss.join(" | ")}`)
+                log.debug(`[skill watch] roots all=${all.join(" | ")}`)
+                if (miss.length > 0) log.debug(`[skill watch] missing sample=${miss.join(" | ")}`)
                 let prev: Back | undefined
                 for (const item of list) {
-                  console.log(`[skill watch] try backend=${item}`)
+                  log.debug(`[skill watch] try backend=${item}`)
                   const ok = await setup(item)
                   if (!ok) {
-                    console.log(`[skill watch] try failed backend=${item}`)
+                    log.debug(`[skill watch] try failed backend=${item}`)
                     prev = item
                     continue
                   }
                   ws.back = item
                   ws.alive = true
-                  console.log(`[skill watch] try ok backend=${item}`)
-                  if (prev) console.log(`[skill watch] fallback from=${prev} to=${item}`)
+                  log.debug(`[skill watch] try ok backend=${item}`)
+                  if (prev) log.debug(`[skill watch] fallback from=${prev} to=${item}`)
                   return
                 }
                 ws.alive = false
               } finally {
-                console.log(`========== SKILL WATCH END   #${id} [dir=${ctx.directory}] ==========`)
+                log.debug(`========== SKILL WATCH END   #${id} [dir=${ctx.directory}] ==========`)
               }
             }
 
@@ -1020,17 +1020,17 @@ export namespace Skill {
                 return await setupPoll()
               } catch (err) {
                 const msg = err instanceof Error ? err.message : String(err)
-                console.log(`[skill watch] setup error backend=${back} message=${msg}`)
+                log.debug(`[skill watch] setup error backend=${back} message=${msg}`)
                 return false
               }
             }
 
             yield* Effect.promise(() => startWatch())
             if (!ws.alive) {
-              console.log(`[skill watch] init failed roots=${roots.length} dir=${ctx.directory}`)
+              log.debug(`[skill watch] init failed roots=${roots.length} dir=${ctx.directory}`)
             }
 
-            console.log(
+            log.debug(
               `[skill watch] init backend=${ws.back} active=${ws.alive ? 1 : 0} roots=${roots.length} dir=${ctx.directory}`,
             )
 
@@ -1081,13 +1081,13 @@ export namespace Skill {
           }
           const ws = yield* InstanceState.get(watch)
           if (ws.alive) return
-          console.log(`[skill watch] ensure restart dir=${Instance.directory} backend=${ws.back}`)
+          log.debug(`[skill watch] ensure restart dir=${Instance.directory} backend=${ws.back}`)
           yield* InstanceState.invalidate(watch)
           yield* InstanceState.get(watch)
         },
         Effect.catchCause((cause) =>
           Effect.sync(() => {
-            console.log(`[skill watch] ensure error cause=${String(cause)}`)
+            log.debug(`[skill watch] ensure error cause=${String(cause)}`)
           }),
         ),
       )
@@ -1119,14 +1119,14 @@ export namespace Skill {
       const available = Effect.fn("Skill.available")(function* (agent?: Agent.Info) {
         yield* ensureWatch()
         const cached = yield* InstanceState.has(state)
-        if (cached) console.log(`[skill cache] memory hit`)
+        if (cached) log.debug(`[skill cache] memory hit`)
         const t0 = cached ? performance.now() : undefined
         const s = yield* InstanceState.get(state)
         const t1 = t0 === undefined ? undefined : performance.now()
         const list = Object.values(s.skills).toSorted((a, b) => a.name.localeCompare(b.name))
         if (t0 !== undefined && t1 !== undefined) {
           const t2 = performance.now()
-          console.log(
+          log.debug(
             `[skill perf] memory ms get=${Math.round(t1 - t0)} sort=${Math.round(t2 - t1)} total=${Math.round(t2 - t0)}`,
           )
         }
@@ -1147,7 +1147,7 @@ export namespace Skill {
     const run = (async () => {
       const allDirs = Instance.dirs?.() ?? []
       const dirs = scope === "all" ? allDirs : allDirs.filter((d) => d === scope)
-      console.log(
+      log.debug(
         `[skill cache] clear start scope=${scope} instances=${dirs.length} dirs=${dirs.join(" | ") || "(none)"}`,
       )
       await Promise.all(
@@ -1158,7 +1158,7 @@ export namespace Skill {
           }),
         ),
       )
-      console.log(
+      log.debug(
         `[skill cache] clear done scope=${scope} instances=${dirs.length} dirs=${dirs.join(" | ") || "(none)"}`,
       )
       log.info("skills cache cleared", { scope, instances: dirs.length, dirs })
