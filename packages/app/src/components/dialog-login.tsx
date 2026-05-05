@@ -7,6 +7,22 @@ import { createStore } from "solid-js/store"
 import { useAuth } from "@/context/auth"
 import { useLanguage } from "@/context/language"
 
+const CRED_KEY = "opencode:creds:login"
+
+function loadCreds() {
+  try {
+    const raw = localStorage.getItem(CRED_KEY)
+    if (!raw) return null
+    return JSON.parse(raw) as { email: string; password: string }
+  } catch {
+    return null
+  }
+}
+
+function saveCreds(email: string, password: string) {
+  localStorage.setItem(CRED_KEY, JSON.stringify({ email, password }))
+}
+
 export function DialogLogin() {
   const dialog = useDialog()
   const auth = useAuth()
@@ -16,9 +32,10 @@ export function DialogLogin() {
   })
   let run = 0
 
+  const saved = loadCreds()
   const [form, setForm] = createStore({
-    email: "",
-    password: "",
+    email: saved?.email ?? "",
+    password: saved?.password ?? "",
     emailErr: undefined as string | undefined,
     passwordErr: undefined as string | undefined,
     submitting: false,
@@ -49,6 +66,7 @@ export function DialogLogin() {
 
     try {
       await auth.login(form.email.trim(), form.password)
+      saveCreds(form.email.trim(), form.password)
       dialog.close()
       showToast({
         variant: "success",
@@ -82,10 +100,18 @@ export function DialogLogin() {
 
   return (
     <Dialog title={language.t("auth.login.title")} fit>
-      <form onSubmit={handleSubmit} class="flex flex-col gap-4 pl-6 pr-2.5 pb-3">
+      <form onSubmit={handleSubmit} class="flex flex-col gap-4 pl-6 pr-2.5 pb-3" autocomplete="off">
+        <div class="sr-only" aria-hidden="true">
+          <input type="text" name="username" tabIndex={-1} autocomplete="username" />
+          <input type="password" name="password" tabIndex={-1} autocomplete="current-password" />
+        </div>
         <TextField
           autofocus
           type="email"
+          name="login-email-x9"
+          autocomplete="off"
+          data-1p-ignore
+          data-lpignore="true"
           label={language.t("auth.login.email.label")}
           placeholder={language.t("auth.login.email.placeholder")}
           value={form.email}
@@ -99,6 +125,10 @@ export function DialogLogin() {
         />
         <TextField
           type="password"
+          name="login-pwd-x9"
+          autocomplete="off"
+          data-1p-ignore
+          data-lpignore="true"
           label={language.t("auth.login.password.label")}
           placeholder={language.t("auth.login.password.placeholder")}
           value={form.password}

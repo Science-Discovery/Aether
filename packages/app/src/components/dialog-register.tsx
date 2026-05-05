@@ -105,10 +105,18 @@ export function DialogRegister() {
 
   return (
     <Dialog title={language.t("auth.register.title")} fit>
-      <form onSubmit={handleSubmit} class="flex flex-col gap-4 pl-6 pr-2.5 pb-3">
+      <form onSubmit={handleSubmit} class="flex flex-col gap-4 pl-6 pr-2.5 pb-3" autocomplete="off">
+        <div class="sr-only" aria-hidden="true">
+          <input type="text" name="username" tabIndex={-1} autocomplete="username" />
+          <input type="password" name="password" tabIndex={-1} autocomplete="current-password" />
+        </div>
         <TextField
           autofocus
           type="email"
+          name="reg-email-x9"
+          autocomplete="off"
+          data-1p-ignore
+          data-lpignore="true"
           label={language.t("auth.register.email.label")}
           placeholder={language.t("auth.register.email.placeholder")}
           value={form.email}
@@ -122,6 +130,10 @@ export function DialogRegister() {
         />
         <TextField
           type="password"
+          name="reg-pwd-x9"
+          autocomplete="off"
+          data-1p-ignore
+          data-lpignore="true"
           label={language.t("auth.register.password.label")}
           placeholder={language.t("auth.register.password.placeholder")}
           value={form.password}
@@ -136,6 +148,10 @@ export function DialogRegister() {
         />
         <TextField
           type="password"
+          name="reg-confirm-x9"
+          autocomplete="off"
+          data-1p-ignore
+          data-lpignore="true"
           label={language.t("auth.register.confirm.label")}
           placeholder={language.t("auth.register.confirm.placeholder")}
           value={form.confirm}
@@ -149,6 +165,10 @@ export function DialogRegister() {
         />
         <TextField
           type="text"
+          name="reg-name-x9"
+          autocomplete="off"
+          data-1p-ignore
+          data-lpignore="true"
           label={language.t("auth.register.name.label")}
           placeholder={language.t("auth.register.name.placeholder")}
           value={form.name}
