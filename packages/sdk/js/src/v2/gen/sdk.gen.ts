@@ -7975,6 +7975,8 @@ export class Vcs extends HeyApiClient {
       directory?: string
       workspace?: string
       max?: number
+      branch?: string
+      skip?: number
     },
     options?: Options<never, ThrowOnError>,
   ) {
@@ -7986,6 +7988,8 @@ export class Vcs extends HeyApiClient {
             { in: "query", key: "directory" },
             { in: "query", key: "workspace" },
             { in: "query", key: "max" },
+            { in: "query", key: "branch" },
+            { in: "query", key: "skip" },
           ],
         },
       ],

@@ -625,11 +625,19 @@ export namespace Server {
           "query",
           z.object({
             max: z.coerce.number().optional(),
+            branch: z.string().optional(),
+            skip: z.coerce.number().optional(),
           }),
         ),
         async (c) => {
           const query = c.req.valid("query")
-          return c.json(await Vcs.graph(query.max !== undefined ? { max: query.max } : undefined))
+          return c.json(
+            await Vcs.graph({
+              max: query.max,
+              branch: query.branch,
+              skip: query.skip,
+            }),
+          )
         },
       )
       .get(
