@@ -1751,6 +1751,32 @@ export namespace Session {
     },
   )
 
+  export async function recoverStuckParts(sessionID: SessionID) {
+    const msgs = await MessageV2.filterCompacted(MessageV2.stream(sessionID))
+    const now = Date.now()
+    for (const msg of msgs) {
+      for (const part of msg.parts) {
+        if (part.type === "tool" && part.state.status !== "completed" && part.state.status !== "error") {
+          await updatePart({
+            ...part,
+            state: {
+              status: "error",
+              input: part.state.input,
+              error: "Tool execution was interrupted",
+              time: {
+                start: part.state.status === "running" ? part.state.time.start : now,
+                end: now,
+              },
+            },
+          })
+        }
+      }
+      if (msg.info.role === "assistant" && msg.info.time.completed === undefined) {
+        await updateMessage({ ...msg.info, time: { ...msg.info.time, completed: now } })
+      }
+    }
+  }
+
   export class BusyError extends Error {
     constructor(public readonly sessionID: string) {
       super(`Session ${sessionID} is busy`)
