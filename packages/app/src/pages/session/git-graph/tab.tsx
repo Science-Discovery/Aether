@@ -1,4 +1,4 @@
-import { createMemo, createSignal, onMount, Show, batch } from "solid-js"
+import { createMemo, createSignal, onMount, Show } from "solid-js"
 import { ScrollView } from "@opencode-ai/ui/scroll-view"
 import { Select } from "@opencode-ai/ui/select"
 import { IconButton } from "@opencode-ai/ui/icon-button"
@@ -41,7 +41,11 @@ export function GitGraphTab() {
           },
         })
       } else {
-        setData(result)
+        if (result.data) {
+          setData(result)
+        } else {
+          setData(null)
+        }
       }
     } catch {
       if (v !== version) return
@@ -78,26 +82,35 @@ export function GitGraphTab() {
   const graph = createMemo(() => {
     const raw = data()
     if (!raw?.data) return null
-    let commits = [...raw.data.commits]
-    const files = uncommittedFiles()
-    if (files.length > 0) {
-      const headCommit = raw.data.commits.find((c) => c.heads.includes(raw.data.head ?? ""))
-      commits = [
-        {
-          hash: UNCOMMITTED,
-          parents: headCommit ? [headCommit.hash] : [],
-          author: "",
-          email: "",
-          date: Math.floor(Date.now() / 1000),
-          message: `Uncommitted Changes (${files.length})`,
-          heads: [],
-          tags: [],
-          remotes: [],
-        },
-        ...commits,
-      ]
+    try {
+      let commits = [...raw.data.commits]
+      const files = uncommittedFiles()
+      if (files.length > 0) {
+        const headCommit = raw.data.commits.find((c) => c.heads.includes(raw.data.head ?? ""))
+        commits = [
+          {
+            hash: UNCOMMITTED,
+            parents: headCommit ? [headCommit.hash] : [],
+            author: "",
+            email: "",
+            date: Math.floor(Date.now() / 1000),
+            message: `Uncommitted Changes (${files.length})`,
+            heads: [],
+            tags: [],
+            remotes: [],
+          },
+          ...commits,
+        ]
+      }
+      return computeGraphLayout(commits, raw.data.head)
+    } catch (e) {
+      console.error("[git-graph] graph() memo threw:", e, {
+        head: raw.data.head,
+        commitsCount: raw.data.commits.length,
+        uncommittedCount: uncommittedFiles().length,
+      })
+      return null
     }
-    return computeGraphLayout(commits, raw.data.head)
   })
 
   const uncommitted = createMemo(() => {
@@ -155,11 +168,9 @@ export function GitGraphTab() {
 
   const handleBranchSelect = (b: string | undefined) => {
     if (!b) return
+    if (b === filter()) return
     const apiBranch = b === "all" ? undefined : b === "current" ? data()?.data?.head : b
-    batch(() => {
-      setFilter(b)
-      setData(null)
-    })
+    setFilter(b)
     void load(apiBranch ?? undefined)
   }
 
@@ -190,7 +201,7 @@ export function GitGraphTab() {
         fallback={
           <div class="flex-1 flex items-center justify-center">
             <div class="text-12-regular text-text-weak">
-              {data() || loading()
+              {data()?.data || loading()
                 ? language.t("session.review.loadingChanges")
                 : language.t("common.loading.ellipsis")}
             </div>
