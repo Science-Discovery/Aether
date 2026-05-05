@@ -16,17 +16,13 @@ export function createMenu(deps: Deps) {
 
   const template: Electron.MenuItemConstructorOptions[] = [
     {
-      label: "OpenCode",
+      label: "Aether",
       submenu: [
         { role: "about" },
         {
           label: "Check for Updates...",
           enabled: UPDATER_ENABLED,
           click: () => deps.checkForUpdates(),
-        },
-        {
-          label: "Install CLI...",
-          click: () => deps.installCli(),
         },
         {
           label: "Reload Webview",
