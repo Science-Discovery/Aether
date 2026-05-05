@@ -1,4 +1,4 @@
-import { BrowserWindow, Menu, shell } from "electron"
+import { app, BrowserWindow, Menu, shell } from "electron"
 
 import { UPDATER_ENABLED } from "./constants"
 import { createMainWindow } from "./windows"
@@ -16,7 +16,7 @@ export function createMenu(deps: Deps) {
 
   const template: Electron.MenuItemConstructorOptions[] = [
     {
-      label: "Aether",
+      label: app.getName(),
       submenu: [
         { role: "about" },
         {
