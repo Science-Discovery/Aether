@@ -1176,10 +1176,26 @@ export namespace SessionPrompt {
     )) {
       const permKey = EDIT_TOOLS.includes(item.id) ? "edit" : item.id
       const rule = Permission.evaluate(permKey, "*", effectiveRuleset)
-      if (rule.action === "deny") continue
       if (input.tools?.[item.id] === false) continue
 
       const schema = ProviderTransform.schema(input.model, z.toJSONSchema(item.parameters))
+
+      if (rule.action === "deny") {
+        const hint =
+          permKey === "edit"
+            ? `Editing is restricted in ${input.agent.name} mode. Switch to build mode to edit files.`
+            : `The ${item.id} tool is restricted in ${input.agent.name} mode.`
+        tools[item.id] = tool({
+          id: item.id as any,
+          description: `${item.description}\n\n[Currently unavailable: ${hint}]`,
+          inputSchema: jsonSchema(schema as any),
+          async execute() {
+            return { error: hint }
+          },
+        })
+        continue
+      }
+
       tools[item.id] = tool({
         id: item.id as any,
         description: item.description,
@@ -1227,11 +1243,26 @@ export namespace SessionPrompt {
       if (!execute) continue
 
       const mcpPerm = Permission.evaluate(key, "*", effectiveRuleset)
-      if (mcpPerm.action === "deny") continue
 
       if (input.tools?.[key] === false) continue
 
-      const transformed = ProviderTransform.schema(input.model, asSchema(item.inputSchema).jsonSchema)
+      if (mcpPerm.action === "deny") {
+        const hint = `The ${key} tool is restricted in ${input.agent.name} mode.`
+        const schema = await asSchema(item.inputSchema).jsonSchema
+        const transformed = ProviderTransform.schema(input.model, schema)
+        tools[key] = tool({
+          id: key as any,
+          description: `${item.description}\n\n[Currently unavailable: ${hint}]`,
+          inputSchema: jsonSchema(transformed as any),
+          async execute() {
+            return { error: hint }
+          },
+        })
+        continue
+      }
+
+      const schema = await asSchema(item.inputSchema).jsonSchema
+      const transformed = ProviderTransform.schema(input.model, schema)
       item.inputSchema = jsonSchema(transformed)
       // Wrap execute to add plugin hooks and format output
       item.execute = async (args, opts) => {
@@ -2641,7 +2672,7 @@ NOTE: You may ONLY write to files within ${npDir}/. No other file may be created
           : await MessageV2.toModelMessages(contextMessages, model)),
       ],
     })
-    const text = await Promise.resolve(result.text).catch((err) =>
+    const text = await Promise.resolve(result.text).catch((err: unknown) =>
       log.error("failed to generate title", { error: err }),
     )
     if (text) {
