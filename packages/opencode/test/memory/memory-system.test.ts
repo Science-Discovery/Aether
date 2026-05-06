@@ -3,6 +3,7 @@ import fs from "fs/promises"
 import { tmpdir } from "../fixture/fixture"
 import { Instance } from "../../src/project/instance"
 import { Memory } from "../../src/memory"
+import { InboxStore } from "../../src/memory/inbox"
 import { Session } from "../../src/session"
 import { Server } from "../../src/server/server"
 import { Filesystem } from "../../src/util/filesystem"
@@ -24,6 +25,7 @@ import { MessageV2 } from "../../src/session/message-v2"
 import { MessageID, PartID } from "../../src/session/schema"
 import { Database, eq } from "../../src/storage/db"
 import { SessionTable } from "../../src/session/session.sql"
+import { WorkspaceID } from "../../src/control-plane/schema"
 
 function todayKey() {
   const date = new Date()
@@ -1782,6 +1784,12 @@ describe("memory + user profile backend", () => {
     await Instance.provide({
       directory: tmp.path,
       fn: async () => {
+        const blank = await Session.create({ title: "Blank memory policy" })
+        const blankPrompt = await Memory.activePrompt({ session_id: blank.id })
+        expect(blankPrompt.prompt.includes("<memory_scope>")).toBe(true)
+        expect(blankPrompt.prompt.includes(`session:${blank.id}`)).toBe(true)
+        expect(blankPrompt.prompt.includes(`project:${Instance.project.id}`)).toBe(true)
+
         await Memory.write({
           session_id: "snapshot_policy_direct_tools",
           store: "memory",
@@ -1794,10 +1802,392 @@ describe("memory + user profile backend", () => {
         expect(prompt.prompt.includes("Use memory_write")).toBe(true)
         expect(prompt.prompt.includes("Use memory_search")).toBe(true)
         expect(prompt.prompt.includes("Chinese/English terms")).toBe(true)
+        expect(prompt.prompt.includes("Use only the current valid scope ids below")).toBe(true)
         expect(prompt.prompt.includes("Use memory_reflect")).toBe(true)
         expect(prompt.prompt.includes("Priority order: current user instruction")).toBe(true)
       },
     })
+  })
+
+  test("scoped live writes mirror to inbox and stay scope-filtered in L2", async () => {
+    await cleanMemory()
+    await using left = await tmpdir({ git: true })
+    await using right = await tmpdir({ git: true })
+
+    await Instance.provide({
+      directory: left.path,
+      fn: async () => {
+        const session = await Session.create({ title: "Inbox writer" })
+        const project = Instance.project.id
+        const workspace = WorkspaceID.ascending()
+        const scoped = await Session.create({ title: "Workspace writer", workspaceID: workspace })
+        const scopedReader = await Session.create({ title: "Workspace reader", workspaceID: workspace })
+
+        expect(
+          (
+            await Memory.write({
+              session_id: session.id,
+              store: "memory",
+              action: "add",
+              value: "Project scoped kiwi marker belongs to this repo.",
+              scope: `project:${project}`,
+              salience_hint: "important",
+              salience_reason: "project_fact",
+              reason: "manual",
+            })
+          ).ok,
+        ).toBe(true)
+        expect(
+          (
+            await Memory.write({
+              session_id: session.id,
+              store: "memory",
+              action: "add",
+              value: "Global scoped lychee marker applies everywhere.",
+              scope: "global",
+              reason: "manual",
+            })
+          ).ok,
+        ).toBe(true)
+        expect(
+          (
+            await Memory.write({
+              session_id: session.id,
+              store: "memory",
+              action: "add",
+              value: "Session scoped guava marker stays local.",
+              scope: `session:${session.id}`,
+              reason: "manual",
+            })
+          ).ok,
+        ).toBe(true)
+        expect(
+          (
+            await Memory.write({
+              session_id: scoped.id,
+              store: "memory",
+              action: "add",
+              value: "Workspace scoped plum marker belongs to this workspace.",
+              scope: `workspace:${workspace}`,
+              reason: "manual",
+            })
+          ).ok,
+        ).toBe(true)
+
+        const wrong = await Memory.write({
+          session_id: session.id,
+          store: "memory",
+          action: "add",
+          value: "Wrong project ghost marker should stay local.",
+          scope: "project:not-the-current-project",
+          reason: "manual",
+        })
+        expect(wrong.ok).toBe(true)
+        expect(wrong.events.some((entry) => entry.reason === "scope_project_mismatch")).toBe(true)
+
+        const entries = await InboxStore.all()
+        expect(entries.some((entry) => entry.text.includes("Project scoped kiwi") && entry.source_count === 1)).toBe(true)
+        expect(entries.some((entry) => entry.text.includes("Global scoped lychee"))).toBe(true)
+        expect(entries.some((entry) => entry.text.includes("Workspace scoped plum"))).toBe(true)
+        expect(entries.some((entry) => entry.text.includes("Session scoped guava"))).toBe(false)
+        expect(entries.some((entry) => entry.text.includes("Wrong project ghost"))).toBe(false)
+
+        const prompt = await Memory.activePrompt({ session_id: "same_project_reader" })
+        expect(prompt.prompt).not.toContain("Project scoped kiwi")
+
+        const projectHits = await Memory.search({
+          session_id: "same_project_reader",
+          query: "Project scoped kiwi",
+          pin: false,
+        })
+        expect(projectHits[0]?.source).toBe("inbox")
+        expect(projectHits[0]?.text).toContain("Project scoped kiwi")
+
+        const workspaceHits = await Memory.search({
+          session_id: scopedReader.id,
+          query: "Workspace scoped plum",
+          pin: false,
+        })
+        expect(workspaceHits[0]?.source).toBe("inbox")
+
+        const plainHits = await Memory.search({
+          session_id: "plain_project_reader",
+          query: "plum",
+          pin: false,
+        })
+        expect(plainHits).toEqual([])
+
+        const sessionHits = await Memory.search({
+          session_id: "same_project_reader",
+          query: "guava",
+          pin: false,
+        })
+        expect(sessionHits).toEqual([])
+      },
+    })
+
+    await Instance.provide({
+      directory: right.path,
+      fn: async () => {
+        const projectHits = await Memory.search({
+          session_id: "other_project_reader",
+          query: "kiwi",
+          pin: false,
+        })
+        expect(projectHits).toEqual([])
+
+        const globalHits = await Memory.search({
+          session_id: "other_project_reader",
+          query: "Global scoped lychee",
+          pin: false,
+        })
+        expect(globalHits[0]?.source).toBe("inbox")
+      },
+    })
+    await cleanMemory()
+  })
+
+  test("inbox usage counts come only from real search and retained pins", async () => {
+    await cleanMemory()
+    await using tmp = await tmpdir({ git: true })
+
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const session = await Session.create({ title: "Inbox count writer" })
+        const project = Instance.project.id
+        await Memory.write({
+          session_id: session.id,
+          store: "memory",
+          action: "add",
+          value: "Counted inbox quince marker.",
+          scope: `project:${project}`,
+          reason: "manual",
+        })
+        let entry = (await InboxStore.all()).find((item) => item.text.includes("Counted inbox quince"))
+        expect(entry?.selected_count).toBe(0)
+        expect(entry?.pin_count).toBe(0)
+
+        await Memory.search({ session_id: "count_reader_one", query: "quince", pin: false })
+        await Memory.search({ session_id: "count_reader_one", query: "quince", pin: false })
+        entry = (await InboxStore.all()).find((item) => item.text.includes("Counted inbox quince"))
+        expect(entry?.selected_count).toBe(1)
+        expect(entry?.pin_count).toBe(0)
+        expect(entry?.selected_sessions).toEqual(["count_reader_one"])
+
+        await Memory.search({ session_id: "count_reader_two", query: "quince" })
+        entry = (await InboxStore.all()).find((item) => item.text.includes("Counted inbox quince"))
+        expect(entry?.selected_count).toBe(2)
+        expect(entry?.pin_count).toBe(1)
+        expect(entry?.pinned_sessions).toEqual(["count_reader_two"])
+
+        await Memory.write({
+          session_id: "count_writer_two",
+          store: "memory",
+          action: "add",
+          value: "Counted inbox quince marker.",
+          scope: `project:${project}`,
+          reason: "manual",
+        })
+        entry = (await InboxStore.all()).find((item) => item.text.includes("Counted inbox quince"))
+        expect(entry?.source_count).toBe(2)
+        expect(entry?.selected_count).toBe(2)
+        expect(entry?.pin_count).toBe(1)
+      },
+    })
+    await cleanMemory()
+  })
+
+  test("reflection applies explicit inbox decisions without blind clearing", async () => {
+    await cleanMemory()
+    await using tmp = await tmpdir({ git: true })
+
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const session = await Session.create({ title: "Inbox reflection writer" })
+        const project = Instance.project.id
+        await Memory.write({
+          session_id: session.id,
+          store: "user",
+          action: "add",
+          value: "Global inbox mango should become a global profile.",
+          scope: "global",
+          reason: "manual",
+        })
+        await Memory.write({
+          session_id: session.id,
+          store: "memory",
+          action: "add",
+          value: "Project inbox papaya should become a dated project fact.",
+          scope: `project:${project}`,
+          reason: "manual",
+        })
+        await Memory.write({
+          session_id: session.id,
+          store: "user",
+          action: "add",
+          value: "Project inbox fig must not enter USER raw.",
+          scope: `project:${project}`,
+          reason: "manual",
+        })
+        await Memory.write({
+          session_id: session.id,
+          store: "memory",
+          action: "add",
+          value: "Project inbox melon should remain pending.",
+          scope: `project:${project}`,
+          reason: "manual",
+        })
+        const entries = await InboxStore.all()
+        const mango = entries.find((entry) => entry.text.includes("mango"))!
+        const papaya = entries.find((entry) => entry.text.includes("papaya"))!
+        const fig = entries.find((entry) => entry.text.includes("fig"))!
+        const melon = entries.find((entry) => entry.text.includes("melon"))!
+
+        Memory.setReflectionObjectGeneratorForTest(async (params) => {
+          const body = String(((params as Record<string, unknown>).messages as Array<{ content: string }>).at(-1)?.content ?? "")
+          expect(body).toContain("Pending inbox entries to reflect")
+          expect(body).toContain(mango.id)
+          return {
+            object: {
+              daily_memory: [],
+              user_patches: [],
+              inbox_decisions: [
+                {
+                  id: mango.id,
+                  revision: mango.revision,
+                  decision: "promote_to_user",
+                  user_patch: {
+                    kind: "preference",
+                    source: "explicit",
+                    content: "Global inbox mango profile",
+                  },
+                },
+                {
+                  id: papaya.id,
+                  revision: papaya.revision,
+                  decision: "promote_to_daily",
+                  daily_memory: {
+                    kind: "fact",
+                    content: "In this project, papaya became a dated fact.",
+                  },
+                },
+                {
+                  id: fig.id,
+                  revision: fig.revision,
+                  decision: "promote_to_user",
+                  user_patch: {
+                    kind: "preference",
+                    source: "explicit",
+                    content: "Project fig raw leak",
+                  },
+                },
+                {
+                  id: melon.id,
+                  revision: melon.revision,
+                  decision: "keep_pending",
+                },
+              ],
+              summary: "inbox reflected",
+            },
+          }
+        })
+
+        try {
+          const result = await Memory.reflect({ session_id: session.id, scope: "current_scope" })
+          expect(result.status).toBe("success")
+
+          const user = await Memory.read("user")
+          expect(user.entries).toContain("preference[explicit]: Global inbox mango profile")
+          expect(user.entries.some((entry) => entry.includes("Project fig raw leak"))).toBe(false)
+
+          const daily = await Bun.file(path.join(Global.Path.data, "memory", "daily", todayKey(), "MEMORY.md")).text()
+          expect(daily).toContain("In this project, papaya became a dated fact.")
+
+          const next = await InboxStore.all()
+          expect(next.find((entry) => entry.id === mango.id)?.status).toBe("promoted_user")
+          expect(next.find((entry) => entry.id === papaya.id)?.status).toBe("promoted_daily")
+          expect(next.find((entry) => entry.id === fig.id)?.status).toBe("pending")
+          expect(next.find((entry) => entry.id === melon.id)?.status).toBe("pending")
+        } finally {
+          Memory.resetReflectionObjectGeneratorForTest()
+        }
+      },
+    })
+    await cleanMemory()
+  })
+
+  test("inbox active entries are revalidated after reflection and fork seed inherits active without counts", async () => {
+    await cleanMemory()
+    await using tmp = await tmpdir({ git: true })
+
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const parent = await Session.create({ title: "Memory seed parent" })
+        const project = Instance.project.id
+        await Memory.write({
+          session_id: parent.id,
+          store: "memory",
+          action: "add",
+          value: "Fork seed raspberry project context.",
+          scope: `project:${project}`,
+          reason: "manual",
+        })
+        let entry = (await InboxStore.all()).find((item) => item.text.includes("Fork seed raspberry"))!
+        expect(entry.pin_count).toBe(0)
+
+        const app = Server.Default()
+        const child = (await (
+          await app.request(`/session/${parent.id}/fork`, {
+            method: "POST",
+            body: JSON.stringify({}),
+            headers: { "content-type": "application/json" },
+          })
+        ).json()) as Session.Info
+        const childPrompt = await Memory.activePrompt({ session_id: child.id })
+        expect(childPrompt.prompt).toContain("Fork seed raspberry project context")
+        expect(
+          await Bun.file(path.join(Global.Path.data, "memory", "session", child.id, "MEMORY.md")).exists(),
+        ).toBe(false)
+        entry = (await InboxStore.all()).find((item) => item.text.includes("Fork seed raspberry"))!
+        expect(entry.pin_count).toBe(0)
+
+        await Memory.search({ session_id: "reject_reader", query: "raspberry" })
+        let prompt = await Memory.activePrompt({ session_id: "reject_reader" })
+        expect(prompt.prompt).toContain("Fork seed raspberry project context")
+        entry = (await InboxStore.all()).find((item) => item.text.includes("Fork seed raspberry"))!
+
+        Memory.setReflectionObjectGeneratorForTest(async () => ({
+          object: {
+            daily_memory: [],
+            user_patches: [],
+            inbox_decisions: [
+              {
+                id: entry.id,
+                revision: entry.revision,
+                decision: "reject_or_stale",
+              },
+            ],
+            summary: "reject raspberry",
+          },
+        }))
+        try {
+          await Memory.reflect({ session_id: parent.id, scope: "current_scope" })
+        } finally {
+          Memory.resetReflectionObjectGeneratorForTest()
+        }
+
+        prompt = await Memory.activePrompt({ session_id: "reject_reader" })
+        expect(prompt.prompt).not.toContain("Fork seed raspberry project context")
+
+        await Memory.reload({ session_id: child.id })
+        const reloaded = await Memory.activePrompt({ session_id: child.id })
+        expect(reloaded.prompt).not.toContain("Fork seed raspberry project context")
+      },
+    })
+    await cleanMemory()
   })
 
   test("formats receipts with success/failure sections and per-section caps", () => {

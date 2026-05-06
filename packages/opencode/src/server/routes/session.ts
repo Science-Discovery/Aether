@@ -22,6 +22,7 @@ import { lazy } from "../../util/lazy"
 import { Bus } from "../../bus"
 import { NamedError } from "@opencode-ai/util/error"
 import { SessionPreference } from "../../session/preference"
+import { Memory } from "@/memory"
 
 const log = Log.create({ service: "server" })
 
@@ -478,6 +479,7 @@ export const SessionRoutes = lazy(() =>
         const sessionID = c.req.valid("param").sessionID
         const body = c.req.valid("json")
         const result = await Session.fork({ ...body, sessionID })
+        await Memory.seedActive({ from_session_id: sessionID, to_session_id: result.id }).catch(() => undefined)
         return c.json(result)
       },
     )

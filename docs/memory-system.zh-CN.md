@@ -6,11 +6,11 @@
 
 从运行角度看，当前仍是三层：
 
-- L1：active memory prompt。`USER.md` 中的稳定用户画像会以小上限 baseline 注入；baseline 先选 explicit，再选 inferred，并在同类内使用 `user-meta.json` 的使用反馈分数排序。daily/session 记忆只有被自动召回、`memory_search` 命中、或本轮 `memory_write` 写入后才进入模型 system prompt，整体约 4000 字符上限。
-- L2：session memory pool。会话启动时从磁盘准备；`USER.md` 用于 L1 baseline 与搜索，daily/session 记忆默认不注入，只由 `memory_search` 或自动召回使用。
+- L1：active memory prompt。`USER.md` 中的稳定用户画像会以小上限 baseline 注入；baseline 先选 explicit，再选 inferred，并在同类内使用 `user-meta.json` 的使用反馈分数排序。daily/session/inbox 记忆只有被自动召回、`memory_search` 命中、或本轮 `memory_write` 写入后才进入模型 system prompt；inbox 不作为 baseline 直接进入 L1。整体约 4000 字符上限。
+- L2：session memory pool。会话启动时从磁盘准备；`USER.md` 用于 L1 baseline 与搜索，daily/session 记忆默认不注入，只由 `memory_search` 或自动召回使用；pending inbox 条目也进入 L2/search pool，但会按 global/project/workspace scope 硬过滤。
 - L3：长期文件与持久化派生状态。包含人类可读 memory files、per-session snapshot、per-session active state 和 reflection run log；进程内缓存只影响当前服务进程内的读取复用。
 
-从实际存储角度看，memory 现在分成 9 块：
+从实际存储角度看，memory 现在分成 10 块：
 
 1. 全局用户画像：`memory/user/USER.md`。这是 USER 记忆的人类可读真源，会进入 L1 baseline，也会进入 L2 搜索池。
 2. 用户画像 metadata：`memory/user/user-meta.json`。这是 USER 条目的 sidecar 使用反馈，不是记忆真源。
@@ -19,8 +19,9 @@
 5. reflection run log：`memory/reflection/run/<run_id>.json`。记录 reflection 是否执行、跳过、写入或失败。
 6. prepared snapshot：`storage/memory/snapshot/<session_id>.json`。这是某个 session 启动/重载后准备好的 L2 派生快照。
 7. active memory state：`storage/memory/active/<session_id>.json`。记录当前 session 已经 pin 到 L1 的条目。
-8. 进程内状态：`liveEvents`、`frozenSnapshots`、`activeMemory`。这些只在当前服务进程中存在，不是 durable memory。
-9. memory refresh system artifacts：`memory/system/refresh-ledger.json`、`memory/system/staging/<run_id>/candidates.json`、`memory/system/artifact-index.json`、`memory/system/backup/latest/`。这些记录 memory version refresh/backfill 的版本状态、run log、source coverage、staging candidate hash/provenance、promoted artifact index 和最近一次 durable memory 备份；它们是 memory 自有维护账本，不是人类可读 memory 内容。
+8. Pending inbox：`memory/inbox/global/<entry_id>.json`、`memory/inbox/project/<project_id>/<entry_id>.json`、`memory/inbox/workspace/<workspace_id>/<entry_id>.json`。这是 project/workspace/global scoped live write 的待处理 per-entry JSON source of truth。
+9. 进程内状态：`liveEvents`、`frozenSnapshots`、`activeMemory`。这些只在当前服务进程中存在，不是 durable memory。
+10. memory refresh system artifacts：`memory/system/refresh-ledger.json`、`memory/system/staging/<run_id>/candidates.json`、`memory/system/artifact-index.json`、`memory/system/backup/latest/`。这些记录 memory version refresh/backfill 的版本状态、run log、source coverage、staging candidate hash/provenance、promoted artifact index 和最近一次 durable memory 备份；它们是 memory 自有维护账本，不是人类可读 memory 内容。
 
 下文的 `memory/...` 路径位于 `Global.Path.data/memory/` 下；`storage/...` 路径位于 `Global.Path.data/storage/` 下。
 
@@ -30,6 +31,7 @@
 - 用户画像 metadata：`memory/user/user-meta.json`
 - 每日长期记忆：`memory/daily/YYYY-MM-DD/MEMORY.md`
 - 当前 session 节点短期记忆：`memory/session/<session_id>/MEMORY.md`
+- Pending inbox：`memory/inbox/global/<entry_id>.json`、`memory/inbox/project/<project_id>/<entry_id>.json`、`memory/inbox/workspace/<workspace_id>/<entry_id>.json`
 - 反思日志：`memory/reflection/run/<run_id>.json`
 - memory refresh ledger：`memory/system/refresh-ledger.json`
 - refresh staging：`memory/system/staging/<run_id>/candidates.json`
@@ -58,8 +60,8 @@ kind[source]: content
 - 每轮模型调用前，会根据最新用户消息执行最多 5 条自动召回。
 - `memory_search` 会保留短语、拆分常见中英文分隔符、为中文片段生成低权重 2/3 字 n-gram，并按相关性分数排序，source priority 作为辅助信号。
 - 搜索命中会静默加入 L1，并在本 session 后续持续注入。
-- 搜索选中 USER 条目时会更新 `user-meta.json` 的 `selected_count`；默认 pin 后仍留在 active state 的 USER 条目才会更新 `pin_count`。`activePrompt()` 本身不写 metadata，也不自增 `prompt_count`。
-- `memory_reload` 会重新读取 L2，并清空 L1 active memory。
+- 搜索选中 USER 条目时会更新 `user-meta.json` 的 `selected_count`；默认 pin 后仍留在 active state 的 USER 条目才会更新 `pin_count`。搜索命中 inbox 条目时会更新 inbox entry 的 `selected_count`，默认 pin 后仍留在 active state 的 inbox 条目才会更新 `pin_count`。同一个 session 对同一个 inbox entry 的 selected/pin 只计一次；live write、write-pin、fork seed、refresh/backfill 不增加这些 count。`activePrompt()` 本身不写 USER metadata，也不自增 `prompt_count`。
+- `memory_reload` 会重新读取 L2，并清空 L1 active memory；内部 snapshot/active revalidation 会在 prepare、promotion refresh 和 active prompt 路径重新校验 inbox 条目的 status 与 scope 可见性。
 
 ## 5. Memory version refresh / backfill V1
 
@@ -82,19 +84,23 @@ kind[source]: content
 当前 session 已经有 `treeID`、`forkParentSessionID`、`forkAfterUserMessageID` 等分支信息。live memory 文件、prepared snapshot 和 active state 仍没有按 session tree 建模；refresh/backfill 第一阶段的 source collector 已经 tree-aware，只用于历史 source 扫描和去重。
 
 - Memory 的 short-term 文件、prepared snapshot、active state 都按当前 `session_id` 分区，不按 `treeID`、父分支或子树分区。
-- `Session.fork()` 会把 fork 锚点之前的 message/part 复制到新 session 流，但不会复制父 session 的 `memory/session/<parent>/MEMORY.md`、prepared snapshot 或 active state。
-- fork 出来的 child session 会拥有自己的 `memory/session/<child>/MEMORY.md`。父 session 的 short-term memory 不会自动进入 child 的 L2 pool。
+- `Session.fork()` 会把 fork 锚点之前的 message/part 复制到新 session 流，但不会复制父 session 的 `memory/session/<parent>/MEMORY.md` 或 prepared snapshot。
+- fork 路由会在创建 child 后把父 session 当前 active memory seed 到 child active state：包含 USER、daily、当前 scope 可见的 inbox，以及带有可继承 scope metadata 的 session active 条目；seed 不写 child session memory、不写 inbox、不增加 selected/pin/source count。
+- fork 出来的 child session 会拥有自己的 `memory/session/<child>/MEMORY.md`。父 session 的 short-term memory 不会自动进入 child 的 L2 pool；只有 fork 时已经 active 且符合 V1 继承规则的条目会作为 child active snapshot 保留。
 - 父分支中的信息只有在被 reflection 汇总到全局 daily memory 或 `USER.md` 后，才会通过新的 prepare/reload/search 路径被其他 session 看到；如果 fork 复制的历史 message/part 本身含有 memory tool 输出，那只是普通会话历史，不等于继承了 memory state。
 - `memory_reflect` 的 `current_scope` 按当前 workspace/project scope 过滤 session memory 文件，不代表当前 session tree 或当前子树。
-- daily cron 的 `global` reflection 扫描当天产生或修改过的 session memory 文件，输出仍写入全局 daily memory 与全局 `USER.md`。
+- daily cron 的 `global` reflection 扫描当天产生或修改过的 session memory 文件，并读取所有 pending inbox；输出仍写入全局 daily memory 与全局 `USER.md`，pending inbox 只按 explicit decision 更新状态。
 
-因此，旧的“一个 project 下 session 平铺，每个 session 有暂存 memory”在 live 存储层仍基本成立：每个 session 节点仍有独立 short-term memory。变化是 session 现在同时也是树中的分支节点，而第一阶段 refresh collector 会用 tree 信息避免重复 backfill shared-prefix source；live memory 仍没有 tree-aware 继承、合并或 provenance。
+因此，旧的“一个 project 下 session 平铺，每个 session 有暂存 memory”在 live 存储层仍基本成立：每个 session 节点仍有独立 short-term memory。变化是 fork-time active seed 让 child 可延续父 session 当时已经进入 L1 的上下文，而不会把父 session short-term memory 复制成 child 暂存 memory；第一阶段 refresh collector 仍会用 tree 信息避免重复 backfill shared-prefix source。live memory 还没有完整 branch-aware recall、合并或 lineage visibility。
 
 ## 7. 写入与反思
 
-- `memory_write` 永远写入当前 session short-term memory，不直接修改 `USER.md` 或 daily memory。
-- 如果用户要求长期记住，agent 应把这个意图写进 short-term memory。
-- `memory_reflect` 会调用 LLM，将 short-term memory 整理为 daily memory，并对 `USER.md` 生成 add/replace/remove patch。
+- `memory_write` 永远先写入当前 session short-term memory，不直接修改 `USER.md` 或 daily memory。
+- `memory_write` 支持 `scope`、`salience_hint`、`salience_reason`。`scope=session:<current_session>` 或缺失/无效 scope 只保留在当前 session memory；`scope=project:<id>`、`scope=workspace:<id>`、`scope=global` 会在写入 session memory 后 deterministic mirror 到 pending inbox。active memory prompt 会暴露当前可用的 session/project/workspace/global scope id，后端也会校验 project/workspace id 必须匹配当前上下文；缺 scope 或不匹配 scope 的 fallback 是 session-only，不打扰用户，只记录内部事件。
+- `salience_hint` 表达初始重要性，不伪造 usage count；live write 和 write-pin 都不会增加 inbox selected/pin。
+- `memory_reflect` 会调用 LLM，将 short-term memory 整理为 daily memory，并对 `USER.md` 生成 add/replace/remove patch；它也会读取符合 reflection scope 的 pending inbox，并要求 LLM 对每个 inbox entry 给出明确决定：`promote_to_user`、`promote_to_daily`、`merge_with_existing`、`reject_or_stale` 或 `keep_pending`。
+- 成功的 reflection run 不会盲清 inbox；只有明确 promoted/merged/rejected 的 entry 会按 revision-aware apply 更新，`keep_pending` 继续留待后续 reflection。
+- daily memory 保持事实日志，不按 project/workspace/global scope 做 search/active 硬过滤。`USER.md` 在 V1 仍是 global profile；非 global scoped memory 不能原样进入 USER，只能在 reflection 明确概括成 global 偏好后进入。
 - daily cron 会每天触发一次 `memory_reflect`，没有当天 short-term memory 时跳过并写入 skipped run log。
 
 ## 8. 配置

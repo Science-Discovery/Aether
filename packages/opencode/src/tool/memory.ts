@@ -50,8 +50,11 @@ function memoryManagementRequired() {
 export const MemoryWriteTool = Tool.define("memory_write", {
   description: [
     "Write a short-term session memory note for later recall and reflection.",
-    "All writes go to the current session memory file first; later reflection can consolidate durable items into USER or MEMORY.",
-    "If the user asks to remember something long-term, write that request in natural language in the note.",
+    "Every write must include scope: session:<current session id>, project:<project id>, workspace:<workspace id>, or global.",
+    "Use the exact current scope ids from the memory_context system prompt; do not invent project or workspace ids.",
+    "All writes go to the current session memory file first; project/workspace/global scopes are also mirrored to pending inbox for matching sessions.",
+    "Use session scope for temporary conversation context, project for stable repo/project facts, workspace for Aether workspace-level facts, and global only for truly cross-project user preferences, rules, corrections, or must/never requirements.",
+    "If the user asks to remember something long-term, write that request in natural language in the note and choose the narrowest correct cross-session scope.",
     "Do not store transient logs or secrets.",
     "The written note is silently added to active memory and remains available in this session.",
   ].join("\n"),
@@ -59,6 +62,16 @@ export const MemoryWriteTool = Tool.define("memory_write", {
     store: Memory.Store.default("memory").describe("Intended future store for reflection; write still goes to session memory."),
     action: z.enum(["add", "replace", "remove"]),
     value: z.string().optional().describe("Natural-language memory note."),
+    scope: z
+      .union([
+        z.literal("global"),
+        z.string().regex(/^(session|project|workspace):.+$/),
+        Memory.LiveScope,
+      ])
+      .optional()
+      .describe("Visibility scope. Use session:<current session id> unless the note should be shared."),
+    salience_hint: Memory.SalienceHint.default("normal").describe("Initial importance hint; usage counts still start at zero."),
+    salience_reason: z.string().optional().describe("Short reason for the salience hint."),
     profile: z
       .object({
         type: z.enum(["fact", "preference", "task"]),
@@ -84,6 +97,9 @@ export const MemoryWriteTool = Tool.define("memory_write", {
       index: input.index,
       match: input.match,
       reason: input.reason,
+      scope: input.scope,
+      salience_hint: input.salience_hint,
+      salience_reason: input.salience_reason,
     })
 
     if (!result.ok) return blocked(result.events[0]?.summary ?? "Write blocked")
@@ -100,6 +116,8 @@ export const MemoryWriteTool = Tool.define("memory_write", {
         blocked: false,
         store: "session",
         intended_store: input.store,
+        scope: input.scope ?? "session-only",
+        inbox_id: result.inbox?.id,
         used: result.session.used,
         enabled: true,
       },
@@ -168,7 +186,7 @@ export const MemoryListTool = Tool.define("memory_list", {
 export const MemorySearchTool = Tool.define("memory_search", {
   description: [
     "Search the current session prepared memory pool by keyword.",
-    "The pool is initialized from USER.md, recent daily memory, and current session short-term memory.",
+    "The pool is initialized from USER.md, matching pending inbox, recent daily memory, and current session short-term memory.",
     "This is the only supported tool for recalling Aether memory.",
     "Do not use read, glob, grep, bash, or other file tools to inspect Aether memory files.",
     "Search accepts phrases plus separated keywords; include related synonyms, Chinese/English terms, paths, tool names, API names, and error strings when useful.",
