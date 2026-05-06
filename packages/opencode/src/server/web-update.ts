@@ -7,6 +7,7 @@ import z from "zod"
 import { Global } from "@/global"
 import { Installation } from "@/installation"
 import { ConfigPaths } from "../config/paths"
+import { Flag } from "../flag/flag"
 import { Log } from "../util/log"
 
 const log = Log.create({ service: "server" })
@@ -745,6 +746,19 @@ export async function readWebCurrentVersion() {
 }
 
 export async function webCheck(os: z.infer<typeof WebUpdateOS>) {
+  if (Flag.OPENCODE_DISABLE_AUTOUPDATE) {
+    return {
+      currentVersion: await readWebCurrentVersion(),
+      remoteVersion: "",
+      updateAvailable: false,
+      downloaded: false,
+      status: "available" as const,
+      workDir: getWorkDir(os) ?? "",
+      updateAction: undefined,
+      updateError: undefined,
+      checkError: undefined,
+    }
+  }
   const currentVersion = await readWebCurrentVersion()
   const workDir = getWorkDir(os) ?? ""
   try {
@@ -797,6 +811,7 @@ export async function webCheck(os: z.infer<typeof WebUpdateOS>) {
 }
 
 export async function downloadWebUpdate(input: z.infer<typeof WebUpdateDownloadInput>) {
+  if (Flag.OPENCODE_DISABLE_AUTOUPDATE) return failRes("Auto-update is disabled")
   const os = input.os
   const version = input.version
   const force = input.force
@@ -879,6 +894,7 @@ export async function downloadWebUpdate(input: z.infer<typeof WebUpdateDownloadI
 }
 
 export async function installWebUpdate(input: z.infer<typeof WebUpdateInstallInput>) {
+  if (Flag.OPENCODE_DISABLE_AUTOUPDATE) return failRes("Auto-update is disabled")
   const os = input.os
   const version = input.version
   const workDir = getWorkDir(os)
