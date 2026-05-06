@@ -701,7 +701,7 @@ export namespace SessionPrompt {
               abort,
               session,
               model,
-              lastUser!,
+              lastUser: lastUser!,
               msgs,
               taskTool,
             }).catch((err) => {
@@ -915,7 +915,7 @@ export namespace SessionPrompt {
 
       const modelMessages = await MessageV2.toModelMessages(msgs, model)
       const result = await processor.process({
-        user: lastUser!,
+        user: lastUser as MessageV2.User,
         agent,
         permission: session.permission,
         abort,
