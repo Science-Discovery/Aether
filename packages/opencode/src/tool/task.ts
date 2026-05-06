@@ -11,11 +11,18 @@ import { iife } from "@/util/iife"
 import { defer } from "@/util/defer"
 import { Config } from "../config/config"
 import { Permission } from "@/permission"
+import { Provider } from "../provider/provider"
 
 const parameters = z.object({
   description: z.string().describe("A short (3-5 words) description of the task"),
   prompt: z.string().describe("The task for the agent to perform"),
   subagent_type: z.string().describe("The type of specialized agent to use for this task"),
+  category: z
+    .string()
+    .describe(
+      "Optional semantic category for model routing (e.g., 'quick', 'deep', 'ultrabrain'). Overrides the subagent's model while preserving its identity and permissions.",
+    )
+    .optional(),
   task_id: z
     .string()
     .describe(
@@ -25,8 +32,20 @@ const parameters = z.object({
   command: z.string().describe("The command that triggered this task").optional(),
 })
 
+async function resolveCategoryModel(category: string): Promise<Provider.Model | undefined> {
+  const cfg = await Config.get()
+  const catCfg = cfg.category?.[category]
+  if (!catCfg) return undefined
+  const modelStr = catCfg.model
+  if (!modelStr) return undefined
+  const parsed = Provider.parseModel(modelStr)
+  return Provider.getModel(parsed.providerID, parsed.modelID).catch(() => undefined)
+}
+
 export const TaskTool = Tool.define("task", async (ctx) => {
   const agents = await Agent.list().then((x) => x.filter((a) => a.mode !== "primary"))
+  const cfg = await Config.get()
+  const categories = cfg.category ?? {}
 
   // Filter agents by permissions if agent provided
   const caller = ctx?.agent
@@ -35,12 +54,19 @@ export const TaskTool = Tool.define("task", async (ctx) => {
     : agents
   const list = accessibleAgents.toSorted((a, b) => a.name.localeCompare(b.name))
 
-  const description = DESCRIPTION.replace(
+  const categoryList = Object.entries(categories)
+    .map(([name, c]) => `- ${name}: ${c.description ?? `Routes to ${c.model ?? "default model"}`}`)
+    .join("\n")
+
+  let description = DESCRIPTION.replace(
     "{agents}",
     list
       .map((a) => `- ${a.name}: ${a.description ?? "This subagent should only be called manually by the user."}`)
       .join("\n"),
   )
+  if (categoryList) {
+    description += `\n\nAvailable categories for model routing (optional, overrides subagent model):\n${categoryList}`
+  }
   return {
     description,
     parameters,
@@ -65,6 +91,10 @@ export const TaskTool = Tool.define("task", async (ctx) => {
 
       const hasTaskPermission = agent.permission.some((rule) => rule.permission === "task")
       const hasTodoWritePermission = agent.permission.some((rule) => rule.permission === "todowrite")
+
+      // Category model routing: if category specified and valid, override agent model
+      const categoryModel = params.category ? await resolveCategoryModel(params.category) : undefined
+      const catCfg = params.category ? cfg.category?.[params.category] : undefined
 
       const session = await iife(async () => {
         if (params.task_id) {
@@ -105,10 +135,12 @@ export const TaskTool = Tool.define("task", async (ctx) => {
       const msg = await MessageV2.get({ sessionID: ctx.sessionID, messageID: ctx.messageID })
       if (msg.info.role !== "assistant") throw new Error("Not an assistant message")
 
-      const model = agent.model ?? {
-        modelID: msg.info.modelID,
-        providerID: msg.info.providerID,
-      }
+      const model = categoryModel
+        ? { modelID: categoryModel.id, providerID: categoryModel.providerID }
+        : (agent.model ?? {
+            modelID: msg.info.modelID,
+            providerID: msg.info.providerID,
+          })
 
       ctx.metadata({
         title: params.description,
@@ -126,6 +158,12 @@ export const TaskTool = Tool.define("task", async (ctx) => {
       ctx.abort.addEventListener("abort", cancel)
       using _ = defer(() => ctx.abort.removeEventListener("abort", cancel))
       const promptParts = await SessionPrompt.resolvePromptParts(params.prompt)
+      if (catCfg?.prompt_append) {
+        promptParts.push({
+          type: "text",
+          text: catCfg.prompt_append,
+        })
+      }
 
       const result = await SessionPrompt.prompt({
         messageID,

@@ -33,6 +33,13 @@ function modeOutputDir(agentName: string, agentCfg: Config.Agent): string {
     : path.relative(Instance.worktree, path.join(Global.Path.data, dir))
 }
 
+function notepadDir(agentName: string, agentCfg: Config.Agent, session: Session.Info): string {
+  const base = modeOutputDir(agentName, agentCfg)
+  return path.join(base, "notepads", [session.time.created, session.slug].join("-"))
+}
+
+const NOTEPAD_FILES = ["sources.md", "findings.md", "gaps.md", "learnings.md", "report.md"]
+
 async function activateMcp(agentCfg: Config.Agent | undefined) {
   if (!agentCfg?.mcp) return
   for (const [name, enabled] of Object.entries(agentCfg.mcp)) {
@@ -95,16 +102,23 @@ export function createModeEnterTool(agentName: string) {
 
         let switchText = `User has requested to enter ${agentName} mode. Switch to ${agentName} mode and begin.`
         if (cfg?.output_dir) {
-          const outDir = modeOutputDir(agentName, cfg)
-          const outFile = path.join(outDir, [session.time.created, session.slug].join("-") + ".md")
-          const full = Instance.project.vcs ? path.join(Instance.worktree, outFile) : outFile
-          const exists = await Filesystem.exists(full)
-          if (exists) {
-            switchText += ` A ${agentName} output file already exists at ${outFile}.`
-          } else {
-            await fs.mkdir(path.dirname(full), { recursive: true })
-            switchText += ` You should create your output at ${outFile}.`
+          const npDir = notepadDir(agentName, cfg, session)
+          const fullDir = Instance.project.vcs ? path.join(Instance.worktree, npDir) : npDir
+          await fs.mkdir(fullDir, { recursive: true })
+          for (const file of NOTEPAD_FILES) {
+            const fp = path.join(fullDir, file)
+            if (!(await Filesystem.exists(fp))) {
+              await Bun.write(fp, `# ${file.replace(".md", "").toUpperCase()}\n\n`)
+            }
           }
+          const reportPath = path.join(npDir, "report.md")
+          switchText += `\n\nResearch notepad created at ${npDir}/. Structure:`
+          switchText += `\n  - sources.md: Record all sources found with quality ratings`
+          switchText += `\n  - findings.md: Key findings per sub-question`
+          switchText += `\n  - gaps.md: Unanswered questions, uncertainties`
+          switchText += `\n  - learnings.md: Accumulated wisdom for forward-pass to subagents`
+          switchText += `\n  - report.md: Final research report (write here at Phase 4)`
+          switchText += `\n\nUpdate each file as you progress. Final report goes in ${reportPath}.`
         }
 
         const userMsg: MessageV2.User = {
@@ -183,12 +197,13 @@ export function createModeExitTool(agentName: string) {
 
         let switchText = `Switching from ${agentName} to ${chosen.agent} mode.`
         if (cfg?.output_dir) {
-          const outDir = modeOutputDir(agentName, cfg)
-          const outFile = path.join(outDir, [session.time.created, session.slug].join("-") + ".md")
-          const full = Instance.project.vcs ? path.join(Instance.worktree, outFile) : outFile
+          const npDir = notepadDir(agentName, cfg, session)
+          const reportPath = path.join(npDir, "report.md")
+          const full = Instance.project.vcs ? path.join(Instance.worktree, reportPath) : reportPath
           const exists = await Filesystem.exists(full)
           if (exists) {
-            switchText += `\n\nA ${agentName} output file exists at ${outFile}. You should reference it.`
+            switchText += `\n\nA ${agentName} report exists at ${reportPath}. Read it to understand the research findings.`
+            switchText += `\nAdditional notepad files at ${npDir}/: sources.md, findings.md, gaps.md, learnings.md.`
           }
         }
 

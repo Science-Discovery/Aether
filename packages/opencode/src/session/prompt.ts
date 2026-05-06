@@ -1689,11 +1689,13 @@ Your operational mode has changed from ${prevAgent.name} to ${input.agent.name}.
           const outDir = Instance.project.vcs
             ? path.join(PROJECT, prevAgent.outputDir)
             : path.relative(Instance.worktree, path.join(Global.Path.data, prevAgent.outputDir))
-          const outFile = path.join(outDir, [session.time.created, session.slug].join("-") + ".md")
-          const full = Instance.project.vcs ? path.join(Instance.worktree, outFile) : outFile
+          const npDir = path.join(outDir, "notepads", [session.time.created, session.slug].join("-"))
+          const reportPath = path.join(npDir, "report.md")
+          const full = Instance.project.vcs ? path.join(Instance.worktree, reportPath) : reportPath
           const exists = await Filesystem.exists(full)
           if (exists) {
-            switchMsg += `A ${prevAgent.name} output file exists at ${outFile}. You should reference it.\n`
+            switchMsg += `A ${prevAgent.name} report exists at ${reportPath}. Read it to understand the research findings.\n`
+            switchMsg += `Notepad files at ${npDir}/: sources.md, findings.md, gaps.md, learnings.md.\n`
           }
         }
         switchMsg += `</system-reminder>`
@@ -1816,10 +1818,11 @@ NOTE: At any point in time in this workflow you should feel free to ask the user
           const outDir = Instance.project.vcs
             ? path.join(PROJECT, input.agent.outputDir)
             : path.relative(Instance.worktree, path.join(Global.Path.data, input.agent.outputDir))
-          const outFile = path.join(outDir, [session.time.created, session.slug].join("-") + ".md")
-          const full = Instance.project.vcs ? path.join(Instance.worktree, outFile) : outFile
-          const exists = await Filesystem.exists(full)
-          if (!exists) await fs.mkdir(path.dirname(full), { recursive: true })
+          const npDir = path.join(outDir, "notepads", [session.time.created, session.slug].join("-"))
+          const reportPath = path.join(npDir, "report.md")
+          const full = Instance.project.vcs ? path.join(Instance.worktree, npDir) : npDir
+          const npExists = await Filesystem.exists(full)
+          if (!npExists) await fs.mkdir(full, { recursive: true })
           userMessage.parts.push({
             id: PartID.ascending(),
             messageID: userMessage.info.id,
@@ -1828,9 +1831,15 @@ NOTE: At any point in time in this workflow you should feel free to ask the user
             text: `<system-reminder>
 ${input.agent.name} mode is active.
 
-## Output File Info:
-${exists ? `A ${input.agent.name} output file already exists at ${outFile}. You can read it and make incremental edits.` : `No ${input.agent.name} output file exists yet. You should create your output at ${outFile} using the write tool.`}
-NOTE: This is the only file you are allowed to edit in this mode.
+## Research Notepad:
+Notepad directory: ${npDir}/
+  - sources.md: Record all sources found with quality ratings
+  - findings.md: Key findings per sub-question
+  - gaps.md: Unanswered questions, uncertainties
+  - learnings.md: Accumulated wisdom — UPDATE after each subagent returns, FORWARD-PASS to subsequent subagents
+  - report.md: Final research report (write here at Phase 4)
+${npExists ? `Notepad already exists — read existing files before continuing.` : `Notepad just created — populate as you progress.`}
+NOTE: You may ONLY write to files within ${npDir}/. No other file may be created or modified.
 </system-reminder>`,
             synthetic: true,
           })

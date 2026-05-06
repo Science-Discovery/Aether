@@ -1257,6 +1257,25 @@ export namespace Config {
         .catchall(Agent)
         .optional()
         .describe("Agent configuration, see https://opencode.ai/docs/agents"),
+      category: z
+        .record(
+          z.string(),
+          z.object({
+            model: ModelId.optional(),
+            variant: z.string().optional(),
+            temperature: z.number().optional(),
+            top_p: z.number().optional(),
+            prompt_append: z
+              .string()
+              .optional()
+              .describe("Content appended to system prompt when this category is selected. Supports file:// URIs."),
+            thinking: z.object({ type: z.string(), budgetTokens: z.number().optional() }).optional(),
+            reasoningEffort: z.string().optional(),
+            description: z.string().optional().describe("Human-readable description shown in task prompt."),
+          }),
+        )
+        .optional()
+        .describe("Semantic categories for task model routing. Key=category name, value=model config."),
       provider: z
         .record(z.string(), Provider)
         .optional()
