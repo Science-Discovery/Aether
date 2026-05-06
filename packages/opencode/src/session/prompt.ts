@@ -36,7 +36,6 @@ import { spawn } from "child_process"
 import { Command } from "../command"
 import { pathToFileURL, fileURLToPath } from "url"
 import { ConfigMarkdown } from "../config/markdown"
-import { Config } from "../config/config"
 import { SessionSummary } from "./summary"
 import { NamedError } from "@opencode-ai/util/error"
 import { fn } from "@/util/fn"
@@ -60,7 +59,7 @@ import { Config } from "../config/config"
 import { Skill } from "../skill"
 import { SkillRefresh } from "./skill-refresh"
 import { Global } from "@/global"
-import { PROJECT } from "@/persist/naming"
+import { normalizeOutputDir, PROJECT } from "@/persist/naming"
 
 // @ts-ignore
 globalThis.AI_SDK_LOG_WARNINGS = false
@@ -702,7 +701,7 @@ export namespace SessionPrompt {
               abort,
               session,
               model,
-              lastUser,
+              lastUser!,
               msgs,
               taskTool,
             }).catch((err) => {
@@ -916,7 +915,7 @@ export namespace SessionPrompt {
 
       const modelMessages = await MessageV2.toModelMessages(msgs, model)
       const result = await processor.process({
-        user: lastUser,
+        user: lastUser!,
         agent,
         permission: session.permission,
         abort,
@@ -1805,16 +1804,17 @@ export namespace SessionPrompt {
         })
       }
 
-      // Generic mode exit: switching from a custom primary agent to another
+      // Generic mode switch: entering or continuing a custom primary agent
       if (input.agent.exitDescription && input.agent.name !== "build" && input.agent.name !== "plan") {
         const prevAgent = input.messages.findLast((msg) => msg.info.role === "assistant")
         if (prevAgent && prevAgent.info.agent === input.agent.name) {
           // Already in this mode, no switch needed
-        } else if (prevAgent && prevAgent.info.agent !== input.agent.name && prevAgent.info.agent !== "build") {
-          const prev = await Agent.get(prevAgent.info.agent)
-          if (prev.mcp) await deactivateMcp(await getAgentConfig(prev.name))
+        } else {
+          const prevName = prevAgent?.info.agent ?? "build"
+          const prev = prevAgent ? await Agent.get(prevName) : undefined
+          if (prev?.mcp) await deactivateMcp(await getAgentConfig(prev.name))
           const switchMsg = `<system-reminder>
-Your operational mode has changed from ${prevAgent.info.agent} to ${input.agent.name}.
+Your operational mode has changed from ${prevName} to ${input.agent.name}.
 You are now in ${input.agent.name} mode. Follow the instructions for this mode.
 </system-reminder>`
           userMessage.parts.push({
@@ -1878,8 +1878,8 @@ Your operational mode has changed from ${prevAgent.name} to ${input.agent.name}.
         if (prevAgent.outputDir) {
           const session = input.session
           const outDir = Instance.project.vcs
-            ? path.join(PROJECT, prevAgent.outputDir)
-            : path.relative(Instance.worktree, path.join(Global.Path.data, prevAgent.outputDir))
+            ? path.join(PROJECT, normalizeOutputDir(prevAgent.outputDir))
+            : path.relative(Instance.worktree, path.join(Global.Path.data, normalizeOutputDir(prevAgent.outputDir)))
           const npDir = path.join(outDir, "notepads", [session.time.created, session.slug].join("-"))
           const reportPath = path.join(npDir, "report.md")
           const full = Instance.project.vcs ? path.join(Instance.worktree, reportPath) : reportPath
@@ -2010,8 +2010,8 @@ NOTE: At any point in time in this workflow you should feel free to ask the user
         if (input.agent.outputDir) {
           const session = input.session
           const outDir = Instance.project.vcs
-            ? path.join(PROJECT, input.agent.outputDir)
-            : path.relative(Instance.worktree, path.join(Global.Path.data, input.agent.outputDir))
+            ? path.join(PROJECT, normalizeOutputDir(input.agent.outputDir))
+            : path.relative(Instance.worktree, path.join(Global.Path.data, normalizeOutputDir(input.agent.outputDir)))
           const npDir = path.join(outDir, "notepads", [session.time.created, session.slug].join("-"))
           const reportPath = path.join(npDir, "report.md")
           const full = Instance.project.vcs ? path.join(Instance.worktree, npDir) : npDir

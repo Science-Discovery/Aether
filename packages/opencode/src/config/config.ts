@@ -480,7 +480,7 @@ export namespace Config {
   }
 
   async function loadAgent(dir: string) {
-    const result: Record<string, Agent> = {}
+    let result: Record<string, Agent> = {}
 
     for (const item of await Glob.scan("{agent,agents}/**/*.md", {
       cwd: dir,
@@ -521,6 +521,103 @@ export namespace Config {
         continue
       }
       throw new InvalidError({ path: item, issues: parsed.error.issues }, { cause: parsed.error })
+    }
+
+    const libraryRoles = await loadRoleLibrary(dir)
+    if (Object.keys(libraryRoles).length) {
+      result = mergeDeep(result, libraryRoles)
+    }
+    return result
+  }
+
+  async function loadRoleCardPrompt(dir: string, domainKey: string, roleId: string): Promise<string> {
+    const patterns = [
+      path.join(dir, ".aether", "roles", "general", domainKey, `${roleId}.md`),
+      path.join(dir, ".opencode", "roles", "general", domainKey, `${roleId}.md`),
+      path.join(dir, "roles", "general", domainKey, `${roleId}.md`),
+    ]
+    for (const candidate of patterns) {
+      const text = await fs.readFile(candidate, "utf-8").catch(() => undefined)
+      if (text !== undefined) {
+        const md = await ConfigMarkdown.parse(candidate).catch(() => undefined)
+        if (md) return md.content.trim()
+        return text.trim()
+      }
+    }
+    return ""
+  }
+
+  async function loadRoleLibrary(dir: string) {
+    const result: Record<string, Agent> = {}
+
+    const files = await Glob.scan("{role,roles}/*.yaml", {
+      cwd: dir,
+      absolute: true,
+      dot: true,
+      symlink: true,
+    })
+    if (!files.length) return result
+
+    const yaml = (await import("js-yaml")).default
+
+    for (const item of files) {
+      try {
+        const text = await fs.readFile(item, "utf-8")
+        const doc = yaml.load(text) as Record<string, any> | undefined
+        if (!doc || !doc.roles) continue
+
+        const defaults = doc.defaults ?? {}
+        const defaultPerm = defaults.permissions
+
+        for (const [domainKey, roleList] of Object.entries(doc.roles as Record<string, any[]>)) {
+          for (const role of roleList) {
+            const roleId = role.role_id
+            const rolePrompt = role.prompt ?? (await loadRoleCardPrompt(dir, domainKey, roleId))
+            const config = {
+              name: roleId,
+              description: role.purpose ?? role.description,
+              prompt: rolePrompt,
+              prompt_append: role.prompt_append,
+              mode: role.mode ?? "subagent",
+              base_agent: role.base_agent ?? defaults.base_agent,
+              skill_refs: role.skill_refs ?? defaults.skill_refs,
+              inputs: role.inputs ?? defaults.inputs,
+              outputs: role.outputs ?? defaults.outputs,
+              output_contract: role.output_contract ?? defaults.output_contract,
+              context_policy: role.context_policy ?? defaults.context_policy,
+              domain: role.domain ?? domainKey,
+              optional_extension: role.optional_extension ?? defaults.optional_extension,
+              responsibility_boundary: role.responsibility_boundary ?? defaults.responsibility_boundary,
+              role_design_basis: role.role_design_basis ?? defaults.role_design_basis,
+              permission: defaultPerm,
+              ...(role.model ? { model: role.model } : {}),
+              ...(role.temperature !== undefined ? { temperature: role.temperature } : {}),
+              ...(role.top_p !== undefined ? { top_p: role.top_p } : {}),
+              ...(role.steps !== undefined ? { steps: role.steps } : {}),
+              ...(role.color !== undefined ? { color: role.color } : {}),
+              ...(role.hidden !== undefined ? { hidden: role.hidden } : {}),
+              ...(role.fallback_models !== undefined ? { fallback_models: role.fallback_models } : {}),
+              ...(role.mcp !== undefined ? { mcp: role.mcp } : {}),
+              ...(role.output_dir !== undefined ? { output_dir: role.output_dir } : {}),
+              ...(role.enter_description !== undefined ? { enter_description: role.enter_description } : {}),
+              ...(role.exit_description !== undefined ? { exit_description: role.exit_description } : {}),
+              ...(role.exit_options !== undefined ? { exit_options: role.exit_options } : {}),
+            }
+            const parsed = Agent.safeParse(config)
+            if (parsed.success) {
+              result[config.name] = parsed.data
+              continue
+            }
+            log.warn("failed to parse role from library", {
+              path: item,
+              roleId: role.role_id,
+              issues: parsed.error.issues,
+            })
+          }
+        }
+      } catch (err) {
+        log.error("failed to load role library yaml", { path: item, err })
+      }
     }
     return result
   }
@@ -811,6 +908,27 @@ export namespace Config {
   })
   export type ExitOption = z.infer<typeof ExitOption>
 
+  export const ContextPolicy = z
+    .object({
+      pass_full_history: z.boolean().optional().default(false),
+      pass_artifacts: z.boolean().optional().default(true),
+      pass_user_constraints: z.boolean().optional().default(true),
+      pass_relevant_evidence: z.boolean().optional().default(true),
+    })
+    .optional()
+    .describe("Controls what context is passed when this agent is called as subagent.")
+
+  export type ContextPolicy = z.infer<typeof ContextPolicy>
+
+  export const OutputContract = z
+    .object({
+      required_fields: z.array(z.string()).optional(),
+    })
+    .optional()
+    .describe("Structured output contract: fields that must appear in the agent's final response.")
+
+  export type OutputContract = z.infer<typeof OutputContract>
+
   export const Agent = z
     .object({
       model: ModelId.optional(),
@@ -864,6 +982,36 @@ export namespace Config {
         .string()
         .optional()
         .describe("Directory where this agent mode writes its output files (relative to project root)."),
+      base_agent: z
+        .string()
+        .optional()
+        .describe("Name of native agent to inherit permission, model, temperature, and other defaults from."),
+      skill_refs: z
+        .array(z.string())
+        .optional()
+        .describe("Whitelist of skill names to auto-inject into this agent's system prompt with full content."),
+      inputs: z.array(z.string()).optional().describe("Artifact names this agent expects to receive."),
+      outputs: z.array(z.string()).optional().describe("Artifact names this agent is responsible for producing."),
+      output_contract: OutputContract.describe(
+        "Structured output contract: fields that must appear in the agent's final response.",
+      ),
+      context_policy: ContextPolicy.describe("Controls what context is passed when this agent is called as subagent."),
+      domain: z
+        .string()
+        .optional()
+        .describe("Functional domain grouping (e.g., coordination, theory_strategy, data_and_statistics)."),
+      optional_extension: z
+        .boolean()
+        .optional()
+        .describe("Whether this agent is an optional domain-specific extension."),
+      responsibility_boundary: z
+        .string()
+        .optional()
+        .describe("Declares what this agent owns and must not absorb from adjacent roles."),
+      role_design_basis: z
+        .array(z.string())
+        .optional()
+        .describe("Design溯源 labels documenting which archetypes/policies shaped this agent."),
     })
     .catchall(z.any())
     .transform((agent, ctx) => {
@@ -891,6 +1039,16 @@ export namespace Config {
         "exit_description",
         "exit_options",
         "output_dir",
+        "base_agent",
+        "skill_refs",
+        "inputs",
+        "outputs",
+        "output_contract",
+        "context_policy",
+        "domain",
+        "optional_extension",
+        "responsibility_boundary",
+        "role_design_basis",
       ])
 
       // Extract unknown properties into options
@@ -1257,6 +1415,18 @@ export namespace Config {
         .catchall(Agent)
         .optional()
         .describe("Agent configuration, see https://opencode.ai/docs/agents"),
+      agent_defaults: z
+        .object({
+          permission: Permission.optional(),
+          context_policy: ContextPolicy.describe(
+            "Default context policy applied to all agents before per-agent overrides.",
+          ),
+          output_contract: OutputContract.describe(
+            "Default output contract applied to all agents before per-agent overrides.",
+          ),
+        })
+        .optional()
+        .describe("Global defaults applied to all agents before per-agent overrides."),
       category: z
         .record(
           z.string(),
@@ -1638,10 +1808,7 @@ export namespace Config {
     // Test environments are identified by a .test. file in argv (bun test runner)
     // or by OPENCODE_TEST_HOME being set. Skip bundled-skill discovery in both cases
     // to prevent repo-level skills from polluting isolated test tmpdir instances.
-    if (
-      process.env.OPENCODE_TEST_HOME !== undefined ||
-      process.argv.some((a) => /\.test\.[jt]sx?$/.test(a))
-    )
+    if (process.env.OPENCODE_TEST_HOME !== undefined || process.argv.some((a) => /\.test\.[jt]sx?$/.test(a)))
       return undefined
     if (_serverSkillsDir !== null) return _serverSkillsDir
     _serverSkillsDir = findServerSkillsDirSync() ?? undefined
@@ -1668,7 +1835,13 @@ export namespace Config {
       const skillFile = path.join(skillDir, "SKILL.md")
       const text = await Filesystem.readText(skillFile).catch(() => null)
       if (text === null) {
-        skills.push({ name: entry.name, description: "", content: "", enabled: !disabled.has(skillDir), file: skillDir })
+        skills.push({
+          name: entry.name,
+          description: "",
+          content: "",
+          enabled: !disabled.has(skillDir),
+          file: skillDir,
+        })
         continue
       }
       try {
@@ -1683,7 +1856,13 @@ export namespace Config {
           file: skillDir,
         })
       } catch {
-        skills.push({ name: entry.name, description: "", content: text, enabled: !disabled.has(skillDir), file: skillDir })
+        skills.push({
+          name: entry.name,
+          description: "",
+          content: text,
+          enabled: !disabled.has(skillDir),
+          file: skillDir,
+        })
       }
     }
     return skills
@@ -1714,7 +1893,13 @@ export namespace Config {
       const skillFile = path.join(skillDir, "SKILL.md")
       const text = await Filesystem.readText(skillFile).catch(() => null)
       if (text === null) {
-        skills.push({ name: entry.name, description: "", content: "", enabled: !disabled.has(skillDir), file: skillDir })
+        skills.push({
+          name: entry.name,
+          description: "",
+          content: "",
+          enabled: !disabled.has(skillDir),
+          file: skillDir,
+        })
         continue
       }
       try {
@@ -1729,7 +1914,13 @@ export namespace Config {
           file: skillDir,
         })
       } catch {
-        skills.push({ name: entry.name, description: "", content: text, enabled: !disabled.has(skillDir), file: skillDir })
+        skills.push({
+          name: entry.name,
+          description: "",
+          content: text,
+          enabled: !disabled.has(skillDir),
+          file: skillDir,
+        })
       }
     }
     return skills
@@ -1741,9 +1932,7 @@ export namespace Config {
     const evolutionDisabled = new Set(global.skills?.evolution_disabled ?? [])
 
     // Remove stale disabled entries whose directories no longer exist
-    const stale = (
-      await Promise.all([...disabled].map(async (p) => ({ p, exists: await Filesystem.isDir(p) })))
-    )
+    const stale = (await Promise.all([...disabled].map(async (p) => ({ p, exists: await Filesystem.isDir(p) }))))
       .filter((x) => !x.exists)
       .map((x) => x.p)
     if (stale.length > 0) {
@@ -1762,7 +1951,14 @@ export namespace Config {
         const skillFile = path.join(skillDir, "SKILL.md")
         const text = await Filesystem.readText(skillFile).catch(() => null)
         if (text === null) {
-          result.push({ name: entry.name, description: "", content: "", enabled: !disabled.has(skillDir), evolution_enabled: !evolutionDisabled.has(skillDir), file: skillDir })
+          result.push({
+            name: entry.name,
+            description: "",
+            content: "",
+            enabled: !disabled.has(skillDir),
+            evolution_enabled: !evolutionDisabled.has(skillDir),
+            file: skillDir,
+          })
           continue
         }
         try {
@@ -1778,7 +1974,14 @@ export namespace Config {
             file: skillDir,
           })
         } catch {
-          result.push({ name: entry.name, description: "", content: text, enabled: !disabled.has(skillDir), evolution_enabled: !evolutionDisabled.has(skillDir), file: skillDir })
+          result.push({
+            name: entry.name,
+            description: "",
+            content: text,
+            enabled: !disabled.has(skillDir),
+            evolution_enabled: !evolutionDisabled.has(skillDir),
+            file: skillDir,
+          })
         }
       }
       return result
