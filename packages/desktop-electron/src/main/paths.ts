@@ -28,6 +28,13 @@ export function userDataDir() {
   return join(app.getPath("appData"), id(APP_IDS))
 }
 
+export function aetherDataDir() {
+  const home = app.getPath("home")
+  if (process.platform === "darwin") return join(home, ".local", "share", "aether")
+  if (process.platform === "win32") return join(process.env.LOCALAPPDATA || join(home, "AppData", "Local"), "aether")
+  return join(home, ".local", "share", "aether")
+}
+
 export function legacyUserDataDir() {
   return join(app.getPath("appData"), id(LEGACY_APP_IDS))
 }
