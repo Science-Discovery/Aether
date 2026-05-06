@@ -1149,7 +1149,7 @@ export namespace SessionPrompt {
               const scoped = Permission.evaluateWithScope(
                 perm,
                 pattern,
-                Permission.intersection(input.session.permission ?? [], input.agent.permission),
+                Permission.merge(input.agent.permission, input.session.permission ?? []),
                 scope,
               )
               if (!scoped.scopeMatch) {
@@ -1162,7 +1162,7 @@ export namespace SessionPrompt {
           ...req,
           sessionID: input.session.id,
           tool: { messageID: input.processor.message.id, callID: options.toolCallId },
-          ruleset: Permission.intersection(input.session.permission ?? [], input.agent.permission),
+          ruleset: Permission.merge(input.agent.permission, input.session.permission ?? []),
         })
       },
     })
