@@ -21,6 +21,13 @@ const list = (dir: string): string[] =>
 
 const spec = path.resolve(dir, "../openapi.json")
 const offline = process.argv.includes("--offline") || process.env.OPENCODE_SDK_OFFLINE === "1"
+function openapi(input: string) {
+  const marker = '{\n  "openapi"'
+  const idx = input.indexOf(marker)
+  if (idx < 0) return input
+  return input.slice(idx)
+}
+
 const json = await (async () => {
   if (offline) {
     if (!fs.existsSync(spec)) throw new Error(`missing offline spec: ${spec}`)
@@ -37,7 +44,7 @@ const json = await (async () => {
 
 await Bun.write(
   path.join(dir, "openapi.json"),
-  json,
+  openapi(json),
 )
 
 await createClient({

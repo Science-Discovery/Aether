@@ -31,7 +31,7 @@ type ActiveMemory = {
   session_id: string
   prompt: string
   entries: Array<{
-    source: "user" | "inbox" | "daily" | "session"
+    source: "user" | "daily" | "session" | "inbox"
     store?: "user" | "memory"
     index: number
     text: string
@@ -92,7 +92,6 @@ type Summary = {
 type MemoryPayload = {
   settings: MemoryCfg
   user: MemoryStore
-  inbox: MemoryStore
   memory: MemoryStore
   daily: DailyMemory
   active?: ActiveMemory
@@ -150,11 +149,9 @@ function asMemoryPayload(input: unknown): MemoryPayload {
   if (!input || typeof input !== "object") throw new Error("Invalid memory response")
   const payload = input as Partial<MemoryPayload>
   const user = payload.user as Partial<MemoryStore> | undefined
-  const inbox = payload.inbox as Partial<MemoryStore> | undefined
   const memory = payload.memory as Partial<MemoryStore> | undefined
   if (!payload.settings || typeof payload.settings !== "object") throw new Error("Invalid memory settings payload")
   if (!user || !Array.isArray(user.entries)) throw new Error("Invalid USER store payload")
-  if (!inbox || !Array.isArray(inbox.entries)) throw new Error("Invalid inbox memory payload")
   if (!memory || !Array.isArray(memory.entries)) throw new Error("Invalid MEMORY store payload")
   if (!payload.daily || !Array.isArray(payload.daily.days)) throw new Error("Invalid daily memory payload")
   return payload as MemoryPayload
@@ -359,15 +356,7 @@ export const SettingsMemory: Component = () => {
           </Show>
           <Show when={data()}>
             {(value) => (
-              <div class="flex flex-col gap-3 pt-3">
-                <StoreCard
-                  title={language.t("settings.memory.store.inbox")}
-                  used={value().inbox.used}
-                  limit={value().inbox.limit}
-                  file={value().inbox.file}
-                  entries={value().inbox.entries}
-                  emptyText={language.t("settings.memory.store.inbox.empty")}
-                />
+              <div class="pt-3">
                 <DailyMemoryCard title={language.t("settings.memory.store.daily")} daily={value().daily} />
               </div>
             )}

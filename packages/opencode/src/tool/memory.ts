@@ -50,38 +50,62 @@ function memoryManagementRequired() {
 export const MemoryWriteTool = Tool.define("memory_write", {
   description: [
     "Write a short-term session memory note for later recall and reflection.",
-    "All writes go to the current session memory file first; durable-looking notes may also be mirrored to a pending inbox for immediate cross-session memory_search recall.",
-    "Later reflection can consolidate session and inbox items into USER or daily MEMORY.",
-    "If the user asks to remember something long-term, write that request in natural language in the note.",
-    "Use scope(project-...), scope(workspace-...), or scope(session-...) in the note when the preference/fact/task is not globally valid.",
+    "Every write must include scope: session:<current session id>, project:<project id>, workspace:<workspace id>, or global.",
+    "Use the exact current scope ids from the memory_context system prompt; do not invent project or workspace ids.",
+    "All writes go to the current session memory file first; project/workspace/global scopes are also mirrored to pending inbox for matching sessions.",
+    "Use session scope for temporary conversation context, project for stable repo/project facts, workspace for Aether workspace-level facts, and global only for truly cross-project user preferences, rules, corrections, or must/never requirements.",
+    "If the user asks to remember something long-term, write that request in natural language in the note and choose the narrowest correct cross-session scope.",
     "Do not store transient logs or secrets.",
     "The written note is silently added to active memory and remains available in this session.",
   ].join("\n"),
   parameters: z.object({
-    store: z.literal("memory").optional().describe("Deprecated compatibility field. Omit it; writes always go to session memory."),
+    store: Memory.Store.default("memory").describe("Intended future store for reflection; write still goes to session memory."),
     action: z.enum(["add", "replace", "remove"]),
     value: z.string().optional().describe("Natural-language memory note."),
+    scope: z
+      .union([
+        z.literal("global"),
+        z.string().regex(/^(session|project|workspace):.+$/),
+        Memory.LiveScope,
+      ])
+      .optional()
+      .describe("Visibility scope. Use session:<current session id> unless the note should be shared."),
+    salience_hint: Memory.SalienceHint.default("normal").describe("Initial importance hint; usage counts still start at zero."),
+    salience_reason: z.string().optional().describe("Short reason for the salience hint."),
+    profile: z
+      .object({
+        type: z.enum(["fact", "preference", "task"]),
+        source: z.enum(["explicit", "inferred"]),
+        content: z.string(),
+      })
+      .optional()
+      .describe("Optional helper for user-profile-like notes. If provided with store=user, value is built automatically."),
     index: z.number().int().positive().optional(),
     match: z.string().optional(),
     reason: Memory.WriteReason.optional(),
-  }).strict(),
+  }),
   async execute(input, ctx) {
+    const value =
+      input.store === "user" && input.profile
+        ? `${input.profile.type}[${input.profile.source}]: ${input.profile.content}`
+        : input.value
     const result = await Memory.write({
       session_id: ctx.sessionID,
-      store: "memory",
+      store: input.store,
       action: input.action,
-      value: input.value,
+      value,
       index: input.index,
       match: input.match,
       reason: input.reason,
+      scope: input.scope,
+      salience_hint: input.salience_hint,
+      salience_reason: input.salience_reason,
     })
 
     if (!result.ok) return blocked(result.events[0]?.summary ?? "Write blocked")
-    const deprecatedStore = input.store === "memory"
     return {
       title: "Memory updated",
       output: [
-        ...(deprecatedStore ? ["Warning: memory_write.store is deprecated; omit it. Writes always go to session memory.", ""] : []),
         "Store: session",
         `File: ${result.session.file}`,
         `Used: ${result.session.used}`,
@@ -91,7 +115,9 @@ export const MemoryWriteTool = Tool.define("memory_write", {
       metadata: {
         blocked: false,
         store: "session",
-        deprecated: deprecatedStore ? ["store"] : [],
+        intended_store: input.store,
+        scope: input.scope ?? "session-only",
+        inbox_id: result.inbox?.id,
         used: result.session.used,
         enabled: true,
       },
@@ -138,13 +164,7 @@ export const MemoryListTool = Tool.define("memory_list", {
   async execute(_input, ctx) {
     if (!hasExplicitMemoryManagementIntent(ctx)) return memoryManagementRequired()
     const stores = await Memory.list()
-    const lines = [
-      `INBOX (${stores.inbox.used}/${stores.inbox.limit})`,
-      renderEntries(stores.inbox.entries),
-      "",
-      `MEMORY (${stores.memory.used}/${stores.memory.limit})`,
-      renderEntries(stores.memory.entries),
-    ]
+    const lines = [`MEMORY (${stores.memory.used}/${stores.memory.limit})`, renderEntries(stores.memory.entries)]
     if (stores.user.enabled) {
       lines.push("", `USER (${stores.user.used}/${stores.user.limit})`, renderEntries(stores.user.entries))
     }
@@ -156,8 +176,6 @@ export const MemoryListTool = Tool.define("memory_list", {
         user_enabled: stores.user.enabled,
         user_used: stores.user.used,
         user_limit: stores.user.limit,
-        inbox_used: stores.inbox.used,
-        inbox_limit: stores.inbox.limit,
         memory_used: stores.memory.used,
         memory_limit: stores.memory.limit,
       },
@@ -168,7 +186,7 @@ export const MemoryListTool = Tool.define("memory_list", {
 export const MemorySearchTool = Tool.define("memory_search", {
   description: [
     "Search the current session prepared memory pool by keyword.",
-    "The pool is initialized from USER.md, pending inbox memory, recent daily memory, and current session short-term memory.",
+    "The pool is initialized from USER.md, matching pending inbox, recent daily memory, and current session short-term memory.",
     "This is the only supported tool for recalling Aether memory.",
     "Do not use read, glob, grep, bash, or other file tools to inspect Aether memory files.",
     "Search accepts phrases plus separated keywords; include related synonyms, Chinese/English terms, paths, tool names, API names, and error strings when useful.",
@@ -216,7 +234,7 @@ export const MemoryReloadTool = Tool.define("memory_reload", {
 export const MemoryReflectTool = Tool.define("memory_reflect", {
   description: [
     "Run LLM-based memory reflection/consolidation explicitly.",
-    "Reflection reads short-term session memory plus pending inbox memory, writes day-by-day long-term MEMORY files, and applies USER.md profile patches.",
+    "Reflection reads short-term session memory, writes day-by-day long-term MEMORY files, and applies USER.md profile patches.",
     "Manual calls default to current_session; daily cron calls should use global.",
   ].join("\n"),
   parameters: z.object({
