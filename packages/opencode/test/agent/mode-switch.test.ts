@@ -18,14 +18,14 @@ describe("research agent", () => {
     await Instance.disposeAll()
   })
 
-  test("research agent loaded from .aether/mode/research.md", async () => {
+  test("research agent loaded from .aether/agent/research.md", async () => {
     await using tmp = await tmpdir({
       git: true,
       init: async (dir) => {
-        const modeDir = path.join(dir, ".aether", "mode")
-        await fs.mkdir(modeDir, { recursive: true })
+        const agentDir = path.join(dir, ".aether", "mode")
+        await fs.mkdir(agentDir, { recursive: true })
         await Bun.write(
-          path.join(modeDir, "research.md"),
+          path.join(agentDir, "research.md"),
           `---
 description: Deep research, literature search, and analysis mode
 color: "#7C3AED"
@@ -54,7 +54,7 @@ output_dir: research
 
 You are a research specialist.`,
         )
-        return modeDir
+        return agentDir
       },
     })
 
@@ -78,10 +78,10 @@ You are a research specialist.`,
     await using tmp = await tmpdir({
       git: true,
       init: async (dir) => {
-        const modeDir = path.join(dir, ".aether", "mode")
-        await fs.mkdir(modeDir, { recursive: true })
+        const agentDir = path.join(dir, ".aether", "mode")
+        await fs.mkdir(agentDir, { recursive: true })
         await Bun.write(
-          path.join(modeDir, "research.md"),
+          path.join(agentDir, "research.md"),
           `---
 description: Deep research mode
 color: "#7C3AED"
@@ -121,10 +121,10 @@ Research specialist.`,
     await using tmp = await tmpdir({
       git: true,
       init: async (dir) => {
-        const modeDir = path.join(dir, ".aether", "mode")
-        await fs.mkdir(modeDir, { recursive: true })
+        const agentDir = path.join(dir, ".aether", "mode")
+        await fs.mkdir(agentDir, { recursive: true })
         await Bun.write(
-          path.join(modeDir, "research.md"),
+          path.join(agentDir, "research.md"),
           `---
 description: Deep research mode
 mode: primary
@@ -165,10 +165,10 @@ Research specialist.`,
     await using tmp = await tmpdir({
       git: true,
       init: async (dir) => {
-        const modeDir = path.join(dir, ".aether", "mode")
-        await fs.mkdir(modeDir, { recursive: true })
+        const agentDir = path.join(dir, ".aether", "mode")
+        await fs.mkdir(agentDir, { recursive: true })
         await Bun.write(
-          path.join(modeDir, "research.md"),
+          path.join(agentDir, "research.md"),
           `---
 description: Deep research mode
 mode: primary
@@ -201,10 +201,10 @@ Research specialist.`,
     await using tmp = await tmpdir({
       git: true,
       init: async (dir) => {
-        const modeDir = path.join(dir, ".aether", "mode")
-        await fs.mkdir(modeDir, { recursive: true })
+        const agentDir = path.join(dir, ".aether", "mode")
+        await fs.mkdir(agentDir, { recursive: true })
         await Bun.write(
-          path.join(modeDir, "research.md"),
+          path.join(agentDir, "research.md"),
           `---
 description: Deep research mode
 mode: primary
@@ -230,10 +230,10 @@ Base prompt content.`,
     await using tmp = await tmpdir({
       git: true,
       init: async (dir) => {
-        const modeDir = path.join(dir, ".aether", "mode")
-        await fs.mkdir(modeDir, { recursive: true })
+        const agentDir = path.join(dir, ".aether", "mode")
+        await fs.mkdir(agentDir, { recursive: true })
         await Bun.write(
-          path.join(modeDir, "research.md"),
+          path.join(agentDir, "research.md"),
           `---
 description: Deep research mode
 mode: primary
@@ -259,10 +259,10 @@ Research specialist.`,
     await using tmp = await tmpdir({
       git: true,
       init: async (dir) => {
-        const modeDir = path.join(dir, ".aether", "mode")
-        await fs.mkdir(modeDir, { recursive: true })
+        const agentDir = path.join(dir, ".aether", "mode")
+        await fs.mkdir(agentDir, { recursive: true })
         await Bun.write(
-          path.join(modeDir, "research.md"),
+          path.join(agentDir, "research.md"),
           `---
 description: Deep research mode
 mode: primary
@@ -298,10 +298,10 @@ describe("mode-switch tools registration", () => {
     await using tmp = await tmpdir({
       git: true,
       init: async (dir) => {
-        const modeDir = path.join(dir, ".aether", "mode")
-        await fs.mkdir(modeDir, { recursive: true })
+        const agentDir = path.join(dir, ".aether", "mode")
+        await fs.mkdir(agentDir, { recursive: true })
         await Bun.write(
-          path.join(modeDir, "research.md"),
+          path.join(agentDir, "research.md"),
           `---
 description: Deep research mode
 mode: primary
@@ -329,14 +329,14 @@ Research specialist.`,
     })
   })
 
-  test("no mode tools registered for agent without enter/exit descriptions", async () => {
+  test("mode: primary agent gets enter/exit tools even without enter/exit descriptions", async () => {
     await using tmp = await tmpdir({
       git: true,
       init: async (dir) => {
-        const modeDir = path.join(dir, ".aether", "mode")
-        await fs.mkdir(modeDir, { recursive: true })
+        const agentDir = path.join(dir, ".aether", "agent")
+        await fs.mkdir(agentDir, { recursive: true })
         await Bun.write(
-          path.join(modeDir, "notes.md"),
+          path.join(agentDir, "notes.md"),
           `---
 description: Quick notes
 mode: primary
@@ -352,8 +352,8 @@ Notes agent.`,
       directory: tmp.path,
       fn: async () => {
         const toolIds = await ToolRegistry.ids()
-        expect(toolIds).not.toContain("notes_enter")
-        expect(toolIds).not.toContain("notes_exit")
+        expect(toolIds).toContain("notes_enter")
+        expect(toolIds).toContain("notes_exit")
       },
     })
   })

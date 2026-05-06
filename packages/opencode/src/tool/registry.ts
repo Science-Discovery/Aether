@@ -141,10 +141,8 @@ export namespace ToolRegistry {
         for (const [name, agentCfg] of Object.entries(cfg.agent ?? {})) {
           if (agentCfg.disable) continue
           if (agentCfg.mode === "primary" || agentCfg.mode === "all") {
-            if (agentCfg.enter_description || agentCfg.exit_description) {
-              modeTools.push(createModeEnterTool(name))
-              modeTools.push(createModeExitTool(name))
-            }
+            modeTools.push(createModeEnterTool(name))
+            modeTools.push(createModeExitTool(name))
           }
         }
 

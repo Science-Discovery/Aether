@@ -38,12 +38,28 @@ export namespace SessionProcessor {
     let attempt = 0
     let needsCompaction = false
     let fallbackIndex = 0
+    let originalAgent: LLM.StreamInput["agent"] | undefined = undefined
 
     const FALLBACK_MAX = 3
 
     async function nextFallback(streamInput: LLM.StreamInput): Promise<LLM.StreamInput | undefined> {
       const chain = streamInput.agent.fallbackModels
       if (!chain?.length || fallbackIndex >= Math.min(chain.length, FALLBACK_MAX)) return undefined
+
+      // If current model differs from agent's configured model, it was likely user-selected — don't override
+      const agentDefault = streamInput.agent.model
+      if (
+        agentDefault &&
+        (streamInput.model.providerID !== agentDefault.providerID || streamInput.model.id !== agentDefault.modelID)
+      ) {
+        log.info("model appears user-selected, skipping fallback chain", {
+          current: `${streamInput.model.providerID}/${streamInput.model.id}`,
+          agentDefault: `${agentDefault.providerID}/${agentDefault.modelID}`,
+        })
+        return undefined
+      }
+
+      if (!originalAgent) originalAgent = streamInput.agent
 
       const entry = chain[fallbackIndex]
       const modelStr = typeof entry === "string" ? entry : entry.model
@@ -71,10 +87,10 @@ export namespace SessionProcessor {
         ...streamInput,
         model: fallbackModel,
         agent: {
-          ...streamInput.agent,
-          variant: variant ?? streamInput.agent.variant,
-          temperature: temperature ?? streamInput.agent.temperature,
-          topP: topP ?? streamInput.agent.topP,
+          ...originalAgent,
+          variant: variant ?? originalAgent.variant,
+          temperature: temperature ?? originalAgent.temperature,
+          topP: topP ?? originalAgent.topP,
           model: { providerID: fallbackModel.providerID, modelID: fallbackModel.id },
         },
       }

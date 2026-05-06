@@ -13,6 +13,7 @@ import { Global } from "@/global"
 import { PROJECT } from "@/persist/naming"
 import { Filesystem } from "../util/filesystem"
 import { MCP } from "../mcp"
+import { SessionPreference } from "../session/preference"
 
 async function getLastModel(sessionID: SessionID) {
   for await (const item of MessageV2.stream(sessionID)) {
@@ -21,7 +22,7 @@ async function getLastModel(sessionID: SessionID) {
   return Provider.defaultModel()
 }
 
-async function getAgentConfig(agentName: string) {
+export async function getAgentConfig(agentName: string) {
   const cfg = await Config.get()
   return cfg.agent?.[agentName]
 }
@@ -40,7 +41,7 @@ function notepadDir(agentName: string, agentCfg: Config.Agent, session: Session.
 
 const NOTEPAD_FILES = ["sources.md", "findings.md", "gaps.md", "learnings.md", "report.md"]
 
-async function activateMcp(agentCfg: Config.Agent | undefined) {
+export async function activateMcp(agentCfg: Config.Agent | undefined) {
   if (!agentCfg?.mcp) return
   for (const [name, enabled] of Object.entries(agentCfg.mcp)) {
     if (!enabled) continue
@@ -53,7 +54,7 @@ async function activateMcp(agentCfg: Config.Agent | undefined) {
   }
 }
 
-async function deactivateMcp(agentCfg: Config.Agent | undefined) {
+export async function deactivateMcp(agentCfg: Config.Agent | undefined) {
   if (!agentCfg?.mcp) return
   for (const [name, enabled] of Object.entries(agentCfg.mcp)) {
     if (!enabled) continue
@@ -95,6 +96,7 @@ export function createModeEnterTool(agentName: string) {
         const answer = answers[0]?.[0]
         if (answer === "No") throw new Question.RejectedError()
 
+        await SessionPreference.update({ sessionID: ctx.sessionID, agent: agentName })
         await activateMcp(cfg)
 
         const model = await getLastModel(ctx.sessionID)
@@ -191,6 +193,7 @@ export function createModeExitTool(agentName: string) {
         const chosen = exitOpts.find((opt) => opt.label === answer)
         if (!chosen) throw new Question.RejectedError()
 
+        await SessionPreference.update({ sessionID: ctx.sessionID, agent: chosen.agent })
         await deactivateMcp(cfg)
 
         const model = await getLastModel(ctx.sessionID)

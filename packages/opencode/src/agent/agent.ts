@@ -25,24 +25,6 @@ import { makeRuntime } from "@/effect/run-service"
 import { LEGACY_PROJECT, PROJECT } from "@/persist/naming"
 
 export namespace Agent {
-  const FallbackModelEntry = z.object({
-    model: z.string(),
-    variant: z.string().optional(),
-    temperature: z.number().optional(),
-    top_p: z.number().optional(),
-    thinking: z.object({ type: z.string(), budgetTokens: z.number().optional() }).optional(),
-    reasoningEffort: z.string().optional(),
-    maxTokens: z.number().optional(),
-  })
-  type FallbackModelEntry = z.infer<typeof FallbackModelEntry>
-
-  const ExitOption = z.object({
-    label: z.string(),
-    agent: z.string(),
-    description: z.string(),
-  })
-  type ExitOption = z.infer<typeof ExitOption>
-
   export const Info = z
     .object({
       name: z.string(),
@@ -65,11 +47,11 @@ export namespace Agent {
       promptAppend: z.string().optional(),
       options: z.record(z.string(), z.any()),
       steps: z.number().int().positive().optional(),
-      fallbackModels: z.array(z.union([z.string(), FallbackModelEntry])).optional(),
+      fallbackModels: z.array(z.union([z.string(), Config.FallbackModelEntry])).optional(),
       mcp: z.record(z.string(), z.boolean()).optional(),
       enterDescription: z.string().optional(),
       exitDescription: z.string().optional(),
-      exitOptions: z.array(ExitOption).optional(),
+      exitOptions: z.array(Config.ExitOption).optional(),
       outputDir: z.string().optional(),
     })
     .meta({

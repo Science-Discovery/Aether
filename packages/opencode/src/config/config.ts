@@ -793,7 +793,7 @@ export namespace Config {
   })
   export type Skills = z.infer<typeof Skills>
 
-  const FallbackModelEntry = z.object({
+  export const FallbackModelEntry = z.object({
     model: z.string(),
     variant: z.string().optional(),
     temperature: z.number().optional(),
@@ -802,14 +802,14 @@ export namespace Config {
     reasoningEffort: z.string().optional(),
     maxTokens: z.number().optional(),
   })
-  type FallbackModelEntry = z.infer<typeof FallbackModelEntry>
+  export type FallbackModelEntry = z.infer<typeof FallbackModelEntry>
 
-  const ExitOption = z.object({
+  export const ExitOption = z.object({
     label: z.string(),
     agent: z.string(),
     description: z.string(),
   })
-  type ExitOption = z.infer<typeof ExitOption>
+  export type ExitOption = z.infer<typeof ExitOption>
 
   export const Agent = z
     .object({
@@ -1367,6 +1367,17 @@ export namespace Config {
             .min(0)
             .optional()
             .describe("Token buffer for compaction. Leaves enough window to avoid overflow during compaction."),
+        })
+        .optional(),
+      concurrency: z
+        .object({
+          maxConcurrent: z
+            .number()
+            .int()
+            .min(1)
+            .max(20)
+            .optional()
+            .describe("Maximum number of concurrent background subagent tasks (default: 5)"),
         })
         .optional(),
       memory: z

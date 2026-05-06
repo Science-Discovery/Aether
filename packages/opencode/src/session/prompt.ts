@@ -25,6 +25,7 @@ import MAX_STEPS from "../session/prompt/max-steps.txt"
 import { defer } from "../util/defer"
 import { ToolRegistry } from "../tool/registry"
 import { MCP } from "../mcp"
+import { activateMcp, deactivateMcp, getAgentConfig } from "../tool/mode-switch"
 import { LSP } from "../lsp"
 import { ReadTool } from "../tool/read"
 import { FileTime } from "../file/time"
@@ -35,6 +36,7 @@ import { spawn } from "child_process"
 import { Command } from "../command"
 import { pathToFileURL, fileURLToPath } from "url"
 import { ConfigMarkdown } from "../config/markdown"
+import { Config } from "../config/config"
 import { SessionSummary } from "./summary"
 import { NamedError } from "@opencode-ai/util/error"
 import { fn } from "@/util/fn"
@@ -62,6 +64,13 @@ import { PROJECT } from "@/persist/naming"
 
 // @ts-ignore
 globalThis.AI_SDK_LOG_WARNINGS = false
+
+async function resolveFileUri(input: string): Promise<string> {
+  if (!input.startsWith("file://")) return input
+  const filepath = fileURLToPath(input)
+  const content = await fs.readFile(filepath, "utf-8")
+  return content
+}
 
 const STRUCTURED_OUTPUT_DESCRIPTION = `Use this tool to return your final response in the requested structured format.
 
@@ -286,6 +295,271 @@ export namespace SessionPrompt {
     await Session.recoverStuckParts(sessionID)
   }
 
+  interface SubtaskContext {
+    sessionID: SessionID
+    abort: AbortSignal
+    session: Session.Info
+    model: Provider.Model
+    lastUser: MessageV2.User
+    msgs: MessageV2.WithParts[]
+    taskTool: Awaited<ReturnType<typeof TaskTool.init>>
+  }
+
+  async function spawnBackground(
+    subtask: MessageV2.SubtaskPart,
+    sessionID: SessionID,
+    abort: AbortSignal,
+    session: Session.Info,
+    model: Provider.Model,
+  ) {
+    const { BackgroundTask } = await import("./background")
+    const bgAgent = await Agent.get(subtask.agent)
+    const bgPermission = Permission.intersection(session.permission ?? [], bgAgent.permission)
+    const bgCategoryModel = subtask.model
+      ? await Provider.getModel(subtask.model.providerID, subtask.model.modelID)
+      : undefined
+    const cfg = await Config.get()
+    const catCfg = subtask.category ? cfg.category?.[subtask.category] : undefined
+    const bgSession = await Session.create({
+      parentID: sessionID,
+      title: subtask.description + ` (@${subtask.agent} subagent)`,
+      permission: bgPermission,
+      delegationDepth: subtask.discipline?.delegation_depth ?? 0,
+      maxSteps: subtask.discipline?.max_steps ?? bgAgent.steps,
+      fileScope: subtask.discipline?.file_scope,
+    })
+    await BackgroundTask.spawn({
+      session: bgSession,
+      agent: bgAgent,
+      prompt: subtask.prompt,
+      categoryModel: bgCategoryModel,
+      catCfg,
+      discipline: subtask.discipline ?? {
+        mode: "background",
+        delegation_depth: 0,
+        timeout_seconds: 300,
+        return_format: "text",
+      },
+      parentSessionID: sessionID,
+      parentAbort: abort,
+      callerPermission: session.permission ?? [],
+      fallbackModel: {
+        modelID: bgAgent.model?.modelID ?? model.id,
+        providerID: bgAgent.model?.providerID ?? model.providerID,
+      },
+    })
+  }
+
+  async function executeSubtask(subtask: MessageV2.SubtaskPart, ctx: SubtaskContext) {
+    const { sessionID, abort, session, model, lastUser, msgs, taskTool } = ctx
+
+    const taskModel = subtask.model ? await Provider.getModel(subtask.model.providerID, subtask.model.modelID) : model
+    const assistantMessage = (await Session.updateMessage({
+      id: MessageID.ascending(),
+      role: "assistant",
+      parentID: lastUser.id,
+      sessionID,
+      mode: subtask.agent,
+      agent: subtask.agent,
+      variant: lastUser.variant,
+      path: {
+        cwd: Instance.directory,
+        root: Instance.worktree,
+      },
+      cost: 0,
+      tokens: {
+        input: 0,
+        output: 0,
+        reasoning: 0,
+        cache: { read: 0, write: 0 },
+      },
+      modelID: taskModel.id,
+      providerID: taskModel.providerID,
+      time: {
+        created: Date.now(),
+      },
+    })) as MessageV2.Assistant
+
+    let part = (await Session.updatePart({
+      id: PartID.ascending(),
+      messageID: assistantMessage.id,
+      sessionID: assistantMessage.sessionID,
+      type: "tool",
+      callID: ulid(),
+      tool: TaskTool.id,
+      state: {
+        status: "running",
+        input: {
+          prompt: subtask.prompt,
+          description: subtask.description,
+          subagent_type: subtask.agent,
+          command: subtask.command,
+        },
+        time: {
+          start: Date.now(),
+        },
+      },
+    })) as MessageV2.ToolPart
+
+    const taskArgs = {
+      prompt: subtask.prompt,
+      description: subtask.description,
+      subagent_type: subtask.agent,
+      command: subtask.command,
+    }
+
+    await Plugin.trigger(
+      "tool.execute.before",
+      {
+        tool: "task",
+        sessionID,
+        callID: part.id,
+      },
+      { args: taskArgs },
+    )
+
+    const taskAgent = await Agent.get(subtask.agent)
+    if (!taskAgent) {
+      const available = await Agent.list().then((agents) => agents.filter((a) => !a.hidden).map((a) => a.name))
+      const hint = available.length ? ` Available agents: ${available.join(", ")}` : ""
+      const error = new NamedError.Unknown({ message: `Agent not found: "${subtask.agent}".${hint}` })
+      Bus.publish(Session.Event.Error, {
+        sessionID,
+        error: error.toObject(),
+      })
+      throw error
+    }
+
+    const taskCtx: Tool.Context = {
+      agent: subtask.agent,
+      messageID: assistantMessage.id,
+      sessionID,
+      abort,
+      callID: part.callID,
+      extra: { bypassAgentCheck: true },
+      messages: msgs,
+      fileScope: session.fileScope,
+      async metadata(input) {
+        part = (await Session.updatePart({
+          ...part,
+          type: "tool",
+          state: {
+            ...part.state,
+            ...input,
+          },
+        } satisfies MessageV2.ToolPart)) as MessageV2.ToolPart
+      },
+      async ask(req) {
+        const scope = session.fileScope
+        const effectiveRuleset = Permission.intersection(session.permission ?? [], taskAgent.permission)
+        if (scope) {
+          const FILE_TOOLS = ["read", "edit", "write", "glob", "grep", "apply_patch", "multiedit"]
+          const perm = FILE_TOOLS.includes(req.permission) ? req.permission : undefined
+          if (perm) {
+            for (const pattern of req.patterns ?? []) {
+              const scoped = Permission.evaluateWithScope(perm, pattern, effectiveRuleset, scope)
+              if (!scoped.scopeMatch) {
+                throw new Permission.RejectedError()
+              }
+            }
+          }
+        }
+        await Permission.ask({
+          ...req,
+          sessionID,
+          ruleset: effectiveRuleset,
+        })
+      },
+    }
+
+    let executionError: Error | undefined
+    const result = await taskTool.execute(taskArgs, taskCtx).catch((error) => {
+      executionError = error
+      log.error("subtask execution failed", { error, agent: subtask.agent, description: subtask.description })
+      return undefined
+    })
+
+    const attachments = result?.attachments?.map((attachment) => ({
+      ...attachment,
+      id: PartID.ascending(),
+      sessionID,
+      messageID: assistantMessage.id,
+    }))
+
+    await Plugin.trigger(
+      "tool.execute.after",
+      {
+        tool: "task",
+        sessionID,
+        callID: part.id,
+        args: taskArgs,
+      },
+      result,
+    )
+
+    assistantMessage.finish = "tool-calls"
+    assistantMessage.time.completed = Date.now()
+    await Session.updateMessage(assistantMessage)
+
+    if (result && part.state.status === "running") {
+      await Session.updatePart({
+        ...part,
+        state: {
+          status: "completed",
+          input: part.state.input,
+          title: result.title,
+          metadata: result.metadata,
+          output: result.output,
+          attachments,
+          time: {
+            ...part.state.time,
+            end: Date.now(),
+          },
+        },
+      } satisfies MessageV2.ToolPart)
+    }
+
+    if (!result) {
+      await Session.updatePart({
+        ...part,
+        state: {
+          status: "error",
+          error: executionError ? `Tool execution failed: ${executionError.message}` : "Tool execution failed",
+          time: {
+            start: part.state.status === "running" ? part.state.time.start : Date.now(),
+            end: Date.now(),
+          },
+          metadata: "metadata" in part.state ? part.state.metadata : undefined,
+          input: part.state.input,
+        },
+      } satisfies MessageV2.ToolPart)
+    }
+
+    if (subtask.command) {
+      const summaryUserMsg: MessageV2.User = {
+        id: MessageID.ascending(),
+        sessionID,
+        role: "user",
+        time: {
+          created: Date.now(),
+        },
+        agent: lastUser.agent,
+        model: lastUser.model,
+      }
+      await Session.updateMessage(summaryUserMsg)
+      await Session.updatePart({
+        id: PartID.ascending(),
+        messageID: summaryUserMsg.id,
+        sessionID,
+        type: "text",
+        text: "Summarize the task tool output above and continue with your task.",
+        synthetic: true,
+      } satisfies MessageV2.TextPart)
+    }
+
+    return { ok: true } as const
+  }
+
   export const LoopInput = z.object({
     sessionID: SessionID.zod,
     resume_existing: z.boolean().optional(),
@@ -410,219 +684,54 @@ export namespace SessionPrompt {
         const bgTasks = tasks
           .filter((t) => t.type === "subtask")
           .filter((t) => (t as MessageV2.SubtaskPart).discipline?.mode === "background") as MessageV2.SubtaskPart[]
+        const fgTasks: MessageV2.SubtaskPart[] = [task]
+        const concurrentTasks = tasks
+          .filter((t) => t.type === "subtask")
+          .filter((t) => (t as MessageV2.SubtaskPart).discipline?.mode === "concurrent") as MessageV2.SubtaskPart[]
+        fgTasks.push(...concurrentTasks)
+
         for (const bg of bgTasks) {
-          const { BackgroundTask } = await import("./background")
-          const bgAgent = await Agent.get(bg.agent)
-          const bgPermission = Permission.intersection(session.permission ?? [], bgAgent.permission)
-          const bgCategoryModel = bg.model ? await Provider.getModel(bg.model.providerID, bg.model.modelID) : undefined
-          const bgSession = await Session.create({
-            parentID: sessionID,
-            title: bg.description + ` (@${bg.agent} subagent)`,
-            permission: bgPermission,
-            delegationDepth: bg.discipline?.delegation_depth ?? 0,
-            maxSteps: bg.discipline?.max_steps ?? bgAgent.steps,
-            fileScope: bg.discipline?.file_scope,
-          })
-          BackgroundTask.spawn({
-            session: bgSession,
-            agent: bgAgent,
-            prompt: bg.prompt,
-            categoryModel: bgCategoryModel,
-            discipline: bg.discipline ?? {
-              mode: "background",
-              delegation_depth: 0,
-              timeout_seconds: 300,
-              return_format: "text",
-            },
-            parentSessionID: sessionID,
-            parentAbort: abort,
-            callerPermission: session.permission ?? [],
-            fallbackModel: {
-              modelID: bgAgent.model?.modelID ?? model.id,
-              providerID: bgAgent.model?.providerID ?? model.providerID,
-            },
-          }).catch(() => {})
-        }
-        const taskTool = await TaskTool.init()
-        const taskModel = task.model ? await Provider.getModel(task.model.providerID, task.model.modelID) : model
-        const assistantMessage = (await Session.updateMessage({
-          id: MessageID.ascending(),
-          role: "assistant",
-          parentID: lastUser.id,
-          sessionID,
-          mode: task.agent,
-          agent: task.agent,
-          variant: lastUser.variant,
-          path: {
-            cwd: Instance.directory,
-            root: Instance.worktree,
-          },
-          cost: 0,
-          tokens: {
-            input: 0,
-            output: 0,
-            reasoning: 0,
-            cache: { read: 0, write: 0 },
-          },
-          modelID: taskModel.id,
-          providerID: taskModel.providerID,
-          time: {
-            created: Date.now(),
-          },
-        })) as MessageV2.Assistant
-        let part = (await Session.updatePart({
-          id: PartID.ascending(),
-          messageID: assistantMessage.id,
-          sessionID: assistantMessage.sessionID,
-          type: "tool",
-          callID: ulid(),
-          tool: TaskTool.id,
-          state: {
-            status: "running",
-            input: {
-              prompt: task.prompt,
-              description: task.description,
-              subagent_type: task.agent,
-              command: task.command,
-            },
-            time: {
-              start: Date.now(),
-            },
-          },
-        })) as MessageV2.ToolPart
-        const taskArgs = {
-          prompt: task.prompt,
-          description: task.description,
-          subagent_type: task.agent,
-          command: task.command,
-        }
-        await Plugin.trigger(
-          "tool.execute.before",
-          {
-            tool: "task",
-            sessionID,
-            callID: part.id,
-          },
-          { args: taskArgs },
-        )
-        let executionError: Error | undefined
-        const taskAgent = await Agent.get(task.agent)
-        if (!taskAgent) {
-          const available = await Agent.list().then((agents) => agents.filter((a) => !a.hidden).map((a) => a.name))
-          const hint = available.length ? ` Available agents: ${available.join(", ")}` : ""
-          const error = new NamedError.Unknown({ message: `Agent not found: "${task.agent}".${hint}` })
-          Bus.publish(Session.Event.Error, {
-            sessionID,
-            error: error.toObject(),
-          })
-          throw error
-        }
-        const taskCtx: Tool.Context = {
-          agent: task.agent,
-          messageID: assistantMessage.id,
-          sessionID: sessionID,
-          abort,
-          callID: part.callID,
-          extra: { bypassAgentCheck: true },
-          messages: msgs,
-          async metadata(input) {
-            part = (await Session.updatePart({
-              ...part,
-              type: "tool",
-              state: {
-                ...part.state,
-                ...input,
-              },
-            } satisfies MessageV2.ToolPart)) as MessageV2.ToolPart
-          },
-          async ask(req) {
-            await Permission.ask({
-              ...req,
-              sessionID: sessionID,
-              ruleset: Permission.merge(taskAgent.permission, session.permission ?? []),
-            })
-          },
-        }
-        const result = await taskTool.execute(taskArgs, taskCtx).catch((error) => {
-          executionError = error
-          log.error("subtask execution failed", { error, agent: task.agent, description: task.description })
-          return undefined
-        })
-        const attachments = result?.attachments?.map((attachment) => ({
-          ...attachment,
-          id: PartID.ascending(),
-          sessionID,
-          messageID: assistantMessage.id,
-        }))
-        await Plugin.trigger(
-          "tool.execute.after",
-          {
-            tool: "task",
-            sessionID,
-            callID: part.id,
-            args: taskArgs,
-          },
-          result,
-        )
-        assistantMessage.finish = "tool-calls"
-        assistantMessage.time.completed = Date.now()
-        await Session.updateMessage(assistantMessage)
-        if (result && part.state.status === "running") {
-          await Session.updatePart({
-            ...part,
-            state: {
-              status: "completed",
-              input: part.state.input,
-              title: result.title,
-              metadata: result.metadata,
-              output: result.output,
-              attachments,
-              time: {
-                ...part.state.time,
-                end: Date.now(),
-              },
-            },
-          } satisfies MessageV2.ToolPart)
-        }
-        if (!result) {
-          await Session.updatePart({
-            ...part,
-            state: {
-              status: "error",
-              error: executionError ? `Tool execution failed: ${executionError.message}` : "Tool execution failed",
-              time: {
-                start: part.state.status === "running" ? part.state.time.start : Date.now(),
-                end: Date.now(),
-              },
-              metadata: "metadata" in part.state ? part.state.metadata : undefined,
-              input: part.state.input,
-            },
-          } satisfies MessageV2.ToolPart)
+          spawnBackground(bg, sessionID, abort, session, model).catch(() => {})
         }
 
-        if (task.command) {
-          // Add synthetic user message to prevent certain reasoning models from erroring
-          // If we create assistant messages w/ out user ones following mid loop thinking signatures
-          // will be missing and it can cause errors for models like gemini for example
-          const summaryUserMsg: MessageV2.User = {
-            id: MessageID.ascending(),
-            sessionID,
-            role: "user",
-            time: {
-              created: Date.now(),
-            },
-            agent: lastUser.agent,
-            model: lastUser.model,
+        const taskTool = await TaskTool.init()
+        const fgResults = await Promise.all(
+          fgTasks.map((t) =>
+            executeSubtask(t, {
+              sessionID,
+              abort,
+              session,
+              model,
+              lastUser,
+              msgs,
+              taskTool,
+            }).catch((err) => {
+              log.error("foreground subtask failed", { error: err, agent: t.agent, description: t.description })
+              return { subtask: t, error: err } as const
+            }),
+          ),
+        )
+
+        for (const fgResult of fgResults) {
+          if ("error" in fgResult) {
+            const summaryUserMsg: MessageV2.User = {
+              id: MessageID.ascending(),
+              sessionID,
+              role: "user",
+              time: { created: Date.now() },
+              agent: lastUser.agent,
+              model: lastUser.model,
+            }
+            await Session.updateMessage(summaryUserMsg)
+            await Session.updatePart({
+              id: PartID.ascending(),
+              messageID: summaryUserMsg.id,
+              sessionID,
+              type: "text",
+              text: "Summarize the task tool output above and continue with your task.",
+              synthetic: true,
+            } satisfies MessageV2.TextPart)
           }
-          await Session.updateMessage(summaryUserMsg)
-          await Session.updatePart({
-            id: PartID.ascending(),
-            messageID: summaryUserMsg.id,
-            sessionID,
-            type: "text",
-            text: "Summarize the task tool output above and continue with your task.",
-            synthetic: true,
-          } satisfies MessageV2.TextPart)
         }
 
         continue
@@ -838,7 +947,9 @@ export namespace SessionPrompt {
         const toolNames = assistantParts.filter((p) => p.type === "tool").map((p) => (p as MessageV2.ToolPart).tool)
         Log.activity(`[tools] step=${step} tools=[${toolNames.join(", ")}]`)
         const calledSkillManage = toolNames.includes("skill_manage")
-        Log.activity(`[skill manage] step=${step} called=${calledSkillManage ? 1 : 0} count_before=${_skillCounters.get(sessionID) ?? 0}`)
+        Log.activity(
+          `[skill manage] step=${step} called=${calledSkillManage ? 1 : 0} count_before=${_skillCounters.get(sessionID) ?? 0}`,
+        )
         if (calledSkillManage) {
           // mirrors Hermes L7868: reset to 0 inside _execute_tool_calls
           // then L9110: +1 unconditionally after → net result is 1, not 0
@@ -853,7 +964,9 @@ export namespace SessionPrompt {
         .filter((p) => p.type === "text")
         .map((p) => (p as MessageV2.TextPart).text.trim())
         .join("\n")
-      Log.activity(`[assistant] step=${step} finish=${processor.message.finish ?? "(none)"} error=${processor.message.error ? 1 : 0} parts=${parts.length} textChars=${text.length}`)
+      Log.activity(
+        `[assistant] step=${step} finish=${processor.message.finish ?? "(none)"} error=${processor.message.error ? 1 : 0} parts=${parts.length} textChars=${text.length}`,
+      )
 
       // If structured output was captured, save it and exit immediately
       // This takes priority because the StructuredOutput tool was called successfully
@@ -919,7 +1032,9 @@ export namespace SessionPrompt {
       _finalResponse &&
       !abort.aborted
 
-    Log.activity(`[skill review check] count=${_skillCounters.get(sessionID)} threshold=${skillNudgeInterval} finalResponse=${_finalResponse} aborted=${abort.aborted} isReview=${isSkillReviewSession} should=${_shouldReviewSkills}`)
+    Log.activity(
+      `[skill review check] count=${_skillCounters.get(sessionID)} threshold=${skillNudgeInterval} finalResponse=${_finalResponse} aborted=${abort.aborted} isReview=${isSkillReviewSession} should=${_shouldReviewSkills}`,
+    )
 
     if (_shouldReviewSkills) {
       _skillCounters.set(sessionID, 0) // reset immediately, mirrors Hermes L11833
@@ -945,7 +1060,9 @@ export namespace SessionPrompt {
         .filter((p) => p.type === "text")
         .map((p) => (p as MessageV2.TextPart).text.trim())
         .join("\n")
-      Log.activity(`[final return] role=${item.info.role} id=${item.info.id} parts=${item.parts.length} textChars=${txt.length} finalResponse=${_finalResponse ? 1 : 0}`)
+      Log.activity(
+        `[final return] role=${item.info.role} id=${item.info.id} parts=${item.parts.length} textChars=${txt.length} finalResponse=${_finalResponse ? 1 : 0}`,
+      )
       return item
     }
     throw new Error("Impossible")
@@ -979,6 +1096,7 @@ export namespace SessionPrompt {
       extra: { model: input.model, bypassAgentCheck: input.bypassAgentCheck },
       agent: input.agent.name,
       messages: input.messages,
+      fileScope: input.session.fileScope,
       metadata: async (val: { title?: string; metadata?: any }) => {
         const match = input.processor.partFromToolCall(options.toolCallId)
         if (match && match.state.status === "running") {
@@ -997,19 +1115,47 @@ export namespace SessionPrompt {
         }
       },
       async ask(req) {
+        const sessionScope = input.session.fileScope
+        const agentScope = input.agent.outputDir ? [`${input.agent.outputDir}/**`] : undefined
+        const scope = sessionScope ?? agentScope
+        if (scope) {
+          const FILE_TOOLS = ["read", "edit", "write", "glob", "grep", "apply_patch", "multiedit"]
+          const perm = FILE_TOOLS.includes(req.permission) ? req.permission : undefined
+          if (perm) {
+            for (const pattern of req.patterns ?? []) {
+              const scoped = Permission.evaluateWithScope(
+                perm,
+                pattern,
+                Permission.intersection(input.session.permission ?? [], input.agent.permission),
+                scope,
+              )
+              if (!scoped.scopeMatch) {
+                throw new Permission.RejectedError()
+              }
+            }
+          }
+        }
         await Permission.ask({
           ...req,
           sessionID: input.session.id,
           tool: { messageID: input.processor.message.id, callID: options.toolCallId },
-          ruleset: Permission.merge(input.agent.permission, input.session.permission ?? []),
+          ruleset: Permission.intersection(input.session.permission ?? [], input.agent.permission),
         })
       },
     })
+
+    const effectiveRuleset = Permission.intersection(input.session.permission ?? [], input.agent.permission)
+    const EDIT_TOOLS = ["edit", "write", "apply_patch", "multiedit"]
 
     for (const item of await ToolRegistry.tools(
       { modelID: ModelID.make(input.model.api.id), providerID: input.model.providerID },
       input.agent,
     )) {
+      const permKey = EDIT_TOOLS.includes(item.id) ? "edit" : item.id
+      const rule = Permission.evaluate(permKey, "*", effectiveRuleset)
+      if (rule.action === "deny") continue
+      if (input.tools?.[item.id] === false) continue
+
       const schema = ProviderTransform.schema(input.model, z.toJSONSchema(item.parameters))
       tools[item.id] = tool({
         id: item.id as any,
@@ -1057,7 +1203,12 @@ export namespace SessionPrompt {
       const execute = item.execute
       if (!execute) continue
 
-      const transformed = ProviderTransform.schema(input.model, await asSchema(item.inputSchema).jsonSchema)
+      const mcpPerm = Permission.evaluate(key, "*", effectiveRuleset)
+      if (mcpPerm.action === "deny") continue
+
+      if (input.tools?.[key] === false) continue
+
+      const transformed = ProviderTransform.schema(input.model, asSchema(item.inputSchema).jsonSchema)
       item.inputSchema = jsonSchema(transformed)
       // Wrap execute to add plugin hooks and format output
       item.execute = async (args, opts) => {
@@ -1660,6 +1811,8 @@ export namespace SessionPrompt {
         if (prevAgent && prevAgent.info.agent === input.agent.name) {
           // Already in this mode, no switch needed
         } else if (prevAgent && prevAgent.info.agent !== input.agent.name && prevAgent.info.agent !== "build") {
+          const prev = await Agent.get(prevAgent.info.agent)
+          if (prev.mcp) await deactivateMcp(await getAgentConfig(prev.name))
           const switchMsg = `<system-reminder>
 Your operational mode has changed from ${prevAgent.info.agent} to ${input.agent.name}.
 You are now in ${input.agent.name} mode. Follow the instructions for this mode.
@@ -1677,12 +1830,14 @@ You are now in ${input.agent.name} mode. Follow the instructions for this mode.
 
       // Generic mode entry: entering a custom primary agent with promptAppend
       if (input.agent.promptAppend && input.agent.mode === "primary") {
+        if (input.agent.mcp) await activateMcp(await getAgentConfig(input.agent.name))
+        const resolved = await resolveFileUri(input.agent.promptAppend)
         userMessage.parts.push({
           id: PartID.ascending(),
           messageID: userMessage.info.id,
           sessionID: userMessage.info.sessionID,
           type: "text",
-          text: input.agent.promptAppend,
+          text: resolved,
           synthetic: true,
         })
       }
@@ -1716,6 +1871,7 @@ You are now in ${input.agent.name} mode. Follow the instructions for this mode.
     if (assistantMessage?.info.agent && assistantMessage.info.agent !== input.agent.name) {
       const prevAgent = await Agent.get(assistantMessage.info.agent)
       if (prevAgent.exitDescription) {
+        if (prevAgent.mcp) await deactivateMcp(await getAgentConfig(prevAgent.name))
         let switchMsg = `<system-reminder>
 Your operational mode has changed from ${prevAgent.name} to ${input.agent.name}.
 `
@@ -1835,14 +1991,17 @@ NOTE: At any point in time in this workflow you should feel free to ask the user
     // Entering a custom primary agent mode (with enterDescription or promptAppend)
     if (input.agent.enterDescription || input.agent.promptAppend) {
       if (assistantMessage?.info.agent !== input.agent.name) {
-        // Inject promptAppend as a synthetic part
+        // Activate MCP for this agent mode
+        if (input.agent.mcp) await activateMcp(await getAgentConfig(input.agent.name))
+        // Inject promptAppend as a synthetic part (resolve file:// URIs)
         if (input.agent.promptAppend) {
+          const resolved = await resolveFileUri(input.agent.promptAppend)
           userMessage.parts.push({
             id: PartID.ascending(),
             messageID: userMessage.info.id,
             sessionID: userMessage.info.sessionID,
             type: "text",
-            text: input.agent.promptAppend,
+            text: resolved,
             synthetic: true,
           })
         }
@@ -2458,7 +2617,9 @@ NOTE: You may ONLY write to files within ${npDir}/. No other file may be created
           : await MessageV2.toModelMessages(contextMessages, model)),
       ],
     })
-    const text = await Promise.resolve(result.text).catch((err) => log.error("failed to generate title", { error: err }))
+    const text = await Promise.resolve(result.text).catch((err) =>
+      log.error("failed to generate title", { error: err }),
+    )
     if (text) {
       const cleaned = text
         .replace(/<think>[\s\S]*?<\/think>\s*/g, "")
