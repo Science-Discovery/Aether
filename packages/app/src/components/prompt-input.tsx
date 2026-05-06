@@ -16,6 +16,7 @@ import {
 } from "@/context/prompt"
 import { useLayout } from "@/context/layout"
 import { useSDK } from "@/context/sdk"
+import { useSettings } from "@/context/settings"
 import { useSync } from "@/context/sync"
 import { useComments } from "@/context/comments"
 import { Button } from "@opencode-ai/ui/button"
@@ -64,6 +65,7 @@ import { createWorkingState, type ChildrenSource } from "@/utils/working-state"
 import { childMapByParent } from "@/pages/layout/helpers"
 import { SteerButton } from "@/components/steer-button"
 import { DialogEvolvedSkills } from "@/components/dialog-evolved-skills"
+import { VoiceInputButton } from "@/components/voice-input-button"
 
 interface PromptInputProps {
   class?: string
@@ -122,6 +124,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
   const permission = usePermission()
   const language = useLanguage()
   const platform = usePlatform()
+  const settings = useSettings()
   const { params, tabs, view } = useSessionLayout()
   let editorRef!: HTMLDivElement
   let fileInputRef: HTMLInputElement | undefined
@@ -1616,6 +1619,39 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                   >
                     <KnowledgeButton />
                   </div>
+                  <Show when={settings.voice.enabled()}>
+                    <div
+                      style={{
+                        opacity: buttonsSpring(),
+                        transform: `scale(${0.95 + buttonsSpring() * 0.05})`,
+                        filter: `blur(${(1 - buttonsSpring()) * 2}px)`,
+                        "pointer-events": buttonsSpring() > 0.5 ? "auto" : "none",
+                      }}
+                    >
+                      <VoiceInputButton
+                        onTranscription={(text) => {
+                          const current = prompt.current()
+                          const textParts = current.filter((p) => p.type !== "image")
+                          const lastTextPart = textParts.findLast((p) => p.type === "text")
+                          if (lastTextPart && lastTextPart.type === "text") {
+                            const newContent = lastTextPart.content ? lastTextPart.content + " " + text : text
+                            const newParts = current.map((p) =>
+                              p === lastTextPart
+                                ? { ...p, content: newContent, end: p.start + newContent.length }
+                                : p,
+                            )
+                            prompt.set(newParts as Prompt, promptLength(newParts as Prompt))
+                          } else {
+                            prompt.set(
+                              [{ type: "text" as const, content: text, start: 0, end: text.length }, ...current],
+                              text.length,
+                            )
+                          }
+                          requestAnimationFrame(() => editorRef.focus())
+                        }}
+                      />
+                    </div>
+                  </Show>
                   <Tooltip placement="left" gutter={4} value={language.t("evolvedSkills.title")}>
                     <Button
                       variant="ghost"

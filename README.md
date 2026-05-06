@@ -19,6 +19,7 @@ Aether extends OpenCode with research-focused improvements, supporting terminal,
 - **Provider-agnostic**: Works with Gemini, Claude, OpenAI, local models, or any private API
 - **Full coding capabilities**: Code execution, LSP code intelligence, and file/terminal operations — on par with a VS Code daily workflow
 - **Client/server architecture**: CLI runs a built-in HTTP server accessible from a browser or mobile device
+- **Voice input**: Click-to-record microphone button powered by Qwen-Omni, with conversation-context-aware transcription that auto-corrects technical terms and removes filler words
 
 ---
 

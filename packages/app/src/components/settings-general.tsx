@@ -699,6 +699,70 @@ export const SettingsGeneral: Component = () => {
     </div>
   )
 
+  const VoiceSection = () => (
+    <div class="flex flex-col gap-1">
+      <h3 class="text-14-medium text-text-strong pb-2">{language.t("settings.general.section.voice")}</h3>
+
+      <SettingsList>
+        <SettingsRow
+          title={language.t("settings.general.row.voiceEnabled.title")}
+          description={language.t("settings.general.row.voiceEnabled.description")}
+        >
+          <div data-action="settings-voice-enabled">
+            <Switch
+              checked={settings.voice.enabled()}
+              onChange={(checked) => settings.voice.setEnabled(checked)}
+            />
+          </div>
+        </SettingsRow>
+
+        <Show when={settings.voice.enabled()}>
+          <SettingsRow
+            title={language.t("settings.general.row.voiceEndpoint.title")}
+            description=""
+          >
+            <TextField
+              data-action="settings-voice-endpoint"
+              type="text"
+              value={settings.voice.endpoint()}
+              onChange={(value) => settings.voice.setEndpoint(value)}
+              placeholder={language.t("settings.general.row.voiceEndpoint.placeholder")}
+              class="w-[300px]"
+            />
+          </SettingsRow>
+
+          <SettingsRow
+            title={language.t("settings.general.row.voiceApiKey.title")}
+            description=""
+          >
+            <TextField
+              data-action="settings-voice-apikey"
+              type="password"
+              value={settings.voice.apiKey()}
+              onChange={(value) => settings.voice.setApiKey(value)}
+              placeholder={language.t("settings.general.row.voiceApiKey.placeholder")}
+              class="w-[300px]"
+            />
+          </SettingsRow>
+
+          <SettingsRow
+            title={language.t("settings.general.row.voiceModel.title")}
+            description=""
+          >
+            <TextField
+              data-action="settings-voice-model"
+              type="text"
+              value={settings.voice.model()}
+              onChange={(value) => settings.voice.setModel(value)}
+              placeholder={language.t("settings.general.row.voiceModel.placeholder")}
+              class="w-[300px]"
+            />
+          </SettingsRow>
+        </Show>
+      </SettingsList>
+    </div>
+  )
+
   const UpdatesSection = () => (
     <div class="flex flex-col gap-1">
       <h3 class="text-14-medium text-text-strong pb-2">{language.t("settings.general.section.updates")}</h3>
@@ -927,6 +991,8 @@ export const SettingsGeneral: Component = () => {
         <NotificationsSection />
 
         <SoundsSection />
+
+        <VoiceSection />
 
         <ServerSection />
 
