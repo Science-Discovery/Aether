@@ -93,6 +93,7 @@ type MemoryPayload = {
   settings: MemoryCfg
   user: MemoryStore
   memory: MemoryStore
+  inbox?: MemoryStore
   daily: DailyMemory
   active?: ActiveMemory
   refresh?: RefreshStatus
@@ -358,6 +359,20 @@ export const SettingsMemory: Component = () => {
             {(value) => (
               <div class="pt-3">
                 <DailyMemoryCard title={language.t("settings.memory.store.daily")} daily={value().daily} />
+              </div>
+            )}
+          </Show>
+          <Show when={data()?.inbox}>
+            {(inbox) => (
+              <div class="pt-3">
+                <StoreCard
+                  title={language.t("settings.memory.store.inbox")}
+                  used={inbox().used}
+                  limit={inbox().limit}
+                  file={inbox().file}
+                  entries={inbox().entries}
+                  emptyText={language.t("settings.memory.store.inbox.empty")}
+                />
               </div>
             )}
           </Show>

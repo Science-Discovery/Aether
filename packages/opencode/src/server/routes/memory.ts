@@ -50,7 +50,7 @@ export const MemoryRoutes = lazy(() =>
         const sessionID = c.req.query("session_id")
         const [set, stores, active, refresh] = await Promise.all([
           Memory.settings(),
-          Memory.list(),
+          Memory.list({ session_id: sessionID }),
           sessionID
             ? Memory.activePrompt({ session_id: sessionID }).then((result) => ({
                 session_id: sessionID,

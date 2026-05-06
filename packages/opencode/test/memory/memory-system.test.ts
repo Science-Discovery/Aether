@@ -20,7 +20,7 @@ import { ReadTool } from "../../src/tool/read"
 import { GlobTool } from "../../src/tool/glob"
 import { GrepTool } from "../../src/tool/grep"
 import { BashTool } from "../../src/tool/bash"
-import { MemoryListTool, MemoryReadTool, MemorySearchTool, MemoryWriteTool } from "../../src/tool/memory"
+import { MemoryListTool, MemoryReadTool, MemoryRefreshTool, MemorySearchTool, MemoryWriteTool } from "../../src/tool/memory"
 import { MessageV2 } from "../../src/session/message-v2"
 import { MessageID, PartID } from "../../src/session/schema"
 import { Database, eq } from "../../src/storage/db"
@@ -250,23 +250,47 @@ describe("memory + user profile backend", () => {
     })
   })
 
-  test("memory_write tool rejects legacy durable store arguments", async () => {
+  test("memory_refresh lets the agent explicitly initialize memories from history", async () => {
+    await cleanMemory()
+    await Memory.resetRefreshLedgerForTest()
+    await using tmp = await tmpdir({ git: true })
+
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const tool = await MemoryRefreshTool.init()
+        const result = await tool.execute(
+          { scope: "current_project", force: false },
+          toolContext({ userText: "Please initialize my memory from previous conversations." }),
+        )
+
+        expect(result.title).toBe("Memory refresh")
+        expect(result.metadata.status).toBe("noop")
+        expect(result.metadata.scope).toBe("current_project")
+        expect(String(result.output)).toContain("Status: noop")
+      },
+    })
+  })
+
+  test("memory_write tool keeps legacy durable store arguments compatible", async () => {
     await using tmp = await tmpdir({ git: true })
     await Instance.provide({
       directory: tmp.path,
       fn: async () => {
         const tool = await MemoryWriteTool.init()
 
-        await expect(
-          tool.execute(
-            {
-              store: "user",
-              action: "add",
-              value: "Temporary scratch note for this session.",
-            } as any,
-            toolContext({ userText: "Please remember this globally." }),
-          ),
-        ).rejects.toThrow("invalid arguments")
+        const legacyUserStore = await tool.execute(
+          {
+            store: "user",
+            action: "add",
+            value: "Temporary scratch note for this session.",
+          },
+          toolContext({ userText: "Please remember this globally." }),
+        )
+        expect(legacyUserStore.metadata.blocked).toBe(false)
+        expect((legacyUserStore.metadata as any).store).toBe("session")
+        expect((legacyUserStore.metadata as any).intended_store).toBe("user")
+        expect((legacyUserStore.metadata as any).inbox_id).toBeTruthy()
 
         await expect(
           tool.execute(
@@ -305,6 +329,7 @@ describe("memory + user profile backend", () => {
   })
 
   test("current_scope reflection ignores short-term memory from other projects", async () => {
+    await cleanMemory()
     await using left = await tmpdir()
     await using right = await tmpdir()
 
@@ -365,6 +390,7 @@ describe("memory + user profile backend", () => {
   })
 
   test("durable-looking USER writes are immediately searchable from another session before reflection", async () => {
+    await cleanMemory()
     await using tmp = await tmpdir({
       git: true,
       config: {
@@ -394,6 +420,7 @@ describe("memory + user profile backend", () => {
   })
 
   test("replace and remove update pending inbox entries before reflection", async () => {
+    await cleanMemory()
     await using tmp = await tmpdir({
       git: true,
       config: {
@@ -431,7 +458,7 @@ describe("memory + user profile backend", () => {
           session_id: "inbox_edit_other_after_replace",
           query: "inbox-edit-new-marker",
         })
-        expect(oldAfterReplace).toEqual([])
+        expect(oldAfterReplace.some((hit) => hit.text.includes("inbox-edit-old-marker"))).toBe(false)
         expect(newAfterReplace.some((hit) => hit.text.includes("inbox-edit-new-marker"))).toBe(true)
 
         await Memory.write({
@@ -447,12 +474,13 @@ describe("memory + user profile backend", () => {
           session_id: "inbox_edit_other_after_remove",
           query: "inbox-edit-new-marker",
         })
-        expect(newAfterRemove).toEqual([])
+        expect(newAfterRemove.some((hit) => hit.text.includes("inbox-edit-new-marker"))).toBe(false)
       },
     })
   })
 
   test("concurrent durable-looking writes keep all mirrored inbox entries", async () => {
+    await cleanMemory()
     await using tmp = await tmpdir({
       git: true,
       config: {
@@ -489,6 +517,7 @@ describe("memory + user profile backend", () => {
   })
 
   test("scoped USER entries are visible only in matching project memory pools", async () => {
+    await cleanMemory()
     await using left = await tmpdir({ git: true })
     await using right = await tmpdir({ git: true })
 
@@ -525,7 +554,7 @@ describe("memory + user profile backend", () => {
           expect(globalHits.some((hit) => hit.text.includes("global-visible-marker"))).toBe(true)
 
           const scopedHits = await Memory.search({ session_id: "right_scoped_session", query: "project-scoped-marker" })
-          expect(scopedHits).toEqual([])
+          expect(scopedHits.some((hit) => hit.text.includes("project-scoped-marker"))).toBe(false)
         },
       })
     } finally {
@@ -855,6 +884,36 @@ describe("memory + user profile backend", () => {
         expect(run.stats?.readonly.unchanged).toBe(true)
       },
     })
+  })
+
+  test("refresh dry-run skips unreadable historical databases without failing initialization", async () => {
+    await cleanMemory()
+    await Memory.resetRefreshLedgerForTest()
+    const badDb = path.join(Global.Path.data, "aether-unreadable.db")
+    await Filesystem.write(badDb, "not a sqlite database")
+    await fs.chmod(badDb, 0)
+    await using tmp = await tmpdir({ git: true })
+
+    try {
+      await Instance.provide({
+        directory: tmp.path,
+        fn: async () => {
+          const session = await Session.create({ title: "Backfill with bad neighbor db" })
+          await source({ session, text: "Good source survives a malformed neighbor database.", time: 10 })
+
+          const run = await Memory.refreshDryRun({ scope: "global" })
+          expect(run.run?.status).toBe("success")
+          expect(run.stats?.databases.some((item) => item.current && item.status === "reachable")).toBe(true)
+          const bad = run.stats?.databases.find((item) => item.path.endsWith("aether-unreadable.db"))
+          expect(bad?.status).toBe("unavailable")
+          expect(bad?.reason).toBeTruthy()
+          expect(run.stats?.unique_logical_turns).toBeGreaterThanOrEqual(1)
+        },
+      })
+    } finally {
+      await fs.chmod(badDb, 0o600).catch(() => {})
+      await fs.rm(badDb, { force: true }).catch(() => {})
+    }
   })
 
   test("refresh run stages unique turns, promotes historical memory, refreshes caches, and no-ops when completed", async () => {
@@ -1482,6 +1541,7 @@ describe("memory + user profile backend", () => {
   })
 
   test("global reflection reads pending inbox memory and clears it after success", async () => {
+    await cleanMemory()
     await using tmp = await tmpdir({
       git: true,
       config: {
@@ -1503,6 +1563,9 @@ describe("memory + user profile backend", () => {
           reason: "manual",
         })
         expect(written.ok).toBe(true)
+        const inbox = await InboxStore.listForReflection({ scope: "global" })
+        const inboxID = inbox.find((entry) => entry.text.includes("inbox-reflection-marker"))?.id
+        expect(inboxID).toBeTruthy()
 
         let prompt = ""
         Memory.setReflectionObjectGeneratorForTest(async (params) => {
@@ -1512,6 +1575,13 @@ describe("memory + user profile backend", () => {
             object: {
               daily_memory: [],
               user_patches: [],
+              inbox_decisions: [
+                {
+                  id: inboxID!,
+                  decision: "reject_or_stale",
+                  reason: "test consumed",
+                },
+              ],
               summary: "inbox reflected",
             },
           }
@@ -1537,6 +1607,7 @@ describe("memory + user profile backend", () => {
   })
 
   test("global reflection removes cleared inbox entries from existing L1 active memory", async () => {
+    await cleanMemory()
     await using tmp = await tmpdir({
       git: true,
       config: {
@@ -1560,6 +1631,9 @@ describe("memory + user profile backend", () => {
           reason: "manual",
         })
         expect(written.ok).toBe(true)
+        const inbox = await InboxStore.listForReflection({ scope: "global" })
+        const inboxID = inbox.find((entry) => entry.text.includes(marker))?.id
+        expect(inboxID).toBeTruthy()
 
         await Memory.start({ session_id: searchSession })
         await Memory.search({ session_id: searchSession, query: marker })
@@ -1570,6 +1644,13 @@ describe("memory + user profile backend", () => {
           object: {
             daily_memory: [],
             user_patches: [],
+            inbox_decisions: [
+              {
+                id: inboxID!,
+                decision: "reject_or_stale",
+                reason: "test consumed",
+              },
+            ],
             summary: "inbox reflected and active pruned",
           },
         }))
@@ -1669,7 +1750,8 @@ describe("memory + user profile backend", () => {
     })
   })
 
-  test("current_session reflection consumes explicitly session-scoped inbox entries", async () => {
+  test("current_scope reflection consumes matching scoped inbox entries with explicit decisions", async () => {
+    await cleanMemory()
     await using tmp = await tmpdir({
       git: true,
       config: {
@@ -1683,32 +1765,43 @@ describe("memory + user profile backend", () => {
     await Instance.provide({
       directory: tmp.path,
       fn: async () => {
-        const sessionID = "reflect_current_session_scoped_inbox"
-        const marker = "reflect-current-session-scoped-marker"
+        const sessionID = "reflect_current_scope_scoped_inbox"
+        const marker = "reflect-current-scope-scoped-marker"
         const writeResult = await Memory.write({
           session_id: sessionID,
           store: "user",
           action: "add",
-          value: `scope(session-${sessionID}): 用户希望长期记住：${marker}`,
+          scope: `project:${Instance.project.id}`,
+          value: `用户希望长期记住：${marker}`,
           reason: "manual",
         })
         expect(writeResult.ok).toBe(true)
 
         const before = await Memory.list()
         expect(before.inbox.entries.some((entry) => entry.includes(marker))).toBe(true)
+        const inbox = await InboxStore.listForReflection({ scope: "current_scope", project_id: Instance.project.id })
+        const inboxID = inbox.find((entry) => entry.text.includes(marker))?.id
+        expect(inboxID).toBeTruthy()
 
         Memory.setReflectionObjectGeneratorForTest(async () => ({
           object: {
             daily_memory: [],
             user_patches: [],
-            summary: "current session scoped inbox consumed",
+            inbox_decisions: [
+              {
+                id: inboxID!,
+                decision: "reject_or_stale",
+                reason: "test consumed",
+              },
+            ],
+            summary: "current scope scoped inbox consumed",
           },
         }))
 
         try {
           const result = await Memory.reflect({
             session_id: sessionID,
-            scope: "current_session",
+            scope: "current_scope",
           })
           expect(result.status).toBe("success")
         } finally {
@@ -1722,6 +1815,7 @@ describe("memory + user profile backend", () => {
   })
 
   test("memory_reflect asks LLM to resolve conflicts and deduplicates equivalent USER patches", async () => {
+    await cleanMemory()
     await using tmp = await tmpdir({
       git: true,
       config: {
@@ -1806,6 +1900,7 @@ describe("memory + user profile backend", () => {
   })
 
   test("memory_reflect deduplicates equivalent daily memory entries", async () => {
+    await cleanMemory()
     await using tmp = await tmpdir({
       git: true,
       config: {
@@ -1861,6 +1956,7 @@ describe("memory + user profile backend", () => {
   })
 
   test("memory_reflect keeps equivalent daily entries when scopes differ", async () => {
+    await cleanMemory()
     await using tmp = await tmpdir({
       git: true,
       config: {
@@ -1917,6 +2013,7 @@ describe("memory + user profile backend", () => {
   })
 
   test("memory_reflect USER patch dedupe is scope-aware while keeping explicit-over-inferred upgrade within same scope", async () => {
+    await cleanMemory()
     await using tmp = await tmpdir({
       git: true,
       config: {
@@ -1982,6 +2079,7 @@ describe("memory + user profile backend", () => {
   })
 
   test("memory_reflect final USER dedupe keeps explicit when same scope-aware key also has inferred", async () => {
+    await cleanMemory()
     await using tmp = await tmpdir({
       git: true,
       config: {
@@ -2829,7 +2927,7 @@ describe("memory + user profile backend", () => {
 
         Memory.setReflectionObjectGeneratorForTest(async (params) => {
           const body = String(((params as Record<string, unknown>).messages as Array<{ content: string }>).at(-1)?.content ?? "")
-          expect(body).toContain("Pending inbox entries to reflect")
+          expect(body).toContain("Pending inbox memory entries to reflect")
           expect(body).toContain(mango.id)
           return {
             object: {

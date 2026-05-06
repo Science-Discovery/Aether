@@ -59,7 +59,7 @@ export const MemoryWriteTool = Tool.define("memory_write", {
     "The written note is silently added to active memory and remains available in this session.",
   ].join("\n"),
   parameters: z.object({
-    store: Memory.Store.default("memory").describe("Intended future store for reflection; write still goes to session memory."),
+    store: Memory.Store.optional().describe("Deprecated intended future store; write still goes to session memory."),
     action: z.enum(["add", "replace", "remove"]),
     value: z.string().optional().describe("Natural-language memory note."),
     scope: z
@@ -70,7 +70,7 @@ export const MemoryWriteTool = Tool.define("memory_write", {
       ])
       .optional()
       .describe("Visibility scope. Use session:<current session id> unless the note should be shared."),
-    salience_hint: Memory.SalienceHint.default("normal").describe("Initial importance hint; usage counts still start at zero."),
+    salience_hint: Memory.SalienceHint.optional().describe("Initial importance hint; usage counts still start at zero."),
     salience_reason: z.string().optional().describe("Short reason for the salience hint."),
     profile: z
       .object({
@@ -85,13 +85,15 @@ export const MemoryWriteTool = Tool.define("memory_write", {
     reason: Memory.WriteReason.optional(),
   }),
   async execute(input, ctx) {
+    const intendedStore = input.store ?? "memory"
+    const deprecated = input.store ? ["store"] : []
     const value =
-      input.store === "user" && input.profile
+      intendedStore === "user" && input.profile
         ? `${input.profile.type}[${input.profile.source}]: ${input.profile.content}`
         : input.value
     const result = await Memory.write({
       session_id: ctx.sessionID,
-      store: input.store,
+      store: intendedStore,
       action: input.action,
       value,
       index: input.index,
@@ -106,6 +108,7 @@ export const MemoryWriteTool = Tool.define("memory_write", {
     return {
       title: "Memory updated",
       output: [
+        ...(deprecated.length ? ["deprecated: store is accepted for compatibility; memory_write always writes session memory first.", ""] : []),
         "Store: session",
         `File: ${result.session.file}`,
         `Used: ${result.session.used}`,
@@ -115,9 +118,10 @@ export const MemoryWriteTool = Tool.define("memory_write", {
       metadata: {
         blocked: false,
         store: "session",
-        intended_store: input.store,
+        intended_store: intendedStore,
         scope: input.scope ?? "session-only",
         inbox_id: result.inbox?.id,
+        ...(deprecated.length ? { deprecated } : {}),
         used: result.session.used,
         enabled: true,
       },
@@ -256,6 +260,50 @@ export const MemoryReflectTool = Tool.define("memory_reflect", {
         status: result.status,
         run_id: result.run_id,
         count: result.events.length,
+      },
+    }
+  },
+})
+
+export const MemoryRefreshTool = Tool.define("memory_refresh", {
+  description: [
+    "Initialize or refresh durable memory from historical local conversation databases.",
+    "Use this only when the user explicitly asks to initialize, backfill, refresh, or import memory from previous conversations.",
+    "This may call the configured reflection model when historical sources need promotion.",
+    "Use scope=current_project to limit work to the current project, or scope=global to scan all local Aether databases.",
+    "Set force=true only when the user explicitly asks to rebuild or rerun completed backfill work.",
+  ].join("\n"),
+  parameters: z.object({
+    scope: Memory.RefreshScope.default("current_project"),
+    force: z.boolean().default(false),
+  }),
+  async execute(input) {
+    const result = await Memory.refreshRun({
+      scope: input.scope,
+      force: input.force,
+    })
+    const run = result.run
+    const status = run?.status ?? result.status.run_status ?? result.status.state
+    const lines = [
+      `Status: ${status}`,
+      `Scope: ${run?.scope ?? result.status.scope ?? input.scope}`,
+      `Candidates: ${run?.candidate_count ?? result.status.candidate_count ?? 0}`,
+      `Daily memories: ${run?.promoted_daily_count ?? result.status.promoted_daily_count ?? 0}`,
+      `USER entries: ${run?.promoted_user_count ?? result.status.promoted_user_count ?? 0}`,
+    ]
+    const error = run?.error ?? run?.cache_refresh_error ?? result.status.error ?? result.status.cache_refresh_error
+    if (error) lines.push(`Error: ${error}`)
+    return {
+      title: "Memory refresh",
+      output: lines.join("\n"),
+      metadata: {
+        blocked: status === "failed" || status === "blocked",
+        status,
+        scope: run?.scope ?? result.status.scope ?? input.scope,
+        run_id: run?.run_id,
+        candidates: run?.candidate_count ?? result.status.candidate_count ?? 0,
+        promoted_daily: run?.promoted_daily_count ?? result.status.promoted_daily_count ?? 0,
+        promoted_user: run?.promoted_user_count ?? result.status.promoted_user_count ?? 0,
       },
     }
   },

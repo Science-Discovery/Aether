@@ -231,6 +231,31 @@ export namespace InboxStore {
     })
   }
 
+  export async function markStale(input: { scope: Scope; store: "user" | "memory"; text: string; reason?: string }) {
+    return guard(input.scope, async () => {
+      const canonical = InboxIdentity.canonical({
+        scope: input.scope,
+        store: input.store,
+        text: input.text,
+      })
+      const id = InboxIdentity.id({ canonical_key: canonical })
+      const current = await read(file(input.scope, id))
+      if (!current || current.status !== "pending") return
+      await write({
+        ...current,
+        status: "stale",
+        revision: current.revision + 1,
+        updated_at: Date.now(),
+        reflection: {
+          run_id: "live-write",
+          decision: "reject_or_stale",
+          reason: input.reason ?? "live_write_replaced_or_removed",
+          at: Date.now(),
+        },
+      })
+    }).catch(() => undefined)
+  }
+
   export async function all() {
     return (
       await Promise.all(

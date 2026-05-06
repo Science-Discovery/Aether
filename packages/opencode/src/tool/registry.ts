@@ -34,6 +34,7 @@ import { SummarizeDirsTool } from "./summarize-dirs"
 import {
   MemoryListTool,
   MemoryReadTool,
+  MemoryRefreshTool,
   MemoryReflectTool,
   MemoryReloadTool,
   MemorySearchTool,
@@ -159,6 +160,7 @@ export namespace ToolRegistry {
           MemorySearchTool,
           MemoryReloadTool,
           MemoryReflectTool,
+          MemoryRefreshTool,
           CronListTool,
           CronGetTool,
           CronCreateTool,

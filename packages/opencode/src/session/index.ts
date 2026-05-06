@@ -1726,7 +1726,7 @@ export namespace Session {
     } as MessageV2.Part
   }
 
-  function tableStats(client: Database.Source["client"]): BackfillTableStats {
+  function tableStats(client: NonNullable<Database.Source["client"]>): BackfillTableStats {
     const sessions = client.select().from(SessionTable).orderBy(asc(SessionTable.id)).all()
     const messages = client.select().from(MessageTable).orderBy(asc(MessageTable.id)).all()
     const parts = client.select().from(PartTable).orderBy(asc(PartTable.id)).all()
@@ -1739,7 +1739,7 @@ export namespace Session {
     }
   }
 
-  function loadHistory(client: Database.Source["client"], sessionID: SessionID) {
+  function loadHistory(client: NonNullable<Database.Source["client"]>, sessionID: SessionID) {
     const rows = client
       .select()
       .from(MessageTable)
@@ -1837,6 +1837,36 @@ export namespace Session {
   function collectSource(source: Database.Source, scope: BackfillScope, version: string): SourceResult {
     const before: Record<string, BackfillTableStats> = {}
     const after: Record<string, BackfillTableStats> = {}
+
+    if (!source.client) {
+      const reason = source.error ?? "database_unavailable"
+      return {
+        databases: [{ path: source.path, current: source.current, status: "unavailable", session_count: 0, reason }],
+        turns: [],
+        marks: [
+          {
+            memory_version: version,
+            logical_fingerprint: hash({ db: source.path, error: reason }),
+            state: "remote_unavailable",
+            physical_refs: [],
+            reason,
+          },
+        ],
+        before,
+        after,
+        stats: {
+          tree_sessions: 0,
+          legacy_sessions: 0,
+          archived_sessions: 0,
+          total_physical_turns: 0,
+          unique_logical_turns: 0,
+          skipped_shared_prefix_turns: 0,
+          skipped_source_turns: 0,
+          summary_only_turns: 0,
+          remote_unavailable: 1,
+        },
+      }
+    }
 
     try {
       before[source.path] = tableStats(source.client)

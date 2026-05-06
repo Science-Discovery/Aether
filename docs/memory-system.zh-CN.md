@@ -121,7 +121,26 @@ kind[source]: content
 - `user_profile_history_extract_enabled`
 - `user_profile_history_extract_limit`
 
-## 9. Cron 集成
+## 9. 工具与接口
+
+Agent 可用工具：
+
+- `memory_write`：写当前 session short-term memory；project/workspace/global scope 会镜像到 pending inbox。
+- `memory_search`：搜索 L2 pool，并将命中条目加入 L1。
+- `memory_reload`：重新加载 L2，并清空当前 L1 active memory。
+- `memory_reflect`：显式触发 LLM-based reflection。
+- `memory_refresh`：在用户明确要求初始化、补录或刷新历史记忆时，读取本机可见的历史聊天 DB 并执行 refresh/backfill。
+- `memory_read`：显式记忆管理读取，不用于普通召回。
+- `memory_list`：显式记忆管理列表，不用于普通召回。
+
+HTTP/SDK：
+
+- `GET /memory` 返回 `settings`、`refresh`、`user`、`memory`、`daily`，传入 `session_id` 时额外返回当前 session 的 `active` L1 内容。
+- `POST /memory/refresh/dry-run` 执行 source inventory 与 ledger 扫描，不写 memory 正文。
+- `POST /memory/refresh/run` 执行完整 V1 refresh/backfill；支持 `scope=current_project|global` 与 `force=true`。
+- 生成的 SDK 使用 `Memory.get({ session_id })` 读取 Memory 设置页所需数据。
+
+## 10. Cron 集成
 
 服务启动时会确保存在可编辑、可删除后重建的内置 job：
 
@@ -141,7 +160,7 @@ kind[source]: content
 }
 ```
 
-## 10. 前端展示
+## 11. 前端展示
 
 Settings > Memory 展示：
 
