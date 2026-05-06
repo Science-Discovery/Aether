@@ -666,7 +666,6 @@ export namespace SessionPrompt {
           variant: lastUser.variant,
         }
         await Session.updateMessage(msg)
-        lastUser = msg
         const part = {
           id: PartID.ascending(),
           messageID: msg.id,
