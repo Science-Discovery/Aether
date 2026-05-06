@@ -10,7 +10,7 @@ import { Instance } from "../project/instance"
 import { type SessionID, MessageID, PartID } from "../session/schema"
 import { Config } from "../config/config"
 import { Global } from "@/global"
-import { PROJECT } from "@/persist/naming"
+import { normalizeOutputDir, PROJECT } from "@/persist/naming"
 import { Filesystem } from "../util/filesystem"
 import { MCP } from "../mcp"
 import { SessionPreference } from "../session/preference"
@@ -28,7 +28,7 @@ export async function getAgentConfig(agentName: string) {
 }
 
 function modeOutputDir(agentName: string, agentCfg: Config.Agent): string {
-  const dir = agentCfg.output_dir ?? agentName
+  const dir = normalizeOutputDir(agentCfg.output_dir ?? agentName)
   return Instance.project.vcs
     ? path.join(PROJECT, dir)
     : path.relative(Instance.worktree, path.join(Global.Path.data, dir))
