@@ -1,6 +1,5 @@
-import { createContext, useContext, createSignal, Component, JSX, onMount } from "solid-js"
+import { createContext, useContext, createSignal, Component, JSX, onMount, createEffect, on } from "solid-js"
 import { createStore } from "solid-js/store"
-import { Persist, persisted } from "@/utils/persist"
 import { useGlobalSDK } from "./global-sdk"
 import { useServer } from "./server"
 
@@ -25,7 +24,7 @@ export interface KnowledgeConfig {
 
 // 上次使用的配置
 export interface LastConfig {
-  provider: string  // provider ID, e.g. "openai", "siliconflow", "local"
+  provider: string // provider ID, e.g. "openai", "siliconflow", "local"
   model: string
   apiKey: string
   baseURL: string
@@ -152,7 +151,38 @@ export const KnowledgeProvider: Component<{ children: JSX.Element }> = (props) =
   const sdk = useGlobalSDK()
   const server = useServer()
 
-  const [state, setState] = persisted(Persist.global("knowledge-state"), createStore<KnowledgeState>(DEFAULT_STATE))
+  const [state, setState] = createStore<KnowledgeState>({ ...DEFAULT_STATE })
+
+  let initDone = false
+  let saveTimer: ReturnType<typeof setTimeout>
+
+  const loadState = async () => {
+    try {
+      const resp = await fetchApi("/knowledge/state")
+      if (resp.ok) {
+        const remote = await resp.json()
+        if (remote.knowledgeBases?.length > 0) setState(remote)
+        return remote.knowledgeBases?.length > 0
+      }
+    } catch {}
+    return false
+  }
+
+  const saveState = () => {
+    clearTimeout(saveTimer)
+    saveTimer = setTimeout(() => {
+      fetchApi("/knowledge/state", {
+        method: "POST",
+        body: JSON.stringify({
+          data: {
+            knowledgeBases: state.knowledgeBases,
+            activeIds: state.activeIds,
+            lastConfig: state.lastConfig,
+          },
+        }),
+      }).catch(() => {})
+    }, 500)
+  }
 
   const [models] = createSignal<EmbeddingModel[]>([
     {
@@ -265,11 +295,62 @@ export const KnowledgeProvider: Component<{ children: JSX.Element }> = (props) =
     }
   }
 
-  onMount(() => {
+  onMount(async () => {
+    const hasRemote = await loadState()
+    initDone = true
+
+    if (!hasRemote) {
+      // 尝试从 .aether-kb 目录扫描恢复
+      try {
+        const resp = await fetchApi("/knowledge/discover")
+        if (resp.ok) {
+          const { found } = await resp.json()
+          if (found?.length > 0) {
+            for (const item of found) {
+              const id = generateId()
+              setState("knowledgeBases", (list) => [
+                ...list,
+                {
+                  id,
+                  path: item.path,
+                  name: item.config?.name ?? item.path.split("/").pop() ?? "Recovered KB",
+                  providerID: "",
+                  embeddingProvider: item.config?.embeddingProvider ?? "custom",
+                  embeddingModel: item.config?.embeddingModel ?? "",
+                  embeddingDimensions: item.config?.embeddingDimensions,
+                  apiKey: item.config?.apiKey ?? "",
+                  baseURL: item.config?.baseURL ?? "",
+                  chunkSize: item.config?.chunkSize ?? 500,
+                  chunkOverlap: item.config?.chunkOverlap ?? 50,
+                } as KnowledgeConfig,
+              ])
+            }
+            saveState()
+          }
+        }
+      } catch {}
+    }
+
     if (state.knowledgeBases.length > 0) {
       refreshAllStats()
     }
   })
+
+  // 状态变更时自动持久化
+  createEffect(
+    on(
+      () => ({
+        knowledgeBases: state.knowledgeBases,
+        activeIds: state.activeIds,
+        lastConfig: state.lastConfig,
+      }),
+      () => {
+        if (!initDone) return
+        saveState()
+      },
+      { defer: true },
+    ),
+  )
 
   const loadKnowledgeBase = async (path: string): Promise<KnowledgeIndexData | null> => {
     const encodedPath = encodeURIComponent(path)

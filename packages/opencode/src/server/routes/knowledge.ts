@@ -8,10 +8,21 @@ import { KnowledgeIndexSchema, SearchResultSchema, EmbeddingModelInfoSchema } fr
 import { errors } from "../error"
 import { lazy } from "../../util/lazy"
 import { Log } from "../../util/log"
+import { Filesystem } from "../../util/filesystem"
 import { setKnowledgeConfig, getKnowledgeConfig } from "../../tool/knowledge"
 import path from "path"
+import os from "os"
+import { readdir, mkdir } from "fs/promises"
 
 const log = Log.create({ service: "knowledge" })
+
+function dataDir() {
+  const home = os.homedir()
+  if (process.platform === "darwin") return path.join(home, ".local", "share", "aether")
+  if (process.platform === "win32")
+    return path.join(process.env.LOCALAPPDATA || path.join(home, "AppData", "Local"), "aether")
+  return path.join(home, ".local", "share", "aether")
+}
 
 // 请求/响应 schemas
 const CreateKnowledgeBaseSchema = z.object({
@@ -73,6 +84,164 @@ export const KnowledgeRoutes = lazy(() =>
       async (c) => {
         const models = Knowledge.listModels()
         return c.json(models)
+      },
+    )
+    // 扫描恢复已有知识库
+    .get(
+      "/discover",
+      describeRoute({
+        summary: "Discover existing knowledge bases",
+        description: "扫描桌面和文稿目录，发现已存在的 .aether-kb 知识库索引并返回",
+        operationId: "knowledge.discover",
+        responses: {
+          200: {
+            description: "发现的知识库列表",
+            content: {
+              "application/json": {
+                schema: resolver(
+                  z.object({
+                    found: z.array(
+                      z.object({
+                        path: z.string(),
+                        config: z.object({
+                          name: z.string(),
+                          embeddingProvider: z.string(),
+                          embeddingModel: z.string(),
+                          embeddingDimensions: z.number().optional(),
+                          apiKey: z.string().optional(),
+                          baseURL: z.string().optional(),
+                          chunkSize: z.number().optional(),
+                          chunkOverlap: z.number().optional(),
+                        }),
+                      }),
+                    ),
+                  }),
+                ),
+              },
+            },
+          },
+        },
+      }),
+      async (c) => {
+        const home = os.homedir()
+        const search = ["Desktop", "Documents"].map((d) => path.join(home, d))
+        const found: Array<{ path: string; config: Record<string, unknown> }> = []
+        const seen = new Set<string>()
+
+        async function scan(dir: string, depth: number) {
+          if (depth <= 0 || seen.has(dir)) return
+          seen.add(dir)
+          try {
+            const index = await Storage.loadIndex(dir)
+            if (index) {
+              found.push({
+                path: dir,
+                config: {
+                  name: index.config?.name ?? path.basename(dir),
+                  embeddingProvider: index.config?.embeddingProvider ?? "custom",
+                  embeddingModel: index.config?.embeddingModel ?? "",
+                  embeddingDimensions: index.config?.embeddingDimensions,
+                  apiKey: index.config?.apiKey,
+                  baseURL: index.config?.baseURL,
+                  chunkSize: index.config?.chunkSize,
+                  chunkOverlap: index.config?.chunkOverlap,
+                },
+              })
+              return
+            }
+            const entries = await readdir(dir, { withFileTypes: true })
+            for (const entry of entries) {
+              if (!entry.isDirectory()) continue
+              if (entry.name.startsWith(".")) continue
+              await scan(path.join(dir, entry.name), depth - 1)
+            }
+          } catch {
+            // skip inaccessible directories
+          }
+        }
+
+        for (const dir of search) {
+          await scan(dir, 6)
+        }
+
+        if (found.length === 0) {
+          await scan(home, 4)
+        }
+
+        return c.json({ found })
+      },
+    )
+    // 获取/保存全局知识库状态（统一持久化到 ~/.local/share/aether/aether.global.dat）
+    .get(
+      "/state",
+      describeRoute({
+        summary: "Get knowledge base state",
+        description: "获取全局知识库状态列表",
+        operationId: "knowledge.state.get",
+        responses: {
+          200: {
+            description: "知识库状态",
+            content: {
+              "application/json": {
+                schema: resolver(
+                  z.object({
+                    knowledgeBases: z.array(z.any()),
+                    activeIds: z.array(z.string()),
+                    lastConfig: z.any().optional(),
+                  }),
+                ),
+              },
+            },
+          },
+        },
+      }),
+      async (c) => {
+        const file = path.join(dataDir(), "aether.global.dat")
+        try {
+          let store: Record<string, unknown> = {}
+          try {
+            store = await Filesystem.readJson(file)
+          } catch {}
+          return c.json(store["knowledge-state"] ?? { knowledgeBases: [], activeIds: [] })
+        } catch {
+          return c.json({ knowledgeBases: [], activeIds: [] })
+        }
+      },
+    )
+    .post(
+      "/state",
+      describeRoute({
+        summary: "Save knowledge base state",
+        description: "保存全局知识库状态列表",
+        operationId: "knowledge.state.post",
+        responses: {
+          200: {
+            description: "保存成功",
+            content: {
+              "application/json": {
+                schema: resolver(z.object({ ok: z.boolean() })),
+              },
+            },
+          },
+        },
+      }),
+      validator("json", z.object({ data: z.any() })),
+      async (c) => {
+        const { data } = c.req.valid("json")
+        const dir = dataDir()
+        const file = path.join(dir, "aether.global.dat")
+        await mkdir(dir, { recursive: true })
+        try {
+          let store: Record<string, unknown> = {}
+          try {
+            store = await Filesystem.readJson(file)
+          } catch {}
+          store["knowledge-state"] = data
+          await Filesystem.writeJson(file, store)
+          return c.json({ ok: true })
+        } catch {
+          return c.json({ error: "Failed to save state" }, 500)
+        }
       },
     )
     // 创建知识库
