@@ -273,14 +273,12 @@ export namespace SessionPrompt {
     log.info("cancel", { sessionID })
     const s = state()
     const match = s[sessionID]
-    if (!match) {
-      await SessionStatus.set(sessionID, { type: "idle" })
-    } else {
+    if (match) {
       match.abort.abort()
       delete s[sessionID]
-      await SessionStatus.set(sessionID, { type: "idle" })
     }
     await Session.recoverStuckParts(sessionID)
+    await SessionStatus.set(sessionID, { type: "idle" })
   }
 
   export const LoopInput = z.object({
@@ -801,7 +799,9 @@ export namespace SessionPrompt {
         const toolNames = assistantParts.filter((p) => p.type === "tool").map((p) => (p as MessageV2.ToolPart).tool)
         Log.activity(`[tools] step=${step} tools=[${toolNames.join(", ")}]`)
         const calledSkillManage = toolNames.includes("skill_manage")
-        Log.activity(`[skill manage] step=${step} called=${calledSkillManage ? 1 : 0} count_before=${_skillCounters.get(sessionID) ?? 0}`)
+        Log.activity(
+          `[skill manage] step=${step} called=${calledSkillManage ? 1 : 0} count_before=${_skillCounters.get(sessionID) ?? 0}`,
+        )
         if (calledSkillManage) {
           // mirrors Hermes L7868: reset to 0 inside _execute_tool_calls
           // then L9110: +1 unconditionally after → net result is 1, not 0
@@ -816,7 +816,9 @@ export namespace SessionPrompt {
         .filter((p) => p.type === "text")
         .map((p) => (p as MessageV2.TextPart).text.trim())
         .join("\n")
-      Log.activity(`[assistant] step=${step} finish=${processor.message.finish ?? "(none)"} error=${processor.message.error ? 1 : 0} parts=${parts.length} textChars=${text.length}`)
+      Log.activity(
+        `[assistant] step=${step} finish=${processor.message.finish ?? "(none)"} error=${processor.message.error ? 1 : 0} parts=${parts.length} textChars=${text.length}`,
+      )
 
       // If structured output was captured, save it and exit immediately
       // This takes priority because the StructuredOutput tool was called successfully
@@ -882,7 +884,9 @@ export namespace SessionPrompt {
       _finalResponse &&
       !abort.aborted
 
-    Log.activity(`[skill review check] count=${_skillCounters.get(sessionID)} threshold=${skillNudgeInterval} finalResponse=${_finalResponse} aborted=${abort.aborted} isReview=${isSkillReviewSession} should=${_shouldReviewSkills}`)
+    Log.activity(
+      `[skill review check] count=${_skillCounters.get(sessionID)} threshold=${skillNudgeInterval} finalResponse=${_finalResponse} aborted=${abort.aborted} isReview=${isSkillReviewSession} should=${_shouldReviewSkills}`,
+    )
 
     if (_shouldReviewSkills) {
       _skillCounters.set(sessionID, 0) // reset immediately, mirrors Hermes L11833
@@ -908,7 +912,9 @@ export namespace SessionPrompt {
         .filter((p) => p.type === "text")
         .map((p) => (p as MessageV2.TextPart).text.trim())
         .join("\n")
-      Log.activity(`[final return] role=${item.info.role} id=${item.info.id} parts=${item.parts.length} textChars=${txt.length} finalResponse=${_finalResponse ? 1 : 0}`)
+      Log.activity(
+        `[final return] role=${item.info.role} id=${item.info.id} parts=${item.parts.length} textChars=${txt.length} finalResponse=${_finalResponse ? 1 : 0}`,
+      )
       return item
     }
     throw new Error("Impossible")
@@ -2301,7 +2307,9 @@ NOTE: At any point in time through this workflow you should feel free to ask the
           : await MessageV2.toModelMessages(contextMessages, model)),
       ],
     })
-    const text = await Promise.resolve(result.text).catch((err) => log.error("failed to generate title", { error: err }))
+    const text = await Promise.resolve(result.text).catch((err) =>
+      log.error("failed to generate title", { error: err }),
+    )
     if (text) {
       const cleaned = text
         .replace(/<think>[\s\S]*?<\/think>\s*/g, "")
