@@ -229,7 +229,12 @@ for (const item of targets) {
       target: name.replace(pkg.name, "bun") as any,
       outfile: `dist/${name}/bin/aether`,
       execArgv: [`--user-agent=aether/${Script.version}`, "--use-system-ca", "--"],
-      windows: {},
+      windows: {
+        description: "Aether",
+        title: "Aether",
+        publisher: "Science Discovery",
+        version: Script.version,
+      },
     },
     entrypoints: ["./src/index.ts", parserWorker, workerPath],
     define: {
