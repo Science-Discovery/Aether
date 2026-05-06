@@ -804,14 +804,14 @@ function SessionPageContent(props: SessionPageProps = {}) {
     })
   }
 
-  const loadVcs = (mode: VcsMode, force = false) => {
+  const loadVcs = (mode: VcsMode, force = false, silent = false) => {
     if (sync.project?.vcs !== "git") return Promise.resolve()
     if (!force && vcs.ready[mode]) return Promise.resolve()
 
     if (force) {
       if (vcsTask.has(mode)) bumpVcs(mode)
       vcsTask.delete(mode)
-      setVcs("ready", mode, false)
+      if (!silent) setVcs("ready", mode, false)
     }
 
     const current = vcsTask.get(mode)
@@ -845,7 +845,7 @@ function SessionPageContent(props: SessionPageProps = {}) {
     const mode = untrack(vcsMode)
     if (!mode) return
     if (!untrack(wantsReview)) return
-    void loadVcs(mode, true)
+    void loadVcs(mode, true, opts?.silent ?? false)
   }
 
   createComputed((prev) => {
@@ -1303,7 +1303,7 @@ function SessionPageContent(props: SessionPageProps = {}) {
         if (!mode) return
         if (!wantsReview()) return
         if (next !== "idle" || prev === undefined || prev === "idle") return
-        void loadVcs(mode, true)
+        void loadVcs(mode, true, true)
       },
       { defer: true },
     ),
