@@ -1,6 +1,5 @@
 import { Agent } from "../agent/agent"
 import { Skill } from "../skill"
-import { Config } from "./config"
 import { Log } from "../util/log"
 
 const log = Log.create({ service: "validate-roles" })
@@ -13,7 +12,6 @@ export interface ValidationWarning {
 
 export async function validate(): Promise<ValidationWarning[]> {
   const warnings: ValidationWarning[] = []
-  const cfg = await Config.get()
   const agents = await Agent.list()
   const allSkills = await Skill.all()
   const skillNames = new Set(allSkills.map((s) => s.name))

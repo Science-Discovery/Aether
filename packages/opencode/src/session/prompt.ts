@@ -71,6 +71,29 @@ async function resolveFileUri(input: string): Promise<string> {
   return content
 }
 
+async function buildAgentDeclarations(agent: Agent.Info): Promise<string[]> {
+  const sections: string[] = []
+  if (agent.inputs?.length) {
+    sections.push(
+      `## Expected Inputs\nYou will receive these artifacts: ${agent.inputs.join(", ")}. If any are missing, request them before proceeding.`,
+    )
+  }
+  if (agent.outputs?.length) {
+    sections.push(
+      `## Required Outputs\nYou must produce these artifacts: ${agent.outputs.join(", ")}. Do not skip any.`,
+    )
+  }
+  if (agent.outputContract?.requiredFields?.length) {
+    sections.push(
+      `## Output Contract\nYour final response must include these fields: ${agent.outputContract.requiredFields.join(", ")}.`,
+    )
+  }
+  if (agent.responsibilityBoundary) {
+    sections.push(`## Responsibility Boundary\n${agent.responsibilityBoundary}`)
+  }
+  return sections
+}
+
 const STRUCTURED_OUTPUT_DESCRIPTION = `Use this tool to return your final response in the requested structured format.
 
 IMPORTANT:
@@ -907,6 +930,7 @@ export namespace SessionPrompt {
         ...(skills ? [skills] : []),
         ...(memory.prompt ? [memory.prompt] : []),
         ...(await InstructionPrompt.system()),
+        ...(await buildAgentDeclarations(agent)),
       ]
       const format = lastUser.format ?? { type: "text" }
       if (format.type === "json_schema") {
@@ -1976,7 +2000,7 @@ Goal: Write your final plan to the plan file (the only file you can edit).
 
 ### Phase 5: Call plan_exit tool
 At the very end of your turn, once you have asked the user questions and are happy with your final plan file - you should always call plan_exit to indicate to the user that you are done planning.
-This is critical - your turn should only end with either asking the user a question or calling plan_exit. Do not stop unless it's for these 2 of these.
+This is critical - your turn should only end with either asking the user a question or calling plan_exit. Do not stop unless it's for these 2 reasons.
 
 **Important:** Use question tool to clarify requirements/approach, use plan_exit to request plan approval. Do NOT use question tool to ask "Is this plan okay?" - that's what plan_exit does.
 
