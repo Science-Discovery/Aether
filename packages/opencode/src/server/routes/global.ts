@@ -8,6 +8,7 @@ import { GlobalBus } from "@/bus/global"
 import { AsyncQueue } from "@/util/queue"
 import { Installation } from "@/installation"
 import { Instance } from "../../project/instance"
+import { Flag } from "../../flag/flag"
 import { Log } from "../../util/log"
 import { lazy } from "../../util/lazy"
 import { Config } from "../../config/config"
@@ -583,6 +584,7 @@ export const GlobalRoutes = lazy(() =>
         }),
       ),
       async (c) => {
+        if (Flag.OPENCODE_DISABLE_AUTOUPDATE) return c.json({ success: false, error: "Auto-update is disabled" }, 400)
         const method = await Installation.method()
         if (method === "unknown") {
           return c.json({ success: false, error: "Unknown installation method" }, 400)
