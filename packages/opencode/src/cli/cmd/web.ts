@@ -77,10 +77,28 @@ export const WebCommand = cmd({
     // Disable by setting idleTimeout to 0 (always-on daemon mode).
     if (IDLE_TIMEOUT_MS > 0) {
       let everConnected = false
+      let leaseEverActive = false
       let exitTimer: ReturnType<typeof setTimeout> | null = null
+      let leaseOrphanTimer: ReturnType<typeof setTimeout> | null = null
       const connectionChecker = setInterval(() => {
         const active = (server as any).pendingRequests as number
-        if (active > 0 || sse > 0 || Lease.count() > 0) {
+        const leaseCount = Lease.count()
+        if (leaseCount > 0) leaseEverActive = true
+
+        // Safety net: lease confirms browser gone (no ping for 30s TTL),
+        // but Chrome connection pooling keeps sse/pending stuck.
+        // Force exit after grace period regardless of sse/active state.
+        if (leaseEverActive && leaseCount === 0 && (active > 0 || sse > 0)) {
+          leaseOrphanTimer ??= setTimeout(() => {
+            clearInterval(connectionChecker)
+            void gracefulShutdown(server)
+          }, 30_000)
+        } else if (leaseOrphanTimer !== null) {
+          clearTimeout(leaseOrphanTimer)
+          leaseOrphanTimer = null
+        }
+
+        if (active > 0 || sse > 0 || leaseCount > 0) {
           everConnected = true
           if (exitTimer !== null) {
             clearTimeout(exitTimer)
