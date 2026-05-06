@@ -1100,6 +1100,8 @@ export const dict = {
   "settings.memory.userProfile.emptyValid": "No valid user-profile entries yet.",
   "settings.memory.store.activeSession": "Active session memory (L1)",
   "settings.memory.store.activeSession.description": "Short-term memory currently plugged into this session prompt.",
+  "settings.memory.store.inbox": "Pending memory inbox",
+  "settings.memory.store.inbox.empty": "No pending cross-session memory waiting for reflection.",
   "settings.memory.store.daily": "Daily memory",
   "settings.memory.store.memory": "MEMORY store",
   "settings.memory.store.userProfile": "USER profile store",

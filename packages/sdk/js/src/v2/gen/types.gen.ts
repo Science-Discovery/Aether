@@ -3592,6 +3592,7 @@ export type MemoryGetData = {
   path?: never
   query?: {
     directory?: string
+    session_id?: string
     workspace?: string
   }
   url: "/memory"
@@ -3610,6 +3611,18 @@ export type MemoryGetResponses = {
       }
     }
     user: {
+      store: "user" | "memory"
+      enabled: boolean
+      file: string
+      limit: number
+      used: number
+      usage: number
+      entries: Array<string>
+      explicit_entries?: Array<string>
+      inferred_entries?: Array<string>
+      invalid_entries?: number
+    }
+    inbox: {
       store: "user" | "memory"
       enabled: boolean
       file: string
@@ -3646,7 +3659,7 @@ export type MemoryGetResponses = {
       session_id: string
       prompt: string
       entries: Array<{
-        source: "user" | "daily" | "session"
+        source: "user" | "inbox" | "daily" | "session"
         store?: "user" | "memory"
         index: number
         text: string

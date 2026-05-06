@@ -1267,6 +1267,25 @@ export namespace Cron {
     })
   }
 
+  export async function catchUpMissedMemoryReflection() {
+    return Lock.write(runtimeLockPath()).then(async (lock) => {
+      using _ = lock
+      const now = Date.now()
+      const { definition } = await ensureBuiltinMemoryReflectionJob()
+      const state = getState(BUILTIN_MEMORY_REFLECTION_JOB_ID)
+      if (!state) return null
+      if (!shouldParticipate(definition, state)) return null
+      if (state.next_run_at === null || state.next_run_at > now) return null
+
+      if (!(await globalCronEnabled())) {
+        scheduledSkipDisabled(definition, state, now)
+        return null
+      }
+
+      return execute(definition, "scheduled")
+    })
+  }
+
   export async function tick() {
     await Lock.write(runtimeLockPath()).then(async (lock) => {
       using _ = lock
@@ -1285,6 +1304,9 @@ export namespace Cron {
     } catch (error) {
       log.error("cron recovery failed", { error })
     }
+    void catchUpMissedMemoryReflection().catch((error) => {
+      log.error("memory reflection catch-up failed", { error })
+    })
     initSchedulerTimer()
   }
 
@@ -1302,10 +1324,15 @@ Cron.registerDirectAction("memory_reflect", async ({ definition }) => {
   const scope = Memory.ReflectionScope.catch("global").parse(payload.scope)
   const trigger = Memory.ReflectionTrigger.catch("cron").parse(payload.trigger)
   const dryRun = typeof payload.dry_run === "boolean" ? payload.dry_run : false
-  const result = await Memory.reflect({
-    scope,
-    dry_run: dryRun,
-    trigger,
+  const result = await Instance.provide({
+    directory: typeof payload.directory === "string" ? payload.directory : Global.Path.data,
+    init: InstanceBootstrap,
+    fn: () =>
+      Memory.reflect({
+        scope,
+        dry_run: dryRun,
+        trigger,
+      }),
   })
   return {
     output_summary: result.summary || `memory_reflect ${result.status}`,
