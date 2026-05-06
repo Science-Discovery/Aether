@@ -380,14 +380,29 @@ const katexMacros: Record<string, string> = {
   "\\slashed": "\\not\\!#1",
 }
 
-function renderMathInText(text: string): string {
-  let result = text
+export function decodeMath(text: string) {
+  return text
+    .replace(/&amp;/g, "&")
+    .replace(/&#39;|&apos;/g, "'")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+}
+
+export function normalizeMath(text: string) {
+  return text
+    .replace(/\\\(((?:\\.|[^\\])*?)\\\)/g, (_, math) => `$${math}$`)
+    .replace(/\\\[\s*([\s\S]*?)\s*\\\]/g, (_, math) => `\n$$\n${math}\n$$\n`)
+}
+
+export function renderMathInText(text: string): string {
+  let result = normalizeMath(text)
 
   // Display math: $$...$$
   const displayMathRegex = /\$\$([\s\S]*?)\$\$/g
   result = result.replace(displayMathRegex, (_, math) => {
     try {
-      return katex.renderToString(math, {
+      return katex.renderToString(decodeMath(math), {
         displayMode: true,
         throwOnError: false,
         macros: katexMacros,
@@ -401,7 +416,7 @@ function renderMathInText(text: string): string {
   const inlineMathRegex = /(?<!\$)\$(?!\$)((?:[^$\\]|\\.)+?)\$(?!\$)/g
   result = result.replace(inlineMathRegex, (_, math) => {
     try {
-      return katex.renderToString(math, {
+      return katex.renderToString(decodeMath(math), {
         displayMode: false,
         throwOnError: false,
         macros: katexMacros,
@@ -522,9 +537,10 @@ export const { use: useMarked, provider: MarkedProvider } = createSimpleContext(
       const nativeParser = props.nativeParser
       return {
         async parse(markdown: string): Promise<string> {
-          const raw = await nativeParser(markdown)
+          const input = normalizeMath(markdown)
+          const raw = await nativeParser(input)
           const html =
-            hasMarkdownHints(markdown) && !hasStructuredMarkup(raw) ? await jsParser.parse(markdown) : raw
+            hasMarkdownHints(input) && !hasStructuredMarkup(raw) ? await jsParser.parse(input) : raw
           const withMath = renderMathExpressions(html)
           return highlightCodeBlocks(withMath)
         },
@@ -533,7 +549,7 @@ export const { use: useMarked, provider: MarkedProvider } = createSimpleContext(
 
     return {
       async parse(markdown: string): Promise<string> {
-        const html = await jsParser.parse(markdown)
+        const html = await jsParser.parse(normalizeMath(markdown))
         return renderMathExpressions(html)
       },
     }
