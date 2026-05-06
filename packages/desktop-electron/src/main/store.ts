@@ -1,15 +1,19 @@
 import Store from "electron-store"
 import { SETTINGS_STORE } from "./constants"
 import { ensureDesktopPersist, ensureStoreFile } from "./persist"
-import { userDataDir } from "./paths"
+import { userDataDir, aetherDataDir } from "./paths"
 
 const cache = new Map<string, Store>()
+
+const GLOBAL_STORE_NAME = "aether.global.dat"
 
 export function getStore(name = SETTINGS_STORE) {
   const cached = cache.get(name)
   if (cached) return cached
   ensureDesktopPersist()
-  const next = new Store({ name: ensureStoreFile(name), fileExtension: "", cwd: userDataDir() })
+  const nextName = ensureStoreFile(name)
+  const cwd = nextName === GLOBAL_STORE_NAME ? aetherDataDir() : userDataDir()
+  const next = new Store({ name: nextName, fileExtension: "", cwd })
   cache.set(name, next)
   return next
 }
