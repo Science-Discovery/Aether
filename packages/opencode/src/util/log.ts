@@ -44,7 +44,6 @@ export namespace Log {
 
   export interface Options {
     print: boolean
-    dev?: boolean
     level?: Level
   }
 
@@ -63,10 +62,11 @@ export namespace Log {
     if (initialized) return
     initialized = true
     cleanup(Global.Path.log)
+    initActivity(Global.Path.log)
     if (options.print) return
     logpath = path.join(
       Global.Path.log,
-      options.dev ? "dev.log" : new Date().toISOString().split(".")[0].replace(/:/g, "") + ".log",
+      new Date().toISOString().split(".")[0].replace(/:/g, "") + ".log",
     )
     await fs.truncate(logpath).catch(() => {})
     const stream = createWriteStream(logpath, { flags: "a" })
@@ -90,6 +90,37 @@ export namespace Log {
 
     const filesToDelete = files.slice(0, -10)
     await Promise.all(filesToDelete.map((file) => fs.unlink(file).catch(() => {})))
+  }
+
+  let activityWrite = (_msg: string) => {}
+
+  function initActivity(dir: string) {
+    const today = new Date().toISOString().slice(0, 10)
+    const filePath = path.join(dir, `activity-${today}.log`)
+    const stream = createWriteStream(filePath, { flags: "a" })
+    activityWrite = (msg) => stream.write(new Date().toISOString().slice(11, 19) + " " + msg + "\n")
+    cleanupActivity(dir).catch(() => {})
+  }
+
+  async function cleanupActivity(dir: string) {
+    const files = await Glob.scan("activity-????-??-??.log", {
+      cwd: dir,
+      absolute: true,
+      include: "file",
+    })
+    const cutoff = Date.now() - 7 * 24 * 60 * 60 * 1000
+    await Promise.all(
+      files
+        .filter((f) => {
+          const date = path.basename(f).slice("activity-".length, -".log".length)
+          return new Date(date).getTime() < cutoff
+        })
+        .map((f) => fs.unlink(f).catch(() => {})),
+    )
+  }
+
+  export function activity(msg: string) {
+    activityWrite(msg)
   }
 
   function formatError(error: Error, depth = 0): string {

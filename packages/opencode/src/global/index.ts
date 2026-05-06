@@ -18,7 +18,7 @@ export namespace Global {
     },
     data,
     bin: path.join(cache, "bin"),
-    log: path.join(data, "log"),
+    log: path.join(cache, "log"),
     cache,
     config,
     state,

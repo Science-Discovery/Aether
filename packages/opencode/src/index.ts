@@ -69,7 +69,6 @@ let cli = yargs(hideBin(process.argv))
     await Global.ensureDirs()
     await Log.init({
       print: process.argv.includes("--print-logs"),
-      dev: Installation.isLocal(),
       level: (() => {
         if (opts.logLevel) return opts.logLevel as Log.Level
         if (Installation.isLocal()) return "DEBUG"

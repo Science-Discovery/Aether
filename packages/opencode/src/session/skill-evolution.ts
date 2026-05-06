@@ -125,7 +125,7 @@ export async function spawnBackgroundReview(input: {
       ],
     })
 
-    console.log(`[skill review] started childSession=${childSession.id} model=${model.providerID}/${model.modelID}`)
+    Log.activity(`[skill review] started childSession=${childSession.id} model=${model.providerID}/${model.modelID}`)
 
     const reviewPrompt = await buildReviewPrompt(messages)
 
@@ -169,15 +169,14 @@ export async function spawnBackgroundReview(input: {
 
     if (actions.length > 0) {
       SkillDirty.add(sessionID, [...names])
-      console.log(`[skill review] ${reviewText || ""}`)
-      console.log(`[skill review] 💾 ${actions.join(", ")}`)
+      Log.activity(`[skill review] ${reviewText || ""}`)
+      Log.activity(`[skill review] 💾 ${actions.join(", ")}`)
       await Bus.publish(Event.SkillSaved, { sessionID, actions })
-      log.info("skill review saved", { actions })
     } else {
-      console.log(`[skill review] ${reviewText || "nothing to save"}`)
+      Log.activity(`[skill review] ${reviewText || "nothing to save"}`)
     }
   } catch (err) {
-    console.log(`[skill review] error: ${err}`)
+    Log.activity(`[skill review] error: ${err}`)
     log.error("failed to spawn background skill review", { error: err })
   }
 }

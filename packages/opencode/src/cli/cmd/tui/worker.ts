@@ -14,7 +14,6 @@ import { writeHeapSnapshot } from "node:v8"
 
 await Log.init({
   print: process.argv.includes("--print-logs"),
-  dev: Installation.isLocal(),
   level: (() => {
     if (Installation.isLocal()) return "DEBUG"
     return "INFO"

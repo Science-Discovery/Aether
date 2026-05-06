@@ -1,4 +1,5 @@
 import { SessionID } from "./schema"
+import { Log } from "../util/log"
 
 const state = new Map<string, Set<string>>()
 
@@ -18,23 +19,19 @@ export namespace SkillDirty {
     }
     if (cur.size === 0) return
     state.set(id, cur)
-    console.log(
-      `[skill dirty state] op=add session=${id} names=[${names.join(", ")}] before=${before} after=${cur.size} ts=${Date.now()}`,
-    )
+    Log.activity(`[skill dirty state] op=add session=${id} names=[${names.join(", ")}] before=${before} after=${cur.size} ts=${Date.now()}`)
   }
 
   export function take(sessionID: SessionID | string) {
     const id = key(sessionID)
     const cur = state.get(id)
     if (!cur || cur.size === 0) {
-      console.log(`[skill dirty state] op=take session=${id} names=[] before=0 after=0 ts=${Date.now()}`)
+      Log.activity(`[skill dirty state] op=take session=${id} names=[] before=0 after=0 ts=${Date.now()}`)
       return [] as string[]
     }
     const names = [...cur]
     state.delete(id)
-    console.log(
-      `[skill dirty state] op=take session=${id} names=[${names.join(", ")}] before=${names.length} after=0 ts=${Date.now()}`,
-    )
+    Log.activity(`[skill dirty state] op=take session=${id} names=[${names.join(", ")}] before=${names.length} after=0 ts=${Date.now()}`)
     return names
   }
 

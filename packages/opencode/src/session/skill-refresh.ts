@@ -1,6 +1,7 @@
 import { ConfigMarkdown } from "../config/markdown"
 import { Skill } from "../skill"
 import { SkillDirty } from "./skill-dirty"
+import { Log } from "../util/log"
 
 type Entry = {
   name: string
@@ -42,8 +43,8 @@ export namespace SkillRefresh {
       )
     }
     if (list.length === 0) return
-    console.log(`[skill dirty] reload session=${sessionID} skills=${names.join(", ")}`)
-    console.log(`[skill dirty] patch built session=${sessionID} skills=${names.join(", ")} blocks=${list.length}`)
+    Log.activity(`[skill dirty] reload session=${sessionID} skills=${names.join(", ")}`)
+    Log.activity(`[skill dirty] patch built session=${sessionID} skills=${names.join(", ")} blocks=${list.length}`)
     return {
       names,
       text: [
