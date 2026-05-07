@@ -19,10 +19,13 @@ import { Global } from "@/global"
 import path from "path"
 import { Plugin } from "@/plugin"
 import { Skill } from "../skill"
+import { Log } from "../util/log"
 import { Effect, ServiceMap, Layer } from "effect"
 import { InstanceState } from "@/effect/instance-state"
 import { makeRuntime } from "@/effect/run-service"
 import { LEGACY_PROJECT, PROJECT } from "@/persist/naming"
+
+const log = Log.create({ service: "agent" })
 
 export namespace Agent {
   export const Info = z
@@ -44,8 +47,36 @@ export namespace Agent {
         .optional(),
       variant: z.string().optional(),
       prompt: z.string().optional(),
+      promptAppend: z.string().optional(),
       options: z.record(z.string(), z.any()),
       steps: z.number().int().positive().optional(),
+      fallbackModels: z.array(z.union([z.string(), Config.FallbackModelEntry])).optional(),
+      mcp: z.record(z.string(), z.boolean()).optional(),
+      enterDescription: z.string().optional(),
+      exitDescription: z.string().optional(),
+      exitOptions: z.array(Config.ExitOption).optional(),
+      outputDir: z.string().optional(),
+      baseAgent: z.string().optional(),
+      skillRefs: z.array(z.string()).optional(),
+      inputs: z.array(z.string()).optional(),
+      outputs: z.array(z.string()).optional(),
+      outputContract: z
+        .object({
+          requiredFields: z.array(z.string()).optional(),
+        })
+        .optional(),
+      contextPolicy: z
+        .object({
+          passFullHistory: z.boolean().optional(),
+          passArtifacts: z.boolean().optional(),
+          passUserConstraints: z.boolean().optional(),
+          passRelevantEvidence: z.boolean().optional(),
+        })
+        .optional(),
+      domain: z.string().optional(),
+      optionalExtension: z.boolean().optional(),
+      responsibilityBoundary: z.string().optional(),
+      roleDesignBasis: z.array(z.string()).optional(),
     })
     .meta({
       ref: "Agent",
@@ -102,6 +133,9 @@ export namespace Agent {
           })
 
           const user = Permission.fromConfig(cfg.permission ?? {})
+          const agentDefaultsPermission = cfg.agent_defaults?.permission
+            ? Permission.fromConfig(cfg.agent_defaults.permission)
+            : undefined
 
           const agents: Record<string, Info> = {
             build: {
@@ -239,17 +273,52 @@ export namespace Agent {
               continue
             }
             let item = agents[key]
-            if (!item)
+            if (!item) {
+              const base = value.base_agent ? agents[value.base_agent] : undefined
+              const basePermissionLayers = [defaults]
+              if (agentDefaultsPermission) basePermissionLayers.push(agentDefaultsPermission)
+              if (base) basePermissionLayers.push(base.permission)
+              basePermissionLayers.push(user)
+              const newAgentPermission = Permission.merge(
+                ...basePermissionLayers,
+                Permission.fromConfig(value.permission ?? {}),
+              )
               item = agents[key] = {
                 name: key,
-                mode: "all",
-                permission: Permission.merge(defaults, user),
-                options: {},
+                mode: value.mode ?? "all",
+                permission: newAgentPermission,
+                options: base ? { ...base.options } : {},
                 native: false,
+                ...(base?.model ? { model: base.model } : {}),
+                ...(base?.temperature !== undefined ? { temperature: base.temperature } : {}),
+                ...(base?.topP !== undefined ? { topP: base.topP } : {}),
+                ...(base?.prompt ? { prompt: base.prompt } : {}),
+                ...(base?.steps ? { steps: base.steps } : {}),
+                ...(base?.color ? { color: base.color } : {}),
+                ...(base?.fallbackModels ? { fallbackModels: base.fallbackModels } : {}),
+                ...(cfg.agent_defaults?.context_policy
+                  ? {
+                      contextPolicy: {
+                        passFullHistory: cfg.agent_defaults.context_policy.pass_full_history,
+                        passArtifacts: cfg.agent_defaults.context_policy.pass_artifacts,
+                        passUserConstraints: cfg.agent_defaults.context_policy.pass_user_constraints,
+                        passRelevantEvidence: cfg.agent_defaults.context_policy.pass_relevant_evidence,
+                      },
+                    }
+                  : {}),
+                ...(cfg.agent_defaults?.output_contract
+                  ? {
+                      outputContract: {
+                        requiredFields: cfg.agent_defaults.output_contract.required_fields,
+                      },
+                    }
+                  : {}),
               }
+            }
             if (value.model) item.model = Provider.parseModel(value.model)
             item.variant = value.variant ?? item.variant
             item.prompt = value.prompt ?? item.prompt
+            item.promptAppend = value.prompt_append ?? item.promptAppend
             item.description = value.description ?? item.description
             item.temperature = value.temperature ?? item.temperature
             item.topP = value.top_p ?? item.topP
@@ -260,6 +329,37 @@ export namespace Agent {
             item.steps = value.steps ?? item.steps
             item.options = mergeDeep(item.options, value.options ?? {})
             item.permission = Permission.merge(item.permission, Permission.fromConfig(value.permission ?? {}))
+            item.fallbackModels = value.fallback_models ?? item.fallbackModels
+            item.mcp = value.mcp ?? item.mcp
+            item.enterDescription = value.enter_description ?? item.enterDescription
+            item.exitDescription = value.exit_description ?? item.exitDescription
+            item.exitOptions = value.exit_options ?? item.exitOptions
+            item.outputDir = value.output_dir ?? item.outputDir
+            item.baseAgent = value.base_agent ?? item.baseAgent
+            item.skillRefs = value.skill_refs ?? item.skillRefs
+            item.inputs = value.inputs ?? item.inputs
+            item.outputs = value.outputs ?? item.outputs
+            if (value.output_contract) {
+              item.outputContract = {
+                ...(item.outputContract ?? {}),
+                requiredFields: value.output_contract.required_fields ?? item.outputContract?.requiredFields,
+              }
+            }
+            if (value.context_policy) {
+              item.contextPolicy = {
+                ...(item.contextPolicy ?? {}),
+                passFullHistory: value.context_policy.pass_full_history ?? item.contextPolicy?.passFullHistory,
+                passArtifacts: value.context_policy.pass_artifacts ?? item.contextPolicy?.passArtifacts,
+                passUserConstraints:
+                  value.context_policy.pass_user_constraints ?? item.contextPolicy?.passUserConstraints,
+                passRelevantEvidence:
+                  value.context_policy.pass_relevant_evidence ?? item.contextPolicy?.passRelevantEvidence,
+              }
+            }
+            item.domain = value.domain ?? item.domain
+            item.optionalExtension = value.optional_extension ?? item.optionalExtension
+            item.responsibilityBoundary = value.responsibility_boundary ?? item.responsibilityBoundary
+            item.roleDesignBasis = value.role_design_basis ?? item.roleDesignBasis
           }
 
           // Ensure Truncate.GLOB is allowed unless explicitly configured
@@ -276,6 +376,18 @@ export namespace Agent {
               agents[name].permission,
               Permission.fromConfig({ external_directory: { [Truncate.GLOB]: "allow" } }),
             )
+          }
+
+          // Validate skill_refs references (warn only, don't block)
+          const allSkills = yield* Effect.promise(() => Skill.all())
+          const skillNames = new Set(allSkills.map((s) => s.name))
+          for (const [name, agent] of Object.entries(agents)) {
+            if (!agent.skillRefs) continue
+            for (const ref of agent.skillRefs) {
+              if (!skillNames.has(ref)) {
+                log.warn(`agent "${name}" references skill "${ref}" not found in skill library`)
+              }
+            }
           }
 
           const get = Effect.fnUntraced(function* (agent: string) {

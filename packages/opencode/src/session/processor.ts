@@ -9,6 +9,7 @@ import { SessionRetry } from "./retry"
 import { SessionStatus } from "./status"
 import { Plugin } from "@/plugin"
 import type { Provider } from "@/provider/provider"
+import { Provider as ProviderModule } from "@/provider/provider"
 import { LLM } from "./llm"
 import { Config } from "@/config/config"
 import { SessionCompaction } from "./compaction"
@@ -16,6 +17,7 @@ import { Permission } from "@/permission"
 import { Question } from "@/question"
 import { PartID } from "./schema"
 import type { SessionID, MessageID } from "./schema"
+import { ModelID, ProviderID } from "@/provider/schema"
 
 export namespace SessionProcessor {
   const DOOM_LOOP_THRESHOLD = 3
@@ -35,6 +37,64 @@ export namespace SessionProcessor {
     let blocked = false
     let attempt = 0
     let needsCompaction = false
+    let fallbackIndex = 0
+    let originalAgent: LLM.StreamInput["agent"] | undefined = undefined
+
+    const FALLBACK_MAX = 3
+
+    async function nextFallback(streamInput: LLM.StreamInput): Promise<LLM.StreamInput | undefined> {
+      const chain = streamInput.agent.fallbackModels
+      if (!chain?.length || fallbackIndex >= Math.min(chain.length, FALLBACK_MAX)) return undefined
+
+      // If current model differs from agent's configured model, it was likely user-selected — don't override
+      const agentDefault = streamInput.agent.model
+      if (
+        agentDefault &&
+        (streamInput.model.providerID !== agentDefault.providerID || streamInput.model.id !== agentDefault.modelID)
+      ) {
+        log.info("model appears user-selected, skipping fallback chain", {
+          current: `${streamInput.model.providerID}/${streamInput.model.id}`,
+          agentDefault: `${agentDefault.providerID}/${agentDefault.modelID}`,
+        })
+        return undefined
+      }
+
+      if (!originalAgent) originalAgent = streamInput.agent
+
+      const entry = chain[fallbackIndex]
+      const modelStr = typeof entry === "string" ? entry : entry.model
+      fallbackIndex++
+
+      const parsed = ProviderModule.parseModel(modelStr)
+      const fallbackModel = await ProviderModule.getModel(parsed.providerID, parsed.modelID).catch(() => undefined)
+
+      if (!fallbackModel) {
+        log.warn("fallback model not found", { model: modelStr })
+        return nextFallback(streamInput)
+      }
+
+      log.info("trying fallback model", {
+        original: `${streamInput.model.providerID}/${streamInput.model.id}`,
+        fallback: `${fallbackModel.providerID}/${fallbackModel.id}`,
+        index: fallbackIndex,
+      })
+
+      const variant = typeof entry !== "string" ? entry.variant : undefined
+      const temperature = typeof entry !== "string" ? entry.temperature : undefined
+      const topP = typeof entry !== "string" ? entry.top_p : undefined
+
+      return {
+        ...streamInput,
+        model: fallbackModel,
+        agent: {
+          ...originalAgent,
+          variant: variant ?? originalAgent.variant,
+          temperature: temperature ?? originalAgent.temperature,
+          topP: topP ?? originalAgent.topP,
+          model: { providerID: fallbackModel.providerID, modelID: fallbackModel.id },
+        },
+      }
+    }
     let statusIdle = false
 
     const result = {
@@ -381,6 +441,14 @@ export namespace SessionProcessor {
                 await SessionRetry.sleep(delay, input.abort).catch(() => {})
                 continue
               }
+
+              const fallbackResult = await nextFallback(streamInput)
+              if (fallbackResult) {
+                streamInput = fallbackResult
+                attempt = 0
+                continue
+              }
+
               input.assistantMessage.error = error
               Bus.publish(Session.Event.Error, {
                 sessionID: input.assistantMessage.sessionID,

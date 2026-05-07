@@ -51,6 +51,15 @@ export function scoped(root: string, file: string) {
   return path.join(root, file)
 }
 
+export function normalizeOutputDir(outputDir: string): string {
+  for (const prefix of [PROJECT, LEGACY_PROJECT]) {
+    if (outputDir.startsWith(prefix + "/") || outputDir.startsWith(prefix + "\\")) {
+      return outputDir.slice(prefix.length + 1)
+    }
+  }
+  return outputDir
+}
+
 function platformRoot(name: string, sub: string) {
   if (process.platform === "darwin") return path.join(home(), "Library", "Application Support", name, sub)
   if (process.platform === "win32") return path.join(process.env.APPDATA || home(), name, sub)
@@ -78,4 +87,3 @@ export function managedDir() {
 export function legacyManagedDir() {
   return managedRoot(LEGACY_APP)
 }
-

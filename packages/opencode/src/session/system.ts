@@ -57,6 +57,20 @@ export namespace SystemPrompt {
   export async function skills(agent: Agent.Info, availableTools?: Set<string>, availableToolsets?: Set<string>) {
     if (Permission.disabled(["skill"], agent.permission).has("skill")) return
 
+    if (agent.skillRefs?.length) {
+      const loaded = await Promise.all(agent.skillRefs.map((name) => Skill.get(name)))
+      const found = loaded.filter((s): s is Skill.Info => s !== undefined)
+      const missing = agent.skillRefs.filter((name) => !loaded.some((s) => s !== undefined && s.name === name))
+      return [
+        "## Skills (mandatory)",
+        "Before replying, you MUST follow these skills' instructions for every task they cover.",
+        ...found.map((s) => [`### Skill: ${s.name}`, s.content].join("\n")),
+        ...(missing.length
+          ? [`Note: skills ${missing.join(", ")} were referenced but not found in the skill library.`]
+          : []),
+      ].join("\n")
+    }
+
     const all = await Skill.available(agent)
     const list =
       availableTools !== undefined
@@ -96,13 +110,15 @@ export namespace SystemPrompt {
       // version of them here and a less verbose version in tool description, rather than vice versa.
       Skill.fmt(list, { verbose: true }),
       "",
-      ...(skillNudgeInterval !== 0 ? [
-        "If a skill has issues, fix it with skill_manage(action='patch').",
-        "After difficult/iterative tasks, offer to save as a skill.",
-        "If a skill you loaded was missing steps, had wrong commands, or needed pitfalls you discovered, update it before finishing.",
-        "",
-        skillsGuidance,
-      ] : []),
+      ...(skillNudgeInterval !== 0
+        ? [
+            "If a skill has issues, fix it with skill_manage(action='patch').",
+            "After difficult/iterative tasks, offer to save as a skill.",
+            "If a skill you loaded was missing steps, had wrong commands, or needed pitfalls you discovered, update it before finishing.",
+            "",
+            skillsGuidance,
+          ]
+        : []),
     ].join("\n")
   }
 }

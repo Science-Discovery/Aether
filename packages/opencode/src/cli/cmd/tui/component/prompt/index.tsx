@@ -154,18 +154,19 @@ export function Prompt(props: PromptProps) {
     ),
   )
 
-  // Initialize agent/model/variant from last user message when session changes
+  // Initialize agent/model/variant from last user message when session or agent changes
   let syncedSessionID: string | undefined
+  let syncedAgent: string | undefined
   createEffect(() => {
     const sessionID = props.sessionID
     const msg = lastUserMessage()
 
-    if (sessionID !== syncedSessionID) {
+    if (sessionID !== syncedSessionID || msg?.agent !== syncedAgent) {
       if (!sessionID || !msg) return
 
       syncedSessionID = sessionID
+      syncedAgent = msg.agent
 
-      // Only set agent if it's a primary agent (not a subagent)
       const isPrimaryAgent = local.agent.list().some((x) => x.name === msg.agent)
       if (msg.agent && isPrimaryAgent) {
         local.agent.set(msg.agent)

@@ -722,10 +722,7 @@ export namespace Skill {
             // Skip watcher in test environments: prevents parcel from accumulating
             // 30+ subscriptions across test instances (Windows segfault) and
             // avoids watcher callbacks firing between test files (macOS crash).
-            if (
-              process.env.OPENCODE_TEST_HOME !== undefined ||
-              process.argv.some((a) => /\.test\.[jt]sx?$/.test(a))
-            )
+            if (process.env.OPENCODE_TEST_HOME !== undefined || process.argv.some((a) => /\.test\.[jt]sx?$/.test(a)))
               return { alive: false, back: "poll" } as WatchState
 
             const first = yield* Effect.promise(() => watchCandidates(ctx.directory, ctx.worktree))
@@ -1131,6 +1128,10 @@ export namespace Skill {
           )
         }
         if (!agent) return list
+        if (agent.skillRefs?.length) {
+          const refs = new Set(agent.skillRefs)
+          return list.filter((skill) => refs.has(skill.name))
+        }
         return list.filter((skill) => Permission.evaluate("skill", skill.name, agent.permission).action !== "deny")
       })
 

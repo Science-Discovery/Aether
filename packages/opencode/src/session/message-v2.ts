@@ -226,6 +226,18 @@ export namespace MessageV2 {
       })
       .optional(),
     command: z.string().optional(),
+    category: z.string().optional(),
+    discipline: z
+      .object({
+        mode: z.enum(["serial", "concurrent", "background"]).default("serial"),
+        delegation_depth: z.number().int().min(0).max(3).default(0),
+        permission_override: z.record(z.string(), z.string().array()).optional(),
+        max_steps: z.number().int().min(1).max(50).optional(),
+        timeout_seconds: z.number().int().min(30).max(600).default(300),
+        file_scope: z.string().array().optional(),
+        return_format: z.enum(["text", "structured", "raw"]).default("text"),
+      })
+      .optional(),
   }).meta({
     ref: "SubtaskPart",
   })
