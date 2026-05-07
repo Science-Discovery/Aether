@@ -131,6 +131,8 @@ export namespace Vcs {
     readonly defaultBranch: () => Effect.Effect<string | undefined>
     readonly diff: (mode: Mode) => Effect.Effect<Snapshot.FileDiff[]>
     readonly graph: (opts?: { max?: number; branch?: string; skip?: number }) => Effect.Effect<GraphResult>
+    readonly commitDetails: (hash: string) => Effect.Effect<CommitDetail>
+    readonly fileContent: (hash: string, path: string) => Effect.Effect<string>
   }
 
   export const TagRef = z
@@ -173,6 +175,33 @@ export namespace Vcs {
     })
     .meta({ ref: "VcsGraphResult" })
   export type GraphResult = z.infer<typeof GraphResult>
+
+  export const FileChange = z
+    .object({
+      status: z.string(),
+      file: z.string(),
+      oldFilePath: z.string().optional(),
+      additions: z.number().nullable(),
+      deletions: z.number().nullable(),
+    })
+    .meta({ ref: "VcsFileChange" })
+  export type FileChange = z.infer<typeof FileChange>
+
+  export const CommitDetail = z
+    .object({
+      hash: z.string(),
+      parents: z.string().array(),
+      author: z.string(),
+      authorEmail: z.string(),
+      authorDate: z.number(),
+      committer: z.string(),
+      committerEmail: z.string(),
+      committerDate: z.number(),
+      body: z.string(),
+      files: FileChange.array(),
+    })
+    .meta({ ref: "VcsCommitDetail" })
+  export type CommitDetail = z.infer<typeof CommitDetail>
 
   interface State {
     current: string | undefined
@@ -314,6 +343,45 @@ export namespace Vcs {
 
           return { commits: enriched, head: head ?? null, tags: tagsList, moreAvailable } satisfies GraphResult
         }),
+        commitDetails: Effect.fn("Vcs.commitDetails")(function* (hash: string) {
+          if (Instance.project.vcs !== "git") {
+            return {
+              hash,
+              parents: [],
+              author: "",
+              authorEmail: "",
+              authorDate: 0,
+              committer: "",
+              committerEmail: "",
+              committerDate: 0,
+              body: "",
+              files: [],
+            } satisfies CommitDetail
+          }
+          const detail = yield* git.commitDetails(Instance.directory, hash)
+          return {
+            hash: detail.hash,
+            parents: [...detail.parents],
+            author: detail.author,
+            authorEmail: detail.authorEmail,
+            authorDate: detail.authorDate,
+            committer: detail.committer,
+            committerEmail: detail.committerEmail,
+            committerDate: detail.committerDate,
+            body: detail.body,
+            files: detail.files.map((f) => ({
+              status: f.status,
+              file: f.file,
+              oldFilePath: f.oldFilePath,
+              additions: f.additions,
+              deletions: f.deletions,
+            })),
+          } satisfies CommitDetail
+        }),
+        fileContent: Effect.fn("Vcs.fileContent")(function* (hash: string, path: string) {
+          if (Instance.project.vcs !== "git") return ""
+          return yield* git.fileContent(Instance.directory, hash, path)
+        }),
       })
     }),
   )
@@ -344,5 +412,13 @@ export namespace Vcs {
 
   export function graph(opts?: { max?: number; branch?: string; skip?: number }) {
     return runPromise((svc) => svc.graph(opts))
+  }
+
+  export function commitDetails(hash: string) {
+    return runPromise((svc) => svc.commitDetails(hash))
+  }
+
+  export function fileContent(hash: string, path: string) {
+    return runPromise((svc) => svc.fileContent(hash, path))
   }
 }

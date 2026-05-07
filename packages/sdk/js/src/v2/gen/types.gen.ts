@@ -831,6 +831,7 @@ export type ToolPart = {
   metadata?: {
     [key: string]: unknown
   }
+  providerExecuted?: boolean
 }
 
 export type StepStartPart = {
@@ -2281,6 +2282,27 @@ export type VcsGraphResult = {
   moreAvailable: boolean
 }
 
+export type VcsFileChange = {
+  status: string
+  file: string
+  oldFilePath?: string
+  additions: number | null
+  deletions: number | null
+}
+
+export type VcsCommitDetail = {
+  hash: string
+  parents: Array<string>
+  author: string
+  authorEmail: string
+  authorDate: number
+  committer: string
+  committerEmail: string
+  committerDate: number
+  body: string
+  files: Array<VcsFileChange>
+}
+
 export type Command = {
   name: string
   description?: string
@@ -3592,7 +3614,6 @@ export type MemoryGetData = {
   path?: never
   query?: {
     directory?: string
-    session_id?: string
     workspace?: string
   }
   url: "/memory"
@@ -7299,6 +7320,85 @@ export type KnowledgeModelsListResponses = {
 
 export type KnowledgeModelsListResponse = KnowledgeModelsListResponses[keyof KnowledgeModelsListResponses]
 
+export type KnowledgeDiscoverData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/knowledge/discover"
+}
+
+export type KnowledgeDiscoverResponses = {
+  /**
+   * 发现的知识库列表
+   */
+  200: {
+    found: Array<{
+      path: string
+      config: {
+        name: string
+        embeddingProvider: string
+        embeddingModel: string
+        embeddingDimensions?: number
+        apiKey?: string
+        baseURL?: string
+        chunkSize?: number
+        chunkOverlap?: number
+      }
+    }>
+  }
+}
+
+export type KnowledgeDiscoverResponse = KnowledgeDiscoverResponses[keyof KnowledgeDiscoverResponses]
+
+export type KnowledgeStateGetData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/knowledge/state"
+}
+
+export type KnowledgeStateGetResponses = {
+  /**
+   * 知识库状态
+   */
+  200: {
+    knowledgeBases: Array<unknown>
+    activeIds: Array<string>
+    lastConfig?: unknown
+  }
+}
+
+export type KnowledgeStateGetResponse = KnowledgeStateGetResponses[keyof KnowledgeStateGetResponses]
+
+export type KnowledgeStatePostData = {
+  body?: {
+    data: unknown
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/knowledge/state"
+}
+
+export type KnowledgeStatePostResponses = {
+  /**
+   * 保存成功
+   */
+  200: {
+    ok: boolean
+  }
+}
+
+export type KnowledgeStatePostResponse = KnowledgeStatePostResponses[keyof KnowledgeStatePostResponses]
+
 export type KnowledgeCreateData = {
   body?: {
     /**
@@ -8435,6 +8535,7 @@ export type WechatStatusResponses = {
     } | null
     locked: boolean | null
     lockHolder: string | null
+    hasConfig: boolean
     error: {
       code: string
       message: string
@@ -9242,6 +9343,50 @@ export type VcsGraphResponses = {
 }
 
 export type VcsGraphResponse = VcsGraphResponses[keyof VcsGraphResponses]
+
+export type VcsCommitDetailData = {
+  body?: never
+  path: {
+    hash: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/vcs/commit/{hash}"
+}
+
+export type VcsCommitDetailResponses = {
+  /**
+   * Commit details
+   */
+  200: VcsCommitDetail
+}
+
+export type VcsCommitDetailResponse = VcsCommitDetailResponses[keyof VcsCommitDetailResponses]
+
+export type VcsFileContentData = {
+  body?: never
+  path?: never
+  query: {
+    directory?: string
+    workspace?: string
+    hash: string
+    path: string
+  }
+  url: "/vcs/file"
+}
+
+export type VcsFileContentResponses = {
+  /**
+   * File content
+   */
+  200: {
+    content: string
+  }
+}
+
+export type VcsFileContentResponse = VcsFileContentResponses[keyof VcsFileContentResponses]
 
 export type CommandListData = {
   body?: never
