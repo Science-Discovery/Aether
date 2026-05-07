@@ -36,7 +36,7 @@ function stripGitBashPrefix(path) {
 
 function readBasePath() {
   const raw = process.env.VITE_BASE_PATH
-  if (!raw) return "/"
+  if (!raw) return
   if (raw === "." || raw === "./") return "./"
   if (/^[A-Za-z]:[\\/]/.test(raw)) {
     const recovered = stripGitBashPrefix(raw)
@@ -74,7 +74,7 @@ export default [
       if (routerBase !== "/") console.log(`[opencode] base path: ${routerBase}`)
       env.VITE_BASE_PATH = routerBase
       return {
-        base: basePath,
+        ...(basePath ? { base: basePath } : {}),
         define: Object.fromEntries(Object.entries(env).map(([k, v]) => [`import.meta.env.${k}`, JSON.stringify(v)])),
         resolve: {
           alias: {
