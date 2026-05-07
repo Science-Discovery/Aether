@@ -57,11 +57,17 @@ export namespace LLM {
           new TransformStream({
             transform(part, controller) {
               if (part.type === "tool-call") calls = true
-              if (
-                part.type === "finish" &&
-                calls &&
-                (part.finishReason.unified === "stop" || part.finishReason.raw === "unknown")
-              ) {
+              if (part.type === "finish" && part.finishReason.raw === "unknown") {
+                controller.enqueue({
+                  ...part,
+                  finishReason: {
+                    ...part.finishReason,
+                    unified: calls ? "tool-calls" : "stop",
+                  },
+                })
+                return
+              }
+              if (part.type === "finish" && calls && part.finishReason.unified === "stop") {
                 controller.enqueue({
                   ...part,
                   finishReason: {
