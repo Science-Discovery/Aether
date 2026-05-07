@@ -617,6 +617,65 @@ export namespace Server {
         },
       )
       .get(
+        "/vcs/commit/:hash",
+        describeRoute({
+          summary: "Get commit details",
+          description:
+            "Retrieve detailed information about a specific git commit, including metadata and file changes.",
+          operationId: "vcs.commitDetail",
+          responses: {
+            200: {
+              description: "Commit details",
+              content: {
+                "application/json": {
+                  schema: resolver(Vcs.CommitDetail),
+                },
+              },
+            },
+          },
+        }),
+        validator(
+          "param",
+          z.object({
+            hash: z.string(),
+          }),
+        ),
+        async (c) => {
+          const { hash } = c.req.valid("param")
+          return c.json(await Vcs.commitDetails(hash))
+        },
+      )
+      .get(
+        "/vcs/file",
+        describeRoute({
+          summary: "Get file content at commit",
+          description: "Retrieve the content of a specific file at a given git commit.",
+          operationId: "vcs.fileContent",
+          responses: {
+            200: {
+              description: "File content",
+              content: {
+                "application/json": {
+                  schema: resolver(z.object({ content: z.string() })),
+                },
+              },
+            },
+          },
+        }),
+        validator(
+          "query",
+          z.object({
+            hash: z.string(),
+            path: z.string(),
+          }),
+        ),
+        async (c) => {
+          const { hash, path } = c.req.valid("query")
+          const content = await Vcs.fileContent(hash, path)
+          return c.json({ content })
+        },
+      )
+      .get(
         "/command",
         describeRoute({
           summary: "List commands",

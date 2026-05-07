@@ -142,6 +142,9 @@ export function GitGraphList(props: {
   lanes: number
   currentBranch: string | null | undefined
   uncommitted?: { count: number; files: string[] }
+  selectedHash?: string | null
+  onCommitClick?: (hash: string) => void
+  onContextMenu?: (hash: string, event: MouseEvent) => void
 }) {
   const [hovered, setHovered] = createSignal<GraphNode | null>(null)
   const [tooltipX, setTooltipX] = createSignal(0)
@@ -215,6 +218,11 @@ export function GitGraphList(props: {
                       onMouseEnter={(e) => handleCircleEnter(node, e)}
                       onMouseMove={(e) => updatePos(e)}
                       onMouseLeave={() => setHovered(null)}
+                      onClick={() => props.onCommitClick?.(node.hash)}
+                      onContextMenu={(e) => {
+                        e.preventDefault()
+                        props.onContextMenu?.(node.hash, e)
+                      }}
                     />
                   </Show>
                   <Show when={!node.isUncommitted && node.isHead}>
@@ -229,6 +237,11 @@ export function GitGraphList(props: {
                       onMouseEnter={(e) => handleCircleEnter(node, e)}
                       onMouseMove={(e) => updatePos(e)}
                       onMouseLeave={() => setHovered(null)}
+                      onClick={() => props.onCommitClick?.(node.hash)}
+                      onContextMenu={(e) => {
+                        e.preventDefault()
+                        props.onContextMenu?.(node.hash, e)
+                      }}
                     />
                   </Show>
                   <Show when={!node.isUncommitted && !node.isHead}>
@@ -241,6 +254,11 @@ export function GitGraphList(props: {
                       onMouseEnter={(e) => handleCircleEnter(node, e)}
                       onMouseMove={(e) => updatePos(e)}
                       onMouseLeave={() => setHovered(null)}
+                      onClick={() => props.onCommitClick?.(node.hash)}
+                      onContextMenu={(e) => {
+                        e.preventDefault()
+                        props.onContextMenu?.(node.hash, e)
+                      }}
                     />
                   </Show>
                 </>
@@ -256,14 +274,21 @@ export function GitGraphList(props: {
                 class="flex items-center gap-2 border-b border-border-weaker-base text-sm"
                 classList={{
                   "bg-surface-base": hovered()?.hash === node.hash,
+                  "bg-accent-base/10": props.selectedHash === node.hash,
                 }}
                 style={{
                   height: `${ROW_HEIGHT}px`,
                   "padding-left": `${railWidth() + 8}px`,
                   "padding-right": "8px",
+                  cursor: "pointer",
                 }}
                 onMouseEnter={() => setHovered(node)}
                 onMouseLeave={() => setHovered(null)}
+                onClick={() => props.onCommitClick?.(node.hash)}
+                onContextMenu={(e) => {
+                  e.preventDefault()
+                  props.onContextMenu?.(node.hash, e)
+                }}
               >
                 <Show when={node.heads.length > 0 || node.isHead}>
                   <span class="shrink-0 flex items-center gap-1">

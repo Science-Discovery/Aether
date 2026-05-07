@@ -136,6 +136,7 @@ import type {
   KnowledgeCreateResponses,
   KnowledgeDeleteErrors,
   KnowledgeDeleteResponses,
+  KnowledgeDiscoverResponses,
   KnowledgeDocumentDeleteErrors,
   KnowledgeDocumentDeleteResponses,
   KnowledgeGetErrors,
@@ -145,6 +146,8 @@ import type {
   KnowledgeModelsListResponses,
   KnowledgeSearchErrors,
   KnowledgeSearchResponses,
+  KnowledgeStateGetResponses,
+  KnowledgeStatePostResponses,
   KnowledgeStatsErrors,
   KnowledgeStatsResponses,
   KnowledgeSyncErrors,
@@ -317,7 +320,9 @@ import type {
   TuiSelectSessionResponses,
   TuiShowToastResponses,
   TuiSubmitPromptResponses,
+  VcsCommitDetailResponses,
   VcsDiffResponses,
+  VcsFileContentResponses,
   VcsGetResponses,
   VcsGraphResponses,
   WechatEventsResponses,
@@ -5747,6 +5752,75 @@ export class Models extends HeyApiClient {
   }
 }
 
+export class State2 extends HeyApiClient {
+  /**
+   * Get knowledge base state
+   *
+   * 获取全局知识库状态列表
+   */
+  public get<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<KnowledgeStateGetResponses, unknown, ThrowOnError>({
+      url: "/knowledge/state",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Save knowledge base state
+   *
+   * 保存全局知识库状态列表
+   */
+  public post<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      data?: unknown
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "data" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<KnowledgeStatePostResponses, unknown, ThrowOnError>({
+      url: "/knowledge/state",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+}
+
 export class Config3 extends HeyApiClient {
   /**
    * Get knowledge config
@@ -5912,6 +5986,36 @@ export class Document extends HeyApiClient {
 }
 
 export class Knowledge extends HeyApiClient {
+  /**
+   * Discover existing knowledge bases
+   *
+   * 扫描桌面和文稿目录，发现已存在的 .aether-kb 知识库索引并返回
+   */
+  public discover<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<KnowledgeDiscoverResponses, unknown, ThrowOnError>({
+      url: "/knowledge/discover",
+      ...options,
+      ...params,
+    })
+  }
+
   /**
    * Create knowledge base
    *
@@ -6189,6 +6293,11 @@ export class Knowledge extends HeyApiClient {
   private _models?: Models
   get models(): Models {
     return (this._models ??= new Models({ client: this.client }))
+  }
+
+  private _state?: State2
+  get state(): State2 {
+    return (this._state ??= new State2({ client: this.client }))
   }
 
   private _config?: Config3
@@ -7672,6 +7781,72 @@ export class Vcs extends HeyApiClient {
     )
     return (options?.client ?? this.client).get<VcsGraphResponses, unknown, ThrowOnError>({
       url: "/vcs/graph",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Get commit details
+   *
+   * Retrieve detailed information about a specific git commit, including metadata and file changes.
+   */
+  public commitDetail<ThrowOnError extends boolean = false>(
+    parameters: {
+      hash: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "hash" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<VcsCommitDetailResponses, unknown, ThrowOnError>({
+      url: "/vcs/commit/{hash}",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Get file content at commit
+   *
+   * Retrieve the content of a specific file at a given git commit.
+   */
+  public fileContent<ThrowOnError extends boolean = false>(
+    parameters: {
+      directory?: string
+      workspace?: string
+      hash: string
+      path: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "query", key: "hash" },
+            { in: "query", key: "path" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<VcsFileContentResponses, unknown, ThrowOnError>({
+      url: "/vcs/file",
       ...options,
       ...params,
     })

@@ -63,6 +63,27 @@ export namespace Git {
     readonly type: string
   }
 
+  export type FileChange = {
+    readonly status: string
+    readonly file: string
+    readonly oldFilePath?: string
+    readonly additions: number | null
+    readonly deletions: number | null
+  }
+
+  export type CommitDetail = {
+    readonly hash: string
+    readonly parents: readonly string[]
+    readonly author: string
+    readonly authorEmail: string
+    readonly authorDate: number
+    readonly committer: string
+    readonly committerEmail: string
+    readonly committerDate: number
+    readonly body: string
+    readonly files: readonly FileChange[]
+  }
+
   export interface Result {
     readonly exitCode: number
     readonly text: () => string
@@ -91,6 +112,8 @@ export namespace Git {
       opts?: { max?: number; branch?: string; skip?: number },
     ) => Effect.Effect<readonly LogItem[]>
     readonly refs: (cwd: string, ...prefixes: string[]) => Effect.Effect<readonly Ref[]>
+    readonly commitDetails: (cwd: string, hash: string) => Effect.Effect<CommitDetail>
+    readonly fileContent: (cwd: string, hash: string, path: string) => Effect.Effect<string>
   }
 
   const kind = (code: string): Kind => {
@@ -290,6 +313,115 @@ export namespace Git {
         })
       })
 
+      const commitDetails = Effect.fn("Git.commitDetails")(function* (cwd: string, hash: string) {
+        const sep = "\x1F"
+        const [meta, rawNameStatus, rawNumstat] = yield* Effect.all(
+          [
+            text(
+              ["log", "-1", `--format=%H${sep}%P${sep}%an${sep}%ae${sep}%at${sep}%cn${sep}%ce${sep}%ct${sep}%B`, hash],
+              { cwd },
+            ),
+            text(["diff-tree", "--name-status", "-r", "--root", "--find-renames", "--diff-filter=AMDR", "-z", hash], {
+              cwd,
+            }),
+            text(["diff-tree", "--numstat", "-r", "--root", "--find-renames", "--diff-filter=AMDR", "-z", hash], {
+              cwd,
+            }),
+          ],
+          { concurrency: 3 },
+        )
+
+        const parts = meta.split(sep)
+        const body = parts.slice(9).join(sep).trim()
+
+        const nameStatus = nuls(rawNameStatus)
+        nameStatus.shift()
+
+        const numstat = nuls(rawNumstat)
+        numstat.shift()
+
+        const statMap = new Map<string, { additions: number | null; deletions: number | null }>()
+        const statOldMap = new Map<string, { additions: number | null; deletions: number | null }>()
+        let si = 0
+        while (si < numstat.length) {
+          const entry = numstat[si]
+          const a = entry.indexOf("\t")
+          const b = entry.indexOf("\t", a + 1)
+          if (a === -1 || b === -1) {
+            si++
+            continue
+          }
+          const adds = entry.slice(0, a)
+          const dels = entry.slice(a + 1, b)
+          const pathField = entry.slice(b + 1)
+          const additions: number | null = adds === "-" ? null : Number.parseInt(adds || "0", 10)
+          const deletions: number | null = dels === "-" ? null : Number.parseInt(dels || "0", 10)
+          if (pathField === "") {
+            const oldFile = numstat[si + 1]
+            const file = numstat[si + 2]
+            if (!oldFile || !file) break
+            statMap.set(file, { additions, deletions })
+            statOldMap.set(oldFile, { additions, deletions })
+            si += 3
+          } else {
+            statMap.set(pathField, { additions, deletions })
+            si += 1
+          }
+        }
+
+        const files: FileChange[] = []
+        let i = 0
+        while (i < nameStatus.length) {
+          const status = nameStatus[i]
+          if (!status) break
+          if (status[0] === "R") {
+            const oldFilePath = nameStatus[i + 1]
+            const file = nameStatus[i + 2]
+            if (!oldFilePath || !file) break
+            const counts = statMap.get(file) ?? statOldMap.get(oldFilePath)
+            files.push({
+              status: status[0],
+              file,
+              oldFilePath,
+              additions: counts?.additions ?? null,
+              deletions: counts?.deletions ?? null,
+            })
+            i += 3
+          } else {
+            const file = nameStatus[i + 1]
+            if (!file) break
+            const counts = statMap.get(file)
+            files.push({
+              status: status[0],
+              file,
+              additions: counts?.additions ?? null,
+              deletions: counts?.deletions ?? null,
+            })
+            i += 2
+          }
+        }
+
+        return {
+          hash: parts[0],
+          parents: parts[1] ? parts[1].split(" ").filter(Boolean) : [],
+          author: parts[2],
+          authorEmail: parts[3],
+          authorDate: parseInt(parts[4], 10),
+          committer: parts[5],
+          committerEmail: parts[6],
+          committerDate: parseInt(parts[7], 10),
+          body,
+          files,
+        } satisfies CommitDetail
+      })
+
+      const fileContent = Effect.fn("Git.fileContent")(function* (cwd: string, hash: string, path: string) {
+        const result = yield* run(["show", `${hash}:${path}`], { cwd })
+        if (result.exitCode !== 0) return ""
+        if (result.stdout.includes(0)) return ""
+        return result.text()
+      })
+
       const refs = Effect.fn("Git.refs")(function* (cwd: string, ...prefixes: string[]) {
         const list = prefixes.length > 0 ? prefixes : ["refs/heads/", "refs/tags/", "refs/remotes/"]
         const sep = "\x1F"
@@ -319,6 +451,8 @@ export namespace Git {
         stats,
         log,
         refs,
+        commitDetails,
+        fileContent,
       })
     }),
   )
@@ -377,5 +511,13 @@ export namespace Git {
 
   export function refs(cwd: string, ...prefixes: string[]) {
     return runPromise((git) => git.refs(cwd, ...prefixes))
+  }
+
+  export function commitDetails(cwd: string, hash: string) {
+    return runPromise((git) => git.commitDetails(cwd, hash))
+  }
+
+  export function fileContent(cwd: string, hash: string, path: string) {
+    return runPromise((git) => git.fileContent(cwd, hash, path))
   }
 }
