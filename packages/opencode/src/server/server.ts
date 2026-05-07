@@ -52,45 +52,6 @@ function baseStrip(path: string, base: string) {
   return undefined
 }
 
-const api = [
-  "/agent",
-  "/auth",
-  "/command",
-  "/config",
-  "/cron",
-  "/database",
-  "/doc",
-  "/event",
-  "/experimental",
-  "/file",
-  "/find",
-  "/formatter",
-  "/global",
-  "/instance",
-  "/knowledge",
-  "/log",
-  "/lsp",
-  "/mcp",
-  "/memory",
-  "/mobile",
-  "/path",
-  "/permission",
-  "/project",
-  "/project-directory-meta",
-  "/provider",
-  "/pty",
-  "/question",
-  "/reading-mode",
-  "/session",
-  "/skill",
-  "/tui",
-  "/vcs",
-]
-
-function routed(path: string) {
-  return api.some((route) => path === route || path.startsWith(`${route}/`))
-}
-
 function baseInject(html: string, base: string) {
   const tag = `<base href="${baseHref(base)}"><script>globalThis.__AETHER_BASE_PATH__=${JSON.stringify(base)}</script>`
   return html.includes("<head>") ? html.replace("<head>", `<head>${tag}`) : `${tag}${html}`
@@ -177,7 +138,7 @@ import { EventRoutes } from "./routes/event"
 import { InstanceBootstrap } from "../project/bootstrap"
 import { NotFoundError } from "../storage/db"
 import type { ContentfulStatusCode } from "hono/utils/http-status"
-import { websocket, type BunWebSocketData } from "hono/bun"
+import { websocket } from "hono/bun"
 import { HTTPException } from "hono/http-exception"
 import { errors } from "./error"
 import { Filesystem } from "@/util/filesystem"
@@ -969,22 +930,11 @@ export namespace Server {
   }) {
     const app = createApp(opts)
     const bp = basePath()
-    const baseFetch =
-      bp === "/"
-        ? app.fetch
-        : async (req: Request, server: Bun.Server<BunWebSocketData>): Promise<Response> => {
-            const url = new URL(req.url)
-            const stripped = baseStrip(url.pathname, bp)
-            if (stripped !== undefined && routed(stripped)) {
-              url.pathname = stripped
-              req = new Request(url.toString(), req)
-            }
-            return app.fetch(req, server)
-          }
+    const root = bp === "/" ? app : new Hono<ServerEnv>().route(bp, app).route("/", app)
     const args = {
       hostname: opts.hostname,
       idleTimeout: 0,
-      fetch: baseFetch,
+      fetch: root.fetch,
       websocket: websocket,
       // Raise body limit to 1 GB to support large PDF uploads (default is 128 MB)
       maxRequestBodySize: 1024 * 1024 * 1024,
