@@ -121,6 +121,35 @@ export namespace Ripgrep {
     return item.type === "match" && "text" in item.data.lines
   }
 
+  function args(input: {
+    pattern: string
+    include?: string[]
+    exclude?: string[]
+    limit?: number
+    follow?: boolean
+    case?: boolean
+    word?: boolean
+    regex?: boolean
+  }, file: string) {
+    const args = [file, "--json", "--hidden", "--glob=!.git/*"]
+    if (input.follow) args.push("--follow")
+    if (!input.case) args.push("--ignore-case")
+    if (!input.regex) args.push("--fixed-strings")
+    if (input.word) args.push("--word-regexp")
+    for (const glob of input.include ?? []) args.push(`--glob=${glob}`)
+    for (const glob of input.exclude ?? []) args.push(`--glob=!${glob.startsWith("!") ? glob.slice(1) : glob}`)
+    if (input.limit) args.push(`--max-count=${input.limit}`)
+    args.push("--", input.pattern)
+    return args
+  }
+
+  function parse(line: string) {
+    if (!line) return
+    const item = Result.parse(JSON.parse(line))
+    if (!isTextMatch(item)) return
+    return item.data
+  }
+
   const PLATFORM = {
     "arm64-darwin": { platform: "aarch64-apple-darwin", extension: "tar.gz" },
     "arm64-linux": {
@@ -444,52 +473,92 @@ export namespace Ripgrep {
     regex?: boolean
     signal?: AbortSignal
   }): Promise<MatchData[]> {
+    const out: MatchData[] = []
+    for await (const batch of stream(input)) out.push(...batch)
+    return out
+  }
+
+  export async function* stream(input: {
+    cwd: string
+    pattern: string
+    include?: string[]
+    exclude?: string[]
+    limit?: number
+    follow?: boolean
+    case?: boolean
+    word?: boolean
+    regex?: boolean
+    signal?: AbortSignal
+    batch?: number
+  }): AsyncGenerator<MatchData[]> {
     input.signal?.throwIfAborted()
-    const args = [`${await filepath()}`, "--json", "--hidden", "--glob=!.git/*"]
-    if (input.follow) args.push("--follow")
-    if (!input.case) args.push("--ignore-case")
-    if (!input.regex) args.push("--fixed-strings")
-    if (input.word) args.push("--word-regexp")
-    for (const glob of input.include ?? []) args.push(`--glob=${glob}`)
-    for (const glob of input.exclude ?? []) args.push(`--glob=!${glob.startsWith("!") ? glob.slice(1) : glob}`)
-
-    if (input.limit) {
-      args.push(`--max-count=${input.limit}`)
-    }
-
-    args.push("--")
-    args.push(input.pattern)
-
-    const result = await Process.run(args, {
+    const file = await filepath()
+    const argv = args(input, file)
+    const proc = Process.spawn(argv, {
       cwd: input.cwd,
-      nothrow: true,
+      stdout: "pipe",
+      stderr: "pipe",
       abort: input.signal,
     })
-    if (result.code === 1) {
-      return []
+    if (!proc.stdout || !proc.stderr) throw new Error("ripgrep output not available")
+
+    const err = text(proc.stderr).catch((error) => (error instanceof Error ? error.message : String(error)))
+    let buf = ""
+    let out: MatchData[] = []
+    const size = input.batch ?? 20
+    let read: unknown
+
+    try {
+      for await (const chunk of proc.stdout) {
+        buf += chunk.toString()
+        buf = buf.replace(/\r\n/g, "\n").replace(/\r/g, "\n")
+        const lines = buf.split("\n")
+        buf = lines.pop() ?? ""
+
+        for (const line of lines) {
+          const item = parse(line)
+          if (!item) continue
+          out.push(item)
+          if (out.length < size) continue
+          yield out
+          out = []
+        }
+      }
+    } catch (error) {
+      read = error
     }
 
-    if (result.code === 2 && result.stderr.toString().includes("No files were searched")) {
-      return []
+    if (buf.trim()) {
+      const item = parse(buf.trim())
+      if (item) out.push(item)
     }
 
-    if (result.code !== 0) {
+    const [code, stderr] = await Promise.all([proc.exited, err])
+    if (read) {
+      input.signal?.throwIfAborted()
+      throw read
+    }
+
+    if (code === 1) {
+      if (out.length) yield out
+      return
+    }
+
+    if (code === 2 && stderr.includes("No files were searched")) {
+      if (out.length) yield out
+      return
+    }
+
+    if (code !== 0) {
+      input.signal?.throwIfAborted()
       throw new FailedError({
-        filepath: args[0],
+        filepath: argv[0],
         cwd: input.cwd,
-        code: result.code,
-        stderr: result.stderr.toString().trim(),
-        args: args.slice(1),
+        code,
+        stderr: stderr.trim(),
+        args: argv.slice(1),
       })
     }
-
-    // Handle both Unix (\n) and Windows (\r\n) line endings
-    const lines = result.stdout.toString().trim().split(/\r?\n/).filter(Boolean)
-    // Parse JSON lines from ripgrep output
-
-    return lines
-      .map((line) => Result.parse(JSON.parse(line)))
-      .filter(isTextMatch)
-      .map((item) => item.data)
+    if (out.length) yield out
   }
 }

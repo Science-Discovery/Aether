@@ -256,6 +256,80 @@ export const FileRoutes = lazy(() =>
       },
     )
     .get(
+      "/find/stream",
+      describeRoute({
+        summary: "Find text stream",
+        description: "Stream text matches across files in the project using ripgrep.",
+        operationId: "find.textStream",
+        responses: {
+          200: {
+            description: "SSE matches",
+            content: {
+              "text/event-stream": {
+                schema: resolver(
+                  z.union([
+                    Ripgrep.Match.shape.data.array(),
+                    z.object({ count: z.number() }),
+                    z.object({ message: z.string() }),
+                  ]),
+                ),
+              },
+            },
+          },
+        },
+      }),
+      validator(
+        "query",
+        z.object({
+          pattern: z.string(),
+          include: z.string().optional(),
+          exclude: z.string().optional(),
+          case: z.enum(["true", "false"]).optional(),
+          word: z.enum(["true", "false"]).optional(),
+          regex: z.enum(["true", "false"]).optional(),
+        }),
+      ),
+      async (c) => {
+        const query = c.req.valid("query")
+        c.header("X-Accel-Buffering", "no")
+        c.header("X-Content-Type-Options", "nosniff")
+        return streamSSE(c, async (stream) => {
+          const signal = c.req.raw.signal
+          let count = 0
+          try {
+            for await (const batch of Ripgrep.stream({
+              cwd: Instance.directory,
+              pattern: query.pattern,
+              include: globs(query.include),
+              exclude: globs(query.exclude),
+              case: query.case === "true",
+              word: query.word === "true",
+              regex: query.regex === "true",
+              batch: 100,
+              signal,
+            })) {
+              count += batch.length
+              await stream.writeSSE({
+                event: "results",
+                data: JSON.stringify(batch),
+              })
+            }
+            if (signal.aborted) return
+            await stream.writeSSE({
+              event: "complete",
+              data: JSON.stringify({ count }),
+            })
+          } catch (err: any) {
+            if (signal.aborted) return
+            await stream.writeSSE({
+              event: "error",
+              data: JSON.stringify({ message: err?.message || String(err) }),
+            })
+          }
+        })
+      },
+    )
+    .get(
       "/find/file",
       describeRoute({
         summary: "Find files",

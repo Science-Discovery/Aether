@@ -52,6 +52,7 @@ export interface ListProps<T> extends FilteredListProps<T> {
 export interface ListRef {
   onKeyDown: (e: KeyboardEvent) => void
   setScrollRef: (el: HTMLDivElement | undefined) => void
+  getScrollRef: () => HTMLDivElement | undefined
   setFilter: (value: string) => void
 }
 
@@ -200,6 +201,7 @@ export function List<T>(props: ListProps<T> & { ref?: (ref: ListRef) => void }) 
   props.ref?.({
     onKeyDown: handleKey,
     setScrollRef,
+    getScrollRef: scrollRef,
     setFilter: (value) => applyFilter(value, { ref: true }),
   })
 

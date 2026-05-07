@@ -103,6 +103,7 @@ import type {
   FindFilesResponses,
   FindSymbolsResponses,
   FindTextResponses,
+  FindTextStreamResponses,
   FormatterStatusResponses,
   GlobalConfigGetResponses,
   GlobalConfigUpdateErrors,
@@ -181,6 +182,7 @@ import type {
   PermissionRespondErrors,
   PermissionRespondResponses,
   PermissionRuleset,
+  PostVoiceTranscribeResponses,
   ProjectCurrentResponses,
   ProjectDirectoriesResponses,
   ProjectInitGitResponses,
@@ -4906,6 +4908,48 @@ export class Find extends HeyApiClient {
   }
 
   /**
+   * Find text stream
+   *
+   * Stream text matches across files in the project using ripgrep.
+   */
+  public textStream<ThrowOnError extends boolean = false>(
+    parameters: {
+      directory?: string
+      workspace?: string
+      pattern: string
+      include?: string
+      exclude?: string
+      case?: "true" | "false"
+      word?: "true" | "false"
+      regex?: "true" | "false"
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "query", key: "pattern" },
+            { in: "query", key: "include" },
+            { in: "query", key: "exclude" },
+            { in: "query", key: "case" },
+            { in: "query", key: "word" },
+            { in: "query", key: "regex" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).sse.get<FindTextStreamResponses, unknown, ThrowOnError>({
+      url: "/find/stream",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
    * Find files
    *
    * Search for files or directories by name or pattern in the project directory.
@@ -8072,6 +8116,49 @@ export class OpencodeClient extends HeyApiClient {
   constructor(args?: { client?: Client; key?: string }) {
     super(args)
     OpencodeClient.__registry.set(this, args?.key)
+  }
+
+  public postVoiceTranscribe<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      providerID?: string
+      modelID?: string
+      audioBase64?: string
+      audioFormat?: string
+      context?: Array<{
+        role: string
+        content: string
+      }>
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "providerID" },
+            { in: "body", key: "modelID" },
+            { in: "body", key: "audioBase64" },
+            { in: "body", key: "audioFormat" },
+            { in: "body", key: "context" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<PostVoiceTranscribeResponses, unknown, ThrowOnError>({
+      url: "/voice/transcribe",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
   }
 
   private _global?: Global

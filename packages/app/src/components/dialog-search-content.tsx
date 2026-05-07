@@ -2,15 +2,17 @@ import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { Dialog } from "@opencode-ai/ui/dialog"
 import { FileIcon } from "@opencode-ai/ui/file-icon"
 import { IconButton } from "@opencode-ai/ui/icon-button"
-import { List, type ListRef } from "@opencode-ai/ui/list"
+import { List } from "@opencode-ai/ui/list"
 import { Switch } from "@opencode-ai/ui/switch"
 import { TextField } from "@opencode-ai/ui/text-field"
 import { getDirectory, getFilename } from "@opencode-ai/util/path"
-import { createEffect, createMemo, createSignal, For, onCleanup, Show } from "solid-js"
+import fuzzysort from "fuzzysort"
+import type { ListRef } from "@opencode-ai/ui/list"
+import { createEffect, createMemo, createSignal, For, onCleanup, Show, startTransition } from "solid-js"
 import { useFile } from "@/context/file"
-import { useGlobalSDK } from "@/context/global-sdk"
 import { useLanguage } from "@/context/language"
 import { useLayout } from "@/context/layout"
+import { useSDK } from "@/context/sdk"
 import { useSessionLayout } from "@/pages/session/session-layout"
 import { decode64 } from "@/utils/base64"
 
@@ -32,6 +34,29 @@ type Part = {
   hit: boolean
 }
 
+type Result = {
+  path: {
+    text: string
+  }
+  line_number: number
+  lines: {
+    text: string
+  }
+  submatches: {
+    start: number
+    end: number
+  }[]
+}
+
+type Ranked = {
+  item: Entry
+  score: number
+}
+
+const PAGE = 100
+const WAIT = 50
+const CHUNK = 200
+
 const defer = (run: () => void) => {
   requestAnimationFrame(() => requestAnimationFrame(run))
 }
@@ -51,14 +76,76 @@ const parts = (text: string, matches: Match[]) => {
   return out
 }
 
+const sort = (a: Ranked, b: Ranked) => {
+  if (a.score !== b.score) return b.score - a.score
+  return a.item.id.localeCompare(b.item.id)
+}
+
+const order = (a: Ranked, b: Ranked) => {
+  if (a.score !== b.score) return a.score - b.score
+  return b.item.id.localeCompare(a.item.id)
+}
+
+const sink = (heap: Ranked[], root: number) => {
+  let i = root
+  while (true) {
+    const left = i * 2 + 1
+    const right = left + 1
+    let next = i
+    if (left < heap.length && order(heap[left], heap[next]) < 0) next = left
+    if (right < heap.length && order(heap[right], heap[next]) < 0) next = right
+    if (next === i) return
+    ;[heap[i], heap[next]] = [heap[next], heap[i]]
+    i = next
+  }
+}
+
+const rise = (heap: Ranked[], leaf: number) => {
+  let i = leaf
+  while (i > 0) {
+    const parent = Math.floor((i - 1) / 2)
+    if (order(heap[i], heap[parent]) >= 0) return
+    ;[heap[i], heap[parent]] = [heap[parent], heap[i]]
+    i = parent
+  }
+}
+
+const push = (heap: Ranked[], item: Ranked, size: number) => {
+  if (size <= 0) return
+  if (heap.length < size) {
+    heap.push(item)
+    rise(heap, heap.length - 1)
+    return
+  }
+  const last = heap[0]
+  if (order(item, last) >= 0) return
+  heap[0] = item
+  sink(heap, 0)
+}
+
+const debug = () => {
+  if (!import.meta.env.DEV) return false
+  if (typeof window === "undefined") return false
+  return window.localStorage?.getItem("aether:debug:search-content") === "1"
+}
+
+const log = (msg: string, data: Record<string, unknown>) => {
+  if (!debug()) return
+  console.debug("[search-content]", msg, data)
+}
+
+const same = (prev: Entry[], next: Ranked[]) => {
+  if (prev.length !== next.length) return false
+  return prev.every((item, i) => item.id === next[i]?.item.id)
+}
+
 export function DialogSearchContent(props: { onOpenFile?: (path: string) => void }) {
   const dialog = useDialog()
   const file = useFile()
-  const globalSDK = useGlobalSDK()
   const language = useLanguage()
   const layout = useLayout()
+  const sdk = useSDK()
   const { params, tabs, view } = useSessionLayout()
-  let list: ListRef | undefined
   const [query, setQuery] = createSignal("")
   const [adv, setAdv] = createSignal(false)
   const [inc, setInc] = createSignal("")
@@ -66,56 +153,138 @@ export function DialogSearchContent(props: { onOpenFile?: (path: string) => void
   const [cs, setCs] = createSignal(false)
   const [word, setWord] = createSignal(false)
   const [regex, setRegex] = createSignal(false)
+  const [items, setItems] = createSignal<Entry[]>([])
+  const [count, setCount] = createSignal(0)
+  const [size, setSize] = createSignal(PAGE)
+  const [loading, setLoading] = createSignal(false)
+  let list: ListRef | undefined
   let abort: AbortController | undefined
+  let all: Ranked[] = []
+  let heap: Ranked[] = []
+  let pool: Ranked[] = []
+  let sorted: Ranked[] = []
+  let dirty = false
+  let tick: ReturnType<typeof setTimeout> | undefined
   const has = createMemo(() => !!inc().trim() || !!exc().trim() || cs() || word() || regex())
   const dir = createMemo(() => decode64(params.dir) ?? "")
+  const more = createMemo(() => size() < count())
+  const empty = createMemo(() => {
+    if (loading() && query().trim().length >= 2) return language.t("common.loading")
+    return language.t("palette.empty")
+  })
 
-  const items = async (text: string) => {
-    const pattern = text.trim()
-    if (pattern.length < 2) return [] as Entry[]
-    const current = dir()
-    if (!current) return [] as Entry[]
-    abort?.abort()
-    const ctl = new AbortController()
-    abort = ctl
-    return globalSDK
-      .createClient({
-        directory: current,
-        throwOnError: true,
+  const grow = () => {
+    if (!more()) return
+    const t0 = performance.now()
+    const next = Math.min(size() + PAGE, count())
+    setSize(next)
+    if (dirty) {
+      sorted = all.toSorted(sort)
+      dirty = false
+    }
+    heap = sorted.slice(0, next)
+    setItems(heap.map((item) => item.item))
+    log("grow", {
+      count: count(),
+      size: next,
+      ms: Math.round(performance.now() - t0),
+    })
+  }
+
+  const scroll = () => {
+    const el = list?.getScrollRef()
+    if (!el || !more()) return
+    if (el.scrollTop + el.clientHeight < el.scrollHeight - 80) return
+    grow()
+  }
+
+  const fill = () => {
+    const el = list?.getScrollRef()
+    if (!el || !more()) return
+    if (el.scrollHeight > el.clientHeight + 80) return
+    grow()
+  }
+
+  const stop = () => {
+    pool = []
+    if (!tick) return
+    clearTimeout(tick)
+    tick = undefined
+  }
+
+  const clear = () => {
+    all = []
+    heap = []
+    sorted = []
+    dirty = false
+    stop()
+  }
+
+  const flush = () => {
+    const next = pool.splice(0, CHUNK)
+    if (next.length === 0) return
+    const t0 = performance.now()
+    if (tick) {
+      clearTimeout(tick)
+      tick = undefined
+    }
+    for (const item of next) {
+      all.push(item)
+      push(heap, item, size())
+    }
+    dirty = true
+    setCount(all.length)
+    const view = heap.toSorted(sort)
+    const done = () => {
+      log("flush", {
+        batch: next.length,
+        count: all.length,
+        size: size(),
+        pending: pool.length,
+        ms: Math.round(performance.now() - t0),
       })
-      .find.text({
-        pattern,
-        include: inc(),
-        exclude: exc(),
-        case: cs() ? "true" : "false",
-        word: word() ? "true" : "false",
-        regex: regex() ? "true" : "false",
-      }, {
-        signal: ctl.signal,
-      })
-      .then((x) => (x.data ?? []).map((item) => ({
-        id: `${item.path.text}:${item.line_number}:${item.lines.text}`,
-        line: item.line_number,
-        matches: item.submatches.map((part) => ({
-          start: part.start,
-          end: part.end,
-        })),
-        path: file.normalize(item.path.text),
-        text: item.lines.text.trimEnd(),
-      })))
-      .then((list) =>
-      list.map((item) => ({
-        id: `${item.path}:${item.line}:${item.text}`,
-        line: item.line,
-        matches: item.matches,
-        path: item.path,
-        text: item.text,
+      if (pool.length > 0) {
+        tick = setTimeout(flush, 0)
+        return
+      }
+      queueMicrotask(fill)
+    }
+    if (same(items(), view)) {
+      done()
+      return
+    }
+    void startTransition(() => {
+      setItems(view.map((item) => item.item))
+    }).then(done)
+  }
+
+  const queue = (next: Ranked[]) => {
+    pool.push(...next)
+    if (count() === 0 && pool.length >= PAGE) {
+      flush()
+      return
+    }
+    if (tick) return
+    tick = setTimeout(flush, WAIT)
+  }
+
+  const entry = (item: Result, pattern: string) => {
+    const next = {
+      id: `${item.path.text}:${item.line_number}:${item.lines.text}`,
+      line: item.line_number,
+      matches: item.submatches.map((part) => ({
+        start: part.start,
+        end: part.end,
       })),
-      )
-      .catch((err: unknown) => {
-        if (err instanceof Error && err.name === "AbortError") return []
-        throw err
-      })
+      path: file.normalize(item.path.text),
+      text: item.lines.text.trimEnd(),
+    }
+    const path = fuzzysort.single(pattern, fuzzysort.prepare(next.path))?.score ?? 0
+    const text = fuzzysort.single(pattern, fuzzysort.prepare(next.text))?.score ?? 0
+    return {
+      item: next,
+      score: Math.max(path, text),
+    }
   }
 
   const open = (path: string, line: number) => {
@@ -131,18 +300,90 @@ export function DialogSearchContent(props: { onOpenFile?: (path: string) => void
     defer(() => void file.tree.reveal(path))
   }
 
+  const search = async () => {
+    const pattern = query().trim()
+    const current = dir()
+    abort?.abort()
+    clear()
+    setItems([])
+    setCount(0)
+    setSize(PAGE)
+
+    if (pattern.length < 2 || !current) {
+      setLoading(false)
+      return
+    }
+
+    const ctl = new AbortController()
+    abort = ctl
+    setLoading(true)
+
+    try {
+      const result = await sdk.createClient({ directory: current, throwOnError: true }).find.textStream(
+        {
+          pattern,
+          include: inc().trim() || undefined,
+          exclude: exc().trim() || undefined,
+          case: cs() ? "true" : "false",
+          word: word() ? "true" : "false",
+          regex: regex() ? "true" : "false",
+        },
+        {
+          sseMaxRetryAttempts: 1,
+          signal: ctl.signal,
+        },
+      )
+
+      for await (const item of result.stream) {
+        if (Array.isArray(item)) {
+          queue(item.map((row) => entry(row, pattern)))
+          continue
+        }
+
+        if ("count" in item) {
+          flush()
+          setLoading(false)
+          return
+        }
+
+        throw new Error(item.message || "Search stream failed")
+      }
+    } catch (err: unknown) {
+      if (err instanceof Error && err.name === "AbortError") return
+      if (ctl.signal.aborted) return
+      console.error(err)
+    } finally {
+      stop()
+      if (abort === ctl) abort = undefined
+      setLoading(false)
+    }
+  }
   createEffect(() => {
+    query()
     inc()
     exc()
     cs()
     word()
     regex()
-    const text = query()
-    if (text.length < 2) return
-    list?.setFilter(text)
+    void search()
   })
 
-  onCleanup(() => abort?.abort())
+  createEffect(() => {
+    const el = list?.getScrollRef()
+    if (!el) return
+    el.addEventListener("scroll", scroll, { passive: true })
+    onCleanup(() => el.removeEventListener("scroll", scroll))
+  })
+
+  createEffect(() => {
+    items()
+    queueMicrotask(fill)
+  })
+
+  onCleanup(() => {
+    clear()
+    abort?.abort()
+  })
 
   return (
     <Dialog class="pt-3 pb-0 !max-h-[480px]" transition>
@@ -194,10 +435,10 @@ export function DialogSearchContent(props: { onOpenFile?: (path: string) => void
             />
           ),
         }}
-        emptyMessage={language.t("palette.empty")}
-        loadingMessage={language.t("common.loading")}
-        items={items}
+        emptyMessage={empty()}
+        items={items()}
         key={(item) => item.id}
+        filterMode="none"
         filterKeys={["path", "text"]}
         onFilter={setQuery}
         onSelect={(item) => {

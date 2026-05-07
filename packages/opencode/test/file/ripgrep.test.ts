@@ -146,6 +146,26 @@ describe("file.ripgrep", () => {
     expect(hits).toEqual([])
   })
 
+  test("stream yields matches in batches", async () => {
+    await using tmp = await tmpdir({
+      init: async (dir) => {
+        await Bun.write(path.join(dir, "match.ts"), "alpha\nbeta\nalpha\nbeta\n")
+      },
+    })
+
+    const batches = await Array.fromAsync(
+      Ripgrep.stream({
+        cwd: tmp.path,
+        pattern: "a",
+        batch: 2,
+      }),
+    )
+
+    expect(batches).toHaveLength(2)
+    expect(batches[0]).toHaveLength(2)
+    expect(batches[1]).toHaveLength(2)
+  })
+
   test("search aborts with signal", async () => {
     await using tmp = await tmpdir({
       init: async (dir) => {

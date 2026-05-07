@@ -7,6 +7,7 @@ import { createList } from "solid-list"
 export interface FilteredListProps<T> {
   items: T[] | ((filter: string) => T[] | Promise<T[]>)
   key: (item: T) => string
+  filterMode?: "fuzzy" | "none"
   filterKeys?: string[]
   current?: T
   groupBy?: (x: T) => string
@@ -35,6 +36,7 @@ export function useFilteredList<T>(props: FilteredListProps<T>) {
         all,
         (x) => {
           if (!needle) return x
+          if (props.filterMode === "none") return x
           if (!props.filterKeys && Array.isArray(x) && x.every((e) => typeof e === "string")) {
             return fuzzysort.go(needle, x).map((x) => x.target) as T[]
           }

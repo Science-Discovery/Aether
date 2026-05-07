@@ -5543,6 +5543,54 @@ export type FindTextResponses = {
 
 export type FindTextResponse = FindTextResponses[keyof FindTextResponses]
 
+export type FindTextStreamData = {
+  body?: never
+  path?: never
+  query: {
+    directory?: string
+    workspace?: string
+    pattern: string
+    include?: string
+    exclude?: string
+    case?: "true" | "false"
+    word?: "true" | "false"
+    regex?: "true" | "false"
+  }
+  url: "/find/stream"
+}
+
+export type FindTextStreamResponses = {
+  /**
+   * SSE matches
+   */
+  200:
+    | Array<{
+        path: {
+          text: string
+        }
+        lines: {
+          text: string
+        }
+        line_number: number
+        absolute_offset: number
+        submatches: Array<{
+          match: {
+            text: string
+          }
+          start: number
+          end: number
+        }>
+      }>
+    | {
+        count: number
+      }
+    | {
+        message: string
+      }
+}
+
+export type FindTextStreamResponse = FindTextStreamResponses[keyof FindTextStreamResponses]
+
 export type FindFilesData = {
   body?: never
   path?: never
@@ -8081,6 +8129,29 @@ export type CronRunsGetResponses = {
 }
 
 export type CronRunsGetResponse = CronRunsGetResponses[keyof CronRunsGetResponses]
+
+export type PostVoiceTranscribeData = {
+  body?: {
+    providerID: string
+    modelID: string
+    audioBase64: string
+    audioFormat: string
+    context?: Array<{
+      role: string
+      content: string
+    }>
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/voice/transcribe"
+}
+
+export type PostVoiceTranscribeResponses = {
+  200: unknown
+}
 
 export type WechatStartData = {
   body?: never
