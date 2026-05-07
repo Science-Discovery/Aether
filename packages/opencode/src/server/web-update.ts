@@ -76,11 +76,6 @@ function arch() {
   return process.arch === "arm64" ? "arm64" : "x64"
 }
 
-const UPDATE_PKG_PREFIX: Record<string, string> = {
-  darwin: "aether-darwin",
-  linux: `aether-linux-${arch()}`,
-  windows: "aether-windows-x64",
-}
 const UPDATE_RUN = (() => {
   try {
     return crypto.randomUUID()
@@ -89,12 +84,12 @@ const UPDATE_RUN = (() => {
   }
 })()
 const INSTALLER_YML: Record<string, string | ((arch: string) => string)> = {
-  darwin: "latest/mac-arm64.yml",
+  darwin: (a) => `latest/mac-${a}.yml`,
   linux: (a) => `latest/linux-${a}.yml`,
   windows: "latest/windows-x64.yml",
 }
 const UPDATE_YML: Record<string, string | ((arch: string) => string)> = {
-  darwin: "mac-arm64.yml",
+  darwin: (a) => `mac-${a}.yml`,
   linux: (a) => `linux-${a}.yml`,
   windows: "windows-x64.yml",
 }
@@ -103,8 +98,8 @@ function yml(map: Record<string, string | ((arch: string) => string)>, os: z.inf
   const item = map[os]
   return typeof item === "function" ? item(arch()) : item
 }
-const INSTALLER_SCRIPT: Record<string, string> = {
-  darwin: "aether_darwin_installer.command",
+const INSTALLER_SCRIPT: Record<string, string | ((arch: string) => string)> = {
+  darwin: (a) => (a === "x64" ? "aether_darwin_x64_installer.command" : "aether_darwin_installer.command"),
   linux: "aether_linux_installer.sh",
   windows: "aether_windows_installer.bat",
 }
@@ -442,7 +437,7 @@ async function fetchManifest(os: z.infer<typeof WebUpdateOS>, version?: string) 
 
 function packageMatch(os: string, ver: string, name: string) {
   const ext = UPDATE_PKG_EXT[os] ?? ".dmg"
-  const prefix = os === "linux" ? `aether-linux-${arch()}` : os === "windows" ? "aether-windows-x64" : "aether-darwin"
+  const prefix = os === "darwin" ? `aether-darwin-${arch()}` : os === "linux" ? `aether-linux-${arch()}` : "aether-windows-x64"
   return name.startsWith(prefix) && name.includes(ver) && name.toLowerCase().endsWith(ext)
 }
 
@@ -659,7 +654,8 @@ function getWorkDir(os: string): string | null {
 }
 
 async function fetchInstallerScript(os: string): Promise<string | null> {
-  const name = INSTALLER_SCRIPT[os]
+  const item = INSTALLER_SCRIPT[os]
+  const name = typeof item === "function" ? item(arch()) : item
   if (!name) return null
   const url = `${await getUpdateBase()}/installer/${name}`
   const dest = path.join(tmpdir(), `aether-installer-${name}`)

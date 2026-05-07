@@ -86,6 +86,10 @@ function dmg(src: string, out: string) {
   )
 }
 
+function mac() {
+  return process.arch === "arm64" ? "arm64" : "x64"
+}
+
 async function dirs(root: string) {
   return (await fs.readdir(root)).filter((x) => x.startsWith("aether_")).sort()
 }
@@ -259,7 +263,7 @@ describe("web update scripts", () => {
       const live = path.join(tmp.path, "live")
       const cur = path.join(live, "current")
       const src = path.join(tmp.path, "src-darwin")
-      const out = path.join(dl, "aether-darwin-1.2.7.dmg")
+      const out = path.join(dl, `aether-darwin-${mac()}-1.2.7.dmg`)
       const script = path.join(dl, "update_darwin.command")
 
       await fs.mkdir(dl, { recursive: true })
@@ -299,7 +303,7 @@ describe("web update scripts", () => {
       const dl = path.join(work, "downloads")
       const cur = path.join(work, "aether_1.2.6")
       const src = path.join(tmp.path, "src-darwin")
-      const out = path.join(dl, "aether-darwin-1.2.7.dmg")
+      const out = path.join(dl, `aether-darwin-${mac()}-1.2.7.dmg`)
       const script = path.join(dl, "update_darwin.command")
 
       await fs.mkdir(dl, { recursive: true })
