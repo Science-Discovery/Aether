@@ -52,45 +52,6 @@ function baseStrip(path: string, base: string) {
   return undefined
 }
 
-const api = [
-  "/agent",
-  "/auth",
-  "/command",
-  "/config",
-  "/cron",
-  "/database",
-  "/doc",
-  "/event",
-  "/experimental",
-  "/file",
-  "/find",
-  "/formatter",
-  "/global",
-  "/instance",
-  "/knowledge",
-  "/log",
-  "/lsp",
-  "/mcp",
-  "/memory",
-  "/mobile",
-  "/path",
-  "/permission",
-  "/project",
-  "/project-directory-meta",
-  "/provider",
-  "/pty",
-  "/question",
-  "/reading-mode",
-  "/session",
-  "/skill",
-  "/tui",
-  "/vcs",
-]
-
-function routed(path: string) {
-  return api.some((route) => path === route || path.startsWith(`${route}/`))
-}
-
 function baseInject(html: string, base: string) {
   const tag = `<base href="${baseHref(base)}"><script>globalThis.__AETHER_BASE_PATH__=${JSON.stringify(base)}</script>`
   return html.includes("<head>") ? html.replace("<head>", `<head>${tag}`) : `${tag}${html}`
@@ -177,7 +138,7 @@ import { EventRoutes } from "./routes/event"
 import { InstanceBootstrap } from "../project/bootstrap"
 import { NotFoundError } from "../storage/db"
 import type { ContentfulStatusCode } from "hono/utils/http-status"
-import { websocket, type BunWebSocketData } from "hono/bun"
+import { websocket } from "hono/bun"
 import { HTTPException } from "hono/http-exception"
 import { errors } from "./error"
 import { Filesystem } from "@/util/filesystem"
@@ -202,6 +163,18 @@ import { Cron } from "@/cron"
 
 // @ts-ignore This global is needed to prevent ai-sdk from logging warnings to stdout https://github.com/vercel/ai/blob/2dc67e0ef538307f21368db32d5a12345d98831b/packages/ai/src/logger/log-warnings.ts#L85
 globalThis.AI_SDK_LOG_WARNINGS = false
+
+const NO_AUTH_PATHS = new Set([
+  "/site.webmanifest",
+  "/favicon-96x96-v3.png",
+  "/favicon-v3.svg",
+  "/favicon-v3.ico",
+  "/apple-touch-icon-v3.png",
+  "/oc-theme-preload.js",
+  "/web-app-manifest-192x192.png",
+  "/web-app-manifest-512x512.png",
+  "/social-share.png",
+])
 
 const csp = (hash = "") =>
   `default-src 'self'; script-src 'self' 'wasm-unsafe-eval'${hash ? ` 'sha256-${hash}'` : ""}; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; media-src 'self' data:; connect-src 'self' data:`
@@ -283,6 +256,10 @@ export namespace Server {
         // Allow CORS preflight requests to succeed without auth.
         // Browser clients sending Authorization headers will preflight with OPTIONS.
         if (c.req.method === "OPTIONS") return next()
+        // PWA manifest, favicons, and theme preload are fetched by the browser
+        // automatically without Authorization headers. Exempt them from basicAuth
+        // since they contain no sensitive data.
+        if (NO_AUTH_PATHS.has(c.req.path)) return next()
         const password = Flag.OPENCODE_SERVER_PASSWORD
         if (!password) return next()
         const username = Flag.OPENCODE_SERVER_USERNAME ?? "opencode"
@@ -953,22 +930,11 @@ export namespace Server {
   }) {
     const app = createApp(opts)
     const bp = basePath()
-    const baseFetch =
-      bp === "/"
-        ? app.fetch
-        : async (req: Request, server: Bun.Server<BunWebSocketData>): Promise<Response> => {
-            const url = new URL(req.url)
-            const stripped = baseStrip(url.pathname, bp)
-            if (stripped !== undefined && routed(stripped)) {
-              url.pathname = stripped
-              req = new Request(url.toString(), req)
-            }
-            return app.fetch(req, server)
-          }
+    const root = bp === "/" ? app : new Hono<ServerEnv>().route(bp, app).route("/", app)
     const args = {
       hostname: opts.hostname,
       idleTimeout: 0,
-      fetch: baseFetch,
+      fetch: root.fetch,
       websocket: websocket,
       // Raise body limit to 1 GB to support large PDF uploads (default is 128 MB)
       maxRequestBodySize: 1024 * 1024 * 1024,

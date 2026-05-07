@@ -95,6 +95,7 @@ export namespace SessionProcessor {
         },
       }
     }
+    let statusIdle = false
 
     const result = {
       get message() {
@@ -106,6 +107,7 @@ export namespace SessionProcessor {
       async process(streamInput: LLM.StreamInput) {
         log.info("process")
         needsCompaction = false
+        statusIdle = false
         const shouldBreak = (await Config.get()).experimental?.continue_loop_on_deny !== true
         while (true) {
           try {
@@ -452,7 +454,7 @@ export namespace SessionProcessor {
                 sessionID: input.assistantMessage.sessionID,
                 error: input.assistantMessage.error,
               })
-              await SessionStatus.set(input.sessionID, { type: "idle" })
+              statusIdle = true
             }
           }
           if (snapshot) {
@@ -488,6 +490,9 @@ export namespace SessionProcessor {
           }
           input.assistantMessage.time.completed = Date.now()
           await Session.updateMessage(input.assistantMessage)
+          if (statusIdle) {
+            await SessionStatus.set(input.sessionID, { type: "idle" })
+          }
           if (needsCompaction) return "compact"
           if (blocked) return "stop"
           if (input.assistantMessage.error) return "stop"

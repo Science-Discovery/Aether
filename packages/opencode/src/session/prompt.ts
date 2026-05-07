@@ -307,14 +307,12 @@ export namespace SessionPrompt {
     log.info("cancel", { sessionID })
     const s = state()
     const match = s[sessionID]
-    if (!match) {
-      await SessionStatus.set(sessionID, { type: "idle" })
-    } else {
+    if (match) {
       match.abort.abort()
       delete s[sessionID]
-      await SessionStatus.set(sessionID, { type: "idle" })
     }
     await Session.recoverStuckParts(sessionID)
+    await SessionStatus.set(sessionID, { type: "idle" })
   }
 
   interface SubtaskContext {
@@ -834,7 +832,6 @@ export namespace SessionPrompt {
           variant: lastUser.variant,
         }
         await Session.updateMessage(msg)
-        lastUser = msg
         const part = {
           id: PartID.ascending(),
           messageID: msg.id,
