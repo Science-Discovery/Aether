@@ -63,6 +63,15 @@ vi.mock("@opencode-ai/ui/dropdown-menu", () => ({
   }),
 }))
 
+vi.mock("@solidjs/router", () => ({
+  useNavigate: () => () => undefined,
+  useParams: () => ({}),
+}))
+
+vi.mock("@/pages/session/git-graph/tab", () => ({
+  GitGraphTab: () => null,
+}))
+
 vi.mock("@thisbeyond/solid-dnd", () => ({
   DragDropProvider: (props: { children?: unknown }) => props.children,
   DragDropSensors: () => null,
