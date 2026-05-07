@@ -666,7 +666,7 @@ export namespace SessionPrompt {
       const calls = match?.parts.some((part) => part.type === "tool" && !part.providerExecuted) ?? false
       if (
         lastAssistant?.finish &&
-        !["tool-calls", "unknown"].includes(lastAssistant.finish) &&
+        !["tool-calls"].includes(lastAssistant.finish) &&
         !calls &&
         lastUser.id < lastAssistant.id
       ) {
@@ -999,7 +999,7 @@ export namespace SessionPrompt {
       }
 
       // Check if model finished (finish reason is not "tool-calls" or "unknown")
-      const modelFinished = processor.message.finish && !["tool-calls", "unknown"].includes(processor.message.finish)
+      const modelFinished = processor.message.finish && !["tool-calls"].includes(processor.message.finish)
 
       if (modelFinished && !processor.message.error) {
         await flushMemoryReceipt(processor.message.id)
