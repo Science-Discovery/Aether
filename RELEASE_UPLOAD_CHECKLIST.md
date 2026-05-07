@@ -14,8 +14,8 @@
 | `release-mac-desktop.sh`      | `packages/desktop-electron/dist/*-mac-arm64.dmg`（或匹配 `*mac*arm64*.dmg`）           | `packages/desktop-electron/dist/latest-mac.yml`   |
 | `release-linux-desktop.sh`    | `packages/desktop-electron/dist/*-linux-x64.AppImage`（或匹配 `*linux*x64*.AppImage`） | `packages/desktop-electron/dist/latest-linux.yml` |
 | `release-windows-desktop.bat` | `packages/desktop-electron/dist/aether-win-x64.exe`（或匹配 `*win*x64*.exe`）          | `packages/desktop-electron/dist/latest.yml`       |
-| `release-mac-web.sh`          | `packages/opencode/dist/aether-darwin-arm64-web.dmg`                                   | `packages/opencode/dist/latest-web-mac.yml`       |
-| `release-linux-web.sh`        | `packages/opencode/dist/aether-linux-x64.zip`                                          | `packages/opencode/dist/latest-web-linux.yml`     |
+| `release-mac-web.sh`          | `packages/opencode/dist/aether-darwin-arm64.dmg` / `packages/opencode/dist/aether-darwin-x64.dmg` | `packages/opencode/dist/latest-web-mac.yml` / `packages/opencode/dist/latest-web-mac-x64.yml` |
+| `release-linux-web.sh`        | `packages/opencode/dist/aether-linux-x64.zip` / `packages/opencode/dist/aether-linux-arm64.zip` | `packages/opencode/dist/latest-web-linux.yml` / `packages/opencode/dist/latest-web-linux-arm64.yml` |
 | `release-windows-web.bat`     | `packages/opencode/dist/aether-windows-x64.zip`                                        | `packages/opencode/dist/latest-web-windows.yml`   |
 
 ## 上传策略
@@ -24,9 +24,11 @@
   - mac：`.dmg` + `latest-mac.yml`
   - linux：`.AppImage` + `latest-linux.yml`
   - windows：`.exe` + `latest.yml`
-- `web` 渠道（`latest-web`）：上传 3 个 web 分发包 + 3 个 web `yml`
-  - mac：`aether-darwin-arm64-web.dmg` + `latest-web-mac.yml`
+- `web` 渠道（`latest-web`）：上传 5 个 web 分发包 + 5 个 web `yml`
+  - mac：`aether-darwin-arm64.dmg` + `latest-web-mac.yml`
+  - mac x64：`aether-darwin-x64.dmg` + `latest-web-mac-x64.yml`
   - linux：`aether-linux-x64.zip` + `latest-web-linux.yml`
+  - linux arm64：`aether-linux-arm64.zip` + `latest-web-linux-arm64.yml`
   - windows：`aether-windows-x64.zip` + `latest-web-windows.yml`
 - `web` release asset 不再上传 `update_*` 脚本；在线更新继续由包内 `aether_*_installer.*` 触发
 

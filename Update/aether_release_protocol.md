@@ -45,6 +45,8 @@
   `https://aether.aiphys.cn/download/latest/windows-x64.yml`
 - macOS arm64
   `https://aether.aiphys.cn/download/latest/mac-arm64.yml`
+- macOS x64
+  `https://aether.aiphys.cn/download/latest/mac-x64.yml`
 - Linux x64
   `https://aether.aiphys.cn/download/latest/linux-x64.yml`
 - Linux arm64
@@ -56,6 +58,8 @@
   `https://aether.aiphys.cn/download/<version>/windows-x64.yml`
 - macOS arm64
   `https://aether.aiphys.cn/download/<version>/mac-arm64.yml`
+- macOS x64
+  `https://aether.aiphys.cn/download/<version>/mac-x64.yml`
 - Linux x64
   `https://aether.aiphys.cn/download/<version>/linux-x64.yml`
 - Linux arm64
@@ -68,20 +72,25 @@ download/
   latest/
     windows-x64.yml
     mac-arm64.yml
+    mac-x64.yml
     linux-x64.yml
     linux-arm64.yml
   1.2.3/
     windows-x64.yml
     mac-arm64.yml
+    mac-x64.yml
     linux-x64.yml
     linux-arm64.yml
-    aether-1.2.3-windows-x64.zip
-    aether-1.2.3-mac-arm64.zip
-    aether-1.2.3-linux-x64.tar.gz
-    aether-1.2.3-linux-arm64.tar.gz
-    install-windows.bat
-    install-darwin.command
-    install-linux.sh
+    aether-windows-x64.zip
+    aether-darwin-arm64.dmg
+    aether-darwin-x64.dmg
+    aether-linux-x64.zip
+    aether-linux-arm64.zip
+    update_windows.bat
+    update_darwin.command
+    update_darwin_x64.command
+    update_linux.sh
+    update_linux_arm64.sh
     notes.md
 ```
 
@@ -94,10 +103,10 @@ download/
 ```yml
 version: 1.2.3
 package:
-  url: 1.2.3/aether-1.2.3-windows-x64.zip
+  url: aether-windows-x64.zip
   sha512: BASE64_SHA512_OPTIONAL
 installer:
-  url: 1.2.3/install-windows.bat
+  url: update_windows.bat
 notes_url: 1.2.3/notes.md
 ```
 
@@ -106,10 +115,10 @@ macOS 示例：
 ```yml
 version: 1.2.3
 package:
-  url: 1.2.3/aether-1.2.3-mac-arm64.zip
+  url: aether-darwin-arm64.dmg
   sha512: BASE64_SHA512_OPTIONAL
 installer:
-  url: 1.2.3/install-darwin.command
+  url: update_darwin.command
 notes_url: 1.2.3/notes.md
 ```
 
@@ -118,10 +127,10 @@ Linux 示例：
 ```yml
 version: 1.2.3
 package:
-  url: 1.2.3/aether-1.2.3-linux-x64.tar.gz
+  url: aether-linux-x64.zip
   sha512: BASE64_SHA512_OPTIONAL
 installer:
-  url: 1.2.3/install-linux.sh
+  url: update_linux.sh
 notes_url: 1.2.3/notes.md
 ```
 
@@ -252,8 +261,8 @@ target_version: '1.2.3'
 requested_version: ''
 work_dir: 'C:\Users\name\AppData\Local\Programs\Aether'
 download_dir: 'C:\Users\name\AppData\Local\Programs\Aether\downloads'
-package_path: 'C:\Users\name\AppData\Local\Programs\Aether\downloads\aether-1.2.3-windows-x64.zip'
-installer_path: 'C:\Users\name\AppData\Local\Programs\Aether\downloads\install-windows.bat'
+package_path: 'C:\Users\name\AppData\Local\Programs\Aether\downloads\aether-windows-x64-1.2.3.zip'
+installer_path: 'C:\Users\name\AppData\Local\Programs\Aether\downloads\update_windows-1.2.3.bat'
 manifest_url: 'https://aether.aiphys.cn/download/latest/windows-x64.yml'
 notes_url: 'https://aether.aiphys.cn/download/1.2.3/notes.md'
 ```
@@ -354,11 +363,15 @@ Aether 调用安装入口脚本后，推荐按以下顺序处理：
 推荐的版本安装脚本文件名：
 
 - Windows
-  `install-windows.bat`
-- macOS
-  `install-darwin.command`
-- Linux
-  `install-linux.sh`
+  `update_windows.bat`
+- macOS arm64
+  `update_darwin.command`
+- macOS x64
+  `update_darwin_x64.command`
+- Linux x64
+  `update_linux.sh`
+- Linux arm64
+  `update_linux_arm64.sh`
 
 ## 发布侧检查清单
 
@@ -384,6 +397,8 @@ Aether 调用安装入口脚本后，推荐按以下顺序处理：
   `windows-x64`
 - macOS Apple Silicon
   `mac-arm64`
+- macOS Intel
+  `mac-x64`
 - Linux x64
   `linux-x64`
 - Linux arm64
@@ -391,7 +406,6 @@ Aether 调用安装入口脚本后，推荐按以下顺序处理：
 
 如果未来新增平台，例如：
 
-- `mac-x64`
 - `windows-arm64`
 
 可沿用同一目录结构和同一 manifest 协议。

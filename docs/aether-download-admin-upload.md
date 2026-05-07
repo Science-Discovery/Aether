@@ -18,6 +18,7 @@ Aether 下载服务分为两个发布渠道：
 当前支持的平台：
 
 - macOS Apple Silicon
+- macOS Intel
 - Windows x64
 - Linux x64
 - Linux ARM64
@@ -93,6 +94,7 @@ POST https://aether.aiphys.cn/api/downloadbeta/admin/commit     # 提交元数�
 ```json
 {
   "mac": { "version": "1.3.3" },
+  "macIntel": { "version": "1.3.3" },
   "windows": { "version": "1.3.3" },
   "linux": { "version": "1.3.3" },
   "linuxArm64": { "version": "1.3.3" }
@@ -114,6 +116,18 @@ POST https://aether.aiphys.cn/api/downloadbeta/admin/commit     # 提交元数�
       "installer": {
         "objectKey": "1.3.3/update_darwin.command",
         "url": "https://aether-asset.oss-cn-beijing.aliyuncs.com/1.3.3/update_darwin.command?x-oss-signature-version=...",
+        "contentType": "text/x-shellscript; charset=utf-8"
+      }
+    },
+    "macIntel": {
+      "archive": {
+        "objectKey": "1.3.3/aether-darwin-x64.dmg",
+        "url": "https://aether-asset.oss-cn-beijing.aliyuncs.com/1.3.3/aether-darwin-x64.dmg?x-oss-signature-version=...",
+        "contentType": "application/x-apple-diskimage"
+      },
+      "installer": {
+        "objectKey": "1.3.3/update_darwin_x64.command",
+        "url": "https://aether-asset.oss-cn-beijing.aliyuncs.com/1.3.3/update_darwin_x64.command?x-oss-signature-version=...",
         "contentType": "text/x-shellscript; charset=utf-8"
       }
     },
@@ -174,6 +188,7 @@ wait
 ```json
 {
   "mac": { "version": "1.3.3" },
+  "macIntel": { "version": "1.3.3" },
   "windows": { "version": "1.3.3" },
   "linux": { "version": "1.3.3" },
   "linuxArm64": { "version": "1.3.3" },
@@ -199,6 +214,26 @@ wait
 
 服务端不会把安装包、版本安装脚本或 manifest 写入本地 `downloads/{version}/` 或 `downloads/latest/`。运行时唯一允许写入 `downloads/` 的文件是 `downloads/latest-versions.json`。
 
+### 公开安装器 OSS key
+
+下载页的安装器链接会重定向到 OSS 的固定 `installer/` 前缀，不走版本目录：
+
+```text
+installer/aether_windows_installer.bat
+installer/aether_darwin_installer.command
+installer/aether_darwin_x64_installer.command
+installer/aether_linux_installer.sh
+installer/aether_linux_arm64_installer.sh
+```
+
+如果 OSS 返回 `NoSuchKey`，要先确认上传的是上面的完整 key。尤其 Linux ARM64 安装器必须是：
+
+```text
+installer/aether_linux_arm64_installer.sh
+```
+
+`installer/aether_linux_installer_arm64.sh` 是另一个不同对象，上传这个名字不会被 `/download/installer/aether_linux_arm64_installer.sh` 命中。
+
 ## 测试版渠道 OSS 直传上传
 
 测试版渠道用于发布可被客户端自动更新读取的 beta 产物。接口协议与公开渠道一致，但存储、版本索引和下载路径必须与公开渠道隔离。
@@ -222,6 +257,7 @@ wait
 ```json
 {
   "mac": { "version": "1.3.3-beta.1" },
+  "macIntel": { "version": "1.3.3-beta.1" },
   "windows": { "version": "1.3.3-beta.1" },
   "linux": { "version": "1.3.3-beta.1" },
   "linuxArm64": { "version": "1.3.3-beta.1" }
@@ -243,6 +279,18 @@ wait
       "installer": {
         "objectKey": "beta/1.3.3-beta.1/update_darwin.command",
         "url": "https://aether-asset.oss-cn-beijing.aliyuncs.com/beta/1.3.3-beta.1/update_darwin.command?x-oss-signature-version=...",
+        "contentType": "text/x-shellscript; charset=utf-8"
+      }
+    },
+    "macIntel": {
+      "archive": {
+        "objectKey": "beta/1.3.3-beta.1/aether-darwin-x64.dmg",
+        "url": "https://aether-asset.oss-cn-beijing.aliyuncs.com/beta/1.3.3-beta.1/aether-darwin-x64.dmg?x-oss-signature-version=...",
+        "contentType": "application/x-apple-diskimage"
+      },
+      "installer": {
+        "objectKey": "beta/1.3.3-beta.1/update_darwin_x64.command",
+        "url": "https://aether-asset.oss-cn-beijing.aliyuncs.com/beta/1.3.3-beta.1/update_darwin_x64.command?x-oss-signature-version=...",
         "contentType": "text/x-shellscript; charset=utf-8"
       }
     },
@@ -281,6 +329,7 @@ wait
 ```json
 {
   "mac": { "version": "1.3.3-beta.1" },
+  "macIntel": { "version": "1.3.3-beta.1" },
   "windows": { "version": "1.3.3-beta.1" },
   "linux": { "version": "1.3.3-beta.1" },
   "linuxArm64": { "version": "1.3.3-beta.1" },
@@ -326,6 +375,7 @@ wait
 
 ```text
 /download/latest/aether-darwin-arm64.dmg
+/download/latest/aether-darwin-x64.dmg
 /download/latest/aether-windows-x64.zip
 /download/latest/aether-linux-x64.zip
 /download/latest/aether-linux-arm64.zip
@@ -357,6 +407,7 @@ wait
 客户端可以通过 `latest` 路由获取某个平台当前发布的最新公开版本：
 
 - `/download/latest/mac-arm64.yml`
+- `/download/latest/mac-x64.yml`
 - `/download/latest/windows-x64.yml`
 - `/download/latest/linux-x64.yml`
 - `/download/latest/linux-arm64.yml`
@@ -365,6 +416,8 @@ wait
 
 - `/download/latest/aether-darwin-arm64.dmg`
 - `/download/latest/update_darwin.command`
+- `/download/latest/aether-darwin-x64.dmg`
+- `/download/latest/update_darwin_x64.command`
 - `/download/latest/aether-windows-x64.zip`
 - `/download/latest/update_windows.bat`
 - `/download/latest/aether-linux-x64.zip`
@@ -381,11 +434,14 @@ wait
 测试版渠道使用相同文件名和解析规则，但根路径改为 `/downloadbeta`，且只读取测试版版本索引：
 
 - `/downloadbeta/latest/mac-arm64.yml`
+- `/downloadbeta/latest/mac-x64.yml`
 - `/downloadbeta/latest/windows-x64.yml`
 - `/downloadbeta/latest/linux-x64.yml`
 - `/downloadbeta/latest/linux-arm64.yml`
 - `/downloadbeta/latest/aether-darwin-arm64.dmg`
 - `/downloadbeta/latest/update_darwin.command`
+- `/downloadbeta/latest/aether-darwin-x64.dmg`
+- `/downloadbeta/latest/update_darwin_x64.command`
 - `/downloadbeta/latest/aether-windows-x64.zip`
 - `/downloadbeta/latest/update_windows.bat`
 - `/downloadbeta/latest/aether-linux-x64.zip`
@@ -398,6 +454,7 @@ wait
 客户端也可以显式拉取某个版本：
 
 - `/download/<version>/mac-arm64.yml`
+- `/download/<version>/mac-x64.yml`
 - `/download/<version>/windows-x64.yml`
 - `/download/<version>/linux-x64.yml`
 - `/download/<version>/linux-arm64.yml`
@@ -406,6 +463,8 @@ wait
 
 - `/download/<version>/aether-darwin-arm64.dmg`
 - `/download/<version>/update_darwin.command`
+- `/download/<version>/aether-darwin-x64.dmg`
+- `/download/<version>/update_darwin_x64.command`
 - `/download/<version>/aether-windows-x64.zip`
 - `/download/<version>/update_windows.bat`
 - `/download/<version>/aether-linux-x64.zip`
@@ -416,10 +475,13 @@ wait
 测试版渠道的指定版本路径同样只需把根路径替换为 `/downloadbeta`：
 
 - `/downloadbeta/<version>/mac-arm64.yml`
+- `/downloadbeta/<version>/mac-x64.yml`
 - `/downloadbeta/<version>/windows-x64.yml`
 - `/downloadbeta/<version>/linux-x64.yml`
 - `/downloadbeta/<version>/aether-darwin-arm64.dmg`
 - `/downloadbeta/<version>/update_darwin.command`
+- `/downloadbeta/<version>/aether-darwin-x64.dmg`
+- `/downloadbeta/<version>/update_darwin_x64.command`
 - `/downloadbeta/<version>/aether-windows-x64.zip`
 - `/downloadbeta/<version>/update_windows.bat`
 - `/downloadbeta/<version>/aether-linux-x64.zip`
@@ -513,6 +575,18 @@ releaseDate: '2026-04-02T07:12:00.000Z'
       "size": 93444053,
       "installerUrl": "/download/1.3.3/update_darwin.command",
       "latestInstallerUrl": "/download/latest/update_darwin.command"
+    },
+    {
+      "platform": "macIntel",
+      "version": "1.3.3",
+      "url": "/download/1.3.3/aether-darwin-x64.dmg",
+      "latestUrl": "/download/latest/aether-darwin-x64.dmg",
+      "manifestUrl": "/download/1.3.3/mac-x64.yml",
+      "latestManifestUrl": "/download/latest/mac-x64.yml",
+      "sha512": "<base64-sha512>",
+      "size": 93444053,
+      "installerUrl": "/download/1.3.3/update_darwin_x64.command",
+      "latestInstallerUrl": "/download/latest/update_darwin_x64.command"
     }
   ]
 }

@@ -12,6 +12,7 @@ copy_note=""
 restart="0"
 prune="0"
 res=""
+ver=""
 mirror_only="${AETHER_MIRROR_ONLY:-0}"
 
 if [ "${2:-}" = "--restart" ]; then
@@ -39,6 +40,13 @@ write_result() {
     printf 'at=%s\n' "$(date +%s)"
   } >"$res"
 }
+
+case "$(uname -m)" in
+  arm64) arch="arm64" ;;
+  x86_64) arch="x64" ;;
+  *) fail "Unsupported macOS architecture: $(uname -m)" ;;
+esac
+pkg_prefix="aether-darwin-$arch"
 
 ver_from_name() {
   local file name
@@ -86,6 +94,10 @@ pick_pkg() {
   shopt -s nullglob
   for file in "$dir"/*.dmg; do
     [ -f "$file" ] || continue
+    case "$(basename "$file")" in
+      "$pkg_prefix"-*) ;;
+      *) continue ;;
+    esac
     ver="$(ver_from_name "$file")"
     if [ -z "$ver" ]; then
       continue

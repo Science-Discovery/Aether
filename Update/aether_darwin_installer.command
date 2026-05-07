@@ -3,7 +3,6 @@
 set -euo pipefail
 
 base="${AETHER_UPDATE_BASE:-https://aether.aiphys.cn/download}"
-latest="latest/mac-arm64.yml"
 default="$HOME/Applications/aether"
 work_default="$HOME/.local/share/aether/update/aether"
 mode="init"
@@ -24,6 +23,17 @@ sum_err=32
 run_err=33
 dir_err=40
 arg_err=50
+
+case "$(uname -m)" in
+  arm64) arch="arm64" ;;
+  x86_64) arch="x64" ;;
+  *)
+    echo "Unsupported macOS architecture: $(uname -m)"
+    exit "$arg_err"
+    ;;
+esac
+pkg_prefix="aether-darwin-$arch"
+latest="latest/mac-$arch.yml"
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -248,7 +258,7 @@ cache_paths() {
   else
     pkg_ext=".$pkg_ext"
   fi
-  pkg_file="$dl/aether-darwin-arm64-$ver$pkg_ext"
+  pkg_file="$dl/$pkg_prefix-$ver$pkg_ext"
   ins_file=""
   if [ -n "$ins_url" ] && [ -n "$ins_name" ]; then
     ins_ext="${ins_name##*.}"
@@ -353,7 +363,7 @@ grab() {
   else
     pkg_ext=".$pkg_ext"
   fi
-  pkg_file="$dl/aether-darwin-arm64-$ver$pkg_ext"
+  pkg_file="$dl/$pkg_prefix-$ver$pkg_ext"
 
   need_pkg=1
   if [ -f "$pkg_file" ]; then
@@ -418,7 +428,7 @@ prune() {
   local arr n cut i list item
 
   shopt -s nullglob
-  arr=("$dl"/aether-darwin-arm64-*.*)
+  arr=("$dl"/"$pkg_prefix"-*.*)
   shopt -u nullglob
   n="${#arr[@]}"
   if [ "$n" -gt "$keep" ]; then
@@ -471,7 +481,7 @@ auto 模式:
 
 远端清单:
   $base/$latest
-  $base/1.2.3/mac-arm64.yml
+  $base/1.2.3/mac-$arch.yml
 
 结果文件:
   work_dir/downloads/last-result.yml
@@ -639,7 +649,7 @@ if [ "$mode" = "manual" ]; then
     echo "工作目录处理失败。"
     exit "$dir_err"
   }
-  manifest_url="$base/$req/mac-arm64.yml"
+  manifest_url="$base/$req/mac-$arch.yml"
   if ! manifest "$manifest_url" version; then
     code="$?"
     if [ "$code" = "$miss" ]; then
