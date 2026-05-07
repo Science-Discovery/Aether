@@ -2,6 +2,7 @@
 
 这个脚本是 macOS 版本安装入口，负责：
 
+- 根据当前芯片架构选择 `mac-arm64` 或 `mac-x64` 远端清单
 - 选择或推导工作目录
 - 拉取远端 `yml` 元数据
 - 下载目标版本压缩包和对应版本安装脚本
@@ -34,11 +35,13 @@
 最新版本：
 
 - `https://aether.aiphys.cn/download/latest/mac-arm64.yml`
+- `https://aether.aiphys.cn/download/latest/mac-x64.yml`
 - `https://aether.aiphys.cn/download/latest/windows-x64.yml`
 
 指定版本：
 
 - `https://aether.aiphys.cn/download/<version>/mac-arm64.yml`
+- `https://aether.aiphys.cn/download/<version>/mac-x64.yml`
 - `https://aether.aiphys.cn/download/<version>/windows-x64.yml`
 
 示例：
@@ -46,12 +49,14 @@
 ```yml
 version: 1.2.3
 package:
-  url: 1.2.3/aether-1.2.3-mac-arm64.zip
+  url: aether-darwin-arm64.dmg
   sha512: BASE64_SHA512_OPTIONAL
 installer:
-  url: 1.2.3/install-darwin.command
+  url: update_darwin.command
 notes_url: 1.2.3/notes.md
 ```
+
+Intel Mac 使用同样格式，平台标识为 `mac-x64`，安装包为 `aether-darwin-x64.dmg`，安装脚本为 `update_darwin_x64.command`。
 
 ## 返回给 Aether 的方式
 
@@ -94,8 +99,8 @@ target_version: "1.2.3"
 requested_version: ""
 work_dir: "/Users/name/Applications/Aether"
 download_dir: "/Users/name/Applications/Aether/downloads"
-package_path: "/Users/name/Applications/Aether/downloads/aether-1.2.3-mac-arm64.zip"
-installer_path: "/Users/name/Applications/Aether/downloads/install-darwin.command"
+package_path: "/Users/name/Applications/Aether/downloads/aether-darwin-arm64-1.2.3.dmg"
+installer_path: "/Users/name/Applications/Aether/downloads/update_darwin-1.2.3.command"
 manifest_url: "https://aether.aiphys.cn/download/latest/mac-arm64.yml"
 notes_url: "https://aether.aiphys.cn/download/1.2.3/notes.md"
 ```

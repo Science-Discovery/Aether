@@ -63,7 +63,13 @@ jobs:
             flag: --mac --arm64
             files: |
               packages/desktop-electron/dist/*.dmg
-              packages/desktop-electron/dist/latest*.yml
+              packages/desktop-electron/dist/*.blockmap
+          - id: mac-x64
+            host: macos-15-intel
+            rust_target: x86_64-apple-darwin
+            flag: --mac --x64
+            files: |
+              packages/desktop-electron/dist/*.dmg
               packages/desktop-electron/dist/*.blockmap
           - id: windows
             host: windows-2022
@@ -71,7 +77,6 @@ jobs:
             flag: --win
             files: |
               packages/desktop-electron/dist/*.exe
-              packages/desktop-electron/dist/latest*.yml
               packages/desktop-electron/dist/*.blockmap
           - id: linux
             host: ubuntu-24.04
@@ -81,7 +86,6 @@ jobs:
               packages/desktop-electron/dist/*.AppImage
               packages/desktop-electron/dist/*.deb
               packages/desktop-electron/dist/*.rpm
-              packages/desktop-electron/dist/latest*.yml
               packages/desktop-electron/dist/*.blockmap
           - id: linux-arm64
             host: ubuntu-24.04-arm
@@ -91,7 +95,6 @@ jobs:
               packages/desktop-electron/dist/*.AppImage
               packages/desktop-electron/dist/*.deb
               packages/desktop-electron/dist/*.rpm
-              packages/desktop-electron/dist/latest*.yml
               packages/desktop-electron/dist/*.blockmap
     runs-on: ${{ matrix.host }}
     steps:
@@ -147,27 +150,43 @@ jobs:
           path: ${{ matrix.files }}
           if-no-files-found: error
 
+      - uses: actions/upload-artifact@v4
+        with:
+          name: latest-yml-${{ matrix.rust_target }}
+          path: packages/desktop-electron/dist/latest*.yml
+          if-no-files-found: error
+
   build-web-mac:
     if: github.repository == 'Science-Discovery/Aether'
     needs: release
-    runs-on: macos-14
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: arm64
+            host: macos-14
+            yml: latest-web-mac.yml
+          - arch: x64
+            host: macos-15-intel
+            yml: latest-web-mac-x64.yml
+    runs-on: ${{ matrix.host }}
     steps:
       - uses: actions/checkout@v4
 
       - uses: ./.github/actions/setup-bun
 
       - name: Package browser build for macOS
-        run: ./packing_scripts/release-mac-web.sh ${{ needs.release.outputs.version }}
+        run: ./packing_scripts/release-mac-web.sh ${{ needs.release.outputs.version }} ${{ matrix.arch }}
         env:
           OPENCODE_VERSION: ${{ needs.release.outputs.version }}
           OPENCODE_CHANNEL: prod
 
       - uses: actions/upload-artifact@v4
         with:
-          name: release-web-mac
+          name: release-web-mac-${{ matrix.arch }}
           path: |
-            packages/opencode/dist/aether-darwin-arm64.dmg
-            packages/opencode/dist/latest-web-mac.yml
+            packages/opencode/dist/aether-darwin-${{ matrix.arch }}.dmg
+            packages/opencode/dist/${{ matrix.yml }}
           if-no-files-found: error
 
   build-web-linux:
@@ -245,10 +264,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        if: inputs.upload_downloadbeta
+        if: inputs.upload_downloadbeta || inputs.release_electron
 
       - uses: ./.github/actions/setup-bun
-        if: inputs.upload_downloadbeta
+        if: inputs.upload_downloadbeta || inputs.release_electron
 
       - uses: actions/download-artifact@v4
         with:
@@ -269,6 +288,21 @@ jobs:
           fi
 
           gh release upload "${{ needs.release.outputs.tag }}" "${files[@]}" --clobber
+
+      - uses: actions/download-artifact@v4
+        if: inputs.release_electron
+        with:
+          pattern: latest-yml-*
+          path: latest-yml
+
+      - name: Finalize Electron update metadata
+        if: inputs.release_electron
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          LATEST_YML_DIR: ${{ github.workspace }}/latest-yml
+          OPENCODE_VERSION: ${{ needs.release.outputs.version }}
+        run: bun packages/desktop-electron/scripts/finalize-latest-yml.ts
 
       - name: Upload web artifacts to downloadbeta
         if: inputs.upload_downloadbeta

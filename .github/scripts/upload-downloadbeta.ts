@@ -36,6 +36,10 @@ const items = {
     archive: "dist/aether-darwin-arm64.dmg",
     installer: "Update/update_darwin.command",
   },
+  macIntel: {
+    archive: "dist/aether-darwin-x64.dmg",
+    installer: "Update/update_darwin.command",
+  },
   windows: {
     archive: "dist/aether-windows-x64.zip",
     installer: "Update/update_windows.bat",
