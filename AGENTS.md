@@ -4,6 +4,24 @@
 - Local `main` ref may not exist; use `dev` or `origin/dev` for diffs.
 - Prefer automation: execute requested actions without confirmation unless blocked by missing info or safety/irreversibility.
 
+## Local Memory Work Records
+
+These files are project-local working records for the Aether memory-system redesign. They are local-only by default and should not be pushed unless the user explicitly asks.
+
+- If present, for recent memory-system changes, read `memory-improvement-log.zh-CN.md` first; `memory-improvement-log.en.md` is the English companion for AI handoff.
+- If present, for unresolved memory-system questions, read `memory-open-questions.zh-CN.md` first; `memory-open-questions.en.md` is the English companion.
+- If present, for implementation handoff batches, read `memory-work/README.zh-CN.md` or `memory-work/README.en.md`, then open the relevant timestamped subdirectory under `memory-work/`.
+- Do not duplicate cross-batch overview files inside `memory-work/`; root-level `memory-improvement-log.*.md` and `memory-open-questions.*.md` are the overview layer.
+- When the user asks what can be handled next, inspect `memory-open-questions.zh-CN.md` and the latest `memory-work/*/open-questions.zh-CN.md` files.
+- When the user asks what changed recently, inspect `memory-improvement-log.zh-CN.md` and the latest relevant `memory-work/*/implementation.zh-CN.md` files.
+- When recording decisions or handoff material, update both Chinese and English files in the same batch.
+- Keep `memory-work/` organized by timestamped implementation batch directories, each with `plan.*.md`, `implementation.*.md`, `handoff-prompt.*.md`, and `open-questions.*.md`.
+- Before writing a plan, implementation file, or handoff prompt, make boundaries explicit: confirmed scope, non-goals, unresolved questions, success criteria, validation commands, and files allowed to change.
+- Do not leave ambiguous behavior for a future AI to invent. If a detail is not decided, record it as an open question or exclude it from the current batch.
+- Handoff prompts must be executable and conservative: state what to read, what to implement, what not to implement, what tests to add, and what records to update after implementation.
+- After changing implementation files, planning files, local records, or handoff prompts, perform a self-check against the relevant `AGENTS.md`, `memory-work/README.*.md`, current batch files, and open-question files. Fix clear noncompliance immediately; ask the user only for unclear product or workflow decisions.
+- Before giving a prompt to the user, re-read the final prompt and confirm it does not leave implementation boundaries, success criteria, validation, record updates, or allowed changed files ambiguous.
+
 ## Style Guide
 
 ### General Principles

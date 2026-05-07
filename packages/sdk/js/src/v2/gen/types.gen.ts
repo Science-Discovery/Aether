@@ -831,6 +831,7 @@ export type ToolPart = {
   metadata?: {
     [key: string]: unknown
   }
+  providerExecuted?: boolean
 }
 
 export type StepStartPart = {
@@ -3592,7 +3593,6 @@ export type MemoryGetData = {
   path?: never
   query?: {
     directory?: string
-    session_id?: string
     workspace?: string
   }
   url: "/memory"
@@ -3610,19 +3610,46 @@ export type MemoryGetResponses = {
         modelID: string
       }
     }
-    user: {
-      store: "user" | "memory"
-      enabled: boolean
-      file: string
-      limit: number
-      used: number
-      usage: number
-      entries: Array<string>
-      explicit_entries?: Array<string>
-      inferred_entries?: Array<string>
-      invalid_entries?: number
+    refresh: {
+      memory_version: string
+      state: "pending" | "running" | "completed" | "blocked_by_disabled" | "failed"
+      refresh_required: boolean
+      noop: boolean
+      ledger_file: string
+      policy: {
+        memory_version: string
+        refresh_required: boolean
+        reason: string
+        actions: Array<
+          | "compat_only"
+          | "derived_rebuild"
+          | "metadata_migration"
+          | "memory_reconsolidation"
+          | "incremental_backfill"
+          | "full_regenerate"
+        >
+      }
+      last_run_id?: string
+      reason?: string
+      scope?: "current_project" | "global"
+      dry_run?: boolean
+      run_status?: "running" | "success" | "blocked" | "failed" | "noop"
+      stage?: string
+      started_at?: number
+      finished_at?: number
+      staging_path?: string
+      backup_path?: string
+      reflection_run_ids?: Array<string>
+      candidate_count?: number
+      blocked_count?: number
+      deduped_count?: number
+      promoted_daily_count?: number
+      promoted_user_count?: number
+      cache_refresh_error?: string
+      error?: string
+      stats?: unknown
     }
-    inbox: {
+    user: {
       store: "user" | "memory"
       enabled: boolean
       file: string
@@ -3659,7 +3686,7 @@ export type MemoryGetResponses = {
       session_id: string
       prompt: string
       entries: Array<{
-        source: "user" | "inbox" | "daily" | "session"
+        source: "user" | "daily" | "session" | "inbox"
         store?: "user" | "memory"
         index: number
         text: string
@@ -3669,6 +3696,244 @@ export type MemoryGetResponses = {
 }
 
 export type MemoryGetResponse = MemoryGetResponses[keyof MemoryGetResponses]
+
+export type MemoryRefreshDryRunData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/memory/refresh/dry-run"
+}
+
+export type MemoryRefreshDryRunResponses = {
+  /**
+   * Refresh dry-run status and statistics
+   */
+  200: {
+    status: {
+      memory_version: string
+      state: "pending" | "running" | "completed" | "blocked_by_disabled" | "failed"
+      refresh_required: boolean
+      noop: boolean
+      ledger_file: string
+      policy: {
+        memory_version: string
+        refresh_required: boolean
+        reason: string
+        actions: Array<
+          | "compat_only"
+          | "derived_rebuild"
+          | "metadata_migration"
+          | "memory_reconsolidation"
+          | "incremental_backfill"
+          | "full_regenerate"
+        >
+      }
+      last_run_id?: string
+      reason?: string
+      scope?: "current_project" | "global"
+      dry_run?: boolean
+      run_status?: "running" | "success" | "blocked" | "failed" | "noop"
+      stage?: string
+      started_at?: number
+      finished_at?: number
+      staging_path?: string
+      backup_path?: string
+      reflection_run_ids?: Array<string>
+      candidate_count?: number
+      blocked_count?: number
+      deduped_count?: number
+      promoted_daily_count?: number
+      promoted_user_count?: number
+      cache_refresh_error?: string
+      error?: string
+      stats?: unknown
+    }
+    run?: {
+      run_id: string
+      memory_version: string
+      scope: "current_project" | "global"
+      dry_run: boolean
+      status: "running" | "success" | "blocked" | "failed" | "noop"
+      started_at: number
+      finished_at?: number
+      inventory?: {
+        memory_version: string
+        no_memory: boolean
+        partial_memory: boolean
+        old_memory: boolean
+        missing_metadata: boolean
+        old_snapshot_cache: boolean
+        old_active_cache: boolean
+        mixed_format: boolean
+        user_entries: number
+        user_invalid_entries: number
+        user_missing_meta_entries: number
+        daily_entries: number
+        daily_invalid_entries: number
+        session_memory_files: number
+        session_memory_entries: number
+        snapshot_files: number
+        active_files: number
+      }
+      stats?: unknown
+      error?: string
+      stage?: string
+      staging_path?: string
+      backup_path?: string
+      reflection_run_ids?: Array<string>
+      candidate_count?: number
+      blocked_count?: number
+      deduped_count?: number
+      promoted_daily_count?: number
+      promoted_user_count?: number
+      cache_refresh_error?: string
+    }
+    inventory?: {
+      memory_version: string
+      no_memory: boolean
+      partial_memory: boolean
+      old_memory: boolean
+      missing_metadata: boolean
+      old_snapshot_cache: boolean
+      old_active_cache: boolean
+      mixed_format: boolean
+      user_entries: number
+      user_invalid_entries: number
+      user_missing_meta_entries: number
+      daily_entries: number
+      daily_invalid_entries: number
+      session_memory_files: number
+      session_memory_entries: number
+      snapshot_files: number
+      active_files: number
+    }
+    stats?: unknown
+  }
+}
+
+export type MemoryRefreshDryRunResponse = MemoryRefreshDryRunResponses[keyof MemoryRefreshDryRunResponses]
+
+export type MemoryRefreshRunData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/memory/refresh/run"
+}
+
+export type MemoryRefreshRunResponses = {
+  /**
+   * Refresh run status and statistics
+   */
+  200: {
+    status: {
+      memory_version: string
+      state: "pending" | "running" | "completed" | "blocked_by_disabled" | "failed"
+      refresh_required: boolean
+      noop: boolean
+      ledger_file: string
+      policy: {
+        memory_version: string
+        refresh_required: boolean
+        reason: string
+        actions: Array<
+          | "compat_only"
+          | "derived_rebuild"
+          | "metadata_migration"
+          | "memory_reconsolidation"
+          | "incremental_backfill"
+          | "full_regenerate"
+        >
+      }
+      last_run_id?: string
+      reason?: string
+      scope?: "current_project" | "global"
+      dry_run?: boolean
+      run_status?: "running" | "success" | "blocked" | "failed" | "noop"
+      stage?: string
+      started_at?: number
+      finished_at?: number
+      staging_path?: string
+      backup_path?: string
+      reflection_run_ids?: Array<string>
+      candidate_count?: number
+      blocked_count?: number
+      deduped_count?: number
+      promoted_daily_count?: number
+      promoted_user_count?: number
+      cache_refresh_error?: string
+      error?: string
+      stats?: unknown
+    }
+    run?: {
+      run_id: string
+      memory_version: string
+      scope: "current_project" | "global"
+      dry_run: boolean
+      status: "running" | "success" | "blocked" | "failed" | "noop"
+      started_at: number
+      finished_at?: number
+      inventory?: {
+        memory_version: string
+        no_memory: boolean
+        partial_memory: boolean
+        old_memory: boolean
+        missing_metadata: boolean
+        old_snapshot_cache: boolean
+        old_active_cache: boolean
+        mixed_format: boolean
+        user_entries: number
+        user_invalid_entries: number
+        user_missing_meta_entries: number
+        daily_entries: number
+        daily_invalid_entries: number
+        session_memory_files: number
+        session_memory_entries: number
+        snapshot_files: number
+        active_files: number
+      }
+      stats?: unknown
+      error?: string
+      stage?: string
+      staging_path?: string
+      backup_path?: string
+      reflection_run_ids?: Array<string>
+      candidate_count?: number
+      blocked_count?: number
+      deduped_count?: number
+      promoted_daily_count?: number
+      promoted_user_count?: number
+      cache_refresh_error?: string
+    }
+    inventory?: {
+      memory_version: string
+      no_memory: boolean
+      partial_memory: boolean
+      old_memory: boolean
+      missing_metadata: boolean
+      old_snapshot_cache: boolean
+      old_active_cache: boolean
+      mixed_format: boolean
+      user_entries: number
+      user_invalid_entries: number
+      user_missing_meta_entries: number
+      daily_entries: number
+      daily_invalid_entries: number
+      session_memory_files: number
+      session_memory_entries: number
+      snapshot_files: number
+      active_files: number
+    }
+    stats?: unknown
+  }
+}
+
+export type MemoryRefreshRunResponse = MemoryRefreshRunResponses[keyof MemoryRefreshRunResponses]
 
 export type ToolIdsData = {
   body?: never
@@ -8435,6 +8700,7 @@ export type WechatStatusResponses = {
     } | null
     locked: boolean | null
     lockHolder: string | null
+    hasConfig: boolean
     error: {
       code: string
       message: string

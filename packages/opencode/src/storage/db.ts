@@ -34,7 +34,8 @@ export namespace Database {
   export type Source = {
     path: string
     current: boolean
-    client: ReturnType<typeof Client>["$client"]
+    client?: ReturnType<typeof Client>
+    error?: string
   }
 
   export function getChannelPath() {
@@ -85,21 +86,32 @@ export namespace Database {
       callback({
         path: currentPath(),
         current: true,
-        client: Client().$client,
+        client: Client(),
       }),
     )
     for (const file of knownPaths()) {
-      const db = init(file)
+      let db: ReturnType<typeof init> | undefined
       try {
+        db = init(file)
         result.push(
           callback({
             path: file,
             current: false,
-            client: db.$client,
+            client: db,
+          }),
+        )
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : String(error)
+        log.warn("failed to open known database source", { path: file, error: reason })
+        result.push(
+          callback({
+            path: file,
+            current: false,
+            error: reason,
           }),
         )
       } finally {
-        db.$client.close()
+        db?.$client.close()
       }
     }
     return result

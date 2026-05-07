@@ -175,6 +175,8 @@ import type {
   McpRemoteConfig,
   McpStatusResponses,
   MemoryGetResponses,
+  MemoryRefreshDryRunResponses,
+  MemoryRefreshRunResponses,
   OutputFormat,
   Part as Part2,
   PartDeleteErrors,
@@ -1868,11 +1870,73 @@ export class Config2 extends HeyApiClient {
   }
 }
 
+export class Refresh extends HeyApiClient {
+  /**
+   * Run memory refresh dry-run
+   *
+   * Run first-phase memory refresh inventory and source-ledger scan without writing memory.
+   */
+  public dryRun<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<MemoryRefreshDryRunResponses, unknown, ThrowOnError>({
+      url: "/memory/refresh/dry-run",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Run memory refresh
+   *
+   * Run memory refresh/backfill, incrementally by default or fully when force=true.
+   */
+  public run<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<MemoryRefreshRunResponses, unknown, ThrowOnError>({
+      url: "/memory/refresh/run",
+      ...options,
+      ...params,
+    })
+  }
+}
+
 export class Memory extends HeyApiClient {
   /**
    * Get memory stores
    *
-   * Read effective memory settings, durable stores, and optional session active memory.
+   * Read effective memory settings, durable stores, refresh status, and optional session active memory.
    */
   public get<ThrowOnError extends boolean = false>(
     parameters?: {
@@ -1899,6 +1963,11 @@ export class Memory extends HeyApiClient {
       ...options,
       ...params,
     })
+  }
+
+  private _refresh?: Refresh
+  get refresh(): Refresh {
+    return (this._refresh ??= new Refresh({ client: this.client }))
   }
 }
 

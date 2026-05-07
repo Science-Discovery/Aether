@@ -1502,6 +1502,7 @@ export namespace Config {
   }
 
   export async function getGlobal() {
+    global.reset()
     return global()
   }
 

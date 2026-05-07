@@ -1,6 +1,8 @@
-import { type Component, type JSXElement, For, Show, createMemo, createResource } from "solid-js"
+import { type Component, type JSXElement, For, Show, createMemo, createResource, createSignal } from "solid-js"
 import { useParams } from "@solidjs/router"
 import { Button } from "@opencode-ai/ui/button"
+import { Dialog } from "@opencode-ai/ui/dialog"
+import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { Switch } from "@opencode-ai/ui/switch"
 import { showToast } from "@opencode-ai/ui/toast"
 import type { Config } from "@opencode-ai/sdk/v2/client"
@@ -29,7 +31,7 @@ type ActiveMemory = {
   session_id: string
   prompt: string
   entries: Array<{
-    source: "user" | "inbox" | "daily" | "session"
+    source: "user" | "daily" | "session" | "inbox"
     store?: "user" | "memory"
     index: number
     text: string
@@ -46,14 +48,58 @@ type DailyMemory = {
   }>
 }
 
+type RefreshScope = "current_project" | "global"
+type RefreshState = "pending" | "running" | "completed" | "blocked_by_disabled" | "failed"
+type RefreshRunStatus = "running" | "success" | "blocked" | "failed" | "noop"
+type RefreshStatus = {
+  memory_version: string
+  state: RefreshState
+  refresh_required: boolean
+  noop: boolean
+  run_status?: RefreshRunStatus
+  candidate_count?: number
+  promoted_daily_count?: number
+  promoted_user_count?: number
+  cache_refresh_error?: string
+  error?: string
+}
+type RefreshRun = {
+  run_id: string
+  memory_version: string
+  scope: RefreshScope
+  dry_run: boolean
+  status: RefreshRunStatus
+  started_at: number
+  finished_at?: number
+  candidate_count?: number
+  promoted_daily_count?: number
+  promoted_user_count?: number
+  cache_refresh_error?: string
+  error?: string
+}
+type RefreshResult = {
+  status: RefreshStatus
+  run?: RefreshRun
+}
+type Summary = {
+  status: string
+  candidates: number
+  daily: number
+  user: number
+  error?: string
+}
+
 type MemoryPayload = {
   settings: MemoryCfg
   user: MemoryStore
-  inbox: MemoryStore
   memory: MemoryStore
+  inbox?: MemoryStore
   daily: DailyMemory
   active?: ActiveMemory
+  refresh?: RefreshStatus
 }
+
+const [running, setRunning] = createSignal(false)
 
 const userProfileTypes = new Set<UserProfileType>(["fact", "preference", "task"])
 
@@ -104,14 +150,56 @@ function asMemoryPayload(input: unknown): MemoryPayload {
   if (!input || typeof input !== "object") throw new Error("Invalid memory response")
   const payload = input as Partial<MemoryPayload>
   const user = payload.user as Partial<MemoryStore> | undefined
-  const inbox = payload.inbox as Partial<MemoryStore> | undefined
   const memory = payload.memory as Partial<MemoryStore> | undefined
   if (!payload.settings || typeof payload.settings !== "object") throw new Error("Invalid memory settings payload")
   if (!user || !Array.isArray(user.entries)) throw new Error("Invalid USER store payload")
-  if (!inbox || !Array.isArray(inbox.entries)) throw new Error("Invalid inbox memory payload")
   if (!memory || !Array.isArray(memory.entries)) throw new Error("Invalid MEMORY store payload")
   if (!payload.daily || !Array.isArray(payload.daily.days)) throw new Error("Invalid daily memory payload")
   return payload as MemoryPayload
+}
+
+function asRefreshResult(input: unknown): RefreshResult {
+  if (!input || typeof input !== "object") throw new Error("Invalid memory refresh response")
+  const payload = input as Partial<RefreshResult>
+  if (!payload.status || typeof payload.status !== "object") throw new Error("Invalid memory refresh status payload")
+  return payload as RefreshResult
+}
+
+function count(input: number | undefined) {
+  return input ?? 0
+}
+
+function summarize(input: RefreshResult): Summary {
+  const run = input.run
+  return {
+    status: run?.status ?? input.status.run_status ?? input.status.state,
+    candidates: count(run?.candidate_count ?? input.status.candidate_count),
+    daily: count(run?.promoted_daily_count ?? input.status.promoted_daily_count),
+    user: count(run?.promoted_user_count ?? input.status.promoted_user_count),
+    error: run?.error ?? run?.cache_refresh_error ?? input.status.error ?? input.status.cache_refresh_error,
+  }
+}
+
+function statusKey(input: string) {
+  switch (input) {
+    case "success":
+      return "settings.memory.backfill.result.status.success"
+    case "noop":
+      return "settings.memory.backfill.result.status.noop"
+    case "blocked":
+      return "settings.memory.backfill.result.status.blocked"
+    case "blocked_by_disabled":
+      return "settings.memory.backfill.result.status.blockedByDisabled"
+    case "failed":
+      return "settings.memory.backfill.result.status.failed"
+    case "running":
+      return "settings.memory.backfill.result.status.running"
+    case "pending":
+      return "settings.memory.backfill.result.status.pending"
+    case "completed":
+      return "settings.memory.backfill.result.status.completed"
+  }
+  return "settings.memory.backfill.result.status.unknown"
 }
 
 export const SettingsMemory: Component = () => {
@@ -119,8 +207,10 @@ export const SettingsMemory: Component = () => {
   const globalSync = useGlobalSync()
   const params = useParams()
   const language = useLanguage()
+  const dialog = useDialog()
 
   const cfg = createMemo(() => readCfg(globalSync.data.config))
+  const blocked = createMemo(() => running() || !cfg().enabled)
   const activeSessionID = createMemo(() => {
     const value = params.id?.trim()
     return value || undefined
@@ -151,6 +241,31 @@ export const SettingsMemory: Component = () => {
   )
 
   const profileEntries = createMemo(() => splitUserEntries(data()?.user.entries ?? []))
+
+  const backfill = async () => {
+    if (running()) return
+    setRunning(true)
+    try {
+      const client = sdk.createClient({
+        directory: globalSync.data.path.directory,
+        experimental_workspaceID: activeWorkspaceID(),
+        throwOnError: true,
+      })
+      const result = await client.memory.refresh.run({ scope: "global" })
+      const payload = asRefreshResult(result.data)
+      await Promise.resolve(actions.refetch()).catch(() => undefined)
+      dialog.show(() => <BackfillDialog summary={summarize(payload)} />)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      showToast({
+        variant: "error",
+        title: language.t("common.requestFailed"),
+        description: language.t("settings.memory.error.backfillFailed", { message }),
+      })
+    } finally {
+      setRunning(false)
+    }
+  }
 
   let updateSeq = 0
   const update = async (patch: Partial<MemoryCfg>) => {
@@ -198,6 +313,34 @@ export const SettingsMemory: Component = () => {
             >
               <Switch checked={cfg().enabled} onChange={(value) => void update({ enabled: value })} />
             </Row>
+            <Row
+              title={language.t("settings.memory.row.backfill.title")}
+              description={language.t("settings.memory.row.backfill.description")}
+            >
+              <div class="flex flex-col items-end gap-1">
+                <span
+                  class="inline-flex"
+                  title={running() ? language.t("settings.memory.backfill.runningTooltip") : undefined}
+                >
+                  <Button
+                    size="small"
+                    variant="secondary"
+                    icon="reset"
+                    disabled={blocked()}
+                    onClick={() => void backfill()}
+                  >
+                    {language.t(
+                      running() ? "settings.memory.action.backfilling" : "settings.memory.action.backfill",
+                    )}
+                  </Button>
+                </span>
+                <Show when={running()}>
+                  <span class="text-12-regular text-text-weak" role="status" aria-live="polite">
+                    {language.t("settings.memory.backfill.runningHint")}
+                  </span>
+                </Show>
+              </div>
+            </Row>
           </SettingsList>
           <Show when={data()?.active}>
             {(active) => (
@@ -214,16 +357,22 @@ export const SettingsMemory: Component = () => {
           </Show>
           <Show when={data()}>
             {(value) => (
-              <div class="flex flex-col gap-3 pt-3">
+              <div class="pt-3">
+                <DailyMemoryCard title={language.t("settings.memory.store.daily")} daily={value().daily} />
+              </div>
+            )}
+          </Show>
+          <Show when={data()?.inbox}>
+            {(inbox) => (
+              <div class="pt-3">
                 <StoreCard
                   title={language.t("settings.memory.store.inbox")}
-                  used={value().inbox.used}
-                  limit={value().inbox.limit}
-                  file={value().inbox.file}
-                  entries={value().inbox.entries}
+                  used={inbox().used}
+                  limit={inbox().limit}
+                  file={inbox().file}
+                  entries={inbox().entries}
                   emptyText={language.t("settings.memory.store.inbox.empty")}
                 />
-                <DailyMemoryCard title={language.t("settings.memory.store.daily")} daily={value().daily} />
               </div>
             )}
           </Show>
@@ -270,6 +419,46 @@ export const SettingsMemory: Component = () => {
           <div class="text-12-regular text-text-weak">{language.t("settings.memory.empty")}</div>
         </Show>
       </div>
+    </div>
+  )
+}
+
+const BackfillDialog: Component<{ summary: Summary }> = (props) => {
+  const language = useLanguage()
+  const dialog = useDialog()
+  const label = createMemo(() => language.t(statusKey(props.summary.status)))
+
+  return (
+    <Dialog
+      title={<span class="block w-full text-center">{language.t("settings.memory.backfill.result.title")}</span>}
+    >
+      <div class="mx-auto flex w-full min-w-0 max-w-[560px] flex-col items-center gap-4 text-center">
+        <div class="text-12-regular text-text-weak">
+          {language.t("settings.memory.backfill.result.status", { status: label() })}
+        </div>
+        <div class="grid w-full grid-cols-1 gap-2 sm:grid-cols-3">
+          <Metric label={language.t("settings.memory.backfill.result.candidates")} value={props.summary.candidates} />
+          <Metric label={language.t("settings.memory.backfill.result.daily")} value={props.summary.daily} />
+          <Metric label={language.t("settings.memory.backfill.result.user")} value={props.summary.user} />
+        </div>
+        <Show when={props.summary.error}>
+          {(err) => <div class="text-12-regular text-text-danger">{err()}</div>}
+        </Show>
+        <div class="flex justify-center">
+          <Button size="small" variant="primary" icon="check" onClick={() => dialog.close()}>
+            {language.t("settings.memory.backfill.result.close")}
+          </Button>
+        </div>
+      </div>
+    </Dialog>
+  )
+}
+
+const Metric: Component<{ label: string; value: number }> = (props) => {
+  return (
+    <div class="flex min-h-[76px] flex-col items-center justify-between rounded-md border border-border-weak-base bg-surface-base p-3 text-center">
+      <span class="text-12-regular text-text-weak">{props.label}</span>
+      <span class="text-20-medium text-text-strong">{props.value}</span>
     </div>
   )
 }
