@@ -1,8 +1,18 @@
 import { describe, expect, test } from "bun:test"
 import { mkdir, writeFile } from "node:fs/promises"
 import path from "node:path"
+import { setTimeout as sleep } from "node:timers/promises"
 import { Server } from "../../src/server/server"
 import { tmpdir } from "../fixture/fixture"
+
+const wait = async (fn: () => boolean, ms = 5000) => {
+  const end = Date.now() + ms
+  while (Date.now() < end) {
+    if (fn()) return
+    await sleep(25)
+  }
+  throw new Error("timeout waiting for server event")
+}
 
 describe("web cache headers", () => {
   test("serves hashed assets as immutable", async () => {
@@ -86,6 +96,58 @@ describe("web cache headers", () => {
       expect(await route.text()).toContain(`<base href="/aether/">`)
     } finally {
       Object.defineProperty(process, "execPath", { value: old, configurable: true })
+      if (env === undefined) {
+        delete process.env.VITE_BASE_PATH
+      } else {
+        process.env.VITE_BASE_PATH = env
+      }
+    }
+  })
+
+  test("upgrades pty websocket under runtime base path", async () => {
+    if (process.platform === "win32") return
+
+    await using tmp = await tmpdir({ git: true })
+
+    const env = process.env.VITE_BASE_PATH
+    process.env.VITE_BASE_PATH = "/aether"
+    const server = Server.listen({ port: 0, hostname: "127.0.0.1" })
+    const root = `http://127.0.0.1:${server.port}/aether`
+    const query = `directory=${encodeURIComponent(tmp.path)}`
+    let ws: WebSocket | undefined
+    let id: string | undefined
+
+    try {
+      const res = await fetch(`${root}/pty?${query}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ command: "cat", title: "base" }),
+      })
+      expect(res.status).toBe(200)
+
+      const data = (await res.json()) as { id?: unknown }
+      if (typeof data.id !== "string") throw new Error("missing pty id")
+      id = data.id
+
+      let open = false
+      let closed = false
+      ws = new WebSocket(`ws://127.0.0.1:${server.port}/aether/pty/${id}/connect?${query}&cursor=0`)
+      ws.addEventListener("open", () => {
+        open = true
+      })
+      ws.addEventListener("close", () => {
+        closed = true
+      })
+      ws.addEventListener("error", () => {
+        closed = true
+      })
+
+      await wait(() => open || closed)
+      expect(open).toBe(true)
+    } finally {
+      ws?.close()
+      if (id) await fetch(`${root}/pty/${id}?${query}`, { method: "DELETE" }).catch(() => undefined)
+      await server.stop(true)
       if (env === undefined) {
         delete process.env.VITE_BASE_PATH
       } else {
