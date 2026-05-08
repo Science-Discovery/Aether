@@ -73,7 +73,7 @@ export const VoiceRoutes = lazy(() =>
           {
             type: "input_audio",
             input_audio: {
-              data: `data:;base64,${audioBase64}`,
+              data: `data:audio/${audioFormat};base64,${audioBase64}`,
               format: audioFormat,
             },
           },
@@ -128,7 +128,9 @@ export const VoiceRoutes = lazy(() =>
             const chunk = JSON.parse(payload)
             const content = chunk.choices?.[0]?.delta?.content
             if (content) text += content
-          } catch {}
+          } catch (e) {
+            log.debug("SSE chunk parse error", { error: String(e), payload })
+          }
         }
       }
 

@@ -48,7 +48,6 @@ export interface Settings {
   notifications: NotificationSettings
   sounds: SoundSettings
   voice: {
-    enabled: boolean
     model: string
   }
 }
@@ -94,7 +93,6 @@ const defaultSettings: Settings = {
     errors: "nope-03",
   },
   voice: {
-    enabled: true,
     model: "qwen2.5-omni-7b",
   },
 }
@@ -312,10 +310,6 @@ export const { use: useSettings, provider: SettingsProvider } = createSimpleCont
         },
       },
       voice: {
-        enabled: withFallback(() => store.voice?.enabled, defaultSettings.voice.enabled),
-        setEnabled(value: boolean) {
-          setStore("voice", "enabled", value)
-        },
         model: withFallback(() => store.voice?.model, defaultSettings.voice.model),
         setModel(value: string) {
           setStore("voice", "model", value)

@@ -134,8 +134,36 @@ export const SettingsGeneral: Component = () => {
 
   const currentVoiceModel = createMemo(() => {
     const val = settings.voice.model()
-    if (!val) return modelOptions()[0]
-    return modelOptions().find((o) => o.value === val) ?? { value: val, label: val, providerID: "" }
+    if (!val) return voiceModelOptions()[0]
+    return voiceModelOptions().find((o) => o.value === val) ?? { value: val, label: val, providerID: "" }
+  })
+
+  const voiceModelOptions = createMemo(() => {
+    const none = { value: "", label: language.t("settings.general.row.defaultModel.none"), providerID: "" }
+    const items = models
+      .list()
+      .filter((m) => models.visible({ providerID: m.provider.id, modelID: m.id }))
+      .filter((m) => {
+        const id = m.id.toLowerCase()
+        return id.includes("omni") || id.includes("whisper") || id.includes("audio") || id.includes("speech")
+      })
+      .map((m) => ({
+        value: `${m.provider.id}/${m.id}`,
+        label: `${m.name} (${m.provider.name})`,
+        providerID: m.provider.id,
+      }))
+    if (items.length === 0) {
+      const allItems = models
+        .list()
+        .filter((m) => models.visible({ providerID: m.provider.id, modelID: m.id }))
+        .map((m) => ({
+          value: `${m.provider.id}/${m.id}`,
+          label: `${m.name} (${m.provider.name})`,
+          providerID: m.provider.id,
+        }))
+      return [none, ...allItems]
+    }
+    return [none, ...items]
   })
 
   const check = () => {
@@ -317,7 +345,7 @@ export const SettingsGeneral: Component = () => {
         >
           <Select
             data-action="settings-voice-model"
-            options={modelOptions()}
+            options={voiceModelOptions()}
             current={currentVoiceModel()}
             value={(o) => o.value}
             label={(o) => o.label}
