@@ -18,7 +18,6 @@ import { DialogAddTag } from "@/components/git-graph/dialog-add-tag"
 import { DialogCherryPick } from "@/components/git-graph/dialog-cherry-pick"
 import { computeGraphLayout, UNCOMMITTED, ROW_HEIGHT } from "./model"
 import { GitGraphList } from "./render"
-import { CommitDetail } from "./detail"
 
 export function GitGraphTab() {
   const sdk = useSDK()
@@ -307,16 +306,15 @@ export function GitGraphTab() {
                 currentBranch={data()?.data?.branch}
                 uncommitted={uncommitted()}
                 selectedHash={selectedHash()}
+                selectedParentHash={parentHash()}
                 onCommitClick={handleCommitClick}
+                onCloseDetail={() => setSelectedHash(null)}
                 onContextMenu={handleContextMenu}
               />
             </ScrollView>
           )}
         </Show>
       </div>
-      <Show when={selectedHash()}>
-        {(hash) => <CommitDetail hash={hash()} parentHash={parentHash()} onClose={() => setSelectedHash(null)} />}
-      </Show>
       <Show when={menu()}>
         {(m) => {
           const item = "px-2 py-1 text-xs cursor-pointer hover:bg-surface-hover text-text-base"

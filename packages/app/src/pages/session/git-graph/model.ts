@@ -60,3 +60,9 @@ export function computeGraphLayout(commits: CommitLogItem[] | undefined | null, 
   if (!commits || commits.length === 0) return { nodes: [], lines: [], lanes: 0, graphWidth: 0, widthsAtRows: [] }
   return layout(commits, head)
 }
+
+export function expandedY(row: number, expandedRow: number | null | undefined, height: number) {
+  const base = row * ROW_HEIGHT + ROW_HEIGHT / 2
+  if (expandedRow === null || expandedRow === undefined || row <= expandedRow) return base
+  return base + height
+}

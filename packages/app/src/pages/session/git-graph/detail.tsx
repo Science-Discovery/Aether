@@ -27,7 +27,14 @@ const isBinary = (f: VcsFileChange) => f.additions === null && f.deletions === n
 
 const formatStat = (val: number | null, prefix: string) => (val !== null ? `${prefix}${val}` : "-")
 
-export function CommitDetail(props: { hash: string; parentHash: string | null; onClose: () => void }) {
+export function CommitDetail(props: {
+  hash: string
+  parentHash: string | null
+  height?: number
+  class?: string
+  onClose: () => void
+  onResizeStart?: (event: MouseEvent) => void
+}) {
   const sdk = useSDK()
   const lang = useLanguage()
   const fileComponent = useFileComponent()
@@ -55,6 +62,7 @@ export function CommitDetail(props: { hash: string; parentHash: string | null; o
   })
 
   const fileLabel = (f: VcsFileChange) => (f.status === "R" && f.oldFilePath ? `${f.oldFilePath} → ${f.file}` : f.file)
+  const size = () => (props.height === undefined ? { "max-height": "40%" } : { height: `${props.height}px` })
 
   const onFileClick = async (f: VcsFileChange) => {
     setSelectedFile(f)
@@ -77,7 +85,10 @@ export function CommitDetail(props: { hash: string; parentHash: string | null; o
   }
 
   return (
-    <div class="border-t border-border-weaker-base bg-surface-base flex flex-col" style={{ "max-height": "40%" }}>
+    <div
+      class={`border-t border-border-weaker-base bg-surface-base flex flex-col min-h-0 overflow-hidden ${props.class ?? ""}`}
+      style={size()}
+    >
       <div class="flex items-center justify-between px-3 py-1.5 border-b border-border-weaker-base shrink-0">
         <span class="text-12-regular text-text-weaker">{t("session.tab.gitGraph.commitDetails")}</span>
         <IconButton icon="close-small" variant="ghost" class="h-5 w-5" onClick={props.onClose} />
@@ -92,7 +103,7 @@ export function CommitDetail(props: { hash: string; parentHash: string | null; o
         }
       >
         {(d) => (
-          <div class="flex flex-col min-h-0 overflow-hidden">
+          <div class="flex flex-1 flex-col min-h-0 overflow-hidden">
             <div
               class="px-3 py-2 space-y-1.5 text-xs text-text-base overflow-y-auto shrink-0"
               style={{ "max-height": "40%" }}
@@ -208,6 +219,14 @@ export function CommitDetail(props: { hash: string; parentHash: string | null; o
               </div>
             </Show>
           </div>
+        )}
+      </Show>
+      <Show when={props.onResizeStart}>
+        {(start) => (
+          <div
+            class="h-1 shrink-0 cursor-row-resize bg-border-weaker-base hover:bg-border-strong"
+            onMouseDown={(event) => start()(event)}
+          />
         )}
       </Show>
     </div>

@@ -4,10 +4,15 @@ import { Portal } from "solid-js/web"
 import type { Column, Columns } from "./columns"
 import { autoColumns, fitColumns, resizeColumns, template } from "./columns"
 import { ROW_HEIGHT, type GraphLine, type GraphNode } from "./model"
+import { CommitDetail } from "./detail"
 import { GitGraphSvg } from "./graph-svg"
 import { GitGraphRow } from "./row"
 import { GitGraphTooltip } from "./tooltip"
 import { HEADER_HEIGHT, TOOLTIP_WIDTH, color, railWidth } from "./style"
+
+const DETAIL_HEIGHT = 280
+const DETAIL_MIN = 160
+const DETAIL_MAX = 640
 
 export function GitGraphList(props: {
   nodes: GraphNode[]
@@ -17,10 +22,13 @@ export function GitGraphList(props: {
   currentBranch: string | null | undefined
   uncommitted?: { count: number; files: string[] }
   selectedHash?: string | null
+  selectedParentHash?: string | null
   onCommitClick?: (hash: string) => void
+  onCloseDetail?: () => void
   onContextMenu?: (hash: string, event: MouseEvent) => void
 }) {
   const [hover, setHover] = createStore<{ row: GraphNode | null; tip: GraphNode | null }>({ row: null, tip: null })
+  const [panel, setPanel] = createStore({ height: DETAIL_HEIGHT })
   const [tooltipX, setTooltipX] = createSignal(0)
   const [tooltipY, setTooltipY] = createSignal(0)
   const [tooltipSide, setTooltipSide] = createSignal<"left" | "right">("right")
@@ -31,7 +39,11 @@ export function GitGraphList(props: {
 
   const graphWidth = createMemo(() => props.graphWidth ?? railWidth(props.lanes))
   const cols = createMemo(() => (fixed() ? fitColumns(fixed()!, width()) : autoColumns(width(), graphWidth())))
-  const bodyHeight = createMemo(() => Math.max(ROW_HEIGHT, props.nodes.length * ROW_HEIGHT))
+  const expandedRow = createMemo(() =>
+    props.selectedHash ? props.nodes.findIndex((node) => node.hash === props.selectedHash) : -1,
+  )
+  const expandedHeight = createMemo(() => (expandedRow() >= 0 ? panel.height : 0))
+  const bodyHeight = createMemo(() => Math.max(ROW_HEIGHT, props.nodes.length * ROW_HEIGHT + expandedHeight()))
   const height = createMemo(() => HEADER_HEIGHT + bodyHeight())
 
   const bind = (el: HTMLDivElement) => {
@@ -58,6 +70,26 @@ export function GitGraphList(props: {
 
   const handleRowLeave = () => {
     setHover({ row: null, tip: null })
+  }
+
+  const detailMax = () => Math.max(DETAIL_MIN, Math.min(DETAIL_MAX, window.innerHeight - 160))
+  const clamp = (value: number) => Math.max(DETAIL_MIN, Math.min(detailMax(), value))
+
+  const startDetailResize = (event: MouseEvent) => {
+    event.preventDefault()
+    const base = panel.height
+    const start = event.clientY
+
+    const move = (e: MouseEvent) => {
+      setPanel("height", clamp(base + e.clientY - start))
+    }
+    const up = () => {
+      document.removeEventListener("mousemove", move)
+      document.removeEventListener("mouseup", up)
+    }
+
+    document.addEventListener("mousemove", move)
+    document.addEventListener("mouseup", up)
   }
 
   const startResize = (left: Column, right: Column, event: MouseEvent) => {
@@ -121,6 +153,8 @@ export function GitGraphList(props: {
             lines={props.lines}
             visibleWidth={cols().graph}
             height={bodyHeight()}
+            expandedRow={expandedRow()}
+            expandedHeight={expandedHeight()}
             onNodeEnter={handleCircleEnter}
             onNodeMove={updatePos}
             onNodeLeave={handleCircleLeave}
@@ -131,18 +165,33 @@ export function GitGraphList(props: {
           <div class="relative z-10">
             <For each={props.nodes}>
               {(node) => (
-                <GitGraphRow
-                  node={node}
-                  columns={cols()}
-                  currentBranch={props.currentBranch}
-                  uncommitted={props.uncommitted}
-                  hovered={hover.row?.hash === node.hash}
-                  selected={props.selectedHash === node.hash}
-                  onEnter={handleRowEnter}
-                  onLeave={handleRowLeave}
-                  onClick={props.onCommitClick}
-                  onContextMenu={props.onContextMenu}
-                />
+                <>
+                  <GitGraphRow
+                    node={node}
+                    columns={cols()}
+                    currentBranch={props.currentBranch}
+                    uncommitted={props.uncommitted}
+                    hovered={hover.row?.hash === node.hash}
+                    selected={props.selectedHash === node.hash}
+                    onEnter={handleRowEnter}
+                    onLeave={handleRowLeave}
+                    onClick={props.onCommitClick}
+                    onContextMenu={props.onContextMenu}
+                  />
+                  <Show when={props.selectedHash === node.hash}>
+                    <div class="grid overflow-hidden" style={{ "grid-template-columns": template(cols()) }}>
+                      <div class="min-w-0 border-b border-border-weaker-base bg-surface-base" />
+                      <CommitDetail
+                        hash={node.hash}
+                        parentHash={props.selectedParentHash ?? null}
+                        height={panel.height}
+                        class="col-span-4 min-w-0 border-b border-border-weaker-base"
+                        onClose={() => props.onCloseDetail?.()}
+                        onResizeStart={startDetailResize}
+                      />
+                    </div>
+                  </Show>
+                </>
               )}
             </For>
           </div>

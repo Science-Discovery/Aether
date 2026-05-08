@@ -36,11 +36,11 @@ export const formatDate = (date: number) => {
   return d.toLocaleDateString() + " " + d.toLocaleTimeString()
 }
 
-export const linePath = (line: GraphLine) => {
+export const linePath = (line: GraphLine, yFor = yForRow) => {
   const x1 = xForLane(line.fromLane)
-  const y1 = yForRow(line.fromRow)
+  const y1 = yFor(line.fromRow)
   const x2 = xForLane(line.toLane)
-  const y2 = yForRow(line.toRow)
+  const y2 = yFor(line.toRow)
 
   if (line.fromLane === line.toLane) return `M ${x1} ${y1} L ${x2} ${y2}`
 

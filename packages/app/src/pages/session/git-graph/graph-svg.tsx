@@ -1,5 +1,5 @@
 import { For, Show } from "solid-js"
-import type { GraphLine, GraphNode } from "./model"
+import { expandedY, type GraphLine, type GraphNode } from "./model"
 import {
   GRAPH_DOT_RADIUS,
   GRAPH_HEAD_RADIUS,
@@ -10,7 +10,6 @@ import {
   color,
   linePath,
   xForLane,
-  yForRow,
 } from "./style"
 
 export function GitGraphSvg(props: {
@@ -18,12 +17,16 @@ export function GitGraphSvg(props: {
   lines: GraphLine[]
   visibleWidth: number
   height: number
+  expandedRow?: number | null
+  expandedHeight?: number
   onNodeEnter: (node: GraphNode, event: MouseEvent) => void
   onNodeMove: (event: MouseEvent) => void
   onNodeLeave: () => void
   onNodeClick?: (hash: string) => void
   onNodeContextMenu?: (hash: string, event: MouseEvent) => void
 }) {
+  const y = (row: number) => expandedY(row, props.expandedRow, props.expandedHeight ?? 0)
+
   return (
     <svg
       class="pointer-events-none absolute left-0 top-0 z-20"
@@ -36,7 +39,7 @@ export function GitGraphSvg(props: {
       <For each={props.lines}>
         {(line) => (
           <path
-            d={linePath(line)}
+            d={linePath(line, y)}
             fill="none"
             stroke={GRAPH_SHADOW}
             stroke-width={GRAPH_SHADOW_WIDTH}
@@ -50,7 +53,7 @@ export function GitGraphSvg(props: {
       <For each={props.lines}>
         {(line) => (
           <path
-            d={linePath(line)}
+            d={linePath(line, y)}
             fill="none"
             stroke={line.committed ? color(line.colorIndex) : UNCOMMITTED_COLOR}
             stroke-width={GRAPH_LINE_WIDTH}
@@ -63,7 +66,7 @@ export function GitGraphSvg(props: {
       <For each={props.nodes}>
         {(node) => {
           const cx = () => xForLane(node.lane)
-          const cy = () => yForRow(node.row)
+          const cy = () => y(node.row)
           const c = () => color(node.colorIndex)
           const fill = () => (node.isHead || node.isUncommitted ? "var(--background-base)" : c())
           const stroke = () => (node.isUncommitted ? UNCOMMITTED_COLOR : node.isHead ? c() : "var(--background-base)")

@@ -1,7 +1,7 @@
 import type { CommitLogItem } from "@opencode-ai/sdk/v2"
 import { describe, expect, test } from "bun:test"
 import { autoColumns, resizeColumns } from "./columns"
-import { computeGraphLayout, LANE_GAP, RAIL_PAD, UNCOMMITTED } from "./model"
+import { computeGraphLayout, expandedY, LANE_GAP, RAIL_PAD, ROW_HEIGHT, UNCOMMITTED } from "./model"
 import { refsFor } from "./refs"
 
 const item = (input: {
@@ -226,5 +226,17 @@ describe("git graph columns", () => {
 
     expect(Math.round(total(next))).toBe(500)
     expect(next.description).toBeGreaterThanOrEqual(40)
+  })
+})
+
+describe("expandedY", () => {
+  test("offsets only rows below the expanded row", () => {
+    expect(expandedY(0, 1, 200)).toBe(ROW_HEIGHT / 2)
+    expect(expandedY(1, 1, 200)).toBe(ROW_HEIGHT + ROW_HEIGHT / 2)
+    expect(expandedY(2, 1, 200)).toBe(2 * ROW_HEIGHT + ROW_HEIGHT / 2 + 200)
+  })
+
+  test("matches normal row positions without an expanded row", () => {
+    expect(expandedY(2, null, 200)).toBe(2 * ROW_HEIGHT + ROW_HEIGHT / 2)
   })
 })
