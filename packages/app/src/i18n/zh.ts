@@ -1096,7 +1096,8 @@ export const dict = {
   "settings.general.row.voiceEndpoint.placeholder": "http://localhost:8000/v1/chat/completions",
   "settings.general.row.voiceApiKey.title": "API 密钥",
   "settings.general.row.voiceApiKey.placeholder": "如需要请输入 API 密钥",
-  "settings.general.row.voiceModel.title": "模型名称",
+  "settings.general.row.voiceModel.title": "语音输入模型",
+  "settings.general.row.voiceModel.description": "用于语音转文字的模型",
   "settings.general.row.voiceModel.placeholder": "qwen2.5-omni-7b",
 
   "settings.updates.row.startup.title": "启动时检查更新",

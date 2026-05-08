@@ -1,10 +1,11 @@
-import { Component, createSignal, onCleanup } from "solid-js"
+import { Component, createSignal, createEffect, on, onCleanup } from "solid-js"
 import { Button } from "@opencode-ai/ui/button"
 import { Icon } from "@opencode-ai/ui/icon"
 import { Tooltip } from "@opencode-ai/ui/tooltip"
 import { showToast } from "@opencode-ai/ui/toast"
 import { useLanguage } from "@/context/language"
 import { useSettings } from "@/context/settings"
+import { useSDK } from "@/context/sdk"
 import { useSync } from "@/context/sync"
 import { useParams } from "@solidjs/router"
 import { createVoiceRecorder, type VoiceRecorderState } from "@/utils/voice-recorder"
@@ -12,11 +13,13 @@ import { transcribeAudio } from "@/utils/voice-transcription"
 
 export interface VoiceInputButtonProps {
   onTranscription: (text: string) => void
+  onStateChange?: (state: VoiceRecorderState | "transcribing") => void
 }
 
 export const VoiceInputButton: Component<VoiceInputButtonProps> = (props) => {
   const language = useLanguage()
   const settings = useSettings()
+  const sdk = useSDK()
   const sync = useSync()
   const params = useParams()
   const recorder = createVoiceRecorder()
@@ -32,6 +35,8 @@ export const VoiceInputButton: Component<VoiceInputButtonProps> = (props) => {
     if (transcribing()) return "transcribing"
     return recorder.state()
   }
+
+  createEffect(on(state, (s) => props.onStateChange?.(s)))
 
   const tooltipText = () => {
     switch (state()) {
@@ -68,11 +73,25 @@ export const VoiceInputButton: Component<VoiceInputButtonProps> = (props) => {
         const audioBlob = await recorder.stop()
         setTranscribing(true)
 
+        const voiceModel = settings.voice.model()
+        if (!voiceModel) {
+          showToast({ title: language.t("prompt.action.voiceInput.error.noEndpoint") })
+          return
+        }
+        const parts = voiceModel.split("/")
+        const providerID = parts.length > 1 ? parts[0] : ""
+        const modelID = parts.length > 1 ? parts.slice(1).join("/") : voiceModel
+
+        if (!providerID) {
+          showToast({ title: language.t("prompt.action.voiceInput.error.noEndpoint") })
+          return
+        }
+
         abortController = new AbortController()
         const text = await transcribeAudio({
-          endpoint: settings.voice.endpoint(),
-          apiKey: settings.voice.apiKey() || undefined,
-          model: settings.voice.model(),
+          serverUrl: sdk.url,
+          providerID,
+          modelID,
           audioBlob,
           conversationContext: getConversationContext(),
           signal: abortController.signal,
@@ -103,8 +122,8 @@ export const VoiceInputButton: Component<VoiceInputButtonProps> = (props) => {
       return
     }
 
-    const endpoint = settings.voice.endpoint()
-    if (!endpoint) {
+    const voiceModel = settings.voice.model()
+    if (!voiceModel || !voiceModel.includes("/")) {
       showToast({ title: language.t("prompt.action.voiceInput.error.noEndpoint") })
       return
     }

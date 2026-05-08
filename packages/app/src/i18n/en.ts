@@ -1322,7 +1322,8 @@ export const dict = {
   "settings.general.row.voiceEndpoint.placeholder": "http://localhost:8000/v1/chat/completions",
   "settings.general.row.voiceApiKey.title": "API key",
   "settings.general.row.voiceApiKey.placeholder": "Enter API key if required",
-  "settings.general.row.voiceModel.title": "Model name",
+  "settings.general.row.voiceModel.title": "Voice input model",
+  "settings.general.row.voiceModel.description": "Model used for speech-to-text transcription",
   "settings.general.row.voiceModel.placeholder": "qwen2.5-omni-7b",
 
   "settings.updates.row.startup.title": "Check for updates on startup",

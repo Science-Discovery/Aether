@@ -132,6 +132,12 @@ export const SettingsGeneral: Component = () => {
     return modelOptions().find((o) => o.value === val) ?? modelOptions()[0]
   })
 
+  const currentVoiceModel = createMemo(() => {
+    const val = settings.voice.model()
+    if (!val) return modelOptions()[0]
+    return modelOptions().find((o) => o.value === val) ?? { value: val, label: val, providerID: "" }
+  })
+
   const check = () => {
     if (!platform.checkUpdate) return
     setStore("checking", true)
@@ -297,6 +303,27 @@ export const SettingsGeneral: Component = () => {
                 const message = err instanceof Error ? err.message : String(err)
                 showToast({ title: language.t("common.requestFailed"), description: message })
               })
+            }}
+            variant="secondary"
+            size="small"
+            triggerVariant="settings"
+            triggerStyle={{ "min-width": "220px" }}
+          />
+        </SettingsRow>
+
+        <SettingsRow
+          title={language.t("settings.general.row.voiceModel.title")}
+          description={language.t("settings.general.row.voiceModel.description")}
+        >
+          <Select
+            data-action="settings-voice-model"
+            options={modelOptions()}
+            current={currentVoiceModel()}
+            value={(o) => o.value}
+            label={(o) => o.label}
+            onSelect={(option) => {
+              if (!option) return
+              settings.voice.setModel(option.value)
             }}
             variant="secondary"
             size="small"
@@ -699,70 +726,6 @@ export const SettingsGeneral: Component = () => {
     </div>
   )
 
-  const VoiceSection = () => (
-    <div class="flex flex-col gap-1">
-      <h3 class="text-14-medium text-text-strong pb-2">{language.t("settings.general.section.voice")}</h3>
-
-      <SettingsList>
-        <SettingsRow
-          title={language.t("settings.general.row.voiceEnabled.title")}
-          description={language.t("settings.general.row.voiceEnabled.description")}
-        >
-          <div data-action="settings-voice-enabled">
-            <Switch
-              checked={settings.voice.enabled()}
-              onChange={(checked) => settings.voice.setEnabled(checked)}
-            />
-          </div>
-        </SettingsRow>
-
-        <Show when={settings.voice.enabled()}>
-          <SettingsRow
-            title={language.t("settings.general.row.voiceEndpoint.title")}
-            description=""
-          >
-            <TextField
-              data-action="settings-voice-endpoint"
-              type="text"
-              value={settings.voice.endpoint()}
-              onChange={(value) => settings.voice.setEndpoint(value)}
-              placeholder={language.t("settings.general.row.voiceEndpoint.placeholder")}
-              class="w-[300px]"
-            />
-          </SettingsRow>
-
-          <SettingsRow
-            title={language.t("settings.general.row.voiceApiKey.title")}
-            description=""
-          >
-            <TextField
-              data-action="settings-voice-apikey"
-              type="password"
-              value={settings.voice.apiKey()}
-              onChange={(value) => settings.voice.setApiKey(value)}
-              placeholder={language.t("settings.general.row.voiceApiKey.placeholder")}
-              class="w-[300px]"
-            />
-          </SettingsRow>
-
-          <SettingsRow
-            title={language.t("settings.general.row.voiceModel.title")}
-            description=""
-          >
-            <TextField
-              data-action="settings-voice-model"
-              type="text"
-              value={settings.voice.model()}
-              onChange={(value) => settings.voice.setModel(value)}
-              placeholder={language.t("settings.general.row.voiceModel.placeholder")}
-              class="w-[300px]"
-            />
-          </SettingsRow>
-        </Show>
-      </SettingsList>
-    </div>
-  )
-
   const UpdatesSection = () => (
     <div class="flex flex-col gap-1">
       <h3 class="text-14-medium text-text-strong pb-2">{language.t("settings.general.section.updates")}</h3>
@@ -991,8 +954,6 @@ export const SettingsGeneral: Component = () => {
         <NotificationsSection />
 
         <SoundsSection />
-
-        <VoiceSection />
 
         <ServerSection />
 

@@ -131,6 +131,24 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
   let scrollRef!: HTMLDivElement
   let slashPopoverRef!: HTMLDivElement
   let shellFormRef: HTMLFormElement | undefined
+  const [voiceState, setVoiceState] = createSignal<"idle" | "recording" | "processing" | "transcribing">("idle")
+  const [recordingTime, setRecordingTime] = createSignal(0)
+  let recordingTimer: ReturnType<typeof setInterval> | undefined
+
+  createEffect(
+    on(voiceState, (s) => {
+      if (s === "recording") {
+        setRecordingTime(0)
+        recordingTimer = setInterval(() => setRecordingTime((t) => t + 1), 1000)
+      } else {
+        if (recordingTimer) {
+          clearInterval(recordingTimer)
+          recordingTimer = undefined
+        }
+      }
+    }),
+  )
+  onCleanup(() => { if (recordingTimer) clearInterval(recordingTimer) })
 
   const mirror = { input: false }
   const inset = 56
@@ -1293,6 +1311,25 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
         commandKeybind={command.keybind}
         t={(key) => language.t(key as Parameters<typeof language.t>[0])}
       />
+      <Show when={voiceState() === "recording" || voiceState() === "transcribing"}>
+        <div class="flex items-center gap-3 px-4 py-2 mb-1 rounded-lg bg-surface-raised-stronger-non-alpha text-13-medium">
+          <Show
+            when={voiceState() === "recording"}
+            fallback={
+              <>
+                <div class="size-2.5 rounded-full bg-icon-base animate-pulse" />
+                <span class="text-text-base">{language.t("prompt.action.voiceInput.transcribing")}</span>
+              </>
+            }
+          >
+            <div class="size-2.5 rounded-full bg-red-500 animate-pulse" />
+            <span class="text-text-strong">{language.t("prompt.action.voiceInput.recording")}</span>
+            <span class="text-text-weak font-mono tabular-nums">
+              {String(Math.floor(recordingTime() / 60)).padStart(2, "0")}:{String(recordingTime() % 60).padStart(2, "0")}
+            </span>
+          </Show>
+        </div>
+      </Show>
       <DockShellForm
         ref={shellFormRef}
         onSubmit={handleSubmit}
@@ -1425,6 +1462,29 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                   aria-label={working() ? language.t("prompt.action.stop") : language.t("prompt.action.send")}
                 />
               </Tooltip>
+              <VoiceInputButton
+                onStateChange={setVoiceState}
+                onTranscription={(text) => {
+                  const current = prompt.current()
+                  const textParts = current.filter((p) => p.type !== "image")
+                  const lastTextPart = textParts.findLast((p) => p.type === "text")
+                  if (lastTextPart && lastTextPart.type === "text") {
+                    const newContent = lastTextPart.content ? lastTextPart.content + " " + text : text
+                    const newParts = current.map((p) =>
+                      p === lastTextPart
+                        ? { ...p, content: newContent, end: p.start + newContent.length }
+                        : p,
+                    )
+                    prompt.set(newParts as Prompt, promptLength(newParts as Prompt))
+                  } else {
+                    prompt.set(
+                      [{ type: "text" as const, content: text, start: 0, end: text.length }, ...current],
+                      text.length,
+                    )
+                  }
+                  requestAnimationFrame(() => editorRef.focus())
+                }}
+              />
             </div>
           </div>
 
@@ -1619,39 +1679,6 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                   >
                     <KnowledgeButton />
                   </div>
-                  <Show when={settings.voice.enabled()}>
-                    <div
-                      style={{
-                        opacity: buttonsSpring(),
-                        transform: `scale(${0.95 + buttonsSpring() * 0.05})`,
-                        filter: `blur(${(1 - buttonsSpring()) * 2}px)`,
-                        "pointer-events": buttonsSpring() > 0.5 ? "auto" : "none",
-                      }}
-                    >
-                      <VoiceInputButton
-                        onTranscription={(text) => {
-                          const current = prompt.current()
-                          const textParts = current.filter((p) => p.type !== "image")
-                          const lastTextPart = textParts.findLast((p) => p.type === "text")
-                          if (lastTextPart && lastTextPart.type === "text") {
-                            const newContent = lastTextPart.content ? lastTextPart.content + " " + text : text
-                            const newParts = current.map((p) =>
-                              p === lastTextPart
-                                ? { ...p, content: newContent, end: p.start + newContent.length }
-                                : p,
-                            )
-                            prompt.set(newParts as Prompt, promptLength(newParts as Prompt))
-                          } else {
-                            prompt.set(
-                              [{ type: "text" as const, content: text, start: 0, end: text.length }, ...current],
-                              text.length,
-                            )
-                          }
-                          requestAnimationFrame(() => editorRef.focus())
-                        }}
-                      />
-                    </div>
-                  </Show>
                   <Tooltip placement="left" gutter={4} value={language.t("evolvedSkills.title")}>
                     <Button
                       variant="ghost"

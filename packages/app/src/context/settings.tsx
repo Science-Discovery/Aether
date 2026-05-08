@@ -49,8 +49,6 @@ export interface Settings {
   sounds: SoundSettings
   voice: {
     enabled: boolean
-    endpoint: string
-    apiKey: string
     model: string
   }
 }
@@ -96,9 +94,7 @@ const defaultSettings: Settings = {
     errors: "nope-03",
   },
   voice: {
-    enabled: false,
-    endpoint: "",
-    apiKey: "",
+    enabled: true,
     model: "qwen2.5-omni-7b",
   },
 }
@@ -319,14 +315,6 @@ export const { use: useSettings, provider: SettingsProvider } = createSimpleCont
         enabled: withFallback(() => store.voice?.enabled, defaultSettings.voice.enabled),
         setEnabled(value: boolean) {
           setStore("voice", "enabled", value)
-        },
-        endpoint: withFallback(() => store.voice?.endpoint, defaultSettings.voice.endpoint),
-        setEndpoint(value: string) {
-          setStore("voice", "endpoint", value)
-        },
-        apiKey: withFallback(() => store.voice?.apiKey, defaultSettings.voice.apiKey),
-        setApiKey(value: string) {
-          setStore("voice", "apiKey", value)
         },
         model: withFallback(() => store.voice?.model, defaultSettings.voice.model),
         setModel(value: string) {
