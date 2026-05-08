@@ -1,4 +1,5 @@
 import { For, Show, createMemo, createSignal, onCleanup } from "solid-js"
+import { createStore } from "solid-js/store"
 import { Portal } from "solid-js/web"
 import type { Column, Columns } from "./columns"
 import { autoColumns, fitColumns, resizeColumns, template } from "./columns"
@@ -19,7 +20,7 @@ export function GitGraphList(props: {
   onCommitClick?: (hash: string) => void
   onContextMenu?: (hash: string, event: MouseEvent) => void
 }) {
-  const [hovered, setHovered] = createSignal<GraphNode | null>(null)
+  const [hover, setHover] = createStore<{ row: GraphNode | null; tip: GraphNode | null }>({ row: null, tip: null })
   const [tooltipX, setTooltipX] = createSignal(0)
   const [tooltipY, setTooltipY] = createSignal(0)
   const [tooltipSide, setTooltipSide] = createSignal<"left" | "right">("right")
@@ -43,13 +44,20 @@ export function GitGraphList(props: {
   onCleanup(() => observer?.disconnect())
 
   const handleCircleEnter = (node: GraphNode, e: MouseEvent) => {
-    setHovered(node)
+    setHover({ row: node, tip: node })
     updatePos(e)
   }
 
-  const handleRowEnter = (node: GraphNode, e: MouseEvent) => {
-    setHovered(node)
-    updatePos(e, cols().graph)
+  const handleCircleLeave = () => {
+    setHover({ row: null, tip: null })
+  }
+
+  const handleRowEnter = (node: GraphNode) => {
+    setHover("row", node)
+  }
+
+  const handleRowLeave = () => {
+    setHover({ row: null, tip: null })
   }
 
   const startResize = (left: Column, right: Column, event: MouseEvent) => {
@@ -115,7 +123,7 @@ export function GitGraphList(props: {
             height={bodyHeight()}
             onNodeEnter={handleCircleEnter}
             onNodeMove={updatePos}
-            onNodeLeave={() => setHovered(null)}
+            onNodeLeave={handleCircleLeave}
             onNodeClick={props.onCommitClick}
             onNodeContextMenu={props.onContextMenu}
           />
@@ -128,10 +136,10 @@ export function GitGraphList(props: {
                   columns={cols()}
                   currentBranch={props.currentBranch}
                   uncommitted={props.uncommitted}
-                  hovered={hovered()?.hash === node.hash}
+                  hovered={hover.row?.hash === node.hash}
                   selected={props.selectedHash === node.hash}
                   onEnter={handleRowEnter}
-                  onLeave={() => setHovered(null)}
+                  onLeave={handleRowLeave}
                   onClick={props.onCommitClick}
                   onContextMenu={props.onContextMenu}
                 />
@@ -142,7 +150,7 @@ export function GitGraphList(props: {
       </div>
 
       <Portal>
-        <Show when={hovered()}>
+        <Show when={hover.tip}>
           {(node) => (
             <div
               class="fixed z-[1000] pointer-events-none"

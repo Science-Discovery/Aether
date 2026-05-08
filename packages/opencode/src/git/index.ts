@@ -301,7 +301,7 @@ export namespace Git {
         } else {
           args.push("--all")
         }
-        args.push("--topo-order")
+        args.push("--date-order")
         return (yield* lines(args, { cwd })).map((line) => {
           const [hash, parents, author, email, date, ...rest] = line.split(sep)
           return {
@@ -317,30 +317,37 @@ export namespace Git {
 
       const commitDetails = Effect.fn("Git.commitDetails")(function* (cwd: string, hash: string) {
         const sep = "\x1F"
-        const [meta, rawNameStatus, rawNumstat] = yield* Effect.all(
-          [
-            text(
-              ["log", "-1", `--format=%H${sep}%P${sep}%an${sep}%ae${sep}%at${sep}%cn${sep}%ce${sep}%ct${sep}%B`, hash],
-              { cwd },
-            ),
-            text(["diff-tree", "--name-status", "-r", "--root", "--find-renames", "--diff-filter=AMDR", "-z", hash], {
-              cwd,
-            }),
-            text(["diff-tree", "--numstat", "-r", "--root", "--find-renames", "--diff-filter=AMDR", "-z", hash], {
-              cwd,
-            }),
-          ],
-          { concurrency: 3 },
+        const meta = yield* text(
+          ["log", "-1", `--format=%H${sep}%P${sep}%an${sep}%ae${sep}%at${sep}%cn${sep}%ce${sep}%ct${sep}%B`, hash],
+          { cwd },
         )
 
         const parts = meta.split(sep)
+        const parents = parts[1] ? parts[1].split(" ").filter(Boolean) : []
         const body = parts.slice(9).join(sep).trim()
+        const from = parents.length > 0 ? `${hash}^` : hash
+        const [rawNameStatus, rawNumstat] = yield* Effect.all(
+          parents.length > 0
+            ? [
+                text(["diff", "--name-status", "--find-renames", "--diff-filter=AMDR", "-z", from, hash], { cwd }),
+                text(["diff", "--numstat", "--find-renames", "--diff-filter=AMDR", "-z", from, hash], { cwd }),
+              ]
+            : [
+                text(["diff-tree", "--name-status", "-r", "--root", "--find-renames", "--diff-filter=AMDR", "-z", hash], {
+                  cwd,
+                }),
+                text(["diff-tree", "--numstat", "-r", "--root", "--find-renames", "--diff-filter=AMDR", "-z", hash], {
+                  cwd,
+                }),
+              ],
+          { concurrency: 2 },
+        )
 
         const nameStatus = nuls(rawNameStatus)
-        nameStatus.shift()
+        if (parents.length === 0) nameStatus.shift()
 
         const numstat = nuls(rawNumstat)
-        numstat.shift()
+        if (parents.length === 0) numstat.shift()
 
         const statMap = new Map<string, { additions: number | null; deletions: number | null }>()
         const statOldMap = new Map<string, { additions: number | null; deletions: number | null }>()
@@ -405,7 +412,7 @@ export namespace Git {
 
         return {
           hash: parts[0],
-          parents: parts[1] ? parts[1].split(" ").filter(Boolean) : [],
+          parents,
           author: parts[2],
           authorEmail: parts[3],
           authorDate: parseInt(parts[4], 10),
