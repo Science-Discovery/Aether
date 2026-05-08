@@ -67,7 +67,7 @@ describe("file.ripgrep", () => {
 
     expect(hits).toHaveLength(1)
     expect(hits[0]?.path.text).toBe("match.ts")
-    expect(hits[0]?.lines.text).toContain("te")
+    expect(hits[0]?.items[0]?.lines.text).toContain("te")
   })
 
   test("search supports fixed strings and case toggle", async () => {
@@ -125,9 +125,13 @@ describe("file.ripgrep", () => {
     expect(include.map((item) => item.path.text)).toEqual(["match.ts"])
     expect(exclude.map((item) => item.path.text)).toEqual(["match.ts"])
     expect(word).toHaveLength(2)
-    expect(word.find((item) => item.path.text === "match.md")?.submatches).toHaveLength(1)
-    expect(word.find((item) => item.path.text === "match.ts")?.submatches).toHaveLength(2)
-    expect(word.flatMap((item) => item.submatches.map((part) => part.match.text))).toEqual(["cat", "cat", "cat"])
+    expect(word.find((item) => item.path.text === "match.md")?.items[0]?.submatches).toHaveLength(1)
+    expect(word.find((item) => item.path.text === "match.ts")?.items[0]?.submatches).toHaveLength(2)
+    expect(word.flatMap((item) => item.items.flatMap((part) => part.submatches.map((hit) => hit.match.text)))).toEqual([
+      "cat",
+      "cat",
+      "cat",
+    ])
   })
 
   test("search returns empty when globs exclude every file", async () => {
@@ -146,10 +150,11 @@ describe("file.ripgrep", () => {
     expect(hits).toEqual([])
   })
 
-  test("stream yields matches in batches", async () => {
+  test("stream yields grouped matches in batches", async () => {
     await using tmp = await tmpdir({
       init: async (dir) => {
-        await Bun.write(path.join(dir, "match.ts"), "alpha\nbeta\nalpha\nbeta\n")
+        await Bun.write(path.join(dir, "a.ts"), "alpha\nbeta\n")
+        await Bun.write(path.join(dir, "b.ts"), "alpha\nbeta\n")
       },
     })
 
@@ -157,13 +162,14 @@ describe("file.ripgrep", () => {
       Ripgrep.stream({
         cwd: tmp.path,
         pattern: "a",
-        batch: 2,
+        batch: 1,
       }),
     )
 
     expect(batches).toHaveLength(2)
-    expect(batches[0]).toHaveLength(2)
-    expect(batches[1]).toHaveLength(2)
+    expect(batches[0]).toHaveLength(1)
+    expect(batches[1]).toHaveLength(1)
+    expect(batches.flatMap((item) => item.map((part) => part.path.text)).sort()).toEqual(["a.ts", "b.ts"])
   })
 
   test("search aborts with signal", async () => {

@@ -5520,23 +5520,25 @@ export type FindTextData = {
 
 export type FindTextResponses = {
   /**
-   * Matches
+   * Grouped matches
    */
   200: Array<{
     path: {
       text: string
     }
-    lines: {
-      text: string
-    }
-    line_number: number
-    absolute_offset: number
-    submatches: Array<{
-      match: {
+    items: Array<{
+      lines: {
         text: string
       }
-      start: number
-      end: number
+      line_number: number
+      absolute_offset: number
+      submatches: Array<{
+        match: {
+          text: string
+        }
+        start: number
+        end: number
+      }>
     }>
   }>
 }
@@ -5561,24 +5563,26 @@ export type FindTextStreamData = {
 
 export type FindTextStreamResponses = {
   /**
-   * SSE matches
+   * SSE grouped matches
    */
   200:
     | Array<{
         path: {
           text: string
         }
-        lines: {
-          text: string
-        }
-        line_number: number
-        absolute_offset: number
-        submatches: Array<{
-          match: {
+        items: Array<{
+          lines: {
             text: string
           }
-          start: number
-          end: number
+          line_number: number
+          absolute_offset: number
+          submatches: Array<{
+            match: {
+              text: string
+            }
+            start: number
+            end: number
+          }>
         }>
       }>
     | {

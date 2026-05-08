@@ -219,10 +219,10 @@ export const FileRoutes = lazy(() =>
         operationId: "find.text",
         responses: {
           200: {
-            description: "Matches",
+            description: "Grouped matches",
             content: {
               "application/json": {
-                schema: resolver(Ripgrep.Match.shape.data.array()),
+                schema: resolver(Ripgrep.Group.array()),
               },
             },
           },
@@ -263,12 +263,12 @@ export const FileRoutes = lazy(() =>
         operationId: "find.textStream",
         responses: {
           200: {
-            description: "SSE matches",
+            description: "SSE grouped matches",
             content: {
               "text/event-stream": {
                 schema: resolver(
                   z.union([
-                    Ripgrep.Match.shape.data.array(),
+                    Ripgrep.Group.array(),
                     z.object({ count: z.number() }),
                     z.object({ message: z.string() }),
                   ]),

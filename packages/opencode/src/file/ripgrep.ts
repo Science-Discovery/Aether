@@ -116,9 +116,25 @@ export namespace Ripgrep {
   export type Begin = z.infer<typeof Begin>
   export type End = z.infer<typeof End>
   export type Summary = z.infer<typeof Summary>
+  export const Hit = Match.shape.data.omit({ path: true })
+  export const Group = z.object({
+    path: Match.shape.data.shape.path,
+    items: Hit.array(),
+  })
+  export type Hit = z.infer<typeof Hit>
+  export type Group = z.infer<typeof Group>
 
   function isTextMatch(item: Result): item is Match {
     return item.type === "match" && "text" in item.data.lines
+  }
+
+  function hit(item: MatchData): Hit {
+    return {
+      lines: item.lines,
+      line_number: item.line_number,
+      absolute_offset: item.absolute_offset,
+      submatches: item.submatches,
+    }
   }
 
   function args(input: {
@@ -145,8 +161,12 @@ export namespace Ripgrep {
 
   function parse(line: string) {
     if (!line) return
-    const item = Result.parse(JSON.parse(line))
-    if (!isTextMatch(item)) return
+    return Result.parse(JSON.parse(line))
+  }
+
+  function match(line: string) {
+    const item = parse(line)
+    if (!item || !isTextMatch(item)) return
     return item.data
   }
 
@@ -472,8 +492,8 @@ export namespace Ripgrep {
     word?: boolean
     regex?: boolean
     signal?: AbortSignal
-  }): Promise<MatchData[]> {
-    const out: MatchData[] = []
+  }): Promise<Group[]> {
+    const out: Group[] = []
     for await (const batch of stream(input)) out.push(...batch)
     return out
   }
@@ -490,7 +510,7 @@ export namespace Ripgrep {
     regex?: boolean
     signal?: AbortSignal
     batch?: number
-  }): AsyncGenerator<MatchData[]> {
+  }): AsyncGenerator<Group[]> {
     input.signal?.throwIfAborted()
     const file = await filepath()
     const argv = args(input, file)
@@ -504,9 +524,16 @@ export namespace Ripgrep {
 
     const err = text(proc.stderr).catch((error) => (error instanceof Error ? error.message : String(error)))
     let buf = ""
-    let out: MatchData[] = []
+    let out: Group[] = []
+    let grp: Group | undefined
     const size = input.batch ?? 20
     let read: unknown
+
+    const push = () => {
+      if (!grp || grp.items.length === 0) return
+      out.push(grp)
+      grp = undefined
+    }
 
     try {
       for await (const chunk of proc.stdout) {
@@ -518,7 +545,27 @@ export namespace Ripgrep {
         for (const line of lines) {
           const item = parse(line)
           if (!item) continue
-          out.push(item)
+          if (item.type === "begin") {
+            push()
+            grp = {
+              path: item.data.path,
+              items: [],
+            }
+            continue
+          }
+          if (item.type === "end") {
+            push()
+            if (out.length < size) continue
+            yield out
+            out = []
+            continue
+          }
+          if (!isTextMatch(item)) continue
+          grp ??= {
+            path: item.data.path,
+            items: [],
+          }
+          grp.items.push(hit(item.data))
           if (out.length < size) continue
           yield out
           out = []
@@ -529,9 +576,16 @@ export namespace Ripgrep {
     }
 
     if (buf.trim()) {
-      const item = parse(buf.trim())
-      if (item) out.push(item)
+      const item = match(buf.trim())
+      if (item) {
+        grp ??= {
+          path: item.path,
+          items: [],
+        }
+        grp.items.push(hit(item))
+      }
     }
+    push()
 
     const [code, stderr] = await Promise.all([proc.exited, err])
     if (read) {

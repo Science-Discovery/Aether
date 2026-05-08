@@ -532,12 +532,14 @@ export const { use: useFile, provider: FileProvider } = createSimpleContext({
           .then((x) =>
             (x.data ?? []).map((item) => ({
               path: path.normalize(item.path.text),
-              line: item.line_number,
-              text: item.lines.text,
-              matches: item.submatches.map((part) => ({
-                start: part.start,
-                end: part.end,
-                text: part.match.text,
+              items: item.items.map((part) => ({
+                line: part.line_number,
+                text: part.lines.text,
+                matches: part.submatches.map((hit) => ({
+                  start: hit.start,
+                  end: hit.end,
+                  text: hit.match.text,
+                })),
               })),
             })),
           ),

@@ -1,14 +1,15 @@
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { Dialog } from "@opencode-ai/ui/dialog"
 import { FileIcon } from "@opencode-ai/ui/file-icon"
+import { Icon } from "@opencode-ai/ui/icon"
 import { IconButton } from "@opencode-ai/ui/icon-button"
 import { List } from "@opencode-ai/ui/list"
 import { Switch } from "@opencode-ai/ui/switch"
 import { TextField } from "@opencode-ai/ui/text-field"
 import { getDirectory, getFilename } from "@opencode-ai/util/path"
-import fuzzysort from "fuzzysort"
 import type { ListRef } from "@opencode-ai/ui/list"
 import { createEffect, createMemo, createSignal, For, onCleanup, Show, startTransition } from "solid-js"
+import { createStore, reconcile } from "solid-js/store"
 import { useFile } from "@/context/file"
 import { useLanguage } from "@/context/language"
 import { useLayout } from "@/context/layout"
@@ -29,6 +30,22 @@ type Entry = {
   text: string
 }
 
+type Group = {
+  path: string
+  items: Entry[]
+}
+
+type Row =
+  | {
+      id: string
+      kind: "group"
+      path: string
+      total: number
+    }
+  | (Entry & {
+      kind: "item"
+    })
+
 type Part = {
   text: string
   hit: boolean
@@ -38,22 +55,19 @@ type Result = {
   path: {
     text: string
   }
-  line_number: number
-  lines: {
-    text: string
-  }
-  submatches: {
-    start: number
-    end: number
+  items: {
+    line_number: number
+    lines: {
+      text: string
+    }
+    submatches: {
+      start: number
+      end: number
+    }[]
   }[]
 }
 
-type Ranked = {
-  item: Entry
-  score: number
-}
-
-const PAGE = 100
+const PAGE = 10
 const WAIT = 50
 const CHUNK = 200
 
@@ -76,52 +90,84 @@ const parts = (text: string, matches: Match[]) => {
   return out
 }
 
-const sort = (a: Ranked, b: Ranked) => {
-  if (a.score !== b.score) return b.score - a.score
-  return a.item.id.localeCompare(b.item.id)
+const rows = (groups: Group[], fold: Record<string, boolean>) =>
+  groups.flatMap((item) => {
+    const out: Row[] = [
+      {
+        id: `group:${item.path}`,
+        kind: "group",
+        path: item.path,
+        total: item.items.length,
+      },
+    ]
+    if (fold[item.path] === false) return out
+    return out.concat(
+      item.items.map((part) => ({
+        ...part,
+        kind: "item" as const,
+      })),
+    )
+  })
+
+const group = (file: ReturnType<typeof useFile>, item: Result) => ({
+  path: file.normalize(item.path.text),
+  items: item.items.map((part) => ({
+    id: `content:${file.normalize(item.path.text)}:${part.line_number}:${part.lines.text}`,
+    line: part.line_number,
+    matches: part.submatches.map((hit) => ({
+      start: hit.start,
+      end: hit.end,
+    })),
+    path: file.normalize(item.path.text),
+    text: part.lines.text.trimEnd(),
+  })),
+}) satisfies Group
+
+const same = (prev: Row[], next: Row[]) => {
+  if (prev.length !== next.length) return false
+  return prev.every((item, i) => item.id === next[i]?.id)
 }
 
-const order = (a: Ranked, b: Ranked) => {
-  if (a.score !== b.score) return a.score - b.score
-  return b.item.id.localeCompare(a.item.id)
-}
+const rowGroup = (item: Extract<Row, { kind: "group" }>, fold: Record<string, boolean>) => (
+  <div class="w-full flex items-start gap-x-3 rounded-md px-1 py-1.5">
+    <div class="mt-0.5 shrink-0 size-4 flex items-center justify-center text-text-dim">
+      <Icon name={fold[item.path] === false ? "chevron-right" : "chevron-down"} size="small" />
+    </div>
+    <FileIcon node={{ path: item.path, type: "file" }} class="mt-0.5 shrink-0 size-4" />
+    <div class="min-w-0">
+      <div class="flex items-center gap-x-2 min-w-0">
+        <span class="text-14-medium text-text-strong whitespace-nowrap">{getFilename(item.path)}</span>
+        <span class="text-12-regular text-text-dim shrink-0">{item.total}</span>
+      </div>
+      <div class="truncate text-12-regular text-text-weak text-left">{getDirectory(item.path)}</div>
+    </div>
+  </div>
+)
 
-const sink = (heap: Ranked[], root: number) => {
-  let i = root
-  while (true) {
-    const left = i * 2 + 1
-    const right = left + 1
-    let next = i
-    if (left < heap.length && order(heap[left], heap[next]) < 0) next = left
-    if (right < heap.length && order(heap[right], heap[next]) < 0) next = right
-    if (next === i) return
-    ;[heap[i], heap[next]] = [heap[next], heap[i]]
-    i = next
-  }
-}
-
-const rise = (heap: Ranked[], leaf: number) => {
-  let i = leaf
-  while (i > 0) {
-    const parent = Math.floor((i - 1) / 2)
-    if (order(heap[i], heap[parent]) >= 0) return
-    ;[heap[i], heap[parent]] = [heap[parent], heap[i]]
-    i = parent
-  }
-}
-
-const push = (heap: Ranked[], item: Ranked, size: number) => {
-  if (size <= 0) return
-  if (heap.length < size) {
-    heap.push(item)
-    rise(heap, heap.length - 1)
-    return
-  }
-  const last = heap[0]
-  if (order(item, last) >= 0) return
-  heap[0] = item
-  sink(heap, 0)
-}
+const rowItem = (item: Extract<Row, { kind: "item" }>) => (
+  <div class="w-full flex items-start justify-between rounded-md pl-8">
+    <div class="min-w-0">
+      <div class="flex items-center gap-x-2 text-13-regular min-w-0">
+        <span class="text-text-weak whitespace-nowrap shrink-0">{item.line}</span>
+        <Show when={item.text}>
+          <div class="truncate text-text-weak text-left">
+            <For each={parts(item.text, item.matches)}>
+              {(part) => (
+                <span
+                  classList={{
+                    "rounded-sm bg-surface-warning-base text-text-strong": part.hit,
+                  }}
+                >
+                  {part.text}
+                </span>
+              )}
+            </For>
+          </div>
+        </Show>
+      </div>
+    </div>
+  </div>
+)
 
 const debug = () => {
   if (!import.meta.env.DEV) return false
@@ -132,11 +178,6 @@ const debug = () => {
 const log = (msg: string, data: Record<string, unknown>) => {
   if (!debug()) return
   console.debug("[search-content]", msg, data)
-}
-
-const same = (prev: Entry[], next: Ranked[]) => {
-  if (prev.length !== next.length) return false
-  return prev.every((item, i) => item.id === next[i]?.item.id)
 }
 
 export function DialogSearchContent(props: { onOpenFile?: (path: string) => void }) {
@@ -153,17 +194,15 @@ export function DialogSearchContent(props: { onOpenFile?: (path: string) => void
   const [cs, setCs] = createSignal(false)
   const [word, setWord] = createSignal(false)
   const [regex, setRegex] = createSignal(false)
-  const [items, setItems] = createSignal<Entry[]>([])
+  const [items, setItems] = createSignal<Row[]>([])
   const [count, setCount] = createSignal(0)
   const [size, setSize] = createSignal(PAGE)
   const [loading, setLoading] = createSignal(false)
+  const [fold, setFold] = createStore<Record<string, boolean>>({})
   let list: ListRef | undefined
   let abort: AbortController | undefined
-  let all: Ranked[] = []
-  let heap: Ranked[] = []
-  let pool: Ranked[] = []
-  let sorted: Ranked[] = []
-  let dirty = false
+  let all: Group[] = []
+  let pool: Group[] = []
   let tick: ReturnType<typeof setTimeout> | undefined
   const has = createMemo(() => !!inc().trim() || !!exc().trim() || cs() || word() || regex())
   const dir = createMemo(() => decode64(params.dir) ?? "")
@@ -173,17 +212,14 @@ export function DialogSearchContent(props: { onOpenFile?: (path: string) => void
     return language.t("palette.empty")
   })
 
+  const sync = (next = size()) => setItems(rows(all.slice(0, next), fold))
+
   const grow = () => {
     if (!more()) return
     const t0 = performance.now()
     const next = Math.min(size() + PAGE, count())
     setSize(next)
-    if (dirty) {
-      sorted = all.toSorted(sort)
-      dirty = false
-    }
-    heap = sorted.slice(0, next)
-    setItems(heap.map((item) => item.item))
+    sync(next)
     log("grow", {
       count: count(),
       size: next,
@@ -198,13 +234,6 @@ export function DialogSearchContent(props: { onOpenFile?: (path: string) => void
     grow()
   }
 
-  const fill = () => {
-    const el = list?.getScrollRef()
-    if (!el || !more()) return
-    if (el.scrollHeight > el.clientHeight + 80) return
-    grow()
-  }
-
   const stop = () => {
     pool = []
     if (!tick) return
@@ -214,9 +243,7 @@ export function DialogSearchContent(props: { onOpenFile?: (path: string) => void
 
   const clear = () => {
     all = []
-    heap = []
-    sorted = []
-    dirty = false
+    setFold(reconcile({}))
     stop()
   }
 
@@ -228,13 +255,12 @@ export function DialogSearchContent(props: { onOpenFile?: (path: string) => void
       clearTimeout(tick)
       tick = undefined
     }
+    all.push(...next)
     for (const item of next) {
-      all.push(item)
-      push(heap, item, size())
+      if (fold[item.path] === undefined) setFold(item.path, true)
     }
-    dirty = true
     setCount(all.length)
-    const view = heap.toSorted(sort)
+    const view = rows(all.slice(0, size()), fold)
     const done = () => {
       log("flush", {
         batch: next.length,
@@ -247,18 +273,17 @@ export function DialogSearchContent(props: { onOpenFile?: (path: string) => void
         tick = setTimeout(flush, 0)
         return
       }
-      queueMicrotask(fill)
     }
     if (same(items(), view)) {
       done()
       return
     }
     void startTransition(() => {
-      setItems(view.map((item) => item.item))
+      setItems(view)
     }).then(done)
   }
 
-  const queue = (next: Ranked[]) => {
+  const queue = (next: Group[]) => {
     pool.push(...next)
     if (count() === 0 && pool.length >= PAGE) {
       flush()
@@ -268,26 +293,7 @@ export function DialogSearchContent(props: { onOpenFile?: (path: string) => void
     tick = setTimeout(flush, WAIT)
   }
 
-  const entry = (item: Result, pattern: string) => {
-    const next = {
-      id: `${item.path.text}:${item.line_number}:${item.lines.text}`,
-      line: item.line_number,
-      matches: item.submatches.map((part) => ({
-        start: part.start,
-        end: part.end,
-      })),
-      path: file.normalize(item.path.text),
-      text: item.lines.text.trimEnd(),
-    }
-    const path = fuzzysort.single(pattern, fuzzysort.prepare(next.path))?.score ?? 0
-    const text = fuzzysort.single(pattern, fuzzysort.prepare(next.text))?.score ?? 0
-    return {
-      item: next,
-      score: Math.max(path, text),
-    }
-  }
-
-  const open = (path: string, line: number) => {
+  const reveal = (path: string, line: number) => {
     const tab = file.tab(path)
     file.setSelectedPaths(new Set<string>([path]))
     file.setSelectedLines(path, { start: line, end: line })
@@ -298,6 +304,11 @@ export function DialogSearchContent(props: { onOpenFile?: (path: string) => void
     props.onOpenFile?.(path)
     tabs().setActive(tab)
     defer(() => void file.tree.reveal(path))
+  }
+
+  const toggle = (path: string) => {
+    setFold(path, (value) => (value === false ? true : false))
+    sync()
   }
 
   const search = async () => {
@@ -336,7 +347,7 @@ export function DialogSearchContent(props: { onOpenFile?: (path: string) => void
 
       for await (const item of result.stream) {
         if (Array.isArray(item)) {
-          queue(item.map((row) => entry(row, pattern)))
+          queue(item.map((row) => group(file, row)))
           continue
         }
 
@@ -374,12 +385,6 @@ export function DialogSearchContent(props: { onOpenFile?: (path: string) => void
     el.addEventListener("scroll", scroll, { passive: true })
     onCleanup(() => el.removeEventListener("scroll", scroll))
   })
-
-  createEffect(() => {
-    items()
-    queueMicrotask(fill)
-  })
-
   onCleanup(() => {
     clear()
     abort?.abort()
@@ -439,44 +444,18 @@ export function DialogSearchContent(props: { onOpenFile?: (path: string) => void
         items={items()}
         key={(item) => item.id}
         filterMode="none"
-        filterKeys={["path", "text"]}
         onFilter={setQuery}
         onSelect={(item) => {
           if (!item) return
+          if (item.kind === "group") {
+            toggle(item.path)
+            return
+          }
           dialog.close()
-          open(item.path, item.line)
+          reveal(item.path, item.line)
         }}
       >
-        {(item) => (
-          <div class="w-full flex items-start justify-between rounded-md pl-1">
-            <div class="flex items-start gap-x-3 grow min-w-0">
-              <FileIcon node={{ path: item.path, type: "file" }} class="mt-0.5 shrink-0 size-4" />
-              <div class="min-w-0">
-                <div class="flex items-center text-14-regular min-w-0">
-                  <span class="text-text-strong whitespace-nowrap">{getFilename(item.path)}</span>
-                  <span class="text-text-weak whitespace-nowrap overflow-hidden overflow-ellipsis truncate min-w-0">
-                    {`  ${getDirectory(item.path)}:${item.line}`}
-                  </span>
-                </div>
-                <Show when={item.text}>
-                  <div class="truncate text-13-regular text-text-weak text-left">
-                    <For each={parts(item.text, item.matches)}>
-                      {(part) => (
-                        <span
-                          classList={{
-                            "rounded-sm bg-surface-warning-base text-text-strong": part.hit,
-                          }}
-                        >
-                          {part.text}
-                        </span>
-                      )}
-                    </For>
-                  </div>
-                </Show>
-              </div>
-            </div>
-          </div>
-        )}
+        {(item) => (item.kind === "group" ? rowGroup(item, fold) : rowItem(item))}
       </List>
       <Show when={has()}>
         <div class="px-3 py-2 text-12-regular text-text-weak">
