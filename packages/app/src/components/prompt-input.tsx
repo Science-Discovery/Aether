@@ -16,6 +16,7 @@ import {
 } from "@/context/prompt"
 import { useLayout } from "@/context/layout"
 import { useSDK } from "@/context/sdk"
+import { useSettings } from "@/context/settings"
 import { useSync } from "@/context/sync"
 import { useComments } from "@/context/comments"
 import { Button } from "@opencode-ai/ui/button"
@@ -63,6 +64,7 @@ import { KnowledgeButton } from "@/components/knowledge-button"
 import { createWorkingState } from "@/utils/working-state"
 import { SteerButton } from "@/components/steer-button"
 import { DialogDefaultSkills } from "@/components/dialog-default-skills"
+import { VoiceInputButton } from "@/components/voice-input-button"
 
 interface PromptInputProps {
   class?: string
@@ -121,12 +123,33 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
   const permission = usePermission()
   const language = useLanguage()
   const platform = usePlatform()
+  const settings = useSettings()
   const { params, tabs, view } = useSessionLayout()
   let editorRef!: HTMLDivElement
   let fileInputRef: HTMLInputElement | undefined
   let scrollRef!: HTMLDivElement
   let slashPopoverRef!: HTMLDivElement
   let shellFormRef: HTMLFormElement | undefined
+  const [voiceState, setVoiceState] = createSignal<"idle" | "recording" | "processing" | "transcribing">("idle")
+  const [recordingTime, setRecordingTime] = createSignal(0)
+  let recordingTimer: ReturnType<typeof setInterval> | undefined
+
+  createEffect(
+    on(voiceState, (s) => {
+      if (s === "recording") {
+        setRecordingTime(0)
+        recordingTimer = setInterval(() => setRecordingTime((t) => t + 1), 1000)
+      } else {
+        if (recordingTimer) {
+          clearInterval(recordingTimer)
+          recordingTimer = undefined
+        }
+      }
+    }),
+  )
+  onCleanup(() => {
+    if (recordingTimer) clearInterval(recordingTimer)
+  })
 
   const mirror = { input: false }
   const inset = 56
@@ -1291,6 +1314,26 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
         commandKeybind={command.keybind}
         t={(key) => language.t(key as Parameters<typeof language.t>[0])}
       />
+      <Show when={voiceState() === "recording" || voiceState() === "transcribing"}>
+        <div class="flex items-center gap-3 px-4 py-2 mb-1 rounded-lg bg-surface-raised-stronger-non-alpha text-13-medium">
+          <Show
+            when={voiceState() === "recording"}
+            fallback={
+              <>
+                <div class="size-2.5 rounded-full bg-icon-base animate-pulse" />
+                <span class="text-text-base">{language.t("prompt.action.voiceInput.transcribing")}</span>
+              </>
+            }
+          >
+            <div class="size-2.5 rounded-full bg-red-500 animate-pulse" />
+            <span class="text-text-strong">{language.t("prompt.action.voiceInput.recording")}</span>
+            <span class="text-text-weak font-mono tabular-nums">
+              {String(Math.floor(recordingTime() / 60)).padStart(2, "0")}:
+              {String(recordingTime() % 60).padStart(2, "0")}
+            </span>
+          </Show>
+        </div>
+      </Show>
       <DockShellForm
         ref={shellFormRef}
         onSubmit={handleSubmit}
@@ -1423,6 +1466,27 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                   aria-label={working() ? language.t("prompt.action.stop") : language.t("prompt.action.send")}
                 />
               </Tooltip>
+              <VoiceInputButton
+                onStateChange={setVoiceState}
+                onTranscription={(text) => {
+                  const current = prompt.current()
+                  const textParts = current.filter((p) => p.type !== "image")
+                  const lastTextPart = textParts.findLast((p) => p.type === "text")
+                  if (lastTextPart && lastTextPart.type === "text") {
+                    const newContent = lastTextPart.content ? lastTextPart.content + " " + text : text
+                    const newParts = current.map((p) =>
+                      p === lastTextPart ? { ...p, content: newContent, end: p.start + newContent.length } : p,
+                    )
+                    prompt.set(newParts as Prompt, promptLength(newParts as Prompt))
+                  } else {
+                    prompt.set(
+                      [{ type: "text" as const, content: text, start: 0, end: text.length }, ...current],
+                      text.length,
+                    )
+                  }
+                  requestAnimationFrame(() => editorRef.focus())
+                }}
+              />
             </div>
           </div>
 

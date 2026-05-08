@@ -154,6 +154,7 @@ import { WeChatManager } from "@/mobile/wechat"
 import { ReadingModeRoutes } from "./routes/reading-mode"
 import { DatabaseRoutes } from "./routes/database"
 import { CronRoutes } from "./routes/cron"
+import { VoiceRoutes } from "./routes/voice"
 import { MDNS } from "./mdns"
 import { lazy } from "@/util/lazy"
 import { initProjectors } from "./projectors"
@@ -463,6 +464,7 @@ export namespace Server {
       .route("/tui", TuiRoutes())
       .route("/knowledge", KnowledgeRoutes())
       .route("/cron", CronRoutes())
+      .route("/voice", VoiceRoutes())
       .route("/mobile/wechat", createMobileRoutes("wechat"))
       .route("/mobile/feishu", createMobileRoutes("feishu"))
       .route("/mobile/qq", createMobileRoutes("qq"))
