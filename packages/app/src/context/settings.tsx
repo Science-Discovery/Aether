@@ -47,6 +47,9 @@ export interface Settings {
   }
   notifications: NotificationSettings
   sounds: SoundSettings
+  voice: {
+    model: string
+  }
 }
 
 const defaultSettings: Settings = {
@@ -88,6 +91,9 @@ const defaultSettings: Settings = {
     permissions: "staplebops-02",
     errorsEnabled: true,
     errors: "nope-03",
+  },
+  voice: {
+    model: "qwen2.5-omni-7b",
   },
 }
 
@@ -301,6 +307,12 @@ export const { use: useSettings, provider: SettingsProvider } = createSimpleCont
         errors: withFallback(() => store.sounds?.errors, defaultSettings.sounds.errors),
         setErrors(value: string) {
           setStore("sounds", "errors", value)
+        },
+      },
+      voice: {
+        model: withFallback(() => store.voice?.model, defaultSettings.voice.model),
+        setModel(value: string) {
+          setStore("voice", "model", value)
         },
       },
     }
