@@ -3,6 +3,7 @@ import * as CrossSpawnSpawner from "@/effect/cross-spawn-spawner"
 import { Effect, Layer, ServiceMap, Stream } from "effect"
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
 import { makeRuntime } from "@/effect/run-service"
+import * as Graph from "./git-graph"
 
 export namespace Git {
   const cfg = [
@@ -112,6 +113,7 @@ export namespace Git {
       opts?: { max?: number; branch?: string; skip?: number },
     ) => Effect.Effect<readonly LogItem[]>
     readonly refs: (cwd: string, ...prefixes: string[]) => Effect.Effect<readonly Ref[]>
+    readonly graphRefs: (cwd: string) => Effect.Effect<Graph.Refs>
     readonly commitDetails: (cwd: string, hash: string) => Effect.Effect<CommitDetail>
     readonly fileContent: (cwd: string, hash: string, path: string) => Effect.Effect<string>
   }
@@ -438,6 +440,10 @@ export namespace Git {
         })
       })
 
+      const graphRefs = Effect.fn("Git.graphRefs")(function* (cwd: string) {
+        return Graph.parseRefs(yield* text(["show-ref", "-d", "--head"], { cwd }))
+      })
+
       return Service.of({
         run,
         branch,
@@ -451,6 +457,7 @@ export namespace Git {
         stats,
         log,
         refs,
+        graphRefs,
         commitDetails,
         fileContent,
       })
@@ -511,6 +518,10 @@ export namespace Git {
 
   export function refs(cwd: string, ...prefixes: string[]) {
     return runPromise((git) => git.refs(cwd, ...prefixes))
+  }
+
+  export function graphRefs(cwd: string) {
+    return runPromise((git) => git.graphRefs(cwd))
   }
 
   export function commitDetails(cwd: string, hash: string) {
