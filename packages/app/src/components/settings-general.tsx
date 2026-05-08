@@ -132,12 +132,6 @@ export const SettingsGeneral: Component = () => {
     return modelOptions().find((o) => o.value === val) ?? modelOptions()[0]
   })
 
-  const currentVoiceModel = createMemo(() => {
-    const val = settings.voice.model()
-    if (!val) return voiceModelOptions()[0]
-    return voiceModelOptions().find((o) => o.value === val) ?? { value: val, label: val, providerID: "" }
-  })
-
   const voiceModelOptions = createMemo(() => {
     const none = { value: "", label: language.t("settings.general.row.defaultModel.none"), providerID: "" }
     const items = models
@@ -164,6 +158,12 @@ export const SettingsGeneral: Component = () => {
       return [none, ...allItems]
     }
     return [none, ...items]
+  })
+
+  const currentVoiceModel = createMemo(() => {
+    const val = settings.voice.model()
+    if (!val) return voiceModelOptions()[0]
+    return voiceModelOptions().find((o) => o.value === val) ?? { value: val, label: val, providerID: "" }
   })
 
   const check = () => {
