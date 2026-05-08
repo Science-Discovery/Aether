@@ -496,6 +496,8 @@ export const dict = {
   "filePanel.summarize": "Summarize",
   "filePanel.summarizing": "Summarizing...",
   "filePanel.summarizeTooltip": "Generate .summary files for all folders",
+  "filePanel.collapseAll": "Collapse All",
+  "filePanel.collapseAllTooltip": "Collapse all expanded directories",
   "filePanel.refresh": "Refresh",
   "filePanel.refreshTooltip": "Refresh project file list",
   "filePanel.uploadFailed": "Upload failed",

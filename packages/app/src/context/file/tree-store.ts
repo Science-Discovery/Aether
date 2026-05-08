@@ -196,6 +196,19 @@ export function createFileTreeStore(options: TreeStoreOptions) {
     options.onExpandedChange?.(getExpandedSet())
   }
 
+  const collapseAll = () => {
+    setTree(
+      "dir",
+      produce((draft) => {
+        for (const key of Object.keys(draft)) {
+          if (!key) continue
+          draft[key].expanded = false
+        }
+      }),
+    )
+    options.onExpandedChange?.(getExpandedSet())
+  }
+
   const dirState = (input: string) => {
     const dir = options.normalizeDir(input)
     return tree.dir[dir]
@@ -219,6 +232,7 @@ export function createFileTreeStore(options: TreeStoreOptions) {
     revealPath,
     expandDir,
     collapseDir,
+    collapseAll,
     dirState,
     children,
     node: (path: string) => tree.node[path],

@@ -495,6 +495,8 @@ export const dict = {
   "filePanel.summarize": "生成摘要",
   "filePanel.summarizing": "生成中...",
   "filePanel.summarizeTooltip": "为项目所有文件夹生成 .summary 摘要文件",
+  "filePanel.collapseAll": "全部收起",
+  "filePanel.collapseAllTooltip": "收起所有已展开的目录",
   "filePanel.refresh": "刷新",
   "filePanel.refreshTooltip": "刷新项目文件列表",
   "filePanel.uploadFailed": "上传失败",

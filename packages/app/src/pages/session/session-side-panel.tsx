@@ -327,6 +327,10 @@ export function SessionSidePanel(props: {
     props.onRefresh()
   }
 
+  function handleCollapseAll() {
+    file.tree.collapseAll()
+  }
+
   const [isSummarizing, setIsSummarizing] = createSignal(false)
 
   async function handleSummarize() {
@@ -1175,6 +1179,16 @@ export function SessionSidePanel(props: {
                         <span class="hidden @sm:block">
                           {isSummarizing() ? language.t("filePanel.summarizing") : language.t("filePanel.summarize")}
                         </span>
+                      </button>
+                    </Tooltip>
+                    <Tooltip value={language.t("filePanel.collapseAllTooltip")}>
+                      <button
+                        type="button"
+                        class="flex items-center gap-1 px-2 py-1 rounded text-12-regular text-text-weak hover:text-text-base hover:bg-surface-raised-base-hover transition-colors"
+                        onClick={handleCollapseAll}
+                      >
+                        <Icon name="collapse" size="small" class="-rotate-90" />
+                        <span class="hidden @sm:block">{language.t("filePanel.collapseAll")}</span>
                       </button>
                     </Tooltip>
                     <Tooltip value={language.t("filePanel.refreshTooltip")}>

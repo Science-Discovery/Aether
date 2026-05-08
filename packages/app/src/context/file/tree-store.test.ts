@@ -94,4 +94,20 @@ describe("file tree store refresh", () => {
     expect(tree.dirState("docs")?.expanded).toBe(true)
     expect(tree.dirState("docs/api")?.expanded).toBe(true)
   })
+
+  test("collapseAll collapses every expanded directory except root", async () => {
+    const tree = createFileTreeStore({
+      scope: () => "/repo",
+      normalizeDir: (input) => input.replace(/\/+$/, ""),
+      list: async () => [],
+      onError: () => {},
+      initialExpanded: new Set(["docs", "src/nested"]),
+    })
+
+    tree.collapseAll()
+
+    expect(tree.dirState("")?.expanded).toBe(true)
+    expect(tree.dirState("docs")?.expanded).toBe(false)
+    expect(tree.dirState("src/nested")?.expanded).toBe(false)
+  })
 })
