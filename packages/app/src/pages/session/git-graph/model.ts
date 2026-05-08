@@ -52,9 +52,11 @@ export type GraphView = {
   nodes: GraphNode[]
   lines: GraphLine[]
   lanes: number
+  graphWidth: number
+  widthsAtRows: number[]
 }
 
 export function computeGraphLayout(commits: CommitLogItem[] | undefined | null, head: string | null): GraphView {
-  if (!commits || commits.length === 0) return { nodes: [], lines: [], lanes: 0 }
+  if (!commits || commits.length === 0) return { nodes: [], lines: [], lanes: 0, graphWidth: 0, widthsAtRows: [] }
   return layout(commits, head)
 }

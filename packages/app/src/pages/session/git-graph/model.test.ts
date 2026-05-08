@@ -1,8 +1,16 @@
 import type { CommitLogItem } from "@opencode-ai/sdk/v2"
 import { describe, expect, test } from "bun:test"
-import { computeGraphLayout, UNCOMMITTED } from "./model"
+import { autoColumns, resizeColumns } from "./columns"
+import { computeGraphLayout, LANE_GAP, RAIL_PAD, UNCOMMITTED } from "./model"
+import { refsFor } from "./refs"
 
-const item = (input: { hash: string; parents?: string[]; heads?: string[] }): CommitLogItem => ({
+const item = (input: {
+  hash: string
+  parents?: string[]
+  heads?: string[]
+  tags?: { name: string; annotated: boolean }[]
+  remotes?: { name: string; remote: string | null }[]
+}): CommitLogItem => ({
   hash: input.hash,
   parents: input.parents ?? [],
   author: "Test",
@@ -10,8 +18,8 @@ const item = (input: { hash: string; parents?: string[]; heads?: string[] }): Co
   date: 1,
   message: input.hash,
   heads: input.heads ?? [],
-  tags: [],
-  remotes: [],
+  tags: input.tags ?? [],
+  remotes: input.remotes ?? [],
 })
 
 describe("computeGraphLayout", () => {
@@ -85,6 +93,7 @@ describe("computeGraphLayout", () => {
     )
 
     expect(new Set(graph.lines.map((line) => line.branch)).size).toBeGreaterThanOrEqual(2)
+    expect(graph.graphWidth).toBeLessThanOrEqual(RAIL_PAD * 2 + LANE_GAP)
     expect(graph.lines).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ fromRow: 0, toRow: 1 }),
@@ -114,5 +123,108 @@ describe("computeGraphLayout", () => {
     )
 
     expect(graph.nodes[0]?.colorIndex).toBe(graph.nodes[2]?.colorIndex)
+  })
+
+  test("reports graph width from occupied connection slots", () => {
+    const graph = computeGraphLayout(
+      [item({ hash: "cccc", parents: ["aaaa"] }), item({ hash: "bbbb" }), item({ hash: "aaaa" })],
+      "cccc",
+    )
+
+    expect(graph.graphWidth).toBeLessThanOrEqual(RAIL_PAD * 2 + LANE_GAP)
+    expect(graph.widthsAtRows).toHaveLength(graph.nodes.length)
+  })
+
+  test("keeps a first-parent chain on the leftmost lane", () => {
+    const graph = computeGraphLayout(
+      [
+        item({ hash: "dddd", parents: ["cccc"] }),
+        item({ hash: "cccc", parents: ["bbbb"] }),
+        item({ hash: "bbbb", parents: ["aaaa"] }),
+        item({ hash: "aaaa" }),
+      ],
+      "dddd",
+    )
+
+    expect(graph.nodes.map((node) => node.lane)).toEqual([0, 0, 0, 0])
+    expect(graph.graphWidth).toBe(RAIL_PAD * 2)
+  })
+})
+
+describe("git graph refs", () => {
+  test("combines local and matching remote branch labels", () => {
+    const graph = computeGraphLayout(
+      [
+        item({
+          hash: "bbbb",
+          heads: ["dev"],
+          remotes: [
+            { name: "origin/dev", remote: "origin" },
+            { name: "upstream/main", remote: "upstream" },
+          ],
+          tags: [{ name: "v1", annotated: true }],
+        }),
+      ],
+      "bbbb",
+    )
+    const refs = refsFor(graph.nodes[0]!, "dev")
+
+    expect(refs).toEqual([
+      expect.objectContaining({
+        kind: "head",
+        name: "dev",
+        full: "dev",
+        active: true,
+        remotes: [{ name: "origin", full: "origin/dev" }],
+      }),
+      expect.objectContaining({ kind: "remote", name: "upstream/main", full: "upstream/main", remote: "upstream" }),
+      expect.objectContaining({ kind: "tag", name: "v1", full: "v1", annotated: true }),
+    ])
+  })
+
+  test("keeps semantic fields for branch remote and tag labels", () => {
+    const graph = computeGraphLayout(
+      [
+        item({
+          hash: "bbbb",
+          heads: ["dev"],
+          remotes: [{ name: "origin/dev", remote: "origin" }],
+          tags: [{ name: "v1", annotated: false }],
+        }),
+      ],
+      "bbbb",
+    )
+    const refs = refsFor(graph.nodes[0]!, "dev")
+
+    expect(refs[0]).toEqual(
+      expect.objectContaining({
+        kind: "head",
+        name: "dev",
+        full: "dev",
+        remotes: [{ name: "origin", full: "origin/dev" }],
+      }),
+    )
+    expect(refs[1]).toEqual(expect.objectContaining({ kind: "tag", name: "v1", full: "v1", annotated: false }))
+  })
+})
+
+describe("git graph columns", () => {
+  const total = (cols: ReturnType<typeof autoColumns>) =>
+    cols.graph + cols.description + cols.author + cols.date + cols.commit
+
+  test("keeps auto columns within the available width", () => {
+    const cols = autoColumns(230, 1000)
+
+    expect(Math.round(total(cols))).toBe(230)
+    expect(cols.graph).toBeLessThanOrEqual(Math.round(230 * 0.333))
+    expect(cols.description).toBeGreaterThan(0)
+  })
+
+  test("resizes adjacent columns without changing total width", () => {
+    const cols = autoColumns(500, 120)
+    const next = resizeColumns(cols, "graph", "description", 1000, 500)
+
+    expect(Math.round(total(next))).toBe(500)
+    expect(next.description).toBeGreaterThanOrEqual(40)
   })
 })

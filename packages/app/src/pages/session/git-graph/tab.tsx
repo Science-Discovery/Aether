@@ -303,6 +303,7 @@ export function GitGraphTab() {
                 nodes={g().nodes}
                 lines={g().lines}
                 lanes={g().lanes}
+                graphWidth={g().graphWidth}
                 currentBranch={data()?.data?.branch}
                 uncommitted={uncommitted()}
                 selectedHash={selectedHash()}

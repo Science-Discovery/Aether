@@ -1,4 +1,5 @@
 import type { CommitLogItem } from "@opencode-ai/sdk/v2"
+import { LANE_GAP, RAIL_PAD } from "./model"
 import type { GraphLine, GraphNode, GraphView } from "./model"
 
 const PENDING = "UNCOMMITTED"
@@ -7,7 +8,7 @@ type Vertex = {
   commit: CommitLogItem
   row: number
   parents: (number | null)[]
-  used: Set<number>
+  connections: ({ target: number | null; branch: number } | undefined)[]
   lane: number
   branch: number | null
   colorIndex: number
@@ -38,16 +39,21 @@ const color = (bag: { end: number }[], start: number) => {
   return bag.length - 1
 }
 
-const take = (v: Vertex, lane?: number) => {
-  if (lane !== undefined && !v.used.has(lane)) {
-    v.used.add(lane)
-    v.next = Math.max(v.next, lane + 1)
-    return lane
-  }
+const point = (v: Vertex) => ({ row: v.row, lane: v.lane })
 
-  while (v.used.has(v.next)) v.next++
-  v.used.add(v.next)
-  return v.next++
+const slot = (v: Vertex) => ({ row: v.row, lane: v.next })
+
+const parent = (v: Vertex) => (v.parent < v.parents.length ? v.parents[v.parent] : undefined)
+
+const reserve = (v: Vertex, lane: number, target: number | null, branch: number) => {
+  if (lane !== v.next) return
+  v.connections[lane] = { target, branch }
+  v.next = lane + 1
+}
+
+const found = (v: Vertex, target: number | null, branch: number) => {
+  const lane = v.connections.findIndex((c) => c?.target === target && c.branch === branch)
+  return lane === -1 ? null : { row: v.row, lane }
 }
 
 export const layout = (commits: CommitLogItem[], head: string | null): GraphView => {
@@ -59,7 +65,7 @@ export const layout = (commits: CommitLogItem[], head: string | null): GraphView
     commit,
     row,
     parents: commit.parents.map((p) => lookup.get(p) ?? null),
-    used: new Set<number>(),
+    connections: [],
     lane: -1,
     branch: null,
     colorIndex: 0,
@@ -72,19 +78,20 @@ export const layout = (commits: CommitLogItem[], head: string | null): GraphView
     return branches.length - 1
   }
 
-  const place = (v: Vertex, b: number, lane?: number) => {
+  const place = (v: Vertex, b: number, lane: number) => {
     if (v.branch !== null) return
     v.branch = b
     v.colorIndex = branches[b].colorIndex
-    if (lane !== undefined && v.used.has(lane)) {
-      v.lane = lane
-      v.next = Math.max(v.next, lane + 1)
-      return
-    }
-    v.lane = take(v, lane)
+    v.lane = lane
   }
 
-  const add = (b: number, a: { row: number; lane: number }, z: { row: number; lane: number }, committed: boolean) => {
+  const add = (
+    b: number,
+    a: { row: number; lane: number },
+    z: { row: number; lane: number },
+    committed: boolean,
+    locked: boolean,
+  ) => {
     branches[b].end = Math.max(branches[b].end, z.row)
     bag[branches[b].colorIndex].end = branches[b].end
     branches[b].lines.push({
@@ -95,58 +102,91 @@ export const layout = (commits: CommitLogItem[], head: string | null): GraphView
       fromLane: a.lane,
       toLane: z.lane,
       committed,
-      lockedFirst: a.lane === z.lane,
+      lockedFirst: locked,
     })
   }
 
-  const ensure = (v: Vertex) => {
-    if (v.branch !== null) return v.branch
-    const b = branch(v.row)
-    place(v, b)
-    return b
-  }
+  const normal = (start: number) => {
+    const b = branch(start)
+    let v = vertices[start]
+    let row = parent(v)
+    let last = v.branch === null ? slot(v) : point(v)
 
-  const route = (v: Vertex, at: number) => {
-    const row = v.parents[at]
-    if (row === null || row === undefined) {
+    place(v, b, last.lane)
+    reserve(v, last.lane, v.row, b)
+
+    if (row === undefined) return
+
+    if (row === null) {
       v.parent++
       return
     }
 
+    for (let i = start + 1; i < vertices.length; i++) {
+      const cur = vertices[i]
+      const target = i === row ? cur : null
+      const end = target !== null && target.branch !== null ? point(target) : slot(cur)
+
+      add(b, last, end, v.commit.hash !== PENDING, last.lane < end.lane)
+      reserve(cur, end.lane, row, b)
+      last = end
+
+      if (target === null) continue
+
+      v.parent++
+      const set = target.branch !== null
+      place(target, b, end.lane)
+      v = target
+      row = parent(v)
+
+      if (row === undefined || set) return
+      if (row === null) {
+        v.parent++
+        return
+      }
+    }
+  }
+
+  const merge = (v: Vertex, row: number) => {
     const target = vertices[row]
-    const first = at === 0
-    const b = first ? ensure(v) : target.branch ?? branch(v.row)
-    if (!first && v.branch === null) ensure(v)
+    const b = target.branch!
+    let last = point(v)
 
-    const committed = v.commit.hash !== PENDING
-    const start = { row: v.row, lane: v.lane }
-    let last = start
+    for (let i = v.row + 1; i < vertices.length; i++) {
+      const cur = vertices[i]
+      const hit = found(cur, row, b)
+      const end = hit ?? slot(cur)
 
-    for (let i = v.row + 1; i <= row; i++) {
-      const next = vertices[i]
-      const end = i === row
-      const lane =
-        end && next.branch !== null
-          ? next.lane
-          : end
-            ? next.used.has(last.lane)
-              ? take(next)
-              : take(next, last.lane)
-            : take(next, last.lane)
+      add(b, last, end, v.commit.hash !== PENDING, hit !== null || cur === target || last.lane < end.lane)
+      reserve(cur, end.lane, row, b)
+      last = end
 
-      add(b, last, { row: i, lane }, committed)
-
-      if (end && next.branch === null) place(next, b, lane)
-      last = { row: i, lane }
+      if (hit === null) continue
+      v.parent++
+      return
     }
 
     v.parent++
   }
 
-  for (let i = 0; i < vertices.length; i++) {
+  const determine = (start: number) => {
+    const v = vertices[start]
+    const row = parent(v)
+    if (row !== undefined && row !== null && v.parents.length > 1 && v.branch !== null && vertices[row].branch !== null) {
+      merge(v, row)
+      return
+    }
+
+    normal(start)
+  }
+
+  for (let i = 0; i < vertices.length; ) {
     const v = vertices[i]
-    ensure(v)
-    while (v.parent < v.parents.length) route(v, v.parent)
+    if (parent(v) !== undefined || v.branch === null) {
+      determine(i)
+      continue
+    }
+    i++
   }
 
   const nodes: GraphNode[] = vertices.map((v) => ({
@@ -165,11 +205,14 @@ export const layout = (commits: CommitLogItem[], head: string | null): GraphView
   }))
 
   const lines = branches.flatMap((b) => b.lines)
-  const lanes = Math.max(
+  const lane = Math.max(
     0,
-    ...vertices.map((v) => Math.max(v.lane, ...Array.from(v.used))),
+    ...vertices.map((v) => Math.max(v.lane, v.next - 1)),
     ...lines.flatMap((line) => [line.fromLane, line.toLane]),
   )
+  const next = Math.max(1, ...vertices.map((v) => v.next))
+  const graphWidth = RAIL_PAD * 2 + Math.max(0, next - 1) * LANE_GAP
+  const widthsAtRows = vertices.map((v) => RAIL_PAD + v.next * LANE_GAP - 2)
 
-  return { nodes, lines, lanes: lanes + 1 }
+  return { nodes, lines, lanes: lane + 1, graphWidth, widthsAtRows }
 }
