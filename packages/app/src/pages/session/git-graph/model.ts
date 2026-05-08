@@ -1,4 +1,5 @@
 import type { CommitLogItem } from "@opencode-ai/sdk/v2"
+import { layout } from "./layout"
 
 export const PALETTE = [
   "#0085d9",
@@ -36,146 +37,24 @@ export type GraphNode = {
   remotes: { name: string; remote: string | null }[]
 }
 
-export type GraphEdge = {
+export type GraphLine = {
+  branch: number
+  colorIndex: number
   fromRow: number
   toRow: number
   fromLane: number
   toLane: number
-  isMerge: boolean
+  committed: boolean
+  lockedFirst: boolean
 }
 
 export type GraphView = {
   nodes: GraphNode[]
-  edges: GraphEdge[]
+  lines: GraphLine[]
   lanes: number
 }
 
-const available = (bag: { end: number }[], start: number) => {
-  for (let i = 0; i < bag.length; i++) {
-    if (start > bag[i].end) return i
-  }
-  bag.push({ end: 0 })
-  return bag.length - 1
-}
-
-const idx = (commits: CommitLogItem[]) => {
-  const map = new Map<string, number>()
-  for (let i = 0; i < commits.length; i++) map.set(commits[i].hash, i)
-  return map
-}
-
 export function computeGraphLayout(commits: CommitLogItem[] | undefined | null, head: string | null): GraphView {
-  if (!commits || commits.length === 0) return { nodes: [], edges: [], lanes: 0 }
-  const n = commits.length
-
-  const lookup = idx(commits)
-  const slot = commits.map(() => ({ lane: -1, nextX: 0, parent: 0 }))
-  const bag: { end: number }[] = []
-
-  for (let i = 0; i < n; i++) {
-    while (slot[i].parent < (commits[i].parents?.length ?? 0)) {
-      const parentHash = commits[i].parents[slot[i].parent]
-      const parentRow = lookup.get(parentHash)
-
-      if (parentRow === undefined) {
-        slot[i].parent++
-        continue
-      }
-
-      const here = slot[i]
-      const there = slot[parentRow]
-      const isMerge = slot[i].parent > 0
-
-      if (here.lane !== -1 && there.lane !== -1 && isMerge) {
-        for (let j = i + 1; j < n; j++) {
-          if (j === parentRow) {
-            slot[i].parent++
-            break
-          }
-          slot[j].nextX++
-        }
-        continue
-      }
-
-      const laneIdx = available(bag, i)
-      let cur = i
-      let target = parentRow
-
-      if (here.lane === -1) {
-        here.lane = laneIdx
-        here.nextX++
-      }
-
-      for (let j = i + 1; j < n; j++) {
-        const s = slot[j]
-
-        if (j === target) {
-          const wasLaned = s.lane !== -1
-          if (s.lane === -1) s.lane = laneIdx
-          bag[laneIdx] = { end: j }
-          s.nextX++
-
-          slot[cur].parent++
-
-          if (wasLaned) {
-            slot[i].parent++
-            break
-          }
-
-          cur = target
-          if (slot[cur].parent >= commits[cur].parents.length) break
-
-          const next = commits[cur].parents[slot[cur].parent]
-          const nxt = lookup.get(next)
-          if (nxt === undefined) {
-            slot[i].parent++
-            break
-          }
-          target = nxt
-        } else {
-          s.nextX++
-        }
-      }
-
-      bag[laneIdx] = { end: Math.max(bag[laneIdx].end, i) }
-    }
-  }
-
-  const lanes = bag.length || 1
-  const color = (l: number) => l % PALETTE.length
-
-  const nodes: GraphNode[] = commits.map((c, i) => {
-    const lane = slot[i].lane >= 0 ? slot[i].lane : 0
-    return {
-      hash: c.hash,
-      row: i,
-      lane,
-      colorIndex: color(lane),
-      isHead: c.hash === head,
-      isUncommitted: c.hash === UNCOMMITTED,
-      message: c.message,
-      author: c.author,
-      date: c.date,
-      heads: c.heads,
-      tags: c.tags,
-      remotes: c.remotes,
-    }
-  })
-
-  const edges: GraphEdge[] = []
-  for (let i = 0; i < n; i++) {
-    for (let p = 0; p < (commits[i].parents?.length ?? 0); p++) {
-      const parentRow = lookup.get(commits[i].parents![p])
-      if (parentRow === undefined) continue
-      edges.push({
-        fromRow: i,
-        toRow: parentRow,
-        fromLane: slot[i].lane >= 0 ? slot[i].lane : 0,
-        toLane: slot[parentRow].lane >= 0 ? slot[parentRow].lane : 0,
-        isMerge: p > 0,
-      })
-    }
-  }
-
-  return { nodes, edges, lanes }
+  if (!commits || commits.length === 0) return { nodes: [], lines: [], lanes: 0 }
+  return layout(commits, head)
 }

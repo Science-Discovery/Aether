@@ -1,6 +1,6 @@
 import { For, Show, createMemo, createSignal } from "solid-js"
 import { Portal } from "solid-js/web"
-import { PALETTE, ROW_HEIGHT, LANE_GAP, RAIL_PAD, type GraphEdge, type GraphNode } from "./model"
+import { PALETTE, ROW_HEIGHT, LANE_GAP, RAIL_PAD, type GraphLine, type GraphNode } from "./model"
 
 const DELTA = ROW_HEIGHT * 0.8
 
@@ -26,13 +26,13 @@ const formatDate = (date: number) => {
   return d.toLocaleDateString() + " " + d.toLocaleTimeString()
 }
 
-const edgePath = (edge: GraphEdge) => {
-  const x1 = xForLane(edge.fromLane)
-  const y1 = yForRow(edge.fromRow)
-  const x2 = xForLane(edge.toLane)
-  const y2 = yForRow(edge.toRow)
+const linePath = (line: GraphLine) => {
+  const x1 = xForLane(line.fromLane)
+  const y1 = yForRow(line.fromRow)
+  const x2 = xForLane(line.toLane)
+  const y2 = yForRow(line.toRow)
 
-  if (edge.fromLane === edge.toLane) {
+  if (line.fromLane === line.toLane) {
     return `M ${x1} ${y1} L ${x2} ${y2}`
   }
 
@@ -138,7 +138,7 @@ function TooltipContent(props: {
 
 export function GitGraphList(props: {
   nodes: GraphNode[]
-  edges: GraphEdge[]
+  lines: GraphLine[]
   lanes: number
   currentBranch: string | null | undefined
   uncommitted?: { count: number; files: string[] }
@@ -184,12 +184,12 @@ export function GitGraphList(props: {
           viewBox={`0 0 ${railWidth()} ${height()}`}
           preserveAspectRatio="none"
         >
-          <For each={props.edges}>
-            {(edge) => (
+          <For each={props.lines}>
+            {(line) => (
               <path
-                d={edgePath(edge)}
+                d={linePath(line)}
                 fill="none"
-                stroke={color(edge.fromLane)}
+                stroke={line.committed ? color(line.colorIndex) : "#808080"}
                 stroke-width="1.5"
                 stroke-linecap="round"
                 opacity="0.6"

@@ -301,7 +301,7 @@ export function GitGraphTab() {
             >
               <GitGraphList
                 nodes={g().nodes}
-                edges={g().edges}
+                lines={g().lines}
                 lanes={g().lanes}
                 currentBranch={data()?.data?.branch}
                 uncommitted={uncommitted()}
