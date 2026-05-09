@@ -29,7 +29,7 @@ export const NotFoundError = NamedError.create(
 const log = Log.create({ service: "db" })
 
 export namespace Database {
-  function norm(input: string) {
+  export function norm(input: string) {
     return path.resolve(input).replace(/\\/g, "/").toLowerCase()
   }
 
@@ -636,6 +636,126 @@ export namespace Database {
       seeded++
     }
     if (seeded > 0) log.info("seeded missing project_recent entries from global_project_map", { seeded })
+
+    // --- Case-duplicate merge in global_project_map ---
+    const gpmAll = sqlite.prepare("SELECT directory, project_id FROM global_project_map").all() as {
+      directory: string
+      project_id: string
+    }[]
+    const byNorm = new Map<string, { directory: string; project_id: string }[]>()
+    for (const row of gpmAll) {
+      const nk = norm(row.directory)
+      const group = byNorm.get(nk) ?? []
+      group.push(row)
+      byNorm.set(nk, group)
+    }
+
+    let mergedGpm = 0
+    for (const [nk, group] of byNorm) {
+      if (group.length <= 1) {
+        const row = group[0]
+        if (row.directory !== nk) {
+          sqlite.prepare("UPDATE global_project_map SET directory = ? WHERE directory = ?").run(nk, row.directory)
+          mergedGpm++
+        }
+        continue
+      }
+
+      let winnerIdx = 0
+      let maxSessions = 0
+      for (let i = 0; i < group.length; i++) {
+        const pid = group[i].project_id
+        if (projectClients.has(pid)) {
+          if (maxSessions === 0) {
+            winnerIdx = i
+            maxSessions = 1
+          }
+          continue
+        }
+        const pPath = path.join(chDir, `aether-${pid}.db`)
+        if (!existsSync(pPath)) continue
+        try {
+          const pDb = new BunSqlite(pPath)
+          const cnt = (pDb.prepare("SELECT count(*) as cnt FROM session").get() as any).cnt
+          pDb.close()
+          if (cnt > maxSessions) {
+            maxSessions = cnt
+            winnerIdx = i
+          }
+        } catch {
+          /* ignore */
+        }
+      }
+
+      const winnerPid = group[winnerIdx].project_id
+      if (group[winnerIdx].directory !== nk) {
+        sqlite
+          .prepare("UPDATE global_project_map SET directory = ? WHERE directory = ?")
+          .run(nk, group[winnerIdx].directory)
+      }
+
+      for (let i = 0; i < group.length; i++) {
+        if (i === winnerIdx) continue
+        const loserPid = group[i].project_id
+        sqlite.prepare("UPDATE project_recent SET project_id = ? WHERE project_id = ?").run(winnerPid, loserPid)
+        sqlite.prepare("DELETE FROM global_project_map WHERE directory = ?").run(group[i].directory)
+
+        const loserDbPath = path.join(chDir, `aether-${loserPid}.db`)
+        if (existsSync(loserDbPath) && !projectClients.has(loserPid)) {
+          try {
+            const loserDb = new BunSqlite(loserDbPath)
+            const cnt = (loserDb.prepare("SELECT count(*) as cnt FROM session").get() as any).cnt
+            loserDb.close()
+            if (cnt === 0) {
+              unlinkSync(loserDbPath)
+              for (const ext of ["-shm", "-wal"]) {
+                if (existsSync(loserDbPath + ext)) unlinkSync(loserDbPath + ext)
+              }
+              log.info("deleted empty case-duplicate project db", { loserPid, directory: group[i].directory })
+            }
+          } catch {
+            /* ignore */
+          }
+        }
+        mergedGpm++
+        log.info("merged case-duplicate global_project_map entry", {
+          loserDirectory: group[i].directory,
+          loserPid,
+          winnerDirectory: nk,
+          winnerPid,
+        })
+      }
+    }
+    if (mergedGpm > 0) log.info("merged case-duplicate global_project_map entries", { mergedGpm })
+
+    // --- Normalize project_recent keys ---
+    const recentDirRows = sqlite
+      .prepare("SELECT key, directory, project_id FROM project_recent WHERE kind = 'directory'")
+      .all() as { key: string; directory: string; project_id: string | null }[]
+    let normalizedKeys = 0
+    for (const row of recentDirRows) {
+      const dirNorm = norm(row.directory)
+      const expectedKey = `dir:${dirNorm}`
+      if (row.key === expectedKey) continue
+
+      const existing = sqlite.prepare("SELECT project_id FROM project_recent WHERE key = ?").get(expectedKey) as
+        | {
+            project_id: string | null
+          }
+        | undefined
+      if (existing) {
+        if (row.project_id && !existing.project_id) {
+          sqlite.prepare("UPDATE project_recent SET project_id = ? WHERE key = ?").run(row.project_id, expectedKey)
+        }
+        sqlite.prepare("DELETE FROM project_recent WHERE key = ?").run(row.key)
+      } else {
+        sqlite
+          .prepare("UPDATE project_recent SET key = ?, directory = ? WHERE key = ?")
+          .run(expectedKey, dirNorm, row.key)
+      }
+      normalizedKeys++
+    }
+    if (normalizedKeys > 0) log.info("normalized project_recent keys", { normalizedKeys })
   }
 
   export function transaction<T>(

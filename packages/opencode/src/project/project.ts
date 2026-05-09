@@ -81,8 +81,7 @@ export namespace Project {
   function norm(input: string) {
     const next = input.replace(/\\/g, "/")
     const trim = /^\/+$/g.test(next) ? "/" : next.replace(/\/+$/, "")
-    if (/^[A-Za-z]:/.test(trim)) return trim[0].toLowerCase() + trim.slice(1)
-    return trim
+    return trim.toLowerCase()
   }
 
   function name(input: string) {
