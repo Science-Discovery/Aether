@@ -46,7 +46,6 @@ function boot(input: { directory: string; init?: () => Promise<any>; project?: P
             worktree: sandbox,
             project,
           }))
-    Database.attach(ctx.project.id)
     await context.provide(ctx, async () => {
       await input.init?.()
     })

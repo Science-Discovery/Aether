@@ -457,7 +457,7 @@ export namespace Server {
               .replace(/\\/g, "/")
               .replace(/\/+$/, "")
               .replace(/^([A-Za-z]):/, (m) => m[0].toLowerCase() + ":")
-          const item = list.find((i) => norm(i.directory) === norm(body.directory))
+          const item = list.find((i) => i && norm(i.directory) === norm(body.directory))
           if (!item) return c.json(null, 404)
           return c.json(item)
         },

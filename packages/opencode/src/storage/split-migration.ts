@@ -404,6 +404,9 @@ export namespace SplitMigration {
     let sessionCount = 0
 
     for (const projectId of uniqueProjectIds) {
+      const projSessions = sessionByProject.get(projectId) ?? []
+      const projWorkspaces = workspaceByProject.get(projectId) ?? []
+      if (projSessions.length === 0 && projWorkspaces.length === 0) continue
       const pPath = projectDbPath(projectId)
       const pSqlite = initDb(pPath)
       seedSplitMigrationOnly(pSqlite, migrationMeta!)
@@ -431,7 +434,6 @@ export namespace SplitMigration {
           )
       }
 
-      const projSessions = sessionByProject.get(projectId) ?? []
       for (const s of projSessions) {
         pSqlite
           .prepare(
@@ -576,27 +578,12 @@ export namespace SplitMigration {
 
     log.info("created project databases", { count: projectCount })
 
-    // Delete empty project dbs (no session data)
     const dirsWithSessions = new Set<string>()
-    const emptyProjectIds: string[] = []
     for (const projectId of uniqueProjectIds) {
       const projSessions = sessionByProject.get(projectId) ?? []
       if (projSessions.length > 0) {
         for (const s of projSessions) {
           if (s.directory) dirsWithSessions.add(norm(s.directory))
-        }
-      } else {
-        const pPath = projectDbPath(projectId)
-        const pSqlite = new BunDatabase(pPath)
-        const cnt = pSqlite.prepare("SELECT count(*) as cnt FROM session").get() as { cnt: number }
-        pSqlite.close()
-        if (cnt.cnt === 0) {
-          unlinkSync(pPath)
-          for (const ext of ["-shm", "-wal"]) {
-            if (existsSync(pPath + ext)) unlinkSync(pPath + ext)
-          }
-          emptyProjectIds.push(projectId)
-          log.info("deleted empty project db", { projectId })
         }
       }
     }

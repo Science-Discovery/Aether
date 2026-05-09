@@ -123,6 +123,7 @@ export namespace Project {
     const result: Info[] = []
     for (const row of recentRows) {
       if (!row.project_id) continue
+      if (!Database.hasProject(row.project_id)) continue
       const projectRow = Database.useProject(row.project_id, (d) =>
         d.select().from(ProjectTable).where(eq(ProjectTable.id, row.project_id!)).get(),
       )
@@ -137,6 +138,7 @@ export namespace Project {
     return recentRows
       .map((row) => {
         if (row.kind === "project" && row.project_id) {
+          if (!Database.hasProject(row.project_id)) return undefined
           const projectRow = Database.useProject(row.project_id, (d) =>
             d.select().from(ProjectTable).where(eq(ProjectTable.id, row.project_id!)).get(),
           )
@@ -183,7 +185,7 @@ export namespace Project {
           time: { activity: row.activity_at, created: row.time_created, updated: row.time_updated },
         }
       })
-      .filter((item) => !skipDir(item.directory))
+      .filter((item) => item !== undefined && !skipDir(item.directory)) as RecentInfo[]
   }
 
   export function fromRow(row: Row): Info {
@@ -447,10 +449,10 @@ export namespace Project {
           return { id, sandbox, worktree, vcs: "git" as const }
         })
 
-        // Phase 2: upsert
-        const row = yield* dbProject(data.id, (d) =>
-          d.select().from(ProjectTable).where(eq(ProjectTable.id, data.id)).get(),
-        )
+        // Phase 2: construct result
+        const row = Database.hasProject(data.id)
+          ? yield* dbProject(data.id, (d) => d.select().from(ProjectTable).where(eq(ProjectTable.id, data.id)).get())
+          : undefined
         const existing = row
           ? fromRow(row)
           : {
@@ -482,61 +484,63 @@ export namespace Project {
           { concurrency: "unbounded" },
         ).pipe(Effect.map((arr) => arr.filter((x): x is string => x !== undefined)))
 
-        yield* dbProject(data.id, (d) =>
-          d
-            .insert(ProjectTable)
-            .values({
-              id: result.id,
-              worktree: result.worktree,
-              vcs: result.vcs ?? null,
-              name: result.name,
-              icon_url: result.icon?.url,
-              icon_color: result.icon?.color,
-              time_created: result.time.created,
-              time_updated: result.time.updated,
-              time_initialized: result.time.initialized,
-              sandboxes: result.sandboxes,
-              commands: result.commands,
-            })
-            .onConflictDoUpdate({
-              target: ProjectTable.id,
-              set: {
+        if (Database.hasProject(data.id)) {
+          yield* dbProject(data.id, (d) =>
+            d
+              .insert(ProjectTable)
+              .values({
+                id: result.id,
                 worktree: result.worktree,
                 vcs: result.vcs ?? null,
                 name: result.name,
                 icon_url: result.icon?.url,
                 icon_color: result.icon?.color,
+                time_created: result.time.created,
                 time_updated: result.time.updated,
                 time_initialized: result.time.initialized,
                 sandboxes: result.sandboxes,
                 commands: result.commands,
-              },
-            })
-            .run(),
-        )
-
-        if (data.worktree !== "/") {
-          const recentKey = dirKey(data.worktree)
-          const recentRow = yield* db((d) =>
-            d.select().from(ProjectRecentTable).where(eq(ProjectRecentTable.key, recentKey)).get(),
+              })
+              .onConflictDoUpdate({
+                target: ProjectTable.id,
+                set: {
+                  worktree: result.worktree,
+                  vcs: result.vcs ?? null,
+                  name: result.name,
+                  icon_url: result.icon?.url,
+                  icon_color: result.icon?.color,
+                  time_updated: result.time.updated,
+                  time_initialized: result.time.initialized,
+                  sandboxes: result.sandboxes,
+                  commands: result.commands,
+                },
+              })
+              .run(),
           )
-          if (recentRow) {
-            const patch: Record<string, any> = {}
-            if (recentRow.icon_url && !result.icon?.url) patch.icon_url = recentRow.icon_url
-            if (recentRow.icon_color && !result.icon?.color) patch.icon_color = recentRow.icon_color
-            if (Object.keys(patch).length) {
-              yield* dbProject(data.id, (d) =>
-                d.update(ProjectTable).set(patch).where(eq(ProjectTable.id, data.id)).run(),
-              )
-              result.icon = { url: patch.icon_url ?? result.icon?.url, color: patch.icon_color ?? result.icon?.color }
-            }
-            yield* db((d) =>
-              d
-                .update(ProjectRecentTable)
-                .set({ icon_url: null, icon_color: null })
-                .where(eq(ProjectRecentTable.key, recentKey))
-                .run(),
+
+          if (data.worktree !== "/") {
+            const recentKey = dirKey(data.worktree)
+            const recentRow = yield* db((d) =>
+              d.select().from(ProjectRecentTable).where(eq(ProjectRecentTable.key, recentKey)).get(),
             )
+            if (recentRow) {
+              const patch: Record<string, any> = {}
+              if (recentRow.icon_url && !result.icon?.url) patch.icon_url = recentRow.icon_url
+              if (recentRow.icon_color && !result.icon?.color) patch.icon_color = recentRow.icon_color
+              if (Object.keys(patch).length) {
+                yield* dbProject(data.id, (d) =>
+                  d.update(ProjectTable).set(patch).where(eq(ProjectTable.id, data.id)).run(),
+                )
+                result.icon = { url: patch.icon_url ?? result.icon?.url, color: patch.icon_color ?? result.icon?.color }
+              }
+              yield* db((d) =>
+                d
+                  .update(ProjectRecentTable)
+                  .set({ icon_url: null, icon_color: null })
+                  .where(eq(ProjectRecentTable.key, recentKey))
+                  .run(),
+              )
+            }
           }
         }
 
@@ -855,6 +859,10 @@ export namespace Project {
     Database.use((db) => {
       db.delete(GlobalProjectMapTable).where(eq(GlobalProjectMapTable.project_id, id)).run()
       db.delete(ProjectRecentTable).where(eq(ProjectRecentTable.project_id, id)).run()
+    })
+
+    GlobalBus.emit("event", {
+      payload: { type: Event.RecentUpdated.type, properties: {} },
     })
 
     log.info("removed project", { projectID: id })

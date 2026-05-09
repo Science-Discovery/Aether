@@ -438,6 +438,22 @@ export namespace Database {
     projectClients.delete(projectId)
   }
 
+  export function hasProject(projectId: string): boolean {
+    if (projectClients.has(projectId)) return true
+    return existsSync(projectPath(projectId))
+  }
+
+  export function deleteProject(projectId: string) {
+    detach(projectId)
+    const p = projectPath(projectId)
+    if (!existsSync(p)) return
+    unlinkSync(p)
+    for (const ext of ["-shm", "-wal"]) {
+      if (existsSync(p + ext)) unlinkSync(p + ext)
+    }
+    log.info("deleted project database file", { projectId, path: p })
+  }
+
   export function projectClient(projectId: string): DrizzleClient {
     return attach(projectId)
   }
@@ -568,26 +584,65 @@ export namespace Database {
     const files = readdirSync(chDir, { withFileTypes: true }).filter((e) => e.isFile() && pattern.test(e.name))
 
     const dirsWithSessions = new Set<string>()
+    const emptyProjectIds: string[] = []
     for (const entry of files) {
       const match = pattern.exec(entry.name)
       if (!match) continue
       const pid = match[1]
-      if (projectClients.has(pid)) continue
+      if (projectClients.has(pid)) {
+        dirsWithSessions.add(pid)
+        continue
+      }
       const pPath = path.join(chDir, entry.name)
       const pDb = new BunSqlite(pPath)
       pDb.exec("PRAGMA journal_mode = WAL")
       pDb.exec("PRAGMA foreign_keys = ON")
       const cnt = (pDb.prepare("SELECT count(*) as cnt FROM session").get() as any).cnt
       if (cnt > 0) {
+        dirsWithSessions.add(pid)
         const projRow = pDb.prepare("SELECT worktree FROM project WHERE id = ?").get(pid) as any
         if (projRow?.worktree) dirsWithSessions.add(norm(projRow.worktree))
         const sessRows = pDb.prepare("SELECT directory FROM session").all() as any[]
         for (const s of sessRows) {
           if (s.directory) dirsWithSessions.add(norm(s.directory))
         }
+      } else {
+        emptyProjectIds.push(pid)
       }
       pDb.exec("PRAGMA wal_checkpoint(PASSIVE)")
       pDb.close()
+    }
+
+    // Delete empty project db files and remove corresponding project_recent entries
+    for (const pid of emptyProjectIds) {
+      const pPath = path.join(chDir, `aether-${pid}.db`)
+      sqlite.prepare("DELETE FROM project_recent WHERE project_id = ?").run(pid)
+      sqlite.prepare("DELETE FROM global_project_map WHERE project_id = ?").run(pid)
+      unlinkSync(pPath)
+      for (const ext of ["-shm", "-wal"]) {
+        if (existsSync(pPath + ext)) unlinkSync(pPath + ext)
+      }
+      log.info("deleted empty project db and removed stale references", { pid })
+    }
+    if (emptyProjectIds.length > 0) {
+      log.info("cleaned up empty project databases", { count: emptyProjectIds.length })
+    }
+
+    // Remove project_recent entries whose project_id has no project db on disk
+    const projectRecentRows = sqlite
+      .prepare("SELECT key, project_id FROM project_recent WHERE kind = 'project' AND project_id IS NOT NULL")
+      .all() as { key: string; project_id: string }[]
+    const staleRecentKeys: string[] = []
+    for (const row of projectRecentRows) {
+      if (dirsWithSessions.has(row.project_id)) continue
+      if (existsSync(path.join(chDir, `aether-${row.project_id}.db`))) continue
+      staleRecentKeys.push(row.key)
+    }
+    if (staleRecentKeys.length > 0) {
+      sqlite
+        .prepare(`DELETE FROM project_recent WHERE key IN (${staleRecentKeys.map(() => "?").join(",")})`)
+        .run(...staleRecentKeys)
+      log.info("removed project_recent entries pointing to non-existent project dbs", { count: staleRecentKeys.length })
     }
 
     const nullRows = sqlite

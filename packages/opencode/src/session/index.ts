@@ -819,6 +819,41 @@ export namespace Session {
     }
     log.info("created", result)
 
+    // Ensure project db exists and has the project row before writing session data
+    const project = Instance.project
+    if (!Database.hasProject(project.id)) {
+      Database.attach(project.id)
+    }
+    Database.useProject(project.id, (d) =>
+      d
+        .insert(ProjectTable)
+        .values({
+          id: project.id,
+          worktree: project.worktree,
+          vcs: project.vcs ?? null,
+          name: project.name ?? null,
+          icon_url: project.icon?.url ?? null,
+          icon_color: project.icon?.color ?? null,
+          time_created: project.time.created,
+          time_updated: project.time.updated,
+          time_initialized: project.time.initialized ?? null,
+          sandboxes: project.sandboxes ?? [],
+          commands: project.commands ?? null,
+        })
+        .onConflictDoUpdate({
+          target: ProjectTable.id,
+          set: {
+            worktree: project.worktree,
+            vcs: project.vcs ?? null,
+            name: project.name ?? null,
+            time_updated: project.time.updated,
+            sandboxes: project.sandboxes ?? [],
+            commands: project.commands ?? null,
+          },
+        })
+        .run(),
+    )
+
     SyncEvent.run(Event.Created, { sessionID: result.id, info: result })
 
     const cfg = await Config.get()
