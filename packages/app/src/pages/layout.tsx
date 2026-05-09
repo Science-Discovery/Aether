@@ -1730,7 +1730,7 @@ export default function Layout(props: ParentProps) {
     const run = ++dialogRun
     void import("@/components/dialog-delete-project").then((x) => {
       if (dialogDead || dialogRun !== run) return
-      dialog.show(() => <x.DialogDeleteProject project={project} />)
+      dialog.show(() => <x.DialogDeleteProject project={project} onConfirm={() => closeProject(project.worktree)} />)
     })
   }
 

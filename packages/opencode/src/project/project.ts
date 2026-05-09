@@ -16,7 +16,7 @@ import { NodeFileSystem, NodePath } from "@effect/platform-node"
 import { makeRuntime } from "@/effect/run-service"
 import { AppFileSystem } from "@/filesystem"
 import * as CrossSpawnSpawner from "@/effect/cross-spawn-spawner"
-import { existsSync, unlinkSync } from "fs"
+import { existsSync } from "fs"
 import { Database as BunSqlite } from "bun:sqlite"
 
 export namespace Project {
@@ -841,17 +841,21 @@ export namespace Project {
 
     const dbPath = Database.projectPath(id)
     if (existsSync(dbPath)) {
-      unlinkSync(dbPath)
-      for (const ext of ["-shm", "-wal"]) {
-        if (existsSync(dbPath + ext)) unlinkSync(dbPath + ext)
+      const raw = new BunSqlite(dbPath)
+      const tables = raw
+        .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")
+        .all() as { name: string }[]
+      for (const t of tables) {
+        raw.prepare(`DELETE FROM "${t.name}"`).run()
       }
+      raw.prepare("VACUUM").run()
+      raw.close()
     }
 
-    const mainDbPath = Database.Path
-    const mainDb = new BunSqlite(mainDbPath)
-    mainDb.prepare("DELETE FROM global_project_map WHERE project_id = ?").run(id)
-    mainDb.prepare("DELETE FROM project_recent WHERE project_id = ?").run(id)
-    mainDb.close()
+    Database.use((db) => {
+      db.delete(GlobalProjectMapTable).where(eq(GlobalProjectMapTable.project_id, id)).run()
+      db.delete(ProjectRecentTable).where(eq(ProjectRecentTable.project_id, id)).run()
+    })
 
     log.info("removed project", { projectID: id })
     return { status: "ok", projectID: id }
