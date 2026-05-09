@@ -5,7 +5,6 @@ CREATE TABLE `global_project_map` (
 	`time_updated` integer NOT NULL
 );
 --> statement-breakpoint
-ALTER TABLE `project_recent` ADD `icon_override` text;--> statement-breakpoint
 PRAGMA foreign_keys=OFF;--> statement-breakpoint
 CREATE TABLE `__new_workspace` (
 	`id` text PRIMARY KEY,

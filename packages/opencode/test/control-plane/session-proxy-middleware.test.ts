@@ -67,7 +67,7 @@ async function setup(state: State) {
   const id1 = WorkspaceID.ascending()
   const id2 = WorkspaceID.ascending()
 
-  Database.use((db) =>
+  Database.useProject(project.id, (db) =>
     db
       .insert(WorkspaceTable)
       .values([

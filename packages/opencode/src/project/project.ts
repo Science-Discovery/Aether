@@ -484,63 +484,61 @@ export namespace Project {
           { concurrency: "unbounded" },
         ).pipe(Effect.map((arr) => arr.filter((x): x is string => x !== undefined)))
 
-        if (Database.hasProject(data.id)) {
-          yield* dbProject(data.id, (d) =>
-            d
-              .insert(ProjectTable)
-              .values({
-                id: result.id,
+        yield* dbProject(data.id, (d) =>
+          d
+            .insert(ProjectTable)
+            .values({
+              id: result.id,
+              worktree: result.worktree,
+              vcs: result.vcs ?? null,
+              name: result.name,
+              icon_url: result.icon?.url,
+              icon_color: result.icon?.color,
+              time_created: result.time.created,
+              time_updated: result.time.updated,
+              time_initialized: result.time.initialized,
+              sandboxes: result.sandboxes,
+              commands: result.commands,
+            })
+            .onConflictDoUpdate({
+              target: ProjectTable.id,
+              set: {
                 worktree: result.worktree,
                 vcs: result.vcs ?? null,
                 name: result.name,
                 icon_url: result.icon?.url,
                 icon_color: result.icon?.color,
-                time_created: result.time.created,
                 time_updated: result.time.updated,
                 time_initialized: result.time.initialized,
                 sandboxes: result.sandboxes,
                 commands: result.commands,
-              })
-              .onConflictDoUpdate({
-                target: ProjectTable.id,
-                set: {
-                  worktree: result.worktree,
-                  vcs: result.vcs ?? null,
-                  name: result.name,
-                  icon_url: result.icon?.url,
-                  icon_color: result.icon?.color,
-                  time_updated: result.time.updated,
-                  time_initialized: result.time.initialized,
-                  sandboxes: result.sandboxes,
-                  commands: result.commands,
-                },
-              })
-              .run(),
-          )
+              },
+            })
+            .run(),
+        )
 
-          if (data.worktree !== "/") {
-            const recentKey = dirKey(data.worktree)
-            const recentRow = yield* db((d) =>
-              d.select().from(ProjectRecentTable).where(eq(ProjectRecentTable.key, recentKey)).get(),
-            )
-            if (recentRow) {
-              const patch: Record<string, any> = {}
-              if (recentRow.icon_url && !result.icon?.url) patch.icon_url = recentRow.icon_url
-              if (recentRow.icon_color && !result.icon?.color) patch.icon_color = recentRow.icon_color
-              if (Object.keys(patch).length) {
-                yield* dbProject(data.id, (d) =>
-                  d.update(ProjectTable).set(patch).where(eq(ProjectTable.id, data.id)).run(),
-                )
-                result.icon = { url: patch.icon_url ?? result.icon?.url, color: patch.icon_color ?? result.icon?.color }
-              }
-              yield* db((d) =>
-                d
-                  .update(ProjectRecentTable)
-                  .set({ icon_url: null, icon_color: null })
-                  .where(eq(ProjectRecentTable.key, recentKey))
-                  .run(),
+        if (data.worktree !== "/") {
+          const recentKey = dirKey(data.worktree)
+          const recentRow = yield* db((d) =>
+            d.select().from(ProjectRecentTable).where(eq(ProjectRecentTable.key, recentKey)).get(),
+          )
+          if (recentRow) {
+            const patch: Record<string, any> = {}
+            if (recentRow.icon_url && !result.icon?.url) patch.icon_url = recentRow.icon_url
+            if (recentRow.icon_color && !result.icon?.color) patch.icon_color = recentRow.icon_color
+            if (Object.keys(patch).length) {
+              yield* dbProject(data.id, (d) =>
+                d.update(ProjectTable).set(patch).where(eq(ProjectTable.id, data.id)).run(),
               )
+              result.icon = { url: patch.icon_url ?? result.icon?.url, color: patch.icon_color ?? result.icon?.color }
             }
+            yield* db((d) =>
+              d
+                .update(ProjectRecentTable)
+                .set({ icon_url: null, icon_color: null })
+                .where(eq(ProjectRecentTable.key, recentKey))
+                .run(),
+            )
           }
         }
 

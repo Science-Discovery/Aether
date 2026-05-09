@@ -40,7 +40,7 @@ describe("session.tree endpoint", () => {
       directory: projectRoot,
       fn: async () => {
         const legacy = await Session.create({ title: "Legacy" })
-        Database.use((db) =>
+        Database.useProject(legacy.projectID, (db) =>
           db.update(SessionTable).set({ tree_id: null }).where(eq(SessionTable.id, legacy.id)).run(),
         )
 

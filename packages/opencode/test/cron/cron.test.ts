@@ -3,12 +3,7 @@ import fs from "fs/promises"
 import path from "path"
 import { Cron } from "../../src/cron"
 import { CronJobStateTable, CronRunTable } from "../../src/cron/cron.sql"
-import {
-  CronCreateTool,
-  CronListTool,
-  CronRunNowTool,
-  CronSetGlobalEnabledTool,
-} from "../../src/tool/cron"
+import { CronCreateTool, CronListTool, CronRunNowTool, CronSetGlobalEnabledTool } from "../../src/tool/cron"
 import { ToolRegistry } from "../../src/tool/registry"
 import { Database, eq } from "../../src/storage/db"
 import { Global } from "../../src/global"
@@ -27,7 +22,7 @@ async function resetCron() {
   await Cron.stop()
   Cron.resetAgentDispatcher()
   await Config.updateGlobal({ cron: { enabled: true } } as any)
-  Database.use((db) => {
+  Database.useCron((db) => {
     db.delete(CronRunTable).run()
     db.delete(CronJobStateTable).run()
   })
@@ -35,11 +30,11 @@ async function resetCron() {
 }
 
 function state(jobID: string) {
-  return Database.use((db) => db.select().from(CronJobStateTable).where(eq(CronJobStateTable.job_id, jobID)).get())
+  return Database.useCron((db) => db.select().from(CronJobStateTable).where(eq(CronJobStateTable.job_id, jobID)).get())
 }
 
 function setState(jobID: string, patch: Partial<typeof CronJobStateTable.$inferInsert>) {
-  Database.use((db) =>
+  Database.useCron((db) =>
     db
       .update(CronJobStateTable)
       .set({ ...patch, updated_at: Date.now() })
