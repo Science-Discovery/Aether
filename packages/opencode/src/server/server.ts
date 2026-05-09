@@ -365,14 +365,7 @@ export namespace Server {
         })()
         const directory = Filesystem.resolve(decoded)
 
-        const browsePaths = [
-          "/file",
-          "/find",
-          "/file/pick-folder",
-          "/file/check-directory",
-          "/file/ensure-directory",
-          "/path",
-        ]
+        const browsePaths = ["/file", "/find", "/file/pick-folder", "/file/check-directory", "/file/ensure-directory"]
         const isBrowse = browsePaths.some(
           (p) => c.req.path === p || c.req.path.startsWith(p + "/") || c.req.path.startsWith(p + "?"),
         )
