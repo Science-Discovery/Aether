@@ -1290,21 +1290,6 @@ export namespace Config {
             .describe("Token buffer for compaction. Leaves enough window to avoid overflow during compaction."),
         })
         .optional(),
-      memory: z
-        .object({
-          enabled: z
-            .boolean()
-            .optional()
-            .describe("Enable memory tools, prompt recall, and memory reflection (default: true)"),
-          memory_reflection_model: z
-            .object({
-              providerID: z.string(),
-              modelID: z.string(),
-            })
-            .optional()
-            .describe("Optional model override for LLM-based memory reflection"),
-        })
-        .optional(),
       cron: z
         .object({
           enabled: z.boolean().optional().describe("Enable cron job execution (default: true)"),
@@ -1385,42 +1370,6 @@ export namespace Config {
     return load(text, { path: filepath })
   }
 
-  function stripDeprecatedConfigKeys(input: unknown, source: string) {
-    if (!input || typeof input !== "object" || Array.isArray(input)) return input
-    const copy = { ...(input as Record<string, unknown>) }
-    let changed = false
-
-    const hadLegacyUI = "theme" in copy || "keybinds" in copy || "tui" in copy
-    if (hadLegacyUI) {
-      delete copy.theme
-      delete copy.keybinds
-      delete copy.tui
-      changed = true
-      log.warn("tui keys in opencode config are deprecated; move them to tui.json", { path: source })
-    }
-
-    const memory = copy.memory
-    if (memory && typeof memory === "object" && !Array.isArray(memory)) {
-      const nextMemory = { ...(memory as Record<string, unknown>) }
-      const removed = [
-        "memory_management_model",
-        "user_profile_history_extract_enabled",
-        "user_profile_history_extract_limit",
-        "memory_reflection_enabled",
-        "user_profile_enabled",
-        "user_profile_include_inferred",
-      ].filter((key) => key in nextMemory)
-      if (removed.length > 0) {
-        for (const key of removed) delete nextMemory[key]
-        copy.memory = nextMemory
-        changed = true
-        log.warn("deprecated memory config keys are ignored", { path: source, keys: removed })
-      }
-    }
-
-    return changed ? copy : input
-  }
-
   async function load(text: string, options: { path: string } | { dir: string; source: string }) {
     const original = text
     const source = "path" in options ? options.path : options.source
@@ -1430,39 +1379,44 @@ export namespace Config {
       "path" in options ? options.path : { source: options.source, dir: options.dir },
     )
 
-    const normalized = stripDeprecatedConfigKeys(data, source)
+    const normalized = (() => {
+      if (!data || typeof data !== "object" || Array.isArray(data)) return data
+      const copy = { ...(data as Record<string, unknown>) }
+      const hadLegacy = "theme" in copy || "keybinds" in copy || "tui" in copy
+      if (!hadLegacy) return copy
+      delete copy.theme
+      delete copy.keybinds
+      delete copy.tui
+      log.warn("tui keys in opencode config are deprecated; move them to tui.json", { path: source })
+      return copy
+    })()
 
     const parsed = Info.safeParse(normalized)
     if (parsed.success) {
-      const normalizedChanged = normalized !== data
-      if ((!parsed.data.$schema || normalizedChanged) && isFile) {
+      if (!parsed.data.$schema && isFile) {
         parsed.data.$schema = "https://opencode.ai/config.json"
-        if (normalizedChanged) {
-          await Filesystem.writeJson(options.path, parsed.data).catch(() => {})
-        } else {
-          const updated = original.replace(/^\s*\{/, '{\n  "$schema": "https://opencode.ai/config.json",')
-          await Filesystem.write(options.path, updated).catch(() => {})
-        }
+        const updated = original.replace(/^\s*\{/, '{\n  "$schema": "https://opencode.ai/config.json",')
+        await Filesystem.write(options.path, updated).catch(() => {})
       }
-      const result = parsed.data
-      if (result.plugin && isFile) {
-        for (let i = 0; i < result.plugin.length; i++) {
-          const plugin = result.plugin[i]
+      const data = parsed.data
+      if (data.plugin && isFile) {
+        for (let i = 0; i < data.plugin.length; i++) {
+          const plugin = data.plugin[i]
           try {
-            result.plugin[i] = import.meta.resolve!(plugin, options.path)
+            data.plugin[i] = import.meta.resolve!(plugin, options.path)
           } catch (e) {
             try {
               // import.meta.resolve sometimes fails with newly created node_modules
               const require = createRequire(options.path)
               const resolvedPath = require.resolve(plugin)
-              result.plugin[i] = pathToFileURL(resolvedPath).href
+              data.plugin[i] = pathToFileURL(resolvedPath).href
             } catch {
               // Ignore, plugin might be a generic string identifier like "mcp-server"
             }
           }
         }
       }
-      return result
+      return data
     }
 
     throw new InvalidError({
@@ -1708,8 +1662,7 @@ export namespace Config {
       })
     }
 
-    const normalized = stripDeprecatedConfigKeys(data, filepath)
-    const parsed = Info.safeParse(normalized)
+    const parsed = Info.safeParse(data)
     if (parsed.success) return parsed.data
 
     throw new InvalidError({

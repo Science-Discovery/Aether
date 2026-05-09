@@ -52,7 +52,6 @@ import { IconButton } from "./icon-button"
 import { TextShimmer } from "./text-shimmer"
 import { AnimatedCountList } from "./tool-count-summary"
 import { ToolStatusTitle } from "./tool-status-title"
-import { Tag } from "./tag"
 import { animate } from "motion"
 import { useLocation } from "@solidjs/router"
 import { attached, inline, kind } from "./message-file"
@@ -342,84 +341,6 @@ function urls(text: string | undefined) {
       seen.add(item)
       return true
     })
-}
-
-function parseReceiptLine(line: string) {
-  const match = /^\s*-\s*\[(user|memory)\]\[([a-z_]+)\]\s*(.+)\s*$/i.exec(line)
-  if (!match) return
-  const action = match[2]!.toLowerCase()
-  const body = match[3]!.trim()
-  return { action, body }
-}
-
-function normalizeFailureReason(body: string) {
-  // Failure rows should only show the reason; drop trailing attempted payload when present.
-  const [reason] = body.split(/:\s+/, 1)
-  return (reason || body).trim()
-}
-
-function formatMemoryReceipt(text: string, i18n: UiI18n) {
-  const success: string[] = []
-  const failure: string[] = []
-  let section: "success" | "failure" | undefined
-
-  for (const raw of text.split(/\r?\n/)) {
-    const line = raw.trim()
-    if (!line) continue
-
-    if (/^memory updates:/i.test(line)) {
-      section = "success"
-      continue
-    }
-
-    if (/^memory failures:/i.test(line)) {
-      section = "failure"
-      continue
-    }
-
-    const parsed = parseReceiptLine(line)
-    if (parsed) {
-      if (parsed.action === "block") {
-        failure.push(normalizeFailureReason(parsed.body))
-        continue
-      }
-      success.push(parsed.body)
-      continue
-    }
-
-    const plain = /^\s*-\s*(.+)\s*$/.exec(line)
-    if (!plain) continue
-    if (section === "failure") {
-      failure.push(normalizeFailureReason(plain[1]!))
-      continue
-    }
-    if (section === "success") {
-      success.push(plain[1]!)
-    }
-  }
-
-  if (success.length === 0 && failure.length === 0) return text
-
-  const shownSuccess = success.slice(0, 5)
-  const shownFailure = failure.slice(0, 5)
-  const hiddenSuccess = success.length - shownSuccess.length
-  const hiddenFailure = failure.length - shownFailure.length
-  const lines: string[] = []
-
-  if (shownSuccess.length > 0) {
-    lines.push(i18n.t("ui.memoryReceipt.updates"))
-    lines.push(...shownSuccess.map((item) => `- ${item}`))
-    if (hiddenSuccess > 0) lines.push(i18n.t("ui.memoryReceipt.moreUpdates", { count: hiddenSuccess }))
-  }
-
-  if (shownFailure.length > 0) {
-    if (lines.length > 0) lines.push("")
-    lines.push(i18n.t("ui.memoryReceipt.failures"))
-    lines.push(...shownFailure.map((item) => `- ${item}`))
-    if (hiddenFailure > 0) lines.push(i18n.t("ui.memoryReceipt.moreFailures", { count: hiddenFailure }))
-  }
-
-  return lines.join("\n")
 }
 
 function sessionLink(id: string | undefined, path: string, href?: (id: string) => string | undefined) {
@@ -1476,17 +1397,7 @@ PART_MAPPING["text"] = function TextPartDisplay(props) {
     return items.filter((x) => !!x).join(" \u00B7 ")
   })
 
-  const displayText = () => {
-    const raw = (part().text ?? "").trim()
-    if (!raw) return ""
-    const metadata = part().metadata as Record<string, unknown> | undefined
-    if (!(part().synthetic && metadata?.memory_receipt === true)) return raw
-    return formatMemoryReceipt(raw, i18n)
-  }
-  const isCron = createMemo(() => {
-    const metadata = part().metadata as Record<string, unknown> | undefined
-    return metadata?.source === "cron"
-  })
+  const displayText = () => (part().text ?? "").trim()
   const throttledText = createThrottledValue(displayText)
   const isLastTextPart = createMemo(() => {
     const last = (data.store.part?.[props.message.id] ?? [])
@@ -1516,11 +1427,6 @@ PART_MAPPING["text"] = function TextPartDisplay(props) {
   return (
     <Show when={throttledText()}>
       <div data-component="text-part">
-        <Show when={isCron()}>
-          <div class="mb-2">
-            <Tag>Cron</Tag>
-          </div>
-        </Show>
         <div data-slot="text-part-body">
           <Markdown text={throttledText()} cacheKey={part().id} />
         </div>

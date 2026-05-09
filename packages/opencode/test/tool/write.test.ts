@@ -155,31 +155,23 @@ describe("tool.write", () => {
     test("sets file permissions when writing sensitive data", async () => {
       await using tmp = await tmpdir()
       const filepath = path.join(tmp.path, "sensitive.json")
-      const shouldCheckPermissions = process.platform !== "win32"
-      let previousUmask: number | undefined
 
       await Instance.provide({
         directory: tmp.path,
         fn: async () => {
-          // Pin umask for this test to avoid runner-dependent defaults.
-          if (shouldCheckPermissions) previousUmask = process.umask(0o022)
-          try {
-            const write = await WriteTool.init()
-            await write.execute(
-              {
-                filePath: filepath,
-                content: JSON.stringify({ secret: "data" }),
-              },
-              ctx,
-            )
+          const write = await WriteTool.init()
+          await write.execute(
+            {
+              filePath: filepath,
+              content: JSON.stringify({ secret: "data" }),
+            },
+            ctx,
+          )
 
-            if (!shouldCheckPermissions) return
+          // On Unix systems, check permissions
+          if (process.platform !== "win32") {
             const stats = await fs.stat(filepath)
             expect(stats.mode & 0o777).toBe(0o644)
-          } finally {
-            if (previousUmask !== undefined) {
-              process.umask(previousUmask)
-            }
           }
         },
       })

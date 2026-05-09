@@ -23,7 +23,6 @@ import { MessageV2 } from "@/session/message-v2"
 import { Agent } from "@/agent/agent"
 import { Provider } from "@/provider/provider"
 import { ModelID, ProviderID } from "@/provider/schema"
-import { Memory } from "@/memory"
 
 const log = Log.create({ service: "cron" })
 
@@ -76,7 +75,6 @@ type SessionDispatchTarget = {
 }
 
 const directHandlers = new Map<string, DirectHandler>()
-const BUILTIN_MEMORY_REFLECTION_JOB_ID = "builtin-memory-reflection-daily"
 
 const defaultAgentDispatcher: AgentDispatcher = {
   async isolated(input) {
@@ -675,55 +673,6 @@ async function deleteJobFile(jobID: string) {
   await fs.rm(filePath, { force: true })
 }
 
-async function ensureBuiltinMemoryReflectionJob() {
-  await ensureJobDir()
-  const filePath = path.join(jobsDir(), `${BUILTIN_MEMORY_REFLECTION_JOB_ID}.json`)
-  const enabled = (await Config.getGlobal()).memory?.enabled ?? true
-  const now = Date.now()
-  const fallback = {
-    id: BUILTIN_MEMORY_REFLECTION_JOB_ID,
-    name: "Daily memory reflection",
-    enabled,
-    mode: "direct",
-    project_id: null,
-    session_id: null,
-    schedule_type: "cron",
-    schedule_value: "0 3 * * *",
-    timezone: systemTimezone(),
-    payload: {
-      action: "memory_reflect",
-      scope: "global",
-      dry_run: false,
-      trigger: "cron",
-    },
-  } satisfies Record<string, unknown>
-
-  const existing = await readJobFile(filePath).catch(() => undefined)
-  const definition = existing
-    ? parseDefinition(asObject(existing, "job"), BUILTIN_MEMORY_REFLECTION_JOB_ID)
-    : parseDefinition(fallback, BUILTIN_MEMORY_REFLECTION_JOB_ID)
-  const synced = definition.enabled === enabled ? definition : { ...definition, enabled }
-  if (!existing || synced.enabled !== definition.enabled) await writeJobFile(synced)
-
-  const previous = getState(BUILTIN_MEMORY_REFLECTION_JOB_ID) ?? undefined
-  const previousDefinition = (() => {
-    if (!previous?.definition_snapshot) return undefined
-    try {
-      return parseDefinition(previous.definition_snapshot, BUILTIN_MEMORY_REFLECTION_JOB_ID)
-    } catch {
-      return undefined
-    }
-  })()
-  const state = reconcileState({
-    previous,
-    previousDefinition,
-    definition: synced,
-    now,
-  })
-  upsertState(state)
-  return { definition: synced, state: toState(state) }
-}
-
 async function globalCronEnabled() {
   const config = await Config.getGlobal()
   return config.cron?.enabled ?? true
@@ -1156,10 +1105,6 @@ export namespace Cron {
     agentDispatcher = defaultAgentDispatcher
   }
 
-  export async function syncBuiltinMemoryReflectionJob() {
-    return ensureBuiltinMemoryReflectionJob()
-  }
-
   export const createJob = fn(CreateInput, async (input) => {
     await ensureJobDir()
     if ("id" in input) throw new Error("id is generated automatically")
@@ -1262,7 +1207,6 @@ export namespace Cron {
   export async function recover() {
     await Lock.write(runtimeLockPath()).then(async (lock) => {
       using _ = lock
-      await ensureBuiltinMemoryReflectionJob()
       await scanDefinitions({ startupRecovery: true, now: Date.now() })
     })
   }
@@ -1271,7 +1215,6 @@ export namespace Cron {
     await Lock.write(runtimeLockPath()).then(async (lock) => {
       using _ = lock
       const now = Date.now()
-      await ensureBuiltinMemoryReflectionJob()
       const definitions = await scanDefinitions({ now })
       await handleScheduledTick(definitions, now)
     })
@@ -1296,21 +1239,6 @@ export namespace Cron {
     scheduler.started = false
   }
 }
-
-Cron.registerDirectAction("memory_reflect", async ({ definition }) => {
-  const payload = definition.payload as Record<string, unknown>
-  const scope = Memory.ReflectionScope.catch("global").parse(payload.scope)
-  const trigger = Memory.ReflectionTrigger.catch("cron").parse(payload.trigger)
-  const dryRun = typeof payload.dry_run === "boolean" ? payload.dry_run : false
-  const result = await Memory.reflect({
-    scope,
-    dry_run: dryRun,
-    trigger,
-  })
-  return {
-    output_summary: result.summary || `memory_reflect ${result.status}`,
-  }
-})
 
 if (process.env.NODE_ENV !== "production") {
   Cron.registerDirectAction("debug_noop", async () => ({

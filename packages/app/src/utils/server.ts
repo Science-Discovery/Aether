@@ -15,40 +15,6 @@ type Kb = {
   apiKey?: string
   baseURL?: string
 }
-type MemorySettings = {
-  enabled: boolean
-  memory_reflection_model?: {
-    providerID: string
-    modelID: string
-  }
-}
-type MemoryStore = {
-  store: "user" | "memory"
-  file: string
-  limit: number
-  used: number
-  usage: number
-  entries: string[]
-}
-type ActiveMemory = {
-  session_id: string
-  prompt: string
-  entries: Array<{
-    source: "user" | "daily" | "session"
-    store?: "user" | "memory"
-    index: number
-    text: string
-  }>
-}
-type DailyMemory = {
-  root: string
-  days: Array<{
-    date: string
-    file: string
-    entries: string[]
-    invalid_entries: number
-  }>
-}
 type CronMode = "direct" | "isolated_agent" | "session_agent" | "agent_message"
 type CronScheduleType = "cron" | "interval" | "once"
 type CronLastStatus = "success" | "failed" | "skipped" | "expired" | null
@@ -145,15 +111,6 @@ async function requestJSON<T>(url: string, init: RequestInit, options?: RequestH
   return { data: payload as T }
 }
 export type AppClient = Base & {
-  memory: {
-    get(input?: { sessionID?: string }): Req<{
-      settings: MemorySettings
-      user: MemoryStore
-      memory: MemoryStore
-      daily: DailyMemory
-      active?: ActiveMemory
-    }>
-  }
   cron: {
     jobs: {
       list(): Req<CronJobView[]>
@@ -168,24 +125,26 @@ export type AppClient = Base & {
   }
   config: Base["config"] & {
     skills: {
-      list(): Req<Skill[]>
-      toggle(input: { name: string; enabled: boolean }): Req<{ ok: boolean }>
-      addDefaults(input?: { directory?: string }): Req<{ added: string[] }>
+      list(): Promise<{ data?: Skill[] }>
+      toggle(input: { name: string; enabled: boolean }): Promise<{ data?: { ok: boolean } }>
+      addDefaults(input?: { directory?: string }): Promise<{ data?: { added: string[] } }>
     }
   }
   file: Base["file"] & {
-    create(input: { path: string; type: "file" | "directory" }): Req<{ ok: boolean }>
-    delete(input: { path: string }): Req<{ ok: boolean }>
-    rename(input: { path: string; name: string }): Req<{ ok: boolean; path: string }>
-    write(input: { path: string; content: string }): Req<{ ok: boolean }>
-    summarize(input?: { directory?: string; maxDepth?: number; force?: boolean }): Req<{ count: number }>
-    open(input: { path: string; app?: string }): Req<{ ok: boolean }>
-    openInExplorer(input: { path: string }): Req<{ ok: boolean }>
-    pickFolder(): Req<{ path: string | null }>
-    addToGitignore(input: { path: string; type: "file" | "directory" }): Req<{
-      ok: boolean
-      created: boolean
-      alreadyExists: boolean
+    create(input: { path: string; type: "file" | "directory" }): Promise<{ data?: { ok: boolean } }>
+    delete(input: { path: string }): Promise<{ data?: { ok: boolean } }>
+    rename(input: { path: string; name: string }): Promise<{ data?: { ok: boolean; path: string } }>
+    write(input: { path: string; content: string }): Promise<{ data?: { ok: boolean } }>
+    summarize(input?: { directory?: string; maxDepth?: number; force?: boolean }): Promise<{ data?: { count: number } }>
+    open(input: { path: string; app?: string }): Promise<{ data?: { ok: boolean } }>
+    openInExplorer(input: { path: string }): Promise<{ data?: { ok: boolean } }>
+    pickFolder(): Promise<{ data?: { path: string | null } }>
+    addToGitignore(input: { path: string; type: "file" | "directory" }): Promise<{
+      data?: {
+        ok: boolean
+        created: boolean
+        alreadyExists: boolean
+      }
     }>
   }
   session: Base["session"] & {
@@ -208,30 +167,8 @@ export type AppClient = Base & {
       variant?: string
       knowledgeBase?: Kb
       parts: unknown[]
-    }): Req<unknown>
+    }): Promise<{ data?: unknown }>
     steer(input: { sessionID: string; text: string }): Req<unknown>
-    preference: {
-      get(input: { sessionID: string }): Req<{
-        sessionID: string
-        agent?: string
-        model?: { providerID: string; modelID: string }
-        variant?: string
-        autoAccept?: boolean
-      } | null>
-      update(input: {
-        sessionID: string
-        agent?: string
-        model?: { providerID: string; modelID: string }
-        variant?: string
-        autoAccept?: boolean
-      }): Req<{
-        sessionID: string
-        agent?: string
-        model?: { providerID: string; modelID: string }
-        variant?: string
-        autoAccept?: boolean
-      } | null>
-    }
   }
 }
 
@@ -252,7 +189,7 @@ export function createSdkForServer({
     ...config,
     baseUrl: server.url,
     headers: {
-      ...(auth ?? {}),
+      ...auth,
       ...(config.headers ?? {}),
     },
   }) as unknown as AppClient
@@ -295,38 +232,13 @@ function safeAssign(target: object, key: string, value: unknown) {
   }
 }
 
-export function addPreferenceMethods(
+export function addSteerMethods(
   client: AppClient,
   baseUrl: string,
   auth?: Record<string, string>,
   options?: RequestHelperOptions,
 ): AppClient {
   const headers: Record<string, string> = { "Content-Type": "application/json", ...auth }
-  const preferenceMethods = {
-    async get(input: { sessionID: string }) {
-      return requestJSON(`${baseUrl}/session/${input.sessionID}/preference`, { headers }, options)
-    },
-    async update(input: {
-      sessionID: string
-      agent?: string
-      model?: { providerID: string; modelID: string }
-      variant?: string
-      autoAccept?: boolean
-    }) {
-      const { sessionID, ...body } = input
-      return requestJSON(
-        `${baseUrl}/session/${sessionID}/preference`,
-        {
-          method: "PATCH",
-          headers,
-          body: JSON.stringify(body),
-        },
-        options,
-      )
-    },
-  }
-  safeAssign(client.session, "preference", preferenceMethods)
-
   const steerMethods = {
     async steer(input: { sessionID: string; text: string }) {
       return requestJSON(
@@ -342,33 +254,6 @@ export function addPreferenceMethods(
   }
   safeAssign(client.session, "steer", steerMethods.steer)
 
-  return client
-}
-
-export function addMemoryMethods(
-  client: AppClient,
-  baseUrl: string,
-  auth?: Record<string, string>,
-  opts?: { directory?: string; experimental_workspaceID?: string },
-  options?: RequestHelperOptions,
-): AppClient {
-  const headers: Record<string, string> = { "Content-Type": "application/json", ...auth }
-  if (opts?.directory) {
-    const isNonASCII = /[^\x00-\x7F]/.test(opts.directory)
-    headers["x-opencode-directory"] = isNonASCII ? encodeURIComponent(opts.directory) : opts.directory
-  }
-  if (opts?.experimental_workspaceID) {
-    headers["x-opencode-workspace"] = opts.experimental_workspaceID
-  }
-  const memoryMethods = {
-    async get(input?: { sessionID?: string }) {
-      const params = new URLSearchParams()
-      if (input?.sessionID) params.set("session_id", input.sessionID)
-      const suffix = params.size ? `?${params.toString()}` : ""
-      return requestJSON(`${baseUrl}/memory${suffix}`, { headers }, options)
-    },
-  }
-  safeAssign(client, "memory", memoryMethods)
   return client
 }
 

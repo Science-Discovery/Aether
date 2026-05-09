@@ -1692,19 +1692,6 @@ export type Config = {
      */
     reserved?: number
   }
-  memory?: {
-    /**
-     * Enable memory tools, prompt recall, and memory reflection (default: true)
-     */
-    enabled?: boolean
-    /**
-     * Optional model override for LLM-based memory reflection
-     */
-    memory_reflection_model?: {
-      providerID: string
-      modelID: string
-    }
-  }
   cron?: {
     /**
      * Enable cron job execution (default: true)

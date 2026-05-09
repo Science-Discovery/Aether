@@ -107,12 +107,9 @@ async function copyDb(state: State) {
   for (const name of dbs) {
     const src = path.join(Persist.legacy.data, name)
     const dst = path.join(Persist.current.data, name)
-    const copied = await atomic(src, dst)
-    push(state, `data/${name}`, copied)
-    if (copied === "copied") {
-      await copyFile(state, `${src}-wal`, `${dst}-wal`, `data/${name}-wal`)
-      await copyFile(state, `${src}-shm`, `${dst}-shm`, `data/${name}-shm`)
-    }
+    await copyFile(state, src, dst, `data/${name}`)
+    await copyFile(state, `${src}-wal`, `${dst}-wal`, `data/${name}-wal`)
+    await copyFile(state, `${src}-shm`, `${dst}-shm`, `data/${name}-shm`)
   }
 }
 
@@ -139,12 +136,9 @@ async function seedDb(state: State) {
   const pick = files.sort((a, b) => b.time - a.time || a.name.localeCompare(b.name))[0]
   if (!pick) return
 
-  const copied = await atomic(pick.file, dst)
-  push(state, `data/${name}`, copied)
-  if (copied === "copied") {
-    await copyFile(state, `${pick.file}-wal`, `${dst}-wal`, `data/${name}-wal`)
-    await copyFile(state, `${pick.file}-shm`, `${dst}-shm`, `data/${name}-shm`)
-  }
+  await copyFile(state, pick.file, dst, `data/${name}`)
+  await copyFile(state, `${pick.file}-wal`, `${dst}-wal`, `data/${name}-wal`)
+  await copyFile(state, `${pick.file}-shm`, `${dst}-shm`, `data/${name}-shm`)
 }
 
 async function copyRoots(state: State) {

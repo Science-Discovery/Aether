@@ -127,12 +127,64 @@ export namespace Ripgrep {
     }),
   )
 
+  export const InvalidPathError = NamedError.create(
+    "RipgrepInvalidPathError",
+    z.object({
+      filepath: z.string(),
+      reason: z.string(),
+    }),
+  )
+
+  export const FailedError = NamedError.create(
+    "RipgrepFailedError",
+    z.object({
+      filepath: z.string(),
+      cwd: z.string(),
+      code: z.number(),
+      stderr: z.string(),
+      args: z.array(z.string()),
+    }),
+  )
+
+  async function verify(filepath: string) {
+    const out = await Process.run([filepath, "--version"], { nothrow: true })
+    if (out.code === 0) return
+    throw new InvalidPathError({
+      filepath,
+      reason: out.stderr.toString().trim() || out.stdout.toString().trim() || `Command exited with code ${out.code}`,
+    })
+  }
+
   const state = lazy(async () => {
+    const env = process.env.OPENCODE_RIPGREP_PATH
+    if (env) {
+      const stat = await fs.stat(env).catch(() => undefined)
+      if (!stat?.isFile()) {
+        throw new InvalidPathError({
+          filepath: env,
+          reason: "Configured ripgrep path is not a file",
+        })
+      }
+      await verify(env)
+      return { filepath: env }
+    }
+
     const system = which("rg")
     if (system) {
       const stat = await fs.stat(system).catch(() => undefined)
-      if (stat?.isFile()) return { filepath: system }
-      log.warn("bun.which returned invalid rg path", { filepath: system })
+      if (stat?.isFile()) {
+        try {
+          await verify(system)
+          return { filepath: system }
+        } catch (error) {
+          log.warn("system rg failed validation", {
+            filepath: system,
+            error,
+          })
+        }
+      } else {
+        log.warn("which returned invalid rg path", { filepath: system })
+      }
     }
     const filepath = path.join(Global.Path.bin, "rg" + (process.platform === "win32" ? ".exe" : ""))
 
@@ -203,6 +255,8 @@ export namespace Ripgrep {
       if (!platformKey.endsWith("-win32")) await fs.chmod(filepath, 0o755)
     }
 
+    await verify(filepath)
+
     return {
       filepath,
     }
@@ -245,49 +299,47 @@ export namespace Ripgrep {
     const proc = Process.spawn(args, {
       cwd: input.cwd,
       stdout: "pipe",
-      stderr: "ignore",
+      stderr: "pipe",
       abort: input.signal,
     })
 
-    if (!proc.stdout) {
+    if (!proc.stdout || !proc.stderr) {
       throw new Error("Process output not available")
     }
 
     let buffer = ""
-    let readError: unknown
-    try {
-      const stream = proc.stdout as AsyncIterable<Buffer | string>
-      for await (const chunk of stream) {
-        input.signal?.throwIfAborted()
-
-        buffer += typeof chunk === "string" ? chunk : chunk.toString()
-        // Handle both Unix (\n) and Windows (\r\n) line endings
-        const lines = buffer.split(/\r?\n/)
-        buffer = lines.pop() || ""
-
-        for (const line of lines) {
-          if (line) yield line
-        }
-      }
-    } catch (error) {
-      readError = error
-    }
-
-    const exitCode = await proc.exited
-
-    const isBenignReadCloseError =
-      (readError as { code?: unknown } | undefined)?.code === "ERR_STREAM_PREMATURE_CLOSE" &&
-      exitCode === 0
-
-    if (readError && !isBenignReadCloseError) {
+    const stream = proc.stdout as AsyncIterable<Buffer | string>
+    for await (const chunk of stream) {
       input.signal?.throwIfAborted()
-      throw readError
+
+      buffer += typeof chunk === "string" ? chunk : chunk.toString()
+      // Handle both Unix (\n) and Windows (\r\n) line endings
+      const lines = buffer.split(/\r?\n/)
+      buffer = lines.pop() || ""
+
+      for (const line of lines) {
+        if (line) yield line
+      }
     }
 
-    if (buffer) {
-      // Emit final buffered line only when the stream completed cleanly, or when
-      // Bun/Node reported a benign premature-close after rg already exited with 0.
-      yield buffer
+    if (buffer) yield buffer
+    let code = 0
+    let stderr = ""
+    try {
+      ;[code, stderr] = await Promise.all([proc.exited, text(proc.stderr)])
+    } catch (error) {
+      stderr = error instanceof Error ? error.message : String(error)
+      code = 1
+    }
+
+    if (code !== 0) {
+      throw new FailedError({
+        filepath: args[0],
+        cwd: input.cwd,
+        code,
+        stderr,
+        args: args.slice(1),
+      })
     }
 
     input.signal?.throwIfAborted()
@@ -374,16 +426,26 @@ export namespace Ripgrep {
     args.push("--")
     args.push(input.pattern)
 
-    const result = await Process.text(args, {
+    const result = await Process.run(args, {
       cwd: input.cwd,
       nothrow: true,
     })
-    if (result.code !== 0) {
+    if (result.code === 1) {
       return []
     }
 
+    if (result.code !== 0) {
+      throw new FailedError({
+        filepath: args[0],
+        cwd: input.cwd,
+        code: result.code,
+        stderr: result.stderr.toString().trim(),
+        args: args.slice(1),
+      })
+    }
+
     // Handle both Unix (\n) and Windows (\r\n) line endings
-    const lines = result.text.trim().split(/\r?\n/).filter(Boolean)
+    const lines = result.stdout.toString().trim().split(/\r?\n/).filter(Boolean)
     // Parse JSON lines from ripgrep output
 
     return lines

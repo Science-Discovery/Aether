@@ -359,57 +359,6 @@ describe("session.message-v2.toModelMessage", () => {
     ])
   })
 
-  test("drops non-provider part metadata before converting to model messages", () => {
-    const userID = "m-user"
-    const assistantID = "m-assistant"
-
-    const input: MessageV2.WithParts[] = [
-      {
-        info: userInfo(userID),
-        parts: [
-          {
-            ...basePart(userID, "u1"),
-            type: "text",
-            text: "hello",
-          },
-        ] as MessageV2.Part[],
-      },
-      {
-        info: assistantInfo(assistantID, userID),
-        parts: [
-          {
-            ...basePart(assistantID, "a1"),
-            type: "text",
-            text: "cron reminder",
-            metadata: {
-              source: "cron",
-              job_id: "job",
-              run_id: "run",
-              openai: { assistant: "meta" },
-            },
-          },
-        ] as MessageV2.Part[],
-      },
-    ]
-
-    expect(MessageV2.toModelMessages(input, model)).toStrictEqual([
-      {
-        role: "user",
-        content: [{ type: "text", text: "hello" }],
-      },
-      {
-        role: "assistant",
-        content: [
-          {
-            type: "text",
-            text: "cron reminder",
-            providerOptions: { openai: { assistant: "meta" } },
-          },
-        ],
-      },
-    ])
-  })
-
   test("omits provider metadata when assistant model differs", () => {
     const userID = "m-user"
     const assistantID = "m-assistant"

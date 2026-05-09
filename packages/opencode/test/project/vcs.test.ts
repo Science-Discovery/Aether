@@ -8,11 +8,8 @@ import { Instance } from "../../src/project/instance"
 import { GlobalBus } from "../../src/bus/global"
 import { Vcs } from "../../src/project/vcs"
 
-// Skip in CI or when file watcher is explicitly disabled.
-const describeVcs =
-  FileWatcher.hasNativeBinding() && !process.env.CI && !process.env.OPENCODE_EXPERIMENTAL_DISABLE_FILEWATCHER
-    ? describe
-    : describe.skip
+// Skip in CI — native @parcel/watcher binding needed
+const describeVcs = FileWatcher.hasNativeBinding() && !process.env.CI ? describe : describe.skip
 
 // ---------------------------------------------------------------------------
 // Helpers
