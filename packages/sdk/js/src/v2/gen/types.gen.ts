@@ -5509,91 +5509,34 @@ export type FindTextData = {
     directory?: string
     workspace?: string
     pattern: string
-    include?: string
-    exclude?: string
-    case?: "true" | "false"
-    word?: "true" | "false"
-    regex?: "true" | "false"
   }
   url: "/find"
 }
 
 export type FindTextResponses = {
   /**
-   * Grouped matches
+   * Matches
    */
   200: Array<{
     path: {
       text: string
     }
-    items: Array<{
-      lines: {
+    lines: {
+      text: string
+    }
+    line_number: number
+    absolute_offset: number
+    submatches: Array<{
+      match: {
         text: string
       }
-      line_number: number
-      absolute_offset: number
-      submatches: Array<{
-        match: {
-          text: string
-        }
-        start: number
-        end: number
-      }>
+      start: number
+      end: number
     }>
   }>
 }
 
 export type FindTextResponse = FindTextResponses[keyof FindTextResponses]
-
-export type FindTextStreamData = {
-  body?: never
-  path?: never
-  query: {
-    directory?: string
-    workspace?: string
-    pattern: string
-    include?: string
-    exclude?: string
-    case?: "true" | "false"
-    word?: "true" | "false"
-    regex?: "true" | "false"
-  }
-  url: "/find/stream"
-}
-
-export type FindTextStreamResponses = {
-  /**
-   * SSE grouped matches
-   */
-  200:
-    | Array<{
-        path: {
-          text: string
-        }
-        items: Array<{
-          lines: {
-            text: string
-          }
-          line_number: number
-          absolute_offset: number
-          submatches: Array<{
-            match: {
-              text: string
-            }
-            start: number
-            end: number
-          }>
-        }>
-      }>
-    | {
-        count: number
-      }
-    | {
-        message: string
-      }
-}
-
-export type FindTextStreamResponse = FindTextStreamResponses[keyof FindTextStreamResponses]
 
 export type FindContentSessionCreateData = {
   body?: {

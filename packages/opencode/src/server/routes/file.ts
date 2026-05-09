@@ -218,12 +218,13 @@ export const FileRoutes = lazy(() =>
         summary: "Find text",
         description: "Search for text patterns across files in the project using ripgrep.",
         operationId: "find.text",
+        deprecated: true,
         responses: {
           200: {
-            description: "Grouped matches",
+            description: "Matches",
             content: {
               "application/json": {
-                schema: resolver(Ripgrep.Group.array()),
+                schema: resolver(Ripgrep.Match.shape.data.array()),
               },
             },
           },
@@ -233,101 +234,16 @@ export const FileRoutes = lazy(() =>
         "query",
         z.object({
           pattern: z.string(),
-          include: z.string().optional(),
-          exclude: z.string().optional(),
-          case: z.enum(["true", "false"]).optional(),
-          word: z.enum(["true", "false"]).optional(),
-          regex: z.enum(["true", "false"]).optional(),
         }),
       ),
       async (c) => {
-        const query = c.req.valid("query")
-        const result = await Ripgrep.search({
+        const result = await Ripgrep.find({
           cwd: Instance.directory,
-          pattern: query.pattern,
-          include: globs(query.include),
-          exclude: globs(query.exclude),
-          case: query.case === "true",
-          word: query.word === "true",
-          regex: query.regex === "true",
-          limit: 50,
+          pattern: c.req.valid("query").pattern,
+          limit: 10,
           signal: c.req.raw.signal,
         })
         return c.json(result)
-      },
-    )
-    .get(
-      "/find/stream",
-      describeRoute({
-        summary: "Find text stream",
-        description: "Stream text matches across files in the project using ripgrep.",
-        operationId: "find.textStream",
-        responses: {
-          200: {
-            description: "SSE grouped matches",
-            content: {
-              "text/event-stream": {
-                schema: resolver(
-                  z.union([
-                    Ripgrep.Group.array(),
-                    z.object({ count: z.number() }),
-                    z.object({ message: z.string() }),
-                  ]),
-                ),
-              },
-            },
-          },
-        },
-      }),
-      validator(
-        "query",
-        z.object({
-          pattern: z.string(),
-          include: z.string().optional(),
-          exclude: z.string().optional(),
-          case: z.enum(["true", "false"]).optional(),
-          word: z.enum(["true", "false"]).optional(),
-          regex: z.enum(["true", "false"]).optional(),
-        }),
-      ),
-      async (c) => {
-        const query = c.req.valid("query")
-        c.header("X-Accel-Buffering", "no")
-        c.header("X-Content-Type-Options", "nosniff")
-        return streamSSE(c, async (stream) => {
-          const signal = c.req.raw.signal
-          let count = 0
-          try {
-            for await (const batch of Ripgrep.stream({
-              cwd: Instance.directory,
-              pattern: query.pattern,
-              include: globs(query.include),
-              exclude: globs(query.exclude),
-              case: query.case === "true",
-              word: query.word === "true",
-              regex: query.regex === "true",
-              batch: 100,
-              signal,
-            })) {
-              count += batch.length
-              await stream.writeSSE({
-                event: "results",
-                data: JSON.stringify(batch),
-              })
-            }
-            if (signal.aborted) return
-            await stream.writeSSE({
-              event: "complete",
-              data: JSON.stringify({ count }),
-            })
-          } catch (err: any) {
-            if (signal.aborted) return
-            await stream.writeSSE({
-              event: "error",
-              data: JSON.stringify({ message: err?.message || String(err) }),
-            })
-          }
-        })
       },
     )
     .post(

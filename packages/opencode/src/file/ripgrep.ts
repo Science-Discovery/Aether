@@ -498,6 +498,34 @@ export namespace Ripgrep {
     return out
   }
 
+  export async function find(input: {
+    cwd: string
+    pattern: string
+    limit?: number
+    follow?: boolean
+    signal?: AbortSignal
+  }): Promise<MatchData[]> {
+    const args = [await filepath(), "--json", "--hidden", "--glob=!.git/*"]
+    if (input.follow) args.push("--follow")
+    if (input.limit) args.push(`--max-count=${input.limit}`)
+    args.push("--", input.pattern)
+
+    const result = await Process.text(args, {
+      cwd: input.cwd,
+      abort: input.signal,
+      nothrow: true,
+    })
+    if (result.code !== 0) return []
+
+    return result.text
+      .trim()
+      .split(/\r?\n/)
+      .filter(Boolean)
+      .map((line) => parse(line))
+      .filter((item): item is Match => !!item && isTextMatch(item))
+      .map((item) => item.data)
+  }
+
   export async function* stream(input: {
     cwd: string
     pattern: string

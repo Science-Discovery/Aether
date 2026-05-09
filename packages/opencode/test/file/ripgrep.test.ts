@@ -52,6 +52,23 @@ describe("file.ripgrep", () => {
     expect(hits).toEqual([])
   })
 
+  test("find returns legacy flat regex matches", async () => {
+    await using tmp = await tmpdir({
+      init: async (dir) => {
+        await Bun.write(path.join(dir, "match.ts"), "const note = 'Te.*st'\n")
+      },
+    })
+
+    const hits = await Ripgrep.find({
+      cwd: tmp.path,
+      pattern: "T.*st",
+    })
+
+    expect(hits).toHaveLength(1)
+    expect(hits[0]?.path.text).toBe("match.ts")
+    expect(hits[0]?.line_number).toBe(1)
+  })
+
   test("search ignores binary matches", async () => {
     await using tmp = await tmpdir({
       init: async (dir) => {
