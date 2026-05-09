@@ -63,7 +63,14 @@ function track(directory: string, next: Promise<Shape>) {
 }
 
 export const Instance = {
-  async provide<R>(input: { directory: string; init?: () => Promise<any>; fn: () => R; create?: boolean }): Promise<R> {
+  async provide<R>(input: {
+    directory: string
+    init?: () => Promise<any>
+    fn: () => R
+    create?: boolean
+    project?: Project.Info
+    worktree?: string
+  }): Promise<R> {
     const directory = Filesystem.resolve(input.directory)
     let existing = cache.get(directory)
     if (!existing && input.create !== false) {
@@ -73,6 +80,8 @@ export const Instance = {
         boot({
           directory,
           init: input.init,
+          project: input.project,
+          worktree: input.worktree,
         }),
       )
     }
