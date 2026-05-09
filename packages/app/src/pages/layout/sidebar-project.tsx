@@ -156,6 +156,13 @@ const ProjectTile = (props: {
             <ContextMenu.ItemLabel>{props.language.t("common.edit")}</ContextMenu.ItemLabel>
           </ContextMenu.Item>
           <ContextMenu.Item
+            data-action="project-delete-menu"
+            data-project={base64Encode(props.project.worktree)}
+            onSelect={() => props.deleteProject(props.project)}
+          >
+            <ContextMenu.ItemLabel>{props.language.t("common.delete")}</ContextMenu.ItemLabel>
+          </ContextMenu.Item>
+          <ContextMenu.Item
             data-action="project-workspaces-toggle"
             data-project={base64Encode(props.project.worktree)}
             disabled={props.project.vcs !== "git" && !props.workspacesEnabled(props.project)}
@@ -182,13 +189,6 @@ const ProjectTile = (props: {
             onSelect={() => props.closeProject(props.project.worktree)}
           >
             <ContextMenu.ItemLabel>{props.language.t("common.close")}</ContextMenu.ItemLabel>
-          </ContextMenu.Item>
-          <ContextMenu.Item
-            data-action="project-delete-menu"
-            data-project={base64Encode(props.project.worktree)}
-            onSelect={() => props.deleteProject(props.project)}
-          >
-            <ContextMenu.ItemLabel>{props.language.t("common.delete")}</ContextMenu.ItemLabel>
           </ContextMenu.Item>
         </ContextMenu.Content>
       </ContextMenu.Portal>

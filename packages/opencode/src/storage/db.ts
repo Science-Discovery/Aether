@@ -784,32 +784,87 @@ export namespace Database {
     if (mergedGpm > 0) log.info("merged case-duplicate global_project_map entries", { mergedGpm })
 
     // --- Normalize project_recent keys ---
-    const recentDirRows = sqlite
-      .prepare("SELECT key, directory, project_id FROM project_recent WHERE kind = 'directory'")
-      .all() as { key: string; directory: string; project_id: string | null }[]
-    let normalizedKeys = 0
-    for (const row of recentDirRows) {
-      const dirNorm = norm(row.directory)
-      const expectedKey = `dir:${dirNorm}`
-      if (row.key === expectedKey) continue
+    const allRecentRows = sqlite
+      .prepare(
+        "SELECT key, kind, directory, project_id, name, icon_url, icon_color, icon_override, activity_at FROM project_recent",
+      )
+      .all() as {
+      key: string
+      kind: string
+      directory: string
+      project_id: string | null
+      name: string | null
+      icon_url: string | null
+      icon_color: string | null
+      icon_override: string | null
+      activity_at: number
+    }[]
 
-      const existing = sqlite.prepare("SELECT project_id FROM project_recent WHERE key = ?").get(expectedKey) as
-        | {
-            project_id: string | null
-          }
-        | undefined
-      if (existing) {
-        if (row.project_id && !existing.project_id) {
-          sqlite.prepare("UPDATE project_recent SET project_id = ? WHERE key = ?").run(row.project_id, expectedKey)
-        }
-        sqlite.prepare("DELETE FROM project_recent WHERE key = ?").run(row.key)
-      } else {
-        sqlite
-          .prepare("UPDATE project_recent SET key = ?, directory = ? WHERE key = ?")
-          .run(expectedKey, dirNorm, row.key)
-      }
-      normalizedKeys++
+    // Group by norm(directory) — entries with same directory but different key casing are duplicates
+    const byNormDir = new Map<string, typeof allRecentRows>()
+    for (const row of allRecentRows) {
+      if (!row.directory) continue
+      const nk = norm(row.directory)
+      const group = byNormDir.get(nk) ?? []
+      group.push(row)
+      byNormDir.set(nk, group)
     }
+
+    let normalizedKeys = 0
+    for (const [nk, group] of byNormDir) {
+      const expectedKey = `dir:${nk}`
+      // Find entries that already have the canonical lowercase key
+      const canonical = group.find((r) => r.key === expectedKey)
+      for (const row of group) {
+        if (row.key === expectedKey) continue
+        // This entry has a non-canonical key (mixed case or legacy format)
+        if (canonical) {
+          // Merge metadata from this entry into the canonical one
+          if (!canonical.name && row.name) {
+            sqlite.prepare("UPDATE project_recent SET name = ? WHERE key = ?").run(row.name, expectedKey)
+          }
+          if (!canonical.icon_url && row.icon_url) {
+            sqlite.prepare("UPDATE project_recent SET icon_url = ? WHERE key = ?").run(row.icon_url, expectedKey)
+          }
+          if (!canonical.icon_color && row.icon_color) {
+            sqlite.prepare("UPDATE project_recent SET icon_color = ? WHERE key = ?").run(row.icon_color, expectedKey)
+          }
+          if (!canonical.icon_override && row.icon_override) {
+            sqlite
+              .prepare("UPDATE project_recent SET icon_override = ? WHERE key = ?")
+              .run(row.icon_override, expectedKey)
+          }
+          if (!canonical.project_id && row.project_id) {
+            sqlite
+              .prepare("UPDATE project_recent SET project_id = ?, kind = ? WHERE key = ?")
+              .run(row.project_id, row.kind, expectedKey)
+          }
+          if (row.activity_at > canonical.activity_at) {
+            sqlite.prepare("UPDATE project_recent SET activity_at = ? WHERE key = ?").run(row.activity_at, expectedKey)
+          }
+          sqlite.prepare("DELETE FROM project_recent WHERE key = ?").run(row.key)
+        } else {
+          // No canonical entry yet — rename this one
+          sqlite.prepare("UPDATE project_recent SET key = ?, directory = ? WHERE key = ?").run(expectedKey, nk, row.key)
+        }
+        normalizedKeys++
+      }
+    }
+
+    // Delete legacy 'project:<id>' format entries if a 'dir:' entry exists for same project_id
+    const legacyRows = sqlite
+      .prepare("SELECT key, project_id FROM project_recent WHERE key LIKE 'project:%' AND project_id IS NOT NULL")
+      .all() as { key: string; project_id: string }[]
+    for (const lr of legacyRows) {
+      const hasDir = sqlite
+        .prepare("SELECT 1 FROM project_recent WHERE project_id = ? AND key LIKE 'dir:%'")
+        .get(lr.project_id)
+      if (hasDir) {
+        sqlite.prepare("DELETE FROM project_recent WHERE key = ?").run(lr.key)
+        normalizedKeys++
+      }
+    }
+
     if (normalizedKeys > 0) log.info("normalized project_recent keys", { normalizedKeys })
   }
 

@@ -2451,6 +2451,17 @@ export default function Layout(props: ParentProps) {
                           <DropdownMenu.ItemLabel>{language.t("common.edit")}</DropdownMenu.ItemLabel>
                         </DropdownMenu.Item>
                         <DropdownMenu.Item
+                          data-action="project-delete-menu"
+                          data-project={slug()}
+                          onSelect={() => {
+                            const p = project()
+                            if (!p) return
+                            showDeleteProjectDialog(p)
+                          }}
+                        >
+                          <DropdownMenu.ItemLabel>{language.t("common.delete")}</DropdownMenu.ItemLabel>
+                        </DropdownMenu.Item>
+                        <DropdownMenu.Item
                           data-action="project-workspaces-toggle"
                           data-project={slug()}
                           disabled={!canToggle()}
@@ -2485,17 +2496,6 @@ export default function Layout(props: ParentProps) {
                           }}
                         >
                           <DropdownMenu.ItemLabel>{language.t("common.close")}</DropdownMenu.ItemLabel>
-                        </DropdownMenu.Item>
-                        <DropdownMenu.Item
-                          data-action="project-delete-menu"
-                          data-project={slug()}
-                          onSelect={() => {
-                            const p = project()
-                            if (!p) return
-                            showDeleteProjectDialog(p)
-                          }}
-                        >
-                          <DropdownMenu.ItemLabel>{language.t("common.delete")}</DropdownMenu.ItemLabel>
                         </DropdownMenu.Item>
                       </DropdownMenu.Content>
                     </DropdownMenu.Portal>
