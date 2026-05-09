@@ -365,26 +365,12 @@ export namespace Server {
         })()
         const directory = Filesystem.resolve(decoded)
 
-        const browsePaths = [
-          "/file",
-          "/find",
-          "/file/pick-folder",
-          "/file/check-directory",
-          "/file/ensure-directory",
-          "/path",
-        ]
-        const isBrowse = browsePaths.some(
-          (p) => c.req.path === p || c.req.path.startsWith(p + "/") || c.req.path.startsWith(p + "?"),
-        )
-        const create = isBrowse ? Instance.has(directory) : true
-
         return WorkspaceContext.provide({
           workspaceID: rawWorkspaceID ? WorkspaceID.make(rawWorkspaceID) : undefined,
           async fn() {
             return Instance.provide({
               directory,
-              create,
-              init: create ? InstanceBootstrap : undefined,
+              init: InstanceBootstrap,
               async fn() {
                 return next()
               },
