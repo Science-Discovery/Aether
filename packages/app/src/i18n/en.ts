@@ -341,15 +341,19 @@ export const dict = {
   "dialog.fork.empty": "No messages to fork from",
 
   "dialog.revert.confirm.title": "Revert to this point?",
-  "dialog.revert.confirm.description": "This will discard all messages after the selected point and restore files to their earlier state. This action cannot be undone.",
+  "dialog.revert.confirm.description":
+    "This will discard all messages after the selected point and restore files to their earlier state. This action cannot be undone.",
   "dialog.revert.confirmAction": "Revert",
   "dialog.revert.forkAction": "Fork instead",
   "dialog.revert.protected.inheritedPrefix.title": "Cannot revert here",
-  "dialog.revert.protected.inheritedPrefix.description": "This message belongs to the parent session's conversation history. Reverting it would modify shared history that other branches depend on. You can fork from this point to create a new branch instead.",
+  "dialog.revert.protected.inheritedPrefix.description":
+    "This message belongs to the parent session's conversation history. Reverting it would modify shared history that other branches depend on. You can fork from this point to create a new branch instead.",
   "dialog.revert.protected.descendantBranch.title": "Cannot revert here",
-  "dialog.revert.protected.descendantBranch.description": "A branch session already depends on messages at or after this point. Reverting would break that branch's connection. You can fork from this point to create a new branch instead.",
+  "dialog.revert.protected.descendantBranch.description":
+    "A branch session already depends on messages at or after this point. Reverting would break that branch's connection. You can fork from this point to create a new branch instead.",
   "dialog.revert.protected.incompleteTurnInheritedPrefix.title": "Cannot revert here",
-  "dialog.revert.protected.incompleteTurnInheritedPrefix.description": "The assistant has not finished responding to this message yet, so the system cannot determine whether this turn is within the inherited conversation history. To avoid modifying shared history, a fork is recommended. You can fork from this point to create a new branch instead.",
+  "dialog.revert.protected.incompleteTurnInheritedPrefix.description":
+    "The assistant has not finished responding to this message yet, so the system cannot determine whether this turn is within the inherited conversation history. To avoid modifying shared history, a fork is recommended. You can fork from this point to create a new branch instead.",
 
   "dialog.directory.search.placeholder": "Search folders",
   "dialog.directory.empty": "No subfolders in this directory",
@@ -409,6 +413,11 @@ export const dict = {
   "dialog.project.edit.worktree.startup": "Workspace startup script",
   "dialog.project.edit.worktree.startup.description": "Runs after creating a new workspace (worktree).",
   "dialog.project.edit.worktree.startup.placeholder": "e.g. bun install",
+  "dialog.project.delete.title": "Delete project",
+  "dialog.project.delete.confirm": "{{name}} will be permanently removed. This cannot be undone.",
+  "dialog.project.delete.deleted": "{{name}} has been removed.",
+  "dialog.project.delete.hasSessions":
+    "{{name}} has {{count}} sessions. Delete all sessions first before removing this project.",
 
   "dialog.releaseNotes.action.getStarted": "Get started",
   "dialog.releaseNotes.action.next": "Next",
@@ -990,6 +999,8 @@ export const dict = {
   "common.archive": "Archive",
   "common.unarchive": "Unarchive",
   "common.delete": "Delete",
+  "common.deleting": "Deleting...",
+  "common.ok": "OK",
   "common.close": "Close",
   "common.edit": "Edit",
   "common.loadMore": "Load more",

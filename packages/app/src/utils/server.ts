@@ -111,6 +111,10 @@ async function requestJSON<T>(url: string, init: RequestInit, options?: RequestH
   return { data: payload as T }
 }
 export type AppClient = Base & {
+  project: Base["project"] & {
+    delete(input: { projectID: string }): Req<{ status: string; projectID: string; sessionCount?: number }>
+    sessionCount(input: { projectID: string }): Req<{ count: number }>
+  }
   cron: {
     jobs: {
       list(): Req<CronJobView[]>
@@ -193,6 +197,33 @@ export function createSdkForServer({
       ...(config.headers ?? {}),
     },
   }) as unknown as AppClient
+}
+
+export function addProjectDeleteMethod(
+  client: AppClient,
+  baseUrl: string,
+  auth?: Record<string, string>,
+  options?: RequestHelperOptions,
+): AppClient {
+  const headers: Record<string, string> = { "Content-Type": "application/json", ...auth }
+  const methods = {
+    async delete(input: { projectID: string }) {
+      return requestJSON<{ status: string; projectID: string; sessionCount?: number }>(
+        `${baseUrl}/project/${input.projectID}`,
+        {
+          method: "DELETE",
+          headers,
+        },
+        options,
+      )
+    },
+    async sessionCount(input: { projectID: string }) {
+      return requestJSON<{ count: number }>(`${baseUrl}/project/${input.projectID}/session-count`, { headers }, options)
+    },
+  }
+  safeAssign(client.project, "delete", methods.delete)
+  safeAssign(client.project, "sessionCount", methods.sessionCount)
+  return client
 }
 
 function deepMerge(target: object, source: object) {

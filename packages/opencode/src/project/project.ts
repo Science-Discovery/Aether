@@ -3,6 +3,7 @@ import { Database, desc, eq } from "../storage/db"
 import { ProjectRecentTable } from "./project.sql"
 import { GlobalProjectMapTable } from "./global-project-map.sql"
 import { ProjectTable } from "./project.sql"
+import { SessionTable } from "../session/session.sql"
 import { Log } from "../util/log"
 import { Flag } from "@/flag/flag"
 import { BusEvent } from "@/bus/bus-event"
@@ -15,6 +16,8 @@ import { NodeFileSystem, NodePath } from "@effect/platform-node"
 import { makeRuntime } from "@/effect/run-service"
 import { AppFileSystem } from "@/filesystem"
 import * as CrossSpawnSpawner from "@/effect/cross-spawn-spawner"
+import { existsSync, unlinkSync } from "fs"
+import { Database as BunSqlite } from "bun:sqlite"
 
 export namespace Project {
   const log = Log.create({ service: "project" })
@@ -807,5 +810,50 @@ export namespace Project {
 
   export function removeSandbox(id: ProjectID, directory: string) {
     return runPromise((svc) => svc.removeSandbox(id, directory))
+  }
+
+  export function sessionCount(id: ProjectID): number {
+    const dbPath = Database.projectPath(id)
+    if (!existsSync(dbPath)) return 0
+    const raw = new BunSqlite(dbPath)
+    const row = raw.prepare("SELECT count(*) as cnt FROM session").get() as any
+    raw.close()
+    return row?.cnt ?? 0
+  }
+
+  export const RemoveResult = z.discriminatedUnion("status", [
+    z.object({ status: z.literal("ok"), projectID: ProjectID.zod }),
+    z.object({
+      status: z.literal("has_sessions"),
+      projectID: ProjectID.zod,
+      sessionCount: z.number(),
+    }),
+  ])
+  export type RemoveResult = z.infer<typeof RemoveResult>
+
+  export function remove(id: ProjectID): RemoveResult {
+    const cnt = sessionCount(id)
+    if (cnt > 0) {
+      return { status: "has_sessions", projectID: id, sessionCount: cnt }
+    }
+
+    Database.detach(id)
+
+    const dbPath = Database.projectPath(id)
+    if (existsSync(dbPath)) {
+      unlinkSync(dbPath)
+      for (const ext of ["-shm", "-wal"]) {
+        if (existsSync(dbPath + ext)) unlinkSync(dbPath + ext)
+      }
+    }
+
+    const mainDbPath = Database.Path
+    const mainDb = new BunSqlite(mainDbPath)
+    mainDb.prepare("DELETE FROM global_project_map WHERE project_id = ?").run(id)
+    mainDb.prepare("DELETE FROM project_recent WHERE project_id = ?").run(id)
+    mainDb.close()
+
+    log.info("removed project", { projectID: id })
+    return { status: "ok", projectID: id }
   }
 }
