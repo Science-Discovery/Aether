@@ -6,6 +6,7 @@ import { iife } from "@/util/iife"
 import { Log } from "@/util/log"
 import { Context } from "../util/context"
 import { Project } from "./project"
+import { ProjectID } from "./schema"
 import { State } from "./state"
 
 export interface Shape {
@@ -86,6 +87,19 @@ export const Instance = {
       )
     }
     if (!existing) {
+      if (input.create === false) {
+        const browseCtx: Shape = {
+          directory,
+          worktree: directory,
+          project: {
+            id: ProjectID.fromDirectory(directory),
+            worktree: directory,
+            sandboxes: [],
+            time: { created: Date.now(), updated: Date.now() },
+          },
+        }
+        return context.provide(browseCtx, async () => input.fn())
+      }
       const fallback = Instance.fallback()
       if (!fallback) throw new Error(`no instance for ${directory} and no fallback available`)
       return context.provide(await fallback, async () => {
