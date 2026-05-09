@@ -3,6 +3,7 @@ import * as CrossSpawnSpawner from "@/effect/cross-spawn-spawner"
 import { Effect, Layer, ServiceMap, Stream } from "effect"
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
 import { makeRuntime } from "@/effect/run-service"
+import * as Graph from "./git-graph"
 
 export namespace Git {
   const cfg = [
@@ -112,6 +113,7 @@ export namespace Git {
       opts?: { max?: number; branch?: string; skip?: number },
     ) => Effect.Effect<readonly LogItem[]>
     readonly refs: (cwd: string, ...prefixes: string[]) => Effect.Effect<readonly Ref[]>
+    readonly graphRefs: (cwd: string) => Effect.Effect<Graph.Refs>
     readonly commitDetails: (cwd: string, hash: string) => Effect.Effect<CommitDetail>
     readonly fileContent: (cwd: string, hash: string, path: string) => Effect.Effect<string>
   }
@@ -299,7 +301,7 @@ export namespace Git {
         } else {
           args.push("--all")
         }
-        args.push("--topo-order")
+        args.push("--date-order")
         return (yield* lines(args, { cwd })).map((line) => {
           const [hash, parents, author, email, date, ...rest] = line.split(sep)
           return {
@@ -315,30 +317,37 @@ export namespace Git {
 
       const commitDetails = Effect.fn("Git.commitDetails")(function* (cwd: string, hash: string) {
         const sep = "\x1F"
-        const [meta, rawNameStatus, rawNumstat] = yield* Effect.all(
-          [
-            text(
-              ["log", "-1", `--format=%H${sep}%P${sep}%an${sep}%ae${sep}%at${sep}%cn${sep}%ce${sep}%ct${sep}%B`, hash],
-              { cwd },
-            ),
-            text(["diff-tree", "--name-status", "-r", "--root", "--find-renames", "--diff-filter=AMDR", "-z", hash], {
-              cwd,
-            }),
-            text(["diff-tree", "--numstat", "-r", "--root", "--find-renames", "--diff-filter=AMDR", "-z", hash], {
-              cwd,
-            }),
-          ],
-          { concurrency: 3 },
+        const meta = yield* text(
+          ["log", "-1", `--format=%H${sep}%P${sep}%an${sep}%ae${sep}%at${sep}%cn${sep}%ce${sep}%ct${sep}%B`, hash],
+          { cwd },
         )
 
         const parts = meta.split(sep)
+        const parents = parts[1] ? parts[1].split(" ").filter(Boolean) : []
         const body = parts.slice(9).join(sep).trim()
+        const from = parents.length > 0 ? `${hash}^` : hash
+        const [rawNameStatus, rawNumstat] = yield* Effect.all(
+          parents.length > 0
+            ? [
+                text(["diff", "--name-status", "--find-renames", "--diff-filter=AMDR", "-z", from, hash], { cwd }),
+                text(["diff", "--numstat", "--find-renames", "--diff-filter=AMDR", "-z", from, hash], { cwd }),
+              ]
+            : [
+                text(["diff-tree", "--name-status", "-r", "--root", "--find-renames", "--diff-filter=AMDR", "-z", hash], {
+                  cwd,
+                }),
+                text(["diff-tree", "--numstat", "-r", "--root", "--find-renames", "--diff-filter=AMDR", "-z", hash], {
+                  cwd,
+                }),
+              ],
+          { concurrency: 2 },
+        )
 
         const nameStatus = nuls(rawNameStatus)
-        nameStatus.shift()
+        if (parents.length === 0) nameStatus.shift()
 
         const numstat = nuls(rawNumstat)
-        numstat.shift()
+        if (parents.length === 0) numstat.shift()
 
         const statMap = new Map<string, { additions: number | null; deletions: number | null }>()
         const statOldMap = new Map<string, { additions: number | null; deletions: number | null }>()
@@ -403,7 +412,7 @@ export namespace Git {
 
         return {
           hash: parts[0],
-          parents: parts[1] ? parts[1].split(" ").filter(Boolean) : [],
+          parents,
           author: parts[2],
           authorEmail: parts[3],
           authorDate: parseInt(parts[4], 10),
@@ -438,6 +447,10 @@ export namespace Git {
         })
       })
 
+      const graphRefs = Effect.fn("Git.graphRefs")(function* (cwd: string) {
+        return Graph.parseRefs(yield* text(["show-ref", "-d", "--head"], { cwd }))
+      })
+
       return Service.of({
         run,
         branch,
@@ -451,6 +464,7 @@ export namespace Git {
         stats,
         log,
         refs,
+        graphRefs,
         commitDetails,
         fileContent,
       })
@@ -511,6 +525,10 @@ export namespace Git {
 
   export function refs(cwd: string, ...prefixes: string[]) {
     return runPromise((git) => git.refs(cwd, ...prefixes))
+  }
+
+  export function graphRefs(cwd: string) {
+    return runPromise((git) => git.graphRefs(cwd))
   }
 
   export function commitDetails(cwd: string, hash: string) {

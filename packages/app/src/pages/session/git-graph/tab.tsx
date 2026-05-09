@@ -18,7 +18,6 @@ import { DialogAddTag } from "@/components/git-graph/dialog-add-tag"
 import { DialogCherryPick } from "@/components/git-graph/dialog-cherry-pick"
 import { computeGraphLayout, UNCOMMITTED, ROW_HEIGHT } from "./model"
 import { GitGraphList } from "./render"
-import { CommitDetail } from "./detail"
 
 export function GitGraphTab() {
   const sdk = useSDK()
@@ -125,7 +124,7 @@ export function GitGraphTab() {
       let commits = [...raw.data.commits]
       const files = uncommittedFiles()
       if (files.length > 0) {
-        const headCommit = raw.data.commits.find((c) => c.heads.includes(raw.data.head ?? ""))
+        const headCommit = raw.data.commits.find((c) => c.hash === raw.data.head)
         commits = [
           {
             hash: UNCOMMITTED,
@@ -214,10 +213,8 @@ export function GitGraphTab() {
       const raw = data()
       if (raw?.data?.moreAvailable && !loading()) {
         const nextSkip = raw.data.commits.length
-        void load(
-          filter() === "all" ? undefined : filter() === "current" ? (raw.data.head ?? undefined) : filter(),
-          nextSkip,
-        )
+        const current = raw.data.branch ?? raw.data.head ?? undefined
+        void load(filter() === "all" ? undefined : filter() === "current" ? current : filter(), nextSkip)
       }
     }
   }
@@ -225,8 +222,8 @@ export function GitGraphTab() {
   const scrollToHead = () => {
     const graphData = graph()
     if (!graphData || !scroll) return
-    const currentBranch = data()?.data?.head
-    const headNode = graphData.nodes.find((n) => currentBranch && n.heads.includes(currentBranch))
+    const head = data()?.data?.head
+    const headNode = graphData.nodes.find((n) => n.hash === head)
     if (!headNode) return
     const y = headNode.row * ROW_HEIGHT - scroll.clientHeight / 2
     scroll.scrollTo({ top: Math.max(0, y), behavior: "smooth" })
@@ -236,7 +233,8 @@ export function GitGraphTab() {
     if (b === "all") return language.t("session.tab.gitGraph.allBranches") ?? "All Branches"
     if (b === "current")
       return (
-        (language.t("session.tab.gitGraph.currentBranch") ?? "Current Branch") + ` (${data()?.data?.head ?? "HEAD"})`
+        (language.t("session.tab.gitGraph.currentBranch") ?? "Current Branch") +
+        ` (${data()?.data?.branch ?? data()?.data?.head ?? "HEAD"})`
       )
     return b
   }
@@ -244,7 +242,8 @@ export function GitGraphTab() {
   const handleBranchSelect = (b: string | undefined) => {
     if (!b) return
     if (b === filter()) return
-    const apiBranch = b === "all" ? undefined : b === "current" ? data()?.data?.head : b
+    const raw = data()
+    const apiBranch = b === "all" ? undefined : b === "current" ? (raw?.data?.branch ?? raw?.data?.head) : b
     setFilter(b)
     void load(apiBranch ?? undefined)
   }
@@ -301,21 +300,21 @@ export function GitGraphTab() {
             >
               <GitGraphList
                 nodes={g().nodes}
-                edges={g().edges}
+                lines={g().lines}
                 lanes={g().lanes}
-                currentBranch={data()?.data?.head}
+                graphWidth={g().graphWidth}
+                currentBranch={data()?.data?.branch}
                 uncommitted={uncommitted()}
                 selectedHash={selectedHash()}
+                selectedParentHash={parentHash()}
                 onCommitClick={handleCommitClick}
+                onCloseDetail={() => setSelectedHash(null)}
                 onContextMenu={handleContextMenu}
               />
             </ScrollView>
           )}
         </Show>
       </div>
-      <Show when={selectedHash()}>
-        {(hash) => <CommitDetail hash={hash()} parentHash={parentHash()} onClose={() => setSelectedHash(null)} />}
-      </Show>
       <Show when={menu()}>
         {(m) => {
           const item = "px-2 py-1 text-xs cursor-pointer hover:bg-surface-hover text-text-base"
@@ -396,7 +395,7 @@ export function GitGraphTab() {
             dialog.show(() => (
               <DialogMerge
                 hash={m().hash}
-                branch={data()?.data?.head ?? ""}
+                branch={data()?.data?.branch ?? ""}
                 onAction={(opts) => {
                   const args = ["merge", m().hash]
                   if (opts.squash) args.push("--squash")
@@ -412,7 +411,7 @@ export function GitGraphTab() {
             dialog.show(() => (
               <DialogRebase
                 hash={m().hash}
-                branch={data()?.data?.head ?? ""}
+                branch={data()?.data?.branch ?? ""}
                 onAction={(opts) => {
                   const args = ["rebase", m().hash]
                   if (opts.ignoreDate) args.push("--ignore-date")
