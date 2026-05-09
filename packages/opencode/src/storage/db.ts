@@ -295,15 +295,13 @@ export namespace Database {
       client.$client.close()
     }
     projectClients.clear()
-    if (cronClient) {
-      cronClient.$client.close()
-      cronClient = undefined
+    if (CronClient.isLoaded()) {
+      CronClient().$client.close()
+      CronClient.reset()
     }
   }
 
   type DrizzleClient = ReturnType<typeof init>
-
-  let cronClient: DrizzleClient | undefined
 
   export const CronClient = lazy(() => {
     const p = cronPath()

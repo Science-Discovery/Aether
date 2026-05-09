@@ -10,7 +10,6 @@ import { Global } from "../../src/global"
 import { Config } from "../../src/config/config"
 import { tmpdir } from "../fixture/fixture"
 import { Project } from "../../src/project/project"
-import { ProjectID } from "../../src/project/schema"
 import { Instance } from "../../src/project/instance"
 import { Server } from "../../src/server/server"
 import { Session } from "../../src/session"
@@ -459,25 +458,26 @@ describe("Cron core", () => {
     })
   })
 
-  test("agent_message mode emits session events on the existing session directory for global projects", async () => {
+  test("agent_message mode emits session events on the existing session directory for non-git projects", async () => {
     await using tmp = await tmpdir()
+    const { project } = await Project.fromDirectory(tmp.path)
 
     await Instance.provide({
       directory: tmp.path,
       fn: async () => {
-        const session = await Session.create({ title: "cron global notify" })
-        expect(session.projectID).toBe(ProjectID.global)
+        const session = await Session.create({ title: "cron non-git notify" })
+        expect(session.projectID).toBe(project.id)
         expect(session.directory).toBe(tmp.path)
 
         const created = await Cron.createJob({
-          name: "assistant notification global",
+          name: "assistant notification non-git",
           mode: "agent_message",
-          project_id: "global",
+          project_id: project.id,
           session_id: session.id,
           schedule_type: "cron",
           schedule_value: "0 3 * * *",
           payload: {
-            message: "global reminder",
+            message: "non-git reminder",
             agent: "build",
           },
         })

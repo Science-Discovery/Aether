@@ -51,27 +51,25 @@ function ensureGlobal() {
 }
 
 describe("migrateFromGlobal", () => {
-  test("global sessions remain in global project db after real project creation", async () => {
+  test("sessions remain in pre-commit project db after real project creation", async () => {
     await using tmp = await tmpdir()
     await $`git init`.cwd(tmp.path).quiet()
     await $`git config user.name "Test"`.cwd(tmp.path).quiet()
     await $`git config user.email "test@opencode.test"`.cwd(tmp.path).quiet()
     const { project: pre } = await Project.fromDirectory(tmp.path)
-    expect(pre.id).toBe(ProjectID.global)
+    expect(pre.id).not.toBe(ProjectID.global)
 
     const id = uid()
-    seed({ id, dir: tmp.path, project: ProjectID.global })
+    seed({ id, dir: tmp.path, project: pre.id })
 
     await $`git commit --allow-empty -m "root"`.cwd(tmp.path).quiet()
 
     const { project: real } = await Project.fromDirectory(tmp.path)
-    expect(real.id).not.toBe(ProjectID.global)
+    expect(real.id).not.toBe(pre.id)
 
-    const row = Database.useProject(ProjectID.global, (db) =>
-      db.select().from(SessionTable).where(eq(SessionTable.id, id)).get(),
-    )
+    const row = Database.useProject(pre.id, (db) => db.select().from(SessionTable).where(eq(SessionTable.id, id)).get())
     expect(row).toBeDefined()
-    expect(row!.project_id).toBe(ProjectID.global)
+    expect(row!.project_id).toBe(pre.id)
   })
 
   test("global sessions remain in global db when real project row already exists", async () => {

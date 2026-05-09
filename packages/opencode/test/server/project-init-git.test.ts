@@ -38,7 +38,6 @@ describe("project.initGit endpoint", () => {
       const body = await init.json()
       expect(init.status).toBe(200)
       expect(body).toMatchObject({
-        id: "global",
         vcs: "git",
         worktree: tmp.path,
       })
@@ -56,7 +55,6 @@ describe("project.initGit endpoint", () => {
       })
       expect(current.status).toBe(200)
       expect(await current.json()).toMatchObject({
-        id: "global",
         vcs: "git",
         worktree: tmp.path,
       })
