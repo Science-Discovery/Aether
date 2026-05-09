@@ -5,6 +5,7 @@ import z from "zod"
 import { File } from "../../file"
 import { FolderSummary } from "../../file/summary"
 import { Ripgrep } from "../../file/ripgrep"
+import { ContentSearch } from "../../file/content-search"
 import { LSP } from "../../lsp"
 import { Instance } from "../../project/instance"
 import { lazy } from "../../util/lazy"
@@ -327,6 +328,117 @@ export const FileRoutes = lazy(() =>
             })
           }
         })
+      },
+    )
+    .post(
+      "/find/content/session",
+      describeRoute({
+        summary: "Create content search session",
+        description: "Create a paginated file-content search session backed by a server-side ripgrep stream.",
+        operationId: "find.contentSessionCreate",
+        responses: {
+          200: {
+            description: "Initial result page",
+            content: {
+              "application/json": {
+                schema: resolver(ContentSearch.Page),
+              },
+            },
+          },
+        },
+      }),
+      validator(
+        "json",
+        ContentSearch.Query.extend({
+          limit: z.number().int().min(1).max(200).default(10),
+        }),
+      ),
+      async (c) => {
+        const body = c.req.valid("json")
+        const result = await ContentSearch.create({
+          cwd: Instance.directory,
+          pattern: body.pattern,
+          include: globs(body.include),
+          exclude: globs(body.exclude),
+          case: body.case,
+          word: body.word,
+          regex: body.regex,
+          limit: body.limit,
+        })
+        return c.json(result)
+      },
+    )
+    .get(
+      "/find/content/session/:sessionID/next",
+      describeRoute({
+        summary: "Read next content search page",
+        description: "Read the next result page from a server-side content search session.",
+        operationId: "find.contentSessionNext",
+        responses: {
+          200: {
+            description: "Next result page",
+            content: {
+              "application/json": {
+                schema: resolver(ContentSearch.Page),
+              },
+            },
+          },
+        },
+      }),
+      validator(
+        "param",
+        z.object({
+          sessionID: z.string(),
+        }),
+      ),
+      validator(
+        "query",
+        z.object({
+          cursor: z.coerce.number().int().nonnegative().optional(),
+          limit: z.coerce.number().int().min(1).max(200).default(10),
+        }),
+      ),
+      async (c) => {
+        const param = c.req.valid("param")
+        const query = c.req.valid("query")
+        const result = await ContentSearch.next({
+          sessionID: param.sessionID,
+          cursor: query.cursor,
+          limit: query.limit,
+        })
+        return c.json(result)
+      },
+    )
+    .delete(
+      "/find/content/session/:sessionID",
+      describeRoute({
+        summary: "Delete content search session",
+        description: "Delete a server-side content search session and abort its underlying ripgrep stream.",
+        operationId: "find.contentSessionDelete",
+        responses: {
+          200: {
+            description: "Session deleted",
+            content: {
+              "application/json": {
+                schema: resolver(
+                  z.object({
+                    ok: z.literal(true),
+                  }),
+                ),
+              },
+            },
+          },
+        },
+      }),
+      validator(
+        "param",
+        z.object({
+          sessionID: z.string(),
+        }),
+      ),
+      async (c) => {
+        ContentSearch.remove(c.req.valid("param").sessionID)
+        return c.json({ ok: true as const })
       },
     )
     .get(

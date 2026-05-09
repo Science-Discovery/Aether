@@ -68,8 +68,6 @@ type Result = {
 }
 
 const PAGE = 10
-const WAIT = 50
-const CHUNK = 200
 
 const defer = (run: () => void) => {
   requestAnimationFrame(() => requestAnimationFrame(run))
@@ -169,17 +167,6 @@ const rowItem = (item: Extract<Row, { kind: "item" }>) => (
   </div>
 )
 
-const debug = () => {
-  if (!import.meta.env.DEV) return false
-  if (typeof window === "undefined") return false
-  return window.localStorage?.getItem("aether:debug:search-content") === "1"
-}
-
-const log = (msg: string, data: Record<string, unknown>) => {
-  if (!debug()) return
-  console.debug("[search-content]", msg, data)
-}
-
 export function DialogSearchContent(props: { onOpenFile?: (path: string) => void }) {
   const dialog = useDialog()
   const file = useFile()
@@ -195,102 +182,60 @@ export function DialogSearchContent(props: { onOpenFile?: (path: string) => void
   const [word, setWord] = createSignal(false)
   const [regex, setRegex] = createSignal(false)
   const [items, setItems] = createSignal<Row[]>([])
-  const [count, setCount] = createSignal(0)
-  const [size, setSize] = createSignal(PAGE)
   const [loading, setLoading] = createSignal(false)
   const [fold, setFold] = createStore<Record<string, boolean>>({})
   let list: ListRef | undefined
   let abort: AbortController | undefined
+  let sid: string | undefined
+  let cursor = 0
+  let done = true
+  let next = false
   let all: Group[] = []
-  let pool: Group[] = []
-  let tick: ReturnType<typeof setTimeout> | undefined
   const has = createMemo(() => !!inc().trim() || !!exc().trim() || cs() || word() || regex())
   const dir = createMemo(() => decode64(params.dir) ?? "")
-  const more = createMemo(() => size() < count())
   const empty = createMemo(() => {
     if (loading() && query().trim().length >= 2) return language.t("common.loading")
     return language.t("palette.empty")
   })
 
-  const sync = (next = size()) => setItems(rows(all.slice(0, next), fold))
-
-  const grow = () => {
-    if (!more()) return
-    const t0 = performance.now()
-    const next = Math.min(size() + PAGE, count())
-    setSize(next)
-    sync(next)
-    log("grow", {
-      count: count(),
-      size: next,
-      ms: Math.round(performance.now() - t0),
-    })
-  }
+  const sync = () => setItems(rows(all, fold))
 
   const scroll = () => {
     const el = list?.getScrollRef()
-    if (!el || !more()) return
+    if (!el || done || next) return
     if (el.scrollTop + el.clientHeight < el.scrollHeight - 80) return
-    grow()
-  }
-
-  const stop = () => {
-    pool = []
-    if (!tick) return
-    clearTimeout(tick)
-    tick = undefined
+    void load()
   }
 
   const clear = () => {
     all = []
+    sid = undefined
+    cursor = 0
+    done = true
+    next = false
     setFold(reconcile({}))
-    stop()
   }
 
-  const flush = () => {
-    const next = pool.splice(0, CHUNK)
-    if (next.length === 0) return
-    const t0 = performance.now()
-    if (tick) {
-      clearTimeout(tick)
-      tick = undefined
-    }
-    all.push(...next)
-    for (const item of next) {
+  const merge = (part: Group[]) => {
+    if (part.length === 0) return
+    all.push(...part)
+    for (const item of part) {
       if (fold[item.path] === undefined) setFold(item.path, true)
     }
-    setCount(all.length)
-    const view = rows(all.slice(0, size()), fold)
-    const done = () => {
-      log("flush", {
-        batch: next.length,
-        count: all.length,
-        size: size(),
-        pending: pool.length,
-        ms: Math.round(performance.now() - t0),
-      })
-      if (pool.length > 0) {
-        tick = setTimeout(flush, 0)
-        return
-      }
-    }
-    if (same(items(), view)) {
-      done()
-      return
-    }
+    const view = rows(all, fold)
+    if (same(items(), view)) return
     void startTransition(() => {
       setItems(view)
-    }).then(done)
+    })
   }
 
-  const queue = (next: Group[]) => {
-    pool.push(...next)
-    if (count() === 0 && pool.length >= PAGE) {
-      flush()
-      return
-    }
-    if (tick) return
-    tick = setTimeout(flush, WAIT)
+  const drop = async () => {
+    const id = sid
+    sid = undefined
+    if (!id) return
+    try {
+      await sdk.createClient({ directory: dir(), throwOnError: true }).find.contentSessionDelete({ sessionID: id })
+    } catch {}
   }
 
   const reveal = (path: string, line: number) => {
@@ -311,14 +256,30 @@ export function DialogSearchContent(props: { onOpenFile?: (path: string) => void
     sync()
   }
 
+  const load = async () => {
+    if (!sid || done || next) return
+    next = true
+    try {
+      const result = await sdk
+        .createClient({ directory: dir(), throwOnError: true })
+        .find.contentSessionNext({ sessionID: sid, cursor, limit: PAGE }, { signal: abort?.signal })
+      const data = result.data
+      if (!data) throw new Error("Search session page missing data")
+      cursor = data.cursor
+      done = data.done
+      merge(data.items.map((item) => group(file, item)))
+    } finally {
+      next = false
+    }
+  }
+
   const search = async () => {
     const pattern = query().trim()
     const current = dir()
     abort?.abort()
+    await drop()
     clear()
     setItems([])
-    setCount(0)
-    setSize(PAGE)
 
     if (pattern.length < 2 || !current) {
       setLoading(false)
@@ -330,41 +291,31 @@ export function DialogSearchContent(props: { onOpenFile?: (path: string) => void
     setLoading(true)
 
     try {
-      const result = await sdk.createClient({ directory: current, throwOnError: true }).find.textStream(
+      const result = await sdk.createClient({ directory: current, throwOnError: true }).find.contentSessionCreate(
         {
           pattern,
           include: inc().trim() || undefined,
           exclude: exc().trim() || undefined,
-          case: cs() ? "true" : "false",
-          word: word() ? "true" : "false",
-          regex: regex() ? "true" : "false",
+          case: cs(),
+          word: word(),
+          regex: regex(),
+          limit: PAGE,
         },
         {
-          sseMaxRetryAttempts: 1,
           signal: ctl.signal,
         },
       )
-
-      for await (const item of result.stream) {
-        if (Array.isArray(item)) {
-          queue(item.map((row) => group(file, row)))
-          continue
-        }
-
-        if ("count" in item) {
-          flush()
-          setLoading(false)
-          return
-        }
-
-        throw new Error(item.message || "Search stream failed")
-      }
+      const data = result.data
+      if (!data) throw new Error("Search session create missing data")
+      sid = data.session_id
+      cursor = data.cursor
+      done = data.done
+      merge(data.items.map((item) => group(file, item)))
     } catch (err: unknown) {
       if (err instanceof Error && err.name === "AbortError") return
       if (ctl.signal.aborted) return
       console.error(err)
     } finally {
-      stop()
       if (abort === ctl) abort = undefined
       setLoading(false)
     }
@@ -388,6 +339,7 @@ export function DialogSearchContent(props: { onOpenFile?: (path: string) => void
   onCleanup(() => {
     clear()
     abort?.abort()
+    void drop()
   })
 
   return (

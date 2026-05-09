@@ -5595,6 +5595,127 @@ export type FindTextStreamResponses = {
 
 export type FindTextStreamResponse = FindTextStreamResponses[keyof FindTextStreamResponses]
 
+export type FindContentSessionCreateData = {
+  body?: {
+    pattern: string
+    include?: string
+    exclude?: string
+    case?: boolean
+    word?: boolean
+    regex?: boolean
+    limit?: number
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/find/content/session"
+}
+
+export type FindContentSessionCreateResponses = {
+  /**
+   * Initial result page
+   */
+  200: {
+    session_id: string
+    cursor: number
+    done: boolean
+    items: Array<{
+      path: {
+        text: string
+      }
+      items: Array<{
+        lines: {
+          text: string
+        }
+        line_number: number
+        absolute_offset: number
+        submatches: Array<{
+          match: {
+            text: string
+          }
+          start: number
+          end: number
+        }>
+      }>
+    }>
+  }
+}
+
+export type FindContentSessionCreateResponse =
+  FindContentSessionCreateResponses[keyof FindContentSessionCreateResponses]
+
+export type FindContentSessionNextData = {
+  body?: never
+  path: {
+    sessionID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+    cursor?: number
+    limit?: number
+  }
+  url: "/find/content/session/{sessionID}/next"
+}
+
+export type FindContentSessionNextResponses = {
+  /**
+   * Next result page
+   */
+  200: {
+    session_id: string
+    cursor: number
+    done: boolean
+    items: Array<{
+      path: {
+        text: string
+      }
+      items: Array<{
+        lines: {
+          text: string
+        }
+        line_number: number
+        absolute_offset: number
+        submatches: Array<{
+          match: {
+            text: string
+          }
+          start: number
+          end: number
+        }>
+      }>
+    }>
+  }
+}
+
+export type FindContentSessionNextResponse = FindContentSessionNextResponses[keyof FindContentSessionNextResponses]
+
+export type FindContentSessionDeleteData = {
+  body?: never
+  path: {
+    sessionID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/find/content/session/{sessionID}"
+}
+
+export type FindContentSessionDeleteResponses = {
+  /**
+   * Session deleted
+   */
+  200: {
+    ok: true
+  }
+}
+
+export type FindContentSessionDeleteResponse =
+  FindContentSessionDeleteResponses[keyof FindContentSessionDeleteResponses]
+
 export type FindFilesData = {
   body?: never
   path?: never

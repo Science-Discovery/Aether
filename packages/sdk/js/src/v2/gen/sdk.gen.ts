@@ -100,6 +100,9 @@ import type {
   FileUploadResponses,
   FileWriteErrors,
   FileWriteResponses,
+  FindContentSessionCreateResponses,
+  FindContentSessionDeleteResponses,
+  FindContentSessionNextResponses,
   FindFilesResponses,
   FindSymbolsResponses,
   FindTextResponses,
@@ -4944,6 +4947,123 @@ export class Find extends HeyApiClient {
     )
     return (options?.client ?? this.client).sse.get<FindTextStreamResponses, unknown, ThrowOnError>({
       url: "/find/stream",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Create content search session
+   *
+   * Create a paginated file-content search session backed by a server-side ripgrep stream.
+   */
+  public contentSessionCreate<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      pattern?: string
+      include?: string
+      exclude?: string
+      case?: boolean
+      word?: boolean
+      regex?: boolean
+      limit?: number
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "pattern" },
+            { in: "body", key: "include" },
+            { in: "body", key: "exclude" },
+            { in: "body", key: "case" },
+            { in: "body", key: "word" },
+            { in: "body", key: "regex" },
+            { in: "body", key: "limit" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<FindContentSessionCreateResponses, unknown, ThrowOnError>({
+      url: "/find/content/session",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Read next content search page
+   *
+   * Read the next result page from a server-side content search session.
+   */
+  public contentSessionNext<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      directory?: string
+      workspace?: string
+      cursor?: number
+      limit?: number
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "query", key: "cursor" },
+            { in: "query", key: "limit" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<FindContentSessionNextResponses, unknown, ThrowOnError>({
+      url: "/find/content/session/{sessionID}/next",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Delete content search session
+   *
+   * Delete a server-side content search session and abort its underlying ripgrep stream.
+   */
+  public contentSessionDelete<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).delete<FindContentSessionDeleteResponses, unknown, ThrowOnError>({
+      url: "/find/content/session/{sessionID}",
       ...options,
       ...params,
     })
