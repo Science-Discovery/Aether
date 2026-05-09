@@ -1,7 +1,8 @@
 import z from "zod"
-import { and, Database, eq } from "../storage/db"
-import { ProjectRecentTable, ProjectTable } from "./project.sql"
-import { SessionTable } from "../session/session.sql"
+import { Database, desc, eq } from "../storage/db"
+import { ProjectRecentTable } from "./project.sql"
+import { GlobalProjectMapTable } from "./global-project-map.sql"
+import { ProjectTable } from "./project.sql"
 import { Log } from "../util/log"
 import { Flag } from "@/flag/flag"
 import { BusEvent } from "@/bus/bus-event"
@@ -14,7 +15,6 @@ import { NodeFileSystem, NodePath } from "@effect/platform-node"
 import { makeRuntime } from "@/effect/run-service"
 import { AppFileSystem } from "@/filesystem"
 import * as CrossSpawnSpawner from "@/effect/cross-spawn-spawner"
-import { Hash } from "@/util/hash"
 
 export namespace Project {
   const log = Log.create({ service: "project" })
@@ -78,19 +78,6 @@ export namespace Project {
 
   type Row = typeof ProjectTable.$inferSelect
 
-  type RecentEntry = {
-    id: string
-    kind: "project" | "directory"
-    projectID?: ProjectID
-    directory: string
-    worktree?: string
-    vcs?: Info["vcs"]
-    name?: string
-    icon?: Info["icon"]
-    commands?: Info["commands"]
-    time: RecentInfo["time"]
-  }
-
   function norm(input: string) {
     const next = input.replace(/\\/g, "/")
     const trim = /^\/+$/g.test(next) ? "/" : next.replace(/\/+$/, "")
@@ -102,16 +89,8 @@ export namespace Project {
     return input.replace(/\\/g, "/").replace(/\/+$/, "").split("/").pop() || input
   }
 
-  function dirID(input: string) {
-    return `dir:${Hash.fast(norm(input))}`
-  }
-
   function dirKey(input: string) {
     return `dir:${norm(input)}`
-  }
-
-  function projectKey(id: string) {
-    return `project:${id}`
   }
 
   function skipDir(input: string) {
@@ -136,111 +115,73 @@ export namespace Project {
   }
 
   function canonical() {
-    return Database.use((db) => db.select().from(ProjectTable).all())
-      .map(fromRow)
-      .sort((a, b) => a.id.localeCompare(b.id))
-  }
-  function rawRecent(client: { prepare: (sql: string) => { all: () => unknown[]; get: () => unknown } }) {
-    return client
-      .prepare(
-        `select
-        directory,
-        max(time_updated) as activity_at,
-        count(*) as session_count
-      from session
-      where directory is not null and directory != '/'
-      group by directory`,
-      )
-      .all() as { directory: string; activity_at: number; session_count: number }[]
-  }
-
-  function recent() {
-    const canon = canonical()
-    const byDir = new Map<string, Info>()
-    for (const item of canon) {
-      if (item.worktree) byDir.set(norm(item.worktree), item)
-      for (const sandbox of item.sandboxes) byDir.set(norm(sandbox), item)
-    }
-
-    const recentRows = Database.use((d) => d.select().from(ProjectRecentTable).all())
-    const metaByDir = new Map<
-      string,
-      { name?: string; icon_url?: string | null; icon_color?: string | null; icon_override?: string | null }
-    >()
+    const recentRows = Database.use((db) =>
+      db.select().from(ProjectRecentTable).where(eq(ProjectRecentTable.kind, "project")).all(),
+    )
+    const result: Info[] = []
     for (const row of recentRows) {
-      if (row.name || row.icon_url || row.icon_color || row.icon_override) {
-        metaByDir.set(norm(row.directory), {
-          name: row.name ?? undefined,
-          icon_url: row.icon_url ?? undefined,
-          icon_color: row.icon_color ?? undefined,
-          icon_override: row.icon_override ?? undefined,
-        })
-      }
+      if (!row.project_id) continue
+      const projectRow = Database.useProject(row.project_id, (d) =>
+        d.select().from(ProjectTable).where(eq(ProjectTable.id, row.project_id!)).get(),
+      )
+      if (projectRow) result.push(fromRow(projectRow))
     }
-
-    const map = new Map<string, RecentEntry>()
-    for (const row of rawRecent(Database.Client().$client)) {
-      if (skipDir(row.directory) || !row.session_count) continue
-      const known = byDir.get(norm(row.directory))
-      if (known && known.id !== ProjectID.global) {
-        const key = dirKey(norm(row.directory))
-        const prev = map.get(key)
-        const activity = Math.max(row.activity_at ?? 0, prev?.time?.activity ?? 0)
-        const meta = metaByDir.get(norm(row.directory))
-        const icon = known.icon
-          ? { ...known.icon, override: meta?.icon_override ?? known.icon.override }
-          : meta?.icon_override
-            ? { override: meta.icon_override }
-            : known.icon
-        map.set(key, {
-          id: key,
-          kind: "project",
-          projectID: known.id,
+    return result.sort((a, b) => a.id.localeCompare(b.id))
+  }
+  function recent() {
+    const recentRows = Database.use((d) =>
+      d.select().from(ProjectRecentTable).orderBy(desc(ProjectRecentTable.activity_at)).all(),
+    )
+    return recentRows
+      .map((row) => {
+        if (row.kind === "project" && row.project_id) {
+          const projectRow = Database.useProject(row.project_id, (d) =>
+            d.select().from(ProjectTable).where(eq(ProjectTable.id, row.project_id!)).get(),
+          )
+          const known = projectRow ? fromRow(projectRow) : undefined
+          const icon = (() => {
+            const base = known?.icon
+            const override = row.icon_override ?? undefined
+            if (base && override) return { ...base, override }
+            if (override) return { override }
+            return base
+          })()
+          return {
+            id: row.key,
+            kind: "project" as const,
+            projectID: row.project_id,
+            directory: row.directory,
+            worktree: known?.worktree,
+            vcs: known?.vcs,
+            name: row.name ?? known?.name ?? name(row.directory),
+            icon,
+            commands: known?.commands,
+            time: {
+              activity: row.activity_at,
+              created: row.time_created,
+              updated: row.time_updated,
+            },
+          }
+        }
+        const baseIcon =
+          row.icon_url || row.icon_color
+            ? rowIcon({ icon_url: row.icon_url ?? null, icon_color: row.icon_color ?? null })
+            : undefined
+        const icon = baseIcon
+          ? { ...baseIcon, override: row.icon_override ?? undefined }
+          : row.icon_override
+            ? { override: row.icon_override }
+            : undefined
+        return {
+          id: row.key,
+          kind: "directory" as const,
           directory: row.directory,
-          worktree: known.worktree,
-          vcs: known.vcs,
-          name: meta?.name ?? known.name ?? name(row.directory),
+          name: row.name ?? name(row.directory),
           icon,
-          commands: known.commands,
-          time: { activity, created: known.time.created, updated: known.time.updated },
-        })
-        continue
-      }
-      const meta = metaByDir.get(norm(row.directory))
-      const dirName = meta?.name ?? name(row.directory)
-      const baseIcon =
-        meta?.icon_url || meta?.icon_color
-          ? rowIcon({ icon_url: meta?.icon_url ?? null, icon_color: meta?.icon_color ?? null })
-          : undefined
-      const dirIcon = baseIcon
-        ? { ...baseIcon, override: meta?.icon_override ?? undefined }
-        : meta?.icon_override
-          ? { override: meta.icon_override }
-          : undefined
-      map.set(dirID(row.directory), {
-        id: dirID(row.directory),
-        kind: "directory",
-        directory: row.directory,
-        name: dirName,
-        icon: dirIcon,
-        time: { activity: row.activity_at ?? 0 },
+          time: { activity: row.activity_at, created: row.time_created, updated: row.time_updated },
+        }
       })
-    }
-
-    return [...map.values()]
-      .sort((a, b) => b.time.activity - a.time.activity || a.directory.localeCompare(b.directory))
-      .map((item) => ({
-        id: item.id,
-        kind: item.kind,
-        projectID: item.projectID,
-        directory: item.directory,
-        worktree: item.worktree,
-        vcs: item.vcs,
-        name: item.name,
-        icon: item.icon,
-        commands: item.commands,
-        time: item.time,
-      }))
+      .filter((item) => !skipDir(item.directory))
   }
 
   export function fromRow(row: Row): Info {
@@ -325,6 +266,9 @@ export namespace Project {
       const db = <T>(fn: (d: Parameters<typeof Database.use>[0] extends (trx: infer D) => any ? D : never) => T) =>
         Effect.sync(() => Database.use(fn))
 
+      const dbProject = <T>(pid: ProjectID, fn: (d: Database.TxOrDb) => T) =>
+        Effect.sync(() => Database.useProject(pid, fn))
+
       const emitUpdated = (data: Info) =>
         Effect.sync(() =>
           GlobalBus.emit("event", {
@@ -361,7 +305,7 @@ export namespace Project {
 
       const touch = Effect.fn("Project.touch")(function* (input: { project: Info; directory: string }) {
         const now = Date.now()
-        const isProject = input.project.id !== ProjectID.global && input.project.worktree !== "/"
+        const isProject = input.project.worktree !== "/"
         const key = dirKey(norm(input.directory))
         const kind = isProject ? "project" : "directory"
         const directory = input.directory
@@ -404,8 +348,13 @@ export namespace Project {
           const dotgit = dotgitMatches[0]
 
           if (!dotgit) {
+            const dirNorm = norm(directory)
+            const mapRow = yield* db((d) =>
+              d.select().from(GlobalProjectMapTable).where(eq(GlobalProjectMapTable.directory, dirNorm)).get(),
+            )
+            const id = mapRow?.project_id ?? ProjectID.fromDirectory(dirNorm)
             return {
-              id: ProjectID.global,
+              id,
               worktree: "/",
               sandbox: "/",
               vcs: fakeVcs,
@@ -417,8 +366,14 @@ export namespace Project {
           let id = yield* readCachedProjectId(dotgit)
 
           if (!gitBinary) {
+            const dirNorm = norm(directory)
+            const mapRow = id
+              ? undefined
+              : yield* db((d) =>
+                  d.select().from(GlobalProjectMapTable).where(eq(GlobalProjectMapTable.directory, dirNorm)).get(),
+                )
             return {
-              id: id ?? ProjectID.global,
+              id: id ?? mapRow?.project_id ?? ProjectID.fromDirectory(dirNorm),
               worktree: sandbox,
               sandbox,
               vcs: fakeVcs,
@@ -427,8 +382,14 @@ export namespace Project {
 
           const commonDir = yield* git(["rev-parse", "--git-common-dir"], { cwd: sandbox })
           if (commonDir.code !== 0) {
+            const dirNorm = norm(directory)
+            const mapRow = id
+              ? undefined
+              : yield* db((d) =>
+                  d.select().from(GlobalProjectMapTable).where(eq(GlobalProjectMapTable.directory, dirNorm)).get(),
+                )
             return {
-              id: id ?? ProjectID.global,
+              id: id ?? mapRow?.project_id ?? ProjectID.fromDirectory(dirNorm),
               worktree: sandbox,
               sandbox,
               vcs: fakeVcs,
@@ -458,7 +419,16 @@ export namespace Project {
           }
 
           if (!id) {
-            return { id: ProjectID.global, worktree: sandbox, sandbox, vcs: "git" as const }
+            const dirNorm = norm(directory)
+            const mapRow = yield* db((d) =>
+              d.select().from(GlobalProjectMapTable).where(eq(GlobalProjectMapTable.directory, dirNorm)).get(),
+            )
+            return {
+              id: mapRow?.project_id ?? ProjectID.fromDirectory(dirNorm),
+              worktree: sandbox,
+              sandbox,
+              vcs: "git" as const,
+            }
           }
 
           const topLevel = yield* git(["rev-parse", "--show-toplevel"], { cwd: sandbox })
@@ -476,7 +446,9 @@ export namespace Project {
         })
 
         // Phase 2: upsert
-        const row = yield* db((d) => d.select().from(ProjectTable).where(eq(ProjectTable.id, data.id)).get())
+        const row = yield* dbProject(data.id, (d) =>
+          d.select().from(ProjectTable).where(eq(ProjectTable.id, data.id)).get(),
+        )
         const existing = row
           ? fromRow(row)
           : {
@@ -508,7 +480,7 @@ export namespace Project {
           { concurrency: "unbounded" },
         ).pipe(Effect.map((arr) => arr.filter((x): x is string => x !== undefined)))
 
-        yield* db((d) =>
+        yield* dbProject(data.id, (d) =>
           d
             .insert(ProjectTable)
             .values({
@@ -541,14 +513,7 @@ export namespace Project {
             .run(),
         )
 
-        if (data.id !== ProjectID.global) {
-          yield* db((d) =>
-            d
-              .update(SessionTable)
-              .set({ project_id: data.id })
-              .where(and(eq(SessionTable.project_id, ProjectID.global), eq(SessionTable.directory, data.worktree)))
-              .run(),
-          )
+        if (data.worktree !== "/") {
           const recentKey = dirKey(data.worktree)
           const recentRow = yield* db((d) =>
             d.select().from(ProjectRecentTable).where(eq(ProjectRecentTable.key, recentKey)).get(),
@@ -558,7 +523,9 @@ export namespace Project {
             if (recentRow.icon_url && !result.icon?.url) patch.icon_url = recentRow.icon_url
             if (recentRow.icon_color && !result.icon?.color) patch.icon_color = recentRow.icon_color
             if (Object.keys(patch).length) {
-              yield* db((d) => d.update(ProjectTable).set(patch).where(eq(ProjectTable.id, data.id)).run())
+              yield* dbProject(data.id, (d) =>
+                d.update(ProjectTable).set(patch).where(eq(ProjectTable.id, data.id)).run(),
+              )
               result.icon = { url: patch.icon_url ?? result.icon?.url, color: patch.icon_color ?? result.icon?.color }
             }
             yield* db((d) =>
@@ -571,8 +538,28 @@ export namespace Project {
           }
         }
 
+        if (data.vcs !== "git" || data.worktree === "/") {
+          const dirNorm = norm(directory)
+          yield* db((d) =>
+            d
+              .insert(GlobalProjectMapTable)
+              .values({
+                directory: dirNorm,
+                project_id: result.id,
+                time_created: Date.now(),
+                time_updated: Date.now(),
+              })
+              .onConflictDoUpdate({
+                target: GlobalProjectMapTable.directory,
+                set: { project_id: result.id, time_updated: Date.now() },
+              })
+              .run(),
+          )
+        }
+
         yield* emitUpdated(result)
-        yield* touch({ project: result, directory })
+        const touchDir = data.worktree !== "/" ? data.worktree : directory
+        yield* touch({ project: result, directory: touchDir })
         return { project: result, sandbox: data.sandbox }
       })
 
@@ -607,12 +594,12 @@ export namespace Project {
       })
 
       const get = Effect.fn("Project.get")(function* (id: ProjectID) {
-        const row = yield* db((d) => d.select().from(ProjectTable).where(eq(ProjectTable.id, id)).get())
+        const row = yield* dbProject(id, (d) => d.select().from(ProjectTable).where(eq(ProjectTable.id, id)).get())
         return row ? fromRow(row) : undefined
       })
 
       const update = Effect.fn("Project.update")(function* (input: UpdateInput) {
-        const result = yield* db((d) =>
+        const result = yield* dbProject(input.projectID, (d) =>
           d
             .update(ProjectTable)
             .set({
@@ -643,13 +630,13 @@ export namespace Project {
       })
 
       const setInitialized = Effect.fn("Project.setInitialized")(function* (id: ProjectID) {
-        yield* db((d) =>
+        yield* dbProject(id, (d) =>
           d.update(ProjectTable).set({ time_initialized: Date.now() }).where(eq(ProjectTable.id, id)).run(),
         )
       })
 
       const sandboxes = Effect.fn("Project.sandboxes")(function* (id: ProjectID) {
-        const row = yield* db((d) => d.select().from(ProjectTable).where(eq(ProjectTable.id, id)).get())
+        const row = yield* dbProject(id, (d) => d.select().from(ProjectTable).where(eq(ProjectTable.id, id)).get())
         if (!row) return []
         const data = fromRow(row)
         return yield* Effect.forEach(
@@ -664,11 +651,11 @@ export namespace Project {
       })
 
       const addSandbox = Effect.fn("Project.addSandbox")(function* (id: ProjectID, directory: string) {
-        const row = yield* db((d) => d.select().from(ProjectTable).where(eq(ProjectTable.id, id)).get())
+        const row = yield* dbProject(id, (d) => d.select().from(ProjectTable).where(eq(ProjectTable.id, id)).get())
         if (!row) throw new Error(`Project not found: ${id}`)
         const sboxes = [...row.sandboxes]
         if (!sboxes.includes(directory)) sboxes.push(directory)
-        const result = yield* db((d) =>
+        const result = yield* dbProject(id, (d) =>
           d
             .update(ProjectTable)
             .set({ sandboxes: sboxes, time_updated: Date.now() })
@@ -681,10 +668,10 @@ export namespace Project {
       })
 
       const removeSandbox = Effect.fn("Project.removeSandbox")(function* (id: ProjectID, directory: string) {
-        const row = yield* db((d) => d.select().from(ProjectTable).where(eq(ProjectTable.id, id)).get())
+        const row = yield* dbProject(id, (d) => d.select().from(ProjectTable).where(eq(ProjectTable.id, id)).get())
         if (!row) throw new Error(`Project not found: ${id}`)
         const sboxes = row.sandboxes.filter((s) => s !== directory)
-        const result = yield* db((d) =>
+        const result = yield* dbProject(id, (d) =>
           d
             .update(ProjectTable)
             .set({ sandboxes: sboxes, time_updated: Date.now() })
@@ -784,13 +771,13 @@ export namespace Project {
   }
 
   export function get(id: ProjectID): Info | undefined {
-    const row = Database.use((db) => db.select().from(ProjectTable).where(eq(ProjectTable.id, id)).get())
+    const row = Database.useProject(id, (db) => db.select().from(ProjectTable).where(eq(ProjectTable.id, id)).get())
     if (!row) return undefined
     return fromRow(row)
   }
 
   export function setInitialized(id: ProjectID) {
-    Database.use((db) =>
+    Database.useProject(id, (db) =>
       db.update(ProjectTable).set({ time_initialized: Date.now() }).where(eq(ProjectTable.id, id)).run(),
     )
   }

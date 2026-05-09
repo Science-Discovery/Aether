@@ -446,7 +446,9 @@ export namespace Worktree {
         input: { projectID: ProjectID; extra?: string },
       ) {
         const row = yield* Effect.sync(() =>
-          Database.use((db) => db.select().from(ProjectTable).where(eq(ProjectTable.id, input.projectID)).get()),
+          Database.useProject(input.projectID, (db) =>
+            db.select().from(ProjectTable).where(eq(ProjectTable.id, input.projectID)).get(),
+          ),
         )
         const project = row ? Project.fromRow(row) : undefined
         const startup = project?.commands?.start?.trim() ?? ""

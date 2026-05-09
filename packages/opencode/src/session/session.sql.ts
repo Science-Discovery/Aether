@@ -1,5 +1,4 @@
 import { sqliteTable, text, integer, index, primaryKey } from "drizzle-orm/sqlite-core"
-import { ProjectTable } from "../project/project.sql"
 import type { MessageV2 } from "./message-v2"
 import type { Snapshot } from "../snapshot"
 import type { Permission } from "../permission"
@@ -16,10 +15,7 @@ export const SessionTable = sqliteTable(
   "session",
   {
     id: text().$type<SessionID>().primaryKey(),
-    project_id: text()
-      .$type<ProjectID>()
-      .notNull()
-      .references(() => ProjectTable.id, { onDelete: "cascade" }),
+    project_id: text().$type<ProjectID>().notNull(),
     workspace_id: text().$type<WorkspaceID>(),
     parent_id: text().$type<SessionID>(),
     tree_id: text().$type<TreeID>(),
@@ -104,9 +100,7 @@ export const TodoTable = sqliteTable(
 )
 
 export const PermissionTable = sqliteTable("permission", {
-  project_id: text()
-    .primaryKey()
-    .references(() => ProjectTable.id, { onDelete: "cascade" }),
+  project_id: text().$type<ProjectID>().primaryKey(),
   ...Timestamps,
   data: text({ mode: "json" }).notNull().$type<Permission.Ruleset>(),
 })

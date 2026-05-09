@@ -88,6 +88,18 @@ let cli = yargs(hideBin(process.argv))
 
     const marker = Database.currentPath()
     const seeded = marker !== ":memory:" && (await Filesystem.exists(marker))
+
+    if (seeded) {
+      const { SplitMigration } = await import("@/storage/split-migration")
+      if (SplitMigration.needsMigration()) {
+        Database.close()
+        const result = SplitMigration.run()
+        process.stderr.write(
+          `Per-project DB split: ${result.projects} projects, ${result.sessions} sessions migrated.${EOL}`,
+        )
+      }
+    }
+
     if (!seeded) {
       const tty = process.stderr.isTTY
       process.stderr.write("Performing one time database migration, may take a few minutes..." + EOL)

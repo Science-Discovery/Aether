@@ -4,6 +4,7 @@ import { SyncEvent } from "@/sync"
 import { Session } from "@/session"
 import { SessionTable } from "@/session/session.sql"
 import { Database, eq } from "@/storage/db"
+import { Instance } from "@/project/instance"
 
 export function initProjectors() {
   SyncEvent.init({
@@ -11,7 +12,9 @@ export function initProjectors() {
     convertEvent: (type, data) => {
       if (type === "session.updated") {
         const id = (data as z.infer<typeof Session.Event.Updated.schema>).sessionID
-        const row = Database.use((db) => db.select().from(SessionTable).where(eq(SessionTable.id, id)).get())
+        const row = Database.useProject(Instance.project.id, (db) =>
+          db.select().from(SessionTable).where(eq(SessionTable.id, id)).get(),
+        )
 
         if (!row) return data
 

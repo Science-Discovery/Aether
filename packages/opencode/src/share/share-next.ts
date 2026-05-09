@@ -6,6 +6,7 @@ import { ProviderID, ModelID } from "@/provider/schema"
 import { Session } from "@/session"
 import type { SessionID } from "@/session/schema"
 import { MessageV2 } from "@/session/message-v2"
+import { Instance } from "@/project/instance"
 import { Database, eq } from "@/storage/db"
 import { SessionShareTable } from "./share.sql"
 import { Log } from "@/util/log"
@@ -127,7 +128,7 @@ export namespace ShareNext {
 
     const result = (await response.json()) as { id: string; url: string; secret: string }
 
-    Database.use((db) =>
+    Database.useProject(Instance.project.id, (db) =>
       db
         .insert(SessionShareTable)
         .values({ session_id: sessionID, id: result.id, secret: result.secret, url: result.url })
@@ -142,7 +143,7 @@ export namespace ShareNext {
   }
 
   function get(sessionID: SessionID) {
-    const row = Database.use((db) =>
+    const row = Database.useProject(Instance.project.id, (db) =>
       db.select().from(SessionShareTable).where(eq(SessionShareTable.session_id, sessionID)).get(),
     )
     if (!row) return
@@ -246,7 +247,9 @@ export namespace ShareNext {
       throw new Error(`Failed to remove share (${response.status}): ${message || response.statusText}`)
     }
 
-    Database.use((db) => db.delete(SessionShareTable).where(eq(SessionShareTable.session_id, sessionID)).run())
+    Database.useProject(Instance.project.id, (db) =>
+      db.delete(SessionShareTable).where(eq(SessionShareTable.session_id, sessionID)).run(),
+    )
   }
 
   async function fullSync(sessionID: SessionID) {
