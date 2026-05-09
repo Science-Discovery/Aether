@@ -170,6 +170,7 @@ export namespace Vcs {
     .object({
       commits: CommitLogItem.array(),
       head: z.string().nullable(),
+      branch: z.string().nullable(),
       tags: z.string().array(),
       moreAvailable: z.boolean(),
     })
@@ -280,19 +281,17 @@ export namespace Vcs {
         }),
         graph: Effect.fn("Vcs.graph")(function* (opts?: { max?: number; branch?: string; skip?: number }) {
           if (Instance.project.vcs !== "git") {
-            return { commits: [], head: null, tags: [], moreAvailable: false } satisfies GraphResult
+            return { commits: [], head: null, branch: null, tags: [], moreAvailable: false } satisfies GraphResult
           }
           const cwd = Instance.directory
           const max = opts?.max ?? 300
-          const [commits, heads, tags, remotes, head] = yield* Effect.all(
+          const [commits, refs, branch] = yield* Effect.all(
             [
               git.log(cwd, { max: max + 1, branch: opts?.branch, skip: opts?.skip }),
-              git.refs(cwd, "refs/heads/"),
-              git.refs(cwd, "refs/tags/"),
-              git.refs(cwd, "refs/remotes/"),
+              git.graphRefs(cwd),
               git.branch(cwd),
             ],
-            { concurrency: 5 },
+            { concurrency: 3 },
           )
 
           const moreAvailable = commits.length === max + 1
@@ -316,19 +315,19 @@ export namespace Vcs {
             return commit
           })
 
-          for (const ref of heads) {
+          for (const ref of refs.heads) {
             const idx = lookup.get(ref.hash)
             if (idx !== undefined) enriched[idx].heads.push(ref.name)
           }
 
-          for (const ref of tags) {
+          for (const ref of refs.tags) {
             const idx = lookup.get(ref.hash)
             if (idx !== undefined) {
-              enriched[idx].tags.push({ name: ref.name, annotated: ref.type === "tag" })
+              enriched[idx].tags.push({ name: ref.name, annotated: ref.annotated })
             }
           }
 
-          for (const ref of remotes) {
+          for (const ref of refs.remotes) {
             const idx = lookup.get(ref.hash)
             if (idx !== undefined) {
               const slash = ref.name.indexOf("/")
@@ -339,9 +338,15 @@ export namespace Vcs {
             }
           }
 
-          const tagsList = [...new Set(tags.map((t) => t.name))]
+          const tagsList = [...new Set(refs.tags.map((t) => t.name))]
 
-          return { commits: enriched, head: head ?? null, tags: tagsList, moreAvailable } satisfies GraphResult
+          return {
+            commits: enriched,
+            head: refs.head ?? null,
+            branch: branch ?? null,
+            tags: tagsList,
+            moreAvailable,
+          } satisfies GraphResult
         }),
         commitDetails: Effect.fn("Vcs.commitDetails")(function* (hash: string) {
           if (Instance.project.vcs !== "git") {

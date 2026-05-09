@@ -2243,6 +2243,7 @@ export type CommitLogItem = {
 export type VcsGraphResult = {
   commits: Array<CommitLogItem>
   head: string | null
+  branch: string | null
   tags: Array<string>
   moreAvailable: boolean
 }
