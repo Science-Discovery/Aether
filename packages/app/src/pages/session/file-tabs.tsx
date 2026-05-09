@@ -42,10 +42,13 @@ import { sendFollowupDraft, type FollowupDraft } from "@/components/prompt-input
 import { createReadingQuoteMetadata, summarizeReadingQuoteText } from "@/utils/comment-note"
 import { Identifier } from "@/utils/id"
 import { formatServerError } from "@/utils/server-errors"
+import { nextRevealScroll } from "./file-tab-reveal"
 
 const defer = (run: () => void) => {
   requestAnimationFrame(() => requestAnimationFrame(run))
 }
+
+const REVEAL_TEXT_LIMIT = 500_000
 
 function FileCommentMenu(props: {
   moreLabel: string
@@ -658,6 +661,17 @@ export function FileTabContent(props: { tab: string }) {
     if (file.ready()) return (file.selectedLines(p) as SelectedLineRange | undefined) ?? null
     return (getSessionHandoff(sessionKey())?.files[p] as SelectedLineRange | undefined) ?? null
   })
+  const reveal = createMemo(() => {
+    const p = path()
+    if (!p) return
+    return file.revealLine(p)
+  })
+  const canRevealPreview = createMemo(() => {
+    if (isMarkdown()) return false
+    if (wordWrap()) return false
+    if (!isTextFile()) return false
+    return contents().length <= REVEAL_TEXT_LIMIT
+  })
 
   const selectionPreview = (source: string, selection: FileSelection) => {
     return previewSelectedLines(source, {
@@ -919,6 +933,62 @@ export function FileTabContent(props: { tab: string }) {
     })
   }
 
+  const revealLine = (token: number, attempt: number) => {
+    const p = path()
+    const req = reveal()
+    const root = scroll
+    if (!p || !req || req.token !== token) return
+    if (!canRevealPreview()) {
+      file.setSelectedLines(p, null)
+      file.clearRevealLine(p, token)
+      return
+    }
+    if (!root) {
+      if (attempt >= 60) {
+        file.clearRevealLine(p, token)
+        return
+      }
+      requestAnimationFrame(() => revealLine(token, attempt + 1))
+      return
+    }
+
+    const host = root.querySelector("diffs-container")
+    const shadow = host instanceof HTMLElement ? host.shadowRoot : undefined
+    const target =
+      shadow?.querySelector(`[data-line="${req.line}"][data-selected-line]`) ??
+      shadow?.querySelector(`[data-line="${req.line}"]`)
+    const rootRect = root.getBoundingClientRect()
+    const targetRect = target instanceof HTMLElement ? target.getBoundingClientRect() : undefined
+    const step = nextRevealScroll({
+      rootReady: root.clientHeight > 0 && root.getClientRects().length > 0 && rootRect.height > 0,
+      rootHeight: root.clientHeight,
+      targetReady: target instanceof HTMLElement,
+      targetHeight: targetRect?.height ?? 0,
+      top: targetRect ? targetRect.top - rootRect.top : 0,
+      bottom: targetRect ? targetRect.bottom - rootRect.top : 0,
+      scrollTop: root.scrollTop,
+    })
+
+    if (step.kind === "retry") {
+      if (attempt >= 60) {
+        file.clearRevealLine(p, token)
+        return
+      }
+      requestAnimationFrame(() => revealLine(token, attempt + 1))
+      return
+    }
+
+    if (root.scrollTop !== step.top) {
+      root.scrollTop = step.top
+    }
+    view().setScroll(props.tab, {
+      x: codeScroll[0]?.scrollLeft ?? root.scrollLeft,
+      y: step.top,
+    })
+
+    file.clearRevealLine(p, token)
+  }
+
   /**
    * 从预览视口中心提取文本锚点。
    * 跳过 KaTeX 渲染的数学内容（与原始 LaTeX 文本不同），
@@ -1030,6 +1100,25 @@ export function FileTabContent(props: { tab: string }) {
     // 文件加载完成时，恢复持久化的 wordWrap / isEditing 状态
     loadPersistedFileState()
     queueRestore()
+  })
+
+  createEffect(() => {
+    const req = reveal()
+    const p = path()
+    if (!req) return
+    if (activeFileTab() !== props.tab) return
+    if (note.selected) setNote("selected", null)
+    if (!state()?.loaded) return
+    if (isEditing()) {
+      if (p) {
+        file.setSelectedLines(p, null)
+        file.clearRevealLine(p, req.token)
+      }
+      return
+    }
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => revealLine(req.token, 0))
+    })
   })
 
   onCleanup(() => {
@@ -1295,6 +1384,10 @@ export function FileTabContent(props: { tab: string }) {
                     scrollPreviewToAnchor(el, anchor, ratio)
                   } else {
                     restoreScroll()
+                  }
+                  const req = reveal()
+                  if (req && activeFileTab() === props.tab && !isEditing()) {
+                    requestAnimationFrame(() => revealLine(req.token, 0))
                   }
                 }}
                 onScroll={handleScroll as any}

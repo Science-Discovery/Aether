@@ -242,6 +242,7 @@ export function DialogSearchContent(props: { onOpenFile?: (path: string) => void
     const tab = file.tab(path)
     file.setSelectedPaths(new Set<string>([path]))
     file.setSelectedLines(path, { start: line, end: line })
+    file.requestRevealLine(path, line)
     tabs().open(tab)
     void file.load(path)
     if (!view().reviewPanel.opened()) view().reviewPanel.open()
