@@ -350,6 +350,8 @@ export const dict = {
   "dialog.revert.protected.descendantBranch.description": "A branch session already depends on messages at or after this point. Reverting would break that branch's connection. You can fork from this point to create a new branch instead.",
   "dialog.revert.protected.incompleteTurnInheritedPrefix.title": "Cannot revert here",
   "dialog.revert.protected.incompleteTurnInheritedPrefix.description": "The assistant has not finished responding to this message yet, so the system cannot determine whether this turn is within the inherited conversation history. To avoid modifying shared history, a fork is recommended. You can fork from this point to create a new branch instead.",
+  "dialog.revert.protected.sessionBusy.title": "Cannot revert while task is running",
+  "dialog.revert.protected.sessionBusy.description": "A task is still running in this session or one of its child sessions. Stop the task before changing session history.",
 
   "dialog.directory.search.placeholder": "Search folders",
   "dialog.directory.empty": "No subfolders in this directory",

@@ -1,5 +1,6 @@
 import { For, createEffect, createMemo, on, onCleanup, Show, Index, type JSX, createSignal } from "solid-js"
-import { createWorkingState } from "@/utils/working-state"
+import { createWorkingState, type ChildrenSource } from "@/utils/working-state"
+import { childMapByParent } from "@/pages/layout/helpers"
 import { createStore, produce, reconcile } from "solid-js/store"
 import { useNavigate } from "@solidjs/router"
 import { useMutation } from "@tanstack/solid-query"
@@ -304,9 +305,19 @@ export function MessageTimeline(props: {
     if (!id) return idle
     return sync.data.session_status[id] ?? idle
   })
-  const { visual: working } = createWorkingState({
+  const children = createMemo<ChildrenSource>(() => ({
+    childMap: () => childMapByParent(sync.data.session),
+    status: (id) => sync.data.session_status[id],
+    pending: (id) =>
+      (sync.data.message[id] ?? []).findLast(
+        (msg) => msg.role === "assistant" && typeof msg.time.completed !== "number",
+      ),
+  }))
+  const { interactive: working } = createWorkingState({
     status: () => sessionStatus(),
     pending: () => pending(),
+    sessionID: () => sessionID(),
+    children: () => children(),
   })
   const tint = createMemo(() => messageAgentColor(sessionMessages(), sync.data.agent))
 

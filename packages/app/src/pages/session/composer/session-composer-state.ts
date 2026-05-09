@@ -9,6 +9,7 @@ import { usePermission } from "@/context/permission"
 import { useSDK } from "@/context/sdk"
 import { useSync } from "@/context/sync"
 import { createWorkingState } from "@/utils/working-state"
+import { childMapByParent } from "@/pages/layout/helpers"
 import { composerDriver, composerEnabled, composerEvent } from "@/testing/session-composer"
 import { sessionPermissionRequest, sessionQuestionRequest } from "./session-request-tree"
 
@@ -114,7 +115,19 @@ export function createSessionComposerState(options?: { closeMs?: number | (() =>
     ),
   )
 
-  const { visual: busy } = createWorkingState({ status: () => status(), pending: () => pending() })
+  const { interactive: busy } = createWorkingState({
+    status: () => status(),
+    pending: () => pending(),
+    sessionID: () => params.id,
+    children: () => ({
+      childMap: () => childMapByParent(sync.data.session),
+      status: (id) => sync.data.session_status[id],
+      pending: (id) =>
+        (sync.data.message[id] ?? []).findLast(
+          (msg) => msg.role === "assistant" && typeof msg.time.completed !== "number",
+        ),
+    }),
+  })
   const live = createMemo(() => {
     if (test.on && test.live !== undefined) return test.live
     return busy() || blocked()
