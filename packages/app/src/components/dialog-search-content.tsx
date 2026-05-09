@@ -338,9 +338,9 @@ export function DialogSearchContent(props: { onOpenFile?: (path: string) => void
     onCleanup(() => el.removeEventListener("scroll", scroll))
   })
   onCleanup(() => {
-    clear()
     abort?.abort()
     void drop()
+    clear()
   })
 
   return (

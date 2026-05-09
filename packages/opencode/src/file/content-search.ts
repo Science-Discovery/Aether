@@ -11,6 +11,7 @@ type Input = {
   case?: boolean
   word?: boolean
   regex?: boolean
+  signal?: AbortSignal
 }
 
 type State = {
@@ -102,6 +103,9 @@ export namespace ContentSearch {
   export async function create(input: Input & { limit: number }) {
     prune()
     const abort = new AbortController()
+    const stop = () => abort.abort()
+    input.signal?.addEventListener("abort", stop, { once: true })
+    if (input.signal?.aborted) stop()
     const id = crypto.randomUUID()
     const state: State = {
       id,
@@ -129,6 +133,8 @@ export namespace ContentSearch {
     } catch (err) {
       drop(id)
       throw err
+    } finally {
+      input.signal?.removeEventListener("abort", stop)
     }
   }
 
