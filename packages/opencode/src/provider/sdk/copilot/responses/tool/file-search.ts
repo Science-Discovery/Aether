@@ -1,9 +1,9 @@
-import { createProviderDefinedToolFactoryWithOutputSchema } from "@ai-sdk/provider-utils"
 import type {
   OpenAIResponsesFileSearchToolComparisonFilter,
   OpenAIResponsesFileSearchToolCompoundFilter,
 } from "../openai-responses-api-types"
 import { z } from "zod/v4"
+import { createProviderDefinedToolFactoryWithOutputSchema } from "./factory"
 
 const comparisonFilterSchema = z.object({
   key: z.string(),

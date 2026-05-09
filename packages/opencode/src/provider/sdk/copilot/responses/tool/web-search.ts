@@ -1,5 +1,5 @@
-import { createProviderDefinedToolFactory } from "@ai-sdk/provider-utils"
 import { z } from "zod/v4"
+import { createProviderDefinedToolFactory } from "./factory"
 
 export const webSearchArgsSchema = z.object({
   filters: z

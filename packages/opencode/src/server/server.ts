@@ -71,7 +71,6 @@ const api = [
   "/log",
   "/lsp",
   "/mcp",
-  "/memory",
   "/mobile",
   "/path",
   "/permission",

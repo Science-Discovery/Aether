@@ -165,7 +165,6 @@ import type {
   McpLocalConfig,
   McpRemoteConfig,
   McpStatusResponses,
-  MemoryGetResponses,
   OutputFormat,
   Part as Part2,
   PartDeleteErrors,
@@ -223,6 +222,8 @@ import type {
   ReadingModeAnnotationsUpdateErrors,
   ReadingModeAnnotationsUpdateResponses,
   ReadingModePagePdfErrors,
+  ReadingModePagePdfFromFileErrors,
+  ReadingModePagePdfFromFileResponses,
   ReadingModePagePdfResponses,
   ReadingModePageTextErrors,
   ReadingModePageTextResponses,
@@ -277,6 +278,8 @@ import type {
   SessionShellResponses,
   SessionStatusErrors,
   SessionStatusResponses,
+  SessionSteerErrors,
+  SessionSteerResponses,
   SessionSummarizeErrors,
   SessionSummarizeResponses,
   SessionTodoErrors,
@@ -826,6 +829,7 @@ export class Project extends HeyApiClient {
       name?: string
       icon?: {
         url?: string
+        override?: string
         color?: string
       }
     },
@@ -1568,38 +1572,6 @@ export class Config2 extends HeyApiClient {
   private _skills?: Skills
   get skills(): Skills {
     return (this._skills ??= new Skills({ client: this.client }))
-  }
-}
-
-export class Memory extends HeyApiClient {
-  /**
-   * Get memory stores
-   *
-   * Read effective memory settings, durable stores, and optional session active memory.
-   */
-  public get<ThrowOnError extends boolean = false>(
-    parameters?: {
-      directory?: string
-      workspace?: string
-    },
-    options?: Options<never, ThrowOnError>,
-  ) {
-    const params = buildClientParams(
-      [parameters],
-      [
-        {
-          args: [
-            { in: "query", key: "directory" },
-            { in: "query", key: "workspace" },
-          ],
-        },
-      ],
-    )
-    return (options?.client ?? this.client).get<MemoryGetResponses, unknown, ThrowOnError>({
-      url: "/memory",
-      ...options,
-      ...params,
-    })
   }
 }
 
@@ -3194,6 +3166,45 @@ export class Session2 extends HeyApiClient {
       url: "/session/{sessionID}/unrevert",
       ...options,
       ...params,
+    })
+  }
+
+  /**
+   * Add steer text
+   *
+   * Append a steer/supplement text to the last user message in a session, visible to the AI from the next iteration.
+   */
+  public steer<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      directory?: string
+      workspace?: string
+      text?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "text" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<SessionSteerResponses, SessionSteerErrors, ThrowOnError>({
+      url: "/session/{sessionID}/steer",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
     })
   }
 
@@ -7443,6 +7454,49 @@ export class ReadingMode extends HeyApiClient {
     })
   }
 
+  /**
+   * Get a ranged PDF subdocument for a workspace file
+   */
+  public pagePdfFromFile<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      path?: string
+      startPage?: number
+      endPage?: number
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "path" },
+            { in: "body", key: "startPage" },
+            { in: "body", key: "endPage" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      ReadingModePagePdfFromFileResponses,
+      ReadingModePagePdfFromFileErrors,
+      ThrowOnError
+    >({
+      url: "/reading-mode/page-pdf-from-file",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
   private _session?: Session6
   get session(): Session6 {
     return (this._session ??= new Session6({ client: this.client }))
@@ -7821,11 +7875,6 @@ export class OpencodeClient extends HeyApiClient {
   private _config?: Config2
   get config(): Config2 {
     return (this._config ??= new Config2({ client: this.client }))
-  }
-
-  private _memory?: Memory
-  get memory(): Memory {
-    return (this._memory ??= new Memory({ client: this.client }))
   }
 
   private _tool?: Tool
