@@ -838,8 +838,8 @@ function SessionPageContent(props: SessionPageProps = {}) {
     return task
   }
 
-  const refreshVcs = () => {
-    resetVcs()
+  const refreshVcs = (opts?: { silent?: boolean }) => {
+    if (!opts?.silent) resetVcs()
     const mode = untrack(vcsMode)
     if (!mode) return
     if (!untrack(wantsReview)) return

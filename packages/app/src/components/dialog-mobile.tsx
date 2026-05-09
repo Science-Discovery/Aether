@@ -24,6 +24,7 @@ import {
   retryBridge,
   setStatus,
   type MobilePlatform,
+  type MobileStatus,
 } from "@/context/mobile"
 
 interface Props {
@@ -48,9 +49,15 @@ export const DialogMobile: Component<Props> = (props) => {
   const [inputAppId, setInputAppId] = createSignal("")
   const [inputAppSecret, setInputAppSecret] = createSignal("")
   const [steps, setSteps] = createStore({ 1: false, 2: false, 3: false, 4: false, 5: false })
+  const [prevStatus, setPrevStatus] = createSignal<MobileStatus>("idle")
 
   const p = () => props.platform
   const label = () => LABELS[p()]
+
+  const config = () => {
+    setPrevStatus(status(p()))
+    setStatus(p(), "config")
+  }
 
   const authHeaders = (): HeadersInit => {
     const s = server.current?.http
@@ -142,7 +149,7 @@ export const DialogMobile: Component<Props> = (props) => {
                 when={(p() === "feishu" || p() === "qq") && hasConfig(p())}
                 fallback={
                   p() === "feishu" || p() === "qq" ? (
-                    <Button variant="primary" onClick={() => setStatus(p(), "config")}>
+                    <Button variant="primary" onClick={config}>
                       配置{platformName(props.platform)}应用
                     </Button>
                   ) : (
@@ -156,7 +163,7 @@ export const DialogMobile: Component<Props> = (props) => {
                   <Button variant="primary" onClick={doStart}>
                     {label().connect}
                   </Button>
-                  <Button variant="ghost" onClick={() => setStatus(p(), "config")}>
+                  <Button variant="ghost" onClick={config}>
                     重新配置
                   </Button>
                 </div>
@@ -191,7 +198,7 @@ export const DialogMobile: Component<Props> = (props) => {
                     />
                   </div>
                   <div class="flex justify-end gap-2">
-                    <Button variant="ghost" onClick={() => setStatus(p(), "idle")}>
+                    <Button variant="ghost" onClick={() => setStatus(p(), prevStatus())}>
                       取消
                     </Button>
                     <Button variant="primary" disabled={!inputAppId() || !inputAppSecret()} onClick={doStart}>
