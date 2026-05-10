@@ -12,7 +12,7 @@ export const ProjectID = projectIdSchema.pipe(
   withStatics((schema: typeof projectIdSchema) => ({
     global: schema.makeUnsafe("global"),
     make: (id: string) => schema.makeUnsafe(id),
-    fromDirectory: (directory: string) => schema.makeUnsafe(Hash.fast(directory).slice(0, 32)),
+    fromDirectory: (directory: string) => schema.makeUnsafe(Hash.fast(directory)),
     zod: z.string().pipe(z.custom<ProjectID>()),
   })),
 )

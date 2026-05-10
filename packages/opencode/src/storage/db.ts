@@ -10,8 +10,9 @@ import { NamedError } from "@opencode-ai/util/error"
 import z from "zod"
 import path from "path"
 import { createHash } from "crypto"
-import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, unlinkSync } from "fs"
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, unlinkSync } from "fs"
 import { Database as BunSqlite } from "bun:sqlite"
+
 import { Installation } from "../installation"
 import { Flag } from "../flag/flag"
 import { iife } from "@/util/iife"
@@ -259,6 +260,7 @@ export namespace Database {
       db.run("PRAGMA wal_checkpoint(PASSIVE)")
 
       const isNewDb = seedSplitMigration(db)
+      if (!isNewDb) seedAllMigrations(db)
 
       const entries =
         typeof OPENCODE_MIGRATIONS !== "undefined"
@@ -279,7 +281,7 @@ export namespace Database {
 
       if (isNewDb) postSplitFixupMain(db)
 
-      rehashProjectIds(db)
+      registerUntrackedProjects(db)
 
       return db
     })
@@ -311,7 +313,8 @@ export namespace Database {
     db.run("PRAGMA busy_timeout = 5000")
     db.run("PRAGMA cache_size = -64000")
     db.run("PRAGMA foreign_keys = ON")
-    seedSplitMigration(db)
+    const isNewCronDb = seedSplitMigration(db)
+    if (!isNewCronDb) seedAllMigrations(db)
     applyMigrations(db)
     db.run("PRAGMA wal_checkpoint(PASSIVE)")
     return db
@@ -334,6 +337,32 @@ export namespace Database {
     if (!entry) return undefined
     const hash = createHash("sha256").update(entry.sql).digest("hex")
     return { hash, millis: entry.timestamp, name: entry.name }
+  }
+
+  function seedAllMigrations(db: DrizzleClient) {
+    const sqlite = db.$client
+    sqlite.exec(`CREATE TABLE IF NOT EXISTS __drizzle_migrations (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      hash text NOT NULL,
+      created_at numeric,
+      name text,
+      applied_at TEXT
+    )`)
+    const existingNames = new Set(
+      (sqlite.prepare("SELECT name FROM __drizzle_migrations").all() as { name: string }[]).map((r) => r.name),
+    )
+    const entries =
+      typeof OPENCODE_MIGRATIONS !== "undefined"
+        ? OPENCODE_MIGRATIONS
+        : migrations(path.join(import.meta.dirname, "../../migration"))
+    const insert = sqlite.prepare(
+      "INSERT INTO __drizzle_migrations (hash, created_at, name, applied_at) VALUES (?, ?, ?, ?)",
+    )
+    for (const entry of entries) {
+      if (existingNames.has(entry.name)) continue
+      const hash = createHash("sha256").update(entry.sql).digest("hex")
+      insert.run(hash, entry.timestamp, entry.name, new Date().toISOString())
+    }
   }
 
   function seedSplitMigration(db: DrizzleClient): boolean {
@@ -420,7 +449,8 @@ export namespace Database {
     db.run("PRAGMA busy_timeout = 5000")
     db.run("PRAGMA cache_size = -64000")
     db.run("PRAGMA foreign_keys = ON")
-    seedSplitMigration(db)
+    const isNewProjDb = seedSplitMigration(db)
+    if (!isNewProjDb) seedAllMigrations(db)
     applyMigrations(db)
     db.run("PRAGMA wal_checkpoint(PASSIVE)")
     projectClients.set(projectId, db)
@@ -509,67 +539,44 @@ export namespace Database {
 
   type NotPromise<T> = T extends Promise<any> ? never : T
 
-  export function rehashProjectIds(db: DrizzleClient) {
+  export function registerUntrackedProjects(db: DrizzleClient) {
     const sqlite = db.$client
-    const rows = sqlite.prepare("SELECT directory, project_id FROM global_project_map").all() as {
-      directory: string
-      project_id: string
-    }[]
-    const toRehash = rows.filter((r) => r.project_id.length === 16)
-    if (toRehash.length === 0) return
+    const trackedIds = new Set<string>()
+    const rows = sqlite.prepare("SELECT project_id FROM global_project_map").all() as { project_id: string }[]
+    for (const r of rows) trackedIds.add(r.project_id)
 
     const chDir = channelDir()
-    for (const row of toRehash) {
-      const oldId = row.project_id
-      const newId = createHash("sha1").update(row.directory).digest("hex").slice(0, 32)
+    if (!existsSync(chDir)) return
 
-      const oldPath = path.join(chDir, `aether-${oldId}.db`)
-      const newPath = path.join(chDir, `aether-${newId}.db`)
-      if (existsSync(oldPath) && !existsSync(newPath)) {
-        const pDb = new BunSqlite(oldPath)
-        pDb.prepare("UPDATE project SET id = ? WHERE id = ?").run(newId, oldId)
-        pDb.prepare("UPDATE session SET project_id = ? WHERE project_id = ?").run(newId, oldId)
-        pDb.prepare("UPDATE workspace SET project_id = ? WHERE project_id = ?").run(newId, oldId)
-        pDb.prepare("UPDATE permission SET project_id = ? WHERE project_id = ?").run(newId, oldId)
-        pDb.exec("PRAGMA wal_checkpoint(TRUNCATE)")
-        pDb.close()
+    const pattern = /^aether-(.+)\.db$/
+    const entries = readdirSync(chDir)
+    let registered = 0
+    for (const entry of entries) {
+      const match = pattern.exec(entry)
+      if (!match) continue
+      const pid = match[1]
+      if (pid === "cron") continue
+      if (trackedIds.has(pid)) continue
+      if (projectClients.has(pid)) continue
 
-        renameSync(oldPath, newPath)
-        for (const ext of ["-shm", "-wal"]) {
-          if (existsSync(oldPath + ext)) renameSync(oldPath + ext, newPath + ext)
-        }
-      } else if (!existsSync(oldPath) && existsSync(newPath)) {
-      }
-
-      if (existsSync(oldPath) && oldId.length === 16) {
-        unlinkSync(oldPath)
-        for (const ext of ["-shm", "-wal"]) {
-          if (existsSync(oldPath + ext)) unlinkSync(oldPath + ext)
-        }
-        log.info("deleted stale 16-char project db", { oldId })
-      }
-
-      sqlite.prepare("UPDATE global_project_map SET project_id = ? WHERE directory = ?").run(newId, row.directory)
-      sqlite.prepare("UPDATE project_recent SET project_id = ? WHERE project_id = ?").run(newId, oldId)
-
-      const dirNorm = norm(row.directory)
-      const recentKey = `dir:${dirNorm}`
-      const hasRecent = sqlite.prepare("SELECT 1 FROM project_recent WHERE key = ?").get(recentKey)
-      if (!hasRecent) {
-        const now = Date.now()
+      const fullPath = path.join(chDir, entry)
+      const pSqlite = new BunSqlite(fullPath)
+      const projectRow = pSqlite.prepare("SELECT worktree FROM project WHERE id = ?").get(pid) as
+        | { worktree: string }
+        | undefined
+      if (projectRow) {
+        const dir = norm(projectRow.worktree)
         sqlite
           .prepare(
-            "INSERT OR IGNORE INTO project_recent (key, kind, project_id, directory, activity_at, time_created, time_updated) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            "INSERT OR IGNORE INTO global_project_map (directory, project_id, time_created, time_updated) VALUES (?, ?, ?, ?)",
           )
-          .run(recentKey, "directory", newId, row.directory, now, now, now)
-        log.info("inserted missing project_recent entry", { directory: row.directory, newId })
+          .run(dir, pid, Date.now(), Date.now())
+        registered++
+        log.info("registered untracked project db", { pid, directory: dir })
       }
-
-      log.info("rehashed non-git project ID", { directory: row.directory, oldId, newId })
+      pSqlite.close()
     }
-
-    sqlite.exec("PRAGMA wal_checkpoint(TRUNCATE)")
-    log.info("rehashed non-git project IDs to 32-char", { count: toRehash.length })
+    if (registered > 0) log.info("untracked project registration complete", { registered })
   }
 
   export function transaction<T>(
