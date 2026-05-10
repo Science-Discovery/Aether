@@ -46,11 +46,6 @@ export namespace SplitMigration {
   }
 
   export function needsMigration(): boolean {
-    const dir = channelDir()
-    if (existsSync(dir)) {
-      const files = readdirSync(dir).filter((f) => /\.db$/i.test(f))
-      if (files.length > 0) return false
-    }
     const main = mainDbPath()
     if (main === ":memory:") return false
     if (!existsSync(main)) return false
