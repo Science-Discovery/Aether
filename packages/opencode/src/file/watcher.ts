@@ -12,6 +12,7 @@ import { InstanceState } from "@/effect/instance-state"
 import { makeRuntime } from "@/effect/run-service"
 import { Flag } from "@/flag/flag"
 import { Git } from "@/git"
+import { ActiveDirectory } from "@/project/active-directory"
 import { Instance } from "@/project/instance"
 import { lazy } from "@/util/lazy"
 import { Config } from "../config/config"
@@ -185,9 +186,9 @@ export namespace FileWatcher {
 
             log.info("watcher backend", { directory: Instance.directory, platform: process.platform, backend })
 
-            const subs: ParcelWatcher.AsyncSubscription[] = []
+            const subs = new Set<ParcelWatcher.AsyncSubscription>()
             yield* Effect.addFinalizer(() =>
-              Effect.promise(() => Promise.allSettled(subs.map((sub) => sub.unsubscribe()))),
+              Effect.promise(() => Promise.allSettled([...subs].map((sub) => sub.unsubscribe()))),
             )
 
             const cb: ParcelWatcher.SubscribeCallback = Instance.bind((err, evts) => {
@@ -202,7 +203,7 @@ export namespace FileWatcher {
               }
             })
 
-            const subscribe = (dir: string, ignore: string[], kind: "worktree" | "git") => {
+            const subscribe = async (dir: string, ignore: string[], kind: "worktree" | "git") => {
               const item = cool(dir)
               if (item) {
                 log.warn("subscribe skipped during cooldown", {
@@ -216,11 +217,12 @@ export namespace FileWatcher {
                   worktree: Instance.project.worktree,
                   projectID: Instance.project.id,
                 })
-                return limited(dir, item.reason)
+                await Effect.runPromise(limited(dir, item.reason))
+                return
               }
               const start = Date.now()
-              let state = "pending" as "pending" | "ok" | "timeout" | "error"
               inflight += 1
+              let state = "pending" as "pending" | "ok" | "timeout" | "error"
               const input =
                 process.platform === "linux" && kind === "worktree"
                   ? child({
@@ -234,8 +236,8 @@ export namespace FileWatcher {
                       cancel: () => void w.unsubscribe(dir, cb, { ignore, backend }).catch(() => undefined),
                     }
               const pending = input.pending
-              pending
-                .then((sub) => {
+              pending.then(
+                (sub) => {
                   if (state !== "timeout") return
                   log.warn("subscribe resolved after timeout", {
                     dir,
@@ -247,9 +249,9 @@ export namespace FileWatcher {
                     worktree: Instance.project.worktree,
                     projectID: Instance.project.id,
                   })
-                  return sub.unsubscribe().catch(() => {})
-                })
-                .catch((error) => {
+                  void sub.unsubscribe().catch(() => {})
+                },
+                (error) => {
                   if (state !== "timeout") return
                   log.warn("subscribe rejected after timeout", {
                     dir,
@@ -262,81 +264,125 @@ export namespace FileWatcher {
                     projectID: Instance.project.id,
                     error,
                   })
-                })
-              return Effect.gen(function* () {
-                const sub = yield* Effect.promise(() => pending)
+                },
+              )
+              try {
+                const sub = await Promise.race([
+                  pending,
+                  new Promise<never>((_, reject) =>
+                    setTimeout(() => reject(new Error("subscribe timeout")), SUBSCRIBE_TIMEOUT_MS),
+                  ),
+                ])
                 state = "ok"
                 cooldown.delete(dir)
-                subs.push(sub)
-              }).pipe(
-                Effect.timeout(SUBSCRIBE_TIMEOUT_MS),
-                Effect.catchCause((cause) =>
-                  Effect.gen(function* () {
-                    const reason = Cause.isTimeoutError(Cause.squash(cause)) ? "timeout" : "error"
-                    state = reason
-                    cooldown.set(dir, { reason, until: Date.now() + SUBSCRIBE_COOLDOWN_MS })
-                    const stats = yield* Effect.promise(() => linux())
-                    const tree =
-                      process.platform === "linux" && kind === "worktree"
-                        ? yield* Effect.promise(() => count(dir, ignore))
-                        : undefined
-                    log.error("failed to subscribe", {
-                      dir,
-                      kind,
-                      pid: process.pid,
-                      reason,
-                      backend,
-                      elapsedMs: Date.now() - start,
-                      inflight,
-                      timeoutMs: SUBSCRIBE_TIMEOUT_MS,
-                      cooldownMs: SUBSCRIBE_COOLDOWN_MS,
-                      ignoreCount: ignore.length,
-                      ignorePreview: ignore.slice(0, 20),
-                      directory: Instance.directory,
-                      worktree: Instance.project.worktree,
-                      projectID: Instance.project.id,
-                      linux: stats,
-                      tree,
-                      cause: Cause.pretty(cause),
-                    })
-                    input.cancel?.()
-                    yield* limited(dir, reason)
-                  }),
-                ),
-                Effect.ensuring(
-                  Effect.sync(() => {
-                    inflight = Math.max(0, inflight - 1)
-                  }),
-                ),
-              )
+                subs.add(sub)
+                return sub
+              } catch (error) {
+                const reason = error instanceof Error && error.message === "subscribe timeout" ? "timeout" : "error"
+                state = reason
+                cooldown.set(dir, { reason, until: Date.now() + SUBSCRIBE_COOLDOWN_MS })
+                const stats = await linux()
+                const tree = process.platform === "linux" && kind === "worktree" ? await count(dir, ignore) : undefined
+                log.error("failed to subscribe", {
+                  dir,
+                  kind,
+                  pid: process.pid,
+                  reason,
+                  backend,
+                  elapsedMs: Date.now() - start,
+                  inflight,
+                  timeoutMs: SUBSCRIBE_TIMEOUT_MS,
+                  cooldownMs: SUBSCRIBE_COOLDOWN_MS,
+                  ignoreCount: ignore.length,
+                  ignorePreview: ignore.slice(0, 20),
+                  directory: Instance.directory,
+                  worktree: Instance.project.worktree,
+                  projectID: Instance.project.id,
+                  linux: stats,
+                  tree,
+                  cause: error instanceof Error ? error.stack ?? error.message : error,
+                })
+                input.cancel?.()
+                await Effect.runPromise(limited(dir, reason))
+                return
+              } finally {
+                inflight = Math.max(0, inflight - 1)
+              }
             }
 
             const cfg = yield* Effect.promise(() => Config.get())
             const cfgIgnores = cfg.watcher?.ignore ?? []
             const ignore = [...FileIgnore.WATCH, ...cfgIgnores, ...protecteds(Instance.directory)]
+            const result =
+              Instance.project.vcs === "git"
+                ? yield* Effect.promise(() =>
+                    Git.run(["rev-parse", "--git-dir"], {
+                      cwd: Instance.project.worktree,
+                    }),
+                  )
+                : undefined
+            const vcsDir =
+              result && result.exitCode === 0 ? path.resolve(Instance.project.worktree, result.text().trim()) : undefined
+            const gitIgnore =
+              vcsDir && !cfgIgnores.includes(".git") && !cfgIgnores.includes(vcsDir)
+                ? (yield* Effect.promise(() => readdir(vcsDir).catch(() => []))).filter((entry) => entry !== "HEAD")
+                : undefined
 
-            if (enabled) {
-              yield* subscribe(Instance.directory, ignore, "worktree")
-            }
-            if (!enabled) {
-              log.info("worktree watcher disabled", { directory: Instance.directory })
+            let worktree: ParcelWatcher.AsyncSubscription | undefined
+            let git: ParcelWatcher.AsyncSubscription | undefined
+            let queue = Promise.resolve()
+
+            const stop = async (sub?: ParcelWatcher.AsyncSubscription) => {
+              if (!sub) return
+              subs.delete(sub)
+              await sub.unsubscribe().catch(() => undefined)
             }
 
-            if (Instance.project.vcs === "git") {
-              const result = yield* Effect.promise(() =>
-                Git.run(["rev-parse", "--git-dir"], {
-                  cwd: Instance.project.worktree,
-                }),
-              )
-              const vcsDir =
-                result.exitCode === 0 ? path.resolve(Instance.project.worktree, result.text().trim()) : undefined
-              if (vcsDir && !cfgIgnores.includes(".git") && !cfgIgnores.includes(vcsDir)) {
-                const ignore = (yield* Effect.promise(() => readdir(vcsDir).catch(() => []))).filter(
-                  (entry) => entry !== "HEAD",
-                )
-                yield* subscribe(vcsDir, ignore, "git")
+            const sync = async (directory?: string) => {
+              const active = directory === Instance.directory
+
+              if (!enabled || !active) {
+                await stop(worktree)
+                worktree = undefined
               }
+              if (enabled && active && !worktree) {
+                worktree = await subscribe(Instance.directory, ignore, "worktree")
+              }
+              if (!enabled) {
+                log.info("worktree watcher disabled", { directory: Instance.directory })
+              }
+
+              if (!active || !vcsDir || !gitIgnore) {
+                await stop(git)
+                git = undefined
+                return
+              }
+              if (git) return
+              git = await subscribe(vcsDir, gitIgnore, "git")
             }
+
+            const run = (directory?: string) => {
+              queue = queue
+                .then(() => sync(directory))
+                .catch((error) => {
+                  log.error("failed to sync watcher activity", {
+                    directory: Instance.directory,
+                    active_directory: directory,
+                    error,
+                  })
+                })
+              return queue
+            }
+
+            const off = ActiveDirectory.subscribe(Instance.bind((directory) => void run(directory)))
+            yield* Effect.addFinalizer(() =>
+              Effect.promise(async () => {
+                off()
+                await queue
+              }),
+            )
+
+            yield* Effect.promise(() => run(ActiveDirectory.get()))
           },
           Effect.catchCause((cause) => {
             log.error("failed to init watcher service", { cause: Cause.pretty(cause) })

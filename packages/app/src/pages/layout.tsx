@@ -155,6 +155,15 @@ export default function Layout(props: ParentProps) {
   const colorSchemeLabel = (scheme: ColorScheme) => language.t(colorSchemeKey[scheme])
   const currentDir = createMemo(() => decode64(params.dir) ?? "")
 
+  createEffect(
+    on(
+      () => currentDir() || undefined,
+      (directory) => {
+        void globalSDK.client.global.activeDirectory.set({ directory }).catch(() => undefined)
+      },
+    ),
+  )
+
   const [state, setState] = createStore({
     autoselect: !initialDirectory,
     busyWorkspaces: {} as Record<string, boolean>,

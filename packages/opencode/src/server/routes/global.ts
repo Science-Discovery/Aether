@@ -10,6 +10,7 @@ import { SyncEvent } from "@/sync"
 import { GlobalBus } from "@/bus/global"
 import { AsyncQueue } from "@/util/queue"
 import { Installation } from "@/installation"
+import { ActiveDirectory } from "@/project/active-directory"
 import { Instance } from "../../project/instance"
 import { Flag } from "../../flag/flag"
 import { Log } from "../../util/log"
@@ -54,6 +55,10 @@ const ProxyConfig = z.object({
 const PingInput = z.object({
   id: z.string().min(1),
   alive: z.boolean().optional(),
+})
+
+const ActiveDirectoryValue = z.object({
+  directory: z.string().optional(),
 })
 
 function parseProxy(value?: string) {
@@ -304,6 +309,54 @@ export const GlobalRoutes = lazy(() =>
       }),
       async (c) => {
         return c.json({ currentVersion: await readWebCurrentVersion() })
+      },
+    )
+    .post(
+      "/active-directory",
+      describeRoute({
+        summary: "Set active directory",
+        description: "Set the browser's active directory so background services can scope work to the current workspace.",
+        operationId: "global.activeDirectory.set",
+        responses: {
+          200: {
+            description: "Updated active directory",
+            content: {
+              "application/json": {
+                schema: resolver(ActiveDirectoryValue),
+              },
+            },
+          },
+        },
+      }),
+      validator("json", ActiveDirectoryValue),
+      async (c) => {
+        const body = c.req.valid("json")
+        return c.json({
+          directory: ActiveDirectory.set(body.directory),
+        })
+      },
+    )
+    .get(
+      "/active-directory",
+      describeRoute({
+        summary: "Get active directory",
+        description: "Get the browser's current active directory.",
+        operationId: "global.activeDirectory.get",
+        responses: {
+          200: {
+            description: "Current active directory",
+            content: {
+              "application/json": {
+                schema: resolver(ActiveDirectoryValue),
+              },
+            },
+          },
+        },
+      }),
+      async (c) => {
+        return c.json({
+          directory: ActiveDirectory.get(),
+        })
       },
     )
     .post(

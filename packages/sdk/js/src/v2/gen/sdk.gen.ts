@@ -104,6 +104,8 @@ import type {
   FindSymbolsResponses,
   FindTextResponses,
   FormatterStatusResponses,
+  GlobalActiveDirectoryGetResponses,
+  GlobalActiveDirectorySetResponses,
   GlobalConfigGetResponses,
   GlobalConfigUpdateErrors,
   GlobalConfigUpdateResponses,
@@ -609,6 +611,44 @@ export class WebUpdate extends HeyApiClient {
   }
 }
 
+export class ActiveDirectory extends HeyApiClient {
+  /**
+   * Get active directory
+   *
+   * Get the browser's current active directory.
+   */
+  public get<ThrowOnError extends boolean = false>(options?: Options<never, ThrowOnError>) {
+    return (options?.client ?? this.client).get<GlobalActiveDirectoryGetResponses, unknown, ThrowOnError>({
+      url: "/global/active-directory",
+      ...options,
+    })
+  }
+
+  /**
+   * Set active directory
+   *
+   * Set the browser's active directory so background services can scope work to the current workspace.
+   */
+  public set<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams([parameters], [{ args: [{ in: "body", key: "directory" }] }])
+    return (options?.client ?? this.client).post<GlobalActiveDirectorySetResponses, unknown, ThrowOnError>({
+      url: "/global/active-directory",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+}
+
 export class SyncEvent extends HeyApiClient {
   /**
    * Subscribe to global sync events
@@ -765,6 +805,11 @@ export class Global extends HeyApiClient {
   private _webUpdate?: WebUpdate
   get webUpdate(): WebUpdate {
     return (this._webUpdate ??= new WebUpdate({ client: this.client }))
+  }
+
+  private _activeDirectory?: ActiveDirectory
+  get activeDirectory(): ActiveDirectory {
+    return (this._activeDirectory ??= new ActiveDirectory({ client: this.client }))
   }
 
   private _syncEvent?: SyncEvent
