@@ -139,6 +139,19 @@ export namespace SplitMigration {
     return sqlite
   }
 
+  const SPLIT_MIGRATION_NAME = "20260507071748_per_project_db_split"
+
+  function splitMigrationMeta(): { hash: string; name: string; millis: number } | undefined {
+    const entries = getMigrationEntries()
+    const entry = entries.find((e) => e.name === SPLIT_MIGRATION_NAME)
+    if (!entry) return undefined
+    return {
+      hash: createHash("sha256").update(entry.sql).digest("hex"),
+      name: entry.name,
+      millis: entry.timestamp,
+    }
+  }
+
   function getMigrationEntries(): { sql: string; timestamp: number; name: string }[] {
     if (typeof OPENCODE_MIGRATIONS !== "undefined") return OPENCODE_MIGRATIONS
     const dir = path.join(import.meta.dirname, "../../migration")
@@ -203,23 +216,14 @@ export namespace SplitMigration {
     const existingNames = new Set(
       (sqlite.prepare("SELECT name FROM __drizzle_migrations").all() as { name: string }[]).map((r) => r.name),
     )
-    const migrationDir = path.join(import.meta.dirname, "../../migration")
-    if (!existsSync(migrationDir)) return
-    const dirs = readdirSync(migrationDir, { withFileTypes: true })
-      .filter((entry) => entry.isDirectory())
-      .map((entry) => entry.name)
+    const entries = getMigrationEntries()
     const insert = sqlite.prepare(
       "INSERT INTO __drizzle_migrations (hash, created_at, name, applied_at) VALUES (?, ?, ?, ?)",
     )
-    for (const dirName of dirs) {
-      if (existingNames.has(dirName)) continue
-      const sqlFile = path.join(migrationDir, dirName, "migration.sql")
-      if (!existsSync(sqlFile)) continue
-      const sql = readFileSync(sqlFile, "utf-8")
-      const hash = createHash("sha256").update(sql).digest("hex")
-      const match = /^(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})/.exec(dirName)
-      const millis = match ? Date.UTC(+match[1], +match[2] - 1, +match[3], +match[4], +match[5], +match[6]) : 0
-      insert.run(hash, millis, dirName, new Date().toISOString())
+    for (const entry of entries) {
+      if (existingNames.has(entry.name)) continue
+      const hash = createHash("sha256").update(entry.sql).digest("hex")
+      insert.run(hash, entry.timestamp, entry.name, new Date().toISOString())
     }
   }
 
@@ -545,16 +549,7 @@ export namespace SplitMigration {
       const allProjectIds = [...sessionByProject.keys(), ...projectById.keys()]
       const uniqueProjectIds = new Set(allProjectIds)
 
-      const migrationMeta = (() => {
-        const migrationDir = path.join(import.meta.dirname, "../../migration/20260507071748_per_project_db_split")
-        const sqlFile = path.join(migrationDir, "migration.sql")
-        if (!existsSync(sqlFile)) return undefined
-        const sql = readFileSync(sqlFile, "utf-8")
-        const hash = createHash("sha256").update(sql).digest("hex")
-        const name = "20260507071748_per_project_db_split"
-        const millis = Date.UTC(2026, 4, 7, 7, 17, 48)
-        return { hash, name, millis }
-      })()
+      const migrationMeta = splitMigrationMeta()
 
       let projectCount = 0
       let sessionCount = 0
@@ -835,16 +830,7 @@ export namespace SplitMigration {
 
     log.info("starting project ID rehash", { count: rows.length })
 
-    const migrationMeta = (() => {
-      const migrationDir = path.join(import.meta.dirname, "../../migration/20260507071748_per_project_db_split")
-      const sqlFile = path.join(migrationDir, "migration.sql")
-      if (!existsSync(sqlFile)) return undefined
-      const sql = readFileSync(sqlFile, "utf-8")
-      const hash = createHash("sha256").update(sql).digest("hex")
-      const name = "20260507071748_per_project_db_split"
-      const millis = Date.UTC(2026, 4, 7, 7, 17, 48)
-      return { hash, name, millis }
-    })()
+    const migrationMeta = splitMigrationMeta()
 
     const chDir = channelDir()
     let projectCount = 0
