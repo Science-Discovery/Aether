@@ -483,10 +483,8 @@ export abstract class MobileManagerBase {
     const pinned = this.sessionMap[scope]
     if (pinned) {
       const stillValid = recent.some((s) => s.id === pinned)
-      if (stillValid && recent[0]?.id === pinned) return pinned
-      if (!stillValid) {
-        delete this.sessionMap[scope]
-      }
+      if (stillValid) return pinned
+      delete this.sessionMap[scope]
     }
     if (recent[0]) {
       this.sessionMap[scope] = recent[0].id
