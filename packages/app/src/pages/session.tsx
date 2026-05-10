@@ -57,6 +57,7 @@ import {
   focusTerminalById,
   shouldFocusTerminalOnKeyDown,
 } from "@/pages/session/helpers"
+import { childMapByParent } from "@/pages/layout/helpers"
 import { MessageTimeline } from "@/pages/session/message-timeline"
 import { type DiffStyle, SessionReviewTab, type SessionReviewTabProps } from "@/pages/session/review-tab"
 import { useSessionLayout } from "@/pages/session/session-layout"
@@ -1856,9 +1857,32 @@ function SessionPageContent(props: SessionPageProps = {}) {
 
   const busy = (sessionID: string) => {
     if ((sync.data.session_status[sessionID] ?? { type: "idle" as const }).type !== "idle") return true
-    return (sync.data.message[sessionID] ?? []).some(
-      (item) => item.role === "assistant" && typeof item.time.completed !== "number",
+    if (
+      (sync.data.message[sessionID] ?? []).some(
+        (item) => item.role === "assistant" && typeof item.time.completed !== "number",
+      )
     )
+      return true
+    const map = childMapByParent(sync.data.session)
+    const seen = new Set<string>()
+    const walk = (id: string): boolean => {
+      if (seen.has(id)) return false
+      seen.add(id)
+      const children = map.get(id)
+      if (!children?.length) return false
+      for (const child of children) {
+        if ((sync.data.session_status[child] ?? { type: "idle" as const }).type !== "idle") return true
+        if (
+          (sync.data.message[child] ?? []).some(
+            (item) => item.role === "assistant" && typeof item.time.completed !== "number",
+          )
+        )
+          return true
+        if (walk(child)) return true
+      }
+      return false
+    }
+    return walk(sessionID)
   }
 
   const queuedFollowups = createMemo(() => {
@@ -2067,8 +2091,16 @@ function SessionPageContent(props: SessionPageProps = {}) {
       .catch(fail)
   }
 
+  const showBusy = (input?: { sessionID: string; messageID: string }) => {
+    dialog.show(() => <DialogRevertConfirm reason="session-busy" onFork={input ? () => fork(input) : undefined} />)
+  }
+
   const revert = (input: { sessionID: string; messageID: string }) => {
     if (reverting()) return
+    if (busy(input.sessionID)) {
+      showBusy(input)
+      return
+    }
     const session = info()
     if (!session || session.id !== input.sessionID) {
       return revertMutation.mutateAsync(input)
@@ -2098,6 +2130,10 @@ function SessionPageContent(props: SessionPageProps = {}) {
 
   const restore = (id: string) => {
     if (!params.id || reverting()) return
+    if (busy(params.id)) {
+      showBusy()
+      return
+    }
     return restoreMutation.mutateAsync(id)
   }
 

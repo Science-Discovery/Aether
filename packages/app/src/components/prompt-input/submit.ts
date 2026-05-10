@@ -435,13 +435,17 @@ export function createPromptSubmit(input: PromptSubmitInput) {
   const handleSubmit = async (event: Event) => {
     event.preventDefault()
 
+    if (input.working()) {
+      abort()
+      return
+    }
+
     const currentPrompt = prompt.current()
     const text = currentPrompt.map((part) => ("content" in part ? part.content : "")).join("")
     const images = input.imageAttachments().slice()
     const mode = input.mode()
 
     if (text.trim().length === 0 && images.length === 0 && input.commentCount() === 0) {
-      if (input.working()) abort()
       return
     }
 

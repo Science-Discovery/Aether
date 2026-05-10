@@ -129,6 +129,11 @@ export function Session() {
       .toSorted((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
   })
   const messages = createMemo(() => sync.data.message[route.sessionID] ?? [])
+  const working = createMemo(() => {
+    const status = sync.data.session_status?.[route.sessionID]
+    if (status?.type && status.type !== "idle") return true
+    return messages().some((msg) => msg.role === "assistant" && typeof msg.time.completed !== "number")
+  })
   const permissions = createMemo(() => {
     if (session()?.parentID) return []
     return children().flatMap((x) => sync.data.permission[x.id] ?? [])
@@ -509,8 +514,11 @@ export function Session() {
         name: "undo",
       },
       onSelect: async (dialog) => {
-        const status = sync.data.session_status?.[route.sessionID]
-        if (status?.type !== "idle") await sdk.client.session.abort({ sessionID: route.sessionID }).catch(() => {})
+        if (working()) {
+          toast.show({ message: "Task is running. Stop it before undoing messages.", variant: "error" })
+          dialog.clear()
+          return
+        }
         const revert = session()?.revert?.messageID
         const message = messages().findLast((x) => (!revert || x.id < revert) && x.role === "user")
         if (!message) return
@@ -549,6 +557,10 @@ export function Session() {
       },
       onSelect: (dialog) => {
         dialog.clear()
+        if (working()) {
+          toast.show({ message: "Task is running. Stop it before redoing messages.", variant: "error" })
+          return
+        }
         const messageID = session()?.revert?.messageID
         if (!messageID) return
         const message = messages().find((x) => x.role === "user" && x.id > messageID)

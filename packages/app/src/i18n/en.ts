@@ -364,6 +364,9 @@ export const dict = {
   "dialog.directory.create.title": "Create folder",
   "dialog.directory.create.message": "This directory does not exist. Create this folder?",
   "dialog.directory.create.action": "Create",
+  "dialog.revert.protected.sessionBusy.title": "Cannot revert while task is running",
+  "dialog.revert.protected.sessionBusy.description":
+    "A task is still running in this session or one of its child sessions. Stop the task before changing session history.",
 
   "app.server.unreachable": "Could not reach {{server}}",
   "app.server.retrying": "Retrying automatically...",

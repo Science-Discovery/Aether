@@ -18,6 +18,7 @@ import { DialogFork } from "@/components/dialog-fork"
 import { DialogReadingMode } from "@/components/dialog-reading-mode"
 import { showToast } from "@opencode-ai/ui/toast"
 import { findLast } from "@opencode-ai/util/array"
+import { childMapByParent } from "@/pages/layout/helpers"
 import { createSessionTabs } from "@/pages/session/helpers"
 import { extractPromptFromParts } from "@/utils/prompt"
 import { UserMessage } from "@opencode-ai/sdk/v2"
@@ -73,12 +74,32 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
   const closableTab = tabState.closableTab
 
   const idle = { type: "idle" as const }
-  const status = () => sync.data.session_status[params.id ?? ""] ?? idle
   const messages = () => {
     const id = params.id
     if (!id) return []
     return sync.data.message[id] ?? []
   }
+  const pending = (id: string) =>
+    (sync.data.message[id] ?? []).findLast((msg) => msg.role === "assistant" && typeof msg.time.completed !== "number")
+  const busy = (id: string, seen = new Set<string>()): boolean => {
+    if (seen.has(id)) return false
+    seen.add(id)
+    if ((sync.data.session_status[id] ?? idle).type !== "idle") return true
+    if (pending(id)) return true
+    const children = childMapByParent(sync.data.session).get(id)
+    if (!children?.length) return false
+    return children.some((child) => {
+      if ((sync.data.session_status[child] ?? idle).type !== "idle") return true
+      if (pending(child)) return true
+      return busy(child, seen)
+    })
+  }
+  const showBusy = () =>
+    showToast({
+      variant: "error",
+      title: language.t("dialog.revert.protected.sessionBusy.title"),
+      description: language.t("dialog.revert.protected.sessionBusy.description"),
+    })
   const userMessages = () => messages().filter((m) => m.role === "user") as UserMessage[]
   const visibleUserMessages = () => {
     const revert = info()?.revert?.messageID
@@ -428,8 +449,9 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
         onSelect: async () => {
           const sessionID = params.id
           if (!sessionID) return
-          if (status().type !== "idle") {
-            await sdk.client.session.abort({ sessionID }).catch(() => {})
+          if (busy(sessionID)) {
+            showBusy()
+            return
           }
           const revert = info()?.revert?.messageID
           const message = findLast(userMessages(), (x) => !revert || x.id < revert)
@@ -453,6 +475,10 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
         onSelect: async () => {
           const sessionID = params.id
           if (!sessionID) return
+          if (busy(sessionID)) {
+            showBusy()
+            return
+          }
           const revertMessageID = info()?.revert?.messageID
           if (!revertMessageID) return
           const nextMessage = userMessages().find((x) => x.id > revertMessageID)

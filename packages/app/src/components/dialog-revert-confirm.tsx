@@ -24,6 +24,10 @@ const reasonDescriptions: Record<RevertProtectionReason, { titleKey: string; des
     titleKey: "dialog.revert.protected.incompleteTurnInheritedPrefix.title",
     descKey: "dialog.revert.protected.incompleteTurnInheritedPrefix.description",
   },
+  "session-busy": {
+    titleKey: "dialog.revert.protected.sessionBusy.title",
+    descKey: "dialog.revert.protected.sessionBusy.description",
+  },
 }
 
 export const DialogRevertConfirm: Component<DialogRevertConfirmProps> = (props) => {
@@ -60,9 +64,11 @@ export const DialogRevertConfirm: Component<DialogRevertConfirmProps> = (props) 
             <Button variant="ghost" onClick={close}>
               {language.t("common.cancel")}
             </Button>
-            <Button variant="secondary" onClick={fork}>
-              {language.t("dialog.revert.forkAction")}
-            </Button>
+            {props.onFork ? (
+              <Button variant="secondary" onClick={fork}>
+                {language.t("dialog.revert.forkAction")}
+              </Button>
+            ) : null}
           </div>
         ) : (
           <div class="flex justify-end gap-2">

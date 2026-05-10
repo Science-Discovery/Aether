@@ -277,7 +277,11 @@ export const hasProtectedDescendantBranch = (input: {
   return false
 }
 
-export type RevertProtectionReason = "inherited-prefix" | "descendant-branch" | "incomplete-turn-inherited-prefix"
+export type RevertProtectionReason =
+  | "inherited-prefix"
+  | "descendant-branch"
+  | "incomplete-turn-inherited-prefix"
+  | "session-busy"
 
 export type RevertProtectionResult = { protected: false } | { protected: true; reason: RevertProtectionReason }
 
