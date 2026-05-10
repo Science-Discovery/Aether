@@ -341,16 +341,17 @@ export const dict = {
   "dialog.fork.empty": "No messages to fork from",
 
   "dialog.revert.confirm.title": "Revert to this point?",
-  "dialog.revert.confirm.description": "This will discard all messages after the selected point and restore files to their earlier state. This action cannot be undone.",
+  "dialog.revert.confirm.description":
+    "This will discard all messages after the selected point and restore files to their earlier state. This action cannot be undone.",
   "dialog.revert.confirmAction": "Revert",
   "dialog.revert.forkAction": "Fork instead",
   "dialog.revert.protected.inheritedPrefix.title": "Cannot revert here",
-  "dialog.revert.protected.inheritedPrefix.description": "This message belongs to the parent session's conversation history. Reverting it would modify shared history that other branches depend on. You can fork from this point to create a new branch instead.",
+  "dialog.revert.protected.inheritedPrefix.description":
+    "This message belongs to the parent session's conversation history. Reverting it would modify shared history that other branches depend on. You can fork from this point to create a new branch instead.",
   "dialog.revert.protected.descendantBranch.title": "Cannot revert here",
-  "dialog.revert.protected.descendantBranch.description": "A branch session already depends on messages at or after this point. Reverting would break that branch's connection. You can fork from this point to create a new branch instead.",
+  "dialog.revert.protected.descendantBranch.description":
+    "A branch session already depends on messages at or after this point. Reverting would break that branch's connection. You can fork from this point to create a new branch instead.",
   "dialog.revert.protected.incompleteTurnInheritedPrefix.title": "Cannot revert here",
-  "dialog.revert.protected.sessionBusy.title": "Cannot revert while task is running",
-  "dialog.revert.protected.sessionBusy.description": "A task is still running in this session or one of its child sessions. Stop the task before changing session history.",
   "dialog.revert.protected.incompleteTurnInheritedPrefix.description":
     "The assistant has not finished responding to this message yet, so the system cannot determine whether this turn is within the inherited conversation history. To avoid modifying shared history, a fork is recommended. You can fork from this point to create a new branch instead.",
 
@@ -363,6 +364,9 @@ export const dict = {
   "dialog.directory.create.title": "Create folder",
   "dialog.directory.create.message": "This directory does not exist. Create this folder?",
   "dialog.directory.create.action": "Create",
+  "dialog.revert.protected.sessionBusy.title": "Cannot revert while task is running",
+  "dialog.revert.protected.sessionBusy.description":
+    "A task is still running in this session or one of its child sessions. Stop the task before changing session history.",
 
   "app.server.unreachable": "Could not reach {{server}}",
   "app.server.retrying": "Retrying automatically...",
