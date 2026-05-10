@@ -11,6 +11,7 @@ import z from "zod"
 import path from "path"
 import { createHash } from "crypto"
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, unlinkSync } from "fs"
+import { Database as BunSqlite } from "bun:sqlite"
 
 import { Installation } from "../installation"
 import { Flag } from "../flag/flag"
@@ -280,7 +281,7 @@ export namespace Database {
 
       if (isNewDb) postSplitFixupMain(db)
 
-      cleanupOrphanDbs(db)
+      registerUntrackedProjects(db)
 
       return db
     })
@@ -538,37 +539,44 @@ export namespace Database {
 
   type NotPromise<T> = T extends Promise<any> ? never : T
 
-  export function cleanupOrphanDbs(db: DrizzleClient) {
+  export function registerUntrackedProjects(db: DrizzleClient) {
     const sqlite = db.$client
-    const validIds = new Set<string>()
+    const trackedIds = new Set<string>()
     const rows = sqlite.prepare("SELECT project_id FROM global_project_map").all() as { project_id: string }[]
-    for (const r of rows) validIds.add(r.project_id)
-    validIds.add("cron")
+    for (const r of rows) trackedIds.add(r.project_id)
 
     const chDir = channelDir()
     if (!existsSync(chDir)) return
 
     const pattern = /^aether-(.+)\.db$/
     const entries = readdirSync(chDir)
-    let deleted = 0
+    let registered = 0
     for (const entry of entries) {
       const match = pattern.exec(entry)
       if (!match) continue
       const pid = match[1]
-      if (validIds.has(pid)) continue
+      if (pid === "cron") continue
+      if (trackedIds.has(pid)) continue
+      if (projectClients.has(pid)) continue
+
       const fullPath = path.join(chDir, entry)
-      try {
-        unlinkSync(fullPath)
-        for (const ext of ["-shm", "-wal"]) {
-          if (existsSync(fullPath + ext)) unlinkSync(fullPath + ext)
-        }
-        deleted++
-        log.info("deleted orphan project db", { pid, path: fullPath })
-      } catch (err) {
-        log.warn("failed to delete orphan project db", { pid, path: fullPath, error: err })
+      const pSqlite = new BunSqlite(fullPath)
+      const projectRow = pSqlite.prepare("SELECT worktree FROM project WHERE id = ?").get(pid) as
+        | { worktree: string }
+        | undefined
+      if (projectRow) {
+        const dir = norm(projectRow.worktree)
+        sqlite
+          .prepare(
+            "INSERT OR IGNORE INTO global_project_map (directory, project_id, time_created, time_updated) VALUES (?, ?, ?, ?)",
+          )
+          .run(dir, pid, Date.now(), Date.now())
+        registered++
+        log.info("registered untracked project db", { pid, directory: dir })
       }
+      pSqlite.close()
     }
-    if (deleted > 0) log.info("orphan cleanup complete", { deleted })
+    if (registered > 0) log.info("untracked project registration complete", { registered })
   }
 
   export function transaction<T>(

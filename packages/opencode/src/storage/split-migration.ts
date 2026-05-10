@@ -1067,7 +1067,8 @@ export namespace SplitMigration {
     mainSqlite.close()
 
     // Old 32-char per-project DB files cannot be deleted in this process (EBUSY on Windows).
-    // They will be cleaned up as orphans on next startup by cleanupOrphanDbs().
+    // They are left in the channel dir; new 40-char DBs have already been created and
+    // global_project_map updated. The stale 32-char files are harmless disk waste.
 
     removeAttempts()
     log.info("project ID rehash complete", { projects: projectCount, sessions: sessionCount })
