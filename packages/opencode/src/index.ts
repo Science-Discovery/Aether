@@ -91,7 +91,8 @@ let cli = yargs(hideBin(process.argv))
 
     if (seeded) {
       const { SplitMigration } = await import("@/storage/split-migration")
-      if (SplitMigration.needsMigration()) {
+      const migrationType = SplitMigration.needsMigration()
+      if (migrationType !== "none") {
         Database.close()
         try {
           const result = SplitMigration.run()

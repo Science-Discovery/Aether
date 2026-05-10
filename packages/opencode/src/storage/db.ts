@@ -10,8 +10,8 @@ import { NamedError } from "@opencode-ai/util/error"
 import z from "zod"
 import path from "path"
 import { createHash } from "crypto"
-import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, unlinkSync } from "fs"
-import { Database as BunSqlite } from "bun:sqlite"
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, unlinkSync } from "fs"
+
 import { Installation } from "../installation"
 import { Flag } from "../flag/flag"
 import { iife } from "@/util/iife"
@@ -280,7 +280,7 @@ export namespace Database {
 
       if (isNewDb) postSplitFixupMain(db)
 
-      rehashProjectIds(db)
+      cleanupOrphanDbs(db)
 
       return db
     })
@@ -538,67 +538,37 @@ export namespace Database {
 
   type NotPromise<T> = T extends Promise<any> ? never : T
 
-  export function rehashProjectIds(db: DrizzleClient) {
+  export function cleanupOrphanDbs(db: DrizzleClient) {
     const sqlite = db.$client
-    const rows = sqlite.prepare("SELECT directory, project_id FROM global_project_map").all() as {
-      directory: string
-      project_id: string
-    }[]
-    const toRehash = rows.filter((r) => r.project_id.length === 16)
-    if (toRehash.length === 0) return
+    const validIds = new Set<string>()
+    const rows = sqlite.prepare("SELECT project_id FROM global_project_map").all() as { project_id: string }[]
+    for (const r of rows) validIds.add(r.project_id)
+    validIds.add("cron")
 
     const chDir = channelDir()
-    for (const row of toRehash) {
-      const oldId = row.project_id
-      const newId = createHash("sha1").update(row.directory).digest("hex").slice(0, 32)
+    if (!existsSync(chDir)) return
 
-      const oldPath = path.join(chDir, `aether-${oldId}.db`)
-      const newPath = path.join(chDir, `aether-${newId}.db`)
-      if (existsSync(oldPath) && !existsSync(newPath)) {
-        const pDb = new BunSqlite(oldPath)
-        pDb.prepare("UPDATE project SET id = ? WHERE id = ?").run(newId, oldId)
-        pDb.prepare("UPDATE session SET project_id = ? WHERE project_id = ?").run(newId, oldId)
-        pDb.prepare("UPDATE workspace SET project_id = ? WHERE project_id = ?").run(newId, oldId)
-        pDb.prepare("UPDATE permission SET project_id = ? WHERE project_id = ?").run(newId, oldId)
-        pDb.exec("PRAGMA wal_checkpoint(TRUNCATE)")
-        pDb.close()
-
-        renameSync(oldPath, newPath)
+    const pattern = /^aether-(.+)\.db$/
+    const entries = readdirSync(chDir)
+    let deleted = 0
+    for (const entry of entries) {
+      const match = pattern.exec(entry)
+      if (!match) continue
+      const pid = match[1]
+      if (validIds.has(pid)) continue
+      const fullPath = path.join(chDir, entry)
+      try {
+        unlinkSync(fullPath)
         for (const ext of ["-shm", "-wal"]) {
-          if (existsSync(oldPath + ext)) renameSync(oldPath + ext, newPath + ext)
+          if (existsSync(fullPath + ext)) unlinkSync(fullPath + ext)
         }
-      } else if (!existsSync(oldPath) && existsSync(newPath)) {
+        deleted++
+        log.info("deleted orphan project db", { pid, path: fullPath })
+      } catch (err) {
+        log.warn("failed to delete orphan project db", { pid, path: fullPath, error: err })
       }
-
-      if (existsSync(oldPath) && oldId.length === 16) {
-        unlinkSync(oldPath)
-        for (const ext of ["-shm", "-wal"]) {
-          if (existsSync(oldPath + ext)) unlinkSync(oldPath + ext)
-        }
-        log.info("deleted stale 16-char project db", { oldId })
-      }
-
-      sqlite.prepare("UPDATE global_project_map SET project_id = ? WHERE directory = ?").run(newId, row.directory)
-      sqlite.prepare("UPDATE project_recent SET project_id = ? WHERE project_id = ?").run(newId, oldId)
-
-      const dirNorm = norm(row.directory)
-      const recentKey = `dir:${dirNorm}`
-      const hasRecent = sqlite.prepare("SELECT 1 FROM project_recent WHERE key = ?").get(recentKey)
-      if (!hasRecent) {
-        const now = Date.now()
-        sqlite
-          .prepare(
-            "INSERT OR IGNORE INTO project_recent (key, kind, project_id, directory, activity_at, time_created, time_updated) VALUES (?, ?, ?, ?, ?, ?, ?)",
-          )
-          .run(recentKey, "directory", newId, row.directory, now, now, now)
-        log.info("inserted missing project_recent entry", { directory: row.directory, newId })
-      }
-
-      log.info("rehashed non-git project ID", { directory: row.directory, oldId, newId })
     }
-
-    sqlite.exec("PRAGMA wal_checkpoint(TRUNCATE)")
-    log.info("rehashed non-git project IDs to 32-char", { count: toRehash.length })
+    if (deleted > 0) log.info("orphan cleanup complete", { deleted })
   }
 
   export function transaction<T>(
