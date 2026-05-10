@@ -7,6 +7,7 @@ Aether 的 skill 自进化（self-evolution）机制让 Agent 在完成任务后
 ## 目录
 
 - [设计原则](#设计原则)
+- [对旧文件的修改](#对旧文件的修改)
 - [整体架构](#整体架构)
 - [文件组织结构](#文件组织结构)
 - [核心机制详解](#核心机制详解)
@@ -29,6 +30,22 @@ Aether 的 skill 自进化（self-evolution）机制让 Agent 在完成任务后
 1. **插件化**：所有新增文件统一放在 `skill-evolution/` 目录下，以独立模块形式挂载，对宿主程序零侵入
 2. **只读接入**：对旧文件的修改仅限于"添加 import 和少数几处调用点"；所有接入均以只读方式获取旧系统数据（消息历史、配置、会话 ID 等），插件不对旧系统的任何变量或模块状态执行写操作
 3. **不影响原有流程**：旧代码的控制流分支、判断逻辑和执行时序均保持不变；新增调用点不阻塞旧逻辑执行，调用后立即返回 void，不影响旧代码的任何分支判断；后台评审等异步任务在旧代码正常返回后独立运行
+
+---
+
+## 对旧文件的修改
+
+**共两处接入点：**
+
+```
+packages/opencode/src/session/prompt.ts    ← 接入点 1 & 2
+  └─ 在 while 循环内工具执行后追加（立即返回 void，不影响循环）：
+       SkillEvolutionHook.onToolCall(sessionID, toolName)
+     在循环结束、return 语句之前追加：
+       await SkillEvolutionHook.onLoopEnd({ sessionID, messages, ... })
+
+（0.6.0 无 SkillDirty，无需任何 SkillDirty 相关接入）
+```
 
 ---
 
@@ -145,18 +162,6 @@ packages/opencode/src/skill-evolution/    ← 所有新增文件都在此目录
 │
 │
 └── constants.ts                    ← 常量定义（阈值、提示词、限制等）
-```
-
-**对旧文件的修改（共两处接入点）：**
-
-```
-packages/opencode/src/session/prompt.ts    ← 接入点 1 & 2
-  └─ 在 while 循环内工具执行后追加（立即返回 void，不影响循环）：
-       SkillEvolutionHook.onToolCall(sessionID, toolName)
-     在循环结束、return 语句之前追加：
-       await SkillEvolutionHook.onLoopEnd({ sessionID, messages, ... })
-
-（0.6.0 无 SkillDirty，无需任何 SkillDirty 相关接入）
 ```
 
 ---
