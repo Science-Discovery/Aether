@@ -76,6 +76,14 @@ const skipInstall = process.argv.includes("--skip-install")
 const skipWeb = process.argv.includes("--skip-web")
 const skipSmoke = process.argv.includes("--skip-smoke")
 
+const windowsVersion = (() => {
+  const match = /^(\d+)\.(\d+)\.(\d+)/.exec(Script.version)
+  if (!match) return "0.0.0.1"
+  const [, major, minor, patch] = match
+  const preview = Script.preview ? 1 : 0
+  return `${major}.${minor}.${patch}.${preview}`
+})()
+
 const allTargets: {
   os: string
   arch: "arm64" | "x64"
@@ -233,7 +241,7 @@ for (const item of targets) {
         description: "Aether",
         title: "Aether",
         publisher: "Science Discovery",
-        version: Script.version,
+        version: windowsVersion,
       },
     },
     entrypoints: ["./src/index.ts", parserWorker, workerPath],
