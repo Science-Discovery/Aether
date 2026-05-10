@@ -1,10 +1,12 @@
 import { GlobalBus } from "@/bus/global"
+import { Database } from "@/storage/db"
 import { disposeInstance } from "@/effect/instance-registry"
 import { Filesystem } from "@/util/filesystem"
 import { iife } from "@/util/iife"
 import { Log } from "@/util/log"
 import { Context } from "../util/context"
 import { Project } from "./project"
+import { ProjectID } from "./schema"
 import { State } from "./state"
 
 export interface Shape {
@@ -62,23 +64,60 @@ function track(directory: string, next: Promise<Shape>) {
 }
 
 export const Instance = {
-  async provide<R>(input: { directory: string; init?: () => Promise<any>; fn: () => R }): Promise<R> {
+  async provide<R>(input: {
+    directory: string
+    init?: () => Promise<any>
+    fn: () => R
+    create?: boolean
+    project?: Project.Info
+    worktree?: string
+  }): Promise<R> {
     const directory = Filesystem.resolve(input.directory)
     let existing = cache.get(directory)
-    if (!existing) {
+    if (!existing && input.create !== false) {
       Log.Default.info("creating instance", { directory })
       existing = track(
         directory,
         boot({
           directory,
           init: input.init,
+          project: input.project,
+          worktree: input.worktree,
         }),
       )
+    }
+    if (!existing) {
+      if (input.create === false) {
+        const browseCtx: Shape = {
+          directory,
+          worktree: directory,
+          project: {
+            id: ProjectID.fromDirectory(directory),
+            worktree: directory,
+            sandboxes: [],
+            time: { created: Date.now(), updated: Date.now() },
+          },
+        }
+        return context.provide(browseCtx, async () => input.fn())
+      }
+      const fallback = Instance.fallback()
+      if (!fallback) throw new Error(`no instance for ${directory} and no fallback available`)
+      return context.provide(await fallback, async () => {
+        return input.fn()
+      })
     }
     const ctx = await existing
     return context.provide(ctx, async () => {
       return input.fn()
     })
+  },
+  fallback() {
+    const entries = [...cache.values()]
+    if (entries.length === 0) return undefined
+    return entries[0]
+  },
+  has(directory: string) {
+    return cache.has(Filesystem.resolve(directory))
   },
   get current() {
     return context.use()
@@ -91,6 +130,9 @@ export const Instance = {
   },
   get project() {
     return context.use().project
+  },
+  dirs() {
+    return [...cache.keys()]
   },
   /**
    * Check if a path is within the project boundary.
@@ -127,8 +169,10 @@ export const Instance = {
   },
   async dispose() {
     const directory = Instance.directory
+    const projectId = Instance.project.id
     Log.Default.info("disposing instance", { directory })
     await Promise.all([State.dispose(directory), disposeInstance(directory)])
+    Database.detach(projectId)
     cache.delete(directory)
     emit(directory)
   },

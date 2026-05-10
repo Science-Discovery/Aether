@@ -577,7 +577,7 @@ describe("JSON to SQLite migration", () => {
     const db = drizzle({ client: sqlite })
     const permissions = db.select().from(PermissionTable).all()
     expect(permissions.length).toBe(1)
-    expect(permissions[0].project_id).toBe("proj_test123abc")
+    expect(permissions[0].project_id).toBe(ProjectID.make("proj_test123abc"))
     expect(permissions[0].data).toEqual(permissionData)
   })
 

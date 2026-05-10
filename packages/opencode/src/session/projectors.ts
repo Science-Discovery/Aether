@@ -1,9 +1,9 @@
-import { NotFoundError, eq, and } from "../storage/db"
+import { Database, NotFoundError, eq, and } from "../storage/db"
 import { SyncEvent } from "@/sync"
 import { Session } from "./index"
 import { MessageV2 } from "./message-v2"
 import { SessionTable, MessageTable, PartTable } from "./session.sql"
-import { ProjectTable } from "../project/project.sql"
+import { Instance } from "../project/instance"
 import { Log } from "../util/log"
 
 const log = Log.create({ service: "session.projector" })
@@ -68,73 +68,91 @@ export function toPartialRow(info: DeepPartial<Session.Info>) {
 
 export default [
   SyncEvent.project(Session.Event.Created, (db, data) => {
-    db.insert(SessionTable).values(Session.toRow(data.info)).run()
+    Database.useProject(data.info.projectID, (pdb) => {
+      pdb.insert(SessionTable).values(Session.toRow(data.info)).run()
+    })
   }),
 
   SyncEvent.project(Session.Event.Updated, (db, data) => {
-    const info = data.info
-    const row = db
-      .update(SessionTable)
-      .set(toPartialRow(info))
-      .where(eq(SessionTable.id, data.sessionID))
-      .returning()
-      .get()
-    if (!row) throw new NotFoundError({ message: `Session not found: ${data.sessionID}` })
+    Database.useProject(data.info.projectID ?? Instance.project.id, (pdb) => {
+      const info = data.info
+      const row = pdb
+        .update(SessionTable)
+        .set(toPartialRow(info))
+        .where(eq(SessionTable.id, data.sessionID))
+        .returning()
+        .get()
+      if (!row) throw new NotFoundError({ message: `Session not found: ${data.sessionID}` })
+    })
   }),
 
   SyncEvent.project(Session.Event.Deleted, (db, data) => {
-    db.delete(SessionTable).where(eq(SessionTable.id, data.sessionID)).run()
+    Database.useProject(Instance.project.id, (pdb) => {
+      pdb.delete(SessionTable).where(eq(SessionTable.id, data.sessionID)).run()
+    })
   }),
 
   SyncEvent.project(MessageV2.Event.Updated, (db, data) => {
-    const time_created = data.info.time.created
-    const { id, sessionID, ...rest } = data.info
+    Database.useProject(Instance.project.id, (pdb) => {
+      const time_created = data.info.time.created
+      const { id, sessionID, ...rest } = data.info
 
-    try {
-      db.insert(MessageTable)
-        .values({
-          id,
-          session_id: sessionID,
-          time_created,
-          data: rest,
-        })
-        .onConflictDoUpdate({ target: MessageTable.id, set: { data: rest } })
-        .run()
-    } catch (err) {
-      if (!foreign(err)) throw err
-      log.warn("ignored late message update", { messageID: id, sessionID })
-    }
+      try {
+        pdb
+          .insert(MessageTable)
+          .values({
+            id,
+            session_id: sessionID,
+            time_created,
+            data: rest,
+          })
+          .onConflictDoUpdate({ target: MessageTable.id, set: { data: rest } })
+          .run()
+      } catch (err) {
+        if (!foreign(err)) throw err
+        log.warn("ignored late message update", { messageID: id, sessionID })
+      }
+    })
   }),
 
   SyncEvent.project(MessageV2.Event.Removed, (db, data) => {
-    db.delete(MessageTable)
-      .where(and(eq(MessageTable.id, data.messageID), eq(MessageTable.session_id, data.sessionID)))
-      .run()
+    Database.useProject(Instance.project.id, (pdb) => {
+      pdb
+        .delete(MessageTable)
+        .where(and(eq(MessageTable.id, data.messageID), eq(MessageTable.session_id, data.sessionID)))
+        .run()
+    })
   }),
 
   SyncEvent.project(MessageV2.Event.PartRemoved, (db, data) => {
-    db.delete(PartTable)
-      .where(and(eq(PartTable.id, data.partID), eq(PartTable.session_id, data.sessionID)))
-      .run()
+    Database.useProject(Instance.project.id, (pdb) => {
+      pdb
+        .delete(PartTable)
+        .where(and(eq(PartTable.id, data.partID), eq(PartTable.session_id, data.sessionID)))
+        .run()
+    })
   }),
 
   SyncEvent.project(MessageV2.Event.PartUpdated, (db, data) => {
-    const { id, messageID, sessionID, ...rest } = data.part
+    Database.useProject(Instance.project.id, (pdb) => {
+      const { id, messageID, sessionID, ...rest } = data.part
 
-    try {
-      db.insert(PartTable)
-        .values({
-          id,
-          message_id: messageID,
-          session_id: sessionID,
-          time_created: data.time,
-          data: rest,
-        })
-        .onConflictDoUpdate({ target: PartTable.id, set: { data: rest } })
-        .run()
-    } catch (err) {
-      if (!foreign(err)) throw err
-      log.warn("ignored late part update", { partID: id, messageID, sessionID })
-    }
+      try {
+        pdb
+          .insert(PartTable)
+          .values({
+            id,
+            message_id: messageID,
+            session_id: sessionID,
+            time_created: data.time,
+            data: rest,
+          })
+          .onConflictDoUpdate({ target: PartTable.id, set: { data: rest } })
+          .run()
+      } catch (err) {
+        if (!foreign(err)) throw err
+        log.warn("ignored late part update", { partID: id, messageID, sessionID })
+      }
+    })
   }),
 ]

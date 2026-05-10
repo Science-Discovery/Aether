@@ -198,7 +198,7 @@ describe("session tree IDs", () => {
       directory: projectRoot,
       fn: async () => {
         const legacy = await Session.create({ title: "Legacy" })
-        Database.use((db) =>
+        Database.useProject(legacy.projectID, (db) =>
           db.update(SessionTable).set({ tree_id: null }).where(eq(SessionTable.id, legacy.id)).run(),
         )
 
@@ -268,12 +268,8 @@ describe("session tree IDs", () => {
         const child1 = await Session.fork({ sessionID: root.id })
         const child2 = await Session.fork({ sessionID: root.id })
 
-        Database.use((db) =>
-          db
-            .update(SessionTable)
-            .set({ fork_index: null })
-            .where(eq(SessionTable.tree_id, root.treeID!))
-            .run(),
+        Database.useProject(root.projectID, (db) =>
+          db.update(SessionTable).set({ fork_index: null }).where(eq(SessionTable.tree_id, root.treeID!)).run(),
         )
 
         expect((await Session.get(child1.id)).forkIndex).toBeUndefined()

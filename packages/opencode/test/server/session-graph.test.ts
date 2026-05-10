@@ -151,9 +151,7 @@ describe("session.graph endpoint", () => {
         expect(
           body.edges.some(
             (edge: { kind: string; style: string; to: string }) =>
-              edge.kind === "branch" &&
-              edge.style === "dashed" &&
-              edge.to.startsWith(`turn:${child.id}:`),
+              edge.kind === "branch" && edge.style === "dashed" && edge.to.startsWith(`turn:${child.id}:`),
           ),
         ).toBe(true)
         expect(body.current.targetNodeID?.startsWith(`turn:${child.id}:`)).toBe(true)
@@ -171,7 +169,7 @@ describe("session.graph endpoint", () => {
         const user1 = await addTurn({ sessionID: legacy.id, text: "你好", time: 10 })
         const user2 = await addTurn({ sessionID: legacy.id, text: "介绍一下你自己", time: 20 })
 
-        Database.use((db) =>
+        Database.useProject(legacy.projectID, (db) =>
           db.update(SessionTable).set({ tree_id: null }).where(eq(SessionTable.id, legacy.id)).run(),
         )
 

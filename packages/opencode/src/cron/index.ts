@@ -51,21 +51,9 @@ type DirectHandler = (input: {
 }) => Promise<DirectResult> | DirectResult
 
 type AgentDispatcher = {
-  isolated(input: {
-    definition: Definition
-    run_id: string
-    now: number
-  }): Promise<DispatchResult>
-  session(input: {
-    definition: Definition
-    run_id: string
-    now: number
-  }): Promise<DispatchResult>
-  message(input: {
-    definition: Definition
-    run_id: string
-    now: number
-  }): Promise<DispatchResult>
+  isolated(input: { definition: Definition; run_id: string; now: number }): Promise<DispatchResult>
+  session(input: { definition: Definition; run_id: string; now: number }): Promise<DispatchResult>
+  message(input: { definition: Definition; run_id: string; now: number }): Promise<DispatchResult>
 }
 
 type SessionDispatchTarget = {
@@ -404,9 +392,7 @@ function validateCronExpression(expression: string) {
   try {
     new CronExpression(expression)
   } catch (error) {
-    throw new Error(
-      `invalid cron expression: ${error instanceof Error ? error.message : String(error)}`,
-    )
+    throw new Error(`invalid cron expression: ${error instanceof Error ? error.message : String(error)}`)
   }
 }
 
@@ -595,7 +581,8 @@ function reconcileState(input: {
     return current
   }
 
-  const changed = previousDefinition && !equivalent(previousDefinition as unknown as Record<string, unknown>, definition)
+  const changed =
+    previousDefinition && !equivalent(previousDefinition as unknown as Record<string, unknown>, definition)
   const scheduleRelatedChanged = previousDefinition ? scheduleChanged(previousDefinition, definition) : false
   const modeRelatedChanged = previousDefinition ? modeChanged(previousDefinition, definition) : false
   const enabledRelatedChanged = previousDefinition ? definitionEnabledChanged(previousDefinition, definition) : false
@@ -610,8 +597,7 @@ function reconcileState(input: {
     return current
   }
 
-  const shouldReviveExpired =
-    current.last_status === "expired" && (scheduleRelatedChanged || modeRelatedChanged)
+  const shouldReviveExpired = current.last_status === "expired" && (scheduleRelatedChanged || modeRelatedChanged)
 
   if (current.last_status === "expired" && !shouldReviveExpired) {
     current.enabled = false
@@ -679,17 +665,19 @@ async function globalCronEnabled() {
 }
 
 function getState(jobID: string) {
-  const row = Database.use((db) => db.select().from(CronJobStateTable).where(eq(CronJobStateTable.job_id, jobID)).get())
+  const row = Database.useCron((db) =>
+    db.select().from(CronJobStateTable).where(eq(CronJobStateTable.job_id, jobID)).get(),
+  )
   if (!row) return null
   return row as RuntimeRow
 }
 
 function listStates() {
-  return Database.use((db) => db.select().from(CronJobStateTable).all()) as RuntimeRow[]
+  return Database.useCron((db) => db.select().from(CronJobStateTable).all()) as RuntimeRow[]
 }
 
 function upsertState(row: RuntimeRow) {
-  Database.use((db) =>
+  Database.useCron((db) =>
     db
       .insert(CronJobStateTable)
       .values(row)
@@ -702,7 +690,7 @@ function upsertState(row: RuntimeRow) {
 }
 
 function removeState(jobID: string) {
-  Database.use((db) => db.delete(CronJobStateTable).where(eq(CronJobStateTable.job_id, jobID)).run())
+  Database.useCron((db) => db.delete(CronJobStateTable).where(eq(CronJobStateTable.job_id, jobID)).run())
 }
 
 function insertRun(run: Run) {
@@ -720,7 +708,7 @@ function insertRun(run: Run) {
     payload_snapshot: run.payload_snapshot,
     trigger_reason: run.trigger_reason,
   }
-  Database.use((db) => db.insert(CronRunTable).values(row).run())
+  Database.useCron((db) => db.insert(CronRunTable).values(row).run())
 }
 
 function safeInsertRun(run: Run) {
@@ -737,7 +725,7 @@ function safeInsertRun(run: Run) {
 }
 
 function queryRuns(jobID: string, count: number) {
-  return Database.use((db) =>
+  return Database.useCron((db) =>
     db
       .select()
       .from(CronRunTable)
@@ -749,7 +737,7 @@ function queryRuns(jobID: string, count: number) {
 }
 
 function queryRun(runID: string) {
-  const row = Database.use((db) => db.select().from(CronRunTable).where(eq(CronRunTable.run_id, runID)).get())
+  const row = Database.useCron((db) => db.select().from(CronRunTable).where(eq(CronRunTable.run_id, runID)).get())
   return row ? toRun(row) : null
 }
 
@@ -788,11 +776,7 @@ function beginRun(input: {
   return run
 }
 
-async function executeDirect(input: {
-  definition: Definition
-  trigger_reason: CronSchema.TriggerReason
-  now: number
-}) {
+async function executeDirect(input: { definition: Definition; trigger_reason: CronSchema.TriggerReason; now: number }) {
   const action = String(input.definition.payload.action)
   const handler = directHandlers.get(action)
   if (!handler) {
@@ -897,12 +881,7 @@ function updateStateOnStart(definition: Definition, state: RuntimeRow, trigger: 
   upsertState(state)
 }
 
-function updateStateOnFinish(
-  definition: Definition,
-  state: RuntimeRow,
-  status: "success" | "failed",
-  now: number,
-) {
+function updateStateOnFinish(definition: Definition, state: RuntimeRow, status: "success" | "failed", now: number) {
   state.running = false
   state.last_run_at = now
   state.last_status = status
@@ -941,9 +920,7 @@ async function execute(definition: Definition, trigger: CronSchema.TriggerReason
 
   if (!definition.enabled || !current.enabled) {
     const summary =
-      current.last_status === "expired"
-        ? "Skipped because once job has expired"
-        : "Skipped because job is disabled"
+      current.last_status === "expired" ? "Skipped because once job has expired" : "Skipped because job is disabled"
     return skip(definition, current, trigger, summary)
   }
 

@@ -14,6 +14,7 @@ import { Flag } from "../../src/flag/flag"
 
 afterEach(async () => {
   mock.restore()
+  await Instance.disposeAll()
   await resetDatabase()
 })
 
@@ -67,7 +68,7 @@ async function setup(state: State) {
   const id1 = WorkspaceID.ascending()
   const id2 = WorkspaceID.ascending()
 
-  Database.use((db) =>
+  Database.useProject(project.id, (db) =>
     db
       .insert(WorkspaceTable)
       .values([
@@ -100,11 +101,14 @@ async function setup(state: State) {
     async request(input: RequestInfo | URL, init?: RequestInit) {
       return Instance.provide({
         directory: tmp.path,
-        fn: async () =>
-          WorkspaceContext.provide({
+        project: project,
+        worktree: tmp.path,
+        fn: async () => {
+          return WorkspaceContext.provide({
             workspaceID: state.workspace === "first" ? id1 : id2,
             fn: () => app.request(input, init),
-          }),
+          })
+        },
       })
     },
   }

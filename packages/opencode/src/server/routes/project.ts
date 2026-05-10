@@ -156,5 +156,55 @@ export const ProjectRoutes = lazy(() =>
         const project = await Project.update({ ...body, projectID })
         return c.json(project)
       },
+    )
+    .delete(
+      "/:projectID",
+      describeRoute({
+        summary: "Delete project",
+        description: "Remove a project and its database. Fails if the project has sessions — delete those first.",
+        operationId: "project.delete",
+        responses: {
+          200: {
+            description: "Deletion result",
+            content: {
+              "application/json": {
+                schema: resolver(Project.RemoveResult),
+              },
+            },
+          },
+          ...errors(400, 404),
+        },
+      }),
+      validator("param", z.object({ projectID: ProjectID.zod })),
+      async (c) => {
+        const projectID = c.req.valid("param").projectID
+        const result = Project.remove(projectID)
+        return c.json(result)
+      },
+    )
+    .get(
+      "/:projectID/session-count",
+      describeRoute({
+        summary: "Get session count for project",
+        description: "Return the number of sessions in a project database.",
+        operationId: "project.sessionCount",
+        responses: {
+          200: {
+            description: "Session count",
+            content: {
+              "application/json": {
+                schema: resolver(z.object({ count: z.number() })),
+              },
+            },
+          },
+          ...errors(400, 404),
+        },
+      }),
+      validator("param", z.object({ projectID: ProjectID.zod })),
+      async (c) => {
+        const projectID = c.req.valid("param").projectID
+        const count = Project.sessionCount(projectID)
+        return c.json({ count })
+      },
     ),
 )

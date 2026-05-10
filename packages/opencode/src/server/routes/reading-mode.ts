@@ -81,7 +81,7 @@ async function extractPageTextRange(pdfStorePath: string, startPage: number, end
 
 /** Write readingMode + title directly to DB to avoid SyncEvent async timing issues. */
 async function persistReadingMeta(id: string, meta: ReadingMode.SessionMeta, title: string) {
-  Database.use((db) =>
+  Database.useProject(Instance.project.id, (db) =>
     db
       .update(SessionTable)
       .set({ reading_mode: meta, title })
@@ -116,7 +116,9 @@ function resolveReadingSettings(input?: string | Partial<ReadingMode.Settings>) 
 
 function resolveWorkspacePdfPath(inputPath: string) {
   const workspaceDirectory = Filesystem.resolve(Instance.directory)
-  const resolvedPath = Filesystem.resolve(path.isAbsolute(inputPath) ? inputPath : path.join(workspaceDirectory, inputPath))
+  const resolvedPath = Filesystem.resolve(
+    path.isAbsolute(inputPath) ? inputPath : path.join(workspaceDirectory, inputPath),
+  )
   if (resolvedPath !== workspaceDirectory && !Filesystem.contains(workspaceDirectory, resolvedPath)) {
     throw new Error("path must stay within workspace directory")
   }
@@ -515,7 +517,10 @@ export const ReadingModeRoutes = lazy(() =>
         summary: "Update reading mode annotations",
         operationId: "reading-mode.annotations.update",
         responses: {
-          200: { description: "OK", content: { "application/json": { schema: resolver(z.object({ ok: z.boolean() })) } } },
+          200: {
+            description: "OK",
+            content: { "application/json": { schema: resolver(z.object({ ok: z.boolean() })) } },
+          },
           ...errors(400, 404),
         },
       }),

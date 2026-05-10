@@ -3,19 +3,13 @@ import fs from "fs/promises"
 import path from "path"
 import { Cron } from "../../src/cron"
 import { CronJobStateTable, CronRunTable } from "../../src/cron/cron.sql"
-import {
-  CronCreateTool,
-  CronListTool,
-  CronRunNowTool,
-  CronSetGlobalEnabledTool,
-} from "../../src/tool/cron"
+import { CronCreateTool, CronListTool, CronRunNowTool, CronSetGlobalEnabledTool } from "../../src/tool/cron"
 import { ToolRegistry } from "../../src/tool/registry"
 import { Database, eq } from "../../src/storage/db"
 import { Global } from "../../src/global"
 import { Config } from "../../src/config/config"
 import { tmpdir } from "../fixture/fixture"
 import { Project } from "../../src/project/project"
-import { ProjectID } from "../../src/project/schema"
 import { Instance } from "../../src/project/instance"
 import { Server } from "../../src/server/server"
 import { Session } from "../../src/session"
@@ -27,7 +21,7 @@ async function resetCron() {
   await Cron.stop()
   Cron.resetAgentDispatcher()
   await Config.updateGlobal({ cron: { enabled: true } } as any)
-  Database.use((db) => {
+  Database.useCron((db) => {
     db.delete(CronRunTable).run()
     db.delete(CronJobStateTable).run()
   })
@@ -35,11 +29,11 @@ async function resetCron() {
 }
 
 function state(jobID: string) {
-  return Database.use((db) => db.select().from(CronJobStateTable).where(eq(CronJobStateTable.job_id, jobID)).get())
+  return Database.useCron((db) => db.select().from(CronJobStateTable).where(eq(CronJobStateTable.job_id, jobID)).get())
 }
 
 function setState(jobID: string, patch: Partial<typeof CronJobStateTable.$inferInsert>) {
-  Database.use((db) =>
+  Database.useCron((db) =>
     db
       .update(CronJobStateTable)
       .set({ ...patch, updated_at: Date.now() })
@@ -464,25 +458,26 @@ describe("Cron core", () => {
     })
   })
 
-  test("agent_message mode emits session events on the existing session directory for global projects", async () => {
+  test("agent_message mode emits session events on the existing session directory for non-git projects", async () => {
     await using tmp = await tmpdir()
+    const { project } = await Project.fromDirectory(tmp.path)
 
     await Instance.provide({
       directory: tmp.path,
       fn: async () => {
-        const session = await Session.create({ title: "cron global notify" })
-        expect(session.projectID).toBe(ProjectID.global)
+        const session = await Session.create({ title: "cron non-git notify" })
+        expect(session.projectID).toBe(project.id)
         expect(session.directory).toBe(tmp.path)
 
         const created = await Cron.createJob({
-          name: "assistant notification global",
+          name: "assistant notification non-git",
           mode: "agent_message",
-          project_id: "global",
+          project_id: project.id,
           session_id: session.id,
           schedule_type: "cron",
           schedule_value: "0 3 * * *",
           payload: {
-            message: "global reminder",
+            message: "non-git reminder",
             agent: "build",
           },
         })

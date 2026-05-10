@@ -55,7 +55,7 @@ describe("control-plane/workspace.startSyncing", () => {
     const id1 = WorkspaceID.ascending()
     const id2 = WorkspaceID.ascending()
 
-    Database.use((db) =>
+    Database.useProject(project.id, (db) =>
       db
         .insert(WorkspaceTable)
         .values([

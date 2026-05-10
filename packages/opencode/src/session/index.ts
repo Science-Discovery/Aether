@@ -168,7 +168,7 @@ export namespace Session {
   }
 
   async function getNextForkIndex(input: { projectID: ProjectID; treeID: TreeID }) {
-    const rows = Database.use((db) =>
+    const rows = Database.useProject(Instance.project.id, (db) =>
       db
         .select({
           forkIndex: SessionTable.fork_index,
@@ -329,7 +329,7 @@ export namespace Session {
   }
 
   async function repairTreeForkParents(input: { projectID: ProjectID; treeID: TreeID }) {
-    const rows = Database.use((db) =>
+    const rows = Database.useProject(Instance.project.id, (db) =>
       db
         .select()
         .from(SessionTable)
@@ -388,7 +388,7 @@ export namespace Session {
   }
 
   async function collectSessionSubtree(input: { projectID: ProjectID; rootSessionID: SessionID }) {
-    const rows = Database.use((db) =>
+    const rows = Database.useProject(Instance.project.id, (db) =>
       db
         .select()
         .from(SessionTable)
@@ -819,6 +819,41 @@ export namespace Session {
     }
     log.info("created", result)
 
+    // Ensure project db exists and has the project row before writing session data
+    const project = Instance.project
+    if (!Database.hasProject(project.id)) {
+      Database.attach(project.id)
+    }
+    Database.useProject(project.id, (d) =>
+      d
+        .insert(ProjectTable)
+        .values({
+          id: project.id,
+          worktree: project.worktree,
+          vcs: project.vcs ?? null,
+          name: project.name ?? null,
+          icon_url: project.icon?.url ?? null,
+          icon_color: project.icon?.color ?? null,
+          time_created: project.time.created,
+          time_updated: project.time.updated,
+          time_initialized: project.time.initialized ?? null,
+          sandboxes: project.sandboxes ?? [],
+          commands: project.commands ?? null,
+        })
+        .onConflictDoUpdate({
+          target: ProjectTable.id,
+          set: {
+            worktree: project.worktree,
+            vcs: project.vcs ?? null,
+            name: project.name ?? null,
+            time_updated: project.time.updated,
+            sandboxes: project.sandboxes ?? [],
+            commands: project.commands ?? null,
+          },
+        })
+        .run(),
+    )
+
     SyncEvent.run(Event.Created, { sessionID: result.id, info: result })
 
     const cfg = await Config.get()
@@ -852,7 +887,9 @@ export namespace Session {
   }
 
   export const get = fn(SessionID.zod, async (id) => {
-    const row = Database.use((db) => db.select().from(SessionTable).where(eq(SessionTable.id, id)).get())
+    const row = Database.useProject(Instance.project.id, (db) =>
+      db.select().from(SessionTable).where(eq(SessionTable.id, id)).get(),
+    )
     if (!row) throw new NotFoundError({ message: `Session not found: ${id}` })
     return fromRow(row)
   })
@@ -1101,7 +1138,7 @@ export namespace Session {
 
     const limit = input?.limit ?? 100
 
-    const rows = Database.use((db) =>
+    const rows = Database.useProject(Instance.project.id, (db) =>
       db
         .select()
         .from(SessionTable)
@@ -1151,33 +1188,47 @@ export namespace Session {
 
     const limit = input?.limit ?? 100
 
-    const rows = Database.use((db) => {
-      const query =
+    const hexPattern = /^aether-([0-9a-f]+)\.db$/
+
+    const allSessions: (typeof SessionTable.$inferSelect)[] = []
+    for (const pPath of Database.projectPaths()) {
+      const fileName = path.basename(pPath)
+      const match = hexPattern.exec(fileName)
+      if (!match) continue
+      const pid = match[1]
+      const rows = Database.useProject(pid, (db) =>
         conditions.length > 0
           ? db
               .select()
               .from(SessionTable)
               .where(and(...conditions))
-          : db.select().from(SessionTable)
-      return query.orderBy(desc(SessionTable.time_updated), desc(SessionTable.id)).limit(limit).all()
-    })
+              .orderBy(desc(SessionTable.time_updated), desc(SessionTable.id))
+              .limit(limit)
+              .all()
+          : db
+              .select()
+              .from(SessionTable)
+              .orderBy(desc(SessionTable.time_updated), desc(SessionTable.id))
+              .limit(limit)
+              .all(),
+      )
+      allSessions.push(...rows)
+    }
+    allSessions.sort((a, b) => b.time_updated - a.time_updated || b.id.localeCompare(a.id))
+    const rows = allSessions.slice(0, limit)
 
     const ids = [...new Set(rows.map((row) => row.project_id))]
     const projects = new Map<string, ProjectInfo>()
 
-    if (ids.length > 0) {
-      const items = Database.use((db) =>
-        db
-          .select({ id: ProjectTable.id, name: ProjectTable.name, worktree: ProjectTable.worktree })
-          .from(ProjectTable)
-          .where(inArray(ProjectTable.id, ids))
-          .all(),
+    for (const pid of ids) {
+      const projectRow = Database.useProject(pid, (db) =>
+        db.select().from(ProjectTable).where(eq(ProjectTable.id, pid)).get(),
       )
-      for (const item of items) {
-        projects.set(item.id, {
-          id: item.id,
-          name: item.name ?? undefined,
-          worktree: item.worktree,
+      if (projectRow) {
+        projects.set(pid, {
+          id: projectRow.id,
+          name: projectRow.name ?? undefined,
+          worktree: projectRow.worktree,
         })
       }
     }
@@ -1190,7 +1241,7 @@ export namespace Session {
 
   export const children = fn(SessionID.zod, async (parentID) => {
     const project = Instance.project
-    const rows = Database.use((db) =>
+    const rows = Database.useProject(project.id, (db) =>
       db
         .select()
         .from(SessionTable)
@@ -1214,7 +1265,7 @@ export namespace Session {
     })
     const treeID = session.treeID
 
-    const rows = Database.use((db) =>
+    const rows = Database.useProject(session.projectID, (db) =>
       db
         .select()
         .from(SessionTable)
@@ -1303,7 +1354,7 @@ export namespace Session {
     })
     const treeID = currentSession.treeID
 
-    const allTreeSessions = Database.use((db) =>
+    const allTreeSessions = Database.useProject(currentSession.projectID, (db) =>
       db
         .select()
         .from(SessionTable)

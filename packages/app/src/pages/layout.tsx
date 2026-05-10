@@ -1726,6 +1726,14 @@ export default function Layout(props: ParentProps) {
     })
   }
 
+  const showDeleteProjectDialog = (project: LocalProject) => {
+    const run = ++dialogRun
+    void import("@/components/dialog-delete-project").then((x) => {
+      if (dialogDead || dialogRun !== run) return
+      dialog.show(() => <x.DialogDeleteProject project={project} onConfirm={() => closeProject(project.worktree)} />)
+    })
+  }
+
   async function chooseProject() {
     function resolve(result: string | string[] | null) {
       if (Array.isArray(result)) {
@@ -2286,6 +2294,7 @@ export default function Layout(props: ParentProps) {
     navigateToProject,
     openSidebar: () => layout.sidebar.open(),
     closeProject,
+    deleteProject: showDeleteProjectDialog,
     showEditProjectDialog,
     toggleProjectWorkspaces,
     workspacesEnabled: (project) => project.vcs === "git" && layout.sidebar.workspaces(project.worktree)(),
@@ -2440,6 +2449,17 @@ export default function Layout(props: ParentProps) {
                           }}
                         >
                           <DropdownMenu.ItemLabel>{language.t("common.edit")}</DropdownMenu.ItemLabel>
+                        </DropdownMenu.Item>
+                        <DropdownMenu.Item
+                          data-action="project-delete-menu"
+                          data-project={slug()}
+                          onSelect={() => {
+                            const p = project()
+                            if (!p) return
+                            showDeleteProjectDialog(p)
+                          }}
+                        >
+                          <DropdownMenu.ItemLabel>{language.t("common.delete")}</DropdownMenu.ItemLabel>
                         </DropdownMenu.Item>
                         <DropdownMenu.Item
                           data-action="project-workspaces-toggle"

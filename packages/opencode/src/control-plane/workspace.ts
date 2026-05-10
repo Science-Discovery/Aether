@@ -1,6 +1,7 @@
 import z from "zod"
 import { setTimeout as sleep } from "node:timers/promises"
 import { fn } from "@/util/fn"
+import { Instance } from "@/project/instance"
 import { Database, eq } from "@/storage/db"
 import { Project } from "@/project/project"
 import { BusEvent } from "@/bus/bus-event"
@@ -70,7 +71,7 @@ export namespace Workspace {
       projectID: input.projectID,
     }
 
-    Database.use((db) => {
+    Database.useProject(input.projectID, (db) => {
       db.insert(WorkspaceTable)
         .values({
           id: info.id,
@@ -89,25 +90,27 @@ export namespace Workspace {
   })
 
   export function list(project: Project.Info) {
-    const rows = Database.use((db) =>
-      db.select().from(WorkspaceTable).where(eq(WorkspaceTable.project_id, project.id)).all(),
-    )
+    const rows = Database.useProject(project.id, (db) => db.select().from(WorkspaceTable).all())
     return rows.map(fromRow).sort((a, b) => a.id.localeCompare(b.id))
   }
 
   export const get = fn(WorkspaceID.zod, async (id) => {
-    const row = Database.use((db) => db.select().from(WorkspaceTable).where(eq(WorkspaceTable.id, id)).get())
+    const row = Database.useProject(Instance.project.id, (db) =>
+      db.select().from(WorkspaceTable).where(eq(WorkspaceTable.id, id)).get(),
+    )
     if (!row) return
     return fromRow(row)
   })
 
   export const remove = fn(WorkspaceID.zod, async (id) => {
-    const row = Database.use((db) => db.select().from(WorkspaceTable).where(eq(WorkspaceTable.id, id)).get())
+    const row = Database.useProject(Instance.project.id, (db) =>
+      db.select().from(WorkspaceTable).where(eq(WorkspaceTable.id, id)).get(),
+    )
     if (row) {
       const info = fromRow(row)
       const adaptor = await getAdaptor(row.type)
       adaptor.remove(info)
-      Database.use((db) => db.delete(WorkspaceTable).where(eq(WorkspaceTable.id, id)).run())
+      Database.useProject(Instance.project.id, (db) => db.delete(WorkspaceTable).where(eq(WorkspaceTable.id, id)).run())
       return info
     }
   })

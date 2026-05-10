@@ -1,7 +1,14 @@
-import { describe, expect, test } from "bun:test"
+import { afterEach, describe, expect, test } from "bun:test"
 import path from "path"
 import { Server } from "../../src/server/server"
+import { Instance } from "../../src/project/instance"
 import { tmpdir } from "../fixture/fixture"
+import { resetDatabase } from "../fixture/db"
+
+afterEach(async () => {
+  await Instance.disposeAll()
+  await resetDatabase()
+})
 
 describe("file endpoints", () => {
   test("serves uploaded-style unicode filenames without 500", async () => {
@@ -11,6 +18,7 @@ describe("file endpoints", () => {
       },
     })
 
+    await Instance.provide({ directory: tmp.path, fn: () => {} })
     const app = Server.Default()
     const res = await app.request(`/file/download?path=${encodeURIComponent("测试.txt")}`, {
       headers: {
@@ -30,6 +38,7 @@ describe("file endpoints", () => {
       },
     })
 
+    await Instance.provide({ directory: tmp.path, fn: () => {} })
     const app = Server.Default()
     const res = await app.request(`/file/metadata?path=${encodeURIComponent("guide.pdf")}`, {
       headers: {
@@ -57,6 +66,7 @@ describe("file endpoints", () => {
       },
     })
 
+    await Instance.provide({ directory: tmp.path, fn: () => {} })
     const app = Server.Default()
     const res = await app.request(`/file/raw?path=${encodeURIComponent("range.txt")}`, {
       headers: {
@@ -78,6 +88,7 @@ describe("file endpoints", () => {
       },
     })
 
+    await Instance.provide({ directory: tmp.path, fn: () => {} })
     const app = Server.createApp({ cors: ["https://assets.example.com"] })
     const res = await app.request(`/file/raw?path=${encodeURIComponent("range.txt")}`, {
       headers: {
@@ -98,6 +109,7 @@ describe("file endpoints", () => {
 
   test("rejects raw path traversal", async () => {
     await using tmp = await tmpdir()
+    await Instance.provide({ directory: tmp.path, fn: () => {} })
     const app = Server.Default()
     const res = await app.request(`/file/raw?path=${encodeURIComponent("../../../etc/passwd")}`, {
       headers: {

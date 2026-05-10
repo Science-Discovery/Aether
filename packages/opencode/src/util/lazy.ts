@@ -9,7 +9,6 @@ export function lazy<T>(fn: () => T) {
       loaded = true
       return value as T
     } catch (e) {
-      // Don't mark as loaded if initialization failed
       throw e
     }
   }
@@ -18,6 +17,8 @@ export function lazy<T>(fn: () => T) {
     loaded = false
     value = undefined
   }
+
+  result.isLoaded = () => loaded
 
   return result
 }

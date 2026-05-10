@@ -356,22 +356,28 @@ export namespace Server {
         if (c.req.path === "/log") return next()
         const rawWorkspaceID = c.req.query("workspace") || c.req.header("x-opencode-workspace")
         const raw = c.req.query("directory") || c.req.header("x-opencode-directory") || process.cwd()
-        const directory = Filesystem.resolve(
-          (() => {
-            try {
-              return decodeURIComponent(raw)
-            } catch {
-              return raw
-            }
-          })(),
+        const decoded = (() => {
+          try {
+            return decodeURIComponent(raw)
+          } catch {
+            return raw
+          }
+        })()
+        const directory = Filesystem.resolve(decoded)
+
+        const browsePaths = ["/file", "/find", "/file/pick-folder", "/file/check-directory", "/file/ensure-directory"]
+        const isBrowse = browsePaths.some(
+          (p) => c.req.path === p || c.req.path.startsWith(p + "/") || c.req.path.startsWith(p + "?"),
         )
+        const create = isBrowse ? Instance.has(directory) : true
 
         return WorkspaceContext.provide({
           workspaceID: rawWorkspaceID ? WorkspaceID.make(rawWorkspaceID) : undefined,
           async fn() {
             return Instance.provide({
               directory,
-              init: InstanceBootstrap,
+              create,
+              init: create ? InstanceBootstrap : undefined,
               async fn() {
                 return next()
               },
@@ -444,7 +450,7 @@ export namespace Server {
               .replace(/\\/g, "/")
               .replace(/\/+$/, "")
               .replace(/^([A-Za-z]):/, (m) => m[0].toLowerCase() + ":")
-          const item = list.find((i) => norm(i.directory) === norm(body.directory))
+          const item = list.find((i) => i && norm(i.directory) === norm(body.directory))
           if (!item) return c.json(null, 404)
           return c.json(item)
         },
