@@ -7,6 +7,7 @@ Skill Watcher 监听 skills 相关目录的文件系统变更，在文件发生�
 ## 目录
 
 - [设计原则](#设计原则)
+- [对旧文件的修改](#对旧文件的修改)
 - [整体架构](#整体架构)
 - [核心机制详解](#核心机制详解)
   - [1. 缓存失效策略](#1-缓存失效策略)
@@ -22,6 +23,21 @@ Skill Watcher 监听 skills 相关目录的文件系统变更，在文件发生�
 1. **插件化**：所有新增文件统一放在 `packages/opencode/src/skill-watcher/` 目录下
 2. **最小侵入**：旧文件 `Skill` 模块只需新增一个 `invalidateCache(scope)` 导出函数，watcher 单向调用它，不改动其他逻辑
 3. **不影响原有流程**：缓存清空操作不阻塞旧逻辑，重建仅在下次 `Skill.available()` 调用时自然触发
+
+---
+
+## 对旧文件的修改
+
+`Skill` 模块的缓存变量（`globalCache` / `projectCache`）是模块内部私有变量，外部无法直接访问。watcher 若要清空缓存，旧模块必须主动暴露一个写入入口，这是唯一合法途径。
+
+```
+packages/opencode/src/skill/index.ts    ← 接入点
+  └─ 新增一个导出函数（不改动任何已有逻辑）：
+       export function invalidateCache(scope: "global" | "project"): void {
+         if (scope === "global") globalCache = null
+         else projectCache = null
+       }
+```
 
 ---
 
@@ -165,19 +181,6 @@ watcher.ts 初始化
 packages/opencode/src/skill-watcher/
 ├── WATCHER_DESIGN.md    ← 本设计文档
 └── watcher.ts           ← FS 事件监听 + 缓存失效实现
-```
-
-**对旧文件的修改（共 1 处）：**
-
-`Skill` 模块的缓存变量（`globalCache` / `projectCache`）是模块内部私有变量，外部无法直接访问。watcher 若要清空缓存，旧模块必须主动暴露一个写入入口，这是唯一合法途径。
-
-```
-packages/opencode/src/skill/index.ts    ← 接入点
-  └─ 新增一个导出函数（不改动任何已有逻辑）：
-       export function invalidateCache(scope: "global" | "project"): void {
-         if (scope === "global") globalCache = null
-         else projectCache = null
-       }
 ```
 
 ---
