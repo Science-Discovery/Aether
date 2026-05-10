@@ -65,22 +65,6 @@ export namespace SplitMigration {
     if (existsSync(attemptsPath())) unlinkSync(attemptsPath())
   }
 
-  function migratingMarkerPath() {
-    return mainDbPath() + ".migrating"
-  }
-
-  export function isMigrating(): boolean {
-    return existsSync(migratingMarkerPath())
-  }
-
-  function writeMigratingMarker() {
-    writeFileSync(migratingMarkerPath(), new Date().toISOString())
-  }
-
-  function removeMigratingMarker() {
-    if (existsSync(migratingMarkerPath())) unlinkSync(migratingMarkerPath())
-  }
-
   function dynamicInsert(sqlite: BunDatabase, table: string, row: Record<string, any>) {
     const targetCols = new Set(
       (sqlite.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).map((c) => c.name),
@@ -345,7 +329,6 @@ export namespace SplitMigration {
       )
     }
 
-    writeMigratingMarker()
     writeAttempts(attempts + 1)
     cleanupChannelDir(attempts)
 
@@ -709,7 +692,6 @@ export namespace SplitMigration {
       const verified = verifySplit(srcSqlite, uniqueProjectIds)
       if (!verified) {
         srcSqlite.close()
-        removeMigratingMarker()
         throw new Error("split migration verification failed, will retry on next startup")
       }
 
@@ -796,12 +778,10 @@ export namespace SplitMigration {
 
       srcSqlite.close()
 
-      removeMigratingMarker()
       removeAttempts()
       log.info("split migration complete", { projects: projectCount, sessions: sessionCount })
       return { projects: projectCount, sessions: sessionCount }
     } catch (error) {
-      removeMigratingMarker()
       log.error("split migration failed", { error, attempt: readAttempts() })
       throw error
     }
