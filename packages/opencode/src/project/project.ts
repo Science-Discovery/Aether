@@ -19,6 +19,7 @@ import * as CrossSpawnSpawner from "@/effect/cross-spawn-spawner"
 import { existsSync } from "fs"
 import { Database as BunSqlite } from "bun:sqlite"
 import { ProjectIdentity } from "./identity"
+import { MigrationDebug } from "../storage/migration-debug"
 
 export namespace Project {
   const log = Log.create({ service: "project" })
@@ -340,9 +341,19 @@ export namespace Project {
         })
 
         // Phase 2: construct result
-        const row = Database.hasProject(data.id)
+        const has = Database.hasProject(data.id)
+        const row = has
           ? yield* dbProject(data.id, (d) => d.select().from(ProjectTable).where(eq(ProjectTable.id, data.id)).get())
           : undefined
+        MigrationDebug.write("project.identity.resolve", {
+          directory,
+          project: data.id,
+          worktree: data.worktree,
+          sandbox: data.sandbox,
+          vcs: data.vcs,
+          has,
+          row: row !== undefined,
+        })
         const existing = row
           ? fromRow(row)
           : {

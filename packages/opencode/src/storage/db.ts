@@ -17,6 +17,7 @@ import { Installation } from "../installation"
 import { Flag } from "../flag/flag"
 import { iife } from "@/util/iife"
 import { init } from "#db"
+import { MigrationDebug } from "./migration-debug"
 
 declare const OPENCODE_MIGRATIONS: { sql: string; timestamp: number; name: string }[] | undefined
 
@@ -32,6 +33,33 @@ const log = Log.create({ service: "db" })
 export namespace Database {
   export function norm(input: string) {
     return path.resolve(input).replace(/\\/g, "/").toLowerCase()
+  }
+
+  function size(file: string) {
+    try {
+      if (!existsSync(file)) return null
+      return statSync(file).size
+    } catch (error) {
+      return error instanceof Error ? error.message : String(error)
+    }
+  }
+
+  function files(file: string) {
+    return {
+      db: size(file),
+      wal: size(`${file}-wal`),
+      shm: size(`${file}-shm`),
+    }
+  }
+
+  function tables(sqlite: BunSqlite) {
+    try {
+      return (sqlite.prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name").all() as {
+        name: string
+      }[]).map((row) => row.name)
+    } catch (error) {
+      return [error instanceof Error ? error.message : String(error)]
+    }
   }
 
   export type Source = {
@@ -248,6 +276,14 @@ export namespace Database {
 
   export const Client = lazy(() => {
     log.info("opening database", { path: Path })
+    MigrationDebug.write("db.client.open", {
+      path: Path,
+      channel: channel(),
+      channelDir: channelDir(),
+      files: Path === ":memory:" ? undefined : files(Path),
+      bundled: typeof OPENCODE_MIGRATIONS !== "undefined",
+      migrations: typeof OPENCODE_MIGRATIONS !== "undefined" ? OPENCODE_MIGRATIONS.length : undefined,
+    })
 
     return withInitLock(() => {
       const db = init(Path)
@@ -443,6 +479,14 @@ export namespace Database {
     if (existing) return existing
     const p = projectPath(projectId)
     log.info("opening project database", { projectId, path: p })
+    MigrationDebug.write("db.project.open", {
+      pid: projectId,
+      path: p,
+      files: files(p),
+      exists: existsSync(p),
+      bundled: typeof OPENCODE_MIGRATIONS !== "undefined",
+      migrations: typeof OPENCODE_MIGRATIONS !== "undefined" ? OPENCODE_MIGRATIONS.length : undefined,
+    })
     const db = init(p)
     db.run("PRAGMA journal_mode = WAL")
     db.run("PRAGMA synchronous = NORMAL")
@@ -546,10 +590,18 @@ export namespace Database {
     for (const r of rows) trackedIds.add(r.project_id)
 
     const chDir = channelDir()
-    if (!existsSync(chDir)) return
+    if (!existsSync(chDir)) {
+      MigrationDebug.write("db.register.skip", { reason: "missing-channel-dir", dir: chDir })
+      return
+    }
 
     const pattern = /^aether-(.+)\.db$/
     const entries = readdirSync(chDir)
+    MigrationDebug.write("db.register.start", {
+      dir: chDir,
+      entries,
+      tracked: trackedIds.size,
+    })
     let registered = 0
     for (const entry of entries) {
       const match = pattern.exec(entry)
@@ -560,6 +612,12 @@ export namespace Database {
 
       const fullPath = path.join(chDir, entry)
       const pSqlite = new BunSqlite(fullPath)
+      MigrationDebug.write("db.register.inspect", {
+        pid,
+        path: fullPath,
+        files: files(fullPath),
+        tables: tables(pSqlite),
+      })
       const projectRow = pSqlite.prepare("SELECT worktree FROM project WHERE id = ?").get(pid) as
         | { worktree: string }
         | undefined
@@ -572,10 +630,12 @@ export namespace Database {
           .run(dir, pid, Date.now(), Date.now())
         registered++
         log.info("registered untracked project db", { pid, directory: dir })
+        MigrationDebug.write("db.register.done", { pid, directory: dir })
       }
       pSqlite.close()
     }
     if (registered > 0) log.info("untracked project registration complete", { registered })
+    MigrationDebug.write("db.register.complete", { registered })
   }
 
   export function transaction<T>(

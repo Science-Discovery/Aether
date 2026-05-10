@@ -34,6 +34,7 @@ import { JsonMigration } from "./storage/json-migration"
 import { Database } from "./storage/db"
 import { Global } from "./global"
 import { ensureUser } from "./persist/migrate"
+import { MigrationDebug } from "./storage/migration-debug"
 
 process.on("unhandledRejection", (e) => {
   Log.Default.error("rejection", {
@@ -88,18 +89,27 @@ let cli = yargs(hideBin(process.argv))
 
     const marker = Database.currentPath()
     const seeded = marker !== ":memory:" && (await Filesystem.exists(marker))
+    MigrationDebug.write("startup.database", {
+      path: marker,
+      seeded,
+      argv: process.argv.slice(2),
+      log: MigrationDebug.filepath(),
+    })
 
     if (seeded) {
       const { SplitMigration } = await import("@/storage/split-migration")
       const migrationType = SplitMigration.needsMigration()
+      MigrationDebug.write("startup.split.needs", { type: migrationType, path: marker })
       if (migrationType !== "none") {
         Database.close()
         try {
           const result = SplitMigration.run()
+          MigrationDebug.write("startup.split.done", { type: migrationType, result })
           process.stderr.write(
             `Per-project DB split: ${result.projects} projects, ${result.sessions} sessions migrated.${EOL}`,
           )
         } catch (error) {
+          MigrationDebug.error("startup.split.failed", error, { type: migrationType, path: marker })
           const msg = error instanceof Error ? error.message : String(error)
           process.stderr.write(`Per-project DB split failed: ${msg}${EOL}`)
           process.stderr.write(`Will retry on next startup. See logs for details.${EOL}`)

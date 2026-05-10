@@ -53,6 +53,7 @@ import { iife } from "@/util/iife"
 import type { ReadingMode } from "../reading-mode/types"
 import { SessionPreference } from "./preference"
 import { PROJECT } from "@/persist/naming"
+import { MigrationDebug } from "../storage/migration-debug"
 
 export namespace Session {
   const log = Log.create({ service: "session" })
@@ -824,6 +825,15 @@ export namespace Session {
 
     // Ensure project db exists and has the project row before writing session data
     const project = Instance.project
+    MigrationDebug.write("session.create.start", {
+      session: result.id,
+      project: result.projectID,
+      directory: result.directory,
+      parent: result.parentID ?? null,
+      tree: result.treeID ?? null,
+      hasProject: Database.hasProject(project.id),
+      path: Database.projectPath(project.id),
+    })
     if (!Database.hasProject(project.id)) {
       Database.attach(project.id)
     }
@@ -879,6 +889,13 @@ export namespace Session {
     // processing are captured by the review panel diff.
     const baseline = await Snapshot.track().catch(() => undefined)
     if (baseline) await Storage.write(["session_diff_from", result.id], baseline).catch(() => {})
+    MigrationDebug.write("session.create.done", {
+      session: result.id,
+      project: result.projectID,
+      directory: result.directory,
+      hasProject: Database.hasProject(project.id),
+      path: Database.projectPath(project.id),
+    })
     return result
   }
 
@@ -1150,6 +1167,17 @@ export namespace Session {
         .limit(limit)
         .all(),
     )
+    MigrationDebug.write("session.list", {
+      project: project.id,
+      worktree: project.worktree,
+      directory: input?.directory ?? null,
+      roots: input?.roots ?? null,
+      start: input?.start ?? null,
+      search: input?.search ?? null,
+      limit,
+      rows: rows.length,
+      path: Database.projectPath(project.id),
+    })
     for (const row of rows) {
       yield fromRow(row)
     }
@@ -1194,6 +1222,7 @@ export namespace Session {
     const hexPattern = /^aether-([0-9a-f]+)\.db$/
 
     const allSessions: (typeof SessionTable.$inferSelect)[] = []
+    const scanned: { pid: string; path: string; rows: number }[] = []
     for (const pPath of Database.projectPaths()) {
       const fileName = path.basename(pPath)
       const match = hexPattern.exec(fileName)
@@ -1215,10 +1244,22 @@ export namespace Session {
               .limit(limit)
               .all(),
       )
+      scanned.push({ pid, path: pPath, rows: rows.length })
       allSessions.push(...rows)
     }
     allSessions.sort((a, b) => b.time_updated - a.time_updated || b.id.localeCompare(a.id))
     const rows = allSessions.slice(0, limit)
+    MigrationDebug.write("session.list-global", {
+      directory: input?.directory ?? null,
+      roots: input?.roots ?? null,
+      cursor: input?.cursor ?? null,
+      search: input?.search ?? null,
+      archivedMode,
+      limit,
+      scanned,
+      rows: rows.length,
+      totalRows: allSessions.length,
+    })
 
     const ids = [...new Set(rows.map((row) => row.project_id))]
     const projects = new Map<string, ProjectInfo>()

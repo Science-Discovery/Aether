@@ -4,11 +4,12 @@ import { Global } from "../global"
 import { Log } from "../util/log"
 import path from "path"
 import { createHash } from "crypto"
-import { existsSync, mkdirSync, readdirSync, copyFileSync, readFileSync, unlinkSync, writeFileSync } from "fs"
+import { existsSync, mkdirSync, readdirSync, copyFileSync, readFileSync, statSync, unlinkSync, writeFileSync } from "fs"
 import { Installation } from "../installation"
 import { Flag } from "../flag/flag"
 import { init } from "#db"
 import { ProjectIdentity } from "@/project/identity"
+import { MigrationDebug } from "./migration-debug"
 
 declare const OPENCODE_MIGRATIONS: { sql: string; timestamp: number; name: string }[] | undefined
 
@@ -57,12 +58,33 @@ export namespace SplitMigration {
     return parseInt(readFileSync(p, "utf-8"), 10) || 0
   }
 
+  function text(file: string) {
+    try {
+      if (!existsSync(file)) return null
+      return readFileSync(file, "utf-8")
+    } catch (error) {
+      return error instanceof Error ? error.message : String(error)
+    }
+  }
+
+  function entries(dir: string) {
+    try {
+      return readdirSync(dir)
+    } catch (error) {
+      return [error instanceof Error ? error.message : String(error)]
+    }
+  }
+
   function writeAttempts(n: number) {
     writeFileSync(attemptsPath(), String(n))
+    MigrationDebug.write("split.attempt.write", { path: attemptsPath(), value: n })
   }
 
   function removeAttempts() {
-    if (existsSync(attemptsPath())) unlinkSync(attemptsPath())
+    const file = attemptsPath()
+    const before = text(file)
+    if (existsSync(file)) unlinkSync(file)
+    MigrationDebug.write("split.attempt.remove", { path: file, before, exists: existsSync(file) })
   }
 
   function dynamicInsert(sqlite: BunDatabase, table: string, row: Record<string, any>) {
@@ -79,31 +101,52 @@ export namespace SplitMigration {
   export type MigrationType = "initial-split" | "none"
 
   export function needsMigration(): MigrationType {
-    if (readAttempts() >= MAX_ATTEMPTS) {
+    const attempts = readAttempts()
+    if (attempts >= MAX_ATTEMPTS) {
       log.error("split migration failed too many times, manual intervention required", {
-        attempts: readAttempts(),
+        attempts,
         path: attemptsPath(),
       })
+      MigrationDebug.write("split.needs.skip", { reason: "max-attempts", attempts, attemptsPath: attemptsPath() })
       return "none"
     }
     const main = mainDbPath()
-    if (main === ":memory:") return "none"
-    if (!existsSync(main)) return "none"
-    if (readAttempts() > 0 && existsSync(backupDbPath(main))) {
-      const backup = new BunDatabase(backupDbPath(main))
+    if (main === ":memory:") {
+      MigrationDebug.write("split.needs.skip", { reason: "memory" })
+      return "none"
+    }
+    if (!existsSync(main)) {
+      MigrationDebug.write("split.needs.skip", { reason: "missing-main", main })
+      return "none"
+    }
+    const backup = backupDbPath(main)
+    if (attempts > 0 && existsSync(backup)) {
+      MigrationDebug.write("split.needs.backup.inspect", { backup, attempts, files: files(backup) })
+      const sqlite = new BunDatabase(backup)
       try {
-        const has = backup.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='session'").get()
+        const has = sqlite.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='session'").get()
         if (has) {
-          const sessions = backup.prepare("SELECT count(*) as cnt FROM session").get() as { cnt: number } | null
-          if (sessions && sessions.cnt > 0) return "initial-split"
+          const sessions = sqlite.prepare("SELECT count(*) as cnt FROM session").get() as { cnt: number } | null
+          if (sessions && sessions.cnt > 0) {
+            MigrationDebug.write("split.needs.result", { type: "initial-split", source: "backup", sessions: sessions.cnt })
+            return "initial-split"
+          }
         }
       } finally {
-        backup.close()
+        sqlite.close()
       }
     }
     const sqlite = new BunDatabase(main)
     sqlite.exec("PRAGMA wal_checkpoint(TRUNCATE)")
     try {
+      MigrationDebug.write("split.needs.inspect", {
+        main,
+        files: files(main),
+        tables: tables(sqlite),
+        projectRecent: columns(sqlite, "project_recent"),
+        session: columns(sqlite, "session"),
+        attempts,
+      })
       // Case 1: monolithic DB still has session table → initial split needed
       const hasSessionTable = sqlite
         .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='session'")
@@ -112,19 +155,131 @@ export namespace SplitMigration {
         const hasSessions = sqlite.prepare("SELECT count(*) as cnt FROM session").get() as { cnt: number } | null
         if (hasSessions && hasSessions.cnt > 0) {
           sqlite.close()
+          MigrationDebug.write("split.needs.result", { type: "initial-split", source: "main", sessions: hasSessions.cnt })
           return "initial-split"
         }
       }
       sqlite.close()
+      MigrationDebug.write("split.needs.result", { type: "none" })
       return "none"
-    } catch {
+    } catch (error) {
       sqlite.close()
+      MigrationDebug.error("split.needs.failed", error, { main, files: files(main) })
       return "none"
     }
   }
 
   function norm(input: string) {
     return path.resolve(input).replace(/\\/g, "/").toLowerCase()
+  }
+
+  function size(file: string) {
+    try {
+      if (!existsSync(file)) return null
+      return statSync(file).size
+    } catch (error) {
+      return error instanceof Error ? error.message : String(error)
+    }
+  }
+
+  function files(file: string) {
+    return {
+      db: size(file),
+      wal: size(`${file}-wal`),
+      shm: size(`${file}-shm`),
+    }
+  }
+
+  function tables(sqlite: BunDatabase) {
+    try {
+      return (sqlite.prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name").all() as {
+        name: string
+      }[]).map((row) => row.name)
+    } catch (error) {
+      return [error instanceof Error ? error.message : String(error)]
+    }
+  }
+
+  function columns(sqlite: BunDatabase, table: string) {
+    try {
+      return (sqlite.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).map((row) => row.name)
+    } catch (error) {
+      return [error instanceof Error ? error.message : String(error)]
+    }
+  }
+
+  function has(sqlite: BunDatabase, table: string) {
+    return !!sqlite.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name=?").get(table)
+  }
+
+  function count(sqlite: BunDatabase, table: string) {
+    try {
+      if (!has(sqlite, table)) return null
+      return (sqlite.prepare(`SELECT count(*) as cnt FROM ${table}`).get() as { cnt: number }).cnt
+    } catch (error) {
+      return error instanceof Error ? error.message : String(error)
+    }
+  }
+
+  function counts(sqlite: BunDatabase) {
+    const names = [
+      "project",
+      "session",
+      "message",
+      "part",
+      "todo",
+      "permission",
+      "session_share",
+      "session_preference",
+      "workspace",
+      "cron_job_state",
+      "cron_run",
+      "global_project_map",
+      "project_recent",
+    ]
+    return Object.fromEntries(names.map((name) => [name, count(sqlite, name)]))
+  }
+
+  function sample(file: string): Record<string, number | string | null> {
+    if (!existsSync(file)) return { missing: file }
+    let sqlite: BunDatabase | undefined
+    try {
+      sqlite = new BunDatabase(file)
+      return counts(sqlite)
+    } catch (error) {
+      return { error: error instanceof Error ? error.message : String(error) }
+    } finally {
+      sqlite?.close()
+    }
+  }
+
+  function projectCounts(ids: Iterable<string>) {
+    const names = [
+      "project",
+      "session",
+      "message",
+      "part",
+      "todo",
+      "permission",
+      "session_share",
+      "session_preference",
+      "workspace",
+    ]
+    const total: Record<string, number> = {}
+    const details: Record<string, Record<string, number | string | null>> = {}
+    for (const name of names) {
+      total[name] = 0
+    }
+    for (const pid of ids) {
+      const file = projectDbPath(pid)
+      const detail = sample(file)
+      for (const name of names) {
+        const value = detail[name]
+        if (typeof value === "number") total[name] += value
+      }
+      details[pid] = detail
+    }
+    return { total, details }
   }
 
   function initDb(filePath: string) {
@@ -139,8 +294,12 @@ export namespace SplitMigration {
   }
 
   function getMigrationEntries(): { sql: string; timestamp: number; name: string }[] {
-    if (typeof OPENCODE_MIGRATIONS !== "undefined") return OPENCODE_MIGRATIONS
+    if (typeof OPENCODE_MIGRATIONS !== "undefined") {
+      MigrationDebug.write("split.migrations.entries", { source: "bundled", count: OPENCODE_MIGRATIONS.length })
+      return OPENCODE_MIGRATIONS
+    }
     const dir = path.join(import.meta.dirname, "../../migration")
+    MigrationDebug.write("split.migrations.entries", { source: "disk", dir, exists: existsSync(dir) })
     if (!existsSync(dir)) return []
     const dirs = readdirSync(dir, { withFileTypes: true })
       .filter((entry) => entry.isDirectory())
@@ -165,6 +324,12 @@ export namespace SplitMigration {
 
   function applyMigrations(filePath: string) {
     const entries = getMigrationEntries()
+    MigrationDebug.write("split.apply-migrations", {
+      path: filePath,
+      count: entries.length,
+      bundled: typeof OPENCODE_MIGRATIONS !== "undefined",
+      files: files(filePath),
+    })
     if (entries.length > 0) {
       const db = init(filePath)
       migrate(db, entries)
@@ -203,6 +368,7 @@ export namespace SplitMigration {
       (sqlite.prepare("SELECT name FROM __drizzle_migrations").all() as { name: string }[]).map((r) => r.name),
     )
     const migrationDir = path.join(import.meta.dirname, "../../migration")
+    MigrationDebug.write("split.seed-dir", { dir: migrationDir, exists: existsSync(migrationDir) })
     if (!existsSync(migrationDir)) return
     const dirs = readdirSync(migrationDir, { withFileTypes: true })
       .filter((entry) => entry.isDirectory())
@@ -283,10 +449,14 @@ export namespace SplitMigration {
 
   function cleanupChannelDir(attempt: number) {
     const dir = channelDir()
-    if (!existsSync(dir)) return
+    if (!existsSync(dir)) {
+      MigrationDebug.write("split.channel.cleanup.skip", { attempt, dir, reason: "missing-channel-dir" })
+      return
+    }
     const attemptBackup = path.join(backupDir(), `${channel()}-attempt-${attempt}`)
     mkdirSync(attemptBackup, { recursive: true })
     const files = readdirSync(dir)
+    MigrationDebug.write("split.channel.cleanup.start", { attempt, dir, backup: attemptBackup, files })
     for (const f of files) {
       if (!/\.db$/i.test(f)) continue
       const src = path.join(dir, f)
@@ -300,6 +470,13 @@ export namespace SplitMigration {
         }
       }
     }
+    MigrationDebug.write("split.channel.cleanup.done", {
+      attempt,
+      dir,
+      backup: attemptBackup,
+      remaining: entries(dir),
+      backedUp: entries(attemptBackup),
+    })
   }
 
   function verifySplit(srcSqlite: BunDatabase, projectIds: Set<string>): boolean {
@@ -328,14 +505,28 @@ export namespace SplitMigration {
         expected: { sessions: srcSessions, messages: srcMessages, parts: srcParts },
         actual: { sessions: totalSessions, messages: totalMessages, parts: totalParts },
       })
+      MigrationDebug.write("split.verify.failed", {
+        expected: { sessions: srcSessions, messages: srcMessages, parts: srcParts },
+        actual: { sessions: totalSessions, messages: totalMessages, parts: totalParts },
+      })
       return false
     }
     log.info("verification passed", { sessions: totalSessions, messages: totalMessages, parts: totalParts })
+    MigrationDebug.write("split.verify.done", { sessions: totalSessions, messages: totalMessages, parts: totalParts })
     return true
   }
 
   export function run(): { projects: number; sessions: number } {
     const attempts = readAttempts()
+    MigrationDebug.write("split.run.start", {
+      attempts,
+      attemptsPath: attemptsPath(),
+      main: mainDbPath(),
+      channelDir: channelDir(),
+      mainFiles: files(mainDbPath()),
+      bundled: typeof OPENCODE_MIGRATIONS !== "undefined",
+      migrations: typeof OPENCODE_MIGRATIONS !== "undefined" ? OPENCODE_MIGRATIONS.length : undefined,
+    })
     if (attempts >= MAX_ATTEMPTS) {
       throw new Error(
         `split migration failed ${MAX_ATTEMPTS} times. Delete ${attemptsPath()} to retry, or restore from ${backupDir()}`,
@@ -343,8 +534,10 @@ export namespace SplitMigration {
     }
 
     writeAttempts(attempts + 1)
+    MigrationDebug.write("split.run.attempt", { previous: attempts, current: readAttempts(), path: attemptsPath() })
 
     const type = needsMigration()
+    MigrationDebug.write("split.run.type", { type, attempts: readAttempts() })
     if (type === "none") {
       removeAttempts()
       return { projects: 0, sessions: 0 }
@@ -360,6 +553,13 @@ export namespace SplitMigration {
     const main = mainDbPath()
     const backup = backupDbPath(main)
     log.info("starting per-project database split", { main, backup, attempt: attempts + 1 })
+    MigrationDebug.write("split.initial.start", {
+      attempt: attempts,
+      main,
+      backup,
+      mainFiles: files(main),
+      backupFiles: files(backup),
+    })
 
     try {
       // Prefer existing .pre-split backup if it contains original monolithic data.
@@ -377,18 +577,22 @@ export namespace SplitMigration {
             .get()
           if (hasProjectTable) {
             log.info("using existing pre-split backup as source", { path: backup })
+            MigrationDebug.write("split.initial.source", { source: "backup", path: backup, files: files(backup) })
           } else {
             srcPath = main
             log.info("pre-split backup lacks project table, will recreate from main db", { path: backup })
+            MigrationDebug.write("split.initial.source", { source: "main", reason: "backup-missing-project", backup })
           }
         } catch {
           srcPath = main
           log.info("pre-split backup unreadable, will recreate from main db", { path: backup })
+          MigrationDebug.write("split.initial.source", { source: "main", reason: "backup-unreadable", backup })
         } finally {
           testDb?.close()
         }
       } else {
         srcPath = main
+        MigrationDebug.write("split.initial.source", { source: "main", reason: "missing-backup" })
       }
 
       if (srcPath === main) {
@@ -408,10 +612,17 @@ export namespace SplitMigration {
         // After checkpoint, .db file contains all data; WAL/SHM are gone
         copyFileSync(main, backup)
         log.info("backed up main db", { from: main, to: backup })
+        MigrationDebug.write("split.initial.backup.done", { from: main, to: backup, files: files(backup) })
       }
 
       const srcSqlite = new BunDatabase(srcPath)
       srcSqlite.exec("PRAGMA foreign_keys = OFF")
+      MigrationDebug.write("split.initial.source.open", {
+        path: srcPath,
+        tables: tables(srcSqlite),
+        counts: counts(srcSqlite),
+        files: files(srcPath),
+      })
 
       const projects = srcSqlite.prepare("SELECT * FROM project").all() as any[]
       const sessions = srcSqlite.prepare("SELECT * FROM session").all() as any[]
@@ -586,6 +797,17 @@ export namespace SplitMigration {
         ...projectById.keys(),
       ]
       const uniqueProjectIds = new Set(allProjectIds)
+      MigrationDebug.write("split.initial.partition", {
+        source: srcPath,
+        projects: projects.length,
+        sessions: sessions.length,
+        aliases: directoryProjectMap.size,
+        oldProjects: oldProjectIdMap.size,
+        uniqueProjects: uniqueProjectIds.size,
+        workspaces: workspaces.length,
+        permissions: permissions.length,
+        preferences: preferences.length,
+      })
 
       const migrationMeta = (() => {
         const entries = getMigrationEntries()
@@ -696,15 +918,23 @@ export namespace SplitMigration {
         pSqlite.exec("COMMIT")
         pSqlite.close()
         projectCount++
+        MigrationDebug.write("split.project.create.done", { pid: projectId, path: pPath, files: files(pPath) })
       }
 
       log.info("created project databases", { count: projectCount })
 
       // Seed and migrate cron db
       const cSqlite = initDb(cronDbPath())
+      MigrationDebug.write("split.cron.create.start", { path: cronDbPath(), jobs: cronJobs.length, runs: cronRuns.length })
       seedSplitMigrationOnly(cSqlite, migrationMeta)
       applyMigrations(cronDbPath())
       seedMigrationsFromDir(cSqlite)
+      MigrationDebug.write("split.cron.schema", {
+        path: cronDbPath(),
+        tables: tables(cSqlite),
+        cronJobState: columns(cSqlite, "cron_job_state"),
+        cronRun: columns(cSqlite, "cron_run"),
+      })
       cSqlite.exec("BEGIN TRANSACTION")
       for (const cj of cronJobs) {
         cSqlite
@@ -746,6 +976,7 @@ export namespace SplitMigration {
       cSqlite.exec("COMMIT")
       cSqlite.close()
       log.info("created cron database")
+      MigrationDebug.write("split.cron.create.done", { path: cronDbPath(), files: files(cronDbPath()) })
 
       // Verify all data was correctly migrated before modifying main DB
       const verified = verifySplit(srcSqlite, uniqueProjectIds)
@@ -753,12 +984,19 @@ export namespace SplitMigration {
         srcSqlite.close()
         throw new Error("split migration verification failed, will retry on next startup")
       }
+      const sourceCounts = counts(srcSqlite)
 
       const destSqlite = new BunDatabase(main)
       destSqlite.exec("PRAGMA foreign_keys = OFF")
       destSqlite.exec("PRAGMA wal_checkpoint(TRUNCATE)")
       destSqlite.exec("BEGIN TRANSACTION")
       destSqlite.exec(globalProjectMapSQL)
+      MigrationDebug.write("split.dest.start", {
+        path: main,
+        tables: tables(destSqlite),
+        projectRecent: columns(destSqlite, "project_recent"),
+        aliases: directoryProjectMap.size,
+      })
       for (const [dir, pid] of directoryProjectMap) {
         destSqlite
           .prepare(
@@ -791,6 +1029,7 @@ export namespace SplitMigration {
         srcSqlite.prepare("SELECT count(*) as cnt FROM project_recent").get() as { cnt: number }
       ).cnt
       if (recentCount !== sourceRecentCount) throw new Error("project_recent count changed during split migration")
+      MigrationDebug.write("split.dest.recent", { count: recentCount, source: sourceRecentCount })
       const hasSessionPref = destSqlite
         .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='session_preference'")
         .get()
@@ -815,15 +1054,49 @@ export namespace SplitMigration {
       destSqlite.exec("PRAGMA wal_checkpoint(TRUNCATE)")
       destSqlite.exec("VACUUM")
       destSqlite.exec("PRAGMA wal_checkpoint(TRUNCATE)")
+      const actual = projectCounts(uniqueProjectIds)
+      MigrationDebug.write("split.initial.verify.counts", {
+        expected: {
+          projects: projectCount,
+          sessions: sessions.length,
+          messages: messages.length,
+          parts: parts.length,
+          todos: todos.length,
+          permissions: permissions.length,
+          shares: shares.length,
+          preferences: preferences.length,
+          workspaces: workspaces.length,
+          cronJobs: cronJobs.length,
+          cronRuns: cronRuns.length,
+        },
+        source: sourceCounts,
+        projects: actual.total,
+        projectDetails: actual.details,
+        cron: sample(cronDbPath()),
+        main: counts(destSqlite),
+        directoryProjectMap: directoryProjectMap.size,
+        files: {
+          main: files(main),
+          cron: files(cronDbPath()),
+        },
+      })
       destSqlite.close()
 
       srcSqlite.close()
 
       removeAttempts()
       log.info("split migration complete", { projects: projectCount, sessions: sessionCount })
+      MigrationDebug.write("split.initial.done", { projects: projectCount, sessions: sessionCount, mainFiles: files(main) })
       return { projects: projectCount, sessions: sessionCount }
     } catch (error) {
       log.error("split migration failed", { error, attempt: readAttempts() })
+      MigrationDebug.error("split.initial.failed", error, {
+        attempt: readAttempts(),
+        main,
+        backup,
+        mainFiles: files(main),
+        backupFiles: files(backup),
+      })
       throw error
     }
   }
