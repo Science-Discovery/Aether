@@ -93,10 +93,16 @@ let cli = yargs(hideBin(process.argv))
       const { SplitMigration } = await import("@/storage/split-migration")
       if (SplitMigration.needsMigration()) {
         Database.close()
-        const result = SplitMigration.run()
-        process.stderr.write(
-          `Per-project DB split: ${result.projects} projects, ${result.sessions} sessions migrated.${EOL}`,
-        )
+        try {
+          const result = SplitMigration.run()
+          process.stderr.write(
+            `Per-project DB split: ${result.projects} projects, ${result.sessions} sessions migrated.${EOL}`,
+          )
+        } catch (error) {
+          const msg = error instanceof Error ? error.message : String(error)
+          process.stderr.write(`Per-project DB split failed: ${msg}${EOL}`)
+          process.stderr.write(`Will retry on next startup. See logs for details.${EOL}`)
+        }
       }
     }
 
