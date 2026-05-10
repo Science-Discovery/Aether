@@ -139,10 +139,9 @@ export namespace SplitMigration {
     );
   `
 
-  // For project/cron dbs: only seed the split migration record.
-  // Drizzle migrate() will create tables and apply all other migrations.
-  // The split migration must be marked as applied because its SQL
-  // (DROP TABLE + CREATE global_project_map) should not run on project/cron dbs.
+  // For project/cron dbs: seed the split migration record first, then
+  // seedMigrationsFromDir backfills all prior records so migrate() won't
+  // re-run them on second startup.
   function seedSplitMigrationOnly(sqlite: BunDatabase, extra: { hash: string; millis: number; name: string }) {
     sqlite.exec(`CREATE TABLE IF NOT EXISTS __drizzle_migrations (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -410,6 +409,7 @@ export namespace SplitMigration {
       const pPath = projectDbPath(projectId)
       const pSqlite = initDb(pPath)
       seedSplitMigrationOnly(pSqlite, migrationMeta!)
+      seedMigrationsFromDir(pSqlite)
       applyMigrations(pPath)
       pSqlite.exec("BEGIN TRANSACTION")
 
@@ -591,6 +591,7 @@ export namespace SplitMigration {
     // Seed and migrate cron db
     const cSqlite = initDb(cronDbPath())
     seedSplitMigrationOnly(cSqlite, migrationMeta!)
+    seedMigrationsFromDir(cSqlite)
     applyMigrations(cronDbPath())
     cSqlite.exec("BEGIN TRANSACTION")
     for (const cj of cronJobs) {

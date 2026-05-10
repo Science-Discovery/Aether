@@ -259,6 +259,7 @@ export namespace Database {
       db.run("PRAGMA wal_checkpoint(PASSIVE)")
 
       const isNewDb = seedSplitMigration(db)
+      if (!isNewDb) seedAllMigrations(db)
 
       const entries =
         typeof OPENCODE_MIGRATIONS !== "undefined"
@@ -311,7 +312,8 @@ export namespace Database {
     db.run("PRAGMA busy_timeout = 5000")
     db.run("PRAGMA cache_size = -64000")
     db.run("PRAGMA foreign_keys = ON")
-    seedSplitMigration(db)
+    const isNewCronDb = seedSplitMigration(db)
+    if (!isNewCronDb) seedAllMigrations(db)
     applyMigrations(db)
     db.run("PRAGMA wal_checkpoint(PASSIVE)")
     return db
@@ -334,6 +336,32 @@ export namespace Database {
     if (!entry) return undefined
     const hash = createHash("sha256").update(entry.sql).digest("hex")
     return { hash, millis: entry.timestamp, name: entry.name }
+  }
+
+  function seedAllMigrations(db: DrizzleClient) {
+    const sqlite = db.$client
+    sqlite.exec(`CREATE TABLE IF NOT EXISTS __drizzle_migrations (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      hash text NOT NULL,
+      created_at numeric,
+      name text,
+      applied_at TEXT
+    )`)
+    const existingNames = new Set(
+      (sqlite.prepare("SELECT name FROM __drizzle_migrations").all() as { name: string }[]).map((r) => r.name),
+    )
+    const entries =
+      typeof OPENCODE_MIGRATIONS !== "undefined"
+        ? OPENCODE_MIGRATIONS
+        : migrations(path.join(import.meta.dirname, "../../migration"))
+    const insert = sqlite.prepare(
+      "INSERT INTO __drizzle_migrations (hash, created_at, name, applied_at) VALUES (?, ?, ?, ?)",
+    )
+    for (const entry of entries) {
+      if (existingNames.has(entry.name)) continue
+      const hash = createHash("sha256").update(entry.sql).digest("hex")
+      insert.run(hash, entry.timestamp, entry.name, new Date().toISOString())
+    }
   }
 
   function seedSplitMigration(db: DrizzleClient): boolean {
@@ -420,7 +448,8 @@ export namespace Database {
     db.run("PRAGMA busy_timeout = 5000")
     db.run("PRAGMA cache_size = -64000")
     db.run("PRAGMA foreign_keys = ON")
-    seedSplitMigration(db)
+    const isNewProjDb = seedSplitMigration(db)
+    if (!isNewProjDb) seedAllMigrations(db)
     applyMigrations(db)
     db.run("PRAGMA wal_checkpoint(PASSIVE)")
     projectClients.set(projectId, db)
