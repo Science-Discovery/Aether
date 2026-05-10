@@ -159,15 +159,15 @@ test("content search opens the file at the matched line", async ({ page, gotoSes
   await gotoSession()
 
   await page.locator(promptSelector).click()
-  await page.keyboard.type("/open")
+  await page.keyboard.type("/grep")
 
-  const command = page.locator('[data-slash-id="file.open"]').first()
+  const command = page.locator('[data-slash-id="file.searchContent"]').first()
   await expect(command).toBeVisible()
   await page.keyboard.press("Enter")
 
   const dialog = page
     .getByRole("dialog")
-    .filter({ has: page.getByPlaceholder(/search files/i) })
+    .filter({ has: page.getByPlaceholder(/search in files/i) })
     .first()
   await expect(dialog).toBeVisible()
 
