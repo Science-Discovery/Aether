@@ -3,7 +3,6 @@ import { streamSSE } from "hono/streaming"
 import { describeRoute, validator, resolver } from "hono-openapi"
 import z from "zod"
 import { File } from "../../file"
-import { FolderSummary } from "../../file/summary"
 import { Ripgrep } from "../../file/ripgrep"
 import { LSP } from "../../lsp"
 import { Instance } from "../../project/instance"
@@ -703,34 +702,6 @@ export const FileRoutes = lazy(() =>
         const { path, name } = c.req.valid("json")
         const newPath = await File.rename(path, name)
         return c.json({ ok: true, path: newPath })
-      },
-    )
-    .post(
-      "/file/summarize",
-      describeRoute({
-        summary: "Generate directory summaries",
-        description: "Generate .summary files for all directories in the project using LLM.",
-        operationId: "file.summarize",
-        responses: {
-          200: {
-            description: "Generated",
-            content: { "application/json": { schema: resolver(z.object({ count: z.number() })) } },
-          },
-        },
-      }),
-      validator(
-        "json",
-        z.object({
-          directory: z.string().optional(),
-          maxDepth: z.number().int().min(1).max(5).optional(),
-          force: z.boolean().optional(),
-        }),
-      ),
-      async (c) => {
-        const { directory, maxDepth, force } = c.req.valid("json")
-        const root = directory ?? Instance.directory
-        const generated = await FolderSummary.generateAll(root, maxDepth ?? 3, force ?? false)
-        return c.json({ count: generated.length })
       },
     )
     .post(

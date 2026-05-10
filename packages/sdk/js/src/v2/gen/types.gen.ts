@@ -5895,31 +5895,6 @@ export type FileEnsureDirectoryResponses = {
 
 export type FileEnsureDirectoryResponse = FileEnsureDirectoryResponses[keyof FileEnsureDirectoryResponses]
 
-export type FileSummarizeData = {
-  body?: {
-    directory?: string
-    maxDepth?: number
-    force?: boolean
-  }
-  path?: never
-  query?: {
-    directory?: string
-    workspace?: string
-  }
-  url: "/file/summarize"
-}
-
-export type FileSummarizeResponses = {
-  /**
-   * Generated
-   */
-  200: {
-    count: number
-  }
-}
-
-export type FileSummarizeResponse = FileSummarizeResponses[keyof FileSummarizeResponses]
-
 export type FileOpenInExplorerData = {
   body?: {
     path: string
