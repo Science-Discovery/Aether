@@ -52,6 +52,7 @@ import { Truncate } from "@/tool/truncate"
 import { Knowledge } from "../knowledge"
 import { decodeDataUrl } from "@/util/data-url"
 import { Process } from "@/util/process"
+import { SessionRecovery } from "./recovery"
 
 // @ts-ignore
 globalThis.AI_SDK_LOG_WARNINGS = false
@@ -264,14 +265,12 @@ export namespace SessionPrompt {
     log.info("cancel", { sessionID })
     const s = state()
     const match = s[sessionID]
-    if (!match) {
-      await SessionStatus.set(sessionID, { type: "idle" })
-      return
+    if (match) {
+      match.abort.abort()
+      delete s[sessionID]
     }
-    match.abort.abort()
-    delete s[sessionID]
+    await SessionRecovery.repairSession(sessionID)
     await SessionStatus.set(sessionID, { type: "idle" })
-    return
   }
 
   export const LoopInput = z.object({
@@ -321,7 +320,7 @@ export namespace SessionPrompt {
       if (!lastUser) throw new Error("No user message found in stream. This should never happen.")
       if (
         lastAssistant?.finish &&
-        !["tool-calls", "unknown"].includes(lastAssistant.finish) &&
+        !["tool-calls"].includes(lastAssistant.finish) &&
         lastUser.id < lastAssistant.id
       ) {
         log.info("exiting loop", { sessionID })
@@ -699,8 +698,8 @@ export namespace SessionPrompt {
         break
       }
 
-      // Check if model finished (finish reason is not "tool-calls" or "unknown")
-      const modelFinished = processor.message.finish && !["tool-calls", "unknown"].includes(processor.message.finish)
+      // Check if model finished (finish reason is not "tool-calls")
+      const modelFinished = processor.message.finish && !["tool-calls"].includes(processor.message.finish)
 
       if (modelFinished && !processor.message.error) {
         if (format.type === "json_schema") {
