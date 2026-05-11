@@ -383,6 +383,14 @@ write_launch() {
   launch_note="无法写入 /Applications，已回退到 $launch。手动复制该 App 到 /Applications后，从 app 启动器中运行Aether，或在\"$HOME/Applications\"文件夹中双击Aether.app运行。"
 }
 
+stop() {
+  local dir="$1"
+  [ -n "$dir" ] || return 0
+  pkill -f "$dir/Aether.command" >/dev/null 2>&1 || true
+  pkill -f "$dir/aether web" >/dev/null 2>&1 || true
+  pkill -f "$dir/aether serve" >/dev/null 2>&1 || true
+}
+
 stop_roots=()
 
 add_stop_root() {
@@ -390,15 +398,7 @@ add_stop_root() {
   dir="${1:-}"
   [ -n "$dir" ] || return 0
   [ -d "$dir" ] || return 0
-  dir="$(cd "$dir" 2>/dev/null && pwd -P)" || return 0
-  [ "$dir" != "/" ] || return 0
-  if [ -n "${HOME:-}" ] && [ "$dir" = "$HOME" ]; then
-    return 0
-  fi
-  case "$(basename "$dir")" in
-    aether_*) ;;
-    *) return 0 ;;
-  esac
+  dir="$(cd "$dir" 2>/dev/null && pwd)" || return 0
   for item in "${stop_roots[@]}"; do
     [ "$item" = "$dir" ] && return 0
   done
@@ -426,8 +426,8 @@ collect_stop_roots() {
 }
 
 runtime_pids() {
-  local pid ppid cmd root
-  ps -axww -o pid=,ppid=,command= | while read -r pid ppid cmd; do
+  local pid cmd root
+  ps -axo pid=,command= | while read -r pid cmd; do
     [ -n "$pid" ] || continue
     [ "$pid" = "$$" ] && continue
     case "$cmd" in
@@ -435,18 +435,13 @@ runtime_pids() {
     esac
     for root in "${stop_roots[@]}"; do
       case "$cmd" in
-        "$root/Aether.command"*|\
-        *" $root/Aether.command"*|\
-        "$root/aether "*|\
-        *" $root/aether "*|\
-        "$root/aether"|\
-        *" $root/aether"|\
-        "$root/Aether.sh"*|\
-        *" $root/Aether.sh"*|\
-        "$root/Aether.sh.real"*|\
-        *" $root/Aether.sh.real"*)
-          echo "$pid"
-          break
+        *"$root/"*)
+          case "$cmd" in
+            *"/aether "*|*"/aether"|*"Aether.command"*|*"Aether.sh"*|*"Aether.sh.real"*)
+              echo "$pid"
+              break
+              ;;
+          esac
           ;;
       esac
     done
