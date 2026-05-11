@@ -47,10 +47,6 @@ export namespace SplitMigration {
 
   const MAX_ATTEMPTS = 5
 
-  function srcCopyPath(main: string) {
-    return path.join(backupDir(), path.basename(main) + ".migration-src")
-  }
-
   function destCopyPath(main: string) {
     return path.join(backupDir(), path.basename(main) + ".migration-dest")
   }
@@ -190,7 +186,6 @@ export namespace SplitMigration {
       }
       sqlite.close()
       deleteWithCompanions(retiredPath(main))
-      deleteWithCompanions(srcCopyPath(main))
       deleteWithCompanions(destCopyPath(main))
       return "none"
     } catch {
@@ -416,7 +411,6 @@ export namespace SplitMigration {
     if (existsSync(swapMarker)) {
       const data = JSON.parse(readFileSync(swapMarker, "utf-8")) as {
         destCopy: string
-        srcCopy: string
         projects: number
         sessions: number
       }
@@ -433,7 +427,6 @@ export namespace SplitMigration {
       }
       copyFileSync(data.destCopy, main)
       deleteWithCompanions(data.destCopy)
-      deleteWithCompanions(data.srcCopy)
       unlinkSync(swapMarker)
       removeAttempts()
       log.info("completed pending swap from previous migration", data)
@@ -464,12 +457,10 @@ export namespace SplitMigration {
 
     const main = mainDbPath()
     const backup = backupDbPath(main)
-    const srcCopy = srcCopyPath(main)
     const destCopy = destCopyPath(main)
     const retired = retiredPath(main)
-    log.info("starting per-project database split", { main, backup, srcCopy, destCopy, attempt: attempts + 1 })
+    log.info("starting per-project database split", { main, backup, destCopy, attempt: attempts + 1 })
 
-    deleteWithCompanions(srcCopy)
     deleteWithCompanions(destCopy)
 
     let srcSqlite: BunDatabase | undefined
@@ -488,11 +479,10 @@ export namespace SplitMigration {
         log.info("backed up main db", { from: main, to: backup })
       }
 
-      copyFileSync(backup, srcCopy)
       copyFileSync(backup, destCopy)
-      log.info("created isolation copies from backup", { srcCopy, destCopy })
+      log.info("created destCopy from backup", { destCopy })
 
-      srcSqlite = new BunDatabase(srcCopy)
+      srcSqlite = new BunDatabase(backup, { readonly: true })
       srcSqlite.exec("PRAGMA foreign_keys = OFF")
 
       const projects = srcSqlite.prepare("SELECT * FROM project").all() as any[]
@@ -918,7 +908,7 @@ export namespace SplitMigration {
         // when no process holds the file.
         writeFileSync(
           swapMarkerPath(main),
-          JSON.stringify({ destCopy, srcCopy, projects: projectCount, sessions: sessionCount }),
+          JSON.stringify({ destCopy, projects: projectCount, sessions: sessionCount }),
         )
         log.info("WAL/SHM companions still held, deferring file swap to next startup", {
           destCopy,
@@ -931,7 +921,6 @@ export namespace SplitMigration {
       log.info("replaced main db with migration result")
 
       deleteWithCompanions(destCopy)
-      deleteWithCompanions(srcCopy)
 
       removeAttempts()
       log.info("split migration complete", { projects: projectCount, sessions: sessionCount })
