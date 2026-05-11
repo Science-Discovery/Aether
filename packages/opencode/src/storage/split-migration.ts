@@ -416,6 +416,7 @@ export namespace SplitMigration {
     if (existsSync(swapMarker)) {
       const data = JSON.parse(readFileSync(swapMarker, "utf-8")) as {
         destCopy: string
+        srcCopy: string
         projects: number
         sessions: number
       }
@@ -432,6 +433,7 @@ export namespace SplitMigration {
       }
       copyFileSync(data.destCopy, main)
       deleteWithCompanions(data.destCopy)
+      deleteWithCompanions(data.srcCopy)
       unlinkSync(swapMarker)
       removeAttempts()
       log.info("completed pending swap from previous migration", data)
@@ -916,7 +918,7 @@ export namespace SplitMigration {
         // when no process holds the file.
         writeFileSync(
           swapMarkerPath(main),
-          JSON.stringify({ destCopy, projects: projectCount, sessions: sessionCount }),
+          JSON.stringify({ destCopy, srcCopy, projects: projectCount, sessions: sessionCount }),
         )
         log.info("WAL/SHM companions still held, deferring file swap to next startup", {
           destCopy,
@@ -929,6 +931,7 @@ export namespace SplitMigration {
       log.info("replaced main db with migration result")
 
       deleteWithCompanions(destCopy)
+      deleteWithCompanions(srcCopy)
 
       removeAttempts()
       log.info("split migration complete", { projects: projectCount, sessions: sessionCount })
