@@ -867,12 +867,8 @@ export namespace SplitMigration {
             .run(pid, row.key)
           continue
         }
-        destSqlite.prepare("UPDATE project_recent SET kind = 'directory', project_id = NULL WHERE key = ?").run(row.key)
+        destSqlite.prepare("DELETE FROM project_recent WHERE key = ?").run(row.key)
       }
-      const recentCount = (destSqlite.prepare("SELECT count(*) as cnt FROM project_recent").get() as { cnt: number })
-        .cnt
-      if (recentCount !== srcCounts.project_recent)
-        throw new Error("project_recent count changed during split migration")
       const hasSessionPref = destSqlite
         .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='session_preference'")
         .get()
