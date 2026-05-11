@@ -453,13 +453,20 @@ export namespace SplitMigration {
     const destCopy = destCopyPath(main)
     const retired = retiredPath(main)
 
-    // Backup first — before any other migration operations that could fail
+    // Backup first — before any other migration operations that could fail.
+    // Copy main.db + WAL/SHM companions so the backup captures all data
+    // (including uncommitted WAL pages from a previous session crash).
     if (!existsSync(backup)) {
+      for (const ext of ["-shm", "-wal"]) {
+        if (existsSync(main + ext)) copyFileSync(main + ext, backup + ext)
+      }
+      copyFileSync(main, backup)
+      log.info("backed up main db before migration", { from: main, to: backup })
+      // Now checkpoint the original main.db (WAL flushed into .db, companions
+      // deleted via DELETE mode) so the migration works on a clean .db file.
       const checkpointDb = new BunDatabase(main)
       checkpointDb.exec("PRAGMA journal_mode = DELETE")
       checkpointDb.close()
-      copyFileSync(main, backup)
-      log.info("backed up main db before migration", { from: main, to: backup })
     }
 
     cleanupChannelDir(attempts)
