@@ -111,7 +111,13 @@ export namespace Skill {
       })
   }
 
-  async function loadSkills(state: State, discovery: Discovery.Interface, directory: string, worktree: string) {
+  async function loadSkills(
+    state: State,
+    discovery: Discovery.Interface,
+    directory: string,
+    worktree: string,
+    projectId: string,
+  ) {
     if (!Flag.OPENCODE_DISABLE_EXTERNAL_SKILLS) {
       for (const dir of EXTERNAL_DIRS) {
         const root = path.join(Global.Path.home, dir)
@@ -119,11 +125,18 @@ export namespace Skill {
         await scan(state, root, EXTERNAL_SKILL_PATTERN, { dot: true, scope: "global" })
       }
 
-      for await (const root of Filesystem.up({
-        targets: EXTERNAL_DIRS,
-        start: directory,
-        stop: worktree,
-      })) {
+      // AI background-review skills: project-scope but lowest priority (overridden by any user source)
+      const skillSessionsDir = path.join(Global.Path.home, ".aether", "skill-sessions", projectId, "skills")
+      if (await Filesystem.isDir(skillSessionsDir)) {
+        await scan(state, skillSessionsDir, SKILL_PATTERN, { dot: true, scope: "project" })
+      }
+
+      // Collect dirs from inner (directory) to outer (worktree), then scan reversed so inner wins
+      const projectDirs: string[] = []
+      for await (const root of Filesystem.up({ targets: EXTERNAL_DIRS, start: directory, stop: worktree })) {
+        projectDirs.push(root)
+      }
+      for (const root of projectDirs.toReversed()) {
         await scan(state, root, EXTERNAL_SKILL_PATTERN, { dot: true, scope: "project" })
       }
     }
@@ -173,7 +186,7 @@ export namespace Skill {
         Effect.fn("Skill.state")((ctx) =>
           Effect.gen(function* () {
             const s: State = { skills: {}, dirs: new Set() }
-            yield* Effect.promise(() => loadSkills(s, discovery, ctx.directory, ctx.worktree))
+            yield* Effect.promise(() => loadSkills(s, discovery, ctx.directory, ctx.worktree, String(ctx.project.id)))
             return s
           }),
         ),
