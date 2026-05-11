@@ -90,11 +90,12 @@ describe("Project.fromDirectory", () => {
     expect(await Bun.file(opencodeFile).exists()).toBe(false)
   })
 
-  test("returns hash-based id for non-git directory", async () => {
+  test("returns hash-based id for resolved directory", async () => {
     await using tmp = await tmpdir()
-    const { project } = await Project.fromDirectory(tmp.path)
+    const { project, sandbox } = await Project.fromDirectory(tmp.path)
     expect(project.id).not.toBe(ProjectID.global)
-    expect(project.worktree).toBe(tmp.path)
+    expect(tmp.path === project.worktree || tmp.path.startsWith(project.worktree + path.sep)).toBe(true)
+    expect(sandbox).toBe(project.worktree)
   })
 
   test("derives stable project ID from canonical root", async () => {
@@ -442,14 +443,14 @@ describe("Project.recentList", () => {
     expect(after.slice(0, 2)).toEqual([b.path, a.path])
   })
 
-  test("lists directory entries from fromDirectory", async () => {
+  test("lists non-git project entries from fromDirectory", async () => {
     await using tmp = await tmpdir()
 
-    await Project.fromDirectory(tmp.path)
+    const { project } = await Project.fromDirectory(tmp.path)
 
-    const item = Project.recentList().find((entry) => entry.directory === tmp.path)
+    const item = Project.recentList().find((entry) => entry.directory === project.worktree)
     expect(item).toBeDefined()
-    expect(item!.kind).toBe("directory")
+    expect(item!.kind).toBe("project")
   })
 
   test("lists git project entries from fromDirectory", async () => {
