@@ -407,6 +407,7 @@ describe("web update scripts", () => {
       const work = path.join(tmp.path, "aether")
       const dl = path.join(work, "downloads")
       const old = path.join(work, "aether_1.2.6")
+      const other = path.join(tmp.path, "other", "aether_1.2.6")
       const src = path.join(tmp.path, "src-darwin")
       const out = path.join(dl, `aether-darwin-${mac()}-1.2.7.dmg`)
       const script = path.join(dl, "update_darwin.command")
@@ -415,13 +416,16 @@ describe("web update scripts", () => {
       await fs.mkdir(home, { recursive: true })
       await ver(old, "1.2.6")
       await longApp(old, "darwin")
+      await longApp(other, "darwin")
       await app(src, "darwin")
       dmg(src, out)
       await cp(path.join(update, "update_darwin.command"), script)
 
       const child = spawn(path.join(old, "Aether.command"), [], { stdio: "ignore" })
+      const stray = spawn(path.join(other, "Aether.command"), [], { stdio: "ignore" })
       try {
         expect(alive(child.pid)).toBe(true)
+        expect(alive(stray.pid)).toBe(true)
         run("bash", [script, "1.2.7", "--restart"], dl, {
           ...process.env,
           HOME: home,
@@ -429,8 +433,10 @@ describe("web update scripts", () => {
           AETHER_CURRENT_DIR: old,
         })
         expect(await waitDead(child.pid)).toBe(true)
+        expect(alive(stray.pid)).toBe(true)
       } finally {
         cleanup(child.pid)
+        cleanup(stray.pid)
       }
     },
     { timeout: 30000 },
