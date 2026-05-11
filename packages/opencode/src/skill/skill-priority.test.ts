@@ -117,4 +117,45 @@ describe("skill/loadSkills priority ordering", () => {
     const skill = await withInstance(worktree, worktree, () => Skill.get("lint"))
     expect(skill?.description).toBe("project")
   })
+
+  test("project .claude skill beats global .aether skill", async () => {
+    const home = process.env.OPENCODE_TEST_HOME!
+    const worktree = path.join(tmp.path, "proj-aether-vs-claude")
+    await fs.mkdir(worktree, { recursive: true })
+
+    // Global ~/.aether/skills/build/ (should lose to project)
+    await writeSkill(path.join(home, ".aether", "skills", "build"), "build", "global-aether")
+    // Project .claude/skills/build/ (should win — project > global)
+    await writeSkill(path.join(worktree, ".claude", "skills", "build"), "build", "project-claude")
+
+    const skill = await withInstance(worktree, worktree, () => Skill.get("build"))
+    expect(skill?.description).toBe("project-claude")
+  })
+
+  test("project .aether skill beats project .claude skill (shadow wins)", async () => {
+    const worktree = path.join(tmp.path, "proj-shadow")
+    await fs.mkdir(worktree, { recursive: true })
+
+    // .claude/skills/ — original source
+    await writeSkill(path.join(worktree, ".claude", "skills", "format"), "format", "original")
+    // .aether/skills/ — shadow/evolved version (should win — .aether > .claude within same project)
+    await writeSkill(path.join(worktree, ".aether", "skills", "format"), "format", "shadow")
+
+    const skill = await withInstance(worktree, worktree, () => Skill.get("format"))
+    expect(skill?.description).toBe("shadow")
+  })
+
+  test("global .aether skill beats global .claude skill", async () => {
+    const home = process.env.OPENCODE_TEST_HOME!
+    const worktree = path.join(tmp.path, "proj-global-order")
+    await fs.mkdir(worktree, { recursive: true })
+
+    // ~/.claude/skills/ — lower global priority
+    await writeSkill(path.join(home, ".claude", "skills", "check"), "check", "global-claude")
+    // ~/.aether/skills/ — higher global priority (.aether > .claude)
+    await writeSkill(path.join(home, ".aether", "skills", "check"), "check", "global-aether")
+
+    const skill = await withInstance(worktree, worktree, () => Skill.get("check"))
+    expect(skill?.description).toBe("global-aether")
+  })
 })
