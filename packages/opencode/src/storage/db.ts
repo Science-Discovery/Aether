@@ -546,19 +546,23 @@ export namespace Database {
     for (const r of rows) trackedIds.add(r.project_id)
 
     const chDir = channelDir()
-    if (!existsSync(chDir)) return
+    const existingDbIds = new Set<string>()
+    if (existsSync(chDir)) {
+      const pattern = /^aether-(.+)\.db$/
+      for (const entry of readdirSync(chDir)) {
+        const match = pattern.exec(entry)
+        if (!match) continue
+        const pid = match[1]
+        if (pid === "cron") continue
+        existingDbIds.add(pid)
+      }
+    }
 
-    const pattern = /^aether-(.+)\.db$/
-    const entries = readdirSync(chDir)
+    // Register untracked project DBs into global_project_map
     let registered = 0
-    for (const entry of entries) {
-      const match = pattern.exec(entry)
-      if (!match) continue
-      const pid = match[1]
-      if (pid === "cron") continue
+    for (const pid of existingDbIds) {
       if (trackedIds.has(pid)) continue
-
-      const fullPath = path.join(chDir, entry)
+      const fullPath = path.join(chDir, `aether-${pid}.db`)
       const pSqlite = new BunSqlite(fullPath)
       const projectRow = pSqlite.prepare("SELECT worktree FROM project WHERE id = ?").get(pid) as
         | { worktree: string }
@@ -576,6 +580,45 @@ export namespace Database {
       pSqlite.close()
     }
     if (registered > 0) log.info("untracked project registration complete", { registered })
+
+    // Delete project_recent entries whose project_id has no corresponding DB
+    const recentRows = sqlite
+      .prepare("SELECT key, project_id FROM project_recent WHERE kind = 'project' AND project_id IS NOT NULL")
+      .all() as { key: string; project_id: string }[]
+    let removed = 0
+    for (const row of recentRows) {
+      if (!existingDbIds.has(row.project_id)) {
+        sqlite.prepare("DELETE FROM project_recent WHERE key = ?").run(row.key)
+        removed++
+      }
+    }
+    if (removed > 0) log.info("removed project_recent entries without project db", { removed })
+
+    // Create project_recent entries for project DBs not yet in project_recent
+    const recentProjectIds = new Set(
+      (
+        sqlite
+          .prepare("SELECT project_id FROM project_recent WHERE kind = 'project' AND project_id IS NOT NULL")
+          .all() as { project_id: string }[]
+      ).map((r) => r.project_id),
+    )
+    let created = 0
+    for (const pid of existingDbIds) {
+      if (recentProjectIds.has(pid)) continue
+      const mapRow = sqlite.prepare("SELECT directory FROM global_project_map WHERE project_id = ?").get(pid) as
+        | { directory: string }
+        | undefined
+      const directory = mapRow?.directory ?? ""
+      if (!directory) continue
+      sqlite
+        .prepare(
+          "INSERT OR IGNORE INTO project_recent (key, kind, project_id, directory, activity_at, time_created, time_updated) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        )
+        .run(`dir:${norm(directory)}`, "project", pid, directory, Date.now(), Date.now(), Date.now())
+      created++
+      log.info("created project_recent for untracked project db", { pid, directory })
+    }
+    if (created > 0) log.info("project_recent creation complete", { created })
   }
 
   export function transaction<T>(
