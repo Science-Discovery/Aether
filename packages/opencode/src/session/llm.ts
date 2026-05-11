@@ -10,6 +10,7 @@ import {
   type ToolSet,
   tool,
   jsonSchema,
+  type LanguageModelMiddleware,
 } from "ai"
 import { mergeDeep, pipe } from "remeda"
 import { GitLabWorkflowLanguageModel } from "gitlab-ai-provider"
@@ -44,6 +45,38 @@ export namespace LLM {
   }
 
   export type StreamOutput = StreamTextResult<ToolSet, unknown>
+
+  const finish: LanguageModelMiddleware = {
+    async wrapStream(input) {
+      const result = await input.doStream()
+      let calls = false
+      return {
+        ...result,
+        stream: result.stream.pipeThrough(
+          new TransformStream({
+            transform(part, controller) {
+              if (part.type === "tool-call") calls = true
+              if (part.type === "finish" && (part.finishReason as string) === "unknown") {
+                controller.enqueue({
+                  ...part,
+                  finishReason: (calls ? "tool-calls" : "stop") as typeof part.finishReason,
+                })
+                return
+              }
+              if (part.type === "finish" && calls && part.finishReason === "stop") {
+                controller.enqueue({
+                  ...part,
+                  finishReason: "tool-calls" as typeof part.finishReason,
+                })
+                return
+              }
+              controller.enqueue(part)
+            },
+          }),
+        ),
+      }
+    },
+  }
 
   export async function stream(input: StreamInput) {
     const l = log
@@ -276,6 +309,7 @@ export namespace LLM {
       model: wrapLanguageModel({
         model: language,
         middleware: [
+          finish,
           {
             async transformParams(args) {
               if (args.type === "stream") {

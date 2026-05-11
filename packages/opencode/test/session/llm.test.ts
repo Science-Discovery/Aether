@@ -160,7 +160,19 @@ afterAll(() => {
   state.server?.stop()
 })
 
-function createChatStream(text: string) {
+function createChatStream(text: string, finish: string | null | undefined = "stop") {
+  const done =
+    finish === undefined
+      ? {
+          id: "chatcmpl-1",
+          object: "chat.completion.chunk",
+          choices: [{ delta: {} }],
+        }
+      : {
+          id: "chatcmpl-1",
+          object: "chat.completion.chunk",
+          choices: [{ delta: {}, finish_reason: finish }],
+        }
   const payload =
     [
       `data: ${JSON.stringify({
@@ -173,11 +185,74 @@ function createChatStream(text: string) {
         object: "chat.completion.chunk",
         choices: [{ delta: { content: text } }],
       })}`,
+      `data: ${JSON.stringify(done)}`,
+      "data: [DONE]",
+    ].join("\n\n") + "\n\n"
+
+  const encoder = new TextEncoder()
+  return new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(encoder.encode(payload))
+      controller.close()
+    },
+  })
+}
+
+function createToolStream(finish: string | null | undefined = "stop") {
+  const done =
+    finish === undefined
+      ? {
+          id: "chatcmpl-1",
+          object: "chat.completion.chunk",
+          choices: [{ delta: {} }],
+        }
+      : {
+          id: "chatcmpl-1",
+          object: "chat.completion.chunk",
+          choices: [{ delta: {}, finish_reason: finish }],
+        }
+  const payload =
+    [
       `data: ${JSON.stringify({
         id: "chatcmpl-1",
         object: "chat.completion.chunk",
-        choices: [{ delta: {}, finish_reason: "stop" }],
+        choices: [{ delta: { role: "assistant" } }],
       })}`,
+      `data: ${JSON.stringify({
+        id: "chatcmpl-1",
+        object: "chat.completion.chunk",
+        choices: [
+          {
+            delta: {
+              tool_calls: [
+                {
+                  index: 0,
+                  id: "call_1",
+                  type: "function",
+                  function: { name: "question", arguments: "" },
+                },
+              ],
+            },
+          },
+        ],
+      })}`,
+      `data: ${JSON.stringify({
+        id: "chatcmpl-1",
+        object: "chat.completion.chunk",
+        choices: [
+          {
+            delta: {
+              tool_calls: [
+                {
+                  index: 0,
+                  function: { arguments: "{}" },
+                },
+              ],
+            },
+          },
+        ],
+      })}`,
+      `data: ${JSON.stringify(done)}`,
       "data: [DONE]",
     ].join("\n\n") + "\n\n"
 
@@ -227,6 +302,172 @@ function createEventResponse(chunks: unknown[], includeDone = false) {
 }
 
 describe("session.llm.stream", () => {
+  test("normalizes unknown finish reason without tool calls to stop", async () => {
+    const server = state.server
+    if (!server) {
+      throw new Error("Server not initialized")
+    }
+
+    const providerID = "alibaba"
+    const modelID = "qwen-plus"
+    const fixture = await loadFixture(providerID, modelID)
+    const model = fixture.model
+
+    waitRequest(
+      "/chat/completions",
+      new Response(createChatStream("Hello", undefined), {
+        status: 200,
+        headers: { "Content-Type": "text/event-stream" },
+      }),
+    )
+
+    await using tmp = await tmpdir({
+      init: async (dir) => {
+        await Bun.write(
+          path.join(dir, "opencode.json"),
+          JSON.stringify({
+            $schema: "https://opencode.ai/config.json",
+            enabled_providers: [providerID],
+            provider: {
+              [providerID]: {
+                options: {
+                  apiKey: "test-key",
+                  baseURL: `${server.url.origin}/v1`,
+                },
+              },
+            },
+          }),
+        )
+      },
+    })
+
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const resolved = await Provider.getModel(ProviderID.make(providerID), ModelID.make(model.id))
+        const sessionID = SessionID.make("session-test-unknown-finish")
+        const agent = {
+          name: "test",
+          mode: "primary",
+          options: {},
+          permission: [{ permission: "*", pattern: "*", action: "allow" }],
+        } satisfies Agent.Info
+        const user = {
+          id: MessageID.make("user-unknown-finish"),
+          sessionID,
+          role: "user",
+          time: { created: Date.now() },
+          agent: agent.name,
+          model: { providerID: ProviderID.make(providerID), modelID: resolved.id },
+        } satisfies MessageV2.User
+
+        const stream = await LLM.stream({
+          user,
+          sessionID,
+          model: resolved,
+          agent,
+          system: ["You are a helpful assistant."],
+          abort: new AbortController().signal,
+          messages: [{ role: "user", content: "Hello" }],
+          tools: {},
+        })
+
+        let reason = ""
+        for await (const part of stream.fullStream) {
+          if (part.type === "finish") reason = part.finishReason
+        }
+
+        expect(reason).toBe("stop")
+      },
+    })
+  })
+
+  test("keeps tool call turns active when finish reason is unknown", async () => {
+    const server = state.server
+    if (!server) {
+      throw new Error("Server not initialized")
+    }
+
+    const providerID = "alibaba"
+    const modelID = "qwen-plus"
+    const fixture = await loadFixture(providerID, modelID)
+    const model = fixture.model
+
+    waitRequest(
+      "/chat/completions",
+      new Response(createToolStream(undefined), {
+        status: 200,
+        headers: { "Content-Type": "text/event-stream" },
+      }),
+    )
+
+    await using tmp = await tmpdir({
+      init: async (dir) => {
+        await Bun.write(
+          path.join(dir, "opencode.json"),
+          JSON.stringify({
+            $schema: "https://opencode.ai/config.json",
+            enabled_providers: [providerID],
+            provider: {
+              [providerID]: {
+                options: {
+                  apiKey: "test-key",
+                  baseURL: `${server.url.origin}/v1`,
+                },
+              },
+            },
+          }),
+        )
+      },
+    })
+
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const resolved = await Provider.getModel(ProviderID.make(providerID), ModelID.make(model.id))
+        const sessionID = SessionID.make("session-test-tool-finish")
+        const agent = {
+          name: "test",
+          mode: "primary",
+          options: {},
+          permission: [{ permission: "*", pattern: "*", action: "allow" }],
+        } satisfies Agent.Info
+        const user = {
+          id: MessageID.make("user-tool-finish"),
+          sessionID,
+          role: "user",
+          time: { created: Date.now() },
+          agent: agent.name,
+          model: { providerID: ProviderID.make(providerID), modelID: resolved.id },
+        } satisfies MessageV2.User
+
+        const stream = await LLM.stream({
+          user,
+          sessionID,
+          model: resolved,
+          agent,
+          system: ["You are a helpful assistant."],
+          abort: new AbortController().signal,
+          messages: [{ role: "user", content: "Use the tool" }],
+          tools: {
+            question: tool({
+              description: "Ask a question",
+              inputSchema: z.object({}),
+              execute: async () => ({ output: "" }),
+            }),
+          },
+        })
+
+        let reason = ""
+        for await (const part of stream.fullStream) {
+          if (part.type === "finish") reason = part.finishReason
+        }
+
+        expect(reason).toBe("tool-calls")
+      },
+    })
+  })
+
   test("sends temperature, tokens, and reasoning options for openai-compatible models", async () => {
     const server = state.server
     if (!server) {
