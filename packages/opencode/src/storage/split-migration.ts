@@ -60,10 +60,44 @@ export namespace SplitMigration {
   }
 
   function deleteWithCompanions(p: string) {
-    if (existsSync(p)) unlinkSync(p)
-    for (const ext of ["-shm", "-wal"]) {
-      if (existsSync(p + ext)) unlinkSync(p + ext)
+    for (const target of [p, p + "-shm", p + "-wal"]) {
+      try {
+        if (existsSync(target)) unlinkSync(target)
+      } catch {
+        // EBUSY on Windows: file handle not yet released after close().
+        // Leave the file — cleanup will retry on next startup via needsMigration().
+      }
     }
+  }
+
+  function deleteCompanionsWithRetry(p: string, maxWaitMs: number = 3000) {
+    const start = Date.now()
+    for (const ext of ["-shm", "-wal"]) {
+      const target = p + ext
+      if (!existsSync(target)) continue
+      while (Date.now() - start < maxWaitMs) {
+        try {
+          unlinkSync(target)
+          log.info("deleted companion after retry", { target, elapsedMs: Date.now() - start })
+          break
+        } catch {
+          // EBUSY — busy-wait and retry (Windows releases handles within ~100-500ms)
+        }
+      }
+      if (existsSync(target)) {
+        log.error("could not delete companion after retry", { target, elapsedMs: Date.now() - start })
+      }
+    }
+  }
+
+  export function isSwapPending(): boolean {
+    const main = mainDbPath()
+    if (main === ":memory:") return false
+    return existsSync(swapMarkerPath(main))
+  }
+
+  function swapMarkerPath(main: string) {
+    return main + ".swap-pending"
   }
 
   function attemptsPath() {
@@ -98,6 +132,11 @@ export namespace SplitMigration {
   export type MigrationType = "initial-split" | "none"
 
   export function needsMigration(): MigrationType {
+    const main = mainDbPath()
+    if (main === ":memory:") return "none"
+
+    if (existsSync(swapMarkerPath(main))) return "initial-split"
+
     if (readAttempts() >= MAX_ATTEMPTS) {
       log.error("split migration failed too many times, manual intervention required", {
         attempts: readAttempts(),
@@ -105,8 +144,6 @@ export namespace SplitMigration {
       })
       return "none"
     }
-    const main = mainDbPath()
-    if (main === ":memory:") return "none"
 
     if (!existsSync(main)) {
       const retired = retiredPath(main)
@@ -373,6 +410,34 @@ export namespace SplitMigration {
   }
 
   export function run(): { projects: number; sessions: number } {
+    const main = mainDbPath()
+
+    const swapMarker = swapMarkerPath(main)
+    if (existsSync(swapMarker)) {
+      const data = JSON.parse(readFileSync(swapMarker, "utf-8")) as {
+        destCopy: string
+        projects: number
+        sessions: number
+      }
+      if (!existsSync(data.destCopy)) {
+        log.error("swap marker references missing destCopy, removing marker", { destCopy: data.destCopy })
+        unlinkSync(swapMarker)
+        removeAttempts()
+        return { projects: 0, sessions: 0 }
+      }
+      deleteCompanionsWithRetry(main, 3000)
+      if (existsSync(main + "-shm") || existsSync(main + "-wal")) {
+        log.error("WAL/SHM companions still held, deferring swap to next startup")
+        return { projects: data.projects, sessions: data.sessions }
+      }
+      copyFileSync(data.destCopy, main)
+      deleteWithCompanions(data.destCopy)
+      unlinkSync(swapMarker)
+      removeAttempts()
+      log.info("completed pending swap from previous migration", data)
+      return { projects: data.projects, sessions: data.sessions }
+    }
+
     const attempts = readAttempts()
     if (attempts >= MAX_ATTEMPTS) {
       throw new Error(
@@ -842,11 +907,23 @@ export namespace SplitMigration {
       destSqlite.close()
       destSqlite = undefined
 
-      // Overwrite main with migration result (copyFileSync overwrites destination).
-      // The .pre-split backup in backup dir serves as the ultimate safety net.
-      // Delete stale WAL/SHM companions first so SQLite starts clean on next open.
-      for (const ext of ["-shm", "-wal"]) {
-        if (existsSync(main + ext)) unlinkSync(main + ext)
+      // Try to delete main.db's WAL/SHM companions. On Windows, handles from
+      // prior needsMigration() / Database.close() calls may linger briefly.
+      deleteCompanionsWithRetry(main, 3000)
+      if (existsSync(main + "-shm") || existsSync(main + "-wal")) {
+        // WAL/SHM still held — cannot safely overwrite main.db (stale WAL
+        // replay would corrupt the new content). Defer swap to next startup
+        // when no process holds the file.
+        writeFileSync(
+          swapMarkerPath(main),
+          JSON.stringify({ destCopy, projects: projectCount, sessions: sessionCount }),
+        )
+        log.info("WAL/SHM companions still held, deferring file swap to next startup", {
+          destCopy,
+          swapMarker: swapMarkerPath(main),
+        })
+        removeAttempts()
+        return { projects: projectCount, sessions: sessionCount }
       }
       copyFileSync(destCopy, main)
       log.info("replaced main db with migration result")
