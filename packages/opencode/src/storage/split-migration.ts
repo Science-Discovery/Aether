@@ -285,7 +285,7 @@ export namespace SplitMigration {
   function cleanupChannelDir(attempt: number) {
     const dir = channelDir()
     if (!existsSync(dir)) return
-    const attemptBackup = path.join(backupDir(), `channel-attempt-${attempt}`)
+    const attemptBackup = path.join(backupDir(), `${channel()}-attempt-${attempt}`)
     mkdirSync(attemptBackup, { recursive: true })
     const files = readdirSync(dir)
     for (const f of files) {
@@ -546,15 +546,16 @@ export namespace SplitMigration {
       const uniqueProjectIds = new Set(allProjectIds)
 
       const migrationMeta = (() => {
-        const migrationDir = path.join(import.meta.dirname, "../../migration/20260507071748_per_project_db_split")
-        const sqlFile = path.join(migrationDir, "migration.sql")
-        if (!existsSync(sqlFile)) return undefined
-        const sql = readFileSync(sqlFile, "utf-8")
-        const hash = createHash("sha256").update(sql).digest("hex")
-        const name = "20260507071748_per_project_db_split"
-        const millis = Date.UTC(2026, 4, 7, 7, 17, 48)
-        return { hash, name, millis }
+        const entries = getMigrationEntries()
+        const entry = entries.find((e) => e.name === "20260507071748_per_project_db_split")
+        if (!entry) {
+          log.error("split migration entry not found in migration entries")
+          return undefined
+        }
+        const hash = createHash("sha256").update(entry.sql).digest("hex")
+        return { hash, name: entry.name, millis: entry.timestamp }
       })()
+      if (!migrationMeta) throw new Error("split migration entry is required but not found")
 
       let projectCount = 0
       let sessionCount = 0
@@ -565,7 +566,7 @@ export namespace SplitMigration {
         if (projSessions.length === 0 && projWorkspaces.length === 0) continue
         const pPath = projectDbPath(projectId)
         const pSqlite = initDb(pPath)
-        seedSplitMigrationOnly(pSqlite, migrationMeta!)
+        seedSplitMigrationOnly(pSqlite, migrationMeta)
         applyMigrations(pPath)
         seedMigrationsFromDir(pSqlite)
         pSqlite.exec("BEGIN TRANSACTION")
@@ -673,7 +674,7 @@ export namespace SplitMigration {
 
       // Seed and migrate cron db
       const cSqlite = initDb(cronDbPath())
-      seedSplitMigrationOnly(cSqlite, migrationMeta!)
+      seedSplitMigrationOnly(cSqlite, migrationMeta)
       applyMigrations(cronDbPath())
       seedMigrationsFromDir(cSqlite)
       cSqlite.exec("BEGIN TRANSACTION")
@@ -799,7 +800,7 @@ export namespace SplitMigration {
       destSqlite.exec("DROP TABLE IF EXISTS cron_job_state")
       destSqlite.exec("DROP TABLE IF EXISTS cron_run")
       destSqlite.exec("COMMIT")
-      appendMigrationRecord(destSqlite, migrationMeta!)
+      appendMigrationRecord(destSqlite, migrationMeta)
       seedMigrationsFromDir(destSqlite)
       destSqlite.exec("PRAGMA wal_checkpoint(TRUNCATE)")
       destSqlite.exec("VACUUM")
@@ -836,15 +837,16 @@ export namespace SplitMigration {
     log.info("starting project ID rehash", { count: rows.length })
 
     const migrationMeta = (() => {
-      const migrationDir = path.join(import.meta.dirname, "../../migration/20260507071748_per_project_db_split")
-      const sqlFile = path.join(migrationDir, "migration.sql")
-      if (!existsSync(sqlFile)) return undefined
-      const sql = readFileSync(sqlFile, "utf-8")
-      const hash = createHash("sha256").update(sql).digest("hex")
-      const name = "20260507071748_per_project_db_split"
-      const millis = Date.UTC(2026, 4, 7, 7, 17, 48)
-      return { hash, name, millis }
+      const entries = getMigrationEntries()
+      const entry = entries.find((e) => e.name === "20260507071748_per_project_db_split")
+      if (!entry) {
+        log.error("split migration entry not found in migration entries")
+        return undefined
+      }
+      const hash = createHash("sha256").update(entry.sql).digest("hex")
+      return { hash, name: entry.name, millis: entry.timestamp }
     })()
+    if (!migrationMeta) throw new Error("split migration entry is required but not found")
 
     const chDir = channelDir()
     let projectCount = 0
@@ -904,7 +906,7 @@ export namespace SplitMigration {
 
       // Create new per-project DB from scratch with 40-char ID
       const pSqlite = initDb(newPath)
-      seedSplitMigrationOnly(pSqlite, migrationMeta!)
+      seedSplitMigrationOnly(pSqlite, migrationMeta)
       applyMigrations(newPath)
       seedMigrationsFromDir(pSqlite)
       pSqlite.exec("BEGIN TRANSACTION")
