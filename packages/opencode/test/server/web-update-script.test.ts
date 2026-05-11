@@ -55,16 +55,8 @@ async function app(dir: string, os: "linux" | "darwin") {
 
 async function longApp(dir: string, os: "linux" | "darwin") {
   await app(dir, os)
-  const bin = path.join(dir, "aether")
   const cmd = path.join(dir, os === "linux" ? "Aether.sh" : "Aether.command")
-  await Bun.write(bin, "#!/usr/bin/env bash\nwhile true; do sleep 1; done\n")
-  await Bun.write(
-    cmd,
-    os === "darwin"
-      ? '#!/usr/bin/env bash\nDIR="$(cd "$(dirname "$0")" && pwd)"\nexec "$DIR/aether" web\n'
-      : "#!/usr/bin/env bash\nwhile true; do sleep 1; done\n",
-  )
-  await fs.chmod(bin, 0o755)
+  await Bun.write(cmd, "#!/usr/bin/env bash\nwhile true; do sleep 1; done\n")
   await fs.chmod(cmd, 0o755)
 }
 
@@ -84,19 +76,12 @@ function alive(pid: number | undefined) {
   }
 }
 
-async function waitDead(child: ReturnType<typeof spawn>) {
-  if (child.exitCode !== null || child.signalCode !== null) return true
-  return new Promise<boolean>((resolve) => {
-    const done = () => {
-      clearTimeout(timer)
-      resolve(true)
-    }
-    const timer = setTimeout(() => {
-      child.off("exit", done)
-      resolve(false)
-    }, 7_500)
-    child.once("exit", done)
-  })
+async function waitDead(pid: number | undefined) {
+  for (let i = 0; i < 30; i++) {
+    if (!alive(pid)) return true
+    await Bun.sleep(250)
+  }
+  return !alive(pid)
 }
 
 function cleanup(pid: number | undefined) {
@@ -297,7 +282,7 @@ describe("web update scripts", () => {
           USERPROFILE: home,
           AETHER_CURRENT_DIR: old,
         })
-        expect(await waitDead(child)).toBe(true)
+        expect(await waitDead(child.pid)).toBe(true)
       } finally {
         cleanup(child.pid)
       }
@@ -447,7 +432,7 @@ describe("web update scripts", () => {
           USERPROFILE: home,
           AETHER_CURRENT_DIR: old,
         })
-        expect(await waitDead(child)).toBe(true)
+        expect(await waitDead(child.pid)).toBe(true)
         expect(alive(stray.pid)).toBe(true)
       } finally {
         cleanup(child.pid)
@@ -573,7 +558,7 @@ describe("web update scripts", () => {
             ...process.env,
             AETHER_CURRENT_DIR: old,
           })
-          expect(await waitDead(child)).toBe(true)
+          expect(await waitDead(child.pid)).toBe(true)
         } finally {
           cleanup(child.pid)
         }

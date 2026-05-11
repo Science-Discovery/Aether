@@ -386,35 +386,23 @@ write_launch() {
 stop_roots=()
 
 add_stop_root() {
-  local dir root item
+  local dir item
   dir="${1:-}"
   [ -n "$dir" ] || return 0
   [ -d "$dir" ] || return 0
-  for root in "$(cd "$dir" 2>/dev/null && pwd)" "$(cd "$dir" 2>/dev/null && pwd -P)"; do
-    [ -n "$root" ] || continue
-    [ "$root" != "/" ] || continue
-    if [ -n "${HOME:-}" ] && [ "$root" = "$HOME" ]; then
-      continue
-    fi
-    case "$(basename "$root")" in
-      aether_*) ;;
-      *) continue ;;
-    esac
-    for item in "${stop_roots[@]}"; do
-      [ "$item" = "$root" ] && continue 2
-    done
-    stop_roots+=("$root")
+  dir="$(cd "$dir" 2>/dev/null && pwd -P)" || return 0
+  [ "$dir" != "/" ] || return 0
+  if [ -n "${HOME:-}" ] && [ "$dir" = "$HOME" ]; then
+    return 0
+  fi
+  case "$(basename "$dir")" in
+    aether_*) ;;
+    *) return 0 ;;
+  esac
+  for item in "${stop_roots[@]}"; do
+    [ "$item" = "$dir" ] && return 0
   done
-}
-
-has_pid() {
-  local pid item
-  pid="$1"
-  shift
-  for item in "$@"; do
-    [ "$item" = "$pid" ] && return 0
-  done
-  return 1
+  stop_roots+=("$dir")
 }
 
 collect_stop_roots() {
@@ -438,10 +426,8 @@ collect_stop_roots() {
 }
 
 runtime_pids() {
-  local rows pid ppid cmd root item changed
-  local -a hits=()
-  rows="$(ps -axww -o pid=,ppid=,command=)"
-  while read -r pid ppid cmd; do
+  local pid ppid cmd root
+  ps -axww -o pid=,ppid=,command= | while read -r pid ppid cmd; do
     [ -n "$pid" ] || continue
     [ "$pid" = "$$" ] && continue
     case "$cmd" in
@@ -459,35 +445,11 @@ runtime_pids() {
         *" $root/Aether.sh"*|\
         "$root/Aether.sh.real"*|\
         *" $root/Aether.sh.real"*)
-          hits+=("$pid")
+          echo "$pid"
           break
           ;;
       esac
     done
-  done <<EOF
-$rows
-EOF
-
-  changed="1"
-  while [ "$changed" = "1" ]; do
-    changed="0"
-    while read -r pid ppid cmd; do
-      [ -n "$pid" ] || continue
-      [ "$pid" = "$$" ] && continue
-      case "$cmd" in
-        *update_darwin.command*) continue ;;
-      esac
-      if has_pid "$ppid" "${hits[@]}" && ! has_pid "$pid" "${hits[@]}"; then
-        hits+=("$pid")
-        changed="1"
-      fi
-    done <<EOF
-$rows
-EOF
-  done
-
-  for item in "${hits[@]}"; do
-    echo "$item"
   done | sort -u
 }
 
