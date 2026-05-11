@@ -391,6 +391,92 @@ stop() {
   pkill -f "$dir/aether serve" >/dev/null 2>&1 || true
 }
 
+stop_roots=()
+
+add_stop_root() {
+  local dir item
+  dir="${1:-}"
+  [ -n "$dir" ] || return 0
+  [ -d "$dir" ] || return 0
+  dir="$(cd "$dir" 2>/dev/null && pwd)" || return 0
+  for item in "${stop_roots[@]}"; do
+    [ "$item" = "$dir" ] && return 0
+  done
+  stop_roots+=("$dir")
+}
+
+collect_stop_roots() {
+  local dir root
+  stop_roots=()
+  add_stop_root "$old"
+  add_stop_root "$target"
+  add_stop_root "${AETHER_CURRENT_DIR:-}"
+  add_stop_root "$copy_target"
+  shopt -s nullglob
+  for dir in "$work"/aether_*; do
+    add_stop_root "$dir"
+  done
+  root="$(mirror_root || true)"
+  if [ -n "$root" ]; then
+    for dir in "$root"/aether_*; do
+      add_stop_root "$dir"
+    done
+  fi
+  shopt -u nullglob
+}
+
+runtime_pids() {
+  local pid cmd root
+  ps -axo pid=,command= | while read -r pid cmd; do
+    [ -n "$pid" ] || continue
+    [ "$pid" = "$$" ] && continue
+    case "$cmd" in
+      *update_darwin.command*) continue ;;
+    esac
+    for root in "${stop_roots[@]}"; do
+      case "$cmd" in
+        *"$root/"*)
+          case "$cmd" in
+            *"/aether "*|*"/aether"|*"Aether.command"*|*"Aether.sh"*|*"Aether.sh.real"*)
+              echo "$pid"
+              break
+              ;;
+          esac
+          ;;
+      esac
+    done
+  done | sort -u
+}
+
+wait_runtime() {
+  local tries pids
+  tries="$1"
+  while [ "$tries" -gt 0 ]; do
+    pids="$(runtime_pids)"
+    [ -z "$pids" ] && return 0
+    sleep 1
+    tries=$((tries - 1))
+  done
+  return 1
+}
+
+stop_all_runtime() {
+  local pids
+  collect_stop_roots
+  pids="$(runtime_pids)"
+  [ -n "$pids" ] || return 0
+  echo "正在关闭旧版本 Aether 进程..."
+  kill $pids >/dev/null 2>&1 || true
+  wait_runtime 5 && return 0
+  pids="$(runtime_pids)"
+  if [ -n "$pids" ]; then
+    kill -9 $pids >/dev/null 2>&1 || true
+  fi
+  if ! wait_runtime 3; then
+    echo "警告：仍检测到旧版本 Aether 进程，将继续启动新版本。"
+  fi
+}
+
 boot() {
   local dir="$1"
   [ -x "$dir/Aether.command" ] || return 1
@@ -533,10 +619,7 @@ fi
 write_launch "$final_target"
 
 if [ "$restart" = "1" ]; then
-  stop "$old"
-  stop "$target"
-  stop "${AETHER_CURRENT_DIR:-}"
-  stop "$copy_target"
+  stop_all_runtime
   if [ -n "$copy_target" ]; then
     if ! boot "$copy_target" && ! boot "$target"; then
       fail "重启失败：无法启动 $target/Aether.command"
