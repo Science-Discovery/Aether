@@ -160,7 +160,7 @@ export namespace SplitMigration {
     }
 
     if (readAttempts() > 0 && existsSync(backupDbPath(main))) {
-      const backup = new BunDatabase(backupDbPath(main))
+      const backup = new BunDatabase(backupDbPath(main), { readonly: true })
       try {
         const has = backup.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='session'").get()
         if (has) {
@@ -171,8 +171,7 @@ export namespace SplitMigration {
         backup.close()
       }
     }
-    const sqlite = new BunDatabase(main)
-    sqlite.exec("PRAGMA wal_checkpoint(TRUNCATE)")
+    const sqlite = new BunDatabase(main, { readonly: true })
     try {
       const hasSessionTable = sqlite
         .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='session'")
@@ -421,11 +420,7 @@ export namespace SplitMigration {
         return { projects: 0, sessions: 0 }
       }
       copyFileSync(data.destCopy, main)
-      try {
-        if (existsSync(main + "-wal")) writeFileSync(main + "-wal", Buffer.alloc(0))
-        if (existsSync(main + "-shm")) unlinkSync(main + "-shm")
-      } catch {}
-      deleteCompanionsWithRetry(data.destCopy, 3000)
+      deleteWithCompanions(data.destCopy)
       unlinkSync(swapMarker)
       removeAttempts()
       log.info("completed pending swap from previous migration", data)
@@ -467,12 +462,11 @@ export namespace SplitMigration {
 
     try {
       if (!existsSync(backup)) {
-        const companions = ["-shm", "-wal"]
-        for (const ext of companions) {
-          if (existsSync(main + ext)) copyFileSync(main + ext, backup + ext)
-        }
+        // Switch to DELETE journal mode — this checkpoints any existing WAL
+        // (flushing all data into .db) and deletes WAL/SHM companion files.
+        // No lingering WAL/SHM handles means no EBUSY issues on Windows.
         const checkpointDb = new BunDatabase(main)
-        checkpointDb.exec("PRAGMA wal_checkpoint(TRUNCATE)")
+        checkpointDb.exec("PRAGMA journal_mode = DELETE")
         checkpointDb.close()
         copyFileSync(main, backup)
         log.info("backed up main db", { from: main, to: backup })
@@ -901,25 +895,10 @@ export namespace SplitMigration {
       destSqlite.close()
       destSqlite = undefined
 
-      // Overwrite main.db with migration result. On Windows, WAL/SHM companions
-      // from prior DB connections may linger after close() (EBUSY on unlink).
-      // Instead of trying to delete them first, we overwrite the .db file
-      // (copyFileSync works even with WAL/SHM present) and then neutralize
-      // the stale WAL by writing a zero-length buffer — this prevents SQLite
-      // from replaying incompatible WAL frames into the new .db content.
       copyFileSync(destCopy, main)
       log.info("replaced main db with migration result")
 
-      try {
-        if (existsSync(main + "-wal")) writeFileSync(main + "-wal", Buffer.alloc(0))
-        if (existsSync(main + "-shm")) unlinkSync(main + "-shm")
-      } catch {
-        // EBUSY on Windows: WAL/SHM handles not yet released.
-        // Zero-length WAL + stale SHM is still safe — SQLite detects the
-        // mismatch (empty WAL = no frames to replay) and rebuilds SHM on next open.
-      }
-
-      deleteCompanionsWithRetry(destCopy, 3000)
+      deleteWithCompanions(destCopy)
 
       removeAttempts()
       log.info("split migration complete", { projects: projectCount, sessions: sessionCount })
