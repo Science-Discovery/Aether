@@ -447,12 +447,22 @@ export namespace SplitMigration {
 
   function runInitialSplit(): { projects: number; sessions: number } {
     const attempts = readAttempts()
-    cleanupChannelDir(attempts)
 
     const main = mainDbPath()
     const backup = backupDbPath(main)
     const destCopy = destCopyPath(main)
     const retired = retiredPath(main)
+
+    // Backup first — before any other migration operations that could fail
+    if (!existsSync(backup)) {
+      const checkpointDb = new BunDatabase(main)
+      checkpointDb.exec("PRAGMA journal_mode = DELETE")
+      checkpointDb.close()
+      copyFileSync(main, backup)
+      log.info("backed up main db before migration", { from: main, to: backup })
+    }
+
+    cleanupChannelDir(attempts)
     log.info("starting per-project database split", { main, backup, destCopy, attempt: attempts + 1 })
 
     deleteWithCompanions(destCopy)
@@ -461,17 +471,6 @@ export namespace SplitMigration {
     let destSqlite: BunDatabase | undefined
 
     try {
-      if (!existsSync(backup)) {
-        // Switch to DELETE journal mode — this checkpoints any existing WAL
-        // (flushing all data into .db) and deletes WAL/SHM companion files.
-        // No lingering WAL/SHM handles means no EBUSY issues on Windows.
-        const checkpointDb = new BunDatabase(main)
-        checkpointDb.exec("PRAGMA journal_mode = DELETE")
-        checkpointDb.close()
-        copyFileSync(main, backup)
-        log.info("backed up main db", { from: main, to: backup })
-      }
-
       copyFileSync(backup, destCopy)
       log.info("created destCopy from backup", { destCopy })
 
