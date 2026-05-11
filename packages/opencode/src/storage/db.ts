@@ -557,7 +557,6 @@ export namespace Database {
       const pid = match[1]
       if (pid === "cron") continue
       if (trackedIds.has(pid)) continue
-      if (projectClients.has(pid)) continue
 
       const fullPath = path.join(chDir, entry)
       const pSqlite = new BunSqlite(fullPath)

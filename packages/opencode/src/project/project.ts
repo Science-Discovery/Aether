@@ -18,6 +18,7 @@ import { AppFileSystem } from "@/filesystem"
 import * as CrossSpawnSpawner from "@/effect/cross-spawn-spawner"
 import { existsSync } from "fs"
 import { Database as BunSqlite } from "bun:sqlite"
+import { ProjectIdentity } from "./identity"
 
 export namespace Project {
   const log = Log.create({ service: "project" })
@@ -246,10 +247,9 @@ export namespace Project {
     AppFileSystem.Service | Path.Path | ChildProcessSpawner.ChildProcessSpawner
   > = Layer.effect(
     Service,
-    Effect.gen(function* () {
-      const fsys = yield* AppFileSystem.Service
-      const pathSvc = yield* Path.Path
-      const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
+      Effect.gen(function* () {
+        const fsys = yield* AppFileSystem.Service
+        const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
 
       const git = Effect.fnUntraced(
         function* (args: string[], opts?: { cwd?: string }) {
@@ -288,24 +288,7 @@ export namespace Project {
 
       const fakeVcs = Info.shape.vcs.parse(Flag.OPENCODE_FAKE_VCS)
 
-      const resolveGitPath = (cwd: string, name: string) => {
-        if (!name) return cwd
-        name = name.replace(/[\r\n]+$/, "")
-        if (!name) return cwd
-        name = AppFileSystem.windowsPath(name)
-        if (pathSvc.isAbsolute(name)) return pathSvc.normalize(name)
-        return pathSvc.resolve(cwd, name)
-      }
-
       const scope = yield* Scope.Scope
-
-      const readCachedProjectId = Effect.fnUntraced(function* (dir: string) {
-        return yield* fsys.readFileString(pathSvc.join(dir, "opencode")).pipe(
-          Effect.map((x) => x.trim()),
-          Effect.map(ProjectID.make),
-          Effect.catch(() => Effect.succeed(undefined)),
-        )
-      })
 
       const touch = Effect.fn("Project.touch")(function* (input: { project: Info; directory: string }) {
         const now = Date.now()
@@ -344,109 +327,16 @@ export namespace Project {
       const fromDirectory = Effect.fn("Project.fromDirectory")(function* (directory: string) {
         log.info("fromDirectory", { directory })
 
-        // Phase 1: discover git info
         type DiscoveryResult = { id: ProjectID; worktree: string; sandbox: string; vcs: Info["vcs"] }
 
-        const data: DiscoveryResult = yield* Effect.gen(function* () {
-          const dotgitMatches = yield* fsys.up({ targets: [".git"], start: directory }).pipe(Effect.orDie)
-          const dotgit = dotgitMatches[0]
-
-          if (!dotgit) {
-            const dirNorm = norm(directory)
-            const mapRow = yield* db((d) =>
-              d.select().from(GlobalProjectMapTable).where(eq(GlobalProjectMapTable.directory, dirNorm)).get(),
-            )
-            const id = mapRow?.project_id ?? ProjectID.fromDirectory(dirNorm)
-            return {
-              id,
-              worktree: "/",
-              sandbox: "/",
-              vcs: fakeVcs,
-            }
+        const data: DiscoveryResult = yield* Effect.sync(() => {
+          const info = ProjectIdentity.resolve(directory)
+          return {
+            id: info.id,
+            worktree: info.root,
+            sandbox: info.sandbox,
+            vcs: info.vcs ?? fakeVcs,
           }
-
-          let sandbox = pathSvc.dirname(dotgit)
-          const gitBinary = yield* Effect.sync(() => which("git"))
-          let id = yield* readCachedProjectId(dotgit)
-
-          if (!gitBinary) {
-            const dirNorm = norm(directory)
-            const mapRow = id
-              ? undefined
-              : yield* db((d) =>
-                  d.select().from(GlobalProjectMapTable).where(eq(GlobalProjectMapTable.directory, dirNorm)).get(),
-                )
-            return {
-              id: id ?? mapRow?.project_id ?? ProjectID.fromDirectory(dirNorm),
-              worktree: sandbox,
-              sandbox,
-              vcs: fakeVcs,
-            }
-          }
-
-          const commonDir = yield* git(["rev-parse", "--git-common-dir"], { cwd: sandbox })
-          if (commonDir.code !== 0) {
-            const dirNorm = norm(directory)
-            const mapRow = id
-              ? undefined
-              : yield* db((d) =>
-                  d.select().from(GlobalProjectMapTable).where(eq(GlobalProjectMapTable.directory, dirNorm)).get(),
-                )
-            return {
-              id: id ?? mapRow?.project_id ?? ProjectID.fromDirectory(dirNorm),
-              worktree: sandbox,
-              sandbox,
-              vcs: fakeVcs,
-            }
-          }
-          const worktree = (() => {
-            const common = resolveGitPath(sandbox, commonDir.text.trim())
-            return common === sandbox ? sandbox : pathSvc.dirname(common)
-          })()
-
-          if (id == null) {
-            id = yield* readCachedProjectId(pathSvc.join(worktree, ".git"))
-          }
-
-          if (!id) {
-            const revList = yield* git(["rev-list", "--max-parents=0", "HEAD"], { cwd: sandbox })
-            const roots = revList.text
-              .split("\n")
-              .filter(Boolean)
-              .map((x) => x.trim())
-              .toSorted()
-
-            id = roots[0] ? ProjectID.make(roots[0]) : undefined
-            if (id) {
-              yield* fsys.writeFileString(pathSvc.join(worktree, ".git", "opencode"), id).pipe(Effect.ignore)
-            }
-          }
-
-          if (!id) {
-            const dirNorm = norm(directory)
-            const mapRow = yield* db((d) =>
-              d.select().from(GlobalProjectMapTable).where(eq(GlobalProjectMapTable.directory, dirNorm)).get(),
-            )
-            return {
-              id: mapRow?.project_id ?? ProjectID.fromDirectory(dirNorm),
-              worktree: sandbox,
-              sandbox,
-              vcs: "git" as const,
-            }
-          }
-
-          const topLevel = yield* git(["rev-parse", "--show-toplevel"], { cwd: sandbox })
-          if (topLevel.code !== 0) {
-            return {
-              id,
-              worktree: sandbox,
-              sandbox,
-              vcs: fakeVcs,
-            }
-          }
-          sandbox = resolveGitPath(sandbox, topLevel.text.trim())
-
-          return { id, sandbox, worktree, vcs: "git" as const }
         })
 
         // Phase 2: construct result
@@ -542,13 +432,13 @@ export namespace Project {
           }
         }
 
-        if (data.vcs !== "git" || data.worktree === "/") {
-          const dirNorm = norm(directory)
+        const aliases = [...new Set([directory, data.worktree, data.sandbox].map((dir) => norm(dir)))]
+        for (const dir of aliases) {
           yield* db((d) =>
             d
               .insert(GlobalProjectMapTable)
               .values({
-                directory: dirNorm,
+                directory: dir,
                 project_id: result.id,
                 time_created: Date.now(),
                 time_updated: Date.now(),

@@ -6,8 +6,8 @@ import { iife } from "@/util/iife"
 import { Log } from "@/util/log"
 import { Context } from "../util/context"
 import { Project } from "./project"
-import { ProjectID } from "./schema"
 import { State } from "./state"
+import { ProjectIdentity } from "./identity"
 
 export interface Shape {
   directory: string
@@ -86,17 +86,19 @@ export const Instance = {
         }),
       )
     }
-    if (!existing) {
-      if (input.create === false) {
-        const browseCtx: Shape = {
-          directory,
-          worktree: directory,
-          project: {
-            id: ProjectID.fromDirectory(directory),
-            worktree: directory,
-            sandboxes: [],
-            time: { created: Date.now(), updated: Date.now() },
-          },
+      if (!existing) {
+        if (input.create === false) {
+          const info = ProjectIdentity.resolve(directory)
+          const browseCtx: Shape = {
+            directory,
+            worktree: info.sandbox,
+            project: {
+              id: info.id,
+              worktree: info.root,
+              vcs: info.vcs,
+              sandboxes: [],
+              time: { created: Date.now(), updated: Date.now() },
+            },
         }
         return context.provide(browseCtx, async () => input.fn())
       }

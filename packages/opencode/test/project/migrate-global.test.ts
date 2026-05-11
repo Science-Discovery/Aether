@@ -51,7 +51,7 @@ function ensureGlobal() {
 }
 
 describe("migrateFromGlobal", () => {
-  test("sessions remain in pre-commit project db after real project creation", async () => {
+  test("pre-commit and committed git project use the same directory-based db", async () => {
     await using tmp = await tmpdir()
     await $`git init`.cwd(tmp.path).quiet()
     await $`git config user.name "Test"`.cwd(tmp.path).quiet()
@@ -65,7 +65,7 @@ describe("migrateFromGlobal", () => {
     await $`git commit --allow-empty -m "root"`.cwd(tmp.path).quiet()
 
     const { project: real } = await Project.fromDirectory(tmp.path)
-    expect(real.id).not.toBe(pre.id)
+    expect(real.id).toBe(pre.id)
 
     const row = Database.useProject(pre.id, (db) => db.select().from(SessionTable).where(eq(SessionTable.id, id)).get())
     expect(row).toBeDefined()

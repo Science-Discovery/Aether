@@ -255,6 +255,7 @@ test("migration backup preserves JSONC comments", async () => {
 
 test("migrates legacy tui keys across multiple opencode.json levels", async () => {
   await using tmp = await tmpdir({
+    git: true,
     init: async (dir) => {
       const nested = path.join(dir, "apps", "client")
       await fs.mkdir(nested, { recursive: true })

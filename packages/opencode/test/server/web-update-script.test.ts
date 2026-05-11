@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { spawnSync } from "child_process"
+import { spawn, spawnSync } from "child_process"
 import fs from "fs/promises"
 import path from "path"
 import { tmpdir } from "../fixture/fixture"
@@ -53,10 +53,57 @@ async function app(dir: string, os: "linux" | "darwin") {
   await fs.chmod(cmd, 0o755)
 }
 
+async function longApp(dir: string, os: "linux" | "darwin") {
+  await app(dir, os)
+  const bin = path.join(dir, "aether")
+  const cmd = path.join(dir, os === "linux" ? "Aether.sh" : "Aether.command")
+  await Bun.write(bin, "#!/usr/bin/env bash\nwhile true; do sleep 1; done\n")
+  await Bun.write(
+    cmd,
+    os === "darwin"
+      ? '#!/usr/bin/env bash\nDIR="$(cd "$(dirname "$0")" && pwd)"\nexec "$DIR/aether" web\n'
+      : "#!/usr/bin/env bash\nwhile true; do sleep 1; done\n",
+  )
+  await fs.chmod(bin, 0o755)
+  await fs.chmod(cmd, 0o755)
+}
+
 async function winApp(dir: string) {
   await fs.mkdir(dir, { recursive: true })
   await Bun.write(path.join(dir, "aether.exe"), "stub")
   await Bun.write(path.join(dir, "Aether.vbs"), 'Set sh=CreateObject("WScript.Shell")\nWScript.Quit 0\n')
+}
+
+function alive(pid: number | undefined) {
+  if (!pid) return false
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch {
+    return false
+  }
+}
+
+async function waitDead(child: ReturnType<typeof spawn>) {
+  if (child.exitCode !== null || child.signalCode !== null) return true
+  return new Promise<boolean>((resolve) => {
+    const done = () => {
+      clearTimeout(timer)
+      resolve(true)
+    }
+    const timer = setTimeout(() => {
+      child.off("exit", done)
+      resolve(false)
+    }, 7_500)
+    child.once("exit", done)
+  })
+}
+
+function cleanup(pid: number | undefined) {
+  if (!pid) return
+  try {
+    process.kill(pid, "SIGKILL")
+  } catch {}
 }
 
 async function ver(dir: string, v: string) {
@@ -222,6 +269,43 @@ describe("web update scripts", () => {
   )
 
   linux(
+    "linux script stops old runtime before restart",
+    async () => {
+      await using tmp = await tmpdir()
+      const home = path.join(tmp.path, "home")
+      const work = path.join(tmp.path, "aether")
+      const dl = path.join(work, "downloads")
+      const old = path.join(work, "aether_1.2.6")
+      const src = path.join(tmp.path, "src-linux")
+      const out = path.join(dl, "aether-linux-x64-1.2.7.zip")
+      const script = path.join(dl, "update_linux.sh")
+
+      await fs.mkdir(dl, { recursive: true })
+      await fs.mkdir(home, { recursive: true })
+      await ver(old, "1.2.6")
+      await longApp(old, "linux")
+      await app(src, "linux")
+      zip(src, out)
+      await cp(path.join(update, "update_linux.sh"), script)
+
+      const child = spawn(path.join(old, "Aether.sh"), [], { stdio: "ignore" })
+      try {
+        expect(alive(child.pid)).toBe(true)
+        run("bash", [script, "1.2.7", "--restart"], dl, {
+          ...process.env,
+          HOME: home,
+          USERPROFILE: home,
+          AETHER_CURRENT_DIR: old,
+        })
+        expect(await waitDead(child)).toBe(true)
+      } finally {
+        cleanup(child.pid)
+      }
+    },
+    { timeout: 30000 },
+  )
+
+  linux(
     "linux script writes result file for failed mirror-only retry",
     async () => {
       await using tmp = await tmpdir()
@@ -330,6 +414,49 @@ describe("web update scripts", () => {
     { timeout: 30000 },
   )
 
+  darwin(
+    "darwin script stops old runtime before restart",
+    async () => {
+      await using tmp = await tmpdir()
+      const home = path.join(tmp.path, "home")
+      const work = path.join(tmp.path, "aether")
+      const dl = path.join(work, "downloads")
+      const old = path.join(work, "aether_1.2.6")
+      const other = path.join(tmp.path, "other", "aether_1.2.6")
+      const src = path.join(tmp.path, "src-darwin")
+      const out = path.join(dl, `aether-darwin-${mac()}-1.2.7.dmg`)
+      const script = path.join(dl, "update_darwin.command")
+
+      await fs.mkdir(dl, { recursive: true })
+      await fs.mkdir(home, { recursive: true })
+      await ver(old, "1.2.6")
+      await longApp(old, "darwin")
+      await longApp(other, "darwin")
+      await app(src, "darwin")
+      dmg(src, out)
+      await cp(path.join(update, "update_darwin.command"), script)
+
+      const child = spawn(path.join(old, "Aether.command"), [], { stdio: "ignore" })
+      const stray = spawn(path.join(other, "Aether.command"), [], { stdio: "ignore" })
+      try {
+        expect(alive(child.pid)).toBe(true)
+        expect(alive(stray.pid)).toBe(true)
+        run("bash", [script, "1.2.7", "--restart"], dl, {
+          ...process.env,
+          HOME: home,
+          USERPROFILE: home,
+          AETHER_CURRENT_DIR: old,
+        })
+        expect(await waitDead(child)).toBe(true)
+        expect(alive(stray.pid)).toBe(true)
+      } finally {
+        cleanup(child.pid)
+        cleanup(stray.pid)
+      }
+    },
+    { timeout: 30000 },
+  )
+
   windows(
     "windows script mirrors with timestamp fallback and prunes mirror dirs",
     async () => {
@@ -407,6 +534,49 @@ describe("web update scripts", () => {
         const launch = pick(log, "Launch entry:")
         expect(launch).toBeTruthy()
         expect(winTarget(launch!)).toContain(path.join(work, "aether_1.2.7", "Aether.vbs"))
+      } finally {
+        await restore(prev)
+      }
+    },
+    { timeout: 30000 },
+  )
+
+  windows(
+    "windows script stops old runtime before restart",
+    async () => {
+      const links = winLinks()
+      const prev = await stash(links)
+      try {
+        await using tmp = await tmpdir()
+        const work = path.join(tmp.path, "aether")
+        const dl = path.join(work, "downloads")
+        const old = path.join(work, "aether_1.2.6")
+        const src = path.join(tmp.path, "src-windows")
+        const out = path.join(dl, "aether-windows-x64-1.2.7.zip")
+        const script = path.join(dl, "update_windows.bat")
+
+        await fs.mkdir(dl, { recursive: true })
+        await ver(old, "1.2.6")
+        await winApp(old)
+        await winApp(src)
+        winZip(src, out)
+        await fs.copyFile(path.join(update, "update_windows.bat"), script)
+
+        const child = spawn(
+          process.execPath,
+          ["-e", "setInterval(() => {}, 1000)", path.join(old, "aether.exe")],
+          { stdio: "ignore" },
+        )
+        try {
+          expect(alive(child.pid)).toBe(true)
+          run("cmd", ["/c", script, "1.2.7", "--restart"], dl, {
+            ...process.env,
+            AETHER_CURRENT_DIR: old,
+          })
+          expect(await waitDead(child)).toBe(true)
+        } finally {
+          cleanup(child.pid)
+        }
       } finally {
         await restore(prev)
       }

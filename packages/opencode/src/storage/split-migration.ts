@@ -2,13 +2,13 @@ import { Database as BunDatabase } from "bun:sqlite"
 import { migrate } from "drizzle-orm/bun-sqlite/migrator"
 import { Global } from "../global"
 import { Log } from "../util/log"
-import { Hash } from "../util/hash"
 import path from "path"
 import { createHash } from "crypto"
 import { existsSync, mkdirSync, readdirSync, copyFileSync, readFileSync, unlinkSync, writeFileSync } from "fs"
 import { Installation } from "../installation"
 import { Flag } from "../flag/flag"
 import { init } from "#db"
+import { ProjectIdentity } from "@/project/identity"
 
 declare const OPENCODE_MIGRATIONS: { sql: string; timestamp: number; name: string }[] | undefined
 
@@ -76,7 +76,7 @@ export namespace SplitMigration {
     sqlite.prepare(`INSERT OR IGNORE INTO ${table} (${colList}) VALUES (${placeholders})`).run(...vals)
   }
 
-  export type MigrationType = "initial-split" | "rehash" | "none"
+  export type MigrationType = "initial-split" | "none"
 
   export function needsMigration(): MigrationType {
     if (readAttempts() >= MAX_ATTEMPTS) {
@@ -89,6 +89,18 @@ export namespace SplitMigration {
     const main = mainDbPath()
     if (main === ":memory:") return "none"
     if (!existsSync(main)) return "none"
+    if (readAttempts() > 0 && existsSync(backupDbPath(main))) {
+      const backup = new BunDatabase(backupDbPath(main))
+      try {
+        const has = backup.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='session'").get()
+        if (has) {
+          const sessions = backup.prepare("SELECT count(*) as cnt FROM session").get() as { cnt: number } | null
+          if (sessions && sessions.cnt > 0) return "initial-split"
+        }
+      } finally {
+        backup.close()
+      }
+    }
     const sqlite = new BunDatabase(main)
     sqlite.exec("PRAGMA wal_checkpoint(TRUNCATE)")
     try {
@@ -101,19 +113,6 @@ export namespace SplitMigration {
         if (hasSessions && hasSessions.cnt > 0) {
           sqlite.close()
           return "initial-split"
-        }
-      }
-      // Case 2: already split but global_project_map has non-40-char project_ids → rehash needed
-      const hasProjectMap = sqlite
-        .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='global_project_map'")
-        .get()
-      if (hasProjectMap) {
-        const shortIds = sqlite
-          .prepare("SELECT count(*) as cnt FROM global_project_map WHERE length(project_id) < 40")
-          .get() as { cnt: number }
-        if (shortIds.cnt > 0) {
-          sqlite.close()
-          return "rehash"
         }
       }
       sqlite.close()
@@ -351,11 +350,7 @@ export namespace SplitMigration {
       return { projects: 0, sessions: 0 }
     }
 
-    if (type === "initial-split") {
-      return runInitialSplit()
-    }
-
-    return runRehash()
+    return runInitialSplit()
   }
 
   function runInitialSplit(): { projects: number; sessions: number } {
@@ -443,30 +438,93 @@ export namespace SplitMigration {
         return has ? (srcSqlite.prepare("SELECT * FROM session_preference").all() as any[]) : []
       })()
 
-      const sessionByProject = new Map<string, any[]>()
-      const globalSessionDirs = new Map<string, any[]>()
-      const globalProjectIdMap = new Map<string, string>()
-
+      const treeBySession = new Map(sessions.map((s) => [s.id, s.tree_id] as const))
       for (const s of sessions) {
-        if (s.project_id === "global") {
-          const dir = norm(s.directory)
-          const bucket = globalSessionDirs.get(dir) ?? []
-          bucket.push(s)
-          globalSessionDirs.set(dir, bucket)
-        } else {
-          const bucket = sessionByProject.get(s.project_id) ?? []
-          bucket.push(s)
-          sessionByProject.set(s.project_id, bucket)
+        if (!s.parent_id || s.fork_parent_session_id) continue
+        const match = / \(fork #(\d+)\)$/.exec(s.title ?? "")
+        if (!match) continue
+        s.fork_parent_session_id = s.parent_id
+        s.fork_index = s.fork_index ?? Number(match[1])
+        s.tree_id = s.tree_id ?? treeBySession.get(s.parent_id) ?? null
+      }
+
+      const sessionByProject = new Map<string, any[]>()
+      const workspaceByProject = new Map<string, any[]>()
+      const permissionByProject = new Map<string, any>()
+      const projectByOld = new Map<string, any>()
+      const oldProjectIdMap = new Map<string, string>()
+      const directoryProjectMap = new Map<string, string>()
+      const projectById = new Map<string, any>()
+
+      for (const p of projects) {
+        if (p.id === "global") continue
+        projectByOld.set(p.id, p)
+      }
+
+      const json = (input: unknown) => {
+        if (Array.isArray(input)) return input
+        if (typeof input !== "string") return []
+        try {
+          const parsed = JSON.parse(input)
+          return Array.isArray(parsed) ? parsed : []
+        } catch {
+          return []
         }
       }
 
-      for (const [dir, dirSessions] of globalSessionDirs) {
-        const newId = Hash.fast(dir)
-        globalProjectIdMap.set(dir, newId)
-        for (const s of dirSessions) {
-          s.project_id = newId
-        }
-        sessionByProject.set(newId, dirSessions)
+      const alias = (dir: string | undefined | null, pid: string) => {
+        if (!dir) return
+        const key = norm(dir)
+        if (!key) return
+        directoryProjectMap.set(key, pid)
+      }
+
+      const mergeProject = (pid: string, info: ProjectIdentity.Info, row?: any) => {
+        const prev = projectById.get(pid)
+        const sandboxes = new Set<string>(json(prev?.sandboxes))
+        for (const item of json(row?.sandboxes)) sandboxes.add(item)
+        if (info.sandbox !== info.root) sandboxes.add(info.sandbox)
+        projectById.set(pid, {
+          id: pid,
+          worktree: info.root,
+          vcs: info.vcs ?? row?.vcs ?? prev?.vcs ?? null,
+          name: prev?.name ?? row?.name ?? null,
+          icon_url: prev?.icon_url ?? row?.icon_url ?? null,
+          icon_color: prev?.icon_color ?? row?.icon_color ?? null,
+          time_created: Math.min(prev?.time_created ?? Date.now(), row?.time_created ?? Date.now()),
+          time_updated: Math.max(prev?.time_updated ?? Date.now(), row?.time_updated ?? Date.now()),
+          time_initialized: prev?.time_initialized ?? row?.time_initialized ?? null,
+          sandboxes: JSON.stringify([...sandboxes]),
+          commands: prev?.commands ?? row?.commands ?? null,
+        })
+        alias(info.root, pid)
+        alias(info.sandbox, pid)
+      }
+
+      const resolveProject = (s: any) => {
+        const row = projectByOld.get(s.project_id)
+        const dir = row?.worktree && row.worktree !== "/" ? row.worktree : s.directory || row?.worktree || "/"
+        const info = ProjectIdentity.resolve(dir)
+        const pid = info.id
+        if (s.project_id !== "global") oldProjectIdMap.set(s.project_id, pid)
+        mergeProject(pid, info, row)
+        alias(s.directory, pid)
+        return pid
+      }
+
+      for (const p of projectByOld.values()) {
+        const dir = p.worktree && p.worktree !== "/" ? p.worktree : p.id
+        const info = ProjectIdentity.resolve(dir)
+        oldProjectIdMap.set(p.id, info.id)
+        mergeProject(info.id, info, p)
+      }
+
+      for (const s of sessions) {
+        const pid = resolveProject(s)
+        s.project_id = pid
+        const bucket = sessionByProject.get(pid) ?? []
+        bucket.push(s)
+        sessionByProject.set(pid, bucket)
       }
 
       const sessionIds = new Set(sessions.map((s) => s.id))
@@ -509,40 +567,24 @@ export namespace SplitMigration {
         prefsBySession.set(sp.session_id, bucket)
       }
 
-      const workspaceByProject = new Map<string, any[]>()
       for (const w of workspaces) {
-        const pid = globalProjectIdMap.get(norm(w.project_id)) ?? w.project_id
+        const pid = oldProjectIdMap.get(w.project_id) ?? directoryProjectMap.get(norm(w.project_id)) ?? w.project_id
         const bucket = workspaceByProject.get(pid) ?? []
         bucket.push({ ...w, project_id: pid })
         workspaceByProject.set(pid, bucket)
       }
 
-      const projectById = new Map<string, any>()
-      for (const p of projects) {
-        if (p.id === "global") continue
-        const pid = globalProjectIdMap.get(norm(p.id)) ?? p.id
-        projectById.set(pid, { ...p, id: pid })
+      for (const p of permissions) {
+        const pid = oldProjectIdMap.get(p.project_id) ?? directoryProjectMap.get(norm(p.project_id)) ?? p.project_id
+        permissionByProject.set(pid, { ...p, project_id: pid })
       }
 
-      for (const [dir, newId] of globalProjectIdMap) {
-        if (!projectById.has(newId)) {
-          projectById.set(newId, {
-            id: newId,
-            worktree: "/",
-            vcs: null,
-            name: null,
-            icon_url: null,
-            icon_color: null,
-            time_created: Date.now(),
-            time_updated: Date.now(),
-            time_initialized: null,
-            sandboxes: "[]",
-            commands: null,
-          })
-        }
-      }
-
-      const allProjectIds = [...sessionByProject.keys(), ...projectById.keys()]
+      const allProjectIds = [
+        ...sessionByProject.keys(),
+        ...workspaceByProject.keys(),
+        ...permissionByProject.keys(),
+        ...projectById.keys(),
+      ]
       const uniqueProjectIds = new Set(allProjectIds)
 
       const migrationMeta = (() => {
@@ -563,7 +605,8 @@ export namespace SplitMigration {
       for (const projectId of uniqueProjectIds) {
         const projSessions = sessionByProject.get(projectId) ?? []
         const projWorkspaces = workspaceByProject.get(projectId) ?? []
-        if (projSessions.length === 0 && projWorkspaces.length === 0) continue
+        const projPermission = permissionByProject.get(projectId)
+        if (projSessions.length === 0 && projWorkspaces.length === 0 && !projPermission) continue
         const pPath = projectDbPath(projectId)
         const pSqlite = initDb(pPath)
         seedSplitMigrationOnly(pSqlite, migrationMeta)
@@ -641,13 +684,8 @@ export namespace SplitMigration {
           }
         }
 
-        const permRow = permissions.find((p) => {
-          const pid = globalProjectIdMap.get(norm(p.project_id)) ?? p.project_id
-          return pid === projectId
-        })
-        if (permRow) {
-          const pid = globalProjectIdMap.get(norm(permRow.project_id)) ?? permRow.project_id
-          dynamicInsert(pSqlite, "permission", { ...permRow, project_id: pid })
+        if (projPermission) {
+          dynamicInsert(pSqlite, "permission", projPermission)
         }
 
         const wss = workspaceByProject.get(projectId) ?? []
@@ -661,16 +699,6 @@ export namespace SplitMigration {
       }
 
       log.info("created project databases", { count: projectCount })
-
-      const dirsWithSessions = new Set<string>()
-      for (const projectId of uniqueProjectIds) {
-        const projSessions = sessionByProject.get(projectId) ?? []
-        if (projSessions.length > 0) {
-          for (const s of projSessions) {
-            if (s.directory) dirsWithSessions.add(norm(s.directory))
-          }
-        }
-      }
 
       // Seed and migrate cron db
       const cSqlite = initDb(cronDbPath())
@@ -731,56 +759,38 @@ export namespace SplitMigration {
       destSqlite.exec("PRAGMA wal_checkpoint(TRUNCATE)")
       destSqlite.exec("BEGIN TRANSACTION")
       destSqlite.exec(globalProjectMapSQL)
-      for (const [dir, newId] of globalProjectIdMap) {
+      for (const [dir, pid] of directoryProjectMap) {
         destSqlite
           .prepare(
-            "INSERT OR IGNORE INTO global_project_map (directory, project_id, time_created, time_updated) VALUES (?, ?, ?, ?)",
+            `INSERT INTO global_project_map (directory, project_id, time_created, time_updated)
+              VALUES (?, ?, ?, ?)
+              ON CONFLICT(directory) DO UPDATE SET project_id = excluded.project_id, time_updated = excluded.time_updated`,
           )
-          .run(dir, newId, Date.now(), Date.now())
+          .run(dir, pid, Date.now(), Date.now())
       }
       // Strip FKs BEFORE dropping tables (strip needs the source table to exist)
-      for (const [dir, newId] of globalProjectIdMap) {
-        destSqlite
-          .prepare("UPDATE project_recent SET project_id = ? WHERE project_id = 'global' AND directory = ?")
-          .run(newId, dir)
-      }
       destSqlite.exec(stripProjectRecentFK)
-      const nullRecentRows = destSqlite
-        .prepare("SELECT key, directory FROM project_recent WHERE project_id IS NULL")
-        .all() as { key: string; directory: string }[]
-      const stillNullKeys: string[] = []
-      for (const row of nullRecentRows) {
-        const dirNorm = norm(row.directory ?? "")
-        const newPid = globalProjectIdMap.get(dirNorm)
-        if (newPid) {
-          destSqlite.prepare("UPDATE project_recent SET project_id = ? WHERE key = ?").run(newPid, row.key)
-        } else {
-          stillNullKeys.push(row.key)
-        }
-      }
-      if (stillNullKeys.length > 0) {
-        destSqlite
-          .prepare(`DELETE FROM project_recent WHERE key IN (${stillNullKeys.map(() => "?").join(",")})`)
-          .run(...stillNullKeys)
-        log.info("deleted project_recent entries with unresolvable null project_id", { count: stillNullKeys.length })
-      }
-      // Delete project_recent entries whose directory has no session in any project db
-      const recentRows = destSqlite.prepare("SELECT key, directory FROM project_recent").all() as {
+      const recentRows = destSqlite.prepare("SELECT key, kind, project_id, directory FROM project_recent").all() as {
         key: string
+        kind: string
+        project_id: string | null
         directory: string
       }[]
-      const staleKeys: string[] = []
       for (const row of recentRows) {
-        if (row.directory && !dirsWithSessions.has(norm(row.directory))) {
-          staleKeys.push(row.key)
+        const pid =
+          (row.project_id ? oldProjectIdMap.get(row.project_id) : undefined) ??
+          directoryProjectMap.get(norm(row.directory ?? ""))
+        if (pid && uniqueProjectIds.has(pid)) {
+          destSqlite.prepare("UPDATE project_recent SET kind = 'project', project_id = ? WHERE key = ?").run(pid, row.key)
+          continue
         }
+        destSqlite.prepare("UPDATE project_recent SET kind = 'directory', project_id = NULL WHERE key = ?").run(row.key)
       }
-      if (staleKeys.length > 0) {
-        destSqlite
-          .prepare(`DELETE FROM project_recent WHERE key IN (${staleKeys.map(() => "?").join(",")})`)
-          .run(...staleKeys)
-        log.info("deleted stale project_recent entries", { count: staleKeys.length })
-      }
+      const recentCount = (destSqlite.prepare("SELECT count(*) as cnt FROM project_recent").get() as { cnt: number }).cnt
+      const sourceRecentCount = (
+        srcSqlite.prepare("SELECT count(*) as cnt FROM project_recent").get() as { cnt: number }
+      ).cnt
+      if (recentCount !== sourceRecentCount) throw new Error("project_recent count changed during split migration")
       const hasSessionPref = destSqlite
         .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='session_preference'")
         .get()
@@ -818,262 +828,4 @@ export namespace SplitMigration {
     }
   }
 
-  function runRehash(): { projects: number; sessions: number } {
-    const main = mainDbPath()
-    const mainSqlite = new BunDatabase(main)
-    mainSqlite.exec("PRAGMA wal_checkpoint(TRUNCATE)")
-    mainSqlite.exec("PRAGMA foreign_keys = OFF")
-
-    const rows = mainSqlite
-      .prepare("SELECT directory, project_id FROM global_project_map WHERE length(project_id) < 40")
-      .all() as { directory: string; project_id: string }[]
-
-    if (rows.length === 0) {
-      mainSqlite.close()
-      removeAttempts()
-      return { projects: 0, sessions: 0 }
-    }
-
-    log.info("starting project ID rehash", { count: rows.length })
-
-    const migrationMeta = (() => {
-      const entries = getMigrationEntries()
-      const entry = entries.find((e) => e.name === "20260507071748_per_project_db_split")
-      if (!entry) {
-        log.error("split migration entry not found in migration entries")
-        return undefined
-      }
-      const hash = createHash("sha256").update(entry.sql).digest("hex")
-      return { hash, name: entry.name, millis: entry.timestamp }
-    })()
-    if (!migrationMeta) throw new Error("split migration entry is required but not found")
-
-    const chDir = channelDir()
-    let projectCount = 0
-    let sessionCount = 0
-
-    const idMap = new Map<string, string>()
-
-    for (const row of rows) {
-      const oldId = row.project_id
-      const dir = row.directory
-      const newId = Hash.fast(dir)
-      idMap.set(oldId, newId)
-
-      const oldPath = path.join(chDir, `aether-${oldId}.db`)
-      const newPath = path.join(chDir, `aether-${newId}.db`)
-
-      if (!existsSync(oldPath)) {
-        log.warn("old project db missing, skipping", { oldId, path: oldPath })
-        continue
-      }
-      if (existsSync(newPath)) {
-        log.info("new project db already exists, skipping", { newId, path: newPath })
-        continue
-      }
-
-      // Backup old DB before reading
-      const bk = path.join(backupDir(), `aether-${oldId}.db.pre-rehash`)
-      copyFileSync(oldPath, bk)
-      for (const ext of ["-shm", "-wal"]) {
-        if (existsSync(oldPath + ext)) copyFileSync(oldPath + ext, bk + ext)
-      }
-
-      // Read all data from old DB
-      const oldDb = new BunDatabase(oldPath)
-      oldDb.exec("PRAGMA foreign_keys = OFF")
-      const sessions = oldDb.prepare("SELECT * FROM session").all() as any[]
-      const messages = oldDb.prepare("SELECT * FROM message").all() as any[]
-      const parts = oldDb.prepare("SELECT * FROM part").all() as any[]
-      const projects = oldDb.prepare("SELECT * FROM project").all() as any[]
-      const todos = oldDb.prepare("SELECT * FROM todo").all() as any[]
-      const permissions = oldDb.prepare("SELECT * FROM permission").all() as any[]
-      const shares = oldDb.prepare("SELECT * FROM session_share").all() as any[]
-      const workspaces = oldDb.prepare("SELECT * FROM workspace").all() as any[]
-      const preferences = (() => {
-        const has = oldDb
-          .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='session_preference'")
-          .get()
-        return has ? (oldDb.prepare("SELECT * FROM session_preference").all() as any[]) : []
-      })()
-
-      // Collect counts for verification
-      const srcSessionCount = (oldDb.prepare("SELECT count(*) as cnt FROM session").get() as { cnt: number }).cnt
-      const srcMessageCount = (oldDb.prepare("SELECT count(*) as cnt FROM message").get() as { cnt: number }).cnt
-      const srcPartCount = (oldDb.prepare("SELECT count(*) as cnt FROM part").get() as { cnt: number }).cnt
-
-      oldDb.close()
-
-      // Create new per-project DB from scratch with 40-char ID
-      const pSqlite = initDb(newPath)
-      seedSplitMigrationOnly(pSqlite, migrationMeta)
-      applyMigrations(newPath)
-      seedMigrationsFromDir(pSqlite)
-      pSqlite.exec("BEGIN TRANSACTION")
-
-      for (const p of projects) {
-        dynamicInsert(pSqlite, "project", { ...p, id: newId })
-      }
-
-      for (const s of sessions) {
-        dynamicInsert(pSqlite, "session", { ...s, project_id: newId })
-        sessionCount++
-      }
-
-      const sessionIds = new Set(sessions.map((s) => s.id))
-      const messagesBySession = new Map<string, any[]>()
-      for (const m of messages) {
-        if (!sessionIds.has(m.session_id)) continue
-        const bucket = messagesBySession.get(m.session_id) ?? []
-        bucket.push(m)
-        messagesBySession.set(m.session_id, bucket)
-      }
-
-      const partsByMessage = new Map<string, any[]>()
-      for (const pt of parts) {
-        if (!sessionIds.has(pt.session_id)) continue
-        const bucket = partsByMessage.get(pt.message_id) ?? []
-        bucket.push(pt)
-        partsByMessage.set(pt.message_id, bucket)
-      }
-
-      const todosBySession = new Map<string, any[]>()
-      for (const t of todos) {
-        if (!sessionIds.has(t.session_id)) continue
-        const bucket = todosBySession.get(t.session_id) ?? []
-        bucket.push(t)
-        todosBySession.set(t.session_id, bucket)
-      }
-
-      const sharesBySession = new Map<string, any[]>()
-      for (const sh of shares) {
-        if (!sessionIds.has(sh.session_id)) continue
-        const bucket = sharesBySession.get(sh.session_id) ?? []
-        bucket.push(sh)
-        sharesBySession.set(sh.session_id, bucket)
-      }
-
-      const prefsBySession = new Map<string, any[]>()
-      for (const sp of preferences) {
-        const bucket = prefsBySession.get(sp.session_id) ?? []
-        bucket.push(sp)
-        prefsBySession.set(sp.session_id, bucket)
-      }
-
-      for (const s of sessions) {
-        const msgs = messagesBySession.get(s.id) ?? []
-        for (const m of msgs) {
-          pSqlite
-            .prepare(
-              "INSERT OR IGNORE INTO message (id, session_id, time_created, time_updated, data) VALUES (?, ?, ?, ?, ?)",
-            )
-            .run(m.id, m.session_id, m.time_created, m.time_updated, m.data)
-          const pts = partsByMessage.get(m.id) ?? []
-          for (const pt of pts) {
-            pSqlite
-              .prepare(
-                "INSERT OR IGNORE INTO part (id, message_id, session_id, time_created, time_updated, data) VALUES (?, ?, ?, ?, ?, ?)",
-              )
-              .run(pt.id, pt.message_id, pt.session_id, pt.time_created, pt.time_updated, pt.data)
-          }
-        }
-
-        const tds = todosBySession.get(s.id) ?? []
-        for (const td of tds) {
-          pSqlite
-            .prepare(
-              "INSERT OR IGNORE INTO todo (session_id, content, status, priority, position, time_created, time_updated) VALUES (?, ?, ?, ?, ?, ?, ?)",
-            )
-            .run(td.session_id, td.content, td.status, td.priority, td.position, td.time_created, td.time_updated)
-        }
-
-        const shs = sharesBySession.get(s.id) ?? []
-        for (const sh of shs) {
-          pSqlite
-            .prepare(
-              "INSERT OR IGNORE INTO session_share (session_id, id, secret, url, time_created, time_updated) VALUES (?, ?, ?, ?, ?, ?)",
-            )
-            .run(sh.session_id, sh.id, sh.secret, sh.url, sh.time_created, sh.time_updated)
-        }
-
-        const sps = prefsBySession.get(s.id) ?? []
-        if (sps.length > 0) {
-          const hasPref = pSqlite
-            .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='session_preference'")
-            .get()
-          if (!hasPref) {
-            pSqlite.exec(`CREATE TABLE IF NOT EXISTS session_preference (
-              session_id text PRIMARY KEY,
-              agent text,
-              model_provider_id text,
-              model_id text,
-              variant text,
-              auto_accept integer,
-              time_created integer NOT NULL,
-              time_updated integer NOT NULL
-            )`)
-          }
-          for (const sp of sps) {
-            dynamicInsert(pSqlite, "session_preference", sp)
-          }
-        }
-      }
-
-      const permRow = permissions.find((p) => {
-        const mapped = idMap.get(p.project_id) ?? p.project_id
-        return mapped === oldId ? newId : mapped
-      })
-      if (permRow) {
-        dynamicInsert(pSqlite, "permission", { ...permRow, project_id: newId })
-      }
-
-      for (const ws of workspaces) {
-        const mappedPid = idMap.get(ws.project_id) ?? ws.project_id
-        dynamicInsert(pSqlite, "workspace", { ...ws, project_id: mappedPid === oldId ? newId : mappedPid })
-      }
-
-      pSqlite.exec("COMMIT")
-
-      // Verify new DB
-      const newDb = new BunDatabase(newPath)
-      const dstSessionCount = (newDb.prepare("SELECT count(*) as cnt FROM session").get() as { cnt: number }).cnt
-      const dstMessageCount = (newDb.prepare("SELECT count(*) as cnt FROM message").get() as { cnt: number }).cnt
-      const dstPartCount = (newDb.prepare("SELECT count(*) as cnt FROM part").get() as { cnt: number }).cnt
-      newDb.close()
-
-      if (dstSessionCount !== srcSessionCount || dstMessageCount !== srcMessageCount || dstPartCount !== srcPartCount) {
-        log.error("rehash verification failed for project", {
-          oldId,
-          newId,
-          expected: { sessions: srcSessionCount, messages: srcMessageCount, parts: srcPartCount },
-          actual: { sessions: dstSessionCount, messages: dstMessageCount, parts: dstPartCount },
-        })
-        throw new Error(`rehash verification failed for project ${oldId} → ${newId}`)
-      }
-
-      log.info("rehashed project db", { oldId, newId, sessions: dstSessionCount })
-      projectCount++
-    }
-
-    // Update main DB global_project_map and project_recent in-place
-    mainSqlite.exec("BEGIN TRANSACTION")
-    for (const row of rows) {
-      const newId = idMap.get(row.project_id)!
-      mainSqlite
-        .prepare("UPDATE global_project_map SET project_id = ?, time_updated = ? WHERE directory = ?")
-        .run(newId, Date.now(), row.directory)
-      mainSqlite.prepare("UPDATE project_recent SET project_id = ? WHERE project_id = ?").run(newId, row.project_id)
-    }
-    mainSqlite.exec("COMMIT")
-    mainSqlite.exec("PRAGMA wal_checkpoint(TRUNCATE)")
-    mainSqlite.close()
-
-    // Old 32-char per-project DB files cannot be deleted in this process (EBUSY on Windows).
-    // They are left in the channel dir; new 40-char DBs have already been created and
-    // global_project_map updated. The stale 32-char files are harmless disk waste.
-
-    removeAttempts()
-    log.info("project ID rehash complete", { projects: projectCount, sessions: sessionCount })
-    return { projects: projectCount, sessions: sessionCount }
-  }
 }

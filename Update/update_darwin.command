@@ -383,12 +383,141 @@ write_launch() {
   launch_note="无法写入 /Applications，已回退到 $launch。手动复制该 App 到 /Applications后，从 app 启动器中运行Aether，或在\"$HOME/Applications\"文件夹中双击Aether.app运行。"
 }
 
-stop() {
-  local dir="$1"
+stop_roots=()
+
+add_stop_root() {
+  local dir root item
+  dir="${1:-}"
   [ -n "$dir" ] || return 0
-  pkill -f "$dir/Aether.command" >/dev/null 2>&1 || true
-  pkill -f "$dir/aether web" >/dev/null 2>&1 || true
-  pkill -f "$dir/aether serve" >/dev/null 2>&1 || true
+  [ -d "$dir" ] || return 0
+  for root in "$(cd "$dir" 2>/dev/null && pwd)" "$(cd "$dir" 2>/dev/null && pwd -P)"; do
+    [ -n "$root" ] || continue
+    [ "$root" != "/" ] || continue
+    if [ -n "${HOME:-}" ] && [ "$root" = "$HOME" ]; then
+      continue
+    fi
+    case "$(basename "$root")" in
+      aether_*) ;;
+      *) continue ;;
+    esac
+    for item in "${stop_roots[@]}"; do
+      [ "$item" = "$root" ] && continue 2
+    done
+    stop_roots+=("$root")
+  done
+}
+
+has_pid() {
+  local pid item
+  pid="$1"
+  shift
+  for item in "$@"; do
+    [ "$item" = "$pid" ] && return 0
+  done
+  return 1
+}
+
+collect_stop_roots() {
+  local dir root
+  stop_roots=()
+  add_stop_root "$old"
+  add_stop_root "$target"
+  add_stop_root "${AETHER_CURRENT_DIR:-}"
+  add_stop_root "$copy_target"
+  shopt -s nullglob
+  for dir in "$work"/aether_*; do
+    add_stop_root "$dir"
+  done
+  root="$(mirror_root || true)"
+  if [ -n "$root" ]; then
+    for dir in "$root"/aether_*; do
+      add_stop_root "$dir"
+    done
+  fi
+  shopt -u nullglob
+}
+
+runtime_pids() {
+  local rows pid ppid cmd root item changed
+  local -a hits=()
+  rows="$(ps -axww -o pid=,ppid=,command=)"
+  while read -r pid ppid cmd; do
+    [ -n "$pid" ] || continue
+    [ "$pid" = "$$" ] && continue
+    case "$cmd" in
+      *update_darwin.command*) continue ;;
+    esac
+    for root in "${stop_roots[@]}"; do
+      case "$cmd" in
+        "$root/Aether.command"*|\
+        *" $root/Aether.command"*|\
+        "$root/aether "*|\
+        *" $root/aether "*|\
+        "$root/aether"|\
+        *" $root/aether"|\
+        "$root/Aether.sh"*|\
+        *" $root/Aether.sh"*|\
+        "$root/Aether.sh.real"*|\
+        *" $root/Aether.sh.real"*)
+          hits+=("$pid")
+          break
+          ;;
+      esac
+    done
+  done <<EOF
+$rows
+EOF
+
+  changed="1"
+  while [ "$changed" = "1" ]; do
+    changed="0"
+    while read -r pid ppid cmd; do
+      [ -n "$pid" ] || continue
+      [ "$pid" = "$$" ] && continue
+      case "$cmd" in
+        *update_darwin.command*) continue ;;
+      esac
+      if has_pid "$ppid" "${hits[@]}" && ! has_pid "$pid" "${hits[@]}"; then
+        hits+=("$pid")
+        changed="1"
+      fi
+    done <<EOF
+$rows
+EOF
+  done
+
+  for item in "${hits[@]}"; do
+    echo "$item"
+  done | sort -u
+}
+
+wait_runtime() {
+  local tries pids
+  tries="$1"
+  while [ "$tries" -gt 0 ]; do
+    pids="$(runtime_pids)"
+    [ -z "$pids" ] && return 0
+    sleep 1
+    tries=$((tries - 1))
+  done
+  return 1
+}
+
+stop_all_runtime() {
+  local pids
+  collect_stop_roots
+  pids="$(runtime_pids)"
+  [ -n "$pids" ] || return 0
+  echo "正在关闭旧版本 Aether 进程..."
+  kill $pids >/dev/null 2>&1 || true
+  wait_runtime 5 && return 0
+  pids="$(runtime_pids)"
+  if [ -n "$pids" ]; then
+    kill -9 $pids >/dev/null 2>&1 || true
+  fi
+  if ! wait_runtime 3; then
+    echo "警告：仍检测到旧版本 Aether 进程，将继续启动新版本。"
+  fi
 }
 
 boot() {
@@ -533,10 +662,7 @@ fi
 write_launch "$final_target"
 
 if [ "$restart" = "1" ]; then
-  stop "$old"
-  stop "$target"
-  stop "${AETHER_CURRENT_DIR:-}"
-  stop "$copy_target"
+  stop_all_runtime
   if [ -n "$copy_target" ]; then
     if ! boot "$copy_target" && ! boot "$target"; then
       fail "重启失败：无法启动 $target/Aether.command"

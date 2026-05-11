@@ -87,17 +87,18 @@ describe("Project.fromDirectory", () => {
     expect(project.worktree).toBe(tmp.path)
 
     const opencodeFile = path.join(tmp.path, ".git", "opencode")
-    expect(await Bun.file(opencodeFile).exists()).toBe(true)
+    expect(await Bun.file(opencodeFile).exists()).toBe(false)
   })
 
-  test("returns hash-based id for non-git directory", async () => {
+  test("returns hash-based id for resolved directory", async () => {
     await using tmp = await tmpdir()
-    const { project } = await Project.fromDirectory(tmp.path)
+    const { project, sandbox } = await Project.fromDirectory(tmp.path)
     expect(project.id).not.toBe(ProjectID.global)
-    expect(project.worktree).toBe("/")
+    expect(tmp.path === project.worktree || tmp.path.startsWith(project.worktree + path.sep)).toBe(true)
+    expect(sandbox).toBe(project.worktree)
   })
 
-  test("derives stable project ID from root commit", async () => {
+  test("derives stable project ID from canonical root", async () => {
     await using tmp = await tmpdir({ git: true })
     const { project: a } = await Project.fromDirectory(tmp.path)
     const { project: b } = await Project.fromDirectory(tmp.path)
@@ -185,10 +186,9 @@ describe("Project.fromDirectory with worktrees", () => {
 
       expect(wt.id).toBe(main.id)
 
-      // Cache should live in the common .git dir, not the worktree's .git file
       const cache = path.join(tmp.path, ".git", "opencode")
       const exists = await Bun.file(cache).exists()
-      expect(exists).toBe(true)
+      expect(exists).toBe(false)
     } finally {
       await $`git worktree remove ${worktreePath}`
         .cwd(tmp.path)
@@ -197,7 +197,7 @@ describe("Project.fromDirectory with worktrees", () => {
     }
   })
 
-  test("separate clones of the same repo should share project ID", async () => {
+  test("separate clones of the same repo should use separate project IDs", async () => {
     await using tmp = await tmpdir({ git: true })
 
     // Create a bare remote, push, then clone into a second directory
@@ -210,7 +210,7 @@ describe("Project.fromDirectory with worktrees", () => {
       const { project: a } = await Project.fromDirectory(tmp.path)
       const { project: b } = await Project.fromDirectory(clone)
 
-      expect(b.id).toBe(a.id)
+      expect(b.id).not.toBe(a.id)
     } finally {
       await $`rm -rf ${bare} ${clone}`.quiet().nothrow()
     }
@@ -443,14 +443,14 @@ describe("Project.recentList", () => {
     expect(after.slice(0, 2)).toEqual([b.path, a.path])
   })
 
-  test("lists directory entries from fromDirectory", async () => {
+  test("lists non-git project entries from fromDirectory", async () => {
     await using tmp = await tmpdir()
 
-    await Project.fromDirectory(tmp.path)
+    const { project } = await Project.fromDirectory(tmp.path)
 
-    const item = Project.recentList().find((entry) => entry.directory === tmp.path)
+    const item = Project.recentList().find((entry) => entry.directory === project.worktree)
     expect(item).toBeDefined()
-    expect(item!.kind).toBe("directory")
+    expect(item!.kind).toBe("project")
   })
 
   test("lists git project entries from fromDirectory", async () => {
