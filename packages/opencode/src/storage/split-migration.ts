@@ -426,7 +426,7 @@ export namespace SplitMigration {
         return { projects: data.projects, sessions: data.sessions }
       }
       copyFileSync(data.destCopy, main)
-      deleteWithCompanions(data.destCopy)
+      deleteCompanionsWithRetry(data.destCopy, 3000)
       unlinkSync(swapMarker)
       removeAttempts()
       log.info("completed pending swap from previous migration", data)
@@ -585,7 +585,7 @@ export namespace SplitMigration {
 
       const resolveProject = (s: any) => {
         const row = projectByOld.get(s.project_id)
-        const dir = row?.worktree && row.worktree !== "/" ? row.worktree : s.directory || row?.worktree || "/"
+        const dir = s.directory || row?.worktree || "/"
         const info = ProjectIdentity.resolve(dir)
         const pid = info.id
         if (s.project_id !== "global") oldProjectIdMap.set(s.project_id, pid)
@@ -920,7 +920,7 @@ export namespace SplitMigration {
       copyFileSync(destCopy, main)
       log.info("replaced main db with migration result")
 
-      deleteWithCompanions(destCopy)
+      deleteCompanionsWithRetry(destCopy, 3000)
 
       removeAttempts()
       log.info("split migration complete", { projects: projectCount, sessions: sessionCount })
