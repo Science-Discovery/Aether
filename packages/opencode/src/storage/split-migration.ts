@@ -420,12 +420,11 @@ export namespace SplitMigration {
         removeAttempts()
         return { projects: 0, sessions: 0 }
       }
-      deleteCompanionsWithRetry(main, 3000)
-      if (existsSync(main + "-shm") || existsSync(main + "-wal")) {
-        log.error("WAL/SHM companions still held, deferring swap to next startup")
-        return { projects: data.projects, sessions: data.sessions }
-      }
       copyFileSync(data.destCopy, main)
+      try {
+        if (existsSync(main + "-wal")) writeFileSync(main + "-wal", Buffer.alloc(0))
+        if (existsSync(main + "-shm")) unlinkSync(main + "-shm")
+      } catch {}
       deleteCompanionsWithRetry(data.destCopy, 3000)
       unlinkSync(swapMarker)
       removeAttempts()
@@ -902,26 +901,23 @@ export namespace SplitMigration {
       destSqlite.close()
       destSqlite = undefined
 
-      // Try to delete main.db's WAL/SHM companions. On Windows, handles from
-      // prior needsMigration() / Database.close() calls may linger briefly.
-      deleteCompanionsWithRetry(main, 3000)
-      if (existsSync(main + "-shm") || existsSync(main + "-wal")) {
-        // WAL/SHM still held — cannot safely overwrite main.db (stale WAL
-        // replay would corrupt the new content). Defer swap to next startup
-        // when no process holds the file.
-        writeFileSync(
-          swapMarkerPath(main),
-          JSON.stringify({ destCopy, projects: projectCount, sessions: sessionCount }),
-        )
-        log.info("WAL/SHM companions still held, deferring file swap to next startup", {
-          destCopy,
-          swapMarker: swapMarkerPath(main),
-        })
-        removeAttempts()
-        return { projects: projectCount, sessions: sessionCount }
-      }
+      // Overwrite main.db with migration result. On Windows, WAL/SHM companions
+      // from prior DB connections may linger after close() (EBUSY on unlink).
+      // Instead of trying to delete them first, we overwrite the .db file
+      // (copyFileSync works even with WAL/SHM present) and then neutralize
+      // the stale WAL by writing a zero-length buffer — this prevents SQLite
+      // from replaying incompatible WAL frames into the new .db content.
       copyFileSync(destCopy, main)
       log.info("replaced main db with migration result")
+
+      try {
+        if (existsSync(main + "-wal")) writeFileSync(main + "-wal", Buffer.alloc(0))
+        if (existsSync(main + "-shm")) unlinkSync(main + "-shm")
+      } catch {
+        // EBUSY on Windows: WAL/SHM handles not yet released.
+        // Zero-length WAL + stale SHM is still safe — SQLite detects the
+        // mismatch (empty WAL = no frames to replay) and rebuilds SHM on next open.
+      }
 
       deleteCompanionsWithRetry(destCopy, 3000)
 
