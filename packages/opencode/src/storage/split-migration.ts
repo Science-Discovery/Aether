@@ -47,6 +47,25 @@ export namespace SplitMigration {
 
   const MAX_ATTEMPTS = 5
 
+  function srcCopyPath(main: string) {
+    return path.join(backupDir(), path.basename(main) + ".migration-src")
+  }
+
+  function destCopyPath(main: string) {
+    return path.join(backupDir(), path.basename(main) + ".migration-dest")
+  }
+
+  function retiredPath(main: string) {
+    return path.join(backupDir(), path.basename(main) + ".retired")
+  }
+
+  function deleteWithCompanions(p: string) {
+    if (existsSync(p)) unlinkSync(p)
+    for (const ext of ["-shm", "-wal"]) {
+      if (existsSync(p + ext)) unlinkSync(p + ext)
+    }
+  }
+
   function attemptsPath() {
     return mainDbPath() + ".migration-attempts"
   }
@@ -88,7 +107,25 @@ export namespace SplitMigration {
     }
     const main = mainDbPath()
     if (main === ":memory:") return "none"
-    if (!existsSync(main)) return "none"
+
+    if (!existsSync(main)) {
+      const retired = retiredPath(main)
+      if (existsSync(retired)) {
+        try {
+          copyFileSync(retired, main)
+          for (const ext of ["-shm", "-wal"]) {
+            if (existsSync(retired + ext)) copyFileSync(retired + ext, main + ext)
+          }
+          deleteWithCompanions(retired)
+          log.info("recovered main db from retired copy", { source: retired })
+        } catch {
+          log.error("failed to recover main db from retired copy", { source: retired })
+        }
+      } else {
+        return "none"
+      }
+    }
+
     if (readAttempts() > 0 && existsSync(backupDbPath(main))) {
       const backup = new BunDatabase(backupDbPath(main))
       try {
@@ -104,7 +141,6 @@ export namespace SplitMigration {
     const sqlite = new BunDatabase(main)
     sqlite.exec("PRAGMA wal_checkpoint(TRUNCATE)")
     try {
-      // Case 1: monolithic DB still has session table → initial split needed
       const hasSessionTable = sqlite
         .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='session'")
         .get()
@@ -116,6 +152,9 @@ export namespace SplitMigration {
         }
       }
       sqlite.close()
+      deleteWithCompanions(retiredPath(main))
+      deleteWithCompanions(srcCopyPath(main))
+      deleteWithCompanions(destCopyPath(main))
       return "none"
     } catch {
       sqlite.close()
@@ -302,11 +341,10 @@ export namespace SplitMigration {
     }
   }
 
-  function verifySplit(srcSqlite: BunDatabase, projectIds: Set<string>): boolean {
-    const srcSessions = (srcSqlite.prepare("SELECT count(*) as cnt FROM session").get() as { cnt: number }).cnt
-    const srcMessages = (srcSqlite.prepare("SELECT count(*) as cnt FROM message").get() as { cnt: number }).cnt
-    const srcParts = (srcSqlite.prepare("SELECT count(*) as cnt FROM part").get() as { cnt: number }).cnt
-
+  function verifySplit(
+    expected: { sessions: number; messages: number; parts: number },
+    projectIds: Set<string>,
+  ): boolean {
     let totalSessions = 0
     let totalMessages = 0
     let totalParts = 0
@@ -323,9 +361,9 @@ export namespace SplitMigration {
       pDb.close()
     }
 
-    if (totalSessions !== srcSessions || totalMessages !== srcMessages || totalParts !== srcParts) {
+    if (totalSessions !== expected.sessions || totalMessages !== expected.messages || totalParts !== expected.parts) {
       log.error("verification failed: count mismatch", {
-        expected: { sessions: srcSessions, messages: srcMessages, parts: srcParts },
+        expected: { sessions: expected.sessions, messages: expected.messages, parts: expected.parts },
         actual: { sessions: totalSessions, messages: totalMessages, parts: totalParts },
       })
       return false
@@ -359,58 +397,35 @@ export namespace SplitMigration {
 
     const main = mainDbPath()
     const backup = backupDbPath(main)
-    log.info("starting per-project database split", { main, backup, attempt: attempts + 1 })
+    const srcCopy = srcCopyPath(main)
+    const destCopy = destCopyPath(main)
+    const retired = retiredPath(main)
+    log.info("starting per-project database split", { main, backup, srcCopy, destCopy, attempt: attempts + 1 })
+
+    deleteWithCompanions(srcCopy)
+    deleteWithCompanions(destCopy)
+
+    let srcSqlite: BunDatabase | undefined
+    let destSqlite: BunDatabase | undefined
 
     try {
-      // Prefer existing .pre-split backup if it contains original monolithic data.
-      // This handles the case where a previous split partially succeeded:
-      // the main DB was modified (global_project_map added, tables partially dropped)
-      // but the .pre-split backup still has the original complete data.
-      let srcPath = backup
-      if (existsSync(backup)) {
-        let testDb: BunDatabase | undefined
-        try {
-          testDb = new BunDatabase(backup)
-          testDb.exec("PRAGMA wal_checkpoint(TRUNCATE)")
-          const hasProjectTable = testDb
-            .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='project'")
-            .get()
-          if (hasProjectTable) {
-            log.info("using existing pre-split backup as source", { path: backup })
-          } else {
-            srcPath = main
-            log.info("pre-split backup lacks project table, will recreate from main db", { path: backup })
-          }
-        } catch {
-          srcPath = main
-          log.info("pre-split backup unreadable, will recreate from main db", { path: backup })
-        } finally {
-          testDb?.close()
-        }
-      } else {
-        srcPath = main
-      }
-
-      if (srcPath === main) {
-        // Backup WAL/SHM BEFORE checkpoint (checkpoint deletes these files)
+      if (!existsSync(backup)) {
         const companions = ["-shm", "-wal"]
         for (const ext of companions) {
-          const srcPathComp = main + ext
-          const dstPathComp = backup + ext
-          if (existsSync(srcPathComp)) copyFileSync(srcPathComp, dstPathComp)
+          if (existsSync(main + ext)) copyFileSync(main + ext, backup + ext)
         }
-
-        // WAL checkpoint flushes WAL data into main db file, then deletes WAL/SHM
         const checkpointDb = new BunDatabase(main)
         checkpointDb.exec("PRAGMA wal_checkpoint(TRUNCATE)")
         checkpointDb.close()
-
-        // After checkpoint, .db file contains all data; WAL/SHM are gone
         copyFileSync(main, backup)
         log.info("backed up main db", { from: main, to: backup })
       }
 
-      const srcSqlite = new BunDatabase(srcPath)
+      copyFileSync(backup, srcCopy)
+      copyFileSync(backup, destCopy)
+      log.info("created isolation copies from backup", { srcCopy, destCopy })
+
+      srcSqlite = new BunDatabase(srcCopy)
       srcSqlite.exec("PRAGMA foreign_keys = OFF")
 
       const projects = srcSqlite.prepare("SELECT * FROM project").all() as any[]
@@ -437,6 +452,16 @@ export namespace SplitMigration {
           .get()
         return has ? (srcSqlite.prepare("SELECT * FROM session_preference").all() as any[]) : []
       })()
+
+      const srcCounts = {
+        sessions: (srcSqlite.prepare("SELECT count(*) as cnt FROM session").get() as { cnt: number }).cnt,
+        messages: (srcSqlite.prepare("SELECT count(*) as cnt FROM message").get() as { cnt: number }).cnt,
+        parts: (srcSqlite.prepare("SELECT count(*) as cnt FROM part").get() as { cnt: number }).cnt,
+        project_recent: (srcSqlite.prepare("SELECT count(*) as cnt FROM project_recent").get() as { cnt: number }).cnt,
+      }
+
+      srcSqlite.close()
+      srcSqlite = undefined
 
       const treeBySession = new Map(sessions.map((s) => [s.id, s.tree_id] as const))
       for (const s of sessions) {
@@ -748,14 +773,14 @@ export namespace SplitMigration {
       log.info("created cron database")
 
       // Verify all data was correctly migrated before modifying main DB
-      const verified = verifySplit(srcSqlite, uniqueProjectIds)
+      const verified = verifySplit(srcCounts, uniqueProjectIds)
       if (!verified) {
-        srcSqlite.close()
         throw new Error("split migration verification failed, will retry on next startup")
       }
 
-      const destSqlite = new BunDatabase(main)
+      destSqlite = new BunDatabase(destCopy)
       destSqlite.exec("PRAGMA foreign_keys = OFF")
+      destSqlite.exec("PRAGMA busy_timeout = 5000")
       destSqlite.exec("PRAGMA wal_checkpoint(TRUNCATE)")
       destSqlite.exec("BEGIN TRANSACTION")
       destSqlite.exec(globalProjectMapSQL)
@@ -768,7 +793,6 @@ export namespace SplitMigration {
           )
           .run(dir, pid, Date.now(), Date.now())
       }
-      // Strip FKs BEFORE dropping tables (strip needs the source table to exist)
       destSqlite.exec(stripProjectRecentFK)
       const recentRows = destSqlite.prepare("SELECT key, kind, project_id, directory FROM project_recent").all() as {
         key: string
@@ -781,23 +805,23 @@ export namespace SplitMigration {
           (row.project_id ? oldProjectIdMap.get(row.project_id) : undefined) ??
           directoryProjectMap.get(norm(row.directory ?? ""))
         if (pid && uniqueProjectIds.has(pid)) {
-          destSqlite.prepare("UPDATE project_recent SET kind = 'project', project_id = ? WHERE key = ?").run(pid, row.key)
+          destSqlite
+            .prepare("UPDATE project_recent SET kind = 'project', project_id = ? WHERE key = ?")
+            .run(pid, row.key)
           continue
         }
         destSqlite.prepare("UPDATE project_recent SET kind = 'directory', project_id = NULL WHERE key = ?").run(row.key)
       }
-      const recentCount = (destSqlite.prepare("SELECT count(*) as cnt FROM project_recent").get() as { cnt: number }).cnt
-      const sourceRecentCount = (
-        srcSqlite.prepare("SELECT count(*) as cnt FROM project_recent").get() as { cnt: number }
-      ).cnt
-      if (recentCount !== sourceRecentCount) throw new Error("project_recent count changed during split migration")
+      const recentCount = (destSqlite.prepare("SELECT count(*) as cnt FROM project_recent").get() as { cnt: number })
+        .cnt
+      if (recentCount !== srcCounts.project_recent)
+        throw new Error("project_recent count changed during split migration")
       const hasSessionPref = destSqlite
         .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='session_preference'")
         .get()
       if (hasSessionPref) {
         destSqlite.exec(stripSessionPreferenceFK)
       }
-      // Now drop tables that moved to per-project/cron dbs
       destSqlite.exec("DROP TABLE IF EXISTS session")
       destSqlite.exec("DROP TABLE IF EXISTS message")
       destSqlite.exec("DROP TABLE IF EXISTS part")
@@ -816,16 +840,27 @@ export namespace SplitMigration {
       destSqlite.exec("VACUUM")
       destSqlite.exec("PRAGMA wal_checkpoint(TRUNCATE)")
       destSqlite.close()
+      destSqlite = undefined
 
-      srcSqlite.close()
+      // Overwrite main with migration result (copyFileSync overwrites destination).
+      // The .pre-split backup in backup dir serves as the ultimate safety net.
+      // Delete stale WAL/SHM companions first so SQLite starts clean on next open.
+      for (const ext of ["-shm", "-wal"]) {
+        if (existsSync(main + ext)) unlinkSync(main + ext)
+      }
+      copyFileSync(destCopy, main)
+      log.info("replaced main db with migration result")
+
+      deleteWithCompanions(destCopy)
 
       removeAttempts()
       log.info("split migration complete", { projects: projectCount, sessions: sessionCount })
       return { projects: projectCount, sessions: sessionCount }
     } catch (error) {
+      srcSqlite?.close()
+      destSqlite?.close()
       log.error("split migration failed", { error, attempt: readAttempts() })
       throw error
     }
   }
-
 }
