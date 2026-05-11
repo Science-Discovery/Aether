@@ -51,6 +51,7 @@ bun dev serve
 
 # 终端 2（然后打开 http://localhost:xxxx）
 bun run --cwd packages/app dev
+VITE_OPENCODE_SERVER_PORT=19528 bun run --cwd packages/app dev
 ```
 
 **修改了 Server API 后，需重新生成 SDK：**
