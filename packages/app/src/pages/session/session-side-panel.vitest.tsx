@@ -186,9 +186,7 @@ vi.mock("@/context/sdk", () => ({
     url: "http://local",
     directory: "/tmp/project",
     client: {
-      file: {
-        summarize: async () => ({ data: { count: 0 } }),
-      },
+      file: {},
     },
   }),
 }))

@@ -3,7 +3,6 @@ import path from "path"
 import { Plugin } from "../plugin"
 import { Format } from "../format"
 import { LSP } from "../lsp"
-import { SummaryWatcher } from "../file/summary-watcher"
 import { File } from "../file"
 import { FileWatcher } from "../file/watcher"
 import { Snapshot } from "../snapshot"
@@ -25,7 +24,6 @@ export async function InstanceBootstrap() {
   ShareNext.init()
   Format.init()
   await LSP.init()
-  SummaryWatcher.init()
   File.init()
   FileWatcher.init()
   Vcs.init()

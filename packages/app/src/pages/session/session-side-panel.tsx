@@ -323,34 +323,6 @@ export function SessionSidePanel(props: {
     props.onRefresh()
   }
 
-  const [isSummarizing, setIsSummarizing] = createSignal(false)
-
-  async function handleSummarize() {
-    if (isSummarizing()) return
-    setIsSummarizing(true)
-    try {
-      const result = await sdk.client.file.summarize()
-      const data = result.data as { count: number } | undefined
-      const count = data?.count ?? 0
-      showToast({
-        variant: "success",
-        title: language.t("filePanel.summarizeComplete", { count }),
-      })
-      file.tree.refresh("")
-      refresh()
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err)
-      showToast({
-        variant: "error",
-        icon: "circle-x",
-        title: language.t("filePanel.summarizeFailed"),
-        description: message,
-      })
-    } finally {
-      setIsSummarizing(false)
-    }
-  }
-
   const isDesktop = createMediaQuery("(min-width: 768px)")
 
   const state = createMemo(() =>
@@ -1158,19 +1130,6 @@ export function SessionSidePanel(props: {
                       >
                         <Icon name="folder-add-left" size="small" />
                         <span class="hidden @sm:block">{language.t("filePanel.newFolder")}</span>
-                      </button>
-                    </Tooltip>
-                    <Tooltip value={language.t("filePanel.summarizeTooltip")}>
-                      <button
-                        type="button"
-                        class="flex items-center gap-1 px-2 py-1 rounded text-12-regular text-text-weak hover:text-text-base hover:bg-surface-raised-base-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                        onClick={handleSummarize}
-                        disabled={isSummarizing()}
-                      >
-                        <Icon name="bullet-list" size="small" />
-                        <span class="hidden @sm:block">
-                          {isSummarizing() ? language.t("filePanel.summarizing") : language.t("filePanel.summarize")}
-                        </span>
                       </button>
                     </Tooltip>
                     <Tooltip value={language.t("filePanel.refreshTooltip")}>

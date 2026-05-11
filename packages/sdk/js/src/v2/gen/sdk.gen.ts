@@ -89,7 +89,6 @@ import type {
   FileRenameErrors,
   FileRenameResponses,
   FileStatusResponses,
-  FileSummarizeResponses,
   FileTranslateMarkdownCancelResponses,
   FileTranslateMarkdownCheckErrors,
   FileTranslateMarkdownCheckResponses,
@@ -4261,55 +4260,6 @@ export class File extends HeyApiClient {
         },
       },
     )
-  }
-
-  /**
-   * Generate directory summaries
-   *
-   * Generate .summary files for all directories in the project using LLM.
-   */
-  public summarize<ThrowOnError extends boolean = false>(
-    parameters?: {
-      query_directory?: string
-      workspace?: string
-      body_directory?: string
-      maxDepth?: number
-      force?: boolean
-    },
-    options?: Options<never, ThrowOnError>,
-  ) {
-    const params = buildClientParams(
-      [parameters],
-      [
-        {
-          args: [
-            {
-              in: "query",
-              key: "query_directory",
-              map: "directory",
-            },
-            { in: "query", key: "workspace" },
-            {
-              in: "body",
-              key: "body_directory",
-              map: "directory",
-            },
-            { in: "body", key: "maxDepth" },
-            { in: "body", key: "force" },
-          ],
-        },
-      ],
-    )
-    return (options?.client ?? this.client).post<FileSummarizeResponses, unknown, ThrowOnError>({
-      url: "/file/summarize",
-      ...options,
-      ...params,
-      headers: {
-        "Content-Type": "application/json",
-        ...options?.headers,
-        ...params.headers,
-      },
-    })
   }
 
   /**

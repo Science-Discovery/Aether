@@ -75,7 +75,6 @@ export const ReadTool = Tool.define("read", {
       const dirents = await fs.readdir(filepath, { withFileTypes: true })
       const entries = await Promise.all(
         dirents
-          .filter((dirent) => dirent.name !== ".summary")
           .map(async (dirent) => {
             if (dirent.isDirectory()) return dirent.name + "/"
             if (dirent.isSymbolicLink()) {
@@ -87,16 +86,6 @@ export const ReadTool = Tool.define("read", {
       )
       entries.sort((a, b) => a.localeCompare(b))
 
-      // Read .summary if present
-      let summaryContent: string | undefined
-      try {
-        const summaryPath = path.join(filepath, ".summary")
-        const summaryStat = await fs.stat(summaryPath).catch(() => undefined)
-        if (summaryStat?.isFile()) {
-          summaryContent = (await fs.readFile(summaryPath, "utf-8")).trim()
-        }
-      } catch {}
-
       const limit = params.limit ?? DEFAULT_READ_LIMIT
       const offset = params.offset ?? 1
       const start = offset - 1
@@ -106,11 +95,6 @@ export const ReadTool = Tool.define("read", {
       const output = [
         `<path>${filepath}</path>`,
         `<type>directory</type>`,
-        ...(summaryContent
-          ? [
-              `<summary>\n${summaryContent}\n\n[IMPORTANT: Read the summary above before deciding which subdirectories to enter.]\n</summary>`,
-            ]
-          : []),
         `<entries>`,
         sliced.join("\n"),
         truncated
@@ -120,12 +104,10 @@ export const ReadTool = Tool.define("read", {
       ].join("\n")
 
       return {
-        title: summaryContent ? `${title} [.summary]` : title,
+        title,
         output,
         metadata: {
-          preview: summaryContent
-            ? `[.summary] ${summaryContent}\n---\n${sliced.slice(0, 20).join("\n")}`
-            : sliced.slice(0, 20).join("\n"),
+          preview: sliced.slice(0, 20).join("\n"),
           truncated,
           loaded: [] as string[],
         },

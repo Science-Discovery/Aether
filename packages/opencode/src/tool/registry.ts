@@ -28,7 +28,6 @@ import { Log } from "@/util/log"
 import { LspTool } from "./lsp"
 import { Truncate } from "./truncate"
 import { ApplyPatchTool } from "./apply_patch"
-import { SummarizeDirsTool } from "./summarize-dirs"
 import {
   CronCreateTool,
   CronDeleteTool,
@@ -141,7 +140,6 @@ export namespace ToolRegistry {
           CodeSearchTool,
           SkillTool,
           ApplyPatchTool,
-          SummarizeDirsTool,
           CronListTool,
           CronGetTool,
           CronCreateTool,

@@ -139,7 +139,6 @@ export type AppClient = Base & {
     delete(input: { path: string }): Promise<{ data?: { ok: boolean } }>
     rename(input: { path: string; name: string }): Promise<{ data?: { ok: boolean; path: string } }>
     write(input: { path: string; content: string }): Promise<{ data?: { ok: boolean } }>
-    summarize(input?: { directory?: string; maxDepth?: number; force?: boolean }): Promise<{ data?: { count: number } }>
     open(input: { path: string; app?: string }): Promise<{ data?: { ok: boolean } }>
     openInExplorer(input: { path: string }): Promise<{ data?: { ok: boolean } }>
     pickFolder(): Promise<{ data?: { path: string | null } }>
