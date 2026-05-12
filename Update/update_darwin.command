@@ -13,6 +13,10 @@ debug_log() {
 
 debug_log "========== NEW UPDATE RUN =========="
 
+trap 'debug_log "SIGNAL | received SIGTERM, pid=$$, ppid=$PPID"; exit 1' SIGTERM
+trap 'debug_log "SIGNAL | received SIGINT, pid=$$, ppid=$PPID"; exit 1' SIGINT
+trap 'debug_log "SIGNAL | received SIGHUP, pid=$$, ppid=$PPID"; exit 1' SIGHUP
+
 want="${1:-}"
 self="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 base="$(basename "$self")"
@@ -419,6 +423,7 @@ stop_roots=()
 add_stop_root() {
   local dir item
   dir="${1:-}"
+  debug_log "STOP_ROOT | call: input=${1:-}"
   [ -n "$dir" ] || { debug_log "STOP_ROOT | skip: empty input"; return 0; }
   [ -d "$dir" ] || { debug_log "STOP_ROOT | skip: not a dir: $dir"; return 0; }
   dir="$(cd "$dir" 2>/dev/null && pwd)" || { debug_log "STOP_ROOT | skip: cd failed: ${1:-}"; return 0; }
@@ -461,7 +466,7 @@ runtime_pids() {
     [ -n "$pid" ] || continue
     [ "$pid" = "$$" ] && continue
     case "$cmd" in
-      *update_darwin.command*) continue ;;
+      *update_darwin*.command*) continue ;;
     esac
     matched=""
     for root in "${stop_roots[@]}"; do
