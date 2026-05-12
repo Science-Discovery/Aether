@@ -18,7 +18,7 @@ debug_log() {
 debug_log "========== NEW UPDATE RUN =========="
 
 pgid="$(ps -o pgid= -p $$ 2>/dev/null | tr -d ' ')"
-debug_log "PGID | pid=$$ pgid=${pgid:-unknown}"
+debug_log "PGID | pid=$$ pgid=${pgid:-unknown} bash=${BASH_VERSION:-unknown}"
 
 if [ "${AETHER_REEXECED:-0}" != "1" ] && [ "${pgid:-}" != "$$" ] && [ -n "${pgid:-}" ]; then
   debug_log "REEXEC | pgid=$pgid != pid=$$, need setsid"
@@ -447,9 +447,11 @@ add_stop_root() {
   [ -n "$dir" ] || { debug_log "STOP_ROOT | skip: empty input"; return 0; }
   [ -d "$dir" ] || { debug_log "STOP_ROOT | skip: not a dir: $dir"; return 0; }
   dir="$(cd "$dir" 2>/dev/null && pwd)" || { debug_log "STOP_ROOT | skip: cd failed: ${1:-}"; return 0; }
-  for item in "${stop_roots[@]}"; do
-    [ "$item" = "$dir" ] && { debug_log "STOP_ROOT | skip: duplicate: $dir"; return 0; }
-  done
+  if [ ${#stop_roots[@]} -gt 0 ]; then
+    for item in "${stop_roots[@]}"; do
+      [ "$item" = "$dir" ] && { debug_log "STOP_ROOT | skip: duplicate: $dir"; return 0; }
+    done
+  fi
   stop_roots+=("$dir")
   debug_log "STOP_ROOT | added: $dir"
 }
@@ -476,7 +478,11 @@ collect_stop_roots() {
     debug_log "COLLECT | mirror_root: empty or failed"
   fi
   shopt -u nullglob
-  debug_log "COLLECT | stop_roots count=${#stop_roots[@]} roots=${stop_roots[*]}"
+  if [ ${#stop_roots[@]} -gt 0 ]; then
+    debug_log "COLLECT | stop_roots count=${#stop_roots[@]} roots=${stop_roots[*]}"
+  else
+    debug_log "COLLECT | stop_roots count=0 roots=(empty)"
+  fi
 }
 
 runtime_pids() {
@@ -489,23 +495,25 @@ runtime_pids() {
       *update_darwin*.command*) continue ;;
     esac
     matched=""
-    for root in "${stop_roots[@]}"; do
-      case "$cmd" in
-        *"$root/"*)
-          case "$cmd" in
-            *"/aether "*|*"/aether"|*"Aether.command"*|*"Aether.sh"*|*"Aether.sh.real"*)
-              debug_log "PIDS | matched: pid=$pid root=$root cmd=$cmd"
-              echo "$pid"
-              matched="1"
-              break
-              ;;
-            *)
-              debug_log "PIDS | path_hit_cmd_miss: pid=$pid root=$root cmd=$cmd"
-              ;;
-          esac
-          ;;
-      esac
-    done
+    if [ ${#stop_roots[@]} -gt 0 ]; then
+      for root in "${stop_roots[@]}"; do
+        case "$cmd" in
+          *"$root/"*)
+            case "$cmd" in
+              *"/aether "*|*"/aether"|*"Aether.command"*|*"Aether.sh"*|*"Aether.sh.real"*)
+                debug_log "PIDS | matched: pid=$pid root=$root cmd=$cmd"
+                echo "$pid"
+                matched="1"
+                break
+                ;;
+              *)
+                debug_log "PIDS | path_hit_cmd_miss: pid=$pid root=$root cmd=$cmd"
+                ;;
+            esac
+            ;;
+        esac
+      done
+    fi
     if [ -z "$matched" ]; then
       case "$cmd" in
         */aether*|*Aether.command*|*Aether.sh*) debug_log "PIDS | aether_no_root: pid=$pid cmd=$cmd" ;;
