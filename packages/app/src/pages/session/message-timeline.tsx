@@ -313,7 +313,7 @@ export function MessageTimeline(props: {
         (msg) => msg.role === "assistant" && typeof msg.time.completed !== "number",
       ),
   }))
-  const { interactive: working } = createWorkingState({
+  const { selfInteractive: working } = createWorkingState({
     status: () => sessionStatus(),
     pending: () => pending(),
     sessionID: () => sessionID(),

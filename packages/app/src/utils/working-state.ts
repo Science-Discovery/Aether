@@ -71,8 +71,9 @@ export function createWorkingState(input: {
     return descendant(id, source)
   })
 
+  const selfInteractive = createMemo(() => active())
   const visual = createMemo(() => self() || child())
   const interactive = createMemo(() => active() || child())
 
-  return { visual, interactive, grace }
+  return { visual, interactive, selfInteractive, grace }
 }
