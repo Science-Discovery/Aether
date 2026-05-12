@@ -55,7 +55,7 @@ export namespace FileIgnore {
   ]
 
   export const PATTERNS = [...FILES, ...FOLDERS]
-  export const WATCH = [`{${[...FOLDERS].join(",")}}`]
+  export const WATCH = [`**/{${[...FOLDERS].join(",")}}`]
 
   export function match(
     filepath: string,

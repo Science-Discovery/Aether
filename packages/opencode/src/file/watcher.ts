@@ -1,6 +1,7 @@
 import { Cause, Effect, Layer, ServiceMap } from "effect"
 import { createInterface } from "readline"
 import type ParcelWatcher from "@parcel/watcher"
+import { existsSync } from "fs"
 import { readdir } from "fs/promises"
 import { fileURLToPath } from "url"
 import path from "path"
@@ -12,6 +13,7 @@ import { InstanceState } from "@/effect/instance-state"
 import { makeRuntime } from "@/effect/run-service"
 import { Flag } from "@/flag/flag"
 import { Git } from "@/git"
+import { Installation } from "@/installation"
 import { ActiveDirectory } from "@/project/active-directory"
 import { Instance } from "@/project/instance"
 import { lazy } from "@/util/lazy"
@@ -19,7 +21,6 @@ import { Config } from "../config/config"
 import * as Parcel from "./parcel-watcher"
 import { FileIgnore } from "./ignore"
 import { Protected } from "./protected"
-import { Glob } from "../util/glob"
 import { Process } from "../util/process"
 import { Log } from "../util/log"
 
@@ -29,6 +30,7 @@ export namespace FileWatcher {
   const SUBSCRIBE_COOLDOWN_MS = 60_000
   const SUBPROCESS_KILL_TIMEOUT_MS = 500
   const worker = fileURLToPath(new URL("./watcher-child.ts", import.meta.url))
+  const sidecarDir = fileURLToPath(new URL("../../../go-watcher/bin/", import.meta.url))
   let inflight = 0
   const cooldown = new Map<string, { until: number; reason: "timeout" | "error" }>()
 
@@ -95,60 +97,24 @@ export namespace FileWatcher {
     }
   }
 
-  function isglob(value: string) {
-    return /[*?[\]{}()!]/.test(value)
-  }
-
-  function ignored(root: string, target: string, ignore: string[]) {
-    const rel = path.relative(root, target)
-    if (rel === "" || rel.startsWith("..") || path.isAbsolute(rel)) return false
-    for (const item of ignore) {
-      if (!isglob(item)) {
-        const abs = path.resolve(root, item)
-        if (target === abs || target.startsWith(abs + path.sep)) return true
-        continue
-      }
-      if (Glob.match(item, rel)) return true
-    }
-    return false
-  }
-
-  async function count(root: string, ignore: string[]) {
-    const start = Date.now()
-    const list = [root]
-    let watched = 0
-    let skipped = 0
-    let failed = 0
-    while (list.length) {
-      const dir = list.pop()!
-      if (dir !== root && ignored(root, dir, ignore)) {
-        skipped += 1
-        continue
-      }
-      watched += 1
-      const items = await readdir(dir, { withFileTypes: true }).catch(() => undefined)
-      if (!items) {
-        failed += 1
-        continue
-      }
-      for (const item of items) {
-        if (!item.isDirectory()) continue
-        list.push(path.join(dir, item.name))
-      }
-    }
-    return {
-      watched,
-      skipped,
-      failed,
-      elapsedMs: Date.now() - start,
-    }
-  }
-
   function cool(dir: string) {
     const item = cooldown.get(dir)
     if (!item) return
     if (item.until > Date.now()) return item
     cooldown.delete(dir)
+  }
+
+  function sidecar() {
+    const env = process.env.OPENCODE_GO_WATCHER_PATH
+    if (env && existsSync(env)) return env
+    const name = process.platform === "win32" ? "opencode-watcher.exe" : "opencode-watcher"
+    if (Installation.isLocal()) {
+      const file = path.join(sidecarDir, name)
+      if (existsSync(file)) return file
+      return
+    }
+    const file = path.join(path.dirname(process.execPath), "native", name)
+    if (existsSync(file)) return file
   }
 
   export const hasNativeBinding = () => !!watcher()
@@ -282,7 +248,6 @@ export namespace FileWatcher {
                 state = reason
                 cooldown.set(dir, { reason, until: Date.now() + SUBSCRIBE_COOLDOWN_MS })
                 const stats = await linux()
-                const tree = process.platform === "linux" && kind === "worktree" ? await count(dir, ignore) : undefined
                 log.error("failed to subscribe", {
                   dir,
                   kind,
@@ -299,7 +264,6 @@ export namespace FileWatcher {
                   worktree: Instance.project.worktree,
                   projectID: Instance.project.id,
                   linux: stats,
-                  tree,
                   cause: error instanceof Error ? error.stack ?? error.message : error,
                 })
                 input.cancel?.()
@@ -412,26 +376,47 @@ export namespace FileWatcher {
     cb: ParcelWatcher.SubscribeCallback
   }) {
     const abort = new AbortController()
-    const proc = Process.spawn(
-      [
-        BunProc.which(),
-        worker,
-        Buffer.from(JSON.stringify({ dir: input.dir, ignore: input.ignore, backend: input.backend })).toString(
-          "base64url",
-        ),
-      ],
-      {
-        stdout: "pipe",
-        stderr: "pipe",
-        stdin: "ignore",
-        abort: abort.signal,
-        timeout: SUBPROCESS_KILL_TIMEOUT_MS,
-        env: {
-          BUN_BE_BUN: "1",
-        },
-      },
-    )
+    const file = sidecar()
+    console.log(file)
+    const proc = file
+      ? Process.spawn([file], {
+          stdout: "pipe",
+          stderr: "pipe",
+          stdin: "pipe",
+          abort: abort.signal,
+          timeout: SUBPROCESS_KILL_TIMEOUT_MS,
+        })
+      : Process.spawn(
+          [
+            BunProc.which(),
+            worker,
+            Buffer.from(JSON.stringify({ dir: input.dir, ignore: input.ignore, backend: input.backend })).toString(
+              "base64url",
+            ),
+          ],
+          {
+            stdout: "pipe",
+            stderr: "pipe",
+            stdin: "ignore",
+            abort: abort.signal,
+            timeout: SUBPROCESS_KILL_TIMEOUT_MS,
+            env: {
+              BUN_BE_BUN: "1",
+            },
+          },
+        )
     if (!proc.stdout || !proc.stderr) throw new Error("watcher child output not available")
+    if (file) {
+      if (!proc.stdin) throw new Error("watcher child input not available")
+      proc.stdin.end(
+        JSON.stringify({
+          v: 1,
+          type: "start",
+          root: input.dir,
+          ignore: input.ignore,
+        }) + "\n",
+      )
+    }
 
     const stderr = createInterface({
       input: proc.stderr,
@@ -473,9 +458,9 @@ export namespace FileWatcher {
 
       stdout.on("line", (line) => {
         let msg:
-          | { type: "ready" }
+          | { type: "ready"; watched?: number; ignored?: number }
           | { type: "event"; path: string; event: "add" | "change" | "unlink" }
-          | { type: "error"; stage: string; error: string }
+          | { type: "error"; stage: string; error: string; fatal?: boolean }
 
         try {
           msg = JSON.parse(line)
