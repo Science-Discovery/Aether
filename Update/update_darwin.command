@@ -3,8 +3,12 @@
 set -euo pipefail
 
 DEBUG_DIR="$HOME/.cache/aether/update_debug"
-DEBUG_TS="$(date +%Y%m%d_%H%M%S)"
-DEBUG_LOG="$DEBUG_DIR/update_${DEBUG_TS}.log"
+if [ -n "${AETHER_DEBUG_LOG:-}" ]; then
+  DEBUG_LOG="$AETHER_DEBUG_LOG"
+else
+  DEBUG_TS="$(date +%Y%m%d_%H%M%S)"
+  DEBUG_LOG="$DEBUG_DIR/update_${DEBUG_TS}.log"
+fi
 mkdir -p "$DEBUG_DIR" 2>/dev/null || true
 
 debug_log() {
@@ -12,6 +16,22 @@ debug_log() {
 }
 
 debug_log "========== NEW UPDATE RUN =========="
+
+pgid="$(ps -o pgid= -p $$ 2>/dev/null | tr -d ' ')"
+debug_log "PGID | pid=$$ pgid=${pgid:-unknown}"
+
+if [ "${AETHER_REEXECED:-0}" != "1" ] && [ "${pgid:-}" != "$$" ] && [ -n "${pgid:-}" ]; then
+  debug_log "REEXEC | pgid=$pgid != pid=$$, need setsid"
+  if command -v python3 >/dev/null 2>&1; then
+    debug_log "REEXEC | re-executing via python3 os.setsid+execvp"
+    export AETHER_REEXECED=1 AETHER_DEBUG_LOG="$DEBUG_LOG"
+    exec python3 -c "import os,sys; os.setsid(); os.execvp('bash', ['bash'] + sys.argv[1:])" "$0" "$@"
+  else
+    debug_log "REEXEC | python3 unavailable, cannot setsid; script may be SIGKILL'd with parent group"
+  fi
+fi
+
+debug_log "SESSION | pid=$$ pgid=${pgid:-unknown} reexeced=${AETHER_REEXECED:-0}"
 
 trap 'debug_log "SIGNAL | received SIGTERM, pid=$$, ppid=$PPID"; exit 1' SIGTERM
 trap 'debug_log "SIGNAL | received SIGINT, pid=$$, ppid=$PPID"; exit 1' SIGINT
