@@ -62,10 +62,7 @@ export namespace Session {
   const forkTitlePattern = /^(.*) \(fork #(\d+)\)$/
 
   function isSubagentSession(session: Info) {
-    if (!session.parentID) return false
-    if (session.forkParentSessionID) return false
-    if (forkTitlePattern.test(session.title)) return false
-    return session.title.startsWith(childTitlePrefix)
+    return !!session.parentID && !session.forkParentSessionID
   }
 
   function createDefaultTitle(isChild = false) {
