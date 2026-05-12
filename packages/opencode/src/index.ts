@@ -96,16 +96,9 @@ let cli = yargs(hideBin(process.argv))
         Database.close()
         try {
           const result = SplitMigration.run()
-          if (SplitMigration.isSwapPending()) {
-            process.stderr.write(
-              `Per-project DB split: data migrated (${result.projects} projects, ${result.sessions} sessions).${EOL}`,
-            )
-            process.stderr.write(`File swap deferred — restart to complete migration.${EOL}`)
-          } else {
-            process.stderr.write(
-              `Per-project DB split: ${result.projects} projects, ${result.sessions} sessions migrated.${EOL}`,
-            )
-          }
+          process.stderr.write(
+            `Per-project DB split: ${result.projects} projects, ${result.sessions} sessions migrated.${EOL}`,
+          )
         } catch (error) {
           const msg = error instanceof Error ? error.message : String(error)
           process.stderr.write(`Per-project DB split failed: ${msg}${EOL}`)

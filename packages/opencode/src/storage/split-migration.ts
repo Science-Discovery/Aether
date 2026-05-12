@@ -51,10 +51,6 @@ export namespace SplitMigration {
     return path.join(backupDir(), path.basename(main) + ".migration-dest")
   }
 
-  function retiredPath(main: string) {
-    return path.join(backupDir(), path.basename(main) + ".retired")
-  }
-
   function deleteWithCompanions(p: string) {
     for (const target of [p, p + "-shm", p + "-wal"]) {
       try {
@@ -64,36 +60,6 @@ export namespace SplitMigration {
         // Leave the file — cleanup will retry on next startup via needsMigration().
       }
     }
-  }
-
-  function deleteCompanionsWithRetry(p: string, maxWaitMs: number = 3000) {
-    const start = Date.now()
-    for (const ext of ["-shm", "-wal"]) {
-      const target = p + ext
-      if (!existsSync(target)) continue
-      while (Date.now() - start < maxWaitMs) {
-        try {
-          unlinkSync(target)
-          log.info("deleted companion after retry", { target, elapsedMs: Date.now() - start })
-          break
-        } catch {
-          // EBUSY — busy-wait and retry (Windows releases handles within ~100-500ms)
-        }
-      }
-      if (existsSync(target)) {
-        log.error("could not delete companion after retry", { target, elapsedMs: Date.now() - start })
-      }
-    }
-  }
-
-  export function isSwapPending(): boolean {
-    const main = mainDbPath()
-    if (main === ":memory:") return false
-    return existsSync(swapMarkerPath(main))
-  }
-
-  function swapMarkerPath(main: string) {
-    return main + ".swap-pending"
   }
 
   function attemptsPath() {
@@ -131,8 +97,6 @@ export namespace SplitMigration {
     const main = mainDbPath()
     if (main === ":memory:") return "none"
 
-    if (existsSync(swapMarkerPath(main))) return "initial-split"
-
     if (readAttempts() >= MAX_ATTEMPTS) {
       log.error("split migration failed too many times, manual intervention required", {
         attempts: readAttempts(),
@@ -141,26 +105,10 @@ export namespace SplitMigration {
       return "none"
     }
 
-    if (!existsSync(main)) {
-      const retired = retiredPath(main)
-      if (existsSync(retired)) {
-        try {
-          copyFileSync(retired, main)
-          for (const ext of ["-shm", "-wal"]) {
-            if (existsSync(retired + ext)) copyFileSync(retired + ext, main + ext)
-          }
-          deleteWithCompanions(retired)
-          log.info("recovered main db from retired copy", { source: retired })
-        } catch {
-          log.error("failed to recover main db from retired copy", { source: retired })
-        }
-      } else {
-        return "none"
-      }
-    }
+    if (!existsSync(main)) return "none"
 
     if (readAttempts() > 0 && existsSync(backupDbPath(main))) {
-      const backup = new BunDatabase(backupDbPath(main))
+      const backup = new BunDatabase(backupDbPath(main), { readonly: true })
       try {
         const has = backup.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='session'").get()
         if (has) {
@@ -171,8 +119,7 @@ export namespace SplitMigration {
         backup.close()
       }
     }
-    const sqlite = new BunDatabase(main)
-    sqlite.exec("PRAGMA wal_checkpoint(TRUNCATE)")
+    const sqlite = new BunDatabase(main, { readonly: true })
     try {
       const hasSessionTable = sqlite
         .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='session'")
@@ -185,7 +132,6 @@ export namespace SplitMigration {
         }
       }
       sqlite.close()
-      deleteWithCompanions(retiredPath(main))
       deleteWithCompanions(destCopyPath(main))
       return "none"
     } catch {
@@ -405,34 +351,6 @@ export namespace SplitMigration {
   }
 
   export function run(): { projects: number; sessions: number } {
-    const main = mainDbPath()
-
-    const swapMarker = swapMarkerPath(main)
-    if (existsSync(swapMarker)) {
-      const data = JSON.parse(readFileSync(swapMarker, "utf-8")) as {
-        destCopy: string
-        projects: number
-        sessions: number
-      }
-      if (!existsSync(data.destCopy)) {
-        log.error("swap marker references missing destCopy, removing marker", { destCopy: data.destCopy })
-        unlinkSync(swapMarker)
-        removeAttempts()
-        return { projects: 0, sessions: 0 }
-      }
-      deleteCompanionsWithRetry(main, 3000)
-      if (existsSync(main + "-shm") || existsSync(main + "-wal")) {
-        log.error("WAL/SHM companions still held, deferring swap to next startup")
-        return { projects: data.projects, sessions: data.sessions }
-      }
-      copyFileSync(data.destCopy, main)
-      deleteCompanionsWithRetry(data.destCopy, 3000)
-      unlinkSync(swapMarker)
-      removeAttempts()
-      log.info("completed pending swap from previous migration", data)
-      return { projects: data.projects, sessions: data.sessions }
-    }
-
     const attempts = readAttempts()
     if (attempts >= MAX_ATTEMPTS) {
       throw new Error(
@@ -453,12 +371,28 @@ export namespace SplitMigration {
 
   function runInitialSplit(): { projects: number; sessions: number } {
     const attempts = readAttempts()
-    cleanupChannelDir(attempts)
 
     const main = mainDbPath()
     const backup = backupDbPath(main)
     const destCopy = destCopyPath(main)
-    const retired = retiredPath(main)
+
+    // Backup first — before any other migration operations that could fail.
+    // Copy main.db + WAL/SHM companions so the backup captures all data
+    // (including uncommitted WAL pages from a previous session crash).
+    if (!existsSync(backup)) {
+      for (const ext of ["-shm", "-wal"]) {
+        if (existsSync(main + ext)) copyFileSync(main + ext, backup + ext)
+      }
+      copyFileSync(main, backup)
+      log.info("backed up main db before migration", { from: main, to: backup })
+      // Now checkpoint the original main.db (WAL flushed into .db, companions
+      // deleted via DELETE mode) so the migration works on a clean .db file.
+      const checkpointDb = new BunDatabase(main)
+      checkpointDb.exec("PRAGMA journal_mode = DELETE")
+      checkpointDb.close()
+    }
+
+    cleanupChannelDir(attempts)
     log.info("starting per-project database split", { main, backup, destCopy, attempt: attempts + 1 })
 
     deleteWithCompanions(destCopy)
@@ -467,18 +401,6 @@ export namespace SplitMigration {
     let destSqlite: BunDatabase | undefined
 
     try {
-      if (!existsSync(backup)) {
-        const companions = ["-shm", "-wal"]
-        for (const ext of companions) {
-          if (existsSync(main + ext)) copyFileSync(main + ext, backup + ext)
-        }
-        const checkpointDb = new BunDatabase(main)
-        checkpointDb.exec("PRAGMA wal_checkpoint(TRUNCATE)")
-        checkpointDb.close()
-        copyFileSync(main, backup)
-        log.info("backed up main db", { from: main, to: backup })
-      }
-
       copyFileSync(backup, destCopy)
       log.info("created destCopy from backup", { destCopy })
 
@@ -514,7 +436,6 @@ export namespace SplitMigration {
         sessions: (srcSqlite.prepare("SELECT count(*) as cnt FROM session").get() as { cnt: number }).cnt,
         messages: (srcSqlite.prepare("SELECT count(*) as cnt FROM message").get() as { cnt: number }).cnt,
         parts: (srcSqlite.prepare("SELECT count(*) as cnt FROM part").get() as { cnt: number }).cnt,
-        project_recent: (srcSqlite.prepare("SELECT count(*) as cnt FROM project_recent").get() as { cnt: number }).cnt,
       }
 
       srcSqlite.close()
@@ -585,7 +506,14 @@ export namespace SplitMigration {
 
       const resolveProject = (s: any) => {
         const row = projectByOld.get(s.project_id)
-        const dir = s.directory || row?.worktree || "/"
+        // For sessions with a real project_id, use the project's worktree to
+        // find the git root — all sessions under the same project should share
+        // one DB regardless of which worktree/subdirectory they were created in.
+        // For "global" sessions, use the session's own directory.
+        const dir =
+          s.project_id !== "global" && row?.worktree && row.worktree !== "/"
+            ? row.worktree
+            : s.directory || row?.worktree || "/"
         const info = ProjectIdentity.resolve(dir)
         const pid = info.id
         if (s.project_id !== "global") oldProjectIdMap.set(s.project_id, pid)
@@ -895,28 +823,16 @@ export namespace SplitMigration {
       destSqlite.close()
       destSqlite = undefined
 
-      // Try to delete main.db's WAL/SHM companions. On Windows, handles from
-      // prior needsMigration() / Database.close() calls may linger briefly.
-      deleteCompanionsWithRetry(main, 3000)
-      if (existsSync(main + "-shm") || existsSync(main + "-wal")) {
-        // WAL/SHM still held — cannot safely overwrite main.db (stale WAL
-        // replay would corrupt the new content). Defer swap to next startup
-        // when no process holds the file.
-        writeFileSync(
-          swapMarkerPath(main),
-          JSON.stringify({ destCopy, projects: projectCount, sessions: sessionCount }),
-        )
-        log.info("WAL/SHM companions still held, deferring file swap to next startup", {
-          destCopy,
-          swapMarker: swapMarkerPath(main),
-        })
-        removeAttempts()
-        return { projects: projectCount, sessions: sessionCount }
-      }
       copyFileSync(destCopy, main)
+      for (const ext of ["-shm", "-wal"]) {
+        const target = main + ext
+        try {
+          if (existsSync(target)) unlinkSync(target)
+        } catch {}
+      }
       log.info("replaced main db with migration result")
 
-      deleteCompanionsWithRetry(destCopy, 3000)
+      deleteWithCompanions(destCopy)
 
       removeAttempts()
       log.info("split migration complete", { projects: projectCount, sessions: sessionCount })
