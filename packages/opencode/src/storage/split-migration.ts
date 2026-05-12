@@ -51,19 +51,50 @@ export namespace SplitMigration {
     return path.join(backupDir(), path.basename(main) + ".migration-dest")
   }
 
-  function deleteWithCompanions(p: string) {
-    for (const target of [p, p + "-shm", p + "-wal"]) {
+  function isLock(err: unknown) {
+    return typeof err === "object" && err !== null && "code" in err && ["EBUSY", "EPERM"].includes(String(err.code))
+  }
+
+  function sleepMs(ms: number) {
+    const end = Date.now() + ms
+    while (Date.now() < end) {}
+  }
+
+  function retryUnlink(p: string) {
+    if (!existsSync(p)) return
+    for (let n = 0; n < 10; n++) {
       try {
-        if (existsSync(target)) unlinkSync(target)
-      } catch {
-        // EBUSY on Windows: file handle not yet released after close().
-        // Leave the file — cleanup will retry on next startup via needsMigration().
+        unlinkSync(p)
+        return
+      } catch (err) {
+        if (!isLock(err) || n >= 9) throw err
+        Bun.gc(true)
+        sleepMs(3000)
       }
     }
   }
 
+  function retryCopy(src: string, dst: string) {
+    for (let n = 0; n < 10; n++) {
+      try {
+        copyFileSync(src, dst)
+        return
+      } catch (err) {
+        if (!isLock(err) || n >= 9) throw err
+        Bun.gc(true)
+        sleepMs(3000)
+      }
+    }
+  }
+
+  function deleteWithCompanions(p: string) {
+    for (const target of [p + "-shm", p + "-wal", p]) {
+      retryUnlink(target)
+    }
+  }
+
   function attemptsPath() {
-    return mainDbPath() + ".migration-attempts"
+    return path.join(backupDir(), path.basename(mainDbPath()) + ".migration-attempts")
   }
 
   function readAttempts(): number {
@@ -77,7 +108,7 @@ export namespace SplitMigration {
   }
 
   function removeAttempts() {
-    if (existsSync(attemptsPath())) unlinkSync(attemptsPath())
+    retryUnlink(attemptsPath())
   }
 
   function dynamicInsert(sqlite: BunDatabase, table: string, row: Record<string, any>) {
@@ -307,13 +338,13 @@ export namespace SplitMigration {
     for (const f of files) {
       if (!/\.db$/i.test(f)) continue
       const src = path.join(dir, f)
-      copyFileSync(src, path.join(attemptBackup, f))
-      unlinkSync(src)
+      retryCopy(src, path.join(attemptBackup, f))
+      retryUnlink(src)
       for (const ext of ["-shm", "-wal"]) {
         const companion = src + ext
         if (existsSync(companion)) {
-          copyFileSync(companion, path.join(attemptBackup, f + ext))
-          unlinkSync(companion)
+          retryCopy(companion, path.join(attemptBackup, f + ext))
+          retryUnlink(companion)
         }
       }
     }
@@ -381,15 +412,27 @@ export namespace SplitMigration {
     // (including uncommitted WAL pages from a previous session crash).
     if (!existsSync(backup)) {
       for (const ext of ["-shm", "-wal"]) {
-        if (existsSync(main + ext)) copyFileSync(main + ext, backup + ext)
+        if (existsSync(main + ext)) retryCopy(main + ext, backup + ext)
       }
-      copyFileSync(main, backup)
+      retryCopy(main, backup)
       log.info("backed up main db before migration", { from: main, to: backup })
       // Now checkpoint the original main.db (WAL flushed into .db, companions
       // deleted via DELETE mode) so the migration works on a clean .db file.
-      const checkpointDb = new BunDatabase(main)
-      checkpointDb.exec("PRAGMA journal_mode = DELETE")
-      checkpointDb.close()
+      // On Windows the file may still be locked by a recently-killed process,
+      // so retry with EBUSY handling.
+      for (let n = 0; n < 10; n++) {
+        try {
+          const checkpointDb = new BunDatabase(main)
+          checkpointDb.exec("PRAGMA busy_timeout = 5000")
+          checkpointDb.exec("PRAGMA journal_mode = DELETE")
+          checkpointDb.close()
+          break
+        } catch (err) {
+          if (!isLock(err) && n >= 9) throw err
+          Bun.gc(true)
+          sleepMs(3000)
+        }
+      }
     }
 
     cleanupChannelDir(attempts)
@@ -401,7 +444,7 @@ export namespace SplitMigration {
     let destSqlite: BunDatabase | undefined
 
     try {
-      copyFileSync(backup, destCopy)
+      retryCopy(backup, destCopy)
       log.info("created destCopy from backup", { destCopy })
 
       srcSqlite = new BunDatabase(backup, { readonly: true })
@@ -823,12 +866,13 @@ export namespace SplitMigration {
       destSqlite.close()
       destSqlite = undefined
 
-      copyFileSync(destCopy, main)
+      // Replace the main db file. copyFileSync overwrites the existing file;
+      // on Windows the target may still be locked by the OS after the old
+      // process was killed, so retry with EBUSY handling.
+      // Delete WAL/SHM companions afterwards — same retry logic.
+      retryCopy(destCopy, main)
       for (const ext of ["-shm", "-wal"]) {
-        const target = main + ext
-        try {
-          if (existsSync(target)) unlinkSync(target)
-        } catch {}
+        retryUnlink(main + ext)
       }
       log.info("replaced main db with migration result")
 
