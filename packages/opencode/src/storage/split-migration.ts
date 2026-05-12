@@ -4,7 +4,7 @@ import { Global } from "../global"
 import { Log } from "../util/log"
 import path from "path"
 import { createHash } from "crypto"
-import { existsSync, mkdirSync, readdirSync, copyFileSync, readFileSync, unlinkSync, writeFileSync } from "fs"
+import { existsSync, mkdirSync, readdirSync, copyFileSync, readFileSync, unlinkSync, writeFileSync, statSync } from "fs"
 import { Installation } from "../installation"
 import { Flag } from "../flag/flag"
 import { init } from "#db"
@@ -219,23 +219,15 @@ export namespace SplitMigration {
     const existingNames = new Set(
       (sqlite.prepare("SELECT name FROM __drizzle_migrations").all() as { name: string }[]).map((r) => r.name),
     )
-    const migrationDir = path.join(import.meta.dirname, "../../migration")
-    if (!existsSync(migrationDir)) return
-    const dirs = readdirSync(migrationDir, { withFileTypes: true })
-      .filter((entry) => entry.isDirectory())
-      .map((entry) => entry.name)
+    const entries = getMigrationEntries()
+    if (entries.length === 0) return
     const insert = sqlite.prepare(
-      "INSERT INTO __drizzle_migrations (hash, created_at, name, applied_at) VALUES (?, ?, ?, ?)",
+      "INSERT OR IGNORE INTO __drizzle_migrations (hash, created_at, name, applied_at) VALUES (?, ?, ?, ?)",
     )
-    for (const dirName of dirs) {
-      if (existingNames.has(dirName)) continue
-      const sqlFile = path.join(migrationDir, dirName, "migration.sql")
-      if (!existsSync(sqlFile)) continue
-      const sql = readFileSync(sqlFile, "utf-8")
-      const hash = createHash("sha256").update(sql).digest("hex")
-      const match = /^(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})/.exec(dirName)
-      const millis = match ? Date.UTC(+match[1], +match[2] - 1, +match[3], +match[4], +match[5], +match[6]) : 0
-      insert.run(hash, millis, dirName, new Date().toISOString())
+    for (const entry of entries) {
+      if (existingNames.has(entry.name)) continue
+      const hash = createHash("sha256").update(entry.sql).digest("hex")
+      insert.run(hash, entry.timestamp, entry.name, new Date().toISOString())
     }
   }
 
@@ -415,6 +407,12 @@ export namespace SplitMigration {
       const permissions = srcSqlite.prepare("SELECT * FROM permission").all() as any[]
       const shares = srcSqlite.prepare("SELECT * FROM session_share").all() as any[]
       const workspaces = srcSqlite.prepare("SELECT * FROM workspace").all() as any[]
+      const recentRowsSrc = (() => {
+        const has = srcSqlite
+          .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='project_recent'")
+          .get()
+        return has ? (srcSqlite.prepare("SELECT * FROM project_recent").all() as any[]) : []
+      })()
       const cronJobs = (() => {
         const has = srcSqlite
           .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='cron_job_state'")
@@ -535,6 +533,58 @@ export namespace SplitMigration {
         const bucket = sessionByProject.get(pid) ?? []
         bucket.push(s)
         sessionByProject.set(pid, bucket)
+      }
+
+      // Build per-directory metadata from project_recent for directory_meta population
+      const recentByDirNorm = new Map<string, any>()
+      for (const row of recentRowsSrc) {
+        const key = norm(row.directory ?? "")
+        if (key) recentByDirNorm.set(key, row)
+      }
+
+      // directoryMetaByProject: pid → array of {directory, worktree, name, icon_url, icon_color, icon_override, activity_at}
+      type DirectoryMetaEntry = {
+        directory: string
+        worktree: string
+        name: string | null
+        icon_url: string | null
+        icon_color: string | null
+        icon_override: string | null
+        activity_at: number
+      }
+      const directoryMetaByProject = new Map<string, DirectoryMetaEntry[]>()
+
+      for (const [pid, projSessions] of sessionByProject) {
+        const projRow = projectById.get(pid)
+        const worktree = projRow?.worktree ?? "/"
+        const seenDirs = new Set<string>()
+        const entries: DirectoryMetaEntry[] = []
+
+        const dirs = [worktree, ...projSessions.map((s) => s.directory)]
+        for (const d of dirs) {
+          if (!d || skipDir(d)) continue
+          const dn = norm(d)
+          if (seenDirs.has(dn)) continue
+          seenDirs.add(dn)
+          const recentRow = recentByDirNorm.get(dn)
+          entries.push({
+            directory: d,
+            worktree,
+            name: recentRow?.name ?? projRow?.name ?? null,
+            icon_url: recentRow?.icon_url ?? projRow?.icon_url ?? null,
+            icon_color: recentRow?.icon_color ?? projRow?.icon_color ?? null,
+            icon_override: recentRow?.icon_override ?? null,
+            activity_at: recentRow?.activity_at ?? Date.now(),
+          })
+        }
+        if (entries.length > 0) directoryMetaByProject.set(pid, entries)
+      }
+
+      function skipDir(input: string) {
+        if (!input) return true
+        const next = norm(input)
+        if (next === "/" || next === "\\") return true
+        return ["/bin", "/dist", "\\bin", "\\dist"].some((item) => next.endsWith(item))
       }
 
       const sessionIds = new Set(sessions.map((s) => s.id))
@@ -703,6 +753,32 @@ export namespace SplitMigration {
           dynamicInsert(pSqlite, "workspace", ws)
         }
 
+        // Populate directory_meta for this project
+        const metaEntries = directoryMetaByProject.get(projectId)
+        if (metaEntries) {
+          const hasMetaTable = pSqlite
+            .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='directory_meta'")
+            .get()
+          if (hasMetaTable) {
+            const metaInsert = pSqlite.prepare(
+              "INSERT OR IGNORE INTO directory_meta (directory, worktree, name, icon_url, icon_color, icon_override, activity_at, time_created, time_updated) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            )
+            for (const entry of metaEntries) {
+              metaInsert.run(
+                entry.directory,
+                entry.worktree,
+                entry.name,
+                entry.icon_url,
+                entry.icon_color,
+                entry.icon_override,
+                entry.activity_at,
+                Date.now(),
+                Date.now(),
+              )
+            }
+          }
+        }
+
         pSqlite.exec("COMMIT")
         pSqlite.close()
         projectCount++
@@ -763,12 +839,20 @@ export namespace SplitMigration {
         throw new Error("split migration verification failed, will retry on next startup")
       }
 
+      log.info("step: opening destCopy as destSqlite", {
+        destCopy,
+        exists: existsSync(destCopy),
+        size: existsSync(destCopy) ? statSync(destCopy).size : -1,
+      })
       destSqlite = new BunDatabase(destCopy)
+      log.info("step: destSqlite opened, setting pragmas")
       destSqlite.exec("PRAGMA foreign_keys = OFF")
       destSqlite.exec("PRAGMA busy_timeout = 5000")
+      log.info("step: wal_checkpoint before transaction")
       destSqlite.exec("PRAGMA wal_checkpoint(TRUNCATE)")
       destSqlite.exec("BEGIN TRANSACTION")
       destSqlite.exec(globalProjectMapSQL)
+      log.info("step: inserting directory-project mappings")
       for (const [dir, pid] of directoryProjectMap) {
         destSqlite
           .prepare(
@@ -778,6 +862,7 @@ export namespace SplitMigration {
           )
           .run(dir, pid, Date.now(), Date.now())
       }
+      log.info("step: stripping project_recent FK")
       destSqlite.exec(stripProjectRecentFK)
       const recentRows = destSqlite.prepare("SELECT key, kind, project_id, directory FROM project_recent").all() as {
         key: string
@@ -803,6 +888,7 @@ export namespace SplitMigration {
       if (hasSessionPref) {
         destSqlite.exec(stripSessionPreferenceFK)
       }
+      log.info("step: dropping tables from destSqlite")
       destSqlite.exec("DROP TABLE IF EXISTS session")
       destSqlite.exec("DROP TABLE IF EXISTS message")
       destSqlite.exec("DROP TABLE IF EXISTS part")
@@ -815,11 +901,17 @@ export namespace SplitMigration {
       destSqlite.exec("DROP TABLE IF EXISTS cron_job_state")
       destSqlite.exec("DROP TABLE IF EXISTS cron_run")
       destSqlite.exec("COMMIT")
+      log.info("step: appending migration record")
       appendMigrationRecord(destSqlite, migrationMeta)
+      log.info("step: seeding migration dir entries")
       seedMigrationsFromDir(destSqlite)
+      log.info("step: wal_checkpoint before VACUUM")
       destSqlite.exec("PRAGMA wal_checkpoint(TRUNCATE)")
+      log.info("step: VACUUM start")
       destSqlite.exec("VACUUM")
+      log.info("step: VACUUM done, checkpoint after VACUUM")
       destSqlite.exec("PRAGMA wal_checkpoint(TRUNCATE)")
+      log.info("step: closing destSqlite")
       destSqlite.close()
       destSqlite = undefined
 

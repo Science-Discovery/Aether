@@ -3,6 +3,7 @@ import { Database, desc, eq } from "../storage/db"
 import { ProjectRecentTable } from "./project.sql"
 import { GlobalProjectMapTable } from "./global-project-map.sql"
 import { ProjectTable } from "./project.sql"
+import { DirectoryMetaTable } from "./project.sql"
 import { SessionTable } from "../session/session.sql"
 import { Log } from "../util/log"
 import { Flag } from "@/flag/flag"
@@ -247,9 +248,9 @@ export namespace Project {
     AppFileSystem.Service | Path.Path | ChildProcessSpawner.ChildProcessSpawner
   > = Layer.effect(
     Service,
-      Effect.gen(function* () {
-        const fsys = yield* AppFileSystem.Service
-        const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
+    Effect.gen(function* () {
+      const fsys = yield* AppFileSystem.Service
+      const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
 
       const git = Effect.fnUntraced(
         function* (args: string[], opts?: { cwd?: string }) {
@@ -321,6 +322,37 @@ export namespace Project {
             })
             .run(),
         )
+
+        if (isProject) {
+          yield* dbProject(input.project.id, (d) =>
+            d
+              .insert(DirectoryMetaTable)
+              .values({
+                directory,
+                worktree: input.project.worktree,
+                name: input.project.name ?? null,
+                icon_url: input.project.icon?.url ?? null,
+                icon_color: input.project.icon?.color ?? null,
+                icon_override: null,
+                activity_at: now,
+                time_created: now,
+                time_updated: now,
+              })
+              .onConflictDoUpdate({
+                target: DirectoryMetaTable.directory,
+                set: {
+                  worktree: input.project.worktree,
+                  name: input.project.name ?? null,
+                  icon_url: input.project.icon?.url ?? null,
+                  icon_color: input.project.icon?.color ?? null,
+                  activity_at: now,
+                  time_updated: now,
+                },
+              })
+              .run(),
+          )
+        }
+
         yield* emitRecentUpdated
       })
 
@@ -450,6 +482,34 @@ export namespace Project {
               .run(),
           )
         }
+
+        yield* dbProject(data.id, (d) =>
+          d
+            .insert(DirectoryMetaTable)
+            .values({
+              directory,
+              worktree: data.worktree,
+              name: result.name ?? null,
+              icon_url: result.icon?.url ?? null,
+              icon_color: result.icon?.color ?? null,
+              icon_override: null,
+              activity_at: Date.now(),
+              time_created: Date.now(),
+              time_updated: Date.now(),
+            })
+            .onConflictDoUpdate({
+              target: DirectoryMetaTable.directory,
+              set: {
+                worktree: data.worktree,
+                name: result.name ?? null,
+                icon_url: result.icon?.url ?? null,
+                icon_color: result.icon?.color ?? null,
+                activity_at: Date.now(),
+                time_updated: Date.now(),
+              },
+            })
+            .run(),
+        )
 
         yield* emitUpdated(result)
         const touchDir = data.worktree !== "/" ? data.worktree : directory
