@@ -134,6 +134,7 @@ export default function Layout(props: ParentProps) {
   })
   initMobile("wechat")
   initMobile("feishu")
+  initMobile("qq")
   const notification = useNotification()
   const permission = usePermission()
   const navigate = useNavigate()
@@ -1494,10 +1495,12 @@ export default function Layout(props: ParentProps) {
 
   function projectRoot(directory: string) {
     const dirKey = workspaceKey(directory)
-    const project = layout.projects
-      .list()
-      .find((item) => workspaceKey(item.worktree) === dirKey || item.sandboxes?.some((s) => workspaceKey(s) === dirKey))
-    if (project) return project.worktree
+    const projects = layout.projects.list()
+    const direct = projects.find((item) => workspaceKey(item.worktree) === dirKey)
+    if (direct) return direct.worktree
+
+    const sandbox = projects.find((item) => item.sandboxes?.some((s) => workspaceKey(s) === dirKey))
+    if (sandbox) return sandbox.worktree
 
     const known = Object.entries(store.workspaceOrder).find(
       ([root, dirs]) => workspaceKey(root) === dirKey || dirs.some((d) => workspaceKey(d) === dirKey),
@@ -1552,14 +1555,19 @@ export default function Layout(props: ParentProps) {
   async function navigateToProject(directory: string | undefined) {
     if (!directory) return
     const root = projectRoot(directory)
-    server.projects.touch(root)
+    server.projects.touch(directory)
     const project = layout.projects.list().find((item) => item.worktree === root)
     let dirs = project
       ? effectiveWorkspaceOrder(root, [root, ...(project.sandboxes ?? [])], store.workspaceOrder[root])
       : [root]
+    const siblingDirs = globalSync.project
+      .recent()
+      .filter((r) => r.kind === "project" && r.projectID === project?.id)
+      .map((r) => r.directory)
+    const allDirs = [...dirs, ...siblingDirs.filter((d) => !dirs.some((x) => workspaceKey(x) === workspaceKey(d)))]
     const canOpen = (value: string | undefined) => {
       if (!value) return false
-      return dirs.some((item) => workspaceKey(item) === workspaceKey(value))
+      return allDirs.some((item) => workspaceKey(item) === workspaceKey(value))
     }
     const refreshDirs = async (target?: string) => {
       if (!target || target === root || canOpen(target)) return canOpen(target)
@@ -1574,7 +1582,7 @@ export default function Layout(props: ParentProps) {
       if (!canOpen(target.directory)) return false
       const [data] = globalSync.child(target.directory, { bootstrap: false })
       if (data.session.some((item) => item.id === target.id)) {
-        setStore("lastProjectSession", root, { directory: target.directory, id: target.id, at: Date.now() })
+        setStore("lastProjectSession", directory, { directory: target.directory, id: target.id, at: Date.now() })
         navigateWithSidebarReset(`/${base64Encode(target.directory)}/session/${target.id}`)
         return true
       }
@@ -1584,21 +1592,21 @@ export default function Layout(props: ParentProps) {
         .catch(() => undefined)
       if (!resolved?.directory) return false
       if (!canOpen(resolved.directory)) return false
-      setStore("lastProjectSession", root, { directory: resolved.directory, id: resolved.id, at: Date.now() })
+      setStore("lastProjectSession", directory, { directory: resolved.directory, id: resolved.id, at: Date.now() })
       navigateWithSidebarReset(`/${base64Encode(resolved.directory)}/session/${resolved.id}`)
       return true
     }
 
-    const projectSession = store.lastProjectSession[root]
+    const projectSession = store.lastProjectSession[directory]
     if (projectSession?.id) {
       await refreshDirs(projectSession.directory)
       const opened = await openSession(projectSession)
       if (opened) return
-      clearLastProjectSession(root)
+      clearLastProjectSession(directory)
     }
 
     const latest = latestRootSession(
-      dirs.map((item) => globalSync.child(item, { bootstrap: false })[0]),
+      allDirs.map((item) => globalSync.child(item, { bootstrap: false })[0]),
       Date.now(),
     )
     if (latest && (await openSession(latest))) {
@@ -1607,7 +1615,7 @@ export default function Layout(props: ParentProps) {
 
     const fetched = latestRootSession(
       await Promise.all(
-        dirs.map(async (item) => ({
+        allDirs.map(async (item) => ({
           path: { directory: item },
           session: await globalSDK.client.session
             .list({ directory: item })
@@ -1621,7 +1629,7 @@ export default function Layout(props: ParentProps) {
       return
     }
 
-    navigateWithSidebarReset(`/${base64Encode(root)}/session`)
+    navigateWithSidebarReset(`/${base64Encode(directory)}/session`)
   }
 
   function navigateToSession(session: Session | undefined) {
