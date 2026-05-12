@@ -1516,16 +1516,6 @@ export default function Layout(props: ParentProps) {
     return currentProject()?.worktree ?? projectRoot(directory)
   }
 
-  createEffect(() => {
-    if (!pageReady()) return
-    const directory = currentDir()
-    if (!directory) return
-    const root = activeProjectRoot(directory)
-    const listed = layout.projects.list().some((item) => workspaceKey(item.worktree) === workspaceKey(root))
-    if (listed) return
-    layout.projects.open(root)
-  })
-
   function touchProjectRoute() {
     const root = currentProject()?.worktree
     if (!root) return
