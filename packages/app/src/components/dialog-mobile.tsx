@@ -2,6 +2,7 @@ import { Button } from "@opencode-ai/ui/button"
 import { Icon } from "@opencode-ai/ui/icon"
 import { Dialog } from "@opencode-ai/ui/dialog"
 import { Collapsible } from "@opencode-ai/ui/collapsible"
+import { Switch as SwitchToggle } from "@opencode-ai/ui/switch"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { Component, Show, Switch, Match, createSignal, onMount } from "solid-js"
 import { createStore } from "solid-js/store"
@@ -22,7 +23,10 @@ import {
   fetchStatus,
   forceTakeover,
   retryBridge,
+  rescanBridge,
   setStatus,
+  autoConnect,
+  setAutoConnect,
   type MobilePlatform,
   type MobileStatus,
 } from "@/context/mobile"
@@ -146,7 +150,7 @@ export const DialogMobile: Component<Props> = (props) => {
                 连接{platformName(props.platform)}后，可在{platformName(props.platform)}中使用 Aether AI
               </p>
               <Show
-                when={(p() === "feishu" || p() === "qq") && hasConfig(p())}
+                when={hasConfig(p())}
                 fallback={
                   p() === "feishu" || p() === "qq" ? (
                     <Button variant="primary" onClick={config}>
@@ -163,8 +167,15 @@ export const DialogMobile: Component<Props> = (props) => {
                   <Button variant="primary" onClick={doStart}>
                     {label().connect}
                   </Button>
-                  <Button variant="ghost" onClick={config}>
-                    重新配置
+                  <Button
+                    variant="ghost"
+                    onClick={() => {
+                      setPrevStatus("idle")
+                      if (p() === "wechat") rescanBridge("wechat")
+                      else setStatus(p(), "config")
+                    }}
+                  >
+                    {p() === "wechat" ? "重新扫码" : "重新配置"}
                   </Button>
                 </div>
               </Show>
@@ -348,7 +359,16 @@ export const DialogMobile: Component<Props> = (props) => {
                   />
                 </Show>
                 <p class="text-14-regular text-text-base">请用微信扫描二维码登录</p>
-                <Button variant="ghost" onClick={() => stopBridge("wechat")}>
+                <Button
+                  variant="ghost"
+                  onClick={() => {
+                    if (prevStatus() === "connected") {
+                      stopBridge("wechat").then(() => startBridge("wechat", true))
+                    } else {
+                      stopBridge("wechat")
+                    }
+                  }}
+                >
                   取消
                 </Button>
               </div>
@@ -397,10 +417,20 @@ export const DialogMobile: Component<Props> = (props) => {
                 <Button variant="secondary" onClick={() => stopBridge(p())}>
                   断开连接
                 </Button>
-                <Button variant="ghost" onClick={() => logout(p())}>
-                  {p() === "wechat" ? "切换账号" : "切换应用"}
+                <Button
+                  variant="ghost"
+                  onClick={() => {
+                    setPrevStatus(status(p()))
+                    if (p() === "wechat") rescanBridge("wechat")
+                    else setStatus(p(), "config")
+                  }}
+                >
+                  {p() === "wechat" ? "重新扫码" : "重新配置"}
                 </Button>
               </div>
+              <SwitchToggle checked={autoConnect(p())} onChange={(v) => setAutoConnect(p(), v)}>
+                启动时自动连接
+              </SwitchToggle>
             </div>
           </Match>
 
