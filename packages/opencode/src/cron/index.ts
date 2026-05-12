@@ -3,6 +3,7 @@ import fs from "fs/promises"
 import { Cron as CronExpression } from "croner"
 import z from "zod"
 import { ulid } from "ulid"
+import { generateObject, streamObject, type ModelMessage } from "ai"
 import { Database, desc, eq } from "@/storage/db"
 import { CronJobStateTable, CronRunTable } from "./cron.sql"
 import { CronSchema } from "./schema"
@@ -22,7 +23,9 @@ import { SessionPrompt } from "@/session/prompt"
 import { MessageV2 } from "@/session/message-v2"
 import { Agent } from "@/agent/agent"
 import { Provider } from "@/provider/provider"
+import { ProviderTransform } from "@/provider/transform"
 import { ModelID, ProviderID } from "@/provider/schema"
+import { Auth } from "@/auth"
 
 const log = Log.create({ service: "cron" })
 
@@ -50,6 +53,30 @@ type DirectHandler = (input: {
   now: number
 }) => Promise<DirectResult> | DirectResult
 
+type AssistantResult =
+  | {
+      intent: "create"
+      summary: string
+      definition: Record<string, unknown>
+    }
+  | {
+      intent: "update"
+      summary: string
+      patch: Record<string, unknown>
+    }
+  | {
+      intent: "reject"
+      summary: string
+    }
+
+type AssistantGenerator = (input: {
+  instruction: string
+  selected?: Definition
+  now: number
+  project_id?: string
+  session_id?: string
+}) => Promise<AssistantResult> | AssistantResult
+
 type AgentDispatcher = {
   isolated(input: { definition: Definition; run_id: string; now: number }): Promise<DispatchResult>
   session(input: { definition: Definition; run_id: string; now: number }): Promise<DispatchResult>
@@ -63,6 +90,97 @@ type SessionDispatchTarget = {
 }
 
 const directHandlers = new Map<string, DirectHandler>()
+
+const AssistantObject = z.object({
+  intent: z.enum(["create", "update", "reject"]),
+  summary: z.string().min(1),
+  definition: z.record(z.string(), z.unknown()).optional(),
+  patch: z.record(z.string(), z.unknown()).optional(),
+})
+
+async function defaultAssistantGenerator(input: {
+  instruction: string
+  selected?: Definition
+  now: number
+  project_id?: string
+  session_id?: string
+}): Promise<AssistantResult> {
+  const model = await Provider.defaultModel()
+  const resolved = await Provider.getModel(model.providerID, model.modelID)
+  const language = await Provider.getLanguage(resolved)
+  const actions = [...directHandlers.keys()].sort()
+  const system = [
+    "You convert a short user instruction into a cron job create/update JSON object.",
+    "You are only allowed to create or update cron definitions. Do not answer as a chat assistant.",
+    "Return intent=create with definition for new jobs, intent=update with patch for the selected job, or intent=reject if the instruction is not about cron create/update.",
+    "Never include id in definition or patch.",
+    "For create, definition must include: name, mode, schedule_type, schedule_value, payload.",
+    "For update, patch may include any editable cron definition fields except id.",
+    "Valid modes: direct, isolated_agent, session_agent, agent_message.",
+    "Valid schedule_type values: cron, interval, once.",
+    "cron and once use 5-field cron expressions in schedule_value. interval uses positive integer seconds.",
+    "For direct jobs, payload.action must be one of: " + (actions.length ? actions.join(", ") : "(none registered)"),
+    "For isolated_agent/session_agent/agent_message, payload.message must be a string.",
+    "For ordinary reminders or agent tasks, prefer isolated_agent; it only needs project_id and must not include session_id.",
+    'Use session_agent or agent_message only when the user explicitly asks for the current session, to continue this session, or to remind them "in this conversation".',
+    "If session_id is unavailable, fall back to isolated_agent for ordinary reminders instead of rejecting.",
+    "If required project_id is unavailable, reject instead of inventing IDs.",
+  ].join("\n")
+  const userMessage: ModelMessage = {
+    role: "user",
+    content: JSON.stringify(
+      {
+        instruction: input.instruction,
+        selected: input.selected ?? null,
+        available_context: {
+          project_id: input.project_id ?? null,
+          session_id: input.session_id ?? null,
+        },
+        now: new Date(input.now).toISOString(),
+        system_timezone: systemTimezone(),
+      },
+      null,
+      2,
+    ),
+  }
+  const messages: ModelMessage[] = [
+    {
+      role: "system",
+      content: system,
+    },
+    {
+      ...userMessage,
+    },
+  ]
+  const params = {
+    model: language,
+    temperature: 0,
+    schema: AssistantObject,
+    messages,
+  } satisfies Parameters<typeof generateObject>[0]
+
+  const authInfo = await Auth.get(model.providerID)
+  if (model.providerID === "openai" && authInfo?.type === "oauth") {
+    const result = streamObject({
+      ...params,
+      messages: [userMessage],
+      providerOptions: ProviderTransform.providerOptions(resolved, {
+        store: false,
+        instructions: system,
+      }),
+      onError: () => {},
+    })
+    for await (const part of result.fullStream) {
+      if (part.type === "error") throw part.error
+    }
+    return result.object as Promise<AssistantResult>
+  }
+
+  const result = await generateObject(params)
+  return result.object as AssistantResult
+}
+
+let assistant: AssistantGenerator = defaultAssistantGenerator
 
 const defaultAgentDispatcher: AgentDispatcher = {
   async isolated(input) {
@@ -449,6 +567,7 @@ function parseDefinition(raw: Record<string, unknown>, fallbackID?: string): Def
         throw new Error("schedule_value must be a positive integer for interval")
       }
       definition.schedule_value = Number(definition.schedule_value)
+      definition.timezone = null
       break
     }
   }
@@ -1060,6 +1179,50 @@ function initSchedulerTimer() {
 
 const CreateInput = z.record(z.string(), z.unknown())
 const UpdateInput = z.record(z.string(), z.unknown())
+const AssistInput = z.object({
+  instruction: z.string().min(1),
+  selected_id: z.string().min(1).optional(),
+  project_id: z.string().min(1).optional(),
+  session_id: z.string().min(1).optional(),
+})
+
+function requiresProject(mode: unknown) {
+  return mode === "isolated_agent" || mode === "session_agent" || mode === "agent_message"
+}
+
+function requiresSession(mode: unknown) {
+  return mode === "session_agent" || mode === "agent_message"
+}
+
+function applyAssistantContext(input: {
+  definition: Record<string, unknown>
+  project_id?: string
+  session_id?: string
+}) {
+  const next = { ...input.definition }
+  if (requiresProject(next.mode) && !next.project_id && input.project_id) {
+    next.project_id = input.project_id
+  }
+  if (requiresSession(next.mode) && !input.session_id && input.project_id) {
+    next.mode = "isolated_agent"
+    next.project_id = next.project_id ?? input.project_id
+    next.session_id = null
+    return next
+  }
+  if (requiresSession(next.mode) && !next.session_id && input.session_id) {
+    next.session_id = input.session_id
+  }
+  return next
+}
+
+function invalidAssistantResult(summary: string, error: unknown) {
+  const detail = error instanceof Error ? error.message : String(error)
+  return {
+    action: "reject" as const,
+    summary: `${summary} (${detail})`,
+    job: null,
+  }
+}
 
 export namespace Cron {
   export const Definition = CronSchema.Definition
@@ -1082,6 +1245,14 @@ export namespace Cron {
     agentDispatcher = defaultAgentDispatcher
   }
 
+  export function setAssistantGeneratorForTest(next: AssistantGenerator) {
+    assistant = next
+  }
+
+  export function resetAssistantGeneratorForTest() {
+    assistant = defaultAssistantGenerator
+  }
+
   export const createJob = fn(CreateInput, async (input) => {
     await ensureJobDir()
     if ("id" in input) throw new Error("id is generated automatically")
@@ -1097,6 +1268,56 @@ export namespace Cron {
     return {
       definition,
       state: toState(state),
+    }
+  })
+
+  export const assist = fn(AssistInput, async (input) => {
+    const selected = input.selected_id ? (await getJob(input.selected_id)).definition : undefined
+    const result = await assistant({
+      instruction: input.instruction,
+      selected,
+      now: Date.now(),
+      project_id: input.project_id,
+      session_id: input.session_id,
+    })
+    if (result.intent === "reject") {
+      return {
+        action: "reject" as const,
+        summary: result.summary,
+        job: null,
+      }
+    }
+    if (result.intent === "update") {
+      if (!input.selected_id) throw new Error("A selected cron job is required for update")
+      if (!result.patch) throw new Error("assistant update result is missing patch")
+      try {
+        patchDefinition(selected!, result.patch)
+      } catch (error) {
+        return invalidAssistantResult(result.summary, error)
+      }
+      const job = await updateJob({ id: input.selected_id, patch: result.patch })
+      return {
+        action: "update" as const,
+        summary: result.summary,
+        job,
+      }
+    }
+    if (!result.definition) throw new Error("assistant create result is missing definition")
+    const definition = applyAssistantContext({
+      definition: result.definition,
+      project_id: input.project_id,
+      session_id: input.session_id,
+    })
+    try {
+      parseDefinition(definition)
+    } catch (error) {
+      return invalidAssistantResult(result.summary, error)
+    }
+    const job = await createJob(definition)
+    return {
+      action: "create" as const,
+      summary: result.summary,
+      job,
     }
   })
 
@@ -1214,6 +1435,14 @@ export namespace Cron {
       scheduler.timer = undefined
     }
     scheduler.started = false
+  }
+
+  export async function purge() {
+    await stop()
+    await fs.rm(path.join(Global.Path.data, "cron"), { recursive: true, force: true })
+    await fs.rm(Database.cronPath(), { force: true }).catch(() => undefined)
+    await fs.rm(`${Database.cronPath()}-wal`, { force: true }).catch(() => undefined)
+    await fs.rm(`${Database.cronPath()}-shm`, { force: true }).catch(() => undefined)
   }
 }
 

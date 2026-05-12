@@ -17,9 +17,40 @@ const DeleteResult = z.object({
 
 const CreateBody = z.record(z.string(), z.unknown())
 const UpdateBody = z.record(z.string(), z.unknown())
+const AssistantBody = z.object({
+  instruction: z.string().min(1),
+  selected_id: z.string().min(1).optional(),
+  project_id: z.string().min(1).optional(),
+  session_id: z.string().min(1).optional(),
+})
 
 export const CronRoutes = lazy(() =>
   new Hono()
+    .post(
+      "/assistant",
+      describeRoute({
+        summary: "Create or update a cron job from a short natural language instruction",
+        operationId: "cron.assistant",
+        responses: {
+          200: {
+            description: "Cron assistant result",
+            content: {
+              "application/json": {
+                schema: resolver(
+                  z.object({
+                    action: z.enum(["create", "update", "reject"]),
+                    summary: z.string(),
+                    job: JobView.nullable(),
+                  }),
+                ),
+              },
+            },
+          },
+        },
+      }),
+      validator("json", AssistantBody),
+      async (c) => c.json(await Cron.assist(c.req.valid("json"))),
+    )
     .get(
       "/jobs",
       describeRoute({

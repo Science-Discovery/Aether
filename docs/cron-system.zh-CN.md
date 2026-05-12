@@ -6,8 +6,9 @@
 - `packages/opencode/src/server/routes/cron.ts`
 - `packages/opencode/src/server/server.ts`
 - `packages/ui/src/components/message-part.tsx`
+- `packages/app/src/components/settings-cron.tsx`
 
-本文只描述**当前已经实现**的能力、接口和边界，不包含尚未实现的 UI 管理页。
+本文只描述**当前已经实现**的能力、接口和边界。
 
 ## 0. 当前已实现功能总览
 
@@ -26,7 +27,7 @@
 - `/cron` HTTP API
 - 可直接在后端复用的内部函数接口
 - agent 可调用的 cron 工具
-- Settings > Cron 只读管理页与全局执行开关
+- Settings > Cron 管理页、全局执行开关、自然语言创建/修改入口
 - cron 消息 metadata 与前端 `Cron` badge
 - dev-only 的调试 direct action：
   - `debug_noop`
@@ -34,7 +35,7 @@
 当前**还没有**落地的部分：
 
 - Run log 专门页面
-- Job 创建/编辑表单 UI
+- 结构化 Job 创建/编辑表单 UI
 - workspace-scope cron
 - 秒级调度
 
@@ -57,7 +58,7 @@
 - 本地单用户基础设施
 - 分钟级调度
 - 后端自动运行
-- API 优先，UI 后补
+- API 优先，UI 提供轻量管理与自然语言入口
 
 ## 2. 整体架构
 
@@ -384,6 +385,13 @@ run log 当前不单独保存：
 
 - 新 session 是可见的正常 session
 - 首条消息会带 cron metadata
+- run log 会记录：
+  - `session_id`: 实际投递的 session
+  - `created_session_id`: 本次新建的 session
+- Settings > Cron 的最近运行记录会提供“打开会话”链接，直接跳转到这个新 session
+- 如果前端收到该 session 的 `session.created` 事件时发现对应 project 不在侧边栏项目列表里，会用事件里的 `projectID + directory` 自动补一个最小 project 记录，避免新会话成为无法打开的“幽灵会话”
+- 前端收到后台 `session.created` 时会同时预热对应 project 的 child store，使后续 `message.part.delta` 等流式事件有接收目标；点击“打开会话”时会先把该 project 加入侧边栏项目列表，再加载该 project 的 session 列表并跳转
+- Layout 路由层也会在进入 project/session URL 时确保对应 root project 已加入侧边栏，覆盖刷新或外部链接进入的情况
 
 ### 6.3 session_agent
 
@@ -455,6 +463,32 @@ run log 当前不单独保存：
 
 它不是正式业务能力，不应被视为产品功能。
 
+## 6.6 自然语言 Cron Assistant
+
+Settings > Cron 页面提供一个简短自然语言输入框，用于创建新任务或修改当前选中的任务。
+
+入口行为：
+
+- 未选中 job 时，提示为“创建新的定时任务”。
+- 选中 job 时，提示为“修改定时任务：<任务名>”。
+- 点击页面空白区域会取消当前选中，恢复为创建模式。
+- assistant 只允许创建/修改 cron job；如果输入不是 cron 创建/修改意图，应返回 `reject`。
+
+上下文绑定规则：
+
+- 默认创建普通提醒或 agent 任务时使用 `isolated_agent`。
+- `isolated_agent` 只绑定 `project_id`，不要求 `session_id`。
+- 只有用户明确说“当前会话”“继续这个 session”“在这个对话里提醒我”等会话绑定意图时，才应使用 `session_agent` 或 `agent_message`。
+- 如果 UI 当前没有 `session_id`，普通提醒不得因为缺少 session 而 reject；应降级为 `isolated_agent`。
+- 如果 assistant 仍然在无 `session_id` 时产出 `session_agent` / `agent_message`，后端会在存在 `project_id` 的情况下兜底改写为 `isolated_agent`。
+- 如果缺少必要的 `project_id`，则不能凭空编造，应返回 `reject`。
+
+UI 反馈规则：
+
+- assistant 返回 `create` / `update` 时，UI 显示正常成功 toast，并刷新任务列表。
+- assistant 返回 `reject` 时，UI 显示“未创建任务”，description 显示 reject summary。
+- reject 不会清空输入框，方便用户修改后重试。
+
 ## 7. cron 消息 metadata 与 UI 可见性
 
 agent 模式下，注入消息使用普通用户消息语义，但会附加 metadata：
@@ -468,12 +502,14 @@ agent 模式下，注入消息使用普通用户消息语义，但会附加 meta
 - 如果消息 metadata 里 `source = cron`
 - 前端在消息头部显示一个简单 badge：
   - `Cron`
+- Settings > Cron 可以查看 job、运行态、最近 run log。
+- 最近 run log 中若存在 `session_id` / `created_session_id`，会显示“打开会话”链接。
+- “打开会话”会先把目标 project 加入侧边栏项目列表，然后预热并刷新目标 project 的 session 列表，再进入对应 session 路由，避免侧边栏仍停留在旧 project。
 
 当前没有实现：
 
-- cron 管理页面
 - run log 页面
-- job 创建/编辑 UI
+- 结构化 job 创建/编辑表单 UI
 
 ## 7.1 cron 注入消息的实际表现
 
@@ -675,7 +711,24 @@ job 是否参与调度，需要同时满足：
     - `job_id`
     - `definition`
 
-### 11.2 Runs
+### 11.2 Assistant
+
+- `POST /cron/assistant`
+  - 从简短自然语言指令创建或修改 cron job。
+  - 请求字段：
+    - `instruction`
+    - 可选 `selected_id`
+    - 可选 `project_id`
+    - 可选 `session_id`
+  - 返回字段：
+    - `action: "create" | "update" | "reject"`
+    - `summary`
+    - `job`
+      - create/update 成功时为 job view
+      - reject 时为 `null`
+  - 该接口遵守 6.6 的上下文绑定规则：普通提醒默认 `isolated_agent`；无 session 时不应拒绝普通提醒；无 project 时不能编造 project。
+
+### 11.3 Runs
 
 - `POST /cron/jobs/:id/run`
   - 手动立即执行
@@ -721,6 +774,7 @@ job 是否参与调度，需要同时满足：
 - `deleteJob`
 - `listJobs`
 - `getJob`
+- `assist`
 - `runJobNow`
 - `listRuns`
 - `getRun`
@@ -801,8 +855,11 @@ job 是否参与调度，需要同时满足：
 - `schedule_type` 在 `interval` 与其他类型之间切换
 - 非法 job 文件扫描时跳过但不误删 state
 - route CRUD / run / runs 查询
+- `/cron/assistant` 创建、上下文填充、无 session 降级、非法输出 reject
 - ToolRegistry 暴露 cron agent tools
 - agent tools 创建、列出、运行、关闭全局 cron
+- Settings > Cron 自然语言入口、reject toast、打开新建 session 链接
+- `session.created` 自动补全缺失 project 到侧边栏项目列表，并为后台流式事件预热 child store
 
 当前的仿真验证还覆盖了：
 
@@ -827,7 +884,7 @@ job 是否参与调度，需要同时满足：
 
 这些都不是当前实现 bug，而是 v1 的设计取舍。
 
-## 15. 建议验证命令
+## 16. 建议验证命令
 
 当前这套 cron 改动建议至少跑：
 
@@ -840,41 +897,13 @@ bun run --cwd packages/opencode test test/cron/cron.test.ts --timeout 60000
 ```
 
 ```bash
-git diff --check
+bun run --cwd packages/app ./script/vitest.ts run --config ./vitest.config.ts src/components/settings-cron.vitest.tsx
 ```
 
-## 13. 当前已实现的测试覆盖
-
-当前 cron 专项测试已覆盖这些核心行为：
-
-- 创建 job 并初始化 state
-- 禁止用户自带 `id`
-- `run now` 的 direct 成功路径
-- 全局关闭下手动 `run now` 的 `skipped`
-- 全局关闭下：
-  - `cron` 自动推进
-  - `once` 自动过期
-  - `interval` 正确推进到未来时间
-- `isolated_agent` / `session_agent` 的成功路径
-- 启动恢复只清理 stale `running`，不立即执行 due job
-- `expired once` 通过改调度定义复活
-- `schedule_type` 在 `cron <-> interval` 切换时 `start_at` 维护正确
-- 非法 job 文件不会删除旧 state
-- `/cron` 路由创建、查询、运行、删除的基本链路
-
-## 14. 当前设计边界
-
-以下是当前实现中需要明确接受的边界，不是现有 bug：
-
-- 调度精度是**分钟级**，不是秒级
-- server 启动后第一轮真实调度要等 60s
-- `session_agent` 回退到新 session 时，语义上已不是原会话连续体
-- `direct` 与 agent 模式不保证结果完全等价
-- 非法文件恢复策略是“保守保留旧 state”，不是 definition/state 强同步
-
-## 15. 建议验证命令
+```bash
+bun --cwd packages/app test --preload ./happydom.ts src/context/global-sync/event-reducer.test.ts
+```
 
 ```bash
-bun run --cwd packages/opencode typecheck
-bun run --cwd packages/opencode test test/cron/cron.test.ts --timeout 60000
+git diff --check
 ```

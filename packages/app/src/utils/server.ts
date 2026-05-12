@@ -118,6 +118,11 @@ export type AppClient = Base & {
   cron: {
     jobs: {
       list(): Req<CronJobView[]>
+      assistant(input: { instruction: string; selectedID?: string; projectID?: string; sessionID?: string }): Req<{
+        action: "create" | "update" | "reject"
+        summary: string
+        job: CronJobView | null
+      }>
       get(input: { id: string }): Req<CronJobView>
       run(input: { id: string }): Req<CronRun>
       runs(input: { id: string; count?: number }): Req<CronRun[]>
@@ -298,6 +303,26 @@ export function addCronMethods(
     jobs: {
       async list() {
         return requestJSON(`${baseUrl}/cron/jobs`, { headers }, options)
+      },
+      async assistant(input: { instruction: string; selectedID?: string; projectID?: string; sessionID?: string }) {
+        return requestJSON<{
+          action: "create" | "update" | "reject"
+          summary: string
+          job: CronJobView | null
+        }>(
+          `${baseUrl}/cron/assistant`,
+          {
+            method: "POST",
+            headers,
+            body: JSON.stringify({
+              instruction: input.instruction,
+              ...(input.selectedID ? { selected_id: input.selectedID } : {}),
+              ...(input.projectID ? { project_id: input.projectID } : {}),
+              ...(input.sessionID ? { session_id: input.sessionID } : {}),
+            }),
+          },
+          options,
+        )
       },
       async get(input: { id: string }) {
         return requestJSON(`${baseUrl}/cron/jobs/${input.id}`, { headers }, options)
