@@ -66,7 +66,8 @@ export namespace SplitMigration {
       try {
         unlinkSync(p)
         return
-      } catch (err) {
+      } catch (err: any) {
+        if (err?.code === "ENOENT") return
         if (!isLock(err) || n >= 9) throw err
         Bun.gc(true)
         sleepMs(3000)
