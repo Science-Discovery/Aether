@@ -157,12 +157,19 @@ export namespace FileWatcher {
               Effect.promise(() => Promise.allSettled([...subs].map((sub) => sub.unsubscribe()))),
             )
 
+            const cfg = yield* Effect.promise(() => Config.get())
+            const cfgIgnores = cfg.watcher?.ignore ?? []
+            const keep = protecteds(Instance.directory)
+            const filter = [...cfgIgnores, ...keep]
+            const skip = (file: string) => FileIgnore.filter(filter, file, Instance.directory)
+
             const cb: ParcelWatcher.SubscribeCallback = Instance.bind((err, evts) => {
               if (err) {
                 log.error("watcher callback error", { directory: Instance.directory, error: err })
                 return
               }
               for (const evt of evts) {
+                if (skip(evt.path)) continue
                 if (evt.type === "create") Bus.publish(Event.Updated, { file: evt.path, event: "add" })
                 if (evt.type === "update") Bus.publish(Event.Updated, { file: evt.path, event: "change" })
                 if (evt.type === "delete") Bus.publish(Event.Updated, { file: evt.path, event: "unlink" })
@@ -194,6 +201,7 @@ export namespace FileWatcher {
                   ? child({
                       dir,
                       ignore,
+                      filter,
                       backend,
                       cb,
                     })
@@ -274,9 +282,7 @@ export namespace FileWatcher {
               }
             }
 
-            const cfg = yield* Effect.promise(() => Config.get())
-            const cfgIgnores = cfg.watcher?.ignore ?? []
-            const ignore = [...FileIgnore.WATCH, ...cfgIgnores, ...protecteds(Instance.directory)]
+            const ignore = [...FileIgnore.WATCH, ...cfgIgnores, ...keep]
             const result =
               Instance.project.vcs === "git"
                 ? yield* Effect.promise(() =>
@@ -372,12 +378,12 @@ export namespace FileWatcher {
   function child(input: {
     dir: string
     ignore: string[]
+    filter: string[]
     backend: ParcelWatcher.BackendType
     cb: ParcelWatcher.SubscribeCallback
   }) {
     const abort = new AbortController()
     const file = sidecar()
-    console.log(file)
     const proc = file
       ? Process.spawn([file], {
           stdout: "pipe",
@@ -390,9 +396,14 @@ export namespace FileWatcher {
           [
             BunProc.which(),
             worker,
-            Buffer.from(JSON.stringify({ dir: input.dir, ignore: input.ignore, backend: input.backend })).toString(
-              "base64url",
-            ),
+            Buffer.from(
+              JSON.stringify({
+                dir: input.dir,
+                ignore: input.ignore,
+                filter: input.filter,
+                backend: input.backend,
+              }),
+            ).toString("base64url"),
           ],
           {
             stdout: "pipe",
@@ -414,6 +425,7 @@ export namespace FileWatcher {
           type: "start",
           root: input.dir,
           ignore: input.ignore,
+          filter: input.filter,
         }) + "\n",
       )
     }

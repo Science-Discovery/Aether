@@ -37,7 +37,7 @@ func run() error {
 		return err
 	}
 
-	svc, err := watch.New(msg.Root, msg.Ignore, func(msg any) error {
+	svc, err := watch.New(msg.Root, msg.Ignore, msg.Filter, func(msg any) error {
 		return protocol.Encode(os.Stdout, msg)
 	})
 	if err != nil {

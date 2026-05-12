@@ -96,6 +96,42 @@ func TestCompileSupportsBraceGlobstar(t *testing.T) {
 	}
 }
 
+func TestCompileFilterMatchesNestedBaseName(t *testing.T) {
+	root := t.TempDir()
+	match, err := CompileFilter(root, []string{"Thumbs.db", "*.log"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !match.Ignore(filepath.Join(root, "a/b/Thumbs.db")) {
+		t.Fatal("expected nested basename to match")
+	}
+
+	if !match.Ignore(filepath.Join(root, "a/b/app.log")) {
+		t.Fatal("expected nested glob basename to match")
+	}
+
+	if match.Ignore(filepath.Join(root, "a/b/app.ts")) {
+		t.Fatal("did not expect unrelated file to match")
+	}
+}
+
+func TestCompileFilterKeepsRelativePathGlobs(t *testing.T) {
+	root := t.TempDir()
+	match, err := CompileFilter(root, []string{"logs/**"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !match.Ignore(filepath.Join(root, "logs/app/current.txt")) {
+		t.Fatal("expected relative path glob to match")
+	}
+
+	if match.Ignore(filepath.Join(root, "src/current.txt")) {
+		t.Fatal("did not expect unrelated path to match")
+	}
+}
+
 func TestCompileSupportsLiteralPathScanPruning(t *testing.T) {
 	root := t.TempDir()
 	makeDir(t, root, "packages/app/cache/tmp")

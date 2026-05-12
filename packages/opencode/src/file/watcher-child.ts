@@ -1,9 +1,11 @@
 import type ParcelWatcher from "@parcel/watcher"
 import * as Parcel from "./parcel-watcher"
+import { FileIgnore } from "./ignore"
 
 type Input = {
   dir: string
   ignore: string[]
+  filter: string[]
   backend: ParcelWatcher.BackendType
 }
 
@@ -66,6 +68,7 @@ try {
         return
       }
       for (const evt of evts) {
+        if (FileIgnore.filter(input.filter, evt.path, input.dir)) continue
         if (evt.type === "create") send({ type: "event", path: evt.path, event: "add" })
         if (evt.type === "update") send({ type: "event", path: evt.path, event: "change" })
         if (evt.type === "delete") send({ type: "event", path: evt.path, event: "unlink" })

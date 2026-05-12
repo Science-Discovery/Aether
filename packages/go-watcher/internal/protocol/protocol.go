@@ -14,6 +14,7 @@ type Start struct {
 	Type   string   `json:"type"`
 	Root   string   `json:"root"`
 	Ignore []string `json:"ignore"`
+	Filter []string `json:"filter"`
 }
 
 type Ready struct {

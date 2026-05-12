@@ -16,3 +16,10 @@ test("watch patterns skip nested ignored directories", () => {
   expect(FileIgnore.WATCH[0]).not.toContain("**/node_modules")
   expect(FileIgnore.WATCH[0]).not.toContain("**/*.log")
 })
+
+test("filter matches nested basenames and relative globs", () => {
+  expect(FileIgnore.filter(["Thumbs.db"], "/tmp/a/Thumbs.db", "/tmp")).toBe(true)
+  expect(FileIgnore.filter(["*.log"], "/tmp/a/app.log", "/tmp")).toBe(true)
+  expect(FileIgnore.filter(["logs/**"], "/tmp/logs/app/current.txt", "/tmp")).toBe(true)
+  expect(FileIgnore.filter(["Thumbs.db"], "/tmp/a/file.txt", "/tmp")).toBe(false)
+})

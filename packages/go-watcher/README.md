@@ -79,6 +79,11 @@ The parent sends exactly one message:
     ".git",
     "**/.git",
     "**/.git/**"
+  ],
+  "filter": [
+    "Thumbs.db",
+    "*.log",
+    "logs/**"
   ]
 }
 ```
@@ -86,7 +91,8 @@ The parent sends exactly one message:
 Rules:
 
 - `root` must be absolute.
-- `ignore` is interpreted relative to `root`.
+- `ignore` is interpreted relative to `root` and is used for pre-registration subtree pruning.
+- `filter` is interpreted relative to `root` for path globs, and patterns without `/` are matched against the basename before events are emitted.
 - glob syntax is handled by `github.com/bmatcuk/doublestar/v4`.
 - watcher ignores should use explicit patterns such as `**/{node_modules,dist,.git}` when they mean "match this directory name at any depth".
 - the child may reject unsupported patterns instead of silently weakening semantics.

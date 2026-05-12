@@ -12,23 +12,29 @@ import (
 )
 
 type Service struct {
-	root  string
-	match *Matcher
-	emit  func(any) error
-	w     *fsnotify.Watcher
-	dirs  map[string]int
+	root   string
+	match  *Matcher
+	filter *Matcher
+	emit   func(any) error
+	w      *fsnotify.Watcher
+	dirs   map[string]int
 }
 
-func New(root string, ignore []string, emit func(any) error) (*Service, error) {
+func New(root string, ignore []string, filter []string, emit func(any) error) (*Service, error) {
 	match, err := Compile(root, ignore)
 	if err != nil {
 		return nil, err
 	}
+	name, err := CompileFilter(root, filter)
+	if err != nil {
+		return nil, err
+	}
 	return &Service{
-		root:  filepath.Clean(root),
-		match: match,
-		emit:  emit,
-		dirs:  map[string]int{},
+		root:   filepath.Clean(root),
+		match:  match,
+		filter: name,
+		emit:   emit,
+		dirs:   map[string]int{},
 	}, nil
 }
 
@@ -133,6 +139,9 @@ func (svc *Service) consume(evt fsnotify.Event) error {
 
 	name := event(evt)
 	if name == "" {
+		return nil
+	}
+	if svc.filter.Ignore(item) {
 		return nil
 	}
 
