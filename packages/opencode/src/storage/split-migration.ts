@@ -902,6 +902,12 @@ export namespace SplitMigration {
       destSqlite = undefined
 
       copyFileSync(destCopy, main)
+      for (const ext of ["-shm", "-wal"]) {
+        const target = main + ext
+        try {
+          if (existsSync(target)) unlinkSync(target)
+        } catch {}
+      }
       log.info("replaced main db with migration result")
 
       deleteWithCompanions(destCopy)
