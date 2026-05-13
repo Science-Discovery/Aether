@@ -1,0 +1,10 @@
+{
+  "id": "p0-system",
+  "description": "Single turn with a system prompt.",
+  "tier": "P0",
+  "system": "你是一个用于系统测试的助手。回答必须简短直接。",
+  "prompt": "请分三点列出保持代码可维护性的建议，每点不超过十五个字。",
+  "assert": {
+    "non_empty": true
+  }
+}

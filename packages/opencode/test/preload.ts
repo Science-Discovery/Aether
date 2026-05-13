@@ -67,28 +67,31 @@ const cacheDir = path.join(dir, "cache", "aether")
 await fs.mkdir(cacheDir, { recursive: true })
 await fs.writeFile(path.join(cacheDir, "version"), "21")
 
-// Clear provider and server auth env vars to ensure clean test state
-delete process.env["ANTHROPIC_API_KEY"]
-delete process.env["OPENAI_API_KEY"]
-delete process.env["GOOGLE_API_KEY"]
-delete process.env["GOOGLE_GENERATIVE_AI_API_KEY"]
-delete process.env["AZURE_OPENAI_API_KEY"]
-delete process.env["AWS_ACCESS_KEY_ID"]
-delete process.env["AWS_PROFILE"]
-delete process.env["AWS_REGION"]
-delete process.env["AWS_BEARER_TOKEN_BEDROCK"]
-delete process.env["OPENROUTER_API_KEY"]
-delete process.env["GROQ_API_KEY"]
-delete process.env["MISTRAL_API_KEY"]
-delete process.env["PERPLEXITY_API_KEY"]
-delete process.env["TOGETHER_API_KEY"]
-delete process.env["XAI_API_KEY"]
-delete process.env["DEEPSEEK_API_KEY"]
-delete process.env["FIREWORKS_API_KEY"]
-delete process.env["CEREBRAS_API_KEY"]
-delete process.env["SAMBANOVA_API_KEY"]
-delete process.env["OPENCODE_SERVER_PASSWORD"]
-delete process.env["OPENCODE_SERVER_USERNAME"]
+// Clear provider and server auth env vars to ensure clean unit-test state.
+// System tests (OPENCODE_SYSTEM_TEST=1) need real keys, so skip deletion.
+if (process.env.OPENCODE_SYSTEM_TEST !== "1") {
+  delete process.env["ANTHROPIC_API_KEY"]
+  delete process.env["OPENAI_API_KEY"]
+  delete process.env["GOOGLE_API_KEY"]
+  delete process.env["GOOGLE_GENERATIVE_AI_API_KEY"]
+  delete process.env["AZURE_OPENAI_API_KEY"]
+  delete process.env["AWS_ACCESS_KEY_ID"]
+  delete process.env["AWS_PROFILE"]
+  delete process.env["AWS_REGION"]
+  delete process.env["AWS_BEARER_TOKEN_BEDROCK"]
+  delete process.env["OPENROUTER_API_KEY"]
+  delete process.env["GROQ_API_KEY"]
+  delete process.env["MISTRAL_API_KEY"]
+  delete process.env["PERPLEXITY_API_KEY"]
+  delete process.env["TOGETHER_API_KEY"]
+  delete process.env["XAI_API_KEY"]
+  delete process.env["DEEPSEEK_API_KEY"]
+  delete process.env["FIREWORKS_API_KEY"]
+  delete process.env["CEREBRAS_API_KEY"]
+  delete process.env["SAMBANOVA_API_KEY"]
+  delete process.env["OPENCODE_SERVER_PASSWORD"]
+  delete process.env["OPENCODE_SERVER_USERNAME"]
+}
 
 // Use in-memory sqlite
 process.env["OPENCODE_DB"] = ":memory:"
