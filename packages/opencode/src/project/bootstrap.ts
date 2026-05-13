@@ -15,6 +15,7 @@ import { Log } from "@/util/log"
 import { ShareNext } from "@/share/share-next"
 import { PROJECT } from "@/persist/naming"
 import { SessionRecovery } from "@/session/recovery"
+import { SessionSummary } from "../session/summary"
 
 export async function InstanceBootstrap() {
   Log.Default.info("bootstrapping", { directory: Instance.directory })
@@ -31,6 +32,7 @@ export async function InstanceBootstrap() {
   await SessionRecovery.repairInterrupted().catch((error) => {
     Log.Default.warn("failed to repair interrupted assistant messages", { error })
   })
+  SessionSummary.init()
 
   Bus.subscribe(Command.Event.Executed, async (payload) => {
     if (payload.properties.name === Command.Default.INIT) {

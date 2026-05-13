@@ -346,6 +346,11 @@ export namespace MessageV2 {
     tool: z.string(),
     state: ToolState,
     metadata: z.record(z.string(), z.any()).optional(),
+    // True when the tool was executed within the provider's stream (e.g.
+    // Anthropic web_search, Copilot Responses tools). Such parts must be
+    // excluded from the outer-loop "any unresolved tool call?" check in
+    // SessionPrompt — they are already complete by stream end.
+    providerExecuted: z.boolean().optional(),
   }).meta({
     ref: "ToolPart",
   })
