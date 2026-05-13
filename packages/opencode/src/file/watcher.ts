@@ -3,12 +3,10 @@ import { createInterface } from "readline"
 import type ParcelWatcher from "@parcel/watcher"
 import { existsSync } from "fs"
 import { readdir } from "fs/promises"
-import { fileURLToPath } from "url"
 import path from "path"
 import z from "zod"
 import { Bus } from "@/bus"
 import { BusEvent } from "@/bus/bus-event"
-import { BunProc } from "@/bun"
 import { InstanceState } from "@/effect/instance-state"
 import { makeRuntime } from "@/effect/run-service"
 import { Flag } from "@/flag/flag"
@@ -29,8 +27,7 @@ export namespace FileWatcher {
   const SUBSCRIBE_TIMEOUT_MS = 5_000
   const SUBSCRIBE_COOLDOWN_MS = 60_000
   const SUBPROCESS_KILL_TIMEOUT_MS = 500
-  const worker = fileURLToPath(new URL("./watcher-child.ts", import.meta.url))
-  const sidecarDir = fileURLToPath(new URL("../../../go-watcher/bin/", import.meta.url))
+  const sidecarDir = new URL("../../../go-watcher/bin/", import.meta.url)
   let inflight = 0
   const cooldown = new Map<string, { until: number; reason: "timeout" | "error" }>()
 
@@ -109,12 +106,25 @@ export namespace FileWatcher {
     if (env && existsSync(env)) return env
     const name = process.platform === "win32" ? "opencode-watcher.exe" : "opencode-watcher"
     if (Installation.isLocal()) {
-      const file = path.join(sidecarDir, name)
-      if (existsSync(file)) return file
+      const file = new URL(name, sidecarDir)
+      const path = Bun.fileURLToPath(file)
+      if (existsSync(path)) return path
       return
     }
     const file = path.join(path.dirname(process.execPath), "native", name)
     if (existsSync(file)) return file
+  }
+
+  function requireSidecar() {
+    const file = sidecar()
+    if (file) return file
+    const name = process.platform === "win32" ? "opencode-watcher.exe" : "opencode-watcher"
+    if (Installation.isLocal()) {
+      const file = Bun.fileURLToPath(new URL(name, sidecarDir))
+      if (existsSync(file)) return file
+      throw new Error(`go watcher binary not found: ${file}`)
+    }
+    throw new Error(`go watcher binary not found: ${path.join(path.dirname(process.execPath), "native", name)}`)
   }
 
   export const hasNativeBinding = () => !!watcher()
@@ -435,60 +445,33 @@ export namespace FileWatcher {
     cb: ParcelWatcher.SubscribeCallback
   }) {
     const abort = new AbortController()
-    const file = sidecar()
+    const file = requireSidecar()
     const start = Date.now()
     let reason = "unknown"
-    const proc = file
-      ? Process.spawn([file], {
-          stdout: "pipe",
-          stderr: "pipe",
-          stdin: "pipe",
-          abort: abort.signal,
-          timeout: SUBPROCESS_KILL_TIMEOUT_MS,
-        })
-      : Process.spawn(
-          [
-            BunProc.which(),
-            worker,
-            Buffer.from(
-              JSON.stringify({
-                dir: input.dir,
-                ignore: input.ignore,
-                filter: input.filter,
-                backend: input.backend,
-              }),
-            ).toString("base64url"),
-          ],
-          {
-            stdout: "pipe",
-            stderr: "pipe",
-            stdin: "ignore",
-            abort: abort.signal,
-            timeout: SUBPROCESS_KILL_TIMEOUT_MS,
-            env: {
-              BUN_BE_BUN: "1",
-            },
-          },
-        )
+    const proc = Process.spawn([file], {
+      stdout: "pipe",
+      stderr: "pipe",
+      stdin: "pipe",
+      abort: abort.signal,
+      timeout: SUBPROCESS_KILL_TIMEOUT_MS,
+    })
     log.info("watcher child spawn", {
       dir: input.dir,
       backend: input.backend,
-      mode: file ? "sidecar" : "bun-child",
+      mode: "sidecar",
       file,
     })
     if (!proc.stdout || !proc.stderr) throw new Error("watcher child output not available")
-    if (file) {
-      if (!proc.stdin) throw new Error("watcher child input not available")
-      proc.stdin.end(
-        JSON.stringify({
-          v: 1,
-          type: "start",
-          root: input.dir,
-          ignore: input.ignore,
-          filter: input.filter,
-        }) + "\n",
-      )
-    }
+    if (!proc.stdin) throw new Error("watcher child input not available")
+    proc.stdin.end(
+      JSON.stringify({
+        v: 1,
+        type: "start",
+        root: input.dir,
+        ignore: input.ignore,
+        filter: input.filter,
+      }) + "\n",
+    )
 
     const stderr = createInterface({
       input: proc.stderr,

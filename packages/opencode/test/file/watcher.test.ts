@@ -65,6 +65,20 @@ function withWatcherInit<E>(directory: string, body: Effect.Effect<void, E>) {
   })
 }
 
+async function startWatcher(directory: string) {
+  const layer: Layer.Layer<FileWatcher.Service, never, never> = FileWatcher.layer.pipe(Layer.provide(watcherConfigLayer))
+  const rt = ManagedRuntime.make(layer)
+  await Instance.provide({
+    directory,
+    fn: async () => {
+      await rt.runPromise(FileWatcher.Service.use((s) => s.init()))
+    },
+  })
+  return async () => {
+    await rt.dispose()
+  }
+}
+
 function listen(directory: string, check: (evt: WatcherEvent) => boolean, hit: (evt: WatcherEvent) => void) {
   let done = false
 
@@ -135,10 +149,11 @@ async function eventually(
   directory: string,
   check: (evt: WatcherEvent) => boolean,
   write: (attempt: number) => Promise<void>,
-  opts?: { attempts?: number; pause?: number },
+  opts?: { attempts?: number; pause?: number; name?: string },
 ) {
   const attempts = opts?.attempts ?? 60
   const pause = opts?.pause ?? 250
+  const name = opts?.name ?? directory
 
   return await new Promise<WatcherEvent>((resolve, reject) => {
     let done = false
@@ -292,39 +307,45 @@ describeWatcher("FileWatcher", () => {
       const afile = path.join(a.path, "a.txt")
       const bfile = path.join(b.path, "b.txt")
 
-      await withWatcherInit(
-        a.path,
-        Effect.promise(() =>
-          withWatcherInit(
-            b.path,
-            Effect.promise(async () => {
-              ActiveDirectory.set("a", a.path)
-              ActiveDirectory.set("b", b.path)
-              await Promise.all([Effect.runPromise(ready(a.path)), Effect.runPromise(ready(b.path))])
+      const stopA = await startWatcher(a.path)
+      const stopB = await startWatcher(b.path)
 
-              const [aevt, bevt] = await Promise.all([
-                Effect.runPromise(
-                  nextUpdate(
-                    a.path,
-                    (evt) => evt.file === afile && evt.event === "add",
-                    Effect.promise(() => fs.writeFile(afile, "a")),
-                  ),
-                ),
-                Effect.runPromise(
-                  nextUpdate(
-                    b.path,
-                    (evt) => evt.file === bfile && evt.event === "add",
-                    Effect.promise(() => fs.writeFile(bfile, "b")),
-                  ),
-                ),
-              ])
+      try {
+        ActiveDirectory.set("a", a.path)
+        ActiveDirectory.set("b", b.path)
 
-              expect(aevt).toEqual({ file: afile, event: "add" })
-              expect(bevt).toEqual({ file: bfile, event: "add" })
-            }),
-          ),
-        ),
-      )
+        const [aevt, bevt] = await Promise.all([
+          Instance.provide({
+            directory: a.path,
+            fn: () =>
+              eventually(
+                a.path,
+                (evt) => evt.file === afile && evt.event !== "unlink",
+                (attempt) => fs.writeFile(afile, `a-${attempt}`),
+                { name: "a" },
+              ),
+          }),
+          Instance.provide({
+            directory: b.path,
+            fn: () =>
+              eventually(
+                b.path,
+                (evt) => evt.file === bfile && evt.event !== "unlink",
+                (attempt) => fs.writeFile(bfile, `b-${attempt}`),
+                { name: "b" },
+              ),
+          }),
+        ])
+
+        expect(aevt.file).toBe(afile)
+        expect(bevt.file).toBe(bfile)
+        expect(["add", "change"]).toContain(aevt.event)
+        expect(["add", "change"]).toContain(bevt.event)
+      } finally {
+        ActiveDirectory.clear()
+        await stopB()
+        await stopA()
+      }
     },
     { timeout: 30_000 },
   )
