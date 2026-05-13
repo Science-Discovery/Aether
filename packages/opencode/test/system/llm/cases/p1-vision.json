@@ -1,0 +1,24 @@
+{
+  "id": "p1-vision",
+  "description": "Vision input verification. Validates image modality handling — unsupportedParts pass-through and provider image encoding.",
+  "tier": "P1",
+  "history": [
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "text",
+          "text": "请简要描述这张图片的颜色，用一句话回答。"
+        },
+        {
+          "type": "image",
+          "image": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAQAAAAECAIAAAAmkwkpAAAAEElEQVR4nGP4z8AARwzEcQCukw/x0F8jngAAAABJRU5ErkJggg=="
+        }
+      ]
+    }
+  ],
+  "capabilities": ["vision"],
+  "assert": {
+    "non_empty": true
+  }
+}
