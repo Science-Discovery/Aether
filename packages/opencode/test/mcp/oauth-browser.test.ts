@@ -138,9 +138,6 @@ test("BrowserOpenFailed event is published when open() throws", async () => {
         resolveEvent()
       })
 
-      // Run authenticate with a timeout to avoid waiting forever for the callback
-      // Attach a handler immediately so callback shutdown rejections
-      // don't show up as unhandled between tests.
       const authPromise = MCP.authenticate("test-oauth-server").catch(() => undefined)
 
       // Wait for the BrowserOpenFailed event to arrive before calling stop().
