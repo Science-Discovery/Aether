@@ -83,7 +83,7 @@ export namespace Project {
 
   type Row = typeof ProjectTable.$inferSelect
 
-  function norm(input: string) {
+  export function norm(input: string) {
     const next = input.replace(/\\/g, "/")
     const trim = /^\/+$/g.test(next) ? "/" : next.replace(/\/+$/, "")
     return trim.toLowerCase()
@@ -122,14 +122,19 @@ export namespace Project {
     const recentRows = Database.use((db) =>
       db.select().from(ProjectRecentTable).where(eq(ProjectRecentTable.kind, "project")).all(),
     )
+    const seen = new Set<ProjectID>()
     const result: Info[] = []
     for (const row of recentRows) {
       if (!row.project_id) continue
+      if (seen.has(row.project_id)) continue
       if (!Database.hasProject(row.project_id)) continue
       const projectRow = Database.useProject(row.project_id, (d) =>
         d.select().from(ProjectTable).where(eq(ProjectTable.id, row.project_id!)).get(),
       )
-      if (projectRow) result.push(fromRow(projectRow))
+      if (projectRow) {
+        seen.add(row.project_id)
+        result.push(fromRow(projectRow))
+      }
     }
     return result.sort((a, b) => a.id.localeCompare(b.id))
   }
@@ -137,12 +142,29 @@ export namespace Project {
     const recentRows = Database.use((d) =>
       d.select().from(ProjectRecentTable).orderBy(desc(ProjectRecentTable.activity_at)).all(),
     )
-    return recentRows
+    const gpm = Database.use((d) => d.select().from(GlobalProjectMapTable).all())
+    const canonicalPID = new Map<string, string>()
+    for (const row of gpm) canonicalPID.set(norm(row.directory), row.project_id)
+    const seen = new Map<string, (typeof recentRows)[number]>()
+    for (const row of recentRows) {
+      const key = norm(row.directory)
+      const prev = seen.get(key)
+      if (!prev || row.activity_at > prev.activity_at) seen.set(key, row)
+    }
+    return [...seen.values()]
       .map((row) => {
-        if (row.kind === "project" && row.project_id) {
-          if (!Database.hasProject(row.project_id)) return undefined
-          const projectRow = Database.useProject(row.project_id, (d) =>
-            d.select().from(ProjectTable).where(eq(ProjectTable.id, row.project_id!)).get(),
+        const resolvedPID =
+          row.kind === "project" && row.project_id
+            ? (canonicalPID.get(norm(row.directory)) ?? row.project_id)
+            : undefined
+        if (row.kind === "project" && resolvedPID) {
+          if (!Database.hasProject(resolvedPID)) return undefined
+          const projectRow = Database.useProject(resolvedPID, (d) =>
+            d
+              .select()
+              .from(ProjectTable)
+              .where(eq(ProjectTable.id, resolvedPID as ProjectID))
+              .get(),
           )
           const known = projectRow ? fromRow(projectRow) : undefined
           const icon = (() => {
@@ -155,7 +177,7 @@ export namespace Project {
           return {
             id: row.key,
             kind: "project" as const,
-            projectID: row.project_id,
+            projectID: resolvedPID,
             directory: row.directory,
             worktree: known?.worktree,
             vcs: known?.vcs,
