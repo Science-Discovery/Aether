@@ -9,6 +9,7 @@ import solidPlugin from "@opentui/solid/bun-plugin"
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
 const dir = path.resolve(__dirname, "..")
+const sidecar = path.resolve(dir, "../go-watcher")
 
 process.chdir(dir)
 
@@ -160,6 +161,20 @@ const targets = singleFlag
     })
   : allTargets
 
+function goname(item: { os: string; arch: "arm64" | "x64" }) {
+  const arch = item.arch === "x64" ? "amd64" : "arm64"
+  const file = item.os === "win32" ? "opencode-watcher.exe" : "opencode-watcher"
+  const os = item.os === "win32" ? "windows" : item.os
+  return { arch, file, os }
+}
+
+async function watcher(item: { os: string; arch: "arm64" | "x64" }, out: string) {
+  const go = goname(item)
+  fs.mkdirSync(path.dirname(out), { recursive: true })
+  console.log(`building go watcher for ${go.os}-${go.arch}`)
+  await $`CGO_ENABLED=0 GOOS=${go.os} GOARCH=${go.arch} go build -ldflags="-s -w" -o ${out} ./cmd/opencode-watcher`.cwd(sidecar)
+}
+
 fs.rmSync("dist", { recursive: true, force: true })
 
 // Sync version into package.json so the web app picks it up at build time
@@ -207,6 +222,7 @@ for (const item of targets) {
     .join("-")
   console.log(`building ${name}`)
   fs.mkdirSync(`dist/${name}/bin`, { recursive: true })
+  await watcher(item, path.resolve(dir, `dist/${name}/bin/native/${goname(item).file}`))
 
   const localPath = path.resolve(dir, "node_modules/@opentui/core/parser.worker.js")
   const rootPath = path.resolve(dir, "../../node_modules/@opentui/core/parser.worker.js")
