@@ -390,8 +390,9 @@ run log 当前不单独保存：
   - `created_session_id`: 本次新建的 session
 - Settings > Cron 的最近运行记录会提供“打开会话”链接，直接跳转到这个新 session
 - 如果前端收到该 session 的 `session.created` 事件时发现对应 project 不在侧边栏项目列表里，会用事件里的 `projectID + directory` 自动补一个最小 project 记录，避免新会话成为无法打开的“幽灵会话”
-- 前端收到后台 `session.created` 时会同时预热对应 project 的 child store，使后续 `message.part.delta` 等流式事件有接收目标；点击“打开会话”时会先把该 project 加入侧边栏项目列表，再加载该 project 的 session 列表并跳转
-- Layout 路由层也会在进入 project/session URL 时确保对应 root project 已加入侧边栏，覆盖刷新或外部链接进入的情况
+- 前端收到后台 `session.created` 时会同时预热对应 project 的 child store，使后续 `message.part.delta` 等流式事件有接收目标
+- 点击 Settings > Cron 最近运行记录里的“打开会话”时，会显式把该 project 加入侧边栏项目列表，再加载该 project 的 session 列表并跳转
+- 普通 Layout 路由层不会因为访问任意 `/<project>/session` URL 而自动打开 project；这避免破坏“关闭 project”和 non-git project 的既有导航语义
 
 ### 6.3 session_agent
 
