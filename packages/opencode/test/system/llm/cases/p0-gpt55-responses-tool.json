@@ -1,0 +1,16 @@
+{
+  "id": "p0-gpt55-responses-tool",
+  "description": "GPT-5.5 function tools with reasoning effort must use the Responses API instead of /v1/chat/completions.",
+  "tier": "P0",
+  "target": {
+    "providers": ["maas"],
+    "models": ["gpt-5.5"]
+  },
+  "prompt": "请调用 lookup 工具查询 key 为 smoke 的值，不要直接回答。",
+  "capabilities": ["reasoning", "tool"],
+  "assert": {
+    "non_empty": false,
+    "tool_call": true,
+    "endpoint": "responses"
+  }
+}
