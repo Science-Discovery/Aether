@@ -7,6 +7,7 @@ import { type Platform, PlatformProvider } from "@/context/platform"
 import { dict as en } from "@/i18n/en"
 import { dict as zh } from "@/i18n/zh"
 import { createWebUpdate } from "@/utils/web-update"
+import { lease } from "@/utils/lease"
 import { handleNotificationClick } from "@/utils/notification-click"
 import { ServerConnection } from "./context/server"
 
@@ -201,14 +202,6 @@ const sync = async () => {
   if (!local.enabled || !hosted(local)) return
   await push(local).catch(() => undefined)
 }
-
-const lease = (() => {
-  try {
-    return crypto.randomUUID()
-  } catch {
-    return `${Date.now()}-${Math.random().toString(36).slice(2)}`
-  }
-})()
 
 const ping = async (alive = true) => {
   await req("/global/ping", {

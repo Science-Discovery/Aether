@@ -68,6 +68,7 @@ import { useServer } from "@/context/server"
 import { bindResolver, initMobile } from "@/context/mobile"
 import { useLanguage, type Locale } from "@/context/language"
 import { actionOf, messageOf } from "@/utils/web-update"
+import { lease } from "@/utils/lease"
 import {
   displayName,
   effectiveWorkspaceOrder,
@@ -159,7 +160,7 @@ export default function Layout(props: ParentProps) {
     on(
       () => currentDir() || undefined,
       (directory) => {
-        void globalSDK.client.global.activeDirectory.set({ directory }).catch(() => undefined)
+        void globalSDK.client.global.activeDirectory.set({ id: lease, directory }).catch(() => undefined)
       },
     ),
   )

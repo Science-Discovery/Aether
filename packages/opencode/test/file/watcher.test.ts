@@ -21,6 +21,7 @@ const watcherConfigLayer = ConfigProvider.layer(
     OPENCODE_EXPERIMENTAL_DISABLE_FILEWATCHER: "false",
   }),
 )
+const owner = "watcher-test"
 
 type WatcherEvent = { file: string; event: "add" | "change" | "unlink" }
 /** Run `body` with a live FileWatcher service. */
@@ -33,12 +34,12 @@ function withWatcher<E>(directory: string, body: Effect.Effect<void, E>) {
       )
       const rt = ManagedRuntime.make(layer)
       try {
-        ActiveDirectory.set(directory)
+        ActiveDirectory.set(owner, directory)
         await rt.runPromise(FileWatcher.Service.use((s) => s.init()))
         await Effect.runPromise(ready(directory))
         await Effect.runPromise(body)
       } finally {
-        ActiveDirectory.set(undefined)
+        ActiveDirectory.clear()
         await rt.dispose()
       }
     },
@@ -57,7 +58,7 @@ function withWatcherInit<E>(directory: string, body: Effect.Effect<void, E>) {
         await rt.runPromise(FileWatcher.Service.use((s) => s.init()))
         await Effect.runPromise(body)
       } finally {
-        ActiveDirectory.set(undefined)
+        ActiveDirectory.clear()
         await rt.dispose()
       }
     },
@@ -205,7 +206,7 @@ function ready(directory: string) {
 
 describeWatcher("FileWatcher", () => {
   afterEach(async () => {
-    ActiveDirectory.set(undefined)
+    ActiveDirectory.clear()
     await Instance.disposeAll()
   })
 
@@ -268,7 +269,7 @@ describeWatcher("FileWatcher", () => {
               Effect.promise(() => fs.writeFile(file, "idle")),
             ),
           )
-          ActiveDirectory.set(tmp.path)
+          ActiveDirectory.set(owner, tmp.path)
           const evt = await eventually(
             tmp.path,
             (event) => event.file === file && event.event !== "unlink",
@@ -278,6 +279,51 @@ describeWatcher("FileWatcher", () => {
           expect(evt.file).toBe(file)
           expect(["add", "change"]).toContain(evt.event)
         }),
+      )
+    },
+    { timeout: 30_000 },
+  )
+
+  test(
+    "watches multiple leased directories concurrently",
+    async () => {
+      await using a = await tmpdir()
+      await using b = await tmpdir()
+      const afile = path.join(a.path, "a.txt")
+      const bfile = path.join(b.path, "b.txt")
+
+      await withWatcherInit(
+        a.path,
+        Effect.promise(() =>
+          withWatcherInit(
+            b.path,
+            Effect.promise(async () => {
+              ActiveDirectory.set("a", a.path)
+              ActiveDirectory.set("b", b.path)
+              await Promise.all([Effect.runPromise(ready(a.path)), Effect.runPromise(ready(b.path))])
+
+              const [aevt, bevt] = await Promise.all([
+                Effect.runPromise(
+                  nextUpdate(
+                    a.path,
+                    (evt) => evt.file === afile && evt.event === "add",
+                    Effect.promise(() => fs.writeFile(afile, "a")),
+                  ),
+                ),
+                Effect.runPromise(
+                  nextUpdate(
+                    b.path,
+                    (evt) => evt.file === bfile && evt.event === "add",
+                    Effect.promise(() => fs.writeFile(bfile, "b")),
+                  ),
+                ),
+              ])
+
+              expect(aevt).toEqual({ file: afile, event: "add" })
+              expect(bevt).toEqual({ file: bfile, event: "add" })
+            }),
+          ),
+        ),
       )
     },
     { timeout: 30_000 },

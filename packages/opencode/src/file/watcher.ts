@@ -196,6 +196,17 @@ export namespace FileWatcher {
               const start = Date.now()
               inflight += 1
               let state = "pending" as "pending" | "ok" | "timeout" | "error"
+              log.info("subscribe start", {
+                dir,
+                kind,
+                pid: process.pid,
+                backend,
+                inflight,
+                ignoreCount: ignore.length,
+                directory: Instance.directory,
+                worktree: Instance.project.worktree,
+                projectID: Instance.project.id,
+              })
               const input =
                 process.platform === "linux" && kind === "worktree"
                   ? child({
@@ -250,6 +261,17 @@ export namespace FileWatcher {
                 state = "ok"
                 cooldown.delete(dir)
                 subs.add(sub)
+                log.info("subscribe ready", {
+                  dir,
+                  kind,
+                  pid: process.pid,
+                  backend,
+                  elapsedMs: Date.now() - start,
+                  inflight,
+                  directory: Instance.directory,
+                  worktree: Instance.project.worktree,
+                  projectID: Instance.project.id,
+                })
                 return sub
               } catch (error) {
                 const reason = error instanceof Error && error.message === "subscribe timeout" ? "timeout" : "error"
@@ -302,17 +324,44 @@ export namespace FileWatcher {
             let git: ParcelWatcher.AsyncSubscription | undefined
             let queue = Promise.resolve()
 
-            const stop = async (sub?: ParcelWatcher.AsyncSubscription) => {
+            const stop = async (
+              sub: ParcelWatcher.AsyncSubscription | undefined,
+              kind: "worktree" | "git",
+              reason: string,
+            ) => {
               if (!sub) return
               subs.delete(sub)
+              log.info("unsubscribe start", {
+                kind,
+                reason,
+                directory: Instance.directory,
+                active_directory: ActiveDirectory.get(),
+                active_directories: ActiveDirectory.list(),
+                leases: ActiveDirectory.count(Instance.directory),
+              })
               await sub.unsubscribe().catch(() => undefined)
+              log.info("unsubscribe done", {
+                kind,
+                reason,
+                directory: Instance.directory,
+              })
             }
 
-            const sync = async (directory?: string) => {
-              const active = directory === Instance.directory
+            const sync = async () => {
+              const active = ActiveDirectory.has(Instance.directory)
+              log.info("sync watcher activity", {
+                directory: Instance.directory,
+                enabled,
+                active,
+                active_directory: ActiveDirectory.get(),
+                active_directories: ActiveDirectory.list(),
+                leases: ActiveDirectory.count(Instance.directory),
+                worktree: !!worktree,
+                git: !!git,
+              })
 
               if (!enabled || !active) {
-                await stop(worktree)
+                await stop(worktree, "worktree", !enabled ? "disabled" : "lease-missing")
                 worktree = undefined
               }
               if (enabled && active && !worktree) {
@@ -323,7 +372,7 @@ export namespace FileWatcher {
               }
 
               if (!active || !vcsDir || !gitIgnore) {
-                await stop(git)
+                await stop(git, "git", !active ? "lease-missing" : !vcsDir ? "no-vcs-dir" : "no-git-ignore")
                 git = undefined
                 return
               }
@@ -331,28 +380,31 @@ export namespace FileWatcher {
               git = await subscribe(vcsDir, gitIgnore, "git")
             }
 
-            const run = (directory?: string) => {
+            const run = () => {
               queue = queue
-                .then(() => sync(directory))
+                .then(() => sync())
                 .catch((error) => {
                   log.error("failed to sync watcher activity", {
                     directory: Instance.directory,
-                    active_directory: directory,
+                    active_directory: ActiveDirectory.get(),
+                    active_directories: ActiveDirectory.list(),
                     error,
                   })
                 })
               return queue
             }
 
-            const off = ActiveDirectory.subscribe(Instance.bind((directory) => void run(directory)))
+            const off = ActiveDirectory.subscribe(Instance.bind(() => void run()))
             yield* Effect.addFinalizer(() =>
               Effect.promise(async () => {
                 off()
+                await stop(worktree, "worktree", "finalizer")
+                await stop(git, "git", "finalizer")
                 await queue
               }),
             )
 
-            yield* Effect.promise(() => run(ActiveDirectory.get()))
+            yield* Effect.promise(() => run())
           },
           Effect.catchCause((cause) => {
             log.error("failed to init watcher service", { cause: Cause.pretty(cause) })
@@ -384,6 +436,8 @@ export namespace FileWatcher {
   }) {
     const abort = new AbortController()
     const file = sidecar()
+    const start = Date.now()
+    let reason = "unknown"
     const proc = file
       ? Process.spawn([file], {
           stdout: "pipe",
@@ -416,6 +470,12 @@ export namespace FileWatcher {
             },
           },
         )
+    log.info("watcher child spawn", {
+      dir: input.dir,
+      backend: input.backend,
+      mode: file ? "sidecar" : "bun-child",
+      file,
+    })
     if (!proc.stdout || !proc.stderr) throw new Error("watcher child output not available")
     if (file) {
       if (!proc.stdin) throw new Error("watcher child input not available")
@@ -485,8 +545,17 @@ export namespace FileWatcher {
           if (done) return
           ready = true
           done = true
+          log.info("watcher child ready", {
+            dir: input.dir,
+            backend: input.backend,
+            elapsedMs: Date.now() - start,
+            watched: msg.watched,
+            ignored: msg.ignored,
+            pid: proc.pid,
+          })
           resolve({
             unsubscribe() {
+              reason = "unsubscribe"
               return stop()
             },
           })
@@ -504,6 +573,13 @@ export namespace FileWatcher {
         }
 
         if (ready) {
+          log.warn("watcher child runtime error", {
+            dir: input.dir,
+            stage: msg.stage,
+            error: msg.error,
+            fatal: msg.fatal,
+            pid: proc.pid,
+          })
           input.cb(new Error(`watcher child ${msg.stage}: ${msg.error}`), [])
           return
         }
@@ -512,10 +588,26 @@ export namespace FileWatcher {
       })
 
       proc.once("error", (error) => {
+        log.error("watcher child process error", {
+          dir: input.dir,
+          pid: proc.pid,
+          reason,
+          error,
+        })
         fail(error)
       })
 
       proc.once("exit", (code, signal) => {
+        log.info("watcher child exit", {
+          dir: input.dir,
+          pid: proc.pid,
+          ready,
+          aborted: abort.signal.aborted,
+          reason,
+          code,
+          signal,
+          elapsedMs: Date.now() - start,
+        })
         if (ready) return
         if (abort.signal.aborted) {
           fail(new Error(`watcher child aborted before ready: ${input.dir}`))
@@ -529,8 +621,9 @@ export namespace FileWatcher {
       pending,
       cancel() {
         if (abort.signal.aborted) return
-      abort.abort()
-        log.warn("watcher child aborted", { dir: input.dir })
+        reason = "cancel"
+        abort.abort()
+        log.warn("watcher child aborted", { dir: input.dir, pid: proc.pid, reason })
       },
     }
   }

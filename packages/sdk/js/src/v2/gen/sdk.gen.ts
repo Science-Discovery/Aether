@@ -627,15 +627,26 @@ export class ActiveDirectory extends HeyApiClient {
   /**
    * Set active directory
    *
-   * Set the browser's active directory so background services can scope work to the current workspace.
+   * Set or clear a browser lease's active directory so background services can scope work to the current workspace.
    */
   public set<ThrowOnError extends boolean = false>(
     parameters?: {
+      id?: string
       directory?: string
     },
     options?: Options<never, ThrowOnError>,
   ) {
-    const params = buildClientParams([parameters], [{ args: [{ in: "body", key: "directory" }] }])
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "body", key: "id" },
+            { in: "body", key: "directory" },
+          ],
+        },
+      ],
+    )
     return (options?.client ?? this.client).post<GlobalActiveDirectorySetResponses, unknown, ThrowOnError>({
       url: "/global/active-directory",
       ...options,
