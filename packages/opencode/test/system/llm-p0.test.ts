@@ -103,6 +103,13 @@ const Case = z.object({
   id: z.string().min(1),
   description: z.string().optional(),
   tier: z.enum(["P0", "P1"]).optional().default("P0"),
+  target: z
+    .object({
+      providers: z.array(z.string()).optional(),
+      models: z.array(z.string()).optional(),
+    })
+    .optional()
+    .default({}),
   system: z.string().optional(),
   prompt: z.string().optional(),
   history: z
@@ -121,6 +128,7 @@ const Case = z.object({
       contains: z.array(z.string()).optional(),
       tool_call: z.boolean().optional().default(false),
       reasoning: z.boolean().optional().default(false),
+      endpoint: z.enum(["chat", "responses"]).optional(),
     })
     .optional()
     .default({ non_empty: true, tool_call: false, reasoning: false }),
@@ -302,6 +310,8 @@ function usable(spec: Spec, model: Model, input: Case) {
   if (missing) return `provider config missing: ${missing}`
   if (!spec.enabled) return "provider disabled in YAML"
   if (input.tier === "P1" && !p1) return "P1 disabled"
+  if (input.target.providers && !input.target.providers.includes(spec.id)) return "case targets another provider"
+  if (input.target.models && !input.target.models.includes(model.id)) return "case targets another model"
   if (input.capabilities.includes("reasoning") && !model.capabilities.reasoning) return "model lacks reasoning"
   if (input.capabilities.includes("temperature") && !model.capabilities.temperature) return "model lacks temperature"
   if (input.capabilities.includes("tool") && !model.capabilities.tool) return "model lacks tool"
@@ -356,6 +366,13 @@ async function run(spec: Spec, model: Model, input: Case) {
       }
 
       const resolved = await Provider.getModel(ProviderID.make(spec.id), ModelID.make(model.id))
+      if (input.assert.endpoint) {
+        assert(
+          (input.assert.endpoint === "responses" && resolved.api.npm === "@ai-sdk/openai") ||
+            (input.assert.endpoint === "chat" && resolved.api.npm === "@ai-sdk/openai-compatible"),
+          `expected ${input.assert.endpoint} endpoint, got ${resolved.api.npm}`,
+        )
+      }
       const sessionID = SessionID.make(`system-${spec.id}-${model.id}-${input.id}-${Date.now()}`)
       const ctl = new AbortController()
       const timer = setTimeout(() => ctl.abort(`${spec.id}/${model.id}/${input.id} timed out after ${timeout}ms`), timeout)

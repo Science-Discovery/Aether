@@ -76,7 +76,6 @@ export const codeInterpreterToolFactory = createProviderDefinedToolFactoryWithOu
   CodeInterpreterArgs
 >({
   id: "openai.code_interpreter",
-  name: "code_interpreter",
   inputSchema: codeInterpreterInputSchema,
   outputSchema: codeInterpreterOutputSchema,
 })
