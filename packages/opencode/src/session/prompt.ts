@@ -320,7 +320,11 @@ export namespace SessionPrompt {
 
       if (!lastUser) throw new Error("No user message found in stream. This should never happen.")
       const match = msgs.findLast((msg) => msg.info.role === "assistant" && msg.info.id === lastAssistant?.id)
-      const calls = match?.parts.some((part) => part.type === "tool") ?? false
+      // Skip provider-executed tool parts — those were fully handled within the
+      // provider's stream (e.g. Anthropic web_search, Copilot Responses tools)
+      // and are already in their terminal state when the stream finishes, so
+      // they must not block the outer-loop exit when finish-reason is "stop".
+      const calls = match?.parts.some((part) => part.type === "tool" && !part.providerExecuted) ?? false
       if (
         lastAssistant?.finish &&
         !["tool-calls", "unknown"].includes(lastAssistant.finish) &&

@@ -16,6 +16,7 @@ import { ShareNext } from "@/share/share-next"
 import { PROJECT } from "@/persist/naming"
 import { SessionRecovery } from "@/session/recovery"
 import { DbRecovery } from "@/storage/db-recovery"
+import { SessionSummary } from "../session/summary"
 
 export async function InstanceBootstrap() {
   Log.Default.info("bootstrapping", { directory: Instance.directory })
@@ -31,6 +32,7 @@ export async function InstanceBootstrap() {
   await SessionRecovery.repairInterrupted().catch((error) => {
     Log.Default.warn("failed to repair interrupted assistant messages", { error })
   })
+  SessionSummary.init()
 
   DbRecovery.runAfterStartup().catch((error) => {
     Log.Default.warn("db recovery failed", { error })
