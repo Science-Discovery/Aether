@@ -341,6 +341,21 @@ describe("ProviderTransform.providerOptions", () => {
     })
   })
 
+  test("splits dotted openai-compatible provider ids", () => {
+    const model = createModel({
+      providerID: "wafer.ai",
+      api: {
+        id: "deepseek-v3",
+        url: "https://api.wafer.ai/v1",
+        npm: "@ai-sdk/openai-compatible",
+      },
+    })
+
+    expect(ProviderTransform.providerOptions(model, { reasoningEffort: "high" })).toEqual({
+      wafer: { reasoningEffort: "high" },
+    })
+  })
+
   test("removes responses-only reasoning fields for chat completions models", () => {
     const model = createModel({
       providerID: "custom",
@@ -893,6 +908,41 @@ describe("ProviderTransform.schema - gemini non-object properties removal", () =
 })
 
 describe("ProviderTransform.message - DeepSeek reasoning content", () => {
+  const model = {
+    id: ModelID.make("deepseek/deepseek-chat"),
+    providerID: ProviderID.make("deepseek"),
+    api: {
+      id: "deepseek-chat",
+      url: "https://api.deepseek.com",
+      npm: "@ai-sdk/openai-compatible",
+    },
+    name: "DeepSeek Chat",
+    capabilities: {
+      temperature: true,
+      reasoning: true,
+      attachment: false,
+      toolcall: true,
+      input: { text: true, audio: false, image: false, video: false, pdf: false },
+      output: { text: true, audio: false, image: false, video: false, pdf: false },
+      interleaved: {
+        field: "reasoning_content",
+      },
+    },
+    cost: {
+      input: 0.001,
+      output: 0.002,
+      cache: { read: 0.0001, write: 0.0002 },
+    },
+    limit: {
+      context: 128000,
+      output: 8192,
+    },
+    status: "active",
+    options: {},
+    headers: {},
+    release_date: "2023-04-01",
+  } as any
+
   test("DeepSeek with tool calls includes reasoning_content in providerOptions", () => {
     const msgs = [
       {
@@ -909,44 +959,7 @@ describe("ProviderTransform.message - DeepSeek reasoning content", () => {
       },
     ] as any[]
 
-    const result = ProviderTransform.message(
-      msgs,
-      {
-        id: ModelID.make("deepseek/deepseek-chat"),
-        providerID: ProviderID.make("deepseek"),
-        api: {
-          id: "deepseek-chat",
-          url: "https://api.deepseek.com",
-          npm: "@ai-sdk/openai-compatible",
-        },
-        name: "DeepSeek Chat",
-        capabilities: {
-          temperature: true,
-          reasoning: true,
-          attachment: false,
-          toolcall: true,
-          input: { text: true, audio: false, image: false, video: false, pdf: false },
-          output: { text: true, audio: false, image: false, video: false, pdf: false },
-          interleaved: {
-            field: "reasoning_content",
-          },
-        },
-        cost: {
-          input: 0.001,
-          output: 0.002,
-          cache: { read: 0.0001, write: 0.0002 },
-        },
-        limit: {
-          context: 128000,
-          output: 8192,
-        },
-        status: "active",
-        options: {},
-        headers: {},
-        release_date: "2023-04-01",
-      },
-      {},
-    )
+    const result = ProviderTransform.message(msgs, model, {})
 
     expect(result).toHaveLength(1)
     expect(result[0].content).toEqual([
@@ -958,6 +971,14 @@ describe("ProviderTransform.message - DeepSeek reasoning content", () => {
       },
     ])
     expect(result[0].providerOptions?.openaiCompatible?.reasoning_content).toBe("Let me think about this...")
+  })
+
+  test("DeepSeek assistant without reasoning preserves empty reasoning_content", () => {
+    const result = ProviderTransform.message([{ role: "assistant", content: "Answer" }] as any[], model, {})
+
+    expect(result).toHaveLength(1)
+    expect(result[0].content).toEqual([{ type: "text", text: "Answer" }])
+    expect(result[0].providerOptions?.openaiCompatible?.reasoning_content).toBe("")
   })
 
   test("Non-DeepSeek providers leave reasoning content unchanged", () => {
@@ -1265,6 +1286,37 @@ describe("ProviderTransform.message - anthropic empty content filtering", () => 
     expect(result[0].content).toHaveLength(2)
     expect(result[0].content[0]).toEqual({ type: "reasoning", text: "Thinking..." })
     expect(result[0].content[1]).toEqual({ type: "text", text: "Result" })
+  })
+
+  test("splits assistant content when tool calls are followed by text", () => {
+    const msgs = [
+      {
+        role: "assistant",
+        content: [
+          { type: "tool-call", toolCallId: "call_1", toolName: "bash", input: { cmd: "ls" } },
+          { type: "text", text: "Done" },
+          { type: "reasoning", text: "Thinking" },
+        ],
+      },
+    ] as any[]
+
+    const result = ProviderTransform.message(msgs, anthropicModel, {})
+
+    expect(result).toEqual([
+      {
+        role: "assistant",
+        content: [
+          { type: "text", text: "Done" },
+          { type: "reasoning", text: "Thinking" },
+        ],
+        providerOptions: expect.any(Object),
+      },
+      {
+        role: "assistant",
+        content: [{ type: "tool-call", toolCallId: "call_1", toolName: "bash", input: { cmd: "ls" } }],
+        providerOptions: expect.any(Object),
+      },
+    ])
   })
 
   test("filters empty content for bedrock provider", () => {

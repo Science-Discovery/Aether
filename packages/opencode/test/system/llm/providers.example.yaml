@@ -158,6 +158,19 @@ providers:
           tool: true
           interleaved: reasoning_content
 
+  - id: openrouter
+    name: OpenRouter
+    type: openrouter
+    npm: "@openrouter/ai-sdk-provider"
+    base_url: "https://openrouter.ai/api/v1"
+    api_key_env: OPENROUTER_API_KEY
+    models:
+      - id: deepseek/deepseek-r1-0528
+        capabilities:
+          reasoning: true
+          temperature: true
+          tool: true
+
   - id: maas
     name: TatuCloud MaaS
     type: openai-compatible
