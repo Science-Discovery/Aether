@@ -1,0 +1,59 @@
+{
+  "id": "p0-history-tool",
+  "description": "History replay with tool call and tool result. Validates normalizeMessages handling of tool content in history — Anthropic toolCallId scrubbing, Mistral sequence fixing, and provider compatibility with tool-bearing messages.",
+  "tier": "P0",
+  "history": [
+    {
+      "role": "user",
+      "content": "请用 lookup 工具查询 key 为 test 的值。"
+    },
+    {
+      "role": "assistant",
+      "content": [
+        {
+          "type": "reasoning",
+          "text": "用户要查询 key 为 test 的值，我需要使用 lookup 工具。"
+        },
+        {
+          "type": "text",
+          "text": "好的，我来帮你查询。"
+        },
+        {
+          "type": "tool-call",
+          "toolCallId": "call_001",
+          "toolName": "lookup",
+          "input": { "key": "test" }
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "content": [
+        {
+          "type": "tool-result",
+          "toolCallId": "call_001",
+          "toolName": "lookup",
+          "output": { "type": "text", "value": "ok" }
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "content": [
+        {
+          "type": "reasoning",
+          "text": "工具返回的结果是 ok，我可以直接回复用户。"
+        },
+        {
+          "type": "text",
+          "text": "查询结果为 ok。"
+        }
+      ]
+    }
+  ],
+  "prompt": "请用一句话回复刚才查询到的值。",
+  "capabilities": ["history", "tool"],
+  "assert": {
+    "non_empty": true
+  }
+}

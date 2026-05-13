@@ -830,13 +830,12 @@ export namespace ProviderTransform {
       }
     }
 
-    // Enable thinking for reasoning models on alibaba-cn (DashScope).
-    // DashScope's OpenAI-compatible API requires `enable_thinking: true` in the request body
-    // to return reasoning_content. Without it, models like kimi-k2.5, qwen-plus, qwen3, qwq,
-    // deepseek-r1, etc. never output thinking/reasoning tokens.
+    // Enable thinking for reasoning models on providers using DashScope-style OpenAI-compatible APIs.
+    // These APIs require `enable_thinking: true` in the request body to return reasoning_content.
+    // Without it, models never output thinking/reasoning tokens.
     // Note: kimi-k2-thinking is excluded as it returns reasoning_content by default.
     if (
-      input.model.providerID === "alibaba-cn" &&
+      ["alibaba-cn", "siliconflow-cn"].includes(input.model.providerID) &&
       input.model.capabilities.reasoning &&
       input.model.api.npm === "@ai-sdk/openai-compatible" &&
       !modelId.includes("kimi-k2-thinking")

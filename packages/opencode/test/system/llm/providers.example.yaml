@@ -1,0 +1,219 @@
+version: 1
+providers:
+  - id: alibaba-cn
+    name: DashScope / Alibaba Bailian
+    type: openai-compatible
+    npm: "@ai-sdk/openai-compatible"
+    base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    api_key_env: DASHSCOPE_API_KEY
+    models:
+      - id: qwen3.6-plus
+        capabilities:
+          reasoning: true
+          temperature: true
+          tool: true
+          interleaved: reasoning_content
+      - id: qwen3.6-flash
+        capabilities:
+          reasoning: true
+          temperature: true
+          tool: true
+          interleaved: reasoning_content
+      - id: qwen3.6-max-preview
+        capabilities:
+          reasoning: true
+          temperature: true
+          tool: true
+          interleaved: reasoning_content
+      - id: glm-5.1
+        capabilities:
+          reasoning: true
+          temperature: true
+          tool: true
+          interleaved: reasoning_content
+
+  - id: deepseek
+    name: DeepSeek Official
+    type: openai-compatible
+    npm: "@ai-sdk/openai-compatible"
+    base_url: "https://api.deepseek.com"
+    api_key_env: DEEPSEEK_API_KEY
+    models:
+      - id: deepseek-v4-flash
+        capabilities:
+          reasoning: true
+          temperature: true
+          tool: true
+          interleaved: reasoning_content
+      - id: deepseek-v4-pro
+        capabilities:
+          reasoning: true
+          temperature: true
+          tool: true
+          interleaved: reasoning_content
+
+  - id: moonshotai-cn
+    name: Moonshot CN
+    type: openai-compatible
+    npm: "@ai-sdk/openai-compatible"
+    base_url: "https://api.moonshot.cn/v1"
+    api_key_env: MOONSHOT_API_KEY
+    models:
+      - id: kimi-k2.6
+        capabilities:
+          reasoning: true
+          temperature: true
+          tool: true
+          interleaved: reasoning_content
+
+  - id: zai
+    name: Z.ai
+    type: openai-compatible
+    npm: "@ai-sdk/openai-compatible"
+    base_url: "https://open.bigmodel.cn/api/paas/v4/"
+    api_key_env: ZAI_API_KEY
+    models:
+      - id: glm-5.1
+        capabilities:
+          reasoning: true
+          temperature: true
+          tool: true
+          interleaved: reasoning_content
+
+  - id: xiaomi
+    name: Xiaomi MiMo
+    type: openai-compatible
+    npm: "@ai-sdk/openai-compatible"
+    base_url: "https://api.xiaomimimo.com/v1"
+    api_key_env: XIAOMI_API_KEY
+    models:
+      - id: mimo-v2.5
+        capabilities:
+          reasoning: true
+          temperature: true
+          tool: true
+          vision: true
+          interleaved: reasoning_content
+        limit:
+          context: 1048576
+          output: 32000
+
+  - id: minimax-cn
+    name: MiniMax (minimaxi.com)
+    type: anthropic
+    npm: "@ai-sdk/anthropic"
+    base_url: "https://api.minimaxi.com/anthropic/v1"
+    api_key_env: MINIMAX_API_KEY
+    models:
+      - id: MiniMax-M2.7
+        capabilities:
+          reasoning: true
+          temperature: true
+          tool: true
+
+  - id: volcengine
+    name: Volcengine Ark
+    type: openai-compatible
+    npm: "@ai-sdk/openai-compatible"
+    base_url: "https://ark.cn-beijing.volces.com/api/v3"
+    api_key_env: VOLCENGINE_API_KEY
+    models:
+      - id: doubao-seed-2-0-lite-260215
+        capabilities:
+          reasoning: true
+          temperature: true
+          tool: true
+          interleaved: reasoning_content
+      - id: doubao-seed-2-0-mini-260215
+        capabilities:
+          reasoning: true
+          temperature: true
+          tool: true
+
+  - id: qianfan
+    name: Baidu Qianfan
+    type: openai-compatible
+    npm: "@ai-sdk/openai-compatible"
+    base_url: "https://qianfan.baidubce.com/v2"
+    api_key_env: QIANFAN_API_KEY
+    models:
+      - id: deepseek-v4-flash
+        capabilities:
+          reasoning: true
+          temperature: true
+          tool: true
+          interleaved: reasoning_content
+
+  - id: siliconflow-cn
+    name: SiliconFlow
+    type: openai-compatible
+    npm: "@ai-sdk/openai-compatible"
+    base_url: "https://api.siliconflow.cn/v1"
+    api_key_env: SILICONFLOW_CN_API_KEY
+    models:
+      - id: deepseek-ai/DeepSeek-V4-Flash
+        capabilities:
+          reasoning: true
+          temperature: true
+          tool: true
+          interleaved: reasoning_content
+
+  - id: maas
+    name: TatuCloud MaaS
+    type: openai-compatible
+    npm: "@ai-sdk/openai-compatible"
+    base_url: "https://maas.tatucloud.com/v1"
+    api_key_env: MAAS_API_KEY
+    models:
+      - id: qwen3.6-plus
+        capabilities:
+          reasoning: true
+          temperature: true
+          tool: true
+          interleaved: reasoning_content
+      - id: gpt-5.5
+        capabilities:
+          reasoning: true
+          temperature: true
+          tool: true
+          interleaved: reasoning_content
+      - id: deepseek-v4-pro
+        capabilities:
+          reasoning: true
+          temperature: true
+          tool: true
+          interleaved: reasoning_content
+
+  - id: maas-anthropic
+    name: TatuCloud MaaS (Anthropic)
+    type: anthropic
+    npm: "@ai-sdk/anthropic"
+    base_url: "https://maas.tatucloud.com/v1"
+    api_key_env: MAAS_API_KEY
+    models:
+      - id: claude-opus-4-7
+        capabilities:
+          reasoning: true
+          temperature: true
+          tool: true
+          vision: true
+      - id: claude-sonnet-4-6
+        capabilities:
+          reasoning: true
+          temperature: true
+          tool: true
+          vision: true
+
+  - id: maas-gemini
+    name: TatuCloud MaaS (Gemini)
+    type: google
+    npm: "@ai-sdk/google"
+    base_url: "https://maas.tatucloud.com/v1beta"
+    api_key_env: MAAS_API_KEY
+    models:
+      - id: gemini-3.1-pro-preview
+        capabilities:
+          reasoning: true
+          temperature: true
+          tool: true
+          vision: true
