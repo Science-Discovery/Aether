@@ -545,14 +545,7 @@ export namespace SplitMigration {
 
       const resolveProject = (s: any) => {
         const row = projectByOld.get(s.project_id)
-        // For sessions with a real project_id, use the project's worktree to
-        // find the git root — all sessions under the same project should share
-        // one DB regardless of which worktree/subdirectory they were created in.
-        // For "global" sessions, use the session's own directory.
-        const dir =
-          s.project_id !== "global" && row?.worktree && row.worktree !== "/"
-            ? row.worktree
-            : s.directory || row?.worktree || "/"
+        const dir = s.directory || row?.worktree || "/"
         const info = ProjectIdentity.resolve(dir)
         const pid = info.id
         if (s.project_id !== "global") oldProjectIdMap.set(s.project_id, pid)
@@ -669,7 +662,9 @@ export namespace SplitMigration {
       }
 
       for (const w of workspaces) {
-        const pid = oldProjectIdMap.get(w.project_id) ?? directoryProjectMap.get(norm(w.project_id)) ?? w.project_id
+        const dir = w.directory || w.project_id
+        const info = ProjectIdentity.resolve(dir)
+        const pid = info.id
         const bucket = workspaceByProject.get(pid) ?? []
         bucket.push({ ...w, project_id: pid })
         workspaceByProject.set(pid, bucket)
@@ -913,8 +908,8 @@ export namespace SplitMigration {
       }[]
       for (const row of recentRows) {
         const pid =
-          (row.project_id ? oldProjectIdMap.get(row.project_id) : undefined) ??
-          directoryProjectMap.get(norm(row.directory ?? ""))
+          directoryProjectMap.get(norm(row.directory ?? "")) ??
+          (row.project_id ? oldProjectIdMap.get(row.project_id) : undefined)
         if (pid && uniqueProjectIds.has(pid)) {
           destSqlite
             .prepare("UPDATE project_recent SET kind = 'project', project_id = ? WHERE key = ?")
