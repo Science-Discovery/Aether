@@ -524,7 +524,6 @@ export namespace SplitMigration {
       const mergeProject = (pid: string, info: ProjectIdentity.Info, row?: any) => {
         const prev = projectById.get(pid)
         const sandboxes = new Set<string>(json(prev?.sandboxes))
-        for (const item of json(row?.sandboxes)) sandboxes.add(item)
         if (info.sandbox !== info.root) sandboxes.add(info.sandbox)
         projectById.set(pid, {
           id: pid,
