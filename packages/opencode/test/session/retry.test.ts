@@ -162,6 +162,41 @@ describe("session.retry.retryable", () => {
     expect(retryable).toBeDefined()
     expect(retryable).toBe("Response decompression failed")
   })
+
+  test("retries overloaded stream errors", () => {
+    const error = MessageV2.fromError(
+      {
+        type: "error",
+        error: {
+          code: "server_is_overloaded",
+          message: "Server is overloaded",
+        },
+      },
+      { providerID },
+    ) as MessageV2.APIError
+
+    expect(SessionRetry.retryable(error)).toBe("Server is overloaded")
+  })
+
+  test("retries OpenAI server_error stream chunks", () => {
+    const error = MessageV2.fromError(
+      {
+        message: JSON.stringify({
+          type: "error",
+          sequence_number: 2,
+          error: {
+            type: "server_error",
+            code: "server_error",
+            message: "An error occurred while processing your request.",
+            param: null,
+          },
+        }),
+      },
+      { providerID: ProviderID.make("openai") },
+    ) as MessageV2.APIError
+
+    expect(SessionRetry.retryable(error)).toBe("An error occurred while processing your request.")
+  })
 })
 
 describe("session.message-v2.fromError", () => {

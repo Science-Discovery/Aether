@@ -2463,3 +2463,41 @@ test("cloudflare-ai-gateway forwards config metadata options", async () => {
     },
   })
 })
+
+test("Azure loader falls back to messages models when responses is unavailable", () => {
+  const calls: string[] = []
+  const sdk = {
+    messages(id: string) {
+      calls.push(`messages:${id}`)
+      return "messages-model"
+    },
+    languageModel(id: string) {
+      calls.push(`language:${id}`)
+      return "language-model"
+    },
+  }
+
+  expect(Provider.azureLanguage(sdk, "gpt-5", false)).toBe("messages-model")
+  expect(calls).toEqual(["messages:gpt-5"])
+})
+
+test("Azure loader uses chat models for completion URLs when available", () => {
+  const calls: string[] = []
+  const sdk = {
+    chat(id: string) {
+      calls.push(`chat:${id}`)
+      return "chat-model"
+    },
+    responses(id: string) {
+      calls.push(`responses:${id}`)
+      return "responses-model"
+    },
+    languageModel(id: string) {
+      calls.push(`language:${id}`)
+      return "language-model"
+    },
+  }
+
+  expect(Provider.azureLanguage(sdk, "gpt-5.5", true)).toBe("chat-model")
+  expect(calls).toEqual(["chat:gpt-5.5"])
+})

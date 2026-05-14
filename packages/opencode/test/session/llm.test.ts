@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:test"
 import path from "path"
+import { setTimeout as sleep } from "node:timers/promises"
 import { tool, type ModelMessage } from "ai"
 import z from "zod"
 import { LLM } from "../../src/session/llm"
@@ -348,6 +349,29 @@ function createEventResponse(chunks: unknown[], includeDone = false) {
   })
 }
 
+function createPendingResponse(canceled: (value: void) => void) {
+  const encoder = new TextEncoder()
+  return new Response(
+    new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(
+          encoder.encode(
+            `data: ${JSON.stringify({
+              id: "chatcmpl-1",
+              object: "chat.completion.chunk",
+              choices: [{ delta: { role: "assistant" } }],
+            })}\n\n`,
+          ),
+        )
+      },
+      cancel() {
+        canceled()
+      },
+    }),
+    { status: 200, headers: { "Content-Type": "text/event-stream" } },
+  )
+}
+
 describe("session.llm.stream", () => {
   test("normalizes unknown finish reason without tool calls to stop", async () => {
     const server = state.server
@@ -425,6 +449,90 @@ describe("session.llm.stream", () => {
         }
 
         expect(reason).toBe("stop")
+      },
+    })
+  })
+
+  test("cancels provider response body when stream aborts", async () => {
+    const server = state.server
+    if (!server) {
+      throw new Error("Server not initialized")
+    }
+
+    const providerID = "alibaba"
+    const modelID = "qwen-plus"
+    const fixture = await loadFixture(providerID, modelID)
+    const model = fixture.model
+    const canceled = deferred<void>()
+    const request = waitRequest("/chat/completions", createPendingResponse(canceled.resolve))
+
+    await using tmp = await tmpdir({
+      init: async (dir) => {
+        await Bun.write(
+          path.join(dir, "opencode.json"),
+          JSON.stringify({
+            $schema: "https://opencode.ai/config.json",
+            enabled_providers: [providerID],
+            provider: {
+              [providerID]: {
+                options: {
+                  apiKey: "test-key",
+                  baseURL: `${server.url.origin}/v1`,
+                },
+              },
+            },
+          }),
+        )
+      },
+    })
+
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const resolved = await Provider.getModel(ProviderID.make(providerID), ModelID.make(model.id))
+        const sessionID = SessionID.make("session-test-service-abort")
+        const agent = {
+          name: "test",
+          mode: "primary",
+          options: {},
+          permission: [{ permission: "*", pattern: "*", action: "allow" }],
+        } satisfies Agent.Info
+        const user = {
+          id: MessageID.make("user-service-abort"),
+          sessionID,
+          role: "user",
+          time: { created: Date.now() },
+          agent: agent.name,
+          model: { providerID: ProviderID.make(providerID), modelID: resolved.id },
+        } satisfies MessageV2.User
+        const ctrl = new AbortController()
+        const stream = await LLM.stream({
+          user,
+          sessionID,
+          model: resolved,
+          agent,
+          system: ["You are a helpful assistant."],
+          abort: ctrl.signal,
+          messages: [{ role: "user", content: "Hello" }],
+          tools: {},
+        })
+        const run = (async () => {
+          try {
+            for await (const _ of stream.fullStream) {
+            }
+          } catch {
+          }
+        })()
+
+        await request
+        ctrl.abort()
+        await Promise.race([
+          canceled.promise,
+          sleep(500).then(() => {
+            throw new Error("provider response body was not canceled")
+          }),
+        ])
+        await Promise.race([run, sleep(500)])
       },
     })
   })

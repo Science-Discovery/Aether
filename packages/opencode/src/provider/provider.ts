@@ -191,6 +191,7 @@ export namespace Provider {
     responses?: (modelID: string) => LanguageModel
     chat?: (modelID: string) => LanguageModel
     chatModel?: (modelID: string) => LanguageModel
+    messages?: (modelID: string) => LanguageModel
   }
 
   const BUNDLED_PROVIDERS: Record<string, (options: any) => SDK> = {
@@ -236,7 +237,15 @@ export namespace Provider {
   }>
 
   function useLanguageModel(sdk: any) {
-    return sdk.responses === undefined && sdk.chat === undefined
+    return sdk.responses === undefined && sdk.chat === undefined && sdk.messages === undefined
+  }
+
+  export function azureLanguage(sdk: any, modelID: string, chat: boolean) {
+    if (chat && sdk.chat) return sdk.chat(modelID)
+    if (sdk.responses) return sdk.responses(modelID)
+    if (sdk.messages) return sdk.messages(modelID)
+    if (sdk.chat) return sdk.chat(modelID)
+    return sdk.languageModel(modelID)
   }
 
   function language(sdk: any, model: Model) {
@@ -315,9 +324,7 @@ export namespace Provider {
       return {
         autoload: false,
         async getModel(sdk: any, modelID: string, options?: Record<string, any>) {
-          if (useLanguageModel(sdk)) return sdk.languageModel(modelID)
-          if (options?.["useCompletionUrls"]) return sdk.chat(modelID)
-          return sdk.responses(modelID)
+          return azureLanguage(sdk, modelID, options?.["useCompletionUrls"] === true)
         },
         options: {},
         vars(_options) {
@@ -332,9 +339,7 @@ export namespace Provider {
       return {
         autoload: false,
         async getModel(sdk: any, modelID: string, options?: Record<string, any>) {
-          if (useLanguageModel(sdk)) return sdk.languageModel(modelID)
-          if (options?.["useCompletionUrls"]) return sdk.chat(modelID)
-          return sdk.responses(modelID)
+          return azureLanguage(sdk, modelID, options?.["useCompletionUrls"] === true)
         },
         options: {
           baseURL: resourceName ? `https://${resourceName}.cognitiveservices.azure.com/openai` : undefined,
