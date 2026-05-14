@@ -897,25 +897,28 @@ export namespace SplitMigration {
           )
           .run(dir, pid, Date.now(), Date.now())
       }
-      log.info("step: stripping project_recent FK")
+      log.info("step: rebuilding project_recent from project worktrees")
       destSqlite.exec(stripProjectRecentFK)
-      const recentRows = destSqlite.prepare("SELECT key, kind, project_id, directory FROM project_recent").all() as {
-        key: string
-        kind: string
-        project_id: string | null
-        directory: string
-      }[]
-      for (const row of recentRows) {
-        const pid =
-          directoryProjectMap.get(norm(row.directory ?? "")) ??
-          (row.project_id ? oldProjectIdMap.get(row.project_id) : undefined)
-        if (pid && uniqueProjectIds.has(pid)) {
-          destSqlite
-            .prepare("UPDATE project_recent SET kind = 'project', project_id = ? WHERE key = ?")
-            .run(pid, row.key)
-          continue
-        }
-        destSqlite.prepare("DELETE FROM project_recent WHERE key = ?").run(row.key)
+      destSqlite.exec("DELETE FROM project_recent")
+      const insertRecent = destSqlite.prepare(
+        "INSERT INTO project_recent (key, kind, project_id, directory, name, activity_at, time_created, time_updated) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+      )
+      for (const pid of uniqueProjectIds) {
+        const proj = projectById.get(pid)
+        if (!proj) continue
+        const dir = proj.worktree
+        if (!dir || dir === "/") continue
+        const key = `dir:${norm(dir)}`
+        insertRecent.run(
+          key,
+          "project",
+          pid,
+          dir,
+          proj.name ?? null,
+          proj.time_updated,
+          proj.time_created,
+          proj.time_updated,
+        )
       }
       const hasSessionPref = destSqlite
         .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='session_preference'")
