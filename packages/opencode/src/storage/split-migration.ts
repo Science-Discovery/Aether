@@ -139,37 +139,29 @@ export namespace SplitMigration {
 
     if (!existsSync(main)) return "none"
 
-    if (readAttempts() > 0 && existsSync(backupDbPath(main))) {
-      const backup = new BunDatabase(backupDbPath(main), { readonly: true })
-      try {
-        const has = backup.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='session'").get()
-        if (has) {
-          const sessions = backup.prepare("SELECT count(*) as cnt FROM session").get() as { cnt: number } | null
-          if (sessions && sessions.cnt > 0) return "initial-split"
-        }
-      } finally {
-        backup.close()
-      }
-    }
     const sqlite = new BunDatabase(main, { readonly: true })
     try {
       const hasSessionTable = sqlite
         .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='session'")
         .get()
-      if (hasSessionTable) {
-        const hasSessions = sqlite.prepare("SELECT count(*) as cnt FROM session").get() as { cnt: number } | null
-        if (hasSessions && hasSessions.cnt > 0) {
-          sqlite.close()
-          return "initial-split"
-        }
+      if (!hasSessionTable) {
+        sqlite.close()
+        deleteWithCompanions(destCopyPath(main))
+        return "none"
       }
-      sqlite.close()
-      deleteWithCompanions(destCopyPath(main))
-      return "none"
+      const hasSessions = sqlite.prepare("SELECT count(*) as cnt FROM session").get() as { cnt: number } | null
+      if (!hasSessions || hasSessions.cnt === 0) {
+        sqlite.close()
+        deleteWithCompanions(destCopyPath(main))
+        return "none"
+      }
     } catch {
       sqlite.close()
       return "none"
     }
+    sqlite.close()
+
+    return "initial-split"
   }
 
   function norm(input: string) {
@@ -524,7 +516,6 @@ export namespace SplitMigration {
       const mergeProject = (pid: string, info: ProjectIdentity.Info, row?: any) => {
         const prev = projectById.get(pid)
         const sandboxes = new Set<string>(json(prev?.sandboxes))
-        for (const item of json(row?.sandboxes)) sandboxes.add(item)
         if (info.sandbox !== info.root) sandboxes.add(info.sandbox)
         projectById.set(pid, {
           id: pid,
@@ -545,14 +536,7 @@ export namespace SplitMigration {
 
       const resolveProject = (s: any) => {
         const row = projectByOld.get(s.project_id)
-        // For sessions with a real project_id, use the project's worktree to
-        // find the git root — all sessions under the same project should share
-        // one DB regardless of which worktree/subdirectory they were created in.
-        // For "global" sessions, use the session's own directory.
-        const dir =
-          s.project_id !== "global" && row?.worktree && row.worktree !== "/"
-            ? row.worktree
-            : s.directory || row?.worktree || "/"
+        const dir = s.directory || row?.worktree || "/"
         const info = ProjectIdentity.resolve(dir)
         const pid = info.id
         if (s.project_id !== "global") oldProjectIdMap.set(s.project_id, pid)
@@ -669,7 +653,9 @@ export namespace SplitMigration {
       }
 
       for (const w of workspaces) {
-        const pid = oldProjectIdMap.get(w.project_id) ?? directoryProjectMap.get(norm(w.project_id)) ?? w.project_id
+        const dir = w.directory || w.project_id
+        const info = ProjectIdentity.resolve(dir)
+        const pid = info.id
         const bucket = workspaceByProject.get(pid) ?? []
         bucket.push({ ...w, project_id: pid })
         workspaceByProject.set(pid, bucket)
@@ -903,25 +889,28 @@ export namespace SplitMigration {
           )
           .run(dir, pid, Date.now(), Date.now())
       }
-      log.info("step: stripping project_recent FK")
+      log.info("step: rebuilding project_recent from project worktrees")
       destSqlite.exec(stripProjectRecentFK)
-      const recentRows = destSqlite.prepare("SELECT key, kind, project_id, directory FROM project_recent").all() as {
-        key: string
-        kind: string
-        project_id: string | null
-        directory: string
-      }[]
-      for (const row of recentRows) {
-        const pid =
-          (row.project_id ? oldProjectIdMap.get(row.project_id) : undefined) ??
-          directoryProjectMap.get(norm(row.directory ?? ""))
-        if (pid && uniqueProjectIds.has(pid)) {
-          destSqlite
-            .prepare("UPDATE project_recent SET kind = 'project', project_id = ? WHERE key = ?")
-            .run(pid, row.key)
-          continue
-        }
-        destSqlite.prepare("DELETE FROM project_recent WHERE key = ?").run(row.key)
+      destSqlite.exec("DELETE FROM project_recent")
+      const insertRecent = destSqlite.prepare(
+        "INSERT INTO project_recent (key, kind, project_id, directory, name, activity_at, time_created, time_updated) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+      )
+      for (const pid of uniqueProjectIds) {
+        const proj = projectById.get(pid)
+        if (!proj) continue
+        const dir = proj.worktree
+        if (!dir || dir === "/") continue
+        const key = `dir:${norm(dir)}`
+        insertRecent.run(
+          key,
+          "project",
+          pid,
+          dir,
+          proj.name ?? null,
+          proj.time_updated,
+          proj.time_created,
+          proj.time_updated,
+        )
       }
       const hasSessionPref = destSqlite
         .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='session_preference'")
