@@ -886,6 +886,63 @@ describe("session.message-v2.toModelMessage", () => {
       },
     ])
   })
+
+  test("substitutes space for empty text between signed Anthropic reasoning blocks", async () => {
+    const assistantID = "m-signed-anthropic"
+    const input: MessageV2.WithParts[] = [
+      {
+        info: assistantInfo(assistantID, "m-parent"),
+        parts: [
+          { ...basePart(assistantID, "p1"), type: "step-start" },
+          {
+            ...basePart(assistantID, "p2"),
+            type: "reasoning",
+            text: "thinking-one",
+            metadata: { anthropic: { signature: "sig1" } },
+          },
+          { ...basePart(assistantID, "p3"), type: "text", text: "" },
+          { ...basePart(assistantID, "p4"), type: "step-start" },
+          {
+            ...basePart(assistantID, "p5"),
+            type: "reasoning",
+            text: "thinking-two",
+            metadata: { anthropic: { signature: "sig2" } },
+          },
+          { ...basePart(assistantID, "p6"), type: "text", text: "done" },
+        ] as MessageV2.Part[],
+      },
+    ]
+
+    const result = await MessageV2.toModelMessages(input, model)
+
+    expect(result).toHaveLength(2)
+    expect((result[0].content as any[]).find((part) => part.type === "text").text).toBe(" ")
+    expect((result[1].content as any[]).find((part) => part.type === "text").text).toBe("done")
+  })
+
+  test("leaves empty text alone for Bedrock signed reasoning", async () => {
+    const assistantID = "m-signed-bedrock"
+    const input: MessageV2.WithParts[] = [
+      {
+        info: assistantInfo(assistantID, "m-parent"),
+        parts: [
+          {
+            ...basePart(assistantID, "p1"),
+            type: "reasoning",
+            text: "thinking",
+            metadata: { bedrock: { signature: "sig1" } },
+          },
+          { ...basePart(assistantID, "p2"), type: "text", text: "" },
+          { ...basePart(assistantID, "p3"), type: "text", text: "done" },
+        ] as MessageV2.Part[],
+      },
+    ]
+
+    const result = await MessageV2.toModelMessages(input, model)
+    const text = (result[0].content as any[]).filter((part) => part.type === "text").map((part) => part.text)
+
+    expect(text).toStrictEqual(["", "done"])
+  })
 })
 
 describe("session.message-v2.fromError", () => {
@@ -941,6 +998,53 @@ describe("session.message-v2.fromError", () => {
           responseBody: JSON.stringify(input),
         },
       })
+    })
+  })
+
+  test("serializes overloaded stream errors as retryable API errors", () => {
+    const cases = ["server_error", "server_is_overloaded"]
+
+    cases.forEach((code) => {
+      const input = {
+        type: "error",
+        error: {
+          code,
+          message: "Server is overloaded",
+        },
+      }
+      const result = MessageV2.fromError(input, { providerID })
+
+      expect(result).toStrictEqual({
+        name: "APIError",
+        data: {
+          message: "Server is overloaded",
+          isRetryable: true,
+          responseBody: JSON.stringify(input),
+        },
+      })
+    })
+  })
+
+  test("serializes OpenAI server_error stream chunks as retryable API errors", () => {
+    const body = {
+      type: "error",
+      sequence_number: 2,
+      error: {
+        type: "server_error",
+        code: "server_error",
+        message: "An error occurred while processing your request.",
+        param: null,
+      },
+    }
+    const result = MessageV2.fromError({ message: JSON.stringify(body) }, { providerID })
+
+    expect(result).toStrictEqual({
+      name: "APIError",
+      data: {
+        message: body.error.message,
+        isRetryable: true,
+        responseBody: JSON.stringify(body),
+      },
     })
   })
 

@@ -20,6 +20,10 @@ function mimeToModality(mime: string): Modality | undefined {
 export namespace ProviderTransform {
   export const OUTPUT_TOKEN_MAX = Flag.OPENCODE_EXPERIMENTAL_OUTPUT_TOKEN_MAX || 32_000
 
+  export function sanitizeSurrogates(content: string) {
+    return content.replace(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, "\uFFFD")
+  }
+
   // Maps npm package to the key the AI SDK expects for providerOptions
   function sdkKey(npm: string): string | undefined {
     switch (npm) {
@@ -38,6 +42,8 @@ export namespace ProviderTransform {
         return "vertex"
       case "@ai-sdk/google":
         return "google"
+      case "ai-gateway-provider":
+        return "openaiCompatible"
       case "@ai-sdk/gateway":
         return "gateway"
       case "@openrouter/ai-sdk-provider":
@@ -51,6 +57,42 @@ export namespace ProviderTransform {
     model: Provider.Model,
     options: Record<string, unknown>,
   ): ModelMessage[] {
+    const output = (item: unknown) => {
+      if (!item || typeof item !== "object") return item
+      const value = item as Record<string, unknown>
+      if ((value.type === "text" || value.type === "error-text") && typeof value.value === "string") {
+        return { ...value, value: sanitizeSurrogates(value.value) }
+      }
+      if (value.type === "content" && Array.isArray(value.value)) {
+        return {
+          ...value,
+          value: value.value.map((part) => {
+            if (!part || typeof part !== "object") return part
+            const child = part as Record<string, unknown>
+            if (child.type === "text" && typeof child.text === "string") {
+              return { ...child, text: sanitizeSurrogates(child.text) }
+            }
+            return part
+          }),
+        }
+      }
+      return item
+    }
+    const part = (item: unknown) => {
+      if (!item || typeof item !== "object") return item
+      const value = item as Record<string, unknown>
+      if ((value.type === "text" || value.type === "reasoning") && typeof value.text === "string") {
+        return { ...value, text: sanitizeSurrogates(value.text) }
+      }
+      if (value.type === "tool-result") return { ...value, output: output(value.output) }
+      return item
+    }
+    msgs = msgs.map((msg) => {
+      if (typeof msg.content === "string") return { ...msg, content: sanitizeSurrogates(msg.content) }
+      if (Array.isArray(msg.content)) return { ...msg, content: msg.content.map(part) }
+      return msg
+    }) as ModelMessage[]
+
     // Anthropic rejects messages with empty content - filter out empty string messages
     // and remove empty text/reasoning parts from array content
     if (model.api.npm === "@ai-sdk/anthropic" || model.api.npm === "@ai-sdk/amazon-bedrock") {
@@ -61,9 +103,13 @@ export namespace ProviderTransform {
             return msg
           }
           if (!Array.isArray(msg.content)) return msg
+          const key = model.api.npm === "@ai-sdk/amazon-bedrock" ? "bedrock" : "anthropic"
           const filtered = msg.content.filter((part) => {
-            if (part.type === "text" || part.type === "reasoning") {
-              return part.text !== ""
+            if (part.type === "text") return part.text !== ""
+            if (part.type === "reasoning") {
+              if (part.text.trim().length > 0) return true
+              const opts = part.providerOptions as Record<string, Record<string, unknown> | undefined> | undefined
+              return opts?.[key]?.signature != null || opts?.[key]?.redactedData != null
             }
             return true
           })
@@ -871,7 +917,11 @@ export namespace ProviderTransform {
     }
 
     if (input.model.api.id.includes("gpt-5") && !input.model.api.id.includes("gpt-5-chat")) {
-      if (!input.model.api.id.includes("gpt-5-pro") && !input.model.api.id.includes("gpt-5.4")) {
+      if (
+        !input.model.api.id.includes("gpt-5-pro") &&
+        !input.model.api.id.includes("gpt-5.4") &&
+        !(input.model.providerID === "azure" && input.model.api.id === "gpt-5.5")
+      ) {
         result["reasoningEffort"] = "medium"
         result["reasoningSummary"] = "auto"
       }
@@ -970,8 +1020,20 @@ export namespace ProviderTransform {
     return false
   }
 
-  function scrub(options: Record<string, unknown>) {
+  function scrub(model: Provider.Model, options: Record<string, unknown>) {
     const result = { ...options }
+
+    if (model.api.npm === "@ai-sdk/azure" && model.api.id === "gpt-5.5") {
+      delete result.reasoningEffort
+      delete result.reasoning_effort
+      if (Array.isArray(result.include)) {
+        const include = result.include.filter((item) => item !== "reasoning.encrypted_content")
+        if (include.length > 0) result.include = include
+        else delete result.include
+      }
+      return result
+    }
+
     delete result.reasoningSummary
     delete result.reasoning_summary
 
@@ -989,7 +1051,7 @@ export namespace ProviderTransform {
     options: Record<string, unknown>,
     cfg?: Record<string, unknown>,
   ) {
-    const opts = chat(model, cfg) ? scrub(options) : options
+    const opts = chat(model, cfg) ? scrub(model, options) : options
 
     if (model.api.npm === "@ai-sdk/gateway") {
       // Gateway providerOptions are split across two namespaces:

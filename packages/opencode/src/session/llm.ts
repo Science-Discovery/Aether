@@ -325,7 +325,7 @@ export namespace LLM {
       // we fall through to the bare language and lose ProviderTransform.message
       // and the finish-reason rewrite. This is a known limitation of the
       // partial AI SDK v6 backport; upgrading Copilot SDK to v3 is tracked
-      // separately (LLM-UP-012 in docs/llm-upstream-diff-report-2026-05-04.md).
+      // separately (LLM-UP-015 in docs/llm-upstream-diff-report-2026-05-04.md).
       model:
         typeof language !== "string" && language.specificationVersion === "v3"
           ? wrapLanguageModel({

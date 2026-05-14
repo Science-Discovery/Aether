@@ -13,6 +13,7 @@ export namespace SessionRecovery {
     message: string
     tool: string
     previous: boolean
+    aborted?: boolean
   }) {
     const stale = input.messages.flatMap((msg) => {
       if (msg.info.role !== "assistant") return []
@@ -46,9 +47,11 @@ export namespace SessionRecovery {
             ...msg.info,
             error:
               msg.info.error ??
-              MessageV2.fromError(new Error(input.message), {
-                providerID: msg.info.providerID,
-              }),
+              (input.aborted
+                ? new MessageV2.AbortedError({ message: input.message }).toObject()
+                : MessageV2.fromError(new Error(input.message), {
+                    providerID: msg.info.providerID,
+                  })),
             time: {
               ...msg.info.time,
               completed: input.completed,
@@ -85,6 +88,7 @@ export namespace SessionRecovery {
       message: "Assistant response was interrupted.",
       tool: "Tool execution interrupted.",
       previous: false,
+      aborted: true,
     })
 
     if (count > 0) log.info("repaired interrupted session", { sessionID, count })
