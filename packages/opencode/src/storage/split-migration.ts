@@ -139,37 +139,29 @@ export namespace SplitMigration {
 
     if (!existsSync(main)) return "none"
 
-    if (readAttempts() > 0 && existsSync(backupDbPath(main))) {
-      const backup = new BunDatabase(backupDbPath(main), { readonly: true })
-      try {
-        const has = backup.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='session'").get()
-        if (has) {
-          const sessions = backup.prepare("SELECT count(*) as cnt FROM session").get() as { cnt: number } | null
-          if (sessions && sessions.cnt > 0) return "initial-split"
-        }
-      } finally {
-        backup.close()
-      }
-    }
     const sqlite = new BunDatabase(main, { readonly: true })
     try {
       const hasSessionTable = sqlite
         .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='session'")
         .get()
-      if (hasSessionTable) {
-        const hasSessions = sqlite.prepare("SELECT count(*) as cnt FROM session").get() as { cnt: number } | null
-        if (hasSessions && hasSessions.cnt > 0) {
-          sqlite.close()
-          return "initial-split"
-        }
+      if (!hasSessionTable) {
+        sqlite.close()
+        deleteWithCompanions(destCopyPath(main))
+        return "none"
       }
-      sqlite.close()
-      deleteWithCompanions(destCopyPath(main))
-      return "none"
+      const hasSessions = sqlite.prepare("SELECT count(*) as cnt FROM session").get() as { cnt: number } | null
+      if (!hasSessions || hasSessions.cnt === 0) {
+        sqlite.close()
+        deleteWithCompanions(destCopyPath(main))
+        return "none"
+      }
     } catch {
       sqlite.close()
       return "none"
     }
+    sqlite.close()
+
+    return "initial-split"
   }
 
   function norm(input: string) {
