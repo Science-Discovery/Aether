@@ -147,12 +147,14 @@ export namespace SplitMigration {
       if (!hasSessionTable) {
         sqlite.close()
         deleteWithCompanions(destCopyPath(main))
+        removeAttempts()
         return "none"
       }
       const hasSessions = sqlite.prepare("SELECT count(*) as cnt FROM session").get() as { cnt: number } | null
       if (!hasSessions || hasSessions.cnt === 0) {
         sqlite.close()
         deleteWithCompanions(destCopyPath(main))
+        removeAttempts()
         return "none"
       }
     } catch {
