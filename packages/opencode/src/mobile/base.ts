@@ -81,8 +81,19 @@ interface ModelEntry {
 
 type SessionMapKey = Record<string, string>
 
-const projectSnapshot: Project.RecentInfo[] = []
-const sessionSnapshots = new Map<string, Session.Info[]>()
+type ProjectEntry = {
+  item: Project.RecentInfo
+  sandbox?: { directory: string }
+  activity: number
+}
+
+type SessionEntry = {
+  session: Session.Info
+  fork: boolean
+}
+
+const projectSnapshot: ProjectEntry[] = []
+const sessionSnapshots = new Map<string, SessionEntry[]>()
 
 export interface MobileAdapter {
   platform: Platform
@@ -218,13 +229,15 @@ export abstract class MobileManagerBase {
     return /^[a-z]:/.test(text) && text.length <= 3
   }
 
-  protected projectDir(item: Project.RecentInfo): string {
-    return this.normDir(item.directory || item.worktree || "")
+  protected projectDir(entry: ProjectEntry): string {
+    if (entry.sandbox) return this.normDir(entry.sandbox.directory)
+    return this.normDir(entry.item.directory || entry.item.worktree || "")
   }
 
-  protected projectName(item: Project.RecentInfo): string {
-    const dir = this.projectDir(item)
-    return item.name || dir.replace(/\\/g, "/").replace(/\/+$/, "").split("/").at(-1) || dir
+  protected projectName(entry: ProjectEntry): string {
+    if (entry.sandbox) return this.baseName(entry.sandbox.directory)
+    const dir = this.projectDir(entry)
+    return entry.item.name || dir.replace(/\\/g, "/").replace(/\/+$/, "").split("/").at(-1) || dir
   }
 
   protected clip(text: string, limit: number): string {
@@ -238,11 +251,34 @@ export abstract class MobileManagerBase {
 
   // ── Project helpers ────────────────────────────────────────────────────────
 
-  protected getProjects(): Project.RecentInfo[] {
-    return Project.recentList().filter((item) => {
-      const dir = this.projectDir(item)
+  protected getProjects(): ProjectEntry[] {
+    const raw = Project.recentList().filter((item) => {
+      const dir = this.normDir(item.directory || item.worktree || "")
       return dir && !this.isRootDir(dir)
     })
+    const activityByDir = new Map<string, number>()
+    const entries: ProjectEntry[] = []
+    const seenDirs = new Set<string>()
+    for (const item of raw) {
+      const dir = this.normDir(item.directory || item.worktree || "")
+      activityByDir.set(dir, item.time.activity)
+      seenDirs.add(dir)
+      entries.push({ item, activity: item.time.activity })
+    }
+    for (const item of raw) {
+      if (item.kind === "project" && item.projectID) {
+        const info = Project.get(item.projectID)
+        for (const sd of info?.sandboxes ?? []) {
+          const normSd = this.normDir(sd)
+          if (seenDirs.has(normSd)) continue
+          seenDirs.add(normSd)
+          const act = activityByDir.get(normSd) ?? 0
+          entries.push({ item, sandbox: { directory: sd }, activity: act })
+        }
+      }
+    }
+    entries.sort((a, b) => b.activity - a.activity)
+    return entries
   }
 
   protected async autoUnhide(): Promise<void> {
@@ -250,8 +286,8 @@ export abstract class MobileManagerBase {
     const allProjects = this.getProjects()
     let changed = false
     for (const [directory, hideTime] of Object.entries(this._hiddenDirs)) {
-      const item = allProjects.find((p) => this.projectDir(p) === directory)
-      const activity = item?.time?.activity ?? 0
+      const entry = allProjects.find((p) => this.projectDir(p) === directory)
+      const activity = entry?.item?.time?.activity ?? 0
       if (activity > hideTime) {
         delete this._hiddenDirs[directory]
         changed = true
@@ -420,10 +456,10 @@ export abstract class MobileManagerBase {
     const sessionId = await this.currentSession(scope, true)
     if (!sessionId) throw new Error("no session for scope: " + scope)
     const pref = SessionPreference.get(sessionId)
-    const projectItem = this.getProjects().find((p) => this.normDir(this.projectDir(p)) === this.normDir(dir))
+    const projectEntry = this.getProjects().find((p) => this.normDir(this.projectDir(p)) === this.normDir(dir))
     const projectName = this.clip(
-      projectItem
-        ? this.projectName(projectItem)
+      projectEntry
+        ? this.projectName(projectEntry)
         : (dir.replace(/\\/g, "/").replace(/\/+$/, "").split("/").at(-1) ?? dir),
       24,
     )
@@ -1231,11 +1267,12 @@ export abstract class MobileManagerBase {
     if (arg === "list") {
       const lines = ["📂 项目列表：", ""]
       for (let i = 0; i < projectSnapshot.length; i++) {
-        const item = projectSnapshot[i]
-        const directory = this.projectDir(item)
+        const entry = projectSnapshot[i]
+        const directory = this.projectDir(entry)
         const tag = directory === currentDir ? " ◀" : ""
         const mark = directory in this._hiddenDirs ? " [已隐藏]" : ""
-        lines.push(`${i + 1}. ${this.projectName(item)}${tag}${mark}`)
+        const sandboxTag = entry.sandbox ? " [sandbox]" : ""
+        lines.push(`${i + 1}. ${sandboxTag}${this.projectName(entry)}${tag}${mark}`)
         lines.push(`   ${directory}`)
       }
       await this.replyCmd(targetId, scope, lines.join("\n"))
@@ -1265,16 +1302,17 @@ export abstract class MobileManagerBase {
     const lines = ["📂 项目列表：", ""]
     let count = 0
     for (let i = 0; i < projectSnapshot.length && count < 10; i++) {
-      const item = projectSnapshot[i]
-      const directory = this.projectDir(item)
+      const entry = projectSnapshot[i]
+      const directory = this.projectDir(entry)
       if (directory in this._hiddenDirs) continue
       const tag = directory === currentDir ? " ◀" : ""
-      lines.push(`${i + 1}. ${this.projectName(item)}${tag}`)
+      const sandboxTag = entry.sandbox ? " [sandbox]" : ""
+      lines.push(`${i + 1}. ${sandboxTag}${this.projectName(entry)}${tag}`)
       lines.push(`   ${directory}`)
       count++
     }
     lines.push("")
-    lines.push("💡 /p n 切换 | /p l 查看全部 | /p <path> 指定路径")
+    lines.push("💡 /p n 切换 | /p l 查看全部 | /p <path> 指定路径（[sandbox] = 非主worktree）")
     if (Object.keys(this._hiddenDirs).length > 0) {
       lines.push(`ℹ️ 已隐藏 ${Object.keys(this._hiddenDirs).length} 个项目（重新使用后自动恢复）`)
     }
@@ -1409,30 +1447,41 @@ export abstract class MobileManagerBase {
     await this.replyCmd(targetId, scope, `✅ 已切换到：${name}\n   ${newDir}\n（${note}）`)
   }
 
+  private buildSessionEntries(all: Session.Info[]): SessionEntry[] {
+    const isSubagent = (s: Session.Info) => !!s.parentID && !s.forkParentSessionID
+    const entries = all
+      .filter((s) => !isSubagent(s) && !s.time?.archived)
+      .map((s) => ({ session: s, fork: !!s.forkParentSessionID }))
+    entries.sort((a, b) => b.session.time.updated - a.session.time.updated)
+    return entries
+  }
+
   protected async cmdSession(targetId: string, scope: string, arg: string): Promise<void> {
     const effectiveDir = this.effectiveDir(scope)
     const dirKey = this.normDir(effectiveDir)
 
     const needRefresh = !arg || arg === "list"
     if (needRefresh) {
-      let fresh: Session.Info[] = []
       await Instance.provide({
         directory: effectiveDir,
         fn: async () => {
-          fresh = [...Session.list({ directory: effectiveDir, roots: true, limit: 100 })]
+          sessionSnapshots.set(
+            dirKey,
+            this.buildSessionEntries([...Session.list({ directory: effectiveDir, limit: 200 })]),
+          )
         },
       })
-      sessionSnapshots.set(dirKey, fresh)
     }
     if (!sessionSnapshots.has(dirKey) && arg) {
-      let fresh: Session.Info[] = []
       await Instance.provide({
         directory: effectiveDir,
         fn: async () => {
-          fresh = [...Session.list({ directory: effectiveDir, roots: true, limit: 100 })]
+          sessionSnapshots.set(
+            dirKey,
+            this.buildSessionEntries([...Session.list({ directory: effectiveDir, limit: 200 })]),
+          )
         },
       })
-      sessionSnapshots.set(dirKey, fresh)
     }
 
     const items = sessionSnapshots.get(dirKey) ?? []
@@ -1441,10 +1490,12 @@ export abstract class MobileManagerBase {
     if (arg === "list") {
       const lines = ["🗂 会话列表：", ""]
       for (let i = 0; i < items.length; i++) {
-        const item = items[i]
-        const tag = item.id === currentId ? " ◀" : ""
-        lines.push(`${i + 1}. ${item.title}${tag}`)
-        lines.push(`   ${this.formatSessionTime(item.time.updated)}`)
+        const entry = items[i]
+        const s = entry.session
+        const tag = s.id === currentId ? " ◀" : ""
+        const forkTag = entry.fork ? " ↗" : ""
+        lines.push(`${i + 1}. ${forkTag}${s.title}${tag}`)
+        lines.push(`   ${this.formatSessionTime(s.time.updated)}`)
       }
       if (!items.length) lines.push("（当前项目下还没有任何会话）")
       await this.replyCmd(targetId, scope, lines.join("\n"))
@@ -1462,14 +1513,15 @@ export abstract class MobileManagerBase {
         return
       }
       const chosen = items[idx]
-      this.sessionMap[scope] = chosen.id
+      this.sessionMap[scope] = chosen.session.id
       await this.saveSessionMap()
       void this.clearRuntime(scope)
       const ctx = await this.commandCtx(scope)
+      const forkNote = chosen.fork ? "（fork分支）" : ""
       await this.replyCmd(
         targetId,
         scope,
-        `✅ 已切换到会话：${ctx.sessionTitle}\n   更新时间：${this.formatSessionTime(chosen.time.updated)}`,
+        `✅ 已切换到会话：${ctx.sessionTitle} ${forkNote}\n   更新时间：${this.formatSessionTime(chosen.session.time.updated)}`,
       )
       return
     }
@@ -1488,13 +1540,15 @@ export abstract class MobileManagerBase {
 
     const lines = ["🗂 会话列表：", ""]
     for (let i = 0; i < Math.min(items.length, 10); i++) {
-      const item = items[i]
-      const tag = item.id === currentId ? " ◀" : ""
-      lines.push(`${i + 1}. ${item.title}${tag}`)
-      lines.push(`   ${this.formatSessionTime(item.time.updated)}`)
+      const entry = items[i]
+      const s = entry.session
+      const tag = s.id === currentId ? " ◀" : ""
+      const forkTag = entry.fork ? " ↗" : ""
+      lines.push(`${i + 1}. ${forkTag}${s.title}${tag}`)
+      lines.push(`   ${this.formatSessionTime(s.time.updated)}`)
     }
     lines.push("")
-    lines.push("💡 /s n 切换会话 | /s l 查看全部")
+    lines.push("💡 /s n 切换会话 | /s l 查看全部（↗ = fork分支）")
     await this.replyCmd(targetId, scope, lines.join("\n"))
   }
 
@@ -1509,10 +1563,10 @@ export abstract class MobileManagerBase {
     const active = this._activePrompt.get(scope)
     const sessionId = active?.sessionId ?? this.sessionMap[scope] ?? ""
     const effectiveDir = active?.directory ?? this.effectiveDir(scope)
-    const projectItem = this.getProjects().find((p) => this.normDir(this.projectDir(p)) === this.normDir(effectiveDir))
+    const projectEntry = this.getProjects().find((p) => this.normDir(this.projectDir(p)) === this.normDir(effectiveDir))
     const projectName = this.clip(
-      projectItem
-        ? this.projectName(projectItem)
+      projectEntry
+        ? this.projectName(projectEntry)
         : (effectiveDir.replace(/\\/g, "/").replace(/\/+$/, "").split("/").at(-1) ?? effectiveDir),
       24,
     )
