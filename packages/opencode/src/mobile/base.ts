@@ -467,7 +467,7 @@ export abstract class MobileManagerBase {
     try {
       const info = await Instance.provide({
         directory: dir,
-        fn: () => [...Session.list({ directory: dir, roots: true, limit: 100 })].find((s) => s.id === sessionId),
+        fn: () => this.allSessionsQuery(dir).find((s) => s.id === sessionId),
       })
       if (info?.title) sessionTitle = info.title
     } catch {}
@@ -514,7 +514,7 @@ export abstract class MobileManagerBase {
     if (!dir) return
     const recent = await Instance.provide({
       directory: dir,
-      fn: () => [...Session.list({ directory: dir, roots: true, limit: 10 })].filter((s) => !s.time?.archived),
+      fn: () => this.allSessionsQuery(dir, 20),
     })
     const pinned = this.sessionMap[scope]
     if (pinned) {
@@ -1236,6 +1236,17 @@ export abstract class MobileManagerBase {
     if (needRefresh) {
       projectSnapshot.length = 0
       projectSnapshot.push(...this.getProjects())
+      for (const entry of projectSnapshot) {
+        if (!entry.sandbox) continue
+        try {
+          const latest = await Instance.provide({
+            directory: this.projectDir({ item: entry.item, activity: entry.activity }),
+            fn: () => [...Session.list({ directory: entry.sandbox!.directory, limit: 1 })],
+          })
+          if (latest.length > 0) entry.activity = latest[0].time.updated
+        } catch {}
+      }
+      projectSnapshot.sort((a, b) => b.activity - a.activity)
     }
     if (!projectSnapshot.length && arg) {
       projectSnapshot.length = 0
@@ -1447,10 +1458,18 @@ export abstract class MobileManagerBase {
     await this.replyCmd(targetId, scope, `✅ 已切换到：${name}\n   ${newDir}\n（${note}）`)
   }
 
+  private isSubagent(s: Session.Info): boolean {
+    return !!s.parentID && !s.forkParentSessionID
+  }
+
+  private allSessionsQuery(dir: string, limit?: number): Session.Info[] {
+    const all = [...Session.list({ directory: dir, limit: limit ?? 100 })]
+    return all.filter((s) => !this.isSubagent(s) && !s.time?.archived).sort((a, b) => b.time.updated - a.time.updated)
+  }
+
   private buildSessionEntries(all: Session.Info[]): SessionEntry[] {
-    const isSubagent = (s: Session.Info) => !!s.parentID && !s.forkParentSessionID
     const entries = all
-      .filter((s) => !isSubagent(s) && !s.time?.archived)
+      .filter((s) => !this.isSubagent(s) && !s.time?.archived)
       .map((s) => ({ session: s, fork: !!s.forkParentSessionID }))
     entries.sort((a, b) => b.session.time.updated - a.session.time.updated)
     return entries
@@ -1586,7 +1605,7 @@ export abstract class MobileManagerBase {
   private async sessionTitle(sessionId: string, directory: string): Promise<string> {
     const info = await Instance.provide({
       directory,
-      fn: () => [...Session.list({ directory, roots: true, limit: 100 })].find((s) => s.id === sessionId),
+      fn: () => this.allSessionsQuery(directory).find((s) => s.id === sessionId),
     })
     return info?.title ?? sessionId.slice(0, 8)
   }
