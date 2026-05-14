@@ -526,8 +526,16 @@ export namespace SplitMigration {
 
       const resolveProject = (s: any) => {
         const row = projectByOld.get(s.project_id)
-        const dir = s.directory || row?.worktree || "/"
-        const info = ProjectIdentity.resolve(dir)
+        const worktree = row?.worktree
+        let info: ProjectIdentity.Info
+        if (s.directory) {
+          info = ProjectIdentity.resolve(s.directory)
+          if (info.vcs !== "git" && worktree && worktree !== "/") {
+            info = ProjectIdentity.resolve(worktree)
+          }
+        } else {
+          info = ProjectIdentity.resolve(worktree && worktree !== "/" ? worktree : "/")
+        }
         const pid = info.id
         if (s.project_id !== "global") oldProjectIdMap.set(s.project_id, pid)
         mergeProject(pid, info, row)
