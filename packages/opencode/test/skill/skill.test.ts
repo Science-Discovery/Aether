@@ -63,7 +63,7 @@ test("returns skill directories from Skill.dirs", async () => {
   await using tmp = await tmpdir({
     git: true,
     init: async (dir) => {
-      const skillDir = path.join(dir, ".opencode", "skill", "dir-skill")
+      const skillDir = path.join(dir, ".opencode", "skills", "dir-skill")
       await Bun.write(
         path.join(skillDir, "SKILL.md"),
         `---
@@ -85,7 +85,7 @@ description: Skill for dirs test.
       directory: tmp.path,
       fn: async () => {
         const dirs = await Skill.dirs()
-        const skillDir = path.join(tmp.path, ".opencode", "skill", "dir-skill")
+        const skillDir = path.join(tmp.path, ".opencode", "skills", "dir-skill")
         expect(dirs).toContain(skillDir)
         expect(dirs.length).toBe(1)
       },

@@ -20,7 +20,9 @@ import { Discovery } from "./discovery"
 
 export namespace Skill {
   const log = Log.create({ service: "skill" })
-  const EXTERNAL_DIRS = [".claude", ".agents"]
+  // Ordered low→high priority; global phase scans in this order (last wins = .aether highest).
+  // Project phase uses targets in reverse so that after toReversed() inner .aether still wins.
+  const EXTERNAL_DIRS = [".agents", ".claude", ".opencode", ".aether"]
   const EXTERNAL_SKILL_PATTERN = "skills/**/SKILL.md"
   const OPENCODE_SKILL_PATTERN = "{skill,skills}/**/SKILL.md"
   const SKILL_PATTERN = "**/SKILL.md"
@@ -111,7 +113,13 @@ export namespace Skill {
       })
   }
 
-  async function loadSkills(state: State, discovery: Discovery.Interface, directory: string, worktree: string) {
+  async function loadSkills(
+    state: State,
+    discovery: Discovery.Interface,
+    directory: string,
+    worktree: string,
+    projectId: string,
+  ) {
     if (!Flag.OPENCODE_DISABLE_EXTERNAL_SKILLS) {
       for (const dir of EXTERNAL_DIRS) {
         const root = path.join(Global.Path.home, dir)
@@ -119,16 +127,30 @@ export namespace Skill {
         await scan(state, root, EXTERNAL_SKILL_PATTERN, { dot: true, scope: "global" })
       }
 
-      for await (const root of Filesystem.up({
-        targets: EXTERNAL_DIRS,
-        start: directory,
-        stop: worktree,
-      })) {
+      // AI background-review skills: project-scope but lowest priority (overridden by any user source)
+      const skillSessionsDir = path.join(Global.Path.home, ".aether", "skill-sessions", projectId, "skills")
+      if (await Filesystem.isDir(skillSessionsDir)) {
+        await scan(state, skillSessionsDir, SKILL_PATTERN, { dot: true, scope: "project" })
+      }
+
+      // Collect dirs from inner (directory) to outer (worktree), then scan reversed so inner wins.
+      // Filesystem.up iterates targets in order per level; using the reversed EXTERNAL_DIRS order means
+      // after toReversed() the low-priority dirs (.agents) are scanned first and high-priority (.aether) last.
+      const projectDirs: string[] = []
+      for await (const root of Filesystem.up({ targets: [...EXTERNAL_DIRS].reverse(), start: directory, stop: worktree })) {
+        projectDirs.push(root)
+      }
+      for (const root of projectDirs.toReversed()) {
         await scan(state, root, EXTERNAL_SKILL_PATTERN, { dot: true, scope: "project" })
       }
     }
 
+    // Config.directories() includes global home dirs (e.g. ~/.aether, ~/.opencode) which were already
+    // scanned above at the correct (lower) priority. Exclude them here to prevent them from winning
+    // over project-level skills via this later scan.
+    const globalExternalDirs = new Set(EXTERNAL_DIRS.map((dir) => path.join(Global.Path.home, dir)))
     for (const dir of await Config.directories()) {
+      if (globalExternalDirs.has(dir)) continue
       await scan(state, dir, OPENCODE_SKILL_PATTERN)
     }
 
@@ -173,7 +195,7 @@ export namespace Skill {
         Effect.fn("Skill.state")((ctx) =>
           Effect.gen(function* () {
             const s: State = { skills: {}, dirs: new Set() }
-            yield* Effect.promise(() => loadSkills(s, discovery, ctx.directory, ctx.worktree))
+            yield* Effect.promise(() => loadSkills(s, discovery, ctx.directory, ctx.worktree, String(ctx.project.id)))
             return s
           }),
         ),
