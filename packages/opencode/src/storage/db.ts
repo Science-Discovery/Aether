@@ -697,7 +697,21 @@ export namespace Database {
         removed++
       }
     }
-    if (removed > 0) log.info("removed project_recent entries without project db", { removed })
+    if (removed > 0) log.info("removed stale project_recent entries", { removed })
+
+    // Phase 3: Delete global_project_map entries whose project_id has no corresponding DB
+    const staleMap = sqlite.prepare("SELECT directory, project_id FROM global_project_map").all() as {
+      directory: string
+      project_id: string
+    }[]
+    let mapRemoved = 0
+    for (const row of staleMap) {
+      if (!existingDbIds.has(row.project_id)) {
+        sqlite.prepare("DELETE FROM global_project_map WHERE directory = ?").run(row.directory)
+        mapRemoved++
+      }
+    }
+    if (mapRemoved > 0) log.info("removed stale global_project_map entries", { mapRemoved })
   }
 
   export function transaction<T>(
