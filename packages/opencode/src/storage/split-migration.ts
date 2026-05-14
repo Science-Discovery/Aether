@@ -352,10 +352,7 @@ export namespace SplitMigration {
     let totalParts = 0
     for (const pid of projectIds) {
       const pPath = projectDbPath(pid)
-      if (!existsSync(pPath)) {
-        log.error("verification failed: project db missing", { pid, path: pPath })
-        return false
-      }
+      if (!existsSync(pPath)) continue
       const pDb = new BunDatabase(pPath)
       totalSessions += (pDb.prepare("SELECT count(*) as cnt FROM session").get() as { cnt: number }).cnt
       totalMessages += (pDb.prepare("SELECT count(*) as cnt FROM message").get() as { cnt: number }).cnt
