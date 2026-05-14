@@ -78,7 +78,7 @@ const baseState = (input: Partial<State> = {}) =>
     mcp: {},
     lsp: [],
     vcs: undefined,
-    limit: 10,
+    limit: 5,
     message: {},
     part: {},
     preference: {} as State["preference"],
