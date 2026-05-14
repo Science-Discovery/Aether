@@ -588,6 +588,11 @@ export namespace Database {
       .get()
     if (!hasTable) return
 
+    const projectRow = pSqlite.prepare("SELECT worktree FROM project WHERE id = ?").get(pid) as
+      | { worktree: string }
+      | undefined
+    const canonicalWorktree = projectRow?.worktree ?? "/"
+
     const metaRows = pSqlite.prepare("SELECT * FROM directory_meta").all() as {
       directory: string
       worktree: string
@@ -615,11 +620,13 @@ export namespace Database {
       const dirNorm = norm(row.directory)
       insertMap.run(dirNorm, pid, row.time_created, row.time_updated)
 
-      const isProject = row.worktree !== "/"
+      const isWorktree = row.worktree !== "/" && norm(row.directory) === norm(canonicalWorktree)
+      if (!isWorktree) continue
+
       insertRecent.run(
         `dir:${dirNorm}`,
-        isProject ? "project" : "directory",
-        isProject ? pid : null,
+        "project",
+        pid,
         row.directory,
         row.name,
         row.icon_url ?? null,
@@ -646,6 +653,7 @@ export namespace Database {
 
     const chDir = channelDir()
     const existingDbIds = new Set<string>()
+    const validWorktreeKeys = new Set<string>()
     if (existsSync(chDir)) {
       const pattern = /^aether-(.+)\.db$/
       for (const entry of readdirSync(chDir)) {
@@ -666,6 +674,10 @@ export namespace Database {
       try {
         ensureDirectoryMeta(pSqlite, pid, recentLookup)
         syncDirectoryMetaToGlobal(sqlite, pSqlite, pid)
+        const wt = pSqlite.prepare("SELECT worktree FROM project WHERE id = ?").get(pid) as
+          | { worktree: string }
+          | undefined
+        if (wt?.worktree && wt.worktree !== "/") validWorktreeKeys.add(`dir:${norm(wt.worktree)}`)
         synced++
       } finally {
         pSqlite.close()
@@ -674,12 +686,13 @@ export namespace Database {
     if (synced > 0) log.info("directory_meta sync complete", { synced })
 
     // Phase 2: Delete project_recent entries whose project_id has no corresponding DB
+    //          or whose directory is not the project's canonical worktree (e.g. sandbox dirs)
     const staleRows = sqlite
       .prepare("SELECT key, project_id FROM project_recent WHERE kind = 'project' AND project_id IS NOT NULL")
       .all() as { key: string; project_id: string }[]
     let removed = 0
     for (const row of staleRows) {
-      if (!existingDbIds.has(row.project_id)) {
+      if (!existingDbIds.has(row.project_id) || !validWorktreeKeys.has(row.key)) {
         sqlite.prepare("DELETE FROM project_recent WHERE key = ?").run(row.key)
         removed++
       }
