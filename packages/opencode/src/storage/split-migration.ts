@@ -147,12 +147,14 @@ export namespace SplitMigration {
       if (!hasSessionTable) {
         sqlite.close()
         deleteWithCompanions(destCopyPath(main))
+        removeAttempts()
         return "none"
       }
       const hasSessions = sqlite.prepare("SELECT count(*) as cnt FROM session").get() as { cnt: number } | null
       if (!hasSessions || hasSessions.cnt === 0) {
         sqlite.close()
         deleteWithCompanions(destCopyPath(main))
+        removeAttempts()
         return "none"
       }
     } catch {
@@ -389,32 +391,15 @@ export namespace SplitMigration {
     const backup = backupDbPath(main)
     const destCopy = destCopyPath(main)
 
-    // Backup first — before any other migration operations that could fail.
-    // Copy main.db + WAL/SHM companions so the backup captures all data
-    // (including uncommitted WAL pages from a previous session crash).
+    // Copy original main.db + WAL/SHM twice: one for backup (never touched),
+    // one for all subsequent operations. This avoids checkpointing or modifying
+    // the original main.db, which causes Windows file-locking issues.
     if (!existsSync(backup)) {
       for (const ext of ["-shm", "-wal"]) {
         if (existsSync(main + ext)) retryCopy(main + ext, backup + ext)
       }
       retryCopy(main, backup)
       log.info("backed up main db before migration", { from: main, to: backup })
-      // Now checkpoint the original main.db (WAL flushed into .db, companions
-      // deleted via DELETE mode) so the migration works on a clean .db file.
-      // On Windows the file may still be locked by a recently-killed process,
-      // so retry with EBUSY handling.
-      for (let n = 0; n < 10; n++) {
-        try {
-          const checkpointDb = new BunDatabase(main)
-          checkpointDb.exec("PRAGMA busy_timeout = 5000")
-          checkpointDb.exec("PRAGMA journal_mode = DELETE")
-          checkpointDb.close()
-          break
-        } catch (err) {
-          if (!isLock(err) && n >= 9) throw err
-          Bun.gc(true)
-          sleepMs(3000)
-        }
-      }
     }
 
     cleanupChannelDir(attempts)
@@ -426,8 +411,13 @@ export namespace SplitMigration {
     let destSqlite: BunDatabase | undefined
 
     try {
+      // Create working copy from backup including WAL/SHM companions,
+      // so destSqlite sees complete data (WAL pages on top of .db content).
       retryCopy(backup, destCopy)
-      log.info("created destCopy from backup", { destCopy })
+      for (const ext of ["-shm", "-wal"]) {
+        if (existsSync(backup + ext)) retryCopy(backup + ext, destCopy + ext)
+      }
+      log.info("created destCopy from backup with WAL companions", { destCopy })
 
       srcSqlite = new BunDatabase(backup, { readonly: true })
       srcSqlite.exec("PRAGMA foreign_keys = OFF")
@@ -536,8 +526,16 @@ export namespace SplitMigration {
 
       const resolveProject = (s: any) => {
         const row = projectByOld.get(s.project_id)
-        const dir = s.directory || row?.worktree || "/"
-        const info = ProjectIdentity.resolve(dir)
+        const worktree = row?.worktree
+        let info: ProjectIdentity.Info
+        if (s.directory) {
+          info = ProjectIdentity.resolve(s.directory)
+          if (info.vcs !== "git" && worktree && worktree !== "/") {
+            info = ProjectIdentity.resolve(worktree)
+          }
+        } else {
+          info = ProjectIdentity.resolve(worktree && worktree !== "/" ? worktree : "/")
+        }
         const pid = info.id
         if (s.project_id !== "global") oldProjectIdMap.set(s.project_id, pid)
         mergeProject(pid, info, row)
