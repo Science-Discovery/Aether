@@ -2542,18 +2542,6 @@ export default function Layout(props: ParentProps) {
                   }
                 >
                   <>
-                    <div class="shrink-0 py-4">
-                      <Button
-                        size="large"
-                        icon="plus-small"
-                        class="w-full"
-                        onClick={() => {
-                          createWorkspace(item())
-                        }}
-                      >
-                        {language.t("workspace.new")}
-                      </Button>
-                    </div>
                     <div class="relative flex-1 min-h-0">
                       <DragDropProvider
                         onDragStart={handleWorkspaceDragStart}
@@ -2567,22 +2555,36 @@ export default function Layout(props: ParentProps) {
                           ref={(el) => {
                             if (!panelProps.mobile) scrollContainerRef = el
                           }}
-                          class="size-full flex flex-col py-2 gap-4 overflow-y-auto no-scrollbar [overflow-anchor:none]"
+                          class="size-full py-2 overflow-y-auto no-scrollbar [overflow-anchor:none]"
                         >
                           <SortableProvider ids={workspaces()}>
                             <For each={workspaces()}>
                               {(directory) => (
-                                <SortableWorkspace
-                                  ctx={workspaceSidebarCtx}
-                                  directory={directory}
-                                  project={item()}
-                                  sortNow={sortNow}
-                                  mobile={panelProps.mobile}
-                                  popover={popover()}
-                                />
+                                <div class="mb-4">
+                                  <SortableWorkspace
+                                    ctx={workspaceSidebarCtx}
+                                    directory={directory}
+                                    project={item()}
+                                    sortNow={sortNow}
+                                    mobile={panelProps.mobile}
+                                    popover={popover()}
+                                  />
+                                </div>
                               )}
                             </For>
                           </SortableProvider>
+                          <div class="sticky bottom-0 pt-4 pb-2 bg-background-base">
+                            <Button
+                              size="large"
+                              icon="plus-small"
+                              class="w-full"
+                              onClick={() => {
+                                createWorkspace(item())
+                              }}
+                            >
+                              {language.t("workspace.new")}
+                            </Button>
+                          </div>
                         </div>
                         <DragOverlay>
                           <WorkspaceDragOverlay
