@@ -7,22 +7,22 @@ import { ShadowWriter } from "./shadow-writer"
 
 describe("ShadowWriter.resolveSkillDir", () => {
   test("computes shadow dir from .claude location", () => {
-    const location = "/home/user/my-project/.claude/skills/my-skill/SKILL.md"
+    const location = path.join("/home", "user", "my-project", ".claude", "skills", "my-skill", "SKILL.md")
     expect(ShadowWriter.resolveSkillDir("my-skill", location)).toBe(
-      "/home/user/my-project/.aether/skills/my-skill",
+      path.join("/home", "user", "my-project", ".aether", "skills", "my-skill"),
     )
   })
 
   test("computes shadow dir from .agents location", () => {
-    const location = "/home/user/my-project/.agents/skills/my-skill/SKILL.md"
+    const location = path.join("/home", "user", "my-project", ".agents", "skills", "my-skill", "SKILL.md")
     expect(ShadowWriter.resolveSkillDir("my-skill", location)).toBe(
-      "/home/user/my-project/.aether/skills/my-skill",
+      path.join("/home", "user", "my-project", ".aether", "skills", "my-skill"),
     )
   })
 
   test("computes shadow dir from .opencode location", () => {
-    const location = "/project/.opencode/skills/foo/SKILL.md"
-    expect(ShadowWriter.resolveSkillDir("foo", location)).toBe("/project/.aether/skills/foo")
+    const location = path.join("/project", ".opencode", "skills", "foo", "SKILL.md")
+    expect(ShadowWriter.resolveSkillDir("foo", location)).toBe(path.join("/project", ".aether", "skills", "foo"))
   })
 
   test("computes shadow dir from global ~/.claude location", () => {
@@ -34,9 +34,9 @@ describe("ShadowWriter.resolveSkillDir", () => {
 
   test("picks innermost marker when path contains multiple config dir components", () => {
     // .agents (index 5) is inner; .claude (index 2) is outer — should use .agents' parent
-    const location = "/home/.claude/projects/my-project/.agents/skills/foo/SKILL.md"
+    const location = path.join("/home", ".claude", "projects", "my-project", ".agents", "skills", "foo", "SKILL.md")
     expect(ShadowWriter.resolveSkillDir("foo", location)).toBe(
-      "/home/.claude/projects/my-project/.aether/skills/foo",
+      path.join("/home", ".claude", "projects", "my-project", ".aether", "skills", "foo"),
     )
   })
 
