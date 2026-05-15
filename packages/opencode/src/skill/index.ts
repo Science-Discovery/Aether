@@ -160,6 +160,16 @@ export namespace Skill {
     return paths
   }
 
+  async function buildManifest(directory: string, worktree: string, projectId: string): Promise<Record<string, number>> {
+    const paths = await scanAllSkillPaths(directory, worktree, projectId)
+    const manifest: Record<string, number> = {}
+    for (const p of paths) {
+      const stat = await fs.stat(p).catch(() => null)
+      if (stat) manifest[p] = stat.mtimeMs
+    }
+    return manifest
+  }
+
   // Returns false when snapshot is absent or stale (file added/modified/deleted).
   // URL-pulled skills (stored in Global.Path.cache) are not rescanned from source;
   // their local copies are still checked via the snapshot mtime entries.
@@ -300,11 +310,7 @@ export namespace Skill {
     }
 
     // Write mtime snapshot so isFresh() can detect external edits on the next access.
-    const snapshot: Record<string, number> = {}
-    for (const info of Object.values(state.skills)) {
-      const stat = await fs.stat(info.location).catch(() => null)
-      if (stat) snapshot[info.location] = stat.mtimeMs
-    }
+    const snapshot = await buildManifest(directory, worktree, projectId)
     await writeSnapshot(projectId, snapshot)
   }
 
