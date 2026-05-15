@@ -162,6 +162,7 @@ function connectSSE(p: MobilePlatform) {
               if (props.appId) u.appId = props.appId
               if (props.user) u.user = props.user
               patch(p, u)
+              setAutoConnect(p, true)
               clearSseRetry(p)
             } else if (type.endsWith(".reconnecting")) {
               updateStatus(p, "reconnecting")
@@ -277,6 +278,24 @@ function stopPing() {
   }
 }
 
+const STORAGE_KEY = (p: MobilePlatform) => `opencode:mobile:autoConnect:${p}`
+
+const [autoConnectState, setAutoConnectState] = createSignal<Record<MobilePlatform, boolean>>({
+  feishu: localStorage.getItem(STORAGE_KEY("feishu")) === "true",
+  qq: localStorage.getItem(STORAGE_KEY("qq")) === "true",
+  wechat: localStorage.getItem(STORAGE_KEY("wechat")) === "true",
+})
+
+export function autoConnect(p: MobilePlatform) {
+  return autoConnectState()[p]
+}
+
+export function setAutoConnect(p: MobilePlatform, v: boolean) {
+  if (v) localStorage.setItem(STORAGE_KEY(p), "true")
+  else localStorage.removeItem(STORAGE_KEY(p))
+  setAutoConnectState((prev) => ({ ...prev, [p]: v }))
+}
+
 export async function fetchStatus(p: MobilePlatform) {
   const { url, headers } = api()
   try {
@@ -287,7 +306,7 @@ export async function fetchStatus(p: MobilePlatform) {
       patch("wechat", { locked: true, user: data.user || prev("wechat").user })
       return
     }
-    if (p === "wechat") patch("wechat", { locked: false })
+    if (p === "wechat") patch("wechat", { locked: false, hasConfig: data.hasConfig })
     if (p === "feishu") patch("feishu", { hasConfig: data.hasConfig })
     if (p === "qq") patch("qq", { hasConfig: data.hasConfig })
     if (data.status === "connected") {
@@ -295,6 +314,7 @@ export async function fetchStatus(p: MobilePlatform) {
       if (data.appId) u.appId = data.appId
       if (data.user) u.user = data.user
       patch(p, u)
+      setAutoConnect(p, true)
       startPing(p)
       connectSSE(p)
     } else if (data.status === "qrcode" && data.qrcode) {
@@ -310,6 +330,8 @@ export async function fetchStatus(p: MobilePlatform) {
       patch("feishu", { status: "idle" })
     } else if (p === "qq" && data.hasConfig) {
       patch("qq", { status: "idle" })
+    } else if (p === "wechat" && data.hasConfig && data.status === "idle") {
+      patch("wechat", { status: "idle", user: data.user })
     }
   } catch {}
 }
@@ -321,6 +343,7 @@ export async function startBridge(
   force = false,
   appIdVal?: string,
   appSecretVal?: string,
+  rescan = false,
 ) {
   patch(p, {
     status: "loading",
@@ -347,6 +370,7 @@ export async function startBridge(
       body.clientId = clientId
       body.autoInstall = auto
       body.force = force
+      body.rescan = rescan
       if (modelStr) body.model = modelStr
     }
 
@@ -377,6 +401,7 @@ export async function startBridge(
 
     if (data.status === "connected" && data.user) {
       patch(p, { user: data.user, status: "connected" })
+      setAutoConnect(p, true)
       startPing(p)
       return
     }
@@ -388,6 +413,7 @@ export async function startBridge(
 }
 
 export async function stopBridge(p: MobilePlatform) {
+  setAutoConnect(p, false)
   const abort = sseControllers[p]
   if (abort) {
     abort.abort()
@@ -453,6 +479,12 @@ export async function retryBridge(p: MobilePlatform) {
   }
 }
 
+export async function rescanBridge(p: MobilePlatform) {
+  if (p !== "wechat") return
+  await stopBridge("wechat")
+  return startBridge("wechat", true, undefined, false, undefined, undefined, true)
+}
+
 export async function forceTakeover(p: MobilePlatform, modelStr?: string) {
   return startBridge(p, true, modelStr, true)
 }
@@ -470,5 +502,9 @@ export function initMobile(p: MobilePlatform) {
       } catch {}
     })
   }
-  fetchStatus(p)
+  fetchStatus(p).then(() => {
+    if (autoConnect(p) && hasConfig(p) && status(p) === "idle") {
+      startBridge(p)
+    }
+  })
 }

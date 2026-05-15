@@ -1,6 +1,6 @@
 export { AccountTable, AccountStateTable, ControlAccountTable } from "../account/account.sql"
 export { CronJobStateTable, CronRunTable } from "../cron/cron.sql"
-export { ProjectTable, ProjectRecentTable } from "../project/project.sql"
+export { ProjectTable, ProjectRecentTable, DirectoryMetaTable } from "../project/project.sql"
 export { GlobalProjectMapTable } from "../project/global-project-map.sql"
 export { SessionTable, MessageTable, PartTable, TodoTable, PermissionTable } from "../session/session.sql"
 export { SessionShareTable } from "../share/share.sql"

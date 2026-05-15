@@ -41,6 +41,8 @@ import { fn } from "@/util/fn"
 import { Command } from "../command"
 import { Snapshot } from "@/snapshot"
 import { ProjectID } from "../project/schema"
+import { Project } from "../project/project"
+import { GlobalProjectMapTable } from "../project/global-project-map.sql"
 import { WorkspaceID } from "../control-plane/schema"
 import { SessionID, TreeID, MessageID, PartID } from "./schema"
 
@@ -1121,8 +1123,16 @@ export namespace Session {
     search?: string
     limit?: number
   }) {
-    const project = Instance.project
-    const conditions = [eq(SessionTable.project_id, project.id)]
+    const limit = input?.limit ?? 100
+    let projectID: ProjectID = Instance.project.id
+    if (input?.directory) {
+      const dir = Project.norm(input.directory)
+      const row = Database.use((d) =>
+        d.select().from(GlobalProjectMapTable).where(eq(GlobalProjectMapTable.directory, dir)).get(),
+      )
+      if (row) projectID = row.project_id as ProjectID
+    }
+    const conditions = [eq(SessionTable.project_id, projectID)]
     if (input?.directory) {
       conditions.push(eq(SessionTable.directory, Filesystem.resolve(input.directory)))
     }
@@ -1135,10 +1145,7 @@ export namespace Session {
     if (input?.search) {
       conditions.push(like(SessionTable.title, `%${input.search}%`))
     }
-
-    const limit = input?.limit ?? 100
-
-    const rows = Database.useProject(Instance.project.id, (db) =>
+    const rows = Database.useProject(projectID, (db) =>
       db
         .select()
         .from(SessionTable)

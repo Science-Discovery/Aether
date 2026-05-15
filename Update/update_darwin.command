@@ -2,6 +2,41 @@
 
 set -euo pipefail
 
+DEBUG_DIR="$HOME/.cache/aether/update_debug"
+if [ -n "${AETHER_DEBUG_LOG:-}" ]; then
+  DEBUG_LOG="$AETHER_DEBUG_LOG"
+else
+  DEBUG_TS="$(date +%Y%m%d_%H%M%S)"
+  DEBUG_LOG="$DEBUG_DIR/update_${DEBUG_TS}.log"
+fi
+mkdir -p "$DEBUG_DIR" 2>/dev/null || true
+
+debug_log() {
+  printf '%s | %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$1" >>"$DEBUG_LOG" 2>/dev/null || true
+}
+
+debug_log "========== NEW UPDATE RUN =========="
+
+pgid="$(ps -o pgid= -p $$ 2>/dev/null | tr -d ' ')"
+debug_log "PGID | pid=$$ pgid=${pgid:-unknown} bash=${BASH_VERSION:-unknown}"
+
+if [ "${AETHER_REEXECED:-0}" != "1" ] && [ "${pgid:-}" != "$$" ] && [ -n "${pgid:-}" ]; then
+  debug_log "REEXEC | pgid=$pgid != pid=$$, need setsid"
+  if command -v python3 >/dev/null 2>&1; then
+    debug_log "REEXEC | re-executing via python3 os.setsid+execvp"
+    export AETHER_REEXECED=1 AETHER_DEBUG_LOG="$DEBUG_LOG"
+    exec python3 -c "import os,sys; os.setsid(); os.execvp('bash', ['bash'] + sys.argv[1:])" "$0" "$@"
+  else
+    debug_log "REEXEC | python3 unavailable, cannot setsid; script may be SIGKILL'd with parent group"
+  fi
+fi
+
+debug_log "SESSION | pid=$$ pgid=${pgid:-unknown} reexeced=${AETHER_REEXECED:-0}"
+
+trap 'debug_log "SIGNAL | received SIGTERM, pid=$$, ppid=$PPID"; exit 1' SIGTERM
+trap 'debug_log "SIGNAL | received SIGINT, pid=$$, ppid=$PPID"; exit 1' SIGINT
+trap 'debug_log "SIGNAL | received SIGHUP, pid=$$, ppid=$PPID"; exit 1' SIGHUP
+
 want="${1:-}"
 self="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 base="$(basename "$self")"
@@ -21,6 +56,7 @@ fi
 
 fail() {
   write_result "failed" "${2:-recover}" "$1"
+  debug_log "FAIL | error=$1 action=${2:-recover}"
   echo "$1"
   exit 1
 }
@@ -47,6 +83,15 @@ case "$(uname -m)" in
   *) fail "Unsupported macOS architecture: $(uname -m)" ;;
 esac
 pkg_prefix="aether-darwin-$arch"
+
+debug_log "START | args: \$1=$want \$2=${2:-}"
+debug_log "START | restart=$restart self=$self base=$base work=$work"
+debug_log "START | arch=$arch pkg_prefix=$pkg_prefix"
+debug_log "START | AETHER_CURRENT_DIR=${AETHER_CURRENT_DIR:-}"
+debug_log "START | AETHER_WORK_DIR=${AETHER_WORK_DIR:-}"
+debug_log "START | AETHER_UPDATE_RESULT=${AETHER_UPDATE_RESULT:-}"
+debug_log "START | AETHER_MIRROR_ROOT=${AETHER_MIRROR_ROOT:-}"
+debug_log "START | AETHER_MIRROR_ONLY=$mirror_only"
 
 ver_from_name() {
   local file name
@@ -250,13 +295,15 @@ mirror_root() {
   if [ -n "${AETHER_MIRROR_ROOT:-}" ]; then
     mkdir -p "${AETHER_MIRROR_ROOT}" 2>/dev/null || true
     cd "${AETHER_MIRROR_ROOT}" && pwd
+    debug_log "MIRROR_ROOT | resolved via AETHER_MIRROR_ROOT: $(pwd)"
     return 0
   fi
   local cur
   cur="${AETHER_CURRENT_DIR:-}"
-  [ -n "$cur" ] || return 1
+  [ -n "$cur" ] || { debug_log "MIRROR_ROOT | AETHER_CURRENT_DIR empty, returning 1"; return 1; }
   mkdir -p "$(dirname "$cur")" 2>/dev/null || true
   cd "$cur/.." && pwd
+  debug_log "MIRROR_ROOT | resolved via AETHER_CURRENT_DIR: $(pwd)"
 }
 
 in_work() {
@@ -396,18 +443,23 @@ stop_roots=()
 add_stop_root() {
   local dir item
   dir="${1:-}"
-  [ -n "$dir" ] || return 0
-  [ -d "$dir" ] || return 0
-  dir="$(cd "$dir" 2>/dev/null && pwd)" || return 0
-  for item in "${stop_roots[@]}"; do
-    [ "$item" = "$dir" ] && return 0
-  done
+  debug_log "STOP_ROOT | call: input=${1:-}"
+  [ -n "$dir" ] || { debug_log "STOP_ROOT | skip: empty input"; return 0; }
+  [ -d "$dir" ] || { debug_log "STOP_ROOT | skip: not a dir: $dir"; return 0; }
+  dir="$(cd "$dir" 2>/dev/null && pwd)" || { debug_log "STOP_ROOT | skip: cd failed: ${1:-}"; return 0; }
+  if [ ${#stop_roots[@]} -gt 0 ]; then
+    for item in "${stop_roots[@]}"; do
+      [ "$item" = "$dir" ] && { debug_log "STOP_ROOT | skip: duplicate: $dir"; return 0; }
+    done
+  fi
   stop_roots+=("$dir")
+  debug_log "STOP_ROOT | added: $dir"
 }
 
 collect_stop_roots() {
   local dir root
   stop_roots=()
+  debug_log "COLLECT | old=${old:-} target=${target:-} AETHER_CURRENT_DIR=${AETHER_CURRENT_DIR:-} copy_target=${copy_target:-}"
   add_stop_root "$old"
   add_stop_root "$target"
   add_stop_root "${AETHER_CURRENT_DIR:-}"
@@ -418,45 +470,70 @@ collect_stop_roots() {
   done
   root="$(mirror_root || true)"
   if [ -n "$root" ]; then
+    debug_log "COLLECT | mirror_root=$root"
     for dir in "$root"/aether_*; do
       add_stop_root "$dir"
     done
+  else
+    debug_log "COLLECT | mirror_root: empty or failed"
   fi
   shopt -u nullglob
+  if [ ${#stop_roots[@]} -gt 0 ]; then
+    debug_log "COLLECT | stop_roots count=${#stop_roots[@]} roots=${stop_roots[*]}"
+  else
+    debug_log "COLLECT | stop_roots count=0 roots=(empty)"
+  fi
 }
 
 runtime_pids() {
-  local pid cmd root
+  local pid cmd root matched
+  debug_log "PIDS | scanning processes, stop_roots count=${#stop_roots[@]}"
   ps -axo pid=,command= | while read -r pid cmd; do
     [ -n "$pid" ] || continue
     [ "$pid" = "$$" ] && continue
     case "$cmd" in
-      *update_darwin.command*) continue ;;
+      *update_darwin*.command*) continue ;;
     esac
-    for root in "${stop_roots[@]}"; do
+    matched=""
+    if [ ${#stop_roots[@]} -gt 0 ]; then
+      for root in "${stop_roots[@]}"; do
+        case "$cmd" in
+          *"$root/"*)
+            case "$cmd" in
+              *"/aether "*|*"/aether"|*"Aether.command"*|*"Aether.sh"*|*"Aether.sh.real"*)
+                debug_log "PIDS | matched: pid=$pid root=$root cmd=$cmd"
+                echo "$pid"
+                matched="1"
+                break
+                ;;
+              *)
+                debug_log "PIDS | path_hit_cmd_miss: pid=$pid root=$root cmd=$cmd"
+                ;;
+            esac
+            ;;
+        esac
+      done
+    fi
+    if [ -z "$matched" ]; then
       case "$cmd" in
-        *"$root/"*)
-          case "$cmd" in
-            *"/aether "*|*"/aether"|*"Aether.command"*|*"Aether.sh"*|*"Aether.sh.real"*)
-              echo "$pid"
-              break
-              ;;
-          esac
-          ;;
+        */aether*|*Aether.command*|*Aether.sh*) debug_log "PIDS | aether_no_root: pid=$pid cmd=$cmd" ;;
       esac
-    done
+    fi
   done | sort -u
 }
 
 wait_runtime() {
   local tries pids
   tries="$1"
+  debug_log "WAIT | entering wait_runtime, max tries=$tries"
   while [ "$tries" -gt 0 ]; do
     pids="$(runtime_pids)"
-    [ -z "$pids" ] && return 0
+    [ -z "$pids" ] && { debug_log "WAIT | all processes gone, returning 0"; return 0; }
+    debug_log "WAIT | tries left=$tries, remaining pids: $pids"
     sleep 1
     tries=$((tries - 1))
   done
+  debug_log "WAIT | timed out, returning 1"
   return 1
 }
 
@@ -464,23 +541,35 @@ stop_all_runtime() {
   local pids
   collect_stop_roots
   pids="$(runtime_pids)"
-  [ -n "$pids" ] || return 0
+  debug_log "STOP_ALL | initial pids: ${pids:-none}"
+  [ -n "$pids" ] || { debug_log "STOP_ALL | no processes found, returning"; return 0; }
   echo "正在关闭旧版本 Aether 进程..."
+  debug_log "STOP_ALL | SIGTERM to pids: $pids"
   kill $pids >/dev/null 2>&1 || true
-  wait_runtime 5 && return 0
+  debug_log "STOP_ALL | waiting up to 5s after SIGTERM"
+  wait_runtime 5 && { debug_log "STOP_ALL | all exited after SIGTERM"; return 0; }
   pids="$(runtime_pids)"
+  debug_log "STOP_ALL | remaining pids after SIGTERM+wait: ${pids:-none}"
   if [ -n "$pids" ]; then
+    debug_log "STOP_ALL | SIGKILL to pids: $pids"
     kill -9 $pids >/dev/null 2>&1 || true
   fi
+  debug_log "STOP_ALL | waiting up to 3s after SIGKILL"
   if ! wait_runtime 3; then
+    debug_log "STOP_ALL | WARNING: processes still alive after SIGKILL+wait"
     echo "警告：仍检测到旧版本 Aether 进程，将继续启动新版本。"
+  else
+    debug_log "STOP_ALL | all exited after SIGKILL"
   fi
 }
 
 boot() {
   local dir="$1"
-  [ -x "$dir/Aether.command" ] || return 1
+  debug_log "BOOT | dir=$dir"
+  [ -x "$dir/Aether.command" ] || { debug_log "BOOT | Aether.command not executable: $dir/Aether.command"; return 1; }
+  debug_log "BOOT | launching $dir/Aether.command via nohup"
   nohup "$dir/Aether.command" >/dev/null 2>&1 &
+  debug_log "BOOT | nohup pid=$!"
 }
 
 mirror_dir() {
@@ -515,6 +604,7 @@ rm -f "$res" >/dev/null 2>&1 || true
 echo "[0/4] 工作目录: $work"
 
 pick="$(pick_pkg "$self" "$want" || true)"
+debug_log "PICK | result: ${pick:-none} want=$want self=$self"
 [ -n "$pick" ] || {
   [ "$mirror_only" = "1" ] || fail "未在 .../aether/downloads 找到可用 dmg（文件名需包含版本号）"
 }
@@ -538,6 +628,7 @@ cleanup() {
 trap cleanup EXIT
 
 old="$(active_dir "$work")"
+debug_log "ACTIVE | old=$old work=$work"
 if [ "$mirror_only" = "1" ]; then
   [ -d "$target" ] || fail "镜像重试时未找到已安装版本目录：$target"
   echo "[2/4] 复用已安装版本: $target"
@@ -596,13 +687,16 @@ rm -f "$work/.aether_web_version" >/dev/null 2>&1 || true
 
 rm -rf "$work/current" >/dev/null 2>&1 || true
 prune_versions "$work" 5 "$target"
+debug_log "PRUNE | work prune=$prune"
 
 copy_target=""
 copy_note=""
 mirror_prune=""
 if in_work "$work"; then
+  debug_log "IN_WORK | AETHER_CURRENT_DIR=${AETHER_CURRENT_DIR:-} is under work=$work, skipping mirror"
   copy_note="当前运行位置已在 WorkDir 中，已跳过 mirror"
 elif copy_target="$(mirror_dir || true)" && [ -n "$copy_target" ]; then
+  debug_log "MIRROR | copy_target=$copy_target"
   copy_note="已复制新版本到当前软件目录附近：$copy_target"
   mirror_root_dir="$(mirror_root || true)"
   if [ -n "$mirror_root_dir" ]; then
@@ -610,23 +704,31 @@ elif copy_target="$(mirror_dir || true)" && [ -n "$copy_target" ]; then
     mirror_prune="$prune"
   fi
 else
+  debug_log "MIRROR | mirror_dir failed, AETHER_CURRENT_DIR=${AETHER_CURRENT_DIR:-}"
   fail "复制新版本到当前软件目录附近失败：${AETHER_CURRENT_DIR:-当前软件}" mirror
 fi
 final_target="$target"
 if [ -n "$copy_target" ]; then
   final_target="$copy_target"
 fi
+debug_log "LAUNCH | final_target=$final_target target=$target copy_target=${copy_target:-}"
 write_launch "$final_target"
+debug_log "LAUNCH | launch=$launch launch_note=${launch_note:-}"
 
 if [ "$restart" = "1" ]; then
+  debug_log "RESTART | entering restart block, restart=1"
   stop_all_runtime
   if [ -n "$copy_target" ]; then
+    debug_log "RESTART | booting copy_target=$copy_target (fallback target=$target)"
     if ! boot "$copy_target" && ! boot "$target"; then
       fail "重启失败：无法启动 $target/Aether.command"
     fi
   elif ! boot "$target"; then
+    debug_log "RESTART | booting target=$target"
     fail "重启失败：无法启动 $target/Aether.command"
   fi
+else
+  debug_log "RESTART | restart=0, skipping kill+boot"
 fi
 
 write_result "installed"
@@ -653,3 +755,6 @@ fi
 if [ -n "$copy_note" ]; then
   echo "$copy_note"
 fi
+
+debug_log "END | ver=$ver target=$target copy_target=${copy_target:-} launch=$launch restart=$restart prune=$prune"
+debug_log "========== UPDATE RUN COMPLETE =========="

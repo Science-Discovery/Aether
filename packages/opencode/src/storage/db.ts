@@ -539,14 +539,121 @@ export namespace Database {
 
   type NotPromise<T> = T extends Promise<any> ? never : T
 
+  function ensureDirectoryMeta(pSqlite: BunSqlite, pid: string, recentLookup: Map<string, any>) {
+    const hasTable = pSqlite
+      .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='directory_meta'")
+      .get()
+    if (!hasTable) return
+
+    const existingCount = (pSqlite.prepare("SELECT count(*) as cnt FROM directory_meta").get() as { cnt: number }).cnt
+    if (existingCount > 0) return
+
+    const projectRow = pSqlite.prepare("SELECT worktree, vcs FROM project WHERE id = ?").get(pid) as
+      | { worktree: string; vcs: string | null }
+      | undefined
+    if (!projectRow) return
+
+    const worktree = projectRow.worktree
+
+    const directories = (
+      pSqlite.prepare("SELECT DISTINCT directory FROM session").all() as { directory: string }[]
+    ).map((r) => r.directory)
+
+    if (!directories.includes(worktree)) directories.push(worktree)
+
+    const insert = pSqlite.prepare(
+      "INSERT OR IGNORE INTO directory_meta (directory, worktree, name, icon_url, icon_color, icon_override, activity_at, time_created, time_updated) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    )
+
+    for (const dir of directories) {
+      const dirNorm = norm(dir)
+      const recentRow = recentLookup.get(dirNorm)
+      insert.run(
+        dir,
+        worktree,
+        recentRow?.name ?? null,
+        recentRow?.icon_url ?? null,
+        recentRow?.icon_color ?? null,
+        recentRow?.icon_override ?? null,
+        recentRow?.activity_at ?? Date.now(),
+        Date.now(),
+        Date.now(),
+      )
+    }
+  }
+
+  function syncDirectoryMetaToGlobal(sqlite: BunSqlite, pSqlite: BunSqlite, pid: string) {
+    const hasTable = pSqlite
+      .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='directory_meta'")
+      .get()
+    if (!hasTable) return
+
+    const projectRow = pSqlite.prepare("SELECT worktree FROM project WHERE id = ?").get(pid) as
+      | { worktree: string }
+      | undefined
+    const canonicalWorktree = projectRow?.worktree ?? "/"
+
+    const metaRows = pSqlite.prepare("SELECT * FROM directory_meta").all() as {
+      directory: string
+      worktree: string
+      name: string | null
+      icon_url: string | null
+      icon_color: string | null
+      icon_override: string | null
+      activity_at: number
+      time_created: number
+      time_updated: number
+    }[]
+
+    const insertMap = sqlite.prepare(
+      `INSERT INTO global_project_map (directory, project_id, time_created, time_updated)
+       VALUES (?, ?, ?, ?)
+       ON CONFLICT(directory) DO UPDATE SET project_id = excluded.project_id, time_updated = excluded.time_updated`,
+    )
+    const insertRecent = sqlite.prepare(
+      `INSERT INTO project_recent (key, kind, project_id, directory, name, icon_url, icon_color, icon_override, activity_at, time_created, time_updated)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(key) DO UPDATE SET project_id = excluded.project_id, name = excluded.name, icon_url = excluded.icon_url, icon_color = excluded.icon_color, icon_override = excluded.icon_override, activity_at = excluded.activity_at, time_updated = excluded.time_updated`,
+    )
+
+    for (const row of metaRows) {
+      const dirNorm = norm(row.directory)
+      insertMap.run(dirNorm, pid, row.time_created, row.time_updated)
+
+      const isWorktree = row.worktree !== "/" && norm(row.directory) === norm(canonicalWorktree)
+      if (!isWorktree) continue
+
+      insertRecent.run(
+        `dir:${dirNorm}`,
+        "project",
+        pid,
+        row.directory,
+        row.name,
+        row.icon_url ?? null,
+        row.icon_color ?? null,
+        row.icon_override ?? null,
+        row.activity_at,
+        row.time_created,
+        row.time_updated,
+      )
+    }
+  }
+
   export function registerUntrackedProjects(db: DrizzleClient) {
     const sqlite = db.$client
-    const trackedIds = new Set<string>()
-    const rows = sqlite.prepare("SELECT project_id FROM global_project_map").all() as { project_id: string }[]
-    for (const r of rows) trackedIds.add(r.project_id)
+
+    const recentLookup = new Map<string, any>()
+    const recentRows = sqlite.prepare("SELECT * FROM project_recent").all() as any[]
+    for (const row of recentRows) {
+      const dirNorm = norm(row.directory ?? "")
+      recentLookup.set(dirNorm, row)
+      const keyNorm = row.key?.replace(/^dir:/, "").toLowerCase()
+      if (keyNorm && keyNorm !== dirNorm) recentLookup.set(keyNorm, row)
+    }
 
     const chDir = channelDir()
     const existingDbIds = new Set<string>()
+    const validWorktreeKeys = new Set<string>()
     if (existsSync(chDir)) {
       const pattern = /^aether-(.+)\.db$/
       for (const entry of readdirSync(chDir)) {
@@ -558,67 +665,53 @@ export namespace Database {
       }
     }
 
-    // Register untracked project DBs into global_project_map
-    let registered = 0
+    // Phase 1: For each project DB, backfill directory_meta from sessions + project_recent,
+    //           then sync directory_meta → global_project_map + project_recent
+    let synced = 0
     for (const pid of existingDbIds) {
-      if (trackedIds.has(pid)) continue
       const fullPath = path.join(chDir, `aether-${pid}.db`)
       const pSqlite = new BunSqlite(fullPath)
-      const projectRow = pSqlite.prepare("SELECT worktree FROM project WHERE id = ?").get(pid) as
-        | { worktree: string }
-        | undefined
-      if (projectRow) {
-        const dir = norm(projectRow.worktree)
-        sqlite
-          .prepare(
-            "INSERT OR IGNORE INTO global_project_map (directory, project_id, time_created, time_updated) VALUES (?, ?, ?, ?)",
-          )
-          .run(dir, pid, Date.now(), Date.now())
-        registered++
-        log.info("registered untracked project db", { pid, directory: dir })
+      try {
+        ensureDirectoryMeta(pSqlite, pid, recentLookup)
+        syncDirectoryMetaToGlobal(sqlite, pSqlite, pid)
+        const wt = pSqlite.prepare("SELECT worktree FROM project WHERE id = ?").get(pid) as
+          | { worktree: string }
+          | undefined
+        if (wt?.worktree && wt.worktree !== "/") validWorktreeKeys.add(`dir:${norm(wt.worktree)}`)
+        synced++
+      } finally {
+        pSqlite.close()
       }
-      pSqlite.close()
     }
-    if (registered > 0) log.info("untracked project registration complete", { registered })
+    if (synced > 0) log.info("directory_meta sync complete", { synced })
 
-    // Delete project_recent entries whose project_id has no corresponding DB
-    const recentRows = sqlite
+    // Phase 2: Delete project_recent entries whose project_id has no corresponding DB
+    //          or whose directory is not the project's canonical worktree (e.g. sandbox dirs)
+    const staleRows = sqlite
       .prepare("SELECT key, project_id FROM project_recent WHERE kind = 'project' AND project_id IS NOT NULL")
       .all() as { key: string; project_id: string }[]
     let removed = 0
-    for (const row of recentRows) {
-      if (!existingDbIds.has(row.project_id)) {
+    for (const row of staleRows) {
+      if (!existingDbIds.has(row.project_id) || !validWorktreeKeys.has(row.key)) {
         sqlite.prepare("DELETE FROM project_recent WHERE key = ?").run(row.key)
         removed++
       }
     }
-    if (removed > 0) log.info("removed project_recent entries without project db", { removed })
+    if (removed > 0) log.info("removed stale project_recent entries", { removed })
 
-    // Create project_recent entries for project DBs not yet in project_recent
-    const recentProjectIds = new Set(
-      (
-        sqlite
-          .prepare("SELECT project_id FROM project_recent WHERE kind = 'project' AND project_id IS NOT NULL")
-          .all() as { project_id: string }[]
-      ).map((r) => r.project_id),
-    )
-    let created = 0
-    for (const pid of existingDbIds) {
-      if (recentProjectIds.has(pid)) continue
-      const mapRow = sqlite.prepare("SELECT directory FROM global_project_map WHERE project_id = ?").get(pid) as
-        | { directory: string }
-        | undefined
-      const directory = mapRow?.directory ?? ""
-      if (!directory) continue
-      sqlite
-        .prepare(
-          "INSERT OR IGNORE INTO project_recent (key, kind, project_id, directory, activity_at, time_created, time_updated) VALUES (?, ?, ?, ?, ?, ?, ?)",
-        )
-        .run(`dir:${norm(directory)}`, "project", pid, directory, Date.now(), Date.now(), Date.now())
-      created++
-      log.info("created project_recent for untracked project db", { pid, directory })
+    // Phase 3: Delete global_project_map entries whose project_id has no corresponding DB
+    const staleMap = sqlite.prepare("SELECT directory, project_id FROM global_project_map").all() as {
+      directory: string
+      project_id: string
+    }[]
+    let mapRemoved = 0
+    for (const row of staleMap) {
+      if (!existingDbIds.has(row.project_id)) {
+        sqlite.prepare("DELETE FROM global_project_map WHERE directory = ?").run(row.directory)
+        mapRemoved++
+      }
     }
-    if (created > 0) log.info("project_recent creation complete", { created })
+    if (mapRemoved > 0) log.info("removed stale global_project_map entries", { mapRemoved })
   }
 
   export function transaction<T>(

@@ -288,7 +288,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
         (msg) => msg.role === "assistant" && typeof msg.time.completed !== "number",
       ),
   }))
-  const { interactive: working } = createWorkingState({
+  const { selfInteractive: working } = createWorkingState({
     status: () => status(),
     pending: () => pending(),
     sessionID: () => params.id,

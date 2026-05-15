@@ -9,7 +9,6 @@ import {
   addCronMethods,
   addMemoryMethods,
   addProjectDeleteMethod,
-  addSteerMethods,
   createSdkForServer,
 } from "@/utils/server"
 import { useLanguage } from "./language"
@@ -238,7 +237,6 @@ export const { use: useGlobalSDK, provider: GlobalSDKProvider } = createSimpleCo
     })
     addCronMethods(sdk, server.current.http.url, authHeader(server.current.http), { throwOnError: true })
     addMemoryMethods(sdk, server.current.http.url, authHeader(server.current.http), { throwOnError: true })
-    addSteerMethods(sdk, server.current.http.url, authHeader(server.current.http), { throwOnError: true })
     addProjectDeleteMethod(sdk, server.current.http.url, authHeader(server.current.http), { throwOnError: true })
     if (!memoryInitializationToastShown) {
       memoryInitializationToastShown = true
@@ -267,7 +265,6 @@ export const { use: useGlobalSDK, provider: GlobalSDKProvider } = createSimpleCo
         })
         addCronMethods(c, s.http.url, authHeader(s.http), { throwOnError: opts.throwOnError })
         addMemoryMethods(c, s.http.url, authHeader(s.http), { throwOnError: opts.throwOnError })
-        addSteerMethods(c, s.http.url, authHeader(s.http), { throwOnError: opts.throwOnError })
         addProjectDeleteMethod(c, s.http.url, authHeader(s.http), { throwOnError: opts.throwOnError })
         return c
       },

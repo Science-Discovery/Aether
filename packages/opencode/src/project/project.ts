@@ -3,6 +3,7 @@ import { Database, desc, eq } from "../storage/db"
 import { ProjectRecentTable } from "./project.sql"
 import { GlobalProjectMapTable } from "./global-project-map.sql"
 import { ProjectTable } from "./project.sql"
+import { DirectoryMetaTable } from "./project.sql"
 import { SessionTable } from "../session/session.sql"
 import { Log } from "../util/log"
 import { Flag } from "@/flag/flag"
@@ -82,7 +83,7 @@ export namespace Project {
 
   type Row = typeof ProjectTable.$inferSelect
 
-  function norm(input: string) {
+  export function norm(input: string) {
     const next = input.replace(/\\/g, "/")
     const trim = /^\/+$/g.test(next) ? "/" : next.replace(/\/+$/, "")
     return trim.toLowerCase()
@@ -121,14 +122,19 @@ export namespace Project {
     const recentRows = Database.use((db) =>
       db.select().from(ProjectRecentTable).where(eq(ProjectRecentTable.kind, "project")).all(),
     )
+    const seen = new Set<ProjectID>()
     const result: Info[] = []
     for (const row of recentRows) {
       if (!row.project_id) continue
+      if (seen.has(row.project_id)) continue
       if (!Database.hasProject(row.project_id)) continue
       const projectRow = Database.useProject(row.project_id, (d) =>
         d.select().from(ProjectTable).where(eq(ProjectTable.id, row.project_id!)).get(),
       )
-      if (projectRow) result.push(fromRow(projectRow))
+      if (projectRow) {
+        seen.add(row.project_id)
+        result.push(fromRow(projectRow))
+      }
     }
     return result.sort((a, b) => a.id.localeCompare(b.id))
   }
@@ -136,12 +142,29 @@ export namespace Project {
     const recentRows = Database.use((d) =>
       d.select().from(ProjectRecentTable).orderBy(desc(ProjectRecentTable.activity_at)).all(),
     )
-    return recentRows
+    const gpm = Database.use((d) => d.select().from(GlobalProjectMapTable).all())
+    const canonicalPID = new Map<string, string>()
+    for (const row of gpm) canonicalPID.set(norm(row.directory), row.project_id)
+    const seen = new Map<string, (typeof recentRows)[number]>()
+    for (const row of recentRows) {
+      const key = norm(row.directory)
+      const prev = seen.get(key)
+      if (!prev || row.activity_at > prev.activity_at) seen.set(key, row)
+    }
+    return [...seen.values()]
       .map((row) => {
-        if (row.kind === "project" && row.project_id) {
-          if (!Database.hasProject(row.project_id)) return undefined
-          const projectRow = Database.useProject(row.project_id, (d) =>
-            d.select().from(ProjectTable).where(eq(ProjectTable.id, row.project_id!)).get(),
+        const resolvedPID =
+          row.kind === "project" && row.project_id
+            ? (canonicalPID.get(norm(row.directory)) ?? row.project_id)
+            : undefined
+        if (row.kind === "project" && resolvedPID) {
+          if (!Database.hasProject(resolvedPID)) return undefined
+          const projectRow = Database.useProject(resolvedPID, (d) =>
+            d
+              .select()
+              .from(ProjectTable)
+              .where(eq(ProjectTable.id, resolvedPID as ProjectID))
+              .get(),
           )
           const known = projectRow ? fromRow(projectRow) : undefined
           const icon = (() => {
@@ -154,7 +177,7 @@ export namespace Project {
           return {
             id: row.key,
             kind: "project" as const,
-            projectID: row.project_id,
+            projectID: resolvedPID,
             directory: row.directory,
             worktree: known?.worktree,
             vcs: known?.vcs,
@@ -247,9 +270,9 @@ export namespace Project {
     AppFileSystem.Service | Path.Path | ChildProcessSpawner.ChildProcessSpawner
   > = Layer.effect(
     Service,
-      Effect.gen(function* () {
-        const fsys = yield* AppFileSystem.Service
-        const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
+    Effect.gen(function* () {
+      const fsys = yield* AppFileSystem.Service
+      const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
 
       const git = Effect.fnUntraced(
         function* (args: string[], opts?: { cwd?: string }) {
@@ -321,6 +344,37 @@ export namespace Project {
             })
             .run(),
         )
+
+        if (isProject) {
+          yield* dbProject(input.project.id, (d) =>
+            d
+              .insert(DirectoryMetaTable)
+              .values({
+                directory,
+                worktree: input.project.worktree,
+                name: input.project.name ?? null,
+                icon_url: input.project.icon?.url ?? null,
+                icon_color: input.project.icon?.color ?? null,
+                icon_override: null,
+                activity_at: now,
+                time_created: now,
+                time_updated: now,
+              })
+              .onConflictDoUpdate({
+                target: DirectoryMetaTable.directory,
+                set: {
+                  worktree: input.project.worktree,
+                  name: input.project.name ?? null,
+                  icon_url: input.project.icon?.url ?? null,
+                  icon_color: input.project.icon?.color ?? null,
+                  activity_at: now,
+                  time_updated: now,
+                },
+              })
+              .run(),
+          )
+        }
+
         yield* emitRecentUpdated
       })
 
@@ -362,7 +416,10 @@ export namespace Project {
           vcs: data.vcs,
           time: { ...existing.time, updated: Date.now() },
         }
-        if (data.sandbox !== result.worktree && !result.sandboxes.includes(data.sandbox))
+        if (
+          norm(data.sandbox) !== norm(result.worktree) &&
+          !result.sandboxes.some((s) => norm(s) === norm(data.sandbox))
+        )
           result.sandboxes.push(data.sandbox)
         result.sandboxes = yield* Effect.forEach(
           result.sandboxes,
@@ -450,6 +507,34 @@ export namespace Project {
               .run(),
           )
         }
+
+        yield* dbProject(data.id, (d) =>
+          d
+            .insert(DirectoryMetaTable)
+            .values({
+              directory,
+              worktree: data.worktree,
+              name: result.name ?? null,
+              icon_url: result.icon?.url ?? null,
+              icon_color: result.icon?.color ?? null,
+              icon_override: null,
+              activity_at: Date.now(),
+              time_created: Date.now(),
+              time_updated: Date.now(),
+            })
+            .onConflictDoUpdate({
+              target: DirectoryMetaTable.directory,
+              set: {
+                worktree: data.worktree,
+                name: result.name ?? null,
+                icon_url: result.icon?.url ?? null,
+                icon_color: result.icon?.color ?? null,
+                activity_at: Date.now(),
+                time_updated: Date.now(),
+              },
+            })
+            .run(),
+        )
 
         yield* emitUpdated(result)
         const touchDir = data.worktree !== "/" ? data.worktree : directory
@@ -548,7 +633,7 @@ export namespace Project {
         const row = yield* dbProject(id, (d) => d.select().from(ProjectTable).where(eq(ProjectTable.id, id)).get())
         if (!row) throw new Error(`Project not found: ${id}`)
         const sboxes = [...row.sandboxes]
-        if (!sboxes.includes(directory)) sboxes.push(directory)
+        if (!sboxes.some((s) => norm(s) === norm(directory))) sboxes.push(directory)
         const result = yield* dbProject(id, (d) =>
           d
             .update(ProjectTable)
@@ -564,7 +649,7 @@ export namespace Project {
       const removeSandbox = Effect.fn("Project.removeSandbox")(function* (id: ProjectID, directory: string) {
         const row = yield* dbProject(id, (d) => d.select().from(ProjectTable).where(eq(ProjectTable.id, id)).get())
         if (!row) throw new Error(`Project not found: ${id}`)
-        const sboxes = row.sandboxes.filter((s) => s !== directory)
+        const sboxes = row.sandboxes.filter((s) => norm(s) !== norm(directory))
         const result = yield* dbProject(id, (d) =>
           d
             .update(ProjectTable)

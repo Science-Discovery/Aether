@@ -334,6 +334,19 @@ export const KnowledgeProvider: Component<{ children: JSX.Element }> = (props) =
     if (state.knowledgeBases.length > 0) {
       refreshAllStats()
     }
+
+    // 恢复后端 knowledge_search 工具的进程内存配置（重启后丢失）
+    for (const kb of state.knowledgeBases) {
+      if (!state.activeIds.includes(kb.id)) continue
+      fetchApi("/knowledge/config", {
+        method: "POST",
+        body: JSON.stringify({
+          path: kb.path,
+          apiKey: kb.apiKey,
+          baseURL: kb.baseURL,
+        }),
+      }).catch(() => {})
+    }
   })
 
   // 状态变更时自动持久化

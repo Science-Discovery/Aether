@@ -15,6 +15,17 @@ export const ProjectTable = sqliteTable("project", {
   commands: text({ mode: "json" }).$type<{ start?: string }>(),
 })
 
+export const DirectoryMetaTable = sqliteTable("directory_meta", {
+  directory: text().primaryKey(),
+  worktree: text().notNull(),
+  name: text(),
+  icon_url: text(),
+  icon_color: text(),
+  icon_override: text(),
+  activity_at: integer().notNull(),
+  ...Timestamps,
+})
+
 export const ProjectRecentTable = sqliteTable("project_recent", {
   key: text().primaryKey(),
   kind: text().notNull().$type<"project" | "directory">(),
