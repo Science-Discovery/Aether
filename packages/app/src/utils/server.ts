@@ -171,7 +171,6 @@ export type AppClient = Base & {
       knowledgeBase?: Kb
       parts: unknown[]
     }): Promise<{ data?: unknown }>
-    steer(input: { sessionID: string; text: string }): Req<unknown>
   }
 }
 
@@ -260,31 +259,6 @@ function safeAssign(target: object, key: string, value: unknown) {
     if (existing && typeof existing === "object" && value && typeof value === "object")
       deepMerge(existing as object, value as object)
   }
-}
-
-export function addSteerMethods(
-  client: AppClient,
-  baseUrl: string,
-  auth?: Record<string, string>,
-  options?: RequestHelperOptions,
-): AppClient {
-  const headers: Record<string, string> = { "Content-Type": "application/json", ...auth }
-  const steerMethods = {
-    async steer(input: { sessionID: string; text: string }) {
-      return requestJSON(
-        `${baseUrl}/session/${input.sessionID}/steer`,
-        {
-          method: "POST",
-          headers,
-          body: JSON.stringify({ text: input.text }),
-        },
-        options,
-      )
-    },
-  }
-  safeAssign(client.session, "steer", steerMethods.steer)
-
-  return client
 }
 
 export function addCronMethods(

@@ -3,13 +3,7 @@ import { createSimpleContext } from "@opencode-ai/ui/context"
 import { createGlobalEmitter } from "@solid-primitives/event-bus"
 import { batch, onCleanup } from "solid-js"
 import z from "zod"
-import {
-  type AppClient,
-  addCronMethods,
-  addProjectDeleteMethod,
-  addSteerMethods,
-  createSdkForServer,
-} from "@/utils/server"
+import { type AppClient, addCronMethods, addProjectDeleteMethod, createSdkForServer } from "@/utils/server"
 import { useLanguage } from "./language"
 import { usePlatform } from "./platform"
 import { useServer } from "./server"
@@ -233,7 +227,6 @@ export const { use: useGlobalSDK, provider: GlobalSDKProvider } = createSimpleCo
       throwOnError: true,
     })
     addCronMethods(sdk, server.current.http.url, authHeader(server.current.http), { throwOnError: true })
-    addSteerMethods(sdk, server.current.http.url, authHeader(server.current.http), { throwOnError: true })
     addProjectDeleteMethod(sdk, server.current.http.url, authHeader(server.current.http), { throwOnError: true })
 
     return {
@@ -249,7 +242,6 @@ export const { use: useGlobalSDK, provider: GlobalSDKProvider } = createSimpleCo
           ...opts,
         })
         addCronMethods(c, s.http.url, authHeader(s.http), { throwOnError: opts.throwOnError })
-        addSteerMethods(c, s.http.url, authHeader(s.http), { throwOnError: opts.throwOnError })
         addProjectDeleteMethod(c, s.http.url, authHeader(s.http), { throwOnError: opts.throwOnError })
         return c
       },
