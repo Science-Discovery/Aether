@@ -67,9 +67,10 @@ InstanceState.get(state)
 ┌──────────────────────────────────────────────────────────────┐
 │  isFresh()                                                   │
 │                                                              │
-│  ① 用 fs.stat 读取磁盘上所有已知 SKILL.md 的当前 mtime        │
+│  ① 扫描 skills 相关目录，用 fs.stat 读取当前所有 SKILL.md 的   │
+│     mtime，得到当前磁盘状态 { path → mtime }                  │
 │  ② 读取磁盘上的 mtime 快照文件（上次加载时保存的旧 mtime）      │
-│  ③ 逐一比对                                                   │
+│  ③ 比对两份数据（数量、路径、mtime 三项全部一致才算 fresh）      │
 │                                                              │
 │  快照文件不存在（首次运行）→ 视为「不 fresh」                   │
 └──────────────────────────┬───────────────────────────────────┘
@@ -105,6 +106,13 @@ isFresh() 被调用
         │
         ▼
 ┌──────────────────────────────────────────────────────────────┐
+│  扫描 skills 相关目录（与 loadSkills() 扫描的目录相同）          │
+│  对找到的每个 SKILL.md 执行 fs.stat，得到其当前 mtime           │
+│  结果：当前磁盘状态 { path → mtime }                           │
+└──────────────────────────┬───────────────────────────────────┘
+                           │
+                           ▼
+┌──────────────────────────────────────────────────────────────┐
 │  读取磁盘上的 mtime 快照文件                                   │
 │  路径：~/.aether/skill-snapshots/<project-id>.json           │
 └──────────────────────────┬───────────────────────────────────┘
@@ -116,31 +124,17 @@ isFresh() 被调用
                     /          \
                    ▼            ▼
            读取快照内容         返回 false
-           { path → mtime }    （视为不 fresh，需要重新加载）
+           { path → mtime }    （首次运行，视为不 fresh）
                    │
                    ▼
-遍历快照中每一条记录（path, 快照里的 mtime）
-        │
-        ▼
 ┌──────────────────────────────────────────────────────────────┐
-│  fs.stat(path) 读取该文件当前的 mtime                         │
+│  比对当前磁盘状态与快照                                        │
 │                                                              │
-│  stat 失败（文件已被删除）→ 立即返回 false                     │
-└──────────────────────────┬───────────────────────────────────┘
-                           │
-               ┌───────────▼────────────────────────┐
-               │  当前 mtime === 快照里的 mtime？     │
-               └───────────┬────────────────────────┘
-                     是 /    \ 否
-                    /          \
-                   ▼            ▼
-           继续检查下一个     立即返回 false
-           文件              （文件内容已被修改）
-
-所有文件检查完毕，全部一致
-        │
-        ▼
-返回 true
+│  · 当前有、快照没有 → 新增了 skill    → 返回 false             │
+│  · 快照有、当前没有 → 删除了 skill    → 返回 false             │
+│  · 同一路径 mtime 不同 → 文件被修改   → 返回 false             │
+│  · 完全一致                          → 返回 true              │
+└──────────────────────────────────────────────────────────────┘
 ```
 
 ---
@@ -193,12 +187,24 @@ State = {
   await writeSnapshot(projectId, snapshot)
 
 改动 2：新增 isFresh() 函数
-  async function isFresh(projectId: string): Promise<boolean> {
+  async function isFresh(projectId: string, directory: string, worktree: string): Promise<boolean> {
+    // 第一步：扫描当前磁盘上所有 SKILL.md，得到 { path → mtime }
+    const current: Record<string, number> = {}
+    for (const match of await scanAllSkillPaths(directory, worktree)) {
+      const s = await fs.stat(match).catch(() => null)
+      if (s) current[match] = s.mtimeMs
+    }
+
+    // 第二步：读快照
     const snapshot = await readSnapshot(projectId)
     if (!snapshot) return false
-    for (const [skillPath, cachedMtime] of Object.entries(snapshot)) {
-      const s = await fs.stat(skillPath).catch(() => null)
-      if (!s || s.mtimeMs !== cachedMtime) return false
+
+    // 第三步：比对
+    const currentPaths = new Set(Object.keys(current))
+    const snapshotPaths = new Set(Object.keys(snapshot))
+    if (currentPaths.size !== snapshotPaths.size) return false
+    for (const [path, mtime] of Object.entries(current)) {
+      if (snapshot[path] !== mtime) return false
     }
     return true
   }
@@ -230,23 +236,15 @@ writeSnapshot(projectId, snapshot):
 
 ---
 
-## 能检测到的变化 vs 检测盲区
+## 能检测到的变化
 
 ```
-能检测（mtime 会变化）：
-  ✓ 编辑已有 SKILL.md 的内容
-  ✓ 删除已有 SKILL.md（stat 失败 → 返回 false）
-  ✓ 替换 SKILL.md（覆盖写入 → mtime 更新）
-  ✓ 进程重启后文件发生了变化（快照持久化在磁盘上）
-
-检测盲区：
-  ✗ 在已监控目录下新增 SKILL.md
-    → 新路径不在快照中，不会被检查到
-    → isFresh 仍返回 true，新技能不可见
-    → 依赖 Instance.dispose() 或 skill-watcher 兜底
+✓ 编辑已有 SKILL.md 的内容     mtime 变化 → 比对不一致 → 不 fresh
+✓ 新增 SKILL.md               扫描时发现新路径，快照里没有 → 不 fresh
+✓ 删除 SKILL.md               扫描结果比快照少一条 → 不 fresh
+✓ 替换 SKILL.md               覆盖写入 → mtime 更新 → 不 fresh
+✓ 进程重启后文件有变化          快照在磁盘上持久化，重启后仍可比对
 ```
-
-新增技能的检测盲区是此方案的已知局限。如需覆盖，可在快照中额外记录各 `skills/` 目录本身的 mtime（目录 mtime 在子文件增删时会更新），但这是独立需求，本文档不展开。
 
 ---
 
@@ -259,7 +257,7 @@ writeSnapshot(projectId, snapshot):
                              （拉取式，有一次访问延迟）
 shadow-writer.ts 写入       ✓ 兜底                      ✓ 主动失效优先
 进程重启后文件有变化         ✓ 快照在磁盘上，跨进程有效   ✓ 重启后重新监听
-新增 SKILL.md               ✗ 快照中无此路径，感知不到   ✓ 目录监听可感知
+新增 SKILL.md               ✓ 扫描时发现新路径，不 fresh  ✓ 目录监听可感知
 删除 SKILL.md               ✓ stat 失败 → 不 fresh       ✓ 文件事件驱动
 ```
 
