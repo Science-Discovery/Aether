@@ -8,6 +8,7 @@
 
 ## 目录
 
+- [对旧文件的改动](#对旧文件的改动)
 - [现有缓存流程（改动前）](#现有缓存流程改动前)
 - [改动后流程](#改动后流程)
 - [isFresh 内部逻辑](#isfresh-内部逻辑)
@@ -16,6 +17,97 @@
 - [改动位置](#改动位置)
 - [能检测到的变化 vs 检测盲区](#能检测到的变化-vs-检测盲区)
 - [与 skill-watcher 的关系](#与-skill-watcher-的关系)
+
+---
+
+## 对旧文件的改动
+
+改动文件：`packages/opencode/src/skill/index.ts`
+
+按对原有代码的侵入程度，分为三类：
+
+---
+
+### 侵入性改动
+
+直接修改了现有函数中已有的代码行，改变了原有行为。
+
+| 位置 | 原代码 | 修改后 |
+|------|--------|--------|
+| `get()` 方法体 | `yield* InstanceState.get(state)` | `yield* getState()` |
+| `all()` 方法体 | `yield* InstanceState.get(state)` | `yield* getState()` |
+| `dirs()` 方法体 | `yield* InstanceState.get(state)` | `yield* getState()` |
+| `available()` 方法体 | `yield* InstanceState.get(state)` | `yield* getState()` |
+
+**必要性**
+
+mtime 校验必须在"读缓存"这一动作的入口处执行，否则校验无法生效。
+
+`InstanceState.get(state)` 是 Skill 模块里唯一触发缓存读取的调用点——内存中有数据时直接返回，没有数据时才调用 `loadSkills()`。如果不在这里拦截，`isFresh()` 的检查就无处插入：
+
+- 不能放在 `loadSkills()` 里：`loadSkills()` 只在缓存为空时执行，文件被外部修改后缓存仍然命中，`loadSkills()` 根本不会被调用到。
+- 不能放在调用方（`get`/`all` 等）之外：这四个方法是对外的全部读接口，在更上层拦截意味着要跨越模块边界修改调用者，侵入范围反而更大。
+
+因此，将这四处替换为 `getState()`（内部先调 `isFresh()`，不 fresh 则 `invalidate` 后再 `get`）是最小侵入方案：改动点最少，覆盖最完整，且逻辑收拢在一个地方便于后续维护。
+
+---
+
+### 新增
+
+全新添加的函数/常量，在改动前完全不存在。
+
+**模块级辅助函数**（添加在 `Skill` namespace 内，`loadSkills` 之前）：
+
+| 函数 | 签名 | 作用 |
+|------|------|------|
+| `snapshotPath` | `(projectId: string) => string` | 返回快照文件的磁盘路径 |
+| `readSnapshot` | `(projectId: string) => Promise<Record<string, number> \| null>` | 从磁盘读取 mtime 快照，文件不存在返回 `null` |
+| `writeSnapshot` | `(projectId: string, snapshot: Record<string, number>) => Promise<void>` | 将 mtime 快照写入磁盘，目录不存在时自动创建 |
+| `scanAllSkillPaths` | `(directory, worktree, projectId) => Promise<string[]>` | 镜像 `loadSkills` 的扫描逻辑，仅收集路径，不加载内容，供 `isFresh` 比对用 |
+| `isFresh` | `(projectId, directory, worktree) => Promise<boolean>` | 对比磁盘快照与当前文件系统状态，判断缓存是否仍然有效 |
+
+> `scanAllSkillPaths` 并非从 `loadSkills` 提取重构而来——`loadSkills` 原有代码完整保留，`scanAllSkillPaths` 是并行新增的镜像，只做路径收集（`Glob.scan` 返回路径列表）而不做 skill 加载（`scan(state, ...)` 写入 State）。
+
+**`Skill.layer` 内新增的局部常量**：
+
+```typescript
+const getState = Effect.fn("Skill.getState")(function* () {
+  const instance = Instance.current
+  const projectId = String(instance.project.id)
+  const fresh = yield* Effect.promise(() => isFresh(projectId, instance.directory, instance.worktree))
+  if (!fresh) yield* InstanceState.invalidate(state)
+  return yield* InstanceState.get(state)
+})
+```
+
+作为四个读方法共用的前置包装，封装"检查 mtime → 按需失效 → 取 State"三步逻辑。
+
+---
+
+### 插入性改动
+
+嵌入到现有文件的固定位置，但不修改任何已有代码行；去掉这部分代码，原有逻辑可完整复原。
+
+**文件顶部 import 块新增两行**：
+
+```typescript
+import fs from "fs/promises"          // 第 1 行（首行插入）
+import { Instance } from "@/project/instance"   // 插入在现有 import 块中
+```
+
+**`loadSkills()` 末尾追加快照写入块**（追加在 "Remove disabled skills" 逻辑之后）：
+
+```typescript
+// Write mtime snapshot so isFresh() can detect external edits on the next access.
+const snapshot: Record<string, number> = {}
+for (const info of Object.values(state.skills)) {
+  const stat = await fs.stat(info.location).catch(() => null)
+  if (stat) snapshot[info.location] = stat.mtimeMs
+}
+await writeSnapshot(projectId, snapshot)
+```
+
+`loadSkills` 原有的初始化、扫描、禁用逻辑均未被触碰；这段代码只是在函数返回前多做一件事——把本次加载结果的 mtime 固化到磁盘，供下次 `isFresh` 调用时比对。
 
 ---
 
