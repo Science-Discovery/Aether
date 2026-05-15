@@ -173,14 +173,14 @@ describe("ProviderTransform.options - google thinkingConfig gating", () => {
 describe("ProviderTransform.options - gpt-5 textVerbosity", () => {
   const sessionID = "test-session-123"
 
-  const createGpt5Model = (apiId: string, providerID = "openai", npm = "@ai-sdk/openai") =>
+  const createGpt5Model = (apiId: string) =>
     ({
-      id: `${providerID}/${apiId}`,
-      providerID,
+      id: `openai/${apiId}`,
+      providerID: "openai",
       api: {
         id: apiId,
         url: "https://api.openai.com",
-        npm,
+        npm: "@ai-sdk/openai",
       },
       name: apiId,
       capabilities: {
@@ -239,12 +239,6 @@ describe("ProviderTransform.options - gpt-5 textVerbosity", () => {
     const model = createGpt5Model("gpt-5.2-codex")
     const result = ProviderTransform.options({ model, sessionID, providerOptions: {} })
     expect(result.textVerbosity).toBeUndefined()
-  })
-
-  test("azure gpt-5.5 should NOT set reasoningEffort", () => {
-    const model = createGpt5Model("gpt-5.5", "azure", "@ai-sdk/azure")
-    const result = ProviderTransform.options({ model, sessionID, providerOptions: {} })
-    expect(result.reasoningEffort).toBeUndefined()
   })
 })
 
@@ -344,36 +338,6 @@ describe("ProviderTransform.providerOptions", () => {
 
     expect(ProviderTransform.providerOptions(model, { cachePoint: { type: "default" } })).toEqual({
       bedrock: { cachePoint: { type: "default" } },
-    })
-  })
-
-  test("splits dotted openai-compatible provider ids", () => {
-    const model = createModel({
-      providerID: "wafer.ai",
-      api: {
-        id: "deepseek-v3",
-        url: "https://api.wafer.ai/v1",
-        npm: "@ai-sdk/openai-compatible",
-      },
-    })
-
-    expect(ProviderTransform.providerOptions(model, { reasoningEffort: "high" })).toEqual({
-      wafer: { reasoningEffort: "high" },
-    })
-  })
-
-  test("uses openaiCompatible key for ai-gateway-provider models", () => {
-    const model = createModel({
-      providerID: "cloudflare-ai-gateway",
-      api: {
-        id: "openai/gpt-5",
-        url: "https://gateway.ai.cloudflare.com/v1/account/gateway/openai",
-        npm: "ai-gateway-provider",
-      },
-    })
-
-    expect(ProviderTransform.providerOptions(model, { reasoningEffort: "high" })).toEqual({
-      openaiCompatible: { reasoningEffort: "high" },
     })
   })
 
@@ -478,33 +442,6 @@ describe("ProviderTransform.providerOptions", () => {
     ).toEqual({
       azure: {
         reasoningEffort: "high",
-      },
-    })
-  })
-
-  test("removes reasoning effort for azure gpt-5.5 completions models", () => {
-    const model = createModel({
-      providerID: "azure",
-      api: {
-        id: "gpt-5.5",
-        url: "https://azure.com",
-        npm: "@ai-sdk/azure",
-      },
-    })
-
-    expect(
-      ProviderTransform.providerOptions(
-        model,
-        {
-          reasoningEffort: "high",
-          reasoningSummary: "auto",
-          include: ["reasoning.encrypted_content"],
-        },
-        { useCompletionUrls: true },
-      ),
-    ).toEqual({
-      azure: {
-        reasoningSummary: "auto",
       },
     })
   })
@@ -956,41 +893,6 @@ describe("ProviderTransform.schema - gemini non-object properties removal", () =
 })
 
 describe("ProviderTransform.message - DeepSeek reasoning content", () => {
-  const model = {
-    id: ModelID.make("deepseek/deepseek-chat"),
-    providerID: ProviderID.make("deepseek"),
-    api: {
-      id: "deepseek-chat",
-      url: "https://api.deepseek.com",
-      npm: "@ai-sdk/openai-compatible",
-    },
-    name: "DeepSeek Chat",
-    capabilities: {
-      temperature: true,
-      reasoning: true,
-      attachment: false,
-      toolcall: true,
-      input: { text: true, audio: false, image: false, video: false, pdf: false },
-      output: { text: true, audio: false, image: false, video: false, pdf: false },
-      interleaved: {
-        field: "reasoning_content",
-      },
-    },
-    cost: {
-      input: 0.001,
-      output: 0.002,
-      cache: { read: 0.0001, write: 0.0002 },
-    },
-    limit: {
-      context: 128000,
-      output: 8192,
-    },
-    status: "active",
-    options: {},
-    headers: {},
-    release_date: "2023-04-01",
-  } as any
-
   test("DeepSeek with tool calls includes reasoning_content in providerOptions", () => {
     const msgs = [
       {
@@ -1007,7 +909,44 @@ describe("ProviderTransform.message - DeepSeek reasoning content", () => {
       },
     ] as any[]
 
-    const result = ProviderTransform.message(msgs, model, {})
+    const result = ProviderTransform.message(
+      msgs,
+      {
+        id: ModelID.make("deepseek/deepseek-chat"),
+        providerID: ProviderID.make("deepseek"),
+        api: {
+          id: "deepseek-chat",
+          url: "https://api.deepseek.com",
+          npm: "@ai-sdk/openai-compatible",
+        },
+        name: "DeepSeek Chat",
+        capabilities: {
+          temperature: true,
+          reasoning: true,
+          attachment: false,
+          toolcall: true,
+          input: { text: true, audio: false, image: false, video: false, pdf: false },
+          output: { text: true, audio: false, image: false, video: false, pdf: false },
+          interleaved: {
+            field: "reasoning_content",
+          },
+        },
+        cost: {
+          input: 0.001,
+          output: 0.002,
+          cache: { read: 0.0001, write: 0.0002 },
+        },
+        limit: {
+          context: 128000,
+          output: 8192,
+        },
+        status: "active",
+        options: {},
+        headers: {},
+        release_date: "2023-04-01",
+      },
+      {},
+    )
 
     expect(result).toHaveLength(1)
     expect(result[0].content).toEqual([
@@ -1019,14 +958,6 @@ describe("ProviderTransform.message - DeepSeek reasoning content", () => {
       },
     ])
     expect(result[0].providerOptions?.openaiCompatible?.reasoning_content).toBe("Let me think about this...")
-  })
-
-  test("DeepSeek assistant without reasoning preserves empty reasoning_content", () => {
-    const result = ProviderTransform.message([{ role: "assistant", content: "Answer" }] as any[], model, {})
-
-    expect(result).toHaveLength(1)
-    expect(result[0].content).toEqual([{ type: "text", text: "Answer" }])
-    expect(result[0].providerOptions?.openaiCompatible?.reasoning_content).toBe("")
   })
 
   test("Non-DeepSeek providers leave reasoning content unchanged", () => {
@@ -1082,109 +1013,6 @@ describe("ProviderTransform.message - DeepSeek reasoning content", () => {
       { type: "text", text: "Answer" },
     ])
     expect(result[0].providerOptions?.openaiCompatible?.reasoning_content).toBeUndefined()
-  })
-})
-
-describe("ProviderTransform.message - surrogate sanitization", () => {
-  const model = {
-    id: "test/test-model",
-    providerID: "test",
-    api: {
-      id: "test-model",
-      url: "https://api.test.com",
-      npm: "@ai-sdk/openai-compatible",
-    },
-    name: "Test Model",
-    capabilities: {
-      temperature: true,
-      reasoning: true,
-      attachment: true,
-      toolcall: true,
-      input: { text: true, audio: false, image: true, video: false, pdf: false },
-      output: { text: true, audio: false, image: false, video: false, pdf: false },
-      interleaved: false,
-    },
-    cost: { input: 0.001, output: 0.002, cache: { read: 0.0001, write: 0.0002 } },
-    limit: { context: 128000, output: 8192 },
-    status: "active",
-    options: {},
-    headers: {},
-  } as any
-
-  test("replaces lone surrogates in model-visible text", () => {
-    const bad = "\uD83D"
-    const good = "\uD83D\uDE80"
-    const text = (label: string) => `${label} ${bad} and ${good}`
-    const expected = (label: string) => `${label} \uFFFD and ${good}`
-    const msgs = [
-      { role: "system", content: text("system") },
-      { role: "user", content: text("user") },
-      {
-        role: "user",
-        content: [
-          { type: "text", text: text("user part") },
-          { type: "image", image: "data:image/png;base64,abcd" },
-        ],
-      },
-      { role: "assistant", content: text("assistant") },
-      {
-        role: "assistant",
-        content: [
-          { type: "text", text: text("assistant text") },
-          { type: "reasoning", text: text("assistant reasoning") },
-          {
-            type: "tool-result",
-            toolCallId: "call-1",
-            toolName: "Read",
-            output: { type: "text", value: text("assistant tool") },
-          },
-          {
-            type: "tool-result",
-            toolCallId: "call-2",
-            toolName: "Read",
-            output: { type: "error-text", value: text("assistant error") },
-          },
-          {
-            type: "tool-result",
-            toolCallId: "call-3",
-            toolName: "Read",
-            output: { type: "content", value: [{ type: "text", text: text("assistant content") }] },
-          },
-        ],
-      },
-      {
-        role: "tool",
-        content: [
-          {
-            type: "tool-result",
-            toolCallId: "call-4",
-            toolName: "Read",
-            output: { type: "text", value: text("tool") },
-          },
-          {
-            type: "tool-result",
-            toolCallId: "call-5",
-            toolName: "Read",
-            output: { type: "content", value: [{ type: "text", text: text("tool content") }] },
-          },
-        ],
-      },
-    ] as any[]
-
-    const result = ProviderTransform.message(msgs, model, {}) as any[]
-
-    expect(result[0].content).toBe(expected("system"))
-    expect(result[1].content).toBe(expected("user"))
-    expect(result[2].content[0].text).toBe(expected("user part"))
-    expect(result[2].content[1]).toEqual({ type: "image", image: "data:image/png;base64,abcd" })
-    expect(result[3].content).toBe(expected("assistant"))
-    expect(result[4].content[0].text).toBe(expected("assistant text"))
-    expect(result[4].content[1].text).toBe(expected("assistant reasoning"))
-    expect(result[4].content[2].output.value).toBe(expected("assistant tool"))
-    expect(result[4].content[3].output.value).toBe(expected("assistant error"))
-    expect(result[4].content[4].output.value[0].text).toBe(expected("assistant content"))
-    expect(result[5].content[0].output.value).toBe(expected("tool"))
-    expect(result[5].content[1].output.value[0].text).toBe(expected("tool content"))
   })
 })
 
@@ -1376,43 +1204,6 @@ describe("ProviderTransform.message - anthropic empty content filtering", () => 
     expect(result[0].content[0]).toEqual({ type: "text", text: "Answer" })
   })
 
-  test("keeps empty Anthropic signed reasoning parts", () => {
-    const msgs = [
-      {
-        role: "assistant",
-        content: [
-          {
-            type: "reasoning",
-            text: "",
-            providerOptions: { anthropic: { signature: "sig1" } },
-          },
-          {
-            type: "reasoning",
-            text: "",
-            providerOptions: { anthropic: { redactedData: "redacted" } },
-          },
-          { type: "text", text: "Answer" },
-        ],
-      },
-    ] as any[]
-
-    const result = ProviderTransform.message(msgs, anthropicModel, {})
-
-    expect(result[0].content).toEqual([
-      {
-        type: "reasoning",
-        text: "",
-        providerOptions: { anthropic: { signature: "sig1" } },
-      },
-      {
-        type: "reasoning",
-        text: "",
-        providerOptions: { anthropic: { redactedData: "redacted" } },
-      },
-      { type: "text", text: "Answer" },
-    ])
-  })
-
   test("removes entire message when all parts are empty", () => {
     const msgs = [
       { role: "user", content: "Hello" },
@@ -1476,37 +1267,6 @@ describe("ProviderTransform.message - anthropic empty content filtering", () => 
     expect(result[0].content[1]).toEqual({ type: "text", text: "Result" })
   })
 
-  test("splits assistant content when tool calls are followed by text", () => {
-    const msgs = [
-      {
-        role: "assistant",
-        content: [
-          { type: "tool-call", toolCallId: "call_1", toolName: "bash", input: { cmd: "ls" } },
-          { type: "text", text: "Done" },
-          { type: "reasoning", text: "Thinking" },
-        ],
-      },
-    ] as any[]
-
-    const result = ProviderTransform.message(msgs, anthropicModel, {})
-
-    expect(result).toEqual([
-      {
-        role: "assistant",
-        content: [
-          { type: "text", text: "Done" },
-          { type: "reasoning", text: "Thinking" },
-        ],
-        providerOptions: expect.any(Object),
-      },
-      {
-        role: "assistant",
-        content: [{ type: "tool-call", toolCallId: "call_1", toolName: "bash", input: { cmd: "ls" } }],
-        providerOptions: expect.any(Object),
-      },
-    ])
-  })
-
   test("filters empty content for bedrock provider", () => {
     const bedrockModel = {
       ...anthropicModel,
@@ -1537,53 +1297,6 @@ describe("ProviderTransform.message - anthropic empty content filtering", () => 
     expect(result[0].content).toBe("Hello")
     expect(result[1].content).toHaveLength(1)
     expect(result[1].content[0]).toEqual({ type: "text", text: "Answer" })
-  })
-
-  test("keeps empty Bedrock signed reasoning parts", () => {
-    const bedrockModel = {
-      ...anthropicModel,
-      id: "amazon-bedrock/anthropic.claude-opus-4-6",
-      providerID: "amazon-bedrock",
-      api: {
-        id: "anthropic.claude-opus-4-6",
-        url: "https://bedrock-runtime.us-east-1.amazonaws.com",
-        npm: "@ai-sdk/amazon-bedrock",
-      },
-    }
-    const msgs = [
-      {
-        role: "assistant",
-        content: [
-          {
-            type: "reasoning",
-            text: "",
-            providerOptions: { bedrock: { signature: "sig1" } },
-          },
-          {
-            type: "reasoning",
-            text: "",
-            providerOptions: { bedrock: { redactedData: "redacted" } },
-          },
-          { type: "text", text: "Answer" },
-        ],
-      },
-    ] as any[]
-
-    const result = ProviderTransform.message(msgs, bedrockModel, {})
-
-    expect(result[0].content).toEqual([
-      {
-        type: "reasoning",
-        text: "",
-        providerOptions: { bedrock: { signature: "sig1" } },
-      },
-      {
-        type: "reasoning",
-        text: "",
-        providerOptions: { bedrock: { redactedData: "redacted" } },
-      },
-      { type: "text", text: "Answer" },
-    ])
   })
 
   test("does not filter for non-anthropic providers", () => {
@@ -2393,26 +2106,6 @@ describe("ProviderTransform.variants", () => {
       })
     })
 
-    test("anthropic opus 4.7 models return adaptive thinking options", () => {
-      const model = createMockModel({
-        id: "anthropic/claude-opus-4-7",
-        providerID: "gateway",
-        api: {
-          id: "anthropic/claude-opus-4.7",
-          url: "https://gateway.ai",
-          npm: "@ai-sdk/gateway",
-        },
-      })
-      const result = ProviderTransform.variants(model)
-      expect(Object.keys(result)).toEqual(["low", "medium", "high", "xhigh", "max"])
-      expect(result.xhigh).toEqual({
-        thinking: {
-          type: "adaptive",
-        },
-        effort: "xhigh",
-      })
-    })
-
     test("anthropic models return anthropic thinking options", () => {
       const model = createMockModel({
         id: "anthropic/claude-sonnet-4",
@@ -2821,26 +2514,6 @@ describe("ProviderTransform.variants", () => {
       })
     })
 
-    test("opus 4.7 returns adaptive thinking options", () => {
-      const model = createMockModel({
-        id: "anthropic/claude-opus-4.7",
-        providerID: "anthropic",
-        api: {
-          id: "claude-opus-4.7",
-          url: "https://api.anthropic.com",
-          npm: "@ai-sdk/anthropic",
-        },
-      })
-      const result = ProviderTransform.variants(model)
-      expect(Object.keys(result)).toEqual(["low", "medium", "high", "xhigh", "max"])
-      expect(result.high).toEqual({
-        thinking: {
-          type: "adaptive",
-        },
-        effort: "high",
-      })
-    })
-
     test("returns high and max with thinking config", () => {
       const model = createMockModel({
         id: "anthropic/claude-4",
@@ -2885,26 +2558,6 @@ describe("ProviderTransform.variants", () => {
         reasoningConfig: {
           type: "adaptive",
           maxReasoningEffort: "max",
-        },
-      })
-    })
-
-    test("anthropic opus 4.7 returns adaptive reasoning options", () => {
-      const model = createMockModel({
-        id: "bedrock/anthropic-claude-opus-4-7",
-        providerID: "bedrock",
-        api: {
-          id: "anthropic.claude-opus-4.7",
-          url: "https://bedrock.amazonaws.com",
-          npm: "@ai-sdk/amazon-bedrock",
-        },
-      })
-      const result = ProviderTransform.variants(model)
-      expect(Object.keys(result)).toEqual(["low", "medium", "high", "xhigh", "max"])
-      expect(result.xhigh).toEqual({
-        reasoningConfig: {
-          type: "adaptive",
-          maxReasoningEffort: "xhigh",
         },
       })
     })

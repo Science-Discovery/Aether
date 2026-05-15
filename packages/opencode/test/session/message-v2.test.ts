@@ -108,7 +108,7 @@ function basePart(messageID: string, id: string) {
 }
 
 describe("session.message-v2.toModelMessage", () => {
-  test("filters out messages with no parts", async () => {
+  test("filters out messages with no parts", () => {
     const input: MessageV2.WithParts[] = [
       {
         info: userInfo("m-empty"),
@@ -126,7 +126,7 @@ describe("session.message-v2.toModelMessage", () => {
       },
     ]
 
-    expect(await MessageV2.toModelMessages(input, model)).toStrictEqual([
+    expect(MessageV2.toModelMessages(input, model)).toStrictEqual([
       {
         role: "user",
         content: [{ type: "text", text: "hello" }],
@@ -134,7 +134,7 @@ describe("session.message-v2.toModelMessage", () => {
     ])
   })
 
-  test("filters out messages with only ignored parts", async () => {
+  test("filters out messages with only ignored parts", () => {
     const messageID = "m-user"
 
     const input: MessageV2.WithParts[] = [
@@ -151,10 +151,10 @@ describe("session.message-v2.toModelMessage", () => {
       },
     ]
 
-    expect(await MessageV2.toModelMessages(input, model)).toStrictEqual([])
+    expect(MessageV2.toModelMessages(input, model)).toStrictEqual([])
   })
 
-  test("includes synthetic text parts", async () => {
+  test("includes synthetic text parts", () => {
     const messageID = "m-user"
 
     const input: MessageV2.WithParts[] = [
@@ -182,7 +182,7 @@ describe("session.message-v2.toModelMessage", () => {
       },
     ]
 
-    expect(await MessageV2.toModelMessages(input, model)).toStrictEqual([
+    expect(MessageV2.toModelMessages(input, model)).toStrictEqual([
       {
         role: "user",
         content: [{ type: "text", text: "hello" }],
@@ -194,7 +194,7 @@ describe("session.message-v2.toModelMessage", () => {
     ])
   })
 
-  test("converts user text/file parts and injects compaction/subtask prompts", async () => {
+  test("converts user text/file parts and injects compaction/subtask prompts", () => {
     const messageID = "m-user"
 
     const input: MessageV2.WithParts[] = [
@@ -249,7 +249,7 @@ describe("session.message-v2.toModelMessage", () => {
       },
     ]
 
-    expect(await MessageV2.toModelMessages(input, model)).toStrictEqual([
+    expect(MessageV2.toModelMessages(input, model)).toStrictEqual([
       {
         role: "user",
         content: [
@@ -267,7 +267,7 @@ describe("session.message-v2.toModelMessage", () => {
     ])
   })
 
-  test("converts assistant tool completion into tool-call + tool-result messages with attachments", async () => {
+  test("converts assistant tool completion into tool-call + tool-result messages with attachments", () => {
     const userID = "m-user"
     const assistantID = "m-assistant"
 
@@ -319,7 +319,7 @@ describe("session.message-v2.toModelMessage", () => {
       },
     ]
 
-    expect(await MessageV2.toModelMessages(input, model)).toStrictEqual([
+    expect(MessageV2.toModelMessages(input, model)).toStrictEqual([
       {
         role: "user",
         content: [{ type: "text", text: "run tool" }],
@@ -359,58 +359,7 @@ describe("session.message-v2.toModelMessage", () => {
     ])
   })
 
-  test("drops non-provider part metadata before converting to model messages", async () => {
-    const userID = "m-user"
-    const assistantID = "m-assistant"
-
-    const input: MessageV2.WithParts[] = [
-      {
-        info: userInfo(userID),
-        parts: [
-          {
-            ...basePart(userID, "u1"),
-            type: "text",
-            text: "hello",
-          },
-        ] as MessageV2.Part[],
-      },
-      {
-        info: assistantInfo(assistantID, userID),
-        parts: [
-          {
-            ...basePart(assistantID, "a1"),
-            type: "text",
-            text: "cron reminder",
-            metadata: {
-              source: "cron",
-              job_id: "job",
-              run_id: "run",
-              openai: { assistant: "meta" },
-            },
-          },
-        ] as MessageV2.Part[],
-      },
-    ]
-
-    expect(await MessageV2.toModelMessages(input, model)).toStrictEqual([
-      {
-        role: "user",
-        content: [{ type: "text", text: "hello" }],
-      },
-      {
-        role: "assistant",
-        content: [
-          {
-            type: "text",
-            text: "cron reminder",
-            providerOptions: { openai: { assistant: "meta" } },
-          },
-        ],
-      },
-    ])
-  })
-
-  test("omits provider metadata when assistant model differs", async () => {
+  test("omits provider metadata when assistant model differs", () => {
     const userID = "m-user"
     const assistantID = "m-assistant"
 
@@ -453,7 +402,7 @@ describe("session.message-v2.toModelMessage", () => {
       },
     ]
 
-    expect(await MessageV2.toModelMessages(input, model)).toStrictEqual([
+    expect(MessageV2.toModelMessages(input, model)).toStrictEqual([
       {
         role: "user",
         content: [{ type: "text", text: "run tool" }],
@@ -485,54 +434,7 @@ describe("session.message-v2.toModelMessage", () => {
     ])
   })
 
-  test("converts different-model reasoning to text", async () => {
-    const userID = "m-user"
-    const assistantID = "m-assistant"
-
-    const input: MessageV2.WithParts[] = [
-      {
-        info: userInfo(userID),
-        parts: [
-          {
-            ...basePart(userID, "u1"),
-            type: "text",
-            text: "continue",
-          },
-        ] as MessageV2.Part[],
-      },
-      {
-        info: assistantInfo(assistantID, userID, undefined, { providerID: "other", modelID: "other" }),
-        parts: [
-          {
-            ...basePart(assistantID, "a1"),
-            type: "reasoning",
-            text: "private thought",
-            metadata: { openai: { reasoning: "meta" } },
-            time: { start: 0 },
-          },
-          {
-            ...basePart(assistantID, "a2"),
-            type: "reasoning",
-            text: "",
-            time: { start: 0 },
-          },
-        ] as MessageV2.Part[],
-      },
-    ]
-
-    expect(await MessageV2.toModelMessages(input, model)).toStrictEqual([
-      {
-        role: "user",
-        content: [{ type: "text", text: "continue" }],
-      },
-      {
-        role: "assistant",
-        content: [{ type: "text", text: "private thought" }],
-      },
-    ])
-  })
-
-  test("replaces compacted tool output with placeholder", async () => {
+  test("replaces compacted tool output with placeholder", () => {
     const userID = "m-user"
     const assistantID = "m-assistant"
 
@@ -568,7 +470,7 @@ describe("session.message-v2.toModelMessage", () => {
       },
     ]
 
-    expect(await MessageV2.toModelMessages(input, model)).toStrictEqual([
+    expect(MessageV2.toModelMessages(input, model)).toStrictEqual([
       {
         role: "user",
         content: [{ type: "text", text: "run tool" }],
@@ -599,7 +501,7 @@ describe("session.message-v2.toModelMessage", () => {
     ])
   })
 
-  test("converts assistant tool error into error-text tool result", async () => {
+  test("converts assistant tool error into error-text tool result", () => {
     const userID = "m-user"
     const assistantID = "m-assistant"
 
@@ -635,7 +537,7 @@ describe("session.message-v2.toModelMessage", () => {
       },
     ]
 
-    expect(await MessageV2.toModelMessages(input, model)).toStrictEqual([
+    expect(MessageV2.toModelMessages(input, model)).toStrictEqual([
       {
         role: "user",
         content: [{ type: "text", text: "run tool" }],
@@ -668,7 +570,7 @@ describe("session.message-v2.toModelMessage", () => {
     ])
   })
 
-  test("filters assistant messages with non-abort errors", async () => {
+  test("filters assistant messages with non-abort errors", () => {
     const assistantID = "m-assistant"
 
     const input: MessageV2.WithParts[] = [
@@ -688,10 +590,10 @@ describe("session.message-v2.toModelMessage", () => {
       },
     ]
 
-    expect(await MessageV2.toModelMessages(input, model)).toStrictEqual([])
+    expect(MessageV2.toModelMessages(input, model)).toStrictEqual([])
   })
 
-  test("includes aborted assistant messages only when they have non-step-start/reasoning content", async () => {
+  test("includes aborted assistant messages only when they have non-step-start/reasoning content", () => {
     const assistantID1 = "m-assistant-1"
     const assistantID2 = "m-assistant-2"
 
@@ -731,7 +633,7 @@ describe("session.message-v2.toModelMessage", () => {
       },
     ]
 
-    expect(await MessageV2.toModelMessages(input, model)).toStrictEqual([
+    expect(MessageV2.toModelMessages(input, model)).toStrictEqual([
       {
         role: "assistant",
         content: [
@@ -742,7 +644,7 @@ describe("session.message-v2.toModelMessage", () => {
     ])
   })
 
-  test("splits assistant messages on step-start boundaries", async () => {
+  test("splits assistant messages on step-start boundaries", () => {
     const assistantID = "m-assistant"
 
     const input: MessageV2.WithParts[] = [
@@ -767,7 +669,7 @@ describe("session.message-v2.toModelMessage", () => {
       },
     ]
 
-    expect(await MessageV2.toModelMessages(input, model)).toStrictEqual([
+    expect(MessageV2.toModelMessages(input, model)).toStrictEqual([
       {
         role: "assistant",
         content: [{ type: "text", text: "first" }],
@@ -779,7 +681,7 @@ describe("session.message-v2.toModelMessage", () => {
     ])
   })
 
-  test("drops messages that only contain step-start parts", async () => {
+  test("drops messages that only contain step-start parts", () => {
     const assistantID = "m-assistant"
 
     const input: MessageV2.WithParts[] = [
@@ -794,10 +696,10 @@ describe("session.message-v2.toModelMessage", () => {
       },
     ]
 
-    expect(await MessageV2.toModelMessages(input, model)).toStrictEqual([])
+    expect(MessageV2.toModelMessages(input, model)).toStrictEqual([])
   })
 
-  test("converts pending/running tool calls to error results to prevent dangling tool_use", async () => {
+  test("converts pending/running tool calls to error results to prevent dangling tool_use", () => {
     const userID = "m-user"
     const assistantID = "m-assistant"
 
@@ -841,7 +743,7 @@ describe("session.message-v2.toModelMessage", () => {
       },
     ]
 
-    const result = await MessageV2.toModelMessages(input, model)
+    const result = MessageV2.toModelMessages(input, model)
 
     expect(result).toStrictEqual([
       {
@@ -885,63 +787,6 @@ describe("session.message-v2.toModelMessage", () => {
         ],
       },
     ])
-  })
-
-  test("substitutes space for empty text between signed Anthropic reasoning blocks", async () => {
-    const assistantID = "m-signed-anthropic"
-    const input: MessageV2.WithParts[] = [
-      {
-        info: assistantInfo(assistantID, "m-parent"),
-        parts: [
-          { ...basePart(assistantID, "p1"), type: "step-start" },
-          {
-            ...basePart(assistantID, "p2"),
-            type: "reasoning",
-            text: "thinking-one",
-            metadata: { anthropic: { signature: "sig1" } },
-          },
-          { ...basePart(assistantID, "p3"), type: "text", text: "" },
-          { ...basePart(assistantID, "p4"), type: "step-start" },
-          {
-            ...basePart(assistantID, "p5"),
-            type: "reasoning",
-            text: "thinking-two",
-            metadata: { anthropic: { signature: "sig2" } },
-          },
-          { ...basePart(assistantID, "p6"), type: "text", text: "done" },
-        ] as MessageV2.Part[],
-      },
-    ]
-
-    const result = await MessageV2.toModelMessages(input, model)
-
-    expect(result).toHaveLength(2)
-    expect((result[0].content as any[]).find((part) => part.type === "text").text).toBe(" ")
-    expect((result[1].content as any[]).find((part) => part.type === "text").text).toBe("done")
-  })
-
-  test("leaves empty text alone for Bedrock signed reasoning", async () => {
-    const assistantID = "m-signed-bedrock"
-    const input: MessageV2.WithParts[] = [
-      {
-        info: assistantInfo(assistantID, "m-parent"),
-        parts: [
-          {
-            ...basePart(assistantID, "p1"),
-            type: "reasoning",
-            text: "thinking",
-            metadata: { bedrock: { signature: "sig1" } },
-          },
-          { ...basePart(assistantID, "p2"), type: "text", text: "" },
-          { ...basePart(assistantID, "p3"), type: "text", text: "done" },
-        ] as MessageV2.Part[],
-      },
-    ]
-
-    const result = await MessageV2.toModelMessages(input, model)
-    const text = (result[0].content as any[]).filter((part) => part.type === "text").map((part) => part.text)
-
-    expect(text).toStrictEqual(["", "done"])
   })
 })
 
@@ -998,53 +843,6 @@ describe("session.message-v2.fromError", () => {
           responseBody: JSON.stringify(input),
         },
       })
-    })
-  })
-
-  test("serializes overloaded stream errors as retryable API errors", () => {
-    const cases = ["server_error", "server_is_overloaded"]
-
-    cases.forEach((code) => {
-      const input = {
-        type: "error",
-        error: {
-          code,
-          message: "Server is overloaded",
-        },
-      }
-      const result = MessageV2.fromError(input, { providerID })
-
-      expect(result).toStrictEqual({
-        name: "APIError",
-        data: {
-          message: "Server is overloaded",
-          isRetryable: true,
-          responseBody: JSON.stringify(input),
-        },
-      })
-    })
-  })
-
-  test("serializes OpenAI server_error stream chunks as retryable API errors", () => {
-    const body = {
-      type: "error",
-      sequence_number: 2,
-      error: {
-        type: "server_error",
-        code: "server_error",
-        message: "An error occurred while processing your request.",
-        param: null,
-      },
-    }
-    const result = MessageV2.fromError({ message: JSON.stringify(body) }, { providerID })
-
-    expect(result).toStrictEqual({
-      name: "APIError",
-      data: {
-        message: body.error.message,
-        isRetryable: true,
-        responseBody: JSON.stringify(body),
-      },
     })
   })
 

@@ -13,8 +13,6 @@ import { MessageTable, PartTable, SessionTable } from "./session.sql"
 import { ProviderError } from "@/provider/error"
 import { iife } from "@/util/iife"
 import type { SystemError } from "bun"
-import type { JSONValue, SharedV3ProviderMetadata } from "@ai-sdk/provider"
-import type { ToolResultOutput } from "@ai-sdk/provider-utils"
 import type { Provider } from "@/provider/provider"
 import { ModelID, ProviderID } from "@/provider/schema"
 
@@ -346,11 +344,6 @@ export namespace MessageV2 {
     tool: z.string(),
     state: ToolState,
     metadata: z.record(z.string(), z.any()).optional(),
-    // True when the tool was executed within the provider's stream (e.g.
-    // Anthropic web_search, Copilot Responses tools). Such parts must be
-    // excluded from the outer-loop "any unresolved tool call?" check in
-    // SessionPrompt — they are already complete by stream end.
-    providerExecuted: z.boolean().optional(),
   }).meta({
     ref: "ToolPart",
   })
@@ -580,24 +573,11 @@ export namespace MessageV2 {
     }))
   }
 
-  type Output = string | { text: string; attachments?: Array<{ mime: string; url: string }> } | JSONValue
-
-  type ToolOutput = {
-    toolCallId: string
-    input: JSONValue
-    output: Output
-  }
-
-  const isAttachmentOutput = (output: Output): output is Extract<Output, { text: string }> => {
-    if (!output || typeof output !== "object" || Array.isArray(output)) return false
-    return typeof output.text === "string"
-  }
-
-  export async function toModelMessages(
+  export function toModelMessages(
     input: WithParts[],
     model: Provider.Model,
     options?: { stripMedia?: boolean },
-  ): Promise<ModelMessage[]> {
+  ): ModelMessage[] {
     const result: UIMessage[] = []
     const toolNames = new Set<string>()
     // Track media from tool results that need to be injected as user messages
@@ -621,41 +601,26 @@ export namespace MessageV2 {
       return false
     })()
 
-    const providerMetadata = (metadata: Record<string, any> | undefined): SharedV3ProviderMetadata | undefined => {
-      if (!metadata) return undefined
-      const entries = Object.entries(metadata).filter(([, value]) => {
-        return value && typeof value === "object" && !Array.isArray(value)
-      })
-      return entries.length > 0 ? Object.fromEntries(entries) : undefined
-    }
-
-    const providerMetadataProp = (metadata: Record<string, any> | undefined) => {
-      const value = providerMetadata(metadata)
-      return value ? { providerMetadata: value } : {}
-    }
-
-    const callProviderMetadataProp = (metadata: Record<string, any> | undefined) => {
-      const value = providerMetadata(metadata)
-      return value ? { callProviderMetadata: value } : {}
-    }
-
-    const toModelOutput = (opts: ToolOutput): ToolResultOutput => {
-      const output = opts.output
+    const toModelOutput = (output: unknown) => {
       if (typeof output === "string") {
         return { type: "text", value: output }
       }
 
-      if (isAttachmentOutput(output)) {
-        const attachments = (output.attachments ?? []).filter((attachment) => {
+      if (typeof output === "object") {
+        const outputObject = output as {
+          text: string
+          attachments?: Array<{ mime: string; url: string }>
+        }
+        const attachments = (outputObject.attachments ?? []).filter((attachment) => {
           return attachment.url.startsWith("data:") && attachment.url.includes(",")
         })
 
         return {
           type: "content",
           value: [
-            { type: "text", text: output.text },
+            { type: "text", text: outputObject.text },
             ...attachments.map((attachment) => ({
-              type: "media" as const,
+              type: "media",
               mediaType: attachment.mime,
               data: iife(() => {
                 const commaIndex = attachment.url.indexOf(",")
@@ -666,7 +631,7 @@ export namespace MessageV2 {
         }
       }
 
-      return { type: "json", value: output }
+      return { type: "json", value: output as never }
     }
 
     for (const msg of input) {
@@ -735,16 +700,12 @@ export namespace MessageV2 {
           role: "assistant",
           parts: [],
         }
-        const signed = msg.parts.some((part) => {
-          if (part.type !== "reasoning") return false
-          return part.metadata?.anthropic?.signature != null
-        })
         for (const part of msg.parts) {
           if (part.type === "text")
             assistantMessage.parts.push({
               type: "text",
-              text: part.text === "" && signed ? " " : part.text,
-              ...(differentModel ? {} : providerMetadataProp(part.metadata)),
+              text: part.text,
+              ...(differentModel ? {} : { providerMetadata: part.metadata }),
             })
           if (part.type === "step-start")
             assistantMessage.parts.push({
@@ -779,7 +740,7 @@ export namespace MessageV2 {
                 toolCallId: part.callID,
                 input: part.state.input,
                 output,
-                ...(differentModel ? {} : callProviderMetadataProp(part.metadata)),
+                ...(differentModel ? {} : { callProviderMetadata: part.metadata }),
               })
             }
             if (part.state.status === "error")
@@ -789,7 +750,7 @@ export namespace MessageV2 {
                 toolCallId: part.callID,
                 input: part.state.input,
                 errorText: part.state.error,
-                ...(differentModel ? {} : callProviderMetadataProp(part.metadata)),
+                ...(differentModel ? {} : { callProviderMetadata: part.metadata }),
               })
             // Handle pending/running tool calls to prevent dangling tool_use blocks
             // Anthropic/Claude APIs require every tool_use to have a corresponding tool_result
@@ -800,22 +761,14 @@ export namespace MessageV2 {
                 toolCallId: part.callID,
                 input: part.state.input,
                 errorText: "[Tool execution was interrupted]",
-                ...(differentModel ? {} : callProviderMetadataProp(part.metadata)),
+                ...(differentModel ? {} : { callProviderMetadata: part.metadata }),
               })
           }
           if (part.type === "reasoning") {
-            if (differentModel) {
-              if (part.text.trim().length > 0)
-                assistantMessage.parts.push({
-                  type: "text",
-                  text: part.text,
-                })
-              continue
-            }
             assistantMessage.parts.push({
               type: "reasoning",
               text: part.text,
-              ...providerMetadataProp(part.metadata),
+              ...(differentModel ? {} : { providerMetadata: part.metadata }),
             })
           }
         }

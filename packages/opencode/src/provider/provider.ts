@@ -3,8 +3,7 @@ import os from "os"
 import fuzzysort from "fuzzysort"
 import { Config } from "../config/config"
 import { mapValues, mergeDeep, omit, pickBy, sortBy } from "remeda"
-import { NoSuchModelError, type LanguageModel } from "ai"
-import type { LanguageModelV3 } from "@ai-sdk/provider"
+import { NoSuchModelError, type Provider as SDK } from "ai"
 import { Log } from "../util/log"
 import { BunProc } from "../bun"
 import { Hash } from "../util/hash"
@@ -29,7 +28,7 @@ import { createVertex } from "@ai-sdk/google-vertex"
 import { createVertexAnthropic } from "@ai-sdk/google-vertex/anthropic"
 import { createOpenAI } from "@ai-sdk/openai"
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible"
-import { createOpenRouter } from "@openrouter/ai-sdk-provider"
+import { createOpenRouter, type LanguageModelV2 } from "@openrouter/ai-sdk-provider"
 import { createOpenaiCompatible as createGitHubCopilotOpenAICompatible } from "./sdk/copilot"
 import { createXai } from "@ai-sdk/xai"
 import { createMistral } from "@ai-sdk/mistral"
@@ -52,7 +51,6 @@ import { GoogleAuth } from "google-auth-library"
 import { ProviderTransform } from "./transform"
 import { Installation } from "../installation"
 import { ModelID, ProviderID } from "./schema"
-import { ProviderDisable } from "./disable"
 
 const DEFAULT_CHUNK_TIMEOUT = 600_000
 
@@ -63,31 +61,6 @@ export namespace Provider {
     const match = /^gpt-(\d+)/.exec(modelID)
     if (!match) return false
     return Number(match[1]) >= 5 && !modelID.startsWith("gpt-5-mini")
-  }
-
-  function openai(api?: string) {
-    if (!api) return false
-    try {
-      return new URL(api).hostname.toLowerCase() === "api.openai.com"
-    } catch {
-      return false
-    }
-  }
-
-  function gpt(id: string) {
-    return id.toLowerCase().split("/").at(-1)?.trim() ?? id.toLowerCase().trim()
-  }
-
-  function pkg(providerID: string, npm: string, id: string, api?: string) {
-    const mod = npm.trim()
-    if (mod !== "@ai-sdk/openai-compatible") return mod
-    const key = gpt(id)
-    if (/^gpt-5\.5($|-)/.test(key)) return "@ai-sdk/openai"
-    if (openai(api) && /^gpt-5(\.|-|$)/.test(key) && !key.includes("chat")) return "@ai-sdk/openai"
-    if (!providerID.startsWith("opencode")) return mod
-    if (key.includes("chat")) return mod
-    if (/^gpt-5(\.|-|$)/.test(key)) return "@ai-sdk/openai"
-    return mod
   }
 
   function wrapSSE(res: Response, ms: number, ctl: AbortController) {
@@ -187,14 +160,6 @@ export namespace Provider {
     return url
   }
 
-  type SDK = {
-    languageModel: (modelID: string) => LanguageModel
-    responses?: (modelID: string) => LanguageModel
-    chat?: (modelID: string) => LanguageModel
-    chatModel?: (modelID: string) => LanguageModel
-    messages?: (modelID: string) => LanguageModel
-  }
-
   const BUNDLED_PROVIDERS: Record<string, (options: any) => SDK> = {
     "@ai-sdk/amazon-bedrock": createAmazonBedrock,
     "@ai-sdk/anthropic": createAnthropic,
@@ -238,20 +203,7 @@ export namespace Provider {
   }>
 
   function useLanguageModel(sdk: any) {
-    return sdk.responses === undefined && sdk.chat === undefined && sdk.messages === undefined
-  }
-
-  export function azureLanguage(sdk: any, modelID: string, chat: boolean) {
-    if (chat && sdk.chat) return sdk.chat(modelID)
-    if (sdk.responses) return sdk.responses(modelID)
-    if (sdk.messages) return sdk.messages(modelID)
-    if (sdk.chat) return sdk.chat(modelID)
-    return sdk.languageModel(modelID)
-  }
-
-  function language(sdk: any, model: Model) {
-    if (model.api.npm === "@ai-sdk/openai" && sdk.responses !== undefined) return sdk.responses(model.api.id)
-    return sdk.languageModel(model.api.id)
+    return sdk.responses === undefined && sdk.chat === undefined
   }
 
   const CUSTOM_LOADERS: Record<string, CustomLoader> = {
@@ -325,7 +277,9 @@ export namespace Provider {
       return {
         autoload: false,
         async getModel(sdk: any, modelID: string, options?: Record<string, any>) {
-          return azureLanguage(sdk, modelID, options?.["useCompletionUrls"] === true)
+          if (useLanguageModel(sdk)) return sdk.languageModel(modelID)
+          if (options?.["useCompletionUrls"]) return sdk.chat(modelID)
+          return sdk.responses(modelID)
         },
         options: {},
         vars(_options) {
@@ -340,7 +294,9 @@ export namespace Provider {
       return {
         autoload: false,
         async getModel(sdk: any, modelID: string, options?: Record<string, any>) {
-          return azureLanguage(sdk, modelID, options?.["useCompletionUrls"] === true)
+          if (useLanguageModel(sdk)) return sdk.languageModel(modelID)
+          if (options?.["useCompletionUrls"]) return sdk.chat(modelID)
+          return sdk.responses(modelID)
         },
         options: {
           baseURL: resourceName ? `https://${resourceName}.cognitiveservices.azure.com/openai` : undefined,
@@ -933,7 +889,6 @@ export namespace Provider {
   export type Info = z.infer<typeof Info>
 
   function fromModelsDevModel(provider: ModelsDev.Provider, model: ModelsDev.Model): Model {
-    const api = model.provider?.api ?? PROVIDER_OVERRIDES[provider.id]?.api ?? provider.api!
     const m: Model = {
       id: ModelID.make(model.id),
       providerID: ProviderID.make(provider.id),
@@ -941,13 +896,8 @@ export namespace Provider {
       family: model.family,
       api: {
         id: model.id,
-        url: api,
-        npm: pkg(
-          provider.id,
-          model.provider?.npm ?? PROVIDER_OVERRIDES[provider.id]?.npm ?? provider.npm ?? "@ai-sdk/openai-compatible",
-          model.id,
-          api,
-        ),
+        url: model.provider?.api ?? PROVIDER_OVERRIDES[provider.id]?.api ?? provider.api!,
+        npm: model.provider?.npm ?? PROVIDER_OVERRIDES[provider.id]?.npm ?? provider.npm ?? "@ai-sdk/openai-compatible",
       },
       status: model.status ?? "active",
       headers: model.headers ?? {},
@@ -1022,7 +972,7 @@ export namespace Provider {
     const modelsDev = await ModelsDev.get()
     const database = mapValues(modelsDev, fromModelsDevProvider)
 
-    const disabled = ProviderDisable.set(config.disabled_providers)
+    const disabled = new Set(config.disabled_providers ?? [])
     const enabled = config.enabled_providers ? new Set(config.enabled_providers) : null
     const disabledModels = new Set(config.disabled_models ?? [])
 
@@ -1034,7 +984,7 @@ export namespace Provider {
 
     const providers: Record<ProviderID, Info> = {} as Record<ProviderID, Info>
     const connected = new Set<ProviderID>()
-    const languages = new Map<string, LanguageModel>()
+    const languages = new Map<string, LanguageModelV2>()
     const modelLoaders: {
       [providerID: string]: CustomModelLoader
     } = {}
@@ -1082,7 +1032,6 @@ export namespace Provider {
 
     // extend database from config
     for (const [providerID, provider] of configProviders) {
-      if (disabled.has(ProviderID.make(providerID))) continue
       const existing = database[providerID]
       const parsed: Info = {
         id: ProviderID.make(providerID),
@@ -1124,20 +1073,11 @@ export namespace Provider {
           api: {
             id: model.id ?? existingModel?.api.id ?? modelID,
             npm:
-              pkg(
-                providerID,
-                model.provider?.npm ??
-                  provider.npm ??
-                  existingModel?.api.npm ??
-                  modelsDev[providerID]?.npm ??
-                  "@ai-sdk/openai-compatible",
-                model.id ?? existingModel?.api.id ?? modelID,
-                model.provider?.api ??
-                  provider.options?.baseURL ??
-                  provider?.api ??
-                  existingModel?.api.url ??
-                  modelsDev[providerID]?.api,
-              ),
+              model.provider?.npm ??
+              provider.npm ??
+              existingModel?.api.npm ??
+              modelsDev[providerID]?.npm ??
+              "@ai-sdk/openai-compatible",
             url: model.provider?.api ?? provider?.api ?? existingModel?.api.url ?? modelsDev[providerID]?.api,
           },
           status: model.status ?? existingModel?.status ?? "active",
@@ -1261,7 +1201,6 @@ export namespace Provider {
     // load config
     for (const [id, provider] of configProviders) {
       const providerID = ProviderID.make(id)
-      if (disabled.has(providerID)) continue
       const partial: Partial<Info> = { source: "config" }
       if (provider.env) partial.env = provider.env
       if (provider.name) partial.name = provider.name
@@ -1284,12 +1223,6 @@ export namespace Provider {
 
       for (const [modelID, model] of Object.entries(provider.models)) {
         model.api.id = model.api.id ?? model.id ?? modelID
-        model.api.npm = pkg(
-          providerID,
-          model.api.npm,
-          model.api.id,
-          configProvider?.models?.[modelID]?.provider?.api ?? configProvider?.options?.baseURL ?? model.api.url,
-        )
         if (
           modelID === "gpt-5-chat-latest" ||
           (providerID === ProviderID.openrouter && modelID === "openai/gpt-5-chat")
@@ -1532,7 +1465,7 @@ export namespace Provider {
     return info
   }
 
-  export async function getLanguage(model: Model): Promise<LanguageModel> {
+  export async function getLanguage(model: Model): Promise<LanguageModelV2> {
     const s = await state()
     const key = `${model.providerID}/${model.id}`
     if (s.models.has(key)) return s.models.get(key)!
@@ -1545,7 +1478,7 @@ export namespace Provider {
         name: model.providerID,
         apiKey: "test-key",
         baseURL: url,
-      }).chatModel(model.api.id) as LanguageModelV3
+      }).chatModel(model.api.id) as LanguageModelV2
       s.models.set(key, language)
       return language
     }
@@ -1554,11 +1487,11 @@ export namespace Provider {
     const sdk = await getSDK(model)
 
     try {
-      const result = s.modelLoaders[model.providerID]
+      const language = s.modelLoaders[model.providerID]
         ? await s.modelLoaders[model.providerID](sdk, model.api.id, { ...provider.options, ...model.options })
-        : language(sdk, model)
-      s.models.set(key, result)
-      return result
+        : sdk.languageModel(model.api.id)
+      s.models.set(key, language)
+      return language
     } catch (e) {
       if (e instanceof NoSuchModelError)
         throw new ModelNotFoundError(

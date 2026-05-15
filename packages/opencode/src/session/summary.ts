@@ -12,66 +12,6 @@ import { Bus } from "@/bus"
 import { NotFoundError } from "@/storage/db"
 
 export namespace SessionSummary {
-  // In-memory dedup: skip setSummary + Storage.write + Bus.publish when the
-  // new summary tuple AND the structural diff fingerprint both match the last
-  // values published for this session. Without dedup, every step-finish inside
-  // the prompt loop republishes an unchanged session.diff plus a session.updated,
-  // which on the web UI triggers review/VCS refetch cascades and re-renders.
-  //
-  // The cache is invalidated/refreshed by `invalidate()` so that any other path
-  // publishing Session.Event.Diff (revert, unrevert, manual diff API) keeps the
-  // dedup state honest. Entries are removed on Session.Event.Deleted; see init().
-  type DiffCacheEntry = {
-    additions: number
-    deletions: number
-    files: number
-    fingerprint: string
-  }
-  const lastDiff = new Map<SessionID, DiffCacheEntry>()
-
-  function fingerprintDiffs(diffs: Snapshot.FileDiff[]): string {
-    // Order-independent: callers do not guarantee a stable file order across
-    // runs. Each tuple is JSON-encoded so file names containing whitespace,
-    // numbers, or other separators cannot collide with adjacent fields.
-    return diffs
-      .map((d) => JSON.stringify([d.file, d.additions, d.deletions]))
-      .sort()
-      .join("\n")
-  }
-
-  function summaryOf(diffs: Snapshot.FileDiff[]) {
-    return {
-      additions: diffs.reduce((sum, x) => sum + x.additions, 0),
-      deletions: diffs.reduce((sum, x) => sum + x.deletions, 0),
-      files: diffs.length,
-    }
-  }
-
-  /**
-   * Refresh or drop the dedup state for `sessionID`.
-   *
-   * Call from any path that publishes Session.Event.Diff *outside*
-   * summarizeSession (revert, unrevert, manual diff API). Passing `latest`
-   * advances the cache to that payload so a follow-up summarize() with the
-   * same content correctly dedupes; omitting `latest` clears the entry.
-   */
-  export function invalidate(sessionID: SessionID, latest?: Snapshot.FileDiff[]) {
-    if (!latest) {
-      lastDiff.delete(sessionID)
-      return
-    }
-    lastDiff.set(sessionID, {
-      ...summaryOf(latest),
-      fingerprint: fingerprintDiffs(latest),
-    })
-  }
-
-  export function init() {
-    Bus.subscribe(Session.Event.Deleted, ({ properties }) => {
-      lastDiff.delete(properties.sessionID)
-    })
-  }
-
   function unquoteGitPath(input: string) {
     if (!input.startsWith('"')) return input
     if (!input.endsWith('"')) return input
@@ -169,25 +109,15 @@ export namespace SessionSummary {
       diffs = await computeDiff({ messages: input.messages })
     }
 
-    const summary = summaryOf(diffs)
-    const fingerprint = fingerprintDiffs(diffs)
-    const prev = lastDiff.get(input.sessionID)
-    if (
-      prev &&
-      prev.fingerprint === fingerprint &&
-      prev.additions === summary.additions &&
-      prev.deletions === summary.deletions &&
-      prev.files === summary.files
-    ) {
-      // Identical to the last published payload; skip both setSummary and
-      // session.diff so we don't storm the web UI during step-finish bursts.
-      // session.updated still ticks via message/part updates from the same loop.
-      return
-    }
-
-    await Session.setSummary({ sessionID: input.sessionID, summary })
+    await Session.setSummary({
+      sessionID: input.sessionID,
+      summary: {
+        additions: diffs.reduce((sum, x) => sum + x.additions, 0),
+        deletions: diffs.reduce((sum, x) => sum + x.deletions, 0),
+        files: diffs.length,
+      },
+    })
     await Storage.write(["session_diff", input.sessionID], diffs)
-    lastDiff.set(input.sessionID, { ...summary, fingerprint })
     Bus.publish(Session.Event.Diff, {
       sessionID: input.sessionID,
       diff: diffs,
@@ -241,9 +171,6 @@ export namespace SessionSummary {
         if (to) {
           const diffs = await Snapshot.diffFull(from, to)
           await Storage.write(["session_diff", input.sessionID], diffs)
-          // Keep the dedup cache in sync so the next summarize() with the
-          // same payload correctly suppresses a duplicate session.diff.
-          invalidate(input.sessionID, diffs)
           Bus.publish(Session.Event.Diff, {
             sessionID: input.sessionID,
             diff: diffs,

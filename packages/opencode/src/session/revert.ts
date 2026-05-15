@@ -89,10 +89,6 @@ export namespace SessionRevert {
         diffs = await SessionSummary.computeDiff({ messages: remaining })
       }
       await Storage.write(["session_diff", input.sessionID], diffs)
-      // Refresh SessionSummary's dedup cache so the next summarize() with the
-      // post-revert payload doesn't get falsely matched against the pre-revert
-      // fingerprint and silently dropped on the way to the web UI.
-      SessionSummary.invalidate(input.sessionID, diffs)
       Bus.publish(Session.Event.Diff, {
         sessionID: input.sessionID,
         diff: diffs,
@@ -126,7 +122,6 @@ export namespace SessionRevert {
       diffs = await SessionSummary.computeDiff({ messages: all })
     }
     await Storage.write(["session_diff", input.sessionID], diffs)
-    SessionSummary.invalidate(input.sessionID, diffs)
     Bus.publish(Session.Event.Diff, {
       sessionID: input.sessionID,
       diff: diffs,

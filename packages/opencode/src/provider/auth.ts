@@ -1,12 +1,10 @@
 import type { AuthOuathResult, Hooks } from "@opencode-ai/plugin"
 import { NamedError } from "@opencode-ai/util/error"
 import { Auth } from "@/auth"
-import { Config } from "@/config/config"
 import { InstanceState } from "@/effect/instance-state"
 import { makeRuntime } from "@/effect/run-service"
 import { Plugin } from "../plugin"
 import { ProviderID } from "./schema"
-import { ProviderDisable } from "./disable"
 import { Array as Arr, Effect, Layer, Record, Result, ServiceMap } from "effect"
 import z from "zod"
 
@@ -121,14 +119,13 @@ export namespace ProviderAuth {
         Effect.fn("ProviderAuth.state")(() =>
           Effect.promise(async () => {
             const plugins = await Plugin.list()
-            const cfg = await Config.get()
             return {
               hooks: Record.fromEntries(
-                Arr.filterMap(plugins, (x) => {
-                  const auth = x.auth
-                  if (!auth || ProviderDisable.disabled(auth.provider, cfg.disabled_providers)) return Result.failVoid
-                  return Result.succeed([ProviderID.make(auth.provider), auth] as const)
-                }),
+                Arr.filterMap(plugins, (x) =>
+                  x.auth?.provider !== undefined
+                    ? Result.succeed([ProviderID.make(x.auth.provider), x.auth] as const)
+                    : Result.failVoid,
+                ),
               ),
               pending: new Map<ProviderID, AuthOuathResult>(),
             }

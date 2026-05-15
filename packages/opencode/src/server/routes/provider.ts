@@ -6,7 +6,6 @@ import { Config } from "../../config/config"
 import { Provider } from "../../provider/provider"
 import { ModelsDev } from "../../provider/models"
 import { ProviderAuth } from "../../provider/auth"
-import { ProviderDisable } from "../../provider/disable"
 import { ProviderID } from "../../provider/schema"
 import { mapValues } from "remeda"
 import { errors } from "../error"
@@ -218,7 +217,7 @@ export const ProviderRoutes = lazy(() =>
       }),
       async (c) => {
         const config = await Config.get()
-        const disabled = ProviderDisable.set(config.disabled_providers)
+        const disabled = new Set(config.disabled_providers ?? [])
         const enabled = config.enabled_providers ? new Set(config.enabled_providers) : undefined
         const disabledModels = new Set(config.disabled_models ?? [])
 
@@ -306,7 +305,6 @@ export const ProviderRoutes = lazy(() =>
       ),
       async (c) => {
         const { providerID } = c.req.valid("param")
-        if (ProviderDisable.disabled(providerID)) return c.json({ message: "Provider not found" } as any, 404)
         const config = await Config.get()
         const providers = await Provider.list()
         const info = providers[providerID]
@@ -417,9 +415,6 @@ export const ProviderRoutes = lazy(() =>
       ),
       async (c) => {
         const providerID = c.req.valid("param").providerID
-        const cfg = await Config.get()
-        if (ProviderDisable.disabled(providerID, cfg.disabled_providers))
-          return c.json({ message: "Provider disabled" } as any, 400)
         const { method, inputs } = c.req.valid("json")
         const result = await ProviderAuth.authorize({
           providerID,
@@ -462,9 +457,6 @@ export const ProviderRoutes = lazy(() =>
       ),
       async (c) => {
         const providerID = c.req.valid("param").providerID
-        const cfg = await Config.get()
-        if (ProviderDisable.disabled(providerID, cfg.disabled_providers))
-          return c.json({ message: "Provider disabled" } as any, 400)
         const { method, code } = c.req.valid("json")
         await ProviderAuth.callback({
           providerID,

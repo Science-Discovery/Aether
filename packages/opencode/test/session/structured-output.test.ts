@@ -363,21 +363,21 @@ describe("structured-output.createStructuredOutputTool", () => {
     expect(inputSchema.jsonSchema?.properties?.tags?.items?.type).toBe("string")
   })
 
-  test("toModelOutput returns text value", async () => {
+  test("toModelOutput returns text value", () => {
     const tool = SessionPrompt.createStructuredOutputTool({
       schema: { type: "object" },
       onSuccess: () => {},
     })
 
     expect(tool.toModelOutput).toBeDefined()
-    const modelOutput = (await tool.toModelOutput!({
-      toolCallId: "call-1",
-      input: {},
+    const modelOutput = tool.toModelOutput!({
       output: "Test output",
-    })) as { type: string; value?: string }
+      title: "Test",
+      metadata: { valid: true },
+    })
 
     expect(modelOutput.type).toBe("text")
-    if (modelOutput.type === "text") expect(modelOutput.value).toBe("Test output")
+    expect(modelOutput.value).toBe("Test output")
   })
 
   // Note: Retry behavior is handled by the AI SDK and the prompt loop, not the tool itself

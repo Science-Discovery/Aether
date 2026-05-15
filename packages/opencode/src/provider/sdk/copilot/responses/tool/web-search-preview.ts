@@ -81,6 +81,7 @@ export const webSearchPreview = createProviderDefinedToolFactory<
   }
 >({
   id: "openai.web_search_preview",
+  name: "web_search_preview",
   inputSchema: z.object({
     action: z
       .discriminatedUnion("type", [

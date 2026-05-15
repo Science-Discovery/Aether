@@ -100,17 +100,6 @@ export namespace ProviderError {
     return undefined
   }
 
-  function stream(input: unknown) {
-    const body = json(input)
-    if (!body) return
-    if (body.type === "error") return body
-    if ("message" in body && typeof body.message === "string") {
-      const msg = json(body.message)
-      if (msg?.type === "error") return msg
-    }
-    return undefined
-  }
-
   export type ParsedStreamError =
     | {
         type: "context_overflow"
@@ -120,15 +109,16 @@ export namespace ProviderError {
     | {
         type: "api_error"
         message: string
-        isRetryable: boolean
+        isRetryable: false
         responseBody: string
       }
 
   export function parseStreamError(input: unknown): ParsedStreamError | undefined {
-    const body = stream(input)
+    const body = json(input)
     if (!body) return
 
     const responseBody = JSON.stringify(body)
+    if (body.type !== "error") return
 
     switch (body?.error?.code) {
       case "context_length_exceeded":
@@ -156,14 +146,6 @@ export namespace ProviderError {
           type: "api_error",
           message: typeof body?.error?.message === "string" ? body?.error?.message : "Invalid prompt.",
           isRetryable: false,
-          responseBody,
-        }
-      case "server_error":
-      case "server_is_overloaded":
-        return {
-          type: "api_error",
-          message: typeof body?.error?.message === "string" ? body?.error?.message : "Provider is overloaded",
-          isRetryable: true,
           responseBody,
         }
     }

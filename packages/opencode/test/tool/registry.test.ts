@@ -5,8 +5,6 @@ import { tmpdir } from "../fixture/fixture"
 import { Instance } from "../../src/project/instance"
 import { ToolRegistry } from "../../src/tool/registry"
 
-const timeout = 20_000
-
 afterEach(async () => {
   await Instance.disposeAll()
 })
@@ -44,7 +42,7 @@ describe("tool.registry", () => {
         expect(ids).toContain("hello")
       },
     })
-  }, timeout)
+  })
 
   test("loads tools from .opencode/tools (plural)", async () => {
     await using tmp = await tmpdir({
@@ -78,7 +76,7 @@ describe("tool.registry", () => {
         expect(ids).toContain("hello")
       },
     })
-  }, timeout)
+  })
 
   test("loads tools with external dependencies without crashing", async () => {
     await using tmp = await tmpdir({
@@ -89,24 +87,12 @@ describe("tool.registry", () => {
         const toolsDir = path.join(opencodeDir, "tools")
         await fs.mkdir(toolsDir, { recursive: true })
 
-        const mod = path.join(opencodeDir, "node_modules", "cowsay")
-        await fs.mkdir(mod, { recursive: true })
-        await Bun.write(
-          path.join(mod, "package.json"),
-          JSON.stringify({
-            name: "cowsay",
-            type: "module",
-            exports: "./index.js",
-          }),
-        )
-        await Bun.write(path.join(mod, "index.js"), "export function say({ text }) { return `moo ${text}` }\n")
-
         await Bun.write(
           path.join(opencodeDir, "package.json"),
           JSON.stringify({
             name: "custom-tools",
             dependencies: {
-              "@opencode-ai/plugin": "*",
+              "@opencode-ai/plugin": "^0.0.0",
               cowsay: "^1.6.0",
             },
           }),
@@ -136,5 +122,5 @@ describe("tool.registry", () => {
         expect(ids).toContain("cowsay")
       },
     })
-  }, timeout)
+  })
 })

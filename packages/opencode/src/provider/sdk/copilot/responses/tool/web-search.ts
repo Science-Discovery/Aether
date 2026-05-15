@@ -74,6 +74,7 @@ export const webSearchToolFactory = createProviderDefinedToolFactory<
   }
 >({
   id: "openai.web_search",
+  name: "web_search",
   inputSchema: z.object({
     action: z
       .discriminatedUnion("type", [

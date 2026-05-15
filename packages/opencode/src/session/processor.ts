@@ -124,7 +124,6 @@ export namespace SessionProcessor {
                       input: {},
                       raw: "",
                     },
-                    providerExecuted: value.providerExecuted ?? toolcalls[value.id]?.providerExecuted,
                   })
                   toolcalls[value.id] = part as MessageV2.ToolPart
                   break
@@ -149,7 +148,6 @@ export namespace SessionProcessor {
                         },
                       },
                       metadata: value.providerMetadata,
-                      providerExecuted: value.providerExecuted ?? match.providerExecuted,
                     })
                     toolcalls[value.toolCallId] = part as MessageV2.ToolPart
 
