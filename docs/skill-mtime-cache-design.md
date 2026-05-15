@@ -587,31 +587,32 @@ async function buildManifest(directory: string, worktree: string, projectId: str
 
 ### 改动位置
 
-#### 新增（不触碰任何现有代码）
+以下改动均相对于 **dev 分支**（`loadSkills` 在 dev 上没有任何快照写入逻辑，`isFresh`、`scanAllSkillPaths` 等函数均为 feat/manifest 新增）。
+
+#### 新增（全新代码，不触碰 dev 任何现有代码行）
 
 | 位置 | 内容 |
 |---|---|
 | `scanAllSkillPaths` 函数体之后 | 新增 `buildManifest` 函数 |
+| `snapshotPath` / `readSnapshot` / `writeSnapshot` | 沿用 feat/manifest 已新增的三个辅助函数，无需额外改动 |
+| `isFresh` | 沿用 feat/manifest 已新增的函数，无需额外改动 |
+| `getState` | 沿用 feat/manifest 已新增的局部常量，无需额外改动 |
 
-#### 侵入性改动（修改现有代码行）
+#### 插入性改动（在 dev 原有代码的固定位置嵌入，不修改任何 dev 已有代码行）
 
-仅一处：`loadSkills` 末尾的快照写入块，将遍历 `state.skills` 的逻辑替换为调用 `buildManifest`：
+| 位置 | 内容 |
+|---|---|
+| `loadSkills` 末尾（Remove disabled skills 逻辑之后） | 追加快照写入块，调用 `buildManifest` 后写入快照 |
 
 ```typescript
-// 改动前：只记录加载成功的 skill
-const snapshot: Record<string, number> = {}
-for (const info of Object.values(state.skills)) {
-  const stat = await fs.stat(info.location).catch(() => null)
-  if (stat) snapshot[info.location] = stat.mtimeMs
-}
-await writeSnapshot(projectId, snapshot)
-
-// 改动后：记录所有扫描到的 SKILL.md（与 isFresh Phase 2 数据源一致）
+// Write manifest snapshot so isFresh() can detect external edits on the next access.
 const snapshot = await buildManifest(directory, worktree, projectId)
 await writeSnapshot(projectId, snapshot)
 ```
 
-其余所有函数（`isFresh`、`scanAllSkillPaths`、`readSnapshot`、`writeSnapshot`、`getState`）**均不改动**。
+dev 上 `loadSkills` 末尾没有任何快照相关代码，这段是纯插入，移除后原有逻辑可完整复原。
+
+其余所有 dev 原有函数（`scan`、`add`、`loadSkills` 主体、`get`/`all`/`dirs`/`available` 等）**均不改动**。
 
 ### 改动后的数据流
 
