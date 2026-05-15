@@ -1295,6 +1295,31 @@ export namespace Config {
           enabled: z.boolean().optional().describe("Enable cron job execution (default: true)"),
         })
         .optional(),
+      memory: z
+        .object({
+          enabled: z.boolean().optional().describe("Enable memory hooks and tools (default: true)"),
+          quickReflect: z.boolean().optional().describe("Enable lightweight quick reflection (default: true)"),
+          dailyReflect: z
+            .object({
+              enabled: z.boolean().optional().describe("Enable scheduled daily memory reflection (default: true)"),
+              time: z.string().optional().describe("Daily memory reflection time in HH:mm format (default: 03:00)"),
+              timezone: z.string().optional().describe("Daily memory reflection timezone. Defaults to the system timezone."),
+            })
+            .optional(),
+          search: z
+            .object({
+              defaultLimit: z.number().int().positive().optional(),
+              maxLimit: z.number().int().positive().optional(),
+            })
+            .optional(),
+          reflection: z
+            .object({
+              maxInputTokens: z.number().int().positive().optional(),
+              maxOutputTokens: z.number().int().positive().optional(),
+            })
+            .optional(),
+        })
+        .optional(),
       experimental: z
         .object({
           disable_paste_summary: z.boolean().optional(),

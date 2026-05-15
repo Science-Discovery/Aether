@@ -1,11 +1,13 @@
 import type { Event } from "@opencode-ai/sdk/v2/client"
 import { createSimpleContext } from "@opencode-ai/ui/context"
+import { showToast } from "@opencode-ai/ui/toast"
 import { createGlobalEmitter } from "@solid-primitives/event-bus"
 import { batch, onCleanup } from "solid-js"
 import z from "zod"
 import {
   type AppClient,
   addCronMethods,
+  addMemoryMethods,
   addProjectDeleteMethod,
   addSteerMethods,
   createSdkForServer,
@@ -17,6 +19,8 @@ import { useServer } from "./server"
 const abortError = z.object({
   name: z.literal("AbortError"),
 })
+
+let memoryInitializationToastShown = false
 
 export type GlobalSDKValue = {
   url: string
@@ -233,8 +237,21 @@ export const { use: useGlobalSDK, provider: GlobalSDKProvider } = createSimpleCo
       throwOnError: true,
     })
     addCronMethods(sdk, server.current.http.url, authHeader(server.current.http), { throwOnError: true })
+    addMemoryMethods(sdk, server.current.http.url, authHeader(server.current.http), { throwOnError: true })
     addSteerMethods(sdk, server.current.http.url, authHeader(server.current.http), { throwOnError: true })
     addProjectDeleteMethod(sdk, server.current.http.url, authHeader(server.current.http), { throwOnError: true })
+    if (!memoryInitializationToastShown) {
+      memoryInitializationToastShown = true
+      void sdk.memory.status().then((result) => {
+        const data = result.data ?? {}
+        if (data.needs_initialization && data.has_history_sessions) {
+          showToast({
+            title: "Memory initialization available",
+            description: "Open Settings > Memory to import useful memories from previous conversations.",
+          })
+        }
+      })
+    }
 
     return {
       url: currentServer.http.url,
@@ -249,6 +266,7 @@ export const { use: useGlobalSDK, provider: GlobalSDKProvider } = createSimpleCo
           ...opts,
         })
         addCronMethods(c, s.http.url, authHeader(s.http), { throwOnError: opts.throwOnError })
+        addMemoryMethods(c, s.http.url, authHeader(s.http), { throwOnError: opts.throwOnError })
         addSteerMethods(c, s.http.url, authHeader(s.http), { throwOnError: opts.throwOnError })
         addProjectDeleteMethod(c, s.http.url, authHeader(s.http), { throwOnError: opts.throwOnError })
         return c

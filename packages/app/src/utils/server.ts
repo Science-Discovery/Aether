@@ -20,6 +20,7 @@ type CronScheduleType = "cron" | "interval" | "once"
 type CronLastStatus = "success" | "failed" | "skipped" | "expired" | null
 type CronRunStatus = "success" | "failed" | "skipped"
 type CronTriggerReason = "scheduled" | "manual"
+type MemoryType = "preference" | "fact" | "task"
 type CronDefinition = {
   id: string
   name: string
@@ -130,6 +131,31 @@ export type AppClient = Base & {
     }
     runs: {
       get(input: { runID: string }): Req<CronRun | null>
+    }
+  }
+  memory: {
+    status(): Req<Record<string, unknown>>
+    search(input: { query: string; types?: MemoryType[]; limit?: number; currentProjectID?: string }): Req<{
+      results: Array<{
+        id: string
+        type: MemoryType
+        scope: string
+        memory: string
+        confidence: number
+        weight: number
+        score: number
+        markdown: string
+        ranking_note: string
+      }>
+      ranking_note: string
+    }>
+    reflect(input?: { mode?: "quick" | "daily" | "manual"; reason?: string }): Req<Record<string, unknown>>
+    dailyReflect: {
+      sync(): Req<Record<string, unknown>>
+    }
+    initialize: {
+      start(): Req<Record<string, unknown>>
+      cancel(): Req<{ ok: boolean }>
     }
   }
   config: Base["config"] & {
@@ -361,5 +387,77 @@ export function addCronMethods(
     },
   }
   safeAssign(client, "cron", cronMethods)
+  return client
+}
+
+export function addMemoryMethods(
+  client: AppClient,
+  baseUrl: string,
+  auth?: Record<string, string>,
+  options?: RequestHelperOptions,
+): AppClient {
+  const headers: Record<string, string> = { "Content-Type": "application/json", ...auth }
+  const memoryMethods = {
+    async status() {
+      return requestJSON<Record<string, unknown>>(`${baseUrl}/memory/status`, { headers }, options)
+    },
+    async search(input: { query: string; types?: MemoryType[]; limit?: number; currentProjectID?: string }) {
+      return requestJSON(
+        `${baseUrl}/memory/search`,
+        {
+          method: "POST",
+          headers,
+          body: JSON.stringify(input),
+        },
+        options,
+      )
+    },
+    async reflect(input?: { mode?: "quick" | "daily" | "manual"; reason?: string }) {
+      return requestJSON<Record<string, unknown>>(
+        `${baseUrl}/memory/reflect`,
+        {
+          method: "POST",
+          headers,
+          body: JSON.stringify(input ?? {}),
+        },
+        options,
+      )
+    },
+    dailyReflect: {
+      async sync() {
+        return requestJSON<Record<string, unknown>>(
+          `${baseUrl}/memory/daily-reflect/sync`,
+          {
+            method: "POST",
+            headers,
+          },
+          options,
+        )
+      },
+    },
+    initialize: {
+      async start() {
+        return requestJSON<Record<string, unknown>>(
+          `${baseUrl}/memory/initialize/start`,
+          {
+            method: "POST",
+            headers,
+          },
+          options,
+        )
+      },
+      async cancel() {
+        return requestJSON<{ ok: boolean }>(
+          `${baseUrl}/memory/initialize/cancel`,
+          {
+            method: "POST",
+            headers,
+          },
+          options,
+        )
+      },
+    },
+  }
+  safeAssign(client, "memory", memoryMethods)
   return client
 }

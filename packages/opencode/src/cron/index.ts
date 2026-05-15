@@ -1271,6 +1271,30 @@ export namespace Cron {
     }
   })
 
+  export async function ensureJob(input: Record<string, unknown>) {
+    await ensureJobDir()
+    const id = assertNonBlankString(input.id, "id")
+    const filePath = path.join(jobsDir(), `${id}.json`)
+    const existing = await fs
+      .stat(filePath)
+      .then(() => true)
+      .catch(() => false)
+    if (existing) return getJob(id)
+    const definition = parseDefinition(input, id)
+    await writeJobFile(definition)
+    const now = Date.now()
+    const state = reconcileState({
+      previous: undefined,
+      definition,
+      now,
+    })
+    upsertState(state)
+    return {
+      definition,
+      state: toState(state),
+    }
+  }
+
   export const assist = fn(AssistInput, async (input) => {
     const selected = input.selected_id ? (await getJob(input.selected_id)).definition : undefined
     const result = await assistant({

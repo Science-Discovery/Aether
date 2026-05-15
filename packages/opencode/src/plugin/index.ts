@@ -14,6 +14,7 @@ import { PoeAuthPlugin } from "opencode-poe-auth"
 import { Effect, Layer, ServiceMap, Stream } from "effect"
 import { InstanceState } from "@/effect/instance-state"
 import { makeRuntime } from "@/effect/run-service"
+import { MemoryPlugin } from "@/memory/plugin"
 
 export namespace Plugin {
   const log = Log.create({ service: "plugin" })
@@ -44,7 +45,13 @@ export namespace Plugin {
   export class Service extends ServiceMap.Service<Service, Interface>()("@opencode/Plugin") {}
 
   // Built-in plugins that are directly imported (not installed from npm)
-  const INTERNAL_PLUGINS: PluginInstance[] = [CodexAuthPlugin, CopilotAuthPlugin, GitlabAuthPlugin, PoeAuthPlugin]
+  const INTERNAL_PLUGINS: PluginInstance[] = [
+    CodexAuthPlugin,
+    CopilotAuthPlugin,
+    GitlabAuthPlugin,
+    PoeAuthPlugin,
+    MemoryPlugin,
+  ]
 
   // Old npm package names for plugins that are now built-in — skip if users still have them in config
   const DEPRECATED_PLUGIN_PACKAGES = ["opencode-openai-codex-auth", "opencode-copilot-auth"]
