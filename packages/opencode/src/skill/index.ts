@@ -1,4 +1,3 @@
-import { createHash } from "crypto"
 import fs from "fs/promises"
 import os from "os"
 import path from "path"
@@ -68,22 +67,22 @@ export namespace Skill {
     readonly available: (agent?: Agent.Info) => Effect.Effect<Info[]>
   }
 
-  function snapshotPath(projectId: string, directory: string) {
-    const dirHash = createHash("md5").update(directory).digest("hex").slice(0, 8)
-    return path.join(Global.Path.home, ".aether", "skill-snapshots", `${projectId}-${dirHash}.json`)
+  function snapshotPath(directory: string) {
+    const dirSlug = directory.replace(/\//g, "_").replace(/^_/, "")
+    return path.join(Global.Path.home, ".aether", "skill-snapshots", `${dirSlug}.json`)
   }
 
-  async function readSnapshot(projectId: string, directory: string): Promise<Record<string, number> | null> {
+  async function readSnapshot(directory: string): Promise<Record<string, number> | null> {
     try {
-      const content = await fs.readFile(snapshotPath(projectId, directory), "utf-8")
+      const content = await fs.readFile(snapshotPath(directory), "utf-8")
       return JSON.parse(content) as Record<string, number>
     } catch {
       return null
     }
   }
 
-  async function writeSnapshot(projectId: string, directory: string, snapshot: Record<string, number>): Promise<void> {
-    const p = snapshotPath(projectId, directory)
+  async function writeSnapshot(directory: string, snapshot: Record<string, number>): Promise<void> {
+    const p = snapshotPath(directory)
     await fs.mkdir(path.dirname(p), { recursive: true })
     await fs.writeFile(p, JSON.stringify(snapshot, null, 2), "utf-8")
   }
@@ -176,7 +175,7 @@ export namespace Skill {
   // URL-pulled skills (stored in Global.Path.cache) are not rescanned from source;
   // their local copies are still checked via the snapshot mtime entries.
   async function isFresh(projectId: string, directory: string, worktree: string): Promise<boolean> {
-    const snapshot = await readSnapshot(projectId, directory)
+    const snapshot = await readSnapshot(directory)
     if (!snapshot) return false
 
     for (const [p, snapshotMtime] of Object.entries(snapshot)) {
@@ -313,7 +312,7 @@ export namespace Skill {
 
     // Write mtime snapshot so isFresh() can detect external edits on the next access.
     const snapshot = await buildManifest(directory, worktree, projectId)
-    await writeSnapshot(projectId, directory, snapshot)
+    await writeSnapshot(directory, snapshot)
   }
 
   export class Service extends ServiceMap.Service<Service, Interface>()("@opencode/Skill") {}
