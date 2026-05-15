@@ -18,6 +18,7 @@ import {
   downloadWebUpdate,
   installWebUpdate,
   readWebCurrentVersion,
+  readWebUpdateHighestVersion,
   retryWebUpdateMirror,
   WebUpdateCheckInput,
   WebUpdateCheckResponse,
