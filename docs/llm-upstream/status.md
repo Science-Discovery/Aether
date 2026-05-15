@@ -1,6 +1,6 @@
 # LLM Upstream Status
 
-Last updated: 2026-05-14
+Last updated: 2026-05-15
 
 本文件是 LLM upstream 回迁当前状态的唯一事实源。历史报告中的旧状态只代表当时判断，不代表当前状态。
 
@@ -35,6 +35,7 @@ Last updated: 2026-05-14
 | `LLM-UP-025` | P1/P2 | deferred | provider UX | provider model suggestions / fallback 韧性不是调用链 P0 | provider UX 专项处理 | `bun test test/provider/provider.test.ts` |
 | `LLM-UP-026` | P0/P1 | done | text sanitization | 模型可见文本孤立 surrogate 已清洗 | 不重复处理 | `bun test test/provider/transform.test.ts` |
 | `LLM-UP-027` | P0/P1 | done | Azure selector | Azure model selector 已 fallback 到 `messages` / `chat` / `languageModel` | 不重复处理 | `bun test test/provider/provider.test.ts` |
+| `LLM-UP-028` | P0 | done | Anthropic 4.7 thinking | Claude Opus 4.7 variants 已改为 `thinking.type="adaptive"` + effort，避免发送旧 `enabled` budget | 建议真实 Anthropic smoke | `bun test test/provider/transform.test.ts` |
 | `TOOL-ORDER` | P1 | open | tool stability | 上游 tools 排序稳定性候选未回迁 | 与 tool/subtask 专项一起处理 | session/tool tests |
 | `SUBTASK-CANCEL` | P1 | open | subtask cancel | subtask child session cancel 候选未回迁 | 与 tool/subtask 专项一起处理 | session/subtask tests |
 
@@ -46,4 +47,3 @@ Run from `packages/opencode`:
 bun typecheck
 bun test test/provider/provider.test.ts test/provider/transform.test.ts test/provider/cf-ai-gateway-e2e.test.ts test/session/message-v2.test.ts test/session/retry.test.ts test/session/llm.test.ts test/session/prompt.test.ts
 ```
-

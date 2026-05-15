@@ -440,10 +440,12 @@ export namespace ProviderTransform {
     if (!model.capabilities.reasoning) return {}
 
     const id = model.id.toLowerCase()
-    const isAnthropicAdaptive = ["opus-4-6", "opus-4.6", "sonnet-4-6", "sonnet-4.6"].some((v) =>
-      model.api.id.includes(v),
+    const api = `${id} ${model.api.id.toLowerCase()}`
+    const opus47 = ["opus-4-7", "opus-4.7"].some((v) => api.includes(v))
+    const isAnthropicAdaptive = ["opus-4-6", "opus-4.6", "opus-4-7", "opus-4.7", "sonnet-4-6", "sonnet-4.6"].some(
+      (v) => api.includes(v),
     )
-    const adaptiveEfforts = ["low", "medium", "high", "max"]
+    const adaptiveEfforts = opus47 ? ["low", "medium", "high", "xhigh", "max"] : ["low", "medium", "high", "max"]
     if (
       id.includes("deepseek") ||
       id.includes("minimax") ||
