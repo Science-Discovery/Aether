@@ -17,6 +17,7 @@
 - [改动位置](#改动位置)
 - [能检测到的变化 vs 检测盲区](#能检测到的变化-vs-检测盲区)
 - [与 skill-watcher 的关系](#与-skill-watcher-的关系)
+- [性能问题与优化方向](#性能问题与优化方向)
 
 ---
 
@@ -337,6 +338,92 @@ writeSnapshot(projectId, snapshot):
 ✓ 替换 SKILL.md               覆盖写入 → mtime 更新 → 不 fresh
 ✓ 进程重启后文件有变化          快照在磁盘上持久化，重启后仍可比对
 ```
+
+---
+
+## 性能问题与优化方向
+
+### 实测耗时
+
+日志（`~/.local/share/aether/log/dev.log`）显示，`isFresh` 每次调用耗时 19～87ms：
+
+```
+INFO  service=skill fresh=false ms=87 isFresh check
+INFO  service=skill fresh=false ms=19 isFresh check
+```
+
+且几乎全部返回 `false`，缓存从未命中（原因另见下节）。
+
+### 为什么这么慢
+
+`isFresh` 每次调用做两件事：
+
+1. **stat 已知文件**：对快照里每个 skill 文件各做一次 `fs.stat`，检测修改和删除。每次 stat 是一次系统调用，在 WSL2 上需要跨 Linux→Windows 文件系统桥，单次就有几毫秒开销。
+
+2. **glob 全量扫描**（`scanAllSkillPaths`）：对 4 个全局目录 + 项目路径沿途每一级目录各做一次递归目录遍历，检测是否有新增 skill。glob 内部要对每一级目录执行 `readdir`，读出所有目录项名称，再逐层递归，系统调用次数远多于 stat。
+
+这两步的开销接近 `loadSkills()` 本身，相当于"为了判断要不要加载，先做了一半加载的工作"。
+
+### 优化方向：用 readdir 计数替代 glob
+
+stat 已经覆盖了"已有文件是否被改/删"这两种情况。glob 唯一多做的事是发现新增 skill。
+
+新增一个 skill 必然在 `skills/` 顶层多出一个子目录。因此不需要递归遍历整棵树，只需 `readdir` 一下 `skills/` 的第一层，数一下子目录数量，与快照里存的数量对比——数量变了说明有新增，没变则不用继续扫。
+
+`readdir` 只读一层、一次系统调用，比递归 glob 便宜得多。
+
+快照格式相应调整，新增一个 `dirCounts` 字段：
+
+```json
+{
+  "dirCounts": {
+    "/home/zheng/.aether/skills": 5,
+    "/home/zheng/.claude/skills": 2
+  },
+  "files": {
+    "/home/zheng/.aether/skills/check-pr/SKILL.md": 1748000000000
+  }
+}
+```
+
+`isFresh` 的新逻辑：
+
+```
+① 对 snapshot.files 里每个路径做 stat，检测修改/删除
+② 对 snapshot.dirCounts 里每个目录做 readdir，数子目录数量，检测新增
+③ 两项都一致 → fresh
+```
+
+去掉 `scanAllSkillPaths` 调用后，`isFresh` 的系统调用次数从"几十次"降为"文件数 + 目录数"，预计耗时可降到 5ms 以内。
+
+### 对旧文件的改动分类
+
+#### 直接替换方案（侵入性大）
+
+最直接的做法是修改现有的 `readSnapshot`、`writeSnapshot`、`isFresh` 函数，同时删除 `scanAllSkillPaths`：
+
+| 类型 | 位置 |
+|------|------|
+| 删除 | `scanAllSkillPaths` 整个函数 |
+| 新增 | `Snapshot` 类型定义 |
+| 侵入性 | `readSnapshot` 返回类型 |
+| 侵入性 | `writeSnapshot` 参数类型 |
+| 侵入性 | `isFresh` 函数签名（去掉 `directory`、`worktree` 参数） |
+| 侵入性 | `isFresh` 函数体（移除 glob，改为 readdir 计数） |
+| 侵入性 | `loadSkills` 末尾快照写入块（写新格式） |
+| 侵入性 | `getState` 中 `isFresh` 的调用（去掉两个参数） |
+
+侵入性改动共 6 处，改动面较大。
+
+#### 最小侵入方案（推荐）
+
+不改任何现有函数，而是平行新增一套快照机制，只在 `getState` 的调用处做一行切换：
+
+- **新增**：`Snapshot2` 类型、`readSnapshot2`、`writeSnapshot2`、`isFreshFast` 函数
+- **插入性**：`loadSkills` 末尾追加 `writeSnapshot2(...)` 调用（紧跟现有 `writeSnapshot` 之后）
+- **侵入性**：`getState` 里 1 行，把 `isFresh(...)` 换成 `isFreshFast(...)`
+
+原有的 `readSnapshot`、`writeSnapshot`、`isFresh`、`scanAllSkillPaths` 全部保持不动，变为死代码，后续可单独清理。侵入性改动从 6 处降到 1 处。
 
 ---
 
