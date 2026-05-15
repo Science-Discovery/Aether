@@ -4,13 +4,13 @@ import { streamSSE } from "hono/streaming"
 import { Log } from "@/util/log"
 import { BusEvent } from "@/bus/bus-event"
 import { Bus } from "@/bus"
-import { lazy } from "../../util/lazy"
 import { AsyncQueue } from "../../util/queue"
 
 const log = Log.create({ service: "server" })
 
-export const EventRoutes = lazy(() =>
-  new Hono().get(
+export function EventRoutes(onBrowserConnectionChange?: (count: number) => void) {
+  let sseConnectionCount = 0
+  return new Hono().get(
     "/event",
     describeRoute({
       summary: "Subscribe to events",
@@ -31,6 +31,8 @@ export const EventRoutes = lazy(() =>
       log.info("event connected")
       c.header("X-Accel-Buffering", "no")
       c.header("X-Content-Type-Options", "nosniff")
+      sseConnectionCount++
+      onBrowserConnectionChange?.(sseConnectionCount)
       return streamSSE(c, async (stream) => {
         const q = new AsyncQueue<string | null>()
         let done = false
@@ -58,6 +60,8 @@ export const EventRoutes = lazy(() =>
           clearInterval(heartbeat)
           unsub()
           q.push(null)
+          sseConnectionCount--
+          onBrowserConnectionChange?.(sseConnectionCount)
           log.info("event disconnected")
         }
 
@@ -80,5 +84,5 @@ export const EventRoutes = lazy(() =>
         }
       })
     },
-  ),
-)
+  )
+}
