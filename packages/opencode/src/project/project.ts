@@ -416,7 +416,10 @@ export namespace Project {
           vcs: data.vcs,
           time: { ...existing.time, updated: Date.now() },
         }
-        if (data.sandbox !== result.worktree && !result.sandboxes.includes(data.sandbox))
+        if (
+          norm(data.sandbox) !== norm(result.worktree) &&
+          !result.sandboxes.some((s) => norm(s) === norm(data.sandbox))
+        )
           result.sandboxes.push(data.sandbox)
         result.sandboxes = yield* Effect.forEach(
           result.sandboxes,
@@ -630,7 +633,7 @@ export namespace Project {
         const row = yield* dbProject(id, (d) => d.select().from(ProjectTable).where(eq(ProjectTable.id, id)).get())
         if (!row) throw new Error(`Project not found: ${id}`)
         const sboxes = [...row.sandboxes]
-        if (!sboxes.includes(directory)) sboxes.push(directory)
+        if (!sboxes.some((s) => norm(s) === norm(directory))) sboxes.push(directory)
         const result = yield* dbProject(id, (d) =>
           d
             .update(ProjectTable)
@@ -646,7 +649,7 @@ export namespace Project {
       const removeSandbox = Effect.fn("Project.removeSandbox")(function* (id: ProjectID, directory: string) {
         const row = yield* dbProject(id, (d) => d.select().from(ProjectTable).where(eq(ProjectTable.id, id)).get())
         if (!row) throw new Error(`Project not found: ${id}`)
-        const sboxes = row.sandboxes.filter((s) => s !== directory)
+        const sboxes = row.sandboxes.filter((s) => norm(s) !== norm(directory))
         const result = yield* dbProject(id, (d) =>
           d
             .update(ProjectTable)
