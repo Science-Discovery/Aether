@@ -619,6 +619,27 @@ export namespace Database {
       log.info("created project_recent for untracked project db", { pid, directory })
     }
     if (created > 0) log.info("project_recent creation complete", { created })
+
+    // Delete tracked project DBs with 0 sessions (no user data to lose)
+    let deleted = 0
+    for (const row of rows) {
+      const pid = row.project_id
+      if (!existingDbIds.has(pid)) continue
+      const fullPath = path.join(chDir, `aether-${pid}.db`)
+      const pSqlite = new BunSqlite(fullPath)
+      const sessionCount = (pSqlite.prepare("SELECT count(*) as cnt FROM session").get() as { cnt: number }).cnt
+      pSqlite.close()
+      if (sessionCount > 0) continue
+      rmSync(fullPath, { force: true, maxRetries: 5, retryDelay: 100 })
+      for (const ext of ["-shm", "-wal"]) {
+        rmSync(path.join(chDir, `aether-${pid}.db${ext}`), { force: true })
+      }
+      sqlite.prepare("DELETE FROM global_project_map WHERE project_id = ?").run(pid)
+      sqlite.prepare("DELETE FROM project_recent WHERE project_id = ? AND kind = 'project'").run(pid)
+      deleted++
+      log.info("deleted tracked empty project db", { pid })
+    }
+    if (deleted > 0) log.info("tracked empty db cleanup complete", { deleted })
   }
 
   export function transaction<T>(
