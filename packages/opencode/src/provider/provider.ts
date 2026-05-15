@@ -52,6 +52,7 @@ import { GoogleAuth } from "google-auth-library"
 import { ProviderTransform } from "./transform"
 import { Installation } from "../installation"
 import { ModelID, ProviderID } from "./schema"
+import { ProviderDisable } from "./disable"
 
 const DEFAULT_CHUNK_TIMEOUT = 600_000
 
@@ -1021,7 +1022,7 @@ export namespace Provider {
     const modelsDev = await ModelsDev.get()
     const database = mapValues(modelsDev, fromModelsDevProvider)
 
-    const disabled = new Set(config.disabled_providers ?? [])
+    const disabled = ProviderDisable.set(config.disabled_providers)
     const enabled = config.enabled_providers ? new Set(config.enabled_providers) : null
     const disabledModels = new Set(config.disabled_models ?? [])
 
@@ -1081,6 +1082,7 @@ export namespace Provider {
 
     // extend database from config
     for (const [providerID, provider] of configProviders) {
+      if (disabled.has(ProviderID.make(providerID))) continue
       const existing = database[providerID]
       const parsed: Info = {
         id: ProviderID.make(providerID),
@@ -1259,6 +1261,7 @@ export namespace Provider {
     // load config
     for (const [id, provider] of configProviders) {
       const providerID = ProviderID.make(id)
+      if (disabled.has(providerID)) continue
       const partial: Partial<Info> = { source: "config" }
       if (provider.env) partial.env = provider.env
       if (provider.name) partial.name = provider.name
