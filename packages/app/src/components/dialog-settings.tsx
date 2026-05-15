@@ -10,6 +10,7 @@ import { SettingsProviders } from "./settings-providers"
 import { SettingsModels } from "./settings-models"
 import { SettingsKnowledge } from "./settings-knowledge"
 import { SettingsCron } from "./settings-cron"
+import { SettingsMemory } from "./settings-memory"
 
 export const DialogSettings: Component = () => {
   const language = useLanguage()
@@ -55,6 +56,10 @@ export const DialogSettings: Component = () => {
                       <Icon name="task" />
                       {language.t("settings.tab.cron")}
                     </Tabs.Trigger>
+                    <Tabs.Trigger value="memory">
+                      <Icon name="brain" />
+                      Memory
+                    </Tabs.Trigger>
                   </div>
                 </div>
               </div>
@@ -81,6 +86,9 @@ export const DialogSettings: Component = () => {
         </Tabs.Content>
         <Tabs.Content value="cron" class="no-scrollbar">
           <SettingsCron />
+        </Tabs.Content>
+        <Tabs.Content value="memory" class="no-scrollbar">
+          <SettingsMemory />
         </Tabs.Content>
       </Tabs>
     </Dialog>

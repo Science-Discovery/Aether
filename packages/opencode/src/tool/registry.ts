@@ -38,6 +38,7 @@ import {
   CronSetGlobalEnabledTool,
   CronUpdateTool,
 } from "./cron"
+import { MemoryForgetTool, MemoryReflectTool, MemoryRememberTool, MemorySearchTool } from "./memory"
 import { Glob } from "../util/glob"
 import { pathToFileURL } from "url"
 import { Effect, Layer, ServiceMap } from "effect"
@@ -148,6 +149,10 @@ export namespace ToolRegistry {
           CronRunNowTool,
           CronRunsTool,
           CronSetGlobalEnabledTool,
+          MemoryRememberTool,
+          MemoryForgetTool,
+          MemorySearchTool,
+          MemoryReflectTool,
           KnowledgeTool,
           ...(Flag.OPENCODE_EXPERIMENTAL_LSP_TOOL ? [LspTool] : []),
           ...(cfg.experimental?.batch_tool === true ? [BatchTool] : []),
