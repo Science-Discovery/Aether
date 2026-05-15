@@ -197,7 +197,6 @@ export namespace Server {
       log.error("cron start failed", { error })
     })
     const app = new Hono<ServerEnv>()
-    let sseConnectionCount = 0
     const corsware = cors({
       credentials: true,
       origin(input) {
@@ -465,7 +464,7 @@ export namespace Server {
       .route("/provider", ProviderRoutes())
       .route("/database", DatabaseRoutes())
       .route("/", FileRoutes())
-      .route("/", EventRoutes())
+      .route("/", EventRoutes(opts.onBrowserConnectionChange))
       .route("/mcp", McpRoutes())
       .route("/tui", TuiRoutes())
       .route("/knowledge", KnowledgeRoutes())
@@ -841,84 +840,6 @@ export namespace Server {
         }),
         async (c) => {
           return c.json(await Format.status())
-        },
-      )
-      .get(
-        "/event",
-        describeRoute({
-          summary: "Subscribe to events",
-          description: "Get events",
-          operationId: "event.subscribe",
-          responses: {
-            200: {
-              description: "Event stream",
-              content: {
-                "text/event-stream": {
-                  schema: resolver(BusEvent.payloads()),
-                },
-              },
-            },
-          },
-        }),
-        async (c) => {
-          log.info("event connected")
-          c.header("X-Accel-Buffering", "no")
-          c.header("X-Content-Type-Options", "nosniff")
-          sseConnectionCount++
-          opts.onBrowserConnectionChange?.(sseConnectionCount)
-          return streamSSE(c, async (stream) => {
-            stream.writeSSE({
-              data: JSON.stringify({
-                type: "server.connected",
-                properties: {},
-              }),
-            })
-            const unsub = Bus.subscribeAll(async (event) => {
-              await stream.writeSSE({
-                data: JSON.stringify(event),
-              })
-              if (event.type === Bus.InstanceDisposed.type) {
-                stream.close()
-              }
-            })
-
-            // Track disconnection via either onAbort (immediate) or heartbeat
-            // write failure (Bun only detects TCP close on next write attempt).
-            let disconnected = false
-            const onDisconnect = () => {
-              if (disconnected) return
-              disconnected = true
-              sseConnectionCount--
-              opts.onBrowserConnectionChange?.(sseConnectionCount)
-            }
-
-            let resolve!: () => void
-            let resolved = false
-            const finish = () => {
-              if (resolved) return
-              resolved = true
-              clearInterval(heartbeat)
-              unsub()
-              onDisconnect()
-              resolve()
-              log.info("event disconnected")
-            }
-            const heartbeat = setInterval(() => {
-              stream
-                .writeSSE({
-                  data: JSON.stringify({
-                    type: "server.heartbeat",
-                    properties: {},
-                  }),
-                })
-                .catch(finish)
-            }, 3_000)
-
-            await new Promise<void>((r) => {
-              resolve = r
-              stream.onAbort(finish)
-            })
-          })
         },
       )
       .all("/*", async (c) => {
