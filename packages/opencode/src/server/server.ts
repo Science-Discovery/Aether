@@ -354,12 +354,13 @@ export namespace Server {
       .use(async (c, next) => {
         if (c.req.path === "/log") return next()
         const rawWorkspaceID = c.req.query("workspace") || c.req.header("x-opencode-workspace")
-        const raw = c.req.query("directory") || c.req.header("x-opencode-directory") || process.cwd()
+        const raw = c.req.query("directory") || c.req.header("x-opencode-directory")
+        const noDirectory = !raw
         const decoded = (() => {
           try {
-            return decodeURIComponent(raw)
+            return decodeURIComponent(raw ?? "")
           } catch {
-            return raw
+            return raw ?? ""
           }
         })()
         const directory = Filesystem.resolve(decoded)
@@ -368,7 +369,7 @@ export namespace Server {
         const isBrowse = browsePaths.some(
           (p) => c.req.path === p || c.req.path.startsWith(p + "/") || c.req.path.startsWith(p + "?"),
         )
-        const create = isBrowse ? Instance.has(directory) : true
+        const create = noDirectory ? false : isBrowse ? Instance.has(directory) : true
 
         return WorkspaceContext.provide({
           workspaceID: rawWorkspaceID ? WorkspaceID.make(rawWorkspaceID) : undefined,
