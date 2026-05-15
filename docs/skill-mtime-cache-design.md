@@ -441,3 +441,212 @@ shadow-writer.ts 写入       ✓ 兜底                      ✓ 主动失效�
 ```
 
 mtime 快照校验是**拉取式**保险：无需额外进程，每次访问时顺带检查，在 skill-watcher 不可用时独立生效。两者互补，不冲突。
+
+---
+
+## feat/skill-evolution 的 manifest 机制
+
+`feat/skill-evolution` 分支实现了一套更彻底的缓存方案，从根本上解决了当前 `scanAllSkillPaths` 与 `loadSkills` 不对称的问题。
+
+### 核心思路
+
+当前方案的问题在于两边语义不一致：
+
+- **snapshot** 记录的是"解析成功且未被禁用的 skill 文件路径 → mtime"
+- **scanAllSkillPaths** 返回的是"glob 扫到的所有 SKILL.md 路径"（包含解析失败、被覆盖的文件）
+
+`feat/skill-evolution` 的解法：**两边都用同一份原始 manifest**。snapshot 里不仅存加载结果（skills 列表），还同时存一份原始 manifest（所有 SKILL.md 的路径 + mtime + size）。判断新鲜度时，重新扫一遍磁盘构建新 manifest，与 snapshot 里的旧 manifest 逐条对比——因为两边都是 raw，所以天然对称，不存在孤儿路径的问题。
+
+### 类型定义
+
+```typescript
+// filepath → [mtimeMs, size]
+type SnapshotManifest = Record<string, [number, number]>
+
+// snapshot 文件格式
+{
+  version: 3,
+  manifest: SnapshotManifest,   // 原始文件清单（用于新鲜度判断）
+  skills: SnapshotSkill[],      // 加载结果（命中时直接用）
+}
+```
+
+mtime + size 双重校验：只改内容不改扩展名的场景（如覆盖写同大小内容）下，单靠 mtime 可能漏检，size 作为补充保险。
+
+### 关键函数
+
+**`buildSkillsManifest(dirs)`**
+
+对给定目录列表进行 glob 扫描（`**/SKILL.md`，`dot: true`），对每个结果文件执行 `fs.stat`，将路径和 `[mtimeMs, size]` 写入 manifest 对象并返回。解析失败的文件、`.archive/` 下的归档文件、无 frontmatter 的文件，全部一律收录——manifest 只关心文件存在与否和元数据，不做语义过滤。
+
+**`manifestsMatch(a, b)`**
+
+对两份 manifest 做完全对比：先比较 key 数量，再对排序后的 key 列表逐一比对路径、mtime、size 三元组，任一不同则返回 false。
+
+**`loadSkillsSnapshot(snapshotPath, manifest)`**
+
+读取 snapshot 文件，校验 version 字段后，用 `manifestsMatch` 比较文件里存的旧 manifest 与入参的新 manifest：
+
+- 一致 → 返回缓存的 skills 列表（cache hit）
+- 不一致 → 返回 null（cache miss，需要重新扫描）
+
+**`writeSkillsSnapshot(snapshotPath, manifest, skills)`**
+
+原子写入：先写临时文件（`snapshotPath + ".tmp." + Date.now()`），写完后 `rename` 替换目标文件，避免写到一半时进程崩溃导致快照损坏。
+
+### Global / Project 分离
+
+`feat/skill-evolution` 把扫描目录分为 global（`~/.aether/`、`~/.claude/` 等）和 project（当前项目路径沿途的 `.aether/` 等）两个 scope，分别维护独立的 snapshot 文件：
+
+```
+~/.cache/aether/.skills_prompt_snapshot.global.json   ← 全局 snapshot
+~/.cache/aether/skills-prompt/<slug>.<hash>.json      ← 项目 snapshot
+```
+
+全局 snapshot 在不同项目之间可以复用——只要 `~/.aether/skills/` 没有变化，切换项目时全局 skill 列表直接命中缓存，不需要重新扫描。
+
+### 完整加载流程
+
+```
+loadSkillsData(directory, worktree)
+        │
+        ├── buildSources()    构建扫描源列表（含 scope、dir、pattern、order）
+        │
+        ├── manifestDirs()    从 sources 提取 global / project 目录列表
+        │
+        ├── buildSkillsManifest(globalDirs)   → globalManifest
+        ├── buildSkillsManifest(projectDirs)  → projectManifest
+        │   （只做 stat，不解析文件内容，比 glob+parse 便宜）
+        │
+        ├── loadSkillsSnapshot(globalPath, globalManifest)
+        │       ├── hit  → 直接用缓存的 globalSkills
+        │       └── miss → scanSources("global") → 解析文件 → writeSkillsSnapshot(...)
+        │
+        ├── loadSkillsSnapshot(projectPath, projectManifest)
+        │       ├── hit  → 直接用缓存的 projectSkills
+        │       └── miss → scanSources("project") → 解析文件 → writeSkillsSnapshot(...)
+        │
+        └── mergeSkills(globalSkills, projectSkills, disabled)
+                按 order 排序后合并，project 覆盖 global，过滤 disabled
+```
+
+### 如何解决 .archive/ 的问题
+
+当前方案的 `.archive/` bug 根因是：`loadSkills` 只把解析成功的文件写进 snapshot，而 `scanAllSkillPaths` 把解析失败的文件（如无 frontmatter 的归档测试 skill）也返回出来，导致 Phase 2 永远发现"当前路径不在 snapshot 里"，缓存永远 miss。
+
+manifest 机制不存在这个问题：`buildSkillsManifest` 的结果包含所有 SKILL.md（含 `.archive/` 下的），snapshot 里存的旧 manifest 也是同样逻辑产生的，两边用完全相同的函数构建，天然对称。无论 `.archive/` 下有多少文件、是否能解析、是否有同名覆盖，都不会产生孤儿路径。
+
+### 与当前方案的对比
+
+| 维度 | 当前方案（feat/manifest） | feat/skill-evolution |
+|---|---|---|
+| 新鲜度判断 | scanAllSkillPaths（raw）vs snapshot（仅加载成功的） | manifest（raw）vs snapshot.manifest（raw） |
+| 两边是否对称 | 不对称，.archive/ 解析失败的文件造成孤儿路径 | 完全对称，两边用同一函数构建 |
+| .archive/ 问题 | 需要手动过滤补丁 | 不存在 |
+| snapshot 格式 | `{ path: mtime }` | `{ version, manifest: { path: [mtime, size] }, skills: [...] }` |
+| 文件变化检测 | mtime | mtime + size（更严格） |
+| 写入安全性 | 直接写 | tmp + rename（原子写入） |
+| Global/Project 分离 | 无（单文件，按 projectId 区分） | 有（全局 snapshot 跨项目复用） |
+| 扫描函数重复 | loadSkills + scanAllSkillPaths 两套逻辑 | buildSources 统一描述，无重复 |
+
+---
+
+## 改进方案：manifest 写入对齐
+
+### 旧方案 vs 新方案
+
+当前方案的根本缺陷在于快照的**写入端**和**校验端**使用了不同的数据源：
+
+| | 写入快照（loadSkills 末尾） | 读取校验（isFresh Phase 2） |
+|---|---|---|
+| 数据来源 | `state.skills`（仅解析成功且未被禁用的 skill） | `scanAllSkillPaths`（glob 原始结果，含解析失败文件） |
+| `.archive/` 处理 | 解析失败的归档文件不进 `state.skills`，不写入快照 | glob 返回所有 `.archive/` 路径，包括无 frontmatter 的文件 |
+| 结果 | 快照中缺少 `.archive/` 孤儿路径 | Phase 2 发现孤儿路径不在快照 → 永远 miss |
+
+新方案只改一件事：**让写入端和校验端使用同一份数据**。具体做法是，写快照时不再遍历 `state.skills`，而是调用与 `scanAllSkillPaths` 同源的函数扫出所有 SKILL.md 文件并记录其 mtime，写入快照。这样快照与 `isFresh` Phase 2 的数据集天然对齐，不存在孤儿路径。
+
+快照格式、`isFresh` 逻辑、`scanAllSkillPaths` 本身均**无需改动**。
+
+### 新增函数：`buildManifest`
+
+在 `scanAllSkillPaths` 下方新增一个函数，对其返回的路径逐一执行 `fs.stat`，得到 `{ 路径 → mtime }` 的完整 manifest：
+
+```typescript
+async function buildManifest(directory: string, worktree: string, projectId: string): Promise<Record<string, number>> {
+  const paths = await scanAllSkillPaths(directory, worktree, projectId)
+  const manifest: Record<string, number> = {}
+  for (const p of paths) {
+    const stat = await fs.stat(p).catch(() => null)
+    if (stat) manifest[p] = stat.mtimeMs
+  }
+  return manifest
+}
+```
+
+`buildManifest` 内部复用 `scanAllSkillPaths`，不重复扫描逻辑。`scanAllSkillPaths` 保持不动。
+
+### 改动位置
+
+#### 新增（不触碰任何现有代码）
+
+| 位置 | 内容 |
+|---|---|
+| `scanAllSkillPaths` 函数体之后 | 新增 `buildManifest` 函数 |
+
+#### 侵入性改动（修改现有代码行）
+
+仅一处：`loadSkills` 末尾的快照写入块，将遍历 `state.skills` 的逻辑替换为调用 `buildManifest`：
+
+```typescript
+// 改动前：只记录加载成功的 skill
+const snapshot: Record<string, number> = {}
+for (const info of Object.values(state.skills)) {
+  const stat = await fs.stat(info.location).catch(() => null)
+  if (stat) snapshot[info.location] = stat.mtimeMs
+}
+await writeSnapshot(projectId, snapshot)
+
+// 改动后：记录所有扫描到的 SKILL.md（与 isFresh Phase 2 数据源一致）
+const snapshot = await buildManifest(directory, worktree, projectId)
+await writeSnapshot(projectId, snapshot)
+```
+
+其余所有函数（`isFresh`、`scanAllSkillPaths`、`readSnapshot`、`writeSnapshot`、`getState`）**均不改动**。
+
+### 改动后的数据流
+
+```
+loadSkills() 结束时
+        │
+        ▼
+buildManifest(directory, worktree, projectId)
+  └── scanAllSkillPaths(...)   ← 与 isFresh Phase 2 完全相同的扫描逻辑
+        └── fs.stat 每个路径   ← 得到 { path → mtime }
+        │
+        ▼
+writeSnapshot(projectId, snapshot)
+  快照现在包含所有扫描到的 SKILL.md（含 .archive/、无 frontmatter 的文件）
+
+──────────────────────────────────────────────
+
+isFresh() 校验时（逻辑不变）
+        │
+Phase 1: 遍历 snapshot 每条记录 → fs.stat 检测修改和删除  ✓
+        │
+Phase 2: scanAllSkillPaths(...) → 检查每条路径是否在 snapshot 中
+         因为 snapshot 由同一扫描逻辑写入 → 路径集合完全一致 → Phase 2 始终通过  ✓
+        │
+        ▼
+        返回 true（fresh）
+```
+
+### 与 feat/skill-evolution 的关系
+
+| 维度 | feat/skill-evolution | 本方案 |
+|---|---|---|
+| 对称性保证 | `buildSources` 统一描述扫描逻辑，两端共用 | `buildManifest` 内部调用 `scanAllSkillPaths`，两端共用 |
+| Global/Project 分离 | 有，两个独立 snapshot | 无，单一 snapshot（按 projectId 区分） |
+| Snapshot 格式 | `{ version, manifest: { path: [mtime, size] }, skills: [...] }` | `{ path: mtime }`（保持现有格式不变） |
+| 原子写入 | tmp + rename | 现有 writeSnapshot 行为（不改） |
+| 侵入性 | 较大（重写整个缓存机制） | 极小（新增 1 函数 + 修改 1 处写入逻辑） |
+| .archive/ 问题 | 根本不存在 | 修复 |
