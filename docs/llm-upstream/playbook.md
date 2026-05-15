@@ -175,4 +175,3 @@ OPENCODE_SYSTEM_TEST=1 bun run test:system:llm:p0 -- --provider minimax-cn
 ```
 
 真实 smoke 不是常规 merge blocker；如果某个回迁项声称修复真实供应商兼容问题，PR 描述必须写明是否已运行 smoke，未运行时必须说明原因。
-

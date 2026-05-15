@@ -48,7 +48,7 @@ type Item = {
 }
 
 type Model = z.infer<typeof Model>
-type Spec = z.infer<typeof Spec>
+type Spec = Omit<z.infer<typeof Spec>, "models"> & { models: Model[]; invalid?: string }
 type Case = z.infer<typeof Case>
 
 const Capability = z.enum(["reasoning", "temperature", "tool", "vision", "history"])
@@ -81,16 +81,16 @@ const Spec = z.object({
   enabled: z.boolean().optional().default(true),
   type: z.string().optional().default("openai-compatible"),
   npm: z.string().optional().default("@ai-sdk/openai-compatible"),
-  base_url: z.string().min(1),
+  base_url: z.string().optional().default(""),
   api_key_env: z.string().optional(),
   api_key: z.string().optional(),
   cases: z.array(z.string()).optional(),
   options: z.record(z.string(), z.unknown()).optional().default({}),
-  models: z.array(Model).min(1),
+  models: z.array(z.unknown()).optional().default([]),
 })
 const ConfigFile = z.object({
   version: z.number().optional(),
-  providers: z.array(Spec),
+  providers: z.array(z.unknown()).default([]),
 })
 const Case = z.object({
   id: z.string().min(1),
@@ -155,6 +155,22 @@ const providers = list("provider", "OPENCODE_SYSTEM_TEST_PROVIDER")
 const inputs = list("input", "OPENCODE_SYSTEM_TEST_INPUT")
 let active = 0
 const queue: (() => void)[] = []
+
+function stub(id = "__config__"): Model {
+  return {
+    id,
+    capabilities: {
+      reasoning: false,
+      temperature: true,
+      tool: true,
+      vision: false,
+    },
+    limit: {
+      context: 128_000,
+      output: 8_192,
+    },
+  }
+}
 
 async function limit<T>(fn: () => Promise<T>) {
   if (active >= concurrency) {
@@ -286,6 +302,7 @@ function provider(spec: Spec, model: Model, secret: string) {
 function usable(spec: Spec, model: Model, input: Case) {
   if (!enabled) return "OPENCODE_SYSTEM_TEST is not 1"
   if (missing) return `provider config missing: ${missing}`
+  if (spec.invalid) return `invalid provider config: ${spec.invalid}`
   if (!spec.enabled) return "provider disabled in YAML"
   if (input.tier === "P1" && !p1) return "P1 disabled"
   if (input.target.providers && !input.target.providers.includes(spec.id)) return "case targets another provider"
@@ -304,7 +321,44 @@ async function loadSpecs() {
   const file = (await Bun.file(local).exists()) ? local : sample
   if (file === sample) missing = local
   const data = ConfigFile.parse(Bun.YAML.parse(await Bun.file(file).text()))
-  return { file, specs: data.providers }
+  const specs = data.providers.map((item, index): Spec => {
+    const parsed = Spec.safeParse(item)
+    if (!parsed.success) {
+      const value = item && typeof item === "object" && !Array.isArray(item) ? (item as Record<string, unknown>) : {}
+      return {
+        id: typeof value.id === "string" && value.id.trim() ? value.id : `invalid-${index + 1}`,
+        name: typeof value.name === "string" ? value.name : undefined,
+        enabled: true,
+        type: typeof value.type === "string" ? value.type : "openai-compatible",
+        npm: typeof value.npm === "string" ? value.npm : "@ai-sdk/openai-compatible",
+        base_url: typeof value.base_url === "string" ? value.base_url : "",
+        api_key_env: typeof value.api_key_env === "string" ? value.api_key_env : undefined,
+        api_key: typeof value.api_key === "string" ? value.api_key : undefined,
+        cases: Array.isArray(value.cases) ? value.cases.filter((val): val is string => typeof val === "string") : undefined,
+        options:
+          value.options && typeof value.options === "object" && !Array.isArray(value.options)
+            ? (value.options as Record<string, unknown>)
+            : {},
+        models: [stub()],
+        invalid: parsed.error.issues.map((issue) => issue.path.join(".") || issue.message).join(", "),
+      }
+    }
+
+    const spec = parsed.data
+    const models = spec.models.map((item) => Model.safeParse(item))
+    const errors = [
+      ...(spec.base_url.trim() ? [] : ["missing base_url"]),
+      ...(models.length > 0 ? [] : ["missing models"]),
+      ...models.flatMap((item, index) => (item.success ? [] : [`invalid models.${index}`])),
+    ]
+    const valid = models.flatMap((item) => (item.success ? [item.data] : []))
+    return {
+      ...spec,
+      models: valid.length > 0 ? valid : [stub()],
+      invalid: errors.length > 0 ? errors.join(", ") : undefined,
+    }
+  })
+  return { file, specs }
 }
 
 async function loadCases() {
@@ -441,6 +495,19 @@ async function run(spec: Spec, model: Model, input: Case) {
 
 const data = await loadSpecs()
 const suite = await loadCases()
+const selected = providers ? data.specs.filter((spec) => providers.has(spec.id)) : data.specs
+const selectedCases = inputs ? suite.filter((input) => inputs.has(input.id)) : suite
+const badProviders = providers ? [...providers].filter((id) => !data.specs.some((spec) => spec.id === id)) : []
+const badInputs = inputs ? [...inputs].filter((id) => !suite.some((input) => input.id === id)) : []
+
+if (badProviders.length > 0) {
+  throw new Error(`unknown provider(s): ${badProviders.join(", ")}; available: ${data.specs.map((spec) => spec.id).join(", ")}`)
+}
+if (badInputs.length > 0) {
+  throw new Error(`unknown input(s): ${badInputs.join(", ")}; available: ${suite.map((input) => input.id).join(", ")}`)
+}
+if (selected.length === 0) throw new Error("no providers selected")
+if (selectedCases.length === 0) throw new Error("no inputs selected")
 
 afterAll(async () => {
   if (!report) return
@@ -461,9 +528,9 @@ afterAll(async () => {
 })
 
 describe("LLM system tests", () => {
-  for (const spec of providers ? data.specs.filter((spec) => providers.has(spec.id)) : data.specs) {
+  for (const spec of selected) {
     for (const model of spec.models) {
-      for (const input of inputs ? suite.filter((input) => inputs.has(input.id)) : suite) {
+      for (const input of selectedCases) {
         test(
           `${spec.id}/${model.id}/${input.id}`,
           async () => {

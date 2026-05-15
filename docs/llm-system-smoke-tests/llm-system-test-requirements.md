@@ -93,7 +93,7 @@ LLM 调用层是 Aether 的高变更面：上游 SDK、`models.dev` 元数据、
 
 行为约束：
 
-- **真实文件缺失或字段为空**：对应 provider 的全部用例必须自动 skip，并在记录中标注跳过原因。即使开发者环境里存在同名 API key，缺失真实配置文件时也不能使用模板发起真实请求。**不**报错、**不**当成 fail。
+- **真实文件缺失或单个 provider 字段为空**：对应 provider 的全部用例必须自动 skip，并在记录中标注跳过原因。即使开发者环境里存在同名 API key，缺失真实配置文件时也不能使用模板发起真实请求。**不**报错、**不**当成 fail。
 - **新增一个 provider**：只需在模板里描述字段并在真实文件里填值，**不**修改测试代码。
 - **同一 provider 多 model**：必须支持并列声明并独立选择，运行时可指定测哪些 model。
 
@@ -135,7 +135,7 @@ JSON 用例至少能表达：
 
 ### 5.2 P1 进阶集（仅声明对应能力的 provider 跑）
 
-- 至少一条要求模型主动发起工具调用的 prompt，搭配 fake 工具 schema。用例**仅**校验"模型确实产生了 tool_call 流事件且参数 JSON 可解析"。**不**真实执行工具，**不**回灌工具结果继续第二轮，避免被模型不稳定导致 flaky。
+- 至少一条要求模型主动发起工具调用的 prompt，搭配 fake 工具 schema。用例**仅**校验"模型确实产生了 tool_call 流事件且参数 JSON 可解析"。测试可以提供本地 fake tool executor，但**不**把工具结果回灌到真实 provider 继续第二轮，避免被模型不稳定导致 flaky。
 - 至少一条带图片输入的 prompt，仅校验流式回复正常完成且文本非空，不要求语义正确。
 
 ## 6. 通过标准
@@ -164,7 +164,7 @@ JSON 用例至少能表达：
 
 ### 6.2 P1（仅对声明了对应能力的 provider）
 
-- **P1-A 工具调用形态**：被声明支持工具调用的 provider 必须在 P1 工具调用用例中至少产生一次 tool-call 流事件，且事件参数 JSON 可解析。**仅**校验输出形态，不执行工具，不进入第二轮。
+- **P1-A 工具调用形态**：被声明支持工具调用的 provider 必须在 P1 工具调用用例中至少产生一次 tool-call 流事件，且事件参数 JSON 可解析。**仅**校验输出形态，不把工具结果回灌给真实 provider 进入第二轮。
 - **P1-B 视觉理解形态**：被声明支持视觉的 provider 必须在 P1 视觉用例中正常完成一次带图片输入的流式回复，仅校验完成与非空。
 
 ### 6.3 评测红线
@@ -186,7 +186,8 @@ JSON 用例至少能表达：
 
 - `--provider <id>`：仅运行指定 provider。可重复，或以逗号分隔指定多个。
 - `--input <case>`：仅运行指定用例。可重复，或以逗号分隔指定多个。
-- 不传参数时默认跑全部启用 provider × 全部 P0 基础集。
+- 不传参数时默认跑全部启用 provider × 全部用例；P1 用例会被记录为 skipped，除非显式启用 P1。
+- 显式指定的 provider 或 input 不存在时必须失败，不能以 0 tests 成功退出。
 - P1 集合的启用方式必须可控（例如 `--p1` 开关或等价能力），文档中需要明确。
 
 ### 7.3 并行性
@@ -248,6 +249,10 @@ OPENCODE_SYSTEM_TEST=1 bun run test:system:llm:p0 -- --provider alibaba-cn --inp
 | 火山引擎 Ark (`volcengine`) | `doubao-seed-2-0-lite-260215`, `doubao-seed-2-0-mini-260215` |
 | 百度千帆 (`qianfan`) | `deepseek-v4-flash` |
 | 硅基流动 (`siliconflow-cn`) | `deepseek-ai/DeepSeek-V4-Flash` |
+| OpenRouter (`openrouter`) | `deepseek/deepseek-r1-0528` |
+| TatuCloud MaaS (`maas`) | `qwen3.6-plus`, `gpt-5.5`, `deepseek-v4-pro` |
+| TatuCloud MaaS Anthropic (`maas-anthropic`) | `claude-opus-4-7`, `claude-sonnet-4-6` |
+| TatuCloud MaaS Gemini (`maas-gemini`) | `gemini-3.1-pro-preview` |
 
 ## 8. 失败诊断需求
 

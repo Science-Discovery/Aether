@@ -37,8 +37,10 @@
 
 | SDK 路径 | Provider | npm 包 | 触发的 ProviderTransform |
 |----------|----------|--------|--------------------------|
-| **OpenAI-compatible** | alibaba-cn, deepseek, moonshotai-cn, zai, xiaomi, siliconflow-cn, volcengine, qianfan | `@ai-sdk/openai-compatible` | enable_thinking (alibaba-cn), thinking.type (zai), interleaved reasoning_content, temperature/topP/topK defaults, max_completion_tokens 转换 |
-| **Anthropic** | minimax-cn | `@ai-sdk/anthropic` | 空消息过滤, cache control, Anthropic variant 生成, minimax temperature/topP/topK defaults |
+| **OpenAI-compatible** | alibaba-cn, deepseek, moonshotai-cn, zai, xiaomi, siliconflow-cn, volcengine, qianfan, maas | `@ai-sdk/openai-compatible` / `@ai-sdk/openai` for selected GPT models | enable_thinking (alibaba-cn/siliconflow-cn), thinking.type (zai), interleaved reasoning_content, temperature/topP/topK defaults, max_completion_tokens / Responses routing |
+| **Anthropic** | minimax-cn, maas-anthropic | `@ai-sdk/anthropic` | 空消息过滤, cache control, Anthropic variant 生成, minimax temperature/topP/topK defaults |
+| **OpenRouter** | openrouter | `@openrouter/ai-sdk-provider` | OpenRouter reasoning/usage namespace |
+| **Google** | maas-gemini | `@ai-sdk/google` | Gemini thinkingConfig / vision input |
 
 **minimax-cn 使用 `@ai-sdk/anthropic` 是最关键的覆盖新增**：当用户通过 models.dev 连接 minimax-cn 时，系统使用 Anthropic SDK 形态（`createAnthropic` → `sdk.languageModel()`），触发 Anthropic 特有的 ProviderTransform 适配逻辑。之前这一路径完全没有真实调用验证。
 
@@ -110,7 +112,7 @@ minimax-cn 虽然使用 Anthropic SDK 形态，但不触发 `CUSTOM_LOADERS["ant
 
 ### 5.3 真实 provider 的第二轮工具循环 — 未覆盖
 
-`p1-tool` 只验证真实 provider 能产生 tool_call 事件形态，不回灌结果也不测第二轮真实 LLM 调用。第二轮工具循环已由 `test/session/compaction-flow.test.ts` 通过本地 fake endpoint 覆盖 session 编排，但仍没有对真实 provider 执行“tool_call → tool_result → 第二轮真实流式回复”的 smoke。
+`p1-tool` 只验证真实 provider 能产生 tool_call 事件形态；测试提供本地 fake tool executor，但不把结果回灌给真实 provider，也不测第二轮真实 LLM 调用。第二轮工具循环已由 `test/session/compaction-flow.test.ts` 通过本地 fake endpoint 覆盖 session 编排，但仍没有对真实 provider 执行“tool_call → tool_result → 第二轮真实流式回复”的 smoke。
 
 ### 5.4 applyCaching 实际效果 — 间接覆盖
 
@@ -134,3 +136,8 @@ minimax-cn 触发 Anthropic cache control 标记注入，但测试只验证 stre
 | volcengine | doubao-seed-2-0-lite-260215 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ (interleaved) | skip |
 | volcengine | doubao-seed-2-0-mini-260215 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ (reasoning) | skip |
 | qianfan | deepseek-v4-flash | ✓ | ✓ | ✓ | ✓ | ✓ | skip | skip |
+| openrouter | deepseek/deepseek-r1-0528 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ (OpenRouter reasoning) | skip |
+| maas | qwen3.6-plus/deepseek-v4-pro | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ (interleaved) | skip |
+| maas | gpt-5.5 | ✓ | ✓ | ✓ | ✓ | ✓ + p0-gpt55-responses-tool | ✓ (Responses routing) | skip |
+| maas-anthropic | claude-opus-4-7/claude-sonnet-4-6 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ (Anthropic adaptive) | ✓ |
+| maas-gemini | gemini-3.1-pro-preview | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ (Gemini thinkingConfig) | ✓ |
