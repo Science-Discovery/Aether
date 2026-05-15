@@ -686,7 +686,7 @@ printf "%s\n" "$ver" >"$target/.aether_web_version"
 rm -f "$work/.aether_web_version" >/dev/null 2>&1 || true
 
 rm -rf "$work/current" >/dev/null 2>&1 || true
-prune_versions "$work" 5 "$target"
+prune_versions "$work" 100 "$target"
 debug_log "PRUNE | work prune=$prune"
 
 copy_target=""
@@ -700,7 +700,7 @@ elif copy_target="$(mirror_dir || true)" && [ -n "$copy_target" ]; then
   copy_note="已复制新版本到当前软件目录附近：$copy_target"
   mirror_root_dir="$(mirror_root || true)"
   if [ -n "$mirror_root_dir" ]; then
-    prune_versions "$mirror_root_dir" 5 "$copy_target"
+    prune_versions "$mirror_root_dir" 100 "$copy_target"
     mirror_prune="$prune"
   fi
 else
@@ -734,9 +734,9 @@ fi
 write_result "installed"
 
 if [ "$prune" -gt 0 ]; then
-  echo "[3/4] 保留最近 5 个版本，已清理 $prune 个旧版本目录"
+  echo "[3/4] 保留最近 100 个版本，已清理 $prune 个旧版本目录"
 else
-  echo "[3/4] 保留最近 5 个版本，无需清理旧版本目录"
+  echo "[3/4] 保留最近 100 个版本，无需清理旧版本目录"
 fi
 
 echo "[4/4] 完成"
