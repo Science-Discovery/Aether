@@ -20,6 +20,10 @@ function mimeToModality(mime: string): Modality | undefined {
 export namespace ProviderTransform {
   export const OUTPUT_TOKEN_MAX = Flag.OPENCODE_EXPERIMENTAL_OUTPUT_TOKEN_MAX || 32_000
 
+  export function sanitizeSurrogates(content: string) {
+    return content.replace(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, "\uFFFD")
+  }
+
   // Maps npm package to the key the AI SDK expects for providerOptions
   function sdkKey(npm: string): string | undefined {
     switch (npm) {
@@ -38,6 +42,8 @@ export namespace ProviderTransform {
         return "vertex"
       case "@ai-sdk/google":
         return "google"
+      case "ai-gateway-provider":
+        return "openaiCompatible"
       case "@ai-sdk/gateway":
         return "gateway"
       case "@openrouter/ai-sdk-provider":
@@ -51,6 +57,42 @@ export namespace ProviderTransform {
     model: Provider.Model,
     options: Record<string, unknown>,
   ): ModelMessage[] {
+    const output = (item: unknown) => {
+      if (!item || typeof item !== "object") return item
+      const value = item as Record<string, unknown>
+      if ((value.type === "text" || value.type === "error-text") && typeof value.value === "string") {
+        return { ...value, value: sanitizeSurrogates(value.value) }
+      }
+      if (value.type === "content" && Array.isArray(value.value)) {
+        return {
+          ...value,
+          value: value.value.map((part) => {
+            if (!part || typeof part !== "object") return part
+            const child = part as Record<string, unknown>
+            if (child.type === "text" && typeof child.text === "string") {
+              return { ...child, text: sanitizeSurrogates(child.text) }
+            }
+            return part
+          }),
+        }
+      }
+      return item
+    }
+    const part = (item: unknown) => {
+      if (!item || typeof item !== "object") return item
+      const value = item as Record<string, unknown>
+      if ((value.type === "text" || value.type === "reasoning") && typeof value.text === "string") {
+        return { ...value, text: sanitizeSurrogates(value.text) }
+      }
+      if (value.type === "tool-result") return { ...value, output: output(value.output) }
+      return item
+    }
+    msgs = msgs.map((msg) => {
+      if (typeof msg.content === "string") return { ...msg, content: sanitizeSurrogates(msg.content) }
+      if (Array.isArray(msg.content)) return { ...msg, content: msg.content.map(part) }
+      return msg
+    }) as ModelMessage[]
+
     // Anthropic rejects messages with empty content - filter out empty string messages
     // and remove empty text/reasoning parts from array content
     if (model.api.npm === "@ai-sdk/anthropic" || model.api.npm === "@ai-sdk/amazon-bedrock") {
@@ -61,9 +103,13 @@ export namespace ProviderTransform {
             return msg
           }
           if (!Array.isArray(msg.content)) return msg
+          const key = model.api.npm === "@ai-sdk/amazon-bedrock" ? "bedrock" : "anthropic"
           const filtered = msg.content.filter((part) => {
-            if (part.type === "text" || part.type === "reasoning") {
-              return part.text !== ""
+            if (part.type === "text") return part.text !== ""
+            if (part.type === "reasoning") {
+              if (part.text.trim().length > 0) return true
+              const opts = part.providerOptions as Record<string, Record<string, unknown> | undefined> | undefined
+              return opts?.[key]?.signature != null || opts?.[key]?.redactedData != null
             }
             return true
           })
@@ -75,7 +121,7 @@ export namespace ProviderTransform {
 
     if (model.api.id.includes("claude")) {
       const scrub = (id: string) => id.replace(/[^a-zA-Z0-9_-]/g, "_")
-      return msgs.map((msg) => {
+      msgs = msgs.map((msg) => {
         if (msg.role === "assistant" && Array.isArray(msg.content)) {
           return {
             ...msg,
@@ -99,6 +145,19 @@ export namespace ProviderTransform {
           }
         }
         return msg
+      })
+    }
+    if (model.api.npm === "@ai-sdk/anthropic" || model.api.npm === "@ai-sdk/google-vertex/anthropic") {
+      msgs = msgs.flatMap((msg) => {
+        if (msg.role !== "assistant" || !Array.isArray(msg.content)) return [msg]
+
+        const i = msg.content.findIndex((part) => part.type === "tool-call")
+        if (i === -1) return [msg]
+        if (!msg.content.slice(i).some((part) => part.type !== "tool-call")) return [msg]
+        return [
+          { ...msg, content: msg.content.filter((part) => part.type !== "tool-call") },
+          { ...msg, content: msg.content.filter((part) => part.type === "tool-call") },
+        ]
       })
     }
     if (
@@ -152,7 +211,28 @@ export namespace ProviderTransform {
       return result
     }
 
-    if (typeof model.capabilities.interleaved === "object" && model.capabilities.interleaved.field) {
+    if (model.api.id.toLowerCase().includes("deepseek")) {
+      msgs = msgs.map((msg) => {
+        if (msg.role !== "assistant") return msg
+        if (Array.isArray(msg.content)) {
+          if (msg.content.some((part) => part.type === "reasoning")) return msg
+          return { ...msg, content: [...msg.content, { type: "reasoning", text: "" }] }
+        }
+        return {
+          ...msg,
+          content: [
+            ...(msg.content ? [{ type: "text" as const, text: msg.content }] : []),
+            { type: "reasoning" as const, text: "" },
+          ],
+        }
+      })
+    }
+
+    if (
+      typeof model.capabilities.interleaved === "object" &&
+      model.capabilities.interleaved.field &&
+      model.api.npm !== "@openrouter/ai-sdk-provider"
+    ) {
       const field = model.capabilities.interleaved.field
       return msgs.map((msg) => {
         if (msg.role === "assistant" && Array.isArray(msg.content)) {
@@ -163,23 +243,16 @@ export namespace ProviderTransform {
           const filteredContent = msg.content.filter((part: any) => part.type !== "reasoning")
 
           // Include reasoning_content | reasoning_details directly on the message for all assistant messages
-          if (reasoningText) {
-            return {
-              ...msg,
-              content: filteredContent,
-              providerOptions: {
-                ...msg.providerOptions,
-                openaiCompatible: {
-                  ...(msg.providerOptions as any)?.openaiCompatible,
-                  [field]: reasoningText,
-                },
-              },
-            }
-          }
-
           return {
             ...msg,
             content: filteredContent,
+            providerOptions: {
+              ...msg.providerOptions,
+              openaiCompatible: {
+                ...(msg.providerOptions as any)?.openaiCompatible,
+                [field]: reasoningText,
+              },
+            },
           }
         }
 
@@ -314,7 +387,7 @@ export namespace ProviderTransform {
             if (item.type === "tool-approval-request" || item.type === "tool-approval-response") {
               return { ...item }
             }
-            return { ...part, providerOptions: remap(part.providerOptions) }
+            return { ...part, providerOptions: remap((part as any).providerOptions) }
           }),
         } as typeof msg
       })
@@ -367,10 +440,12 @@ export namespace ProviderTransform {
     if (!model.capabilities.reasoning) return {}
 
     const id = model.id.toLowerCase()
-    const isAnthropicAdaptive = ["opus-4-6", "opus-4.6", "sonnet-4-6", "sonnet-4.6"].some((v) =>
-      model.api.id.includes(v),
+    const api = `${id} ${model.api.id.toLowerCase()}`
+    const opus47 = ["opus-4-7", "opus-4.7"].some((v) => api.includes(v))
+    const isAnthropicAdaptive = ["opus-4-6", "opus-4.6", "opus-4-7", "opus-4.7", "sonnet-4-6", "sonnet-4.6"].some(
+      (v) => api.includes(v),
     )
-    const adaptiveEfforts = ["low", "medium", "high", "max"]
+    const adaptiveEfforts = opus47 ? ["low", "medium", "high", "xhigh", "max"] : ["low", "medium", "high", "max"]
     if (
       id.includes("deepseek") ||
       id.includes("minimax") ||
@@ -830,13 +905,12 @@ export namespace ProviderTransform {
       }
     }
 
-    // Enable thinking for reasoning models on alibaba-cn (DashScope).
-    // DashScope's OpenAI-compatible API requires `enable_thinking: true` in the request body
-    // to return reasoning_content. Without it, models like kimi-k2.5, qwen-plus, qwen3, qwq,
-    // deepseek-r1, etc. never output thinking/reasoning tokens.
+    // Enable thinking for reasoning models on providers using DashScope-style OpenAI-compatible APIs.
+    // These APIs require `enable_thinking: true` in the request body to return reasoning_content.
+    // Without it, models never output thinking/reasoning tokens.
     // Note: kimi-k2-thinking is excluded as it returns reasoning_content by default.
     if (
-      input.model.providerID === "alibaba-cn" &&
+      ["alibaba-cn", "siliconflow-cn"].includes(input.model.providerID) &&
       input.model.capabilities.reasoning &&
       input.model.api.npm === "@ai-sdk/openai-compatible" &&
       !modelId.includes("kimi-k2-thinking")
@@ -845,7 +919,11 @@ export namespace ProviderTransform {
     }
 
     if (input.model.api.id.includes("gpt-5") && !input.model.api.id.includes("gpt-5-chat")) {
-      if (!input.model.api.id.includes("gpt-5-pro") && !input.model.api.id.includes("gpt-5.4")) {
+      if (
+        !input.model.api.id.includes("gpt-5-pro") &&
+        !input.model.api.id.includes("gpt-5.4") &&
+        !(input.model.providerID === "azure" && input.model.api.id === "gpt-5.5")
+      ) {
         result["reasoningEffort"] = "medium"
         result["reasoningSummary"] = "auto"
       }
@@ -944,8 +1022,20 @@ export namespace ProviderTransform {
     return false
   }
 
-  function scrub(options: Record<string, unknown>) {
+  function scrub(model: Provider.Model, options: Record<string, unknown>) {
     const result = { ...options }
+
+    if (model.api.npm === "@ai-sdk/azure" && model.api.id === "gpt-5.5") {
+      delete result.reasoningEffort
+      delete result.reasoning_effort
+      if (Array.isArray(result.include)) {
+        const include = result.include.filter((item) => item !== "reasoning.encrypted_content")
+        if (include.length > 0) result.include = include
+        else delete result.include
+      }
+      return result
+    }
+
     delete result.reasoningSummary
     delete result.reasoning_summary
 
@@ -963,7 +1053,7 @@ export namespace ProviderTransform {
     options: Record<string, unknown>,
     cfg?: Record<string, unknown>,
   ) {
-    const opts = chat(model, cfg) ? scrub(options) : options
+    const opts = chat(model, cfg) ? scrub(model, options) : options
 
     if (model.api.npm === "@ai-sdk/gateway") {
       // Gateway providerOptions are split across two namespaces:
@@ -995,7 +1085,11 @@ export namespace ProviderTransform {
       return result
     }
 
-    const key = sdkKey(model.api.npm) ?? model.providerID
+    const dot =
+      model.api.npm === "@ai-sdk/openai-compatible" ||
+      model.api.npm === "@ai-sdk/openai" ||
+      model.api.npm === "@ai-sdk/anthropic"
+    const key = sdkKey(model.api.npm) ?? (dot ? model.providerID.split(".")[0] : model.providerID)
     return { [key]: opts }
   }
 

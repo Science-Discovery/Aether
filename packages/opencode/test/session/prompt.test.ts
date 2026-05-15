@@ -9,8 +9,35 @@ import { MessageV2 } from "../../src/session/message-v2"
 import { SessionPrompt } from "../../src/session/prompt"
 import { Log } from "../../src/util/log"
 import { tmpdir } from "../fixture/fixture"
+import { MessageID } from "../../src/session/schema"
+import { serve } from "../lib/server"
 
 Log.init({ print: false })
+
+function deferred<T>() {
+  const result = {} as { promise: Promise<T>; resolve: (value: T) => void }
+  result.promise = new Promise((resolve) => {
+    result.resolve = resolve
+  })
+  return result
+}
+
+function pendingStream() {
+  const encoder = new TextEncoder()
+  return new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(
+        encoder.encode(
+          `data: ${JSON.stringify({
+            id: "chatcmpl-1",
+            object: "chat.completion.chunk",
+            choices: [{ delta: { role: "assistant" } }],
+          })}\n\n`,
+        ),
+      )
+    },
+  })
+}
 
 describe("session.prompt missing file", () => {
   test("does not fail the prompt when a file part is missing", async () => {
@@ -209,6 +236,119 @@ describe("session.prompt agent variant", () => {
       if (prev === undefined) delete process.env.OPENAI_API_KEY
       else process.env.OPENAI_API_KEY = prev
     }
+  })
+})
+
+describe("session.prompt cancel", () => {
+  test("finalizes unfinished assistant messages as aborted", async () => {
+    await using tmp = await tmpdir({ git: true })
+
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const session = await Session.create({})
+        const user = await SessionPrompt.prompt({
+          sessionID: session.id,
+          noReply: true,
+          parts: [{ type: "text", text: "hello" }],
+        })
+        if (user.info.role !== "user") throw new Error("expected user")
+        const id = MessageID.ascending()
+        await Session.updateMessage({
+          id,
+          sessionID: session.id,
+          role: "assistant",
+          parentID: user.info.id,
+          time: { created: Date.now() },
+          providerID: "test",
+          modelID: "test",
+          mode: "build",
+          agent: "build",
+          path: { cwd: tmp.path, root: tmp.path },
+          cost: 0,
+          tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+        } as unknown as MessageV2.Info)
+
+        await SessionPrompt.cancel(session.id)
+
+        const msg = await MessageV2.get({ sessionID: session.id, messageID: id })
+        expect(msg.info.role).toBe("assistant")
+        if (msg.info.role !== "assistant") throw new Error("expected assistant")
+        expect(msg.info.time.completed).toBeNumber()
+        expect(msg.info.error?.name).toBe("MessageAbortedError")
+      },
+    })
+  })
+
+  test("records MessageAbortedError when cancelled mid-stream", async () => {
+    const requested = deferred<void>()
+    using server = await serve({
+      port: 0,
+      async fetch(req) {
+        if (new URL(req.url).pathname.endsWith("/chat/completions")) {
+          requested.resolve()
+          return new Response(pendingStream(), {
+            status: 200,
+            headers: { "Content-Type": "text/event-stream" },
+          })
+        }
+        return new Response("not found", { status: 404 })
+      },
+    })
+
+    await using tmp = await tmpdir({
+      git: true,
+      config: {
+        enabled_providers: ["cancel-provider"],
+        provider: {
+          "cancel-provider": {
+            name: "Cancel Provider",
+            npm: "@ai-sdk/openai-compatible",
+            api: `${server.url.origin}/v1`,
+            models: {
+              "cancel-model": {
+                name: "Cancel Model",
+                tool_call: true,
+                temperature: false,
+                release_date: "2026-01-01",
+                modalities: { input: ["text"], output: ["text"] },
+                limit: { context: 100_000, output: 4_096 },
+              },
+            },
+            options: {
+              apiKey: "test-key",
+              baseURL: `${server.url.origin}/v1`,
+            },
+          },
+        },
+        agent: {
+          build: {
+            model: "cancel-provider/cancel-model",
+          },
+        },
+      },
+    })
+
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const session = await Session.create({})
+        const run = SessionPrompt.prompt({
+          sessionID: session.id,
+          agent: "build",
+          parts: [{ type: "text", text: "hello" }],
+        })
+
+        await requested.promise
+        await SessionPrompt.cancel(session.id)
+        const result = await run
+
+        expect(result.info.role).toBe("assistant")
+        if (result.info.role !== "assistant") throw new Error("expected assistant")
+        expect(result.info.time.completed).toBeNumber()
+        expect(result.info.error?.name).toBe("MessageAbortedError")
+      },
+    })
   })
 })
 

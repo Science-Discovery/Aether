@@ -1,7 +1,7 @@
 import * as util from "@ai-sdk/provider-utils"
 
-type Factory = typeof util.createProviderDefinedToolFactory
-type Output = typeof util.createProviderDefinedToolFactoryWithOutputSchema
+type Factory = typeof util.createProviderToolFactory
+type Output = typeof util.createProviderToolFactoryWithOutputSchema
 
 const mod = util as unknown as Record<string, unknown>
 

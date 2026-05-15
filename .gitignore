@@ -43,6 +43,7 @@ Update/test_installer_init_flow.sh
 
 .aether/*
 reference/
+skill-evolution-reference/
 packages/opencode/test/system/llm/providers.local.yaml
 curator-export/
 skill-evolution-reference/

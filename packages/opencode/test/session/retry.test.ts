@@ -127,6 +127,30 @@ describe("session.retry.retryable", () => {
     expect(SessionRetry.retryable(error)).toBeUndefined()
   })
 
+  test("retries 5xx API errors even when provider marks them non-retryable", () => {
+    expect(
+      [500, 502, 503].map((status) =>
+        SessionRetry.retryable(
+          new MessageV2.APIError({
+            message: `server ${status}`,
+            isRetryable: false,
+            statusCode: status,
+          }).toObject() as MessageV2.APIError,
+        ),
+      ),
+    ).toEqual(["server 500", "server 502", "server 503"])
+  })
+
+  test("does not retry non-retryable 4xx API errors", () => {
+    const error = new MessageV2.APIError({
+      message: "bad request",
+      isRetryable: false,
+      statusCode: 400,
+    }).toObject() as MessageV2.APIError
+
+    expect(SessionRetry.retryable(error)).toBeUndefined()
+  })
+
   test("retries ZlibError decompression failures", () => {
     const error = new MessageV2.APIError({
       message: "Response decompression failed",
@@ -137,6 +161,41 @@ describe("session.retry.retryable", () => {
     const retryable = SessionRetry.retryable(error)
     expect(retryable).toBeDefined()
     expect(retryable).toBe("Response decompression failed")
+  })
+
+  test("retries overloaded stream errors", () => {
+    const error = MessageV2.fromError(
+      {
+        type: "error",
+        error: {
+          code: "server_is_overloaded",
+          message: "Server is overloaded",
+        },
+      },
+      { providerID },
+    ) as MessageV2.APIError
+
+    expect(SessionRetry.retryable(error)).toBe("Server is overloaded")
+  })
+
+  test("retries OpenAI server_error stream chunks", () => {
+    const error = MessageV2.fromError(
+      {
+        message: JSON.stringify({
+          type: "error",
+          sequence_number: 2,
+          error: {
+            type: "server_error",
+            code: "server_error",
+            message: "An error occurred while processing your request.",
+            param: null,
+          },
+        }),
+      },
+      { providerID: ProviderID.make("openai") },
+    ) as MessageV2.APIError
+
+    expect(SessionRetry.retryable(error)).toBe("An error occurred while processing your request.")
   })
 })
 

@@ -13,6 +13,7 @@ import { Instance } from "../../project/instance"
 import type { Hooks } from "@opencode-ai/plugin"
 import { Process } from "../../util/process"
 import { text } from "node:stream/consumers"
+import { ProviderDisable } from "../../provider/disable"
 
 type PluginAuth = NonNullable<Hooks["auth"]>
 
@@ -307,7 +308,7 @@ export const ProvidersLoginCommand = cmd({
 
         const config = await Config.get()
 
-        const disabled = new Set(config.disabled_providers ?? [])
+        const disabled = ProviderDisable.set(config.disabled_providers)
         const enabled = config.enabled_providers ? new Set(config.enabled_providers) : undefined
 
         const providers = await ModelsDev.get().then((x) => {

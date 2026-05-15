@@ -179,6 +179,36 @@ test("disabled_providers excludes provider", async () => {
   })
 })
 
+test("github-copilot is disabled by default even with config", async () => {
+  await using tmp = await tmpdir({
+    init: async (dir) => {
+      await Bun.write(
+        path.join(dir, "opencode.json"),
+        JSON.stringify({
+          $schema: "https://opencode.ai/config.json",
+          enabled_providers: ["github-copilot"],
+          provider: {
+            "github-copilot": {
+              options: {
+                apiKey: "test-key",
+              },
+            },
+          },
+        }),
+      )
+    },
+  })
+  await Instance.provide({
+    directory: tmp.path,
+    fn: async () => {
+      const providers = await Provider.list()
+      const connected = await Provider.connected()
+      expect(providers[ProviderID.githubCopilot]).toBeUndefined()
+      expect(connected).not.toContain(ProviderID.githubCopilot)
+    },
+  })
+})
+
 test("enabled_providers restricts to only listed providers", async () => {
   await using tmp = await tmpdir({
     init: async (dir) => {
@@ -542,6 +572,93 @@ test("provider with baseURL from config", async () => {
       const providers = await Provider.list()
       expect(providers[ProviderID.make("custom-openai")]).toBeDefined()
       expect(providers[ProviderID.make("custom-openai")].options.baseURL).toBe("https://custom.openai.com/v1")
+    },
+  })
+})
+
+test("custom openai-compatible GPT models on OpenAI API use OpenAI provider", async () => {
+  await using tmp = await tmpdir({
+    init: async (dir) => {
+      await Bun.write(
+        path.join(dir, "opencode.json"),
+        JSON.stringify({
+          $schema: "https://opencode.ai/config.json",
+          provider: {
+            "custom-openai": {
+              name: "Custom OpenAI",
+              npm: "@ai-sdk/openai-compatible",
+              options: {
+                apiKey: "test-key",
+                baseURL: "https://api.openai.com/v1",
+              },
+              models: {
+                "openai/gpt-5.5": {
+                  id: "gpt-5.5",
+                  name: "GPT-5.5",
+                  reasoning: true,
+                  tool_call: true,
+                  limit: { context: 400000, output: 128000 },
+                },
+                "gpt-5.2": {
+                  name: "GPT-5.2",
+                  reasoning: true,
+                  tool_call: true,
+                  limit: { context: 400000, output: 128000 },
+                },
+                "gpt-5.2-chat-latest": {
+                  name: "GPT-5.2 Chat",
+                  tool_call: true,
+                  limit: { context: 128000, output: 16384 },
+                },
+              },
+            },
+          },
+        }),
+      )
+    },
+  })
+  await Instance.provide({
+    directory: tmp.path,
+    fn: async () => {
+      const provider = await Provider.getProvider(ProviderID.make("custom-openai"))
+      expect(provider.models["openai/gpt-5.5"].api.npm).toBe("@ai-sdk/openai")
+      expect(provider.models["gpt-5.2"].api.npm).toBe("@ai-sdk/openai")
+      expect(provider.models["gpt-5.2-chat-latest"].api.npm).toBe("@ai-sdk/openai-compatible")
+    },
+  })
+})
+
+test("custom openai-compatible GPT-5.5 model key uses OpenAI provider", async () => {
+  await using tmp = await tmpdir({
+    init: async (dir) => {
+      await Bun.write(
+        path.join(dir, "opencode.json"),
+        JSON.stringify({
+          $schema: "https://opencode.ai/config.json",
+          provider: {
+            custom: {
+              name: "Custom",
+              npm: "@ai-sdk/openai-compatible",
+              options: {
+                apiKey: "test-key",
+                baseURL: "https://proxy.example.com/v1",
+              },
+              models: {
+                "gpt-5.5": {
+                  name: "GPT-5.5",
+                },
+              },
+            },
+          },
+        }),
+      )
+    },
+  })
+  await Instance.provide({
+    directory: tmp.path,
+    fn: async () => {
+      const model = await Provider.getModel(ProviderID.make("custom"), ModelID.make("gpt-5.5"))
+      expect(model.api.npm).toBe("@ai-sdk/openai")
     },
   })
 })
@@ -2375,4 +2492,42 @@ test("cloudflare-ai-gateway forwards config metadata options", async () => {
       })
     },
   })
+})
+
+test("Azure loader falls back to messages models when responses is unavailable", () => {
+  const calls: string[] = []
+  const sdk = {
+    messages(id: string) {
+      calls.push(`messages:${id}`)
+      return "messages-model"
+    },
+    languageModel(id: string) {
+      calls.push(`language:${id}`)
+      return "language-model"
+    },
+  }
+
+  expect(Provider.azureLanguage(sdk, "gpt-5", false)).toBe("messages-model")
+  expect(calls).toEqual(["messages:gpt-5"])
+})
+
+test("Azure loader uses chat models for completion URLs when available", () => {
+  const calls: string[] = []
+  const sdk = {
+    chat(id: string) {
+      calls.push(`chat:${id}`)
+      return "chat-model"
+    },
+    responses(id: string) {
+      calls.push(`responses:${id}`)
+      return "responses-model"
+    },
+    languageModel(id: string) {
+      calls.push(`language:${id}`)
+      return "language-model"
+    },
+  }
+
+  expect(Provider.azureLanguage(sdk, "gpt-5.5", true)).toBe("chat-model")
+  expect(calls).toEqual(["chat:gpt-5.5"])
 })
