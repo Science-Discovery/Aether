@@ -112,6 +112,7 @@ export namespace Git {
       cwd: string,
       opts?: { max?: number; branch?: string; skip?: number },
     ) => Effect.Effect<readonly LogItem[]>
+    readonly remotes: (cwd: string) => Effect.Effect<readonly string[]>
     readonly refs: (cwd: string, ...prefixes: string[]) => Effect.Effect<readonly Ref[]>
     readonly graphRefs: (cwd: string) => Effect.Effect<Graph.Refs>
     readonly commitDetails: (cwd: string, hash: string) => Effect.Effect<CommitDetail>
@@ -424,6 +425,10 @@ export namespace Git {
         } satisfies CommitDetail
       })
 
+      const remotes = Effect.fn("Git.remotes")(function* (cwd: string) {
+        return yield* lines(["remote"], { cwd })
+      })
+
       const fileContent = Effect.fn("Git.fileContent")(function* (cwd: string, hash: string, path: string) {
         const result = yield* run(["show", `${hash}:${path}`], { cwd })
         if (result.exitCode !== 0) return ""
@@ -463,6 +468,7 @@ export namespace Git {
         diff,
         stats,
         log,
+        remotes,
         refs,
         graphRefs,
         commitDetails,
@@ -521,6 +527,10 @@ export namespace Git {
 
   export function log(cwd: string, opts?: { max?: number; branch?: string; skip?: number }) {
     return runPromise((git) => git.log(cwd, opts))
+  }
+
+  export function remotes(cwd: string) {
+    return runPromise((git) => git.remotes(cwd))
   }
 
   export function refs(cwd: string, ...prefixes: string[]) {

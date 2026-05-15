@@ -104,7 +104,7 @@ function TagIcon() {
   )
 }
 
-export function RefChip(props: { item: Ref }) {
+export function RefChip(props: { item: Ref; onContextMenu?: (ref: Ref, event: MouseEvent) => void }) {
   return (
     <span
       class="inline-flex h-[18px] max-w-48 shrink-0 items-center overflow-hidden rounded-[5px] border text-[11px] leading-none"
@@ -114,6 +114,11 @@ export function RefChip(props: { item: Ref }) {
       data-remote={props.item.kind === "remote" ? (props.item.remote ?? "") : undefined}
       data-tagtype={props.item.kind === "tag" ? (props.item.annotated ? "annotated" : "lightweight") : undefined}
       title={title(props.item)}
+      onContextMenu={(event) => {
+        event.preventDefault()
+        event.stopPropagation()
+        props.onContextMenu?.(props.item, event)
+      }}
     >
       <span class="flex h-full w-[18px] shrink-0 items-center justify-center" classList={icon(props.item)}>
         <Show when={props.item.kind === "tag"} fallback={<BranchIcon />}>
@@ -139,13 +144,17 @@ export function RefChip(props: { item: Ref }) {
   )
 }
 
-export function RefLabels(props: { node: GraphNode; currentBranch: string | null | undefined }) {
+export function RefLabels(props: {
+  node: GraphNode
+  currentBranch: string | null | undefined
+  onContextMenu?: (ref: Ref, event: MouseEvent) => void
+}) {
   const refs = () => refsFor(props.node, props.currentBranch)
 
   return (
     <Show when={refs().length > 0}>
       <span class="flex min-w-0 shrink-0 items-center gap-1">
-        <For each={refs()}>{(ref) => <RefChip item={ref} />}</For>
+        <For each={refs()}>{(ref) => <RefChip item={ref} onContextMenu={props.onContextMenu} />}</For>
       </span>
     </Show>
   )

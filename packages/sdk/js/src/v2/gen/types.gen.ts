@@ -2244,7 +2244,9 @@ export type VcsGraphResult = {
   commits: Array<CommitLogItem>
   head: string | null
   branch: string | null
+  branches: Array<string>
   tags: Array<string>
+  remotes: Array<string>
   moreAvailable: boolean
 }
 

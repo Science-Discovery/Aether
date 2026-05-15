@@ -2,22 +2,15 @@ import { createMemo, createSignal, onCleanup, onMount, Show } from "solid-js"
 import { ScrollView } from "@opencode-ai/ui/scroll-view"
 import { Select } from "@opencode-ai/ui/select"
 import { IconButton } from "@opencode-ai/ui/icon-button"
-import { Button } from "@opencode-ai/ui/button"
-import { showToast } from "@opencode-ai/ui/toast"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
-import { Dialog } from "@opencode-ai/ui/dialog"
 import { useSDK } from "@/context/sdk"
 import { useLanguage } from "@/context/language"
 import { useTerminal } from "@/context/terminal"
 import { useSessionLayout } from "@/pages/session/session-layout"
-import { DialogSelect } from "@/components/dialog-select"
-import { DialogMerge } from "@/components/git-graph/dialog-merge"
-import { DialogRebase } from "@/components/git-graph/dialog-rebase"
-import { DialogCreateBranch } from "@/components/git-graph/dialog-create-branch"
-import { DialogAddTag } from "@/components/git-graph/dialog-add-tag"
-import { DialogCherryPick } from "@/components/git-graph/dialog-cherry-pick"
 import { computeGraphLayout, UNCOMMITTED, ROW_HEIGHT } from "./model"
 import { GitGraphList } from "./render"
+import { GitGraphMenu } from "./menu"
+import type { Ref } from "./refs"
 
 export function GitGraphTab() {
   const sdk = useSDK()
@@ -27,19 +20,16 @@ export function GitGraphTab() {
   const dialog = useDialog()
 
   type Data = Awaited<ReturnType<typeof sdk.client.vcs.graph>>
+  type Target =
+    | { kind: "commit"; hash: string; x: number; y: number }
+    | { kind: "ref"; hash: string; ref: Ref; x: number; y: number }
   const [data, setData] = createSignal<Data | null>(null)
   const [filter, setFilter] = createSignal("all")
   const [uncommittedFiles, setUncommittedFiles] = createSignal<string[]>([])
   const [loading, setLoading] = createSignal(false)
   const [selectedHash, setSelectedHash] = createSignal<string | null>(null)
-  const [menu, setMenu] = createSignal<{
-    hash: string
-    message: string
-    heads: string[]
-    parents: string[]
-    x: number
-    y: number
-  } | null>(null)
+  const [menu, setMenu] = createSignal<Target | null>(null)
+  const [alwaysCheckout, setAlwaysCheckout] = createSignal(false)
   let version = 0
 
   const pendingGitPtyIds = new Set<string>()
@@ -47,6 +37,13 @@ export function GitGraphTab() {
   const runGit = async (command: string, args: string[], title: string) => {
     const id = await terminal.run(command, args, title)
     if (id) pendingGitPtyIds.add(id)
+  }
+
+  const branchArg = (b = filter()) => {
+    const raw = data()
+    if (b === "all") return undefined
+    if (b === "current") return raw?.data?.branch ?? raw?.data?.head ?? undefined
+    return b
   }
 
   const load = async (b?: string, skip?: number) => {
@@ -101,7 +98,7 @@ export function GitGraphTab() {
   const unsubPty = sdk.event.on("pty.exited", (event) => {
     if (pendingGitPtyIds.has(event.properties.id)) {
       pendingGitPtyIds.delete(event.properties.id)
-      void load()
+      void load(branchArg())
       void loadDiff()
     }
   })
@@ -110,11 +107,20 @@ export function GitGraphTab() {
   const branchOptions = createMemo(() => {
     const raw = data()
     if (!raw?.data) return ["all"]
-    const seen = new Set<string>()
-    for (const c of raw.data.commits) {
-      for (const h of c.heads) seen.add(h)
+    return ["all", "current", ...raw.data.branches]
+  })
+
+  const menuData = createMemo(() => {
+    const raw = data()
+    if (!raw?.data) return null
+    return {
+      commits: raw.data.commits,
+      head: raw.data.head,
+      branch: raw.data.branch,
+      branches: raw.data.branches,
+      tags: raw.data.tags,
+      remotes: raw.data.remotes,
     }
-    return ["all", "current", ...seen]
   })
 
   const graph = createMemo(() => {
@@ -166,6 +172,19 @@ export function GitGraphTab() {
     return commit?.parents[0] ?? null
   })
 
+  const fetchable = createMemo(() => (data()?.data?.remotes.length ?? 0) > 0)
+
+  const fetchRemotes = () => {
+    if (!fetchable()) return
+    void runGit("git", ["fetch", "--all"], "Fetching from Remote(s)")
+  }
+
+  const refresh = () => {
+    if (loading()) return
+    void load(branchArg())
+    void loadDiff()
+  }
+
   const handleCommitClick = (hash: string) => {
     if (hash === UNCOMMITTED) return
     setSelectedHash((prev) => (prev === hash ? null : hash))
@@ -175,13 +194,23 @@ export function GitGraphTab() {
     if (hash === UNCOMMITTED) return
     event.preventDefault()
     setSelectedHash(hash)
-    const raw = data()
-    const commit = raw?.data?.commits.find((c) => c.hash === hash)
     setMenu({
+      kind: "commit",
       hash,
-      message: commit?.message ?? "",
-      heads: commit?.heads ?? [],
-      parents: commit?.parents ?? [],
+      x: event.clientX,
+      y: event.clientY,
+    })
+    setTimeout(() => document.addEventListener("click", closeMenu, { once: true }), 0)
+  }
+
+  const handleRefContextMenu = (hash: string, ref: Ref, event: MouseEvent) => {
+    if (hash === UNCOMMITTED) return
+    event.preventDefault()
+    setSelectedHash(hash)
+    setMenu({
+      kind: "ref",
+      hash,
+      ref,
       x: event.clientX,
       y: event.clientY,
     })
@@ -213,8 +242,7 @@ export function GitGraphTab() {
       const raw = data()
       if (raw?.data?.moreAvailable && !loading()) {
         const nextSkip = raw.data.commits.length
-        const current = raw.data.branch ?? raw.data.head ?? undefined
-        void load(filter() === "all" ? undefined : filter() === "current" ? current : filter(), nextSkip)
+        void load(branchArg(), nextSkip)
       }
     }
   }
@@ -242,10 +270,8 @@ export function GitGraphTab() {
   const handleBranchSelect = (b: string | undefined) => {
     if (!b) return
     if (b === filter()) return
-    const raw = data()
-    const apiBranch = b === "all" ? undefined : b === "current" ? (raw?.data?.branch ?? raw?.data?.head) : b
     setFilter(b)
-    void load(apiBranch ?? undefined)
+    void load(branchArg(b))
   }
 
   return (
@@ -261,6 +287,24 @@ export function GitGraphTab() {
           valueClass="text-12-regular"
         />
         <div class="flex-1" />
+        <IconButton
+          icon="download"
+          variant="ghost"
+          class="h-6 w-6"
+          disabled={!fetchable()}
+          title={fetchable() ? "Fetch from Remote(s)" : "No remotes configured"}
+          onClick={fetchRemotes}
+          aria-label="Fetch from Remote(s)"
+        />
+        <IconButton
+          icon="refresh"
+          variant="ghost"
+          class="h-6 w-6"
+          disabled={loading()}
+          title={loading() ? "Refreshing" : "Refresh"}
+          onClick={refresh}
+          aria-label={loading() ? "Refreshing" : "Refresh"}
+        />
         <IconButton
           icon="arrow-down-to-line"
           variant="ghost"
@@ -310,277 +354,31 @@ export function GitGraphTab() {
                 onCommitClick={handleCommitClick}
                 onCloseDetail={() => setSelectedHash(null)}
                 onContextMenu={handleContextMenu}
+                onRefContextMenu={handleRefContextMenu}
               />
             </ScrollView>
           )}
         </Show>
       </div>
       <Show when={menu()}>
-        {(m) => {
-          const item = "px-2 py-1 text-xs cursor-pointer hover:bg-surface-hover text-text-base"
-          const sep = "h-px bg-border-weaker-base my-1"
-          const copyHash = () => {
-            navigator.clipboard.writeText(m().hash)
-            showToast({ variant: "success", title: language.t("session.tab.gitGraph.copiedHash") })
-            closeMenu()
-          }
-          const copyMessage = () => {
-            navigator.clipboard.writeText(m().message)
-            showToast({ variant: "success", title: language.t("session.tab.gitGraph.copiedMessage") })
-            closeMenu()
-          }
-          const checkout = () => {
-            closeMenu()
-            dialog.show(() => (
-              <Dialog
-                title={language.t("session.tab.gitGraph.checkoutCommitTitle")}
-                fit
-                persistent
-                class="w-full max-w-[480px] mx-auto"
-              >
-                <div class="flex flex-col gap-4 p-4">
-                  <p class="text-sm text-text-base">{language.t("session.tab.gitGraph.checkoutCommitDescription")}</p>
-                  <div class="flex justify-end gap-2">
-                    <Button variant="ghost" onClick={() => dialog.close()}>
-                      {language.t("common.cancel")}
-                    </Button>
-                    <Button
-                      onClick={() => {
-                        dialog.close()
-                        runGit("git", ["checkout", m().hash], `Checkout ${m().hash.slice(0, 7)}`)
-                      }}
-                    >
-                      {language.t("session.tab.gitGraph.checkout")}
-                    </Button>
-                  </div>
-                </div>
-              </Dialog>
-            ))
-          }
-          const checkoutBranch = () => {
-            const heads = m().heads
-            if (heads.length === 0) return
-            closeMenu()
-            if (heads.length === 1) {
-              runGit("git", ["checkout", heads[0]], `Checkout ${heads[0]}`)
-              return
-            }
-            dialog.show(() => (
-              <DialogSelect
-                title={language.t("session.tab.gitGraph.checkoutBranch")}
-                options={heads}
-                value={(h) => h}
-                label={(h) => h}
-                actionLabel={language.t("session.tab.gitGraph.checkoutBranch")}
-                onAction={(h) => {
-                  runGit("git", ["checkout", h], `Checkout ${h}`)
+        {(target) => (
+          <Show when={menuData()}>
+            {(info) => (
+              <GitGraphMenu
+                target={target()}
+                data={info()}
+                alwaysCheckout={alwaysCheckout()}
+                onAlwaysCheckout={setAlwaysCheckout}
+                onClose={closeMenu}
+                onRun={(cmd) => runGit("git", cmd.args, cmd.title)}
+                onShow={(node) => {
+                  closeMenu()
+                  dialog.show(node)
                 }}
               />
-            ))
-          }
-          const createBranch = () => {
-            closeMenu()
-            dialog.show(() => (
-              <DialogCreateBranch
-                hash={m().hash}
-                onAction={(opts) => {
-                  const args = opts.checkout ? ["checkout", "-b", opts.name, m().hash] : ["branch", opts.name, m().hash]
-                  runGit("git", args, `Create branch ${opts.name}`)
-                }}
-              />
-            ))
-          }
-          const merge = () => {
-            closeMenu()
-            dialog.show(() => (
-              <DialogMerge
-                hash={m().hash}
-                branch={data()?.data?.branch ?? ""}
-                onAction={(opts) => {
-                  const args = ["merge", m().hash]
-                  if (opts.squash) args.push("--squash")
-                  else if (opts.noFastForward) args.push("--no-ff")
-                  if (opts.noCommit) args.push("--no-commit")
-                  runGit("git", args, `Merge ${m().hash.slice(0, 7)}`)
-                }}
-              />
-            ))
-          }
-          const rebase = () => {
-            closeMenu()
-            dialog.show(() => (
-              <DialogRebase
-                hash={m().hash}
-                branch={data()?.data?.branch ?? ""}
-                onAction={(opts) => {
-                  const args = ["rebase", m().hash]
-                  if (opts.ignoreDate) args.push("--ignore-date")
-                  runGit("git", args, `Rebase onto ${m().hash.slice(0, 7)}`)
-                }}
-              />
-            ))
-          }
-          const reset = () => {
-            closeMenu()
-            dialog.show(() => (
-              <DialogSelect
-                title={language.t("session.tab.gitGraph.resetToThis")}
-                description={language.t("session.tab.gitGraph.resetDescription")}
-                options={[
-                  { mode: "soft", label: language.t("session.tab.gitGraph.resetSoft") },
-                  { mode: "mixed", label: language.t("session.tab.gitGraph.resetMixed") },
-                  { mode: "hard", label: language.t("session.tab.gitGraph.resetHard") },
-                ]}
-                value={(o) => o.mode}
-                label={(o) => o.label}
-                defaultValue="mixed"
-                actionLabel={language.t("session.tab.gitGraph.resetToThis")}
-                onAction={(o) => {
-                  runGit("git", ["reset", `--${o.mode}`, m().hash], `Reset --${o.mode} ${m().hash.slice(0, 7)}`)
-                }}
-              />
-            ))
-          }
-          const revert = () => {
-            closeMenu()
-            if (m().parents.length > 1) {
-              const raw = data()
-              const opts = m().parents.map((p, i) => {
-                const pc = raw?.data?.commits.find((c) => c.hash === p)
-                return { hash: p, message: pc?.message ?? "", index: i + 1 }
-              })
-              dialog.show(() => (
-                <DialogSelect
-                  title={language.t("session.tab.gitGraph.revertMergeTitle")}
-                  description={language.t("session.tab.gitGraph.revertMergeDescription")}
-                  options={opts}
-                  value={(o) => String(o.index)}
-                  label={(o) => `${o.hash.slice(0, 7)}: ${o.message}`}
-                  actionLabel={language.t("session.tab.gitGraph.revertThis")}
-                  onAction={(v) => {
-                    runGit(
-                      "git",
-                      ["revert", "--no-edit", "-m", String(v.index), m().hash],
-                      `Revert ${m().hash.slice(0, 7)}`,
-                    )
-                  }}
-                />
-              ))
-            } else {
-              dialog.show(() => (
-                <Dialog
-                  title={language.t("session.tab.gitGraph.revertThis")}
-                  fit
-                  persistent
-                  class="w-full max-w-[480px] mx-auto"
-                >
-                  <div class="flex flex-col gap-4 p-4">
-                    <p class="text-sm text-text-base">{language.t("session.tab.gitGraph.revertConfirmDescription")}</p>
-                    <div class="flex justify-end gap-2">
-                      <Button variant="ghost" onClick={() => dialog.close()}>
-                        {language.t("common.cancel")}
-                      </Button>
-                      <Button
-                        onClick={() => {
-                          dialog.close()
-                          runGit("git", ["revert", "--no-edit", m().hash], `Revert ${m().hash.slice(0, 7)}`)
-                        }}
-                      >
-                        {language.t("session.tab.gitGraph.revertThis")}
-                      </Button>
-                    </div>
-                  </div>
-                </Dialog>
-              ))
-            }
-          }
-          const cherryPick = () => {
-            closeMenu()
-            const raw = data()
-            const parentOpts = m().parents.map((p, i) => {
-              const pc = raw?.data?.commits.find((c) => c.hash === p)
-              return { hash: p, message: pc?.message ?? "", index: i + 1 }
-            })
-            dialog.show(() => (
-              <DialogCherryPick
-                hash={m().hash}
-                parents={parentOpts}
-                onAction={(opts) => {
-                  const args = ["cherry-pick"]
-                  if (opts.noCommit) args.push("--no-commit")
-                  if (opts.recordOrigin) args.push("-x")
-                  if (opts.parentIndex) args.push("-m", String(opts.parentIndex))
-                  args.push(m().hash)
-                  runGit("git", args, `Cherry-pick ${m().hash.slice(0, 7)}`)
-                }}
-              />
-            ))
-          }
-          const addTag = () => {
-            closeMenu()
-            dialog.show(() => (
-              <DialogAddTag
-                hash={m().hash}
-                onAction={(opts) => {
-                  const args = ["tag"]
-                  if (opts.type === "annotated") {
-                    args.push("-a", opts.name, "-m", opts.message || "")
-                  } else {
-                    args.push(opts.name)
-                  }
-                  args.push(m().hash)
-                  runGit("git", args, `Add tag ${opts.name}`)
-                }}
-              />
-            ))
-          }
-          return (
-            <div
-              class="fixed z-[1001] rounded shadow-lg border border-border-weaker-base bg-surface-base min-w-[200px]"
-              style={{ left: `${m().x}px`, top: `${m().y}px` }}
-              onClick={(e) => e.stopPropagation()}
-            >
-              <div class={item} onClick={checkout}>
-                {language.t("session.tab.gitGraph.checkout")}
-              </div>
-              <Show when={m().heads.length > 0}>
-                <div class={item} onClick={checkoutBranch}>
-                  {language.t("session.tab.gitGraph.checkoutBranch")}
-                </div>
-              </Show>
-              <div class={item} onClick={createBranch}>
-                {language.t("session.tab.gitGraph.createBranch")}
-              </div>
-              <div class={sep} />
-              <div class={item} onClick={merge}>
-                {language.t("session.tab.gitGraph.mergeIntoCurrent")}
-              </div>
-              <div class={item} onClick={rebase}>
-                {language.t("session.tab.gitGraph.rebaseCurrent")}
-              </div>
-              <div class={sep} />
-              <div class={item} onClick={reset}>
-                {language.t("session.tab.gitGraph.resetToThis")}
-              </div>
-              <div class={item} onClick={revert}>
-                {language.t("session.tab.gitGraph.revertThis")}
-              </div>
-              <div class={item} onClick={cherryPick}>
-                {language.t("session.tab.gitGraph.cherryPick")}
-              </div>
-              <div class={item} onClick={addTag}>
-                {language.t("session.tab.gitGraph.addTag")}
-              </div>
-              <div class={sep} />
-              <div class={item} onClick={copyHash}>
-                {language.t("session.tab.gitGraph.copyHash")}
-              </div>
-              <div class={item} onClick={copyMessage}>
-                {language.t("session.tab.gitGraph.copyMessage")}
-              </div>
-            </div>
-          )
-        }}
+            )}
+          </Show>
+        )}
       </Show>
     </div>
   )

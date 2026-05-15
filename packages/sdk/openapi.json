@@ -24476,7 +24476,29 @@
               }
             ]
           },
+          "branch": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "branches": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
           "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "remotes": {
             "type": "array",
             "items": {
               "type": "string"
@@ -24489,7 +24511,10 @@
         "required": [
           "commits",
           "head",
+          "branch",
+          "branches",
           "tags",
+          "remotes",
           "moreAvailable"
         ]
       },

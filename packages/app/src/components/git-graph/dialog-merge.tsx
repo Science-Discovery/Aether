@@ -6,8 +6,9 @@ import { Dialog } from "@opencode-ai/ui/dialog"
 import { useLanguage } from "@/context/language"
 
 interface DialogMergeProps {
-  hash: string
+  name: string
   branch: string
+  actionOn: "Branch" | "Commit" | "Remote Tracking Branch"
   onAction: (opts: { noFastForward: boolean; squash: boolean; noCommit: boolean }) => void
 }
 
@@ -30,39 +31,44 @@ export function DialogMerge(props: DialogMergeProps) {
   const t = (key: string) => language.t(key)
 
   return (
-    <Dialog title={t("session.tab.gitGraph.mergeTitle")} fit persistent class="w-full max-w-[480px] mx-auto">
+    <Dialog title="Merge into Current Branch" fit persistent class="w-full max-w-[480px] mx-auto">
       <div class="flex flex-col gap-4 p-4">
         <p class="text-sm text-text-base">
-          {t("session.tab.gitGraph.mergeDescription")
-            .replace("{hash}", props.hash.slice(0, 7))
-            .replace("{branch}", props.branch)}
+          Are you sure you want to merge {props.actionOn.toLowerCase()} <b>{props.name}</b> into{" "}
+          {props.branch ? (
+            <>
+              <b>{props.branch}</b> (the current branch)
+            </>
+          ) : (
+            "the current branch"
+          )}
+          ?
         </p>
         <Checkbox
           checked={noFastForward()}
           onChange={setNoFastForward}
-          description={t("session.tab.gitGraph.mergeNoFastForward")}
         >
-          {t("session.tab.gitGraph.mergeNoFastForward")}
+          Create a new commit even if fast-forward is possible
         </Checkbox>
         <Checkbox
           checked={squash()}
           onChange={setSquash}
-          description={t("session.tab.gitGraph.mergeSquashDescription")}
+          description={`Create a single commit on the current branch whose effect is the same as merging this ${props.actionOn.toLowerCase()}.`}
         >
-          {t("session.tab.gitGraph.mergeSquash")}
+          Squash Commits
         </Checkbox>
         <Checkbox
           checked={noCommit()}
           onChange={setNoCommit}
-          description={t("session.tab.gitGraph.mergeNoCommitDescription")}
+          description="The changes of the merge will be staged but not committed, so that you can review and/or modify the merge result before committing."
         >
-          {t("session.tab.gitGraph.mergeNoCommit")}
+          No Commit
         </Checkbox>
         <div class="flex justify-end gap-2">
           <Button variant="ghost" onClick={() => dialog.close()}>
             {t("common.cancel")}
           </Button>
-          <Button onClick={confirm}>{t("session.tab.gitGraph.mergeIntoCurrent")}</Button>
+          <Button onClick={confirm}>Yes, merge</Button>
         </div>
       </div>
     </Dialog>

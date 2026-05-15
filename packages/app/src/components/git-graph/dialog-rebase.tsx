@@ -6,43 +6,54 @@ import { Dialog } from "@opencode-ai/ui/dialog"
 import { useLanguage } from "@/context/language"
 
 interface DialogRebaseProps {
-  hash: string
+  name: string
   branch: string
-  onAction: (opts: { ignoreDate: boolean }) => void
+  actionOn: "Branch" | "Commit"
+  onAction: (opts: { ignoreDate: boolean; interactive: boolean }) => void
 }
 
 export function DialogRebase(props: DialogRebaseProps) {
   const dialog = useDialog()
   const language = useLanguage()
   const [ignoreDate, setIgnoreDate] = createSignal(true)
+  const [interactive, setInteractive] = createSignal(false)
 
   const confirm = () => {
     dialog.close()
-    props.onAction({ ignoreDate: ignoreDate() })
+    props.onAction({ ignoreDate: ignoreDate(), interactive: interactive() })
   }
 
   const t = (key: string) => language.t(key)
 
   return (
-    <Dialog title={t("session.tab.gitGraph.rebaseTitle")} fit persistent class="w-full max-w-[480px] mx-auto">
+    <Dialog title="Rebase Current Branch" fit persistent class="w-full max-w-[480px] mx-auto">
       <div class="flex flex-col gap-4 p-4">
         <p class="text-sm text-text-base">
-          {t("session.tab.gitGraph.rebaseDescription")
-            .replace("{hash}", props.hash.slice(0, 7))
-            .replace("{branch}", props.branch)}
+          Are you sure you want to rebase{" "}
+          {props.branch ? (
+            <>
+              <b>{props.branch}</b> (the current branch)
+            </>
+          ) : (
+            "the current branch"
+          )}{" "}
+          on {props.actionOn.toLowerCase()} <b>{props.name}</b>?
         </p>
+        <Checkbox checked={interactive()} onChange={setInteractive}>
+          Launch Interactive Rebase in new Terminal
+        </Checkbox>
         <Checkbox
           checked={ignoreDate()}
           onChange={setIgnoreDate}
-          description={t("session.tab.gitGraph.rebaseIgnoreDateDescription")}
+          description="Only applicable to a non-interactive rebase."
         >
-          {t("session.tab.gitGraph.rebaseIgnoreDate")}
+          Ignore Date
         </Checkbox>
         <div class="flex justify-end gap-2">
           <Button variant="ghost" onClick={() => dialog.close()}>
             {t("common.cancel")}
           </Button>
-          <Button onClick={confirm}>{t("session.tab.gitGraph.rebaseCurrent")}</Button>
+          <Button onClick={confirm}>Yes, rebase</Button>
         </div>
       </div>
     </Dialog>
