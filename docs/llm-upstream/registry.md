@@ -33,6 +33,7 @@
 | `LLM-UP-025` | P1/P2 | `20cec9155` / `#27372`、`9818c9e8` / `#27405` | provider model suggestions 与 small model fallback | Provider lookup / small model | provider UX 专项 |
 | `LLM-UP-026` | P0/P1 | `6409aceb1` / `#25934` | 清洗孤立 UTF-16 surrogate | all providers | 不改 image 等非文本内容 |
 | `LLM-UP-027` | P0/P1 | `c1f607d20` / `#25721` | Azure SDK model selector fallback | Azure OpenAI、Azure Anthropic/兼容 SDK | 只改 SDK method selection |
+| `LLM-UP-028` | P0 | local-only | Claude Opus 4.7 adaptive thinking | Anthropic、Gateway Anthropic、Bedrock Claude | 4.7 不支持 `thinking.type="enabled"`，使用 adaptive + effort |
 
 ## Local Compatibility Layer
 
@@ -46,4 +47,3 @@
 - Kimi、Qwen、Minimax、GLM 等国内 provider 参数默认值。
 - LiteLLM proxy 历史 tool call 触发 `_noop` 工具。
 - HTTP proxy、SSE chunk timeout、自定义 baseURL、国内网关连接语义。
-
