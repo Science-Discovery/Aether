@@ -18,9 +18,8 @@ const PROVIDER_PRIORITY: Record<string, number> = {
   opencode: 0,
   "opencode-go": 1,
   openai: 2,
-  "github-copilot": 3,
-  anthropic: 4,
-  google: 5,
+  anthropic: 3,
+  google: 4,
 }
 
 export function createDialogProviderOptions() {

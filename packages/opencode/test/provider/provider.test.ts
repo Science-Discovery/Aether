@@ -179,6 +179,36 @@ test("disabled_providers excludes provider", async () => {
   })
 })
 
+test("github-copilot is disabled by default even with config", async () => {
+  await using tmp = await tmpdir({
+    init: async (dir) => {
+      await Bun.write(
+        path.join(dir, "opencode.json"),
+        JSON.stringify({
+          $schema: "https://opencode.ai/config.json",
+          enabled_providers: ["github-copilot"],
+          provider: {
+            "github-copilot": {
+              options: {
+                apiKey: "test-key",
+              },
+            },
+          },
+        }),
+      )
+    },
+  })
+  await Instance.provide({
+    directory: tmp.path,
+    fn: async () => {
+      const providers = await Provider.list()
+      const connected = await Provider.connected()
+      expect(providers[ProviderID.githubCopilot]).toBeUndefined()
+      expect(connected).not.toContain(ProviderID.githubCopilot)
+    },
+  })
+})
+
 test("enabled_providers restricts to only listed providers", async () => {
   await using tmp = await tmpdir({
     init: async (dir) => {

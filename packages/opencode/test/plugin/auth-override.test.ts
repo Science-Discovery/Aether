@@ -7,7 +7,7 @@ import { ProviderAuth } from "../../src/provider/auth"
 import { ProviderID } from "../../src/provider/schema"
 
 describe("plugin.auth-override", () => {
-  test("user plugin overrides built-in github-copilot auth", async () => {
+  test("github-copilot auth is filtered by default", async () => {
     await using tmp = await tmpdir({
       init: async (dir) => {
         const pluginDir = path.join(dir, ".opencode", "plugin")
@@ -47,11 +47,8 @@ describe("plugin.auth-override", () => {
       },
     })
 
-    const copilot = methods[ProviderID.make("github-copilot")]
-    expect(copilot).toBeDefined()
-    expect(copilot.length).toBe(1)
-    expect(copilot[0].label).toBe("Test Override Auth")
-    expect(plainMethods[ProviderID.make("github-copilot")][0].label).not.toBe("Test Override Auth")
+    expect(methods[ProviderID.githubCopilot]).toBeUndefined()
+    expect(plainMethods[ProviderID.githubCopilot]).toBeUndefined()
   }, 30000) // Increased timeout for plugin installation
 })
 
