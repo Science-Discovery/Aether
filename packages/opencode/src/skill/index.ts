@@ -68,7 +68,10 @@ export namespace Skill {
   }
 
   function snapshotPath(directory: string) {
-    const dirSlug = directory.replace(/\//g, "_").replace(/^_/, "")
+    const dirSlug =
+      process.platform === "win32"
+        ? directory.replace(/[\\/]/g, "_").replace(/:/g, "").replace(/^_/, "")
+        : directory.replace(/\//g, "_").replace(/^_/, "")
     return path.join(Global.Path.home, ".aether", "skill-snapshots", `${dirSlug}.json`)
   }
 
