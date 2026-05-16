@@ -15,6 +15,8 @@ type Start struct {
 	Root   string   `json:"root"`
 	Ignore []string `json:"ignore"`
 	Filter []string `json:"filter"`
+	Mode   string   `json:"mode"`
+	Dirs   []string `json:"dirs"`
 }
 
 type Ready struct {
@@ -39,8 +41,16 @@ type Error struct {
 	Error string `json:"error"`
 }
 
-func Decode(r io.Reader) (Start, error) {
-	line, err := bufio.NewReader(r).ReadBytes('\n')
+type Decoder struct {
+	r *bufio.Reader
+}
+
+func NewDecoder(r io.Reader) *Decoder {
+	return &Decoder{r: bufio.NewReader(r)}
+}
+
+func (d *Decoder) Decode() (Start, error) {
+	line, err := d.r.ReadBytes('\n')
 	if err != nil && !errors.Is(err, io.EOF) {
 		return Start{}, err
 	}
@@ -52,10 +62,17 @@ func Decode(r io.Reader) (Start, error) {
 	if msg.V != Version {
 		return Start{}, errors.New("unsupported protocol version")
 	}
-	if msg.Type != "start" {
+	if msg.Type != "start" && msg.Type != "sync" {
 		return Start{}, errors.New("invalid message type")
 	}
+	if msg.Type == "start" && msg.Mode == "" {
+		msg.Mode = "full"
+	}
 	return msg, nil
+}
+
+func Decode(r io.Reader) (Start, error) {
+	return NewDecoder(r).Decode()
 }
 
 func Encode(w io.Writer, msg any) error {

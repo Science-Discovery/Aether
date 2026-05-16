@@ -2466,6 +2466,41 @@ export type GlobalActiveDirectorySetResponses = {
 export type GlobalActiveDirectorySetResponse =
   GlobalActiveDirectorySetResponses[keyof GlobalActiveDirectorySetResponses]
 
+export type GlobalWatcherHintSetData = {
+  body?: {
+    id: string
+    directory: string
+    files?: Array<string>
+    dirs?: Array<string>
+  }
+  path?: never
+  query?: never
+  url: "/global/watcher-hint"
+}
+
+export type GlobalWatcherHintSetErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type GlobalWatcherHintSetError = GlobalWatcherHintSetErrors[keyof GlobalWatcherHintSetErrors]
+
+export type GlobalWatcherHintSetResponses = {
+  /**
+   * Updated watcher hint snapshot
+   */
+  200: {
+    directory: string
+    files: Array<string>
+    dirs: Array<string>
+    watched: Array<string>
+  }
+}
+
+export type GlobalWatcherHintSetResponse = GlobalWatcherHintSetResponses[keyof GlobalWatcherHintSetResponses]
+
 export type GlobalPingData = {
   body?: {
     id: string
@@ -2953,6 +2988,49 @@ export type ProjectInitGitResponses = {
 
 export type ProjectInitGitResponse = ProjectInitGitResponses[keyof ProjectInitGitResponses]
 
+export type ProjectDeleteData = {
+  body?: never
+  path: {
+    projectID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/project/{projectID}"
+}
+
+export type ProjectDeleteErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type ProjectDeleteError = ProjectDeleteErrors[keyof ProjectDeleteErrors]
+
+export type ProjectDeleteResponses = {
+  /**
+   * Deletion result
+   */
+  200:
+    | {
+        status: "ok"
+        projectID: string
+      }
+    | {
+        status: "has_sessions"
+        projectID: string
+        sessionCount: number
+      }
+}
+
+export type ProjectDeleteResponse = ProjectDeleteResponses[keyof ProjectDeleteResponses]
+
 export type ProjectUpdateData = {
   body?: {
     name?: string
@@ -2999,6 +3077,42 @@ export type ProjectUpdateResponses = {
 }
 
 export type ProjectUpdateResponse = ProjectUpdateResponses[keyof ProjectUpdateResponses]
+
+export type ProjectSessionCountData = {
+  body?: never
+  path: {
+    projectID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/project/{projectID}/session-count"
+}
+
+export type ProjectSessionCountErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type ProjectSessionCountError = ProjectSessionCountErrors[keyof ProjectSessionCountErrors]
+
+export type ProjectSessionCountResponses = {
+  /**
+   * Session count
+   */
+  200: {
+    count: number
+  }
+}
+
+export type ProjectSessionCountResponse = ProjectSessionCountResponses[keyof ProjectSessionCountResponses]
 
 export type PtyListData = {
   body?: never
@@ -8212,6 +8326,7 @@ export type WechatStatusResponses = {
     } | null
     locked: boolean | null
     lockHolder: string | null
+    hasConfig: boolean
     error: {
       code: string
       message: string

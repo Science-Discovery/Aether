@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/fsnotify/fsnotify"
 	"github.com/opencode-ai/go-watcher/internal/protocol"
@@ -18,6 +19,7 @@ type Service struct {
 	emit   func(any) error
 	w      *fsnotify.Watcher
 	dirs   map[string]int
+	mode   string
 }
 
 func New(root string, ignore []string, filter []string, emit func(any) error) (*Service, error) {
@@ -35,10 +37,11 @@ func New(root string, ignore []string, filter []string, emit func(any) error) (*
 		filter: name,
 		emit:   emit,
 		dirs:   map[string]int{},
+		mode:   "full",
 	}, nil
 }
 
-func (svc *Service) Start() (Stats, error) {
+func (svc *Service) Start(dirs []string) (Stats, error) {
 	if !filepath.IsAbs(svc.root) {
 		return Stats{}, errors.New("root must be absolute")
 	}
@@ -49,12 +52,65 @@ func (svc *Service) Start() (Stats, error) {
 	}
 	svc.w = w
 
+	if svc.mode == "limited" {
+		return svc.Sync(dirs)
+	}
+
 	stats, err := Scan(svc.root, svc.match, svc.add)
 	if err != nil {
 		svc.Close()
 		return Stats{}, err
 	}
 	return stats, nil
+}
+
+func (svc *Service) SetMode(mode string) {
+	if mode == "limited" {
+		svc.mode = mode
+		return
+	}
+	svc.mode = "full"
+}
+
+func (svc *Service) Sync(dirs []string) (Stats, error) {
+	if svc.mode != "limited" {
+		return Stats{Watched: len(svc.dirs)}, nil
+	}
+
+	next := map[string]int{}
+	ignored := 0
+	for _, item := range dirs {
+		dir, ok, err := svc.normalizeDir(item)
+		if err != nil {
+			return Stats{}, err
+		}
+		if !ok {
+			continue
+		}
+		if svc.match.Ignore(dir) {
+			ignored += 1
+			continue
+		}
+		if err := svc.add(dir); err != nil {
+			return Stats{}, err
+		}
+		next[dir] = 1
+	}
+
+	for item := range svc.dirs {
+		if _, ok := next[item]; ok {
+			continue
+		}
+		if err := svc.w.Remove(item); err != nil && !errors.Is(err, fsnotify.ErrNonExistentWatch) {
+			return Stats{}, fmt.Errorf("remove watch %s: %w", item, err)
+		}
+		delete(svc.dirs, item)
+	}
+
+	return Stats{
+		Watched: len(svc.dirs),
+		Ignored: ignored,
+	}, nil
 }
 
 func (svc *Service) Run(ctx context.Context) error {
@@ -128,7 +184,7 @@ func (svc *Service) consume(evt fsnotify.Event) error {
 	switch {
 	case evt.Has(fsnotify.Create):
 		stat, err := os.Stat(item)
-		if err == nil && stat.IsDir() {
+		if svc.mode != "limited" && err == nil && stat.IsDir() {
 			if _, err := Scan(item, svc.match, svc.add); err != nil {
 				return err
 			}
@@ -151,6 +207,31 @@ func (svc *Service) consume(evt fsnotify.Event) error {
 		Path:  item,
 		Event: name,
 	})
+}
+
+func (svc *Service) normalizeDir(item string) (string, bool, error) {
+	dir := filepath.Clean(item)
+	if !filepath.IsAbs(dir) {
+		dir = filepath.Join(svc.root, dir)
+	}
+	rel, err := filepath.Rel(svc.root, dir)
+	if err != nil {
+		return "", false, err
+	}
+	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
+		return "", false, fmt.Errorf("watch dir escapes root: %s", item)
+	}
+	stat, err := os.Stat(dir)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return "", false, nil
+		}
+		return "", false, err
+	}
+	if !stat.IsDir() {
+		return "", false, nil
+	}
+	return dir, true, nil
 }
 
 func event(evt fsnotify.Event) string {

@@ -11,6 +11,7 @@ import { GlobalBus } from "@/bus/global"
 import { AsyncQueue } from "@/util/queue"
 import { Installation } from "@/installation"
 import { ActiveDirectory } from "@/project/active-directory"
+import { WatcherHint } from "@/project/watcher-hint"
 import { Instance } from "../../project/instance"
 import { Flag } from "../../flag/flag"
 import { Log } from "../../util/log"
@@ -64,6 +65,20 @@ const ActiveDirectoryInput = z.object({
 
 const ActiveDirectoryValue = z.object({
   directory: z.string().optional(),
+})
+
+const WatcherHintInput = z.object({
+  id: z.string().min(1),
+  directory: z.string().min(1),
+  files: z.array(z.string()).optional(),
+  dirs: z.array(z.string()).optional(),
+})
+
+const WatcherHintValue = z.object({
+  directory: z.string(),
+  files: z.array(z.string()),
+  dirs: z.array(z.string()),
+  watched: z.array(z.string()),
 })
 
 function parseProxy(value?: string) {
@@ -365,6 +380,31 @@ export const GlobalRoutes = lazy(() =>
       },
     )
     .post(
+      "/watcher-hint",
+      describeRoute({
+        summary: "Set watcher hint",
+        description:
+          "Store the current limited watcher hint snapshot for a browser lease so Linux fallback watchers can watch open file parents and expanded directories.",
+        operationId: "global.watcherHint.set",
+        responses: {
+          200: {
+            description: "Updated watcher hint snapshot",
+            content: {
+              "application/json": {
+                schema: resolver(WatcherHintValue),
+              },
+            },
+          },
+          ...errors(400),
+        },
+      }),
+      validator("json", WatcherHintInput),
+      async (c) => {
+        const body = c.req.valid("json")
+        return c.json(WatcherHint.set(body.id, body))
+      },
+    )
+    .post(
       "/ping",
       describeRoute({
         summary: "Ping lease",
@@ -395,10 +435,12 @@ export const GlobalRoutes = lazy(() =>
         if (body.alive === false) {
           Lease.drop(body.id)
           ActiveDirectory.drop(body.id)
+          WatcherHint.drop(body.id)
           return c.json({ ok: true as const })
         }
         Lease.touch(body.id)
         ActiveDirectory.touch(body.id)
+        WatcherHint.touch(body.id)
         return c.json({ ok: true as const })
       },
     )

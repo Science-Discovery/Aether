@@ -25,7 +25,8 @@ func main() {
 }
 
 func run() error {
-	msg, err := protocol.Decode(os.Stdin)
+	dec := protocol.NewDecoder(os.Stdin)
+	msg, err := dec.Decode()
 	if err != nil {
 		_ = protocol.Encode(os.Stdout, protocol.Error{
 			V:     protocol.Version,
@@ -43,9 +44,10 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	svc.SetMode(msg.Mode)
 	defer svc.Close()
 
-	stats, err := svc.Start()
+	stats, err := svc.Start(msg.Dirs)
 	if err != nil {
 		return err
 	}
@@ -60,6 +62,27 @@ func run() error {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+
+	go func() {
+		for {
+			msg, err := dec.Decode()
+			if err != nil {
+				return
+			}
+			if msg.Type != "sync" {
+				continue
+			}
+			if _, err := svc.Sync(msg.Dirs); err != nil {
+				_ = protocol.Encode(os.Stdout, protocol.Error{
+					V:     protocol.Version,
+					Type:  "error",
+					Stage: "sync",
+					Fatal: false,
+					Error: err.Error(),
+				})
+			}
+		}
+	}()
 
 	err = svc.Run(ctx)
 	if err == nil || errors.Is(err, context.Canceled) {

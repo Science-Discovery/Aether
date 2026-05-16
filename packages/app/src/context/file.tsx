@@ -23,6 +23,7 @@ import {
 } from "./file/content-cache"
 import { createFileViewCache } from "./file/view-cache"
 import { createFileTreeStore } from "./file/tree-store"
+import { buildWatcherHint, watcherHintKey } from "./file/watcher-hint"
 import { invalidateFromWatcher } from "./file/watcher"
 import {
   selectionFromLines,
@@ -31,6 +32,7 @@ import {
   type FileViewState,
   type SelectedLineRange,
 } from "./file/types"
+import { lease } from "@/utils/lease"
 
 export type { FileSelection, SelectedLineRange, FileViewState, FileState }
 export { selectionFromLines }
@@ -265,6 +267,30 @@ export const { use: useFile, provider: FileProvider } = createSimpleContext({
       onExpandedChange: (expanded) => {
         setTreeExpandStore(scope(), [...expanded])
       },
+    })
+
+    let hinted = ""
+    createEffect(() => {
+      const directory = scope()
+      if (!directory) return
+      const hint = buildWatcherHint({
+        tabs: tabs.all(),
+        expanded: treeExpandStore[directory] ?? [],
+        pathFromTab: path.pathFromTab,
+      })
+      const key = watcherHintKey({
+        directory,
+        files: hint.files,
+        dirs: hint.dirs,
+      })
+      if (hinted === key) return
+      hinted = key
+      void sdk.client.global.watcherHint.set({
+        id: lease,
+        directory,
+        files: hint.files,
+        dirs: hint.dirs,
+      }).catch(() => undefined)
     })
 
     const evictContent = (keep?: Set<string>) => {

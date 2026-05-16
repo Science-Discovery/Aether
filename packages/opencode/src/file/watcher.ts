@@ -13,6 +13,7 @@ import { Flag } from "@/flag/flag"
 import { Git } from "@/git"
 import { Installation } from "@/installation"
 import { ActiveDirectory } from "@/project/active-directory"
+import { WatcherHint } from "@/project/watcher-hint"
 import { Instance } from "@/project/instance"
 import { lazy } from "@/util/lazy"
 import { Config } from "../config/config"
@@ -133,6 +134,10 @@ export namespace FileWatcher {
     readonly init: () => Effect.Effect<void>
   }
 
+  type Subscription = ParcelWatcher.AsyncSubscription & {
+    readonly sync?: (dirs: string[]) => Promise<void>
+  }
+
   export class Service extends ServiceMap.Service<Service, Interface>()("@opencode/FileWatcher") {}
 
   export const layer = Layer.effect(
@@ -186,7 +191,12 @@ export namespace FileWatcher {
               }
             })
 
-            const subscribe = async (dir: string, ignore: string[], kind: "worktree" | "git") => {
+            const subscribe = async (
+              dir: string,
+              ignore: string[],
+              kind: "worktree" | "git",
+              fallback?: (reason: "timeout" | "error") => Promise<Subscription | undefined>,
+            ) => {
               const item = cool(dir)
               if (item) {
                 log.warn("subscribe skipped during cooldown", {
@@ -307,6 +317,12 @@ export namespace FileWatcher {
                   cause: error instanceof Error ? error.stack ?? error.message : error,
                 })
                 input.cancel?.()
+                const sub = await fallback?.(reason)
+                if (sub) {
+                  state = "ok"
+                  subs.add(sub)
+                  return sub
+                }
                 await Effect.runPromise(limited(dir, reason))
                 return
               } finally {
@@ -330,13 +346,15 @@ export namespace FileWatcher {
                 ? (yield* Effect.promise(() => readdir(vcsDir).catch(() => []))).filter((entry) => entry !== "HEAD")
                 : undefined
 
-            let worktree: ParcelWatcher.AsyncSubscription | undefined
-            let git: ParcelWatcher.AsyncSubscription | undefined
+            let worktree: Subscription | undefined
+            let limitedWorktree: Subscription | undefined
+            let git: Subscription | undefined
             let queue = Promise.resolve()
+            let degraded = false
 
             const stop = async (
-              sub: ParcelWatcher.AsyncSubscription | undefined,
-              kind: "worktree" | "git",
+              sub: Subscription | undefined,
+              kind: "worktree" | "git" | "limited",
               reason: string,
             ) => {
               if (!sub) return
@@ -357,25 +375,57 @@ export namespace FileWatcher {
               })
             }
 
+            const limitedChild = async (reason?: "timeout" | "error") => {
+              degraded = true
+              if (reason) {
+                await Effect.runPromise(limited(Instance.directory, reason))
+              }
+              return child({
+                dir: Instance.directory,
+                ignore,
+                filter,
+                backend,
+                cb,
+                mode: "limited",
+                dirs: WatcherHint.watch(Instance.directory),
+              }).pending
+            }
+
             const sync = async () => {
               const active = ActiveDirectory.has(Instance.directory)
+              const hinted = WatcherHint.watch(Instance.directory)
               log.info("sync watcher activity", {
                 directory: Instance.directory,
                 enabled,
                 active,
+                degraded,
+                hinted: hinted.length,
                 active_directory: ActiveDirectory.get(),
                 active_directories: ActiveDirectory.list(),
                 leases: ActiveDirectory.count(Instance.directory),
                 worktree: !!worktree,
+                limited: !!limitedWorktree,
                 git: !!git,
               })
 
               if (!enabled || !active) {
                 await stop(worktree, "worktree", !enabled ? "disabled" : "lease-missing")
                 worktree = undefined
+                await stop(limitedWorktree, "limited", !enabled ? "disabled" : "lease-missing")
+                limitedWorktree = undefined
               }
-              if (enabled && active && !worktree) {
-                worktree = await subscribe(Instance.directory, ignore, "worktree")
+              if (enabled && active && !worktree && !degraded) {
+                worktree = await subscribe(Instance.directory, ignore, "worktree", async (reason) => {
+                  limitedWorktree = await limitedChild(reason)
+                  return limitedWorktree
+                })
+              }
+              if (enabled && active && degraded) {
+                if (!limitedWorktree) {
+                  limitedWorktree = await limitedChild()
+                } else {
+                  await limitedWorktree.sync?.(hinted)
+                }
               }
               if (!enabled) {
                 log.info("worktree watcher disabled", { directory: Instance.directory })
@@ -405,10 +455,13 @@ export namespace FileWatcher {
             }
 
             const off = ActiveDirectory.subscribe(Instance.bind(() => void run()))
+            const offHint = WatcherHint.subscribe(Instance.bind(() => void run()))
             yield* Effect.addFinalizer(() =>
               Effect.promise(async () => {
                 off()
+                offHint()
                 await stop(worktree, "worktree", "finalizer")
+                await stop(limitedWorktree, "limited", "finalizer")
                 await stop(git, "git", "finalizer")
                 await queue
               }),
@@ -443,6 +496,8 @@ export namespace FileWatcher {
     filter: string[]
     backend: ParcelWatcher.BackendType
     cb: ParcelWatcher.SubscribeCallback
+    mode?: "full" | "limited"
+    dirs?: string[]
   }) {
     const abort = new AbortController()
     const file = requireSidecar()
@@ -463,15 +518,19 @@ export namespace FileWatcher {
     })
     if (!proc.stdout || !proc.stderr) throw new Error("watcher child output not available")
     if (!proc.stdin) throw new Error("watcher child input not available")
-    proc.stdin.end(
-      JSON.stringify({
-        v: 1,
-        type: "start",
-        root: input.dir,
-        ignore: input.ignore,
-        filter: input.filter,
-      }) + "\n",
-    )
+    const send = (msg: Record<string, unknown>) => {
+      if (proc.stdin?.destroyed || abort.signal.aborted) return
+      proc.stdin.write(JSON.stringify(msg) + "\n")
+    }
+    send({
+      v: 1,
+      type: "start",
+      root: input.dir,
+      ignore: input.ignore,
+      filter: input.filter,
+      mode: input.mode ?? "full",
+      dirs: input.dirs ?? [],
+    })
 
     const stderr = createInterface({
       input: proc.stderr,
@@ -540,6 +599,15 @@ export namespace FileWatcher {
             unsubscribe() {
               reason = "unsubscribe"
               return stop()
+            },
+            sync(dirs) {
+              reason = "sync"
+              send({
+                v: 1,
+                type: "sync",
+                dirs,
+              })
+              return Promise.resolve()
             },
           })
           return

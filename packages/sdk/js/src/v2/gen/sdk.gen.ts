@@ -120,6 +120,8 @@ import type {
   GlobalSyncEventSubscribeResponses,
   GlobalUpgradeErrors,
   GlobalUpgradeResponses,
+  GlobalWatcherHintSetErrors,
+  GlobalWatcherHintSetResponses,
   GlobalWebUpdateCheckErrors,
   GlobalWebUpdateCheckResponses,
   GlobalWebUpdateCurrentResponses,
@@ -660,6 +662,51 @@ export class ActiveDirectory extends HeyApiClient {
   }
 }
 
+export class WatcherHint extends HeyApiClient {
+  /**
+   * Set watcher hint
+   *
+   * Store the current limited watcher hint snapshot for a browser lease so Linux fallback watchers can watch open file parents and expanded directories.
+   */
+  public set<ThrowOnError extends boolean = false>(
+    parameters?: {
+      id?: string
+      directory?: string
+      files?: Array<string>
+      dirs?: Array<string>
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "body", key: "id" },
+            { in: "body", key: "directory" },
+            { in: "body", key: "files" },
+            { in: "body", key: "dirs" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      GlobalWatcherHintSetResponses,
+      GlobalWatcherHintSetErrors,
+      ThrowOnError
+    >({
+      url: "/global/watcher-hint",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+}
+
 export class SyncEvent extends HeyApiClient {
   /**
    * Subscribe to global sync events
@@ -821,6 +868,11 @@ export class Global extends HeyApiClient {
   private _activeDirectory?: ActiveDirectory
   get activeDirectory(): ActiveDirectory {
     return (this._activeDirectory ??= new ActiveDirectory({ client: this.client }))
+  }
+
+  private _watcherHint?: WatcherHint
+  get watcherHint(): WatcherHint {
+    return (this._watcherHint ??= new WatcherHint({ client: this.client }))
   }
 
   private _syncEvent?: SyncEvent
