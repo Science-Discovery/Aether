@@ -264,7 +264,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        if: inputs.upload_downloadbeta || inputs.release_electron
+        with:
+          fetch-depth: 0
 
       - uses: ./.github/actions/setup-bun
         if: inputs.upload_downloadbeta || inputs.release_electron
@@ -311,3 +312,23 @@ jobs:
           DOWNLOAD_ADMIN_PASSWORD: ${{ secrets.DOWNLOAD_ADMIN_PASSWORD }}
           DOWNLOAD_BETA_VERSION: ${{ needs.release.outputs.version }}
         run: bun .github/scripts/upload-downloadbeta.ts
+
+      - name: Create release tag
+        run: |
+          tag="${{ needs.release.outputs.tag }}"
+          sha="${{ github.sha }}"
+
+          git fetch origin "refs/tags/$tag:refs/tags/$tag" || true
+
+          if git rev-parse "$tag" >/dev/null 2>&1; then
+            current="$(git rev-list -n 1 "$tag")"
+            if [ "$current" != "$sha" ]; then
+              echo "Tag $tag already points to $current, expected $sha"
+              exit 1
+            fi
+            echo "Tag $tag already points to $sha"
+            exit 0
+          fi
+
+          git tag "$tag" "$sha"
+          git push origin "refs/tags/$tag"
