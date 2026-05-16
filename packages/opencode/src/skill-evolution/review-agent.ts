@@ -5,6 +5,7 @@ import { SKILL_REVIEW_PROMPT_BASE } from "./constants"
 import { Log } from "@/util/log"
 import { Database } from "@/storage/db"
 import { ProjectIdentity } from "@/project/identity"
+import { Project } from "@/project/project"
 import { ProjectID } from "@/project/schema"
 import { SessionID, TreeID } from "@/session/schema"
 import { Slug } from "@opencode-ai/util/slug"
@@ -21,24 +22,6 @@ const MAX_REVIEW_ROUNDS = 20
 /** Stable project ID for the skill-sessions project, derived from its directory path. */
 function skillSessionsProjectId(): ProjectID {
   return ProjectID.fromDirectory(ProjectIdentity.norm(SKILL_SESSIONS_ROOT))
-}
-
-/**
- * Ensure the skill-sessions project DB is open and has a project row.
- * Writes only 2 rows (project + nothing if already exists); zero invasive changes to session/index.ts.
- */
-function ensureSkillSessionsDb(projectId: ProjectID): void {
-  if (!Database.hasProject(projectId)) {
-    Database.attach(projectId)
-  }
-  const db = Database.projectClient(projectId)
-  const now = Date.now()
-  db.$client
-    .prepare(
-      `INSERT OR IGNORE INTO project (id, worktree, name, sandboxes, time_created, time_updated)
-       VALUES (?, ?, ?, ?, ?, ?)`,
-    )
-    .run(projectId, SKILL_SESSIONS_ROOT, "skill-sessions", "[]", now, now)
 }
 
 /**
@@ -193,7 +176,7 @@ export async function spawnReview(input: {
 
     await fs.mkdir(SKILL_SESSIONS_ROOT, { recursive: true })
     const skillProjectId = skillSessionsProjectId()
-    ensureSkillSessionsDb(skillProjectId)
+    await Project.fromDirectory(SKILL_SESSIONS_ROOT)
 
     // Dynamically import to avoid circular deps and keep startup cost low
     const { Instance } = await import("@/project/instance")
