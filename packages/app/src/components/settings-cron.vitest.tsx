@@ -4,11 +4,21 @@ import { render } from "solid-js/web"
 const state = vi.hoisted(() => ({
   now: 1_777_000_000_000,
   runCalls: [] as string[],
+  assistantCalls: [] as Array<{ instruction: string; selectedID?: string; projectID?: string; sessionID?: string }>,
+  assistantReject: false,
   deleteCalls: [] as string[],
   configUpdates: [] as Array<{ cron?: { enabled?: boolean } }>,
+  toasts: [] as Array<{ title?: string; description?: string }>,
   listCalls: 0,
   runsCalls: [] as Array<{ id: string; count?: number }>,
+  navigateCalls: [] as string[],
+  loadSessionsCalls: [] as Array<{ directory: string; force?: boolean }>,
+  peekCalls: [] as Array<{ directory: string; bootstrap?: boolean }>,
+  serverOpenCalls: [] as string[],
   globalCronEnabled: true,
+  routeDir: "encoded_project" as string | undefined,
+  routeID: "session_1" as string | undefined,
+  currentProjectID: "project_current",
   jobs: [
     {
       definition: {
@@ -86,9 +96,35 @@ vi.mock("@/context/language", () => ({
   }),
 }))
 
+vi.mock("@solidjs/router", () => ({
+  useNavigate: () => (href: string) => {
+    state.navigateCalls.push(href)
+  },
+  useParams: () => ({
+    dir: state.routeDir,
+    id: state.routeID,
+  }),
+}))
+
+vi.mock("@/utils/base64", () => ({
+  decode64: (value: string | undefined) => (value === "encoded_project" ? "/tmp/project" : undefined),
+}))
+
+vi.mock("@opencode-ai/util/encode", () => ({
+  base64Encode: (value: string) => `encoded_${value.split("/").filter(Boolean).join("_")}`,
+}))
+
 vi.mock("@/context/global-sync", async () => {
   const { createStore } = await import("solid-js/store")
   const [data, setData] = createStore({
+    project: [
+      {
+        id: "project_1",
+        worktree: "/tmp/project",
+        time: { created: 0, updated: 0 },
+        sandboxes: [],
+      },
+    ],
     config: {
       cron: {
         enabled: state.globalCronEnabled,
@@ -108,13 +144,41 @@ vi.mock("@/context/global-sync", async () => {
         return data.config
       },
       bootstrap: async () => undefined,
+      peek: (directory: string, options?: { bootstrap?: boolean }) => {
+        state.peekCalls.push({ directory, bootstrap: options?.bootstrap })
+      },
+      project: {
+        loadSessions: async (directory: string, options?: { force?: boolean }) => {
+          state.loadSessionsCalls.push({ directory, force: options?.force })
+        },
+      },
     }),
   }
 })
 
+vi.mock("@/context/server", () => ({
+  useServer: () => ({
+    projects: {
+      open: (directory: string) => {
+        state.serverOpenCalls.push(directory)
+      },
+    },
+  }),
+}))
+
 vi.mock("@/context/global-sdk", () => ({
   useGlobalSDK: () => ({
     client: {
+      project: {
+        current: async () => ({
+          data: {
+            id: state.currentProjectID,
+            worktree: "/tmp/current",
+            time: { created: 0, updated: 0 },
+            sandboxes: [],
+          },
+        }),
+      },
       cron: {
         jobs: {
           list: async () => {
@@ -145,6 +209,30 @@ vi.mock("@/context/global-sdk", () => ({
               },
             }
           },
+          assistant: async (input: {
+            instruction: string
+            selectedID?: string
+            projectID?: string
+            sessionID?: string
+          }) => {
+            state.assistantCalls.push(input)
+            if (state.assistantReject) {
+              return {
+                data: {
+                  action: "reject",
+                  summary: "cannot create cron",
+                  job: null,
+                },
+              }
+            }
+            return {
+              data: {
+                action: input.selectedID ? "update" : "create",
+                summary: "assistant ok",
+                job: state.jobs[0],
+              },
+            }
+          },
         },
       },
     },
@@ -152,8 +240,8 @@ vi.mock("@/context/global-sdk", () => ({
 }))
 
 vi.mock("@opencode-ai/ui/button", () => ({
-  Button: (props: { children?: unknown; disabled?: boolean; onClick?: () => void }) => (
-    <button type="button" disabled={props.disabled} onClick={props.onClick}>
+  Button: (props: { children?: unknown; disabled?: boolean; onClick?: () => void; "data-testid"?: string }) => (
+    <button type="button" data-testid={props["data-testid"]} disabled={props.disabled} onClick={props.onClick}>
       {props.children}
     </button>
   ),
@@ -172,7 +260,9 @@ vi.mock("@opencode-ai/ui/switch", () => ({
 }))
 
 vi.mock("@opencode-ai/ui/toast", () => ({
-  showToast: () => undefined,
+  showToast: (input: { title?: string; description?: string }) => {
+    state.toasts.push(input)
+  },
 }))
 
 import { SettingsCron } from "./settings-cron"
@@ -193,11 +283,21 @@ async function flush() {
 beforeEach(() => {
   document.body.innerHTML = ""
   state.runCalls = []
+  state.assistantCalls = []
+  state.assistantReject = false
   state.deleteCalls = []
   state.configUpdates = []
+  state.toasts = []
   state.listCalls = 0
   state.runsCalls = []
+  state.navigateCalls = []
+  state.loadSessionsCalls = []
+  state.peekCalls = []
+  state.serverOpenCalls = []
   state.globalCronEnabled = true
+  state.routeDir = "encoded_project"
+  state.routeID = "session_1"
+  state.currentProjectID = "project_current"
   state.jobs = [
     {
       definition: {
@@ -256,10 +356,10 @@ beforeEach(() => {
       finished_at: state.now + 10,
       status: "success",
       output_summary: "debug_noop executed",
-      mode: "direct",
-      project_id: null,
-      session_id: null,
-      created_session_id: null,
+      mode: "isolated_agent",
+      project_id: "project_1",
+      session_id: "session_created",
+      created_session_id: "session_created",
       payload_snapshot: { action: "debug_noop" },
       trigger_reason: "manual",
     },
@@ -283,14 +383,29 @@ describe("settings cron", () => {
     expect(host.textContent).toContain("Nightly direct")
     expect(host.textContent).toContain("Expired once")
     expect(host.textContent).toContain("settings.cron.scheduler.running")
+    ;([...host.querySelectorAll("[data-action='settings-cron-select']")] as HTMLButtonElement[])[0]?.click()
+    await flush()
+
     expect(host.textContent).toContain("debug_noop executed")
     expect(state.runsCalls[0]).toEqual({ id: "job_1", count: 10 })
+    const open = [...host.querySelectorAll("button")].find(
+      (button) => button.textContent === "settings.cron.action.openSession",
+    )
+    expect(open).toBeTruthy()
+    open?.click()
+    await flush()
+    expect(state.serverOpenCalls).toContain("/tmp/project")
+    expect(state.peekCalls).toContainEqual({ directory: "/tmp/project", bootstrap: true })
+    expect(state.loadSessionsCalls).toContainEqual({ directory: "/tmp/project", force: true })
+    expect(state.navigateCalls).toEqual(["/encoded_tmp_project/session/session_created"])
 
     off()
   })
 
   test("run now and delete call cron API and refresh jobs", async () => {
     const { host, off } = mount()
+    await flush()
+    ;([...host.querySelectorAll("[data-action='settings-cron-select']")] as HTMLButtonElement[])[0]?.click()
     await flush()
 
     const run = [...host.querySelectorAll("button")].find((button) => button.textContent === "settings.cron.action.runNow")
@@ -324,6 +439,111 @@ describe("settings cron", () => {
     expect(state.configUpdates).toEqual([{ cron: { enabled: false } }])
     expect(host.textContent).toContain("settings.cron.global.disabledHint")
 
+    off()
+  })
+
+  test("cron assistant hint targets the selected job and submits instruction", async () => {
+    const { host, off } = mount()
+    await flush()
+
+    expect(host.textContent).toContain("settings.cron.assistant.create")
+    ;([...host.querySelectorAll("[data-action='settings-cron-select']")] as HTMLButtonElement[])[0]?.click()
+    await flush()
+
+    expect(host.textContent).toContain("settings.cron.assistant.update")
+    expect(host.textContent).toContain("Nightly direct")
+
+    const input = host.querySelector("[data-testid='settings-cron-assistant-input']") as HTMLTextAreaElement
+    input.value = "把这个任务改成每天四点"
+    input.dispatchEvent(new Event("input", { bubbles: true }))
+    ;(host.querySelector("[data-testid='settings-cron-assistant-submit']") as HTMLButtonElement).click()
+    await flush()
+
+    expect(state.assistantCalls.at(-1)).toEqual({
+      instruction: "把这个任务改成每天四点",
+      selectedID: "job_1",
+      projectID: "project_1",
+      sessionID: "session_1",
+    })
+    off()
+  })
+
+  test("clicking blank space clears the selected cron job", async () => {
+    const { host, off } = mount()
+    await flush()
+
+    ;([...host.querySelectorAll("[data-action='settings-cron-select']")] as HTMLButtonElement[])[0]?.click()
+    await flush()
+    expect(host.textContent).toContain("settings.cron.assistant.update")
+    expect(host.textContent).toContain("settings.cron.action.runNow")
+
+    ;(host.querySelector("[data-testid='settings-cron-root']") as HTMLDivElement).click()
+    await flush()
+
+    expect(host.textContent).toContain("settings.cron.assistant.create")
+    expect(host.textContent).not.toContain("settings.cron.action.runNow")
+    off()
+  })
+
+  test("cron assistant hint creates a new job when no job is selected", async () => {
+    const { host, off } = mount()
+    await flush()
+
+    expect(host.textContent).toContain("settings.cron.assistant.create")
+    expect(host.textContent).not.toContain("settings.cron.assistant.update")
+
+    const input = host.querySelector("[data-testid='settings-cron-assistant-input']") as HTMLTextAreaElement
+    input.value = "每天早上九点提醒我写日报"
+    input.dispatchEvent(new Event("input", { bubbles: true }))
+    ;(host.querySelector("[data-testid='settings-cron-assistant-submit']") as HTMLButtonElement).click()
+    await flush()
+
+    expect(state.assistantCalls.at(-1)).toEqual({
+      instruction: "每天早上九点提醒我写日报",
+      selectedID: undefined,
+      projectID: "project_1",
+      sessionID: "session_1",
+    })
+    off()
+  })
+
+  test("cron assistant falls back to the current project when there is no current session route", async () => {
+    state.routeDir = undefined
+    state.routeID = undefined
+    const { host, off } = mount()
+    await flush()
+
+    const input = host.querySelector("[data-testid='settings-cron-assistant-input']") as HTMLTextAreaElement
+    input.value = "每天早上九点提醒我写日报"
+    input.dispatchEvent(new Event("input", { bubbles: true }))
+    ;(host.querySelector("[data-testid='settings-cron-assistant-submit']") as HTMLButtonElement).click()
+    await flush()
+
+    expect(state.assistantCalls.at(-1)).toEqual({
+      instruction: "每天早上九点提醒我写日报",
+      selectedID: undefined,
+      projectID: "project_current",
+      sessionID: undefined,
+    })
+    off()
+  })
+
+  test("cron assistant shows a not-created toast when the assistant rejects a request", async () => {
+    state.assistantReject = true
+    const { host, off } = mount()
+    await flush()
+
+    const input = host.querySelector("[data-testid='settings-cron-assistant-input']") as HTMLTextAreaElement
+    input.value = "随便聊聊"
+    input.dispatchEvent(new Event("input", { bubbles: true }))
+    ;(host.querySelector("[data-testid='settings-cron-assistant-submit']") as HTMLButtonElement).click()
+    await flush()
+
+    expect(state.toasts.at(-1)).toEqual({
+      title: "settings.cron.assistant.toast.rejected",
+      description: "cannot create cron",
+    })
+    expect(input.value).toBe("随便聊聊")
     off()
   })
 })

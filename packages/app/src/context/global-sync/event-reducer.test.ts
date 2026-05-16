@@ -131,6 +131,36 @@ describe("applyGlobalEvent", () => {
 
     expect(refreshCount).toBe(1)
   })
+
+  test("upserts a project from session.created when the project is missing", () => {
+    const project = [{ id: "a", worktree: "/tmp/a", sandboxes: [], time: { created: 1, updated: 1 } }] as Project[]
+    applyGlobalEvent({
+      event: {
+        type: "session.created",
+        properties: {
+          info: {
+            id: "ses_1",
+            projectID: "b",
+            directory: "/tmp/b",
+            title: "Cron reminder",
+            time: { created: 10, updated: 10 },
+          },
+        },
+      },
+      project,
+      refresh() {},
+      setGlobalProject(next) {
+        if (typeof next === "function") next(project)
+      },
+    })
+
+    expect(project.map((x) => [x.id, x.worktree])).toEqual([
+      ["a", "/tmp/a"],
+      ["b", "/tmp/b"],
+    ])
+    expect(project[1]?.time).toEqual({ created: 10, updated: 10 })
+    expect(project[1]?.sandboxes).toEqual([])
+  })
 })
 
 describe("applyDirectoryEvent", () => {

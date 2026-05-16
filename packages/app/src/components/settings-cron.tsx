@@ -1,10 +1,15 @@
-import { type Component, For, Show, createEffect, createMemo, createResource, createSignal } from "solid-js"
+import { type Component, For, Show, createEffect, createMemo, createResource, createSignal, onMount } from "solid-js"
+import { useNavigate, useParams } from "@solidjs/router"
 import { Button } from "@opencode-ai/ui/button"
 import { Switch } from "@opencode-ai/ui/switch"
 import { showToast } from "@opencode-ai/ui/toast"
+import { base64Encode } from "@opencode-ai/util/encode"
 import { useGlobalSDK } from "@/context/global-sdk"
 import { useGlobalSync } from "@/context/global-sync"
+import { normalizeDir } from "@/context/global-sync/utils"
 import { useLanguage } from "@/context/language"
+import { useServer } from "@/context/server"
+import { decode64 } from "@/utils/base64"
 
 type CronMode = "direct" | "isolated_agent" | "session_agent" | "agent_message"
 type CronScheduleType = "cron" | "interval" | "once"
@@ -94,12 +99,27 @@ function formatPayload(input: Record<string, unknown>) {
 }
 
 export const SettingsCron: Component = () => {
+  const params = useParams()
+  const navigate = useNavigate()
   const sdk = useGlobalSDK()
   const globalSync = useGlobalSync()
   const language = useLanguage()
+  const server = useServer()
   const [selectedID, setSelectedID] = createSignal<string>()
   const [busyID, setBusyID] = createSignal<string>()
   const [updatingGlobal, setUpdatingGlobal] = createSignal(false)
+  const [assistantText, setAssistantText] = createSignal("")
+  const [assistantBusy, setAssistantBusy] = createSignal(false)
+  const [currentProjectID, setCurrentProjectID] = createSignal<string>()
+
+  onMount(() => {
+    void sdk.client.project
+      .current()
+      .then((result) => {
+        if (result.data?.id) setCurrentProjectID(result.data.id)
+      })
+      .catch(() => undefined)
+  })
 
   const cronEnabled = createMemo(() => {
     const config = globalSync.data.config as Record<string, unknown>
@@ -143,6 +163,38 @@ export const SettingsCron: Component = () => {
   })
 
   const selected = createMemo(() => jobs()?.find((job) => job.definition.id === selectedID()))
+  const assistantContext = createMemo(() => {
+    const directory = decode64(params.dir)
+    const project = directory
+      ? globalSync.data.project.find((item) => normalizeDir(item.worktree) === normalizeDir(directory))
+      : undefined
+    return {
+      projectID: project?.id ?? currentProjectID(),
+      sessionID: params.id || undefined,
+    }
+  })
+  const assistantHint = createMemo(() => {
+    const job = selected()
+    if (!job) return language.t("settings.cron.assistant.create")
+    return language.t("settings.cron.assistant.update", { name: job.definition.name })
+  })
+  const sessionTarget = (projectID: string | null | undefined, sessionID: string | null | undefined) => {
+    if (!projectID || !sessionID) return
+    const project = globalSync.data.project.find((item) => item.id === projectID)
+    if (!project?.worktree) return
+    return {
+      directory: project.worktree,
+      href: `/${base64Encode(project.worktree)}/session/${sessionID}`,
+    }
+  }
+  const openSession = async (projectID: string | null | undefined, sessionID: string | null | undefined) => {
+    const target = sessionTarget(projectID, sessionID)
+    if (!target) return
+    server.projects.open(target.directory)
+    globalSync.peek(target.directory, { bootstrap: true })
+    await globalSync.project.loadSessions(target.directory, { force: true }).catch(() => undefined)
+    navigate(target.href)
+  }
   const [runs, runActions] = createResource(selectedID, async (id) => {
     if (!id) return [] as CronRun[]
     const result = await sdk.client.cron.jobs.runs({ id, count: 10 })
@@ -156,8 +208,8 @@ export const SettingsCron: Component = () => {
       return
     }
     const current = selectedID()
-    if (!current || !list.some((job) => job.definition.id === current)) {
-      setSelectedID(list[0]?.definition.id)
+    if (current && !list.some((job) => job.definition.id === current)) {
+      setSelectedID(undefined)
     }
   })
 
@@ -174,6 +226,43 @@ export const SettingsCron: Component = () => {
   const refresh = async () => {
     await jobActions.refetch()
     await runActions.refetch()
+  }
+
+  const submitAssistant = async () => {
+    const instruction = assistantText().trim()
+    if (!instruction) return
+
+    setAssistantBusy(true)
+    await sdk.client.cron.jobs
+      .assistant({
+        instruction,
+        selectedID: selected()?.definition.id,
+        projectID: assistantContext().projectID,
+        sessionID: assistantContext().sessionID,
+      })
+      .then(async (result) => {
+        const data = result.data
+        if (data?.action === "reject") {
+          showToast({
+            title: language.t("settings.cron.assistant.toast.rejected"),
+            description: data.summary,
+          })
+          return
+        }
+        if (data?.job?.definition.id) setSelectedID(data.job.definition.id)
+        setAssistantText("")
+        showToast({
+          title: data?.summary ?? language.t("settings.cron.assistant.toast.done"),
+        })
+        await refresh()
+      })
+      .catch((error: unknown) => {
+        showToast({
+          title: language.t("common.requestFailed"),
+          description: error instanceof Error ? error.message : String(error),
+        })
+      })
+      .finally(() => setAssistantBusy(false))
   }
 
   const runNow = async (id: string) => {
@@ -216,8 +305,19 @@ export const SettingsCron: Component = () => {
       .finally(() => setBusyID(undefined))
   }
 
+  const clearSelectionOnBlankClick = (event: MouseEvent) => {
+    const target = event.target
+    if (!(target instanceof Element)) return
+    if (target.closest("[data-cron-interactive]")) return
+    setSelectedID(undefined)
+  }
+
   return (
-    <div class="flex h-full flex-col overflow-y-auto no-scrollbar px-4 pb-10 sm:px-10 sm:pb-10">
+    <div
+      data-testid="settings-cron-root"
+      class="flex h-full flex-col overflow-y-auto no-scrollbar px-4 pb-10 sm:px-10 sm:pb-10"
+      onClick={clearSelectionOnBlankClick}
+    >
       <div class="sticky top-0 z-10 bg-[linear-gradient(to_bottom,var(--surface-stronger-non-alpha)_calc(100%_-_24px),transparent)]">
         <div class="flex flex-col gap-1 pt-6 pb-8">
           <h2 class="text-16-medium text-text-strong">{language.t("settings.cron.title")}</h2>
@@ -226,7 +326,7 @@ export const SettingsCron: Component = () => {
       </div>
 
       <div class="flex w-full max-w-[920px] flex-col gap-5">
-        <div class="rounded-lg border border-border-weak-base bg-surface-raised-base p-4">
+        <div data-cron-interactive class="rounded-lg border border-border-weak-base bg-surface-raised-base p-4">
           <div class="flex flex-wrap items-center justify-between gap-4">
             <div class="flex min-w-0 flex-1 flex-col gap-0.5">
               <h3 class="text-14-medium text-text-strong">{language.t("settings.cron.global.title")}</h3>
@@ -245,7 +345,7 @@ export const SettingsCron: Component = () => {
           </Show>
         </div>
 
-        <div class="grid gap-3 sm:grid-cols-4">
+        <div data-cron-interactive class="grid gap-3 sm:grid-cols-4">
           <Metric title={language.t("settings.cron.metric.scheduler")} value={language.t("settings.cron.scheduler.running")} />
           <Metric
             title={language.t("settings.cron.metric.execution")}
@@ -255,7 +355,34 @@ export const SettingsCron: Component = () => {
           <Metric title={language.t("settings.cron.metric.running")} value={`${counts().running}`} />
         </div>
 
-        <div class="flex items-center justify-between">
+        <div data-cron-interactive class="rounded-lg border border-border-weak-base bg-surface-raised-base p-3">
+          <div class="flex flex-col gap-2">
+            <div class="text-12-medium text-text-strong">{assistantHint()}</div>
+            <div class="flex flex-col gap-2 sm:flex-row">
+              <textarea
+                data-testid="settings-cron-assistant-input"
+                class="min-h-9 flex-1 resize-none rounded-md border border-border-weak-base bg-surface-base px-3 py-2 text-12-regular text-text-strong outline-none placeholder:text-text-dim"
+                rows={2}
+                value={assistantText()}
+                placeholder={language.t("settings.cron.assistant.placeholder")}
+                onInput={(event) => setAssistantText(event.currentTarget.value)}
+              />
+              <Button
+                data-testid="settings-cron-assistant-submit"
+                size="small"
+                variant="secondary"
+                disabled={assistantBusy() || !assistantText().trim()}
+                onClick={() => void submitAssistant()}
+              >
+                {assistantBusy()
+                  ? language.t("settings.cron.assistant.submitting")
+                  : language.t("settings.cron.assistant.submit")}
+              </Button>
+            </div>
+          </div>
+        </div>
+
+        <div data-cron-interactive class="flex items-center justify-between">
           <div class="flex flex-col gap-0.5">
             <h3 class="text-14-medium text-text-strong">{language.t("settings.cron.section.jobs")}</h3>
             <span class="text-12-regular text-text-weak">
@@ -281,14 +408,14 @@ export const SettingsCron: Component = () => {
           </div>
         </Show>
         <Show when={!jobs.loading && !jobs.error && (jobs()?.length ?? 0) === 0}>
-          <div class="rounded-lg border border-border-weak-base bg-surface-raised-base p-4 text-12-regular text-text-weak">
+          <div data-cron-interactive class="rounded-lg border border-border-weak-base bg-surface-raised-base p-4 text-12-regular text-text-weak">
             {language.t("settings.cron.empty")}
           </div>
         </Show>
 
         <Show when={(jobs()?.length ?? 0) > 0}>
           <div class="grid gap-4 lg:grid-cols-[minmax(0,360px)_minmax(0,1fr)]">
-            <div class="flex flex-col gap-2">
+            <div data-cron-interactive class="flex flex-col gap-2">
               <For each={jobs() ?? []}>
                 {(job) => (
                   <button
@@ -325,7 +452,7 @@ export const SettingsCron: Component = () => {
 
             <Show when={selected()}>
               {(job) => (
-                <div class="flex min-w-0 flex-col gap-4 rounded-lg border border-border-weak-base bg-surface-base p-4">
+                <div data-cron-interactive class="flex min-w-0 flex-col gap-4 rounded-lg border border-border-weak-base bg-surface-base p-4">
                   <div class="flex flex-wrap items-start justify-between gap-3">
                     <div class="min-w-0">
                       <div class="text-15-medium text-text-strong">{job().definition.name}</div>
@@ -393,6 +520,15 @@ export const SettingsCron: Component = () => {
                               <span>
                                 {language.t("settings.cron.field.createdSession")}: {run.created_session_id ?? "-"}
                               </span>
+                              <Show when={sessionTarget(run.project_id, run.created_session_id ?? run.session_id)}>
+                                <Button
+                                  size="small"
+                                  variant="secondary"
+                                  onClick={() => void openSession(run.project_id, run.created_session_id ?? run.session_id)}
+                                >
+                                  {language.t("settings.cron.action.openSession")}
+                                </Button>
+                              </Show>
                             </div>
                           </div>
                         )}

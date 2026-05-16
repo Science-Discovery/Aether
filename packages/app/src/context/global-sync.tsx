@@ -403,6 +403,19 @@ function createGlobalSync() {
       return
     }
 
+    if (event.type === "session.created") {
+      applyGlobalEvent({
+        event,
+        project: globalStore.project,
+        refresh: () => {},
+        setGlobalProject: setProjects,
+      })
+      // Background automation can create sessions in projects that the UI has not
+      // bootstrapped yet. Ensure the child store exists before applying the
+      // session event so later stream deltas have a live target.
+      children.peek(directory, { bootstrap: true })
+    }
+
     const existing = children.getChild(directory)
     if (!existing) return
     children.mark(directory)

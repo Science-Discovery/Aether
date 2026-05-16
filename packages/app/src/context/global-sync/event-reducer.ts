@@ -23,6 +23,24 @@ export function applyGlobalEvent(input: {
   setGlobalProject: (next: Project[] | ((draft: Project[]) => void)) => void
   refresh: () => void
 }) {
+  if (input.event.type === "session.created") {
+    const info = (input.event.properties as { info?: Partial<Session> } | undefined)?.info
+    if (!info?.projectID || !info.directory) return
+    const created = info.time?.created ?? Date.now()
+    const updated = info.time?.updated ?? created
+    const result = Binary.search(input.project, info.projectID, (s) => s.id)
+    if (result.found) return
+    input.setGlobalProject((draft) => {
+      draft.splice(result.index, 0, {
+        id: info.projectID!,
+        worktree: info.directory!,
+        sandboxes: [],
+        time: { created, updated },
+      } as Project)
+    })
+    return
+  }
+
   if (input.event.type === "global.disposed" || input.event.type === "server.connected") {
     input.refresh()
     return

@@ -20,6 +20,7 @@ const actionName = (name: string) => `cron_test_${name}_${Date.now()}_${Math.ran
 async function resetCron() {
   await Cron.stop()
   Cron.resetAgentDispatcher()
+  Cron.resetAssistantGeneratorForTest()
   await Config.updateGlobal({ cron: { enabled: true } } as any)
   Database.useCron((db) => {
     db.delete(CronRunTable).run()
@@ -118,8 +119,29 @@ describe("Cron core", () => {
 
     expect(created.definition.id).toBeTruthy()
     expect(created.definition.enabled).toBe(true)
+    expect(created.definition.project_id).toBeNull()
+    expect(created.definition.session_id).toBeNull()
+    expect(typeof created.definition.timezone).toBe("string")
     expect(created.state.enabled).toBe(true)
     expect(typeof created.state.next_run_at).toBe("number")
+  })
+
+  test("createJob normalizes omitted defaults for global and interval jobs", async () => {
+    const created = await Cron.createJob({
+      name: "global interval",
+      mode: "direct",
+      schedule_type: "interval",
+      schedule_value: 60,
+      payload: {
+        action: "debug_noop",
+      },
+    })
+
+    expect(created.definition.enabled).toBe(true)
+    expect(created.definition.project_id).toBeNull()
+    expect(created.definition.session_id).toBeNull()
+    expect(created.definition.timezone).toBeNull()
+    expect(created.definition.payload).toEqual({ action: "debug_noop" })
   })
 
   test("createJob rejects caller-supplied id", async () => {
@@ -645,6 +667,175 @@ describe("Cron core", () => {
 })
 
 describe("Cron routes", () => {
+  test("server cron assistant route creates a job from a natural language instruction", async () => {
+    const action = actionName("assistant")
+    Cron.setAssistantGeneratorForTest(async () => ({
+      intent: "create",
+      summary: "Create a daily debug job.",
+      definition: {
+        name: "Assistant debug",
+        mode: "direct",
+        schedule_type: "cron",
+        schedule_value: "0 3 * * *",
+        payload: { action },
+      },
+    }))
+    Cron.registerDirectAction(action, async () => ({
+      output_summary: "assistant action done",
+    }))
+
+    const app = Server.createApp({})
+    const response = await app.request("/cron/assistant", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        instruction: "每天凌晨三点创建一个 debug 任务",
+      }),
+    })
+
+    expect(response.status).toBe(200)
+    const body = (await response.json()) as {
+      action: string
+      summary: string
+      job: { definition: { name: string; timezone: string } }
+    }
+    expect(body.action).toBe("create")
+    expect(body.summary).toContain("debug")
+    expect(body.job.definition.name).toBe("Assistant debug")
+    expect(typeof body.job.definition.timezone).toBe("string")
+
+    Cron.unregisterDirectAction(action)
+    Cron.resetAssistantGeneratorForTest()
+  })
+
+  test("server cron assistant route fills current project and session context for agent jobs", async () => {
+    let seen:
+      | {
+          project_id?: string
+          session_id?: string
+        }
+      | undefined
+    Cron.setAssistantGeneratorForTest(async (input) => {
+      seen = {
+        project_id: input.project_id,
+        session_id: input.session_id,
+      }
+      return {
+        intent: "create",
+        summary: "Create an agent reminder.",
+        definition: {
+          name: "Agent reminder",
+          mode: "agent_message",
+          schedule_type: "cron",
+          schedule_value: "0 9 * * *",
+          payload: { message: "提醒我写日报" },
+        },
+      }
+    })
+
+    const app = Server.createApp({})
+    const response = await app.request("/cron/assistant", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        instruction: "每天九点提醒我写日报",
+        project_id: "project_1",
+        session_id: "session_1",
+      }),
+    })
+
+    expect(response.status).toBe(200)
+    const body = (await response.json()) as {
+      action: string
+      job: { definition: { project_id: string; session_id: string } } | null
+    }
+    expect(seen).toEqual({ project_id: "project_1", session_id: "session_1" })
+    expect(body.action).toBe("create")
+    expect(body.job?.definition.project_id).toBe("project_1")
+    expect(body.job?.definition.session_id).toBe("session_1")
+
+    Cron.resetAssistantGeneratorForTest()
+  })
+
+  test("server cron assistant route downgrades session-bound assistant output when no session is available", async () => {
+    Cron.setAssistantGeneratorForTest(async () => ({
+      intent: "create",
+      summary: "Create an agent reminder.",
+      definition: {
+        name: "Agent reminder",
+        mode: "agent_message",
+        schedule_type: "cron",
+        schedule_value: "0 9 * * *",
+        payload: { message: "提醒我写日报" },
+      },
+    }))
+
+    const app = Server.createApp({})
+    const response = await app.request("/cron/assistant", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        instruction: "每天九点提醒我写日报",
+        project_id: "project_1",
+      }),
+    })
+
+    expect(response.status).toBe(200)
+    const body = (await response.json()) as {
+      action: string
+      job: { definition: { mode: string; project_id: string; session_id: string | null } } | null
+    }
+    expect(body.action).toBe("create")
+    expect(body.job?.definition.mode).toBe("isolated_agent")
+    expect(body.job?.definition.project_id).toBe("project_1")
+    expect(body.job?.definition.session_id).toBeNull()
+
+    Cron.resetAssistantGeneratorForTest()
+  })
+
+  test("server cron assistant route rejects invalid assistant output without a 500", async () => {
+    Cron.setAssistantGeneratorForTest(async () => ({
+      intent: "create",
+      summary: "Create an agent reminder.",
+      definition: {
+        name: "Agent reminder",
+        mode: "agent_message",
+        schedule_type: "cron",
+        schedule_value: "0 9 * * *",
+        payload: { message: "提醒我写日报" },
+      },
+    }))
+
+    const app = Server.createApp({})
+    const response = await app.request("/cron/assistant", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        instruction: "每天九点提醒我写日报",
+      }),
+    })
+
+    expect(response.status).toBe(200)
+    const body = (await response.json()) as {
+      action: string
+      summary: string
+      job: unknown
+    }
+    expect(body.action).toBe("reject")
+    expect(body.summary).toContain("project_id")
+    expect(body.job).toBeNull()
+
+    Cron.resetAssistantGeneratorForTest()
+  })
+
   test("server cron routes create, list, run, fetch runs, and delete jobs", async () => {
     const action = actionName("route")
     Cron.registerDirectAction(action, async () => ({
