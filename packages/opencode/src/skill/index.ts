@@ -1,3 +1,4 @@
+import fs from "fs/promises"
 import os from "os"
 import path from "path"
 import { pathToFileURL } from "url"
@@ -7,6 +8,7 @@ import { NamedError } from "@opencode-ai/util/error"
 import type { Agent } from "@/agent/agent"
 import { Bus } from "@/bus"
 import { InstanceState } from "@/effect/instance-state"
+import { Instance } from "@/project/instance"
 import { makeRuntime } from "@/effect/run-service"
 import { Flag } from "@/flag/flag"
 import { Global } from "@/global"
@@ -63,6 +65,133 @@ export namespace Skill {
     readonly all: () => Effect.Effect<Info[]>
     readonly dirs: () => Effect.Effect<string[]>
     readonly available: (agent?: Agent.Info) => Effect.Effect<Info[]>
+  }
+
+  function snapshotPath(directory: string) {
+    const dirSlug =
+      process.platform === "win32"
+        ? directory.replace(/[\\/]/g, "_").replace(/:/g, "").replace(/^_/, "")
+        : directory.replace(/\//g, "_").replace(/^_/, "")
+    return path.join(Global.Path.home, ".aether", "skill-snapshots", `${dirSlug}.json`)
+  }
+
+  async function readSnapshot(directory: string): Promise<Record<string, number> | null> {
+    try {
+      const content = await fs.readFile(snapshotPath(directory), "utf-8")
+      return JSON.parse(content) as Record<string, number>
+    } catch {
+      return null
+    }
+  }
+
+  async function writeSnapshot(directory: string, snapshot: Record<string, number>): Promise<void> {
+    const p = snapshotPath(directory)
+    await fs.mkdir(path.dirname(p), { recursive: true })
+    await fs.writeFile(p, JSON.stringify(snapshot, null, 2), "utf-8")
+  }
+
+  async function scanAllSkillPaths(directory: string, worktree: string, projectId: string): Promise<string[]> {
+    const paths: string[] = []
+
+    if (!Flag.OPENCODE_DISABLE_EXTERNAL_SKILLS) {
+      for (const dir of EXTERNAL_DIRS) {
+        const root = path.join(Global.Path.home, dir)
+        if (!(await Filesystem.isDir(root))) continue
+        const matches = await Glob.scan(EXTERNAL_SKILL_PATTERN, {
+          cwd: root,
+          absolute: true,
+          include: "file",
+          symlink: true,
+          dot: true,
+        }).catch(() => [])
+        paths.push(...matches)
+      }
+
+      const skillSessionsDir = path.join(Global.Path.home, ".aether", "skill-sessions", projectId, "skills")
+      if (await Filesystem.isDir(skillSessionsDir)) {
+        const matches = await Glob.scan(SKILL_PATTERN, {
+          cwd: skillSessionsDir,
+          absolute: true,
+          include: "file",
+          symlink: true,
+          dot: true,
+        }).catch(() => [])
+        paths.push(...matches)
+      }
+
+      const projectDirs: string[] = []
+      for await (const root of Filesystem.up({ targets: [...EXTERNAL_DIRS].reverse(), start: directory, stop: worktree })) {
+        projectDirs.push(root)
+      }
+      for (const root of projectDirs.toReversed()) {
+        const matches = await Glob.scan(EXTERNAL_SKILL_PATTERN, {
+          cwd: root,
+          absolute: true,
+          include: "file",
+          symlink: true,
+          dot: true,
+        }).catch(() => [])
+        paths.push(...matches)
+      }
+    }
+
+    const globalExternalDirs = new Set(EXTERNAL_DIRS.map((dir) => path.join(Global.Path.home, dir)))
+    for (const dir of await Config.directories()) {
+      if (globalExternalDirs.has(dir)) continue
+      const matches = await Glob.scan(OPENCODE_SKILL_PATTERN, {
+        cwd: dir,
+        absolute: true,
+        include: "file",
+        symlink: true,
+      }).catch(() => [])
+      paths.push(...matches)
+    }
+
+    const cfg = await Config.get()
+    for (const item of cfg.skills?.paths ?? []) {
+      const expanded = item.startsWith("~/") ? path.join(os.homedir(), item.slice(2)) : item
+      const dir = path.isAbsolute(expanded) ? expanded : path.join(directory, expanded)
+      if (!(await Filesystem.isDir(dir))) continue
+      const matches = await Glob.scan(SKILL_PATTERN, {
+        cwd: dir,
+        absolute: true,
+        include: "file",
+        symlink: true,
+      }).catch(() => [])
+      paths.push(...matches)
+    }
+
+    return paths
+  }
+
+  async function buildManifest(directory: string, worktree: string, projectId: string): Promise<Record<string, number>> {
+    const paths = await scanAllSkillPaths(directory, worktree, projectId)
+    const manifest: Record<string, number> = {}
+    for (const p of paths) {
+      const stat = await fs.stat(p).catch(() => null)
+      if (stat) manifest[p] = stat.mtimeMs
+    }
+    return manifest
+  }
+
+  // Returns false when snapshot is absent or stale (file added/modified/deleted).
+  // URL-pulled skills (stored in Global.Path.cache) are not rescanned from source;
+  // their local copies are still checked via the snapshot mtime entries.
+  async function isFresh(projectId: string, directory: string, worktree: string): Promise<boolean> {
+    const snapshot = await readSnapshot(directory)
+    if (!snapshot) return false
+
+    for (const [p, snapshotMtime] of Object.entries(snapshot)) {
+      const stat = await fs.stat(p).catch(() => null)
+      if (!stat || stat.mtimeMs !== snapshotMtime) return false
+    }
+
+    const currentPaths = await scanAllSkillPaths(directory, worktree, projectId)
+    for (const p of currentPaths) {
+      if (!(p in snapshot)) return false
+    }
+
+    return true
   }
 
   const add = async (state: State, match: string) => {
@@ -183,6 +312,10 @@ export namespace Skill {
         log.info("skill disabled by config", { name })
       }
     }
+
+    // Write mtime snapshot so isFresh() can detect external edits on the next access.
+    const snapshot = await buildManifest(directory, worktree, projectId)
+    await writeSnapshot(directory, snapshot)
   }
 
   export class Service extends ServiceMap.Service<Service, Interface>()("@opencode/Skill") {}
@@ -201,23 +334,33 @@ export namespace Skill {
         ),
       )
 
+      // Checks mtime snapshot before serving from cache so external edits to SKILL.md
+      // are picked up without restarting the instance.
+      const getState = Effect.fn("Skill.getState")(function* () {
+        const instance = Instance.current
+        const projectId = String(instance.project.id)
+        const fresh = yield* Effect.promise(() => isFresh(projectId, instance.directory, instance.worktree))
+        if (!fresh) yield* InstanceState.invalidate(state)
+        return yield* InstanceState.get(state)
+      })
+
       const get = Effect.fn("Skill.get")(function* (name: string) {
-        const s = yield* InstanceState.get(state)
+        const s = yield* getState()
         return s.skills[name]
       })
 
       const all = Effect.fn("Skill.all")(function* () {
-        const s = yield* InstanceState.get(state)
+        const s = yield* getState()
         return Object.values(s.skills)
       })
 
       const dirs = Effect.fn("Skill.dirs")(function* () {
-        const s = yield* InstanceState.get(state)
+        const s = yield* getState()
         return Array.from(s.dirs)
       })
 
       const available = Effect.fn("Skill.available")(function* (agent?: Agent.Info) {
-        const s = yield* InstanceState.get(state)
+        const s = yield* getState()
         const list = Object.values(s.skills).toSorted((a, b) => a.name.localeCompare(b.name))
         if (!agent) return list
         return list.filter((skill) => Permission.evaluate("skill", skill.name, agent.permission).action !== "deny")
