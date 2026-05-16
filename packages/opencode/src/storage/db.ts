@@ -10,13 +10,16 @@ import { NamedError } from "@opencode-ai/util/error"
 import z from "zod"
 import path from "path"
 import { createHash } from "crypto"
-import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, unlinkSync } from "fs"
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, unlinkSync, writeFileSync } from "fs"
 import { Database as BunSqlite } from "bun:sqlite"
+import { EOL } from "os"
 
 import { Installation } from "../installation"
 import { Flag } from "../flag/flag"
 import { iife } from "@/util/iife"
 import { init } from "#db"
+import { detectCorruption, quarantine, DbRecovery } from "./db-recovery"
+import type { CorruptionType } from "./db-recovery"
 
 declare const OPENCODE_MIGRATIONS: { sql: string; timestamp: number; name: string }[] | undefined
 
@@ -250,40 +253,19 @@ export namespace Database {
     log.info("opening database", { path: Path })
 
     return withInitLock(() => {
-      const db = init(Path)
-
-      db.run("PRAGMA journal_mode = WAL")
-      db.run("PRAGMA synchronous = NORMAL")
-      db.run("PRAGMA busy_timeout = 5000")
-      db.run("PRAGMA cache_size = -64000")
-      db.run("PRAGMA foreign_keys = ON")
-      db.run("PRAGMA wal_checkpoint(PASSIVE)")
-
-      const isNewDb = seedSplitMigration(db)
-      if (!isNewDb) seedAllMigrations(db)
-
-      const entries =
-        typeof OPENCODE_MIGRATIONS !== "undefined"
-          ? OPENCODE_MIGRATIONS
-          : migrations(path.join(import.meta.dirname, "../../migration"))
-      if (entries.length > 0) {
-        log.info("applying migrations", {
-          count: entries.length,
-          mode: typeof OPENCODE_MIGRATIONS !== "undefined" ? "bundled" : "dev",
+      const corruption = detectCorruption(Path)
+      if (corruption) {
+        const entry = quarantine(Path, "main")
+        log.error("main db corrupted, quarantining and recreating", {
+          corruptionType: entry.corruptionType,
+          quarantinePath: entry.quarantinePath,
         })
-        if (Flag.OPENCODE_SKIP_MIGRATIONS) {
-          for (const item of entries) {
-            item.sql = "select 1;"
-          }
-        }
-        migrate(db, entries)
+        process.stderr.write(`Main database corrupted (${entry.corruptionType}). Creating fresh database.${EOL}`)
+        process.stderr.write(`Corrupted file preserved at: ${entry.quarantinePath}${EOL}`)
+        process.stderr.write(`Auto-recovery will be attempted after startup.${EOL}`)
       }
 
-      if (isNewDb) postSplitFixupMain(db)
-
-      registerUntrackedProjects(db)
-
-      return db
+      return initAndSetup(Path)
     })
   })
 
@@ -307,6 +289,16 @@ export namespace Database {
   export const CronClient = lazy(() => {
     const p = cronPath()
     log.info("opening cron database", { path: p })
+
+    const corruption = detectCorruption(p)
+    if (corruption) {
+      const entry = quarantine(p, "cron")
+      log.error("cron db corrupted, quarantining and recreating", {
+        corruptionType: entry.corruptionType,
+        quarantinePath: entry.quarantinePath,
+      })
+    }
+
     const db = init(p)
     db.run("PRAGMA journal_mode = WAL")
     db.run("PRAGMA synchronous = NORMAL")
@@ -438,12 +430,39 @@ export namespace Database {
     if (entries.length > 0) migrate(db, entries)
   }
 
-  export function attach(projectId: string): DrizzleClient {
-    const existing = projectClients.get(projectId)
-    if (existing) return existing
-    const p = projectPath(projectId)
-    log.info("opening project database", { projectId, path: p })
-    const db = init(p)
+  function initAndSetup(dbPath: string): DrizzleClient {
+    const db = init(dbPath)
+    db.run("PRAGMA journal_mode = WAL")
+    db.run("PRAGMA synchronous = NORMAL")
+    db.run("PRAGMA busy_timeout = 5000")
+    db.run("PRAGMA cache_size = -64000")
+    db.run("PRAGMA foreign_keys = ON")
+    db.run("PRAGMA wal_checkpoint(PASSIVE)")
+    const isNewDb = seedSplitMigration(db)
+    if (!isNewDb) seedAllMigrations(db)
+    const entries =
+      typeof OPENCODE_MIGRATIONS !== "undefined"
+        ? OPENCODE_MIGRATIONS
+        : migrations(path.join(import.meta.dirname, "../../migration"))
+    if (entries.length > 0) {
+      log.info("applying migrations", {
+        count: entries.length,
+        mode: typeof OPENCODE_MIGRATIONS !== "undefined" ? "bundled" : "dev",
+      })
+      if (Flag.OPENCODE_SKIP_MIGRATIONS) {
+        for (const item of entries) {
+          item.sql = "select 1;"
+        }
+      }
+      migrate(db, entries)
+    }
+    if (isNewDb) postSplitFixupMain(db)
+    registerUntrackedProjects(db)
+    return db
+  }
+
+  function initAndSetupProject(dbPath: string): DrizzleClient {
+    const db = init(dbPath)
     db.run("PRAGMA journal_mode = WAL")
     db.run("PRAGMA synchronous = NORMAL")
     db.run("PRAGMA busy_timeout = 5000")
@@ -453,8 +472,26 @@ export namespace Database {
     if (!isNewProjDb) seedAllMigrations(db)
     applyMigrations(db)
     db.run("PRAGMA wal_checkpoint(PASSIVE)")
-    projectClients.set(projectId, db)
     return db
+  }
+
+  export function attach(projectId: string): DrizzleClient {
+    const existing = projectClients.get(projectId)
+    if (existing) return existing
+    const p = projectPath(projectId)
+    log.info("opening project database", { projectId, path: p })
+
+    try {
+      const db = initAndSetupProject(p)
+      projectClients.set(projectId, db)
+      return db
+    } catch (err) {
+      log.warn("project db failed to open, quarantining and recreating", { projectId, error: String(err) })
+      quarantine(p, "project", projectId)
+      const db = initAndSetupProject(p)
+      projectClients.set(projectId, db)
+      return db
+    }
   }
 
   export function detach(projectId: string) {
@@ -654,6 +691,7 @@ export namespace Database {
     const chDir = channelDir()
     const existingDbIds = new Set<string>()
     const validWorktreeKeys = new Set<string>()
+    const corruptedIds = new Set<string>()
     if (existsSync(chDir)) {
       const pattern = /^aether-(.+)\.db$/
       for (const entry of readdirSync(chDir)) {
@@ -667,32 +705,48 @@ export namespace Database {
 
     // Phase 1: For each project DB, backfill directory_meta from sessions + project_recent,
     //           then sync directory_meta → global_project_map + project_recent
+    //           Each project DB is handled independently — corruption in one does not block others.
     let synced = 0
     for (const pid of existingDbIds) {
       const fullPath = path.join(chDir, `aether-${pid}.db`)
-      const pSqlite = new BunSqlite(fullPath)
       try {
-        ensureDirectoryMeta(pSqlite, pid, recentLookup)
-        syncDirectoryMetaToGlobal(sqlite, pSqlite, pid)
-        const wt = pSqlite.prepare("SELECT worktree FROM project WHERE id = ?").get(pid) as
-          | { worktree: string }
-          | undefined
-        if (wt?.worktree && wt.worktree !== "/") validWorktreeKeys.add(`dir:${norm(wt.worktree)}`)
-        synced++
-      } finally {
-        pSqlite.close()
+        const corruption = detectCorruption(fullPath)
+        if (corruption) {
+          quarantine(fullPath, "project", pid)
+          corruptedIds.add(pid)
+          log.error("project db corrupted, quarantining", { pid, corruption })
+          continue
+        }
+
+        const pSqlite = new BunSqlite(fullPath)
+        try {
+          ensureDirectoryMeta(pSqlite, pid, recentLookup)
+          syncDirectoryMetaToGlobal(sqlite, pSqlite, pid)
+          const wt = pSqlite.prepare("SELECT worktree FROM project WHERE id = ?").get(pid) as
+            | { worktree: string }
+            | undefined
+          if (wt?.worktree && wt.worktree !== "/") validWorktreeKeys.add(`dir:${norm(wt.worktree)}`)
+          synced++
+        } finally {
+          pSqlite.close()
+        }
+      } catch (err) {
+        log.error("failed to process project db, quarantining", { pid, error: String(err) })
+        quarantine(fullPath, "project", pid)
+        corruptedIds.add(pid)
       }
     }
     if (synced > 0) log.info("directory_meta sync complete", { synced })
 
     // Phase 2: Delete project_recent entries whose project_id has no corresponding DB
     //          or whose directory is not the project's canonical worktree (e.g. sandbox dirs)
+    //          Corrupted project DBs are also treated as "no corresponding DB" for cleanup.
     const staleRows = sqlite
       .prepare("SELECT key, project_id FROM project_recent WHERE kind = 'project' AND project_id IS NOT NULL")
       .all() as { key: string; project_id: string }[]
     let removed = 0
     for (const row of staleRows) {
-      if (!existingDbIds.has(row.project_id) || !validWorktreeKeys.has(row.key)) {
+      if (!existingDbIds.has(row.project_id) || corruptedIds.has(row.project_id) || !validWorktreeKeys.has(row.key)) {
         sqlite.prepare("DELETE FROM project_recent WHERE key = ?").run(row.key)
         removed++
       }
@@ -700,13 +754,14 @@ export namespace Database {
     if (removed > 0) log.info("removed stale project_recent entries", { removed })
 
     // Phase 3: Delete global_project_map entries whose project_id has no corresponding DB
+    //          Corrupted project DBs are also cleaned from the map.
     const staleMap = sqlite.prepare("SELECT directory, project_id FROM global_project_map").all() as {
       directory: string
       project_id: string
     }[]
     let mapRemoved = 0
     for (const row of staleMap) {
-      if (!existingDbIds.has(row.project_id)) {
+      if (!existingDbIds.has(row.project_id) || corruptedIds.has(row.project_id)) {
         sqlite.prepare("DELETE FROM global_project_map WHERE directory = ?").run(row.directory)
         mapRemoved++
       }
