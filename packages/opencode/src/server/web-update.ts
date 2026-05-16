@@ -437,7 +437,8 @@ async function fetchManifest(os: z.infer<typeof WebUpdateOS>, version?: string) 
 
 function packageMatch(os: string, ver: string, name: string) {
   const ext = UPDATE_PKG_EXT[os] ?? ".dmg"
-  const prefix = os === "darwin" ? `aether-darwin-${arch()}` : os === "linux" ? `aether-linux-${arch()}` : "aether-windows-x64"
+  const prefix =
+    os === "darwin" ? `aether-darwin-${arch()}` : os === "linux" ? `aether-linux-${arch()}` : "aether-windows-x64"
   return name.startsWith(prefix) && name.includes(ver) && name.toLowerCase().endsWith(ext)
 }
 
@@ -727,6 +728,20 @@ export async function readWebCurrentVersion() {
     .then((x) => x.trim())
     .catch(() => "")
 
+  if (marker) return normalizeVersion(marker)
+
+  const fallback = normalizeVersion(Installation.VERSION)
+  await fs.writeFile(file, `${fallback}\n`, "utf-8").catch(() => undefined)
+  return fallback
+}
+
+export async function readWebUpdateHighestVersion() {
+  const file = path.join(getAppRoot(), ".aether_web_version")
+  const marker = await fs
+    .readFile(file, "utf-8")
+    .then((x) => x.trim())
+    .catch(() => "")
+
   const local = await scanLocalVersions()
   let best = ""
   for (const v of local) {
@@ -744,7 +759,7 @@ export async function readWebCurrentVersion() {
 export async function webCheck(os: z.infer<typeof WebUpdateOS>) {
   if (Flag.OPENCODE_DISABLE_AUTOUPDATE) {
     return {
-      currentVersion: await readWebCurrentVersion(),
+      currentVersion: await readWebUpdateHighestVersion(),
       remoteVersion: "",
       updateAvailable: false,
       downloaded: false,
@@ -755,7 +770,7 @@ export async function webCheck(os: z.infer<typeof WebUpdateOS>) {
       checkError: undefined,
     }
   }
-  const currentVersion = await readWebCurrentVersion()
+  const currentVersion = await readWebUpdateHighestVersion()
   const workDir = getWorkDir(os) ?? ""
   try {
     const meta = await fetchManifest(os)
@@ -817,7 +832,7 @@ export async function downloadWebUpdate(input: z.infer<typeof WebUpdateDownloadI
   if (!file) return failRes(`Update script not configured for ${os}`)
   const meta = await fetchManifest(os, version)
   if (!meta.ok) return failRes(meta.error)
-  const cur = await readWebCurrentVersion()
+  const cur = await readWebUpdateHighestVersion()
   const state = await resolveUpdateStatus(os, cur, meta, workDir)
   if (force) await resetUpdate(os, version, workDir)
   if (!force && state.status === "downloaded") {
@@ -911,7 +926,7 @@ export async function installWebUpdate(input: z.infer<typeof WebUpdateInstallInp
   } catch {
     return await failState(workDir, version ?? "latest", `Update script not found: ${run}`, { action: "recover" })
   }
-  const cur = await readWebCurrentVersion()
+  const cur = await readWebUpdateHighestVersion()
   const state = version && meta?.ok ? await resolveUpdateStatus(os, cur, meta, workDir) : null
   if (version && state?.status !== "downloaded") {
     const message = state?.error || "Update files are not ready. Restart the update from scratch."
@@ -969,7 +984,7 @@ export async function retryWebUpdateMirror(input: z.infer<typeof WebUpdateMirror
     return await failState(workDir, next, `Installed version directory is missing: ${dir}`, { action: "recover" })
   }
   await chmodSafe(run)
-  const cur = await readWebCurrentVersion()
+  const cur = await readWebUpdateHighestVersion()
   log.info("retrying update mirror", { os, updater: run, workDir, version: next, mirrorRoot })
   try {
     await writeUpdateState(
@@ -1000,6 +1015,8 @@ export const WebUpdateTest = {
   parseManifest,
   readResult,
   readUpdateState,
+  readWebCurrentVersion,
+  readWebUpdateHighestVersion,
   resetUpdateBase: () => {
     cachedBaseUrl = undefined
   },
