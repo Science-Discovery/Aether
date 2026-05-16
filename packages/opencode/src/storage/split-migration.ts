@@ -311,9 +311,30 @@ export namespace SplitMigration {
     return dir
   }
 
+  function formatLocalDate(d: Date) {
+    const pad = (n: number) => String(n).padStart(2, "0")
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}-${pad(d.getHours())}-${pad(d.getMinutes())}-${pad(d.getSeconds())}`
+  }
+
+  function backupSubfolder() {
+    const base = backupDir()
+    const ch = channel()
+    const entries = readdirSync(base)
+    for (const e of entries) {
+      if (!e.startsWith(ch + "-") || e.includes("attempt")) continue
+      const full = path.join(base, e)
+      try {
+        if (statSync(full).isDirectory()) return full
+      } catch {}
+    }
+    const dir = path.join(base, `${ch}-${formatLocalDate(new Date())}`)
+    mkdirSync(dir, { recursive: true })
+    return dir
+  }
+
   function backupDbPath(main: string) {
     const name = path.basename(main)
-    return path.join(backupDir(), `${name}.pre-split`)
+    return path.join(backupSubfolder(), `${name}.pre-split`)
   }
 
   function cleanupChannelDir(attempt: number) {
