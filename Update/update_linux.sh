@@ -727,7 +727,7 @@ rm -f "$work/.aether_web_version" 2>/dev/null || true
 rm -rf "$work/current" 2>/dev/null || true
 
 fix_libssl "$target"
-prune_versions "$work" 100 "$target"
+prune_versions "$work" 1000 "$target"
 
 copy_target=""
 mirror_prune=""
@@ -737,7 +737,7 @@ elif copy_target="$(mirror_dir || true)" && [ -n "$copy_target" ]; then
   copy_note="[install] Copied the new version near the current app location: $copy_target"
   mirror_root_dir="$(mirror_root || true)"
   if [ -n "$mirror_root_dir" ]; then
-    prune_versions "$mirror_root_dir" 100 "$copy_target"
+    prune_versions "$mirror_root_dir" 1000 "$copy_target"
     mirror_prune="$prune"
   fi
 else
@@ -758,9 +758,9 @@ else
 fi
 
 if [ "$prune" -gt 0 ]; then
-  echo "[3/4] Keeping the latest 100 versions; removed $prune older version directories."
+  echo "[3/4] Keeping the latest 1000 versions; removed $prune older version directories."
 else
-  echo "[3/4] Keeping the latest 100 versions; no older version directories needed removal."
+  echo "[3/4] Keeping the latest 1000 versions; no older version directories needed removal."
 fi
 
 if [ "$restart" = "1" ]; then
