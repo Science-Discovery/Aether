@@ -227,11 +227,11 @@ spawn 子 session（静默后台）
 （参考 `docs/skill-evolution.md` § 3.3）
 
 **Skill Evolution 专属项目：**
-- 所有 skill 子 session 统一存放在一个独立项目中（`~/.aether/skill-sessions/`）
-- 该项目拥有独立的 .db 文件，与主会话的 aether.db 平行，互不干扰
-- 在 UI 中与其他项目地位相等，用户可直接查看所有 skill session 的演化历史
+- `~/.aether/skill-sessions/` 是一个普通项目根目录，与其他项目根目录（如 `~/my-project/`）地位完全相同
+- 其 DB 文件按正常的 per-project 机制生成，存放在 `~/.local/share/aether/local/aether-<hash>.db`，无需任何特殊处理
+- 所有 skill 后台评审 session 统一创建在该项目下，在 UI 中与其他项目平等可见，用户可直接查看演化历史
 - 模型可单独配置，不继承父 session
-- skill 实际内容写入 `~/.aether/skill-sessions/<project>/skills/<skill-name>/`
+- `~/.aether/skill-sessions/<project>/` 为各项目的 skill 相关信息目录（具体结构待定）
 
 **一个 skill 对应一个 session：**
 - session title = `项目名称 / skill 名称`（由 Agent 调用 skill_manage 后确定）
@@ -573,7 +573,7 @@ skills:
 用户完成任务
       │
       ▼ 每 10 次 LLM 步骤（可配置）
-后台评审子 session（在 skill-sessions 专属项目中可见）
+后台评审子 session（在 ~/.aether/skill-sessions/ 项目中可见）
       │
       ├── 有价值 → skill_manage（action 由 AI 自主决定）
       │              │
