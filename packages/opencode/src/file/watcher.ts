@@ -517,10 +517,11 @@ export namespace FileWatcher {
       file,
     })
     if (!proc.stdout || !proc.stderr) throw new Error("watcher child output not available")
-    if (!proc.stdin) throw new Error("watcher child input not available")
+    const stdin = proc.stdin
+    if (!stdin) throw new Error("watcher child input not available")
     const send = (msg: Record<string, unknown>) => {
-      if (proc.stdin?.destroyed || abort.signal.aborted) return
-      proc.stdin.write(JSON.stringify(msg) + "\n")
+      if (stdin.destroyed || abort.signal.aborted) return
+      stdin.write(JSON.stringify(msg) + "\n")
     }
     send({
       v: 1,
@@ -549,7 +550,7 @@ export namespace FileWatcher {
       crlfDelay: Infinity,
     })
 
-    const pending = new Promise<ParcelWatcher.AsyncSubscription>((resolve, reject) => {
+    const pending = new Promise<Subscription>((resolve, reject) => {
       let ready = false
       let done = false
 
@@ -600,7 +601,7 @@ export namespace FileWatcher {
               reason = "unsubscribe"
               return stop()
             },
-            sync(dirs) {
+            sync(dirs: string[]) {
               reason = "sync"
               send({
                 v: 1,

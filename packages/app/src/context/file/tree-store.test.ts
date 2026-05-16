@@ -71,4 +71,19 @@ describe("file tree store refresh", () => {
     expect(tree.dirState("docs")?.expanded).toBe(true)
     expect(tree.dirState("src")?.expanded).toBe(true)
   })
+
+  test("expanded includes root and live expanded dirs", () => {
+    const tree = createFileTreeStore({
+      scope: () => "/repo",
+      normalizeDir: (input) => input.replace(/\/+$/, ""),
+      list: async () => [],
+      onError: () => {},
+    })
+
+    expect(tree.expanded()).toEqual([""])
+
+    tree.expandDir("docs")
+
+    expect(tree.expanded()).toEqual(["", "docs"])
+  })
 })

@@ -24,6 +24,21 @@ describe("WatcherHint", () => {
     })
   })
 
+  test("keeps the root directory when the hint explicitly opens it", () => {
+    WatcherHint.set("a", {
+      directory: "/tmp/app",
+      files: [],
+      dirs: [""],
+    })
+
+    expect(WatcherHint.get("a")).toEqual({
+      directory: dir("/tmp/app"),
+      files: [],
+      dirs: [""],
+      watched: [dir("/tmp/app")],
+    })
+  })
+
   test("merges watched directories across leases in the same workspace", () => {
     WatcherHint.set("a", {
       directory: "/tmp/app",

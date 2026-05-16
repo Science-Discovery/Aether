@@ -278,7 +278,7 @@ export const { use: useFile, provider: FileProvider } = createSimpleContext({
       if (!directory) return
       const hint = buildWatcherHint({
         tabs: tabs.all(),
-        expanded: treeExpandStore[directory] ?? [],
+        expanded: tree.expanded(),
         pathFromTab: path.pathFromTab,
       })
       const key = watcherHintKey({

@@ -44,7 +44,8 @@ export function createFileTreeStore(options: TreeStoreOptions) {
   const getExpandedSet = (): Set<string> => {
     const result = new Set<string>()
     for (const [path, state] of Object.entries(tree.dir)) {
-      if (path !== "" && state.expanded) result.add(path)
+      if (!state.expanded) continue
+      result.add(path)
     }
     return result
   }
@@ -208,6 +209,7 @@ export function createFileTreeStore(options: TreeStoreOptions) {
     children,
     node: (path: string) => tree.node[path],
     isLoaded: (path: string) => Boolean(tree.dir[path]?.loaded),
+    expanded: () => [...getExpandedSet()].sort(),
     reset,
   }
 }

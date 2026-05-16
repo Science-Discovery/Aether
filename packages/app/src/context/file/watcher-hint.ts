@@ -4,7 +4,7 @@ export function buildWatcherHint(input: {
   pathFromTab: (tab: string) => string | undefined
 }) {
   const files = [...new Set(input.tabs.map((tab) => input.pathFromTab(tab)).filter((item): item is string => !!item))].sort()
-  const dirs = [...new Set((input.expanded ?? []).filter((item) => item !== ""))].sort()
+  const dirs = [...new Set(input.expanded ?? [])].sort()
   return {
     files,
     dirs,

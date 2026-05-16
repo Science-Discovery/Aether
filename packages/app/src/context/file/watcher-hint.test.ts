@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test"
 import { buildWatcherHint, watcherHintKey } from "./watcher-hint"
 
 describe("watcher hint", () => {
-  test("derives sorted unique files from file tabs and ignores non-file tabs", () => {
+  test("derives sorted unique files from file tabs and keeps expanded root", () => {
     const result = buildWatcherHint({
       tabs: ["context", "file://src/b.ts", "file://src/a.ts", "review", "file://src/a.ts"],
       expanded: ["docs", "src", "docs", ""],
@@ -11,7 +11,7 @@ describe("watcher hint", () => {
 
     expect(result).toEqual({
       files: ["src/a.ts", "src/b.ts"],
-      dirs: ["docs", "src"],
+      dirs: ["", "docs", "src"],
     })
   })
 
