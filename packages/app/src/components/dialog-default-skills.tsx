@@ -91,7 +91,7 @@ export const DialogDefaultSkills: Component = () => {
       <div class="flex flex-col gap-3 min-h-0">
         {/* Skill list */}
         <SolidSwitch>
-          <Match when={skills.loading}>
+          <Match when={!skills()}>
             <div class="text-12-regular text-text-weak px-1">{language.t("defaultSkills.loading")}</div>
           </Match>
           <Match when={skills()?.length === 0}>
