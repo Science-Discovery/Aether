@@ -5,6 +5,7 @@ describe("file watcher invalidation", () => {
   test("reloads open files and refreshes loaded parent on add", () => {
     const loads: string[] = []
     const refresh: string[] = []
+    const keep: string[] = []
     invalidateFromWatcher(
       {
         type: "file.watcher.updated",
@@ -16,6 +17,7 @@ describe("file watcher invalidation", () => {
       {
         normalize: (input) => input,
         hasFile: (path) => path === "src/new.ts",
+        keepFile: (path) => keep.push(path),
         loadFile: (path) => loads.push(path),
         node: () => undefined,
         isDirLoaded: (path) => path === "src",
@@ -24,11 +26,13 @@ describe("file watcher invalidation", () => {
     )
 
     expect(loads).toEqual(["src/new.ts"])
+    expect(keep).toEqual(["src/new.ts"])
     expect(refresh).toEqual(["src"])
   })
 
   test("reloads files that are open in tabs", () => {
     const loads: string[] = []
+    const keep: string[] = []
 
     invalidateFromWatcher(
       {
@@ -42,6 +46,7 @@ describe("file watcher invalidation", () => {
         normalize: (input) => input,
         hasFile: () => false,
         isOpen: (path) => path === "src/open.ts",
+        keepFile: (path) => keep.push(path),
         loadFile: (path) => loads.push(path),
         node: () => ({
           path: "src/open.ts",
@@ -56,10 +61,12 @@ describe("file watcher invalidation", () => {
     )
 
     expect(loads).toEqual(["src/open.ts"])
+    expect(keep).toEqual(["src/open.ts"])
   })
 
   test("refreshes only changed loaded directory nodes", () => {
     const refresh: string[] = []
+    const keep: string[] = []
 
     invalidateFromWatcher(
       {
@@ -72,6 +79,7 @@ describe("file watcher invalidation", () => {
       {
         normalize: (input) => input,
         hasFile: () => false,
+        keepFile: (path) => keep.push(path),
         loadFile: () => {},
         node: () => ({ path: "src", type: "directory", name: "src", absolute: "/repo/src", ignored: false }),
         isDirLoaded: (path) => path === "src",
@@ -90,6 +98,7 @@ describe("file watcher invalidation", () => {
       {
         normalize: (input) => input,
         hasFile: () => false,
+        keepFile: (path) => keep.push(path),
         loadFile: () => {},
         node: () => ({
           path: "src/file.ts",
@@ -104,6 +113,57 @@ describe("file watcher invalidation", () => {
     )
 
     expect(refresh).toEqual(["src"])
+    expect(keep).toEqual(["src", "src/file.ts"])
+  })
+
+  test("defers close on unlink and cancels it on later add", () => {
+    const close: string[] = []
+    const keep: string[] = []
+    const refresh: string[] = []
+
+    invalidateFromWatcher(
+      {
+        type: "file.watcher.updated",
+        properties: {
+          file: "test.md",
+          event: "unlink",
+        },
+      },
+      {
+        normalize: (input) => input,
+        hasFile: () => false,
+        isOpen: (path) => path === "test.md",
+        deferClose: (path) => close.push(path),
+        keepFile: (path) => keep.push(path),
+        loadFile: () => {},
+        node: () => undefined,
+        isDirLoaded: () => true,
+        refreshDir: (path) => refresh.push(path),
+      },
+    )
+
+    invalidateFromWatcher(
+      {
+        type: "file.watcher.updated",
+        properties: {
+          file: "test.md",
+          event: "add",
+        },
+      },
+      {
+        normalize: (input) => input,
+        hasFile: () => false,
+        keepFile: (path) => keep.push(path),
+        loadFile: () => {},
+        node: () => undefined,
+        isDirLoaded: () => true,
+        refreshDir: (path) => refresh.push(path),
+      },
+    )
+
+    expect(close).toEqual(["test.md"])
+    expect(keep).toEqual(["test.md"])
+    expect(refresh).toEqual(["", ""])
   })
 
   test("ignores invalid or git watcher updates", () => {

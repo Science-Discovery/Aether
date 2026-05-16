@@ -10,7 +10,8 @@ type WatcherOps = {
   hasFile: (path: string) => boolean
   isOpen?: (path: string) => boolean
   loadFile: (path: string) => void
-  closeFile?: (path: string) => void
+  deferClose?: (path: string) => void
+  keepFile?: (path: string) => void
   node: (path: string) => FileNode | undefined
   isDirLoaded: (path: string) => boolean
   refreshDir: (path: string) => void
@@ -28,6 +29,10 @@ export function invalidateFromWatcher(event: WatcherEvent, ops: WatcherOps) {
   const path = ops.normalize(rawPath)
   if (!path) return
   if (path.startsWith(".git/")) return
+
+  if (kind !== "unlink") {
+    ops.keepFile?.(path)
+  }
 
   if (ops.hasFile(path) || ops.isOpen?.(path)) {
     ops.loadFile(path)
@@ -47,9 +52,9 @@ export function invalidateFromWatcher(event: WatcherEvent, ops: WatcherOps) {
   }
   if (kind !== "add" && kind !== "unlink") return
 
-  // When a file is deleted, close its tab if open
+  // Defer close so atomic-save editors can recreate the file first.
   if (kind === "unlink" && ops.isOpen?.(path)) {
-    ops.closeFile?.(path)
+    ops.deferClose?.(path)
   }
 
   // Traverse up to find the nearest loaded ancestor directory and refresh it.

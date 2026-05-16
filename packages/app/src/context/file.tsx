@@ -124,6 +124,8 @@ const preview = (file: string) => {
   return "text" as const
 }
 
+const CLOSE_MS = 250
+
 export const { use: useFile, provider: FileProvider } = createSimpleContext({
   name: "File",
   gate: false,
@@ -242,6 +244,7 @@ export const { use: useFile, provider: FileProvider } = createSimpleContext({
     const tabs = layout.tabs(() => `${params.dir}${params.id ? "/" + params.id : ""}`)
 
     const inflight = new Map<string, Promise<void>>()
+    const closing = new Map<string, ReturnType<typeof setTimeout>>()
     const [store, setStore] = createStore<{
       file: Record<string, FileState>
     }>({
@@ -312,6 +315,8 @@ export const { use: useFile, provider: FileProvider } = createSimpleContext({
         scope,
         (dir) => {
           inflight.clear()
+          for (const timer of closing.values()) clearTimeout(timer)
+          closing.clear()
           resetFileContentLru()
           batch(() => {
             setStore("file", reconcile({}))
@@ -410,6 +415,25 @@ export const { use: useFile, provider: FileProvider } = createSimpleContext({
       return promise
     }
 
+    const keepFile = (file: string) => {
+      const timer = closing.get(file)
+      if (!timer) return
+      clearTimeout(timer)
+      closing.delete(file)
+    }
+
+    const deferClose = (file: string) => {
+      keepFile(file)
+      closing.set(
+        file,
+        setTimeout(() => {
+          closing.delete(file)
+          const tab = tabs.all().find((tab) => path.pathFromTab(tab) === file)
+          if (tab) tabs.close(tab)
+        }, CLOSE_MS),
+      )
+    }
+
     const search = (query: string, dirs: "true" | "false") =>
       sdk.client.find.files({ query, dirs }).then(
         (x) => (x.data ?? []).map(path.normalize),
@@ -433,13 +457,11 @@ export const { use: useFile, provider: FileProvider } = createSimpleContext({
         normalize: path.normalize,
         hasFile: (file) => Boolean(store.file[file]),
         isOpen: (file) => tabs.all().some((tab) => path.pathFromTab(tab) === file),
+        keepFile,
         loadFile: (file) => {
           void load(file, { force: true })
         },
-        closeFile: (file) => {
-          const tab = tabs.all().find((tab) => path.pathFromTab(tab) === file)
-          if (tab) tabs.close(tab)
-        },
+        deferClose,
         node: tree.node,
         isDirLoaded: tree.isLoaded,
         refreshDir: (dir) => {
@@ -489,6 +511,8 @@ export const { use: useFile, provider: FileProvider } = createSimpleContext({
 
     onCleanup(() => {
       stop()
+      for (const timer of closing.values()) clearTimeout(timer)
+      closing.clear()
       viewCache.clear()
     })
 
