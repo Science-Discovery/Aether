@@ -106,6 +106,13 @@ jobs:
         with:
           node-version: "24"
 
+      - name: Setup Go
+        if: runner.os == 'Linux'
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: packages/go-watcher/go.mod
+          cache-dependency-path: packages/go-watcher/go.sum
+
       - name: Install Linux packaging dependencies
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y rpm
@@ -207,6 +214,12 @@ jobs:
       - uses: actions/checkout@v4
 
       - uses: ./.github/actions/setup-bun
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: packages/go-watcher/go.mod
+          cache-dependency-path: packages/go-watcher/go.sum
 
       - name: Package browser build for Linux
         run: ./packing_scripts/release-linux-web.sh ${{ needs.release.outputs.version }} ${{ matrix.arch }}

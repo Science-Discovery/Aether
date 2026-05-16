@@ -175,6 +175,10 @@ async function watcher(item: { os: string; arch: "arm64" | "x64" }, out: string)
   await $`CGO_ENABLED=0 GOOS=${go.os} GOARCH=${go.arch} go build -ldflags="-s -w" -o ${out} ./cmd/opencode-watcher`.cwd(sidecar)
 }
 
+function native(item: { os: string }) {
+  return item.os === "linux"
+}
+
 fs.rmSync("dist", { recursive: true, force: true })
 
 // Sync version into package.json so the web app picks it up at build time
@@ -222,7 +226,9 @@ for (const item of targets) {
     .join("-")
   console.log(`building ${name}`)
   fs.mkdirSync(`dist/${name}/bin`, { recursive: true })
-  await watcher(item, path.resolve(dir, `dist/${name}/bin/native/${goname(item).file}`))
+  if (native(item)) {
+    await watcher(item, path.resolve(dir, `dist/${name}/bin/native/${goname(item).file}`))
+  }
 
   const localPath = path.resolve(dir, "node_modules/@opentui/core/parser.worker.js")
   const rootPath = path.resolve(dir, "../../node_modules/@opentui/core/parser.worker.js")
