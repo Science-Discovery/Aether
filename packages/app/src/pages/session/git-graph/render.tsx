@@ -9,6 +9,7 @@ import { GitGraphSvg } from "./graph-svg"
 import { GitGraphRow } from "./row"
 import { GitGraphTooltip } from "./tooltip"
 import { HEADER_HEIGHT, TOOLTIP_WIDTH, color, railWidth } from "./style"
+import type { Ref } from "./refs"
 
 const DETAIL_HEIGHT = 280
 const DETAIL_MIN = 160
@@ -26,6 +27,7 @@ export function GitGraphList(props: {
   onCommitClick?: (hash: string) => void
   onCloseDetail?: () => void
   onContextMenu?: (hash: string, event: MouseEvent) => void
+  onRefContextMenu?: (hash: string, ref: Ref, event: MouseEvent) => void
 }) {
   const [hover, setHover] = createStore<{ row: GraphNode | null; tip: GraphNode | null }>({ row: null, tip: null })
   const [panel, setPanel] = createStore({ height: DETAIL_HEIGHT })
@@ -177,6 +179,7 @@ export function GitGraphList(props: {
                     onLeave={handleRowLeave}
                     onClick={props.onCommitClick}
                     onContextMenu={props.onContextMenu}
+                    onRefContextMenu={props.onRefContextMenu}
                   />
                   <Show when={props.selectedHash === node.hash}>
                     <div class="grid overflow-hidden" style={{ "grid-template-columns": template(cols()) }}>

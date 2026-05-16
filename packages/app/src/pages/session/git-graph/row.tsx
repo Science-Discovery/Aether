@@ -1,7 +1,7 @@
 import { Show } from "solid-js"
 import type { Columns } from "./columns"
 import type { GraphNode } from "./model"
-import { RefLabels } from "./refs"
+import { RefLabels, type Ref } from "./refs"
 import { ROW_HEIGHT } from "./model"
 import { template } from "./columns"
 import { abbrev, ago, color } from "./style"
@@ -17,6 +17,7 @@ export function GitGraphRow(props: {
   onLeave: () => void
   onClick?: (hash: string) => void
   onContextMenu?: (hash: string, event: MouseEvent) => void
+  onRefContextMenu?: (hash: string, ref: Ref, event: MouseEvent) => void
 }) {
   const message = () =>
     props.node.isUncommitted
@@ -53,7 +54,11 @@ export function GitGraphRow(props: {
             title="This commit is currently checked out"
           />
         </Show>
-        <RefLabels node={props.node} currentBranch={props.currentBranch} />
+        <RefLabels
+          node={props.node}
+          currentBranch={props.currentBranch}
+          onContextMenu={(ref, event) => props.onRefContextMenu?.(props.node.hash, ref, event)}
+        />
         <span
           class="min-w-0 flex-1 truncate text-text-base"
           classList={{

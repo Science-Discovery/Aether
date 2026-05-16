@@ -61,6 +61,30 @@ export function computeGraphLayout(commits: CommitLogItem[] | undefined | null, 
   return layout(commits, head)
 }
 
+export function canDropCommit(commits: CommitLogItem[], hash: string, head: string | null | undefined) {
+  if (!head) return false
+  const map = new Map(commits.map((c) => [c.hash, c]))
+  const item = map.get(hash)
+  if (!item || item.parents.length === 0 || item.parents.length > 1) return false
+
+  const child = new Map<string, string[]>()
+  commits.forEach((c) => c.parents.forEach((p) => child.set(p, [...(child.get(p) ?? []), c.hash])))
+
+  const walk = (h: string): boolean | null => {
+    const c = map.get(h)
+    if (!c || c.parents.length > 1) return null
+    const list = child.get(h) ?? []
+    if (list.length > 1) return null
+    if (list.length === 1) {
+      const next = walk(list[0]!)
+      if (next !== false) return next
+    }
+    return h === head
+  }
+
+  return walk(hash) || false
+}
+
 export function expandedY(row: number, expandedRow: number | null | undefined, height: number) {
   const base = row * ROW_HEIGHT + ROW_HEIGHT / 2
   if (expandedRow === null || expandedRow === undefined || row <= expandedRow) return base

@@ -42,8 +42,13 @@ export function DialogCherryPick(props: DialogCherryPickProps) {
   return (
     <Dialog title={t("session.tab.gitGraph.cherryPickTitle")} fit persistent class="w-full max-w-[480px] mx-auto">
       <div class="flex flex-col gap-4 p-4">
+        <p class="text-sm text-text-base">
+          Are you sure you want to cherry pick commit <b>{props.hash.slice(0, 7)}</b>?
+        </p>
         <Show when={isMerge}>
-          <p class="text-sm text-text-base">{t("session.tab.gitGraph.cherryPickParentDescription")}</p>
+          <p class="text-sm text-text-base">
+            Choose the parent hash on the main branch, to cherry pick the commit relative to.
+          </p>
           <Select
             options={props.parents}
             current={selectedParent()}
@@ -57,22 +62,22 @@ export function DialogCherryPick(props: DialogCherryPickProps) {
         <Checkbox
           checked={recordOrigin()}
           onChange={setRecordOrigin}
-          description={t("session.tab.gitGraph.cherryPickRecordOriginDescription")}
+          description={'Record that this commit was the origin of the cherry pick by appending a line to the original commit message that states "(cherry picked from commit ...)."'}
         >
-          {t("session.tab.gitGraph.cherryPickRecordOrigin")}
+          Record Origin
         </Checkbox>
         <Checkbox
           checked={noCommit()}
           onChange={setNoCommit}
-          description={t("session.tab.gitGraph.cherryPickNoCommitDescription")}
+          description="Cherry picked changes will be staged but not committed, so that you can select and commit specific parts of this commit."
         >
-          {t("session.tab.gitGraph.cherryPickNoCommit")}
+          No Commit
         </Checkbox>
         <div class="flex justify-end gap-2">
           <Button variant="ghost" onClick={() => dialog.close()}>
             {t("common.cancel")}
           </Button>
-          <Button onClick={confirm}>{t("session.tab.gitGraph.cherryPick")}</Button>
+          <Button onClick={confirm}>Yes, cherry pick</Button>
         </div>
       </div>
     </Dialog>

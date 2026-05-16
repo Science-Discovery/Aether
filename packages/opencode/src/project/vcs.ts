@@ -171,7 +171,9 @@ export namespace Vcs {
       commits: CommitLogItem.array(),
       head: z.string().nullable(),
       branch: z.string().nullable(),
+      branches: z.string().array(),
       tags: z.string().array(),
+      remotes: z.string().array(),
       moreAvailable: z.boolean(),
     })
     .meta({ ref: "VcsGraphResult" })
@@ -281,17 +283,26 @@ export namespace Vcs {
         }),
         graph: Effect.fn("Vcs.graph")(function* (opts?: { max?: number; branch?: string; skip?: number }) {
           if (Instance.project.vcs !== "git") {
-            return { commits: [], head: null, branch: null, tags: [], moreAvailable: false } satisfies GraphResult
+            return {
+              commits: [],
+              head: null,
+              branch: null,
+              branches: [],
+              tags: [],
+              remotes: [],
+              moreAvailable: false,
+            } satisfies GraphResult
           }
           const cwd = Instance.directory
           const max = opts?.max ?? 300
-          const [commits, refs, branch] = yield* Effect.all(
+          const [commits, refs, branch, remotes] = yield* Effect.all(
             [
               git.log(cwd, { max: max + 1, branch: opts?.branch, skip: opts?.skip }),
               git.graphRefs(cwd),
               git.branch(cwd),
+              git.remotes(cwd),
             ],
-            { concurrency: 3 },
+            { concurrency: 4 },
           )
 
           const moreAvailable = commits.length === max + 1
@@ -300,7 +311,7 @@ export namespace Vcs {
           const lookup = new Map<string, number>()
           items.forEach((item, i) => lookup.set(item.hash, i))
 
-          const enriched = items.map((item, _i) => {
+          const enriched = items.map((item) => {
             const commit: CommitLogItem = {
               hash: item.hash,
               parents: [...item.parents],
@@ -344,7 +355,9 @@ export namespace Vcs {
             commits: enriched,
             head: refs.head ?? null,
             branch: branch ?? null,
+            branches: [...new Set(refs.heads.map((h) => h.name))],
             tags: tagsList,
+            remotes: [...remotes],
             moreAvailable,
           } satisfies GraphResult
         }),

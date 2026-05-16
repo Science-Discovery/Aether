@@ -1,7 +1,7 @@
 import type { CommitLogItem } from "@opencode-ai/sdk/v2"
 import { describe, expect, test } from "bun:test"
 import { autoColumns, resizeColumns } from "./columns"
-import { computeGraphLayout, expandedY, LANE_GAP, RAIL_PAD, ROW_HEIGHT, UNCOMMITTED } from "./model"
+import { canDropCommit, computeGraphLayout, expandedY, LANE_GAP, RAIL_PAD, ROW_HEIGHT, UNCOMMITTED } from "./model"
 import { refsFor } from "./refs"
 
 const item = (input: {
@@ -226,6 +226,42 @@ describe("git graph columns", () => {
 
     expect(Math.round(total(next))).toBe(500)
     expect(next.description).toBeGreaterThanOrEqual(40)
+  })
+})
+
+describe("canDropCommit", () => {
+  test("allows a linear commit that leads to head", () => {
+    const commits = [
+      item({ hash: "head", parents: ["drop"] }),
+      item({ hash: "drop", parents: ["base"] }),
+      item({ hash: "base" }),
+    ]
+
+    expect(canDropCommit(commits, "drop", "head")).toBe(true)
+  })
+
+  test("rejects root commits, merge commits, and commits with multiple children", () => {
+    const commits = [
+      item({ hash: "head", parents: ["left"] }),
+      item({ hash: "merge", parents: ["left", "right"] }),
+      item({ hash: "left", parents: ["base"] }),
+      item({ hash: "right", parents: ["base"] }),
+      item({ hash: "base" }),
+    ]
+
+    expect(canDropCommit(commits, "base", "head")).toBe(false)
+    expect(canDropCommit(commits, "merge", "head")).toBe(false)
+    expect(canDropCommit(commits, "left", "head")).toBe(false)
+  })
+
+  test("rejects commits not on the head chain", () => {
+    const commits = [
+      item({ hash: "head", parents: ["base"] }),
+      item({ hash: "side", parents: ["base"] }),
+      item({ hash: "base" }),
+    ]
+
+    expect(canDropCommit(commits, "side", "head")).toBe(false)
   })
 })
 
