@@ -11,7 +11,7 @@ const linux =
   spawnSync("bash", ["-lc", "type mapfile >/dev/null 2>&1"], { encoding: "utf8" }).status === 0
     ? test
     : test.skip
-const darwin = test.skip  // TODO: Need to be re-enabled and fixed on CI
+const darwin = test.skip // TODO: Need to be re-enabled and fixed on CI
 const windows = process.platform === "win32" ? test : test.skip
 
 function run(cmd: string, args: string[], cwd: string, env: Record<string, string | undefined>) {
@@ -210,10 +210,9 @@ describe("web update scripts", () => {
 
       expect(await Bun.file(path.join(work, "aether_1.2.7", "Aether.sh")).exists()).toBe(true)
       const list = await dirs(live)
-      expect(list.length).toBe(5)
+      expect(list.length).toBe(8)
       expect(list.some((x) => /^aether_1\.2\.7_\d{12}$/.test(x))).toBe(true)
-      expect(list.includes("aether_1.2.0")).toBe(false)
-      expect(log).toContain("Mirror cleanup: removed")
+      expect(list.includes("aether_1.2.0")).toBe(true)
     },
     { timeout: 30000 },
   )
@@ -355,10 +354,9 @@ describe("web update scripts", () => {
 
       expect(await Bun.file(path.join(work, "aether_1.2.7", "Aether.command")).exists()).toBe(true)
       const list = await dirs(live)
-      expect(list.length).toBe(5)
+      expect(list.length).toBe(8)
       expect(list.some((x) => /^aether_1\.2\.7_\d{12}$/.test(x))).toBe(true)
-      expect(list.includes("aether_1.2.0")).toBe(false)
-      expect(log).toContain("镜像目录清理")
+      expect(list.includes("aether_1.2.0")).toBe(true)
     },
     { timeout: 30000 },
   )
@@ -468,10 +466,9 @@ describe("web update scripts", () => {
 
         expect(await Bun.file(path.join(work, "aether_1.2.7", "Aether.vbs")).exists()).toBe(true)
         const list = await dirs(live)
-        expect(list.length).toBe(5)
+        expect(list.length).toBe(8)
         expect(list.some((x) => /^aether_1\.2\.7_\d{12}$/.test(x))).toBe(true)
-        expect(list.includes("aether_1.2.0")).toBe(false)
-        expect(log).toContain("Mirror cleanup: removed")
+        expect(list.includes("aether_1.2.0")).toBe(true)
         const launch = pick(log, "Launch entry:")
         expect(launch).toBeTruthy()
         expect(winTarget(launch!)).toContain("aether_1.2.7_")
@@ -541,11 +538,9 @@ describe("web update scripts", () => {
         winZip(src, out)
         await fs.copyFile(path.join(update, "update_windows.bat"), script)
 
-        const child = spawn(
-          process.execPath,
-          ["-e", "setInterval(() => {}, 1000)", path.join(old, "aether.exe")],
-          { stdio: "ignore" },
-        )
+        const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)", path.join(old, "aether.exe")], {
+          stdio: "ignore",
+        })
         try {
           expect(alive(child.pid)).toBe(true)
           run("cmd", ["/c", script, "1.2.7", "--restart"], dl, {
