@@ -319,14 +319,6 @@ export namespace SplitMigration {
   function backupSubfolder() {
     const base = backupDir()
     const ch = channel()
-    const entries = readdirSync(base)
-    for (const e of entries) {
-      if (!e.startsWith(ch + "-") || e.includes("attempt")) continue
-      const full = path.join(base, e)
-      try {
-        if (statSync(full).isDirectory()) return full
-      } catch {}
-    }
     const dir = path.join(base, `${ch}-${formatLocalDate(new Date())}`)
     mkdirSync(dir, { recursive: true })
     return dir
@@ -415,13 +407,11 @@ export namespace SplitMigration {
     // Copy original main.db + WAL/SHM twice: one for backup (never touched),
     // one for all subsequent operations. This avoids checkpointing or modifying
     // the original main.db, which causes Windows file-locking issues.
-    if (!existsSync(backup)) {
-      for (const ext of ["-shm", "-wal"]) {
-        if (existsSync(main + ext)) retryCopy(main + ext, backup + ext)
-      }
-      retryCopy(main, backup)
-      log.info("backed up main db before migration", { from: main, to: backup })
+    for (const ext of ["-shm", "-wal"]) {
+      if (existsSync(main + ext)) retryCopy(main + ext, backup + ext)
     }
+    retryCopy(main, backup)
+    log.info("backed up main db before migration", { from: main, to: backup })
 
     cleanupChannelDir(attempts)
     log.info("starting per-project database split", { main, backup, destCopy, attempt: attempts + 1 })
