@@ -329,8 +329,17 @@ const platform: Platform = {
   },
 }
 
+function handleClick(e: MouseEvent) {
+  const link = (e.target as HTMLElement).closest("a.external-link") as HTMLAnchorElement | null
+  if (link?.href) {
+    e.preventDefault()
+    platform.openLink(link.href)
+  }
+}
+
 const boot = async () => {
   if (!(root instanceof HTMLElement)) return
+  document.addEventListener("click", handleClick)
   platform.version = (await readWebVersion()) || undefined
   let stop = start()
   await sync()
