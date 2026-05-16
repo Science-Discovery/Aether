@@ -311,9 +311,22 @@ export namespace SplitMigration {
     return dir
   }
 
+  function formatLocalDate(d: Date) {
+    const pad = (n: number) => String(n).padStart(2, "0")
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}-${pad(d.getHours())}-${pad(d.getMinutes())}-${pad(d.getSeconds())}`
+  }
+
+  function backupSubfolder() {
+    const base = backupDir()
+    const ch = channel()
+    const dir = path.join(base, `${ch}-${formatLocalDate(new Date())}`)
+    mkdirSync(dir, { recursive: true })
+    return dir
+  }
+
   function backupDbPath(main: string) {
     const name = path.basename(main)
-    return path.join(backupDir(), `${name}.pre-split`)
+    return path.join(backupSubfolder(), `${name}.pre-split`)
   }
 
   function cleanupChannelDir(attempt: number) {
@@ -394,13 +407,11 @@ export namespace SplitMigration {
     // Copy original main.db + WAL/SHM twice: one for backup (never touched),
     // one for all subsequent operations. This avoids checkpointing or modifying
     // the original main.db, which causes Windows file-locking issues.
-    if (!existsSync(backup)) {
-      for (const ext of ["-shm", "-wal"]) {
-        if (existsSync(main + ext)) retryCopy(main + ext, backup + ext)
-      }
-      retryCopy(main, backup)
-      log.info("backed up main db before migration", { from: main, to: backup })
+    for (const ext of ["-shm", "-wal"]) {
+      if (existsSync(main + ext)) retryCopy(main + ext, backup + ext)
     }
+    retryCopy(main, backup)
+    log.info("backed up main db before migration", { from: main, to: backup })
 
     cleanupChannelDir(attempts)
     log.info("starting per-project database split", { main, backup, destCopy, attempt: attempts + 1 })
