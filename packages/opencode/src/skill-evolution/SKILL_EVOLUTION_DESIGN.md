@@ -233,12 +233,13 @@ spawn 子 session（静默后台）
 - 模型可单独配置，不继承父 session
 - `~/.aether/skill-sessions/<project>/` 为各项目的 skill 相关信息目录（具体结构待定）
 
-**一个 skill 对应一个 session：**
-- session title = `项目名称 / skill 名称`（由 Agent 调用 skill_manage 后确定）
-- 每次后台评审触发时，spawner 按 `项目名称 + skill 名` 在专属项目中查找现有 session
-  - 找到 → 追加本次对话历史，在同一 session 中继续分析
-  - 未找到 → 在专属项目中创建新 session，title 设为 `项目名称 / skill 名称`
-- 该 skill 的所有历次演化均保留在同一 session 中，形成完整演化轨迹
+**一个项目对应一个 evolution session：**
+- session title = `项目名称`（取自项目目录 basename，spawn 时即可确定，无需等待 AI 决策）
+- 每次后台评审触发时，按 title 在专属项目 DB 中查找现有 session：
+  - 找到且用户消息数 < 20 → 直接追加本次对话历史，在同一 session 中继续分析
+  - 找到但用户消息数 ≥ 20 → 删除最旧的 10 条消息（part 行级联删除），腾出空间后继续使用同一 session
+  - 未找到 → 直接 SQL 创建新 session（不经过 `Session.createNext`，无 share/snapshot/bus 副作用）
+- 一个 session 内混合记录该项目所有 skill 的演化历史；skill 文件本身是持久状态，AI 每次通过 `skill_manage` 读取现有 skill 内容来感知历史
 
 ```
 对话结束，触发条件全部满足
@@ -258,9 +259,10 @@ spawn 子 session（静默后台）
                            │
                            ▼
 ┌──────────────────────────────────────────────────────────────┐
-│  在 Skill Evolution 专属项目中查找/创建对应 skill session       │
-│  （spawner.ts，全部为插件新增代码，不修改旧文件）                │
-│  权限中禁止 task 工具（防递归 spawn）和 todowrite 工具          │
+│  在 skill-sessions DB 中按 title 查找/创建 evolution session  │
+│  （review-agent.ts，直接 SQL 写入，不经过 Session.createNext） │
+│  通过 Instance.provide(SKILL_SESSIONS_ROOT) 切换项目上下文     │
+│  使 Session.get / MessageV2 等自动指向 skill-sessions DB       │
 └──────────────────────────┬───────────────────────────────────┘
                            │
                            ▼

@@ -2,10 +2,99 @@ import fs from "fs/promises"
 import path from "path"
 import { Global } from "@/global"
 import { SKILL_REVIEW_PROMPT_BASE } from "./constants"
-import { Spawner } from "./spawner"
 import { Log } from "@/util/log"
+import { Database } from "@/storage/db"
+import { ProjectIdentity } from "@/project/identity"
+import { ProjectID } from "@/project/schema"
+import { SessionID, TreeID } from "@/session/schema"
+import { Slug } from "@opencode-ai/util/slug"
+import { Installation } from "@/installation"
 
 const log = Log.create({ service: "skill-evolution.review-agent" })
+
+/** Directory treated as the skill-sessions project root. */
+const SKILL_SESSIONS_ROOT = path.join(Global.Path.home, ".aether", "skill-sessions")
+
+/** Maximum number of review rounds (user messages) per evolution session before rolling over. */
+const MAX_REVIEW_ROUNDS = 20
+
+/** Stable project ID for the skill-sessions project, derived from its directory path. */
+function skillSessionsProjectId(): ProjectID {
+  return ProjectID.fromDirectory(ProjectIdentity.norm(SKILL_SESSIONS_ROOT))
+}
+
+/**
+ * Ensure the skill-sessions project DB is open and has a project row.
+ * Writes only 2 rows (project + nothing if already exists); zero invasive changes to session/index.ts.
+ */
+function ensureSkillSessionsDb(projectId: ProjectID): void {
+  if (!Database.hasProject(projectId)) {
+    Database.attach(projectId)
+  }
+  const db = Database.projectClient(projectId)
+  const now = Date.now()
+  db.$client
+    .prepare(
+      `INSERT OR IGNORE INTO project (id, worktree, name, sandboxes, time_created, time_updated)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+    )
+    .run(projectId, SKILL_SESSIONS_ROOT, "skill-sessions", "[]", now, now)
+}
+
+/**
+ * Insert a new session row directly into the skill-sessions DB.
+ * Bypasses Session.createNext intentionally — review sessions need no share/snapshot/bus events.
+ */
+function insertEvolutionSession(projectId: ProjectID, sessionTitle: string): SessionID {
+  const db = Database.projectClient(projectId)
+  const sessionId = SessionID.descending()
+  const treeId = TreeID.descending()
+  const now = Date.now()
+  db.$client
+    .prepare(
+      `INSERT INTO session (id, project_id, slug, directory, title, version, tree_id, time_created, time_updated)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .run(sessionId, projectId, Slug.create(), SKILL_SESSIONS_ROOT, sessionTitle, Installation.VERSION, treeId, now, now)
+  return sessionId as SessionID
+}
+
+/**
+ * Find the evolution session for this title in the skill-sessions DB.
+ * If the session has reached MAX_REVIEW_ROUNDS user messages, deletes the oldest half to make room.
+ * Returns undefined only when no session exists yet.
+ */
+function findEvolutionSession(projectId: ProjectID, sessionTitle: string): SessionID | undefined {
+  const db = Database.projectClient(projectId)
+  const row = db.$client
+    .prepare(
+      "SELECT id FROM session WHERE project_id = ? AND title = ? ORDER BY time_created DESC LIMIT 1",
+    )
+    .get(projectId, sessionTitle) as { id: string } | undefined
+
+  if (!row) return undefined
+
+  const { cnt } = db.$client
+    .prepare(
+      "SELECT count(*) as cnt FROM message WHERE session_id = ? AND json_extract(data, '$.role') = 'user'",
+    )
+    .get(row.id) as { cnt: number }
+
+  if (cnt >= MAX_REVIEW_ROUNDS) {
+    // Delete the oldest half of messages to keep the session fresh.
+    // Part rows cascade-delete automatically via FK.
+    const deleteCount = Math.floor(MAX_REVIEW_ROUNDS / 2)
+    db.$client
+      .prepare(
+        `DELETE FROM message WHERE id IN (
+           SELECT id FROM message WHERE session_id = ? ORDER BY time_created ASC LIMIT ?
+         )`,
+      )
+      .run(row.id, deleteCount)
+  }
+
+  return row.id as SessionID
+}
 
 /** Minimal snapshot of a message part used when serializing conversation history. */
 interface PartSnapshot {
@@ -48,16 +137,13 @@ function escapeXml(s: string): string {
 
 /**
  * Scan the shadow directories for existing skill categories by reading SKILL.md frontmatter.
- * Falls back to an empty list if no skills are found.
  */
 async function collectCategories(projectId: string): Promise<string[]> {
   const categories = new Set<string>()
-
   const dirsToScan = [
     path.join(Global.Path.home, ".aether", "skills"),
-    path.join(Global.Path.home, ".aether", "skill-sessions", projectId, "skills"),
+    path.join(SKILL_SESSIONS_ROOT, projectId, "skills"),
   ]
-
   for (const dir of dirsToScan) {
     const entries = await fs.readdir(dir, { withFileTypes: true }).catch(() => [])
     for (const entry of entries) {
@@ -65,7 +151,6 @@ async function collectCategories(projectId: string): Promise<string[]> {
       const skillMd = path.join(dir, entry.name, "SKILL.md")
       try {
         const content = await fs.readFile(skillMd, "utf-8")
-        // Extract category field from YAML frontmatter
         const m = content.match(/^---[\s\S]*?^category:\s*(.+)$/m)
         if (m) categories.add(m[1]!.trim())
       } catch {
@@ -73,7 +158,6 @@ async function collectCategories(projectId: string): Promise<string[]> {
       }
     }
   }
-
   return Array.from(categories)
 }
 
@@ -89,17 +173,15 @@ export async function buildReviewPrompt(
     categories.length > 0
       ? categories.map((c) => `  - ${c}`).join("\n") + "\n"
       : "  (no existing categories yet)\n"
-
-  return [
-    serializeHistory(messages),
-    "",
-    SKILL_REVIEW_PROMPT_BASE + categoryHint,
-  ].join("\n")
+  return [serializeHistory(messages), "", SKILL_REVIEW_PROMPT_BASE + categoryHint].join("\n")
 }
 
 /**
  * Spawn a background review session for the given conversation.
- * Runs fire-and-forget; errors are logged but never rethrown.
+ *
+ * All review sessions for a project share a single evolution session in the skill-sessions
+ * project (title: "<projectName> / skill-evolution"). When a session reaches MAX_REVIEW_ROUNDS
+ * user messages it rolls over to a fresh one. Runs fire-and-forget; errors are logged only.
  */
 export async function spawnReview(input: {
   sessionID: string
@@ -108,36 +190,48 @@ export async function spawnReview(input: {
 }): Promise<void> {
   try {
     const prompt = await buildReviewPrompt(input.messages, input.projectId)
-    const skillSessionsDir = Spawner.skillSessionsBase(input.projectId)
-    await fs.mkdir(skillSessionsDir, { recursive: true })
 
-    log.info("spawning skill evolution review", {
-      sessionID: input.sessionID,
-      projectId: input.projectId,
-      promptLength: prompt.length,
-    })
+    await fs.mkdir(SKILL_SESSIONS_ROOT, { recursive: true })
+    const skillProjectId = skillSessionsProjectId()
+    ensureSkillSessionsDb(skillProjectId)
 
     // Dynamically import to avoid circular deps and keep startup cost low
     const { Instance } = await import("@/project/instance")
-    const { Session } = await import("@/session")
     const { SessionPrompt } = await import("@/session/prompt")
 
-    // Create a child session under the parent project for the review
-    const reviewSession = await Session.createNext({
-      title: `skill-evolution / review (parent: ${input.sessionID})`,
-      directory: Instance.directory,
-      parentID: undefined,
+    const sessionTitle = path.basename(Instance.directory)
+
+    log.info("spawning skill evolution review", {
+      parentSessionID: input.sessionID,
+      projectId: input.projectId,
+      skillProjectId,
+      sessionTitle,
+    })
+
+    // Find or create the evolution session (direct SQL, no createNext)
+    const existing = findEvolutionSession(skillProjectId, sessionTitle)
+    const reviewSessionId = existing ?? insertEvolutionSession(skillProjectId, sessionTitle)
+
+    log.info(existing ? "reusing evolution session" : "created evolution session", {
+      reviewSessionId,
+      sessionTitle,
     })
 
     // Mark as a review session so the hook ignores it
-    _reviewSessions.add(reviewSession.id)
+    _reviewSessions.add(reviewSessionId)
 
-    // Run the review agent in the background — intentionally not awaited
-    SessionPrompt.prompt({
-      sessionID: reviewSession.id,
-      parts: [{ type: "text", text: prompt }],
+    // Run the review agent fire-and-forget inside the skill-sessions Instance context so that
+    // Session.get / MessageV2 reads+writes all target the skill-sessions DB.
+    Instance.provide({
+      directory: SKILL_SESSIONS_ROOT,
+      create: false,
+      fn: () =>
+        SessionPrompt.prompt({
+          sessionID: reviewSessionId,
+          parts: [{ type: "text", text: prompt }],
+        }),
     }).catch((err) => {
-      log.error("review session failed", { error: err, sessionID: reviewSession.id })
+      log.error("review session failed", { error: err, reviewSessionId })
     })
   } catch (err) {
     log.error("failed to spawn review session", { error: err, sessionID: input.sessionID })
