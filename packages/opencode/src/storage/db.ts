@@ -726,6 +726,19 @@ export namespace Database {
             | { worktree: string }
             | undefined
           if (wt?.worktree && wt.worktree !== "/") validWorktreeKeys.add(`dir:${norm(wt.worktree)}`)
+
+          const hasWorkspace = pSqlite
+            .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='workspace'")
+            .get()
+          if (hasWorkspace) {
+            const workspaceRows = pSqlite.prepare("SELECT directory FROM workspace WHERE project_id = ?").all(pid) as {
+              directory: string
+            }[]
+            for (const ws of workspaceRows) {
+              if (ws.directory) validWorktreeKeys.add(`dir:${norm(ws.directory)}`)
+            }
+          }
+
           synced++
         } finally {
           pSqlite.close()
