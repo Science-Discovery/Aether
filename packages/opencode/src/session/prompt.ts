@@ -54,6 +54,7 @@ import { Knowledge } from "../knowledge"
 import { decodeDataUrl } from "@/util/data-url"
 import { Process } from "@/util/process"
 import { SessionRecovery } from "./recovery"
+import { SkillEvolutionHook } from "../skill-evolution"
 
 // @ts-ignore
 globalThis.AI_SDK_LOG_WARNINGS = false
@@ -294,6 +295,7 @@ export namespace SessionPrompt {
     let structuredOutput: unknown | undefined
 
     let step = 0
+    let _finalResponse = false
     const session = await Session.get(sessionID)
     while (true) {
       await SessionStatus.set(sessionID, { type: "busy" })
@@ -324,6 +326,7 @@ export namespace SessionPrompt {
         !["tool-calls"].includes(lastAssistant.finish) &&
         lastUser.id < lastAssistant.id
       ) {
+        _finalResponse = true
         log.info("exiting loop", { sessionID })
         break
       }
@@ -727,6 +730,24 @@ export namespace SessionPrompt {
       continue
     }
     SessionCompaction.prune({ sessionID })
+
+    await SkillEvolutionHook.onLoopEnd({
+      sessionID,
+      messages: (await MessageV2.filterCompacted(MessageV2.stream(sessionID))).map((m) => ({
+        role: m.info.role as "user" | "assistant",
+        parts: m.parts.map((p) => ({
+          type: p.type,
+          text: "text" in p ? (p as any).text : undefined,
+          tool: "tool" in p ? (p as any).tool : undefined,
+          callID: "callID" in p ? (p as any).callID : undefined,
+        })),
+      })),
+      isReviewSession: false,
+      finalResponse: _finalResponse,
+      aborted: abort.aborted,
+      projectId: String(session.projectID ?? ""),
+    })
+
     for await (const item of MessageV2.stream(sessionID)) {
       if (item.info.role === "user") continue
       return item
@@ -831,6 +852,7 @@ export namespace SessionPrompt {
             },
             output,
           )
+          SkillEvolutionHook.onToolCall(ctx.sessionID, item.id)
           return output
         },
       })
