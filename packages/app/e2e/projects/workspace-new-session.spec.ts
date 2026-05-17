@@ -64,16 +64,12 @@ async function openWorkspaceNewSession(page: Page, space: { slug: string; raw: s
   await expect(row).toBeVisible()
   await row.hover()
 
-  const next = row.locator('[data-action="workspace-new-session"]').first()
+  const trigger = row.locator('[data-action="workspace-toggle"]').first()
+  await expect(trigger).toBeVisible()
+  await trigger.click()
+
+  const next = row.locator('[data-action="new-session"]').first()
   await expect(next).toBeVisible()
-  await expect
-    .poll(() =>
-      next.evaluate((node) => {
-        const style = getComputedStyle(node)
-        return `${style.pointerEvents}:${style.opacity}`
-      }),
-    )
-    .toBe("auto:1")
   await next.click()
 
   await waitDir(page, space.directory)
