@@ -351,12 +351,13 @@ export namespace SplitMigration {
   }
 
   function verifySplit(
-    expected: { sessions: number; messages: number; parts: number },
+    expected: { sessions: number; messages: number; parts: number; workspaces: number },
     projectIds: Set<string>,
   ): boolean {
     let totalSessions = 0
     let totalMessages = 0
     let totalParts = 0
+    let totalWorkspaces = 0
     for (const pid of projectIds) {
       const pPath = projectDbPath(pid)
       if (!existsSync(pPath)) continue
@@ -364,17 +365,41 @@ export namespace SplitMigration {
       totalSessions += (pDb.prepare("SELECT count(*) as cnt FROM session").get() as { cnt: number }).cnt
       totalMessages += (pDb.prepare("SELECT count(*) as cnt FROM message").get() as { cnt: number }).cnt
       totalParts += (pDb.prepare("SELECT count(*) as cnt FROM part").get() as { cnt: number }).cnt
+      const hasWorkspace = pDb.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='workspace'").get()
+      if (hasWorkspace) {
+        totalWorkspaces += (pDb.prepare("SELECT count(*) as cnt FROM workspace").get() as { cnt: number }).cnt
+      }
       pDb.close()
     }
 
-    if (totalSessions !== expected.sessions || totalMessages !== expected.messages || totalParts !== expected.parts) {
+    if (
+      totalSessions !== expected.sessions ||
+      totalMessages !== expected.messages ||
+      totalParts !== expected.parts ||
+      totalWorkspaces !== expected.workspaces
+    ) {
       log.error("verification failed: count mismatch", {
-        expected: { sessions: expected.sessions, messages: expected.messages, parts: expected.parts },
-        actual: { sessions: totalSessions, messages: totalMessages, parts: totalParts },
+        expected: {
+          sessions: expected.sessions,
+          messages: expected.messages,
+          parts: expected.parts,
+          workspaces: expected.workspaces,
+        },
+        actual: {
+          sessions: totalSessions,
+          messages: totalMessages,
+          parts: totalParts,
+          workspaces: totalWorkspaces,
+        },
       })
       return false
     }
-    log.info("verification passed", { sessions: totalSessions, messages: totalMessages, parts: totalParts })
+    log.info("verification passed", {
+      sessions: totalSessions,
+      messages: totalMessages,
+      parts: totalParts,
+      workspaces: totalWorkspaces,
+    })
     return true
   }
 
@@ -468,6 +493,13 @@ export namespace SplitMigration {
         sessions: (srcSqlite.prepare("SELECT count(*) as cnt FROM session").get() as { cnt: number }).cnt,
         messages: (srcSqlite.prepare("SELECT count(*) as cnt FROM message").get() as { cnt: number }).cnt,
         parts: (srcSqlite.prepare("SELECT count(*) as cnt FROM part").get() as { cnt: number }).cnt,
+        workspaces: (() => {
+          const hasWorkspace = srcSqlite
+            .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='workspace'")
+            .get()
+          if (!hasWorkspace) return 0
+          return (srcSqlite.prepare("SELECT count(*) as cnt FROM workspace").get() as { cnt: number }).cnt
+        })(),
       }
 
       srcSqlite.close()
