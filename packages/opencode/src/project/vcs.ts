@@ -133,7 +133,16 @@ export namespace Vcs {
     readonly graph: (opts?: { max?: number; branch?: string; skip?: number }) => Effect.Effect<GraphResult>
     readonly commitDetails: (hash: string) => Effect.Effect<CommitDetail>
     readonly fileContent: (hash: string, path: string) => Effect.Effect<string>
+    readonly checkout: (name: string) => Effect.Effect<CheckoutResult>
   }
+
+  export const CheckoutResult = z
+    .object({
+      success: z.boolean(),
+      error: z.string().optional(),
+    })
+    .meta({ ref: "VcsCheckoutResult" })
+  export type CheckoutResult = z.infer<typeof CheckoutResult>
 
   export const TagRef = z
     .object({
@@ -400,6 +409,26 @@ export namespace Vcs {
           if (Instance.project.vcs !== "git") return ""
           return yield* git.fileContent(Instance.directory, hash, path)
         }),
+        checkout: Effect.fn("Vcs.checkout")(function* (name: string) {
+          if (Instance.project.vcs !== "git") {
+            return { success: false, error: "Not a git project" } satisfies CheckoutResult
+          }
+          const result = yield* git.run(["checkout", name], { cwd: Instance.directory })
+          if (result.exitCode === 0) {
+            const next = yield* git.branch(Instance.directory)
+            yield* InstanceState.useEffect(state, (s) =>
+              Effect.sync(() => {
+                s.current = next
+              }),
+            )
+            yield* bus.publish(Event.BranchUpdated, { branch: next })
+            return { success: true } satisfies CheckoutResult
+          }
+          return {
+            success: false,
+            error: result.stderr.toString().trim() || result.text().trim(),
+          } satisfies CheckoutResult
+        }),
       })
     }),
   )
@@ -438,5 +467,9 @@ export namespace Vcs {
 
   export function fileContent(hash: string, path: string) {
     return runPromise((svc) => svc.fileContent(hash, path))
+  }
+
+  export function checkout(name: string) {
+    return runPromise((svc) => svc.checkout(name))
   }
 }

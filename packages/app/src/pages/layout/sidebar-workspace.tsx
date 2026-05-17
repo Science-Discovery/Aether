@@ -14,6 +14,7 @@ import { Icon } from "@opencode-ai/ui/icon"
 import { IconButton } from "@opencode-ai/ui/icon-button"
 import { Spinner } from "@opencode-ai/ui/spinner"
 import { Tooltip } from "@opencode-ai/ui/tooltip"
+import { showToast } from "@opencode-ai/ui/toast"
 import { type Session } from "@opencode-ai/sdk/v2/client"
 import { type LocalProject } from "@/context/layout"
 import { useGlobalSync } from "@/context/global-sync"
@@ -153,6 +154,7 @@ export const WorkspaceDragOverlay = (props: {
   sidebarProject: Accessor<LocalProject | undefined>
   activeWorkspace: Accessor<string | undefined>
   workspaceLabel: (directory: string, branch?: string, projectId?: string) => string
+  workspaceName: (directory: string, projectId?: string, branch?: string) => string | undefined
 }): JSX.Element => {
   const globalSync = useGlobalSync()
   const language = useLanguage()
@@ -163,15 +165,21 @@ export const WorkspaceDragOverlay = (props: {
     if (!directory) return
 
     const [workspaceStore] = globalSync.child(directory, { bootstrap: false })
-    const kind =
-      directory === project.worktree ? language.t("workspace.type.local") : language.t("workspace.type.sandbox")
-    const name = props.workspaceLabel(directory, workspaceStore.vcs?.branch, project.id)
-    return `${kind} : ${name}`
+    const local = directory === project.worktree
+    const displayName =
+      props.workspaceName(directory) ??
+      (local ? language.t("workspace.type.local") : language.t("workspace.type.sandbox"))
+    const branch = workspaceStore.vcs?.branch ?? getFilename(directory)
+    return `${displayName} : ${branch}`
   })
 
   return (
     <Show when={label()}>
-      {(value) => <div class="bg-background-base rounded-md px-2 py-1 text-14-medium text-text-strong">{value()}</div>}
+      {(value) => (
+        <div class="bg-background-base rounded-md border border-border-weak-base px-2 py-1 text-14-medium text-text-strong">
+          {value()}
+        </div>
+      )}
     </Show>
   )
 }
@@ -188,7 +196,6 @@ const WorkspaceHeader = (props: {
   InlineEditor: WorkspaceSidebarContext["InlineEditor"]
   renameWorkspace: WorkspaceSidebarContext["renameWorkspace"]
   setEditor: WorkspaceSidebarContext["setEditor"]
-  projectId?: string
 }): JSX.Element => (
   <div class="flex items-center gap-1 min-w-0 flex-1">
     <div class="flex items-center justify-center shrink-0 size-6">
@@ -196,15 +203,15 @@ const WorkspaceHeader = (props: {
         <Spinner class="size-[15px]" />
       </Show>
     </div>
-    <span class="text-14-medium text-text-base shrink-0">
-      {props.local() ? props.language.t("workspace.type.local") : props.language.t("workspace.type.sandbox")} :
-    </span>
     <Show
       when={!props.local()}
       fallback={
-        <span class="text-14-medium text-text-base min-w-0 truncate">
-          {props.branch() ?? getFilename(props.directory)}
-        </span>
+        <>
+          <span class="text-14-medium text-text-base shrink-0">{props.language.t("workspace.type.local")} :</span>
+          <span class="text-14-medium text-text-base min-w-0 truncate">
+            {props.branch() ?? getFilename(props.directory)}
+          </span>
+        </>
       }
     >
       <props.InlineEditor
@@ -213,15 +220,19 @@ const WorkspaceHeader = (props: {
         onSave={(next) => {
           const trimmed = next.trim()
           if (!trimmed) return
-          props.renameWorkspace(props.directory, trimmed, props.projectId, props.branch())
+          props.renameWorkspace(props.directory, trimmed)
           props.setEditor("value", props.workspaceValue())
         }}
-        class="text-14-medium text-text-base min-w-0 truncate"
-        displayClass="text-14-medium text-text-base min-w-0 truncate"
+        class="text-14-medium text-text-base shrink-0"
+        displayClass="text-14-medium text-text-base shrink-0"
         editing={props.workspaceEditActive()}
         stopPropagation={false}
         openOnDblClick={false}
       />
+      <span class="text-14-medium text-text-base shrink-0">:</span>
+      <span class="text-14-medium text-text-base min-w-0 truncate">
+        {props.branch() ?? getFilename(props.directory)}
+      </span>
     </Show>
     <div class="flex items-center justify-center shrink-0 overflow-hidden w-0 opacity-0 transition-all duration-200 group-hover/workspace:w-3.5 group-hover/workspace:opacity-100 group-focus-within/workspace:w-3.5 group-focus-within/workspace:opacity-100">
       <Icon name={props.open() ? "chevron-down" : "chevron-right"} size="small" class="text-icon-base" />
@@ -249,94 +260,145 @@ const WorkspaceActions = (props: {
   clearHoverProjectSoon: WorkspaceSidebarContext["clearHoverProjectSoon"]
   navigateToNewSession: () => void
   onEnterSelect: () => void
-}): JSX.Element => (
-  <div
-    class="absolute right-1 top-1/2 -translate-y-1/2 flex items-center gap-0.5 transition-opacity"
-    classList={{
-      "opacity-100 pointer-events-auto": props.menuOpen(),
-      "opacity-0 pointer-events-none": !props.menuOpen(),
-      "group-hover/workspace:opacity-100 group-hover/workspace:pointer-events-auto": true,
-      "group-focus-within/workspace:opacity-100 group-focus-within/workspace:pointer-events-auto": true,
-    }}
-  >
-    <DropdownMenu
-      modal={!props.sidebarHovering()}
-      open={props.menuOpen()}
-      onOpenChange={(open) => props.setMenuOpen(open)}
+  currentBranch: Accessor<string | undefined>
+}): JSX.Element => {
+  const globalSdk = useGlobalSDK()
+  const language = useLanguage()
+  const [branches, setBranches] = createSignal<string[]>([])
+  const [branchLoading, setBranchLoading] = createSignal(false)
+
+  const scopedClient = createMemo(() => globalSdk.createClient({ directory: props.directory }))
+
+  const fetchBranches = async () => {
+    if (branchLoading()) return
+    setBranchLoading(true)
+    try {
+      const result = await scopedClient().vcs.graph({ max: 0 })
+      setBranches(result.data?.branches ?? [])
+    } catch {
+      setBranches([])
+    } finally {
+      setBranchLoading(false)
+    }
+  }
+
+  const checkout = async (name: string) => {
+    props.setMenuOpen(false)
+    try {
+      const resp = await fetch(`${globalSdk.url}/vcs/checkout`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-opencode-directory": props.directory },
+        body: JSON.stringify({ branch: name }),
+      })
+      const result = await resp.json()
+      if (!result.success) {
+        showToast({ variant: "error", title: language.t("workspace.switchBranch"), description: result.error })
+      }
+    } catch (e) {
+      showToast({ variant: "error", title: language.t("workspace.switchBranch"), description: String(e) })
+    }
+  }
+
+  return (
+    <div
+      class="absolute right-1 top-1/2 -translate-y-1/2 flex items-center gap-0.5 transition-opacity"
+      classList={{
+        "opacity-100 pointer-events-auto": props.menuOpen(),
+        "opacity-0 pointer-events-none": !props.menuOpen(),
+        "group-hover/workspace:opacity-100 group-hover/workspace:pointer-events-auto": true,
+        "group-focus-within/workspace:opacity-100 group-focus-within/workspace:pointer-events-auto": true,
+      }}
     >
-      <Tooltip value={props.language.t("common.moreOptions")} placement="top">
-        <DropdownMenu.Trigger
-          as={IconButton}
-          icon="dot-grid"
-          variant="ghost"
-          class="size-6 rounded-md"
-          data-action="workspace-menu"
-          data-workspace={base64Encode(props.directory)}
-          aria-label={props.language.t("common.moreOptions")}
-        />
-      </Tooltip>
-      <DropdownMenu.Portal>
-        <DropdownMenu.Content
-          onCloseAutoFocus={(event) => {
-            if (!props.pendingRename()) return
-            event.preventDefault()
-            props.setPendingRename(false)
-            props.openEditor(`workspace:${props.directory}`, props.workspaceValue())
-          }}
-        >
-          <DropdownMenu.Item
-            disabled={props.local()}
-            onSelect={() => {
-              props.setPendingRename(true)
-              props.setMenuOpen(false)
+      <DropdownMenu
+        modal={!props.sidebarHovering()}
+        open={props.menuOpen()}
+        onOpenChange={(open) => {
+          props.setMenuOpen(open)
+        }}
+      >
+        <Tooltip value={props.language.t("common.moreOptions")} placement="top">
+          <DropdownMenu.Trigger
+            as={IconButton}
+            icon="dot-grid"
+            variant="ghost"
+            class="size-6 rounded-md"
+            data-action="workspace-menu"
+            data-workspace={base64Encode(props.directory)}
+            aria-label={props.language.t("common.moreOptions")}
+          />
+        </Tooltip>
+        <DropdownMenu.Portal>
+          <DropdownMenu.Content
+            onCloseAutoFocus={(event) => {
+              if (!props.pendingRename()) return
+              event.preventDefault()
+              props.setPendingRename(false)
+              props.openEditor(`workspace:${props.directory}`, props.workspaceValue())
             }}
           >
-            <DropdownMenu.ItemLabel>{props.language.t("common.rename")}</DropdownMenu.ItemLabel>
-          </DropdownMenu.Item>
-          <DropdownMenu.Item
-            onSelect={() => {
-              props.setMenuOpen(false)
-              props.onEnterSelect()
-            }}
-          >
-            <DropdownMenu.ItemLabel>{props.language.t("session.select")}</DropdownMenu.ItemLabel>
-          </DropdownMenu.Item>
-          <DropdownMenu.Item
-            disabled={props.local() || props.busy()}
-            onSelect={() => props.showResetWorkspaceDialog(props.root, props.directory)}
-          >
-            <DropdownMenu.ItemLabel>{props.language.t("common.reset")}</DropdownMenu.ItemLabel>
-          </DropdownMenu.Item>
-          <DropdownMenu.Item
-            disabled={props.local() || props.busy()}
-            onSelect={() => props.showDeleteWorkspaceDialog(props.root, props.directory)}
-          >
-            <DropdownMenu.ItemLabel>{props.language.t("common.delete")}</DropdownMenu.ItemLabel>
-          </DropdownMenu.Item>
-        </DropdownMenu.Content>
-      </DropdownMenu.Portal>
-    </DropdownMenu>
-    <Show when={!props.touch()}>
-      <Tooltip value={props.language.t("command.session.new")} placement="top">
-        <IconButton
-          icon="new-session"
-          variant="ghost"
-          class="size-6 rounded-md opacity-0 pointer-events-none group-hover/workspace:opacity-100 group-hover/workspace:pointer-events-auto group-focus-within/workspace:opacity-100 group-focus-within/workspace:pointer-events-auto"
-          data-action="workspace-new-session"
-          data-workspace={base64Encode(props.directory)}
-          aria-label={props.language.t("command.session.new")}
-          onClick={(event) => {
-            event.preventDefault()
-            event.stopPropagation()
-            props.setHoverSession(undefined)
-            props.clearHoverProjectSoon()
-            props.navigateToNewSession()
-          }}
-        />
-      </Tooltip>
-    </Show>
-  </div>
-)
+            <DropdownMenu.Item
+              disabled={props.local()}
+              onSelect={() => {
+                props.setPendingRename(true)
+                props.setMenuOpen(false)
+              }}
+            >
+              <DropdownMenu.ItemLabel>{props.language.t("common.rename")}</DropdownMenu.ItemLabel>
+            </DropdownMenu.Item>
+            <DropdownMenu.Item
+              onSelect={() => {
+                props.setMenuOpen(false)
+                props.onEnterSelect()
+              }}
+            >
+              <DropdownMenu.ItemLabel>{props.language.t("session.select")}</DropdownMenu.ItemLabel>
+            </DropdownMenu.Item>
+            <DropdownMenu.Sub onOpenChange={(open) => open && fetchBranches()}>
+              <DropdownMenu.SubTrigger>{props.language.t("workspace.switchBranch")}</DropdownMenu.SubTrigger>
+              <DropdownMenu.Portal>
+                <DropdownMenu.SubContent>
+                  <Show
+                    when={!branchLoading()}
+                    fallback={
+                      <DropdownMenu.Item disabled>
+                        <DropdownMenu.ItemLabel>...</DropdownMenu.ItemLabel>
+                      </DropdownMenu.Item>
+                    }
+                  >
+                    <For each={branches()}>
+                      {(name) => (
+                        <DropdownMenu.Item disabled={name === props.currentBranch()} onSelect={() => checkout(name)}>
+                          <DropdownMenu.ItemLabel>{name}</DropdownMenu.ItemLabel>
+                        </DropdownMenu.Item>
+                      )}
+                    </For>
+                    <Show when={branches().length === 0 && !branchLoading()}>
+                      <DropdownMenu.Item disabled>
+                        <DropdownMenu.ItemLabel>—</DropdownMenu.ItemLabel>
+                      </DropdownMenu.Item>
+                    </Show>
+                  </Show>
+                </DropdownMenu.SubContent>
+              </DropdownMenu.Portal>
+            </DropdownMenu.Sub>
+            <DropdownMenu.Item
+              disabled={props.local() || props.busy()}
+              onSelect={() => props.showResetWorkspaceDialog(props.root, props.directory)}
+            >
+              <DropdownMenu.ItemLabel>{props.language.t("common.reset")}</DropdownMenu.ItemLabel>
+            </DropdownMenu.Item>
+            <DropdownMenu.Item
+              disabled={props.local() || props.busy()}
+              onSelect={() => props.showDeleteWorkspaceDialog(props.root, props.directory)}
+            >
+              <DropdownMenu.ItemLabel>{props.language.t("common.delete")}</DropdownMenu.ItemLabel>
+            </DropdownMenu.Item>
+          </DropdownMenu.Content>
+        </DropdownMenu.Portal>
+      </DropdownMenu>
+    </div>
+  )
+}
 
 const sortByUpdatedDesc = (a: Session, b: Session) => (b.time?.updated ?? 0) - (a.time?.updated ?? 0)
 
@@ -845,11 +907,12 @@ export const SortableWorkspace = (props: {
   const sessions = createMemo(() => sortedRootSessions(workspaceStore, props.sortNow()))
   const children = createMemo(() => childMapByParent(workspaceStore.session))
   const local = createMemo(() => props.directory === props.project.worktree)
+  const currentBranch = createMemo(() => workspaceStore.vcs?.branch)
   const active = createMemo(() => workspaceKey(props.ctx.currentDir()) === workspaceKey(props.directory))
   const workspaceValue = createMemo(() => {
-    const branch = workspaceStore.vcs?.branch
-    const name = branch ?? getFilename(props.directory)
-    return props.ctx.workspaceName(props.directory, props.project.id, branch) ?? name
+    const direct = props.ctx.workspaceName(props.directory)
+    if (direct) return direct
+    return local() ? language.t("workspace.type.local") : language.t("workspace.type.sandbox")
   })
   const open = createMemo(() => props.ctx.workspaceExpanded(props.directory, local()))
   const boot = createMemo(() => open() || active())
@@ -860,7 +923,7 @@ export const SortableWorkspace = (props: {
   const wasBusy = createMemo((prev) => prev || busy(), false)
   const loading = createMemo(() => open() && !booted() && count() === 0 && !wasBusy())
   const touch = createMediaQuery("(hover: none)")
-  const showNew = createMemo(() => !loading() && (touch() || count() === 0 || (active() && !params.id)))
+  const showNew = createMemo(() => !loading())
   const loadMore = async () => {
     setWorkspaceStore("limit", (limit) => (limit ?? 0) + 10)
     await globalSync.project.loadSessions(props.directory)
@@ -892,7 +955,6 @@ export const SortableWorkspace = (props: {
       InlineEditor={props.ctx.InlineEditor}
       renameWorkspace={props.ctx.renameWorkspace}
       setEditor={props.ctx.setEditor}
-      projectId={props.project.id}
     />
   )
 
@@ -928,7 +990,7 @@ export const SortableWorkspace = (props: {
                 when={workspaceEditActive()}
                 fallback={
                   <Collapsible.Trigger
-                    class={`flex items-center justify-between w-full pl-2 py-1.5 rounded-md hover:bg-surface-raised-base-hover transition-[padding] duration-200 ${
+                    class={`flex items-center justify-between w-full pl-2 py-1.5 rounded-md border border-border-weak-base bg-surface-raised-base hover:bg-surface-raised-base-hover transition-[padding] duration-200 ${
                       menu.open ? "pr-16" : "pr-2"
                     } group-hover/workspace:pr-16 group-focus-within/workspace:pr-16`}
                     data-action="workspace-toggle"
@@ -939,7 +1001,7 @@ export const SortableWorkspace = (props: {
                 }
               >
                 <div
-                  class={`flex items-center justify-between w-full pl-2 py-1.5 rounded-md transition-[padding] duration-200 ${
+                  class={`flex items-center justify-between w-full pl-2 py-1.5 rounded-md border border-border-weak-base bg-surface-raised-base transition-[padding] duration-200 ${
                     menu.open ? "pr-16" : "pr-2"
                   } group-hover/workspace:pr-16 group-focus-within/workspace:pr-16`}
                 >
@@ -966,6 +1028,7 @@ export const SortableWorkspace = (props: {
                 clearHoverProjectSoon={props.ctx.clearHoverProjectSoon}
                 navigateToNewSession={() => props.ctx.createSession(props.directory)}
                 onEnterSelect={enterSelect}
+                currentBranch={currentBranch}
               />
             </div>
           </div>

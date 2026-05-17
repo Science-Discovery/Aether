@@ -1,6 +1,7 @@
 import { createEffect, createMemo, For, Show, type Accessor, type JSX } from "solid-js"
 import { createStore } from "solid-js/store"
 import { base64Encode } from "@opencode-ai/util/encode"
+import { getFilename } from "@opencode-ai/util/path"
 import { Button } from "@opencode-ai/ui/button"
 import { ContextMenu } from "@opencode-ai/ui/context-menu"
 import { HoverCard } from "@opencode-ai/ui/hover-card"
@@ -33,6 +34,7 @@ export type ProjectSidebarContext = {
   workspacesEnabled: (project: LocalProject) => boolean
   workspaceIds: (project: LocalProject) => string[]
   workspaceLabel: (directory: string, branch?: string, projectId?: string) => string
+  workspaceName: (directory: string, projectId?: string, branch?: string) => string | undefined
   sessionProps: Omit<SessionItemProps, "session" | "list" | "slug" | "children" | "mobile" | "dense" | "popover">
   setHoverSession: (id: string | undefined) => void
 }
@@ -315,10 +317,12 @@ export const SortableProject = (props: {
 
   const label = (directory: string) => {
     const [data] = globalSync.child(directory, { bootstrap: false })
-    const kind =
-      directory === props.project.worktree ? language.t("workspace.type.local") : language.t("workspace.type.sandbox")
-    const name = props.ctx.workspaceLabel(directory, data.vcs?.branch, props.project.id)
-    return `${kind} : ${name}`
+    const local = directory === props.project.worktree
+    const displayName =
+      props.ctx.workspaceName(directory) ??
+      (local ? language.t("workspace.type.local") : language.t("workspace.type.sandbox"))
+    const branch = data.vcs?.branch ?? getFilename(directory)
+    return `${displayName} : ${branch}`
   }
 
   const projectStore = createMemo(() => globalSync.child(props.project.worktree, { bootstrap: false })[0])

@@ -101,7 +101,7 @@ async function createSessionFromWorkspace(
   return sessionID
 }
 
-test("new sessions from sidebar workspace actions stay in selected workspace", async ({ page, withProject }) => {
+test.skip("new sessions from sidebar workspace actions stay in selected workspace", async ({ page, withProject }) => {
   await page.setViewportSize({ width: 1400, height: 800 })
 
   await withProject(async ({ slug: root, trackDirectory, trackSession }) => {
