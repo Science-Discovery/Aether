@@ -734,7 +734,6 @@ export namespace SessionPrompt {
 
     await SkillEvolutionHook.onLoopEnd({
       sessionID,
-      isReviewSession: false,
       finalResponse: _finalResponse,
       aborted: abort.aborted,
       projectId: String(session.projectID ?? ""),

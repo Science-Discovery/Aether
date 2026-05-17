@@ -62,6 +62,6 @@ describe("buildReviewPrompt", () => {
 
 describe("isReviewSession", () => {
   test("returns false for unknown session IDs", () => {
-    expect(isReviewSession("unknown-session-xyz")).toBe(false)
+    expect(isReviewSession()).toBe(false)
   })
 })

@@ -1,8 +1,10 @@
 import fs from "fs/promises"
 import path from "path"
 import { Global } from "@/global"
+import { Instance } from "@/project/instance"
 import { Spawner } from "./spawner"
 import { SKILL_REVIEW_PROMPT_BASE } from "./constants"
+import { Filesystem } from "@/util/filesystem"
 import { Log } from "@/util/log"
 import { Database } from "@/storage/db"
 import { ProjectIdentity } from "@/project/identity"
@@ -230,9 +232,6 @@ export async function spawnReview(input: {
       sessionTitle,
     })
 
-    // Mark as a review session so the hook ignores it
-    _reviewSessions.add(reviewSessionId)
-
     // Run the review agent fire-and-forget inside the skill-sessions Instance context so that
     // Session.get / MessageV2 reads+writes all target the skill-sessions DB.
     Instance.provide({
@@ -261,12 +260,6 @@ export async function spawnReview(input: {
   }
 }
 
-/**
- * Set of session IDs that are background review sessions.
- * Used by the hook to prevent recursive triggering.
- */
-const _reviewSessions = new Set<string>()
-
-export function isReviewSession(sessionID: string): boolean {
-  return _reviewSessions.has(sessionID)
+export function isReviewSession(): boolean {
+  return Instance.directory === Filesystem.resolve(SKILL_SESSIONS_ROOT)
 }
