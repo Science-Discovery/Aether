@@ -253,75 +253,140 @@ const WorkspaceActions = (props: {
   clearHoverProjectSoon: WorkspaceSidebarContext["clearHoverProjectSoon"]
   navigateToNewSession: () => void
   onEnterSelect: () => void
-}): JSX.Element => (
-  <div
-    class="absolute right-1 top-1/2 -translate-y-1/2 flex items-center gap-0.5 transition-opacity"
-    classList={{
-      "opacity-100 pointer-events-auto": props.menuOpen(),
-      "opacity-0 pointer-events-none": !props.menuOpen(),
-      "group-hover/workspace:opacity-100 group-hover/workspace:pointer-events-auto": true,
-      "group-focus-within/workspace:opacity-100 group-focus-within/workspace:pointer-events-auto": true,
-    }}
-  >
-    <DropdownMenu
-      modal={!props.sidebarHovering()}
-      open={props.menuOpen()}
-      onOpenChange={(open) => props.setMenuOpen(open)}
+  currentBranch: Accessor<string | undefined>
+}): JSX.Element => {
+  const globalSdk = useGlobalSDK()
+  const [branches, setBranches] = createSignal<string[]>([])
+  const [branchLoading, setBranchLoading] = createSignal(false)
+
+  const fetchBranches = async () => {
+    if (branchLoading()) return
+    setBranchLoading(true)
+    try {
+      const result = await globalSdk.client.vcs.graph({
+        workspace: props.directory,
+        max: 0,
+      })
+      setBranches(result.data?.branches ?? [])
+    } catch {
+      setBranches([])
+    } finally {
+      setBranchLoading(false)
+    }
+  }
+
+  const checkout = async (name: string) => {
+    props.setMenuOpen(false)
+    try {
+      await globalSdk.client.pty.create({
+        workspace: props.directory,
+        command: "git",
+        args: ["checkout", name],
+        title: `Checkout ${name}`,
+      })
+    } catch {}
+  }
+
+  return (
+    <div
+      class="absolute right-1 top-1/2 -translate-y-1/2 flex items-center gap-0.5 transition-opacity"
+      classList={{
+        "opacity-100 pointer-events-auto": props.menuOpen(),
+        "opacity-0 pointer-events-none": !props.menuOpen(),
+        "group-hover/workspace:opacity-100 group-hover/workspace:pointer-events-auto": true,
+        "group-focus-within/workspace:opacity-100 group-focus-within/workspace:pointer-events-auto": true,
+      }}
     >
-      <Tooltip value={props.language.t("common.moreOptions")} placement="top">
-        <DropdownMenu.Trigger
-          as={IconButton}
-          icon="dot-grid"
-          variant="ghost"
-          class="size-6 rounded-md"
-          data-action="workspace-menu"
-          data-workspace={base64Encode(props.directory)}
-          aria-label={props.language.t("common.moreOptions")}
-        />
-      </Tooltip>
-      <DropdownMenu.Portal>
-        <DropdownMenu.Content
-          onCloseAutoFocus={(event) => {
-            if (!props.pendingRename()) return
-            event.preventDefault()
-            props.setPendingRename(false)
-            props.openEditor(`workspace:${props.directory}`, props.workspaceValue())
-          }}
-        >
-          <DropdownMenu.Item
-            disabled={props.local()}
-            onSelect={() => {
-              props.setPendingRename(true)
-              props.setMenuOpen(false)
+      <DropdownMenu
+        modal={!props.sidebarHovering()}
+        open={props.menuOpen()}
+        onOpenChange={(open) => {
+          props.setMenuOpen(open)
+        }}
+      >
+        <Tooltip value={props.language.t("common.moreOptions")} placement="top">
+          <DropdownMenu.Trigger
+            as={IconButton}
+            icon="dot-grid"
+            variant="ghost"
+            class="size-6 rounded-md"
+            data-action="workspace-menu"
+            data-workspace={base64Encode(props.directory)}
+            aria-label={props.language.t("common.moreOptions")}
+          />
+        </Tooltip>
+        <DropdownMenu.Portal>
+          <DropdownMenu.Content
+            onCloseAutoFocus={(event) => {
+              if (!props.pendingRename()) return
+              event.preventDefault()
+              props.setPendingRename(false)
+              props.openEditor(`workspace:${props.directory}`, props.workspaceValue())
             }}
           >
-            <DropdownMenu.ItemLabel>{props.language.t("common.rename")}</DropdownMenu.ItemLabel>
-          </DropdownMenu.Item>
-          <DropdownMenu.Item
-            onSelect={() => {
-              props.setMenuOpen(false)
-              props.onEnterSelect()
-            }}
-          >
-            <DropdownMenu.ItemLabel>{props.language.t("session.select")}</DropdownMenu.ItemLabel>
-          </DropdownMenu.Item>
-          <DropdownMenu.Item
-            disabled={props.local() || props.busy()}
-            onSelect={() => props.showResetWorkspaceDialog(props.root, props.directory)}
-          >
-            <DropdownMenu.ItemLabel>{props.language.t("common.reset")}</DropdownMenu.ItemLabel>
-          </DropdownMenu.Item>
-          <DropdownMenu.Item
-            disabled={props.local() || props.busy()}
-            onSelect={() => props.showDeleteWorkspaceDialog(props.root, props.directory)}
-          >
-            <DropdownMenu.ItemLabel>{props.language.t("common.delete")}</DropdownMenu.ItemLabel>
-          </DropdownMenu.Item>
-        </DropdownMenu.Content>
-      </DropdownMenu.Portal>
-    </DropdownMenu>
-  </div>
-)
+            <DropdownMenu.Item
+              disabled={props.local()}
+              onSelect={() => {
+                props.setPendingRename(true)
+                props.setMenuOpen(false)
+              }}
+            >
+              <DropdownMenu.ItemLabel>{props.language.t("common.rename")}</DropdownMenu.ItemLabel>
+            </DropdownMenu.Item>
+            <DropdownMenu.Item
+              onSelect={() => {
+                props.setMenuOpen(false)
+                props.onEnterSelect()
+              }}
+            >
+              <DropdownMenu.ItemLabel>{props.language.t("session.select")}</DropdownMenu.ItemLabel>
+            </DropdownMenu.Item>
+            <DropdownMenu.Sub onOpenChange={(open) => open && fetchBranches()}>
+              <DropdownMenu.SubTrigger>{props.language.t("workspace.switchBranch")}</DropdownMenu.SubTrigger>
+              <DropdownMenu.Portal>
+                <DropdownMenu.SubContent>
+                  <Show
+                    when={!branchLoading()}
+                    fallback={
+                      <DropdownMenu.Item disabled>
+                        <DropdownMenu.ItemLabel>...</DropdownMenu.ItemLabel>
+                      </DropdownMenu.Item>
+                    }
+                  >
+                    <For each={branches()}>
+                      {(name) => (
+                        <DropdownMenu.Item disabled={name === props.currentBranch()} onSelect={() => checkout(name)}>
+                          <DropdownMenu.ItemLabel>{name}</DropdownMenu.ItemLabel>
+                        </DropdownMenu.Item>
+                      )}
+                    </For>
+                    <Show when={branches().length === 0 && !branchLoading()}>
+                      <DropdownMenu.Item disabled>
+                        <DropdownMenu.ItemLabel>—</DropdownMenu.ItemLabel>
+                      </DropdownMenu.Item>
+                    </Show>
+                  </Show>
+                </DropdownMenu.SubContent>
+              </DropdownMenu.Portal>
+            </DropdownMenu.Sub>
+            <DropdownMenu.Item
+              disabled={props.local() || props.busy()}
+              onSelect={() => props.showResetWorkspaceDialog(props.root, props.directory)}
+            >
+              <DropdownMenu.ItemLabel>{props.language.t("common.reset")}</DropdownMenu.ItemLabel>
+            </DropdownMenu.Item>
+            <DropdownMenu.Item
+              disabled={props.local() || props.busy()}
+              onSelect={() => props.showDeleteWorkspaceDialog(props.root, props.directory)}
+            >
+              <DropdownMenu.ItemLabel>{props.language.t("common.delete")}</DropdownMenu.ItemLabel>
+            </DropdownMenu.Item>
+          </DropdownMenu.Content>
+        </DropdownMenu.Portal>
+      </DropdownMenu>
+    </div>
+  )
+}
 
 const sortByUpdatedDesc = (a: Session, b: Session) => (b.time?.updated ?? 0) - (a.time?.updated ?? 0)
 
@@ -830,9 +895,10 @@ export const SortableWorkspace = (props: {
   const sessions = createMemo(() => sortedRootSessions(workspaceStore, props.sortNow()))
   const children = createMemo(() => childMapByParent(workspaceStore.session))
   const local = createMemo(() => props.directory === props.project.worktree)
+  const currentBranch = createMemo(() => workspaceStore.vcs?.branch)
   const active = createMemo(() => workspaceKey(props.ctx.currentDir()) === workspaceKey(props.directory))
   const workspaceValue = createMemo(() => {
-    const branch = workspaceStore.vcs?.branch
+    const branch = currentBranch()
     const name = branch ?? getFilename(props.directory)
     return props.ctx.workspaceName(props.directory, props.project.id, branch) ?? name
   })
@@ -951,6 +1017,7 @@ export const SortableWorkspace = (props: {
                 clearHoverProjectSoon={props.ctx.clearHoverProjectSoon}
                 navigateToNewSession={() => props.ctx.createSession(props.directory)}
                 onEnterSelect={enterSelect}
+                currentBranch={currentBranch}
               />
             </div>
           </div>
