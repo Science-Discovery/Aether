@@ -490,4 +490,3 @@ bun run --cwd packages/opencode typecheck
 bun run --cwd packages/app ./script/vitest.ts run --config ./vitest.config.ts src/components/settings-memory.vitest.tsx
 bun run --cwd packages/app typecheck
 ```
-
