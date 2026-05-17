@@ -33,6 +33,7 @@ import { Flag } from "../flag/flag"
 import { ulid } from "ulid"
 import { spawn } from "child_process"
 import { Command } from "../command"
+import { Skill } from "../skill"
 import { pathToFileURL, fileURLToPath } from "url"
 import { ConfigMarkdown } from "../config/markdown"
 import { SessionSummary } from "./summary"
@@ -1834,6 +1835,79 @@ NOTE: At any point in time through this workflow you should feel free to ask the
    * Does not match when preceded by word characters or backticks (to avoid email addresses and quoted references)
    */
 
+  function fmtSources(list: Skill.Source[]) {
+    if (list.length === 0) return "No skill scan paths are currently active."
+    return [
+      "Skill scan paths (low -> high priority)",
+      "",
+      ...list.map((item, i) => `${i + 1}. [${item.scope}] ${path.join(item.dir, item.pattern)}`),
+    ].join("\n")
+  }
+
+  async function scan(input: CommandInput) {
+    assertNotBusy(input.sessionID)
+    await SessionRevert.awaitPending(input.sessionID)
+    await SessionRevert.cleanup(await Session.get(input.sessionID))
+
+    const text = input.arguments.trim() ? `/${input.command} ${input.arguments}` : `/${input.command}`
+    const user = await createUserMessage({
+      sessionID: input.sessionID,
+      messageID: input.messageID,
+      agent: input.agent,
+      model: input.model ? Provider.parseModel(input.model) : undefined,
+      variant: input.variant,
+      parts: [{ type: "text", text }],
+    })
+
+    const now = Date.now()
+    const msg: MessageV2.Assistant = {
+      id: MessageID.ascending(),
+      sessionID: input.sessionID,
+      parentID: user.info.id,
+      mode: user.info.agent,
+      agent: user.info.agent,
+      cost: 0,
+      path: {
+        cwd: Instance.directory,
+        root: Instance.worktree,
+      },
+      time: {
+        created: now,
+        completed: now,
+      },
+      role: "assistant",
+      tokens: {
+        input: 0,
+        output: 0,
+        reasoning: 0,
+        cache: { read: 0, write: 0 },
+      },
+      modelID: user.info.model.modelID,
+      providerID: user.info.model.providerID,
+      variant: user.info.variant,
+      finish: "stop",
+    }
+    const part: MessageV2.TextPart = {
+      type: "text",
+      id: PartID.ascending(),
+      messageID: msg.id,
+      sessionID: input.sessionID,
+      text: fmtSources(await Skill.sources()),
+    }
+
+    await Session.updateMessage(msg)
+    await Session.updatePart(part)
+    await Session.touch(input.sessionID)
+    Bus.publish(Command.Event.Executed, {
+      name: input.command,
+      sessionID: input.sessionID,
+      arguments: input.arguments,
+      messageID: msg.id,
+    })
+
+    return { info: msg, parts: [part] }
+  }
+
   export async function command(input: CommandInput) {
     log.info("command", input)
     const command = await Command.get(input.command)
@@ -1847,6 +1921,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
       })
       throw error
     }
+    if (input.command === Command.Default.SKILL_SCAN_PATHS) return scan(input)
     const agentName = command.agent ?? input.agent ?? (await Agent.defaultAgent())
 
     const raw = input.arguments.match(argsRegex) ?? []

@@ -55,15 +55,24 @@ export namespace Skill {
     }),
   )
 
+  export type Scope = "global" | "project" | "config-root" | "paths" | "urls"
+  export type Source = {
+    dir: string
+    pattern: string
+    scope: Scope
+  }
+
   type State = {
     skills: Record<string, Info>
     dirs: Set<string>
+    sources: Source[]
   }
 
   export interface Interface {
     readonly get: (name: string) => Effect.Effect<Info | undefined>
     readonly all: () => Effect.Effect<Info[]>
     readonly dirs: () => Effect.Effect<string[]>
+    readonly sources: () => Effect.Effect<Source[]>
     readonly available: (agent?: Agent.Info) => Effect.Effect<Info[]>
   }
 
@@ -253,12 +262,14 @@ export namespace Skill {
       for (const dir of EXTERNAL_DIRS) {
         const root = path.join(Global.Path.home, dir)
         if (!(await Filesystem.isDir(root))) continue
+        state.sources.push({ dir: root, pattern: EXTERNAL_SKILL_PATTERN, scope: "global" })
         await scan(state, root, EXTERNAL_SKILL_PATTERN, { dot: true, scope: "global" })
       }
 
       // AI background-review skills: project-scope but lowest priority (overridden by any user source)
       const skillSessionsDir = path.join(Global.Path.home, ".aether", "skill-sessions", projectId, "skills")
       if (await Filesystem.isDir(skillSessionsDir)) {
+        state.sources.push({ dir: skillSessionsDir, pattern: SKILL_PATTERN, scope: "project" })
         await scan(state, skillSessionsDir, SKILL_PATTERN, { dot: true, scope: "project" })
       }
 
@@ -270,6 +281,7 @@ export namespace Skill {
         projectDirs.push(root)
       }
       for (const root of projectDirs.toReversed()) {
+        state.sources.push({ dir: root, pattern: EXTERNAL_SKILL_PATTERN, scope: "project" })
         await scan(state, root, EXTERNAL_SKILL_PATTERN, { dot: true, scope: "project" })
       }
     }
@@ -280,6 +292,7 @@ export namespace Skill {
     const globalExternalDirs = new Set(EXTERNAL_DIRS.map((dir) => path.join(Global.Path.home, dir)))
     for (const dir of await Config.directories()) {
       if (globalExternalDirs.has(dir)) continue
+      state.sources.push({ dir, pattern: OPENCODE_SKILL_PATTERN, scope: "config-root" })
       await scan(state, dir, OPENCODE_SKILL_PATTERN)
     }
 
@@ -292,12 +305,14 @@ export namespace Skill {
         continue
       }
 
+      state.sources.push({ dir, pattern: SKILL_PATTERN, scope: "paths" })
       await scan(state, dir, SKILL_PATTERN)
     }
 
     for (const url of cfg.skills?.urls ?? []) {
       for (const dir of await Effect.runPromise(discovery.pull(url))) {
         state.dirs.add(dir)
+        state.sources.push({ dir, pattern: SKILL_PATTERN, scope: "urls" })
         await scan(state, dir, SKILL_PATTERN)
       }
     }
@@ -327,7 +342,7 @@ export namespace Skill {
       const state = yield* InstanceState.make(
         Effect.fn("Skill.state")((ctx) =>
           Effect.gen(function* () {
-            const s: State = { skills: {}, dirs: new Set() }
+            const s: State = { skills: {}, dirs: new Set(), sources: [] }
             yield* Effect.promise(() => loadSkills(s, discovery, ctx.directory, ctx.worktree, String(ctx.project.id)))
             return s
           }),
@@ -359,6 +374,11 @@ export namespace Skill {
         return Array.from(s.dirs)
       })
 
+      const sources = Effect.fn("Skill.sources")(function* () {
+        const s = yield* getState()
+        return s.sources
+      })
+
       const available = Effect.fn("Skill.available")(function* (agent?: Agent.Info) {
         const s = yield* getState()
         const list = Object.values(s.skills).toSorted((a, b) => a.name.localeCompare(b.name))
@@ -366,7 +386,7 @@ export namespace Skill {
         return list.filter((skill) => Permission.evaluate("skill", skill.name, agent.permission).action !== "deny")
       })
 
-      return Service.of({ get, all, dirs, available })
+      return Service.of({ get, all, dirs, sources, available })
     }),
   )
 
@@ -404,6 +424,10 @@ export namespace Skill {
 
   export async function dirs() {
     return runPromise((skill) => skill.dirs())
+  }
+
+  export async function sources() {
+    return runPromise((skill) => skill.sources())
   }
 
   export async function available(agent?: Agent.Info) {
