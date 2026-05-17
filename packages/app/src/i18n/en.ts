@@ -1401,6 +1401,8 @@ export const dict = {
   "workspace.reset.archived.many": "{{count}} sessions will be archived.",
   "workspace.reset.note": "This will reset the workspace to match the default branch.",
   "workspace.switchBranch": "Switch Branch",
+  "workspace.run": "Run",
+  "workspace.runScript": "Run: {{name}}",
 
   "knowledge.title": "Knowledge Base",
 

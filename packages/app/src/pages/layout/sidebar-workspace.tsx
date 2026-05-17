@@ -1,5 +1,5 @@
-import { useParams } from "@solidjs/router"
-import { createEffect, createMemo, createSignal, For, on, Show, type Accessor, type JSX, untrack } from "solid-js"
+import { useNavigate, useParams } from "@solidjs/router"
+import { createEffect, createMemo, createSignal, For, on, onMount, Show, type Accessor, type JSX, untrack } from "solid-js"
 import { createStore } from "solid-js/store"
 import { createSortable } from "@thisbeyond/solid-dnd"
 import { createMediaQuery } from "@solid-primitives/media"
@@ -7,6 +7,7 @@ import { base64Encode } from "@opencode-ai/util/encode"
 import { getFilename } from "@opencode-ai/util/path"
 import { Button } from "@opencode-ai/ui/button"
 import { Collapsible } from "@opencode-ai/ui/collapsible"
+import { ContextMenu } from "@opencode-ai/ui/context-menu"
 import { Dialog } from "@opencode-ai/ui/dialog"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { DropdownMenu } from "@opencode-ai/ui/dropdown-menu"
@@ -16,12 +17,13 @@ import { Spinner } from "@opencode-ai/ui/spinner"
 import { Tooltip } from "@opencode-ai/ui/tooltip"
 import { showToast } from "@opencode-ai/ui/toast"
 import { type Session } from "@opencode-ai/sdk/v2/client"
-import { type LocalProject } from "@/context/layout"
+import { type LocalProject, useLayout } from "@/context/layout"
 import { useGlobalSync } from "@/context/global-sync"
 import { useGlobalSDK } from "@/context/global-sdk"
 import { loadDescendantsForRoots } from "@/context/global-sync/session-load"
 import { useLanguage } from "@/context/language"
 import { useSettings } from "@/context/settings"
+import { enqueueRun } from "@/context/terminal"
 import { NewSessionItem, SessionItem, SessionSkeleton } from "./sidebar-items"
 import { childMapByParent, errorMessage, sortedRootSessions, workspaceKey } from "./helpers"
 import { SidebarBranchView } from "@/pages/session/branch/sidebar-branch-view"
@@ -181,6 +183,107 @@ export const WorkspaceDragOverlay = (props: {
         </div>
       )}
     </Show>
+  )
+}
+
+const RunScriptButton = (props: {
+  directory: string
+  slug: Accessor<string>
+  sessions: Accessor<Session[]>
+  createSession: (directory: string) => Promise<void>
+}) => {
+  const globalSdk = useGlobalSDK()
+  const language = useLanguage()
+  const layout = useLayout()
+  const navigate = useNavigate()
+  const params = useParams()
+  const [scripts, setScripts] = createSignal<string[]>([])
+  const [selected, setSelected] = createSignal<string | undefined>(undefined)
+
+  const fetchScripts = async () => {
+    const client = globalSdk.createClient({ directory: props.directory })
+    try {
+      const result = await client.file.list({ path: ".aether/.bin" })
+      const names = (result.data ?? [])
+        .filter((n) => n.type === "file")
+        .map((n) => n.name)
+        .sort()
+      setScripts(names)
+      const stored = localStorage.getItem(`aether:run-script:${props.directory}`)
+      if (stored && names.includes(stored)) {
+        setSelected(stored)
+      } else if (names.length > 0) {
+        setSelected(names[0])
+      } else {
+        setSelected(undefined)
+      }
+    } catch {
+      setScripts([])
+      setSelected(undefined)
+    }
+  }
+
+  onMount(fetchScripts)
+
+  createEffect(() => {
+    const name = selected()
+    if (name) localStorage.setItem(`aether:run-script:${props.directory}`, name)
+  })
+
+  const run = async () => {
+    const name = selected()
+    if (!name) return
+    const scriptPath = `.aether/.bin/${name}`
+    const slug = props.slug()
+    enqueueRun(slug, "bash", ["-c", `${scriptPath}; exec bash --noediting`], scriptPath)
+    if (params.dir !== slug || !params.id) {
+      const s = props.sessions()
+      if (s.length > 0) {
+        navigate(`/${slug}/session/${s[0].id}`)
+      } else {
+        await props.createSession(props.directory)
+      }
+    }
+    layout.terminal.open()
+  }
+
+  const disabled = createMemo(() => scripts().length === 0)
+  const label = createMemo(() => {
+    const name = selected()
+    return name ? language.t("workspace.runScript", { name }) : language.t("workspace.run")
+  })
+
+  return (
+    <ContextMenu onOpenChange={(open) => open && fetchScripts()}>
+      <ContextMenu.Trigger as="div" class="shrink-0">
+        <Button
+          variant="ghost"
+          size="small"
+          icon="terminal"
+          disabled={disabled()}
+          onClick={run}
+          class="h-6 px-1.5 text-12-regular text-text-weak gap-0.5"
+        >
+          {label()}
+        </Button>
+      </ContextMenu.Trigger>
+      <Show when={scripts().length > 0}>
+        <ContextMenu.Portal>
+          <ContextMenu.Content>
+            <ContextMenu.RadioGroup value={selected()} onChange={setSelected}>
+              <For each={scripts()}>
+                {(name) => (
+                  <ContextMenu.RadioItem value={name}>
+                    <ContextMenu.ItemIndicator>✓</ContextMenu.ItemIndicator>
+                    <ContextMenu.ItemLabel>{name}</ContextMenu.ItemLabel>
+                  </ContextMenu.RadioItem>
+                )}
+              </For>
+            </ContextMenu.RadioGroup>
+          </ContextMenu.Content>
+        </ContextMenu.Portal>
+      </Show>
+    </ContextMenu>
   )
 }
 
@@ -760,6 +863,8 @@ const WorkspaceSessionList = (props: {
   onBatchArchive: () => Promise<void>
   onBatchDelete: () => void
   onCancelSelect: () => void
+  directory: string
+  createSession: (directory: string) => Promise<void>
 }) => {
   const selectedCount = createMemo(() => props.selectedIds().size)
   const allSelected = createMemo(
@@ -812,13 +917,22 @@ const WorkspaceSessionList = (props: {
       </Show>
       <nav class="flex flex-col gap-1">
         <Show when={props.showNew() && !props.selectMode()}>
-          <NewSessionItem
-            slug={props.slug()}
-            mobile={props.mobile}
-            sidebarExpanded={props.ctx.sidebarExpanded}
-            clearHoverProjectSoon={props.ctx.clearHoverProjectSoon}
-            setHoverSession={props.ctx.setHoverSession}
-          />
+          <div class="flex items-center gap-1 pl-2 pr-3">
+            <NewSessionItem
+              slug={props.slug()}
+              mobile={props.mobile}
+              sidebarExpanded={props.ctx.sidebarExpanded}
+              clearHoverProjectSoon={props.ctx.clearHoverProjectSoon}
+              setHoverSession={props.ctx.setHoverSession}
+            />
+            <div class="flex-1" />
+            <RunScriptButton
+              directory={props.directory}
+              slug={props.slug}
+              sessions={props.rootSessions}
+              createSession={props.createSession}
+            />
+          </div>
         </Show>
         <Show when={props.loading()}>
           <SessionSkeleton />
@@ -1057,6 +1171,8 @@ export const SortableWorkspace = (props: {
             onBatchArchive={batchArchive}
             onBatchDelete={batchDelete}
             onCancelSelect={cancelSelect}
+            directory={props.directory}
+            createSession={props.ctx.createSession}
           />
           <ArchivedSessionList
             directory={props.directory}
@@ -1129,6 +1245,8 @@ export const LocalWorkspace = (props: {
         onBatchArchive={batchArchive}
         onBatchDelete={batchDelete}
         onCancelSelect={cancelSelect}
+        directory={props.project.worktree}
+        createSession={props.ctx.createSession}
       />
       <ArchivedSessionList
         directory={props.project.worktree}
