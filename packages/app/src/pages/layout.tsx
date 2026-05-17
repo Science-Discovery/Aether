@@ -2314,6 +2314,7 @@ export default function Layout(props: ParentProps) {
     workspacesEnabled: (project) => project.vcs === "git" && layout.sidebar.workspaces(project.worktree)(),
     workspaceIds,
     workspaceLabel,
+    workspaceName,
     sessionProps: {
       navList: currentSessions,
       sidebarExpanded,
@@ -2597,6 +2598,7 @@ export default function Layout(props: ParentProps) {
                             sidebarProject={sidebarProject}
                             activeWorkspace={() => store.activeWorkspace}
                             workspaceLabel={workspaceLabel}
+                            workspaceName={workspaceName}
                           />
                         </DragOverlay>
                       </DragDropProvider>

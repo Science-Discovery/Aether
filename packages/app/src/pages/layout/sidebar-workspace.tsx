@@ -154,6 +154,7 @@ export const WorkspaceDragOverlay = (props: {
   sidebarProject: Accessor<LocalProject | undefined>
   activeWorkspace: Accessor<string | undefined>
   workspaceLabel: (directory: string, branch?: string, projectId?: string) => string
+  workspaceName: (directory: string, projectId?: string, branch?: string) => string | undefined
 }): JSX.Element => {
   const globalSync = useGlobalSync()
   const language = useLanguage()
@@ -164,10 +165,12 @@ export const WorkspaceDragOverlay = (props: {
     if (!directory) return
 
     const [workspaceStore] = globalSync.child(directory, { bootstrap: false })
-    const kind =
-      directory === project.worktree ? language.t("workspace.type.local") : language.t("workspace.type.sandbox")
-    const name = props.workspaceLabel(directory, workspaceStore.vcs?.branch, project.id)
-    return `${kind} : ${name}`
+    const local = directory === project.worktree
+    const displayName =
+      props.workspaceName(directory) ??
+      (local ? language.t("workspace.type.local") : language.t("workspace.type.sandbox"))
+    const branch = workspaceStore.vcs?.branch ?? getFilename(directory)
+    return `${displayName} : ${branch}`
   })
 
   return (
@@ -193,7 +196,6 @@ const WorkspaceHeader = (props: {
   InlineEditor: WorkspaceSidebarContext["InlineEditor"]
   renameWorkspace: WorkspaceSidebarContext["renameWorkspace"]
   setEditor: WorkspaceSidebarContext["setEditor"]
-  projectId?: string
 }): JSX.Element => (
   <div class="flex items-center gap-1 min-w-0 flex-1">
     <div class="flex items-center justify-center shrink-0 size-6">
@@ -201,15 +203,15 @@ const WorkspaceHeader = (props: {
         <Spinner class="size-[15px]" />
       </Show>
     </div>
-    <span class="text-14-medium text-text-base shrink-0">
-      {props.local() ? props.language.t("workspace.type.local") : props.language.t("workspace.type.sandbox")} :
-    </span>
     <Show
       when={!props.local()}
       fallback={
-        <span class="text-14-medium text-text-base min-w-0 truncate">
-          {props.branch() ?? getFilename(props.directory)}
-        </span>
+        <>
+          <span class="text-14-medium text-text-base shrink-0">{props.language.t("workspace.type.local")} :</span>
+          <span class="text-14-medium text-text-base min-w-0 truncate">
+            {props.branch() ?? getFilename(props.directory)}
+          </span>
+        </>
       }
     >
       <props.InlineEditor
@@ -218,15 +220,19 @@ const WorkspaceHeader = (props: {
         onSave={(next) => {
           const trimmed = next.trim()
           if (!trimmed) return
-          props.renameWorkspace(props.directory, trimmed, props.projectId, props.branch())
+          props.renameWorkspace(props.directory, trimmed)
           props.setEditor("value", props.workspaceValue())
         }}
-        class="text-14-medium text-text-base min-w-0 truncate"
-        displayClass="text-14-medium text-text-base min-w-0 truncate"
+        class="text-14-medium text-text-base shrink-0"
+        displayClass="text-14-medium text-text-base shrink-0"
         editing={props.workspaceEditActive()}
         stopPropagation={false}
         openOnDblClick={false}
       />
+      <span class="text-14-medium text-text-base shrink-0">:</span>
+      <span class="text-14-medium text-text-base min-w-0 truncate">
+        {props.branch() ?? getFilename(props.directory)}
+      </span>
     </Show>
     <div class="flex items-center justify-center shrink-0 overflow-hidden w-0 opacity-0 transition-all duration-200 group-hover/workspace:w-3.5 group-hover/workspace:opacity-100 group-focus-within/workspace:w-3.5 group-focus-within/workspace:opacity-100">
       <Icon name={props.open() ? "chevron-down" : "chevron-right"} size="small" class="text-icon-base" />
@@ -904,9 +910,9 @@ export const SortableWorkspace = (props: {
   const currentBranch = createMemo(() => workspaceStore.vcs?.branch)
   const active = createMemo(() => workspaceKey(props.ctx.currentDir()) === workspaceKey(props.directory))
   const workspaceValue = createMemo(() => {
-    const branch = currentBranch()
-    const name = branch ?? getFilename(props.directory)
-    return props.ctx.workspaceName(props.directory, props.project.id, branch) ?? name
+    const direct = props.ctx.workspaceName(props.directory)
+    if (direct) return direct
+    return local() ? language.t("workspace.type.local") : language.t("workspace.type.sandbox")
   })
   const open = createMemo(() => props.ctx.workspaceExpanded(props.directory, local()))
   const boot = createMemo(() => open() || active())
@@ -949,7 +955,6 @@ export const SortableWorkspace = (props: {
       InlineEditor={props.ctx.InlineEditor}
       renameWorkspace={props.ctx.renameWorkspace}
       setEditor={props.ctx.setEditor}
-      projectId={props.project.id}
     />
   )
 

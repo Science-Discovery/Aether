@@ -415,6 +415,13 @@ export namespace Vcs {
           }
           const result = yield* git.run(["checkout", name], { cwd: Instance.directory })
           if (result.exitCode === 0) {
+            const next = yield* git.branch(Instance.directory)
+            yield* InstanceState.useEffect(state, (s) =>
+              Effect.sync(() => {
+                s.current = next
+              }),
+            )
+            yield* bus.publish(Event.BranchUpdated, { branch: next })
             return { success: true } satisfies CheckoutResult
           }
           return {
