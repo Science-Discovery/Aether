@@ -747,6 +747,7 @@ export namespace SessionPrompt {
       finalResponse: _finalResponse,
       aborted: abort.aborted,
       projectId: String(session.projectID ?? ""),
+      projectDirectory: session.directory,
     })
 
     for await (const item of MessageV2.stream(sessionID)) {

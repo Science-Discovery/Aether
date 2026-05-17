@@ -1,6 +1,7 @@
 import fs from "fs/promises"
 import path from "path"
 import { Global } from "@/global"
+import { Spawner } from "./spawner"
 import { SKILL_REVIEW_PROMPT_BASE } from "./constants"
 import { Log } from "@/util/log"
 import { Database } from "@/storage/db"
@@ -121,11 +122,11 @@ function escapeXml(s: string): string {
 /**
  * Scan the shadow directories for existing skill categories by reading SKILL.md frontmatter.
  */
-async function collectCategories(projectId: string): Promise<string[]> {
+async function collectCategories(folderName: string): Promise<string[]> {
   const categories = new Set<string>()
   const dirsToScan = [
     path.join(Global.Path.home, ".aether", "skills"),
-    path.join(SKILL_SESSIONS_ROOT, projectId, "skills"),
+    Spawner.skillSessionsDir(folderName),
   ]
   for (const dir of dirsToScan) {
     const entries = await fs.readdir(dir, { withFileTypes: true }).catch(() => [])
@@ -149,9 +150,9 @@ async function collectCategories(projectId: string): Promise<string[]> {
  */
 export async function buildReviewPrompt(
   messages: ReadonlyArray<MessageSnapshot>,
-  projectId: string,
+  folderName: string,
 ): Promise<string> {
-  const categories = await collectCategories(projectId)
+  const categories = await collectCategories(folderName)
   const categoryHint =
     categories.length > 0
       ? categories.map((c) => `  - ${c}`).join("\n") + "\n"
@@ -170,9 +171,14 @@ export async function spawnReview(input: {
   sessionID: string
   messages: ReadonlyArray<MessageSnapshot>
   projectId: string
+  projectDirectory?: string
 }): Promise<void> {
   try {
-    const prompt = await buildReviewPrompt(input.messages, input.projectId)
+    const folderName = input.projectDirectory
+      ? Spawner.skillFolderName(input.projectDirectory, input.projectId)
+      : input.projectId
+
+    const prompt = await buildReviewPrompt(input.messages, folderName)
 
     await fs.mkdir(SKILL_SESSIONS_ROOT, { recursive: true })
     const skillProjectId = skillSessionsProjectId()
@@ -187,6 +193,7 @@ export async function spawnReview(input: {
     log.info("spawning skill evolution review", {
       parentSessionID: input.sessionID,
       projectId: input.projectId,
+      folderName,
       skillProjectId,
       sessionTitle,
     })

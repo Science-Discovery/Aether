@@ -14,6 +14,8 @@ export interface HookInput {
   readonly aborted: boolean
   /** Project ID of the session, used for AI-created skill routing. */
   readonly projectId: string
+  /** Absolute path of the project directory — used to derive a human-readable folder name. */
+  readonly projectDirectory?: string
 }
 
 export namespace SkillEvolutionHook {
@@ -60,6 +62,7 @@ export namespace SkillEvolutionHook {
       sessionID: input.sessionID,
       messages: input.messages,
       projectId: input.projectId,
+      projectDirectory: input.projectDirectory,
     }).catch((err) => {
       log.error("background review spawn error", { error: err })
     })

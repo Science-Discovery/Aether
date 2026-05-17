@@ -19,6 +19,7 @@ import { ConfigMarkdown } from "../config/markdown"
 import { Glob } from "../util/glob"
 import { Log } from "../util/log"
 import { Discovery } from "./discovery"
+import { Spawner } from "@/skill-evolution/spawner"
 
 export namespace Skill {
   const log = Log.create({ service: "skill" })
@@ -140,7 +141,7 @@ export namespace Skill {
         paths.push(...matches)
       }
 
-      const skillSessionsDir = path.join(Global.Path.home, ".aether", "skill-sessions", projectId, "skills")
+      const skillSessionsDir = Spawner.skillSessionsDir(Spawner.skillFolderName(directory, projectId))
       if (await Filesystem.isDir(skillSessionsDir)) {
         const matches = await Glob.scan(SKILL_PATTERN, {
           cwd: skillSessionsDir,
@@ -284,7 +285,7 @@ export namespace Skill {
       }
 
       // AI background-review skills: project-scope but lowest priority (overridden by any user source)
-      const skillSessionsDir = path.join(Global.Path.home, ".aether", "skill-sessions", projectId, "skills")
+      const skillSessionsDir = Spawner.skillSessionsDir(Spawner.skillFolderName(directory, projectId))
       if (await Filesystem.isDir(skillSessionsDir)) {
         state.sources.push({ dir: skillSessionsDir, pattern: SKILL_PATTERN, scope: "project" })
         await scan(state, skillSessionsDir, SKILL_PATTERN, { dot: true, scope: "project" })
