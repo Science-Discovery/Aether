@@ -45,7 +45,7 @@ export namespace SkillEvolutionHook {
     const interval = await ConfigReader.getNudgeInterval().catch(() => 10)
     if (interval === 0) return
 
-    const count = Counter.getAndReset(input.sessionID)
+    const count = Counter.get(input.sessionID)
     if (count < interval) return
 
     log.info("triggering skill evolution review", {
@@ -54,13 +54,13 @@ export namespace SkillEvolutionHook {
       interval,
     })
 
-    // Fire-and-forget — must not block or throw into the caller's scope
-    spawnReview({
+    // Await spawn setup before resetting — counter survives if spawn fails early.
+    // spawnReview catches all internal errors, so this never rejects.
+    await spawnReview({
       sessionID: input.sessionID,
       projectId: input.projectId,
       projectDirectory: input.projectDirectory,
-    }).catch((err) => {
-      log.error("background review spawn error", { error: err })
     })
+    Counter.reset(input.sessionID)
   }
 }
