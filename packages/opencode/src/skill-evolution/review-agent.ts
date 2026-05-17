@@ -225,13 +225,10 @@ export async function spawnReview(input: {
         return SessionPrompt.prompt({
           sessionID: reviewSessionId,
           parts: [{ type: "text", text: prompt }],
-          // Allow everything by default so the background session never hangs on "ask",
-          // then deny the generic file-edit tools so the model is forced to use skill_manage.
           tools: {
-            "*": true,
-            edit: false,
-            write: false,
-            apply_patch: false,
+            "*": false,
+            skill_manage: true,
+            read: true,
           },
         })
       },
