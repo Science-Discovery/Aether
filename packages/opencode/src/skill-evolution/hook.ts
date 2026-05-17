@@ -18,11 +18,11 @@ export interface HookInput {
 
 export namespace SkillEvolutionHook {
   /**
-   * Called once per tool execution inside the LLM loop.
+   * Called once per LLM loop step (not per individual tool call).
    * Increments the per-session counter.
    * No-ops for review sessions (determined by the module-level registry).
    */
-  export function onToolCall(sessionID: string, _toolName: string): void {
+  export function onStep(sessionID: string): void {
     // Review sessions are excluded from counting to prevent recursive evolution
     if (isReviewSession(sessionID)) return
     Counter.increment(sessionID)

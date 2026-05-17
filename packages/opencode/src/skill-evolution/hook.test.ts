@@ -2,11 +2,11 @@ import { describe, expect, test } from "bun:test"
 import { SkillEvolutionHook } from "./hook"
 import { Counter } from "./counter"
 
-describe("SkillEvolutionHook.onToolCall", () => {
-  test("increments counter for a normal session", () => {
+describe("SkillEvolutionHook.onStep", () => {
+  test("increments counter once per step for a normal session", () => {
     const id = "hook-normal-" + Math.random()
-    SkillEvolutionHook.onToolCall(id, "bash")
-    SkillEvolutionHook.onToolCall(id, "read")
+    SkillEvolutionHook.onStep(id)
+    SkillEvolutionHook.onStep(id)
     expect(Counter.get(id)).toBe(2)
     Counter.reset(id)
   })

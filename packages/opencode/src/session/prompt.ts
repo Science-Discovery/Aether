@@ -332,6 +332,7 @@ export namespace SessionPrompt {
       }
 
       step++
+      SkillEvolutionHook.onStep(sessionID)
       if (step === 1)
         ensureTitle({
           session,
@@ -852,7 +853,6 @@ export namespace SessionPrompt {
             },
             output,
           )
-          SkillEvolutionHook.onToolCall(ctx.sessionID, item.id)
           return output
         },
       })
