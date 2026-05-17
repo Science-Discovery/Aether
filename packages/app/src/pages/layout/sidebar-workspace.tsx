@@ -923,7 +923,7 @@ export const SortableWorkspace = (props: {
   const wasBusy = createMemo((prev) => prev || busy(), false)
   const loading = createMemo(() => open() && !booted() && count() === 0 && !wasBusy())
   const touch = createMediaQuery("(hover: none)")
-  const showNew = createMemo(() => !loading())
+  const showNew = createMemo(() => true)
   const loadMore = async () => {
     setWorkspaceStore("limit", (limit) => (limit ?? 0) + 10)
     await globalSync.project.loadSessions(props.directory)
