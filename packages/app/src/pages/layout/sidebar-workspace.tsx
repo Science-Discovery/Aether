@@ -171,7 +171,11 @@ export const WorkspaceDragOverlay = (props: {
 
   return (
     <Show when={label()}>
-      {(value) => <div class="bg-background-base rounded-md px-2 py-1 text-14-medium text-text-strong">{value()}</div>}
+      {(value) => (
+        <div class="bg-background-base rounded-md border border-border-weak-base px-2 py-1 text-14-medium text-text-strong">
+          {value()}
+        </div>
+      )}
     </Show>
   )
 }
@@ -928,7 +932,7 @@ export const SortableWorkspace = (props: {
                 when={workspaceEditActive()}
                 fallback={
                   <Collapsible.Trigger
-                    class={`flex items-center justify-between w-full pl-2 py-1.5 rounded-md hover:bg-surface-raised-base-hover transition-[padding] duration-200 ${
+                    class={`flex items-center justify-between w-full pl-2 py-1.5 rounded-md border border-border-weak-base bg-surface-raised-base hover:bg-surface-raised-base-hover transition-[padding] duration-200 ${
                       menu.open ? "pr-16" : "pr-2"
                     } group-hover/workspace:pr-16 group-focus-within/workspace:pr-16`}
                     data-action="workspace-toggle"
@@ -939,7 +943,7 @@ export const SortableWorkspace = (props: {
                 }
               >
                 <div
-                  class={`flex items-center justify-between w-full pl-2 py-1.5 rounded-md transition-[padding] duration-200 ${
+                  class={`flex items-center justify-between w-full pl-2 py-1.5 rounded-md border border-border-weak-base bg-surface-raised-base transition-[padding] duration-200 ${
                     menu.open ? "pr-16" : "pr-2"
                   } group-hover/workspace:pr-16 group-focus-within/workspace:pr-16`}
                 >
