@@ -215,6 +215,25 @@
     margin-top: 0;
   }
 
+  [data-slot="text-part-source"] {
+    margin: 0;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    font-family: ui-monospace, SFMono-Regular, SF Mono, Menlo, Consolas, "Liberation Mono", monospace;
+    font-size: 13px;
+    line-height: 1.55;
+    color: var(--text-base);
+
+    code {
+      font: inherit;
+      color: inherit;
+      background: transparent;
+      padding: 0;
+      border: 0;
+      white-space: inherit;
+    }
+  }
+
   [data-slot="text-part-copy-wrapper"] {
     min-height: 24px;
     margin-top: 4px;

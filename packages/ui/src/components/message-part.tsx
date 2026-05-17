@@ -154,6 +154,10 @@ export interface MessagePartProps {
   turnDurationMs?: number
   onAssistantCollapse?: () => void
   canCollapseAssistant?: boolean
+  sourceText?: string
+  sourceOpen?: boolean
+  onSourceToggle?: () => void
+  canShowSource?: boolean
 }
 
 export type PartComponent = Component<MessagePartProps>
@@ -161,6 +165,13 @@ export type PartComponent = Component<MessagePartProps>
 export const PART_MAPPING: Record<string, PartComponent | undefined> = {}
 
 const TEXT_RENDER_THROTTLE_MS = 100
+
+export function assistantSource(parts: PartType[]) {
+  return parts
+    .filter((part): part is TextPart => part.type === "text" && typeof part.text === "string" && part.text.length > 0)
+    .map((part) => part.text)
+    .join("")
+}
 
 function createThrottledValue(getValue: () => string) {
   const [value, setValue] = createSignal(getValue())
@@ -572,6 +583,7 @@ export function AssistantParts(props: {
   const data = useData()
   const emptyParts: PartType[] = []
   const emptyTools: ToolPart[] = []
+  const [sourceOpen, setSourceOpen] = createSignal(false)
   const msgs = createMemo(() => index(props.messages))
   const part = createMemo(
     () =>
@@ -579,6 +591,10 @@ export function AssistantParts(props: {
         props.messages.map((message) => [message.id, index(list(data.store.part?.[message.id], emptyParts))] as const),
       ),
   )
+  const sourceText = createMemo(() =>
+    assistantSource(props.messages.flatMap((message) => list(data.store.part?.[message.id], emptyParts))),
+  )
+  const canShowSource = createMemo(() => sourceText().length > 0)
 
   const grouped = createMemo(
     () =>
@@ -599,68 +615,86 @@ export function AssistantParts(props: {
   const last = createMemo(() => grouped().at(-1)?.key)
 
   return (
-    <Index each={grouped()}>
-      {(entryAccessor) => {
-        const entryType = createMemo(() => entryAccessor().type)
+    <Show
+      when={sourceOpen() && canShowSource()}
+      fallback={
+        <Index each={grouped()}>
+          {(entryAccessor) => {
+            const entryType = createMemo(() => entryAccessor().type)
 
-        return (
-          <Switch>
-            <Match when={entryType() === "context"}>
-              {(() => {
-                const parts = createMemo(
-                  () => {
-                    const entry = entryAccessor()
-                    if (entry.type !== "context") return emptyTools
-                    return entry.refs
-                      .map((ref) => part().get(ref.messageID)?.get(ref.partID))
-                      .filter((part): part is ToolPart => !!part && isContextGroupTool(part))
-                  },
-                  emptyTools,
-                  { equals: same },
-                )
-                const busy = createMemo(() => props.working && last() === entryAccessor().key)
+            return (
+              <Switch>
+                <Match when={entryType() === "context"}>
+                  {(() => {
+                    const parts = createMemo(
+                      () => {
+                        const entry = entryAccessor()
+                        if (entry.type !== "context") return emptyTools
+                        return entry.refs
+                          .map((ref) => part().get(ref.messageID)?.get(ref.partID))
+                          .filter((part): part is ToolPart => !!part && isContextGroupTool(part))
+                      },
+                      emptyTools,
+                      { equals: same },
+                    )
+                    const busy = createMemo(() => props.working && last() === entryAccessor().key)
 
-                return (
-                  <Show when={parts().length > 0}>
-                    <ContextToolGroup parts={parts()} busy={busy()} />
-                  </Show>
-                )
-              })()}
-            </Match>
-            <Match when={entryType() === "part"}>
-              {(() => {
-                const message = createMemo(() => {
-                  const entry = entryAccessor()
-                  if (entry.type !== "part") return
-                  return msgs().get(entry.ref.messageID)
-                })
-                const item = createMemo(() => {
-                  const entry = entryAccessor()
-                  if (entry.type !== "part") return
-                  return part().get(entry.ref.messageID)?.get(entry.ref.partID)
-                })
+                    return (
+                      <Show when={parts().length > 0}>
+                        <ContextToolGroup parts={parts()} busy={busy()} />
+                      </Show>
+                    )
+                  })()}
+                </Match>
+                <Match when={entryType() === "part"}>
+                  {(() => {
+                    const message = createMemo(() => {
+                      const entry = entryAccessor()
+                      if (entry.type !== "part") return
+                      return msgs().get(entry.ref.messageID)
+                    })
+                    const item = createMemo(() => {
+                      const entry = entryAccessor()
+                      if (entry.type !== "part") return
+                      return part().get(entry.ref.messageID)?.get(entry.ref.partID)
+                    })
 
-                return (
-                  <Show when={message()}>
-                    <Show when={item()}>
-                      <Part
-                        part={item()!}
-                        message={message()!}
-                        showAssistantCopyPartID={props.showAssistantCopyPartID}
-                        turnDurationMs={props.turnDurationMs}
-                        onAssistantCollapse={props.onAssistantCollapse}
-                        canCollapseAssistant={props.canCollapseAssistant}
-                        defaultOpen={partDefaultOpen(item()!, props.shellToolDefaultOpen, props.editToolDefaultOpen)}
-                      />
-                    </Show>
-                  </Show>
-                )
-              })()}
-            </Match>
-          </Switch>
-        )
-      }}
-    </Index>
+                    return (
+                      <Show when={message()}>
+                        <Show when={item()}>
+                          <Part
+                            part={item()!}
+                            message={message()!}
+                            showAssistantCopyPartID={props.showAssistantCopyPartID}
+                            turnDurationMs={props.turnDurationMs}
+                            onAssistantCollapse={props.onAssistantCollapse}
+                            canCollapseAssistant={props.canCollapseAssistant}
+                            sourceText={sourceText()}
+                            sourceOpen={sourceOpen()}
+                            onSourceToggle={() => setSourceOpen((value) => !value)}
+                            canShowSource={canShowSource()}
+                            defaultOpen={partDefaultOpen(item()!, props.shellToolDefaultOpen, props.editToolDefaultOpen)}
+                          />
+                        </Show>
+                      </Show>
+                    )
+                  })()}
+                </Match>
+              </Switch>
+            )
+          }}
+        </Index>
+      }
+    >
+      <AssistantSource
+        messages={props.messages}
+        text={sourceText()}
+        turnDurationMs={props.turnDurationMs}
+        onAssistantCollapse={props.onAssistantCollapse}
+        canCollapseAssistant={props.canCollapseAssistant}
+        onSourceToggle={() => setSourceOpen(false)}
+      />
+    </Show>
   )
 }
 
@@ -1250,6 +1284,10 @@ export function Part(props: MessagePartProps) {
         turnDurationMs={props.turnDurationMs}
         onAssistantCollapse={props.onAssistantCollapse}
         canCollapseAssistant={props.canCollapseAssistant}
+        sourceText={props.sourceText}
+        sourceOpen={props.sourceOpen}
+        onSourceToggle={props.onSourceToggle}
+        canShowSource={props.canShowSource}
       />
     </Show>
   )
@@ -1426,6 +1464,128 @@ PART_MAPPING["compaction"] = function CompactionPartDisplay() {
   return <MessageDivider label={i18n.t("ui.messagePart.compaction")} />
 }
 
+function AssistantSource(props: {
+  messages: AssistantMessage[]
+  text: string
+  turnDurationMs?: number
+  onAssistantCollapse?: () => void
+  canCollapseAssistant?: boolean
+  onSourceToggle: () => void
+}) {
+  const data = useData()
+  const i18n = useI18n()
+  const numfmt = createMemo(() => new Intl.NumberFormat(i18n.locale()))
+  const [copied, setCopied] = createSignal(false)
+  const interrupted = createMemo(() => props.messages.some((message) => message.error?.name === "MessageAbortedError"))
+  const last = createMemo(() => props.messages.at(-1))
+  const model = createMemo(() => {
+    const message = last()
+    if (!message) return ""
+    const match = data.store.provider?.all?.find((item) => item.id === message.providerID)
+    return match?.models?.[message.modelID]?.name ?? message.modelID
+  })
+  const duration = createMemo(() => {
+    const message = last()
+    if (!message) return ""
+    const completed = message.time.completed
+    const ms =
+      typeof props.turnDurationMs === "number"
+        ? props.turnDurationMs
+        : typeof completed === "number"
+          ? completed - message.time.created
+          : -1
+    if (!(ms >= 0)) return ""
+    const total = Math.round(ms / 1000)
+    if (total < 60) return i18n.t("ui.message.duration.seconds", { count: numfmt().format(total) })
+    const minutes = Math.floor(total / 60)
+    const seconds = total % 60
+    return i18n.t("ui.message.duration.minutesSeconds", {
+      minutes: numfmt().format(minutes),
+      seconds: numfmt().format(seconds),
+    })
+  })
+  const meta = createMemo(() => {
+    const message = last()
+    if (!message) return ""
+    const items = [
+      message.agent ? message.agent[0]?.toUpperCase() + message.agent.slice(1) : "",
+      model(),
+      duration(),
+      interrupted() ? i18n.t("ui.message.interrupted") : "",
+    ]
+    return items.filter((item) => !!item).join(" \u00B7 ")
+  })
+
+  const copy = async () => {
+    if (!props.text) return
+    await navigator.clipboard.writeText(props.text)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
+  }
+
+  return (
+    <div data-component="text-part" data-source-view>
+      <div data-slot="text-part-body">
+        <pre data-slot="text-part-source">
+          <code>{props.text}</code>
+        </pre>
+      </div>
+      <div data-slot="text-part-copy-wrapper" data-interrupted={interrupted() ? "" : undefined}>
+        <Show when={meta()}>
+          <span data-slot="text-part-meta" class="text-12-regular text-text-weak cursor-default">
+            {meta()}
+          </span>
+        </Show>
+        <div data-slot="text-part-actions">
+          <Tooltip
+            value={copied() ? i18n.t("ui.message.copied") : i18n.t("ui.message.copySource")}
+            placement="top"
+            gutter={4}
+          >
+            <IconButton
+              icon={copied() ? "check" : "copy"}
+              size="normal"
+              variant="ghost"
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={copy}
+              aria-label={copied() ? i18n.t("ui.message.copied") : i18n.t("ui.message.copySource")}
+            />
+          </Tooltip>
+          <Show when={props.onAssistantCollapse && props.canCollapseAssistant}>
+            <Tooltip value={i18n.t("ui.message.collapse")} placement="top" gutter={4}>
+              <IconButton
+                icon="collapse"
+                size="normal"
+                variant="ghost"
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={(event) => {
+                  event.stopPropagation()
+                  props.onAssistantCollapse?.()
+                }}
+                aria-label={i18n.t("ui.message.collapse")}
+              />
+            </Tooltip>
+          </Show>
+          <Tooltip value={i18n.t("ui.message.showRendered")} placement="top" gutter={4}>
+            <IconButton
+              icon="code"
+              size="normal"
+              variant="ghost"
+              data-slot="text-part-source-toggle"
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={(event) => {
+                event.stopPropagation()
+                props.onSourceToggle()
+              }}
+              aria-label={i18n.t("ui.message.showRendered")}
+            />
+          </Tooltip>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 PART_MAPPING["text"] = function TextPartDisplay(props) {
   const data = useData()
   const i18n = useI18n()
@@ -1503,6 +1663,9 @@ PART_MAPPING["text"] = function TextPartDisplay(props) {
   const showAssistantCollapseControl = createMemo(
     () => props.message.role === "assistant" && !!props.onAssistantCollapse && !!props.canCollapseAssistant,
   )
+  const showAssistantSourceControl = createMemo(
+    () => props.message.role === "assistant" && !!props.onSourceToggle && !!props.canShowSource,
+  )
   const [copied, setCopied] = createSignal(false)
 
   const handleCopy = async () => {
@@ -1558,6 +1721,22 @@ PART_MAPPING["text"] = function TextPartDisplay(props) {
                       props.onAssistantCollapse?.()
                     }}
                     aria-label={i18n.t("ui.message.collapse")}
+                  />
+                </Tooltip>
+              </Show>
+              <Show when={showAssistantSourceControl()}>
+                <Tooltip value={i18n.t("ui.message.showSource")} placement="top" gutter={4}>
+                  <IconButton
+                    icon="code"
+                    size="normal"
+                    variant="ghost"
+                    data-slot="text-part-source-toggle"
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      props.onSourceToggle?.()
+                    }}
+                    aria-label={i18n.t("ui.message.showSource")}
                   />
                 </Tooltip>
               </Show>
