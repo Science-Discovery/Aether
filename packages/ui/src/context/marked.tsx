@@ -380,6 +380,8 @@ const katexMacros: Record<string, string> = {
   "\\slashed": "\\not\\!#1",
 }
 
+const inlineMathPattern = /(?<!\$)\$(?!\$)(?:[^$\n\\]|\\.)+?\$(?!\$)/
+
 export function decodeMath(text: string) {
   return text
     .replace(/&amp;/g, "&")
@@ -393,6 +395,71 @@ export function normalizeMath(text: string) {
   return text
     .replace(/\\\(((?:\\.|[^\\])*?)\\\)/g, (_, math) => `$${math}$`)
     .replace(/\\\[\s*([\s\S]*?)\s*\\\]/g, (_, math) => `\n$$\n${math}\n$$\n`)
+}
+
+function normalizeBreaks(text: string) {
+  return text.replace(/\r\n?/g, "\n")
+}
+
+function fence(line: string) {
+  const match = line.match(/^\s*(`{3,}|~{3,})/)
+  return match?.[1][0]
+}
+
+export function prepareMathMarkdown(text: string) {
+  const raw = normalizeMath(normalizeBreaks(text))
+  const lines = raw.split("\n")
+  const out: string[] = []
+  let mark = ""
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]
+    const trim = line.trim()
+    const next = fence(line)
+
+    if (mark) {
+      out.push(line)
+      if (next === mark) mark = ""
+      continue
+    }
+
+    if (next) {
+      out.push(line)
+      mark = next
+      continue
+    }
+
+    if (!trim.startsWith("$$")) {
+      out.push(line)
+      continue
+    }
+
+    if (out.length > 0 && out[out.length - 1].trim() !== "") out.push("")
+    out.push(line)
+
+    if (trim !== "$$" && trim.slice(2).includes("$$")) {
+      if (i < lines.length - 1 && lines[i + 1].trim() !== "") out.push("")
+      continue
+    }
+
+    while (i < lines.length - 1) {
+      i += 1
+      out.push(lines[i])
+      if (lines[i].trim().endsWith("$$")) break
+    }
+
+    if (i < lines.length - 1 && lines[i + 1].trim() !== "") out.push("")
+  }
+
+  return out.join("\n")
+}
+
+export function hasMathContent(text: string) {
+  const raw = normalizeBreaks(text)
+  if (raw.includes("$$")) return true
+  if (/\\\(((?:\\.|[^\\])*?)\\\)/.test(raw)) return true
+  if (/\\\[\s*[\s\S]*?\s*\\\]/.test(raw)) return true
+  return inlineMathPattern.test(normalizeMath(raw))
 }
 
 export function renderMathInText(text: string): string {
@@ -494,64 +561,65 @@ async function highlightCodeBlocks(html: string): Promise<string> {
 
 export type NativeMarkdownParser = (markdown: string) => Promise<string>
 
+const jsParser = marked.use(
+  {
+    renderer: {
+      link({ href, title, text }) {
+        const titleAttr = title ? ` title="${title}"` : ""
+        return `<a href="${href}"${titleAttr} class="external-link" target="_blank" rel="noopener noreferrer">${text}</a>`
+      },
+    },
+  },
+  markedKatex({
+    throwOnError: false,
+    nonStandard: true,
+    macros: katexMacros,
+  }),
+  markedShiki({
+    async highlight(code, lang) {
+      const highlighter = await getSharedHighlighter({
+        themes: ["OpenCode"],
+        langs: [],
+        preferredHighlighter: "shiki-wasm",
+      })
+      if (!(lang in bundledLanguages)) {
+        lang = "text"
+      }
+      if (!highlighter.getLoadedLanguages().includes(lang)) {
+        await highlighter.loadLanguage(lang as BundledLanguage)
+      }
+      return highlighter.codeToHtml(code, {
+        lang: lang || "text",
+        theme: "OpenCode",
+        tabindex: false,
+      })
+    },
+  }),
+)
+
+export function createMarkedParser(props: { nativeParser?: NativeMarkdownParser } = {}) {
+  const nativeParser = props.nativeParser
+
+  return {
+    async parse(markdown: string): Promise<string> {
+      const input = prepareMathMarkdown(markdown)
+
+      if (!nativeParser || hasMathContent(markdown)) {
+        const html = await jsParser.parse(input)
+        const withMath = renderMathExpressions(html)
+        return highlightCodeBlocks(withMath)
+      }
+
+      const raw = await nativeParser(input)
+      const html =
+        hasMarkdownHints(input) && !hasStructuredMarkup(raw) ? await jsParser.parse(input) : raw
+      const withMath = renderMathExpressions(html)
+      return highlightCodeBlocks(withMath)
+    },
+  }
+}
+
 export const { use: useMarked, provider: MarkedProvider } = createSimpleContext({
   name: "Marked",
-  init: (props: { nativeParser?: NativeMarkdownParser }) => {
-    const jsParser = marked.use(
-      {
-        renderer: {
-          link({ href, title, text }) {
-            const titleAttr = title ? ` title="${title}"` : ""
-            return `<a href="${href}"${titleAttr} class="external-link" target="_blank" rel="noopener noreferrer">${text}</a>`
-          },
-        },
-      },
-      markedKatex({
-        throwOnError: false,
-        nonStandard: true,
-        macros: katexMacros,
-      }),
-      markedShiki({
-        async highlight(code, lang) {
-          const highlighter = await getSharedHighlighter({
-            themes: ["OpenCode"],
-            langs: [],
-            preferredHighlighter: "shiki-wasm",
-          })
-          if (!(lang in bundledLanguages)) {
-            lang = "text"
-          }
-          if (!highlighter.getLoadedLanguages().includes(lang)) {
-            await highlighter.loadLanguage(lang as BundledLanguage)
-          }
-          return highlighter.codeToHtml(code, {
-            lang: lang || "text",
-            theme: "OpenCode",
-            tabindex: false,
-          })
-        },
-      }),
-    )
-
-    if (props.nativeParser) {
-      const nativeParser = props.nativeParser
-      return {
-        async parse(markdown: string): Promise<string> {
-          const input = normalizeMath(markdown)
-          const raw = await nativeParser(input)
-          const html =
-            hasMarkdownHints(input) && !hasStructuredMarkup(raw) ? await jsParser.parse(input) : raw
-          const withMath = renderMathExpressions(html)
-          return highlightCodeBlocks(withMath)
-        },
-      }
-    }
-
-    return {
-      async parse(markdown: string): Promise<string> {
-        const html = await jsParser.parse(normalizeMath(markdown))
-        return renderMathExpressions(html)
-      },
-    }
-  },
+  init: (props: { nativeParser?: NativeMarkdownParser }) => createMarkedParser(props),
 })
