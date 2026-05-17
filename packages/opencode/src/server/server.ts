@@ -624,6 +624,30 @@ export namespace Server {
           )
         },
       )
+      .post(
+        "/vcs/checkout",
+        describeRoute({
+          summary: "Switch git branch",
+          description: "Switch the current git branch to the specified branch name.",
+          operationId: "vcs.checkout",
+          responses: {
+            200: {
+              description: "Checkout result",
+              content: {
+                "application/json": {
+                  schema: resolver(Vcs.CheckoutResult),
+                },
+              },
+            },
+          },
+        }),
+        validator("json", z.object({ branch: z.string() })),
+        async (c) => {
+          const input = c.req.valid("json")
+          const result = await Vcs.checkout(input.branch)
+          return c.json(result)
+        },
+      )
       .get(
         "/vcs/commit/:hash",
         describeRoute({

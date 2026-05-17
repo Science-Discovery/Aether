@@ -14,6 +14,7 @@ import { Icon } from "@opencode-ai/ui/icon"
 import { IconButton } from "@opencode-ai/ui/icon-button"
 import { Spinner } from "@opencode-ai/ui/spinner"
 import { Tooltip } from "@opencode-ai/ui/tooltip"
+import { showToast } from "@opencode-ai/ui/toast"
 import { type Session } from "@opencode-ai/sdk/v2/client"
 import { type LocalProject } from "@/context/layout"
 import { useGlobalSync } from "@/context/global-sync"
@@ -256,17 +257,17 @@ const WorkspaceActions = (props: {
   currentBranch: Accessor<string | undefined>
 }): JSX.Element => {
   const globalSdk = useGlobalSDK()
+  const language = useLanguage()
   const [branches, setBranches] = createSignal<string[]>([])
   const [branchLoading, setBranchLoading] = createSignal(false)
+
+  const scopedClient = createMemo(() => globalSdk.createClient({ directory: props.directory }))
 
   const fetchBranches = async () => {
     if (branchLoading()) return
     setBranchLoading(true)
     try {
-      const result = await globalSdk.client.vcs.graph({
-        workspace: props.directory,
-        max: 0,
-      })
+      const result = await scopedClient().vcs.graph({ max: 0 })
       setBranches(result.data?.branches ?? [])
     } catch {
       setBranches([])
@@ -278,13 +279,18 @@ const WorkspaceActions = (props: {
   const checkout = async (name: string) => {
     props.setMenuOpen(false)
     try {
-      await globalSdk.client.pty.create({
-        workspace: props.directory,
-        command: "git",
-        args: ["checkout", name],
-        title: `Checkout ${name}`,
+      const resp = await fetch(`${globalSdk.url}/vcs/checkout`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-opencode-directory": props.directory },
+        body: JSON.stringify({ branch: name }),
       })
-    } catch {}
+      const result = await resp.json()
+      if (!result.success) {
+        showToast({ variant: "error", title: language.t("workspace.switchBranch"), description: result.error })
+      }
+    } catch (e) {
+      showToast({ variant: "error", title: language.t("workspace.switchBranch"), description: String(e) })
+    }
   }
 
   return (
