@@ -3,81 +3,29 @@ import { DialogSelect } from "@tui/ui/dialog-select"
 import { useRoute } from "@tui/context/route"
 import { useSync } from "@tui/context/sync"
 import { createEffect, createMemo, createSignal, onMount } from "solid-js"
-import type { Session } from "@opencode-ai/sdk/v2"
 import { useSDK } from "../context/sdk"
 import { useToast } from "../ui/toast"
 import { useKeybind } from "../context/keybind"
 import { DialogSessionList } from "./workspace/dialog-session-list"
 import { createOpencodeClient } from "@opencode-ai/sdk/v2"
-import { setTimeout as sleep } from "node:timers/promises"
 
-async function openWorkspace(input: {
+function openWorkspace(input: {
   dialog: ReturnType<typeof useDialog>
   route: ReturnType<typeof useRoute>
   sdk: ReturnType<typeof useSDK>
   sync: ReturnType<typeof useSync>
   toast: ReturnType<typeof useToast>
   workspaceID: string
-  forceCreate?: boolean
 }) {
-  const cacheSession = (session: Session) => {
-    input.sync.set(
-      "session",
-      [...input.sync.data.session.filter((item) => item.id !== session.id), session].toSorted((a, b) =>
-        a.id.localeCompare(b.id),
-      ),
-    )
-  }
-
-  const client = createOpencodeClient({
-    baseUrl: input.sdk.url,
-    fetch: input.sdk.fetch,
-    directory: input.sync.data.path.directory || input.sdk.directory,
-    experimental_workspaceID: input.workspaceID,
-  })
-  const listed = input.forceCreate ? undefined : await client.session.list({ roots: true, limit: 1 })
-  const session = listed?.data?.[0]
-  if (session?.id) {
-    cacheSession(session)
-    input.route.navigate({
-      type: "session",
-      sessionID: session.id,
-    })
-    input.dialog.clear()
-    return
-  }
-  let created: Session | undefined
-  while (!created) {
-    const result = await client.session.create({ workspaceID: input.workspaceID }).catch(() => undefined)
-    if (!result) {
-      input.toast.show({
-        message: "Failed to open workspace",
-        variant: "error",
-      })
-      return
-    }
-    if (result.response.status >= 500 && result.response.status < 600) {
-      await sleep(1000)
-      continue
-    }
-    if (!result.data) {
-      input.toast.show({
-        message: "Failed to open workspace",
-        variant: "error",
-      })
-      return
-    }
-    created = result.data
-  }
-  cacheSession(created)
+  input.sdk.setWorkspace(input.workspaceID)
   input.route.navigate({
-    type: "session",
-    sessionID: created.id,
+    type: "home",
+    workspaceID: input.workspaceID,
   })
   input.dialog.clear()
 }
 
-function DialogWorkspaceCreate(props: { onSelect: (workspaceID: string) => Promise<void> }) {
+function DialogWorkspaceCreate(props: { onSelect: (workspaceID: string) => void }) {
   const dialog = useDialog()
   const sync = useSync()
   const sdk = useSDK()
@@ -154,7 +102,7 @@ export function DialogWorkspaceList() {
   const [toDelete, setToDelete] = createSignal<string>()
   const [counts, setCounts] = createSignal<Record<string, number | null | undefined>>({})
 
-  const open = (workspaceID: string, forceCreate?: boolean) =>
+  const open = (workspaceID: string) =>
     openWorkspace({
       dialog,
       route,
@@ -162,7 +110,6 @@ export function DialogWorkspaceList() {
       sync,
       toast,
       workspaceID,
-      forceCreate,
     })
 
   async function selectWorkspace(workspaceID: string) {
@@ -182,23 +129,25 @@ export function DialogWorkspaceList() {
       dialog.replace(() => <DialogSessionList workspaceID={workspaceID} />)
       return
     }
-
-    if (count === 0) {
-      await open(workspaceID)
-      return
+    if (count === undefined) {
+      const client = createOpencodeClient({
+        baseUrl: sdk.url,
+        fetch: sdk.fetch,
+        directory: sync.data.path.directory || sdk.directory,
+        experimental_workspaceID: workspaceID,
+      })
+      const listed = await client.session.list({ roots: true, limit: 1 }).catch(() => undefined)
+      if (listed?.data?.length) {
+        dialog.replace(() => <DialogSessionList workspaceID={workspaceID} />)
+        return
+      }
     }
-    const client = createOpencodeClient({
-      baseUrl: sdk.url,
-      fetch: sdk.fetch,
-      directory: sync.data.path.directory || sdk.directory,
-      experimental_workspaceID: workspaceID,
+    sdk.setWorkspace(workspaceID)
+    route.navigate({
+      type: "home",
+      workspaceID,
     })
-    const listed = await client.session.list({ roots: true, limit: 1 }).catch(() => undefined)
-    if (listed?.data?.length) {
-      dialog.replace(() => <DialogSessionList workspaceID={workspaceID} />)
-      return
-    }
-    await open(workspaceID)
+    dialog.clear()
   }
 
   const currentWorkspaceID = createMemo(() => {
@@ -289,7 +238,7 @@ export function DialogWorkspaceList() {
       onSelect={(option) => {
         setToDelete(undefined)
         if (option.value === "__create__") {
-          dialog.replace(() => <DialogWorkspaceCreate onSelect={(workspaceID) => open(workspaceID, true)} />)
+          dialog.replace(() => <DialogWorkspaceCreate onSelect={(workspaceID) => open(workspaceID)} />)
           return
         }
         void selectWorkspace(option.value)

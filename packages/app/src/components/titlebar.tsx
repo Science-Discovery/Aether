@@ -246,20 +246,7 @@ export function Titlebar() {
                       disabled={layout.sidebar.opened()}
                       tabIndex={layout.sidebar.opened() ? -1 : undefined}
                       onClick={() => {
-                        const dir = decode64(params.dir)
-                        if (!dir) return
-                        void globalSDK.client.session
-                          .create({ directory: dir })
-                          .then((x) => {
-                            if (!x.data?.id) return
-                            navigate(`/${params.dir}/session/${x.data.id}`)
-                          })
-                          .catch(() => {
-                            showToast({
-                              title: language.t("prompt.toast.sessionCreateFailed.title"),
-                              variant: "error",
-                            })
-                          })
+                        navigate(`/${params.dir}/session`)
                       }}
                       aria-label={language.t("command.session.new")}
                       aria-current={creating() ? "page" : undefined}
