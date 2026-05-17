@@ -79,7 +79,7 @@ export namespace SkillManageTool {
       // revert via the most recent snapshot if available.
       const versions = await Versions.list(skillDir)
       if (versions.length > 0) {
-        const previous = versions[versions.length - 2] // second-to-last
+        const previous = versions[versions.length - 1]
         if (previous) {
           await Versions.rollback(skillDir, previous.filename.replace(".bundle.json", ""))
         }
