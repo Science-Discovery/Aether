@@ -1,14 +1,12 @@
 import { Counter } from "./counter"
 import { ConfigReader } from "./config-reader"
-import { isReviewSession, spawnReview, type MessageSnapshot } from "./review-agent"
+import { isReviewSession, spawnReview } from "./review-agent"
 import { Log } from "@/util/log"
 
 const log = Log.create({ service: "skill-evolution.hook" })
 
 export interface HookInput {
   readonly sessionID: string
-  /** Read-only snapshot of the conversation — no original references retained. */
-  readonly messages: ReadonlyArray<MessageSnapshot>
   readonly isReviewSession: boolean
   readonly finalResponse: boolean
   readonly aborted: boolean
@@ -60,7 +58,6 @@ export namespace SkillEvolutionHook {
     // Fire-and-forget — must not block or throw into the caller's scope
     spawnReview({
       sessionID: input.sessionID,
-      messages: input.messages,
       projectId: input.projectId,
       projectDirectory: input.projectDirectory,
     }).catch((err) => {

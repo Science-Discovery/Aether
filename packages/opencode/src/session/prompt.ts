@@ -734,15 +734,6 @@ export namespace SessionPrompt {
 
     await SkillEvolutionHook.onLoopEnd({
       sessionID,
-      messages: (await MessageV2.filterCompacted(MessageV2.stream(sessionID))).map((m) => ({
-        role: m.info.role as "user" | "assistant",
-        parts: m.parts.map((p) => ({
-          type: p.type,
-          text: "text" in p ? (p as any).text : undefined,
-          tool: "tool" in p ? (p as any).tool : undefined,
-          callID: "callID" in p ? (p as any).callID : undefined,
-        })),
-      })),
       isReviewSession: false,
       finalResponse: _finalResponse,
       aborted: abort.aborted,

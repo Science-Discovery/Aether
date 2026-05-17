@@ -169,7 +169,6 @@ export async function buildReviewPrompt(
  */
 export async function spawnReview(input: {
   sessionID: string
-  messages: ReadonlyArray<MessageSnapshot>
   projectId: string
   projectDirectory?: string
 }): Promise<void> {
@@ -178,7 +177,20 @@ export async function spawnReview(input: {
       ? Spawner.skillFolderName(input.projectDirectory, input.projectId)
       : input.projectId
 
-    const prompt = await buildReviewPrompt(input.messages, folderName)
+    // Read messages here (deferred) so callers don't pay the DB cost on every session end
+    const { MessageV2 } = await import("@/session/message-v2")
+    const rawMessages = await MessageV2.filterCompacted(MessageV2.stream(input.sessionID))
+    const messages: MessageSnapshot[] = rawMessages.map((m) => ({
+      role: m.info.role as "user" | "assistant",
+      parts: m.parts.map((p) => ({
+        type: p.type,
+        text: "text" in p ? (p as any).text : undefined,
+        tool: "tool" in p ? (p as any).tool : undefined,
+        callID: "callID" in p ? (p as any).callID : undefined,
+      })),
+    }))
+
+    const prompt = await buildReviewPrompt(messages, folderName)
 
     await fs.mkdir(SKILL_SESSIONS_ROOT, { recursive: true })
     const skillProjectId = skillSessionsProjectId()
