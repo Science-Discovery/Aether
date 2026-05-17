@@ -13,7 +13,7 @@ function readServePort() {
     join(homedir(), "Library", "Application Support"),
   ].filter((x) => typeof x === "string" && x.length > 0)
   for (const dir of dirs) {
-    const file = join(dir, "opencode", "serve-port")
+    const file = join(dir, "aether", "serve-port")
     try {
       const port = readFileSync(file, "utf-8").trim()
       if (port) return port
@@ -41,11 +41,11 @@ function readBasePath() {
   if (/^[A-Za-z]:[\\/]/.test(raw)) {
     const recovered = stripGitBashPrefix(raw)
     if (recovered) {
-      console.warn(`[opencode] detected Git Bash path translation, corrected: "${raw}" → "${recovered}"`)
+      console.warn(`[aether] detected Git Bash path translation, corrected: "${raw}" → "${recovered}"`)
       return recovered
     }
     console.error(
-      `[opencode] VITE_BASE_PATH "${raw}" is a Windows path, likely from Git Bash translation. Run from cmd.exe or set MSYS_NO_PATHCONV=1, or pass base path without leading slash: --basepath my/base/path`,
+      `[aether] VITE_BASE_PATH "${raw}" is a Windows path, likely from Git Bash translation. Run from cmd.exe or set MSYS_NO_PATHCONV=1, or pass base path without leading slash: --basepath my/base/path`,
     )
     return "/"
   }
@@ -64,14 +64,14 @@ const theme = fileURLToPath(new URL("./public/oc-theme-preload.js", import.meta.
  */
 export default [
   {
-    name: "opencode-desktop:config",
+    name: "aether-desktop:config",
     config() {
       const port = readServePort()
       const basePath = readBasePath()
       const routerBase = readRouterBase(basePath)
       const env = port ? { VITE_OPENCODE_SERVER_PORT: port } : {}
-      if (port) console.log(`[opencode] auto-detected backend port: ${port}`)
-      if (routerBase !== "/") console.log(`[opencode] base path: ${routerBase}`)
+      if (port) console.log(`[aether] auto-detected backend port: ${port}`)
+      if (routerBase !== "/") console.log(`[aether] base path: ${routerBase}`)
       env.VITE_BASE_PATH = routerBase
       return {
         ...(basePath ? { base: basePath } : {}),
@@ -89,7 +89,7 @@ export default [
     },
   },
   {
-    name: "opencode-desktop:theme-preload",
+    name: "aether-desktop:theme-preload",
     enforce: "pre",
     transformIndexHtml(html) {
       return html.replace(
