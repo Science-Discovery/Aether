@@ -31,7 +31,7 @@ import { useSync } from "@/context/sync"
 import { useTerminal } from "@/context/terminal"
 import { getSessionHandoff } from "@/pages/session/handoff"
 import { useSessionLayout } from "@/pages/session/session-layout"
-import { draftState, editorValue } from "@/pages/session/file-tab-state"
+import { draftState, editorValue, wrapValue } from "@/pages/session/file-tab-state"
 import { createSessionTabs } from "@/pages/session/helpers"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { DialogDraftConflict } from "@/components/dialog-draft-conflict"
@@ -124,8 +124,12 @@ export function FileTabContent(props: { tab: string }) {
     if (!p || !file.ready()) return
     if (!state()?.loaded) return
     persistedStateLoaded = true
-    const savedWrap = file.wordWrap(p)
-    if (savedWrap != null) setWordWrapSignal(Boolean(savedWrap))
+    setWordWrapSignal(
+      wrapValue({
+        saved: file.wordWrap(p),
+        markdown: isMarkdown(),
+      }),
+    )
     const saved = draftState({
       ready: file.ready(),
       loaded: !!state()?.loaded,

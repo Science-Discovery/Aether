@@ -14,7 +14,7 @@ import {
   foldGutter,
   HighlightStyle,
 } from "@codemirror/language"
-import { tags as t } from "@lezer/highlight" 
+import { tags as t } from "@lezer/highlight"
 import { closeBrackets, closeBracketsKeymap } from "@codemirror/autocomplete"
 import { python } from "@codemirror/lang-python"
 import { javascript } from "@codemirror/lang-javascript"
@@ -78,6 +78,20 @@ function getLanguageExtension(filename: string) {
   }
 }
 
+function layoutTheme(wrap = false) {
+  return EditorView.theme({
+    ".cm-content": {
+      minWidth: wrap ? "100%" : "max-content",
+      width: wrap ? "100%" : "max-content",
+    },
+    ".cm-line": {
+      whiteSpace: wrap ? "pre-wrap" : "pre",
+      overflowWrap: wrap ? "anywhere" : "normal",
+      wordBreak: wrap ? "break-word" : "normal",
+    },
+  })
+}
+
 export function CodeEditor(props: {
   content: string
   filename: string
@@ -97,6 +111,7 @@ export function CodeEditor(props: {
   let view: EditorView | undefined
   const editableCompartment = new Compartment()
   const wrapCompartment = new Compartment()
+  const layoutCompartment = new Compartment()
 
   const editorTheme = EditorView.theme({
     "&": {
@@ -115,7 +130,8 @@ export function CodeEditor(props: {
     },
     ".cm-scroller": {
       fontFamily: "var(--font-mono, 'Fira Code', Consolas, monospace)",
-      overflow: "auto",
+      overflowX: "auto",
+      overflowY: "auto",
       scrollbarWidth: "thin",
       scrollbarColor: "var(--border-weak-base) transparent",
     },
@@ -186,6 +202,7 @@ export function CodeEditor(props: {
       editorTheme,
       editableCompartment.of(EditorView.editable.of(!props.disabled)),
       wrapCompartment.of(props.wordWrap ? EditorView.lineWrapping : []),
+      layoutCompartment.of(layoutTheme(props.wordWrap)),
       EditorView.updateListener.of((update) => {
         if (update.docChanged) {
           props.onChange(update.state.doc.toString())
@@ -283,6 +300,7 @@ export function CodeEditor(props: {
   createEffect(() => {
     if (!view) return
     view.dispatch({ effects: wrapCompartment.reconfigure(props.wordWrap ? EditorView.lineWrapping : []) })
+    view.dispatch({ effects: layoutCompartment.reconfigure(layoutTheme(props.wordWrap)) })
   })
 
   onCleanup(() => {
@@ -305,7 +323,10 @@ export function CodeEditor(props: {
           const r = lines[i].getBoundingClientRect()
           if (r.height === 0) continue
           const dist = Math.abs((r.top + r.bottom) / 2 - centerScreenY)
-          if (dist < bestDist) { bestDist = dist; bestIdx = i }
+          if (dist < bestDist) {
+            bestDist = dist
+            bestIdx = i
+          }
         }
         if (bestIdx < 0) return ""
 

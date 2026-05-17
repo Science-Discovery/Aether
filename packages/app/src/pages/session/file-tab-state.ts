@@ -39,3 +39,11 @@ export function editorValue(input: {
   if (input.draft !== undefined) return input.draft
   return input.content
 }
+
+export function wrapValue(input: {
+  saved?: boolean
+  markdown: boolean
+}) {
+  if (input.saved !== undefined) return input.saved
+  return input.markdown
+}

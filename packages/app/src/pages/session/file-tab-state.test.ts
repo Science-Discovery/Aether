@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import { checksum } from "@opencode-ai/util/encode"
-import { canRestoreEditor, draftState, editorValue } from "./file-tab-state"
+import { canRestoreEditor, draftState, editorValue, wrapValue } from "./file-tab-state"
 
 describe("file tab editor restore", () => {
   test("restores only after text content is ready", () => {
@@ -14,6 +14,16 @@ describe("file tab editor restore", () => {
   test("prefers saved draft over file content", () => {
     expect(editorValue({ draft: "draft body", content: "saved body" })).toBe("draft body")
     expect(editorValue({ content: "saved body" })).toBe("saved body")
+  })
+
+  test("defaults markdown files to wrapped source view", () => {
+    expect(wrapValue({ markdown: true })).toBe(true)
+    expect(wrapValue({ markdown: false })).toBe(false)
+  })
+
+  test("prefers saved wrap state over markdown default", () => {
+    expect(wrapValue({ saved: false, markdown: true })).toBe(false)
+    expect(wrapValue({ saved: true, markdown: false })).toBe(true)
   })
 
   test("treats persisted drafts without base as stale", () => {
