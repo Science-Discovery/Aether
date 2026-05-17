@@ -13,7 +13,6 @@ import { installCli, killStaleSidecar, saveSidecarPid, syncCli } from "./cli"
 import { CHANNEL, UPDATER_ENABLED } from "./constants"
 import { registerIpcHandlers, sendDeepLinks, sendMenuCommand, sendSqliteMigrationProgress } from "./ipc"
 import { initLogging } from "./logging"
-import { parseMarkdown } from "./markdown"
 import { createMenu } from "./menu"
 import "./paths"
 import { ensureDesktopPersist } from "./persist"
@@ -282,7 +281,6 @@ registerIpcHandlers({
   },
   getDisplayBackend: async () => null,
   setDisplayBackend: async () => undefined,
-  parseMarkdown: async (markdown) => parseMarkdown(markdown),
   checkAppExists: async (appName) => checkAppExists(appName),
   wslPath: async (path, mode) => wslPath(path, mode),
   resolveAppPath: async (appName) => resolveAppPath(appName),

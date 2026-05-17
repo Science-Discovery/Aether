@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest"
-import { createMarkedParser, decodeMath, hasMathContent, normalizeMath, prepareMathMarkdown, renderMathInText } from "./marked"
+import { createMarkedParser, decodeMath, normalizeMath, prepareMathMarkdown, renderMathInText } from "./marked"
 
 describe("marked math", () => {
   test("decodes html entities inside math", () => {
@@ -17,14 +17,6 @@ a+b
   test("prepares display math blocks without requiring manual blank lines", () => {
     expect(prepareMathMarkdown("foo\n$$\na+b\n$$")).toBe("foo\n\n$$\na+b\n$$")
     expect(prepareMathMarkdown("$$\na+b\n$$\nbar")).toBe("$$\na+b\n$$\n\nbar")
-  })
-
-  test("detects math content across block and inline forms", () => {
-    expect(hasMathContent(String.raw`plain $x+y$ text`)).toBe(true)
-    expect(hasMathContent(String.raw`\[
-a+b
-\]`)).toBe(true)
-    expect(hasMathContent("plain text")).toBe(false)
   })
 
   test("renders matrix formulas without leaking html entities", () => {
@@ -133,25 +125,11 @@ $$`)
     expect(html).toContain("<pre")
   })
 
-  test("bypasses the native parser when math is present", async () => {
-    const parser = createMarkedParser({
-      nativeParser: async () =>
-        "<p>$$\n\\chi_s=\\frac{1}{V}\\left(\\frac{\\partial S}{\\partial B}\\right)<em>{T,V}</em>\n$$</p>",
-    })
-    const html = await parser.parse(String.raw`$$
-\chi_s=\frac{1}{V}\left(\frac{\partial S}{\partial B}\right)_{T,V}
-$$`)
+  test("parses plain markdown through the shared renderer", async () => {
+    const parser = createMarkedParser()
+    const html = await parser.parse(["# title", "", "plain text"].join("\n"))
 
-    expect(html).toContain("katex-display")
-    expect(html).not.toContain("<em>")
-  })
-
-  test("still uses the native parser for non-math markdown", async () => {
-    const parser = createMarkedParser({
-      nativeParser: async () => "<p>native</p>",
-    })
-    const html = await parser.parse("plain text")
-
-    expect(html).toBe("<p>native</p>")
+    expect(html).toContain("<h1")
+    expect(html).toContain("<p>plain text</p>")
   })
 })

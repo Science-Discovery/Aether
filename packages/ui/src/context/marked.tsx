@@ -380,8 +380,6 @@ const katexMacros: Record<string, string> = {
   "\\slashed": "\\not\\!#1",
 }
 
-const inlineMathPattern = /(?<!\$)\$(?!\$)(?:[^$\n\\]|\\.)+?\$(?!\$)/
-
 export function decodeMath(text: string) {
   return text
     .replace(/&amp;/g, "&")
@@ -454,14 +452,6 @@ export function prepareMathMarkdown(text: string) {
   return out.join("\n")
 }
 
-export function hasMathContent(text: string) {
-  const raw = normalizeBreaks(text)
-  if (raw.includes("$$")) return true
-  if (/\\\(((?:\\.|[^\\])*?)\\\)/.test(raw)) return true
-  if (/\\\[\s*[\s\S]*?\s*\\\]/.test(raw)) return true
-  return inlineMathPattern.test(normalizeMath(raw))
-}
-
 export function renderMathInText(text: string): string {
   let result = normalizeMath(text)
 
@@ -511,14 +501,6 @@ function renderMathExpressions(html: string): string {
     .join("")
 }
 
-function hasMarkdownHints(md: string): boolean {
-  return /(^|\n)\s{0,3}(#{1,6}\s+|\d+[.)]\s+|[-*+]\s+|>\s+)/.test(md)
-}
-
-function hasStructuredMarkup(html: string): boolean {
-  return /<(h[1-6]|ul|ol|li|blockquote|table|pre|code)\b/i.test(html)
-}
-
 async function highlightCodeBlocks(html: string): Promise<string> {
   const codeBlockRegex = /<pre><code(?:\s+class="language-([^"]*)")?>([\s\S]*?)<\/code><\/pre>/g
   const matches = [...html.matchAll(codeBlockRegex)]
@@ -559,8 +541,6 @@ async function highlightCodeBlocks(html: string): Promise<string> {
   return result
 }
 
-export type NativeMarkdownParser = (markdown: string) => Promise<string>
-
 const jsParser = marked.use(
   {
     renderer: {
@@ -597,22 +577,11 @@ const jsParser = marked.use(
   }),
 )
 
-export function createMarkedParser(props: { nativeParser?: NativeMarkdownParser } = {}) {
-  const nativeParser = props.nativeParser
-
+export function createMarkedParser() {
   return {
     async parse(markdown: string): Promise<string> {
       const input = prepareMathMarkdown(markdown)
-
-      if (!nativeParser || hasMathContent(markdown)) {
-        const html = await jsParser.parse(input)
-        const withMath = renderMathExpressions(html)
-        return highlightCodeBlocks(withMath)
-      }
-
-      const raw = await nativeParser(input)
-      const html =
-        hasMarkdownHints(input) && !hasStructuredMarkup(raw) ? await jsParser.parse(input) : raw
+      const html = await jsParser.parse(input)
       const withMath = renderMathExpressions(html)
       return highlightCodeBlocks(withMath)
     },
@@ -621,5 +590,5 @@ export function createMarkedParser(props: { nativeParser?: NativeMarkdownParser 
 
 export const { use: useMarked, provider: MarkedProvider } = createSimpleContext({
   name: "Marked",
-  init: (props: { nativeParser?: NativeMarkdownParser }) => createMarkedParser(props),
+  init: () => createMarkedParser(),
 })

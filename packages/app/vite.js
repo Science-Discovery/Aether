@@ -13,11 +13,13 @@ function readServePort() {
     join(homedir(), "Library", "Application Support"),
   ].filter((x) => typeof x === "string" && x.length > 0)
   for (const dir of dirs) {
-    const file = join(dir, "opencode", "serve-port")
-    try {
-      const port = readFileSync(file, "utf-8").trim()
-      if (port) return port
-    } catch {}
+    for (const name of ["aether", "opencode"]) {
+      const file = join(dir, name, "serve-port")
+      try {
+        const port = readFileSync(file, "utf-8").trim()
+        if (port) return port
+      } catch {}
+    }
   }
   return undefined
 }

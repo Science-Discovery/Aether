@@ -230,8 +230,6 @@ const createPlatform = (): Platform => {
       await window.api.setProxyConfig(config)
     },
 
-    parseMarkdown: (markdown: string) => window.api.parseMarkdownCommand(markdown),
-
     webviewZoom,
 
     checkAppExists: async (appName: string) => {
