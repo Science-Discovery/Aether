@@ -5,6 +5,7 @@ import { ShadowWriter } from "./shadow-writer"
 import { Guard } from "./guard"
 import { Versions } from "./versions"
 import { Publisher } from "./publisher"
+import { Tool } from "../tool/tool"
 
 /** Input schema exposed to the review agent as the `skill_manage` tool. */
 export const SkillManageInput = z.object({
@@ -175,3 +176,18 @@ export namespace SkillManageTool {
     return { ok: true, message: `Rolled back "${input.name}" to ${input.version}`, skillDir }
   }
 }
+
+export const SkillManageToolDef = Tool.define("skill_manage", {
+  description:
+    "Create, edit, patch, delete, or rollback a skill managed by the skill evolution system. " +
+    "Use this tool (not edit/write) whenever you want to modify SKILL.md files.",
+  parameters: SkillManageInput,
+  async execute(params) {
+    const result = await SkillManageTool.execute(params)
+    return {
+      title: `skill_manage(${params.action}: ${params.name})`,
+      output: result.message,
+      metadata: { ok: result.ok, skillDir: result.skillDir },
+    }
+  },
+})

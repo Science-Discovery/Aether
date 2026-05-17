@@ -187,6 +187,8 @@ export async function spawnReview(input: {
     // Dynamically import to avoid circular deps and keep startup cost low
     const { Instance } = await import("@/project/instance")
     const { SessionPrompt } = await import("@/session/prompt")
+    const { ToolRegistry } = await import("@/tool/registry")
+    const { SkillManageToolDef } = await import("./skill-manage-tool")
 
     const sessionTitle = path.basename(Instance.directory)
 
@@ -215,11 +217,22 @@ export async function spawnReview(input: {
     Instance.provide({
       directory: SKILL_SESSIONS_ROOT,
       create: false,
-      fn: () =>
-        SessionPrompt.prompt({
+      fn: async () => {
+        // Register skill_manage only for this instance — normal sessions are unaffected.
+        await ToolRegistry.register(SkillManageToolDef)
+        return SessionPrompt.prompt({
           sessionID: reviewSessionId,
           parts: [{ type: "text", text: prompt }],
-        }),
+          // Allow everything by default so the background session never hangs on "ask",
+          // then deny the generic file-edit tools so the model is forced to use skill_manage.
+          tools: {
+            "*": true,
+            edit: false,
+            write: false,
+            apply_patch: false,
+          },
+        })
+      },
     }).catch((err) => {
       log.error("review session failed", { error: err, reviewSessionId })
     })
