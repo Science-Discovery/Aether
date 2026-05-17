@@ -15,6 +15,7 @@ import { Log } from "@/util/log"
 import { ShareNext } from "@/share/share-next"
 import { PROJECT } from "@/persist/naming"
 import { SessionRecovery } from "@/session/recovery"
+import { DbRecovery } from "@/storage/db-recovery"
 
 export async function InstanceBootstrap() {
   Log.Default.info("bootstrapping", { directory: Instance.directory })
@@ -30,6 +31,10 @@ export async function InstanceBootstrap() {
   Snapshot.init()
   await SessionRecovery.repairInterrupted().catch((error) => {
     Log.Default.warn("failed to repair interrupted assistant messages", { error })
+  })
+
+  DbRecovery.runAfterStartup().catch((error) => {
+    Log.Default.warn("db recovery failed", { error })
   })
 
   Bus.subscribe(Command.Event.Executed, async (payload) => {
