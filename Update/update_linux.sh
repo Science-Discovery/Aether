@@ -472,23 +472,44 @@ EOF
 }
 
 write_launch() {
-  local app="$1/Aether.sh"
+  local target="$1"
+  local app="$target/Aether.sh"
+  local icon="$target/aether-icon.png"
   local home
   home="$(pick_home)"
-  local desk="$home/Desktop"
-  local launch="$desk/Aether.sh"
-  mkdir -p "$desk" || return 1
+  local apps="$home/.local/share/applications"
+  mkdir -p "$apps" || return 1
 
-  cat > "$launch" <<EOF
-#!/usr/bin/env bash
-set -euo pipefail
+  local icon_line=""
+  if [ -f "$icon" ]; then
+    icon_line="Icon=$icon"
+  fi
 
-app="$app"
-[ -x "\$app" ] || exit 1
-exec "\$app" "\$@"
+  cat > "$apps/aether.desktop" <<EOF
+[Desktop Entry]
+Type=Application
+Name=Aether
+Comment=AI-powered development tool
+Exec="$app"
+$icon_line
+Categories=Development;IDE;
+Terminal=false
+StartupNotify=true
 EOF
-  chmod +x "$launch" || return 1
-  printf "%s" "$launch"
+  chmod +x "$apps/aether.desktop" || true
+
+  if command -v update-desktop-database >/dev/null 2>&1; then
+    update-desktop-database "$apps" 2>/dev/null || true
+  fi
+
+  local desk="$home/Desktop"
+  mkdir -p "$desk" || return 1
+  if [ -f "$apps/aether.desktop" ]; then
+    cp "$apps/aether.desktop" "$desk/aether.desktop" 2>/dev/null || true
+    chmod +x "$desk/aether.desktop" || true
+  fi
+
+  printf "%s" "$apps/aether.desktop"
 }
 
 stop() {
@@ -599,16 +620,24 @@ register_protocol() {
   local target="$1"
   local handler="$target/aether-protocol-handler.sh"
   [ -f "$handler" ] || return 0
+  local icon="$target/aether-icon.png"
   local apps="$HOME/.local/share/applications"
   mkdir -p "$apps" || return 0
   local desk="$apps/aether-url-handler.desktop"
+
+  local icon_line=""
+  if [ -f "$icon" ]; then
+    icon_line="Icon=$icon"
+  fi
+
   cat > "$desk" <<DEOF
 [Desktop Entry]
 Type=Application
 Name=Aether URL Handler
-Exec=\"$handler\" %u
+Exec="$handler" %u
 MimeType=x-scheme-handler/aether;
 NoDisplay=true
+$icon_line
 DEOF
   chmod +x "$desk" || return 0
   if command -v update-desktop-database >/dev/null 2>&1; then
@@ -751,10 +780,10 @@ launch="$(write_launch "$start_target" || true)"
 register_protocol "$start_target"
 if [ -n "$launch" ]; then
   echo "[install] Desktop launcher: $launch"
-  echo "[install] To start Aether, right-click the Aether.sh file on your desktop and choose Run as a Program."
+  echo "[install] To start Aether, click the Aether icon on your desktop or in your application menu."
 else
   echo "[install] Warning: failed to create Desktop launcher."
-  echo "[install] To start Aether, open $start_target, right-click Aether.sh, and choose Run as a Program."
+  echo "[install] To start Aether, open $start_target and run Aether.sh."
 fi
 
 if [ "$prune" -gt 0 ]; then

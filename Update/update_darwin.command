@@ -333,12 +333,13 @@ mirror_target() {
 }
 
 build_app() {
-  local dest final app bin cmd
+  local dest final app bin cmd icon
   dest="$1"
   final="$2"
   app="$dest/Aether.app"
   bin="$app/Contents/MacOS/Aether"
   cmd="$final/Aether.command"
+  icon="$final/aether-icon.icns"
   rm -rf "$app"
   mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
   cat >"$bin" <<EOF
@@ -407,9 +408,15 @@ EOF
       </array>
     </dict>
   </array>
+  <key>CFBundleIconFile</key>
+  <string>appIcon.icns</string>
 </dict>
 </plist>
 EOF
+  if [ -f "$icon" ]; then
+    cp "$icon" "$app/Contents/Resources/appIcon.icns"
+  fi
+  touch "$app"
   xattr -cr "$app" >/dev/null 2>&1 || true
 }
 

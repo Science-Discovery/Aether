@@ -246,8 +246,10 @@ describe("web update scripts", () => {
       expect(log).toContain("skipped mirror")
       expect(await Bun.file(path.join(work, "aether_1.2.7", "Aether.sh")).exists()).toBe(true)
       expect((await dirs(work)).some((x) => /^aether_1\.2\.7_\d{12}$/.test(x))).toBe(false)
-      const desk = await Bun.file(path.join(home, "Desktop", "Aether.sh")).text()
-      expect(desk).toContain(path.join(work, "aether_1.2.7", "Aether.sh"))
+      const desktop = await Bun.file(path.join(home, ".local", "share", "applications", "aether.desktop")).text()
+      expect(desktop).toContain("Type=Application")
+      expect(desktop).toContain("Name=Aether")
+      expect(desktop).toContain(path.join(work, "aether_1.2.7", "Aether.sh"))
     },
     { timeout: 30000 },
   )
