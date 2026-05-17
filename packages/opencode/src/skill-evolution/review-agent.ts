@@ -60,21 +60,30 @@ function findEvolutionSession(projectId: ProjectID, sessionTitle: string): Sessi
 
   const { cnt } = db.$client
     .prepare(
-      "SELECT count(*) as cnt FROM message WHERE session_id = ? AND json_extract(data, '$.role') = 'user'",
+      "SELECT count(*) as cnt FROM message WHERE session_id = ? AND json_extract(data, '$.role') = 'assistant' AND json_extract(data, '$.finish') = 'stop'",
     )
     .get(row.id) as { cnt: number }
 
   if (cnt >= MAX_REVIEW_ROUNDS) {
-    // Delete the oldest half of messages to keep the session fresh.
+    // Delete the oldest half of completed rounds to keep the session fresh.
+    // A round ends at an assistant message with finish='stop'; deleting up to
+    // the Nth such message's timestamp removes whole rounds, never partial ones.
     // Part rows cascade-delete automatically via FK.
     const deleteCount = Math.floor(MAX_REVIEW_ROUNDS / 2)
-    db.$client
+    const boundary = db.$client
       .prepare(
-        `DELETE FROM message WHERE id IN (
-           SELECT id FROM message WHERE session_id = ? ORDER BY time_created ASC LIMIT ?
-         )`,
+        `SELECT time_created FROM message
+         WHERE session_id = ? AND json_extract(data, '$.role') = 'assistant' AND json_extract(data, '$.finish') = 'stop'
+         ORDER BY time_created ASC
+         LIMIT 1 OFFSET ?`,
       )
-      .run(row.id, deleteCount)
+      .get(row.id, deleteCount - 1) as { time_created: number } | undefined
+
+    if (boundary) {
+      db.$client
+        .prepare("DELETE FROM message WHERE session_id = ? AND time_created <= ?")
+        .run(row.id, boundary.time_created)
+    }
   }
 
   return row.id as SessionID
