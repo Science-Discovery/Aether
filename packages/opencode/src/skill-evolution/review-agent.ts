@@ -188,7 +188,7 @@ export async function spawnReview(input: {
     const { Instance } = await import("@/project/instance")
     const { SessionPrompt } = await import("@/session/prompt")
     const { ToolRegistry } = await import("@/tool/registry")
-    const { SkillManageToolDef } = await import("./skill-manage-tool")
+    const { createBoundSkillManageTool } = await import("./skill-manage-tool")
 
     const sessionTitle = path.basename(Instance.directory)
 
@@ -219,7 +219,9 @@ export async function spawnReview(input: {
       create: false,
       fn: async () => {
         // Register skill_manage only for this instance — normal sessions are unaffected.
-        await ToolRegistry.register(SkillManageToolDef)
+        // Use the bound variant so AI-created skills automatically land in the project-level
+        // skill-sessions dir without the model needing to pass sessionProjectId.
+        await ToolRegistry.register(createBoundSkillManageTool(folderName))
         return SessionPrompt.prompt({
           sessionID: reviewSessionId,
           parts: [{ type: "text", text: prompt }],

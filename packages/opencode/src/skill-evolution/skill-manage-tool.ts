@@ -191,3 +191,28 @@ export const SkillManageToolDef = Tool.define("skill_manage", {
     }
   },
 })
+
+/**
+ * Returns a version of SkillManageToolDef with a default sessionProjectId baked in.
+ * Used by review sessions so AI-created skills land in the project-level directory
+ * without the model needing to know or pass the project ID.
+ */
+export function createBoundSkillManageTool(defaultSessionProjectId: string): typeof SkillManageToolDef {
+  return Tool.define("skill_manage", {
+    description:
+      "Create, edit, patch, delete, or rollback a skill managed by the skill evolution system. " +
+      "Use this tool (not edit/write) whenever you want to modify SKILL.md files.",
+    parameters: SkillManageInput,
+    async execute(params) {
+      const result = await SkillManageTool.execute({
+        ...params,
+        sessionProjectId: params.sessionProjectId ?? (!params.skillLocation ? defaultSessionProjectId : undefined),
+      })
+      return {
+        title: `skill_manage(${params.action}: ${params.name})`,
+        output: result.message,
+        metadata: { ok: result.ok, skillDir: result.skillDir },
+      }
+    },
+  })
+}
