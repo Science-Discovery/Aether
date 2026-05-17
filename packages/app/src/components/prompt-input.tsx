@@ -1027,6 +1027,14 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
 
     handleInput()
     closePopover()
+
+    requestAnimationFrame(() => {
+      if (composing()) return
+      editorRef.focus()
+      const cursor = prompt.cursor() ?? promptLength(prompt.current())
+      setCursorPosition(editorRef, cursor)
+    })
+
     return true
   }
 
