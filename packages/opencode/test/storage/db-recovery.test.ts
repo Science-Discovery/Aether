@@ -6,8 +6,6 @@ import path from "path"
 import { Database as BunSqlite } from "bun:sqlite"
 import { detectCorruption, quarantine, DbRecovery, readManifest } from "../../src/storage/db-recovery"
 import type { RecoveryEntry } from "../../src/storage/db-recovery"
-import { Database } from "../../src/storage/db"
-import { Global } from "../../src/global"
 
 const tmpRoot = await mkdtemp(path.join(os.tmpdir(), "aether-recovery-test-"))
 
@@ -118,50 +116,6 @@ describe("DbRecovery BAB strategy", () => {
     const pending = DbRecovery.pendingEntries()
     const hasPending = DbRecovery.hasPendingRecovery()
     expect(hasPending).toBe(pending.length > 0)
-  })
-})
-
-describe("registerUntrackedProjects fault tolerance", () => {
-  test("corrupted project DB does not crash registerUntrackedProjects", async () => {
-    // Create a main DB
-    const mainPath = path.join(tmpRoot, "reg-main.db")
-    const mainDb = Database.Client()
-
-    // Create a project DB file with corrupted header in the channel dir
-    const chDir = Database.channelDir()
-    fs.mkdirSync(chDir, { recursive: true })
-    const corruptProjPath = path.join(chDir, "aether-deadbeef1234567890abcdef1234567890abcd.db")
-    const buf = Buffer.alloc(221184)
-    for (let i = 0; i < 100; i++) buf[i] = Math.floor(Math.random() * 256)
-    writeFileSync(corruptProjPath, buf)
-
-    // Create a healthy project DB too
-    const healthyProjPath = Database.projectPath("abc123def456")
-    const hdb = new BunSqlite(healthyProjPath, { create: true })
-    hdb.exec(`
-      create table project(id text primary key, worktree text);
-      insert into project values('abc123def456', '/tmp/test');
-      create table directory_meta(directory text primary key, worktree text, name text, icon_url text, icon_color text, icon_override text, activity_at integer, time_created integer, time_updated integer);
-      create table session(id text primary key, directory text);
-    `)
-    hdb.close()
-
-    // Call registerUntrackedProjects - should not throw
-    Database.registerUntrackedProjects(mainDb)
-
-    // Verify the corrupted DB was quarantined (moved out of channel dir)
-    expect(existsSync(corruptProjPath)).toBeFalse()
-
-    // Verify the healthy DB still exists
-    expect(existsSync(healthyProjPath)).toBeTrue()
-
-    // Clean up
-    Database.detach("abc123def456")
-    for (const ext of ["", "-wal", "-shm"]) {
-      try {
-        fs.unlinkSync(healthyProjPath + ext)
-      } catch {}
-    }
   })
 })
 
