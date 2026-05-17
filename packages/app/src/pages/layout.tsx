@@ -1691,6 +1691,31 @@ export default function Layout(props: ParentProps) {
     setWorkspaceName(directory, next, projectId, branch)
   }
 
+  const renameBranch = async (directory: string, newName: string, projectId?: string) => {
+    const trimmed = newName.trim()
+    if (!trimmed) return
+    const result = await fetch(`${globalSDK.url}/vcs/rename-branch`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-opencode-directory": directory },
+      body: JSON.stringify({ newName: trimmed }),
+    })
+    const data = await result.json()
+    if (!data.success) {
+      const raw = (data.error || "") as string
+      const desc = raw.includes("already exists")
+        ? language.t("workspace.renameBranch.error.alreadyExists")
+        : raw.includes("invalid") || raw.includes("not allowed")
+          ? language.t("workspace.renameBranch.error.invalid")
+          : language.t("common.requestFailed")
+      showToast({
+        variant: "error",
+        title: language.t("workspace.renameBranch"),
+        description: desc,
+      })
+      return
+    }
+  }
+
   function closeProject(directory: string) {
     const list = layout.projects.list()
     const index = list.findIndex((x) => x.worktree === directory)
@@ -2226,7 +2251,8 @@ export default function Layout(props: ParentProps) {
 
     if (!created?.directory) return
 
-    setWorkspaceName(created.directory, created.branch, project.id, created.branch)
+    const displayName = created.branch.replace(/^sandbox-(\d+)$/, (_, n) => `沙盒-${n}`)
+    setWorkspaceName(created.directory, displayName, project.id, created.branch)
 
     const local = project.worktree
     const key = workspaceKey(created.directory)
@@ -2244,7 +2270,7 @@ export default function Layout(props: ParentProps) {
         const id = workspaceKey(item)
         return id !== root && id !== key
       })
-      return [created.directory, ...next]
+      return [...next, created.directory]
     })
 
     globalSync.child(created.directory)
@@ -2267,6 +2293,7 @@ export default function Layout(props: ParentProps) {
     renameSession,
     workspaceName,
     renameWorkspace,
+    renameBranch,
     editorOpen,
     openEditor,
     closeEditor,

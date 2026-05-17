@@ -648,6 +648,30 @@ export namespace Server {
           return c.json(result)
         },
       )
+      .post(
+        "/vcs/rename-branch",
+        describeRoute({
+          summary: "Rename git branch",
+          description: "Rename the current git branch to a new name.",
+          operationId: "vcs.renameBranch",
+          responses: {
+            200: {
+              description: "Rename result",
+              content: {
+                "application/json": {
+                  schema: resolver(Vcs.RenameBranchResult),
+                },
+              },
+            },
+          },
+        }),
+        validator("json", z.object({ newName: z.string() })),
+        async (c) => {
+          const input = c.req.valid("json")
+          const result = await Vcs.renameBranch(input.newName)
+          return c.json(result)
+        },
+      )
       .get(
         "/vcs/commit/:hash",
         describeRoute({

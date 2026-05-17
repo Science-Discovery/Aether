@@ -3,19 +3,19 @@ import { onCleanup, Show, type Accessor } from "solid-js"
 import { InlineInput } from "@opencode-ai/ui/inline-input"
 
 export function createInlineEditorController() {
-  // This controller intentionally supports one active inline editor at a time.
   const [editor, setEditor] = createStore({
     active: "" as string,
     value: "",
+    selectAll: false,
   })
 
   const editorOpen = (id: string) => editor.active === id
   const editorValue = () => editor.value
-  const openEditor = (id: string, value: string) => {
+  const openEditor = (id: string, value: string, selectAll = false) => {
     if (!id) return
-    setEditor({ active: id, value })
+    setEditor({ active: id, value, selectAll })
   }
-  const closeEditor = () => setEditor({ active: "", value: "" })
+  const closeEditor = () => setEditor({ active: "", value: "", selectAll: false })
 
   const saveEditor = (callback: (next: string) => void) => {
     const next = editor.value.trim()
@@ -47,6 +47,7 @@ export function createInlineEditorController() {
     editing?: boolean
     stopPropagation?: boolean
     openOnDblClick?: boolean
+    selectAll?: boolean
   }) => {
     let frame: number | undefined
 
@@ -56,6 +57,7 @@ export function createInlineEditorController() {
     })
 
     const isEditing = () => props.editing ?? editorOpen(props.id)
+    const shouldSelectAll = () => props.selectAll ?? editor.selectAll
     const stopEvents = () => props.stopPropagation ?? false
     const allowDblClick = () => props.openOnDblClick ?? true
     const stopPropagation = (event: Event) => {
@@ -91,6 +93,7 @@ export function createInlineEditorController() {
               frame = undefined
               if (!el.isConnected) return
               el.focus()
+              if (shouldSelectAll()) el.select()
             })
           }}
           value={editorValue()}

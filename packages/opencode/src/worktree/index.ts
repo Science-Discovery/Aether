@@ -8,7 +8,6 @@ import { Database, eq } from "../storage/db"
 import { ProjectTable } from "../project/project.sql"
 import type { ProjectID } from "../project/schema"
 import { Log } from "../util/log"
-import { Slug } from "@opencode-ai/util/slug"
 import { BusEvent } from "@/bus/bus-event"
 import { GlobalBus } from "@/bus/global"
 import { Git } from "@/git"
@@ -195,11 +194,37 @@ export namespace Worktree {
         ),
       )
 
-      const MAX_NAME_ATTEMPTS = 26
+      const SANDBOX_MAX = 100
       const candidate = Effect.fn("Worktree.candidate")(function* (root: string, base?: string) {
-        for (const attempt of Array.from({ length: MAX_NAME_ATTEMPTS }, (_, i) => i)) {
-          const name = base ? (attempt === 0 ? base : `${base}-${Slug.create()}`) : Slug.create()
-          const branch = `opencode/${name}`
+        if (base) {
+          const name = base
+          const branch = `sandbox/${name}`
+          const directory = pathSvc.join(root, name)
+
+          if (yield* fsys.exists(directory).pipe(Effect.orDie)) {
+            throw new NameGenerationFailedError({ message: `Directory ${name} already exists` })
+          }
+
+          const ref = `refs/heads/${branch}`
+          const branchCheck = yield* git(["show-ref", "--verify", "--quiet", ref], { cwd: Instance.worktree })
+          if (branchCheck.code === 0) {
+            throw new NameGenerationFailedError({ message: `Branch ${branch} already exists` })
+          }
+
+          return Info.parse({ name, branch, directory })
+        }
+
+        const list = yield* git(["worktree", "list", "--porcelain"], { cwd: Instance.worktree })
+        const existing = new Set<string>()
+        for (const line of list.text.split("\n")) {
+          const m = line.match(/^branch\s+refs\/heads\/sandbox-(\d+)$/)
+          if (m) existing.add(m[1])
+        }
+        for (let n = 1; n <= SANDBOX_MAX; n++) {
+          const ns = String(n)
+          if (existing.has(ns)) continue
+          const name = `sandbox-${ns}`
+          const branch = `sandbox-${ns}`
           const directory = pathSvc.join(root, name)
 
           if (yield* fsys.exists(directory).pipe(Effect.orDie)) continue

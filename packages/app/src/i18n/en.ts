@@ -1401,6 +1401,10 @@ export const dict = {
   "workspace.reset.archived.many": "{{count}} sessions will be archived.",
   "workspace.reset.note": "This will reset the workspace to match the default branch.",
   "workspace.switchBranch": "Switch Branch",
+  "workspace.renameSandbox": "Rename Sandbox",
+  "workspace.renameBranch": "Rename Branch",
+  "workspace.renameBranch.error.alreadyExists": "Branch name already exists",
+  "workspace.renameBranch.error.invalid": "Branch name is invalid",
 
   "knowledge.title": "Knowledge Base",
 
