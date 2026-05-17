@@ -56,10 +56,10 @@ function initDbWithoutWorkspace(filePath: string) {
   sqlite.exec("PRAGMA busy_timeout = 5000")
   sqlite.exec("PRAGMA foreign_keys = ON")
   const db = drizzle({ client: sqlite })
-  migrate(
-    db,
-    getMigrationEntries().filter((e) => !e.name.includes("workspace")),
-  )
+  migrate(db, getMigrationEntries())
+  sqlite.exec("PRAGMA foreign_keys = OFF")
+  sqlite.exec("DROP TABLE IF EXISTS workspace")
+  sqlite.exec("PRAGMA foreign_keys = ON")
   return sqlite
 }
 
