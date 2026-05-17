@@ -66,7 +66,7 @@ async function openWorkspaceNewSession(page: Page, space: { slug: string; raw: s
 
   const trigger = row.locator('[data-action="workspace-toggle"]').first()
   await expect(trigger).toBeVisible()
-  await trigger.click()
+  await trigger.click({ position: { x: 20, y: 10 } })
 
   const next = row.locator('[data-action="new-session"]').first()
   await expect(next).toBeVisible()
