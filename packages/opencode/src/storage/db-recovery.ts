@@ -148,8 +148,15 @@ export function detectCorruption(p: string): CorruptionType | null {
   }
 }
 
+const QUARANTINE_COOLDOWN_MS = 3_600_000
+
 export function quarantine(dbPath: string, kind: "main" | "project" | "cron", projectId?: string): RecoveryEntry {
   if (dbPath === ":memory:") throw new Error("cannot quarantine :memory:")
+
+  const recent = readManifest().find(
+    (e) => e.originalPath === dbPath && Date.now() - e.timestamp < QUARANTINE_COOLDOWN_MS,
+  )
+  if (recent) return recent
 
   mkdirSync(corruptDir(), { recursive: true })
 
