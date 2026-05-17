@@ -132,12 +132,11 @@ export namespace SkillManageTool {
   async function handleWriteFile(input: SkillManageInput): Promise<SkillManageResult> {
     if (!input.filename) return { ok: false, message: "filename is required for action=write_file" }
     if (input.file_content === undefined) return { ok: false, message: "file_content is required for action=write_file" }
-    if (input.filename.includes("..") || path.isAbsolute(input.filename)) {
-      return { ok: false, message: "filename must be a relative path within the skill directory" }
-    }
-
     const skillDir = await resolveAndPrepare(input)
-    const target = path.join(skillDir, input.filename)
+    const target = path.resolve(skillDir, input.filename)
+    if (!target.startsWith(skillDir + path.sep)) {
+      return { ok: false, message: "filename must be within the skill directory" }
+    }
     await fs.mkdir(path.dirname(target), { recursive: true })
     await fs.writeFile(target, input.file_content, "utf-8")
 
