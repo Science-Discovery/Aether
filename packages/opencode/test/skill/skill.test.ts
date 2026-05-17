@@ -390,3 +390,41 @@ description: A skill in the .opencode/skills directory.
     },
   })
 })
+
+test("returns live skill scan sources in priority order", async () => {
+  await using tmp = await tmpdir({
+    git: true,
+    config: {
+      skills: {
+        paths: ["team-skills"],
+      },
+    },
+    init: async (dir) => {
+      await Promise.all(
+        [".agents", ".claude", ".opencode", ".aether", "team-skills"].map((name) =>
+          fs.mkdir(path.join(dir, name), { recursive: true }),
+        ),
+      )
+    },
+  })
+
+  await Instance.provide({
+    directory: tmp.path,
+    fn: async () => {
+      const srcs = await Skill.sources()
+      const local = srcs
+        .filter((item) => item.dir.startsWith(tmp.path))
+        .map((item) => `${path.relative(tmp.path, item.dir)}:${item.pattern}`)
+
+      expect(local).toEqual([
+        ".agents:skills/**/SKILL.md",
+        ".claude:skills/**/SKILL.md",
+        ".opencode:skills/**/SKILL.md",
+        ".aether:skills/**/SKILL.md",
+        ".aether:{skill,skills}/**/SKILL.md",
+        ".opencode:{skill,skills}/**/SKILL.md",
+        `team-skills:**/SKILL.md`,
+      ])
+    },
+  })
+})

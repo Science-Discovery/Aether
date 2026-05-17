@@ -285,4 +285,51 @@ describe("session.agent-resolution", () => {
       },
     })
   }, 30000)
+
+  test("skill-scan-paths command returns scan paths without model lookup", async () => {
+    await using tmp = await tmpdir({
+      git: true,
+      config: {
+        agent: {
+          build: {
+            model: "missing-provider/missing-model",
+          },
+        },
+      },
+      init: async (dir) => {
+        await Bun.write(
+          path.join(dir, ".aether", "skills", "demo", "SKILL.md"),
+          `---
+name: demo
+description: Demo skill.
+---
+
+# Demo
+`,
+        )
+      },
+    })
+
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const session = await Session.create({})
+        const result = await SessionPrompt.command({
+          sessionID: session.id,
+          command: "skill-scan-paths",
+          arguments: "",
+          agent: "build",
+          model: "missing-provider/missing-model",
+        })
+        const text = result.parts
+          .filter((part): part is MessageV2.TextPart => part.type === "text")
+          .map((part) => part.text)
+          .join("\n")
+
+        expect(result.info.role).toBe("assistant")
+        expect(text).toContain("Skill scan paths (low -> high priority)")
+        expect(text).toContain(path.join(tmp.path, ".aether", "{skill,skills}", "**", "SKILL.md"))
+      },
+    })
+  }, 30000)
 })
