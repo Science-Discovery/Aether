@@ -24,6 +24,7 @@ import { Tooltip } from "@opencode-ai/ui/tooltip"
 import { DropdownMenu } from "@opencode-ai/ui/dropdown-menu"
 import { Dialog } from "@opencode-ai/ui/dialog"
 import { displayPath, getFilename } from "@opencode-ai/util/path"
+import { parseBackup } from "@/utils/session-backup"
 import { Session, type Message } from "@opencode-ai/sdk/v2/client"
 import { type UpdateAction, usePlatform } from "@/context/platform"
 import { useSettings } from "@/context/settings"
@@ -2355,6 +2356,36 @@ export default function Layout(props: ParentProps) {
       return item.vcs === "git" || layout.sidebar.workspaces(item.worktree)()
     })
     const projectDisplayPath = createMemo(() => displayPath(worktree(), globalSync.data.path.home))
+    let input: HTMLInputElement | undefined
+
+    const load = async (file: File) => {
+      const dir = worktree()
+      if (!dir) return
+      try {
+        const body = parseBackup(await file.text())
+        const client = globalSDK.createClient({
+          directory: dir,
+          throwOnError: true,
+        })
+        const result = await client.session.import(body)
+        if (!result.data) throw new Error(language.t("common.requestFailed"))
+        await globalSync.project.loadSessions(dir, { force: true })
+        showToast({
+          variant: "success",
+          title: language.t("toast.session.import.success.title"),
+          description: language.t("toast.session.import.success.description", {
+            title: result.data.title,
+          }),
+        })
+        navigate(`/${base64Encode(dir)}/session/${result.data.sessionID}`)
+      } catch (err) {
+        showToast({
+          variant: "error",
+          title: language.t("toast.session.import.failed.title"),
+          description: err instanceof Error ? err.message : language.t("common.requestFailed"),
+        })
+      }
+    }
 
     return (
       <div
@@ -2371,6 +2402,17 @@ export default function Layout(props: ParentProps) {
           width: panelProps.mobile ? undefined : `${panel()}px`,
         }}
       >
+        <input
+          ref={input}
+          type="file"
+          accept=".json,application/json"
+          class="hidden"
+          onChange={(event) => {
+            const file = event.currentTarget.files?.[0]
+            event.currentTarget.value = ""
+            if (file) void load(file)
+          }}
+        />
         <Show
           when={project()}
           fallback={
@@ -2468,6 +2510,13 @@ export default function Layout(props: ParentProps) {
                           <DropdownMenu.ItemLabel>
                             {language.t("sidebar.project.clearNotifications")}
                           </DropdownMenu.ItemLabel>
+                        </DropdownMenu.Item>
+                        <DropdownMenu.Item
+                          data-action="project-import-session"
+                          data-project={slug()}
+                          onSelect={() => input?.click()}
+                        >
+                          <DropdownMenu.ItemLabel>{language.t("session.import.action.import")}</DropdownMenu.ItemLabel>
                         </DropdownMenu.Item>
                         <DropdownMenu.Separator />
                         <DropdownMenu.Item

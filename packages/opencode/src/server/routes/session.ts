@@ -1,9 +1,11 @@
 import { Hono } from "hono"
 import { stream } from "hono/streaming"
 import { describeRoute, validator, resolver } from "hono-openapi"
+import { SessionBackupSchema } from "@opencode-ai/util/session-backup"
 import { SessionID, MessageID, PartID } from "@/session/schema"
 import z from "zod"
 import { Session } from "../../session"
+import { importSessionBackup } from "../../session/backup"
 import { MessageV2 } from "../../session/message-v2"
 import { SessionPrompt } from "../../session/prompt"
 import { SessionCompaction } from "../../session/compaction"
@@ -93,6 +95,36 @@ export const SessionRoutes = lazy(() =>
       async (c) => {
         const result = await SessionStatus.list()
         return c.json(Object.fromEntries(result))
+      },
+    )
+    .post(
+      "/import",
+      describeRoute({
+        summary: "Import session backup",
+        description: "Create a new local session from an exported session backup.",
+        operationId: "session.import",
+        responses: {
+          200: {
+            description: "Imported session",
+            content: {
+              "application/json": {
+                schema: resolver(
+                  z.object({
+                    sessionID: SessionID.zod,
+                    title: z.string(),
+                  }),
+                ),
+              },
+            },
+          },
+          ...errors(400),
+        },
+      }),
+      validator("json", SessionBackupSchema),
+      async (c) => {
+        const body = c.req.valid("json")
+        const result = await importSessionBackup(body)
+        return c.json(result)
       },
     )
     .get(

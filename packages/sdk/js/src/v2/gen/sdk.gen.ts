@@ -223,6 +223,8 @@ import type {
   ReadingModeAnnotationsUpdateErrors,
   ReadingModeAnnotationsUpdateResponses,
   ReadingModePagePdfErrors,
+  ReadingModePagePdfFromFileErrors,
+  ReadingModePagePdfFromFileResponses,
   ReadingModePagePdfResponses,
   ReadingModePageTextErrors,
   ReadingModePageTextResponses,
@@ -254,6 +256,8 @@ import type {
   SessionGetResponses,
   SessionGraphErrors,
   SessionGraphResponses,
+  SessionImportErrors,
+  SessionImportResponses,
   SessionInitErrors,
   SessionInitResponses,
   SessionListResponses,
@@ -277,6 +281,8 @@ import type {
   SessionShellResponses,
   SessionStatusErrors,
   SessionStatusResponses,
+  SessionSteerErrors,
+  SessionSteerResponses,
   SessionSummarizeErrors,
   SessionSummarizeResponses,
   SessionTodoErrors,
@@ -826,6 +832,7 @@ export class Project extends HeyApiClient {
       name?: string
       icon?: {
         url?: string
+        override?: string
         color?: string
       }
     },
@@ -2225,6 +2232,54 @@ export class Session2 extends HeyApiClient {
   }
 
   /**
+   * Import session backup
+   *
+   * Create a new local session from an exported session backup.
+   */
+  public import<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      info?: {
+        [key: string]: unknown
+      }
+      messages?: Array<{
+        info: {
+          [key: string]: unknown
+        }
+        parts: Array<{
+          [key: string]: unknown
+        }>
+      }>
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "info" },
+            { in: "body", key: "messages" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<SessionImportResponses, SessionImportErrors, ThrowOnError>({
+      url: "/session/import",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
    * Delete session
    *
    * Delete a session and permanently remove all associated data, including messages and history.
@@ -3194,6 +3249,45 @@ export class Session2 extends HeyApiClient {
       url: "/session/{sessionID}/unrevert",
       ...options,
       ...params,
+    })
+  }
+
+  /**
+   * Add steer text
+   *
+   * Append a steer/supplement text to the last user message in a session, visible to the AI from the next iteration.
+   */
+  public steer<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      directory?: string
+      workspace?: string
+      text?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "text" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<SessionSteerResponses, SessionSteerErrors, ThrowOnError>({
+      url: "/session/{sessionID}/steer",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
     })
   }
 
@@ -7433,6 +7527,49 @@ export class ReadingMode extends HeyApiClient {
     )
     return (options?.client ?? this.client).post<ReadingModePagePdfResponses, ReadingModePagePdfErrors, ThrowOnError>({
       url: "/reading-mode/page-pdf",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Get a ranged PDF subdocument for a workspace file
+   */
+  public pagePdfFromFile<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      path?: string
+      startPage?: number
+      endPage?: number
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "path" },
+            { in: "body", key: "startPage" },
+            { in: "body", key: "endPage" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      ReadingModePagePdfFromFileResponses,
+      ReadingModePagePdfFromFileErrors,
+      ThrowOnError
+    >({
+      url: "/reading-mode/page-pdf-from-file",
       ...options,
       ...params,
       headers: {

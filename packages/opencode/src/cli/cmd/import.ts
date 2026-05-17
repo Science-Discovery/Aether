@@ -1,12 +1,9 @@
 import type { Argv } from "yargs"
 import type { Session as SDKSession, Message, Part } from "@opencode-ai/sdk/v2"
-import { Session } from "../../session"
-import { MessageV2 } from "../../session/message-v2"
+import { SessionBackupSchema, type SessionBackupData } from "@opencode-ai/util/session-backup"
+import { importSessionBackup } from "../../session/backup"
 import { cmd } from "./cmd"
 import { bootstrap } from "../bootstrap"
-import { Database } from "../../storage/db"
-import { SessionTable, MessageTable, PartTable } from "../../session/session.sql"
-import { Instance } from "../../project/instance"
 import { ShareNext } from "../../share/share-next"
 import { EOL } from "os"
 import { Filesystem } from "../../util/filesystem"
@@ -41,10 +38,7 @@ export function shouldAttachShareAuthHeaders(shareUrl: string, accountBaseUrl: s
  *
  * This groups parts by their messageID to reconstruct the hierarchy before writing to disk.
  */
-export function transformShareData(shareData: ShareData[]): {
-  info: SDKSession
-  messages: Array<{ info: Message; parts: Part[] }>
-} | null {
+export function transformShareData(shareData: ShareData[]): SessionBackupData | null {
   const sessionItem = shareData.find((d) => d.type === "session")
   if (!sessionItem) return null
 
@@ -86,13 +80,7 @@ export const ImportCommand = cmd({
   handler: async (args) => {
     await bootstrap(process.cwd(), async () => {
       let exportData:
-        | {
-            info: SDKSession
-            messages: Array<{
-              info: Message
-              parts: Part[]
-            }>
-          }
+        | SessionBackupData
         | undefined
 
       const isUrl = args.file.startsWith("http://") || args.file.startsWith("https://")
@@ -139,7 +127,7 @@ export const ImportCommand = cmd({
 
         exportData = transformed
       } else {
-        exportData = await Filesystem.readJson<NonNullable<typeof exportData>>(args.file).catch(() => undefined)
+        exportData = await Filesystem.readJson<SessionBackupData>(args.file).catch(() => undefined)
         if (!exportData) {
           process.stdout.write(`File not found: ${args.file}`)
           process.stdout.write(EOL)
@@ -153,54 +141,9 @@ export const ImportCommand = cmd({
         return
       }
 
-      const info = Session.Info.parse({
-        ...exportData.info,
-        projectID: Instance.project.id,
-      })
-      const row = Session.toRow(info)
-      Database.use((db) =>
-        db
-          .insert(SessionTable)
-          .values(row)
-          .onConflictDoUpdate({ target: SessionTable.id, set: { project_id: row.project_id } })
-          .run(),
-      )
-
-      for (const msg of exportData.messages) {
-        const msgInfo = MessageV2.Info.parse(msg.info)
-        const { id, sessionID: _, ...msgData } = msgInfo
-        Database.use((db) =>
-          db
-            .insert(MessageTable)
-            .values({
-              id,
-              session_id: row.id,
-              time_created: msgInfo.time?.created ?? Date.now(),
-              data: msgData,
-            })
-            .onConflictDoNothing()
-            .run(),
-        )
-
-        for (const part of msg.parts) {
-          const partInfo = MessageV2.Part.parse(part)
-          const { id: partId, sessionID: _s, messageID, ...partData } = partInfo
-          Database.use((db) =>
-            db
-              .insert(PartTable)
-              .values({
-                id: partId,
-                message_id: messageID,
-                session_id: row.id,
-                data: partData,
-              })
-              .onConflictDoNothing()
-              .run(),
-          )
-        }
-      }
-
-      process.stdout.write(`Imported session: ${exportData.info.id}`)
+      const parsed = SessionBackupSchema.parse(exportData)
+      const result = await importSessionBackup(parsed)
+      process.stdout.write(`Imported session: ${result.sessionID}`)
       process.stdout.write(EOL)
     })
   },

@@ -1848,6 +1848,7 @@ export type Model = {
     output: number
   }
   status: "alpha" | "beta" | "deprecated" | "active"
+  disabled?: boolean
   options: {
     [key: string]: unknown
   }
@@ -1855,7 +1856,6 @@ export type Model = {
     [key: string]: string
   }
   release_date: string
-  disabled?: boolean
   variants?: {
     [key: string]: {
       [key: string]: unknown
@@ -2746,6 +2746,7 @@ export type ProjectUpdateDirectoryMetaData = {
     name?: string
     icon?: {
       url?: string
+      override?: string
       color?: string
     }
   }
@@ -3778,6 +3779,49 @@ export type SessionStatusResponses = {
 }
 
 export type SessionStatusResponse = SessionStatusResponses[keyof SessionStatusResponses]
+
+export type SessionImportData = {
+  body?: {
+    info: {
+      [key: string]: unknown
+    }
+    messages: Array<{
+      info: {
+        [key: string]: unknown
+      }
+      parts: Array<{
+        [key: string]: unknown
+      }>
+    }>
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/session/import"
+}
+
+export type SessionImportErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type SessionImportError = SessionImportErrors[keyof SessionImportErrors]
+
+export type SessionImportResponses = {
+  /**
+   * Imported session
+   */
+  200: {
+    sessionID: string
+    title: string
+  }
+}
+
+export type SessionImportResponse = SessionImportResponses[keyof SessionImportResponses]
 
 export type SessionDeleteData = {
   body?: never
@@ -4820,6 +4864,44 @@ export type PermissionRespondResponses = {
 
 export type PermissionRespondResponse = PermissionRespondResponses[keyof PermissionRespondResponses]
 
+export type SessionSteerData = {
+  body?: {
+    text: string
+  }
+  path: {
+    sessionID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/session/{sessionID}/steer"
+}
+
+export type SessionSteerErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type SessionSteerError = SessionSteerErrors[keyof SessionSteerErrors]
+
+export type SessionSteerResponses = {
+  /**
+   * Steer text added
+   */
+  200: {
+    ok: boolean
+  }
+}
+
+export type SessionSteerResponse = SessionSteerResponses[keyof SessionSteerResponses]
+
 export type SessionPreferenceGetData = {
   body?: never
   path: {
@@ -5121,7 +5203,6 @@ export type ProviderListResponses = {
           }
           experimental?: boolean
           status?: "alpha" | "beta" | "deprecated"
-          disabled?: boolean
           options: {
             [key: string]: unknown
           }
@@ -8609,6 +8690,40 @@ export type ReadingModePagePdfErrors = {
 export type ReadingModePagePdfError = ReadingModePagePdfErrors[keyof ReadingModePagePdfErrors]
 
 export type ReadingModePagePdfResponses = {
+  /**
+   * PDF binary for the requested page range
+   */
+  200: unknown
+}
+
+export type ReadingModePagePdfFromFileData = {
+  body?: {
+    path: string
+    startPage: number
+    endPage: number
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/reading-mode/page-pdf-from-file"
+}
+
+export type ReadingModePagePdfFromFileErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type ReadingModePagePdfFromFileError = ReadingModePagePdfFromFileErrors[keyof ReadingModePagePdfFromFileErrors]
+
+export type ReadingModePagePdfFromFileResponses = {
   /**
    * PDF binary for the requested page range
    */

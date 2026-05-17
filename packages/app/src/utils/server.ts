@@ -1,4 +1,5 @@
 import { createOpencodeClient } from "@opencode-ai/sdk/v2/client"
+import type { SessionBackupData } from "@opencode-ai/util/session-backup"
 import type { ServerConnection } from "@/context/server"
 
 type Base = ReturnType<typeof createOpencodeClient>
@@ -189,6 +190,7 @@ export type AppClient = Base & {
     }>
   }
   session: Base["session"] & {
+    import(input: SessionBackupData): Req<{ sessionID: string; title: string }>
     promptAsync(input: {
       sessionID: string
       directory?: string
@@ -342,6 +344,38 @@ export function addPreferenceMethods(
   }
   safeAssign(client.session, "steer", steerMethods.steer)
 
+  return client
+}
+
+export function addSessionBackupMethods(
+  client: AppClient,
+  baseUrl: string,
+  auth?: Record<string, string>,
+  opts?: { directory?: string; experimental_workspaceID?: string },
+  options?: RequestHelperOptions,
+): AppClient {
+  const headers: Record<string, string> = { "Content-Type": "application/json", ...auth }
+  if (opts?.directory) {
+    const ascii = /^[\x00-\x7F]*$/.test(opts.directory)
+    headers["x-opencode-directory"] = ascii ? opts.directory : encodeURIComponent(opts.directory)
+  }
+  if (opts?.experimental_workspaceID) {
+    headers["x-opencode-workspace"] = opts.experimental_workspaceID
+  }
+  const methods = {
+    async import(input: SessionBackupData) {
+      return requestJSON(
+        `${baseUrl}/session/import`,
+        {
+          method: "POST",
+          headers,
+          body: JSON.stringify(input),
+        },
+        options,
+      )
+    },
+  }
+  safeAssign(client.session, "import", methods.import)
   return client
 }
 
