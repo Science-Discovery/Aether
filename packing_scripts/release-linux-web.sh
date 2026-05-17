@@ -64,6 +64,14 @@ if [ -f "$ins" ]; then
   cp "$ins" "$out/aether_linux_installer.sh"
   chmod +x "$out/aether_linux_installer.sh"
 fi
+icon="$root/icon-source/gen/icon.png"
+if [ -f "$icon" ]; then
+  cp "$icon" "$out/aether-icon.png"
+fi
+svg="$root/icon-source/aether-icon.svg"
+if [ -f "$svg" ]; then
+  cp "$svg" "$out/aether-icon.svg"
+fi
 rm -f "$out/.aether_version"
 printf "%s\n" "$ver" >"$out/.aether_web_version"
 

@@ -43,6 +43,9 @@ if exist "%INS%" (
   copy /y "%INS%" "%OUT%\aether_windows_installer.bat" >nul || exit /b 1
 )
 
+set "ICON=%ROOT%\icon-source\gen\icon.ico"
+if exist "%ICON%" copy /y "%ICON%" "%OUT%\aether-icon.ico" >nul
+
 if exist "%OUT%\.aether_version" del /f /q "%OUT%\.aether_version" >nul 2>nul
 powershell -NoProfile -Command "& { [IO.File]::WriteAllText((Join-Path $env:OUT '.aether_web_version'), $env:VERSION) }" || exit /b 1
 
