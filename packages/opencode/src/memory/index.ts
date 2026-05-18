@@ -612,11 +612,11 @@ function shortcutTerms(...texts: Array<string | undefined>) {
       }
     }
   }
-  return [...new Set(terms)].slice(0, 12)
+  return [...new Set(terms)].slice(0, 32)
 }
 
 function buildShortcut(candidate: ReflectionCandidate, sourceText?: string) {
-  const words = shortcutTerms(candidate.memory, sourceText)
+  const words = shortcutTerms(sourceText, candidate.memory)
   return {
     shortcut: `${candidate.type}:${candidate.scope}`,
     triggers: [...new Set(words.length ? words : [candidate.type])],
@@ -985,7 +985,7 @@ function mergeCandidates(doc: MemoryDocument, candidates: ReflectionCandidate[],
       const activeIDs = new Set(doc.memories.filter((memory) => memory.status === "active").map((memory) => memory.id))
       existingShortcut.target_ids = existingShortcut.target_ids.filter((target) => activeIDs.has(target))
       if (!existingShortcut.target_ids.includes(id)) existingShortcut.target_ids.push(id)
-      existingShortcut.triggers = [...new Set([...existingShortcut.triggers, ...shortcut.triggers])].slice(0, 16)
+      existingShortcut.triggers = [...new Set([...existingShortcut.triggers, ...shortcut.triggers])].slice(0, 32)
       existingShortcut.weight = Math.max(existingShortcut.weight, shortcut.weight)
       shortcutChanged = true
     } else {
@@ -1544,22 +1544,19 @@ export namespace Memory {
     const doc = await readDocument()
     if (!doc.shortcuts.length) return undefined
     const lines = [
-      "<user_memory_shortcuts>",
-      "These are memory shortcuts, not full memories. Use them only to decide whether memory_search is needed.",
-      "When the current task depends on durable user or project context, preferences, facts, past commitments, or previously stated constraints, call memory_search with concise keywords from the task and relevant shortcut triggers.",
+      "<user_memory_guide>",
+      "Long-term user and project memory is available through the memory_search tool. The topics below are only a compact directory, not facts.",
+      "Before answering, call memory_search when the request may depend on durable user or project context: identity, preferences, profile, facts, prior instructions, past decisions, recurring tasks, or previously stated constraints.",
+      "Do not wait for an exact topic match. If the user asks what you remember, asks for broad context, or the current task could be personalized by memory, call memory_search first.",
+      "For broad memory or profile questions, search with concise overview-style keywords.",
       "",
     ]
     for (const shortcut of doc.shortcuts) {
-      lines.push(
-        `- shortcut: ${shortcut.shortcut}`,
-        `  triggers: ${shortcut.triggers.join(", ")}`,
-        `  instruction: ${shortcut.instruction}`,
-        "",
-      )
+      lines.push(`- ${shortcut.shortcut} topics: ${shortcut.triggers.join(", ")}`)
     }
     lines.push(
-      "If a shortcut matches the current task, call memory_search. Do not treat shortcut text as factual memory.",
-      "</user_memory_shortcuts>",
+      "Never treat these topics as factual memory; they are only routing hints for memory_search.",
+      "</user_memory_guide>",
     )
     return lines.join("\n")
   }
