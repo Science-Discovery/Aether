@@ -753,7 +753,7 @@ export default function Layout(props: ParentProps) {
         const last = server.projects.last()
 
         if (value.list.length === 0) {
-          if (!last) return
+          if (!last || /aether[/\\]aether_\d+\.\d+\.\d+\.\d+/i.test(last)) return
           openProject(last, false)
           // IMPORTANT: Do NOT set autoselect=false synchronously before navigateToProject completes.
           // Setting it early causes autoselecting() to become false immediately, which makes the
@@ -766,7 +766,7 @@ export default function Layout(props: ParentProps) {
         }
 
         const next = value.list.find((project) => project.worktree === last) ?? value.list[0]
-        if (!next) return
+        if (!next || /aether[/\\]aether_\d+\.\d+\.\d+\.\d+/i.test(next.worktree)) return
         openProject(next.worktree, false)
         // Same reasoning as above: defer autoselect=false until navigation completes.
         void navigateToProject(next.worktree).finally(() => setState("autoselect", false))

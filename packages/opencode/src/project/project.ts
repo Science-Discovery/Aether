@@ -431,6 +431,28 @@ export namespace Project {
           { concurrency: "unbounded" },
         ).pipe(Effect.map((arr) => arr.filter((x): x is string => x !== undefined)))
 
+        const aliases = [...new Set([directory, data.worktree, data.sandbox].map((dir) => norm(dir)))]
+        for (const dir of aliases) {
+          yield* db((d) =>
+            d
+              .insert(GlobalProjectMapTable)
+              .values({
+                directory: dir,
+                project_id: result.id,
+                time_created: Date.now(),
+                time_updated: Date.now(),
+              })
+              .onConflictDoUpdate({
+                target: GlobalProjectMapTable.directory,
+                set: { project_id: result.id, time_updated: Date.now() },
+              })
+              .run(),
+          )
+        }
+
+        const touchDir = data.worktree !== "/" ? data.worktree : directory
+        yield* touch({ project: result, directory: touchDir })
+
         yield* dbProject(data.id, (d) =>
           d
             .insert(ProjectTable)
@@ -489,25 +511,6 @@ export namespace Project {
           }
         }
 
-        const aliases = [...new Set([directory, data.worktree, data.sandbox].map((dir) => norm(dir)))]
-        for (const dir of aliases) {
-          yield* db((d) =>
-            d
-              .insert(GlobalProjectMapTable)
-              .values({
-                directory: dir,
-                project_id: result.id,
-                time_created: Date.now(),
-                time_updated: Date.now(),
-              })
-              .onConflictDoUpdate({
-                target: GlobalProjectMapTable.directory,
-                set: { project_id: result.id, time_updated: Date.now() },
-              })
-              .run(),
-          )
-        }
-
         yield* dbProject(data.id, (d) =>
           d
             .insert(DirectoryMetaTable)
@@ -537,8 +540,6 @@ export namespace Project {
         )
 
         yield* emitUpdated(result)
-        const touchDir = data.worktree !== "/" ? data.worktree : directory
-        yield* touch({ project: result, directory: touchDir })
         return { project: result, sandbox: data.sandbox }
       })
 
@@ -573,11 +574,13 @@ export namespace Project {
       })
 
       const get = Effect.fn("Project.get")(function* (id: ProjectID) {
+        if (!Database.hasProject(id)) return undefined
         const row = yield* dbProject(id, (d) => d.select().from(ProjectTable).where(eq(ProjectTable.id, id)).get())
         return row ? fromRow(row) : undefined
       })
 
       const update = Effect.fn("Project.update")(function* (input: UpdateInput) {
+        if (!Database.hasProject(input.projectID)) throw new Error(`Project not found: ${input.projectID}`)
         const result = yield* dbProject(input.projectID, (d) =>
           d
             .update(ProjectTable)
@@ -750,6 +753,7 @@ export namespace Project {
   }
 
   export function get(id: ProjectID): Info | undefined {
+    if (!Database.hasProject(id)) return undefined
     const row = Database.useProject(id, (db) => db.select().from(ProjectTable).where(eq(ProjectTable.id, id)).get())
     if (!row) return undefined
     return fromRow(row)

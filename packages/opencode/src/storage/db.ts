@@ -479,6 +479,15 @@ export namespace Database {
     const existing = projectClients.get(projectId)
     if (existing) return existing
     const p = projectPath(projectId)
+
+    if (!existsSync(p) && projectId !== "global") {
+      const mainSqlite = Client().$client
+      const registered = mainSqlite.prepare("SELECT 1 FROM global_project_map WHERE project_id = ?").get(projectId)
+      if (!registered) {
+        throw new Error(`Cannot create project database: ${projectId} is not registered`)
+      }
+    }
+
     log.info("opening project database", { projectId, path: p })
 
     try {
