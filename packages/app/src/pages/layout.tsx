@@ -1219,7 +1219,7 @@ export default function Layout(props: ParentProps) {
     }
   }
 
-  function createSession(directory: string) {
+  async function createSession(directory: string) {
     navigateWithSidebarReset(`/${base64Encode(directory)}/session`)
   }
 
