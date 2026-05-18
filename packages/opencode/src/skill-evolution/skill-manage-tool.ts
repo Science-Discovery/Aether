@@ -79,7 +79,7 @@ export const SkillManageInput = z.preprocess(
     action: z.enum(["create", "edit", "patch", "write_file", "delete", "history", "rollback"]).describe(
       "Operation to perform on the skill",
     ),
-    name: z.string().describe("Skill directory name (slug, no spaces)"),
+    name: z.string().describe("Skill name (directory name under the skills folder). Required for all actions."),
     description: z
       .string()
       .optional()
@@ -98,7 +98,7 @@ export const SkillManageInput = z.preprocess(
     /** For write_file: content to write into the auxiliary file */
     file_content: z.string().optional().describe("Content to write into the auxiliary file (for write_file)"),
     /** For rollback: version identifier such as 'v002' */
-    version: z.string().optional().describe("Version identifier for rollback (e.g. 'v002')"),
+    version: z.string().optional().describe("Version label to rollback to, e.g. 'v002' or '2' (rollback action)"),
     /** Project ID used when writing AI-created skills to the skill-sessions bucket */
     sessionProjectId: z.string().optional().describe("Project ID for AI-created skill routing"),
     /** Original skill location — enables copy-on-write instead of direct write */
