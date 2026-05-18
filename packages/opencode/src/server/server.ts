@@ -161,7 +161,8 @@ import { lazy } from "@/util/lazy"
 import { initProjectors } from "./projectors"
 import { SessionPreference } from "@/session/preference"
 import { Cron } from "@/cron"
-import { installMemory } from "@/memory/installer"
+import { Memory } from "@/memory"
+import { installMemory, registerMemoryDirectActions } from "@/memory/installer"
 
 // @ts-ignore This global is needed to prevent ai-sdk from logging warnings to stdout https://github.com/vercel/ai/blob/2dc67e0ef538307f21368db32d5a12345d98831b/packages/ai/src/logger/log-warnings.ts#L85
 globalThis.AI_SDK_LOG_WARNINGS = false
@@ -197,6 +198,7 @@ export namespace Server {
     onBrowserConnectionChange?: (count: number) => void
   }): Hono<ServerEnv> => {
     SessionPreference.clear()
+    registerMemoryDirectActions()
     void Cron.start().catch((error) => {
       log.error("cron start failed", { error })
     })
@@ -1026,9 +1028,14 @@ export namespace Server {
       process.on(signal, () => {
         setTimeout(() => process.exit(0), 10_000).unref()
         Promise.all(
-          [Instance.disposeAll(), Cron.stop(), FeishuManager.stop(), QQManager.stop(), WeChatManager.stop()].map((p) =>
-            p.catch(() => {}),
-          ),
+          [
+            Instance.disposeAll(),
+            Cron.stop(),
+            Memory.stop(),
+            FeishuManager.stop(),
+            QQManager.stop(),
+            WeChatManager.stop(),
+          ].map((p) => p.catch(() => {})),
         )
           .then(() => server.stop(true).catch(() => {}))
           .then(() => process.exit(0))

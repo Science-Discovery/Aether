@@ -62,6 +62,13 @@ type Paths = {
   globalMemoryDir: string
   channelRootDir: string
   channelID: string
+  settings?: Partial<MemorySettings>
+}
+
+type MemorySettings = {
+  enabled: boolean
+  dailyReflectEnabled: boolean
+  dailyReflectTime: string
 }
 
 type SessionForInitialization = {
@@ -87,16 +94,25 @@ type ReflectionCandidate = {
   evidence: string
 }
 
+type ReflectionMode = "quick" | "daily" | "manual"
+type ReflectionInput = {
+  events: MemoryEvent[]
+  doc: MemoryDocument
+  mode: ReflectionMode
+  signal?: AbortSignal
+}
+
 let overridePaths: Paths | undefined
+let settingsForTest: MemorySettings | undefined
 let documentCache: { path: string; mtimeMs: number; doc: MemoryDocument } | undefined
 let db: BunSqlite | undefined
 let initializeCancelled = false
+let initializeAbortController: AbortController | undefined
 let scannerForTest: (() => AsyncGenerator<SessionForInitialization>) | undefined
-let extractorForTest: ((session: SessionForInitialization) => Promise<InitializerCandidate[]>) | undefined
+let extractorForTest: ((session: SessionForInitialization, signal?: AbortSignal) => Promise<InitializerCandidate[]>) | undefined
 let startupCatchupStarted = false
-let reflectorForTest:
-  | ((input: { events: MemoryEvent[]; doc: MemoryDocument; mode: "quick" | "daily" | "manual" }) => Promise<ReflectionCandidate[]>)
-  | undefined
+let reflectorForTest: ((input: ReflectionInput) => Promise<ReflectionCandidate[]>) | undefined
+let reflectionQueue: Promise<void> = Promise.resolve()
 
 const ReflectionOutput = z.object({
   candidates: z.array(
@@ -135,6 +151,59 @@ function defaultPaths(): Paths {
     channelRootDir: Global.Path.data,
     channelID: path.basename(Database.channelDir()),
   }
+}
+
+function throwIfAborted(signal?: AbortSignal) {
+  signal?.throwIfAborted()
+}
+
+function isAbortLike(error: unknown) {
+  if (error instanceof DOMException && error.name === "AbortError") return true
+  if (error instanceof Error && /abort|cancel/i.test(`${error.name} ${error.message}`)) return true
+  return false
+}
+
+function initializationWasCancelled(signal?: AbortSignal) {
+  return initializeCancelled || signal?.aborted === true
+}
+
+function abortReason(signal: AbortSignal) {
+  return signal.reason instanceof Error ? signal.reason : new DOMException("Aborted", "AbortError")
+}
+
+function combinedSignal(...signals: Array<AbortSignal | undefined>) {
+  const active = signals.filter((signal): signal is AbortSignal => signal !== undefined)
+  if (active.length === 0) return undefined
+  if (active.length === 1) return active[0]
+  return AbortSignal.any(active)
+}
+
+function runSerializedReflection<T>(signal: AbortSignal | undefined, fn: () => Promise<T>) {
+  let done = false
+  const run = reflectionQueue.catch(() => undefined).then(async () => {
+    throwIfAborted(signal)
+    return fn()
+  })
+  reflectionQueue = run.then(
+    () => {
+      done = true
+    },
+    () => {
+      done = true
+    },
+  )
+  if (!signal) return run
+  if (signal.aborted) return Promise.reject(abortReason(signal))
+  return Promise.race([
+    run,
+    new Promise<never>((_, reject) => {
+      const abort = () => {
+        if (!done) reject(abortReason(signal))
+      }
+      signal.addEventListener("abort", abort, { once: true })
+      run.finally(() => signal.removeEventListener("abort", abort)).catch(() => undefined)
+    }),
+  ])
 }
 
 function paths() {
@@ -257,6 +326,19 @@ async function readDocumentWithOptions(input: { createIfMissing: boolean }) {
 async function writeDocument(doc: MemoryDocument) {
   await ensureDirs()
   using _ = await Lock.write(memoryLockPath())
+  await writeDocumentUnlocked(doc)
+}
+
+async function readDocumentForLockedMutation() {
+  await ensureDirs()
+  const file = mdPath()
+  const stat = await fs.stat(file).catch(() => undefined)
+  if (!stat) return emptyMemoryDocument()
+  return parseMemoryMarkdown(await fs.readFile(file, "utf8"))
+}
+
+async function writeDocumentUnlocked(doc: MemoryDocument) {
+  await ensureDirs()
   const file = mdPath()
   const tmp = `${file}.${process.pid}.${Date.now()}.tmp`
   const rendered = renderMemoryDocument({ ...doc, updated_at: new Date().toISOString() })
@@ -374,11 +456,17 @@ function extractRuleMemoryCandidates(session: SessionForInitialization): Initial
   return candidates.slice(0, 8)
 }
 
-async function extractMemoryCandidates(session: SessionForInitialization): Promise<InitializerCandidate[]> {
+async function extractMemoryCandidates(session: SessionForInitialization, signal?: AbortSignal): Promise<InitializerCandidate[]> {
+  throwIfAborted(signal)
   const ruleCandidates = extractRuleMemoryCandidates(session)
   if (ruleCandidates.length > 0) return ruleCandidates
   if (!sessionLooksWorthLLMInitialization(session)) return []
-  return llmInitializeExtractor(session).catch(() => [])
+  try {
+    return await llmInitializeExtractor(session, signal)
+  } catch (error) {
+    if (isAbortLike(error) || signal?.aborted) throw error
+    return []
+  }
 }
 
 async function sleep(ms: number) {
@@ -506,12 +594,29 @@ function conflictsWith(existing: MemoryBlock, candidate: ReflectionCandidate) {
   return true
 }
 
-function buildShortcut(candidate: ReflectionCandidate) {
-  const words = candidate.memory
-    .split(/[\s,，;；、|/\\]+/g)
-    .map((item) => item.trim())
-    .filter((item) => item.length >= 2)
-    .slice(0, 6)
+function shortcutTerms(...texts: Array<string | undefined>) {
+  const terms: string[] = []
+  for (const text of texts) {
+    if (!text) continue
+    terms.push(
+      ...text
+        .split(/[\s,，;；、|/\\]+/g)
+        .map((item) => item.trim())
+        .filter((item) => item.length >= 2),
+    )
+    for (const match of text.matchAll(/[\u3400-\u9fff]{2,}/g)) {
+      const chars = Array.from(match[0])
+      if (chars.length <= 12) terms.push(match[0])
+      for (const size of [2, 3]) {
+        for (let i = 0; i <= chars.length - size; i++) terms.push(chars.slice(i, i + size).join(""))
+      }
+    }
+  }
+  return [...new Set(terms)].slice(0, 12)
+}
+
+function buildShortcut(candidate: ReflectionCandidate, sourceText?: string) {
+  const words = shortcutTerms(candidate.memory, sourceText)
   return {
     shortcut: `${candidate.type}:${candidate.scope}`,
     triggers: [...new Set(words.length ? words : [candidate.type])],
@@ -576,8 +681,10 @@ function normalizeLLMScope(value: string, fallback: MemoryScope) {
 async function llmReflector(input: {
   events: MemoryEvent[]
   doc: MemoryDocument
-  mode: "quick" | "daily" | "manual"
+  mode: ReflectionMode
+  signal?: AbortSignal
 }): Promise<ReflectionCandidate[]> {
+  throwIfAborted(input.signal)
   if (!input.events.length) return []
   const model = await Provider.defaultModel()
   const resolved = await Provider.getModel(model.providerID, model.modelID)
@@ -590,6 +697,8 @@ async function llmReflector(input: {
     "Allowed scopes: global or project:<project_id>.",
     "Do not create a candidate for one-off questions, transient chat, or low-confidence guesses.",
     "Do not create a candidate from sensitive observed data such as IDs, passwords, addresses, phone numbers, medical, political, or religious information unless the user explicitly asked to remember it.",
+    "For explicit remember events, preserve concrete details aggressively: names, institutions, roles, relationships, project names, dates, constraints, negations, and qualifiers must not be dropped.",
+    "For explicit remember events, you may rewrite, split, or merge the memory into cleaner durable candidates, but the candidate set must retain the same important facts as the raw text.",
     "Prefer global for user-level preferences and profile-like facts.",
     "Prefer project:<project_id> for project constraints, project facts, and project tasks.",
     "Merge duplicates conceptually by returning the cleanest concise memory text.",
@@ -598,7 +707,7 @@ async function llmReflector(input: {
       : "Heavy mode: organize memories by topic. For each type/scope/topic combination, emit at most one candidate. When multiple events or existing memories concern the same theme, merge complementary details into one coherent topical memory instead of separate fragmented entries.",
     input.mode === "quick"
       ? "Quick mode: do not rely on current memory context; it is intentionally omitted to save tokens."
-      : "Heavy mode: use current_memory to group related preferences, facts, and tasks under stable themes such as response style, language, tools, project workflow, research interests, and recurring tasks. If two candidate memories would share the same theme, combine them before returning JSON.",
+      : "Heavy mode: use current_memory to infer stable themes from the memory content itself. If two candidate memories would share the same inferred theme, combine them before returning JSON.",
     "Do not expose raw event IDs inside memory or evidence; use event_id only in the structured field.",
   ].join("\n")
   const userMessage: ModelMessage = {
@@ -628,16 +737,19 @@ async function llmReflector(input: {
     model: language,
     temperature: 0,
     schema: ReflectionOutput,
+    abortSignal: input.signal,
     messages: [
       { role: "system", content: system },
       userMessage,
     ],
   } satisfies Parameters<typeof generateObject>[0]
+  throwIfAborted(input.signal)
 
   const authInfo = await Auth.get(model.providerID)
   const object =
     model.providerID === "openai" && authInfo?.type === "oauth"
       ? await (async () => {
+          throwIfAborted(input.signal)
           const result = streamObject({
             ...params,
             messages: [userMessage],
@@ -648,33 +760,45 @@ async function llmReflector(input: {
             onError: () => {},
           })
           for await (const part of result.fullStream) {
+            throwIfAborted(input.signal)
             if (part.type === "error") throw part.error
           }
+          throwIfAborted(input.signal)
           return result.object
         })()
       : await generateObject(params).then((result) => result.object)
+  throwIfAborted(input.signal)
 
   const byID = new Map(input.events.map((event) => [event.id, event]))
-  return object.candidates
+  const candidates = object.candidates
     .map((candidate) => {
       const event = byID.get(candidate.event_id)
       if (!event) return
-      const type = classifyType(candidate.memory, candidate.type)
-      const fallbackScope = inferScope({ text: candidate.memory, type, projectID: event.project_id, sourceJson: event.source_json })
+      const memory = sanitizeMemoryText(candidate.memory)
+      const type = classifyType(memory, candidate.type ?? event.type)
+      const fallbackScope = inferScope({ text: memory, type, projectID: event.project_id, sourceJson: event.source_json })
       return {
         eventID: event.id,
         type,
         scope: normalizeLLMScope(candidate.scope, fallbackScope),
-        memory: sanitizeMemoryText(candidate.memory),
+        memory,
         confidence: clamp01(candidate.confidence, event.intent === "explicit" ? 0.86 : 0.68),
         weight: clamp01(candidate.weight, event.intent === "explicit" ? 0.82 : 0.55),
         evidence: (candidate.evidence || (event.intent === "explicit" ? "用户明确请求记住。" : "由 LLM 反思提取。")).slice(0, 180),
       } satisfies ReflectionCandidate
     })
     .filter((item): item is ReflectionCandidate => item !== undefined && item.memory.length > 0)
+  const covered = new Set(candidates.map((candidate) => candidate.eventID))
+  for (const event of input.events) {
+    if (event.intent !== "explicit" || covered.has(event.id)) continue
+    const fallback = reflectEvent(event)
+    if (fallback) candidates.push(fallback)
+  }
+  return candidates
 }
 
-async function llmInitializeExtractor(session: SessionForInitialization): Promise<InitializerCandidate[]> {
+async function llmInitializeExtractor(session: SessionForInitialization, signal?: AbortSignal): Promise<InitializerCandidate[]> {
+  throwIfAborted(signal)
   const model = await Provider.defaultModel()
   const resolved = await Provider.getModel(model.providerID, model.modelID)
   const language = await Provider.getLanguage(resolved)
@@ -716,15 +840,18 @@ async function llmInitializeExtractor(session: SessionForInitialization): Promis
     model: language,
     temperature: 0,
     schema: InitializationOutput,
+    abortSignal: signal,
     messages: [
       { role: "system", content: system },
       userMessage,
     ],
   } satisfies Parameters<typeof generateObject>[0]
+  throwIfAborted(signal)
   const authInfo = await Auth.get(model.providerID)
   const object =
     model.providerID === "openai" && authInfo?.type === "oauth"
       ? await (async () => {
+          throwIfAborted(signal)
           const result = streamObject({
             ...params,
             messages: [userMessage],
@@ -735,11 +862,14 @@ async function llmInitializeExtractor(session: SessionForInitialization): Promis
             onError: () => {},
           })
           for await (const part of result.fullStream) {
+            throwIfAborted(signal)
             if (part.type === "error") throw part.error
           }
+          throwIfAborted(signal)
           return result.object
         })()
       : await generateObject(params).then((result) => result.object)
+  throwIfAborted(signal)
 
   return object.candidates
     .map((candidate): InitializerCandidate | undefined => {
@@ -756,7 +886,8 @@ async function llmInitializeExtractor(session: SessionForInitialization): Promis
     .slice(0, 8)
 }
 
-async function llmForgetDecide(input: { query: string; candidates: MemoryBlock[] }) {
+async function llmForgetDecide(input: { query: string; candidates: MemoryBlock[]; signal?: AbortSignal }) {
+  throwIfAborted(input.signal)
   const model = await Provider.defaultModel()
   const resolved = await Provider.getModel(model.providerID, model.modelID)
   const language = await Provider.getLanguage(resolved)
@@ -787,15 +918,18 @@ async function llmForgetDecide(input: { query: string; candidates: MemoryBlock[]
     model: language,
     temperature: 0,
     schema: ForgetDecisionOutput,
+    abortSignal: input.signal,
     messages: [
       { role: "system", content: system },
       userMessage,
     ],
   } satisfies Parameters<typeof generateObject>[0]
+  throwIfAborted(input.signal)
   const authInfo = await Auth.get(model.providerID)
   const result =
     model.providerID === "openai" && authInfo?.type === "oauth"
       ? await (async () => {
+          throwIfAborted(input.signal)
           const stream = streamObject({
             ...params,
             messages: [userMessage],
@@ -806,11 +940,14 @@ async function llmForgetDecide(input: { query: string; candidates: MemoryBlock[]
             onError: () => {},
           })
           for await (const part of stream.fullStream) {
+            throwIfAborted(input.signal)
             if (part.type === "error") throw part.error
           }
+          throwIfAborted(input.signal)
           return stream.object
         })()
       : await generateObject(params).then((output) => output.object)
+  throwIfAborted(input.signal)
   const allowed = new Set(input.candidates.map((candidate) => candidate.id))
   const deleteIDs = result.delete_ids.filter((id) => allowed.has(id))
   const keepIDs = (result.keep_ids ?? []).filter((id) => allowed.has(id))
@@ -821,33 +958,42 @@ async function llmForgetDecide(input: { query: string; candidates: MemoryBlock[]
   }
 }
 
-async function defaultForgetDecision(input: { query: string; candidates: MemoryBlock[] }) {
-  try {
-    return await llmForgetDecide(input)
-  } catch {
-    return { deleteIDs: input.candidates.map((candidate) => candidate.id), keepIDs: [], reason: "matched candidates" }
-  }
+async function defaultForgetDecision(input: { query: string; candidates: MemoryBlock[]; signal?: AbortSignal }) {
+  return await llmForgetDecide(input)
 }
 
-async function runReflector(input: { events: MemoryEvent[]; doc: MemoryDocument; mode: "quick" | "daily" | "manual" }) {
+async function runReflector(input: ReflectionInput) {
+  throwIfAborted(input.signal)
   if (reflectorForTest) return reflectorForTest(input)
-  try {
-    return await llmReflector(input)
-  } catch (error) {
-    if (input.mode === "quick") throw error
-    // Keep full reflection usable when model configuration is unavailable; the
-    // deterministic fallback preserves the same schema boundary for scheduled maintenance.
-  }
-  return deterministicReflector(input)
+  return await llmReflector(input)
 }
 
-function mergeCandidates(doc: MemoryDocument, candidates: ReflectionCandidate[]) {
+function mergeCandidates(doc: MemoryDocument, candidates: ReflectionCandidate[], events: MemoryEvent[] = []) {
   const now = new Date().toISOString()
   const byKey = new Map<string, MemoryBlock>()
+  const rawByEvent = new Map(events.map((event) => [event.id, event.raw_text]))
   for (const memory of doc.memories) byKey.set(candidateKey(memory), memory)
   const updatedIDs: string[] = []
   const eventResults: Record<string, string> = {}
   let shortcutChanged = false
+  const upsertShortcut = (id: string, candidate: ReflectionCandidate) => {
+    const shortcut = buildShortcut(candidate, rawByEvent.get(candidate.eventID))
+    const existingShortcut = doc.shortcuts.find(
+      (item) => item.shortcut === shortcut.shortcut && item.instruction === shortcut.instruction,
+    )
+    if (existingShortcut) {
+      const activeIDs = new Set(doc.memories.filter((memory) => memory.status === "active").map((memory) => memory.id))
+      existingShortcut.target_ids = existingShortcut.target_ids.filter((target) => activeIDs.has(target))
+      if (!existingShortcut.target_ids.includes(id)) existingShortcut.target_ids.push(id)
+      existingShortcut.triggers = [...new Set([...existingShortcut.triggers, ...shortcut.triggers])].slice(0, 16)
+      existingShortcut.weight = Math.max(existingShortcut.weight, shortcut.weight)
+      shortcutChanged = true
+    } else {
+      shortcut.target_ids.push(id)
+      doc.shortcuts.push(shortcut)
+      shortcutChanged = true
+    }
+  }
 
   for (const candidate of candidates) {
     const key = candidateKey(candidate)
@@ -860,6 +1006,7 @@ function mergeCandidates(doc: MemoryDocument, candidates: ReflectionCandidate[])
       existing.status = "active"
       updatedIDs.push(existing.id)
       eventResults[candidate.eventID] = existing.id
+      upsertShortcut(existing.id, candidate)
       continue
     }
     for (const memory of doc.memories) {
@@ -884,23 +1031,7 @@ function mergeCandidates(doc: MemoryDocument, candidates: ReflectionCandidate[])
     byKey.set(key, block)
     updatedIDs.push(id)
     eventResults[candidate.eventID] = id
-
-    const shortcut = buildShortcut(candidate)
-    const existingShortcut = doc.shortcuts.find(
-      (item) => item.shortcut === shortcut.shortcut && item.instruction === shortcut.instruction,
-    )
-    if (existingShortcut) {
-      const activeIDs = new Set(doc.memories.filter((memory) => memory.status === "active").map((memory) => memory.id))
-      existingShortcut.target_ids = existingShortcut.target_ids.filter((target) => activeIDs.has(target))
-      if (!existingShortcut.target_ids.includes(id)) existingShortcut.target_ids.push(id)
-      shortcutChanged = true
-      existingShortcut.triggers = [...new Set([...existingShortcut.triggers, ...shortcut.triggers])].slice(0, 12)
-      existingShortcut.weight = Math.max(existingShortcut.weight, shortcut.weight)
-    } else {
-      shortcut.target_ids.push(id)
-      doc.shortcuts.push(shortcut)
-      shortcutChanged = true
-    }
+    upsertShortcut(id, candidate)
   }
 
   return { updatedIDs: [...new Set(updatedIDs)], eventResults, shortcutChanged }
@@ -963,21 +1094,32 @@ export namespace Memory {
   export function configureForTest(input: Paths) {
     overridePaths = input
     stop()
+    settingsForTest = {
+      enabled: input.settings?.enabled ?? true,
+      dailyReflectEnabled: input.settings?.dailyReflectEnabled ?? true,
+      dailyReflectTime: input.settings?.dailyReflectTime ?? "03:00",
+    }
     reflectorForTest = (reflectInput) => deterministicReflector(reflectInput)
   }
 
   export async function stop() {
+    initializeAbortController?.abort()
+    initializeAbortController = undefined
     db?.close()
     db = undefined
     invalidateDocumentCache()
     initializeCancelled = false
+    reflectionQueue = Promise.resolve()
     startupCatchupStarted = false
     scannerForTest = undefined
     extractorForTest = undefined
+    settingsForTest = undefined
   }
 
   export async function purge() {
+    const testSettings = settingsForTest
     await stop()
+    settingsForTest = testSettings
     await fs.rm(paths().globalMemoryDir, { recursive: true, force: true })
     await fs.rm(dbPath(), { force: true }).catch(() => undefined)
     await fs.rm(`${dbPath()}-wal`, { force: true }).catch(() => undefined)
@@ -987,13 +1129,13 @@ export namespace Memory {
   export async function status() {
     const stat = await fs.stat(mdPath()).catch(() => undefined)
     const doc = await readDocumentWithOptions({ createIfMissing: false })
-    const cfg = await Config.get().catch(() => ({} as Awaited<ReturnType<typeof Config.get>>))
+    const cfg = await settings()
     const state = await readReflectionState()
     const hasHistorySessions = Boolean(Session.listGlobal({ limit: 1, archivedMode: "exclude" }).next().value)
     return {
-      enabled: cfg.memory?.enabled ?? true,
-      dailyReflectEnabled: cfg.memory?.dailyReflect?.enabled ?? true,
-      dailyReflectTime: cfg.memory?.dailyReflect?.time ?? "03:00",
+      enabled: cfg.enabled,
+      dailyReflectEnabled: cfg.dailyReflectEnabled,
+      dailyReflectTime: cfg.dailyReflectTime,
       markdown_exists: Boolean(stat),
       markdown_updated_at: stat?.mtimeMs ?? null,
       memory_count: doc.memories.length,
@@ -1016,17 +1158,23 @@ export namespace Memory {
     scannerForTest = scanner
   }
 
-  export function setInitializerExtractorForTest(extractor: (session: SessionForInitialization) => Promise<InitializerCandidate[]>) {
+  export function setInitializerExtractorForTest(
+    extractor: (session: SessionForInitialization, signal?: AbortSignal) => Promise<InitializerCandidate[]>,
+  ) {
     extractorForTest = extractor
   }
 
-  export function setReflectorForTest(
-    reflector: (input: { events: MemoryEvent[]; doc: MemoryDocument; mode: "quick" | "daily" | "manual" }) => Promise<ReflectionCandidate[]>,
-  ) {
+  export function setReflectorForTest(reflector: (input: ReflectionInput) => Promise<ReflectionCandidate[]>) {
     reflectorForTest = reflector
   }
 
   export async function search(input: MemorySearchInput) {
+    if (!(await isEnabled())) {
+      return {
+        results: [],
+        ranking_note: "Memory is disabled; no memory results were returned.",
+      }
+    }
     const doc = await readDocument()
     return {
       results: searchMemoryDocument(doc, input),
@@ -1039,8 +1187,10 @@ export namespace Memory {
     type?: MemoryType
     intent: "explicit" | "observed"
     source: Parameters<typeof insertEvent>[0]["source"]
+    signal?: AbortSignal
   }) {
     if (!(await isEnabled())) return { eventID: "", status: "ignored" as const, reason: "memory disabled" }
+    throwIfAborted(input.signal)
     await ensureDirs()
     const gate = shouldQuickReflect({ text: input.text, intent: input.intent, op: "remember", shortcutTriggers: [] })
     const event = insertEvent({
@@ -1053,10 +1203,13 @@ export namespace Memory {
     })
     if (gate.priority === "important") {
       openDb().prepare("UPDATE memory_event SET status = ? WHERE id = ?").run("pending_important", event.id)
-      const reflected = await reflect({ mode: "quick", reason: gate.reason, eventIDs: [event.id] }).catch((error) => ({
-        changed: false,
-        summary: error instanceof Error ? error.message : String(error),
-      }))
+      const reflected = await reflect({ mode: "quick", reason: gate.reason, eventIDs: [event.id], signal: input.signal }).catch((error) => {
+        if (isAbortLike(error) || input.signal?.aborted) throw error
+        return {
+          changed: false,
+          summary: error instanceof Error ? error.message : String(error),
+        }
+      })
       return {
         eventID: event.id,
         status: reflected.changed ? ("applied" as const) : ("queued" as const),
@@ -1071,12 +1224,14 @@ export namespace Memory {
     ids?: string[]
     type?: MemoryType
     source: Parameters<typeof insertEvent>[0]["source"]
+    signal?: AbortSignal
     decide?: (input: {
       query: string
       candidates: MemoryBlock[]
     }) => Promise<{ deleteIDs: string[]; keepIDs: string[]; reason: string }>
   }) {
     if (!(await isEnabled())) return { eventID: "", deletedIDs: [], status: "not_found" as const }
+    throwIfAborted(input.signal)
     const doc = await readDocument()
     let candidates = input.ids?.length
       ? doc.memories.filter((memory) => input.ids!.includes(memory.id))
@@ -1094,26 +1249,30 @@ export namespace Memory {
     const decision = input.decide
       ? await input.decide({ query: input.query ?? input.ids?.join(", ") ?? "", candidates })
       : broadFallback
-        ? await llmForgetDecide({ query: input.query ?? input.ids?.join(", ") ?? "", candidates }).catch(() => ({
+        ? await llmForgetDecide({ query: input.query ?? input.ids?.join(", ") ?? "", candidates, signal: input.signal }).catch(() => ({
             deleteIDs: [],
             keepIDs: candidates.map((candidate) => candidate.id),
             reason: "No keyword candidates and LLM forget decision failed.",
           }))
-        : await defaultForgetDecision({ query: input.query ?? input.ids?.join(", ") ?? "", candidates })
+        : await defaultForgetDecision({ query: input.query ?? input.ids?.join(", ") ?? "", candidates, signal: input.signal })
     const deleteSet = new Set(decision.deleteIDs)
-    const deletedIDs = doc.memories.filter((memory) => deleteSet.has(memory.id)).map((memory) => memory.id)
+    throwIfAborted(input.signal)
+    let deletedIDs: string[] = []
+    using _ = await Lock.write(memoryLockPath())
+    const latest = await readDocumentForLockedMutation()
+    deletedIDs = latest.memories.filter((memory) => deleteSet.has(memory.id)).map((memory) => memory.id)
     if (!deletedIDs.length) return { eventID: "", deletedIDs: [], status: "not_found" as const }
     const next = {
-      ...doc,
-      memories: doc.memories.filter((memory) => !deleteSet.has(memory.id)),
-      shortcuts: doc.shortcuts
+      ...latest,
+      memories: latest.memories.filter((memory) => !deleteSet.has(memory.id)),
+      shortcuts: latest.shortcuts
         .map((shortcut) => ({
           ...shortcut,
           target_ids: shortcut.target_ids.filter((id) => !deleteSet.has(id)),
         }))
         .filter((shortcut) => shortcut.target_ids.length > 0),
     }
-    await writeDocument(next)
+    await writeDocumentUnlocked(next)
     const event = insertEvent({
       op: "forget",
       intent: "explicit",
@@ -1126,15 +1285,17 @@ export namespace Memory {
   }
 
   export async function reflect(input: {
-    mode: "quick" | "daily" | "manual"
+    mode: ReflectionMode
     reason?: string
     eventIDs?: string[]
+    signal?: AbortSignal
   }) {
+    throwIfAborted(input.signal)
     if (!(await isEnabled())) {
       return { runID: "", changed: false, updatedIDs: [], deletedIDs: [], shortcutChanged: false, summary: "Memory is disabled." }
     }
-    const cfg = await Config.get().catch(() => ({} as Awaited<ReturnType<typeof Config.get>>))
-    if (input.mode === "daily" && input.reason === "cron" && cfg.memory?.dailyReflect?.enabled === false) {
+    const cfg = await settings()
+    if (input.mode === "daily" && input.reason === "cron" && !cfg.dailyReflectEnabled) {
       return {
         runID: "",
         changed: false,
@@ -1144,59 +1305,93 @@ export namespace Memory {
         summary: "Daily memory reflection is disabled.",
       }
     }
-    const started = Date.now()
-    const id = `refl_${ulid()}`
-    const events = await pendingEvents({ mode: input.mode, eventIDs: input.eventIDs })
-    const before = await readDocument()
-    const candidates = await runReflector({ events, doc: before, mode: input.mode })
-    const next: MemoryDocument = {
-      ...before,
-      shortcuts: before.shortcuts.map((shortcut) => ({ ...shortcut, target_ids: [...shortcut.target_ids] })),
-      memories: before.memories.map((memory) => ({ ...memory })),
-    }
-    const merged = mergeCandidates(next, candidates)
-    const changed = merged.updatedIDs.length > 0
-    if (changed) await writeDocument(next)
-    const now = Date.now()
-    for (const event of events) {
-      const memoryID = merged.eventResults[event.id]
-      updateEventStatus(event, {
-        status: memoryID ? "applied" : "ignored",
-        reflectedAt: now,
-        result: { memoryID: memoryID ?? null, runID: id },
-      })
-    }
-    openDb()
-      .prepare(
-        "INSERT INTO reflection_run (id, mode, started_at, completed_at, input_event_ids_json, summary_json) VALUES (?, ?, ?, ?, ?, ?)",
-      )
-      .run(
-        id,
-        input.mode,
-        started,
-        Date.now(),
-        JSON.stringify(events.map((event) => event.id)),
-        JSON.stringify({ reason: input.reason ?? "", updatedIDs: merged.updatedIDs }),
-      )
-    if (input.mode === "daily") {
-      await writeReflectionState({
-        last_successful_daily_reflect_at: Date.now(),
-        last_daily_reflect_run_id: id,
-      })
-    }
-    return {
-      runID: id,
-      changed,
-      updatedIDs: merged.updatedIDs,
-      deletedIDs: [],
-      shortcutChanged: merged.shortcutChanged,
-      summary: changed ? `Applied ${merged.updatedIDs.length} memory update(s).` : "No changes.",
-    }
+    return runSerializedReflection(input.signal, async () => {
+      throwIfAborted(input.signal)
+      const started = Date.now()
+      const id = `refl_${ulid()}`
+      let events: MemoryEvent[] = []
+      try {
+        events = await pendingEvents({ mode: input.mode, eventIDs: input.eventIDs })
+        throwIfAborted(input.signal)
+        const before = await readDocument()
+        const candidates = await runReflector({ events, doc: before, mode: input.mode, signal: input.signal })
+        throwIfAborted(input.signal)
+        let merged: ReturnType<typeof mergeCandidates> = { updatedIDs: [], eventResults: {}, shortcutChanged: false }
+        if (candidates.length) {
+          using _ = await Lock.write(memoryLockPath())
+          throwIfAborted(input.signal)
+          const latest = await readDocumentForLockedMutation()
+          const next: MemoryDocument = {
+            ...latest,
+            shortcuts: latest.shortcuts.map((shortcut) => ({ ...shortcut, target_ids: [...shortcut.target_ids] })),
+            memories: latest.memories.map((memory) => ({ ...memory })),
+          }
+          merged = mergeCandidates(next, candidates, events)
+          if (merged.updatedIDs.length > 0) await writeDocumentUnlocked(next)
+        }
+        const changed = merged.updatedIDs.length > 0
+        const now = Date.now()
+        for (const event of events) {
+          const memoryID = merged.eventResults[event.id]
+          updateEventStatus(event, {
+            status: memoryID ? "applied" : "ignored",
+            reflectedAt: now,
+            result: { memoryID: memoryID ?? null, runID: id },
+          })
+        }
+        openDb()
+          .prepare(
+            "INSERT INTO reflection_run (id, mode, started_at, completed_at, input_event_ids_json, summary_json) VALUES (?, ?, ?, ?, ?, ?)",
+          )
+          .run(
+            id,
+            input.mode,
+            started,
+            Date.now(),
+            JSON.stringify(events.map((event) => event.id)),
+            JSON.stringify({ reason: input.reason ?? "", updatedIDs: merged.updatedIDs }),
+          )
+        if (input.mode === "daily") {
+          await writeReflectionState({
+            last_successful_daily_reflect_at: Date.now(),
+            last_daily_reflect_run_id: id,
+          })
+        }
+        return {
+          runID: id,
+          changed,
+          updatedIDs: merged.updatedIDs,
+          deletedIDs: [],
+          shortcutChanged: merged.shortcutChanged,
+          summary: changed ? `Applied ${merged.updatedIDs.length} memory update(s).` : "No changes.",
+        }
+      } catch (error) {
+        openDb()
+          .prepare(
+            "INSERT INTO reflection_run (id, mode, started_at, completed_at, input_event_ids_json, summary_json, error) VALUES (?, ?, ?, ?, ?, ?, ?)",
+          )
+          .run(
+            id,
+            input.mode,
+            started,
+            Date.now(),
+            JSON.stringify(events.map((event) => event.id)),
+            JSON.stringify({ reason: input.reason ?? "" }),
+            error instanceof Error ? error.message : String(error),
+          )
+        throw error
+      }
+    })
   }
 
-  export async function initialize(input: { confirm: boolean }) {
+  export async function initialize(input: { confirm: boolean; signal?: AbortSignal }) {
     if (!(await isEnabled())) return { status: "cancelled" as const, scanned: 0, imported: 0 }
     if (!input.confirm) return { status: "cancelled" as const, scanned: 0, imported: 0 }
+    if (input.signal?.aborted) return { status: "cancelled" as const, scanned: 0, imported: 0 }
+    const controller = new AbortController()
+    initializeAbortController?.abort()
+    initializeAbortController = controller
+    const signal = combinedSignal(input.signal, controller.signal)
     initializeCancelled = false
     await ensureDirs()
     const startedAt = Date.now()
@@ -1216,47 +1411,63 @@ export namespace Memory {
 
     await writeInitializationProgress()
     const scanner = scannerForTest ?? defaultSessionScanner
-    for await (const session of scanner()) {
-      if (initializeCancelled) break
-      scanned++
-      if (!sessionHasMemorySignal(session)) {
+    try {
+      for await (const session of scanner()) {
+        if (initializationWasCancelled(signal)) break
+        scanned++
+        if (!sessionHasMemorySignal(session)) {
+          await writeInitializationProgress({
+            current_session_id: session.sessionID,
+            current_project_id: session.projectID ?? null,
+          })
+          await sleep(250)
+          continue
+        }
+        throwIfAborted(signal)
+        const candidates = extractorForTest ? await extractorForTest(session, signal) : await extractMemoryCandidates(session, signal)
+        throwIfAborted(signal)
+        for (const candidate of candidates) {
+          insertEvent({
+            op: "remember",
+            type: candidate.type,
+            intent: "observed",
+            text: candidate.text,
+            status: "new",
+            source: {
+              createdAt: Date.now(),
+              channelID: session.channelID,
+              projectID: session.projectID,
+              sessionID: session.sessionID,
+              role: "user",
+              scope: candidate.scope,
+            },
+          })
+          imported++
+        }
         await writeInitializationProgress({
           current_session_id: session.sessionID,
           current_project_id: session.projectID ?? null,
         })
         await sleep(250)
-        continue
       }
-      const candidates = extractorForTest ? await extractorForTest(session) : await extractMemoryCandidates(session)
-      for (const candidate of candidates) {
-        insertEvent({
-          op: "remember",
-          type: candidate.type,
-          intent: "observed",
-          text: candidate.text,
-          status: "new",
-          source: {
-            createdAt: Date.now(),
-            channelID: session.channelID,
-            projectID: session.projectID,
-            sessionID: session.sessionID,
-            role: "user",
-            scope: candidate.scope,
-          },
-        })
-        imported++
+    } catch (error) {
+      if (!isAbortLike(error) && !signal?.aborted) {
+        if (initializeAbortController === controller) initializeAbortController = undefined
+        throw error
       }
-      await writeInitializationProgress({
-        current_session_id: session.sessionID,
-        current_project_id: session.projectID ?? null,
-      })
-      await sleep(250)
+      initializeCancelled = true
     }
     if (imported > 0) {
       await writeInitializationProgress({ status: "reflecting" })
-      await reflect({ mode: "daily", reason: "initialize" })
+      await reflect({ mode: "daily", reason: "initialize", signal }).catch((error) => {
+        if (!isAbortLike(error) && !signal?.aborted) {
+          if (initializeAbortController === controller) initializeAbortController = undefined
+          throw error
+        }
+        initializeCancelled = true
+      })
     }
-    const status = initializeCancelled ? ("cancelled" as const) : ("succeeded" as const)
+    const status = initializationWasCancelled(signal) ? ("cancelled" as const) : ("succeeded" as const)
     await writeReflectionState({
       initialization: {
         status,
@@ -1266,6 +1477,7 @@ export namespace Memory {
         imported,
       },
     })
+    if (initializeAbortController === controller) initializeAbortController = undefined
     return { status, scanned, imported }
   }
 
@@ -1273,8 +1485,8 @@ export namespace Memory {
     if (startupCatchupStarted) return { started: false, reason: "already checked this startup" }
     startupCatchupStarted = true
     if (!(await isEnabled())) return { started: false, reason: "memory disabled" }
-    const cfg = await Config.get().catch(() => ({} as Awaited<ReturnType<typeof Config.get>>))
-    if (cfg.memory?.dailyReflect?.enabled === false) return { started: false, reason: "daily reflect disabled" }
+    const cfg = await settings()
+    if (!cfg.dailyReflectEnabled) return { started: false, reason: "daily reflect disabled" }
     const state = await readReflectionState()
     const last = typeof state.last_successful_daily_reflect_at === "number" ? state.last_successful_daily_reflect_at : 0
     if (last && dateKey(last) === dateKey(Date.now())) return { started: false, reason: "already reflected today" }
@@ -1296,6 +1508,7 @@ export namespace Memory {
 
   export async function cancelInitialize() {
     initializeCancelled = true
+    initializeAbortController?.abort()
     return { ok: true }
   }
 
@@ -1304,8 +1517,26 @@ export namespace Memory {
   }
 
   export async function isEnabled() {
-    const cfg = await Config.get().catch(() => ({} as Awaited<ReturnType<typeof Config.get>>))
-    return cfg.memory?.enabled ?? true
+    const cfg = await settings()
+    return cfg.enabled
+  }
+
+  export async function settings() {
+    if (settingsForTest) return settingsForTest
+    try {
+      const cfg = await Config.get()
+      return {
+        enabled: cfg.memory?.enabled ?? true,
+        dailyReflectEnabled: cfg.memory?.dailyReflect?.enabled ?? true,
+        dailyReflectTime: cfg.memory?.dailyReflect?.time ?? "03:00",
+      }
+    } catch {
+      return {
+        enabled: false,
+        dailyReflectEnabled: false,
+        dailyReflectTime: "03:00",
+      }
+    }
   }
 
   export async function shortcutSystemPrompt() {
@@ -1315,6 +1546,7 @@ export namespace Memory {
     const lines = [
       "<user_memory_shortcuts>",
       "These are memory shortcuts, not full memories. Use them only to decide whether memory_search is needed.",
+      "When the current task depends on durable user or project context, preferences, facts, past commitments, or previously stated constraints, call memory_search with concise keywords from the task and relevant shortcut triggers.",
       "",
     ]
     for (const shortcut of doc.shortcuts) {

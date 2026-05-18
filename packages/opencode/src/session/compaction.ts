@@ -214,6 +214,7 @@ When constructing the summary, try to stick to this template:
       sessionID: input.sessionID,
       tools: {},
       system: [],
+      purpose: "compaction",
       messages: [
         ...MessageV2.toModelMessages(msgs, model, { stripMedia: true }),
         {

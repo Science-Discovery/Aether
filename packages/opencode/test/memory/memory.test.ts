@@ -5,6 +5,8 @@ import { tmpdir } from "../fixture/fixture"
 import { Memory } from "../../src/memory"
 import { installMemory } from "../../src/memory/installer"
 import { Cron } from "../../src/cron"
+import { Config } from "../../src/config/config"
+import { MemoryPlugin } from "../../src/memory/plugin"
 import { MemoryReflectTool, MemorySearchTool } from "../../src/tool/memory"
 import { ToolRegistry } from "../../src/tool/registry"
 import { Instance } from "../../src/project/instance"
@@ -18,6 +20,7 @@ async function memorydir() {
     globalMemoryDir: path.join(tmp.path, "global-memory"),
     channelRootDir: path.join(tmp.path, "channels"),
     channelID: "latest",
+    settings: { enabled: true, dailyReflectEnabled: true, dailyReflectTime: "03:00" },
   })
   await Memory.purge()
   return {
@@ -152,6 +155,82 @@ describe("memory search", () => {
 
     expect(results).toHaveLength(0)
   })
+
+  test("overview queries can return durable user context without exact keyword matches", () => {
+    const overview = parseMemoryMarkdown(`# Aether Memory
+
+## Shortcut Directory
+
+- shortcut: task:project
+  triggers: 我想在想继续开发Science-Discovery, Aether这个项目, 你觉得我现在应该从哪开始？
+  types: task
+  target_ids: TASK-unrelated
+  weight: 0.9
+  instruction: Call memory_search before related project tasks.
+
+## Preferences
+
+## Facts
+
+## Tasks
+
+### TASK-unrelated
+- type: task
+- scope: project:project-a
+- memory: 我想在想继续开发Science-Discovery/Aether这个项目，你觉得我现在应该从哪开始？
+- confidence: 0.68
+- weight: 0.55
+- evidence: 从用户会话中提取到的长期信号。
+- updated_at: 2026-05-14T20:00:02.196Z
+- status: active
+`)
+
+    const results = searchMemoryDocument(overview, {
+      query: "你记得我什么",
+      mode: "overview",
+      limit: 5,
+    })
+
+    expect(results[0]?.id).toBe("TASK-unrelated")
+    expect(results[0]?.ranking_note).toContain("概览查询")
+  })
+
+  test("ignores extremely weak CJK fuzzy overlaps for ordinary searches", () => {
+    const weak = parseMemoryMarkdown(`# Aether Memory
+
+## Shortcut Directory
+
+- shortcut: task:project
+  triggers: 我想在想继续开发Science-Discovery, Aether这个项目, 你觉得我现在应该从哪开始？
+  types: task
+  target_ids: TASK-unrelated
+  weight: 0.9
+  instruction: Call memory_search before related project tasks.
+
+## Preferences
+
+## Facts
+
+## Tasks
+
+### TASK-unrelated
+- type: task
+- scope: project:project-a
+- memory: 我想在想继续开发Science-Discovery/Aether这个项目，你觉得我现在应该从哪开始？
+- confidence: 0.68
+- weight: 0.55
+- evidence: 从用户会话中提取到的长期信号。
+- updated_at: 2026-05-14T20:00:02.196Z
+- status: active
+`)
+
+    const results = searchMemoryDocument(weak, {
+      query: "你记得我什么",
+      limit: 5,
+    })
+
+    expect(results).toHaveLength(0)
+  })
 })
 
 describe("quick reflect gate", () => {
@@ -224,6 +303,7 @@ describe("memory service", () => {
 
   beforeEach(async () => {
     tmp = await tmpdir()
+    await Config.updateGlobal({ memory: { enabled: true, dailyReflect: { enabled: true, time: "03:00" } } } as any)
     Memory.configureForTest({
       globalMemoryDir: path.join(tmp.path, "global-memory"),
       channelRootDir: path.join(tmp.path, "channels"),
@@ -290,6 +370,63 @@ describe("memory service", () => {
     expect(notFound.status).toBe("not_found")
   })
 
+  test("forget does not overwrite a concurrent reflected memory write", async () => {
+    await Memory.writeDocumentForTest(
+      parseMemoryMarkdown(`# Aether Memory
+
+## Shortcut Directory
+
+## Preferences
+
+### PREF-answer-language
+- type: preference
+- scope: global
+- memory: 用户偏好默认用中文回答。
+- confidence: 0.95
+- weight: 0.9
+- evidence: 用户明确要求默认中文回答。
+- updated_at: 2026-05-13T00:00:00.000Z
+- status: active
+
+## Facts
+
+## Tasks
+`),
+    )
+
+    let releaseDecision!: () => void
+    let decisionStarted!: () => void
+    const started = new Promise<void>(resolve => {
+      decisionStarted = resolve
+    })
+    const release = new Promise<void>(resolve => {
+      releaseDecision = resolve
+    })
+    const deleting = Memory.forget({
+      query: "忘掉中文回答这个偏好",
+      source: { createdAt: Date.now(), role: "user" },
+      decide: async () => {
+        decisionStarted()
+        await release
+        return { deleteIDs: ["PREF-answer-language"], keepIDs: [], reason: "user requested forget" }
+      },
+    })
+    await started
+
+    const remembered = await Memory.remember({
+      text: "Please remember that my current project codename is Borealis.",
+      type: "fact",
+      intent: "explicit",
+      source: { createdAt: Date.now(), role: "user" },
+    })
+    expect(remembered.status).toBe("applied")
+
+    releaseDecision()
+    expect((await deleting).status).toBe("deleted")
+    expect((await Memory.search({ query: "中文回答", limit: 5 })).results).toHaveLength(0)
+    expect((await Memory.search({ query: "Borealis", limit: 5 })).results[0]?.memory).toContain("Borealis")
+  })
+
   test("status does not create markdown before initialization", async () => {
     const before = await Memory.status()
     expect(before.markdown_exists).toBe(false)
@@ -297,6 +434,18 @@ describe("memory service", () => {
 
     const markdownPath = path.join(tmp.path, "global-memory", "AETHER_MEMORY.md")
     expect(await fs.stat(markdownPath).catch(() => undefined)).toBeUndefined()
+  })
+
+  test("memory fails closed when config cannot be read", async () => {
+    await Memory.stop()
+    expect(await Memory.isEnabled()).toBe(false)
+  })
+
+  test("reflect aborts before starting LLM work when its signal is already aborted", async () => {
+    const controller = new AbortController()
+    controller.abort()
+
+    await expect(Memory.reflect({ mode: "daily", reason: "test", signal: controller.signal } as any)).rejects.toThrow()
   })
 
   test("explicit remember is quickly reflected into searchable markdown", async () => {
@@ -315,6 +464,167 @@ describe("memory service", () => {
 
     const events = await Memory.eventsForTest()
     expect(events[0]?.status).toBe("applied")
+  })
+
+  test("chat.message hook schedules quick reflection without blocking the chat pipeline", async () => {
+    let release!: () => void
+    const blocker = new Promise<[]>(resolve => {
+      release = () => resolve([])
+    })
+    Memory.setReflectorForTest(async () => blocker)
+
+    const plugin = await MemoryPlugin({ project: { id: "project-a" } } as any)
+    const done = plugin["chat.message"]!(
+      { sessionID: "session-a", messageID: "message-a" } as any,
+      { parts: [{ type: "text", text: "请记住我默认喜欢中文回答" }] } as any,
+    )
+    const raced = await Promise.race([
+      done.then(() => "returned"),
+      new Promise(resolve => setTimeout(() => resolve("blocked"), 25)),
+    ])
+
+    release()
+    await done
+    expect(raced).toBe("returned")
+  })
+
+  test("quick reflections are serialized and do not overwrite each other", async () => {
+    let active = 0
+    let maxActive = 0
+    Memory.setReflectorForTest(async ({ events }) => {
+      active++
+      maxActive = Math.max(maxActive, active)
+      await new Promise((resolve) => setTimeout(resolve, 20))
+      active--
+      return events.map((event) => ({
+        eventID: event.id,
+        type: "fact" as const,
+        scope: "global" as const,
+        memory: event.raw_text,
+        confidence: 0.95,
+        weight: 0.9,
+        evidence: "explicit user memory",
+      }))
+    })
+
+    const [handle, project] = await Promise.all([
+      Memory.remember({
+        text: "User's preferred handle is Atlas.",
+        type: "fact",
+        intent: "explicit",
+        source: { createdAt: Date.now(), role: "user" },
+      }),
+      Memory.remember({
+        text: "User's current project codename is Borealis.",
+        type: "fact",
+        intent: "explicit",
+        source: { createdAt: Date.now(), role: "user" },
+      }),
+    ])
+
+    expect(handle.status).toBe("applied")
+    expect(project.status).toBe("applied")
+    expect(maxActive).toBe(1)
+    const found = await Memory.search({ query: "User", limit: 10 })
+    expect(found.results.map((item) => item.memory)).toContain("User's preferred handle is Atlas.")
+    expect(found.results.map((item) => item.memory)).toContain("User's current project codename is Borealis.")
+  })
+
+  test("queued reflection rejects promptly when its signal is aborted", async () => {
+    let releaseFirst!: () => void
+    let firstStarted!: () => void
+    const started = new Promise<void>((resolve) => {
+      firstStarted = resolve
+    })
+    const release = new Promise<void>((resolve) => {
+      releaseFirst = resolve
+    })
+    let calls = 0
+    Memory.setReflectorForTest(async () => {
+      calls++
+      if (calls === 1) {
+        firstStarted()
+        await release
+      }
+      return []
+    })
+
+    const first = Memory.remember({
+      text: "Please remember that the first reflection is intentionally slow.",
+      type: "fact",
+      intent: "explicit",
+      source: { createdAt: Date.now(), role: "user" },
+    })
+    await started
+
+    const controller = new AbortController()
+    const second = Memory.reflect({ mode: "daily", reason: "queued-abort-test", signal: controller.signal })
+    controller.abort()
+    await expect(Promise.race([second, new Promise((resolve) => setTimeout(() => resolve("timeout"), 30))])).rejects.toThrow()
+
+    releaseFirst()
+    await first
+    expect(calls).toBe(1)
+  })
+
+  test("explicit quick reflection may split one raw memory into multiple durable candidates", async () => {
+    Memory.setReflectorForTest(async ({ events }) => [
+      {
+        eventID: events[0]!.id,
+        type: "fact" as const,
+        scope: "global" as const,
+        memory: "User's preferred handle is Atlas.",
+        confidence: 0.96,
+        weight: 0.9,
+        evidence: "explicit user memory",
+      },
+      {
+        eventID: events[0]!.id,
+        type: "fact" as const,
+        scope: "global" as const,
+        memory: "User's current project codename is Borealis.",
+        confidence: 0.96,
+        weight: 0.9,
+        evidence: "explicit user memory",
+      },
+    ])
+
+    const remembered = await Memory.remember({
+      text: "Please remember that my preferred handle is Atlas and my current project codename is Borealis.",
+      type: "fact",
+      intent: "explicit",
+      source: { createdAt: Date.now(), role: "user" },
+    })
+
+    expect(remembered.status).toBe("applied")
+    const found = await Memory.search({ query: "User", limit: 10 })
+    expect(found.results.map((item) => item.memory)).toContain("User's preferred handle is Atlas.")
+    expect(found.results.map((item) => item.memory)).toContain("User's current project codename is Borealis.")
+  })
+
+  test("shortcut triggers preserve source wording even when reflection rewrites the memory", async () => {
+    Memory.setReflectorForTest(async ({ events }) => [
+      {
+        eventID: events[0]!.id,
+        type: "fact" as const,
+        scope: "global" as const,
+        memory: "User's advisor is Zhang Yang.",
+        confidence: 0.96,
+        weight: 0.9,
+        evidence: "explicit user memory",
+      },
+    ])
+
+    const remembered = await Memory.remember({
+      text: "请记住我的导师是张扬老师。",
+      type: "fact",
+      intent: "explicit",
+      source: { createdAt: Date.now(), role: "user" },
+    })
+
+    expect(remembered.status).toBe("applied")
+    const found = await Memory.search({ query: "导师", limit: 5 })
+    expect(found.results[0]?.memory).toBe("User's advisor is Zhang Yang.")
   })
 
   test("low-signal observed events are not left pending for daily reflection", async () => {
@@ -519,8 +829,50 @@ describe("memory service", () => {
     const prompt = await Memory.shortcutSystemPrompt()
     expect(prompt).toContain("response-style")
     expect(prompt).toContain("memory_search")
+    expect(prompt).toContain("durable user or project context")
     expect(prompt).not.toContain("PREF-answer-language")
     expect(prompt).not.toContain("用户偏好默认用中文回答")
+  })
+
+  test("memory shortcut hook only injects into chat streams", async () => {
+    await Memory.writeDocumentForTest(
+      parseMemoryMarkdown(`# Aether Memory
+
+## Shortcut Directory
+
+- shortcut: response-style
+  triggers: 中文, answer style
+  types: preference
+  target_ids: PREF-answer-language
+  weight: 0.9
+  instruction: Search response style preferences before answering.
+
+## Preferences
+
+### PREF-answer-language
+- type: preference
+- scope: global
+- memory: 用户偏好默认用中文回答。
+- confidence: 0.95
+- weight: 0.9
+- evidence: 用户明确要求默认中文回答。
+- updated_at: 2026-05-13T00:00:00.000Z
+- status: active
+
+## Facts
+
+## Tasks
+`),
+    )
+
+    const plugin = await MemoryPlugin({ project: { id: "project-a" } } as any)
+    const titleOutput = { system: ["base"] }
+    await plugin["experimental.chat.system.transform"]!({ purpose: "title" } as any, titleOutput)
+    expect(titleOutput.system).toEqual(["base"])
+
+    const chatOutput = { system: ["base"] }
+    await plugin["experimental.chat.system.transform"]!({ purpose: "chat" } as any, chatOutput)
+    expect(chatOutput.system.join("\n")).toContain("memory_search")
   })
 
   test("initialize scans sessions serially and stops after cancellation", async () => {
@@ -556,7 +908,64 @@ describe("memory service", () => {
 
     expect(result.status).toBe("cancelled")
     expect(visited).toEqual(["one"])
-    expect((await Memory.eventsForTest()).length).toBe(1)
+    expect((await Memory.eventsForTest()).length).toBe(0)
+  })
+
+  test("initialize respects an already aborted signal", async () => {
+    let scanned = false
+    Memory.setSessionScannerForTest(async function* () {
+      scanned = true
+      yield {
+        channelID: "latest",
+        projectID: "project-a",
+        sessionID: "one",
+        messages: [{ role: "user" as const, text: "请记住我喜欢中文回答", createdAt: 1 }],
+      }
+    })
+    const controller = new AbortController()
+    controller.abort()
+
+    const result = await Memory.initialize({ confirm: true, signal: controller.signal } as any)
+
+    expect(result).toEqual({ status: "cancelled", scanned: 0, imported: 0 })
+    expect(scanned).toBe(false)
+  })
+
+  test("initialize cancel aborts the running extractor signal", async () => {
+    let extractorStarted!: () => void
+    const started = new Promise<void>((resolve) => {
+      extractorStarted = resolve
+    })
+    let sawAbort = false
+    Memory.setSessionScannerForTest(async function* () {
+      yield {
+        channelID: "latest",
+        projectID: "project-a",
+        sessionID: "one",
+        messages: [{ role: "user" as const, text: "请记住我喜欢中文回答", createdAt: 1 }],
+      }
+    })
+    Memory.setInitializerExtractorForTest(async (_session, signal) => {
+      extractorStarted()
+      await new Promise<never>((_resolve, reject) => {
+        signal?.addEventListener(
+          "abort",
+          () => {
+            sawAbort = true
+            reject(signal.reason ?? new Error("aborted"))
+          },
+          { once: true },
+        )
+      })
+      return []
+    })
+
+    const running = Memory.initialize({ confirm: true })
+    await started
+    await Memory.cancelInitialize()
+
+    expect(await running).toEqual({ status: "cancelled", scanned: 1, imported: 0 })
+    expect(sawAbort).toBe(true)
   })
 
   test("initialize imports matching user messages with the production extractor", async () => {
@@ -666,6 +1075,13 @@ describe("memory agent tools", () => {
     expect(ids).toContain("memory_reflect")
   })
 
+  test("tool registry hides memory tools when memory is disabled", async () => {
+    await using tmp = await tmpdir({ config: { memory: { enabled: false } } as any })
+    const ids = await Instance.provide({ directory: tmp.path, fn: () => ToolRegistry.ids() })
+    expect(ids).not.toContain("memory_search")
+    expect(ids).not.toContain("memory_reflect")
+  })
+
   test("memory_search tool returns markdown memory block ids", async () => {
     await using _ = await memorydir()
     await Memory.writeDocumentForTest(
@@ -700,23 +1116,114 @@ describe("memory agent tools", () => {
     const reflected = await reflect.execute({ mode: "quick" }, {} as any)
     expect(reflected.output).toContain("No changes")
   })
+
+  test("memory_reflect tool forwards tool abort signal to reflection", async () => {
+    await using _ = await memorydir()
+    await Memory.remember({
+      text: "我希望回答先给结论",
+      type: "preference",
+      intent: "observed",
+      source: { createdAt: Date.now(), role: "user" },
+    })
+    const controller = new AbortController()
+    let sawToolSignal = false
+    Memory.setReflectorForTest(async (input: any) => {
+      sawToolSignal = input.signal === controller.signal
+      controller.abort()
+      input.signal?.throwIfAborted()
+      return []
+    })
+    const reflect = await MemoryReflectTool.init()
+
+    await expect(reflect.execute({ mode: "daily" }, { abort: controller.signal } as any)).rejects.toThrow()
+    expect(sawToolSignal).toBe(true)
+  })
+
+  test("memory_search returns no results when memory is disabled", async () => {
+    await using tmp = await tmpdir({ config: { memory: { enabled: false } } as any })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        Memory.configureForTest({
+          globalMemoryDir: path.join(tmp.path, "global-memory"),
+          channelRootDir: path.join(tmp.path, "channels"),
+          channelID: "latest",
+          settings: { enabled: false },
+        })
+        await Memory.purge()
+        await Memory.writeDocumentForTest(
+          parseMemoryMarkdown(`# Aether Memory
+
+## Shortcut Directory
+
+## Preferences
+
+### PREF-answer-language
+- type: preference
+- scope: global
+- memory: 用户偏好默认用中文回答。
+- confidence: 0.95
+- weight: 0.9
+- evidence: 用户明确要求默认中文回答。
+- updated_at: 2026-05-13T00:00:00.000Z
+- status: active
+
+## Facts
+
+## Tasks
+`),
+        )
+
+        const found = await Memory.search({ query: "中文回答", limit: 5 })
+        expect(found.results).toHaveLength(0)
+        expect(found.ranking_note).toContain("disabled")
+      },
+    })
+  })
 })
 
 describe("memory installer", () => {
-  test("registers daily reflect direct action and creates builtin cron job once", async () => {
-    await using _ = await memorydir()
+  test("registers daily reflect direct action and creates builtin cron job from current config", async () => {
+    await using tmp = await tmpdir()
+    Memory.configureForTest({
+      globalMemoryDir: path.join(tmp.path, "global-memory"),
+      channelRootDir: path.join(tmp.path, "channels"),
+      channelID: "latest",
+      settings: { enabled: true, dailyReflectEnabled: true, dailyReflectTime: "03:00" },
+    })
+    await Memory.purge()
+    Memory.configureForTest({
+      globalMemoryDir: path.join(tmp.path, "global-memory"),
+      channelRootDir: path.join(tmp.path, "channels"),
+      channelID: "latest",
+      settings: { enabled: true, dailyReflectEnabled: true, dailyReflectTime: "03:00" },
+    })
     await installMemory()
     const job = await Cron.getJob("builtin.memory.daily_reflect")
     expect(job.definition.payload).toEqual({ action: "memory.reflect.daily" })
     expect(job.definition.schedule_value).toBe("0 3 * * *")
 
-    await Cron.updateJob({ id: "builtin.memory.daily_reflect", patch: { schedule_value: "0 4 * * *" } })
+    Memory.configureForTest({
+      globalMemoryDir: path.join(tmp.path, "global-memory"),
+      channelRootDir: path.join(tmp.path, "channels"),
+      channelID: "latest",
+      settings: { enabled: true, dailyReflectEnabled: true, dailyReflectTime: "04:00" },
+    })
     await installMemory()
-    const preserved = await Cron.getJob("builtin.memory.daily_reflect")
-    expect(preserved.definition.schedule_value).toBe("0 4 * * *")
+    const updated = await Cron.getJob("builtin.memory.daily_reflect")
+    expect(updated.definition.schedule_value).toBe("0 4 * * *")
 
     await Cron.runJobNow({ id: "builtin.memory.daily_reflect" })
     const runs = await Cron.listRuns({ id: "builtin.memory.daily_reflect", count: 1 })
     expect(runs[0]?.status).toBe("success")
+  })
+})
+
+describe("memory server lifecycle", () => {
+  test("server startup registers memory direct actions before cron start and shutdown closes memory db", async () => {
+    const serverSource = await fs.readFile(path.join(import.meta.dir, "../../src/server/server.ts"), "utf8")
+    expect(serverSource.indexOf("registerMemoryDirectActions()")).toBeGreaterThanOrEqual(0)
+    expect(serverSource.indexOf("registerMemoryDirectActions()")).toBeLessThan(serverSource.indexOf("Cron.start()"))
+    expect(serverSource).toContain("Memory.stop()")
   })
 })

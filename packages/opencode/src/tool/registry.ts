@@ -124,6 +124,7 @@ export namespace ToolRegistry {
       async function all(custom: Tool.Info[]): Promise<Tool.Info[]> {
         const cfg = await Config.get()
         const question = ["app", "cli", "desktop"].includes(Flag.OPENCODE_CLIENT) || Flag.OPENCODE_ENABLE_QUESTION_TOOL
+        const memory = cfg.memory?.enabled ?? true
 
         return [
           InvalidTool,
@@ -149,10 +150,7 @@ export namespace ToolRegistry {
           CronRunNowTool,
           CronRunsTool,
           CronSetGlobalEnabledTool,
-          MemoryRememberTool,
-          MemoryForgetTool,
-          MemorySearchTool,
-          MemoryReflectTool,
+          ...(memory ? [MemoryRememberTool, MemoryForgetTool, MemorySearchTool, MemoryReflectTool] : []),
           KnowledgeTool,
           ...(Flag.OPENCODE_EXPERIMENTAL_LSP_TOOL ? [LspTool] : []),
           ...(cfg.experimental?.batch_tool === true ? [BatchTool] : []),

@@ -5,6 +5,7 @@ export type MemorySearchInput = {
   types?: MemoryType[]
   limit?: number
   currentProjectID?: string
+  mode?: "search" | "overview"
 }
 
 export type MemorySearchResult = MemoryBlock & {
@@ -14,6 +15,7 @@ export type MemorySearchResult = MemoryBlock & {
 }
 
 const SPLIT_RE = /[\s,，;；、|/\\]+/g
+const MIN_TEXT_MATCH = 0.08
 
 export function splitSearchTerms(query: string) {
   return query
@@ -92,12 +94,13 @@ export function searchMemoryDocument(doc: MemoryDocument, input: MemorySearchInp
   const limit = Math.max(0, input.limit ?? 5)
   if (limit <= 0) return []
   const terms = splitSearchTerms(input.query)
-  if (!terms.length) return []
+  if (!terms.length && input.mode !== "overview") return []
   const allowed = input.types ? new Set(input.types) : undefined
+  const overview = input.mode === "overview"
   const shortcutTargets = new Map<string, number>()
   for (const shortcut of doc.shortcuts) {
     const haystack = [shortcut.shortcut, ...shortcut.triggers, shortcut.instruction].join(" ")
-    const matched = terms.some((term) => textScore(term, haystack) > 0)
+    const matched = terms.some((term) => textScore(term, haystack) >= MIN_TEXT_MATCH)
     if (!matched) continue
     for (const id of shortcut.target_ids) shortcutTargets.set(id, Math.max(shortcutTargets.get(id) ?? 0, shortcut.weight || 0.8))
   }
@@ -111,13 +114,17 @@ export function searchMemoryDocument(doc: MemoryDocument, input: MemorySearchInp
       const shortcut = shortcutTargets.get(memory.id) ?? 0
       const scope = scopeRelevance(memory.scope, input.currentProjectID)
       const recency = recencyScore(memory.updated_at)
-      const score = match * 0.45 + shortcut * 0.25 + memory.weight * 0.2 + recency * 0.05 + scope * 0.05
+      const score = overview
+        ? memory.weight * 0.4 + memory.confidence * 0.2 + recency * 0.25 + scope * 0.15
+        : match * 0.45 + shortcut * 0.25 + memory.weight * 0.2 + recency * 0.05 + scope * 0.05
       return {
         ...memory,
-        matched: match > 0 || shortcut > 0,
+        matched: overview || match >= MIN_TEXT_MATCH || shortcut > 0,
         score,
         markdown: renderSnippet(memory),
-        ranking_note: "结果按相关度、scope、权重和新近程度综合排序。",
+        ranking_note: overview
+          ? "概览查询：结果按权重、置信度、新近程度和scope综合排序。"
+          : "结果按相关度、scope、权重和新近程度综合排序。",
       }
     })
     .filter((memory) => memory.matched)

@@ -31,6 +31,7 @@ export const SettingsMemory: Component = () => {
   const [searching, setSearching] = createSignal(false)
   const [reflecting, setReflecting] = createSignal(false)
   const [initializing, setInitializing] = createSignal(false)
+  const [stoppingInitialize, setStoppingInitialize] = createSignal(false)
   const [results, setResults] = createSignal<MemorySearchResult[]>([])
 
   const [status, statusActions] = createResource(async () => {
@@ -72,6 +73,9 @@ export const SettingsMemory: Component = () => {
   })
   const initializationStatus = createMemo(() => stringValue(initialization().status) || "idle")
   const initializationStarted = createMemo(() => initializationStatus() !== "idle")
+  const initializationRunning = createMemo(
+    () => initializing() || initializationStatus() === "running" || initializationStatus() === "reflecting",
+  )
 
   const updateMemoryConfig = async (patch: Record<string, unknown>) => {
     ;(globalSync.set as (...input: unknown[]) => unknown)("config", (prev: unknown) => ({
@@ -125,6 +129,7 @@ export const SettingsMemory: Component = () => {
 
   const startInitialize = async () => {
     setInitializing(true)
+    setStoppingInitialize(false)
     startProgressPolling()
     showToast({ title: "Memory initialization started", description: "Progress is shown in Settings > Memory." })
     await sdk.client.memory.initialize
@@ -141,7 +146,22 @@ export const SettingsMemory: Component = () => {
       .finally(() => {
         stopProgressPolling()
         setInitializing(false)
+        setStoppingInitialize(false)
         void statusActions.refetch()
+      })
+  }
+
+  const stopInitialize = async () => {
+    setStoppingInitialize(true)
+    await sdk.client.memory.initialize
+      .cancel()
+      .then(() => {
+        showToast({ title: "Memory initialization stopping", description: "The current import will stop at the next cancellation point." })
+        void statusActions.refetch()
+      })
+      .catch((error: unknown) => {
+        setStoppingInitialize(false)
+        showToast({ title: "Memory initialization stop failed", description: error instanceof Error ? error.message : String(error) })
       })
   }
 
@@ -188,9 +208,16 @@ export const SettingsMemory: Component = () => {
               </div>
             </Show>
           </div>
-          <Button size="small" disabled={initializing()} onClick={startInitialize}>
-            {initializing() ? "Importing..." : "Import memories"}
-          </Button>
+          <div class="flex flex-wrap gap-2">
+            <Button size="small" disabled={initializing()} onClick={startInitialize}>
+              {initializing() ? "Importing..." : "Import memories"}
+            </Button>
+            <Show when={initializationRunning()}>
+              <Button size="small" variant="secondary" disabled={stoppingInitialize()} onClick={stopInitialize}>
+                {stoppingInitialize() ? "Stopping..." : "Stop import"}
+              </Button>
+            </Show>
+          </div>
         </div>
 
         <section class="rounded-lg border border-border-weak-base bg-surface-raised-base p-4 flex flex-col gap-3">

@@ -8,6 +8,9 @@ const state = vi.hoisted(() => ({
   reflectCalls: [] as Array<{ mode: string; reason?: string }>,
   syncCalls: 0,
   initializeCalls: 0,
+  cancelCalls: 0,
+  initializePending: false,
+  resolveInitialize: undefined as undefined | (() => void),
   toasts: [] as Array<{ title?: string; description?: string }>,
   status: {
     needs_initialization: true,
@@ -82,9 +85,17 @@ vi.mock("@/context/global-sdk", () => ({
         initialize: {
           start: async () => {
             state.initializeCalls += 1
+            if (state.initializePending) {
+              await new Promise<void>((resolve) => {
+                state.resolveInitialize = resolve
+              })
+            }
             return { data: { status: "succeeded", scanned: 1, imported: 1 } }
           },
-          cancel: async () => ({ data: { ok: true } }),
+          cancel: async () => {
+            state.cancelCalls += 1
+            return { data: { ok: true } }
+          },
         },
       },
     },
@@ -140,6 +151,9 @@ beforeEach(() => {
   state.reflectCalls = []
   state.syncCalls = 0
   state.initializeCalls = 0
+  state.cancelCalls = 0
+  state.initializePending = false
+  state.resolveInitialize = undefined
   state.toasts = []
   state.status = {
     needs_initialization: true,
@@ -195,6 +209,28 @@ describe("settings memory", () => {
     expect(host.textContent).toContain("Imported: 2")
     expect(host.textContent).toContain("session-progress")
 
+    off()
+  })
+
+  test("can request cancellation while initialization is running", async () => {
+    state.initializePending = true
+    const { host, off } = mount()
+    await flush()
+
+    const initialize = [...host.querySelectorAll("button")].find((button) => button.textContent === "Import memories")
+    initialize?.click()
+    await flush()
+
+    const stop = [...host.querySelectorAll("button")].find((button) => button.textContent === "Stop import")
+    expect(stop).toBeTruthy()
+    stop?.click()
+    await flush()
+
+    expect(state.cancelCalls).toBe(1)
+    expect(state.toasts.some((toast) => toast.title === "Memory initialization stopping")).toBe(true)
+
+    state.resolveInitialize?.()
+    await flush()
     off()
   })
 
