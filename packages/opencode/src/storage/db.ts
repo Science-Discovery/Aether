@@ -729,12 +729,21 @@ export namespace Database {
 
         const pSqlite = new BunSqlite(fullPath)
         try {
-          ensureDirectoryMeta(pSqlite, pid, recentLookup)
-          syncDirectoryMetaToGlobal(sqlite, pSqlite, pid)
-          const wt = pSqlite.prepare("SELECT worktree FROM project WHERE id = ?").get(pid) as
+          const projectRow = pSqlite.prepare("SELECT worktree FROM project WHERE id = ?").get(pid) as
             | { worktree: string }
             | undefined
-          if (wt?.worktree && wt.worktree !== "/") validWorktreeKeys.add(`dir:${norm(wt.worktree)}`)
+          const sessionCount = (pSqlite.prepare("SELECT COUNT(*) as cnt FROM session").get() as { cnt: number }).cnt
+          if (!projectRow && sessionCount === 0) {
+            quarantine(fullPath, "project", pid)
+            corruptedIds.add(pid)
+            log.info("project db has no sessions and no project row, quarantining", { pid })
+            continue
+          }
+
+          ensureDirectoryMeta(pSqlite, pid, recentLookup)
+          syncDirectoryMetaToGlobal(sqlite, pSqlite, pid)
+          if (projectRow?.worktree && projectRow.worktree !== "/")
+            validWorktreeKeys.add(`dir:${norm(projectRow.worktree)}`)
 
           const hasWorkspace = pSqlite
             .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='workspace'")
