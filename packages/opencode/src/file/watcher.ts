@@ -175,8 +175,9 @@ export namespace FileWatcher {
             const cfg = yield* Effect.promise(() => Config.get())
             const cfgIgnores = cfg.watcher?.ignore ?? []
             const keep = protecteds(Instance.directory)
-            const filter = [...cfgIgnores, ...keep]
-            const skip = (file: string) => FileIgnore.filter(filter, file, Instance.directory)
+            const parcelIgnore = FileIgnore.event(cfgIgnores, keep)
+            const sidecarIgnore = FileIgnore.watch(cfgIgnores, keep)
+            const sidecarFilter = FileIgnore.event(cfgIgnores, keep)
 
             const cb: ParcelWatcher.SubscribeCallback = Instance.bind((err, evts) => {
               if (err) {
@@ -184,7 +185,6 @@ export namespace FileWatcher {
                 return
               }
               for (const evt of evts) {
-                if (skip(evt.path)) continue
                 if (evt.type === "create") Bus.publish(Event.Updated, { file: evt.path, event: "add" })
                 if (evt.type === "update") Bus.publish(Event.Updated, { file: evt.path, event: "change" })
                 if (evt.type === "delete") Bus.publish(Event.Updated, { file: evt.path, event: "unlink" })
@@ -198,6 +198,7 @@ export namespace FileWatcher {
               fallback?: (reason: "timeout" | "error") => Promise<Subscription | undefined>,
             ) => {
               const item = cool(dir)
+              const watchIgnore = process.platform === "linux" && kind === "worktree" ? sidecarIgnore : ignore
               if (item) {
                 log.warn("subscribe skipped during cooldown", {
                   dir,
@@ -222,7 +223,7 @@ export namespace FileWatcher {
                 pid: process.pid,
                 backend,
                 inflight,
-                ignoreCount: ignore.length,
+                ignoreCount: watchIgnore.length,
                 directory: Instance.directory,
                 worktree: Instance.project.worktree,
                 projectID: Instance.project.id,
@@ -231,14 +232,14 @@ export namespace FileWatcher {
                 process.platform === "linux" && kind === "worktree"
                   ? child({
                       dir,
-                      ignore,
-                      filter,
+                      ignore: watchIgnore,
+                      filter: sidecarFilter,
                       backend,
                       cb,
                     })
                   : {
-                      pending: w.subscribe(dir, cb, { ignore, backend }),
-                      cancel: () => void w.unsubscribe(dir, cb, { ignore, backend }).catch(() => undefined),
+                      pending: w.subscribe(dir, cb, { ignore: watchIgnore, backend }),
+                      cancel: () => void w.unsubscribe(dir, cb, { ignore: watchIgnore, backend }).catch(() => undefined),
                     }
               const pending = input.pending
               pending.then(
@@ -308,8 +309,8 @@ export namespace FileWatcher {
                   inflight,
                   timeoutMs: SUBSCRIBE_TIMEOUT_MS,
                   cooldownMs: SUBSCRIBE_COOLDOWN_MS,
-                  ignoreCount: ignore.length,
-                  ignorePreview: ignore.slice(0, 20),
+                  ignoreCount: watchIgnore.length,
+                  ignorePreview: watchIgnore.slice(0, 20),
                   directory: Instance.directory,
                   worktree: Instance.project.worktree,
                   projectID: Instance.project.id,
@@ -330,7 +331,6 @@ export namespace FileWatcher {
               }
             }
 
-            const ignore = [...FileIgnore.WATCH, ...cfgIgnores, ...keep]
             const result =
               Instance.project.vcs === "git"
                 ? yield* Effect.promise(() =>
@@ -382,8 +382,8 @@ export namespace FileWatcher {
               }
               return child({
                 dir: Instance.directory,
-                ignore,
-                filter,
+                ignore: sidecarIgnore,
+                filter: sidecarFilter,
                 backend,
                 cb,
                 mode: "limited",
@@ -415,7 +415,7 @@ export namespace FileWatcher {
                 limitedWorktree = undefined
               }
               if (enabled && active && !worktree && !degraded) {
-                worktree = await subscribe(Instance.directory, ignore, "worktree", async (reason) => {
+                worktree = await subscribe(Instance.directory, parcelIgnore, "worktree", async (reason) => {
                   limitedWorktree = await limitedChild(reason)
                   return limitedWorktree
                 })

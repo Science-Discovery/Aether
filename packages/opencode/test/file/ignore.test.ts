@@ -17,6 +17,21 @@ test("watch patterns skip nested ignored directories", () => {
   expect(FileIgnore.WATCH[0]).not.toContain("**/*.log")
 })
 
+test("event patterns include file ignores and extra keep rules", () => {
+  expect(FileIgnore.event(["coverage/**"], ["/tmp/repo/.git/HEAD"])).toContain("**/*.log")
+  expect(FileIgnore.event(["coverage/**"], ["/tmp/repo/.git/HEAD"])).toContain("node_modules")
+  expect(FileIgnore.event(["coverage/**"], ["/tmp/repo/.git/HEAD"])).toContain("coverage/**")
+  expect(FileIgnore.event(["coverage/**"], ["/tmp/repo/.git/HEAD"])).toContain("/tmp/repo/.git/HEAD")
+})
+
+test("watch patterns keep watcher pruning scoped to directories", () => {
+  expect(FileIgnore.watch(["coverage/**"], ["/tmp/repo/.git/HEAD"])).toEqual([
+    FileIgnore.WATCH[0],
+    "coverage/**",
+    "/tmp/repo/.git/HEAD",
+  ])
+})
+
 test("filter matches nested basenames and relative globs", () => {
   expect(FileIgnore.filter(["Thumbs.db"], "/tmp/a/Thumbs.db", "/tmp")).toBe(true)
   expect(FileIgnore.filter(["*.log"], "/tmp/a/app.log", "/tmp")).toBe(true)

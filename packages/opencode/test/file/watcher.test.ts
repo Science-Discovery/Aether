@@ -250,6 +250,32 @@ describeWatcher("FileWatcher", () => {
   )
 
   test(
+    "filters built-in ignored file events while keeping normal files",
+    async () => {
+      await using tmp = await tmpdir()
+      const log = path.join(tmp.path, "app.log")
+      const txt = path.join(tmp.path, "watch.txt")
+
+      await withWatcher(
+        tmp.path,
+        Effect.gen(function* () {
+          yield* noUpdate(
+            tmp.path,
+            (evt) => evt.file === log,
+            Effect.promise(() => fs.writeFile(log, "noise")),
+          )
+          yield* nextUpdate(
+            tmp.path,
+            (evt) => evt.file === txt && evt.event === "add",
+            Effect.promise(() => fs.writeFile(txt, "live")),
+          ).pipe(Effect.tap((evt) => Effect.sync(() => expect(evt).toEqual({ file: txt, event: "add" }))))
+        }),
+      )
+    },
+    { timeout: 30_000 },
+  )
+
+  test(
     "watches non-git roots",
     async () => {
       await using tmp = await tmpdir()

@@ -36,6 +36,7 @@ export namespace FileIgnore {
   const FILES = [
     "**/*.swp",
     "**/*.swo",
+    "**/*.swx",
 
     "**/*.pyc",
 
@@ -56,6 +57,14 @@ export namespace FileIgnore {
 
   export const PATTERNS = [...FILES, ...FOLDERS]
   export const WATCH = [`**/{${[...FOLDERS].join(",")}}`]
+
+  export function watch(extra: string[], keep: string[]) {
+    return [...WATCH, ...extra, ...keep]
+  }
+
+  export function event(extra: string[], keep: string[]) {
+    return [...PATTERNS, ...extra, ...keep]
+  }
 
   export function filter(patterns: string[], file: string, root?: string) {
     const rel =
