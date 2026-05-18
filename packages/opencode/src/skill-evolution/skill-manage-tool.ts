@@ -90,8 +90,7 @@ export const SkillManageInput = z.preprocess(
       .describe(
         "Short category label for grouping skills (e.g. 'Git', 'Testing', 'Refactoring'). Required for create and edit — always infer one from the skill content if not obvious.",
       ),
-    /** For create / edit: skill body markdown without frontmatter */
-    content: z.string().optional().describe("Skill body markdown without frontmatter (for create / edit)"),
+    content: z.string().optional().describe("Full skill body (markdown, without frontmatter) for create/edit; file content for write_file."),
     old_str: z.string().optional().describe("Exact text to replace (patch action). Read SKILL.md first if content is not already in context — never guess."),
     new_str: z.string().optional().describe("Replacement text (patch action)"),
     /** For write_file: name of the auxiliary file to write */
@@ -278,7 +277,7 @@ export const SkillManageToolDef = Tool.define("skill_manage", {
   description:
     "Create, edit, patch, delete, or rollback a skill managed by the skill evolution system. " +
     "Use this tool (not edit/write) whenever you want to modify SKILL.md files. " +
-    "For create and edit, supply 'description' (one-line summary) and 'content' (body markdown without frontmatter); " +
+    "For create and edit, supply 'description' (one-line summary) and 'content' (full skill body, without frontmatter); " +
     "the tool builds the frontmatter automatically. 'category' is required for create and edit — infer it from the skill content if not obvious. " +
     "For patch, supply 'old_str' and 'new_str' — read SKILL.md first if the content is not already in context; never guess old_str.",
   parameters: SkillManageInput,
@@ -302,7 +301,7 @@ export function createBoundSkillManageTool(defaultSessionProjectId: string): typ
     description:
       "Create, edit, patch, delete, or rollback a skill managed by the skill evolution system. " +
       "Use this tool (not edit/write) whenever you want to modify SKILL.md files. " +
-      "For create and edit, supply 'description' (one-line summary) and 'content' (body markdown without frontmatter); " +
+      "For create and edit, supply 'description' (one-line summary) and 'content' (full skill body, without frontmatter); " +
       "the tool builds the frontmatter automatically. 'category' is required for create and edit — infer it from the skill content if not obvious.",
     parameters: SkillManageInput,
     async execute(params) {
