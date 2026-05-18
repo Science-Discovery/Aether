@@ -1,0 +1,47 @@
+import type { Hooks, PluginInput } from "@opencode-ai/plugin"
+import { Memory } from "."
+
+function textFromParts(parts: Array<{ type?: string; text?: string }>) {
+  return parts
+    .filter((part) => part.type === "text" && typeof part.text === "string")
+    .map((part) => part.text)
+    .join("\n")
+    .trim()
+}
+
+export async function MemoryPlugin(input: PluginInput): Promise<Hooks> {
+  return {
+    async "chat.message"(ctx, output) {
+      const text = textFromParts(output.parts as Array<{ type?: string; text?: string }>)
+      if (!text) return
+      if (Memory.detectForgetIntent(text)) {
+        await Memory.forget({
+          query: text,
+          source: {
+            createdAt: Date.now(),
+            projectID: input.project.id,
+            sessionID: ctx.sessionID,
+            messageID: ctx.messageID,
+            role: "user",
+          },
+        })
+        return
+      }
+      await Memory.remember({
+        text,
+        intent: "observed",
+        source: {
+          createdAt: Date.now(),
+          projectID: input.project.id,
+          sessionID: ctx.sessionID,
+          messageID: ctx.messageID,
+          role: "user",
+        },
+      })
+    },
+    async "experimental.chat.system.transform"(_ctx, output) {
+      const prompt = await Memory.shortcutSystemPrompt()
+      if (prompt) output.system.push(prompt)
+    },
+  }
+}
