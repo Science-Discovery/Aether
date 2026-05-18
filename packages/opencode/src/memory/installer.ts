@@ -1,5 +1,4 @@
 import { Cron } from "@/cron"
-import { Config } from "@/config/config"
 import { Memory } from "."
 
 export const MEMORY_DAILY_REFLECT_ACTION = "memory.reflect.daily"
@@ -23,9 +22,9 @@ function scheduleFromTime(time: string | undefined) {
 }
 
 export async function syncDailyReflectJob(input?: { preserveExisting?: boolean }) {
-  const cfg = await Config.get().catch(() => ({} as Awaited<ReturnType<typeof Config.get>>))
-  const enabled = (cfg.memory?.enabled ?? true) && (cfg.memory?.dailyReflect?.enabled ?? true)
-  const schedule = scheduleFromTime(cfg.memory?.dailyReflect?.time)
+  const cfg = await Memory.settings()
+  const enabled = cfg.enabled && cfg.dailyReflectEnabled
+  const schedule = scheduleFromTime(cfg.dailyReflectTime)
   const existing = await Cron.getJob(MEMORY_DAILY_REFLECT_JOB_ID).catch(() => undefined)
   if (existing && input?.preserveExisting !== false) return existing
   if (existing) {
@@ -52,19 +51,23 @@ export async function syncDailyReflectJob(input?: { preserveExisting?: boolean }
   })
 }
 
-export async function installMemory(): Promise<InstalledMemory> {
+export function registerMemoryDirectActions() {
   Cron.registerDirectAction(MEMORY_DAILY_REFLECT_ACTION, async () => {
     const result = await Memory.reflect({ mode: "daily", reason: "cron" })
     return {
       output_summary: result.summary,
     }
   })
-  await syncDailyReflectJob({ preserveExisting: true })
+}
+
+export async function installMemory(): Promise<InstalledMemory> {
+  registerMemoryDirectActions()
+  await syncDailyReflectJob({ preserveExisting: false })
   await Memory.startupCatchup()
   return {
     service: Memory,
     start: async () => {
-      await syncDailyReflectJob({ preserveExisting: true })
+      await syncDailyReflectJob({ preserveExisting: false })
       await Memory.startupCatchup()
     },
     stop: Memory.stop,

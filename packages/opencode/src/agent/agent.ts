@@ -337,7 +337,7 @@ export namespace Agent {
 
           const system = [PROMPT_GENERATE]
           yield* Effect.promise(() =>
-            Plugin.trigger("experimental.chat.system.transform", { model: resolved }, { system }),
+            Plugin.trigger("experimental.chat.system.transform", { model: resolved, purpose: "agent_generation" }, { system }),
           )
           const existing = yield* InstanceState.useEffect(state, (s) => s.list())
 

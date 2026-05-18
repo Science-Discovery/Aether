@@ -23,10 +23,12 @@ function renderResults(results: Awaited<ReturnType<typeof Memory.search>>["resul
 export const MemorySearchTool = Tool.define("memory_search", {
   description: [
     "Search Aether long-term memory. Use this when a memory shortcut suggests relevant user preferences, facts, or tasks.",
+    "Use mode=overview when the user asks for a broad summary of remembered context instead of a narrow keyword lookup.",
     "Search only reads AETHER_MEMORY.md and does not read raw session files or aether-memory.db events.",
   ].join("\n"),
   parameters: z.object({
     query: z.string().min(1),
+    mode: z.enum(["search", "overview"]).optional(),
     types: z.array(MemoryType).optional(),
     limit: z.number().int().optional(),
     currentProjectID: z.string().optional(),
@@ -64,6 +66,7 @@ export const MemoryRememberTool = Tool.define("memory_remember", {
         messageID: ctx.messageID,
         role: "user",
       },
+      signal: ctx.abort,
     })
     return {
       title: `Memory event ${result.status}`,
@@ -91,6 +94,7 @@ export const MemoryForgetTool = Tool.define("memory_forget", {
         messageID: ctx.messageID,
         role: "user",
       },
+      signal: ctx.abort,
     })
     return {
       title: result.status === "deleted" ? "Memory forgotten" : "No matching memory",
@@ -112,8 +116,8 @@ export const MemoryReflectTool = Tool.define("memory_reflect", {
     mode: z.enum(["quick", "daily", "manual"]).optional(),
     reason: z.string().optional(),
   }),
-  async execute(input) {
-    const result = await Memory.reflect({ mode: input.mode ?? "quick", reason: input.reason ?? "tool" })
+  async execute(input, ctx) {
+    const result = await Memory.reflect({ mode: input.mode ?? "quick", reason: input.reason ?? "tool", signal: ctx.abort })
     return {
       title: `Memory reflect: ${result.summary}`,
       output: result.summary,

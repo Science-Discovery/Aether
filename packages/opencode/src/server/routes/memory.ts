@@ -7,6 +7,7 @@ import { syncDailyReflectJob } from "@/memory/installer"
 
 const SearchBody = z.object({
   query: z.string().min(1),
+  mode: z.enum(["search", "overview"]).optional(),
   types: z.array(z.enum(["preference", "fact", "task"])).optional(),
   limit: z.number().int().optional(),
   currentProjectID: z.string().optional(),
@@ -61,7 +62,14 @@ export const MemoryRoutes = lazy(() =>
         },
       }),
       validator("json", ReflectBody),
-      async (c) => c.json(await Memory.reflect({ mode: c.req.valid("json").mode ?? "quick", reason: c.req.valid("json").reason })),
+      async (c) =>
+        c.json(
+          await Memory.reflect({
+            mode: c.req.valid("json").mode ?? "quick",
+            reason: c.req.valid("json").reason,
+            signal: c.req.raw.signal,
+          }),
+        ),
     )
     .post(
       "/initialize/start",
@@ -75,7 +83,7 @@ export const MemoryRoutes = lazy(() =>
           },
         },
       }),
-      async (c) => c.json(await Memory.initialize({ confirm: true })),
+      async (c) => c.json(await Memory.initialize({ confirm: true, signal: c.req.raw.signal })),
     )
     .post(
       "/initialize/cancel",
