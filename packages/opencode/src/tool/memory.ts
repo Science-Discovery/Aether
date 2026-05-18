@@ -23,7 +23,7 @@ function renderResults(results: Awaited<ReturnType<typeof Memory.search>>["resul
 export const MemorySearchTool = Tool.define("memory_search", {
   description: [
     "Search Aether long-term memory. Use this when a memory shortcut suggests relevant user preferences, facts, or tasks.",
-    "Search only reads AETHER_MEMORY.md and does not read raw session files or memory.db events.",
+    "Search only reads AETHER_MEMORY.md and does not read raw session files or aether-memory.db events.",
   ].join("\n"),
   parameters: z.object({
     query: z.string().min(1),
