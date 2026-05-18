@@ -62,6 +62,14 @@ export default function Layout(props: ParentProps) {
     navigate("/", { replace: true })
   })
 
+  createEffect(() => {
+    const dir = resolved()
+    if (!dir) return
+    if (/aether[/\\]aether_\d+\.\d+\.\d+\.\d+/i.test(dir)) {
+      navigate("/", { replace: true })
+    }
+  })
+
   return (
     <Show when={resolved()} keyed>
       {(resolved) => (
