@@ -9,8 +9,17 @@ export namespace State {
   const log = Log.create({ service: "state" })
   const recordsByKey = new Map<string, Map<any, Entry>>()
 
-  export function create<S>(root: () => string, init: () => S, dispose?: (state: Awaited<S>) => Promise<void>) {
-    return () => {
+  export interface StateFn<S> {
+    (): S
+    reset(): void
+  }
+
+  export function create<S>(
+    root: () => string,
+    init: () => S,
+    dispose?: (state: Awaited<S>) => Promise<void>,
+  ): StateFn<S> {
+    const fn = (() => {
       const key = root()
       let entries = recordsByKey.get(key)
       if (!entries) {
@@ -25,7 +34,15 @@ export namespace State {
         dispose,
       })
       return state
+    }) as StateFn<S>
+
+    fn.reset = () => {
+      for (const entries of recordsByKey.values()) {
+        entries.delete(init)
+      }
     }
+
+    return fn
   }
 
   export async function dispose(key: string) {
