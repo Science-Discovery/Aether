@@ -312,14 +312,19 @@ export const SkillManageToolDef = Tool.define("skill_manage", {
  * Used by review sessions so AI-created skills land in the project-level directory
  * without the model needing to know or pass the project ID.
  */
-export function createBoundSkillManageTool(defaultSessionProjectId: string): typeof SkillManageToolDef {
+export function createBoundSkillManageTool(
+  defaultSessionProjectId: string,
+  skillLocationMap?: Record<string, string>,
+): typeof SkillManageToolDef {
   return Tool.define("skill_manage", {
     description: SKILL_MANAGE_DESCRIPTION,
     parameters: SkillManageInput,
     async execute(params) {
+      const resolvedLocation = params.skillLocation ?? skillLocationMap?.[params.name]
       const result = await SkillManageTool.execute({
         ...params,
-        sessionProjectId: params.sessionProjectId ?? (!params.skillLocation ? defaultSessionProjectId : undefined),
+        skillLocation: resolvedLocation,
+        sessionProjectId: params.sessionProjectId ?? (!resolvedLocation ? defaultSessionProjectId : undefined),
       })
       return {
         title: `skill_manage(${params.action}: ${params.name})`,
