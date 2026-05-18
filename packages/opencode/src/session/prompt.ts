@@ -332,7 +332,6 @@ export namespace SessionPrompt {
       }
 
       step++
-      SkillEvolutionHook.onStep(sessionID)
       if (step === 1)
         ensureTitle({
           session,
@@ -705,6 +704,7 @@ export namespace SessionPrompt {
 
       // Check if model finished (finish reason is not "tool-calls")
       const modelFinished = processor.message.finish && !["tool-calls"].includes(processor.message.finish)
+      if (processor.message.finish === "tool-calls") SkillEvolutionHook.onStep(sessionID)
 
       if (modelFinished && !processor.message.error) {
         if (format.type === "json_schema") {
