@@ -134,6 +134,7 @@ export namespace Vcs {
     readonly commitDetails: (hash: string) => Effect.Effect<CommitDetail>
     readonly fileContent: (hash: string, path: string) => Effect.Effect<string>
     readonly checkout: (name: string) => Effect.Effect<CheckoutResult>
+    readonly renameBranch: (newName: string) => Effect.Effect<RenameBranchResult>
   }
 
   export const CheckoutResult = z
@@ -143,6 +144,15 @@ export namespace Vcs {
     })
     .meta({ ref: "VcsCheckoutResult" })
   export type CheckoutResult = z.infer<typeof CheckoutResult>
+
+  export const RenameBranchResult = z
+    .object({
+      success: z.boolean(),
+      error: z.string().optional(),
+      branch: z.string().optional(),
+    })
+    .meta({ ref: "VcsRenameBranchResult" })
+  export type RenameBranchResult = z.infer<typeof RenameBranchResult>
 
   export const TagRef = z
     .object({
@@ -429,6 +439,26 @@ export namespace Vcs {
             error: result.stderr.toString().trim() || result.text().trim(),
           } satisfies CheckoutResult
         }),
+        renameBranch: Effect.fn("Vcs.renameBranch")(function* (newName: string) {
+          if (Instance.project.vcs !== "git") {
+            return { success: false, error: "Not a git project" } satisfies RenameBranchResult
+          }
+          const result = yield* git.run(["branch", "-m", newName], { cwd: Instance.directory })
+          if (result.exitCode === 0) {
+            const next = yield* git.branch(Instance.directory)
+            yield* InstanceState.useEffect(state, (s) =>
+              Effect.sync(() => {
+                s.current = next
+              }),
+            )
+            yield* bus.publish(Event.BranchUpdated, { branch: next })
+            return { success: true, branch: next } satisfies RenameBranchResult
+          }
+          return {
+            success: false,
+            error: result.stderr.toString().trim() || result.text().trim(),
+          } satisfies RenameBranchResult
+        }),
       })
     }),
   )
@@ -471,5 +501,9 @@ export namespace Vcs {
 
   export function checkout(name: string) {
     return runPromise((svc) => svc.checkout(name))
+  }
+
+  export function renameBranch(newName: string) {
+    return runPromise((svc) => svc.renameBranch(newName))
   }
 }

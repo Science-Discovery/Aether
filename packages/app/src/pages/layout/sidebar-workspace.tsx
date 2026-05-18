@@ -115,6 +115,7 @@ type InlineEditorComponent = (props: {
   editing?: boolean
   stopPropagation?: boolean
   openOnDblClick?: boolean
+  selectAll?: boolean
 }) => JSX.Element
 
 export type WorkspaceSidebarContext = {
@@ -133,8 +134,9 @@ export type WorkspaceSidebarContext = {
   renameSession: (session: Session, title: string) => Promise<void>
   workspaceName: (directory: string, projectId?: string, branch?: string) => string | undefined
   renameWorkspace: (directory: string, next: string, projectId?: string, branch?: string) => void
+  renameBranch: (directory: string, newName: string, projectId?: string) => Promise<void>
   editorOpen: (id: string) => boolean
-  openEditor: (id: string, value: string) => void
+  openEditor: (id: string, value: string, selectAll?: boolean) => void
   closeEditor: () => void
   setEditor: (key: "value", value: string) => void
   InlineEditor: InlineEditorComponent
@@ -296,8 +298,10 @@ const WorkspaceHeader = (props: {
   branch: Accessor<string | undefined>
   workspaceValue: Accessor<string>
   workspaceEditActive: Accessor<boolean>
+  branchEditActive: Accessor<boolean>
   InlineEditor: WorkspaceSidebarContext["InlineEditor"]
   renameWorkspace: WorkspaceSidebarContext["renameWorkspace"]
+  renameBranch: WorkspaceSidebarContext["renameBranch"]
   setEditor: WorkspaceSidebarContext["setEditor"]
 }): JSX.Element => (
   <div class="flex items-center gap-1 min-w-0 flex-1">
@@ -333,9 +337,29 @@ const WorkspaceHeader = (props: {
         openOnDblClick={false}
       />
       <span class="text-14-medium text-text-base shrink-0">:</span>
-      <span class="text-14-medium text-text-base min-w-0 truncate">
-        {props.branch() ?? getFilename(props.directory)}
-      </span>
+      <Show
+        when={props.branchEditActive()}
+        fallback={
+          <span class="text-14-medium text-text-base min-w-0 truncate">
+            {props.branch() ?? getFilename(props.directory)}
+          </span>
+        }
+      >
+        <props.InlineEditor
+          id={`branch:${props.directory}`}
+          value={() => props.branch() ?? ""}
+          onSave={(next) => {
+            const trimmed = next.trim()
+            if (!trimmed) return
+            props.renameBranch(props.directory, trimmed)
+          }}
+          class="text-14-medium text-text-base min-w-0 truncate"
+          displayClass="text-14-medium text-text-base min-w-0 truncate"
+          editing={props.branchEditActive()}
+          stopPropagation={false}
+          openOnDblClick={false}
+        />
+      </Show>
     </Show>
     <div class="flex items-center justify-center shrink-0 overflow-hidden w-0 opacity-0 transition-all duration-200 group-hover/workspace:w-3.5 group-hover/workspace:opacity-100 group-focus-within/workspace:w-3.5 group-focus-within/workspace:opacity-100">
       <Icon name={props.open() ? "chevron-down" : "chevron-right"} size="small" class="text-icon-base" />
@@ -349,13 +373,17 @@ const WorkspaceActions = (props: {
   busy: Accessor<boolean>
   menuOpen: Accessor<boolean>
   pendingRename: Accessor<boolean>
+  pendingRenameBranch: Accessor<boolean>
   setMenuOpen: (open: boolean) => void
   setPendingRename: (value: boolean) => void
+  setPendingRenameBranch: (value: boolean) => void
   sidebarHovering: Accessor<boolean>
   touch: Accessor<boolean>
   language: ReturnType<typeof useLanguage>
   workspaceValue: Accessor<string>
+  branchValue: Accessor<string | undefined>
   openEditor: WorkspaceSidebarContext["openEditor"]
+  renameBranch: WorkspaceSidebarContext["renameBranch"]
   showResetWorkspaceDialog: WorkspaceSidebarContext["showResetWorkspaceDialog"]
   showDeleteWorkspaceDialog: WorkspaceSidebarContext["showDeleteWorkspaceDialog"]
   root: string
@@ -433,10 +461,18 @@ const WorkspaceActions = (props: {
         <DropdownMenu.Portal>
           <DropdownMenu.Content
             onCloseAutoFocus={(event) => {
-              if (!props.pendingRename()) return
-              event.preventDefault()
-              props.setPendingRename(false)
-              props.openEditor(`workspace:${props.directory}`, props.workspaceValue())
+              if (props.pendingRename()) {
+                event.preventDefault()
+                props.setPendingRename(false)
+                props.openEditor(`workspace:${props.directory}`, props.workspaceValue(), true)
+                return
+              }
+              if (props.pendingRenameBranch()) {
+                event.preventDefault()
+                props.setPendingRenameBranch(false)
+                const branch = props.currentBranch()
+                if (branch) props.openEditor(`branch:${props.directory}`, branch, true)
+              }
             }}
           >
             <DropdownMenu.Item
@@ -446,7 +482,16 @@ const WorkspaceActions = (props: {
                 props.setMenuOpen(false)
               }}
             >
-              <DropdownMenu.ItemLabel>{props.language.t("common.rename")}</DropdownMenu.ItemLabel>
+              <DropdownMenu.ItemLabel>{props.language.t("workspace.renameSandbox")}</DropdownMenu.ItemLabel>
+            </DropdownMenu.Item>
+            <DropdownMenu.Item
+              disabled={props.local()}
+              onSelect={() => {
+                props.setPendingRenameBranch(true)
+                props.setMenuOpen(false)
+              }}
+            >
+              <DropdownMenu.ItemLabel>{props.language.t("workspace.renameBranch")}</DropdownMenu.ItemLabel>
             </DropdownMenu.Item>
             <DropdownMenu.Item
               onSelect={() => {
@@ -1016,6 +1061,7 @@ export const SortableWorkspace = (props: {
   const [menu, setMenu] = createStore({
     open: false,
     pendingRename: false,
+    pendingRenameBranch: false,
   })
   const slug = createMemo(() => base64Encode(props.directory))
   const sessions = createMemo(() => sortedRootSessions(workspaceStore, props.sortNow()))
@@ -1056,6 +1102,7 @@ export const SortableWorkspace = (props: {
   } = createBatchSelect(sessions, props.ctx.archiveSession, props.ctx.deleteSession, dialog, language)
 
   const workspaceEditActive = createMemo(() => props.ctx.editorOpen(`workspace:${props.directory}`))
+  const branchEditActive = createMemo(() => props.ctx.editorOpen(`branch:${props.directory}`))
   const header = () => (
     <WorkspaceHeader
       local={local}
@@ -1066,8 +1113,10 @@ export const SortableWorkspace = (props: {
       branch={() => workspaceStore.vcs?.branch}
       workspaceValue={workspaceValue}
       workspaceEditActive={workspaceEditActive}
+      branchEditActive={branchEditActive}
       InlineEditor={props.ctx.InlineEditor}
       renameWorkspace={props.ctx.renameWorkspace}
+      renameBranch={props.ctx.renameBranch}
       setEditor={props.ctx.setEditor}
     />
   )
@@ -1076,6 +1125,7 @@ export const SortableWorkspace = (props: {
     props.ctx.setWorkspaceExpanded(props.directory, value)
     if (value) return
     if (props.ctx.editorOpen(`workspace:${props.directory}`)) props.ctx.closeEditor()
+    if (props.ctx.editorOpen(`branch:${props.directory}`)) props.ctx.closeEditor()
   }
 
   createEffect(() => {
@@ -1128,13 +1178,17 @@ export const SortableWorkspace = (props: {
                 busy={busy}
                 menuOpen={() => menu.open}
                 pendingRename={() => menu.pendingRename}
+                pendingRenameBranch={() => menu.pendingRenameBranch}
                 setMenuOpen={(open) => setMenu("open", open)}
                 setPendingRename={(value) => setMenu("pendingRename", value)}
+                setPendingRenameBranch={(value) => setMenu("pendingRenameBranch", value)}
                 sidebarHovering={props.ctx.sidebarHovering}
                 touch={touch}
                 language={language}
                 workspaceValue={workspaceValue}
+                branchValue={() => workspaceStore.vcs?.branch}
                 openEditor={props.ctx.openEditor}
+                renameBranch={props.ctx.renameBranch}
                 showResetWorkspaceDialog={props.ctx.showResetWorkspaceDialog}
                 showDeleteWorkspaceDialog={props.ctx.showDeleteWorkspaceDialog}
                 root={props.project.worktree}
