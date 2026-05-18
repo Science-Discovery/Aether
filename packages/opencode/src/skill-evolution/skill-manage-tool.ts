@@ -7,6 +7,21 @@ import { Versions } from "./versions"
 import { Publisher } from "./publisher"
 import { Tool } from "../tool/tool"
 
+// ── Atomic write ─────────────────────────────────────────────────────────────
+
+async function atomicWrite(filePath: string, content: string): Promise<void> {
+  const dir = path.dirname(filePath)
+  await fs.mkdir(dir, { recursive: true })
+  const tmp = filePath + ".tmp." + Date.now()
+  try {
+    await fs.writeFile(tmp, content, "utf8")
+    await fs.rename(tmp, filePath)
+  } catch (e) {
+    await fs.unlink(tmp).catch(() => {})
+    throw e
+  }
+}
+
 // ── Frontmatter helpers ───────────────────────────────────────────────────────
 
 function parseFrontmatter(content: string): { meta: Record<string, string>; body: string } {
@@ -171,7 +186,7 @@ export namespace SkillManageTool {
     const skillDir = await resolveAndPrepare(input)
     const skillMd = path.join(skillDir, "SKILL.md")
     const fileContent = buildContent(input.name, input.description.trim(), input.content, input.category)
-    await fs.writeFile(skillMd, fileContent, "utf-8")
+    await atomicWrite(skillMd, fileContent)
 
     return guardAndPublish(skillDir, "create")
   }
@@ -185,7 +200,7 @@ export namespace SkillManageTool {
     const oldContent = await fs.readFile(skillMd, "utf-8").catch(() => null)
     const existingCategory = oldContent ? parseFrontmatter(oldContent).meta.category : undefined
     const fileContent = buildContent(input.name, input.description.trim(), input.content, input.category ?? existingCategory)
-    await fs.writeFile(skillMd, fileContent, "utf-8")
+    await atomicWrite(skillMd, fileContent)
 
     return guardAndPublish(skillDir, "edit")
   }
@@ -208,7 +223,7 @@ export namespace SkillManageTool {
           `Use the content below to construct the correct old_str and retry.\n\nCurrent SKILL.md:\n\n${raw}`,
       }
     }
-    await fs.writeFile(skillMd, patched, "utf-8")
+    await atomicWrite(skillMd, patched)
 
     return guardAndPublish(skillDir, "patch")
   }
@@ -221,8 +236,7 @@ export namespace SkillManageTool {
     if (!target.startsWith(skillDir + path.sep)) {
       return { ok: false, message: "filename must be within the skill directory" }
     }
-    await fs.mkdir(path.dirname(target), { recursive: true })
-    await fs.writeFile(target, input.file_content, "utf-8")
+    await atomicWrite(target, input.file_content)
 
     return guardAndPublish(skillDir, "write_file")
   }
