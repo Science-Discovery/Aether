@@ -1,10 +1,11 @@
 import { describe, expect, test } from "bun:test"
 import { SkillEvolutionHook } from "./hook"
 import { Counter } from "./counter"
+import { SessionID } from "@/session/schema"
 
 describe("SkillEvolutionHook.onStep", () => {
   test("increments counter once per step for a normal session", () => {
-    const id = "hook-normal-" + Math.random()
+    const id = ("hook-normal-" + Math.random()) as SessionID
     SkillEvolutionHook.onStep(id)
     SkillEvolutionHook.onStep(id)
     expect(Counter.get(id)).toBe(2)
@@ -14,7 +15,7 @@ describe("SkillEvolutionHook.onStep", () => {
 
 describe("SkillEvolutionHook.onLoopEnd", () => {
   test("does nothing when aborted", async () => {
-    const id = "hook-aborted-" + Math.random()
+    const id = ("hook-aborted-" + Math.random()) as SessionID
     for (let i = 0; i < 13; i++) Counter.increment(id)
 
     await SkillEvolutionHook.onLoopEnd({
@@ -29,7 +30,7 @@ describe("SkillEvolutionHook.onLoopEnd", () => {
   })
 
   test("does nothing when finalResponse is false", async () => {
-    const id = "hook-noreply-" + Math.random()
+    const id = ("hook-noreply-" + Math.random()) as SessionID
     for (let i = 0; i < 15; i++) Counter.increment(id)
 
     await SkillEvolutionHook.onLoopEnd({
@@ -44,7 +45,7 @@ describe("SkillEvolutionHook.onLoopEnd", () => {
   })
 
   test("counter preserved when below threshold", async () => {
-    const id = "hook-below-" + Math.random()
+    const id = ("hook-below-" + Math.random()) as SessionID
     for (let i = 0; i < 5; i++) Counter.increment(id)
 
     await SkillEvolutionHook.onLoopEnd({
@@ -59,7 +60,7 @@ describe("SkillEvolutionHook.onLoopEnd", () => {
   })
 
   test("resets counter only after spawn when threshold is met", async () => {
-    const id = "hook-threshold-" + Math.random()
+    const id = ("hook-threshold-" + Math.random()) as SessionID
     for (let i = 0; i < 10; i++) Counter.increment(id)
 
     await SkillEvolutionHook.onLoopEnd({

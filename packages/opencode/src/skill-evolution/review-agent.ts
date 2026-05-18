@@ -179,7 +179,7 @@ export async function buildReviewPrompt(
  * user messages it rolls over to a fresh one. Runs fire-and-forget; errors are logged only.
  */
 export async function spawnReview(input: {
-  sessionID: string
+  sessionID: SessionID
   projectId: string
   projectDirectory?: string
 }): Promise<void> {

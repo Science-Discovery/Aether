@@ -2,11 +2,12 @@ import { Counter } from "./counter"
 import { ConfigReader } from "./config-reader"
 import { isReviewSession, spawnReview } from "./review-agent"
 import { Log } from "@/util/log"
+import { SessionID } from "@/session/schema"
 
 const log = Log.create({ service: "skill-evolution.hook" })
 
 export interface HookInput {
-  readonly sessionID: string
+  readonly sessionID: SessionID
   readonly finalResponse: boolean
   readonly aborted: boolean
   /** Project ID of the session, used for AI-created skill routing. */
@@ -21,7 +22,7 @@ export namespace SkillEvolutionHook {
    * Increments the per-session counter.
    * No-ops for review sessions (determined by Instance.directory).
    */
-  export function onStep(sessionID: string): void {
+  export function onStep(sessionID: SessionID): void {
     // Review sessions are excluded from counting to prevent recursive evolution
     if (isReviewSession()) return
     Counter.increment(sessionID)

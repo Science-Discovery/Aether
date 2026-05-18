@@ -7,14 +7,50 @@ import { Versions } from "./versions"
 import { Publisher } from "./publisher"
 import { Tool } from "../tool/tool"
 
+// ── Frontmatter helpers ───────────────────────────────────────────────────────
+
+function parseFrontmatter(content: string): { meta: Record<string, string>; body: string } {
+  if (!content.startsWith("---")) return { meta: {}, body: content }
+  const end = content.indexOf("\n---", 3)
+  if (end === -1) return { meta: {}, body: content }
+  const yaml = content.slice(3, end).trim()
+  const body = content.slice(end + 4).trimStart()
+  const meta: Record<string, string> = {}
+  for (const line of yaml.split("\n")) {
+    const colon = line.indexOf(":")
+    if (colon === -1) continue
+    const key = line.slice(0, colon).trim()
+    const val = line.slice(colon + 1).trim().replace(/^['"]|['"]$/g, "")
+    if (key) meta[key] = val
+  }
+  return { meta, body }
+}
+
+function buildContent(name: string, description: string, body: string, category?: string): string {
+  const categoryLine = category?.trim() ? `\ncategory: ${JSON.stringify(category.trim())}` : ""
+  return `---\nname: ${JSON.stringify(name)}\ndescription: ${JSON.stringify(description)}${categoryLine}\n---\n\n${body.trimStart()}`
+}
+
+// ── Schema ────────────────────────────────────────────────────────────────────
+
 /** Input schema exposed to the review agent as the `skill_manage` tool. */
 export const SkillManageInput = z.object({
   action: z.enum(["create", "edit", "patch", "write_file", "delete", "history", "rollback"]).describe(
     "Operation to perform on the skill",
   ),
   name: z.string().describe("Skill directory name (slug, no spaces)"),
-  /** For create / edit: full replacement content of SKILL.md */
-  content: z.string().optional().describe("Full content of SKILL.md (for create / edit)"),
+  description: z
+    .string()
+    .optional()
+    .describe("One-line skill description for the frontmatter. Required for create and edit."),
+  category: z
+    .string()
+    .optional()
+    .describe(
+      "Short category label for grouping skills (e.g. 'Git', 'Testing', 'Refactoring'). Required for create and edit — always infer one from the skill content if not obvious.",
+    ),
+  /** For create / edit: skill body (markdown, without frontmatter) */
+  content: z.string().optional().describe("Skill body markdown without frontmatter (for create / edit); full SKILL.md content (for patch)"),
   /** For write_file: name of the auxiliary file to write */
   filename: z.string().optional().describe("Auxiliary file name within the skill directory (for write_file)"),
   /** For write_file: content to write into the auxiliary file */
@@ -100,21 +136,27 @@ export namespace SkillManageTool {
   }
 
   async function handleCreate(input: SkillManageInput): Promise<SkillManageResult> {
-    if (!input.content) return { ok: false, message: "content is required for action=create" }
+    if (!input.description?.trim()) return { ok: false, message: "description is required for action=create" }
+    if (!input.content?.trim()) return { ok: false, message: "content is required for action=create" }
 
     const skillDir = await resolveAndPrepare(input)
     const skillMd = path.join(skillDir, "SKILL.md")
-    await fs.writeFile(skillMd, input.content, "utf-8")
+    const fileContent = buildContent(input.name, input.description.trim(), input.content, input.category)
+    await fs.writeFile(skillMd, fileContent, "utf-8")
 
     return guardAndPublish(skillDir, "create")
   }
 
   async function handleEdit(input: SkillManageInput): Promise<SkillManageResult> {
-    if (!input.content) return { ok: false, message: "content is required for action=edit" }
+    if (!input.description?.trim()) return { ok: false, message: "description is required for action=edit" }
+    if (!input.content?.trim()) return { ok: false, message: "content is required for action=edit" }
 
     const skillDir = await resolveAndPrepare(input)
     const skillMd = path.join(skillDir, "SKILL.md")
-    await fs.writeFile(skillMd, input.content, "utf-8")
+    const oldContent = await fs.readFile(skillMd, "utf-8").catch(() => null)
+    const existingCategory = oldContent ? parseFrontmatter(oldContent).meta.category : undefined
+    const fileContent = buildContent(input.name, input.description.trim(), input.content, input.category ?? existingCategory)
+    await fs.writeFile(skillMd, fileContent, "utf-8")
 
     return guardAndPublish(skillDir, "edit")
   }
@@ -179,7 +221,9 @@ export namespace SkillManageTool {
 export const SkillManageToolDef = Tool.define("skill_manage", {
   description:
     "Create, edit, patch, delete, or rollback a skill managed by the skill evolution system. " +
-    "Use this tool (not edit/write) whenever you want to modify SKILL.md files.",
+    "Use this tool (not edit/write) whenever you want to modify SKILL.md files. " +
+    "For create and edit, supply 'description' (one-line summary) and 'content' (body markdown without frontmatter); " +
+    "the tool builds the frontmatter automatically. 'category' is required for create and edit — infer it from the skill content if not obvious.",
   parameters: SkillManageInput,
   async execute(params) {
     const result = await SkillManageTool.execute(params)
@@ -200,7 +244,9 @@ export function createBoundSkillManageTool(defaultSessionProjectId: string): typ
   return Tool.define("skill_manage", {
     description:
       "Create, edit, patch, delete, or rollback a skill managed by the skill evolution system. " +
-      "Use this tool (not edit/write) whenever you want to modify SKILL.md files.",
+      "Use this tool (not edit/write) whenever you want to modify SKILL.md files. " +
+      "For create and edit, supply 'description' (one-line summary) and 'content' (body markdown without frontmatter); " +
+      "the tool builds the frontmatter automatically. 'category' is required for create and edit — infer it from the skill content if not obvious.",
     parameters: SkillManageInput,
     async execute(params) {
       const result = await SkillManageTool.execute({
