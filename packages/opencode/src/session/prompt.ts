@@ -704,7 +704,13 @@ export namespace SessionPrompt {
 
       // Check if model finished (finish reason is not "tool-calls")
       const modelFinished = processor.message.finish && !["tool-calls"].includes(processor.message.finish)
-      if (processor.message.finish === "tool-calls") SkillEvolutionHook.onStep(sessionID)
+      if (processor.message.finish === "tool-calls") {
+        const assistantParts = await MessageV2.parts(processor.message.id)
+        const calledSkillManage = assistantParts.some(
+          (p) => p.type === "tool" && (p as MessageV2.ToolPart).tool === "skill_manage",
+        )
+        SkillEvolutionHook.onStep(sessionID, calledSkillManage)
+      }
 
       if (modelFinished && !processor.message.error) {
         if (format.type === "json_schema") {

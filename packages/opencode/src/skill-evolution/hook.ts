@@ -18,13 +18,14 @@ export interface HookInput {
 
 export namespace SkillEvolutionHook {
   /**
-   * Called once per LLM loop step (not per individual tool call).
-   * Increments the per-session counter.
+   * Called once per tool-call step (after LLM responds with finish="tool-calls").
+   * Resets then increments when skill_manage was called — mirrors Hermes L7868+L9110.
    * No-ops for review sessions (determined by Instance.directory).
    */
-  export function onStep(sessionID: SessionID): void {
+  export function onStep(sessionID: SessionID, calledSkillManage = false): void {
     // Review sessions are excluded from counting to prevent recursive evolution
     if (isReviewSession()) return
+    if (calledSkillManage) Counter.reset(sessionID)
     Counter.increment(sessionID)
   }
 
