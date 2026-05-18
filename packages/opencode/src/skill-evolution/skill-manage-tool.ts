@@ -31,37 +31,66 @@ function buildContent(name: string, description: string, body: string, category?
   return `---\nname: ${JSON.stringify(name)}\ndescription: ${JSON.stringify(description)}${categoryLine}\n---\n\n${body.trimStart()}`
 }
 
+// ── Fuzzy patch ───────────────────────────────────────────────────────────────
+
+function fuzzyReplace(content: string, oldStr: string, newStr: string): string | null {
+  // Strategy 1: exact match
+  if (content.includes(oldStr)) return content.replace(oldStr, newStr)
+  // Strategy 2: line-trimmed match
+  const oldLines = oldStr.split("\n").map((l) => l.trimEnd())
+  const newLines = newStr.split("\n")
+  const contentLines = content.split("\n")
+  for (let i = 0; i <= contentLines.length - oldLines.length; i++) {
+    const window = contentLines.slice(i, i + oldLines.length).map((l) => l.trimEnd())
+    if (window.join("\n") === oldLines.join("\n")) {
+      return [...contentLines.slice(0, i), ...newLines, ...contentLines.slice(i + oldLines.length)].join("\n")
+    }
+  }
+  return null
+}
+
 // ── Schema ────────────────────────────────────────────────────────────────────
 
 /** Input schema exposed to the review agent as the `skill_manage` tool. */
-export const SkillManageInput = z.object({
-  action: z.enum(["create", "edit", "patch", "write_file", "delete", "history", "rollback"]).describe(
-    "Operation to perform on the skill",
-  ),
-  name: z.string().describe("Skill directory name (slug, no spaces)"),
-  description: z
-    .string()
-    .optional()
-    .describe("One-line skill description for the frontmatter. Required for create and edit."),
-  category: z
-    .string()
-    .optional()
-    .describe(
-      "Short category label for grouping skills (e.g. 'Git', 'Testing', 'Refactoring'). Required for create and edit — always infer one from the skill content if not obvious.",
+export const SkillManageInput = z.preprocess(
+  (raw: any) => {
+    if (!raw || typeof raw !== "object") return raw
+    const out = { ...raw }
+    if (out.old_str === undefined) out.old_str = out.oldStr ?? out.oldString ?? out.old_string
+    if (out.new_str === undefined) out.new_str = out.newStr ?? out.newString ?? out.new_string
+    return out
+  },
+  z.object({
+    action: z.enum(["create", "edit", "patch", "write_file", "delete", "history", "rollback"]).describe(
+      "Operation to perform on the skill",
     ),
-  /** For create / edit: skill body (markdown, without frontmatter) */
-  content: z.string().optional().describe("Skill body markdown without frontmatter (for create / edit); full SKILL.md content (for patch)"),
-  /** For write_file: name of the auxiliary file to write */
-  filename: z.string().optional().describe("Auxiliary file name within the skill directory (for write_file)"),
-  /** For write_file: content to write into the auxiliary file */
-  file_content: z.string().optional().describe("Content to write into the auxiliary file (for write_file)"),
-  /** For rollback: version identifier such as 'v002' */
-  version: z.string().optional().describe("Version identifier for rollback (e.g. 'v002')"),
-  /** Project ID used when writing AI-created skills to the skill-sessions bucket */
-  sessionProjectId: z.string().optional().describe("Project ID for AI-created skill routing"),
-  /** Original skill location — enables copy-on-write instead of direct write */
-  skillLocation: z.string().optional().describe("Original SKILL.md path for copy-on-write"),
-})
+    name: z.string().describe("Skill directory name (slug, no spaces)"),
+    description: z
+      .string()
+      .optional()
+      .describe("One-line skill description for the frontmatter. Required for create and edit."),
+    category: z
+      .string()
+      .optional()
+      .describe(
+        "Short category label for grouping skills (e.g. 'Git', 'Testing', 'Refactoring'). Required for create and edit — always infer one from the skill content if not obvious.",
+      ),
+    /** For create / edit: skill body markdown without frontmatter */
+    content: z.string().optional().describe("Skill body markdown without frontmatter (for create / edit)"),
+    old_str: z.string().optional().describe("Exact text to replace (patch action). Read SKILL.md first if content is not already in context — never guess."),
+    new_str: z.string().optional().describe("Replacement text (patch action)"),
+    /** For write_file: name of the auxiliary file to write */
+    filename: z.string().optional().describe("Auxiliary file name within the skill directory (for write_file)"),
+    /** For write_file: content to write into the auxiliary file */
+    file_content: z.string().optional().describe("Content to write into the auxiliary file (for write_file)"),
+    /** For rollback: version identifier such as 'v002' */
+    version: z.string().optional().describe("Version identifier for rollback (e.g. 'v002')"),
+    /** Project ID used when writing AI-created skills to the skill-sessions bucket */
+    sessionProjectId: z.string().optional().describe("Project ID for AI-created skill routing"),
+    /** Original skill location — enables copy-on-write instead of direct write */
+    skillLocation: z.string().optional().describe("Original SKILL.md path for copy-on-write"),
+  }),
+)
 export type SkillManageInput = z.infer<typeof SkillManageInput>
 
 export interface SkillManageResult {
@@ -162,11 +191,24 @@ export namespace SkillManageTool {
   }
 
   async function handlePatch(input: SkillManageInput): Promise<SkillManageResult> {
-    if (!input.content) return { ok: false, message: "content is required for action=patch (provide the new full content)" }
+    if (input.old_str === undefined) return { ok: false, message: "old_str is required for action=patch" }
+    if (input.new_str === undefined) return { ok: false, message: "new_str is required for action=patch" }
 
     const skillDir = await resolveAndPrepare(input)
     const skillMd = path.join(skillDir, "SKILL.md")
-    await fs.writeFile(skillMd, input.content, "utf-8")
+    const raw = await fs.readFile(skillMd, "utf-8").catch(() => null)
+    if (raw === null) return { ok: false, message: `Skill "${input.name}" not found` }
+
+    const patched = fuzzyReplace(raw, input.old_str, input.new_str)
+    if (patched === null) {
+      return {
+        ok: false,
+        message:
+          `Could not find old_str in skill "${input.name}". ` +
+          `Use the content below to construct the correct old_str and retry.\n\nCurrent SKILL.md:\n\n${raw}`,
+      }
+    }
+    await fs.writeFile(skillMd, patched, "utf-8")
 
     return guardAndPublish(skillDir, "patch")
   }
@@ -223,7 +265,8 @@ export const SkillManageToolDef = Tool.define("skill_manage", {
     "Create, edit, patch, delete, or rollback a skill managed by the skill evolution system. " +
     "Use this tool (not edit/write) whenever you want to modify SKILL.md files. " +
     "For create and edit, supply 'description' (one-line summary) and 'content' (body markdown without frontmatter); " +
-    "the tool builds the frontmatter automatically. 'category' is required for create and edit — infer it from the skill content if not obvious.",
+    "the tool builds the frontmatter automatically. 'category' is required for create and edit — infer it from the skill content if not obvious. " +
+    "For patch, supply 'old_str' and 'new_str' — read SKILL.md first if the content is not already in context; never guess old_str.",
   parameters: SkillManageInput,
   async execute(params) {
     const result = await SkillManageTool.execute(params)
