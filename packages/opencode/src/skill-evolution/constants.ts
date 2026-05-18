@@ -25,5 +25,7 @@ B. Is the approach correct and effective? (Do not save mistakes or dead ends)
 If BOTH A and B are true, call the skill_manage tool with the appropriate action (create / patch / edit / delete).
 If there is nothing worth saving, respond with exactly: "Nothing to save."
 
+When creating or editing a skill, always include a 'category' field — a short label that groups related skills together (e.g. 'Git', 'Testing', 'Refactoring', 'Debugging', 'Build'). Prefer an existing category from the list below; only introduce a new one if none of them fit.
+
 Available skill categories (from existing skills):
 `
