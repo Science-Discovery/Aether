@@ -1299,7 +1299,7 @@ describe("ProviderTransform.message - anthropic empty content filtering", () => 
     expect(result[1].content[0]).toEqual({ type: "text", text: "Answer" })
   })
 
-  test("does not filter for non-anthropic providers", () => {
+  test("does not filter for non-anthropic providers (but merges consecutive)", () => {
     const openaiModel = {
       ...anthropicModel,
       providerID: "openai",
@@ -1320,9 +1320,11 @@ describe("ProviderTransform.message - anthropic empty content filtering", () => 
 
     const result = ProviderTransform.message(msgs, openaiModel, {})
 
-    expect(result).toHaveLength(2)
-    expect(result[0].content).toBe("")
-    expect(result[1].content).toHaveLength(1)
+    // Consecutive assistant messages are merged for non-Anthropic providers
+    expect(result).toHaveLength(1)
+    // Empty string content becomes empty text part after merge
+    const content = result[0].content as any[]
+    expect(content.some((part: any) => part.type === "text" && part.text === "")).toBe(true)
   })
 })
 
@@ -2859,5 +2861,219 @@ describe("ProviderTransform.variants", () => {
       const result = ProviderTransform.variants(model)
       expect(result).toEqual({})
     })
+  })
+})
+
+describe("ProviderTransform.message - consecutive assistant message merging", () => {
+  const alibabaModel = {
+    id: "alibaba-cn/glm-5",
+    providerID: "alibaba-cn",
+    api: {
+      id: "glm-5",
+      url: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+      npm: "@ai-sdk/openai-compatible",
+    },
+    name: "GLM-5",
+    capabilities: {
+      temperature: true,
+      reasoning: true,
+      attachment: false,
+      toolcall: true,
+      input: { text: true, audio: false, image: false, video: false, pdf: false },
+      output: { text: true, audio: false, image: false, video: false, pdf: false },
+      interleaved: { field: "reasoning_content" },
+    },
+    cost: { input: 0.86, output: 3.15, cache: { read: 0, write: 0 } },
+    limit: { context: 202752, output: 16384 },
+    status: "active",
+    options: {},
+    headers: {},
+    release_date: "2026-02-11",
+  } as any
+
+  test("merges consecutive assistant messages with text + tool_call", () => {
+    const msgs = [
+      { role: "user", content: [{ type: "text", text: "help me" }] },
+      { role: "assistant", content: [{ type: "text", text: "Let me organize the tasks" }] },
+      {
+        role: "assistant",
+        content: [{ type: "tool-call", toolCallId: "call-1", toolName: "todowrite", input: { todos: [] } }],
+      },
+      {
+        role: "tool",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "call-1",
+            toolName: "todowrite",
+            output: { type: "text", value: "3 todos" },
+          },
+        ],
+      },
+      { role: "assistant", content: [{ type: "text", text: "Here's the plan" }] },
+    ] as any[]
+
+    const result = ProviderTransform.message(msgs, alibabaModel, {})
+
+    expect(result).toHaveLength(4)
+    expect(result[0].role).toBe("user")
+    expect(result[1].role).toBe("assistant")
+    expect(result[1].content).toEqual([
+      { type: "text", text: "Let me organize the tasks" },
+      { type: "tool-call", toolCallId: "call-1", toolName: "todowrite", input: { todos: [] } },
+    ])
+    expect(result[2].role).toBe("tool")
+    expect(result[3].role).toBe("assistant")
+    expect(result[3].content).toEqual([{ type: "text", text: "Here's the plan" }])
+  })
+
+  test("merges three consecutive assistant messages", () => {
+    const msgs = [
+      { role: "assistant", content: "step1" },
+      { role: "assistant", content: [{ type: "text", text: "step2" }] },
+      { role: "assistant", content: "step3" },
+    ] as any[]
+
+    const result = ProviderTransform.message(msgs, alibabaModel, {})
+
+    expect(result).toHaveLength(1)
+    expect(result[0].role).toBe("assistant")
+    expect(result[0].content).toEqual([
+      { type: "text", text: "step1" },
+      { type: "text", text: "step2" },
+      { type: "text", text: "step3" },
+    ])
+  })
+
+  test("interleaved reasoning extraction on merged messages", () => {
+    const msgs = [
+      {
+        role: "assistant",
+        content: [
+          { type: "reasoning", text: "thinking1" },
+          { type: "text", text: "text_before" },
+        ],
+      },
+      {
+        role: "assistant",
+        content: [
+          { type: "reasoning", text: "thinking2" },
+          { type: "tool-call", toolCallId: "c1", toolName: "bash", input: { cmd: "ls" } },
+        ],
+      },
+      {
+        role: "tool",
+        content: [{ type: "tool-result", toolCallId: "c1", toolName: "bash", output: { type: "text", value: "ok" } }],
+      },
+    ] as any[]
+
+    const result = ProviderTransform.message(msgs, alibabaModel, {})
+
+    expect(result).toHaveLength(2)
+    expect(result[0].content).toEqual([
+      { type: "text", text: "text_before" },
+      { type: "tool-call", toolCallId: "c1", toolName: "bash", input: { cmd: "ls" } },
+    ])
+    expect((result[0] as any).providerOptions?.openaiCompatible?.reasoning_content).toBe("thinking1thinking2")
+  })
+
+  test("skips merge for Anthropic provider", () => {
+    const anthropicModel = {
+      ...alibabaModel,
+      providerID: "anthropic",
+      api: { id: "claude-3", url: "https://api.anthropic.com", npm: "@ai-sdk/anthropic" },
+      capabilities: { ...alibabaModel.capabilities, interleaved: false },
+    }
+
+    const msgs = [
+      { role: "assistant", content: "text1" },
+      { role: "assistant", content: [{ type: "text", text: "text2" }] },
+    ] as any[]
+
+    const result = ProviderTransform.message(msgs, anthropicModel, {})
+
+    expect(result).toHaveLength(2)
+  })
+
+  test("skips merge for google-vertex-anthropic provider", () => {
+    const vertexAnthropicModel = {
+      ...alibabaModel,
+      providerID: "google-vertex-anthropic",
+      api: { id: "claude-3", url: "https://vertexai.googleapis.com", npm: "@ai-sdk/google-vertex/anthropic" },
+      capabilities: { ...alibabaModel.capabilities, interleaved: false },
+    }
+
+    const msgs = [
+      { role: "assistant", content: "text1" },
+      { role: "assistant", content: [{ type: "text", text: "text2" }] },
+    ] as any[]
+
+    const result = ProviderTransform.message(msgs, vertexAnthropicModel, {})
+
+    expect(result).toHaveLength(2)
+  })
+
+  test("handles empty string content in consecutive assistant messages", () => {
+    const msgs = [
+      { role: "assistant", content: "" },
+      { role: "assistant", content: [{ type: "tool-call", toolCallId: "c1", toolName: "bash", input: { cmd: "ls" } }] },
+      {
+        role: "tool",
+        content: [{ type: "tool-result", toolCallId: "c1", toolName: "bash", output: { type: "text", value: "ok" } }],
+      },
+    ] as any[]
+
+    const result = ProviderTransform.message(msgs, alibabaModel, {})
+
+    expect(result).toHaveLength(2)
+    expect(result[0].role).toBe("assistant")
+    expect(result[0].content).toEqual([{ type: "tool-call", toolCallId: "c1", toolName: "bash", input: { cmd: "ls" } }])
+  })
+
+  test("deep-merges providerOptions from consecutive assistant messages", () => {
+    const openaiCompatModel = {
+      ...alibabaModel,
+      capabilities: { ...alibabaModel.capabilities, interleaved: false },
+    }
+
+    const msgs = [
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "text1" }],
+        providerOptions: {
+          openaiCompatible: { custom_field: "a" },
+        },
+      },
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "text2" }],
+        providerOptions: {
+          openaiCompatible: { another_field: "b" },
+        },
+      },
+    ] as any[]
+
+    const result = ProviderTransform.message(msgs, openaiCompatModel, {})
+
+    expect(result).toHaveLength(1)
+    expect((result[0] as any).providerOptions?.openaiCompatible).toEqual({
+      custom_field: "a",
+      another_field: "b",
+    })
+  })
+
+  test("does not affect non-consecutive messages", () => {
+    const msgs = [
+      { role: "user", content: [{ type: "text", text: "hello" }] },
+      { role: "assistant", content: [{ type: "text", text: "response" }] },
+      { role: "user", content: [{ type: "text", text: "follow up" }] },
+    ] as any[]
+
+    const result = ProviderTransform.message(msgs, alibabaModel, {})
+
+    expect(result).toHaveLength(3)
+    expect(result[0].role).toBe("user")
+    expect(result[1].role).toBe("assistant")
+    expect(result[2].role).toBe("user")
   })
 })
