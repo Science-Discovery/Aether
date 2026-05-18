@@ -273,13 +273,29 @@ export namespace SkillManageTool {
   }
 }
 
+const SKILL_MANAGE_DESCRIPTION = [
+  "The sole tool for modifying skill files. Use instead of edit/write for any file under a skills/ directory.",
+  "Create, edit, patch, delete, or version-manage skills (reusable procedural memories saved as SKILL.md files).",
+  "",
+  "Actions:",
+  "  create     — Create a new skill with name, description, category, and content.",
+  "  edit       — Fully rewrite a skill (new description + category + new content). Use when the entire approach has changed.",
+  "  patch      — Replace a specific section (old_str → new_str). Equivalent to the edit tool's oldString→newString, but for skill files. IMPORTANT: old_str must exactly match the file content — if the skill content is not already in context, read SKILL.md first. Never guess old_str.",
+  "  delete     — Delete a skill and its entire directory.",
+  "  history    — List all saved versions of a skill.",
+  "  rollback   — Restore a skill to a previous version (requires 'version' param, e.g. 'v002' or '2').",
+  "  write_file — Write a supporting file inside the skill directory (scripts, configs, templates, etc.).",
+  "",
+  "Every successful create/edit/patch/write_file automatically saves a version snapshot.",
+  "Use 'history' to browse versions and 'rollback' to recover from a bad evolution.",
+  "",
+  "Modifications are written to a shadow .aether/skills/<name>/ directory.",
+  "Original skills (in .claude/, .agents/, .opencode/) are never modified.",
+  "On first evolution, the original skill directory is copied into .aether/, then patched there.",
+].join("\n")
+
 export const SkillManageToolDef = Tool.define("skill_manage", {
-  description:
-    "Create, edit, patch, delete, or rollback a skill managed by the skill evolution system. " +
-    "Use this tool (not edit/write) whenever you want to modify SKILL.md files. " +
-    "For create and edit, supply 'description' (one-line summary) and 'content' (full skill body, without frontmatter); " +
-    "the tool builds the frontmatter automatically. 'category' is required for create and edit — infer it from the skill content if not obvious. " +
-    "For patch, supply 'old_str' and 'new_str' — read SKILL.md first if the content is not already in context; never guess old_str.",
+  description: SKILL_MANAGE_DESCRIPTION,
   parameters: SkillManageInput,
   async execute(params) {
     const result = await SkillManageTool.execute(params)
@@ -298,11 +314,7 @@ export const SkillManageToolDef = Tool.define("skill_manage", {
  */
 export function createBoundSkillManageTool(defaultSessionProjectId: string): typeof SkillManageToolDef {
   return Tool.define("skill_manage", {
-    description:
-      "Create, edit, patch, delete, or rollback a skill managed by the skill evolution system. " +
-      "Use this tool (not edit/write) whenever you want to modify SKILL.md files. " +
-      "For create and edit, supply 'description' (one-line summary) and 'content' (full skill body, without frontmatter); " +
-      "the tool builds the frontmatter automatically. 'category' is required for create and edit — infer it from the skill content if not obvious.",
+    description: SKILL_MANAGE_DESCRIPTION,
     parameters: SkillManageInput,
     async execute(params) {
       const result = await SkillManageTool.execute({
