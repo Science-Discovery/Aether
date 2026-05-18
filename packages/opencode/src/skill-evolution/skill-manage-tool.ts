@@ -77,7 +77,7 @@ export const SkillManageInput = z.preprocess(
   },
   z.object({
     action: z.enum(["create", "edit", "patch", "write_file", "delete", "history", "rollback"]).describe(
-      "Operation to perform on the skill",
+      "Action to perform on a skill",
     ),
     name: z.string().describe("Skill name (directory name under the skills folder). Required for all actions."),
     description: z
