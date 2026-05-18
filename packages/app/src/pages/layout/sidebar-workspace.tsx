@@ -1,5 +1,16 @@
 import { useNavigate, useParams } from "@solidjs/router"
-import { createEffect, createMemo, createSignal, For, on, onMount, Show, type Accessor, type JSX, untrack } from "solid-js"
+import {
+  createEffect,
+  createMemo,
+  createSignal,
+  For,
+  on,
+  onMount,
+  Show,
+  type Accessor,
+  type JSX,
+  untrack,
+} from "solid-js"
 import { createStore } from "solid-js/store"
 import { createSortable } from "@thisbeyond/solid-dnd"
 import { createMediaQuery } from "@solid-primitives/media"
@@ -1151,7 +1162,7 @@ export const SortableWorkspace = (props: {
           >
             <div class="flex items-center gap-1">
               <Show
-                when={workspaceEditActive()}
+                when={workspaceEditActive() || branchEditActive()}
                 fallback={
                   <Collapsible.Trigger
                     class={`flex items-center justify-between w-full pl-2 py-1.5 rounded-md border border-border-weak-base bg-surface-raised-base hover:bg-surface-raised-base-hover transition-[padding] duration-200 ${
