@@ -175,6 +175,8 @@ const NO_AUTH_PATHS = new Set([
   "/oc-theme-preload.js",
   "/web-app-manifest-192x192.png",
   "/web-app-manifest-512x512.png",
+  "/web-app-manifest-192x192-maskable.png",
+  "/web-app-manifest-512x512-maskable.png",
   "/social-share.png",
 ])
 
