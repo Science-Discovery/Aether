@@ -147,7 +147,7 @@ function currentChannelDir() {
 }
 
 function dbPath(channelID = paths().channelID) {
-  return path.join(paths().channelRootDir, channelID, "memory.db")
+  return path.join(paths().channelRootDir, channelID, "aether-memory.db")
 }
 
 function mdPath() {

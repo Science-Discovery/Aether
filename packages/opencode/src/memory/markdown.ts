@@ -172,7 +172,7 @@ export function renderMemoryDocument(input: MemoryDocument): string {
     "<!--",
     `schema_version: ${input.schema_version || 1}`,
     `updated_at: ${now}`,
-    "source: memory.db",
+    "source: aether-memory.db",
     "search_target: true",
     "-->",
     "",
