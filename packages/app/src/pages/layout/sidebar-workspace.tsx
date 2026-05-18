@@ -1,5 +1,16 @@
 import { useNavigate, useParams } from "@solidjs/router"
-import { createEffect, createMemo, createSignal, For, on, onMount, Show, type Accessor, type JSX, untrack } from "solid-js"
+import {
+  createEffect,
+  createMemo,
+  createSignal,
+  For,
+  on,
+  onMount,
+  Show,
+  type Accessor,
+  type JSX,
+  untrack,
+} from "solid-js"
 import { createStore } from "solid-js/store"
 import { createSortable } from "@thisbeyond/solid-dnd"
 import { createMediaQuery } from "@solid-primitives/media"
@@ -290,7 +301,6 @@ const RunScriptButton = (props: {
 }
 
 const WorkspaceHeader = (props: {
-  local: Accessor<boolean>
   busy: Accessor<boolean>
   open: Accessor<boolean>
   directory: string
@@ -310,56 +320,44 @@ const WorkspaceHeader = (props: {
         <Spinner class="size-[15px]" />
       </Show>
     </div>
+    <props.InlineEditor
+      id={`workspace:${props.directory}`}
+      value={props.workspaceValue}
+      onSave={(next) => {
+        const trimmed = next.trim()
+        if (!trimmed) return
+        props.renameWorkspace(props.directory, trimmed)
+        props.setEditor("value", props.workspaceValue())
+      }}
+      class="text-14-medium text-text-base shrink-0"
+      displayClass="text-14-medium text-text-base shrink-0"
+      editing={props.workspaceEditActive()}
+      stopPropagation={false}
+      openOnDblClick={false}
+    />
+    <span class="text-14-medium text-text-base shrink-0">:</span>
     <Show
-      when={!props.local()}
+      when={props.branchEditActive()}
       fallback={
-        <>
-          <span class="text-14-medium text-text-base shrink-0">{props.language.t("workspace.type.local")} :</span>
-          <span class="text-14-medium text-text-base min-w-0 truncate">
-            {props.branch() ?? getFilename(props.directory)}
-          </span>
-        </>
+        <span class="text-14-medium text-text-base min-w-0 truncate">
+          {props.branch() ?? getFilename(props.directory)}
+        </span>
       }
     >
       <props.InlineEditor
-        id={`workspace:${props.directory}`}
-        value={props.workspaceValue}
+        id={`branch:${props.directory}`}
+        value={() => props.branch() ?? ""}
         onSave={(next) => {
           const trimmed = next.trim()
           if (!trimmed) return
-          props.renameWorkspace(props.directory, trimmed)
-          props.setEditor("value", props.workspaceValue())
+          props.renameBranch(props.directory, trimmed)
         }}
-        class="text-14-medium text-text-base shrink-0"
-        displayClass="text-14-medium text-text-base shrink-0"
-        editing={props.workspaceEditActive()}
+        class="text-14-medium text-text-base min-w-0 truncate"
+        displayClass="text-14-medium text-text-base min-w-0 truncate"
+        editing={props.branchEditActive()}
         stopPropagation={false}
         openOnDblClick={false}
       />
-      <span class="text-14-medium text-text-base shrink-0">:</span>
-      <Show
-        when={props.branchEditActive()}
-        fallback={
-          <span class="text-14-medium text-text-base min-w-0 truncate">
-            {props.branch() ?? getFilename(props.directory)}
-          </span>
-        }
-      >
-        <props.InlineEditor
-          id={`branch:${props.directory}`}
-          value={() => props.branch() ?? ""}
-          onSave={(next) => {
-            const trimmed = next.trim()
-            if (!trimmed) return
-            props.renameBranch(props.directory, trimmed)
-          }}
-          class="text-14-medium text-text-base min-w-0 truncate"
-          displayClass="text-14-medium text-text-base min-w-0 truncate"
-          editing={props.branchEditActive()}
-          stopPropagation={false}
-          openOnDblClick={false}
-        />
-      </Show>
     </Show>
     <div class="flex items-center justify-center shrink-0 overflow-hidden w-0 opacity-0 transition-all duration-200 group-hover/workspace:w-3.5 group-hover/workspace:opacity-100 group-focus-within/workspace:w-3.5 group-focus-within/workspace:opacity-100">
       <Icon name={props.open() ? "chevron-down" : "chevron-right"} size="small" class="text-icon-base" />
@@ -476,7 +474,6 @@ const WorkspaceActions = (props: {
             }}
           >
             <DropdownMenu.Item
-              disabled={props.local()}
               onSelect={() => {
                 props.setPendingRename(true)
                 props.setMenuOpen(false)
@@ -485,7 +482,6 @@ const WorkspaceActions = (props: {
               <DropdownMenu.ItemLabel>{props.language.t("workspace.renameSandbox")}</DropdownMenu.ItemLabel>
             </DropdownMenu.Item>
             <DropdownMenu.Item
-              disabled={props.local()}
               onSelect={() => {
                 props.setPendingRenameBranch(true)
                 props.setMenuOpen(false)
@@ -1105,7 +1101,6 @@ export const SortableWorkspace = (props: {
   const branchEditActive = createMemo(() => props.ctx.editorOpen(`branch:${props.directory}`))
   const header = () => (
     <WorkspaceHeader
-      local={local}
       busy={busy}
       open={open}
       directory={props.directory}
@@ -1151,7 +1146,7 @@ export const SortableWorkspace = (props: {
           >
             <div class="flex items-center gap-1">
               <Show
-                when={workspaceEditActive()}
+                when={workspaceEditActive() || branchEditActive()}
                 fallback={
                   <Collapsible.Trigger
                     class={`flex items-center justify-between w-full pl-2 py-1.5 rounded-md border border-border-weak-base bg-surface-raised-base hover:bg-surface-raised-base-hover transition-[padding] duration-200 ${
