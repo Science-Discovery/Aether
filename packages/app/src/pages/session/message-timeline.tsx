@@ -447,10 +447,6 @@ export function MessageTimeline(props: {
     delete next[messageID]
     setAssistantCollapse("bySession", id, reconcile(next))
   }
-  const allAssistantCollapsed = createMemo(() => {
-    const ids = collapsibleTurnIDs()
-    return ids.length > 0 && ids.every((messageID) => isAssistantCollapsed(messageID))
-  })
   createEffect(() => {
     const id = sessionID()
     if (!id) return
@@ -968,18 +964,18 @@ export function MessageTimeline(props: {
                                 <DropdownMenu.Item
                                   onSelect={() => {
                                     setTitle("menuOpen", false)
-                                    if (allAssistantCollapsed()) {
-                                      expandAllAssistant()
-                                      return
-                                    }
                                     collapseAllAssistant()
                                   }}
                                 >
-                                  <DropdownMenu.ItemLabel>
-                                    {allAssistantCollapsed()
-                                      ? uiI18n.t("ui.sessionReview.expandAll")
-                                      : uiI18n.t("ui.sessionReview.collapseAll")}
-                                  </DropdownMenu.ItemLabel>
+                                  <DropdownMenu.ItemLabel>{uiI18n.t("ui.sessionReview.collapseAll")}</DropdownMenu.ItemLabel>
+                                </DropdownMenu.Item>
+                                <DropdownMenu.Item
+                                  onSelect={() => {
+                                    setTitle("menuOpen", false)
+                                    expandAllAssistant()
+                                  }}
+                                >
+                                  <DropdownMenu.ItemLabel>{uiI18n.t("ui.sessionReview.expandAll")}</DropdownMenu.ItemLabel>
                                 </DropdownMenu.Item>
                               </Show>
                               <DropdownMenu.Item onSelect={() => void archiveSession(id())}>
