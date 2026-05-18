@@ -1303,7 +1303,10 @@ export namespace Config {
             .object({
               enabled: z.boolean().optional().describe("Enable scheduled daily memory reflection (default: true)"),
               time: z.string().optional().describe("Daily memory reflection time in HH:mm format (default: 03:00)"),
-              timezone: z.string().optional().describe("Daily memory reflection timezone. Defaults to the system timezone."),
+              timezone: z
+                .string()
+                .optional()
+                .describe("Daily memory reflection timezone. Defaults to the system timezone."),
             })
             .optional(),
           search: z
@@ -1696,6 +1699,26 @@ export namespace Config {
     })
   }
 
+  const SAFE_CONFIG_KEYS = new Set([
+    "model",
+    "small_model",
+    "disabled_models",
+    "disabled_providers",
+    "server",
+    "cron",
+    "memory",
+    "logLevel",
+    "autoupdate",
+    "username",
+    "share",
+    "autoshare",
+    "watcher",
+    "snapshot",
+    "enterprise",
+    "experimental",
+    "skills",
+  ])
+
   export async function updateGlobal(config: Info) {
     const filepath = globalConfigFile()
     const found = existsSync(filepath)
@@ -1745,17 +1768,22 @@ export namespace Config {
 
     global.reset()
 
-    void Instance.disposeAll()
-      .catch(() => undefined)
-      .finally(() => {
-        GlobalBus.emit("event", {
-          directory: "global",
-          payload: {
-            type: Event.Disposed.type,
-            properties: {},
-          },
+    const hasUnsafeKey = Object.keys(config).some((k) => !SAFE_CONFIG_KEYS.has(k))
+    if (hasUnsafeKey) {
+      void Instance.disposeAll()
+        .catch(() => undefined)
+        .finally(() => {
+          GlobalBus.emit("event", {
+            directory: "global",
+            payload: {
+              type: Event.Disposed.type,
+              properties: {},
+            },
+          })
         })
-      })
+    } else {
+      state.reset()
+    }
 
     return next
   }
