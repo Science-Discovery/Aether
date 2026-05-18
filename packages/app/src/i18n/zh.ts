@@ -1274,6 +1274,8 @@ export const dict = {
   "workspace.renameBranch": "重命名分支",
   "workspace.renameBranch.error.alreadyExists": "分支名称已存在",
   "workspace.renameBranch.error.invalid": "分支名称无效",
+  "workspace.run": "运行",
+  "workspace.runScript": "运行：{{name}}",
   "common.open": "打开",
   "dialog.releaseNotes.action.getStarted": "开始",
   "dialog.releaseNotes.action.next": "下一步",

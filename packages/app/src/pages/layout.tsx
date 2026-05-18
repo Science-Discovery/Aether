@@ -1220,18 +1220,7 @@ export default function Layout(props: ParentProps) {
   }
 
   async function createSession(directory: string) {
-    const result = await globalSDK.client.session
-      .create({ directory })
-      .then((x) => x.data)
-      .catch((err) => {
-        showToast({
-          title: language.t("prompt.toast.sessionCreateFailed.title"),
-          description: errorMessage(err, language.t("common.requestFailed")),
-        })
-        return null
-      })
-    if (!result?.id) return
-    navigateWithSidebarReset(`/${base64Encode(directory)}/session/${result.id}`)
+    navigateWithSidebarReset(`/${base64Encode(directory)}/session`)
   }
 
   async function deleteSession(session: Session) {

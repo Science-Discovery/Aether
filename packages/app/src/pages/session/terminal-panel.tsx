@@ -13,7 +13,7 @@ import { Terminal } from "@/components/terminal"
 import { useCommand } from "@/context/command"
 import { useLanguage } from "@/context/language"
 import { useLayout } from "@/context/layout"
-import { useTerminal } from "@/context/terminal"
+import { useTerminal, pendingTrigger, pendingRuns } from "@/context/terminal"
 import { terminalTabLabel } from "@/pages/session/terminal-label"
 import { createSizing, focusTerminalById } from "@/pages/session/helpers"
 import { getTerminalHandoff, setTerminalHandoff } from "@/pages/session/handoff"
@@ -64,7 +64,8 @@ export function TerminalPanel() {
       return
     }
 
-    if (!terminal.ready() || terminal.all().length !== 0 || store.autoCreated) return
+    pendingTrigger()
+    if (!terminal.ready() || terminal.all().length !== 0 || store.autoCreated || terminal.running() || pendingRuns.has(params.dir!)) return
     terminal.new()
     setStore("autoCreated", true)
   })

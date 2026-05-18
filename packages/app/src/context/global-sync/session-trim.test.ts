@@ -14,18 +14,35 @@ const session = (input: { id: string; parentID?: string; created: number; update
   }) as Session
 
 describe("trimSessions", () => {
-  test("keeps base roots and recent roots beyond the limit", () => {
+  test("keeps base roots selected by update time, not creation time", () => {
     const now = 1_000_000
     const list = [
       session({ id: "a", created: now - 100_000 }),
       session({ id: "b", created: now - 90_000 }),
       session({ id: "c", created: now - 80_000 }),
-      session({ id: "d", created: now - 70_000, updated: now - 1_000 }),
+      session({ id: "d", created: now - 70_000, updated: now - 500 }),
       session({ id: "e", created: now - 60_000, archived: now - 10 }),
     ]
 
     const result = trimSessions(list, { limit: 2, permission: {}, now })
     expect(result.map((x) => x.id)).toEqual(["a", "b", "c", "d"])
+  })
+
+  test("prioritizes recently-updated session over newer-created but stale one", () => {
+    const now = 1_000_000
+    const list = [
+      session({ id: "ses_new1", created: now - 1_000 }),
+      session({ id: "ses_new2", created: now - 2_000 }),
+      session({ id: "ses_new3", created: now - 3_000 }),
+      session({ id: "ses_old_updated", created: now - 100_000, updated: now - 500 }),
+      session({ id: "ses_new4", created: now - 4_000 }),
+    ]
+
+    const result = trimSessions(list, { limit: 3, permission: {}, now })
+    const ids = result.map((x) => x.id)
+    expect(ids).toContain("ses_old_updated")
+    expect(ids).toContain("ses_new1")
+    expect(ids).toContain("ses_new2")
   })
 
   test("keeps children when root is kept, permission exists, or child is recent", () => {

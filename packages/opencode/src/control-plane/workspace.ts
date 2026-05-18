@@ -8,6 +8,7 @@ import { BusEvent } from "@/bus/bus-event"
 import { GlobalBus } from "@/bus/global"
 import { Log } from "@/util/log"
 import { ProjectID } from "@/project/schema"
+import { ProjectTable } from "@/project/project.sql"
 import { WorkspaceTable } from "./workspace.sql"
 import { getAdaptor } from "./adaptors"
 import { WorkspaceInfo } from "./types"
@@ -71,7 +72,38 @@ export namespace Workspace {
       projectID: input.projectID,
     }
 
+    const project = Instance.project
+    if (!Database.hasProject(input.projectID)) {
+      Database.attach(input.projectID)
+    }
     Database.useProject(input.projectID, (db) => {
+      db.insert(ProjectTable)
+        .values({
+          id: project.id,
+          worktree: project.worktree,
+          vcs: project.vcs ?? null,
+          name: project.name ?? null,
+          icon_url: project.icon?.url ?? null,
+          icon_color: project.icon?.color ?? null,
+          time_created: project.time.created,
+          time_updated: project.time.updated,
+          time_initialized: project.time.initialized ?? null,
+          sandboxes: project.sandboxes ?? [],
+          commands: project.commands ?? null,
+        })
+        .onConflictDoUpdate({
+          target: ProjectTable.id,
+          set: {
+            worktree: project.worktree,
+            vcs: project.vcs ?? null,
+            name: project.name ?? null,
+            time_updated: project.time.updated,
+            sandboxes: project.sandboxes ?? [],
+            commands: project.commands ?? null,
+          },
+        })
+        .run()
+
       db.insert(WorkspaceTable)
         .values({
           id: info.id,

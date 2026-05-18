@@ -1,11 +1,27 @@
 import { createStore, produce } from "solid-js/store"
 import { createSimpleContext } from "@opencode-ai/ui/context"
-import { batch, createEffect, createMemo, createRoot, on, onCleanup } from "solid-js"
+import { batch, createEffect, createMemo, createRoot, createSignal, on, onCleanup } from "solid-js"
 import { useParams } from "@solidjs/router"
 import { useSDK } from "./sdk"
 import type { Platform } from "./platform"
 import { defaultTitle, titleNumber } from "./terminal-title"
 import { Persist, persisted, removePersisted } from "@/utils/persist"
+
+type PendingRun = {
+  command: string
+  args: string[]
+  title: string
+}
+
+const pendingRuns = new Map<string, PendingRun>()
+const [pendingTrigger, setPendingTrigger] = createSignal(0)
+
+export { pendingTrigger, pendingRuns }
+
+export function enqueueRun(slug: string, command: string, args: string[], title: string) {
+  pendingRuns.set(slug, { command, args, title })
+  setPendingTrigger((n) => n + 1)
+}
 
 export type LocalPTY = {
   id: string
@@ -239,10 +255,13 @@ function createWorkspaceTerminalSession(sdk: ReturnType<typeof useSDK>, dir: str
     })
   }
 
+  const [running, setRunning] = createSignal(false)
+
   return {
     ready,
     all: createMemo(() => store.all),
     active: createMemo(() => store.active),
+    running,
     clear() {
       batch(() => {
         setStore("active", undefined)
@@ -250,6 +269,7 @@ function createWorkspaceTerminalSession(sdk: ReturnType<typeof useSDK>, dir: str
       })
     },
     new() {
+      if (running()) return
       const nextNumber = pickNextTerminalNumber()
 
       sdk.client.pty
@@ -285,24 +305,29 @@ function createWorkspaceTerminalSession(sdk: ReturnType<typeof useSDK>, dir: str
       })
     },
     async run(command: string, args: string[], title: string) {
-      const result = await sdk.client.pty
-        .create({ command, args, title })
-        .catch((error: unknown) => {
-          console.error("Failed to run command in terminal", error)
-          return undefined
+      setRunning(true)
+      try {
+        const result = await sdk.client.pty
+          .create({ command, args, title })
+          .catch((error: unknown) => {
+            console.error("Failed to run command in terminal", error)
+            return undefined
+          })
+        const data = result?.data
+        const id = data?.id
+        if (!id || !data) return undefined
+        batch(() => {
+          setStore("all", store.all.length, {
+            id,
+            title: data.title ?? title,
+            titleNumber: 0,
+          })
+          setStore("active", id)
         })
-      const data = result?.data
-      const id = data?.id
-      if (!id || !data) return undefined
-      batch(() => {
-        setStore("all", store.all.length, {
-          id,
-          title: data.title ?? title,
-          titleNumber: 0,
-        })
-        setStore("active", id)
-      })
-      return id
+        return id
+      } finally {
+        setRunning(false)
+      }
     },
     async clone(id: string) {
       await clone(sdk.client, id)
@@ -437,10 +462,21 @@ export const { use: useTerminal, provider: TerminalProvider } = createSimpleCont
       ),
     )
 
+    createEffect(() => {
+      pendingTrigger()
+      const dir = params.dir
+      if (!dir) return
+      const pending = pendingRuns.get(dir)
+      if (!pending) return
+      pendingRuns.delete(dir)
+      workspace().run(pending.command, pending.args, pending.title)
+    })
+
     return {
       ready: () => workspace().ready(),
       all: () => workspace().all(),
       active: () => workspace().active(),
+      running: () => workspace().running(),
       new: () => workspace().new(),
       run: (command: string, args: string[], title: string) => workspace().run(command, args, title),
       update: (pty: Partial<LocalPTY> & { id: string }) => workspace().update(pty),

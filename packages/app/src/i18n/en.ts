@@ -1405,6 +1405,8 @@ export const dict = {
   "workspace.renameBranch": "Rename Branch",
   "workspace.renameBranch.error.alreadyExists": "Branch name already exists",
   "workspace.renameBranch.error.invalid": "Branch name is invalid",
+  "workspace.run": "Run",
+  "workspace.runScript": "Run: {{name}}",
 
   "knowledge.title": "Knowledge Base",
 

@@ -26,7 +26,6 @@ export namespace Skill {
   // Project phase uses targets in reverse so that after toReversed() inner .aether still wins.
   const EXTERNAL_DIRS = [".agents", ".claude", ".opencode", ".aether"]
   const EXTERNAL_SKILL_PATTERN = "skills/**/SKILL.md"
-  const OPENCODE_SKILL_PATTERN = "{skill,skills}/**/SKILL.md"
   const SKILL_PATTERN = "**/SKILL.md"
 
   export const Info = z.object({
@@ -99,8 +98,33 @@ export namespace Skill {
     await fs.writeFile(p, JSON.stringify(snapshot, null, 2), "utf-8")
   }
 
+  async function roots() {
+    const binary = path.dirname(process.execPath)
+    return [
+      Global.Path.config,
+      ...(await Array.fromAsync(
+        Filesystem.up({
+          targets: [".aether", ".opencode"],
+          start: binary,
+          stop: binary,
+        }),
+      )),
+      ...(Flag.OPENCODE_CONFIG_DIR ? [Flag.OPENCODE_CONFIG_DIR] : []),
+    ]
+  }
+
   async function scanAllSkillPaths(directory: string, worktree: string, projectId: string): Promise<string[]> {
     const paths: string[] = []
+
+    for (const dir of await roots()) {
+      const matches = await Glob.scan(EXTERNAL_SKILL_PATTERN, {
+        cwd: dir,
+        absolute: true,
+        include: "file",
+        symlink: true,
+      }).catch(() => [])
+      paths.push(...matches)
+    }
 
     if (!Flag.OPENCODE_DISABLE_EXTERNAL_SKILLS) {
       for (const dir of EXTERNAL_DIRS) {
@@ -142,18 +166,6 @@ export namespace Skill {
         }).catch(() => [])
         paths.push(...matches)
       }
-    }
-
-    const globalExternalDirs = new Set(EXTERNAL_DIRS.map((dir) => path.join(Global.Path.home, dir)))
-    for (const dir of await Config.directories()) {
-      if (globalExternalDirs.has(dir)) continue
-      const matches = await Glob.scan(OPENCODE_SKILL_PATTERN, {
-        cwd: dir,
-        absolute: true,
-        include: "file",
-        symlink: true,
-      }).catch(() => [])
-      paths.push(...matches)
     }
 
     const cfg = await Config.get()
@@ -258,6 +270,11 @@ export namespace Skill {
     worktree: string,
     projectId: string,
   ) {
+    for (const dir of await roots()) {
+      state.sources.push({ dir, pattern: EXTERNAL_SKILL_PATTERN, scope: "config-root" })
+      await scan(state, dir, EXTERNAL_SKILL_PATTERN)
+    }
+
     if (!Flag.OPENCODE_DISABLE_EXTERNAL_SKILLS) {
       for (const dir of EXTERNAL_DIRS) {
         const root = path.join(Global.Path.home, dir)
@@ -284,16 +301,6 @@ export namespace Skill {
         state.sources.push({ dir: root, pattern: EXTERNAL_SKILL_PATTERN, scope: "project" })
         await scan(state, root, EXTERNAL_SKILL_PATTERN, { dot: true, scope: "project" })
       }
-    }
-
-    // Config.directories() includes global home dirs (e.g. ~/.aether, ~/.opencode) which were already
-    // scanned above at the correct (lower) priority. Exclude them here to prevent them from winning
-    // over project-level skills via this later scan.
-    const globalExternalDirs = new Set(EXTERNAL_DIRS.map((dir) => path.join(Global.Path.home, dir)))
-    for (const dir of await Config.directories()) {
-      if (globalExternalDirs.has(dir)) continue
-      state.sources.push({ dir, pattern: OPENCODE_SKILL_PATTERN, scope: "config-root" })
-      await scan(state, dir, OPENCODE_SKILL_PATTERN)
     }
 
     const cfg = await Config.get()

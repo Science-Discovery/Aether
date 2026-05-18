@@ -746,7 +746,7 @@ export const NewSessionItem = (props: {
     <A
       href={`/${props.slug}/session`}
       end
-      class={`flex items-center gap-1 min-w-0 w-full text-left focus:outline-none ${props.dense ? "py-0.5" : "py-1"}`}
+      class={`flex items-center gap-1 min-w-0 text-left focus:outline-none ${props.dense ? "py-0.5" : "py-1"}`}
       onClick={() => {
         props.setHoverSession(undefined)
         if (layout.sidebar.opened()) return
@@ -761,7 +761,7 @@ export const NewSessionItem = (props: {
   )
 
   return (
-    <div class="group/session relative w-full min-w-0 rounded-md cursor-default transition-colors pl-2 pr-3 hover:bg-surface-raised-base-hover [&:has(:focus-visible)]:bg-surface-raised-base-hover has-[.active]:bg-surface-base-active">
+    <div class="group/session relative shrink-0 min-w-0 rounded-md cursor-default transition-colors pl-2 pr-3 hover:bg-surface-raised-base-hover [&:has(:focus-visible)]:bg-surface-raised-base-hover has-[.active]:bg-surface-base-active">
       <Show
         when={!tooltip()}
         fallback={

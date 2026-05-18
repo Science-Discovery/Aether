@@ -549,6 +549,15 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
         resize(height: number) {
           setStore("terminal", "height", height)
         },
+        open() {
+          const current = store.terminal
+          if (!current) {
+            setStore("terminal", { height: DEFAULT_TERMINAL_HEIGHT, opened: true })
+            return
+          }
+          if (current.opened) return
+          setStore("terminal", "opened", true)
+        },
       },
       review: {
         diffStyle: createMemo(() => store.review?.diffStyle ?? "split"),

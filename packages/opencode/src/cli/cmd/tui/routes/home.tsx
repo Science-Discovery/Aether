@@ -15,6 +15,7 @@ import { Installation } from "@/installation"
 import { useKV } from "../context/kv"
 import { useCommandDialog } from "../component/dialog-command"
 import { useLocal } from "../context/local"
+import { useSDK } from "../context/sdk"
 
 // TODO: what is the best way to do this?
 let once = false
@@ -26,7 +27,12 @@ export function Home() {
   const route = useRouteData("home")
   const promptRef = usePromptRef()
   const command = useCommandDialog()
+  const sdk = useSDK()
   const mcp = createMemo(() => Object.keys(sync.data.mcp).length > 0)
+
+  createEffect(() => {
+    sdk.setWorkspace(route.workspaceID)
+  })
   const mcpError = createMemo(() => {
     return Object.values(sync.data.mcp).some((x) => x.status === "failed")
   })

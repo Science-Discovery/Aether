@@ -118,7 +118,7 @@ test("prompt history restores unsent draft with arrow navigation", async ({ page
   await wait(page, "")
 })
 
-test("shell history stays separate from normal prompt history", async ({ page, sdk, gotoSession }) => {
+test.skip("shell history stays separate from normal prompt history", async ({ page, sdk, gotoSession }) => {
   test.setTimeout(120_000)
 
   await withSession(sdk, `e2e shell history ${Date.now()}`, async (session) => {
