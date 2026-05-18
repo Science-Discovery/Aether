@@ -12,6 +12,22 @@ import { parseMemoryMarkdown, renderMemoryDocument } from "../../src/memory/mark
 import { searchMemoryDocument } from "../../src/memory/search"
 import { shouldQuickReflect } from "../../src/memory/gate"
 
+async function memorydir() {
+  const tmp = await tmpdir()
+  Memory.configureForTest({
+    globalMemoryDir: path.join(tmp.path, "global-memory"),
+    channelRootDir: path.join(tmp.path, "channels"),
+    channelID: "latest",
+  })
+  await Memory.purge()
+  return {
+    [Symbol.asyncDispose]: async () => {
+      await Memory.stop()
+      await tmp[Symbol.asyncDispose]()
+    },
+  }
+}
+
 describe("memory markdown", () => {
   test("round trips fixed memory block fields without task-specific extras", () => {
     const doc = parseMemoryMarkdown(`# Aether Memory
@@ -651,13 +667,7 @@ describe("memory agent tools", () => {
   })
 
   test("memory_search tool returns markdown memory block ids", async () => {
-    await using tmp = await tmpdir()
-    Memory.configureForTest({
-      globalMemoryDir: path.join(tmp.path, "global-memory"),
-      channelRootDir: path.join(tmp.path, "channels"),
-      channelID: "latest",
-    })
-    await Memory.purge()
+    await using _ = await memorydir()
     await Memory.writeDocumentForTest(
       parseMemoryMarkdown(`# Aether Memory
 
@@ -694,6 +704,7 @@ describe("memory agent tools", () => {
 
 describe("memory installer", () => {
   test("registers daily reflect direct action and creates builtin cron job once", async () => {
+    await using _ = await memorydir()
     await installMemory()
     const job = await Cron.getJob("builtin.memory.daily_reflect")
     expect(job.definition.payload).toEqual({ action: "memory.reflect.daily" })

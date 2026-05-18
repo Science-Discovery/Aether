@@ -175,46 +175,35 @@ Project ID 由 `ProjectID.fromDirectory()`（`packages/opencode/src/project/sche
 
 `Skill.loadSkills()` 的实际扫描顺序如下。skill 的覆盖规则是“同名后加载覆盖先加载”，因此这里也是从低优先级到高优先级排列：
 
-1. 全局外部 skills
+1. 配置目录内的 skills
+   - 这一阶段只扫描保留配置来源中的 `skills/**/SKILL.md`。
+   - 典型路径包括：
+     - `Global.Path.config/skills/**/SKILL.md`：用户全局配置目录下的 skills，通常是 `~/.config/aether/skills`。
+     - `<binaryDir>/.aether/skills/**/SKILL.md`：Aether 可执行文件所在目录旁边的 `.aether/skills`，用于打包发行版随 binary 携带默认 skills。
+     - `<binaryDir>/.opencode/skills/**/SKILL.md`：同上，但使用 legacy binary 旁 `.opencode` 目录。
+     - `<OPENCODE_CONFIG_DIR>/skills/**/SKILL.md`：环境变量 `OPENCODE_CONFIG_DIR` 指向的自定义配置目录下的 `skills/`。
+   - 这些配置来源本身的扫描顺序也是低到高：
+     1. `Global.Path.config`
+     2. `<binaryDir>` 下的 `.aether` / `.opencode`
+     3. `OPENCODE_CONFIG_DIR`
+2. 全局外部 skills
    - 依次扫描 `Global.Path.home` 下的：
    - `~/.agents/skills/**/SKILL.md`
    - `~/.claude/skills/**/SKILL.md`
    - `~/.opencode/skills/**/SKILL.md`
    - `~/.aether/skills/**/SKILL.md`
    - 同名时，上述顺序中越靠后的目录优先级越高，即全局 `.aether` 覆盖全局 `.opencode`，再覆盖全局 `.claude` / `.agents`。
-2. 项目隔离的 skill-sessions
+3. 项目隔离的 skill-sessions
    - `~/.aether/skill-sessions/<projectId>/skills/**/SKILL.md`
    - 这是 AI 后台评审/自进化相关的项目级落盘位置。
    - 它晚于全局外部 skills、早于项目目录 skills，因此可覆盖全局同名 skill，但会被任何项目内用户来源覆盖。
-3. 项目内外部 skills
+4. 项目内外部 skills
    - 从当前 `Instance.directory` 向上到 `Instance.worktree` 查找以下目录：
    - `.agents/skills/**/SKILL.md`
    - `.claude/skills/**/SKILL.md`
    - `.opencode/skills/**/SKILL.md`
    - `.aether/skills/**/SKILL.md`
    - 实现细节是先用 `Filesystem.up()` 从内到外收集，再 `toReversed()` 后扫描。因此在这一阶段中，外层目录先扫、内层目录后扫，内层同名 skill 会覆盖外层；同一层级内的类型优先级为 `.agents < .claude < .opencode < .aether`。
-4. 配置目录内的 skills
-   - 对每个 `Config.directories()` 根目录扫描：
-   - `{skill,skills}/**/SKILL.md`
-   - 典型路径包括：
-     - `Global.Path.config/{skill,skills}/**/SKILL.md`：用户全局配置目录下的 `skill/` 或 `skills/`，通常是 `~/.config/aether/{skill,skills}`，也可能是 legacy 的全局 opencode 配置目录。
-     - `<某级>.aether/{skill,skills}/**/SKILL.md`：从当前 `Instance.directory` 向上到 `Instance.worktree` 途中发现的某一级项目配置目录，例如 `<project>/.aether/skills/foo/SKILL.md` 或 `<project>/subdir/.aether/skill/foo/SKILL.md`。
-     - `<某级>.opencode/{skill,skills}/**/SKILL.md`：同上，但使用 legacy 项目配置目录 `.opencode`。
-     - `<binaryDir>/.aether/{skill,skills}/**/SKILL.md`：Aether 可执行文件所在目录旁边的 `.aether/skill` 或 `.aether/skills`，用于打包发行版随 binary 携带默认配置/skills。
-     - `<binaryDir>/.opencode/{skill,skills}/**/SKILL.md`：同上，但使用 legacy binary 旁 `.opencode` 目录。
-     - `<OPENCODE_CONFIG_DIR>/{skill,skills}/**/SKILL.md`：环境变量 `OPENCODE_CONFIG_DIR` 指向的自定义配置目录下的 `skill/` 或 `skills/`。
-   - 这些配置目录本身的扫描顺序也是低到高：
-     1. `Global.Path.config`
-     2. 项目路径从当前 `Instance.directory` 向上到 `Instance.worktree` 途中发现的 `.aether` / `.opencode`
-     3. `Global.Path.home` 下的 `.aether` / `.opencode`
-     4. `<binaryDir>` 下的 `.aether` / `.opencode`
-     5. `OPENCODE_CONFIG_DIR`
-   - 若 `OPENCODE_DISABLE_PROJECT_CONFIG=true`，第 2 段项目路径配置目录不会加入；若未设置 `OPENCODE_CONFIG_DIR`，第 5 段不存在。
-   - 项目路径这一段要特别注意：`Filesystem.up()` 从当前目录开始向父目录枚举，且同一级按 `.aether` 再 `.opencode` 的顺序 yield；`Skill.loadSkills()` 在配置目录阶段不反转这个列表。因此同名 skill 在这一阶段的覆盖方向是：
-     - 更靠近 `Instance.worktree` 的外层项目配置目录覆盖更靠近 `Instance.directory` 的内层项目配置目录。
-     - 同一目录层级中，`.opencode` 覆盖 `.aether`。
-   - 但对 skills 来说，`Global.Path.home` 下的 `.aether` / `.opencode` 会被下面的例外跳过，所以它们不会在这个配置目录阶段获得覆盖权；全局 home 外部 skills 已在第 1 阶段按 `.agents < .claude < .opencode < .aether` 处理。
-   - 这里有一个重要例外：`~/.agents`、`~/.claude`、`~/.opencode`、`~/.aether` 这四个 home 外部目录会在此阶段被跳过，避免它们借助较晚的 `Config.directories()` 扫描覆盖项目级 skill。因此 `~/.aether/skills/**/SKILL.md` 和 `~/.opencode/skills/**/SKILL.md` 来自第 1 阶段，而不是此阶段；`~/.aether/skill/**/SKILL.md` 和 `~/.opencode/skill/**/SKILL.md` 当前不会被扫描。
 5. `config.skills.paths`
    - 指配置文件中的 `skills.paths` 数组，例如 `aether.jsonc` / `opencode.jsonc` 里可以写：
      ```jsonc
@@ -238,27 +227,14 @@ Project ID 由 `ProjectID.fromDirectory()`（`packages/opencode/src/project/sche
    - 所有来源加载结束后，按 skill 名删除。
    - 这是最终关闭层，不是扫描源。
 
-注意：第 3 阶段已经会扫描项目内 `.aether/skills` / `.opencode/skills`，第 4 阶段又会通过 `Config.directories()` 扫描项目内 `.aether/{skill,skills}` / `.opencode/{skill,skills}`。同一个 `SKILL.md` 可能被命中两次；最终仍然遵循“后加载覆盖先加载”。
-
-⚠ 警示：项目路径上的 `.aether/skills/**/SKILL.md` 与 `.opencode/skills/**/SKILL.md` 会被重复扫描和重复加载。对从当前 `Instance.directory` 向上到 `Instance.worktree` 的每一级目录 `D`，以下路径既会在第 3 阶段作为项目内外部 skills 被扫描，也会在第 4 阶段作为配置目录内 skills 被扫描，而且第 4 阶段不会跳过它们：
+项目内外部 skills 阶段独占项目路径上的外部 skill 目录：
 
 ```text
-D/.aether/skills/**/SKILL.md
+D/.agents/skills/**/SKILL.md
+D/.claude/skills/**/SKILL.md
 D/.opencode/skills/**/SKILL.md
+D/.aether/skills/**/SKILL.md
 ```
-
-必须特别强调：重复进入第 4 阶段后，同一目录层级里的 `.aether/skills` 会先扫，`.opencode/skills` 会后扫；因此同名 skill 的最终结果是 `.opencode` 覆盖 `.aether`。
-
-这些相似路径不会重复：
-
-```text
-D/.agents/skills/**/SKILL.md     # 只在第 3 阶段扫描
-D/.claude/skills/**/SKILL.md     # 只在第 3 阶段扫描
-D/.aether/skill/**/SKILL.md      # 只在第 4 阶段扫描
-D/.opencode/skill/**/SKILL.md    # 只在第 4 阶段扫描
-```
-
-全局 home 下的 `~/.aether/skills/**/SKILL.md` 和 `~/.opencode/skills/**/SKILL.md` 也不会在第 4 阶段重复，因为 `Skill.loadSkills()` 会跳过 `Global.Path.home` 下的 `.agents` / `.claude` / `.opencode` / `.aether`。如果设置 `OPENCODE_DISABLE_EXTERNAL_SKILLS=true`，第 3 阶段不执行，重复消失；如果设置 `OPENCODE_DISABLE_PROJECT_CONFIG=true`，第 4 阶段的项目配置目录不加入，重复也消失。
 
 ### 2.3 覆盖规则
 
@@ -271,10 +247,10 @@ D/.opencode/skill/**/SKILL.md    # 只在第 4 阶段扫描
 
 按当前代码，可以把主要覆盖层理解为：
 
-1. 全局 home 外部目录：`.agents < .claude < .opencode < .aether`。
-2. skill-sessions：覆盖全局 home 外部目录，但低于项目目录。
-3. 项目外部阶段：外层 < 内层；同层 `.agents < .claude < .opencode < .aether`。
-4. 配置目录阶段：按 `Config.directories()` 返回顺序加载；同层 `.aether` 先于 `.opencode`，所以同层 `.opencode` 在此阶段覆盖 `.aether`。项目内 `.aether/.opencode` 的 `skills/` 会在这一阶段再次参与覆盖。
+1. 配置目录阶段：最低优先级来源；只扫描 `Global.Path.config`、binary 旁 `.aether/.opencode` 与 `OPENCODE_CONFIG_DIR` 下的 `skills/**/SKILL.md`。
+2. 全局 home 外部目录：`.agents < .claude < .opencode < .aether`。
+3. skill-sessions：覆盖全局 home 外部目录，但低于项目目录。
+4. 项目外部阶段：外层 < 内层；同层 `.agents < .claude < .opencode < .aether`。
 5. `skills.paths`：覆盖前面所有本地发现来源。
 6. `skills.urls`：覆盖 `skills.paths` 及前面所有来源。
 7. `skills.disabled`：按名称最终删除。
@@ -287,7 +263,7 @@ D/.opencode/skill/**/SKILL.md    # 只在第 4 阶段扫描
 2. `~/.aether/skill-sessions/<projectId>/skills`。
 3. 从当前目录向上查找的项目内 `.agents/skills`、`.claude/skills`、`.opencode/skills`、`.aether/skills` 外部阶段扫描。
 
-但这个开关不会关闭后续的 `Config.directories()`、`skills.paths`、`skills.urls`。因此项目内 `.aether/{skill,skills}` / `.opencode/{skill,skills}` 仍可能通过配置目录阶段被扫描；若要连项目配置目录也关闭，需要另看 `OPENCODE_DISABLE_PROJECT_CONFIG` 对 `Config.directories()` 的影响。
+但这个开关不会关闭保留配置来源、`skills.paths`、`skills.urls`。
 
 需要注意级联关系：`OPENCODE_DISABLE_CLAUDE_CODE` 是总开关，为 true 时会隐式激活 `OPENCODE_DISABLE_CLAUDE_CODE_SKILLS`，进而隐式激活 `OPENCODE_DISABLE_EXTERNAL_SKILLS`，所以设置 `OPENCODE_DISABLE_CLAUDE_CODE=true` 也等同于关闭上述外部 skills 阶段。
 
@@ -552,7 +528,7 @@ markdown 命令文件在 `loadCommand()` 中通过 patterns 列表提取相对�
 
 | 能力 | 是否支持用户自定义 | 主扫描/来源方式 | 覆盖规则 |
 | --- | --- | --- | --- |
-| skills | 支持 | home/project 外部目录 + skill-sessions + config roots `{skill,skills}` + `skills.paths` + `skills.urls` | 同名后加载覆盖先加载；`skills.disabled` 最终删除；本地 `SKILL.md` 变更由 mtime snapshot 触发重扫 |
+| skills | 支持 | home/project 外部目录 + skill-sessions + 保留 config roots `skills/` + `skills.paths` + `skills.urls` | 同名后加载覆盖先加载；`skills.disabled` 最终删除；本地 `SKILL.md` 变更由 mtime snapshot 触发重扫 |
 | commands | 支持 | `config.command` + `.aether` / `.opencode/{command,commands}` + MCP + skill-as-command | 内建 < config.command < MCP；skill 只能补位不能覆盖 |
 | subagents | 支持 | `config.agent` + `.aether` / `.opencode/{agent,agents}` | 内建 agents 先建，`config.agent` 后覆盖；`disable: true` 可删除 |
 | rules | 支持部分形式 | `AGENTS/CLAUDE/CONTEXT` + `instructions` + permission config | 指令文件按固定顺序装载；permission 采用最后匹配生效 |
@@ -578,25 +554,20 @@ markdown 命令文件在 `loadCommand()` 中通过 patterns 列表提取相对�
 | --- | --- | --- | --- | --- |
 | `~/.agents/skills/**/SKILL.md` | 支持 | `Skill.loadSkills()` 显式扫描全局 home 外部目录 `.agents` | 全局外部目录最低层；同名可被后续全局 `.claude/.opencode/.aether` 覆盖 | 可被 `OPENCODE_DISABLE_EXTERNAL_SKILLS` 或 `OPENCODE_DISABLE_CLAUDE_CODE` 整体关闭 |
 | `~/.claude/skills/**/SKILL.md` | 支持 | `Skill.loadSkills()` 显式扫描全局 home 外部目录 `.claude` | 高于全局 `.agents`，低于全局 `.opencode/.aether` | 同上 |
-| `~/.opencode/skills/**/SKILL.md` | 支持 | `Skill.loadSkills()` 显式扫描全局 home 外部目录 `.opencode` | 高于全局 `.agents/.claude`，低于全局 `.aether` | 这里是外部阶段扫描的 `skills/`，不是 `Config.directories()` 的 `{skill,skills}` |
+| `~/.opencode/skills/**/SKILL.md` | 支持 | `Skill.loadSkills()` 显式扫描全局 home 外部目录 `.opencode` | 高于全局 `.agents/.claude`，低于全局 `.aether` | 这里是外部阶段扫描的 `skills/`，不是保留 config roots 阶段 |
 | `~/.aether/skills/**/SKILL.md` | 支持 | `Skill.loadSkills()` 显式扫描全局 home 外部目录 `.aether` | 全局 home 外部目录中最高 | 同上 |
 | `~/.aether/skill-sessions/<projectId>/skills/**/SKILL.md` | 支持 | `Skill.loadSkills()` 在全局外部目录之后扫描当前项目 ID 对应目录 | 覆盖全局 home 外部 skill，低于项目内用户 skill | AI 后台评审/自进化的项目隔离目录；也受 external skills 开关影响 |
 | 项目内 `.agents/skills/**/SKILL.md` | 支持 | 从当前 `Instance.directory` 向上到 `Instance.worktree` 收集后反向扫描 | 项目外部阶段中同层最低；内层覆盖外层 | 这是显式目录兼容，不是偶然命中 |
 | 项目内 `.claude/skills/**/SKILL.md` | 支持 | 同上 | 高于同层 `.agents`，低于同层 `.opencode/.aether` | 同上 |
-| 项目内 `.opencode/skills/**/SKILL.md` | 支持 | 外部阶段扫描 `skills/**/SKILL.md`；随后还可能被 config roots 阶段再次扫描 | 项目外部阶段中高于 `.agents/.claude`，低于 `.aether`；config roots 阶段还会参与后续覆盖 | legacy 目录名 |
-| 项目内 `.aether/skills/**/SKILL.md` | 支持 | 外部阶段扫描 `skills/**/SKILL.md`；随后还可能被 config roots 阶段再次扫描 | 项目外部阶段同层最高；config roots 阶段仍按 `Config.directories()` 顺序参与覆盖 | 新品牌目录名 |
-| `.aether/skill/**/*.md` | 不支持 | 无此模式 | 不参与 | skills 只认 `SKILL.md` 文件名，不认任意 markdown |
-| `.aether/skill/**/SKILL.md` | 支持 | 对每个 `Config.directories()` 根目录扫描 `{skill,skills}/**/SKILL.md` | 晚于外部 skills，故可覆盖前面同名 skill；同层级 `.aether` 在 `.opencode` 之前 yield，同名时 `.opencode` 覆盖权更高 | 新品牌目录名 |
-| `.aether/skills/**/SKILL.md` | 支持 | 同上 | 同上 | 与 `skill/` 等价 |
-| `.opencode/skill/**/*.md` | 不支持 | 无此模式 | 不参与 | skills 只认 `SKILL.md` 文件名，不认任意 markdown |
-| `.opencode/skill/**/SKILL.md` | 支持 | 同上扫描方式 | 晚于外部 skills；同层级 `.opencode` 在 `.aether` 之后 yield，覆盖权更高 | legacy 目录名 |
-| `.opencode/skills/**/SKILL.md` | 支持 | 同上 | 同上 | 与 `skill/` 等价 |
-| `~/.aether/skill/**/SKILL.md` | 不支持 | home 外部 `.aether` 会在 config roots 阶段被跳过 | 不参与 | 当前 home `.aether` 只通过外部阶段扫描 `skills/` |
-| `~/.opencode/skill/**/SKILL.md` | 不支持 | home 外部 `.opencode` 会在 config roots 阶段被跳过 | 不参与 | 当前 home `.opencode` 只通过外部阶段扫描 `skills/` |
-| `Global.Path.config/{skill,skills}/**/SKILL.md` | 支持 | `Global.Path.config` 是 `Config.directories()` 的第一项 | config roots 阶段中较低；会被后续项目、binary、`OPENCODE_CONFIG_DIR` 同名 skill 覆盖 | 典型为 `~/.config/aether/{skill,skills}` 或 legacy config 路径 |
-| `<binaryDir>/.aether/{skill,skills}/**/SKILL.md` | 支持 | binary 目录下的 `.aether` 属于 `Config.directories()` 的一员 | 在 directories 列表中位于 home 目录之后 | 打包发行版专用 |
-| `<binaryDir>/.opencode/{skill,skills}/**/SKILL.md` | 支持 | 同上 | 同上 | legacy 打包发行版 |
-| `<OPENCODE_CONFIG_DIR>/{skill,skills}/**/SKILL.md` | 支持 | `OPENCODE_CONFIG_DIR` 属于 `Config.directories()` 的最后一项 | 在 config roots 阶段最高 | 不受 external skills 开关影响 |
+| 项目内 `.opencode/skills/**/SKILL.md` | 支持 | 外部阶段扫描 `skills/**/SKILL.md` | 项目外部阶段中高于 `.agents/.claude`，低于 `.aether`；内层覆盖外层 | legacy 目录名 |
+| 项目内 `.aether/skills/**/SKILL.md` | 支持 | 外部阶段扫描 `skills/**/SKILL.md` | 项目外部阶段同层最高；内层覆盖外层 | 新品牌目录名 |
+| 任意内建来源的 `skill/**` 单数目录 | 不支持 | 无此模式 | 不参与 | 内建发现只认 `skills/` 目录；`config.skills.paths` 显式指向的目录仍按 `**/SKILL.md` 扫描 |
+| `.aether/skills/**/SKILL.md` | 视位置而定 | 项目路径由外部阶段扫描；非项目保留 config roots 也可扫描 `skills/**/SKILL.md` | 项目路径遵循外层 < 内层、同层 `.opencode < .aether`；非项目 config roots 是最低优先级来源 | 新品牌目录名 |
+| `.opencode/skills/**/SKILL.md` | 视位置而定 | 项目路径由外部阶段扫描；非项目保留 config roots 也可扫描 `skills/**/SKILL.md` | 项目路径遵循外层 < 内层、同层 `.opencode < .aether`；非项目 config roots 是最低优先级来源 | legacy 目录名 |
+| `Global.Path.config/skills/**/SKILL.md` | 支持 | 保留 config roots 阶段扫描 `skills/**/SKILL.md` | 整体最低优先级；会被后续 binary、`OPENCODE_CONFIG_DIR`、全局外部、项目外部、`skills.paths`、`skills.urls` 同名 skill 覆盖 | 典型为 `~/.config/aether/skills` |
+| `<binaryDir>/.aether/skills/**/SKILL.md` | 支持 | binary 旁 `.aether` 属于保留 config roots | 在 config roots 内位于 `Global.Path.config` 之后、`OPENCODE_CONFIG_DIR` 之前；整体低于全局/项目外部来源 | 打包发行版专用 |
+| `<binaryDir>/.opencode/skills/**/SKILL.md` | 支持 | binary 旁 `.opencode` 属于保留 config roots | 在同一 binary 目录中 `.opencode` 后扫描，可覆盖 `.aether` 同名 skill；整体低于全局/项目外部来源 | legacy 打包发行版 |
+| `<OPENCODE_CONFIG_DIR>/skills/**/SKILL.md` | 支持 | 保留 config roots 阶段最后扫描 `skills/**/SKILL.md` | 在 config roots 阶段最高；整体低于全局/项目外部来源 | 不受 external skills 开关影响 |
 | `config.skills.paths` | 支持 | 每个目录递归扫描 `**/SKILL.md` | 晚于所有内建本地扫描来源 | `~/` 展开到 `os.homedir()`；相对路径相对当前 `Instance.directory` |
 | `config.skills.urls` | 支持 | 拉取远端索引到缓存目录后再扫描 `**/SKILL.md` | 晚于本地路径；同名继续后发现覆盖 | 属于当前四类能力里唯一内建远端发现；已存在的缓存文件不会被覆盖下载 |
 | `config.skills.disabled` | 支持 | 在 skills 全部装载完成后按名字删除 | 拥有最终关闭权 | 优先级高于前面所有来源 |
