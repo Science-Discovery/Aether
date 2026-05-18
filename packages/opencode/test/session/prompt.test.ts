@@ -328,7 +328,8 @@ description: Demo skill.
 
         expect(result.info.role).toBe("assistant")
         expect(text).toContain("Skill scan paths (low -> high priority)")
-        expect(text).toContain(path.join(tmp.path, ".aether", "{skill,skills}", "**", "SKILL.md"))
+        expect(text).toContain(path.join(tmp.path, ".aether", "skills", "**", "SKILL.md"))
+        expect(text).not.toContain("{skill,skills}")
       },
     })
   }, 30000)

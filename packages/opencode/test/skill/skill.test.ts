@@ -4,6 +4,8 @@ import { Instance } from "../../src/project/instance"
 import { tmpdir } from "../fixture/fixture"
 import path from "path"
 import fs from "fs/promises"
+import { Global } from "../../src/global"
+import { Config } from "../../src/config/config"
 
 afterEach(async () => {
   await Instance.disposeAll()
@@ -26,7 +28,7 @@ This skill is loaded from the global home directory.
   )
 }
 
-test("discovers skills from .opencode/skill/ directory", async () => {
+test("ignores skills from .opencode/skill/ directory", async () => {
   await using tmp = await tmpdir({
     git: true,
     init: async (dir) => {
@@ -50,11 +52,7 @@ Instructions here.
     directory: tmp.path,
     fn: async () => {
       const skills = await Skill.all()
-      expect(skills.length).toBe(1)
-      const testSkill = skills.find((s) => s.name === "test-skill")
-      expect(testSkill).toBeDefined()
-      expect(testSkill!.description).toBe("A test skill for verification.")
-      expect(testSkill!.location).toContain(path.join("skill", "test-skill", "SKILL.md"))
+      expect(skills.find((s) => s.name === "test-skill")).toBeUndefined()
     },
   })
 })
@@ -95,7 +93,7 @@ description: Skill for dirs test.
   }
 })
 
-test("discovers multiple skills from .opencode/skill/ directory", async () => {
+test("ignores multiple skills from .opencode/skill/ directory", async () => {
   await using tmp = await tmpdir({
     git: true,
     init: async (dir) => {
@@ -128,9 +126,8 @@ description: Second test skill.
     directory: tmp.path,
     fn: async () => {
       const skills = await Skill.all()
-      expect(skills.length).toBe(2)
-      expect(skills.find((s) => s.name === "skill-one")).toBeDefined()
-      expect(skills.find((s) => s.name === "skill-two")).toBeDefined()
+      expect(skills.find((s) => s.name === "skill-one")).toBeUndefined()
+      expect(skills.find((s) => s.name === "skill-two")).toBeUndefined()
     },
   })
 })
@@ -139,7 +136,7 @@ test("skips skills with missing frontmatter", async () => {
   await using tmp = await tmpdir({
     git: true,
     init: async (dir) => {
-      const skillDir = path.join(dir, ".opencode", "skill", "no-frontmatter")
+      const skillDir = path.join(dir, ".opencode", "skills", "no-frontmatter")
       await Bun.write(
         path.join(skillDir, "SKILL.md"),
         `# No Frontmatter
@@ -335,7 +332,7 @@ test("properly resolves directories that skills live in", async () => {
   await using tmp = await tmpdir({
     git: true,
     init: async (dir) => {
-      const opencodeSkillDir = path.join(dir, ".opencode", "skill", "agent-skill")
+      const opencodeSkillDir = path.join(dir, ".opencode", "skill", "ignored-skill")
       const opencodeSkillsDir = path.join(dir, ".opencode", "skills", "agent-skill")
       const claudeDir = path.join(dir, ".claude", "skills", "claude-skill")
       const agentDir = path.join(dir, ".agents", "skills", "agent-skill")
@@ -386,9 +383,142 @@ description: A skill in the .opencode/skills directory.
     directory: tmp.path,
     fn: async () => {
       const dirs = await Skill.dirs()
-      expect(dirs.length).toBe(4)
+      const opencodeSkillDir = path.join(tmp.path, ".opencode", "skill", "ignored-skill")
+      const opencodeSkillsDir = path.join(tmp.path, ".opencode", "skills", "agent-skill")
+      expect(dirs).not.toContain(opencodeSkillDir)
+      expect(dirs).toContain(opencodeSkillsDir)
+      expect(dirs.length).toBe(3)
     },
   })
+})
+
+test("discovers skills from Global.Path.config skills directory", async () => {
+  await using tmp = await tmpdir({ git: true })
+  const prev = Global.Path.config
+  ;(Global.Path as { config: string }).config = path.join(tmp.path, "config")
+  Config.global.reset()
+
+  try {
+    await Bun.write(
+      path.join(Global.Path.config, "skills", "config-skill", "SKILL.md"),
+      `---
+name: config-skill
+description: A skill in the global config skills directory.
+---
+
+# Config Skill
+`,
+    )
+    await Bun.write(
+      path.join(Global.Path.config, "skill", "ignored-config-skill", "SKILL.md"),
+      `---
+name: ignored-config-skill
+description: A skill in the ignored global config skill directory.
+---
+
+# Ignored Config Skill
+`,
+    )
+
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const skills = await Skill.all()
+        expect(skills.find((s) => s.name === "config-skill")).toBeDefined()
+        expect(skills.find((s) => s.name === "ignored-config-skill")).toBeUndefined()
+      },
+    })
+  } finally {
+    await Instance.disposeAll()
+    ;(Global.Path as { config: string }).config = prev
+    Config.global.reset()
+  }
+})
+
+test("discovers skills from OPENCODE_CONFIG_DIR skills directory", async () => {
+  await using tmp = await tmpdir({ git: true })
+  const prev = process.env.OPENCODE_CONFIG_DIR
+  const dir = path.join(tmp.path, "profile")
+  process.env.OPENCODE_CONFIG_DIR = dir
+  Config.global.reset()
+
+  try {
+    await Bun.write(
+      path.join(dir, "skills", "profile-skill", "SKILL.md"),
+      `---
+name: profile-skill
+description: A skill in the config dir skills directory.
+---
+
+# Profile Skill
+`,
+    )
+    await Bun.write(
+      path.join(dir, "skill", "ignored-profile-skill", "SKILL.md"),
+      `---
+name: ignored-profile-skill
+description: A skill in the ignored config dir skill directory.
+---
+
+# Ignored Profile Skill
+`,
+    )
+
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const skills = await Skill.all()
+        expect(skills.find((s) => s.name === "profile-skill")).toBeDefined()
+        expect(skills.find((s) => s.name === "ignored-profile-skill")).toBeUndefined()
+      },
+    })
+  } finally {
+    await Instance.disposeAll()
+    if (prev === undefined) delete process.env.OPENCODE_CONFIG_DIR
+    else process.env.OPENCODE_CONFIG_DIR = prev
+    Config.global.reset()
+  }
+})
+
+test("discovers skills from binary config roots", async () => {
+  await using tmp = await tmpdir({ git: true })
+  const prev = process.execPath
+  Object.defineProperty(process, "execPath", { value: path.join(tmp.path, "bin", "aether"), configurable: true })
+
+  try {
+    await Bun.write(
+      path.join(tmp.path, "bin", ".aether", "skills", "binary-skill", "SKILL.md"),
+      `---
+name: binary-skill
+description: A skill next to the binary.
+---
+
+# Binary Skill
+`,
+    )
+    await Bun.write(
+      path.join(tmp.path, "bin", ".aether", "skill", "ignored-binary-skill", "SKILL.md"),
+      `---
+name: ignored-binary-skill
+description: A skill in the ignored binary skill directory.
+---
+
+# Ignored Binary Skill
+`,
+    )
+
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const skills = await Skill.all()
+        expect(skills.find((s) => s.name === "binary-skill")).toBeDefined()
+        expect(skills.find((s) => s.name === "ignored-binary-skill")).toBeUndefined()
+      },
+    })
+  } finally {
+    await Instance.disposeAll()
+    Object.defineProperty(process, "execPath", { value: prev, configurable: true })
+  }
 })
 
 test("returns live skill scan sources in priority order", async () => {
@@ -421,8 +551,6 @@ test("returns live skill scan sources in priority order", async () => {
         ".claude:skills/**/SKILL.md",
         ".opencode:skills/**/SKILL.md",
         ".aether:skills/**/SKILL.md",
-        ".aether:{skill,skills}/**/SKILL.md",
-        ".opencode:{skill,skills}/**/SKILL.md",
         `team-skills:**/SKILL.md`,
       ])
     },

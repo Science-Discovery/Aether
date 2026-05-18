@@ -5,6 +5,8 @@ import path from "path"
 import { Instance } from "@/project/instance"
 import { ProjectID } from "@/project/schema"
 import { Skill } from "./index"
+import { Global } from "@/global"
+import { Config } from "@/config/config"
 
 // Write a minimal SKILL.md for testing
 async function writeSkill(dir: string, name: string, description: string) {
@@ -38,19 +40,37 @@ async function withInstance<T>(directory: string, worktree: string, fn: () => Pr
 describe("skill/loadSkills priority ordering", () => {
   let tmp: { path: string; cleanup: () => Promise<void> }
   let origHome: string | undefined
+  let origConfig: string
 
   beforeEach(async () => {
     tmp = await makeTmp()
     origHome = process.env.OPENCODE_TEST_HOME
+    origConfig = Global.Path.config
     // Isolate home to avoid picking up real ~/.claude etc.
     process.env.OPENCODE_TEST_HOME = path.join(tmp.path, "home")
     await fs.mkdir(process.env.OPENCODE_TEST_HOME, { recursive: true })
+    ;(Global.Path as { config: string }).config = path.join(tmp.path, "config")
+    Config.global.reset()
   })
 
   afterEach(async () => {
     if (origHome === undefined) delete process.env.OPENCODE_TEST_HOME
     else process.env.OPENCODE_TEST_HOME = origHome
+    ;(Global.Path as { config: string }).config = origConfig
+    Config.global.reset()
     await tmp.cleanup()
+  })
+
+  test("global skill beats config root skill", async () => {
+    const home = process.env.OPENCODE_TEST_HOME!
+    const worktree = path.join(tmp.path, "proj-config-global")
+    await fs.mkdir(worktree, { recursive: true })
+
+    await writeSkill(path.join(Global.Path.config, "skills", "lint"), "lint", "config")
+    await writeSkill(path.join(home, ".agents", "skills", "lint"), "lint", "global")
+
+    const skill = await withInstance(worktree, worktree, () => Skill.get("lint"))
+    expect(skill?.description).toBe("global")
   })
 
   test("inner directory skill beats outer (worktree) skill — last-wins reversed scan", async () => {
@@ -143,6 +163,29 @@ describe("skill/loadSkills priority ordering", () => {
 
     const skill = await withInstance(worktree, worktree, () => Skill.get("format"))
     expect(skill?.description).toBe("shadow")
+  })
+
+  test("project .aether skill beats project .opencode skill", async () => {
+    const worktree = path.join(tmp.path, "proj-aether-opencode")
+    await fs.mkdir(worktree, { recursive: true })
+
+    await writeSkill(path.join(worktree, ".opencode", "skills", "format"), "format", "opencode")
+    await writeSkill(path.join(worktree, ".aether", "skills", "format"), "format", "aether")
+
+    const skill = await withInstance(worktree, worktree, () => Skill.get("format"))
+    expect(skill?.description).toBe("aether")
+  })
+
+  test("inner .agents skill beats outer .aether skill", async () => {
+    const worktree = path.join(tmp.path, "proj-inner-outer")
+    const inner = path.join(worktree, "pkg")
+    await fs.mkdir(inner, { recursive: true })
+
+    await writeSkill(path.join(worktree, ".aether", "skills", "build"), "build", "outer-aether")
+    await writeSkill(path.join(inner, ".agents", "skills", "build"), "build", "inner-agents")
+
+    const skill = await withInstance(inner, worktree, () => Skill.get("build"))
+    expect(skill?.description).toBe("inner-agents")
   })
 
   test("global .aether skill beats global .claude skill", async () => {
