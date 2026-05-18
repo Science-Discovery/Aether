@@ -333,13 +333,14 @@ mirror_target() {
 }
 
 build_app() {
-  local dest final app bin cmd icon
+  local dest final app bin cmd icon icon_name lsreg
   dest="$1"
   final="$2"
   app="$dest/Aether.app"
   bin="$app/Contents/MacOS/Aether"
   cmd="$final/Aether.command"
   icon="$final/aether-icon.icns"
+  icon_name="appIcon-$ver.icns"
   rm -rf "$app"
   mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
   cat >"$bin" <<EOF
@@ -376,7 +377,7 @@ echo "Launch target not found: $cmd"
 exit 1
 EOF
   chmod +x "$bin"
-  cat >"$app/Contents/Info.plist" <<'EOF'
+  cat >"$app/Contents/Info.plist" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -388,9 +389,9 @@ EOF
   <key>CFBundleIdentifier</key>
   <string>cn.aiphys.aether.web</string>
   <key>CFBundleVersion</key>
-  <string>1</string>
+  <string>$ver</string>
   <key>CFBundleShortVersionString</key>
-  <string>1.0</string>
+  <string>$ver</string>
   <key>CFBundlePackageType</key>
   <string>APPL</string>
   <key>CFBundleExecutable</key>
@@ -409,15 +410,21 @@ EOF
     </dict>
   </array>
   <key>CFBundleIconFile</key>
-  <string>appIcon.icns</string>
+  <string>$icon_name</string>
 </dict>
 </plist>
 EOF
   if [ -f "$icon" ]; then
-    cp "$icon" "$app/Contents/Resources/appIcon.icns"
+    cp "$icon" "$app/Contents/Resources/$icon_name"
+    touch "$app/Contents/Resources/$icon_name" 2>/dev/null || true
   fi
+  touch "$app/Contents/Info.plist" 2>/dev/null || true
   touch "$app"
   xattr -cr "$app" >/dev/null 2>&1 || true
+  lsreg="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
+  if [ -x "$lsreg" ]; then
+    "$lsreg" -f "$app" >/dev/null 2>&1 || true
+  fi
 }
 
 write_launch() {
