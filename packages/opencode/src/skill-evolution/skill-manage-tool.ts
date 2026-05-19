@@ -115,28 +115,47 @@ export interface SkillManageResult {
   skillDir?: string
 }
 
+const skillLocks = new Map<string, Promise<void>>()
+
+async function withSkillLock<T>(skillDir: string, fn: () => Promise<T>): Promise<T> {
+  const prev = skillLocks.get(skillDir) ?? Promise.resolve()
+  let resolve!: () => void
+  const current = new Promise<void>(r => { resolve = r })
+  skillLocks.set(skillDir, current)
+  await prev
+  try {
+    return await fn()
+  } finally {
+    resolve()
+    if (skillLocks.get(skillDir) === current) skillLocks.delete(skillDir)
+  }
+}
+
 export namespace SkillManageTool {
   export async function execute(input: SkillManageInput): Promise<SkillManageResult> {
-    try {
-      switch (input.action) {
-        case "create":
-          return await handleCreate(input)
-        case "edit":
-          return await handleEdit(input)
-        case "patch":
-          return await handlePatch(input)
-        case "write_file":
-          return await handleWriteFile(input)
-        case "delete":
-          return await handleDelete(input)
-        case "history":
-          return await handleHistory(input)
-        case "rollback":
-          return await handleRollback(input)
+    const skillDir = ShadowWriter.resolveSkillDir(input.name, input.skillLocation, input.sessionProjectId)
+    return withSkillLock(skillDir, async () => {
+      try {
+        switch (input.action) {
+          case "create":
+            return await handleCreate(input)
+          case "edit":
+            return await handleEdit(input)
+          case "patch":
+            return await handlePatch(input)
+          case "write_file":
+            return await handleWriteFile(input)
+          case "delete":
+            return await handleDelete(input)
+          case "history":
+            return await handleHistory(input)
+          case "rollback":
+            return await handleRollback(input)
+        }
+      } catch (e) {
+        return { ok: false, message: e instanceof Error ? e.message : String(e) }
       }
-    } catch (e) {
-      return { ok: false, message: e instanceof Error ? e.message : String(e) }
-    }
+    })
   }
 
   async function resolveAndPrepare(input: SkillManageInput): Promise<string> {
