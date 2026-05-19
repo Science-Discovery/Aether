@@ -138,7 +138,7 @@ async function collectFiles(dir: string): Promise<string[]> {
     const full = path.join(dir, entry.name)
     if (entry.isDirectory() && !entry.isSymbolicLink()) {
       result.push(...(await collectFiles(full)))
-    } else if (entry.isFile()) {
+    } else if (!entry.isSymbolicLink()) {
       result.push(full)
     }
   }

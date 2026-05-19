@@ -105,7 +105,7 @@ export namespace Versions {
       }
     }
 
-    const timestamp = new Date().toISOString()
+    const timestamp = new Date().toISOString().replace(/:/g, "-")
     const bundle: Bundle = { action, timestamp, version: nextVersion, files }
     const filename = bundleFilename(nextVersion, action, timestamp)
 
