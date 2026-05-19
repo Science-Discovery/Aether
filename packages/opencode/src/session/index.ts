@@ -849,7 +849,6 @@ export namespace Session {
             vcs: project.vcs ?? null,
             name: project.name ?? null,
             time_updated: project.time.updated,
-            sandboxes: project.sandboxes ?? [],
             commands: project.commands ?? null,
           },
         })
