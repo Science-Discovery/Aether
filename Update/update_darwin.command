@@ -348,16 +348,23 @@ build_app() {
 set -euo pipefail
 
 cmd="$cmd"
-portfile="\$HOME/Library/Application Support/aether/serve-port"
 port=""
-if [ -f "\$portfile" ]; then
-  port="\$(head -1 "\$portfile" 2>/dev/null || true)"
-fi
-if [ -n "\$port" ]; then
-  if curl -s -o /dev/null --max-time 2 "http://127.0.0.1:\$port/" >/dev/null 2>&1; then
-    open "http://127.0.0.1:\$port/"
-    exit 0
+aether_dir="\$HOME/Library/Application Support/aether"
+for ch_dir in "\$aether_dir"/*/; do
+  pf="\${ch_dir}serve-port"
+  if [ -f "\$pf" ]; then
+    p="\$(head -1 "\$pf" 2>/dev/null || true)"
+    if [ -n "\$p" ]; then
+      if curl -s -o /dev/null --max-time 2 "http://127.0.0.1:\$p/" >/dev/null 2>&1; then
+        port="\$p"
+        break
+      fi
+    fi
   fi
+done
+if [ -n "\$port" ]; then
+  open "http://127.0.0.1:\$port/"
+  exit 0
 fi
 
 if [ -x "\$cmd" ]; then

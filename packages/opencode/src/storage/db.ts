@@ -60,7 +60,7 @@ export namespace Database {
     return path.join(Global.Path.data, `aether-${channel()}.db`)
   }
 
-  function ensureChannelDir() {
+  export function ensureChannelDir() {
     const dir = channelDir()
     if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
     return dir

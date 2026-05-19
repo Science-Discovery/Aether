@@ -302,21 +302,28 @@ for (const item of targets) {
     }
   }
 
+  function patchLauncher(src: string, channel: string): string {
+    return fs.readFileSync(src, "utf-8").replace(/__AETHER_CHANNEL__/g, channel)
+  }
+
   // Copy launcher
   if (item.os === "win32") {
-    fs.copyFileSync(path.resolve(dir, "launcher/Aether.vbs"), `dist/${name}/bin/Aether.vbs`)
+    fs.writeFileSync(
+      `dist/${name}/bin/Aether.vbs`,
+      patchLauncher(path.resolve(dir, "launcher/Aether.vbs"), Script.channel),
+    )
     const phDest = `dist/${name}/bin/aether-protocol-handler.vbs`
-    fs.copyFileSync(path.resolve(dir, "launcher/aether-protocol-handler.vbs"), phDest)
+    fs.writeFileSync(phDest, patchLauncher(path.resolve(dir, "launcher/aether-protocol-handler.vbs"), Script.channel))
   } else if (item.os === "darwin") {
     const dest = `dist/${name}/bin/Aether.command`
-    fs.copyFileSync(path.resolve(dir, "launcher/Aether.command"), dest)
+    fs.writeFileSync(dest, patchLauncher(path.resolve(dir, "launcher/Aether.command"), Script.channel))
     fs.chmodSync(dest, 0o755)
   } else if (item.os === "linux") {
     const dest = `dist/${name}/bin/Aether.sh`
-    fs.copyFileSync(path.resolve(dir, "launcher/Aether.sh"), dest)
+    fs.writeFileSync(dest, patchLauncher(path.resolve(dir, "launcher/Aether.sh"), Script.channel))
     fs.chmodSync(dest, 0o755)
     const phDest = `dist/${name}/bin/aether-protocol-handler.sh`
-    fs.copyFileSync(path.resolve(dir, "launcher/aether-protocol-handler.sh"), phDest)
+    fs.writeFileSync(phDest, patchLauncher(path.resolve(dir, "launcher/aether-protocol-handler.sh"), Script.channel))
     fs.chmodSync(phDest, 0o755)
   }
 
