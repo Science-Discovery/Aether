@@ -451,7 +451,7 @@ describe("registerUntrackedProjects fault tolerance", () => {
 
     const emptyPid = "gggggggg77777777777777777777777777777777"
     const emptyPath = path.join(chDir, `aether-${emptyPid}.db`)
-    const emptyDb = initHealthyDb(emptyPath)
+    const emptyDb = new BunSqlite(emptyPath)
     emptyDb.close()
 
     const corruption = detectCorruption(emptyPath)
