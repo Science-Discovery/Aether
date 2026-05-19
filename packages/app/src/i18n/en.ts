@@ -141,6 +141,9 @@ export const dict = {
   "provider.connect.baseURL.placeholder": "https://api.example.com/v1",
   "provider.connect.baseURL.description":
     "Override the default API endpoint. Leave empty to use the provider's default.",
+  "provider.connect.maas.baseURL.openai": "OpenAI and Anthropic base URL",
+  "provider.connect.maas.baseURL.gemini": "Gemini base URL",
+  "provider.connect.maas.baseURL.description": "MaaS uses these fixed endpoints automatically.",
   "provider.connect.opencodeZen.line1":
     "OpenCode Zen gives you access to a curated set of reliable optimized models for coding agents.",
   "provider.connect.opencodeZen.line2":

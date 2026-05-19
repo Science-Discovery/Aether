@@ -21,6 +21,7 @@ const PROVIDER_PRIORITY: Record<string, number> = {
   "github-copilot": 3,
   anthropic: 4,
   google: 5,
+  maas: 6,
 }
 
 export function createDialogProviderOptions() {
@@ -40,6 +41,7 @@ export function createDialogProviderOptions() {
           anthropic: "(API key)",
           openai: "(ChatGPT Plus/Pro or API key)",
           "opencode-go": "Low cost subscription for everyone",
+          maas: "(API key)",
         }[provider.id],
         category: provider.id in PROVIDER_PRIORITY ? "Popular" : "Other",
         async onSelect() {

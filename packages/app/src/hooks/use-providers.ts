@@ -11,6 +11,7 @@ export const popularProviders = [
   "openai",
   "google",
   "openrouter",
+  "maas",
   "vercel",
 ]
 const popularProviderSet = new Set(popularProviders)

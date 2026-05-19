@@ -6,6 +6,7 @@ import { Installation } from "../installation"
 import { Flag } from "../flag/flag"
 import { lazy } from "@/util/lazy"
 import { Filesystem } from "../util/filesystem"
+import { MaaS } from "./maas"
 
 // Try to import bundled snapshot (generated at build time)
 // Falls back to undefined in dev mode when snapshot doesn't exist
@@ -98,9 +99,12 @@ export namespace ModelsDev {
     return JSON.parse(json)
   })
 
-  export async function get() {
-    const result = await Data()
-    return result as Record<string, Provider>
+  export async function get(): Promise<Record<string, Provider>> {
+    const result = (await Data()) as Record<string, Provider>
+    return {
+      ...result,
+      maas: MaaS.provider,
+    }
   }
 
   export async function refresh() {

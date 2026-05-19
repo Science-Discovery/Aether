@@ -85,6 +85,108 @@ test("opencode public provider is connected without saved auth", async () => {
   })
 })
 
+test("maas provider is available with generated chat models", async () => {
+  await using tmp = await tmpdir({
+    init: async (dir) => {
+      await Bun.write(
+        path.join(dir, "opencode.json"),
+        JSON.stringify({
+          $schema: "https://opencode.ai/config.json",
+        }),
+      )
+    },
+  })
+  await Instance.provide({
+    directory: tmp.path,
+    fn: async () => {
+      const providers = await Provider.list()
+      const maas = providers[ProviderID.make("maas")]
+      expect(maas).toBeDefined()
+      expect(maas.name).toBe("MaaS")
+      expect(maas.env).toEqual(["MAAS_API_KEY"])
+      expect(Object.keys(maas.models)).toHaveLength(27)
+      expect(maas.models["batch-test-model"]).toBeUndefined()
+      expect(maas.models["qwen3-max"]).toBeUndefined()
+      expect(maas.models["deepseek-v3.2"]).toBeUndefined()
+      expect(maas.models["deep-research-pro-preview-12-2025"]).toBeUndefined()
+    },
+  })
+})
+
+test("maas env key connects provider", async () => {
+  await using tmp = await tmpdir({
+    init: async (dir) => {
+      await Bun.write(
+        path.join(dir, "opencode.json"),
+        JSON.stringify({
+          $schema: "https://opencode.ai/config.json",
+        }),
+      )
+    },
+  })
+  await Instance.provide({
+    directory: tmp.path,
+    init: async () => {
+      Env.set("MAAS_API_KEY", "test-api-key")
+    },
+    fn: async () => {
+      const connected = await Provider.connected()
+      expect(connected).toContain(ProviderID.make("maas"))
+    },
+  })
+})
+
+test("maas models choose protocol and aggregate metadata", async () => {
+  await using tmp = await tmpdir({
+    init: async (dir) => {
+      await Bun.write(
+        path.join(dir, "opencode.json"),
+        JSON.stringify({
+          $schema: "https://opencode.ai/config.json",
+        }),
+      )
+    },
+  })
+  await Instance.provide({
+    directory: tmp.path,
+    fn: async () => {
+      const providers = await Provider.list()
+      const maas = providers[ProviderID.make("maas")]
+
+      const qwen = maas.models["qwen3.5-122b-a10b"]
+      expect(qwen.api.npm).toBe("@ai-sdk/openai")
+      expect(qwen.api.url).toBe("https://maas.tatucloud.com/v1")
+      expect(qwen.options.maas.op).toBe("responses")
+      expect(qwen.capabilities.input.image).toBe(true)
+      expect(qwen.capabilities.toolcall).toBe(true)
+      expect(qwen.limit.context).toBe(256000)
+      expect(qwen.cost.input).toBeGreaterThan(0)
+      expect(qwen.cost.input).toBeLessThan(1)
+      expect(qwen.cost.experimentalOver200K?.input).toBeGreaterThan(qwen.cost.input)
+
+      const kimi = maas.models["kimi-k2.6"]
+      expect(kimi.api.npm).toBe("@ai-sdk/openai-compatible")
+      expect(kimi.options.maas.op).toBe("chat")
+      expect(kimi.capabilities.input.image).toBe(true)
+      expect(kimi.capabilities.toolcall).toBe(true)
+
+      const deepseek = maas.models["deepseek-v4-pro"]
+      expect(deepseek.api.npm).toBe("@ai-sdk/openai-compatible")
+      expect(deepseek.options.maas.op).toBe("chat")
+      expect(deepseek.capabilities.toolcall).toBe(false)
+
+      const claude = maas.models["claude-haiku-4-5"]
+      expect(claude.api.npm).toBe("@ai-sdk/anthropic")
+      expect(claude.options.maas.op).toBe("messages")
+
+      const gemini = maas.models["gemini-3.1-pro-preview"]
+      expect(gemini.api.npm).toBe("@ai-sdk/google")
+      expect(gemini.api.url).toBe("https://maas.tatucloud.com/v1beta")
+      expect(gemini.options.maas.op).toBe("generate")
+    },
+  })
+})
+
 test("preset provider with baseURL override is not connected without credentials", async () => {
   await using tmp = await tmpdir({
     init: async (dir) => {
