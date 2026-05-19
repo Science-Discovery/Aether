@@ -258,6 +258,7 @@ export namespace Project {
     readonly sandboxes: (id: ProjectID) => Effect.Effect<string[]>
     readonly addSandbox: (id: ProjectID, directory: string) => Effect.Effect<void>
     readonly removeSandbox: (id: ProjectID, directory: string) => Effect.Effect<void>
+    readonly syncWorktrees: (id: ProjectID, worktree: string) => Effect.Effect<void>
   }
 
   export class Service extends ServiceMap.Service<Service, Interface>()("@opencode/Project") {}
@@ -530,7 +531,44 @@ export namespace Project {
         )
 
         yield* emitUpdated(result)
+
+        if (result.vcs === "git" && data.sandbox === data.worktree) {
+          yield* syncWorktrees(result.id, result.worktree).pipe(
+            Effect.catch(() => Effect.void),
+            Effect.forkIn(scope),
+          )
+        }
+
         return { project: result, sandbox: data.sandbox }
+      })
+
+      const syncWorktrees = Effect.fn("Project.syncWorktrees")(function* (pid: ProjectID, worktree: string) {
+        const result = yield* git(["worktree", "list", "--porcelain"], { cwd: worktree })
+        if (result.code !== 0) return
+
+        const entries: { path?: string }[] = result.text
+          .split("\n")
+          .map((line) => line.trim())
+          .reduce<{ path?: string }[]>((acc, line) => {
+            if (!line) return acc
+            if (line.startsWith("worktree ")) {
+              acc.push({ path: line.slice("worktree ".length).trim() })
+              return acc
+            }
+            return acc
+          }, [])
+
+        const row = yield* dbProject(pid, (d) => d.select().from(ProjectTable).where(eq(ProjectTable.id, pid)).get())
+        if (!row) return
+        const known = fromRow(row).sandboxes
+
+        for (const entry of entries) {
+          if (!entry.path) continue
+          const p = entry.path
+          if (norm(p) === norm(worktree)) continue
+          if (known.some((s) => norm(s) === norm(p))) continue
+          yield* addSandbox(pid, p)
+        }
       })
 
       const discover = Effect.fn("Project.discover")(function* (input: Info) {
@@ -696,6 +734,7 @@ export namespace Project {
       return Service.of({
         fromDirectory,
         discover,
+        syncWorktrees,
         list,
         recent: recentList,
         get,
@@ -781,6 +820,10 @@ export namespace Project {
 
   export function removeSandbox(id: ProjectID, directory: string) {
     return runPromise((svc) => svc.removeSandbox(id, directory))
+  }
+
+  export function syncWorktrees(id: ProjectID, worktree: string) {
+    return runPromise((svc) => svc.syncWorktrees(id, worktree))
   }
 
   export function sessionCount(id: ProjectID): number {
