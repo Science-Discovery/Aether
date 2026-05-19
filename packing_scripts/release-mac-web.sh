@@ -66,7 +66,7 @@ if [ -f "$ins" ]; then
   chmod +x "$out/aether_darwin_installer.command"
 fi
 
-icon="$root/packages/desktop-electron/icons/prod/icon.icns"
+icon="$root/packages/desktop-web/icons/prod/icon.icns"
 if [ -f "$icon" ]; then
   cp "$icon" "$out/aether-icon.icns"
 fi
