@@ -92,6 +92,13 @@ test("maas provider is available with generated chat models", async () => {
         path.join(dir, "opencode.json"),
         JSON.stringify({
           $schema: "https://opencode.ai/config.json",
+          provider: {
+            maas: {
+              options: {
+                apiKey: "test-api-key",
+              },
+            },
+          },
         }),
       )
     },
@@ -143,6 +150,13 @@ test("maas models choose protocol and aggregate metadata", async () => {
         path.join(dir, "opencode.json"),
         JSON.stringify({
           $schema: "https://opencode.ai/config.json",
+          provider: {
+            maas: {
+              options: {
+                apiKey: "test-api-key",
+              },
+            },
+          },
         }),
       )
     },
