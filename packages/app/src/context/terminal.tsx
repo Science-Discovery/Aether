@@ -7,19 +7,23 @@ import type { Platform } from "./platform"
 import { defaultTitle, titleNumber } from "./terminal-title"
 import { Persist, persisted, removePersisted } from "@/utils/persist"
 
-type PendingRun = {
-  command: string
-  args: string[]
+type PendingPty = {
+  id: string
   title: string
 }
 
-const pendingRuns = new Map<string, PendingRun>()
+const pendingPtys = new Map<string, PendingPty>()
 const [pendingTrigger, setPendingTrigger] = createSignal(0)
 
-export { pendingTrigger, pendingRuns }
+export { pendingTrigger, pendingPtys }
 
-export function enqueueRun(slug: string, command: string, args: string[], title: string) {
-  pendingRuns.set(slug, { command, args, title })
+export function enqueuePty(slug: string, id: string, title: string) {
+  pendingPtys.set(slug, { id, title })
+  setPendingTrigger((n) => n + 1)
+}
+
+export function removePty(slug: string) {
+  pendingPtys.delete(slug)
   setPendingTrigger((n) => n + 1)
 }
 
@@ -307,12 +311,10 @@ function createWorkspaceTerminalSession(sdk: ReturnType<typeof useSDK>, dir: str
     async run(command: string, args: string[], title: string) {
       setRunning(true)
       try {
-        const result = await sdk.client.pty
-          .create({ command, args, title })
-          .catch((error: unknown) => {
-            console.error("Failed to run command in terminal", error)
-            return undefined
-          })
+        const result = await sdk.client.pty.create({ command, args, title }).catch((error: unknown) => {
+          console.error("Failed to run command in terminal", error)
+          return undefined
+        })
         const data = result?.data
         const id = data?.id
         if (!id || !data) return undefined
@@ -328,6 +330,12 @@ function createWorkspaceTerminalSession(sdk: ReturnType<typeof useSDK>, dir: str
       } finally {
         setRunning(false)
       }
+    },
+    register(id: string, title: string) {
+      batch(() => {
+        setStore("all", store.all.length, { id, title, titleNumber: 0 })
+        setStore("active", id)
+      })
     },
     async clone(id: string) {
       await clone(sdk.client, id)
@@ -466,10 +474,10 @@ export const { use: useTerminal, provider: TerminalProvider } = createSimpleCont
       pendingTrigger()
       const dir = params.dir
       if (!dir) return
-      const pending = pendingRuns.get(dir)
-      if (!pending) return
-      pendingRuns.delete(dir)
-      workspace().run(pending.command, pending.args, pending.title)
+      const pending = pendingPtys.get(dir)
+      if (!pending || !pending.id) return
+      pendingPtys.delete(dir)
+      workspace().register(pending.id, pending.title)
     })
 
     return {
@@ -479,6 +487,7 @@ export const { use: useTerminal, provider: TerminalProvider } = createSimpleCont
       running: () => workspace().running(),
       new: () => workspace().new(),
       run: (command: string, args: string[], title: string) => workspace().run(command, args, title),
+      register: (id: string, title: string) => workspace().register(id, title),
       update: (pty: Partial<LocalPTY> & { id: string }) => workspace().update(pty),
       trim: (id: string) => workspace().trim(id),
       trimAll: () => workspace().trimAll(),

@@ -34,7 +34,7 @@ import { useGlobalSDK } from "@/context/global-sdk"
 import { loadDescendantsForRoots } from "@/context/global-sync/session-load"
 import { useLanguage } from "@/context/language"
 import { useSettings } from "@/context/settings"
-import { enqueueRun } from "@/context/terminal"
+import { enqueuePty, removePty } from "@/context/terminal"
 import { NewSessionItem, SessionItem, SessionSkeleton } from "./sidebar-items"
 import { childMapByParent, errorMessage, sortedRootSessions, workspaceKey } from "./helpers"
 import { SidebarBranchView } from "@/pages/session/branch/sidebar-branch-view"
@@ -248,7 +248,7 @@ const RunScriptButton = (props: {
     if (!name) return
     const scriptPath = `.aether/.bin/${name}`
     const slug = props.slug()
-    enqueueRun(slug, "bash", ["-c", `${scriptPath}; exec bash --noediting`], scriptPath)
+    enqueuePty(slug, "", scriptPath)
     if (params.dir !== slug || !params.id) {
       const s = props.sessions()
       if (s.length > 0) {
@@ -258,6 +258,19 @@ const RunScriptButton = (props: {
       }
     }
     layout.terminal.open()
+    const client = globalSdk.createClient({ directory: props.directory })
+    const result = await client.pty
+      .create({ command: "bash", args: ["-c", `${scriptPath}; exec bash --noediting`], title: scriptPath })
+      .catch((error: unknown) => {
+        console.error("Failed to run script", error)
+        return undefined
+      })
+    const id = result?.data?.id
+    if (!id) {
+      removePty(slug)
+      return
+    }
+    enqueuePty(slug, id, result?.data?.title ?? scriptPath)
   }
 
   const disabled = createMemo(() => scripts().length === 0)
