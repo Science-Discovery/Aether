@@ -10,9 +10,7 @@ import { Database } from "@/storage/db"
 import { ProjectIdentity } from "@/project/identity"
 import { Project } from "@/project/project"
 import { ProjectID } from "@/project/schema"
-import { SessionID, TreeID } from "@/session/schema"
-import { Slug } from "@opencode-ai/util/slug"
-import { Installation } from "@/installation"
+import { SessionID } from "@/session/schema"
 
 const log = Log.create({ service: "skill-evolution.review-agent" })
 
@@ -25,24 +23,6 @@ const MAX_REVIEW_ROUNDS = 20
 /** Stable project ID for the skill-sessions project, derived from its directory path. */
 function skillSessionsProjectId(): ProjectID {
   return ProjectID.fromDirectory(ProjectIdentity.norm(SKILL_SESSIONS_ROOT))
-}
-
-/**
- * Insert a new session row directly into the skill-sessions DB.
- * Bypasses Session.createNext intentionally — review sessions need no share/snapshot/bus events.
- */
-function insertEvolutionSession(projectId: ProjectID, sessionTitle: string): SessionID {
-  const db = Database.projectClient(projectId)
-  const sessionId = SessionID.descending()
-  const treeId = TreeID.descending()
-  const now = Date.now()
-  db.$client
-    .prepare(
-      `INSERT INTO session (id, project_id, slug, directory, title, version, tree_id, time_created, time_updated)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    )
-    .run(sessionId, projectId, Slug.create(), SKILL_SESSIONS_ROOT, sessionTitle, Installation.VERSION, treeId, now, now)
-  return sessionId as SessionID
 }
 
 /**
@@ -232,21 +212,23 @@ export async function spawnReview(input: {
       sessionTitle,
     })
 
-    // Find or create the evolution session (direct SQL, no createNext)
-    const existing = findEvolutionSession(skillProjectId, sessionTitle)
-    const reviewSessionId = existing ?? insertEvolutionSession(skillProjectId, sessionTitle)
-
-    log.info(existing ? "reusing evolution session" : "created evolution session", {
-      reviewSessionId,
-      sessionTitle,
-    })
-
     // Run the review agent fire-and-forget inside the skill-sessions Instance context so that
     // Session.get / MessageV2 reads+writes all target the skill-sessions DB.
     Instance.provide({
       directory: SKILL_SESSIONS_ROOT,
-      create: false,
+      create: true,
       fn: async () => {
+        const { Session } = await import("@/session")
+        const existing = findEvolutionSession(skillProjectId, sessionTitle)
+        const reviewSessionId =
+          existing ??
+          (await Session.createNext({ title: sessionTitle, directory: SKILL_SESSIONS_ROOT })).id
+
+        log.info(existing ? "reusing evolution session" : "created evolution session", {
+          reviewSessionId,
+          sessionTitle,
+        })
+
         // Register skill_manage only for this instance — normal sessions are unaffected.
         // Use the bound variant so AI-created skills automatically land in the project-level
         // skill-sessions dir without the model needing to pass sessionProjectId.
