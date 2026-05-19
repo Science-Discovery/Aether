@@ -1,6 +1,7 @@
 import { Component, Show, createEffect, createMemo, createResource, onMount, type JSX } from "solid-js"
 import { createStore } from "solid-js/store"
 import { Button } from "@opencode-ai/ui/button"
+import { DropdownMenu } from "@opencode-ai/ui/dropdown-menu"
 import { Icon } from "@opencode-ai/ui/icon"
 import { Select } from "@opencode-ai/ui/select"
 import { Switch } from "@opencode-ai/ui/switch"
@@ -244,6 +245,22 @@ export const SettingsGeneral: Component = () => {
     { value: "dark", label: language.t("theme.scheme.dark") },
   ])
 
+  const branchFontOptions = createMemo(() => [
+    { value: "xs", label: language.t("settings.general.row.branchGraphFontSize.option.xs") },
+    { value: "sm", label: language.t("settings.general.row.branchGraphFontSize.option.sm") },
+    { value: "md", label: language.t("settings.general.row.branchGraphFontSize.option.md") },
+    { value: "lg", label: language.t("settings.general.row.branchGraphFontSize.option.lg") },
+    { value: "xl", label: language.t("settings.general.row.branchGraphFontSize.option.xl") },
+  ])
+
+  const branchDensityOptions = createMemo(() => [
+    { value: "xcompact", label: language.t("settings.general.row.branchGraphRowDensity.option.xcompact") },
+    { value: "compact", label: language.t("settings.general.row.branchGraphRowDensity.option.compact") },
+    { value: "normal", label: language.t("settings.general.row.branchGraphRowDensity.option.normal") },
+    { value: "relaxed", label: language.t("settings.general.row.branchGraphRowDensity.option.relaxed") },
+    { value: "xrelaxed", label: language.t("settings.general.row.branchGraphRowDensity.option.xrelaxed") },
+  ])
+
   const followupOptions = createMemo((): { value: "queue" | "steer"; label: string }[] => [
     { value: "queue", label: language.t("settings.general.row.followup.option.queue") },
     { value: "steer", label: language.t("settings.general.row.followup.option.steer") },
@@ -422,11 +439,110 @@ export const SettingsGeneral: Component = () => {
           title={language.t("settings.general.row.branchesTab.title")}
           description={language.t("settings.general.row.branchesTab.description")}
         >
-          <div data-action="settings-feed-branches-tab">
-            <Switch
-              checked={settings.general.branchesTab()}
-              onChange={(checked) => settings.general.setBranchesTab(checked)}
-            />
+          <div class="flex w-full flex-wrap items-center justify-end gap-2 sm:w-auto sm:flex-nowrap" data-action="settings-feed-branches-tab">
+            <Show when={settings.general.branchesTab()}>
+              <div class="flex flex-wrap justify-end gap-2" data-action="settings-branch-graph-controls">
+                <button
+                  type="button"
+                  data-action="settings-branch-graph-compact"
+                  class="rounded-md border border-border-weak-base px-2 py-px text-[11px] text-text-weak transition-colors hover:bg-background-base"
+                  onClick={() => settings.general.setBranchGraphCompact(!settings.general.branchGraphCompact())}
+                >
+                  {settings.general.branchGraphCompact()
+                    ? language.t("settings.general.row.branchGraphCompact.option.full")
+                    : language.t("settings.general.row.branchGraphCompact.option.compact")}
+                </button>
+
+                <div class="flex overflow-hidden rounded-md border border-border-weak-base" data-action="settings-branch-graph-order-mode">
+                  <button
+                    type="button"
+                    class="px-2 py-px text-[11px] transition-colors"
+                    classList={{
+                      "bg-background-base text-text-strong": settings.general.branchGraphOrderMode() === "sequence",
+                      "text-text-weak hover:bg-background-base": settings.general.branchGraphOrderMode() !== "sequence",
+                    }}
+                    onClick={() => settings.general.setBranchGraphOrderMode("sequence")}
+                  >
+                    {language.t("settings.general.row.branchGraphOrderMode.option.sequence")}
+                  </button>
+                  <button
+                    type="button"
+                    class="border-l border-border-weak-base px-2 py-px text-[11px] transition-colors"
+                    classList={{
+                      "bg-background-base text-text-strong": settings.general.branchGraphOrderMode() === "time",
+                      "text-text-weak hover:bg-background-base": settings.general.branchGraphOrderMode() !== "time",
+                    }}
+                    onClick={() => settings.general.setBranchGraphOrderMode("time")}
+                  >
+                    {language.t("settings.general.row.branchGraphOrderMode.option.time")}
+                  </button>
+                </div>
+
+                <DropdownMenu placement="bottom-end">
+                  <DropdownMenu.Trigger
+                    data-action="settings-branch-graph-display"
+                    class="rounded-md border border-border-weak-base px-2 py-px text-[11px] text-text-weak transition-colors hover:bg-background-base"
+                  >
+                    {language.t("settings.general.row.branchGraphDisplay.label")}
+                  </DropdownMenu.Trigger>
+                  <DropdownMenu.Portal>
+                    <DropdownMenu.Content class="min-w-40">
+                      <DropdownMenu.Group>
+                        <DropdownMenu.GroupLabel>{language.t("settings.general.row.branchGraphFontSize.title")}</DropdownMenu.GroupLabel>
+                        <DropdownMenu.RadioGroup
+                          value={settings.general.branchGraphFontSize()}
+                          onChange={(value) => {
+                            if (value === "xs" || value === "sm" || value === "md" || value === "lg" || value === "xl") {
+                              settings.general.setBranchGraphFontSize(value)
+                            }
+                          }}
+                        >
+                          {branchFontOptions().map((item) => (
+                            <DropdownMenu.RadioItem value={item.value}>
+                              <DropdownMenu.ItemLabel>{item.label}</DropdownMenu.ItemLabel>
+                              <DropdownMenu.ItemIndicator>
+                                <Icon name="check-small" size="small" class="text-icon-weak" />
+                              </DropdownMenu.ItemIndicator>
+                            </DropdownMenu.RadioItem>
+                          ))}
+                        </DropdownMenu.RadioGroup>
+                      </DropdownMenu.Group>
+
+                      <DropdownMenu.Separator />
+
+                      <DropdownMenu.Group>
+                        <DropdownMenu.GroupLabel>{language.t("settings.general.row.branchGraphRowDensity.title")}</DropdownMenu.GroupLabel>
+                        <DropdownMenu.RadioGroup
+                          value={settings.general.branchGraphRowDensity()}
+                          onChange={(value) => {
+                            if (
+                              value === "xcompact" ||
+                              value === "compact" ||
+                              value === "normal" ||
+                              value === "relaxed" ||
+                              value === "xrelaxed"
+                            ) {
+                              settings.general.setBranchGraphRowDensity(value)
+                            }
+                          }}
+                        >
+                          {branchDensityOptions().map((item) => (
+                            <DropdownMenu.RadioItem value={item.value}>
+                              <DropdownMenu.ItemLabel>{item.label}</DropdownMenu.ItemLabel>
+                              <DropdownMenu.ItemIndicator>
+                                <Icon name="check-small" size="small" class="text-icon-weak" />
+                              </DropdownMenu.ItemIndicator>
+                            </DropdownMenu.RadioItem>
+                          ))}
+                        </DropdownMenu.RadioGroup>
+                      </DropdownMenu.Group>
+                    </DropdownMenu.Content>
+                  </DropdownMenu.Portal>
+                </DropdownMenu>
+              </div>
+            </Show>
+
+            <Switch checked={settings.general.branchesTab()} onChange={(checked) => settings.general.setBranchesTab(checked)} />
           </div>
         </SettingsRow>
 

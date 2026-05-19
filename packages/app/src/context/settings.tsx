@@ -25,6 +25,7 @@ export interface Settings {
     followup: "queue" | "steer"
     reviewBatch: number
     branchesTab: boolean
+    branchGraphCompact: boolean
     branchGraphFontSize: "xs" | "sm" | "md" | "lg" | "xl"
     branchGraphRowDensity: "xcompact" | "compact" | "normal" | "relaxed" | "xrelaxed"
     branchGraphOrderMode: "sequence" | "time"
@@ -57,8 +58,9 @@ const defaultSettings: Settings = {
     followup: "steer",
     reviewBatch: 10,
     branchesTab: true,
+    branchGraphCompact: false,
     branchGraphFontSize: "lg",
-    branchGraphRowDensity: "compact",
+    branchGraphRowDensity: "xcompact",
     branchGraphOrderMode: "time",
     showReasoningSummaries: false,
     shellToolPartsExpanded: true,
@@ -168,6 +170,13 @@ export const { use: useSettings, provider: SettingsProvider } = createSimpleCont
         branchesTab: withFallback(() => store.general?.branchesTab, defaultSettings.general.branchesTab),
         setBranchesTab(value: boolean) {
           setStore("general", "branchesTab", value)
+        },
+        branchGraphCompact: withFallback(
+          () => store.general?.branchGraphCompact,
+          defaultSettings.general.branchGraphCompact,
+        ),
+        setBranchGraphCompact(value: boolean) {
+          setStore("general", "branchGraphCompact", value)
         },
         branchGraphFontSize: withFallback(
           () => store.general?.branchGraphFontSize,
