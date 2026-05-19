@@ -24,12 +24,21 @@ function readServePort() {
   for (const dir of dirs) {
     try {
       const aetherDir = join(dir, "aether")
-      for (const entry of readdirSync(aetherDir, { withFileTypes: true })) {
-        if (!entry.isDirectory()) continue
+      const entries = readdirSync(aetherDir, { withFileTypes: true }).filter((e) => e.isDirectory())
+      const sorted = entries.sort((a, b) => {
+        if (a.name === channel) return -1
+        if (b.name === channel) return 1
+        return 0
+      })
+      for (const entry of sorted) {
         const file = join(aetherDir, entry.name, "serve-port")
         try {
           const port = readFileSync(file, "utf-8").trim()
-          if (port) return port
+          if (port) {
+            if (entry.name !== channel)
+              console.warn(`[aether] fallback: channel "${channel}" not found, using "${entry.name}"`)
+            return port
+          }
         } catch {}
       }
     } catch {}

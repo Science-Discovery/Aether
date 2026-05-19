@@ -350,7 +350,17 @@ set -euo pipefail
 cmd="$cmd"
 port=""
 aether_dir="\$HOME/Library/Application Support/aether"
+# Prefer prod channel, then any other responding instance
+ch_dirs=()
 for ch_dir in "\$aether_dir"/*/; do
+  base="\$(basename "\$ch_dir")"
+  if [ "\$base" = "prod" ]; then
+    ch_dirs=("\$ch_dir" "\${ch_dirs[@]}")
+  else
+    ch_dirs+=("\$ch_dir")
+  fi
+done
+for ch_dir in "\${ch_dirs[@]}"; do
   pf="\${ch_dir}serve-port"
   if [ -f "\$pf" ]; then
     p="\$(head -1 "\$pf" 2>/dev/null || true)"
