@@ -17,6 +17,41 @@ function mimeToModality(mime: string): Modality | undefined {
   return undefined
 }
 
+function mergeConsecutiveAssistantMessages(msgs: ModelMessage[]): ModelMessage[] {
+  const result: ModelMessage[] = []
+  for (const msg of msgs) {
+    const prev = result[result.length - 1]
+    if (prev?.role === "assistant" && msg.role === "assistant") {
+      const prevContent =
+        typeof prev.content === "string"
+          ? prev.content === ""
+            ? []
+            : [{ type: "text" as const, text: prev.content }]
+          : Array.isArray(prev.content)
+            ? [...prev.content]
+            : []
+      const curContent =
+        typeof msg.content === "string"
+          ? msg.content === ""
+            ? []
+            : [{ type: "text" as const, text: msg.content }]
+          : Array.isArray(msg.content)
+            ? [...msg.content]
+            : []
+      const mergedContent = [...prevContent, ...curContent]
+      const mergedProviderOptions = mergeDeep(prev.providerOptions ?? {}, msg.providerOptions ?? {})
+      result[result.length - 1] = {
+        ...prev,
+        content: mergedContent,
+        providerOptions: mergedProviderOptions,
+      }
+    } else {
+      result.push(msg)
+    }
+  }
+  return result
+}
+
 export namespace ProviderTransform {
   export const OUTPUT_TOKEN_MAX = Flag.OPENCODE_EXPERIMENTAL_OUTPUT_TOKEN_MAX || 32_000
 
@@ -51,6 +86,15 @@ export namespace ProviderTransform {
     model: Provider.Model,
     options: Record<string, unknown>,
   ): ModelMessage[] {
+    // Merge consecutive assistant messages for providers whose SDK does not
+    // handle this internally. @ai-sdk/anthropic merges in its own convert
+    // function, so we skip it. @ai-sdk/openai-compatible outputs them as-is,
+    // violating the OpenAI Chat Completions API format.
+    const sdkHandlesMerge = model.api.npm === "@ai-sdk/anthropic" || model.api.npm === "@ai-sdk/google-vertex/anthropic"
+    if (!sdkHandlesMerge) {
+      msgs = mergeConsecutiveAssistantMessages(msgs)
+    }
+
     // Anthropic rejects messages with empty content - filter out empty string messages
     // and remove empty text/reasoning parts from array content
     if (model.api.npm === "@ai-sdk/anthropic" || model.api.npm === "@ai-sdk/amazon-bedrock") {
