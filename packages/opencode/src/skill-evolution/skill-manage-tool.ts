@@ -115,21 +115,25 @@ export interface SkillManageResult {
 
 export namespace SkillManageTool {
   export async function execute(input: SkillManageInput): Promise<SkillManageResult> {
-    switch (input.action) {
-      case "create":
-        return handleCreate(input)
-      case "edit":
-        return handleEdit(input)
-      case "patch":
-        return handlePatch(input)
-      case "write_file":
-        return handleWriteFile(input)
-      case "delete":
-        return handleDelete(input)
-      case "history":
-        return handleHistory(input)
-      case "rollback":
-        return handleRollback(input)
+    try {
+      switch (input.action) {
+        case "create":
+          return await handleCreate(input)
+        case "edit":
+          return await handleEdit(input)
+        case "patch":
+          return await handlePatch(input)
+        case "write_file":
+          return await handleWriteFile(input)
+        case "delete":
+          return await handleDelete(input)
+        case "history":
+          return await handleHistory(input)
+        case "rollback":
+          return await handleRollback(input)
+      }
+    } catch (e) {
+      return { ok: false, message: e instanceof Error ? e.message : String(e) }
     }
   }
 
@@ -138,6 +142,12 @@ export namespace SkillManageTool {
 
     // If the skill has an original location and shadow doesn't exist yet, copy it over
     if (input.skillLocation) {
+      if (!ShadowWriter.validateSkillLocation(input.skillLocation)) {
+        throw new Error(
+          `Unsafe skillLocation rejected: "${input.skillLocation}". ` +
+          `Must point to a file inside a <config-marker>/skills/ directory (e.g. .claude/skills/foo/SKILL.md).`,
+        )
+      }
       const originalDir = path.dirname(input.skillLocation)
       const shadowExists = await fs.access(skillDir).then(() => true).catch(() => false)
       if (!shadowExists) {

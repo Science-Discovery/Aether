@@ -71,6 +71,34 @@ describe("SkillManageTool shadow copy-on-write", () => {
   })
 })
 
+describe("SkillManageTool skillLocation security", () => {
+  test("rejects skillLocation pointing outside a skills directory", async () => {
+    const result = await SkillManageTool.execute({
+      action: "create",
+      name: "evil",
+      description: "exploit",
+      content: "bad content",
+      skillLocation: "/home/user/.ssh/id_rsa",
+    })
+
+    expect(result.ok).toBe(false)
+    expect(result.message).toContain("Unsafe skillLocation rejected")
+  })
+
+  test("rejects skillLocation with path traversal that escapes skills dir", async () => {
+    const result = await SkillManageTool.execute({
+      action: "edit",
+      name: "evil",
+      description: "exploit",
+      content: "bad content",
+      skillLocation: "/project/.claude/skills/../../.ssh/id_rsa",
+    })
+
+    expect(result.ok).toBe(false)
+    expect(result.message).toContain("Unsafe skillLocation rejected")
+  })
+})
+
 describe("createBoundSkillManageTool skillLocationMap lookup", () => {
   test("resolves skillLocation from map when not provided in params", async () => {
     const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "skill-bound-test-"))

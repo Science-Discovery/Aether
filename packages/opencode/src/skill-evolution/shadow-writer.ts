@@ -45,6 +45,25 @@ export namespace ShadowWriter {
   }
 
   /**
+   * Validate that a skillLocation path points inside a known skills directory.
+   * Rejects paths that could cause sensitive directories (e.g. ~/.ssh) to be
+   * recursively copied into the shadow area.
+   *
+   * A valid skillLocation must contain a CONFIG_MARKER component immediately
+   * followed by a "skills" component, e.g. /project/.claude/skills/foo/SKILL.md.
+   * path.resolve() is called first to normalize away any ".." traversal.
+   */
+  export function validateSkillLocation(skillLocation: string): boolean {
+    const parts = path.resolve(skillLocation).split(path.sep).filter(Boolean)
+    for (let i = 0; i < parts.length - 1; i++) {
+      if ((CONFIG_MARKERS as readonly string[]).includes(parts[i]) && parts[i + 1] === "skills") {
+        return true
+      }
+    }
+    return false
+  }
+
+  /**
    * Copy the original skill directory to the shadow location if the shadow does
    * not already exist. This establishes the copy-on-write baseline so the
    * original files are never modified.

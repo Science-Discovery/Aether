@@ -53,6 +53,37 @@ describe("ShadowWriter.resolveSkillDir", () => {
   })
 })
 
+describe("ShadowWriter.validateSkillLocation", () => {
+  test("accepts valid .claude/skills path", () => {
+    expect(ShadowWriter.validateSkillLocation("/project/.claude/skills/foo/SKILL.md")).toBe(true)
+  })
+
+  test("accepts valid .agents/skills path", () => {
+    expect(ShadowWriter.validateSkillLocation("/project/.agents/skills/foo/SKILL.md")).toBe(true)
+  })
+
+  test("accepts valid .opencode/skills path", () => {
+    expect(ShadowWriter.validateSkillLocation("/project/.opencode/skills/foo/SKILL.md")).toBe(true)
+  })
+
+  test("accepts valid .aether/skills path", () => {
+    expect(ShadowWriter.validateSkillLocation("/project/.aether/skills/foo/SKILL.md")).toBe(true)
+  })
+
+  test("rejects path with no config marker", () => {
+    expect(ShadowWriter.validateSkillLocation("/home/user/.ssh/id_rsa")).toBe(false)
+  })
+
+  test("rejects config marker not followed by skills", () => {
+    expect(ShadowWriter.validateSkillLocation("/project/.claude/config/foo/SKILL.md")).toBe(false)
+  })
+
+  test("rejects path traversal resolved outside skills dir", () => {
+    // path.resolve normalises away the .. so this resolves to something without a valid marker/skills pair
+    expect(ShadowWriter.validateSkillLocation("/project/.claude/skills/../../.ssh/id_rsa")).toBe(false)
+  })
+})
+
 describe("ShadowWriter.copyToShadowIfNeeded", () => {
   test("copies original dir to shadow when shadow does not exist", async () => {
     const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "shadow-test-"))
