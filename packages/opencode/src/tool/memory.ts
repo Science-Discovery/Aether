@@ -22,7 +22,9 @@ function renderResults(results: Awaited<ReturnType<typeof Memory.search>>["resul
 
 export const MemorySearchTool = Tool.define("memory_search", {
   description: [
-    "Search Aether long-term memory. Use this when a memory shortcut suggests relevant user preferences, facts, or tasks.",
+    "Search Aether long-term memory before answering when the request may depend on durable user or project context: identity, preferences, profile, facts, prior instructions, past decisions, recurring tasks, or previously stated constraints.",
+    "Do not wait for an exact shortcut match; use this proactively when memory could personalize or disambiguate the answer.",
+    "For broad memory or profile questions, search with concise overview-style keywords instead of raw session reads.",
     "Use mode=overview when the user asks for a broad summary of remembered context instead of a narrow keyword lookup.",
     "Search only reads AETHER_MEMORY.md and does not read raw session files or aether-memory.db events.",
   ].join("\n"),

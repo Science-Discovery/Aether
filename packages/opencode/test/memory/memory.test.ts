@@ -627,6 +627,34 @@ describe("memory service", () => {
     expect(found.results[0]?.memory).toBe("User's advisor is Zhang Yang.")
   })
 
+  test("shortcut triggers retain broad source topics beyond the first dozen terms", async () => {
+    Memory.setReflectorForTest(async ({ events }) => [
+      {
+        eventID: events[0]!.id,
+        type: "fact" as const,
+        scope: "global" as const,
+        memory: "User has a broad durable research context that should be discoverable by related topics.",
+        confidence: 0.96,
+        weight: 0.9,
+        evidence: "explicit user memory",
+      },
+    ])
+
+    await Memory.remember({
+      text: [
+        "Please remember these related topics for future recall:",
+        "topic01 topic02 topic03 topic04 topic05 topic06 topic07 topic08 topic09 topic10",
+        "topic11 topic12 topic13 topic14 topic15 topic16 topic17 topic18 topic19 topic20",
+      ].join(" "),
+      type: "fact",
+      intent: "explicit",
+      source: { createdAt: Date.now(), role: "user" },
+    })
+
+    const found = await Memory.search({ query: "topic20", limit: 5 })
+    expect(found.results[0]?.memory).toContain("broad durable research context")
+  })
+
   test("low-signal observed events are not left pending for daily reflection", async () => {
     const remembered = await Memory.remember({
       text: "这个命令是什么意思？",
@@ -802,7 +830,7 @@ describe("memory service", () => {
 ## Shortcut Directory
 
 - shortcut: response-style
-  triggers: 中文, answer style
+  triggers: 中文, answer style, language
   types: preference
   target_ids: PREF-answer-language
   weight: 0.9
@@ -830,6 +858,9 @@ describe("memory service", () => {
     expect(prompt).toContain("response-style")
     expect(prompt).toContain("memory_search")
     expect(prompt).toContain("durable user or project context")
+    expect(prompt).toContain("Before answering, call memory_search")
+    expect(prompt).toContain("topics: 中文, answer style, language")
+    expect(prompt).not.toContain("instruction:")
     expect(prompt).not.toContain("PREF-answer-language")
     expect(prompt).not.toContain("用户偏好默认用中文回答")
   })

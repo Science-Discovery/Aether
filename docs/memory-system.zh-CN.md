@@ -249,6 +249,11 @@ search_target: true
 - 搜索长期记忆
 - 只读 `AETHER_MEMORY.md`
 - 返回按相关度、scope、权重和新近程度排序的结果
+- 当请求可能依赖长期用户或项目上下文时，应优先调用：
+  - 用户身份、画像、偏好
+  - 项目事实、历史决策、既往约束
+  - recurring tasks 或用户曾经要求长期遵循的规则
+  - “你记得什么”“按我之前说的来”这类宽泛记忆问题
 
 参数：
 
@@ -414,13 +419,26 @@ Settings > Memory 中的 daily reflection 开关和时间会同步到该 cron jo
 
 当前 memory 系统不把完整长期记忆注入 system prompt。
 
-注入内容只包含 `Shortcut Directory` 的精简提示：
+注入内容只包含 `Shortcut Directory` 生成的精简主题目录：
 
 - shortcut
-- triggers
-- instruction
+- topics/triggers
+
+注入时不会包含：
+
+- `target_ids`
+- `instruction`
+- 具体 memory 正文
 
 这些内容只用于提醒 Agent 判断是否应该调用 `memory_search`。Agent 不应把 shortcut 当作完整事实使用。
+
+触发原则：
+
+- 不要求 topic 精确匹配；只要问题可能因为长期记忆而改变答案，就应先调用 `memory_search`
+- 对宽泛画像问题使用简短的概览式关键词查询，例如 `user profile preference project constraints`
+- 对普通无上下文问题不需要调用，例如纯算术或完全自包含的问题
+
+Shortcut topic 的生成会优先保留用户原始表达中的主题词，再补充 reflection 后的 memory 文本。这样可以避免 LLM 在整理记忆时改写措辞后，把原始可召回主题丢掉。
 
 ## 11. 生命周期接口
 
