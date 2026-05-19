@@ -1,6 +1,7 @@
 import fs from "fs/promises"
 import path from "path"
-import { VERSION_CAPACITY, ACTIVE_REGION_RATIO } from "./constants"
+import { ACTIVE_REGION_RATIO } from "./constants"
+import { ConfigReader } from "./config-reader"
 
 const VERSIONS_DIR = ".versions"
 
@@ -169,10 +170,11 @@ export namespace Versions {
    * Prune snapshots to stay within VERSION_CAPACITY using Binary Ruler strategy.
    */
   export async function prune(skillDir: string): Promise<void> {
+    const capacity = await ConfigReader.getMaxVersions()
     const entries = await list(skillDir)
-    if (entries.length <= VERSION_CAPACITY) return
+    if (entries.length <= capacity) return
 
-    const keep = new Set(applyBinaryRuler(entries, VERSION_CAPACITY).map((e) => e.filename))
+    const keep = new Set(applyBinaryRuler(entries, capacity).map((e) => e.filename))
     const vdir = versionsDir(skillDir)
     for (const entry of entries) {
       if (!keep.has(entry.filename)) {
