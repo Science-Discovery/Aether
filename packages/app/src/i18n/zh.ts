@@ -987,6 +987,13 @@ export const dict = {
   "settings.tab.general": "通用",
   "settings.tab.shortcuts": "快捷键",
   "settings.tab.cron": "Cron",
+  "settings.tab.skillEvolution": "Skill自进化",
+  "settingsSkills.pageTitle": "Skill自进化",
+  "settingsSkills.pageTitleDescription": "配置 AI 自动捕捉和优化可复用 Skills 的方式。",
+  "settingsSkills.reviewInterval": "审查间隔",
+  "settingsSkills.reviewIntervalDescription": "AI 每隔 N 次工具调用会自动回顾对话，将有价值的操作模式提炼为可复用 Skill。数值越小，提炼越频繁。",
+  "settingsSkills.maxVersions": "最大版本数",
+  "settingsSkills.maxVersionsDescription": "每个 Skill 保留的最大版本快照数，超出后自动清理旧版本。",
 
   "settings.desktop.section.wsl": "WSL",
   "settings.desktop.wsl.title": "WSL 集成",

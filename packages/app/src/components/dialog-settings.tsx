@@ -55,7 +55,7 @@ export const DialogSettings: Component = () => {
                     </Tabs.Trigger>
                     <Tabs.Trigger value="skills">
                       <Icon name="checklist" />
-                      Skills
+                      {language.t("settings.tab.skillEvolution")}
                     </Tabs.Trigger>
                     <Tabs.Trigger value="cron">
                       <Icon name="task" />
