@@ -327,16 +327,21 @@ export const SkillManageToolDef = Tool.define("skill_manage", {
 export function createBoundSkillManageTool(
   defaultSessionProjectId: string,
   skillLocationMap?: Record<string, string>,
+  skillSessionMap?: Record<string, string>,
 ): typeof SkillManageToolDef {
   return Tool.define("skill_manage", {
     description: SKILL_MANAGE_DESCRIPTION,
     parameters: SkillManageInput,
     async execute(params) {
       const resolvedLocation = params.skillLocation ?? skillLocationMap?.[params.name]
+      const resolvedSessionId =
+        params.sessionProjectId ??
+        skillSessionMap?.[params.name] ??
+        (!resolvedLocation ? defaultSessionProjectId : undefined)
       const result = await SkillManageTool.execute({
         ...params,
         skillLocation: resolvedLocation,
-        sessionProjectId: params.sessionProjectId ?? (!resolvedLocation ? defaultSessionProjectId : undefined),
+        sessionProjectId: resolvedSessionId,
       })
       return {
         title: `skill_manage(${params.action}: ${params.name})`,

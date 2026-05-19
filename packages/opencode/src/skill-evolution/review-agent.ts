@@ -196,9 +196,16 @@ export async function spawnReview(input: {
 
     const allSkills = await Skill.all()
     const skillLocationMap: Record<string, string> = {}
+    const skillSessionMap: Record<string, string> = {}
     for (const skill of allSkills) {
-      if (!skill.location.split(path.sep).includes(".aether")) {
+      const parts = skill.location.split(path.sep)
+      const aetherIdx = parts.indexOf(".aether")
+      if (aetherIdx === -1) {
         skillLocationMap[skill.name] = skill.location
+      } else if (parts[aetherIdx + 1] === "skills") {
+        skillLocationMap[skill.name] = skill.location
+      } else if (parts[aetherIdx + 1] === "skill-sessions") {
+        skillSessionMap[skill.name] = parts[aetherIdx + 2]
       }
     }
 
@@ -232,7 +239,7 @@ export async function spawnReview(input: {
 
         // Register skill_manage scoped to this review session only, so concurrent
         // reviews for different projects don't overwrite each other's bound tool.
-        ToolRegistry.registerForSession(reviewSessionId, createBoundSkillManageTool(folderName, skillLocationMap))
+        ToolRegistry.registerForSession(reviewSessionId, createBoundSkillManageTool(folderName, skillLocationMap, skillSessionMap))
         try {
           return await SessionPrompt.prompt({
             sessionID: reviewSessionId,
