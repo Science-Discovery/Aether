@@ -188,7 +188,9 @@ export namespace SkillManageTool {
       // Roll back by removing the directory if it was newly created, otherwise
       // revert via the most recent snapshot if available.
       const versions = await Versions.list(skillDir)
-      if (versions.length > 0) {
+      if (versions.length === 0) {
+        await fs.rm(skillDir, { recursive: true, force: true })
+      } else {
         const previous = versions[versions.length - 1]
         if (previous) {
           await Versions.rollback(skillDir, previous.filename.replace(".bundle.json", ""))
