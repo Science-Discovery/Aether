@@ -388,6 +388,7 @@ export namespace Server {
               directory,
               create,
               init: create ? InstanceBootstrap : undefined,
+              source: "web",
               async fn() {
                 return next()
               },

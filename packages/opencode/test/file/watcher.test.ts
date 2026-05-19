@@ -1,9 +1,8 @@
 import { $ } from "bun"
-import { afterEach, describe, expect, test } from "bun:test"
+import { afterAll, afterEach, describe, expect, test } from "bun:test"
 import fs from "fs/promises"
 import path from "path"
 import { ConfigProvider, Deferred, Effect, Layer, ManagedRuntime, Option } from "effect"
-import { tmpdir } from "../fixture/fixture"
 import { Bus } from "../../src/bus"
 import { FileWatcher } from "../../src/file/watcher"
 import { ActiveDirectory } from "../../src/project/active-directory"
@@ -22,8 +21,27 @@ const watcherConfigLayer = ConfigProvider.layer(
   }),
 )
 const owner = "watcher-test"
+const scratch = path.join(process.cwd(), ".watcher-test")
 
 type WatcherEvent = { file: string; event: "add" | "change" | "unlink" }
+
+async function tmpdir(input?: { git?: boolean }) {
+  await fs.mkdir(scratch, { recursive: true })
+  const root = await fs.mkdtemp(path.join(scratch, "case-"))
+  if (input?.git) {
+    await $`git init`.cwd(root).quiet()
+    await $`git config core.fsmonitor false`.cwd(root).quiet()
+    await $`git config user.email "test@opencode.test"`.cwd(root).quiet()
+    await $`git config user.name "Test"`.cwd(root).quiet()
+    await $`git commit --allow-empty -m "root commit"`.cwd(root).quiet()
+  }
+  return {
+    path: root,
+    [Symbol.asyncDispose]: async () => {
+      await fs.rm(root, { recursive: true, force: true }).catch(() => undefined)
+    },
+  }
+}
 /** Run `body` with a live FileWatcher service. */
 function withWatcher<E>(directory: string, body: Effect.Effect<void, E>) {
   return Instance.provide({
@@ -46,9 +64,10 @@ function withWatcher<E>(directory: string, body: Effect.Effect<void, E>) {
   })
 }
 
-function withWatcherInit<E>(directory: string, body: Effect.Effect<void, E>) {
+function withWatcherInit<E>(directory: string, body: Effect.Effect<void, E>, source: "local" | "web" = "local") {
   return Instance.provide({
     directory,
+    source,
     fn: async () => {
       const layer: Layer.Layer<FileWatcher.Service, never, never> = FileWatcher.layer.pipe(
         Layer.provide(watcherConfigLayer),
@@ -225,6 +244,10 @@ describeWatcher("FileWatcher", () => {
     await Instance.disposeAll()
   })
 
+  afterAll(async () => {
+    await fs.rm(scratch, { recursive: true, force: true }).catch(() => undefined)
+  })
+
   test(
     "publishes root create, update, and delete events",
     async () => {
@@ -295,7 +318,7 @@ describeWatcher("FileWatcher", () => {
   )
 
   test(
-    "only watches the active directory once one is selected",
+    "does not watch web directories until a lease exists",
     async () => {
       await using tmp = await tmpdir()
       const file = path.join(tmp.path, "active.txt")
@@ -319,6 +342,28 @@ describeWatcher("FileWatcher", () => {
           )
           expect(evt.file).toBe(file)
           expect(["add", "change"]).toContain(evt.event)
+        }),
+        "web",
+      )
+    },
+    { timeout: 30_000 },
+  )
+
+  test(
+    "watches local directories without a lease",
+    async () => {
+      await using tmp = await tmpdir()
+      const file = path.join(tmp.path, "local.txt")
+
+      await withWatcherInit(
+        tmp.path,
+        Effect.gen(function* () {
+          yield* ready(tmp.path)
+          yield* nextUpdate(
+            tmp.path,
+            (evt) => evt.file === file && evt.event === "add",
+            Effect.promise(() => fs.writeFile(file, "live")),
+          ).pipe(Effect.tap((evt) => Effect.sync(() => expect(evt).toEqual({ file, event: "add" }))))
         }),
       )
     },

@@ -392,10 +392,11 @@ export namespace FileWatcher {
             }
 
             const sync = async () => {
-              const active = ActiveDirectory.has(Instance.directory)
+              const active = Instance.source !== "web" || ActiveDirectory.has(Instance.directory)
               const hinted = WatcherHint.watch(Instance.directory)
               log.info("sync watcher activity", {
                 directory: Instance.directory,
+                source: Instance.source,
                 enabled,
                 active,
                 degraded,

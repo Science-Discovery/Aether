@@ -13,6 +13,7 @@ export interface Shape {
   directory: string
   worktree: string
   project: Project.Info
+  source: "local" | "web"
 }
 const context = Context.create<Shape>("instance")
 const cache = new Map<string, Promise<Shape>>()
@@ -33,7 +34,13 @@ function emit(directory: string) {
   })
 }
 
-function boot(input: { directory: string; init?: () => Promise<any>; project?: Project.Info; worktree?: string }) {
+function boot(input: {
+  directory: string
+  init?: () => Promise<any>
+  project?: Project.Info
+  worktree?: string
+  source?: "local" | "web"
+}) {
   return iife(async () => {
     const ctx =
       input.project && input.worktree
@@ -41,11 +48,13 @@ function boot(input: { directory: string; init?: () => Promise<any>; project?: P
             directory: input.directory,
             worktree: input.worktree,
             project: input.project,
+            source: input.source ?? "local",
           }
         : await Project.fromDirectory(input.directory).then(({ project, sandbox }) => ({
             directory: input.directory,
             worktree: sandbox,
             project,
+            source: input.source ?? "local",
           }))
     await context.provide(ctx, async () => {
       await input.init?.()
@@ -71,6 +80,7 @@ export const Instance = {
     create?: boolean
     project?: Project.Info
     worktree?: string
+    source?: "local" | "web"
   }): Promise<R> {
     const directory = Filesystem.resolve(input.directory)
     let existing = cache.get(directory)
@@ -83,6 +93,7 @@ export const Instance = {
           init: input.init,
           project: input.project,
           worktree: input.worktree,
+          source: input.source,
         }),
       )
     }
@@ -99,6 +110,7 @@ export const Instance = {
             sandboxes: [],
             time: { created: Date.now(), updated: Date.now() },
           },
+          source: input.source ?? "local",
         }
         return context.provide(browseCtx, async () => input.fn())
       }
@@ -133,6 +145,9 @@ export const Instance = {
   get project() {
     return context.use().project
   },
+  get source() {
+    return context.use().source
+  },
   dirs() {
     return [...cache.keys()]
   },
@@ -160,12 +175,18 @@ export const Instance = {
   state<S>(init: () => S, dispose?: (state: Awaited<S>) => Promise<void>): State.StateFn<S> {
     return State.create(() => Instance.directory, init, dispose)
   },
-  async reload(input: { directory: string; init?: () => Promise<any>; project?: Project.Info; worktree?: string }) {
+  async reload(input: {
+    directory: string
+    init?: () => Promise<any>
+    project?: Project.Info
+    worktree?: string
+    source?: "local" | "web"
+  }) {
     const directory = Filesystem.resolve(input.directory)
     Log.Default.info("reloading instance", { directory })
     await Promise.all([State.dispose(directory), disposeInstance(directory)])
     cache.delete(directory)
-    const next = track(directory, boot({ ...input, directory }))
+    const next = track(directory, boot({ ...input, directory, source: input.source ?? Instance.source }))
     emit(directory)
     return await next
   },
