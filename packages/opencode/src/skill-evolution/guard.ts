@@ -136,7 +136,7 @@ async function collectFiles(dir: string): Promise<string[]> {
   for (const entry of entries) {
     if (entry.name.startsWith(".versions")) continue // skip version snapshots
     const full = path.join(dir, entry.name)
-    if (entry.isDirectory()) {
+    if (entry.isDirectory() && !entry.isSymbolicLink()) {
       result.push(...(await collectFiles(full)))
     } else if (entry.isFile()) {
       result.push(full)
