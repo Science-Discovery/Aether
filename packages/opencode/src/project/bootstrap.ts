@@ -19,8 +19,7 @@ import { DbRecovery } from "@/storage/db-recovery"
 
 export async function InstanceBootstrap() {
   Log.Default.info("bootstrapping", { directory: Instance.directory })
-  const root = Instance.project.worktree === "/" ? Instance.directory : Instance.project.worktree
-  await fs.mkdir(path.join(root, PROJECT), { recursive: true })
+  await fs.mkdir(path.join(Instance.directory, PROJECT), { recursive: true })
   await Plugin.init()
   ShareNext.init()
   Format.init()
