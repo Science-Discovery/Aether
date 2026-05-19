@@ -421,15 +421,6 @@ export namespace Project {
           !result.sandboxes.some((s) => norm(s) === norm(data.sandbox))
         )
           result.sandboxes.push(data.sandbox)
-        result.sandboxes = yield* Effect.forEach(
-          result.sandboxes,
-          (s) =>
-            fsys.exists(s).pipe(
-              Effect.orDie,
-              Effect.map((exists) => (exists ? s : undefined)),
-            ),
-          { concurrency: "unbounded" },
-        ).pipe(Effect.map((arr) => arr.filter((x): x is string => x !== undefined)))
 
         const aliases = [...new Set([directory, data.worktree, data.sandbox].map((dir) => norm(dir)))]
         for (const dir of aliases) {
@@ -479,7 +470,6 @@ export namespace Project {
                 icon_color: result.icon?.color,
                 time_updated: result.time.updated,
                 time_initialized: result.time.initialized,
-                sandboxes: result.sandboxes,
                 commands: result.commands,
               },
             })
