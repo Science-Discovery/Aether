@@ -18,7 +18,7 @@ import { Installation } from "../installation"
 import { Flag } from "../flag/flag"
 import { iife } from "@/util/iife"
 import { init } from "#db"
-import { detectCorruption, quarantine, DbRecovery } from "./db-recovery"
+import { detectCorruption, quarantine, cleanupQuarantinedOriginals, DbRecovery } from "./db-recovery"
 import type { CorruptionType } from "./db-recovery"
 
 declare const OPENCODE_MIGRATIONS: { sql: string; timestamp: number; name: string }[] | undefined
@@ -688,6 +688,8 @@ export namespace Database {
   export function registerUntrackedProjects(db: DrizzleClient) {
     const sqlite = db.$client
 
+    cleanupQuarantinedOriginals()
+
     const recentLookup = new Map<string, any>()
     const recentRows = sqlite.prepare("SELECT * FROM project_recent").all() as any[]
     for (const row of recentRows) {
@@ -707,7 +709,7 @@ export namespace Database {
         const match = pattern.exec(entry)
         if (!match) continue
         const pid = match[1]
-        if (pid === "cron") continue
+        if (pid === "cron" || pid === "memory" || pid === "skill") continue
         existingDbIds.add(pid)
       }
     }
@@ -728,12 +730,15 @@ export namespace Database {
         }
 
         const pSqlite = new BunSqlite(fullPath)
+        let closed = false
         try {
           const projectRow = pSqlite.prepare("SELECT worktree FROM project WHERE id = ?").get(pid) as
             | { worktree: string }
             | undefined
           const sessionCount = (pSqlite.prepare("SELECT COUNT(*) as cnt FROM session").get() as { cnt: number }).cnt
           if (!projectRow && sessionCount === 0) {
+            pSqlite.close()
+            closed = true
             quarantine(fullPath, "project", pid)
             corruptedIds.add(pid)
             log.info("project db has no sessions and no project row, quarantining", { pid })
@@ -759,7 +764,7 @@ export namespace Database {
 
           synced++
         } finally {
-          pSqlite.close()
+          if (!closed) pSqlite.close()
         }
       } catch (err) {
         log.error("failed to process project db, quarantining", { pid, error: String(err) })

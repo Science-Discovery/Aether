@@ -1,6 +1,16 @@
 import z from "zod"
 import path from "path"
-import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync, unlinkSync, writeFileSync } from "fs"
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  renameSync,
+  statSync,
+  unlinkSync,
+  writeFileSync,
+} from "fs"
 import { Database as BunSqlite } from "bun:sqlite"
 import { Global } from "../global"
 import { Log } from "../util/log"
@@ -172,7 +182,10 @@ export function quarantine(dbPath: string, kind: "main" | "project" | "cron", pr
       renameSync(src, qPath + suffix)
     } catch {
       try {
-        unlinkSync(src)
+        copyFileSync(src, qPath + suffix)
+        try {
+          unlinkSync(src)
+        } catch {}
       } catch {}
     }
   }
@@ -199,6 +212,27 @@ export function quarantine(dbPath: string, kind: "main" | "project" | "cron", pr
   appendManifest(entry)
   log.info("quarantined corrupted db", { kind, projectId, corruptionType, qPath })
   return entry
+}
+
+export function cleanupQuarantinedOriginals() {
+  const manifest = readManifest()
+  let cleaned = 0
+  for (const entry of manifest) {
+    if (!existsSync(entry.originalPath)) continue
+    if (!existsSync(entry.quarantinePath)) continue
+    const origSize = statSync(entry.originalPath).size
+    const qSize = statSync(entry.quarantinePath).size
+    if (origSize !== qSize) continue
+    for (const suffix of ["", "-wal", "-shm"]) {
+      const src = entry.originalPath + suffix
+      if (!existsSync(src)) continue
+      try {
+        unlinkSync(src)
+      } catch {}
+    }
+    if (!existsSync(entry.originalPath)) cleaned++
+  }
+  if (cleaned > 0) log.info("cleaned up quarantined originals left on disk", { cleaned })
 }
 
 async function findSqlite3Binary(): Promise<string | null> {
