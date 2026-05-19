@@ -79,7 +79,9 @@ export const SkillManageInput = z.preprocess(
     action: z.enum(["create", "edit", "patch", "write_file", "delete", "history", "rollback"]).describe(
       "Action to perform on a skill",
     ),
-    name: z.string().describe("Skill name (directory name under the skills folder). Required for all actions."),
+    name: z.string()
+      .regex(/^[a-zA-Z0-9_-]+$/, "Skill name must only contain letters, numbers, hyphens, or underscores")
+      .describe("Skill name (directory name under the skills folder). Required for all actions."),
     description: z
       .string()
       .optional()
