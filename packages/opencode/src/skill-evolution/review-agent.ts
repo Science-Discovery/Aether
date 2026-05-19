@@ -214,13 +214,14 @@ export async function spawnReview(input: {
 
     // Run the review agent fire-and-forget inside the skill-sessions Instance context so that
     // Session.get / MessageV2 reads+writes all target the skill-sessions DB.
+    let reviewSessionId: SessionID | undefined
     Instance.provide({
       directory: SKILL_SESSIONS_ROOT,
       create: true,
       fn: async () => {
         const { Session } = await import("@/session")
         const existing = findEvolutionSession(skillProjectId, sessionTitle)
-        const reviewSessionId =
+        reviewSessionId =
           existing ??
           (await Session.createNext({ title: sessionTitle, directory: SKILL_SESSIONS_ROOT })).id
 
@@ -229,19 +230,22 @@ export async function spawnReview(input: {
           sessionTitle,
         })
 
-        // Register skill_manage only for this instance — normal sessions are unaffected.
-        // Use the bound variant so AI-created skills automatically land in the project-level
-        // skill-sessions dir without the model needing to pass sessionProjectId.
-        await ToolRegistry.register(createBoundSkillManageTool(folderName, skillLocationMap))
-        return SessionPrompt.prompt({
-          sessionID: reviewSessionId,
-          parts: [{ type: "text", text: prompt }],
-          tools: {
-            "*": false,
-            skill_manage: true,
-            read: true,
-          },
-        })
+        // Register skill_manage scoped to this review session only, so concurrent
+        // reviews for different projects don't overwrite each other's bound tool.
+        ToolRegistry.registerForSession(reviewSessionId, createBoundSkillManageTool(folderName, skillLocationMap))
+        try {
+          return await SessionPrompt.prompt({
+            sessionID: reviewSessionId,
+            parts: [{ type: "text", text: prompt }],
+            tools: {
+              "*": false,
+              skill_manage: true,
+              read: true,
+            },
+          })
+        } finally {
+          ToolRegistry.unregisterSession(reviewSessionId)
+        }
       },
     }).catch((err) => {
       log.error("review session failed", { error: err, reviewSessionId })

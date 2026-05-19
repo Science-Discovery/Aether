@@ -855,6 +855,29 @@ export namespace SessionPrompt {
       })
     }
 
+    for (const sessionTool of ToolRegistry.getSessionTools(input.session.id)) {
+      const next = await sessionTool.init({ agent: input.agent })
+      const schema = ProviderTransform.schema(input.model, z.toJSONSchema(next.parameters))
+      tools[sessionTool.id] = tool({
+        id: sessionTool.id as any,
+        description: next.description,
+        inputSchema: jsonSchema(schema as any),
+        async execute(args, options) {
+          const ctx = context(args, options)
+          const result = await next.execute(args, ctx)
+          return {
+            ...result,
+            attachments: result.attachments?.map((attachment) => ({
+              ...attachment,
+              id: PartID.ascending(),
+              sessionID: ctx.sessionID,
+              messageID: input.processor.message.id,
+            })),
+          }
+        },
+      })
+    }
+
     for (const [key, item] of Object.entries(await MCP.tools())) {
       const execute = item.execute
       if (!execute) continue
