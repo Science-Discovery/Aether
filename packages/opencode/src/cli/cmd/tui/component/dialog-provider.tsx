@@ -13,16 +13,7 @@ import { DialogModel } from "./dialog-model"
 import { useKeyboard } from "@opentui/solid"
 import { Clipboard } from "@tui/util/clipboard"
 import { useToast } from "../ui/toast"
-
-const PROVIDER_PRIORITY: Record<string, number> = {
-  opencode: 0,
-  "opencode-go": 1,
-  openai: 2,
-  "github-copilot": 3,
-  anthropic: 4,
-  google: 5,
-  maas: 6,
-}
+import { rank } from "./provider-priority"
 
 export function createDialogProviderOptions() {
   const sync = useSync()
@@ -32,7 +23,7 @@ export function createDialogProviderOptions() {
   const options = createMemo(() => {
     return pipe(
       sync.data.provider_next.all,
-      sortBy((x) => PROVIDER_PRIORITY[x.id] ?? 99),
+      sortBy((x) => rank(x.id)),
       map((provider) => ({
         title: provider.name,
         value: provider.id,
@@ -43,7 +34,7 @@ export function createDialogProviderOptions() {
           "opencode-go": "Low cost subscription for everyone",
           maas: "(API key)",
         }[provider.id],
-        category: provider.id in PROVIDER_PRIORITY ? "Popular" : "Other",
+        category: rank(provider.id) < rank("") ? "Popular" : "Other",
         async onSelect() {
           const methods = sync.data.provider_auth[provider.id] ?? [
             {
