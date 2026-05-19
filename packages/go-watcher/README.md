@@ -1,117 +1,109 @@
 # go-watcher
 
-Native watcher sidecar for `packages/opencode/src/file/watcher.ts`.
+Native watcher sidecar for [`packages/opencode/src/file/watcher.ts`](../opencode/src/file/watcher.ts).
 
-This package replaces the Bun child on the Linux worktree watch path with a smaller standalone binary. The TypeScript side keeps ownership of:
+On Linux worktree watches, `packages/opencode` now requires this binary and uses it as the watcher backend. The TypeScript side still owns:
 
-- active-directory gating
-- startup timeout and cooldown
+- subscription timeout and cooldown
+- active-directory leases
+- limited-mode fallback policy
+- watcher-hint driven resync
 - bus event publishing
 - git watcher setup
-- fallback and degradation policy
 
-The Go sidecar only owns recursive directory watching and event delivery.
+The Go sidecar owns directory registration, recursive scanning in full mode, limited watch-set replacement, and event delivery.
 
-## Current status
+## Binary discovery
 
-The current implementation is wired into `packages/opencode/src/file/watcher.ts`.
+`packages/opencode/src/file/watcher.ts` resolves the sidecar in this order:
 
-Linux worktree watcher startup now does this:
+1. `OPENCODE_GO_WATCHER_PATH`
+2. local dev binary at `packages/go-watcher/bin/opencode-watcher`
+3. packaged binary at `dirname(process.execPath)/native/opencode-watcher`
 
-1. try `OPENCODE_GO_WATCHER_PATH`
-2. in local dev, try `packages/go-watcher/bin/opencode-watcher`
-3. in packaged builds, try `dirname(process.execPath)/native/opencode-watcher`
-4. if no Go binary is found, fall back to the older Bun `watcher-child.ts` path
+If no binary is found, the Linux worktree watcher fails. There is no Bun child fallback on the current path.
 
-This means local development can opt into the Go watcher immediately without changing the rest of the watcher lifecycle.
+## Transport
 
-## Goals
+Protocol is newline-delimited JSON over stdio:
 
-- Keep the parent/child protocol minimal and stable.
-- Make Linux worktree watch startup cheaper than a Bun child.
-- Support real subtree ignore semantics.
-- Guarantee that ignored directories are not registered as watchers.
-- Keep shutdown simple: parent kills child, child exits fast.
+- parent writes control messages to `stdin`
+- child writes protocol messages to `stdout`
+- child may write human-readable logs to `stderr`
 
-## Non-goals
+Protocol version is explicit in every message with `"v": 1`.
 
-- No shared long-lived daemon in v1.
-- No config parsing in Go.
-- No active-directory logic in Go.
-- No git-specific watch path in Go.
-- No "best effort" ignore that still registers ignored subtrees.
+## Parent flow
 
-## Protocol v1
+Full mode:
 
-Transport:
-
-- parent writes one JSON line to child `stdin`
-- child writes JSON lines to `stdout`
-- child writes human-readable logs to `stderr`
-- protocol version is explicit
-
-Parent startup flow:
-
-1. spawn binary
-2. write one `start` message
+1. spawn the sidecar
+2. send one `start` message with `mode: "full"`
 3. wait for `ready`
 4. stream `event`
-5. kill process on timeout, unsubscribe, or parent shutdown
+5. kill the process on unsubscribe or shutdown
 
-Child shutdown flow:
+Limited mode:
 
-- `SIGTERM` or `SIGINT` triggers cleanup and exit
-- no separate `stop` message in v1
+1. spawn the sidecar after full subscribe times out or fails
+2. send one `start` message with `mode: "limited"` and initial `dirs`
+3. wait for `ready`
+4. send `sync` messages whenever watcher hints change
+5. stream `event`
+6. kill the process on unsubscribe or shutdown
 
-## Input
+There is no separate `stop` message.
 
-The parent sends exactly one message:
+## Messages
+
+### `start`
+
+Sent exactly once after spawn.
 
 ```json
 {
   "v": 1,
   "type": "start",
   "root": "/abs/project/path",
-  "ignore": [
-    "node_modules",
-    "**/node_modules",
-    "**/node_modules/**",
-    ".git",
-    "**/.git",
-    "**/.git/**"
-  ],
-  "filter": [
-    "Thumbs.db",
-    "*.log",
-    "logs/**"
-  ]
+  "ignore": ["**/{node_modules,.git}/**", "**/{node_modules,.git}"],
+  "filter": ["**/*.log", "Thumbs.db"],
+  "mode": "full",
+  "dirs": []
 }
 ```
 
 Rules:
 
 - `root` must be absolute.
-- `ignore` is interpreted relative to `root` and is used for pre-registration subtree pruning.
-- `filter` is interpreted relative to `root` for path globs, and patterns without `/` are matched against the basename before events are emitted.
-- glob syntax is handled by `github.com/bmatcuk/doublestar/v4`.
-- watcher ignores should use explicit patterns such as `**/{node_modules,dist,.git}` when they mean "match this directory name at any depth".
-- the child may reject unsupported patterns instead of silently weakening semantics.
+- `ignore` is used for watcher-registration pruning.
+- `filter` only suppresses emitted events.
+- `mode` is `"full"` or `"limited"`. Empty mode is treated as `"full"` by the decoder.
+- `dirs` matters only in limited mode.
 
-### Important note about brace globs
+### `sync`
 
-The current repo-level `FileIgnore.WATCH` value is a brace glob like:
+Sent only after `ready`, and only for limited mode.
 
-```txt
-**/{node_modules,bower_components,...,.gradle}
+```json
+{
+  "v": 1,
+  "type": "sync",
+  "dirs": ["src", "src/components", "/abs/project/path/docs"]
+}
 ```
 
-The Go matcher passes this through to `doublestar`, so the TypeScript launcher can send the watcher ignore pattern unchanged.
+Rules:
 
-## Output
+- relative entries are resolved against `root`
+- paths outside `root` are rejected
+- missing paths and non-directories are skipped
+- ignored directories are skipped and counted in `ignored`
+- each sync replaces the current limited watch set
+- limited mode is non-recursive: the sidecar watches the listed directories themselves, not their full subtrees
 
 ### `ready`
 
-Emitted only after the initial crawl and watcher registration are complete.
+Emitted after startup work completes.
 
 ```json
 {
@@ -124,8 +116,9 @@ Emitted only after the initial crawl and watcher registration are complete.
 
 Meaning:
 
-- `watched` is the real number of registered directories
-- `ignored` is the number of directories skipped during initial crawl
+- in full mode, `watched` is the number of registered directories after the initial recursive scan
+- in limited mode, `watched` is the number of currently watched hint directories after the first `Sync`
+- `ignored` is the number of directories skipped during that startup pass
 
 ### `event`
 
@@ -142,11 +135,13 @@ Rules:
 
 - `path` is absolute
 - `event` is one of `add`, `change`, `unlink`
-- parent keeps the existing TS mapping to bus events
+- `fsnotify.Remove` and `fsnotify.Rename` both map to `unlink`
+- `fsnotify.Write` and `fsnotify.Chmod` both map to `change`
+- TypeScript maps these to Parcel-style `create` / `update` / `delete` before publishing `file.watcher.updated`
 
 ### `error`
 
-Fatal startup or runtime errors:
+Fatal startup failure:
 
 ```json
 {
@@ -154,125 +149,97 @@ Fatal startup or runtime errors:
   "type": "error",
   "stage": "start",
   "fatal": true,
-  "error": "failed to add watcher for /abs/project/path/foo: no space left on device"
+  "error": "add watch /abs/project/path/foo: no space left on device"
 }
 ```
 
-Non-fatal runtime warnings are allowed too:
+Non-fatal runtime error:
 
 ```json
 {
   "v": 1,
   "type": "error",
-  "stage": "event",
+  "stage": "sync",
   "fatal": false,
-  "error": "rename event dropped for transient path /abs/project/path/tmp"
+  "error": "watch dir escapes root: ../tmp"
 }
 ```
 
-Stage values in v1:
+Known stages in the current implementation:
 
 - `decode`
 - `start`
-- `watch`
+- `sync`
 - `event`
-- `shutdown`
 
-## Required ignore semantics
+Before `ready`, an `error` rejects startup. After `ready`, TypeScript logs the error and forwards it through the watcher callback.
 
-This is the most important contract in v1.
+## Ignore vs filter
 
-`ignore` must apply before recursive watcher registration, not only after events are received.
+This split is the main contract.
 
-If a directory is ignored:
+`ignore` applies before watcher registration:
 
-- do not call `Add` on that directory
-- do not recurse into that directory during the initial crawl
-- do not add watchers for later children created under that ignored subtree
-- do not emit events for paths under that subtree
+- full mode skips ignored subtrees during `filepath.WalkDir`
+- full mode never calls `Add()` on ignored directories
+- later-created ignored directories are not recursively scanned
+- limited mode refuses to watch ignored hint directories
 
-Examples:
+`filter` applies after fs events are received:
 
-- if `root/node_modules` matches ignore, `root/node_modules` itself must not be watched
-- if `root/packages/a/node_modules` matches ignore, that subtree must also be skipped before registration
-- if an ignored directory is created later, the parent directory may emit one create event, but the child must not descend and register watchers beneath it
+- matching paths do not emit protocol `event` messages
+- filtering does not reduce watcher count
 
-This is stricter than "filter matching events". Filtering after registration does not solve watch-count pressure.
+If you need to reduce inotify pressure, change `ignore`, not `filter`.
 
-## Actual implementation
+## Current implementation shape
 
-The current watcher is a thin recursive layer built on top of `github.com/fsnotify/fsnotify`.
-
-It does not use a library-managed recursive watcher.
-
-Current shape:
+The sidecar is intentionally small:
 
 - one `fsnotify.Watcher`
-- one explicit initial crawl with `filepath.WalkDir`
-- one matcher compiled from the incoming ignore list
-- one `dirs` map for registered directories
-- on directory create: `os.Stat()` the path, and if it is a directory, re-run the same recursive `Scan()` path before adding deeper watchers
+- one startup decoder reading NDJSON from `stdin`
+- one `Matcher` for ignore
+- one `Matcher` for filter
+- one `dirs` map tracking active directory watches
 
-This keeps the crucial control point in our code:
+Full mode:
 
-- ignore is checked before `Add()`
-- ignored subtrees are skipped with `filepath.SkipDir`
-- later-created ignored directories are also denied recursive registration
+- runs `Scan(root, match, add)` once at startup
+- recursively registers directories
+- on later directory create, runs `Scan(item, match, add)` again for that subtree
 
-This is why the current implementation chose `fsnotify` instead of direct `inotify` syscalls or a higher-level recursive wrapper.
+Limited mode:
 
-## Matching rules
+- skips recursive startup scan
+- applies `Sync(dirs)` at startup and on every later `sync`
+- removes watches not present in the newest hint set
 
-The parent TS side already expands ignore rules for watcher setup. Go should preserve those semantics rather than inventing a new ignore language.
+## Matching notes
 
-Current matcher behavior:
+Matching is root-relative and slash-normalized before glob evaluation.
 
-- root-relative paths are slash-normalized before matching
-- plain directory-name forms still have dedicated fast-path handling
-- generic glob matching uses `github.com/bmatcuk/doublestar/v4`
-- matching is case-sensitive on Linux
-- paths outside `root` are rejected during normalization
+Current matcher policy:
 
-Matcher policy:
+- preserve the ignore/filter semantics sent by TypeScript
+- keep ignore strong enough to prevent unwanted watcher registration
+- reject bad input rather than silently broadening watch coverage
 
-1. preserve the current watcher ignore forms used by this repo
-2. keep ignored-subtree pruning correct
-3. reject ambiguous or unsupported input rather than silently broadening watcher coverage
-
-Do not silently broaden watcher coverage.
+The matcher uses `github.com/bmatcuk/doublestar/v4`. Keep call-site patterns explicit and aligned with `packages/opencode/src/file/ignore.ts`.
 
 ## Local development
 
-Build the local binary:
+Build the local sidecar with:
 
 ```bash
-cd /mnt/data/Documents/opencode/packages/go-watcher
-mkdir -p bin
 go build -o bin/opencode-watcher ./cmd/opencode-watcher
 ```
 
-After that, the normal app development flow will pick it up automatically.
-
-You can also override the binary path explicitly:
+Useful verification commands:
 
 ```bash
-OPENCODE_GO_WATCHER_PATH=/abs/path/to/opencode-watcher
-```
-
-If the binary is missing, TypeScript falls back to the Bun child implementation.
-
-## Verification
-
-Current useful checks:
-
-```bash
-cd /mnt/data/Documents/opencode/packages/go-watcher
 go test ./...
 ```
 
 ```bash
-cd /mnt/data/Documents/opencode/packages/opencode
-bun test test/file/watcher.test.ts
+cd ../opencode && bun typecheck
 ```
-
-The watcher test suite passing locally is the main confirmation that the Go sidecar and TS bridge are working together on the dev path.
