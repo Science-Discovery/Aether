@@ -156,7 +156,7 @@ export function quarantine(dbPath: string, kind: "main" | "project" | "cron", pr
   const recent = readManifest().find(
     (e) => e.originalPath === dbPath && Date.now() - e.timestamp < QUARANTINE_COOLDOWN_MS,
   )
-  if (recent) return recent
+  if (recent && !existsSync(dbPath)) return recent
 
   mkdirSync(corruptDir(), { recursive: true })
 

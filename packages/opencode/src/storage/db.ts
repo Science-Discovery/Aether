@@ -728,12 +728,15 @@ export namespace Database {
         }
 
         const pSqlite = new BunSqlite(fullPath)
+        let closed = false
         try {
           const projectRow = pSqlite.prepare("SELECT worktree FROM project WHERE id = ?").get(pid) as
             | { worktree: string }
             | undefined
           const sessionCount = (pSqlite.prepare("SELECT COUNT(*) as cnt FROM session").get() as { cnt: number }).cnt
           if (!projectRow && sessionCount === 0) {
+            pSqlite.close()
+            closed = true
             quarantine(fullPath, "project", pid)
             corruptedIds.add(pid)
             log.info("project db has no sessions and no project row, quarantining", { pid })
@@ -759,7 +762,7 @@ export namespace Database {
 
           synced++
         } finally {
-          pSqlite.close()
+          if (!closed) pSqlite.close()
         }
       } catch (err) {
         log.error("failed to process project db, quarantining", { pid, error: String(err) })
