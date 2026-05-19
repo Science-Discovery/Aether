@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs"
+import { readFileSync, readdirSync } from "node:fs"
 import solidPlugin from "vite-plugin-solid"
 import tailwindcss from "@tailwindcss/vite"
 import { fileURLToPath } from "url"
@@ -12,11 +12,35 @@ function readServePort() {
     join(homedir(), ".local", "share"),
     join(homedir(), "Library", "Application Support"),
   ].filter((x) => typeof x === "string" && x.length > 0)
+  const channel = process.env.VITE_OPENCODE_CHANNEL || "local"
   for (const dir of dirs) {
-    const file = join(dir, "aether", "serve-port")
+    const chDir = join(dir, "aether", channel)
+    const file = join(chDir, "serve-port")
     try {
       const port = readFileSync(file, "utf-8").trim()
       if (port) return port
+    } catch {}
+  }
+  for (const dir of dirs) {
+    try {
+      const aetherDir = join(dir, "aether")
+      const entries = readdirSync(aetherDir, { withFileTypes: true }).filter((e) => e.isDirectory())
+      const sorted = entries.sort((a, b) => {
+        if (a.name === channel) return -1
+        if (b.name === channel) return 1
+        return 0
+      })
+      for (const entry of sorted) {
+        const file = join(aetherDir, entry.name, "serve-port")
+        try {
+          const port = readFileSync(file, "utf-8").trim()
+          if (port) {
+            if (entry.name !== channel)
+              console.warn(`[aether] fallback: channel "${channel}" not found, using "${entry.name}"`)
+            return port
+          }
+        } catch {}
+      }
     } catch {}
   }
   return undefined

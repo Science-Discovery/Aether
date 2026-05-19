@@ -6,6 +6,7 @@ import { Flag } from "../../flag/flag"
 import open from "open"
 import { networkInterfaces } from "os"
 import { Global } from "../../global"
+import { Database } from "../../storage/db"
 import nodePath from "path"
 import { Lease } from "../../server/lease"
 import { Instance } from "../../project/instance"
@@ -101,7 +102,7 @@ export const WebCommand = cmd({
         }
       }, 1_000)
     }
-    const portfile = nodePath.join(Global.Path.data, "serve-port")
+    const portfile = nodePath.join(Database.ensureChannelDir(), "serve-port")
     await Bun.write(portfile, String(server.port))
     UI.empty()
     UI.println(UI.logo("  "))

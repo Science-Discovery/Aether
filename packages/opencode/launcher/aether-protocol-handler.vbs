@@ -3,7 +3,7 @@ Dim fso, scriptDir, portFile, port, wsh, url
 Set fso = CreateObject("Scripting.FileSystemObject")
 scriptDir = fso.GetParentFolderName(WScript.ScriptFullName)
 
-portFile = CreateObject("WScript.Shell").ExpandEnvironmentStrings("%APPDATA%") & "\aether\serve-port"
+portFile = CreateObject("WScript.Shell").ExpandEnvironmentStrings("%APPDATA%") & "\aether\__AETHER_CHANNEL__\serve-port"
 port = ""
 
 If fso.FileExists(portFile) Then
