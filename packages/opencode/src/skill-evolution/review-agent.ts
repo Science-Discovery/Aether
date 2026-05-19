@@ -17,6 +17,11 @@ const log = Log.create({ service: "skill-evolution.review-agent" })
 /** Directory treated as the skill-sessions project root. */
 const SKILL_SESSIONS_ROOT = path.join(Global.Path.home, ".aether", "skill-sessions")
 
+/** Projects with a review currently running, keyed by folderName. */
+const runningReviews = new Set<string>()
+/** Latest pending input per project, keyed by folderName. Overwritten on each new trigger. */
+const pendingReviews = new Map<string, { sessionID: SessionID; projectId: string; projectDirectory?: string }>()
+
 /** Maximum number of review rounds (user messages) per evolution session before rolling over. */
 const MAX_REVIEW_ROUNDS = 20
 
@@ -163,11 +168,17 @@ export async function spawnReview(input: {
   projectId: string
   projectDirectory?: string
 }): Promise<void> {
-  try {
-    const folderName = input.projectDirectory
-      ? Spawner.skillFolderName(input.projectDirectory, input.projectId)
-      : input.projectId
+  const folderName = input.projectDirectory
+    ? Spawner.skillFolderName(input.projectDirectory, input.projectId)
+    : input.projectId
 
+  if (runningReviews.has(folderName)) {
+    pendingReviews.set(folderName, input)
+    return
+  }
+  runningReviews.add(folderName)
+
+  try {
     // Read messages here (deferred) so callers don't pay the DB cost on every session end
     const { MessageV2 } = await import("@/session/message-v2")
     const rawMessages = await MessageV2.filterCompacted(MessageV2.stream(input.sessionID))
@@ -209,7 +220,7 @@ export async function spawnReview(input: {
       }
     }
 
-    const sessionTitle = path.basename(Instance.directory)
+    const sessionTitle = folderName
 
     log.info("spawning skill evolution review", {
       parentSessionID: input.sessionID,
@@ -256,8 +267,16 @@ export async function spawnReview(input: {
       },
     }).catch((err) => {
       log.error("review session failed", { error: err, reviewSessionId })
+    }).finally(() => {
+      runningReviews.delete(folderName)
+      const pending = pendingReviews.get(folderName)
+      if (pending) {
+        pendingReviews.delete(folderName)
+        spawnReview(pending)
+      }
     })
   } catch (err) {
+    runningReviews.delete(folderName)
     log.error("failed to spawn review session", { error: err, sessionID: input.sessionID })
   }
 }
