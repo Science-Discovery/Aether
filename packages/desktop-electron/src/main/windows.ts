@@ -66,7 +66,7 @@ export function createMainWindow(globals: Globals) {
     width: state.width,
     height: state.height,
     show: true,
-    title: app.getName(),
+    title: "Aether Desktop",
     icon: iconPath(),
     backgroundColor,
     ...(process.platform === "darwin"
