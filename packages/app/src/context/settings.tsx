@@ -60,7 +60,7 @@ const defaultSettings: Settings = {
     branchesTab: true,
     branchGraphCompact: false,
     branchGraphFontSize: "lg",
-    branchGraphRowDensity: "compact",
+    branchGraphRowDensity: "xcompact",
     branchGraphOrderMode: "time",
     showReasoningSummaries: false,
     shellToolPartsExpanded: true,
