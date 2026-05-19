@@ -270,5 +270,9 @@ export async function spawnReview(input: {
 }
 
 export function isReviewSession(): boolean {
-  return Instance.directory === Filesystem.resolve(SKILL_SESSIONS_ROOT)
+  try {
+    return Instance.directory === Filesystem.resolve(SKILL_SESSIONS_ROOT)
+  } catch {
+    return false
+  }
 }

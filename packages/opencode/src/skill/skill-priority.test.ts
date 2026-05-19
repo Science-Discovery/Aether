@@ -7,6 +7,7 @@ import { ProjectID } from "@/project/schema"
 import { Skill } from "./index"
 import { Global } from "@/global"
 import { Config } from "@/config/config"
+import { Spawner } from "@/skill-evolution/spawner"
 
 // Write a minimal SKILL.md for testing
 async function writeSkill(dir: string, name: string, description: string) {
@@ -112,10 +113,9 @@ describe("skill/loadSkills priority ordering", () => {
     await fs.mkdir(worktree, { recursive: true })
 
     const projectId = String(ProjectID.fromDirectory(worktree))
-    const home = process.env.OPENCODE_TEST_HOME!
 
     await writeSkill(
-      path.join(home, ".aether", "skill-sessions", projectId, "skills", "analyze"),
+      path.join(Spawner.skillSessionsDir(Spawner.skillFolderName(worktree, projectId)), "analyze"),
       "analyze",
       "session-only",
     )
