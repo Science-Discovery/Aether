@@ -18,7 +18,7 @@ import { Installation } from "../installation"
 import { Flag } from "../flag/flag"
 import { iife } from "@/util/iife"
 import { init } from "#db"
-import { detectCorruption, quarantine, DbRecovery } from "./db-recovery"
+import { detectCorruption, quarantine, cleanupQuarantinedOriginals, DbRecovery } from "./db-recovery"
 import type { CorruptionType } from "./db-recovery"
 
 declare const OPENCODE_MIGRATIONS: { sql: string; timestamp: number; name: string }[] | undefined
@@ -688,6 +688,8 @@ export namespace Database {
   export function registerUntrackedProjects(db: DrizzleClient) {
     const sqlite = db.$client
 
+    cleanupQuarantinedOriginals()
+
     const recentLookup = new Map<string, any>()
     const recentRows = sqlite.prepare("SELECT * FROM project_recent").all() as any[]
     for (const row of recentRows) {
@@ -707,7 +709,7 @@ export namespace Database {
         const match = pattern.exec(entry)
         if (!match) continue
         const pid = match[1]
-        if (pid === "cron") continue
+        if (pid === "cron" || pid === "memory" || pid === "skill") continue
         existingDbIds.add(pid)
       }
     }
