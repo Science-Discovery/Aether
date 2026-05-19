@@ -376,6 +376,7 @@ export namespace FileWatcher {
             }
 
             const limitedChild = async (reason?: "timeout" | "error") => {
+              if (process.platform !== "linux") return
               degraded = true
               if (reason) {
                 await Effect.runPromise(limited(Instance.directory, reason))
