@@ -389,7 +389,7 @@ export function DialogConnectProvider(props: { provider: string }) {
     const cfg = globalSync.data.config.provider?.[props.provider]
     const initURL = (cfg?.options?.["baseURL"] as string) ?? ""
     const hasKey = !!(provider() as unknown as { key?: string })?.key
-    const maas = provider().id === "maas"
+    const maas = provider().id === "tatu-maas"
 
     const [form, setForm] = createStore({
       apiKey: hasKey ? MASKED : "",

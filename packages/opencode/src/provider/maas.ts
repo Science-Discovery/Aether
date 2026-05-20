@@ -103,8 +103,8 @@ function reasoning(card: Card, caps: Set<string>) {
 
 export namespace MaaS {
   export const provider: ModelsDev.Provider = {
-    id: "maas",
-    name: "MaaS",
+    id: "tatu-maas",
+    name: "TATU MaaS",
     env: ["MAAS_API_KEY"],
     api: `${url}/v1`,
     npm: "@ai-sdk/openai-compatible",

@@ -16,7 +16,7 @@ export const ProviderIcon: Component<ProviderIconProps> = (props) => {
     [local.class ?? ""]: !!local.class,
   })
 
-  if (local.id === "maas") {
+  if (local.id === "tatu-maas") {
     return (
       <svg data-component="provider-icon" {...rest} classList={classes()}>
         <image href={maas} width="100%" height="100%" preserveAspectRatio="xMidYMid meet" />

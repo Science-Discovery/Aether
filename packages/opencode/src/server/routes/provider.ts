@@ -94,7 +94,7 @@ const KNOWN_PROVIDERS = new Set([
   "llmgateway",
   "lmstudio",
   "lucidquery",
-  "maas",
+  "tatu-maas",
   "meganova",
   "minimax",
   "minimax-cn",

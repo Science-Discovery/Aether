@@ -32,7 +32,7 @@ export function createDialogProviderOptions() {
           anthropic: "(API key)",
           openai: "(ChatGPT Plus/Pro or API key)",
           "opencode-go": "Low cost subscription for everyone",
-          maas: "(API key)",
+          "tatu-maas": "(API key)",
         }[provider.id],
         category: rank(provider.id) < rank("") ? "Popular" : "Other",
         async onSelect() {

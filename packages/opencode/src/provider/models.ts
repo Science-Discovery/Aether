@@ -103,7 +103,7 @@ export namespace ModelsDev {
     const result = (await Data()) as Record<string, Provider>
     return {
       ...result,
-      maas: MaaS.provider,
+      "tatu-maas": MaaS.provider,
     }
   }
 

@@ -258,7 +258,7 @@ export namespace Provider {
         options: {},
       }
     },
-    maas: async () => {
+    "tatu-maas": async () => {
       return {
         autoload: false,
         async getModel(sdk, id, opts) {

@@ -85,7 +85,7 @@ test("opencode public provider is connected without saved auth", async () => {
   })
 })
 
-test("maas provider is available with generated chat models", async () => {
+test("TATU MaaS provider is available with generated chat models", async () => {
   await using tmp = await tmpdir({
     init: async (dir) => {
       await Bun.write(
@@ -93,7 +93,7 @@ test("maas provider is available with generated chat models", async () => {
         JSON.stringify({
           $schema: "https://opencode.ai/config.json",
           provider: {
-            maas: {
+            "tatu-maas": {
               options: {
                 apiKey: "test-api-key",
               },
@@ -107,9 +107,9 @@ test("maas provider is available with generated chat models", async () => {
     directory: tmp.path,
     fn: async () => {
       const providers = await Provider.list()
-      const maas = providers[ProviderID.make("maas")]
+      const maas = providers[ProviderID.make("tatu-maas")]
       expect(maas).toBeDefined()
-      expect(maas.name).toBe("MaaS")
+      expect(maas.name).toBe("TATU MaaS")
       expect(maas.env).toEqual(["MAAS_API_KEY"])
       expect(Object.keys(maas.models)).toHaveLength(27)
       expect(maas.models["batch-test-model"]).toBeUndefined()
@@ -120,7 +120,7 @@ test("maas provider is available with generated chat models", async () => {
   })
 })
 
-test("maas env key connects provider", async () => {
+test("TATU MaaS env key connects provider", async () => {
   await using tmp = await tmpdir({
     init: async (dir) => {
       await Bun.write(
@@ -138,12 +138,12 @@ test("maas env key connects provider", async () => {
     },
     fn: async () => {
       const connected = await Provider.connected()
-      expect(connected).toContain(ProviderID.make("maas"))
+      expect(connected).toContain(ProviderID.make("tatu-maas"))
     },
   })
 })
 
-test("maas models choose protocol and aggregate metadata", async () => {
+test("TATU MaaS models choose protocol and aggregate metadata", async () => {
   await using tmp = await tmpdir({
     init: async (dir) => {
       await Bun.write(
@@ -151,7 +151,7 @@ test("maas models choose protocol and aggregate metadata", async () => {
         JSON.stringify({
           $schema: "https://opencode.ai/config.json",
           provider: {
-            maas: {
+            "tatu-maas": {
               options: {
                 apiKey: "test-api-key",
               },
@@ -165,7 +165,7 @@ test("maas models choose protocol and aggregate metadata", async () => {
     directory: tmp.path,
     fn: async () => {
       const providers = await Provider.list()
-      const maas = providers[ProviderID.make("maas")]
+      const maas = providers[ProviderID.make("tatu-maas")]
 
       const qwen = maas.models["qwen3.5-122b-a10b"]
       expect(qwen.api.npm).toBe("@ai-sdk/openai")

@@ -20,7 +20,7 @@ export const DialogSelectProvider: Component = () => {
   const otherGroup = () => language.t("dialog.provider.group.other")
   const customLabel = () => language.t("settings.providers.tag.custom")
   const note = (id: string) => {
-    if (id === "maas") return language.t("dialog.provider.maas.note")
+    if (id === "tatu-maas") return language.t("dialog.provider.maas.note")
     if (id === "anthropic") return language.t("dialog.provider.anthropic.note")
     if (id === "openai") return language.t("dialog.provider.openai.note")
     if (id.startsWith("github-copilot")) return language.t("dialog.provider.copilot.note")
@@ -75,7 +75,7 @@ export const DialogSelectProvider: Component = () => {
             <Show when={i.id === "opencode"}>
               <Tag>{language.t("dialog.provider.tag.recommended")}</Tag>
             </Show>
-            <Show when={i.id === "maas"}>
+            <Show when={i.id === "tatu-maas"}>
               <Tag>{language.t("dialog.provider.tag.recommended")}</Tag>
               <Tag>{language.t("dialog.provider.tag.educationResearchDiscount")}</Tag>
             </Show>
