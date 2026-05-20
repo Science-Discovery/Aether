@@ -280,8 +280,6 @@ export namespace Worktree {
           Instance.provide({
             directory: info.directory,
             init: InstanceBootstrap,
-            project: Instance.project,
-            worktree: Instance.worktree,
             fn: () => undefined,
           })
             .then(() => true)
