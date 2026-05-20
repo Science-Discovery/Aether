@@ -240,7 +240,7 @@ exit /b 1
 :restart
 call :stop_runtime
 timeout /t 1 /nobreak >nul
-set "AETHER_WEB_OPEN_FALLBACK_MS=1000"
+set "AETHER_WEB_OPEN_FALLBACK_MS=3000"
 start "" "%START%\Aether.vbs"
 exit /b 0
 

@@ -42,7 +42,7 @@ function browserOpenFallbackMs() {
   if (!raw) return
   const parsed = Number.parseInt(raw, 10)
   if (!Number.isFinite(parsed) || parsed < 0) return
-  return Math.min(parsed, 3_000)
+  return Math.min(parsed, 5_000)
 }
 
 async function openBrowserWithFallback(input: { url: string; server: unknown; sse: () => number }) {
