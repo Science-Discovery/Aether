@@ -19,6 +19,8 @@ import { AppFileSystem } from "@/filesystem"
 import * as CrossSpawnSpawner from "@/effect/cross-spawn-spawner"
 import { existsSync } from "fs"
 import { Database as BunSqlite } from "bun:sqlite"
+import nodePath from "path"
+import os from "os"
 import { ProjectIdentity } from "./identity"
 
 export namespace Project {
@@ -252,6 +254,11 @@ export namespace Project {
       directory: string
       name?: string
       icon?: { url?: string; color?: string }
+    }) => Effect.Effect<void>
+    readonly updateWorkspaceName: (input: {
+      projectID: ProjectID
+      directory: string
+      name?: string
     }) => Effect.Effect<void>
     readonly initGit: (input: { directory: string; project: Info }) => Effect.Effect<Info>
     readonly setInitialized: (id: ProjectID) => Effect.Effect<void>
@@ -624,6 +631,28 @@ export namespace Project {
         )
         if (!result) throw new Error(`Project not found: ${input.projectID}`)
         const data = fromRow(result)
+
+        const needsRecentSync = input.name !== undefined || input.icon
+        if (needsRecentSync) {
+          const recentSet = {
+            ...(input.name !== undefined ? { name: input.name } : {}),
+            ...(input.icon ? { icon_url: input.icon.url, icon_color: input.icon.color } : {}),
+            time_updated: Date.now(),
+          }
+          const metaSet = {
+            ...(input.name !== undefined ? { name: input.name } : {}),
+            ...(input.icon ? { icon_url: input.icon.url, icon_color: input.icon.color } : {}),
+            time_updated: Date.now(),
+          }
+          yield* db((d) =>
+            d.update(ProjectRecentTable).set(recentSet).where(eq(ProjectRecentTable.project_id, input.projectID)).run(),
+          )
+          yield* dbProject(input.projectID, (d) =>
+            d.update(DirectoryMetaTable).set(metaSet).where(eq(DirectoryMetaTable.directory, data.worktree)).run(),
+          )
+          yield* emitRecentUpdated
+        }
+
         yield* emitUpdated(data)
         return data
       })
@@ -693,6 +722,33 @@ export namespace Project {
         yield* emitUpdated(fromRow(result))
       })
 
+      const updateWorkspaceName = Effect.fn("Project.updateWorkspaceName")(function* (input: {
+        projectID: ProjectID
+        directory: string
+        name?: string
+      }) {
+        yield* dbProject(input.projectID, (d) =>
+          d
+            .update(DirectoryMetaTable)
+            .set({ name: input.name ?? null, time_updated: Date.now() })
+            .where(eq(DirectoryMetaTable.directory, nodePath.normalize(input.directory.replace(/^~/, os.homedir()))))
+            .run(),
+        )
+        const projectRow = yield* dbProject(input.projectID, (d) =>
+          d.select().from(ProjectTable).where(eq(ProjectTable.id, input.projectID)).get(),
+        )
+        if (projectRow && norm(input.directory) === norm(projectRow.worktree)) {
+          yield* db((d) =>
+            d
+              .update(ProjectRecentTable)
+              .set({ name: input.name ?? name(input.directory), time_updated: Date.now() })
+              .where(eq(ProjectRecentTable.project_id, input.projectID))
+              .run(),
+          )
+          yield* emitRecentUpdated
+        }
+      })
+
       const updateDirectoryMeta = Effect.fn("Project.updateDirectoryMeta")(function* (input: {
         directory: string
         name?: string
@@ -739,6 +795,7 @@ export namespace Project {
         recent: recentList,
         get,
         update,
+        updateWorkspaceName,
         updateDirectoryMeta,
         initGit,
         setInitialized,
@@ -808,6 +865,10 @@ export namespace Project {
     icon?: { url?: string; color?: string }
   }) {
     return runPromise((svc) => svc.updateDirectoryMeta(input))
+  }
+
+  export function updateWorkspaceName(input: { projectID: ProjectID; directory: string; name?: string }) {
+    return runPromise((svc) => svc.updateWorkspaceName(input))
   }
 
   export function sandboxes(id: ProjectID) {

@@ -1665,19 +1665,47 @@ export default function Layout(props: ParentProps) {
   async function renameProject(project: LocalProject, next: string) {
     const current = displayName(project)
     if (next === current) return
-    const name = next === getFilename(project.worktree) ? "" : next
+    const isDefault = next === getFilename(project.worktree)
+    const name = isDefault ? "" : next
 
-    globalSync.project.meta(project.worktree, { name })
+    globalSync.project.meta(project.worktree, { name: isDefault ? getFilename(project.worktree) : next })
 
     globalSDK.client.project
       .updateDirectoryMeta({ body_directory: project.worktree, name: name || undefined })
       .catch(() => {})
+
+    const pid =
+      project.id && project.id !== "global"
+        ? project.id
+        : globalSync.child(project.worktree, { bootstrap: false })[0].project ||
+          globalSync.project.recentFromDir(project.worktree)?.projectID
+    const body = JSON.stringify({ name: name || undefined })
+    if (pid) {
+      fetch(`${globalSDK.url}/project/${pid}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body,
+      }).catch(() => {})
+    }
   }
 
   const renameWorkspace = (directory: string, next: string, projectId?: string, branch?: string) => {
     const current = workspaceName(directory, projectId, branch) ?? branch ?? getFilename(directory)
     if (current === next) return
-    setWorkspaceName(directory, next, projectId, branch)
+
+    globalSync.project.meta(directory, { name: next })
+
+    const pid =
+      projectId ??
+      globalSync.child(directory, { bootstrap: false })[0].project ??
+      globalSync.project.list().find((p) => p.worktree === directory || p.sandboxes?.includes(directory))?.id
+    const body: Record<string, unknown> = { directory, name: next }
+    if (pid) body.projectID = pid
+    fetch(`${globalSDK.url}/project-workspace-name`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }).catch(() => {})
   }
 
   const renameBranch = async (directory: string, newName: string, projectId?: string) => {

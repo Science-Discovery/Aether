@@ -117,14 +117,21 @@ export function DialogEditProject(props: { project: LocalProject }) {
         })
         .catch(() => {})
 
-      const hasProjectID = props.project.id && !props.project.id.startsWith("dir:")
-      if (hasProjectID && start) {
-        globalSDK.client.project
-          .update({
-            projectID: props.project.id!,
-            commands: { start },
-          })
-          .catch(() => {})
+      const pid =
+        props.project.id && !props.project.id.startsWith("dir:")
+          ? props.project.id
+          : globalSync.child(props.project.worktree, { bootstrap: false })[0].project ||
+            globalSync.project.recentFromDir(props.project.worktree)?.projectID
+      if (pid) {
+        fetch(`${globalSDK.url}/project/${pid}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            name: name || undefined,
+            icon,
+            commands: { start: start || undefined },
+          }),
+        }).catch(() => {})
       }
     },
   }))
