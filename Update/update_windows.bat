@@ -9,7 +9,7 @@ if defined LOCALAPPDATA (
 )
 if defined AETHER_DEBUG_LOG (
   set "DEBUG_LOG=%AETHER_DEBUG_LOG%"
-  for %%i in ("%DEBUG_LOG%\..") do set "DEBUG_DIR=%%~fi"
+  for %%i in ("%DEBUG_LOG%") do set "DEBUG_DIR=%%~dpi"
 ) else (
   for /f "usebackq delims=" %%t in (`powershell -NoProfile -Command "Get-Date -Format 'yyyyMMdd_HHmmss'"`) do set "DEBUG_TS=%%t"
   if not defined DEBUG_TS set "DEBUG_TS=%RANDOM%%RANDOM%"
@@ -401,7 +401,7 @@ setlocal DisableDelayedExpansion
 set "LOG=%DEBUG_LOG%"
 set "DIR=%DEBUG_DIR%"
 set "MSG=%~1"
-if not defined DIR for %%i in ("%LOG%\..") do set "DIR=%%~fi"
+if not defined DIR for %%i in ("%LOG%") do set "DIR=%%~dpi"
 if not exist "%DIR%" mkdir "%DIR%" >nul 2>nul
 set "STAMP=%DATE% %TIME: =0%"
 setlocal EnableDelayedExpansion
