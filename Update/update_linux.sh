@@ -610,10 +610,10 @@ boot() {
   local app="$1/Aether.sh"
   [ -x "$app" ] || return 1
   if command -v setsid >/dev/null 2>&1; then
-    setsid "$app" >/dev/null 2>&1 < /dev/null &
+    AETHER_WEB_OPEN_FALLBACK_MS="${AETHER_WEB_OPEN_FALLBACK_MS:-1000}" setsid "$app" >/dev/null 2>&1 < /dev/null &
     return 0
   fi
-  nohup "$app" >/dev/null 2>&1 < /dev/null &
+  AETHER_WEB_OPEN_FALLBACK_MS="${AETHER_WEB_OPEN_FALLBACK_MS:-1000}" nohup "$app" >/dev/null 2>&1 < /dev/null &
 }
 
 register_protocol() {

@@ -599,7 +599,7 @@ boot() {
   debug_log "BOOT | dir=$dir"
   [ -x "$dir/Aether.command" ] || { debug_log "BOOT | Aether.command not executable: $dir/Aether.command"; return 1; }
   debug_log "BOOT | launching $dir/Aether.command via nohup"
-  nohup "$dir/Aether.command" >/dev/null 2>&1 &
+  AETHER_WEB_OPEN_FALLBACK_MS="${AETHER_WEB_OPEN_FALLBACK_MS:-1000}" nohup "$dir/Aether.command" >/dev/null 2>&1 &
   debug_log "BOOT | nohup pid=$!"
 }
 

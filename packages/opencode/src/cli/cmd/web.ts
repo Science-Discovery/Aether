@@ -37,6 +37,33 @@ function getNetworkIPs() {
   return results
 }
 
+function browserOpenFallbackMs() {
+  const raw = process.env.AETHER_WEB_OPEN_FALLBACK_MS
+  if (!raw) return
+  const parsed = Number.parseInt(raw, 10)
+  if (!Number.isFinite(parsed) || parsed < 0) return
+  return Math.min(parsed, 3_000)
+}
+
+async function openBrowserWithFallback(input: { url: string; server: unknown; sse: () => number }) {
+  const fallbackMs = browserOpenFallbackMs()
+  if (fallbackMs === undefined || fallbackMs <= 0) {
+    open(input.url).catch(() => {})
+    return
+  }
+  const connected = () => {
+    const pending = (input.server as any).pendingRequests as number
+    return pending > 0 || input.sse() > 0 || Lease.count() > 0
+  }
+  const deadline = Date.now() + fallbackMs
+  while (Date.now() < deadline) {
+    if (connected()) return
+    await new Promise((resolve) => setTimeout(resolve, 200))
+  }
+  if (connected()) return
+  open(input.url).catch(() => {})
+}
+
 export const WebCommand = cmd({
   command: "web",
   builder: (yargs) => withNetworkOptions(yargs),
@@ -134,11 +161,11 @@ export const WebCommand = cmd({
       }
 
       // Open localhost in browser
-      open(localhostUrl.toString()).catch(() => {})
+      await openBrowserWithFallback({ url: localhostUrl.toString(), server, sse: () => sse })
     } else {
       const displayUrl = server.url.toString()
       UI.println(UI.Style.TEXT_INFO_BOLD + "  Web interface:    ", UI.Style.TEXT_NORMAL, displayUrl)
-      open(displayUrl).catch(() => {})
+      await openBrowserWithFallback({ url: displayUrl, server, sse: () => sse })
     }
 
     await new Promise(() => {})
