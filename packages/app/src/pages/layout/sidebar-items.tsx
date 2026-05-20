@@ -167,6 +167,7 @@ const SessionRow = (props: {
   hasChildren: boolean
   expanded: boolean
   onToggleChildren?: () => void
+  active?: boolean
 }): JSX.Element => (
   <A
     href={sessionHref(props.slug, props.targetSession)}
@@ -182,7 +183,7 @@ const SessionRow = (props: {
         return
       }
       props.setHoverSession(undefined)
-      if (props.hasChildren) props.onToggleChildren?.()
+      if (props.active && props.hasChildren) props.onToggleChildren?.()
       if (props.sidebarOpened()) return
       props.clearHoverProjectSoon()
     }}
@@ -463,6 +464,7 @@ export const SessionItem = (props: SessionItemProps): JSX.Element => {
       hasChildren={hasChildren()}
       expanded={expanded()}
       onToggleChildren={props.onToggleChildren}
+      active={isActive()}
     />
   )
 
