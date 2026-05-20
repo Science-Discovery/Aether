@@ -79,6 +79,7 @@ After `aether web` starts, it displays local and network access URLs, and the br
 ./aether web --port 8080              # specify port
 ./aether web --hostname 0.0.0.0       # allow network access
 ./aether web --idle-timeout 120       # idle timeout in seconds, 0 for always-on
+AETHER_IDLE_TIMEOUT=15 ./Aether.sh    # deployment idle timeout override in seconds
 ``` -->
 
 ### Electron Desktop Version

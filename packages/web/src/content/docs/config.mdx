@@ -206,6 +206,7 @@ Available options:
 - `mdns` - Enable mDNS service discovery. This allows other devices on the network to discover your OpenCode server.
 - `mdnsDomain` - Custom domain name for mDNS service. Defaults to `opencode.local`. Useful for running multiple instances on the same network.
 - `cors` - Additional origins to allow for CORS when using the HTTP server from a browser-based client. Values must be full origins (scheme + host + optional port), eg `https://app.example.com`.
+- `idleTimeout` - Seconds to wait after all browser connections close before exiting. Defaults to `60`; set to `0` to disable auto-exit. Deployments can override this with `AETHER_IDLE_TIMEOUT`.
 
 [Learn more about the server here](/docs/server).
 

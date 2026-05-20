@@ -893,6 +893,8 @@ export const SettingsGeneral: Component = () => {
 
   const ServerSection = () => {
     const idleOptions = createMemo(() => [
+      { value: "15", label: "15 sec" },
+      { value: "30", label: "30 sec" },
       { value: "60", label: "1 min" },
       { value: "300", label: "5 min" },
       { value: "1800", label: "30 min" },

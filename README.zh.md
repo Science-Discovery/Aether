@@ -79,6 +79,7 @@ chmod +x aether   # 首次需要
 ./aether web --port 8080              # 指定端口
 ./aether web --hostname 0.0.0.0       # 允许局域网访问
 ./aether web --idle-timeout 120       # 空闲超时（秒），0 表示常驻运行
+AETHER_IDLE_TIMEOUT=15 ./Aether.sh    # 部署时覆盖空闲超时（秒）
 ``` -->
 
 ### Electron 桌面版
