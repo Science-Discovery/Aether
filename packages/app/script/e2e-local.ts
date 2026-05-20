@@ -46,6 +46,8 @@ const appDir = process.cwd()
 const repoDir = path.resolve(appDir, "../..")
 const opencodeDir = path.join(repoDir, "packages", "opencode")
 
+await import("../../opencode/script/generate-maas")
+
 const extraArgs = (() => {
   const args = process.argv.slice(2)
   if (args[0] === "--") return args.slice(1)
