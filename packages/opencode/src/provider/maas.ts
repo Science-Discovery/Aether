@@ -39,6 +39,10 @@ function ops(cfg: Cfg): string[] {
   return cfg.ops as unknown as string[]
 }
 
+function cap(cfg: Cfg): string[] {
+  return cfg.caps as unknown as string[]
+}
+
 function op(cfg: Cfg) {
   if (cfg.api === "OPENAI" && ops(cfg).includes("OPENAI_RESPONSES")) return "responses"
   if (cfg.api === "OPENAI") return "chat"
@@ -110,7 +114,7 @@ export namespace MaaS {
         const cfg = configs[0]
         if (!cfg) return []
 
-        const caps = new Set(configs.flatMap((item) => item.caps))
+        const caps = new Set(configs.flatMap(cap))
         const model: ModelsDev.Model = {
           id: card.id,
           name: card.id,
