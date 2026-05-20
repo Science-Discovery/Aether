@@ -9,7 +9,7 @@ import { ProviderIcon } from "@opencode-ai/ui/provider-icon"
 import { Spinner } from "@opencode-ai/ui/spinner"
 import { TextField } from "@opencode-ai/ui/text-field"
 import { showToast } from "@opencode-ai/ui/toast"
-import { createEffect, createMemo, createResource, Match, onCleanup, onMount, Switch } from "solid-js"
+import { createEffect, createMemo, createResource, Match, onCleanup, onMount, Show, Switch } from "solid-js"
 import { createStore, produce } from "solid-js/store"
 import { Link } from "@/components/link"
 import { useGlobalSDK } from "@/context/global-sdk"
@@ -389,6 +389,7 @@ export function DialogConnectProvider(props: { provider: string }) {
     const cfg = globalSync.data.config.provider?.[props.provider]
     const initURL = (cfg?.options?.["baseURL"] as string) ?? ""
     const hasKey = !!(provider() as unknown as { key?: string })?.key
+    const maas = provider().id === "tatu-maas"
 
     const [form, setForm] = createStore({
       apiKey: hasKey ? MASKED : "",
@@ -407,7 +408,7 @@ export function DialogConnectProvider(props: { provider: string }) {
         setForm("err", language.t("provider.connect.apiKey.required"))
         return
       }
-      if (url && !/^https?:\/\//.test(url)) {
+      if (!maas && url && !/^https?:\/\//.test(url)) {
         setForm("urlErr", language.t("provider.custom.error.baseURL.format"))
         return
       }
@@ -422,7 +423,7 @@ export function DialogConnectProvider(props: { provider: string }) {
         })
       }
 
-      if (url !== initURL) {
+      if (!maas && url !== initURL) {
         await globalSync.updateConfig({
           provider: { [props.provider]: { options: { baseURL: url } } },
         })
@@ -465,15 +466,36 @@ export function DialogConnectProvider(props: { provider: string }) {
             validationState={form.err ? "invalid" : undefined}
             error={form.err}
           />
-          <TextField
-            label={language.t("provider.connect.baseURL.label")}
-            placeholder={language.t("provider.connect.baseURL.placeholder")}
-            description={language.t("provider.connect.baseURL.description")}
-            value={form.baseURL}
-            onChange={(v) => { setForm("baseURL", v); setForm("urlErr", undefined) }}
-            validationState={form.urlErr ? "invalid" : undefined}
-            error={form.urlErr}
-          />
+          <Show
+            when={maas}
+            fallback={
+              <TextField
+                label={language.t("provider.connect.baseURL.label")}
+                placeholder={language.t("provider.connect.baseURL.placeholder")}
+                description={language.t("provider.connect.baseURL.description")}
+                value={form.baseURL}
+                onChange={(v) => { setForm("baseURL", v); setForm("urlErr", undefined) }}
+                validationState={form.urlErr ? "invalid" : undefined}
+                error={form.urlErr}
+              />
+            }
+          >
+            <div class="w-full flex flex-col gap-3">
+              <TextField
+                label={language.t("provider.connect.maas.baseURL.openai")}
+                value="https://maas.tatucloud.com/v1"
+                readOnly
+                copyable
+              />
+              <TextField
+                label={language.t("provider.connect.maas.baseURL.gemini")}
+                value="https://maas.tatucloud.com/v1beta"
+                description={language.t("provider.connect.maas.baseURL.description")}
+                readOnly
+                copyable
+              />
+            </div>
+          </Show>
           <Button class="w-auto" type="submit" size="large" variant="primary">
             {language.t("common.continue")}
           </Button>

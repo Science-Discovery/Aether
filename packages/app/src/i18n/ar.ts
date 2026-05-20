@@ -90,6 +90,8 @@ export const dict = {
   "dialog.provider.group.popular": "شائع",
   "dialog.provider.group.other": "آخر",
   "dialog.provider.tag.recommended": "موصى به",
+  "dialog.provider.tag.educationResearchDiscount": "خصم للتعليم والبحث",
+  "dialog.provider.maas.note": "تشكيلة كاملة من النماذج",
   "dialog.provider.opencode.note": "نماذج مختارة تتضمن Claude و GPT و Gemini والمزيد",
   "dialog.provider.opencode.tagline": "نماذج موثوقة ومحسنة",
   "dialog.provider.opencodeGo.tagline": "اشتراك منخفض التكلفة للجميع",

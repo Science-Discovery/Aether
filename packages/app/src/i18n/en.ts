@@ -103,6 +103,8 @@ export const dict = {
   "dialog.provider.group.popular": "Popular",
   "dialog.provider.group.other": "Other",
   "dialog.provider.tag.recommended": "Recommended",
+  "dialog.provider.tag.educationResearchDiscount": "Education and research discount",
+  "dialog.provider.maas.note": "Complete model lineup",
   "dialog.provider.opencode.note": "Curated models including Claude, GPT, Gemini and more",
   "dialog.provider.opencode.tagline": "Reliable optimized models",
   "dialog.provider.opencodeGo.tagline": "Low cost subscription for everyone",
@@ -141,6 +143,9 @@ export const dict = {
   "provider.connect.baseURL.placeholder": "https://api.example.com/v1",
   "provider.connect.baseURL.description":
     "Override the default API endpoint. Leave empty to use the provider's default.",
+  "provider.connect.maas.baseURL.openai": "OpenAI and Anthropic base URL",
+  "provider.connect.maas.baseURL.gemini": "Gemini base URL",
+  "provider.connect.maas.baseURL.description": "MaaS uses these fixed endpoints automatically.",
   "provider.connect.opencodeZen.line1":
     "OpenCode Zen gives you access to a curated set of reliable optimized models for coding agents.",
   "provider.connect.opencodeZen.line2":

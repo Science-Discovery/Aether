@@ -194,6 +194,16 @@ export namespace Provider {
   type CustomModelLoader = (sdk: any, modelID: string, options?: Record<string, any>) => Promise<any>
   type CustomVarsLoader = (options: Record<string, any>) => Record<string, string>
   type CustomDiscoverModels = () => Promise<Record<string, Model>>
+  type MaasSDK = {
+    chat?: (id: string) => unknown
+    languageModel: (id: string) => unknown
+    responses?: (id: string) => unknown
+  }
+  type MaasOpts = {
+    maas?: {
+      op?: string
+    }
+  }
   type CustomLoader = (provider: Info) => Promise<{
     autoload: boolean
     getModel?: CustomModelLoader
@@ -244,6 +254,20 @@ export namespace Provider {
         autoload: false,
         async getModel(sdk: any, modelID: string, _options?: Record<string, any>) {
           return sdk.responses(modelID)
+        },
+        options: {},
+      }
+    },
+    "tatu-maas": async () => {
+      return {
+        autoload: false,
+        async getModel(sdk, id, opts) {
+          const maas = sdk as MaasSDK
+          const options = opts as MaasOpts | undefined
+          if (options?.maas?.op === "responses" && maas.responses) return maas.responses(id)
+          if (useLanguageModel(maas)) return maas.languageModel(id)
+          if (maas.chat) return maas.chat(id)
+          return maas.languageModel(id)
         },
         options: {},
       }
