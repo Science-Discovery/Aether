@@ -5,8 +5,9 @@ import { useProviders } from "@/hooks/use-providers"
 import { useGlobalSync } from "@/context/global-sync"
 import { Persist, persisted } from "@/utils/persist"
 import { uniqueBy } from "remeda"
+import { setModelsVisibilityInDisabledList, type ModelKey } from "./models-visibility"
 
-export type ModelKey = { providerID: string; modelID: string }
+export type { ModelKey }
 
 type User = ModelKey & { favorite?: boolean }
 type Store = {
@@ -21,8 +22,9 @@ function modelKey(model: ModelKey) {
   return `${model.providerID}:${model.modelID}`
 }
 
-function disabledModelID(model: ModelKey) {
-  return `${model.providerID}/${model.modelID}`
+function sameList(a: string[], b: string[]) {
+  if (a.length !== b.length) return false
+  return a.every((item, index) => item === b[index])
 }
 
 export const { use: useModels, provider: ModelsProvider } = createSimpleContext({
@@ -73,31 +75,30 @@ export const { use: useModels, provider: ModelsProvider } = createSimpleContext(
     const find = (key: ModelKey) => list().find((m) => m.id === key.modelID && m.provider.id === key.providerID)
 
     const visible = (model: ModelKey) => {
-      const id = disabledModelID(model)
+      const id = `${model.providerID}/${model.modelID}`
       return !disabledModelsSet().has(id) && !disabledModelsSet().has(model.modelID)
     }
 
     const setVisibility = (model: ModelKey, state: boolean) => {
-      const id = disabledModelID(model)
       const before = globalSync.data.config.disabled_models ?? []
-      const isCurrentlyDisabled = before.includes(id) || before.includes(model.modelID)
-      if (state && !isCurrentlyDisabled) return
-      if (!state && isCurrentlyDisabled) return
-      if (state) {
-        const next = before.filter((x) => x !== id && x !== model.modelID)
-        globalSync.set("config", "disabled_models", next)
-        globalSync.updateConfig({ disabled_models: next }).catch((err: unknown) => {
-          globalSync.set("config", "disabled_models", before)
-          console.error("Failed to enable model", err)
-        })
-      } else {
-        const next = [...before, id]
-        globalSync.set("config", "disabled_models", next)
-        globalSync.updateConfig({ disabled_models: next }).catch((err: unknown) => {
-          globalSync.set("config", "disabled_models", before)
-          console.error("Failed to disable model", err)
-        })
-      }
+      const next = setModelsVisibilityInDisabledList(before, [model], state)
+      if (sameList(before, next)) return
+      globalSync.set("config", "disabled_models", next)
+      globalSync.updateConfig({ disabled_models: next }).catch((err: unknown) => {
+        globalSync.set("config", "disabled_models", before)
+        console.error(state ? "Failed to enable model" : "Failed to disable model", err)
+      })
+    }
+
+    const setManyVisibility = (models: ModelKey[], state: boolean) => {
+      const before = globalSync.data.config.disabled_models ?? []
+      const next = setModelsVisibilityInDisabledList(before, models, state)
+      if (sameList(before, next)) return
+      globalSync.set("config", "disabled_models", next)
+      globalSync.updateConfig({ disabled_models: next }).catch((err: unknown) => {
+        globalSync.set("config", "disabled_models", before)
+        console.error(state ? "Failed to enable models" : "Failed to disable models", err)
+      })
     }
 
     const toggleFavorite = (model: ModelKey, state: boolean) => {
@@ -135,6 +136,7 @@ export const { use: useModels, provider: ModelsProvider } = createSimpleContext(
       find,
       visible,
       setVisibility,
+      setManyVisibility,
       isFavorite,
       toggleFavorite,
       recent: {

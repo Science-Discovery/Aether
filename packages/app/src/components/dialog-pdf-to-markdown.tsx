@@ -195,6 +195,7 @@ export const DialogPdfToMarkdown: Component<{
     },
     visible: (item: ModelKey) => models.visible(item),
     setVisibility: (item: ModelKey, visible: boolean) => models.setVisibility(item, visible),
+    setManyVisibility: (items: ModelKey[], visible: boolean) => models.setManyVisibility(items, visible),
     variant: {
       configured: () => undefined,
       selected: () => undefined,
