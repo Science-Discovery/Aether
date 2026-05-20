@@ -12,8 +12,6 @@ const dir = path.resolve(__dirname, "..")
 
 process.chdir(dir)
 
-await import("./generate-maas")
-
 import { Script } from "@opencode-ai/script"
 import pkg from "../package.json"
 
