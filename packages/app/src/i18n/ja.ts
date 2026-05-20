@@ -90,6 +90,8 @@ export const dict = {
   "dialog.provider.group.popular": "人気",
   "dialog.provider.group.other": "その他",
   "dialog.provider.tag.recommended": "推奨",
+  "dialog.provider.tag.educationResearchDiscount": "教育・研究向け割引",
+  "dialog.provider.maas.note": "幅広いモデルラインアップ",
   "dialog.provider.opencode.note": "Claude, GPT, Geminiなどを含む厳選されたモデル",
   "dialog.provider.opencode.tagline": "信頼性の高い最適化モデル",
   "dialog.provider.opencodeGo.tagline": "すべての人に低価格のサブスクリプション",

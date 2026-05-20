@@ -98,6 +98,8 @@ export const dict = {
   "dialog.provider.group.popular": "Популярные",
   "dialog.provider.group.other": "Другие",
   "dialog.provider.tag.recommended": "Рекомендуемые",
+  "dialog.provider.tag.educationResearchDiscount": "Скидка для образования и исследований",
+  "dialog.provider.maas.note": "Полная линейка моделей",
   "dialog.provider.opencode.note": "Отобранные модели, включая Claude, GPT, Gemini и другие",
   "dialog.provider.opencode.tagline": "Надежные оптимизированные модели",
   "dialog.provider.opencodeGo.tagline": "Доступная подписка для всех",

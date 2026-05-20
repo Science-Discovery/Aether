@@ -17,6 +17,7 @@ type ProviderSource = "env" | "api" | "config" | "custom"
 type ProviderItem = ReturnType<ReturnType<typeof useProviders>["connected"]>[number]
 
 const PROVIDER_NOTES = [
+  { match: (id: string) => id === "maas", key: "dialog.provider.maas.note" },
   { match: (id: string) => id === "opencode", key: "dialog.provider.opencode.note" },
   { match: (id: string) => id === "opencode-go", key: "dialog.provider.opencodeGo.tagline" },
   { match: (id: string) => id === "anthropic", key: "dialog.provider.anthropic.note" },
@@ -242,9 +243,13 @@ export const SettingsProviders: Component = () => {
               {(item) => (
                 <div class="flex flex-wrap items-center justify-between gap-4 min-h-16 py-3 border-b border-border-weak-base last:border-none">
                   <div class="flex flex-col min-w-0">
-                    <div class="flex items-center gap-x-3">
+                    <div class="flex flex-wrap items-center gap-x-3 gap-y-1">
                       <ProviderIcon id={item.id} class="size-5 shrink-0 icon-strong-base" />
                       <span class="text-14-medium text-text-strong">{item.name}</span>
+                      <Show when={item.id === "maas"}>
+                        <Tag>{language.t("dialog.provider.tag.recommended")}</Tag>
+                        <Tag>{language.t("dialog.provider.tag.educationResearchDiscount")}</Tag>
+                      </Show>
                       <Show when={item.id === "opencode"}>
                         <Tag>{language.t("dialog.provider.tag.recommended")}</Tag>
                       </Show>

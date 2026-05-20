@@ -104,6 +104,8 @@ export const dict = {
   "dialog.provider.group.popular": "熱門",
   "dialog.provider.group.other": "其他",
   "dialog.provider.tag.recommended": "推薦",
+  "dialog.provider.tag.educationResearchDiscount": "教育科研折扣",
+  "dialog.provider.maas.note": "模型種類齊全",
   "dialog.provider.opencode.note": "精選模型，包含 Claude、GPT、Gemini 等等",
   "dialog.provider.opencode.tagline": "可靠的優化模型",
   "dialog.provider.opencodeGo.tagline": "適合所有人的低成本訂閱",

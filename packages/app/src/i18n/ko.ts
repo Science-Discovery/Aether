@@ -94,6 +94,8 @@ export const dict = {
   "dialog.provider.group.popular": "인기",
   "dialog.provider.group.other": "기타",
   "dialog.provider.tag.recommended": "추천",
+  "dialog.provider.tag.educationResearchDiscount": "교육 및 연구 할인",
+  "dialog.provider.maas.note": "완전한 모델 라인업",
   "dialog.provider.opencode.note": "Claude, GPT, Gemini 등을 포함한 엄선된 모델",
   "dialog.provider.opencode.tagline": "신뢰할 수 있는 최적화 모델",
   "dialog.provider.opencodeGo.tagline": "모두를 위한 저렴한 구독",

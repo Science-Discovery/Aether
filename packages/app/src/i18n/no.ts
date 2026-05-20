@@ -101,6 +101,8 @@ export const dict = {
   "dialog.provider.group.popular": "Populære",
   "dialog.provider.group.other": "Andre",
   "dialog.provider.tag.recommended": "Anbefalt",
+  "dialog.provider.tag.educationResearchDiscount": "Utdannings- og forskningsrabatt",
+  "dialog.provider.maas.note": "Komplett modellutvalg",
   "dialog.provider.opencode.note": "Utvalgte modeller inkludert Claude, GPT, Gemini og mer",
   "dialog.provider.opencode.tagline": "Pålitelige, optimaliserte modeller",
   "dialog.provider.opencodeGo.tagline": "Rimelig abonnement for alle",

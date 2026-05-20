@@ -128,6 +128,8 @@ export const dict = {
   "dialog.provider.group.popular": "热门",
   "dialog.provider.group.other": "其他",
   "dialog.provider.tag.recommended": "推荐",
+  "dialog.provider.tag.educationResearchDiscount": "教育科研折扣",
+  "dialog.provider.maas.note": "模型种类齐全",
   "dialog.provider.opencode.note": "使用 OpenCode Zen 或 API 密钥连接",
   "dialog.provider.opencode.tagline": "可靠的优化模型",
   "dialog.provider.opencodeGo.tagline": "适合所有人的低成本订阅",
