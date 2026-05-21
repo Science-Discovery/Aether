@@ -89,7 +89,7 @@ describe("Worktree", () => {
       await Bun.sleep(1000)
 
       const ok = await withInstance(tmp.path, () => Worktree.remove({ directory: info.directory }))
-      expect(ok).toBe(true)
+      expect(ok).toEqual({ status: "ok" })
     })
 
     test("create returns after setup and fires Event.Ready after bootstrap", async () => {
@@ -159,7 +159,7 @@ describe("Worktree", () => {
       const ok = await withInstance(tmp.path, () =>
         Worktree.remove({ directory: path.join(tmp.path, "does-not-exist") }),
       )
-      expect(ok).toBe(true)
+      expect(ok).toEqual({ status: "ok" })
     })
 
     test("throws NotGitError for non-git directories", async () => {
