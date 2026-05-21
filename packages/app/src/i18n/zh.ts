@@ -1269,7 +1269,7 @@ export const dict = {
 
   "workspace.new": "新建工作区",
   "workspace.type.local": "本地",
-  "workspace.type.sandbox": "沙盒",
+  "workspace.type.sandbox": "沙箱",
   "workspace.create.failed.title": "创建工作区失败",
   "workspace.delete.failed.title": "删除工作区失败",
   "workspace.resetting.title": "正在重置工作区",
@@ -1293,7 +1293,7 @@ export const dict = {
   "workspace.reset.archived.many": "将归档 {{count}} 个会话。",
   "workspace.reset.note": "这将把工作区重置为与默认分支一致。",
   "workspace.switchBranch": "切换分支",
-  "workspace.renameSandbox": "重命名沙盒",
+  "workspace.renameSandbox": "重命名沙箱",
   "workspace.renameBranch": "重命名分支",
   "workspace.renameBranch.error.alreadyExists": "分支名称已存在",
   "workspace.renameBranch.error.invalid": "分支名称无效",

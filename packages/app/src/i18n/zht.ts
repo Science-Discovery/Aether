@@ -924,7 +924,7 @@ export const dict = {
 
   "workspace.new": "新增工作區",
   "workspace.type.local": "本地",
-  "workspace.type.sandbox": "沙盒",
+  "workspace.type.sandbox": "沙箱",
   "workspace.create.failed.title": "建立工作區失敗",
   "workspace.delete.failed.title": "刪除工作區失敗",
   "workspace.resetting.title": "正在重設工作區",
