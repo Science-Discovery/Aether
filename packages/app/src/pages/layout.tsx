@@ -2320,7 +2320,7 @@ export default function Layout(props: ParentProps) {
 
     if (!created?.directory) return
 
-    const displayName = created.branch.replace(/^sandbox-(\d+)$/, (_, n) => `沙盒-${n}`)
+    const displayName = created.branch.replace(/^sandbox-(\d+)$/, (_, n) => `沙箱-${n}`)
     setWorkspaceName(created.directory, displayName, project.id, created.branch)
 
     const local = project.worktree
