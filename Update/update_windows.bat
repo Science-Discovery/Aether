@@ -2,6 +2,22 @@
 chcp 65001 >nul
 setlocal EnableExtensions EnableDelayedExpansion
 
+if defined LOCALAPPDATA (
+  set "DEBUG_DIR=%LOCALAPPDATA%\aether\update_debug"
+) else (
+  set "DEBUG_DIR=%TEMP%\aether\update_debug"
+)
+if defined AETHER_DEBUG_LOG (
+  set "DEBUG_LOG=%AETHER_DEBUG_LOG%"
+  for %%i in ("%DEBUG_LOG%") do set "DEBUG_DIR=%%~dpi"
+) else (
+  for /f "usebackq delims=" %%t in (`powershell -NoProfile -Command "Get-Date -Format 'yyyyMMdd_HHmmss'"`) do set "DEBUG_TS=%%t"
+  if not defined DEBUG_TS set "DEBUG_TS=%RANDOM%%RANDOM%"
+  set "DEBUG_LOG=%DEBUG_DIR%\update_%DEBUG_TS%.log"
+)
+
+call :debug_log "========== NEW UPDATE RUN =========="
+
 set "WANT=%~1"
 set "RESTART=0"
 if /I "%~2"=="--restart" set "RESTART=1"
@@ -22,6 +38,14 @@ set "RESULT=%AETHER_UPDATE_RESULT%"
 if not defined RESULT set "RESULT=%WORK%\downloads\web-update-result.env"
 set "MIRROR_ONLY=%AETHER_MIRROR_ONLY%"
 
+call :debug_log "ENVR | AETHER_CURRENT_DIR=%AETHER_CURRENT_DIR%"
+call :debug_log "ENVR | AETHER_WORK_DIR=%AETHER_WORK_DIR%"
+call :debug_log "ENVR | AETHER_UPDATE_RESULT=%AETHER_UPDATE_RESULT%"
+call :debug_log "ENVR | AETHER_MIRROR_ROOT=%AETHER_MIRROR_ROOT%"
+call :debug_log "ENVR | AETHER_MIRROR_ONLY=%MIRROR_ONLY%"
+call :debug_log "ENVR | AETHER_DEBUG_LOG=%DEBUG_LOG%"
+call :debug_log "START | WANT=%WANT% RESTART=%RESTART% SELF=%SELF% BASE=%BASE% WORK=%WORK%"
+
 if /I not "%BASE%"=="downloads" (
   echo Spec error: update_windows.bat must be placed in ...\aether\downloads. Current: %SELF%
   exit /b 1
@@ -34,25 +58,32 @@ if /I not "%WORK_NAME%"=="aether" (
 
 echo [0/4] Work directory: %WORK%
 
+call :debug_log "DISK | checking disk space on WORK=%WORK%"
+for /f "usebackq delims=" %%d in (`powershell -NoProfile -Command "(Get-PSDrive -Name ([IO.Path]::GetPathRoot($env:WORK).Substring(0,1)) -ErrorAction SilentlyContinue).Free / 1MB"`) do call :debug_log "DISK | free_mb=%%d"
+
 if exist "%RESULT%" del /f /q "%RESULT%" >nul 2>nul
 
 call :pick_pkg "%SELF%" "%WANT%"
 if "%MIRROR_ONLY%"=="1" goto :pick_pkg_done
 if errorlevel 1 (
+  call :debug_log "PICK | FAILED no usable zip found"
   echo No usable zip found in ...\aether\downloads; filename must include a version
   call :write_result "failed" "recover" "No usable zip found in ...\aether\downloads; filename must include a version"
   exit /b 1
 )
 :pick_pkg_done
+call :debug_log "PICK | PKG=%PKG% VER=%VER% PKG_NAME=%PKG_NAME%"
 
 if "%VER%"=="" set "VER=%WANT%"
 
 set "TARGET=%WORK%\aether_%VER%"
+call :debug_log "START | VER=%VER% TARGET=%TARGET%"
 echo [1/4] Package: %PKG_NAME%
 echo       Target version: %VER%
 
 call :installed "%WORK%" CUR
 call :active_dir
+call :debug_log "ACTIVE | CUR=%CUR% OLD=%OLD%"
 if defined CUR (
   call :cmp "%CUR%" "%VER%"
   if /I "!CMP!"=="eq" (
@@ -78,6 +109,7 @@ if "%MIRROR_ONLY%"=="1" (
     echo !MSG!
     goto :fail
   )
+  call :debug_log "MIRROR_ONLY | reusing installed version at %TARGET%"
   echo [2/4] Reusing installed version at: %TARGET%
 ) else (
   mkdir "%EX%" || (
@@ -89,13 +121,17 @@ if "%MIRROR_ONLY%"=="1" (
     goto :fail
   )
 
+  call :debug_log "EXTRACT | Expand-Archive PKG=%PKG% EX=%EX%"
   powershell -NoProfile -Command "& { Expand-Archive -Path $env:PKG -DestinationPath $env:EX -Force; $hit=Get-ChildItem -Path $env:EX -Filter 'aether.exe' -File -Recurse | Where-Object { Test-Path (Join-Path $_.DirectoryName 'Aether.vbs') } | Sort-Object { $_.DirectoryName.Length } | Select-Object -First 1; if(-not $hit){ throw 'missing app files' }; [IO.File]::WriteAllText($env:SRC_FILE, $hit.DirectoryName) }" || (
     call :write_result "failed" "recover" "Failed to extract %PKG%"
+    call :debug_log "EXTRACT | FAILED Expand-Archive"
     goto :fail
   )
+  call :debug_log "EXTRACT | Expand-Archive success"
 
   set "SRC="
   if exist "%SRC_FILE%" set /p SRC=<"%SRC_FILE%"
+  call :debug_log "EXTRACT | SRC=!SRC!"
   if "!SRC!"=="" (
     call :write_result "failed" "recover" "Package contents missing aether.exe or Aether.vbs"
     echo Package contents missing aether.exe or Aether.vbs
@@ -103,49 +139,66 @@ if "%MIRROR_ONLY%"=="1" (
   )
 
 echo [2/4] Extracting and installing to: %TARGET%
+  call :debug_log "INSTALL | robocopy SRC=!SRC! NEXT=%NEXT%"
   robocopy "!SRC!" "!NEXT!" /MIR /NFL /NDL /NJH /NJS /NP >nul
   set "RC=!ERRORLEVEL!"
+  call :debug_log "INSTALL | robocopy RC=!RC!"
   if !RC! GEQ 8 (
     call :write_result "failed" "recover" "Failed to copy files into %NEXT%"
+    call :debug_log "INSTALL | robocopy failed RC=!RC!"
     goto :fail
   )
 
   if exist "%TARGET%" rmdir /s /q "%TARGET%" >nul 2>nul
+  call :debug_log "INSTALL | move NEXT=%NEXT% TARGET=%TARGET%"
   move "%NEXT%" "%TARGET%" >nul || (
     call :write_result "failed" "recover" "Failed to finalize install into %TARGET%"
+    call :debug_log "INSTALL | move failed"
     goto :fail
   )
+  call :debug_log "INSTALL | move success"
 )
 
 :post_install
 >"%TARGET%\.aether_web_version" echo(%VER%
+call :debug_log "VERSION | wrote %TARGET%\.aether_web_version ver=%VER%"
 if exist "%WORK%\.aether_web_version" del /f /q "%WORK%\.aether_web_version" >nul 2>nul
 
 if exist "%WORK%\current" rmdir "%WORK%\current" >nul 2>nul
 if exist "%WORK%\current" rmdir /s /q "%WORK%\current" >nul 2>nul
 
 call :prune_versions || goto :fail
+call :debug_log "PRUNE | PRUNE=%PRUNE%"
 call :in_work "%WORK%"
 if errorlevel 1 (
+  call :debug_log "IN_WORK | AETHER_CURRENT_DIR not under WORK, attempting mirror"
   call :mirror || (
     set "MSG=!COPY_NOTE!"
     if not defined MSG set "MSG=Failed to mirror the new version near %AETHER_CURRENT_DIR%"
     call :write_result "failed" "mirror" "!MSG!"
+    call :debug_log "MIRROR | FAILED: !MSG!"
     echo !MSG!
     goto :fail
   )
+  call :debug_log "MIRROR | success MIRROR=%MIRROR%"
 ) else (
+  call :debug_log "IN_WORK | AETHER_CURRENT_DIR under WORK, skipping mirror"
   set "COPY_NOTE=Current app already runs inside WorkDir; skipped mirror."
 )
 if defined MIRROR set "START=%MIRROR%"
 if defined MIRROR call :prune_mirror
 if not defined START set "START=%TARGET%"
+call :debug_log "LAUNCH | START=%START% TARGET=%TARGET% MIRROR=%MIRROR%"
 call :write_launch "%START%"
+call :debug_log "LAUNCH | LAUNCH=%LAUNCH% NOTE=%NOTE%"
 call :register_protocol "%START%"
+call :debug_log "REG | protocol handler registered for %START%"
 
+if "%RESTART%"=="1" call :debug_log "RESTART | entering restart block"
 if "%RESTART%"=="1" call :restart
 
 call :write_result "installed" "" ""
+call :debug_log "RESULT | status=installed version=%VER%"
 
 call :print_prune
 
@@ -159,6 +212,8 @@ if defined NOTE echo %NOTE%
 if defined COPY_NOTE echo %COPY_NOTE%
 
 call :clean_tmp
+call :debug_log "END | ver=%VER% target=%TARGET% mirror=%MIRROR% launch=%LAUNCH% restart=%RESTART% prune=%PRUNE%"
+call :debug_log "========== UPDATE RUN COMPLETE =========="
 exit /b 0
 
 :write_launch
@@ -185,6 +240,7 @@ set "RESULT_STATUS=%~1"
 set "RESULT_ACTION=%~2"
 set "RESULT_ERROR=%~3"
 if not defined RESULT exit /b 0
+call :debug_log "RESULT | status=%RESULT_STATUS% version=%VER% action=%RESULT_ACTION% error=%RESULT_ERROR%"
 powershell -NoProfile -Command "$file=$env:RESULT; $dir=Split-Path -Parent $file; if($dir){ [IO.Directory]::CreateDirectory($dir) | Out-Null }; $err=$env:RESULT_ERROR; if($null -eq $err){ $err='' }; $err=($err -replace [char]10,' ' -replace [char]13,' '); $lines=@(('status=' + $env:RESULT_STATUS),('version=' + $env:VER),('action=' + $env:RESULT_ACTION),('error=' + $err),('at=' + [DateTimeOffset]::UtcNow.ToUnixTimeSeconds())); [IO.File]::WriteAllLines($file, $lines)" >nul
 exit /b 0
 
@@ -197,6 +253,7 @@ echo [3/4] Keeping the latest 1000 versions; removed %PRUNE% older version direc
 exit /b 0
 
 :mirror
+call :debug_log "MIRROR_DIR | starting, AETHER_MIRROR_ROOT=%AETHER_MIRROR_ROOT% AETHER_CURRENT_DIR=%AETHER_CURRENT_DIR%"
 if defined AETHER_MIRROR_ROOT set "MROOT=%AETHER_MIRROR_ROOT%" & goto mirror_have_root
 if not defined AETHER_CURRENT_DIR exit /b 1
 for %%i in ("%AETHER_CURRENT_DIR%\..") do set "MROOT=%%~fi"
@@ -204,26 +261,34 @@ for %%i in ("%AETHER_CURRENT_DIR%\..") do set "MROOT=%%~fi"
 if not defined MROOT exit /b 1
 set "MIRROR=%MROOT%\aether_%VER%"
 if exist "%MIRROR%" call :stamp TS & set "MIRROR=%MROOT%\aether_%VER%_!TS!"
+call :debug_log "MIRROR_DIR | MROOT=%MROOT% MIRROR=%MIRROR%"
 set "MCOPY=%MIRROR%.copy"
 if exist "%MCOPY%" rmdir /s /q "%MCOPY%" >nul 2>nul
 if exist "%MIRROR%" rmdir /s /q "%MIRROR%" >nul 2>nul
 mkdir "%MCOPY%" >nul 2>nul || (
   set "COPY_NOTE=Warning: failed to prepare mirror directory near %AETHER_CURRENT_DIR%"
+  call :debug_log "MIRROR_DIR | mkdir MCOPY failed"
   exit /b 1
 )
+call :debug_log "MIRROR_DIR | robocopy TARGET=%TARGET% MCOPY=%MCOPY%"
 robocopy "%TARGET%" "%MCOPY%" /MIR /NFL /NDL /NJH /NJS /NP >nul
 set "RC=!ERRORLEVEL!"
+call :debug_log "MIRROR_DIR | robocopy RC=!RC!"
 if !RC! GEQ 8 (
   set "COPY_NOTE=Warning: failed to copy the new version near %AETHER_CURRENT_DIR%"
+  call :debug_log "MIRROR_DIR | robocopy failed RC=!RC!"
   if exist "%MCOPY%" rmdir /s /q "%MCOPY%" >nul 2>nul
   exit /b 1
 )
+call :debug_log "MIRROR_DIR | move MCOPY=%MCOPY% MIRROR=%MIRROR%"
 move "%MCOPY%" "%MIRROR%" >nul || (
   set "COPY_NOTE=Warning: failed to finalize the copied version near %AETHER_CURRENT_DIR%"
+  call :debug_log "MIRROR_DIR | move failed"
   if exist "%MCOPY%" rmdir /s /q "%MCOPY%" >nul 2>nul
   exit /b 1
 )
 set "COPY_NOTE=Copied the new version near the current app location: %MIRROR%"
+call :debug_log "MIRROR_DIR | success MIRROR=%MIRROR%"
 exit /b 0
 
 :stamp
@@ -238,12 +303,17 @@ if "!IN_WORK!"=="1" exit /b 0
 exit /b 1
 
 :restart
+call :debug_log "RESTART | stopping runtime"
 call :stop_runtime
 timeout /t 1 /nobreak >nul
+set "AETHER_WEB_OPEN_FALLBACK_MS=3000"
+call :debug_log "BOOT | launching %START%\Aether.vbs"
 start "" "%START%\Aether.vbs"
+call :debug_log "BOOT | start command issued"
 exit /b 0
 
 :stop_runtime
+call :debug_log "STOP | starting stop_runtime OLD=%OLD% TARGET=%TARGET% AETHER_CURRENT_DIR=%AETHER_CURRENT_DIR% MIRROR=%MIRROR%"
 powershell -NoProfile -Command "& { $roots=New-Object System.Collections.Generic.List[string]; function AddRoot([string]$p){ if([string]::IsNullOrWhiteSpace($p)){ return }; try { $full=[IO.Path]::GetFullPath($p); if((Test-Path -LiteralPath $full) -and -not $roots.Contains($full)){ [void]$roots.Add($full) } } catch {} }; AddRoot $env:OLD; AddRoot $env:TARGET; AddRoot $env:AETHER_CURRENT_DIR; AddRoot $env:MIRROR; if($env:WORK -and (Test-Path -LiteralPath $env:WORK)){ Get-ChildItem -LiteralPath $env:WORK -Directory -Filter 'aether_*' -ErrorAction SilentlyContinue | ForEach-Object { AddRoot $_.FullName } }; $base=''; if($env:AETHER_MIRROR_ROOT){ $base=$env:AETHER_MIRROR_ROOT } elseif($env:AETHER_CURRENT_DIR){ try { $base=[IO.Directory]::GetParent([IO.Path]::GetFullPath($env:AETHER_CURRENT_DIR)).FullName } catch {} }; if($base -and (Test-Path -LiteralPath $base)){ Get-ChildItem -LiteralPath $base -Directory -Filter 'aether_*' -ErrorAction SilentlyContinue | ForEach-Object { AddRoot $_.FullName } }; $names=@('aether.exe','wscript.exe','cscript.exe','node.exe','bun.exe'); function Hits { Get-CimInstance Win32_Process | Where-Object { $n=$_.Name.ToLowerInvariant(); if($names -notcontains $n){ return $false }; $cmd=$_.CommandLine; $exe=$_.ExecutablePath; foreach($r in $roots){ if(($cmd -and $cmd.IndexOf($r,[StringComparison]::OrdinalIgnoreCase) -ge 0) -or ($exe -and $exe.StartsWith($r,[StringComparison]::OrdinalIgnoreCase))){ return $true } }; return $false } }; $hits=@(Hits); if($hits.Count -gt 0){ Write-Host 'Stopping old Aether processes...'; $hits | Sort-Object ProcessId -Descending | ForEach-Object { Stop-Process -Id $_.ProcessId -ErrorAction SilentlyContinue } }; for($i=0; $i -lt 5; $i++){ Start-Sleep -Seconds 1; if(@(Hits).Count -eq 0){ exit 0 } }; $hits=@(Hits); if($hits.Count -gt 0){ $hits | Sort-Object ProcessId -Descending | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue } }; for($i=0; $i -lt 3; $i++){ Start-Sleep -Seconds 1; if(@(Hits).Count -eq 0){ exit 0 } }; if(@(Hits).Count -gt 0){ Write-Host 'Warning: old Aether processes are still running; starting the new version anyway.' } }"
 exit /b 0
 
@@ -292,11 +362,13 @@ for /f "usebackq delims=" %%i in (`powershell -NoProfile -Command "$root=$env:DI
 exit /b 0
 
 :fail
+call :debug_log "FAIL | update failed"
 echo Update failed.
 call :clean_tmp
 exit /b 1
 
 :clean_tmp
+call :debug_log "CLEANUP | TMP=%TMP% NEXT=%NEXT%"
 if exist "%TMP%" rmdir /s /q "%TMP%" >nul 2>nul
 if exist "%NEXT%" rmdir /s /q "%NEXT%" >nul 2>nul
 exit /b 0
@@ -317,6 +389,23 @@ exit /b 0
 :register_protocol
 set "PROT_DIR=%~1"
 set "PROT_HANDLER=%PROT_DIR%\aether-protocol-handler.vbs"
-if not exist "%PROT_HANDLER%" exit /b 0
+if not exist "%PROT_HANDLER%" (call :debug_log "REG | no protocol handler at %PROT_HANDLER%" & exit /b 0)
+call :debug_log "REG | registering protocol handler=%PROT_HANDLER%"
 powershell -NoProfile -Command "& { $hkcu='HKCU:\Software\Classes\aether'; $handler=$env:PROT_HANDLER; if(-not (Test-Path $hkcu)){ New-Item -Path $hkcu -Force | Out-Null }; Set-ItemProperty -Path $hkcu -Name '(Default)' -Value 'URL:Aether Protocol' -Force; Set-ItemProperty -Path $hkcu -Name 'URL Protocol' -Value '' -Force; $cmd=$hkcu+'\shell\open\command'; if(-not (Test-Path $cmd)){ New-Item -Path $cmd -Force | Out-Null }; Set-ItemProperty -Path $cmd -Name '(Default)' -Value ('wscript.exe \"' + $handler + '\"') -Force }" >nul 2>nul
+call :debug_log "REG | registry write done"
+exit /b 0
+
+:debug_log
+if not defined DEBUG_LOG exit /b 0
+setlocal DisableDelayedExpansion
+set "LOG=%DEBUG_LOG%"
+set "DIR=%DEBUG_DIR%"
+set "MSG=%~1"
+if not defined DIR for %%i in ("%LOG%") do set "DIR=%%~dpi"
+if not exist "%DIR%" mkdir "%DIR%" >nul 2>nul
+set "STAMP=%DATE% %TIME: =0%"
+setlocal EnableDelayedExpansion
+>>"!LOG!" echo(!STAMP! ^| !MSG! 2>nul
+endlocal
+endlocal
 exit /b 0

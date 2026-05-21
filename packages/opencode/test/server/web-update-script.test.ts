@@ -520,6 +520,44 @@ describe("web update scripts", () => {
   )
 
   windows(
+    "windows script debug log handles cmd metacharacters",
+    async () => {
+      const links = winLinks()
+      const prev = await stash(links)
+      try {
+        await using tmp = await tmpdir()
+        const work = path.join(tmp.path, "aether")
+        const dl = path.join(work, "downloads")
+        const cur = path.join(work, "aether_1.2.6")
+        const src = path.join(tmp.path, "src-windows")
+        const out = path.join(dl, "aether-windows-x64-1.2.7.zip")
+        const script = path.join(dl, "update_windows.bat")
+        const debug = path.join(tmp.path, "debug", "update.log")
+
+        await fs.mkdir(dl, { recursive: true })
+        await ver(cur, "1.2.6")
+        await winApp(src)
+        winZip(src, out)
+        await fs.copyFile(path.join(update, "update_windows.bat"), script)
+
+        run("cmd", ["/c", script, "1.2.7"], dl, {
+          ...process.env,
+          AETHER_CURRENT_DIR: cur,
+          AETHER_WORK_DIR: "alpha & beta | gamma > delta < epsilon",
+          AETHER_DEBUG_LOG: debug,
+        })
+
+        const text = await Bun.file(debug).text()
+        expect(text).toContain("ENVR | AETHER_WORK_DIR=alpha & beta | gamma > delta < epsilon")
+        expect(text).toContain("UPDATE RUN COMPLETE")
+      } finally {
+        await restore(prev)
+      }
+    },
+    { timeout: 30000 },
+  )
+
+  windows(
     "windows script stops old runtime before restart",
     async () => {
       const links = winLinks()

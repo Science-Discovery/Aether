@@ -18,7 +18,9 @@ debug_log() {
 debug_log "========== NEW UPDATE RUN =========="
 
 pgid="$(ps -o pgid= -p $$ 2>/dev/null | tr -d ' ')"
-debug_log "PGID | pid=$$ pgid=${pgid:-unknown} bash=${BASH_VERSION:-unknown}"
+debug_log "PGID | pid=$$ pgid=${pgid:-unknown} ppid=$PPID bash=${BASH_VERSION:-unknown}"
+_pparent_cmd="$(ps -o command= -p $PPID 2>/dev/null || true)"
+debug_log "PGID | parent_cmd=${_pparent_cmd:-unknown}"
 
 if [ "${AETHER_REEXECED:-0}" != "1" ] && [ "${pgid:-}" != "$$" ] && [ -n "${pgid:-}" ]; then
   debug_log "REEXEC | pgid=$pgid != pid=$$, need setsid"
@@ -36,6 +38,9 @@ debug_log "SESSION | pid=$$ pgid=${pgid:-unknown} reexeced=${AETHER_REEXECED:-0}
 trap 'debug_log "SIGNAL | received SIGTERM, pid=$$, ppid=$PPID"; exit 1' SIGTERM
 trap 'debug_log "SIGNAL | received SIGINT, pid=$$, ppid=$PPID"; exit 1' SIGINT
 trap 'debug_log "SIGNAL | received SIGHUP, pid=$$, ppid=$PPID"; exit 1' SIGHUP
+trap 'debug_log "SIGNAL | received SIGQUIT, pid=$$, ppid=$PPID"; exit 1' SIGQUIT
+trap 'debug_log "SIGNAL | received SIGPIPE, pid=$$, ppid=$PPID"; exit 1' SIGPIPE
+trap 'debug_log "EXIT | code=$?"' EXIT
 
 want="${1:-}"
 self="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -75,6 +80,7 @@ write_result() {
     printf 'error=%s\n' "$(flat "${3:-}")"
     printf 'at=%s\n' "$(date +%s)"
   } >"$res"
+  debug_log "RESULT | status=$(flat "$1") version=$(flat "$ver") action=$(flat "${2:-}") error=$(flat "${3:-}")"
 }
 
 case "$(uname -m)" in
@@ -92,6 +98,9 @@ debug_log "START | AETHER_WORK_DIR=${AETHER_WORK_DIR:-}"
 debug_log "START | AETHER_UPDATE_RESULT=${AETHER_UPDATE_RESULT:-}"
 debug_log "START | AETHER_MIRROR_ROOT=${AETHER_MIRROR_ROOT:-}"
 debug_log "START | AETHER_MIRROR_ONLY=$mirror_only"
+debug_log "START | AETHER_DEBUG_LOG=$DEBUG_LOG"
+_disk_avail="$(df -h "$work" 2>/dev/null | tail -1 | awk '{print $4}' || true)"
+debug_log "DISK | work=$work available=${_disk_avail:-unknown}"
 
 ver_from_name() {
   local file name
@@ -336,6 +345,7 @@ build_app() {
   local dest final app bin cmd icon icon_name lsreg
   dest="$1"
   final="$2"
+  debug_log "BUILD_APP | dest=$dest final=$final"
   app="$dest/Aether.app"
   bin="$app/Contents/MacOS/Aether"
   cmd="$final/Aether.command"
@@ -394,6 +404,7 @@ echo "Launch target not found: $cmd"
 exit 1
 EOF
   chmod +x "$bin"
+  debug_log "BUILD_APP | wrote bin=$bin"
   cat >"$app/Contents/Info.plist" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -433,14 +444,17 @@ EOF
 EOF
   if [ -f "$icon" ]; then
     cp "$icon" "$app/Contents/Resources/$icon_name"
+    debug_log "BUILD_APP | copied icon to $app/Contents/Resources/$icon_name"
     touch "$app/Contents/Resources/$icon_name" 2>/dev/null || true
   fi
   touch "$app/Contents/Info.plist" 2>/dev/null || true
   touch "$app"
   xattr -cr "$app" >/dev/null 2>&1 || true
+  debug_log "BUILD_APP | xattr -cr app=$app"
   lsreg="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
   if [ -x "$lsreg" ]; then
     "$lsreg" -f "$app" >/dev/null 2>&1 || true
+    debug_log "BUILD_APP | lsregister app=$app"
   fi
 }
 
@@ -448,17 +462,21 @@ write_launch() {
   local final dest
   final="$1"
   dest="/Applications"
+  debug_log "WRITE_LAUNCH | final=$final trying dest=$dest"
   if build_app "$dest" "$final" 2>/dev/null; then
     launch="$dest/Aether.app"
     launch_note="从 app 启动器中运行Aether。"
+    debug_log "WRITE_LAUNCH | success dest=$dest launch=$launch"
     return 0
   fi
 
   dest="$HOME/Applications"
   mkdir -p "$dest"
+  debug_log "WRITE_LAUNCH | /Applications failed, falling back to dest=$dest"
   build_app "$dest" "$final"
   launch="$dest/Aether.app"
   launch_note="无法写入 /Applications，已回退到 $launch。手动复制该 App 到 /Applications后，从 app 启动器中运行Aether，或在\"$HOME/Applications\"文件夹中双击Aether.app运行。"
+  debug_log "WRITE_LAUNCH | fallback launch=$launch"
 }
 
 stop() {
@@ -599,7 +617,7 @@ boot() {
   debug_log "BOOT | dir=$dir"
   [ -x "$dir/Aether.command" ] || { debug_log "BOOT | Aether.command not executable: $dir/Aether.command"; return 1; }
   debug_log "BOOT | launching $dir/Aether.command via nohup"
-  nohup "$dir/Aether.command" >/dev/null 2>&1 &
+  AETHER_WEB_OPEN_FALLBACK_MS="${AETHER_WEB_OPEN_FALLBACK_MS:-3000}" nohup "$dir/Aether.command" >/dev/null 2>&1 &
   debug_log "BOOT | nohup pid=$!"
 }
 
@@ -608,17 +626,22 @@ mirror_dir() {
   root="$(mirror_root || true)"
   [ -n "$root" ] || return 1
   dst="$(mirror_target "$root")"
+  debug_log "MIRROR_DIR | root=$root dst=$dst"
   tmp="${dst}.copy"
   rm -rf "$tmp" "$dst"
   mkdir -p "$tmp" || return 1
   ditto "$target" "$tmp" || {
+    debug_log "MIRROR_DIR | ditto failed: target=$target tmp=$tmp"
     rm -rf "$tmp"
     return 1
   }
+  debug_log "MIRROR_DIR | ditto success, moving tmp to dst"
   mv "$tmp" "$dst" || {
+    debug_log "MIRROR_DIR | mv failed: tmp=$tmp dst=$dst"
     rm -rf "$tmp"
     return 1
   }
+  debug_log "MIRROR_DIR | mirror complete: $dst"
   printf "%s" "$dst"
 }
 
@@ -653,6 +676,8 @@ mnt="$tmp/mount"
 next="$work/.aether_$ver.next"
 
 cleanup() {
+  debug_log "EXIT | code=$?"
+  debug_log "CLEANUP | detaching mnt=$mnt and removing tmp=$tmp"
   hdiutil detach "$mnt" -quiet >/dev/null 2>&1 || true
   rm -rf "$tmp"
 }
@@ -666,8 +691,11 @@ if [ "$mirror_only" = "1" ]; then
 else
   rm -rf "$next"
   mkdir -p "$next" "$mnt" || fail "准备安装目录失败：$next"
+  debug_log "EXTRACT | mkdir next=$next mnt=$mnt"
 
+  debug_log "EXTRACT | hdiutil attach pkg=$pkg mnt=$mnt"
   hdiutil attach "$pkg" -nobrowse -readonly -mountpoint "$mnt" -quiet || fail "挂载安装包失败：$pkg"
+  debug_log "EXTRACT | hdiutil attach success"
 
   src="$mnt"
   if [ ! -f "$src/aether" ] || [ ! -f "$src/Aether.command" ]; then
@@ -676,17 +704,26 @@ else
     shopt -u nullglob
     if [ "${#dirs[@]}" -eq 1 ] && [ -f "${dirs[0]}aether" ] && [ -f "${dirs[0]}Aether.command" ]; then
       src="${dirs[0]%/}"
+      debug_log "EXTRACT | resolved src inside subdirectory: $src"
+    else
+      debug_log "EXTRACT | no single subdirectory with app files found, using mnt=$mnt"
     fi
+  else
+    debug_log "EXTRACT | app files found at mnt root: $src"
   fi
 
   [ -f "$src/aether" ] || fail "安装包内容缺少 aether"
   [ -f "$src/Aether.command" ] || fail "安装包内容缺少 Aether.command"
 
   echo "[2/4] 解包并安装到: $target"
+  debug_log "INSTALL | ditto src=$src dst=$next"
   ditto "$src" "$next" || fail "解包安装包失败：$pkg"
+  debug_log "INSTALL | ditto success"
 
   rm -rf "$target"
+  debug_log "INSTALL | mv next=$next target=$target"
   mv "$next" "$target" || fail "写入版本目录失败：$target"
+  debug_log "INSTALL | mv success"
 fi
 chflags nohidden "$target" >/dev/null 2>&1 || true
 
@@ -698,6 +735,7 @@ done
 shopt -u nullglob
 
 chmod +x "$target/aether" "$target/Aether.command"
+debug_log "PERM | chmod +x aether Aether.command in $target"
 uv=""
 shopt -s nullglob
 for file in "$target"/wechat-bridge/runtime/uv/uv-*apple-darwin*/uv; do
@@ -708,12 +746,16 @@ done
 shopt -u nullglob
 if [ -f "$uv" ]; then
   chmod +x "$uv"
+  debug_log "PERM | chmod +x uv=$uv"
 fi
 xattr -cr "$target/aether" "$target/Aether.command" >/dev/null 2>&1 || true
+debug_log "PERM | xattr -cr aether Aether.command in $target"
 if [ -f "$uv" ]; then
   xattr -cr "$uv" >/dev/null 2>&1 || true
+  debug_log "PERM | xattr -cr uv=$uv"
 fi
 printf "%s\n" "$ver" >"$target/.aether_web_version"
+debug_log "VERSION | wrote $target/.aether_web_version ver=$ver"
 rm -f "$work/.aether_web_version" >/dev/null 2>&1 || true
 
 rm -rf "$work/current" >/dev/null 2>&1 || true
@@ -733,6 +775,7 @@ elif copy_target="$(mirror_dir || true)" && [ -n "$copy_target" ]; then
   if [ -n "$mirror_root_dir" ]; then
     prune_versions "$mirror_root_dir" 1000 "$copy_target"
     mirror_prune="$prune"
+    debug_log "PRUNE | mirror_root_dir=$mirror_root_dir mirror_prune=$prune"
   fi
 else
   debug_log "MIRROR | mirror_dir failed, AETHER_CURRENT_DIR=${AETHER_CURRENT_DIR:-}"

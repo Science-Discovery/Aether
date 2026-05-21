@@ -63,6 +63,7 @@ const cmp = (a: string, b: string) => {
 }
 
 const wait = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))
+const reloadPollMs = 200
 
 const statusOf = (value: unknown): WebUpdate["status"] => {
   if (value === "downloading") return "downloading"
@@ -154,7 +155,26 @@ export const createWebUpdate = (req: Req, detectOS: () => string) => {
 
   const finish = async (data: Pick<WebUpdate, "os" | "version">) => {
     await install(data)
+    await waitForReload(data.version)
     await waitFor(data.version)
+  }
+
+  const waitForReload = async (ver: string) => {
+    for (let i = 0; i < 225; i++) {
+      const ok = await req(`/global/health?t=${Date.now()}`, { cache: "no-store" })
+        .then((res) => res.json())
+        .then((data: unknown) => {
+          if (!data || typeof data !== "object") return false
+          const version = (data as Record<string, unknown>).version
+          return typeof version === "string" && cmp(version, ver) >= 0
+        })
+        .catch(() => false)
+      if (ok) {
+        window.location.reload()
+        return
+      }
+      await wait(reloadPollMs)
+    }
   }
 
   return {
