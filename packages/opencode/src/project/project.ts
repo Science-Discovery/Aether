@@ -722,67 +722,36 @@ export namespace Project {
             )
           : false
 
-        if (isMainWorktree) {
-          yield* db((d) =>
-            d
-              .insert(ProjectRecentTable)
-              .values({
-                key,
-                kind: "project",
-                project_id: pid,
-                directory: input.directory,
+        const kind = isMainWorktree ? "project" : ("directory" as const)
+        yield* db((d) =>
+          d
+            .insert(ProjectRecentTable)
+            .values({
+              key,
+              kind,
+              project_id: isMainWorktree ? pid : (pid ?? null),
+              directory: input.directory,
+              name: input.name ?? name(input.directory),
+              icon_url: input.icon?.url ?? null,
+              icon_color: input.icon?.color ?? null,
+              icon_override: input.icon?.override ?? null,
+              activity_at: Date.now(),
+              time_created: Date.now(),
+              time_updated: Date.now(),
+            })
+            .onConflictDoUpdate({
+              target: ProjectRecentTable.key,
+              set: {
                 name: input.name ?? name(input.directory),
                 icon_url: input.icon?.url ?? null,
                 icon_color: input.icon?.color ?? null,
                 icon_override: input.icon?.override ?? null,
-                activity_at: Date.now(),
-                time_created: Date.now(),
                 time_updated: Date.now(),
-              })
-              .onConflictDoUpdate({
-                target: ProjectRecentTable.key,
-                set: {
-                  name: input.name ?? name(input.directory),
-                  icon_url: input.icon?.url ?? null,
-                  icon_color: input.icon?.color ?? null,
-                  icon_override: input.icon?.override ?? null,
-                  time_updated: Date.now(),
-                },
-              })
-              .run(),
-          )
-          yield* emitRecentUpdated
-        } else {
-          yield* db((d) =>
-            d
-              .insert(ProjectRecentTable)
-              .values({
-                key,
-                kind: "directory",
-                project_id: pid ?? null,
-                directory: input.directory,
-                name: input.name ?? name(input.directory),
-                icon_url: input.icon?.url ?? null,
-                icon_color: input.icon?.color ?? null,
-                icon_override: input.icon?.override ?? null,
-                activity_at: Date.now(),
-                time_created: Date.now(),
-                time_updated: Date.now(),
-              })
-              .onConflictDoUpdate({
-                target: ProjectRecentTable.key,
-                set: {
-                  name: input.name ?? name(input.directory),
-                  icon_url: input.icon?.url ?? null,
-                  icon_color: input.icon?.color ?? null,
-                  icon_override: input.icon?.override ?? null,
-                  time_updated: Date.now(),
-                },
-              })
-              .run(),
-          )
-          yield* emitRecentUpdated
-        }
+              },
+            })
+            .run(),
+        )
+        yield* emitRecentUpdated
 
         if (pid) {
           const allMeta = yield* dbProject(pid, (d) => d.select().from(DirectoryMetaTable).all())

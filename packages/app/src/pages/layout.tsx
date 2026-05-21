@@ -1666,17 +1666,18 @@ export default function Layout(props: ParentProps) {
     const current = displayName(project)
     if (next === current) return
     const isDefault = next === getFilename(project.worktree)
-    const name = isDefault ? "" : next
+    const name = isDefault ? getFilename(project.worktree) : next
 
-    globalSync.project.meta(project.worktree, { name: isDefault ? getFilename(project.worktree) : next })
+    globalSync.project.meta(project.worktree, { name })
 
     globalSDK.client.project
       .updateDirectoryMeta({
         body_directory: project.worktree,
-        name: name || undefined,
+        name,
         projectID: project.id && !project.id.startsWith("dir:") ? project.id : undefined,
       })
       .catch(() => {
+        globalSync.project.meta(project.worktree, { name: current })
         showToast({
           variant: "error",
           title: language.t("common.requestFailed"),
@@ -1689,12 +1690,12 @@ export default function Layout(props: ParentProps) {
     const current = workspaceName(directory, projectId, branch) ?? branch ?? getFilename(directory)
     if (current === next) return
     setWorkspaceName(directory, next, projectId, branch)
-
     globalSync.project.meta(directory, { name: next })
     globalSDK.client.project
       .updateDirectoryMeta({ body_directory: directory, name: next, projectID: projectId })
       .catch(() => {
         setWorkspaceName(directory, current, projectId, branch)
+        globalSync.project.meta(directory, { name: current })
         showToast({
           variant: "error",
           title: language.t("common.requestFailed"),

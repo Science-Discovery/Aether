@@ -1113,7 +1113,11 @@ export const SortableWorkspace = (props: {
       workspaceEditActive={workspaceEditActive}
       branchEditActive={branchEditActive}
       InlineEditor={props.ctx.InlineEditor}
-      renameWorkspace={(dir, next, projectId) => props.ctx.renameWorkspace(dir, next, projectId ?? props.project.id)}
+      renameWorkspace={(dir, next, projectId) => {
+        const pid =
+          projectId ?? (props.project.id && !props.project.id.startsWith("dir:") ? props.project.id : undefined)
+        props.ctx.renameWorkspace(dir, next, pid)
+      }}
       renameBranch={props.ctx.renameBranch}
       setEditor={props.ctx.setEditor}
     />
