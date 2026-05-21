@@ -22,6 +22,21 @@ import {
 import { dropdownMenuContentSelector, inlineInputSelector, workspaceItemSelector } from "../selectors"
 import { createSdk, dirSlug } from "../utils"
 
+function key(dir: string) {
+  const next = dir.replace(/\\/g, "/")
+  return next.toLowerCase().replace(/\/+$/, "")
+}
+
+async function same(dir: string) {
+  return fs.realpath(dir).then(key).catch(() => key(dir))
+}
+
+async function listed(list: string[], dir: string) {
+  if (process.platform !== "win32") return list.includes(dir)
+  const target = await same(dir)
+  return (await Promise.all(list.map(same))).includes(target)
+}
+
 async function setupWorkspaceTest(page: Page, project: { slug: string }) {
   const rootSlug = project.slug
   await openSidebar(page)
@@ -235,11 +250,6 @@ test("can reset a workspace", async ({ page, sdk, withProject }) => {
 })
 
 test("can delete a workspace", async ({ page, withProject }) => {
-  // Windows CI can expose the same worktree through both 8.3 short paths
-  // and long user-profile paths; skip only this coverage until backend
-  // sandbox paths are canonicalized.
-  test.skip(process.platform === "win32", "Windows worktree path aliases make deletion assertions unreliable")
-
   await page.setViewportSize({ width: 1400, height: 800 })
 
   await withProject(async (project) => {
@@ -253,7 +263,7 @@ test("can delete a workspace", async ({ page, withProject }) => {
             .list()
             .then((r) => r.data ?? [])
             .catch(() => [] as string[])
-          return worktrees.includes(directory)
+          return listed(worktrees, directory)
         },
         { timeout: 30_000 },
       )
@@ -272,7 +282,7 @@ test("can delete a workspace", async ({ page, withProject }) => {
             .list()
             .then((r) => r.data ?? [])
             .catch(() => [] as string[])
-          return worktrees.includes(directory)
+          return listed(worktrees, directory)
         },
         { timeout: 60_000 },
       )
