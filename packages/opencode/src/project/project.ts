@@ -366,9 +366,6 @@ export namespace Project {
                 target: DirectoryMetaTable.directory,
                 set: {
                   worktree: input.project.worktree,
-                  name: input.project.name ?? null,
-                  icon_url: input.project.icon?.url ?? null,
-                  icon_color: input.project.icon?.color ?? null,
                   activity_at: now,
                   time_updated: now,
                 },
@@ -467,9 +464,6 @@ export namespace Project {
               set: {
                 worktree: result.worktree,
                 vcs: result.vcs ?? null,
-                name: result.name,
-                icon_url: result.icon?.url,
-                icon_color: result.icon?.color,
                 time_updated: result.time.updated,
                 time_initialized: result.time.initialized,
                 commands: result.commands,
@@ -521,9 +515,6 @@ export namespace Project {
               target: DirectoryMetaTable.directory,
               set: {
                 worktree: data.worktree,
-                name: result.name ?? null,
-                icon_url: result.icon?.url ?? null,
-                icon_color: result.icon?.color ?? null,
                 activity_at: Date.now(),
                 time_updated: Date.now(),
               },
@@ -742,10 +733,14 @@ export namespace Project {
             .onConflictDoUpdate({
               target: ProjectRecentTable.key,
               set: {
-                name: input.name ?? name(input.directory),
-                icon_url: input.icon?.url ?? null,
-                icon_color: input.icon?.color ?? null,
-                icon_override: input.icon?.override ?? null,
+                ...(input.name !== undefined ? { name: input.name } : {}),
+                ...(input.icon
+                  ? {
+                      icon_url: input.icon.url ?? null,
+                      icon_color: input.icon.color ?? null,
+                      icon_override: input.icon.override ?? null,
+                    }
+                  : {}),
                 time_updated: Date.now(),
               },
             })
