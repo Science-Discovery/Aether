@@ -628,6 +628,98 @@ export namespace Database {
     }
   }
 
+  function gitWorktreeDirectories(worktree: string): string[] {
+    if (!existsSync(worktree)) return []
+    try {
+      const proc = Bun.spawnSync(["git", "worktree", "list", "--porcelain"], {
+        cwd: worktree,
+        stderr: "pipe",
+        stdout: "pipe",
+      })
+      if (proc.exitCode !== 0) return []
+      const text = proc.stdout?.toString() ?? ""
+      const dirs: string[] = []
+      for (const line of text.split("\n")) {
+        const trimmed = line.trim()
+        if (trimmed.startsWith("worktree ")) {
+          dirs.push(trimmed.slice("worktree ".length).trim())
+        }
+      }
+      return dirs
+    } catch {
+      return []
+    }
+  }
+
+  function validateDirectoryMeta(pSqlite: BunSqlite, pid: string, recentLookup: Map<string, any>) {
+    const hasTable = pSqlite
+      .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='directory_meta'")
+      .get()
+    if (!hasTable) return
+
+    const projectRow = pSqlite.prepare("SELECT worktree, vcs FROM project WHERE id = ?").get(pid) as
+      | { worktree: string; vcs: string | null }
+      | undefined
+    if (!projectRow) return
+
+    const worktree = projectRow.worktree
+
+    const setA = new Set<string>()
+    const sessionDirs = (
+      pSqlite.prepare("SELECT DISTINCT directory FROM session").all() as { directory: string }[]
+    ).map((r) => r.directory)
+    for (const dir of sessionDirs) setA.add(norm(dir))
+    setA.add(norm(worktree))
+
+    const setB = new Set<string>()
+    if (projectRow.vcs === "git" && worktree !== "/") {
+      for (const dir of gitWorktreeDirectories(worktree)) {
+        setB.add(norm(dir))
+      }
+    }
+
+    const validDirs = new Set([...setA, ...setB])
+
+    const metaRows = pSqlite.prepare("SELECT directory FROM directory_meta").all() as { directory: string }[]
+    let deleted = 0
+    for (const row of metaRows) {
+      if (!validDirs.has(norm(row.directory))) {
+        pSqlite.prepare("DELETE FROM directory_meta WHERE directory = ?").run(row.directory)
+        deleted++
+      }
+    }
+    if (deleted > 0) log.info("removed stale directory_meta entries", { pid, deleted })
+
+    const existingMetaDirs = new Set(
+      (pSqlite.prepare("SELECT directory FROM directory_meta").all() as { directory: string }[]).map((r) =>
+        norm(r.directory),
+      ),
+    )
+
+    const insert = pSqlite.prepare(
+      "INSERT OR IGNORE INTO directory_meta (directory, worktree, name, icon_url, icon_color, icon_override, activity_at, time_created, time_updated) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    )
+
+    let added = 0
+    for (const dir of validDirs) {
+      if (existingMetaDirs.has(dir)) continue
+      const recentRow = recentLookup.get(dir)
+      insert.run(
+        dir,
+        worktree,
+        recentRow?.name ?? null,
+        recentRow?.icon_url ?? null,
+        recentRow?.icon_color ?? null,
+        recentRow?.icon_override ?? null,
+        recentRow?.activity_at ?? Date.now(),
+        Date.now(),
+        Date.now(),
+      )
+      added++
+    }
+    if (added > 0) log.info("added missing directory_meta entries", { pid, added })
+  }
+
   function syncDirectoryMetaToGlobal(sqlite: BunSqlite, pSqlite: BunSqlite, pid: string) {
     const hasTable = pSqlite
       .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='directory_meta'")
@@ -746,6 +838,7 @@ export namespace Database {
           }
 
           ensureDirectoryMeta(pSqlite, pid, recentLookup)
+          validateDirectoryMeta(pSqlite, pid, recentLookup)
           syncDirectoryMetaToGlobal(sqlite, pSqlite, pid)
           if (projectRow?.worktree && projectRow.worktree !== "/")
             validWorktreeKeys.add(`dir:${norm(projectRow.worktree)}`)
