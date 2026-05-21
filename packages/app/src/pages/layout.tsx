@@ -1844,12 +1844,19 @@ export default function Layout(props: ParentProps) {
           title: language.t("workspace.delete.failed.title"),
           description: errorMessage(err, language.t("common.requestFailed")),
         })
-        return false
+        return undefined
       })
 
-    setBusy(directory, false)
+    if (!result) {
+      setBusy(directory, false)
+      return
+    }
 
-    if (!result) return
+    if (result && typeof result === "object" && result.status === "stale") {
+      setBusy(directory, false)
+      dialog.show(() => <DialogForceDeleteWorkspace root={root} directory={directory} gitStderr={result.gitStderr} />)
+      return
+    }
 
     if (workspaceKey(store.lastProjectSession[root]?.directory ?? "") === workspaceKey(directory)) {
       clearLastProjectSession(root)
@@ -2007,6 +2014,55 @@ export default function Layout(props: ParentProps) {
             </Button>
             <Button variant="primary" size="large" disabled={data.status === "loading"} onClick={handleDelete}>
               {language.t("workspace.delete.button")}
+            </Button>
+          </div>
+        </div>
+      </Dialog>
+    )
+  }
+
+  function DialogForceDeleteWorkspace(props: { root: string; directory: string; gitStderr: string }) {
+    const name = createMemo(() => getFilename(props.directory))
+
+    const handleForceDelete = async () => {
+      dialog.close()
+      setBusy(props.directory, true)
+      const result = await globalSDK.client.worktree
+        .remove({ directory: props.root, worktreeRemoveInput: { directory: props.directory, force: true } })
+        .then((x) => x.data)
+        .catch((err) => {
+          showToast({
+            title: language.t("workspace.delete.failed.title"),
+            description: errorMessage(err, language.t("common.requestFailed")),
+          })
+          return undefined
+        })
+      setBusy(props.directory, false)
+      if (!result) return
+      if (workspaceKey(store.lastProjectSession[props.root]?.directory ?? "") === workspaceKey(props.directory)) {
+        clearLastProjectSession(props.root)
+      }
+      globalSync.project.removeSandbox(props.root, props.directory)
+      setStore("workspaceOrder", props.root, (order) => (order ?? []).filter((w) => w !== props.directory))
+      layout.projects.close(props.directory)
+      layout.projects.open(props.root)
+    }
+
+    return (
+      <Dialog title={language.t("workspace.delete.stale.title")} fit>
+        <div class="flex flex-col gap-4 pl-6 pr-2.5 pb-3">
+          <div class="flex flex-col gap-1">
+            <span class="text-14-regular text-text-strong">
+              {language.t("workspace.delete.stale.confirm", { name: name() })}
+            </span>
+            <span class="text-12-regular text-text-weak">{language.t("workspace.delete.stale.description")}</span>
+          </div>
+          <div class="flex justify-end gap-2">
+            <Button variant="ghost" size="large" onClick={() => dialog.close()}>
+              {language.t("common.cancel")}
+            </Button>
+            <Button variant="primary" size="large" onClick={handleForceDelete}>
+              {language.t("workspace.delete.stale.button")}
             </Button>
           </div>
         </div>

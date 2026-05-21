@@ -1292,6 +1292,11 @@ export const dict = {
   "workspace.delete.title": "删除工作区",
   "workspace.delete.confirm": '删除工作区 "{{name}}"？',
   "workspace.delete.button": "删除工作区",
+  "workspace.delete.stale.title": "失效工作区",
+  "workspace.delete.stale.confirm": '工作区 "{{name}}" 已失去 git worktree 关系。是否强制删除该目录？',
+  "workspace.delete.stale.description":
+    "目录中缺少 .git 文件，不再是有效的 git worktree。强制删除将移除该目录并清理 git 元数据。",
+  "workspace.delete.stale.button": "强制删除",
   "workspace.reset.title": "重置工作区",
   "workspace.reset.confirm": '重置工作区 "{{name}}"？',
   "workspace.reset.button": "重置工作区",

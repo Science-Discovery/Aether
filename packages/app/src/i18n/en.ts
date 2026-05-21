@@ -1425,6 +1425,12 @@ export const dict = {
   "workspace.delete.title": "Delete workspace",
   "workspace.delete.confirm": 'Delete workspace "{{name}}"?',
   "workspace.delete.button": "Delete workspace",
+  "workspace.delete.stale.title": "Stale workspace",
+  "workspace.delete.stale.confirm":
+    'Workspace "{{name}}" has lost its git worktree relationship. Force delete the directory?',
+  "workspace.delete.stale.description":
+    "The .git file is missing — this directory is no longer a valid git worktree. Force deletion will remove the directory and clean up git metadata.",
+  "workspace.delete.stale.button": "Force delete",
   "workspace.reset.title": "Reset workspace",
   "workspace.reset.confirm": 'Reset workspace "{{name}}"?',
   "workspace.reset.button": "Reset workspace",

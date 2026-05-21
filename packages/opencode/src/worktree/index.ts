@@ -6,7 +6,8 @@ import { InstanceBootstrap } from "../project/bootstrap"
 import { Project } from "../project/project"
 import { Database, eq } from "../storage/db"
 import { ProjectTable } from "../project/project.sql"
-import type { ProjectID } from "../project/schema"
+import { ProjectIdentity } from "../project/identity"
+import { ProjectID } from "../project/schema"
 import { Log } from "../util/log"
 import { BusEvent } from "@/bus/bus-event"
 import { GlobalBus } from "@/bus/global"
@@ -65,12 +66,28 @@ export namespace Worktree {
   export const RemoveInput = z
     .object({
       directory: z.string(),
+      force: z.boolean().optional(),
     })
     .meta({
       ref: "WorktreeRemoveInput",
     })
 
   export type RemoveInput = z.infer<typeof RemoveInput>
+
+  export const RemoveResult = z.discriminatedUnion("status", [
+    z.object({ status: z.literal("ok") }),
+    z.object({
+      status: z.literal("stale"),
+      directory: z.string(),
+      gitStderr: z.string(),
+    }),
+    z.object({
+      status: z.literal("forceOk"),
+      hasOrphanedDb: z.boolean(),
+    }),
+  ])
+
+  export type RemoveResult = z.infer<typeof RemoveResult>
 
   export const ResetInput = z
     .object({
@@ -156,7 +173,7 @@ export namespace Worktree {
     readonly makeWorktreeInfo: (name?: string) => Effect.Effect<Info>
     readonly createFromInfo: (info: Info, startCommand?: string) => Effect.Effect<void>
     readonly create: (input?: CreateInput) => Effect.Effect<Info>
-    readonly remove: (input: RemoveInput) => Effect.Effect<boolean>
+    readonly remove: (input: RemoveInput) => Effect.Effect<RemoveResult>
     readonly reset: (input: ResetInput) => Effect.Effect<boolean>
   }
 
@@ -374,12 +391,45 @@ export namespace Worktree {
         )
       }
 
+      function pruneWorktree() {
+        return git(["worktree", "prune"], { cwd: Instance.worktree })
+      }
+
       const remove = Effect.fn("Worktree.remove")(function* (input: RemoveInput) {
         if (Instance.project.vcs !== "git") {
           throw new NotGitError({ message: "Worktrees are only supported for git projects" })
         }
 
         const directory = yield* canonical(input.directory)
+
+        if (input.force) {
+          yield* stopFsmonitor(directory)
+          const dirExists = yield* fsys.exists(directory).pipe(Effect.orDie)
+          if (dirExists) yield* cleanDirectory(directory)
+          yield* pruneWorktree()
+
+          const staleId = ProjectID.fromDirectory(ProjectIdentity.norm(directory))
+          const hasOrphanedDb = Database.hasProject(staleId)
+            ? (() => {
+                const row = Database.useProject(staleId, (d) =>
+                  d.select().from(ProjectTable).where(eq(ProjectTable.id, staleId)).get(),
+                )
+                return row?.worktree === directory
+              })()
+            : false
+
+          if (hasOrphanedDb) {
+            const dbPath = Database.projectPath(staleId)
+            for (const suffix of ["", "-wal", "-shm"]) {
+              const p = dbPath + suffix
+              if (yield* fsys.exists(p).pipe(Effect.orDie)) {
+                yield* cleanDirectory(p)
+              }
+            }
+          }
+
+          return { status: "forceOk" as const, hasOrphanedDb }
+        }
 
         const list = yield* git(["worktree", "list", "--porcelain"], { cwd: Instance.worktree })
         if (list.code !== 0) {
@@ -395,12 +445,18 @@ export namespace Worktree {
             yield* stopFsmonitor(directory)
             yield* cleanDirectory(directory)
           }
-          return true
+          yield* pruneWorktree()
+          return { status: "ok" as const }
         }
 
         yield* stopFsmonitor(entry.path)
         const removed = yield* git(["worktree", "remove", "--force", entry.path], { cwd: Instance.worktree })
         if (removed.code !== 0) {
+          const isStale = /does not exist|不存在|not a valid|验证失败/i.test(removed.stderr || removed.text || "")
+          if (isStale) {
+            return { status: "stale" as const, directory, gitStderr: removed.stderr || removed.text || "" }
+          }
+
           const next = yield* git(["worktree", "list", "--porcelain"], { cwd: Instance.worktree })
           if (next.code !== 0) {
             throw new RemoveFailedError({
@@ -415,6 +471,7 @@ export namespace Worktree {
         }
 
         yield* cleanDirectory(entry.path)
+        yield* pruneWorktree()
 
         const branch = entry.branch?.replace(/^refs\/heads\//, "")
         if (branch) {
@@ -426,7 +483,7 @@ export namespace Worktree {
           }
         }
 
-        return true
+        return { status: "ok" as const }
       })
 
       const gitExpect = Effect.fnUntraced(function* (

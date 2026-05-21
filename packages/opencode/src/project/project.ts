@@ -535,6 +535,7 @@ export namespace Project {
       })
 
       const syncWorktrees = Effect.fn("Project.syncWorktrees")(function* (pid: ProjectID, worktree: string) {
+        yield* git(["worktree", "prune"], { cwd: worktree })
         const result = yield* git(["worktree", "list", "--porcelain"], { cwd: worktree })
         if (result.code !== 0) return
 

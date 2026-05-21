@@ -148,7 +148,7 @@ export const ExperimentalRoutes = lazy(() =>
             description: "Worktree removed",
             content: {
               "application/json": {
-                schema: resolver(z.boolean()),
+                schema: resolver(Worktree.RemoveResult),
               },
             },
           },
@@ -158,9 +158,11 @@ export const ExperimentalRoutes = lazy(() =>
       validator("json", Worktree.RemoveInput),
       async (c) => {
         const body = c.req.valid("json")
-        await Worktree.remove(body)
-        await Project.removeSandbox(Instance.project.id, body.directory)
-        return c.json(true)
+        const result = await Worktree.remove(body)
+        if (result.status === "ok" || result.status === "forceOk") {
+          await Project.removeSandbox(Instance.project.id, body.directory)
+        }
+        return c.json(result)
       },
     )
     .post(

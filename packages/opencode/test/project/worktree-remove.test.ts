@@ -55,7 +55,7 @@ describe("Worktree.remove", () => {
       }
     })()
 
-    expect(ok).toBe(true)
+    expect(ok).toEqual({ status: "ok" })
     expect(await Filesystem.exists(dir)).toBe(false)
 
     const list = await $`git worktree list --porcelain`.cwd(root).quiet().text()
@@ -87,7 +87,7 @@ describe("Worktree.remove", () => {
       fn: () => Worktree.remove({ directory: dir }),
     })
 
-    expect(ok).toBe(true)
+    expect(ok).toEqual({ status: "ok" })
     expect(await Filesystem.exists(dir)).toBe(false)
 
     const ref = await $`git show-ref --verify --quiet refs/heads/${branch}`.cwd(root).quiet().nothrow()
