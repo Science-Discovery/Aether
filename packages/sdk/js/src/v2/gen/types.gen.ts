@@ -1974,6 +1974,7 @@ export type WorktreeCreateInput = {
 
 export type WorktreeRemoveInput = {
   directory: string
+  force?: boolean
 }
 
 export type WorktreeResetInput = {
@@ -3662,7 +3663,19 @@ export type WorktreeRemoveResponses = {
   /**
    * Worktree removed
    */
-  200: boolean
+  200:
+    | {
+        status: "ok"
+      }
+    | {
+        status: "stale"
+        directory: string
+        gitStderr: string
+      }
+    | {
+        status: "forceOk"
+        hasOrphanedDb: boolean
+      }
 }
 
 export type WorktreeRemoveResponse = WorktreeRemoveResponses[keyof WorktreeRemoveResponses]
