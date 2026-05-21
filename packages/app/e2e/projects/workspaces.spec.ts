@@ -158,7 +158,7 @@ test("can rename a workspace", async ({ page, withProject }) => {
 
     const rename = `e2e workspace ${Date.now()}`
     const menu = await openWorkspaceMenu(page, slug)
-    await clickMenuItem(menu, /Rename Sandbox/i, { force: true })
+    await clickMenuItem(menu, /Rename Workspace/i, { force: true })
 
     await expect(menu).toHaveCount(0)
 

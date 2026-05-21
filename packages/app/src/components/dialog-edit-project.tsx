@@ -12,6 +12,7 @@ import { type LocalProject, getAvatarColors } from "@/context/layout"
 import { getFilename } from "@opencode-ai/util/path"
 import { Avatar } from "@opencode-ai/ui/avatar"
 import { useLanguage } from "@/context/language"
+import { showToast } from "@opencode-ai/ui/toast"
 
 const AVATAR_COLOR_KEYS = ["pink", "mint", "orange", "purple", "cyan", "lime"] as const
 const ICON_SIZE = 128
@@ -113,15 +114,22 @@ export function DialogEditProject(props: { project: LocalProject }) {
         .updateDirectoryMeta({
           body_directory: props.project.worktree,
           name: name || undefined,
+          projectID: props.project.id && !props.project.id.startsWith("dir:") ? props.project.id : undefined,
           icon,
         })
-        .catch(() => {})
+        .catch(() => {
+          showToast({
+            variant: "error",
+            title: language.t("common.requestFailed"),
+            description: language.t("common.requestFailed"),
+          })
+        })
 
-      const hasProjectID = props.project.id && !props.project.id.startsWith("dir:")
-      if (hasProjectID && start) {
+      const pid = props.project.id && !props.project.id.startsWith("dir:") ? props.project.id : undefined
+      if (pid && start) {
         globalSDK.client.project
           .update({
-            projectID: props.project.id!,
+            projectID: pid,
             commands: { start },
           })
           .catch(() => {})

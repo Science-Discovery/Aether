@@ -251,7 +251,8 @@ export namespace Project {
     readonly updateDirectoryMeta: (input: {
       directory: string
       name?: string
-      icon?: { url?: string; color?: string }
+      icon?: { url?: string; color?: string; override?: string }
+      projectID?: ProjectID
     }) => Effect.Effect<void>
     readonly initGit: (input: { directory: string; project: Info }) => Effect.Effect<Info>
     readonly setInitialized: (id: ProjectID) => Effect.Effect<void>
@@ -697,16 +698,38 @@ export namespace Project {
         directory: string
         name?: string
         icon?: { url?: string; color?: string; override?: string }
+        projectID?: ProjectID
       }) {
         const dir = norm(input.directory)
         const key = dirKey(dir)
+
+        const pid =
+          input.projectID ??
+          (yield* db((d) =>
+            d
+              .select({ project_id: GlobalProjectMapTable.project_id })
+              .from(GlobalProjectMapTable)
+              .where(eq(GlobalProjectMapTable.directory, dir))
+              .get(),
+          ))?.project_id
+
+        const isMainWorktree = pid
+          ? norm(input.directory) ===
+            norm(
+              (yield* dbProject(pid, (d) =>
+                d.select({ worktree: ProjectTable.worktree }).from(ProjectTable).where(eq(ProjectTable.id, pid)).get(),
+              ))?.worktree ?? "",
+            )
+          : false
+
+        const kind = isMainWorktree ? "project" : ("directory" as const)
         yield* db((d) =>
           d
             .insert(ProjectRecentTable)
             .values({
               key,
-              kind: "directory",
-              project_id: null,
+              kind,
+              project_id: isMainWorktree ? pid : (pid ?? null),
               directory: input.directory,
               name: input.name ?? name(input.directory),
               icon_url: input.icon?.url ?? null,
@@ -729,6 +752,30 @@ export namespace Project {
             .run(),
         )
         yield* emitRecentUpdated
+
+        if (pid) {
+          const allMeta = yield* dbProject(pid, (d) => d.select().from(DirectoryMetaTable).all())
+          const match = allMeta.find((row) => norm(row.directory) === dir)
+          if (match) {
+            yield* dbProject(pid, (d) =>
+              d
+                .update(DirectoryMetaTable)
+                .set({
+                  ...(input.name !== undefined ? { name: input.name } : {}),
+                  ...(input.icon
+                    ? {
+                        icon_url: input.icon.url ?? null,
+                        icon_color: input.icon.color ?? null,
+                        icon_override: input.icon.override ?? null,
+                      }
+                    : {}),
+                  time_updated: Date.now(),
+                })
+                .where(eq(DirectoryMetaTable.directory, match.directory))
+                .run(),
+            )
+          }
+        }
       })
 
       return Service.of({
@@ -805,7 +852,8 @@ export namespace Project {
   export function updateDirectoryMeta(input: {
     directory: string
     name?: string
-    icon?: { url?: string; color?: string }
+    icon?: { url?: string; color?: string; override?: string }
+    projectID?: ProjectID
   }) {
     return runPromise((svc) => svc.updateDirectoryMeta(input))
   }

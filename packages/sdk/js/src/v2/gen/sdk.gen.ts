@@ -24,6 +24,7 @@ import type {
   ConfigSkillsToggleResponses,
   ConfigUpdateErrors,
   ConfigUpdateResponses,
+  CronAssistantResponses,
   CronJobsCreateResponses,
   CronJobsDeleteResponses,
   CronJobsGetResponses,
@@ -167,6 +168,12 @@ import type {
   McpLocalConfig,
   McpRemoteConfig,
   McpStatusResponses,
+  MemoryDailyReflectSyncResponses,
+  MemoryInitializeCancelResponses,
+  MemoryInitializeStartResponses,
+  MemoryReflectResponses,
+  MemorySearchResponses,
+  MemoryStatusResponses,
   OutputFormat,
   Part as Part2,
   PartDeleteErrors,
@@ -180,11 +187,16 @@ import type {
   PermissionRespondErrors,
   PermissionRespondResponses,
   PermissionRuleset,
+  PostVoiceTranscribeResponses,
   ProjectCurrentResponses,
+  ProjectDeleteErrors,
+  ProjectDeleteResponses,
   ProjectDirectoriesResponses,
   ProjectInitGitResponses,
   ProjectListResponses,
   ProjectRecentResponses,
+  ProjectSessionCountErrors,
+  ProjectSessionCountResponses,
   ProjectUpdateDirectoryMetaErrors,
   ProjectUpdateDirectoryMetaResponses,
   ProjectUpdateErrors,
@@ -319,11 +331,13 @@ import type {
   TuiSelectSessionResponses,
   TuiShowToastResponses,
   TuiSubmitPromptResponses,
+  VcsCheckoutResponses,
   VcsCommitDetailResponses,
   VcsDiffResponses,
   VcsFileContentResponses,
   VcsGetResponses,
   VcsGraphResponses,
+  VcsRenameBranchResponses,
   WechatEventsResponses,
   WechatPing2Responses,
   WechatPing3Responses,
@@ -832,6 +846,7 @@ export class Project extends HeyApiClient {
       workspace?: string
       body_directory?: string
       name?: string
+      projectID?: string
       icon?: {
         url?: string
         override?: string
@@ -857,6 +872,7 @@ export class Project extends HeyApiClient {
               map: "directory",
             },
             { in: "body", key: "name" },
+            { in: "body", key: "projectID" },
             { in: "body", key: "icon" },
           ],
         },
@@ -1029,6 +1045,38 @@ export class Project extends HeyApiClient {
   }
 
   /**
+   * Delete project
+   *
+   * Remove a project and its database. Fails if the project has sessions — delete those first.
+   */
+  public delete<ThrowOnError extends boolean = false>(
+    parameters: {
+      projectID: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "projectID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).delete<ProjectDeleteResponses, ProjectDeleteErrors, ThrowOnError>({
+      url: "/project/{projectID}",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
    * Update project
    *
    * Update project properties such as name, icon, and commands.
@@ -1077,6 +1125,38 @@ export class Project extends HeyApiClient {
         ...options?.headers,
         ...params.headers,
       },
+    })
+  }
+
+  /**
+   * Get session count for project
+   *
+   * Return the number of sessions in a project database.
+   */
+  public sessionCount<ThrowOnError extends boolean = false>(
+    parameters: {
+      projectID: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "projectID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<ProjectSessionCountResponses, ProjectSessionCountErrors, ThrowOnError>({
+      url: "/project/{projectID}/session-count",
+      ...options,
+      ...params,
     })
   }
 }
@@ -6522,6 +6602,47 @@ export class Runs extends HeyApiClient {
 }
 
 export class Cron extends HeyApiClient {
+  /**
+   * Create or update a cron job from a short natural language instruction
+   */
+  public assistant<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      instruction?: string
+      selected_id?: string
+      project_id?: string
+      session_id?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "instruction" },
+            { in: "body", key: "selected_id" },
+            { in: "body", key: "project_id" },
+            { in: "body", key: "session_id" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<CronAssistantResponses, unknown, ThrowOnError>({
+      url: "/cron/assistant",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
   private _jobs?: Jobs
   get jobs(): Jobs {
     return (this._jobs ??= new Jobs({ client: this.client }))
@@ -6530,6 +6651,214 @@ export class Cron extends HeyApiClient {
   private _runs?: Runs
   get runs(): Runs {
     return (this._runs ??= new Runs({ client: this.client }))
+  }
+}
+
+export class Initialize extends HeyApiClient {
+  /**
+   * Start one-time memory initialization
+   */
+  public start<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<MemoryInitializeStartResponses, unknown, ThrowOnError>({
+      url: "/memory/initialize/start",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Cancel memory initialization
+   */
+  public cancel<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<MemoryInitializeCancelResponses, unknown, ThrowOnError>({
+      url: "/memory/initialize/cancel",
+      ...options,
+      ...params,
+    })
+  }
+}
+
+export class DailyReflect extends HeyApiClient {
+  /**
+   * Sync daily memory reflection cron job from config
+   */
+  public sync<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<MemoryDailyReflectSyncResponses, unknown, ThrowOnError>({
+      url: "/memory/daily-reflect/sync",
+      ...options,
+      ...params,
+    })
+  }
+}
+
+export class Memory extends HeyApiClient {
+  /**
+   * Get memory system status
+   */
+  public status<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<MemoryStatusResponses, unknown, ThrowOnError>({
+      url: "/memory/status",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Search long-term memory
+   */
+  public search<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      query?: string
+      mode?: "search" | "overview"
+      types?: Array<"preference" | "fact" | "task">
+      limit?: number
+      currentProjectID?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "query" },
+            { in: "body", key: "mode" },
+            { in: "body", key: "types" },
+            { in: "body", key: "limit" },
+            { in: "body", key: "currentProjectID" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<MemorySearchResponses, unknown, ThrowOnError>({
+      url: "/memory/search",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Run memory reflection
+   */
+  public reflect<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      mode?: "quick" | "daily" | "manual"
+      reason?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "mode" },
+            { in: "body", key: "reason" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<MemoryReflectResponses, unknown, ThrowOnError>({
+      url: "/memory/reflect",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  private _initialize?: Initialize
+  get initialize(): Initialize {
+    return (this._initialize ??= new Initialize({ client: this.client }))
+  }
+
+  private _dailyReflect?: DailyReflect
+  get dailyReflect(): DailyReflect {
+    return (this._dailyReflect ??= new DailyReflect({ client: this.client }))
   }
 }
 
@@ -7737,6 +8066,80 @@ export class Vcs extends HeyApiClient {
   }
 
   /**
+   * Switch git branch
+   *
+   * Switch the current git branch to the specified branch name.
+   */
+  public checkout<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      branch?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "branch" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<VcsCheckoutResponses, unknown, ThrowOnError>({
+      url: "/vcs/checkout",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Rename git branch
+   *
+   * Rename the current git branch to a new name.
+   */
+  public renameBranch<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      newName?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "newName" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<VcsRenameBranchResponses, unknown, ThrowOnError>({
+      url: "/vcs/rename-branch",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
    * Get commit details
    *
    * Retrieve detailed information about a specific git commit, including metadata and file changes.
@@ -8014,6 +8417,49 @@ export class OpencodeClient extends HeyApiClient {
     OpencodeClient.__registry.set(this, args?.key)
   }
 
+  public postVoiceTranscribe<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      providerID?: string
+      modelID?: string
+      audioBase64?: string
+      audioFormat?: string
+      context?: Array<{
+        role: string
+        content: string
+      }>
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "providerID" },
+            { in: "body", key: "modelID" },
+            { in: "body", key: "audioBase64" },
+            { in: "body", key: "audioFormat" },
+            { in: "body", key: "context" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<PostVoiceTranscribeResponses, unknown, ThrowOnError>({
+      url: "/voice/transcribe",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
   private _global?: Global
   get global(): Global {
     return (this._global ??= new Global({ client: this.client }))
@@ -8117,6 +8563,11 @@ export class OpencodeClient extends HeyApiClient {
   private _cron?: Cron
   get cron(): Cron {
     return (this._cron ??= new Cron({ client: this.client }))
+  }
+
+  private _memory?: Memory
+  get memory(): Memory {
+    return (this._memory ??= new Memory({ client: this.client }))
   }
 
   private _wechat?: Wechat

@@ -182,6 +182,7 @@ export const WorkspaceDragOverlay = (props: {
     const [workspaceStore] = globalSync.child(directory, { bootstrap: false })
     const local = directory === project.worktree
     const displayName =
+      workspaceStore.projectMeta?.name ??
       props.workspaceName(directory) ??
       (local ? language.t("workspace.type.local") : language.t("workspace.type.sandbox"))
     const branch = workspaceStore.vcs?.branch ?? getFilename(directory)
@@ -1066,6 +1067,8 @@ export const SortableWorkspace = (props: {
   const currentBranch = createMemo(() => workspaceStore.vcs?.branch)
   const active = createMemo(() => workspaceKey(props.ctx.currentDir()) === workspaceKey(props.directory))
   const workspaceValue = createMemo(() => {
+    const metaName = workspaceStore.projectMeta?.name
+    if (metaName) return metaName
     const direct = props.ctx.workspaceName(props.directory)
     if (direct) return direct
     return local() ? language.t("workspace.type.local") : language.t("workspace.type.sandbox")
@@ -1110,7 +1113,11 @@ export const SortableWorkspace = (props: {
       workspaceEditActive={workspaceEditActive}
       branchEditActive={branchEditActive}
       InlineEditor={props.ctx.InlineEditor}
-      renameWorkspace={props.ctx.renameWorkspace}
+      renameWorkspace={(dir, next, projectId) => {
+        const pid =
+          projectId ?? (props.project.id && !props.project.id.startsWith("dir:") ? props.project.id : undefined)
+        props.ctx.renameWorkspace(dir, next, pid)
+      }}
       renameBranch={props.ctx.renameBranch}
       setEditor={props.ctx.setEditor}
     />

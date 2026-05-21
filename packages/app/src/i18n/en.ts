@@ -1169,7 +1169,8 @@ export const dict = {
   "settings.general.row.branchGraphCompact.option.full": "Full",
   "settings.general.row.branchGraphCompact.option.compact": "Compact",
   "settings.general.row.branchGraphOrderMode.title": "Conversation tree order",
-  "settings.general.row.branchGraphOrderMode.description": "Choose whether nodes prefer message sequence or timestamp order",
+  "settings.general.row.branchGraphOrderMode.description":
+    "Choose whether nodes prefer message sequence or timestamp order",
   "settings.general.row.branchGraphOrderMode.option.sequence": "Sequence",
   "settings.general.row.branchGraphOrderMode.option.time": "Time",
   "settings.general.row.branchGraphDisplay.label": "Display",
@@ -1429,7 +1430,7 @@ export const dict = {
   "workspace.reset.archived.many": "{{count}} sessions will be archived.",
   "workspace.reset.note": "This will reset the workspace to match the default branch.",
   "workspace.switchBranch": "Switch Branch",
-  "workspace.renameSandbox": "Rename Sandbox",
+  "workspace.renameSandbox": "Rename Workspace",
   "workspace.renameBranch": "Rename Branch",
   "workspace.renameBranch.error.alreadyExists": "Branch name already exists",
   "workspace.renameBranch.error.invalid": "Branch name is invalid",

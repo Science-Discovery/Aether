@@ -127,6 +127,7 @@ import { ProviderID } from "../provider/schema"
 import { WorkspaceRouterMiddleware } from "../control-plane/workspace-router-middleware"
 import { ProjectRoutes } from "./routes/project"
 import { Project } from "../project/project"
+import { ProjectID } from "../project/schema"
 import { SessionRoutes } from "./routes/session"
 import { PtyRoutes } from "./routes/pty"
 import { McpRoutes } from "./routes/mcp"
@@ -441,6 +442,7 @@ export namespace Server {
           z.object({
             directory: z.string(),
             name: z.string().optional(),
+            projectID: z.string().optional(),
             icon: z
               .object({
                 url: z.string().optional(),
@@ -452,7 +454,7 @@ export namespace Server {
         ),
         async (c) => {
           const body = c.req.valid("json")
-          await Project.updateDirectoryMeta(body)
+          await Project.updateDirectoryMeta({ ...body, projectID: body.projectID as ProjectID | undefined })
           const list = Project.recentList()
           const norm = (d: string) =>
             d

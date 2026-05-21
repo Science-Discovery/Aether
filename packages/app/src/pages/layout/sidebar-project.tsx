@@ -319,6 +319,7 @@ export const SortableProject = (props: {
     const [data] = globalSync.child(directory, { bootstrap: false })
     const local = directory === props.project.worktree
     const displayName =
+      data.projectMeta?.name ??
       props.ctx.workspaceName(directory) ??
       (local ? language.t("workspace.type.local") : language.t("workspace.type.sandbox"))
     const branch = data.vcs?.branch ?? getFilename(directory)
