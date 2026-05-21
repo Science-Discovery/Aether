@@ -346,11 +346,27 @@ test("can reorder workspaces by drag and drop", async ({ page, withProject }) =>
       return slugs
     }
 
+    const actual = async (space: Space) => {
+      if (process.platform !== "win32") return (await listSlugs()).find((slug) => slug === space.slug)
+
+      const target = await same(space.directory)
+      const slugs = await Promise.all(
+        (await listSlugs()).map(async (slug) => {
+          const dir = base64Decode(slug)
+          if (!dir) return undefined
+          return (await same(dir)) === target ? slug : undefined
+        }),
+      )
+      return slugs.find((slug): slug is string => !!slug)
+    }
+
     const waitReady = async (space: Space) => {
       await expect
         .poll(
           async () => {
-            const item = page.locator(itemSelector(space)).first()
+            const slug = await actual(space)
+            if (!slug) return false
+            const item = page.locator(workspaceItemSelector(slug)).first()
             try {
               await item.hover({ timeout: 500 })
               return true
@@ -365,7 +381,7 @@ test("can reorder workspaces by drag and drop", async ({ page, withProject }) =>
 
     const current = async (space: Space) => {
       await waitReady(space)
-      const slug = await page.locator(itemSelector(space)).first().getAttribute("data-workspace")
+      const slug = await actual(space)
       if (!slug) throw new Error(`Failed to resolve workspace slug for ${space.directory}`)
       return slug
     }
