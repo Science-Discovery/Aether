@@ -464,9 +464,6 @@ export namespace Project {
               set: {
                 worktree: result.worktree,
                 vcs: result.vcs ?? null,
-                name: result.name,
-                icon_url: result.icon?.url,
-                icon_color: result.icon?.color,
                 time_updated: result.time.updated,
                 time_initialized: result.time.initialized,
                 commands: result.commands,
