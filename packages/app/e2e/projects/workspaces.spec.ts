@@ -12,15 +12,49 @@ import {
   clickMenuItem,
   confirmDialog,
   openSidebar,
-  openWorkspaceMenu,
   resolveSlug,
   setWorkspacesEnabled,
   slugFromUrl,
   waitDir,
   waitSlug,
 } from "../actions"
-import { dropdownMenuContentSelector, inlineInputSelector, workspaceItemSelector } from "../selectors"
+import {
+  dropdownMenuContentSelector,
+  inlineInputSelector,
+  workspaceItemSelector,
+  workspaceMenuTriggerSelector,
+} from "../selectors"
 import { createSdk, dirSlug } from "../utils"
+
+type Space = { directory: string; slug: string; raw?: string }
+
+function slugs(space: string | Space) {
+  if (typeof space === "string") return [space]
+  if (process.platform !== "win32") return [space.slug]
+  return [...new Set([space.slug, space.raw].filter((item): item is string => !!item))]
+}
+
+function itemSelector(space: string | Space) {
+  return slugs(space).map(workspaceItemSelector).join(", ")
+}
+
+function menuSelector(space: string | Space) {
+  return slugs(space).map(workspaceMenuTriggerSelector).join(", ")
+}
+
+async function openMenu(page: Page, space: string | Space) {
+  const item = page.locator(itemSelector(space)).first()
+  await expect(item).toBeVisible()
+  await item.hover()
+
+  const trigger = page.locator(menuSelector(space)).first()
+  await expect(trigger).toBeVisible()
+  await trigger.click({ force: true })
+
+  const menu = page.locator(dropdownMenuContentSelector).first()
+  await expect(menu).toBeVisible()
+  return menu
+}
 
 function key(dir: string) {
   const next = dir.replace(/\\/g, "/")
@@ -52,7 +86,7 @@ async function setupWorkspaceTest(page: Page, project: { slug: string }) {
   await expect
     .poll(
       async () => {
-        const item = page.locator(workspaceItemSelector(next.slug)).first()
+        const item = page.locator(itemSelector(next)).first()
         try {
           await item.hover({ timeout: 500 })
           return true
@@ -64,7 +98,7 @@ async function setupWorkspaceTest(page: Page, project: { slug: string }) {
     )
     .toBe(true)
 
-  return { rootSlug, slug: next.slug, directory: next.directory }
+  return { rootSlug, ...next }
 }
 
 test("can enable and disable workspaces from project menu", async ({ page, withProject }) => {
@@ -104,7 +138,7 @@ test("can create a workspace", async ({ page, withProject }) => {
     await expect
       .poll(
         async () => {
-          const item = page.locator(workspaceItemSelector(next.slug)).first()
+          const item = page.locator(itemSelector(next)).first()
           try {
             await item.hover({ timeout: 500 })
             return true
@@ -116,7 +150,7 @@ test("can create a workspace", async ({ page, withProject }) => {
       )
       .toBe(true)
 
-    await expect(page.locator(workspaceItemSelector(next.slug)).first()).toBeVisible()
+    await expect(page.locator(itemSelector(next)).first()).toBeVisible()
 
     await cleanupTestProject(next.directory)
   })
@@ -169,15 +203,15 @@ test("can rename a workspace", async ({ page, withProject }) => {
   await page.setViewportSize({ width: 1400, height: 800 })
 
   await withProject(async (project) => {
-    const { slug } = await setupWorkspaceTest(page, project)
+    const space = await setupWorkspaceTest(page, project)
 
     const rename = `e2e workspace ${Date.now()}`
-    const menu = await openWorkspaceMenu(page, slug)
+    const menu = await openMenu(page, space)
     await clickMenuItem(menu, /Rename Workspace/i, { force: true })
 
     await expect(menu).toHaveCount(0)
 
-    const item = page.locator(workspaceItemSelector(slug)).first()
+    const item = page.locator(itemSelector(space)).first()
     await expect(item).toBeVisible()
     const input = item.locator(inlineInputSelector).first()
     await expect(input).toBeVisible()
@@ -191,7 +225,8 @@ test("can reset a workspace", async ({ page, sdk, withProject }) => {
   await page.setViewportSize({ width: 1400, height: 800 })
 
   await withProject(async (project) => {
-    const { slug, directory: createdDir } = await setupWorkspaceTest(page, project)
+    const space = await setupWorkspaceTest(page, project)
+    const createdDir = space.directory
 
     const readme = path.join(createdDir, "README.md")
     const extra = path.join(createdDir, `e2e_reset_${Date.now()}.txt`)
@@ -219,7 +254,7 @@ test("can reset a workspace", async ({ page, sdk, withProject }) => {
       })
       .toBeGreaterThan(0)
 
-    const menu = await openWorkspaceMenu(page, slug)
+    const menu = await openMenu(page, space)
     await clickMenuItem(menu, /^Reset$/i, { force: true })
     await confirmDialog(page, /^Reset workspace$/i)
 
@@ -254,7 +289,9 @@ test("can delete a workspace", async ({ page, withProject }) => {
 
   await withProject(async (project) => {
     const sdk = createSdk(project.directory)
-    const { rootSlug, slug, directory } = await setupWorkspaceTest(page, project)
+    const space = await setupWorkspaceTest(page, project)
+    const rootSlug = space.rootSlug
+    const directory = space.directory
 
     await expect
       .poll(
@@ -269,7 +306,7 @@ test("can delete a workspace", async ({ page, withProject }) => {
       )
       .toBe(true)
 
-    const menu = await openWorkspaceMenu(page, slug)
+    const menu = await openMenu(page, space)
     await clickMenuItem(menu, /^Delete$/i, { force: true })
     await confirmDialog(page, /^Delete workspace$/i)
 
@@ -291,7 +328,7 @@ test("can delete a workspace", async ({ page, withProject }) => {
     await project.gotoSession()
 
     await openSidebar(page)
-    await expect(page.locator(workspaceItemSelector(slug))).toHaveCount(0, { timeout: 60_000 })
+    await expect(page.locator(itemSelector(space))).toHaveCount(0, { timeout: 60_000 })
     await expect(page.locator(workspaceItemSelector(rootSlug)).first()).toBeVisible()
   })
 })
@@ -299,7 +336,7 @@ test("can delete a workspace", async ({ page, withProject }) => {
 test("can reorder workspaces by drag and drop", async ({ page, withProject }) => {
   await page.setViewportSize({ width: 1400, height: 800 })
   await withProject(async ({ slug: rootSlug }) => {
-    const workspaces = [] as { directory: string; slug: string }[]
+    const workspaces = [] as Space[]
 
     const listSlugs = async () => {
       const nodes = page.locator('[data-component="sidebar-nav-desktop"] [data-component="workspace-item"]')
@@ -309,11 +346,11 @@ test("can reorder workspaces by drag and drop", async ({ page, withProject }) =>
       return slugs
     }
 
-    const waitReady = async (slug: string) => {
+    const waitReady = async (space: Space) => {
       await expect
         .poll(
           async () => {
-            const item = page.locator(workspaceItemSelector(slug)).first()
+            const item = page.locator(itemSelector(space)).first()
             try {
               await item.hover({ timeout: 500 })
               return true
@@ -324,6 +361,13 @@ test("can reorder workspaces by drag and drop", async ({ page, withProject }) =>
           { timeout: 60_000 },
         )
         .toBe(true)
+    }
+
+    const current = async (space: Space) => {
+      await waitReady(space)
+      const slug = await page.locator(itemSelector(space)).first().getAttribute("data-workspace")
+      if (!slug) throw new Error(`Failed to resolve workspace slug for ${space.directory}`)
+      return slug
     }
 
     const drag = async (from: string, to: string) => {
@@ -357,11 +401,8 @@ test("can reorder workspaces by drag and drop", async ({ page, withProject }) =>
 
       if (workspaces.length !== 2) throw new Error("Expected two created workspaces")
 
-      const a = workspaces[0].slug
-      const b = workspaces[1].slug
-
-      await waitReady(a)
-      await waitReady(b)
+      const a = await current(workspaces[0])
+      const b = await current(workspaces[1])
 
       const list = async () => {
         const slugs = await listSlugs()
