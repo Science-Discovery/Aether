@@ -297,7 +297,7 @@ export function DialogSelectFile(props: { mode?: DialogSelectFileMode; onOpenFil
     const kind =
       current && directory === current.worktree
         ? language.t("workspace.type.local")
-        : language.t("workspace.type.sandbox")
+        : (globalSync.project.recentFromDir(directory)?.name ?? language.t("workspace.type.sandbox"))
     const [store] = globalSync.child(directory, { bootstrap: false })
     const home = homedir()
     const path = displayPath(directory, home)

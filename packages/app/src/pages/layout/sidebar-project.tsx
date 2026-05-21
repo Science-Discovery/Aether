@@ -321,6 +321,7 @@ export const SortableProject = (props: {
     const displayName =
       data.projectMeta?.name ??
       props.ctx.workspaceName(directory) ??
+      globalSync.project.recentFromDir(directory)?.name ??
       (local ? language.t("workspace.type.local") : language.t("workspace.type.sandbox"))
     const branch = data.vcs?.branch ?? getFilename(directory)
     return `${displayName} : ${branch}`
