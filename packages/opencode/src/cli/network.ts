@@ -1,5 +1,6 @@
 import type { Argv, InferredOptionTypes } from "yargs"
 import { Config } from "../config/config"
+import { Flag } from "../flag/flag"
 
 const options = {
   port: {
@@ -60,7 +61,9 @@ export async function resolveNetworkOptions(args: NetworkOptions) {
   const configCors = config?.server?.cors ?? []
   const argsCors = Array.isArray(args.cors) ? args.cors : args.cors ? [args.cors] : []
   const cors = [...configCors, ...argsCors]
-  const idleTimeout = idleTimeoutExplicitlySet ? args["idle-timeout"] : (config?.server?.idleTimeout ?? 60)
+  const idleTimeout = idleTimeoutExplicitlySet
+    ? args["idle-timeout"]
+    : (Flag.AETHER_IDLE_TIMEOUT ?? config?.server?.idleTimeout ?? 60)
 
   return { hostname, port, mdns, mdnsDomain, cors, idleTimeout }
 }

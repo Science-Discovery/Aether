@@ -10,7 +10,15 @@ function falsy(key: string) {
   return value === "false" || value === "0"
 }
 
+function number(key: string, min = 1) {
+  const value = process.env[key]
+  if (!value) return undefined
+  const parsed = Number(value)
+  return Number.isInteger(parsed) && parsed >= min ? parsed : undefined
+}
+
 export namespace Flag {
+  export declare const AETHER_IDLE_TIMEOUT: number | undefined
   export const OPENCODE_AUTO_SHARE = truthy("OPENCODE_AUTO_SHARE")
   export const OPENCODE_GIT_BASH_PATH = process.env["OPENCODE_GIT_BASH_PATH"]
   export const OPENCODE_CONFIG = process.env["OPENCODE_CONFIG"]
@@ -75,13 +83,18 @@ export namespace Flag {
   export const OPENCODE_SKIP_MIGRATIONS = truthy("OPENCODE_SKIP_MIGRATIONS")
   export const OPENCODE_STRICT_CONFIG_DEPS = truthy("OPENCODE_STRICT_CONFIG_DEPS")
 
-  function number(key: string) {
-    const value = process.env[key]
-    if (!value) return undefined
-    const parsed = Number(value)
-    return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined
-  }
 }
+
+// Dynamic getter for AETHER_IDLE_TIMEOUT
+// This must be evaluated at access time, not module load time,
+// because tests may set this env var at runtime
+Object.defineProperty(Flag, "AETHER_IDLE_TIMEOUT", {
+  get() {
+    return number("AETHER_IDLE_TIMEOUT", 0)
+  },
+  enumerable: true,
+  configurable: false,
+})
 
 // Dynamic getter for OPENCODE_DISABLE_PROJECT_CONFIG
 // This must be evaluated at access time, not module load time,
