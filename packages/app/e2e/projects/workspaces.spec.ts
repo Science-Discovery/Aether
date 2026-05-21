@@ -22,6 +22,21 @@ import {
 import { dropdownMenuContentSelector, inlineInputSelector, workspaceItemSelector } from "../selectors"
 import { createSdk, dirSlug } from "../utils"
 
+function key(dir: string) {
+  const next = dir.replace(/\\/g, "/")
+  return next.toLowerCase().replace(/\/+$/, "")
+}
+
+async function same(dir: string) {
+  return fs.realpath(dir).then(key).catch(() => key(dir))
+}
+
+async function listed(list: string[], dir: string) {
+  if (process.platform !== "win32") return list.includes(dir)
+  const target = await same(dir)
+  return (await Promise.all(list.map(same))).includes(target)
+}
+
 async function setupWorkspaceTest(page: Page, project: { slug: string }) {
   const rootSlug = project.slug
   await openSidebar(page)
@@ -248,7 +263,7 @@ test("can delete a workspace", async ({ page, withProject }) => {
             .list()
             .then((r) => r.data ?? [])
             .catch(() => [] as string[])
-          return worktrees.includes(directory)
+          return listed(worktrees, directory)
         },
         { timeout: 30_000 },
       )
@@ -267,7 +282,7 @@ test("can delete a workspace", async ({ page, withProject }) => {
             .list()
             .then((r) => r.data ?? [])
             .catch(() => [] as string[])
-          return worktrees.includes(directory)
+          return listed(worktrees, directory)
         },
         { timeout: 60_000 },
       )
