@@ -19,8 +19,6 @@ import { AppFileSystem } from "@/filesystem"
 import * as CrossSpawnSpawner from "@/effect/cross-spawn-spawner"
 import { existsSync } from "fs"
 import { Database as BunSqlite } from "bun:sqlite"
-import nodePath from "path"
-import os from "os"
 import { ProjectIdentity } from "./identity"
 
 export namespace Project {
@@ -253,12 +251,8 @@ export namespace Project {
     readonly updateDirectoryMeta: (input: {
       directory: string
       name?: string
-      icon?: { url?: string; color?: string }
-    }) => Effect.Effect<void>
-    readonly updateWorkspaceName: (input: {
-      projectID: ProjectID
-      directory: string
-      name?: string
+      icon?: { url?: string; color?: string; override?: string }
+      projectID?: ProjectID
     }) => Effect.Effect<void>
     readonly initGit: (input: { directory: string; project: Info }) => Effect.Effect<Info>
     readonly setInitialized: (id: ProjectID) => Effect.Effect<void>
@@ -372,9 +366,6 @@ export namespace Project {
                 target: DirectoryMetaTable.directory,
                 set: {
                   worktree: input.project.worktree,
-                  name: input.project.name ?? null,
-                  icon_url: input.project.icon?.url ?? null,
-                  icon_color: input.project.icon?.color ?? null,
                   activity_at: now,
                   time_updated: now,
                 },
@@ -639,16 +630,8 @@ export namespace Project {
             ...(input.icon ? { icon_url: input.icon.url, icon_color: input.icon.color } : {}),
             time_updated: Date.now(),
           }
-          const metaSet = {
-            ...(input.name !== undefined ? { name: input.name } : {}),
-            ...(input.icon ? { icon_url: input.icon.url, icon_color: input.icon.color } : {}),
-            time_updated: Date.now(),
-          }
           yield* db((d) =>
             d.update(ProjectRecentTable).set(recentSet).where(eq(ProjectRecentTable.project_id, input.projectID)).run(),
-          )
-          yield* dbProject(input.projectID, (d) =>
-            d.update(DirectoryMetaTable).set(metaSet).where(eq(DirectoryMetaTable.directory, data.worktree)).run(),
           )
           yield* emitRecentUpdated
         }
@@ -722,69 +705,86 @@ export namespace Project {
         yield* emitUpdated(fromRow(result))
       })
 
-      const updateWorkspaceName = Effect.fn("Project.updateWorkspaceName")(function* (input: {
-        projectID: ProjectID
-        directory: string
-        name?: string
-      }) {
-        yield* dbProject(input.projectID, (d) =>
-          d
-            .update(DirectoryMetaTable)
-            .set({ name: input.name ?? null, time_updated: Date.now() })
-            .where(eq(DirectoryMetaTable.directory, nodePath.normalize(input.directory.replace(/^~/, os.homedir()))))
-            .run(),
-        )
-        const projectRow = yield* dbProject(input.projectID, (d) =>
-          d.select().from(ProjectTable).where(eq(ProjectTable.id, input.projectID)).get(),
-        )
-        if (projectRow && norm(input.directory) === norm(projectRow.worktree)) {
-          yield* db((d) =>
-            d
-              .update(ProjectRecentTable)
-              .set({ name: input.name ?? name(input.directory), time_updated: Date.now() })
-              .where(eq(ProjectRecentTable.project_id, input.projectID))
-              .run(),
-          )
-          yield* emitRecentUpdated
-        }
-      })
-
       const updateDirectoryMeta = Effect.fn("Project.updateDirectoryMeta")(function* (input: {
         directory: string
         name?: string
         icon?: { url?: string; color?: string; override?: string }
+        projectID?: ProjectID
       }) {
         const dir = norm(input.directory)
         const key = dirKey(dir)
-        yield* db((d) =>
-          d
-            .insert(ProjectRecentTable)
-            .values({
-              key,
-              kind: "directory",
-              project_id: null,
-              directory: input.directory,
-              name: input.name ?? name(input.directory),
-              icon_url: input.icon?.url ?? null,
-              icon_color: input.icon?.color ?? null,
-              icon_override: input.icon?.override ?? null,
-              activity_at: Date.now(),
-              time_created: Date.now(),
-              time_updated: Date.now(),
-            })
-            .onConflictDoUpdate({
-              target: ProjectRecentTable.key,
-              set: {
+
+        const pid =
+          input.projectID ??
+          (() => {
+            const gpm = Database.use((d) => d.select().from(GlobalProjectMapTable).all())
+            const match = gpm.find((row) => norm(row.directory) === dir)
+            return match?.project_id
+          })()
+
+        const isMainWorktree = pid
+          ? norm(input.directory) ===
+            norm(
+              (yield* dbProject(pid, (d) => d.select().from(ProjectTable).where(eq(ProjectTable.id, pid)).get()))
+                ?.worktree ?? "",
+            )
+          : false
+
+        if (isMainWorktree) {
+          yield* db((d) =>
+            d
+              .insert(ProjectRecentTable)
+              .values({
+                key,
+                kind: "project",
+                project_id: pid,
+                directory: input.directory,
                 name: input.name ?? name(input.directory),
                 icon_url: input.icon?.url ?? null,
                 icon_color: input.icon?.color ?? null,
                 icon_override: input.icon?.override ?? null,
+                activity_at: Date.now(),
+                time_created: Date.now(),
                 time_updated: Date.now(),
-              },
-            })
-            .run(),
-        )
-        yield* emitRecentUpdated
+              })
+              .onConflictDoUpdate({
+                target: ProjectRecentTable.key,
+                set: {
+                  name: input.name ?? name(input.directory),
+                  icon_url: input.icon?.url ?? null,
+                  icon_color: input.icon?.color ?? null,
+                  icon_override: input.icon?.override ?? null,
+                  time_updated: Date.now(),
+                },
+              })
+              .run(),
+          )
+          yield* emitRecentUpdated
+        }
+
+        if (pid) {
+          const allMeta = yield* dbProject(pid, (d) => d.select().from(DirectoryMetaTable).all())
+          const match = allMeta.find((row) => norm(row.directory) === dir)
+          if (match) {
+            yield* dbProject(pid, (d) =>
+              d
+                .update(DirectoryMetaTable)
+                .set({
+                  ...(input.name !== undefined ? { name: input.name } : {}),
+                  ...(input.icon
+                    ? {
+                        icon_url: input.icon.url ?? null,
+                        icon_color: input.icon.color ?? null,
+                        icon_override: input.icon.override ?? null,
+                      }
+                    : {}),
+                  time_updated: Date.now(),
+                })
+                .where(eq(DirectoryMetaTable.directory, match.directory))
+                .run(),
+            )
+          }
+        }
       })
 
       return Service.of({
@@ -795,7 +795,6 @@ export namespace Project {
         recent: recentList,
         get,
         update,
-        updateWorkspaceName,
         updateDirectoryMeta,
         initGit,
         setInitialized,
@@ -863,12 +862,9 @@ export namespace Project {
     directory: string
     name?: string
     icon?: { url?: string; color?: string }
+    projectID?: ProjectID
   }) {
     return runPromise((svc) => svc.updateDirectoryMeta(input))
-  }
-
-  export function updateWorkspaceName(input: { projectID: ProjectID; directory: string; name?: string }) {
-    return runPromise((svc) => svc.updateWorkspaceName(input))
   }
 
   export function sandboxes(id: ProjectID) {

@@ -442,6 +442,7 @@ export namespace Server {
           z.object({
             directory: z.string(),
             name: z.string().optional(),
+            projectID: z.string().optional(),
             icon: z
               .object({
                 url: z.string().optional(),
@@ -453,7 +454,7 @@ export namespace Server {
         ),
         async (c) => {
           const body = c.req.valid("json")
-          await Project.updateDirectoryMeta(body)
+          await Project.updateDirectoryMeta({ ...body, projectID: body.projectID as ProjectID | undefined })
           const list = Project.recentList()
           const norm = (d: string) =>
             d
@@ -466,49 +467,6 @@ export namespace Server {
         },
       )
       .route("/project", ProjectRoutes())
-      .post(
-        "/project-workspace-name",
-        describeRoute({
-          summary: "Update workspace name",
-          description:
-            "Update a workspace (worktree/sandbox) display name. Persisted in directory_meta table in project DB, and project_recent table for the main worktree.",
-          operationId: "project.updateWorkspaceName",
-          responses: {
-            200: {
-              description: "Update acknowledged",
-              content: {
-                "application/json": {
-                  schema: resolver(z.object({ ok: z.boolean() })),
-                },
-              },
-            },
-            ...errors(400),
-          },
-        }),
-        validator(
-          "json",
-          z.object({
-            projectID: z.string().optional(),
-            directory: z.string(),
-            name: z.string().optional(),
-          }),
-        ),
-        async (c) => {
-          const body = c.req.valid("json")
-          const pid =
-            body.projectID ||
-            (await (async () => {
-              try {
-                return (await Project.fromDirectory(body.directory)).project.id
-              } catch {
-                return undefined
-              }
-            })())
-          if (!pid) return c.json({ ok: false, error: "cannot resolve project" }, 400)
-          await Project.updateWorkspaceName({ projectID: pid as any, directory: body.directory, name: body.name })
-          return c.json({ ok: true })
-        },
-      )
       .route("/pty", PtyRoutes())
       .route("/config", ConfigRoutes())
       .route("/experimental", ExperimentalRoutes())

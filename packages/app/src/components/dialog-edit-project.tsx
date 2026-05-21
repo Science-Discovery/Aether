@@ -122,16 +122,8 @@ export function DialogEditProject(props: { project: LocalProject }) {
           ? props.project.id
           : globalSync.child(props.project.worktree, { bootstrap: false })[0].project ||
             globalSync.project.recentFromDir(props.project.worktree)?.projectID
-      if (pid) {
-        fetch(`${globalSDK.url}/project/${pid}`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            name: name || undefined,
-            icon,
-            commands: { start: start || undefined },
-          }),
-        }).catch(() => {})
+      if (pid && start) {
+        globalSDK.client.project.update({ projectID: pid, commands: { start } }).catch(() => {})
       }
     },
   }))

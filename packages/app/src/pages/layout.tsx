@@ -1671,22 +1671,12 @@ export default function Layout(props: ParentProps) {
     globalSync.project.meta(project.worktree, { name: isDefault ? getFilename(project.worktree) : next })
 
     globalSDK.client.project
-      .updateDirectoryMeta({ body_directory: project.worktree, name: name || undefined })
+      .updateDirectoryMeta({
+        body_directory: project.worktree,
+        name: name || undefined,
+        projectID: project.id && project.id !== "global" ? project.id : undefined,
+      })
       .catch(() => {})
-
-    const pid =
-      project.id && project.id !== "global"
-        ? project.id
-        : globalSync.child(project.worktree, { bootstrap: false })[0].project ||
-          globalSync.project.recentFromDir(project.worktree)?.projectID
-    const body = JSON.stringify({ name: name || undefined })
-    if (pid) {
-      fetch(`${globalSDK.url}/project/${pid}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body,
-      }).catch(() => {})
-    }
   }
 
   const renameWorkspace = (directory: string, next: string, projectId?: string, branch?: string) => {
@@ -1695,17 +1685,9 @@ export default function Layout(props: ParentProps) {
 
     globalSync.project.meta(directory, { name: next })
 
-    const pid =
-      projectId ??
-      globalSync.child(directory, { bootstrap: false })[0].project ??
-      globalSync.project.list().find((p) => p.worktree === directory || p.sandboxes?.includes(directory))?.id
-    const body: Record<string, unknown> = { directory, name: next }
-    if (pid) body.projectID = pid
-    fetch(`${globalSDK.url}/project-workspace-name`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    }).catch(() => {})
+    globalSDK.client.project
+      .updateDirectoryMeta({ body_directory: directory, name: next, projectID: projectId })
+      .catch(() => {})
   }
 
   const renameBranch = async (directory: string, newName: string, projectId?: string) => {
