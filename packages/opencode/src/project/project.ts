@@ -366,6 +366,9 @@ export namespace Project {
                 target: DirectoryMetaTable.directory,
                 set: {
                   worktree: input.project.worktree,
+                  name: input.project.name ?? null,
+                  icon_url: input.project.icon?.url ?? null,
+                  icon_color: input.project.icon?.color ?? null,
                   activity_at: now,
                   time_updated: now,
                 },
@@ -622,20 +625,6 @@ export namespace Project {
         )
         if (!result) throw new Error(`Project not found: ${input.projectID}`)
         const data = fromRow(result)
-
-        const needsRecentSync = input.name !== undefined || input.icon
-        if (needsRecentSync) {
-          const recentSet = {
-            ...(input.name !== undefined ? { name: input.name } : {}),
-            ...(input.icon ? { icon_url: input.icon.url, icon_color: input.icon.color } : {}),
-            time_updated: Date.now(),
-          }
-          yield* db((d) =>
-            d.update(ProjectRecentTable).set(recentSet).where(eq(ProjectRecentTable.project_id, input.projectID)).run(),
-          )
-          yield* emitRecentUpdated
-        }
-
         yield* emitUpdated(data)
         return data
       })
@@ -716,17 +705,20 @@ export namespace Project {
 
         const pid =
           input.projectID ??
-          (() => {
-            const gpm = Database.use((d) => d.select().from(GlobalProjectMapTable).all())
-            const match = gpm.find((row) => norm(row.directory) === dir)
-            return match?.project_id
-          })()
+          (yield* db((d) =>
+            d
+              .select({ project_id: GlobalProjectMapTable.project_id })
+              .from(GlobalProjectMapTable)
+              .where(eq(GlobalProjectMapTable.directory, dir))
+              .get(),
+          ))?.project_id
 
         const isMainWorktree = pid
           ? norm(input.directory) ===
             norm(
-              (yield* dbProject(pid, (d) => d.select().from(ProjectTable).where(eq(ProjectTable.id, pid)).get()))
-                ?.worktree ?? "",
+              (yield* dbProject(pid, (d) =>
+                d.select({ worktree: ProjectTable.worktree }).from(ProjectTable).where(eq(ProjectTable.id, pid)).get(),
+              ))?.worktree ?? "",
             )
           : false
 
@@ -738,6 +730,36 @@ export namespace Project {
                 key,
                 kind: "project",
                 project_id: pid,
+                directory: input.directory,
+                name: input.name ?? name(input.directory),
+                icon_url: input.icon?.url ?? null,
+                icon_color: input.icon?.color ?? null,
+                icon_override: input.icon?.override ?? null,
+                activity_at: Date.now(),
+                time_created: Date.now(),
+                time_updated: Date.now(),
+              })
+              .onConflictDoUpdate({
+                target: ProjectRecentTable.key,
+                set: {
+                  name: input.name ?? name(input.directory),
+                  icon_url: input.icon?.url ?? null,
+                  icon_color: input.icon?.color ?? null,
+                  icon_override: input.icon?.override ?? null,
+                  time_updated: Date.now(),
+                },
+              })
+              .run(),
+          )
+          yield* emitRecentUpdated
+        } else {
+          yield* db((d) =>
+            d
+              .insert(ProjectRecentTable)
+              .values({
+                key,
+                kind: "directory",
+                project_id: pid ?? null,
                 directory: input.directory,
                 name: input.name ?? name(input.directory),
                 icon_url: input.icon?.url ?? null,
@@ -861,7 +883,7 @@ export namespace Project {
   export function updateDirectoryMeta(input: {
     directory: string
     name?: string
-    icon?: { url?: string; color?: string }
+    icon?: { url?: string; color?: string; override?: string }
     projectID?: ProjectID
   }) {
     return runPromise((svc) => svc.updateDirectoryMeta(input))

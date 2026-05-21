@@ -183,6 +183,7 @@ export const WorkspaceDragOverlay = (props: {
     const local = directory === project.worktree
     const displayName =
       workspaceStore.projectMeta?.name ??
+      props.workspaceName(directory) ??
       (local ? language.t("workspace.type.local") : language.t("workspace.type.sandbox"))
     const branch = workspaceStore.vcs?.branch ?? getFilename(directory)
     return `${displayName} : ${branch}`
@@ -1068,6 +1069,8 @@ export const SortableWorkspace = (props: {
   const workspaceValue = createMemo(() => {
     const metaName = workspaceStore.projectMeta?.name
     if (metaName) return metaName
+    const direct = props.ctx.workspaceName(props.directory)
+    if (direct) return direct
     return local() ? language.t("workspace.type.local") : language.t("workspace.type.sandbox")
   })
   const open = createMemo(() => props.ctx.workspaceExpanded(props.directory, local()))

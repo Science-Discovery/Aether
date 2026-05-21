@@ -1674,20 +1674,33 @@ export default function Layout(props: ParentProps) {
       .updateDirectoryMeta({
         body_directory: project.worktree,
         name: name || undefined,
-        projectID: project.id && project.id !== "global" ? project.id : undefined,
+        projectID: project.id && !project.id.startsWith("dir:") ? project.id : undefined,
       })
-      .catch(() => {})
+      .catch(() => {
+        showToast({
+          variant: "error",
+          title: language.t("common.requestFailed"),
+          description: language.t("common.requestFailed"),
+        })
+      })
   }
 
   const renameWorkspace = (directory: string, next: string, projectId?: string, branch?: string) => {
     const current = workspaceName(directory, projectId, branch) ?? branch ?? getFilename(directory)
     if (current === next) return
+    setWorkspaceName(directory, next, projectId, branch)
 
     globalSync.project.meta(directory, { name: next })
-
     globalSDK.client.project
       .updateDirectoryMeta({ body_directory: directory, name: next, projectID: projectId })
-      .catch(() => {})
+      .catch(() => {
+        setWorkspaceName(directory, current, projectId, branch)
+        showToast({
+          variant: "error",
+          title: language.t("common.requestFailed"),
+          description: language.t("common.requestFailed"),
+        })
+      })
   }
 
   const renameBranch = async (directory: string, newName: string, projectId?: string) => {
