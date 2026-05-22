@@ -8,6 +8,7 @@ import {
   type DragEvent,
 } from "@thisbeyond/solid-dnd"
 import { ConstrainDragXAxis } from "@/utils/solid-dnd"
+import { Icon } from "@opencode-ai/ui/icon"
 import { IconButton } from "@opencode-ai/ui/icon-button"
 import { Tooltip, TooltipKeybind } from "@opencode-ai/ui/tooltip"
 import { DropdownMenu } from "@opencode-ai/ui/dropdown-menu"
@@ -47,6 +48,22 @@ export const SidebarContent = (props: {
   const auth = useAuth()
   const dialog = useDialog()
   const language = useLanguage()
+  const agg = createMemo(() => {
+    const w = mobileStatus("wechat")
+    const q = mobileStatus("qq")
+    const f = mobileStatus("feishu")
+    const anyConnected = w === "connected" || q === "connected" || f === "connected"
+    const anyLoading =
+      w === "loading" ||
+      w === "qrcode" ||
+      w === "reconnecting" ||
+      q === "loading" ||
+      q === "reconnecting" ||
+      f === "loading" ||
+      f === "reconnecting"
+    const anyError = w === "error" || w === "stolen" || q === "error" || f === "error"
+    return { anyConnected, anyLoading, anyError }
+  })
   let panel: HTMLDivElement | undefined
   let authDialogRun = 0
 
@@ -177,52 +194,71 @@ export const SidebarContent = (props: {
               </DropdownMenu>
             )}
           </Show>
-          <Tooltip placement={placement()} value={language.t("knowledgeBase.wechatConnection")}>
-            <IconButton
-              icon="wechat"
-              variant="ghost"
-              size="large"
-              onClick={() => openMobile("wechat")}
-              aria-label={language.t("knowledgeBase.wechatConnection")}
-              classList={{
-                "text-green-500": mobileStatus("wechat") === "connected",
-                "text-yellow-500 animate-pulse":
-                  mobileStatus("wechat") === "loading" ||
-                  mobileStatus("wechat") === "qrcode" ||
-                  mobileStatus("wechat") === "reconnecting",
-                "text-red-500": mobileStatus("wechat") === "error" || mobileStatus("wechat") === "stolen",
-              }}
-            />
-          </Tooltip>
-          <Tooltip placement={placement()} value={language.t("knowledgeBase.qqConnection")}>
-            <IconButton
-              icon="qq"
-              variant="ghost"
-              size="large"
-              onClick={() => openMobile("qq")}
-              aria-label={language.t("knowledgeBase.qqConnection")}
-              classList={{
-                "text-blue-500": mobileStatus("qq") === "connected",
-                "text-yellow-500 animate-pulse":
-                  mobileStatus("qq") === "loading" || mobileStatus("qq") === "reconnecting",
-                "text-red-500": mobileStatus("qq") === "error",
-              }}
-            />
-          </Tooltip>
-          <Tooltip placement={placement()} value={language.t("knowledgeBase.feishuConnection")}>
-            <IconButton
-              icon="feishu"
-              variant="ghost"
-              size="large"
-              onClick={() => openMobile("feishu")}
-              aria-label={language.t("knowledgeBase.feishuConnection")}
-              classList={{
-                "text-blue-500": mobileStatus("feishu") === "connected",
-                "text-yellow-500 animate-pulse": mobileStatus("feishu") === "loading",
-                "text-red-500": mobileStatus("feishu") === "error",
-              }}
-            />
-          </Tooltip>
+          <DropdownMenu placement="right" gutter={8}>
+            <Tooltip placement={placement()} value={language.t("knowledgeBase.mobileConnection")}>
+              <DropdownMenu.Trigger
+                as={IconButton}
+                icon="phone"
+                variant="ghost"
+                size="large"
+                aria-label={language.t("knowledgeBase.mobileConnection")}
+                classList={{
+                  "text-green-500": agg().anyConnected,
+                  "text-yellow-500 animate-pulse": agg().anyLoading && !agg().anyConnected,
+                  "text-red-500": agg().anyError && !agg().anyConnected,
+                }}
+              />
+            </Tooltip>
+            <DropdownMenu.Portal>
+              <DropdownMenu.Content class="ml-2">
+                <DropdownMenu.Item onSelect={() => openMobile("wechat")}>
+                  <div class="flex items-center gap-2">
+                    <Icon
+                      name="wechat"
+                      size="small"
+                      classList={{
+                        "text-green-500": mobileStatus("wechat") === "connected",
+                        "text-yellow-500":
+                          mobileStatus("wechat") === "loading" ||
+                          mobileStatus("wechat") === "qrcode" ||
+                          mobileStatus("wechat") === "reconnecting",
+                        "text-red-500": mobileStatus("wechat") === "error" || mobileStatus("wechat") === "stolen",
+                      }}
+                    />
+                    <DropdownMenu.ItemLabel>{language.t("knowledgeBase.wechatConnection")}</DropdownMenu.ItemLabel>
+                  </div>
+                </DropdownMenu.Item>
+                <DropdownMenu.Item onSelect={() => openMobile("qq")}>
+                  <div class="flex items-center gap-2">
+                    <Icon
+                      name="qq"
+                      size="small"
+                      classList={{
+                        "text-blue-500": mobileStatus("qq") === "connected",
+                        "text-yellow-500": mobileStatus("qq") === "loading" || mobileStatus("qq") === "reconnecting",
+                        "text-red-500": mobileStatus("qq") === "error",
+                      }}
+                    />
+                    <DropdownMenu.ItemLabel>{language.t("knowledgeBase.qqConnection")}</DropdownMenu.ItemLabel>
+                  </div>
+                </DropdownMenu.Item>
+                <DropdownMenu.Item onSelect={() => openMobile("feishu")}>
+                  <div class="flex items-center gap-2">
+                    <Icon
+                      name="feishu"
+                      size="small"
+                      classList={{
+                        "text-green-500": mobileStatus("feishu") === "connected",
+                        "text-yellow-500": mobileStatus("feishu") === "loading",
+                        "text-red-500": mobileStatus("feishu") === "error",
+                      }}
+                    />
+                    <DropdownMenu.ItemLabel>{language.t("knowledgeBase.feishuConnection")}</DropdownMenu.ItemLabel>
+                  </div>
+                </DropdownMenu.Item>
+              </DropdownMenu.Content>
+            </DropdownMenu.Portal>
+          </DropdownMenu>
           <TooltipKeybind placement={placement()} title={props.settingsLabel()} keybind={props.settingsKeybind() ?? ""}>
             <IconButton
               icon="settings-gear"
