@@ -150,6 +150,10 @@ export namespace Project {
     const gpm = Database.use((d) => d.select().from(GlobalProjectMapTable).all())
     const canonicalPID = new Map<string, string>()
     for (const row of gpm) canonicalPID.set(norm(row.directory), row.project_id)
+    const pidCounts = new Map<string, number>()
+    for (const row of recentRows) {
+      if (row.project_id) pidCounts.set(row.project_id, (pidCounts.get(row.project_id) ?? 0) + 1)
+    }
     const seen = new Map<string, (typeof recentRows)[number]>()
     for (const row of recentRows) {
       const key = norm(row.directory)
@@ -196,6 +200,7 @@ export namespace Project {
             },
           }
         }
+        if (row.kind === "directory" && row.project_id && (pidCounts.get(row.project_id) ?? 0) > 1) return undefined
         const baseIcon =
           row.icon_url || row.icon_color
             ? rowIcon({ icon_url: row.icon_url ?? null, icon_color: row.icon_color ?? null })
