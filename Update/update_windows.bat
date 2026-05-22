@@ -44,6 +44,7 @@ call :debug_log "ENVR | AETHER_UPDATE_RESULT=%AETHER_UPDATE_RESULT%"
 call :debug_log "ENVR | AETHER_MIRROR_ROOT=%AETHER_MIRROR_ROOT%"
 call :debug_log "ENVR | AETHER_MIRROR_ONLY=%MIRROR_ONLY%"
 call :debug_log "ENVR | AETHER_DEBUG_LOG=%DEBUG_LOG%"
+call :debug_log "ENVR | RESULT=%RESULT%"
 call :debug_log "START | WANT=%WANT% RESTART=%RESTART% SELF=%SELF% BASE=%BASE% WORK=%WORK%"
 
 if /I not "%BASE%"=="downloads" (
@@ -61,7 +62,10 @@ echo [0/4] Work directory: %WORK%
 call :debug_log "DISK | checking disk space on WORK=%WORK%"
 for /f "usebackq delims=" %%d in (`powershell -NoProfile -Command "(Get-PSDrive -Name ([IO.Path]::GetPathRoot($env:WORK).Substring(0,1)) -ErrorAction SilentlyContinue).Free / 1MB"`) do call :debug_log "DISK | free_mb=%%d"
 
-if exist "%RESULT%" del /f /q "%RESULT%" >nul 2>nul
+if exist "%RESULT%" (
+  call :debug_log "RESULT | deleting stale result file=%RESULT%"
+  del /f /q "%RESULT%" >nul 2>nul
+)
 
 call :pick_pkg "%SELF%" "%WANT%"
 if "%MIRROR_ONLY%"=="1" goto :pick_pkg_done
@@ -120,6 +124,7 @@ if "%MIRROR_ONLY%"=="1" (
     call :write_result "failed" "recover" "Failed to prepare next version directory"
     goto :fail
   )
+  call :debug_log "EXTRACT | prepared TMP=%TMP% EX=%EX% NEXT=%NEXT%"
 
   call :debug_log "EXTRACT | Expand-Archive PKG=%PKG% EX=%EX%"
   powershell -NoProfile -Command "& { Expand-Archive -Path $env:PKG -DestinationPath $env:EX -Force; $hit=Get-ChildItem -Path $env:EX -Filter 'aether.exe' -File -Recurse | Where-Object { Test-Path (Join-Path $_.DirectoryName 'Aether.vbs') } | Sort-Object { $_.DirectoryName.Length } | Select-Object -First 1; if(-not $hit){ throw 'missing app files' }; [IO.File]::WriteAllText($env:SRC_FILE, $hit.DirectoryName) }" || (
@@ -180,7 +185,7 @@ if errorlevel 1 (
     echo !MSG!
     goto :fail
   )
-  call :debug_log "MIRROR | success MIRROR=%MIRROR%"
+  call :debug_log "MIRROR | success MIRROR=!MIRROR!"
 ) else (
   call :debug_log "IN_WORK | AETHER_CURRENT_DIR under WORK, skipping mirror"
   set "COPY_NOTE=Current app already runs inside WorkDir; skipped mirror."
@@ -188,7 +193,7 @@ if errorlevel 1 (
 if defined MIRROR set "START=%MIRROR%"
 if defined MIRROR call :prune_mirror
 if not defined START set "START=%TARGET%"
-call :debug_log "LAUNCH | START=%START% TARGET=%TARGET% MIRROR=%MIRROR%"
+call :debug_log "LAUNCH | START=%START% TARGET=%TARGET% MIRROR=%MIRROR% MPRUNE=%MPRUNE%"
 call :write_launch "%START%"
 call :debug_log "LAUNCH | LAUNCH=%LAUNCH% NOTE=%NOTE%"
 call :register_protocol "%START%"
@@ -303,18 +308,29 @@ if "!IN_WORK!"=="1" exit /b 0
 exit /b 1
 
 :restart
-call :debug_log "RESTART | stopping runtime"
+call :debug_log "RESTART | stopping runtime START=%START% TARGET=%TARGET% MIRROR=%MIRROR%"
 call :stop_runtime
+call :debug_log "RESTART | stop_runtime returned ERRORLEVEL=%ERRORLEVEL%"
+call :snapshot_runtime "RESTART_AFTER_STOP"
+call :debug_log "RESTART | waiting 1s before boot"
 timeout /t 1 /nobreak >nul
 set "AETHER_WEB_OPEN_FALLBACK_MS=3000"
+call :debug_log "BOOT | fallback_ms=%AETHER_WEB_OPEN_FALLBACK_MS% debug_log=%DEBUG_LOG%"
+if exist "%START%\Aether.vbs" (
+  call :debug_log "BOOT | launcher exists %START%\Aether.vbs"
+) else (
+  call :debug_log "BOOT | launcher missing %START%\Aether.vbs"
+)
 call :debug_log "BOOT | launching %START%\Aether.vbs"
 start "" "%START%\Aether.vbs"
 call :debug_log "BOOT | start command issued"
+call :snapshot_runtime "BOOT_AFTER_START"
 exit /b 0
 
 :stop_runtime
 call :debug_log "STOP | starting stop_runtime OLD=%OLD% TARGET=%TARGET% AETHER_CURRENT_DIR=%AETHER_CURRENT_DIR% MIRROR=%MIRROR%"
-powershell -NoProfile -Command "& { $roots=New-Object System.Collections.Generic.List[string]; function AddRoot([string]$p){ if([string]::IsNullOrWhiteSpace($p)){ return }; try { $full=[IO.Path]::GetFullPath($p); if((Test-Path -LiteralPath $full) -and -not $roots.Contains($full)){ [void]$roots.Add($full) } } catch {} }; AddRoot $env:OLD; AddRoot $env:TARGET; AddRoot $env:AETHER_CURRENT_DIR; AddRoot $env:MIRROR; if($env:WORK -and (Test-Path -LiteralPath $env:WORK)){ Get-ChildItem -LiteralPath $env:WORK -Directory -Filter 'aether_*' -ErrorAction SilentlyContinue | ForEach-Object { AddRoot $_.FullName } }; $base=''; if($env:AETHER_MIRROR_ROOT){ $base=$env:AETHER_MIRROR_ROOT } elseif($env:AETHER_CURRENT_DIR){ try { $base=[IO.Directory]::GetParent([IO.Path]::GetFullPath($env:AETHER_CURRENT_DIR)).FullName } catch {} }; if($base -and (Test-Path -LiteralPath $base)){ Get-ChildItem -LiteralPath $base -Directory -Filter 'aether_*' -ErrorAction SilentlyContinue | ForEach-Object { AddRoot $_.FullName } }; $names=@('aether.exe','wscript.exe','cscript.exe','node.exe','bun.exe'); function Hits { Get-CimInstance Win32_Process | Where-Object { $n=$_.Name.ToLowerInvariant(); if($names -notcontains $n){ return $false }; $cmd=$_.CommandLine; $exe=$_.ExecutablePath; foreach($r in $roots){ if(($cmd -and $cmd.IndexOf($r,[StringComparison]::OrdinalIgnoreCase) -ge 0) -or ($exe -and $exe.StartsWith($r,[StringComparison]::OrdinalIgnoreCase))){ return $true } }; return $false } }; $hits=@(Hits); if($hits.Count -gt 0){ Write-Host 'Stopping old Aether processes...'; $hits | Sort-Object ProcessId -Descending | ForEach-Object { Stop-Process -Id $_.ProcessId -ErrorAction SilentlyContinue } }; for($i=0; $i -lt 5; $i++){ Start-Sleep -Seconds 1; if(@(Hits).Count -eq 0){ exit 0 } }; $hits=@(Hits); if($hits.Count -gt 0){ $hits | Sort-Object ProcessId -Descending | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue } }; for($i=0; $i -lt 3; $i++){ Start-Sleep -Seconds 1; if(@(Hits).Count -eq 0){ exit 0 } }; if(@(Hits).Count -gt 0){ Write-Host 'Warning: old Aether processes are still running; starting the new version anyway.' } }"
+powershell -NoProfile -Command "& { function Log([string]$m){ if(-not $env:DEBUG_LOG){ return }; $dir=Split-Path -Parent $env:DEBUG_LOG; if($dir){ [IO.Directory]::CreateDirectory($dir) | Out-Null }; Add-Content -LiteralPath $env:DEBUG_LOG -Encoding UTF8 -Value ((Get-Date -Format 'yyyy-MM-dd HH:mm:ss.fff') + ' | ' + $m) }; function Flat([string]$s){ if($null -eq $s){ return '' }; return ($s -replace [char]13,' ' -replace [char]10,' ') }; $roots=New-Object System.Collections.Generic.List[string]; function AddRoot([string]$p){ if([string]::IsNullOrWhiteSpace($p)){ return }; try { $full=[IO.Path]::GetFullPath($p); if((Test-Path -LiteralPath $full) -and -not $roots.Contains($full)){ [void]$roots.Add($full); Log ('STOP | root=' + $full) } } catch { Log ('STOP | root_error path=' + (Flat $p) + ' error=' + (Flat $_.Exception.Message)) } }; AddRoot $env:OLD; AddRoot $env:TARGET; AddRoot $env:AETHER_CURRENT_DIR; AddRoot $env:MIRROR; if($env:WORK -and (Test-Path -LiteralPath $env:WORK)){ Get-ChildItem -LiteralPath $env:WORK -Directory -Filter 'aether_*' -ErrorAction SilentlyContinue | ForEach-Object { AddRoot $_.FullName } }; $base=''; if($env:AETHER_MIRROR_ROOT){ $base=$env:AETHER_MIRROR_ROOT } elseif($env:AETHER_CURRENT_DIR){ try { $base=[IO.Directory]::GetParent([IO.Path]::GetFullPath($env:AETHER_CURRENT_DIR)).FullName } catch { Log ('STOP | mirror_root_error error=' + (Flat $_.Exception.Message)) } }; if($base -and (Test-Path -LiteralPath $base)){ Get-ChildItem -LiteralPath $base -Directory -Filter 'aether_*' -ErrorAction SilentlyContinue | ForEach-Object { AddRoot $_.FullName } }; $names=@('aether.exe','wscript.exe','cscript.exe','node.exe','bun.exe'); function Hits { Get-CimInstance Win32_Process | Where-Object { $n=$_.Name.ToLowerInvariant(); if($names -notcontains $n){ return $false }; $cmd=$_.CommandLine; $exe=$_.ExecutablePath; foreach($r in $roots){ if(($cmd -and $cmd.IndexOf($r,[StringComparison]::OrdinalIgnoreCase) -ge 0) -or ($exe -and $exe.StartsWith($r,[StringComparison]::OrdinalIgnoreCase))){ return $true } }; return $false } }; function Dump([string]$tag,[array]$hits){ Log ('STOP | ' + $tag + ' count=' + $hits.Count); $hits | Sort-Object ProcessId | ForEach-Object { Log ('STOP | ' + $tag + ' pid=' + $_.ProcessId + ' name=' + $_.Name + ' exe=' + (Flat $_.ExecutablePath) + ' cmd=' + (Flat $_.CommandLine)) } }; Log ('STOP | scan start roots=' + $roots.Count); $hits=@(Hits); Dump 'initial' $hits; if($hits.Count -gt 0){ Write-Host 'Stopping old Aether processes...'; $hits | Sort-Object ProcessId -Descending | ForEach-Object { Log ('STOP | terminate pid=' + $_.ProcessId); Stop-Process -Id $_.ProcessId -ErrorAction SilentlyContinue } }; for($i=0; $i -lt 5; $i++){ Start-Sleep -Seconds 1; $hits=@(Hits); Dump ('after_soft_wait_' + ($i + 1)) $hits; if($hits.Count -eq 0){ Log 'STOP | all processes exited after soft stop'; exit 0 } }; $hits=@(Hits); Dump 'before_force' $hits; if($hits.Count -gt 0){ $hits | Sort-Object ProcessId -Descending | ForEach-Object { Log ('STOP | force pid=' + $_.ProcessId); Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue } }; for($i=0; $i -lt 3; $i++){ Start-Sleep -Seconds 1; $hits=@(Hits); Dump ('after_force_wait_' + ($i + 1)) $hits; if($hits.Count -eq 0){ Log 'STOP | all processes exited after force stop'; exit 0 } }; $hits=@(Hits); Dump 'final' $hits; if($hits.Count -gt 0){ Write-Host 'Warning: old Aether processes are still running; starting the new version anyway.'; Log 'STOP | warning old processes still running' } }"
+call :debug_log "STOP | powershell exit=%ERRORLEVEL%"
 exit /b 0
 
 :active_dir
@@ -371,6 +387,11 @@ exit /b 1
 call :debug_log "CLEANUP | TMP=%TMP% NEXT=%NEXT%"
 if exist "%TMP%" rmdir /s /q "%TMP%" >nul 2>nul
 if exist "%NEXT%" rmdir /s /q "%NEXT%" >nul 2>nul
+exit /b 0
+
+:snapshot_runtime
+set "SNAP_TAG=%~1"
+powershell -NoProfile -Command "& { function Log([string]$m){ if(-not $env:DEBUG_LOG){ return }; $dir=Split-Path -Parent $env:DEBUG_LOG; if($dir){ [IO.Directory]::CreateDirectory($dir) | Out-Null }; Add-Content -LiteralPath $env:DEBUG_LOG -Encoding UTF8 -Value ((Get-Date -Format 'yyyy-MM-dd HH:mm:ss.fff') + ' | ' + $m) }; function Flat([string]$s){ if($null -eq $s){ return '' }; return ($s -replace [char]13,' ' -replace [char]10,' ') }; $roots=@($env:START,$env:TARGET,$env:MIRROR,$env:AETHER_CURRENT_DIR) | Where-Object { $_ } | ForEach-Object { try { [IO.Path]::GetFullPath($_) } catch { $_ } }; $names=@('aether.exe','wscript.exe','cscript.exe','node.exe','bun.exe'); $hits=@(Get-CimInstance Win32_Process | Where-Object { $n=$_.Name.ToLowerInvariant(); if($names -notcontains $n){ return $false }; if($roots.Count -eq 0){ return $n -eq 'aether.exe' }; $cmd=$_.CommandLine; $exe=$_.ExecutablePath; foreach($r in $roots){ if(($cmd -and $cmd.IndexOf($r,[StringComparison]::OrdinalIgnoreCase) -ge 0) -or ($exe -and $exe.StartsWith($r,[StringComparison]::OrdinalIgnoreCase))){ return $true } }; return $false }); Log ('SNAP | ' + $env:SNAP_TAG + ' count=' + $hits.Count + ' roots=' + ($roots -join ';')); $hits | Sort-Object ProcessId | ForEach-Object { Log ('SNAP | ' + $env:SNAP_TAG + ' pid=' + $_.ProcessId + ' name=' + $_.Name + ' exe=' + (Flat $_.ExecutablePath) + ' cmd=' + (Flat $_.CommandLine)) } }"
 exit /b 0
 
 :prune_versions
