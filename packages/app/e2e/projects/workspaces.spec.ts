@@ -25,13 +25,15 @@ import {
   workspaceMenuTriggerSelector,
 } from "../selectors"
 import { createSdk, dirSlug } from "../utils"
+import { base64Encode } from "@opencode-ai/util/encode"
 
 type Space = { directory: string; slug: string; raw?: string }
 
 function slugs(space: string | Space) {
   if (typeof space === "string") return [space]
+  const normSlug = dirSlug(space.directory.replace(/\\/g, "/"))
   if (process.platform !== "win32") return [space.slug]
-  return [...new Set([space.slug, space.raw].filter((item): item is string => !!item))]
+  return [...new Set([space.slug, space.raw, normSlug].filter((item): item is string => !!item))]
 }
 
 function itemSelector(space: string | Space) {
@@ -62,7 +64,10 @@ function key(dir: string) {
 }
 
 async function same(dir: string) {
-  return fs.realpath(dir).then(key).catch(() => key(dir))
+  return fs
+    .realpath(dir)
+    .then(key)
+    .catch(() => key(dir))
 }
 
 async function listed(list: string[], dir: string) {
