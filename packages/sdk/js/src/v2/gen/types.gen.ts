@@ -26,6 +26,44 @@ export type EventInstallationUpdateAvailable = {
   }
 }
 
+export type EventDbRecoveryStarted = {
+  type: "db.recovery.started"
+  properties: {
+    entries: number
+  }
+}
+
+export type EventDbRecoveryProgress = {
+  type: "db.recovery.progress"
+  properties: {
+    id: string
+    phase: "path-b" | "path-a" | "path-a-plus"
+    table: string
+    recoveredRows: number
+  }
+}
+
+export type EventDbRecoveryCompleted = {
+  type: "db.recovery.completed"
+  properties: {
+    id: string
+    kind: "main" | "project" | "cron"
+    projectId?: string
+    status: "completed" | "partial" | "failed"
+    recoveredTables: Array<string>
+    failedTables: Array<string>
+    recoveredRows: number
+    quarantinePath: string
+  }
+}
+
+export type EventDbRecoveryAskInstall = {
+  type: "db.recovery.ask_install"
+  properties: {
+    message: string
+  }
+}
+
 export type Project = {
   id: string
   worktree: string
@@ -1029,6 +1067,10 @@ export type EventSessionDeleted = {
 export type Event =
   | EventInstallationUpdated
   | EventInstallationUpdateAvailable
+  | EventDbRecoveryStarted
+  | EventDbRecoveryProgress
+  | EventDbRecoveryCompleted
+  | EventDbRecoveryAskInstall
   | EventProjectUpdated
   | EventProjectRecentUpdated
   | EventServerInstanceDisposed
@@ -1698,6 +1740,38 @@ export type Config = {
      */
     enabled?: boolean
   }
+  memory?: {
+    /**
+     * Enable memory hooks and tools (default: true)
+     */
+    enabled?: boolean
+    /**
+     * Enable lightweight quick reflection (default: true)
+     */
+    quickReflect?: boolean
+    dailyReflect?: {
+      /**
+       * Enable scheduled daily memory reflection (default: true)
+       */
+      enabled?: boolean
+      /**
+       * Daily memory reflection time in HH:mm format (default: 03:00)
+       */
+      time?: string
+      /**
+       * Daily memory reflection timezone. Defaults to the system timezone.
+       */
+      timezone?: string
+    }
+    search?: {
+      defaultLimit?: number
+      maxLimit?: number
+    }
+    reflection?: {
+      maxInputTokens?: number
+      maxOutputTokens?: number
+    }
+  }
   experimental?: {
     disable_paste_summary?: boolean
     /**
@@ -1900,6 +1974,7 @@ export type WorktreeCreateInput = {
 
 export type WorktreeRemoveInput = {
   directory: string
+  force?: boolean
 }
 
 export type WorktreeResetInput = {
@@ -2248,6 +2323,17 @@ export type VcsGraphResult = {
   tags: Array<string>
   remotes: Array<string>
   moreAvailable: boolean
+}
+
+export type VcsCheckoutResult = {
+  success: boolean
+  error?: string
+}
+
+export type VcsRenameBranchResult = {
+  success: boolean
+  error?: string
+  branch?: string
 }
 
 export type VcsFileChange = {
@@ -2860,6 +2946,7 @@ export type ProjectUpdateDirectoryMetaData = {
   body?: {
     directory: string
     name?: string
+    projectID?: string
     icon?: {
       url?: string
       override?: string
@@ -3652,7 +3739,19 @@ export type WorktreeRemoveResponses = {
   /**
    * Worktree removed
    */
-  200: boolean
+  200:
+    | {
+        status: "ok"
+      }
+    | {
+        status: "stale"
+        directory: string
+        gitStderr: string
+      }
+    | {
+        status: "forceOk"
+        hasOrphanedDb: boolean
+      }
 }
 
 export type WorktreeRemoveResponse = WorktreeRemoveResponses[keyof WorktreeRemoveResponses]
@@ -7763,6 +7862,82 @@ export type KnowledgeDocumentDeleteResponses = {
 
 export type KnowledgeDocumentDeleteResponse = KnowledgeDocumentDeleteResponses[keyof KnowledgeDocumentDeleteResponses]
 
+export type CronAssistantData = {
+  body?: {
+    instruction: string
+    selected_id?: string
+    project_id?: string
+    session_id?: string
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/cron/assistant"
+}
+
+export type CronAssistantResponses = {
+  /**
+   * Cron assistant result
+   */
+  200: {
+    action: "create" | "update" | "reject"
+    summary: string
+    job: {
+      definition: {
+        id: string
+        name: string
+        enabled: boolean
+        mode: "direct" | "isolated_agent" | "session_agent" | "agent_message"
+        project_id?: string | null
+        session_id?: string | null
+        schedule_type: "cron" | "interval" | "once"
+        schedule_value: string | number
+        timezone?: string | null
+        payload: {
+          [key: string]: unknown
+        }
+        [key: string]:
+          | unknown
+          | string
+          | boolean
+          | "direct"
+          | "isolated_agent"
+          | "session_agent"
+          | "agent_message"
+          | string
+          | null
+          | string
+          | null
+          | "cron"
+          | "interval"
+          | "once"
+          | string
+          | number
+          | string
+          | null
+          | {
+              [key: string]: unknown
+            }
+          | undefined
+      }
+      state: {
+        job_id: string
+        enabled: boolean
+        next_run_at: number | null
+        last_run_at: number | null
+        last_status: "success" | "failed" | "skipped" | "expired" | null
+        running: boolean
+        start_at: number | null
+        updated_at: number
+      } | null
+    } | null
+  }
+}
+
+export type CronAssistantResponse = CronAssistantResponses[keyof CronAssistantResponses]
+
 export type CronJobsListData = {
   body?: never
   path?: never
@@ -8208,6 +8383,141 @@ export type CronRunsGetResponses = {
 }
 
 export type CronRunsGetResponse = CronRunsGetResponses[keyof CronRunsGetResponses]
+
+export type MemoryStatusData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/memory/status"
+}
+
+export type MemoryStatusResponses = {
+  /**
+   * Memory status
+   */
+  200: {
+    [key: string]: unknown
+  }
+}
+
+export type MemoryStatusResponse = MemoryStatusResponses[keyof MemoryStatusResponses]
+
+export type MemorySearchData = {
+  body?: {
+    query: string
+    mode?: "search" | "overview"
+    types?: Array<"preference" | "fact" | "task">
+    limit?: number
+    currentProjectID?: string
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/memory/search"
+}
+
+export type MemorySearchResponses = {
+  /**
+   * Memory search result
+   */
+  200: {
+    [key: string]: unknown
+  }
+}
+
+export type MemorySearchResponse = MemorySearchResponses[keyof MemorySearchResponses]
+
+export type MemoryReflectData = {
+  body?: {
+    mode?: "quick" | "daily" | "manual"
+    reason?: string
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/memory/reflect"
+}
+
+export type MemoryReflectResponses = {
+  /**
+   * Memory reflection result
+   */
+  200: {
+    [key: string]: unknown
+  }
+}
+
+export type MemoryReflectResponse = MemoryReflectResponses[keyof MemoryReflectResponses]
+
+export type MemoryInitializeStartData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/memory/initialize/start"
+}
+
+export type MemoryInitializeStartResponses = {
+  /**
+   * Initialization result
+   */
+  200: {
+    [key: string]: unknown
+  }
+}
+
+export type MemoryInitializeStartResponse = MemoryInitializeStartResponses[keyof MemoryInitializeStartResponses]
+
+export type MemoryInitializeCancelData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/memory/initialize/cancel"
+}
+
+export type MemoryInitializeCancelResponses = {
+  /**
+   * Cancel result
+   */
+  200: {
+    ok: boolean
+  }
+}
+
+export type MemoryInitializeCancelResponse = MemoryInitializeCancelResponses[keyof MemoryInitializeCancelResponses]
+
+export type MemoryDailyReflectSyncData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/memory/daily-reflect/sync"
+}
+
+export type MemoryDailyReflectSyncResponses = {
+  /**
+   * Synced cron job
+   */
+  200: {
+    [key: string]: unknown
+  }
+}
+
+export type MemoryDailyReflectSyncResponse = MemoryDailyReflectSyncResponses[keyof MemoryDailyReflectSyncResponses]
 
 export type PostVoiceTranscribeData = {
   body?: {
@@ -9134,6 +9444,48 @@ export type VcsGraphResponses = {
 }
 
 export type VcsGraphResponse = VcsGraphResponses[keyof VcsGraphResponses]
+
+export type VcsCheckoutData = {
+  body?: {
+    branch: string
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/vcs/checkout"
+}
+
+export type VcsCheckoutResponses = {
+  /**
+   * Checkout result
+   */
+  200: VcsCheckoutResult
+}
+
+export type VcsCheckoutResponse = VcsCheckoutResponses[keyof VcsCheckoutResponses]
+
+export type VcsRenameBranchData = {
+  body?: {
+    newName: string
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/vcs/rename-branch"
+}
+
+export type VcsRenameBranchResponses = {
+  /**
+   * Rename result
+   */
+  200: VcsRenameBranchResult
+}
+
+export type VcsRenameBranchResponse = VcsRenameBranchResponses[keyof VcsRenameBranchResponses]
 
 export type VcsCommitDetailData = {
   body?: never
