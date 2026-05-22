@@ -1,4 +1,4 @@
-const TTL = 300_000
+const TTL = 30_000
 const map = new Map<string, number>()
 
 const prune = (now = Date.now()) => {

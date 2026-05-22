@@ -25,7 +25,7 @@ import { Log } from "../util/log"
 
 export namespace FileWatcher {
   const log = Log.create({ service: "file.watcher" })
-  const SUBSCRIBE_TIMEOUT_MS = 5_000
+  const SUBSCRIBE_TIMEOUT_MS = 10_000
   const SUBSCRIBE_COOLDOWN_MS = 60_000
   const SUBPROCESS_KILL_TIMEOUT_MS = 500
   const sidecarDir = new URL("../../../go-watcher/bin/", import.meta.url)
