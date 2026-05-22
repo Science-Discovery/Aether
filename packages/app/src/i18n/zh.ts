@@ -469,6 +469,7 @@ export const dict = {
   "knowledgeBase.wechatConnection": "微信连接",
   "knowledgeBase.qqConnection": "QQ连接",
   "knowledgeBase.feishuConnection": "飞书连接",
+  "knowledgeBase.mobileConnection": "移动连接",
   "defaultSkills.addingToProject": "添加中...",
   "defaultSkills.addToProject": "添加到项目",
   "defaultSkills.loading": "加载中...",
