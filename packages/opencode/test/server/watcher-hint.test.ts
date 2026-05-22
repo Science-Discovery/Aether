@@ -2,7 +2,10 @@ import { afterEach, describe, expect, test } from "bun:test"
 import { Server } from "../../src/server/server"
 import { WatcherHint } from "../../src/project/watcher-hint"
 import { Instance } from "../../src/project/instance"
+import { Filesystem } from "../../src/util/filesystem"
 import { resetDatabase } from "../fixture/db"
+
+const dir = (value: string) => Filesystem.resolve(value)
 
 afterEach(async () => {
   WatcherHint.clear()
@@ -28,10 +31,10 @@ describe("watcher hint endpoint", () => {
 
     expect(res.status).toBe(200)
     expect(await res.json()).toEqual({
-      directory: "/tmp/app",
+      directory: dir("/tmp/app"),
       files: ["README.md", "src/main.ts"],
       dirs: ["docs", "src/components"],
-      watched: ["/tmp/app", "/tmp/app/docs", "/tmp/app/src", "/tmp/app/src/components"],
+      watched: [dir("/tmp/app"), dir("/tmp/app/docs"), dir("/tmp/app/src"), dir("/tmp/app/src/components")],
     })
   })
 
