@@ -7,6 +7,12 @@ import { tmpdir } from "../fixture/fixture"
 import { existsSync } from "fs"
 import { ProjectTable } from "../../src/project/project.sql"
 import { eq } from "drizzle-orm"
+import path from "path"
+
+function norm(input: string) {
+  const next = path.resolve(input).replace(/\\/g, "/")
+  return /^\/+$/g.test(next) ? "/" : next.replace(/\/+$/, "")
+}
 
 Log.init({ print: false })
 
@@ -45,11 +51,11 @@ describe("Project.fromDirectory ordering", () => {
       .all(project.id) as { directory: string }[]
 
     const dirs = gpm.map((r) => r.directory)
-    const wt = project.worktree.replace(/\\/g, "/").toLowerCase()
-    const raw = tmp.path.replace(/\\/g, "/").toLowerCase()
+    const wt = norm(project.worktree)
+    const raw = norm(tmp.path)
 
-    expect(dirs.some((d) => d === wt)).toBe(true)
-    expect(dirs.some((d) => d === raw)).toBe(true)
+    expect(dirs.some((d) => norm(d) === wt)).toBe(true)
+    expect(dirs.some((d) => norm(d) === raw)).toBe(true)
   })
 
   test("project_recent entry has matching directory", async () => {
@@ -61,7 +67,6 @@ describe("Project.fromDirectory ordering", () => {
       .get(project.id) as { directory: string } | undefined
 
     expect(recent).toBeDefined()
-    const expected = tmp.path.replace(/\\/g, "/").toLowerCase()
-    expect(recent!.directory.replace(/\\/g, "/").toLowerCase()).toBe(expected)
+    expect(norm(recent!.directory)).toBe(norm(tmp.path))
   })
 })

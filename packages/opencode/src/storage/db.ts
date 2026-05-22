@@ -34,7 +34,8 @@ const log = Log.create({ service: "db" })
 
 export namespace Database {
   export function norm(input: string) {
-    return path.resolve(input).replace(/\\/g, "/").toLowerCase()
+    const next = path.resolve(input).replace(/\\/g, "/")
+    return /^\/+$/g.test(next) ? "/" : next.replace(/\/+$/, "")
   }
 
   export type Source = {
@@ -603,20 +604,20 @@ export namespace Database {
 
     const directories = (
       pSqlite.prepare("SELECT DISTINCT directory FROM session").all() as { directory: string }[]
-    ).map((r) => r.directory)
+    ).map((r) => norm(r.directory))
 
-    if (!directories.includes(worktree)) directories.push(worktree)
+    const wtNorm = norm(worktree)
+    if (!directories.includes(wtNorm)) directories.push(wtNorm)
 
     const insert = pSqlite.prepare(
       "INSERT OR IGNORE INTO directory_meta (directory, worktree, name, icon_url, icon_color, icon_override, activity_at, time_created, time_updated) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
 
     for (const dir of directories) {
-      const dirNorm = norm(dir)
-      const recentRow = recentLookup.get(dirNorm)
+      const recentRow = recentLookup.get(dir)
       insert.run(
         dir,
-        worktree,
+        wtNorm,
         recentRow?.name ?? null,
         recentRow?.icon_url ?? null,
         recentRow?.icon_color ?? null,
@@ -680,21 +681,58 @@ export namespace Database {
 
     const validDirs = new Set([...setA, ...setB])
 
-    const metaRows = pSqlite.prepare("SELECT directory FROM directory_meta").all() as { directory: string }[]
-    let deleted = 0
+    const metaRows = pSqlite.prepare("SELECT * FROM directory_meta").all() as {
+      directory: string
+      worktree: string
+      name: string | null
+      icon_url: string | null
+      icon_color: string | null
+      icon_override: string | null
+      activity_at: number
+      time_created: number
+      time_updated: number
+    }[]
+
+    // Group existing rows by normalized directory to detect duplicates
+    const byNorm = new Map<string, typeof metaRows>()
     for (const row of metaRows) {
-      if (!validDirs.has(norm(row.directory))) {
+      const key = norm(row.directory)
+      const group = byNorm.get(key) ?? []
+      group.push(row)
+      byNorm.set(key, group)
+    }
+
+    let deduped = 0
+    let stale = 0
+    const surviving = new Map<string, (typeof metaRows)[0]>() // norm → best surviving row
+
+    for (const [key, group] of byNorm) {
+      // Not in validDirs → delete all rows in this group
+      if (!validDirs.has(key)) {
+        for (const row of group) {
+          pSqlite.prepare("DELETE FROM directory_meta WHERE directory = ?").run(row.directory)
+        }
+        stale += group.length
+        continue
+      }
+      // Multiple rows for the same norm → keep highest activity_at, delete rest
+      const sorted = group.sort((a, b) => b.activity_at - a.activity_at)
+      const best = sorted[0]
+      surviving.set(key, best)
+      for (const row of sorted.slice(1)) {
         pSqlite.prepare("DELETE FROM directory_meta WHERE directory = ?").run(row.directory)
-        deleted++
+        deduped++
+      }
+      const wtNorm = norm(worktree)
+      // If best row's directory or worktree is not normalized, update them
+      if (best.directory !== key || best.worktree !== wtNorm) {
+        pSqlite
+          .prepare("UPDATE directory_meta SET directory = ?, worktree = ? WHERE directory = ?")
+          .run(key, wtNorm, best.directory)
       }
     }
-    if (deleted > 0) log.info("removed stale directory_meta entries", { pid, deleted })
-
-    const existingMetaDirs = new Set(
-      (pSqlite.prepare("SELECT directory FROM directory_meta").all() as { directory: string }[]).map((r) =>
-        norm(r.directory),
-      ),
-    )
+    if (stale > 0) log.info("removed stale directory_meta entries", { pid, stale })
+    if (deduped > 0) log.info("deduped directory_meta entries", { pid, deduped })
 
     const insert = pSqlite.prepare(
       "INSERT OR IGNORE INTO directory_meta (directory, worktree, name, icon_url, icon_color, icon_override, activity_at, time_created, time_updated) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
@@ -702,11 +740,11 @@ export namespace Database {
 
     let added = 0
     for (const dir of validDirs) {
-      if (existingMetaDirs.has(dir)) continue
+      if (surviving.has(dir)) continue
       const recentRow = recentLookup.get(dir)
       insert.run(
         dir,
-        worktree,
+        norm(worktree),
         recentRow?.name ?? null,
         recentRow?.icon_url ?? null,
         recentRow?.icon_color ?? null,
@@ -718,6 +756,25 @@ export namespace Database {
       added++
     }
     if (added > 0) log.info("added missing directory_meta entries", { pid, added })
+  }
+
+  function syncProjectSandboxes(pSqlite: BunSqlite, pid: string) {
+    const hasTable = pSqlite
+      .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='directory_meta'")
+      .get()
+    if (!hasTable) return
+
+    const projectRow = pSqlite.prepare("SELECT worktree FROM project WHERE id = ?").get(pid) as
+      | { worktree: string }
+      | undefined
+    if (!projectRow) return
+
+    const worktree = norm(projectRow.worktree)
+    const metaRows = pSqlite.prepare("SELECT directory FROM directory_meta").all() as { directory: string }[]
+    const sandboxes = metaRows.filter((r) => norm(r.directory) !== worktree).map((r) => r.directory)
+    pSqlite
+      .prepare("UPDATE project SET sandboxes = ?, time_updated = ? WHERE id = ?")
+      .run(JSON.stringify(sandboxes), Date.now(), pid)
   }
 
   function syncDirectoryMetaToGlobal(sqlite: BunSqlite, pSqlite: BunSqlite, pid: string) {
@@ -751,7 +808,7 @@ export namespace Database {
     const insertRecent = sqlite.prepare(
       `INSERT INTO project_recent (key, kind, project_id, directory, name, icon_url, icon_color, icon_override, activity_at, time_created, time_updated)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-       ON CONFLICT(key) DO UPDATE SET project_id = excluded.project_id, activity_at = excluded.activity_at, time_updated = excluded.time_updated`,
+       ON CONFLICT(key) DO UPDATE SET project_id = excluded.project_id, name = excluded.name, icon_url = excluded.icon_url, icon_color = excluded.icon_color, icon_override = excluded.icon_override, activity_at = excluded.activity_at, time_updated = excluded.time_updated`,
     )
 
     for (const row of metaRows) {
@@ -759,11 +816,11 @@ export namespace Database {
       insertMap.run(dirNorm, pid, row.time_created, row.time_updated)
 
       const isWorktree = row.worktree !== "/" && norm(row.directory) === norm(canonicalWorktree)
-      if (!isWorktree) continue
+      const kind = isWorktree ? "project" : "directory"
 
       insertRecent.run(
         `dir:${dirNorm}`,
-        "project",
+        kind,
         pid,
         row.directory,
         row.name,
@@ -787,8 +844,8 @@ export namespace Database {
     for (const row of recentRows) {
       const dirNorm = norm(row.directory ?? "")
       recentLookup.set(dirNorm, row)
-      const keyNorm = row.key?.replace(/^dir:/, "").toLowerCase()
-      if (keyNorm && keyNorm !== dirNorm) recentLookup.set(keyNorm, row)
+      const keyNorm = row.key?.replace(/^dir:/, "")
+      if (keyNorm && norm(keyNorm) !== dirNorm) recentLookup.set(keyNorm, row)
     }
 
     const chDir = channelDir()
@@ -839,6 +896,7 @@ export namespace Database {
 
           ensureDirectoryMeta(pSqlite, pid, recentLookup)
           validateDirectoryMeta(pSqlite, pid, recentLookup)
+          syncProjectSandboxes(pSqlite, pid)
           syncDirectoryMetaToGlobal(sqlite, pSqlite, pid)
           if (projectRow?.worktree && projectRow.worktree !== "/")
             validWorktreeKeys.add(`dir:${norm(projectRow.worktree)}`)
@@ -857,7 +915,10 @@ export namespace Database {
 
           synced++
         } finally {
-          if (!closed) pSqlite.close()
+          if (!closed) {
+            pSqlite.exec("PRAGMA wal_checkpoint(TRUNCATE)")
+            pSqlite.close()
+          }
         }
       } catch (err) {
         log.error("failed to process project db, quarantining", { pid, error: String(err) })

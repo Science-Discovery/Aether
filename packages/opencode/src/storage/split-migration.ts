@@ -167,7 +167,8 @@ export namespace SplitMigration {
   }
 
   function norm(input: string) {
-    return path.resolve(input).replace(/\\/g, "/").toLowerCase()
+    const next = path.resolve(input).replace(/\\/g, "/")
+    return /^\/+$/g.test(next) ? "/" : next.replace(/\/+$/, "")
   }
 
   function initDb(filePath: string) {
@@ -634,7 +635,7 @@ export namespace SplitMigration {
           seenDirs.add(dn)
           const recentRow = recentByDirNorm.get(dn)
           entries.push({
-            directory: d,
+            directory: dn,
             worktree,
             name: recentRow?.name ?? projRow?.name ?? null,
             icon_url: recentRow?.icon_url ?? projRow?.icon_url ?? null,
@@ -834,7 +835,7 @@ export namespace SplitMigration {
             for (const entry of metaEntries) {
               metaInsert.run(
                 entry.directory,
-                entry.worktree,
+                norm(entry.worktree),
                 entry.name,
                 entry.icon_url,
                 entry.icon_color,

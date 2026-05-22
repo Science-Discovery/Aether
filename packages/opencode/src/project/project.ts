@@ -1,4 +1,5 @@
 import z from "zod"
+import path from "path"
 import { Database, desc, eq } from "../storage/db"
 import { ProjectRecentTable } from "./project.sql"
 import { GlobalProjectMapTable } from "./global-project-map.sql"
@@ -84,9 +85,8 @@ export namespace Project {
   type Row = typeof ProjectTable.$inferSelect
 
   export function norm(input: string) {
-    const next = input.replace(/\\/g, "/")
-    const trim = /^\/+$/g.test(next) ? "/" : next.replace(/\/+$/, "")
-    return trim.toLowerCase()
+    const next = path.resolve(input).replace(/\\/g, "/")
+    return /^\/+$/g.test(next) ? "/" : next.replace(/\/+$/, "")
   }
 
   function name(input: string) {
@@ -131,10 +131,15 @@ export namespace Project {
       const projectRow = Database.useProject(row.project_id, (d) =>
         d.select().from(ProjectTable).where(eq(ProjectTable.id, row.project_id!)).get(),
       )
-      if (projectRow) {
-        seen.add(row.project_id)
-        result.push(fromRow(projectRow))
-      }
+      if (!projectRow) continue
+      seen.add(row.project_id)
+      const info = fromRow(projectRow)
+      const wt = norm(info.worktree)
+      const metaRows = Database.useProject(row.project_id, (d) =>
+        d.select({ directory: DirectoryMetaTable.directory }).from(DirectoryMetaTable).all(),
+      )
+      info.sandboxes = metaRows.map((r) => norm(r.directory)).filter((d) => d !== wt)
+      result.push(info)
     }
     return result.sort((a, b) => a.id.localeCompare(b.id))
   }
@@ -299,11 +304,20 @@ export namespace Project {
         Effect.sync(() => Database.useProject(pid, fn))
 
       const emitUpdated = (data: Info) =>
-        Effect.sync(() =>
+        Effect.sync(() => {
+          const pid = data.id
+          const projectRow = Database.useProject(pid, (d) =>
+            d.select({ worktree: ProjectTable.worktree }).from(ProjectTable).where(eq(ProjectTable.id, pid)).get(),
+          )
+          const wt = projectRow ? norm(projectRow.worktree) : ""
+          const metaRows = Database.useProject(pid, (d) =>
+            d.select({ directory: DirectoryMetaTable.directory }).from(DirectoryMetaTable).all(),
+          )
+          const dirs = metaRows.map((r) => norm(r.directory)).filter((d) => d !== wt)
           GlobalBus.emit("event", {
-            payload: { type: Event.Updated.type, properties: data },
-          }),
-        )
+            payload: { type: Event.Updated.type, properties: { ...data, sandboxes: dirs } },
+          })
+        })
 
       const emitRecentUpdated = Effect.sync(() =>
         GlobalBus.emit("event", {
@@ -320,7 +334,7 @@ export namespace Project {
         const isProject = input.project.worktree !== "/"
         const key = dirKey(norm(input.directory))
         const kind = isProject ? "project" : "directory"
-        const directory = input.directory
+        const directory = norm(input.directory)
 
         yield* db((d) =>
           d
@@ -353,7 +367,7 @@ export namespace Project {
               .insert(DirectoryMetaTable)
               .values({
                 directory,
-                worktree: input.project.worktree,
+                worktree: norm(input.project.worktree),
                 name: input.project.name ?? null,
                 icon_url: input.project.icon?.url ?? null,
                 icon_color: input.project.icon?.color ?? null,
@@ -501,8 +515,8 @@ export namespace Project {
           d
             .insert(DirectoryMetaTable)
             .values({
-              directory,
-              worktree: data.worktree,
+              directory: norm(directory),
+              worktree: norm(data.worktree),
               name: result.name ?? null,
               icon_url: result.icon?.url ?? null,
               icon_color: result.icon?.color ?? null,
@@ -514,7 +528,7 @@ export namespace Project {
             .onConflictDoUpdate({
               target: DirectoryMetaTable.directory,
               set: {
-                worktree: data.worktree,
+                worktree: norm(data.worktree),
                 activity_at: Date.now(),
                 time_updated: Date.now(),
               },
@@ -639,11 +653,17 @@ export namespace Project {
       })
 
       const sandboxes = Effect.fn("Project.sandboxes")(function* (id: ProjectID) {
-        const row = yield* dbProject(id, (d) => d.select().from(ProjectTable).where(eq(ProjectTable.id, id)).get())
-        if (!row) return []
-        const data = fromRow(row)
+        const projectRow = yield* dbProject(id, (d) =>
+          d.select({ worktree: ProjectTable.worktree }).from(ProjectTable).where(eq(ProjectTable.id, id)).get(),
+        )
+        if (!projectRow) return []
+        const worktree = norm(projectRow.worktree)
+        const metaRows = yield* dbProject(id, (d) =>
+          d.select({ directory: DirectoryMetaTable.directory }).from(DirectoryMetaTable).all(),
+        )
+        const dirs = metaRows.filter((r) => norm(r.directory) !== worktree).map((r) => r.directory)
         return yield* Effect.forEach(
-          data.sandboxes,
+          dirs,
           (dir) =>
             fsys.isDir(dir).pipe(
               Effect.orDie,
@@ -656,8 +676,9 @@ export namespace Project {
       const addSandbox = Effect.fn("Project.addSandbox")(function* (id: ProjectID, directory: string) {
         const row = yield* dbProject(id, (d) => d.select().from(ProjectTable).where(eq(ProjectTable.id, id)).get())
         if (!row) throw new Error(`Project not found: ${id}`)
+        const dirNorm = norm(directory)
         const sboxes = [...row.sandboxes]
-        if (!sboxes.some((s) => norm(s) === norm(directory))) sboxes.push(directory)
+        if (!sboxes.some((s) => norm(s) === dirNorm)) sboxes.push(dirNorm)
         const result = yield* dbProject(id, (d) =>
           d
             .update(ProjectTable)
@@ -667,13 +688,30 @@ export namespace Project {
             .get(),
         )
         if (!result) throw new Error(`Project not found: ${id}`)
+        yield* dbProject(id, (d) =>
+          d
+            .insert(DirectoryMetaTable)
+            .values({
+              directory: dirNorm,
+              worktree: norm(row.worktree),
+              activity_at: Date.now(),
+              time_created: Date.now(),
+              time_updated: Date.now(),
+            })
+            .onConflictDoUpdate({
+              target: DirectoryMetaTable.directory,
+              set: { activity_at: Date.now(), time_updated: Date.now() },
+            })
+            .run(),
+        )
         yield* emitUpdated(fromRow(result))
       })
 
       const removeSandbox = Effect.fn("Project.removeSandbox")(function* (id: ProjectID, directory: string) {
         const row = yield* dbProject(id, (d) => d.select().from(ProjectTable).where(eq(ProjectTable.id, id)).get())
         if (!row) throw new Error(`Project not found: ${id}`)
-        const sboxes = row.sandboxes.filter((s) => norm(s) !== norm(directory))
+        const dirNorm = norm(directory)
+        const sboxes = row.sandboxes.filter((s) => norm(s) !== dirNorm)
         const result = yield* dbProject(id, (d) =>
           d
             .update(ProjectTable)
@@ -683,6 +721,7 @@ export namespace Project {
             .get(),
         )
         if (!result) throw new Error(`Project not found: ${id}`)
+        yield* dbProject(id, (d) => d.delete(DirectoryMetaTable).where(eq(DirectoryMetaTable.directory, dirNorm)).run())
         yield* emitUpdated(fromRow(result))
       })
 

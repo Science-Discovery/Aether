@@ -12,8 +12,7 @@ export namespace ProjectIdentity {
 
   export function norm(input: string) {
     const next = path.resolve(input).replace(/\\/g, "/")
-    const trim = /^\/+$/g.test(next) ? "/" : next.replace(/\/+$/, "")
-    return trim.toLowerCase()
+    return /^\/+$/g.test(next) ? "/" : next.replace(/\/+$/, "")
   }
 
   function marker(dir: string): string | undefined {

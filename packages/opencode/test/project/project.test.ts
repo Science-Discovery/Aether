@@ -9,6 +9,11 @@ import { tmpdir } from "../fixture/fixture"
 import { GlobalBus } from "../../src/bus/global"
 import { ProjectID } from "../../src/project/schema"
 import { Effect, Layer, Stream } from "effect"
+
+function norm(input: string) {
+  const next = path.resolve(input).replace(/\\/g, "/")
+  return /^\/+$/g.test(next) ? "/" : next.replace(/\/+$/, "")
+}
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
 import { NodeFileSystem, NodePath } from "@effect/platform-node"
 import { AppFileSystem } from "../../src/filesystem"
@@ -149,7 +154,7 @@ describe("Project.fromDirectory with worktrees", () => {
 
     expect(project.worktree).toBe(tmp.path)
     expect(sandbox).toBe(tmp.path)
-    expect(project.sandboxes).not.toContain(tmp.path)
+    expect(project.sandboxes.every((s) => norm(s) !== norm(tmp.path))).toBe(true)
   })
 
   test("should set worktree to root when called from a worktree", async () => {
@@ -163,8 +168,8 @@ describe("Project.fromDirectory with worktrees", () => {
 
       expect(project.worktree).toBe(tmp.path)
       expect(sandbox).toBe(worktreePath)
-      expect(project.sandboxes).toContain(worktreePath)
-      expect(project.sandboxes).not.toContain(tmp.path)
+      expect(project.sandboxes.some((s) => norm(s) === norm(worktreePath))).toBe(true)
+      expect(project.sandboxes.every((s) => norm(s) !== norm(tmp.path))).toBe(true)
     } finally {
       await $`git worktree remove ${worktreePath}`
         .cwd(tmp.path)
@@ -229,9 +234,9 @@ describe("Project.fromDirectory with worktrees", () => {
       const { project } = await Project.fromDirectory(worktree2)
 
       expect(project.worktree).toBe(tmp.path)
-      expect(project.sandboxes).toContain(worktree1)
-      expect(project.sandboxes).toContain(worktree2)
-      expect(project.sandboxes).not.toContain(tmp.path)
+      expect(project.sandboxes.some((s) => norm(s) === norm(worktree1))).toBe(true)
+      expect(project.sandboxes.some((s) => norm(s) === norm(worktree2))).toBe(true)
+      expect(project.sandboxes.every((s) => norm(s) !== norm(tmp.path))).toBe(true)
     } finally {
       await $`git worktree remove ${worktree1}`
         .cwd(tmp.path)
@@ -427,8 +432,8 @@ describe("Project.recentList", () => {
 
     const before = Project.recentList()
       .filter((item) => item.kind === "project")
-      .map((item) => item.directory)
-    expect(before.slice(0, 2)).toEqual([b.path, a.path])
+      .map((item) => norm(item.directory))
+    expect(before.slice(0, 2)).toEqual([norm(b.path), norm(a.path)])
 
     const item = Project.list().find((project) => project.worktree === a.path)
     expect(item).toBeDefined()
@@ -439,8 +444,8 @@ describe("Project.recentList", () => {
 
     const after = Project.recentList()
       .filter((entry) => entry.kind === "project")
-      .map((entry) => entry.directory)
-    expect(after.slice(0, 2)).toEqual([b.path, a.path])
+      .map((entry) => norm(entry.directory))
+    expect(after.slice(0, 2)).toEqual([norm(b.path), norm(a.path)])
   })
 
   test("lists non-git project entries from fromDirectory", async () => {
@@ -448,7 +453,7 @@ describe("Project.recentList", () => {
 
     const { project } = await Project.fromDirectory(tmp.path)
 
-    const item = Project.recentList().find((entry) => entry.directory === project.worktree)
+    const item = Project.recentList().find((entry) => norm(entry.directory) === norm(project.worktree))
     expect(item).toBeDefined()
     expect(item!.kind).toBe("project")
   })
@@ -458,7 +463,7 @@ describe("Project.recentList", () => {
 
     await Project.fromDirectory(tmp.path)
 
-    const item = Project.recentList().find((entry) => entry.directory === tmp.path)
+    const item = Project.recentList().find((entry) => norm(entry.directory) === norm(tmp.path))
     expect(item).toBeDefined()
     expect(item!.kind).toBe("project")
   })
@@ -487,12 +492,12 @@ describe("Project.addSandbox and Project.removeSandbox", () => {
     await Project.addSandbox(project.id, sandboxDir)
 
     let found = Project.get(project.id)
-    expect(found?.sandboxes).toContain(sandboxDir)
+    expect(found?.sandboxes.some((s) => norm(s) === norm(sandboxDir))).toBe(true)
 
     await Project.removeSandbox(project.id, sandboxDir)
 
     found = Project.get(project.id)
-    expect(found?.sandboxes).not.toContain(sandboxDir)
+    expect(found?.sandboxes.every((s) => norm(s) !== norm(sandboxDir))).toBe(true)
   })
 
   test("addSandbox emits GlobalBus event", async () => {

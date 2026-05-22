@@ -184,6 +184,7 @@ export const WorkspaceDragOverlay = (props: {
     const displayName =
       workspaceStore.projectMeta?.name ??
       props.workspaceName(directory) ??
+      globalSync.project.recentFromDir(directory)?.name ??
       (local ? language.t("workspace.type.local") : language.t("workspace.type.sandbox"))
     const branch = workspaceStore.vcs?.branch ?? getFilename(directory)
     return `${displayName} : ${branch}`
@@ -1071,6 +1072,8 @@ export const SortableWorkspace = (props: {
     if (metaName) return metaName
     const direct = props.ctx.workspaceName(props.directory)
     if (direct) return direct
+    const recentName = globalSync.project.recentFromDir(props.directory)?.name
+    if (recentName) return recentName
     return local() ? language.t("workspace.type.local") : language.t("workspace.type.sandbox")
   })
   const open = createMemo(() => props.ctx.workspaceExpanded(props.directory, local()))
