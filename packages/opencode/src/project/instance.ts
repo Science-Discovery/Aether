@@ -186,7 +186,7 @@ export const Instance = {
     Log.Default.info("reloading instance", { directory })
     await Promise.all([State.dispose(directory), disposeInstance(directory)])
     cache.delete(directory)
-    const next = track(directory, boot({ ...input, directory, source: input.source ?? Instance.source }))
+    const next = track(directory, boot({ ...input, directory, source: input.source ?? "local" }))
     emit(directory)
     return await next
   },
