@@ -384,7 +384,7 @@ export namespace Project {
               .onConflictDoUpdate({
                 target: DirectoryMetaTable.directory,
                 set: {
-                  worktree: input.project.worktree,
+                  worktree: norm(input.project.worktree),
                   activity_at: now,
                   time_updated: now,
                 },
@@ -467,7 +467,7 @@ export namespace Project {
             .insert(ProjectTable)
             .values({
               id: result.id,
-              worktree: result.worktree,
+              worktree: norm(result.worktree),
               vcs: result.vcs ?? null,
               name: result.name,
               icon_url: result.icon?.url,
@@ -481,7 +481,7 @@ export namespace Project {
             .onConflictDoUpdate({
               target: ProjectTable.id,
               set: {
-                worktree: result.worktree,
+                worktree: norm(result.worktree),
                 vcs: result.vcs ?? null,
                 time_updated: result.time.updated,
                 time_initialized: result.time.initialized,
