@@ -102,17 +102,20 @@ describe("layout deep links", () => {
 })
 
 describe("layout workspace helpers", () => {
+  const isWin = process.platform === "win32"
   test("normalizes trailing slash in workspace key", () => {
     expect(workspaceKey("/tmp/demo///")).toBe("/tmp/demo")
-    expect(workspaceKey("C:\\tmp\\demo\\\\")).toBe("c:/tmp/demo")
+    if (isWin) expect(workspaceKey("C:\\tmp\\demo\\\\")).toBe("C:\\tmp\\demo")
   })
 
   test("preserves posix and drive roots in workspace key", () => {
     expect(workspaceKey("/")).toBe("/")
     expect(workspaceKey("///")).toBe("/")
-    expect(workspaceKey("C:\\")).toBe("c:/")
-    expect(workspaceKey("C://")).toBe("c:/")
-    expect(workspaceKey("C:///")).toBe("c:/")
+    if (isWin) {
+      expect(workspaceKey("C:\\")).toBe("C:\\")
+      expect(workspaceKey("C://")).toBe("C:\\")
+      expect(workspaceKey("C:///")).toBe("C:\\")
+    }
   })
 
   test("keeps local first while preserving known order", () => {

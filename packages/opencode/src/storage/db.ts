@@ -35,7 +35,13 @@ const log = Log.create({ service: "db" })
 export namespace Database {
   export function norm(input: string) {
     const next = path.resolve(input).replace(/\\/g, "/")
-    return /^\/+$/g.test(next) ? "/" : next.replace(/\/+$/, "")
+    const result = /^\/+$/g.test(next) ? "/" : next.replace(/\/+$/, "")
+    if (process.platform === "win32" && /^[A-Za-z]:/.test(result)) {
+      const out = result.replace(/\//g, "\\")
+      if (/^[A-Za-z]:$/.test(out)) return out + "\\"
+      return out
+    }
+    return result
   }
 
   export type Source = {

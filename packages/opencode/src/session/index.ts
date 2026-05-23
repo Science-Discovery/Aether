@@ -1126,9 +1126,14 @@ export namespace Session {
     let projectID: ProjectID = Instance.project.id
     if (input?.directory) {
       const dir = Project.norm(input.directory)
-      const row = Database.use((d) =>
+      let row = Database.use((d) =>
         d.select().from(GlobalProjectMapTable).where(eq(GlobalProjectMapTable.directory, dir)).get(),
       )
+      if (!row && dir !== dir.toLowerCase()) {
+        row = Database.use((d) =>
+          d.select().from(GlobalProjectMapTable).where(eq(GlobalProjectMapTable.directory, dir.toLowerCase())).get(),
+        )
+      }
       if (row) projectID = row.project_id as ProjectID
     }
     const conditions = [eq(SessionTable.project_id, projectID)]

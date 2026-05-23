@@ -2,6 +2,7 @@ import fs from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import { base64Decode } from "@opencode-ai/util/encode"
+import { norm } from "@opencode-ai/util/path"
 import type { Page } from "@playwright/test"
 
 import { test, expect } from "../fixtures"
@@ -31,7 +32,7 @@ type Space = { directory: string; slug: string; raw?: string }
 
 function slugs(space: string | Space) {
   if (typeof space === "string") return [space]
-  const normSlug = dirSlug(space.directory.replace(/\\/g, "/"))
+  const normSlug = dirSlug(norm(space.directory))
   if (process.platform !== "win32") return [space.slug]
   return [...new Set([space.slug, space.raw, normSlug].filter((item): item is string => !!item))]
 }
@@ -59,8 +60,7 @@ async function openMenu(page: Page, space: string | Space) {
 }
 
 function key(dir: string) {
-  const next = dir.replace(/\\/g, "/")
-  return next.toLowerCase().replace(/\/+$/, "")
+  return norm(dir)
 }
 
 async function same(dir: string) {

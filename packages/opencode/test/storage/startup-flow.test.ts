@@ -6,12 +6,11 @@ import os from "os"
 import { rm, mkdtemp } from "fs/promises"
 import { detectCorruption, quarantine } from "../../src/storage/db-recovery"
 import type { CorruptionType } from "../../src/storage/db-recovery"
+import { ProjectIdentity } from "../../src/project/identity"
 
 const tmpRoot = await mkdtemp(path.join(os.tmpdir(), "aether-startup-test-"))
 
-function norm(input: string) {
-  return input.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase()
-}
+const { norm } = ProjectIdentity
 
 function initHealthyDb(dbPath: string) {
   mkdirSync(path.dirname(dbPath), { recursive: true })
@@ -183,8 +182,8 @@ describe("registerUntrackedProjects fault tolerance", () => {
     for (const row of recentRows) {
       const dirNorm = norm(row.directory ?? "")
       recentLookup.set(dirNorm, row)
-      const keyNorm = row.key?.replace(/^dir:/, "").toLowerCase()
-      if (keyNorm && keyNorm !== dirNorm) recentLookup.set(keyNorm, row)
+      const keyNorm = row.key?.replace(/^dir:/, "")
+      if (keyNorm && norm(keyNorm) !== dirNorm) recentLookup.set(keyNorm, row)
     }
 
     const existingDbIds = new Set<string>()

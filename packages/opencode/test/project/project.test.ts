@@ -8,12 +8,10 @@ import path from "path"
 import { tmpdir } from "../fixture/fixture"
 import { GlobalBus } from "../../src/bus/global"
 import { ProjectID } from "../../src/project/schema"
+import { ProjectIdentity } from "../../src/project/identity"
 import { Effect, Layer, Stream } from "effect"
 
-function norm(input: string) {
-  const next = path.resolve(input).replace(/\\/g, "/")
-  return /^\/+$/g.test(next) ? "/" : next.replace(/\/+$/, "")
-}
+const { norm } = ProjectIdentity
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
 import { NodeFileSystem, NodePath } from "@effect/platform-node"
 import { AppFileSystem } from "../../src/filesystem"

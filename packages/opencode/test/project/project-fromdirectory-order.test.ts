@@ -6,13 +6,11 @@ import { Log } from "../../src/util/log"
 import { tmpdir } from "../fixture/fixture"
 import { existsSync } from "fs"
 import { ProjectTable } from "../../src/project/project.sql"
+import { ProjectIdentity } from "../../src/project/identity"
 import { eq } from "drizzle-orm"
 import path from "path"
 
-function norm(input: string) {
-  const next = path.resolve(input).replace(/\\/g, "/")
-  return /^\/+$/g.test(next) ? "/" : next.replace(/\/+$/, "")
-}
+const { norm } = ProjectIdentity
 
 Log.init({ print: false })
 

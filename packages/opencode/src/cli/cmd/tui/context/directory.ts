@@ -1,10 +1,11 @@
 import { createMemo } from "solid-js"
 import { useSync } from "./sync"
 import { Global } from "@/global"
+import { ProjectIdentity } from "@/project/identity"
 
 function tuiDisplayPath(directory: string, home: string) {
-  const normDir = directory.replace(/\\/g, "/")
-  const normHome = home.replace(/\\/g, "/")
+  const normDir = ProjectIdentity.norm(directory)
+  const normHome = ProjectIdentity.norm(home)
   return normDir.startsWith(normHome) ? "~" + normDir.slice(normHome.length) : normDir
 }
 

@@ -6,12 +6,11 @@ import { existsSync, mkdirSync, readFileSync, readdirSync } from "fs"
 import path from "path"
 import os from "os"
 import { rm } from "fs/promises"
+import { ProjectIdentity } from "../../src/project/identity"
 
 const tmpBase = path.join(os.tmpdir(), "aether-workspace-dl-test")
 
-function norm(input: string) {
-  return path.resolve(input).replace(/\\/g, "/").toLowerCase()
-}
+const { norm } = ProjectIdentity
 
 function getMigrationEntries() {
   const dir = path.join(import.meta.dirname, "../../migration")

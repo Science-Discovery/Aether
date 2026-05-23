@@ -1,21 +1,17 @@
 import type { Agent, Project, ProjectRecent, ProviderListResponse } from "@opencode-ai/sdk/v2/client"
+import { norm } from "@opencode-ai/util/path"
 
 export const cmp = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0)
 
 export function normalizeDir(directory: string): string {
-  if (!directory) return directory
-  const normalized = directory.replace(/\\/g, "/")
-  const cased = /^[A-Za-z]:/.test(normalized) ? normalized.toLowerCase() : normalized
-  if (/^[a-z]:\/+$/i.test(cased)) return `${cased[0]}:/`
-  if (/^\/+$/.test(cased)) return "/"
-  return cased.replace(/\/+$/, "")
+  return norm(directory)
 }
 
 export function isRoot(directory: string) {
   const dir = normalizeDir(directory)
   if (!dir) return false
   if (dir === "/") return true
-  return /^[a-z]:\/$/i.test(dir)
+  return /^[a-z]:\\?$/i.test(dir)
 }
 
 function isAgent(input: unknown): input is Agent {
