@@ -1241,6 +1241,9 @@ export const dict = {
   "settings.general.row.releaseNotes.description": "Show What's New popups after updates",
   "settings.general.row.voiceModel.title": "Voice input model",
   "settings.general.row.voiceModel.description": "Model used for speech-to-text transcription",
+  "settings.general.row.voiceModel.emptyDescription":
+    "No voice input models found. Connect a provider that supports audio input, such as Alibaba (China), then select qwen3-asr-flash.",
+  "settings.general.row.voiceModel.none": "Not set",
   "settings.general.row.voiceModel.placeholder": "qwen2.5-omni-7b",
 
   "settings.updates.row.startup.title": "Check for updates on startup",

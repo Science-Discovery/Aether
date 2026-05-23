@@ -64,6 +64,19 @@ const playDemoSound = (id: string | undefined) => {
   }, 100)
 }
 
+function voice(model: {
+  id: string
+  name: string
+  capabilities?: { input: { audio: boolean } }
+  modalities?: { input: Array<string> }
+}) {
+  if (model.capabilities?.input.audio) return true
+  if (model.modalities?.input.includes("audio")) return true
+
+  const text = `${model.id} ${model.name}`.toLowerCase()
+  return /\b(asr|stt|whisper|omni)\b|speech[-_ ]?to[-_ ]?text|transcri/.test(text)
+}
+
 export const SettingsGeneral: Component = () => {
   const dialog = useDialog()
   const theme = useTheme()
@@ -134,10 +147,11 @@ export const SettingsGeneral: Component = () => {
   })
 
   const voiceModelOptions = createMemo(() => {
-    const none = { value: "", label: language.t("settings.general.row.defaultModel.none"), providerID: "" }
+    const none = { value: "", label: language.t("settings.general.row.voiceModel.none"), providerID: "" }
     const items = models
       .list()
-      .filter((m) => m.modalities?.input?.includes("audio"))
+      .filter((m) => models.visible({ providerID: m.provider.id, modelID: m.id }))
+      .filter(voice)
       .map((m) => ({
         value: `${m.provider.id}/${m.id}`,
         label: `${m.name} (${m.provider.name})`,
@@ -151,6 +165,14 @@ export const SettingsGeneral: Component = () => {
     if (!val) return voiceModelOptions()[0]
     return voiceModelOptions().find((o) => o.value === val) ?? { value: val, label: val, providerID: "" }
   })
+
+  const desc = createMemo(() =>
+    language.t(
+      voiceModelOptions().length > 1
+        ? "settings.general.row.voiceModel.description"
+        : "settings.general.row.voiceModel.emptyDescription",
+    ),
+  )
 
   const check = () => {
     if (!platform.checkUpdate) return
@@ -343,7 +365,7 @@ export const SettingsGeneral: Component = () => {
 
         <SettingsRow
           title={language.t("settings.general.row.voiceModel.title")}
-          description={language.t("settings.general.row.voiceModel.description")}
+          description={desc()}
         >
           <Select
             data-action="settings-voice-model"
