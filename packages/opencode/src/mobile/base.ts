@@ -206,27 +206,20 @@ export abstract class MobileManagerBase {
   // ── Path helpers ────────────────────────────────────────────────────────────
 
   protected normDir(d: string): string {
-    const text = (d || "").replace(/\\/g, "/")
-    if (!text) return ""
-    if (/^\/+$/.test(text)) return "/"
-    if (/^[A-Za-z]:/.test(text)) {
-      const lower = `${text[0].toLowerCase()}${text.slice(1)}`
-      if (/^[a-z]:\/?$/.test(lower)) return `${lower[0]}:/`
-      return lower.replace(/\/+$/, "")
-    }
-    return text.replace(/\/+$/, "")
+    if (!d) return ""
+    return Project.norm(d)
   }
 
   protected isAbsolutePath(p: string): boolean {
     const n = this.normDir(p)
     if (!n || n === "/") return false
-    return n.startsWith("/") || /^[a-z]:/.test(n)
+    return n.startsWith("/") || /^[a-z]:/i.test(n)
   }
 
   protected isRootDir(d: string): boolean {
     const text = this.normDir(d)
     if (text === "/") return true
-    return /^[a-z]:/.test(text) && text.length <= 3
+    return /^[a-z]:/i.test(text) && text.length <= 3
   }
 
   protected projectDir(entry: ProjectEntry): string {

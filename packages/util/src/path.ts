@@ -1,6 +1,17 @@
+const isWin = typeof process !== "undefined" && process.platform === "win32"
+
+export function norm(input: string): string {
+  if (!input) return input
+  const next = input.replace(/\\/g, "/")
+  const result = /^\/+$/g.test(next) ? "/" : next.replace(/\/+$/, "")
+  const out = isWin ? result.replace(/\//g, "\\") : result
+  if (isWin && /^[A-Za-z]:$/.test(out)) return out + "\\"
+  return out
+}
+
 export function displayPath(directory: string, home: string) {
-  const normDir = directory.replace(/\\/g, "/")
-  const normHome = home.replace(/\\/g, "/")
+  const normDir = norm(directory)
+  const normHome = norm(home)
   return normDir.startsWith(normHome) ? "~" + normDir.slice(normHome.length) : normDir
 }
 

@@ -86,7 +86,10 @@ export namespace Project {
 
   export function norm(input: string) {
     const next = path.resolve(input).replace(/\\/g, "/")
-    return /^\/+$/g.test(next) ? "/" : next.replace(/\/+$/, "")
+    const result = /^\/+$/g.test(next) ? "/" : next.replace(/\/+$/, "")
+    const out = process.platform === "win32" ? result.replace(/\//g, "\\") : result
+    if (process.platform === "win32" && /^[A-Za-z]:$/.test(out)) return out + "\\"
+    return out
   }
 
   function name(input: string) {
