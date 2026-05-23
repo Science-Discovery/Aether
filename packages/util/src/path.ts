@@ -4,9 +4,12 @@ export function norm(input: string): string {
   if (!input) return input
   const next = input.replace(/\\/g, "/")
   const result = /^\/+$/g.test(next) ? "/" : next.replace(/\/+$/, "")
-  const out = isWin ? result.replace(/\//g, "\\") : result
-  if (isWin && /^[A-Za-z]:$/.test(out)) return out + "\\"
-  return out
+  if (isWin && /^[A-Za-z]:/.test(result)) {
+    const out = result.replace(/\//g, "\\")
+    if (/^[A-Za-z]:$/.test(out)) return out + "\\"
+    return out
+  }
+  return result
 }
 
 export function displayPath(directory: string, home: string) {
