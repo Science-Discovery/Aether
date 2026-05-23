@@ -28,7 +28,7 @@ End If
 
 ' Stop all existing Aether backend processes (any version/directory)
 Dim stopCmd, stopCode
-stopCmd = "powershell -NoProfile -ExecutionPolicy Bypass -Command """ & _
+stopCmd = "powershell -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -Command """ & _
     "$log=$env:AETHER_DEBUG_LOG;" & _
     "function L([string]$m){if($log){$dir=Split-Path -Parent $log;if($dir){[IO.Directory]::CreateDirectory($dir)|Out-Null};Add-Content -LiteralPath $log -Encoding UTF8 -Value ((Get-Date -Format 'yyyy-MM-dd HH:mm:ss.fff')+' | VBS_STOP | '+$m)}};" & _
     "function F([string]$s){if($null -eq $s){return ''};return ($s -replace [char]13,' ' -replace [char]10,' ')};" & _
@@ -61,7 +61,7 @@ logPath = scriptDir & "\aether-log.txt"
 
 ' Unblock exe and truncate log to last 2000 lines in a single PowerShell call
 Dim psCmd, psCode
-psCmd = "powershell -NoProfile -ExecutionPolicy Bypass -Command """ & _
+psCmd = "powershell -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -Command """ & _
     "$log=$env:AETHER_DEBUG_LOG;" & _
     "function L([string]$m){if($log){Add-Content -LiteralPath $log -Encoding UTF8 -Value ((Get-Date -Format 'yyyy-MM-dd HH:mm:ss.fff')+' | VBS_PREP | '+$m)}};" & _
     "L('unblock start exe=' + $env:EXE_PATH + ' log=' + $env:AETHER_APP_LOG);" & _
