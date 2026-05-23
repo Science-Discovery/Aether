@@ -7,7 +7,7 @@ import { Tag } from "@opencode-ai/ui/tag"
 import { Tooltip } from "@opencode-ai/ui/tooltip"
 import { type Component, Show } from "solid-js"
 import { useLocal } from "@/context/local"
-import { popularProviders, useProviders } from "@/hooks/use-providers"
+import { rank, useProviders } from "@/hooks/use-providers"
 import { DialogConnectProvider } from "./dialog-connect-provider"
 import { DialogSelectProvider } from "./dialog-select-provider"
 import { ModelTooltip } from "./model-tooltip"
@@ -85,8 +85,8 @@ export const DialogSelectModelUnpaid: Component<{ model?: ModelState }> = (props
                 items={providers.popular}
                 activeIcon="plus-small"
                 sortBy={(a, b) => {
-                  if (popularProviders.includes(a.id) && popularProviders.includes(b.id))
-                    return popularProviders.indexOf(a.id) - popularProviders.indexOf(b.id)
+                  const diff = rank(a.id) - rank(b.id)
+                  if (diff !== 0) return diff
                   return a.name.localeCompare(b.name)
                 }}
                 onSelect={(x) => {
@@ -101,16 +101,8 @@ export const DialogSelectModelUnpaid: Component<{ model?: ModelState }> = (props
                     <Show when={i.id === "opencode"}>
                       <div class="text-14-regular text-text-weak">{language.t("dialog.provider.opencode.tagline")}</div>
                     </Show>
-                    <Show when={i.id === "opencode"}>
-                      <Tag>{language.t("dialog.provider.tag.recommended")}</Tag>
-                    </Show>
                     <Show when={i.id === "opencode-go"}>
-                      <>
-                        <div class="text-14-regular text-text-weak">
-                          {language.t("dialog.provider.opencodeGo.tagline")}
-                        </div>
-                        <Tag>{language.t("dialog.provider.tag.recommended")}</Tag>
-                      </>
+                      <div class="text-14-regular text-text-weak">{language.t("dialog.provider.opencodeGo.tagline")}</div>
                     </Show>
                     <Show when={i.id === "anthropic"}>
                       <div class="text-14-regular text-text-weak">{language.t("dialog.provider.anthropic.note")}</div>

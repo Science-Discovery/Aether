@@ -1,6 +1,6 @@
 import { Component, Show } from "solid-js"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
-import { popularProviders, useProviders } from "@/hooks/use-providers"
+import { popularProviders, rank, useProviders } from "@/hooks/use-providers"
 import { Dialog } from "@opencode-ai/ui/dialog"
 import { List } from "@opencode-ai/ui/list"
 import { Tag } from "@opencode-ai/ui/tag"
@@ -8,6 +8,7 @@ import { ProviderIcon } from "@opencode-ai/ui/provider-icon"
 import { DialogConnectProvider } from "./dialog-connect-provider"
 import { useLanguage } from "@/context/language"
 import { DialogCustomProvider } from "./dialog-custom-provider"
+import { providerNote } from "@/utils/provider-note"
 
 const CUSTOM_ID = "_custom"
 
@@ -19,13 +20,7 @@ export const DialogSelectProvider: Component = () => {
   const popularGroup = () => language.t("dialog.provider.group.popular")
   const otherGroup = () => language.t("dialog.provider.group.other")
   const customLabel = () => language.t("settings.providers.tag.custom")
-  const note = (id: string) => {
-    if (id === "tatu-maas") return language.t("dialog.provider.maas.note")
-    if (id === "anthropic") return language.t("dialog.provider.anthropic.note")
-    if (id === "openai") return language.t("dialog.provider.openai.note")
-    if (id.startsWith("github-copilot")) return language.t("dialog.provider.copilot.note")
-    if (id === "opencode-go") return language.t("dialog.provider.opencodeGo.tagline")
-  }
+  const note = (id: string) => providerNote(id)
 
   return (
     <Dialog title={language.t("command.provider.connect")} transition>
@@ -43,8 +38,8 @@ export const DialogSelectProvider: Component = () => {
         sortBy={(a, b) => {
           if (a.id === CUSTOM_ID) return -1
           if (b.id === CUSTOM_ID) return 1
-          if (popularProviders.includes(a.id) && popularProviders.includes(b.id))
-            return popularProviders.indexOf(a.id) - popularProviders.indexOf(b.id)
+          const diff = rank(a.id) - rank(b.id)
+          if (diff !== 0) return diff
           return a.name.localeCompare(b.name)
         }}
         sortGroupsBy={(a, b) => {
@@ -72,16 +67,11 @@ export const DialogSelectProvider: Component = () => {
             <Show when={i.id === CUSTOM_ID}>
               <Tag>{language.t("settings.providers.tag.custom")}</Tag>
             </Show>
-            <Show when={i.id === "opencode"}>
-              <Tag>{language.t("dialog.provider.tag.recommended")}</Tag>
-            </Show>
             <Show when={i.id === "tatu-maas"}>
-              <Tag>{language.t("dialog.provider.tag.recommended")}</Tag>
               <Tag>{language.t("dialog.provider.tag.educationResearchDiscount")}</Tag>
             </Show>
-            <Show when={note(i.id)}>{(value) => <div class="text-14-regular text-text-weak">{value()}</div>}</Show>
-            <Show when={i.id === "opencode-go"}>
-              <Tag>{language.t("dialog.provider.tag.recommended")}</Tag>
+            <Show when={note(i.id)}>
+              {(key) => <div class="text-14-regular text-text-weak">{language.t(key())}</div>}
             </Show>
           </div>
         )}

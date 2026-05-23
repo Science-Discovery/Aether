@@ -1,4 +1,23 @@
-const ranked = ["tatu-maas", "opencode", "opencode-go", "openai", "github-copilot", "anthropic", "google"]
+const ranked = [
+  "tatu-maas",
+  "xiaomi",
+  "xiaomi-token-plan-cn",
+  "alibaba-cn",
+  "alibaba-coding-plan-cn",
+  "deepseek",
+  "moonshotai-cn",
+  "moonshot-cn",
+  "zhipuai",
+  "zhipuai-coding-plan",
+  "minimax-cn",
+  "minimax-cn-coding-plan",
+  "tencent-coding-plan",
+  "siliconflow-cn",
+  "baidu",
+  "qianfan",
+  "ernie",
+  "baidu-qianfan",
+]
 
 export function rank(id: string) {
   const index = ranked.indexOf(id)

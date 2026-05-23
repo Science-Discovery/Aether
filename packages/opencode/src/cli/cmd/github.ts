@@ -286,7 +286,6 @@ export const GithubInstallCommand = cmd({
                 map((x) => ({
                   label: x.name,
                   value: x.id,
-                  hint: priority[x.id] === 0 ? "recommended" : undefined,
                 })),
               ),
             })
