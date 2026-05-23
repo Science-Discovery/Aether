@@ -411,6 +411,29 @@ export namespace Project {
           }
         })
 
+        // Adopt the project_id from global_project_map if a pre-existing
+        // mapping refers to a different project DB (e.g. from an older
+        // norm() that lowercased the path on Windows).
+        // Track adoption: when the current directory resolves to a different
+        // project_id than the mapped one, the resolve result is not
+        // authoritative for this project — preserve the existing DB values.
+        const resolved = data.id
+        for (const dir of [directory, data.worktree, data.sandbox]) {
+          const n = norm(dir)
+          let mapped = yield* db((d) =>
+            d.select().from(GlobalProjectMapTable).where(eq(GlobalProjectMapTable.directory, n)).get(),
+          )
+          if (!mapped && n !== n.toLowerCase()) {
+            mapped = yield* db((d) =>
+              d.select().from(GlobalProjectMapTable).where(eq(GlobalProjectMapTable.directory, n.toLowerCase())).get(),
+            )
+          }
+          if (mapped && mapped.project_id !== data.id && Database.hasProject(mapped.project_id as ProjectID)) {
+            data.id = mapped.project_id as ProjectID
+            break
+          }
+        }
+
         // Phase 2: construct result
         const row = Database.hasProject(data.id)
           ? yield* dbProject(data.id, (d) => d.select().from(ProjectTable).where(eq(ProjectTable.id, data.id)).get())
@@ -428,10 +451,12 @@ export namespace Project {
         if (Flag.OPENCODE_EXPERIMENTAL_ICON_DISCOVERY)
           yield* discover(existing).pipe(Effect.ignore, Effect.forkIn(scope))
 
+        const adopted = data.id !== resolved
+
         const result: Info = {
           ...existing,
-          worktree: data.worktree,
-          vcs: data.vcs,
+          worktree: adopted ? existing.worktree : data.worktree,
+          vcs: adopted ? existing.vcs : data.vcs,
           time: { ...existing.time, updated: Date.now() },
         }
         if (
@@ -862,6 +887,58 @@ export namespace Project {
 
   export function recentList() {
     return recent()
+  }
+
+  export function recentFromDir(directory: string): RecentInfo | undefined {
+    const dirNorm = norm(directory)
+    const key = dirKey(dirNorm)
+    const row = Database.use((d) => d.select().from(ProjectRecentTable).where(eq(ProjectRecentTable.key, key)).get())
+    if (!row) return undefined
+    const pid = row.project_id
+    if (row.kind === "project" && pid) {
+      if (!Database.hasProject(pid)) return undefined
+      const projectRow = Database.useProject(pid, (d) =>
+        d.select().from(ProjectTable).where(eq(ProjectTable.id, pid)).get(),
+      )
+      const known = projectRow ? fromRow(projectRow) : undefined
+      const icon = (() => {
+        const base = known?.icon
+        const override = row.icon_override ?? undefined
+        if (base && override) return { ...base, override }
+        if (override) return { override }
+        return base
+      })()
+      return {
+        id: row.key,
+        kind: "project" as const,
+        projectID: pid,
+        directory: row.directory,
+        worktree: known?.worktree,
+        vcs: known?.vcs,
+        name: row.name ?? known?.name ?? name(row.directory),
+        icon,
+        commands: known?.commands,
+        time: { activity: row.activity_at, created: row.time_created, updated: row.time_updated },
+      }
+    }
+    const baseIcon =
+      row.icon_url || row.icon_color
+        ? rowIcon({ icon_url: row.icon_url ?? null, icon_color: row.icon_color ?? null })
+        : undefined
+    const icon = baseIcon
+      ? { ...baseIcon, override: row.icon_override ?? undefined }
+      : row.icon_override
+        ? { override: row.icon_override }
+        : undefined
+    return {
+      id: row.key,
+      kind: row.kind as "directory",
+      projectID: pid ?? undefined,
+      directory: row.directory,
+      name: row.name ?? name(row.directory),
+      icon,
+      time: { activity: row.activity_at, created: row.time_created, updated: row.time_updated },
+    }
   }
 
   export function directories(): string[] {
