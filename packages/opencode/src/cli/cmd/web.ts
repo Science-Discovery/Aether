@@ -45,22 +45,70 @@ function browserOpenFallbackMs() {
   return Math.min(parsed, 5_000)
 }
 
+async function journal(msg: string) {
+  if (process.platform !== "win32") return
+  const file = process.env.AETHER_DEBUG_LOG
+  if (!file) return
+  const fs = await import("fs/promises")
+  await fs.mkdir(nodePath.dirname(file), { recursive: true }).catch(() => {})
+  await fs.appendFile(file, `${new Date().toISOString()} | WEB | ${msg}\n`, "utf8").catch(() => {})
+}
+
 async function openBrowserWithFallback(input: { url: string; server: unknown; sse: () => number }) {
   const fallbackMs = browserOpenFallbackMs()
-  if (fallbackMs === undefined || fallbackMs <= 0) {
+  if (process.platform !== "win32" || !process.env.AETHER_DEBUG_LOG) {
+    if (fallbackMs === undefined || fallbackMs <= 0) {
+      open(input.url).catch(() => {})
+      return
+    }
+    const connected = () => {
+      const pending = (input.server as any).pendingRequests as number
+      return pending > 0 || input.sse() > 0 || Lease.count() > 0
+    }
+    const deadline = Date.now() + fallbackMs
+    while (Date.now() < deadline) {
+      if (connected()) return
+      await new Promise((resolve) => setTimeout(resolve, 200))
+    }
+    if (connected()) return
     open(input.url).catch(() => {})
     return
   }
-  const connected = () => {
-    const pending = (input.server as any).pendingRequests as number
-    return pending > 0 || input.sse() > 0 || Lease.count() > 0
+  if (fallbackMs === undefined || fallbackMs <= 0) {
+    void journal(`FALLBACK | disabled opening url=${input.url}`)
+    open(input.url).catch(() => {})
+    return
   }
+  const start = Date.now()
+  const state = () => {
+    const pending = (input.server as { pendingRequests?: number }).pendingRequests ?? 0
+    const sse = input.sse()
+    const lease = Lease.count()
+    if (pending > 0) return { hit: true, reason: "pending", pending, sse, lease }
+    if (sse > 0) return { hit: true, reason: "sse", pending, sse, lease }
+    if (lease > 0) return { hit: true, reason: "lease", pending, sse, lease }
+    return { hit: false, reason: "", pending, sse, lease }
+  }
+  void journal(`FALLBACK | start url=${input.url} fallback_ms=${fallbackMs}`)
   const deadline = Date.now() + fallbackMs
   while (Date.now() < deadline) {
-    if (connected()) return
+    const next = state()
+    if (next.hit) {
+      void journal(
+        `FALLBACK | suppressed reason=${next.reason} pending=${next.pending} sse=${next.sse} lease=${next.lease} elapsed_ms=${Date.now() - start}`,
+      )
+      return
+    }
     await new Promise((resolve) => setTimeout(resolve, 200))
   }
-  if (connected()) return
+  const next = state()
+  if (next.hit) {
+    void journal(
+      `FALLBACK | suppressed reason=${next.reason} pending=${next.pending} sse=${next.sse} lease=${next.lease} elapsed_ms=${Date.now() - start}`,
+    )
+    return
+  }
+  void journal(`FALLBACK | opening url=${input.url} elapsed_ms=${Date.now() - start}`)
   open(input.url).catch(() => {})
 }
 
@@ -90,6 +138,11 @@ export const WebCommand = cmd({
       UI.println(UI.Style.TEXT_WARNING_BOLD + "!  " + "OPENCODE_SERVER_PASSWORD is not set; server is unsecured.")
     }
     const opts = await resolveNetworkOptions(args)
+    if (process.platform === "win32" && process.env.AETHER_DEBUG_LOG) {
+      void journal(
+        `START | pid=${process.pid} exec=${process.execPath} cwd=${process.cwd()} argv=${process.argv.join(" ")} fallback_ms=${process.env.AETHER_WEB_OPEN_FALLBACK_MS ?? ""} hostname=${opts.hostname} port=${opts.port}`,
+      )
+    }
     const IDLE_TIMEOUT_MS = (opts.idleTimeout ?? 60) * 1_000
     let sse = 0
     const server = Server.listen({
@@ -98,6 +151,9 @@ export const WebCommand = cmd({
         sse = count
       },
     })
+    if (process.platform === "win32" && process.env.AETHER_DEBUG_LOG) {
+      void journal(`SERVER | listening url=${server.url} hostname=${server.hostname} port=${server.port}`)
+    }
 
     // Auto-exit when all browser connections close (after at least one was open).
     // Polling server.pendingRequests is more reliable than SSE onAbort, because
@@ -131,6 +187,9 @@ export const WebCommand = cmd({
     }
     const portfile = nodePath.join(Database.ensureChannelDir(), "serve-port")
     await Bun.write(portfile, String(server.port))
+    if (process.platform === "win32" && process.env.AETHER_DEBUG_LOG) {
+      void journal(`SERVER | wrote_portfile path=${portfile} port=${server.port}`)
+    }
     UI.empty()
     UI.println(UI.logo("  "))
     UI.empty()
