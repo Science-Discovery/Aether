@@ -5,16 +5,30 @@ import { createMemo } from "solid-js"
 
 export const popularProviders = [
   "tatu-maas",
-  "opencode",
-  "opencode-go",
-  "anthropic",
-  "github-copilot",
-  "openai",
-  "google",
-  "openrouter",
-  "vercel",
+  "xiaomi",
+  "xiaomi-token-plan-cn",
+  "alibaba-cn",
+  "alibaba-coding-plan-cn",
+  "deepseek",
+  "moonshotai-cn",
+  "moonshot-cn",
+  "zhipuai",
+  "zhipuai-coding-plan",
+  "minimax-cn",
+  "minimax-cn-coding-plan",
+  "tencent-coding-plan",
+  "siliconflow-cn",
+  "baidu",
+  "qianfan",
+  "ernie",
+  "baidu-qianfan",
 ]
 const popularProviderSet = new Set(popularProviders)
+
+export function rank(id: string) {
+  const index = popularProviders.indexOf(id)
+  return index >= 0 ? index : popularProviders.length
+}
 
 export function useProviders() {
   const globalSync = useGlobalSync()

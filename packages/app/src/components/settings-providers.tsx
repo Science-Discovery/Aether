@@ -12,21 +12,10 @@ import { DialogConnectProvider } from "./dialog-connect-provider"
 import { DialogSelectProvider } from "./dialog-select-provider"
 import { DialogCustomProvider } from "./dialog-custom-provider"
 import { SettingsList } from "./settings-list"
+import { providerNote } from "@/utils/provider-note"
 
 type ProviderSource = "env" | "api" | "config" | "custom"
 type ProviderItem = ReturnType<ReturnType<typeof useProviders>["connected"]>[number]
-
-const PROVIDER_NOTES = [
-  { match: (id: string) => id === "tatu-maas", key: "dialog.provider.maas.note" },
-  { match: (id: string) => id === "opencode", key: "dialog.provider.opencode.note" },
-  { match: (id: string) => id === "opencode-go", key: "dialog.provider.opencodeGo.tagline" },
-  { match: (id: string) => id === "anthropic", key: "dialog.provider.anthropic.note" },
-  { match: (id: string) => id.startsWith("github-copilot"), key: "dialog.provider.copilot.note" },
-  { match: (id: string) => id === "openai", key: "dialog.provider.openai.note" },
-  { match: (id: string) => id === "google", key: "dialog.provider.google.note" },
-  { match: (id: string) => id === "openrouter", key: "dialog.provider.openrouter.note" },
-  { match: (id: string) => id === "vercel", key: "dialog.provider.vercel.note" },
-] as const
 
 export const SettingsProviders: Component = () => {
   const dialog = useDialog()
@@ -72,7 +61,7 @@ export const SettingsProviders: Component = () => {
 
   const canDisconnect = (item: ProviderItem) => source(item) !== "env"
 
-  const note = (id: string) => PROVIDER_NOTES.find((item) => item.match(id))?.key
+  const note = (id: string) => providerNote(id)
 
   const isConfigCustom = (providerID: string) => {
     const provider = globalSync.data.config.provider?.[providerID]
@@ -247,14 +236,7 @@ export const SettingsProviders: Component = () => {
                       <ProviderIcon id={item.id} class="size-5 shrink-0 icon-strong-base" />
                       <span class="text-14-medium text-text-strong">{item.name}</span>
                       <Show when={item.id === "tatu-maas"}>
-                        <Tag>{language.t("dialog.provider.tag.recommended")}</Tag>
                         <Tag>{language.t("dialog.provider.tag.educationResearchDiscount")}</Tag>
-                      </Show>
-                      <Show when={item.id === "opencode"}>
-                        <Tag>{language.t("dialog.provider.tag.recommended")}</Tag>
-                      </Show>
-                      <Show when={item.id === "opencode-go"}>
-                        <Tag>{language.t("dialog.provider.tag.recommended")}</Tag>
                       </Show>
                     </div>
                     <Show when={note(item.id)}>
