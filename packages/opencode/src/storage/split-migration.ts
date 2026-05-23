@@ -550,10 +550,10 @@ export namespace SplitMigration {
       const mergeProject = (pid: string, info: ProjectIdentity.Info, row?: any) => {
         const prev = projectById.get(pid)
         const sandboxes = new Set<string>(json(prev?.sandboxes))
-        if (info.sandbox !== info.root) sandboxes.add(info.sandbox)
+        if (info.sandbox !== info.root) sandboxes.add(norm(info.sandbox))
         projectById.set(pid, {
           id: pid,
-          worktree: info.root,
+          worktree: norm(info.root),
           vcs: info.vcs ?? row?.vcs ?? prev?.vcs ?? null,
           name: prev?.name ?? row?.name ?? null,
           icon_url: prev?.icon_url ?? row?.icon_url ?? null,
