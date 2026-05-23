@@ -65,17 +65,27 @@ const playDemoSound = (id: string | undefined) => {
   }, 100)
 }
 
-function voice(model: {
+type Model = {
   id: string
   name: string
+  provider: { id: string; name: string }
   capabilities?: { input: { audio: boolean } }
   modalities?: { input: Array<string> }
-}) {
+}
+
+function voice(model: Model) {
   if (model.capabilities?.input.audio) return true
   if (model.modalities?.input.includes("audio")) return true
 
   const text = `${model.id} ${model.name}`.toLowerCase()
   return /\b(asr|stt|whisper|omni)\b|speech[-_ ]?to[-_ ]?text|transcri/.test(text)
+}
+
+function rank(model: Model) {
+  const provider = `${model.provider.id} ${model.provider.name}`.toLowerCase()
+  const text = `${model.id} ${model.name}`.toLowerCase()
+  if (provider.includes("alibaba") && /\b(cn|china)\b/.test(provider) && /\b(asr|omni)\b/.test(text)) return 0
+  return 1
 }
 
 export const SettingsGeneral: Component = () => {
@@ -153,6 +163,7 @@ export const SettingsGeneral: Component = () => {
       .list()
       .filter((m) => models.visible({ providerID: m.provider.id, modelID: m.id }))
       .filter(voice)
+      .sort((a, b) => rank(a) - rank(b))
       .map((m) => ({
         value: `${m.provider.id}/${m.id}`,
         label: `${m.name} (${m.provider.name})`,
