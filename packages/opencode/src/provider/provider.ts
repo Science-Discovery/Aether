@@ -890,6 +890,12 @@ export namespace Provider {
       options: z.record(z.string(), z.any()),
       headers: z.record(z.string(), z.string()),
       release_date: z.string(),
+      modalities: z
+        .object({
+          input: z.array(z.enum(["text", "audio", "image", "video", "pdf"])),
+          output: z.array(z.enum(["text", "audio", "image", "video", "pdf"])),
+        })
+        .optional(),
       variants: z.record(z.string(), z.record(z.string(), z.any())).optional(),
     })
     .meta({
@@ -971,6 +977,7 @@ export namespace Provider {
         interleaved: model.interleaved ?? false,
       },
       release_date: model.release_date,
+      modalities: model.modalities,
       variants: {},
     }
 
@@ -1145,6 +1152,7 @@ export namespace Provider {
           headers: mergeDeep(existingModel?.headers ?? {}, model.headers ?? {}),
           family: model.family ?? existingModel?.family ?? "",
           release_date: model.release_date ?? existingModel?.release_date ?? "",
+          modalities: model.modalities ?? existingModel?.modalities,
           variants: {},
         }
         const merged = mergeDeep(ProviderTransform.variants(parsedModel), model.variants ?? {})

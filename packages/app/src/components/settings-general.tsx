@@ -137,7 +137,6 @@ export const SettingsGeneral: Component = () => {
     const none = { value: "", label: language.t("settings.general.row.defaultModel.none"), providerID: "" }
     const items = models
       .list()
-      .filter((m) => models.visible({ providerID: m.provider.id, modelID: m.id }))
       .filter((m) => m.modalities?.input?.includes("audio"))
       .map((m) => ({
         value: `${m.provider.id}/${m.id}`,
