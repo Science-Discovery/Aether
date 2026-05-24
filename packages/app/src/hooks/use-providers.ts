@@ -22,6 +22,14 @@ export const popularProviders = [
   "qianfan",
   "ernie",
   "baidu-qianfan",
+  "opencode",
+  "opencode-go",
+  "anthropic",
+  "openai",
+  "github-copilot",
+  "google",
+  "openrouter",
+  "vercel",
 ]
 const popularProviderSet = new Set(popularProviders)
 

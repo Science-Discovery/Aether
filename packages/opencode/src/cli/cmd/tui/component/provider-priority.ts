@@ -17,6 +17,14 @@ const ranked = [
   "qianfan",
   "ernie",
   "baidu-qianfan",
+  "opencode",
+  "opencode-go",
+  "anthropic",
+  "openai",
+  "github-copilot",
+  "google",
+  "openrouter",
+  "vercel",
 ]
 
 export function rank(id: string) {
