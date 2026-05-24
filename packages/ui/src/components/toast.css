@@ -135,6 +135,7 @@
 
   [data-slot="toast-title"] {
     color: var(--text-invert-strong);
+    user-select: text;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -152,6 +153,7 @@
 
   [data-slot="toast-description"] {
     color: var(--text-invert-base);
+    user-select: text;
     text-wrap-style: pretty;
     overflow-wrap: anywhere;
     word-break: break-word;
