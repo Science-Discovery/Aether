@@ -209,28 +209,44 @@ const RunScriptButton = (props: {
   const layout = useLayout()
   const navigate = useNavigate()
   const params = useParams()
-  const [scripts, setScripts] = createSignal<string[]>([])
+
+  type Script = { name: string; source: "project" | "global"; path: string }
+  const key = (s: Script) => `${s.source}:${s.name}`
+  const [scripts, setScripts] = createSignal<Script[]>([])
+  const [scriptsPath, setScriptsPath] = createSignal<string>("")
   const [selected, setSelected] = createSignal<string | undefined>(undefined)
 
   const fetchScripts = async () => {
     const client = globalSdk.createClient({ directory: props.directory })
+    const projectNames: string[] = []
+    const globalNames: string[] = []
+    let gPath = ""
     try {
       const result = await client.file.list({ path: ".aether/.bin" })
-      const names = (result.data ?? [])
-        .filter((n) => n.type === "file")
-        .map((n) => n.name)
-        .sort()
-      setScripts(names)
-      const stored = localStorage.getItem(`aether:run-script:${props.directory}`)
-      if (stored && names.includes(stored)) {
-        setSelected(stored)
-      } else if (names.length > 0) {
-        setSelected(names[0])
-      } else {
-        setSelected(undefined)
-      }
-    } catch {
-      setScripts([])
+      projectNames.push(
+        ...(result.data ?? [])
+          .filter((n) => n.type === "file")
+          .map((n) => n.name)
+          .sort(),
+      )
+    } catch {}
+    try {
+      const result = await globalSdk.client.global.scripts()
+      gPath = result.data?.path ?? ""
+      globalNames.push(...(result.data?.names ?? []).sort())
+    } catch {}
+    setScriptsPath(gPath)
+    const all: Script[] = [
+      ...projectNames.map((n) => ({ name: n, source: "project" as const, path: `.aether/.bin/${n}` })),
+      ...globalNames.map((n) => ({ name: n, source: "global" as const, path: n })),
+    ]
+    setScripts(all)
+    const stored = localStorage.getItem(`aether:run-script:${props.directory}`)
+    if (stored && all.some((s) => key(s) === stored)) {
+      setSelected(stored)
+    } else if (all.length > 0) {
+      setSelected(key(all[0]))
+    } else {
       setSelected(undefined)
     }
   }
@@ -238,20 +254,26 @@ const RunScriptButton = (props: {
   onMount(fetchScripts)
 
   createEffect(() => {
-    const name = selected()
-    if (name) localStorage.setItem(`aether:run-script:${props.directory}`, name)
+    const k = selected()
+    if (k) localStorage.setItem(`aether:run-script:${props.directory}`, k)
   })
 
   const run = async () => {
-    const name = selected()
-    if (!name) return
-    const scriptPath = `.aether/.bin/${name}`
+    const k = selected()
+    if (!k) return
+    const s = scripts().find((s) => key(s) === k)
+    if (!s) return
     const slug = props.slug()
-    enqueueRun(slug, "bash", ["-c", `${scriptPath}; exec bash --noediting`], scriptPath)
+    if (s.source === "global") {
+      const scriptPath = `"${scriptsPath()}/${s.name}"`
+      enqueueRun(slug, "bash", ["-c", `${scriptPath}; exec bash --noediting`], s.name)
+    } else {
+      enqueueRun(slug, "bash", ["-c", `${s.path}; exec bash --noediting`], s.path)
+    }
     if (params.dir !== slug || !params.id) {
-      const s = props.sessions()
-      if (s.length > 0) {
-        navigate(`/${slug}/session/${s[0].id}`)
+      const sess = props.sessions()
+      if (sess.length > 0) {
+        navigate(`/${slug}/session/${sess[0].id}`)
       } else {
         await props.createSession(props.directory)
       }
@@ -261,9 +283,16 @@ const RunScriptButton = (props: {
 
   const disabled = createMemo(() => scripts().length === 0)
   const label = createMemo(() => {
-    const name = selected()
-    return name ? language.t("workspace.runScript", { name }) : language.t("workspace.run")
+    const k = selected()
+    const s = scripts().find((s) => key(s) === k)
+    if (!s) return language.t("workspace.run")
+    return s.source === "global"
+      ? language.t("workspace.runGlobalScript", { name: s.name })
+      : language.t("workspace.runScript", { name: s.name })
   })
+
+  const projectScripts = createMemo(() => scripts().filter((s) => s.source === "project"))
+  const globalScripts = createMemo(() => scripts().filter((s) => s.source === "global"))
 
   return (
     <ContextMenu onOpenChange={(open) => open && fetchScripts()}>
@@ -283,14 +312,39 @@ const RunScriptButton = (props: {
         <ContextMenu.Portal>
           <ContextMenu.Content>
             <ContextMenu.RadioGroup value={selected()} onChange={setSelected}>
-              <For each={scripts()}>
-                {(name) => (
-                  <ContextMenu.RadioItem value={name}>
-                    <ContextMenu.ItemIndicator>✓</ContextMenu.ItemIndicator>
-                    <ContextMenu.ItemLabel>{name}</ContextMenu.ItemLabel>
-                  </ContextMenu.RadioItem>
-                )}
-              </For>
+              <Show when={projectScripts().length > 0}>
+                <ContextMenu.Group>
+                  <ContextMenu.GroupLabel class="text-text-weaker text-12-regular px-2">
+                    {language.t("workspace.runProjectScripts")}
+                  </ContextMenu.GroupLabel>
+                  <For each={projectScripts()}>
+                    {(s) => (
+                      <ContextMenu.RadioItem value={key(s)}>
+                        <ContextMenu.ItemIndicator>✓</ContextMenu.ItemIndicator>
+                        <ContextMenu.ItemLabel>{s.name}</ContextMenu.ItemLabel>
+                      </ContextMenu.RadioItem>
+                    )}
+                  </For>
+                </ContextMenu.Group>
+              </Show>
+              <Show when={globalScripts().length > 0}>
+                <Show when={projectScripts().length > 0}>
+                  <ContextMenu.Separator />
+                </Show>
+                <ContextMenu.Group>
+                  <ContextMenu.GroupLabel class="text-text-weaker text-12-regular px-2">
+                    {language.t("workspace.runGlobalScripts")}
+                  </ContextMenu.GroupLabel>
+                  <For each={globalScripts()}>
+                    {(s) => (
+                      <ContextMenu.RadioItem value={key(s)}>
+                        <ContextMenu.ItemIndicator>✓</ContextMenu.ItemIndicator>
+                        <ContextMenu.ItemLabel>{s.name}</ContextMenu.ItemLabel>
+                      </ContextMenu.RadioItem>
+                    )}
+                  </For>
+                </ContextMenu.Group>
+              </Show>
             </ContextMenu.RadioGroup>
           </ContextMenu.Content>
         </ContextMenu.Portal>

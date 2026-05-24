@@ -1,3 +1,6 @@
+import fs from "fs/promises"
+import { Dirent } from "fs"
+import path from "path"
 import { Hono, type Context } from "hono"
 import { describeRoute, resolver, validator } from "hono-openapi"
 import { streamSSE } from "hono/streaming"
@@ -12,6 +15,7 @@ import { Flag } from "../../flag/flag"
 import { Log } from "../../util/log"
 import { lazy } from "../../util/lazy"
 import { Config } from "../../config/config"
+import { Global } from "../../global"
 import { errors } from "../error"
 import { Lease } from "../lease"
 import {
@@ -130,6 +134,38 @@ async function streamEvents(c: Context, subscribe: (q: AsyncQueue<string | null>
 
 export const GlobalRoutes = lazy(() =>
   new Hono()
+    .get(
+      "/scripts",
+      describeRoute({
+        summary: "List global scripts",
+        description: "List user scripts in the global data directory's .bin folder, along with the absolute path.",
+        operationId: "global.scripts",
+        responses: {
+          200: {
+            description: "Script names and path",
+            content: {
+              "application/json": {
+                schema: resolver(
+                  z.object({
+                    path: z.string(),
+                    names: z.array(z.string()),
+                  }),
+                ),
+              },
+            },
+          },
+        },
+      }),
+      async (c) => {
+        const dir = Global.Path.scripts
+        const entries = await fs.readdir(dir, { withFileTypes: true }).catch(() => [] as Dirent[])
+        const names = entries
+          .filter((e) => e.isFile())
+          .map((e) => e.name)
+          .sort()
+        return c.json({ path: dir, names })
+      },
+    )
     .get(
       "/proxy",
       describeRoute({
