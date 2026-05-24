@@ -513,9 +513,10 @@ function createGlobalSync() {
     },
     removeSandbox(root: string, directory: string) {
       setProjects((draft) => {
-        const item = draft.find((project) => project.worktree === root)
+        const item = draft.find((project) => normalizeDir(project.worktree) === normalizeDir(root))
         if (!item) return
-        item.sandboxes = (item.sandboxes ?? []).filter((sandbox) => sandbox !== directory)
+        const nd = normalizeDir(directory)
+        item.sandboxes = (item.sandboxes ?? []).filter((sandbox) => normalizeDir(sandbox) !== nd)
       })
     },
     refreshRecent,
