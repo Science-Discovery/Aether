@@ -138,9 +138,11 @@ export namespace Snapshot {
 
             const sync = Effect.fnUntraced(function* (list: string[] = []) {
               const file = yield* excludes()
+              const ignore = path.join(state.worktree, ".gitignore")
               const target = path.join(state.gitdir, "info", "exclude")
               const text = [
                 file ? (yield* read(file)).trimEnd() : "",
+                (yield* read(ignore)).trimEnd(),
                 ...list.map((item) => `/${item.replaceAll("\\", "/")}`),
               ]
                 .filter(Boolean)
