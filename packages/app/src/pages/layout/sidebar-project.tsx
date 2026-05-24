@@ -20,7 +20,6 @@ export type ProjectSidebarContext = {
   sidebarOpened: Accessor<boolean>
   sidebarHovering: Accessor<boolean>
   hoverProject: Accessor<string | undefined>
-  nav: Accessor<HTMLElement | undefined>
   onProjectMouseEnter: (worktree: string, event: MouseEvent) => void
   onProjectMouseLeave: (worktree: string) => void
   onProjectFocus: (worktree: string) => void
@@ -35,7 +34,7 @@ export type ProjectSidebarContext = {
   workspaceIds: (project: LocalProject) => string[]
   workspaceLabel: (directory: string, branch?: string, projectId?: string) => string
   workspaceName: (directory: string, projectId?: string, branch?: string) => string | undefined
-  sessionProps: Omit<SessionItemProps, "session" | "list" | "slug" | "children" | "mobile" | "dense" | "popover">
+  sessionProps: Omit<SessionItemProps, "session" | "list" | "slug" | "children" | "mobile" | "dense">
   setHoverSession: (id: string | undefined) => void
 }
 
@@ -58,7 +57,6 @@ export const ProjectDragOverlay = (props: {
 const ProjectTile = (props: {
   project: LocalProject
   mobile?: boolean
-  nav: Accessor<HTMLElement | undefined>
   sidebarHovering: Accessor<boolean>
   selected: Accessor<boolean>
   active: Accessor<boolean>
@@ -230,7 +228,6 @@ const ProjectPreviewPanel = (props: {
                 slug={base64Encode(props.project.worktree)}
                 dense
                 mobile={props.mobile}
-                popover={false}
                 children={props.projectChildren()}
               />
             )}
@@ -258,7 +255,6 @@ const ProjectPreviewPanel = (props: {
                       slug={base64Encode(directory)}
                       dense
                       mobile={props.mobile}
-                      popover={false}
                       children={children()}
                     />
                   )}
@@ -342,7 +338,6 @@ export const SortableProject = (props: {
     <ProjectTile
       project={props.project}
       mobile={props.mobile}
-      nav={props.ctx.nav}
       sidebarHovering={props.ctx.sidebarHovering}
       selected={selected}
       active={active}

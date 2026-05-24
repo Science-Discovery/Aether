@@ -132,10 +132,7 @@ type InlineEditorComponent = (props: {
 export type WorkspaceSidebarContext = {
   currentDir: Accessor<string>
   navList: Accessor<Session[]>
-  sidebarExpanded: Accessor<boolean>
   sidebarHovering: Accessor<boolean>
-  nav: Accessor<HTMLElement | undefined>
-  hoverSession: Accessor<string | undefined>
   setHoverSession: (id: string | undefined) => void
   clearHoverProjectSoon: () => void
   prefetchSession: (session: Session, priority?: "high" | "low") => void
@@ -552,7 +549,6 @@ const SessionTreeNodes = (props: {
   slug: Accessor<string>
   currentSessionID: Accessor<string | undefined>
   mobile?: boolean
-  popover?: boolean
   ctx: WorkspaceSidebarContext
   rootSessions: Accessor<Session[]>
   allSessions: Accessor<Session[]>
@@ -685,12 +681,8 @@ const SessionTreeNodes = (props: {
             navList={props.ctx.navList}
             slug={props.slug()}
             mobile={props.mobile}
-            popover={props.popover}
             children={props.children()}
-            sidebarExpanded={props.ctx.sidebarExpanded}
             sidebarHovering={props.ctx.sidebarHovering}
-            nav={props.ctx.nav}
-            hoverSession={props.ctx.hoverSession}
             setHoverSession={props.ctx.setHoverSession}
             clearHoverProjectSoon={props.ctx.clearHoverProjectSoon}
             prefetchSession={props.ctx.prefetchSession}
@@ -736,7 +728,6 @@ const ArchivedSessionList = (props: {
   slug: Accessor<string>
   ctx: WorkspaceSidebarContext
   mobile?: boolean
-  popover?: boolean
   language: ReturnType<typeof useLanguage>
 }): JSX.Element => {
   const globalSDK = useGlobalSDK()
@@ -866,7 +857,6 @@ const ArchivedSessionList = (props: {
             slug={props.slug}
             currentSessionID={() => params.id}
             mobile={props.mobile}
-            popover={props.popover}
             ctx={archivedTreeCtx}
             rootSessions={rootSessions}
             allSessions={sessions}
@@ -888,7 +878,6 @@ const WorkspaceSessionList = (props: {
   slug: Accessor<string>
   currentSessionID: Accessor<string | undefined>
   mobile?: boolean
-  popover?: boolean
   ctx: WorkspaceSidebarContext
   showNew: Accessor<boolean>
   loading: Accessor<boolean>
@@ -964,7 +953,6 @@ const WorkspaceSessionList = (props: {
             <NewSessionItem
               slug={props.slug()}
               mobile={props.mobile}
-              sidebarExpanded={props.ctx.sidebarExpanded}
               clearHoverProjectSoon={props.ctx.clearHoverProjectSoon}
               setHoverSession={props.ctx.setHoverSession}
             />
@@ -991,12 +979,8 @@ const WorkspaceSessionList = (props: {
                   navList={props.ctx.navList}
                   slug={props.slug()}
                   mobile={props.mobile}
-                  popover={props.popover}
                   children={props.children()}
-                  sidebarExpanded={props.ctx.sidebarExpanded}
                   sidebarHovering={props.ctx.sidebarHovering}
-                  nav={props.ctx.nav}
-                  hoverSession={props.ctx.hoverSession}
                   setHoverSession={props.ctx.setHoverSession}
                   clearHoverProjectSoon={props.ctx.clearHoverProjectSoon}
                   prefetchSession={props.ctx.prefetchSession}
@@ -1015,7 +999,6 @@ const WorkspaceSessionList = (props: {
             slug={props.slug}
             currentSessionID={props.currentSessionID}
             mobile={props.mobile}
-            popover={props.popover}
             ctx={props.ctx}
             rootSessions={props.rootSessions}
             allSessions={props.allSessions}
@@ -1048,7 +1031,6 @@ export const SortableWorkspace = (props: {
   project: LocalProject
   sortNow: Accessor<number>
   mobile?: boolean
-  popover?: boolean
 }): JSX.Element => {
   const params = useParams()
   const globalSync = useGlobalSync()
@@ -1212,7 +1194,6 @@ export const SortableWorkspace = (props: {
             slug={slug}
             currentSessionID={() => params.id}
             mobile={props.mobile}
-            popover={props.popover}
             ctx={props.ctx}
             showNew={showNew}
             loading={loading}
@@ -1238,7 +1219,6 @@ export const SortableWorkspace = (props: {
             slug={slug}
             ctx={props.ctx}
             mobile={props.mobile}
-            popover={props.popover}
             language={language}
           />
         </Collapsible.Content>
@@ -1252,7 +1232,6 @@ export const LocalWorkspace = (props: {
   project: LocalProject
   sortNow: Accessor<number>
   mobile?: boolean
-  popover?: boolean
 }): JSX.Element => {
   const params = useParams()
   const globalSync = useGlobalSync()
@@ -1286,7 +1265,6 @@ export const LocalWorkspace = (props: {
         slug={slug}
         currentSessionID={() => params.id}
         mobile={props.mobile}
-        popover={props.popover}
         ctx={props.ctx}
         showNew={() => false}
         loading={loading}
@@ -1312,7 +1290,6 @@ export const LocalWorkspace = (props: {
         slug={slug}
         ctx={props.ctx}
         mobile={props.mobile}
-        popover={props.popover}
         language={language}
       />
     </div>
