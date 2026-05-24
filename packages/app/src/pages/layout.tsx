@@ -2349,10 +2349,7 @@ export default function Layout(props: ParentProps) {
   const workspaceSidebarCtx: WorkspaceSidebarContext = {
     currentDir,
     navList: currentSessions,
-    sidebarExpanded,
     sidebarHovering,
-    nav: () => state.nav,
-    hoverSession: () => state.hoverSession,
     setHoverSession,
     clearHoverProjectSoon,
     prefetchSession,
@@ -2393,7 +2390,6 @@ export default function Layout(props: ParentProps) {
     sidebarOpened: () => layout.sidebar.opened(),
     sidebarHovering,
     hoverProject: () => state.hoverProject,
-    nav: () => state.nav,
     onProjectMouseEnter: (worktree, event) => aim.enter(worktree, event),
     onProjectMouseLeave: (worktree) => aim.leave(worktree),
     onProjectFocus: (worktree) => aim.activate(worktree),
@@ -2413,10 +2409,7 @@ export default function Layout(props: ParentProps) {
     workspaceName,
     sessionProps: {
       navList: currentSessions,
-      sidebarExpanded,
       sidebarHovering,
-      nav: () => state.nav,
-      hoverSession: () => state.hoverSession,
       setHoverSession,
       clearHoverProjectSoon,
       prefetchSession,
@@ -2638,7 +2631,6 @@ export default function Layout(props: ParentProps) {
                           project={item()}
                           sortNow={sortNow}
                           mobile={panelProps.mobile}
-                          popover={popover()}
                         />
                       </div>
                     </>
@@ -2670,7 +2662,6 @@ export default function Layout(props: ParentProps) {
                                     project={item()}
                                     sortNow={sortNow}
                                     mobile={panelProps.mobile}
-                                    popover={popover()}
                                   />
                                 </div>
                               )}
