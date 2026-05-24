@@ -93,7 +93,7 @@ const defaultSettings: Settings = {
     errors: "nope-03",
   },
   voice: {
-    model: "qwen2.5-omni-7b",
+    model: "",
   },
 }
 

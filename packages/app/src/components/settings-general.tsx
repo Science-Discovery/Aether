@@ -138,26 +138,12 @@ export const SettingsGeneral: Component = () => {
     const items = models
       .list()
       .filter((m) => models.visible({ providerID: m.provider.id, modelID: m.id }))
-      .filter((m) => {
-        const id = m.id.toLowerCase()
-        return id.includes("omni") || id.includes("whisper") || id.includes("audio") || id.includes("speech")
-      })
+      .filter((m) => m.modalities?.input?.includes("audio"))
       .map((m) => ({
         value: `${m.provider.id}/${m.id}`,
         label: `${m.name} (${m.provider.name})`,
         providerID: m.provider.id,
       }))
-    if (items.length === 0) {
-      const allItems = models
-        .list()
-        .filter((m) => models.visible({ providerID: m.provider.id, modelID: m.id }))
-        .map((m) => ({
-          value: `${m.provider.id}/${m.id}`,
-          label: `${m.name} (${m.provider.name})`,
-          providerID: m.provider.id,
-        }))
-      return [none, ...allItems]
-    }
     return [none, ...items]
   })
 
@@ -441,7 +427,10 @@ export const SettingsGeneral: Component = () => {
             description={language.t("settings.general.row.debugBar.description")}
           >
             <div data-action="settings-debug-bar">
-              <Switch checked={settings.general.debugBar()} onChange={(checked) => settings.general.setDebugBar(checked)} />
+              <Switch
+                checked={settings.general.debugBar()}
+                onChange={(checked) => settings.general.setDebugBar(checked)}
+              />
             </div>
           </SettingsRow>
         </Show>
@@ -450,7 +439,10 @@ export const SettingsGeneral: Component = () => {
           title={language.t("settings.general.row.branchesTab.title")}
           description={language.t("settings.general.row.branchesTab.description")}
         >
-          <div class="flex w-full flex-wrap items-center justify-end gap-2 sm:w-auto sm:flex-nowrap" data-action="settings-feed-branches-tab">
+          <div
+            class="flex w-full flex-wrap items-center justify-end gap-2 sm:w-auto sm:flex-nowrap"
+            data-action="settings-feed-branches-tab"
+          >
             <Show when={settings.general.branchesTab()}>
               <div class="flex flex-wrap justify-end gap-2" data-action="settings-branch-graph-controls">
                 <button
@@ -464,7 +456,10 @@ export const SettingsGeneral: Component = () => {
                     : language.t("settings.general.row.branchGraphCompact.option.compact")}
                 </button>
 
-                <div class="flex overflow-hidden rounded-md border border-border-weak-base" data-action="settings-branch-graph-order-mode">
+                <div
+                  class="flex overflow-hidden rounded-md border border-border-weak-base"
+                  data-action="settings-branch-graph-order-mode"
+                >
                   <button
                     type="button"
                     class="px-2 py-px text-[11px] transition-colors"
@@ -499,11 +494,19 @@ export const SettingsGeneral: Component = () => {
                   <DropdownMenu.Portal>
                     <DropdownMenu.Content class="min-w-40">
                       <DropdownMenu.Group>
-                        <DropdownMenu.GroupLabel>{language.t("settings.general.row.branchGraphFontSize.title")}</DropdownMenu.GroupLabel>
+                        <DropdownMenu.GroupLabel>
+                          {language.t("settings.general.row.branchGraphFontSize.title")}
+                        </DropdownMenu.GroupLabel>
                         <DropdownMenu.RadioGroup
                           value={settings.general.branchGraphFontSize()}
                           onChange={(value) => {
-                            if (value === "xs" || value === "sm" || value === "md" || value === "lg" || value === "xl") {
+                            if (
+                              value === "xs" ||
+                              value === "sm" ||
+                              value === "md" ||
+                              value === "lg" ||
+                              value === "xl"
+                            ) {
                               settings.general.setBranchGraphFontSize(value)
                             }
                           }}
@@ -522,7 +525,9 @@ export const SettingsGeneral: Component = () => {
                       <DropdownMenu.Separator />
 
                       <DropdownMenu.Group>
-                        <DropdownMenu.GroupLabel>{language.t("settings.general.row.branchGraphRowDensity.title")}</DropdownMenu.GroupLabel>
+                        <DropdownMenu.GroupLabel>
+                          {language.t("settings.general.row.branchGraphRowDensity.title")}
+                        </DropdownMenu.GroupLabel>
                         <DropdownMenu.RadioGroup
                           value={settings.general.branchGraphRowDensity()}
                           onChange={(value) => {
@@ -553,7 +558,10 @@ export const SettingsGeneral: Component = () => {
               </div>
             </Show>
 
-            <Switch checked={settings.general.branchesTab()} onChange={(checked) => settings.general.setBranchesTab(checked)} />
+            <Switch
+              checked={settings.general.branchesTab()}
+              onChange={(checked) => settings.general.setBranchesTab(checked)}
+            />
           </div>
         </SettingsRow>
 
