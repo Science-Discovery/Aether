@@ -758,6 +758,22 @@ export namespace Project {
         )
         if (!result) throw new Error(`Project not found: ${id}`)
         yield* dbProject(id, (d) => d.delete(DirectoryMetaTable).where(eq(DirectoryMetaTable.directory, dirNorm)).run())
+        yield* db((d) => d.delete(GlobalProjectMapTable).where(eq(GlobalProjectMapTable.directory, dirNorm)).run())
+        yield* db((d) =>
+          d
+            .delete(ProjectRecentTable)
+            .where(eq(ProjectRecentTable.key, dirKey(dirNorm)))
+            .run(),
+        )
+        const staleId = ProjectID.fromDirectory(dirNorm)
+        if (Database.hasProject(staleId)) {
+          const staleRow = Database.useProject(staleId, (d) =>
+            d.select().from(ProjectTable).where(eq(ProjectTable.id, staleId)).get(),
+          )
+          if (staleRow?.worktree === dirNorm) {
+            Database.deleteProject(staleId)
+          }
+        }
         yield* emitUpdated(fromRow(result))
       })
 

@@ -685,7 +685,11 @@ export namespace Database {
       }
     }
 
-    const validDirs = new Set([...setA, ...setB])
+    const validDirs = new Set<string>()
+    for (const dir of setB) validDirs.add(dir)
+    for (const dir of setA) {
+      if (validDirs.has(dir) || existsSync(dir)) validDirs.add(dir)
+    }
 
     const metaRows = pSqlite.prepare("SELECT * FROM directory_meta").all() as {
       directory: string
