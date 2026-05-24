@@ -134,6 +134,48 @@ const createSessionColorIndexMap = (nodes: SessionGraphNode[]) => {
   return new Map(orderedSessionIDs.map((sessionID, index) => [sessionID, index] as const))
 }
 
+const createTimeDisplayLaneMap = (nodes: SessionGraphNode[]) => {
+  const lastRowBySessionID = new Map<string, number>()
+  const sessionIDsEndingAtRow = new Map<number, string[]>()
+
+  nodes.forEach((node, row) => {
+    lastRowBySessionID.set(node.sessionID, row)
+  })
+
+  for (const [sessionID, row] of lastRowBySessionID) {
+    const sessions = sessionIDsEndingAtRow.get(row)
+    if (sessions) sessions.push(sessionID)
+    else sessionIDsEndingAtRow.set(row, [sessionID])
+  }
+
+  const sessionLaneBySessionID = new Map<string, number>()
+  const displayLaneByNodeID = new Map<string, number>()
+  const reusableLanes: number[] = []
+  let nextLane = 0
+
+  const releaseEndedSessions = (row: number) => {
+    for (const sessionID of sessionIDsEndingAtRow.get(row - 1) ?? []) {
+      const lane = sessionLaneBySessionID.get(sessionID)
+      if (typeof lane !== "number") continue
+      reusableLanes.push(lane)
+      reusableLanes.sort((a, b) => a - b)
+    }
+  }
+
+  nodes.forEach((node, row) => {
+    if (row > 0) releaseEndedSessions(row)
+
+    let lane = sessionLaneBySessionID.get(node.sessionID)
+    if (typeof lane !== "number") {
+      lane = reusableLanes.shift() ?? nextLane++
+      sessionLaneBySessionID.set(node.sessionID, lane)
+    }
+    displayLaneByNodeID.set(node.id, lane)
+  })
+
+  return displayLaneByNodeID
+}
+
 const createDisplayLaneMap = (input: {
   nodes: SessionGraphNode[]
   sortedNodeIDs: string[]
@@ -141,7 +183,7 @@ const createDisplayLaneMap = (input: {
   orderMode: ConversationGraphOrderMode
 }) => {
   if (input.orderMode === "time") {
-    return new Map(input.nodes.map((node) => [node.id, node.lane] as const))
+    return createTimeDisplayLaneMap(input.nodes)
   }
 
   const rowByID = new Map(input.sortedNodeIDs.map((nodeID, row) => [nodeID, row] as const))
