@@ -70,6 +70,7 @@ export function ConversationGraphList(props: {
           <For each={props.edges}>
             {(edge) => (
               <path
+                data-graph-edge-id={edge.id}
                 d={edgePath(edge)}
                 fill="none"
                 stroke={edge.isCurrentPath ? colorForIndex(nodeByID().get(edge.to)?.colorIndex ?? 0) : "#6b7280"}
@@ -91,15 +92,18 @@ export function ConversationGraphList(props: {
               return (
                 <>
                   <circle
+                    data-graph-node-circle={node.id}
                     cx={x()}
                     cy={y()}
                     r={radius()}
                     fill={node.kind === "bud" ? "transparent" : color()}
                     stroke={color()}
                     stroke-width={node.isCurrentPath ? "2.5" : "2"}
+                    opacity={node.isCurrentPath ? "1" : "0.5"}
                   />
                   <Show when={node.isCurrentTarget && node.kind === "turn"}>
                     <circle
+                      data-graph-node-target-ring={node.id}
                       cx={x()}
                       cy={y()}
                       r="8"
@@ -142,13 +146,16 @@ export function ConversationGraphList(props: {
               >
                 <div class="min-w-0 flex-1">
                   <div
+                    data-graph-node-label={node.id}
                     class={`truncate ${props.labelClass}`}
                     style={{
                       ...props.labelStyle,
                     }}
                     classList={{
-                      "text-text-strong": node.sessionID === props.currentSessionID,
-                      "text-text-weaker": node.sessionID !== props.currentSessionID,
+                      "text-text-strong": node.isCurrentPath,
+                      "text-text-weaker": !node.isCurrentPath,
+                      "font-semibold": node.isCurrentPath,
+                      "opacity-30": !node.isCurrentPath,
                       italic: node.kind === "bud",
                     }}
                   >
