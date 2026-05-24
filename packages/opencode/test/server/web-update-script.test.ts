@@ -619,6 +619,11 @@ describe("web update scripts", () => {
     expect(text).toContain('set "AETHER_DEBUG_LOG=%DEBUG_LOG%"')
     expect(text).toContain('set "AETHER_UPDATE_DEBUG_INHERITED=1"')
 
+    const server = await Bun.file(path.join(root, "packages", "opencode", "src", "server", "web-update.ts")).text()
+    expect(server).toContain('spawn("wscript.exe", ["//B", hide(args, path.join(work, "downloads"))]')
+    expect(server).toContain('const cmd = os === "windows" ? "cmd" : "bash"')
+    expect(server).toContain('const args = os === "windows" ? ["/c", script, "auto", cur] : [script, "auto", cur]')
+
     const launcher = await Bun.file(path.join(root, "packages", "opencode", "launcher", "Aether.vbs")).text()
     expect(
       launcher
