@@ -67,9 +67,7 @@ export const DialogSelectProvider: Component = () => {
             <Show when={i.id === CUSTOM_ID}>
               <Tag>{language.t("settings.providers.tag.custom")}</Tag>
             </Show>
-            <Show when={i.id === "tatu-maas"}>
-              <Tag>{language.t("dialog.provider.tag.educationResearchDiscount")}</Tag>
-            </Show>
+
             <Show when={note(i.id)}>
               {(key) => <div class="text-14-regular text-text-weak">{language.t(key())}</div>}
             </Show>
