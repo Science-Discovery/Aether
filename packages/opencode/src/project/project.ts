@@ -521,7 +521,7 @@ export namespace Project {
             .insert(DirectoryMetaTable)
             .values({
               directory: norm(directory),
-              worktree: norm(data.worktree),
+              worktree: norm(result.worktree),
               name: result.name ?? null,
               icon_url: result.icon?.url ?? null,
               icon_color: result.icon?.color ?? null,
@@ -533,7 +533,7 @@ export namespace Project {
             .onConflictDoUpdate({
               target: DirectoryMetaTable.directory,
               set: {
-                worktree: norm(data.worktree),
+                worktree: norm(result.worktree),
                 activity_at: Date.now(),
                 time_updated: Date.now(),
               },
