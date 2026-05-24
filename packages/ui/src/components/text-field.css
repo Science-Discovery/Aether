@@ -121,6 +121,7 @@
 
     [data-slot="input-error"] {
       color: var(--text-on-critical-base);
+      user-select: text;
 
       /* text-12-medium */
       font-family: var(--font-family-sans);

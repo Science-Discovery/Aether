@@ -61,6 +61,7 @@
         align-self: stretch;
 
         [data-slot="dialog-title"] {
+          user-select: text;
           color: var(--text-strong);
 
           /* text-16-medium */
@@ -85,6 +86,7 @@
         flex-shrink: 0;
         align-self: stretch;
 
+        user-select: text;
         color: var(--text-base);
 
         /* text-14-regular */
