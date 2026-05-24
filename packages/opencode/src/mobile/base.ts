@@ -211,9 +211,8 @@ export abstract class MobileManagerBase {
   }
 
   protected isAbsolutePath(p: string): boolean {
-    const n = this.normDir(p)
-    if (!n || n === "/") return false
-    return n.startsWith("/") || /^[a-z]:/i.test(n)
+    if (!p || p === "/") return false
+    return p.startsWith("/") || /^[a-z]:/i.test(p)
   }
 
   protected isRootDir(d: string): boolean {
