@@ -84,6 +84,7 @@ export namespace ServerConnection {
     host: string
     command: string
     installDir: string
+    password?: string
     owner?: HttpBase
     // SSH client exposes an HTTP server for the app to use as a proxy
     http: HttpBase

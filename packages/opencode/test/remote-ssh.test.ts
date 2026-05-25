@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { bins, halt, launch, pick, split } from "../src/remote-ssh"
+import { bins, halt, launch, opts, pick, split } from "../src/remote-ssh"
 import * as mod from "../src/remote-ssh"
 
 describe("remote ssh command split", () => {
@@ -14,6 +14,14 @@ describe("remote ssh command split", () => {
 
   test("keeps plain args in order", () => {
     expect(split("ssh -p 2222 user@host")).toEqual(["ssh", "-p", "2222", "user@host"])
+  })
+
+  test("keeps batch mode for key-based auth", () => {
+    expect(opts()).toContain("BatchMode=yes")
+  })
+
+  test("disables batch mode when a password is supplied", () => {
+    expect(opts("secret")).toContain("BatchMode=no")
   })
 
   test("expands tilde install dir against remote home", () => {

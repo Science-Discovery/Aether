@@ -245,6 +245,7 @@ export function StatusPopover() {
       host: conn.host,
       command: conn.command,
       installDir: conn.installDir,
+      password: conn.password,
     })
     showSshToast(task, conn.host)
     const next = await task.catch((err) => {

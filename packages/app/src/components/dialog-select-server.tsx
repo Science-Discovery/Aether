@@ -230,6 +230,15 @@ function ServerForm(props: ServerFormProps) {
               onKeyDown={keyDown}
             />
           </div>
+          <TextField
+            type="password"
+            label={language.t("dialog.server.add.password")}
+            placeholder={language.t("dialog.server.add.passwordPlaceholder")}
+            value={props.password}
+            disabled={props.busy}
+            onChange={props.onPasswordChange}
+            onKeyDown={keyDown}
+          />
         </Show>
       </div>
     </div>
@@ -312,6 +321,7 @@ export function DialogSelectServer() {
           host: store.addServer.host.trim() || value.trim(),
           command: value.trim(),
           installDir: store.addServer.installDir.trim() || DEFAULT_INSTALL_DIR,
+          password: store.addServer.password || undefined,
           http: { url: "" },
         }
         await select(conn, true)
@@ -350,6 +360,17 @@ export function DialogSelectServer() {
           host: store.editServer.host.trim() || input.original.host,
           command: input.value.trim(),
           installDir: store.editServer.installDir.trim() || DEFAULT_INSTALL_DIR,
+          password: store.editServer.password || undefined,
+        }
+        if (
+          conn.displayName === input.original.displayName &&
+          conn.host === input.original.host &&
+          conn.command === input.original.command &&
+          conn.installDir === input.original.installDir &&
+          conn.password === input.original.password
+        ) {
+          resetEdit()
+          return
         }
         server.upsert(conn)
         resetEdit()
@@ -457,6 +478,7 @@ export function DialogSelectServer() {
         host: conn.host,
         command: conn.command,
         installDir: conn.installDir,
+        password: conn.password,
       })
       showSshToast(task, conn.host)
       const next = await task.catch((err) => {
@@ -660,7 +682,7 @@ export function DialogSelectServer() {
       host: conn.type === "ssh" ? conn.host : "",
       installDir: conn.type === "ssh" ? conn.installDir : DEFAULT_INSTALL_DIR,
       username: conn.type === "http" ? conn.http.username ?? "" : "",
-      password: conn.type === "http" ? conn.http.password ?? "" : "",
+      password: conn.type === "ssh" ? conn.password ?? "" : conn.http.password ?? "",
       error: "",
       status: store.status[ServerConnection.key(conn)]?.healthy,
     })

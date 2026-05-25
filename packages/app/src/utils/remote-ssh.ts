@@ -40,6 +40,7 @@ export async function bootstrapSsh(server: ServerConnection.HttpBase, input: {
   host: string
   command: string
   installDir: string
+  password?: string
 }) {
   const res = await fetch(new URL("/experimental/ssh/bootstrap", server.url), {
     method: "POST",

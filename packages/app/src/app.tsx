@@ -228,6 +228,7 @@ function ConnectionGate(props: ParentProps<{ disableHealthCheck?: boolean }>) {
                   host: ssh.host,
                   command: ssh.command,
                   installDir: ssh.installDir,
+                  password: ssh.password,
                 }).catch(() => undefined),
               )
               if (!next) return false
@@ -291,6 +292,7 @@ function ConnectionGate(props: ParentProps<{ disableHealthCheck?: boolean }>) {
         host: conn.host,
         command: conn.command,
         installDir: conn.installDir,
+        password: conn.password,
       }).catch(() => undefined)
       if (!out) return
       sshTry = 0
