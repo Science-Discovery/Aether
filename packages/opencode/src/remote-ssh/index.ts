@@ -8,17 +8,16 @@ import { setTimeout as sleep } from "node:timers/promises"
 import semver from "semver"
 import z from "zod"
 
-const IDLE_MS = 60_000
 const BOOT_MS = 120_000
 const SSH_MS = 15_000
-const LEASE_MS = 45_000
 const PING_MS = 10_000
 const LOCAL_PORT = 14_096
 const MAX_LOG = 400
 const INSTALLER = "https://aether.aiphys.cn/download/installer/aether_linux_installer.sh"
 const REMOTE_ROOT = ".local/share/applications/aether"
+const REGISTRY = "aether-ssh-runtime.tsv"
 
-const status = z.enum(["validating", "installing", "starting", "tunneling", "ready", "failed", "cleaning_up"])
+const status = z.enum(["validating", "installing", "starting", "tunneling", "ready", "failed", "stopping"])
 
 const endpoint = z.object({
   url: z.string().url(),
@@ -38,8 +37,16 @@ const landing = z.object({
   workspaceID: z.string().nullable(),
 })
 
+const registry = z.object({
+  runtimeID: z.string().min(1),
+  pid: z.coerce.number().int().positive(),
+  port: z.coerce.number().int().positive(),
+  version: z.string().min(1),
+})
+
 export const BootstrapInput = z.object({
   savedHostID: z.string().min(1),
+  consumerID: z.string().min(1),
   host: z.string().min(1),
   command: z.string().min(1),
   installDir: z.string().min(1),
@@ -56,17 +63,21 @@ export const BootstrapOutput = z.object({
 })
 
 type Runtime = z.infer<typeof BootstrapOutput> & {
+  key: string
   argv: string[]
   child?: Process.Child
-  idle?: ReturnType<typeof setTimeout>
   ping?: ReturnType<typeof setInterval>
+  consumers: Set<string>
   pidfile: string
+  registry: string
+  remotePort: number
   status: z.infer<typeof status>
   logs: string[]
 }
 
 const runs = new Map<string, Runtime>()
 const waits = new Map<string, Promise<z.infer<typeof BootstrapOutput>>>()
+const aliases = new Map<string, string>()
 const SSH_OPTS = ["-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "-o", "StrictHostKeyChecking=accept-new"]
 const EXITS = {
   SIGHUP: 129,
@@ -210,6 +221,13 @@ export function pick(want: string, list: string[]) {
       install: false,
     }
   }
+  if (want) {
+    return {
+      chosen: want,
+      source: "exact" as const,
+      install: true,
+    }
+  }
   return {
     chosen: list[0],
     source: "fallback" as const,
@@ -221,37 +239,35 @@ function root(home: string) {
   return `${home}/${REMOTE_ROOT}`
 }
 
+function runkey(command: string, dir: string) {
+  return `${command.trim()}\n${dir.trim()}`
+}
+
 function bin(home: string, ver: string) {
   return `${root(home)}/aether_${ver}/aether`
 }
 
-export function launch(bin: string, pidfile: string, port: number, home: string) {
+function registryPath(dir: string) {
+  return `${dir}/${REGISTRY}`
+}
+
+export function launch(bin: string, pidfile: string, registry: string, port: number, home: string, runtimeID: string, ver: string) {
   return [
     "set -eu",
     `bin=${shell(bin)}`,
     `pidfile=${shell(pidfile)}`,
+    `registry=${shell(registry)}`,
     "if [ ! -x \"$bin\" ]; then",
     "  echo \"aether install succeeded but binary is missing: $bin\" >&2",
     "  exit 1",
     "fi",
-    "cleanup() {",
-    "  rm -f \"$pidfile\"",
-    "  if [ -z \"${pid:-}\" ]; then",
-    "    return",
-    "  fi",
-    "  kill \"$pid\" 2>/dev/null || true",
-    "  wait \"$pid\" 2>/dev/null || true",
-    "}",
-    "trap cleanup EXIT HUP INT TERM",
     `cd ${shell(home)}`,
-    "\"$bin\" --print-logs --log-level WARN serve --hostname 127.0.0.1 --port " +
-      port +
-      " --remote-runtime --remote-lease-ttl " +
-      LEASE_MS +
-      " &",
+    "mkdir -p \"$(dirname \"$pidfile\")\"",
+    "mkdir -p \"$(dirname \"$registry\")\"",
+    `nohup "$bin" --print-logs --log-level WARN serve --hostname 127.0.0.1 --port ${port} --enable-lease >/dev/null 2>&1 < /dev/null &`,
     "pid=$!",
     "echo \"$pid\" > \"$pidfile\"",
-    "wait \"$pid\"",
+    `printf '%s\\t%s\\t%s\\t%s\\n' ${shell(runtimeID)} \"$pid\" ${port} ${shell(ver)} > \"$registry\"`,
   ].join("\n")
 }
 
@@ -262,11 +278,16 @@ export function halt(child?: Pick<Process.Child, "exitCode" | "signalCode" | "ki
   return true
 }
 
+function tunnel(argv: string[], local: number, remote: number) {
+  return Process.spawn(["ssh", ...SSH_OPTS, ...argv, "-N", "-L", `${local}:127.0.0.1:${remote}`], {
+    stdout: "pipe",
+    stderr: "pipe",
+  })
+}
+
 function drain() {
   for (const run of runs.values()) {
-    if (run.idle) clearTimeout(run.idle)
     if (run.ping) clearInterval(run.ping)
-    run.idle = undefined
     run.ping = undefined
     if (!halt(run.child)) continue
     line(run.logs, "stopping local ssh tunnel on process exit")
@@ -302,31 +323,6 @@ async function remoteShell(argv: string[], cmd: string, logs: string[]) {
   return remote(argv, ["sh", "-lc", shell(cmd)], logs)
 }
 
-async function remoteKill(argv: string[], pidfile: string, logs: string[]) {
-  line(logs, `stopping remote server via ${pidfile}`)
-  await remoteShell(
-    argv,
-    [
-      "set -eu",
-      `pidfile=${shell(pidfile)}`,
-      "if [ ! -f \"$pidfile\" ]; then",
-      "  exit 0",
-      "fi",
-      "pid=$(cat \"$pidfile\" 2>/dev/null || true)",
-      "rm -f \"$pidfile\"",
-      "if [ -z \"$pid\" ]; then",
-      "  exit 0",
-      "fi",
-      "kill \"$pid\" 2>/dev/null || true",
-      "sleep 1",
-      "kill -9 \"$pid\" 2>/dev/null || true",
-    ].join("\n"),
-    logs,
-  ).catch((err) => {
-    line(logs, err instanceof Error ? err.message : String(err))
-  })
-}
-
 async function touch(url: string, id: string, alive: boolean, logs: string[]) {
   const res = await fetch(new URL("/global/ping", url), {
     method: "POST",
@@ -338,17 +334,12 @@ async function touch(url: string, id: string, alive: boolean, logs: string[]) {
     throw new Error(err instanceof Error ? err.message : String(err))
   })
   if (!res.ok) throw new Error(`Remote lease update failed: ${res.status}`)
-  if (!alive) line(logs, "remote lease released")
 }
 
-function stopPing(run: Runtime, alive?: boolean) {
+function stopPing(run: Runtime) {
   if (run.ping) clearInterval(run.ping)
   run.ping = undefined
-  line(run.logs, alive === false ? "remote lease loop stopping" : "remote lease loop paused")
-  if (alive === undefined) return
-  void touch(run.endpoint.url, run.runtimeID, alive, run.logs).catch((err) => {
-    line(run.logs, err instanceof Error ? err.message : String(err))
-  })
+  line(run.logs, "remote lease loop paused")
 }
 
 function startPing(run: Runtime) {
@@ -379,6 +370,10 @@ export function installDir(home: string, input: string) {
   return input
 }
 
+async function ensure(argv: string[], dir: string, logs: string[]) {
+  await remoteShell(argv, [`set -eu`, `dir=${shell(dir)}`, "mkdir -p \"$dir\""].join("\n"), logs)
+}
+
 async function vers(argv: string[], home: string, logs: string[]) {
   const out = await remoteShell(
     argv,
@@ -399,6 +394,68 @@ async function vers(argv: string[], home: string, logs: string[]) {
   return bins(out)
 }
 
+function parseRegistry(input: string) {
+  const text = input.trim()
+  if (!text) return
+  const [runtimeID = "", pid = "", port = "", version = ""] = text.split("\t")
+  if (!runtimeID || !pid || !port || !version) return
+  return registry.parse({ runtimeID, pid, port, version })
+}
+
+async function attached(argv: string[], file: string, logs: string[]) {
+  const out = await remoteShell(
+    argv,
+    [
+      "set -eu",
+      `file=${shell(file)}`,
+      "if [ ! -f \"$file\" ]; then",
+      "  exit 0",
+      "fi",
+      "IFS=$(printf '\\t') read -r runtime pid port ver < \"$file\" || true",
+      "if [ -z \"${runtime:-}\" ] || [ -z \"${pid:-}\" ] || [ -z \"${port:-}\" ] || [ -z \"${ver:-}\" ]; then",
+      "  rm -f \"$file\"",
+      "  exit 0",
+      "fi",
+      "if ! kill -0 \"$pid\" 2>/dev/null; then",
+      "  rm -f \"$file\"",
+      "  exit 0",
+      "fi",
+      "printf '%s\\t%s\\t%s\\t%s\\n' \"$runtime\" \"$pid\" \"$port\" \"$ver\"",
+    ].join("\n"),
+    logs,
+  )
+  return parseRegistry(out)
+}
+
+async function installer(argv: string[], dir: string, logs: string[]) {
+  line(logs, "downloading remote installer")
+  await remoteShell(
+    argv,
+    [
+      "set -eu",
+      `tmp=${shell(`${dir}/aether_linux_installer.sh`)}`,
+      "mkdir -p \"$(dirname \"$tmp\")\"",
+      `curl -fsSL ${shell(INSTALLER)} -o \"$tmp\"`,
+      "chmod +x \"$tmp\"",
+    ].join("\n"),
+    logs,
+  )
+  return `${dir}/aether_linux_installer.sh`
+}
+
+async function install(argv: string[], tmp: string, ver: string, logs: string[]) {
+  line(logs, ver ? `installing remote backend ${ver}` : "installing latest remote backend")
+  await remoteShell(
+    argv,
+    [
+      "set -eu",
+      `tmp=${shell(tmp)}`,
+      ver ? `VERSION=${shell(ver)} "$tmp"` : "\"$tmp\"",
+    ].join("\n"),
+    logs,
+  )
+}
+
 async function info(url: string, logs: string[]) {
   line(logs, `checking remote health via ${url}`)
   const health = await fetch(new URL("/global/health", url))
@@ -417,17 +474,14 @@ async function info(url: string, logs: string[]) {
   }
 }
 
-function attach(savedHostID: string, idle?: boolean) {
-  const run = runs.get(savedHostID)
+function attach(key: string, savedHostID: string, consumerID: string) {
+  const run = runs.get(key)
   if (!run) return
   if (run.status !== "ready") return
-  if (idle && run.idle) {
-    clearTimeout(run.idle)
-    run.idle = undefined
-  }
+  run.consumers.add(consumerID)
   startPing(run)
   return BootstrapOutput.parse({
-    savedHostID: run.savedHostID,
+    savedHostID,
     runtimeID: run.runtimeID,
     endpoint: run.endpoint,
     version: run.version,
@@ -444,31 +498,32 @@ function watch(run: Runtime) {
   stderr?.on("data", (buf) => line(run.logs, Buffer.from(buf).toString()))
   run.child?.once("exit", () => {
     stopPing(run)
-    if (run.status === "cleaning_up") return
+    if (run.status === "stopping") return
     run.status = "failed"
   })
 }
 
-async function cleanup(savedHostID: string) {
-  const run = runs.get(savedHostID)
+async function cleanup(key: string) {
+  const run = runs.get(key)
   if (!run) return
-  run.status = "cleaning_up"
-  stopPing(run, false)
-  if (run.idle) clearTimeout(run.idle)
-  run.idle = undefined
-  await remoteKill(run.argv, run.pidfile, run.logs)
+  run.status = "stopping"
+  stopPing(run)
   if (run.child) await Process.stop(run.child).catch(() => undefined)
-  runs.delete(savedHostID)
+  runs.delete(key)
+  for (const [alias, value] of aliases.entries()) {
+    if (value !== key) continue
+    aliases.delete(alias)
+  }
 }
 
-export async function disconnect(savedHostID: string) {
-  const run = runs.get(savedHostID)
+export async function disconnect(input: { savedHostID: string; consumerID: string }) {
+  const key = aliases.get(input.savedHostID)
+  if (!key) return false
+  const run = runs.get(key)
   if (!run) return false
-  stopPing(run)
-  if (run.idle) clearTimeout(run.idle)
-  run.idle = setTimeout(() => {
-    void cleanup(savedHostID)
-  }, IDLE_MS)
+  run.consumers.delete(input.consumerID)
+  if (run.consumers.size > 0) return true
+  await cleanup(key)
   return true
 }
 
@@ -482,53 +537,111 @@ async function boot(input: z.infer<typeof BootstrapInput>) {
   toast(logs, "SSH connection established")
   const local = await port()
   const dir = installDir(meta.home, input.installDir)
-  const runtimeID = randomUUID()
-  const pidfile = `${dir}/aether-ssh-${runtimeID}.pid`
+  const key = runkey(input.command, dir)
+  aliases.set(input.savedHostID, key)
+  const hit = attach(key, input.savedHostID, input.consumerID)
+  if (hit) return hit
+  const pidfile = `${dir}/aether-ssh-runtime.pid`
+  const file = registryPath(dir)
   let list = await vers(argv, meta.home, logs)
   line(logs, `installed remote versions: ${list.length ? list.join(", ") : "none"}`)
-  if (!list.length) {
-    line(logs, "no remote backend found, installing latest backend")
-    toast(logs, "No remote backend found; downloading installer")
-    await remoteShell(
+  const tmp = `${dir}/aether_linux_installer.sh`
+  await ensure(argv, dir, logs)
+  const live = await attached(argv, file, logs)
+  if (live && want && live.version !== want) {
+    throw new Error(`Remote runtime ${live.version} is already active; expected ${want}`)
+  }
+  if (live) {
+    line(logs, `reusing remote runtime ${live.runtimeID} on port ${live.port}`)
+    const url = `http://127.0.0.1:${local}`
+    const run: Runtime = {
+      key,
+      savedHostID: input.savedHostID,
+      runtimeID: live.runtimeID,
       argv,
-      [
-        "set -eu",
-        `tmp=${shell(`${dir}/aether_linux_installer.sh`)}`,
-        "mkdir -p \"$(dirname \"$tmp\")\"",
-        `curl -fsSL ${shell(INSTALLER)} -o \"$tmp\"`,
-        "chmod +x \"$tmp\"",
-      ].join("\n"),
+      endpoint: { url },
+      version: { chosen: live.version, source: want && live.version === want ? "exact" : "fallback" },
+      landing: { rootDirectory: "", directory: "", sessionID: null, workspaceID: null },
       logs,
-    )
-    toast(logs, "Installer downloaded; installing remote backend")
-    await remoteShell(
-      argv,
-      [
-        "set -eu",
-        `tmp=${shell(`${dir}/aether_linux_installer.sh`)}`,
-        "\"$tmp\"",
-      ].join("\n"),
-      logs,
-    )
+      pidfile,
+      registry: file,
+      remotePort: live.port,
+      reused: true,
+      consumers: new Set([input.consumerID]),
+      status: "starting",
+    }
+    run.child = tunnel(argv, local, live.port)
+    hook()
+    runs.set(key, run)
+    watch(run)
+    const stop = Date.now() + BOOT_MS
+    while (Date.now() < stop) {
+      await sleep(500)
+      if (run.status === "failed") throw new Error(run.logs.at(-1) || "SSH runtime failed")
+      const ok = await fetch(new URL("/global/health", url))
+        .then((x) => x.ok)
+        .catch(() => false)
+      if (!ok) continue
+      run.status = "ready"
+      run.landing = await info(url, logs)
+      startPing(run)
+      return BootstrapOutput.parse({
+        savedHostID: input.savedHostID,
+        runtimeID: run.runtimeID,
+        endpoint: run.endpoint,
+        version: run.version,
+        landing: run.landing,
+        logs: run.logs,
+        reused: true,
+      })
+    }
+    await cleanup(key)
+    throw new Error(`Timed out waiting for remote server after ${BOOT_MS / 1000}s`)
+  }
+  const runtimeID = randomUUID()
+  let ver = pick(want, list)
+  if (ver.install) {
+    const down = !list.length
+      ? want
+        ? `No remote backend found; downloading ${want}`
+        : "No remote backend found; downloading installer"
+      : `Remote backend ${list[0]} is incompatible; downloading ${want}`
+    const run = !list.length
+      ? want
+        ? `Installing remote backend ${want}`
+        : "Installing latest remote backend"
+      : `Updating remote backend to ${want}`
+    const reason = !list.length
+      ? want
+        ? `no remote backend found, installing ${want}`
+        : "no remote backend found, installing latest backend"
+      : `remote backend ${list[0]} does not match local ${want}; installing ${want}`
+    line(logs, reason)
+    toast(logs, down)
+    await installer(argv, dir, logs)
+    toast(logs, run)
+    await install(argv, tmp, want, logs)
     list = await vers(argv, meta.home, logs)
     line(logs, `installed remote versions after install: ${list.length ? list.join(", ") : "none"}`)
     toast(logs, "Remote backend installation finished", "success")
+    ver = pick(want, list)
   }
-  const ver = pick(want, list)
   if (!ver.chosen) throw new Error("Remote backend is missing after install")
+  if (want && ver.chosen !== want) {
+    throw new Error(`Remote backend ${want} is required but unavailable after install`)
+  }
   const cmd = bin(meta.home, ver.chosen)
   line(logs, `version: ${ver.chosen} (${ver.source})`)
-  if (want && ver.chosen !== want) {
-    line(logs, `remote backend ${ver.chosen} does not match local ${want}; update remotely by hand if needed`)
-  }
   line(logs, `requested install dir: ${dir}`)
   line(logs, `remote binary: ${cmd}`)
   line(logs, `remote pidfile: ${pidfile}`)
+  line(logs, `remote registry: ${file}`)
   line(logs, `remote port: ${meta.port}`)
   line(logs, `local port: ${local}`)
-  const script = launch(cmd, pidfile, meta.port, meta.home)
+  const script = launch(cmd, pidfile, file, meta.port, meta.home, runtimeID, ver.chosen)
   const url = `http://127.0.0.1:${local}`
   const run: Runtime = {
+    key,
     savedHostID: input.savedHostID,
     runtimeID,
     argv,
@@ -537,19 +650,16 @@ async function boot(input: z.infer<typeof BootstrapInput>) {
     landing: { rootDirectory: "", directory: "", sessionID: null, workspaceID: null },
     logs,
     pidfile,
+    registry: file,
+    remotePort: meta.port,
     reused: false,
+    consumers: new Set([input.consumerID]),
     status: "starting",
   }
-  const child = Process.spawn(
-    ["ssh", ...SSH_OPTS, ...argv, "-L", `${local}:127.0.0.1:${meta.port}`, "sh", "-lc", shell(script)],
-    {
-      stdout: "pipe",
-      stderr: "pipe",
-    },
-  )
-  run.child = child
+  await remoteShell(argv, script, logs)
+  run.child = tunnel(argv, local, meta.port)
   hook()
-  runs.set(input.savedHostID, run)
+  runs.set(key, run)
   watch(run)
   toast(logs, "Remote backend starting")
   const stop = Date.now() + BOOT_MS
@@ -574,30 +684,32 @@ async function boot(input: z.infer<typeof BootstrapInput>) {
       reused: false,
     })
   }
-  await cleanup(input.savedHostID)
+  await cleanup(key)
   throw new Error(`Timed out waiting for remote server after ${BOOT_MS / 1000}s`)
 }
 
 export async function bootstrap(input: z.infer<typeof BootstrapInput>) {
-  const hit = attach(input.savedHostID, true)
+  const key = runkey(input.command, input.installDir)
+  const hit = attach(aliases.get(input.savedHostID) ?? key, input.savedHostID, input.consumerID)
   if (hit) return hit
-  const wait = waits.get(input.savedHostID)
+  const wait = waits.get(key)
   if (wait) return wait
   const promise = boot(input)
     .then((out) => out)
     .catch(async (err) => {
-      const run = runs.get(input.savedHostID)
+      const key = aliases.get(input.savedHostID) ?? runkey(input.command, input.installDir)
+      const run = runs.get(key)
       const logs = run?.logs ?? []
       const msg = err instanceof Error ? err.message : String(err)
       const text = msg.split(/\r?\n/)[0]?.slice(0, 180) || "unknown error"
       line(logs, msg)
       toast(logs, `Remote SSH setup failed: ${text}`, "error")
-      await cleanup(input.savedHostID)
+      await cleanup(key)
       throw new Error([msg, ...logs].join("\n"))
     })
     .finally(() => {
-      waits.delete(input.savedHostID)
+      waits.delete(key)
     })
-  waits.set(input.savedHostID, promise)
+  waits.set(key, promise)
   return promise
 }

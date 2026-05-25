@@ -33,8 +33,8 @@ export const SshRoutes = lazy(() =>
     .post(
       "/disconnect",
       describeRoute({
-        summary: "Schedule SSH runtime disconnect",
-        description: "Mark an SSH runtime idle and schedule cleanup after the grace window.",
+        summary: "Disconnect SSH runtime consumer",
+        description: "Detach a local consumer from a shared SSH runtime without forcing the remote process to exit.",
         operationId: "experimental.ssh.disconnect",
         responses: {
           200: {
@@ -48,9 +48,9 @@ export const SshRoutes = lazy(() =>
           ...errors(400),
         },
       }),
-      validator("json", z.object({ savedHostID: z.string().min(1) })),
+      validator("json", z.object({ savedHostID: z.string().min(1), consumerID: z.string().min(1) })),
       async (c) => {
-        return c.json({ ok: await disconnect(c.req.valid("json").savedHostID) })
+        return c.json({ ok: await disconnect(c.req.valid("json")) })
       },
     ),
 )

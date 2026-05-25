@@ -18,7 +18,7 @@ describe("remote ssh command split", () => {
 
   test("expands tilde install dir against remote home", () => {
     const fn = (mod as any).installDir as (home: string, input: string) => string
-    expect(fn("/home/rocky", "~/.opencode/bin")).toBe("/home/rocky/.opencode/bin")
+    expect(fn("/home/rocky", "~/.aether/bin")).toBe("/home/rocky/.aether/bin")
     expect(fn("/home/rocky", "~")).toBe("/home/rocky")
   })
 
@@ -34,8 +34,16 @@ describe("remote ssh command split", () => {
     })
   })
 
-  test("falls back to newest installed version instead of auto-updating", () => {
+  test("installs the requested version when it is missing remotely", () => {
     expect(pick("0.6.0", ["0.5.2", "0.5.1"])).toEqual({
+      chosen: "0.6.0",
+      source: "exact",
+      install: true,
+    })
+  })
+
+  test("falls back to newest installed version in local dev mode", () => {
+    expect(pick("", ["0.5.2", "0.5.1"])).toEqual({
       chosen: "0.5.2",
       source: "fallback",
       install: false,
@@ -55,16 +63,14 @@ describe("remote ssh command split", () => {
     })
   })
 
-  test("cleans up remote backend when ssh session exits", () => {
-    const text = launch("/opt/aether", "/tmp/aether.pid", 4312, "/home/rocky")
-    expect(text).toContain("trap cleanup EXIT HUP INT TERM")
-    expect(text).toContain("rm -f \"$pidfile\"")
-    expect(text).toContain("kill \"$pid\" 2>/dev/null || true")
-    expect(text).toContain("wait \"$pid\" 2>/dev/null || true")
+  test("launches remote backend as a detached lease-managed process", () => {
+    const text = launch("/opt/aether", "/tmp/aether.pid", "/tmp/aether.tsv", 4312, "/home/rocky", "run-1", "0.6.0")
     expect(text).toContain("cd '/home/rocky'")
-    expect(text).toContain(
-      "\"$bin\" --print-logs --log-level WARN serve --hostname 127.0.0.1 --port 4312 --remote-runtime --remote-lease-ttl 45000 &",
-    )
+    expect(text).toContain("mkdir -p \"$(dirname \"$pidfile\")\"")
+    expect(text).toContain("mkdir -p \"$(dirname \"$registry\")\"")
+    expect(text).toContain("nohup \"$bin\" --print-logs --log-level WARN serve --hostname 127.0.0.1 --port 4312 --enable-lease >/dev/null 2>&1 < /dev/null &")
+    expect(text).toContain("echo \"$pid\" > \"$pidfile\"")
+    expect(text).toContain("printf '%s\\t%s\\t%s\\t%s\\n' 'run-1' \"$pid\" 4312 '0.6.0' > \"$registry\"")
   })
 
   test("stops active local ssh child on shutdown", () => {

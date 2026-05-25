@@ -18,7 +18,7 @@ describe("server-list", () => {
     id: "box",
     host: "dev@box",
     command: "ssh dev@box",
-    installDir: "~/.opencode/bin",
+    installDir: "~/.aether/bin",
     http: { url: "http://127.0.0.1:4097" },
   }
 

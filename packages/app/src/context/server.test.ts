@@ -8,7 +8,7 @@ describe("ServerConnection ssh identity", () => {
       id: "host-1",
       host: "user@example.com",
       command: "ssh user@example.com",
-      installDir: "~/.opencode/bin",
+      installDir: "~/.aether/bin",
       http: { url: "http://127.0.0.1:43001" },
     }
 
@@ -21,7 +21,7 @@ describe("ServerConnection ssh identity", () => {
       id: "host-1",
       host: "user@example.com",
       command: "ssh user@example.com",
-      installDir: "~/.opencode/bin",
+      installDir: "~/.aether/bin",
       http: { url: "" },
     }
 

@@ -22,7 +22,7 @@ import { bootstrapSsh } from "@/utils/remote-ssh"
 import { switchServer } from "@/utils/server-switch"
 
 const DEFAULT_USERNAME = "opencode"
-const DEFAULT_INSTALL_DIR = "~/.opencode/bin"
+const DEFAULT_INSTALL_DIR = "~/.aether/bin"
 const WAIT_MS = 700
 
 function showSshToast(promise: Promise<Awaited<ReturnType<typeof bootstrapSsh>>>, host: string) {

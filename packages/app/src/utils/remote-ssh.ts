@@ -27,6 +27,14 @@ function auth(http: ServerConnection.HttpBase) {
   return headers
 }
 
+const consumerID = (() => {
+  try {
+    return crypto.randomUUID()
+  } catch {
+    return `${Date.now()}-${Math.random().toString(36).slice(2)}`
+  }
+})()
+
 export async function bootstrapSsh(server: ServerConnection.HttpBase, input: {
   savedHostID: string
   host: string
@@ -39,7 +47,10 @@ export async function bootstrapSsh(server: ServerConnection.HttpBase, input: {
       "Content-Type": "application/json",
       ...auth(server),
     },
-    body: JSON.stringify(input),
+    body: JSON.stringify({
+      ...input,
+      consumerID,
+    }),
   })
   const data = await res.json().catch(() => undefined)
   if (!res.ok) {
@@ -61,7 +72,7 @@ export async function disconnectSsh(server: ServerConnection.HttpBase, savedHost
       "Content-Type": "application/json",
       ...auth(server),
     },
-    body: JSON.stringify({ savedHostID }),
+    body: JSON.stringify({ savedHostID, consumerID }),
   })
   if (!res.ok) throw new Error(`Disconnect failed: ${res.status}`)
   return res.json().catch(() => ({ ok: false })) as Promise<{ ok: boolean }>

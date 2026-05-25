@@ -10,27 +10,16 @@ import { Database } from "../../storage/db"
 import path from "path"
 import { Lease } from "../../server/lease"
 
-const LEASE_MS = 45_000
 const EXIT_MS = 5_000
 
 export const ServeCommand = cmd({
   command: "serve",
   builder: (yargs) =>
     withNetworkOptions(yargs)
-      .option("remote-runtime", {
+      .option("enable-lease", {
         type: "boolean",
         hidden: true,
         default: false,
-      })
-      .option("remote-lease-ttl", {
-        type: "number",
-        hidden: true,
-        default: LEASE_MS,
-      })
-      .option("remote-exit-grace", {
-        type: "number",
-        hidden: true,
-        default: EXIT_MS,
       }),
   describe: "starts a headless opencode server",
   handler: async (args) => {
@@ -44,9 +33,7 @@ export const ServeCommand = cmd({
     await Bun.write(portfile, String(server.port))
     console.log(`opencode server listening on http://${server.hostname}:${server.port}`)
 
-    if (args["remote-runtime"]) {
-      const lease = Math.max(1_000, Math.trunc(args["remote-lease-ttl"] ?? LEASE_MS))
-      const grace = Math.max(1_000, Math.trunc(args["remote-exit-grace"] ?? EXIT_MS))
+    if (args["enable-lease"]) {
       let seen = false
       let exit: ReturnType<typeof setTimeout> | undefined
       const clear = () => {
@@ -71,10 +58,10 @@ export const ServeCommand = cmd({
               exit = undefined
               return
             }
-            console.log(`remote runtime lease expired after ${lease}ms; shutting down`)
+            console.log(`serve lease expired; shutting down`)
             clearInterval(stop)
             process.exit(0)
-          }, Math.min(grace, lease))
+          }, EXIT_MS)
       }, 1_000)
       process.once("exit", () => {
         clearInterval(stop)
