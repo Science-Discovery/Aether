@@ -76,6 +76,7 @@ import {
   sortedRootSessions,
   workspaceKey,
 } from "./layout/helpers"
+import { dismissKeys, shouldNotify } from "./layout/request-alert"
 import {
   collectNewSessionDeepLinks,
   collectOpenProjectDeepLinks,
@@ -637,6 +638,17 @@ export default function Layout(props: ParentProps) {
             ? language.t("notification.permission.description", { sessionTitle, projectName })
             : language.t("notification.question.description", { sessionTitle, projectName })
         const href = `/${base64Encode(directory)}/session/${props.sessionID}`
+        const notify = shouldNotify({
+          current_dir: currentDir(),
+          current_session: params.id,
+          dir: directory,
+          session_id: props.sessionID,
+        })
+
+        if (!notify) {
+          dismissSessionAlert(sessionKey)
+          return
+        }
 
         const now = Date.now()
         const lastAlerted = alertedAtBySession.get(sessionKey) ?? 0
@@ -657,10 +669,6 @@ export default function Layout(props: ParentProps) {
             void platform.notify(title, description, href)
           }
         }
-
-        const currentSession = params.id
-        if (directory === currentDir() && props.sessionID === currentSession) return
-        if (directory === currentDir() && session?.parentID === currentSession) return
 
         dismissSessionAlert(sessionKey)
 
@@ -687,14 +695,8 @@ export default function Layout(props: ParentProps) {
       onCleanup(unsub)
 
       createEffect(() => {
-        const currentSession = params.id
-        if (!currentDir() || !currentSession) return
-        const sessionKey = `${currentDir()}:${currentSession}`
-        dismissSessionAlert(sessionKey)
-        const [store] = globalSync.child(currentDir(), { bootstrap: false })
-        const childSessions = store.session.filter((s) => s.parentID === currentSession)
-        for (const child of childSessions) {
-          dismissSessionAlert(`${currentDir()}:${child.id}`)
+        for (const key of dismissKeys({ current_dir: currentDir(), current_session: params.id })) {
+          dismissSessionAlert(key)
         }
       })
     })
