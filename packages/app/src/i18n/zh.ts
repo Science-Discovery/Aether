@@ -248,6 +248,7 @@ export const dict = {
   "toast.fileWatcherLimited.description.limit": "文件夹过多，无法启用实时文件监听。",
   "toast.fileWatcherLimited.description.timeout": "工作区扫描超时，未能启动实时文件监听。",
   "toast.fileWatcherLimited.description.error": "工作区扫描失败，未能启动实时文件监听。",
+  "toast.fileWatcherLimited.description.notfound": "Linux 文件监听组件缺失或无法启动。",
 
   "model.tag.free": "免费",
   "model.tag.latest": "最新",

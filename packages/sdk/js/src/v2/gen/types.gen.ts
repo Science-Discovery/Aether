@@ -299,6 +299,13 @@ export type EventFileWatcherLimited = {
   }
 }
 
+export type EventFileWatcherNotfound = {
+  type: "file.watcher.notfound"
+  properties: {
+    dir: string
+  }
+}
+
 export type EventFileEdited = {
   type: "file.edited"
   properties: {
@@ -1089,6 +1096,7 @@ export type Event =
   | EventSessionCompacted
   | EventFileWatcherUpdated
   | EventFileWatcherLimited
+  | EventFileWatcherNotfound
   | EventFileEdited
   | EventTodoUpdated
   | EventTuiPromptAppend

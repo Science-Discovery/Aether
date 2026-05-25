@@ -229,6 +229,7 @@ export const dict = {
   "toast.fileWatcherLimited.description.limit": "Too many folders for live file watching.",
   "toast.fileWatcherLimited.description.timeout": "Workspace scan timed out before live watching started.",
   "toast.fileWatcherLimited.description.error": "Workspace scan failed before live watching started.",
+  "toast.fileWatcherLimited.description.notfound": "Linux watcher helper is missing or cannot be started.",
 
   "model.tag.free": "Free",
   "model.tag.latest": "Latest",

@@ -288,6 +288,15 @@ export const { use: useNotification, provider: NotificationProvider } = createSi
 
     const unsub = globalSDK.event.listen((e) => {
       const event = e.details
+      if (event.type === "file.watcher.notfound") {
+        showToast({
+          variant: "default",
+          title: language.t("toast.fileWatcherLimited.title"),
+          description: `${language.t("toast.fileWatcherLimited.description.notfound")} (${event.properties.dir})`,
+          duration: 8000,
+        })
+        return
+      }
       if (event.type === "file.watcher.limited") {
         const message = language.t(`toast.fileWatcherLimited.description.${event.properties.reason}`)
         showToast({

@@ -47,6 +47,12 @@ export namespace FileWatcher {
         reason: z.enum(["limit", "timeout", "error"]),
       }),
     ),
+    NotFound: BusEvent.define(
+      "file.watcher.notfound",
+      z.object({
+        dir: z.string(),
+      }),
+    ),
   }
 
   const watcher = lazy(() => {
@@ -71,6 +77,26 @@ export namespace FileWatcher {
     return Effect.promise(() => Bus.publish(Event.Limited, { dir, reason })).pipe(
       Effect.catchCause(() => Effect.void),
     )
+  }
+
+  function notfound(dir: string) {
+    return Effect.promise(() => Bus.publish(Event.NotFound, { dir })).pipe(
+      Effect.catchCause(() => Effect.void),
+    )
+  }
+
+  function reason(input: unknown): "timeout" | "error" | "notfound" {
+    if (input instanceof Error && input.message === "subscribe timeout") return "timeout"
+    const code = (() => {
+      if (!input || typeof input !== "object") return
+      const value = (input as { code?: unknown }).code
+      if (typeof value === "string") return value
+    })()
+    if (code === "ENOENT" || code === "EACCES" || code === "EPERM") return "notfound"
+    const message = input instanceof Error ? input.message : String(input)
+    if (message.includes("go watcher binary not found")) return "notfound"
+    if (message.includes("permission denied")) return "notfound"
+    return "error"
   }
 
   async function linux() {
@@ -195,7 +221,7 @@ export namespace FileWatcher {
               dir: string,
               ignore: string[],
               kind: "worktree" | "git",
-              fallback?: (reason: "timeout" | "error") => Promise<Subscription | undefined>,
+              fallback?: (reason: "timeout" | "error" | "notfound") => Promise<Subscription | undefined>,
             ) => {
               const item = cool(dir)
               const watchIgnore = process.platform === "linux" && kind === "worktree" ? sidecarIgnore : ignore
@@ -228,51 +254,57 @@ export namespace FileWatcher {
                 worktree: Instance.project.worktree,
                 projectID: Instance.project.id,
               })
-              const input =
-                process.platform === "linux" && kind === "worktree"
-                  ? child({
-                      dir,
-                      ignore: watchIgnore,
-                      filter: sidecarFilter,
-                      backend,
-                      cb,
-                    })
-                  : {
-                      pending: w.subscribe(dir, cb, { ignore: watchIgnore, backend }),
-                      cancel: () => void w.unsubscribe(dir, cb, { ignore: watchIgnore, backend }).catch(() => undefined),
-                    }
-              const pending = input.pending
-              pending.then(
-                (sub) => {
-                  if (state !== "timeout") return
-                  log.warn("subscribe resolved after timeout", {
-                    dir,
-                    kind,
-                    pid: process.pid,
-                    backend,
-                    elapsedMs: Date.now() - start,
-                    directory: Instance.directory,
-                    worktree: Instance.project.worktree,
-                    projectID: Instance.project.id,
-                  })
-                  void sub.unsubscribe().catch(() => {})
-                },
-                (error) => {
-                  if (state !== "timeout") return
-                  log.warn("subscribe rejected after timeout", {
-                    dir,
-                    kind,
-                    pid: process.pid,
-                    backend,
-                    elapsedMs: Date.now() - start,
-                    directory: Instance.directory,
-                    worktree: Instance.project.worktree,
-                    projectID: Instance.project.id,
-                    error,
-                  })
-                },
-              )
+              let input:
+                | {
+                    pending: Promise<Subscription>
+                    cancel?: () => void
+                  }
+                | undefined
               try {
+                input =
+                  process.platform === "linux" && kind === "worktree"
+                    ? child({
+                        dir,
+                        ignore: watchIgnore,
+                        filter: sidecarFilter,
+                        backend,
+                        cb,
+                      })
+                    : {
+                        pending: w.subscribe(dir, cb, { ignore: watchIgnore, backend }),
+                        cancel: () => void w.unsubscribe(dir, cb, { ignore: watchIgnore, backend }).catch(() => undefined),
+                      }
+                const pending = input.pending
+                pending.then(
+                  (sub) => {
+                    if (state !== "timeout") return
+                    log.warn("subscribe resolved after timeout", {
+                      dir,
+                      kind,
+                      pid: process.pid,
+                      backend,
+                      elapsedMs: Date.now() - start,
+                      directory: Instance.directory,
+                      worktree: Instance.project.worktree,
+                      projectID: Instance.project.id,
+                    })
+                    void sub.unsubscribe().catch(() => {})
+                  },
+                  (error) => {
+                    if (state !== "timeout") return
+                    log.warn("subscribe rejected after timeout", {
+                      dir,
+                      kind,
+                      pid: process.pid,
+                      backend,
+                      elapsedMs: Date.now() - start,
+                      directory: Instance.directory,
+                      worktree: Instance.project.worktree,
+                      projectID: Instance.project.id,
+                      error,
+                    })
+                  },
+                )
                 const sub = await Promise.race([
                   pending,
                   new Promise<never>((_, reject) =>
@@ -295,15 +327,17 @@ export namespace FileWatcher {
                 })
                 return sub
               } catch (error) {
-                const reason = error instanceof Error && error.message === "subscribe timeout" ? "timeout" : "error"
-                state = reason
-                cooldown.set(dir, { reason, until: Date.now() + SUBSCRIBE_COOLDOWN_MS })
+                let next = reason(error)
+                state = next === "notfound" ? "error" : next
+                if (next !== "notfound") {
+                  cooldown.set(dir, { reason: next, until: Date.now() + SUBSCRIBE_COOLDOWN_MS })
+                }
                 const stats = await linux()
                 log.error("failed to subscribe", {
                   dir,
                   kind,
                   pid: process.pid,
-                  reason,
+                  reason: next,
                   backend,
                   elapsedMs: Date.now() - start,
                   inflight,
@@ -317,14 +351,34 @@ export namespace FileWatcher {
                   linux: stats,
                   cause: error instanceof Error ? error.stack ?? error.message : error,
                 })
-                input.cancel?.()
-                const sub = await fallback?.(reason)
+                input?.cancel?.()
+                let sub: Subscription | undefined
+                try {
+                  sub = await fallback?.(next)
+                } catch (fallbackError) {
+                  next = reason(fallbackError)
+                  log.error("fallback subscribe failed", {
+                    dir,
+                    kind,
+                    pid: process.pid,
+                    backend,
+                    reason: next,
+                    directory: Instance.directory,
+                    worktree: Instance.project.worktree,
+                    projectID: Instance.project.id,
+                    cause: fallbackError instanceof Error ? fallbackError.stack ?? fallbackError.message : fallbackError,
+                  })
+                }
                 if (sub) {
                   state = "ok"
+                  missing = false
                   subs.add(sub)
                   return sub
                 }
-                await Effect.runPromise(limited(dir, reason))
+                if (next === "notfound") {
+                  missing = true
+                }
+                await Effect.runPromise(next === "notfound" ? notfound(dir) : limited(dir, next))
                 return
               } finally {
                 inflight = Math.max(0, inflight - 1)
@@ -351,6 +405,7 @@ export namespace FileWatcher {
             let git: Subscription | undefined
             let queue = Promise.resolve()
             let degraded = false
+            let missing = false
 
             const stop = async (
               sub: Subscription | undefined,
@@ -375,11 +430,12 @@ export namespace FileWatcher {
               })
             }
 
-            const limitedChild = async (reason?: "timeout" | "error") => {
+            const limitedChild = async (next?: "timeout" | "error" | "notfound") => {
               if (process.platform !== "linux") return
+              if (next === "notfound") return
               degraded = true
-              if (reason) {
-                await Effect.runPromise(limited(Instance.directory, reason))
+              if (next) {
+                await Effect.runPromise(limited(Instance.directory, next))
               }
               return child({
                 dir: Instance.directory,
@@ -401,6 +457,7 @@ export namespace FileWatcher {
                 enabled,
                 active,
                 degraded,
+                missing,
                 hinted: hinted.length,
                 active_directory: ActiveDirectory.get(),
                 active_directories: ActiveDirectory.list(),
@@ -415,8 +472,9 @@ export namespace FileWatcher {
                 worktree = undefined
                 await stop(limitedWorktree, "limited", !enabled ? "disabled" : "lease-missing")
                 limitedWorktree = undefined
+                if (!active) missing = false
               }
-              if (enabled && active && !worktree && !degraded) {
+              if (enabled && active && !worktree && !degraded && !missing) {
                 worktree = await subscribe(Instance.directory, parcelIgnore, "worktree", async (reason) => {
                   limitedWorktree = await limitedChild(reason)
                   return limitedWorktree
@@ -424,7 +482,17 @@ export namespace FileWatcher {
               }
               if (enabled && active && degraded) {
                 if (!limitedWorktree) {
-                  limitedWorktree = await limitedChild()
+                  try {
+                    limitedWorktree = await limitedChild()
+                  } catch (error) {
+                    const next = reason(error)
+                    if (next === "notfound") {
+                      degraded = false
+                      missing = true
+                    }
+                    await Effect.runPromise(next === "notfound" ? notfound(Instance.directory) : limited(Instance.directory, next))
+                    limitedWorktree = undefined
+                  }
                 } else {
                   await limitedWorktree.sync?.(hinted)
                 }
