@@ -112,6 +112,9 @@ async function requestJSON<T>(url: string, init: RequestInit, options?: RequestH
   return { data: payload as T }
 }
 export type AppClient = Base & {
+  global: Base["global"] & {
+    scripts(): Req<{ path: string; names: string[] }>
+  }
   project: Base["project"] & {
     delete(input: { projectID: string }): Req<{ status: string; projectID: string; sessionCount?: number }>
     sessionCount(input: { projectID: string }): Req<{ count: number }>
@@ -433,5 +436,21 @@ export function addMemoryMethods(
     },
   }
   safeAssign(client, "memory", memoryMethods)
+  return client
+}
+
+export function addGlobalScriptsMethod(
+  client: AppClient,
+  baseUrl: string,
+  auth?: Record<string, string>,
+  options?: RequestHelperOptions,
+): AppClient {
+  const headers: Record<string, string> = { ...auth }
+  const methods = {
+    async scripts() {
+      return requestJSON<string[]>(`${baseUrl}/global/scripts`, { headers }, options)
+    },
+  }
+  safeAssign(client.global, "scripts", methods.scripts)
   return client
 }

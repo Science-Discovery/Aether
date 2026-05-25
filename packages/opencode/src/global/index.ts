@@ -11,12 +11,12 @@ const state = Persist.current.state
 
 export namespace Global {
   export const Path = {
-    // Allow override via OPENCODE_TEST_HOME for test isolation
     get home() {
       return process.env.OPENCODE_TEST_HOME || os.homedir()
     },
     data,
     bin: path.join(cache, "bin"),
+    scripts: path.join(data, ".bin"),
     log: path.join(data, "log"),
     cache,
     config,
@@ -30,6 +30,7 @@ export namespace Global {
       fs.mkdir(Path.state, { recursive: true }),
       fs.mkdir(Path.log, { recursive: true }),
       fs.mkdir(Path.bin, { recursive: true }),
+      fs.mkdir(Path.scripts, { recursive: true }),
     ])
 
     const version = await Filesystem.readText(path.join(Path.cache, "version")).catch(() => "0")

@@ -1457,6 +1457,9 @@ export const dict = {
   "workspace.renameBranch.error.invalid": "Branch name is invalid",
   "workspace.run": "Run",
   "workspace.runScript": "Run: {{name}}",
+  "workspace.runGlobalScript": "Global: {{name}}",
+  "workspace.runProjectScripts": "Project scripts",
+  "workspace.runGlobalScripts": "Global scripts",
 
   "knowledge.title": "Knowledge Base",
 
