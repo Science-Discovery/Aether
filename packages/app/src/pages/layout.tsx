@@ -2000,21 +2000,18 @@ export default function Layout(props: ParentProps) {
     }
 
     return (
-      <Dialog title={language.t("workspace.delete.title")} fit>
+      <Dialog title={language.t("workspace.delete.confirm", { name: name() })} fit>
         <div class="flex flex-col gap-4 pl-6 pr-2.5 pb-3">
-          <div class="flex flex-col gap-1">
-            <span class="text-14-regular text-text-strong">
-              {language.t("workspace.delete.confirm", { name: name() })}
-            </span>
-            <span class="text-12-regular text-text-weak">{description()}</span>
-          </div>
+          <span class="text-12-regular text-text-weak">{description()}</span>
           <div class="flex justify-end gap-2">
             <Button variant="ghost" size="large" onClick={() => dialog.close()}>
               {language.t("common.cancel")}
             </Button>
-            <Button variant="primary" size="large" disabled={data.status === "loading"} onClick={handleDelete}>
-              {language.t("workspace.delete.button")}
-            </Button>
+            <Show when={!data.dirty}>
+              <Button variant="primary" size="large" disabled={data.status === "loading"} onClick={handleDelete}>
+                {language.t("workspace.delete.button")}
+              </Button>
+            </Show>
           </div>
         </div>
       </Dialog>

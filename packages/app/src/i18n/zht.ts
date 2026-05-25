@@ -949,7 +949,7 @@ export const dict = {
   "workspace.status.checking": "正在檢查未合併的變更...",
   "workspace.status.error": "無法驗證 git 狀態。",
   "workspace.status.clean": "未偵測到未合併的變更。",
-  "workspace.status.dirty": "偵測到未合併的變更。",
+  "workspace.status.dirty": "偵測到未合併的變更，請合併或清除後再刪除工作區。",
   "workspace.delete.title": "刪除工作區",
   "workspace.delete.confirm": '刪除工作區 "{{name}}"?',
   "workspace.delete.button": "刪除工作區",

@@ -1300,7 +1300,7 @@ export const dict = {
   "workspace.status.checking": "正在检查未合并的更改...",
   "workspace.status.error": "无法验证 git 状态。",
   "workspace.status.clean": "未检测到未合并的更改。",
-  "workspace.status.dirty": "检测到未合并的更改。",
+  "workspace.status.dirty": "检测到未合并的更改，请合并或清除后再删除工作区。",
   "workspace.delete.title": "删除工作区",
   "workspace.delete.confirm": '删除工作区 "{{name}}"？',
   "workspace.delete.button": "删除工作区",

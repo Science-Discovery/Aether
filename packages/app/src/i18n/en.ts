@@ -1433,7 +1433,7 @@ export const dict = {
   "workspace.status.checking": "Checking for unmerged changes...",
   "workspace.status.error": "Unable to verify git status.",
   "workspace.status.clean": "No unmerged changes detected.",
-  "workspace.status.dirty": "Unmerged changes detected in this workspace.",
+  "workspace.status.dirty": "Unmerged changes detected. Please merge or discard them before deleting the workspace.",
   "workspace.delete.title": "Delete workspace",
   "workspace.delete.confirm": 'Delete workspace "{{name}}"?',
   "workspace.delete.button": "Delete workspace",
