@@ -1,4 +1,4 @@
-import { createEffect, createMemo, For, Show, type Accessor, type JSX } from "solid-js"
+import { createEffect, createMemo, For, onMount, Show, type Accessor, type JSX } from "solid-js"
 import {
   DragDropProvider,
   DragDropSensors,
@@ -74,6 +74,11 @@ export const SidebarContent = (props: {
       dialog.show(() => <x.DialogLogin />)
     })
   }
+
+  onMount(() => {
+    if (!new URLSearchParams(location.search).has("reset_token")) return
+    openLogin()
+  })
 
   function openMobile(platform: MobilePlatform) {
     void import("@/components/dialog-mobile").then((x) => {
