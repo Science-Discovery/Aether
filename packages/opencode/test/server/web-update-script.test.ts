@@ -597,4 +597,39 @@ describe("web update scripts", () => {
     },
     { timeout: 30000 },
   )
+
+  test("windows update scripts hide helper consoles except extract progress", async () => {
+    const text = await Bun.file(path.join(update, "update_windows.bat")).text()
+    const lines = text
+      .split(/\r?\n/)
+      .filter((x) => x.includes("powershell -NoProfile") || x.includes("%PSH%") || x.includes("%PSV%"))
+    const shown = lines.filter((x) => x.includes("Expand-Archive"))
+    const bare = lines.filter(
+      (x) =>
+        x.includes("powershell -NoProfile") &&
+        !x.includes('set "PSH=') &&
+        !x.includes('set "PSV=') &&
+        !x.includes("Expand-Archive"),
+    )
+
+    expect(shown).toHaveLength(1)
+    expect(shown[0]).toContain('start "Aether Update" /wait %PSV%')
+    expect(bare).toEqual([])
+    expect(text).toContain('if defined AETHER_DEBUG_LOG if /I not "%AETHER_UPDATE_DEBUG_INHERITED%"=="1"')
+    expect(text).toContain('set "AETHER_DEBUG_LOG=%DEBUG_LOG%"')
+    expect(text).toContain('set "AETHER_UPDATE_DEBUG_INHERITED=1"')
+
+    const server = await Bun.file(path.join(root, "packages", "opencode", "src", "server", "web-update.ts")).text()
+    expect(server).toContain('spawn("wscript.exe", ["//B", hide(args, path.join(work, "downloads"))]')
+    expect(server).toContain('const cmd = os === "windows" ? "cmd" : "bash"')
+    expect(server).toContain('const args = os === "windows" ? ["/c", script, "auto", cur] : [script, "auto", cur]')
+
+    const launcher = await Bun.file(path.join(root, "packages", "opencode", "launcher", "Aether.vbs")).text()
+    expect(
+      launcher
+        .split(/\r?\n/)
+        .filter((x) => x.includes("powershell -NoProfile"))
+        .every((x) => x.includes("-WindowStyle Hidden")),
+    ).toBe(true)
+  })
 })

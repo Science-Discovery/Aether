@@ -1,17 +1,20 @@
 @echo off
 chcp 65001 >nul
 setlocal EnableExtensions EnableDelayedExpansion
+set "PSH=powershell -NoProfile -WindowStyle Hidden"
+set "PSV=powershell -NoProfile"
 
 if defined LOCALAPPDATA (
   set "DEBUG_DIR=%LOCALAPPDATA%\aether\update_debug"
 ) else (
   set "DEBUG_DIR=%TEMP%\aether\update_debug"
 )
-if defined AETHER_DEBUG_LOG (
-  set "DEBUG_LOG=%AETHER_DEBUG_LOG%"
+set "DEBUG_LOG="
+if defined AETHER_DEBUG_LOG if /I not "%AETHER_UPDATE_DEBUG_INHERITED%"=="1" set "DEBUG_LOG=%AETHER_DEBUG_LOG%"
+if defined DEBUG_LOG (
   for %%i in ("%DEBUG_LOG%") do set "DEBUG_DIR=%%~dpi"
 ) else (
-  for /f "usebackq delims=" %%t in (`powershell -NoProfile -Command "Get-Date -Format 'yyyyMMdd_HHmmss'"`) do set "DEBUG_TS=%%t"
+  for /f "usebackq delims=" %%t in (`%PSH% -Command "Get-Date -Format 'yyyyMMdd_HHmmss'"`) do set "DEBUG_TS=%%t"
   if not defined DEBUG_TS set "DEBUG_TS=%RANDOM%%RANDOM%"
   set "DEBUG_LOG=%DEBUG_DIR%\update_%DEBUG_TS%.log"
 )
@@ -44,6 +47,7 @@ call :debug_log "ENVR | AETHER_UPDATE_RESULT=%AETHER_UPDATE_RESULT%"
 call :debug_log "ENVR | AETHER_MIRROR_ROOT=%AETHER_MIRROR_ROOT%"
 call :debug_log "ENVR | AETHER_MIRROR_ONLY=%MIRROR_ONLY%"
 call :debug_log "ENVR | AETHER_DEBUG_LOG=%DEBUG_LOG%"
+call :debug_log "ENVR | AETHER_UPDATE_DEBUG_INHERITED=%AETHER_UPDATE_DEBUG_INHERITED%"
 call :debug_log "ENVR | RESULT=%RESULT%"
 call :debug_log "START | WANT=%WANT% RESTART=%RESTART% SELF=%SELF% BASE=%BASE% WORK=%WORK%"
 
@@ -60,7 +64,7 @@ if /I not "%WORK_NAME%"=="aether" (
 echo [0/4] Work directory: %WORK%
 
 call :debug_log "DISK | checking disk space on WORK=%WORK%"
-for /f "usebackq delims=" %%d in (`powershell -NoProfile -Command "(Get-PSDrive -Name ([IO.Path]::GetPathRoot($env:WORK).Substring(0,1)) -ErrorAction SilentlyContinue).Free / 1MB"`) do call :debug_log "DISK | free_mb=%%d"
+for /f "usebackq delims=" %%d in (`%PSH% -Command "(Get-PSDrive -Name ([IO.Path]::GetPathRoot($env:WORK).Substring(0,1)) -ErrorAction SilentlyContinue).Free / 1MB"`) do call :debug_log "DISK | free_mb=%%d"
 
 if exist "%RESULT%" (
   call :debug_log "RESULT | deleting stale result file=%RESULT%"
@@ -127,7 +131,8 @@ if "%MIRROR_ONLY%"=="1" (
   call :debug_log "EXTRACT | prepared TMP=%TMP% EX=%EX% NEXT=%NEXT%"
 
   call :debug_log "EXTRACT | Expand-Archive PKG=%PKG% EX=%EX%"
-  powershell -NoProfile -Command "& { Expand-Archive -Path $env:PKG -DestinationPath $env:EX -Force; $hit=Get-ChildItem -Path $env:EX -Filter 'aether.exe' -File -Recurse | Where-Object { Test-Path (Join-Path $_.DirectoryName 'Aether.vbs') } | Sort-Object { $_.DirectoryName.Length } | Select-Object -First 1; if(-not $hit){ throw 'missing app files' }; [IO.File]::WriteAllText($env:SRC_FILE, $hit.DirectoryName) }" || (
+  start "Aether Update" /wait %PSV% -ExecutionPolicy Bypass -Command "& { $ErrorActionPreference='Stop'; Expand-Archive -Path $env:PKG -DestinationPath $env:EX -Force; $hit=Get-ChildItem -Path $env:EX -Filter 'aether.exe' -File -Recurse | Where-Object { Test-Path (Join-Path $_.DirectoryName 'Aether.vbs') } | Sort-Object { $_.DirectoryName.Length } | Select-Object -First 1; if(-not $hit){ throw 'missing app files' }; [IO.File]::WriteAllText($env:SRC_FILE, $hit.DirectoryName) }"
+  if errorlevel 1 (
     call :write_result "failed" "recover" "Failed to extract %PKG%"
     call :debug_log "EXTRACT | FAILED Expand-Archive"
     goto :fail
@@ -226,7 +231,7 @@ set "CMD=%~1\Aether.vbs"
 set "ICON=%~1\aether-icon.ico"
 set "OUT=%TEMP%\aether-launch-%RANDOM%%RANDOM%.txt"
 if exist "%OUT%" del /f /q "%OUT%" >nul 2>nul
-powershell -NoProfile -Command "$cmd=$env:CMD; $icon=$env:ICON; $out=$env:OUT; $w=New-Object -ComObject WScript.Shell; $desk=[Environment]::GetFolderPath('DesktopDirectory'); if(-not $desk){ $desk=$w.SpecialFolders.Item('Desktop') }; $menu=[Environment]::GetFolderPath('Programs'); if(-not $menu){ $menu=Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs' }; $desk2=[Environment]::GetFolderPath('CommonDesktopDirectory'); $menu2=[Environment]::GetFolderPath('CommonPrograms'); $all=@($desk,$menu,$desk2,$menu2) | Where-Object { $_ } | Select-Object -Unique; foreach($dir in $all){ $lnk=Join-Path $dir 'Aether.lnk'; try { if(Test-Path $lnk){ Remove-Item -LiteralPath $lnk -Force -ErrorAction Stop } } catch {} }; $mk={ param($path,$target) try { $dir=Split-Path -Parent $path; if($dir -and -not (Test-Path $dir)){ New-Item -ItemType Directory -Path $dir -Force | Out-Null }; if(Test-Path $path){ Remove-Item -LiteralPath $path -Force -ErrorAction SilentlyContinue }; $s=$w.CreateShortcut($path); $s.TargetPath=$target; $s.WorkingDirectory=(Split-Path -Parent $target); if($icon -and (Test-Path $icon)){$s.IconLocation=$icon}; $s.Save(); if(-not (Test-Path $path)){ return $false }; $hit=$w.CreateShortcut($path); return $hit.TargetPath -eq $target } catch { return $false } }; $launch=''; $note=''; $desk_ok=$false; $menu_ok=$false; $desk2_ok=$false; $menu2_ok=$false; if($desk){ $desk_ok=& $mk (Join-Path $desk 'Aether.lnk') $cmd }; if($menu){ $menu_ok=& $mk (Join-Path $menu 'Aether.lnk') $cmd }; if($desk2){ $desk2_ok=& $mk (Join-Path $desk2 'Aether.lnk') $cmd }; if($menu2){ $menu2_ok=& $mk (Join-Path $menu2 'Aether.lnk') $cmd }; if($desk_ok){ $launch=Join-Path $desk 'Aether.lnk'; $note='Double-click Aether.vbs on your desktop to run it.' } elseif($desk2_ok){ $launch=Join-Path $desk2 'Aether.lnk'; $note='Double-click Aether.vbs on your desktop to run it.' } elseif($menu_ok){ $launch=Join-Path $menu 'Aether.lnk'; $note='Run Aether.vbs from the Start Menu.' } elseif($menu2_ok){ $launch=Join-Path $menu2 'Aether.lnk'; $note='Run Aether.vbs from the Start Menu.' } else { $launch=$cmd; $note='Shortcut creation failed. Open File Explorer, find this path, and double-click the file to run it.' }; [IO.File]::WriteAllLines($out, @($launch,$note))"
+%PSH% -Command "$cmd=$env:CMD; $icon=$env:ICON; $out=$env:OUT; $w=New-Object -ComObject WScript.Shell; $desk=[Environment]::GetFolderPath('DesktopDirectory'); if(-not $desk){ $desk=$w.SpecialFolders.Item('Desktop') }; $menu=[Environment]::GetFolderPath('Programs'); if(-not $menu){ $menu=Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs' }; $desk2=[Environment]::GetFolderPath('CommonDesktopDirectory'); $menu2=[Environment]::GetFolderPath('CommonPrograms'); $all=@($desk,$menu,$desk2,$menu2) | Where-Object { $_ } | Select-Object -Unique; foreach($dir in $all){ $lnk=Join-Path $dir 'Aether.lnk'; try { if(Test-Path $lnk){ Remove-Item -LiteralPath $lnk -Force -ErrorAction Stop } } catch {} }; $mk={ param($path,$target) try { $dir=Split-Path -Parent $path; if($dir -and -not (Test-Path $dir)){ New-Item -ItemType Directory -Path $dir -Force | Out-Null }; if(Test-Path $path){ Remove-Item -LiteralPath $path -Force -ErrorAction SilentlyContinue }; $s=$w.CreateShortcut($path); $s.TargetPath=$target; $s.WorkingDirectory=(Split-Path -Parent $target); if($icon -and (Test-Path $icon)){$s.IconLocation=$icon}; $s.Save(); if(-not (Test-Path $path)){ return $false }; $hit=$w.CreateShortcut($path); return $hit.TargetPath -eq $target } catch { return $false } }; $launch=''; $note=''; $desk_ok=$false; $menu_ok=$false; $desk2_ok=$false; $menu2_ok=$false; if($desk){ $desk_ok=& $mk (Join-Path $desk 'Aether.lnk') $cmd }; if($menu){ $menu_ok=& $mk (Join-Path $menu 'Aether.lnk') $cmd }; if($desk2){ $desk2_ok=& $mk (Join-Path $desk2 'Aether.lnk') $cmd }; if($menu2){ $menu2_ok=& $mk (Join-Path $menu2 'Aether.lnk') $cmd }; if($desk_ok){ $launch=Join-Path $desk 'Aether.lnk'; $note='Double-click Aether.vbs on your desktop to run it.' } elseif($desk2_ok){ $launch=Join-Path $desk2 'Aether.lnk'; $note='Double-click Aether.vbs on your desktop to run it.' } elseif($menu_ok){ $launch=Join-Path $menu 'Aether.lnk'; $note='Run Aether.vbs from the Start Menu.' } elseif($menu2_ok){ $launch=Join-Path $menu2 'Aether.lnk'; $note='Run Aether.vbs from the Start Menu.' } else { $launch=$cmd; $note='Shortcut creation failed. Open File Explorer, find this path, and double-click the file to run it.' }; [IO.File]::WriteAllLines($out, @($launch,$note))"
 set "LAUNCH=%CMD%"
 set "NOTE=Shortcut creation failed. Open File Explorer, find this path, and double-click the file to run it."
 if exist "%OUT%" (
@@ -246,7 +251,7 @@ set "RESULT_ACTION=%~2"
 set "RESULT_ERROR=%~3"
 if not defined RESULT exit /b 0
 call :debug_log "RESULT | status=%RESULT_STATUS% version=%VER% action=%RESULT_ACTION% error=%RESULT_ERROR%"
-powershell -NoProfile -Command "$file=$env:RESULT; $dir=Split-Path -Parent $file; if($dir){ [IO.Directory]::CreateDirectory($dir) | Out-Null }; $err=$env:RESULT_ERROR; if($null -eq $err){ $err='' }; $err=($err -replace [char]10,' ' -replace [char]13,' '); $lines=@(('status=' + $env:RESULT_STATUS),('version=' + $env:VER),('action=' + $env:RESULT_ACTION),('error=' + $err),('at=' + [DateTimeOffset]::UtcNow.ToUnixTimeSeconds())); [IO.File]::WriteAllLines($file, $lines)" >nul
+%PSH% -Command "$file=$env:RESULT; $dir=Split-Path -Parent $file; if($dir){ [IO.Directory]::CreateDirectory($dir) | Out-Null }; $err=$env:RESULT_ERROR; if($null -eq $err){ $err='' }; $err=($err -replace [char]10,' ' -replace [char]13,' '); $lines=@(('status=' + $env:RESULT_STATUS),('version=' + $env:VER),('action=' + $env:RESULT_ACTION),('error=' + $err),('at=' + [DateTimeOffset]::UtcNow.ToUnixTimeSeconds())); [IO.File]::WriteAllLines($file, $lines)" >nul
 exit /b 0
 
 :print_prune
@@ -297,13 +302,13 @@ call :debug_log "MIRROR_DIR | success MIRROR=%MIRROR%"
 exit /b 0
 
 :stamp
-for /f "usebackq delims=" %%i in (`powershell -NoProfile -Command "Get-Date -Format 'yyyyMMddHHmm'"`) do set "%~1=%%i"
+for /f "usebackq delims=" %%i in (`%PSH% -Command "Get-Date -Format 'yyyyMMddHHmm'"`) do set "%~1=%%i"
 exit /b 0
 
 :in_work
 set "CHK=%~1"
 if not defined AETHER_CURRENT_DIR exit /b 1
-for /f "usebackq delims=" %%i in (`powershell -NoProfile -Command "$cur=[IO.Path]::GetFullPath($env:AETHER_CURRENT_DIR); $root=[IO.Path]::GetFullPath($env:CHK); if($cur -eq $root -or $cur.StartsWith($root + [IO.Path]::DirectorySeparatorChar)){ Write-Output '1' } else { Write-Output '0' }"`) do set "IN_WORK=%%i"
+for /f "usebackq delims=" %%i in (`%PSH% -Command "$cur=[IO.Path]::GetFullPath($env:AETHER_CURRENT_DIR); $root=[IO.Path]::GetFullPath($env:CHK); if($cur -eq $root -or $cur.StartsWith($root + [IO.Path]::DirectorySeparatorChar)){ Write-Output '1' } else { Write-Output '0' }"`) do set "IN_WORK=%%i"
 if "!IN_WORK!"=="1" exit /b 0
 exit /b 1
 
@@ -315,8 +320,9 @@ call :snapshot_runtime "RESTART_AFTER_STOP"
 call :debug_log "RESTART | waiting 1s before boot"
 timeout /t 1 /nobreak >nul
 set "AETHER_DEBUG_LOG=%DEBUG_LOG%"
+set "AETHER_UPDATE_DEBUG_INHERITED=1"
 set "AETHER_WEB_OPEN_FALLBACK_MS=3000"
-call :debug_log "BOOT | fallback_ms=%AETHER_WEB_OPEN_FALLBACK_MS% debug_log=%DEBUG_LOG% inherited_debug_log=%AETHER_DEBUG_LOG%"
+call :debug_log "BOOT | fallback_ms=%AETHER_WEB_OPEN_FALLBACK_MS% debug_log=%DEBUG_LOG% inherited_debug_log=%AETHER_DEBUG_LOG% inherited_marker=%AETHER_UPDATE_DEBUG_INHERITED%"
 if exist "%START%\Aether.vbs" (
   call :debug_log "BOOT | launcher exists %START%\Aether.vbs"
 ) else (
@@ -330,13 +336,13 @@ exit /b 0
 
 :stop_runtime
 call :debug_log "STOP | starting stop_runtime OLD=%OLD% TARGET=%TARGET% AETHER_CURRENT_DIR=%AETHER_CURRENT_DIR% MIRROR=%MIRROR%"
-powershell -NoProfile -Command "& { function Log([string]$m){ if(-not $env:DEBUG_LOG){ return }; $dir=Split-Path -Parent $env:DEBUG_LOG; if($dir){ [IO.Directory]::CreateDirectory($dir) | Out-Null }; Add-Content -LiteralPath $env:DEBUG_LOG -Encoding UTF8 -Value ((Get-Date -Format 'yyyy-MM-dd HH:mm:ss.fff') + ' | ' + $m) }; function Flat([string]$s){ if($null -eq $s){ return '' }; return ($s -replace [char]13,' ' -replace [char]10,' ') }; $roots=New-Object System.Collections.Generic.List[string]; function AddRoot([string]$p){ if([string]::IsNullOrWhiteSpace($p)){ return }; try { $full=[IO.Path]::GetFullPath($p); if((Test-Path -LiteralPath $full) -and -not $roots.Contains($full)){ [void]$roots.Add($full); Log ('STOP | root=' + $full) } } catch { Log ('STOP | root_error path=' + (Flat $p) + ' error=' + (Flat $_.Exception.Message)) } }; AddRoot $env:OLD; AddRoot $env:TARGET; AddRoot $env:AETHER_CURRENT_DIR; AddRoot $env:MIRROR; if($env:WORK -and (Test-Path -LiteralPath $env:WORK)){ Get-ChildItem -LiteralPath $env:WORK -Directory -Filter 'aether_*' -ErrorAction SilentlyContinue | ForEach-Object { AddRoot $_.FullName } }; $base=''; if($env:AETHER_MIRROR_ROOT){ $base=$env:AETHER_MIRROR_ROOT } elseif($env:AETHER_CURRENT_DIR){ try { $base=[IO.Directory]::GetParent([IO.Path]::GetFullPath($env:AETHER_CURRENT_DIR)).FullName } catch { Log ('STOP | mirror_root_error error=' + (Flat $_.Exception.Message)) } }; if($base -and (Test-Path -LiteralPath $base)){ Get-ChildItem -LiteralPath $base -Directory -Filter 'aether_*' -ErrorAction SilentlyContinue | ForEach-Object { AddRoot $_.FullName } }; $names=@('aether.exe','wscript.exe','cscript.exe','node.exe','bun.exe'); function Hits { Get-CimInstance Win32_Process | Where-Object { $n=$_.Name.ToLowerInvariant(); if($names -notcontains $n){ return $false }; $cmd=$_.CommandLine; $exe=$_.ExecutablePath; foreach($r in $roots){ if(($cmd -and $cmd.IndexOf($r,[StringComparison]::OrdinalIgnoreCase) -ge 0) -or ($exe -and $exe.StartsWith($r,[StringComparison]::OrdinalIgnoreCase))){ return $true } }; return $false } }; function Dump([string]$tag,[array]$hits){ Log ('STOP | ' + $tag + ' count=' + $hits.Count); $hits | Sort-Object ProcessId | ForEach-Object { Log ('STOP | ' + $tag + ' pid=' + $_.ProcessId + ' name=' + $_.Name + ' exe=' + (Flat $_.ExecutablePath) + ' cmd=' + (Flat $_.CommandLine)) } }; Log ('STOP | scan start roots=' + $roots.Count); $hits=@(Hits); Dump 'initial' $hits; if($hits.Count -gt 0){ Write-Host 'Stopping old Aether processes...'; $hits | Sort-Object ProcessId -Descending | ForEach-Object { Log ('STOP | terminate pid=' + $_.ProcessId); Stop-Process -Id $_.ProcessId -ErrorAction SilentlyContinue } }; for($i=0; $i -lt 5; $i++){ Start-Sleep -Seconds 1; $hits=@(Hits); Dump ('after_soft_wait_' + ($i + 1)) $hits; if($hits.Count -eq 0){ Log 'STOP | all processes exited after soft stop'; exit 0 } }; $hits=@(Hits); Dump 'before_force' $hits; if($hits.Count -gt 0){ $hits | Sort-Object ProcessId -Descending | ForEach-Object { Log ('STOP | force pid=' + $_.ProcessId); Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue } }; for($i=0; $i -lt 3; $i++){ Start-Sleep -Seconds 1; $hits=@(Hits); Dump ('after_force_wait_' + ($i + 1)) $hits; if($hits.Count -eq 0){ Log 'STOP | all processes exited after force stop'; exit 0 } }; $hits=@(Hits); Dump 'final' $hits; if($hits.Count -gt 0){ Write-Host 'Warning: old Aether processes are still running; starting the new version anyway.'; Log 'STOP | warning old processes still running' } }"
+%PSH% -Command "& { function Log([string]$m){ if(-not $env:DEBUG_LOG){ return }; $dir=Split-Path -Parent $env:DEBUG_LOG; if($dir){ [IO.Directory]::CreateDirectory($dir) | Out-Null }; Add-Content -LiteralPath $env:DEBUG_LOG -Encoding UTF8 -Value ((Get-Date -Format 'yyyy-MM-dd HH:mm:ss.fff') + ' | ' + $m) }; function Flat([string]$s){ if($null -eq $s){ return '' }; return ($s -replace [char]13,' ' -replace [char]10,' ') }; $roots=New-Object System.Collections.Generic.List[string]; function AddRoot([string]$p){ if([string]::IsNullOrWhiteSpace($p)){ return }; try { $full=[IO.Path]::GetFullPath($p); if((Test-Path -LiteralPath $full) -and -not $roots.Contains($full)){ [void]$roots.Add($full); Log ('STOP | root=' + $full) } } catch { Log ('STOP | root_error path=' + (Flat $p) + ' error=' + (Flat $_.Exception.Message)) } }; AddRoot $env:OLD; AddRoot $env:TARGET; AddRoot $env:AETHER_CURRENT_DIR; AddRoot $env:MIRROR; if($env:WORK -and (Test-Path -LiteralPath $env:WORK)){ Get-ChildItem -LiteralPath $env:WORK -Directory -Filter 'aether_*' -ErrorAction SilentlyContinue | ForEach-Object { AddRoot $_.FullName } }; $base=''; if($env:AETHER_MIRROR_ROOT){ $base=$env:AETHER_MIRROR_ROOT } elseif($env:AETHER_CURRENT_DIR){ try { $base=[IO.Directory]::GetParent([IO.Path]::GetFullPath($env:AETHER_CURRENT_DIR)).FullName } catch { Log ('STOP | mirror_root_error error=' + (Flat $_.Exception.Message)) } }; if($base -and (Test-Path -LiteralPath $base)){ Get-ChildItem -LiteralPath $base -Directory -Filter 'aether_*' -ErrorAction SilentlyContinue | ForEach-Object { AddRoot $_.FullName } }; $names=@('aether.exe','wscript.exe','cscript.exe','node.exe','bun.exe'); function Hits { Get-CimInstance Win32_Process | Where-Object { $n=$_.Name.ToLowerInvariant(); if($names -notcontains $n){ return $false }; $cmd=$_.CommandLine; $exe=$_.ExecutablePath; foreach($r in $roots){ if(($cmd -and $cmd.IndexOf($r,[StringComparison]::OrdinalIgnoreCase) -ge 0) -or ($exe -and $exe.StartsWith($r,[StringComparison]::OrdinalIgnoreCase))){ return $true } }; return $false } }; function Dump([string]$tag,[array]$hits){ Log ('STOP | ' + $tag + ' count=' + $hits.Count); $hits | Sort-Object ProcessId | ForEach-Object { Log ('STOP | ' + $tag + ' pid=' + $_.ProcessId + ' name=' + $_.Name + ' exe=' + (Flat $_.ExecutablePath) + ' cmd=' + (Flat $_.CommandLine)) } }; Log ('STOP | scan start roots=' + $roots.Count); $hits=@(Hits); Dump 'initial' $hits; if($hits.Count -gt 0){ Write-Host 'Stopping old Aether processes...'; $hits | Sort-Object ProcessId -Descending | ForEach-Object { Log ('STOP | terminate pid=' + $_.ProcessId); Stop-Process -Id $_.ProcessId -ErrorAction SilentlyContinue } }; for($i=0; $i -lt 5; $i++){ Start-Sleep -Seconds 1; $hits=@(Hits); Dump ('after_soft_wait_' + ($i + 1)) $hits; if($hits.Count -eq 0){ Log 'STOP | all processes exited after soft stop'; exit 0 } }; $hits=@(Hits); Dump 'before_force' $hits; if($hits.Count -gt 0){ $hits | Sort-Object ProcessId -Descending | ForEach-Object { Log ('STOP | force pid=' + $_.ProcessId); Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue } }; for($i=0; $i -lt 3; $i++){ Start-Sleep -Seconds 1; $hits=@(Hits); Dump ('after_force_wait_' + ($i + 1)) $hits; if($hits.Count -eq 0){ Log 'STOP | all processes exited after force stop'; exit 0 } }; $hits=@(Hits); Dump 'final' $hits; if($hits.Count -gt 0){ Write-Host 'Warning: old Aether processes are still running; starting the new version anyway.'; Log 'STOP | warning old processes still running' } }"
 call :debug_log "STOP | powershell exit=%ERRORLEVEL%"
 exit /b 0
 
 :active_dir
 set "OLD="
-for /f "usebackq delims=" %%i in (`powershell -NoProfile -Command "$root=$env:WORK; $pick=Get-ChildItem -Path $root -Directory -Filter 'aether_*' -ErrorAction SilentlyContinue | ForEach-Object { $ver=''; if(Test-Path (Join-Path $_.FullName '.aether_web_version')){ $ver=(Get-Content (Join-Path $_.FullName '.aether_web_version') -TotalCount 1).Trim() }; if(-not $ver -and $_.Name -match '^aether[-_]([0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z]+)*)$'){ $ver=$matches[1] }; if($ver){ [PSCustomObject]@{ Dir=$_.FullName; Ver=$ver } } } | Where-Object { $_ } | Sort-Object @{Expression={ [version](($_.Ver -replace '^v','').Split('-')[0]) }} -Descending | Select-Object -First 1 -ExpandProperty Dir; if($pick){ [Console]::Write($pick) }"`) do set "OLD=%%i"
+for /f "usebackq delims=" %%i in (`%PSH% -Command "$root=$env:WORK; $pick=Get-ChildItem -Path $root -Directory -Filter 'aether_*' -ErrorAction SilentlyContinue | ForEach-Object { $ver=''; if(Test-Path (Join-Path $_.FullName '.aether_web_version')){ $ver=(Get-Content (Join-Path $_.FullName '.aether_web_version') -TotalCount 1).Trim() }; if(-not $ver -and $_.Name -match '^aether[-_]([0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z]+)*)$'){ $ver=$matches[1] }; if($ver){ [PSCustomObject]@{ Dir=$_.FullName; Ver=$ver } } } | Where-Object { $_ } | Sort-Object @{Expression={ [version](($_.Ver -replace '^v','').Split('-')[0]) }} -Descending | Select-Object -First 1 -ExpandProperty Dir; if($pick){ [Console]::Write($pick) }"`) do set "OLD=%%i"
 if defined OLD exit /b 0
 exit /b 0
 
@@ -354,7 +360,7 @@ if defined W (
     exit /b 0
   )
 )
-for /f "usebackq tokens=1,2,3 delims=|" %%i in (`powershell -NoProfile -Command "$dir=$env:DIR; $hits=Get-ChildItem -Path $dir -File -Filter 'aether-windows-x64-*.zip' | ForEach-Object { $name='aether-windows-x64-'; if($_.BaseName.Length -gt $name.Length){ [PSCustomObject]@{Path=$_.FullName;Name=$_.Name;Ver=$_.BaseName.Substring($name.Length)} } } | Where-Object { $_ -and $_.Ver }; if(-not $hits){ exit 1 }; $pick=$hits | Sort-Object { [version](($_.Ver -replace '^v','').Split('-')[0]) } | Select-Object -Last 1; Write-Output ($pick.Path + '|' + $pick.Ver + '|' + $pick.Name)"`) do (
+for /f "usebackq tokens=1,2,3 delims=|" %%i in (`%PSH% -Command "$dir=$env:DIR; $hits=Get-ChildItem -Path $dir -File -Filter 'aether-windows-x64-*.zip' | ForEach-Object { $name='aether-windows-x64-'; if($_.BaseName.Length -gt $name.Length){ [PSCustomObject]@{Path=$_.FullName;Name=$_.Name;Ver=$_.BaseName.Substring($name.Length)} } } | Where-Object { $_ -and $_.Ver }; if(-not $hits){ exit 1 }; $pick=$hits | Sort-Object { [version](($_.Ver -replace '^v','').Split('-')[0]) } | Select-Object -Last 1; Write-Output ($pick.Path + '|' + $pick.Ver + '|' + $pick.Name)"`) do (
   set "PKG=%%i"
   set "VER=%%j"
   set "PKG_NAME=%%k"
@@ -365,7 +371,7 @@ exit /b 0
 :cmp
 set "A=%~1"
 set "B=%~2"
-for /f "usebackq delims=" %%i in (`powershell -NoProfile -Command "$a=$env:A; $b=$env:B; function norm([string]$v){ if($null -eq $v -or $v -eq ''){ return $null }; $v=$v.Trim(); $v=$v -replace '^v',''; $v=$v.Split('-')[0]; $p=$v.Split('.'); while($p.Count -lt 4){ $p += '0' }; if($p.Count -gt 4){ $p=$p[0..3] }; [string]::Join('.', $p) }; $x=norm $a; $y=norm $b; if($null -eq $x -or $null -eq $y){ if($a -eq $b){ 'eq' } else { 'lt' }; exit 0 }; if(([version]$x) -lt ([version]$y)){ 'lt' } elseif(([version]$x) -gt ([version]$y)){ 'gt' } else { 'eq' }"`) do set "CMP=%%i"
+for /f "usebackq delims=" %%i in (`%PSH% -Command "$a=$env:A; $b=$env:B; function norm([string]$v){ if($null -eq $v -or $v -eq ''){ return $null }; $v=$v.Trim(); $v=$v -replace '^v',''; $v=$v.Split('-')[0]; $p=$v.Split('.'); while($p.Count -lt 4){ $p += '0' }; if($p.Count -gt 4){ $p=$p[0..3] }; [string]::Join('.', $p) }; $x=norm $a; $y=norm $b; if($null -eq $x -or $null -eq $y){ if($a -eq $b){ 'eq' } else { 'lt' }; exit 0 }; if(([version]$x) -lt ([version]$y)){ 'lt' } elseif(([version]$x) -gt ([version]$y)){ 'gt' } else { 'eq' }"`) do set "CMP=%%i"
 exit /b 0
 
 :installed
@@ -373,9 +379,9 @@ set "%~2="
 set "DIR=%~1"
 set "RV="
 for %%i in ("%DIR%") do set "NAME=%%~nxi"
-for /f "usebackq delims=" %%i in (`powershell -NoProfile -Command "$name=$env:NAME; if($name -match '^aether[-_]([0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z]+)*)$'){ [Console]::Write($matches[1]) }"`) do set "%~2=%%i"
+for /f "usebackq delims=" %%i in (`%PSH% -Command "$name=$env:NAME; if($name -match '^aether[-_]([0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z]+)*)$'){ [Console]::Write($matches[1]) }"`) do set "%~2=%%i"
 if defined %~2 exit /b 0
-for /f "usebackq delims=" %%i in (`powershell -NoProfile -Command "$root=$env:DIR; $best=Get-ChildItem -Path $root -Directory -ErrorAction SilentlyContinue | ForEach-Object { $ver=''; if(Test-Path (Join-Path $_.FullName '.aether_web_version')){ $ver=(Get-Content (Join-Path $_.FullName '.aether_web_version') -TotalCount 1).Trim() }; if(-not $ver -and $_.Name -match '^aether[-_]([0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z]+)*)$'){ $ver=$matches[1] }; if($ver){ [PSCustomObject]@{ Ver=$ver } } } | Where-Object { $_ } | Sort-Object @{Expression={ [version](($_.Ver -replace '^v','').Split('-')[0]) }} -Descending | Select-Object -First 1 -ExpandProperty Ver; if($best){ [Console]::Write($best) }"`) do set "%~2=%%i"
+for /f "usebackq delims=" %%i in (`%PSH% -Command "$root=$env:DIR; $best=Get-ChildItem -Path $root -Directory -ErrorAction SilentlyContinue | ForEach-Object { $ver=''; if(Test-Path (Join-Path $_.FullName '.aether_web_version')){ $ver=(Get-Content (Join-Path $_.FullName '.aether_web_version') -TotalCount 1).Trim() }; if(-not $ver -and $_.Name -match '^aether[-_]([0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z]+)*)$'){ $ver=$matches[1] }; if($ver){ [PSCustomObject]@{ Ver=$ver } } } | Where-Object { $_ } | Sort-Object @{Expression={ [version](($_.Ver -replace '^v','').Split('-')[0]) }} -Descending | Select-Object -First 1 -ExpandProperty Ver; if($best){ [Console]::Write($best) }"`) do set "%~2=%%i"
 exit /b 0
 
 :fail
@@ -392,11 +398,11 @@ exit /b 0
 
 :snapshot_runtime
 set "SNAP_TAG=%~1"
-powershell -NoProfile -Command "& { function Log([string]$m){ if(-not $env:DEBUG_LOG){ return }; $dir=Split-Path -Parent $env:DEBUG_LOG; if($dir){ [IO.Directory]::CreateDirectory($dir) | Out-Null }; Add-Content -LiteralPath $env:DEBUG_LOG -Encoding UTF8 -Value ((Get-Date -Format 'yyyy-MM-dd HH:mm:ss.fff') + ' | ' + $m) }; function Flat([string]$s){ if($null -eq $s){ return '' }; return ($s -replace [char]13,' ' -replace [char]10,' ') }; $roots=@($env:START,$env:TARGET,$env:MIRROR,$env:AETHER_CURRENT_DIR) | Where-Object { $_ } | ForEach-Object { try { [IO.Path]::GetFullPath($_) } catch { $_ } }; $names=@('aether.exe','wscript.exe','cscript.exe','node.exe','bun.exe'); $hits=@(Get-CimInstance Win32_Process | Where-Object { $n=$_.Name.ToLowerInvariant(); if($names -notcontains $n){ return $false }; if($roots.Count -eq 0){ return $n -eq 'aether.exe' }; $cmd=$_.CommandLine; $exe=$_.ExecutablePath; foreach($r in $roots){ if(($cmd -and $cmd.IndexOf($r,[StringComparison]::OrdinalIgnoreCase) -ge 0) -or ($exe -and $exe.StartsWith($r,[StringComparison]::OrdinalIgnoreCase))){ return $true } }; return $false }); Log ('SNAP | ' + $env:SNAP_TAG + ' count=' + $hits.Count + ' roots=' + ($roots -join ';')); $hits | Sort-Object ProcessId | ForEach-Object { Log ('SNAP | ' + $env:SNAP_TAG + ' pid=' + $_.ProcessId + ' name=' + $_.Name + ' exe=' + (Flat $_.ExecutablePath) + ' cmd=' + (Flat $_.CommandLine)) } }"
+%PSH% -Command "& { function Log([string]$m){ if(-not $env:DEBUG_LOG){ return }; $dir=Split-Path -Parent $env:DEBUG_LOG; if($dir){ [IO.Directory]::CreateDirectory($dir) | Out-Null }; Add-Content -LiteralPath $env:DEBUG_LOG -Encoding UTF8 -Value ((Get-Date -Format 'yyyy-MM-dd HH:mm:ss.fff') + ' | ' + $m) }; function Flat([string]$s){ if($null -eq $s){ return '' }; return ($s -replace [char]13,' ' -replace [char]10,' ') }; $roots=@($env:START,$env:TARGET,$env:MIRROR,$env:AETHER_CURRENT_DIR) | Where-Object { $_ } | ForEach-Object { try { [IO.Path]::GetFullPath($_) } catch { $_ } }; $names=@('aether.exe','wscript.exe','cscript.exe','node.exe','bun.exe'); $hits=@(Get-CimInstance Win32_Process | Where-Object { $n=$_.Name.ToLowerInvariant(); if($names -notcontains $n){ return $false }; if($roots.Count -eq 0){ return $n -eq 'aether.exe' }; $cmd=$_.CommandLine; $exe=$_.ExecutablePath; foreach($r in $roots){ if(($cmd -and $cmd.IndexOf($r,[StringComparison]::OrdinalIgnoreCase) -ge 0) -or ($exe -and $exe.StartsWith($r,[StringComparison]::OrdinalIgnoreCase))){ return $true } }; return $false }); Log ('SNAP | ' + $env:SNAP_TAG + ' count=' + $hits.Count + ' roots=' + ($roots -join ';')); $hits | Sort-Object ProcessId | ForEach-Object { Log ('SNAP | ' + $env:SNAP_TAG + ' pid=' + $_.ProcessId + ' name=' + $_.Name + ' exe=' + (Flat $_.ExecutablePath) + ' cmd=' + (Flat $_.CommandLine)) } }"
 exit /b 0
 
 :prune_versions
-for /f "usebackq delims=" %%i in (`powershell -NoProfile -Command "& { $root=$env:WORK; $keep=1000; $hold=[IO.Path]::GetFullPath($env:TARGET); $items=Get-ChildItem -Path $root -Directory -Filter 'aether_*' -ErrorAction SilentlyContinue | ForEach-Object { $ver=''; if(Test-Path (Join-Path $_.FullName '.aether_web_version')){ $ver=(Get-Content (Join-Path $_.FullName '.aether_web_version') -TotalCount 1).Trim() }; if(-not $ver -and $_.Name -match '^aether[-_]([0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z]+)*)$'){ $ver=$matches[1] }; if($ver){ [PSCustomObject]@{ Dir=$_.FullName; Ver=$ver } } } | Where-Object { $_ } | Sort-Object @{Expression={ [version](($_.Ver -replace '^v','').Split('-')[0]) }} -Descending; $keepers=New-Object System.Collections.Generic.List[string]; foreach($dir in @($hold)){ if($dir -and ($items | Where-Object { $_.Dir -eq $dir }) -and -not $keepers.Contains($dir)){ $keepers.Add($dir) } }; foreach($item in $items){ if($keepers.Count -ge $keep){ break }; if(-not $keepers.Contains($item.Dir)){ $keepers.Add($item.Dir) } }; $gone=0; foreach($item in $items){ if($keepers.Contains($item.Dir)){ continue }; Remove-Item $item.Dir -Recurse -Force -ErrorAction SilentlyContinue; if(-not (Test-Path $item.Dir)){ $gone++ } }; Write-Output $gone }"`) do set "PRUNE=%%i"
+for /f "usebackq delims=" %%i in (`%PSH% -Command "& { $root=$env:WORK; $keep=1000; $hold=[IO.Path]::GetFullPath($env:TARGET); $items=Get-ChildItem -Path $root -Directory -Filter 'aether_*' -ErrorAction SilentlyContinue | ForEach-Object { $ver=''; if(Test-Path (Join-Path $_.FullName '.aether_web_version')){ $ver=(Get-Content (Join-Path $_.FullName '.aether_web_version') -TotalCount 1).Trim() }; if(-not $ver -and $_.Name -match '^aether[-_]([0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z]+)*)$'){ $ver=$matches[1] }; if($ver){ [PSCustomObject]@{ Dir=$_.FullName; Ver=$ver } } } | Where-Object { $_ } | Sort-Object @{Expression={ [version](($_.Ver -replace '^v','').Split('-')[0]) }} -Descending; $keepers=New-Object System.Collections.Generic.List[string]; foreach($dir in @($hold)){ if($dir -and ($items | Where-Object { $_.Dir -eq $dir }) -and -not $keepers.Contains($dir)){ $keepers.Add($dir) } }; foreach($item in $items){ if($keepers.Count -ge $keep){ break }; if(-not $keepers.Contains($item.Dir)){ $keepers.Add($item.Dir) } }; $gone=0; foreach($item in $items){ if($keepers.Contains($item.Dir)){ continue }; Remove-Item $item.Dir -Recurse -Force -ErrorAction SilentlyContinue; if(-not (Test-Path $item.Dir)){ $gone++ } }; Write-Output $gone }"`) do set "PRUNE=%%i"
 if not defined PRUNE set "PRUNE=0"
 exit /b 0
 
@@ -404,7 +410,7 @@ exit /b 0
 if not defined AETHER_CURRENT_DIR exit /b 0
 for %%i in ("%AETHER_CURRENT_DIR%\..") do set "PROOT=%%~fi"
 if not defined PROOT exit /b 0
-for /f "usebackq delims=" %%i in (`powershell -NoProfile -Command "& { $root=$env:PROOT; $keep=1000; $hold=''; if($env:MIRROR){ $hold=[IO.Path]::GetFullPath($env:MIRROR) }; $items=Get-ChildItem -Path $root -Directory -Filter 'aether_*' -ErrorAction SilentlyContinue | ForEach-Object { $ver=''; if(Test-Path (Join-Path $_.FullName '.aether_web_version')){ $ver=(Get-Content (Join-Path $_.FullName '.aether_web_version') -TotalCount 1).Trim() }; if(-not $ver -and $_.Name -match '^aether[-_]([0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z]+)*)($|_[0-9]{12}$)'){ $ver=$matches[1] }; if($ver){ [PSCustomObject]@{ Dir=$_.FullName; Ver=$ver } } } | Where-Object { $_ } | Sort-Object @{Expression={ [version](($_.Ver -replace '^v','').Split('-')[0]) }} -Descending; $keepers=New-Object System.Collections.Generic.List[string]; foreach($dir in @($hold)){ if($dir -and ($items | Where-Object { $_.Dir -eq $dir }) -and -not $keepers.Contains($dir)){ $keepers.Add($dir) } }; foreach($item in $items){ if($keepers.Count -ge $keep){ break }; if(-not $keepers.Contains($item.Dir)){ $keepers.Add($item.Dir) } }; $gone=0; foreach($item in $items){ if($keepers.Contains($item.Dir)){ continue }; Remove-Item $item.Dir -Recurse -Force -ErrorAction SilentlyContinue; if(-not (Test-Path $item.Dir)){ $gone++ } }; Write-Output $gone }"`) do set "MPRUNE=%%i"
+for /f "usebackq delims=" %%i in (`%PSH% -Command "& { $root=$env:PROOT; $keep=1000; $hold=''; if($env:MIRROR){ $hold=[IO.Path]::GetFullPath($env:MIRROR) }; $items=Get-ChildItem -Path $root -Directory -Filter 'aether_*' -ErrorAction SilentlyContinue | ForEach-Object { $ver=''; if(Test-Path (Join-Path $_.FullName '.aether_web_version')){ $ver=(Get-Content (Join-Path $_.FullName '.aether_web_version') -TotalCount 1).Trim() }; if(-not $ver -and $_.Name -match '^aether[-_]([0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z]+)*)($|_[0-9]{12}$)'){ $ver=$matches[1] }; if($ver){ [PSCustomObject]@{ Dir=$_.FullName; Ver=$ver } } } | Where-Object { $_ } | Sort-Object @{Expression={ [version](($_.Ver -replace '^v','').Split('-')[0]) }} -Descending; $keepers=New-Object System.Collections.Generic.List[string]; foreach($dir in @($hold)){ if($dir -and ($items | Where-Object { $_.Dir -eq $dir }) -and -not $keepers.Contains($dir)){ $keepers.Add($dir) } }; foreach($item in $items){ if($keepers.Count -ge $keep){ break }; if(-not $keepers.Contains($item.Dir)){ $keepers.Add($item.Dir) } }; $gone=0; foreach($item in $items){ if($keepers.Contains($item.Dir)){ continue }; Remove-Item $item.Dir -Recurse -Force -ErrorAction SilentlyContinue; if(-not (Test-Path $item.Dir)){ $gone++ } }; Write-Output $gone }"`) do set "MPRUNE=%%i"
 if not defined MPRUNE set "MPRUNE=0"
 exit /b 0
 
@@ -413,7 +419,7 @@ set "PROT_DIR=%~1"
 set "PROT_HANDLER=%PROT_DIR%\aether-protocol-handler.vbs"
 if not exist "%PROT_HANDLER%" (call :debug_log "REG | no protocol handler at %PROT_HANDLER%" & exit /b 0)
 call :debug_log "REG | registering protocol handler=%PROT_HANDLER%"
-powershell -NoProfile -Command "& { $hkcu='HKCU:\Software\Classes\aether'; $handler=$env:PROT_HANDLER; if(-not (Test-Path $hkcu)){ New-Item -Path $hkcu -Force | Out-Null }; Set-ItemProperty -Path $hkcu -Name '(Default)' -Value 'URL:Aether Protocol' -Force; Set-ItemProperty -Path $hkcu -Name 'URL Protocol' -Value '' -Force; $cmd=$hkcu+'\shell\open\command'; if(-not (Test-Path $cmd)){ New-Item -Path $cmd -Force | Out-Null }; Set-ItemProperty -Path $cmd -Name '(Default)' -Value ('wscript.exe \"' + $handler + '\"') -Force }" >nul 2>nul
+%PSH% -Command "& { $hkcu='HKCU:\Software\Classes\aether'; $handler=$env:PROT_HANDLER; if(-not (Test-Path $hkcu)){ New-Item -Path $hkcu -Force | Out-Null }; Set-ItemProperty -Path $hkcu -Name '(Default)' -Value 'URL:Aether Protocol' -Force; Set-ItemProperty -Path $hkcu -Name 'URL Protocol' -Value '' -Force; $cmd=$hkcu+'\shell\open\command'; if(-not (Test-Path $cmd)){ New-Item -Path $cmd -Force | Out-Null }; Set-ItemProperty -Path $cmd -Name '(Default)' -Value ('wscript.exe \"' + $handler + '\"') -Force }" >nul 2>nul
 call :debug_log "REG | registry write done"
 exit /b 0
 

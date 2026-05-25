@@ -1,5 +1,6 @@
 import { spawn } from "child_process"
 import { createHash } from "crypto"
+import { writeFileSync } from "fs"
 import fs from "fs/promises"
 import { tmpdir } from "os"
 import path from "path"
@@ -247,6 +248,31 @@ function runEnv(work: string, extra?: Record<string, string>) {
   }
 }
 
+function quote(val: string) {
+  return `"${val.replace(/"/g, '""')}"`
+}
+
+function vbs(val: string) {
+  return val.replace(/"/g, '""')
+}
+
+function hide(args: string[], cwd: string) {
+  const file = path.join(tmpdir(), `aether-update-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}.vbs`)
+  const cmd = `cmd.exe /d /s /c "${args.map(quote).join(" ")}"`
+  writeFileSync(
+    file,
+    [
+      "On Error Resume Next",
+      'Set sh = CreateObject("WScript.Shell")',
+      `sh.CurrentDirectory = "${vbs(cwd)}"`,
+      `sh.Run "${vbs(cmd)}", 0, False`,
+      'CreateObject("Scripting.FileSystemObject").DeleteFile WScript.ScriptFullName, True',
+      "",
+    ].join("\r\n"),
+  )
+  return file
+}
+
 async function spawnAuto(os: z.infer<typeof WebUpdateOS>, script: string, work: string, cur: string) {
   const updateBase = await getUpdateBase()
   return await new Promise<number>((resolve, reject) => {
@@ -273,7 +299,7 @@ function spawnRun(
   if (version) args.push("--restart")
   const child =
     os === "windows"
-      ? spawn("cmd", ["/c", ...args], {
+      ? spawn("wscript.exe", ["//B", hide(args, path.join(work, "downloads"))], {
           detached: true,
           stdio: "ignore",
           cwd: path.join(work, "downloads"),
