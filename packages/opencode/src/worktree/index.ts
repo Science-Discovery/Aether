@@ -391,6 +391,12 @@ export namespace Worktree {
         )
       }
 
+      function disposeAndClean(target: string) {
+        return Effect.promise(() => Instance.disposeDirectory(target)).pipe(
+          Effect.flatMap(() => cleanDirectory(target)),
+        )
+      }
+
       function pruneWorktree() {
         return git(["worktree", "prune"], { cwd: Instance.worktree })
       }
@@ -405,7 +411,7 @@ export namespace Worktree {
         if (input.force) {
           yield* stopFsmonitor(directory)
           const dirExists = yield* fsys.exists(directory).pipe(Effect.orDie)
-          if (dirExists) yield* cleanDirectory(directory)
+          if (dirExists) yield* disposeAndClean(directory)
           yield* pruneWorktree()
 
           const staleId = ProjectID.fromDirectory(ProjectIdentity.norm(directory))
@@ -443,14 +449,14 @@ export namespace Worktree {
           const directoryExists = yield* fsys.exists(directory).pipe(Effect.orDie)
           if (directoryExists) {
             yield* stopFsmonitor(directory)
-            yield* cleanDirectory(directory)
+            yield* disposeAndClean(directory)
           }
           yield* pruneWorktree()
           return { status: "ok" as const }
         }
 
-        yield* stopFsmonitor(entry.path)
-        const removed = yield* git(["worktree", "remove", "--force", entry.path], { cwd: Instance.worktree })
+        yield* stopFsmonitor(entry!.path)
+        const removed = yield* git(["worktree", "remove", "--force", entry!.path], { cwd: Instance.worktree })
         if (removed.code !== 0) {
           const isStale = /does not exist|不存在|not a valid|验证失败/i.test(removed.stderr || removed.text || "")
           if (isStale) {
@@ -470,10 +476,10 @@ export namespace Worktree {
           }
         }
 
-        yield* cleanDirectory(entry.path)
+        yield* disposeAndClean(entry!.path)
         yield* pruneWorktree()
 
-        const branch = entry.branch?.replace(/^refs\/heads\//, "")
+        const branch = entry!.branch?.replace(/^refs\/heads\//, "")
         if (branch) {
           const deleted = yield* git(["branch", "-D", branch], { cwd: Instance.worktree })
           if (deleted.code !== 0) {
