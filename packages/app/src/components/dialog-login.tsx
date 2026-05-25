@@ -6,14 +6,9 @@ import { showToast } from "@opencode-ai/ui/toast"
 import { createStore } from "solid-js/store"
 import { useAuth } from "@/context/auth"
 import { useLanguage } from "@/context/language"
+import { message, scrub } from "@/utils/auth"
 
 type View = "login" | "forgot" | "reset"
-
-function message(err: unknown, fallback: string, auth: string) {
-  const code = (err as Error & { code?: string }).code
-  if (code === "TIMEOUT" || code === "NETWORK_ERROR") return auth
-  return (err as Error).message || fallback
-}
 
 export function DialogLogin() {
   const dialog = useDialog()
@@ -41,7 +36,7 @@ export function DialogLogin() {
     sent: false,
   })
 
-  function validEmail(): boolean {
+  function requireEmail(): boolean {
     if (!form.email.trim()) {
       setForm("emailErr", language.t("auth.login.email.required"))
       return false
@@ -53,7 +48,7 @@ export function DialogLogin() {
     let ok = true
     setForm({ emailErr: undefined, passwordErr: undefined, generalErr: undefined })
 
-    if (!validEmail()) ok = false
+    if (!requireEmail()) ok = false
 
     if (!form.password) {
       setForm("passwordErr", language.t("auth.login.password.required"))
@@ -132,7 +127,7 @@ export function DialogLogin() {
   async function handleForgot(e: SubmitEvent) {
     e.preventDefault()
     setForm({ emailErr: undefined, generalErr: undefined, sent: false })
-    if (!validEmail()) return
+    if (!requireEmail()) return
     setForm("submitting", true)
 
     try {
@@ -157,6 +152,7 @@ export function DialogLogin() {
 
     try {
       await auth.reset(form.token.trim(), form.password)
+      scrub()
       dialog.close()
       showToast({
         variant: "success",

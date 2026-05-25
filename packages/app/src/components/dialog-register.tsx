@@ -7,12 +7,7 @@ import { onCleanup } from "solid-js"
 import { createStore } from "solid-js/store"
 import { useAuth } from "@/context/auth"
 import { useLanguage } from "@/context/language"
-
-function message(err: unknown, fallback: string, auth: string) {
-  const code = (err as Error & { code?: string }).code
-  if (code === "TIMEOUT" || code === "NETWORK_ERROR") return auth
-  return (err as Error).message || fallback
-}
+import { message } from "@/utils/auth"
 
 export function DialogRegister() {
   const dialog = useDialog()
@@ -41,7 +36,7 @@ export function DialogRegister() {
     if (timer) clearInterval(timer)
   })
 
-  function validEmail() {
+  function validateEmail() {
     if (!form.email.trim()) {
       setForm("emailErr", language.t("auth.register.email.required"))
       return false
@@ -64,7 +59,7 @@ export function DialogRegister() {
       generalErr: undefined,
     })
 
-    if (!validEmail()) ok = false
+    if (!validateEmail()) ok = false
 
     if (!form.password) {
       setForm("passwordErr", language.t("auth.register.password.required"))
@@ -118,7 +113,7 @@ export function DialogRegister() {
 
   async function send() {
     setForm({ generalErr: undefined, emailErr: undefined })
-    if (!validEmail() || form.sending || form.wait > 0) return
+    if (!validateEmail() || form.sending || form.wait > 0) return
     setForm("sending", true)
 
     try {
@@ -133,7 +128,6 @@ export function DialogRegister() {
     } catch (err) {
       const code = (err as Error & { code?: string }).code
       if (code === "RATE_LIMITED" || code === "TOO_MANY_REQUESTS") {
-        tick()
         setForm("generalErr", language.t("auth.register.error.rateLimited"))
         return
       }
