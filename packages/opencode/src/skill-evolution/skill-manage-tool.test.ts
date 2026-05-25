@@ -10,13 +10,6 @@ mock.module("./publisher", () => ({
   SkillSavedEvent: {},
 }))
 
-// Guard.scan checks for dangerous patterns — skip in unit tests.
-mock.module("./guard", () => ({
-  Guard: {
-    scan: async () => ({ worstSeverity: "safe", issues: [] }),
-  },
-}))
-
 describe("SkillManageTool shadow copy-on-write", () => {
   test("edit with skillLocation copies original to shadow and writes there", async () => {
     const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "skill-shadow-test-"))
