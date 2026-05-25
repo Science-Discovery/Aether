@@ -758,6 +758,7 @@ export namespace Project {
         )
         if (!result) throw new Error(`Project not found: ${id}`)
         yield* dbProject(id, (d) => d.delete(DirectoryMetaTable).where(eq(DirectoryMetaTable.directory, dirNorm)).run())
+        yield* dbProject(id, (d) => d.delete(SessionTable).where(eq(SessionTable.directory, dirNorm)).run())
         yield* db((d) => d.delete(GlobalProjectMapTable).where(eq(GlobalProjectMapTable.directory, dirNorm)).run())
         yield* db((d) =>
           d
