@@ -740,6 +740,24 @@ export namespace Project {
             })
             .run(),
         )
+        yield* db((d) =>
+          d
+            .insert(ProjectRecentTable)
+            .values({
+              key: dirKey(dirNorm),
+              kind: "directory",
+              project_id: id,
+              directory: dirNorm,
+              activity_at: Date.now(),
+              time_created: Date.now(),
+              time_updated: Date.now(),
+            })
+            .onConflictDoUpdate({
+              target: ProjectRecentTable.key,
+              set: { kind: "directory", project_id: id, activity_at: Date.now(), time_updated: Date.now() },
+            })
+            .run(),
+        )
         yield* emitUpdated(fromRow(result))
       })
 
