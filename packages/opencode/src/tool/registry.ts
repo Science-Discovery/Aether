@@ -240,4 +240,19 @@ export namespace ToolRegistry {
   ) {
     return runPromise((svc) => svc.tools(model, agent))
   }
+
+  const _sessionTools = new Map<string, Tool.Info[]>()
+
+  export function registerForSession(sessionId: string, tool: Tool.Info) {
+    const existing = _sessionTools.get(sessionId) ?? []
+    _sessionTools.set(sessionId, [...existing, tool])
+  }
+
+  export function unregisterSession(sessionId: string) {
+    _sessionTools.delete(sessionId)
+  }
+
+  export function getSessionTools(sessionId: string): Tool.Info[] {
+    return _sessionTools.get(sessionId) ?? []
+  }
 }

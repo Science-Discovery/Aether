@@ -227,18 +227,19 @@ spawn 子 session（静默后台）
 （参考 `docs/skill-evolution.md` § 3.3）
 
 **Skill Evolution 专属项目：**
-- 所有 skill 子 session 统一存放在一个独立项目中（`~/.aether/skill-sessions/`）
-- 该项目拥有独立的 .db 文件，与主会话的 aether.db 平行，互不干扰
-- 在 UI 中与其他项目地位相等，用户可直接查看所有 skill session 的演化历史
+- `~/.aether/skill-sessions/` 是一个普通项目根目录，与其他项目根目录（如 `~/my-project/`）地位完全相同
+- 其 DB 文件按正常的 per-project 机制生成，存放在 `~/.local/share/aether/local/aether-<hash>.db`，无需任何特殊处理
+- 所有 skill 后台评审 session 统一创建在该项目下，在 UI 中与其他项目平等可见，用户可直接查看演化历史
 - 模型可单独配置，不继承父 session
-- skill 实际内容写入 `~/.aether/skill-sessions/<project>/skills/<skill-name>/`
+- `~/.aether/skill-sessions/<project>/` 为各项目的 skill 相关信息目录（具体结构待定）
 
-**一个 skill 对应一个 session：**
-- session title = `项目名称 / skill 名称`（由 Agent 调用 skill_manage 后确定）
-- 每次后台评审触发时，spawner 按 `项目名称 + skill 名` 在专属项目中查找现有 session
-  - 找到 → 追加本次对话历史，在同一 session 中继续分析
-  - 未找到 → 在专属项目中创建新 session，title 设为 `项目名称 / skill 名称`
-- 该 skill 的所有历次演化均保留在同一 session 中，形成完整演化轨迹
+**一个项目对应一个 evolution session：**
+- session title = `项目名称`（取自项目目录 basename，spawn 时即可确定，无需等待 AI 决策）
+- 每次后台评审触发时，按 title 在专属项目 DB 中查找现有 session：
+  - 找到且用户消息数 < 20 → 直接追加本次对话历史，在同一 session 中继续分析
+  - 找到但用户消息数 ≥ 20 → 删除最旧的 10 条消息（part 行级联删除），腾出空间后继续使用同一 session
+  - 未找到 → 直接 SQL 创建新 session（不经过 `Session.createNext`，无 share/snapshot/bus 副作用）
+- 一个 session 内混合记录该项目所有 skill 的演化历史；skill 文件本身是持久状态，AI 每次通过 `skill_manage` 读取现有 skill 内容来感知历史
 
 ```
 对话结束，触发条件全部满足
@@ -258,9 +259,10 @@ spawn 子 session（静默后台）
                            │
                            ▼
 ┌──────────────────────────────────────────────────────────────┐
-│  在 Skill Evolution 专属项目中查找/创建对应 skill session       │
-│  （spawner.ts，全部为插件新增代码，不修改旧文件）                │
-│  权限中禁止 task 工具（防递归 spawn）和 todowrite 工具          │
+│  在 skill-sessions DB 中按 title 查找/创建 evolution session  │
+│  （review-agent.ts，直接 SQL 写入，不经过 Session.createNext） │
+│  通过 Instance.provide(SKILL_SESSIONS_ROOT) 切换项目上下文     │
+│  使 Session.get / MessageV2 等自动指向 skill-sessions DB       │
 └──────────────────────────┬───────────────────────────────────┘
                            │
                            ▼
@@ -573,7 +575,7 @@ skills:
 用户完成任务
       │
       ▼ 每 10 次 LLM 步骤（可配置）
-后台评审子 session（在 skill-sessions 专属项目中可见）
+后台评审子 session（在 ~/.aether/skill-sessions/ 项目中可见）
       │
       ├── 有价值 → skill_manage（action 由 AI 自主决定）
       │              │

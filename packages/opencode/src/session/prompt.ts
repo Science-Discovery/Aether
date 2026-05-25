@@ -54,6 +54,7 @@ import { Knowledge } from "../knowledge"
 import { decodeDataUrl } from "@/util/data-url"
 import { Process } from "@/util/process"
 import { SessionRecovery } from "./recovery"
+import { SkillEvolutionHook } from "../skill-evolution"
 
 // @ts-ignore
 globalThis.AI_SDK_LOG_WARNINGS = false
@@ -294,6 +295,7 @@ export namespace SessionPrompt {
     let structuredOutput: unknown | undefined
 
     let step = 0
+    let _finalResponse = false
     const session = await Session.get(sessionID)
     while (true) {
       await SessionStatus.set(sessionID, { type: "busy" })
@@ -324,6 +326,7 @@ export namespace SessionPrompt {
         !["tool-calls"].includes(lastAssistant.finish) &&
         lastUser.id < lastAssistant.id
       ) {
+        _finalResponse = true
         log.info("exiting loop", { sessionID })
         break
       }
@@ -701,6 +704,13 @@ export namespace SessionPrompt {
 
       // Check if model finished (finish reason is not "tool-calls")
       const modelFinished = processor.message.finish && !["tool-calls"].includes(processor.message.finish)
+      if (processor.message.finish === "tool-calls") {
+        const assistantParts = await MessageV2.parts(processor.message.id)
+        const calledSkillManage = assistantParts.some(
+          (p) => p.type === "tool" && (p as MessageV2.ToolPart).tool === "skill_manage",
+        )
+        SkillEvolutionHook.onStep(sessionID, calledSkillManage)
+      }
 
       if (modelFinished && !processor.message.error) {
         if (format.type === "json_schema") {
@@ -727,6 +737,15 @@ export namespace SessionPrompt {
       continue
     }
     SessionCompaction.prune({ sessionID })
+
+    await SkillEvolutionHook.onLoopEnd({
+      sessionID,
+      finalResponse: _finalResponse,
+      aborted: abort.aborted,
+      projectId: String(session.projectID ?? ""),
+      projectDirectory: session.directory,
+    })
+
     for await (const item of MessageV2.stream(sessionID)) {
       if (item.info.role === "user") continue
       return item
@@ -832,6 +851,29 @@ export namespace SessionPrompt {
             output,
           )
           return output
+        },
+      })
+    }
+
+    for (const sessionTool of ToolRegistry.getSessionTools(input.session.id)) {
+      const next = await sessionTool.init({ agent: input.agent })
+      const schema = ProviderTransform.schema(input.model, z.toJSONSchema(next.parameters))
+      tools[sessionTool.id] = tool({
+        id: sessionTool.id as any,
+        description: next.description,
+        inputSchema: jsonSchema(schema as any),
+        async execute(args, options) {
+          const ctx = context(args, options)
+          const result = await next.execute(args, ctx)
+          return {
+            ...result,
+            attachments: result.attachments?.map((attachment) => ({
+              ...attachment,
+              id: PartID.ascending(),
+              sessionID: ctx.sessionID,
+              messageID: input.processor.message.id,
+            })),
+          }
         },
       })
     }

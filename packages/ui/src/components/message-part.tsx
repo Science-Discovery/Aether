@@ -323,6 +323,11 @@ export function getToolInfo(tool: string, input: any = {}): ToolInfo {
         icon: "brain",
         title: input.name || i18n.t("ui.tool.skill"),
       }
+    case "skill_manage":
+      return {
+        icon: "brain",
+        title: (input.action ? `${input.action}: ` : "") + (input.name || "skill_manage"),
+      }
     default:
       return {
         icon: "mcp",
@@ -2267,6 +2272,68 @@ ToolRegistry.register({
     const running = createMemo(() => props.status === "pending" || props.status === "running")
 
     const titleContent = () => <TextShimmer text={title()} active={running()} />
+
+    const trigger = () => (
+      <div data-slot="basic-tool-tool-info-structured">
+        <div data-slot="basic-tool-tool-info-main">
+          <span data-slot="basic-tool-tool-title" class="capitalize agent-title">
+            {titleContent()}
+          </span>
+        </div>
+      </div>
+    )
+
+    return <BasicTool icon="brain" status={props.status} trigger={trigger()} hideDetails />
+  },
+})
+
+ToolRegistry.register({
+  name: "skill_manage",
+  render(props) {
+    const action = createMemo(() => props.input.action || "")
+    const name = createMemo(() => props.input.name || "skill_manage")
+    const running = createMemo(() => props.status === "pending" || props.status === "running")
+    const isEvolution = createMemo(
+      () =>
+        action() === "create" ||
+        action() === "edit" ||
+        action() === "patch" ||
+        action() === "write_file" ||
+        action() === "remove_file",
+    )
+
+    let seenRunning = props.status === "pending" || props.status === "running"
+    const [keepShimmer, setKeepShimmer] = createSignal(false)
+    let shimmerTimer: ReturnType<typeof setTimeout> | undefined
+    createEffect(() => {
+      if (running()) {
+        clearTimeout(shimmerTimer)
+        seenRunning = true
+        if (isEvolution()) {
+          setKeepShimmer(true)
+        } else {
+          setKeepShimmer(false)
+        }
+      } else if (seenRunning) {
+        seenRunning = false
+        if (isEvolution()) {
+          setKeepShimmer(true)
+          clearTimeout(shimmerTimer)
+          shimmerTimer = setTimeout(() => setKeepShimmer(false), 1500)
+        } else {
+          setKeepShimmer(false)
+        }
+      }
+    })
+    onCleanup(() => clearTimeout(shimmerTimer))
+
+    const title = createMemo(() => (action() ? `${action()}: ${name()}` : name()))
+    const titleContent = createMemo(() => {
+      if (keepShimmer() || isEvolution()) {
+        return <ToolStatusTitle active={keepShimmer()} activeText="Skill Evolution" doneText={title()} />
+      }
+      return <TextShimmer text={title()} active={false} />
+    })
 
     const trigger = () => (
       <div data-slot="basic-tool-tool-info-structured">
