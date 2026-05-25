@@ -128,9 +128,14 @@ test("BrowserOpenFailed event is published when open() throws", async () => {
     fn: async () => {
       openShouldFail = true
 
+      let resolveEvent!: () => void
+      const eventReceived = new Promise<void>((r) => {
+        resolveEvent = r
+      })
       const events: Array<{ mcpName: string; url: string }> = []
       const unsubscribe = Bus.subscribe(MCP.BrowserOpenFailed, (evt) => {
         events.push(evt.properties)
+        resolveEvent()
       })
 
       // Run authenticate with a timeout to avoid waiting forever for the callback
@@ -138,8 +143,10 @@ test("BrowserOpenFailed event is published when open() throws", async () => {
       // don't show up as unhandled between tests.
       const authPromise = MCP.authenticate("test-oauth-server").catch(() => undefined)
 
-      // Config.get() can be slow in tests, so give it plenty of time.
-      await new Promise((resolve) => setTimeout(resolve, 2_000))
+      // Wait for the BrowserOpenFailed event to arrive before calling stop().
+      // This guarantees waitForCallback() has already registered the pending auth,
+      // so stop() will find and reject it — no race condition.
+      await Promise.race([eventReceived, new Promise<void>((resolve) => setTimeout(resolve, 10_000))])
 
       // Stop the callback server and cancel any pending auth
       await McpOAuthCallback.stop()
