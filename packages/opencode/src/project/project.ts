@@ -490,7 +490,7 @@ export namespace Project {
           )
         }
 
-        const touchDir = data.worktree !== "/" ? data.worktree : directory
+        const touchDir = result.worktree !== "/" ? result.worktree : directory
         yield* touch({ project: result, directory: touchDir })
 
         yield* dbProject(data.id, (d) =>
@@ -522,8 +522,8 @@ export namespace Project {
             .run(),
         )
 
-        if (data.worktree !== "/") {
-          const recentKey = dirKey(data.worktree)
+        if (result.worktree !== "/") {
+          const recentKey = dirKey(result.worktree)
           const recentRow = yield* db((d) =>
             d.select().from(ProjectRecentTable).where(eq(ProjectRecentTable.key, recentKey)).get(),
           )
@@ -574,7 +574,7 @@ export namespace Project {
 
         yield* emitUpdated(result)
 
-        if (result.vcs === "git" && data.sandbox === data.worktree) {
+        if (result.vcs === "git" && data.sandbox === result.worktree) {
           yield* syncWorktrees(result.id, result.worktree).pipe(
             Effect.catch(() => Effect.void),
             Effect.forkIn(scope),
