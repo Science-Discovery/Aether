@@ -68,7 +68,8 @@ import { useServer } from "@/context/server"
 import { bindResolver, initMobile } from "@/context/mobile"
 import { useLanguage, type Locale } from "@/context/language"
 import { actionOf, messageOf } from "@/utils/web-update"
-import { lease } from "@/utils/lease"
+import { lease, LeaseState } from "@/utils/lease"
+import { Resume } from "@/utils/resume"
 import {
   displayName,
   effectiveWorkspaceOrder,
@@ -155,15 +156,27 @@ export default function Layout(props: ParentProps) {
   }
   const colorSchemeLabel = (scheme: ColorScheme) => language.t(colorSchemeKey[scheme])
   const currentDir = createMemo(() => decode64(params.dir) ?? "")
+  const syncLease = (directory = currentDir() || undefined) => {
+    LeaseState.set(directory)
+    void globalSDK.client.global.activeDirectory.set({ id: lease, directory }).catch(() => undefined)
+  }
 
   createEffect(
     on(
       () => currentDir() || undefined,
-      (directory) => {
-        void globalSDK.client.global.activeDirectory.set({ id: lease, directory }).catch(() => undefined)
-      },
+      syncLease,
     ),
   )
+
+  onCleanup(() => LeaseState.set())
+
+  onMount(() => {
+    return Resume.on(() => {
+      const dir = currentDir() || undefined
+      if (!dir) return
+      syncLease(dir)
+    })
+  })
 
   const [state, setState] = createStore({
     autoselect: !initialDirectory,

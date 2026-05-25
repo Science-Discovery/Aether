@@ -56,6 +56,7 @@ const ProxyConfig = z.object({
 const PingInput = z.object({
   id: z.string().min(1),
   alive: z.boolean().optional(),
+  directory: z.string().optional(),
 })
 
 const ActiveDirectoryInput = z.object({
@@ -439,7 +440,7 @@ export const GlobalRoutes = lazy(() =>
           return c.json({ ok: true as const })
         }
         Lease.touch(body.id)
-        ActiveDirectory.touch(body.id)
+        ActiveDirectory.refresh(body.id, body.directory)
         WatcherHint.touch(body.id)
         return c.json({ ok: true as const })
       },

@@ -117,6 +117,7 @@ import type {
   GlobalProxyGetResponses,
   GlobalProxyUpdateErrors,
   GlobalProxyUpdateResponses,
+  GlobalScriptsResponses,
   GlobalSyncEventSubscribeResponses,
   GlobalUpgradeErrors,
   GlobalUpgradeResponses,
@@ -761,6 +762,18 @@ export class Config extends HeyApiClient {
 
 export class Global extends HeyApiClient {
   /**
+   * List global scripts
+   *
+   * List user scripts in the global data directory's .bin folder, along with the absolute path.
+   */
+  public scripts<ThrowOnError extends boolean = false>(options?: Options<never, ThrowOnError>) {
+    return (options?.client ?? this.client).get<GlobalScriptsResponses, unknown, ThrowOnError>({
+      url: "/global/scripts",
+      ...options,
+    })
+  }
+
+  /**
    * Get health
    *
    * Get health information about the OpenCode server.
@@ -781,6 +794,7 @@ export class Global extends HeyApiClient {
     parameters?: {
       id?: string
       alive?: boolean
+      directory?: string
     },
     options?: Options<never, ThrowOnError>,
   ) {
@@ -791,6 +805,7 @@ export class Global extends HeyApiClient {
           args: [
             { in: "body", key: "id" },
             { in: "body", key: "alive" },
+            { in: "body", key: "directory" },
           ],
         },
       ],

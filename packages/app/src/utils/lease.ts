@@ -9,3 +9,14 @@ export const lease = (() => {
     return fallback()
   }
 })()
+
+let dir: string | undefined
+
+export const LeaseState = {
+  get() {
+    return dir
+  },
+  set(input?: string) {
+    dir = input || undefined
+  },
+}

@@ -7,7 +7,8 @@ import { type Platform, PlatformProvider } from "@/context/platform"
 import { dict as en } from "@/i18n/en"
 import { dict as zh } from "@/i18n/zh"
 import { createWebUpdate } from "@/utils/web-update"
-import { lease } from "@/utils/lease"
+import { lease, LeaseState } from "@/utils/lease"
+import { Resume } from "@/utils/resume"
 import { handleNotificationClick } from "@/utils/notification-click"
 import { ServerConnection } from "./context/server"
 
@@ -207,7 +208,7 @@ const ping = async (alive = true) => {
   await req("/global/ping", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ id: lease, alive }),
+    body: JSON.stringify({ id: lease, alive, directory: LeaseState.get() }),
   }).catch(() => undefined)
 }
 
@@ -232,16 +233,21 @@ const start = () => {
     void ping()
   }, 10_000)
   const hide = () => release()
-  const focus = () => {
+  const resume = () => {
     if (document.visibilityState !== "visible") return
+    Resume.emit()
     void ping()
   }
   window.addEventListener("pagehide", hide)
-  document.addEventListener("visibilitychange", focus)
+  window.addEventListener("focus", resume)
+  window.addEventListener("pageshow", resume)
+  document.addEventListener("visibilitychange", resume)
   return () => {
     clearInterval(timer)
     window.removeEventListener("pagehide", hide)
-    document.removeEventListener("visibilitychange", focus)
+    window.removeEventListener("focus", resume)
+    window.removeEventListener("pageshow", resume)
+    document.removeEventListener("visibilitychange", resume)
   }
 }
 

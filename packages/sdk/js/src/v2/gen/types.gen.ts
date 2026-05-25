@@ -1917,6 +1917,10 @@ export type Model = {
     [key: string]: string
   }
   release_date: string
+  modalities?: {
+    input: Array<"text" | "audio" | "image" | "video" | "pdf">
+    output: Array<"text" | "audio" | "image" | "video" | "pdf">
+  }
   variants?: {
     [key: string]: {
       [key: string]: unknown
@@ -2403,6 +2407,25 @@ export type FormatterStatus = {
   enabled: boolean
 }
 
+export type GlobalScriptsData = {
+  body?: never
+  path?: never
+  query?: never
+  url: "/global/scripts"
+}
+
+export type GlobalScriptsResponses = {
+  /**
+   * Script names and path
+   */
+  200: {
+    path: string
+    names: Array<string>
+  }
+}
+
+export type GlobalScriptsResponse = GlobalScriptsResponses[keyof GlobalScriptsResponses]
+
 export type GlobalProxyGetData = {
   body?: never
   path?: never
@@ -2591,6 +2614,7 @@ export type GlobalPingData = {
   body?: {
     id: string
     alive?: boolean
+    directory?: string
   }
   path?: never
   query?: never

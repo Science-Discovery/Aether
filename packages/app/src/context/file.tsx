@@ -33,6 +33,7 @@ import {
   type SelectedLineRange,
 } from "./file/types"
 import { lease } from "@/utils/lease"
+import { Resume } from "@/utils/resume"
 
 export type { FileSelection, SelectedLineRange, FileViewState, FileState }
 export { selectionFromLines }
@@ -273,7 +274,7 @@ export const { use: useFile, provider: FileProvider } = createSimpleContext({
     })
 
     let hinted = ""
-    createEffect(() => {
+    const sendHint = (force = false) => {
       const directory = scope()
       if (!directory) return
       const hint = buildWatcherHint({
@@ -286,7 +287,7 @@ export const { use: useFile, provider: FileProvider } = createSimpleContext({
         files: hint.files,
         dirs: hint.dirs,
       })
-      if (hinted === key) return
+      if (!force && hinted === key) return
       hinted = key
       void sdk.client.global.watcherHint.set({
         id: lease,
@@ -294,7 +295,17 @@ export const { use: useFile, provider: FileProvider } = createSimpleContext({
         files: hint.files,
         dirs: hint.dirs,
       }).catch(() => undefined)
+    }
+
+    createEffect(() => {
+      sendHint()
     })
+
+    onCleanup(
+      Resume.on(() => {
+        sendHint(true)
+      }),
+    )
 
     const evictContent = (keep?: Set<string>) => {
       evictContentLru(keep, (target) => {

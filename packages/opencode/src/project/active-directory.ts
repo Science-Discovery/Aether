@@ -151,6 +151,12 @@ export const ActiveDirectory = {
     })
     return sync()
   },
+  refresh(id: string, directory?: string) {
+    const next = directory ? Filesystem.resolve(directory) : undefined
+    const prev = map.get(id)?.directory
+    if (next && prev !== next) return this.set(id, next)
+    return this.touch(id)
+  },
   drop(id: string) {
     if (!id) return current
     if (!map.has(id)) return current
