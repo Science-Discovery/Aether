@@ -1309,6 +1309,7 @@ export const dict = {
   "workspace.delete.hasSessions": "检测到工作区有会话，如何处理？",
   "workspace.delete.mergeSessions": "合并进主工作区",
   "workspace.delete.alsoDeleteSessions": "同时删除会话",
+  "workspace.delete.mergeFailed": "合并会话失败，未删除工作区。",
   "workspace.delete.stale.title": "失效工作区",
   "workspace.delete.stale.confirm": '工作区 "{{name}}" 已失去 git worktree 关系。是否强制删除该目录？',
   "workspace.delete.stale.description":

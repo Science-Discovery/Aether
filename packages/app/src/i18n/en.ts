@@ -1443,6 +1443,7 @@ export const dict = {
   "workspace.delete.hasSessions": "This workspace has sessions. How would you like to proceed?",
   "workspace.delete.mergeSessions": "Merge to main workspace",
   "workspace.delete.alsoDeleteSessions": "Delete sessions too",
+  "workspace.delete.mergeFailed": "Failed to merge sessions. Workspace was not deleted.",
   "workspace.delete.stale.title": "Stale workspace",
   "workspace.delete.stale.confirm":
     'Workspace "{{name}}" has lost its git worktree relationship. Force delete the directory?',

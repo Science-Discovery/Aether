@@ -2007,13 +2007,26 @@ export default function Layout(props: ParentProps) {
     const handleMerge = async () => {
       dialog.close()
       try {
-        await fetch(`${globalSDK.url}/experimental/worktree/merge-sessions`, {
+        const resp = await fetch(`${globalSDK.url}/experimental/worktree/merge-sessions`, {
           method: "POST",
           headers: { "Content-Type": "application/json", "x-opencode-directory": props.directory },
           body: JSON.stringify({ directory: props.directory }),
         })
+        if (!resp.ok) {
+          showToast({
+            variant: "error",
+            title: language.t("workspace.delete.failed.title"),
+            description: language.t("workspace.delete.mergeFailed"),
+          })
+          return
+        }
       } catch {
-        // ignore
+        showToast({
+          variant: "error",
+          title: language.t("workspace.delete.failed.title"),
+          description: language.t("workspace.delete.mergeFailed"),
+        })
+        return
       }
       const leaveDeletedWorkspace = !!params.dir && workspaceKey(currentDir()) === workspaceKey(props.directory)
       if (leaveDeletedWorkspace) {
