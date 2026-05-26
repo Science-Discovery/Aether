@@ -479,16 +479,6 @@ export namespace Worktree {
         yield* disposeAndClean(entry!.path)
         yield* pruneWorktree()
 
-        const branch = entry!.branch?.replace(/^refs\/heads\//, "")
-        if (branch) {
-          const deleted = yield* git(["branch", "-D", branch], { cwd: Instance.worktree })
-          if (deleted.code !== 0) {
-            throw new RemoveFailedError({
-              message: deleted.stderr || deleted.text || "Failed to delete worktree branch",
-            })
-          }
-        }
-
         return { status: "ok" as const }
       })
 
