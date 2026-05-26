@@ -275,6 +275,7 @@ export namespace Project {
     readonly sandboxes: (id: ProjectID) => Effect.Effect<string[]>
     readonly addSandbox: (id: ProjectID, directory: string) => Effect.Effect<void>
     readonly removeSandbox: (id: ProjectID, directory: string) => Effect.Effect<void>
+    readonly mergeSandboxSessions: (id: ProjectID, directory: string) => Effect.Effect<number>
     readonly syncWorktrees: (id: ProjectID, worktree: string) => Effect.Effect<void>
   }
 
@@ -761,6 +762,29 @@ export namespace Project {
         yield* emitUpdated(fromRow(result))
       })
 
+      const mergeSandboxSessions = Effect.fn("Project.mergeSandboxSessions")(function* (
+        id: ProjectID,
+        directory: string,
+      ) {
+        const row = yield* dbProject(id, (d) => d.select().from(ProjectTable).where(eq(ProjectTable.id, id)).get())
+        if (!row) throw new Error(`Project not found: ${id}`)
+        const dirNorm = norm(directory)
+        const worktree = norm(row.worktree)
+        const sessions = yield* dbProject(id, (d) =>
+          d.select({ id: SessionTable.id }).from(SessionTable).where(eq(SessionTable.directory, dirNorm)).all(),
+        )
+        if (sessions.length > 0) {
+          yield* dbProject(id, (d) =>
+            d
+              .update(SessionTable)
+              .set({ directory: worktree, time_updated: Date.now() })
+              .where(eq(SessionTable.directory, dirNorm))
+              .run(),
+          )
+        }
+        return sessions.length
+      })
+
       const removeSandbox = Effect.fn("Project.removeSandbox")(function* (id: ProjectID, directory: string) {
         const row = yield* dbProject(id, (d) => d.select().from(ProjectTable).where(eq(ProjectTable.id, id)).get())
         if (!row) throw new Error(`Project not found: ${id}`)
@@ -898,6 +922,7 @@ export namespace Project {
         sandboxes,
         addSandbox,
         removeSandbox,
+        mergeSandboxSessions,
       })
     }),
   )
@@ -1026,6 +1051,10 @@ export namespace Project {
 
   export function removeSandbox(id: ProjectID, directory: string) {
     return runPromise((svc) => svc.removeSandbox(id, directory))
+  }
+
+  export function mergeSandboxSessions(id: ProjectID, directory: string) {
+    return runPromise((svc) => svc.mergeSandboxSessions(id, directory))
   }
 
   export function syncWorktrees(id: ProjectID, worktree: string) {

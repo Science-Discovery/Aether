@@ -1972,6 +1972,7 @@ export default function Layout(props: ParentProps) {
     const [data, setData] = createStore({
       status: "loading" as "loading" | "ready" | "error",
       dirty: false,
+      sessionCount: 0,
     })
 
     onMount(() => {
@@ -1985,6 +1986,13 @@ export default function Layout(props: ParentProps) {
         .catch(() => {
           setData({ status: "error", dirty: false })
         })
+      globalSDK.client.session
+        .list({ directory: props.directory })
+        .then((x) => {
+          const active = (x.data ?? []).filter((s) => s.time.archived === undefined)
+          setData({ sessionCount: active.length })
+        })
+        .catch(() => undefined)
     })
 
     const handleDelete = () => {
@@ -1996,11 +2004,30 @@ export default function Layout(props: ParentProps) {
       void deleteWorkspace(props.root, props.directory, leaveDeletedWorkspace)
     }
 
+    const handleMerge = async () => {
+      dialog.close()
+      try {
+        await fetch(`${globalSDK.url}/experimental/worktree/merge-sessions`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "x-opencode-directory": props.directory },
+          body: JSON.stringify({ directory: props.directory }),
+        })
+      } catch {
+        // ignore
+      }
+      const leaveDeletedWorkspace = !!params.dir && workspaceKey(currentDir()) === workspaceKey(props.directory)
+      if (leaveDeletedWorkspace) {
+        navigateWithSidebarReset(`/${base64Encode(props.root)}/session`)
+      }
+      void deleteWorkspace(props.root, props.directory, leaveDeletedWorkspace)
+    }
+
     const description = () => {
       if (data.status === "loading") return language.t("workspace.status.checking")
       if (data.status === "error") return language.t("workspace.status.error")
-      if (!data.dirty) return language.t("workspace.status.clean")
-      return language.t("workspace.status.dirty")
+      if (data.dirty) return language.t("workspace.status.dirty")
+      if (data.sessionCount > 0) return language.t("workspace.delete.hasSessions")
+      return language.t("workspace.status.clean")
     }
 
     return (
@@ -2009,9 +2036,19 @@ export default function Layout(props: ParentProps) {
           <span class="text-12-regular text-text-weak">{description()}</span>
           <div class="flex justify-end gap-2">
             <Button variant="ghost" size="large" onClick={() => dialog.close()}>
-              {language.t("common.cancel")}
+              {language.t("workspace.delete.cancel")}
             </Button>
-            <Show when={!data.dirty}>
+            <Show when={!data.dirty && data.sessionCount > 0}>
+              <Button variant="secondary" size="large" onClick={handleMerge}>
+                {language.t("workspace.delete.mergeSessions")}
+              </Button>
+            </Show>
+            <Show when={!data.dirty && data.sessionCount > 0}>
+              <Button variant="primary" size="large" onClick={handleDelete}>
+                {language.t("workspace.delete.alsoDeleteSessions")}
+              </Button>
+            </Show>
+            <Show when={!data.dirty && data.sessionCount === 0}>
               <Button variant="primary" size="large" disabled={data.status === "loading"} onClick={handleDelete}>
                 {language.t("workspace.delete.button")}
               </Button>
