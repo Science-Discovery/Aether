@@ -464,6 +464,13 @@ const WorkspaceActions = (props: {
     }
   }
 
+  const translateCheckoutError = (err: string) => {
+    if (/would be overwritten by checkout/i.test(err)) {
+      return language.t("workspace.switchBranch.overwritten")
+    }
+    return err
+  }
+
   const checkout = async (name: string) => {
     props.setMenuOpen(false)
     try {
@@ -474,7 +481,11 @@ const WorkspaceActions = (props: {
       })
       const result = await resp.json()
       if (!result.success) {
-        showToast({ variant: "error", title: language.t("workspace.switchBranch"), description: result.error })
+        showToast({
+          variant: "error",
+          title: language.t("workspace.switchBranch"),
+          description: translateCheckoutError(result.error),
+        })
       }
     } catch (e) {
       showToast({ variant: "error", title: language.t("workspace.switchBranch"), description: String(e) })

@@ -2109,7 +2109,7 @@ export default function Layout(props: ParentProps) {
       if (state.status === "loading") return language.t("workspace.status.checking")
       if (state.status === "error") return language.t("workspace.status.error")
       if (!state.dirty) return language.t("workspace.status.clean")
-      return language.t("workspace.status.dirty")
+      return language.t("workspace.reset.dirty")
     }
 
     const archivedLabel = () => {
@@ -2120,22 +2120,17 @@ export default function Layout(props: ParentProps) {
     }
 
     return (
-      <Dialog title={language.t("workspace.reset.title")} fit>
+      <Dialog title={language.t("workspace.reset.confirm", { name: name() })} fit>
         <div class="flex flex-col gap-4 pl-6 pr-2.5 pb-3">
-          <div class="flex flex-col gap-1">
-            <span class="text-14-regular text-text-strong">
-              {language.t("workspace.reset.confirm", { name: name() })}
-            </span>
-            <span class="text-12-regular text-text-weak">
-              {description()} {archivedLabel()} {language.t("workspace.reset.note")}
-            </span>
-          </div>
+          <span class="text-12-regular text-text-weak">
+            {description()} {archivedLabel()} {language.t("workspace.reset.note")}
+          </span>
           <div class="flex justify-end gap-2">
             <Button variant="ghost" size="large" onClick={() => dialog.close()}>
               {language.t("common.cancel")}
             </Button>
             <Button variant="primary" size="large" disabled={state.status === "loading"} onClick={handleReset}>
-              {language.t("workspace.reset.button")}
+              {language.t("workspace.reset.confirmButton")}
             </Button>
           </div>
         </div>
