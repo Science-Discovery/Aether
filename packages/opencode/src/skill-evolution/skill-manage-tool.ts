@@ -35,7 +35,10 @@ function parseFrontmatter(content: string): { meta: Record<string, string>; body
     const colon = line.indexOf(":")
     if (colon === -1) continue
     const key = line.slice(0, colon).trim()
-    const val = line.slice(colon + 1).trim().replace(/^['"]|['"]$/g, "")
+    const val = line
+      .slice(colon + 1)
+      .trim()
+      .replace(/^['"]|['"]$/g, "")
     if (key) meta[key] = val
   }
   return { meta, body }
@@ -76,10 +79,11 @@ export const SkillManageInput = z.preprocess(
     return out
   },
   z.object({
-    action: z.enum(["create", "edit", "patch", "write_file", "delete", "history", "rollback"]).describe(
-      "Action to perform on a skill",
-    ),
-    name: z.string()
+    action: z
+      .enum(["create", "edit", "patch", "write_file", "delete", "history", "rollback"])
+      .describe("Action to perform on a skill"),
+    name: z
+      .string()
       .regex(/^[a-zA-Z0-9_-]+$/, "Skill name must only contain letters, numbers, hyphens, or underscores")
       .describe("Skill name (directory name under the skills folder). Required for all actions."),
     description: z
@@ -92,8 +96,16 @@ export const SkillManageInput = z.preprocess(
       .describe(
         "Short category label for grouping skills (e.g. 'Git', 'Testing', 'Refactoring'). Required for create and edit — always infer one from the skill content if not obvious.",
       ),
-    content: z.string().optional().describe("Full skill body (markdown, without frontmatter) for create/edit; file content for write_file."),
-    old_str: z.string().optional().describe("Exact text to replace (patch action). Read SKILL.md first if content is not already in context — never guess."),
+    content: z
+      .string()
+      .optional()
+      .describe("Full skill body (markdown, without frontmatter) for create/edit; file content for write_file."),
+    old_str: z
+      .string()
+      .optional()
+      .describe(
+        "Exact text to replace (patch action). Read SKILL.md first if content is not already in context — never guess.",
+      ),
     new_str: z.string().optional().describe("Replacement text (patch action)"),
     /** For write_file: name of the auxiliary file to write */
     filename: z.string().optional().describe("Auxiliary file name within the skill directory (for write_file)"),
@@ -120,7 +132,9 @@ const skillLocks = new Map<string, Promise<void>>()
 async function withSkillLock<T>(skillDir: string, fn: () => Promise<T>): Promise<T> {
   const prev = skillLocks.get(skillDir) ?? Promise.resolve()
   let resolve!: () => void
-  const current = new Promise<void>(r => { resolve = r })
+  const current = new Promise<void>((r) => {
+    resolve = r
+  })
   skillLocks.set(skillDir, current)
   await prev
   try {
@@ -166,11 +180,14 @@ export namespace SkillManageTool {
       if (!ShadowWriter.validateSkillLocation(input.skillLocation)) {
         throw new Error(
           `Unsafe skillLocation rejected: "${input.skillLocation}". ` +
-          `Must point to a file inside a <config-marker>/skills/ directory (e.g. .claude/skills/foo/SKILL.md).`,
+            `Must point to a file inside a <config-marker>/skills/ directory (e.g. .claude/skills/foo/SKILL.md).`,
         )
       }
       const originalDir = path.dirname(input.skillLocation)
-      const shadowExists = await fs.access(skillDir).then(() => true).catch(() => false)
+      const shadowExists = await fs
+        .access(skillDir)
+        .then(() => true)
+        .catch(() => false)
       if (!shadowExists) {
         await ShadowWriter.copyToShadowIfNeeded(originalDir, skillDir)
         await Versions.create(skillDir, "original")
@@ -231,7 +248,12 @@ export namespace SkillManageTool {
     const skillMd = path.join(skillDir, "SKILL.md")
     const oldContent = await fs.readFile(skillMd, "utf-8").catch(() => null)
     const existingCategory = oldContent ? parseFrontmatter(oldContent).meta.category : undefined
-    const fileContent = buildContent(input.name, input.description.trim(), input.content, input.category ?? existingCategory)
+    const fileContent = buildContent(
+      input.name,
+      input.description.trim(),
+      input.content,
+      input.category ?? existingCategory,
+    )
     await atomicWrite(skillMd, fileContent)
 
     return guardAndPublish(skillDir, "edit")
@@ -262,7 +284,8 @@ export namespace SkillManageTool {
 
   async function handleWriteFile(input: SkillManageInput): Promise<SkillManageResult> {
     if (!input.filename) return { ok: false, message: "filename is required for action=write_file" }
-    if (input.file_content === undefined) return { ok: false, message: "file_content is required for action=write_file" }
+    if (input.file_content === undefined)
+      return { ok: false, message: "file_content is required for action=write_file" }
     const skillDir = await resolveAndPrepare(input)
     const target = path.resolve(skillDir, input.filename)
     if (!target.startsWith(skillDir + path.sep)) {
@@ -275,7 +298,10 @@ export namespace SkillManageTool {
 
   async function handleDelete(input: SkillManageInput): Promise<SkillManageResult> {
     const skillDir = ShadowWriter.resolveSkillDir(input.name, input.skillLocation, input.sessionProjectId)
-    const exists = await fs.access(skillDir).then(() => true).catch(() => false)
+    const exists = await fs
+      .access(skillDir)
+      .then(() => true)
+      .catch(() => false)
     if (!exists) return { ok: false, message: `Skill directory not found: ${skillDir}` }
 
     await fs.rm(skillDir, { recursive: true, force: true })
@@ -289,9 +315,7 @@ export namespace SkillManageTool {
     const entries = await Versions.list(skillDir)
     if (entries.length === 0) return { ok: true, message: "No version history found", skillDir }
 
-    const lines = entries.map(
-      (e) => `  ${e.filename.replace(".bundle.json", "")}  (${e.action}, ${e.timestamp})`,
-    )
+    const lines = entries.map((e) => `  ${e.filename.replace(".bundle.json", "")}  (${e.action}, ${e.timestamp})`)
     return { ok: true, message: `Version history:\n${lines.join("\n")}`, skillDir }
   }
 
@@ -306,7 +330,7 @@ export namespace SkillManageTool {
   }
 }
 
-const SKILL_MANAGE_DESCRIPTION = [
+export const SKILL_MANAGE_DESCRIPTION = [
   "The sole tool for modifying skill files. Use instead of edit/write for any file under a skills/ directory.",
   "Create, edit, patch, delete, or version-manage skills (reusable procedural memories saved as SKILL.md files).",
   "",
