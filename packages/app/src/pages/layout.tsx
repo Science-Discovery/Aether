@@ -1910,9 +1910,13 @@ export default function Layout(props: ParentProps) {
       .reset({ directory: root, worktreeResetInput: { directory } })
       .then((x) => x.data)
       .catch((err) => {
+        const msg = String(err?.message ?? err ?? "")
+        const desc = /Default branch not found/i.test(msg)
+          ? language.t("workspace.reset.failed.noDefaultBranch")
+          : errorMessage(err, language.t("common.requestFailed"))
         showToast({
           title: language.t("workspace.reset.failed.title"),
-          description: errorMessage(err, language.t("common.requestFailed")),
+          description: desc,
         })
         return false
       })
@@ -2072,6 +2076,7 @@ export default function Layout(props: ParentProps) {
     const [state, setState] = createStore({
       status: "loading" as "loading" | "ready" | "error",
       dirty: false,
+      defaultBranch: "",
       sessions: [] as Session[],
     })
 
@@ -2096,6 +2101,12 @@ export default function Layout(props: ParentProps) {
         .catch(() => {
           setState({ status: "error", dirty: false })
         })
+      fetch(`${globalSDK.url}/vcs`, { headers: { "x-opencode-directory": props.root } })
+        .then((r) => r.json())
+        .then((data) => {
+          if (data.default_branch) setState({ defaultBranch: data.default_branch })
+        })
+        .catch(() => undefined)
     })
 
     const handleReset = () => {
@@ -2123,7 +2134,10 @@ export default function Layout(props: ParentProps) {
       <Dialog title={language.t("workspace.reset.confirm", { name: name() })} fit>
         <div class="flex flex-col gap-4 pl-6 pr-2.5 pb-3">
           <span class="text-12-regular text-text-weak">
-            {description()} {archivedLabel()} {language.t("workspace.reset.note")}
+            {description()} {archivedLabel()}{" "}
+            {language.t("workspace.reset.note", {
+              branch: state.defaultBranch || language.t("workspace.reset.note.defaultBranch"),
+            })}
           </span>
           <div class="flex justify-end gap-2">
             <Button variant="ghost" size="large" onClick={() => dialog.close()}>

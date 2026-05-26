@@ -219,6 +219,8 @@ export namespace Git {
         if (next) return next
         if (list.includes("main")) return { name: "main", ref: "main" } satisfies Base
         if (list.includes("master")) return { name: "master", ref: "master" } satisfies Base
+        const head = yield* branch(cwd)
+        if (head && list.includes(head)) return { name: head, ref: head } satisfies Base
       })
 
       const hasHead = Effect.fn("Git.hasHead")(function* (cwd: string) {
@@ -334,9 +336,12 @@ export namespace Git {
                 text(["diff", "--numstat", "--find-renames", "--diff-filter=AMDR", "-z", from, hash], { cwd }),
               ]
             : [
-                text(["diff-tree", "--name-status", "-r", "--root", "--find-renames", "--diff-filter=AMDR", "-z", hash], {
-                  cwd,
-                }),
+                text(
+                  ["diff-tree", "--name-status", "-r", "--root", "--find-renames", "--diff-filter=AMDR", "-z", hash],
+                  {
+                    cwd,
+                  },
+                ),
                 text(["diff-tree", "--numstat", "-r", "--root", "--find-renames", "--diff-filter=AMDR", "-z", hash], {
                   cwd,
                 }),

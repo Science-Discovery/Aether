@@ -1427,6 +1427,7 @@ export const dict = {
   "workspace.resetting.title": "Resetting workspace",
   "workspace.resetting.description": "This may take a minute.",
   "workspace.reset.failed.title": "Failed to reset workspace",
+  "workspace.reset.failed.noDefaultBranch": "Default branch not found",
   "workspace.reset.success.title": "Workspace reset",
   "workspace.reset.success.description": "Workspace now matches the default branch.",
   "workspace.error.stillPreparing": "Workspace is still preparing",
@@ -1451,7 +1452,8 @@ export const dict = {
   "workspace.reset.archived.none": "No active sessions will be archived.",
   "workspace.reset.archived.one": "1 session will be archived.",
   "workspace.reset.archived.many": "{{count}} sessions will be archived.",
-  "workspace.reset.note": "This will reset the workspace to match the default branch.",
+  "workspace.reset.note": "This will reset the workspace to match branch {{branch}}.",
+  "workspace.reset.note.defaultBranch": "the default branch",
   "workspace.reset.dirty": "Uncommitted changes detected. These changes will be lost after reset.",
   "workspace.switchBranch": "Switch Branch",
   "workspace.switchBranch.overwritten":
