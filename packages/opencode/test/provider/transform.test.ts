@@ -3034,7 +3034,51 @@ describe("ProviderTransform.message - consecutive assistant message merging", ()
       { type: "text", text: "text_before" },
       { type: "tool-call", toolCallId: "c1", toolName: "bash", input: { cmd: "ls" } },
     ])
-    expect((result[0] as any).providerOptions?.openaiCompatible?.reasoning_content).toBe("thinking1thinking2")
+    expect((result[0] as any).providerOptions?.openaiCompatible?.reasoning_content).toBeUndefined()
+  })
+
+  test("interleaved reasoning re-injection for non-DashScope providers", () => {
+    const otherModel = {
+      ...alibabaModel,
+      providerID: "aihubmix",
+    } as any
+
+    const msgs = [
+      {
+        role: "assistant",
+        content: [
+          { type: "reasoning", text: "thinking1" },
+          { type: "text", text: "response_text" },
+        ],
+      },
+    ] as any[]
+
+    const result = ProviderTransform.message(msgs, otherModel, {})
+
+    expect(result[0].content).toEqual([{ type: "text", text: "response_text" }])
+    expect((result[0] as any).providerOptions?.openaiCompatible?.reasoning_content).toBe("thinking1")
+  })
+
+  test("siliconflow-cn also discards interleaved reasoning_content", () => {
+    const sfModel = {
+      ...alibabaModel,
+      providerID: "siliconflow-cn",
+    } as any
+
+    const msgs = [
+      {
+        role: "assistant",
+        content: [
+          { type: "reasoning", text: "thinking1" },
+          { type: "text", text: "response_text" },
+        ],
+      },
+    ] as any[]
+
+    const result = ProviderTransform.message(msgs, sfModel, {})
+
+    expect(result[0].content).toEqual([{ type: "text", text: "response_text" }])
+    expect((result[0] as any).providerOptions?.openaiCompatible?.reasoning_content).toBeUndefined()
   })
 
   test("skips merge for Anthropic provider", () => {

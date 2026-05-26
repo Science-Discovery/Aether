@@ -198,16 +198,15 @@ export namespace ProviderTransform {
 
     if (typeof model.capabilities.interleaved === "object" && model.capabilities.interleaved.field) {
       const field = model.capabilities.interleaved.field
+      const discard = ["alibaba-cn", "siliconflow-cn"].includes(model.providerID)
       return msgs.map((msg) => {
         if (msg.role === "assistant" && Array.isArray(msg.content)) {
           const reasoningParts = msg.content.filter((part: any) => part.type === "reasoning")
           const reasoningText = reasoningParts.map((part: any) => part.text).join("")
 
-          // Filter out reasoning parts from content
           const filteredContent = msg.content.filter((part: any) => part.type !== "reasoning")
 
-          // Include reasoning_content | reasoning_details directly on the message for all assistant messages
-          if (reasoningText) {
+          if (reasoningText && !discard) {
             return {
               ...msg,
               content: filteredContent,
@@ -413,8 +412,8 @@ export namespace ProviderTransform {
     const id = model.id.toLowerCase()
     const api = `${id} ${model.api.id.toLowerCase()}`
     const opus47 = ["opus-4-7", "opus-4.7"].some((v) => api.includes(v))
-    const isAnthropicAdaptive = ["opus-4-6", "opus-4.6", "opus-4-7", "opus-4.7", "sonnet-4-6", "sonnet-4.6"].some(
-      (v) => api.includes(v),
+    const isAnthropicAdaptive = ["opus-4-6", "opus-4.6", "opus-4-7", "opus-4.7", "sonnet-4-6", "sonnet-4.6"].some((v) =>
+      api.includes(v),
     )
     const adaptiveEfforts = opus47 ? ["low", "medium", "high", "xhigh", "max"] : ["low", "medium", "high", "max"]
     if (
