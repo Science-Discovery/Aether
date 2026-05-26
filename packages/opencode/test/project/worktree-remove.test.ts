@@ -62,7 +62,7 @@ describe("Worktree.remove", () => {
     expect(list).not.toContain(`worktree ${dir}`)
 
     const ref = await $`git show-ref --verify --quiet refs/heads/${branch}`.cwd(root).quiet().nothrow()
-    expect(ref.exitCode).not.toBe(0)
+    expect(ref.exitCode).toBe(0)
   })
 
   wintest("stops fsmonitor before removing a worktree", async () => {
@@ -91,6 +91,6 @@ describe("Worktree.remove", () => {
     expect(await Filesystem.exists(dir)).toBe(false)
 
     const ref = await $`git show-ref --verify --quiet refs/heads/${branch}`.cwd(root).quiet().nothrow()
-    expect(ref.exitCode).not.toBe(0)
+    expect(ref.exitCode).toBe(0)
   })
 })

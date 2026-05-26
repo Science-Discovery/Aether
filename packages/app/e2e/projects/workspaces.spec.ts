@@ -261,7 +261,7 @@ test("can reset a workspace", async ({ page, sdk, withProject }) => {
 
     const menu = await openMenu(page, space)
     await clickMenuItem(menu, /^Reset$/i, { force: true })
-    await confirmDialog(page, /^Reset workspace$/i)
+    await confirmDialog(page, /^Confirm Reset$/i)
 
     await expect
       .poll(

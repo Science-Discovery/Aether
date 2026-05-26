@@ -274,5 +274,35 @@ export const ExperimentalRoutes = lazy(() =>
       async (c) => {
         return c.json(await MCP.resources())
       },
+    )
+    .post(
+      "/worktree/merge-sessions",
+      describeRoute({
+        summary: "Merge workspace sessions into main worktree",
+        description: "Move all sessions from a sandbox directory to the main worktree directory.",
+        operationId: "worktree.mergeSessions",
+        responses: {
+          200: {
+            description: "Sessions merged",
+            content: {
+              "application/json": {
+                schema: resolver(z.number()),
+              },
+            },
+          },
+          ...errors(400),
+        },
+      }),
+      validator(
+        "json",
+        z.object({
+          directory: z.string(),
+        }),
+      ),
+      async (c) => {
+        const { directory } = c.req.valid("json")
+        const count = await Project.mergeSandboxSessions(Instance.project.id, directory)
+        return c.json(count)
+      },
     ),
 )

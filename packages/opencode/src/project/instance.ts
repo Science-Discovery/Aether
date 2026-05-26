@@ -178,6 +178,21 @@ export const Instance = {
     cache.delete(directory)
     emit(directory)
   },
+  async disposeDirectory(directory: string) {
+    const dir = Filesystem.resolve(directory)
+    const entry = cache.get(dir)
+    if (!entry) return
+    const ctx = await entry.catch(() => undefined)
+    if (!ctx) {
+      if (cache.get(dir) === entry) cache.delete(dir)
+      return
+    }
+    Log.Default.info("disposing instance by directory", { directory: dir })
+    await Promise.all([State.dispose(dir), disposeInstance(dir)])
+    Database.detach(ctx.project.id)
+    if (cache.get(dir) === entry) cache.delete(dir)
+    emit(dir)
+  },
   async disposeAll() {
     if (disposal.all) return disposal.all
 

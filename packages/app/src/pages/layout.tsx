@@ -1910,9 +1910,13 @@ export default function Layout(props: ParentProps) {
       .reset({ directory: root, worktreeResetInput: { directory } })
       .then((x) => x.data)
       .catch((err) => {
+        const msg = String(err?.message ?? err ?? "")
+        const desc = /Default branch not found/i.test(msg)
+          ? language.t("workspace.reset.failed.noDefaultBranch")
+          : errorMessage(err, language.t("common.requestFailed"))
         showToast({
           title: language.t("workspace.reset.failed.title"),
-          description: errorMessage(err, language.t("common.requestFailed")),
+          description: desc,
         })
         return false
       })
@@ -1968,6 +1972,7 @@ export default function Layout(props: ParentProps) {
     const [data, setData] = createStore({
       status: "loading" as "loading" | "ready" | "error",
       dirty: false,
+      sessionCount: 0,
     })
 
     onMount(() => {
@@ -1981,6 +1986,13 @@ export default function Layout(props: ParentProps) {
         .catch(() => {
           setData({ status: "error", dirty: false })
         })
+      globalSDK.client.session
+        .list({ directory: props.directory })
+        .then((x) => {
+          const active = (x.data ?? []).filter((s) => s.time.archived === undefined)
+          setData({ sessionCount: active.length })
+        })
+        .catch(() => undefined)
     })
 
     const handleDelete = () => {
@@ -1992,29 +2004,68 @@ export default function Layout(props: ParentProps) {
       void deleteWorkspace(props.root, props.directory, leaveDeletedWorkspace)
     }
 
+    const handleMerge = async () => {
+      dialog.close()
+      try {
+        const resp = await fetch(`${globalSDK.url}/experimental/worktree/merge-sessions`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "x-opencode-directory": props.directory },
+          body: JSON.stringify({ directory: props.directory }),
+        })
+        if (!resp.ok) {
+          showToast({
+            variant: "error",
+            title: language.t("workspace.delete.failed.title"),
+            description: language.t("workspace.delete.mergeFailed"),
+          })
+          return
+        }
+      } catch {
+        showToast({
+          variant: "error",
+          title: language.t("workspace.delete.failed.title"),
+          description: language.t("workspace.delete.mergeFailed"),
+        })
+        return
+      }
+      const leaveDeletedWorkspace = !!params.dir && workspaceKey(currentDir()) === workspaceKey(props.directory)
+      if (leaveDeletedWorkspace) {
+        navigateWithSidebarReset(`/${base64Encode(props.root)}/session`)
+      }
+      void deleteWorkspace(props.root, props.directory, leaveDeletedWorkspace)
+    }
+
     const description = () => {
       if (data.status === "loading") return language.t("workspace.status.checking")
       if (data.status === "error") return language.t("workspace.status.error")
-      if (!data.dirty) return language.t("workspace.status.clean")
-      return language.t("workspace.status.dirty")
+      if (data.dirty) return language.t("workspace.status.dirty")
+      if (data.sessionCount > 0) return language.t("workspace.delete.hasSessions")
+      return language.t("workspace.status.clean")
     }
 
     return (
-      <Dialog title={language.t("workspace.delete.title")} fit>
+      <Dialog title={language.t("workspace.delete.confirm", { name: name() })} fit>
         <div class="flex flex-col gap-4 pl-6 pr-2.5 pb-3">
-          <div class="flex flex-col gap-1">
-            <span class="text-14-regular text-text-strong">
-              {language.t("workspace.delete.confirm", { name: name() })}
-            </span>
-            <span class="text-12-regular text-text-weak">{description()}</span>
-          </div>
+          <span class="text-12-regular text-text-weak">{description()}</span>
           <div class="flex justify-end gap-2">
             <Button variant="ghost" size="large" onClick={() => dialog.close()}>
-              {language.t("common.cancel")}
+              {language.t("workspace.delete.cancel")}
             </Button>
-            <Button variant="primary" size="large" disabled={data.status === "loading"} onClick={handleDelete}>
-              {language.t("workspace.delete.button")}
-            </Button>
+            <Show when={!data.dirty && data.sessionCount > 0}>
+              <Button variant="secondary" size="large" onClick={handleMerge}>
+                {language.t("workspace.delete.mergeSessions")}
+              </Button>
+            </Show>
+            <Show when={!data.dirty && data.sessionCount > 0}>
+              <Button variant="primary" size="large" onClick={handleDelete}>
+                {language.t("workspace.delete.alsoDeleteSessions")}
+              </Button>
+            </Show>
+            <Show when={!data.dirty && data.sessionCount === 0}>
+              <Button variant="primary" size="large" disabled={data.status === "loading"} onClick={handleDelete}>
+                {language.t("workspace.delete.button")}
+              </Button>
+            </Show>
           </div>
         </div>
       </Dialog>
@@ -2075,6 +2126,7 @@ export default function Layout(props: ParentProps) {
     const [state, setState] = createStore({
       status: "loading" as "loading" | "ready" | "error",
       dirty: false,
+      defaultBranch: "",
       sessions: [] as Session[],
     })
 
@@ -2099,6 +2151,12 @@ export default function Layout(props: ParentProps) {
         .catch(() => {
           setState({ status: "error", dirty: false })
         })
+      fetch(`${globalSDK.url}/vcs`, { headers: { "x-opencode-directory": props.root } })
+        .then((r) => r.json())
+        .then((data) => {
+          if (data.default_branch) setState({ defaultBranch: data.default_branch })
+        })
+        .catch(() => undefined)
     })
 
     const handleReset = () => {
@@ -2112,7 +2170,7 @@ export default function Layout(props: ParentProps) {
       if (state.status === "loading") return language.t("workspace.status.checking")
       if (state.status === "error") return language.t("workspace.status.error")
       if (!state.dirty) return language.t("workspace.status.clean")
-      return language.t("workspace.status.dirty")
+      return language.t("workspace.reset.dirty")
     }
 
     const archivedLabel = () => {
@@ -2123,22 +2181,20 @@ export default function Layout(props: ParentProps) {
     }
 
     return (
-      <Dialog title={language.t("workspace.reset.title")} fit>
+      <Dialog title={language.t("workspace.reset.confirm", { name: name() })} fit>
         <div class="flex flex-col gap-4 pl-6 pr-2.5 pb-3">
-          <div class="flex flex-col gap-1">
-            <span class="text-14-regular text-text-strong">
-              {language.t("workspace.reset.confirm", { name: name() })}
-            </span>
-            <span class="text-12-regular text-text-weak">
-              {description()} {archivedLabel()} {language.t("workspace.reset.note")}
-            </span>
-          </div>
+          <span class="text-12-regular text-text-weak">
+            {description()} {archivedLabel()}{" "}
+            {language.t("workspace.reset.note", {
+              branch: state.defaultBranch || language.t("workspace.reset.note.defaultBranch"),
+            })}
+          </span>
           <div class="flex justify-end gap-2">
             <Button variant="ghost" size="large" onClick={() => dialog.close()}>
               {language.t("common.cancel")}
             </Button>
             <Button variant="primary" size="large" disabled={state.status === "loading"} onClick={handleReset}>
-              {language.t("workspace.reset.button")}
+              {language.t("workspace.reset.confirmButton")}
             </Button>
           </div>
         </div>
