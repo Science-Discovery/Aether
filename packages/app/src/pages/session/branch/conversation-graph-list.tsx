@@ -155,7 +155,7 @@ export function ConversationGraphList(props: {
                       "text-text-strong": node.isCurrentPath,
                       "text-text-weaker": !node.isCurrentPath,
                       "font-semibold": node.isCurrentPath,
-                      "opacity-30": !node.isCurrentPath,
+                      "opacity-100": !node.isCurrentPath,
                       italic: node.kind === "bud",
                     }}
                   >

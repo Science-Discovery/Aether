@@ -184,7 +184,7 @@ describe("ConversationGraphList path text highlighting", () => {
     expect(rowLabel(host, "1+1")?.className).toContain("text-text-strong")
     expect(rowLabel(host, "2+2")?.className).toContain("text-text-strong")
     expect(rowLabel(host, "3+3")?.className).toContain("text-text-weaker")
-    expect(rowLabel(host, "3+3")?.className).toContain("opacity-30")
+    expect(rowLabel(host, "3+3")?.className).toContain("opacity-100")
 
     off()
   })
@@ -222,9 +222,9 @@ describe("ConversationGraphList path text highlighting", () => {
 
     expect(rowLabel(host, "1+1")?.className).toContain("font-semibold")
     expect(rowLabel(host, "2+2")?.className).toContain("font-semibold")
-    expect(rowLabel(host, "1+1")?.className).not.toContain("opacity-30")
-    expect(rowLabel(host, "2+2")?.className).not.toContain("opacity-30")
-    expect(rowLabel(host, "3+3")?.className).toContain("opacity-30")
+    expect(rowLabel(host, "1+1")?.className).not.toContain("opacity-100")
+    expect(rowLabel(host, "2+2")?.className).not.toContain("opacity-100")
+    expect(rowLabel(host, "3+3")?.className).toContain("opacity-100")
 
     expect(edgePath(host, "root-1->child-current")?.getAttribute("opacity")).toBe("1")
     expect(edgePath(host, "root-1->child-sibling")?.getAttribute("opacity")).toBe("0.4")
