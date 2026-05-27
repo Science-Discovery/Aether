@@ -411,13 +411,10 @@ export namespace File {
     opts: {
       expectedChecksum?: string
     } = {},
-  ): Promise<
-    | void
-    | {
-        currentChecksum: string
-        currentContent: string
-      }
-  > {
+  ): Promise<void | {
+    currentChecksum: string
+    currentContent: string
+  }> {
     const resolved = path.join(Instance.directory, filePath)
     if (!Instance.containsPath(resolved)) {
       throw new Error("Access denied: path escapes project directory")
@@ -734,9 +731,22 @@ export namespace File {
 
         return yield* Effect.promise(async () => {
           const diffOutput = (
-            await Git.run(["-c", "core.fsmonitor=false", "-c", "core.quotepath=false", "diff", "--numstat", "HEAD"], {
-              cwd: Instance.directory,
-            })
+            await Git.run(
+              [
+                "-c",
+                "core.symlinks=false",
+                "-c",
+                "core.fsmonitor=false",
+                "-c",
+                "core.quotepath=false",
+                "diff",
+                "--numstat",
+                "HEAD",
+              ],
+              {
+                cwd: Instance.directory,
+              },
+            )
           ).text()
 
           const changed: File.Info[] = []
@@ -756,6 +766,8 @@ export namespace File {
           const untrackedOutput = (
             await Git.run(
               [
+                "-c",
+                "core.symlinks=false",
                 "-c",
                 "core.fsmonitor=false",
                 "-c",
@@ -789,6 +801,8 @@ export namespace File {
           const deletedOutput = (
             await Git.run(
               [
+                "-c",
+                "core.symlinks=false",
                 "-c",
                 "core.fsmonitor=false",
                 "-c",
