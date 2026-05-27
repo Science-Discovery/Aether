@@ -8,7 +8,6 @@ import { networkInterfaces } from "os"
 import { Global } from "../../global"
 import { Database } from "../../storage/db"
 import nodePath from "path"
-import { Log } from "../../util/log"
 import { Lease } from "../../server/lease"
 import { Instance } from "../../project/instance"
 import { FeishuManager } from "../../mobile/feishu"
@@ -118,15 +117,6 @@ export const WebCommand = cmd({
   builder: (yargs) => withNetworkOptions(yargs),
   describe: "start opencode server and open web interface",
   handler: async (args) => {
-    process.on("uncaughtException", (e) => {
-      Log.Default.error("uncaught exception in web server", { error: e instanceof Error ? e.stack : String(e) })
-    })
-    process.on("unhandledRejection", (e) => {
-      Log.Default.error("unhandled rejection in web server", { error: e instanceof Error ? e.stack : String(e) })
-    })
-    process.on("exit", (code) => {
-      Log.Default.error("process exiting", { code })
-    })
     async function gracefulShutdown(server: { stop: (close?: boolean) => Promise<void> }) {
       const FORCE_EXIT_MS = 10_000
       const timer = setTimeout(() => {

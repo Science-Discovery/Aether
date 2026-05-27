@@ -516,7 +516,6 @@ export namespace Database {
     log.info("closing project database", { projectId })
     try {
       client.$client.close()
-      log.info("closed project database", { projectId })
     } catch (e) {
       log.warn("failed to close project database", { projectId, error: e instanceof Error ? e.message : e })
     }
