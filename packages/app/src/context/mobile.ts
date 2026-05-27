@@ -81,13 +81,6 @@ interface MobileEvent {
   }
 }
 
-const sseControllers: Record<MobilePlatform, AbortController | null> = { feishu: null, qq: null, wechat: null }
-const sseRetryTimers: Record<MobilePlatform, ReturnType<typeof setTimeout> | undefined> = {
-  feishu: undefined,
-  qq: undefined,
-  wechat: undefined,
-}
-const pingTimer: ReturnType<typeof setInterval> | undefined = undefined
 let clientId: string | null = null
 let pingInterval: ReturnType<typeof setInterval> | undefined
 let pingFails = 0
@@ -104,138 +97,64 @@ const api = () => {
   return resolve()
 }
 
-function connectSSE(p: MobilePlatform) {
-  const abort = sseControllers[p]
-  if (abort) abort.abort()
-  const retry = sseRetryTimers[p]
-  if (retry !== undefined) {
-    clearTimeout(retry)
-    sseRetryTimers[p] = undefined
-  }
-  sseControllers[p] = new AbortController()
+type Emitter = {
+  listen: (cb: (e: { name: string; details: { type: string; properties: any } }) => void) => () => void
+}
+let emitter: Emitter | null = null
 
-  void (async () => {
-    try {
-      const { url, headers } = api()
-      const prefix = `/mobile/${p}`
-      const sseUrl =
-        p === "wechat" && clientId
-          ? `${url}${prefix}/events?clientId=${encodeURIComponent(clientId)}`
-          : `${url}${prefix}/events`
-      const response = await fetch(sseUrl, {
-        headers: { ...headers, Accept: "text/event-stream" },
-        signal: sseControllers[p]!.signal,
-      })
-      if (!response.ok || !response.body) {
-        const s = prev(p).status
-        if (s !== "idle" && s !== "error" && s !== "stolen") updateStatus(p, "reconnecting")
-        scheduleSseRetry(p)
+export function bindEmitter(e: Emitter) {
+  if (emitter) return
+  emitter = e
+  emitter.listen((ev) => {
+    const type = ev.details.type as string
+    const props = ev.details.properties
+    for (const p of ["wechat", "feishu", "qq"] as const) {
+      if (type.startsWith(`${p}.`)) {
+        handleMobileEvent(p, type, props)
         return
       }
-
-      if (prev(p).status === "reconnecting") updateStatus(p, "connected")
-
-      const reader = response.body.getReader()
-      const decoder = new TextDecoder()
-      let buf = ""
-
-      while (true) {
-        const { done, value } = await reader.read()
-        if (done) break
-        buf += decoder.decode(value, { stream: true })
-
-        const lines = buf.split("\n")
-        buf = lines.pop() ?? ""
-        for (const line of lines) {
-          if (!line.startsWith("data:")) continue
-          const raw = line.slice(5).trim()
-          if (!raw) continue
-          try {
-            const event: MobileEvent = JSON.parse(raw)
-            const type = event.type
-            const props = event.properties
-
-            if (type.endsWith(".qrcode") && props.image) {
-              patch(p, { qrcode: props.image, status: "qrcode" })
-            } else if (type.endsWith(".connected")) {
-              const u: Partial<PlatformState> = { status: "connected", error: null }
-              if (props.appId) u.appId = props.appId
-              if (props.user) u.user = props.user
-              patch(p, u)
-              setAutoConnect(p, true)
-              clearSseRetry(p)
-            } else if (type.endsWith(".reconnecting")) {
-              updateStatus(p, "reconnecting")
-              patch(p, {
-                loadingMsg:
-                  p === "feishu"
-                    ? "飞书连接中断，正在自动重连..."
-                    : p === "qq"
-                      ? "QQ连接中断，正在自动重连..."
-                      : "正在重新连接微信...",
-              })
-            } else if (type.endsWith(".error")) {
-              patch(p, {
-                error: { code: props.code || "unknown", message: props.message || "未知错误" },
-                status: "error",
-              })
-            } else if (type.endsWith(".status") && props.status) {
-              const s = props.status === "starting" ? "loading" : (props.status as MobileStatus)
-              const cur = prev(p).status
-              if (
-                s === "idle" &&
-                (cur === "loading" ||
-                  cur === "reconnecting" ||
-                  cur === "qrcode" ||
-                  cur === "connected" ||
-                  cur === "config")
-              )
-                continue
-              const u: Partial<PlatformState> = { status: s }
-              if (props.message) u.loadingMsg = props.message
-              if (props.appId) u.appId = props.appId
-              if (props.user) u.user = props.user
-              if (s === "connected") clearSseRetry(p)
-              patch(p, u)
-            }
-          } catch {}
-        }
-      }
-
-      const s = prev(p).status
-      if (p === "wechat") {
-        if (s !== "idle" && s !== "error" && s !== "stolen") scheduleSseRetry(p)
-      } else if (s !== "idle" && s !== "error" && s !== "stolen") {
-        updateStatus(p, "reconnecting")
-        scheduleSseRetry(p)
-      }
-    } catch {
-      const s = prev(p).status
-      if (p === "wechat") {
-        if (s !== "idle" && s !== "error" && s !== "stolen") scheduleSseRetry(p)
-      } else if (s !== "idle" && s !== "error" && s !== "stolen") {
-        updateStatus(p, "reconnecting")
-        scheduleSseRetry(p)
-      }
     }
-  })()
+  })
 }
 
-function clearSseRetry(p: MobilePlatform) {
-  const t = sseRetryTimers[p]
-  if (t !== undefined) {
-    clearTimeout(t)
-    sseRetryTimers[p] = undefined
+function handleMobileEvent(p: MobilePlatform, type: string, props: any) {
+  if (type.endsWith(".qrcode") && props.image) {
+    patch(p, { qrcode: props.image, status: "qrcode" })
+  } else if (type.endsWith(".connected")) {
+    const u: Partial<PlatformState> = { status: "connected", error: null }
+    if (props.appId) u.appId = props.appId
+    if (props.user) u.user = props.user
+    patch(p, u)
+    setAutoConnect(p, true)
+  } else if (type.endsWith(".reconnecting")) {
+    updateStatus(p, "reconnecting")
+    patch(p, {
+      loadingMsg:
+        p === "feishu"
+          ? "飞书连接中断，正在自动重连..."
+          : p === "qq"
+            ? "QQ连接中断，正在自动重连..."
+            : "正在重新连接微信...",
+    })
+  } else if (type.endsWith(".error")) {
+    patch(p, {
+      error: { code: props.code || "unknown", message: props.message || "未知错误" },
+      status: "error",
+    })
+  } else if (type.endsWith(".status") && props.status) {
+    const s = props.status === "starting" ? "loading" : (props.status as MobileStatus)
+    const cur = prev(p).status
+    if (
+      s === "idle" &&
+      (cur === "loading" || cur === "reconnecting" || cur === "qrcode" || cur === "connected" || cur === "config")
+    )
+      return
+    const u: Partial<PlatformState> = { status: s }
+    if (props.message) u.loadingMsg = props.message
+    if (props.appId) u.appId = props.appId
+    if (props.user) u.user = props.user
+    patch(p, u)
   }
-}
-
-function scheduleSseRetry(p: MobilePlatform) {
-  if (sseRetryTimers[p] !== undefined) return
-  sseRetryTimers[p] = setTimeout(() => {
-    sseRetryTimers[p] = undefined
-    const s = prev(p).status
-    if (s !== "idle" && s !== "error" && s !== "stolen") connectSSE(p)
-  }, 3000)
 }
 
 function startPing(p: MobilePlatform) {
@@ -254,11 +173,6 @@ function startPing(p: MobilePlatform) {
       pingFails = 0
       if (data.stolen) {
         stopPing()
-        if (sseControllers.wechat) {
-          sseControllers.wechat.abort()
-          sseControllers.wechat = null
-        }
-        clearSseRetry("wechat")
         patch("wechat", { status: "stolen" })
       }
     } catch {
@@ -316,14 +230,11 @@ export async function fetchStatus(p: MobilePlatform) {
       patch(p, u)
       setAutoConnect(p, true)
       startPing(p)
-      connectSSE(p)
     } else if (data.status === "qrcode" && data.qrcode) {
       patch(p, { qrcode: data.qrcode, status: "qrcode" })
       startPing(p)
-      connectSSE(p)
     } else if (data.status === "reconnecting") {
       patch(p, { status: "reconnecting" })
-      connectSSE(p)
     } else if (data.error) {
       patch(p, { error: data.error, status: "error" })
     } else if (p === "feishu" && data.hasConfig) {
@@ -353,8 +264,6 @@ export async function startBridge(
   })
 
   if (p === "wechat") clientId = clientId || crypto.randomUUID()
-
-  connectSSE(p)
 
   try {
     const { url, headers } = api()
@@ -414,12 +323,6 @@ export async function startBridge(
 
 export async function stopBridge(p: MobilePlatform) {
   setAutoConnect(p, false)
-  const abort = sseControllers[p]
-  if (abort) {
-    abort.abort()
-    sseControllers[p] = null
-  }
-  clearSseRetry(p)
   if (p === "wechat") stopPing()
   try {
     const { url, headers } = api()
@@ -437,12 +340,6 @@ export async function stopBridge(p: MobilePlatform) {
 }
 
 export async function logout(p: MobilePlatform) {
-  const abort = sseControllers[p]
-  if (abort) {
-    abort.abort()
-    sseControllers[p] = null
-  }
-  clearSseRetry(p)
   if (p === "wechat") stopPing()
   const { url, headers } = api()
   const prefix = `/mobile/${p}`
@@ -463,7 +360,6 @@ export async function retryBridge(p: MobilePlatform) {
   if (p === "qq") return startBridge(p)
   patch(p, { status: "reconnecting", loadingMsg: "正在重新连接飞书...", error: null })
   patch(p, { status: "reconnecting", loadingMsg: "正在重新连接微信...", error: null })
-  connectSSE(p)
   try {
     const { url, headers } = api()
     const res = await fetch(`${url}/mobile/wechat/retry`, {
