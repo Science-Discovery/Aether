@@ -356,6 +356,8 @@ export const dict = {
   "prompt.toast.commandSendFailed.title": "发送命令失败",
   "prompt.toast.promptSendFailed.title": "发送提示失败",
   "prompt.toast.promptSendFailed.description": "无法获取会话",
+  "prompt.toast.serverUnavailable.title": "服务器暂时不可用",
+  "prompt.toast.serverUnavailable.description": "请等待服务器恢复后再发送消息",
 
   "dialog.mcp.title": "MCPs",
   "dialog.mcp.description": "已启用 {{enabled}} / {{total}}",
