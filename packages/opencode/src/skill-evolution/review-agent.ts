@@ -210,6 +210,7 @@ export async function spawnReview(input: {
     const { ToolRegistry } = await import("@/tool/registry")
     const { createBoundSkillManageTool } = await import("./skill-manage-tool")
     const { Skill } = await import("@/skill")
+    const { Provider } = await import("@/provider/provider")
 
     const allSkills = await Skill.all()
     const skillLocationMap: Record<string, string> = {}
@@ -262,8 +263,15 @@ export async function spawnReview(input: {
         // reviews for different projects don't overwrite each other's bound tool.
         ToolRegistry.registerForSession(reviewSessionId, createBoundSkillManageTool(folderName, skillLocationMap, skillSessionMap))
         try {
+          // Re-resolve the default model on every round so reviews track the
+          // current default exactly like the memory engine does (see
+          // memory/index.ts). Passing it explicitly bypasses SessionPrompt's
+          // lastModel fallback, which would otherwise pin an existing review
+          // session to whatever model it was first created with.
+          const m = await Provider.defaultModel()
           return await SessionPrompt.prompt({
             sessionID: reviewSessionId,
+            model: { providerID: m.providerID, modelID: m.modelID },
             parts: [{ type: "text", text: prompt }],
             tools: {
               "*": false,
