@@ -67,9 +67,6 @@ export function EventRoutes(onBrowserConnectionChange?: (count: number) => void)
 
         const unsub = Bus.subscribeAll((event) => {
           q.push(JSON.stringify(event))
-          if (event.type === Bus.InstanceDisposed.type) {
-            stop()
-          }
         })
 
         stream.onAbort(stop)

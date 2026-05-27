@@ -514,7 +514,11 @@ export namespace Database {
     const client = projectClients.get(projectId)
     if (!client) return
     log.info("closing project database", { projectId })
-    client.$client.close()
+    try {
+      client.$client.close()
+    } catch (e) {
+      log.warn("failed to close project database", { projectId, error: e instanceof Error ? e.message : e })
+    }
     projectClients.delete(projectId)
   }
 
