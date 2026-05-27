@@ -15,6 +15,7 @@ import {
 import { useLanguage } from "./language"
 import { usePlatform } from "./platform"
 import { useServer } from "./server"
+import { connectShared } from "./shared-connection"
 
 const abortError = z.object({
   name: z.literal("AbortError"),
@@ -57,11 +58,6 @@ export const { use: useGlobalSDK, provider: GlobalSDKProvider } = createSimpleCo
       }
     }
 
-    const eventSdk = createSdkForServer({
-      signal: abort.signal,
-      fetch: eventFetch,
-      server: currentServer.http,
-    })
     const emitter = createGlobalEmitter<{
       [key: string]: Event
     }>()
@@ -123,7 +119,6 @@ export const { use: useGlobalSDK, provider: GlobalSDKProvider } = createSimpleCo
       timer = setTimeout(flush, Math.max(0, FLUSH_FRAME_MS - elapsed))
     }
 
-    let streamErrorLogged = false
     const wait = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))
     const aborted = (error: unknown) => abortError.safeParse(error).success
 
@@ -152,25 +147,24 @@ export const { use: useGlobalSDK, provider: GlobalSDKProvider } = createSimpleCo
           attempt?.abort()
         }
         abort.signal.addEventListener("abort", onAbort)
+        const conn = connectShared({
+          server: currentServer.http,
+          fetch: eventFetch,
+          signal: attempt.signal,
+          onSseError: (error) => {
+            if (aborted(error)) return
+            console.error("[global-sdk] event stream error", {
+              url: currentServer.http.url,
+              fetch: eventFetch ? "platform" : "webview",
+              error,
+            })
+          },
+        })
         try {
-          const events = await eventSdk.global.event({
-            signal: attempt.signal,
-            onSseError: (error) => {
-              if (aborted(error)) return
-              if (streamErrorLogged) return
-              streamErrorLogged = true
-              console.error("[global-sdk] event stream error", {
-                url: currentServer.http.url,
-                fetch: eventFetch ? "platform" : "webview",
-                error,
-              })
-            },
-          })
           let yielded = Date.now()
           resetHeartbeat()
-          for await (const event of events.stream) {
+          for await (const event of conn.stream) {
             resetHeartbeat()
-            streamErrorLogged = false
             const directory = event.directory ?? "global"
             const payload = event.payload
             const k = key(directory, payload)
@@ -194,8 +188,7 @@ export const { use: useGlobalSDK, provider: GlobalSDKProvider } = createSimpleCo
             await wait(0)
           }
         } catch (error) {
-          if (!aborted(error) && !streamErrorLogged) {
-            streamErrorLogged = true
+          if (!aborted(error)) {
             console.error("[global-sdk] event stream failed", {
               url: currentServer.http.url,
               fetch: eventFetch ? "platform" : "webview",
@@ -203,6 +196,7 @@ export const { use: useGlobalSDK, provider: GlobalSDKProvider } = createSimpleCo
             })
           }
         } finally {
+          conn.destroy()
           abort.signal.removeEventListener("abort", onAbort)
           attempt = undefined
           clearHeartbeat()
