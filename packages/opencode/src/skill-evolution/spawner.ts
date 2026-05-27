@@ -45,7 +45,9 @@ export namespace Spawner {
   /**
    * Base directory for a project's skill-evolution storage (parent of the
    * skills/ subdirectory). The per-project SQLite DB lives here too:
-   *   <base>/aether-<projectId>.db
+   *   <base>/aether-<seSubId>.db
+   * where seSubId = ProjectID.fromDirectory(<base>) — the hash of this
+   * sub-directory path, not the main project's id (which is the folder name).
    */
   export function skillEvolutionBase(folderName: string): string {
     return path.join(skillEvolutionRoot(), folderName)

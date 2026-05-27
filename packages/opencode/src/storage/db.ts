@@ -19,6 +19,7 @@ import { Flag } from "../flag/flag"
 import { iife } from "@/util/iife"
 import { init } from "#db"
 import { Spawner } from "@/skill-evolution/spawner"
+import { ProjectID } from "@/project/schema"
 import { detectCorruption, quarantine, cleanupQuarantinedOriginals, DbRecovery } from "./db-recovery"
 import type { CorruptionType } from "./db-recovery"
 
@@ -79,58 +80,53 @@ export namespace Database {
   }
 
   /**
-   * projectId → directory cache, populated when attach()/projectClient is
-   * called with a known directory. Lets projectPath() route skill-evolution
-   * projects to special paths without changing every call site to pass
-   * directory along. Common (non-skill-evolution) projects miss the cache
-   * and fall through to the legacy channel-dir path — zero behavior change.
+   * Enumerate skill-evolution sub-project directories with their derived
+   * projectId. Each main project's background reviews live in
+   * skill-evolution/<mainProjectId>/, whose own projectId is the hash of that
+   * sub-directory path (id !== folder name). This is the single source of truth
+   * shared by projectPath() lookup and the directory_meta scan — purely
+   * computed from the filesystem, so it survives process restarts with no
+   * in-memory cache. The reserved shared/ folder (future curator) is skipped.
    */
-  const projectDirCache = new Map<string, string>()
-
-  function skillEvolutionRedirect(projectId: string, dir: string): string | undefined {
+  function evolutionSubDirs(): { id: string; dir: string }[] {
     const root = Spawner.skillEvolutionRoot()
-    const dirN = norm(dir)
-    const rootN = norm(root)
-    if (dirN === rootN) {
-      // Top-level skill-evolution project: fixed-name DB next to other channel DBs.
+    if (!existsSync(root)) return []
+    try {
+      return readdirSync(root, { withFileTypes: true })
+        .filter((sub) => sub.isDirectory() && sub.name !== "shared")
+        .map((sub) => {
+          const dir = path.join(root, sub.name)
+          return { id: String(ProjectID.fromDirectory(norm(dir))), dir }
+        })
+    } catch {
+      return []
+    }
+  }
+
+  /**
+   * Resolve a skill-evolution projectId to its DB path without any cached state.
+   * The root project itself (hash of skill-evolution/) maps to a fixed channel
+   * DB reserved for the future curator; sub-projects map to a DB inside their
+   * own folder.
+   */
+  function skillEvolutionDbPath(projectId: string): string | undefined {
+    if (projectId === String(ProjectID.fromDirectory(norm(Spawner.skillEvolutionRoot())))) {
       return path.join(ensureChannelDir(), "aether-skill-evolution.db")
     }
-    if (dirN.startsWith(rootN + path.sep)) {
-      // Skill-evolution sub-project: DB lives inside the project's own folder.
-      return path.join(dir, `aether-${projectId}.db`)
-    }
+    const match = evolutionSubDirs().find((sub) => sub.id === projectId)
+    if (match) return path.join(match.dir, `aether-${projectId}.db`)
     return undefined
   }
 
-  export function projectPath(projectId: string, directory?: string): string {
-    const dir = directory ?? projectDirCache.get(projectId)
-    if (dir) {
-      const redirect = skillEvolutionRedirect(projectId, dir)
-      if (redirect) return redirect
-    }
-    return path.join(ensureChannelDir(), `aether-${projectId}.db`)
+  export function projectPath(projectId: string): string {
+    return skillEvolutionDbPath(projectId) ?? path.join(ensureChannelDir(), `aether-${projectId}.db`)
   }
 
-  /** Cache the projectId → directory mapping so later projectPath() calls without
-   *  a directory argument can still route skill-evolution projects correctly. */
-  export function rememberProjectDir(projectId: string, directory: string) {
-    projectDirCache.set(projectId, directory)
-  }
-
-  /** Enumerate aether-*.db files in skill-evolution/<sub>/ sub-folders. */
+  /** Enumerate aether-<id>.db files in skill-evolution/<sub>/ sub-folders. */
   function skillEvolutionDbPaths(): string[] {
-    const root = Spawner.skillEvolutionRoot()
-    if (!existsSync(root)) return []
-    const out: string[] = []
-    try {
-      for (const sub of readdirSync(root, { withFileTypes: true })) {
-        if (!sub.isDirectory()) continue
-        if (sub.name === "shared") continue // reserved namespace, no DB
-        const dbPath = path.join(root, sub.name, `aether-${sub.name}.db`)
-        if (existsSync(dbPath)) out.push(dbPath)
-      }
-    } catch {}
-    return out
+    return evolutionSubDirs()
+      .map((sub) => path.join(sub.dir, `aether-${sub.id}.db`))
+      .filter((dbPath) => existsSync(dbPath))
   }
 
   export function projectPaths(): string[] {
@@ -971,14 +967,9 @@ export namespace Database {
         existingDbIds.set(pid, path.join(chDir, entry))
       }
     }
-    const seRoot = Spawner.skillEvolutionRoot()
-    if (existsSync(seRoot)) {
-      for (const sub of readdirSync(seRoot, { withFileTypes: true })) {
-        if (!sub.isDirectory()) continue
-        if (sub.name === "shared") continue
-        const dbPath = path.join(seRoot, sub.name, `aether-${sub.name}.db`)
-        if (existsSync(dbPath)) existingDbIds.set(sub.name, dbPath)
-      }
+    for (const sub of evolutionSubDirs()) {
+      const dbPath = path.join(sub.dir, `aether-${sub.id}.db`)
+      if (existsSync(dbPath)) existingDbIds.set(sub.id, dbPath)
     }
 
     // Phase 1: For each project DB, backfill directory_meta from sessions + project_recent,

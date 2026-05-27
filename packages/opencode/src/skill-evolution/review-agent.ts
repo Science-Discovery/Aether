@@ -25,9 +25,13 @@ const pendingReviews = new Map<string, { sessionID: SessionID; projectId: string
 /** Maximum number of review rounds (user messages) per evolution session before rolling over. */
 const MAX_REVIEW_ROUNDS = 20
 
-/** Stable project ID for the skill-evolution project, derived from its directory path. */
-function skillEvolutionProjectId(): ProjectID {
-  return ProjectID.fromDirectory(ProjectIdentity.norm(SKILL_EVOLUTION_ROOT))
+/**
+ * Stable project ID for a per-project skill-evolution sub-project, derived from
+ * its sub-directory path (skill-evolution/<folderName>/). Each main project gets
+ * its own sub-project DB; the root itself is reserved for the future curator.
+ */
+function evolutionSubProjectId(folderName: string): ProjectID {
+  return ProjectID.fromDirectory(ProjectIdentity.norm(Spawner.skillEvolutionBase(folderName)))
 }
 
 /**
@@ -195,9 +199,10 @@ export async function spawnReview(input: {
 
     const prompt = await buildReviewPrompt(messages, folderName)
 
-    await fs.mkdir(SKILL_EVOLUTION_ROOT, { recursive: true })
-    const skillProjectId = skillEvolutionProjectId()
-    await Project.fromDirectory(SKILL_EVOLUTION_ROOT)
+    const subDir = Spawner.skillEvolutionBase(folderName)
+    await fs.mkdir(subDir, { recursive: true })
+    const skillProjectId = evolutionSubProjectId(folderName)
+    await Project.fromDirectory(subDir)
 
     // Dynamically import to avoid circular deps and keep startup cost low
     const { Instance } = await import("@/project/instance")
@@ -239,14 +244,14 @@ export async function spawnReview(input: {
     // Session.get / MessageV2 reads+writes all target the skill-evolution DB.
     let reviewSessionId: SessionID | undefined
     Instance.provide({
-      directory: SKILL_EVOLUTION_ROOT,
+      directory: subDir,
       create: true,
       fn: async () => {
         const { Session } = await import("@/session")
         const existing = findEvolutionSession(skillProjectId, sessionTitle)
         reviewSessionId =
           existing ??
-          (await Session.createNext({ title: sessionTitle, directory: SKILL_EVOLUTION_ROOT })).id
+          (await Session.createNext({ title: sessionTitle, directory: subDir })).id
 
         log.info(existing ? "reusing evolution session" : "created evolution session", {
           reviewSessionId,
@@ -288,7 +293,11 @@ export async function spawnReview(input: {
 
 export function isReviewSession(): boolean {
   try {
-    return Instance.directory === Filesystem.resolve(SKILL_EVOLUTION_ROOT)
+    const root = Filesystem.resolve(SKILL_EVOLUTION_ROOT)
+    const dir = Instance.directory
+    // Review sessions now run inside per-project sub-folders (skill-evolution/<id>/),
+    // so match anything at or below the root, not just the root itself.
+    return dir === root || dir.startsWith(root + path.sep)
   } catch {
     return false
   }
