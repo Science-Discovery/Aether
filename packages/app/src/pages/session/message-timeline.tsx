@@ -1,6 +1,7 @@
 import { For, createEffect, createMemo, on, onCleanup, Show, Index, type JSX, createSignal } from "solid-js"
 import { createWorkingState, type ChildrenSource } from "@/utils/working-state"
 import { childMapByParent } from "@/pages/layout/helpers"
+import { formatServerError } from "@/utils/server-errors"
 import { createStore, produce, reconcile } from "solid-js/store"
 import { useNavigate } from "@solidjs/router"
 import { useMutation } from "@tanstack/solid-query"
@@ -510,15 +511,6 @@ export function MessageTimeline(props: {
     platform.openLink(url)
   }
 
-  const errorMessage = (err: unknown) => {
-    if (err && typeof err === "object" && "data" in err) {
-      const data = (err as { data?: { message?: string } }).data
-      if (data?.message) return data.message
-    }
-    if (err instanceof Error) return err.message
-    return language.t("common.requestFailed")
-  }
-
   const shareMutation = useMutation(() => ({
     mutationFn: (id: string) => globalSDK.client.session.share({ sessionID: id, directory: sdk.directory }),
     onError: (err) => {
@@ -548,7 +540,7 @@ export function MessageTimeline(props: {
     onError: (err) => {
       showToast({
         title: language.t("common.requestFailed"),
-        description: errorMessage(err),
+        description: formatServerError(err, language.t),
       })
     },
   }))
@@ -639,7 +631,7 @@ export function MessageTimeline(props: {
       .catch((err) => {
         showToast({
           title: language.t("common.requestFailed"),
-          description: errorMessage(err),
+          description: formatServerError(err, language.t),
         })
       })
   }
@@ -658,7 +650,7 @@ export function MessageTimeline(props: {
       .catch((err) => {
         showToast({
           title: language.t("session.delete.failed.title"),
-          description: errorMessage(err),
+          description: formatServerError(err, language.t),
         })
         return false
       })
@@ -967,7 +959,9 @@ export function MessageTimeline(props: {
                                     collapseAllAssistant()
                                   }}
                                 >
-                                  <DropdownMenu.ItemLabel>{uiI18n.t("ui.sessionReview.collapseAll")}</DropdownMenu.ItemLabel>
+                                  <DropdownMenu.ItemLabel>
+                                    {uiI18n.t("ui.sessionReview.collapseAll")}
+                                  </DropdownMenu.ItemLabel>
                                 </DropdownMenu.Item>
                                 <DropdownMenu.Item
                                   onSelect={() => {
@@ -975,7 +969,9 @@ export function MessageTimeline(props: {
                                     expandAllAssistant()
                                   }}
                                 >
-                                  <DropdownMenu.ItemLabel>{uiI18n.t("ui.sessionReview.expandAll")}</DropdownMenu.ItemLabel>
+                                  <DropdownMenu.ItemLabel>
+                                    {uiI18n.t("ui.sessionReview.expandAll")}
+                                  </DropdownMenu.ItemLabel>
                                 </DropdownMenu.Item>
                               </Show>
                               <DropdownMenu.Item onSelect={() => void archiveSession(id())}>

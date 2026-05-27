@@ -68,10 +68,10 @@ import { useServer } from "@/context/server"
 import { bindResolver, bindEmitter, initMobile } from "@/context/mobile"
 import { useLanguage, type Locale } from "@/context/language"
 import { actionOf, messageOf } from "@/utils/web-update"
+import { formatServerError } from "@/utils/server-errors"
 import {
   displayName,
   effectiveWorkspaceOrder,
-  errorMessage,
   latestRootSession,
   sortedRootSessions,
   workspaceKey,
@@ -1235,7 +1235,7 @@ export default function Layout(props: ParentProps) {
       .catch((err) => {
         showToast({
           title: language.t("session.delete.failed.title"),
-          description: errorMessage(err, language.t("common.requestFailed")),
+          description: formatServerError(err, language.t),
         })
         return false
       })
@@ -1261,7 +1261,7 @@ export default function Layout(props: ParentProps) {
       .catch((err) => {
         showToast({
           title: language.t("common.requestFailed"),
-          description: errorMessage(err, language.t("common.requestFailed")),
+          description: formatServerError(err, language.t),
         })
         return false
       })
@@ -1843,7 +1843,7 @@ export default function Layout(props: ParentProps) {
       .catch((err) => {
         showToast({
           title: language.t("workspace.delete.failed.title"),
-          description: errorMessage(err, language.t("common.requestFailed")),
+          description: formatServerError(err, language.t),
         })
         return undefined
       })
@@ -1911,13 +1911,9 @@ export default function Layout(props: ParentProps) {
       .reset({ directory: root, worktreeResetInput: { directory } })
       .then((x) => x.data)
       .catch((err) => {
-        const msg = String(err?.message ?? err ?? "")
-        const desc = /Default branch not found/i.test(msg)
-          ? language.t("workspace.reset.failed.noDefaultBranch")
-          : errorMessage(err, language.t("common.requestFailed"))
         showToast({
           title: language.t("workspace.reset.failed.title"),
-          description: desc,
+          description: formatServerError(err, language.t),
         })
         return false
       })
@@ -2085,7 +2081,7 @@ export default function Layout(props: ParentProps) {
         .catch((err) => {
           showToast({
             title: language.t("workspace.delete.failed.title"),
-            description: errorMessage(err, language.t("common.requestFailed")),
+            description: formatServerError(err, language.t),
           })
           return undefined
         })
@@ -2370,14 +2366,16 @@ export default function Layout(props: ParentProps) {
       .catch((err) => {
         showToast({
           title: language.t("workspace.create.failed.title"),
-          description: errorMessage(err, language.t("common.requestFailed")),
+          description: formatServerError(err, language.t),
         })
         return undefined
       })
 
     if (!created?.directory) return
 
-    const displayName = created.branch.replace(/^sandbox-(\d+)$/, (_, n) => `沙箱-${n}`)
+    const displayName = created.branch.replace(/^sandbox-(\d+)$/, (_, n) =>
+      language.t("workspace.type.sandboxName", { number: n }),
+    )
     setWorkspaceName(created.directory, displayName, project.id, created.branch)
 
     const local = project.worktree

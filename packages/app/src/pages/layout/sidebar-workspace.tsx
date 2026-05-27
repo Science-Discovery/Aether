@@ -36,7 +36,8 @@ import { useLanguage } from "@/context/language"
 import { useSettings } from "@/context/settings"
 import { enqueueRun } from "@/context/terminal"
 import { NewSessionItem, SessionItem, SessionSkeleton } from "./sidebar-items"
-import { childMapByParent, errorMessage, sortedRootSessions, workspaceKey } from "./helpers"
+import { childMapByParent, sortedRootSessions, workspaceKey } from "./helpers"
+import { formatServerError } from "@/utils/server-errors"
 import { SidebarBranchView } from "@/pages/session/branch/sidebar-branch-view"
 
 function createBatchSelect(
@@ -468,7 +469,7 @@ const WorkspaceActions = (props: {
     if (/would be overwritten by checkout/i.test(err)) {
       return language.t("workspace.switchBranch.overwritten")
     }
-    return err
+    return language.t("common.requestFailed")
   }
 
   const checkout = async (name: string) => {
@@ -488,7 +489,11 @@ const WorkspaceActions = (props: {
         })
       }
     } catch (e) {
-      showToast({ variant: "error", title: language.t("workspace.switchBranch"), description: String(e) })
+      showToast({
+        variant: "error",
+        title: language.t("workspace.switchBranch"),
+        description: formatServerError(e, language.t),
+      })
     }
   }
 
@@ -897,7 +902,7 @@ const ArchivedSessionList = (props: {
       await props.ctx.deleteSession(session)
       removeSessionSubtree(session.id)
     } catch (err) {
-      throw new Error(errorMessage(err, props.language.t("common.requestFailed")))
+      throw new Error(formatServerError(err, props.language.t))
     }
   }
 

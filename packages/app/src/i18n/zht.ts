@@ -504,6 +504,16 @@ export const dict = {
   "error.chain.configInvalid": "設定檔 {{path}} 無效",
   "error.chain.configInvalidWithMessage": "設定檔 {{path}} 無效: {{message}}",
 
+  "error.chain.worktree.notGit": "工作區僅支援 Git 專案",
+  "error.chain.worktree.nameGenerationFailed": "產生工作區名稱失敗：{{message}}",
+  "error.chain.worktree.createFailed": "建立工作區失敗：{{message}}",
+  "error.chain.worktree.startCommandFailed": "工作區啟動命令失敗：{{message}}",
+  "error.chain.worktree.removeFailed": "刪除工作區失敗：{{message}}",
+  "error.chain.worktree.resetFailed": "重置工作區失敗：{{message}}",
+  "error.chain.worktree.cannotResetPrimary": "無法重置主工作區",
+  "error.chain.worktree.defaultBranchNotFound": "未找到預設分支",
+  "error.chain.worktree.notFound": "未找到工作區",
+
   "notification.permission.title": "需要權限",
   "notification.permission.description": "{{sessionTitle}}（{{projectName}}）需要權限",
   "notification.question.title": "問題",
@@ -938,6 +948,7 @@ export const dict = {
   "workspace.new": "新增工作區",
   "workspace.type.local": "本地",
   "workspace.type.sandbox": "沙箱",
+  "workspace.type.sandboxName": "沙箱-{{number}}",
   "workspace.create.failed.title": "建立工作區失敗",
   "workspace.delete.failed.title": "刪除工作區失敗",
   "workspace.resetting.title": "正在重設工作區",
@@ -1050,4 +1061,26 @@ export const dict = {
   "error.childStore.persistedProjectIconCreateFailed": "建立持續性專案圖示失敗",
   "error.childStore.storeCreateFailed": "建立儲存區失敗",
   "terminal.connectionLost.abnormalClose": "WebSocket 異常關閉：{{code}}",
+
+  "memory.search.failed": "記憶搜尋失敗",
+  "memory.reflect.finished": "記憶反思完成",
+  "memory.init.start": "記憶初始化已開始",
+  "memory.init.startDescription": "進度在「設定 > 記憶」中顯示。",
+  "memory.init.finished": "記憶初始化完成",
+  "memory.init.finishedDescription": "掃描 {{scanned}} 個會話，匯入 {{imported}} 筆事件。",
+  "memory.init.failed": "記憶初始化失敗",
+  "memory.init.stopping": "正在停止記憶初始化",
+  "memory.init.stoppingDescription": "目前匯入將在下一個取消點停止。",
+  "memory.init.stopFailed": "停止記憶初始化失敗",
+
+  "draft.conflict.title": "偵測到內容衝突",
+  "draft.conflict.description":
+    "目前檔案在此草稿建立後已發生變化。繼續儲存會覆蓋目前真實檔案中的部分內容。對比中顯示的是目前真實變更，請確認是否繼續。",
+  "draft.conflict.discard": "放棄草稿",
+  "draft.conflict.accept": "接受覆蓋並儲存",
+
+  "draft.stale.title": "偵測到未儲存草稿",
+  "draft.stale.description": "目前檔案已發生變化，對比中顯示的是目前真實檔案。",
+  "draft.stale.discard": "放棄草稿",
+  "draft.stale.restore": "恢復舊草稿",
 } satisfies Partial<Record<Keys, string>>

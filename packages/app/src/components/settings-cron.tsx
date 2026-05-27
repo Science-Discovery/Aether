@@ -10,6 +10,7 @@ import { normalizeDir } from "@/context/global-sync/utils"
 import { useLanguage } from "@/context/language"
 import { useServer } from "@/context/server"
 import { decode64 } from "@/utils/base64"
+import { formatServerError } from "@/utils/server-errors"
 
 type CronMode = "direct" | "isolated_agent" | "session_agent" | "agent_message"
 type CronScheduleType = "cron" | "interval" | "once"
@@ -151,7 +152,7 @@ export const SettingsCron: Component = () => {
         void globalSync.bootstrap().catch(() => undefined)
         showToast({
           title: language.t("common.requestFailed"),
-          description: error instanceof Error ? error.message : String(error),
+          description: formatServerError(error, language.t),
         })
       })
       .finally(() => setUpdatingGlobal(false))
@@ -259,7 +260,7 @@ export const SettingsCron: Component = () => {
       .catch((error: unknown) => {
         showToast({
           title: language.t("common.requestFailed"),
-          description: error instanceof Error ? error.message : String(error),
+          description: formatServerError(error, language.t),
         })
       })
       .finally(() => setAssistantBusy(false))
@@ -280,7 +281,7 @@ export const SettingsCron: Component = () => {
       .catch((error: unknown) => {
         showToast({
           title: language.t("common.requestFailed"),
-          description: error instanceof Error ? error.message : String(error),
+          description: formatServerError(error, language.t),
         })
       })
       .finally(() => setBusyID(undefined))
@@ -299,7 +300,7 @@ export const SettingsCron: Component = () => {
       .catch((error: unknown) => {
         showToast({
           title: language.t("common.requestFailed"),
-          description: error instanceof Error ? error.message : String(error),
+          description: formatServerError(error, language.t),
         })
       })
       .finally(() => setBusyID(undefined))
@@ -346,10 +347,17 @@ export const SettingsCron: Component = () => {
         </div>
 
         <div data-cron-interactive class="grid gap-3 sm:grid-cols-4">
-          <Metric title={language.t("settings.cron.metric.scheduler")} value={language.t("settings.cron.scheduler.running")} />
+          <Metric
+            title={language.t("settings.cron.metric.scheduler")}
+            value={language.t("settings.cron.scheduler.running")}
+          />
           <Metric
             title={language.t("settings.cron.metric.execution")}
-            value={cronEnabled() ? language.t("settings.cron.execution.enabled") : language.t("settings.cron.execution.disabled")}
+            value={
+              cronEnabled()
+                ? language.t("settings.cron.execution.enabled")
+                : language.t("settings.cron.execution.disabled")
+            }
           />
           <Metric title={language.t("settings.cron.metric.jobs")} value={`${counts().active}/${counts().total}`} />
           <Metric title={language.t("settings.cron.metric.running")} value={`${counts().running}`} />
@@ -403,12 +411,15 @@ export const SettingsCron: Component = () => {
         <Show when={jobs.error}>
           <div class="text-12-regular text-text-danger">
             {language.t("settings.cron.error.loadFailed", {
-              message: jobs.error instanceof Error ? jobs.error.message : String(jobs.error),
+              message: formatServerError(jobs.error, language.t),
             })}
           </div>
         </Show>
         <Show when={!jobs.loading && !jobs.error && (jobs()?.length ?? 0) === 0}>
-          <div data-cron-interactive class="rounded-lg border border-border-weak-base bg-surface-raised-base p-4 text-12-regular text-text-weak">
+          <div
+            data-cron-interactive
+            class="rounded-lg border border-border-weak-base bg-surface-raised-base p-4 text-12-regular text-text-weak"
+          >
             {language.t("settings.cron.empty")}
           </div>
         </Show>
@@ -424,7 +435,8 @@ export const SettingsCron: Component = () => {
                     class="flex flex-col gap-2 rounded-lg border p-3 text-left transition-colors"
                     classList={{
                       "border-border-active bg-surface-raised-base": selectedID() === job.definition.id,
-                      "border-border-weak-base bg-surface-base hover:bg-surface-raised-base": selectedID() !== job.definition.id,
+                      "border-border-weak-base bg-surface-base hover:bg-surface-raised-base":
+                        selectedID() !== job.definition.id,
                     }}
                     onClick={() => setSelectedID(job.definition.id)}
                   >
@@ -452,7 +464,10 @@ export const SettingsCron: Component = () => {
 
             <Show when={selected()}>
               {(job) => (
-                <div data-cron-interactive class="flex min-w-0 flex-col gap-4 rounded-lg border border-border-weak-base bg-surface-base p-4">
+                <div
+                  data-cron-interactive
+                  class="flex min-w-0 flex-col gap-4 rounded-lg border border-border-weak-base bg-surface-base p-4"
+                >
                   <div class="flex flex-wrap items-start justify-between gap-3">
                     <div class="min-w-0">
                       <div class="text-15-medium text-text-strong">{job().definition.name}</div>
@@ -480,13 +495,38 @@ export const SettingsCron: Component = () => {
 
                   <div class="grid gap-2 sm:grid-cols-2">
                     <Field label={language.t("settings.cron.field.mode")} value={job().definition.mode} />
-                    <Field label={language.t("settings.cron.field.schedule")} value={`${job().definition.schedule_type}: ${job().definition.schedule_value}`} />
-                    <Field label={language.t("settings.cron.field.project")} value={job().definition.project_id ?? "-"} />
-                    <Field label={language.t("settings.cron.field.session")} value={job().definition.session_id ?? "-"} />
-                    <Field label={language.t("settings.cron.field.execution")} value={active(job().definition, job().state) ? language.t("settings.cron.execution.enabled") : language.t("settings.cron.execution.disabled")} />
-                    <Field label={language.t("settings.cron.field.status")} value={status(job().definition, job().state)} />
-                    <Field label={language.t("settings.cron.field.nextRun")} value={formatTime(job().state?.next_run_at)} />
-                    <Field label={language.t("settings.cron.field.lastRun")} value={formatTime(job().state?.last_run_at)} />
+                    <Field
+                      label={language.t("settings.cron.field.schedule")}
+                      value={`${job().definition.schedule_type}: ${job().definition.schedule_value}`}
+                    />
+                    <Field
+                      label={language.t("settings.cron.field.project")}
+                      value={job().definition.project_id ?? "-"}
+                    />
+                    <Field
+                      label={language.t("settings.cron.field.session")}
+                      value={job().definition.session_id ?? "-"}
+                    />
+                    <Field
+                      label={language.t("settings.cron.field.execution")}
+                      value={
+                        active(job().definition, job().state)
+                          ? language.t("settings.cron.execution.enabled")
+                          : language.t("settings.cron.execution.disabled")
+                      }
+                    />
+                    <Field
+                      label={language.t("settings.cron.field.status")}
+                      value={status(job().definition, job().state)}
+                    />
+                    <Field
+                      label={language.t("settings.cron.field.nextRun")}
+                      value={formatTime(job().state?.next_run_at)}
+                    />
+                    <Field
+                      label={language.t("settings.cron.field.lastRun")}
+                      value={formatTime(job().state?.last_run_at)}
+                    />
                   </div>
 
                   <div class="flex flex-col gap-2">
@@ -524,7 +564,9 @@ export const SettingsCron: Component = () => {
                                 <Button
                                   size="small"
                                   variant="secondary"
-                                  onClick={() => void openSession(run.project_id, run.created_session_id ?? run.session_id)}
+                                  onClick={() =>
+                                    void openSession(run.project_id, run.created_session_id ?? run.session_id)
+                                  }
                                 >
                                   {language.t("settings.cron.action.openSession")}
                                 </Button>
@@ -578,10 +620,10 @@ const Badge: Component<{ value: string }> = (props) => (
         props.value === "skipped" ||
         props.value === "paused" ||
         props.value === "running" ||
-        props.value !== "success" &&
-        props.value !== "active" &&
-        props.value !== "failed" &&
-        props.value !== "expired",
+        (props.value !== "success" &&
+          props.value !== "active" &&
+          props.value !== "failed" &&
+          props.value !== "expired"),
     }}
   >
     {props.value}

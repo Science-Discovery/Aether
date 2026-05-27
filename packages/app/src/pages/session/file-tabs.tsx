@@ -16,7 +16,11 @@ import { Tooltip } from "@opencode-ai/ui/tooltip"
 import { Markdown } from "@opencode-ai/ui/markdown"
 import { CodeEditor } from "@/components/code-editor"
 import { PdfViewerShell } from "@/components/pdf-viewer-shell-official"
-import { registerOpenFileCallback, registerRefreshDirCallback, restoreActiveTasks } from "@/components/pdf-convert-progress"
+import {
+  registerOpenFileCallback,
+  registerRefreshDirCallback,
+  restoreActiveTasks,
+} from "@/components/pdf-convert-progress"
 import { useSDK } from "@/context/sdk"
 import { selectionFromLines, useFile, type FileSelection, type SelectedLineRange } from "@/context/file"
 import { useComments } from "@/context/comments"
@@ -107,7 +111,7 @@ export function FileTabContent(props: { tab: string }) {
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
       ...authHeader,
-      ...(options.headers as Record<string, string> ?? {}),
+      ...((options.headers as Record<string, string>) ?? {}),
     }
     const separator = urlPath.includes("?") ? "&" : "?"
     return fetch(`${baseUrl}${urlPath}${separator}directory=${encodeURIComponent(sdk.directory)}`, {
@@ -276,12 +280,7 @@ export function FileTabContent(props: { tab: string }) {
     const p = path()
     if (!p) return
     if (needsConfirm()) {
-      dialog.show(() => (
-        <DialogDraftConflict
-          onAccept={() => void acceptConflict(p)}
-          onDiscard={discardDraft}
-        />
-      ))
+      dialog.show(() => <DialogDraftConflict onAccept={() => void acceptConflict(p)} onDiscard={discardDraft} />)
       return
     }
     setIsSaving(true)
@@ -294,12 +293,7 @@ export function FileTabContent(props: { tab: string }) {
           done(p)
           return
         }
-        dialog.show(() => (
-          <DialogDraftConflict
-            onAccept={() => void acceptConflict(p)}
-            onDiscard={discardDraft}
-          />
-        ))
+        dialog.show(() => <DialogDraftConflict onAccept={() => void acceptConflict(p)} onDiscard={discardDraft} />)
         return
       }
       showToast({
@@ -539,7 +533,8 @@ export function FileTabContent(props: { tab: string }) {
       return
     }
     if (input.action !== "translate") return
-    const range = input.endPage > input.startPage ? `pages ${input.startPage}-${input.endPage}` : `page ${input.startPage}`
+    const range =
+      input.endPage > input.startPage ? `pages ${input.startPage}-${input.endPage}` : `page ${input.startPage}`
     const settings = quickReading.store.snapshot.settings
     await sendQuickTranslate({
       page: input.startPage,
@@ -937,7 +932,10 @@ export function FileTabContent(props: { tab: string }) {
       let el: Element | null = node.parentElement
       let inMath = false
       while (el && el !== scrollEl) {
-        if (el.classList?.contains("katex")) { inMath = true; break }
+        if (el.classList?.contains("katex")) {
+          inMath = true
+          break
+        }
         el = el.parentElement
       }
       if (inMath) continue
@@ -1076,26 +1074,26 @@ export function FileTabContent(props: { tab: string }) {
               onOpenChange={setFirstReadOpen}
             />
           </Show>
-            <PdfViewerShell
-              src={rawPreviewUrl()}
-              authHeader={pdfAuthHeader()}
-              mode="full"
-              class="size-full"
-              page={pdfPreviewPage()}
-              location={pdfPreviewLocation()}
-              onPageChange={(page) => {
-                const p = path()
-                if (!p) return
-                file.setPdfPage(p, page)
-              }}
-              onLocationChange={(location) => {
-                const p = path()
-                if (!p) return
-                file.setPdfLocation(p, location)
-              }}
-              onDocumentInfo={({ totalPages }) => {
-                const p = path()
-                if (!p) return
+          <PdfViewerShell
+            src={rawPreviewUrl()}
+            authHeader={pdfAuthHeader()}
+            mode="full"
+            class="size-full"
+            page={pdfPreviewPage()}
+            location={pdfPreviewLocation()}
+            onPageChange={(page) => {
+              const p = path()
+              if (!p) return
+              file.setPdfPage(p, page)
+            }}
+            onLocationChange={(location) => {
+              const p = path()
+              if (!p) return
+              file.setPdfLocation(p, location)
+            }}
+            onDocumentInfo={({ totalPages }) => {
+              const p = path()
+              if (!p) return
               setPdfPages(p, totalPages)
               if (quickReading.store.binding?.pdfPath === p) quickReading.setTotalPages(totalPages)
             }}
@@ -1171,19 +1169,21 @@ export function FileTabContent(props: { tab: string }) {
             path: path(),
             current: state()?.content,
             onLoad: queueRestore,
-            actions: isPDF() ? () => (
-              <button
-                type="button"
-                class="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-12-medium text-text-base hover:bg-surface-raised-base-hover transition-colors cursor-pointer"
-                onClick={() => {
-                  const p = path()
-                  if (!p) return
-                  dialog.showModeless(() => <DialogPdfToMarkdown pdfPath={p} />)
-                }}
-              >
-                转换为 Markdown
-              </button>
-            ) : undefined,
+            actions: isPDF()
+              ? () => (
+                  <button
+                    type="button"
+                    class="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-12-medium text-text-base hover:bg-surface-raised-base-hover transition-colors cursor-pointer"
+                    onClick={() => {
+                      const p = path()
+                      if (!p) return
+                      dialog.showModeless(() => <DialogPdfToMarkdown pdfPath={p} />)
+                    }}
+                  >
+                    转换为 Markdown
+                  </button>
+                )
+              : undefined,
             onError: (args: { kind: "image" | "audio" | "svg" }) => {
               if (args.kind !== "svg") return
               showToast({
@@ -1204,15 +1204,15 @@ export function FileTabContent(props: { tab: string }) {
           <Show when={isStale() && isTextFile()}>
             <div class="mb-2 flex items-center justify-between gap-3 rounded-md border border-yellow-500/25 bg-yellow-500/10 px-3 py-2">
               <div class="min-w-0">
-                <div class="text-xs font-medium text-text-base">检测到未保存草稿</div>
-                <div class="text-xs text-text-weak">当前文件已发生变化，review 中显示的是当前真实文件。</div>
+                <div class="text-xs font-medium text-text-base">{language.t("draft.stale.title")}</div>
+                <div class="text-xs text-text-weak">{language.t("draft.stale.description")}</div>
               </div>
               <div class="flex shrink-0 items-center gap-2">
                 <Button size="small" variant="ghost" onClick={discardDraft}>
-                  放弃草稿
+                  {language.t("draft.stale.discard")}
                 </Button>
                 <Button size="small" onClick={restoreDraft}>
-                  恢复旧草稿
+                  {language.t("draft.stale.restore")}
                 </Button>
               </div>
             </div>

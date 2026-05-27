@@ -17,6 +17,7 @@ import { usePlatform } from "@/context/platform"
 import { useSettings, monoFontFamily } from "@/context/settings"
 import { playSoundById, SOUND_OPTIONS } from "@/utils/sound"
 import { Link } from "./link"
+import { formatServerError } from "@/utils/server-errors"
 import { SettingsList } from "./settings-list"
 
 let demoSoundState = {
@@ -169,7 +170,7 @@ export const SettingsGeneral: Component = () => {
         {
           loading: language.t("update.installing"),
           success: () => language.t("update.installHint"),
-          error: (err) => (err instanceof Error ? err.message : String(err)),
+          error: (err) => formatServerError(err, language.t),
         },
       )
     }
@@ -216,8 +217,7 @@ export const SettingsGeneral: Component = () => {
         })
       })
       .catch((err: unknown) => {
-        const message = err instanceof Error ? err.message : String(err)
-        showToast({ title: language.t("common.requestFailed"), description: message })
+        showToast({ title: language.t("common.requestFailed"), description: formatServerError(err, language.t) })
       })
       .finally(() => setStore("checking", false))
   }
@@ -330,8 +330,10 @@ export const SettingsGeneral: Component = () => {
               globalSync.set("config", "model", model)
               globalSync.updateConfig({ model }).catch((err: unknown) => {
                 globalSync.set("config", "model", before)
-                const message = err instanceof Error ? err.message : String(err)
-                showToast({ title: language.t("common.requestFailed"), description: message })
+                showToast({
+                  title: language.t("common.requestFailed"),
+                  description: formatServerError(err, language.t),
+                })
               })
             }}
             variant="secondary"
@@ -380,8 +382,10 @@ export const SettingsGeneral: Component = () => {
               globalSync.set("config", "small_model", small_model)
               globalSync.updateConfig({ small_model }).catch((err: unknown) => {
                 globalSync.set("config", "small_model", before)
-                const message = err instanceof Error ? err.message : String(err)
-                showToast({ title: language.t("common.requestFailed"), description: message })
+                showToast({
+                  title: language.t("common.requestFailed"),
+                  description: formatServerError(err, language.t),
+                })
               })
             }}
             variant="secondary"
@@ -672,8 +676,7 @@ export const SettingsGeneral: Component = () => {
         await platform.restart()
       })
       .catch((err: unknown) => {
-        const message = err instanceof Error ? err.message : String(err)
-        showToast({ title: language.t("common.requestFailed"), description: message })
+        showToast({ title: language.t("common.requestFailed"), description: formatServerError(err, language.t) })
       })
       .finally(() => {
         setProxy("busy", false)
@@ -949,8 +952,7 @@ export const SettingsGeneral: Component = () => {
               idleTimeout: before,
             },
           }))
-          const message = err instanceof Error ? err.message : String(err)
-          showToast({ title: language.t("common.requestFailed"), description: message })
+          showToast({ title: language.t("common.requestFailed"), description: formatServerError(err, language.t) })
         })
     }
 

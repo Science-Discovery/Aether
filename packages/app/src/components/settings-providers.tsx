@@ -13,6 +13,7 @@ import { DialogSelectProvider } from "./dialog-select-provider"
 import { DialogCustomProvider } from "./dialog-custom-provider"
 import { SettingsList } from "./settings-list"
 import { providerNote } from "@/utils/provider-note"
+import { formatServerError } from "@/utils/server-errors"
 
 type ProviderSource = "env" | "api" | "config" | "custom"
 type ProviderItem = ReturnType<ReturnType<typeof useProviders>["connected"]>[number]
@@ -120,8 +121,7 @@ export const SettingsProviders: Component = () => {
       })
       .catch((err: unknown) => {
         globalSync.set("config", "disabled_providers", before)
-        const message = err instanceof Error ? err.message : String(err)
-        showToast({ title: language.t("common.requestFailed"), description: message })
+        showToast({ title: language.t("common.requestFailed"), description: formatServerError(err, language.t) })
       })
   }
 
@@ -149,8 +149,7 @@ export const SettingsProviders: Component = () => {
         })
       })
       .catch((err: unknown) => {
-        const message = err instanceof Error ? err.message : String(err)
-        showToast({ title: language.t("common.requestFailed"), description: message })
+        showToast({ title: language.t("common.requestFailed"), description: formatServerError(err, language.t) })
       })
   }
 
