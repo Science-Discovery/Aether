@@ -496,7 +496,7 @@ export const Terminal = (props: TerminalProps) => {
         if (disposed) return
         if (reconn !== undefined) return
 
-        const ms = Math.min(250 * 2 ** Math.min(tries, 4), 4_000)
+        const ms = server.healthy() === false ? 10_000 : Math.min(250 * 2 ** Math.min(tries, 4), 4_000)
         reconn = setTimeout(async () => {
           reconn = undefined
           if (disposed) return
@@ -506,6 +506,10 @@ export const Terminal = (props: TerminalProps) => {
             return
           }
           if (disposed) return
+          if (server.healthy() === false) {
+            retry(err)
+            return
+          }
           tries += 1
           open()
         }, ms)

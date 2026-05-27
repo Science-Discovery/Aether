@@ -10,6 +10,9 @@ type StoredServer = string | ServerConnection.HttpBase | ServerConnection.Http
 const HEALTH_POLL_INTERVAL_MS = 10_000
 const HEALTH_CHECK_TIMEOUT_MS = 8_000
 
+let _pingPaused = false
+export const pingPaused = () => _pingPaused
+
 export function normalizeServerUrl(input: string) {
   const trimmed = input.trim()
   if (!trimmed) return
@@ -154,10 +157,12 @@ export const { use: useServer, provider: ServerProvider } = createSimpleContext(
           .then((result) => {
             if (!alive) return
             setState("healthy", result.healthy)
+            _pingPaused = !result.healthy
           })
           .catch(() => {
             if (!alive) return
             setState("healthy", false)
+            _pingPaused = true
           })
           .finally(() => {
             clearTimeout(timeout)

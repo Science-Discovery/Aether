@@ -158,31 +158,7 @@ function handleMobileEvent(p: MobilePlatform, type: string, props: any) {
 }
 
 function startPing(p: MobilePlatform) {
-  if (p !== "wechat") return
-  stopPing()
-  pingInterval = setInterval(async () => {
-    if (!clientId) return
-    try {
-      const { url, headers } = api()
-      const res = await fetch(`${url}/mobile/wechat/ping`, {
-        method: "POST",
-        headers: { ...headers, "Content-Type": "application/json" },
-        body: JSON.stringify({ clientId }),
-      })
-      const data = await res.json()
-      pingFails = 0
-      if (data.stolen) {
-        stopPing()
-        patch("wechat", { status: "stolen" })
-      }
-    } catch {
-      pingFails += 1
-      if (pingFails < 3) return
-      pingFails = 0
-      const s = prev("wechat").status
-      if (s !== "idle" && s !== "stolen") patch("wechat", { status: "reconnecting" })
-    }
-  }, 10_000)
+  return
 }
 
 function stopPing() {
