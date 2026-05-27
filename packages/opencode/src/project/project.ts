@@ -529,22 +529,27 @@ export namespace Project {
             d.select().from(ProjectRecentTable).where(eq(ProjectRecentTable.key, recentKey)).get(),
           )
           if (recentRow) {
-            const patch: Record<string, any> = {}
-            if (recentRow.icon_url && !result.icon?.url) patch.icon_url = recentRow.icon_url
-            if (recentRow.icon_color && !result.icon?.color) patch.icon_color = recentRow.icon_color
-            if (Object.keys(patch).length) {
+            const projPatch: Record<string, any> = {}
+            if (recentRow.icon_url && !result.icon?.url) projPatch.icon_url = recentRow.icon_url
+            if (recentRow.icon_color && !result.icon?.color) projPatch.icon_color = recentRow.icon_color
+            if (Object.keys(projPatch).length) {
               yield* dbProject(data.id, (d) =>
-                d.update(ProjectTable).set(patch).where(eq(ProjectTable.id, data.id)).run(),
+                d.update(ProjectTable).set(projPatch).where(eq(ProjectTable.id, data.id)).run(),
               )
-              result.icon = { url: patch.icon_url ?? result.icon?.url, color: patch.icon_color ?? result.icon?.color }
+              result.icon = {
+                url: projPatch.icon_url ?? result.icon?.url,
+                color: projPatch.icon_color ?? result.icon?.color,
+              }
             }
-            yield* db((d) =>
-              d
-                .update(ProjectRecentTable)
-                .set({ icon_url: null, icon_color: null })
-                .where(eq(ProjectRecentTable.key, recentKey))
-                .run(),
-            )
+            // Keep project_recent icon in sync with the authoritative source (ProjectTable / result)
+            const recentPatch: Record<string, any> = {}
+            if (result.icon?.url) recentPatch.icon_url = result.icon.url
+            if (result.icon?.color) recentPatch.icon_color = result.icon.color
+            if (Object.keys(recentPatch).length) {
+              yield* db((d) =>
+                d.update(ProjectRecentTable).set(recentPatch).where(eq(ProjectRecentTable.key, recentKey)).run(),
+              )
+            }
           }
         }
 

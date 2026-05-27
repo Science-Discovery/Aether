@@ -114,6 +114,151 @@ function makeCorruptFile(sourcePath: string, destPath: string, corruption: Corru
   writeFileSync(destPath, copy)
 }
 
+function simulateRegisterUntrackedProjects(mainSqlite: BunSqlite, chDir: string) {
+  const recentLookup = new Map<string, any>()
+  const recentRows = mainSqlite.prepare("SELECT * FROM project_recent").all() as any[]
+  for (const row of recentRows) {
+    const dirNorm = norm(row.directory ?? "")
+    recentLookup.set(dirNorm, row)
+    const keyNorm = row.key?.replace(/^dir:/, "")
+    if (keyNorm && norm(keyNorm) !== dirNorm) recentLookup.set(keyNorm, row)
+  }
+
+  const existingDbIds = new Set<string>()
+  const validWorktreeKeys = new Set<string>()
+  const corruptedIds = new Set<string>()
+
+  if (existsSync(chDir)) {
+    const pattern = /^aether-(.+)\.db$/
+    for (const entry of readdirSync(chDir)) {
+      const match = pattern.exec(entry)
+      if (!match) continue
+      const pid = match[1]
+      if (pid === "cron") continue
+      existingDbIds.add(pid)
+    }
+  }
+
+  let synced = 0
+  for (const pid of existingDbIds) {
+    const fullPath = path.join(chDir, `aether-${pid}.db`)
+    try {
+      const corruption = detectCorruption(fullPath)
+      if (corruption) {
+        quarantine(fullPath, "project", pid)
+        corruptedIds.add(pid)
+        continue
+      }
+
+      const pSqlite = new BunSqlite(fullPath)
+      try {
+        const hasMeta = pSqlite
+          .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='directory_meta'")
+          .get()
+        if (hasMeta) {
+          const existingCount = (pSqlite.prepare("SELECT count(*) as cnt FROM directory_meta").get() as { cnt: number })
+            .cnt
+          if (existingCount === 0) {
+            const projectRow = pSqlite.prepare("SELECT worktree, vcs FROM project WHERE id = ?").get(pid) as
+              | { worktree: string; vcs: string | null }
+              | undefined
+            if (projectRow) {
+              const directories = (
+                pSqlite.prepare("SELECT DISTINCT directory FROM session").all() as { directory: string }[]
+              ).map((r) => r.directory)
+              if (!directories.includes(projectRow.worktree)) directories.push(projectRow.worktree)
+
+              const insert = pSqlite.prepare(
+                "INSERT OR IGNORE INTO directory_meta (directory, worktree, name, icon_url, icon_color, icon_override, activity_at, time_created, time_updated) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+              )
+              for (const dir of directories) {
+                const dirNorm = norm(dir)
+                const recentRow = recentLookup.get(dirNorm)
+                insert.run(
+                  dir,
+                  projectRow.worktree,
+                  recentRow?.name ?? null,
+                  recentRow?.icon_url ?? null,
+                  recentRow?.icon_color ?? null,
+                  recentRow?.icon_override ?? null,
+                  recentRow?.activity_at ?? Date.now(),
+                  Date.now(),
+                  Date.now(),
+                )
+              }
+            }
+          }
+        }
+
+        const wt = pSqlite.prepare("SELECT worktree FROM project WHERE id = ?").get(pid) as
+          | { worktree: string }
+          | undefined
+        if (wt?.worktree && wt.worktree !== "/") validWorktreeKeys.add(`dir:${norm(wt.worktree)}`)
+
+        // Clean global_project_map entries for this pid not present in directory_meta
+        if (hasMeta) {
+          const validNorms = new Set<string>()
+          const metaRows = pSqlite.prepare("SELECT directory FROM directory_meta").all() as { directory: string }[]
+          for (const m of metaRows) validNorms.add(norm(m.directory))
+          const orphanMap = mainSqlite
+            .prepare("SELECT directory FROM global_project_map WHERE project_id = ?")
+            .all(pid) as { directory: string }[]
+          for (const orphan of orphanMap) {
+            if (!validNorms.has(norm(orphan.directory))) {
+              mainSqlite.prepare("DELETE FROM global_project_map WHERE directory = ?").run(orphan.directory)
+            }
+          }
+        }
+
+        synced++
+      } finally {
+        pSqlite.close()
+      }
+    } catch {
+      quarantine(fullPath, "project", pid)
+      corruptedIds.add(pid)
+    }
+  }
+
+  // Phase 2: clean project_recent — covers both kind='project' and kind='directory'
+  const staleRows = mainSqlite
+    .prepare("SELECT key, kind, project_id FROM project_recent WHERE project_id IS NOT NULL")
+    .all() as { key: string; kind: string; project_id: string }[]
+  for (const row of staleRows) {
+    const noDb = !existingDbIds.has(row.project_id) || corruptedIds.has(row.project_id)
+    const invalidWorktree = row.kind === "project" && !validWorktreeKeys.has(row.key)
+    if (noDb || invalidWorktree) {
+      mainSqlite.prepare("DELETE FROM project_recent WHERE key = ?").run(row.key)
+    }
+  }
+
+  // Phase 3: clean global_project_map — also deduplicate norm-inconsistent entries
+  const staleMap = mainSqlite.prepare("SELECT directory, project_id FROM global_project_map").all() as {
+    directory: string
+    project_id: string
+  }[]
+  const seenNorms = new Map<string, string>()
+  for (const row of staleMap) {
+    const noDb = !existingDbIds.has(row.project_id) || corruptedIds.has(row.project_id)
+    if (noDb) {
+      mainSqlite.prepare("DELETE FROM global_project_map WHERE directory = ?").run(row.directory)
+      continue
+    }
+    const dirNorm = norm(row.directory)
+    const prev = seenNorms.get(dirNorm)
+    if (!prev) {
+      seenNorms.set(dirNorm, row.directory)
+      continue
+    }
+    const keepNormed = dirNorm === row.directory
+    const delDir = keepNormed ? prev : row.directory
+    mainSqlite.prepare("DELETE FROM global_project_map WHERE directory = ?").run(delDir)
+    if (keepNormed) seenNorms.set(dirNorm, row.directory)
+  }
+
+  return { synced, corruptedIds, validWorktreeKeys }
+}
+
 async function cleanup() {
   await rm(tmpRoot, { recursive: true, force: true }).catch(() => {})
 }
@@ -176,121 +321,7 @@ describe("Database.Client() fault tolerance", () => {
 })
 
 describe("registerUntrackedProjects fault tolerance", () => {
-  function simulateRegisterUntrackedProjects(mainSqlite: BunSqlite, chDir: string) {
-    const recentLookup = new Map<string, any>()
-    const recentRows = mainSqlite.prepare("SELECT * FROM project_recent").all() as any[]
-    for (const row of recentRows) {
-      const dirNorm = norm(row.directory ?? "")
-      recentLookup.set(dirNorm, row)
-      const keyNorm = row.key?.replace(/^dir:/, "")
-      if (keyNorm && norm(keyNorm) !== dirNorm) recentLookup.set(keyNorm, row)
-    }
-
-    const existingDbIds = new Set<string>()
-    const validWorktreeKeys = new Set<string>()
-    const corruptedIds = new Set<string>()
-
-    if (existsSync(chDir)) {
-      const pattern = /^aether-(.+)\.db$/
-      for (const entry of readdirSync(chDir)) {
-        const match = pattern.exec(entry)
-        if (!match) continue
-        const pid = match[1]
-        if (pid === "cron") continue
-        existingDbIds.add(pid)
-      }
-    }
-
-    let synced = 0
-    for (const pid of existingDbIds) {
-      const fullPath = path.join(chDir, `aether-${pid}.db`)
-      try {
-        const corruption = detectCorruption(fullPath)
-        if (corruption) {
-          quarantine(fullPath, "project", pid)
-          corruptedIds.add(pid)
-          continue
-        }
-
-        const pSqlite = new BunSqlite(fullPath)
-        try {
-          const hasMeta = pSqlite
-            .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='directory_meta'")
-            .get()
-          if (hasMeta) {
-            const existingCount = (
-              pSqlite.prepare("SELECT count(*) as cnt FROM directory_meta").get() as { cnt: number }
-            ).cnt
-            if (existingCount === 0) {
-              const projectRow = pSqlite.prepare("SELECT worktree, vcs FROM project WHERE id = ?").get(pid) as
-                | { worktree: string; vcs: string | null }
-                | undefined
-              if (projectRow) {
-                const directories = (
-                  pSqlite.prepare("SELECT DISTINCT directory FROM session").all() as { directory: string }[]
-                ).map((r) => r.directory)
-                if (!directories.includes(projectRow.worktree)) directories.push(projectRow.worktree)
-
-                const insert = pSqlite.prepare(
-                  "INSERT OR IGNORE INTO directory_meta (directory, worktree, name, icon_url, icon_color, icon_override, activity_at, time_created, time_updated) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                )
-                for (const dir of directories) {
-                  const dirNorm = norm(dir)
-                  const recentRow = recentLookup.get(dirNorm)
-                  insert.run(
-                    dir,
-                    projectRow.worktree,
-                    recentRow?.name ?? null,
-                    recentRow?.icon_url ?? null,
-                    recentRow?.icon_color ?? null,
-                    recentRow?.icon_override ?? null,
-                    recentRow?.activity_at ?? Date.now(),
-                    Date.now(),
-                    Date.now(),
-                  )
-                }
-              }
-            }
-          }
-
-          const wt = pSqlite.prepare("SELECT worktree FROM project WHERE id = ?").get(pid) as
-            | { worktree: string }
-            | undefined
-          if (wt?.worktree && wt.worktree !== "/") validWorktreeKeys.add(`dir:${norm(wt.worktree)}`)
-
-          synced++
-        } finally {
-          pSqlite.close()
-        }
-      } catch {
-        quarantine(fullPath, "project", pid)
-        corruptedIds.add(pid)
-      }
-    }
-
-    // Phase 2: clean project_recent
-    const staleRows = mainSqlite
-      .prepare("SELECT key, project_id FROM project_recent WHERE kind = 'project' AND project_id IS NOT NULL")
-      .all() as { key: string; project_id: string }[]
-    for (const row of staleRows) {
-      if (!existingDbIds.has(row.project_id) || corruptedIds.has(row.project_id) || !validWorktreeKeys.has(row.key)) {
-        mainSqlite.prepare("DELETE FROM project_recent WHERE key = ?").run(row.key)
-      }
-    }
-
-    // Phase 3: clean global_project_map
-    const staleMap = mainSqlite.prepare("SELECT directory, project_id FROM global_project_map").all() as {
-      directory: string
-      project_id: string
-    }[]
-    for (const row of staleMap) {
-      if (!existingDbIds.has(row.project_id) || corruptedIds.has(row.project_id)) {
-        mainSqlite.prepare("DELETE FROM global_project_map WHERE directory = ?").run(row.directory)
-      }
-    }
-
-    return { synced, corruptedIds, validWorktreeKeys }
-  }
+  // delegates to file-scoped simulateRegisterUntrackedProjects defined above
 
   test("corrupted project DB does not crash sync loop, healthy DBs processed", () => {
     const chDir = path.join(tmpRoot, "prod")
@@ -560,6 +591,402 @@ describe("SplitMigration try/catch integrity", () => {
     const { SplitMigration } = await import("../../src/storage/split-migration")
     expect(typeof SplitMigration.needsMigration).toBe("function")
     expect(typeof SplitMigration.run).toBe("function")
-    // The outer try/catch in index.ts is a syntactic guarantee verified by typecheck
+  })
+})
+
+describe("Bug1: Phase 2 cleans kind='directory' orphan rows", () => {
+  function simulatePhase2(
+    mainSqlite: BunSqlite,
+    existingDbIds: Set<string>,
+    corruptedIds: Set<string>,
+    validWorktreeKeys: Set<string>,
+  ) {
+    const staleRows = mainSqlite
+      .prepare("SELECT key, kind, project_id FROM project_recent WHERE project_id IS NOT NULL")
+      .all() as { key: string; kind: string; project_id: string }[]
+    let removed = 0
+    for (const row of staleRows) {
+      const noDb = !existingDbIds.has(row.project_id) || corruptedIds.has(row.project_id)
+      const invalidWorktree = row.kind === "project" && !validWorktreeKeys.has(row.key)
+      if (noDb || invalidWorktree) {
+        mainSqlite.prepare("DELETE FROM project_recent WHERE key = ?").run(row.key)
+        removed++
+      }
+    }
+    return removed
+  }
+
+  test("directory-kind entries with missing project DB are cleaned", () => {
+    const mainPath = path.join(tmpRoot, "bug1-main.db")
+    const mainDb = initMainDbWithMappings(mainPath)
+
+    const alivePid = "aabb1111111111111111111111111111111111"
+    const deadPid = "ccdd2222222222222222222222222222222222"
+
+    // kind='project' entry for alive project
+    mainDb
+      .prepare(
+        "INSERT INTO project_recent (key, kind, project_id, directory, activity_at, time_created, time_updated) VALUES (?, ?, ?, ?, ?, ?, ?)",
+      )
+      .run(`dir:${norm("/tmp/alive-dir")}`, "project", alivePid, "/tmp/alive-dir", Date.now(), Date.now(), Date.now())
+
+    // kind='directory' entry for alive project (sandbox)
+    mainDb
+      .prepare(
+        "INSERT INTO project_recent (key, kind, project_id, directory, activity_at, time_created, time_updated) VALUES (?, ?, ?, ?, ?, ?, ?)",
+      )
+      .run(
+        `dir:${norm("/tmp/alive-sandbox")}`,
+        "directory",
+        alivePid,
+        "/tmp/alive-sandbox",
+        Date.now(),
+        Date.now(),
+        Date.now(),
+      )
+
+    // kind='directory' entry for DEAD project (orphan sandbox)
+    mainDb
+      .prepare(
+        "INSERT INTO project_recent (key, kind, project_id, directory, activity_at, time_created, time_updated) VALUES (?, ?, ?, ?, ?, ?, ?)",
+      )
+      .run(
+        `dir:${norm("/tmp/dead-sandbox")}`,
+        "directory",
+        deadPid,
+        "/tmp/dead-sandbox",
+        Date.now(),
+        Date.now(),
+        Date.now(),
+      )
+
+    const existingDbIds = new Set([alivePid])
+    const corruptedIds = new Set<string>()
+    const validWorktreeKeys = new Set([`dir:${norm("/tmp/alive-dir")}`])
+
+    const removed = simulatePhase2(mainDb, existingDbIds, corruptedIds, validWorktreeKeys)
+
+    expect(removed).toBe(1)
+    expect(
+      mainDb.prepare("SELECT key FROM project_recent WHERE key = ?").get(`dir:${norm("/tmp/alive-dir")}`),
+    ).not.toBeNull()
+    expect(
+      mainDb.prepare("SELECT key FROM project_recent WHERE key = ?").get(`dir:${norm("/tmp/alive-sandbox")}`),
+    ).not.toBeNull()
+    expect(
+      mainDb.prepare("SELECT key FROM project_recent WHERE key = ?").get(`dir:${norm("/tmp/dead-sandbox")}`),
+    ).toBeNull()
+
+    mainDb.close()
+  })
+
+  test("directory-kind entries for corrupted project DB are cleaned", () => {
+    const mainPath = path.join(tmpRoot, "bug1-corrupt-main.db")
+    const mainDb = initMainDbWithMappings(mainPath)
+
+    const goodPid = "good11111111111111111111111111111111111"
+    const badPid = "bad2222222222222222222222222222222222222"
+
+    mainDb
+      .prepare(
+        "INSERT INTO project_recent (key, kind, project_id, directory, activity_at, time_created, time_updated) VALUES (?, ?, ?, ?, ?, ?, ?)",
+      )
+      .run(`dir:${norm("/tmp/good-wt")}`, "project", goodPid, "/tmp/good-wt", Date.now(), Date.now(), Date.now())
+    mainDb
+      .prepare(
+        "INSERT INTO project_recent (key, kind, project_id, directory, activity_at, time_created, time_updated) VALUES (?, ?, ?, ?, ?, ?, ?)",
+      )
+      .run(
+        `dir:${norm("/tmp/bad-sandbox")}`,
+        "directory",
+        badPid,
+        "/tmp/bad-sandbox",
+        Date.now(),
+        Date.now(),
+        Date.now(),
+      )
+
+    const existingDbIds = new Set([goodPid, badPid])
+    const corruptedIds = new Set([badPid])
+    const validWorktreeKeys = new Set([`dir:${norm("/tmp/good-wt")}`])
+
+    const removed = simulatePhase2(mainDb, existingDbIds, corruptedIds, validWorktreeKeys)
+
+    expect(removed).toBe(1)
+    expect(
+      mainDb.prepare("SELECT key FROM project_recent WHERE key = ?").get(`dir:${norm("/tmp/bad-sandbox")}`),
+    ).toBeNull()
+
+    mainDb.close()
+  })
+})
+
+describe("Bug2: Phase 3 deduplicates global_project_map entries with inconsistent norm", () => {
+  function simulatePhase3(mainSqlite: BunSqlite, existingDbIds: Set<string>, corruptedIds: Set<string>) {
+    const staleMap = mainSqlite.prepare("SELECT directory, project_id FROM global_project_map").all() as {
+      directory: string
+      project_id: string
+    }[]
+    let mapRemoved = 0
+    const seenNorms = new Map<string, string>()
+    for (const row of staleMap) {
+      const noDb = !existingDbIds.has(row.project_id) || corruptedIds.has(row.project_id)
+      if (noDb) {
+        mainSqlite.prepare("DELETE FROM global_project_map WHERE directory = ?").run(row.directory)
+        mapRemoved++
+        continue
+      }
+      const dirNorm = norm(row.directory)
+      const prev = seenNorms.get(dirNorm)
+      if (!prev) {
+        seenNorms.set(dirNorm, row.directory)
+        continue
+      }
+      const keepNormed = dirNorm === row.directory
+      const delDir = keepNormed ? prev : row.directory
+      mainSqlite.prepare("DELETE FROM global_project_map WHERE directory = ?").run(delDir)
+      if (keepNormed) seenNorms.set(dirNorm, row.directory)
+      mapRemoved++
+    }
+    return mapRemoved
+  }
+
+  test("duplicate entries with norm-inconsistent paths are deduplicated, keeping normed path", () => {
+    const mainPath = path.join(tmpRoot, "bug2-main.db")
+    const mainDb = initMainDbWithMappings(mainPath)
+
+    const pid = "dedup1111111111111111111111111111111111"
+
+    // Insert two entries: one normed (backslash on Windows), one with forward slashes
+    mainDb
+      .prepare("INSERT INTO global_project_map (directory, project_id, time_created, time_updated) VALUES (?, ?, ?, ?)")
+      .run(norm("/tmp/test-dir"), pid, Date.now(), Date.now())
+
+    const forwardSlashDir = "/tmp/test-dir"
+    // Only add if forwardSlashDir differs from norm (i.e. on Windows)
+    if (forwardSlashDir !== norm("/tmp/test-dir")) {
+      mainDb
+        .prepare(
+          "INSERT INTO global_project_map (directory, project_id, time_created, time_updated) VALUES (?, ?, ?, ?)",
+        )
+        .run(forwardSlashDir, pid, Date.now(), Date.now())
+    }
+
+    const existingDbIds = new Set([pid])
+    const corruptedIds = new Set<string>()
+
+    const removed = simulatePhase3(mainDb, existingDbIds, corruptedIds)
+
+    if (forwardSlashDir !== norm("/tmp/test-dir")) {
+      expect(removed).toBe(1)
+      // Normed path survives
+      expect(
+        mainDb.prepare("SELECT directory FROM global_project_map WHERE directory = ?").get(norm("/tmp/test-dir")),
+      ).not.toBeNull()
+      // Unnormed path removed
+      expect(
+        mainDb.prepare("SELECT directory FROM global_project_map WHERE directory = ?").get(forwardSlashDir),
+      ).toBeNull()
+    } else {
+      expect(removed).toBe(0)
+      expect(mainDb.prepare("SELECT directory FROM global_project_map WHERE project_id = ?").get(pid)).not.toBeNull()
+    }
+
+    mainDb.close()
+  })
+
+  test("global_project_map orphan entries not in directory_meta are cleaned per pid", () => {
+    const chDir = path.join(tmpRoot, "orphan-ch")
+    mkdirSync(chDir, { recursive: true })
+
+    const pid = "orph1111111111111111111111111111111111"
+    const projPath = path.join(chDir, `aether-${pid}.db`)
+    const projDb = initHealthyDbWithTables(projPath)
+    projDb
+      .prepare(
+        "INSERT INTO project (id, worktree, vcs, time_created, time_updated, sandboxes) VALUES (?, ?, ?, ?, ?, ?)",
+      )
+      .run(pid, "/tmp/orphan-dir", "git", 1, 1, "[]")
+    projDb
+      .prepare(
+        "INSERT INTO directory_meta (directory, worktree, activity_at, time_created, time_updated) VALUES (?, ?, ?, ?, ?)",
+      )
+      .run("/tmp/orphan-dir", "/tmp/orphan-dir", 1, 1, 1)
+    projDb.close()
+
+    const mainPath = path.join(tmpRoot, "orphan-main.db")
+    const mainDb = initMainDbWithMappings(mainPath)
+
+    const orphanDir = "/tmp/orphan-dir/deleted-sandbox"
+    mainDb
+      .prepare("INSERT INTO global_project_map (directory, project_id, time_created, time_updated) VALUES (?, ?, ?, ?)")
+      .run(orphanDir, pid, Date.now(), Date.now())
+    mainDb
+      .prepare("INSERT INTO global_project_map (directory, project_id, time_created, time_updated) VALUES (?, ?, ?, ?)")
+      .run("/tmp/orphan-dir", pid, Date.now(), Date.now())
+    mainDb.close()
+
+    const mainDb2 = new BunSqlite(mainPath)
+    const result = simulateRegisterUntrackedProjects(mainDb2, chDir)
+
+    expect(result.synced).toBe(1)
+
+    const after = mainDb2.prepare("SELECT directory FROM global_project_map WHERE project_id = ?").all(pid) as {
+      directory: string
+    }[]
+    const dirs = after.map((r) => r.directory)
+    expect(dirs).toContain("/tmp/orphan-dir")
+    expect(dirs).not.toContain(orphanDir)
+
+    mainDb2.close()
+  })
+})
+
+describe("Bug4: syncDirectoryMetaToGlobal uses session-derived activity_at and ProjectTable icon", () => {
+  function simulateSync(mainSqlite: BunSqlite, pSqlite: BunSqlite, pid: string) {
+    const hasTable = pSqlite
+      .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='directory_meta'")
+      .get()
+    if (!hasTable) return
+
+    const projectRow = pSqlite.prepare("SELECT worktree FROM project WHERE id = ?").get(pid) as
+      | { worktree: string }
+      | undefined
+    const canonicalWorktree = projectRow?.worktree ?? "/"
+
+    const metaRows = pSqlite.prepare("SELECT * FROM directory_meta").all() as {
+      directory: string
+      worktree: string
+      name: string | null
+      icon_url: string | null
+      icon_color: string | null
+      icon_override: string | null
+      activity_at: number
+      time_created: number
+      time_updated: number
+    }[]
+
+    const sessionActivity = new Map<string, number>()
+    const sessionRows = pSqlite
+      .prepare("SELECT directory, MAX(time_updated) as latest FROM session GROUP BY directory")
+      .all() as { directory: string; latest: number }[]
+    for (const s of sessionRows) sessionActivity.set(norm(s.directory), s.latest)
+
+    const projectIcon = pSqlite.prepare("SELECT icon_url, icon_color FROM project WHERE id = ?").get(pid) as
+      | { icon_url: string | null; icon_color: string | null }
+      | undefined
+
+    const insertMap = mainSqlite.prepare(
+      `INSERT INTO global_project_map (directory, project_id, time_created, time_updated)
+       VALUES (?, ?, ?, ?)
+       ON CONFLICT(directory) DO UPDATE SET project_id = excluded.project_id, time_updated = excluded.time_updated`,
+    )
+    const insertRecent = mainSqlite.prepare(
+      `INSERT INTO project_recent (key, kind, project_id, directory, name, icon_url, icon_color, icon_override, activity_at, time_created, time_updated)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(key) DO UPDATE SET project_id = excluded.project_id, directory = excluded.directory, name = excluded.name, icon_url = excluded.icon_url, icon_color = excluded.icon_color, icon_override = excluded.icon_override, activity_at = excluded.activity_at, time_updated = excluded.time_updated`,
+    )
+
+    for (const row of metaRows) {
+      const dirNorm = norm(row.directory)
+      const realActivity = sessionActivity.get(dirNorm) ?? row.activity_at
+      const isWorktree = row.worktree !== "/" && norm(row.directory) === norm(canonicalWorktree)
+      const icon_url = isWorktree ? (projectIcon?.icon_url ?? row.icon_url ?? null) : (row.icon_url ?? null)
+      const icon_color = isWorktree ? (projectIcon?.icon_color ?? row.icon_color ?? null) : (row.icon_color ?? null)
+      const kind = isWorktree ? "project" : "directory"
+
+      insertMap.run(dirNorm, pid, row.time_created, row.time_updated)
+      insertRecent.run(
+        `dir:${dirNorm}`,
+        kind,
+        pid,
+        row.directory,
+        row.name,
+        icon_url,
+        icon_color,
+        row.icon_override ?? null,
+        realActivity,
+        row.time_created,
+        row.time_updated,
+      )
+    }
+  }
+
+  test("activity_at reflects latest session time, not directory_meta value", () => {
+    const chDir = path.join(tmpRoot, "bug4-ch")
+    mkdirSync(chDir, { recursive: true })
+
+    const pid = "act111111111111111111111111111111111111"
+    const projPath = path.join(chDir, `aether-${pid}.db`)
+    const projDb = initHealthyDbWithTables(projPath)
+
+    const sessionTime = 1000
+    const metaActivityAt = 5000
+    projDb
+      .prepare(
+        "INSERT INTO project (id, worktree, vcs, time_created, time_updated, sandboxes) VALUES (?, ?, ?, ?, ?, ?)",
+      )
+      .run(pid, "/tmp/act-dir", "git", 1, 1, "[]")
+    projDb
+      .prepare("INSERT INTO session (id, project_id, directory, time_created, time_updated) VALUES (?, ?, ?, ?, ?)")
+      .run("sess1", pid, "/tmp/act-dir", 1, sessionTime)
+    projDb
+      .prepare(
+        "INSERT INTO directory_meta (directory, worktree, name, icon_url, icon_color, icon_override, activity_at, time_created, time_updated) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      )
+      .run("/tmp/act-dir", "/tmp/act-dir", null, null, null, null, metaActivityAt, 1, 1)
+    projDb.close()
+
+    const mainPath = path.join(tmpRoot, "bug4-main.db")
+    const mainDb = initMainDbWithMappings(mainPath)
+
+    const pSqlite = new BunSqlite(projPath)
+    simulateSync(mainDb, pSqlite, pid)
+    pSqlite.close()
+
+    const row = mainDb.prepare("SELECT activity_at FROM project_recent WHERE project_id = ?").get(pid) as {
+      activity_at: number
+    } | null
+    expect(row).not.toBeNull()
+    expect(row!.activity_at).toBe(sessionTime)
+
+    mainDb.close()
+  })
+
+  test("ProjectTable icon propagates to project_recent for worktree row", () => {
+    const chDir = path.join(tmpRoot, "bug4-icon")
+    mkdirSync(chDir, { recursive: true })
+
+    const pid = "icon1111111111111111111111111111111111"
+    const projPath = path.join(chDir, `aether-${pid}.db`)
+    const projDb = initHealthyDbWithTables(projPath)
+
+    projDb
+      .prepare(
+        "INSERT INTO project (id, worktree, vcs, name, icon_url, icon_color, time_created, time_updated, sandboxes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      )
+      .run(pid, "/tmp/icon-dir", "git", null, null, "mint", 1, 1, "[]")
+    projDb
+      .prepare(
+        "INSERT INTO directory_meta (directory, worktree, name, icon_url, icon_color, icon_override, activity_at, time_created, time_updated) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      )
+      .run("/tmp/icon-dir", "/tmp/icon-dir", null, null, null, null, 1, 1, 1)
+    projDb.close()
+
+    const mainPath = path.join(tmpRoot, "bug4-icon-main.db")
+    const mainDb = initMainDbWithMappings(mainPath)
+
+    // Re-open project DB for the sync simulation
+    const pSqlite = new BunSqlite(projPath)
+    simulateSync(mainDb, pSqlite, pid)
+    pSqlite.close()
+
+    const row = mainDb
+      .prepare("SELECT icon_color FROM project_recent WHERE project_id = ? AND kind = 'project'")
+      .get(pid) as { icon_color: string | null } | null
+    expect(row).not.toBeNull()
+    expect(row!.icon_color).toBe("mint")
+
+    mainDb.close()
   })
 })
