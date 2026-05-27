@@ -128,6 +128,19 @@ vi.mock("@opencode-ai/ui/toast", () => ({
   },
 }))
 
+vi.mock("@/context/language", () => ({
+  useLanguage: () => ({
+    t: (key: string, input?: Record<string, string | number>) => {
+      if (!input) return key
+      return Object.entries(input).reduce((next, [name, value]) => next.replace(`{{${name}}}`, String(value)), key)
+    },
+  }),
+}))
+
+vi.mock("@/utils/server-errors", () => ({
+  formatServerError: (err: unknown) => (err instanceof Error ? err.message : String(err)),
+}))
+
 import { SettingsMemory } from "./settings-memory"
 
 function mount() {
@@ -183,7 +196,7 @@ describe("settings memory", () => {
     await flush()
 
     expect(state.initializeCalls).toBe(1)
-    expect(state.toasts.some((toast) => toast.title === "Memory initialization started")).toBe(true)
+    expect(state.toasts.some((toast) => toast.title === "memory.init.start")).toBe(true)
 
     off()
   })
@@ -227,7 +240,7 @@ describe("settings memory", () => {
     await flush()
 
     expect(state.cancelCalls).toBe(1)
-    expect(state.toasts.some((toast) => toast.title === "Memory initialization stopping")).toBe(true)
+    expect(state.toasts.some((toast) => toast.title === "memory.init.stopping")).toBe(true)
 
     state.resolveInitialize?.()
     await flush()
@@ -287,7 +300,7 @@ describe("settings memory", () => {
     await flush()
 
     expect(state.reflectCalls).toContainEqual({ mode: "quick", reason: "settings-memory" })
-    expect(state.toasts.some((toast) => toast.title === "Memory reflection finished")).toBe(true)
+    expect(state.toasts.some((toast) => toast.title === "memory.reflect.finished")).toBe(true)
 
     off()
   })
