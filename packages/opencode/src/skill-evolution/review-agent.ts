@@ -31,7 +31,7 @@ const MAX_REVIEW_ROUNDS = 20
  * its own sub-project DB; the root itself is reserved for the future curator.
  */
 function evolutionSubProjectId(folderName: string): ProjectID {
-  return ProjectID.fromDirectory(ProjectIdentity.norm(Spawner.skillEvolutionBase(folderName)))
+  return Spawner.evolutionId(Spawner.skillEvolutionBase(folderName))
 }
 
 /**

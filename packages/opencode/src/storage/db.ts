@@ -19,8 +19,6 @@ import { Flag } from "../flag/flag"
 import { iife } from "@/util/iife"
 import { init } from "#db"
 import { Spawner } from "@/skill-evolution/spawner"
-import { ProjectID } from "@/project/schema"
-import { ProjectIdentity } from "@/project/identity"
 import { detectCorruption, quarantine, cleanupQuarantinedOriginals, DbRecovery } from "./db-recovery"
 import type { CorruptionType } from "./db-recovery"
 
@@ -97,7 +95,7 @@ export namespace Database {
         .filter((sub) => sub.isDirectory() && sub.name !== "shared")
         .map((sub) => {
           const dir = path.join(root, sub.name)
-          return { id: String(ProjectID.fromDirectory(ProjectIdentity.norm(dir))), dir }
+          return { id: String(Spawner.evolutionId(dir)), dir }
         })
     } catch {
       return []
@@ -111,7 +109,7 @@ export namespace Database {
    * own folder.
    */
   function skillEvolutionDbPath(projectId: string): string | undefined {
-    if (projectId === String(ProjectID.fromDirectory(ProjectIdentity.norm(Spawner.skillEvolutionRoot())))) {
+    if (projectId === String(Spawner.evolutionId(Spawner.skillEvolutionRoot()))) {
       return path.join(ensureChannelDir(), "aether-skill-evolution.db")
     }
     const match = evolutionSubDirs().find((sub) => sub.id === projectId)

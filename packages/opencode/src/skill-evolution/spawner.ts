@@ -1,7 +1,18 @@
 import path from "path"
 import { Global } from "@/global"
+import { ProjectID } from "@/project/schema"
+import { ProjectIdentity } from "@/project/identity"
 
 export namespace Spawner {
+  /**
+   * Derive the stable projectId for a skill-evolution directory. Single source
+   * of truth for the "directory → id" hash so the write side (review-agent) and
+   * the read side (storage/db) always agree on which sub-project DB to use.
+   */
+  export function evolutionId(dir: string): ProjectID {
+    return ProjectID.fromDirectory(ProjectIdentity.norm(dir))
+  }
+
   /**
    * Compute the folder name for a project's skill-evolution directory.
    * Returns the projectId as-is (a stable hex hash). Folders are addressed
