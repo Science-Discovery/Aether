@@ -2,11 +2,16 @@ import { createSimpleContext } from "@opencode-ai/ui/context"
 import { type Accessor, batch, createEffect, createMemo, onCleanup } from "solid-js"
 import { createStore } from "solid-js/store"
 import { Persist, persisted } from "@/utils/persist"
-import { useCheckServerHealth } from "@/utils/server-health"
+import { checkServerHealth, useCheckServerHealth } from "@/utils/server-health"
+import { usePlatform } from "@/context/platform"
 
 type StoredProject = { worktree: string; expanded: boolean }
 type StoredServer = string | ServerConnection.HttpBase | ServerConnection.Http
 const HEALTH_POLL_INTERVAL_MS = 10_000
+const HEALTH_CHECK_TIMEOUT_MS = 8_000
+
+let _pingPaused = false
+export const pingPaused = () => _pingPaused
 
 export function normalizeServerUrl(input: string) {
   const trimmed = input.trim()
@@ -95,7 +100,8 @@ export namespace ServerConnection {
 export const { use: useServer, provider: ServerProvider } = createSimpleContext({
   name: "Server",
   init: (props: { defaultServer: ServerConnection.Key; servers?: Array<ServerConnection.Any> }) => {
-    const checkServerHealth = useCheckServerHealth()
+    const checkServerHealthFn = useCheckServerHealth()
+    const platform = usePlatform()
 
     const [store, setStore, _, ready] = persisted(
       Persist.global("server", ["server.v3"]),
@@ -140,18 +146,26 @@ export const { use: useServer, provider: ServerProvider } = createSimpleContext(
 
     function startHealthPolling(conn: ServerConnection.Any) {
       let alive = true
-      let busy = false
+      let abort: AbortController | undefined
 
       const run = () => {
-        if (busy) return
-        busy = true
-        void check(conn)
-          .then((next) => {
+        if (!alive) return
+        abort?.abort()
+        abort = new AbortController()
+        const timeout = setTimeout(() => abort?.abort(), HEALTH_CHECK_TIMEOUT_MS)
+        void checkServerHealth(conn.http, platform.fetch ?? globalThis.fetch, { signal: abort.signal })
+          .then((result) => {
             if (!alive) return
-            setState("healthy", next)
+            setState("healthy", result.healthy)
+            _pingPaused = !result.healthy
+          })
+          .catch(() => {
+            if (!alive) return
+            setState("healthy", false)
+            _pingPaused = true
           })
           .finally(() => {
-            busy = false
+            clearTimeout(timeout)
           })
       }
 
@@ -160,6 +174,7 @@ export const { use: useServer, provider: ServerProvider } = createSimpleContext(
       return () => {
         alive = false
         clearInterval(interval)
+        abort?.abort()
       }
     }
 
@@ -196,7 +211,7 @@ export const { use: useServer, provider: ServerProvider } = createSimpleContext(
 
     const isReady = createMemo(() => ready() && !!state.active)
 
-    const check = (conn: ServerConnection.Any) => checkServerHealth(conn.http).then((x) => x.healthy)
+    const check = (conn: ServerConnection.Any) => checkServerHealthFn(conn.http).then((x) => x.healthy)
 
     createEffect(() => {
       const current_ = current()

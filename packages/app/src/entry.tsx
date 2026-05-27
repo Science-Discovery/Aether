@@ -9,6 +9,7 @@ import { dict as zh } from "@/i18n/zh"
 import { createWebUpdate } from "@/utils/web-update"
 import { handleNotificationClick } from "@/utils/notification-click"
 import { ServerConnection } from "./context/server"
+import { pingPaused } from "./context/server"
 
 const DEFAULT_SERVER_URL_KEY = "opencode.settings.dat:defaultServerUrl"
 const PROXY_KEY = "opencode.settings.dat:proxy"
@@ -210,12 +211,24 @@ const lease = (() => {
   }
 })()
 
+const PING_TIMEOUT_MS = 5_000
+
 const ping = async (alive = true) => {
-  await req("/global/ping", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ id: lease, alive }),
-  }).catch(() => undefined)
+  if (pingPaused()) return
+  const ac = new AbortController()
+  const timer = setTimeout(() => ac.abort(), PING_TIMEOUT_MS)
+  try {
+    await req("/global/ping", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: lease, alive }),
+      signal: ac.signal,
+    })
+  } catch {
+    return undefined
+  } finally {
+    clearTimeout(timer)
+  }
 }
 
 const release = () => {

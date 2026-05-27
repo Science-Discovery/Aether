@@ -455,7 +455,7 @@ export namespace Server {
         async (c) => {
           const body = c.req.valid("json")
           await Project.updateDirectoryMeta({ ...body, projectID: body.projectID as ProjectID | undefined })
-          const item = Project.recentFromDir(body.directory)
+          const item = Project.recentList().find((r) => r.directory === body.directory)
           if (!item) return c.json(null, 404)
           return c.json(item)
         },
