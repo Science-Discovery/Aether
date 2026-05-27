@@ -22,15 +22,19 @@ const disposal = {
 }
 
 function emit(directory: string) {
-  GlobalBus.emit("event", {
-    directory,
-    payload: {
-      type: "server.instance.disposed",
-      properties: {
-        directory,
+  try {
+    GlobalBus.emit("event", {
+      directory,
+      payload: {
+        type: "server.instance.disposed",
+        properties: {
+          directory,
+        },
       },
-    },
-  })
+    })
+  } catch (e) {
+    Log.Default.error("emit instance disposed failed", { directory, error: e instanceof Error ? e.message : e })
+  }
 }
 
 function boot(input: { directory: string; init?: () => Promise<any>; project?: Project.Info; worktree?: string }) {
@@ -173,7 +177,11 @@ export const Instance = {
     const directory = Instance.directory
     const projectId = Instance.project.id
     Log.Default.info("disposing instance", { directory })
-    await Promise.all([State.dispose(directory), disposeInstance(directory)])
+    try {
+      await Promise.all([State.dispose(directory), disposeInstance(directory)])
+    } catch (e) {
+      Log.Default.error("instance dispose failed", { directory, error: e instanceof Error ? e.message : e })
+    }
     Database.detach(projectId)
     cache.delete(directory)
     emit(directory)
@@ -188,7 +196,11 @@ export const Instance = {
       return
     }
     Log.Default.info("disposing instance by directory", { directory: dir })
-    await Promise.all([State.dispose(dir), disposeInstance(dir)])
+    try {
+      await Promise.all([State.dispose(dir), disposeInstance(dir)])
+    } catch (e) {
+      Log.Default.error("instance dispose failed", { directory: dir, error: e instanceof Error ? e.message : e })
+    }
     Database.detach(ctx.project.id)
     if (cache.get(dir) === entry) cache.delete(dir)
     emit(dir)

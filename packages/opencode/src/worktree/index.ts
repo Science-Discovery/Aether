@@ -394,6 +394,10 @@ export namespace Worktree {
       function disposeAndClean(target: string) {
         return Effect.promise(() => Instance.disposeDirectory(target)).pipe(
           Effect.flatMap(() => cleanDirectory(target)),
+          Effect.catchCause((cause) => {
+            log.error("disposeAndClean failed", { target, cause: String(cause) })
+            return Effect.void
+          }),
         )
       }
 
@@ -425,6 +429,7 @@ export namespace Worktree {
             : false
 
           if (hasOrphanedDb) {
+            Database.detach(staleId)
             const dbPath = Database.projectPath(staleId)
             for (const suffix of ["", "-wal", "-shm"]) {
               const p = dbPath + suffix

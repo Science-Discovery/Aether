@@ -140,7 +140,7 @@ export namespace Workspace {
     if (row) {
       const info = fromRow(row)
       const adaptor = await getAdaptor(row.type)
-      adaptor.remove(info)
+      await adaptor.remove(info)
       Database.useProject(Instance.project.id, (db) => db.delete(WorkspaceTable).where(eq(WorkspaceTable.id, id)).run())
       return info
     }
