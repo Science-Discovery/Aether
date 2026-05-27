@@ -16,6 +16,11 @@ export type ProviderModelNotFoundError = {
   }
 }
 
+export type WorktreeNamedErrorLike = {
+  name: string
+  data?: { message?: string }
+}
+
 type Translator = (key: string, vars?: Record<string, string | number>) => string
 
 function tr(translator: Translator | undefined, key: string, text: string, vars?: Record<string, string | number>) {
@@ -25,9 +30,65 @@ function tr(translator: Translator | undefined, key: string, text: string, vars?
   return out
 }
 
+const WORKTREE_ERROR_MAP: Record<string, string> = {
+  WorktreeNotGitError: "error.chain.worktree.notGit",
+  WorktreeNameGenerationFailedError: "error.chain.worktree.nameGenerationFailed",
+  WorktreeCreateFailedError: "error.chain.worktree.createFailed",
+  WorktreeStartCommandFailedError: "error.chain.worktree.startCommandFailed",
+  WorktreeRemoveFailedError: "error.chain.worktree.removeFailed",
+  WorktreeResetFailedError: "error.chain.worktree.resetFailed",
+}
+
+const WORKTREE_ERROR_TEXT: Record<string, string> = {
+  WorktreeNotGitError: "Worktrees are only supported for git projects",
+  WorktreeNameGenerationFailedError: "Failed to generate workspace name",
+  WorktreeCreateFailedError: "Failed to create workspace",
+  WorktreeStartCommandFailedError: "Workspace start command failed",
+  WorktreeRemoveFailedError: "Failed to remove workspace",
+  WorktreeResetFailedError: "Failed to reset workspace",
+}
+
+const WORKTREE_MESSAGE_KEY_MAP: Record<string, string> = {
+  "Worktrees are only supported for git projects": "error.chain.worktree.notGit",
+  "Cannot reset the primary workspace": "error.chain.worktree.cannotResetPrimary",
+  "Default branch not found": "error.chain.worktree.defaultBranchNotFound",
+  "Worktree not found": "error.chain.worktree.notFound",
+}
+
+const WORKTREE_MESSAGE_TEXT_MAP: Record<string, string> = {
+  "Worktrees are only supported for git projects": "Worktrees are only supported for git projects",
+  "Cannot reset the primary workspace": "Cannot reset the primary workspace",
+  "Default branch not found": "Default branch not found",
+  "Worktree not found": "Workspace not found",
+}
+
+function parseWorktreeError(error: WorktreeNamedErrorLike, translator?: Translator) {
+  const errorName = error.name
+  const key = WORKTREE_ERROR_MAP[errorName]
+  if (!key) return extractDataMessage(error, translator)
+  const msg = error.data?.message?.trim() ?? ""
+  const messageKey = WORKTREE_MESSAGE_KEY_MAP[msg]
+  if (messageKey) return tr(translator, messageKey, WORKTREE_MESSAGE_TEXT_MAP[msg] || msg)
+  if (msg) return tr(translator, key, WORKTREE_ERROR_TEXT[errorName] || msg, { message: msg })
+  return tr(translator, key, WORKTREE_ERROR_TEXT[errorName] || "Workspace error")
+}
+
+function extractDataMessage(error: { data?: { message?: string } }, translator?: Translator) {
+  const msg = error.data?.message?.trim()
+  if (msg) return msg
+  return tr(translator, "error.chain.unknown", "Unknown error")
+}
+
+function isWorktreeErrorLike(error: unknown): error is WorktreeNamedErrorLike {
+  if (typeof error !== "object" || error === null) return false
+  const o = error as Record<string, unknown>
+  return typeof o.name === "string" && o.name in WORKTREE_ERROR_MAP
+}
+
 export function formatServerError(error: unknown, translate?: Translator, fallback?: string) {
   if (isConfigInvalidErrorLike(error)) return parseReadableConfigInvalidError(error, translate)
   if (isProviderModelNotFoundErrorLike(error)) return parseReadableProviderModelNotFoundError(error, translate)
+  if (isWorktreeErrorLike(error)) return parseWorktreeError(error, translate)
   if (error instanceof Error && error.message) return error.message
   if (typeof error === "string" && error) return error
   if (fallback) return fallback

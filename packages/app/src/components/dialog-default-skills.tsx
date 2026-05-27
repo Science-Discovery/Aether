@@ -8,6 +8,7 @@ import { Component, For, Match, Show, Switch as SolidSwitch, createResource, cre
 import { useGlobalSDK } from "@/context/global-sdk"
 import { useSDK } from "@/context/sdk"
 import { useLanguage } from "@/context/language"
+import { formatServerError } from "@/utils/server-errors"
 
 type DefaultSkill = { name: string; description: string; content: string; enabled?: boolean }
 
@@ -31,12 +32,11 @@ export const DialogDefaultSkills: Component = () => {
       await globalSDK.client.config.skills.toggle({ name, enabled })
       await refetch()
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err)
       showToast({
         variant: "error",
         icon: "circle-x",
         title: language.t("defaultSkills.operationFailed"),
-        description: message,
+        description: formatServerError(err, language.t),
       })
     } finally {
       setToggling(null)
@@ -64,12 +64,11 @@ export const DialogDefaultSkills: Component = () => {
       }
       dialog.close()
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err)
       showToast({
         variant: "error",
         icon: "circle-x",
         title: language.t("defaultSkills.addFailed"),
-        description: message,
+        description: formatServerError(err, language.t),
       })
     } finally {
       setAdding(false)

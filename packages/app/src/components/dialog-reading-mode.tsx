@@ -43,11 +43,11 @@ export const DialogReadingMode: Component = () => {
   function pickFile(f: File | undefined) {
     if (!f) return
     if (f.type !== "application/pdf") {
-      setError("仅支持 PDF 文件")
+      setError(language.t("reading.dialog.upload.format"))
       return
     }
     if (f.size > MAX_SIZE) {
-      setError(`文件过大（${formatSize(f.size)}），上限为 1 GB`)
+      setError(language.t("reading.dialog.upload.sizeTooLarge", { size: formatSize(f.size) }))
       return
     }
     setError(null)
@@ -85,7 +85,9 @@ export const DialogReadingMode: Component = () => {
       const currentServer = server.current
       if (!currentServer) throw new Error("No server available")
       const authHeaders: Record<string, string> = currentServer.http.password
-        ? { Authorization: `Basic ${btoa(`${currentServer.http.username ?? "opencode"}:${currentServer.http.password}`)}` }
+        ? {
+            Authorization: `Basic ${btoa(`${currentServer.http.username ?? "opencode"}:${currentServer.http.password}`)}`,
+          }
         : {}
 
       const form = new FormData()
@@ -101,11 +103,14 @@ export const DialogReadingMode: Component = () => {
         }),
       )
 
-      const res = await fetch(`${currentServer.http.url}/reading-mode/session?directory=${encodeURIComponent(sdk.directory)}`, {
-        method: "POST",
-        headers: authHeaders,
-        body: form,
-      })
+      const res = await fetch(
+        `${currentServer.http.url}/reading-mode/session?directory=${encodeURIComponent(sdk.directory)}`,
+        {
+          method: "POST",
+          headers: authHeaders,
+          body: form,
+        },
+      )
 
       if (!res.ok) {
         const txt = await res.text()

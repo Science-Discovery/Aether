@@ -4,6 +4,8 @@ import { Switch } from "@opencode-ai/ui/switch"
 import { showToast } from "@opencode-ai/ui/toast"
 import { useGlobalSDK } from "@/context/global-sdk"
 import { useGlobalSync } from "@/context/global-sync"
+import { useLanguage } from "@/context/language"
+import { formatServerError } from "@/utils/server-errors"
 
 type MemorySearchResult = {
   id: string
@@ -27,6 +29,7 @@ function stringValue(input: unknown) {
 export const SettingsMemory: Component = () => {
   const sdk = useGlobalSDK()
   const globalSync = useGlobalSync()
+  const language = useLanguage()
   const [searchText, setSearchText] = createSignal("")
   const [searching, setSearching] = createSignal(false)
   const [reflecting, setReflecting] = createSignal(false)
@@ -108,7 +111,10 @@ export const SettingsMemory: Component = () => {
         setResults(((result.data?.results as MemorySearchResult[] | undefined) ?? []) as MemorySearchResult[])
       })
       .catch((error: unknown) => {
-        showToast({ title: "Memory search failed", description: error instanceof Error ? error.message : String(error) })
+        showToast({
+          title: language.t("memory.search.failed"),
+          description: formatServerError(error, language.t),
+        })
       })
       .finally(() => setSearching(false))
   }
@@ -118,11 +124,14 @@ export const SettingsMemory: Component = () => {
     await sdk.client.memory
       .reflect({ mode, reason: "settings-memory" })
       .then((result) => {
-        showToast({ title: "Memory reflection finished", description: String(result.data?.summary ?? "") })
+        showToast({ title: language.t("memory.reflect.finished"), description: String(result.data?.summary ?? "") })
         void statusActions.refetch()
       })
       .catch((error: unknown) => {
-        showToast({ title: "Memory reflection failed", description: error instanceof Error ? error.message : String(error) })
+        showToast({
+          title: "Memory reflection failed",
+          description: error instanceof Error ? error.message : String(error),
+        })
       })
       .finally(() => setReflecting(false))
   }
@@ -131,17 +140,23 @@ export const SettingsMemory: Component = () => {
     setInitializing(true)
     setStoppingInitialize(false)
     startProgressPolling()
-    showToast({ title: "Memory initialization started", description: "Progress is shown in Settings > Memory." })
+    showToast({ title: language.t("memory.init.start"), description: language.t("memory.init.startDescription") })
     await sdk.client.memory.initialize
       .start()
       .then((result) => {
         const scanned = numberValue(result.data?.scanned)
         const imported = numberValue(result.data?.imported)
-        showToast({ title: "Memory initialization finished", description: `Scanned ${scanned} session(s), imported ${imported} event(s).` })
+        showToast({
+          title: language.t("memory.init.finished"),
+          description: language.t("memory.init.finishedDescription", { scanned, imported }),
+        })
         void statusActions.refetch()
       })
       .catch((error: unknown) => {
-        showToast({ title: "Memory initialization failed", description: error instanceof Error ? error.message : String(error) })
+        showToast({
+          title: language.t("memory.init.failed"),
+          description: formatServerError(error, language.t),
+        })
       })
       .finally(() => {
         stopProgressPolling()
@@ -156,12 +171,18 @@ export const SettingsMemory: Component = () => {
     await sdk.client.memory.initialize
       .cancel()
       .then(() => {
-        showToast({ title: "Memory initialization stopping", description: "The current import will stop at the next cancellation point." })
+        showToast({
+          title: language.t("memory.init.stopping"),
+          description: language.t("memory.init.stoppingDescription"),
+        })
         void statusActions.refetch()
       })
       .catch((error: unknown) => {
         setStoppingInitialize(false)
-        showToast({ title: "Memory initialization stop failed", description: error instanceof Error ? error.message : String(error) })
+        showToast({
+          title: language.t("memory.init.stopFailed"),
+          description: formatServerError(error, language.t),
+        })
       })
   }
 
@@ -186,7 +207,8 @@ export const SettingsMemory: Component = () => {
           <div>
             <div class="text-14-medium text-text-strong">Import previous conversations</div>
             <div class="text-12-regular text-text-weak">
-              Scan old sessions serially and extract useful long-term memories. This is visible even after initialization so you can recover from a failed or empty import.
+              Scan old sessions serially and extract useful long-term memories. This is visible even after
+              initialization so you can recover from a failed or empty import.
             </div>
             <div class="mt-2 text-11-regular text-text-dim">
               {status()?.markdown_exists
@@ -224,14 +246,18 @@ export const SettingsMemory: Component = () => {
           <div class="flex items-center justify-between gap-4">
             <div>
               <div class="text-14-medium text-text-strong">Memory enabled</div>
-              <div class="text-12-regular text-text-weak">Disable this to stop memory hooks, tools, and reflection.</div>
+              <div class="text-12-regular text-text-weak">
+                Disable this to stop memory hooks, tools, and reflection.
+              </div>
             </div>
             <Switch checked={memoryEnabled()} onChange={(enabled) => updateMemoryConfig({ enabled })} />
           </div>
           <div class="flex items-center justify-between gap-4">
             <div>
               <div class="text-14-medium text-text-strong">Daily reflection</div>
-              <div class="text-12-regular text-text-weak">Scheduled daily reflection can be disabled without disabling manual reflection.</div>
+              <div class="text-12-regular text-text-weak">
+                Scheduled daily reflection can be disabled without disabling manual reflection.
+              </div>
             </div>
             <Switch checked={dailyEnabled()} onChange={(enabled) => updateDailyConfig({ enabled })} />
           </div>
@@ -246,65 +272,69 @@ export const SettingsMemory: Component = () => {
           </label>
         </section>
 
-      <section class="grid grid-cols-2 gap-3">
-        <div class="rounded-lg border border-border-weak-base bg-surface-raised-base p-3">
-          <div class="text-11-medium text-text-weak uppercase tracking-[0.04em]">Long-term memories</div>
-          <div class="pt-1 text-15-medium text-text-strong">{numberValue(status()?.memory_count)}</div>
-        </div>
-        <div class="rounded-lg border border-border-weak-base bg-surface-raised-base p-3">
-          <div class="text-11-medium text-text-weak uppercase tracking-[0.04em]">Shortcuts</div>
-          <div class="pt-1 text-15-medium text-text-strong">{numberValue(status()?.shortcut_count)}</div>
-        </div>
-      </section>
+        <section class="grid grid-cols-2 gap-3">
+          <div class="rounded-lg border border-border-weak-base bg-surface-raised-base p-3">
+            <div class="text-11-medium text-text-weak uppercase tracking-[0.04em]">Long-term memories</div>
+            <div class="pt-1 text-15-medium text-text-strong">{numberValue(status()?.memory_count)}</div>
+          </div>
+          <div class="rounded-lg border border-border-weak-base bg-surface-raised-base p-3">
+            <div class="text-11-medium text-text-weak uppercase tracking-[0.04em]">Shortcuts</div>
+            <div class="pt-1 text-15-medium text-text-strong">{numberValue(status()?.shortcut_count)}</div>
+          </div>
+        </section>
 
-      <section class="rounded-lg border border-border-weak-base bg-surface-raised-base p-4 flex flex-col gap-3">
-        <div>
-          <div class="text-14-medium text-text-strong">Search test</div>
-          <div class="text-12-regular text-text-weak">This calls the same memory_search logic available to agents.</div>
-        </div>
-        <div class="flex gap-2">
-          <input
-            class="h-9 flex-1 rounded-md border border-border-base bg-surface-base px-3 text-14-regular text-text-strong placeholder:text-text-weak focus:outline-none focus:ring-2 focus:ring-border-focus"
-            value={searchText()}
-            placeholder="Search memory..."
-            onInput={(event) => setSearchText(event.currentTarget.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter") void runSearch()
-            }}
-          />
-          <Button size="small" disabled={searching()} onClick={runSearch}>
-            {searching() ? "Searching..." : "Search"}
-          </Button>
-        </div>
-        <div class="flex flex-col gap-2">
-          <For each={results()}>
-            {(item) => (
-              <div class="rounded-md border border-border-weak-base bg-surface-base p-3">
-                <div class="text-12-medium text-text-strong">
-                  {item.id} · {item.type} · {item.scope}
+        <section class="rounded-lg border border-border-weak-base bg-surface-raised-base p-4 flex flex-col gap-3">
+          <div>
+            <div class="text-14-medium text-text-strong">Search test</div>
+            <div class="text-12-regular text-text-weak">
+              This calls the same memory_search logic available to agents.
+            </div>
+          </div>
+          <div class="flex gap-2">
+            <input
+              class="h-9 flex-1 rounded-md border border-border-base bg-surface-base px-3 text-14-regular text-text-strong placeholder:text-text-weak focus:outline-none focus:ring-2 focus:ring-border-focus"
+              value={searchText()}
+              placeholder="Search memory..."
+              onInput={(event) => setSearchText(event.currentTarget.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") void runSearch()
+              }}
+            />
+            <Button size="small" disabled={searching()} onClick={runSearch}>
+              {searching() ? "Searching..." : "Search"}
+            </Button>
+          </div>
+          <div class="flex flex-col gap-2">
+            <For each={results()}>
+              {(item) => (
+                <div class="rounded-md border border-border-weak-base bg-surface-base p-3">
+                  <div class="text-12-medium text-text-strong">
+                    {item.id} · {item.type} · {item.scope}
+                  </div>
+                  <div class="text-13-regular text-text-base mt-1">{item.memory}</div>
+                  <div class="text-11-regular text-text-weak mt-1">{item.ranking_note}</div>
                 </div>
-                <div class="text-13-regular text-text-base mt-1">{item.memory}</div>
-                <div class="text-11-regular text-text-weak mt-1">{item.ranking_note}</div>
-              </div>
-            )}
-          </For>
-        </div>
-      </section>
+              )}
+            </For>
+          </div>
+        </section>
 
-      <section class="rounded-lg border border-border-weak-base bg-surface-raised-base p-4 flex items-center justify-between gap-4">
-        <div>
-          <div class="text-14-medium text-text-strong">Manual reflection</div>
-          <div class="text-12-regular text-text-weak">Quick is lightweight. Daily-style performs global organization.</div>
-        </div>
-        <div class="flex gap-2">
-          <Button size="small" variant="secondary" disabled={reflecting()} onClick={() => runReflect("quick")}>
-            Quick reflect
-          </Button>
-          <Button size="small" disabled={reflecting()} onClick={() => runReflect("daily")}>
-            Daily reflect
-          </Button>
-        </div>
-      </section>
+        <section class="rounded-lg border border-border-weak-base bg-surface-raised-base p-4 flex items-center justify-between gap-4">
+          <div>
+            <div class="text-14-medium text-text-strong">Manual reflection</div>
+            <div class="text-12-regular text-text-weak">
+              Quick is lightweight. Daily-style performs global organization.
+            </div>
+          </div>
+          <div class="flex gap-2">
+            <Button size="small" variant="secondary" disabled={reflecting()} onClick={() => runReflect("quick")}>
+              Quick reflect
+            </Button>
+            <Button size="small" disabled={reflecting()} onClick={() => runReflect("daily")}>
+              Daily reflect
+            </Button>
+          </div>
+        </section>
       </div>
     </div>
   )
