@@ -65,7 +65,7 @@ import { DialogEditProject } from "@/components/dialog-edit-project"
 import { DebugBar } from "@/components/debug-bar"
 import { Titlebar } from "@/components/titlebar"
 import { useServer } from "@/context/server"
-import { bindResolver, initMobile } from "@/context/mobile"
+import { bindResolver, bindEmitter, initMobile } from "@/context/mobile"
 import { useLanguage, type Locale } from "@/context/language"
 import { actionOf, messageOf } from "@/utils/web-update"
 import {
@@ -132,6 +132,7 @@ export default function Layout(props: ParentProps) {
       : { Authorization: `Basic ${btoa(`${s.username ?? "opencode"}:${s.password}`)}` }
     return { url: globalSDK.url, headers }
   })
+  bindEmitter(globalSDK.event)
   initMobile("wechat")
   initMobile("feishu")
   initMobile("qq")
