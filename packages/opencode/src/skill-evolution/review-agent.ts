@@ -214,9 +214,9 @@ export async function spawnReview(input: {
     const allSkills = await Skill.all()
     const skillLocationMap: Record<string, string> = {}
     const skillSessionMap: Record<string, string> = {}
-    const seRootNorm = Filesystem.resolve(SKILL_EVOLUTION_ROOT)
+    const seRootNorm = ProjectIdentity.norm(SKILL_EVOLUTION_ROOT)
     for (const skill of allSkills) {
-      const locNorm = Filesystem.resolve(skill.location)
+      const locNorm = ProjectIdentity.norm(skill.location)
       if (locNorm.startsWith(seRootNorm + path.sep)) {
         // skill-evolution scope: <seRoot>/<folderName>/skills/<name>/SKILL.md
         // Pull <folderName> from the segment immediately after seRoot.
