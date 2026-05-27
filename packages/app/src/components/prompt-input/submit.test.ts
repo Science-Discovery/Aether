@@ -211,6 +211,7 @@ beforeAll(async () => {
   mock.module("@/context/server", () => ({
     useServer: () => ({
       current: undefined,
+      healthy: () => true,
     }),
   }))
 
