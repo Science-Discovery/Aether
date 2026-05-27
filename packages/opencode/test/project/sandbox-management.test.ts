@@ -133,7 +133,7 @@ describe("sandbox project_recent.kind stays directory after fromDirectory on mai
     const wtPath = path.join(tmp.path, "..", `wt-${Date.now().toString(36)}`)
     await $`git worktree add ${wtPath} -b test-${Date.now()}`.cwd(tmp.path).quiet()
 
-    await Project.fromDirectory(wtPath)
+    await Project.addSandbox(project.id, wtPath)
 
     const wtRow = mainSqlite().prepare("SELECT kind FROM project_recent WHERE directory = ?").get(norm(wtPath)) as
       | { kind: string }
