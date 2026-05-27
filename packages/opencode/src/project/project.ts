@@ -21,6 +21,7 @@ import * as CrossSpawnSpawner from "@/effect/cross-spawn-spawner"
 import { existsSync } from "fs"
 import { Database as BunSqlite } from "bun:sqlite"
 import { ProjectIdentity } from "./identity"
+import { Spawner } from "@/skill-evolution/spawner"
 
 export namespace Project {
   const log = Log.create({ service: "project" })
@@ -107,6 +108,11 @@ export namespace Project {
     if (!input) return true
     const next = norm(input)
     if (next === "/" || next === "\\") return true
+    // Hide skill-evolution sub-project folders (skill-evolution/<id>/) from the
+    // recent list — they're internal review storage. The root itself is kept,
+    // reserved for the future curator project.
+    const seRoot = norm(Spawner.skillEvolutionRoot())
+    if (next.startsWith(seRoot + "/") || next.startsWith(seRoot + "\\")) return true
     return ["/bin", "/dist", "\\bin", "\\dist"].some((item) => next.endsWith(item))
   }
 
