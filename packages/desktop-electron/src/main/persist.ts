@@ -1,7 +1,7 @@
 import { copyFileSync, existsSync, mkdirSync, rmSync } from "node:fs"
 import { dirname, join } from "node:path"
-import { legacyStoreName, storeName } from "./persist-names"
-import { legacyUserDataDir, userDataDir, aetherDataDir } from "./paths"
+import { legacyStoreName, shared, storeName } from "./persist-names"
+import { userDataDir, aetherDataDir } from "./paths"
 
 let ready = false
 
@@ -15,27 +15,16 @@ function copy(src: string, dst: string) {
 
 function storeSources(name: string) {
   const cur = userDataDir()
-  const old = legacyUserDataDir()
   const aether = aetherDataDir()
   const next = storeName(name)
   const prev = legacyStoreName(name)
-  const sources = [
-    join(cur, next),
-    ...(prev ? [join(cur, prev)] : []),
-    join(old, next),
-    ...(prev ? [join(old, prev)] : []),
-  ]
-  // 如果全局 store 目标目录不同于 old userDataDir，从旧 userDataDir 复制
-  if (aether !== cur && next === "aether.global.dat") {
-    sources.push(join(cur, next))
-    if (prev) sources.push(join(cur, prev))
-  }
-  return sources
+  const cwd = shared(next) ? aether : cur
+  return [join(cwd, next), ...(prev ? [join(cwd, prev)] : [])]
 }
 
 export function ensureStoreFile(name: string) {
   const next = storeName(name)
-  const cwd = next === "aether.global.dat" ? aetherDataDir() : userDataDir()
+  const cwd = shared(next) ? aetherDataDir() : userDataDir()
   const file = join(cwd, next)
   if (existsSync(file)) return next
   const seen = new Set<string>()
@@ -47,19 +36,14 @@ export function ensureStoreFile(name: string) {
   return next
 }
 
-function ensureDefault() {
-  copy(join(legacyUserDataDir(), "default.dat"), join(userDataDir(), "default.dat"))
-}
-
 export function ensureDesktopPersist() {
   if (ready) return
   mkdirSync(userDataDir(), { recursive: true })
-  ensureDefault()
   ready = true
 }
 
 export function pidFiles() {
-  return [join(userDataDir(), "sidecar.pid"), join(legacyUserDataDir(), "sidecar.pid")]
+  return [join(userDataDir(), "sidecar.pid")]
 }
 
 export function clearDb(file: string) {

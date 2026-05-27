@@ -63,6 +63,7 @@ jobs:
             flag: --mac --arm64
             files: |
               packages/desktop-electron/dist/*.dmg
+              packages/desktop-electron/dist/*.zip
               packages/desktop-electron/dist/*.blockmap
           - id: mac-x64
             host: macos-15-intel
@@ -70,11 +71,19 @@ jobs:
             flag: --mac --x64
             files: |
               packages/desktop-electron/dist/*.dmg
+              packages/desktop-electron/dist/*.zip
               packages/desktop-electron/dist/*.blockmap
           - id: windows
             host: windows-2022
             rust_target: x86_64-pc-windows-msvc
             flag: --win
+            files: |
+              packages/desktop-electron/dist/*.exe
+              packages/desktop-electron/dist/*.blockmap
+          - id: windows-arm64
+            host: windows-11-arm
+            rust_target: aarch64-pc-windows-msvc
+            flag: --win --arm64
             files: |
               packages/desktop-electron/dist/*.exe
               packages/desktop-electron/dist/*.blockmap
@@ -115,6 +124,7 @@ jobs:
         env:
           OPENCODE_VERSION: ${{ needs.release.outputs.version }}
           OPENCODE_CHANNEL: prod
+          RUST_TARGET: ${{ matrix.rust_target }}
 
       - name: Prepare Electron resources
         run: bun ./scripts/prepare.ts
@@ -142,6 +152,11 @@ jobs:
       - name: Rename Linux arm64 update metadata
         if: matrix.id == 'linux-arm64'
         run: mv dist/latest-linux.yml dist/latest-linux-arm64.yml
+        working-directory: packages/desktop-electron
+
+      - name: Rename Windows arm64 update metadata
+        if: matrix.id == 'windows-arm64'
+        run: mv dist/latest.yml dist/latest-arm64.yml
         working-directory: packages/desktop-electron
 
       - uses: actions/upload-artifact@v4

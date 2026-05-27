@@ -12,6 +12,24 @@ type Deps = {
 }
 
 export function createMenu(deps: Deps) {
+  if (process.platform === "linux") {
+    const template: Electron.MenuItemConstructorOptions[] = [
+      {
+        label: app.getName(),
+        submenu: [
+          {
+            label: "Check for Updates...",
+            enabled: UPDATER_ENABLED,
+            click: () => deps.checkForUpdates(),
+          },
+        ],
+      },
+    ]
+
+    Menu.setApplicationMenu(Menu.buildFromTemplate(template))
+    return
+  }
+
   if (process.platform !== "darwin") return
 
   const template: Electron.MenuItemConstructorOptions[] = [
@@ -48,7 +66,7 @@ export function createMenu(deps: Deps) {
         {
           label: "New Window",
           accelerator: "Cmd+Shift+N",
-          click: () => createMainWindow({ updaterEnabled: UPDATER_ENABLED }),
+          click: () => createMainWindow({ updaterEnabled: false }),
         },
         { type: "separator" },
         { role: "close" },
@@ -97,18 +115,25 @@ export function createMenu(deps: Deps) {
     {
       label: "Help",
       submenu: [
-        { label: "OpenCode Documentation", click: () => shell.openExternal("https://opencode.ai/docs") },
-        { label: "Support Forum", click: () => shell.openExternal("https://discord.com/invite/opencode") },
+        {
+          label: "Aether Documentation",
+          click: () => shell.openExternal("https://github.com/Science-Discovery/Aether"),
+        },
+        {
+          label: "Support Forum",
+          click: () => shell.openExternal("https://github.com/Science-Discovery/Aether/discussions"),
+        },
         { type: "separator" },
         { type: "separator" },
         {
           label: "Share Feedback",
           click: () =>
-            shell.openExternal("https://github.com/anomalyco/opencode/issues/new?template=feature_request.yml"),
+            shell.openExternal("https://github.com/Science-Discovery/Aether/issues/new?template=feature_request.yml"),
         },
         {
           label: "Report a Bug",
-          click: () => shell.openExternal("https://github.com/anomalyco/opencode/issues/new?template=bug_report.yml"),
+          click: () =>
+            shell.openExternal("https://github.com/Science-Discovery/Aether/issues/new?template=bug_report.yml"),
         },
       ],
     },

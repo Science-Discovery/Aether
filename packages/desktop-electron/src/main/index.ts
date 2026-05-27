@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto"
 import { EventEmitter } from "node:events"
 import { createServer } from "node:net"
 import type { Event } from "electron"
-import { app, BrowserWindow, dialog } from "electron"
+import { app, BrowserWindow, dialog, shell } from "electron"
 import pkg from "electron-updater"
 const { autoUpdater } = pkg
 
@@ -40,6 +40,9 @@ const pendingDeepLinks: string[] = []
 
 const serverReady = defer<ServerReadyData>()
 const logger = initLogging()
+const MANUAL_INSTALL_UPDATE = process.platform === "darwin" || (process.platform === "linux" && !process.env.APPIMAGE)
+const RELEASES_URL = "https://github.com/Science-Discovery/Aether/releases/latest"
+const RENDERER_UPDATER_ENABLED = UPDATER_ENABLED && !MANUAL_INSTALL_UPDATE
 
 logger.log("app starting", {
   version: app.getVersion(),
@@ -103,7 +106,6 @@ function setupApp() {
   }
 
   void app.whenReady().then(async () => {
-    // migrate()
     app.setAsDefaultProtocolClient("aether")
     setDockIcon()
     setupAutoUpdater()
@@ -179,7 +181,7 @@ async function initialize() {
   })()
 
   const globals = {
-    updaterEnabled: UPDATER_ENABLED,
+    updaterEnabled: RENDERER_UPDATER_ENABLED,
     deepLinks: pendingDeepLinks,
   }
 
@@ -197,10 +199,10 @@ async function initialize() {
     await dialog
       .showMessageBox({
         type: "error",
-        title: "启动失败",
-        message: "后台服务启动失败，无法连接。",
-        detail: "可能原因：杀毒软件拦截了 opencode-cli.exe。\n请将其加入白名单后重启应用。",
-        buttons: ["重启", "退出"],
+        title: "Startup Failed",
+        message: "Backend service failed to start.",
+        detail: `Possible cause: antivirus software blocked ${process.platform === "win32" ? "opencode-cli.exe" : "opencode-cli"}.\nPlease add it to your antivirus whitelist and restart.`,
+        buttons: ["Restart", "Quit"],
         defaultId: 0,
         cancelId: 1,
       })
@@ -412,6 +414,10 @@ async function checkUpdate() {
       return { updateAvailable: false }
     }
     logger.log("update available", { version })
+    if (MANUAL_INSTALL_UPDATE) {
+      logger.log("update available; manual install required", { version, platform: process.platform })
+      return { updateAvailable: true, version }
+    }
     await autoUpdater.downloadUpdate()
     logger.log("update download completed", { version })
     updateReady = true
@@ -423,6 +429,10 @@ async function checkUpdate() {
 }
 
 async function installUpdate() {
+  if (MANUAL_INSTALL_UPDATE) {
+    await shell.openExternal(RELEASES_URL)
+    return
+  }
   if (!updateReady) return
   killSidecar()
   autoUpdater.quitAndInstall()
@@ -451,6 +461,23 @@ async function checkForUpdates(alertOnFail: boolean) {
       message: "You're up to date.",
       title: "No Updates",
     })
+    return
+  }
+
+  if (MANUAL_INSTALL_UPDATE) {
+    const response = await dialog.showMessageBox({
+      type: "info",
+      title: "Update Available",
+      message: `Aether Desktop ${result.version ?? ""} is available.`,
+      detail:
+        process.platform === "darwin"
+          ? "Automatic download and installation are not enabled for macOS yet. Please download the latest macOS release from GitHub Releases and replace your existing app."
+          : "Automatic download and installation are only enabled for Linux AppImage builds. Please download the latest .deb or .rpm package from GitHub Releases and upgrade with your package manager.",
+      buttons: ["Open GitHub Releases", "Later"],
+      defaultId: 0,
+      cancelId: 1,
+    })
+    if (response.response === 0) await shell.openExternal(RELEASES_URL)
     return
   }
 

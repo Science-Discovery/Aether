@@ -139,8 +139,24 @@ const allTargets: {
   },
 ]
 
+function rust(target: string | undefined) {
+  if (target === "aarch64-apple-darwin") return { os: "darwin", arch: "arm64" }
+  if (target === "x86_64-apple-darwin") return { os: "darwin", arch: "x64" }
+  if (target === "aarch64-pc-windows-msvc") return { os: "win32", arch: "arm64" }
+  if (target === "x86_64-pc-windows-msvc") return { os: "win32", arch: "x64" }
+  if (target === "x86_64-unknown-linux-gnu") return { os: "linux", arch: "x64" }
+  if (target === "aarch64-unknown-linux-gnu") return { os: "linux", arch: "arm64" }
+}
+
+const desired = rust(process.env.RUST_TARGET)
+
 const targets = singleFlag
   ? allTargets.filter((item) => {
+      if (desired) {
+        if (item.os !== desired.os || item.arch !== desired.arch) return false
+        return item.avx2 === false ? baselineFlag : item.abi === undefined
+      }
+
       if (item.os !== process.platform || item.arch !== process.arch) {
         return false
       }

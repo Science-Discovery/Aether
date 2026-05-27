@@ -16,6 +16,14 @@ export function storeName(name: string) {
   return name
 }
 
+export function shared(name: string) {
+  const next = storeName(name)
+  if (next === "aether.global.dat") return true
+  if (next === SETTINGS_STORE) return true
+  if (next === "default.dat") return true
+  return next.startsWith(`${APP}.workspace.`) && next.endsWith(".dat")
+}
+
 export function legacyStoreName(name: string) {
   if (name === SETTINGS_STORE || name === LEGACY_SETTINGS_STORE) return LEGACY_SETTINGS_STORE
   if (!name.endsWith(".dat")) return

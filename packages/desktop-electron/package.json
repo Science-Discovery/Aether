@@ -20,7 +20,12 @@
     "package:mac": "electron-builder --mac --config electron-builder.config.ts",
     "package:win": "electron-builder --win --config electron-builder.config.ts",
     "package:linux": "electron-builder --linux --config electron-builder.config.ts",
-    "native:build": "bun install --cwd native"
+    "native:build": "bun install --cwd native",
+    "icons:prod": "bun ./scripts/build-icons.ts prod",
+    "icons:beta": "bun ./scripts/build-icons.ts beta",
+    "icons:dev": "bun ./scripts/build-icons.ts dev",
+    "icons:all": "bun run icons:prod && bun run icons:beta && bun run icons:dev",
+    "test": "bun test"
   },
   "main": "./out/main/index.js",
   "dependencies": {
@@ -41,12 +46,16 @@
   },
   "devDependencies": {
     "@actions/artifact": "4.0.0",
+    "@fiahfy/icns": "0.0.7",
+    "@fiahfy/icns-convert": "0.0.12",
     "@types/bun": "catalog:",
     "@types/node": "catalog:",
     "@typescript/native-preview": "catalog:",
     "electron": "40.4.1",
     "electron-builder": "^26",
     "electron-vite": "^5",
+    "png-to-ico": "2.1.8",
+    "sharp": "0.33.5",
     "typescript": "~5.6.2",
     "vite": "catalog:"
   }

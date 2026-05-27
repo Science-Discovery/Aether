@@ -1,12 +1,6 @@
 import { execFileSync, spawn } from "node:child_process"
 import { EventEmitter } from "node:events"
-import {
-  chmodSync,
-  mkdirSync,
-  readFileSync,
-  unlinkSync,
-  writeFileSync,
-} from "node:fs"
+import { chmodSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import readline from "node:readline"
@@ -99,7 +93,12 @@ export async function installCli(): Promise<string> {
 
   const sidecar = getSidecarPath()
   const scriptPath = join(app.getAppPath(), "install")
-  const script = readFileSync(scriptPath, "utf8")
+  let script: string
+  try {
+    script = readFileSync(scriptPath, "utf8")
+  } catch {
+    throw new Error("CLI installation script not found. Please install the CLI manually.")
+  }
   const tempScript = join(tmpdir(), "opencode-install.sh")
 
   writeFileSync(tempScript, script, "utf8")
@@ -214,6 +213,7 @@ export function spawnCommand(args: string, extraEnv: Record<string, string>) {
   )
   const envs = {
     ...base,
+    ...xdg(),
     OPENCODE_EXPERIMENTAL_ICON_DISCOVERY: "true",
     OPENCODE_EXPERIMENTAL_FILEWATCHER: "true",
     OPENCODE_CLIENT: "desktop",
@@ -283,6 +283,19 @@ export function spawnCommand(args: string, extraEnv: Record<string, string>) {
   return { events, child: { pid: child.pid, kill }, exit }
 }
 
+function home() {
+  return process.env.OPENCODE_TEST_HOME || app.getPath("home")
+}
+
+function xdg() {
+  return {
+    XDG_DATA_HOME: process.env.XDG_DATA_HOME ?? join(home(), ".local", "share"),
+    XDG_CONFIG_HOME: process.env.XDG_CONFIG_HOME ?? join(home(), ".config"),
+    XDG_CACHE_HOME: process.env.XDG_CACHE_HOME ?? join(home(), ".cache"),
+    XDG_STATE_HOME: process.env.XDG_STATE_HOME ?? join(home(), ".local", "state"),
+  }
+}
+
 function handleSqliteProgress(events: EventEmitter, line: string) {
   const stripped = line.startsWith("sqlite-migration:") ? line.slice("sqlite-migration:".length).trim() : null
   if (!stripped) return false
@@ -302,13 +315,14 @@ function buildCommand(args: string, env: Record<string, string>) {
   if (process.platform === "win32" && isWslEnabled()) {
     console.log(`[cli] Using WSL mode`)
     const version = app.getVersion()
+    const envs = Object.fromEntries(Object.entries(env).filter(([key]) => !key.startsWith("XDG_")))
     const script = [
       "set -e",
       'BIN="$HOME/.opencode/bin/opencode"',
       'if [ ! -x "$BIN" ]; then',
       `  curl -fsSL https://opencode.ai/install | bash -s -- --version ${shellEscape(version)} --no-modify-path`,
       "fi",
-      `${envPrefix(env)} exec "$BIN" ${args}`,
+      `${envPrefix(envs)} exec "$BIN" ${args}`,
     ].join("\n")
 
     return { cmd: "wsl", cmdArgs: ["-e", "bash", "-lc", script] }

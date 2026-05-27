@@ -80,7 +80,7 @@ const output: Record<string, string> = {}
 
 // Windows: merge arm64 + x64 into single file
 const winX64 = await read("latest-yml-x86_64-pc-windows-msvc", "latest.yml")
-const winArm64 = await read("latest-yml-aarch64-pc-windows-msvc", "latest.yml")
+const winArm64 = await read("latest-yml-aarch64-pc-windows-msvc", "latest-arm64.yml")
 if (winX64 || winArm64) {
   const base = winArm64 ?? winX64!
   output["latest.yml"] = serialize({
