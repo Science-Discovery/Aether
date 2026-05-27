@@ -4,6 +4,7 @@ import os from "os"
 import path from "path"
 import { Global } from "@/global"
 import { ShadowWriter } from "./shadow-writer"
+import { Spawner } from "./spawner"
 
 describe("ShadowWriter.resolveSkillDir", () => {
   test("computes shadow dir from .claude location", () => {
@@ -40,11 +41,9 @@ describe("ShadowWriter.resolveSkillDir", () => {
     )
   })
 
-  test("falls back to skill-sessions dir when sessionProjectId provided and no location", () => {
+  test("falls back to skill-evolution dir when sessionProjectId provided and no location", () => {
     const result = ShadowWriter.resolveSkillDir("new-skill", undefined, "proj-abc123")
-    expect(result).toBe(
-      path.join(Global.Path.home, ".aether", "skill-sessions", "proj-abc123", "skills", "new-skill"),
-    )
+    expect(result).toBe(path.join(Spawner.skillEvolutionDir("proj-abc123"), "new-skill"))
   })
 
   test("falls back to ~/.aether/skills when no location and no projectId", () => {

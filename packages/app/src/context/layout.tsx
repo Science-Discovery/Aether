@@ -12,7 +12,7 @@ import { decode64 } from "@/utils/base64"
 import { same } from "@/utils/same"
 import { createScrollPersistence, type SessionScroll } from "./layout-scroll"
 import { createPathHelpers } from "./file/path"
-import { setupSkillSessionsAutoOpen } from "@/skill-evolution/auto-open"
+import { setupSkillEvolutionAutoOpen } from "@/skill-evolution/auto-open"
 
 const AVATAR_COLOR_KEYS = ["pink", "mint", "orange", "purple", "cyan", "lime"] as const
 const DEFAULT_PANEL_WIDTH = 344
@@ -487,7 +487,7 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
       )
     })
 
-    setupSkillSessionsAutoOpen(globalSync, server)
+    setupSkillEvolutionAutoOpen(globalSync, server)
 
     return {
       ready,

@@ -141,10 +141,10 @@ export namespace Skill {
         paths.push(...matches)
       }
 
-      const skillSessionsDir = Spawner.skillSessionsDir(Spawner.skillFolderName(directory, projectId))
-      if (await Filesystem.isDir(skillSessionsDir)) {
+      const seDir = Spawner.skillEvolutionDir(Spawner.skillFolderName(directory, projectId))
+      if (await Filesystem.isDir(seDir)) {
         const matches = await Glob.scan(SKILL_PATTERN, {
-          cwd: skillSessionsDir,
+          cwd: seDir,
           absolute: true,
           include: "file",
           symlink: true,
@@ -285,10 +285,10 @@ export namespace Skill {
       }
 
       // AI background-review skills: project-scope but lowest priority (overridden by any user source)
-      const skillSessionsDir = Spawner.skillSessionsDir(Spawner.skillFolderName(directory, projectId))
-      if (await Filesystem.isDir(skillSessionsDir)) {
-        state.sources.push({ dir: skillSessionsDir, pattern: SKILL_PATTERN, scope: "project" })
-        await scan(state, skillSessionsDir, SKILL_PATTERN, { dot: true, scope: "project" })
+      const seDir = Spawner.skillEvolutionDir(Spawner.skillFolderName(directory, projectId))
+      if (await Filesystem.isDir(seDir)) {
+        state.sources.push({ dir: seDir, pattern: SKILL_PATTERN, scope: "project" })
+        await scan(state, seDir, SKILL_PATTERN, { dot: true, scope: "project" })
       }
 
       // Collect dirs from inner (directory) to outer (worktree), then scan reversed so inner wins.

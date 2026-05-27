@@ -441,6 +441,11 @@ export namespace Project {
           }
         }
 
+        // Cache projectId → worktree so Database.projectPath() can route
+        // skill-evolution projects to their special DB locations without
+        // every db call having to pass directory through.
+        yield* Effect.sync(() => Database.rememberProjectDir(data.id, data.worktree))
+
         // Phase 2: construct result
         const row = Database.hasProject(data.id)
           ? yield* dbProject(data.id, (d) => d.select().from(ProjectTable).where(eq(ProjectTable.id, data.id)).get())

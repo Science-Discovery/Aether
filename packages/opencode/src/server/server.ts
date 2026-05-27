@@ -520,6 +520,7 @@ export namespace Server {
                         home: z.string(),
                         state: z.string(),
                         config: z.string(),
+                        data: z.string(),
                         worktree: z.string(),
                         directory: z.string(),
                       })
@@ -537,6 +538,7 @@ export namespace Server {
             home: Global.Path.home,
             state: Global.Path.state,
             config: Global.Path.config,
+            data: Global.Path.data,
             worktree: Instance.worktree,
             directory: Instance.directory,
           })

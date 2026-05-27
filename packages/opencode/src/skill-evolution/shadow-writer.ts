@@ -2,6 +2,7 @@ import fs from "fs/promises"
 import path from "path"
 import { Filesystem } from "@/util/filesystem"
 import { Global } from "@/global"
+import { Spawner } from "./spawner"
 
 const CONFIG_MARKERS = [".claude", ".agents", ".opencode", ".aether"] as const
 
@@ -28,7 +29,7 @@ export namespace ShadowWriter {
    * Priority (matches loadSkills scan order):
    *   1. If the skill has a known source location → <base>/.aether/skills/<name>/
    *      where base = parent of the nearest config marker in the path
-   *   2. If created by AI background review → ~/.aether/skill-sessions/<projectId>/skills/<name>/
+   *   2. If created by AI background review → <skill-evolution-root>/<projectId>/skills/<name>/
    *   3. Fallback → ~/.aether/skills/<name>/
    */
   export function resolveSkillDir(skillName: string, skillLocation?: string, sessionProjectId?: string): string {
@@ -39,7 +40,7 @@ export namespace ShadowWriter {
       }
     }
     if (sessionProjectId) {
-      return path.join(Global.Path.home, ".aether", "skill-sessions", sessionProjectId, "skills", skillName)
+      return path.join(Spawner.skillEvolutionDir(sessionProjectId), skillName)
     }
     return path.join(Global.Path.home, ".aether", "skills", skillName)
   }

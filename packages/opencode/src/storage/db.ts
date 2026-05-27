@@ -18,6 +18,7 @@ import { Installation } from "../installation"
 import { Flag } from "../flag/flag"
 import { iife } from "@/util/iife"
 import { init } from "#db"
+import { Spawner } from "@/skill-evolution/spawner"
 import { detectCorruption, quarantine, cleanupQuarantinedOriginals, DbRecovery } from "./db-recovery"
 import type { CorruptionType } from "./db-recovery"
 
@@ -77,22 +78,76 @@ export namespace Database {
     return path.join(ensureChannelDir(), `aether-cron.db`)
   }
 
-  export function projectPath(projectId: string) {
+  /**
+   * projectId → directory cache, populated when attach()/projectClient is
+   * called with a known directory. Lets projectPath() route skill-evolution
+   * projects to special paths without changing every call site to pass
+   * directory along. Common (non-skill-evolution) projects miss the cache
+   * and fall through to the legacy channel-dir path — zero behavior change.
+   */
+  const projectDirCache = new Map<string, string>()
+
+  function skillEvolutionRedirect(projectId: string, dir: string): string | undefined {
+    const root = Spawner.skillEvolutionRoot()
+    const dirN = norm(dir)
+    const rootN = norm(root)
+    if (dirN === rootN) {
+      // Top-level skill-evolution project: fixed-name DB next to other channel DBs.
+      return path.join(ensureChannelDir(), "aether-skill-evolution.db")
+    }
+    if (dirN.startsWith(rootN + path.sep)) {
+      // Skill-evolution sub-project: DB lives inside the project's own folder.
+      return path.join(dir, `aether-${projectId}.db`)
+    }
+    return undefined
+  }
+
+  export function projectPath(projectId: string, directory?: string): string {
+    const dir = directory ?? projectDirCache.get(projectId)
+    if (dir) {
+      const redirect = skillEvolutionRedirect(projectId, dir)
+      if (redirect) return redirect
+    }
     return path.join(ensureChannelDir(), `aether-${projectId}.db`)
+  }
+
+  /** Cache the projectId → directory mapping so later projectPath() calls without
+   *  a directory argument can still route skill-evolution projects correctly. */
+  export function rememberProjectDir(projectId: string, directory: string) {
+    projectDirCache.set(projectId, directory)
+  }
+
+  /** Enumerate aether-*.db files in skill-evolution/<sub>/ sub-folders. */
+  function skillEvolutionDbPaths(): string[] {
+    const root = Spawner.skillEvolutionRoot()
+    if (!existsSync(root)) return []
+    const out: string[] = []
+    try {
+      for (const sub of readdirSync(root, { withFileTypes: true })) {
+        if (!sub.isDirectory()) continue
+        if (sub.name === "shared") continue // reserved namespace, no DB
+        const dbPath = path.join(root, sub.name, `aether-${sub.name}.db`)
+        if (existsSync(dbPath)) out.push(dbPath)
+      }
+    } catch {}
+    return out
   }
 
   export function projectPaths(): string[] {
     const dir = channelDir()
-    if (!existsSync(dir)) return []
-    const pattern = new RegExp(`^aether-.+\\.db$`)
-    try {
-      return readdirSync(dir, { withFileTypes: true })
-        .filter((entry) => entry.isFile() && pattern.test(entry.name))
-        .map((entry) => path.join(dir, entry.name))
-        .sort()
-    } catch {
-      return []
+    const flat: string[] = []
+    if (existsSync(dir)) {
+      const pattern = new RegExp(`^aether-.+\\.db$`)
+      try {
+        flat.push(
+          ...readdirSync(dir, { withFileTypes: true })
+            .filter((entry) => entry.isFile() && pattern.test(entry.name))
+            .map((entry) => path.join(dir, entry.name)),
+        )
+      } catch {}
     }
+    flat.push(...skillEvolutionDbPaths())
+    return flat.sort()
   }
 
   export const Path = iife(() => {
@@ -901,7 +956,9 @@ export namespace Database {
     }
 
     const chDir = channelDir()
-    const existingDbIds = new Set<string>()
+    /** Map pid → absolute DB file path. Includes channel-dir DBs plus
+     *  skill-evolution sub-project DBs so directory_meta sync covers all of them. */
+    const existingDbIds = new Map<string, string>()
     const validWorktreeKeys = new Set<string>()
     const corruptedIds = new Set<string>()
     if (existsSync(chDir)) {
@@ -910,8 +967,17 @@ export namespace Database {
         const match = pattern.exec(entry)
         if (!match) continue
         const pid = match[1]
-        if (pid === "cron" || pid === "memory" || pid === "skill") continue
-        existingDbIds.add(pid)
+        if (pid === "cron" || pid === "memory" || pid === "skill" || pid === "skill-evolution") continue
+        existingDbIds.set(pid, path.join(chDir, entry))
+      }
+    }
+    const seRoot = Spawner.skillEvolutionRoot()
+    if (existsSync(seRoot)) {
+      for (const sub of readdirSync(seRoot, { withFileTypes: true })) {
+        if (!sub.isDirectory()) continue
+        if (sub.name === "shared") continue
+        const dbPath = path.join(seRoot, sub.name, `aether-${sub.name}.db`)
+        if (existsSync(dbPath)) existingDbIds.set(sub.name, dbPath)
       }
     }
 
@@ -919,8 +985,7 @@ export namespace Database {
     //           then sync directory_meta → global_project_map + project_recent
     //           Each project DB is handled independently — corruption in one does not block others.
     let synced = 0
-    for (const pid of existingDbIds) {
-      const fullPath = path.join(chDir, `aether-${pid}.db`)
+    for (const [pid, fullPath] of existingDbIds) {
       try {
         const corruption = detectCorruption(fullPath)
         if (corruption) {
