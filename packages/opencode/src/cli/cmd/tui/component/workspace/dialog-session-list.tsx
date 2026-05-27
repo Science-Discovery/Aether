@@ -38,6 +38,7 @@ export function DialogSessionList(props: { workspaceID?: string; localOnly?: boo
     if (!query || props.localOnly) return undefined
     const result = await sdk.client.session.list({
       search: query,
+      search_scope: "all",
       limit: 30,
       ...(props.workspaceID ? { roots: true } : {}),
     })

@@ -7,7 +7,7 @@ import { List } from "@opencode-ai/ui/list"
 import { base64Encode } from "@opencode-ai/util/encode"
 import { displayPath, getDirectory, getFilename } from "@opencode-ai/util/path"
 import { useNavigate } from "@solidjs/router"
-import { createMemo, createSignal, Match, onCleanup, Show, Switch } from "solid-js"
+import { createMemo, createSignal, Match, onCleanup, Show, Switch, type JSX } from "solid-js"
 import { formatKeybind, useCommand, type CommandOption } from "@/context/command"
 import { useGlobalSDK } from "@/context/global-sdk"
 import { useGlobalSync } from "@/context/global-sync"
@@ -26,6 +26,8 @@ type Entry = {
   type: EntryType
   title: string
   description?: string
+  matchText?: string
+  matchQuery?: string
   keybind?: string
   category: string
   option?: CommandOption
@@ -77,12 +79,43 @@ const createFileEntry = (path: string, category: string): Entry => ({
   path,
 })
 
+function highlight(text: string, query?: string) {
+  const needle = query?.trim()
+  if (!needle) return text
+
+  const source = text.toLowerCase()
+  const target = needle.toLowerCase()
+  if (!target) return text
+
+  const out: Array<string | JSX.Element> = []
+  let cursor = 0
+
+  while (cursor < text.length) {
+    const index = source.indexOf(target, cursor)
+    if (index === -1) {
+      out.push(text.slice(cursor))
+      break
+    }
+    if (index > cursor) out.push(text.slice(cursor, index))
+    out.push(
+      <b class="rounded-sm bg-warning/20 px-0.5 text-text-strong">
+        {text.slice(index, index + needle.length)}
+      </b>,
+    )
+    cursor = index + needle.length
+  }
+
+  return out
+}
+
 const createSessionEntry = (
   input: {
     directory: string
     id: string
     title: string
     description: string
+    matchText?: string
+    matchQuery?: string
     archived?: number
     updated?: number
   },
@@ -92,6 +125,8 @@ const createSessionEntry = (
   type: "session",
   title: input.title,
   description: input.description,
+  matchText: input.matchText,
+  matchQuery: input.matchQuery,
   category,
   directory: input.directory,
   sessionID: input.id,
@@ -179,10 +214,12 @@ function createSessionEntries(props: {
 }) {
   const state: {
     token: number
+    query: string
     inflight: Promise<Entry[]> | undefined
     cached: Entry[] | undefined
   } = {
     token: 0,
+    query: "",
     inflight: undefined,
     cached: undefined,
   }
@@ -191,15 +228,17 @@ function createSessionEntries(props: {
     const query = text.trim()
     if (!query) {
       state.token += 1
+      state.query = ""
       state.inflight = undefined
       state.cached = undefined
       return [] as Entry[]
     }
 
-    if (state.cached) return state.cached
-    if (state.inflight) return state.inflight
+    if (state.cached && state.query === query) return state.cached
+    if (state.inflight && state.query === query) return state.inflight
 
-    const current = state.token
+    const current = ++state.token
+    state.query = query
     const dirs = props.workspaces()
     if (dirs.length === 0) return [] as Entry[]
 
@@ -207,7 +246,7 @@ function createSessionEntries(props: {
       dirs.map((directory) => {
         const description = props.label(directory)
         return props.globalSDK.client.session
-          .list({ directory, roots: true })
+          .list({ directory, roots: true, search: query, search_scope: "all" })
           .then((x) =>
             (x.data ?? [])
               .filter((s) => !!s?.id)
@@ -215,6 +254,8 @@ function createSessionEntries(props: {
                 id: s.id,
                 title: s.title ?? props.language.t("command.session.new"),
                 description,
+                matchText: s.match?.scope === "messages" ? s.match.text : undefined,
+                matchQuery: query,
                 directory,
                 archived: s.time?.archived,
                 updated: s.time?.updated,
@@ -226,6 +267,8 @@ function createSessionEntries(props: {
                 id: string
                 title: string
                 description: string
+                matchText?: string
+                matchQuery?: string
                 directory: string
                 archived?: number
                 updated?: number
@@ -396,7 +439,7 @@ export function DialogSelectFile(props: { mode?: DialogSelectFileMode; onOpenFil
         loadingMessage={language.t("common.loading")}
         items={items}
         key={(item) => item.id}
-        filterKeys={["title", "description", "category"]}
+        filterKeys={["title", "description", "category", "matchText"]}
         groupBy={grouped() ? (item) => item.category : () => ""}
         onMove={handleMove}
         onSelect={handleSelect}
@@ -434,20 +477,30 @@ export function DialogSelectFile(props: { mode?: DialogSelectFileMode; onOpenFil
               <div class="w-full flex items-center justify-between rounded-md pl-1">
                 <div class="flex items-center gap-x-3 grow min-w-0">
                   <Icon name="bubble-5" size="small" class="shrink-0 text-icon-weak" />
-                  <div class="flex items-center gap-2 min-w-0">
-                    <span
-                      class="text-14-regular text-text-strong truncate"
-                      classList={{ "opacity-70": !!item.archived }}
-                    >
-                      {item.title}
-                    </span>
-                    <Show when={item.description}>
+                  <div class="min-w-0 flex-1">
+                    <div class="flex items-center gap-2 min-w-0">
                       <span
-                        class="text-14-regular text-text-weak truncate"
+                        class="text-14-regular text-text-strong truncate"
                         classList={{ "opacity-70": !!item.archived }}
                       >
-                        {item.description}
+                        {highlight(item.title, item.matchQuery)}
                       </span>
+                      <Show when={item.description}>
+                        <span
+                          class="text-14-regular text-text-weak truncate"
+                          classList={{ "opacity-70": !!item.archived }}
+                        >
+                          {item.description}
+                        </span>
+                      </Show>
+                    </div>
+                    <Show when={item.matchText}>
+                      <div
+                        class="text-12-regular text-text-weak truncate mt-0.5 text-left"
+                        classList={{ "opacity-70": !!item.archived }}
+                      >
+                        {highlight(item.matchText!, item.matchQuery)}
+                      </div>
                     </Show>
                   </div>
                 </div>

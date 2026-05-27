@@ -54,6 +54,9 @@ export const SessionRoutes = lazy(() =>
             .optional()
             .meta({ description: "Filter sessions updated on or after this timestamp (milliseconds since epoch)" }),
           search: z.string().optional().meta({ description: "Filter sessions by title (case-insensitive)" }),
+          search_scope: Session.SearchScope.optional().meta({
+            description: "Search title only, chat message text only, or both",
+          }),
           limit: z.coerce.number().optional().meta({ description: "Maximum number of sessions to return" }),
         }),
       ),
@@ -65,6 +68,7 @@ export const SessionRoutes = lazy(() =>
           roots: query.roots,
           start: query.start,
           search: query.search,
+          searchScope: query.search_scope,
           limit: query.limit,
         })) {
           sessions.push(session)
