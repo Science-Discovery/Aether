@@ -1275,8 +1275,7 @@ export abstract class MobileManagerBase {
         const tag = directory === currentDir ? " ◀" : ""
         const mark = directory in this._hiddenDirs ? " [已隐藏]" : ""
         const sandboxTag = entry.sandbox ? " [sandbox]" : ""
-        lines.push(`${i + 1}. ${sandboxTag}${this.projectName(entry)}${tag}${mark}`)
-        lines.push(`   ${directory}`)
+        lines.push(`${i + 1}. ${sandboxTag}${this.projectName(entry)}${tag}${mark} (${directory})`)
       }
       await this.replyCmd(targetId, scope, lines.join("\n"))
       return
@@ -1310,8 +1309,7 @@ export abstract class MobileManagerBase {
       if (directory in this._hiddenDirs) continue
       const tag = directory === currentDir ? " ◀" : ""
       const sandboxTag = entry.sandbox ? " [sandbox]" : ""
-      lines.push(`${i + 1}. ${sandboxTag}${this.projectName(entry)}${tag}`)
-      lines.push(`   ${directory}`)
+      lines.push(`${i + 1}. ${sandboxTag}${this.projectName(entry)}${tag} (${directory})`)
       count++
     }
     lines.push("")
@@ -1505,8 +1503,7 @@ export abstract class MobileManagerBase {
         const s = entry.session
         const tag = s.id === currentId ? " ◀" : ""
         const forkTag = entry.fork ? " ↗" : ""
-        lines.push(`${i + 1}. ${forkTag}${s.title}${tag}`)
-        lines.push(`   ${this.formatSessionTime(s.time.updated)}`)
+        lines.push(`${i + 1}. ${forkTag}${s.title}${tag} (${this.formatSessionTime(s.time.updated)})`)
       }
       if (!items.length) lines.push("（当前项目下还没有任何会话）")
       await this.replyCmd(targetId, scope, lines.join("\n"))
@@ -1555,8 +1552,7 @@ export abstract class MobileManagerBase {
       const s = entry.session
       const tag = s.id === currentId ? " ◀" : ""
       const forkTag = entry.fork ? " ↗" : ""
-      lines.push(`${i + 1}. ${forkTag}${s.title}${tag}`)
-      lines.push(`   ${this.formatSessionTime(s.time.updated)}`)
+      lines.push(`${i + 1}. ${forkTag}${s.title}${tag} (${this.formatSessionTime(s.time.updated)})`)
     }
     lines.push("")
     lines.push("💡 /s n 切换会话 | /s l 查看全部（↗ = fork分支）")
