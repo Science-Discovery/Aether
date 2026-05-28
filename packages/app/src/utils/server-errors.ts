@@ -85,12 +85,39 @@ function isWorktreeErrorLike(error: unknown): error is WorktreeNamedErrorLike {
   return typeof o.name === "string" && o.name in WORKTREE_ERROR_MAP
 }
 
+const NETWORK_ERROR_MAP: Record<string, string> = {
+  "Failed to fetch": "error.network.failedToFetch",
+  "NetworkError when attempting to fetch resource": "error.network.failedToFetch",
+  "Load failed": "error.network.failedToFetch",
+  "Network request failed": "error.network.failedToFetch",
+  "Request failed with status 503": "error.network.serverUnavailable",
+  "Request failed with status 502": "error.network.serverUnavailable",
+  "Request failed with status 500": "error.network.serverError",
+  "Request failed with status 429": "error.network.rateLimited",
+  "Server timeout": "error.network.timeout",
+  Timeout: "error.network.timeout",
+  Aborted: "error.network.aborted",
+  "Connection refused": "error.network.connectionRefused",
+  ECONNREFUSED: "error.network.connectionRefused",
+  "net::ERR_CONNECTION_REFUSED": "error.network.connectionRefused",
+  "net::ERR_CONNECTION_CLOSED": "error.network.connectionClosed",
+  "net::ERR_CONNECTION_RESET": "error.network.connectionReset",
+  "net::ERR_CONNECTION_TIMED_OUT": "error.network.timeout",
+  "fetch failed": "error.network.failedToFetch",
+}
+
+function parseNetworkErrorMessage(msg: string, translator?: Translator) {
+  const key = NETWORK_ERROR_MAP[msg.trim()]
+  if (key) return tr(translator, key, msg)
+  return msg
+}
+
 export function formatServerError(error: unknown, translate?: Translator, fallback?: string) {
   if (isConfigInvalidErrorLike(error)) return parseReadableConfigInvalidError(error, translate)
   if (isProviderModelNotFoundErrorLike(error)) return parseReadableProviderModelNotFoundError(error, translate)
   if (isWorktreeErrorLike(error)) return parseWorktreeError(error, translate)
-  if (error instanceof Error && error.message) return error.message
-  if (typeof error === "string" && error) return error
+  if (error instanceof Error && error.message) return parseNetworkErrorMessage(error.message, translate)
+  if (typeof error === "string" && error) return parseNetworkErrorMessage(error, translate)
   if (fallback) return fallback
   return tr(translate, "error.chain.unknown", "Unknown error")
 }

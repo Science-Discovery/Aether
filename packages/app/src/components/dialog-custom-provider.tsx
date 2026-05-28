@@ -13,6 +13,7 @@ import { Link } from "@/components/link"
 import { useGlobalSDK } from "@/context/global-sdk"
 import { useGlobalSync } from "@/context/global-sync"
 import { useLanguage } from "@/context/language"
+import { formatServerError } from "@/utils/server-errors"
 import { type FormState, headerRow, modelRow, validateCustomProvider } from "./dialog-custom-provider-form"
 import { DialogSelectProvider } from "./dialog-select-provider"
 
@@ -203,8 +204,7 @@ export function DialogCustomProvider(props: Props) {
       })
     },
     onError: (err) => {
-      const message = err instanceof Error ? err.message : String(err)
-      showToast({ title: language.t("common.requestFailed"), description: message })
+      showToast({ title: language.t("common.requestFailed"), description: formatServerError(err, language.t) })
     },
   }))
 
@@ -251,9 +251,7 @@ export function DialogCustomProvider(props: Props) {
 
           <div class="flex flex-col gap-4">
             <div class="flex flex-col gap-1.5">
-              <label class="text-12-medium text-text-weak">
-                {language.t("provider.custom.field.type.label")}
-              </label>
+              <label class="text-12-medium text-text-weak">{language.t("provider.custom.field.type.label")}</label>
               <RadioGroup
                 options={providerTypeOptions}
                 current={form.providerType}

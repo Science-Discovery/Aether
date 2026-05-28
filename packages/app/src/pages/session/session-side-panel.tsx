@@ -27,6 +27,7 @@ import { GitGraphTab } from "@/pages/session/git-graph/tab"
 import { useCommand } from "@/context/command"
 import { useFile, type SelectedLineRange } from "@/context/file"
 import { useLanguage } from "@/context/language"
+import { formatServerError } from "@/utils/server-errors"
 import { useLayout } from "@/context/layout"
 import { usePlatform } from "@/context/platform"
 import { useSync } from "@/context/sync"
@@ -141,12 +142,11 @@ export function SessionSidePanel(props: {
           refresh()
           if (!file.tree.state(dir)?.expanded) file.tree.expand(dir)
         } catch (err) {
-          const message = err instanceof Error ? err.message : String(err)
           showToast({
             variant: "error",
             icon: "circle-x",
             title: language.t("fileTree.createFailed"),
-            description: message,
+            description: formatServerError(err, language.t),
           })
         }
       }
@@ -213,12 +213,11 @@ export function SessionSidePanel(props: {
           })
           refresh()
         } catch (err) {
-          const message = err instanceof Error ? err.message : String(err)
           showToast({
             variant: "error",
             icon: "circle-x",
             title: language.t("fileTree.deleteFailed"),
-            description: message,
+            description: formatServerError(err, language.t),
           })
         }
       }
@@ -261,12 +260,11 @@ export function SessionSidePanel(props: {
           file.tree.refresh(parentDir)
           refresh()
         } catch (err) {
-          const message = err instanceof Error ? err.message : String(err)
           showToast({
             variant: "error",
             icon: "circle-x",
             title: language.t("fileTree.renameFailed"),
-            description: message,
+            description: formatServerError(err, language.t),
           })
         }
       }

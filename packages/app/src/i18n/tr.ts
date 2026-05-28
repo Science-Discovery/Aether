@@ -102,7 +102,6 @@ export const dict = {
   "dialog.provider.group.popular": "Popüler",
   "dialog.provider.group.other": "Diğer",
   "dialog.provider.tag.recommended": "Önerilen",
-  "dialog.provider.tag.educationResearchDiscount": "Eğitim ve araştırma indirimi",
   "dialog.provider.maas.note": "Eksiksiz model yelpazesi",
   "dialog.provider.opencode.note": "Claude, GPT, Gemini ve daha fazlasını içeren seçilmiş modeller",
   "dialog.provider.opencode.tagline": "Güvenilir optimize edilmiş modeller",
