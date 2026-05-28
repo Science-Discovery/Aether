@@ -8,7 +8,7 @@ const channel = (() => {
 
 const updater = process.env.OPENCODE_UPDATER_CHANNEL ?? "latest"
 const getBase = (): Configuration => ({
-  artifactName: "aether-${os}-${arch}.${ext}",
+  artifactName: "aether-desktop-${os}-${arch}.${ext}",
   directories: {
     output: "dist",
     buildResources: "resources",
