@@ -14,11 +14,10 @@ export namespace Git {
     "core.fsmonitor=false",
     "-c",
     "core.longpaths=true",
-    "-c",
-    "core.symlinks=true",
+    ...(process.platform !== "win32" ? ["-c", "core.symlinks=true"] : []),
     "-c",
     "core.quotepath=false",
-  ] as const
+  ]
 
   const out = (result: { text(): string }) => result.text().trim()
   const nuls = (text: string) => text.split("\0").filter(Boolean)
