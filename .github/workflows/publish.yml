@@ -43,7 +43,7 @@ jobs:
           if gh release view "$tag" >/dev/null 2>&1; then
             echo "Release $tag already exists"
           else
-            gh release create "$tag" --title "$tag" --draft --generate-notes
+            gh release create "$tag" --title "$tag" --draft --prerelease --generate-notes
           fi
 
           echo "tag=$tag" >> "$GITHUB_OUTPUT"

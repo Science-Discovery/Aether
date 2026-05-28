@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto"
 import { EventEmitter } from "node:events"
+import { existsSync } from "node:fs"
 import { createServer } from "node:net"
+import { join } from "node:path"
 import type { Event } from "electron"
 import { app, BrowserWindow, dialog, shell } from "electron"
 import pkg from "electron-updater"
@@ -41,7 +43,7 @@ const pendingDeepLinks: string[] = []
 const serverReady = defer<ServerReadyData>()
 const logger = initLogging()
 const MANUAL_INSTALL_UPDATE = process.platform === "darwin" || (process.platform === "linux" && !process.env.APPIMAGE)
-const RELEASES_URL = "https://github.com/Science-Discovery/Aether/releases/latest"
+const RELEASES_URL = "https://github.com/Science-Discovery/Aether/releases"
 const RENDERER_UPDATER_ENABLED = UPDATER_ENABLED && !MANUAL_INSTALL_UPDATE
 
 logger.log("app starting", {
@@ -373,13 +375,11 @@ async function getSidecarPort() {
 function setupAutoUpdater() {
   if (!UPDATER_ENABLED) return
   autoUpdater.logger = logger
-  autoUpdater.channel = import.meta.env.OPENCODE_UPDATER_CHANNEL || "latest"
   autoUpdater.allowPrerelease = false
-  autoUpdater.allowDowngrade = true
+  autoUpdater.allowDowngrade = false
   autoUpdater.autoDownload = false
   autoUpdater.autoInstallOnAppQuit = true
   logger.log("auto updater configured", {
-    channel: autoUpdater.channel,
     allowPrerelease: autoUpdater.allowPrerelease,
     allowDowngrade: autoUpdater.allowDowngrade,
     currentVersion: app.getVersion(),
@@ -390,10 +390,11 @@ let updateReady = false
 
 async function checkUpdate() {
   if (!UPDATER_ENABLED) return { updateAvailable: false }
+  autoUpdater.allowPrerelease = prerelease()
+  autoUpdater.allowDowngrade = false
   updateReady = false
   logger.log("checking for updates", {
     currentVersion: app.getVersion(),
-    channel: autoUpdater.channel,
     allowPrerelease: autoUpdater.allowPrerelease,
     allowDowngrade: autoUpdater.allowDowngrade,
   })
@@ -430,7 +431,7 @@ async function checkUpdate() {
 
 async function installUpdate() {
   if (MANUAL_INSTALL_UPDATE) {
-    await shell.openExternal(RELEASES_URL)
+    await shell.openExternal(release())
     return
   }
   if (!updateReady) return
@@ -477,7 +478,7 @@ async function checkForUpdates(alertOnFail: boolean) {
       defaultId: 0,
       cancelId: 1,
     })
-    if (response.response === 0) await shell.openExternal(RELEASES_URL)
+    if (response.response === 0) await shell.openExternal(release(result.version))
     return
   }
 
@@ -496,6 +497,20 @@ async function checkForUpdates(alertOnFail: boolean) {
   if (response.response === 0) {
     await installUpdate()
   }
+}
+
+function prerelease() {
+  return existsSync(join(cfg(), "update-config.jsonc"))
+}
+
+function cfg() {
+  const root = process.env.XDG_CONFIG_HOME || join(process.env.OPENCODE_TEST_HOME || app.getPath("home"), ".config")
+  return join(root, "aether")
+}
+
+function release(version?: string) {
+  if (!version) return `${RELEASES_URL}/latest`
+  return `${RELEASES_URL}/tag/v${version}`
 }
 
 function delay(ms: number) {
