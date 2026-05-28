@@ -10,6 +10,8 @@
 
 从 [GitHub Releases](https://github.com/Science-Discovery/Aether/releases) 下载对应平台的 **Aether Desktop** 安装包。
 
+普通用户建议下载最新的正式 Release。GitHub 页面上如果同时出现预发布版本，请只在明确需要试用新版本时下载；预发布版本使用同一套 Aether Desktop 应用和数据目录，后续正式版本发布后可以继续升级。
+
 | 平台 | 推荐文件 |
 |---|---|
 | Windows x64 | Desktop 的 Windows x64 `.exe` 安装包 |
@@ -92,21 +94,41 @@ Windows 上对应：
 
 ## 更新
 
+Aether Desktop 默认只检查 GitHub 上的正式 Release。需要试用预发布版本的用户，可以在 Aether 配置目录中放置 `update-config.jsonc`；文件存在后，桌面端检查更新时会同时考虑 GitHub pre-release。该文件可以是一个空的合法 JSONC 文件：
+
+```jsonc
+{}
+```
+
+默认配置目录为：
+
+```text
+~/.config/aether/update-config.jsonc
+```
+
+如果设置了 `XDG_CONFIG_HOME`，则使用：
+
+```text
+$XDG_CONFIG_HOME/aether/update-config.jsonc
+```
+
+不再需要接收预发布版本时，删除这个文件即可。
+
 ### Windows
 
-桌面版支持应用内更新。打开 `Aether Desktop` 后，使用菜单中的 `Check for Updates...` 检查更新；如果有新版本，应用会下载对应安装包并提示重启安装。
+桌面版支持应用内更新。打开 `Aether Desktop` 后，使用菜单中的 `Check for Updates...` 检查更新；如果有新版本，应用会下载对应安装包并提示重启安装。启用预发布更新后，流程相同。
 
 ### macOS
 
-macOS 当前采用手动更新。使用菜单中的 `Check for Updates...` 检查更新；如果有新版本，应用会打开 GitHub Releases。
+macOS 当前采用手动更新。使用菜单中的 `Check for Updates...` 检查更新；如果有新版本，应用会打开对应的 GitHub Release 页面。
 
-下载最新 `.dmg` 后，重新将 `Aether Desktop.app` 拖入 `Applications` 并覆盖旧版本即可。
+下载对应 `.dmg` 后，重新将 `Aether Desktop.app` 拖入 `Applications` 并覆盖旧版本即可。
 
 ### Linux
 
 AppImage 支持应用内更新。使用菜单中的 `Check for Updates...` 检查更新，并按提示完成重启。
 
-`.deb` 和 `.rpm` 当前采用手动更新。检查到新版本后，下载新的安装包并用包管理器升级：
+`.deb` 和 `.rpm` 当前采用手动更新。检查到新版本后，应用会打开对应的 GitHub Release 页面；下载新的安装包后，用包管理器升级：
 
 ```bash
 sudo apt install ./aether-desktop*.deb

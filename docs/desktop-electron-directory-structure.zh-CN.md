@@ -61,6 +61,7 @@ Desktop 首次运行时会复用已有 Web/CLI 数据；没有旧数据时会创
 │   └── aether.workspace.<id>.dat
 ├── .config/aether/
 │   ├── config.json
+│   ├── update-config.jsonc
 │   ├── aether.jsonc
 │   ├── aether.json
 │   ├── AGENTS.md
@@ -93,6 +94,7 @@ Desktop 首次运行时会复用已有 Web/CLI 数据；没有旧数据时会创
 - `latest/aether-cron.db*` 与 `latest/aether-<project-id>.db*` 是通道/项目级数据库，实际出现取决于使用过的功能。
 - `backup/` 和 `corrupt/` 只会在迁移、拆分或数据库恢复流程中出现。
 - `aether.global.dat`、`aether.settings`、`default.dat`、`aether.workspace.<id>.dat` 是 Desktop 使用的 Electron store 文件；其中共享 store 放在 `<data>` 根目录，避免和 Web/CLI 数据割裂。
+- `update-config.jsonc` 是可选配置文件；Web 更新可从中读取更新源，Desktop 检查更新时也会用它判断是否把 GitHub pre-release 纳入候选。普通用户可以不创建这个文件。
 - Electron/Chromium 内部数据的具体文件名会随 Electron 版本和用户操作变化，不作为 Aether 稳定接口；稳定入口是 `~/.local/share/aether/desktop`。
 
 ## macOS
