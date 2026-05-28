@@ -689,12 +689,6 @@ export namespace Database {
       }
     }
 
-    const validDirs = new Set<string>()
-    for (const dir of setB) validDirs.add(dir)
-    for (const dir of setA) {
-      if (validDirs.has(dir) || existsSync(dir)) validDirs.add(dir)
-    }
-
     const metaRows = pSqlite.prepare("SELECT * FROM directory_meta").all() as {
       directory: string
       worktree: string
@@ -706,6 +700,18 @@ export namespace Database {
       time_created: number
       time_updated: number
     }[]
+
+    const validDirs = new Set<string>()
+    for (const dir of setB) validDirs.add(dir)
+    for (const dir of setA) {
+      if (validDirs.has(dir) || existsSync(dir)) validDirs.add(dir)
+    }
+    for (const row of metaRows) {
+      if (norm(row.worktree) === norm(worktree)) validDirs.add(norm(row.directory))
+    }
+    for (const [, row] of recentLookup) {
+      if (row.project_id === pid) validDirs.add(norm(row.directory))
+    }
 
     // Group existing rows by normalized directory to detect duplicates
     const byNorm = new Map<string, typeof metaRows>()
