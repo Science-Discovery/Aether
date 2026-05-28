@@ -76,6 +76,19 @@ const skipInstall = process.argv.includes("--skip-install")
 const skipWeb = process.argv.includes("--skip-web")
 const skipSmoke = process.argv.includes("--skip-smoke")
 
+function winver(ver: string) {
+  const [core, raw = ""] = ver.trim().replace(/^v/, "").split("-", 2)
+  const nums = core.split(".")
+  if (!nums.every((part) => /^\d+$/.test(part))) return "0.0.0.0"
+  if (!raw) return nums.slice(0, 4).join(".")
+
+  const pre = raw.split("+", 1)[0]
+  const found = pre.split(".").filter((part) => /^\d+$/.test(part))
+  const base = nums.slice(0, 3)
+  while (base.length < 3) base.push("0")
+  return [...base, found.at(-1) ?? "0"].join(".")
+}
+
 const allTargets: {
   os: string
   arch: "arm64" | "x64"
@@ -249,7 +262,7 @@ for (const item of targets) {
         description: "Aether",
         title: "Aether",
         publisher: "Science Discovery",
-        version: Script.version,
+        version: winver(Script.version),
       },
     },
     entrypoints: ["./src/index.ts", parserWorker, workerPath],
