@@ -19,8 +19,8 @@ const SKILL_EVOLUTION_ROOT = Spawner.skillEvolutionRoot()
 
 /** Projects with a review currently running, keyed by folderName. */
 const runningReviews = new Set<string>()
-/** Latest pending input per project, keyed by folderName. Overwritten on each new trigger. */
-const pendingReviews = new Map<string, { sessionID: SessionID; projectId: string; projectDirectory?: string }>()
+/** FIFO queue of pending inputs per project, keyed by folderName. Deduped by source sessionID. */
+const pendingReviews = new Map<string, { sessionID: SessionID; projectId: string; projectDirectory?: string }[]>()
 
 /** Maximum number of review rounds (user messages) per evolution session before rolling over. */
 const MAX_REVIEW_ROUNDS = 20
@@ -178,7 +178,11 @@ export async function spawnReview(input: {
     : input.projectId
 
   if (runningReviews.has(folderName)) {
-    pendingReviews.set(folderName, input)
+    const queue = pendingReviews.get(folderName) ?? []
+    const idx = queue.findIndex((q) => q.sessionID === input.sessionID)
+    if (idx >= 0) queue[idx] = input
+    else queue.push(input)
+    pendingReviews.set(folderName, queue)
     return
   }
   runningReviews.add(folderName)
@@ -284,11 +288,10 @@ export async function spawnReview(input: {
       log.error("review session failed", { error: err, reviewSessionId })
     }).finally(() => {
       runningReviews.delete(folderName)
-      const pending = pendingReviews.get(folderName)
-      if (pending) {
-        pendingReviews.delete(folderName)
-        spawnReview(pending)
-      }
+      const queue = pendingReviews.get(folderName)
+      const next = queue?.shift()
+      if (queue && queue.length === 0) pendingReviews.delete(folderName)
+      if (next) spawnReview(next)
     })
   } catch (err) {
     runningReviews.delete(folderName)
