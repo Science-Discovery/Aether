@@ -61,6 +61,10 @@ async function render(size: number, file: string) {
   await sharp(src, { density: 1024 }).resize(size, size).png().toFile(file)
 }
 
+async function mac(size: number, file: string) {
+  await sharp(png).resize(size, size).png().toFile(file)
+}
+
 clean()
 
 for (const size of sizes) {
@@ -74,7 +78,7 @@ await Bun.write(join(out, "dock.png"), Bun.file(png))
 const tmp = join(out, ".icns")
 mkdirSync(tmp, { recursive: true })
 for (const size of icnsSizes) {
-  await render(size, join(tmp, `${size}x${size}.png`))
+  await mac(size, join(tmp, `${size}x${size}.png`))
 }
 
 await Bun.write(join(out, "icon.ico"), await pngToIco(ico.map((size) => join(out, `${size}x${size}.png`))))

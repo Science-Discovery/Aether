@@ -27,6 +27,11 @@ const getBase = (): Configuration => ({
             to: "native/",
             filter: ["index.js", "index.d.ts", "build/Release/mac_window.node", "swift-build/**"],
           },
+          {
+            from: "resources/icons",
+            to: "icons",
+            filter: ["dock.png"],
+          },
         ]
       : []),
     {
