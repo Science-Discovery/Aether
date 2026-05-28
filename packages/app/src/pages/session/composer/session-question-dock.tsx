@@ -8,6 +8,7 @@ import { IconButton } from "@opencode-ai/ui/icon-button"
 import { showToast } from "@opencode-ai/ui/toast"
 import type { QuestionAnswer, QuestionRequest } from "@opencode-ai/sdk/v2"
 import { useLanguage } from "@/context/language"
+import { formatServerError } from "@/utils/server-errors"
 import { useSDK } from "@/context/sdk"
 
 const min = 240
@@ -226,8 +227,7 @@ export const SessionQuestionDock: Component<{
   })
 
   const fail = (err: unknown) => {
-    const message = err instanceof Error ? err.message : String(err)
-    showToast({ title: language.t("common.requestFailed"), description: message })
+    showToast({ title: language.t("common.requestFailed"), description: formatServerError(err, language.t) })
   }
 
   const replyMutation = useMutation(() => ({

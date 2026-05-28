@@ -13,10 +13,20 @@ import { showToast } from "@opencode-ai/ui/toast"
 import { useLocal } from "@/context/local"
 import { useSDK } from "@/context/sdk"
 import { useServer } from "@/context/server"
+import { useLanguage } from "@/context/language"
+import { formatServerError } from "@/utils/server-errors"
 import { useModels } from "@/context/models"
 import { ModelSelectorPopover } from "./dialog-select-model"
 import { OutputDirectory } from "./output-directory"
-import { registerConvertTask, updateConvertTask, triggerOpenFile, triggerRefreshDir, registerEventSource, getCurrentPhase, taskUrl } from "./pdf-convert-progress"
+import {
+  registerConvertTask,
+  updateConvertTask,
+  triggerOpenFile,
+  triggerRefreshDir,
+  registerEventSource,
+  getCurrentPhase,
+  taskUrl,
+} from "./pdf-convert-progress"
 
 // 复用 PDF 转换的设置持久化
 const STORAGE_KEY = "pdf-to-markdown-settings"
@@ -33,8 +43,17 @@ type PdfConvertSettings = {
 function loadSettings(): PdfConvertSettings {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
-    if (raw) return { outputMode: "merged", autoOpen: true, conflictAction: "replace", outputTarget: "neighbor", ...JSON.parse(raw) }
-  } catch { /* ignore */ }
+    if (raw)
+      return {
+        outputMode: "merged",
+        autoOpen: true,
+        conflictAction: "replace",
+        outputTarget: "neighbor",
+        ...JSON.parse(raw),
+      }
+  } catch {
+    /* ignore */
+  }
   return { outputMode: "merged", autoOpen: true, conflictAction: "replace", outputTarget: "neighbor" }
 }
 
@@ -42,7 +61,9 @@ function saveSettings(s: Partial<PdfConvertSettings>) {
   try {
     const current = loadSettings()
     localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...current, ...s }))
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
 }
 
 type ModelKey = { providerID: string; modelID: string }
@@ -50,7 +71,9 @@ const _initSettings = loadSettings()
 const [_batchPdfModelKey, _setBatchPdfModelKey] = createSignal<ModelKey | undefined>(_initSettings.model)
 let _batchPdfModelInitialized = !!_initSettings.model
 
-function getBatchPdfModelKey() { return _batchPdfModelKey() }
+function getBatchPdfModelKey() {
+  return _batchPdfModelKey()
+}
 function setBatchPdfModelKey(key: ModelKey | undefined) {
   _batchPdfModelInitialized = true
   _setBatchPdfModelKey(key)
@@ -65,6 +88,7 @@ export const DialogBatchPdfConvert: Component<{
   const sdk = useSDK()
   const server = useServer()
   const models = useModels()
+  const language = useLanguage()
 
   const [outputMode, setOutputMode] = createSignal<"merged" | "per-page">(loadSettings().outputMode)
   const [autoOpen, setAutoOpen] = createSignal(loadSettings().autoOpen)
@@ -88,7 +112,7 @@ export const DialogBatchPdfConvert: Component<{
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
       ...authHeader,
-      ...(options.headers as Record<string, string> ?? {}),
+      ...((options.headers as Record<string, string>) ?? {}),
     }
     const separator = urlPath.includes("?") ? "&" : "?"
     return fetch(`${baseUrl}${urlPath}${separator}directory=${encodeURIComponent(sdk.directory)}`, {
@@ -216,7 +240,9 @@ export const DialogBatchPdfConvert: Component<{
                 }
                 break
             }
-          } catch { /* ignore */ }
+          } catch {
+            /* ignore */
+          }
         }
 
         es.onerror = () => {
@@ -227,7 +253,9 @@ export const DialogBatchPdfConvert: Component<{
               resolve()
             } else if (retryCount < MAX_RETRIES) {
               // 未收到终态事件就断开了，重试（服务端会重放历史事件）
-              console.warn(`[batch-pdf] SSE closed without terminal event for ${taskID}, retry ${retryCount + 1}/${MAX_RETRIES}`)
+              console.warn(
+                `[batch-pdf] SSE closed without terminal event for ${taskID}, retry ${retryCount + 1}/${MAX_RETRIES}`,
+              )
               setTimeout(() => resolve(attempt(retryCount + 1)), RETRY_DELAY)
             } else {
               console.error(`[batch-pdf] SSE failed after ${MAX_RETRIES} retries for ${taskID}`)
@@ -278,7 +306,7 @@ export const DialogBatchPdfConvert: Component<{
 
       // 第一步：一次性将所有 PDF 提交到后端队列
       // 这样即使页面关闭，后端也已持有全部任务，不会中断
-      const submitted: { taskID: string; info: typeof infos[number]; index: number }[] = []
+      const submitted: { taskID: string; info: (typeof infos)[number]; index: number }[] = []
       for (let i = 0; i < infos.length; i++) {
         const info = infos[i]
         const res = await fetchApi("/file/pdf-to-markdown", {
@@ -300,7 +328,11 @@ export const DialogBatchPdfConvert: Component<{
             setOutputDirError(err.error)
             return
           }
-          showToast({ variant: "error", title: `${info.name} 启动失败`, description: err.error })
+          showToast({
+            variant: "error",
+            title: language.t("batchPdfConvert.startFailed", { name: info.name }),
+            description: formatServerError(err.error, language.t),
+          })
           continue
         }
         const { taskID } = await res.json()
@@ -357,7 +389,9 @@ export const DialogBatchPdfConvert: Component<{
             </p>
           </div>
           <div class="flex justify-end pt-2">
-            <Button variant="ghost" onClick={() => dialogCtx.close()}>关闭</Button>
+            <Button variant="ghost" onClick={() => dialogCtx.close()}>
+              关闭
+            </Button>
           </div>
         </Show>
 
@@ -386,9 +420,7 @@ export const DialogBatchPdfConvert: Component<{
             <p class="text-xs text-text-weak">请选择一个具有多模态（图片理解）能力的模型</p>
             <ModelSelectorPopover model={pdfModelState}>
               <Button variant="secondary" class="w-full justify-start text-left">
-                {pdfModel()
-                  ? `${pdfModel()!.provider.name} / ${pdfModel()!.name}`
-                  : "选择模型..."}
+                {pdfModel() ? `${pdfModel()!.provider.name} / ${pdfModel()!.name}` : "选择模型..."}
               </Button>
             </ModelSelectorPopover>
             <div class="p-2 rounded-md bg-yellow-500/10 border border-yellow-500/20">
@@ -403,11 +435,21 @@ export const DialogBatchPdfConvert: Component<{
             <label class="text-sm font-medium text-text-base">输出模式（对所有文件统一）</label>
             <div class="flex flex-col gap-1">
               <label class="flex items-center gap-2 text-sm cursor-pointer">
-                <input type="radio" name="batchOutputMode" checked={outputMode() === "merged"} onChange={() => setOutputMode("merged")} />
+                <input
+                  type="radio"
+                  name="batchOutputMode"
+                  checked={outputMode() === "merged"}
+                  onChange={() => setOutputMode("merged")}
+                />
                 <span class="text-text-base">合并为一个 Markdown 文件</span>
               </label>
               <label class="flex items-center gap-2 text-sm cursor-pointer">
-                <input type="radio" name="batchOutputMode" checked={outputMode() === "per-page"} onChange={() => setOutputMode("per-page")} />
+                <input
+                  type="radio"
+                  name="batchOutputMode"
+                  checked={outputMode() === "per-page"}
+                  onChange={() => setOutputMode("per-page")}
+                />
                 <span class="text-text-base">每页一个 Markdown 文件</span>
               </label>
             </div>
@@ -432,11 +474,21 @@ export const DialogBatchPdfConvert: Component<{
             <label class="text-sm font-medium text-text-base">文件冲突处理（对所有文件统一）</label>
             <div class="flex flex-col gap-1">
               <label class="flex items-center gap-2 text-sm cursor-pointer">
-                <input type="radio" name="batchConflict" checked={conflictAction() === "replace"} onChange={() => setConflictAction("replace")} />
+                <input
+                  type="radio"
+                  name="batchConflict"
+                  checked={conflictAction() === "replace"}
+                  onChange={() => setConflictAction("replace")}
+                />
                 <span class="text-text-base">覆盖已有文件</span>
               </label>
               <label class="flex items-center gap-2 text-sm cursor-pointer">
-                <input type="radio" name="batchConflict" checked={conflictAction() === "rename"} onChange={() => setConflictAction("rename")} />
+                <input
+                  type="radio"
+                  name="batchConflict"
+                  checked={conflictAction() === "rename"}
+                  onChange={() => setConflictAction("rename")}
+                />
                 <span class="text-text-base">重命名新文件（如 xxx(1).md）</span>
               </label>
             </div>
@@ -450,7 +502,9 @@ export const DialogBatchPdfConvert: Component<{
 
           {/* 操作按钮 */}
           <div class="flex justify-end gap-2 pt-2">
-            <Button variant="ghost" onClick={() => dialogCtx.close()}>取消</Button>
+            <Button variant="ghost" onClick={() => dialogCtx.close()}>
+              取消
+            </Button>
             <Button onClick={handleStart} disabled={!pdfModel() || starting()}>
               {starting() ? "启动中..." : `开始转换（${fileInfos().filter((f) => f.pageCount <= 50).length} 个文件）`}
             </Button>

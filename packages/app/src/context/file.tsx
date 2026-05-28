@@ -8,6 +8,7 @@ import { getFilename } from "@opencode-ai/util/path"
 import { useSDK } from "./sdk"
 import { useSync } from "./sync"
 import { useLanguage } from "@/context/language"
+import { formatServerError } from "@/utils/server-errors"
 import { useLayout } from "@/context/layout"
 import { createPathHelpers } from "./file/path"
 import {
@@ -152,7 +153,9 @@ export const { use: useFile, provider: FileProvider } = createSimpleContext({
       if (hasHighlightAPI) {
         try {
           CSS.highlights!.set("editor-saved-selection", new Highlight(range))
-        } catch { /* 静默失败 */ }
+        } catch {
+          /* 静默失败 */
+        }
       } else {
         // 备用方案：用 <mark> 包裹选中内容
         try {
@@ -182,18 +185,16 @@ export const { use: useFile, provider: FileProvider } = createSimpleContext({
 
     const clearHighlight = () => {
       if (hasHighlightAPI) {
-        try { CSS.highlights?.delete("editor-saved-selection") } catch {}
+        try {
+          CSS.highlights?.delete("editor-saved-selection")
+        } catch {}
       } else {
         clearDomMarks()
       }
     }
 
     const isFileContentArea = (el: HTMLElement | null) =>
-      !!el && (
-        !!el.closest("[data-file-content]") ||
-        el.tagName === "EMBED" ||
-        el.tagName === "IFRAME"
-      )
+      !!el && (!!el.closest("[data-file-content]") || el.tagName === "EMBED" || el.tagName === "IFRAME")
 
     // mousedown: 点击文件内容区域→清除；点击其他任何地方→立刻应用高亮
     const handleMousedown = (e: MouseEvent) => {
@@ -206,7 +207,9 @@ export const { use: useFile, provider: FileProvider } = createSimpleContext({
         } else if (savedRange) {
           applyHighlight(savedRange)
         }
-      } catch { /* 静默失败，绝不能阻塞其他事件处理 */ }
+      } catch {
+        /* 静默失败，绝不能阻塞其他事件处理 */
+      }
     }
     document.addEventListener("mousedown", handleMousedown, true)
 
@@ -258,7 +261,7 @@ export const { use: useFile, provider: FileProvider } = createSimpleContext({
         showToast({
           variant: "error",
           title: language.t("toast.file.listFailed.title"),
-          description: message,
+          description: formatServerError(message, language.t),
         })
       },
       initialExpanded: new Set(treeExpandStore[scope()] ?? []),
@@ -341,7 +344,7 @@ export const { use: useFile, provider: FileProvider } = createSimpleContext({
       showToast({
         variant: "error",
         title: language.t("toast.file.loadFailed.title"),
-        description: message,
+        description: formatServerError(message, language.t),
       })
     }
 
@@ -361,9 +364,11 @@ export const { use: useFile, provider: FileProvider } = createSimpleContext({
 
       setLoading(file)
 
-      const promise = (preview(file) === "text"
-        ? sdk.client.file.read({ path: file }).then((x) => ({ content: x.data }))
-        : sdk.client.file.metadata({ path: file }).then((x) => ({ metadata: x.data })))
+      const promise = (
+        preview(file) === "text"
+          ? sdk.client.file.read({ path: file }).then((x) => ({ content: x.data }))
+          : sdk.client.file.metadata({ path: file }).then((x) => ({ metadata: x.data }))
+      )
         .then((next) => {
           if (scope() !== directory) return
           setLoaded(file, next)

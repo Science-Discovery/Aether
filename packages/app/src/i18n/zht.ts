@@ -104,7 +104,6 @@ export const dict = {
   "dialog.provider.group.popular": "熱門",
   "dialog.provider.group.other": "其他",
   "dialog.provider.tag.recommended": "推薦",
-  "dialog.provider.tag.educationResearchDiscount": "教育科研折扣",
   "dialog.provider.maas.note": "聚合多家模型服務",
   "dialog.provider.xiaomi.note": "小米 MiMo 系列模型",
   "dialog.provider.alibaba.note": "通義千問官方介面",

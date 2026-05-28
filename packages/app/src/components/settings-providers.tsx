@@ -234,9 +234,6 @@ export const SettingsProviders: Component = () => {
                     <div class="flex flex-wrap items-center gap-x-3 gap-y-1">
                       <ProviderIcon id={item.id} class="size-5 shrink-0 icon-strong-base" />
                       <span class="text-14-medium text-text-strong">{item.name}</span>
-                      <Show when={item.id === "tatu-maas"}>
-                        <Tag>{language.t("dialog.provider.tag.educationResearchDiscount")}</Tag>
-                      </Show>
                     </div>
                     <Show when={note(item.id)}>
                       {(key) => <span class="text-12-regular text-text-weak pl-8">{language.t(key())}</span>}

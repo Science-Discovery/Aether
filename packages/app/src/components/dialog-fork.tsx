@@ -11,6 +11,7 @@ import { extractPromptFromParts } from "@/utils/prompt"
 import type { TextPart as SDKTextPart } from "@opencode-ai/sdk/v2/client"
 import { base64Encode } from "@opencode-ai/util/encode"
 import { useLanguage } from "@/context/language"
+import { formatServerError } from "@/utils/server-errors"
 
 interface ForkableMessage {
   id: string
@@ -81,8 +82,7 @@ export const DialogFork: Component = () => {
         navigate(`/${dir}/session/${forked.data.id}`)
       })
       .catch((err: unknown) => {
-        const message = err instanceof Error ? err.message : String(err)
-        showToast({ title: language.t("common.requestFailed"), description: message })
+        showToast({ title: language.t("common.requestFailed"), description: formatServerError(err, language.t) })
       })
   }
 
