@@ -7,6 +7,7 @@ import { Ripgrep } from "../../file/ripgrep"
 import { LSP } from "../../lsp"
 import { Instance } from "../../project/instance"
 import { lazy } from "../../util/lazy"
+import { Log } from "../../util/log"
 import { errors } from "../error"
 import { $ } from "bun"
 import { spawn } from "bun"
@@ -933,7 +934,16 @@ export const FileRoutes = lazy(() =>
         },
       }),
       async (c) => {
+        console.warn("[DEBUG-FILE-HTTP] file.status called", {
+          directory: Instance.directory,
+          platform: process.platform,
+        })
         const content = await File.status()
+        console.warn("[DEBUG-FILE-HTTP] file.status returned", {
+          directory: Instance.directory,
+          itemCount: content.length,
+          items: content.map((f) => ({ path: f.path, status: f.status })),
+        })
         return c.json(content)
       },
     )

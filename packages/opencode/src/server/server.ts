@@ -389,6 +389,12 @@ export namespace Server {
               create,
               init: create ? InstanceBootstrap : undefined,
               async fn() {
+                Log.Default.warn("[DEBUG-SERVER] request handling", {
+                  path: c.req.path,
+                  directory,
+                  create,
+                  platform: process.platform,
+                })
                 return next()
               },
             })
