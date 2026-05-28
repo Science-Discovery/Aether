@@ -19,6 +19,17 @@ export namespace Git {
     "core.quotepath=false",
   ]
 
+  const statusCfg = [
+    "--no-optional-locks",
+    "-c",
+    "core.fsmonitor=false",
+    "-c",
+    "core.longpaths=true",
+    ...(process.platform !== "win32" ? ["-c", "core.symlinks=true"] : []),
+    "-c",
+    "core.quotepath=false",
+  ]
+
   const out = (result: { text(): string }) => result.text().trim()
   const nuls = (text: string) => text.split("\0").filter(Boolean)
   const fail = (err: unknown) =>
@@ -94,6 +105,7 @@ export namespace Git {
   export interface Options {
     readonly cwd: string
     readonly env?: Record<string, string>
+    readonly config?: string[]
   }
 
   export interface Interface {
@@ -135,7 +147,8 @@ export namespace Git {
 
       const run = Effect.fn("Git.run")(
         function* (args: string[], opts: Options) {
-          const proc = ChildProcess.make("git", [...cfg, ...args], {
+          const gitArgs = [...(opts.config ?? cfg), ...args]
+          const proc = ChildProcess.make("git", gitArgs, {
             cwd: opts.cwd,
             env: opts.env,
             extendEnv: true,
@@ -246,6 +259,7 @@ export namespace Git {
         return nuls(
           yield* text(["status", "--porcelain=v1", "--untracked-files=all", "--no-renames", "-z", "--", "."], {
             cwd,
+            config: statusCfg,
           }),
         ).flatMap((item) => {
           const file = item.slice(3)
