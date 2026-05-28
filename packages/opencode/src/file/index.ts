@@ -729,114 +729,34 @@ export namespace File {
       const status = Effect.fn("File.status")(function* () {
         if (Instance.project.vcs !== "git") return []
 
-        return yield* Effect.promise(async () => {
-          const diffOutput = (
-            await Git.run(
-              [
-                "-c",
-                "core.symlinks=false",
-                "-c",
-                "core.fsmonitor=false",
-                "-c",
-                "core.quotepath=false",
-                "diff",
-                "--numstat",
-                "HEAD",
-              ],
-              {
-                cwd: Instance.directory,
-              },
-            )
-          ).text()
+        const items = yield* Effect.promise(() => Git.status(Instance.directory))
+        if (!items.length) return []
 
-          const changed: File.Info[] = []
+        const modified = items.filter((i) => i.status === "modified")
+        const stats = modified.length ? yield* Effect.promise(() => Git.stats(Instance.directory, "HEAD")) : []
 
-          if (diffOutput.trim()) {
-            for (const line of diffOutput.trim().split("\n")) {
-              const [added, removed, file] = line.split("\t")
-              changed.push({
-                path: file,
-                added: added === "-" ? 0 : parseInt(added, 10),
-                removed: removed === "-" ? 0 : parseInt(removed, 10),
-                status: "modified",
-              })
-            }
+        const statMap = new Map(stats.map((s) => [s.file, s]))
+        const changed: File.Info[] = []
+        for (const item of items) {
+          if (item.status === "deleted") {
+            changed.push({ path: item.file, added: 0, removed: 0, status: "deleted" })
+          } else if (item.status === "added") {
+            const content = yield* Effect.promise(() =>
+              Filesystem.readText(path.join(Instance.directory, item.file)),
+            ).pipe(Effect.catch(() => Effect.succeed(null)))
+            if (!content) continue
+            changed.push({ path: item.file, added: content.split("\n").length, removed: 0, status: "added" })
+          } else {
+            const stat = statMap.get(item.file)
+            changed.push({
+              path: item.file,
+              added: stat?.additions ?? 0,
+              removed: stat?.deletions ?? 0,
+              status: "modified",
+            })
           }
-
-          const untrackedOutput = (
-            await Git.run(
-              [
-                "-c",
-                "core.symlinks=false",
-                "-c",
-                "core.fsmonitor=false",
-                "-c",
-                "core.quotepath=false",
-                "ls-files",
-                "--others",
-                "--exclude-standard",
-              ],
-              {
-                cwd: Instance.directory,
-              },
-            )
-          ).text()
-
-          if (untrackedOutput.trim()) {
-            for (const file of untrackedOutput.trim().split("\n")) {
-              try {
-                const content = await Filesystem.readText(path.join(Instance.directory, file))
-                changed.push({
-                  path: file,
-                  added: content.split("\n").length,
-                  removed: 0,
-                  status: "added",
-                })
-              } catch {
-                continue
-              }
-            }
-          }
-
-          const deletedOutput = (
-            await Git.run(
-              [
-                "-c",
-                "core.symlinks=false",
-                "-c",
-                "core.fsmonitor=false",
-                "-c",
-                "core.quotepath=false",
-                "diff",
-                "--name-only",
-                "--diff-filter=D",
-                "HEAD",
-              ],
-              {
-                cwd: Instance.directory,
-              },
-            )
-          ).text()
-
-          if (deletedOutput.trim()) {
-            for (const file of deletedOutput.trim().split("\n")) {
-              changed.push({
-                path: file,
-                added: 0,
-                removed: 0,
-                status: "deleted",
-              })
-            }
-          }
-
-          return changed.map((item) => {
-            const full = path.isAbsolute(item.path) ? item.path : path.join(Instance.directory, item.path)
-            return {
-              ...item,
-              path: path.relative(Instance.directory, full),
-            }
-          })
-        })
+        }
+        return changed
       })
 
       const read = Effect.fn("File.read")(function* (file: string) {
