@@ -284,6 +284,10 @@ class FeishuManagerImpl extends MobileManagerBase {
       await this.wsClient.start({ eventDispatcher })
       console.log("[feishu] wsClient.start() resolved")
 
+      console.log("[feishu] verifying credentials...")
+      await this.feishuAdapter.getTenantAccessToken()
+      console.log("[feishu] credentials verified")
+
       this._connectedModel = model
       this._reconnectCount = 0
 
