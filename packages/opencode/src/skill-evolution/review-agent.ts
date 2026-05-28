@@ -231,7 +231,7 @@ export async function spawnReview(input: {
       skillLocationMap[skill.name] = skill.location
     }
 
-    const sessionTitle = folderName
+    const sessionTitle = `${input.projectId} / ${new Date().toISOString()}`
 
     log.info("spawning skill evolution review", {
       parentSessionID: input.sessionID,
@@ -249,12 +249,9 @@ export async function spawnReview(input: {
       create: true,
       fn: async () => {
         const { Session } = await import("@/session")
-        const existing = findEvolutionSession(skillProjectId, sessionTitle)
-        reviewSessionId =
-          existing ??
-          (await Session.createNext({ title: sessionTitle, directory: subDir })).id
+        reviewSessionId = (await Session.createNext({ title: sessionTitle, directory: subDir })).id
 
-        log.info(existing ? "reusing evolution session" : "created evolution session", {
+        log.info("created evolution session", {
           reviewSessionId,
           sessionTitle,
         })
