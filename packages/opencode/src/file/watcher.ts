@@ -52,7 +52,10 @@ export namespace FileWatcher {
       typeof report === "object" && report && "header" in report && typeof report.header === "object" && report.header
         ? report.header
         : undefined
-    return typeof header === "object" && header && "glibcVersionRuntime" in header && typeof header.glibcVersionRuntime === "string"
+    return typeof header === "object" &&
+      header &&
+      "glibcVersionRuntime" in header &&
+      typeof header.glibcVersionRuntime === "string"
       ? "glibc"
       : "musl"
   }
@@ -192,11 +195,31 @@ export namespace FileWatcher {
             log.info("watcher backend", { directory: Instance.directory, platform: process.platform, backend })
 
             const subs: ParcelWatcher.AsyncSubscription[] = []
+            let disposed = false
             yield* Effect.addFinalizer(() =>
-              Effect.promise(() => Promise.allSettled(subs.map((sub) => sub.unsubscribe()))),
+              Effect.gen(function* () {
+                disposed = true
+                // On Windows, @parcel/watcher's native module can segfault
+                // during unsubscribe() when the watched directory is being
+                // removed. The segfault in the native background thread crashes
+                // the entire process. To avoid this, we skip the JS-level
+                // unsubscribe() on Windows and let the native module clean up
+                // naturally when it detects the directory is gone. This leaks
+                // a small amount of native thread resources temporarily but
+                // prevents the server from crashing.
+                if (process.platform !== "win32") {
+                  yield* Effect.promise(() => Promise.allSettled(subs.map((sub) => sub.unsubscribe())))
+                } else {
+                  log.info("skipping watcher unsubscribe on Windows to avoid native segfault", {
+                    directory: Instance.directory,
+                    subscriptionCount: subs.length,
+                  })
+                }
+              }),
             )
 
             const cb: ParcelWatcher.SubscribeCallback = Instance.bind((err, evts) => {
+              if (disposed) return
               if (err) {
                 log.error("watcher callback error", { directory: Instance.directory, error: err })
                 return
