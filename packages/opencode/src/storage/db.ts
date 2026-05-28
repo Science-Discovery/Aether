@@ -814,6 +814,18 @@ export namespace Database {
       time_updated: number
     }[]
 
+    // Derive real activity time per directory from sessions
+    const sessionActivity = new Map<string, number>()
+    const sessionRows = pSqlite
+      .prepare("SELECT directory, MAX(time_updated) as latest FROM session GROUP BY directory")
+      .all() as { directory: string; latest: number }[]
+    for (const s of sessionRows) sessionActivity.set(norm(s.directory), s.latest)
+
+    // Also pick up icon from ProjectTable as authoritative source
+    const projectIcon = pSqlite.prepare("SELECT icon_url, icon_color FROM project WHERE id = ?").get(pid) as
+      | { icon_url: string | null; icon_color: string | null }
+      | undefined
+
     const insertMap = sqlite.prepare(
       `INSERT INTO global_project_map (directory, project_id, time_created, time_updated)
        VALUES (?, ?, ?, ?)
@@ -825,11 +837,18 @@ export namespace Database {
        ON CONFLICT(key) DO UPDATE SET project_id = excluded.project_id, directory = excluded.directory, name = excluded.name, icon_url = excluded.icon_url, icon_color = excluded.icon_color, icon_override = excluded.icon_override, activity_at = excluded.activity_at, time_updated = excluded.time_updated`,
     )
 
+    const validNorms = new Set<string>()
+    for (const row of metaRows) validNorms.add(norm(row.directory))
+
     for (const row of metaRows) {
       const dirNorm = norm(row.directory)
+      const realActivity = sessionActivity.get(dirNorm) ?? row.activity_at
+      const isWorktree = row.worktree !== "/" && norm(row.directory) === norm(canonicalWorktree)
+      const icon_url = isWorktree ? (projectIcon?.icon_url ?? row.icon_url ?? null) : (row.icon_url ?? null)
+      const icon_color = isWorktree ? (projectIcon?.icon_color ?? row.icon_color ?? null) : (row.icon_color ?? null)
+
       insertMap.run(dirNorm, pid, row.time_created, row.time_updated)
 
-      const isWorktree = row.worktree !== "/" && norm(row.directory) === norm(canonicalWorktree)
       const kind = isWorktree ? "project" : "directory"
 
       insertRecent.run(
@@ -838,13 +857,26 @@ export namespace Database {
         pid,
         row.directory,
         row.name,
-        row.icon_url ?? null,
-        row.icon_color ?? null,
+        icon_url,
+        icon_color,
         row.icon_override ?? null,
-        row.activity_at,
+        realActivity,
         row.time_created,
         row.time_updated,
       )
+    }
+
+    // Clean global_project_map entries for this pid whose normed directory is
+    // no longer in directory_meta (e.g. sandbox removed but path-norm mismatch
+    // caused the DELETE to miss). Only compare by pid + norm to handle
+    // backslash/forward-slash inconsistencies.
+    const orphanMap = sqlite.prepare("SELECT directory FROM global_project_map WHERE project_id = ?").all(pid) as {
+      directory: string
+    }[]
+    for (const orphan of orphanMap) {
+      if (!validNorms.has(norm(orphan.directory))) {
+        sqlite.prepare("DELETE FROM global_project_map WHERE directory = ?").run(orphan.directory)
+      }
     }
   }
 
@@ -943,14 +975,17 @@ export namespace Database {
     if (synced > 0) log.info("directory_meta sync complete", { synced })
 
     // Phase 2: Delete project_recent entries whose project_id has no corresponding DB
-    //          or whose directory is not the project's canonical worktree (e.g. sandbox dirs)
+    //          Covers both kind='project' (worktree) and kind='directory' (sandbox) rows.
+    //          For kind='project', also remove if key is not a valid worktree key.
     //          Corrupted project DBs are also treated as "no corresponding DB" for cleanup.
     const staleRows = sqlite
-      .prepare("SELECT key, project_id FROM project_recent WHERE kind = 'project' AND project_id IS NOT NULL")
-      .all() as { key: string; project_id: string }[]
+      .prepare("SELECT key, kind, project_id FROM project_recent WHERE project_id IS NOT NULL")
+      .all() as { key: string; kind: string; project_id: string }[]
     let removed = 0
     for (const row of staleRows) {
-      if (!existingDbIds.has(row.project_id) || corruptedIds.has(row.project_id) || !validWorktreeKeys.has(row.key)) {
+      const noDb = !existingDbIds.has(row.project_id) || corruptedIds.has(row.project_id)
+      const invalidWorktree = row.kind === "project" && !validWorktreeKeys.has(row.key)
+      if (noDb || invalidWorktree) {
         sqlite.prepare("DELETE FROM project_recent WHERE key = ?").run(row.key)
         removed++
       }
@@ -959,18 +994,36 @@ export namespace Database {
 
     // Phase 3: Delete global_project_map entries whose project_id has no corresponding DB
     //          Corrupted project DBs are also cleaned from the map.
+    //          Also deduplicate entries where norm(directory) differs from the stored value,
+    //          keeping only the normed row (the canonical one written by syncDirectoryMetaToGlobal).
     const staleMap = sqlite.prepare("SELECT directory, project_id FROM global_project_map").all() as {
       directory: string
       project_id: string
     }[]
     let mapRemoved = 0
+    const seenNorms = new Map<string, string>() // norm(directory) → the kept row's raw directory
     for (const row of staleMap) {
-      if (!existingDbIds.has(row.project_id) || corruptedIds.has(row.project_id)) {
+      const noDb = !existingDbIds.has(row.project_id) || corruptedIds.has(row.project_id)
+      if (noDb) {
         sqlite.prepare("DELETE FROM global_project_map WHERE directory = ?").run(row.directory)
         mapRemoved++
+        continue
       }
+      const dirNorm = norm(row.directory)
+      const prev = seenNorms.get(dirNorm)
+      if (!prev) {
+        seenNorms.set(dirNorm, row.directory)
+        continue
+      }
+      // Two rows map to the same normed directory — keep the normed one (matches project_recent key)
+      // and delete the other. The normed path is the canonical form used by syncDirectoryMetaToGlobal.
+      const keepNormed = dirNorm === row.directory
+      const delDir = keepNormed ? prev : row.directory
+      sqlite.prepare("DELETE FROM global_project_map WHERE directory = ?").run(delDir)
+      if (keepNormed) seenNorms.set(dirNorm, row.directory)
+      mapRemoved++
     }
-    if (mapRemoved > 0) log.info("removed stale global_project_map entries", { mapRemoved })
+    if (mapRemoved > 0) log.info("removed stale/duplicate global_project_map entries", { mapRemoved })
   }
 
   export function transaction<T>(
