@@ -41,6 +41,7 @@ const loadingComplete = defer<void>()
 const pendingDeepLinks: string[] = []
 
 const serverReady = defer<ServerReadyData>()
+const initDone = defer<void>()
 const logger = initLogging()
 const MANUAL_INSTALL_UPDATE = process.platform === "darwin" || (process.platform === "linux" && !process.env.APPIMAGE)
 const RELEASES_URL = "https://github.com/Science-Discovery/Aether/releases"
@@ -195,6 +196,7 @@ async function initialize() {
 
   await loadingTask
   setInitStep({ phase: "done" })
+  initDone.resolve()
 
   if (sidecarFailed) {
     overlay?.close()
@@ -258,6 +260,7 @@ registerIpcHandlers({
       logger.log("awaiting server ready")
       const res = await serverReady.promise
       logger.log("server ready", { url: res.url })
+      if (initStep.phase !== "done") await initDone.promise
       return res
     } finally {
       initEmitter.off("step", listener)
