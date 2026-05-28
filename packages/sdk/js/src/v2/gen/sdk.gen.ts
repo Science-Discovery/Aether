@@ -115,6 +115,7 @@ import type {
   GlobalProxyGetResponses,
   GlobalProxyUpdateErrors,
   GlobalProxyUpdateResponses,
+  GlobalScriptsResponses,
   GlobalSyncEventSubscribeResponses,
   GlobalUpgradeErrors,
   GlobalUpgradeResponses,
@@ -353,6 +354,8 @@ import type {
   WorktreeCreateInput,
   WorktreeCreateResponses,
   WorktreeListResponses,
+  WorktreeMergeSessionsErrors,
+  WorktreeMergeSessionsResponses,
   WorktreeRemoveErrors,
   WorktreeRemoveInput,
   WorktreeRemoveResponses,
@@ -662,6 +665,18 @@ export class Config extends HeyApiClient {
 }
 
 export class Global extends HeyApiClient {
+  /**
+   * List global scripts
+   *
+   * List user scripts in the global data directory's .bin folder, along with the absolute path.
+   */
+  public scripts<ThrowOnError extends boolean = false>(options?: Options<never, ThrowOnError>) {
+    return (options?.client ?? this.client).get<GlobalScriptsResponses, unknown, ThrowOnError>({
+      url: "/global/scripts",
+      ...options,
+    })
+  }
+
   /**
    * Get health
    *
@@ -2068,6 +2083,55 @@ export class Worktree extends HeyApiClient {
     )
     return (options?.client ?? this.client).post<WorktreeResetResponses, WorktreeResetErrors, ThrowOnError>({
       url: "/experimental/worktree/reset",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Merge workspace sessions into main worktree
+   *
+   * Move all sessions from a sandbox directory to the main worktree directory.
+   */
+  public mergeSessions<ThrowOnError extends boolean = false>(
+    parameters?: {
+      query_directory?: string
+      workspace?: string
+      body_directory?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            {
+              in: "query",
+              key: "query_directory",
+              map: "directory",
+            },
+            { in: "query", key: "workspace" },
+            {
+              in: "body",
+              key: "body_directory",
+              map: "directory",
+            },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      WorktreeMergeSessionsResponses,
+      WorktreeMergeSessionsErrors,
+      ThrowOnError
+    >({
+      url: "/experimental/worktree/merge-sessions",
       ...options,
       ...params,
       headers: {

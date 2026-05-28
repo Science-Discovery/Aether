@@ -1583,6 +1583,14 @@ export type Config = {
      * List of skill names to deactivate
      */
     disabled?: Array<string>
+    /**
+     * LLM steps without skill_manage before background skill review triggers (default: 10, 0 to disable)
+     */
+    creation_nudge_interval?: number
+    /**
+     * Maximum number of version snapshots kept per skill before older snapshots are pruned (default: 100)
+     */
+    max_versions?: number
   }
   watcher?: {
     ignore?: Array<string>
@@ -1917,6 +1925,10 @@ export type Model = {
     [key: string]: string
   }
   release_date: string
+  modalities?: {
+    input: Array<"text" | "audio" | "image" | "video" | "pdf">
+    output: Array<"text" | "audio" | "image" | "video" | "pdf">
+  }
   variants?: {
     [key: string]: {
       [key: string]: unknown
@@ -2284,6 +2296,7 @@ export type Path = {
   home: string
   state: string
   config: string
+  data: string
   worktree: string
   directory: string
 }
@@ -2402,6 +2415,25 @@ export type FormatterStatus = {
   extensions: Array<string>
   enabled: boolean
 }
+
+export type GlobalScriptsData = {
+  body?: never
+  path?: never
+  query?: never
+  url: "/global/scripts"
+}
+
+export type GlobalScriptsResponses = {
+  /**
+   * Script names and path
+   */
+  200: {
+    path: string
+    names: Array<string>
+  }
+}
+
+export type GlobalScriptsResponse = GlobalScriptsResponses[keyof GlobalScriptsResponses]
 
 export type GlobalProxyGetData = {
   body?: never
@@ -3826,6 +3858,36 @@ export type ExperimentalResourceListResponses = {
 
 export type ExperimentalResourceListResponse =
   ExperimentalResourceListResponses[keyof ExperimentalResourceListResponses]
+
+export type WorktreeMergeSessionsData = {
+  body?: {
+    directory: string
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/experimental/worktree/merge-sessions"
+}
+
+export type WorktreeMergeSessionsErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type WorktreeMergeSessionsError = WorktreeMergeSessionsErrors[keyof WorktreeMergeSessionsErrors]
+
+export type WorktreeMergeSessionsResponses = {
+  /**
+   * Sessions merged
+   */
+  200: number
+}
+
+export type WorktreeMergeSessionsResponse = WorktreeMergeSessionsResponses[keyof WorktreeMergeSessionsResponses]
 
 export type SessionListData = {
   body?: never

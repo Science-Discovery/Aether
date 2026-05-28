@@ -6,6 +6,46 @@
     "version": "1.0.0"
   },
   "paths": {
+    "/global/scripts": {
+      "get": {
+        "operationId": "global.scripts",
+        "summary": "List global scripts",
+        "description": "List user scripts in the global data directory's .bin folder, along with the absolute path.",
+        "responses": {
+          "200": {
+            "description": "Script names and path",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "path": {
+                      "type": "string"
+                    },
+                    "names": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "required": [
+                    "path",
+                    "names"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.global.scripts({\n  ...\n})"
+          }
+        ]
+      }
+    },
     "/global/proxy": {
       "get": {
         "operationId": "global.proxy.get",
@@ -1103,6 +1143,9 @@
                   "name": {
                     "type": "string"
                   },
+                  "projectID": {
+                    "type": "string"
+                  },
                   "icon": {
                     "type": "object",
                     "properties": {
@@ -1449,6 +1492,187 @@
           {
             "lang": "js",
             "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.project.update({\n  ...\n})"
+          }
+        ]
+      },
+      "delete": {
+        "operationId": "project.delete",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "directory",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "workspace",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "projectID",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          }
+        ],
+        "summary": "Delete project",
+        "description": "Remove a project and its database. Fails if the project has sessions — delete those first.",
+        "responses": {
+          "200": {
+            "description": "Deletion result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "status": {
+                          "type": "string",
+                          "const": "ok"
+                        },
+                        "projectID": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "status",
+                        "projectID"
+                      ]
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "status": {
+                          "type": "string",
+                          "const": "has_sessions"
+                        },
+                        "projectID": {
+                          "type": "string"
+                        },
+                        "sessionCount": {
+                          "type": "number"
+                        }
+                      },
+                      "required": [
+                        "status",
+                        "projectID",
+                        "sessionCount"
+                      ]
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BadRequestError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFoundError"
+                }
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.project.delete({\n  ...\n})"
+          }
+        ]
+      }
+    },
+    "/project/{projectID}/session-count": {
+      "get": {
+        "operationId": "project.sessionCount",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "directory",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "workspace",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "projectID",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          }
+        ],
+        "summary": "Get session count for project",
+        "description": "Return the number of sessions in a project database.",
+        "responses": {
+          "200": {
+            "description": "Session count",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "count": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "count"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BadRequestError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFoundError"
+                }
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.project.sessionCount({\n  ...\n})"
           }
         ]
       }
@@ -2763,7 +2987,56 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "boolean"
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "status": {
+                          "type": "string",
+                          "const": "ok"
+                        }
+                      },
+                      "required": [
+                        "status"
+                      ]
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "status": {
+                          "type": "string",
+                          "const": "stale"
+                        },
+                        "directory": {
+                          "type": "string"
+                        },
+                        "gitStderr": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "status",
+                        "directory",
+                        "gitStderr"
+                      ]
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "status": {
+                          "type": "string",
+                          "const": "forceOk"
+                        },
+                        "hasOrphanedDb": {
+                          "type": "boolean"
+                        }
+                      },
+                      "required": [
+                        "status",
+                        "hasOrphanedDb"
+                      ]
+                    }
+                  ]
                 }
               }
             }
@@ -3005,6 +3278,74 @@
           {
             "lang": "js",
             "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.experimental.resource.list({\n  ...\n})"
+          }
+        ]
+      }
+    },
+    "/experimental/worktree/merge-sessions": {
+      "post": {
+        "operationId": "worktree.mergeSessions",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "directory",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "workspace",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "summary": "Merge workspace sessions into main worktree",
+        "description": "Move all sessions from a sandbox directory to the main worktree directory.",
+        "responses": {
+          "200": {
+            "description": "Sessions merged",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "number"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BadRequestError"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "directory": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "directory"
+                ]
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.worktree.mergeSessions({\n  ...\n})"
           }
         ]
       }
@@ -11153,6 +11494,221 @@
         ]
       }
     },
+    "/knowledge/discover": {
+      "get": {
+        "operationId": "knowledge.discover",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "directory",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "workspace",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "summary": "Discover existing knowledge bases",
+        "description": "扫描桌面和文稿目录，发现已存在的 .aether-kb 知识库索引并返回",
+        "responses": {
+          "200": {
+            "description": "发现的知识库列表",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "found": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "path": {
+                            "type": "string"
+                          },
+                          "config": {
+                            "type": "object",
+                            "properties": {
+                              "name": {
+                                "type": "string"
+                              },
+                              "embeddingProvider": {
+                                "type": "string"
+                              },
+                              "embeddingModel": {
+                                "type": "string"
+                              },
+                              "embeddingDimensions": {
+                                "type": "number"
+                              },
+                              "apiKey": {
+                                "type": "string"
+                              },
+                              "baseURL": {
+                                "type": "string"
+                              },
+                              "chunkSize": {
+                                "type": "number"
+                              },
+                              "chunkOverlap": {
+                                "type": "number"
+                              }
+                            },
+                            "required": [
+                              "name",
+                              "embeddingProvider",
+                              "embeddingModel"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "path",
+                          "config"
+                        ]
+                      }
+                    }
+                  },
+                  "required": [
+                    "found"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.knowledge.discover({\n  ...\n})"
+          }
+        ]
+      }
+    },
+    "/knowledge/state": {
+      "get": {
+        "operationId": "knowledge.state.get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "directory",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "workspace",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "summary": "Get knowledge base state",
+        "description": "获取全局知识库状态列表",
+        "responses": {
+          "200": {
+            "description": "知识库状态",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "knowledgeBases": {
+                      "type": "array",
+                      "items": {}
+                    },
+                    "activeIds": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "lastConfig": {}
+                  },
+                  "required": [
+                    "knowledgeBases",
+                    "activeIds"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.knowledge.state.get({\n  ...\n})"
+          }
+        ]
+      },
+      "post": {
+        "operationId": "knowledge.state.post",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "directory",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "workspace",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "summary": "Save knowledge base state",
+        "description": "保存全局知识库状态列表",
+        "responses": {
+          "200": {
+            "description": "保存成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "ok"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "data": {}
+                },
+                "required": [
+                  "data"
+                ]
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.knowledge.state.post({\n  ...\n})"
+          }
+        ]
+      }
+    },
     "/knowledge": {
       "post": {
         "operationId": "knowledge.create",
@@ -12850,6 +13406,288 @@
         ]
       }
     },
+    "/cron/assistant": {
+      "post": {
+        "operationId": "cron.assistant",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "directory",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "workspace",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "summary": "Create or update a cron job from a short natural language instruction",
+        "responses": {
+          "200": {
+            "description": "Cron assistant result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "action": {
+                      "type": "string",
+                      "enum": [
+                        "create",
+                        "update",
+                        "reject"
+                      ]
+                    },
+                    "summary": {
+                      "type": "string"
+                    },
+                    "job": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "definition": {
+                              "type": "object",
+                              "properties": {
+                                "id": {
+                                  "type": "string"
+                                },
+                                "name": {
+                                  "type": "string"
+                                },
+                                "enabled": {
+                                  "type": "boolean"
+                                },
+                                "mode": {
+                                  "type": "string",
+                                  "enum": [
+                                    "direct",
+                                    "isolated_agent",
+                                    "session_agent",
+                                    "agent_message"
+                                  ]
+                                },
+                                "project_id": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "session_id": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "schedule_type": {
+                                  "type": "string",
+                                  "enum": [
+                                    "cron",
+                                    "interval",
+                                    "once"
+                                  ]
+                                },
+                                "schedule_value": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string"
+                                    },
+                                    {
+                                      "type": "integer",
+                                      "minimum": -9007199254740991,
+                                      "maximum": 9007199254740991
+                                    }
+                                  ]
+                                },
+                                "timezone": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "payload": {
+                                  "type": "object",
+                                  "propertyNames": {
+                                    "type": "string"
+                                  },
+                                  "additionalProperties": {}
+                                }
+                              },
+                              "required": [
+                                "id",
+                                "name",
+                                "enabled",
+                                "mode",
+                                "schedule_type",
+                                "schedule_value",
+                                "payload"
+                              ],
+                              "additionalProperties": {}
+                            },
+                            "state": {
+                              "anyOf": [
+                                {
+                                  "type": "object",
+                                  "properties": {
+                                    "job_id": {
+                                      "type": "string"
+                                    },
+                                    "enabled": {
+                                      "type": "boolean"
+                                    },
+                                    "next_run_at": {
+                                      "anyOf": [
+                                        {
+                                          "type": "integer",
+                                          "minimum": -9007199254740991,
+                                          "maximum": 9007199254740991
+                                        },
+                                        {
+                                          "type": "null"
+                                        }
+                                      ]
+                                    },
+                                    "last_run_at": {
+                                      "anyOf": [
+                                        {
+                                          "type": "integer",
+                                          "minimum": -9007199254740991,
+                                          "maximum": 9007199254740991
+                                        },
+                                        {
+                                          "type": "null"
+                                        }
+                                      ]
+                                    },
+                                    "last_status": {
+                                      "anyOf": [
+                                        {
+                                          "type": "string",
+                                          "enum": [
+                                            "success",
+                                            "failed",
+                                            "skipped",
+                                            "expired"
+                                          ]
+                                        },
+                                        {
+                                          "type": "null"
+                                        }
+                                      ]
+                                    },
+                                    "running": {
+                                      "type": "boolean"
+                                    },
+                                    "start_at": {
+                                      "anyOf": [
+                                        {
+                                          "type": "integer",
+                                          "minimum": -9007199254740991,
+                                          "maximum": 9007199254740991
+                                        },
+                                        {
+                                          "type": "null"
+                                        }
+                                      ]
+                                    },
+                                    "updated_at": {
+                                      "type": "integer",
+                                      "minimum": -9007199254740991,
+                                      "maximum": 9007199254740991
+                                    }
+                                  },
+                                  "required": [
+                                    "job_id",
+                                    "enabled",
+                                    "next_run_at",
+                                    "last_run_at",
+                                    "last_status",
+                                    "running",
+                                    "start_at",
+                                    "updated_at"
+                                  ]
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            }
+                          },
+                          "required": [
+                            "definition",
+                            "state"
+                          ]
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "action",
+                    "summary",
+                    "job"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "instruction": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "selected_id": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "project_id": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "session_id": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "required": [
+                  "instruction"
+                ]
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.cron.assistant({\n  ...\n})"
+          }
+        ]
+      }
+    },
     "/cron/jobs": {
       "get": {
         "operationId": "cron.jobs.list",
@@ -14409,6 +15247,417 @@
         ]
       }
     },
+    "/memory/status": {
+      "get": {
+        "operationId": "memory.status",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "directory",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "workspace",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "summary": "Get memory system status",
+        "responses": {
+          "200": {
+            "description": "Memory status",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "propertyNames": {
+                    "type": "string"
+                  },
+                  "additionalProperties": {}
+                }
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.memory.status({\n  ...\n})"
+          }
+        ]
+      }
+    },
+    "/memory/search": {
+      "post": {
+        "operationId": "memory.search",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "directory",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "workspace",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "summary": "Search long-term memory",
+        "responses": {
+          "200": {
+            "description": "Memory search result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "propertyNames": {
+                    "type": "string"
+                  },
+                  "additionalProperties": {}
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "query": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "mode": {
+                    "type": "string",
+                    "enum": [
+                      "search",
+                      "overview"
+                    ]
+                  },
+                  "types": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "enum": [
+                        "preference",
+                        "fact",
+                        "task"
+                      ]
+                    }
+                  },
+                  "limit": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  "currentProjectID": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "query"
+                ]
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.memory.search({\n  ...\n})"
+          }
+        ]
+      }
+    },
+    "/memory/reflect": {
+      "post": {
+        "operationId": "memory.reflect",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "directory",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "workspace",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "summary": "Run memory reflection",
+        "responses": {
+          "200": {
+            "description": "Memory reflection result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "propertyNames": {
+                    "type": "string"
+                  },
+                  "additionalProperties": {}
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "mode": {
+                    "type": "string",
+                    "enum": [
+                      "quick",
+                      "daily",
+                      "manual"
+                    ]
+                  },
+                  "reason": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.memory.reflect({\n  ...\n})"
+          }
+        ]
+      }
+    },
+    "/memory/initialize/start": {
+      "post": {
+        "operationId": "memory.initialize.start",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "directory",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "workspace",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "summary": "Start one-time memory initialization",
+        "responses": {
+          "200": {
+            "description": "Initialization result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "propertyNames": {
+                    "type": "string"
+                  },
+                  "additionalProperties": {}
+                }
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.memory.initialize.start({\n  ...\n})"
+          }
+        ]
+      }
+    },
+    "/memory/initialize/cancel": {
+      "post": {
+        "operationId": "memory.initialize.cancel",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "directory",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "workspace",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "summary": "Cancel memory initialization",
+        "responses": {
+          "200": {
+            "description": "Cancel result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "ok"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.memory.initialize.cancel({\n  ...\n})"
+          }
+        ]
+      }
+    },
+    "/memory/daily-reflect/sync": {
+      "post": {
+        "operationId": "memory.dailyReflect.sync",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "directory",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "workspace",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "summary": "Sync daily memory reflection cron job from config",
+        "responses": {
+          "200": {
+            "description": "Synced cron job",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "propertyNames": {
+                    "type": "string"
+                  },
+                  "additionalProperties": {}
+                }
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.memory.dailyReflect.sync({\n  ...\n})"
+          }
+        ]
+      }
+    },
+    "/voice/transcribe": {
+      "post": {
+        "operationId": "postVoiceTranscribe",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "directory",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "workspace",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "providerID": {
+                    "type": "string"
+                  },
+                  "modelID": {
+                    "type": "string"
+                  },
+                  "audioBase64": {
+                    "type": "string"
+                  },
+                  "audioFormat": {
+                    "type": "string"
+                  },
+                  "context": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "role": {
+                          "type": "string"
+                        },
+                        "content": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "role",
+                        "content"
+                      ]
+                    }
+                  }
+                },
+                "required": [
+                  "providerID",
+                  "modelID",
+                  "audioBase64",
+                  "audioFormat"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {}
+        },
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.postVoiceTranscribe({\n  ...\n})"
+          }
+        ]
+      }
+    },
     "/mobile/wechat/start": {
       "post": {
         "operationId": "wechat.start",
@@ -14675,6 +15924,9 @@
                         }
                       ]
                     },
+                    "hasConfig": {
+                      "type": "boolean"
+                    },
                     "error": {
                       "anyOf": [
                         {
@@ -14704,6 +15956,7 @@
                     "user",
                     "locked",
                     "lockHolder",
+                    "hasConfig",
                     "error"
                   ]
                 }
@@ -16699,6 +17952,236 @@
         ]
       }
     },
+    "/vcs/checkout": {
+      "post": {
+        "operationId": "vcs.checkout",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "directory",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "workspace",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "summary": "Switch git branch",
+        "description": "Switch the current git branch to the specified branch name.",
+        "responses": {
+          "200": {
+            "description": "Checkout result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VcsCheckoutResult"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "branch": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "branch"
+                ]
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.vcs.checkout({\n  ...\n})"
+          }
+        ]
+      }
+    },
+    "/vcs/rename-branch": {
+      "post": {
+        "operationId": "vcs.renameBranch",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "directory",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "workspace",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "summary": "Rename git branch",
+        "description": "Rename the current git branch to a new name.",
+        "responses": {
+          "200": {
+            "description": "Rename result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VcsRenameBranchResult"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "newName": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "newName"
+                ]
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.vcs.renameBranch({\n  ...\n})"
+          }
+        ]
+      }
+    },
+    "/vcs/commit/{hash}": {
+      "get": {
+        "operationId": "vcs.commitDetail",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "directory",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "workspace",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "hash",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          }
+        ],
+        "summary": "Get commit details",
+        "description": "Retrieve detailed information about a specific git commit, including metadata and file changes.",
+        "responses": {
+          "200": {
+            "description": "Commit details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VcsCommitDetail"
+                }
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.vcs.commitDetail({\n  ...\n})"
+          }
+        ]
+      }
+    },
+    "/vcs/file": {
+      "get": {
+        "operationId": "vcs.fileContent",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "directory",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "workspace",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "hash",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          },
+          {
+            "in": "query",
+            "name": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          }
+        ],
+        "summary": "Get file content at commit",
+        "description": "Retrieve the content of a specific file at a given git commit.",
+        "responses": {
+          "200": {
+            "description": "File content",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "content": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "content"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.vcs.fileContent({\n  ...\n})"
+          }
+        ]
+      }
+    },
     "/command": {
       "get": {
         "operationId": "command.list",
@@ -17100,6 +18583,162 @@
             },
             "required": [
               "version"
+            ]
+          }
+        },
+        "required": [
+          "type",
+          "properties"
+        ]
+      },
+      "Event.db.recovery.started": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "db.recovery.started"
+          },
+          "properties": {
+            "type": "object",
+            "properties": {
+              "entries": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "entries"
+            ]
+          }
+        },
+        "required": [
+          "type",
+          "properties"
+        ]
+      },
+      "Event.db.recovery.progress": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "db.recovery.progress"
+          },
+          "properties": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "phase": {
+                "type": "string",
+                "enum": [
+                  "path-b",
+                  "path-a",
+                  "path-a-plus"
+                ]
+              },
+              "table": {
+                "type": "string"
+              },
+              "recoveredRows": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "id",
+              "phase",
+              "table",
+              "recoveredRows"
+            ]
+          }
+        },
+        "required": [
+          "type",
+          "properties"
+        ]
+      },
+      "Event.db.recovery.completed": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "db.recovery.completed"
+          },
+          "properties": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "main",
+                  "project",
+                  "cron"
+                ]
+              },
+              "projectId": {
+                "type": "string"
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "completed",
+                  "partial",
+                  "failed"
+                ]
+              },
+              "recoveredTables": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "failedTables": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "recoveredRows": {
+                "type": "number"
+              },
+              "quarantinePath": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "kind",
+              "status",
+              "recoveredTables",
+              "failedTables",
+              "recoveredRows",
+              "quarantinePath"
+            ]
+          }
+        },
+        "required": [
+          "type",
+          "properties"
+        ]
+      },
+      "Event.db.recovery.ask_install": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "db.recovery.ask_install"
+          },
+          "properties": {
+            "type": "object",
+            "properties": {
+              "message": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "message"
             ]
           }
         },
@@ -20561,6 +22200,18 @@
             "$ref": "#/components/schemas/Event.installation.update-available"
           },
           {
+            "$ref": "#/components/schemas/Event.db.recovery.started"
+          },
+          {
+            "$ref": "#/components/schemas/Event.db.recovery.progress"
+          },
+          {
+            "$ref": "#/components/schemas/Event.db.recovery.completed"
+          },
+          {
+            "$ref": "#/components/schemas/Event.db.recovery.ask_install"
+          },
+          {
             "$ref": "#/components/schemas/Event.project.updated"
           },
           {
@@ -22080,6 +23731,18 @@
                 "items": {
                   "type": "string"
                 }
+              },
+              "creation_nudge_interval": {
+                "description": "LLM steps without skill_manage before background skill review triggers (default: 10, 0 to disable)",
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "max_versions": {
+                "description": "Maximum number of version snapshots kept per skill before older snapshots are pruned (default: 100)",
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 9007199254740991
               }
             }
           },
@@ -22429,6 +24092,66 @@
               "enabled": {
                 "description": "Enable cron job execution (default: true)",
                 "type": "boolean"
+              }
+            }
+          },
+          "memory": {
+            "type": "object",
+            "properties": {
+              "enabled": {
+                "description": "Enable memory hooks and tools (default: true)",
+                "type": "boolean"
+              },
+              "quickReflect": {
+                "description": "Enable lightweight quick reflection (default: true)",
+                "type": "boolean"
+              },
+              "dailyReflect": {
+                "type": "object",
+                "properties": {
+                  "enabled": {
+                    "description": "Enable scheduled daily memory reflection (default: true)",
+                    "type": "boolean"
+                  },
+                  "time": {
+                    "description": "Daily memory reflection time in HH:mm format (default: 03:00)",
+                    "type": "string"
+                  },
+                  "timezone": {
+                    "description": "Daily memory reflection timezone. Defaults to the system timezone.",
+                    "type": "string"
+                  }
+                }
+              },
+              "search": {
+                "type": "object",
+                "properties": {
+                  "defaultLimit": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "maxLimit": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  }
+                }
+              },
+              "reflection": {
+                "type": "object",
+                "properties": {
+                  "maxInputTokens": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "maxOutputTokens": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  }
+                }
               }
             }
           },
@@ -22895,6 +24618,41 @@
           "release_date": {
             "type": "string"
           },
+          "modalities": {
+            "type": "object",
+            "properties": {
+              "input": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "text",
+                    "audio",
+                    "image",
+                    "video",
+                    "pdf"
+                  ]
+                }
+              },
+              "output": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "text",
+                    "audio",
+                    "image",
+                    "video",
+                    "pdf"
+                  ]
+                }
+              }
+            },
+            "required": [
+              "input",
+              "output"
+            ]
+          },
           "variants": {
             "type": "object",
             "propertyNames": {
@@ -23103,6 +24861,9 @@
         "properties": {
           "directory": {
             "type": "string"
+          },
+          "force": {
+            "type": "boolean"
           }
         },
         "required": [
@@ -24339,6 +26100,9 @@
           "config": {
             "type": "string"
           },
+          "data": {
+            "type": "string"
+          },
           "worktree": {
             "type": "string"
           },
@@ -24350,6 +26114,7 @@
           "home",
           "state",
           "config",
+          "data",
           "worktree",
           "directory"
         ]
@@ -24516,6 +26281,130 @@
           "tags",
           "remotes",
           "moreAvailable"
+        ]
+      },
+      "VcsCheckoutResult": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "error": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "success"
+        ]
+      },
+      "VcsRenameBranchResult": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "error": {
+            "type": "string"
+          },
+          "branch": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "success"
+        ]
+      },
+      "VcsFileChange": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string"
+          },
+          "file": {
+            "type": "string"
+          },
+          "oldFilePath": {
+            "type": "string"
+          },
+          "additions": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "deletions": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "status",
+          "file",
+          "additions",
+          "deletions"
+        ]
+      },
+      "VcsCommitDetail": {
+        "type": "object",
+        "properties": {
+          "hash": {
+            "type": "string"
+          },
+          "parents": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "author": {
+            "type": "string"
+          },
+          "authorEmail": {
+            "type": "string"
+          },
+          "authorDate": {
+            "type": "number"
+          },
+          "committer": {
+            "type": "string"
+          },
+          "committerEmail": {
+            "type": "string"
+          },
+          "committerDate": {
+            "type": "number"
+          },
+          "body": {
+            "type": "string"
+          },
+          "files": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/VcsFileChange"
+            }
+          }
+        },
+        "required": [
+          "hash",
+          "parents",
+          "author",
+          "authorEmail",
+          "authorDate",
+          "committer",
+          "committerEmail",
+          "committerDate",
+          "body",
+          "files"
         ]
       },
       "Command": {

@@ -78,7 +78,7 @@ function createGlobalSync() {
 
   const [globalStore, setGlobalStore] = createStore<GlobalStore>({
     ready: false,
-    path: { state: "", config: "", worktree: "", directory: "", home: "" },
+    path: { state: "", config: "", data: "", worktree: "", directory: "", home: "" },
     project: projectCache.value,
     recent: recentCache.value,
     session_todo: {},
