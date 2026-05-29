@@ -1096,6 +1096,37 @@ describe("memory service", () => {
     const found = await Memory.search({ query: "回答风格 中文 结论", limit: 5 })
     expect(found.results[0]?.memory).toContain("回答风格")
   })
+
+  test("reflection retries once with safer provider settings after provider option BadRequest", async () => {
+    let calls = 0
+    Memory.setReflectorForTest(async ({ events }) => {
+      calls++
+      if (calls === 1) {
+        throw new Error("litellm.BadRequestError: reasoning_effort input should be none, low, medium or high")
+      }
+      return events.map((event) => ({
+        eventID: event.id,
+        type: "preference" as const,
+        scope: "global" as const,
+        memory: event.raw_text,
+        confidence: 0.9,
+        weight: 0.86,
+        evidence: "retried after provider option BadRequest",
+      }))
+    })
+
+    await Memory.remember({
+      text: "我希望默认用中文回答",
+      type: "preference",
+      intent: "observed",
+      source: { createdAt: Date.now(), role: "user" },
+    })
+
+    const reflected = await Memory.reflect({ mode: "daily", reason: "test" })
+    expect(reflected.changed).toBe(true)
+    expect(calls).toBe(2)
+    expect((await Memory.search({ query: "中文回答", limit: 5 })).results[0]?.memory).toContain("中文回答")
+  })
 })
 
 describe("memory agent tools", () => {
@@ -1247,6 +1278,79 @@ describe("memory installer", () => {
     await Cron.runJobNow({ id: "builtin.memory.daily_reflect" })
     const runs = await Cron.listRuns({ id: "builtin.memory.daily_reflect", count: 1 })
     expect(runs[0]?.status).toBe("success")
+  })
+
+  test("repairs stale builtin daily reflect cron payloads during install", async () => {
+    await using tmp = await tmpdir()
+    const previousCronDir = process.env.OPENCODE_CRON_DIR
+    process.env.OPENCODE_CRON_DIR = path.join(tmp.path, "cron-jobs")
+    try {
+      Memory.configureForTest({
+        globalMemoryDir: path.join(tmp.path, "global-memory"),
+        channelRootDir: path.join(tmp.path, "channels"),
+        channelID: "latest",
+        settings: { enabled: true, dailyReflectEnabled: true, dailyReflectTime: "03:00" },
+      })
+      await Memory.purge()
+      await Cron.ensureJob({
+        id: "builtin.memory.daily_reflect",
+        name: "Daily memory reflection",
+        enabled: true,
+        mode: "direct",
+        schedule_type: "cron",
+        schedule_value: "0 2 * * *",
+        payload: { action: "memory_reflect" },
+      })
+
+      await installMemory()
+
+      const job = await Cron.getJob("builtin.memory.daily_reflect")
+      expect(job.definition.mode).toBe("direct")
+      expect(job.definition.project_id).toBeNull()
+      expect(job.definition.session_id).toBeNull()
+      expect(job.definition.payload).toEqual({ action: "memory.reflect.daily" })
+
+      const run = await Cron.runJobNow({ id: "builtin.memory.daily_reflect" })
+      expect(run.status).toBe("success")
+    } finally {
+      process.env.OPENCODE_CRON_DIR = previousCronDir
+    }
+  })
+
+  test("disables legacy daily reflect cron jobs after installing the canonical job", async () => {
+    await using tmp = await tmpdir()
+    const previousCronDir = process.env.OPENCODE_CRON_DIR
+    process.env.OPENCODE_CRON_DIR = path.join(tmp.path, "cron-jobs")
+    try {
+      Memory.configureForTest({
+        globalMemoryDir: path.join(tmp.path, "global-memory"),
+        channelRootDir: path.join(tmp.path, "channels"),
+        channelID: "latest",
+        settings: { enabled: true, dailyReflectEnabled: true, dailyReflectTime: "03:00" },
+      })
+      await Memory.purge()
+      await Cron.ensureJob({
+        id: "builtin-memory-reflection-daily",
+        name: "Daily memory reflection",
+        enabled: true,
+        mode: "direct",
+        schedule_type: "cron",
+        schedule_value: "0 2 * * *",
+        payload: { action: "memory_reflect" },
+      })
+
+      await installMemory()
+
+      const legacy = await Cron.getJob("builtin-memory-reflection-daily")
+      expect(legacy.definition.enabled).toBe(false)
+      expect(legacy.definition.payload).toEqual({ action: "memory.reflect.daily" })
+
+      const current = await Cron.getJob("builtin.memory.daily_reflect")
+      expect(current.definition.enabled).toBe(true)
+      expect(current.definition.payload).toEqual({ action: "memory.reflect.daily" })
+    } finally {
+      process.env.OPENCODE_CRON_DIR = previousCronDir
+    }
   })
 })
 
