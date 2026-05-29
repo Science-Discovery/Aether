@@ -1839,6 +1839,7 @@ export default function Layout(props: ParentProps) {
     }
 
     setBusy(directory, true)
+    globalSync.project.beginRemove(directory)
 
     const result = await globalSDK.client.worktree
       .remove({ directory: root, worktreeRemoveInput: { directory } })
@@ -1852,11 +1853,13 @@ export default function Layout(props: ParentProps) {
       })
 
     if (!result) {
+      globalSync.project.cancelRemove(directory)
       setBusy(directory, false)
       return
     }
 
     if (result && typeof result === "object" && result.status === "stale") {
+      globalSync.project.cancelRemove(directory)
       setBusy(directory, false)
       dialog.show(() => <DialogForceDeleteWorkspace root={root} directory={directory} gitStderr={result.gitStderr} />)
       return
@@ -2078,6 +2081,7 @@ export default function Layout(props: ParentProps) {
     const handleForceDelete = async () => {
       dialog.close()
       setBusy(props.directory, true)
+      globalSync.project.beginRemove(props.directory)
       const result = await globalSDK.client.worktree
         .remove({ directory: props.root, worktreeRemoveInput: { directory: props.directory, force: true } })
         .then((x) => x.data)
@@ -2089,7 +2093,10 @@ export default function Layout(props: ParentProps) {
           return undefined
         })
       setBusy(props.directory, false)
-      if (!result) return
+      if (!result) {
+        globalSync.project.cancelRemove(props.directory)
+        return
+      }
       if (workspaceKey(store.lastProjectSession[props.root]?.directory ?? "") === workspaceKey(props.directory)) {
         clearLastProjectSession(props.root)
       }
