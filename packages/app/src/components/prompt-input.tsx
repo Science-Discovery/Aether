@@ -32,7 +32,7 @@ import { ModelSelectorPopover } from "@/components/dialog-select-model"
 import { DialogSelectModelUnpaid } from "@/components/dialog-select-model-unpaid"
 import { DialogReadingMode } from "@/components/dialog-reading-mode"
 import { useProviders } from "@/hooks/use-providers"
-import { useCommand } from "@/context/command"
+import { useCommand, parseKeybind } from "@/context/command"
 import { Persist, persisted } from "@/utils/persist"
 import { usePermission } from "@/context/permission"
 import { useLanguage } from "@/context/language"
@@ -65,7 +65,7 @@ import { createWorkingState, type ChildrenSource } from "@/utils/working-state"
 import { childMapByParent } from "@/pages/layout/helpers"
 import { SteerButton } from "@/components/steer-button"
 import { DialogDefaultSkills } from "@/components/dialog-default-skills"
-import { VoiceInputButton } from "@/components/voice-input-button"
+import { VoiceInputButton, type VoiceInputAPI } from "@/components/voice-input-button"
 
 interface PromptInputProps {
   class?: string
@@ -490,6 +490,10 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
 
   const shellModeKey = "mod+shift+x"
   const normalModeKey = "mod+shift+e"
+  const voiceKeybind = "mod+shift+v"
+
+  let voiceAPI: VoiceInputAPI | null = null
+  let pttActive = false
 
   command.register("prompt-input", () => [
     {
@@ -516,7 +520,37 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
       disabled: store.mode === "normal",
       onSelect: () => setMode("normal"),
     },
+    {
+      id: "voice.toggle",
+      title: language.t("prompt.action.voiceInput"),
+      category: language.t("command.category.session"),
+      keybind: voiceKeybind,
+      onSelect: (source) => {
+        if (!voiceAPI) return
+        if (source === "keybind") {
+          if (voiceAPI.state() === "idle") {
+            pttActive = true
+            void voiceAPI.start()
+          }
+        } else {
+          void voiceAPI.toggle()
+        }
+      },
+    },
   ])
+
+  const handleVoiceKeyUp = (event: KeyboardEvent) => {
+    if (!pttActive) return
+    const config = settings.keybinds.get("voice.toggle") ?? voiceKeybind
+    const kb = parseKeybind(config)[0]
+    const triggerKey = kb?.key?.toLowerCase()
+    if (!triggerKey) return
+    if (event.key.toLowerCase() !== triggerKey) return
+    pttActive = false
+    void voiceAPI?.stop()
+  }
+  document.addEventListener("keyup", handleVoiceKeyUp)
+  onCleanup(() => document.removeEventListener("keyup", handleVoiceKeyUp))
 
   const closePopover = () => setStore("popover", null)
 
@@ -1509,6 +1543,8 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
               </TooltipKeybind>
               <VoiceInputButton
                 style={buttons()}
+                actionRef={(api) => (voiceAPI = api)}
+                keybind={command.keybind("voice.toggle") || voiceKeybind}
                 onStateChange={setVoiceState}
                 onTranscription={(text) => {
                   const current = prompt.current()
