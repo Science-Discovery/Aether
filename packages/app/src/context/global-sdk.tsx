@@ -21,8 +21,6 @@ const abortError = z.object({
   name: z.literal("AbortError"),
 })
 
-let memoryInitializationToastShown = false
-
 export type GlobalSDKValue = {
   url: string
   client: AppClient
@@ -234,18 +232,6 @@ export const { use: useGlobalSDK, provider: GlobalSDKProvider } = createSimpleCo
     addMemoryMethods(sdk, server.current.http.url, authHeader(server.current.http), { throwOnError: true })
     addProjectDeleteMethod(sdk, server.current.http.url, authHeader(server.current.http), { throwOnError: true })
     addGlobalScriptsMethod(sdk, server.current.http.url, authHeader(server.current.http), { throwOnError: true })
-    if (!memoryInitializationToastShown) {
-      memoryInitializationToastShown = true
-      void sdk.memory.status().then((result) => {
-        const data = result.data ?? {}
-        if (data.needs_initialization && data.has_history_sessions) {
-          showToast({
-            title: "Memory initialization available",
-            description: "Open Settings > Memory to import useful memories from previous conversations.",
-          })
-        }
-      })
-    }
 
     return {
       url: currentServer.http.url,
