@@ -19,8 +19,11 @@ import type {
   ConfigProvidersResponses,
   ConfigSkillsAddDefaultsResponses,
   ConfigSkillsDeleteResponses,
+  ConfigSkillsListEvolutionResponses,
   ConfigSkillsListResponses,
   ConfigSkillsSaveResponses,
+  ConfigSkillsToggleEvolutionResponses,
+  ConfigSkillsToggleEvolvedResponses,
   ConfigSkillsToggleResponses,
   ConfigUpdateErrors,
   ConfigUpdateResponses,
@@ -1560,6 +1563,114 @@ export class Skills extends HeyApiClient {
     )
     return (options?.client ?? this.client).post<ConfigSkillsToggleResponses, unknown, ThrowOnError>({
       url: "/config/skills/toggle",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * List evolved skills
+   *
+   * List evolved skills from the project's .aether/skills/ and the global skill-evolution/<projectId>/skills/ directory.
+   */
+  public listEvolution<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<ConfigSkillsListEvolutionResponses, unknown, ThrowOnError>({
+      url: "/config/skills/evolution",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Toggle evolved skill activation
+   *
+   * Enable or disable an evolved skill by its SKILL.md file path.
+   */
+  public toggleEvolved<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      file?: string
+      enabled?: boolean
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "file" },
+            { in: "body", key: "enabled" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<ConfigSkillsToggleEvolvedResponses, unknown, ThrowOnError>({
+      url: "/config/skills/evolution/toggle",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Toggle skill self-evolution
+   *
+   * Allow or stop an evolved skill from self-evolving, by its SKILL.md file path.
+   */
+  public toggleEvolution<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      file?: string
+      evolutionEnabled?: boolean
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "file" },
+            { in: "body", key: "evolutionEnabled" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<ConfigSkillsToggleEvolutionResponses, unknown, ThrowOnError>({
+      url: "/config/skills/evolution/toggle-evolution",
       ...options,
       ...params,
       headers: {

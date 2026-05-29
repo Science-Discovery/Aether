@@ -3,6 +3,8 @@ import { describeRoute, validator, resolver } from "hono-openapi"
 import z from "zod"
 import { Config } from "../../config/config"
 import { Provider } from "../../provider/provider"
+import { Project } from "../../project/project"
+import { EvolvedSkills } from "../../skill-evolution/evolved-skills"
 import { mapValues } from "remeda"
 import { errors } from "../error"
 import { Log } from "../../util/log"
@@ -158,6 +160,87 @@ export const ConfigRoutes = lazy(() =>
       async (c) => {
         const { name, enabled } = c.req.valid("json")
         await Config.toggleSkill(name, enabled)
+        return c.json({ ok: true })
+      },
+    )
+    .get(
+      "/skills/evolution",
+      describeRoute({
+        summary: "List evolved skills",
+        description:
+          "List evolved skills from the project's .aether/skills/ and the global skill-evolution/<projectId>/skills/ directory.",
+        operationId: "config.skills.listEvolution",
+        responses: {
+          200: {
+            description: "List of evolved skills",
+            content: {
+              "application/json": {
+                schema: resolver(
+                  z.array(
+                    z.object({
+                      name: z.string(),
+                      description: z.string(),
+                      content: z.string(),
+                      category: z.string().optional(),
+                      enabled: z.boolean().optional(),
+                      evolution_enabled: z.boolean().optional(),
+                      file: z.string(),
+                    }),
+                  ),
+                ),
+              },
+            },
+          },
+        },
+      }),
+      validator("query", z.object({ directory: z.string().optional() })),
+      async (c) => {
+        const { directory } = c.req.valid("query")
+        if (!directory) return c.json([])
+        // Resolve the project id the same way Skill.available() does, so we read
+        // the exact skill-evolution folder the write side created (method A).
+        const { project } = await Project.fromDirectory(directory)
+        const skills = await EvolvedSkills.list(directory, String(project.id))
+        return c.json(skills)
+      },
+    )
+    .post(
+      "/skills/evolution/toggle",
+      describeRoute({
+        summary: "Toggle evolved skill activation",
+        description: "Enable or disable an evolved skill by its SKILL.md file path.",
+        operationId: "config.skills.toggleEvolved",
+        responses: {
+          200: {
+            description: "Skill toggled",
+            content: { "application/json": { schema: resolver(z.object({ ok: z.boolean() })) } },
+          },
+        },
+      }),
+      validator("json", z.object({ file: z.string(), enabled: z.boolean() })),
+      async (c) => {
+        const { file, enabled } = c.req.valid("json")
+        await EvolvedSkills.toggleEnabled(file, enabled)
+        return c.json({ ok: true })
+      },
+    )
+    .post(
+      "/skills/evolution/toggle-evolution",
+      describeRoute({
+        summary: "Toggle skill self-evolution",
+        description: "Allow or stop an evolved skill from self-evolving, by its SKILL.md file path.",
+        operationId: "config.skills.toggleEvolution",
+        responses: {
+          200: {
+            description: "Skill evolution toggled",
+            content: { "application/json": { schema: resolver(z.object({ ok: z.boolean() })) } },
+          },
+        },
+      }),
+      validator("json", z.object({ file: z.string(), evolutionEnabled: z.boolean() })),
+      async (c) => {
+        const { file, evolutionEnabled } = c.req.valid("json")
+        await EvolvedSkills.toggleEvolution(file, evolutionEnabled)
         return c.json({ ok: true })
       },
     )

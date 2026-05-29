@@ -3515,6 +3515,84 @@ export type ConfigSkillsToggleResponses = {
 
 export type ConfigSkillsToggleResponse = ConfigSkillsToggleResponses[keyof ConfigSkillsToggleResponses]
 
+export type ConfigSkillsListEvolutionData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/config/skills/evolution"
+}
+
+export type ConfigSkillsListEvolutionResponses = {
+  /**
+   * List of evolved skills
+   */
+  200: Array<{
+    name: string
+    description: string
+    content: string
+    category?: string
+    enabled?: boolean
+    evolution_enabled?: boolean
+    file: string
+  }>
+}
+
+export type ConfigSkillsListEvolutionResponse =
+  ConfigSkillsListEvolutionResponses[keyof ConfigSkillsListEvolutionResponses]
+
+export type ConfigSkillsToggleEvolvedData = {
+  body?: {
+    file: string
+    enabled: boolean
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/config/skills/evolution/toggle"
+}
+
+export type ConfigSkillsToggleEvolvedResponses = {
+  /**
+   * Skill toggled
+   */
+  200: {
+    ok: boolean
+  }
+}
+
+export type ConfigSkillsToggleEvolvedResponse =
+  ConfigSkillsToggleEvolvedResponses[keyof ConfigSkillsToggleEvolvedResponses]
+
+export type ConfigSkillsToggleEvolutionData = {
+  body?: {
+    file: string
+    evolutionEnabled: boolean
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/config/skills/evolution/toggle-evolution"
+}
+
+export type ConfigSkillsToggleEvolutionResponses = {
+  /**
+   * Skill evolution toggled
+   */
+  200: {
+    ok: boolean
+  }
+}
+
+export type ConfigSkillsToggleEvolutionResponse =
+  ConfigSkillsToggleEvolutionResponses[keyof ConfigSkillsToggleEvolutionResponses]
+
 export type ConfigProvidersData = {
   body?: never
   path?: never
