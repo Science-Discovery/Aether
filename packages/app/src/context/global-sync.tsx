@@ -66,6 +66,7 @@ function createGlobalSync() {
   const booting = new Map<string, Promise<void>>()
   const sessionLoads = new Map<string, Promise<void>>()
   const sessionMeta = new Map<string, { limit: number }>()
+  const deleting = new Set<string>()
 
   const [projectCache, setProjectCache, projectInit] = persisted(
     Persist.global("globalSync.project", ["globalSync.project.v1"]),
@@ -416,6 +417,8 @@ function createGlobalSync() {
       children.peek(directory, { bootstrap: true })
     }
 
+    if (event.type === "server.instance.disposed" && deleting.has(normalizeDir(directory))) return
+
     const existing = children.getChild(directory)
     if (!existing) return
     children.mark(directory)
@@ -512,12 +515,21 @@ function createGlobalSync() {
       })
     },
     removeSandbox(root: string, directory: string) {
+      const dir = normalizeDir(directory)
+      deleting.delete(dir)
+      queue.clear(dir)
+      children.disposeDirectory(dir)
       setProjects((draft) => {
         const item = draft.find((project) => normalizeDir(project.worktree) === normalizeDir(root))
         if (!item) return
-        const nd = normalizeDir(directory)
-        item.sandboxes = (item.sandboxes ?? []).filter((sandbox) => normalizeDir(sandbox) !== nd)
+        item.sandboxes = (item.sandboxes ?? []).filter((sandbox) => normalizeDir(sandbox) !== dir)
       })
+    },
+    beginRemove(directory: string) {
+      deleting.add(normalizeDir(directory))
+    },
+    cancelRemove(directory: string) {
+      deleting.delete(normalizeDir(directory))
     },
     refreshRecent,
     meta(directory: string, patch: ProjectMeta) {
