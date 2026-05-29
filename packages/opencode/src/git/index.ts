@@ -4,7 +4,6 @@ import { Effect, Layer, ServiceMap, Stream } from "effect"
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
 import { makeRuntime } from "@/effect/run-service"
 import * as Graph from "./git-graph"
-import { Log } from "@/util/log"
 
 export namespace Git {
   const cfg = [
@@ -146,13 +145,9 @@ export namespace Git {
     Effect.gen(function* () {
       const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
 
-      const dbg = Log.Default
-
       const run = Effect.fn("Git.run")(
         function* (args: string[], opts: Options) {
           const gitArgs = [...(opts.config ?? cfg), ...args]
-          const configUsed = opts.config === statusCfg ? "statusCfg" : opts.config ? "custom" : "cfg"
-          dbg.warn("[DEBUG-GIT] Git.run", { configUsed, args, cwd: opts.cwd, platform: process.platform })
           const proc = ChildProcess.make("git", gitArgs, {
             cwd: opts.cwd,
             env: opts.env,
@@ -261,22 +256,17 @@ export namespace Git {
       })
 
       const status = Effect.fn("Git.status")(function* (cwd: string) {
-        const rawText = yield* text(
-          ["status", "--porcelain=v1", "--untracked-files=all", "--no-renames", "-z", "--", "."],
-          {
+        return nuls(
+          yield* text(["status", "--porcelain=v1", "--untracked-files=all", "--no-renames", "-z", "--", "."], {
             cwd,
             config: statusCfg,
-          },
-        )
-        dbg.warn("[DEBUG-GIT] Git.status raw", { cwd, rawLen: rawText.length, rawPreview: rawText.slice(0, 200) })
-        const items = nuls(rawText).flatMap((item) => {
+          }),
+        ).flatMap((item) => {
           const file = item.slice(3)
           if (!file) return []
           const code = item.slice(0, 2)
           return [{ file, code, status: kind(code) } satisfies Item]
         })
-        dbg.warn("[DEBUG-GIT] Git.status parsed", { cwd, itemCount: items.length, items })
-        return items
       })
 
       const diff = Effect.fn("Git.diff")(function* (cwd: string, ref: string) {
@@ -292,11 +282,9 @@ export namespace Git {
       })
 
       const stats = Effect.fn("Git.stats")(function* (cwd: string, ref: string) {
-        const rawText = yield* text(["diff", "--no-ext-diff", "--no-renames", "--numstat", "-z", ref, "--", "."], {
-          cwd,
-        })
-        dbg.warn("[DEBUG-GIT] Git.stats raw", { cwd, ref, rawLen: rawText.length, rawPreview: rawText.slice(0, 200) })
-        const result = nuls(rawText).flatMap((item) => {
+        return nuls(
+          yield* text(["diff", "--no-ext-diff", "--no-renames", "--numstat", "-z", ref, "--", "."], { cwd }),
+        ).flatMap((item) => {
           const a = item.indexOf("\t")
           const b = item.indexOf("\t", a + 1)
           if (a === -1 || b === -1) return []
@@ -314,8 +302,6 @@ export namespace Git {
             } satisfies Stat,
           ]
         })
-        dbg.warn("[DEBUG-GIT] Git.stats parsed", { cwd, ref, statCount: result.length, result })
-        return result
       })
 
       const log = Effect.fn("Git.log")(function* (
