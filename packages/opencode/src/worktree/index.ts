@@ -398,6 +398,13 @@ export namespace Worktree {
 
       function disposeAndClean(target: string) {
         return Effect.promise(() => Instance.disposeDirectory(target)).pipe(
+          Effect.flatMap(() => {
+            if (process.platform === "win32") {
+              log.info("post-dispose delay for native thread cleanup", { target })
+              return Effect.sleep("100 millis")
+            }
+            return Effect.void
+          }),
           Effect.flatMap(() => cleanDirectory(target)),
           Effect.catchCause((cause) => {
             log.error("disposeAndClean failed", { target, cause: String(cause) })
@@ -408,6 +415,13 @@ export namespace Worktree {
 
       function disposeOnly(target: string) {
         return Effect.promise(() => Instance.disposeDirectory(target)).pipe(
+          Effect.flatMap(() => {
+            if (process.platform === "win32") {
+              log.info("post-dispose delay for native thread cleanup", { target })
+              return Effect.sleep("100 millis")
+            }
+            return Effect.void
+          }),
           Effect.catchCause((cause) => {
             log.error("disposeOnly failed", { target, cause: String(cause) })
             return Effect.void
