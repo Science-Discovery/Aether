@@ -1,4 +1,4 @@
-import { Component, createSignal, createEffect, on, onCleanup } from "solid-js"
+import { Component, createSignal, createEffect, on, onCleanup, type JSX } from "solid-js"
 import { Button } from "@opencode-ai/ui/button"
 import { Icon } from "@opencode-ai/ui/icon"
 import { Tooltip } from "@opencode-ai/ui/tooltip"
@@ -14,6 +14,8 @@ import { transcribeAudio } from "@/utils/voice-transcription"
 export interface VoiceInputButtonProps {
   onTranscription: (text: string) => void
   onStateChange?: (state: VoiceRecorderState | "transcribing") => void
+  class?: string
+  style?: JSX.CSSProperties
 }
 
 export const VoiceInputButton: Component<VoiceInputButtonProps> = (props) => {
@@ -150,8 +152,10 @@ export const VoiceInputButton: Component<VoiceInputButtonProps> = (props) => {
         data-action="prompt-voice-input"
         variant="ghost"
         onClick={handleClick}
+        class={props.class}
+        style={props.style}
         classList={{
-          "h-7 w-7 p-0 shrink-0 flex items-center justify-center": true,
+          "size-8 p-0 shrink-0 flex items-center justify-center": true,
           "text-icon-weak": state() === "idle",
           "text-red-500": state() === "recording",
           "text-icon-base opacity-60": state() === "transcribing" || state() === "processing",

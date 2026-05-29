@@ -1507,29 +1507,28 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                   <Icon name="plus" class="size-4.5" />
                 </Button>
               </TooltipKeybind>
-              <div style={buttons()}>
-                <VoiceInputButton
-                  onStateChange={setVoiceState}
-                  onTranscription={(text) => {
-                    const current = prompt.current()
-                    const textParts = current.filter((p) => p.type !== "image")
-                    const lastTextPart = textParts.findLast((p) => p.type === "text")
-                    if (lastTextPart && lastTextPart.type === "text") {
-                      const newContent = lastTextPart.content ? lastTextPart.content + " " + text : text
-                      const newParts = current.map((p) =>
-                        p === lastTextPart ? { ...p, content: newContent, end: p.start + newContent.length } : p,
-                      )
-                      prompt.set(newParts as Prompt, promptLength(newParts as Prompt))
-                    } else {
-                      prompt.set(
-                        [{ type: "text" as const, content: text, start: 0, end: text.length }, ...current],
-                        text.length,
-                      )
-                    }
-                    requestAnimationFrame(() => editorRef.focus())
-                  }}
-                />
-              </div>
+              <VoiceInputButton
+                style={buttons()}
+                onStateChange={setVoiceState}
+                onTranscription={(text) => {
+                  const current = prompt.current()
+                  const textParts = current.filter((p) => p.type !== "image")
+                  const lastTextPart = textParts.findLast((p) => p.type === "text")
+                  if (lastTextPart && lastTextPart.type === "text") {
+                    const newContent = lastTextPart.content ? lastTextPart.content + " " + text : text
+                    const newParts = current.map((p) =>
+                      p === lastTextPart ? { ...p, content: newContent, end: p.start + newContent.length } : p,
+                    )
+                    prompt.set(newParts as Prompt, promptLength(newParts as Prompt))
+                  } else {
+                    prompt.set(
+                      [{ type: "text" as const, content: text, start: 0, end: text.length }, ...current],
+                      text.length,
+                    )
+                  }
+                  requestAnimationFrame(() => editorRef.focus())
+                }}
+              />
             </div>
           </div>
         </div>

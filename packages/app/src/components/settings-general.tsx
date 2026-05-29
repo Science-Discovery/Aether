@@ -74,17 +74,18 @@ type Model = {
 }
 
 function voice(model: Model) {
-  if (model.capabilities?.input.audio) return true
-  if (model.modalities?.input.includes("audio")) return true
-
   const text = `${model.id} ${model.name}`.toLowerCase()
-  return /\b(asr|stt|whisper|omni)\b|speech[-_ ]?to[-_ ]?text|transcri/.test(text)
+  return (
+    model.capabilities?.input.audio ||
+    model.modalities?.input.includes("audio") ||
+    /\b(asr|omni|realtime|whisper)\b|speech[-_ ]?to[-_ ]?text|transcri/.test(text)
+  )
 }
 
 function rank(model: Model) {
   const provider = `${model.provider.id} ${model.provider.name}`.toLowerCase()
   const text = `${model.id} ${model.name}`.toLowerCase()
-  if (provider.includes("alibaba") && /\b(cn|china)\b/.test(provider) && /\b(asr|omni)\b/.test(text)) return 0
+  if (provider.includes("alibaba") && /\b(cn|china)\b/.test(provider) && /\b(asr|omni|realtime)\b/.test(text)) return 0
   return 1
 }
 
