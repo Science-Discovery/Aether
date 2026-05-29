@@ -44,20 +44,30 @@ export const viewOf = (data: Pick<UpdateStatus, "updateAvailable" | "status">): 
 }
 
 const cmp = (a: string, b: string) => {
-  const norm = (v: string) =>
-    v
-      .replace(/^v/i, "")
-      .split("-")[0]
-      .split(".")
-      .map((x) => Number.parseInt(x || "0", 10) || 0)
-  const x = norm(a)
-  const y = norm(b)
-  const len = Math.max(x.length, y.length, 3)
+  const parse = (v: string) => {
+    const stripped = v.replace(/^v/, "")
+    const dashIdx = stripped.indexOf("-")
+    const release = dashIdx >= 0 ? stripped.slice(0, dashIdx) : stripped
+    const prerelease = dashIdx >= 0 ? stripped.slice(dashIdx + 1) : null
+    const parts = release.split(".").map((x) => Number.parseInt(x, 10))
+    if (parts.some((x) => Number.isNaN(x))) return null
+    return { release: parts, prerelease }
+  }
+  const x = parse(a)
+  const y = parse(b)
+  if (!x || !y) return 0
+  const len = Math.max(x.release.length, y.release.length)
   for (let i = 0; i < len; i++) {
-    const p = x[i] ?? 0
-    const q = y[i] ?? 0
+    const p = x.release[i] ?? 0
+    const q = y.release[i] ?? 0
     if (p < q) return -1
     if (p > q) return 1
+  }
+  if (x.prerelease === null && y.prerelease !== null) return 1
+  if (x.prerelease !== null && y.prerelease === null) return -1
+  if (x.prerelease !== null && y.prerelease !== null) {
+    if (x.prerelease < y.prerelease) return -1
+    if (x.prerelease > y.prerelease) return 1
   }
   return 0
 }

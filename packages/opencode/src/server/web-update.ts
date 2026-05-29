@@ -257,7 +257,10 @@ function vbs(val: string) {
 }
 
 function hide(args: string[], cwd: string) {
-  const file = path.join(tmpdir(), `aether-update-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}.vbs`)
+  const file = path.join(
+    tmpdir(),
+    `aether-update-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}.vbs`,
+  )
   const cmd = `cmd.exe /d /s /c "${args.map(quote).join(" ")}"`
   writeFileSync(
     file,
@@ -648,28 +651,32 @@ function versioned(name: string, ver: string) {
   return `${name.slice(0, idx)}-${ver}${name.slice(idx)}`
 }
 
-function normalizeVersion(v: string): string {
-  const parts = v
-    .replace(/^v/i, "")
-    .split("-")[0]
-    .split(".")
-    .map((x) => Number.parseInt(x || "0", 10) || 0)
-  return parts.join(".")
+function parseVersion(value: string) {
+  const stripped = value.replace(/^v/, "")
+  const dashIdx = stripped.indexOf("-")
+  const release = dashIdx >= 0 ? stripped.slice(0, dashIdx) : stripped
+  const prerelease = dashIdx >= 0 ? stripped.slice(dashIdx + 1) : null
+  const parts = release.split(".").map((x) => Number.parseInt(x, 10))
+  if (parts.some((x) => Number.isNaN(x))) return null
+  return { release: parts, prerelease }
 }
 
-function compareVer(a: string, b: string) {
-  const norm = (v: string) =>
-    normalizeVersion(v)
-      .split(".")
-      .map((x) => Number.parseInt(x || "0", 10) || 0)
-  const x = norm(a)
-  const y = norm(b)
-  const len = Math.max(x.length, y.length)
+function compareVer(a: string, b: string): number {
+  const x = parseVersion(a)
+  const y = parseVersion(b)
+  if (!x || !y) return 0
+  const len = Math.max(x.release.length, y.release.length)
   for (let i = 0; i < len; i++) {
-    const xi = x[i] ?? 0
-    const yi = y[i] ?? 0
+    const xi = x.release[i] ?? 0
+    const yi = y.release[i] ?? 0
     if (xi < yi) return -1
     if (xi > yi) return 1
+  }
+  if (x.prerelease === null && y.prerelease !== null) return 1
+  if (x.prerelease !== null && y.prerelease === null) return -1
+  if (x.prerelease !== null && y.prerelease !== null) {
+    if (x.prerelease < y.prerelease) return -1
+    if (x.prerelease > y.prerelease) return 1
   }
   return 0
 }
@@ -734,7 +741,7 @@ async function scanLocalVersions() {
   const entries = await fs.readdir(parent).catch(() => [])
   const versions: string[] = []
   for (const entry of entries) {
-    if (!/^aether[-_]/i.test(entry) || !/^aether[-_]\d+\.\d+\.\d+/.test(entry)) continue
+    if (!/^aether[-_]\d+\.\d+\.\d+([\-._][0-9A-Za-z]+)*$/.test(entry)) continue
     const full = path.join(parent, entry)
     const stat = await fs.stat(full).catch(() => null)
     if (!stat?.isDirectory()) continue
@@ -754,9 +761,9 @@ export async function readWebCurrentVersion() {
     .then((x) => x.trim())
     .catch(() => "")
 
-  if (marker) return normalizeVersion(marker)
+  if (marker) return marker
 
-  const fallback = normalizeVersion(Installation.VERSION)
+  const fallback = Installation.VERSION
   await fs.writeFile(file, `${fallback}\n`, "utf-8").catch(() => undefined)
   return fallback
 }
@@ -771,13 +778,13 @@ export async function readWebUpdateHighestVersion() {
   const local = await scanLocalVersions()
   let best = ""
   for (const v of local) {
-    if (compareVer(v, best) > 0) best = v
+    if (!best || compareVer(v, best) > 0) best = v
   }
 
-  if (marker && (!best || compareVer(marker, best) > 0)) return normalizeVersion(marker)
-  if (best) return normalizeVersion(best)
+  if (marker && (!best || compareVer(marker, best) > 0)) return marker
+  if (best) return best
 
-  const fallback = normalizeVersion(Installation.VERSION)
+  const fallback = Installation.VERSION
   await fs.writeFile(file, `${fallback}\n`, "utf-8").catch(() => undefined)
   return fallback
 }
@@ -1053,4 +1060,6 @@ export const WebUpdateTest = {
   verifyInstall,
   versioned,
   writeUpdateState,
+  parseVersion,
+  compareVer,
 }
