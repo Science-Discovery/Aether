@@ -199,22 +199,11 @@ export namespace FileWatcher {
             yield* Effect.addFinalizer(() =>
               Effect.gen(function* () {
                 disposed = true
-                // On Windows, @parcel/watcher's native module can segfault
-                // during unsubscribe() when the watched directory is being
-                // removed. The segfault in the native background thread crashes
-                // the entire process. To avoid this, we skip the JS-level
-                // unsubscribe() on Windows and let the native module clean up
-                // naturally when it detects the directory is gone. This leaks
-                // a small amount of native thread resources temporarily but
-                // prevents the server from crashing.
-                if (process.platform !== "win32") {
-                  yield* Effect.promise(() => Promise.allSettled(subs.map((sub) => sub.unsubscribe())))
-                } else {
-                  log.info("skipping watcher unsubscribe on Windows to avoid native segfault", {
-                    directory: Instance.directory,
-                    subscriptionCount: subs.length,
-                  })
-                }
+                yield* Effect.promise(() => Promise.allSettled(subs.map((sub) => sub.unsubscribe())))
+                log.info("watcher unsubscribed", {
+                  directory: Instance.directory,
+                  subscriptionCount: subs.length,
+                })
               }),
             )
 

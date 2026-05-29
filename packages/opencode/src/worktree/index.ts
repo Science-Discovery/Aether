@@ -381,7 +381,9 @@ export namespace Worktree {
           platform: process.platform,
         })
         yield* setup(info)
-        Log.Default.warn("[DEBUG-WT] Worktree.create: setup done, boot starting (forked)", { directory: info.directory })
+        Log.Default.warn("[DEBUG-WT] Worktree.create: setup done, boot starting (forked)", {
+          directory: info.directory,
+        })
         yield* boot(info, input?.startCommand).pipe(
           Effect.catchCause((cause) => Effect.sync(() => log.error("worktree bootstrap failed", { cause }))),
           Effect.forkIn(scope),
@@ -445,9 +447,32 @@ export namespace Worktree {
 
       function disposeAndClean(target: string) {
         return Effect.promise(() => Instance.disposeDirectory(target)).pipe(
+          Effect.flatMap(() => {
+            if (process.platform === "win32") {
+              log.info("adding post-dispose delay on Windows for native thread cleanup", { target })
+              return Effect.sleep("200 millis")
+            }
+            return Effect.void
+          }),
           Effect.flatMap(() => cleanDirectory(target)),
           Effect.catchCause((cause) => {
             log.error("disposeAndClean failed", { target, cause: String(cause) })
+            return Effect.void
+          }),
+        )
+      }
+
+      function disposeOnly(target: string) {
+        return Effect.promise(() => Instance.disposeDirectory(target)).pipe(
+          Effect.flatMap(() => {
+            if (process.platform === "win32") {
+              log.info("adding post-dispose delay on Windows for native thread cleanup", { target })
+              return Effect.sleep("200 millis")
+            }
+            return Effect.void
+          }),
+          Effect.catchCause((cause) => {
+            log.error("disposeOnly failed", { target, cause: String(cause) })
             return Effect.void
           }),
         )
@@ -513,6 +538,7 @@ export namespace Worktree {
         }
 
         yield* stopFsmonitor(entry!.path)
+        yield* disposeOnly(entry!.path)
         const removed = yield* git(["worktree", "remove", "--force", entry!.path], { cwd: Instance.worktree })
         if (removed.code !== 0) {
           const isStale = /does not exist|不存在|not a valid|验证失败/i.test(removed.stderr || removed.text || "")
@@ -533,7 +559,8 @@ export namespace Worktree {
           }
         }
 
-        yield* disposeAndClean(entry!.path)
+        const dirStillExists = yield* fsys.exists(directory).pipe(Effect.orDie)
+        if (dirStillExists) yield* cleanDirectory(directory)
         yield* pruneWorktree()
 
         return { status: "ok" as const }
@@ -668,7 +695,10 @@ export namespace Worktree {
         Log.Default.warn("[DEBUG-WT] Worktree.reset: git reset --hard done", { worktreePath, baseRef: base.ref })
 
         const cleanResult = yield* sweep(worktreePath)
-        Log.Default.warn("[DEBUG-WT] Worktree.reset: git clean -ffdx done", { worktreePath, cleanCode: cleanResult.code })
+        Log.Default.warn("[DEBUG-WT] Worktree.reset: git clean -ffdx done", {
+          worktreePath,
+          cleanCode: cleanResult.code,
+        })
         if (cleanResult.code !== 0) {
           throw new ResetFailedError({ message: cleanResult.stderr || cleanResult.text || "Failed to clean worktree" })
         }
