@@ -200,6 +200,7 @@ class FeishuManagerImpl extends MobileManagerBase {
     await this.saveConfig(cfg)
     this.sessionMap = await this.loadSessionMap()
     this._hiddenDirs = await this.loadHiddenDirs()
+    this._showHeader = await this.loadHeaderState()
     void this._doStart(cfg, model ?? null)
     return { success: true }
   }
@@ -439,9 +440,11 @@ class FeishuManagerImpl extends MobileManagerBase {
       await rm(this.file("config.json"), { force: true })
       await rm(this.file("sessions.json"), { force: true })
       await rm(this.file("hidden_projects.json"), { force: true })
+      await rm(this.file("header_state.json"), { force: true })
       this._feishuSession = null
       this.sessionMap = {}
       this._hiddenDirs = {}
+      this._showHeader = true
     } catch {}
     await this.feishuAdapter.clearAuth()
   }

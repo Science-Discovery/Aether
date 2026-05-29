@@ -224,6 +224,7 @@ class WeChatManagerImpl extends MobileManagerBase {
 
     this.sessionMap = await this.loadSessionMap()
     this._hiddenDirs = await this.loadHiddenDirs()
+    this._showHeader = await this.loadHeaderState()
 
     const savedSession = await this.adapter.loadSession()
     if (!rescan && savedSession?.connected && savedSession.user) {
@@ -514,6 +515,7 @@ class WeChatManagerImpl extends MobileManagerBase {
       await rm(wcFile("ilink_state.json"), { force: true })
       this._wcSession = null
     } catch {}
+    await super.clearSession()
     await this.adapter.clearAuth()
   }
 
