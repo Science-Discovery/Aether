@@ -82,8 +82,9 @@ export namespace Session {
   }
 
   type SessionRow = typeof SessionTable.$inferSelect
+  type SearchMatch = NonNullable<Info["match"]>
 
-  export function fromRow(row: SessionRow): Info {
+  export function fromRow(row: SessionRow, match?: SearchMatch): Info {
     const summary =
       row.summary_additions !== null || row.summary_deletions !== null || row.summary_files !== null
         ? {
@@ -119,6 +120,7 @@ export namespace Session {
             firstReadDismissed: row.reading_mode.firstReadDismissed ?? false,
           }
         : undefined,
+      match,
       time: {
         created: row.time_created,
         updated: row.time_updated,
@@ -341,7 +343,7 @@ export namespace Session {
     )
     if (rows.length === 0) return
 
-    const sessions = rows.map(fromRow)
+    const sessions = rows.map((row) => fromRow(row))
     const sessionByID = new Map(sessions.map((session) => [session.id, session] as const))
     const completedBySessionID = new Map<SessionID, MessageID[]>()
 
@@ -399,7 +401,7 @@ export namespace Session {
         .all(),
     )
 
-    const sessions = rows.map(fromRow)
+    const sessions = rows.map((row) => fromRow(row))
     const sessionsByID = new Map(sessions.map((session) => [session.id, session] as const))
     const childrenByParent = new Map<SessionID, Info[]>()
 
@@ -496,6 +498,12 @@ export namespace Session {
           }),
           firstReadCompleted: z.boolean(),
           firstReadDismissed: z.boolean(),
+        })
+        .optional(),
+      match: z
+        .object({
+          scope: z.union([z.literal("title"), z.literal("messages")]),
+          text: z.string().optional(),
         })
         .optional(),
     })
@@ -602,6 +610,13 @@ export namespace Session {
     ref: "GlobalSession",
   })
   export type GlobalInfo = z.output<typeof GlobalInfo>
+
+  export const SearchScope = z.enum(["title", "messages", "all"])
+  export type SearchScope = z.output<typeof SearchScope>
+  type SearchData = {
+    condition?: SQL
+    matches: Map<SessionID, SearchMatch>
+  }
 
   export const Event = {
     Created: SyncEvent.define({
@@ -1114,15 +1129,71 @@ export namespace Session {
     },
   )
 
+  function snippet(text: string) {
+    const clean = text.replace(/\s+/g, " ").trim()
+    return clean.length > 120 ? clean.slice(0, 117).trimEnd() + "..." : clean
+  }
+
+  function searchSessions(projectID: ProjectID, search: string) {
+    const rows = Database.projectClient(projectID)
+      .$client.prepare(
+        `SELECT part.session_id AS id, json_extract(part.data, '$.text') AS text
+         FROM part
+         JOIN message ON message.id = part.message_id
+         WHERE json_extract(message.data, '$.role') IN ('user', 'assistant')
+           AND json_extract(part.data, '$.type') = 'text'
+           AND COALESCE(json_extract(part.data, '$.synthetic'), 0) = 0
+           AND COALESCE(json_extract(part.data, '$.ignored'), 0) = 0
+           AND lower(json_extract(part.data, '$.text')) LIKE lower(?)
+         ORDER BY message.time_created DESC, part.id DESC`,
+      )
+      .all(`%${search}%`) as { id: SessionID; text: string | null }[]
+    const matches = new Map<SessionID, SearchMatch>()
+    for (const row of rows) {
+      if (matches.has(row.id)) continue
+      matches.set(row.id, {
+        scope: "messages",
+        text: snippet(row.text ?? ""),
+      })
+    }
+    return matches
+  }
+
+  function searchData(projectID: ProjectID, search: string, scope: SearchScope): SearchData {
+    if (scope === "title") {
+      return {
+        condition: like(SessionTable.title, `%${search}%`),
+        matches: new Map(),
+      }
+    }
+
+    const matches = searchSessions(projectID, search)
+    const ids = [...matches.keys()]
+    if (scope === "messages") {
+      return {
+        condition: ids.length > 0 ? inArray(SessionTable.id, ids) : undefined,
+        matches,
+      }
+    }
+
+    const title = like(SessionTable.title, `%${search}%`)
+    return {
+      condition: ids.length > 0 ? or(title, inArray(SessionTable.id, ids)) : title,
+      matches,
+    }
+  }
+
   export function* list(input?: {
     directory?: string
     workspaceID?: WorkspaceID
     roots?: boolean
     start?: number
     search?: string
+    searchScope?: SearchScope
     limit?: number
   }) {
     const limit = input?.limit ?? 100
+    const matches = new Map<SessionID, SearchMatch>()
     let projectID: ProjectID = Instance.project.id
     if (input?.directory) {
       const dir = Project.norm(input.directory)
@@ -1147,7 +1218,10 @@ export namespace Session {
       conditions.push(gte(SessionTable.time_updated, input.start))
     }
     if (input?.search) {
-      conditions.push(like(SessionTable.title, `%${input.search}%`))
+      const search = searchData(projectID, input.search, input.searchScope ?? "title")
+      if (!search.condition) return
+      conditions.push(search.condition)
+      for (const [id, match] of search.matches) matches.set(id, match)
     }
     const rows = Database.useProject(projectID, (db) =>
       db
@@ -1159,7 +1233,12 @@ export namespace Session {
         .all(),
     )
     for (const row of rows) {
-      yield fromRow(row)
+      const match =
+        matches.get(row.id) ??
+        (input?.searchScope === "all" && input.search && row.title.toLowerCase().includes(input.search.toLowerCase())
+          ? { scope: "title" as const }
+          : undefined)
+      yield fromRow(row, match)
     }
   }
 
@@ -1169,11 +1248,13 @@ export namespace Session {
     start?: number
     cursor?: number
     search?: string
+    searchScope?: SearchScope
     limit?: number
     archivedMode?: "exclude" | "include" | "only"
     archived?: boolean
   }) {
     const conditions: SQL[] = []
+    const matches = new Map<SessionID, SearchMatch>()
     const archivedMode = input?.archivedMode ?? (input?.archived === true ? ("include" as const) : ("exclude" as const))
 
     if (input?.directory) {
@@ -1187,9 +1268,6 @@ export namespace Session {
     }
     if (input?.cursor) {
       conditions.push(lt(SessionTable.time_updated, input.cursor))
-    }
-    if (input?.search) {
-      conditions.push(like(SessionTable.title, `%${input.search}%`))
     }
     if (archivedMode === "exclude") {
       conditions.push(or(isNull(SessionTable.time_archived), eq(SessionTable.time_archived, 0))!)
@@ -1207,12 +1285,17 @@ export namespace Session {
       const match = hexPattern.exec(fileName)
       if (!match) continue
       const pid = match[1]
+      const search = input?.search
+      const result = search ? searchData(pid as ProjectID, search, input.searchScope ?? "title") : undefined
+      const filter = result?.condition
+      if (search && !filter) continue
+      for (const [id, item] of result?.matches ?? []) matches.set(id, item)
       const rows = Database.useProject(pid, (db) =>
-        conditions.length > 0
+        conditions.length > 0 || filter
           ? db
               .select()
               .from(SessionTable)
-              .where(and(...conditions))
+              .where(and(...[...conditions, filter].filter(Boolean)))
               .orderBy(desc(SessionTable.time_updated), desc(SessionTable.id))
               .limit(limit)
               .all()
@@ -1246,7 +1329,12 @@ export namespace Session {
 
     for (const row of rows) {
       const project = projects.get(row.project_id) ?? null
-      yield { ...fromRow(row), project }
+      const match =
+        matches.get(row.id) ??
+        (input?.searchScope === "all" && input.search && row.title.toLowerCase().includes(input.search.toLowerCase())
+          ? { scope: "title" as const }
+          : undefined)
+      yield { ...fromRow(row, match), project }
     }
   }
 
@@ -1259,7 +1347,7 @@ export namespace Session {
         .where(and(eq(SessionTable.project_id, project.id), eq(SessionTable.parent_id, parentID)))
         .all(),
     )
-    return rows.map(fromRow).filter((s) => !isSubagentSession(s))
+    return rows.map((row) => fromRow(row)).filter((s) => !isSubagentSession(s))
   })
 
   export const tree = fn(SessionID.zod, async (sessionID): Promise<TreeResult> => {
@@ -1288,7 +1376,7 @@ export namespace Session {
     return {
       kind: "tree",
       treeID,
-      sessions: rows.map(fromRow).filter((s) => !isSubagentSession(s)),
+      sessions: rows.map((row) => fromRow(row)).filter((s) => !isSubagentSession(s)),
     }
   })
 
@@ -1372,7 +1460,7 @@ export namespace Session {
         .where(and(eq(SessionTable.project_id, currentSession.projectID), eq(SessionTable.tree_id, treeID)))
         .orderBy(asc(SessionTable.time_created), asc(SessionTable.id))
         .all()
-        .map(fromRow),
+        .map((row) => fromRow(row)),
     )
 
     const treeSessions = allTreeSessions.filter((s) => !isSubagentSession(s))

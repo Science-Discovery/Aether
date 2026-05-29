@@ -222,6 +222,9 @@ export const ExperimentalRoutes = lazy(() =>
             .optional()
             .meta({ description: "Return sessions updated before this timestamp (milliseconds since epoch)" }),
           search: z.string().optional().meta({ description: "Filter sessions by title (case-insensitive)" }),
+          search_scope: Session.SearchScope.optional().meta({
+            description: "Search title only, chat message text only, or both",
+          }),
           limit: z.coerce.number().optional().meta({ description: "Maximum number of sessions to return" }),
           archivedMode: z
             .enum(["exclude", "include", "only"])
@@ -240,6 +243,7 @@ export const ExperimentalRoutes = lazy(() =>
           start: query.start,
           cursor: query.cursor,
           search: query.search,
+          searchScope: query.search_scope,
           limit: limit + 1,
           archivedMode: query.archivedMode,
           archived: query.archived,
