@@ -14,6 +14,7 @@ import { DialogSelectProvider } from "./dialog-select-provider"
 import { DialogManageModels } from "./dialog-manage-models"
 import { ModelTooltip } from "./model-tooltip"
 import { useLanguage } from "@/context/language"
+import { isVoiceModel } from "@/utils/voice"
 
 const isFree = (provider: string, cost: { input: number } | undefined) =>
   provider === "opencode" && (!cost || cost.input === 0)
@@ -34,6 +35,7 @@ const ModelList: Component<{
     model
       .list()
       .filter((m) => model.visible({ modelID: m.id, providerID: m.provider.id }))
+      .filter((m) => !isVoiceModel(m))
       .filter((m) => (props.provider ? m.provider.id === props.provider : true)),
   )
 

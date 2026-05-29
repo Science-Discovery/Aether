@@ -16,6 +16,7 @@ import { useModels } from "@/context/models"
 import { usePlatform } from "@/context/platform"
 import { useSettings, monoFontFamily } from "@/context/settings"
 import { playSoundById, SOUND_OPTIONS } from "@/utils/sound"
+import { isVoiceModel } from "@/utils/voice"
 import { Link } from "./link"
 import { formatServerError } from "@/utils/server-errors"
 import { SettingsList } from "./settings-list"
@@ -74,12 +75,7 @@ type Model = {
 }
 
 function voice(model: Model) {
-  const text = `${model.id} ${model.name}`.toLowerCase()
-  return (
-    model.capabilities?.input.audio ||
-    model.modalities?.input.includes("audio") ||
-    /\b(asr|omni|realtime|whisper)\b|speech[-_ ]?to[-_ ]?text|transcri/.test(text)
-  )
+  return isVoiceModel(model)
 }
 
 function rank(model: Model) {
@@ -140,6 +136,7 @@ export const SettingsGeneral: Component = () => {
     const items = models
       .list()
       .filter((m) => models.visible({ providerID: m.provider.id, modelID: m.id }))
+      .filter((m) => !voice(m))
       .map((m) => ({
         value: `${m.provider.id}/${m.id}`,
         label: `${m.name} (${m.provider.name})`,
@@ -162,7 +159,6 @@ export const SettingsGeneral: Component = () => {
     const none = { value: "", label: language.t("settings.general.row.voiceModel.none"), providerID: "" }
     const items = models
       .list()
-      .filter((m) => models.visible({ providerID: m.provider.id, modelID: m.id }))
       .filter(voice)
       .sort((a, b) => rank(a) - rank(b))
       .map((m) => ({
