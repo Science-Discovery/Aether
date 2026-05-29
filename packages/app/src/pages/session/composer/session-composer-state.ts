@@ -11,7 +11,7 @@ import { useSync } from "@/context/sync"
 import { createWorkingState } from "@/utils/working-state"
 import { childMapByParent } from "@/pages/layout/helpers"
 import { composerDriver, composerEnabled, composerEvent } from "@/testing/session-composer"
-import { sessionPermissionRequest, sessionQuestionRequest } from "./session-request-tree"
+import { sessionCurrentPermissionRequest, sessionCurrentQuestionRequest } from "./session-request-tree"
 
 export const todoState = (input: {
   count: number
@@ -35,11 +35,11 @@ export function createSessionComposerState(options?: { closeMs?: number | (() =>
   const permission = usePermission()
 
   const questionRequest = createMemo((): QuestionRequest | undefined => {
-    return sessionQuestionRequest(sync.data.session, sync.data.question, params.id)
+    return sessionCurrentQuestionRequest(sync.data.question, params.id)
   })
 
   const permissionRequest = createMemo((): PermissionRequest | undefined => {
-    return sessionPermissionRequest(sync.data.session, sync.data.permission, params.id, (item) => {
+    return sessionCurrentPermissionRequest(sync.data.permission, params.id, (item) => {
       return !permission.autoResponds(item, sdk.directory)
     })
   })

@@ -33,6 +33,15 @@ function sessionTreeRequest<T>(
   return request[id]?.find(include)
 }
 
+function sessionCurrentRequest<T>(
+  request: Record<string, T[] | undefined>,
+  sessionID?: string,
+  include: (item: T) => boolean = () => true,
+) {
+  if (!sessionID) return
+  return request[sessionID]?.find(include)
+}
+
 export function sessionPermissionRequest(
   session: Session[],
   request: Record<string, PermissionRequest[] | undefined>,
@@ -42,6 +51,14 @@ export function sessionPermissionRequest(
   return sessionTreeRequest(session, request, sessionID, include)
 }
 
+export function sessionCurrentPermissionRequest(
+  request: Record<string, PermissionRequest[] | undefined>,
+  sessionID?: string,
+  include?: (item: PermissionRequest) => boolean,
+) {
+  return sessionCurrentRequest(request, sessionID, include)
+}
+
 export function sessionQuestionRequest(
   session: Session[],
   request: Record<string, QuestionRequest[] | undefined>,
@@ -49,4 +66,12 @@ export function sessionQuestionRequest(
   include?: (item: QuestionRequest) => boolean,
 ) {
   return sessionTreeRequest(session, request, sessionID, include)
+}
+
+export function sessionCurrentQuestionRequest(
+  request: Record<string, QuestionRequest[] | undefined>,
+  sessionID?: string,
+  include?: (item: QuestionRequest) => boolean,
+) {
+  return sessionCurrentRequest(request, sessionID, include)
 }

@@ -1,7 +1,12 @@
 import { describe, expect, test } from "bun:test"
 import type { PermissionRequest, QuestionRequest, Session } from "@opencode-ai/sdk/v2/client"
 import { todoState } from "./session-composer-state"
-import { sessionPermissionRequest, sessionQuestionRequest } from "./session-request-tree"
+import {
+  sessionCurrentPermissionRequest,
+  sessionCurrentQuestionRequest,
+  sessionPermissionRequest,
+  sessionQuestionRequest,
+} from "./session-request-tree"
 
 const session = (input: { id: string; parentID?: string }) =>
   ({
@@ -102,6 +107,46 @@ describe("sessionQuestionRequest", () => {
     }
 
     expect(sessionQuestionRequest(sessions, questions, "root")?.id).toBe("q-grand")
+  })
+})
+
+describe("sessionCurrentPermissionRequest", () => {
+  test("returns the current session permission", () => {
+    const permissions = {
+      root: [permission("perm-root", "root")],
+      child: [permission("perm-child", "child")],
+    }
+
+    expect(sessionCurrentPermissionRequest(permissions, "root")?.id).toBe("perm-root")
+  })
+
+  test("ignores nested child permissions", () => {
+    const permissions = {
+      child: [permission("perm-child", "child")],
+      grand: [permission("perm-grand", "grand")],
+    }
+
+    expect(sessionCurrentPermissionRequest(permissions, "root")).toBeUndefined()
+  })
+})
+
+describe("sessionCurrentQuestionRequest", () => {
+  test("returns the current session question", () => {
+    const questions = {
+      root: [question("q-root", "root")],
+      child: [question("q-child", "child")],
+    }
+
+    expect(sessionCurrentQuestionRequest(questions, "root")?.id).toBe("q-root")
+  })
+
+  test("ignores nested child questions", () => {
+    const questions = {
+      child: [question("q-child", "child")],
+      grand: [question("q-grand", "grand")],
+    }
+
+    expect(sessionCurrentQuestionRequest(questions, "root")).toBeUndefined()
   })
 })
 
