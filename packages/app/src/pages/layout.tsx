@@ -598,6 +598,7 @@ export default function Layout(props: ParentProps) {
         if (e.details?.type === "worktree.ready") {
           setBusy(e.name, false)
           WorktreeState.ready(e.name)
+          globalSync.child(e.name)
           return
         }
 
@@ -2399,7 +2400,7 @@ export default function Layout(props: ParentProps) {
       return [...next, created.directory]
     })
 
-    globalSync.child(created.directory)
+    globalSync.child(created.directory, { bootstrap: false })
     navigateWithSidebarReset(`/${base64Encode(created.directory)}/session`)
   }
 
