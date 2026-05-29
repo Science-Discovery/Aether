@@ -396,7 +396,7 @@ export namespace Worktree {
         )
       }
 
-      function disposeAndClean(target: string) {
+      function dispose(target: string) {
         return Effect.promise(() => Instance.disposeDirectory(target)).pipe(
           Effect.flatMap(() => {
             if (process.platform === "win32") {
@@ -405,28 +405,19 @@ export namespace Worktree {
             }
             return Effect.void
           }),
-          Effect.flatMap(() => cleanDirectory(target)),
           Effect.catchCause((cause) => {
-            log.error("disposeAndClean failed", { target, cause: String(cause) })
+            log.error("dispose failed", { target, cause: String(cause) })
             return Effect.void
           }),
         )
       }
 
+      function disposeAndClean(target: string) {
+        return dispose(target).pipe(Effect.flatMap(() => cleanDirectory(target)))
+      }
+
       function disposeOnly(target: string) {
-        return Effect.promise(() => Instance.disposeDirectory(target)).pipe(
-          Effect.flatMap(() => {
-            if (process.platform === "win32") {
-              log.info("post-dispose delay for native thread cleanup", { target })
-              return Effect.sleep("100 millis")
-            }
-            return Effect.void
-          }),
-          Effect.catchCause((cause) => {
-            log.error("disposeOnly failed", { target, cause: String(cause) })
-            return Effect.void
-          }),
-        )
+        return dispose(target)
       }
 
       function pruneWorktree() {
