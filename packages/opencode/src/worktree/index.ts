@@ -635,26 +635,10 @@ export namespace Worktree {
           (r) => new ResetFailedError({ message: r.stderr || r.text || "Failed to clean submodules" }),
         )
 
-        const status = yield* git(
-          [
-            ...(process.platform !== "win32" ? ["-c", "core.symlinks=true"] : []),
-            "-c",
-            "core.fsmonitor=false",
-            "-c",
-            "core.longpaths=true",
-            "-c",
-            "core.quotepath=false",
-            "status",
-            "--porcelain=v1",
-          ],
-          { cwd: worktreePath },
-        )
-        if (status.code !== 0) {
-          throw new ResetFailedError({ message: status.stderr || status.text || "Failed to read git status" })
-        }
-
-        if (status.text.trim()) {
-          throw new ResetFailedError({ message: `Worktree reset left local changes:\n${status.text.trim()}` })
+        const items = yield* Effect.promise(() => Git.status(worktreePath))
+        if (items.length) {
+          const detail = items.map((i) => `${i.code} ${i.file}`).join("\n")
+          throw new ResetFailedError({ message: `Worktree reset left local changes:\n${detail}` })
         }
 
         yield* runStartScripts(worktreePath, { projectID: Instance.project.id }).pipe(
