@@ -2,7 +2,17 @@ import { Switch } from "@opencode-ai/ui/switch"
 import { showToast } from "@opencode-ai/ui/toast"
 import { Dialog } from "@opencode-ai/ui/dialog"
 import { Icon } from "@opencode-ai/ui/icon"
-import { Component, For, Match, Show, Switch as SolidSwitch, createMemo, createResource, createSignal } from "solid-js"
+import {
+  Component,
+  For,
+  Match,
+  Show,
+  Suspense,
+  Switch as SolidSwitch,
+  createMemo,
+  createResource,
+  createSignal,
+} from "solid-js"
 import { useGlobalSDK } from "@/context/global-sdk"
 import { useLanguage } from "@/context/language"
 import { useSDK } from "@/context/sdk"
@@ -37,7 +47,11 @@ function shortenPath(dir: string): string {
   return ".../" + parts.slice(-4).join("/")
 }
 
-export const DialogEvolvedSkills: Component = () => {
+// Inner component holds the createResource call. The exported DialogEvolvedSkills
+// wraps this in a local <Suspense>, so the first-mount fetch is caught here instead
+// of bubbling up to the app-shell Suspense (which would unmount the whole Session
+// subtree → full-page flash on open).
+const DialogEvolvedSkillsInner: Component = () => {
   const globalSDK = useGlobalSDK()
   const language = useLanguage()
   const sdk = useSDK()
@@ -202,16 +216,20 @@ export const DialogEvolvedSkills: Component = () => {
         </div>
       }
     >
-      <div class="flex flex-col gap-3 min-h-0">
+      <div class="flex flex-col gap-3 h-[400px]">
         <SolidSwitch>
           <Match when={skills.loading}>
-            <div class="text-12-regular text-text-weak px-1">{language.t("evolvedSkills.loading")}</div>
+            <div class="flex-1 flex items-center justify-center text-12-regular text-text-weak px-1">
+              {language.t("evolvedSkills.loading")}
+            </div>
           </Match>
           <Match when={skills()?.length === 0}>
-            <div class="text-12-regular text-text-weak px-1">{language.t("evolvedSkills.empty")}</div>
+            <div class="flex-1 flex items-center justify-center text-12-regular text-text-weak px-1">
+              {language.t("evolvedSkills.empty")}
+            </div>
           </Match>
           <Match when={true}>
-            <div class="flex flex-col gap-1 overflow-y-auto max-h-80">
+            <div class="flex flex-col gap-1 overflow-y-auto flex-1">
               <For each={currentGroups()}>
                 {(group) => {
                   const isOpen = () => expanded().has(group.key)
@@ -250,3 +268,25 @@ export const DialogEvolvedSkills: Component = () => {
     </Dialog>
   )
 }
+
+// Fallback shown while the inner Suspense resolves on first mount. Keeps the dialog
+// shell (and the same h-[400px] body height) so opening the dialog never flashes the host
+// page or jumps in height.
+const DialogEvolvedSkillsLoading: Component = () => {
+  const language = useLanguage()
+  return (
+    <Dialog title={language.t("evolvedSkills.title")}>
+      <div class="flex flex-col gap-3 h-[400px]">
+        <div class="flex-1 flex items-center justify-center text-12-regular text-text-weak px-1">
+          {language.t("evolvedSkills.loading")}
+        </div>
+      </div>
+    </Dialog>
+  )
+}
+
+export const DialogEvolvedSkills: Component = () => (
+  <Suspense fallback={<DialogEvolvedSkillsLoading />}>
+    <DialogEvolvedSkillsInner />
+  </Suspense>
+)
