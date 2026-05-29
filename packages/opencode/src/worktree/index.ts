@@ -635,7 +635,20 @@ export namespace Worktree {
           (r) => new ResetFailedError({ message: r.stderr || r.text || "Failed to clean submodules" }),
         )
 
-        const status = yield* git(["-c", "core.fsmonitor=false", "status", "--porcelain=v1"], { cwd: worktreePath })
+        const status = yield* git(
+          [
+            ...(process.platform !== "win32" ? ["-c", "core.symlinks=true"] : []),
+            "-c",
+            "core.fsmonitor=false",
+            "-c",
+            "core.longpaths=true",
+            "-c",
+            "core.quotepath=false",
+            "status",
+            "--porcelain=v1",
+          ],
+          { cwd: worktreePath },
+        )
         if (status.code !== 0) {
           throw new ResetFailedError({ message: status.stderr || status.text || "Failed to read git status" })
         }
