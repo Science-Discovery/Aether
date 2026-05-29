@@ -199,7 +199,16 @@ export namespace FileWatcher {
             yield* Effect.addFinalizer(() =>
               Effect.gen(function* () {
                 disposed = true
-                yield* Effect.promise(() => Promise.allSettled(subs.map((sub) => sub.unsubscribe())))
+                yield* Effect.promise(() => Promise.allSettled(subs.map((sub) => sub.unsubscribe()))).pipe(
+                  Effect.catchCause((cause) => {
+                    log.error("watcher unsubscribe failed (directory may no longer exist)", {
+                      directory: Instance.directory,
+                      cause: Cause.pretty(cause),
+                      subscriptionCount: subs.length,
+                    })
+                    return Effect.void
+                  }),
+                )
                 log.info("watcher unsubscribed", {
                   directory: Instance.directory,
                   subscriptionCount: subs.length,

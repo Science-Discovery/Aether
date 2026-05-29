@@ -282,11 +282,6 @@ export namespace Worktree {
         const projectID = Instance.project.id
         const extra = startCommand?.trim()
 
-        Log.Default.warn("[DEBUG-WT] Worktree.boot: git reset --hard starting", {
-          directory: info.directory,
-          platform: process.platform,
-        })
-
         const populated = yield* git(["reset", "--hard"], { cwd: info.directory })
         if (populated.code !== 0) {
           const message = populated.stderr || populated.text || "Failed to populate worktree"
@@ -297,46 +292,6 @@ export namespace Worktree {
           })
           return
         }
-
-        Log.Default.warn("[DEBUG-WT] Worktree.boot: git reset --hard done", { directory: info.directory })
-
-        // Check status right after reset --hard
-        const bootStatus = yield* git(["-c", "core.fsmonitor=false", "status", "--porcelain=v1"], {
-          cwd: info.directory,
-        })
-        Log.Default.warn("[DEBUG-WT] Worktree.boot: status after reset --hard", {
-          directory: info.directory,
-          statusCode: bootStatus.code,
-          statusText: bootStatus.text.slice(0, 500),
-          statusStderr: bootStatus.stderr.slice(0, 200),
-        })
-
-        // Also check with statusCfg
-        const bootStatusCfg = yield* git(
-          [
-            "--no-optional-locks",
-            "-c",
-            "core.fsmonitor=false",
-            "-c",
-            "core.longpaths=true",
-            ...(process.platform !== "win32" ? ["-c", "core.symlinks=true"] : []),
-            "-c",
-            "core.quotepath=false",
-            "status",
-            "--porcelain=v1",
-          ],
-          { cwd: info.directory },
-        )
-        Log.Default.warn("[DEBUG-WT] Worktree.boot: statusCfg after reset --hard", {
-          directory: info.directory,
-          statusCode: bootStatusCfg.code,
-          statusText: bootStatusCfg.text.slice(0, 500),
-        })
-
-        // Also check README.md existence
-        const readmePath = pathSvc.join(info.directory, "README.md")
-        const readmeExists = yield* fsys.exists(readmePath).pipe(Effect.orDie)
-        Log.Default.warn("[DEBUG-WT] Worktree.boot: README.md exists?", { readmePath, readmeExists })
 
         const booted = yield* Effect.promise(() =>
           Instance.provide({
@@ -375,20 +330,11 @@ export namespace Worktree {
 
       const create = Effect.fn("Worktree.create")(function* (input?: CreateInput) {
         const info = yield* makeWorktreeInfo(input?.name)
-        Log.Default.warn("[DEBUG-WT] Worktree.create: setup starting", {
-          directory: info.directory,
-          branch: info.branch,
-          platform: process.platform,
-        })
         yield* setup(info)
-        Log.Default.warn("[DEBUG-WT] Worktree.create: setup done, boot starting (forked)", {
-          directory: info.directory,
-        })
         yield* boot(info, input?.startCommand).pipe(
           Effect.catchCause((cause) => Effect.sync(() => log.error("worktree bootstrap failed", { cause }))),
           Effect.forkIn(scope),
         )
-        Log.Default.warn("[DEBUG-WT] Worktree.create: returning info (boot is async)", { directory: info.directory })
         return info
       })
 
@@ -440,20 +386,18 @@ export namespace Worktree {
       function cleanDirectory(target: string) {
         return Effect.promise(() =>
           import("fs/promises").then((fsp) =>
-            fsp.rm(target, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }),
+            fsp.rm(target, {
+              recursive: true,
+              force: true,
+              maxRetries: process.platform === "win32" ? 10 : 5,
+              retryDelay: process.platform === "win32" ? 200 : 100,
+            }),
           ),
         )
       }
 
       function disposeAndClean(target: string) {
         return Effect.promise(() => Instance.disposeDirectory(target)).pipe(
-          Effect.flatMap(() => {
-            if (process.platform === "win32") {
-              log.info("adding post-dispose delay on Windows for native thread cleanup", { target })
-              return Effect.sleep("200 millis")
-            }
-            return Effect.void
-          }),
           Effect.flatMap(() => cleanDirectory(target)),
           Effect.catchCause((cause) => {
             log.error("disposeAndClean failed", { target, cause: String(cause) })
@@ -464,13 +408,6 @@ export namespace Worktree {
 
       function disposeOnly(target: string) {
         return Effect.promise(() => Instance.disposeDirectory(target)).pipe(
-          Effect.flatMap(() => {
-            if (process.platform === "win32") {
-              log.info("adding post-dispose delay on Windows for native thread cleanup", { target })
-              return Effect.sleep("200 millis")
-            }
-            return Effect.void
-          }),
           Effect.catchCause((cause) => {
             log.error("disposeOnly failed", { target, cause: String(cause) })
             return Effect.void
@@ -559,8 +496,7 @@ export namespace Worktree {
           }
         }
 
-        const dirStillExists = yield* fsys.exists(directory).pipe(Effect.orDie)
-        if (dirStillExists) yield* cleanDirectory(directory)
+        yield* cleanDirectory(directory)
         yield* pruneWorktree()
 
         return { status: "ok" as const }
@@ -652,7 +588,6 @@ export namespace Worktree {
         }
 
         const directory = yield* canonical(input.directory)
-        Log.Default.warn("[DEBUG-WT] Worktree.reset starting", { directory, platform: process.platform })
 
         const primary = yield* canonical(Instance.worktree)
         if (directory === primary) {
@@ -692,13 +627,8 @@ export namespace Worktree {
           { cwd: worktreePath },
           (r) => new ResetFailedError({ message: r.stderr || r.text || "Failed to reset worktree to target" }),
         )
-        Log.Default.warn("[DEBUG-WT] Worktree.reset: git reset --hard done", { worktreePath, baseRef: base.ref })
 
         const cleanResult = yield* sweep(worktreePath)
-        Log.Default.warn("[DEBUG-WT] Worktree.reset: git clean -ffdx done", {
-          worktreePath,
-          cleanCode: cleanResult.code,
-        })
         if (cleanResult.code !== 0) {
           throw new ResetFailedError({ message: cleanResult.stderr || cleanResult.text || "Failed to clean worktree" })
         }
@@ -722,59 +652,6 @@ export namespace Worktree {
         )
 
         const status = yield* git(["-c", "core.fsmonitor=false", "status", "--porcelain=v1"], { cwd: worktreePath })
-        Log.Default.warn("[DEBUG-WT] Worktree.reset: status check result", {
-          worktreePath,
-          statusCode: status.code,
-          statusTextLen: status.text.length,
-          statusTextPreview: status.text.slice(0, 500),
-          statusStderr: status.stderr.slice(0, 200),
-        })
-
-        // Also run statusCfg comparison
-        const statusCfgResult = yield* git(
-          [
-            "--no-optional-locks",
-            "-c",
-            "core.fsmonitor=false",
-            "-c",
-            "core.longpaths=true",
-            ...(process.platform !== "win32" ? ["-c", "core.symlinks=true"] : []),
-            "-c",
-            "core.quotepath=false",
-            "status",
-            "--porcelain=v1",
-          ],
-          { cwd: worktreePath },
-        )
-        Log.Default.warn("[DEBUG-WT] Worktree.reset: statusCfg result", {
-          worktreePath,
-          statusCode: statusCfgResult.code,
-          statusTextPreview: statusCfgResult.text.slice(0, 500),
-        })
-
-        // Also run cfg comparison (with autocrlf=false)
-        const cfgStatusResult = yield* git(
-          [
-            "--no-optional-locks",
-            "-c",
-            "core.autocrlf=false",
-            "-c",
-            "core.fsmonitor=false",
-            "-c",
-            "core.longpaths=true",
-            ...(process.platform !== "win32" ? ["-c", "core.symlinks=true"] : []),
-            "-c",
-            "core.quotepath=false",
-            "status",
-            "--porcelain=v1",
-          ],
-          { cwd: worktreePath },
-        )
-        Log.Default.warn("[DEBUG-WT] Worktree.reset: cfg (autocrlf=false) result", {
-          worktreePath,
-          statusCode: cfgStatusResult.code,
-          statusTextPreview: cfgStatusResult.text.slice(0, 500),
-        })
 
         if (status.code !== 0) {
           throw new ResetFailedError({ message: status.stderr || status.text || "Failed to read git status" })
