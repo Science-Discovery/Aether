@@ -116,6 +116,24 @@ jobs:
       - name: Run app unit tests
         run: bun --cwd packages/app test:unit
 
+  desktop-electron-icons:
+    name: desktop electron icons
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Bun
+        uses: ./.github/actions/setup-bun
+
+      - name: Run desktop icon checks
+        run: bun run --cwd packages/desktop-electron test build-icons
+
   # Second-layer CI: keep core package tests visible even while they are still failing.
   # This is intentional: these failures represent real product/test issues, not runner noise.
   opencode-unit:

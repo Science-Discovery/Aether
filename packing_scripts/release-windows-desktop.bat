@@ -16,7 +16,7 @@ set "RUST_TARGET=x86_64-pc-windows-msvc"
 call bun run build || exit /b 1
 call npx electron-builder --win nsis --x64 --publish never --config electron-builder.config.ts || exit /b 1
 
-set "ART=%CD%\dist\aether-win-x64.exe"
+set "ART=%CD%\dist\aether-desktop-win-x64.exe"
 if not exist "%ART%" (
   for %%f in ("%CD%\dist\*win*x64*.exe") do (
     if exist "%%~ff" (

@@ -12,5 +12,5 @@ export const PROXY_HTTP_HOST_KEY = "proxyHttpHost"
 export const PROXY_HTTP_PORT_KEY = "proxyHttpPort"
 export const PROXY_HTTPS_HOST_KEY = "proxyHttpsHost"
 export const PROXY_HTTPS_PORT_KEY = "proxyHttpsPort"
-export const UPDATER_ENABLED = app.isPackaged && CHANNEL !== "dev"
+export const UPDATER_ENABLED = app.isPackaged && CHANNEL === "prod"
 export { SETTINGS_STORE }

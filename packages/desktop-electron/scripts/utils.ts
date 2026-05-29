@@ -64,6 +64,7 @@ export async function copyBinaryToSidecarFolder(source: string) {
   const dest = windowsify(`${dir}/opencode-cli`)
   await $`cp ${source} ${dest}`
   if (process.platform === "darwin") await $`codesign --force --sign - ${dest}`
+  if (process.platform === "linux") await $`chmod +x ${dest}`
 
   console.log(`Copied ${source} to ${dest}`)
 }

@@ -1,8 +1,10 @@
 import { randomUUID } from "node:crypto"
 import { EventEmitter } from "node:events"
+import { existsSync } from "node:fs"
 import { createServer } from "node:net"
+import { join } from "node:path"
 import type { Event } from "electron"
-import { app, BrowserWindow, dialog } from "electron"
+import { app, BrowserWindow, dialog, shell } from "electron"
 import pkg from "electron-updater"
 const { autoUpdater } = pkg
 
@@ -39,7 +41,11 @@ const loadingComplete = defer<void>()
 const pendingDeepLinks: string[] = []
 
 const serverReady = defer<ServerReadyData>()
+const initDone = defer<void>()
 const logger = initLogging()
+const MANUAL_INSTALL_UPDATE = process.platform === "darwin" || (process.platform === "linux" && !process.env.APPIMAGE)
+const RELEASES_URL = "https://github.com/Science-Discovery/Aether/releases"
+const RENDERER_UPDATER_ENABLED = UPDATER_ENABLED && !MANUAL_INSTALL_UPDATE
 
 logger.log("app starting", {
   version: app.getVersion(),
@@ -103,7 +109,6 @@ function setupApp() {
   }
 
   void app.whenReady().then(async () => {
-    // migrate()
     app.setAsDefaultProtocolClient("aether")
     setDockIcon()
     setupAutoUpdater()
@@ -179,7 +184,7 @@ async function initialize() {
   })()
 
   const globals = {
-    updaterEnabled: UPDATER_ENABLED,
+    updaterEnabled: RENDERER_UPDATER_ENABLED,
     deepLinks: pendingDeepLinks,
   }
 
@@ -191,16 +196,17 @@ async function initialize() {
 
   await loadingTask
   setInitStep({ phase: "done" })
+  initDone.resolve()
 
   if (sidecarFailed) {
     overlay?.close()
     await dialog
       .showMessageBox({
         type: "error",
-        title: "启动失败",
-        message: "后台服务启动失败，无法连接。",
-        detail: "可能原因：杀毒软件拦截了 opencode-cli.exe。\n请将其加入白名单后重启应用。",
-        buttons: ["重启", "退出"],
+        title: "Startup Failed",
+        message: "Backend service failed to start.",
+        detail: `Possible cause: antivirus software blocked ${process.platform === "win32" ? "opencode-cli.exe" : "opencode-cli"}.\nPlease add it to your antivirus whitelist and restart.`,
+        buttons: ["Restart", "Quit"],
         defaultId: 0,
         cancelId: 1,
       })
@@ -254,6 +260,7 @@ registerIpcHandlers({
       logger.log("awaiting server ready")
       const res = await serverReady.promise
       logger.log("server ready", { url: res.url })
+      if (initStep.phase !== "done") await initDone.promise
       return res
     } finally {
       initEmitter.off("step", listener)
@@ -371,13 +378,11 @@ async function getSidecarPort() {
 function setupAutoUpdater() {
   if (!UPDATER_ENABLED) return
   autoUpdater.logger = logger
-  autoUpdater.channel = import.meta.env.OPENCODE_UPDATER_CHANNEL || "latest"
   autoUpdater.allowPrerelease = false
-  autoUpdater.allowDowngrade = true
+  autoUpdater.allowDowngrade = false
   autoUpdater.autoDownload = false
   autoUpdater.autoInstallOnAppQuit = true
   logger.log("auto updater configured", {
-    channel: autoUpdater.channel,
     allowPrerelease: autoUpdater.allowPrerelease,
     allowDowngrade: autoUpdater.allowDowngrade,
     currentVersion: app.getVersion(),
@@ -388,10 +393,11 @@ let updateReady = false
 
 async function checkUpdate() {
   if (!UPDATER_ENABLED) return { updateAvailable: false }
+  autoUpdater.allowPrerelease = prerelease()
+  autoUpdater.allowDowngrade = false
   updateReady = false
   logger.log("checking for updates", {
     currentVersion: app.getVersion(),
-    channel: autoUpdater.channel,
     allowPrerelease: autoUpdater.allowPrerelease,
     allowDowngrade: autoUpdater.allowDowngrade,
   })
@@ -412,6 +418,10 @@ async function checkUpdate() {
       return { updateAvailable: false }
     }
     logger.log("update available", { version })
+    if (MANUAL_INSTALL_UPDATE) {
+      logger.log("update available; manual install required", { version, platform: process.platform })
+      return { updateAvailable: true, version }
+    }
     await autoUpdater.downloadUpdate()
     logger.log("update download completed", { version })
     updateReady = true
@@ -423,6 +433,10 @@ async function checkUpdate() {
 }
 
 async function installUpdate() {
+  if (MANUAL_INSTALL_UPDATE) {
+    await shell.openExternal(release())
+    return
+  }
   if (!updateReady) return
   killSidecar()
   autoUpdater.quitAndInstall()
@@ -454,6 +468,23 @@ async function checkForUpdates(alertOnFail: boolean) {
     return
   }
 
+  if (MANUAL_INSTALL_UPDATE) {
+    const response = await dialog.showMessageBox({
+      type: "info",
+      title: "Update Available",
+      message: `Aether Desktop ${result.version ?? ""} is available.`,
+      detail:
+        process.platform === "darwin"
+          ? "Automatic download and installation are not enabled for macOS yet. Please download the latest macOS release from GitHub Releases and replace your existing app."
+          : "Automatic download and installation are only enabled for Linux AppImage builds. Please download the latest .deb or .rpm package from GitHub Releases and upgrade with your package manager.",
+      buttons: ["Open GitHub Releases", "Later"],
+      defaultId: 0,
+      cancelId: 1,
+    })
+    if (response.response === 0) await shell.openExternal(release(result.version))
+    return
+  }
+
   const response = await dialog.showMessageBox({
     type: "info",
     message: `Update ${result.version ?? ""} downloaded. Restart now?`,
@@ -469,6 +500,20 @@ async function checkForUpdates(alertOnFail: boolean) {
   if (response.response === 0) {
     await installUpdate()
   }
+}
+
+function prerelease() {
+  return existsSync(join(cfg(), "update-config.jsonc"))
+}
+
+function cfg() {
+  const root = process.env.XDG_CONFIG_HOME || join(process.env.OPENCODE_TEST_HOME || app.getPath("home"), ".config")
+  return join(root, "aether")
+}
+
+function release(version?: string) {
+  if (!version) return `${RELEASES_URL}/latest`
+  return `${RELEASES_URL}/tag/v${version}`
 }
 
 function delay(ms: number) {

@@ -76,6 +76,19 @@ const skipInstall = process.argv.includes("--skip-install")
 const skipWeb = process.argv.includes("--skip-web")
 const skipSmoke = process.argv.includes("--skip-smoke")
 
+function winver(ver: string) {
+  const [core, raw = ""] = ver.trim().replace(/^v/, "").split("-", 2)
+  const nums = core.split(".")
+  if (!nums.every((part) => /^\d+$/.test(part))) return "0.0.0.0"
+  if (!raw) return nums.slice(0, 4).join(".")
+
+  const pre = raw.split("+", 1)[0]
+  const found = pre.split(".").filter((part) => /^\d+$/.test(part))
+  const base = nums.slice(0, 3)
+  while (base.length < 3) base.push("0")
+  return [...base, found.at(-1) ?? "0"].join(".")
+}
+
 const allTargets: {
   os: string
   arch: "arm64" | "x64"
@@ -139,8 +152,24 @@ const allTargets: {
   },
 ]
 
+function rust(target: string | undefined) {
+  if (target === "aarch64-apple-darwin") return { os: "darwin", arch: "arm64" }
+  if (target === "x86_64-apple-darwin") return { os: "darwin", arch: "x64" }
+  if (target === "aarch64-pc-windows-msvc") return { os: "win32", arch: "arm64" }
+  if (target === "x86_64-pc-windows-msvc") return { os: "win32", arch: "x64" }
+  if (target === "x86_64-unknown-linux-gnu") return { os: "linux", arch: "x64" }
+  if (target === "aarch64-unknown-linux-gnu") return { os: "linux", arch: "arm64" }
+}
+
+const desired = rust(process.env.RUST_TARGET)
+
 const targets = singleFlag
   ? allTargets.filter((item) => {
+      if (desired) {
+        if (item.os !== desired.os || item.arch !== desired.arch) return false
+        return item.avx2 === false ? baselineFlag : item.abi === undefined
+      }
+
       if (item.os !== process.platform || item.arch !== process.arch) {
         return false
       }
@@ -233,7 +262,7 @@ for (const item of targets) {
         description: "Aether",
         title: "Aether",
         publisher: "Science Discovery",
-        version: Script.version,
+        version: winver(Script.version),
       },
     },
     entrypoints: ["./src/index.ts", parserWorker, workerPath],
