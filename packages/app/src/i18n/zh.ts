@@ -1091,6 +1091,9 @@ export const dict = {
   "settings.general.row.releaseNotes.description": "更新后显示“新功能”弹窗",
   "settings.general.row.voiceModel.title": "语音输入模型",
   "settings.general.row.voiceModel.description": "用于语音转文字的模型",
+  "settings.general.row.voiceModel.emptyDescription":
+    "未找到可用语音输入模型。请连接支持音频输入的提供商，例如 Alibaba (China)，然后选择 qwen3-asr-flash。",
+  "settings.general.row.voiceModel.none": "未设置",
   "settings.general.row.voiceModel.placeholder": "qwen2.5-omni-7b",
 
   "settings.updates.row.startup.title": "启动时检查更新",
