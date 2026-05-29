@@ -47,3 +47,5 @@ skill-evolution-reference/
 packages/opencode/test/system/llm/providers.local.yaml
 curator-export/
 skill-evolution-reference/icon-source/gen/
+CLAUDE.local.md
+CLAUDE.md

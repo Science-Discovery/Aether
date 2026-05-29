@@ -48,7 +48,7 @@ describe("SkillManageTool shadow copy-on-write", () => {
     }
   })
 
-  test("create without skillLocation writes to skill-sessions bucket", async () => {
+  test("create without skillLocation writes to skill-evolution bucket", async () => {
     const result = await SkillManageTool.execute({
       action: "create",
       name: "brand-new-skill",
@@ -58,7 +58,7 @@ describe("SkillManageTool shadow copy-on-write", () => {
     })
 
     expect(result.ok).toBe(true)
-    expect(result.skillDir).toContain(path.join("skill-sessions", "test-proj-id"))
+    expect(result.skillDir).toContain(path.join("skill-evolution", "test-proj-id"))
 
     await fs.rm(result.skillDir!, { recursive: true, force: true })
   })
@@ -131,7 +131,7 @@ describe("createBoundSkillManageTool skillLocationMap lookup", () => {
     }
   })
 
-  test("skill not in map goes to skill-sessions, not shadow", async () => {
+  test("skill not in map goes to skill-evolution, not shadow", async () => {
     // No skillLocation, no map entry → sessionProjectId path
     const result = await SkillManageTool.execute({
       action: "create",
@@ -142,7 +142,7 @@ describe("createBoundSkillManageTool skillLocationMap lookup", () => {
     })
 
     expect(result.ok).toBe(true)
-    expect(result.skillDir).toContain("skill-sessions")
+    expect(result.skillDir).toContain("skill-evolution")
     expect(result.skillDir).not.toContain(".aether" + path.sep + "skills")
 
     await fs.rm(result.skillDir!, { recursive: true, force: true })

@@ -18,6 +18,7 @@ import { Installation } from "../installation"
 import { Flag } from "../flag/flag"
 import { iife } from "@/util/iife"
 import { init } from "#db"
+import { Spawner } from "@/skill-evolution/spawner"
 import { detectCorruption, quarantine, cleanupQuarantinedOriginals, DbRecovery } from "./db-recovery"
 import type { CorruptionType } from "./db-recovery"
 
@@ -77,22 +78,71 @@ export namespace Database {
     return path.join(ensureChannelDir(), `aether-cron.db`)
   }
 
-  export function projectPath(projectId: string) {
-    return path.join(ensureChannelDir(), `aether-${projectId}.db`)
+  /**
+   * Enumerate skill-evolution sub-project directories with their derived
+   * projectId. Each main project's background reviews live in
+   * skill-evolution/<mainProjectId>/, whose own projectId is the hash of that
+   * sub-directory path (id !== folder name). This is the single source of truth
+   * shared by projectPath() lookup and the directory_meta scan — purely
+   * computed from the filesystem, so it survives process restarts with no
+   * in-memory cache. The reserved shared/ folder (future curator) is skipped.
+   */
+  function evolutionSubDirs(): { id: string; dir: string }[] {
+    const root = Spawner.skillEvolutionRoot()
+    if (!existsSync(root)) return []
+    try {
+      return readdirSync(root, { withFileTypes: true })
+        .filter((sub) => sub.isDirectory() && sub.name !== "shared")
+        .map((sub) => {
+          const dir = path.join(root, sub.name)
+          return { id: String(Spawner.evolutionId(dir)), dir }
+        })
+    } catch {
+      return []
+    }
+  }
+
+  /**
+   * Resolve a skill-evolution projectId to its DB path without any cached state.
+   * The root project itself (hash of skill-evolution/) maps to a fixed channel
+   * DB reserved for the future curator; sub-projects map to a DB inside their
+   * own folder.
+   */
+  function skillEvolutionDbPath(projectId: string): string | undefined {
+    if (projectId === String(Spawner.evolutionId(Spawner.skillEvolutionRoot()))) {
+      return path.join(ensureChannelDir(), "aether-skill-evolution.db")
+    }
+    const match = evolutionSubDirs().find((sub) => sub.id === projectId)
+    if (match) return path.join(match.dir, `aether-${projectId}.db`)
+    return undefined
+  }
+
+  export function projectPath(projectId: string): string {
+    return skillEvolutionDbPath(projectId) ?? path.join(ensureChannelDir(), `aether-${projectId}.db`)
+  }
+
+  /** Enumerate aether-<id>.db files in skill-evolution/<sub>/ sub-folders. */
+  function skillEvolutionDbPaths(): string[] {
+    return evolutionSubDirs()
+      .map((sub) => path.join(sub.dir, `aether-${sub.id}.db`))
+      .filter((dbPath) => existsSync(dbPath))
   }
 
   export function projectPaths(): string[] {
     const dir = channelDir()
-    if (!existsSync(dir)) return []
-    const pattern = new RegExp(`^aether-.+\\.db$`)
-    try {
-      return readdirSync(dir, { withFileTypes: true })
-        .filter((entry) => entry.isFile() && pattern.test(entry.name))
-        .map((entry) => path.join(dir, entry.name))
-        .sort()
-    } catch {
-      return []
+    const flat: string[] = []
+    if (existsSync(dir)) {
+      const pattern = new RegExp(`^aether-.+\\.db$`)
+      try {
+        flat.push(
+          ...readdirSync(dir, { withFileTypes: true })
+            .filter((entry) => entry.isFile() && pattern.test(entry.name))
+            .map((entry) => path.join(dir, entry.name)),
+        )
+      } catch {}
     }
+    flat.push(...skillEvolutionDbPaths())
+    return flat.sort()
   }
 
   export const Path = iife(() => {
@@ -901,7 +951,9 @@ export namespace Database {
     }
 
     const chDir = channelDir()
-    const existingDbIds = new Set<string>()
+    /** Map pid → absolute DB file path. Includes channel-dir DBs plus
+     *  skill-evolution sub-project DBs so directory_meta sync covers all of them. */
+    const existingDbIds = new Map<string, string>()
     const validWorktreeKeys = new Set<string>()
     const corruptedIds = new Set<string>()
     if (existsSync(chDir)) {
@@ -910,17 +962,20 @@ export namespace Database {
         const match = pattern.exec(entry)
         if (!match) continue
         const pid = match[1]
-        if (pid === "cron" || pid === "memory" || pid === "skill") continue
-        existingDbIds.add(pid)
+        if (pid === "cron" || pid === "memory" || pid === "skill" || pid === "skill-evolution") continue
+        existingDbIds.set(pid, path.join(chDir, entry))
       }
+    }
+    for (const sub of evolutionSubDirs()) {
+      const dbPath = path.join(sub.dir, `aether-${sub.id}.db`)
+      if (existsSync(dbPath)) existingDbIds.set(sub.id, dbPath)
     }
 
     // Phase 1: For each project DB, backfill directory_meta from sessions + project_recent,
     //           then sync directory_meta → global_project_map + project_recent
     //           Each project DB is handled independently — corruption in one does not block others.
     let synced = 0
-    for (const pid of existingDbIds) {
-      const fullPath = path.join(chDir, `aether-${pid}.db`)
+    for (const [pid, fullPath] of existingDbIds) {
       try {
         const corruption = detectCorruption(fullPath)
         if (corruption) {

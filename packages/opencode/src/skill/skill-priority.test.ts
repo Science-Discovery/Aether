@@ -42,15 +42,19 @@ describe("skill/loadSkills priority ordering", () => {
   let tmp: { path: string; cleanup: () => Promise<void> }
   let origHome: string | undefined
   let origConfig: string
+  let origData: string
 
   beforeEach(async () => {
     tmp = await makeTmp()
     origHome = process.env.OPENCODE_TEST_HOME
     origConfig = Global.Path.config
+    origData = Global.Path.data
     // Isolate home to avoid picking up real ~/.claude etc.
     process.env.OPENCODE_TEST_HOME = path.join(tmp.path, "home")
     await fs.mkdir(process.env.OPENCODE_TEST_HOME, { recursive: true })
     ;(Global.Path as { config: string }).config = path.join(tmp.path, "config")
+    // Isolate data so Spawner.skillEvolutionDir() lands in tmp, not real ~/.local/share/aether/
+    ;(Global.Path as { data: string }).data = path.join(tmp.path, "data")
     Config.global.reset()
   })
 
@@ -58,6 +62,7 @@ describe("skill/loadSkills priority ordering", () => {
     if (origHome === undefined) delete process.env.OPENCODE_TEST_HOME
     else process.env.OPENCODE_TEST_HOME = origHome
     ;(Global.Path as { config: string }).config = origConfig
+    ;(Global.Path as { data: string }).data = origData
     Config.global.reset()
     await tmp.cleanup()
   })
@@ -88,16 +93,15 @@ describe("skill/loadSkills priority ordering", () => {
     expect(skill?.description).toBe("inner")
   })
 
-  test("skill-sessions skill is overridden by project skill", async () => {
+  test("skill-evolution skill is overridden by project skill", async () => {
     const worktree = path.join(tmp.path, "project")
     await fs.mkdir(worktree, { recursive: true })
 
     const projectId = String(ProjectID.fromDirectory(worktree))
-    const home = process.env.OPENCODE_TEST_HOME!
 
     // AI review-created skill (lowest priority)
     await writeSkill(
-      path.join(home, ".aether", "skill-sessions", projectId, "skills", "deploy"),
+      path.join(Spawner.skillEvolutionDir(Spawner.skillFolderName(worktree, projectId)), "deploy"),
       "deploy",
       "session",
     )
@@ -108,14 +112,14 @@ describe("skill/loadSkills priority ordering", () => {
     expect(skill?.description).toBe("project")
   })
 
-  test("skill-sessions skill is loaded when no project skill exists", async () => {
+  test("skill-evolution skill is loaded when no project skill exists", async () => {
     const worktree = path.join(tmp.path, "project2")
     await fs.mkdir(worktree, { recursive: true })
 
     const projectId = String(ProjectID.fromDirectory(worktree))
 
     await writeSkill(
-      path.join(Spawner.skillSessionsDir(Spawner.skillFolderName(worktree, projectId)), "analyze"),
+      path.join(Spawner.skillEvolutionDir(Spawner.skillFolderName(worktree, projectId)), "analyze"),
       "analyze",
       "session-only",
     )

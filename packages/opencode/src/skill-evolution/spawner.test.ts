@@ -4,60 +4,60 @@ import { Global } from "@/global"
 import { Spawner } from "./spawner"
 
 describe("Spawner path helpers", () => {
-  test("skillSessionsDir returns <home>/.aether/skill-sessions/<folderName>/skills", () => {
-    const folderName = "my-project-abc12345"
-    expect(Spawner.skillSessionsDir(folderName)).toBe(
-      path.join(Global.Path.home, ".aether", "skill-sessions", folderName, "skills"),
+  test("skillEvolutionDir returns <data>/skill-evolution/<folderName>/skills", () => {
+    const folderName = "abc12345deadbeef0123456789abcdef01234567"
+    expect(Spawner.skillEvolutionDir(folderName)).toBe(
+      path.join(Global.Path.data, "skill-evolution", folderName, "skills"),
     )
   })
 
-  test("skillSessionsBase returns <home>/.aether/skill-sessions/<folderName>", () => {
-    const folderName = "my-project-abc12345"
-    expect(Spawner.skillSessionsBase(folderName)).toBe(
-      path.join(Global.Path.home, ".aether", "skill-sessions", folderName),
+  test("skillEvolutionBase returns <data>/skill-evolution/<folderName>", () => {
+    const folderName = "abc12345deadbeef0123456789abcdef01234567"
+    expect(Spawner.skillEvolutionBase(folderName)).toBe(
+      path.join(Global.Path.data, "skill-evolution", folderName),
     )
   })
 
-  test("skillSessionsDir is a subdirectory of skillSessionsBase", () => {
-    const folderName = "test-proj-deadbeef"
-    expect(Spawner.skillSessionsDir(folderName)).toStartWith(Spawner.skillSessionsBase(folderName) + path.sep)
+  test("skillEvolutionDir is a subdirectory of skillEvolutionBase", () => {
+    const folderName = "deadbeef" + "00".repeat(16)
+    expect(Spawner.skillEvolutionDir(folderName)).toStartWith(Spawner.skillEvolutionBase(folderName) + path.sep)
   })
 
   test("different folderNames produce different paths", () => {
-    expect(Spawner.skillSessionsDir("proj-a")).not.toBe(Spawner.skillSessionsDir("proj-b"))
-    expect(Spawner.skillSessionsBase("proj-a")).not.toBe(Spawner.skillSessionsBase("proj-b"))
+    expect(Spawner.skillEvolutionDir("proj-a")).not.toBe(Spawner.skillEvolutionDir("proj-b"))
+    expect(Spawner.skillEvolutionBase("proj-a")).not.toBe(Spawner.skillEvolutionBase("proj-b"))
   })
 
-  test("OPENCODE_TEST_HOME override is respected by Global.Path.home", () => {
-    const original = process.env.OPENCODE_TEST_HOME
-    try {
-      process.env.OPENCODE_TEST_HOME = "/custom/home"
-      expect(Spawner.skillSessionsDir("xyz")).toBe(
-        path.join("/custom/home", ".aether", "skill-sessions", "xyz", "skills"),
-      )
-    } finally {
-      if (original === undefined) delete process.env.OPENCODE_TEST_HOME
-      else process.env.OPENCODE_TEST_HOME = original
-    }
+  test("skillEvolutionRoot returns <data>/skill-evolution", () => {
+    expect(Spawner.skillEvolutionRoot()).toBe(path.join(Global.Path.data, "skill-evolution"))
+  })
+
+  test("skillEvolutionShared returns <data>/skill-evolution/shared", () => {
+    expect(Spawner.skillEvolutionShared()).toBe(path.join(Global.Path.data, "skill-evolution", "shared"))
+  })
+
+  test("skillEvolutionShared sits directly under skillEvolutionRoot", () => {
+    // shared/ is a sibling of <projectId>/ sub-folders under skillEvolutionRoot.
+    expect(path.dirname(Spawner.skillEvolutionShared())).toBe(Spawner.skillEvolutionRoot())
   })
 })
 
 describe("Spawner.skillFolderName", () => {
-  test("combines sanitized basename with short projectId", () => {
-    expect(Spawner.skillFolderName("/home/user/my-project", "a3f2bc1d2e3f4567")).toBe("my-project-a3f2bc1d")
+  test("returns projectId verbatim (no basename prefix)", () => {
+    expect(Spawner.skillFolderName("/home/user/my-project", "a3f2bc1d2e3f4567")).toBe("a3f2bc1d2e3f4567")
   })
 
-  test("sanitizes spaces and special chars in project name", () => {
-    expect(Spawner.skillFolderName("/home/user/My Project!", "abc12345")).toBe("My-Project-abc12345")
+  test("ignores special chars in project directory — output is just the id", () => {
+    expect(Spawner.skillFolderName("/home/user/My Project!", "abc12345")).toBe("abc12345")
   })
 
-  test("falls back to short hash when basename is empty after sanitization", () => {
-    expect(Spawner.skillFolderName("/", "abc12345deadbeef")).toBe("abc12345")
+  test("works even when project directory is /", () => {
+    expect(Spawner.skillFolderName("/", "abc12345deadbeef")).toBe("abc12345deadbeef")
   })
 
-  test("different directories produce different folder names for same projectId", () => {
+  test("same projectId always produces same folder name regardless of directory", () => {
     const id = "aabbccdd11223344"
-    expect(Spawner.skillFolderName("/home/user/proj-a", id)).not.toBe(
+    expect(Spawner.skillFolderName("/home/user/proj-a", id)).toBe(
       Spawner.skillFolderName("/home/user/proj-b", id),
     )
   })

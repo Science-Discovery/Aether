@@ -14,24 +14,28 @@ import { SessionID } from "@/session/schema"
 
 const log = Log.create({ service: "skill-evolution.review-agent" })
 
-/** Directory treated as the skill-sessions project root. */
-const SKILL_SESSIONS_ROOT = path.join(Global.Path.home, ".aether", "skill-sessions")
+/** Directory treated as the skill-evolution project root. */
+const SKILL_EVOLUTION_ROOT = Spawner.skillEvolutionRoot()
 
 /** Projects with a review currently running, keyed by folderName. */
 const runningReviews = new Set<string>()
-/** Latest pending input per project, keyed by folderName. Overwritten on each new trigger. */
-const pendingReviews = new Map<string, { sessionID: SessionID; projectId: string; projectDirectory?: string }>()
+/** FIFO queue of pending inputs per project, keyed by folderName. Deduped by source sessionID. */
+const pendingReviews = new Map<string, { sessionID: SessionID; projectId: string; projectDirectory?: string }[]>()
 
 /** Maximum number of review rounds (user messages) per evolution session before rolling over. */
 const MAX_REVIEW_ROUNDS = 20
 
-/** Stable project ID for the skill-sessions project, derived from its directory path. */
-function skillSessionsProjectId(): ProjectID {
-  return ProjectID.fromDirectory(ProjectIdentity.norm(SKILL_SESSIONS_ROOT))
+/**
+ * Stable project ID for a per-project skill-evolution sub-project, derived from
+ * its sub-directory path (skill-evolution/<folderName>/). Each main project gets
+ * its own sub-project DB; the root itself is reserved for the future curator.
+ */
+function evolutionSubProjectId(folderName: string): ProjectID {
+  return Spawner.evolutionId(Spawner.skillEvolutionBase(folderName))
 }
 
 /**
- * Find the evolution session for this title in the skill-sessions DB.
+ * Find the evolution session for this title in the skill-evolution DB.
  * If the session has reached MAX_REVIEW_ROUNDS user messages, deletes the oldest half to make room.
  * Returns undefined only when no session exists yet.
  */
@@ -122,7 +126,8 @@ async function collectCategories(folderName: string): Promise<string[]> {
   const categories = new Set<string>()
   const dirsToScan = [
     path.join(Global.Path.home, ".aether", "skills"),
-    Spawner.skillSessionsDir(folderName),
+    Spawner.skillEvolutionDir(folderName),
+    Spawner.skillEvolutionShared(),
   ]
   for (const dir of dirsToScan) {
     const entries = await fs.readdir(dir, { withFileTypes: true }).catch(() => [])
@@ -159,7 +164,7 @@ export async function buildReviewPrompt(
 /**
  * Spawn a background review session for the given conversation.
  *
- * All review sessions for a project share a single evolution session in the skill-sessions
+ * All review sessions for a project share a single evolution session in the skill-evolution
  * project (title: "<projectName> / skill-evolution"). When a session reaches MAX_REVIEW_ROUNDS
  * user messages it rolls over to a fresh one. Runs fire-and-forget; errors are logged only.
  */
@@ -173,7 +178,11 @@ export async function spawnReview(input: {
     : input.projectId
 
   if (runningReviews.has(folderName)) {
-    pendingReviews.set(folderName, input)
+    const queue = pendingReviews.get(folderName) ?? []
+    const idx = queue.findIndex((q) => q.sessionID === input.sessionID)
+    if (idx >= 0) queue[idx] = input
+    else queue.push(input)
+    pendingReviews.set(folderName, queue)
     return
   }
   runningReviews.add(folderName)
@@ -194,9 +203,10 @@ export async function spawnReview(input: {
 
     const prompt = await buildReviewPrompt(messages, folderName)
 
-    await fs.mkdir(SKILL_SESSIONS_ROOT, { recursive: true })
-    const skillProjectId = skillSessionsProjectId()
-    await Project.fromDirectory(SKILL_SESSIONS_ROOT)
+    const subDir = Spawner.skillEvolutionBase(folderName)
+    await fs.mkdir(subDir, { recursive: true })
+    const skillProjectId = evolutionSubProjectId(folderName)
+    await Project.fromDirectory(subDir)
 
     // Dynamically import to avoid circular deps and keep startup cost low
     const { Instance } = await import("@/project/instance")
@@ -204,23 +214,28 @@ export async function spawnReview(input: {
     const { ToolRegistry } = await import("@/tool/registry")
     const { createBoundSkillManageTool } = await import("./skill-manage-tool")
     const { Skill } = await import("@/skill")
+    const { Provider } = await import("@/provider/provider")
 
     const allSkills = await Skill.all()
     const skillLocationMap: Record<string, string> = {}
     const skillSessionMap: Record<string, string> = {}
+    const seRootNorm = ProjectIdentity.norm(SKILL_EVOLUTION_ROOT)
     for (const skill of allSkills) {
-      const parts = skill.location.split(path.sep)
-      const aetherIdx = parts.indexOf(".aether")
-      if (aetherIdx === -1) {
-        skillLocationMap[skill.name] = skill.location
-      } else if (parts[aetherIdx + 1] === "skills") {
-        skillLocationMap[skill.name] = skill.location
-      } else if (parts[aetherIdx + 1] === "skill-sessions") {
-        skillSessionMap[skill.name] = parts[aetherIdx + 2]
+      const locNorm = ProjectIdentity.norm(skill.location)
+      if (locNorm.startsWith(seRootNorm + path.sep)) {
+        // skill-evolution scope: <seRoot>/<folderName>/skills/<name>/SKILL.md
+        // Pull <folderName> from the segment immediately after seRoot.
+        const rel = locNorm.slice(seRootNorm.length + 1)
+        const segs = rel.split(path.sep)
+        if (segs.length >= 2 && segs[1] === "skills") {
+          skillSessionMap[skill.name] = segs[0]
+          continue
+        }
       }
+      skillLocationMap[skill.name] = skill.location
     }
 
-    const sessionTitle = folderName
+    const sessionTitle = `${input.projectId} / ${new Date().toISOString()}`
 
     log.info("spawning skill evolution review", {
       parentSessionID: input.sessionID,
@@ -230,20 +245,17 @@ export async function spawnReview(input: {
       sessionTitle,
     })
 
-    // Run the review agent fire-and-forget inside the skill-sessions Instance context so that
-    // Session.get / MessageV2 reads+writes all target the skill-sessions DB.
+    // Run the review agent fire-and-forget inside the skill-evolution Instance context so that
+    // Session.get / MessageV2 reads+writes all target the skill-evolution DB.
     let reviewSessionId: SessionID | undefined
     Instance.provide({
-      directory: SKILL_SESSIONS_ROOT,
+      directory: subDir,
       create: true,
       fn: async () => {
         const { Session } = await import("@/session")
-        const existing = findEvolutionSession(skillProjectId, sessionTitle)
-        reviewSessionId =
-          existing ??
-          (await Session.createNext({ title: sessionTitle, directory: SKILL_SESSIONS_ROOT })).id
+        reviewSessionId = (await Session.createNext({ title: sessionTitle, directory: subDir })).id
 
-        log.info(existing ? "reusing evolution session" : "created evolution session", {
+        log.info("created evolution session", {
           reviewSessionId,
           sessionTitle,
         })
@@ -252,8 +264,15 @@ export async function spawnReview(input: {
         // reviews for different projects don't overwrite each other's bound tool.
         ToolRegistry.registerForSession(reviewSessionId, createBoundSkillManageTool(folderName, skillLocationMap, skillSessionMap))
         try {
+          // Re-resolve the default model on every round so reviews track the
+          // current default exactly like the memory engine does (see
+          // memory/index.ts). Passing it explicitly bypasses SessionPrompt's
+          // lastModel fallback, which would otherwise pin an existing review
+          // session to whatever model it was first created with.
+          const m = await Provider.defaultModel()
           return await SessionPrompt.prompt({
             sessionID: reviewSessionId,
+            model: { providerID: m.providerID, modelID: m.modelID },
             parts: [{ type: "text", text: prompt }],
             tools: {
               "*": false,
@@ -269,11 +288,10 @@ export async function spawnReview(input: {
       log.error("review session failed", { error: err, reviewSessionId })
     }).finally(() => {
       runningReviews.delete(folderName)
-      const pending = pendingReviews.get(folderName)
-      if (pending) {
-        pendingReviews.delete(folderName)
-        spawnReview(pending)
-      }
+      const queue = pendingReviews.get(folderName)
+      const next = queue?.shift()
+      if (queue && queue.length === 0) pendingReviews.delete(folderName)
+      if (next) spawnReview(next)
     })
   } catch (err) {
     runningReviews.delete(folderName)
@@ -283,7 +301,11 @@ export async function spawnReview(input: {
 
 export function isReviewSession(): boolean {
   try {
-    return Instance.directory === Filesystem.resolve(SKILL_SESSIONS_ROOT)
+    const root = Filesystem.resolve(SKILL_EVOLUTION_ROOT)
+    const dir = Instance.directory
+    // Review sessions now run inside per-project sub-folders (skill-evolution/<id>/),
+    // so match anything at or below the root, not just the root itself.
+    return dir === root || dir.startsWith(root + path.sep)
   } catch {
     return false
   }

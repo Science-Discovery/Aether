@@ -1591,6 +1591,14 @@ export type Config = {
      * List of skill names to deactivate
      */
     disabled?: Array<string>
+    /**
+     * LLM steps without skill_manage before background skill review triggers (default: 10, 0 to disable)
+     */
+    creation_nudge_interval?: number
+    /**
+     * Maximum number of version snapshots kept per skill before older snapshots are pruned (default: 100)
+     */
+    max_versions?: number
   }
   watcher?: {
     ignore?: Array<string>
@@ -2300,6 +2308,7 @@ export type Path = {
   home: string
   state: string
   config: string
+  data: string
   worktree: string
   directory: string
 }

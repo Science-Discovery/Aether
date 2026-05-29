@@ -296,6 +296,7 @@ export namespace SessionPrompt {
 
     let step = 0
     let _finalResponse = false
+    let _cachedSkills: string | undefined
     const session = await Session.get(sessionID)
     while (true) {
       await SessionStatus.set(sessionID, { type: "busy" })
@@ -659,7 +660,8 @@ export namespace SessionPrompt {
       await Plugin.trigger("experimental.chat.messages.transform", {}, { messages: msgs })
 
       // Build system prompt, adding structured output instruction if needed
-      const skills = await SystemPrompt.skills(agent)
+      if (step === 1) _cachedSkills = (await SystemPrompt.skills(agent)) ?? undefined
+      const skills = _cachedSkills
       const system = [
         ...(await SystemPrompt.environment(model)),
         ...(skills ? [skills] : []),

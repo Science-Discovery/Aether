@@ -11,6 +11,7 @@ import { SettingsModels } from "./settings-models"
 import { SettingsKnowledge } from "./settings-knowledge"
 import { SettingsCron } from "./settings-cron"
 import { SettingsMemory } from "./settings-memory"
+import { SettingsSkills } from "./settings-skills"
 
 export const DialogSettings: Component = () => {
   const language = useLanguage()
@@ -52,6 +53,10 @@ export const DialogSettings: Component = () => {
                       <Icon name="brain" />
                       Knowledge
                     </Tabs.Trigger>
+                    <Tabs.Trigger value="skills">
+                      <Icon name="checklist" />
+                      {language.t("settings.tab.skillEvolution")}
+                    </Tabs.Trigger>
                     <Tabs.Trigger value="cron">
                       <Icon name="task" />
                       {language.t("settings.tab.cron")}
@@ -83,6 +88,9 @@ export const DialogSettings: Component = () => {
         </Tabs.Content>
         <Tabs.Content value="knowledge" class="no-scrollbar">
           <SettingsKnowledge />
+        </Tabs.Content>
+        <Tabs.Content value="skills" class="no-scrollbar">
+          <SettingsSkills />
         </Tabs.Content>
         <Tabs.Content value="cron" class="no-scrollbar">
           <SettingsCron />
