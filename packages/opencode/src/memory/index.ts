@@ -163,6 +163,37 @@ function isAbortLike(error: unknown) {
   return false
 }
 
+function errorMessage(error: unknown): string {
+  if (error instanceof Error) return `${error.name} ${error.message} ${errorMessage(error.cause)}`
+  if (typeof error === "object" && error !== null) {
+    try {
+      return JSON.stringify(error)
+    } catch {
+      return String(error)
+    }
+  }
+  return String(error ?? "")
+}
+
+function isRetryableReflectionProviderError(error: unknown) {
+  if (isAbortLike(error)) return false
+  const message = errorMessage(error)
+  if (!/badrequest|bad request|invalid request|validation|400/i.test(message)) return false
+  return /reasoning[_\s-]?effort|reasoning|provider.?options?|temperature|top[_\s-]?p|topP|unsupported/i.test(message)
+}
+
+function safeReflectionProviderOptions(model: Provider.Model) {
+  const options = { ...ProviderTransform.smallOptions(model) }
+  const lower = `${model.providerID} ${model.api.npm} ${model.api.id}`.toLowerCase()
+  if (lower.includes("gpt-5") || options.reasoningEffort !== undefined) {
+    options.reasoningEffort = "low"
+  }
+  if (model.providerID === "openai" || model.api.npm === "@ai-sdk/openai" || model.api.npm === "@ai-sdk/openai-compatible") {
+    options.store = false
+  }
+  return Object.keys(options).length ? options : undefined
+}
+
 function initializationWasCancelled(signal?: AbortSignal) {
   return initializeCancelled || signal?.aborted === true
 }
@@ -683,6 +714,7 @@ async function llmReflector(input: {
   doc: MemoryDocument
   mode: ReflectionMode
   signal?: AbortSignal
+  safeProviderOptions?: boolean
 }): Promise<ReflectionCandidate[]> {
   throwIfAborted(input.signal)
   if (!input.events.length) return []
@@ -733,15 +765,21 @@ async function llmReflector(input: {
       2,
     ),
   }
+  const retryProviderOptions = input.safeProviderOptions ? safeReflectionProviderOptions(resolved) : undefined
   const params = {
     model: language,
-    temperature: 0,
+    ...(input.safeProviderOptions ? {} : { temperature: 0 }),
     schema: ReflectionOutput,
     abortSignal: input.signal,
     messages: [
       { role: "system", content: system },
       userMessage,
     ],
+    ...(retryProviderOptions
+      ? {
+          providerOptions: ProviderTransform.providerOptions(resolved, retryProviderOptions),
+        }
+      : {}),
   } satisfies Parameters<typeof generateObject>[0]
   throwIfAborted(input.signal)
 
@@ -754,6 +792,7 @@ async function llmReflector(input: {
             ...params,
             messages: [userMessage],
             providerOptions: ProviderTransform.providerOptions(resolved, {
+              ...(retryProviderOptions ?? {}),
               store: false,
               instructions: system,
             }),
@@ -964,8 +1003,15 @@ async function defaultForgetDecision(input: { query: string; candidates: MemoryB
 
 async function runReflector(input: ReflectionInput) {
   throwIfAborted(input.signal)
-  if (reflectorForTest) return reflectorForTest(input)
-  return await llmReflector(input)
+  const reflect = (safeProviderOptions: boolean) =>
+    reflectorForTest ? reflectorForTest(input) : llmReflector({ ...input, safeProviderOptions })
+  try {
+    return await reflect(false)
+  } catch (error) {
+    if (!isRetryableReflectionProviderError(error)) throw error
+    throwIfAborted(input.signal)
+    return await reflect(true)
+  }
 }
 
 function mergeCandidates(doc: MemoryDocument, candidates: ReflectionCandidate[], events: MemoryEvent[] = []) {
