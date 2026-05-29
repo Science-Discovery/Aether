@@ -266,4 +266,82 @@ notes_url: notes.md
       if (desc) Object.defineProperty(process, "arch", desc)
     }
   })
+
+  describe("parseVersion", () => {
+    test("parses standard 3-segment version", () => {
+      const result = WebUpdateTest.parseVersion("1.3.2")
+      expect(result).toEqual({ release: [1, 3, 2], prerelease: null })
+    })
+
+    test("parses 4-segment version", () => {
+      const result = WebUpdateTest.parseVersion("0.6.2.68")
+      expect(result).toEqual({ release: [0, 6, 2, 68], prerelease: null })
+    })
+
+    test("parses pre-release version", () => {
+      const result = WebUpdateTest.parseVersion("0.6.3-beta.1")
+      expect(result).toEqual({ release: [0, 6, 3], prerelease: "beta.1" })
+    })
+
+    test("strips leading lowercase v", () => {
+      const result = WebUpdateTest.parseVersion("v1.3.2")
+      expect(result).toEqual({ release: [1, 3, 2], prerelease: null })
+    })
+
+    test("does not strip uppercase V", () => {
+      const result = WebUpdateTest.parseVersion("V1.3.2")
+      expect(result).toBeNull()
+    })
+
+    test("returns null for non-numeric segments", () => {
+      expect(WebUpdateTest.parseVersion("1.2.x")).toBeNull()
+    })
+
+    test("returns null for empty string", () => {
+      expect(WebUpdateTest.parseVersion("")).toBeNull()
+    })
+  })
+
+  describe("compareVer", () => {
+    test("4-segment version is lower than higher 3-segment", () => {
+      expect(WebUpdateTest.compareVer("0.6.2.68", "0.6.3")).toBe(-1)
+    })
+
+    test("pre-release is lower than release", () => {
+      expect(WebUpdateTest.compareVer("0.6.3-beta.1", "0.6.3")).toBe(-1)
+    })
+
+    test("release is higher than pre-release", () => {
+      expect(WebUpdateTest.compareVer("0.6.3", "0.6.3-beta.1")).toBe(1)
+    })
+
+    test("pre-release is lower than patch bump", () => {
+      expect(WebUpdateTest.compareVer("0.6.3-beta.1", "0.6.3.1")).toBe(-1)
+    })
+
+    test("equal versions", () => {
+      expect(WebUpdateTest.compareVer("1.3.2", "1.3.2")).toBe(0)
+    })
+
+    test("higher version", () => {
+      expect(WebUpdateTest.compareVer("1.3.2", "1.3.1")).toBe(1)
+    })
+
+    test("pre-release alphabetical ordering", () => {
+      expect(WebUpdateTest.compareVer("0.6.3-alpha.1", "0.6.3-beta.1")).toBe(-1)
+      expect(WebUpdateTest.compareVer("0.6.3-beta.1", "0.6.3-beta.2")).toBe(-1)
+    })
+
+    test("dev version is lower than release", () => {
+      expect(WebUpdateTest.compareVer("0.0.0-dev-20260529T1430", "1.3.2")).toBe(-1)
+    })
+
+    test("NaN safety returns 0", () => {
+      expect(WebUpdateTest.compareVer("1.2.x", "1.3.0")).toBe(0)
+    })
+
+    test("v prefix is stripped", () => {
+      expect(WebUpdateTest.compareVer("v1.3.2", "1.3.2")).toBe(0)
+    })
+  })
 })
