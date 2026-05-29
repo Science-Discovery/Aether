@@ -386,19 +386,38 @@ export namespace Worktree {
       function cleanDirectory(target: string) {
         return Effect.promise(() =>
           import("fs/promises").then((fsp) =>
-            fsp.rm(target, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }),
+            fsp.rm(target, {
+              recursive: true,
+              force: true,
+              maxRetries: process.platform === "win32" ? 10 : 5,
+              retryDelay: process.platform === "win32" ? 200 : 100,
+            }),
           ),
         )
       }
 
-      function disposeAndClean(target: string) {
+      function dispose(target: string) {
         return Effect.promise(() => Instance.disposeDirectory(target)).pipe(
-          Effect.flatMap(() => cleanDirectory(target)),
+          Effect.flatMap(() => {
+            if (process.platform === "win32") {
+              log.info("post-dispose delay for native thread cleanup", { target })
+              return Effect.sleep("100 millis")
+            }
+            return Effect.void
+          }),
           Effect.catchCause((cause) => {
-            log.error("disposeAndClean failed", { target, cause: String(cause) })
+            log.error("dispose failed", { target, cause: String(cause) })
             return Effect.void
           }),
         )
+      }
+
+      function disposeAndClean(target: string) {
+        return dispose(target).pipe(Effect.flatMap(() => cleanDirectory(target)))
+      }
+
+      function disposeOnly(target: string) {
+        return dispose(target)
       }
 
       function pruneWorktree() {
@@ -461,6 +480,7 @@ export namespace Worktree {
         }
 
         yield* stopFsmonitor(entry!.path)
+        yield* disposeOnly(entry!.path)
         const removed = yield* git(["worktree", "remove", "--force", entry!.path], { cwd: Instance.worktree })
         if (removed.code !== 0) {
           const isStale = /does not exist|不存在|not a valid|验证失败/i.test(removed.stderr || removed.text || "")
@@ -481,7 +501,7 @@ export namespace Worktree {
           }
         }
 
-        yield* disposeAndClean(entry!.path)
+        yield* cleanDirectory(directory)
         yield* pruneWorktree()
 
         return { status: "ok" as const }
@@ -573,6 +593,7 @@ export namespace Worktree {
         }
 
         const directory = yield* canonical(input.directory)
+
         const primary = yield* canonical(Instance.worktree)
         if (directory === primary) {
           throw new ResetFailedError({ message: "Cannot reset the primary workspace" })
@@ -636,6 +657,7 @@ export namespace Worktree {
         )
 
         const status = yield* git(["-c", "core.fsmonitor=false", "status", "--porcelain=v1"], { cwd: worktreePath })
+
         if (status.code !== 0) {
           throw new ResetFailedError({ message: status.stderr || status.text || "Failed to read git status" })
         }

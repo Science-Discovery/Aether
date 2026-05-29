@@ -729,11 +729,42 @@ export namespace File {
       const status = Effect.fn("File.status")(function* () {
         if (Instance.project.vcs !== "git") return []
 
+        Log.Default.warn("[DEBUG-FILE] File.status called", {
+          directory: Instance.directory,
+          worktree: Instance.worktree,
+          platform: process.platform,
+        })
+
         const items = yield* Effect.promise(() => Git.status(Instance.directory))
+        Log.Default.warn("[DEBUG-FILE] Git.status returned", { directory: Instance.directory, itemCount: items.length, items })
+
         if (!items.length) return []
 
         const modified = items.filter((i) => i.status === "modified")
         const stats = modified.length ? yield* Effect.promise(() => Git.stats(Instance.directory, "HEAD")) : []
+
+        Log.Default.warn("[DEBUG-FILE] Git.stats returned", { directory: Instance.directory, statCount: stats.length, stats })
+
+        // Also check: does the sandbox directory actually have files?
+        const dirExists = yield* Effect.promise(() => Filesystem.exists(Instance.directory).catch(() => false))
+        const readmeExists = yield* Effect.promise(() =>
+          Filesystem.exists(path.join(Instance.directory, "README.md")).catch(() => false),
+        )
+        Log.Default.warn("[DEBUG-FILE] Sandbox directory state", { directory: Instance.directory, dirExists, readmeExists })
+
+        // Also run git status with cfg (autocrlf=false) for comparison
+        const cfgStatusResult = yield* Effect.promise(() =>
+          Git.run(["status", "--porcelain=v1", "--untracked-files=all", "--no-renames", "-z", "--", "."], {
+            cwd: Instance.directory,
+          })
+            .then((r) => r.text())
+            .catch(() => "ERROR"),
+        )
+        Log.Default.warn("[DEBUG-FILE] Comparison: git status with cfg (autocrlf=false)", {
+          directory: Instance.directory,
+          cfgResultLen: cfgStatusResult.length,
+          cfgResultPreview: cfgStatusResult.slice(0, 200),
+        })
 
         const statMap = new Map(stats.map((s) => [s.file, s]))
         const changed: File.Info[] = []
