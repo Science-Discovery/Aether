@@ -58,10 +58,23 @@ const DialogEvolvedSkillsInner: Component = () => {
 
   const [sortMode, setSortMode] = createSignal<SortMode>("path")
   const [expanded, setExpanded] = createSignal<Set<string>>(new Set())
-  const [skills, { refetch }] = createResource<EvolvedSkill[]>(async () => {
+  const [skills, { mutate }] = createResource<EvolvedSkill[]>(async () => {
     const result = await globalSDK.client.config.skills.listEvolution({ directory: sdk.directory })
     return (result.data as unknown as EvolvedSkill[]) ?? []
   })
+
+  // Optimistic local patch of one skill's flag, returning a rollback fn. We patch
+  // the resource's current value via mutate() instead of refetch()-ing, because a
+  // refetch puts the resource back into a pending state, which makes the wrapping
+  // <Suspense> swap the whole dialog body for its fallback — the visible flash.
+  // The backend still applies the change (and its cache refresh); we just avoid
+  // re-pulling the list. On failure we call the returned rollback to restore the
+  // prior flag value so the UI never shows a state the backend didn't accept.
+  function patchSkill(file: string, key: "enabled" | "evolution_enabled", value: boolean): () => void {
+    const prevList = skills.latest
+    mutate((list) => (list ?? []).map((s) => (s.file === file ? { ...s, [key]: value } : s)))
+    return () => mutate(prevList)
+  }
   const [toggling, setToggling] = createSignal<string | null>(null)
   const [togglingEvolution, setTogglingEvolution] = createSignal<string | null>(null)
 
@@ -76,13 +89,15 @@ const DialogEvolvedSkillsInner: Component = () => {
 
   async function handleToggleEvolution(file: string, evolutionEnabled: boolean) {
     setTogglingEvolution(file)
+    // Optimistically flip the UI first (no refetch → no Suspense flash).
+    const rollback = patchSkill(file, "evolution_enabled", evolutionEnabled)
     try {
       // Use the directory-scoped client so the backend resolves the same project
       // Instance the skill belongs to (and writes that project's config, not the
       // server's default workdir).
       await sdk.client.config.skills.toggleEvolution({ file, evolutionEnabled })
-      await refetch()
     } catch (err) {
+      rollback() // Backend rejected → restore the prior flag value.
       const message = err instanceof Error ? err.message : String(err)
       showToast({
         variant: "error",
@@ -97,11 +112,13 @@ const DialogEvolvedSkillsInner: Component = () => {
 
   async function handleToggle(file: string, enabled: boolean) {
     setToggling(file)
+    // Optimistically flip the UI first (no refetch → no Suspense flash).
+    const rollback = patchSkill(file, "enabled", enabled)
     try {
       // Directory-scoped client: see handleToggleEvolution.
       await sdk.client.config.skills.toggleEvolved({ file, enabled })
-      await refetch()
     } catch (err) {
+      rollback() // Backend rejected → restore the prior flag value.
       const message = err instanceof Error ? err.message : String(err)
       showToast({
         variant: "error",
@@ -222,12 +239,19 @@ const DialogEvolvedSkillsInner: Component = () => {
     >
       <div class="flex flex-col gap-3 h-[400px]">
         <SolidSwitch>
-          <Match when={skills.loading}>
+          {/* Gate on state === "pending" (first load, no data yet) — NOT .loading,
+              which is also true during a refetch (after toggling a switch) and
+              would swap the list out for "loading…", causing the flash. Same
+              idiom the app shell uses for its startup resource (app.tsx). */}
+          <Match when={skills.state === "pending"}>
             <div class="flex-1 flex items-center justify-center text-12-regular text-text-weak px-1">
               {language.t("evolvedSkills.loading")}
             </div>
           </Match>
-          <Match when={skills()?.length === 0}>
+          {/* "ready" means we have a successful value; show empty only then, and
+              only when that value is actually empty. During a refetch the state
+              is "refreshing" (not "ready"), so this won't flash "empty" either. */}
+          <Match when={skills.state === "ready" && skills()?.length === 0}>
             <div class="flex-1 flex items-center justify-center text-12-regular text-text-weak px-1">
               {language.t("evolvedSkills.empty")}
             </div>

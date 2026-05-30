@@ -74,6 +74,7 @@ export namespace Skill {
     readonly dirs: () => Effect.Effect<string[]>
     readonly sources: () => Effect.Effect<Source[]>
     readonly available: (agent?: Agent.Info) => Effect.Effect<Info[]>
+    readonly invalidate: () => Effect.Effect<void>
   }
 
   function snapshotPath(directory: string) {
@@ -408,7 +409,14 @@ export namespace Skill {
         return list.filter((skill) => Permission.evaluate("skill", skill.name, agent.permission).action !== "deny")
       })
 
-      return Service.of({ get, all, dirs, sources, available })
+      // Drop the cached state so the next read rebuilds from disk + current
+      // config. Used after a config change (e.g. disable/stop-evolution toggles)
+      // that isFresh() can't auto-detect, since it only watches SKILL.md mtimes.
+      const invalidate = Effect.fn("Skill.invalidate")(function* () {
+        yield* InstanceState.invalidate(state)
+      })
+
+      return Service.of({ get, all, dirs, sources, available, invalidate })
     }),
   )
 
@@ -456,6 +464,10 @@ export namespace Skill {
     return runPromise((skill) => skill.available(agent))
   }
 
+  export async function invalidate() {
+    return runPromise((skill) => skill.invalidate())
+  }
+
   export type SkillFileFlag = "disabled_files" | "evolution_disabled_files"
 
   /**
@@ -500,6 +512,11 @@ export namespace Skill {
       const current = await Config.getGlobal()
       const next = nextList(current.skills?.[field], resolved, on)
       await Config.updateGlobal({ skills: { [field]: next } } as Config.Info)
+      // updateGlobal already reset the global config cache; also drop the merged
+      // (layered) config cache and the skill cache so the toggle takes effect
+      // live, instead of tearing down the whole instance (the UI-flash source).
+      Config.state.reset()
+      await invalidate()
       return
     }
 
@@ -510,7 +527,13 @@ export namespace Skill {
     const next = nextList(existing.skills?.[field], resolved, on)
     const merged: Config.Info = { ...existing, skills: { ...(existing.skills ?? {}), [field]: next } }
     await Filesystem.writeJson(file2, merged)
-    await Instance.dispose()
+    // Refresh the two caches the toggle's effect depends on, instead of tearing
+    // down the whole instance (Instance.dispose → full reload → UI flash):
+    //   1) config cache, so loadSkills re-reads the new disabled_files; and
+    //   2) skill cache, which isFresh() won't auto-refresh (it only watches
+    //      SKILL.md mtimes, not aether.json).
+    Config.state.reset()
+    await invalidate()
   }
 
   function nextList(current: string[] | undefined, file: string, on: boolean): string[] {
