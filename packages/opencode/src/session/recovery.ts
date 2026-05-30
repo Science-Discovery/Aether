@@ -44,6 +44,7 @@ export namespace SessionRecovery {
             ),
           Session.updateMessage({
             ...msg.info,
+            finish: msg.info.finish ?? "error",
             error:
               msg.info.error ??
               MessageV2.fromError(new Error(input.message), {
