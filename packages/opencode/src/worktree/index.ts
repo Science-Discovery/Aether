@@ -398,12 +398,14 @@ export namespace Worktree {
         return Effect.promise(async () => {
           const fsp = await import("fs/promises")
           const entries = await fsp.readdir(target, { withFileTypes: true })
+          log.info("[DEBUG-emptyDir] start", { target, entryCount: entries.length })
           await Promise.all(
             entries.map((entry) => {
               const p = pathSvc.join(target, entry.name)
               return entry.isDirectory() ? fsp.rm(p, { recursive: true, force: true }) : fsp.unlink(p)
             }),
           )
+          log.info("[DEBUG-emptyDir] done", { target })
         })
       }
 
@@ -411,25 +413,58 @@ export namespace Worktree {
       const HANDLE_TIMEOUT_MS = 5_000
 
       function waitForHandleRelease(target: string) {
-        return Effect.promise(async () => {
+        return Effect.promise(async (): Promise<{ ok: boolean }> => {
           const fsp = await import("fs/promises")
           const start = Date.now()
+          let attempt = 0
+          log.info("[DEBUG-waitForHandleRelease] start", { target, timeoutMs: HANDLE_TIMEOUT_MS })
           while (true) {
+            attempt++
             try {
               await fsp.rmdir(target)
-              return
+              log.info("[DEBUG-waitForHandleRelease] rmdir succeeded", {
+                target,
+                attempts: attempt,
+                elapsedMs: Date.now() - start,
+              })
+              return { ok: true }
             } catch (err: any) {
-              if (err.code === "ENOENT") return
-              if (err.code === "EBUSY") {
+              if (err.code === "ENOENT") {
+                log.info("[DEBUG-waitForHandleRelease] ENOENT — dir already gone", {
+                  target,
+                  attempts: attempt,
+                  elapsedMs: Date.now() - start,
+                })
+                return { ok: true }
+              }
+              if (err.code === "EBUSY" || err.code === "EPERM") {
                 const elapsed = Date.now() - start
+                if (attempt <= 3 || attempt % 20 === 0) {
+                  log.info("[DEBUG-waitForHandleRelease] rmdir EBUSY/EPERM retry", {
+                    target,
+                    errCode: err.code,
+                    attempt,
+                    elapsedMs: elapsed,
+                  })
+                }
                 if (elapsed >= HANDLE_TIMEOUT_MS) {
-                  throw new Error(
-                    `Native watcher handle not released after ${HANDLE_TIMEOUT_MS}ms for ${target}, aborting deletion`,
-                  )
+                  log.warn("[DEBUG-waitForHandleRelease] timeout — handle still held", {
+                    target,
+                    errCode: err.code,
+                    attempts: attempt,
+                    elapsedMs: elapsed,
+                  })
+                  return { ok: false }
                 }
                 await new Promise((r) => setTimeout(r, HANDLE_POLL_MS))
                 continue
               }
+              log.error("[DEBUG-waitForHandleRelease] unexpected error", {
+                target,
+                errCode: err.code,
+                errMessage: err.message,
+                attempt,
+              })
               throw err
             }
           }
@@ -443,14 +478,28 @@ export namespace Worktree {
       function cleanDirectory(target: string) {
         if (process.platform === "win32") {
           return Effect.gen(function* () {
+            log.info("[DEBUG-cleanDirectory] start (win32 path)", { target })
             const stat = yield* fsys.stat(target).pipe(Effect.catch(() => Effect.succeed(undefined)))
-            if (!stat) return
+            if (!stat) {
+              log.info("[DEBUG-cleanDirectory] target does not exist, skip", { target })
+              return
+            }
             if (stat.type === "File") {
+              log.info("[DEBUG-cleanDirectory] target is a file, unlink", { target })
               yield* cleanFile(target)
               return
             }
+            log.info("[DEBUG-cleanDirectory] target is a directory, will emptyDir then waitForHandleRelease", {
+              target,
+            })
             yield* emptyDir(target)
-            yield* waitForHandleRelease(target)
+            log.info("[DEBUG-cleanDirectory] emptyDir completed, now waitForHandleRelease", { target })
+            const release = yield* waitForHandleRelease(target)
+            if (!release.ok) {
+              log.warn("[DEBUG-cleanDirectory] handle not released — empty dir remains", { target })
+            } else {
+              log.info("[DEBUG-cleanDirectory] handle released — dir fully deleted", { target })
+            }
           })
         }
         return Effect.promise(() =>
@@ -461,11 +510,21 @@ export namespace Worktree {
       }
 
       function disposeAndClean(target: string) {
-        return Effect.promise(() => Instance.disposeDirectory(target)).pipe(
-          Effect.flatMap(() => cleanDirectory(target)),
-          Effect.map(() => true),
+        return Effect.gen(function* () {
+          log.info("[DEBUG-disposeAndClean] start", { target })
+          yield* Effect.promise(() => Instance.disposeDirectory(target))
+          log.info("[DEBUG-disposeAndClean] disposeDirectory completed", { target })
+          if (process.platform === "win32") {
+            log.info("[DEBUG-disposeAndClean] sleeping 500ms (win32 post-unsubscribe delay)", { target })
+            yield* Effect.sleep("500 millis")
+            log.info("[DEBUG-disposeAndClean] 500ms sleep done", { target })
+          }
+          yield* cleanDirectory(target)
+          log.info("[DEBUG-disposeAndClean] cleanDirectory completed", { target })
+          return true
+        }).pipe(
           Effect.catchCause((cause) => {
-            log.error("disposeAndClean failed", { target, cause: String(cause) })
+            log.error("[DEBUG-disposeAndClean] failed", { target, cause: String(cause) })
             return Effect.succeed(false)
           }),
         )
@@ -481,16 +540,23 @@ export namespace Worktree {
         }
 
         const directory = yield* canonical(input.directory)
+        log.info("[DEBUG-remove] start", { directory, force: input.force })
 
         if (input.force) {
+          log.info("[DEBUG-remove] stopFsmonitor", { directory })
           yield* stopFsmonitor(directory)
           const dirExists = yield* fsys.exists(directory).pipe(Effect.orDie)
+          log.info("[DEBUG-remove] dirExists", { directory, dirExists })
           if (dirExists) {
+            log.info("[DEBUG-remove] calling disposeAndClean", { directory })
             const cleaned = yield* disposeAndClean(directory)
+            log.info("[DEBUG-remove] disposeAndClean result", { directory, cleaned })
             if (!cleaned) {
+              log.warn("[DEBUG-remove] cleaned=false, throwing RemoveFailedError", { directory })
               throw new RemoveFailedError({ message: "Directory is locked by another process, try again later" })
             }
           }
+          log.info("[DEBUG-remove] pruneWorktree", { directory })
           yield* pruneWorktree()
 
           const staleId = ProjectID.fromDirectory(ProjectIdentity.norm(directory))

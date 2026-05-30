@@ -199,19 +199,27 @@ export namespace FileWatcher {
             yield* Effect.addFinalizer(() =>
               Effect.gen(function* () {
                 disposed = true
+                log.info("[DEBUG-watcher-finalizer] starting unsubscribe", {
+                  directory: Instance.directory,
+                  subscriptionCount: subs.length,
+                })
+                const unsubStart = Date.now()
                 const results = yield* Effect.promise(() => Promise.allSettled(subs.map((sub) => sub.unsubscribe())))
+                const unsubElapsed = Date.now() - unsubStart
                 const failed = results.filter((r) => r.status === "rejected")
                 if (failed.length > 0) {
-                  log.error("watcher unsubscribe partially failed", {
+                  log.error("[DEBUG-watcher-finalizer] unsubscribe partially failed", {
                     directory: Instance.directory,
                     failedCount: failed.length,
                     totalCount: subs.length,
+                    elapsedMs: unsubElapsed,
                     errors: failed.map((r) => String((r as PromiseRejectedResult).reason)),
                   })
                 } else {
-                  log.info("watcher unsubscribed", {
+                  log.info("[DEBUG-watcher-finalizer] unsubscribe completed", {
                     directory: Instance.directory,
                     subscriptionCount: subs.length,
+                    elapsedMs: unsubElapsed,
                   })
                 }
               }),

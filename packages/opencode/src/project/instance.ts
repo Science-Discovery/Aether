@@ -188,22 +188,33 @@ export const Instance = {
   },
   async disposeDirectory(directory: string) {
     const dir = Filesystem.resolve(directory)
+    Log.Default.info("[DEBUG-disposeDirectory] start", { directory: dir })
     const entry = cache.get(dir)
-    if (!entry) return
+    if (!entry) {
+      Log.Default.info("[DEBUG-disposeDirectory] no cache entry, skip", { directory: dir })
+      return
+    }
     const ctx = await entry.catch(() => undefined)
     if (!ctx) {
       if (cache.get(dir) === entry) cache.delete(dir)
+      Log.Default.info("[DEBUG-disposeDirectory] no context, skip", { directory: dir })
       return
     }
-    Log.Default.info("disposing instance by directory", { directory: dir })
+    Log.Default.info("[DEBUG-disposeDirectory] calling State.dispose + disposeInstance", { directory: dir })
     try {
+      const start = Date.now()
       await Promise.all([State.dispose(dir), disposeInstance(dir)])
+      Log.Default.info("[DEBUG-disposeDirectory] dispose completed", { directory: dir, elapsedMs: Date.now() - start })
     } catch (e) {
-      Log.Default.error("instance dispose failed", { directory: dir, error: e instanceof Error ? e.message : e })
+      Log.Default.error("[DEBUG-disposeDirectory] dispose failed", {
+        directory: dir,
+        error: e instanceof Error ? e.message : e,
+      })
     }
     Database.detach(ctx.project.id)
     if (cache.get(dir) === entry) cache.delete(dir)
     emit(dir)
+    Log.Default.info("[DEBUG-disposeDirectory] done", { directory: dir })
   },
   async disposeAll() {
     if (disposal.all) return disposal.all
