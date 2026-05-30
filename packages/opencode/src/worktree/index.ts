@@ -514,7 +514,10 @@ export namespace Worktree {
           }
         }
 
-        yield* disposeAndClean(entry!.path)
+        const cleaned = yield* disposeAndClean(entry!.path)
+        if (!cleaned) {
+          return { status: "stale" as const, directory, gitStderr: "Directory is locked by another process" }
+        }
         yield* pruneWorktree()
 
         return { status: "ok" as const }
