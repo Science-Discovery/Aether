@@ -2,7 +2,7 @@ import { describe, expect, test, mock } from "bun:test"
 import fs from "fs/promises"
 import os from "os"
 import path from "path"
-import { SkillManageTool } from "./skill-manage-tool"
+import { SkillManageTool, createBoundSkillManageTool } from "./skill-manage-tool"
 
 // Publisher makes a Bus.publish call that is irrelevant to file I/O correctness.
 mock.module("./publisher", () => ({
@@ -146,5 +146,95 @@ describe("createBoundSkillManageTool skillLocationMap lookup", () => {
     expect(result.skillDir).not.toContain(".aether" + path.sep + "skills")
 
     await fs.rm(result.skillDir!, { recursive: true, force: true })
+  })
+})
+
+describe("SkillManageTool self-evolution lock (hard floor)", () => {
+  test("refuses to edit a skill whose original SKILL.md is in evolutionDisabledFiles; original untouched", async () => {
+    const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "skill-evolock-test-"))
+    try {
+      const originalDir = path.join(tmp, "project", ".claude", "skills", "locked")
+      await fs.mkdir(originalDir, { recursive: true })
+      const skillMd = path.join(originalDir, "SKILL.md")
+      await fs.writeFile(skillMd, `---\nname: "locked"\ndescription: "original"\n---\n\nOriginal content`)
+
+      const result = await SkillManageTool.execute(
+        {
+          action: "edit",
+          name: "locked",
+          description: "should be blocked",
+          content: "Sneaky rewrite",
+          skillLocation: skillMd,
+        },
+        { evolutionDisabledFiles: new Set([path.resolve(skillMd)]) },
+      )
+
+      expect(result.ok).toBe(false)
+      expect(result.message.toLowerCase()).toContain("self-evolution")
+
+      // Original must be untouched, and no shadow should have been written.
+      const original = await fs.readFile(skillMd, "utf-8")
+      expect(original).toContain("Original content")
+      const shadowDir = path.join(tmp, "project", ".aether", "skills", "locked")
+      const shadowExists = await fs.access(shadowDir).then(() => true).catch(() => false)
+      expect(shadowExists).toBe(false)
+    } finally {
+      await fs.rm(tmp, { recursive: true, force: true })
+    }
+  })
+
+  test("allows edits to a skill not in the lock set (boundary)", async () => {
+    const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "skill-evolock-ok-"))
+    try {
+      const originalDir = path.join(tmp, "project", ".claude", "skills", "free")
+      await fs.mkdir(originalDir, { recursive: true })
+      const skillMd = path.join(originalDir, "SKILL.md")
+      await fs.writeFile(skillMd, `---\nname: "free"\ndescription: "original"\n---\n\nOriginal content`)
+
+      const result = await SkillManageTool.execute(
+        {
+          action: "edit",
+          name: "free",
+          description: "updated",
+          content: "Allowed rewrite",
+          skillLocation: skillMd,
+        },
+        { evolutionDisabledFiles: new Set([path.resolve(path.join(tmp, "other", "SKILL.md"))]) },
+      )
+
+      expect(result.ok).toBe(true)
+    } finally {
+      await fs.rm(tmp, { recursive: true, force: true })
+    }
+  })
+
+  test("bound tool injects the lock set and blocks a locked skill resolved via the location map", async () => {
+    const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "skill-evolock-bound-"))
+    try {
+      const originalDir = path.join(tmp, "project", ".opencode", "skills", "boundlocked")
+      await fs.mkdir(originalDir, { recursive: true })
+      const skillMd = path.join(originalDir, "SKILL.md")
+      await fs.writeFile(skillMd, `---\nname: "boundlocked"\ndescription: "o"\n---\n\nOriginal content`)
+
+      const tool = createBoundSkillManageTool(
+        "proj-id",
+        { boundlocked: skillMd },
+        {},
+        new Set([path.resolve(skillMd)]),
+      )
+
+      // Tool.define returns { id, init }; the executable lives behind init().
+      const bound = await tool.init()
+      const out = await bound.execute(
+        { action: "edit", name: "boundlocked", description: "x", content: "blocked" } as any,
+        {} as any,
+      )
+
+      expect(out.metadata.ok).toBe(false)
+      const original = await fs.readFile(skillMd, "utf-8")
+      expect(original).toContain("Original content")
+    } finally {
+      await fs.rm(tmp, { recursive: true, force: true })
+    }
   })
 })

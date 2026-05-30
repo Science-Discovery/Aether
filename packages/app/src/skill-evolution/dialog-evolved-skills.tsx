@@ -77,7 +77,10 @@ const DialogEvolvedSkillsInner: Component = () => {
   async function handleToggleEvolution(file: string, evolutionEnabled: boolean) {
     setTogglingEvolution(file)
     try {
-      await globalSDK.client.config.skills.toggleEvolution({ file, evolutionEnabled })
+      // Use the directory-scoped client so the backend resolves the same project
+      // Instance the skill belongs to (and writes that project's config, not the
+      // server's default workdir).
+      await sdk.client.config.skills.toggleEvolution({ file, evolutionEnabled })
       await refetch()
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
@@ -95,7 +98,8 @@ const DialogEvolvedSkillsInner: Component = () => {
   async function handleToggle(file: string, enabled: boolean) {
     setToggling(file)
     try {
-      await globalSDK.client.config.skills.toggleEvolved({ file, enabled })
+      // Directory-scoped client: see handleToggleEvolution.
+      await sdk.client.config.skills.toggleEvolved({ file, enabled })
       await refetch()
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)

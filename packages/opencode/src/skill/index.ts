@@ -327,12 +327,26 @@ export namespace Skill {
 
     log.info("init", { count: Object.keys(state.skills).length })
 
-    // Remove disabled skills
+    // Remove disabled skills (by name — legacy "default skills" disable)
     const disabled = new Set(cfg.skills?.disabled ?? [])
     for (const name of disabled) {
       if (state.skills[name]) {
         delete state.skills[name]
         log.info("skill disabled by config", { name })
+      }
+    }
+
+    // Remove disabled skills (by SKILL.md file path — precise per-file disable).
+    // cfg.skills.disabled_files is already the cross-layer union (see
+    // mergeConfigConcatArrays). Resolve both sides so relative/absolute/.. variants
+    // still match.
+    const disabledFiles = new Set((cfg.skills?.disabled_files ?? []).map((p) => path.resolve(p)))
+    if (disabledFiles.size > 0) {
+      for (const [name, skill] of Object.entries(state.skills)) {
+        if (disabledFiles.has(path.resolve(skill.location))) {
+          delete state.skills[name]
+          log.info("skill disabled by config file path", { name, location: skill.location })
+        }
       }
     }
 
@@ -440,5 +454,69 @@ export namespace Skill {
 
   export async function available(agent?: Agent.Info) {
     return runPromise((skill) => skill.available(agent))
+  }
+
+  export type SkillFileFlag = "disabled_files" | "evolution_disabled_files"
+
+  /**
+   * Resolve which config layer a SKILL.md path belongs to, by matching it against
+   * the loaded skill sources: pick the source whose `dir` contains the file and is
+   * the longest (most specific). global/config-root scopes live in the global
+   * config (shared by all projects); everything else is project-scoped.
+   */
+  async function scopeForFile(file: string): Promise<Scope | undefined> {
+    const resolved = path.resolve(file)
+    const srcs = await sources()
+    let best: Source | undefined
+    for (const s of srcs) {
+      const dir = path.resolve(s.dir)
+      const prefix = dir.endsWith(path.sep) ? dir : dir + path.sep
+      if (resolved === dir || resolved.startsWith(prefix)) {
+        if (!best || dir.length > path.resolve(best.dir).length) best = s
+      }
+    }
+    return best?.scope
+  }
+
+  function isGlobalScope(scope: Scope | undefined): boolean {
+    return scope === "global" || scope === "config-root"
+  }
+
+  /**
+   * Add or remove a SKILL.md path from a per-file skill flag list, writing to the
+   * config layer that matches the skill's scope (global skills → global config,
+   * project skills → the project's aether.json). Shared by the "disable" and
+   * "stop self-evolution" toggles — the only difference is `field`.
+   *
+   * We read+write each layer's OWN current value (not the merged Config.get()),
+   * because the merged value mixes other layers' entries; writing it back to a
+   * single layer would relocate those entries to the wrong layer.
+   */
+  export async function setSkillFileFlag(file: string, field: SkillFileFlag, on: boolean): Promise<void> {
+    const resolved = path.resolve(file)
+    const scope = await scopeForFile(file)
+
+    if (isGlobalScope(scope)) {
+      const current = await Config.getGlobal()
+      const next = nextList(current.skills?.[field], resolved, on)
+      await Config.updateGlobal({ skills: { [field]: next } } as Config.Info)
+      return
+    }
+
+    // Project layer: write the project's aether.json directly. We avoid Config.update
+    // here because it writes config.json, which the layered loader never reads.
+    const file2 = path.join(Instance.directory, "aether.json")
+    const existing = JSON.parse(await Filesystem.readText(file2).catch(() => "{}")) as Config.Info
+    const next = nextList(existing.skills?.[field], resolved, on)
+    const merged: Config.Info = { ...existing, skills: { ...(existing.skills ?? {}), [field]: next } }
+    await Filesystem.writeJson(file2, merged)
+    await Instance.dispose()
+  }
+
+  function nextList(current: string[] | undefined, file: string, on: boolean): string[] {
+    const set = new Set((current ?? []).map((p) => path.resolve(p)))
+    if (on) set.add(file)
+    else set.delete(file)
+    return [...set]
   }
 }

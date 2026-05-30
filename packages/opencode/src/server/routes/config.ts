@@ -1,3 +1,4 @@
+import path from "path"
 import { Hono } from "hono"
 import { describeRoute, validator, resolver } from "hono-openapi"
 import z from "zod"
@@ -5,6 +6,7 @@ import { Config } from "../../config/config"
 import { Provider } from "../../provider/provider"
 import { Project } from "../../project/project"
 import { EvolvedSkills } from "../../skill-evolution/evolved-skills"
+import { Skill } from "../../skill"
 import { mapValues } from "remeda"
 import { errors } from "../error"
 import { Log } from "../../util/log"
@@ -201,7 +203,17 @@ export const ConfigRoutes = lazy(() =>
         // the exact skill-evolution folder the write side created (method A).
         const { project } = await Project.fromDirectory(directory)
         const skills = await EvolvedSkills.list(directory, String(project.id))
-        return c.json(skills)
+        // Display state is computed purely from config (per-file disable lists),
+        // never from SKILL.md frontmatter: a path in disabled_files renders as off.
+        const cfg = await Config.get()
+        const disabled = new Set((cfg.skills?.disabled_files ?? []).map((p) => path.resolve(p)))
+        const evolutionDisabled = new Set((cfg.skills?.evolution_disabled_files ?? []).map((p) => path.resolve(p)))
+        const withState = skills.map((s) => ({
+          ...s,
+          enabled: !disabled.has(path.resolve(s.file)),
+          evolution_enabled: !evolutionDisabled.has(path.resolve(s.file)),
+        }))
+        return c.json(withState)
       },
     )
     .post(
@@ -220,7 +232,8 @@ export const ConfigRoutes = lazy(() =>
       validator("json", z.object({ file: z.string(), enabled: z.boolean() })),
       async (c) => {
         const { file, enabled } = c.req.valid("json")
-        await EvolvedSkills.toggleEnabled(file, enabled)
+        // enabled=true → skill should load → remove from disabled_files (on=false).
+        await Skill.setSkillFileFlag(file, "disabled_files", !enabled)
         return c.json({ ok: true })
       },
     )
@@ -240,7 +253,8 @@ export const ConfigRoutes = lazy(() =>
       validator("json", z.object({ file: z.string(), evolutionEnabled: z.boolean() })),
       async (c) => {
         const { file, evolutionEnabled } = c.req.valid("json")
-        await EvolvedSkills.toggleEvolution(file, evolutionEnabled)
+        // evolutionEnabled=true → may self-evolve → remove from evolution_disabled_files.
+        await Skill.setSkillFileFlag(file, "evolution_disabled_files", !evolutionEnabled)
         return c.json({ ok: true })
       },
     )

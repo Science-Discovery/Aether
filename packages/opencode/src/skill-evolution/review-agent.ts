@@ -152,13 +152,40 @@ async function collectCategories(folderName: string): Promise<string[]> {
 export async function buildReviewPrompt(
   messages: ReadonlyArray<MessageSnapshot>,
   folderName: string,
+  evolutionDisabledSkillNames: ReadonlyArray<string> = [],
 ): Promise<string> {
   const categories = await collectCategories(folderName)
   const categoryHint =
     categories.length > 0
       ? categories.map((c) => `  - ${c}`).join("\n") + "\n"
       : "  (no existing categories yet)\n"
-  return [serializeHistory(messages), "", SKILL_REVIEW_PROMPT_BASE + categoryHint].join("\n")
+  const sections = [serializeHistory(messages), "", SKILL_REVIEW_PROMPT_BASE + categoryHint]
+  const warning = buildEvolutionLockWarning(evolutionDisabledSkillNames)
+  if (warning) sections.push("", warning)
+  return sections.join("\n")
+}
+
+/**
+ * Warn the review agent off skills the user has opted out of self-evolution for.
+ * We keep these skills visible in the available-skills list (so the agent knows
+ * the capability exists) but forbid both modifying them and recreating an
+ * equivalent — otherwise the agent, not seeing it, might rebuild the same skill
+ * under a new name and slip past the user's opt-out.
+ */
+function buildEvolutionLockWarning(names: ReadonlyArray<string>): string | undefined {
+  if (names.length === 0) return undefined
+  const list = names.map((n) => `  - ${n}`).join("\n")
+  return [
+    "## Self-evolution lock (user opt-out — HIGHEST priority, overrides every rule above)",
+    "",
+    "The user has DISABLED self-evolution for the following skills:",
+    list,
+    "",
+    "For each skill named above you MUST:",
+    "- DO NOT modify it (no patch/edit/delete/rollback/write_file on it) — the user explicitly opted out of changes.",
+    "- DO NOT create a new skill that duplicates its purpose under a different name — that would circumvent the opt-out.",
+    "Treat these as read-only. If your only worthwhile change would touch one of them, respond \"Nothing to save.\" instead.",
+  ].join("\n")
 }
 
 /**
@@ -201,7 +228,21 @@ export async function spawnReview(input: {
       })),
     }))
 
-    const prompt = await buildReviewPrompt(messages, folderName)
+    // Compute which skills the user opted out of self-evolution for, in the
+    // CURRENT (main project) instance context, so the review prompt can warn the
+    // agent off them. Map config file paths → skill names (the agent works in
+    // names). evolution_disabled_files is already the cross-layer union.
+    const { Config: MainConfig } = await import("@/config/config")
+    const { Skill: MainSkill } = await import("@/skill")
+    const cfg = await MainConfig.get()
+    const evoDisabledPaths = new Set((cfg.skills?.evolution_disabled_files ?? []).map((p) => path.resolve(p)))
+    const evolutionDisabledNames = evoDisabledPaths.size
+      ? (await MainSkill.all())
+          .filter((s) => evoDisabledPaths.has(path.resolve(s.location)))
+          .map((s) => s.name)
+      : []
+
+    const prompt = await buildReviewPrompt(messages, folderName, evolutionDisabledNames)
 
     const subDir = Spawner.skillEvolutionBase(folderName)
     await fs.mkdir(subDir, { recursive: true })
@@ -262,7 +303,10 @@ export async function spawnReview(input: {
 
         // Register skill_manage scoped to this review session only, so concurrent
         // reviews for different projects don't overwrite each other's bound tool.
-        ToolRegistry.registerForSession(reviewSessionId, createBoundSkillManageTool(folderName, skillLocationMap, skillSessionMap))
+        ToolRegistry.registerForSession(
+          reviewSessionId,
+          createBoundSkillManageTool(folderName, skillLocationMap, skillSessionMap, evoDisabledPaths),
+        )
         try {
           // Re-resolve the default model on every round so reviews track the
           // current default exactly like the memory engine does (see

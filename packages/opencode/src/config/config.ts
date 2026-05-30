@@ -82,6 +82,18 @@ export namespace Config {
     if (target.disabled_models && source.disabled_models) {
       merged.disabled_models = Array.from(new Set([...target.disabled_models, ...source.disabled_models]))
     }
+    // skills.disabled_files / evolution_disabled_files are sets of disabled SKILL.md
+    // paths — their correct cross-layer merge is a union (each layer's disables all
+    // apply), not "higher layer replaces lower". mergeDeep replaces arrays by default
+    // and these live under the `skills` sub-object, so concat+dedupe them explicitly
+    // on top of mergeDeep's result (leaving every other skills field untouched).
+    const ts = target.skills
+    const ss = source.skills
+    for (const field of ["disabled_files", "evolution_disabled_files"] as const) {
+      if (ts?.[field] && ss?.[field]) {
+        merged.skills = { ...(merged.skills ?? {}), [field]: Array.from(new Set([...ts[field]!, ...ss[field]!])) }
+      }
+    }
     return merged
   }
 
@@ -774,6 +786,14 @@ export namespace Config {
       .optional()
       .describe("URLs to fetch skills from (e.g., https://example.com/.well-known/skills/)"),
     disabled: z.array(z.string()).optional().describe("List of skill names to deactivate"),
+    disabled_files: z
+      .array(z.string())
+      .optional()
+      .describe("List of skill SKILL.md file paths to deactivate (precise per-file disable)"),
+    evolution_disabled_files: z
+      .array(z.string())
+      .optional()
+      .describe("List of skill SKILL.md file paths whose self-evolution is disabled"),
     creation_nudge_interval: z
       .number()
       .int()

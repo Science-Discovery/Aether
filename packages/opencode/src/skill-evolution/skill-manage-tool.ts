@@ -131,11 +131,33 @@ async function withSkillLock<T>(skillDir: string, fn: () => Promise<T>): Promise
   }
 }
 
+export /** Actions that modify a skill on disk (history is read-only and never blocked). */
+const WRITE_ACTIONS = new Set(["create", "edit", "patch", "write_file", "delete", "rollback"])
+
+export interface SkillManageOptions {
+  /**
+   * Absolute, path.resolve()-normalized SKILL.md paths the user opted out of
+   * self-evolution for. A write whose original skill location is in this set is
+   * hard-refused — the on-disk floor behind the review prompt's soft warning, so
+   * even an agent that ignores the prompt cannot rewrite a locked skill.
+   */
+  evolutionDisabledFiles?: Set<string>
+}
+
 export namespace SkillManageTool {
-  export async function execute(input: SkillManageInput): Promise<SkillManageResult> {
+  export async function execute(input: SkillManageInput, options?: SkillManageOptions): Promise<SkillManageResult> {
     const skillDir = ShadowWriter.resolveSkillDir(input.name, input.skillLocation, input.sessionProjectId)
     return withSkillLock(skillDir, async () => {
       try {
+        const lock = options?.evolutionDisabledFiles
+        if (lock && lock.size > 0 && WRITE_ACTIONS.has(input.action) && input.skillLocation) {
+          if (lock.has(path.resolve(input.skillLocation))) {
+            return {
+              ok: false,
+              message: `Refused: self-evolution is disabled for skill "${input.name}" (the user opted it out). No changes were written.`,
+            }
+          }
+        }
         switch (input.action) {
           case "create":
             return await handleCreate(input)
@@ -349,6 +371,7 @@ export function createBoundSkillManageTool(
   defaultSessionProjectId: string,
   skillLocationMap?: Record<string, string>,
   skillSessionMap?: Record<string, string>,
+  evolutionDisabledFiles?: Set<string>,
 ): typeof SkillManageToolDef {
   return Tool.define("skill_manage", {
     description: SKILL_MANAGE_DESCRIPTION,
@@ -359,11 +382,14 @@ export function createBoundSkillManageTool(
         params.sessionProjectId ??
         skillSessionMap?.[params.name] ??
         (!resolvedLocation ? defaultSessionProjectId : undefined)
-      const result = await SkillManageTool.execute({
-        ...params,
-        skillLocation: resolvedLocation,
-        sessionProjectId: resolvedSessionId,
-      })
+      const result = await SkillManageTool.execute(
+        {
+          ...params,
+          skillLocation: resolvedLocation,
+          sessionProjectId: resolvedSessionId,
+        },
+        { evolutionDisabledFiles },
+      )
       return {
         title: `skill_manage(${params.action}: ${params.name})`,
         output: result.message,
