@@ -394,28 +394,74 @@ export namespace Worktree {
         )
       }
 
+      function emptyDir(target: string) {
+        return Effect.promise(async () => {
+          const fsp = await import("fs/promises")
+          const entries = await fsp.readdir(target, { withFileTypes: true })
+          await Promise.all(
+            entries.map((entry) => {
+              const p = pathSvc.join(target, entry.name)
+              return entry.isDirectory() ? fsp.rm(p, { recursive: true, force: true }) : fsp.unlink(p)
+            }),
+          )
+        })
+      }
+
+      const HANDLE_POLL_MS = 50
+      const HANDLE_TIMEOUT_MS = 5_000
+
+      function waitForHandleRelease(target: string) {
+        return Effect.promise(async () => {
+          const fsp = await import("fs/promises")
+          const start = Date.now()
+          while (true) {
+            try {
+              await fsp.rmdir(target)
+              return
+            } catch (err: any) {
+              if (err.code === "ENOENT") return
+              if (err.code === "EBUSY") {
+                const elapsed = Date.now() - start
+                if (elapsed >= HANDLE_TIMEOUT_MS) {
+                  throw new Error(
+                    `Native watcher handle not released after ${HANDLE_TIMEOUT_MS}ms for ${target}, aborting deletion`,
+                  )
+                }
+                await new Promise((r) => setTimeout(r, HANDLE_POLL_MS))
+                continue
+              }
+              throw err
+            }
+          }
+        })
+      }
+
+      function cleanFile(target: string) {
+        return Effect.promise(() => import("fs/promises").then((fsp) => fsp.unlink(target)))
+      }
+
       function cleanDirectory(target: string) {
+        if (process.platform === "win32") {
+          return Effect.gen(function* () {
+            const stat = yield* fsys.stat(target).pipe(Effect.catch(() => Effect.succeed(undefined)))
+            if (!stat) return
+            if (stat.type === "File") {
+              yield* cleanFile(target)
+              return
+            }
+            yield* emptyDir(target)
+            yield* waitForHandleRelease(target)
+          })
+        }
         return Effect.promise(() =>
           import("fs/promises").then((fsp) =>
-            fsp.rm(target, {
-              recursive: true,
-              force: true,
-              maxRetries: process.platform === "win32" ? 10 : 5,
-              retryDelay: process.platform === "win32" ? 200 : 100,
-            }),
+            fsp.rm(target, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }),
           ),
         )
       }
 
       function disposeAndClean(target: string) {
         return Effect.promise(() => Instance.disposeDirectory(target)).pipe(
-          Effect.flatMap(() => {
-            if (process.platform === "win32") {
-              log.info("post-dispose delay for native thread cleanup", { target })
-              return Effect.sleep("100 millis")
-            }
-            return Effect.void
-          }),
           Effect.flatMap(() => cleanDirectory(target)),
           Effect.map(() => true),
           Effect.catchCause((cause) => {
