@@ -379,7 +379,18 @@ export namespace Worktree {
       function stopFsmonitor(target: string) {
         return fsys.exists(target).pipe(
           Effect.orDie,
-          Effect.flatMap((exists) => (exists ? git(["fsmonitor--daemon", "stop"], { cwd: target }) : Effect.void)),
+          Effect.flatMap((exists) =>
+            exists
+              ? Effect.all(
+                  [
+                    git(["fsmonitor--daemon", "stop"], { cwd: target }),
+                    git(["fsmonitor--daemon", "stop"], { cwd: Instance.worktree }),
+                  ],
+                  { concurrency: 2 },
+                )
+              : Effect.void,
+          ),
+          Effect.catchCause(() => Effect.void),
         )
       }
 
@@ -396,7 +407,7 @@ export namespace Worktree {
         )
       }
 
-      function dispose(target: string) {
+      function disposeAndClean(target: string) {
         return Effect.promise(() => Instance.disposeDirectory(target)).pipe(
           Effect.flatMap(() => {
             if (process.platform === "win32") {
@@ -405,19 +416,13 @@ export namespace Worktree {
             }
             return Effect.void
           }),
+          Effect.flatMap(() => cleanDirectory(target)),
+          Effect.map(() => true),
           Effect.catchCause((cause) => {
-            log.error("dispose failed", { target, cause: String(cause) })
-            return Effect.void
+            log.error("disposeAndClean failed", { target, cause: String(cause) })
+            return Effect.succeed(false)
           }),
         )
-      }
-
-      function disposeAndClean(target: string) {
-        return dispose(target).pipe(Effect.flatMap(() => cleanDirectory(target)))
-      }
-
-      function disposeOnly(target: string) {
-        return dispose(target)
       }
 
       function pruneWorktree() {
@@ -434,7 +439,12 @@ export namespace Worktree {
         if (input.force) {
           yield* stopFsmonitor(directory)
           const dirExists = yield* fsys.exists(directory).pipe(Effect.orDie)
-          if (dirExists) yield* disposeAndClean(directory)
+          if (dirExists) {
+            const cleaned = yield* disposeAndClean(directory)
+            if (!cleaned) {
+              throw new RemoveFailedError({ message: "Directory is locked by another process, try again later" })
+            }
+          }
           yield* pruneWorktree()
 
           const staleId = ProjectID.fromDirectory(ProjectIdentity.norm(directory))
@@ -473,14 +483,17 @@ export namespace Worktree {
           const directoryExists = yield* fsys.exists(directory).pipe(Effect.orDie)
           if (directoryExists) {
             yield* stopFsmonitor(directory)
-            yield* disposeAndClean(directory)
+            const cleaned = yield* disposeAndClean(directory)
+            if (!cleaned) {
+              yield* pruneWorktree()
+              return { status: "stale" as const, directory, gitStderr: "Directory is locked by another process" }
+            }
           }
           yield* pruneWorktree()
           return { status: "ok" as const }
         }
 
         yield* stopFsmonitor(entry!.path)
-        yield* disposeOnly(entry!.path)
         const removed = yield* git(["worktree", "remove", "--force", entry!.path], { cwd: Instance.worktree })
         if (removed.code !== 0) {
           const isStale = /does not exist|不存在|not a valid|验证失败/i.test(removed.stderr || removed.text || "")
@@ -501,7 +514,7 @@ export namespace Worktree {
           }
         }
 
-        yield* cleanDirectory(directory)
+        yield* disposeAndClean(entry!.path)
         yield* pruneWorktree()
 
         return { status: "ok" as const }

@@ -112,10 +112,17 @@ function parseNetworkErrorMessage(msg: string, translator?: Translator) {
   return msg
 }
 
+function isNamedErrorLike(error: unknown): error is { name: string; data?: { message?: string } } {
+  if (typeof error !== "object" || error === null) return false
+  const o = error as Record<string, unknown>
+  return typeof o.name === "string" && typeof o.data === "object" && o.data !== null
+}
+
 export function formatServerError(error: unknown, translate?: Translator, fallback?: string) {
   if (isConfigInvalidErrorLike(error)) return parseReadableConfigInvalidError(error, translate)
   if (isProviderModelNotFoundErrorLike(error)) return parseReadableProviderModelNotFoundError(error, translate)
   if (isWorktreeErrorLike(error)) return parseWorktreeError(error, translate)
+  if (isNamedErrorLike(error)) return extractDataMessage(error, translate)
   if (error instanceof Error && error.message) return parseNetworkErrorMessage(error.message, translate)
   if (typeof error === "string" && error) return parseNetworkErrorMessage(error, translate)
   if (fallback) return fallback
