@@ -181,12 +181,16 @@ export namespace SessionRevert {
       })
       if (msg === target) target = undefined
     }
+    const boundaryMsg = msgs.find((m) => m.info.id === messageID)
+    const revertTime = (boundaryMsg?.info as MessageV2.Assistant | MessageV2.User)?.time?.created ?? 0
     for (const msg of preserve) {
       for (const part of msg.parts) {
         if (part.type === "tool" && part.state.status === "completed" && part.state.time.compacted) {
-          const time = { ...part.state.time }
-          delete time.compacted
-          await Session.updatePart({ ...part, state: { ...part.state, time } })
+          if (part.state.time.compacted > revertTime) {
+            const time = { ...part.state.time }
+            delete time.compacted
+            await Session.updatePart({ ...part, state: { ...part.state, time } })
+          }
         }
       }
     }
