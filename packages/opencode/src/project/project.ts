@@ -424,29 +424,6 @@ export namespace Project {
           }
         })
 
-        // Adopt the project_id from global_project_map if a pre-existing
-        // mapping refers to a different project DB (e.g. from an older
-        // norm() that lowercased the path on Windows).
-        // Track adoption: when the current directory resolves to a different
-        // project_id than the mapped one, the resolve result is not
-        // authoritative for this project — preserve the existing DB values.
-        const resolved = data.id
-        for (const dir of [directory, data.worktree, data.sandbox]) {
-          const n = norm(dir)
-          let mapped = yield* db((d) =>
-            d.select().from(GlobalProjectMapTable).where(eq(GlobalProjectMapTable.directory, n)).get(),
-          )
-          if (!mapped && n !== n.toLowerCase()) {
-            mapped = yield* db((d) =>
-              d.select().from(GlobalProjectMapTable).where(eq(GlobalProjectMapTable.directory, n.toLowerCase())).get(),
-            )
-          }
-          if (mapped && mapped.project_id !== data.id && Database.hasProject(mapped.project_id as ProjectID)) {
-            data.id = mapped.project_id as ProjectID
-            break
-          }
-        }
-
         // Phase 2: construct result
         const row = Database.hasProject(data.id)
           ? yield* dbProject(data.id, (d) => d.select().from(ProjectTable).where(eq(ProjectTable.id, data.id)).get())
@@ -464,12 +441,10 @@ export namespace Project {
         if (Flag.OPENCODE_EXPERIMENTAL_ICON_DISCOVERY)
           yield* discover(existing).pipe(Effect.ignore, Effect.forkIn(scope))
 
-        const adopted = data.id !== resolved
-
         const result: Info = {
           ...existing,
-          worktree: adopted ? existing.worktree : data.worktree,
-          vcs: adopted ? existing.vcs : data.vcs,
+          worktree: data.worktree,
+          vcs: data.vcs,
           time: { ...existing.time, updated: Date.now() },
         }
         if (
