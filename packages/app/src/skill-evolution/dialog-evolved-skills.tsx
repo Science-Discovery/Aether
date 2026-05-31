@@ -2,6 +2,7 @@ import { Switch } from "@opencode-ai/ui/switch"
 import { showToast } from "@opencode-ai/ui/toast"
 import { Dialog } from "@opencode-ai/ui/dialog"
 import { Icon } from "@opencode-ai/ui/icon"
+import { Tooltip } from "@opencode-ai/ui/tooltip"
 import {
   Component,
   For,
@@ -185,30 +186,37 @@ const DialogEvolvedSkillsInner: Component = () => {
           </span>
         </Show>
       </div>
-      <div class="flex items-center gap-1.5 shrink-0">
+      <div class="flex items-center gap-3 shrink-0">
         <Show when={props.skill.file}>
-          <button
-            class={[
-              "px-2 py-0.5 rounded text-11-regular transition-colors disabled:opacity-40",
+          <Tooltip
+            placement="top"
+            value={
               props.skill.evolution_enabled !== false
-                ? "text-text-weak hover:text-danger hover:bg-danger/10"
-                : "text-success hover:bg-success/10",
-            ].join(" ")}
-            disabled={togglingEvolution() === props.skill.file}
-            onClick={() =>
-              props.skill.file && handleToggleEvolution(props.skill.file, props.skill.evolution_enabled === false)
+                ? language.t("evolvedSkills.evolutionOnHint")
+                : language.t("evolvedSkills.evolutionOffHint")
             }
           >
-            {props.skill.evolution_enabled !== false
-              ? language.t("evolvedSkills.disableEvolution")
-              : language.t("evolvedSkills.enableEvolution")}
-          </button>
+            <Switch
+              checked={props.skill.evolution_enabled !== false}
+              disabled={togglingEvolution() === props.skill.file}
+              onChange={(checked) => props.skill.file && handleToggleEvolution(props.skill.file, checked)}
+            />
+          </Tooltip>
         </Show>
-        <Switch
-          checked={props.skill.enabled !== false}
-          disabled={toggling() === props.skill.file}
-          onChange={(checked) => props.skill.file && handleToggle(props.skill.file, checked)}
-        />
+        <Tooltip
+          placement="top"
+          value={
+            props.skill.enabled !== false
+              ? language.t("evolvedSkills.enabledOnHint")
+              : language.t("evolvedSkills.enabledOffHint")
+          }
+        >
+          <Switch
+            checked={props.skill.enabled !== false}
+            disabled={toggling() === props.skill.file}
+            onChange={(checked) => props.skill.file && handleToggle(props.skill.file, checked)}
+          />
+        </Tooltip>
       </div>
     </div>
   )
