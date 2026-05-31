@@ -24,10 +24,46 @@ import { SystemPrompt } from "./system"
 import { Flag } from "@/flag/flag"
 import { Permission } from "@/permission"
 import { Auth } from "@/auth"
+import { Global } from "@/global"
+import { Filesystem } from "@/util/filesystem"
+import { parse as parseJsonc, type ParseError } from "jsonc-parser"
+import path from "path"
 
 export namespace LLM {
   const log = Log.create({ service: "llm" })
   export const OUTPUT_TOKEN_MAX = ProviderTransform.OUTPUT_TOKEN_MAX
+
+  let cached: boolean | undefined = undefined
+
+  async function dumpEnabled(): Promise<boolean> {
+    if (cached !== undefined) return cached
+    const cfgPath = path.join(Global.Path.config, "aether-prompt.jsonc")
+    try {
+      const text = await Filesystem.readText(cfgPath)
+      const errors: ParseError[] = []
+      const data = parseJsonc(text, errors, { allowTrailingComma: true })
+      cached = data === true
+      if (errors.length > 0) log.warn("aether-prompt.jsonc has parse errors", { errors })
+    } catch {
+      cached = false
+    }
+    return cached
+  }
+
+  async function dump(sessionID: string, prompt: unknown, suffix?: string) {
+    const ts = new Date()
+      .toISOString()
+      .replace(/[.:-TZ]/g, "")
+      .slice(0, 15)
+    const name = suffix ? `${sessionID}-${ts}-${suffix}.json` : `${sessionID}-${ts}.json`
+    const file = path.join(Global.Path.data, "llm", name)
+    try {
+      await Filesystem.write(file, JSON.stringify(prompt, null, 2))
+      log.info("dumped prompt", { path: file })
+    } catch (e) {
+      log.error("failed to dump prompt", { error: e })
+    }
+  }
 
   export type StreamInput = {
     user: MessageV2.User
@@ -47,36 +83,41 @@ export namespace LLM {
 
   export type StreamOutput = StreamTextResult<ToolSet, unknown>
 
-  const finish: LanguageModelMiddleware = {
-    async wrapStream(input) {
-      const result = await input.doStream()
-      let calls = false
-      return {
-        ...result,
-        stream: result.stream.pipeThrough(
-          new TransformStream({
-            transform(part, controller) {
-              if (part.type === "tool-call") calls = true
-              if (part.type === "finish" && (part.finishReason as string) === "unknown") {
-                controller.enqueue({
-                  ...part,
-                  finishReason: (calls ? "tool-calls" : "stop") as typeof part.finishReason,
-                })
-                return
-              }
-              if (part.type === "finish" && calls && part.finishReason === "stop") {
-                controller.enqueue({
-                  ...part,
-                  finishReason: "tool-calls" as typeof part.finishReason,
-                })
-                return
-              }
-              controller.enqueue(part)
-            },
-          }),
-        ),
-      }
-    },
+  function finish(sessionID: string): LanguageModelMiddleware {
+    return {
+      async wrapStream(input) {
+        const result = await input.doStream()
+        if ((await dumpEnabled()) && result.request?.body) {
+          await dump(sessionID, result.request.body, "final")
+        }
+        let calls = false
+        return {
+          ...result,
+          stream: result.stream.pipeThrough(
+            new TransformStream({
+              transform(part, controller) {
+                if (part.type === "tool-call") calls = true
+                if (part.type === "finish" && (part.finishReason as string) === "unknown") {
+                  controller.enqueue({
+                    ...part,
+                    finishReason: (calls ? "tool-calls" : "stop") as typeof part.finishReason,
+                  })
+                  return
+                }
+                if (part.type === "finish" && calls && part.finishReason === "stop") {
+                  controller.enqueue({
+                    ...part,
+                    finishReason: "tool-calls" as typeof part.finishReason,
+                  })
+                  return
+                }
+                controller.enqueue(part)
+              },
+            }),
+          ),
+        }
+      },
+    }
   }
 
   export async function stream(input: StreamInput) {
@@ -310,13 +351,14 @@ export namespace LLM {
       model: wrapLanguageModel({
         model: language,
         middleware: [
-          finish,
+          finish(input.sessionID),
           {
             async transformParams(args) {
               if (args.type === "stream") {
                 // @ts-expect-error
                 args.params.prompt = ProviderTransform.message(args.params.prompt, input.model, options)
               }
+              if (await dumpEnabled()) await dump(input.sessionID, args.params.prompt)
               return args.params
             },
           },
