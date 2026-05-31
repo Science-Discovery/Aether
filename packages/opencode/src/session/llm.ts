@@ -6,8 +6,8 @@ import {
   wrapLanguageModel,
   type ModelMessage,
   type StreamTextResult,
-  type ToolSet,
   type Tool,
+  type ToolSet,
   tool,
   jsonSchema,
   type LanguageModelMiddleware,
@@ -26,32 +26,39 @@ import { Permission } from "@/permission"
 import { Auth } from "@/auth"
 import { Global } from "@/global"
 import { Filesystem } from "@/util/filesystem"
-import { parse as parseJsonc } from "jsonc-parser"
+import { parse as parseJsonc, type ParseError } from "jsonc-parser"
 import path from "path"
 
 export namespace LLM {
   const log = Log.create({ service: "llm" })
   export const OUTPUT_TOKEN_MAX = ProviderTransform.OUTPUT_TOKEN_MAX
 
-  async function shouldDumpPrompt(): Promise<boolean> {
+  let cached: boolean | undefined = undefined
+
+  async function dumpEnabled(): Promise<boolean> {
+    if (cached !== undefined) return cached
     const cfgPath = path.join(Global.Path.config, "aether-prompt.jsonc")
     try {
       const text = await Filesystem.readText(cfgPath)
-      const errors: any[] = []
+      const errors: ParseError[] = []
       const data = parseJsonc(text, errors, { allowTrailingComma: true })
-      return data === true
+      cached = data === true
+      if (errors.length > 0) log.warn("aether-prompt.jsonc has parse errors", { errors })
     } catch {
-      return false
+      cached = false
     }
+    return cached
   }
 
-  async function dumpPrompt(sessionID: string, messages: ModelMessage[]) {
-    const now = new Date()
-    const ts = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}${String(now.getDate()).padStart(2, "0")}-${String(now.getHours()).padStart(2, "0")}${String(now.getMinutes()).padStart(2, "0")}${String(now.getSeconds()).padStart(2, "0")}`
-    const filename = `${sessionID}-${ts}.json`
-    const dir = path.join(Global.Path.data, "llm")
-    await Filesystem.write(path.join(dir, filename), JSON.stringify(messages, null, 2))
-    log.info("dumped prompt", { path: path.join(dir, filename) })
+  async function dump(sessionID: string, messages: ModelMessage[]) {
+    const ts = new Date().toISOString().replace(/[-:T]/g, "").slice(0, 15)
+    const file = path.join(Global.Path.data, "llm", `${sessionID}-${ts}.json`)
+    try {
+      await Filesystem.write(file, JSON.stringify(messages, null, 2))
+      log.info("dumped prompt", { path: file })
+    } catch (e) {
+      log.error("failed to dump prompt", { error: e })
+    }
   }
 
   export type StreamInput = {
@@ -188,7 +195,7 @@ export namespace LLM {
             ...input.messages,
           ]
 
-    if (await shouldDumpPrompt()) await dumpPrompt(input.sessionID, messages)
+    if (await dumpEnabled()) await dump(input.sessionID, messages)
 
     const params = await Plugin.trigger(
       "chat.params",
