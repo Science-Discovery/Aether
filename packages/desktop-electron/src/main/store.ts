@@ -12,7 +12,7 @@ export function getStore(name = SETTINGS_STORE) {
   ensureDesktopPersist()
   const nextName = ensureStoreFile(name)
   const cwd = shared(nextName) ? aetherDataDir() : userDataDir()
-  const next = new Store({ name: nextName, fileExtension: "", cwd })
+  const next = new Store({ name: nextName, fileExtension: "", cwd, accessPropertiesByDotNotation: false })
   cache.set(name, next)
   return next
 }
