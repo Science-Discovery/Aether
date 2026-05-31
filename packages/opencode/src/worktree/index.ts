@@ -83,7 +83,6 @@ export namespace Worktree {
     }),
     z.object({
       status: z.literal("forceOk"),
-      hasOrphanedDb: z.boolean(),
     }),
   ])
 
@@ -437,28 +436,7 @@ export namespace Worktree {
           if (dirExists) yield* disposeAndClean(directory)
           yield* pruneWorktree()
 
-          const staleId = ProjectID.fromDirectory(ProjectIdentity.norm(directory))
-          const hasOrphanedDb = Database.hasProject(staleId)
-            ? (() => {
-                const row = Database.useProject(staleId, (d) =>
-                  d.select().from(ProjectTable).where(eq(ProjectTable.id, staleId)).get(),
-                )
-                return row?.worktree === directory
-              })()
-            : false
-
-          if (hasOrphanedDb) {
-            Database.detach(staleId)
-            const dbPath = Database.projectPath(staleId)
-            for (const suffix of ["", "-wal", "-shm"]) {
-              const p = dbPath + suffix
-              if (yield* fsys.exists(p).pipe(Effect.orDie)) {
-                yield* cleanDirectory(p)
-              }
-            }
-          }
-
-          return { status: "forceOk" as const, hasOrphanedDb }
+          return { status: "forceOk" as const }
         }
 
         const list = yield* git(["worktree", "list", "--porcelain"], { cwd: Instance.worktree })

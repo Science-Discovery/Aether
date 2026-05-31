@@ -8491,6 +8491,7 @@ export class OpencodeClient extends HeyApiClient {
       workspace?: string
       providerID?: string
       modelID?: string
+      mode?: "omni" | "asr" | "realtime"
       audioBase64?: string
       audioFormat?: string
       context?: Array<{
@@ -8509,6 +8510,7 @@ export class OpencodeClient extends HeyApiClient {
             { in: "query", key: "workspace" },
             { in: "body", key: "providerID" },
             { in: "body", key: "modelID" },
+            { in: "body", key: "mode" },
             { in: "body", key: "audioBase64" },
             { in: "body", key: "audioFormat" },
             { in: "body", key: "context" },
