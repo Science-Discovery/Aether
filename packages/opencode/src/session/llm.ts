@@ -6,8 +6,8 @@ import {
   wrapLanguageModel,
   type ModelMessage,
   type StreamTextResult,
-  type Tool,
   type ToolSet,
+  type Tool,
   tool,
   jsonSchema,
   type LanguageModelMiddleware,
@@ -24,10 +24,35 @@ import { SystemPrompt } from "./system"
 import { Flag } from "@/flag/flag"
 import { Permission } from "@/permission"
 import { Auth } from "@/auth"
+import { Global } from "@/global"
+import { Filesystem } from "@/util/filesystem"
+import { parse as parseJsonc } from "jsonc-parser"
+import path from "path"
 
 export namespace LLM {
   const log = Log.create({ service: "llm" })
   export const OUTPUT_TOKEN_MAX = ProviderTransform.OUTPUT_TOKEN_MAX
+
+  async function shouldDumpPrompt(): Promise<boolean> {
+    const cfgPath = path.join(Global.Path.config, "aether-prompt.jsonc")
+    try {
+      const text = await Filesystem.readText(cfgPath)
+      const errors: any[] = []
+      const data = parseJsonc(text, errors, { allowTrailingComma: true })
+      return data === true
+    } catch {
+      return false
+    }
+  }
+
+  async function dumpPrompt(sessionID: string, messages: ModelMessage[]) {
+    const now = new Date()
+    const ts = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}${String(now.getDate()).padStart(2, "0")}-${String(now.getHours()).padStart(2, "0")}${String(now.getMinutes()).padStart(2, "0")}${String(now.getSeconds()).padStart(2, "0")}`
+    const filename = `${sessionID}-${ts}.json`
+    const dir = path.join(Global.Path.data, "llm")
+    await Filesystem.write(path.join(dir, filename), JSON.stringify(messages, null, 2))
+    log.info("dumped prompt", { path: path.join(dir, filename) })
+  }
 
   export type StreamInput = {
     user: MessageV2.User
@@ -162,6 +187,8 @@ export namespace LLM {
             ),
             ...input.messages,
           ]
+
+    if (await shouldDumpPrompt()) await dumpPrompt(input.sessionID, messages)
 
     const params = await Plugin.trigger(
       "chat.params",
