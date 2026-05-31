@@ -1102,13 +1102,8 @@ export namespace Database {
     const recentPidRows = sqlite
       .prepare("SELECT key, directory, project_id, kind FROM project_recent WHERE project_id IS NOT NULL")
       .all() as { key: string; directory: string; project_id: string; kind: string }[]
-    const allDirs = new Map<string, string>()
-    for (const row of mapRows) allDirs.set(row.directory, row.project_id)
-    for (const row of recentPidRows) {
-      const existing = allDirs.get(row.directory)
-      if (!existing) allDirs.set(row.directory, row.project_id)
-    }
-
+    const mapPidByDir = new Map<string, string>()
+    for (const row of mapRows) mapPidByDir.set(row.directory, row.project_id)
     const updateMap = sqlite.prepare(
       "UPDATE global_project_map SET project_id = ?, time_updated = ? WHERE directory = ?",
     )
@@ -1120,24 +1115,36 @@ export namespace Database {
 
     let mapCorrected = 0
     let recentCorrected = 0
-    for (const [directory, oldPid] of allDirs) {
+
+    const fixEntry = (directory: string, oldPid: string, fixRecentOnly: boolean) => {
       const resolved = ProjectIdentity.resolve(directory)
-      if (oldPid === resolved.id) continue
+      if (oldPid === resolved.id) return false
       const resolvedDbExists = existingDbIds.has(resolved.id)
       const mappedDbExists = existingDbIds.has(oldPid) && !corruptedIds.has(oldPid)
       const key = `dir:${norm(directory)}`
       const kind = resolved.vcs === "git" ? "project" : "directory"
       if (resolvedDbExists) {
-        updateMap.run(resolved.id, Date.now(), directory)
-        mapCorrected++
+        if (!fixRecentOnly) {
+          updateMap.run(resolved.id, Date.now(), directory)
+          mapCorrected++
+        }
         updateRecent.run(resolved.id, kind, Date.now(), key)
         recentCorrected++
       } else if (!mappedDbExists) {
-        deleteMap.run(directory)
-        mapCorrected++
+        if (!fixRecentOnly) {
+          deleteMap.run(directory)
+          mapCorrected++
+        }
         deleteRecent.run(key)
         recentCorrected++
       }
+      return true
+    }
+
+    for (const row of mapRows) fixEntry(row.directory, row.project_id, false)
+    for (const row of recentPidRows) {
+      const mapPid = mapPidByDir.get(row.directory)
+      if (mapPid && mapPid !== row.project_id) fixEntry(row.directory, row.project_id, true)
     }
     if (mapCorrected > 0) log.info("corrected stale global_project_map entries", { mapCorrected })
     if (recentCorrected > 0) log.info("corrected stale project_recent entries", { recentCorrected })
