@@ -387,48 +387,60 @@ function setupAutoUpdater() {
     allowDowngrade: autoUpdater.allowDowngrade,
     currentVersion: app.getVersion(),
   })
+
+  const INTERVAL = 24 * 60 * 60 * 1000
+  setTimeout(() => {
+    void checkForUpdates(false)
+    setInterval(() => void checkForUpdates(false), INTERVAL)
+  }, 10_000)
 }
 
 let updateReady = false
+let updateChecking = false
 
 async function checkUpdate() {
-  if (!UPDATER_ENABLED) return { updateAvailable: false }
-  autoUpdater.allowPrerelease = prerelease()
-  autoUpdater.allowDowngrade = false
-  updateReady = false
-  logger.log("checking for updates", {
-    currentVersion: app.getVersion(),
-    allowPrerelease: autoUpdater.allowPrerelease,
-    allowDowngrade: autoUpdater.allowDowngrade,
-  })
+  if (!UPDATER_ENABLED || updateChecking) return { updateAvailable: false }
+  updateChecking = true
   try {
-    const result = await autoUpdater.checkForUpdates()
-    const updateInfo = result?.updateInfo
-    logger.log("update metadata fetched", {
-      releaseVersion: updateInfo?.version ?? null,
-      releaseDate: updateInfo?.releaseDate ?? null,
-      releaseName: updateInfo?.releaseName ?? null,
-      files: updateInfo?.files?.map((file) => file.url) ?? [],
+    autoUpdater.allowPrerelease = prerelease()
+    autoUpdater.allowDowngrade = false
+    updateReady = false
+    logger.log("checking for updates", {
+      currentVersion: app.getVersion(),
+      allowPrerelease: autoUpdater.allowPrerelease,
+      allowDowngrade: autoUpdater.allowDowngrade,
     })
-    const version = result?.updateInfo?.version
-    if (result?.isUpdateAvailable === false || !version) {
-      logger.log("no update available", {
-        reason: "provider returned no newer version",
+    try {
+      const result = await autoUpdater.checkForUpdates()
+      const updateInfo = result?.updateInfo
+      logger.log("update metadata fetched", {
+        releaseVersion: updateInfo?.version ?? null,
+        releaseDate: updateInfo?.releaseDate ?? null,
+        releaseName: updateInfo?.releaseName ?? null,
+        files: updateInfo?.files?.map((file) => file.url) ?? [],
       })
-      return { updateAvailable: false }
-    }
-    logger.log("update available", { version })
-    if (MANUAL_INSTALL_UPDATE) {
-      logger.log("update available; manual install required", { version, platform: process.platform })
+      const version = result?.updateInfo?.version
+      if (result?.isUpdateAvailable === false || !version) {
+        logger.log("no update available", {
+          reason: "provider returned no newer version",
+        })
+        return { updateAvailable: false }
+      }
+      logger.log("update available", { version })
+      if (MANUAL_INSTALL_UPDATE) {
+        logger.log("update available; manual install required", { version, platform: process.platform })
+        return { updateAvailable: true, version }
+      }
+      await autoUpdater.downloadUpdate()
+      logger.log("update download completed", { version })
+      updateReady = true
       return { updateAvailable: true, version }
+    } catch (error) {
+      logger.error("update check failed", error)
+      return { updateAvailable: false, failed: true }
     }
-    await autoUpdater.downloadUpdate()
-    logger.log("update download completed", { version })
-    updateReady = true
-    return { updateAvailable: true, version }
-  } catch (error) {
-    logger.error("update check failed", error)
-    return { updateAvailable: false, failed: true }
+  } finally {
+    updateChecking = false
   }
 }
 
