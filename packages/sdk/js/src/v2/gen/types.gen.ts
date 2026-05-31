@@ -3718,7 +3718,6 @@ export type WorktreeRemoveResponses = {
       }
     | {
         status: "forceOk"
-        hasOrphanedDb: boolean
       }
 }
 
@@ -8529,6 +8528,7 @@ export type PostVoiceTranscribeData = {
   body?: {
     providerID: string
     modelID: string
+    mode?: "omni" | "asr" | "realtime"
     audioBase64: string
     audioFormat: string
     context?: Array<{

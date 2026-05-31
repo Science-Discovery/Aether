@@ -83,7 +83,6 @@ export namespace Worktree {
     }),
     z.object({
       status: z.literal("forceOk"),
-      hasOrphanedDb: z.boolean(),
     }),
   ])
 
@@ -437,7 +436,7 @@ export namespace Worktree {
           if (dirExists) yield* disposeAndClean(directory)
           yield* pruneWorktree()
 
-          return { status: "forceOk" as const, hasOrphanedDb: false }
+          return { status: "forceOk" as const }
         }
 
         const list = yield* git(["worktree", "list", "--porcelain"], { cwd: Instance.worktree })
