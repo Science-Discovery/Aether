@@ -50,11 +50,15 @@ export namespace LLM {
     return cached
   }
 
-  async function dump(sessionID: string, messages: ModelMessage[]) {
-    const ts = new Date().toISOString().replace(/[-:T]/g, "").slice(0, 15)
-    const file = path.join(Global.Path.data, "llm", `${sessionID}-${ts}.json`)
+  async function dump(sessionID: string, prompt: unknown, suffix?: string) {
+    const ts = new Date()
+      .toISOString()
+      .replace(/[.:-TZ]/g, "")
+      .slice(0, 15)
+    const name = suffix ? `${sessionID}-${ts}-${suffix}.json` : `${sessionID}-${ts}.json`
+    const file = path.join(Global.Path.data, "llm", name)
     try {
-      await Filesystem.write(file, JSON.stringify(messages, null, 2))
+      await Filesystem.write(file, JSON.stringify(prompt, null, 2))
       log.info("dumped prompt", { path: file })
     } catch (e) {
       log.error("failed to dump prompt", { error: e })
@@ -79,36 +83,41 @@ export namespace LLM {
 
   export type StreamOutput = StreamTextResult<ToolSet, unknown>
 
-  const finish: LanguageModelMiddleware = {
-    async wrapStream(input) {
-      const result = await input.doStream()
-      let calls = false
-      return {
-        ...result,
-        stream: result.stream.pipeThrough(
-          new TransformStream({
-            transform(part, controller) {
-              if (part.type === "tool-call") calls = true
-              if (part.type === "finish" && (part.finishReason as string) === "unknown") {
-                controller.enqueue({
-                  ...part,
-                  finishReason: (calls ? "tool-calls" : "stop") as typeof part.finishReason,
-                })
-                return
-              }
-              if (part.type === "finish" && calls && part.finishReason === "stop") {
-                controller.enqueue({
-                  ...part,
-                  finishReason: "tool-calls" as typeof part.finishReason,
-                })
-                return
-              }
-              controller.enqueue(part)
-            },
-          }),
-        ),
-      }
-    },
+  function finish(sessionID: string): LanguageModelMiddleware {
+    return {
+      async wrapStream(input) {
+        const result = await input.doStream()
+        if ((await dumpEnabled()) && result.request?.body) {
+          await dump(sessionID, result.request.body, "final")
+        }
+        let calls = false
+        return {
+          ...result,
+          stream: result.stream.pipeThrough(
+            new TransformStream({
+              transform(part, controller) {
+                if (part.type === "tool-call") calls = true
+                if (part.type === "finish" && (part.finishReason as string) === "unknown") {
+                  controller.enqueue({
+                    ...part,
+                    finishReason: (calls ? "tool-calls" : "stop") as typeof part.finishReason,
+                  })
+                  return
+                }
+                if (part.type === "finish" && calls && part.finishReason === "stop") {
+                  controller.enqueue({
+                    ...part,
+                    finishReason: "tool-calls" as typeof part.finishReason,
+                  })
+                  return
+                }
+                controller.enqueue(part)
+              },
+            }),
+          ),
+        }
+      },
+    }
   }
 
   export async function stream(input: StreamInput) {
@@ -194,8 +203,6 @@ export namespace LLM {
             ),
             ...input.messages,
           ]
-
-    if (await dumpEnabled()) await dump(input.sessionID, messages)
 
     const params = await Plugin.trigger(
       "chat.params",
@@ -344,13 +351,14 @@ export namespace LLM {
       model: wrapLanguageModel({
         model: language,
         middleware: [
-          finish,
+          finish(input.sessionID),
           {
             async transformParams(args) {
               if (args.type === "stream") {
                 // @ts-expect-error
                 args.params.prompt = ProviderTransform.message(args.params.prompt, input.model, options)
               }
+              if (await dumpEnabled()) await dump(input.sessionID, args.params.prompt)
               return args.params
             },
           },
