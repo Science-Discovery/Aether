@@ -17,6 +17,7 @@ import { EOL } from "os"
 import { Installation } from "../installation"
 import { Flag } from "../flag/flag"
 import { iife } from "@/util/iife"
+import { ProjectIdentity } from "../project/identity"
 import { init } from "#db"
 import { Spawner } from "@/skill-evolution/spawner"
 import { detectCorruption, quarantine, cleanupQuarantinedOriginals, DbRecovery } from "./db-recovery"
@@ -1085,6 +1086,61 @@ export namespace Database {
       mapRemoved++
     }
     if (mapRemoved > 0) log.info("removed stale/duplicate global_project_map entries", { mapRemoved })
+
+    // Phase 4: Verify global_project_map + project_recent against
+    //          ProjectIdentity.resolve. Collect all directory paths from
+    //          both tables, resolve each, and fix stale project_id references
+    //          caused by norm/hash algorithm changes. Three outcomes per entry:
+    //          (a) resolve agrees with current project_id → skip
+    //          (b) resolve disagrees, correct DB exists → update both tables
+    //          (c) resolve disagrees, neither DB exists → delete both entries
+    //          (d) resolve disagrees, only old DB exists → keep old (backward compat)
+    const mapRows = sqlite.prepare("SELECT directory, project_id FROM global_project_map").all() as {
+      directory: string
+      project_id: string
+    }[]
+    const recentPidRows = sqlite
+      .prepare("SELECT key, directory, project_id, kind FROM project_recent WHERE project_id IS NOT NULL")
+      .all() as { key: string; directory: string; project_id: string; kind: string }[]
+    const allDirs = new Map<string, string>()
+    for (const row of mapRows) allDirs.set(row.directory, row.project_id)
+    for (const row of recentPidRows) {
+      const existing = allDirs.get(row.directory)
+      if (!existing) allDirs.set(row.directory, row.project_id)
+    }
+
+    const updateMap = sqlite.prepare(
+      "UPDATE global_project_map SET project_id = ?, time_updated = ? WHERE directory = ?",
+    )
+    const deleteMap = sqlite.prepare("DELETE FROM global_project_map WHERE directory = ?")
+    const updateRecent = sqlite.prepare(
+      "UPDATE project_recent SET project_id = ?, kind = ?, time_updated = ? WHERE key = ?",
+    )
+    const deleteRecent = sqlite.prepare("DELETE FROM project_recent WHERE key = ?")
+
+    let mapCorrected = 0
+    let recentCorrected = 0
+    for (const [directory, oldPid] of allDirs) {
+      const resolved = ProjectIdentity.resolve(directory)
+      if (oldPid === resolved.id) continue
+      const resolvedDbExists = existingDbIds.has(resolved.id)
+      const mappedDbExists = existingDbIds.has(oldPid) && !corruptedIds.has(oldPid)
+      const key = `dir:${norm(directory)}`
+      const kind = resolved.vcs === "git" ? "project" : "directory"
+      if (resolvedDbExists) {
+        updateMap.run(resolved.id, Date.now(), directory)
+        mapCorrected++
+        updateRecent.run(resolved.id, kind, Date.now(), key)
+        recentCorrected++
+      } else if (!mappedDbExists) {
+        deleteMap.run(directory)
+        mapCorrected++
+        deleteRecent.run(key)
+        recentCorrected++
+      }
+    }
+    if (mapCorrected > 0) log.info("corrected stale global_project_map entries", { mapCorrected })
+    if (recentCorrected > 0) log.info("corrected stale project_recent entries", { recentCorrected })
   }
 
   export function transaction<T>(
