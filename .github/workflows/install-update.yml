@@ -1,0 +1,145 @@
+name: install-update
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.run_id }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  install-update:
+    name: ${{ matrix.id }}
+    runs-on: ${{ matrix.host }}
+    container: ${{ matrix.container || null }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { id: web-site-windows-x64, host: windows-2022, product: web, task: site-install, platform: windows, arch: x64 }
+          - { id: web-site-windows-arm64, host: windows-11-arm, product: web, task: site-install, platform: windows, arch: arm64 }
+          - { id: web-site-macos-arm64, host: macos-14, product: web, task: site-install, platform: darwin, arch: arm64 }
+          - { id: web-site-macos-x64, host: macos-15-intel, product: web, task: site-install, platform: darwin, arch: x64 }
+          - { id: web-site-linux-x64, host: ubuntu-24.04, product: web, task: site-install, platform: linux, arch: x64 }
+          - { id: web-site-linux-arm64, host: ubuntu-24.04-arm, product: web, task: site-install, platform: linux, arch: arm64 }
+
+          - { id: web-github-windows-x64, host: windows-2022, product: web, task: github-install, platform: windows, arch: x64 }
+          - { id: web-github-windows-arm64, host: windows-11-arm, product: web, task: github-install, platform: windows, arch: arm64 }
+          - { id: web-github-macos-arm64, host: macos-14, product: web, task: github-install, platform: darwin, arch: arm64 }
+          - { id: web-github-macos-x64, host: macos-15-intel, product: web, task: github-install, platform: darwin, arch: x64 }
+          - { id: web-github-linux-x64, host: ubuntu-24.04, product: web, task: github-install, platform: linux, arch: x64 }
+          - { id: web-github-linux-arm64, host: ubuntu-24.04-arm, product: web, task: github-install, platform: linux, arch: arm64 }
+
+          - { id: web-auto-windows-x64, host: windows-2022, product: web, task: auto-update, platform: windows, arch: x64 }
+          - { id: web-auto-windows-arm64, host: windows-11-arm, product: web, task: auto-update, platform: windows, arch: arm64 }
+          - { id: web-auto-macos-arm64, host: macos-14, product: web, task: auto-update, platform: darwin, arch: arm64 }
+          - { id: web-auto-macos-x64, host: macos-15-intel, product: web, task: auto-update, platform: darwin, arch: x64 }
+          - { id: web-auto-linux-x64, host: ubuntu-24.04, product: web, task: auto-update, platform: linux, arch: x64 }
+          - { id: web-auto-linux-arm64, host: ubuntu-24.04-arm, product: web, task: auto-update, platform: linux, arch: arm64 }
+
+          - { id: web-manual-windows-x64, host: windows-2022, product: web, task: manual-update, platform: windows, arch: x64 }
+          - { id: web-manual-windows-arm64, host: windows-11-arm, product: web, task: manual-update, platform: windows, arch: arm64 }
+          - { id: web-manual-macos-arm64, host: macos-14, product: web, task: manual-update, platform: darwin, arch: arm64 }
+          - { id: web-manual-macos-x64, host: macos-15-intel, product: web, task: manual-update, platform: darwin, arch: x64 }
+          - { id: web-manual-linux-x64, host: ubuntu-24.04, product: web, task: manual-update, platform: linux, arch: x64 }
+          - { id: web-manual-linux-arm64, host: ubuntu-24.04-arm, product: web, task: manual-update, platform: linux, arch: arm64 }
+
+          - { id: electron-github-windows-x64, host: windows-2022, product: electron, task: github-install, platform: windows, arch: x64 }
+          - { id: electron-github-windows-arm64, host: windows-11-arm, product: electron, task: github-install, platform: windows, arch: arm64 }
+          - { id: electron-github-macos-arm64, host: macos-14, product: electron, task: github-install, platform: darwin, arch: arm64 }
+          - { id: electron-github-macos-x64, host: macos-15-intel, product: electron, task: github-install, platform: darwin, arch: x64 }
+          - { id: electron-github-linux-x64-appimage, host: ubuntu-24.04, product: electron, task: github-install, platform: linux, arch: x64, format: appimage }
+          - { id: electron-github-linux-arm64-appimage, host: ubuntu-24.04-arm, product: electron, task: github-install, platform: linux, arch: arm64, format: appimage }
+          - { id: electron-github-linux-x64-deb, host: ubuntu-24.04, product: electron, task: github-install, platform: linux, arch: x64, format: deb }
+          - { id: electron-github-linux-arm64-deb, host: ubuntu-24.04-arm, product: electron, task: github-install, platform: linux, arch: arm64, format: deb }
+          - { id: electron-github-linux-x64-rpm, host: ubuntu-24.04, container: fedora:42, product: electron, task: github-install, platform: linux, arch: x64, format: rpm }
+          - { id: electron-github-linux-arm64-rpm, host: ubuntu-24.04-arm, container: fedora:42, product: electron, task: github-install, platform: linux, arch: arm64, format: rpm }
+
+          - { id: electron-auto-windows-x64, host: windows-2022, product: electron, task: auto-update, platform: windows, arch: x64 }
+          - { id: electron-auto-windows-arm64, host: windows-11-arm, product: electron, task: auto-update, platform: windows, arch: arm64 }
+          - { id: electron-auto-macos-arm64, host: macos-14, product: electron, task: auto-update, platform: darwin, arch: arm64 }
+          - { id: electron-auto-macos-x64, host: macos-15-intel, product: electron, task: auto-update, platform: darwin, arch: x64 }
+          - { id: electron-auto-linux-x64-appimage, host: ubuntu-24.04, product: electron, task: auto-update, platform: linux, arch: x64, format: appimage }
+          - { id: electron-auto-linux-arm64-appimage, host: ubuntu-24.04-arm, product: electron, task: auto-update, platform: linux, arch: arm64, format: appimage }
+          - { id: electron-auto-linux-x64-deb, host: ubuntu-24.04, product: electron, task: auto-update, platform: linux, arch: x64, format: deb }
+          - { id: electron-auto-linux-arm64-deb, host: ubuntu-24.04-arm, product: electron, task: auto-update, platform: linux, arch: arm64, format: deb }
+          - { id: electron-auto-linux-x64-rpm, host: ubuntu-24.04, container: fedora:42, product: electron, task: auto-update, platform: linux, arch: x64, format: rpm }
+          - { id: electron-auto-linux-arm64-rpm, host: ubuntu-24.04-arm, container: fedora:42, product: electron, task: auto-update, platform: linux, arch: arm64, format: rpm }
+
+          - { id: electron-manual-windows-x64, host: windows-2022, product: electron, task: manual-update, platform: windows, arch: x64 }
+          - { id: electron-manual-windows-arm64, host: windows-11-arm, product: electron, task: manual-update, platform: windows, arch: arm64 }
+          - { id: electron-manual-macos-arm64, host: macos-14, product: electron, task: manual-update, platform: darwin, arch: arm64 }
+          - { id: electron-manual-macos-x64, host: macos-15-intel, product: electron, task: manual-update, platform: darwin, arch: x64 }
+          - { id: electron-manual-linux-x64-appimage, host: ubuntu-24.04, product: electron, task: manual-update, platform: linux, arch: x64, format: appimage }
+          - { id: electron-manual-linux-arm64-appimage, host: ubuntu-24.04-arm, product: electron, task: manual-update, platform: linux, arch: arm64, format: appimage }
+          - { id: electron-manual-linux-x64-deb, host: ubuntu-24.04, product: electron, task: manual-update, platform: linux, arch: x64, format: deb }
+          - { id: electron-manual-linux-arm64-deb, host: ubuntu-24.04-arm, product: electron, task: manual-update, platform: linux, arch: arm64, format: deb }
+          - { id: electron-manual-linux-x64-rpm, host: ubuntu-24.04, container: fedora:42, product: electron, task: manual-update, platform: linux, arch: x64, format: rpm }
+          - { id: electron-manual-linux-arm64-rpm, host: ubuntu-24.04-arm, container: fedora:42, product: electron, task: manual-update, platform: linux, arch: arm64, format: rpm }
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+      PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/.playwright-browsers
+      AETHER_CI_ID: ${{ matrix.id }}
+      AETHER_CI_PRODUCT: ${{ matrix.product }}
+      AETHER_CI_TASK: ${{ matrix.task }}
+      AETHER_CI_PLATFORM: ${{ matrix.platform }}
+      AETHER_CI_ARCH: ${{ matrix.arch }}
+      AETHER_CI_FORMAT: ${{ matrix.format || '' }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Setup Bun
+        uses: ./.github/actions/setup-bun
+
+      - name: Install Linux GUI and package dependencies
+        if: runner.os == 'Linux' && matrix.format != 'rpm'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb xdotool xdg-utils unzip rpm imagemagick libfuse2t64 libgtk-3-0 libnotify4 libnss3 libxss1 libxtst6 libasound2t64 || \
+            sudo apt-get install -y xvfb xdotool xdg-utils unzip rpm imagemagick libfuse2 libgtk-3-0 libnotify4 libnss3 libxss1 libxtst6 libasound2
+
+      - name: Install RPM Linux GUI and package dependencies
+        if: runner.os == 'Linux' && matrix.format == 'rpm'
+        run: dnf install -y xorg-x11-server-Xvfb xdotool xdg-utils unzip ImageMagick gtk3 libnotify nss libXScrnSaver libXtst alsa-lib fuse-libs
+
+      - name: Install Playwright system dependencies
+        if: matrix.product == 'web' && runner.os == 'Linux'
+        working-directory: packages/app
+        run: bunx playwright install-deps chromium
+
+      - name: Install Playwright browser
+        if: matrix.product == 'web'
+        working-directory: packages/app
+        run: bunx playwright install chromium
+
+      - name: Run install/update matrix item
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          if [ "${{ runner.os }}" = "Linux" ]; then
+            xvfb-run -a bun .github/scripts/install-update-ci.ts
+          else
+            bun .github/scripts/install-update-ci.ts
+          fi
+
+      - name: Upload install/update artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: install-update-${{ matrix.id }}-${{ github.run_attempt }}
+          if-no-files-found: ignore
+          retention-days: 14
+          path: install-update-artifacts/${{ matrix.id }}
