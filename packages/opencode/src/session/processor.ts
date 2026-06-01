@@ -16,6 +16,7 @@ import { Permission } from "@/permission"
 import { Question } from "@/question"
 import { PartID } from "./schema"
 import type { SessionID, MessageID } from "./schema"
+import { reviewCharGuard, type ReviewCharAction } from "@/skill-evolution/limits"
 
 export namespace SessionProcessor {
   const DOOM_LOOP_THRESHOLD = 3
@@ -29,6 +30,18 @@ export namespace SessionProcessor {
     sessionID: SessionID
     model: Provider.Model
     abort: AbortSignal
+    /**
+     * Max characters a single step may stream before that step is cut off
+     * mid-flight. Set only by background skill-evolution reviews to stop a model
+     * that never stops emitting within one step. Undefined → no cap.
+     */
+    maxStepChars?: number
+    /**
+     * Max characters the whole review may stream (summed across every step)
+     * before the entire review is stopped. Set only by background reviews to
+     * stop a "slow grind" that never stops taking steps. Undefined → no cap.
+     */
+    maxTotalChars?: number
   }) {
     const toolcalls: Record<string, MessageV2.ToolPart> = {}
     let snapshot: string | undefined
@@ -36,6 +49,12 @@ export namespace SessionProcessor {
     let attempt = 0
     let needsCompaction = false
     let idle = false
+    // Whole-review character total. Lives at instance scope so it survives across
+    // steps (each step builds a fresh processor); only the per-step count resets.
+    let totalChars = 0
+    // Set once the whole-review char cap trips, so process() returns "stop" and
+    // the outer loop ends the entire review (not just the current step).
+    let reviewStopped = false
 
     const result = {
       get message() {
@@ -54,6 +73,21 @@ export namespace SessionProcessor {
             let currentText: MessageV2.TextPart | undefined
             let reasoningMap: Record<string, MessageV2.ReasoningPart> = {}
             const stream = await LLM.stream(streamInput)
+
+            // Runaway guard: count chars streamed this step (resets each step);
+            // feed both per-step and whole-review counts to reviewCharGuard.
+            // maxStepChars undefined → no cap, guard never trips.
+            let stepChars = 0
+            let charAction: ReviewCharAction = "continue"
+            const countChars = (n: number) => {
+              if (input.maxStepChars === undefined) return
+              stepChars += n
+              totalChars += n
+              charAction = reviewCharGuard(
+                { stepChars, totalChars },
+                { stepMax: input.maxStepChars, totalMax: input.maxTotalChars ?? Infinity },
+              )
+            }
 
             for await (const value of stream.fullStream) {
               input.abort.throwIfAborted()
@@ -93,6 +127,7 @@ export namespace SessionProcessor {
                       field: "text",
                       delta: value.text,
                     })
+                    countChars(value.text.length)
                   }
                   break
 
@@ -316,6 +351,7 @@ export namespace SessionProcessor {
                       field: "text",
                       delta: value.text,
                     })
+                    countChars(value.text.length)
                   }
                   break
 
@@ -352,6 +388,20 @@ export namespace SessionProcessor {
                   continue
               }
               if (needsCompaction) break
+              if (charAction !== "continue") {
+                log.info("review char guard tripped", {
+                  sessionID: input.sessionID,
+                  action: charAction,
+                  stepChars,
+                  totalChars,
+                  stepMax: input.maxStepChars,
+                  totalMax: input.maxTotalChars,
+                })
+                // cut-step: end this step's stream; stop-review: also stop the
+                // whole review so the outer loop returns instead of stepping again.
+                if (charAction === "stop-review") reviewStopped = true
+                break
+              }
             }
           } catch (e: any) {
             log.error("process", {
@@ -424,6 +474,7 @@ export namespace SessionProcessor {
           if (needsCompaction) return "compact"
           if (blocked) return "stop"
           if (input.assistantMessage.error) return "stop"
+          if (reviewStopped) return "stop"
           return "continue"
         }
       },

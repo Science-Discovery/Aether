@@ -6,6 +6,15 @@ import { SettingsList } from "./settings-list"
 
 const SKILL_NUDGE_DEFAULT = 80
 const SKILL_MAX_VERSIONS_DEFAULT = 100
+// Defaults mirror the backend constants in skill-evolution/limits.ts
+// (REVIEW_MAX_STEP_CHARS / REVIEW_MAX_TOTAL_CHARS). Kept as local copies because
+// the app package can't import the opencode package; the backend remains the
+// authoritative default (used whenever config leaves the field unset).
+const REVIEW_MAX_STEP_CHARS_DEFAULT = 300_000
+const REVIEW_MAX_TOTAL_CHARS_DEFAULT = 1_000_000
+// The two char caps are entered/shown in "k" (thousands) so the user types 300
+// instead of 300000; config still stores the real character count.
+const CHARS_PER_K = 1000
 
 interface SettingsRowProps {
   title: string | JSX.Element
@@ -38,6 +47,16 @@ export const SettingsSkills: Component = () => {
     return (cfg.skills?.max_versions as number | undefined) ?? SKILL_MAX_VERSIONS_DEFAULT
   })
 
+  const currentReviewMaxStepChars = createMemo(() => {
+    const cfg = globalSync.data.config as any
+    return (cfg.skills?.review_max_step_chars as number | undefined) ?? REVIEW_MAX_STEP_CHARS_DEFAULT
+  })
+
+  const currentReviewMaxTotalChars = createMemo(() => {
+    const cfg = globalSync.data.config as any
+    return (cfg.skills?.review_max_total_chars as number | undefined) ?? REVIEW_MAX_TOTAL_CHARS_DEFAULT
+  })
+
   const updateInterval = async (interval: number) => {
     setSaving(true)
     try {
@@ -54,6 +73,30 @@ export const SettingsSkills: Component = () => {
     setSaving(true)
     try {
       await globalSync.updateConfig({ skills: { max_versions: max } } as any)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      showToast({ title: "Request failed", description: message })
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const updateReviewMaxStepChars = async (max: number) => {
+    setSaving(true)
+    try {
+      await globalSync.updateConfig({ skills: { review_max_step_chars: max } } as any)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      showToast({ title: "Request failed", description: message })
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const updateReviewMaxTotalChars = async (max: number) => {
+    setSaving(true)
+    try {
+      await globalSync.updateConfig({ skills: { review_max_total_chars: max } } as any)
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       showToast({ title: "Request failed", description: message })
@@ -109,6 +152,60 @@ export const SettingsSkills: Component = () => {
               }}
               class="h-9 w-24 rounded-md border border-border-base bg-surface-base px-3 text-14-regular text-text-strong focus:outline-none focus:ring-2 focus:ring-border-focus disabled:opacity-50"
             />
+          </SettingsRow>
+
+          <SettingsRow
+            title={language.t("settingsSkills.reviewMaxStepChars")}
+            description={language.t("settingsSkills.reviewMaxStepCharsDescription")}
+          >
+            <div class="flex items-center gap-1.5">
+            <input
+              type="number"
+              min={0.001}
+              step={0.001}
+              value={currentReviewMaxStepChars() / CHARS_PER_K}
+              disabled={saving()}
+              onBlur={(e) => {
+                // Input is in "k" (thousands); store the real char count (×1000).
+                // parseFloat (not parseInt) so fractional k like 0.001 survives;
+                // Math.round keeps the stored char count an integer.
+                const k = parseFloat(e.currentTarget.value)
+                const chars = Math.round(k * CHARS_PER_K)
+                if (!isNaN(k) && k >= 0.001 && chars !== currentReviewMaxStepChars()) {
+                  void updateReviewMaxStepChars(chars)
+                }
+              }}
+              class="h-9 w-24 rounded-md border border-border-base bg-surface-base px-3 text-14-regular text-text-strong focus:outline-none focus:ring-2 focus:ring-border-focus disabled:opacity-50"
+            />
+            <span class="text-14-regular text-text-weak">k</span>
+            </div>
+          </SettingsRow>
+
+          <SettingsRow
+            title={language.t("settingsSkills.reviewMaxTotalChars")}
+            description={language.t("settingsSkills.reviewMaxTotalCharsDescription")}
+          >
+            <div class="flex items-center gap-1.5">
+            <input
+              type="number"
+              min={0.001}
+              step={0.001}
+              value={currentReviewMaxTotalChars() / CHARS_PER_K}
+              disabled={saving()}
+              onBlur={(e) => {
+                // Input is in "k" (thousands); store the real char count (×1000).
+                // parseFloat (not parseInt) so fractional k like 0.001 survives;
+                // Math.round keeps the stored char count an integer.
+                const k = parseFloat(e.currentTarget.value)
+                const chars = Math.round(k * CHARS_PER_K)
+                if (!isNaN(k) && k >= 0.001 && chars !== currentReviewMaxTotalChars()) {
+                  void updateReviewMaxTotalChars(chars)
+                }
+              }}
+              class="h-9 w-24 rounded-md border border-border-base bg-surface-base px-3 text-14-regular text-text-strong focus:outline-none focus:ring-2 focus:ring-border-focus disabled:opacity-50"
+            />
+            <span class="text-14-regular text-text-weak">k</span>
+            </div>
           </SettingsRow>
         </SettingsList>
       </div>

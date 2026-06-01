@@ -55,6 +55,9 @@ import { decodeDataUrl } from "@/util/data-url"
 import { Process } from "@/util/process"
 import { SessionRecovery } from "./recovery"
 import { SkillEvolutionHook } from "../skill-evolution"
+import { isReviewSession } from "../skill-evolution/review-agent"
+import { reviewCharLimits } from "../skill-evolution/limits"
+import { Config } from "@/config/config"
 
 // @ts-ignore
 globalThis.AI_SDK_LOG_WARNINGS = false
@@ -594,6 +597,9 @@ export namespace SessionPrompt {
         session,
       })
 
+      // Char caps apply only to background reviews; resolve them (config override
+      // → constant default) once here. Normal sessions get undefined = no cap.
+      const charCaps = isReviewSession() ? reviewCharLimits(await Config.get()) : undefined
       const processor = SessionProcessor.create({
         assistantMessage: (await Session.updateMessage({
           id: MessageID.ascending(),
@@ -623,6 +629,11 @@ export namespace SessionPrompt {
         sessionID: sessionID,
         model,
         abort,
+        // Char caps only for background reviews: per-step cuts a model that never
+        // stops emitting within one step; whole-review stops a "slow grind" that
+        // never stops taking steps. Normal sessions leave these undefined (no cap).
+        maxStepChars: charCaps?.stepMax,
+        maxTotalChars: charCaps?.totalMax,
       })
       using _ = defer(() => InstructionPrompt.clear(processor.message.id))
 

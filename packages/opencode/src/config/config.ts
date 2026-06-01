@@ -806,6 +806,22 @@ export namespace Config {
       .min(1)
       .optional()
       .describe("Maximum number of version snapshots kept per skill before older snapshots are pruned (default: 100)"),
+    review_max_step_chars: z
+      .number()
+      .int()
+      .min(1)
+      .optional()
+      .describe(
+        "Max characters a single step of a background skill review may stream before that step is cut off, guarding against a model that never stops emitting within one step (default: 300000)",
+      ),
+    review_max_total_chars: z
+      .number()
+      .int()
+      .min(1)
+      .optional()
+      .describe(
+        "Max characters a whole background skill review may stream (summed across all steps) before the review is stopped, guarding against a slow grind that never stops taking steps (default: 1000000)",
+      ),
   })
   export type Skills = z.infer<typeof Skills>
 

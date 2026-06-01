@@ -1009,6 +1009,10 @@ export const dict = {
   "settingsSkills.reviewIntervalDescription": "AI 每隔 N 次工具调用会自动回顾对话，将有价值的操作模式提炼为可复用 Skill。数值越小，提炼越频繁。",
   "settingsSkills.maxVersions": "最大版本数",
   "settingsSkills.maxVersionsDescription": "每个 Skill 保留的最大版本快照数，超出后自动清理旧版本。",
+  "settingsSkills.reviewMaxStepChars": "单步字数上限",
+  "settingsSkills.reviewMaxStepCharsDescription": "后台评审单步最多输出多少字符（单位 k，即千），超过就掐断这一步——防止模型在一步里停不下来狂吐。默认 300k（30 万）。",
+  "settingsSkills.reviewMaxTotalChars": "整场字数上限",
+  "settingsSkills.reviewMaxTotalCharsDescription": "一次后台评审整场最多输出多少字符（单位 k，即千），超过就停掉整场——防止评审一步步磨蹭停不下来。默认 1000k（100 万）。",
 
   "settings.desktop.section.wsl": "WSL",
   "settings.desktop.wsl.title": "WSL 集成",
