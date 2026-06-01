@@ -109,7 +109,9 @@ let db: BunSqlite | undefined
 let initializeCancelled = false
 let initializeAbortController: AbortController | undefined
 let scannerForTest: (() => AsyncGenerator<SessionForInitialization>) | undefined
-let extractorForTest: ((session: SessionForInitialization, signal?: AbortSignal) => Promise<InitializerCandidate[]>) | undefined
+let extractorForTest:
+  | ((session: SessionForInitialization, signal?: AbortSignal) => Promise<InitializerCandidate[]>)
+  | undefined
 let startupCatchupStarted = false
 let reflectorForTest: ((input: ReflectionInput) => Promise<ReflectionCandidate[]>) | undefined
 let reflectionQueue: Promise<void> = Promise.resolve()
@@ -188,7 +190,11 @@ function safeReflectionProviderOptions(model: Provider.Model) {
   if (lower.includes("gpt-5") || options.reasoningEffort !== undefined) {
     options.reasoningEffort = "low"
   }
-  if (model.providerID === "openai" || model.api.npm === "@ai-sdk/openai" || model.api.npm === "@ai-sdk/openai-compatible") {
+  if (
+    model.providerID === "openai" ||
+    model.api.npm === "@ai-sdk/openai" ||
+    model.api.npm === "@ai-sdk/openai-compatible"
+  ) {
     options.store = false
   }
   return Object.keys(options).length ? options : undefined
@@ -211,10 +217,12 @@ function combinedSignal(...signals: Array<AbortSignal | undefined>) {
 
 function runSerializedReflection<T>(signal: AbortSignal | undefined, fn: () => Promise<T>) {
   let done = false
-  const run = reflectionQueue.catch(() => undefined).then(async () => {
-    throwIfAborted(signal)
-    return fn()
-  })
+  const run = reflectionQueue
+    .catch(() => undefined)
+    .then(async () => {
+      throwIfAborted(signal)
+      return fn()
+    })
   reflectionQueue = run.then(
     () => {
       done = true
@@ -461,7 +469,9 @@ function sessionLooksWorthLLMInitialization(session: SessionForInitialization) {
   if (hasSensitiveSignal(text)) return false
   if (text.length >= 120) return true
   if (userMessages.length >= 2) return true
-  return /(我|my|prefer|preference|project|项目|默认|以后|喜欢|偏好|希望|倾向|常用|习惯|每天|定期|提醒|remember)/i.test(text)
+  return /(我|my|prefer|preference|project|项目|默认|以后|喜欢|偏好|希望|倾向|常用|习惯|每天|定期|提醒|remember)/i.test(
+    text,
+  )
 }
 
 function extractRuleMemoryCandidates(session: SessionForInitialization): InitializerCandidate[] {
@@ -487,7 +497,10 @@ function extractRuleMemoryCandidates(session: SessionForInitialization): Initial
   return candidates.slice(0, 8)
 }
 
-async function extractMemoryCandidates(session: SessionForInitialization, signal?: AbortSignal): Promise<InitializerCandidate[]> {
+async function extractMemoryCandidates(
+  session: SessionForInitialization,
+  signal?: AbortSignal,
+): Promise<InitializerCandidate[]> {
   throwIfAborted(signal)
   const ruleCandidates = extractRuleMemoryCandidates(session)
   if (ruleCandidates.length > 0) return ruleCandidates
@@ -571,7 +584,12 @@ function classifyType(text: string, hinted?: MemoryType | null): MemoryType {
   return "fact"
 }
 
-function inferScope(input: { text: string; type: MemoryType; projectID?: string | null; sourceJson?: string }): MemoryScope {
+function inferScope(input: {
+  text: string
+  type: MemoryType
+  projectID?: string | null
+  sourceJson?: string
+}): MemoryScope {
   const sourceScope = (() => {
     if (!input.sourceJson) return undefined
     try {
@@ -582,7 +600,10 @@ function inferScope(input: { text: string; type: MemoryType; projectID?: string 
     }
   })()
   if (sourceScope === "global" || sourceScope?.startsWith("project:")) return sourceScope as MemoryScope
-  if (input.projectID && /(这个项目|当前项目|此 repo|这个 repo|this project|current project|this repo)/i.test(input.text)) {
+  if (
+    input.projectID &&
+    /(这个项目|当前项目|此 repo|这个 repo|this project|current project|this repo)/i.test(input.text)
+  ) {
     return `project:${input.projectID}`
   }
   if (input.type === "task" && input.projectID) return `project:${input.projectID}`
@@ -612,7 +633,12 @@ function memoryTopic(input: string) {
   if (/(回答|回复|answer|response|verbose|concise|详细|简短|短回答|长回答)/i.test(text)) return "response-style"
   if (/(中文|英文|language|chinese|english)/i.test(text)) return "language"
   if (/(bun|node|typescript|javascript|runtime)/i.test(text)) return "runtime"
-  return text.replace(/[^\p{L}\p{N}]+/gu, " ").split(/\s+/).filter(Boolean).slice(0, 4).join(" ")
+  return text
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 4)
+    .join(" ")
 }
 
 function conflictsWith(existing: MemoryBlock, candidate: ReflectionCandidate) {
@@ -725,21 +751,44 @@ async function llmReflector(input: {
     "You are Aether's memory reflection engine.",
     "Convert raw memory events into durable long-term memory candidates.",
     "Return only JSON that matches the schema.",
-    "Allowed memory types: preference, fact, task.",
+    "",
+    "## TYPE DEFINITIONS",
+    "- preference: An enduring 'I like/want/prefer X' or 'X should always behave like Y' that applies across future sessions. Must express a reusable principle, not a single action.",
+    "- fact: A stable, verifiable piece of information (user identity, project structure, tool behavior) that remains true over time.",
+    "- task: An active trackable work item with a clear completion condition that the user wants remembered for follow-up.",
+    "",
+    "## REJECTION RULES — NEVER create a candidate for:",
+    "1. Subagent instructions: 'Search...', 'Explore...', 'Find...', 'Read...', 'In the codebase...', or any numbered list of search/investigation steps.",
+    "2. One-shot commands: 'commit', 'PR', 'delete changes', 'restore default', 'rebase', '继续', or any request for a single action with no enduring principle.",
+    "3. Debugging transcripts: error messages, stack traces, '报错了...', '为什么...', '还是不行', '并没有解决', or ephemeral troubleshooting.",
+    "4. Raw conversation fragments: <conversation_history>, [Tool call:], <skill_content>, tool outputs, or assistant responses.",
+    "5. Questions without stable answers: '当前项目有几个工作区？', '现在端口是多少？'. Only save the ANSWER if it is a stable fact, not the question.",
+    "6. Sensitive data: IDs, passwords, addresses, phone numbers, medical, political, or religious information unless explicitly requested.",
+    "",
+    "## DISTILLATION RULES",
+    "- Extract the enduring PRINCIPLE, not the original message text.",
+    "- Remove situational context ('现在...', '你做的...'), '用户补充' annotations, and UI walkthrough details.",
+    "- Each memory must be a single concise declarative sentence reusable across sessions.",
+    "- Example: Raw '我希望工作区当没有会话时也有新建会话框' → Distilled 'New-session box should always be visible in workspace, even when sessions exist'.",
+    "",
+    "## SCOPE RULES",
     "Allowed scopes: global or project:<project_id>.",
-    "Do not create a candidate for one-off questions, transient chat, or low-confidence guesses.",
-    "Do not create a candidate from sensitive observed data such as IDs, passwords, addresses, phone numbers, medical, political, or religious information unless the user explicitly asked to remember it.",
-    "For explicit remember events, preserve concrete details aggressively: names, institutions, roles, relationships, project names, dates, constraints, negations, and qualifiers must not be dropped.",
-    "For explicit remember events, you may rewrite, split, or merge the memory into cleaner durable candidates, but the candidate set must retain the same important facts as the raw text.",
     "Prefer global for user-level preferences and profile-like facts.",
     "Prefer project:<project_id> for project constraints, project facts, and project tasks.",
-    "Merge duplicates conceptually by returning the cleanest concise memory text.",
+    "",
+    "## DEDUPLICATION",
+    "Merge duplicates conceptually by returning the cleanest concise memory text. When multiple events concern the same theme, combine into ONE coherent entry, not separate fragments.",
+    "",
+    "## MODE",
     input.mode === "quick"
       ? "Quick mode: analyze only the provided user-origin memory events and decide whether each event is worth writing as durable memory."
       : "Heavy mode: organize memories by topic. For each type/scope/topic combination, emit at most one candidate. When multiple events or existing memories concern the same theme, merge complementary details into one coherent topical memory instead of separate fragmented entries.",
     input.mode === "quick"
       ? "Quick mode: do not rely on current memory context; it is intentionally omitted to save tokens."
       : "Heavy mode: use current_memory to infer stable themes from the memory content itself. If two candidate memories would share the same inferred theme, combine them before returning JSON.",
+    "",
+    "For explicit remember events, preserve concrete details aggressively: names, institutions, roles, relationships, project names, dates, constraints, negations, and qualifiers must not be dropped.",
+    "For explicit remember events, you may rewrite, split, or merge the memory into cleaner durable candidates, but the candidate set must retain the same important facts as the raw text.",
     "Do not expose raw event IDs inside memory or evidence; use event_id only in the structured field.",
   ].join("\n")
   const userMessage: ModelMessage = {
@@ -771,10 +820,7 @@ async function llmReflector(input: {
     ...(input.safeProviderOptions ? {} : { temperature: 0 }),
     schema: ReflectionOutput,
     abortSignal: input.signal,
-    messages: [
-      { role: "system", content: system },
-      userMessage,
-    ],
+    messages: [{ role: "system", content: system }, userMessage],
     ...(retryProviderOptions
       ? {
           providerOptions: ProviderTransform.providerOptions(resolved, retryProviderOptions),
@@ -815,7 +861,12 @@ async function llmReflector(input: {
       if (!event) return
       const memory = sanitizeMemoryText(candidate.memory)
       const type = classifyType(memory, candidate.type ?? event.type)
-      const fallbackScope = inferScope({ text: memory, type, projectID: event.project_id, sourceJson: event.source_json })
+      const fallbackScope = inferScope({
+        text: memory,
+        type,
+        projectID: event.project_id,
+        sourceJson: event.source_json,
+      })
       return {
         eventID: event.id,
         type,
@@ -823,7 +874,9 @@ async function llmReflector(input: {
         memory,
         confidence: clamp01(candidate.confidence, event.intent === "explicit" ? 0.86 : 0.68),
         weight: clamp01(candidate.weight, event.intent === "explicit" ? 0.82 : 0.55),
-        evidence: (candidate.evidence || (event.intent === "explicit" ? "用户明确请求记住。" : "由 LLM 反思提取。")).slice(0, 180),
+        evidence: (
+          candidate.evidence || (event.intent === "explicit" ? "用户明确请求记住。" : "由 LLM 反思提取。")
+        ).slice(0, 180),
       } satisfies ReflectionCandidate
     })
     .filter((item): item is ReflectionCandidate => item !== undefined && item.memory.length > 0)
@@ -836,7 +889,10 @@ async function llmReflector(input: {
   return candidates
 }
 
-async function llmInitializeExtractor(session: SessionForInitialization, signal?: AbortSignal): Promise<InitializerCandidate[]> {
+async function llmInitializeExtractor(
+  session: SessionForInitialization,
+  signal?: AbortSignal,
+): Promise<InitializerCandidate[]> {
   throwIfAborted(signal)
   const model = await Provider.defaultModel()
   const resolved = await Provider.getModel(model.providerID, model.modelID)
@@ -845,13 +901,36 @@ async function llmInitializeExtractor(session: SessionForInitialization, signal?
     "You are Aether's one-time memory initialization extractor.",
     "Read one historical session and extract only stable, useful long-term memory candidates.",
     "Return only JSON that matches the schema.",
+    "",
+    "## TYPE DEFINITIONS",
     "Allowed memory types: preference, fact, task.",
+    "- preference: An enduring 'I like/want/prefer X' or 'X should always behave like Y' that applies across future sessions. Must express a reusable principle, not a single action.",
+    "- fact: A stable, verifiable piece of information (user identity, project structure, tool behavior) that remains true over time.",
+    "- task: An active trackable work item with a clear completion condition that the user wants remembered for follow-up.",
+    "",
+    "## REJECTION RULES — NEVER create a candidate for:",
+    "1. Subagent instructions: 'Search...', 'Explore...', 'Find...', 'Read...', 'In the codebase...', or any numbered list of search/investigation steps. These are commands to tools, not genuine user knowledge.",
+    "2. One-shot commands: 'commit', 'PR', 'delete changes', 'restore default', 'rebase', '继续', or any request for a single action with no enduring principle. Ask: would this be useful 2 weeks later in a different session? If no, reject.",
+    "3. Debugging transcripts: error messages, stack traces, '报错了...', '为什么...', '还是不行', or ephemeral troubleshooting. The insight from debugging (e.g. 'DB corruption must not block startup') may be saved; the transcript itself must not.",
+    "4. Raw conversation fragments: <conversation_history>, [Tool call:], <skill_content>, tool outputs, or assistant responses embedded in user text.",
+    "5. Questions without stable answers: '当前项目有几个工作区？'. Only save the answer if it is a stable fact.",
+    "6. Sensitive data: IDs, passwords, addresses, phone numbers, medical, political, or religious information.",
+    "",
+    "## DISTILLATION RULES",
+    "- Extract the enduring PRINCIPLE, not the original message text.",
+    "- Remove situational context ('现在...', '你做的...'), '用户补充' annotations, and UI walkthrough details.",
+    "- Each memory must be a single concise declarative sentence reusable across sessions.",
+    "- Example: '我希望工作区当没有会话时也有新建会话框' → 'New-session box should always be visible in workspace, even when sessions exist'.",
+    "",
+    "## SCOPE",
     "Allowed scopes: global or project:<project_id>.",
-    "Only user messages are provided. Do not infer memories that require unavailable assistant context.",
-    "Do not record one-off questions, transient commands, ordinary chat, tool outputs, or completed reminders.",
-    "Do not record sensitive data such as IDs, passwords, addresses, phone numbers, medical, political, or religious information.",
     "Prefer global for user-level preferences and profile-like facts.",
     "Prefer project:<project_id> for project constraints, project facts, and project tasks.",
+    "",
+    "## DEDUPLICATION",
+    "If multiple user messages in this session convey the same underlying preference/fact/task, combine them into ONE candidate, not separate fragments.",
+    "",
+    "Only user messages are provided. Do not infer memories that require unavailable assistant context.",
     "Keep each memory concise and self-contained.",
   ].join("\n")
   const messages = session.messages
@@ -880,10 +959,7 @@ async function llmInitializeExtractor(session: SessionForInitialization, signal?
     temperature: 0,
     schema: InitializationOutput,
     abortSignal: signal,
-    messages: [
-      { role: "system", content: system },
-      userMessage,
-    ],
+    messages: [{ role: "system", content: system }, userMessage],
   } satisfies Parameters<typeof generateObject>[0]
   throwIfAborted(signal)
   const authInfo = await Auth.get(model.providerID)
@@ -958,10 +1034,7 @@ async function llmForgetDecide(input: { query: string; candidates: MemoryBlock[]
     temperature: 0,
     schema: ForgetDecisionOutput,
     abortSignal: input.signal,
-    messages: [
-      { role: "system", content: system },
-      userMessage,
-    ],
+    messages: [{ role: "system", content: system }, userMessage],
   } satisfies Parameters<typeof generateObject>[0]
   throwIfAborted(input.signal)
   const authInfo = await Auth.get(model.providerID)
@@ -1249,7 +1322,12 @@ export namespace Memory {
     })
     if (gate.priority === "important") {
       openDb().prepare("UPDATE memory_event SET status = ? WHERE id = ?").run("pending_important", event.id)
-      const reflected = await reflect({ mode: "quick", reason: gate.reason, eventIDs: [event.id], signal: input.signal }).catch((error) => {
+      const reflected = await reflect({
+        mode: "quick",
+        reason: gate.reason,
+        eventIDs: [event.id],
+        signal: input.signal,
+      }).catch((error) => {
         if (isAbortLike(error) || input.signal?.aborted) throw error
         return {
           changed: false,
@@ -1259,10 +1337,16 @@ export namespace Memory {
       return {
         eventID: event.id,
         status: reflected.changed ? ("applied" as const) : ("queued" as const),
-        reason: reflected.changed ? gate.reason : `${gate.reason}; quick LLM reflection did not apply a memory yet: ${reflected.summary}`,
+        reason: reflected.changed
+          ? gate.reason
+          : `${gate.reason}; quick LLM reflection did not apply a memory yet: ${reflected.summary}`,
       }
     }
-    return { eventID: event.id, status: gate.shouldRun ? ("queued" as const) : ("ignored" as const), reason: gate.reason }
+    return {
+      eventID: event.id,
+      status: gate.shouldRun ? ("queued" as const) : ("ignored" as const),
+      reason: gate.reason,
+    }
   }
 
   export async function forget(input: {
@@ -1295,12 +1379,20 @@ export namespace Memory {
     const decision = input.decide
       ? await input.decide({ query: input.query ?? input.ids?.join(", ") ?? "", candidates })
       : broadFallback
-        ? await llmForgetDecide({ query: input.query ?? input.ids?.join(", ") ?? "", candidates, signal: input.signal }).catch(() => ({
+        ? await llmForgetDecide({
+            query: input.query ?? input.ids?.join(", ") ?? "",
+            candidates,
+            signal: input.signal,
+          }).catch(() => ({
             deleteIDs: [],
             keepIDs: candidates.map((candidate) => candidate.id),
             reason: "No keyword candidates and LLM forget decision failed.",
           }))
-        : await defaultForgetDecision({ query: input.query ?? input.ids?.join(", ") ?? "", candidates, signal: input.signal })
+        : await defaultForgetDecision({
+            query: input.query ?? input.ids?.join(", ") ?? "",
+            candidates,
+            signal: input.signal,
+          })
     const deleteSet = new Set(decision.deleteIDs)
     throwIfAborted(input.signal)
     let deletedIDs: string[] = []
@@ -1338,7 +1430,14 @@ export namespace Memory {
   }) {
     throwIfAborted(input.signal)
     if (!(await isEnabled())) {
-      return { runID: "", changed: false, updatedIDs: [], deletedIDs: [], shortcutChanged: false, summary: "Memory is disabled." }
+      return {
+        runID: "",
+        changed: false,
+        updatedIDs: [],
+        deletedIDs: [],
+        shortcutChanged: false,
+        summary: "Memory is disabled.",
+      }
     }
     const cfg = await settings()
     if (input.mode === "daily" && input.reason === "cron" && !cfg.dailyReflectEnabled) {
@@ -1470,7 +1569,9 @@ export namespace Memory {
           continue
         }
         throwIfAborted(signal)
-        const candidates = extractorForTest ? await extractorForTest(session, signal) : await extractMemoryCandidates(session, signal)
+        const candidates = extractorForTest
+          ? await extractorForTest(session, signal)
+          : await extractMemoryCandidates(session, signal)
         throwIfAborted(signal)
         for (const candidate of candidates) {
           insertEvent({
