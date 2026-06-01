@@ -104,18 +104,21 @@ export function reviewCharLimits(config?: {
 }
 
 /** What the processor should do after streaming the latest chunk of a review. */
-export type ReviewCharAction = "continue" | "cut-step" | "stop-review"
+export type ReviewCharAction = "continue" | "stop-review"
 
 /**
  * Single decision point for the two character guards a background review runs.
  * Both guards share one running count: `stepChars` resets every step,
  * `totalChars` accumulates across the whole review.
  *
- * - total over its cap → "stop-review": end the entire review (slow grind:
- *   sane per step, but never stops taking steps). This wins over cut-step,
- *   since there is no point cutting one step of a review we're ending anyway.
- * - else step over its cap → "cut-step": cut just this step (one-shot runaway:
- *   a model that never stops emitting within a single step).
+ * Either guard tripping ends the WHOLE review ("stop-review"):
+ * - total over its cap → slow grind: sane per step, but never stops stepping.
+ * - step over its cap → one-shot runaway: never stops emitting within one step.
+ *
+ * (Earlier this only cut the offending step and kept going, but a step that
+ * keeps getting cut just spins forever producing nothing — so a tripped step
+ * cap now stops the review too.)
+ *
  * - else → "continue".
  */
 export function reviewCharGuard(
@@ -123,6 +126,6 @@ export function reviewCharGuard(
   caps: { stepMax: number; totalMax: number },
 ): ReviewCharAction {
   if (isOutputRunaway(usage.totalChars, caps.totalMax)) return "stop-review"
-  if (isOutputRunaway(usage.stepChars, caps.stepMax)) return "cut-step"
+  if (isOutputRunaway(usage.stepChars, caps.stepMax)) return "stop-review"
   return "continue"
 }

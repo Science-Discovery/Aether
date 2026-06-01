@@ -397,9 +397,10 @@ export namespace SessionProcessor {
                   stepMax: input.maxStepChars,
                   totalMax: input.maxTotalChars,
                 })
-                // cut-step: end this step's stream; stop-review: also stop the
-                // whole review so the outer loop returns instead of stepping again.
-                if (charAction === "stop-review") reviewStopped = true
+                // Either guard tripping ends the whole review: stop this step's
+                // stream AND stop the outer loop so it returns instead of stepping
+                // again (a repeatedly-cut step would otherwise spin forever).
+                reviewStopped = true
                 break
               }
             }

@@ -115,9 +115,10 @@ describe("reviewCharGuard", () => {
     expect(reviewCharGuard({ stepChars: 1_000, totalChars: 5_000 }, caps)).toBe("continue")
   })
 
-  test('"cut-step" when the single step exceeds the step cap (one-shot runaway)', () => {
-    // step over its cap, total still well under its cap
-    expect(reviewCharGuard({ stepChars: 300_001, totalChars: 300_001 }, caps)).toBe("cut-step")
+  test('"stop-review" when the single step exceeds the step cap (one-shot runaway)', () => {
+    // step over its cap, total still under its cap — either guard ends the
+    // whole review now (a cut step that just kept stepping was its own runaway).
+    expect(reviewCharGuard({ stepChars: 300_001, totalChars: 300_001 }, caps)).toBe("stop-review")
   })
 
   test('"stop-review" when the accumulated total exceeds the total cap (slow grind)', () => {
@@ -125,8 +126,7 @@ describe("reviewCharGuard", () => {
     expect(reviewCharGuard({ stepChars: 1_000, totalChars: 1_000_001 }, caps)).toBe("stop-review")
   })
 
-  test("the total cap wins when both caps are exceeded at once", () => {
-    // stopping the whole review supersedes merely cutting the step
+  test('"stop-review" when both caps are exceeded at once', () => {
     expect(reviewCharGuard({ stepChars: 300_001, totalChars: 1_000_001 }, caps)).toBe("stop-review")
   })
 
