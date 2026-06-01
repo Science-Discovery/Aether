@@ -10,6 +10,7 @@ import {
   addGlobalScriptsMethod,
   addMemoryMethods,
   addProjectDeleteMethod,
+  addSkillEvolutionDirsMethod,
   createSdkForServer,
 } from "@/utils/server"
 import { useLanguage } from "./language"
@@ -232,6 +233,7 @@ export const { use: useGlobalSDK, provider: GlobalSDKProvider } = createSimpleCo
     addMemoryMethods(sdk, server.current.http.url, authHeader(server.current.http), { throwOnError: true })
     addProjectDeleteMethod(sdk, server.current.http.url, authHeader(server.current.http), { throwOnError: true })
     addGlobalScriptsMethod(sdk, server.current.http.url, authHeader(server.current.http), { throwOnError: true })
+    addSkillEvolutionDirsMethod(sdk, server.current.http.url, authHeader(server.current.http), { throwOnError: true })
 
     return {
       url: currentServer.http.url,
@@ -249,6 +251,7 @@ export const { use: useGlobalSDK, provider: GlobalSDKProvider } = createSimpleCo
         addMemoryMethods(c, s.http.url, authHeader(s.http), { throwOnError: opts.throwOnError })
         addProjectDeleteMethod(c, s.http.url, authHeader(s.http), { throwOnError: opts.throwOnError })
         addGlobalScriptsMethod(c, s.http.url, authHeader(s.http), { throwOnError: opts.throwOnError })
+        addSkillEvolutionDirsMethod(c, s.http.url, authHeader(s.http), { throwOnError: opts.throwOnError })
         return c
       },
     }

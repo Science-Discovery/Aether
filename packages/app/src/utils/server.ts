@@ -9,6 +9,12 @@ type Skill = {
   content: string
   enabled?: boolean
 }
+type SkillEvolutionDir = {
+  projectId: string
+  name: string
+  directory: string
+  evolutionDir: string
+}
 type Kb = {
   path?: string
   paths?: string[]
@@ -166,6 +172,7 @@ export type AppClient = Base & {
       list(): Promise<{ data?: Skill[] }>
       toggle(input: { name: string; enabled: boolean }): Promise<{ data?: { ok: boolean } }>
       addDefaults(input?: { directory?: string }): Promise<{ data?: { added: string[] } }>
+      evolutionDirs(): Req<SkillEvolutionDir[]>
     }
   }
   file: Base["file"] & {
@@ -452,5 +459,23 @@ export function addGlobalScriptsMethod(
     },
   }
   safeAssign(client.global, "scripts", methods.scripts)
+  return client
+}
+
+export function addSkillEvolutionDirsMethod(
+  client: AppClient,
+  baseUrl: string,
+  auth?: Record<string, string>,
+  options?: RequestHelperOptions,
+): AppClient {
+  const headers: Record<string, string> = { ...auth }
+  const methods = {
+    async evolutionDirs() {
+      return requestJSON<SkillEvolutionDir[]>(`${baseUrl}/config/skills/evolution/projects`, { headers }, options)
+    },
+  }
+  // client.config.skills is the generated SDK object; safeAssign tolerates a
+  // non-extensible target by deep-merging the method in.
+  safeAssign((client.config as { skills: object }).skills, "evolutionDirs", methods.evolutionDirs)
   return client
 }

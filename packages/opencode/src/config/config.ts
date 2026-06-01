@@ -794,6 +794,10 @@ export namespace Config {
       .array(z.string())
       .optional()
       .describe("List of skill SKILL.md file paths whose self-evolution is disabled"),
+    evolution_enabled: z
+      .boolean()
+      .optional()
+      .describe("Global master switch for skill self-evolution. When false, no project triggers background review (default: true)"),
     creation_nudge_interval: z
       .number()
       .int()

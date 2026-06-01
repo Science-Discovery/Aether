@@ -125,4 +125,29 @@ export namespace EvolvedSkills {
     const skills = await Promise.all(files.map(readSkill))
     return skills.filter((s): s is EvolvedSkill => s !== undefined)
   }
+
+  export type ProjectEvolutionDir = {
+    projectId: string
+    name: string
+    directory: string
+    evolutionDir: string
+  }
+
+  /**
+   * Map each known project to the absolute directory where its background-review
+   * skills are written (read-only display for the settings page). The folder is
+   * addressed by the project's id — the same id the write side uses — so the path
+   * shown here is exactly where review-agent stores that project's evolved skills.
+   * `name` falls back to the worktree path when the project has no display name.
+   */
+  export function evolutionDirsForProjects(
+    projects: { id: string; name?: string; worktree: string }[],
+  ): ProjectEvolutionDir[] {
+    return projects.map((p) => ({
+      projectId: p.id,
+      name: p.name ?? p.worktree,
+      directory: p.worktree,
+      evolutionDir: Spawner.skillEvolutionDir(p.id),
+    }))
+  }
 }

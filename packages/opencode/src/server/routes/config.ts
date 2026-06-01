@@ -216,6 +216,38 @@ export const ConfigRoutes = lazy(() =>
         return c.json(withState)
       },
     )
+    .get(
+      "/skills/evolution/projects",
+      describeRoute({
+        summary: "List per-project skill-evolution output directories",
+        description:
+          "For each known project, return the absolute directory where its background-review (self-evolution) skills are written.",
+        operationId: "config.skills.evolutionDirs",
+        responses: {
+          200: {
+            description: "Per-project evolution output directories",
+            content: {
+              "application/json": {
+                schema: resolver(
+                  z.array(
+                    z.object({
+                      projectId: z.string(),
+                      name: z.string(),
+                      directory: z.string(),
+                      evolutionDir: z.string(),
+                    }),
+                  ),
+                ),
+              },
+            },
+          },
+        },
+      }),
+      async (c) => {
+        const projects = Project.list()
+        return c.json(EvolvedSkills.evolutionDirsForProjects(projects))
+      },
+    )
     .post(
       "/skills/evolution/toggle",
       describeRoute({

@@ -1,6 +1,19 @@
-import { type Component, createMemo, createSignal, type JSX } from "solid-js"
+import {
+  type Component,
+  createMemo,
+  createResource,
+  createSignal,
+  For,
+  Match,
+  Show,
+  Switch as SolidSwitch,
+  type JSX,
+} from "solid-js"
+import { Switch } from "@opencode-ai/ui/switch"
 import { showToast } from "@opencode-ai/ui/toast"
 import { useGlobalSync } from "@/context/global-sync"
+import { useGlobalSDK } from "@/context/global-sdk"
+import { usePlatform } from "@/context/platform"
 import { useLanguage } from "@/context/language"
 import { SettingsList } from "./settings-list"
 
@@ -34,8 +47,23 @@ const SettingsRow: Component<SettingsRowProps> = (props) => (
 
 export const SettingsSkills: Component = () => {
   const globalSync = useGlobalSync()
+  const globalSDK = useGlobalSDK()
+  const platform = usePlatform()
   const language = useLanguage()
   const [saving, setSaving] = createSignal(false)
+
+  // Master switch: unset means on, only an explicit false turns it off (mirrors
+  // the backend ConfigReader.isEvolutionEnabled default).
+  const evolutionEnabled = createMemo(() => {
+    const cfg = globalSync.data.config as any
+    return cfg.skills?.evolution_enabled !== false
+  })
+
+  // Per-project output directories (read-only). Refetched whenever the dialog mounts.
+  const [outputDirs] = createResource(async () => {
+    const result = await globalSDK.client.config.skills.evolutionDirs()
+    return result.data ?? []
+  })
 
   const currentInterval = createMemo(() => {
     const cfg = globalSync.data.config as any
@@ -56,6 +84,18 @@ export const SettingsSkills: Component = () => {
     const cfg = globalSync.data.config as any
     return (cfg.skills?.review_max_total_chars as number | undefined) ?? REVIEW_MAX_TOTAL_CHARS_DEFAULT
   })
+
+  const updateEvolutionEnabled = async (enabled: boolean) => {
+    setSaving(true)
+    try {
+      await globalSync.updateConfig({ skills: { evolution_enabled: enabled } } as any)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      showToast({ title: "Request failed", description: message })
+    } finally {
+      setSaving(false)
+    }
+  }
 
   const updateInterval = async (interval: number) => {
     setSaving(true)
@@ -117,6 +157,17 @@ export const SettingsSkills: Component = () => {
       <div class="flex flex-col gap-6 max-w-[720px]">
         <SettingsList>
           <SettingsRow
+            title={language.t("settingsSkills.evolutionEnabled")}
+            description={language.t("settingsSkills.evolutionEnabledDescription")}
+          >
+            <Switch
+              checked={evolutionEnabled()}
+              disabled={saving()}
+              onChange={(checked) => void updateEvolutionEnabled(checked)}
+            />
+          </SettingsRow>
+
+          <SettingsRow
             title={language.t("settingsSkills.reviewInterval")}
             description={language.t("settingsSkills.reviewIntervalDescription")}
           >
@@ -124,7 +175,7 @@ export const SettingsSkills: Component = () => {
               type="number"
               min={0}
               value={currentInterval()}
-              disabled={saving()}
+              disabled={saving() || !evolutionEnabled()}
               onBlur={(e) => {
                 const val = parseInt(e.currentTarget.value, 10)
                 if (!isNaN(val) && val >= 0 && val !== currentInterval()) {
@@ -143,7 +194,7 @@ export const SettingsSkills: Component = () => {
               type="number"
               min={1}
               value={currentMaxVersions()}
-              disabled={saving()}
+              disabled={saving() || !evolutionEnabled()}
               onBlur={(e) => {
                 const val = parseInt(e.currentTarget.value, 10)
                 if (!isNaN(val) && val >= 1 && val !== currentMaxVersions()) {
@@ -164,7 +215,7 @@ export const SettingsSkills: Component = () => {
               min={0.001}
               step={0.001}
               value={currentReviewMaxStepChars() / CHARS_PER_K}
-              disabled={saving()}
+              disabled={saving() || !evolutionEnabled()}
               onBlur={(e) => {
                 // Input is in "k" (thousands); store the real char count (×1000).
                 // parseFloat (not parseInt) so fractional k like 0.001 survives;
@@ -191,7 +242,7 @@ export const SettingsSkills: Component = () => {
               min={0.001}
               step={0.001}
               value={currentReviewMaxTotalChars() / CHARS_PER_K}
-              disabled={saving()}
+              disabled={saving() || !evolutionEnabled()}
               onBlur={(e) => {
                 // Input is in "k" (thousands); store the real char count (×1000).
                 // parseFloat (not parseInt) so fractional k like 0.001 survives;
@@ -208,6 +259,52 @@ export const SettingsSkills: Component = () => {
             </div>
           </SettingsRow>
         </SettingsList>
+
+        <div class="flex flex-col gap-2">
+          <div class="flex flex-col gap-0.5">
+            <span class="text-14-medium text-text-strong">{language.t("settingsSkills.outputDirsTitle")}</span>
+            <span class="text-12-regular text-text-weak">{language.t("settingsSkills.outputDirsDescription")}</span>
+          </div>
+          <SolidSwitch>
+            {/* Error first: a failed fetch (e.g. backend without the new route)
+                must show a message, never re-throw and tear down the page. */}
+            <Match when={outputDirs.error}>
+              <span class="text-12-regular text-text-weak py-2">{language.t("settingsSkills.outputDirsError")}</span>
+            </Match>
+            <Match when={outputDirs.loading}>
+              <span class="text-12-regular text-text-weak py-2">{language.t("settingsSkills.outputDirsLoading")}</span>
+            </Match>
+            <Match when={(outputDirs() ?? []).length === 0}>
+              <span class="text-12-regular text-text-weak py-2">{language.t("settingsSkills.outputDirsEmpty")}</span>
+            </Match>
+            <Match when={true}>
+              <div class="flex flex-col rounded-lg border border-border-weak-base">
+              <For each={outputDirs()}>
+                {(item) => (
+                  <div class="flex flex-wrap items-center gap-3 px-3 py-2.5 border-b border-border-weak-base last:border-none sm:flex-nowrap">
+                    <div class="flex min-w-0 flex-1 flex-col gap-0.5">
+                      <span class="text-13-medium text-text-strong truncate" title={item.directory}>
+                        {item.name}
+                      </span>
+                      <span class="text-11-regular text-text-subtle truncate font-mono" title={item.evolutionDir}>
+                        {item.evolutionDir}
+                      </span>
+                    </div>
+                    <Show when={platform.openPath}>
+                      <button
+                        class="shrink-0 h-8 px-3 rounded-md border border-border-base text-12-regular text-text-base hover:bg-surface-hover transition-colors"
+                        onClick={() => void platform.openPath?.(item.evolutionDir)}
+                      >
+                        {language.t("settingsSkills.openDir")}
+                      </button>
+                    </Show>
+                  </div>
+                )}
+              </For>
+              </div>
+            </Match>
+          </SolidSwitch>
+        </div>
       </div>
     </div>
   )

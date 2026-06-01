@@ -45,6 +45,9 @@ export namespace SkillEvolutionHook {
     if (!input.finalResponse) return
     if (isReviewSession()) return
 
+    // Global master switch (skills.evolution_enabled). Off → no project evolves.
+    if (!(await ConfigReader.isEvolutionEnabled())) return
+
     const interval = await ConfigReader.getNudgeInterval().catch(() => DEFAULT_NUDGE_INTERVAL)
     if (interval === 0) return
 

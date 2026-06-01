@@ -88,3 +88,38 @@ describe("EvolvedSkills.list", () => {
     expect(skills).toEqual([])
   })
 })
+
+describe("EvolvedSkills.evolutionDirsForProjects", () => {
+  test("maps each project to its skill-evolution output directory", () => {
+    const out = EvolvedSkills.evolutionDirsForProjects([
+      { id: "proj-aaa", name: "Aether", worktree: "/home/u/code/Aether" },
+      { id: "proj-bbb", name: "Video", worktree: "/home/u/code/video" },
+    ])
+    expect(out).toEqual([
+      {
+        projectId: "proj-aaa",
+        name: "Aether",
+        directory: "/home/u/code/Aether",
+        evolutionDir: Spawner.skillEvolutionDir("proj-aaa"),
+      },
+      {
+        projectId: "proj-bbb",
+        name: "Video",
+        directory: "/home/u/code/video",
+        evolutionDir: Spawner.skillEvolutionDir("proj-bbb"),
+      },
+    ])
+  })
+
+  test("falls back to the worktree path when name is missing", () => {
+    const out = EvolvedSkills.evolutionDirsForProjects([
+      { id: "proj-ccc", worktree: "/home/u/code/no-name" },
+    ])
+    expect(out[0].name).toBe("/home/u/code/no-name")
+    expect(out[0].evolutionDir).toBe(Spawner.skillEvolutionDir("proj-ccc"))
+  })
+
+  test("returns empty array when there are no projects (boundary)", () => {
+    expect(EvolvedSkills.evolutionDirsForProjects([])).toEqual([])
+  })
+})
