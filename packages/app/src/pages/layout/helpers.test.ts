@@ -7,6 +7,7 @@ import {
   parseNewSessionDeepLink,
 } from "./deep-links"
 import { type Session } from "@opencode-ai/sdk/v2/client"
+import { setPathPlatform } from "@opencode-ai/util/path"
 import {
   displayName,
   effectiveWorkspaceOrder,
@@ -106,6 +107,20 @@ describe("layout workspace helpers", () => {
   test("normalizes trailing slash in workspace key", () => {
     expect(workspaceKey("/tmp/demo///")).toBe("/tmp/demo")
     if (isWin) expect(workspaceKey("C:\\tmp\\demo\\\\")).toBe("C:\\tmp\\demo")
+  })
+
+  test("keeps default non-windows drive paths unchanged", () => {
+    setPathPlatform(undefined)
+    if (isWin) return
+    expect(workspaceKey("C:/tmp/demo")).toBe("C:/tmp/demo")
+  })
+
+  test("normalizes windows drive separators when path platform is forced", () => {
+    setPathPlatform("win32")
+    expect(workspaceKey("C:/tmp/demo")).toBe("C:\\tmp\\demo")
+    expect(workspaceKey("C:\\tmp\\demo")).toBe("C:\\tmp\\demo")
+    expect(workspaceKey("C:/")).toBe("C:\\")
+    setPathPlatform(undefined)
   })
 
   test("preserves posix and drive roots in workspace key", () => {

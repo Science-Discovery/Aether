@@ -12,6 +12,7 @@ import {
   type Platform,
   PlatformProvider,
   ServerConnection,
+  setPathPlatform,
   useCommand,
 } from "@opencode-ai/app"
 import type { AsyncStorage } from "@solid-primitives/storage"
@@ -57,6 +58,8 @@ const createPlatform = (): Platform => {
     if (ua.includes("Linux")) return "linux"
     return undefined
   })()
+
+  if (os === "windows") setPathPlatform("win32")
 
   const wslHome = async () => {
     if (os !== "windows" || !window.__OPENCODE__?.wsl) return undefined

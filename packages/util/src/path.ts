@@ -1,10 +1,16 @@
-const isWin = typeof process !== "undefined" && process.platform === "win32"
+let forced: "win32" | undefined
+
+const isWin = () => forced === "win32" || (typeof process !== "undefined" && process.platform === "win32")
+
+export function setPathPlatform(platform: "win32" | undefined) {
+  forced = platform
+}
 
 export function norm(input: string): string {
   if (!input) return input
   const next = input.replace(/\\/g, "/")
   const result = /^\/+$/g.test(next) ? "/" : next.replace(/\/+$/, "")
-  if (isWin && /^[A-Za-z]:/.test(result)) {
+  if (isWin() && /^[A-Za-z]:/.test(result)) {
     const out = result.replace(/\//g, "\\")
     if (/^[A-Za-z]:$/.test(out)) return out + "\\"
     return out
