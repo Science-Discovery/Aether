@@ -435,27 +435,6 @@ export const cards = [
             "write": 0.00000125
           }
         ]
-      },
-      {
-        "api": "ANTHROPIC",
-        "ops": [
-          "ANTHROPIC_MESSAGES"
-        ],
-        "caps": [
-          "IS_VISION",
-          "FUNCTION_CALL",
-          "MESSAGES_API"
-        ],
-        "currency": "USD",
-        "prices": [
-          {
-            "threshold": 0,
-            "input": 0.000001,
-            "output": 0.000005,
-            "read": 1e-7,
-            "write": 0.00000125
-          }
-        ]
       }
     ]
   },
@@ -465,34 +444,6 @@ export const cards = [
     "context": 1000000,
     "output": 0,
     "configs": [
-      {
-        "api": "ANTHROPIC",
-        "ops": [
-          "ANTHROPIC_MESSAGES"
-        ],
-        "caps": [
-          "IS_VISION",
-          "FUNCTION_CALL",
-          "MESSAGES_API"
-        ],
-        "currency": "USD",
-        "prices": [
-          {
-            "threshold": 0,
-            "input": 0.000005,
-            "output": 0.000025,
-            "read": 5e-7,
-            "write": 0.00000625
-          },
-          {
-            "threshold": 200000,
-            "input": 0.00001,
-            "output": 0.0000375,
-            "read": 5e-7,
-            "write": 0.00000625
-          }
-        ]
-      },
       {
         "api": "ANTHROPIC",
         "ops": [
@@ -844,34 +795,6 @@ export const cards = [
             "write": 0.00000375
           }
         ]
-      },
-      {
-        "api": "ANTHROPIC",
-        "ops": [
-          "ANTHROPIC_MESSAGES"
-        ],
-        "caps": [
-          "IS_VISION",
-          "FUNCTION_CALL",
-          "MESSAGES_API"
-        ],
-        "currency": "USD",
-        "prices": [
-          {
-            "threshold": 0,
-            "input": 0.000003,
-            "output": 0.000015,
-            "read": 3e-7,
-            "write": 0.00000375
-          },
-          {
-            "threshold": 200000,
-            "input": 0.000006,
-            "output": 0.0000225,
-            "read": 3e-7,
-            "write": 0.00000375
-          }
-        ]
       }
     ]
   },
@@ -908,7 +831,8 @@ export const cards = [
           "OPENAI_COMPLETIONS"
         ],
         "caps": [
-          "COMPLETION"
+          "COMPLETION",
+          "FUNCTION_CALL"
         ],
         "currency": "CNY",
         "prices": [
@@ -945,13 +869,12 @@ export const cards = [
         "api": "OPENAI",
         "ops": [
           "OPENAI_CHAT_COMPLETIONS",
-          "OPENAI_COMPLETIONS",
-          "OPENAI_RESPONSES"
+          "OPENAI_COMPLETIONS"
         ],
         "caps": [
           "WEB_SEARCH_BAIDU",
           "COMPLETION",
-          "RESPONSE"
+          "FUNCTION_CALL"
         ],
         "currency": "CNY",
         "prices": [
@@ -960,6 +883,47 @@ export const cards = [
             "input": 0.000012,
             "output": 0.000024,
             "read": 0.000012,
+            "write": 0.000012
+          }
+        ]
+      },
+      {
+        "api": "OPENAI",
+        "ops": [
+          "OPENAI_CHAT_COMPLETIONS",
+          "OPENAI_COMPLETIONS"
+        ],
+        "caps": [
+          "COMPLETION",
+          "FUNCTION_CALL"
+        ],
+        "currency": "CNY",
+        "prices": [
+          {
+            "threshold": 0,
+            "input": 0.000012,
+            "output": 0.000024,
+            "read": 1e-7,
+            "write": 0
+          }
+        ]
+      },
+      {
+        "api": "ANTHROPIC",
+        "ops": [
+          "ANTHROPIC_MESSAGES"
+        ],
+        "caps": [
+          "MESSAGES_API",
+          "FUNCTION_CALL"
+        ],
+        "currency": "CNY",
+        "prices": [
+          {
+            "threshold": 0,
+            "input": 0.000012,
+            "output": 0.000024,
+            "read": 1e-7,
             "write": 0.000012
           }
         ]
@@ -1307,6 +1271,237 @@ export const cards = [
     ]
   },
   {
+    "id": "gpt-5.4-nano",
+    "family": "openai",
+    "context": 400000,
+    "output": 0,
+    "configs": [
+      {
+        "api": "OPENAI",
+        "ops": [
+          "OPENAI_CHAT_COMPLETIONS",
+          "OPENAI_COMPLETIONS",
+          "OPENAI_RESPONSES"
+        ],
+        "caps": [
+          "IS_VISION",
+          "COMPLETION",
+          "FUNCTION_CALL",
+          "RESPONSE"
+        ],
+        "currency": "USD",
+        "prices": [
+          {
+            "threshold": 0,
+            "input": 2e-7,
+            "output": 0.00000125,
+            "read": 2e-8,
+            "write": 2e-7
+          },
+          {
+            "threshold": 272000,
+            "input": 4e-7,
+            "output": 0.000001875,
+            "read": 4e-8,
+            "write": 4e-7
+          }
+        ]
+      },
+      {
+        "api": "OPENAI",
+        "ops": [
+          "OPENAI_CHAT_COMPLETIONS",
+          "OPENAI_COMPLETIONS",
+          "OPENAI_RESPONSES"
+        ],
+        "caps": [
+          "IS_VISION",
+          "COMPLETION",
+          "FUNCTION_CALL",
+          "RESPONSE"
+        ],
+        "currency": "USD",
+        "prices": [
+          {
+            "threshold": 0,
+            "input": 2e-7,
+            "output": 0.00000125,
+            "read": 2e-8,
+            "write": 2e-7
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "gpt-5.4-pro",
+    "family": "openai",
+    "context": 1050000,
+    "output": 0,
+    "configs": [
+      {
+        "api": "OPENAI",
+        "ops": [
+          "OPENAI_RESPONSES"
+        ],
+        "caps": [
+          "IS_VISION",
+          "FUNCTION_CALL",
+          "RESPONSE"
+        ],
+        "currency": "USD",
+        "prices": [
+          {
+            "threshold": 0,
+            "input": 0.00003,
+            "output": 0.00018,
+            "read": 0.000003,
+            "write": 0.00003
+          },
+          {
+            "threshold": 272000,
+            "input": 0.00006,
+            "output": 0.00027,
+            "read": 0.000006,
+            "write": 0.00006
+          }
+        ]
+      },
+      {
+        "api": "OPENAI",
+        "ops": [
+          "OPENAI_CHAT_COMPLETIONS",
+          "OPENAI_COMPLETIONS",
+          "OPENAI_RESPONSES"
+        ],
+        "caps": [
+          "IS_VISION",
+          "FUNCTION_CALL",
+          "RESPONSE",
+          "COMPLETION"
+        ],
+        "currency": "USD",
+        "prices": [
+          {
+            "threshold": 0,
+            "input": 0.00003,
+            "output": 0.00018,
+            "read": 0.000003,
+            "write": 0.00003
+          },
+          {
+            "threshold": 272000,
+            "input": 0.00006,
+            "output": 0.00027,
+            "read": 0.000006,
+            "write": 0.00006
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "gpt-5.4-mini",
+    "family": "openai",
+    "context": 400000,
+    "output": 0,
+    "configs": [
+      {
+        "api": "OPENAI",
+        "ops": [
+          "OPENAI_CHAT_COMPLETIONS",
+          "OPENAI_COMPLETIONS",
+          "OPENAI_RESPONSES"
+        ],
+        "caps": [
+          "IS_VISION",
+          "COMPLETION",
+          "FUNCTION_CALL",
+          "RESPONSE"
+        ],
+        "currency": "USD",
+        "prices": [
+          {
+            "threshold": 0,
+            "input": 7.5e-7,
+            "output": 0.0000045,
+            "read": 7.5e-8,
+            "write": 7.5e-7
+          },
+          {
+            "threshold": 272000,
+            "input": 0.0000015,
+            "output": 0.00000675,
+            "read": 1.5e-7,
+            "write": 0.0000015
+          }
+        ]
+      },
+      {
+        "api": "OPENAI",
+        "ops": [
+          "OPENAI_CHAT_COMPLETIONS",
+          "OPENAI_COMPLETIONS",
+          "OPENAI_RESPONSES"
+        ],
+        "caps": [
+          "IS_VISION",
+          "COMPLETION",
+          "FUNCTION_CALL",
+          "RESPONSE"
+        ],
+        "currency": "USD",
+        "prices": [
+          {
+            "threshold": 0,
+            "input": 7.5e-7,
+            "output": 0.0000045,
+            "read": 7.5e-8,
+            "write": 7.5e-7
+          },
+          {
+            "threshold": 272000,
+            "input": 0.0000015,
+            "output": 0.00000675,
+            "read": 1.5e-7,
+            "write": 0.0000015
+          }
+        ]
+      },
+      {
+        "api": "OPENAI",
+        "ops": [
+          "OPENAI_CHAT_COMPLETIONS",
+          "OPENAI_COMPLETIONS",
+          "OPENAI_RESPONSES"
+        ],
+        "caps": [
+          "IS_VISION",
+          "COMPLETION",
+          "FUNCTION_CALL",
+          "RESPONSE"
+        ],
+        "currency": "USD",
+        "prices": [
+          {
+            "threshold": 0,
+            "input": 7.5e-7,
+            "output": 0.0000045,
+            "read": 7.5e-8,
+            "write": 7.5e-7
+          },
+          {
+            "threshold": 272000,
+            "input": 0.0000015,
+            "output": 0.00000675,
+            "read": 1.5e-7,
+            "write": 0.0000015
+          }
+        ]
+      }
+    ]
+  },
+  {
     "id": "gpt-5.4",
     "family": "openai",
     "context": 1050000,
@@ -1464,369 +1659,6 @@ export const cards = [
             "output": 0.0000225,
             "read": 5e-7,
             "write": 0.000005
-          }
-        ]
-      }
-    ]
-  },
-  {
-    "id": "gpt-5.4-mini",
-    "family": "openai",
-    "context": 400000,
-    "output": 0,
-    "configs": [
-      {
-        "api": "OPENAI",
-        "ops": [
-          "OPENAI_CHAT_COMPLETIONS",
-          "OPENAI_COMPLETIONS",
-          "OPENAI_RESPONSES"
-        ],
-        "caps": [
-          "IS_VISION",
-          "COMPLETION",
-          "FUNCTION_CALL",
-          "RESPONSE"
-        ],
-        "currency": "USD",
-        "prices": [
-          {
-            "threshold": 0,
-            "input": 7.5e-7,
-            "output": 0.0000045,
-            "read": 7.5e-8,
-            "write": 7.5e-7
-          },
-          {
-            "threshold": 272000,
-            "input": 0.0000015,
-            "output": 0.00000675,
-            "read": 1.5e-7,
-            "write": 0.0000015
-          }
-        ]
-      },
-      {
-        "api": "OPENAI",
-        "ops": [
-          "OPENAI_CHAT_COMPLETIONS",
-          "OPENAI_COMPLETIONS",
-          "OPENAI_RESPONSES"
-        ],
-        "caps": [
-          "IS_VISION",
-          "COMPLETION",
-          "FUNCTION_CALL",
-          "RESPONSE"
-        ],
-        "currency": "USD",
-        "prices": [
-          {
-            "threshold": 0,
-            "input": 7.5e-7,
-            "output": 0.0000045,
-            "read": 7.5e-8,
-            "write": 7.5e-7
-          },
-          {
-            "threshold": 272000,
-            "input": 0.0000015,
-            "output": 0.00000675,
-            "read": 1.5e-7,
-            "write": 0.0000015
-          }
-        ]
-      }
-    ]
-  },
-  {
-    "id": "gpt-5.4-nano",
-    "family": "openai",
-    "context": 400000,
-    "output": 0,
-    "configs": [
-      {
-        "api": "OPENAI",
-        "ops": [
-          "OPENAI_CHAT_COMPLETIONS",
-          "OPENAI_COMPLETIONS",
-          "OPENAI_RESPONSES"
-        ],
-        "caps": [
-          "IS_VISION",
-          "COMPLETION",
-          "FUNCTION_CALL",
-          "RESPONSE"
-        ],
-        "currency": "USD",
-        "prices": [
-          {
-            "threshold": 0,
-            "input": 2e-7,
-            "output": 0.00000125,
-            "read": 2e-8,
-            "write": 2e-7
-          }
-        ]
-      },
-      {
-        "api": "OPENAI",
-        "ops": [
-          "OPENAI_CHAT_COMPLETIONS",
-          "OPENAI_COMPLETIONS",
-          "OPENAI_RESPONSES"
-        ],
-        "caps": [
-          "IS_VISION",
-          "COMPLETION",
-          "FUNCTION_CALL",
-          "RESPONSE"
-        ],
-        "currency": "USD",
-        "prices": [
-          {
-            "threshold": 0,
-            "input": 2e-7,
-            "output": 0.00000125,
-            "read": 2e-8,
-            "write": 2e-7
-          },
-          {
-            "threshold": 272000,
-            "input": 4e-7,
-            "output": 0.000001875,
-            "read": 4e-8,
-            "write": 4e-7
-          }
-        ]
-      }
-    ]
-  },
-  {
-    "id": "gpt-5.4-pro",
-    "family": "openai",
-    "context": 1050000,
-    "output": 0,
-    "configs": [
-      {
-        "api": "OPENAI",
-        "ops": [
-          "OPENAI_CHAT_COMPLETIONS",
-          "OPENAI_COMPLETIONS",
-          "OPENAI_RESPONSES"
-        ],
-        "caps": [
-          "IS_VISION",
-          "FUNCTION_CALL",
-          "RESPONSE",
-          "COMPLETION"
-        ],
-        "currency": "USD",
-        "prices": [
-          {
-            "threshold": 0,
-            "input": 0.00003,
-            "output": 0.00018,
-            "read": 0.000003,
-            "write": 0.00003
-          },
-          {
-            "threshold": 272000,
-            "input": 0.00006,
-            "output": 0.00027,
-            "read": 0.000006,
-            "write": 0.00006
-          }
-        ]
-      },
-      {
-        "api": "OPENAI",
-        "ops": [
-          "OPENAI_RESPONSES"
-        ],
-        "caps": [
-          "IS_VISION",
-          "FUNCTION_CALL",
-          "RESPONSE"
-        ],
-        "currency": "USD",
-        "prices": [
-          {
-            "threshold": 0,
-            "input": 0.00003,
-            "output": 0.00018,
-            "read": 0.000003,
-            "write": 0.00003
-          },
-          {
-            "threshold": 272000,
-            "input": 0.00006,
-            "output": 0.00027,
-            "read": 0.000006,
-            "write": 0.00006
-          }
-        ]
-      }
-    ]
-  },
-  {
-    "id": "gpt-5.5",
-    "family": "openai",
-    "context": 1050000,
-    "output": 0,
-    "configs": [
-      {
-        "api": "OPENAI",
-        "ops": [
-          "OPENAI_CHAT_COMPLETIONS",
-          "OPENAI_COMPLETIONS",
-          "OPENAI_RESPONSES"
-        ],
-        "caps": [
-          "IS_VISION",
-          "COMPLETION",
-          "FUNCTION_CALL",
-          "RESPONSE"
-        ],
-        "currency": "USD",
-        "prices": [
-          {
-            "threshold": 0,
-            "input": 0.000005,
-            "output": 0.00003,
-            "read": 5e-7,
-            "write": 0.000005
-          },
-          {
-            "threshold": 272000,
-            "input": 0.00001,
-            "output": 0.000045,
-            "read": 0.000001,
-            "write": 0.00001
-          }
-        ]
-      },
-      {
-        "api": "OPENAI",
-        "ops": [
-          "OPENAI_CHAT_COMPLETIONS",
-          "OPENAI_COMPLETIONS",
-          "OPENAI_RESPONSES"
-        ],
-        "caps": [
-          "IS_VISION",
-          "COMPLETION",
-          "FUNCTION_CALL",
-          "RESPONSE"
-        ],
-        "currency": "USD",
-        "prices": [
-          {
-            "threshold": 0,
-            "input": 0.000005,
-            "output": 0.00003,
-            "read": 5e-7,
-            "write": 0.000005
-          },
-          {
-            "threshold": 272000,
-            "input": 0.00001,
-            "output": 0.000045,
-            "read": 0.000001,
-            "write": 0.00001
-          }
-        ]
-      },
-      {
-        "api": "OPENAI",
-        "ops": [
-          "OPENAI_CHAT_COMPLETIONS",
-          "OPENAI_COMPLETIONS",
-          "OPENAI_RESPONSES"
-        ],
-        "caps": [
-          "IS_VISION",
-          "COMPLETION",
-          "FUNCTION_CALL",
-          "RESPONSE"
-        ],
-        "currency": "USD",
-        "prices": [
-          {
-            "threshold": 0,
-            "input": 0.000005,
-            "output": 0.00003,
-            "read": 5e-7,
-            "write": 0.000005
-          },
-          {
-            "threshold": 272000,
-            "input": 0.00001,
-            "output": 0.000045,
-            "read": 0.000001,
-            "write": 0.00001
-          }
-        ]
-      },
-      {
-        "api": "OPENAI",
-        "ops": [
-          "OPENAI_CHAT_COMPLETIONS",
-          "OPENAI_COMPLETIONS",
-          "OPENAI_RESPONSES"
-        ],
-        "caps": [
-          "IS_VISION",
-          "COMPLETION",
-          "FUNCTION_CALL",
-          "RESPONSE"
-        ],
-        "currency": "USD",
-        "prices": [
-          {
-            "threshold": 0,
-            "input": 0.000005,
-            "output": 0.00003,
-            "read": 5e-7,
-            "write": 0.000005
-          },
-          {
-            "threshold": 272000,
-            "input": 0.00001,
-            "output": 0.000045,
-            "read": 0.000001,
-            "write": 0.00001
-          }
-        ]
-      },
-      {
-        "api": "OPENAI",
-        "ops": [
-          "OPENAI_CHAT_COMPLETIONS",
-          "OPENAI_COMPLETIONS",
-          "OPENAI_RESPONSES"
-        ],
-        "caps": [
-          "IS_VISION",
-          "COMPLETION",
-          "FUNCTION_CALL",
-          "RESPONSE"
-        ],
-        "currency": "USD",
-        "prices": [
-          {
-            "threshold": 0,
-            "input": 0.000005,
-            "output": 0.00003,
-            "read": 5e-7,
-            "write": 0.000005
-          },
-          {
-            "threshold": 272000,
-            "input": 0.00001,
-            "output": 0.000045,
-            "read": 0.000001,
-            "write": 0.00001
           }
         ]
       }
@@ -2131,6 +1963,319 @@ export const cards = [
             "output": 0.0000021,
             "read": 7e-8,
             "write": 7e-7
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "deepseek-v4-flash",
+    "family": "deepseek",
+    "context": 1000000,
+    "output": 0,
+    "configs": [
+      {
+        "api": "OPENAI",
+        "ops": [
+          "OPENAI_CHAT_COMPLETIONS",
+          "OPENAI_COMPLETIONS"
+        ],
+        "caps": [
+          "COMPLETION",
+          "FUNCTION_CALL"
+        ],
+        "currency": "CNY",
+        "prices": [
+          {
+            "threshold": 0,
+            "input": 0.000001,
+            "output": 0.000002,
+            "read": 2e-7,
+            "write": 0
+          }
+        ]
+      },
+      {
+        "api": "ANTHROPIC",
+        "ops": [
+          "ANTHROPIC_MESSAGES"
+        ],
+        "caps": [
+          "MESSAGES_API",
+          "FUNCTION_CALL"
+        ],
+        "currency": "CNY",
+        "prices": [
+          {
+            "threshold": 0,
+            "input": 0.000001,
+            "output": 0.000002,
+            "read": 2e-7,
+            "write": 0.000001
+          }
+        ]
+      },
+      {
+        "api": "OPENAI",
+        "ops": [
+          "OPENAI_CHAT_COMPLETIONS",
+          "OPENAI_COMPLETIONS"
+        ],
+        "caps": [
+          "COMPLETION",
+          "FUNCTION_CALL"
+        ],
+        "currency": "CNY",
+        "prices": [
+          {
+            "threshold": 0,
+            "input": 0.000001,
+            "output": 0.000002,
+            "read": 0.000001,
+            "write": 0
+          }
+        ]
+      },
+      {
+        "api": "ANTHROPIC",
+        "ops": [
+          "ANTHROPIC_MESSAGES"
+        ],
+        "caps": [
+          "MESSAGES_API",
+          "FUNCTION_CALL"
+        ],
+        "currency": "CNY",
+        "prices": [
+          {
+            "threshold": 0,
+            "input": 0.000001,
+            "output": 0.000002,
+            "read": 0.000001,
+            "write": 0.000001
+          }
+        ]
+      },
+      {
+        "api": "OPENAI",
+        "ops": [
+          "OPENAI_CHAT_COMPLETIONS",
+          "OPENAI_COMPLETIONS"
+        ],
+        "caps": [
+          "COMPLETION",
+          "FUNCTION_CALL"
+        ],
+        "currency": "CNY",
+        "prices": [
+          {
+            "threshold": 0,
+            "input": 0.000001,
+            "output": 0.000002,
+            "read": 2e-8,
+            "write": 0
+          }
+        ]
+      },
+      {
+        "api": "ANTHROPIC",
+        "ops": [
+          "ANTHROPIC_MESSAGES"
+        ],
+        "caps": [
+          "MESSAGES_API",
+          "FUNCTION_CALL"
+        ],
+        "currency": "CNY",
+        "prices": [
+          {
+            "threshold": 0,
+            "input": 0.000001,
+            "output": 0.000002,
+            "read": 2e-8,
+            "write": 0.000001
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "gpt-5.5",
+    "family": "openai",
+    "context": 1050000,
+    "output": 0,
+    "configs": [
+      {
+        "api": "OPENAI",
+        "ops": [
+          "OPENAI_CHAT_COMPLETIONS",
+          "OPENAI_COMPLETIONS",
+          "OPENAI_RESPONSES"
+        ],
+        "caps": [
+          "IS_VISION",
+          "COMPLETION",
+          "FUNCTION_CALL",
+          "RESPONSE"
+        ],
+        "currency": "USD",
+        "prices": [
+          {
+            "threshold": 0,
+            "input": 0.000005,
+            "output": 0.00003,
+            "read": 5e-7,
+            "write": 0.000005
+          },
+          {
+            "threshold": 272000,
+            "input": 0.00001,
+            "output": 0.000045,
+            "read": 0.000001,
+            "write": 0.00001
+          }
+        ]
+      },
+      {
+        "api": "OPENAI",
+        "ops": [
+          "OPENAI_CHAT_COMPLETIONS",
+          "OPENAI_COMPLETIONS",
+          "OPENAI_RESPONSES"
+        ],
+        "caps": [
+          "IS_VISION",
+          "COMPLETION",
+          "FUNCTION_CALL",
+          "RESPONSE"
+        ],
+        "currency": "USD",
+        "prices": [
+          {
+            "threshold": 0,
+            "input": 0.000005,
+            "output": 0.00003,
+            "read": 5e-7,
+            "write": 0.000005
+          },
+          {
+            "threshold": 272000,
+            "input": 0.00001,
+            "output": 0.000045,
+            "read": 0.000001,
+            "write": 0.00001
+          }
+        ]
+      },
+      {
+        "api": "OPENAI",
+        "ops": [
+          "OPENAI_CHAT_COMPLETIONS",
+          "OPENAI_COMPLETIONS",
+          "OPENAI_RESPONSES"
+        ],
+        "caps": [
+          "IS_VISION",
+          "COMPLETION",
+          "FUNCTION_CALL",
+          "RESPONSE"
+        ],
+        "currency": "USD",
+        "prices": [
+          {
+            "threshold": 0,
+            "input": 0.000005,
+            "output": 0.00003,
+            "read": 5e-7,
+            "write": 0.000005
+          },
+          {
+            "threshold": 272000,
+            "input": 0.00001,
+            "output": 0.000045,
+            "read": 0.000001,
+            "write": 0.00001
+          }
+        ]
+      },
+      {
+        "api": "OPENAI",
+        "ops": [
+          "OPENAI_CHAT_COMPLETIONS",
+          "OPENAI_COMPLETIONS",
+          "OPENAI_RESPONSES"
+        ],
+        "caps": [
+          "IS_VISION",
+          "COMPLETION",
+          "FUNCTION_CALL",
+          "RESPONSE"
+        ],
+        "currency": "USD",
+        "prices": [
+          {
+            "threshold": 0,
+            "input": 0.000005,
+            "output": 0.00003,
+            "read": 5e-7,
+            "write": 0.000005
+          },
+          {
+            "threshold": 272000,
+            "input": 0.00001,
+            "output": 0.000045,
+            "read": 0.000001,
+            "write": 0.00001
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "claude-opus-4-8",
+    "family": "anthropic",
+    "context": 1000000,
+    "output": 0,
+    "configs": [
+      {
+        "api": "ANTHROPIC",
+        "ops": [
+          "ANTHROPIC_MESSAGES"
+        ],
+        "caps": [
+          "IS_VISION",
+          "FUNCTION_CALL",
+          "MESSAGES_API"
+        ],
+        "currency": "USD",
+        "prices": [
+          {
+            "threshold": 0,
+            "input": 0.000005,
+            "output": 0.000025,
+            "read": 5e-7,
+            "write": 0.00000625
+          }
+        ]
+      },
+      {
+        "api": "ANTHROPIC",
+        "ops": [
+          "ANTHROPIC_MESSAGES"
+        ],
+        "caps": [
+          "IS_VISION",
+          "FUNCTION_CALL",
+          "MESSAGES_API"
+        ],
+        "currency": "USD",
+        "prices": [
+          {
+            "threshold": 0,
+            "input": 0.000005,
+            "output": 0.000025,
+            "read": 5e-7,
+            "write": 0.00000625
           }
         ]
       }
