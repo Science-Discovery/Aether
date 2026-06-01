@@ -59,12 +59,15 @@ out="$tmp/$pkg"
 
 mkdir -p "$out"
 cp -R "$src"/. "$out"/
+rm -f "$out/aether_darwin_installer.command" "$out/aether_darwin_x64_installer.command" "$out/aether_darwin_installer_beta.command" "$out/aether_darwin_installer_devtest.command"
 
-ins="$root/Update/aether_darwin_installer.command"
-if [ -f "$ins" ]; then
-  cp "$ins" "$out/aether_darwin_installer.command"
-  chmod +x "$out/aether_darwin_installer.command"
-fi
+ins="$root/Update/install.command"
+[ -f "$ins" ] || {
+  echo "Missing $ins"
+  exit 1
+}
+cp "$ins" "$out/install.command"
+chmod +x "$out/install.command"
 
 icon="$root/packages/desktop-web/icons/prod/icon.icns"
 if [ -f "$icon" ]; then
@@ -86,23 +89,17 @@ cat >"$out/README_FIRST.txt" <<'EOF'
 Aether Web (macOS ARCH)
 
 Quick start
-1) Open this DMG and copy the folder PACKAGE to a local path, for example: ~/Applications/Aether-Web
-2) In Finder, right click Aether.command and choose Open
-3) If macOS asks again, click Open in the security prompt
+1) Open this DMG
+2) In Finder, open the aether-darwin-ARCH folder
+3) Right click install.command and choose Open
+4) If macOS asks again, click Open in the security prompt
 
 Troubleshooting
 - If you see "cannot be opened" or "unidentified developer":
-  Right click Aether.command -> Open, then confirm Open
-
-- If you see "is damaged and cannot be opened":
-  Open Terminal in the install folder and run:
-    xattr -cr ./aether ./Aether.command
+  Right click install.command -> Open, then confirm Open
 
 - If execution permission is missing:
-    chmod +x ./aether ./Aether.command
-
-- If Gatekeeper still blocks it:
-  System Settings -> Privacy & Security -> scroll down and allow the blocked item, then retry Open
+    chmod +x ./install.command
 
 Updates
 - Use Aether's in-app update flow to download and install newer versions.
@@ -129,4 +126,4 @@ popd >/dev/null
 echo "Done"
 echo "Asset: packages/opencode/$dmg"
 echo "YML:   packages/opencode/dist/$yml.yml"
-echo "Note:  DMG includes README_FIRST.txt and aether_darwin_installer.command"
+echo "Note:  DMG includes README_FIRST.txt and install.command"

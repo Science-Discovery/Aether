@@ -43,20 +43,23 @@ echo "[2/4] Creating DMG ..."
 
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
-pkg="$tmp/aether-darwin-arm64-web"
+pkg="$tmp/aether-darwin-arm64"
 
 mkdir -p "$pkg"
 cp -R "$src"/. "$pkg"/
+rm -f "$pkg/aether_darwin_installer.command" "$pkg/aether_darwin_x64_installer.command" "$pkg/aether_darwin_installer_beta.command" "$pkg/aether_darwin_installer_devtest.command"
 
 # Write version file
 rm -f "$pkg/.aether_version"
 printf "%s\n" "$ver" > "$pkg/.aether_web_version"
 
-ins="$root/Update/aether_darwin_installer.command"
-if [ -f "$ins" ]; then
-  cp "$ins" "$pkg/aether_darwin_installer.command"
-  chmod +x "$pkg/aether_darwin_installer.command"
-fi
+ins="$root/Update/install.command"
+[ -f "$ins" ] || {
+  echo "Error: $ins not found."
+  exit 1
+}
+cp "$ins" "$pkg/install.command"
+chmod +x "$pkg/install.command"
 
 # Ensure executables are +x
 [ -f "$pkg/aether" ] && chmod +x "$pkg/aether"
@@ -67,17 +70,18 @@ cat > "$pkg/README_FIRST.txt" <<'EOFREADME'
 Aether Web (macOS arm64)
 
 Quick start
-1) Open this DMG and copy the folder to a local path, e.g. ~/Applications/Aether-Web
-2) In Finder, right-click Aether.command and choose Open
-3) If macOS asks again, click Open in the security prompt
+1) Open this DMG
+2) In Finder, open the aether-darwin-arm64 folder
+3) Right-click install.command and choose Open
+4) If macOS asks again, click Open in the security prompt
 
 Troubleshooting
 - "cannot be opened" / "unidentified developer":
-  Right-click Aether.command -> Open, then confirm
+  Right-click install.command -> Open, then confirm
 - "is damaged and cannot be opened":
-  Open Terminal in the folder and run: xattr -cr ./aether ./Aether.command
+  Open Terminal in the folder and run: xattr -cr ./install.command
 - Permission denied:
-  chmod +x ./aether ./Aether.command
+  chmod +x ./install.command
 
 Updates
 - Use Aether's in-app update flow to download and install newer versions.
