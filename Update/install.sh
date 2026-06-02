@@ -593,10 +593,7 @@ EOF
   fi
   desk="$home/Desktop"
   mkdir -p "$desk" || return 1
-  if cp "$apps/aether.desktop" "$desk/aether.desktop" 2>/dev/null; then
-    chmod +x "$desk/aether.desktop" 2>/dev/null || true
-    rm -f "$desk/Aether.sh" 2>/dev/null || true
-  fi
+  rm -f "$desk/Aether.sh" 2>/dev/null || true
   printf "%s" "$apps/aether.desktop"
 }
 

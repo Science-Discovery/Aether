@@ -253,8 +253,7 @@ describe("web update scripts", () => {
       expect(desktop).toContain("Name=Aether")
       expect(desktop).toContain(path.join(work, "aether_1.2.7", "Aether.sh"))
       expect(await Bun.file(path.join(home, "Desktop", "Aether.sh")).exists()).toBe(false)
-      const desk = await Bun.file(path.join(home, "Desktop", "aether.desktop")).text()
-      expect(desk).toContain(path.join(work, "aether_1.2.7", "Aether.sh"))
+      expect(await Bun.file(path.join(home, "Desktop", "aether.desktop")).exists()).toBe(false)
     },
     { timeout: 30000 },
   )
