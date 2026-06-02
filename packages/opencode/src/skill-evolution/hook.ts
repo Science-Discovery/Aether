@@ -1,4 +1,5 @@
 import { Counter } from "./counter"
+import { DEFAULT_NUDGE_INTERVAL } from "./constants"
 import { ConfigReader } from "./config-reader"
 import { isReviewSession, spawnReview } from "./review-agent"
 import { Log } from "@/util/log"
@@ -44,7 +45,7 @@ export namespace SkillEvolutionHook {
     if (!input.finalResponse) return
     if (isReviewSession()) return
 
-    const interval = await ConfigReader.getNudgeInterval().catch(() => 10)
+    const interval = await ConfigReader.getNudgeInterval().catch(() => DEFAULT_NUDGE_INTERVAL)
     if (interval === 0) return
 
     const count = Counter.get(input.sessionID)

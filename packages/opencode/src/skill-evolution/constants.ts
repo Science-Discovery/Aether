@@ -1,4 +1,4 @@
-export const DEFAULT_NUDGE_INTERVAL = 10
+export const DEFAULT_NUDGE_INTERVAL = 80
 
 // Version snapshot settings
 export const VERSION_CAPACITY = 100
@@ -19,8 +19,10 @@ Work in TWO ordered stages — do the gate first, the rules only after it passes
 
 STAGE 1 — Gate: decide whether to save at all. Default answer is NO on every dimension. You need strong evidence on ALL four to override — not just "maybe useful" but "clearly verified, clearly reusable, clearly novel, and likely to be repeated many times". State your verdict on EACH dimension explicitly — "A: yes/no — <one-line reason>", "B: yes/no — <one-line reason>", "C: yes/no — <one-line reason>", "D: yes/no — <one-line reason>". Do not skip straight to writing.
 
+OVERARCHING VETO: Even if all four dimensions pass, you MUST still answer "Nothing to save." if the skill would save less than ~10 minutes of future effort, or if it merely offers a minor convenience rather than unlocking a capability that would otherwise be blocked. A skill must be worth the ongoing cost of maintaining and loading it; marginal improvements do not qualify.
+
 A. REUSABLE — NO by default. Override to YES only if:
-   - The conversation revealed a multi-step PROCEDURE (not a single command or fact) that took trial-and-error to discover.
+   - The conversation revealed a NON-OBVIOUS multi-step PROCEDURE (not a single command or fact) that took trial-and-error to discover. A procedure is non-obvious if an experienced engineer would NOT intuitively arrive at the same sequence by common sense alone.
    - A capable model encountering the same task WITHOUT this skill would likely repeat the same dead ends or mistakes.
    - One-off Q&A, single tool calls, or anything a competent model already does by default → always NO.
 
@@ -31,17 +33,18 @@ B. VERIFIED — NO by default. Override to YES only if:
 C. NOVEL — NO by default. Override to YES only if:
    - An existing skill on this topic is MISSING something this conversation proved — a new step, a corrected error, or a newly discovered pitfall.
    - Rephrasing existing content, adding examples that don't change the method, "tightening" wording, or anything that would just churn the file → always NO.
+   - If an existing skill already covers 80%+ of what this conversation revealed and the new insight is merely a small addition or edge-case refinement → always NO. The gap must be substantial.
    - If no existing skill covers this topic: C defaults to YES — skip the check.
 
 D. REPEATABLE — NO by default. Override to YES only if:
-   - The exploration path uncovered here is likely to be WALKED AGAIN by future users or agents on SIMILAR tasks — not just a rare edge case.
-   - The core question: "will this specific sequence of steps or this specific pitfall arise again in typical usage?" If yes → D is yes.
-   - A one-time environment anomaly, a project-specific quirk, or a setup that most projects won't encounter → always NO.
+   - The exploration path uncovered here is FREQUENTLY encountered by future users or agents across different projects and contexts — not just a rare edge case or a one-off scenario.
+   - The core question: "will this specific sequence of steps or this specific pitfall arise repeatedly in typical usage across multiple projects?" Only if the answer is clearly yes → D is yes.
+   - A one-time environment anomaly, a project-specific quirk, a setup that most projects won't encounter, or a scenario that might recur but only rarely → always NO.
 
 If ANY of A, B, C, D is NO: respond with exactly "Nothing to save." and STOP — do not read the rules, do not call the tool.
 If ALL are YES: proceed to STAGE 2, then you MUST call the skill_manage tool (action: create / patch / edit / delete).
 
-STAGE 2 — Write: only reached when the gate passed. The gate already decided this material is worth saving; your job here is to make it GOOD, not to abandon it. Do not respond "Nothing to save." from Stage 2 — if something feels off, revise.
+STAGE 2 — Write: only reached when the gate passed. The gate already decided this material is worth saving; your job here is to make it GOOD, not to abandon it. Do not respond "Nothing to save." from Stage 2 — if something feels off, revise. However, if you have any doubt whether this skill is truly needed, respond "Nothing to save." — creating unnecessary skills is far worse than missing a marginal one.
 
 ## What a GOOD skill looks like
 
