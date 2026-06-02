@@ -7,6 +7,7 @@ import { useLanguage } from "@/context/language"
 import { useSettings } from "@/context/settings"
 import { useSDK } from "@/context/sdk"
 import { useSync } from "@/context/sync"
+import { useServer } from "@/context/server"
 import { useParams } from "@solidjs/router"
 import { createVoiceRecorder, type VoiceRecorderState } from "@/utils/voice-recorder"
 import { transcribeAudio } from "@/utils/voice-transcription"
@@ -33,6 +34,7 @@ export const VoiceInputButton: Component<VoiceInputButtonProps> = (props) => {
   const sdk = useSDK()
   const sync = useSync()
   const params = useParams()
+  const server = useServer()
   const recorder = createVoiceRecorder()
   const [transcribing, setTranscribing] = createSignal(false)
   let abortController: AbortController | null = null
@@ -124,6 +126,10 @@ export const VoiceInputButton: Component<VoiceInputButtonProps> = (props) => {
       }
 
       abortController = new AbortController()
+      const cur = server.current
+      const auth = cur?.http?.password
+        ? { Authorization: `Basic ${btoa(`${cur.http.username ?? "opencode"}:${cur.http.password}`)}` }
+        : undefined
       const text = await transcribeAudio({
         serverUrl: sdk.url,
         providerID,
@@ -131,6 +137,7 @@ export const VoiceInputButton: Component<VoiceInputButtonProps> = (props) => {
         audioBlob,
         conversationContext: getConversationContext(),
         signal: abortController.signal,
+        headers: auth,
       })
 
       props.onTranscription(text)
