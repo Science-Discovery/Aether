@@ -58,12 +58,15 @@ out="$tmp/$pkg"
 
 mkdir -p "$out"
 cp -R "$src"/. "$out"/
+rm -f "$out/aether_linux_installer.sh" "$out/aether_linux_installer_beta.sh" "$out/aether_linux_installer_devtest.sh"
 
-ins="$root/Update/aether_linux_installer.sh"
-if [ -f "$ins" ]; then
-  cp "$ins" "$out/aether_linux_installer.sh"
-  chmod +x "$out/aether_linux_installer.sh"
-fi
+ins="$root/Update/install.sh"
+[ -f "$ins" ] || {
+  echo "Missing $ins"
+  exit 1
+}
+cp "$ins" "$out/install.sh"
+chmod +x "$out/install.sh"
 icon="$root/icon-source/gen/icon.png"
 if [ -f "$icon" ]; then
   cp "$icon" "$out/aether-icon.png"
@@ -91,9 +94,9 @@ cat >"$out/README_FIRST.txt" <<'EOF'
 Aether Web (Linux ARCH)
 
 Quick start
-1) Extract this ZIP and copy the folder PACKAGE to a local path, for example: ~/Applications/Aether-Web
-2) Open Terminal in that folder and run: ./Aether.sh
-3) Optional base path: VITE_BASE_PATH=/aether ./Aether.sh
+1) Extract this ZIP
+2) Open Terminal in the aether-linux-ARCH folder
+3) Run: chmod +x install.sh && ./install.sh
 
 Updates
 - Use Aether's in-app update flow to download and install newer versions.
@@ -122,4 +125,4 @@ popd >/dev/null
 echo "Done"
 echo "Asset: packages/opencode/$zip"
 echo "YML:   packages/opencode/dist/$yml.yml"
-echo "Note:  ZIP includes folder $pkg and aether_linux_installer.sh"
+echo "Note:  ZIP includes folder $pkg and install.sh"

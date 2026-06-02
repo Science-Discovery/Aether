@@ -1,0 +1,834 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+DEBUG_DIR="$HOME/.cache/aether/update_debug"
+if [ -n "${AETHER_DEBUG_LOG:-}" ]; then
+  DEBUG_LOG="$AETHER_DEBUG_LOG"
+else
+  DEBUG_TS="$(date +%Y%m%d_%H%M%S)"
+  DEBUG_LOG="$DEBUG_DIR/install_${DEBUG_TS}.log"
+fi
+mkdir -p "$DEBUG_DIR" 2>/dev/null || true
+
+debug_log() {
+  [ -d "$DEBUG_DIR" ] || return 0
+  printf '%s | %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$1" >>"$DEBUG_LOG" 2>/dev/null || true
+}
+
+debug_log "========== NEW GITHUB INSTALL RUN =========="
+
+ok=0
+latest_ok=20
+run_err=33
+dir_err=40
+arg_err=50
+
+case "$(uname -m)" in
+  aarch64|arm64) arch="arm64" ;;
+  x86_64|amd64) arch="x64" ;;
+  *)
+    echo "Unsupported Linux architecture: $(uname -m)"
+    exit "$arg_err"
+    ;;
+esac
+
+default="$HOME/.local/share/applications/aether"
+work="$HOME/.local/share/aether/update/aether"
+path=""
+restart="1"
+pkg="aether-linux-$arch"
+next=""
+res=""
+prune="0"
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --path)
+      shift
+      if [ "$#" -eq 0 ]; then
+        echo "--path needs a value"
+        exit "$arg_err"
+      fi
+      path="$1"
+      ;;
+    --no-restart)
+      restart="0"
+      ;;
+    help|-h|--help)
+      cat <<EOF
+Aether Linux GitHub Release Installer
+
+Usage:
+  $(basename "$0") [--path <dir>] [--no-restart]
+
+Options:
+  --path <dir>    Install target directory (default $default)
+  --no-restart    Do not restart Aether after install
+EOF
+      exit "$ok"
+      ;;
+    *)
+      echo "Unsupported argument: $1"
+      exit "$arg_err"
+      ;;
+  esac
+  shift
+done
+
+trap 'debug_log "SIGNAL | received SIGTERM, pid=$$, ppid=$PPID"; exit 1' SIGTERM
+trap 'debug_log "SIGNAL | received SIGINT, pid=$$, ppid=$PPID"; exit 1' SIGINT
+trap 'debug_log "SIGNAL | received SIGHUP, pid=$$, ppid=$PPID"; exit 1' SIGHUP
+trap 'debug_log "SIGNAL | received SIGQUIT, pid=$$, ppid=$PPID"; exit 1' SIGQUIT
+trap 'debug_log "SIGNAL | received SIGPIPE, pid=$$, ppid=$PPID"; exit 1' SIGPIPE
+trap 'debug_log "EXIT | code=$?"' EXIT
+
+fail() {
+  write_result "failed" "${2:-recover}" "$1"
+  debug_log "FAIL | error=$1 action=${2:-recover}"
+  echo "$1"
+  clean
+  exit "$run_err"
+}
+
+flat() {
+  printf "%s" "$1" | tr '\r\n' '  '
+}
+
+write_result() {
+  [ -n "$res" ] || return 0
+  mkdir -p "$(dirname "$res")" 2>/dev/null || true
+  {
+    printf 'status=%s\n' "$(flat "$1")"
+    printf 'version=%s\n' "$(flat "$ver")"
+    printf 'action=%s\n' "$(flat "${2:-}")"
+    printf 'error=%s\n' "$(flat "${3:-}")"
+    printf 'at=%s\n' "$(date +%s)"
+  } >"$res"
+  debug_log "RESULT | status=$(flat "$1") version=$(flat "$ver") action=$(flat "${2:-}") error=$(flat "${3:-}")"
+}
+
+clean() {
+  debug_log "CLEANUP | next=${next:-}"
+  if [ -n "$next" ] && [ -d "$next" ]; then
+    rm -rf "$next"
+  fi
+}
+
+normalize() {
+  local dir base
+  dir="$1"
+  base="$(basename "$dir")"
+  if [ "$base" = "aether" ]; then
+    printf "%s" "$dir"
+    return 0
+  fi
+  printf "%s/aether" "$dir"
+}
+
+source_dir() {
+  local dir="$1"
+  local name
+  name="$(basename "$dir")"
+  if [ -f "$dir/aether" ] && [ -f "$dir/Aether.sh" ]; then
+    if [ "$name" != "$pkg" ]; then
+      printf ""
+      return 0
+    fi
+    printf "%s" "$dir"
+    return 0
+  fi
+  if [ -d "$dir/$pkg" ] && [ -f "$dir/$pkg/aether" ] && [ -f "$dir/$pkg/Aether.sh" ]; then
+    printf "%s" "$dir/$pkg"
+    return 0
+  fi
+  printf ""
+}
+
+source_error() {
+  local dir="$1"
+  local name
+  name="$(basename "$dir")"
+  if [ -f "$dir/aether" ] && [ -f "$dir/Aether.sh" ] && [ "$name" != "$pkg" ]; then
+    printf "[install] Package architecture mismatch: expected %s, got %s" "$pkg" "$name"
+    return 0
+  fi
+  printf "[install] Missing app files (aether/Aether.sh) in %s" "$dir"
+}
+
+cmp() {
+  local a b aa bb i x y
+  a="${1#v}"
+  b="${2#v}"
+  a="${a%%-*}"
+  b="${b%%-*}"
+  IFS=. read -r -a aa <<<"$a"
+  IFS=. read -r -a bb <<<"$b"
+  for i in 0 1 2 3; do
+    x="${aa[$i]:-0}"
+    y="${bb[$i]:-0}"
+    x=$((10#$x))
+    y=$((10#$y))
+    if [ "$x" -lt "$y" ]; then
+      echo lt
+      return 0
+    fi
+    if [ "$x" -gt "$y" ]; then
+      echo gt
+      return 0
+    fi
+  done
+  echo eq
+}
+
+installed() {
+  local root name best_ver dir ver
+  root="$1"
+  name="$(basename "$root")"
+  if [[ "$name" =~ ^aether[-_]([0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z]+)*)$ ]]; then
+    printf "%s" "${BASH_REMATCH[1]}"
+    return 0
+  fi
+  best_ver=""
+  shopt -s nullglob
+  for dir in "$root"/aether_* "$root"/aether-*; do
+    [ -d "$dir" ] || continue
+    name="$(basename "$dir")"
+    if [[ "$name" =~ ^aether[-_]([0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z]+)*)$ ]]; then
+      ver="${BASH_REMATCH[1]}"
+      if [ -z "$best_ver" ] || [ "$(cmp "$best_ver" "$ver")" = "lt" ]; then
+        best_ver="$ver"
+      fi
+    fi
+  done
+  shopt -u nullglob
+  printf "%s" "$best_ver"
+}
+
+has_dir() {
+  local dir="$1"
+  shift
+  local item
+  for item in "$@"; do
+    if [ "$item" = "$dir" ]; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+dir_version() {
+  local dir name v
+  dir="$1"
+  if [ -f "$dir/.aether_web_version" ]; then
+    v="$(tr -d '[:space:]' <"$dir/.aether_web_version")"
+    if [ -n "$v" ]; then
+      printf "%s" "$v"
+      return 0
+    fi
+  fi
+  name="$(basename "$dir")"
+  if [[ "$name" =~ ^aether[-_]([0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z]+)*)$ ]]; then
+    printf "%s" "${BASH_REMATCH[1]}"
+    return 0
+  fi
+  printf ""
+}
+
+latest_dir() {
+  local root best best_ver dir v
+  root="$1"
+  best=""
+  best_ver=""
+  shopt -s nullglob
+  for dir in "$root"/aether_*; do
+    [ -d "$dir" ] || continue
+    v="$(dir_version "$dir")"
+    [ -n "$v" ] || continue
+    if [ -z "$best" ] || [ "$(cmp "$best_ver" "$v")" = "lt" ]; then
+      best="$dir"
+      best_ver="$v"
+    fi
+  done
+  shopt -u nullglob
+  printf "%s" "$best"
+}
+
+prune_versions() {
+  local root keep hold dir v item tmp i j
+  local -a items=()
+  local -a keepers=()
+  root="$1"
+  keep="$2"
+  hold="$3"
+  prune="0"
+  shopt -s nullglob
+  for dir in "$root"/aether_*; do
+    [ -d "$dir" ] || continue
+    v="$(dir_version "$dir")"
+    [ -n "$v" ] || continue
+    items+=("$v|$dir")
+  done
+  shopt -u nullglob
+  for ((i = 0; i < ${#items[@]}; i++)); do
+    for ((j = i + 1; j < ${#items[@]}; j++)); do
+      if [ "$(cmp "${items[$i]%%|*}" "${items[$j]%%|*}")" = "lt" ]; then
+        tmp="${items[$i]}"
+        items[$i]="${items[$j]}"
+        items[$j]="$tmp"
+      fi
+    done
+  done
+  if [ -n "$hold" ]; then
+    keepers+=("$hold")
+  fi
+  for item in "${items[@]}"; do
+    if [ "${#keepers[@]}" -ge "$keep" ]; then
+      break
+    fi
+    dir="${item#*|}"
+    if [ "${#keepers[@]}" -gt 0 ] && has_dir "$dir" "${keepers[@]}"; then
+      continue
+    fi
+    keepers+=("$dir")
+  done
+  for item in "${items[@]}"; do
+    dir="${item#*|}"
+    if [ "${#keepers[@]}" -gt 0 ] && has_dir "$dir" "${keepers[@]}"; then
+      continue
+    fi
+    rm -rf "$dir"
+    if [ ! -d "$dir" ]; then
+      prune=$((prune + 1))
+    fi
+  done
+}
+
+stamp() {
+  date +"%Y%m%d%H%M"
+}
+
+in_work() {
+  local cur root
+  cur="${AETHER_CURRENT_DIR:-}"
+  root="$1"
+  [ -n "$cur" ] || return 1
+  [ -n "$root" ] || return 1
+  cur="$(cd "$(dirname "$cur")" && pwd)/$(basename "$cur")"
+  root="$(cd "$root" && pwd)"
+  case "$cur" in
+    "$root"|"$root"/*) return 0 ;;
+  esac
+  return 1
+}
+
+mirror_target() {
+  local root dst now
+  root="$1"
+  dst="$root/aether_$ver"
+  if [ ! -e "$dst" ]; then
+    printf "%s" "$dst"
+    return 0
+  fi
+  now="$(stamp)"
+  printf "%s" "$root/aether_${ver}_$now"
+}
+
+mirror_dir() {
+  local root dst tmp
+  root="$mirror"
+  dst="$(mirror_target "$root")"
+  debug_log "MIRROR_DIR | root=$root dst=$dst"
+  tmp="${dst}.copy"
+  rm -rf "$tmp" "$dst" 2>/dev/null || true
+  mkdir -p "$tmp" || return 1
+  cp -R "$target"/. "$tmp" || {
+    rm -rf "$tmp" 2>/dev/null || true
+    return 1
+  }
+  mv "$tmp" "$dst" || {
+    rm -rf "$tmp" 2>/dev/null || true
+    return 1
+  }
+  printf "%s" "$dst"
+}
+
+pick_home() {
+  local home="$HOME"
+  if [ -n "${SUDO_USER:-}" ] && [ "$SUDO_USER" != "root" ]; then
+    if command -v getent >/dev/null 2>&1; then
+      home="$(getent passwd "$SUDO_USER" 2>/dev/null | cut -d: -f6)"
+    else
+      home=""
+    fi
+    if [ -z "$home" ]; then
+      home="$(eval echo "~$SUDO_USER" 2>/dev/null || true)"
+    fi
+    [ -n "$home" ] || home="$HOME"
+  fi
+  printf "%s" "$home"
+}
+
+list_ssl() {
+  {
+    if command -v ldconfig >/dev/null 2>&1; then
+      ldconfig -p 2>/dev/null | awk '/libssl\.so\./{print $NF}'
+    fi
+    for p in /lib /usr/lib /lib64 /usr/lib64 /usr/local/lib /usr/local/lib64 /lib/x86_64-linux-gnu /usr/lib/x86_64-linux-gnu /lib/aarch64-linux-gnu /usr/lib/aarch64-linux-gnu; do
+      [ -d "$p" ] || continue
+      find "$p" -maxdepth 2 -type f -name 'libssl.so.*' 2>/dev/null
+    done
+  } | awk 'NF && !seen[$0]++'
+}
+
+list_crypto() {
+  {
+    if command -v ldconfig >/dev/null 2>&1; then
+      ldconfig -p 2>/dev/null | awk '/libcrypto\.so\./{print $NF}'
+    fi
+    for p in /lib /usr/lib /lib64 /usr/lib64 /usr/local/lib /usr/local/lib64 /lib/x86_64-linux-gnu /usr/lib/x86_64-linux-gnu /lib/aarch64-linux-gnu /usr/lib/aarch64-linux-gnu; do
+      [ -d "$p" ] || continue
+      find "$p" -maxdepth 2 -type f -name 'libcrypto.so.*' 2>/dev/null
+    done
+  } | awk 'NF && !seen[$0]++'
+}
+
+has_ssl3() {
+  if command -v ldconfig >/dev/null 2>&1 && ldconfig -p 2>/dev/null | grep -q '\blibssl\.so\.3\b'; then
+    return 0
+  fi
+  list_ssl | grep -q '/libssl.so.3$'
+}
+
+probe_pair() {
+  local dir="$1"
+  local ssl="$2"
+  local crypto="$3"
+  local probe="$dir/.ssl_probe"
+  rm -rf "$probe" 2>/dev/null || true
+  mkdir -p "$probe" || return 1
+  ln -sf "$ssl" "$probe/libssl.so.3" || return 1
+  ln -sf "$crypto" "$probe/libcrypto.so.3" || return 1
+  if ! command -v ldd >/dev/null 2>&1 || [ ! -x "$dir/aether" ]; then
+    rm -rf "$probe" 2>/dev/null || true
+    return 0
+  fi
+  local out
+  out="$(LD_LIBRARY_PATH="$probe${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" ldd "$dir/aether" 2>/dev/null || true)"
+  rm -rf "$probe" 2>/dev/null || true
+  [ -n "$out" ] || return 1
+  if printf "%s\n" "$out" | grep -q 'libssl.so.3 => .*not found'; then
+    return 1
+  fi
+  if printf "%s\n" "$out" | grep -q 'libcrypto.so.3 => .*not found'; then
+    return 1
+  fi
+  return 0
+}
+
+pick_pair() {
+  local dir="$1"
+  local ssl_ref="$2"
+  local crypto_ref="$3"
+  local ssl=""
+  local crypto=""
+  local c=""
+  mapfile -t _ssl < <(list_ssl)
+  mapfile -t _crypto < <(list_crypto)
+  for ssl in "${_ssl[@]}"; do
+    [ -f "$ssl" ] || continue
+    local sdir
+    sdir="$(dirname "$ssl")"
+    crypto=""
+    if [ -f "$sdir/libcrypto.so.1.1" ]; then
+      crypto="$sdir/libcrypto.so.1.1"
+    fi
+    if [ -z "$crypto" ]; then
+      crypto="$(find "$sdir" -maxdepth 1 -type f -name 'libcrypto.so.1.*' 2>/dev/null | head -1)"
+    fi
+    if [ -z "$crypto" ]; then
+      for c in "${_crypto[@]}"; do
+        if [[ "$c" == "$sdir"/* ]]; then
+          crypto="$c"
+          break
+        fi
+      done
+    fi
+    if [ -z "$crypto" ]; then
+      for c in "${_crypto[@]}"; do
+        crypto="$c"
+        break
+      done
+    fi
+    [ -n "$crypto" ] || continue
+    if probe_pair "$dir" "$ssl" "$crypto"; then
+      printf -v "$ssl_ref" '%s' "$ssl"
+      printf -v "$crypto_ref" '%s' "$crypto"
+      return 0
+    fi
+  done
+  return 1
+}
+
+fix_libssl() {
+  local dir="$1"
+  [ -d "$dir" ] || return 0
+  if has_ssl3; then
+    return 0
+  fi
+  local ssl=""
+  local crypto=""
+  if ! pick_pair "$dir" ssl crypto; then
+    echo "[install] Warning: libssl.so.3 is missing, and no usable libssl/libcrypto pair was found."
+    echo "[install] Please install libssl3 (preferred) or a compatible OpenSSL runtime and retry."
+    return 0
+  fi
+  local lib="$dir/lib"
+  mkdir -p "$lib"
+  ln -sf "$ssl" "$lib/libssl.so.3"
+  ln -sf "$crypto" "$lib/libcrypto.so.3"
+  local launch="$dir/Aether.sh"
+  local real="$dir/Aether.sh.real"
+  if [ -f "$launch" ] && [ ! -f "$real" ]; then
+    mv "$launch" "$real"
+    cat >"$launch" <<'EOF'
+#!/usr/bin/env bash
+DIR="$(cd "$(dirname "$0")" && pwd)"
+export LD_LIBRARY_PATH="$DIR/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+if [ -x "$DIR/Aether.sh.real" ]; then
+  exec "$DIR/Aether.sh.real" "$@"
+fi
+exec "$DIR/aether" web "$@"
+EOF
+    chmod +x "$launch"
+  fi
+}
+
+lib_exact() {
+  local name="$1"
+  local root="${2:-}"
+  local p
+  if [ -n "$root" ]; then
+    [ -f "$root/$name" ] && printf "%s" "$root/$name"
+    return 0
+  fi
+  for p in /usr/lib/$arch-linux-gnu /lib/$arch-linux-gnu /usr/lib/x86_64-linux-gnu /lib/x86_64-linux-gnu /usr/lib/aarch64-linux-gnu /lib/aarch64-linux-gnu /usr/lib64 /usr/lib /lib64 /lib; do
+    [ -f "$p/$name" ] && printf "%s" "$p/$name" && return 0
+  done
+  printf ""
+}
+
+lib_glob() {
+  local pat="$1"
+  local root="${2:-}"
+  local p f
+  if [ -n "$root" ]; then
+    find "$root" -maxdepth 1 -name "$pat" 2>/dev/null | head -1
+    return 0
+  fi
+  for p in /usr/lib/$arch-linux-gnu /lib/$arch-linux-gnu /usr/lib/x86_64-linux-gnu /lib/x86_64-linux-gnu /usr/lib/aarch64-linux-gnu /lib/aarch64-linux-gnu /usr/lib64 /usr/lib /lib64 /lib; do
+    f="$(find "$p" -maxdepth 1 -name "$pat" 2>/dev/null | head -1)"
+    [ -n "$f" ] && printf "%s" "$f" && return 0
+  done
+  printf ""
+}
+
+ensure_libssl() {
+  local dir="$1"
+  local ssl crypto sdir lib bin real name
+  [ -d "$dir" ] || return 0
+  [ -z "$(lib_exact "libssl.so.3")" ] || return 0
+  ssl="$(lib_exact "libssl.so.1.1")"
+  [ -n "$ssl" ] || ssl="$(lib_glob "libssl.so.1.*")"
+  [ -n "$ssl" ] || return 0
+  sdir="$(dirname "$ssl")"
+  crypto="$(lib_exact "libcrypto.so.1.1" "$sdir")"
+  [ -n "$crypto" ] || crypto="$(lib_glob "libcrypto.so.1.*" "$sdir")"
+  lib="$dir/ssl_compat"
+  mkdir -p "$lib" 2>/dev/null || return 0
+  ln -sf "$ssl" "$lib/libssl.so.3" 2>/dev/null || true
+  [ -n "$crypto" ] && ln -sf "$crypto" "$lib/libcrypto.so.3" 2>/dev/null || true
+  for bin in "$dir"/aether "$dir"/Aether "$dir"/aether-*/aether "$dir"/resources/../aether; do
+    [ -x "$bin" ] && [ ! -d "$bin" ] || continue
+    name="$(basename "$bin")"
+    real="$(dirname "$bin")/${name}.real"
+    [ -f "$real" ] && return 0
+    mv "$bin" "$real" || return 0
+    cat >"$bin" <<EOF
+#!/usr/bin/env bash
+export LD_LIBRARY_PATH="$lib\${LD_LIBRARY_PATH:+:\$LD_LIBRARY_PATH}"
+exec "$real" "\$@"
+EOF
+    chmod +x "$bin"
+    return 0
+  done
+}
+
+write_launch() {
+  local final="$1"
+  local app="$final/Aether.sh"
+  local icon="$final/aether-icon.png"
+  local home apps desk icon_line
+  home="$(pick_home)"
+  apps="$home/.local/share/applications"
+  mkdir -p "$apps" || return 1
+  icon_line=""
+  if [ -f "$icon" ]; then
+    icon_line="Icon=$icon"
+  fi
+  cat >"$apps/aether.desktop" <<EOF
+[Desktop Entry]
+Type=Application
+Name=Aether
+Comment=AI-powered development tool
+Exec="$app"
+$icon_line
+Categories=Development;IDE;
+Terminal=false
+StartupNotify=true
+EOF
+  chmod +x "$apps/aether.desktop" || true
+  if command -v update-desktop-database >/dev/null 2>&1; then
+    update-desktop-database "$apps" 2>/dev/null || true
+  fi
+  desk="$home/Desktop"
+  mkdir -p "$desk" || return 1
+  cp "$apps/aether.desktop" "$desk/aether.desktop" 2>/dev/null || true
+  chmod +x "$desk/aether.desktop" 2>/dev/null || true
+  printf "%s" "$apps/aether.desktop"
+}
+
+register_protocol() {
+  local final="$1"
+  local handler="$final/aether-protocol-handler.sh"
+  [ -f "$handler" ] || return 0
+  local icon="$final/aether-icon.png"
+  local apps="$HOME/.local/share/applications"
+  mkdir -p "$apps" || return 0
+  local desk="$apps/aether-url-handler.desktop"
+  local icon_line=""
+  if [ -f "$icon" ]; then
+    icon_line="Icon=$icon"
+  fi
+  cat >"$desk" <<EOF
+[Desktop Entry]
+Type=Application
+Name=Aether URL Handler
+Exec="$handler" %u
+MimeType=x-scheme-handler/aether;
+NoDisplay=true
+$icon_line
+EOF
+  chmod +x "$desk" || return 0
+  if command -v update-desktop-database >/dev/null 2>&1; then
+    update-desktop-database "$apps" 2>/dev/null || true
+  fi
+  if command -v xdg-mime >/dev/null 2>&1; then
+    xdg-mime default aether-url-handler.desktop x-scheme-handler/aether 2>/dev/null || true
+  fi
+}
+
+stop_roots=()
+
+add_stop_root() {
+  local dir item
+  dir="${1:-}"
+  [ -n "$dir" ] || return 0
+  [ -d "$dir" ] || return 0
+  dir="$(cd "$dir" 2>/dev/null && pwd)" || return 0
+  if [ ${#stop_roots[@]} -gt 0 ]; then
+    for item in "${stop_roots[@]}"; do
+      [ "$item" = "$dir" ] && return 0
+    done
+  fi
+  stop_roots+=("$dir")
+}
+
+collect_stop_roots() {
+  local dir
+  stop_roots=()
+  add_stop_root "$old"
+  add_stop_root "$target"
+  add_stop_root "${AETHER_CURRENT_DIR:-}"
+  add_stop_root "$copy_target"
+  shopt -s nullglob
+  for dir in "$work"/aether_* "$mirror"/aether_*; do
+    add_stop_root "$dir"
+  done
+  shopt -u nullglob
+}
+
+runtime_pids() {
+  local pid cmd root matched
+  ps -axo pid=,command= | while read -r pid cmd; do
+    [ -n "$pid" ] || continue
+    [ "$pid" = "$$" ] && continue
+    case "$cmd" in
+      *install.sh*) continue ;;
+    esac
+    matched=""
+    for root in "${stop_roots[@]}"; do
+      case "$cmd" in
+        *"$root/"*)
+          case "$cmd" in
+            *"/aether "*|*"/aether"|*"Aether.command"*|*"Aether.sh"*|*"Aether.sh.real"*)
+              echo "$pid"
+              matched="1"
+              break
+              ;;
+          esac
+          ;;
+      esac
+    done
+    [ -n "$matched" ] || true
+  done | sort -u
+}
+
+wait_runtime() {
+  local tries pids
+  tries="$1"
+  while [ "$tries" -gt 0 ]; do
+    pids="$(runtime_pids)"
+    [ -z "$pids" ] && return 0
+    sleep 1
+    tries=$((tries - 1))
+  done
+  return 1
+}
+
+stop_all_runtime() {
+  local pids
+  collect_stop_roots
+  pids="$(runtime_pids)"
+  [ -n "$pids" ] || return 0
+  echo "[install] Stopping old Aether processes..."
+  kill $pids >/dev/null 2>&1 || true
+  wait_runtime 5 && return 0
+  pids="$(runtime_pids)"
+  if [ -n "$pids" ]; then
+    kill -9 $pids >/dev/null 2>&1 || true
+  fi
+  wait_runtime 3 || echo "[install] Warning: old Aether processes are still running; starting the new version anyway."
+}
+
+boot() {
+  local app="$1/Aether.sh"
+  [ -x "$app" ] || return 1
+  if command -v setsid >/dev/null 2>&1; then
+    AETHER_WEB_OPEN_FALLBACK_MS="${AETHER_WEB_OPEN_FALLBACK_MS:-3000}" setsid "$app" >/dev/null 2>&1 < /dev/null &
+    return 0
+  fi
+  AETHER_WEB_OPEN_FALLBACK_MS="${AETHER_WEB_OPEN_FALLBACK_MS:-3000}" nohup "$app" >/dev/null 2>&1 < /dev/null &
+}
+
+self="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+src="$(source_dir "$self")"
+[ -n "$src" ] || fail "$(source_error "$self")"
+[ -f "$src/.aether_web_version" ] || fail "[install] Missing .aether_web_version in $src"
+ver="$(tr -d '[:space:]' <"$src/.aether_web_version")"
+[ -n "$ver" ] || fail "[install] Empty .aether_web_version in $src"
+mirror="$(normalize "${path:-$default}")"
+target="$work/aether_$ver"
+next="$work/.aether_$ver.next"
+res="$work/downloads/web-update-result.env"
+export AETHER_MIRROR_ROOT="$mirror"
+export AETHER_CURRENT_DIR="$mirror/aether_$ver"
+rm -f "$res" 2>/dev/null || true
+
+echo "Aether Linux GitHub Release Installer"
+echo
+echo "Source directory:"
+echo "  $src"
+echo "Work directory:"
+echo "  $work"
+echo "Install directory:"
+echo "  $mirror"
+echo "Version:"
+echo "  $ver"
+
+mkdir -p "$work" "$work/downloads" "$mirror" || exit "$dir_err"
+
+cur="$(installed "$mirror")"
+if [ -n "$cur" ] && [ "$(cmp "$cur" "$ver")" = "eq" ]; then
+  write_result "up_to_date"
+  echo
+  echo "Current version: $cur"
+  echo "Package version: $ver"
+  echo "Already up to date."
+  exit "$latest_ok"
+fi
+
+old="$(latest_dir "$work")"
+rm -rf "$next" "$target"
+mkdir -p "$next" || fail "[install] Failed to prepare version directory: $next"
+cp -R "$src"/. "$next" || fail "[install] Failed to copy files into $next"
+rm -f "$next/install.sh"
+mv "$next" "$target" || fail "[install] Failed to finalize install into $target"
+
+chmod +x "$target/aether" "$target/Aether.sh" 2>/dev/null || true
+chmod +x "$target/aether-protocol-handler.sh" 2>/dev/null || true
+shopt -s nullglob
+for file in "$target"/wechat-bridge/runtime/uv/uv-*linux*/uv; do
+  chmod +x "$file" 2>/dev/null || true
+done
+shopt -u nullglob
+printf "%s\n" "$ver" >"$target/.aether_web_version"
+rm -f "$work/.aether_web_version" 2>/dev/null || true
+rm -rf "$work/current" 2>/dev/null || true
+
+fix_libssl "$target"
+prune_versions "$work" 1000 "$target"
+
+copy_target=""
+mirror_prune=""
+if in_work "$work"; then
+  copy_note="[install] Current app already runs inside WorkDir; skipped mirror."
+elif copy_target="$(mirror_dir || true)" && [ -n "$copy_target" ]; then
+  copy_note="[install] Copied the new version near the current app location: $copy_target"
+  prune_versions "$mirror" 1000 "$copy_target"
+  mirror_prune="$prune"
+else
+  fail "[install] Failed to copy the new version near ${AETHER_CURRENT_DIR:-the current app}" mirror
+fi
+
+start_target="$target"
+if [ -n "$copy_target" ]; then
+  start_target="$copy_target"
+fi
+fix_libssl "$start_target"
+ensure_libssl "$start_target"
+launch="$(write_launch "$start_target" || true)"
+register_protocol "$start_target"
+
+if [ "$restart" = "1" ]; then
+  stop_all_runtime
+  if [ -n "$copy_target" ]; then
+    boot "$copy_target" || boot "$target" || fail "[install] Failed to restart Aether from $target/Aether.sh"
+  else
+    boot "$target" || fail "[install] Failed to restart Aether from $target/Aether.sh"
+  fi
+fi
+
+write_result "installed"
+
+echo
+echo "[4/4] Done"
+echo "Version directory: $target"
+if [ -n "$copy_target" ]; then
+  echo "Mirror directory: $copy_target"
+fi
+if [ -n "$mirror_prune" ] && [ "$mirror_prune" -gt 0 ]; then
+  echo "Mirror cleanup: removed $mirror_prune older version directories."
+fi
+if [ -n "$launch" ]; then
+  echo "[install] Desktop launcher: $launch"
+else
+  echo "[install] Warning: failed to create Desktop launcher."
+fi
+if [ -n "${copy_note:-}" ]; then
+  echo "$copy_note"
+fi
+
+debug_log "END | ver=$ver target=$target copy_target=${copy_target:-} launch=${launch:-} restart=$restart prune=$prune"
+debug_log "========== GITHUB INSTALL RUN COMPLETE =========="
+exit "$ok"
