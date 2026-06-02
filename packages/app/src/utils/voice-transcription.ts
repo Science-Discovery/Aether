@@ -5,6 +5,7 @@ export interface TranscriptionOptions {
   audioBlob: Blob
   conversationContext?: Array<{ role: string; content: string }>
   signal?: AbortSignal
+  headers?: Record<string, string>
 }
 
 function blobToBase64(blob: Blob): Promise<string> {
@@ -36,7 +37,7 @@ export async function transcribeAudio(options: TranscriptionOptions): Promise<st
 
   const response = await fetch(`${serverUrl}/voice/transcribe`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...options.headers },
     body: JSON.stringify({
       providerID,
       modelID,
