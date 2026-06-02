@@ -174,7 +174,7 @@ packages/opencode/src/skill-evolution/    ← 所有新增文件都在此目录
 
 ```
 对话正常结束，且同时满足：
-① 计数器 ≥ 阈值（默认 10）
+① 计数器 ≥ 阈值（默认 80）
 ② final_response 成立
 ③ 用户未中断
 ④ 非评审 session 本身
@@ -564,7 +564,7 @@ skills:
   paths:                        # 自定义 skill 路径（0.6.0 已支持）
     - ~/.agents/team-skills
   disabled: [skill-a, skill-b]  # 全局禁用（0.6.0 已支持）
-  creation_nudge_interval: 10   # 每多少次 LLM 步骤触发评审（0 = 禁用）
+  creation_nudge_interval: 80   # 每多少次 LLM 步骤触发评审（0 = 禁用）
 ```
 
 ---
@@ -574,7 +574,7 @@ skills:
 ```
 用户完成任务
       │
-      ▼ 每 10 次 LLM 步骤（可配置）
+      ▼ 每 80 次 LLM 步骤（可配置）
 后台评审子 session（在 ~/.aether/skill-sessions/ 项目中可见）
       │
       ├── 有价值 → skill_manage（action 由 AI 自主决定）

@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import { SkillEvolutionHook } from "./hook"
 import { Counter } from "./counter"
+import { DEFAULT_NUDGE_INTERVAL } from "./constants"
 import { SessionID } from "@/session/schema"
 
 describe("SkillEvolutionHook.onStep", () => {
@@ -54,14 +55,14 @@ describe("SkillEvolutionHook.onLoopEnd", () => {
       aborted: false,
       projectId: "proj-test",
     })
-    // 5 < 10 (DEFAULT_NUDGE_INTERVAL) — counter must not be reset
+    // 5 < DEFAULT_NUDGE_INTERVAL — counter must not be reset
     expect(Counter.get(id)).toBe(5)
     Counter.reset(id)
   })
 
   test("resets counter only after spawn when threshold is met", async () => {
     const id = ("hook-threshold-" + Math.random()) as SessionID
-    for (let i = 0; i < 10; i++) Counter.increment(id)
+    for (let i = 0; i < DEFAULT_NUDGE_INTERVAL; i++) Counter.increment(id)
 
     await SkillEvolutionHook.onLoopEnd({
       sessionID: id,
