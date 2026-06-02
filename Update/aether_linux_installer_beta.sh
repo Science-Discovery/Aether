@@ -484,7 +484,7 @@ desktop_hint() {
     [ -n "$home" ] || home="$HOME"
   fi
 
-  local launch="$home/Desktop/Aether.sh"
+  local launch="$home/Desktop/aether.desktop"
   if [ -f "$launch" ]; then
     echo "[init] Desktop launcher: $launch"
     return 0

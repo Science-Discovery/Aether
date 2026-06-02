@@ -553,9 +553,12 @@ EOF
   local desk="$home/Desktop"
   mkdir -p "$desk" || return 1
   if [ -f "$apps/aether.desktop" ]; then
-    cp "$apps/aether.desktop" "$desk/aether.desktop" 2>/dev/null || true
-    chmod +x "$desk/aether.desktop" || true
-    debug_log "LAUNCH | copied desktop entry to $desk/aether.desktop"
+    if cp "$apps/aether.desktop" "$desk/aether.desktop" 2>/dev/null; then
+      chmod +x "$desk/aether.desktop" || true
+      debug_log "LAUNCH | copied desktop entry to $desk/aether.desktop"
+      rm -f "$desk/Aether.sh" 2>/dev/null || true
+      debug_log "LAUNCH | removed legacy launcher $desk/Aether.sh if present"
+    fi
   fi
 
   printf "%s" "$apps/aether.desktop"
