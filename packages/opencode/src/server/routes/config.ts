@@ -6,6 +6,8 @@ import { Config } from "../../config/config"
 import { Provider } from "../../provider/provider"
 import { Project } from "../../project/project"
 import { EvolvedSkills } from "../../skill-evolution/evolved-skills"
+import { Spawner } from "../../skill-evolution/spawner"
+import { revealPath } from "../../skill-evolution/reveal"
 import { Skill } from "../../skill"
 import { mapValues } from "remeda"
 import { errors } from "../error"
@@ -231,10 +233,9 @@ export const ConfigRoutes = lazy(() =>
                 schema: resolver(
                   z.array(
                     z.object({
-                      projectId: z.string(),
-                      name: z.string(),
                       directory: z.string(),
                       evolutionDir: z.string(),
+                      projectPath: z.string().optional(),
                     }),
                   ),
                 ),
@@ -244,8 +245,27 @@ export const ConfigRoutes = lazy(() =>
         },
       }),
       async (c) => {
-        const projects = Project.list()
-        return c.json(EvolvedSkills.evolutionDirsForProjects(projects))
+        return c.json(await EvolvedSkills.evolutionDirs(Spawner.skillEvolutionRoot()))
+      },
+    )
+    .post(
+      "/skills/evolution/reveal",
+      describeRoute({
+        summary: "Open a skill-evolution output directory in the system file manager",
+        description:
+          "Open the given directory in the OS file manager from the backend process (cross-platform, WSL-aware), so it works even when the UI is a plain browser tab. Only paths under the skill-evolution root are allowed.",
+        operationId: "config.skills.evolutionReveal",
+        responses: {
+          200: {
+            description: "Whether the directory was opened",
+            content: { "application/json": { schema: resolver(z.object({ ok: z.boolean() })) } },
+          },
+        },
+      }),
+      validator("json", z.object({ dir: z.string() })),
+      async (c) => {
+        const { dir } = c.req.valid("json")
+        return c.json({ ok: await revealPath(dir) })
       },
     )
     .post(

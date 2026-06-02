@@ -89,37 +89,51 @@ describe("EvolvedSkills.list", () => {
   })
 })
 
-describe("EvolvedSkills.evolutionDirsForProjects", () => {
-  test("maps each project to its skill-evolution output directory", () => {
-    const out = EvolvedSkills.evolutionDirsForProjects([
-      { id: "proj-aaa", name: "Aether", worktree: "/home/u/code/Aether" },
-      { id: "proj-bbb", name: "Video", worktree: "/home/u/code/video" },
-    ])
+describe("EvolvedSkills.evolutionDirs", () => {
+  test("resolves each folder name back to its real project path via the lookup", async () => {
+    const root = await tmpRoot()
+    await fs.mkdir(path.join(root, "aaa111"), { recursive: true })
+    await fs.mkdir(path.join(root, "bbb222"), { recursive: true })
+    // folder name === projectId; lookup maps it back to the real worktree.
+    const lookup = (id: string) => (id === "aaa111" ? "/home/u/code/test" : undefined)
+
+    const out = await EvolvedSkills.evolutionDirs(root, lookup)
+
     expect(out).toEqual([
       {
-        projectId: "proj-aaa",
-        name: "Aether",
-        directory: "/home/u/code/Aether",
-        evolutionDir: Spawner.skillEvolutionDir("proj-aaa"),
+        directory: path.join(root, "aaa111"),
+        evolutionDir: path.join(root, "aaa111"),
+        projectPath: "/home/u/code/test",
       },
       {
-        projectId: "proj-bbb",
-        name: "Video",
-        directory: "/home/u/code/video",
-        evolutionDir: Spawner.skillEvolutionDir("proj-bbb"),
+        // bbb222 has no persisted project db → projectPath stays undefined.
+        directory: path.join(root, "bbb222"),
+        evolutionDir: path.join(root, "bbb222"),
+        projectPath: undefined,
       },
     ])
   })
 
-  test("falls back to the worktree path when name is missing", () => {
-    const out = EvolvedSkills.evolutionDirsForProjects([
-      { id: "proj-ccc", worktree: "/home/u/code/no-name" },
-    ])
-    expect(out[0].name).toBe("/home/u/code/no-name")
-    expect(out[0].evolutionDir).toBe(Spawner.skillEvolutionDir("proj-ccc"))
+  test("skips the reserved shared/ and logs/ folders and any non-directory entries", async () => {
+    const root = await tmpRoot()
+    await fs.mkdir(path.join(root, "proj"), { recursive: true })
+    await fs.mkdir(path.join(root, "shared"), { recursive: true })
+    await fs.mkdir(path.join(root, "logs"), { recursive: true })
+    await fs.writeFile(path.join(root, "logs.txt"), "not a project")
+
+    const out = await EvolvedSkills.evolutionDirs(root)
+
+    expect(out.map((d) => d.evolutionDir)).toEqual([path.join(root, "proj")])
   })
 
-  test("returns empty array when there are no projects (boundary)", () => {
-    expect(EvolvedSkills.evolutionDirsForProjects([])).toEqual([])
+  test("returns empty array when the root does not exist (boundary)", async () => {
+    const out = await EvolvedSkills.evolutionDirs(path.join(os.tmpdir(), "evolved-skills-does-not-exist-xyz"))
+    expect(out).toEqual([])
+  })
+
+  test("returns empty array when the root is empty (boundary)", async () => {
+    const root = await tmpRoot()
+    const out = await EvolvedSkills.evolutionDirs(root)
+    expect(out).toEqual([])
   })
 })

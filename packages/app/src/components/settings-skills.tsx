@@ -15,6 +15,9 @@ import { useGlobalSync } from "@/context/global-sync"
 import { useGlobalSDK } from "@/context/global-sdk"
 import { usePlatform } from "@/context/platform"
 import { useLanguage } from "@/context/language"
+import { useLayout } from "@/context/layout"
+import { useNavigate } from "@solidjs/router"
+import { base64Encode } from "@opencode-ai/util/encode"
 import { SettingsList } from "./settings-list"
 
 const SKILL_NUDGE_DEFAULT = 80
@@ -50,6 +53,8 @@ export const SettingsSkills: Component = () => {
   const globalSDK = useGlobalSDK()
   const platform = usePlatform()
   const language = useLanguage()
+  const layout = useLayout()
+  const navigate = useNavigate()
   const [saving, setSaving] = createSignal(false)
 
   // Master switch: unset means on, only an explicit false turns it off (mirrors
@@ -64,6 +69,31 @@ export const SettingsSkills: Component = () => {
     const result = await globalSDK.client.config.skills.evolutionDirs()
     return result.data ?? []
   })
+
+  // Copy works everywhere (browser + desktop) via the standard clipboard API.
+  async function copyDir(dir: string) {
+    try {
+      await navigator.clipboard.writeText(dir)
+      showToast({ title: language.t("settingsSkills.copiedDir"), variant: "success" })
+    } catch {
+      showToast({ title: language.t("settingsSkills.copyDirFailed"), variant: "error" })
+    }
+  }
+
+  // Open goes through the backend (which has OS access), so it works even when
+  // the UI is a plain browser tab — unlike platform.openPath which the browser
+  // can't provide. Cross-platform + WSL-aware on the server side.
+  async function openDir(dir: string) {
+    const result = await globalSDK.client.config.skills.evolutionReveal({ dir })
+    if (!result.data?.ok) showToast({ title: language.t("settingsSkills.openDirFailed"), variant: "error" })
+  }
+
+  // Open the directory as a project inside the app (same effect as picking a
+  // project on the home page): register it and navigate to its session view.
+  function openAsProject(dir: string) {
+    layout.projects.open(dir)
+    navigate(`/${base64Encode(dir)}`)
+  }
 
   const currentInterval = createMemo(() => {
     const cfg = globalSync.data.config as any
@@ -283,21 +313,33 @@ export const SettingsSkills: Component = () => {
                 {(item) => (
                   <div class="flex flex-wrap items-center gap-3 px-3 py-2.5 border-b border-border-weak-base last:border-none sm:flex-nowrap">
                     <div class="flex min-w-0 flex-1 flex-col gap-0.5">
-                      <span class="text-13-medium text-text-strong truncate" title={item.directory}>
-                        {item.name}
-                      </span>
+                      <Show when={item.projectPath}>
+                        <span class="text-13-medium text-text-strong truncate" title={item.projectPath}>
+                          {item.projectPath}
+                        </span>
+                      </Show>
                       <span class="text-11-regular text-text-subtle truncate font-mono" title={item.evolutionDir}>
                         {item.evolutionDir}
                       </span>
                     </div>
-                    <Show when={platform.openPath}>
-                      <button
-                        class="shrink-0 h-8 px-3 rounded-md border border-border-base text-12-regular text-text-base hover:bg-surface-hover transition-colors"
-                        onClick={() => void platform.openPath?.(item.evolutionDir)}
-                      >
-                        {language.t("settingsSkills.openDir")}
-                      </button>
-                    </Show>
+                    <button
+                      class="shrink-0 h-8 px-3 rounded-md border border-border-base text-12-regular text-text-base hover:bg-surface-hover transition-colors"
+                      onClick={() => void copyDir(item.evolutionDir)}
+                    >
+                      {language.t("settingsSkills.copyDir")}
+                    </button>
+                    <button
+                      class="shrink-0 h-8 px-3 rounded-md border border-border-base text-12-regular text-text-base hover:bg-surface-hover transition-colors"
+                      onClick={() => void openDir(item.evolutionDir)}
+                    >
+                      {language.t("settingsSkills.openDir")}
+                    </button>
+                    <button
+                      class="shrink-0 h-8 px-3 rounded-md border border-border-base text-12-regular text-text-base hover:bg-surface-hover transition-colors"
+                      onClick={() => openAsProject(item.evolutionDir)}
+                    >
+                      {language.t("settingsSkills.openAsProject")}
+                    </button>
                   </div>
                 )}
               </For>

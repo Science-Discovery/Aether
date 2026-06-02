@@ -2,6 +2,7 @@ import fs from "fs/promises"
 import path from "path"
 import { Filesystem } from "@/util/filesystem"
 import { Spawner } from "./spawner"
+import { lookupProjectPath } from "./project-name-lookup"
 
 /**
  * Evolved Skills management for the "自进化 Skills" dialog button.
@@ -127,27 +128,43 @@ export namespace EvolvedSkills {
   }
 
   export type ProjectEvolutionDir = {
-    projectId: string
-    name: string
     directory: string
     evolutionDir: string
+    /** The real project directory this folder belongs to, resolved from the
+     * folder name (which is the project's id). Undefined when no persisted
+     * per-project db is found — the UI then shows the raw evolutionDir. */
+    projectPath: string | undefined
   }
 
   /**
-   * Map each known project to the absolute directory where its background-review
-   * skills are written (read-only display for the settings page). The folder is
-   * addressed by the project's id — the same id the write side uses — so the path
-   * shown here is exactly where review-agent stores that project's evolved skills.
-   * `name` falls back to the worktree path when the project has no display name.
+   * List the background-review (self-evolution) output directories by scanning
+   * the skill-evolution root on disk — one entry per project sub-folder. The
+   * scan itself is purely filesystem-driven; the folder name is the project's id
+   * and `lookup` maps it back to the real project path (read-only, side-effect
+   * free — see project-name-lookup). The reserved `shared/` (future curator) and
+   * `logs/` (curator logs) folders and any non-directory entries are skipped.
    */
-  export function evolutionDirsForProjects(
-    projects: { id: string; name?: string; worktree: string }[],
-  ): ProjectEvolutionDir[] {
-    return projects.map((p) => ({
-      projectId: p.id,
-      name: p.name ?? p.worktree,
-      directory: p.worktree,
-      evolutionDir: Spawner.skillEvolutionDir(p.id),
-    }))
+  const NON_PROJECT_DIRS = new Set(["shared", "logs"])
+  export async function evolutionDirs(
+    root: string,
+    lookup: (projectId: string) => string | undefined = lookupProjectPath,
+  ): Promise<ProjectEvolutionDir[]> {
+    let entries: import("fs").Dirent[]
+    try {
+      entries = await fs.readdir(root, { withFileTypes: true })
+    } catch {
+      return []
+    }
+    return entries
+      .filter((entry) => entry.isDirectory() && !NON_PROJECT_DIRS.has(entry.name))
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .map((entry) => {
+        const dir = path.join(root, entry.name)
+        return {
+          directory: dir,
+          evolutionDir: dir,
+          projectPath: lookup(entry.name),
+        }
+      })
   }
 }

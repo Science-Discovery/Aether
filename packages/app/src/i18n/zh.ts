@@ -1021,6 +1021,11 @@ export const dict = {
   "settingsSkills.outputDirsLoading": "加载中…",
   "settingsSkills.outputDirsError": "产出目录加载失败。",
   "settingsSkills.openDir": "打开",
+  "settingsSkills.openAsProject": "打开为项目",
+  "settingsSkills.copyDir": "复制",
+  "settingsSkills.copiedDir": "路径已复制",
+  "settingsSkills.copyDirFailed": "复制失败。",
+  "settingsSkills.openDirFailed": "打开文件夹失败。",
 
   "settings.desktop.section.wsl": "WSL",
   "settings.desktop.wsl.title": "WSL 集成",
