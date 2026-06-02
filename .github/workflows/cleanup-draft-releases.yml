@@ -1,0 +1,64 @@
+name: cleanup-draft-releases
+run-name: "cleanup drafts before v${{ inputs.version }}"
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Cutoff version, for example 0.6.2.80"
+        required: true
+        type: string
+      delete_tags:
+        description: "Also delete corresponding git tags"
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+
+jobs:
+  cleanup:
+    if: github.repository == 'Science-Discovery/Aether'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Find and delete draft releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          tag="v${{ inputs.version }}"
+
+          gh api "repos/{owner}/{repo}/releases" --paginate > releases.json
+
+          cutoff_ts=$(jq -r ".[] | select(.tag_name == \"$tag\") | (.published_at // .created_at)" releases.json)
+          if [ -z "$cutoff_ts" ]; then
+            echo "::error::Release $tag not found"
+            exit 1
+          fi
+          echo "Cutoff: $tag ($cutoff_ts)"
+
+          targets=$(jq -r "
+            .[]
+            | select(.draft == true and .tag_name != \"$tag\")
+            | select((.published_at // .created_at) < \"$cutoff_ts\")
+            | .tag_name
+          " releases.json)
+
+          if [ -z "$targets" ]; then
+            echo "No draft releases to delete"
+            exit 0
+          fi
+
+          count=0
+          for t in $targets; do
+            opts=(-y)
+            if [ "${{ inputs.delete_tags }}" = "true" ]; then
+              opts+=(--cleanup-tag)
+            fi
+            echo "Deleting release $t"
+            gh release delete "$t" "${opts[@]}"
+            count=$((count + 1))
+          done
+
+          echo "Deleted $count draft release(s)"
