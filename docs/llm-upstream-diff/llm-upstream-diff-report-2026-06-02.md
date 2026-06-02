@@ -26,7 +26,8 @@
 
 1. **架构鸿沟扩大。** 上游本窗口把 `session/llm.ts`、`provider/provider.ts`、`session/prompt.ts`、`compaction.ts`、`summary.ts` 全面迁到 Effect `Service`/`Layer` + `@opencode-ai/core` monorepo 拆分 + SQL/Drizzle session store，并新增 `@opencode-ai/llm` 原生运行时包。Aether 仍是 pre-Effect 的 `namespace` + 直接 bundle `@ai-sdk/*` 形态。**因此绝大多数上游 patch 无法逐行 cherry-pick，只能按行为语义回迁。**
 2. **AI SDK 代际差。** Aether 在 AI SDK **v5** 线（`ai 5.0.124`、`@ai-sdk/google 2.x`、`google-vertex 3.x`、`bedrock 3.x`、`xai 2.x`、`mistral 2.x`），上游已在 **v6**。所有「bump 某 provider SDK」类提交都被这个代际差阻塞，归入 v6 迁移专项。
-3. **有 5 个真正可立即回迁、且当前确实未覆盖的行为修复**（不依赖 Effect/v6）：`LLM-UP-018` 双重压缩、`LLM-UP-016` Opus 4.7+ `display:"summarized"`、`LLM-UP-019` 代理项 surrogate、`LLM-UP-020` tools 排序、`LLM-UP-017` 签名 reasoning 保留。建议作为第一批（与下文「优先回迁建议」第一批、「结论」一致）。
+3. **有 4 个真正可立即回迁、且当前确实未覆盖的行为修复**（不依赖 Effect/v6）：`LLM-UP-016` Opus 4.7+ `display:"summarized"`、`LLM-UP-017` 签名 reasoning 保留、`LLM-UP-019` 代理项 surrogate、`LLM-UP-020` tools 排序。建议作为第一批（与下文「优先回迁建议」第一批、「结论」一致）。
+   - **更正（实测复核）：** 原列为第一批 P0 的 `LLM-UP-018`（双重压缩）经实测确认为**误报**——Aether 无 `tail_start_id`、`filterCompacted` 已把溢出 tail 整段排除，不存在该 bug。**已撤销**，详见下表 `LLM-UP-018` 行。
 4. **有 1 个高风险「反向冲突」项：** 上游 `2f2fcc165`（删除自动 session diff）与 Aether 本地 `bafdfb6d2`（修好并保留自动 diff）意图相反，**禁止回迁**。05-04 快照未覆盖此冲突，本报告首次澄清。
 5. **`LLM-UP-015`（Copilot V2 SDK）确认永远不会由上游修复** —— 上游根本没有 vendored 的 `provider/sdk/` 目录，整套 Copilot SDK 是 Aether 自有，必须自行排期。
 
@@ -38,7 +39,7 @@
 |------|--------|----------------|----------|---------------------|------------------|----------|------|----------|
 | LLM-UP-016 | P0 | `05e3c4ece`/`#29769`、`b956e9a06`/`#29911`、`3070b0f4a`/`#30027`、`f4f508e65`/`#29991` | Opus 4.7+ adaptive reasoning：① `anthropicOpus47OrLater` 泛化「≥4.7/未来 major」检测，覆盖 Vertex `@` 后缀与 SAP 反序 `claude-4.7-opus`/`4.6-opus`；② 在 anthropic / vertex-anthropic / bedrock / gateway / sap-ai-core 全部 adaptive 分支强制 `display:"summarized"` | Anthropic Opus 4.7+（直连 / Bedrock / Vertex / CF Gateway / SAP AI Core） | **未覆盖**。`transform.ts:414` 仅字面匹配 `opus-4-7`/`opus-4.7`；`display:"summarized"` 全文件 0 命中（已复核）。后果：Opus 4.7+ API 默认 `omitted`，Aether 将收到**空 thinking 块**；SAP/Vertex 命名变体甚至不被识别为 adaptive | 回迁（机械）：移植 `anthropicOpus47OrLater` 正则 + 给四个 adaptive 分支加 `display:"summarized"`。四个分支 Aether 都已存在 | 中：用户可见的 reasoning 摘要丢失 + 漏检 adaptive | `cd packages/opencode && bun test test/provider/transform.test.ts` |
 | LLM-UP-017 | P1 | `233fc5b91`/`#21370`、`4e14f7951`/`#26276`（reasoning 半） | 含签名 reasoning 时保留 assistant 内容：① `normalizeMessages` 保留带 `anthropic/bedrock.signature` 或 `.redactedData` 的空 reasoning 块；② `toModelMessages` 对带签名 reasoning 的 assistant，空 text 替换为 `" "`，避免 SDK 过滤掉分隔符导致签名位移 | Anthropic / Bedrock adaptive thinking 多轮 | **未覆盖**。`transform.ts:108-111` 仍是旧 `part.text !== ""` 直接丢弃空 reasoning；`message-v2.ts:703-709` 无 `hasSignedReasoning` 逻辑 | 回迁（小、自洽）：两段一起改 | 中：丢弃签名 reasoning 会触发 Anthropic/Bedrock 签名位置 400 | `cd packages/opencode && bun test test/provider/transform.test.ts test/session/message-v2.test.ts` |
-| LLM-UP-018 | P0 | `94564f358`/`#27545` | 防 filterCompacted 重排导致的双重自动压缩：新增 `MessageV2.latest(msgs)` 按 **max MessageID** 而非数组位置推导 latest user/assistant/finished/tasks | 所有会自动压缩的 session | **未覆盖（真实潜在 bug）**。`filterCompacted`（`message-v2.ts:899-915`）做了 `reverse()` + 提前 `break`，数组非时序；而 `prompt.ts:311` 仍用 `for (let i = msgs.length-1; ...)` 位置扫描（已复核）。压缩后会把溢出尾部的旧 assistant 误判为最新轮 → 重复压缩 | 回迁行为：在 Aether 的 plain-async 循环里按 max-id 推导 latest，并补回归测试（溢出尾部 + 压缩） | 中：触及核心循环 turn 判定 | `cd packages/opencode && bun test test/session/llm.test.ts test/session/compaction.test.ts` |
+| ~~LLM-UP-018~~ | ~~P0~~ → **撤销（误报）** | `94564f358`/`#27545` | （上游）防 filterCompacted 重排导致的双重自动压缩：新增 `MessageV2.latest(msgs)` 按 max MessageID 推导 latest | 所有会自动压缩的 session | **不适用（误报，已实测）**。上游 bug 依赖 `tail_start_id` 的 replay-tail 重排把溢出 tail 拼回数组中段产生非时序数组；**Aether 无 `tail_start_id`**（全仓 0 命中），`filterCompacted`（`message-v2.ts:899-915`）遇压缩边界直接 `break`，把溢出 tail **整段排除**。实测 `m1<m2<m3<m4` 场景结果为 `[m2,m3,m4]`（溢出 m1 不在数组），位置扫描正确落在 summary（`summary===true`），守卫 `prompt.ts:565` `summary !== true` 为 false，不触发第二次压缩 | **不回迁**。原报告把上游 reorder 前提误套到 Aether——grep 只证实「prompt.ts 用位置扫描、message-v2 有 reverse()」两个事实，未验证溢出 tail 是否仍留在数组中 | 无 | `cd packages/opencode && bun test test/session/message-v2.test.ts`（可加 filterCompacted「溢出 tail 排除」回归测试锁住该行为） |
 | LLM-UP-019 | P1 | `6409aceb1`/`#25934` | `sanitizeSurrogates`：把落单 UTF-16 代理项替换为 `�`，在 `normalizeMessages` 对 system/user/assistant text+reasoning 与 tool-result 输出统一清洗 | 所有 provider | **未覆盖**。`transform.ts` 无 `sanitizeSurrogates`/surrogate 正则（已复核） | 回迁（机械）：把 helper 拼进 Aether `normalizeMessages` | 低：纯清洗，只改本就非法的字符串 | `cd packages/opencode && bun test test/provider/transform.test.ts` |
 | LLM-UP-020 | P1 | `83bb21648`/`#26370` | tools 始终按名排序：`Object.entries(tools).toSorted(...)` 后用于 `tools`/`activeTools`/`experimental_repairToolCall` 查找/预批准 | 所有 provider（对 prompt cache 敏感） | **未覆盖**。`llm.ts:330` `activeTools: Object.keys(tools)` 未排序；repair 查找也未排序（已复核） | 回迁（小、低风险）：排序一次后复用 | 低：首次部署可能一次性 cache miss，之后更稳定 | `cd packages/opencode && bun test test/session/llm.test.ts` |
 | LLM-UP-021 | P1 | `c2b1ebd9d`/`#27184` | 分层定价：把二元 `experimentalOver200K` 泛化为 `cost.tiers[]`（按 context token size 选最高匹配档），`getUsage` 选档逻辑 + `models.ts`/`provider.ts` schema | 所有发布 tiered pricing 的模型 | **未覆盖**。`index.ts:1883-1886` 仍只有二元 `experimentalOver200K`；schema 无 `tiers`/`ProviderCostTier` | 回迁行为：给 Zod cost schema 加 `tiers` + `getUsage` 选档；**务必保留** Aether 的 OpenRouter/Anthropic cache-token 调整（`index.ts:1850-1857`）与自有 `total` 计算 | 中：仅成本准确性，无 abort 风险；与 cache 调整交互需测试 | `cd packages/opencode && bun test test/session/compaction.test.ts` |
@@ -91,11 +92,12 @@
 
 **第一批（行为修复，不依赖 Effect/v6，当前确实未覆盖，已 grep 复核）：**
 
-1. `LLM-UP-018` 双重自动压缩（P0，核心循环潜在 bug）
-2. `LLM-UP-016` Opus 4.7+ `display:"summarized"` + 泛化检测（P0，用户可见 reasoning 丢失）
+1. `LLM-UP-016` Opus 4.7+ `display:"summarized"` + 泛化检测（P0，用户可见 reasoning 丢失）
+2. `LLM-UP-017` 签名 reasoning 保留（P1，与 016 同属 Anthropic adaptive 可靠性）
 3. `LLM-UP-019` surrogate 清洗（P1，机械）
 4. `LLM-UP-020` tools 排序（P1，机械，利于 cache）
-5. `LLM-UP-017` 签名 reasoning 保留（P1，与 016 同属 Anthropic adaptive 可靠性）
+
+> ~~`LLM-UP-018` 双重自动压缩~~：经实测**撤销**，Aether 无此 bug（无 `tail_start_id` replay-tail 重排，`filterCompacted` 直接排除溢出 tail）。详见上表 `LLM-UP-018` 行。
 
 **第二批（provider 专项小修，架构无关）：**
 
@@ -138,6 +140,6 @@ OPENCODE_SYSTEM_TEST=1 bun run test:system:llm:p0 -- --provider alibaba-cn --inp
 
 ## 结论
 
-本轮窗口（`28112fbd1..687c66248`，220 个相关提交）上游主线是 Effect/`@opencode-ai/core`/SQL store/native-runtime/AI SDK v6 的架构迁移，**绝大多数无法逐行回迁**。但从中剥离出 **16 个值得跟进的行为差异点（`LLM-UP-016 ~ 031`）**，其中 5 个是当前确实未覆盖、架构无关、可立即作为第一批回迁的行为修复（`016/017/018/019/020`）。
+本轮窗口（`28112fbd1..687c66248`，220 个相关提交）上游主线是 Effect/`@opencode-ai/core`/SQL store/native-runtime/AI SDK v6 的架构迁移，**绝大多数无法逐行回迁**。但从中剥离出 **16 个值得跟进的行为差异点（`LLM-UP-016 ~ 031`）**，其中 4 个是当前确实未覆盖、架构无关、可立即作为第一批回迁的行为修复（`016/017/019/020`）。`LLM-UP-018`（双重压缩）经实测确认为误报、不适用 Aether，已撤销（Aether 无 `tail_start_id` replay-tail 重排）。
 
 同时确认了一处必须守住的反向冲突（`2f2fcc165` vs `bafdfb6d2`），并把 `LLM-UP-015`（Copilot SDK）定性为永久 Aether-only 自维护项。native runtime、OpenAI WS、usage totals、AI SDK v6 与 Copilot SDK 升级仍各自开专项评估。
