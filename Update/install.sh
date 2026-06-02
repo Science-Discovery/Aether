@@ -820,9 +820,9 @@ if [ -n "$mirror_prune" ] && [ "$mirror_prune" -gt 0 ]; then
   echo "Mirror cleanup: removed $mirror_prune older version directories."
 fi
 if [ -n "$launch" ]; then
-  echo "[install] Desktop launcher: $launch"
+  echo "[install] Application launcher: $launch"
 else
-  echo "[install] Warning: failed to create Desktop launcher."
+  echo "[install] Warning: failed to create application launcher."
 fi
 if [ -n "${copy_note:-}" ]; then
   echo "$copy_note"

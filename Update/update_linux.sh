@@ -910,10 +910,10 @@ launch="$(write_launch "$start_target" || true)"
 debug_log "LAUNCH | launch=${launch:-none}"
 register_protocol "$start_target"
 if [ -n "$launch" ]; then
-  echo "[install] Desktop launcher: $launch"
-  echo "[install] To start Aether, click the Aether icon on your desktop or in your application menu."
+  echo "[install] Application launcher: $launch"
+  echo "[install] To start Aether, click the Aether icon in your application menu."
 else
-  echo "[install] Warning: failed to create Desktop launcher."
+  echo "[install] Warning: failed to create application launcher."
   echo "[install] To start Aether, open $start_target and run Aether.sh."
 fi
 
