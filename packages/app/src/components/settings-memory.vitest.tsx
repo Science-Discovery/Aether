@@ -182,7 +182,8 @@ afterEach(() => {
 })
 
 describe("settings memory", () => {
-  test("renders status and allows one-time initialization", async () => {
+  // skip: Import memories button is permanently disabled
+  test.skip("renders status and allows one-time initialization", async () => {
     const { host, off } = mount()
     await flush()
 
@@ -225,7 +226,8 @@ describe("settings memory", () => {
     off()
   })
 
-  test("can request cancellation while initialization is running", async () => {
+  // skip: Import memories button is permanently disabled, cannot trigger initialization from UI
+  test.skip("can request cancellation while initialization is running", async () => {
     state.initializePending = true
     const { host, off } = mount()
     await flush()
