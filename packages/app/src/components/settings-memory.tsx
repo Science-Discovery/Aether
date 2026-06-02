@@ -231,7 +231,7 @@ export const SettingsMemory: Component = () => {
             </Show>
           </div>
           <div class="flex flex-wrap gap-2">
-            <Button size="small" disabled={initializing()} onClick={startInitialize}>
+            <Button size="small" disabled onClick={startInitialize}>
               {initializing() ? "Importing..." : "Import memories"}
             </Button>
             <Show when={initializationRunning()}>
