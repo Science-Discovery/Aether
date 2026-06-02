@@ -11,6 +11,7 @@ docs/ci-guide.md
 # GitHub workflows
 .github/publish-python-sdk.yml
 .github/workflows/cicd-guard.yml
+.github/workflows/cleanup-draft-releases.yml
 .github/workflows/close-issues.yml
 .github/workflows/close-stale-prs.yml
 .github/workflows/compliance-close.yml
