@@ -4,6 +4,7 @@ import path from "path"
 import { pathToFileURL } from "url"
 import z from "zod"
 import { Effect, Layer, ServiceMap } from "effect"
+import { parse as parseJsonc } from "jsonc-parser"
 import { NamedError } from "@opencode-ai/util/error"
 import type { Agent } from "@/agent/agent"
 import { Bus } from "@/bus"
@@ -520,13 +521,24 @@ export namespace Skill {
       return
     }
 
-    // Project layer: write the project's aether.json directly. We avoid Config.update
+    // Project layer: write into the project's OWN config file. We avoid Config.update
     // here because it writes config.json, which the layered loader never reads.
-    const file2 = path.join(Instance.directory, "aether.json")
-    const existing = JSON.parse(await Filesystem.readText(file2).catch(() => "{}")) as Config.Info
-    const next = nextList(existing.skills?.[field], resolved, on)
-    const merged: Config.Info = { ...existing, skills: { ...(existing.skills ?? {}), [field]: next } }
-    await Filesystem.writeJson(file2, merged)
+    // Prefer an existing aether.jsonc — patch it in place, preserving comments — so a
+    // commented project doesn't get a second, bare aether.json beside it (the loader
+    // reads both, so a spurious file is pure clutter). Otherwise write aether.json.
+    const jsoncPath = path.join(Instance.directory, "aether.jsonc")
+    if (await Filesystem.exists(jsoncPath)) {
+      const text = (await Filesystem.readText(jsoncPath).catch(() => "")) || "{}"
+      const existing = parseJsonc(text) as Config.Info | undefined
+      const next = nextList(existing?.skills?.[field], resolved, on)
+      await Filesystem.write(jsoncPath, Config.patchJsonc(text, next, ["skills", field]))
+    } else {
+      const jsonPath = path.join(Instance.directory, "aether.json")
+      const existing = JSON.parse(await Filesystem.readText(jsonPath).catch(() => "{}")) as Config.Info
+      const next = nextList(existing.skills?.[field], resolved, on)
+      const merged: Config.Info = { ...existing, skills: { ...(existing.skills ?? {}), [field]: next } }
+      await Filesystem.writeJson(jsonPath, merged)
+    }
     // Refresh the two caches the toggle's effect depends on, instead of tearing
     // down the whole instance (Instance.dispose → full reload → UI flash):
     //   1) config cache, so loadSkills re-reads the new disabled_files; and

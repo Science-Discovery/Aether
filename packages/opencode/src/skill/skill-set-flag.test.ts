@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test"
 import fs from "fs/promises"
+import { existsSync } from "fs"
 import os from "os"
 import path from "path"
 import { Instance } from "@/project/instance"
@@ -228,5 +229,53 @@ describe("Skill cache invalidation + setSkillFileFlag", () => {
     const projectCfg = await readJson(path.join(worktree, "aether.json"))
     expect(projectCfg.skills?.disabled_files ?? []).not.toContain(pFile)
     expect(projectCfg.skills?.disabled_files ?? []).toContain("/other/SKILL.md")
+  })
+
+  // J1: a project whose config is aether.jsonc (commented). The toggle must write
+  // INTO that existing jsonc file (keeping its comments) and must NOT drop a second
+  // bare aether.json beside it — the layered loader reads both, so a spurious
+  // second file is pure clutter/confusion for the user.
+  test("project with aether.jsonc: toggle writes into the jsonc file, keeps comments, creates no aether.json", async () => {
+    const worktree = path.join(tmp.path, "proj-jsonc")
+    const pDir = path.join(worktree, ".aether", "skills", "jc1")
+    await writeSkill(pDir, "jc1", "a project skill")
+    const pFile = path.join(pDir, "SKILL.md")
+
+    // The project uses a commented jsonc config and has NO aether.json.
+    const jsoncPath = path.join(worktree, "aether.jsonc")
+    await fs.writeFile(jsoncPath, `{\n  // keep me\n  "model": "anthropic/claude"\n}\n`)
+
+    await withInstance(worktree, worktree, () => Skill.setSkillFileFlag(pFile, "disabled_files", true))
+
+    const jsonc = await fs.readFile(jsoncPath, "utf8")
+    // 1) the toggle state landed in the jsonc file
+    expect(jsonc).toContain(path.resolve(pFile))
+    // 2) the user's comment survived the write
+    expect(jsonc).toContain("// keep me")
+    // 3) no spurious second config file was created
+    expect(existsSync(path.join(worktree, "aether.json"))).toBe(false)
+  })
+
+  // J2 (failure/boundary): with aether.jsonc present, re-enabling (on=false) must
+  // remove the path from the jsonc file too — not silently no-op against a json
+  // file that was never written.
+  test("project with aether.jsonc: on=false removes the path from the jsonc file", async () => {
+    const worktree = path.join(tmp.path, "proj-jsonc-off")
+    const pDir = path.join(worktree, ".aether", "skills", "jc2")
+    await writeSkill(pDir, "jc2", "a project skill")
+    const pFile = path.join(pDir, "SKILL.md")
+
+    const jsoncPath = path.join(worktree, "aether.jsonc")
+    await fs.writeFile(
+      jsoncPath,
+      `{\n  // keep me\n  "skills": { "disabled_files": ["${path.resolve(pFile)}"] }\n}\n`,
+    )
+
+    await withInstance(worktree, worktree, () => Skill.setSkillFileFlag(pFile, "disabled_files", false))
+
+    const jsonc = await fs.readFile(jsoncPath, "utf8")
+    expect(jsonc).not.toContain(path.resolve(pFile))
+    expect(jsonc).toContain("// keep me")
+    expect(existsSync(path.join(worktree, "aether.json"))).toBe(false)
   })
 })

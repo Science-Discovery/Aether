@@ -1696,7 +1696,7 @@ export namespace Config {
     }
   }
 
-  function patchJsonc(input: string, patch: unknown, path: string[] = []): string {
+  export function patchJsonc(input: string, patch: unknown, path: string[] = []): string {
     if (!isRecord(patch)) {
       const edits = modify(input, path, patch, {
         formattingOptions: {
