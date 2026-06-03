@@ -106,8 +106,17 @@ export namespace ProviderTransform {
           }
           if (!Array.isArray(msg.content)) return msg
           const filtered = msg.content.filter((part) => {
-            if (part.type === "text" || part.type === "reasoning") {
+            if (part.type === "text") {
               return part.text !== ""
+            }
+            if (part.type === "reasoning") {
+              return (
+                part.text !== "" ||
+                part.providerOptions?.anthropic?.signature != null ||
+                part.providerOptions?.anthropic?.redactedData != null ||
+                part.providerOptions?.bedrock?.signature != null ||
+                part.providerOptions?.bedrock?.redactedData != null
+              )
             }
             return true
           })

@@ -700,11 +700,20 @@ export namespace MessageV2 {
           role: "assistant",
           parts: [],
         }
+        const signed = msg.parts.some((part) => {
+          if (part.type !== "reasoning") return false
+          return (
+            part.metadata?.anthropic?.signature != null ||
+            part.metadata?.anthropic?.redactedData != null ||
+            part.metadata?.bedrock?.signature != null ||
+            part.metadata?.bedrock?.redactedData != null
+          )
+        })
         for (const part of msg.parts) {
           if (part.type === "text")
             assistantMessage.parts.push({
               type: "text",
-              text: part.text,
+              text: part.text === "" && signed ? " " : part.text,
               ...(differentModel ? {} : { providerMetadata: part.metadata }),
             })
           if (part.type === "step-start")
