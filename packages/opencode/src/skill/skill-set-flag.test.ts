@@ -8,6 +8,7 @@ import { ProjectID } from "@/project/schema"
 import { Skill } from "./index"
 import { Global } from "@/global"
 import { Config } from "@/config/config"
+import { parse as parseJsonc } from "jsonc-parser"
 
 // Same isolation harness as skill-disable.test.ts.
 async function writeSkill(dir: string, name: string, description: string) {
@@ -217,18 +218,23 @@ describe("Skill cache invalidation + setSkillFileFlag", () => {
     const pDir = path.join(worktree, ".aether", "skills", "toggleoff")
     await writeSkill(pDir, "toggleoff", "a project skill")
     const pFile = path.join(pDir, "SKILL.md")
+    // An unrelated already-disabled path. setSkillFileFlag normalizes every entry
+    // with path.resolve, so use a real absolute (already-resolved) path — it survives
+    // unchanged on all platforms. A POSIX-style "/other/SKILL.md" would be rewritten
+    // to "D:\other\SKILL.md" on Windows and fail the assertion.
+    const unrelated = path.resolve(tmp.path, "other", "SKILL.md")
 
     // Pre-seed the project config with our skill + an unrelated disabled path.
     await fs.writeFile(
       path.join(worktree, "aether.json"),
-      JSON.stringify({ skills: { disabled_files: [pFile, "/other/SKILL.md"] } }),
+      JSON.stringify({ skills: { disabled_files: [pFile, unrelated] } }),
     )
 
     await withInstance(worktree, worktree, () => Skill.setSkillFileFlag(pFile, "disabled_files", false))
 
     const projectCfg = await readJson(path.join(worktree, "aether.json"))
-    expect(projectCfg.skills?.disabled_files ?? []).not.toContain(pFile)
-    expect(projectCfg.skills?.disabled_files ?? []).toContain("/other/SKILL.md")
+    expect(projectCfg.skills?.disabled_files ?? []).not.toContain(path.resolve(pFile))
+    expect(projectCfg.skills?.disabled_files ?? []).toContain(unrelated)
   })
 
   // J1: a project whose config is aether.jsonc (commented). The toggle must write
@@ -248,8 +254,11 @@ describe("Skill cache invalidation + setSkillFileFlag", () => {
     await withInstance(worktree, worktree, () => Skill.setSkillFileFlag(pFile, "disabled_files", true))
 
     const jsonc = await fs.readFile(jsoncPath, "utf8")
-    // 1) the toggle state landed in the jsonc file
-    expect(jsonc).toContain(path.resolve(pFile))
+    // 1) the toggle state landed in the jsonc file. Assert against the PARSED value,
+    // not the raw text: on Windows the path's backslashes are JSON-escaped (\\) in the
+    // file, so a substring search for the unescaped resolved path spuriously fails.
+    const parsed = parseJsonc(jsonc) as Config.Info
+    expect(parsed.skills?.disabled_files ?? []).toContain(path.resolve(pFile))
     // 2) the user's comment survived the write
     expect(jsonc).toContain("// keep me")
     // 3) no spurious second config file was created
@@ -266,15 +275,20 @@ describe("Skill cache invalidation + setSkillFileFlag", () => {
     const pFile = path.join(pDir, "SKILL.md")
 
     const jsoncPath = path.join(worktree, "aether.jsonc")
+    // JSON.stringify the path so Windows backslashes are escaped (\\) — interpolating
+    // a raw "C:\Users\..." would produce illegal JSON escapes (\U, \A) and the file
+    // would fail to parse, which is what broke this test on Windows.
     await fs.writeFile(
       jsoncPath,
-      `{\n  // keep me\n  "skills": { "disabled_files": ["${path.resolve(pFile)}"] }\n}\n`,
+      `{\n  // keep me\n  "skills": { "disabled_files": [${JSON.stringify(path.resolve(pFile))}] }\n}\n`,
     )
 
     await withInstance(worktree, worktree, () => Skill.setSkillFileFlag(pFile, "disabled_files", false))
 
     const jsonc = await fs.readFile(jsoncPath, "utf8")
-    expect(jsonc).not.toContain(path.resolve(pFile))
+    // Assert against the parsed value, not raw text (same backslash-escaping reason as J1).
+    const parsed = parseJsonc(jsonc) as Config.Info
+    expect(parsed.skills?.disabled_files ?? []).not.toContain(path.resolve(pFile))
     expect(jsonc).toContain("// keep me")
     expect(existsSync(path.join(worktree, "aether.json"))).toBe(false)
   })
