@@ -85,6 +85,37 @@ describe("skill/loadSkills disable by file path", () => {
     expect(names).toContain("bar")
   })
 
+  test("disabled_files still matches when the worktree path contains a symlink", async () => {
+    // Cross-platform regression: the skill scan canonicalizes its directory via
+    // Filesystem.resolve (realpath, which collapses symlinks), so skill.location
+    // is symlink-resolved. disabled_files matching must canonicalize the same way,
+    // or the two paths for the same file diverge. On macOS /var -> /private/var
+    // (and Windows casing) trigger this; here we force the same divergence with an
+    // explicit symlink so it reproduces on Linux too.
+    const realRoot = path.join(tmp.path, "real")
+    await fs.mkdir(realRoot, { recursive: true })
+    const linkRoot = path.join(tmp.path, "link")
+    await fs.symlink(realRoot, linkRoot)
+
+    // worktree path goes THROUGH the symlink; files land under realRoot.
+    const worktree = path.join(linkRoot, "proj")
+    const fooDir = path.join(worktree, ".aether", "skills", "foo")
+    await writeSkill(fooDir, "foo", "the foo skill")
+    await writeSkill(path.join(worktree, ".aether", "skills", "bar"), "bar", "the bar skill")
+
+    // disabled_files records the un-resolved (symlink) path — as a real config would.
+    await fs.writeFile(
+      path.join(worktree, "aether.json"),
+      JSON.stringify({ skills: { disabled_files: [path.join(fooDir, "SKILL.md")] } }),
+    )
+
+    const names = await withInstance(worktree, worktree, async () =>
+      (await Skill.all()).map((s) => s.name),
+    )
+    expect(names).not.toContain("foo")
+    expect(names).toContain("bar")
+  })
+
   test("disabling by path only matches that exact path — a same-named skill elsewhere survives", async () => {
     const worktree = path.join(tmp.path, "proj2")
     const inner = path.join(worktree, "pkg")

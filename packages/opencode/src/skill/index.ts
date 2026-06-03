@@ -340,12 +340,15 @@ export namespace Skill {
 
     // Remove disabled skills (by SKILL.md file path — precise per-file disable).
     // cfg.skills.disabled_files is already the cross-layer union (see
-    // mergeConfigConcatArrays). Resolve both sides so relative/absolute/.. variants
-    // still match.
-    const disabledFiles = new Set((cfg.skills?.disabled_files ?? []).map((p) => path.resolve(p)))
+    // mergeConfigConcatArrays). Canonicalize both sides with Filesystem.resolve
+    // (the same realpath-based normalization the scan applies to skill.location)
+    // so relative/absolute/.. AND symlink variants match — e.g. macOS /var vs
+    // /private/var, Windows casing. Plain path.resolve does not resolve symlinks,
+    // which made disabled_files silently miss on macOS/Windows.
+    const disabledFiles = new Set((cfg.skills?.disabled_files ?? []).map((p) => Filesystem.resolve(p)))
     if (disabledFiles.size > 0) {
       for (const [name, skill] of Object.entries(state.skills)) {
-        if (disabledFiles.has(path.resolve(skill.location))) {
+        if (disabledFiles.has(Filesystem.resolve(skill.location))) {
           delete state.skills[name]
           log.info("skill disabled by config file path", { name, location: skill.location })
         }
