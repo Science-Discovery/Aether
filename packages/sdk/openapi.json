@@ -3395,19 +3395,6 @@
           },
           {
             "in": "query",
-            "name": "search_scope",
-            "schema": {
-              "type": "string",
-              "enum": [
-                "title",
-                "messages",
-                "all"
-              ]
-            },
-            "description": "Search title only, chat message text only, or both"
-          },
-          {
-            "in": "query",
             "name": "limit",
             "schema": {
               "type": "number"
@@ -3618,19 +3605,6 @@
               "type": "string"
             },
             "description": "Filter sessions by title (case-insensitive)"
-          },
-          {
-            "in": "query",
-            "name": "search_scope",
-            "schema": {
-              "type": "string",
-              "enum": [
-                "title",
-                "messages",
-                "all"
-              ]
-            },
-            "description": "Search title only, chat message text only, or both"
           },
           {
             "in": "query",
@@ -22331,29 +22305,6 @@
               "firstReadCompleted",
               "firstReadDismissed"
             ]
-          },
-          "match": {
-            "type": "object",
-            "properties": {
-              "scope": {
-                "anyOf": [
-                  {
-                    "type": "string",
-                    "const": "title"
-                  },
-                  {
-                    "type": "string",
-                    "const": "messages"
-                  }
-                ]
-              },
-              "text": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "scope"
-            ]
           }
         },
         "required": [
@@ -23200,36 +23151,6 @@
                         "type": "null"
                       }
                     ]
-                  },
-                  "match": {
-                    "anyOf": [
-                      {
-                        "type": "object",
-                        "properties": {
-                          "scope": {
-                            "anyOf": [
-                              {
-                                "type": "string",
-                                "const": "title"
-                              },
-                              {
-                                "type": "string",
-                                "const": "messages"
-                              }
-                            ]
-                          },
-                          "text": {
-                            "type": "string"
-                          }
-                        },
-                        "required": [
-                          "scope"
-                        ]
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ]
                   }
                 },
                 "required": [
@@ -23248,8 +23169,7 @@
                   "version",
                   "permission",
                   "revert",
-                  "readingMode",
-                  "match"
+                  "readingMode"
                 ]
               }
             },
@@ -25415,29 +25335,6 @@
               "settings",
               "firstReadCompleted",
               "firstReadDismissed"
-            ]
-          },
-          "match": {
-            "type": "object",
-            "properties": {
-              "scope": {
-                "anyOf": [
-                  {
-                    "type": "string",
-                    "const": "title"
-                  },
-                  {
-                    "type": "string",
-                    "const": "messages"
-                  }
-                ]
-              },
-              "text": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "scope"
             ]
           },
           "project": {
