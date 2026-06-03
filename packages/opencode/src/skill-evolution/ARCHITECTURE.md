@@ -95,7 +95,7 @@ skill-evolution/
 ├── counter.ts          per-session 步数计数器（模块级 Map）
 │
 ├── config-reader.ts    读取 ~/.aether/skill-evolution-config.json
-│                       字段：creation_nudge_interval（默认 10）
+│                       字段：creation_nudge_interval（默认 80）
 │
 ├── review-agent.ts     后台 review session 的核心
 │                       spawnReview()      — 在 Instance(SKILL_SESSIONS_ROOT) 中
@@ -133,7 +133,7 @@ skill-evolution/
 ├── publisher.ts        发布 skill.saved Bus 事件（通知 UI 刷新）
 │
 └── constants.ts        所有魔法数字/字符串的唯一来源
-                        DEFAULT_NUDGE_INTERVAL = 10
+                        DEFAULT_NUDGE_INTERVAL = 80
                         VERSION_CAPACITY = 100
                         MAX_SCAN_FILES = 50 / MAX_FILE_SIZE = 256KB
 ```

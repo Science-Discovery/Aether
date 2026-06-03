@@ -779,7 +779,7 @@ export namespace Config {
       .int()
       .min(0)
       .optional()
-      .describe("LLM steps without skill_manage before background skill review triggers (default: 10, 0 to disable)"),
+      .describe("LLM steps without skill_manage before background skill review triggers (default: 80, 0 to disable)"),
     max_versions: z
       .number()
       .int()

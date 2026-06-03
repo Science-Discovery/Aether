@@ -4,7 +4,7 @@ import { useGlobalSync } from "@/context/global-sync"
 import { useLanguage } from "@/context/language"
 import { SettingsList } from "./settings-list"
 
-const SKILL_NUDGE_DEFAULT = 10
+const SKILL_NUDGE_DEFAULT = 80
 const SKILL_MAX_VERSIONS_DEFAULT = 100
 
 interface SettingsRowProps {
