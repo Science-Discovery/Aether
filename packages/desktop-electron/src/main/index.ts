@@ -1,8 +1,8 @@
 import { randomUUID } from "node:crypto"
 import { EventEmitter } from "node:events"
-import { existsSync } from "node:fs"
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
 import { createServer } from "node:net"
-import { join } from "node:path"
+import { dirname, join } from "node:path"
 import type { Event } from "electron"
 import { app, BrowserWindow, dialog, shell } from "electron"
 import pkg from "electron-updater"
@@ -47,6 +47,30 @@ const MANUAL_INSTALL_UPDATE = process.platform === "darwin" || (process.platform
 const RELEASES_URL = "https://github.com/Science-Discovery/Aether/releases"
 const RENDERER_UPDATER_ENABLED = UPDATER_ENABLED && !MANUAL_INSTALL_UPDATE
 
+function linuxDisplayBackendPath() {
+  const dir = process.env.XDG_CONFIG_HOME || join(process.env.HOME || "/", ".config")
+  return join(dir, "aether", "display-backend.json")
+}
+
+function readLinuxDisplayBackend(): "wayland" | "auto" {
+  if (process.platform !== "linux") return "auto"
+  try {
+    const raw = readFileSync(linuxDisplayBackendPath(), "utf-8")
+    const data = JSON.parse(raw)
+    return data.backend === "wayland" ? "wayland" : "auto"
+  } catch {
+    return "auto"
+  }
+}
+
+function writeLinuxDisplayBackend(backend: string | null) {
+  if (process.platform !== "linux") return
+  const value = backend === "wayland" ? "wayland" : "auto"
+  const dir = dirname(linuxDisplayBackendPath())
+  if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
+  writeFileSync(linuxDisplayBackendPath(), JSON.stringify({ backend: value }))
+}
+
 logger.log("app starting", {
   version: app.getVersion(),
   packaged: app.isPackaged,
@@ -72,6 +96,12 @@ process.on("exit", () => {
 function setupApp() {
   ensureLoopbackNoProxy()
   app.commandLine.appendSwitch("proxy-bypass-list", "<-loopback>")
+
+  if (process.platform === "linux") {
+    app.commandLine.appendSwitch("use-zoom-for-dsf", "false")
+    app.commandLine.appendSwitch("enable-features", "UseOzonePlatform")
+    app.commandLine.appendSwitch("ozone-platform-hint", readLinuxDisplayBackend())
+  }
 
   if (!app.requestSingleInstanceLock()) {
     app.quit()
@@ -287,8 +317,10 @@ registerIpcHandlers({
       signal: AbortSignal.timeout(3000),
     }).catch(() => undefined)
   },
-  getDisplayBackend: async () => null,
-  setDisplayBackend: async () => undefined,
+  getDisplayBackend: async () => (process.platform === "linux" ? readLinuxDisplayBackend() : null),
+  setDisplayBackend: async (backend) => {
+    if (process.platform === "linux") writeLinuxDisplayBackend(backend)
+  },
   parseMarkdown: async (markdown) => parseMarkdown(markdown),
   checkAppExists: async (appName) => checkAppExists(appName),
   wslPath: async (path, mode) => wslPath(path, mode),
