@@ -93,6 +93,35 @@ describe("skill mtime cache invalidation", () => {
     expect(v2?.description).toBe("updated")
   })
 
+  test("editing SKILL.md is detected even when the mtime is unchanged (size differs)", async () => {
+    // Cross-platform regression (Windows): the freshness check compares the file's
+    // mtime against a snapshot. On Linux/macOS two writes microseconds apart get
+    // distinct nanosecond mtimes, so an edit is always seen. On Windows the mtime
+    // resolution is coarse, so a quick edit can land on the SAME mtime tick and the
+    // edit is silently missed. We force that collision here by pinning the mtime
+    // back to the original value after the edit — the new content's size differs,
+    // which a size+mtime check must catch.
+    const worktree = path.join(tmp.path, "project3b")
+    const skillDir = path.join(worktree, ".claude", "skills", "build")
+    const skillFile = path.join(skillDir, "SKILL.md")
+    await writeSkill(skillDir, "build", "original")
+
+    const v1 = await withInstance(worktree, worktree, () => Skill.get("build"))
+    expect(v1?.description).toBe("original")
+
+    // Capture the mtime the snapshot recorded, edit the file (different size), then
+    // pin mtime back so only the size changed — simulating a coarse-mtime collision.
+    const before = await fs.stat(skillFile)
+    await fs.writeFile(
+      skillFile,
+      `---\nname: build\ndescription: a-much-longer-updated-description\n---\nNew longer content.\n`,
+    )
+    await fs.utimes(skillFile, before.atime, before.mtime)
+
+    const v2 = await withInstance(worktree, worktree, () => Skill.get("build"))
+    expect(v2?.description).toBe("a-much-longer-updated-description")
+  })
+
   test("touching SKILL.md (mtime bump, same content) triggers cache invalidation", async () => {
     const worktree = path.join(tmp.path, "project4")
     const skillDir = path.join(worktree, ".claude", "skills", "lint")

@@ -86,16 +86,21 @@ export namespace Skill {
     return path.join(Global.Path.home, ".aether", "skill-snapshots", `${dirSlug}.json`)
   }
 
-  async function readSnapshot(directory: string): Promise<Record<string, number> | null> {
+  // mtime alone misses edits that reuse the same mtime tick (Windows has coarse
+  // mtime resolution, so a quick rewrite can collide); pairing it with size catches
+  // any content-length change within the same tick.
+  type ManifestEntry = { mtime: number; size: number }
+
+  async function readSnapshot(directory: string): Promise<Record<string, ManifestEntry> | null> {
     try {
       const content = await fs.readFile(snapshotPath(directory), "utf-8")
-      return JSON.parse(content) as Record<string, number>
+      return JSON.parse(content) as Record<string, ManifestEntry>
     } catch {
       return null
     }
   }
 
-  async function writeSnapshot(directory: string, snapshot: Record<string, number>): Promise<void> {
+  async function writeSnapshot(directory: string, snapshot: Record<string, ManifestEntry>): Promise<void> {
     const p = snapshotPath(directory)
     await fs.mkdir(path.dirname(p), { recursive: true })
     await fs.writeFile(p, JSON.stringify(snapshot, null, 2), "utf-8")
@@ -188,12 +193,16 @@ export namespace Skill {
     return paths
   }
 
-  async function buildManifest(directory: string, worktree: string, projectId: string): Promise<Record<string, number>> {
+  async function buildManifest(
+    directory: string,
+    worktree: string,
+    projectId: string,
+  ): Promise<Record<string, ManifestEntry>> {
     const paths = await scanAllSkillPaths(directory, worktree, projectId)
-    const manifest: Record<string, number> = {}
+    const manifest: Record<string, ManifestEntry> = {}
     for (const p of paths) {
       const stat = await fs.stat(p).catch(() => null)
-      if (stat) manifest[p] = stat.mtimeMs
+      if (stat) manifest[p] = { mtime: stat.mtimeMs, size: stat.size }
     }
     return manifest
   }
@@ -205,9 +214,12 @@ export namespace Skill {
     const snapshot = await readSnapshot(directory)
     if (!snapshot) return false
 
-    for (const [p, snapshotMtime] of Object.entries(snapshot)) {
+    for (const [p, entry] of Object.entries(snapshot)) {
+      // Old-format snapshots stored a bare mtime number; treat them as stale so the
+      // next load rewrites them in the {mtime, size} shape (self-healing, harmless).
+      if (typeof entry !== "object") return false
       const stat = await fs.stat(p).catch(() => null)
-      if (!stat || stat.mtimeMs !== snapshotMtime) return false
+      if (!stat || stat.mtimeMs !== entry.mtime || stat.size !== entry.size) return false
     }
 
     const currentPaths = await scanAllSkillPaths(directory, worktree, projectId)
