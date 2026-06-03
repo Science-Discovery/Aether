@@ -406,16 +406,24 @@ export namespace ProviderTransform {
   const WIDELY_SUPPORTED_EFFORTS = ["low", "medium", "high"]
   const OPENAI_EFFORTS = ["none", "minimal", ...WIDELY_SUPPORTED_EFFORTS, "xhigh"]
 
+  function opus47(api: string) {
+    const version = /opus-(\d+)[.-](\d+)(?:[.@-]|$)|claude-(\d+)[.-](\d+)-opus(?:[.@-]|$)/i.exec(api)
+    if (!version) return false
+    const major = Number(version[1] ?? version[3])
+    const minor = Number(version[2] ?? version[4])
+    return major > 4 || (major === 4 && minor >= 7)
+  }
+
   export function variants(model: Provider.Model): Record<string, Record<string, any>> {
     if (!model.capabilities.reasoning) return {}
 
     const id = model.id.toLowerCase()
     const api = `${id} ${model.api.id.toLowerCase()}`
-    const opus47 = ["opus-4-7", "opus-4.7"].some((v) => api.includes(v))
-    const isAnthropicAdaptive = ["opus-4-6", "opus-4.6", "opus-4-7", "opus-4.7", "sonnet-4-6", "sonnet-4.6"].some((v) =>
-      api.includes(v),
-    )
-    const adaptiveEfforts = opus47 ? ["low", "medium", "high", "xhigh", "max"] : ["low", "medium", "high", "max"]
+    const opus = opus47(api)
+    const isAnthropicAdaptive =
+      opus ||
+      ["opus-4-6", "opus-4.6", "4-6-opus", "4.6-opus", "sonnet-4-6", "sonnet-4.6"].some((v) => api.includes(v))
+    const adaptiveEfforts = opus ? ["low", "medium", "high", "xhigh", "max"] : ["low", "medium", "high", "max"]
     if (
       id.includes("deepseek") ||
       id.includes("minimax") ||
@@ -456,6 +464,7 @@ export namespace ProviderTransform {
                 {
                   thinking: {
                     type: "adaptive",
+                    ...(opus ? { display: "summarized" } : {}),
                   },
                   effort,
                 },
@@ -623,6 +632,7 @@ export namespace ProviderTransform {
               {
                 thinking: {
                   type: "adaptive",
+                  ...(opus ? { display: "summarized" } : {}),
                 },
                 effort,
               },
@@ -655,6 +665,7 @@ export namespace ProviderTransform {
                 reasoningConfig: {
                   type: "adaptive",
                   maxReasoningEffort: effort,
+                  ...(opus ? { display: "summarized" } : {}),
                 },
               },
             ]),
@@ -761,6 +772,7 @@ export namespace ProviderTransform {
                 {
                   thinking: {
                     type: "adaptive",
+                    ...(opus ? { display: "summarized" } : {}),
                   },
                   effort,
                 },
