@@ -10,6 +10,8 @@ import { ModelsDev } from "../../provider/models"
 import { ProviderID } from "../../provider/schema"
 import { lazy } from "../../util/lazy"
 import { Log } from "../../util/log"
+import { voiceDir } from "../../persist/naming"
+import { mkdir } from "fs/promises"
 
 const log = Log.create({ service: "voice" })
 
@@ -292,6 +294,18 @@ async function realtime(opts: {
   })
 }
 
+async function saveAudioFile(audioBase64: string, audioFormat: string, projectID: string): Promise<string> {
+  const dir = voiceDir(projectID)
+  await mkdir(dir, { recursive: true })
+  const now = new Date()
+  const ts = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}${String(now.getDate()).padStart(2, "0")}T${String(now.getHours()).padStart(2, "0")}${String(now.getMinutes()).padStart(2, "0")}${String(now.getSeconds()).padStart(2, "0")}`
+  const ext = audioFormat.replace(/[^a-z0-9]/gi, "") || "webm"
+  const filename = `${ts}.${ext}`
+  const filePath = path.join(dir, filename)
+  await Bun.write(filePath, Buffer.from(audioBase64, "base64"))
+  return filePath
+}
+
 export const VoiceRoutes = lazy(() =>
   new Hono().post(
     "/transcribe",
@@ -306,10 +320,12 @@ export const VoiceRoutes = lazy(() =>
         context: z
           .array(z.object({ role: z.string(), content: z.string() }))
           .optional(),
+        projectID: z.string().optional(),
+        saveAudio: z.boolean().optional(),
       }),
     ),
     async (c) => {
-      const { providerID, modelID, mode, audioBase64, audioFormat, context } =
+      const { providerID, modelID, mode, audioBase64, audioFormat, context, projectID, saveAudio } =
         c.req.valid("json")
       const kind = mode ?? (modelID.includes("asr") ? "asr" : modelID.includes("realtime") ? "realtime" : "omni")
 
@@ -336,7 +352,8 @@ export const VoiceRoutes = lazy(() =>
               setTimeout(() => reject(new VoiceError("Realtime transcription hard timeout", 504)), 35_000),
             ),
           ])
-          return c.json({ text })
+          const audioPath = projectID && saveAudio ? await saveAudioFile(audioBase64, audioFormat, projectID) : undefined
+          return c.json({ text, audioPath })
         } catch (e) {
           const message = e instanceof Error ? e.message : String(e)
           const status = e instanceof VoiceError ? e.status : 500
@@ -458,6 +475,7 @@ export const VoiceRoutes = lazy(() =>
       }
 
       const finalText = text.trim()
+      const audioPath = projectID && saveAudio ? await saveAudioFile(audioBase64, audioFormat, projectID) : undefined
       log.info("voice transcribe result", {
         providerID,
         modelID,
@@ -466,7 +484,7 @@ export const VoiceRoutes = lazy(() =>
         chars: finalText.length,
         text: finalText.slice(0, 500),
       })
-      return c.json({ text: finalText })
+      return c.json({ text: finalText, audioPath })
     },
   ),
 )

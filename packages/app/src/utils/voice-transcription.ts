@@ -6,6 +6,13 @@ export interface TranscriptionOptions {
   conversationContext?: Array<{ role: string; content: string }>
   signal?: AbortSignal
   headers?: Record<string, string>
+  projectID?: string
+  saveAudio?: boolean
+}
+
+export interface TranscriptionResult {
+  text: string
+  audioPath?: string
 }
 
 function blobToBase64(blob: Blob): Promise<string> {
@@ -29,8 +36,8 @@ function getAudioFormat(mimeType: string): string {
   return "webm"
 }
 
-export async function transcribeAudio(options: TranscriptionOptions): Promise<string> {
-  const { serverUrl, providerID, modelID, audioBlob, conversationContext, signal } = options
+export async function transcribeAudio(options: TranscriptionOptions): Promise<TranscriptionResult> {
+  const { serverUrl, providerID, modelID, audioBlob, conversationContext, signal, projectID, saveAudio } = options
 
   const audioBase64 = await blobToBase64(audioBlob)
   const audioFormat = getAudioFormat(audioBlob.type)
@@ -44,6 +51,8 @@ export async function transcribeAudio(options: TranscriptionOptions): Promise<st
       audioBase64,
       audioFormat,
       context: conversationContext,
+      projectID,
+      saveAudio,
     }),
     signal,
   })
@@ -56,5 +65,5 @@ export async function transcribeAudio(options: TranscriptionOptions): Promise<st
   const data = await response.json()
   const text = data.text?.trim()
   if (!text) throw new Error("empty")
-  return text
+  return { text, audioPath: data.audioPath }
 }

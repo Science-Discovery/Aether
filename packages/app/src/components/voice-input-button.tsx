@@ -20,7 +20,7 @@ export interface VoiceInputAPI {
 }
 
 export interface VoiceInputButtonProps {
-  onTranscription: (text: string) => void
+  onTranscription: (text: string, audioPath?: string) => void
   onStateChange?: (state: VoiceRecorderState | "transcribing") => void
   class?: string
   style?: JSX.CSSProperties
@@ -130,7 +130,7 @@ export const VoiceInputButton: Component<VoiceInputButtonProps> = (props) => {
       const auth = cur?.http?.password
         ? { Authorization: `Basic ${btoa(`${cur.http.username ?? "opencode"}:${cur.http.password}`)}` }
         : undefined
-      const text = await transcribeAudio({
+      const result = await transcribeAudio({
         serverUrl: sdk.url,
         providerID,
         modelID,
@@ -138,9 +138,11 @@ export const VoiceInputButton: Component<VoiceInputButtonProps> = (props) => {
         conversationContext: getConversationContext(),
         signal: abortController.signal,
         headers: auth,
+        projectID: sync.project?.id,
+        saveAudio: true,
       })
 
-      props.onTranscription(text)
+      props.onTranscription(result.text, result.audioPath)
     } catch (e: unknown) {
       if (e instanceof Error && e.name === "AbortError") return
       console.error("[VoiceInput] Transcription error:", e)
