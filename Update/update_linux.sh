@@ -552,11 +552,8 @@ EOF
 
   local desk="$home/Desktop"
   mkdir -p "$desk" || return 1
-  if [ -f "$apps/aether.desktop" ]; then
-    cp "$apps/aether.desktop" "$desk/aether.desktop" 2>/dev/null || true
-    chmod +x "$desk/aether.desktop" || true
-    debug_log "LAUNCH | copied desktop entry to $desk/aether.desktop"
-  fi
+  rm -f "$desk/Aether.sh" 2>/dev/null || true
+  debug_log "LAUNCH | removed legacy launcher $desk/Aether.sh if present"
 
   printf "%s" "$apps/aether.desktop"
 }
@@ -913,10 +910,10 @@ launch="$(write_launch "$start_target" || true)"
 debug_log "LAUNCH | launch=${launch:-none}"
 register_protocol "$start_target"
 if [ -n "$launch" ]; then
-  echo "[install] Desktop launcher: $launch"
-  echo "[install] To start Aether, click the Aether icon on your desktop or in your application menu."
+  echo "[install] Application launcher: $launch"
+  echo "[install] To start Aether, click the Aether icon in your application menu."
 else
-  echo "[install] Warning: failed to create Desktop launcher."
+  echo "[install] Warning: failed to create application launcher."
   echo "[install] To start Aether, open $start_target and run Aether.sh."
 fi
 

@@ -483,13 +483,13 @@ desktop_hint() {
     [ -n "$home" ] || home="$HOME"
   fi
 
-  local launch="$home/Desktop/Aether.sh"
+  local launch="$home/.local/share/applications/aether.desktop"
   if [ -f "$launch" ]; then
-    echo "[init] Desktop launcher: $launch"
+    echo "[init] Application launcher: $launch"
     return 0
   fi
-  echo "[init] NOTE: Desktop launcher not found: $launch"
-  echo "[init] The local installer should create it; check Desktop permissions if missing."
+  echo "[init] NOTE: Application launcher not found: $launch"
+  echo "[init] The local installer should create it; check application menu integration if missing."
 }
 
 normalize_work() {

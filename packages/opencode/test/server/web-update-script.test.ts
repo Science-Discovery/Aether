@@ -231,8 +231,10 @@ describe("web update scripts", () => {
 
       await fs.mkdir(dl, { recursive: true })
       await fs.mkdir(home, { recursive: true })
+      await fs.mkdir(path.join(home, "Desktop"), { recursive: true })
       await ver(cur, "1.2.6")
       await app(src, "linux")
+      await Bun.write(path.join(home, "Desktop", "Aether.sh"), "#!/usr/bin/env bash\nexit 0\n")
       zip(src, out)
       await cp(path.join(update, "update_linux.sh"), script)
 
@@ -250,6 +252,8 @@ describe("web update scripts", () => {
       expect(desktop).toContain("Type=Application")
       expect(desktop).toContain("Name=Aether")
       expect(desktop).toContain(path.join(work, "aether_1.2.7", "Aether.sh"))
+      expect(await Bun.file(path.join(home, "Desktop", "Aether.sh")).exists()).toBe(false)
+      expect(await Bun.file(path.join(home, "Desktop", "aether.desktop")).exists()).toBe(false)
     },
     { timeout: 30000 },
   )
