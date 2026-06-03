@@ -10,8 +10,13 @@ import { lookupProjectPath } from "./project-name-lookup"
  * Scope:
  *   - list: enumerate evolved skills from the project's .aether/skills/ and the
  *     global skill-evolution/<projectId>/skills/ directories.
- *   - toggleEnabled / toggleEvolution: flip a single frontmatter flag on a
- *     skill's SKILL.md, identified by its absolute file path.
+ *   - evolutionDirs: list the per-project background-review output directories.
+ *
+ * Enable / stop-evolution toggles are NOT here: they live in Skill.setSkillFileFlag,
+ * which records state in config (skills.disabled_files / evolution_disabled_files)
+ * keyed by SKILL.md path — never in frontmatter. The list endpoint derives each
+ * skill's enabled / evolution_enabled from that config, so this module does not
+ * read those flags off disk.
  *
  * Layering: this module is pure file logic. It receives an already-resolved
  * `projectId` (the route layer resolves it via Project.fromDirectory, matching
@@ -25,8 +30,6 @@ export type EvolvedSkill = {
   description: string
   content: string
   category?: string
-  enabled?: boolean
-  evolution_enabled?: boolean
   file: string
 }
 
@@ -54,13 +57,6 @@ function parseFrontmatter(content: string): Frontmatter {
     if (key) meta[key] = val
   }
   return { meta, body }
-}
-
-function parseBool(value: string | undefined): boolean | undefined {
-  if (value === undefined) return undefined
-  if (value === "true") return true
-  if (value === "false") return false
-  return undefined
 }
 
 // ── Directory scanning ────────────────────────────────────────────────────────
@@ -106,8 +102,6 @@ async function readSkill(file: string): Promise<EvolvedSkill | undefined> {
     description: meta.description ?? "",
     content: body,
     category: meta.category?.trim() || undefined,
-    enabled: parseBool(meta.enabled),
-    evolution_enabled: parseBool(meta.evolution_enabled),
     file,
   }
 }

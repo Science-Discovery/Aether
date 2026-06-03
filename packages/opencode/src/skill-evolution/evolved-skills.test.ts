@@ -34,8 +34,6 @@ describe("EvolvedSkills.list", () => {
       name: "alpha",
       description: "the alpha skill",
       category: "writing",
-      enabled: "true",
-      evolution_enabled: "false",
     })
 
     const skills = await EvolvedSkills.list(root, "anyid")
@@ -44,8 +42,6 @@ describe("EvolvedSkills.list", () => {
     expect(s.name).toBe("alpha")
     expect(s.description).toBe("the alpha skill")
     expect(s.category).toBe("writing")
-    expect(s.enabled).toBe(true)
-    expect(s.evolution_enabled).toBe(false)
     expect(s.content).toContain("skill body")
   })
 
