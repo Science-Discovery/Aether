@@ -4,18 +4,13 @@
  * Background reviews run fire-and-forget via SessionPrompt.prompt, which loops
  * the model through tool calls until it decides to stop. The default `build`
  * agent sets no `steps`, so that loop is uncapped (maxSteps = Infinity) — a
- * runaway model can loop forever and burn tokens unseen. These two caps bound
- * a single review: the step cap halts the tool loop, the token cap is the
- * fallback for "few steps but each one huge". Both are empirical defaults, not
- * measured from real review distributions; raise them if reviews get killed too
- * often (visible as reviews silently producing no result).
+ * runaway model can loop forever and burn tokens unseen. Two character caps
+ * bound a single review: a per-step cap cuts a step that never stops emitting,
+ * and a whole-review cap stops a "slow grind" that never stops taking steps.
+ * Both are empirical defaults, not measured from real review distributions;
+ * raise them if reviews get killed too often (visible as reviews silently
+ * producing no result).
  */
-
-/** Max tool-loop steps a single review may take before being cut off. */
-export const REVIEW_MAX_STEPS = 25
-
-/** Max accumulated tokens (summed across steps) a single review may spend. */
-export const REVIEW_MAX_TOKENS = 150_000
 
 /**
  * Max characters a SINGLE step may stream out before that step is cut off
@@ -42,35 +37,6 @@ export const REVIEW_MAX_STEP_CHARS = 300_000
  * grinding loop reaches it.
  */
 export const REVIEW_MAX_TOTAL_CHARS = 1_000_000
-
-/** Token usage reported for one model step. */
-export interface StepUsage {
-  input: number
-  output: number
-  reasoning: number
-  cache: { read: number; write: number }
-}
-
-/**
- * Whether the tool loop has reached its step cap. `step` is 0-based; the loop
- * stops once it equals `max` (so max=25 allows steps 0..24, then halts).
- */
-export function isStepLimitReached(step: number, max: number): boolean {
-  return step >= max
-}
-
-/** Sum one step's usage into a single token count (input+output+reasoning+cache). */
-export function stepUsageTokens(usage: StepUsage): number {
-  return usage.input + usage.output + usage.reasoning + usage.cache.read + usage.cache.write
-}
-
-/**
- * Whether the accumulated token total has passed the cap. Equal to the cap is
- * still allowed; only strictly greater is over.
- */
-export function isTokenLimitExceeded(accumulatedTokens: number, max: number): boolean {
-  return accumulatedTokens > max
-}
 
 /**
  * Whether a streamed character count has passed its cap — the model is running
@@ -128,4 +94,38 @@ export function reviewCharGuard(
   if (isOutputRunaway(usage.totalChars, caps.totalMax)) return "stop-review"
   if (isOutputRunaway(usage.stepChars, caps.stepMax)) return "stop-review"
   return "continue"
+}
+
+/**
+ * Stateful char accountant for one background review. The whole-review total
+ * lives here so it survives across steps — the processor is rebuilt every step
+ * and must NOT own this count, or the slow-grind guard never accumulates.
+ *
+ * Usage: the outer loop creates ONE counter per review (outside the per-step
+ * loop), calls `stepReset()` at the start of each step, then `record(n)` for
+ * each streamed chunk; `record` returns the guard action for that chunk.
+ */
+export function createReviewCharCounter(caps: { stepMax: number; totalMax: number }) {
+  let total = 0
+  let step = 0
+  return {
+    /** Zero the per-step count at the start of a step; the whole-review total is
+     *  left untouched so it keeps accumulating across steps. */
+    stepReset() {
+      step = 0
+    },
+    /** Record `n` streamed chars; returns "continue" or "stop-review" per the
+     *  per-step and whole-review caps. */
+    record(n: number): ReviewCharAction {
+      step += n
+      total += n
+      return reviewCharGuard({ stepChars: step, totalChars: total }, caps)
+    },
+    get total() {
+      return total
+    },
+    get step() {
+      return step
+    },
+  }
 }

@@ -1,71 +1,12 @@
 import { describe, expect, test } from "bun:test"
 import {
-  REVIEW_MAX_STEPS,
-  REVIEW_MAX_TOKENS,
   REVIEW_MAX_STEP_CHARS,
   REVIEW_MAX_TOTAL_CHARS,
-  isStepLimitReached,
-  stepUsageTokens,
-  isTokenLimitExceeded,
   isOutputRunaway,
   reviewCharGuard,
   reviewCharLimits,
+  createReviewCharCounter,
 } from "./limits"
-
-describe("isStepLimitReached", () => {
-  test("not reached while step is below the max", () => {
-    expect(isStepLimitReached(0, 25)).toBe(false)
-    expect(isStepLimitReached(24, 25)).toBe(false)
-  })
-
-  test("reached exactly at the max (boundary)", () => {
-    expect(isStepLimitReached(25, 25)).toBe(true)
-  })
-
-  test("reached past the max", () => {
-    expect(isStepLimitReached(26, 25)).toBe(true)
-  })
-
-  test("a max of 0 is always reached, including at step 0 (boundary)", () => {
-    expect(isStepLimitReached(0, 0)).toBe(true)
-  })
-})
-
-describe("stepUsageTokens", () => {
-  test("sums input, output, reasoning and both cache fields", () => {
-    const total = stepUsageTokens({
-      input: 100,
-      output: 200,
-      reasoning: 50,
-      cache: { read: 10, write: 5 },
-    })
-    expect(total).toBe(365)
-  })
-
-  test("an all-zero usage sums to zero (boundary)", () => {
-    expect(
-      stepUsageTokens({ input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } }),
-    ).toBe(0)
-  })
-})
-
-describe("isTokenLimitExceeded", () => {
-  test("not exceeded while accumulated tokens are below the max", () => {
-    expect(isTokenLimitExceeded(149_999, 150_000)).toBe(false)
-  })
-
-  test("not exceeded exactly at the max (boundary — equal is allowed)", () => {
-    expect(isTokenLimitExceeded(150_000, 150_000)).toBe(false)
-  })
-
-  test("exceeded once accumulated tokens pass the max", () => {
-    expect(isTokenLimitExceeded(150_001, 150_000)).toBe(true)
-  })
-
-  test("zero accumulated tokens is never exceeded (boundary)", () => {
-    expect(isTokenLimitExceeded(0, 150_000)).toBe(false)
-  })
-})
 
 describe("isOutputRunaway (single-step guard)", () => {
   test("not runaway while accumulated chars are below the max", () => {
@@ -140,11 +81,6 @@ describe("reviewCharGuard", () => {
 })
 
 describe("review limit constants", () => {
-  test("expose the agreed default step and token caps", () => {
-    expect(REVIEW_MAX_STEPS).toBe(25)
-    expect(REVIEW_MAX_TOKENS).toBe(150_000)
-  })
-
   test("exposes the agreed single-step output char cap", () => {
     expect(REVIEW_MAX_STEP_CHARS).toBe(300_000)
   })
@@ -155,6 +91,56 @@ describe("review limit constants", () => {
 
   test("the whole-review cap is larger than the single-step cap", () => {
     expect(REVIEW_MAX_TOTAL_CHARS).toBeGreaterThan(REVIEW_MAX_STEP_CHARS)
+  })
+})
+
+describe("createReviewCharCounter", () => {
+  // Caps kept small so the cross-step math is easy to read. The whole-review
+  // total cap (250) is below 3 single steps of 100, so step 3 must trip it even
+  // though every individual step stays at/under the per-step cap (100).
+  const caps = { stepMax: 100, totalMax: 250 }
+
+  test("continues while a single step stays within both caps", () => {
+    const counter = createReviewCharCounter(caps)
+    expect(counter.record(50)).toBe("continue")
+    expect(counter.total).toBe(50)
+    expect(counter.step).toBe(50)
+  })
+
+  test("accumulates the whole-review total across steps and stops once it passes the cap", () => {
+    // This is the regression for the bug: the total must survive across steps.
+    // Each step stays at the per-step cap (100, still allowed), but summed they
+    // cross the whole-review cap (250) on step 3.
+    const counter = createReviewCharCounter(caps)
+
+    expect(counter.record(100)).toBe("continue") // step 1: total 100
+    counter.stepReset()
+    expect(counter.record(100)).toBe("continue") // step 2: total 200
+    counter.stepReset()
+    expect(counter.record(100)).toBe("stop-review") // step 3: total 300 > 250
+    expect(counter.total).toBe(300)
+  })
+
+  test("stepReset clears the per-step count but leaves the whole-review total intact", () => {
+    const counter = createReviewCharCounter(caps)
+    counter.record(80)
+    expect(counter.step).toBe(80)
+    expect(counter.total).toBe(80)
+
+    counter.stepReset()
+    expect(counter.step).toBe(0) // per-step zeroed
+    expect(counter.total).toBe(80) // whole-review total preserved
+  })
+
+  test("stops immediately when a single step blows past the per-step cap (failure path)", () => {
+    const counter = createReviewCharCounter(caps)
+    expect(counter.record(101)).toBe("stop-review") // 101 > stepMax 100
+  })
+
+  test("a fresh counter at zero usage continues (boundary)", () => {
+    const counter = createReviewCharCounter(caps)
+    expect(counter.record(0)).toBe("continue")
+    expect(counter.total).toBe(0)
   })
 })
 

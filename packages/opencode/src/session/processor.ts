@@ -16,7 +16,7 @@ import { Permission } from "@/permission"
 import { Question } from "@/question"
 import { PartID } from "./schema"
 import type { SessionID, MessageID } from "./schema"
-import { reviewCharGuard, type ReviewCharAction } from "@/skill-evolution/limits"
+import { type ReviewCharAction, type createReviewCharCounter } from "@/skill-evolution/limits"
 
 export namespace SessionProcessor {
   const DOOM_LOOP_THRESHOLD = 3
@@ -31,17 +31,13 @@ export namespace SessionProcessor {
     model: Provider.Model
     abort: AbortSignal
     /**
-     * Max characters a single step may stream before that step is cut off
-     * mid-flight. Set only by background skill-evolution reviews to stop a model
-     * that never stops emitting within one step. Undefined → no cap.
+     * Char accountant for a background skill-evolution review. Owned by the
+     * outer loop so its whole-review total survives across steps (the processor
+     * is rebuilt every step). Set only by background reviews; undefined → no cap
+     * (normal sessions). The processor calls stepReset() per step and record()
+     * per streamed chunk.
      */
-    maxStepChars?: number
-    /**
-     * Max characters the whole review may stream (summed across every step)
-     * before the entire review is stopped. Set only by background reviews to
-     * stop a "slow grind" that never stops taking steps. Undefined → no cap.
-     */
-    maxTotalChars?: number
+    charCounter?: ReturnType<typeof createReviewCharCounter>
   }) {
     const toolcalls: Record<string, MessageV2.ToolPart> = {}
     let snapshot: string | undefined
@@ -49,11 +45,8 @@ export namespace SessionProcessor {
     let attempt = 0
     let needsCompaction = false
     let idle = false
-    // Whole-review character total. Lives at instance scope so it survives across
-    // steps (each step builds a fresh processor); only the per-step count resets.
-    let totalChars = 0
-    // Set once the whole-review char cap trips, so process() returns "stop" and
-    // the outer loop ends the entire review (not just the current step).
+    // Set once the review char guard trips, so process() returns "stop" and the
+    // outer loop ends the entire review (not just the current step).
     let reviewStopped = false
 
     const result = {
@@ -74,19 +67,15 @@ export namespace SessionProcessor {
             let reasoningMap: Record<string, MessageV2.ReasoningPart> = {}
             const stream = await LLM.stream(streamInput)
 
-            // Runaway guard: count chars streamed this step (resets each step);
-            // feed both per-step and whole-review counts to reviewCharGuard.
-            // maxStepChars undefined → no cap, guard never trips.
-            let stepChars = 0
+            // Runaway guard: the counter (set only for background reviews) owns
+            // both the per-step count and the whole-review total. Reset the
+            // per-step count at the start of each step; the total carries over.
+            // No counter → normal session, guard never trips.
+            input.charCounter?.stepReset()
             let charAction: ReviewCharAction = "continue"
             const countChars = (n: number) => {
-              if (input.maxStepChars === undefined) return
-              stepChars += n
-              totalChars += n
-              charAction = reviewCharGuard(
-                { stepChars, totalChars },
-                { stepMax: input.maxStepChars, totalMax: input.maxTotalChars ?? Infinity },
-              )
+              if (!input.charCounter) return
+              charAction = input.charCounter.record(n)
             }
 
             for await (const value of stream.fullStream) {
@@ -392,10 +381,8 @@ export namespace SessionProcessor {
                 log.info("review char guard tripped", {
                   sessionID: input.sessionID,
                   action: charAction,
-                  stepChars,
-                  totalChars,
-                  stepMax: input.maxStepChars,
-                  totalMax: input.maxTotalChars,
+                  stepChars: input.charCounter?.step,
+                  totalChars: input.charCounter?.total,
                 })
                 // Either guard tripping ends the whole review: stop this step's
                 // stream AND stop the outer loop so it returns instead of stepping
