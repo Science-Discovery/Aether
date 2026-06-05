@@ -1,0 +1,65 @@
+name: cleanup-orphan-tags
+run-name: "cleanup orphan tags"
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Only list orphan tags without deleting"
+        required: false
+        default: true
+        type: boolean
+      tag_prefix:
+        description: "Only consider tags starting with this prefix"
+        required: false
+        default: "v"
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  cleanup:
+    if: github.repository == 'Science-Discovery/Aether'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Find and delete orphan tags
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          prefix="${{ inputs.tag_prefix }}"
+
+          gh api "repos/{owner}/{repo}/tags" --paginate \
+            -q '.[].name' | sort > all_tags.txt
+
+          gh api "repos/{owner}/{repo}/releases" --paginate \
+            -q '.[].tag_name' | sort -u > release_tags.txt
+
+          grep "^${prefix}" all_tags.txt > prefixed_tags.txt || true
+
+          comm -23 prefixed_tags.txt release_tags.txt > orphan_tags.txt
+
+          count=$(wc -l < orphan_tags.txt | tr -d ' ')
+          if [ "$count" -eq 0 ]; then
+            echo "No orphan tags found"
+            exit 0
+          fi
+
+          echo "Found $count orphan tag(s):"
+          cat orphan_tags.txt
+
+          if [ "${{ inputs.dry_run }}" = "true" ]; then
+            echo "Dry run — no tags deleted"
+            exit 0
+          fi
+
+          deleted=0
+          while IFS= read -r tag; do
+            echo "Deleting tag $tag"
+            gh api --method DELETE "repos/{owner}/{repo}/git/refs/tags/$tag" \
+              --silent || echo "::warning::Failed to delete $tag"
+            deleted=$((deleted + 1))
+          done < orphan_tags.txt
+
+          echo "Deleted $deleted orphan tag(s)"
