@@ -3,6 +3,7 @@ import { EventEmitter } from "node:events"
 import { existsSync } from "node:fs"
 import { createServer } from "node:net"
 import { join } from "node:path"
+import semver from "semver"
 import type { Event } from "electron"
 import { app, BrowserWindow, dialog, shell } from "electron"
 import pkg from "electron-updater"
@@ -403,31 +404,95 @@ async function checkUpdate() {
   if (!UPDATER_ENABLED) return { updateAvailable: false }
   if (checking) return checking
   checking = (async () => {
-    autoUpdater.allowPrerelease = prerelease()
     autoUpdater.allowDowngrade = false
     updateReady = false
-    logger.log("checking for updates", {
+    const wantPrerelease = prerelease()
+
+    let preVersion: string | null = null
+    if (wantPrerelease) {
+      autoUpdater.allowPrerelease = true
+      logger.log("checking for updates (prerelease)", {
+        currentVersion: app.getVersion(),
+        allowPrerelease: true,
+      })
+      try {
+        const r = await autoUpdater.checkForUpdates()
+        preVersion = r?.updateInfo?.version ?? null
+        if (r?.isUpdateAvailable && preVersion) {
+          logger.log("prerelease update found", { version: preVersion })
+        } else {
+          logger.log("no prerelease update available")
+        }
+      } catch (error) {
+        logger.error("prerelease update check failed", error)
+      }
+    }
+
+    autoUpdater.allowPrerelease = false
+    logger.log("checking for updates (stable)", {
       currentVersion: app.getVersion(),
-      allowPrerelease: autoUpdater.allowPrerelease,
-      allowDowngrade: autoUpdater.allowDowngrade,
+      allowPrerelease: false,
     })
+    let stableVersion: string | undefined
+    let stableAvailable = false
+    let stableFailed = false
     try {
       const result = await autoUpdater.checkForUpdates()
-      const updateInfo = result?.updateInfo
+      stableVersion = result?.updateInfo?.version
+      stableAvailable = result?.isUpdateAvailable !== false && !!stableVersion
       logger.log("update metadata fetched", {
-        releaseVersion: updateInfo?.version ?? null,
-        releaseDate: updateInfo?.releaseDate ?? null,
-        releaseName: updateInfo?.releaseName ?? null,
-        files: updateInfo?.files?.map((file) => file.url) ?? [],
+        releaseVersion: result?.updateInfo?.version ?? null,
+        releaseDate: result?.updateInfo?.releaseDate ?? null,
+        releaseName: result?.updateInfo?.releaseName ?? null,
+        files: result?.updateInfo?.files?.map((file) => file.url) ?? [],
       })
-      const version = result?.updateInfo?.version
-      if (result?.isUpdateAvailable === false || !version) {
-        logger.log("no update available", {
-          reason: "provider returned no newer version",
-        })
+    } catch (error) {
+      stableFailed = true
+      logger.error("stable update check failed", error)
+    }
+
+    try {
+      if (!stableAvailable && !preVersion) {
+        if (stableFailed) return { updateAvailable: false, failed: true }
+        logger.log("no update available", { reason: "no newer version in any channel" })
         return { updateAvailable: false }
       }
-      logger.log("update available", { version })
+
+      const pickPre = !!preVersion && (!stableAvailable || semver.gt(preVersion, stableVersion!))
+      if (pickPre) {
+        logger.log("prerelease version is newer, re-checking to set download state", {
+          preVersion,
+          stableVersion: stableVersion ?? null,
+        })
+        autoUpdater.allowPrerelease = true
+        try {
+          const r2 = await autoUpdater.checkForUpdates()
+          const v2 = r2?.updateInfo?.version
+          if (r2?.isUpdateAvailable && v2) {
+            const version = v2
+            if (MANUAL_INSTALL_UPDATE) {
+              logger.log("update available; manual install required", { version, platform: process.platform })
+              return { updateAvailable: true, version }
+            }
+            await autoUpdater.downloadUpdate()
+            logger.log("update download completed", { version })
+            updateReady = true
+            return { updateAvailable: true, version }
+          }
+        } catch (error) {
+          logger.error("prerelease re-check failed, falling back to stable", error)
+        }
+        if (!stableAvailable) {
+          logger.log("no update decision", {
+            reason: "prerelease re-check failed and no stable fallback",
+          })
+          return { updateAvailable: false, failed: true }
+        }
+        autoUpdater.allowPrerelease = false
+        await autoUpdater.checkForUpdates()
+      }
+
+      const version = stableVersion!
       if (MANUAL_INSTALL_UPDATE) {
         logger.log("update available; manual install required", { version, platform: process.platform })
         return { updateAvailable: true, version }
