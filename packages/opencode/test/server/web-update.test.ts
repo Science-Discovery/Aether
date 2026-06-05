@@ -16,6 +16,7 @@ function meta(ver: string, sha: string, size: number): Parameters<typeof WebUpda
     package_size: size,
     installer_url: `https://example.com/${ver}/update_linux.sh`,
     notes_url: `https://example.com/${ver}/notes.md`,
+    base: "https://example.com",
   }
 }
 
