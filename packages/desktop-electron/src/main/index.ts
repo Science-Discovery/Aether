@@ -396,12 +396,13 @@ function setupAutoUpdater() {
 }
 
 let updateReady = false
-let updateChecking = false
+type Check = { updateAvailable: boolean; version?: string; failed?: boolean }
+let checking: Promise<Check> | undefined
 
 async function checkUpdate() {
-  if (!UPDATER_ENABLED || updateChecking) return { updateAvailable: false }
-  updateChecking = true
-  try {
+  if (!UPDATER_ENABLED) return { updateAvailable: false }
+  if (checking) return checking
+  checking = (async () => {
     autoUpdater.allowPrerelease = prerelease()
     autoUpdater.allowDowngrade = false
     updateReady = false
@@ -439,9 +440,10 @@ async function checkUpdate() {
       logger.error("update check failed", error)
       return { updateAvailable: false, failed: true }
     }
-  } finally {
-    updateChecking = false
-  }
+  })().finally(() => {
+    checking = undefined
+  })
+  return checking
 }
 
 async function installUpdate() {

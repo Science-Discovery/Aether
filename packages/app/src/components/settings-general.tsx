@@ -102,6 +102,7 @@ export const SettingsGeneral: Component = () => {
     checking: false,
   })
 
+  const capable = () => !!platform.runUpdater || !!platform.checkUpdate
   const linux = createMemo(() => platform.platform === "desktop" && platform.os === "linux")
   const proxied = createMemo(() => !!platform.getProxyConfig && !!platform.setProxyConfig)
   const [proxy, setProxy] = createStore({
@@ -184,8 +185,21 @@ export const SettingsGeneral: Component = () => {
   )
 
   const check = () => {
-    if (!platform.checkUpdate) return
+    if (!capable()) return
     setStore("checking", true)
+    if (platform.runUpdater) {
+      void platform
+        .runUpdater()
+        .catch((err: unknown) => {
+          showToast({ title: language.t("common.requestFailed"), description: formatServerError(err, language.t) })
+        })
+        .finally(() => setStore("checking", false))
+      return
+    }
+    if (!platform.checkUpdate) {
+      setStore("checking", false)
+      return
+    }
     const install = async () => {
       if (platform.platform === "web") {
         const x = await import("@/components/dialog-update")
@@ -910,7 +924,7 @@ export const SettingsGeneral: Component = () => {
           <div data-action="settings-updates-startup">
             <Switch
               checked={settings.updates.startup()}
-              disabled={!platform.checkUpdate}
+              disabled={!capable()}
               onChange={(checked) => settings.updates.setStartup(checked)}
             />
           </div>
@@ -932,7 +946,7 @@ export const SettingsGeneral: Component = () => {
           title={language.t("settings.updates.row.check.title")}
           description={language.t("settings.updates.row.check.description")}
         >
-          <Button size="small" variant="secondary" disabled={store.checking || !platform.checkUpdate} onClick={check}>
+          <Button size="small" variant="secondary" disabled={store.checking || !capable()} onClick={check}>
             {store.checking
               ? language.t("settings.updates.action.checking")
               : language.t("settings.updates.action.checkNow")}

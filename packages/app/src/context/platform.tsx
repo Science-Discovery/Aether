@@ -62,6 +62,9 @@ export type Platform = {
   /** Check for updates */
   checkUpdate?(): Promise<UpdateStatus>
 
+  /** Run platform-native updater flow */
+  runUpdater?(): Promise<void>
+
   /** Download updates */
   downloadUpdate?(): Promise<void>
 
