@@ -111,7 +111,9 @@ test("TATU MaaS provider is available with generated chat models", async () => {
       expect(maas).toBeDefined()
       expect(maas.name).toBe("TATU MaaS")
       expect(maas.env).toEqual(["MAAS_API_KEY"])
-      expect(Object.keys(maas.models)).toHaveLength(27)
+      expect(Object.keys(maas.models)).toHaveLength(29)
+      expect(maas.models["claude-opus-4-8"]).toBeDefined()
+      expect(maas.models["deepseek-v4-flash"]).toBeDefined()
       expect(maas.models["batch-test-model"]).toBeUndefined()
       expect(maas.models["qwen3-max"]).toBeUndefined()
       expect(maas.models["deepseek-v3.2"]).toBeUndefined()
@@ -187,7 +189,7 @@ test("TATU MaaS models choose protocol and aggregate metadata", async () => {
       const deepseek = maas.models["deepseek-v4-pro"]
       expect(deepseek.api.npm).toBe("@ai-sdk/openai-compatible")
       expect(deepseek.options.maas.op).toBe("chat")
-      expect(deepseek.capabilities.toolcall).toBe(false)
+      expect(deepseek.capabilities.toolcall).toBe(true)
 
       const claude = maas.models["claude-haiku-4-5"]
       expect(claude.api.npm).toBe("@ai-sdk/anthropic")
