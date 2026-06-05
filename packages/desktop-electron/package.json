@@ -41,6 +41,7 @@
     "electron-updater": "^6",
     "electron-window-state": "^5.0.3",
     "marked": "^15",
+    "semver": "^7",
     "solid-js": "catalog:",
     "tree-kill": "^1.2.2"
   },
@@ -50,6 +51,7 @@
     "@fiahfy/icns-convert": "0.0.12",
     "@types/bun": "catalog:",
     "@types/node": "catalog:",
+    "@types/semver": "^7",
     "@typescript/native-preview": "catalog:",
     "electron": "40.4.1",
     "electron-builder": "^26",
