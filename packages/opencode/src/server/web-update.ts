@@ -276,8 +276,8 @@ function hide(args: string[], cwd: string) {
   return file
 }
 
-async function spawnAuto(os: z.infer<typeof WebUpdateOS>, script: string, work: string, cur: string) {
-  const updateBase = await getUpdateBase()
+async function spawnAuto(os: z.infer<typeof WebUpdateOS>, script: string, work: string, cur: string, base?: string) {
+  const updateBase = base ?? (await getUpdateBase())
   return await new Promise<number>((resolve, reject) => {
     const cmd = os === "windows" ? "cmd" : "bash"
     const args = os === "windows" ? ["/c", script, "auto", cur] : [script, "auto", cur]
@@ -362,6 +362,12 @@ async function getUpdateBase() {
   return cachedBaseUrl
 }
 
+async function allBases(): Promise<string[]> {
+  const primary = await getUpdateBase()
+  if (primary === WEB_UPDATE_BASE_DEFAULT) return [WEB_UPDATE_BASE_DEFAULT]
+  return [primary, WEB_UPDATE_BASE_DEFAULT]
+}
+
 function parseManifest(text: string) {
   let sec = ""
   let ver = ""
@@ -438,8 +444,8 @@ function parseManifest(text: string) {
   return { ver, pkg, sha, size, ins, note }
 }
 
-async function fetchManifest(os: z.infer<typeof WebUpdateOS>, version?: string) {
-  const url = manifestUrl(os, version)(await getUpdateBase())
+async function fetchManifestFrom(os: z.infer<typeof WebUpdateOS>, version: string | undefined, base: string) {
+  const url = manifestUrl(os, version)(base)
   const res = await fetch(url)
   if (!res.ok) {
     return { ok: false as const, url, error: `Failed to fetch version metadata: ${res.status}` }
@@ -461,7 +467,22 @@ async function fetchManifest(os: z.infer<typeof WebUpdateOS>, version?: string) 
     package_size: data.size,
     installer_url: data.ins ? abs(url, data.ins) : "",
     notes_url: data.note ? abs(url, data.note) : "",
+    base,
   }
+}
+
+async function fetchManifest(os: z.infer<typeof WebUpdateOS>, version?: string) {
+  const bases = await allBases()
+  if (bases.length === 1) return fetchManifestFrom(os, version, bases[0])
+  const results = await Promise.all(bases.map((b) => fetchManifestFrom(os, version, b).catch(() => null)))
+  const successes = results.filter((r): r is Extract<typeof r, { ok: true }> => r?.ok === true)
+  if (successes.length === 0) {
+    return results[0] ?? { ok: false as const, url: "", error: "Failed to fetch version metadata from all channels" }
+  }
+  if (!version && successes.length > 1) {
+    return successes.reduce((best, cur) => (compareVer(cur.version, best.version) > 0 ? cur : best))
+  }
+  return successes[0]
 }
 
 function packageMatch(os: string, ver: string, name: string) {
@@ -687,11 +708,11 @@ function getWorkDir(os: string): string | null {
   return path.join(home, ".local", "share", "aether", "update", "aether")
 }
 
-async function fetchInstallerScript(os: string): Promise<string | null> {
+async function fetchInstallerScript(os: string, base?: string): Promise<string | null> {
   const item = INSTALLER_SCRIPT[os]
   const name = typeof item === "function" ? item(arch()) : item
   if (!name) return null
-  const url = `${await getUpdateBase()}/installer/${name}`
+  const url = `${base ?? (await getUpdateBase())}/installer/${name}`
   const dest = path.join(tmpdir(), `aether-installer-${name}`)
   try {
     const res = await fetch(url)
@@ -878,7 +899,7 @@ export async function downloadWebUpdate(input: z.infer<typeof WebUpdateDownloadI
   }
   const dirErr = await mkdirp(workDir)
   if (dirErr) return failRes(dirErr)
-  const scriptPath = await fetchInstallerScript(os)
+  const scriptPath = await fetchInstallerScript(os, meta.ok ? meta.base : undefined)
   if (!scriptPath) return failRes(`Failed to fetch installer script for ${os}`)
   log.info("running installer auto mode", { os, script: scriptPath, version, workDir })
   try {
@@ -895,7 +916,7 @@ export async function downloadWebUpdate(input: z.infer<typeof WebUpdateDownloadI
         package_size: meta.package_size,
       }),
     )
-    const exitCode = await spawnAuto(os, scriptPath, workDir, cur)
+    const exitCode = await spawnAuto(os, scriptPath, workDir, cur, meta.ok ? meta.base : undefined)
     const chk = await verifyDownload(os, meta, workDir)
     if (!chk.ok) {
       return await failState(workDir, version, chk.error, {
@@ -1041,6 +1062,8 @@ export async function retryWebUpdateMirror(input: z.infer<typeof WebUpdateMirror
 
 export const WebUpdateTest = {
   fetchManifest,
+  fetchManifestFrom,
+  allBases,
   getWorkDir,
   manifestUrl: async (os: z.infer<typeof WebUpdateOS>, version?: string) =>
     manifestUrl(os, version)(await getUpdateBase()),
