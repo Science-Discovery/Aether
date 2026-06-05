@@ -79,7 +79,6 @@ export function legacyManagedDir() {
   return managedRoot(LEGACY_APP)
 }
 
-export function voiceDir(projectID: string) {
-  return path.join(Persist.current.data, "voice", projectID)
+export function filesDir(projectID: string) {
+  return path.join(Persist.current.data, "files", projectID)
 }
-
