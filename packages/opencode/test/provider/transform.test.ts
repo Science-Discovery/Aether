@@ -1204,6 +1204,67 @@ describe("ProviderTransform.message - anthropic empty content filtering", () => 
     expect(result[0].content[0]).toEqual({ type: "text", text: "Answer" })
   })
 
+  test("preserves empty reasoning parts with Anthropic signatures", () => {
+    const msgs = [
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "reasoning",
+            text: "",
+            providerOptions: { anthropic: { signature: "sig" } },
+          },
+          { type: "text", text: "Answer" },
+        ],
+      },
+    ] as any[]
+
+    const result = ProviderTransform.message(msgs, anthropicModel, {})
+
+    expect(result).toHaveLength(1)
+    expect(result[0].content).toHaveLength(2)
+    expect(result[0].content[0]).toEqual({
+      type: "reasoning",
+      text: "",
+      providerOptions: { anthropic: { signature: "sig" } },
+    })
+  })
+
+  test("preserves empty reasoning parts with Bedrock redacted data", () => {
+    const bedrockModel = {
+      ...anthropicModel,
+      id: "amazon-bedrock/anthropic.claude-opus-4-6",
+      providerID: "amazon-bedrock",
+      api: {
+        id: "anthropic.claude-opus-4-6",
+        url: "https://bedrock-runtime.us-east-1.amazonaws.com",
+        npm: "@ai-sdk/amazon-bedrock",
+      },
+    }
+    const msgs = [
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "reasoning",
+            text: "",
+            providerOptions: { bedrock: { redactedData: "data" } },
+          },
+        ],
+      },
+    ] as any[]
+
+    const result = ProviderTransform.message(msgs, bedrockModel, {})
+
+    expect(result).toHaveLength(1)
+    expect(result[0].content).toHaveLength(1)
+    expect(result[0].content[0]).toEqual({
+      type: "reasoning",
+      text: "",
+      providerOptions: { bedrock: { redactedData: "data" } },
+    })
+  })
+
   test("removes entire message when all parts are empty", () => {
     const msgs = [
       { role: "user", content: "Hello" },

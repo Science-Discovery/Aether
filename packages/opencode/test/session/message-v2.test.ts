@@ -681,6 +681,56 @@ describe("session.message-v2.toModelMessage", () => {
     ])
   })
 
+  test("preserves empty text separators when assistant has signed reasoning", () => {
+    const assistantID = "m-assistant"
+
+    const input: MessageV2.WithParts[] = [
+      {
+        info: assistantInfo(assistantID, "m-parent"),
+        parts: [
+          {
+            ...basePart(assistantID, "p1"),
+            type: "reasoning",
+            text: "",
+            time: { start: 0 },
+            metadata: { anthropic: { signature: "sig-1" } },
+          },
+          {
+            ...basePart(assistantID, "p2"),
+            type: "text",
+            text: "",
+          },
+          {
+            ...basePart(assistantID, "p3"),
+            type: "reasoning",
+            text: "",
+            time: { start: 1 },
+            metadata: { bedrock: { redactedData: "data-1" } },
+          },
+        ] as MessageV2.Part[],
+      },
+    ]
+
+    expect(MessageV2.toModelMessages(input, model)).toStrictEqual([
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "reasoning",
+            text: "",
+            providerOptions: { anthropic: { signature: "sig-1" } },
+          },
+          { type: "text", text: " " },
+          {
+            type: "reasoning",
+            text: "",
+            providerOptions: { bedrock: { redactedData: "data-1" } },
+          },
+        ],
+      },
+    ])
+  })
+
   test("drops messages that only contain step-start parts", () => {
     const assistantID = "m-assistant"
 
