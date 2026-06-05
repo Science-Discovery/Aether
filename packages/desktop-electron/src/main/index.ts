@@ -433,23 +433,32 @@ async function checkUpdate() {
       currentVersion: app.getVersion(),
       allowPrerelease: false,
     })
+    let stableVersion: string | undefined
+    let stableAvailable = false
+    let stableFailed = false
     try {
       const result = await autoUpdater.checkForUpdates()
-      const stableVersion = result?.updateInfo?.version
-      const stableAvailable = result?.isUpdateAvailable !== false && !!stableVersion
+      stableVersion = result?.updateInfo?.version
+      stableAvailable = result?.isUpdateAvailable !== false && !!stableVersion
       logger.log("update metadata fetched", {
         releaseVersion: result?.updateInfo?.version ?? null,
         releaseDate: result?.updateInfo?.releaseDate ?? null,
         releaseName: result?.updateInfo?.releaseName ?? null,
         files: result?.updateInfo?.files?.map((file) => file.url) ?? [],
       })
+    } catch (error) {
+      stableFailed = true
+      logger.error("stable update check failed", error)
+    }
 
+    try {
       if (!stableAvailable && !preVersion) {
+        if (stableFailed) return { updateAvailable: false, failed: true }
         logger.log("no update available", { reason: "no newer version in any channel" })
         return { updateAvailable: false }
       }
 
-      const pickPre = preVersion && (!stableAvailable || semver.gt(preVersion, stableVersion!))
+      const pickPre = !!preVersion && (!stableAvailable || semver.gt(preVersion, stableVersion!))
       if (pickPre) {
         logger.log("prerelease version is newer, re-checking to set download state", {
           preVersion,
@@ -472,6 +481,12 @@ async function checkUpdate() {
           }
         } catch (error) {
           logger.error("prerelease re-check failed, falling back to stable", error)
+        }
+        if (!stableAvailable) {
+          logger.log("no update decision", {
+            reason: "prerelease re-check failed and no stable fallback",
+          })
+          return { updateAvailable: false, failed: true }
         }
         autoUpdater.allowPrerelease = false
         await autoUpdater.checkForUpdates()
