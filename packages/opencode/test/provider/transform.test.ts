@@ -2123,6 +2123,7 @@ describe("ProviderTransform.variants", () => {
       expect(result.xhigh).toEqual({
         thinking: {
           type: "adaptive",
+          display: "summarized",
         },
         effort: "xhigh",
       })
@@ -2551,6 +2552,28 @@ describe("ProviderTransform.variants", () => {
       expect(result.high).toEqual({
         thinking: {
           type: "adaptive",
+          display: "summarized",
+        },
+        effort: "high",
+      })
+    })
+
+    test("vertex opus 4.8 suffix models return summarized adaptive thinking options", () => {
+      const model = createMockModel({
+        id: "google-vertex-anthropic/claude-opus-4-8@default",
+        providerID: "google-vertex-anthropic",
+        api: {
+          id: "claude-opus-4-8@default",
+          url: "https://vertexai.googleapis.com",
+          npm: "@ai-sdk/google-vertex/anthropic",
+        },
+      })
+      const result = ProviderTransform.variants(model)
+      expect(Object.keys(result)).toEqual(["low", "medium", "high", "xhigh", "max"])
+      expect(result.high).toEqual({
+        thinking: {
+          type: "adaptive",
+          display: "summarized",
         },
         effort: "high",
       })
@@ -2620,6 +2643,28 @@ describe("ProviderTransform.variants", () => {
         reasoningConfig: {
           type: "adaptive",
           maxReasoningEffort: "xhigh",
+          display: "summarized",
+        },
+      })
+    })
+
+    test("anthropic opus 4.8 returns summarized adaptive reasoning options", () => {
+      const model = createMockModel({
+        id: "bedrock/anthropic-claude-opus-4-8",
+        providerID: "bedrock",
+        api: {
+          id: "anthropic.claude-opus-4.8",
+          url: "https://bedrock.amazonaws.com",
+          npm: "@ai-sdk/amazon-bedrock",
+        },
+      })
+      const result = ProviderTransform.variants(model)
+      expect(Object.keys(result)).toEqual(["low", "medium", "high", "xhigh", "max"])
+      expect(result.high).toEqual({
+        reasoningConfig: {
+          type: "adaptive",
+          maxReasoningEffort: "high",
+          display: "summarized",
         },
       })
     })
@@ -2833,6 +2878,27 @@ describe("ProviderTransform.variants", () => {
           type: "adaptive",
         },
         effort: "max",
+      })
+    })
+
+    test("anthropic reversed opus 4.7 models return summarized adaptive thinking variants", () => {
+      const model = createMockModel({
+        id: "sap-ai-core/anthropic--claude-4.7-opus",
+        providerID: "sap-ai-core",
+        api: {
+          id: "anthropic--claude-4.7-opus",
+          url: "https://api.ai.sap",
+          npm: "@jerome-benoit/sap-ai-provider-v2",
+        },
+      })
+      const result = ProviderTransform.variants(model)
+      expect(Object.keys(result)).toEqual(["low", "medium", "high", "xhigh", "max"])
+      expect(result.high).toEqual({
+        thinking: {
+          type: "adaptive",
+          display: "summarized",
+        },
+        effort: "high",
       })
     })
 
