@@ -74,6 +74,7 @@ declare global {
   interface Window {
     __OPENCODE__?: {
       updaterEnabled?: boolean
+      settingsUpdaterEnabled?: boolean
       deepLinks?: string[]
       wsl?: boolean
     }

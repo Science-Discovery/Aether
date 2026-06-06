@@ -6,6 +6,7 @@ import type { TitlebarTheme } from "../preload/types"
 
 type Globals = {
   updaterEnabled: boolean
+  settingsUpdaterEnabled: boolean
   deepLinks?: string[]
 }
 
@@ -143,6 +144,7 @@ function injectGlobals(win: BrowserWindow, globals: Globals) {
     const deepLinks = globals.deepLinks ?? []
     const data = {
       updaterEnabled: globals.updaterEnabled,
+      settingsUpdaterEnabled: globals.settingsUpdaterEnabled,
       deepLinks: Array.isArray(deepLinks) ? deepLinks.splice(0) : deepLinks,
     }
     void win.webContents.executeJavaScript(

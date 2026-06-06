@@ -66,7 +66,7 @@ export function createMenu(deps: Deps) {
         {
           label: "New Window",
           accelerator: "Cmd+Shift+N",
-          click: () => createMainWindow({ updaterEnabled: false }),
+          click: () => createMainWindow({ updaterEnabled: false, settingsUpdaterEnabled: false }),
         },
         { type: "separator" },
         { role: "close" },
