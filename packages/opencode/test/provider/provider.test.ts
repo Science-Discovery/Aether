@@ -6,6 +6,241 @@ import { Instance } from "../../src/project/instance"
 import { Provider } from "../../src/provider/provider"
 import { ProviderID, ModelID } from "../../src/provider/schema"
 import { Env } from "../../src/env"
+import { ModelsDev } from "../../src/provider/models"
+import { apply } from "../../src/provider/models-local"
+
+const model: ModelsDev.Model = {
+  id: "model",
+  name: "Model",
+  release_date: "2026-06-06",
+  attachment: false,
+  reasoning: true,
+  temperature: false,
+  tool_call: true,
+  limit: {
+    context: 128000,
+    output: 8192,
+  },
+  options: {},
+  provider: {
+    npm: "@ai-sdk/openai-compatible",
+    api: "https://api.example.com/v1",
+  },
+}
+
+const provider: ModelsDev.Provider = {
+  id: "test",
+  name: "Test",
+  env: ["TEST_API_KEY"],
+  api: "https://api.example.com/v1",
+  npm: "@ai-sdk/openai-compatible",
+  models: {
+    model,
+    other: {
+      ...model,
+      id: "other",
+      name: "Other",
+    },
+  },
+}
+
+test("models.dev local overlay applies provider additions", () => {
+  const data = apply(
+    {},
+    {
+      additions: {
+        test: provider,
+      },
+      overrides: {},
+      strict: true,
+    },
+  )
+
+  expect(data.test.name).toBe("Test")
+  expect(data.test.models.model.name).toBe("Model")
+})
+
+test("models.dev local overlay rejects partial addition conflicts", () => {
+  expect(() =>
+    apply(
+      { test: provider },
+      {
+        additions: {
+          test: provider,
+        },
+        overrides: {},
+        strict: true,
+      },
+    ),
+  ).toThrow("addition test already exists")
+})
+
+test("models.dev local overlay overrides only selected model metadata", () => {
+  const data = apply(
+    {
+      test: provider,
+    },
+    {
+      additions: {},
+      overrides: {
+        test: {
+          models: {
+            model: {
+              provider: {
+                npm: "@ai-sdk/openai",
+                api: "https://api.example.com/v1",
+              },
+              meta: {
+                reason: "fixture",
+                verified_at: "2026-06-06",
+              },
+            },
+          },
+        },
+      },
+      strict: true,
+    },
+  )
+
+  expect(data.test.models.model.provider?.npm).toBe("@ai-sdk/openai")
+  expect(data.test.models.model.provider?.api).toBe("https://api.example.com/v1")
+  expect(data.test.models.other.provider?.npm).toBe("@ai-sdk/openai-compatible")
+  expect("meta" in data.test.models.model).toBe(false)
+})
+
+test("models.dev local overlay pins aihubmix gpt-5.5 to responses provider", () => {
+  const data = apply(
+    {
+      aihubmix: {
+        ...provider,
+        id: "aihubmix",
+        api: "https://aihubmix.com/v1",
+        npm: "@ai-sdk/openai-compatible",
+        models: {
+          "gpt-5.5": {
+            ...model,
+            id: "gpt-5.5",
+            name: "GPT-5.5",
+            provider: undefined,
+          },
+          "gpt-5.4": {
+            ...model,
+            id: "gpt-5.4",
+            name: "GPT-5.4",
+            provider: undefined,
+          },
+        },
+      },
+    },
+    {
+      additions: {},
+      overrides: {
+        aihubmix: {
+          models: {
+            "gpt-5.5": {
+              provider: {
+                npm: "@ai-sdk/openai",
+                api: "https://aihubmix.com/v1",
+              },
+            },
+          },
+        },
+      },
+      strict: true,
+    },
+  )
+
+  expect(data.aihubmix.models["gpt-5.5"].provider?.npm).toBe("@ai-sdk/openai")
+  expect(data.aihubmix.models["gpt-5.5"].provider?.api).toBe("https://aihubmix.com/v1")
+  expect(data.aihubmix.models["gpt-5.4"].provider).toBeUndefined()
+})
+
+test("aihubmix gpt-5.5 model override wins over provider package override", () => {
+  const data = apply(
+    {
+      aihubmix: {
+        ...provider,
+        id: "aihubmix",
+        api: "https://aihubmix.com/v1",
+        npm: "@ai-sdk/openai-compatible",
+        models: {
+          "gpt-5.5": {
+            ...model,
+            id: "gpt-5.5",
+            name: "GPT-5.5",
+            provider: undefined,
+          },
+        },
+      },
+    },
+    {
+      additions: {},
+      overrides: {
+        aihubmix: {
+          models: {
+            "gpt-5.5": {
+              provider: {
+                npm: "@ai-sdk/openai",
+                api: "https://aihubmix.com/v1",
+              },
+            },
+          },
+        },
+      },
+      strict: true,
+    },
+  )
+
+  const info = Provider.fromModelsDevProvider(data.aihubmix)
+  expect(info.models["gpt-5.5"].api.npm).toBe("@ai-sdk/openai")
+  expect(info.models["gpt-5.5"].api.url).toBe("https://aihubmix.com/v1")
+})
+
+test("models.dev local overlay rejects missing provider override", () => {
+  expect(() =>
+    apply(
+      {},
+      {
+        additions: {},
+        overrides: {
+          missing: {
+            models: {
+              model: {
+                provider: {
+                  npm: "@ai-sdk/openai",
+                },
+              },
+            },
+          },
+        },
+        strict: true,
+      },
+    ),
+  ).toThrow("override provider missing does not exist")
+})
+
+test("models.dev local overlay rejects missing model override", () => {
+  expect(() =>
+    apply(
+      { test: provider },
+      {
+        additions: {},
+        overrides: {
+          test: {
+            models: {
+              missing: {
+                provider: {
+                  npm: "@ai-sdk/openai",
+                },
+              },
+            },
+          },
+        },
+        strict: true,
+      },
+    ),
+  ).toThrow("override model test/missing does not exist")
+})
 
 test("provider loaded from env variable", async () => {
   await using tmp = await tmpdir({
@@ -199,6 +434,43 @@ test("TATU MaaS models choose protocol and aggregate metadata", async () => {
       expect(gemini.api.npm).toBe("@ai-sdk/google")
       expect(gemini.api.url).toBe("https://maas.tatucloud.com/v1beta")
       expect(gemini.options.maas.op).toBe("generate")
+    },
+  })
+})
+
+test("user config model provider overrides models.dev local overlay", async () => {
+  await using tmp = await tmpdir({
+    init: async (dir) => {
+      await Bun.write(
+        path.join(dir, "opencode.json"),
+        JSON.stringify({
+          $schema: "https://opencode.ai/config.json",
+          provider: {
+            opencode: {
+              models: {
+                "gpt-5": {
+                  provider: {
+                    npm: "@ai-sdk/openai-compatible",
+                    api: "https://proxy.example.com/v1",
+                  },
+                },
+              },
+              options: {
+                apiKey: "test-api-key",
+              },
+            },
+          },
+        }),
+      )
+    },
+  })
+  await Instance.provide({
+    directory: tmp.path,
+    fn: async () => {
+      const providers = await Provider.list()
+      const model = providers[ProviderID.opencode].models["gpt-5"]
+      expect(model.api.npm).toBe("@ai-sdk/openai-compatible")
+      expect(model.api.url).toBe("https://proxy.example.com/v1")
     },
   })
 })
