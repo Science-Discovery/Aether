@@ -101,6 +101,7 @@ const createPlatform = (): Platform => {
   return {
     platform: "desktop",
     os,
+    ...(os === "windows" ? { electronWindows: true } : {}),
     version: pkg.version,
 
     async openDirectoryPickerDialog(opts) {

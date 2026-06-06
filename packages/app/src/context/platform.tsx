@@ -26,6 +26,9 @@ export type Platform = {
   /** Desktop OS (Tauri only) */
   os?: "macos" | "windows" | "linux"
 
+  /** Electron desktop running on Windows */
+  electronWindows?: boolean
+
   /** App version */
   version?: string
 
