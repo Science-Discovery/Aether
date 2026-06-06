@@ -9,13 +9,14 @@ import { IconButton } from "@opencode-ai/ui/icon-button"
 import { Spinner } from "@opencode-ai/ui/spinner"
 import { Tooltip } from "@opencode-ai/ui/tooltip"
 import { getFilename } from "@opencode-ai/util/path"
-import { A, useParams } from "@solidjs/router"
+import { A, useNavigate, useParams } from "@solidjs/router"
 import { type Accessor, createMemo, createSignal, For, type JSX, Match, onCleanup, Show, Switch } from "solid-js"
 import { useGlobalSync } from "@/context/global-sync"
 import { useLanguage } from "@/context/language"
 import { getAvatarColors, type LocalProject, useLayout } from "@/context/layout"
 import { useNotification } from "@/context/notification"
 import { usePermission } from "@/context/permission"
+import { usePlatform } from "@/context/platform"
 import { messageAgentColor } from "@/utils/agent"
 import { sessionPermissionRequest } from "../session/composer/session-request-tree"
 import { createWorkingState } from "@/utils/working-state"
@@ -161,6 +162,7 @@ const SessionRow = (props: {
   expanded: boolean
   onToggleChildren?: () => void
   active?: boolean
+  onNavigate?: (event: MouseEvent, href: string) => void
 }): JSX.Element => (
   <A
     href={sessionHref(props.slug, props.targetSession)}
@@ -169,16 +171,21 @@ const SessionRow = (props: {
     onPointerEnter={props.warmHover}
     onPointerLeave={props.cancelHoverPrefetch}
     onFocus={props.warmFocus}
-    onClick={(e) => {
+    onClick={(event) => {
+      const href = sessionHref(props.slug, props.targetSession)
       if (props.selectMode?.()) {
-        e.preventDefault()
+        event.preventDefault()
         props.onToggleSelect?.()
         return
       }
       props.setHoverSession(undefined)
       if (props.active && props.hasChildren) props.onToggleChildren?.()
-      if (props.sidebarOpened()) return
+      if (props.sidebarOpened()) {
+        props.onNavigate?.(event, href)
+        return
+      }
       props.clearHoverProjectSoon()
+      props.onNavigate?.(event, href)
     }}
   >
     <div
@@ -255,6 +262,8 @@ export const SessionItem = (props: SessionItemProps): JSX.Element => {
   const dialog = useDialog()
   const notification = useNotification()
   const permission = usePermission()
+  const platform = usePlatform()
+  const navigate = useNavigate()
   const globalSync = useGlobalSync()
   const unseenCount = createMemo(() => notification.session.unseenCount(props.session.id))
   const hasError = createMemo(() => notification.session.unseenHasError(props.session.id))
@@ -359,6 +368,11 @@ export const SessionItem = (props: SessionItemProps): JSX.Element => {
 
   const hasChildren = createMemo(() => props.hasChildren ?? (props.children.get(props.session.id)?.length ?? 0) > 0)
   const expanded = createMemo(() => props.expanded ?? true)
+  const go = (event: MouseEvent, href: string) => {
+    if (!platform.electronWindows) return
+    event.preventDefault()
+    navigate(href)
+  }
 
   const item = (
     <SessionRow
@@ -386,6 +400,7 @@ export const SessionItem = (props: SessionItemProps): JSX.Element => {
       expanded={expanded()}
       onToggleChildren={props.onToggleChildren}
       active={isActive()}
+      onNavigate={go}
     />
   )
 
@@ -625,16 +640,28 @@ export const NewSessionItem = (props: {
 }): JSX.Element => {
   const layout = useLayout()
   const language = useLanguage()
+  const platform = usePlatform()
+  const navigate = useNavigate()
   const label = language.t("command.session.new")
+  const href = createMemo(() => `/${props.slug}/session`)
+  const go = (event: MouseEvent) => {
+    if (!platform.electronWindows) return
+    event.preventDefault()
+    navigate(href())
+  }
   const item = (
     <A
-      href={`/${props.slug}/session`}
+      href={href()}
       end
       class={`flex items-center gap-1 min-w-0 text-left focus:outline-none ${props.dense ? "py-0.5" : "py-1"}`}
-      onClick={() => {
+      onClick={(event) => {
         props.setHoverSession(undefined)
-        if (layout.sidebar.opened()) return
+        if (layout.sidebar.opened()) {
+          go(event)
+          return
+        }
         props.clearHoverProjectSoon()
+        go(event)
       }}
     >
       <div class="shrink-0 size-6 flex items-center justify-center">
