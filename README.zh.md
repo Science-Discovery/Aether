@@ -13,14 +13,19 @@
 
 ## 项目简介
 
-Aether 是一个功能丰富的 AI 研究助手平台。它以客户端/服务器架构运行——CLI 在本地启动 HTTP 服务，通过浏览器提供完整的交互界面。支持移动端（微信 / 飞书 / QQ）接入。未来预计支持桌面客户端（Electron）。
+Aether 是一个功能丰富的 AI 研究助手平台，基于本地客户端/服务器架构运行。提供两种使用方式：
+
+- **Web 浏览器版**：在本地启动 HTTP 服务，通过浏览器访问完整交互界面，更稳定
+- **Electron 桌面版**：原生桌面窗口，使用体验更丝滑（可能仍有不稳定之处）
+
+两种方式共享同一套本地数据和会话。此外支持移动端（微信 / 飞书 / QQ）接入。
 
 ### 核心特性
 
-- **开箱即用**：下载安装包双击即可启动，内置默认模型配置
-- **完整编程能力**：代码运行、LSP 代码感知、文件和终端操作，覆盖日常开发全流程
+- **开箱即用**：既可从官网下载安装脚本运行安装，也可下载 releases 中的压缩包安装，内置默认模型配置
+- **完整编程能力**：完全继承 OpenCode 的编码能力，支持代码运行、LSP 代码感知、文件和终端操作，覆盖日常开发全流程
 - **25+ AI 提供商**：支持 Anthropic、OpenAI、Google Gemini、AIhubmix、DeepSeek、Z\.AI、Kimi、Qwen 等主流平台，以及任何 OpenAI 兼容接口
-- **10+ 个内置科研 Skills**：文献综述、论文写作、深度研究、arXiv 搜索、同行评审、研究基金撰写等，开箱即用
+- **20+ 个内置 Skills**：文献综述、论文写作、深度研究、arXiv 搜索、同行评审、研究基金撰写、文档生成等，开箱即用
 - **Skill 自进化**：Agent 在完成任务后自动评审对话历史，将成功经验固化为可复用的 Skill（copy-on-write 写入、安全扫描、版本快照），形成持续学习闭环
 - **MCP 协议支持**：集成 Model Context Protocol，可连接本地或远程 MCP 服务器扩展工具集
 - **知识库（RAG）**：将 PDF 和文本文档向量化索引，支持语义搜索，按相关性注入上下文，大幅节省 Token
@@ -30,7 +35,7 @@ Aether 是一个功能丰富的 AI 研究助手平台。它以客户端/服务�
 - **语音输入**：基于多模态模型的语音转文字，自动去除语气词并纠正专业术语
 - **Git 集成**：在界面中查看分支、提交历史、Diff 和文件变更等
 - **定时任务**：支持 Cron 表达式、固定间隔和一次性定时任务，可自动执行研究流程
-- **Memory 机制**：AI 自动将用户偏好和交互经验持久化到 `memory.instruction.md`，跨会话复用，无需重复说明
+- **Memory 机制**：AI 自动将用户偏好和交互经验持久化到本地记忆文件，跨会话复用，无需重复说明
 - **会话分享**：生成分享链接，实时同步对话内容
 
 ---
@@ -50,28 +55,53 @@ Aether 是一个功能丰富的 AI 研究助手平台。它以客户端/服务�
 解压后目录结构：
 
 ```
-aether          ← CLI 二进制（Windows 为 aether.exe）
-web/            ← 前端静态资源（必须与二进制同目录）
-Aether.vbs      ← Windows 启动器
-Aether.command  ← macOS 启动器
+aether              ← CLI 二进制（Windows 为 aether.exe）
+web/                ← 前端静态资源（必须与二进制同目录）
+install.sh/.command/.bat  ← 安装脚本（‼️创建桌面快捷方式、应用入口等）
+Aether.sh / .command / .vbs  ← 启动器
+aether-icon.*       ← 应用图标
 ```
 
-**Windows**：双击 `Aether.vbs`（如果报错，先运行 `Aether.exe`），浏览器自动打开界面。
+推荐先运行安装脚本，安装完成后即可从系统应用程序中启动 Aether：
 
-**macOS**：首次使用赋予执行权限后，双击 `Aether.command` 即可启动：
+**Windows**：右键 `install.bat` → 以管理员身份运行（或在终端中执行）。安装后从桌面快捷方式或开始菜单启动。
+
+**macOS**：
+在解压后的目录下：
 
 ```bash
-chmod +x Aether.command aether   # 首次需要
+chmod +x install.command   # 首次需要
+./install.command
 ```
+
+若提示"无法验证开发者"或"已损坏"：
+
+```bash
+xattr -cr ./install.command ./aether ./Aether.command
+```
+
+然后再右键点击 `install.command` 选择"打开"进行安装。安装后从 `/Applications/Aether.app` 或 Launchpad 启动。
 
 **Linux**：
 
 ```bash
-chmod +x aether   # 首次需要
-./aether web
+chmod +x install.sh   # 首次需要
+./install.sh
 ```
 
+安装后从系统启动台点击 Aether 图标启动。（⚠️注意：老版本会在桌面上创建的sh脚本已弃用）
+
+如果不通过安装脚本，也可直接运行启动器（不推荐）：
+
+**Windows**：双击 `Aether.vbs`。若被杀毒软件拦截，请选择允许运行。
+
+**macOS**：双击 `Aether.command`（需先 `chmod +x`）。
+
+**Linux**：运行 `./Aether.sh` 或 `./aether web`。
+
 `aether web` 启动后会显示本地和局域网访问地址，浏览器自动打开。
+
+（如安装过程中遇到其他问题，请先查看 [常见问题](#常见问题)，或通过官网联系）
 
 <!-- 支持以下选项：
 
@@ -82,19 +112,49 @@ chmod +x aether   # 首次需要
 AETHER_IDLE_TIMEOUT=15 ./Aether.sh    # 部署时覆盖空闲超时（秒）
 ``` -->
 
-### Electron 桌面版
+#### Electron 桌面版
 
-敬请期待
-
-<!-- 解压（或安装）后双击运行：
+从 [Releases 页面](https://github.com/Science-Discovery/Aether/releases)下载对应平台的安装包（注意选择 Desktop 版本，而非 Web 版压缩包）。
 
 | 平台 | 文件 |
 |---|---|
-| Linux | `aether-linux-x64.AppImage` / `.deb` / `.rpm` |
-| macOS | `aether-mac-arm64.dmg`（Apple Silicon）/ `aether-mac-x64.dmg` |
-| Windows | `aether-win-x64.exe` 安装程序 / `win-unpacked/` 便携版 |
+| Windows | `aether-desktop-win-x64.exe`（NSIS 安装程序） |
+| macOS Apple Silicon | `aether-desktop-mac-arm64.dmg` |
+| macOS Intel | `aether-desktop-mac-x64.dmg` |
+| Linux | `.AppImage` / `.deb` / `.rpm` |
 
---- -->
+**Windows**：双击 `.exe` 安装包，按安装向导完成。安装后从开始菜单或桌面快捷方式启动。若杀毒软件提示风险，确认文件来自官方 GitHub Release 后选择保留并继续。
+
+**macOS**：打开 `.dmg`，将 `Aether Desktop.app` 拖入 `Applications`。若提示无法验证开发者，需要在“设置--安全与隐私性”中，找到有关Aether Desktop的提示，点击选择“仍要打开”。若提示"已损坏"，在终端执行：
+
+```bash
+xattr -cr /Applications/Aether\ Desktop.app
+```
+
+**Linux**：
+
+AppImage：
+
+```bash
+chmod +x ./aether-*.AppImage
+./aether-*.AppImage
+```
+
+deb：
+
+```bash
+sudo dpkg -i ./aether-desktop*.deb
+```
+
+rpm：
+
+```bash
+sudo dnf install ./aether-desktop*.rpm
+```
+
+> **说明**：桌面版与 Web/CLI 共享同一套数据目录（`~/.local/share/aether`），已有用户可无缝切换。桌面版当前未做代码签名，macOS 更新为手动模式（检查后打开 GitHub Release 页面下载），Windows 和 Linux AppImage 支持应用内更新。Linux deb 和 rpm 包暂不支持自动更新，类似macOS，也需在弹窗提醒后手动下载最新安装包覆盖安装。
+<!-- >
+> 更多详情见 [桌面版用户指南](docs/desktop-electron-user-guide.zh-CN.md) | [卸载说明](docs/desktop-electron-uninstall.zh-CN.md) -->
 
 ## 从源码运行
 
@@ -117,6 +177,16 @@ bun run --cwd packages/app dev
 ```
 网页打开后如果发现资源加载失败，可以手动添加终端1中显示的 `http://localhost:xxxx` 到服务器列表中。
 
+### 桌面版开发模式
+
+```bash
+# 终端 1：启动 API Server
+bun dev serve
+
+# 终端 2：启动桌面端
+bun run --cwd packages/desktop-electron dev
+```
+
 ---
 
 ## 配置 AI 提供商
@@ -127,14 +197,16 @@ bun run --cwd packages/app dev
 
 ### 内置 Skills
 
-Aether 预置了 16 个面向科研场景的 Skills，通过描述自动触发，无需手动调用：
+Aether 预置了 20+ 个面向科研和日常场景的 Skills，通过描述自动触发，无需手动调用：
 
 | 类别 | Skill | 功能 |
 |---|---|---|
 | 开发工具 | `skill-creator` | 创建和优化 Agent Skills |
 | | `skill-manager` | 扫描、分类和管理 Skills 集合 |
+| | `skill-security-auditor` | AI Skill 安全审计与漏洞扫描 |
 | | `code-reviewer` | 代码审查（安全、性能、最佳实践） |
 | | `project-signpost` | 生成项目目录导航文件 |
+| | `prepare-for-git-commit` | Git commit 前的代码检查与消息编写 |
 | 学术研究 | `academic-researcher` | 文献综述、论文分析、公式推导 |
 | | `literature-review` | 多数据库系统文献综述 |
 | | `peer-review` | 同行评审工具包 |
@@ -143,10 +215,15 @@ Aether 预置了 16 个面向科研场景的 Skills，通过描述自动触发�
 | | `arxiv-search` | 搜索 arXiv 预印本 |
 | | `read-arxiv-paper` | 阅读和分析 arXiv 论文 |
 | | `research-grants` | 撰写研究基金申请书 |
+| | `research-grants-ch` | 撰写中国科研基金申请书（国自然、博后基金等） |
 | | `scientific-critical-thinking` | 科学证据质量评估 |
 | | `scientific-brainstorming` | 科研假设生成与跨学科探索 |
 | | `response-to-referee` | 逐条回复审稿人意见 |
 | 通用 | `brainstorming` | 在实现之前将想法转化为设计方案 |
+| | `clawhub` | 从 ClawHub 搜索和安装 Agent Skills |
+| | `docx` | 创建和编辑 Word 文档 |
+| | `excel-analysis` | 分析 Excel 电子表格 |
+| | `ppt-generation` | 生成 PowerPoint 演示文稿 |
 
 学术 Skills 可串联使用：`arxiv-search` → `read-arxiv-paper` → `literature-review` → `write-paper`
 
@@ -188,7 +265,7 @@ aether mcp debug                    # 调试 MCP 连接
 
 ### 移动端
 
-通过微信、飞书、QQ 机器人从手机端与 Aether 对话。在 Web 界面的设置中配置对应平台的凭证即可启用。
+通过微信、飞书、QQ 机器人从手机端与 Aether 对话。在设置中配置对应平台的凭证即可启用（Web 版和桌面版均支持）。
 
 ---
 
@@ -221,4 +298,10 @@ aether debug config   # 查看当前配置
 
 **模型列表为空**：检查环境变量 `OPENCODE_CONFIG` 路径是否正确。
 
----
+**macOS 提示"无法打开，因为无法验证开发者"**：应用未签名。右键点击应用选择"打开"，在“设置--安全与隐私性”中找到相关提示，选择“仍要打开”。之后应用会被记为信任，不再提示。（每次更新后需要重复此操作）
+
+**macOS 提示"已损坏，无法打开"**：这是 macOS 隔离属性导致的误报。在终端执行 `xattr -cr /Applications/Aether\ Desktop.app`（桌面版）或 `xattr -cr ./aether ./Aether.command`（Web 版）即可。
+
+**Linux Web 版安装后找不到启动入口**：运行解压目录中的 `install.sh`（需先 `chmod +x`），安装完成后可在系统启动台中找到 Aether 图标。*原先在桌面上的 `Aether.sh` 启动脚本已弃用*。
+
+**桌面版和 Web 版可以同时安装吗？**：可以。两者共享同一套数据和会话。但是应避免同时运行两个版本，以免竞争资源导致不稳定。
