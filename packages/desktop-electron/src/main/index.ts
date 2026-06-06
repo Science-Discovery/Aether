@@ -47,6 +47,7 @@ const logger = initLogging()
 const MANUAL_INSTALL_UPDATE = process.platform === "darwin" || (process.platform === "linux" && !process.env.APPIMAGE)
 const RELEASES_URL = "https://github.com/Science-Discovery/Aether/releases"
 const RENDERER_UPDATER_ENABLED = UPDATER_ENABLED && !MANUAL_INSTALL_UPDATE
+const SETTINGS_UPDATER_ENABLED = UPDATER_ENABLED
 
 logger.log("app starting", {
   version: app.getVersion(),
@@ -186,6 +187,7 @@ async function initialize() {
 
   const globals = {
     updaterEnabled: RENDERER_UPDATER_ENABLED,
+    settingsUpdaterEnabled: SETTINGS_UPDATER_ENABLED,
     deepLinks: pendingDeepLinks,
   }
 

@@ -5,6 +5,7 @@ declare global {
     api: ElectronAPI
     __OPENCODE__?: {
       updaterEnabled?: boolean
+      settingsUpdaterEnabled?: boolean
       wsl?: boolean
       deepLinks?: string[]
     }

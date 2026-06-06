@@ -20,7 +20,7 @@ import { createEffect, createResource, onCleanup, onMount, Show } from "solid-js
 import { render } from "solid-js/web"
 import pkg from "../../package.json"
 import { initI18n, t } from "./i18n"
-import { runUpdater, UPDATER_ENABLED } from "./updater"
+import { runUpdater, SETTINGS_UPDATER_ENABLED } from "./updater"
 import { webviewZoom } from "./webview-zoom"
 import "./styles.css"
 import { useTheme } from "@opencode-ai/ui/theme"
@@ -224,7 +224,7 @@ const createPlatform = (): Platform => {
 
     parseMarkdown: (markdown: string) => window.api.parseMarkdownCommand(markdown),
 
-    runUpdater: UPDATER_ENABLED() ? () => runUpdater({ alertOnFail: true }) : undefined,
+    runUpdater: SETTINGS_UPDATER_ENABLED() ? () => runUpdater({ alertOnFail: true }) : undefined,
 
     webviewZoom,
 
