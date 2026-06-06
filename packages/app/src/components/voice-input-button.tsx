@@ -7,6 +7,7 @@ import { useLanguage } from "@/context/language"
 import { useSettings } from "@/context/settings"
 import { useSDK } from "@/context/sdk"
 import { useSync } from "@/context/sync"
+import { useServer } from "@/context/server"
 import { useParams } from "@solidjs/router"
 import { createVoiceRecorder, type VoiceRecorderState } from "@/utils/voice-recorder"
 import { transcribeAudio } from "@/utils/voice-transcription"
@@ -19,7 +20,7 @@ export interface VoiceInputAPI {
 }
 
 export interface VoiceInputButtonProps {
-  onTranscription: (text: string) => void
+  onTranscription: (text: string, audioPath?: string) => void
   onStateChange?: (state: VoiceRecorderState | "transcribing") => void
   class?: string
   style?: JSX.CSSProperties
@@ -33,6 +34,7 @@ export const VoiceInputButton: Component<VoiceInputButtonProps> = (props) => {
   const sdk = useSDK()
   const sync = useSync()
   const params = useParams()
+  const server = useServer()
   const recorder = createVoiceRecorder()
   const [transcribing, setTranscribing] = createSignal(false)
   let abortController: AbortController | null = null
@@ -124,16 +126,23 @@ export const VoiceInputButton: Component<VoiceInputButtonProps> = (props) => {
       }
 
       abortController = new AbortController()
-      const text = await transcribeAudio({
+      const cur = server.current
+      const auth = cur?.http?.password
+        ? { Authorization: `Basic ${btoa(`${cur.http.username ?? "opencode"}:${cur.http.password}`)}` }
+        : undefined
+      const result = await transcribeAudio({
         serverUrl: sdk.url,
         providerID,
         modelID,
         audioBlob,
         conversationContext: getConversationContext(),
         signal: abortController.signal,
+        headers: auth,
+        projectID: sync.project?.id,
+        saveAudio: true,
       })
 
-      props.onTranscription(text)
+      props.onTranscription(result.text, result.audioPath)
     } catch (e: unknown) {
       if (e instanceof Error && e.name === "AbortError") return
       console.error("[VoiceInput] Transcription error:", e)

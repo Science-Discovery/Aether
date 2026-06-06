@@ -10,6 +10,8 @@ import { ModelsDev } from "../../provider/models"
 import { ProviderID } from "../../provider/schema"
 import { lazy } from "../../util/lazy"
 import { Log } from "../../util/log"
+import { filesDir } from "../../persist/naming"
+import { mkdir } from "fs/promises"
 
 const log = Log.create({ service: "voice" })
 
@@ -42,7 +44,22 @@ async function pcm(audioBase64: string, audioFormat: string) {
   await Bun.write(input, Buffer.from(audioBase64, "base64"))
   try {
     const proc = Bun.spawn(
-      ["ffmpeg", "-y", "-hide_banner", "-loglevel", "error", "-i", input, "-ar", "16000", "-ac", "1", "-f", "s16le", output],
+      [
+        "ffmpeg",
+        "-y",
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-i",
+        input,
+        "-ar",
+        "16000",
+        "-ac",
+        "1",
+        "-f",
+        "s16le",
+        output,
+      ],
       { stdout: "ignore", stderr: "pipe" },
     )
     const [code, err] = await Promise.all([proc.exited, new Response(proc.stderr).text()])
@@ -122,19 +139,25 @@ function pick(evt: Event) {
   if (evt.type === "response.content_part.done")
     return { kind: "clean", mode: "set", text: evt.part?.text ?? evt.part?.transcript ?? "" }
   if (evt.type === "response.output_item.done")
-    return { kind: "clean", mode: "set", text: evt.item?.content?.map((part) => part.text ?? part.transcript ?? "").join("") ?? "" }
+    return {
+      kind: "clean",
+      mode: "set",
+      text: evt.item?.content?.map((part) => part.text ?? part.transcript ?? "").join("") ?? "",
+    }
   if (evt.type === "response.done")
     return {
       kind: "clean",
       mode: "set",
-      text: evt.response?.output?.flatMap((item) => item.content?.map((part) => part.text ?? part.transcript ?? "") ?? []).join("") ?? "",
+      text:
+        evt.response?.output
+          ?.flatMap((item) => item.content?.map((part) => part.text ?? part.transcript ?? "") ?? [])
+          .join("") ?? "",
     }
   if (evt.type === "response.text.done") return { kind: "clean", mode: "set", text: evt.text ?? "" }
   if (evt.type === "response.audio_transcript.done")
     return { kind: "clean", mode: "set", text: evt.transcript ?? evt.text ?? "" }
   if (evt.type === "response.text.delta") return { kind: "clean", mode: "append", text: evt.delta ?? "" }
-  if (evt.type === "response.audio_transcript.delta")
-    return { kind: "clean", mode: "append", text: evt.delta ?? "" }
+  if (evt.type === "response.audio_transcript.delta") return { kind: "clean", mode: "append", text: evt.delta ?? "" }
   return { kind: "raw", mode: "append", text: scan(evt) }
 }
 
@@ -292,6 +315,18 @@ async function realtime(opts: {
   })
 }
 
+async function saveAudioFile(audioBase64: string, audioFormat: string, projectID: string): Promise<string> {
+  const dir = filesDir(projectID)
+  await mkdir(dir, { recursive: true })
+  const now = new Date()
+  const ts = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}${String(now.getDate()).padStart(2, "0")}T${String(now.getHours()).padStart(2, "0")}${String(now.getMinutes()).padStart(2, "0")}${String(now.getSeconds()).padStart(2, "0")}`
+  const ext = audioFormat.replace(/[^a-z0-9]/gi, "") || "webm"
+  const filename = `${ts}.${ext}`
+  const filePath = path.join(dir, filename)
+  await Bun.write(filePath, Buffer.from(audioBase64, "base64"))
+  return filePath
+}
+
 export const VoiceRoutes = lazy(() =>
   new Hono().post(
     "/transcribe",
@@ -303,14 +338,13 @@ export const VoiceRoutes = lazy(() =>
         mode: z.enum(["omni", "asr", "realtime"]).optional(),
         audioBase64: z.string(),
         audioFormat: z.string(),
-        context: z
-          .array(z.object({ role: z.string(), content: z.string() }))
-          .optional(),
+        context: z.array(z.object({ role: z.string(), content: z.string() })).optional(),
+        projectID: z.string().optional(),
+        saveAudio: z.boolean().optional(),
       }),
     ),
     async (c) => {
-      const { providerID, modelID, mode, audioBase64, audioFormat, context } =
-        c.req.valid("json")
+      const { providerID, modelID, mode, audioBase64, audioFormat, context, projectID, saveAudio } = c.req.valid("json")
       const kind = mode ?? (modelID.includes("asr") ? "asr" : modelID.includes("realtime") ? "realtime" : "omni")
 
       const provider = await Provider.getProvider(providerID)
@@ -336,7 +370,9 @@ export const VoiceRoutes = lazy(() =>
               setTimeout(() => reject(new VoiceError("Realtime transcription hard timeout", 504)), 35_000),
             ),
           ])
-          return c.json({ text })
+          const audioPath =
+            projectID && saveAudio ? await saveAudioFile(audioBase64, audioFormat, projectID) : undefined
+          return c.json({ text, audioPath })
         } catch (e) {
           const message = e instanceof Error ? e.message : String(e)
           const status = e instanceof VoiceError ? e.status : 500
@@ -346,8 +382,7 @@ export const VoiceRoutes = lazy(() =>
       }
 
       let endpoint = baseURL.replace(/\/+$/, "")
-      if (!endpoint.endsWith("/chat/completions"))
-        endpoint += "/chat/completions"
+      if (!endpoint.endsWith("/chat/completions")) endpoint += "/chat/completions"
 
       const audio = {
         type: "input_audio",
@@ -458,6 +493,7 @@ export const VoiceRoutes = lazy(() =>
       }
 
       const finalText = text.trim()
+      const audioPath = projectID && saveAudio ? await saveAudioFile(audioBase64, audioFormat, projectID) : undefined
       log.info("voice transcribe result", {
         providerID,
         modelID,
@@ -466,7 +502,7 @@ export const VoiceRoutes = lazy(() =>
         chars: finalText.length,
         text: finalText.slice(0, 500),
       })
-      return c.json({ text: finalText })
+      return c.json({ text: finalText, audioPath })
     },
   ),
 )
