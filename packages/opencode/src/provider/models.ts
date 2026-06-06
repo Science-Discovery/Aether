@@ -6,7 +6,7 @@ import { Installation } from "../installation"
 import { Flag } from "../flag/flag"
 import { lazy } from "@/util/lazy"
 import { Filesystem } from "../util/filesystem"
-import { MaaS } from "./maas"
+import { apply } from "./models-local"
 
 // Try to import bundled snapshot (generated at build time)
 // Falls back to undefined in dev mode when snapshot doesn't exist
@@ -101,10 +101,7 @@ export namespace ModelsDev {
 
   export async function get(): Promise<Record<string, Provider>> {
     const result = (await Data()) as Record<string, Provider>
-    return {
-      ...result,
-      "tatu-maas": MaaS.provider,
-    }
+    return apply(result)
   }
 
   export async function refresh() {
