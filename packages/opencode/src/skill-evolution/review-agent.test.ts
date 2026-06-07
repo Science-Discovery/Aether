@@ -57,6 +57,9 @@ describe("buildReviewPrompt", () => {
     expect(prompt).toContain("Please help me deploy")
     // Should contain the base prompt
     expect(prompt).toContain("skill evolution agent")
+    // Should carry the "Do NOT capture" blacklist borrowed from Hermes
+    expect(prompt).toContain("self-imposed constraints")
+    expect(prompt).toContain("this tool does not work")
   })
 })
 
