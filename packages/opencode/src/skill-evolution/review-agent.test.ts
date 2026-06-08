@@ -60,6 +60,11 @@ describe("buildReviewPrompt", () => {
     // Should carry the "Do NOT capture" blacklist borrowed from Hermes
     expect(prompt).toContain("self-imposed constraints")
     expect(prompt).toContain("this tool does not work")
+    // Should carry the positive concrete-reuse test
+    expect(prompt).toContain("name the specific future moment")
+    // Should carry the two scope-overreach blacklist entries
+    expect(prompt).toContain("dressed as a universal method")
+    expect(prompt).toContain("self-re-running artifact")
   })
 })
 

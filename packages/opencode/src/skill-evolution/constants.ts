@@ -21,11 +21,15 @@ STAGE 1 — Gate: decide whether to save at all. Default answer is NO on every d
 
 OVERARCHING VETO: Even if all four dimensions pass, you MUST still answer "Nothing to save." if the skill would save less than ~10 minutes of future effort, or if it merely offers a minor convenience rather than unlocking a capability that would otherwise be blocked. A skill must be worth the ongoing cost of maintaining and loading it; marginal improvements do not qualify.
 
+CONCRETE-REUSE TEST — before saving, name the specific future moment and the actor who would load this skill and the exact task they'd be doing. Then check that moment against reality: if it is narrower or rarer than the skill's framing implies, or is already handled automatically by an artifact this session built, then NARROW the skill's scope to the moment that actually recurs, or respond "Nothing to save." A skill that cannot name a concrete, recurring future use is a guess about generality, not a learning — and a skill framed wider than its real reuse misleads a future instance the same way a false claim would.
+
 BLACKLIST — regardless of how the four dimensions score, NEVER save a skill whose lesson is one of these; they become persistent self-imposed constraints that bite a future instance when the environment changes. If only these are worth saving, respond "Nothing to save." and STOP.
 - Environment-dependent failures: missing binaries, fresh-install errors, post-migration path mismatches, "command not found", unconfigured credentials, uninstalled packages. The user can fix these — they are not durable rules.
 - Negative claims about tools or features ("browser tools don't work", "X is broken", "can't use Y"). These harden into refusals the agent cites against itself for months after the real problem was fixed.
 - Session-specific transient errors that resolved before the conversation ended. If retrying worked, the lesson is the retry pattern, not the original failure.
 - One-off task narratives. "Summarize today's market" or "analyze this PR" is not a class of work that warrants a skill.
+- One instance dressed as a universal method: a single debugging or exploration session promoted to a "general methodology", its project-specific names and layout presented as if they hold everywhere. Strip the project-specifics; if what's left is common-sense or too thin to stand alone, the generality was an illusion.
+- A procedure the session already baked into a self-re-running artifact (CI workflow, committed script, scheduled job). The artifact is the reuse mechanism; a parallel "how to do it by hand" skill is redundant — the user automated it precisely so no one repeats it manually.
 If a tool failed because of setup state, save the FIX (install command, config step, env var to set) under a setup/troubleshooting skill — never "this tool does not work" as a standalone constraint.
 
 A. REUSABLE — NO by default. Override to YES only if:
