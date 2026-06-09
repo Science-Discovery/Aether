@@ -1,5 +1,5 @@
 import { mkdir, readFile, writeFile, rm, stat } from "fs/promises"
-import { isAbsolute, join, basename } from "path"
+import { isAbsolute, join, basename, extname } from "path"
 import { existsSync } from "fs"
 import z from "zod"
 import { BusEvent } from "@/bus/bus-event"
@@ -22,7 +22,8 @@ import { SessionPreference } from "@/session/preference"
 import { Question } from "@/question"
 import { Permission } from "@/permission"
 import { NotFoundError } from "@/storage/db"
-import { legacyPlatformDir, platformDir } from "@/persist/naming"
+import { legacyPlatformDir, platformDir, filesDir } from "@/persist/naming"
+import type { MediaAttachment } from "./ilink"
 
 export type MobileStatus = "idle" | "starting" | "qrcode" | "connected" | "reconnecting" | "error"
 
@@ -534,7 +535,13 @@ export abstract class MobileManagerBase {
 
   // ── Message handling ────────────────────────────────────────────────────────
 
-  async handleMessage(chatId: string, messageId: string, text: string, rootId: string): Promise<void> {
+  async handleMessage(
+    chatId: string,
+    messageId: string,
+    text: string,
+    rootId: string,
+    mediaAttachments?: MediaAttachment[],
+  ): Promise<void> {
     const scope = this.scopeKey(chatId, rootId)
     const reply = this.replyTarget(chatId, messageId)
     if (!this._initialized) {
@@ -693,7 +700,13 @@ export abstract class MobileManagerBase {
         return
       }
 
-      await this.startPrompt(scope, messageId, text, effectiveDir)
+      await this.startPrompt(
+        scope,
+        messageId,
+        text,
+        effectiveDir,
+        await this.processMediaAttachments(scope, reply, mediaAttachments, effectiveDir),
+      )
     } catch (err) {
       if (err instanceof Session.BusyError) {
         await this.replySession(
@@ -713,7 +726,13 @@ export abstract class MobileManagerBase {
     }
   }
 
-  protected async startPrompt(scope: string, messageId: string, text: string, effectiveDir: string): Promise<void> {
+  protected async startPrompt(
+    scope: string,
+    messageId: string,
+    text: string,
+    effectiveDir: string,
+    savedFilePaths: string[] = [],
+  ): Promise<void> {
     const reply = this.replyTarget(scope, messageId)
     this._activePrompt.set(scope, { sessionId: "", messageId, directory: effectiveDir })
 
@@ -731,6 +750,12 @@ export abstract class MobileManagerBase {
     console.log(`[${this.adapter.platform}] using model:`, model ?? "(default)")
 
     let promptText = text
+    if (savedFilePaths.length > 0) {
+      promptText +=
+        "\n\n[用户通过微信发送了以下文件：\n" +
+        savedFilePaths.map((p) => `- ${p}`).join("\n") +
+        "\n请根据需要读取和处理这些文件。]"
+    }
     if (this.mightWantFile(text)) {
       promptText +=
         "\n\n[系统提示：如果用户的意图是获取某个文件，请在回复中包含该文件在当前系统上的完整绝对路径。Windows 示例：E:\\\\work\\\\demo\\\\file.md；macOS/Linux 示例：/Users/demo/file.md 或 /home/demo/file.md。系统将自动把该路径对应的文件作为附件发送给用户。如果用户无需获取文件，请忽略本提示，正常回复即可。]"
@@ -835,6 +860,54 @@ export abstract class MobileManagerBase {
     } finally {
       this._activePrompt.delete(scope)
     }
+  }
+
+  protected async processMediaAttachments(
+    scope: string,
+    reply: string,
+    attachments: MediaAttachment[] | undefined,
+    effectiveDir: string,
+  ): Promise<string[]> {
+    if (!attachments || attachments.length === 0) return []
+
+    const projectID = await Instance.provide({
+      directory: effectiveDir,
+      fn: () => Instance.project.id,
+    })
+    const destDir = filesDir(projectID)
+    await mkdir(destDir, { recursive: true })
+
+    const savedPaths: string[] = []
+    for (const attachment of attachments) {
+      try {
+        const { data, fileName } = await this.downloadMediaAttachment(attachment)
+        let targetName = fileName
+        let targetPath = join(destDir, targetName)
+        let idx = 1
+        while (existsSync(targetPath)) {
+          const ext = extname(targetName)
+          const base = basename(targetName, ext)
+          targetName = `${base}_${idx}${ext}`
+          targetPath = join(destDir, targetName)
+          idx++
+        }
+        await writeFile(targetPath, data)
+        savedPaths.push(targetPath)
+        console.log(`[${this.adapter.platform}] saved media:`, targetPath)
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        console.error(`[${this.adapter.platform}] media download failed:`, msg)
+        const label = attachment.fileName || attachment.type
+        try {
+          await this.replySession(scope, reply, `⚠️ 文件下载失败: ${label}\n原因: ${msg.slice(0, 100)}`)
+        } catch {}
+      }
+    }
+    return savedPaths
+  }
+
+  protected async downloadMediaAttachment(attachment: MediaAttachment): Promise<{ data: Buffer; fileName: string }> {
+    throw new Error("downloadMediaAttachment not implemented for this platform")
   }
 
   protected enqueueMessage(chatId: string, messageId: string): boolean {

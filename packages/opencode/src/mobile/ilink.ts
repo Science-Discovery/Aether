@@ -210,11 +210,24 @@ export async function getUpdates(
 
 // ── Message parsing ────────────────────────────────────────────────────────────
 
+export interface MediaAttachment {
+  type: "image" | "voice" | "file" | "video"
+  fileName?: string
+  fileSize?: number
+  md5?: string
+  encryptQueryParam?: string
+  aesKey?: string
+  aesKeyHex?: string
+  fullUrl?: string
+  rawItem: dict
+}
+
 export interface ParsedMessage {
   conversation_id: string
   text: string
   message_id: string
   context_token: string
+  mediaAttachments: MediaAttachment[]
   raw: dict
 }
 
@@ -224,32 +237,81 @@ const ITEM_VOICE = 3
 const ITEM_FILE = 4
 const ITEM_VIDEO = 5
 
-function extractText(itemList: dict[]): string {
-  const parts: string[] = []
+function extractItemInfo(itemList: dict[]): { text: string; attachments: MediaAttachment[] } {
+  const textParts: string[] = []
+  const attachments: MediaAttachment[] = []
   for (const item of itemList) {
     const t = item.type ?? 0
     if (t === ITEM_TEXT) {
       const text = (item.text_item ?? {}).text ?? ""
-      if (text) parts.push(text)
+      if (text) textParts.push(text)
       const ref = item.ref_msg
       if (ref) {
         const refItem = ref.message_item ?? {}
         const refText = (refItem.text_item ?? {}).text ?? ""
-        if (refText) parts.push(`[引用: ${refText}]`)
+        if (refText) textParts.push(`[引用: ${refText}]`)
       }
     } else if (t === ITEM_VOICE) {
-      const vt = (item.voice_item ?? {}).text ?? ""
-      parts.push(vt || "[语音]")
+      const voice = item.voice_item ?? {}
+      const vt = voice.text ?? ""
+      textParts.push(vt || "[语音]")
+      const media = voice.media ?? {}
+      if (media.encrypt_query_param || media.full_url) {
+        attachments.push({
+          type: "voice",
+          encryptQueryParam: media.encrypt_query_param,
+          aesKey: media.aes_key,
+          fullUrl: media.full_url,
+          rawItem: item,
+        })
+      }
     } else if (t === ITEM_IMAGE) {
-      parts.push("[图片]")
+      const img = item.image_item ?? {}
+      textParts.push("[图片]")
+      const media = img.media ?? {}
+      if (media.encrypt_query_param || media.full_url) {
+        attachments.push({
+          type: "image",
+          encryptQueryParam: media.encrypt_query_param,
+          aesKey: media.aes_key,
+          aesKeyHex: img.aeskey,
+          fullUrl: media.full_url,
+          rawItem: item,
+        })
+      }
     } else if (t === ITEM_VIDEO) {
-      parts.push("[视频]")
+      const video = item.video_item ?? {}
+      textParts.push("[视频]")
+      const media = video.media ?? {}
+      if (media.encrypt_query_param || media.full_url) {
+        attachments.push({
+          type: "video",
+          encryptQueryParam: media.encrypt_query_param,
+          aesKey: media.aes_key,
+          fullUrl: media.full_url,
+          rawItem: item,
+        })
+      }
     } else if (t === ITEM_FILE) {
-      const fn = (item.file_item ?? {}).file_name ?? ""
-      parts.push(fn ? `[文件: ${fn}]` : "[文件]")
+      const file = item.file_item ?? {}
+      const fn = file.file_name ?? ""
+      textParts.push(fn ? `[文件: ${fn}]` : "[文件]")
+      const media = file.media ?? {}
+      if (media.encrypt_query_param || media.full_url) {
+        attachments.push({
+          type: "file",
+          fileName: fn || undefined,
+          fileSize: file.len ? parseInt(file.len, 10) : undefined,
+          md5: file.md5 || undefined,
+          encryptQueryParam: media.encrypt_query_param,
+          aesKey: media.aes_key,
+          fullUrl: media.full_url,
+          rawItem: item,
+        })
+      }
     }
   }
-  return parts.join(" ")
+  return { text: textParts.join(" "), attachments }
 }
 
 export function parseMessage(raw: dict): ParsedMessage | null {
@@ -257,12 +319,13 @@ export function parseMessage(raw: dict): ParsedMessage | null {
   const itemList = raw.item_list ?? []
   const fromUserId = raw.from_user_id ?? ""
   if (!itemList && !fromUserId) return null
-  const text = extractText(itemList)
+  const { text, attachments } = extractItemInfo(itemList)
   return {
     conversation_id: fromUserId,
     text,
     message_id: String(raw.message_id ?? ""),
     context_token: raw.context_token ?? "",
+    mediaAttachments: attachments,
     raw,
   }
 }
@@ -399,4 +462,92 @@ export async function sendFile(
     token,
     30000,
   )
+}
+
+// ── Download media ────────────────────────────────────────────────────────────
+
+function buildCdnDownloadUrl(encryptedQueryParam: string, cdnBaseUrl: string): string {
+  return `${cdnBaseUrl}/download?encrypted_query_param=${encodeURIComponent(encryptedQueryParam)}`
+}
+
+function parseAesKey(aesKeyBase64: string, label: string): Buffer {
+  const decoded = Buffer.from(aesKeyBase64, "base64")
+  if (decoded.length === 16) return decoded
+  if (decoded.length === 32 && /^[0-9a-fA-F]{32}$/.test(decoded.toString("ascii"))) {
+    return Buffer.from(decoded.toString("ascii"), "hex")
+  }
+  throw new Error(`${label}: aes_key must decode to 16 raw bytes or 32-char hex string, got ${decoded.length} bytes`)
+}
+
+const aesDec = (buf: Buffer, key: Buffer) => {
+  const decipher = crypto.createDecipheriv("aes-128-ecb", key, null)
+  return Buffer.concat([decipher.update(buf), decipher.final()])
+}
+
+const DOWNLOAD_TIMEOUT = 60_000
+const MAX_DOWNLOAD_SIZE = 100 * 1024 * 1024
+
+export async function downloadMedia(
+  attachment: MediaAttachment,
+  cdnBaseUrl: string = CDN_BASE_URL,
+): Promise<{ data: Buffer; fileName: string }> {
+  const label = `[wechat] download ${attachment.type}`
+
+  if (!attachment.encryptQueryParam && !attachment.fullUrl) {
+    throw new Error(`${label}: no download parameters available`)
+  }
+
+  let aesKeyBase64: string | undefined
+  if (attachment.type === "image" && attachment.aesKeyHex) {
+    aesKeyBase64 = Buffer.from(attachment.aesKeyHex, "hex").toString("base64")
+  } else {
+    aesKeyBase64 = attachment.aesKey
+  }
+
+  const url =
+    attachment.fullUrl ||
+    (attachment.encryptQueryParam ? buildCdnDownloadUrl(attachment.encryptQueryParam, cdnBaseUrl) : "")
+
+  if (!url) throw new Error(`${label}: could not construct download URL`)
+
+  console.log(`${label}: fetching url=${url.slice(0, 80)}...`)
+
+  const res = await fetch(url, { signal: AbortSignal.timeout(DOWNLOAD_TIMEOUT) })
+  if (!res.ok) {
+    const body = await res.text().catch(() => "")
+    throw new Error(`${label}: CDN download ${res.status}: ${body.slice(0, 200)}`)
+  }
+
+  const encrypted = Buffer.from(await res.arrayBuffer())
+  if (encrypted.length > MAX_DOWNLOAD_SIZE) {
+    throw new Error(`${label}: downloaded ${encrypted.length} bytes exceeds max ${MAX_DOWNLOAD_SIZE}`)
+  }
+
+  let data: Buffer
+  if (aesKeyBase64) {
+    const key = parseAesKey(aesKeyBase64, label)
+    data = aesDec(encrypted, key)
+    console.log(`${label}: decrypted ${data.length} bytes`)
+  } else if (attachment.type === "image") {
+    data = encrypted
+    console.log(`${label}: downloaded plain image ${data.length} bytes`)
+  } else {
+    throw new Error(`${label}: aes_key required for ${attachment.type} download`)
+  }
+
+  let fileName = attachment.fileName || ""
+  if (!fileName) {
+    const ts = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19)
+    const ext =
+      attachment.type === "image"
+        ? ".png"
+        : attachment.type === "voice"
+          ? ".silk"
+          : attachment.type === "video"
+            ? ".mp4"
+            : ".bin"
+    fileName = `wechat_${attachment.type}_${ts}${ext}`
+  }
+
+  return { data, fileName }
 }

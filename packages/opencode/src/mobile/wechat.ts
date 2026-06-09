@@ -8,7 +8,7 @@ import { legacyPlatformDir, platformDir } from "@/persist/naming"
 import { MobileManagerBase } from "./base"
 import type { MobileAdapter } from "./base"
 import * as ilink from "./ilink"
-import type { LoginStatusResult } from "./ilink"
+import type { LoginStatusResult, MediaAttachment } from "./ilink"
 
 export type WeChatStatus = "idle" | "starting" | "qrcode" | "connected" | "reconnecting" | "error"
 
@@ -422,11 +422,15 @@ class WeChatManagerImpl extends MobileManagerBase {
           await this.saveILinkState()
 
           console.log("[wechat] received:", parsed.conversation_id, parsed.text.slice(0, 50))
-          void this.handleMessage(parsed.conversation_id, parsed.message_id, parsed.text, parsed.message_id).catch(
-            (err) => {
-              console.error("[wechat] handleMessage error:", err)
-            },
-          )
+          void this.handleMessage(
+            parsed.conversation_id,
+            parsed.message_id,
+            parsed.text,
+            parsed.message_id,
+            parsed.mediaAttachments,
+          ).catch((err) => {
+            console.error("[wechat] handleMessage error:", err)
+          })
         }
 
         if (this._cursor) await this.saveILinkState()
@@ -547,6 +551,12 @@ class WeChatManagerImpl extends MobileManagerBase {
     } catch (err) {
       console.error("[wechat] sendFile error:", err, "convId:", convId, "filePath:", filePath)
     }
+  }
+
+  protected override async downloadMediaAttachment(
+    attachment: MediaAttachment,
+  ): Promise<{ data: Buffer; fileName: string }> {
+    return ilink.downloadMedia(attachment, this._ilinkCdnBaseUrl)
   }
 }
 
