@@ -1,5 +1,6 @@
 import { test as base, expect, type Page } from "@playwright/test"
 import { ManagedRuntime } from "effect"
+import { fileURLToPath } from "node:url"
 import type { E2EWindow } from "../src/testing/terminal"
 import type { Item, Usage } from "../../opencode/test/lib/llm-server"
 import { TestLLMServer } from "../../opencode/test/lib/llm-server"
@@ -18,7 +19,9 @@ import {
   waitSessionSaved,
 } from "./actions"
 import { promptSelector } from "./selectors"
-import { createSdk, dirSlug, getWorktree, serverUrl, sessionPath } from "./utils"
+import { createSdk, dirSlug, serverUrl, sessionPath } from "./utils"
+
+const root = fileURLToPath(new URL("../../..", import.meta.url))
 
 export const settingsKey = "settings.v3"
 
@@ -271,8 +274,7 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
   },
   directory: [
     async ({}, use) => {
-      const directory = await getWorktree()
-      await use(directory)
+      await use(root)
     },
     { scope: "worker" },
   ],

@@ -6,6 +6,7 @@ import { Instance } from "../../src/project/instance"
 import { TuiConfig } from "../../src/config/tui"
 import { Global } from "../../src/global"
 import { Filesystem } from "../../src/util/filesystem"
+import { migrateTuiConfig } from "../../src/config/migrate-tui-config"
 
 const managedConfigDir = process.env.OPENCODE_TEST_MANAGED_CONFIG_DIR!
 
@@ -255,7 +256,6 @@ test("migration backup preserves JSONC comments", async () => {
 
 test("migrates legacy tui keys across multiple opencode.json levels", async () => {
   await using tmp = await tmpdir({
-    git: true,
     init: async (dir) => {
       const nested = path.join(dir, "apps", "client")
       await fs.mkdir(nested, { recursive: true })
@@ -264,13 +264,14 @@ test("migrates legacy tui keys across multiple opencode.json levels", async () =
     },
   })
 
+  const nested = path.join(tmp.path, "apps", "client")
   await Instance.provide({
-    directory: path.join(tmp.path, "apps", "client"),
+    directory: tmp.path,
     fn: async () => {
-      const config = await TuiConfig.get()
-      expect(config.theme).toBe("nested-theme")
+      await migrateTuiConfig({ directories: [tmp.path, nested], managed: managedConfigDir })
       expect(await Filesystem.exists(path.join(tmp.path, "tui.json"))).toBe(true)
-      expect(await Filesystem.exists(path.join(tmp.path, "apps", "client", "tui.json"))).toBe(true)
+      expect(await Filesystem.exists(path.join(nested, "tui.json"))).toBe(true)
+      expect(await Bun.file(path.join(nested, "tui.json")).json()).toMatchObject({ theme: "nested-theme" })
     },
   })
 })
