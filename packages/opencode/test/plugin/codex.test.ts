@@ -1,15 +1,50 @@
 import { describe, expect, test } from "bun:test"
 import {
+  CodexAuthPlugin,
   parseJwtClaims,
   extractAccountIdFromClaims,
   extractAccountId,
   type IdTokenClaims,
 } from "../../src/plugin/codex"
+import type { PluginInput } from "@opencode-ai/plugin"
+import { Provider } from "../../src/provider/provider"
+import type { ModelsDev } from "../../src/provider/models"
 
 function createTestJwt(payload: object): string {
   const header = Buffer.from(JSON.stringify({ alg: "none" })).toString("base64url")
   const body = Buffer.from(JSON.stringify(payload)).toString("base64url")
   return `${header}.${body}.sig`
+}
+
+const base: ModelsDev.Model = {
+  id: "gpt-5",
+  name: "GPT-5",
+  release_date: "2026-01-01",
+  attachment: true,
+  reasoning: true,
+  temperature: false,
+  tool_call: true,
+  limit: {
+    context: 128000,
+    output: 8192,
+  },
+  modalities: {
+    input: ["text"],
+    output: ["text"],
+  },
+  cost: {
+    input: 1,
+    output: 2,
+  },
+  options: {},
+}
+
+function model(id: string): ModelsDev.Model {
+  return {
+    ...base,
+    id,
+    name: id,
+  }
 }
 
 describe("plugin.codex", () => {
@@ -118,6 +153,49 @@ describe("plugin.codex", () => {
           refresh_token: "rt",
         }),
       ).toBe("acc-123")
+    })
+  })
+
+  describe("auth loader", () => {
+    test("keeps gpt-5.5 models for OAuth accounts", async () => {
+      const hooks = await CodexAuthPlugin({} as unknown as PluginInput)
+      const load = hooks.auth?.loader
+      if (!load) throw new Error("missing codex auth loader")
+
+      const prov = Provider.fromModelsDevProvider({
+        id: "openai",
+        name: "OpenAI",
+        env: ["OPENAI_API_KEY"],
+        npm: "@ai-sdk/openai",
+        api: "https://api.openai.com/v1",
+        models: {
+          "gpt-5": model("gpt-5"),
+          "gpt-5.4": model("gpt-5.4"),
+          "gpt-5.5": model("gpt-5.5"),
+          "gpt-5.5-pro": model("gpt-5.5-pro"),
+          "gpt-5.6-codex": model("gpt-5.6-codex"),
+        },
+      })
+
+      await load(
+        async () => ({
+          type: "oauth",
+          refresh: "refresh",
+          access: "access",
+          expires: Date.now() + 60_000,
+        }),
+        prov as unknown as Parameters<typeof load>[1],
+      )
+
+      expect(Object.keys(prov.models).sort()).toEqual([
+        "gpt-5.3-codex",
+        "gpt-5.4",
+        "gpt-5.5",
+        "gpt-5.5-pro",
+        "gpt-5.6-codex",
+      ])
+      expect(prov.models["gpt-5.5"].cost.input).toBe(0)
+      expect(prov.models["gpt-5.5-pro"].cost.output).toBe(0)
     })
   })
 })
