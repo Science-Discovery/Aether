@@ -92,7 +92,7 @@
 | 压缩后上下文裁剪 | 后续 turn 的模型输入包含 compaction summary 和新 prompt，不再包含被压缩前的旧 user prompt |
 | 工具调用第二轮 loop | fake endpoint 先返回 `todowrite` tool_call，验证工具执行完成、tool result 进入第二轮 LLM 输入、最终 assistant 正常结束 |
 
-这组测试依赖模型元数据里的 `limit.context` / `limit.output`。正式运行时这些字段来自 `models.dev` 数据：优先读取 `$XDG_CACHE_HOME/aether/models.json`，没有缓存时回退到 `packages/opencode/src/provider/models-snapshot.js`，也可被项目配置里的 `provider.<id>.models.<model>.limit` 覆盖。当前 snapshot 中 `moonshotai-cn/kimi-k2.6` 的 `limit` 为 `{ context: 262144, output: 262144 }`。
+这组测试依赖模型元数据里的 `limit.context` / `limit.output`。正式运行时这些字段来自 `models.dev` 数据：优先读取 `OPENCODE_MODELS_PATH` 或 `$XDG_CACHE_HOME/aether/models.json`，没有缓存时回退到构建期注入的 `OPENCODE_MODELS_DEV`，再按需远程拉取；也可被项目配置里的 `provider.<id>.models.<model>.limit` 覆盖。
 
 ## 5. 仍存在的风险盲区
 

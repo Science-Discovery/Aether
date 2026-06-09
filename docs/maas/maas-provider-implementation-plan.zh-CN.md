@@ -6,7 +6,7 @@ MaaS 作为一等 provider 接入当前架构是可行的，建议采用“静�
 
 当前 Aether/OpenCode 的 LLM provider 链路已经具备以下能力：
 
-- provider 与模型元数据来自 `ModelsDev.get()`，本地缓存和构建快照均可承载新增 provider。
+- provider 与模型元数据来自 `ModelsDev.get()`，本地缓存和构建期注入 fallback 均可承载新增 provider。
 - `ModelsDev.Model` 已能表达模型 ID、展示名称、context/output limit、价格、模态、工具调用、推理、temperature、headers、options、per-model provider override。
 - `Provider.fromModelsDevProvider()` 会把 models.dev 结构转换为运行时 `Provider.Info`。
 - `Provider.getSDK()` 会按每个模型的 `api.npm` 和 `api.url` 实例化 Vercel AI SDK provider。
@@ -30,8 +30,8 @@ MaaS 作为一等 provider 接入当前架构是可行的，建议采用“静�
 模型数据加载顺序：
 
 1. `OPENCODE_MODELS_PATH` 指定的本地 JSON。
-2. `~/.cache/opencode/models.json`。
-3. `packages/opencode/src/provider/models-snapshot.js`。
+2. `$XDG_CACHE_HOME/aether/models.json`。
+3. 构建期注入的 `OPENCODE_MODELS_DEV` fallback。
 4. 远程 `https://models.dev/api.json`。
 
 运行时 provider 初始化由 `Provider.state()` 完成。它会把 models.dev provider、用户 config provider、环境变量、保存的 API Key、自定义 loader 和插件 auth loader 合并为最终 provider 列表。
@@ -86,7 +86,7 @@ MaaS 作为一等 provider 接入当前架构是可行的，建议采用“静�
 
 - `packages/opencode/src/provider/maas.ts`：运行时从 `docs/maas/modelcards.json` 生成 provider 并注入 `ModelsDev.get()` 结果。
 - `packages/opencode/src/provider/maas-generated.json`：由脚本生成，运行时直接合并。
-- 构建时把 MaaS 合并进 `models-snapshot.js`：发布包最稳，但开发期仍建议保留本地生成产物或测试 fixture。
+- 构建时把 MaaS 合并进 `OPENCODE_MODELS_DEV` fallback：发布包最稳，但开发期仍建议保留本地生成产物或测试 fixture。
 
 推荐使用生成产物而不是运行时读取 `docs/`，避免发布包缺文件或路径不一致。
 
@@ -238,7 +238,7 @@ MaaS provider 元数据需包含：
    - 增加生成结果校验：模型数量、排除列表、必填字段、非零价格。
 
 3. 接入 provider 数据加载
-   - 将 MaaS provider 合并进 `ModelsDev.get()` 返回值或构建快照。
+   - 将 MaaS provider 合并进 `ModelsDev.get()` 返回值或构建期 fallback。
    - 确保 `Provider.fromModelsDevProvider()` 可正确转换所有 MaaS 模型。
    - 确保 `MAAS_API_KEY` 和保存的 API Key 都能连接 MaaS。
 

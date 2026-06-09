@@ -1,5 +1,6 @@
 import { Global } from "../global"
 import { Log } from "../util/log"
+import fs from "fs/promises"
 import path from "path"
 import z from "zod"
 import { Installation } from "../installation"
@@ -7,14 +8,13 @@ import { Flag } from "../flag/flag"
 import { lazy } from "@/util/lazy"
 import { Filesystem } from "../util/filesystem"
 import { apply } from "./models-local"
+import { Hash } from "@/util/hash"
 
-// Try to import bundled snapshot (generated at build time)
-// Falls back to undefined in dev mode when snapshot doesn't exist
-/* @ts-ignore */
+declare const OPENCODE_MODELS_DEV: Record<string, ModelsDev.Provider> | undefined
 
 export namespace ModelsDev {
   const log = Log.create({ service: "models.dev" })
-  const filepath = path.join(Global.Path.cache, "models.json")
+  const ttl = 5 * 60 * 1000
 
   export const Model = z.object({
     id: z.string(),
@@ -86,14 +86,48 @@ export namespace ModelsDev {
     return Flag.OPENCODE_MODELS_URL || "https://models.dev"
   }
 
+  function filepath() {
+    if (!Flag.OPENCODE_MODELS_URL) return path.join(Global.Path.cache, "models.json")
+    return path.join(Global.Path.cache, `models-${Hash.fast(url())}.json`)
+  }
+
+  function missing(e: unknown) {
+    return typeof e === "object" && e !== null && "code" in e && (e as { code?: unknown }).code === "ENOENT"
+  }
+
+  async function read(file: string, cache: boolean) {
+    return Filesystem.readJson<Record<string, Provider>>(file).catch(async (e) => {
+      if (missing(e)) return undefined
+      if (cache) await fs.rm(file, { force: true }).catch(() => {})
+      log.warn("failed to read models.dev data", {
+        error: e,
+        file,
+      })
+      return undefined
+    })
+  }
+
+  async function write(file: string, content: string) {
+    const tmp = `${file}.${process.pid}.${Date.now()}.tmp`
+    await Filesystem.write(tmp, content)
+    await fs.rename(tmp, file).catch(async (e) => {
+      await fs.rm(tmp, { force: true }).catch(() => {})
+      throw e
+    })
+  }
+
+  function fresh(file: string) {
+    const stat = Filesystem.stat(file)
+    if (!stat) return false
+    return Date.now() - Number(stat.mtimeMs) < ttl
+  }
+
   export const Data = lazy(async () => {
-    const result = await Filesystem.readJson(Flag.OPENCODE_MODELS_PATH ?? filepath).catch(() => {})
+    const file = Flag.OPENCODE_MODELS_PATH ?? filepath()
+    const result = await read(file, !Flag.OPENCODE_MODELS_PATH)
     if (result) return result
-    // @ts-ignore
-    const snapshot = await import("./models-snapshot.js")
-      .then((m) => m.snapshot as Record<string, unknown>)
-      .catch(() => undefined)
-    if (snapshot) return snapshot
+    const fallback = typeof OPENCODE_MODELS_DEV === "undefined" ? undefined : OPENCODE_MODELS_DEV
+    if (fallback) return fallback
     if (Flag.OPENCODE_DISABLE_MODELS_FETCH) return {}
     const json = await fetch(`${url()}/api.json`).then((x) => x.text())
     return JSON.parse(json)
@@ -105,6 +139,9 @@ export namespace ModelsDev {
   }
 
   export async function refresh() {
+    if (Flag.OPENCODE_MODELS_PATH) return
+    const file = filepath()
+    if (fresh(file)) return
     const result = await fetch(`${url()}/api.json`, {
       headers: {
         "User-Agent": Installation.USER_AGENT,
@@ -116,7 +153,7 @@ export namespace ModelsDev {
       })
     })
     if (result && result.ok) {
-      await Filesystem.write(filepath, await result.text())
+      await write(file, await result.text())
       ModelsDev.Data.reset()
     }
   }

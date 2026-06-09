@@ -170,7 +170,7 @@ graph TB
 | 工具系统 | `packages/opencode/src/tool/` | 所有内置工具实现 |
 | 工具注册表 | `packages/opencode/src/tool/registry.ts` | 工具发现与注册 |
 | 提供商 | `packages/opencode/src/provider/provider.ts` | 多 LLM 提供商适配 |
-| 模型快照 | `packages/opencode/src/provider/models-snapshot.ts` | 模型信息缓存 |
+| 模型元数据 | `packages/opencode/src/provider/models.ts` | `models.dev` 缓存、构建 fallback 与远程拉取 |
 | 提供商转换 | `packages/opencode/src/provider/transform.ts` | 请求/响应转换层 |
 | 权限系统 | `packages/opencode/src/permission/next.ts` | 权限规则匹配与决策 |
 | MCP | `packages/opencode/src/mcp/` | MCP 服务器连接与工具桥接 |

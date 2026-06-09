@@ -115,7 +115,8 @@ Aether 目前已经与上游 opencode 分离，但 LLM 调用层仍然处在高�
    - `packages/opencode/src/provider/provider.ts`
    - `packages/opencode/src/provider/transform.ts`
    - `packages/opencode/src/provider/models.ts`
-   - `packages/opencode/src/provider/models-snapshot.js`
+   - `packages/opencode/src/provider/models-local.ts`
+   - `packages/opencode/script/generate.ts`
    - `packages/opencode/test/provider/*`
    - `packages/opencode/test/session/llm.test.ts`
    - `packages/opencode/package.json`

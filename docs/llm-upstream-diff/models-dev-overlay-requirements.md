@@ -56,7 +56,7 @@ Function tools with reasoning_effort are not supported
 
 ## 3. 目标
 
-新增或规范化一个 repo 内维护的 `models.dev` 本地补丁层，在读取 cache/snapshot/live
+新增或规范化一个 repo 内维护的 `models.dev` 本地补丁层，在读取 cache/build fallback/live
 `models.dev` 数据后、进入 `Provider.fromModelsDevProvider()` 解析前生效。
 
 目标行为：
