@@ -1,5 +1,6 @@
 import { test as base, expect, type Page } from "@playwright/test"
 import { ManagedRuntime } from "effect"
+import path from "node:path"
 import { fileURLToPath } from "node:url"
 import type { E2EWindow } from "../src/testing/terminal"
 import type { Item, Usage } from "../../opencode/test/lib/llm-server"
@@ -21,7 +22,7 @@ import {
 import { promptSelector } from "./selectors"
 import { createSdk, dirSlug, serverUrl, sessionPath } from "./utils"
 
-const root = fileURLToPath(new URL("../../..", import.meta.url))
+const root = path.resolve(fileURLToPath(new URL("../../..", import.meta.url)))
 
 export const settingsKey = "settings.v3"
 
