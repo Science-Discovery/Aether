@@ -8,6 +8,7 @@ export namespace ProjectIdentity {
     root: string
     sandbox: string
     vcs?: "git"
+    kind?: "subdirectory"
   }
 
   export function norm(input: string) {
@@ -58,6 +59,18 @@ export namespace ProjectIdentity {
     }
 
     const sandbox = path.dirname(git)
+
+    if (norm(path.resolve(dir)) !== norm(sandbox)) {
+      const root = path.resolve(dir)
+      return {
+        id: ProjectID.fromDirectory(norm(root)),
+        root,
+        sandbox: root,
+        vcs: "git",
+        kind: "subdirectory",
+      }
+    }
+
     const root = (() => {
       try {
         if (statSync(git).isDirectory()) return sandbox

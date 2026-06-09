@@ -412,7 +412,13 @@ export namespace Project {
       const fromDirectory = Effect.fn("Project.fromDirectory")(function* (directory: string) {
         log.info("fromDirectory", { directory })
 
-        type DiscoveryResult = { id: ProjectID; worktree: string; sandbox: string; vcs: Info["vcs"] }
+        type DiscoveryResult = {
+          id: ProjectID
+          worktree: string
+          sandbox: string
+          vcs: Info["vcs"]
+          kind?: ProjectIdentity.Info["kind"]
+        }
 
         const data: DiscoveryResult = yield* Effect.sync(() => {
           const info = ProjectIdentity.resolve(directory)
@@ -421,6 +427,7 @@ export namespace Project {
             worktree: info.root,
             sandbox: info.sandbox,
             vcs: info.vcs ?? fakeVcs,
+            kind: info.kind,
           }
         })
 
@@ -561,7 +568,7 @@ export namespace Project {
 
         yield* emitUpdated(result)
 
-        if (result.vcs === "git" && data.sandbox === result.worktree) {
+        if (result.vcs === "git" && data.sandbox === result.worktree && data.kind !== "subdirectory") {
           yield* syncWorktrees(result.id, result.worktree).pipe(
             Effect.catch(() => Effect.void),
             Effect.forkIn(scope),
