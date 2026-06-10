@@ -16,7 +16,7 @@ import { useModels } from "@/context/models"
 import { usePlatform } from "@/context/platform"
 import { useSettings, monoFontFamily } from "@/context/settings"
 import { playSoundById, SOUND_OPTIONS } from "@/utils/sound"
-import { isVoiceModel } from "@/utils/voice"
+import { isChatModel, isVoiceModel } from "@/utils/voice"
 import { Link } from "./link"
 import { formatServerError } from "@/utils/server-errors"
 import { SettingsList } from "./settings-list"
@@ -137,7 +137,7 @@ export const SettingsGeneral: Component = () => {
     const items = models
       .list()
       .filter((m) => models.visible({ providerID: m.provider.id, modelID: m.id }))
-      .filter((m) => !voice(m))
+      .filter(isChatModel)
       .map((m) => ({
         value: `${m.provider.id}/${m.id}`,
         label: `${m.name} (${m.provider.name})`,
