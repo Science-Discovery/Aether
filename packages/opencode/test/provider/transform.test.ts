@@ -1,8 +1,23 @@
 import { describe, expect, test } from "bun:test"
+import type { ModelMessage } from "ai"
+import { Provider } from "../../src/provider/provider"
 import { ProviderTransform } from "../../src/provider/transform"
+import type { ModelsDev } from "../../src/provider/models"
 import { ModelID, ProviderID } from "../../src/provider/schema"
 
 const OUTPUT_TOKEN_MAX = 32000
+
+async function sample(pid: string, id: string) {
+  const data = (await Bun.file(new URL("../tool/fixtures/models-api.json", import.meta.url)).json()) as Record<
+    string,
+    ModelsDev.Provider
+  >
+  const provider = data[pid]
+  if (!provider) throw new Error(`Missing fixture provider: ${pid}`)
+  const model = Provider.fromModelsDevProvider(provider).models[id]
+  if (!model) throw new Error(`Missing fixture model: ${pid}/${id}`)
+  return model
+}
 
 describe("ProviderTransform.options - setCacheKey", () => {
   const sessionID = "test-session-123"
@@ -893,6 +908,30 @@ describe("ProviderTransform.schema - gemini non-object properties removal", () =
 })
 
 describe("ProviderTransform.message - DeepSeek reasoning content", () => {
+  test("fixture deepseek v4 models preserve interleaved reasoning metadata", async () => {
+    const flash = await sample("deepseek", "deepseek-v4-flash")
+    const pro = await sample("deepseek", "deepseek-v4-pro")
+
+    expect(ProviderTransform.variants(flash)).toEqual({})
+    expect(ProviderTransform.variants(pro)).toEqual({})
+    expect(flash.capabilities.interleaved).toEqual({ field: "reasoning_content" })
+    expect(pro.capabilities.interleaved).toEqual({ field: "reasoning_content" })
+
+    const msgs: ModelMessage[] = [
+      {
+        role: "assistant",
+        content: [
+          { type: "reasoning", text: "v4 thinking" },
+          { type: "text", text: "answer" },
+        ],
+      },
+    ]
+    const result = ProviderTransform.message(msgs, flash, {})
+
+    expect(result[0].content).toEqual([{ type: "text", text: "answer" }])
+    expect(result[0].providerOptions?.openaiCompatible?.reasoning_content).toBe("v4 thinking")
+  })
+
   test("DeepSeek with tool calls includes reasoning_content in providerOptions", () => {
     const msgs = [
       {
@@ -2801,6 +2840,44 @@ describe("ProviderTransform.variants", () => {
           includeThoughts: true,
           thinkingLevel: "high",
         },
+      })
+    })
+
+    test("fixture gemini-3.1 pro preview uses high thinking defaults", async () => {
+      const model = await sample("google", "gemini-3.1-pro-preview")
+      expect(model.api.npm).toBe("@ai-sdk/google")
+      expect(model.capabilities.reasoning).toBe(true)
+      expect(Object.keys(model.variants ?? {})).toEqual(["low", "medium", "high"])
+      expect(
+        ProviderTransform.options({
+          model,
+          sessionID: "test-session-123",
+          providerOptions: {},
+        }).thinkingConfig,
+      ).toEqual({
+        includeThoughts: true,
+        thinkingLevel: "high",
+      })
+    })
+
+    test("fixture gemini-3.1 flash lite preview uses small thinkingLevel", async () => {
+      const model = await sample("google", "gemini-3.1-flash-lite-preview")
+      expect(model.api.npm).toBe("@ai-sdk/google")
+      expect(Object.keys(model.variants ?? {})).toEqual(["low", "medium", "high"])
+      expect(ProviderTransform.smallOptions(model)).toEqual({
+        thinkingConfig: {
+          thinkingLevel: "minimal",
+        },
+      })
+      expect(
+        ProviderTransform.options({
+          model,
+          sessionID: "test-session-123",
+          providerOptions: {},
+        }).thinkingConfig,
+      ).toEqual({
+        includeThoughts: true,
+        thinkingLevel: "high",
       })
     })
   })

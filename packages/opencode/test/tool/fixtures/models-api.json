@@ -9830,6 +9830,42 @@
         "open_weights": false,
         "cost": { "input": 0.28, "output": 0.42, "cache_read": 0.028 },
         "limit": { "context": 128000, "output": 128000 }
+      },
+      "deepseek-v4-flash": {
+        "id": "deepseek-v4-flash",
+        "name": "DeepSeek V4 Flash",
+        "family": "deepseek-flash",
+        "attachment": false,
+        "reasoning": true,
+        "tool_call": true,
+        "interleaved": { "field": "reasoning_content" },
+        "structured_output": true,
+        "temperature": true,
+        "knowledge": "2025-05",
+        "release_date": "2026-04-24",
+        "last_updated": "2026-04-24",
+        "modalities": { "input": ["text"], "output": ["text"] },
+        "open_weights": true,
+        "limit": { "context": 1000000, "output": 384000 },
+        "cost": { "input": 0.14, "output": 0.28, "cache_read": 0.028 }
+      },
+      "deepseek-v4-pro": {
+        "id": "deepseek-v4-pro",
+        "name": "DeepSeek V4 Pro",
+        "family": "deepseek-thinking",
+        "attachment": false,
+        "reasoning": true,
+        "tool_call": true,
+        "interleaved": { "field": "reasoning_content" },
+        "structured_output": true,
+        "temperature": true,
+        "knowledge": "2025-05",
+        "release_date": "2026-04-24",
+        "last_updated": "2026-04-24",
+        "modalities": { "input": ["text"], "output": ["text"] },
+        "open_weights": true,
+        "limit": { "context": 1000000, "output": 384000 },
+        "cost": { "input": 1.74, "output": 3.48, "cache_read": 0.145 }
       }
     }
   },
@@ -21833,6 +21869,23 @@
         },
         "limit": { "context": 1048576, "output": 65536 }
       },
+      "gemini-3.1-flash-lite-preview": {
+        "id": "gemini-3.1-flash-lite-preview",
+        "name": "Gemini 3.1 Flash Lite Preview",
+        "family": "gemini-flash-lite",
+        "attachment": true,
+        "reasoning": true,
+        "tool_call": true,
+        "structured_output": true,
+        "temperature": true,
+        "knowledge": "2025-01",
+        "release_date": "2026-03-03",
+        "last_updated": "2026-03-03",
+        "modalities": { "input": ["text", "image", "video", "audio", "pdf"], "output": ["text"] },
+        "open_weights": false,
+        "limit": { "context": 1048576, "output": 65536 },
+        "cost": { "input": 0.25, "output": 1.5, "cache_read": 0.025, "input_audio": 0.5 }
+      },
       "gemini-2.5-flash-image": {
         "id": "gemini-2.5-flash-image",
         "name": "Gemini 2.5 Flash Image",
@@ -21904,6 +21957,36 @@
           "context_over_200k": { "input": 4, "output": 18, "cache_read": 0.4 }
         },
         "limit": { "context": 1000000, "output": 64000 }
+      },
+      "gemini-3.1-pro-preview": {
+        "id": "gemini-3.1-pro-preview",
+        "name": "Gemini 3.1 Pro Preview",
+        "family": "gemini-pro",
+        "attachment": true,
+        "reasoning": true,
+        "tool_call": true,
+        "structured_output": true,
+        "temperature": true,
+        "knowledge": "2025-01",
+        "release_date": "2026-02-19",
+        "last_updated": "2026-02-19",
+        "modalities": { "input": ["text", "image", "video", "audio", "pdf"], "output": ["text"] },
+        "open_weights": false,
+        "limit": { "context": 1048576, "output": 65536 },
+        "cost": {
+          "input": 2,
+          "output": 12,
+          "cache_read": 0.2,
+          "tiers": [
+            {
+              "input": 4,
+              "output": 18,
+              "cache_read": 0.4,
+              "tier": { "type": "context", "size": 200000 }
+            }
+          ],
+          "context_over_200k": { "input": 4, "output": 18, "cache_read": 0.4 }
+        }
       },
       "gemini-2.5-flash": {
         "id": "gemini-2.5-flash",
