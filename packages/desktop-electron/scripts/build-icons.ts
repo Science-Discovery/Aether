@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 
 import { createHash } from "node:crypto"
-import { existsSync, mkdirSync, readdirSync, rmSync } from "node:fs"
+import { mkdirSync, readdirSync, rmSync } from "node:fs"
 import { join, resolve } from "node:path"
 import { Icns, IcnsImage } from "@fiahfy/icns"
 import pngToIco from "png-to-ico"
@@ -12,7 +12,6 @@ const arg = process.argv[2]
 const channel = channels.find((item) => item === arg) ?? "prod"
 const root = resolve(import.meta.dir, "..")
 const out = join(root, "icons", channel)
-const svg = join(root, "../ui/src/assets/favicon/favicon-v3.svg")
 const png = join(root, "../ui/src/assets/favicon/web-app-manifest-512x512.png")
 const sizes = [16, 24, 32, 48, 64, 128, 256, 512]
 const ico = [16, 24, 32, 48, 64, 128, 256]
@@ -57,8 +56,7 @@ async function buildIcns() {
 }
 
 async function render(size: number, file: string) {
-  const src = existsSync(svg) ? svg : png
-  await sharp(src, { density: 1024 }).resize(size, size).png().toFile(file)
+  await sharp(png).resize(size, size).png().toFile(file)
 }
 
 async function mac(size: number, file: string) {
