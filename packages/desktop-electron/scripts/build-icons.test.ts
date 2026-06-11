@@ -41,6 +41,30 @@ async function bounds(buf: ArrayBuffer | Buffer) {
   }
 }
 
+async function visual(buf: ArrayBuffer | Buffer) {
+  const raw = await sharp(buf).ensureAlpha().raw().toBuffer({ resolveWithObject: true })
+  const box = Array.from({ length: raw.info.width * raw.info.height }).reduce(
+    (acc, _, i) => {
+      if (raw.data[i * 4 + 3] <= 8) return acc
+      const x = i % raw.info.width
+      const y = Math.floor(i / raw.info.width)
+      return {
+        left: Math.min(acc.left, x),
+        top: Math.min(acc.top, y),
+        right: Math.max(acc.right, x),
+        bottom: Math.max(acc.bottom, y),
+      }
+    },
+    { left: raw.info.width, top: raw.info.height, right: -1, bottom: -1 },
+  )
+  return {
+    width: box.right - box.left + 1,
+    height: box.bottom - box.top + 1,
+    left: box.left,
+    top: box.top,
+  }
+}
+
 async function layer(file: string) {
   const data = Icns.from(Buffer.from(await Bun.file(file).arrayBuffer()))
   const image = data.images.find((item) => item.osType === "ic09")
@@ -66,6 +90,15 @@ describe("desktop icons", () => {
         const meta = await sharp(join(dir, `${size}x${size}.png`)).metadata()
         expect(meta.width).toBe(size)
         expect(meta.height).toBe(size)
+      }
+    })
+
+    test(`${channel} png visible bounds fill canvas`, async () => {
+      const dir = join(root, "icons", channel)
+      for (const size of sizes) {
+        const box = await visual(await Bun.file(join(dir, `${size}x${size}.png`)).arrayBuffer())
+        expect(box.width / size).toBeGreaterThanOrEqual(0.85)
+        expect(box.height / size).toBeGreaterThanOrEqual(0.85)
       }
     })
 
