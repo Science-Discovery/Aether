@@ -5,8 +5,9 @@
 > 把其中 `LLM-UP-001 ~ 035` 的差异点**按 LLM API 调用链路的环节重新归类**，
 > 给出当前 Aether 在每个环节上的缺陷/bug 清单，并标注哪些可以直接从上游迁移。
 >
-> 文中的「现状未覆盖」均在当前 HEAD `8a79a87dd` 用 grep 二次复核过（关键行号见下）。
-> 上一轮报告基线 HEAD 为 `750aa9945`，期间仅新增本目录的报告文档，链路代码未变。
+> 文中的「现状未覆盖」最初在 HEAD `8a79a87dd` 用 grep 二次复核过（关键行号见下）。
+> 2026-06-10 补充复核时，`ProviderTransform` 中部分 reasoning 修复已经落地；本次同时补充
+> `packages/opencode/test/tool/fixtures/models-api.json` 相对上游模型集合滞后的测试覆盖风险。
 
 ---
 
@@ -18,6 +19,24 @@
 2. **AI SDK 代际差。** Aether 在 AI SDK **v5** 线（`ai 5.0.124`、`@ai-sdk/google 2.x`、`vertex 3.x`、`bedrock 3.x`、`xai 2.x`、`mistral 2.x`），上游已在 **v6**。所有「bump 某 provider SDK」类提交都被这个代际差阻塞，统一归入 v6 迁移专项。
 
 **结论：本文所有「可直接迁移」均指「行为语义可在 Aether 现有架构内复刻」，不是 git cherry-pick。**
+
+### 0.1 测试 fixture 的模型集合滞后
+
+`packages/opencode/test/tool/fixtures/models-api.json` 不是完全没有新模型：本地 fixture 已有 `gpt-5.2`、
+`claude-opus-4-5`、`gemini-3-flash`、`deepseek-v3.2`、`qwen3` 等条目。本次已补入 direct provider
+的 `deepseek-v4-flash`、`deepseek-v4-pro`、`gemini-3.1-pro-preview`、`gemini-3.1-flash-lite-preview`
+样本，但它仍明显滞后于 `~/tmp/opencode` 的 fixture，至少缺少以下会触发现有硬编码分支的新模型样本：
+
+| 缺口 | 本地 fixture | 上游 fixture | 风险 |
+|------|--------------|--------------|------|
+| DeepSeek v4 聚合 provider | direct `deepseek` 已命中 `deepseek-v4-flash` / `deepseek-v4-pro`；Vercel/OpenRouter 等聚合路径未补 | 已含 `deepseek-v4-flash`、`deepseek-v4-pro` 及多 provider 路径 | direct provider 已有 fixture-backed 覆盖；聚合 provider 的 slug/providerOptions 路径仍缺真实 metadata 回归样本 |
+| Gemini 3.1 聚合 provider | direct `google` 已命中 `gemini-3.1-pro-preview` / `gemini-3.1-flash-lite-preview`；Vercel/OpenRouter 等聚合路径未补 | 已含 `gemini-3.1-pro-preview`、`gemini-3.1-flash-lite(-preview)`、`google/gemini-3.1-*` | direct Google thinking level / smallOptions 已有 fixture-backed 覆盖；Gateway/OpenRouter 映射仍缺真实 metadata 回归样本 |
+
+当前 `test/session/llm.test.ts` 虽会读取这个 fixture，但实际只用到少数代表模型（如 `alibaba/qwen-plus`、
+`openai/gpt-5.2`、`anthropic/claude-3-5-sonnet-20241022`、`google/gemini-2.5-flash`）。因此即使
+fixture 里有部分新模型，也不能证明 `provider.ts` / `transform.ts` 对新模型命名的硬编码判断已经被真实
+models.dev metadata 测到。本次新增 direct DeepSeek v4 / Google Gemini 3.1 的 fixture-backed transform
+覆盖；provider/gateway 聚合路径仍待补齐。
 
 ---
 
@@ -61,6 +80,7 @@
 | F 会话/压缩/计费 | LLM-UP-009、~~018~~（误报，已撤销）、021、035(专项) |
 | G Copilot SDK | LLM-UP-012、015 |
 | 横切（依赖升级） | LLM-UP-007（OpenRouter SDK）、AI SDK v6 专项、LLM-UP-033 native runtime |
+| 横切（测试数据/fixture） | `models-api.json` 缺 DeepSeek v4 / Gemini 3.1 等聚合 provider 新模型样本 |
 
 ---
 
@@ -86,7 +106,7 @@
 | LLM-UP-002 Anthropic tool-call 后 text/reasoning 重排 | ✅ 已覆盖 | `ProviderTransform.message` 已拆分 `[tool-call, text/reasoning]` | Anthropic / Vertex Anthropic |
 | LLM-UP-006 DeepSeek 空 reasoning 保留 | ✅ 已覆盖 | DeepSeek assistant 补空 reasoning + 回灌空 `reasoning_content` | DeepSeek / 国产 interleaved |
 | LLM-UP-008 Azure providerOptions/store/cache | ✅ 保留本地策略 | 当前 `providerOptions` 保留 `azure` key，不双写 openai | Azure（与上游双写策略不同，刻意保留） |
-| **LLM-UP-016 Opus 4.7+ `display:"summarized"` + 泛化检测** | 🐛 Bug | `transform.ts:414` 仅字面匹配 `opus-4-7/4.7`；全文件 `display:"summarized"` **0 命中**（已复核） | **Opus 4.7+ 收到空 thinking 块**；SAP 反序 / Vertex `@` 后缀命名变体不被识别为 adaptive |
+| LLM-UP-016 Opus 4.7+ `display:"summarized"` + 泛化检测 | ✅ 已覆盖（需真实 smoke） | 当前 `opus47()` 已支持 `opus-4.7`、`opus-4-7`、`claude-4.7-opus`、Vertex `@` 后缀；Anthropic/Gateway/Bedrock/SAP adaptive 分支已写 `display:"summarized"` | 仍建议对 Opus 4.7+ 真实 provider smoke，确认 API 返回非空 thinking summary |
 | **LLM-UP-019 sanitizeSurrogates** | ⚠️ 缺陷 | `transform.ts` 无 surrogate 清洗（已复核 0 命中） | 落单 UTF-16 代理项导致部分 provider 400 |
 | **LLM-UP-020 tools 按名排序** | ⚠️ 缺陷 | `llm.ts:330` `activeTools: Object.keys(tools)` 未排序（已复核） | tools 顺序抖动 → prompt cache miss |
 | **LLM-UP-024 Azure gpt-5.5 走 completions** | 🐛 Bug | `options()`（`transform.ts:890-915`）有 gpt-5 块但无 gpt-5.5/azure 短路 | Azure gpt-5.5 拿到 `reasoning_effort` → **400** |
@@ -98,7 +118,7 @@
 | 项 | 类型 | 现状（复核行号） | 影响 |
 |----|------|------|------|
 | LLM-UP-005 跨模型 reasoning 转 text | ✅ 已覆盖 | `toModelMessages` 在 `differentModel` 时把非空 reasoning 转 text、丢空 reasoning | Bedrock / 切模型续聊 |
-| **LLM-UP-017 签名 reasoning 保留** | 🐛 Bug | `transform.ts:108-111` 仍 `part.text !== ""` 直接丢空 reasoning；`message-v2.ts:703-709` 无 `hasSignedReasoning` | 丢签名 reasoning → Anthropic/Bedrock 签名位移 **400** |
+| LLM-UP-017 签名 reasoning 保留 | ✅ 已覆盖 | `normalizeMessages` 已保留带 `anthropic/bedrock.signature` 或 `.redactedData` 的空 reasoning；`message-v2.ts` 已对带签名 reasoning 的空 text 写 `" "` | 仍需保留回归测试，避免后续清理空内容时破坏签名位置 |
 
 ### 环节 D —— 流式传输 / Transport（`provider.ts` wrapSSE / `llm.ts`）
 
@@ -135,22 +155,31 @@
 
 > **关键定性（06-02 报告确认）：** 上游 `28112fbd1..687c66248` 内**根本没有 `provider/sdk/` 目录**，整套 Copilot SDK 是 Aether vendored，上游用 stock `@ai-sdk/github-copilot`。**LLM-UP-015 永远不会由上游修复，必须 Aether 自行排期。**
 
+### 环节 H —— 测试 fixture / 新模型回归覆盖（`models-api.json`）
+
+| 项 | 类型 | 现状 | 影响 |
+|----|------|------|------|
+| DeepSeek v4 聚合 provider 缺口 | ⚠️ 缺陷 | direct `deepseek` 已补 `deepseek-v4-flash` / `deepseek-v4-pro`；上游 fixture 还包含这些模型的多种聚合 provider 变体 | DeepSeek v4 direct provider reasoning/interleaved 已有 fixture-backed 覆盖；聚合 provider slug/providerOptions 路径仍缺真实 metadata 回归样本 |
+| Gemini 3.1 聚合 provider 缺口 | ⚠️ 缺陷 | direct `google` 已补 `gemini-3.1-pro-preview` / `gemini-3.1-flash-lite-preview`；上游 fixture 还包含 OpenRouter、Vercel 等路径 | `gemini-3.1` thinking level、Google direct smallOptions 已有 fixture-backed 覆盖；Gateway/OpenRouter 映射仍缺真实 metadata 样本 |
+| fixture 使用面仍偏窄 | ⚠️ 缺陷 | `transform.test.ts` 已读取新增 direct DeepSeek v4 / Gemini 3.1 样本；`session/llm.test.ts` 仍集中在 `qwen-plus`、`gpt-5.2`、`claude-3-5-sonnet`、`gemini-2.5-flash` | `provider.ts` 中按模型名硬编码的 `gpt-5.*`、Copilot Responses/Chat 分流，以及聚合 provider 映射仍无法靠 fixture 全面回归 |
+
 ---
 
 ## 3. 可直接从上游迁移的修改（汇总）
 
 「可直接迁移」= 行为修复、不依赖 Effect/v6、当前确实未覆盖、改动局限在 Aether 现有文件内。
 
-### 第一批 —— 行为修复，机械或小而自洽（优先）
+### 第一批 —— 剩余行为修复，机械或小而自洽（优先）
 
-> 注：原列入第一批的 **LLM-UP-018（双重压缩）经实测确认为误报**，Aether 不存在该 bug（无 `tail_start_id` replay-tail 重排），已从下表移除，详见 §2 环节 F。
+> 注：原列入第一批的 **LLM-UP-016/017 已在当前代码覆盖**，`LLM-UP-018` 经实测确认为误报。
+> 剩余第一批重点是字符清洗和 tools 排序；同时补 fixture 新模型样本，避免新模型命名继续绕过测试。
+> 本次已先补 direct DeepSeek v4 / Google Gemini 3.1 样本，聚合 provider 路径仍需后续补齐。
 
 | 项 | 环节 | 类型 | 动作 | 风险 | 验收 |
 |----|------|------|------|------|------|
-| **LLM-UP-016** Opus 4.7+ `display:"summarized"` | B | 🐛 用户可见 | 移植 `anthropicOpus47OrLater` 正则 + 给四个 adaptive 分支加 `display:"summarized"`（四分支都已存在） | 中 | `bun test test/provider/transform.test.ts` |
 | **LLM-UP-019** sanitizeSurrogates | B | ⚠️ | helper 拼进 `normalizeMessages`，清洗 system/user/assistant text+reasoning 与 tool-result | 低（只改非法字符串） | `bun test test/provider/transform.test.ts` |
 | **LLM-UP-020** tools 排序 | B | ⚠️ cache | `Object.entries(tools).toSorted()` 一次后复用于 `activeTools`/repair 查找 | 低（首次一次性 cache miss） | `bun test test/session/llm.test.ts` |
-| **LLM-UP-017** 签名 reasoning 保留 | C | 🐛 | `normalizeMessages` 保留带 `signature`/`redactedData` 的空 reasoning；`toModelMessages` 空 text→`" "` | 中（不改触发 400） | `bun test test/provider/transform.test.ts test/session/message-v2.test.ts` |
+| **fixture 新模型样本** | H | ⚠️ coverage | 已补 direct DeepSeek v4 与 Google Gemini 3.1 代表模型；后续从上游 fixture 补 Vercel/OpenRouter 等聚合 provider 代表模型 | 低 | `bun test test/provider/transform.test.ts test/session/llm.test.ts` |
 
 ### 第二批 —— provider 专项小修，架构无关
 
@@ -212,21 +241,22 @@
 | 🔴 会崩/请求失败 | LLM-UP-023 | Azure Anthropic 无法 resolve |
 | 🔴 | LLM-UP-024 | Azure gpt-5.5 → 400 |
 | 🔴 | LLM-UP-025 | Vertex ADC token 铸造失败 |
-| 🔴 | LLM-UP-017 | 签名 reasoning 丢失 → Anthropic/Bedrock 400 |
+| ✅ 已覆盖但需防回归 | LLM-UP-017 | 签名 reasoning 保留已落地，需保留测试 |
 | 🔴 | LLM-UP-015① | Copilot chat tool 调用中断（自维护） |
-| 🟠 用户可见错误 | LLM-UP-016 | Opus 4.7+ 空 thinking 块 |
+| ✅ 已覆盖但需真实 smoke | LLM-UP-016 | Opus 4.7+ adaptive 配置已落地，需真实 provider 验证 |
 | ~~🟠 核心循环~~ | ~~LLM-UP-018~~ | ~~双重自动压缩~~ —— 经实测撤销，Aether 无此 bug |
-| 🟡 鲁棒性/正确性 | LLM-UP-019/020/021/022/026/027/028/029/030/031 | 字符清洗 / cache / 定价 / gateway / SSE 重试 / 超时 等 |
+| 🟡 鲁棒性/正确性 | LLM-UP-019/020/021/022/026/027/028/029/030/031 + fixture 缺口 | 字符清洗 / cache / 定价 / gateway / SSE 重试 / 超时 / 新模型覆盖 等 |
 
 ---
 
 ## 6. 落地建议
 
-1. **先做第一批四项**（016/017/019/020）：都不依赖 Effect/v6，016/017 是用户可见 / 会触发 400 的 reasoning 问题。每项都有现成测试入口。（原列入的 `LLM-UP-018` 经实测为误报，已撤销——Aether 无 `tail_start_id` replay-tail 重排，`filterCompacted` 直接排除溢出 tail，详见 §2 环节 F。）
+1. **先做剩余第一批**：`LLM-UP-019/020` 加上 fixture 新模型样本。direct DeepSeek v4 / Google Gemini 3.1 已补，后续继续补聚合 provider 路径；`LLM-UP-016/017` 当前已覆盖，但应保留/补强真实模型命名回归；`LLM-UP-018` 经实测为误报，已撤销。
 2. **第二批 provider 专项**（022~025/027/031/021）：按 provider 真实使用面排序——若 Aether 实际服务 Azure / Vertex，则 023/024/025 应提到第一梯队。
 3. **第三批默认低优**；LLM-UP-029 `headerTimeout` 落地时**默认关闭或调大**，防国内代理误 abort。
-4. **守住反向冲突** `2f2fcc165`，回迁任何 session diff 相关代码前先核对 `bafdfb6d2`。
-5. **Copilot SDK（015）与 AI SDK v6 迁移**各开独立专项，不混入上面三批。
+4. **更新 fixture 时不要整文件盲拷贝**：优先用脚本/结构化 JSON 合并上游新增 provider/model 条目，至少覆盖 `deepseek-v4-flash`、`deepseek-v4-pro`、`gemini-3.1-pro-preview`、`gemini-3.1-flash-lite(-preview)`，并补断言说明这些样本触发了哪些 hardcoded 分支。
+5. **守住反向冲突** `2f2fcc165`，回迁任何 session diff 相关代码前先核对 `bafdfb6d2`。
+6. **Copilot SDK（015）与 AI SDK v6 迁移**各开独立专项，不混入上面三批。
 
 ### 统一验收
 
