@@ -2,6 +2,8 @@ import { Counter } from "./counter"
 import { DEFAULT_NUDGE_INTERVAL } from "./constants"
 import { ConfigReader } from "./config-reader"
 import { isReviewSession, spawnReview } from "./review-agent"
+import { Spawner } from "./spawner"
+import { Curator } from "./curator/curator"
 import { Log } from "@/util/log"
 import { SessionID } from "@/session/schema"
 
@@ -47,6 +49,11 @@ export namespace SkillEvolutionHook {
 
     // Global master switch (skills.evolution_enabled). Off → no project evolves.
     if (!(await ConfigReader.isEvolutionEnabled())) return
+
+    // Curator: pure-logic skill-library maintenance, gated internally (7-day
+    // interval). Independent of the review counter below. Fire-and-forget —
+    // maybeRun never throws and returns quickly when not due.
+    void Curator.maybeRun(Spawner.skillEvolutionRoot())
 
     const interval = await ConfigReader.getNudgeInterval().catch(() => DEFAULT_NUDGE_INTERVAL)
     if (interval === 0) return

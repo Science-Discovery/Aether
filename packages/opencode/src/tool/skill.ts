@@ -7,6 +7,8 @@ import { Skill } from "../skill"
 import { Ripgrep } from "../file/ripgrep"
 import { ConfigMarkdown } from "../config/markdown"
 import { iife } from "@/util/iife"
+import { Spawner } from "../skill-evolution/spawner"
+import { Usage } from "../skill-evolution/curator/usage"
 
 export const SkillTool = Tool.define("skill", async (ctx) => {
   const list = await Skill.available(ctx?.agent)
@@ -61,6 +63,10 @@ export const SkillTool = Tool.define("skill", async (ctx) => {
         always: [params.name],
         metadata: {},
       })
+
+      // Curator: record that this skill was loaded. Best-effort, in-scope-only,
+      // never throws — must not affect skill loading.
+      await Usage.bumpUse(Spawner.skillEvolutionRoot(), skill.location)
 
       const dir = path.dirname(skill.location)
       const base = pathToFileURL(dir).href
