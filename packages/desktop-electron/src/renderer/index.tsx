@@ -224,7 +224,10 @@ const createPlatform = (): Platform => {
 
     parseMarkdown: (markdown: string) => window.api.parseMarkdownCommand(markdown),
 
-    runUpdater: SETTINGS_UPDATER_ENABLED() ? () => runUpdater({ alertOnFail: true }) : undefined,
+    get runUpdater() {
+      if (!SETTINGS_UPDATER_ENABLED()) return undefined
+      return () => runUpdater({ alertOnFail: true })
+    },
 
     webviewZoom,
 
