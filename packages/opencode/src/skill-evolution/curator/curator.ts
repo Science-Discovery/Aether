@@ -83,6 +83,7 @@ export namespace Curator {
     reactivated: number
     archived: number
     orphans: number
+    healed: number
   }
 
   /** Enumerate in-scope skills on disk: `<root>/<projectId>/skills/<name>/SKILL.md`. */
@@ -126,6 +127,7 @@ export namespace Curator {
       reactivated: 0,
       archived: 0,
       orphans: 0,
+      healed: 0,
     }
 
     for (const s of await scanSkills(root)) {
@@ -156,9 +158,13 @@ export namespace Curator {
       }
     }
 
-    // Orphan cleanup: a non-archived record whose skill directory is gone
-    // (deleted out-of-band, e.g. via skill_manage delete). Archived records
-    // legitimately have a non-existent location, so skip them.
+    // Orphan cleanup: a non-archived record whose skill directory is gone.
+    // Two causes look identical (state≠archived + location missing):
+    //  - true orphan: skill deleted out-of-band (e.g. skill_manage delete) → forget.
+    //  - fake orphan: a concurrent write clobbered state back to active AFTER the
+    //    dir was moved to archive/ → heal back to archived, don't forget (else the
+    //    archived copy loses its ledger entry and becomes unrecoverable).
+    // Archived records legitimately have a non-existent location, so skip them.
     const ledger = await Usage.load(root)
     for (const [key, rec] of Object.entries(ledger)) {
       if (rec.state === "archived") continue
@@ -166,7 +172,11 @@ export namespace Curator {
         () => true,
         () => false,
       )
-      if (!live) {
+      if (live) continue
+      if (await Usage.hasArchivedCopy(root, rec.projectId, rec.name)) {
+        await Usage.setState(root, key, "archived", now)
+        counts.healed++
+      } else {
         await Usage.forget(root, key)
         counts.orphans++
       }

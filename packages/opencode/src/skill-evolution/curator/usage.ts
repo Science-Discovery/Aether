@@ -106,6 +106,17 @@ export namespace Usage {
   }
 
   /**
+   * Whether an archived copy of a skill exists at `<root>/<projectId>/archive/<name>/`.
+   * Used by orphan cleanup to tell a true orphan (skill deleted out-of-band) from a
+   * fake one (record state clobbered back from `archived` to `active` by a concurrent
+   * write while the directory was already moved to archive/). Exact-match only: a
+   * timestamp-suffixed copy from an archive name-collision is not detected.
+   */
+  export async function hasArchivedCopy(root: string, projectId: string, name: string): Promise<boolean> {
+    return pathExists(path.join(archiveRoot(root, projectId), name))
+  }
+
+  /**
    * Archive a skill: move its directory to `<root>/<projectId>/archive/<name>/`
    * and mark the ledger record `archived`. The directory is MOVED (recoverable),
    * never deleted. Returns false if the record or its directory is missing.

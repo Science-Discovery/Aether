@@ -226,6 +226,30 @@ describe("Curator.applyAutomaticTransitions — transitions & edges", () => {
     }
   })
 
+  // M16b: 假孤儿自愈 — 记录 state=active 且原目录没了, 但 archive/ 里有副本
+  // (并发覆盖把归档状态刷回 active 造成) → 不能删, 应修回 archived 保住可恢复性
+  test("heals a fake orphan (archived copy exists) instead of forgetting it", async () => {
+    const tmp = await makeTmp()
+    try {
+      const loc = path.join(tmp.path, "proj1", "skills", "foo") // 原位置: 已不存在
+      const archived = path.join(tmp.path, "proj1", "archive", "foo")
+      await fs.mkdir(archived, { recursive: true })
+      await fs.writeFile(path.join(archived, "SKILL.md"), "---\nname: foo\n---\n", "utf-8")
+      // 账本被并发覆盖后的样子: 状态 active, 但目录已被搬到 archive/
+      await writeLedger(tmp.path, { "proj1/foo": record("proj1", "foo", loc, { state: "active" }) })
+
+      const counts = await Curator.applyAutomaticTransitions(tmp.path, { now: NOW })
+
+      const data = await Usage.load(tmp.path)
+      expect(data["proj1/foo"]).toBeDefined() // 没被误删
+      expect(data["proj1/foo"]!.state).toBe("archived") // 修回 archived
+      expect(counts.healed).toBe(1)
+      expect(counts.orphans).toBe(0)
+    } finally {
+      await tmp.cleanup()
+    }
+  })
+
   // M17: 跨项目同名 — 归档 proj1/foo 不影响 proj2/foo (复合键)
   test("handles same-name skills in different projects independently", async () => {
     const tmp = await makeTmp()
