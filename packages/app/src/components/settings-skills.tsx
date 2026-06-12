@@ -127,6 +127,11 @@ export const SettingsSkills: Component = () => {
     }
   }
 
+  const curatorEnabled = createMemo(() => {
+    const cfg = globalSync.data.config as any
+    return (cfg.skills?.curator_enabled as boolean | undefined) ?? true
+  })
+
   const updateInterval = async (interval: number) => {
     setSaving(true)
     try {
@@ -167,6 +172,18 @@ export const SettingsSkills: Component = () => {
     setSaving(true)
     try {
       await globalSync.updateConfig({ skills: { review_max_total_chars: max } } as any)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      showToast({ title: "Request failed", description: message })
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const updateCuratorEnabled = async (enabled: boolean) => {
+    setSaving(true)
+    try {
+      await globalSync.updateConfig({ skills: { curator_enabled: enabled } } as any)
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       showToast({ title: "Request failed", description: message })
@@ -287,6 +304,17 @@ export const SettingsSkills: Component = () => {
             />
             <span class="text-14-regular text-text-weak">k</span>
             </div>
+          </SettingsRow>
+
+          <SettingsRow
+            title={language.t("settingsSkills.curatorEnabled")}
+            description={language.t("settingsSkills.curatorEnabledDescription")}
+          >
+            <Switch
+              checked={curatorEnabled()}
+              disabled={saving() || !evolutionEnabled()}
+              onChange={(enabled) => void updateCuratorEnabled(enabled)}
+            />
           </SettingsRow>
         </SettingsList>
 

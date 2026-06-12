@@ -1015,6 +1015,8 @@ export const dict = {
   "settingsSkills.reviewMaxTotalCharsDescription": "一次后台评审整场最多输出多少字符（单位 k，即千），超过就停掉整场——防止评审一步步磨蹭停不下来。默认 1000k（100 万）。",
   "settingsSkills.evolutionEnabled": "Skill 自进化",
   "settingsSkills.evolutionEnabledDescription": "总开关。关闭后所有项目都不再触发后台 Skill 评审——下面的设置在重新打开前都不生效。",
+  "settingsSkills.curatorEnabled": "Skill 管家",
+  "settingsSkills.curatorEnabledDescription": "定期统计 Skill 使用次数、把长期没用的标记为陈旧，并把 90 天没动过的 Skill 归档（归档副本可恢复）。关闭后停止所有自动维护。",
   "settingsSkills.outputDirsTitle": "产出目录",
   "settingsSkills.outputDirsDescription": "每个项目自进化出的 Skill 写到哪个文件夹，一个项目一个目录。",
   "settingsSkills.outputDirsEmpty": "暂无项目。",

@@ -35,6 +35,15 @@ export namespace ConfigReader {
   }
 
   /**
+   * Returns whether the skill curator is enabled (skills.curator_enabled).
+   * Defaults to true (curator runs unless the user explicitly turns it off).
+   */
+  export async function getCuratorEnabled(): Promise<boolean> {
+    const cfg = await Config.get().catch(() => undefined)
+    return cfg?.skills?.curator_enabled ?? true
+  }
+
+  /**
    * Returns the full skill evolution config, merging config values with defaults.
    */
   export async function get(): Promise<{ creation_nudge_interval: number; max_versions: number }> {

@@ -1,10 +1,12 @@
-import { describe, expect, test } from "bun:test"
+import { describe, expect, test, spyOn } from "bun:test"
 import fs from "fs/promises"
 import os from "os"
 import path from "path"
 import { Curator } from "./curator"
 import { Usage, type UsageRecord } from "./usage"
 import { DEFAULT_CURATOR_CONFIG } from "./constants"
+import { Config } from "@/config/config"
+import { ConfigReader } from "../config-reader"
 
 async function makeTmp(): Promise<{ path: string; cleanup: () => Promise<void> }> {
   const p = await fs.mkdtemp(path.join(os.tmpdir(), "curator-test-"))
@@ -300,6 +302,60 @@ describe("Curator.maybeRun", () => {
       expect(counts).toBeNull()
       expect(await exists(dir)).toBe(true) // untouched
     } finally {
+      await tmp.cleanup()
+    }
+  })
+})
+
+// 总开关接力 — 写(config 里的 curator_enabled)→ 读(getCuratorEnabled)→ 跑决定(maybeRun 的真实搬文件结果)
+// 必须真让写和读在测验里接力跑一遍, 不手填中间值: 用 spyOn 扮演"用户已在 aether.jsonc 拨好开关",
+// 让该值流过 getCuratorEnabled 进到 maybeRun, 断言它真的改变了归档结果。
+describe("Curator on/off switch wiring (config → getCuratorEnabled → maybeRun)", () => {
+  // 关: 即使过了 7 天间隔、skill 早该归档, 关了就不许搬
+  test("a disabled config stops an otherwise-due run (no archive)", async () => {
+    const tmp = await makeTmp()
+    const spy = spyOn(Config, "get").mockResolvedValue({ skills: { curator_enabled: false } } as any)
+    try {
+      const dir = await makeSkill(tmp.path, "proj1", "foo", 100 * DAY)
+      await Curator.saveState(tmp.path, { lastRunAt: ago(8 * DAY), paused: false, runCount: 1 })
+
+      // 读那头: 写进 config 的 false 必须被 getCuratorEnabled 读出来
+      const enabled = await ConfigReader.getCuratorEnabled()
+      expect(enabled).toBe(false)
+
+      // 接线: 完全照 hook.ts 构造 config 的方式喂给 maybeRun
+      const counts = await Curator.maybeRun(tmp.path, {
+        now: NOW,
+        config: { ...DEFAULT_CURATOR_CONFIG, enabled },
+      })
+      expect(counts).toBeNull()
+      expect(await exists(dir)).toBe(true) // 没被归档 — 开关被尊重
+    } finally {
+      spy.mockRestore()
+      await tmp.cleanup()
+    }
+  })
+
+  // 未设(默认开): skill 到期 → 照常归档; 同时验 ?? true 默认值
+  test("an unset config defaults to on and lets a due run archive", async () => {
+    const tmp = await makeTmp()
+    const spy = spyOn(Config, "get").mockResolvedValue({ skills: {} } as any)
+    try {
+      const dir = await makeSkill(tmp.path, "proj1", "foo", 100 * DAY)
+      await Curator.saveState(tmp.path, { lastRunAt: ago(8 * DAY), paused: false, runCount: 1 })
+
+      const enabled = await ConfigReader.getCuratorEnabled()
+      expect(enabled).toBe(true) // 没设 → 默认开
+
+      const counts = await Curator.maybeRun(tmp.path, {
+        now: NOW,
+        config: { ...DEFAULT_CURATOR_CONFIG, enabled },
+      })
+      expect(counts).not.toBeNull()
+      expect(counts!.archived).toBe(1)
+      expect(await exists(dir)).toBe(false) // 已归档
+    } finally {
+      spy.mockRestore()
       await tmp.cleanup()
     }
   })
