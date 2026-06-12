@@ -219,6 +219,7 @@ export interface MediaAttachment {
   aesKey?: string
   aesKeyHex?: string
   fullUrl?: string
+  wechatVoiceText?: string
   rawItem: dict
 }
 
@@ -262,6 +263,7 @@ function extractItemInfo(itemList: dict[]): { text: string; attachments: MediaAt
           encryptQueryParam: media.encrypt_query_param,
           aesKey: media.aes_key,
           fullUrl: media.full_url,
+          wechatVoiceText: vt || undefined,
           rawItem: item,
         })
       }

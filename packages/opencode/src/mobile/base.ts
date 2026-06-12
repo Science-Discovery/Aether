@@ -17,6 +17,7 @@ import { SessionStatus } from "@/session/status"
 import { Provider } from "@/provider/provider"
 import { ProviderID } from "@/provider/schema"
 import { ModelID } from "@/provider/schema"
+import { ModelsDev } from "@/provider/models"
 import { Agent } from "@/agent/agent"
 import { SessionPreference } from "@/session/preference"
 import { Question } from "@/question"
@@ -126,6 +127,10 @@ export abstract class MobileManagerBase {
   protected _questionProgress: Record<string, { index: number; answers: string[][] }> = {}
   protected _pendingPermissions: Record<string, Permission.Request> = {}
   protected _pendingConfirmCreate: Record<string, { path: string }> = {}
+  protected _pendingVoiceConfirm: Record<
+    string,
+    { text: string; messageId: string; effectiveDir: string; mediaAttachments?: MediaAttachment[] }
+  > = {}
   protected _activePrompt = new Map<string, { sessionId: string; messageId: string; directory: string }>()
   protected _processedIds = new Map<string, number>()
   protected _busUnsubs: (() => void)[] = []
@@ -429,6 +434,75 @@ export abstract class MobileManagerBase {
     }
   }
 
+  protected async correctVoiceText(raw: string, scope: string): Promise<string> {
+    const model = this.resolveModel(scope)
+    if (!model) return raw
+    const { providerID, modelID } = model
+
+    const provider = await Provider.getProvider(providerID)
+    if (!provider) return raw
+
+    const modelsDevProviders = await ModelsDev.get()
+    const modelsDevProvider = modelsDevProviders[providerID]
+
+    const baseURL =
+      (typeof provider.options["baseURL"] === "string" && provider.options["baseURL"]) ||
+      (typeof provider.options["endpoint"] === "string" && provider.options["endpoint"]) ||
+      modelsDevProvider?.api
+    if (!baseURL) return raw
+
+    const apiKey = (provider.options["apiKey"] as string) ?? provider.key
+    if (!apiKey) return raw
+
+    let endpoint = baseURL.replace(/\/+$/, "")
+    if (!endpoint.endsWith("/chat/completions")) endpoint += "/chat/completions"
+
+    console.log(`[${this.adapter.platform}] correcting voice text with ${providerID}/${modelID}`)
+
+    try {
+      const resp = await fetch(endpoint, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          model: modelID,
+          messages: [
+            {
+              role: "system",
+              content:
+                "Fix homophone errors, filler words, and punctuation in this Chinese voice transcript. " +
+                "Output ONLY the corrected text — no answers, no explanations.",
+            },
+            { role: "user", content: raw },
+          ],
+          temperature: 0,
+          max_tokens: 200,
+        }),
+      })
+
+      if (!resp.ok) {
+        const errText = await resp.text().catch(() => "")
+        console.error(`[${this.adapter.platform}] voice correction failed: ${resp.status} ${errText.slice(0, 200)}`)
+        return raw
+      }
+
+      const data: any = await resp.json()
+      const content = data.choices?.[0]?.message?.content?.trim()
+      if (content) {
+        console.log(`[${this.adapter.platform}] voice corrected:`, content.slice(0, 100))
+        return content
+      }
+    } catch (err) {
+      console.error(
+        `[${this.adapter.platform}] voice correction error:`,
+        err instanceof Error ? err.message : String(err),
+      )
+    }
+    return raw
+  }
+
   protected async clearRuntime(scope: string): Promise<void> {
     delete this._pendingQuestions[scope]
     delete this._questionProgress[scope]
@@ -666,6 +740,19 @@ export abstract class MobileManagerBase {
         return
       }
 
+      const pendingVoice = this._pendingVoiceConfirm[scope]
+      if (pendingVoice) {
+        const lower = text.trim().toLowerCase()
+        if (lower === "y" || lower === "yes" || lower === "确认") {
+          await this.confirmVoiceText(scope, reply, true, pendingVoice)
+        } else if (lower === "n" || lower === "no" || lower === "取消") {
+          await this.confirmVoiceText(scope, reply, false, pendingVoice)
+        } else {
+          await this.replySession(scope, reply, "请回复 y 确认发送或 n 取消。")
+        }
+        return
+      }
+
       const pendingConfirm = this._pendingConfirmCreate[scope]
       if (pendingConfirm) {
         const lower = text.trim().toLowerCase()
@@ -697,6 +784,19 @@ export abstract class MobileManagerBase {
           reply,
           "当前会话正在生成回复，请等待当前对话结束后再发送；如需立即开始新问题，请先 /new 或切换 /session n。如需停止本会话请输入 /stop",
         )
+        return
+      }
+
+      const isVoice = mediaAttachments?.some((a) => a.type === "voice") ?? false
+      if (isVoice) {
+        const corrected = await this.correctVoiceText(text, scope)
+        this._pendingVoiceConfirm[scope] = {
+          text: corrected,
+          messageId,
+          effectiveDir,
+          mediaAttachments,
+        }
+        await this.replySession(scope, reply, `🎙️ 语音转写修正：\n${corrected}\n\n回复 y 确认发送，n 取消`)
         return
       }
 
@@ -879,6 +979,7 @@ export abstract class MobileManagerBase {
 
     const savedPaths: string[] = []
     for (const attachment of attachments) {
+      if (attachment.type === "voice") continue
       try {
         const { data, fileName } = await this.downloadMediaAttachment(attachment)
         let targetName = fileName
@@ -1446,6 +1547,26 @@ export abstract class MobileManagerBase {
 
     await mkdir(pending.path, { recursive: true })
     await this.switchToNewProject(targetId, scope, pending.path)
+  }
+
+  private async confirmVoiceText(
+    scope: string,
+    reply: string,
+    yes: boolean,
+    pending: { text: string; messageId: string; effectiveDir: string; mediaAttachments?: MediaAttachment[] },
+  ): Promise<void> {
+    delete this._pendingVoiceConfirm[scope]
+    if (!yes) {
+      await this.replySession(scope, reply, "已取消发送。")
+      return
+    }
+    await this.startPrompt(
+      scope,
+      pending.messageId,
+      pending.text,
+      pending.effectiveDir,
+      await this.processMediaAttachments(scope, reply, pending.mediaAttachments, pending.effectiveDir),
+    )
   }
 
   protected async switchToProject(targetId: string, scope: string, newDir: string): Promise<void> {
