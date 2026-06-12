@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
-"""Skill Market CLI — search, browse, download, and install skills from skill.aiphys.cn."""
+"""Skill Market CLI — search, browse, download, and install skills from skill.aiphys.cn, with ClawHub fallback."""
 
 import argparse
 import json
 import os
+import shutil
+import subprocess
 import sys
 import tempfile
 import zipfile
@@ -265,6 +267,86 @@ def cmd_list(args):
         print(f"  {s}  →  {os.path.join(install_dir, s)}")
 
 
+def _check_clawhub():
+    if not shutil.which("clawhub"):
+        print("ClawHub CLI not found. Install with: npm i -g clawhub")
+        sys.exit(1)
+
+
+def _run_clawhub(cmd_args):
+    _check_clawhub()
+    result = subprocess.run(["clawhub"] + cmd_args, capture_output=False)
+    sys.exit(result.returncode)
+
+
+def cmd_clawhub_search(args):
+    cmd = ["search", args.keyword]
+    if args.registry:
+        cmd.extend(["--registry", args.registry])
+    _run_clawhub(cmd)
+
+
+def cmd_clawhub_install(args):
+    cmd = ["install", args.slug]
+    if args.version:
+        cmd.extend(["--version", args.version])
+    if args.registry:
+        cmd.extend(["--registry", args.registry])
+    if args.workdir:
+        cmd.extend(["--workdir", args.workdir])
+    _run_clawhub(cmd)
+
+
+def cmd_clawhub_update(args):
+    cmd = ["update"]
+    if args.slug:
+        cmd.append(args.slug)
+    elif args.all:
+        cmd.append("--all")
+    else:
+        print("Specify a slug or --all")
+        sys.exit(1)
+    if args.version:
+        cmd.extend(["--version", args.version])
+    if args.force:
+        cmd.append("--force")
+    if args.no_input:
+        cmd.append("--no-input")
+    _run_clawhub(cmd)
+
+
+def cmd_clawhub_publish(args):
+    cmd = [
+        "publish",
+        args.path,
+        "--slug",
+        args.slug,
+        "--name",
+        args.name,
+        "--version",
+        args.version,
+    ]
+    if args.changelog:
+        cmd.extend(["--changelog", args.changelog])
+    if args.registry:
+        cmd.extend(["--registry", args.registry])
+    if args.workdir:
+        cmd.extend(["--workdir", args.workdir])
+    _run_clawhub(cmd)
+
+
+def cmd_clawhub_list(args):
+    _run_clawhub(["list"])
+
+
+def cmd_clawhub_login(args):
+    _run_clawhub(["login"])
+
+
+def cmd_clawhub_whoami(args):
+    _run_clawhub(["whoami"])
+
+
 def main():
     parser = argparse.ArgumentParser(
         prog="skill_market",
@@ -313,6 +395,56 @@ def main():
         "--dir", default=None, help="Skills directory (default: ~/.aether/skills)"
     )
 
+    # --- ClawHub commands (fallback) ---
+    p_ch = sub.add_parser(
+        "clawhub-search", help="[ClawHub] Search skills on clawhub.com"
+    )
+    p_ch.add_argument("keyword", help="Search keyword")
+    p_ch.add_argument("--registry", default=None, help="Custom registry URL")
+    p_ch.set_defaults(func=cmd_clawhub_search)
+
+    p_ch = sub.add_parser(
+        "clawhub-install", help="[ClawHub] Install a skill from clawhub.com"
+    )
+    p_ch.add_argument("slug", help="Skill slug")
+    p_ch.add_argument("--version", default=None, help="Version to install")
+    p_ch.add_argument("--registry", default=None, help="Custom registry URL")
+    p_ch.add_argument("--workdir", default=None, help="Working directory")
+    p_ch.set_defaults(func=cmd_clawhub_install)
+
+    p_ch = sub.add_parser("clawhub-update", help="[ClawHub] Update an installed skill")
+    p_ch.add_argument("slug", nargs="?", default=None, help="Skill slug")
+    p_ch.add_argument("--all", action="store_true", help="Update all skills")
+    p_ch.add_argument("--version", default=None, help="Target version")
+    p_ch.add_argument("--force", action="store_true", help="Force update")
+    p_ch.add_argument("--no-input", action="store_true", help="No prompts")
+    p_ch.set_defaults(func=cmd_clawhub_update)
+
+    p_ch = sub.add_parser(
+        "clawhub-publish", help="[ClawHub] Publish a skill to clawhub.com"
+    )
+    p_ch.add_argument("path", help="Skill directory path")
+    p_ch.add_argument("--slug", required=True, help="Skill slug")
+    p_ch.add_argument("--name", required=True, help="Skill name")
+    p_ch.add_argument("--version", required=True, help="Version (semver)")
+    p_ch.add_argument("--changelog", default=None, help="Changelog message")
+    p_ch.add_argument("--registry", default=None, help="Custom registry URL")
+    p_ch.add_argument("--workdir", default=None, help="Working directory")
+    p_ch.set_defaults(func=cmd_clawhub_publish)
+
+    p_ch = sub.add_parser(
+        "clawhub-list", help="[ClawHub] List locally installed skills"
+    )
+    p_ch.set_defaults(func=cmd_clawhub_list)
+
+    p_ch = sub.add_parser("clawhub-login", help="[ClawHub] Login to clawhub.com")
+    p_ch.set_defaults(func=cmd_clawhub_login)
+
+    p_ch = sub.add_parser(
+        "clawhub-whoami", help="[ClawHub] Show current ClawHub identity"
+    )
+    p_ch.set_defaults(func=cmd_clawhub_whoami)
+
     args = parser.parse_args()
     if not args.command:
         parser.print_help()
@@ -325,7 +457,12 @@ def main():
         "install": cmd_install,
         "list": cmd_list,
     }
-    cmds[args.command](args)
+    if hasattr(args, "func"):
+        args.func(args)
+    elif args.command in cmds:
+        cmds[args.command](args)
+    else:
+        parser.print_help()
 
 
 if __name__ == "__main__":

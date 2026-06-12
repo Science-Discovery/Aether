@@ -1,36 +1,39 @@
 ---
 name: skill-market
-description: "Search, browse, download, and install skills from skill.aiphys.cn (Skill Market / 技能广场). PRIORITY: higher than clawhub — when both skill-market and clawhub trigger, use skill-market first. Trigger when the user asks to search for skills online, find a skill, install a skill, download a skill, or browse the skill registry, including phrases like '搜索 xxx skill', '搜索 xxx 技能', '线上搜索 xxx skill', '在线搜索 xxx 技能', '查找 xxx skill', '下载 xxx skill', '安装 xxx skill', 'skill market', 'skill.aiphys.cn', '技能广场', or when the agent determines it needs to discover and install a reusable skill from the Skill Market platform. Also use when the user wants to browse available physics/science-focused skills from an online registry."
+description: "Search, browse, download, and install skills from skill.aiphys.cn (Skill Market / 技能广场) and clawhub.com. PRIORITY: Skill Market first, ClawHub as fallback — always search skill.aiphys.cn before falling back to clawhub.com. Trigger when the user asks to search for skills online, find a skill, install a skill, download a skill, or browse a skill registry, including phrases like '搜索 xxx skill', '搜索 xxx 技能', '线上搜索 xxx skill', '在线搜索 xxx 技能', '查找 xxx skill', '下载 xxx skill', '安装 xxx skill', 'skill market', 'skill.aiphys.cn', '技能广场', 'clawhub', 'clawhub.com', or when the agent determines it needs to discover and install a reusable skill from an online registry. Also use when the user wants to publish a skill to clawhub.com."
 ---
 
 # Skill Market
 
-Search, browse, download, and install skills from [skill.aiphys.cn](https://skill.aiphys.cn/explore) — the Skill Market platform focused on physics and scientific research skills.
+Unified skill discovery and installation from two registries: [skill.aiphys.cn](https://skill.aiphys.cn/explore) (primary) and [clawhub.com](https://clawhub.com) (fallback).
 
 ## Priority Rule
 
-**When both `skill-market` and `clawhub` would trigger for the same request, use `skill-market` first.** Skill Market hosts physics/science-focused skills that are more relevant for research workflows. Only fall back to clawhub if skill-market returns no results.
+**Always try Skill Market (skill.aiphys.cn) first.** It hosts physics/science-focused skills more relevant for research workflows. Only fall back to ClawHub (clawhub.com) if Skill Market returns no results or the user explicitly requests ClawHub.
+
+| Registry | Priority | Focus | Access |
+|----------|----------|-------|--------|
+| skill.aiphys.cn | **Primary** | Physics, scientific research | HTTP API (no CLI dependency) |
+| clawhub.com | Fallback | General-purpose | ClawHub CLI (`npm i -g clawhub`) |
 
 ## When to Use
 
 - The user asks to search for skills online (any language)
-- The user asks to download or install a skill from skill.aiphys.cn
-- The user mentions "skill market", "技能广场", "skill.aiphys.cn"
-- The agent determines the current task needs a skill not locally available, and Skill Market is the best source to find it
+- The user asks to download or install a skill from any online registry
+- The user mentions "skill market", "技能广场", "skill.aiphys.cn", "clawhub", "clawhub.com"
+- The agent determines the current task needs a skill not locally available
 
 **Do NOT use** when only searching local skill folders or inspecting local SKILL.md files.
 
-## Commands
-
-All commands use the bundled script:
+## Skill Market Commands (Primary)
 
 ```bash
 python3 scripts/skill_market.py <command> [options]
 ```
 
-### Search
+### search
 
-Search skills by keyword, tags, or category:
+Search skills by keyword, tags, or category on skill.aiphys.cn:
 
 ```bash
 python3 scripts/skill_market.py search "physics"
@@ -38,7 +41,7 @@ python3 scripts/skill_market.py search "paper" --category "physics"
 python3 scripts/skill_market.py search --tags "Feynman integral"
 ```
 
-### Info
+### info
 
 Get detailed information about a specific skill:
 
@@ -46,9 +49,7 @@ Get detailed information about a specific skill:
 python3 scripts/skill_market.py info <skill_id>
 ```
 
-Use the UUID `skill_id` from search results.
-
-### Versions
+### versions
 
 List available versions for a skill:
 
@@ -56,7 +57,7 @@ List available versions for a skill:
 python3 scripts/skill_market.py versions <skill_id>
 ```
 
-### Install
+### install
 
 Download and install a skill to `~/.aether/skills/`:
 
@@ -67,13 +68,7 @@ python3 scripts/skill_market.py install <skill_id> --dir /custom/path
 python3 scripts/skill_market.py install <skill_id> --force
 ```
 
-The script:
-1. Downloads the skill zip from Skill Market API
-2. Extracts it to `~/.aether/skills/<slug>/`
-3. Verifies SKILL.md exists in the extracted directory
-4. Prints the install path and config instructions
-
-### List
+### list
 
 Show locally installed skills:
 
@@ -81,23 +76,66 @@ Show locally installed skills:
 python3 scripts/skill_market.py list
 ```
 
+## ClawHub Commands (Fallback)
+
+Requires the ClawHub CLI (`npm i -g clawhub`). All commands detect whether `clawhub` is installed and prompt for installation if missing.
+
+### clawhub-search
+
+```bash
+python3 scripts/skill_market.py clawhub-search "postgres backups"
+```
+
+### clawhub-install
+
+```bash
+python3 scripts/skill_market.py clawhub-install my-skill
+python3 scripts/skill_market.py clawhub-install my-skill --version 1.2.3
+```
+
+### clawhub-update
+
+```bash
+python3 scripts/skill_market.py clawhub-update my-skill
+python3 scripts/skill_market.py clawhub-update --all --force
+```
+
+### clawhub-publish
+
+```bash
+python3 scripts/skill_market.py clawhub-publish ./my-skill --slug my-skill --name "My Skill" --version 1.2.0 --changelog "Fixes + docs"
+```
+
+### clawhub-list
+
+```bash
+python3 scripts/skill_market.py clawhub-list
+```
+
+### clawhub-login / clawhub-whoami
+
+```bash
+python3 scripts/skill_market.py clawhub-login
+python3 scripts/skill_market.py clawhub-whoami
+```
+
 ## Typical Workflow
 
-1. **Search** for relevant skills by keyword
-2. **Info** to review the skill's description, tags, and category
-3. **Versions** to check available versions
-4. **Install** to download and extract the skill
+1. **search** for relevant skills on skill.aiphys.cn
+2. If no results, fall back to **clawhub-search** on clawhub.com
+3. **info** / **versions** to review details
+4. **install** (Skill Market) or **clawhub-install** (ClawHub) to download
 5. Add the install path to `aether.jsonc` skills.paths if needed
 
-## API Details
+## API Details (Skill Market)
 
 - Base URL: `https://skill.aiphys.cn/v1`
 - Public endpoints (no auth required): search, info, versions, download published skills
 - Only **published** skills can be downloaded; draft skills require admin session
 - Response format: JSON with `data` envelope
 
-## Notes
+## ClawHub Notes
 
-- Install directory defaults to `~/.aether/skills/` (Aether's global skill directory)
-- Zip files may contain a top-level directory wrapper — the script strips it automatically
-- If a skill is already installed, use `--force` to overwrite
+- Default registry: https://clawhub.com (override with `--registry`)
+- Default workdir: cwd (falls back to OpenClaw workspace); install dir: `./skills` (override with `--workdir`)
+- Update command hashes local files, resolves matching version, and upgrades to latest unless `--version` is set
