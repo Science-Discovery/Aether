@@ -41,6 +41,9 @@ describe("Usage.bumpUse", () => {
       expect(rec!.last_used_at).not.toBeNull()
       expect(rec!.projectId).toBe("proj1")
       expect(rec!.name).toBe("foo")
+      // 新字段默认值: 首次 upsert 出来的记录带零基线 (PD1)
+      expect(rec!.idle_scans).toBe(0)
+      expect(rec!.use_count_at_last_scan).toBe(0)
     } finally {
       await tmp.cleanup()
     }

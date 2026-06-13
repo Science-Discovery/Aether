@@ -52,6 +52,8 @@ function record(projectId: string, name: string, location: string, over: Partial
     name,
     location,
     use_count: 0,
+    use_count_at_last_scan: 0,
+    idle_scans: 0,
     last_used_at: null,
     state: "active",
     pinned: false,
@@ -137,13 +139,22 @@ describe("Curator.applyAutomaticTransitions", () => {
     }
   })
 
-  // M11: 到期归档 (核心接缝, 先停点) — mtime 100 天前 → 移进 archive、archived
-  test("archives a skill inactive past archiveAfterDays", async () => {
+  // N1: 连续 N 次空闲才归档 (核心接缝, 先停点) — 真连跑多次巡检、use_count 不增长 → 第 N 次移进 archive。
+  // 证明「上一轮写 use_count_at_last_scan → 下一轮读它判增长」这条写读接力跑得通 (不手填中间 idle_scans)。
+  test("archives a skill after archiveAfterIdleScans consecutive idle scans", async () => {
     const tmp = await makeTmp()
     try {
-      const dir = await makeSkill(tmp.path, "proj1", "foo", 100 * DAY)
+      const dir = await makeSkill(tmp.path, "proj1", "foo", 0)
+      const ARCHIVE = DEFAULT_CURATOR_CONFIG.archiveAfterIdleScans // 12
+      // 第 1 次巡检只建基线 (不判)，之后每次没被用 idle_scans+1。前 ARCHIVE 次 (含建基线) 都不该归档。
+      for (let i = 0; i < ARCHIVE; i++) {
+        await Curator.applyAutomaticTransitions(tmp.path, { now: NOW })
+        expect(await exists(dir)).toBe(true)
+        const mid = await Usage.load(tmp.path)
+        expect(mid["proj1/foo"]!.state).not.toBe("archived")
+      }
+      // 第 ARCHIVE+1 次：idle_scans 达阈值 → 归档
       await Curator.applyAutomaticTransitions(tmp.path, { now: NOW })
-
       expect(await exists(dir)).toBe(false)
       expect(await exists(path.join(tmp.path, "proj1", "archive", "foo", "SKILL.md"))).toBe(true)
       const data = await Usage.load(tmp.path)
@@ -155,45 +166,109 @@ describe("Curator.applyAutomaticTransitions", () => {
 })
 
 describe("Curator.applyAutomaticTransitions — transitions & edges", () => {
-  // M12: 标 stale — 40 天没动 → stale (未归档)
-  test("marks a skill stale after staleAfterDays", async () => {
+  // N2: 中途被用清零 — 攒了几次空闲后真被用一次 (bumpUse 写 use_count) → idle_scans 归 0、未归档。
+  // 写(bumpUse 增 use_count)读(applyAutomaticTransitions 判增长)在测验里接力跑, 不手填中间值。
+  test("resets idle_scans to 0 when used midway (no archive)", async () => {
     const tmp = await makeTmp()
     try {
-      const dir = await makeSkill(tmp.path, "proj1", "foo", 40 * DAY)
+      const dir = await makeSkill(tmp.path, "proj1", "foo", 0)
+      const loc = path.join(dir, "SKILL.md")
+      // 攒几次空闲 (1 次建基线 + 2 次累加 → idle_scans=2)
+      for (let i = 0; i < 3; i++) await Curator.applyAutomaticTransitions(tmp.path, { now: NOW })
+      expect((await Usage.load(tmp.path))["proj1/foo"]!.idle_scans).toBeGreaterThan(0)
+
+      await Usage.bumpUse(tmp.path, loc) // 真被用一次
       await Curator.applyAutomaticTransitions(tmp.path, { now: NOW })
+
       const data = await Usage.load(tmp.path)
-      expect(data["proj1/foo"]!.state).toBe("stale")
-      expect(await exists(dir)).toBe(true) // not archived
+      expect(data["proj1/foo"]!.idle_scans).toBe(0)
+      expect(data["proj1/foo"]!.state).toBe("active")
+      expect(await exists(dir)).toBe(true)
     } finally {
       await tmp.cleanup()
     }
   })
 
-  // M13: 复活 — stale 的 skill 又被用 (last_used_at=now) → 退回 active
-  test("reactivates a stale skill that was used recently", async () => {
+  // N3: 标 stale — 连跑 staleAfterIdleScans 次未用 → stale (未到归档阈值, 文件还在)
+  test("marks a skill stale after staleAfterIdleScans idle scans", async () => {
     const tmp = await makeTmp()
     try {
-      const dir = await makeSkill(tmp.path, "proj1", "foo", 40 * DAY)
+      const dir = await makeSkill(tmp.path, "proj1", "foo", 0)
+      const STALE = DEFAULT_CURATOR_CONFIG.staleAfterIdleScans // 4
+      // 1 次建基线 + STALE 次累加 → idle_scans 达 STALE
+      for (let i = 0; i <= STALE; i++) await Curator.applyAutomaticTransitions(tmp.path, { now: NOW })
+      const data = await Usage.load(tmp.path)
+      expect(data["proj1/foo"]!.state).toBe("stale")
+      expect(await exists(dir)).toBe(true) // 未归档
+    } finally {
+      await tmp.cleanup()
+    }
+  })
+
+  // N4: stale 复活 — stale 后真被用一次 (bumpUse 增 use_count) → 退回 active、idle_scans 清零
+  test("reactivates a stale skill that was used since last scan", async () => {
+    const tmp = await makeTmp()
+    try {
+      const dir = await makeSkill(tmp.path, "proj1", "foo", 0)
+      const loc = path.join(dir, "SKILL.md")
+      // 预置: 已 stale, 上轮基线 use_count_at_last_scan=2, idle_scans=5
       await writeLedger(tmp.path, {
-        "proj1/foo": record("proj1", "foo", dir, { state: "stale", last_used_at: NOW.toISOString() }),
+        "proj1/foo": record("proj1", "foo", dir, {
+          state: "stale",
+          use_count: 2,
+          use_count_at_last_scan: 2,
+          idle_scans: 5,
+        }),
+      })
+      await Usage.bumpUse(tmp.path, loc) // 真被用一次: use_count 2→3
+      await Curator.applyAutomaticTransitions(tmp.path, { now: NOW })
+
+      const data = await Usage.load(tmp.path)
+      expect(data["proj1/foo"]!.state).toBe("active") // 复活
+      expect(data["proj1/foo"]!.idle_scans).toBe(0) // 清零
+    } finally {
+      await tmp.cleanup()
+    }
+  })
+
+  // N5: pinned 跳过 (排 N1 后, 防假绿) — idle_scans 预置超阈值 → pinned 仍 active、不归档
+  test("skips pinned skills even when idle_scans is over the threshold", async () => {
+    const tmp = await makeTmp()
+    try {
+      const dir = await makeSkill(tmp.path, "proj1", "foo", 0)
+      await writeLedger(tmp.path, { "proj1/foo": record("proj1", "foo", dir, { pinned: true, idle_scans: 99 }) })
+      await Curator.applyAutomaticTransitions(tmp.path, { now: NOW })
+      const data = await Usage.load(tmp.path)
+      expect(data["proj1/foo"]!.state).toBe("active")
+      expect(await exists(dir)).toBe(true)
+    } finally {
+      await tmp.cleanup()
+    }
+  })
+
+  // N6: 旧账本缺字段不误删 (排 N1 后, 防假绿) — 无 idle_scans/use_count_at_last_scan 的旧记录 → 首次跑只建基线
+  test("does not archive a legacy record missing the new fields (seeds baseline)", async () => {
+    const tmp = await makeTmp()
+    try {
+      const dir = await makeSkill(tmp.path, "proj1", "foo", 0)
+      // 旧账本: 故意省掉两个新字段 (绕过 record() 工厂, 模拟升级前落盘的记录)
+      await writeLedger(tmp.path, {
+        "proj1/foo": {
+          projectId: "proj1",
+          name: "foo",
+          location: dir,
+          use_count: 3,
+          last_used_at: null,
+          state: "active",
+          pinned: false,
+          archived_at: null,
+        } as unknown as UsageRecord,
       })
       await Curator.applyAutomaticTransitions(tmp.path, { now: NOW })
       const data = await Usage.load(tmp.path)
-      expect(data["proj1/foo"]!.state).toBe("active")
-    } finally {
-      await tmp.cleanup()
-    }
-  })
-
-  // M14: pinned 跳过 (排 M11 后, 防假绿) — pinned 且 100 天没动 → 仍 active
-  test("skips pinned skills (never archives them)", async () => {
-    const tmp = await makeTmp()
-    try {
-      const dir = await makeSkill(tmp.path, "proj1", "foo", 100 * DAY)
-      await writeLedger(tmp.path, { "proj1/foo": record("proj1", "foo", dir, { pinned: true }) })
-      await Curator.applyAutomaticTransitions(tmp.path, { now: NOW })
-      const data = await Usage.load(tmp.path)
-      expect(data["proj1/foo"]!.state).toBe("active")
+      expect(data["proj1/foo"]!.state).toBe("active") // 没被误删
+      expect(data["proj1/foo"]!.idle_scans).toBe(0) // 补了基线
+      expect(data["proj1/foo"]!.use_count_at_last_scan).toBe(3) // 基线=当前 use_count
       expect(await exists(dir)).toBe(true)
     } finally {
       await tmp.cleanup()
@@ -252,12 +327,19 @@ describe("Curator.applyAutomaticTransitions — transitions & edges", () => {
     }
   })
 
-  // M17: 跨项目同名 — 归档 proj1/foo 不影响 proj2/foo (复合键)
+  // N7: 跨项目同名各算各 — proj1/foo 攒满阈值、proj2/foo idle_scans=0 → 仅 proj1/foo 归档 (复合键独立累加)
   test("handles same-name skills in different projects independently", async () => {
     const tmp = await makeTmp()
     try {
-      const dir1 = await makeSkill(tmp.path, "proj1", "foo", 100 * DAY) // → archive
-      const dir2 = await makeSkill(tmp.path, "proj2", "foo", 0) // fresh → keep
+      const dir1 = await makeSkill(tmp.path, "proj1", "foo", 0)
+      const dir2 = await makeSkill(tmp.path, "proj2", "foo", 0)
+      // proj1/foo 预置到差一步归档 (跑一次 → 12 → archive), proj2/foo 全新
+      await writeLedger(tmp.path, {
+        "proj1/foo": record("proj1", "foo", dir1, {
+          idle_scans: DEFAULT_CURATOR_CONFIG.archiveAfterIdleScans - 1,
+        }),
+        "proj2/foo": record("proj2", "foo", dir2, { idle_scans: 0 }),
+      })
       await Curator.applyAutomaticTransitions(tmp.path, { now: NOW })
 
       const data = await Usage.load(tmp.path)
@@ -269,6 +351,24 @@ describe("Curator.applyAutomaticTransitions — transitions & edges", () => {
       await tmp.cleanup()
     }
   })
+
+  // N8: 系统时间跳变不成片误删 (顾虑2) — now 从 2026 跳到 2099, idle_scans 仍只 +1, 不归档。
+  // 判据里零日历依赖: 旧版"按天算"会 (2099-2026)≈26512 天 ≫ 90 天 → 立刻误删; 新版只 +1。
+  test("a system-clock jump does not mass-archive (criterion ignores the calendar)", async () => {
+    const tmp = await makeTmp()
+    try {
+      const dir = await makeSkill(tmp.path, "proj1", "foo", 0)
+      await Curator.applyAutomaticTransitions(tmp.path, { now: NOW }) // 建基线
+      const FUTURE = new Date("2099-01-01T00:00:00.000Z")
+      await Curator.applyAutomaticTransitions(tmp.path, { now: FUTURE }) // 系统时间跳到 2099
+      const data = await Usage.load(tmp.path)
+      expect(data["proj1/foo"]!.idle_scans).toBe(1) // 只 +1, 没被时间跳变放大
+      expect(data["proj1/foo"]!.state).toBe("active") // 没归档
+      expect(await exists(dir)).toBe(true)
+    } finally {
+      await tmp.cleanup()
+    }
+  })
 })
 
 describe("Curator.maybeRun", () => {
@@ -276,7 +376,11 @@ describe("Curator.maybeRun", () => {
   test("runs a pass and advances state when due", async () => {
     const tmp = await makeTmp()
     try {
-      const dir = await makeSkill(tmp.path, "proj1", "foo", 100 * DAY)
+      const dir = await makeSkill(tmp.path, "proj1", "foo", 0)
+      // 预置到差一步归档 → 这一次到期的巡检把它归档
+      await writeLedger(tmp.path, {
+        "proj1/foo": record("proj1", "foo", dir, { idle_scans: DEFAULT_CURATOR_CONFIG.archiveAfterIdleScans - 1 }),
+      })
       await Curator.saveState(tmp.path, { lastRunAt: ago(8 * DAY), paused: false, runCount: 1 })
 
       const counts = await Curator.maybeRun(tmp.path, { now: NOW })
@@ -341,7 +445,10 @@ describe("Curator on/off switch wiring (config → getCuratorEnabled → maybeRu
     const tmp = await makeTmp()
     const spy = spyOn(Config, "get").mockResolvedValue({ skills: {} } as any)
     try {
-      const dir = await makeSkill(tmp.path, "proj1", "foo", 100 * DAY)
+      const dir = await makeSkill(tmp.path, "proj1", "foo", 0)
+      await writeLedger(tmp.path, {
+        "proj1/foo": record("proj1", "foo", dir, { idle_scans: DEFAULT_CURATOR_CONFIG.archiveAfterIdleScans - 1 }),
+      })
       await Curator.saveState(tmp.path, { lastRunAt: ago(8 * DAY), paused: false, runCount: 1 })
 
       const enabled = await ConfigReader.getCuratorEnabled()

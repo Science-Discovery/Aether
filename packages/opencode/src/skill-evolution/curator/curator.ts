@@ -89,8 +89,8 @@ export namespace Curator {
   /** Enumerate in-scope skills on disk: `<root>/<projectId>/skills/<name>/SKILL.md`. */
   async function scanSkills(
     root: string,
-  ): Promise<{ key: string; projectId: string; name: string; location: string; mtimeMs: number }[]> {
-    const out: { key: string; projectId: string; name: string; location: string; mtimeMs: number }[] = []
+  ): Promise<{ key: string; projectId: string; name: string; location: string }[]> {
+    const out: { key: string; projectId: string; name: string; location: string }[] = []
     const projects = await fs.readdir(root, { withFileTypes: true }).catch(() => [])
     for (const pe of projects) {
       if (!pe.isDirectory() || pe.name === "curator" || pe.name.startsWith(".")) continue
@@ -99,9 +99,13 @@ export namespace Curator {
       for (const se of skillDirs) {
         if (!se.isDirectory()) continue
         const location = path.join(skillsDir, se.name)
-        const stat = await fs.stat(path.join(location, "SKILL.md")).catch(() => null)
-        if (!stat) continue
-        out.push({ key: `${pe.name}/${se.name}`, projectId: pe.name, name: se.name, location, mtimeMs: stat.mtimeMs })
+        // SKILL.md must exist for the dir to count as a skill (mtime no longer used).
+        const exists = await fs.access(path.join(location, "SKILL.md")).then(
+          () => true,
+          () => false,
+        )
+        if (!exists) continue
+        out.push({ key: `${pe.name}/${se.name}`, projectId: pe.name, name: se.name, location })
       }
     }
     return out
@@ -109,9 +113,10 @@ export namespace Curator {
 
   /**
    * Pure-logic lifecycle pass (no AI). Scans every in-scope skill, seeds missing
-   * records, drives active→stale→archived by activity, reactivates revived
-   * skills, and prunes orphan records. Activity anchor = max(last_used_at,
-   * SKILL.md mtime). Pinned skills are skipped. Returns a change counter.
+   * records, drives active→stale→archived by consecutive idle scans (scans with no
+   * new use), reactivates skills used since the last scan, and prunes orphan
+   * records. The criterion has zero calendar dependency — changing the system clock
+   * can't mass-archive. Pinned skills are skipped. Returns a change counter.
    */
   export async function applyAutomaticTransitions(
     root: string,
@@ -119,7 +124,6 @@ export namespace Curator {
   ): Promise<TransitionCounts> {
     const now = opts.now ?? new Date()
     const config = opts.config ?? DEFAULT_CURATOR_CONFIG
-    const DAY = 24 * 3600_000
     const counts: TransitionCounts = {
       checked: 0,
       seeded: 0,
@@ -135,27 +139,44 @@ export namespace Curator {
 
       const before = await Usage.load(root)
       if (!before[s.key]) {
+        // First sight: seed a baseline record and DEFER judgment this scan (§2).
         await Usage.seedIfMissing(root, s.location)
         counts.seeded++
+        continue
       }
 
       const data = await Usage.load(root)
       const rec = data[s.key]
       if (!rec || rec.pinned) continue
 
-      // Activity anchor = newest of (last load, last file change).
-      const lastUsedMs = rec.last_used_at ? new Date(rec.last_used_at).getTime() : -Infinity
-      const daysSince = (now.getTime() - Math.max(lastUsedMs, s.mtimeMs)) / DAY
-
-      if (daysSince >= config.archiveAfterDays && rec.state !== "archived") {
-        if (await Usage.archiveSkill(root, s.key, now)) counts.archived++
-      } else if (daysSince >= config.staleAfterDays && rec.state === "active") {
-        await Usage.setState(root, s.key, "stale", now)
-        counts.marked_stale++
-      } else if (daysSince < config.staleAfterDays && rec.state === "stale") {
-        await Usage.setState(root, s.key, "active", now)
-        counts.reactivated++
+      // Legacy ledger missing the new fields → establish a baseline this scan, defer
+      // judgment (D13: an upgrade must never archive anyone for lacking fields).
+      if (typeof rec.use_count_at_last_scan !== "number" || typeof rec.idle_scans !== "number") {
+        await Usage.recordScanResult(root, s.key, { idle_scans: 0, use_count_at_last_scan: rec.use_count })
+        continue
       }
+
+      // Used since last scan = use_count grew. The criterion has zero calendar
+      // dependency — last_used_at and SKILL.md mtime no longer decide archiving.
+      const used = rec.use_count > rec.use_count_at_last_scan
+      let idleScans: number
+      if (used) {
+        idleScans = 0 // reset the moment a use is seen → no death spiral
+        if (rec.state === "stale") {
+          await Usage.setState(root, s.key, "active", now)
+          counts.reactivated++
+        }
+      } else {
+        idleScans = rec.idle_scans + 1
+        if (idleScans >= config.archiveAfterIdleScans && rec.state !== "archived") {
+          if (await Usage.archiveSkill(root, s.key, now)) counts.archived++
+        } else if (idleScans >= config.staleAfterIdleScans && rec.state === "active") {
+          await Usage.setState(root, s.key, "stale", now)
+          counts.marked_stale++
+        }
+      }
+      // Leave the baseline for next scan's comparison.
+      await Usage.recordScanResult(root, s.key, { idle_scans: idleScans, use_count_at_last_scan: rec.use_count })
     }
 
     // Orphan cleanup: a non-archived record whose skill directory is gone.

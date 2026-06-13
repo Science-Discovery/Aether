@@ -16,6 +16,11 @@ export interface UsageRecord {
   /** Absolute path to the skill directory (lets archive/restore locate it). */
   location: string
   use_count: number
+  /** Snapshot of use_count at the previous scan; compared against use_count to tell if used since. */
+  use_count_at_last_scan: number
+  /** Consecutive scans with no new use; reset to 0 the moment a use is seen. */
+  idle_scans: number
+  /** Last load time. Kept as info only — no longer part of the archive criterion. */
   last_used_at: string | null
   state: "active" | "stale" | "archived"
   /** Skip auto-transitions. Read-only in this version (no setter, see Q2). */
@@ -56,6 +61,8 @@ export namespace Usage {
       name: scope.name,
       location: scope.skillDir,
       use_count: 0,
+      use_count_at_last_scan: 0,
+      idle_scans: 0,
       last_used_at: null,
       state: "active",
       pinned: false,
@@ -165,6 +172,24 @@ export namespace Usage {
     rec.state = state
     if (state === "archived") rec.archived_at = now.toISOString()
     if (state === "active") rec.archived_at = null
+    data[key] = rec
+    await save(root, data)
+  }
+
+  /**
+   * Persist a scan pass's bookkeeping on a record: the idle_scans counter and the
+   * use_count baseline for next scan's comparison. No-op if the record is missing.
+   */
+  export async function recordScanResult(
+    root: string,
+    key: string,
+    fields: { idle_scans: number; use_count_at_last_scan: number },
+  ): Promise<void> {
+    const data = await load(root)
+    const rec = data[key]
+    if (!rec) return
+    rec.idle_scans = fields.idle_scans
+    rec.use_count_at_last_scan = fields.use_count_at_last_scan
     data[key] = rec
     await save(root, data)
   }
