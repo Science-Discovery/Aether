@@ -53,6 +53,7 @@ function record(projectId: string, name: string, location: string, over: Partial
     location,
     use_count: 0,
     last_used_at: null,
+    recent_uses: [],
     state: "active",
     pinned: false,
     archived_at: null,
